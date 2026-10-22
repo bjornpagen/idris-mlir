@@ -21,7 +21,13 @@ import IdrisMLIR.Emit.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
-import IdrisMLIR.Spec.Ops.Comparisons
+import IdrisMLIR.Spec.Core.Enums
+import IdrisMLIR.Spec.Core.Op as Spec
+import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Ops.IO
+import IdrisMLIR.Spec.Ops.Values
+import IdrisMLIR.Spec.Runtime.Clocks
+import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Term
@@ -41,13 +47,18 @@ import Data.Vect
 
 ||| Where a crash or a guard reports it failed, as data the op holds
 ||| (`#idr.site`): the file and the 1-based line and column of the start of
-||| its span. Code at no place of a file reports at the place the program's
-||| location gives, the main module's, which every refusal-free program has.
+||| its span, and the definition the code is in, as Idris names it, which a
+||| cause that names a function prints. Code at no place of a file reports
+||| at the place the program's location gives, the main module's, which
+||| every refusal-free program has.
 export
-siteOf : Loc -> MlirAttr
-siteOf l = case (locFile l, locSpan l) of
-  (Just file, Just s) => Idr (SiteAttr file (cast (s.startLine + 1)) (cast (s.startCol + 1)))
-  _ => Idr (SiteAttr "" 0 0)
+siteOf : Loc -> E MlirAttr
+siteOf l = do
+  st <- get
+  let function = show st.definition
+  pure $ case (locFile l, locSpan l) of
+    (Just file, Just s) => Idr (SiteAttr file (cast (s.startLine + 1)) (cast (s.startCol + 1)) function)
+    _ => Idr (SiteAttr "" 0 0 function)
 
 ------------------------------------------------------------------------------
 -- Guards
@@ -69,37 +80,61 @@ memrefLength l a = do
   n <- unguarded (At l) IndexType (MemRef.dimOp a zero)
   unguarded (madeAt binder l Many) (IntegerType 64) (Arith.indexCastOp n)
 
+||| A crash cause as an op's property: its number among the causes, as the
+||| specification orders them.
+export
+causeAttr : Cause -> MlirAttr
+causeAttr c = IntegerAttr (natToInteger (position causeClosed c)) (IntegerType 32)
+
 ||| The op of a guarded builder after its guards: each guard's check op
-||| written at `l`, its site the op's, in order, the op taking each guard's
-||| result in place of the operand it checks. A guard names its operand by
-||| its position among the op's, which its builder knows; one past them is
-||| the generator's error.
+||| written at `l`, its site the op's, in order, on the op's operands at the
+||| positions the guard is given, the first the one it checks, with the
+||| cause its crash reports; the op takes each guard's result in place of
+||| the operand it checks. The positions are the specification's, of the
+||| op's own operands.
 checked : Loc -> Guarded -> E Op
 checked l g = foldlM check g.op g.guards
   where
-    -- A count of bytes, as an `Int`: a value of the op's, the bytes of the
-    -- word it loads or stores, a string's bytes, or an array's length.
-    count : Count -> E Value
-    count (CountOf v) = pure v
-    count (WordOf (IntegerType w)) =
-      unguarded (At l) (IntegerType 64) (Arith.constantOp (IntegerAttr (cast w `div` 8) (IntegerType 64)))
-    count (WordOf F64Type) = unguarded (At l) (IntegerType 64) (Arith.constantOp (IntegerAttr 8 (IntegerType 64)))
-    count (WordOf t) = internal ("a buffer word of type " ++ typeText t)
-    count (BytesOf v) = unguarded (At l) (IntegerType 64) (Idr.strBytesLengthOp v)
-    count (LengthOf v) = memrefLength l v
+    operandAt : Op -> Nat -> E Value
+    operandAt o k = case getAt k o.operands of
+      Just v => pure v
+      Nothing => internal (o.name ++ " has no operand " ++ show k ++ " for its guard")
 
     check : Op -> Guard -> E Op
-    check o g = case splitAt g.operand o.operands of
-      (before, x :: after) => do
-        build <- the (E (MlirType -> Op)) $ case g.check of
-          Nonzero => pure (Idr.checkNonzeroOp x g.cause (siteOf l))
-          Nonempty => pure (Idr.checkNonemptyOp x g.cause (siteOf l))
-          Finite => pure (Idr.checkFiniteOp x g.cause (siteOf l))
-          InBounds i => pure (Idr.checkInBoundsOp x i g.cause (siteOf l))
-          InRange c size => pure (Idr.checkRangeOp x !(count c) !(count size) g.cause (siteOf l))
-        checkedValue <- unguarded (At l) x.type build
-        pure ({ operands := before ++ checkedValue :: after } o)
-      (_, []) => internal (o.name ++ " has no operand " ++ show g.operand ++ " for its guard")
+    check o gd = case gd.given of
+      [] => internal (o.name ++ " has a guard given no operand")
+      (at :: rest) => case splitAt at o.operands of
+        (before, x :: after) => do
+          others <- traverse (operandAt o) rest
+          site <- siteOf l
+          checkedValue <- unguarded (At l) x.type
+                            (\ty => MkOp gd.check (x :: others)
+                                         [ ("cause", IntegerAttr (natToInteger gd.cause) (IntegerType 32))
+                                         , ("site", site) ] [] [] [ty])
+          pure ({ operands := before ++ checkedValue :: after } o)
+        (_, []) => internal (o.name ++ " has no operand " ++ show at ++ " for its guard")
+
+||| A case's number among its enum's cases, as the dialect's C++ numbers
+||| them: the position of the case the reference names.
+caseNumber : CaseRef -> Nat
+caseNumber c = go 0 (forget c.enum.cases)
+  where
+    go : Nat -> List Case -> Nat
+    go n [] = n
+    go n (x :: xs) = if x.name == c.name then n else go (S n) xs
+
+||| The guards the specification declares for an op, as the printed
+||| builders give them.
+opGuards : Spec.Op i o a r -> List Guard
+opGuards op =
+  map (\g => MkGuard ("idr." ++ mnemonicText g.check) (map finToNat (forget g.given)) (caseNumber g.cause))
+      op.guards
+
+||| A pure op of the dialect, by the specification's op value, on its
+||| operands, of the result type given, with the guards the specification
+||| declares for it, so no partial op is written without them.
+specOp : {i : Nat} -> Spec.Op i 1 0 0 -> Vect i Value -> MlirType -> Guarded
+specOp op vs t = MkGuarded (MkOp (opName op) (toList vs) [] [] [] [t]) (opGuards op)
 
 ------------------------------------------------------------------------------
 -- Writing ops
@@ -214,24 +249,24 @@ bool : MlirType
 bool = IntegerType 1
 
 ||| The `arith.cmpi` predicate: `Char`s compare as code points.
-cmpi : CmpPredicate -> Signedness -> CmpIPredicate
-cmpi CmpPredicate.Eq _ = CmpIPredicate.Eq
-cmpi CmpPredicate.Lt Signed = CmpIPredicate.Slt
-cmpi CmpPredicate.Lt Unsigned = CmpIPredicate.Ult
-cmpi CmpPredicate.Lte Signed = CmpIPredicate.Sle
-cmpi CmpPredicate.Lte Unsigned = CmpIPredicate.Ule
-cmpi CmpPredicate.Gt Signed = CmpIPredicate.Sgt
-cmpi CmpPredicate.Gt Unsigned = CmpIPredicate.Ugt
-cmpi CmpPredicate.Gte Signed = CmpIPredicate.Sge
-cmpi CmpPredicate.Gte Unsigned = CmpIPredicate.Uge
+cmpi : Comparison -> Signedness -> CmpIPredicate
+cmpi Values.Eq _ = CmpIPredicate.Eq
+cmpi Values.Lt Signed = CmpIPredicate.Slt
+cmpi Values.Lt Unsigned = CmpIPredicate.Ult
+cmpi Values.Lte Signed = CmpIPredicate.Sle
+cmpi Values.Lte Unsigned = CmpIPredicate.Ule
+cmpi Values.Gt Signed = CmpIPredicate.Sgt
+cmpi Values.Gt Unsigned = CmpIPredicate.Ugt
+cmpi Values.Gte Signed = CmpIPredicate.Sge
+cmpi Values.Gte Unsigned = CmpIPredicate.Uge
 
 ||| The `arith.cmpf` predicate: ordered, so false on NaN.
-cmpf : CmpPredicate -> CmpFPredicate
-cmpf CmpPredicate.Eq = CmpFPredicate.OEQ
-cmpf CmpPredicate.Lt = CmpFPredicate.OLT
-cmpf CmpPredicate.Lte = CmpFPredicate.OLE
-cmpf CmpPredicate.Gt = CmpFPredicate.OGT
-cmpf CmpPredicate.Gte = CmpFPredicate.OGE
+cmpf : Comparison -> CmpFPredicate
+cmpf Values.Eq = CmpFPredicate.OEQ
+cmpf Values.Lt = CmpFPredicate.OLT
+cmpf Values.Lte = CmpFPredicate.OLE
+cmpf Values.Gt = CmpFPredicate.OGT
+cmpf Values.Gte = CmpFPredicate.OGE
 
 ||| The `math` op of a C library function of one double, or an exact one.
 math1 : UnaryMath -> Value -> MlirType -> Op
@@ -262,12 +297,12 @@ intArith binder ix l Xor t x y = value {binder} ix l (IntT t) (Arith.xoriOp (ope
 intArith binder ix l Div t x y = case signedness t of
   Signed => guardedValue {binder} ix l (IntT t) (Idr.intDivSOp (operand ix x) (operand ix y))
   Unsigned => do
-    d <- mlirValue l (IntegerType (width t)) (Idr.checkNonzeroOp (operand ix y) DivisionByZero (siteOf l))
+    d <- mlirValue l (IntegerType (width t)) (Idr.checkNonzeroOp (causeAttr DivisionByZero) !(siteOf l) (operand ix y))
     value {binder} ix l (IntT t) (Arith.divuiOp (operand ix x) d)
 intArith binder ix l Mod t x y = case signedness t of
   Signed => guardedValue {binder} ix l (IntT t) (Idr.intModSOp (operand ix x) (operand ix y))
   Unsigned => do
-    d <- mlirValue l (IntegerType (width t)) (Idr.checkNonzeroOp (operand ix y) DivisionByZero (siteOf l))
+    d <- mlirValue l (IntegerType (width t)) (Idr.checkNonzeroOp (causeAttr DivisionByZero) !(siteOf l) (operand ix y))
     value {binder} ix l (IntT t) (Arith.remuiOp (operand ix x) d)
 
 ||| A shift of a fixed-width integer, an op per direction and signedness,
@@ -293,7 +328,7 @@ extend binder ix l c = value {binder} ix l (IntT IdrisInt) (Arith.extuiOp c)
 ||| the op's), the variable `binder` bound to its value.
 export
 prim : Maybe Binding -> Index -> Loc -> Prim k -> Vect k Val -> E Val
-prim binder ix l (Op p r) vs = guardedValue {binder} ix l r (\t => pureOp p (map (operand ix) vs) [t])
+prim binder ix l (Op op r) vs = guardedValue {binder} ix l r (specOp op (map (operand ix) vs))
 prim binder ix l (IntOp op t) [a, b] = intArith binder ix l op t a b
 prim binder ix l (IntShift s t) [a, b] = value {binder} ix l (IntT t) (shiftOp s (signedness t) (operand ix a) (operand ix b))
 prim binder ix l (FloatOp op) [a, b] = value {binder} ix l DoubleT (floatArith op (operand ix a) (operand ix b))
@@ -318,7 +353,7 @@ prim binder ix l (Cast (IntToInt from to)) [a] =
 prim binder ix l (Cast (IntToDouble f)) [a] = case signedness f of
   Signed => value {binder} ix l DoubleT (Arith.sitofpOp (operand ix a))
   Unsigned => value {binder} ix l DoubleT (Arith.uitofpOp (operand ix a))
-prim binder ix l (Cast (DoubleToInt t)) [a] = guardedValue {binder} ix l (IntT t) (Idr.doubleToIntOp (operand ix a))
+prim binder ix l (Cast (DoubleToInt t)) [a] = guardedValue {binder} ix l (IntT t) (Idr.f64ToIntOp (operand ix a))
 prim binder ix l (StrCompare c) [a, b] =
   extend binder ix l !(mlirValue l bool (Idr.strCmpOp c (operand ix a) (operand ix b)))
 prim binder ix l (ToStr (SIntegral (SInt t))) [x] = case signedness t of
@@ -341,8 +376,8 @@ prim binder ix l (FromBig (SIntegral (SInt t))) [b] = value {binder} ix l (IntT 
 prim binder ix l (FromBig (SIntegral SChar)) [b] = do
   lo <- literal ix l (LBig 0)
   hi <- literal ix l (LBig 0x10FFFF)
-  ge <- mlirValue l bool (Idr.bigCmpOp CmpPredicate.Gte (operand ix b) (operand ix !(coerce ix l Many lo)))
-  le <- mlirValue l bool (Idr.bigCmpOp CmpPredicate.Lte (operand ix b) (operand ix !(coerce ix l Many hi)))
+  ge <- mlirValue l bool (Idr.bigCmpOp Values.Gte (operand ix b) (operand ix !(coerce ix l Many lo)))
+  le <- mlirValue l bool (Idr.bigCmpOp Values.Lte (operand ix b) (operand ix !(coerce ix l Many hi)))
   inRange <- mlirValue l bool (Arith.andiOp ge le)
   n <- mlirValue l (IntegerType 64) (Idr.bigToIntOp (operand ix b))
   outside <- literal ix l (LInt IdrisInt (-1))
@@ -417,7 +452,7 @@ export
 con : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Con k -> List ITerm -> Vect k Val -> E Val
 con ix l c bs vs = do
   os <- fieldOperands ix l c.fields vs
-  let v = MkVal "" (conType c bs) Many Held.Counted (OneOf (c.tag ::: []))
+  let v = MkVal "" (conType c bs) Many Held.Exclusive (OneOf (c.tag ::: []))
   r <- mlirValueAt (madeAt binder l Many) (valueType ix v) (Idr.dataConOp os)
   pure ({ name := r.name } v)
 
@@ -425,38 +460,165 @@ con ix l c bs vs = do
 -- Effects
 ------------------------------------------------------------------------------
 
-||| An effect: the IO primitive `p` on its operands, after its guards, with
-||| no world (its order is the effects its op declares), and the `IORes`
-||| `res` of what it gives, the variable `binder` bound to it. An action
-||| that ends the process (`exit`) is a terminator: nothing follows it, so
-||| it gives nothing.
-export
-effect : Maybe Binding -> Index -> Loc -> (p : IOPrim) -> IOGives (ioResult p) -> List Val -> Con 2 -> E (Maybe Val)
-effect binder ix l Exit _ vs res = do
-  ignore (place l (ioOp Exit (map (operand ix) vs) []))
-  pure Nothing
-effect binder ix l p gives vs0 res = do
-  vs <- clamped p vs0
-  Just <$> given gives vs
-  where
-    -- A negative size makes an empty array: the size of a new array is
-    -- clamped at zero before it reaches the allocation.
-    clamped : IOPrim -> List Val -> E (List Val)
-    clamped ArrayNew (size :: rest) = do
-      zero <- literal ix l (LInt IdrisInt 0)
-      n <- mlirValue l (IntegerType 64) (Arith.maxsiOp (operand ix size) (operand ix zero))
-      pure (val n.name (IntT IdrisInt) Many Held.Counted :: rest)
-    clamped _ vs' = pure vs'
+||| What an action wrote: nothing, or the name of the one value it gives.
+data Acted : Nat -> Type where
+  ActedNone : Acted 0
+  ActedOne : String -> Acted 1
 
+||| An effect: the IO action on its operands, after its checks, with no
+||| world (its order is the effects its ops declare), and the `IORes` `res`
+||| of what it gives, the variable `binder` bound to it. An action that
+||| ends the process is a terminator: nothing follows it, so it gives
+||| nothing.
+export
+effect : Maybe Binding -> Index -> Loc -> IOAction o -> IOGives o -> List Val -> Con 2 -> E (Maybe Val)
+effect binder ix l Exits _ vs res = do
+  let [status] = vs
+    | _ => internal "the exit given other than its status"
+  statement l (Idr.ioExitOp !(siteOf l) (operand ix status))
+  pure Nothing
+effect binder ix l a gives vs res = Just <$> answer gives !(acted a vs)
+  where
     world : Val
     world = val "" WorldT Once Held.Counted
-    given : {0 r : IOResult} -> IOGives r -> List Val -> E Val
-    given (GivesUnit u) vs = do
-      ignore (place l (ioOp p (map (operand ix) vs) []))
+
+    -- What a value-giving action gives, the type of its `IORes`'s field.
+    given : Ty
+    given = typeOf (head res.fields)
+
+    givenType : MlirType
+    givenType = gradedType ix Many Held.Counted given
+
+    -- The `IORes` of what the action gave.
+    answer : IOGives n -> Acted n -> E Val
+    answer (GivesUnit u) ActedNone = do
       v <- con ix l u [] []
       con {binder} ix l res [] [v, world]
-    given GivesValue vs = do
-      let x = typeOf (head res.fields)
-      Just n <- place l (ioOp p (map (operand ix) vs) [gradedType ix Many Held.Counted x])
-        | Nothing => internal (ioName p ++ " gives no value")
-      con {binder} ix l res [] [val n x Many Held.Counted, world]
+    answer GivesValue (ActedOne r) = con {binder} ix l res [] [val r given Many Held.Counted, world]
+
+    int64 : Integer -> E Value
+    int64 n = mlirValue l (IntegerType 64) (Arith.constantOp (IntegerAttr n (IntegerType 64)))
+
+    -- An op written where it stands, after its guards, giving as many
+    -- values as its action does.
+    written : Gives n -> (List MlirType -> Guarded) -> E (Acted n)
+    written GivesNone build = ActedNone <$ place l (build [])
+    written GivesOne build = do
+      Just r <- place l (build [givenType])
+        | Nothing => internal "an IO op that gives a value wrote none"
+      pure (ActedOne r)
+
+    -- The offset of a span of `count` bytes in a buffer, checked to lie in
+    -- the buffer's length: the span is the primitive's own, so its check
+    -- is the frontend's to give.
+    within : Value -> Value -> Value -> E Value
+    within buf offset count = do
+      size <- memrefLength l buf
+      mlirValue l (IntegerType 64)
+        (Idr.checkRangeOp (causeAttr ByteRangeOutsideBuffer) !(siteOf l) offset count size)
+
+    -- The bytes of a machine word a buffer holds, by its type.
+    wordBytes : Ty -> E Value
+    wordBytes (IntT t) = int64 (natToInteger (width t `div` 8))
+    wordBytes DoubleT = int64 8
+    wordBytes t = internal ("a buffer word of type " ++ show t)
+
+    -- A size or an index of an array a world orders, an `Int`, as the
+    -- `index` its op takes.
+    asIndex : Value -> E Value
+    asIndex v = mlirValue l IndexType (Arith.indexCastOp v)
+
+    -- An index checked to lie in the array it indexes, as the `index` the
+    -- access takes: the check reads the `Int`, so it is written here,
+    -- before the cast, and not by the access's own builder.
+    checkedIndex : Value -> Value -> E Value
+    checkedIndex arr i = do
+      c <- mlirValue l (IntegerType 64) (Idr.checkInBoundsOp (causeAttr IndexOutOfBounds) !(siteOf l) i arr)
+      asIndex c
+
+    -- The values of the operands, at their own types.
+    args : List Value
+    args = map (operand ix) vs
+
+    -- The operands but the last, and the last.
+    lastApart : List Value -> Maybe (List Value, Value)
+    lastApart [] = Nothing
+    lastApart [x] = Just ([], x)
+    lastApart (x :: xs) = (\(ys, y) => (x :: ys, y)) <$> lastApart xs
+
+    -- Two to a power, as a mask's bound.
+    pow2 : Nat -> Integer
+    pow2 Z = 1
+    pow2 (S k) = 2 * pow2 k
+
+    acted : IOAction n -> List Val -> E (Acted n)
+    acted (Runs {gives = g} op) _ =
+      written g (\ts => MkGuarded (MkOp (opName op) args [] [] [] ts) (opGuards op))
+    acted (ReadsClock k) _ =
+      ActedOne . (.name) <$> mlirValue l givenType
+        (Idr.ioClockOp (IntegerAttr (natToInteger (position clockKindClosed k)) (IntegerType 32)))
+    acted NeverRead _ = ActedOne . (.name) <$> int64 unreadable
+    acted (Queries q) _ = case args of
+      [reading] => ActedOne . (.name) <$> query q reading
+      _ => internal "a clock's query given other than its reading"
+      where
+        query : ClockQuery -> Value -> E Value
+        query Valid r = do
+          mark <- int64 unreadable
+          isRead <- mlirValue l (IntegerType 1) (Arith.cmpiOp CmpIPredicate.Ne r mark)
+          mlirValue l givenType (Arith.extuiOp isRead)
+        query Seconds r = do
+          bits <- int64 (natToInteger nanosecondBits)
+          mlirValue l givenType (Arith.shruiOp r bits)
+        query Nanoseconds r = do
+          mask <- int64 (pow2 nanosecondBits - 1)
+          mlirValue l givenType (Arith.andiOp r mask)
+    -- A negative size makes an empty array: each size is clamped at zero
+    -- before it reaches the allocation.
+    acted (Accesses NewArray) _ = case lastApart args of
+      Just (sizes, fill) => do
+        zero <- int64 0
+        ns <- traverse (\size => asIndex !(mlirValue l (IntegerType 64) (Arith.maxsiOp size zero))) sizes
+        ActedOne . (.name) <$> mlirValue l givenType (Idr.arrayNewOp ns fill)
+      Nothing => internal "a new array given no fill"
+    acted (Accesses GetElement) _ = case args of
+      arr :: indices => do
+        is <- traverse (checkedIndex arr) indices
+        ActedOne . (.name) <$> mlirValue l givenType (\t => (Idr.arrayGetOp arr is t).op)
+      [] => internal "an element read given no array"
+    acted (Accesses SetElement) _ = case args of
+      arr :: rest => case lastApart rest of
+        Just (indices, v) => do
+          is <- traverse (checkedIndex arr) indices
+          ActedNone <$ statement l (Idr.arraySetOp arr is v).op
+        Nothing => internal "an element write given no value"
+      [] => internal "an element write given no array"
+    acted (Moves m) vals = moved m args (map (.type) vals)
+      where
+        moved : (m : BufferMove) -> List Value -> List Ty -> E (Acted (moveResults m))
+        moved LoadWord [buf, off] _ = do
+          off' <- within buf off !(wordBytes given)
+          written GivesOne (\ts => MkGuarded (MkOp (opName bufferLoad) [buf, off'] [] [] [] ts) [])
+        moved StoreWord [buf, off, v] [_, _, vt] = do
+          off' <- within buf off !(wordBytes vt)
+          written GivesNone (\ts => MkGuarded (MkOp (opName bufferStore) [buf, off', v] [] [] [] ts) [])
+        moved CopyBytes [src, srcOff, len, dst, dstOff] _ = do
+          srcOff' <- within src srcOff len
+          dstOff' <- within dst dstOff len
+          written GivesNone (\ts => MkGuarded (MkOp (opName bufferCopy) [src, srcOff', len, dst, dstOff'] [] [] [] ts) [])
+        moved SetString [buf, off, str] _ = do
+          bytes <- mlirValue l (IntegerType 64) (Idr.strBytesLengthOp str)
+          off' <- within buf off bytes
+          written GivesNone (\ts => MkGuarded (MkOp (opName bufferSetString) [buf, off', str] [] [] [] ts) [])
+        moved GetString [buf, off, len] _ = do
+          off' <- within buf off len
+          written GivesOne (\ts => MkGuarded (MkOp (opName bufferGetString) [buf, off', len] [] [] [] ts) [])
+        moved WriteBytes [h, buf, off, count] _ = do
+          off' <- within buf off count
+          written GivesOne (\ts => MkGuarded (MkOp (opName writeBytesOp) [h, buf, off', count] [] [] [] ts) [])
+        moved ReadBytes [h, buf, off, count] _ = do
+          off' <- within buf off count
+          written GivesOne (\ts => MkGuarded (MkOp (opName readBytesOp) [h, buf, off', count] [] [] [] ts) [])
+        moved m _ _ = internal "a buffer's move given other operands than it takes"
+    acted Exits _ = internal "the exit written as an action that returns"
+    acted DoesNothing _ = pure ActedNone

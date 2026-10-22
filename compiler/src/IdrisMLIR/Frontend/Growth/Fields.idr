@@ -88,7 +88,7 @@ bindings rs ret = argumentsFrom 0 (snd (getFnArgs ret))
 -- is a dictionary the constructor holds, never data the type writes:
 -- both are the problem's cases, not the reading's.
 fieldTypes : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             Given vs -> Nat -> List (Nat, ClosedTerm) -> TT vs -> Core (List ClosedTerm)
+             Given vs -> Nat -> List (Nat, ClosedTerm) -> TT vs -> Front (List ClosedTerm)
 fieldTypes g k bound (Bind bfc _ (Pi _ rig _ a) sc) = do
   rest <- fieldTypes (give (fromMaybe (Erased bfc Placeholder) (lookup k bound)) g) (S k) bound sc
   case use rig of
@@ -109,16 +109,16 @@ fieldTypes _ _ _ _ = pure []
 ||| be a second reading.
 export
 fieldSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (t : Address) -> GlobalDef -> (constructors : List Name) -> (represented : List Nat) -> Core (List Site)
+             (t : Address) -> GlobalDef -> (constructors : List Name) -> (represented : List Nat) -> Front (List Site)
 fieldSites t tdef cons rs = (>>= id) <$> traverse constructorSites cons
   where
     -- One constructor's sites. Its address is its placement, from the
     -- lookup that finds it, so a constructor found without an address
     -- cannot happen. A type's constructor names carry no proof of their
     -- entries: one the context does not hold is the compiler's error.
-    constructorSites : Name -> Core (List Site)
+    constructorSites : Name -> Front (List Site)
     constructorSites cn = do
-      Just (placement, cdef) <- resolve cn
+      Just (placement, cdef) <- core (resolve cn)
         | Nothing => internal (location tdef)
                        ("the context does not hold " ++ show cn ++ ", a constructor of " ++ show (fullname tdef))
       -- The type as written may hide binders behind a definition (`a -@

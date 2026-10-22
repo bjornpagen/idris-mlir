@@ -64,6 +64,7 @@ import IdrisMLIR.Spec.Grades.Grade
 import Data.List
 import Data.List1
 import Data.SnocList
+import Data.SortedMap
 import Data.SortedSet
 import Data.String
 import System
@@ -273,22 +274,34 @@ built source = do
 mainSite : {auto c : Ref Ctxt Defs} -> String -> Core NonEmptyFC
 mainSite source = (\m => (PhysicalIdrSrc m, (0, 0), (0, 0))) <$> ctxtPathToNS source
 
-||| A rejection as the refusal the module holds. Idris's own error is a
-||| refusal of the rule `Elaboration`, at its location, or at the main
-||| file's start when it has none, its message Core's print of the error:
-||| Idris's renderer (`Idris.Error.perror`) is covering, and the frontend is
-||| total.
-refusalOf : {auto c : Ref Ctxt Defs} -> (main : NonEmptyFC) -> Rejection -> Core ModuleRefusal
-refusalOf main (Refused r) = moduleRefusal r.rule r.site r.message
-refusalOf main (ByIdris e) = moduleRefusal (Refusal Elaboration) (fromMaybe main (getErrorLoc e >>= isNonEmptyFC)) (show e)
+||| Where a rejection is: a refusal's site, or the location of Idris's own
+||| error, or the main file's start when it has none.
+siteOf : (main : NonEmptyFC) -> Rejection -> NonEmptyFC
+siteOf main (Refused r) = r.site
+siteOf main (ByIdris e) = fromMaybe main (getErrorLoc e >>= isNonEmptyFC)
+
+||| A rejection as the refusal the module holds, at its site (`siteOf`).
+||| Idris's own error is a refusal of the rule `Elaboration`, its message
+||| Core's print of the error: Idris's renderer (`Idris.Error.perror`) is
+||| covering, and the frontend is total.
+refusalOf : Modules -> (main : NonEmptyFC) -> Rejection -> Core ModuleRefusal
+refusalOf ms main r@(Refused refusal) = moduleRefusal ms refusal.rule (siteOf main r) refusal.message
+refusalOf ms main r@(ByIdris e) = moduleRefusal ms (Refusal Elaboration) (siteOf main r) (show e)
 
 ||| The program refused: each rejection written as a refusal into the module
 ||| at `out`, in the order found, with no Core and nothing printed, since
 ||| idris-mlir reads and reports them; the status says the program was
-||| refused.
-refusing : {auto c : Ref Ctxt Defs} -> (main : NonEmptyFC) -> (out : String) -> List1 Rejection -> Core ()
-refusing main out rs = do
-  writeRefused out !(traverseList1 (refusalOf main) rs)
+||| refused. The modules already read (none, when Idris could not build the
+||| program) are completed with every rejection's module, at the home Idris
+||| found it in; essential: Idris locates an error in the module it was
+||| elaborating, which it may never have loaded, and a module it could not
+||| load is one of the project's it failed to build.
+refusing : {auto c : Ref Ctxt Defs} -> Modules -> (main : NonEmptyFC) -> (out : String) -> List1 Rejection -> Core ()
+refusing loaded main out rs = do
+  homes <- map (\(m, home, _) => (m, home)) <$> loadedModules
+  sites <- modulesOf loaded (map (\m => (m, fromMaybe Project (lookup m homes)))
+                                 (mapMaybe (siteModule . siteOf main) (forget rs)))
+  writeRefused out !(traverseList1 (refusalOf sites main) rs)
   coreLift (exitWith (ExitFailure 3))
 
 ||| Idris shows an error's location with the lines of the source it read
@@ -312,9 +325,12 @@ perform : {auto c : Ref Ctxt Defs} ->
 perform (Compile timing out source) = do
   main <- mainSite source
   Right mainModule <- built source
-    | Left errs => refusing main out (map ByIdris errs)
-  [] <- program mainModule timing out
-    | (r :: rs) => refusing main out (r ::: rs)
+    | Left errs => refusing SortedMap.empty main out (map ByIdris errs)
+  -- The program loaded, each module's origin, source and name are read
+  -- once, before anything locates a term in it.
+  loaded <- modulesOf SortedMap.empty ((mainModule, Project) :: map (\(m, home, _) => (m, home)) !loadedModules)
+  [] <- program loaded mainModule timing out
+    | (r :: rs) => refusing loaded main out (r ::: rs)
   pure ()
 perform (Check source) = do
   Right _ <- built source
@@ -354,7 +370,7 @@ frontend r = do
     (Compile _ _ _ _, InternalError _) => do
       update ROpts { verbosity := ErrorLvl }
       printed err
-    (Compile _ _ out source, _) => refusing !(mainSite source) out (singleton (ByIdris err))
+    (Compile _ _ out source, _) => refusing SortedMap.empty !(mainSite source) out (singleton (ByIdris err))
     _ => printed err
   where
     printed : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} -> {auto o : Ref ROpts REPLOpts} ->

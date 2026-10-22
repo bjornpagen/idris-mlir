@@ -87,10 +87,10 @@ readSpine t = (\(b, sx) => MkSpine b (sx <>> [])) <$> go t
 ||| refused here, before any type or key is made of it.
 export
 spineOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-          FC -> String -> TT vs -> Core (Spine vs)
+          FC -> String -> TT vs -> Front (Spine vs)
 spineOf fc owner t = case readSpine t of
   Just sp => pure sp
-  Nothing => reject fc owner Polymorphism ("a shape whose rank no analysis fixes: " ++ show !(toFullNames t))
+  Nothing => reject fc owner Polymorphism ("a shape whose rank no analysis fixes: " ++ show !(fullNames t))
 
 ||| A spine's extents, outermost first.
 export
@@ -104,8 +104,8 @@ formOf : Spine vs -> TT vs
 formOf sp = foldl (\r, (snoc, _) => App EmptyFC (App EmptyFC snoc r) (Erased EmptyFC Placeholder)) sp.base sp.axes
 
 ||| Whether a type constructor is a value array's.
-valueArray : {auto c : Ref Ctxt Defs} -> Name -> Core Bool
-valueArray n = (\full => (hooksOf full).valueArray) <$> toFullNames n
+valueArray : {auto c : Ref Ctxt Defs} -> Name -> Front Bool
+valueArray n = (\full => (hooksOf full).valueArray) <$> fullNames n
 
 ||| A type constructor applied to two arguments, as a value array's type is
 ||| to its shape and element (`Array s a`, `LArray s a`), or anything else.
@@ -124,7 +124,7 @@ arrayParts _ = NoArray
 ||| The shape and the element of a value array's type, when the term is
 ||| one.
 export
-arrayView : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Maybe (ClosedTerm, ClosedTerm))
+arrayView : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Maybe (ClosedTerm, ClosedTerm))
 arrayView t with (arrayParts t)
   arrayView _ | ArrayOf n s a = pure (if !(valueArray n) then Just (s, a) else Nothing)
   arrayView _ | NoArray = pure Nothing
@@ -227,7 +227,7 @@ axes i t with (shapeView t)
 ||| element's after the shape's when it is an array too; `Nothing` for a
 ||| dimension no size variable fixes (a literal, a computed size).
 export
-dimensionSources : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (List (Maybe SizeVar))
+dimensionSources : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (List (Maybe SizeVar))
 dimensionSources t with (arrayParts t)
   dimensionSources _ | ArrayOf n s a =
     if !(valueArray n)
@@ -275,7 +275,7 @@ Telescope r = List (SizedParam r)
 ||| normalised: the type is read through definitions that compute it.
 export
 sizedTelescope : {auto c : Ref Ctxt Defs} ->
-                 Nat -> ClosedTerm -> (kinds : List PKind) -> Core (Telescope (Runtimes kinds), ClosedTerm)
+                 Nat -> ClosedTerm -> (kinds : List PKind) -> Front (Telescope (Runtimes kinds), ClosedTerm)
 sizedTelescope arity ty kinds = go 0 arity ty kinds
   where
     value : Nat -> PKind -> ClosedTerm
@@ -295,7 +295,7 @@ sizedTelescope arity ty kinds = go 0 arity ty kinds
     here (Just b) = Just (FZ, b)
     here Nothing = Nothing
 
-    go : Nat -> Nat -> ClosedTerm -> (ks : List PKind) -> Core (Telescope (Runtimes ks), ClosedTerm)
+    go : Nat -> Nat -> ClosedTerm -> (ks : List PKind) -> Front (Telescope (Runtimes ks), ClosedTerm)
     go i Z t [] = pure ([], !(normaliseClosed t))
     go i (S j) t (k :: ks) = do
       t' <- case t of
@@ -378,7 +378,7 @@ entryTies tel = mapMaybe arrayTies tel
 ||| quantity many has, a natural argument or a dimension of an array
 ||| argument.
 export
-resultTies : {auto c : Ref Ctxt Defs} -> Telescope r -> ClosedTerm -> Ty -> Core (List (Nat, Witness r))
+resultTies : {auto c : Ref Ctxt Defs} -> Telescope r -> ClosedTerm -> Ty -> Front (List (Nat, Witness r))
 resultTies tel res rt = case valueDims rt of
   Nothing => pure []
   Just ds => (stated 0 . pairDims ds) <$> dimensionSources res

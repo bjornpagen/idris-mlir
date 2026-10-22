@@ -113,10 +113,10 @@ queued (Queued _ next) = next
 
 -- The arguments of a constructor a type lists: what a link's argument index
 -- runs below. A name the context holds as no constructor has none to count.
-constructorArity : {auto c : Ref Ctxt Defs} -> Name -> Core (List Nat)
+constructorArity : {auto c : Ref Ctxt Defs} -> Name -> Front (List Nat)
 constructorArity n = do
-  defs <- get Ctxt
-  pure $ case definition <$> !(lookupCtxtExact n (gamma defs)) of
+  defs <- getDefs
+  pure $ case definition <$> !(lookupExact n (gamma defs)) of
     Just (DCon _ k _) => [k]
     _ => []
 
@@ -127,7 +127,7 @@ constructorArity n = do
 -- type's, and arguments that are positions of the data it describes; every
 -- other definition writes its signature and case tree.
 kindOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         Address -> GlobalDef -> Core (List Nat, Core (Reading, List Nat))
+         Address -> GlobalDef -> Front (List Nat, Front (Reading, List Nat))
 kindOf a def = case definition def of
   TCon n _ _ _ _ cons _ => do
     let cs = fromMaybe [] cons
@@ -140,7 +140,7 @@ kindOf a def = case definition def of
   PMDef _ params _ _ _ => pure ([length params], plain)
   _ => pure ([], plain)
   where
-    plain : Core (Reading, List Nat)
+    plain : Front (Reading, List Nat)
     plain = (, []) <$> readingOf a def
 
 -- The definition a site enters, when it names one: a call or a build. A
@@ -157,11 +157,11 @@ callee (Dispatches _ _ _) = Nothing
 -- fields, with the definitions its sites name, to enter next. A name that
 -- no definition of the context has is no place, and is not entered.
 keep : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-       Address -> GlobalDef -> Core (Reading, List Nat) -> Entered -> Core (Entered, List Name)
+       Address -> GlobalDef -> Front (Reading, List Nat) -> Entered -> Front (Entered, List Name)
 keep a def reading r = do
   (rd, js) <- reading
   fs <- fieldsOf def
-  defs <- get Ctxt
+  defs <- getDefs
   let ss = rd.sites
   pure ( { sites $= insert a ss
          , families $= insert a rd.families
@@ -180,14 +180,14 @@ keep a def reading r = do
 -- at.
 level : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
         SortedSet Address -> (w0 : Walked) -> (0 acc : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
-        Entered -> List Name -> Pending w0 w -> Core Entered
+        Entered -> List Name -> Pending w0 w -> Front Entered
 level refused w0 acc@(Access rec) w p r [] Idle = pure r
 level refused w0 acc@(Access rec) w p r [] (Queued lt next) =
   level refused w (rec w lt) w (noMore w) r (next <>> []) Idle
 level refused w0 acc@(Access rec) w p r (n :: rest) pending = do
   -- What tells definitions apart is their place in the context; a name no
   -- definition has is never entered.
-  Just (placement, def) <- resolve n
+  Just (placement, def) <- core (resolve n)
     | Nothing => level refused w0 acc w p r rest pending
   let a = addressOf placement
   -- Entered already: walked once.
@@ -198,9 +198,9 @@ level refused w0 acc@(Access rec) w p r (n :: rest) pending = do
   (r', next) <- if contains a refused then pure (the Entered ({ sites $= insert a [] } measured), the (List Name) []) else keep a def reading measured
   level refused w0 acc w1 (thenNoMore (fewer q) p) r' rest (Queued (fewerThen q p) (queued pending <>< next))
 
-definitions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core Entered
+definitions : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Front Entered
 definitions main = do
-  refused <- (.refused) <$> get TState
+  refused <- (.refused) <$> getState
   level refused start (sizeAccessible start) start (noMore start) (MkEntered empty empty [] empty 0) [main] Idle
 
 ------------------------------------------------------------------------------
@@ -779,11 +779,11 @@ ends pl = [pl.to, pl.from]
 -- Each of the positions that is capped, with its cap. A cap is asked once
 -- per definition and parameter, since a definition's nodes share its type.
 capsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         List Position -> Core (SortedMap Position Nat)
-capsOf named = snd <$> foldlC ask (empty, empty) named
+         List Position -> Front (SortedMap Position Nat)
+capsOf named = snd <$> foldlM ask (empty, empty) named
   where
     ask : (SortedMap (Address, Nat) (Maybe Nat), SortedMap Position Nat) -> Position ->
-          Core (SortedMap (Address, Nat) (Maybe Nat), SortedMap Position Nat)
+          Front (SortedMap (Address, Nat) (Maybe Nat), SortedMap Position Nat)
     ask (memo, capped) p@(n, j) = do
       cap <- maybe (capOf n.definition j) pure (lookup (n.definition, j) memo)
       pure (insert (n.definition, j) cap memo, maybe capped (\k => insert p k capped) cap)
@@ -823,25 +823,25 @@ familyHeads fl a (i :: is) =
 -- it stands for, whose flow equation already carries that head: so these
 -- are every node the walk can meet, which the walk checks (`Unread`).
 readings : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           Flow -> Entered -> Core (SortedMap Node (List Site))
-readings fl r = foldlC family plain (SortedMap.toList r.families)
+           Flow -> Entered -> Front (SortedMap Node (List Site))
+readings fl r = foldlM family plain (SortedMap.toList r.families)
   where
     plain : SortedMap Node (List Site)
     plain = SortedMap.fromList (map (\(a, ss) => (MkNode a [], ss)) (SortedMap.toList r.sites))
 
-    headed : Address -> SortedMap Node (List Site) -> List (Nat, Address) -> Core (SortedMap Node (List Site))
+    headed : Address -> SortedMap Node (List Site) -> List (Nat, Address) -> Front (SortedMap Node (List Site))
     headed a m hs = (\ss => insert (MkNode a hs) ss m) <$> sitesOf a hs
 
-    family : SortedMap Node (List Site) -> (Address, List Nat) -> Core (SortedMap Node (List Site))
-    family m (a, fams) = foldlC (headed a) m (familyHeads fl a fams)
+    family : SortedMap Node (List Site) -> (Address, List Nat) -> Front (SortedMap Node (List Site))
+    family m (a, fams) = foldlM (headed a) m (familyHeads fl a fams)
 
 -- A definition's name, for an internal error to print; its address when
 -- the context has no entry there.
-nameOf : {auto c : Ref Ctxt Defs} -> Address -> Core String
+nameOf : {auto c : Ref Ctxt Defs} -> Address -> Front String
 nameOf a = do
-  defs <- get Ctxt
+  defs <- getDefs
   case nameAt (gamma defs) a of
-    Just n => show <$> toFullNames n
+    Just n => show <$> fullNames n
     Nothing => pure (show a)
 
 -- A term with the writer's family markers given values: each `markerAt i
@@ -888,17 +888,17 @@ evaluable _ = Nothing
 ||| any other value, or whose evaluation is no closed template, stays as
 ||| written: the arc it draws is the one the check refuses.
 evaluated : {auto c : Ref Ctxt Defs} -> SortedMap Position Landing ->
-            List (Node, List (Site, Reached)) -> Core (List (Node, List (Site, Reached)))
+            List (Node, List (Site, Reached)) -> Front (List (Node, List (Site, Reached)))
 evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$> reachedAt w e) edges)
   where
     -- One closed reading of an argument at a choice of values: nothing
     -- when the reading still holds a marker or applies a family.
-    readingAt : Argument -> ClosedTerm -> List (Nat, ClosedTerm) -> Core (Maybe Argument)
+    readingAt : Argument -> ClosedTerm -> List (Nat, ClosedTerm) -> Front (Maybe Argument)
     readingAt x tm given = do
       read <- readArgument x.position x.kind !(normaliseClosed (givenFamilies given tm)) x.shown
       pure (if selfBounded read.template then Just read else Nothing)
 
-    evaluate : Node -> Argument -> Core (List Argument)
+    evaluate : Node -> Argument -> Front (List Argument)
     evaluate w x = case (x.term, applyingIn x.template) of
       (Just tm, fs@(_ :: _)) => case traverse (\i => (i,) <$> evaluable (closedAt ls w i)) (nub fs) of
         Nothing => pure [x]
@@ -907,7 +907,7 @@ evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$>
           pure (fromMaybe [x] (sequence reads))
       _ => pure [x]
 
-    reachedAt : Node -> Reached -> Core Reached
+    reachedAt : Node -> Reached -> Front Reached
     reachedAt w e = do
       placed <- traverse (\pl => map (\x => the Placed ({ argument := x } pl)) <$> evaluate w pl.argument) e.placed
       pure ({ placed := concat placed } e)
@@ -918,11 +918,11 @@ evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$>
 ||| internal error, a broken invariant of its own construction or of a
 ||| contract it reads, at main's definition.
 export
-build : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (main : Name) -> Core Built
+build : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> (main : Name) -> Front Built
 build main = do
   -- main is where an internal error of the graph is located, and its node,
   -- with no heads, is where the walk over nodes starts.
-  Just (placement, mainDef) <- resolve main
+  Just (placement, mainDef) <- core (resolve main)
     | Nothing => internal EmptyFC "the growth graph's main has no definition"
   let fc = location mainDef
   let root = addressOf placement

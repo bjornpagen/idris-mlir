@@ -5,11 +5,11 @@
 ||| the definition to have, and the hook, what the compiler does with it.
 module IdrisMLIR.Registry.Entry
 
-import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Registry.Name
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Grades.Grade
-import IdrisMLIR.Spec.Ops.Comparisons
+import IdrisMLIR.Spec.Core.Op as Spec
+import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Types
 
 import Data.List
@@ -197,7 +197,7 @@ data NatMeaning : Type where
   ||| The comparison of the arguments, as the library function that makes
   ||| a `Bool` of an `Int` gives it: `equalNat` is `intToBool` of `NatCompare
   ||| Eq`.
-  Tested : CmpPredicate -> QName -> NatMeaning
+  Tested : Comparison -> QName -> NatMeaning
   ||| The library function on Integers, of the arguments' Integers:
   ||| `compareNat` is `compareInteger`.
   OnIntegers : QName -> NatMeaning
@@ -207,7 +207,7 @@ data NatMeaning : Type where
 public export
 data ArrayPrim
   = AShape | ATabulate | AIndex | AUpdate | AFoldLast | AScanLast
-  | AReshape | ATranspose | ATake | ADrop | AConcat | APad
+  | AReshape | ATranspose | ATake | ADrop | AConcat | APad | AMerge
   | AWithArray | ARead | AWrite | AThaw | ALShape | AGrow | ATabulateIO
 
 ||| A string `System.Info` substitutes from the compiler. `TargetOs` is the
@@ -216,146 +216,158 @@ data ArrayPrim
 public export
 data SystemFact = TargetOs | BackendName
 
+||| A pure op of the dialect as a registry row names it: the
+||| specification's op, of one result and no attribute, with its arity, so
+||| its operands are counted from the op itself.
+public export
+record PureOp where
+  constructor MkPureOp
+  {arity : Nat}
+  op : Spec.Op arity 1 0 0
+
+||| Where a refusal the registry makes applies: wherever the program
+||| reaches the definition, its use by a trusted library included (threads,
+||| finalizers, raw memory, signals, processes: what the language this
+||| compiler implements does not have); or only where the user's code names
+||| it (the world's operations, which the program's root uses, and the
+||| escape hatches a trusted library may hold).
+public export
+data Reached = WhereverReached | WhereUserCodeNames
+
+||| The kinds of entry. A contract is the one meaning of a definition whose
+||| body is no meaning (an external type, an `%extern`, a builtin, a body
+||| that only coerces): Idris's backend contract, which every backend
+||| implements. A faster entry lowers a definition with a body to another
+||| form of the same meaning; a stricter one adds a refusal. Removing a
+||| faster or stricter entry may change speed or which programs are
+||| refused, never a program's result, so a build without the faster
+||| entries runs every program the same; a contract is never removed.
+public export
+data Kind = Contract | Faster | Stricter
+
+export
+Eq Kind where
+  Contract == Contract = True
+  Faster == Faster = True
+  Stricter == Stricter = True
+  _ == _ = False
+
+export
+Show Kind where
+  show Contract = "contract"
+  show Faster = "faster"
+  show Stricter = "stricter"
+
+||| The kinds a hook that lowers a definition may have: the contract of a
+||| definition with no body of its own, or a faster form of one with a body.
+public export
+data Lowers : Kind -> Type where
+  LowersContract : Lowers Contract
+  LowersFaster : Lowers Faster
+
 ||| What the compiler does with a definition it knows: one constructor per
 ||| behaviour. Passes match on hooks, never on names, and each hook's
 ||| handler lives with the pass that meets it.
 public export
-data Hook : Type where
+data Hook : Kind -> Type where
   ||| A pure primitive of Idris's backend contract: its calls are the op of
   ||| this primitive on the call's arguments, then the literals listed, the
   ||| operands the call does not supply. A handle's test for null is one.
   ||| Handler: `Frontend.Translate.application`.
-  PureCall : PurePrim -> List Lit -> Hook
+  PureCall : {auto 0 lowers : Lowers kd} -> {i : Nat} -> Spec.Op i 1 0 0 -> List Lit -> Hook kd
   ||| An IO primitive of Idris's backend contract: its calls are an effect
-  ||| in the world's order, the op of this primitive at the types the call
-  ||| fixes (a buffer's word) on the call's arguments, then the literals
-  ||| listed (a new buffer's zero byte), then the world.
+  ||| ordered by the effects its op declares, the action named at the types
+  ||| the call fixes (a buffer's word) on the call's arguments, then the
+  ||| literals listed (a new buffer's zero byte).
   ||| Handler: `Frontend.Translate.application`.
-  IOCall : IOPrim -> List Lit -> Hook
+  IOCall : {auto 0 lowers : Lowers kd} -> {o : Nat} -> IOAction o -> List Lit -> Hook kd
   ||| An array primitive of the backend contract, polymorphic in its
-  ||| element: its calls are the op of this primitive (`ArrayNew`,
-  ||| `ArrayGet`, `ArraySet`) at the element type the call fixes, one size
-  ||| or index per dimension of the array a world orders its types name:
-  ||| an IORef's primitives are the array ops on its `Mut`, of no
-  ||| dimension, with none. Handler: `Frontend.Translate.application`.
-  ArrayCall : IOPrim -> Hook
+  ||| element: its calls are the access named at the element type the call
+  ||| fixes, one size or index per dimension of the array a world orders
+  ||| its types name: an IORef's primitives are the accesses of its `Mut`,
+  ||| of no dimension, with none. Handler: `Frontend.Translate.application`.
+  ArrayCall : {auto 0 lowers : Lowers kd} -> ArrayAccess -> Hook kd
   ||| An external type that is an array a world orders: `ArrayData a` and
   ||| `Buffer` a run of elements, an IORef's `Mut a` one cell; of the
   ||| element its type argument names (`Nothing`), or of the one given
   ||| (`Buffer`'s byte). Handler: `Frontend.Translate.Types.coreType`.
-  OrderedArrayType : Ordered -> Maybe Ty -> Hook
+  OrderedArrayType : {auto 0 lowers : Lowers kd} -> Ordered -> Maybe Ty -> Hook kd
   ||| A type of the array language that is a value, `Array s a` or
   ||| `LArray s a`: a tensor. Opaque: no constructor of it is matched or
   ||| applied. Handler: `Frontend.Translate.Types.coreType`.
-  ArrayValueType : Hook
+  ArrayValueType : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A function of the array language whose calls are the operation its
   ||| `ArrayPrim` names, in their sequential meaning; its body is not
   ||| translated. Handler: `Frontend.Translate.Terms.application`.
-  Generating : ArrayPrim -> Hook
+  Generating : {auto 0 lowers : Lowers kd} -> ArrayPrim -> Hook kd
   ||| Base's list, a sum whose nil (its constructor of no field) and cons
   ||| (its constructor of two) the string builders take apart (`Term.DataShape`'s
   ||| `BaseListSum`). Handler: `Frontend.Translate.Types.dataInstance`.
-  ListType : Hook
+  ListType : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A data type whose cells every program is checked to rebuild in place
   ||| and hold exclusive (`Term.DataShape`'s `InPlaceSum`). Handler:
   ||| `Frontend.Translate.Types.dataInstance`.
-  InPlaceType : Hook
+  InPlaceType : Hook Stricter
   ||| A `%foreign` definition whose calls are this primitive, pure, on the
   ||| call's runtime arguments: a buffer's size (`ArrayLength` of bytes).
   ||| Handler: `Frontend.Translate.application`.
-  PrimCall : {k : Nat} -> Prim k -> Hook
+  PrimCall : {auto 0 lowers : Lowers kd} -> {n : Nat} -> Prim n -> List Lit -> Hook kd
   ||| A handle that is a foreign constant, as the literal it is: 0 for
   ||| input, 1 for output, 2 for errors, all ones for null, the one
   ||| meaning this compiler's runtime gives a pointer. Handler:
   ||| `Frontend.Translate.application`.
-  Handle : Lit -> Hook
+  Handle : {auto 0 lowers : Lowers kd} -> Lit -> Hook kd
   ||| An external type that is a machine word: `AnyPtr` and `Ptr t`, which
   ||| only the runtime's handles inhabit (`t` names what a handle holds,
   ||| not how it is represented), and `OSClock`, a clock reading. Handler:
   ||| `Frontend.Translate.Types.coreType`.
-  WordType : Hook
+  WordType : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A function whose calls build a string from a list once, by the
   ||| primitive named: the Prelude's `pack` and `fastPack` over a
   ||| `List Char` (`StrPack`), its `fastConcat` over a `List String`
   ||| (`StrConcat`), which the Prelude's own `%transform` rules make one at
   ||| runtime. Handler: `Frontend.Translate.application`.
-  Builds : PurePrim -> Hook
+  Builds : {auto 0 lowers : Lowers kd} -> {i : Nat} -> Spec.Op i 1 0 0 -> Hook kd
   ||| A `%foreign` definition that stands for a library function of the
   ||| same type and meaning (`fastUnpack` for `unpack`): its calls are
   ||| calls of that function. Handler: `Frontend.Translate.application`.
-  Alias : QName -> Hook
+  Alias : {auto 0 lowers : Lowers kd} -> QName -> Hook kd
   ||| The identity on its last runtime argument, wherever it stands among
   ||| the proofs and types (`natToFinLT`'s precedes two erased ones); a
-  ||| runtime argument before it is not read (`nest`'s cell form,
-  ||| `merge`'s extents). Handler: `Frontend.Translate.application`.
-  IdentityOnLastArgument : Hook
+  ||| runtime argument before it is not read (`nest`'s cell form). Handler:
+  ||| `Frontend.Translate.application`.
+  IdentityOnLastArgument : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| The head of a program's root, `unsafePerformIO main`, which the
   ||| compiler writes as world-passing code. Handler:
   ||| `Frontend.Translate.Programs.translateIOProgram`.
-  ProgramRoot : Hook
+  ProgramRoot : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A function on naturals whose calls compute what it means on the
   ||| representation of `Nat`, in constant time and stack, instead of its
   ||| unary recursion. Handler: `Frontend.Translate.application`.
-  NatOperation : NatMeaning -> Hook
-  ||| A library function whose calls end the program with a status: the
-  ||| IO primitive named, after which nothing runs (`ub.unreachable`).
-  ||| `System.exitWith` is one: its body gives the `PrimIO ()` of
-  ||| `prim__exit` any result type by `believe_me`, an escape hatch, sound
-  ||| only because the action does not return. Handler:
-  ||| `Frontend.Translate.application`.
-  Exits : IOPrim -> Hook
+  NatOperation : {auto 0 lowers : Lowers kd} -> NatMeaning -> Hook kd
+  ||| A library function whose calls end the program with a status, after
+  ||| which nothing runs (`ub.unreachable`). `System.exitWith` is one: its
+  ||| body gives the `PrimIO ()` of `prim__exit` any result type by
+  ||| `believe_me`, an escape hatch, sound only because the action does not
+  ||| return. Handler: `Frontend.Translate.application`.
+  Exits : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A string `System.Info` takes from the compiler: the target's
   ||| operating system, or this backend's name. Handler:
   ||| `Frontend.Translate.application`.
-  SystemInfo : SystemFact -> Hook
-  ||| Rejected where the user's code uses it, under the rule named:
-  ||| a definition the user's definitions refer to, or a spelling in the
-  ||| user's source. Handler:
-  ||| `Frontend.Profile.checkReachable`, `Frontend.Profile.checkPragmas`.
-  Forbidden : SomeRule -> Hook
+  SystemInfo : {auto 0 lowers : Lowers kd} -> SystemFact -> Hook kd
+  ||| Refused under the rule named, where the hook says: wherever the
+  ||| program reaches the definition, or only where the user's code names
+  ||| it (a definition the user's definitions refer to, or a spelling in
+  ||| the user's source). Handler: `Frontend.Profile.checkReachable`,
+  ||| `Frontend.Profile.checkPragmas`.
+  Forbidden : Reached -> SomeRule -> Hook Stricter
   ||| A deprecated name. The text names the replacement, and a program that
   ||| calls the name is rejected. Handler: `Frontend.Profile.checkReachable`.
-  Deprecated : String -> Hook
+  Deprecated : String -> Hook Stricter
   ||| A trusted library's crash of a string (`idris_crash`): its body ends
   ||| the program with that string. A user's call stays rejected. Handler:
   ||| `Frontend.Profile.checkReachable`, `Frontend.Translate.primitive`.
-  LibraryCrash : Hook
-
-||| The only kinds of hook. A `faster` hook is another lowering with the same
-||| meaning; a `stricter` hook adds a rejection. Removing a hook may change
-||| speed or which programs are rejected, never a program's result.
-public export
-data Kind = Faster | Stricter
-
-export
-Show Kind where
-  show Faster = "faster"
-  show Stricter = "stricter"
-
-||| Every hook has exactly one kind, by construction.
-export
-kind : Hook -> Kind
-kind (PureCall _ _) = Faster
-kind (IOCall _ _) = Faster
-kind (ArrayCall _) = Faster
-kind (OrderedArrayType _ _) = Faster
-kind ArrayValueType = Faster
-kind (Generating _) = Faster
-kind ListType = Faster
-kind InPlaceType = Stricter
-kind (PrimCall _) = Faster
-kind (Handle _) = Faster
-kind (Builds _) = Faster
-kind (Alias _) = Faster
-kind WordType = Faster
-kind IdentityOnLastArgument = Faster
-kind ProgramRoot = Faster
-kind (NatOperation _) = Faster
-kind (Exits _) = Faster
-kind (SystemInfo _) = Faster
-kind (Forbidden _) = Stricter
-kind (Deprecated _) = Stricter
-kind LibraryCrash = Faster
+  LibraryCrash : {auto 0 lowers : Lowers kd} -> Hook kd
 
 ||| What sum a data type is, by the registry: base's list, or a type whose
 ||| cells are rebuilt in place. One field holds both, so a type cannot be
@@ -369,24 +381,24 @@ data SumHook = IsList | IsInPlace
 public export
 record Hooks where
   constructor MkHooks
-  pureCall : Maybe (PurePrim, List Lit)
-  ioCall : Maybe (IOPrim, List Lit)
-  arrayCall : Maybe IOPrim
+  pureCall : Maybe (PureOp, List Lit)
+  ioCall : Maybe (SomeAction, List Lit)
+  arrayCall : Maybe ArrayAccess
   orderedArray : Maybe (Ordered, Maybe Ty)
   valueArray : Bool
   generating : Maybe ArrayPrim
   sumShape : Maybe SumHook
-  primCall : Maybe (k ** Prim k)
+  primCall : Maybe ((k ** Prim k), List Lit)
   handle : Maybe Lit
   wordType : Bool
-  builds : Maybe PurePrim
+  builds : Maybe PureOp
   alias : Maybe QName
   identityOnLast : Bool
   programRoot : Bool
   natOperation : Maybe NatMeaning
-  exits : Maybe IOPrim
+  exits : Bool
   systemInfo : Maybe SystemFact
-  forbidden : Maybe SomeRule
+  forbidden : Maybe (Reached, SomeRule)
   deprecated : Maybe String
   libraryCrash : Bool
 
@@ -394,32 +406,32 @@ record Hooks where
 export
 noHooks : Hooks
 noHooks = MkHooks Nothing Nothing Nothing Nothing False Nothing Nothing Nothing Nothing False Nothing Nothing
-                  False False Nothing Nothing Nothing Nothing Nothing False
+                  False False Nothing False Nothing Nothing Nothing False
 
 ||| The hooks with one more entry's, after those already there: an earlier
 ||| entry of the same kind stays.
 export
-withHook : Hooks -> Hook -> Hooks
+withHook : Hooks -> Hook kd -> Hooks
 withHook hs h = case h of
-  PureCall p ls => { pureCall $= keep (p, ls) } hs
-  IOCall p ls => { ioCall $= keep (p, ls) } hs
+  PureCall p ls => { pureCall $= keep (MkPureOp p, ls) } hs
+  IOCall a ls => { ioCall $= keep (MkSomeAction a, ls) } hs
   ArrayCall p => { arrayCall $= keep p } hs
   OrderedArrayType o e => { orderedArray $= keep (o, e) } hs
   ArrayValueType => { valueArray := True } hs
   Generating g => { generating $= keep g } hs
   ListType => { sumShape $= keep IsList } hs
   InPlaceType => { sumShape $= keep IsInPlace } hs
-  PrimCall p => { primCall $= keep (_ ** p) } hs
+  PrimCall p ls => { primCall $= keep ((_ ** p), ls) } hs
   Handle l => { handle $= keep l } hs
   WordType => { wordType := True } hs
-  Builds p => { builds $= keep p } hs
+  Builds p => { builds $= keep (MkPureOp p) } hs
   Alias q => { alias $= keep q } hs
   IdentityOnLastArgument => { identityOnLast := True } hs
   ProgramRoot => { programRoot := True } hs
   NatOperation m => { natOperation $= keep m } hs
-  Exits p => { exits $= keep p } hs
+  Exits => { exits := True } hs
   SystemInfo f => { systemInfo $= keep f } hs
-  Forbidden r => { forbidden $= keep r } hs
+  Forbidden at r => { forbidden $= keep (at, r) } hs
   Deprecated m => { deprecated $= keep m } hs
   LibraryCrash => { libraryCrash := True } hs
   where
@@ -440,46 +452,82 @@ meansExtern hs = isJust hs.pureCall || isJust hs.ioCall || isJust hs.arrayCall |
 -- Entries
 ------------------------------------------------------------------------------
 
-||| What an entry expects to find, by the kind of its key.
+||| What an entry expects to find, by its kind and the kind of its key. A
+||| faster entry is on a definition with a body, which is its meaning, so
+||| a faster hook on a definition without one is not written: `Typed` is
+||| the only form of that kind.
 public export
-data Expect : Key -> Type where
-  ||| A definition, at the key's name, whose type has this shape.
-  Typed : Shape -> Expect (Def q)
+data Expect : Kind -> Key -> Type where
+  ||| A definition with a body, at the key's name, whose type has this
+  ||| shape: the body is its meaning, which the hook computes another way.
+  Typed : Shape -> Expect Faster (Def q)
+  ||| A definition at the key's name, of this shape, body or not, which the
+  ||| hook refuses.
+  Ruled : Shape -> Expect Stricter (Def q)
+  ||| A definition with no body of its own at the key's name (an external
+  ||| type, a builtin), whose type has this shape: the hook is its meaning.
+  External : Shape -> Expect Contract (Def q)
+  ||| A definition at the key's name whose body only coerces (`believe_me`,
+  ||| or a world forged for the root), whose type has this shape: the hook
+  ||| is the meaning the coercion claims, which the backend contract gives.
+  Coerced : Shape -> Expect Contract (Def q)
   ||| A bodiless `%extern` declaration at the key's name: its own type is
   ||| what its calls take and give, their arity, quantities and erasure,
   ||| so the entry states none of it again.
-  Bodiless : Expect (Def q)
+  Bodiless : Expect Contract (Def q)
   ||| A definition, at this name, that declares the key's spec and whose type
   ||| has this shape.
-  Declared : QName -> Shape -> Expect (Foreign s)
+  Declared : QName -> Shape -> Expect Contract (Foreign s)
+  ||| A definition, at this name, that declares the key's spec and whose type
+  ||| has this shape, which the program may no longer use.
+  Retired : QName -> Shape -> Expect Stricter (Foreign s)
   ||| Nothing: a spelling has no definition to resolve.
-  Written : Expect (Spelling s)
+  Written : Expect Stricter (Spelling s)
 
-||| One entry of a table: what the compiler knows a definition by, what it
-||| expects it to be, and what it does with it.
+||| One entry of a table, of its kind: what the compiler knows a definition
+||| by, what it expects it to be, and what it does with it.
 public export
-record Entry where
+record Entry (kd : Kind) where
   constructor MkEntry
   key : Key
-  expect : Expect key
-  hook : Hook
+  expect : Expect kd key
+  hook : Hook kd
+
+||| An entry of any kind, as the registry's one table holds them.
+public export
+record AnyEntry where
+  constructor Kinded
+  {kind : Kind}
+  entry : Entry kind
+
+||| An entry, of the kind its expectation fixes, as a table of entries of
+||| every kind holds it.
+export
+entry : (key : Key) -> Expect kd key -> Hook kd -> AnyEntry
+entry key expect hook = Kinded (MkEntry key expect hook)
 
 ||| What validation checks of the definition an entry resolves to: that its
-||| type has a shape, or that it is a bodiless `%extern`, whose type is
-||| its own.
+||| type has a shape and, for a faster or stricter hook on a definition,
+||| that it has a body to be the meaning (`Bodied`); that its type has a
+||| shape, whatever its body; or that it is a bodiless `%extern`, whose
+||| type is its own.
 public export
-data SiteCheck = HasShape Shape | IsBodiless
+data SiteCheck = WithBody Shape | HasShape Shape | IsBodiless
 
 ||| Where validation resolves an entry, and what it checks there; a
 ||| spelling is not resolved.
 export
-site : Entry -> Maybe (QName, SiteCheck)
-site e = at e.key e.expect
+site : AnyEntry -> Maybe (QName, SiteCheck)
+site (Kinded e) = at e.key e.expect
   where
-    at : (k : Key) -> Expect k -> Maybe (QName, SiteCheck)
-    at (Def q) (Typed s) = Just (q, HasShape s)
+    at : (k : Key) -> Expect kd k -> Maybe (QName, SiteCheck)
+    at (Def q) (Typed s) = Just (q, WithBody s)
+    at (Def q) (Ruled s) = Just (q, HasShape s)
+    at (Def q) (External s) = Just (q, HasShape s)
+    at (Def q) (Coerced s) = Just (q, HasShape s)
     at (Def q) Bodiless = Just (q, IsBodiless)
     at (Foreign _) (Declared q s) = Just (q, HasShape s)
+    at (Foreign _) (Retired q s) = Just (q, HasShape s)
     at (Spelling _) Written = Nothing
 
 ||| What validation finds wrong with an entry whose definition is present.
@@ -496,27 +544,32 @@ data Mismatch
   | ||| A definition with a body, where the entry expects a bodiless
     ||| `%extern`.
     Bodied
+  | ||| A definition with no body, where the entry's hook needs one to be
+    ||| the definition's meaning.
+    Unbodied
 
 ||| The message of a shape mismatch: the entry, what it expects and what was
 ||| found, through one printer.
 export
-mismatch : Entry -> Mismatch -> String
+mismatch : AnyEntry -> Mismatch -> String
 mismatch e m =
-  "the registry's entry " ++ show e.key ++ " (" ++ show (kind e.hook) ++ ") expects " ++ expected ++
+  "the registry's entry " ++ show e.entry.key ++ " (" ++ show e.kind ++ ") expects " ++ expected ++
   ", but found " ++ found m
   where
     declaring : String
-    declaring = case e.key of
+    declaring = case e.entry.key of
       Foreign s => ", declared %foreign " ++ show s
       _ => ""
     expected : String
     expected = case site e of
+      Just (q, WithBody s) => show q ++ " : " ++ showShape s ++ ", with a body"
       Just (q, HasShape s) => show q ++ " : " ++ showShape s ++ declaring
       Just (q, IsBodiless) => "%extern " ++ show q
-      Nothing => show e.key
+      Nothing => show e.entry.key
     found : Mismatch -> String
     found Missing = "no such definition in its module"
     found Undeclared = "a definition that does not declare it"
     found (DeclaredBy q) = "it declared by " ++ show q
     found (Found s) = showShape s
     found Bodied = "a definition with a body"
+    found Unbodied = "a definition with no body"

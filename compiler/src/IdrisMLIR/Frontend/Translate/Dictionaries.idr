@@ -59,14 +59,14 @@ import Data.String
 ||| library's (`Data.SortedMap.empty`), and the terms Idris keeps carry no
 ||| locations, so this is where the program's choice of an implementation
 ||| is reported.
-chooser : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> (owner : String) -> Core (Shown, FC)
-chooser fc owner = go (!(get TState)).chain
+chooser : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> (owner : String) -> Front (Shown, FC)
+chooser fc owner = go (!(getState)).chain
   where
-    go : List Request -> Core (Shown, FC)
+    go : List Request -> Front (Shown, FC)
     go [] = pure (shown owner, fc)
     go (r :: rs) = do
-      defs <- get Ctxt
-      Just def <- lookupCtxtExact r.name (gamma defs)
+      defs <- getDefs
+      Just def <- lookupExact r.name (gamma defs)
         | Nothing => go rs
       loc <- toLoc (location def)
       case loc.origin of
@@ -100,30 +100,30 @@ definitionsIn _ = []
 ||| Data keyed by the type Idris sees would not be sound: inside the
 ||| defining module the two types are one, and a value of one can leave it
 ||| as the other, holding the first one's implementation.
-opaqueFor : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Maybe String)
+opaqueFor : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Maybe String)
 opaqueFor impl = case getFnArgs impl of
   (Ref _ _ n, _) => do
-    defs <- get Ctxt
-    Just def <- lookupCtxtExact n (gamma defs)
+    defs <- getDefs
+    Just def <- lookupExact n (gamma defs)
       | Nothing => pure Nothing
     -- What Idris itself does not reduce here, a definition public to the
     -- program aside, which is only stuck.
-    seen <- toFullNames !(host.normalise defs Env.Nil (type def))
+    seen <- fullNames (!(core (host.normalise defs (type def)))).value
     opaque <- hidden (nub (definitionsIn seen))
     case opaque of
       [] => pure Nothing
-      _ => pure (Just (show !(toFullNames n) ++ " implements " ++ !(showTT seen) ++ ", where " ++
+      _ => pure (Just (show !(fullNames n) ++ " implements " ++ !(showTT seen) ++ ", where " ++
                        joinBy ", " (map show opaque) ++ " is opaque to the program (exported without " ++
                        "its definition) and unfolded by this compiler: two types to Idris are one " ++
                        "type here, whose data holds one implementation"))
   _ => pure Nothing
   where
-    hidden : List Name -> Core (List Name)
+    hidden : List Name -> Front (List Name)
     hidden [] = pure []
     hidden (x :: xs) = do
-      defs <- get Ctxt
+      defs <- getDefs
       rest <- hidden xs
-      Just def <- lookupCtxtExact x (gamma defs)
+      Just def <- lookupExact x (gamma defs)
         | Nothing => pure rest
       -- Only a definition that computes a type is unfolded here where
       -- Idris keeps it opaque.
@@ -140,11 +140,11 @@ opaqueFor impl = case getFnArgs impl of
 ||| `fromList`'s caller names it directly.
 export
 recordDictionary : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                   FC -> (owner : String) -> ConLayout -> DictField -> (ty, impl : ClosedTerm) -> Core ()
+                   FC -> (owner : String) -> ConLayout -> DictField -> (ty, impl : ClosedTerm) -> Front ()
 recordDictionary fc owner layout field ty impl = do
-  impl' <- toFullNames !(implementationOf impl)
+  impl' <- fullNames !(implementationOf impl)
   (by, site) <- chooser fc owner
-  st <- get TState
+  st <- getState
   case lookup field st.dicts of
     Just d => unless (d.impl == impl') $ do
       why <- catMaybes <$> traverse opaqueFor [d.impl, impl']
@@ -153,18 +153,18 @@ recordDictionary fc owner layout field ty impl = do
               ": " ++ !(showTT d.impl) ++ ", chosen in " ++ show d.chooser ++ ", and " ++ !(showTT impl') ++
               ", chosen in " ++ show by ++ concatMap ("; " ++) why)
     Nothing =>
-      update TState { dicts $= insert field (MkDictionary impl' by site) }
+      updateState { dicts $= insert field (MkDictionary impl' by site) }
 
 ||| The implementation a dictionary field holds, where a match binds it;
 ||| `Nothing` when no construction site has given one, which the match
 ||| takes as never built and the instance being translated waits on
 ||| (`TS.assumed`).
 export
-dictionaryOf : {auto s : Ref TState TS} -> DictField -> Core (Maybe ClosedTerm)
+dictionaryOf : {auto s : Ref TState TS} -> DictField -> Front (Maybe ClosedTerm)
 dictionaryOf field = do
-  st <- get TState
+  st <- getState
   case lookup field st.dicts of
     Just d => pure (Just d.impl)
     Nothing => do
-      update TState { assumed $= insert field }
+      updateState { assumed $= insert field }
       pure Nothing

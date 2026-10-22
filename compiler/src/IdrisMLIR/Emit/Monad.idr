@@ -79,11 +79,15 @@ collect act = do
   pure (x, inner <>> [])
 
 namespace Held
-  ||| Who frees what a value of a type that holds references holds: its
-  ||| count, or nobody, a literal's static data, which lives for the run.
-  ||| Before counting the frontend states no more of a value's sharing.
+  ||| Who frees what a value of a type that holds references holds, and
+  ||| what is known of its sharing where the ops' own result types know it:
+  ||| its count, with nothing known; its count, and nothing else reaches
+  ||| what it reaches (a constructor's fresh value, and a field taken or
+  ||| read at a linear position from such a value); or nobody, a literal's
+  ||| static data, which lives for the run. The frontend writes no weaker
+  ||| grade than an op's inference gives, and no stronger one.
   public export
-  data Held = Counted | Static
+  data Held = Counted | Exclusive | Static
 
 ||| What is known of which constructor a value of a family is: nothing
 ||| more than its type says, or one of those listed, as inside a region of

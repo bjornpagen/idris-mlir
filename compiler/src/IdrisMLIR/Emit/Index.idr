@@ -12,7 +12,7 @@ import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
-import IdrisMLIR.Spec.Families.Declaration
+import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -163,7 +163,7 @@ mutual
   nodeIn a (ILit l) = [LitNode (litAttr l)]
   nodeIn a (IType t) = [TypeNode (typeIn a t)]
   nodeIn a (ICon f c args) = case lookup f a.declared of
-    Just e => ConNode e.group e.member c :: nodesIn a args
+    Just e => ConNode e.group e.member c (length args) :: nodesIn a args
     Nothing => [OpaqueNode]
   nodeIn a IOpaque = [OpaqueNode]
 
@@ -171,6 +171,7 @@ mutual
 ||| freed by its count with no claim of its sharing, or static.
 holdOf : Held -> Hold
 holdOf Held.Counted = Hold.Counted Unique.None
+holdOf Held.Exclusive = Hold.Counted Unique.Deep
 holdOf Held.Static = Hold.Static
 
 ||| The module's type of a Core type, among the program's families.

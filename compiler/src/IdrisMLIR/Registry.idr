@@ -18,6 +18,7 @@ module IdrisMLIR.Registry
 import public IdrisMLIR.Registry.Entry
 import public IdrisMLIR.Registry.Name
 import public IdrisMLIR.Registry.Primitives
+import IdrisMLIR.Registry.Faster
 import IdrisMLIR.Registry.Recognized
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Types
@@ -28,10 +29,12 @@ import Data.SortedMap
 
 %default total
 
-||| Every entry: category 1, then category 2.
+||| Every entry: category 1, then category 2, then the faster lowerings,
+||| which live in a module of their own so that a build can leave them all
+||| out and compile every program from the bodies alone.
 export
-entries : List Entry
-entries = primitives ++ recognized
+entries : List AnyEntry
+entries = primitives ++ recognized ++ map Kinded faster
 
 ||| The hooks of each definition the registry names, by its qualified name,
 ||| in the entries' order: the definitions' keys indexed once, since every
@@ -39,8 +42,8 @@ entries = primitives ++ recognized
 defHooks : SortedMap (List String, String) Hooks
 defHooks = foldl add empty entries
   where
-    add : SortedMap (List String, String) Hooks -> Entry -> SortedMap (List String, String) Hooks
-    add m e = case e.key of
+    add : SortedMap (List String, String) Hooks -> AnyEntry -> SortedMap (List String, String) Hooks
+    add m (Kinded e) = case e.key of
       Def q => insert (q.space, q.name) (withHook (fromMaybe noHooks (lookup (q.space, q.name) m)) e.hook) m
       _ => m
 
@@ -48,15 +51,15 @@ defHooks = foldl add empty entries
 export
 hooks : Key -> Hooks
 hooks (Def q) = fromMaybe noHooks (lookup (q.space, q.name) defHooks)
-hooks k = foldl withHook noHooks (map (.hook) (filter (\e => e.key == k) entries))
+hooks k = foldl (\hs, e => withHook hs e.entry.hook) noHooks (filter (\e => e.entry.key == k) entries)
 
 ||| Does a definition's spec list declare an entry's spec?
 export
-declares : Entry -> List String -> Bool
-declares e specs = any (\s => Foreign s == e.key) (mapMaybe parseSpec specs)
+declares : AnyEntry -> List String -> Bool
+declares e specs = any (\s => Foreign s == e.entry.key) (mapMaybe parseSpec specs)
 
 ||| The name an entry's definition has, when it names one.
-declaredAt : Entry -> Maybe QName
+declaredAt : AnyEntry -> Maybe QName
 declaredAt e = fst <$> site e
 
 ||| What the registry makes of a `%foreign` definition, by the specs Idris
@@ -64,7 +67,7 @@ declaredAt e = fst <$> site e
 ||| hook if it is the definition the entry names; otherwise the entry and
 ||| its mismatch.
 export
-foreignHook : QName -> List String -> Maybe (Either (Entry, Mismatch) Hooks)
+foreignHook : QName -> List String -> Maybe (Either (AnyEntry, Mismatch) Hooks)
 foreignHook q specs = do
   -- Two entries may declare one spec at two names (Chez names one
   -- bytevector operation for a deprecated Int spelling and for Bits8, and
@@ -74,8 +77,8 @@ foreignHook q specs = do
          Just e => Just e
          Nothing => find (\e => declares e specs) entries
   pure (case site e of
-          Just (declared, _) => if declared == q then Right (withHook noHooks e.hook) else Left (e, DeclaredBy q)
-          Nothing => Right (withHook noHooks e.hook))
+          Just (declared, _) => if declared == q then Right (withHook noHooks e.entry.hook) else Left (e, DeclaredBy q)
+          Nothing => Right (withHook noHooks e.entry.hook))
 
 ||| Is a registry name in one of these modules (given by their paths,
 ||| outermost first)? Every entry's definition is in the module its

@@ -80,16 +80,16 @@ sizesOf b bs =
 
 ||| The definition at an address of the graph, and its name as a message
 ||| prints it. Every address of the graph is a definition's (`addressOf`).
-graphDefinition : {auto c : Ref Ctxt Defs} -> FC -> Address -> Core (GlobalDef, String)
+graphDefinition : {auto c : Ref Ctxt Defs} -> FC -> Address -> Front (GlobalDef, String)
 graphDefinition fc a = do
-  Just def <- definitionAt a
+  Just def <- core (definitionAt a)
     | Nothing => internal fc "the growth graph names an address no definition has"
-  pure (def, nameKey !(toFullNames (fullname def)))
+  pure (def, nameKey !(fullNames (fullname def)))
 
 ||| A definition's i-th parameter, by the name its source gives it
 ||| (`parameterNames`), or its number past the binders its type shows: a
 ||| type may show its binders only once normalised.
-parameter : {auto c : Ref Ctxt Defs} -> Nat -> GlobalDef -> Core String
+parameter : {auto c : Ref Ctxt Defs} -> Nat -> GlobalDef -> Front String
 parameter j def = maybe ("number " ++ show (S j)) show . getAt j <$> parameterNames def
 
 ||| Where a refusal is reported: a definition's location, and the name the
@@ -105,7 +105,7 @@ placeOf def = MkPlace (location def) (show (fullname def))
 ||| A definition of the program's own source, with where it is; nothing for
 ||| a library's or a generated one.
 userDefinition : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                 FC -> Address -> Core (Maybe (Loc, GlobalDef))
+                 FC -> Address -> Front (Maybe (Loc, GlobalDef))
 userDefinition fc a = do
   (def, _) <- graphDefinition fc a
   loc <- toLoc (location def)
@@ -127,7 +127,7 @@ earliest best@(_, m, _) (x@(_, l, _) :: xs) =
 ||| The first user definition among a node's reachers on the walk from
 ||| main, nearest first; nothing when main is reached with none.
 reacher : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> (reachers : List Node) -> Core (Maybe GlobalDef)
+          FC -> (reachers : List Node) -> Front (Maybe GlobalDef)
 reacher fc [] = pure Nothing
 reacher fc (p :: ps) = case !(userDefinition fc p.definition) of
   Just (_, def) => pure (Just def)
@@ -140,7 +140,7 @@ reacher fc (p :: ps) = case !(userDefinition fc p.definition) of
 ||| program reaches it, at the first candidate: at the first user definition
 ||| among the reachers of the cause's first node, or at main.
 located : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> Name -> Built -> (first : Node) -> List1 (t, Address) -> Core (t, Place)
+          FC -> Name -> Built -> (first : Node) -> List1 (t, Address) -> Front (t, Place)
 located fc main b first candidates = do
   users <- traverse (\(v, a) => map (\(loc, def) => (v, loc, def)) <$> userDefinition fc a)
                     (forget candidates)
@@ -166,7 +166,7 @@ sourceOf site node = if sameAddress node.definition site.writer then Binds else 
 
 ||| The source parameter i of a definition, as a message names it: the
 ||| writer's binder, or the implementation's binder and the implementation.
-subject : {auto c : Ref Ctxt Defs} -> GlobalDef -> String -> Nat -> Source -> Core String
+subject : {auto c : Ref Ctxt Defs} -> GlobalDef -> String -> Nat -> Source -> Front String
 subject def _ i Binds = parameter i def
 subject def name i Projects = (++ " of " ++ name) <$> parameter i def
 
@@ -234,7 +234,7 @@ rotations (x ::: xs) = from [] x xs
 ||| back to it.
 refuseCycle : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               FC -> Name -> (b : Built) -> List1 (Fin b.graph.size, Fin (length b.graph.arcs)) ->
-              (growth : Nat) -> Core ()
+              (growth : Nat) -> Front ()
 refuseCycle fc main b ring growth = do
   (round, place) <- located fc main b (fst (index (fst (head ring)) b.position))
                             (map (\r => (r, definitionOf (fst (head r)))) (rotations ring))
@@ -274,7 +274,7 @@ refuseCycle fc main b ring growth = do
 ||| reported at its place: what passes the argument, through which
 ||| recursion, to whom.
 refuseOpaque : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               FC -> Name -> (b : Built) -> Fin (length b.graph.arcs) -> Core ()
+               FC -> Name -> (b : Built) -> Fin (length b.graph.arcs) -> Front ()
 refuseOpaque fc main b a = do
   -- Essential while an arc's label is not tied to what made it: a leading
   -- arc is Measured, so only an argument's template is Unmeasured.
@@ -303,7 +303,7 @@ refuseOpaque fc main b a = do
 ||| a round is what its certificate sums: every arc on it is finite, and its
 ||| gains exceed its losses.
 refuse : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         FC -> Name -> (b : Built) -> Cause b.graph -> Core ()
+         FC -> Name -> (b : Built) -> Cause b.graph -> Front ()
 refuse fc main b (Cycle as (Sums ring _ _)) =
   refuseCycle fc main b (around b.graph as ring)
               (minus (gains (labels b.graph as)) (losses (labels b.graph as)))
@@ -329,7 +329,7 @@ checkGrowth fc main = do
   case check b.graph of
     Bounded pot _ => do
       let bs = boundsOf b pot
-      update TState { bounds := bs, sizes := sizesOf b bs }
+      updateState { bounds := bs, sizes := sizesOf b bs }
       pure True
     Grows causes => do
       for_ (forget causes) $ \cause => noted (refuse fc main b cause)

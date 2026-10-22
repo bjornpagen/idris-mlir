@@ -4,7 +4,7 @@ package syntax-samples
 version = 0.1.0
 brief = "One sample of every type and attribute the frontend writes, each its bytecode entry"
 
-depends = idris-mlir-spec
+depends = idris-mlir-spec, mlir-hash
 
 sourcedir = "src"
 main = IdrisMLIR.SyntaxSamples

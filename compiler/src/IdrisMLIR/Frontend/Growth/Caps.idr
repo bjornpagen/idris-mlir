@@ -135,7 +135,7 @@ capFrom j t = S <$> deepest j t
 
 -- A type's first binder: the parameter's type, and the rest of the type as
 -- a function of the parameter's value.
-binder : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (ClosedTerm, ClosedTerm -> ClosedTerm)
+binder : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (ClosedTerm, ClosedTerm -> ClosedTerm)
 binder ty = do
   Bind _ _ (Pi _ _ _ a) sc <- showingBinder ty
     | _ => internal EmptyFC "more parameters than the type has binders"
@@ -146,7 +146,7 @@ binder ty = do
 -- parameter whose value it does not know, as the template walk already
 -- reads every later one.
 parameterAt : {auto c : Ref Ctxt Defs} -> (j : Nat) -> ClosedTerm ->
-              Core (ClosedTerm, ClosedTerm -> ClosedTerm)
+              Front (ClosedTerm, ClosedTerm -> ClosedTerm)
 parameterAt Z ty = binder ty
 parameterAt (S j) ty = do
   (_, rest) <- binder ty
@@ -161,11 +161,11 @@ parameterAt (S j) ty = do
 ||| markers for every parameter as a definition's own sites give them.
 export
 capOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-        Address -> (j : Nat) -> Core (Maybe Nat)
+        Address -> (j : Nat) -> Front (Maybe Nat)
 capOf addr j = do
   -- Every address the frontend holds came from `addressOf`, so the lookup
   -- finds a definition.
-  Just def <- definitionAt addr
+  Just def <- core (definitionAt addr)
     | Nothing => internal EmptyFC "an address with no definition"
   let owner = show (fullname def)
   (kinds, _) <- staticsOver owner (S j) (type def) [Just (markerAt i 0, AValue) | i <- [0 .. j]]

@@ -14,6 +14,7 @@ import Core.TT
 import Libraries.Data.List.Thin
 
 import IdrisMLIR.Frontend.Growth.Template
+import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Resolve
@@ -72,7 +73,7 @@ data Binding = Reads Static | Wrapped
 ||| its type is an implementation's (`implementationType`), which decides
 ||| in any scope, as it does for a function's parameters and a
 ||| constructor's fields, so the binders before it need no stand-ins.
-bindingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> RigCount -> TT vs -> Core Binding
+bindingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> RigCount -> TT vs -> Front Binding
 bindingOf rig a = case use rig of
   Erased => pure (Reads AType)
   Used _ => (\dict => if dict then Reads ADictionary else Wrapped) <$> implementationType a
@@ -85,7 +86,7 @@ bindingOf rig a = case use rig of
 ||| runtime value elsewhere, as `closeWritten` writes a runtime variable. A
 ||| type `implementationType` accepts shows a binder for each parameter.
 marks : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-        (owner : String) -> GlobalDef -> (arity : Nat) -> Core (List (VarInfo ()))
+        (owner : String) -> GlobalDef -> (arity : Nat) -> Front (List (VarInfo ()))
 marks owner def arity = do
   (kinds, _) <- staticsOver owner arity (type def) (map (\i => Just (markerAt i 0, AValue)) (iterateN arity S 0))
   pure (standing 0 (toList kinds) (type def))
@@ -158,11 +159,11 @@ leadingOf passed = mapMaybe at (zip (iterateN (length passed) S 0) passed)
 ||| lambda written by hand, or one whose function the context does not
 ||| hold, is plain, and names no method function.
 methodField : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              (owner : String) -> ClosedTerm -> Core Field
+              (owner : String) -> ClosedTerm -> Front Field
 methodField owner field = do
   let Just (m, passed, own) = etaWrapper Refl 0 field
     | Nothing => pure (Plain (Leaf 1) Unrooted)
-  Just (placement, mdef) <- resolve m
+  Just (placement, mdef) <- core (resolve m)
     | Nothing => pure (Plain (Leaf 1) Unrooted)
   let am = addressOf placement
   let xs = map value passed
@@ -178,7 +179,7 @@ methodField owner field = do
 ||| as its key holds it, with the root of the dictionary it is; a method's
 ||| field by the function it applies.
 fieldOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          (owner : String) -> Binding -> ClosedTerm -> Core Field
+          (owner : String) -> Binding -> ClosedTerm -> Front Field
 fieldOf owner (Reads k) a = do
   t <- templateOf k a
   r <- dictionaryRoot a
@@ -188,7 +189,7 @@ fieldOf owner Wrapped a = methodField owner a
 ||| The fields of a constructor applied to its arguments, each argument
 ||| read by the binder of the constructor's type that binds it.
 fieldsAlong : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              (owner : String) -> TT vs -> List ClosedTerm -> Core (List Field)
+              (owner : String) -> TT vs -> List ClosedTerm -> Front (List Field)
 fieldsAlong owner (Bind _ _ (Pi _ rig _ a) sc) (x :: xs) = do
   field <- fieldOf owner !(bindingOf rig a) x
   (field ::) <$> fieldsAlong owner sc xs
@@ -200,14 +201,14 @@ fieldsAlong _ _ _ = pure []
 ||| dictionary to read, and nor does a constructor the context does not
 ||| hold.
 implementationFields : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                       GlobalDef -> (args : Scope) -> TT args -> Core (Maybe Fields)
+                       GlobalDef -> (args : Scope) -> TT args -> Front (Maybe Fields)
 implementationFields def args body = do
   let owner = show (fullname def)
   stands <- marks owner def (length args)
   Built con cargs <- whnf (closeWritten EmptyFC stands body)
     | Stuck _ => pure Nothing
-  defs <- get Ctxt
-  Just cdef <- lookupCtxtExact con (gamma defs)
+  defs <- getDefs
+  Just cdef <- lookupExact con (gamma defs)
     | Nothing => pure Nothing
   fs <- fieldsAlong owner !(normaliseClosed (type cdef)) cargs
   pure (Just fs)
@@ -222,7 +223,7 @@ implementationFields def args body = do
 ||| function that matches, a primitive, a type constructor) holds no
 ||| dictionary's fields.
 export
-fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> GlobalDef -> Core (Maybe Fields)
+fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> GlobalDef -> Front (Maybe Fields)
 fieldsOf def = case definition def of
     DCon _ arity _ =>
       pure (Just (map (\j => Plain (Var j 0) (Parameter j 0)) (iterateN arity S 0)))

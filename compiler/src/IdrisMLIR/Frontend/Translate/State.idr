@@ -15,6 +15,7 @@ import IdrisMLIR.Loc
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Registry.Libraries
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -45,7 +46,12 @@ record Holes where
 ||| over runtime values (`{vars : _} -> Show (Term vars)` at the scope a term
 ||| has): which implementation it is stays a compile-time value, the values
 ||| replaced by markers, and the parameter holds the values (`Holes`). A
-||| parameter of quantity 0 is no parameter at runtime and keys nothing. Any
+||| parameter of quantity 0 is no parameter at runtime and keys nothing:
+||| absent, or, when it occurs as an index of an inductive family in a
+||| runtime parameter's type or the result and nowhere a representation
+||| depends on it, an index parameter of the instance, of its sort, whose
+||| level is the number of index parameters before it, so that the
+||| instance's types name it (`!idr.data<#Vect[v0]>`). Any
 ||| other binds as its binder says, with its closed Idris type, which tells
 ||| a function-typed value's erased arguments from its runtime ones; when
 ||| the rest of the type depends on its value, the shape of its argument
@@ -58,6 +64,7 @@ public export
 data PKind = TypeParam ClosedTerm
            | DictParam ClosedTerm (Maybe Holes)
            | ErasedParam
+           | IndexParam Sort
            | FormParam ClosedTerm
            | ValueParam Binder (Maybe ClosedTerm) ClosedTerm
 
@@ -107,8 +114,17 @@ staticKindOf : PKind -> Maybe (Subset Static Requested, ClosedTerm)
 staticKindOf (TypeParam t) = Just (Element AType ReadAsType, t)
 staticKindOf (DictParam t _) = Just (Element ADictionary ReadAsDictionary, t)
 staticKindOf ErasedParam = Nothing
+staticKindOf (IndexParam _) = Nothing
 staticKindOf (FormParam f) = Just (Element AForm ReadAsForm, f)
 staticKindOf (ValueParam _ shape _) = (Element AShape ReadAsShape,) <$> shape
+
+||| An instance's telescope: the sorts of its index parameters, in order,
+||| the levels `0 .. p-1` of its body's scope.
+export
+telescopeOf : List PKind -> List Sort
+telescopeOf [] = []
+telescopeOf (IndexParam s :: ks) = s :: telescopeOf ks
+telescopeOf (_ :: ks) = telescopeOf ks
 
 ||| A full name, printed so that different names print differently: Idris's
 ||| `show` prints only the display part of a `DN` and leaves out the index of
@@ -308,6 +324,14 @@ Eq Role where
   Index == Index = True
   _ == _ = False
 
+||| What a definition takes at an argument position: no value at run time
+||| (quantity 0), or a value, at Idris's quantity. Whether an erased
+||| position is an index the IR keeps is a fact of each instance, read
+||| where its type constructors' roles are known (`IndexParam`), not of
+||| the definition.
+public export
+data ArgumentAt = NoValue | RuntimeValue Uses
+
 ||| What the translation reads of a type constructor's definition: its
 ||| parameters, the role of the argument at each position (`Role`), the
 ||| first first, and what its values are as numbers go.
@@ -343,6 +367,24 @@ watched : Role -> Bool
 watched Index = False
 watched _ = True
 
+||| What a module the session loaded is to the program: where its code
+||| comes from, as the registry classifies it by the package Idris loaded
+||| it from; its source file, when the project has one; and its name as a
+||| location prints it. Facts of the module, which nothing the program
+||| does changes.
+public export
+record LoadedModule where
+  constructor MkLoadedModule
+  origin : Origin
+  source : Maybe String
+  printed : Shown
+
+||| The modules the session loaded, each with what it is to the program,
+||| read once when the session has loaded the program (`Errors.modulesOf`).
+public export
+Modules : Type
+Modules = SortedMap ModuleIdent LoadedModule
+
 public export
 record TS where
   constructor MkTS
@@ -371,9 +413,6 @@ record TS where
   ||| Where a refusal at no location of its own is: the main module, at
   ||| main once it is found (`Errors.siteAt`).
   moduleFC : NonEmptyFC
-  ||| The refusal being unwound to `Errors.noting`, which records it: Idris's
-  ||| own `Error` cannot carry a `Refusal`, so the one in flight is here.
-  inFlight : Maybe Refusal
   ||| The definitions whose component of Idris's call graph has been
   ||| checked (`Recursion`), by address, each with what Idris proved of its
   ||| loops; the components are numbered as they are checked, the next one
@@ -383,10 +422,10 @@ record TS where
   ||| The instances made, by their identity, the link (`Keys.instanceKey`):
   ||| each with its symbol and its key.
   named : SortedMap (Link Form) (String, InstanceKey)
-  ||| Each symbol made, with the identity it names. A symbol is a function
-  ||| of its key, so two identities on one are a broken invariant, found
-  ||| here.
-  symbols : SortedMap String (Link Form)
+  ||| Each key made, with the identity it stands for: two identities on
+  ||| one key are a print that drops what it claims to keep, or a
+  ||| collision of the hash bits a lossy key carries, found here.
+  keyLinks : SortedMap InstanceKey (Link Form)
   ||| What each case, with and nested block is called, `<parent>.case<k>`,
   ||| by its address, and every definition whose blocks are named, by its
   ||| own origin (`Keys`). A block's name depends only on the definitions,
@@ -419,16 +458,23 @@ record TS where
   ||| leaves them out, since what it would find there is the same
   ||| rejection again, or something the checks exist to keep from it.
   refused : SortedSet Address
-  ||| The escape hatches and holes the source of a user module spells, by
-  ||| module and the name as spelt, each rejected where it is written.
-  spelled : SortedSet (ModuleIdent, String)
-  ||| Where each module a location names comes from and its source file
-  ||| when the project has it, by the module: facts of the module, found
-  ||| once each (`Errors.toLoc`), which no rejection changes.
-  places : SortedMap ModuleIdent (Origin, Maybe String)
+  ||| The escape hatches and holes the source of a user module spells, each
+  ||| rejected where it is written: by the module and the name Idris gives
+  ||| what the source spells, the name a definition the program reaches
+  ||| through them has, so a reach is compared with a spelling as names, not
+  ||| as text.
+  spelled : SortedSet (ModuleIdent, Name)
+  ||| Every module the session loaded, with what it is to the program
+  ||| (`LoadedModule`), read once before the checks and never changed:
+  ||| every location a term of the program has is in one of them
+  ||| (`Errors.toLoc`).
+  modules : Modules
   ||| What the translation reads of each type constructor's definition
   ||| (`Types.tyConFacts`), by address, found once each.
   tyCons : SortedMap Address TyConFacts
+  ||| What each definition takes at each binder of its type in normal form
+  ||| (`Closed.argumentsOf`), by address, read once each.
+  argumentsTaken : SortedMap Address (List ArgumentAt)
   ||| Each static argument a request has given, read (`StaticReading`), by its
   ||| kind and as a link writes it (`Keys.write`), which tells two
   ||| arguments apart as Idris's `==` does: an argument reads the same in
@@ -445,14 +491,14 @@ record TS where
   sizes : Bounds
 
 export
-initState : SortedSet Name -> NonEmptyFC -> TS
-initState ifaces fc = MkTS
+initState : Modules -> SortedSet Name -> NonEmptyFC -> TS
+initState loaded ifaces fc = MkTS
   { familyIds = empty, nextFamily = 0, families = empty, familyOrder = [<]
   , cons = empty, fns = empty, fnOrder = [<], fnIds = empty, nextInstance = 0, requested = [<], moduleFC = fc
-  , inFlight = Nothing, nextComponent = 0
-  , loops = empty, named = empty, symbols = empty, blockNames = empty, dicts = empty
+  , nextComponent = 0
+  , loops = empty, named = empty, keyLinks = empty, blockNames = empty, dicts = empty
   , assumed = empty, chain = [], interfaces = ifaces, rejected = [<], refused = empty
-  , spelled = empty, places = empty, tyCons = empty, readings = empty, bounds = empty
+  , spelled = empty, modules = loaded, tyCons = empty, argumentsTaken = empty, readings = empty, bounds = empty
   , sizes = MkBounds (const []) 0 0 0 }
 
 ||| A family registered, by its identity.
@@ -461,25 +507,26 @@ familyOf : FamilyId -> TS -> Maybe Family
 familyOf f st = lookup f st.families
 
 ||| What a translation has found that outlives what found it, put back in
-||| a state: the rejections and what they refused (no refusal is in flight
-||| once one is recorded), and what it found of
-||| modules, type constructors, static arguments, blocks and the call
+||| a state: the rejections and what they refused, and what it found of
+||| definitions' arguments, type constructors, static arguments, blocks and the call
 ||| graph's components, facts of the program's definitions that
 ||| nothing the translation does changes. An instance its translation
 ||| rejects leaves the state as it was before it but for these
 ||| (`Finite.worklist`), and the translation starts with them
-||| (`translating`).
+||| (`translating`). The modules were read before any of it, and are the
+||| same in both.
 export
 keepFound : (from : TS) -> TS -> TS
-keepFound from = { rejected := from.rejected, inFlight := Nothing, refused := from.refused, places := from.places
-                 , tyCons := from.tyCons, readings := from.readings, loops := from.loops
+keepFound from = { rejected := from.rejected, refused := from.refused
+                 , tyCons := from.tyCons, argumentsTaken := from.argumentsTaken, readings := from.readings
+                 , loops := from.loops
                  , nextComponent := from.nextComponent
                  , blockNames := from.blockNames }
 
 ||| The state the translation starts from: nothing of the phases before it
-||| but the dictionaries, the interfaces, what they found that outlives
-||| them (`keepFound`), and the growth check's bounds.
+||| but the modules, the dictionaries, the interfaces, what they found that
+||| outlives them (`keepFound`), and the growth check's bounds.
 export
 translating : TS -> TS
 translating st = keepFound st ({ dicts := st.dicts, bounds := st.bounds, sizes := st.sizes }
-                                 (initState st.interfaces st.moduleFC))
+                                 (initState st.modules st.interfaces st.moduleFC))

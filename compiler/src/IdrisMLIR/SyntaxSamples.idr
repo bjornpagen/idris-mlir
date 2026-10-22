@@ -29,8 +29,9 @@ import IdrisMLIR.Dialect.Tensor as Tensor
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.MLIR.Bytecode
+import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Rules
-import IdrisMLIR.Spec.Families.Declaration
+import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Spec.Grades.Grade
@@ -88,7 +89,6 @@ types =
   , Idr (GradedType Once Nothing i64)
   , Idr (GradedType Once (Just (Hold.Counted Unique.None)) str)
   , Idr (GradedType Many (Just Hold.Static) str)
-  , Idr (DestType vecAny)
   , RankedTensorType [Dynamic, Static 3] F64Type
   , RankedTensorType [] i64
   , MemRefType [Dynamic] (IntegerType 8) (Just (Idr MutableSpaceAttr))
@@ -102,7 +102,7 @@ attrs : List MlirAttr
 attrs =
   [ natLists
   , Idr (BigAttr (-12345678901234567890))
-  , Idr (SiteAttr "Main.idr" 3 7)
+  , Idr (SiteAttr "Main.idr" 3 7 "Main.main")
   , Idr (InstanceAttr "Maybe" ["Nat"])
   , Idr MutableSpaceAttr
   , Idr (TerminatesAttr (ProvedIn 2))
@@ -203,7 +203,7 @@ sample =
                , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (Idr (DataType natLists 0 [NatNode 0] (Just [0])))) vecAny)
                , binding "%lin" (Idr.linCastOp x (Idr (GradedType Once Nothing i64)))
                , binding "%used" (Idr.linCastOp (MkValue "%lin" (Idr (GradedType Once Nothing i64))) i64)
-               , binding "%checked" (Idr.checkNonzeroOp x DivisionByZero (Idr (SiteAttr "Main.idr" 1 1)) i64)
+               , binding "%checked" (Idr.checkNonzeroOp (IntegerAttr (natToInteger (position causeClosed DivisionByZero)) (IntegerType 32)) (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x i64)
                  -- A closure and a suspension of functions, with the
                  -- scope's levels.
                , binding "%f" (Idr.fnClosureOp {indexArgs = Just (Idr (IndexArgsAttr [VarNode 0]))} "callee" [] fn)
@@ -259,7 +259,7 @@ thunk =
 crashing : Statement
 crashing =
   stmt (Idr.funcOp "crashing" (FunctionType (MkSignature [] [i64]))
-         (block [] [stmt (Idr.crashAtOp NoClauseMatched (Idr (SiteAttr "Main.idr" 9 1)) "Main.crashing")]))
+         (block [] [stmt (Idr.crashCauseOp (IntegerAttr (natToInteger (position causeClosed NoClauseMatched)) (IntegerType 32)) (Idr (SiteAttr "Main.idr" 9 1 "Main.crashing")))]))
 
 ||| The program's root.
 root : Statement

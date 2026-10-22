@@ -310,13 +310,20 @@ fieldBinders d u c =
 caseFields : Index -> Loc -> Val -> (takenApart : Bool) -> Vect k Binder -> E (Vect k InScope)
 caseFields ix l r takenApart bs = case (r.uses, takenApart) of
   (Once, True) => do
-    let types = map (\b => gradedType ix b.quantity Held.Counted b.type) (present' (toList bs))
+    let types = map (\b => gradedType ix b.quantity (fieldHold b) b.type) (present' (toList bs))
     Just n <- placed (At l) (Idr.dataUnpackOp (operand ix r) types)
       | Nothing => pure (map worldOrPlaceholder bs)
     pure (unpacked n (length types) 0 bs)
   (Once, False) => pure (map worldOrPlaceholder bs)
   (Many, _) => traverse (\(i, b) => read (finToNat i) b) (zip range bs)
   where
+    -- A field at a linear position of a value nothing else reaches is
+    -- reached by nothing else either; any other field's sharing is unknown.
+    fieldHold : Binder -> Held
+    fieldHold (MkBinder Once _) = case r.hold of
+      Held.Exclusive => Held.Exclusive
+      _ => Held.Counted
+    fieldHold (MkBinder Many _) = Held.Counted
     present' : List Binder -> List Binder
     present' = filter (\b => case b.type of
                                WorldT => False
@@ -327,7 +334,7 @@ caseFields ix l r takenApart bs = case (r.uses, takenApart) of
     unpacked : String -> (n : Nat) -> Nat -> Vect j Binder -> Vect j InScope
     unpacked s n i [] = []
     unpacked s n i (MkBinder _ WorldT :: rest) = World :: unpacked s n i rest
-    unpacked s n i (b :: rest) = Whole (val (resultAt s n i) b.type b.quantity Held.Counted) :: unpacked s n (S i) rest
+    unpacked s n i (b :: rest) = Whole (val (resultAt s n i) b.type b.quantity (fieldHold b)) :: unpacked s n (S i) rest
     read : Nat -> Binder -> E InScope
     read i (MkBinder _ WorldT) = pure World
     -- An array field is held as its buffer; its value is the tensor of it,
@@ -339,8 +346,8 @@ caseFields ix l r takenApart bs = case (r.uses, takenApart) of
       v <- mlirValue l (mlirType ix t) (Bufferization.toTensorOp {restrict = True} buf)
       pure (Whole (val v.name t Many Held.Counted))
     read i b = do
-      v <- mlirValue l (gradedType ix Many Held.Counted b.type) (Idr.dataFieldOp (operand ix r) i)
-      pure (Whole (val v.name b.type Many Held.Counted))
+      v <- mlirValue l (gradedType ix Many (fieldHold b) b.type) (Idr.dataFieldOp (operand ix r) i)
+      pure (Whole (val v.name b.type Many (fieldHold b)))
 
 ||| Starts a function: its own SSA numbers and operations.
 export
@@ -686,13 +693,12 @@ alg ix (UnreachableF l) sc _ = do
 -- in are data the op holds; a trusted library's crash of a string reports
 -- that string.
 alg ix (CrashF l cause) sc _ = do
-  st <- get
-  statement l (Idr.crashAtOp cause (siteOf l) (show st.definition))
+  statement l (Idr.crashCauseOp (causeAttr cause) !(siteOf l))
   pure Nothing
 alg ix (CrashWithF l m) sc _ = do
   Just s <- (operand1 ix l sc Elsewhere (Just (MkBinder Many StrT)) m).written
     | Nothing => pure Nothing
-  statement l (Idr.crashMessageOp (operand ix s) (siteOf l))
+  statement l (Idr.crashMessageOp !(siteOf l) (operand ix s))
   pure Nothing
 alg ix (NewWorldF l) sc w = pure (Just worldVal)
 -- A linear array's read gives back the array as a new value, so what

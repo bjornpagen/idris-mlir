@@ -36,6 +36,7 @@ import IdrisMLIR.Emit.Declarations
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Ids
+import IdrisMLIR.Laws
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.MLIR.Bytecode
@@ -44,10 +45,8 @@ import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Term
 
 import Control.Monad.State
-import Data.IORef
 import Data.List
 import Data.List1
-import Data.SortedSet
 import System.File
 
 %default total
@@ -66,23 +65,22 @@ each (x :: xs) f = do
 ||| root. The module holds the program, named by its root, which it runs,
 ||| at the higher stage; both are at the root's location, which is main's,
 ||| so that whatever the pipeline reports about the whole program is at the
-||| user's code. A symbol is a function of its key, so two functions on one
-||| symbol are two keys printing alike: an internal error. A failure leaves
-||| the file unwritten or partly written; the caller discards it.
+||| user's code. That no two functions share a symbol is the program's
+||| symbol table's, which MLIR verifies when it reads the module; the
+||| frontend finds two instances on one key where the key is made. The
+||| program's laws are checked first, on every compilation. A failure
+||| leaves the file unwritten or partly written; the caller discards it.
 export
 emit : File -> Source -> IO (Either String ())
 emit h src = do
+  let Right () = laws src
+    | Left e => pure (Left e)
   let ix = index src
   Right w <- newWriter
     | Left e => pure (Left e)
-  written <- newIORef SortedSet.empty
   Right () <- each (src.others ++ [src.root]) (\f => case evalStateT (initial f) (function ix f) of
                 Left msg => pure (Left msg)
-                Right ss => each ss (\(sym, s) => do
-                  seen <- readIORef written
-                  if contains sym seen then pure (Left ("two functions are named " ++ sym)) else do
-                    writeIORef written (insert sym seen)
-                    writeTopLevel w s))
+                Right ss => each ss (\(_, s) => writeTopLevel w s))
     | Left e => pure (Left e)
   finish w h [ (At src.root.loc, \body => Builtin.moduleOp body)
              , (At src.root.loc, Idr.programOp src.root.symbol src.root.symbol Higher) ]

@@ -24,6 +24,7 @@ import Core.Name.Scoped
 import Core.TT
 import Libraries.Data.List.Thin
 import Libraries.Data.NameMap
+import Hash.XXH3
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
@@ -180,10 +181,10 @@ mutual
   ||| enters leaves fewer than `w0` to enter.
   nameUnder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               String -> SortedMap String Nat -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
-              (w : Walked) -> (0 _ : NoMore w w0) -> List Reference -> Core (Reached w)
+              (w : Walked) -> (0 _ : NoMore w w0) -> List Reference -> Front (Reached w)
   nameUnder origin ks w0 acc w p [] = pure (MkReached ks w (noMore w))
   nameUnder origin ks w0 acc@(Access rec) w p (AMeta m :: rest) = do
-    Just (placement, def) <- resolve m
+    Just (placement, def) <- core (resolve m)
       | Nothing => nameUnder origin ks w0 acc w p rest
     case enter placement w of
       Nothing => nameUnder origin ks w0 acc w p rest
@@ -192,24 +193,24 @@ mutual
         MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
         pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
   nameUnder origin ks w0 acc@(Access rec) w p (ARef r :: rest) = do
-    full <- toFullNames r
+    full <- fullNames r
     let Just kind = blockOf full
       | Nothing => do
           Element w1 q1 <- blocksFrom full w0 acc w p
           MkReached ks' w2 q2 <- nameUnder origin ks w0 acc w1 (thenNoMore q1 p) rest
           pure (MkReached ks' w2 (thenNoMore q2 q1))
     -- A name no definition has is no block to name.
-    Just (placement, def) <- resolve full
+    Just (placement, def) <- core (resolve full)
       | Nothing => nameUnder origin ks w0 acc w p rest
     let key = addressOf placement
-    let Nothing = lookup key (!(get TState)).blockNames
+    let Nothing = lookup key (!(getState)).blockNames
       | Just _ => nameUnder origin ks w0 acc w p rest
     let Just (Element w1 q) = enter placement w
       | Nothing => nameUnder origin ks w0 acc w p rest
     let k = fromMaybe 0 (lookup kind ks)
     let name = origin ++ "." ++ kind ++ show k
     let ks' = insert kind (S k) ks
-    update TState { blockNames $= insert key name }
+    updateState { blockNames $= insert key name }
     MkReached _ w2 q2 <- nameUnder name empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
     MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
     pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
@@ -218,26 +219,26 @@ mutual
   ||| name.
   blocksFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                Name -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
-               (w : Walked) -> (0 _ : NoMore w w0) -> Core (Subset Walked (\w' => NoMore w' w))
+               (w : Walked) -> (0 _ : NoMore w w0) -> Front (Subset Walked (\w' => NoMore w' w))
   blocksFrom full w0 acc@(Access rec) w p = do
     let Nothing = blockOf full
       | Just _ => pure (Element w (noMore w))
     -- Nor is a name no definition has a definition to walk.
-    Just (placement, def) <- resolve full
+    Just (placement, def) <- core (resolve full)
       | Nothing => pure (Element w (noMore w))
     let key = addressOf placement
-    let Nothing = lookup key (!(get TState)).blockNames
+    let Nothing = lookup key (!(getState)).blockNames
       | Just _ => pure (Element w (noMore w))
     let Just (Element w1 q) = enter placement w
       | Nothing => pure (Element w (noMore w))
     let origin = plainOrigin full
-    update TState { blockNames $= insert key origin }
+    updateState { blockNames $= insert key origin }
     MkReached _ w2 q2 <- nameUnder origin empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
     pure (Element w2 (thenNoMore q2 (fewer q)))
 
 ||| Names the blocks of a definition that is no block, once.
-nameBlocksOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core ()
-nameBlocksOf n = ignore (blocksFrom !(toFullNames n) start (sizeAccessible start) start (noMore start))
+nameBlocksOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Front ()
+nameBlocksOf n = ignore (blocksFrom !(fullNames n) start (sizeAccessible start) start (noMore start))
 
 namespaceOf : Name -> Maybe Namespace
 namespaceOf (NS ns _) = Just ns
@@ -265,9 +266,9 @@ typedBlock _ = Nothing
 ||| elaborated it, which loading does not keep. The block and the
 ||| definition Idris made it in share a namespace, so that is where the
 ||| search starts.
-keyOrigin : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core String
+keyOrigin : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Front String
 keyOrigin n = do
-  full <- toFullNames n
+  full <- fullNames n
   -- A case or with block names its parent and its ordinal under it, which
   -- Idris keeps: its name is read off it, with no search.
   let Nothing = typedBlock full
@@ -276,13 +277,13 @@ keyOrigin n = do
     | Nothing => pure (plainOrigin full)
   -- Naming blocks only reads the context, so this one read is the context
   -- the search below lists.
-  defs <- get Ctxt
+  defs <- getDefs
   -- A block with no address is one no definition can refer to.
   let Just key = definitionAddress (gamma defs) full
     | Nothing => unreferenced full
   Nothing <- named key
     | Just o => pure o
-  st <- get TState
+  st <- getState
   case st.chain of
     r :: _ => nameBlocksOf r.name
     [] => pure ()
@@ -298,13 +299,13 @@ keyOrigin n = do
     | Nothing => unreferenced full
   pure o
   where
-    unreferenced : Name -> Core String
+    unreferenced : Name -> Front String
     unreferenced full = internal EmptyFC ("no definition refers to the block " ++ show full)
 
-    named : Address -> Core (Maybe String)
-    named key = pure (lookup key (!(get TState)).blockNames)
+    named : Address -> Front (Maybe String)
+    named key = pure (lookup key (!(getState)).blockNames)
 
-    search : Address -> List Name -> Core ()
+    search : Address -> List Name -> Front ()
     search key [] = pure ()
     search key (c :: cs) = do
       nameBlocksOf c
@@ -487,8 +488,8 @@ mutual
 ||| names of their binders, which are one instance, print alike, and no
 ||| counter of Idris's reaches the text; and whether the print dropped part
 ||| of the argument's identity.
-argumentText : {auto c : Ref Ctxt Defs} -> Writer -> ClosedTerm -> Core (String, Bool)
-argumentText w tm = pure (render w 0 Alone !(toFullNames tm))
+argumentText : {auto c : Ref Ctxt Defs} -> Writer -> ClosedTerm -> Front (String, Bool)
+argumentText w tm = pure (render w 0 Alone !(fullNames tm))
 
 ------------------------------------------------------------------------------
 -- The identity: the arguments written out
@@ -685,9 +686,9 @@ unresolved ctx t = snd <$> find (\(_, n) => isNothing (definitionAddress ctx n))
 ||| the constructors of no argument and of one that Idris flags as such
 ||| (`natRole`, its metadata, never a name), whose runs `write` writes and
 ||| whose literals the key prints.
-rolesIn : {auto c : Ref Ctxt Defs} -> List (TT vs) -> Core (SortedMap Address NatRole)
+rolesIn : {auto c : Ref Ctxt Defs} -> List (TT vs) -> Front (SortedMap Address NatRole)
 rolesIn tms = do
-  defs <- get Ctxt
+  defs <- getDefs
   let candidates = SortedMap.fromList (mapMaybe (candidate (gamma defs)) (foldr namesOf [] tms))
   found <- traverse (role defs) (SortedMap.toList candidates)
   pure (SortedMap.fromList (catMaybes found))
@@ -699,9 +700,9 @@ rolesIn tms = do
     candidate ctx (DataCon _ 1, n) = (\a => (a, (n, Succ))) <$> definitionAddress ctx n
     candidate ctx _ = Nothing
 
-    role : Defs -> (Address, (Name, NatRole)) -> Core (Maybe (Address, NatRole))
+    role : Defs -> (Address, (Name, NatRole)) -> Front (Maybe (Address, NatRole))
     role defs (a, (n, admitted)) = do
-      Just def <- lookupCtxtExact n (gamma defs)
+      Just def <- lookupExact n (gamma defs)
         | Nothing => pure Nothing
       pure (case (natRole def, admitted) of
               (Just Zero, Zero) => Just (a, Zero)
@@ -711,8 +712,8 @@ rolesIn tms = do
 ||| What reading terms beside the context needs (`Writer`): the context, and
 ||| the roles of the zeros and successors the terms name (`rolesIn`).
 export
-writerOf : {auto c : Ref Ctxt Defs} -> List (TT vs) -> Core Writer
-writerOf tms = MkWriter (gamma !(get Ctxt)) <$> rolesIn tms
+writerOf : {auto c : Ref Ctxt Defs} -> List (TT vs) -> Front Writer
+writerOf tms = MkWriter (gamma !(getDefs)) <$> rolesIn tms
 
 -- Every number a written term holds is below its weight and its depth
 -- together: a variable's index is below the binders around it, each of
@@ -935,12 +936,12 @@ mutual
   ||| its inner name alone, and a block (case, with, nested) by the name of
   ||| its place in the definition that holds it (`keyOrigin`), never by the
   ||| counter Idris numbered it with, so an unrelated edit does not move it.
-  nameIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core String
+  nameIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Front String
   nameIdentity n = case blockOf n of
     Just _ => ("K" ++) . counted <$> keyOrigin n
     Nothing => structural n
     where
-      structural : Name -> Core String
+      structural : Name -> Front String
       structural (NS ns m) =
         let parts = unsafeUnfoldNamespace ns in
         (("N" ++ show (length parts) ++ ";" ++ concatMap counted parts) ++) <$> nameIdentity m
@@ -954,26 +955,26 @@ mutual
       structural other = pure ("O" ++ counted (show other))
 
 ||| A name of the context by its address, as it reads in every build.
-addressIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Core String
-addressIdentity a = nameIdentity !(toFullNames (Resolved (addressIndex a)))
+addressIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Front String
+addressIdentity a = nameIdentity !(fullNames (Resolved (addressIndex a)))
 
 ||| An instance's identity as text that reads the same in every build, for
 ||| the hash a symbol carries when its key's print drops part of the
 ||| identity: the link, each name by its full name, each block by its
 ||| place.
-linkText : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Link Form -> Core String
+linkText : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Link Form -> Front String
 linkText (MkLink d as) = do
   dn <- addressIdentity d
   args <- traverse argumentText' as
   pure (dn ++ "|" ++ show (length as) ++ ";" ++ concat args)
   where
-    symbolText : Token Form -> Core String
+    symbolText : Token Form -> Front String
     symbolText (Node f m k) = do
       nm <- maybe (pure "") (map ("@" ++) . addressIdentity) m
       pure ("N" ++ formText f ++ nm ++ ":" ++ show k ++ ";")
     symbolText (Number f m) = pure ("#" ++ formText f ++ ":" ++ show m ++ ";")
 
-    argumentText' : Maybe (Written Form) -> Core String
+    argumentText' : Maybe (Written Form) -> Front String
     argumentText' Nothing = pure "-"
     argumentText' (Just w) = ("+" ++) . concat <$> traverse symbolText w.symbols
 
@@ -986,11 +987,11 @@ linkText (MkLink d as) = do
 ||| part of what it prints. The definition fixes how many positions it
 ||| has, so the ones after the last that keys tell no two instances apart,
 ||| and a definition that keys nothing prints none.
-keyed : {auto c : Ref Ctxt Defs} -> Writer -> List (Maybe ClosedTerm) -> Core (KeyArguments, Bool)
+keyed : {auto c : Ref Ctxt Defs} -> Writer -> List (Maybe ClosedTerm) -> Front (KeyArguments, Bool)
 keyed w args = case lastKeyed args of
   Nothing => pure (NoArguments, False)
   Just (before, l) => do
-    printed <- traverse (traverseOpt (argumentText w)) before
+    printed <- traverse (traverse (argumentText w)) before
     (text, lost) <- argumentText w l
     pure (UpTo (map (map fst) printed) text, any (maybe False snd) printed || lost)
   where
@@ -1022,16 +1023,16 @@ record Instance a where
 ||| printing anything. A new one is printed: its key, and its symbol, which
 ||| carries the low 64 bits of the hash of the link's text when the print
 ||| drops part of the identity, a function of the key alone, two links on
-||| one symbol being a broken invariant. The definition is the one the
+||| one key being a broken invariant. The definition is the one the
 ||| request names, missing from the context as a lookup of it is.
 export
 instanceKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              FC -> String -> Name -> (term : a -> ClosedTerm) -> List (Maybe a) -> Core (Instance a)
+              FC -> String -> Name -> (term : a -> ClosedTerm) -> List (Maybe a) -> Front (Instance a)
 instanceKey fc owner n term given = do
-  full <- toFullNames n
-  resolved <- traverse (traverseOpt (\x => (x,) <$> toFullNames (term x))) given
+  full <- fullNames n
+  resolved <- traverse (traverse (\x => (x,) <$> fullNames (term x))) given
   let args' = map (map snd) resolved
-  defs <- get Ctxt
+  defs <- getDefs
   let Just placement = placementIn (gamma defs) full
     | Nothing => reject fc owner CompiledModule ("missing definition " ++ show full)
   -- A broken invariant: a compile-time argument is checked TT, every name
@@ -1043,7 +1044,7 @@ instanceKey fc owner n term given = do
   writer <- writerOf (catMaybes args')
   let arguments = map (map (\(x, t) => (x, writtenOf writer t))) resolved
   let link = MkLink (addressOf placement) (map (map snd) arguments)
-  case lookup link (!(get TState)).named of
+  case lookup link (!(getState)).named of
     Just (symbol, key) => pure (MkInstance link key symbol arguments)
     Nothing => do
       origin <- keyOrigin full
@@ -1056,14 +1057,16 @@ instanceKey fc owner n term given = do
                  else pure Whole
       let key = MkInstanceKey origin printed print
       let symbol = keyText key
-      -- A broken invariant: the key prints the link whole, or carries 64
-      -- bits of the hash of its text where it does not, so two links on
-      -- one symbol are a print that drops what it claims to keep, or a
-      -- collision of those bits. The symbol, not the link, is what reaches
-      -- MLIR, so this is checked on the symbol.
-      case lookup symbol (!(get TState)).symbols of
+      -- Essential: the key claims the whole identity when it prints whole,
+      -- and carries only 64 bits of the hash of the link's text when it does
+      -- not, which no type can make collision-free. Two links on one key are
+      -- that claim broken or those bits colliding, found here, at the
+      -- request, before the two are translated as one key. That no two
+      -- functions share a symbol is the program's symbol table's, which
+      -- MLIR verifies where the symbol is.
+      case lookup key (!(getState)).keyLinks of
         Just other => unless (other == link) $
-          internal fc ("two instances on the symbol " ++ symbol)
+          internal fc ("two instances on the key " ++ symbol)
         Nothing => pure ()
-      update TState { named $= insert link (symbol, key), symbols $= insert symbol link }
+      updateState { named $= insert link (symbol, key), keyLinks $= insert key link }
       pure (MkInstance link key symbol arguments)

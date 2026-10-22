@@ -266,10 +266,10 @@ referenceOf ctx nt n = case probeOf n of
     Func => maybe RuntimePart Defined (definitionAddress ctx n)
 
 ||| The role a constructor has in a Nat-like type, if any.
-roleOf : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe NatRole)
+roleOf : {auto c : Ref Ctxt Defs} -> Name -> Front (Maybe NatRole)
 roleOf n = do
-  defs <- get Ctxt
-  pure (natRole =<< !(lookupCtxtExact n (gamma defs)))
+  defs <- getDefs
+  pure (natRole =<< !(lookupExact n (gamma defs)))
 
 ||| A closed run, as `Keys.successorRun` reads one: n >= 1 applications of
 ||| one successor, the same definition at each step, ending in a zero. Its
@@ -278,7 +278,7 @@ roleOf n = do
 ||| never shorter than the run they close to. A run that ends in anything
 ||| else is read node by node.
 export
-closedRun : {auto c : Ref Ctxt Defs} -> TT vs -> Core (Maybe Nat)
+closedRun : {auto c : Ref Ctxt Defs} -> TT vs -> Front (Maybe Nat)
 closedRun t@(App _ (Ref _ (DataCon _ _) _) _) = do
   w <- writerOf (heads t)
   pure ((\(k, _, _) => k) <$> successorRun w t)
@@ -350,7 +350,7 @@ data Arm = Step ClosedTerm | Base ClosedTerm
 ||| leaf with the parameters substituted and every argument the match binds
 ||| the marker one level deeper; nothing for any other match.
 natArms : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Values ClosedTerm vs -> List (CaseAlt vs) ->
-          Core (Maybe (List Arm))
+          Front (Maybe (List Arm))
 natArms m env [] = pure (Just [])
 natArms m env (ConCase con _ cargs (STerm _ rhs) :: alts) = do
   let body = close (extend (bindAll cargs m) env) rhs
@@ -482,7 +482,7 @@ record Mode where
 
 ||| A part that is no data constructor: a node of a type's form, a hole of
 ||| a value's skeleton.
-node : Reading -> Lazy (Core Template) -> Core Template
+node : Reading -> Lazy (Front Template) -> Front Template
 node AsType t = t
 node AsShape _ = pure (Leaf 1)
 
@@ -491,13 +491,13 @@ node AsShape _ = pure (Leaf 1)
 record Arg where
   constructor MkArg
   value : Lazy ClosedTerm
-  template : Lazy (Core Template)
+  template : Lazy (Front Template)
 
-readings : List Arg -> Core (List Template)
+readings : List Arg -> Front (List Template)
 readings = traverse (\a => Force a.template)
 
 ||| A template applied: a head above it and its arguments' readings.
-above : Template -> List Arg -> Core Template
+above : Template -> List Arg -> Front Template
 above t args = (\ts => Head Nothing (t :: ts)) <$> readings args
 
 ||| One of the walk's markers applied: its reading, then its arguments'. A
@@ -505,20 +505,20 @@ above t args = (\ts => Head Nothing (t :: ts)) <$> readings args
 ||| beta-reduction makes of its value's body around the arguments, which is
 ||| no head above them (`Applied`); a dictionary's field applied is a head
 ||| above it and them.
-marked : Template -> List Arg -> Core Template
+marked : Template -> List Arg -> Front Template
 marked t [] = pure t
 marked (Var i d) args = Applied i d <$> readings args
 marked t args = above t args
 
 ||| A part that is no head of its own, applied: a node above it and its
 ||| arguments in a type's form, a hole in a skeleton.
-part : Mode -> Template -> List Arg -> Core Template
+part : Mode -> Template -> List Arg -> Front Template
 part m t [] = pure t
 part m t args@(_ :: _) = node m.reading (above t args)
 
 ||| A definition kept as it is written: its head and its arguments'
 ||| readings in a type's form, a hole in a skeleton.
-kept : Reading -> Address -> List Arg -> Core Template
+kept : Reading -> Address -> List Arg -> Front Template
 kept r a args = node r (Head (Just a) <$> readings args)
 
 ||| A projection applied to its parameters whose record is no data
@@ -526,7 +526,7 @@ kept r a args = node r (Head (Just a) <$> readings args)
 ||| the projection's own. A normal form has projected every constructor
 ||| record, and a dictionary's key writes a projection of one as the
 ||| application it is.
-projectedRecord : {auto c : Ref Ctxt Defs} -> Name -> List Arg -> Core (Maybe (Nat, Arg, List Arg))
+projectedRecord : {auto c : Ref Ctxt Defs} -> Name -> List Arg -> Front (Maybe (Nat, Arg, List Arg))
 projectedRecord n args = do
   Just pr <- projection n
     | Nothing => pure Nothing
@@ -540,7 +540,7 @@ projectedRecord n args = do
 ||| How many arguments a value of a type takes: its Pi binders, read off
 ||| its normal form when the type as written is no Pi down to a universe or
 ||| a type constructor applied, the forms no normaliser adds a binder to.
-arityOf : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> TT vs -> Core Nat
+arityOf : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> TT vs -> Front Nat
 arityOf ty = case written ty of
     Just k => pure k
     Nothing => pure (pis !(normaliseClosed (closedOver ty)))
@@ -558,7 +558,7 @@ arityOf ty = case written ty of
       _ => Nothing
 
 ||| How many arguments each parameter of a type takes, in order.
-binderArities : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> TT vs -> Core (List Nat)
+binderArities : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> TT vs -> Front (List Nat)
 binderArities (Bind _ _ (Pi _ _ _ ty) sc) = (::) <$> arityOf ty <*> binderArities sc
 binderArities _ = pure []
 
@@ -593,7 +593,7 @@ mutual
   ||| dots; a closed run of a Nat-like type is its run's height
   ||| (`closedRun`).
   read : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Mode -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-         Values Substitute vs -> TT vs -> Core Template
+         Values Substitute vs -> TT vs -> Front Template
   read m w acc stand (Erased _ (Dotted u)) = read m w acc stand u
   read m w acc stand t = do
     Just k <- closedRun t
@@ -607,7 +607,7 @@ mutual
 
   ||| A term applied to arguments, read by its head.
   spine : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Mode -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-          Values Substitute vs -> TT vs -> List Arg -> Core Template
+          Values Substitute vs -> TT vs -> List Arg -> Front Template
   spine m w acc stand (App _ f a) args = spine m w acc stand f (argOf m w acc stand a :: args)
   spine m w acc stand (Erased _ (Dotted u)) args = spine m w acc stand u args
   -- A runtime part is one key node, in every reading. An `Erased` part is an
@@ -653,7 +653,7 @@ mutual
 
   ||| A binder's parts: its type, and a `let`'s value before it.
   binder : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Mode -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Values Substitute vs -> TTBinder (TT vs) -> Core (List Template)
+           Values Substitute vs -> TTBinder (TT vs) -> Front (List Template)
   binder m w acc stand (Lam _ _ _ ty) = pure [!(read m w acc stand ty)]
   binder m w acc stand (Let _ _ v ty) = pure [!(read m w acc stand v), !(read m w acc stand ty)]
   binder m w acc stand (Pi _ _ _ ty) = pure [!(read m w acc stand ty)]
@@ -666,9 +666,9 @@ mutual
   ||| reading (applied, a head above it and its arguments). A data
   ||| constructor is a head in every reading, a type constructor in a type's.
   reference : {auto c : Ref Ctxt Defs} -> Mode -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-              NameType -> Name -> List Arg -> Core Template
+              NameType -> Name -> List Arg -> Front Template
   reference m w acc nt n args = do
-    defs <- get Ctxt
+    defs <- getDefs
     case referenceOf (gamma defs) nt n of
       HoleMarker i => part m (Token (S i)) args
       FormalMarker j k => part m (Formal j k) args
@@ -687,7 +687,7 @@ mutual
   ||| matches. In a skeleton, a projection of a value is a match on it like
   ||| any other.
   ofDefinition : {auto c : Ref Ctxt Defs} -> Mode -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                 Name -> Address -> List Arg -> Core Template
+                 Name -> Address -> List Arg -> Front Template
   ofDefinition m@(MkMode AsType _) w acc n a args = do
     Just (k, projected, extras) <- projectedRecord n args
       | Nothing => call m w acc n a args
@@ -698,7 +698,7 @@ mutual
   ofDefinition m@(MkMode AsShape _) w acc n a args = call m w acc n a args
 
   call : {auto c : Ref Ctxt Defs} -> Mode -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-         Name -> Address -> List Arg -> Core Template
+         Name -> Address -> List Arg -> Front Template
   call (MkMode r Unfolded) w acc n a args = applied r w acc n a args
   call (MkMode r Kept) w acc n a args = kept r a args
 
@@ -711,10 +711,10 @@ mutual
   ||| first unfolding found it structural. Any other is unfolded: its case
   ||| tree walked over its arguments.
   applied : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            Name -> Address -> List Arg -> Core Template
+            Name -> Address -> List Arg -> Front Template
   applied r w acc@(Access rec) n a args = do
     let folded = kept r a args
-    Just (placement, def) <- resolve n
+    Just (placement, def) <- core (resolve n)
       | Nothing => folded
     case definition def of
       PMDef _ pargs tree _ _ =>
@@ -740,7 +740,7 @@ mutual
   ||| skeleton is applied.
   given : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           Placement -> Address -> List ClosedTerm -> (type : ClosedTerm) -> (pargs : Scope) -> CaseTree pargs ->
-          Core Template -> Core Template
+          Front Template -> Front Template
   given AsShape w acc placement a terms ty pargs tree folded = folded
   given AsType w acc@(Access rec) placement a terms ty pargs tree folded = do
     arities <- binderArities ty
@@ -775,14 +775,14 @@ mutual
   ||| level.
   structural : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                (self : Address) -> List ClosedTerm -> Values ClosedTerm vs -> CaseTree vs -> List ClosedTerm ->
-               Core (Maybe Template)
+               Front (Maybe Template)
   structural r w acc self args env (Case idx p _ alts) extras = do
     let Just (j, e) = bareMarker (valueAt env idx p)
       | Nothing => pure Nothing
     Just arms <- natArms (markerAt j (S e)) env alts
       | Nothing => pure Nothing
     arms' <- traverse normalisedArm arms
-    defs <- get Ctxt
+    defs <- getDefs
     let Just (bases, kids) = recursion (gamma defs) self (j, S e) args idx arms'
       | Nothing => pure Nothing
     leaves <- traverse (read (MkMode r Unfolded) w acc []) bases
@@ -790,7 +790,7 @@ mutual
     let c = minus (max (tallest leaves) (tallest children)) 1
     pure (Just (Choice (Var j e) (leaves ++ [raise c (Var j e)])))
     where
-      normalisedArm : Arm -> Core Arm
+      normalisedArm : Arm -> Front Arm
       normalisedArm (Step t) = Step . contracted <$> normaliseClosed (applyTo t extras)
       normalisedArm (Base t) = Base . contracted <$> normaliseClosed (applyTo t extras)
   structural _ _ _ _ _ _ _ _ = pure Nothing
@@ -806,17 +806,17 @@ mutual
   ||| written and of a recursion of `self` stuck on that argument, since
   ||| what it computes depends on what beta substitutes there.
   walk : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-         Address -> Core Template -> Values ClosedTerm vs -> CaseTree vs -> List ClosedTerm -> Core (Maybe Template)
+         Address -> Front Template -> Values ClosedTerm vs -> CaseTree vs -> List ClosedTerm -> Front (Maybe Template)
   walk r w acc self folded env (STerm _ rhs) extras =
     Just <$> read (MkMode r Unfolded) w acc [] (contracted !(normaliseClosed (applyTo (close env rhs) extras)))
   -- A partial definition stops where it does not match, at every instance.
   walk r w acc self folded env (Unmatched _) extras = Just <$> folded
   walk r w acc self folded env Impossible extras = pure Nothing
   walk r w acc self folded env (Case idx p _ alts) extras = do
-    defs <- get Ctxt
+    defs <- getDefs
     let s = valueAt env idx p
     case scrutineeOf (gamma defs) s of
-      Constructed c sargs => chosen r w acc self folded env !(toFullNames c) sargs alts extras
+      Constructed c sargs => chosen r w acc self folded env !(fullNames c) sargs alts extras
       Literal k => literal r w acc self folded env k alts extras
       Suspended ty a => delayed r w acc self folded env ty a alts extras
       -- A constructor's argument is a part of the matched value, one level
@@ -839,10 +839,10 @@ mutual
   ||| The alternative a constructor takes, by its full name, as the
   ||| translation's own static match takes it (`Cases.staticCase`).
   chosen : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Address -> Core Template -> Values ClosedTerm vs -> Name -> List ClosedTerm -> List (CaseAlt vs) ->
-           List ClosedTerm -> Core (Maybe Template)
+           Address -> Front Template -> Values ClosedTerm vs -> Name -> List ClosedTerm -> List (CaseAlt vs) ->
+           List ClosedTerm -> Front (Maybe Template)
   chosen r w acc self folded env c sargs (ConCase con _ cargs t :: alts) extras = do
-    full <- toFullNames con
+    full <- fullNames con
     if full /= c then chosen r w acc self folded env c sargs alts extras else
       case bindEach cargs sargs of
         Just bound => walk r w acc self folded (extend bound env) t extras
@@ -852,8 +852,8 @@ mutual
   chosen r w acc self folded env c sargs [] extras = Just <$> folded
 
   literal : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            Address -> Core Template -> Values ClosedTerm vs -> Constant -> List (CaseAlt vs) -> List ClosedTerm ->
-            Core (Maybe Template)
+            Address -> Front Template -> Values ClosedTerm vs -> Constant -> List (CaseAlt vs) -> List ClosedTerm ->
+            Front (Maybe Template)
   literal r w acc self folded env k (ConstCase k' t :: alts) extras =
     if k' == k then walk r w acc self folded env t extras else literal r w acc self folded env k alts extras
   literal r w acc self folded env k (DefaultCase t :: _) extras = walk r w acc self folded env t extras
@@ -861,8 +861,8 @@ mutual
   literal r w acc self folded env k [] extras = Just <$> folded
 
   delayed : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            Address -> Core Template -> Values ClosedTerm vs -> ClosedTerm -> ClosedTerm -> List (CaseAlt vs) ->
-            List ClosedTerm -> Core (Maybe Template)
+            Address -> Front Template -> Values ClosedTerm vs -> ClosedTerm -> ClosedTerm -> List (CaseAlt vs) ->
+            List ClosedTerm -> Front (Maybe Template)
   delayed r w acc self folded env ty a (DelayCase _ _ t :: _) extras = walk r w acc self folded (ty :: a :: env) t extras
   delayed r w acc self folded env ty a (DefaultCase t :: _) extras = walk r w acc self folded env t extras
   delayed r w acc self folded env ty a (_ :: alts) extras = delayed r w acc self folded env ty a alts extras
@@ -871,8 +871,8 @@ mutual
   ||| Every alternative's leaves, each argument a constructor or a delay
   ||| binds standing for `x`; an absurd one gives none.
   everyAlt : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-             Address -> Core Template -> Values ClosedTerm vs -> ClosedTerm -> List (CaseAlt vs) ->
-             List ClosedTerm -> Core (List Template)
+             Address -> Front Template -> Values ClosedTerm vs -> ClosedTerm -> List (CaseAlt vs) ->
+             List ClosedTerm -> Front (List Template)
   everyAlt r w acc self folded env x [] extras = pure []
   everyAlt r w acc self folded env x (alt :: alts) extras = do
     here <- alternative r w acc self folded env x alt extras
@@ -880,25 +880,25 @@ mutual
     pure (maybe rest (:: rest) here)
 
   alternative : {auto c : Ref Ctxt Defs} -> Reading -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                Address -> Core Template -> Values ClosedTerm vs -> ClosedTerm -> CaseAlt vs ->
-                List ClosedTerm -> Core (Maybe Template)
+                Address -> Front Template -> Values ClosedTerm vs -> ClosedTerm -> CaseAlt vs ->
+                List ClosedTerm -> Front (Maybe Template)
   alternative r w acc self folded env x (ConCase _ _ cargs t) extras = walk r w acc self folded (extend (bindAll cargs x) env) t extras
   alternative r w acc self folded env x (DelayCase _ _ t) extras = walk r w acc self folded (x :: x :: env) t extras
   alternative r w acc self folded env x (ConstCase _ t) extras = walk r w acc self folded env t extras
   alternative r w acc self folded env x (DefaultCase t) extras = walk r w acc self folded env t extras
 
 ||| A closed term read on a walk that has entered nothing yet.
-readFromStart : {auto c : Ref Ctxt Defs} -> Mode -> ClosedTerm -> Core Template
+readFromStart : {auto c : Ref Ctxt Defs} -> Mode -> ClosedTerm -> Front Template
 readFromStart m t = read m start (sizeAccessible start) [] t
 
 ||| A type, a family or a form as its template and its root read it: its
 ||| normal form, as classify normalises it, a lambda that only applies a
 ||| family to its variable contracted to that family.
-typeForm : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ClosedTerm
+typeForm : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
 typeForm t = contracted <$> normaliseClosed t
 
 ||| The template of a normal form (`typeForm`), stuck definitions unfolded.
-formTemplate : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Template
+formTemplate : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front Template
 formTemplate form = readFromStart (MkMode AsType Unfolded) form
 
 mutual
@@ -909,9 +909,9 @@ mutual
   ||| leaf of a choice so. A form's height is then the key's, whatever
   ||| extents are written, so that a key and the bound on it are read alike.
   export
-  formedTemplate : {auto c : Ref Ctxt Defs} -> Template -> Core Template
+  formedTemplate : {auto c : Ref Ctxt Defs} -> Template -> Front Template
   formedTemplate t@(Head (Just a) [e, rest, _]) = do
-    Just def <- definitionAt a
+    Just def <- core (definitionAt a)
       | Nothing => pure t
     case definition def of
       DCon 1 _ _ => pure (Head (Just a) [e, !(formedTemplate rest), Leaf 1])
@@ -919,7 +919,7 @@ mutual
   formedTemplate (Choice t ls) = Choice t <$> formedTemplates ls
   formedTemplate t = pure t
 
-  formedTemplates : {auto c : Ref Ctxt Defs} -> List Template -> Core (List Template)
+  formedTemplates : {auto c : Ref Ctxt Defs} -> List Template -> Front (List Template)
   formedTemplates [] = pure []
   formedTemplates (t :: ts) = (::) <$> formedTemplate t <*> formedTemplates ts
 
@@ -933,7 +933,7 @@ mutual
 ||| skeleton: of the argument as written when a data constructor heads it,
 ||| else of its normal form (`Instances.argumentShape`).
 export
-templateOf : {auto c : Ref Ctxt Defs} -> State.Static -> ClosedTerm -> Core Template
+templateOf : {auto c : Ref Ctxt Defs} -> State.Static -> ClosedTerm -> Front Template
 templateOf AType t = formTemplate !(typeForm t)
 templateOf AFamily t = formTemplate !(typeForm t)
 templateOf AForm t = formedTemplate !(formTemplate !(typeForm t))
@@ -1252,8 +1252,8 @@ mutual
 record Piece where
   constructor MkPiece
   written : Lazy ClosedTerm
-  built : Lazy (Core (Maybe (Name, List Piece)))
-  root : Lazy (Core Root)
+  built : Lazy (Front (Maybe (Name, List Piece)))
+  root : Lazy (Front Root)
 
 -- A dictionary is taken apart the way the growth graph reads one
 -- (`Implementations.fieldsOf`, `Heads`) and the translation projects one
@@ -1274,7 +1274,7 @@ mutual
   ||| for a marker, a runtime part, a definition that matches, or one met
   ||| again on its own unfolding.
   builtOf : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            ClosedTerm -> List Piece -> Core (Maybe (Name, List Piece))
+            ClosedTerm -> List Piece -> Front (Maybe (Name, List Piece))
   builtOf w acc (App _ f a) args = builtOf w acc f (pieceOf w acc a :: args)
   builtOf w acc (Ref _ (DataCon _ _) n) args = pure (Just (n, args))
   builtOf w acc (Ref _ Func n) args = do
@@ -1288,9 +1288,9 @@ mutual
   ||| A definition with one right-hand side, applied to its parameters,
   ||| unfolded: the constructor its body is built with.
   unfoldedBuilt : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                  Name -> List Piece -> Core (Maybe (Name, List Piece))
+                  Name -> List Piece -> Front (Maybe (Name, List Piece))
   unfoldedBuilt w acc@(Access rec) n args = do
-    Just (placement, def) <- resolve n
+    Just (placement, def) <- core (resolve n)
       | Nothing => pure Nothing
     case definition def of
       PMDef _ pargs (STerm _ body) _ _ => case bindParams pargs args of
@@ -1307,13 +1307,13 @@ mutual
   ||| A projection applied to its parameters: the field it takes from the
   ||| constructor its record is built with, and the arguments past the
   ||| projection's own.
-  projectedPiece : {auto c : Ref Ctxt Defs} -> Projection -> List Piece -> Core (Maybe (Piece, List Piece))
+  projectedPiece : {auto c : Ref Ctxt Defs} -> Projection -> List Piece -> Front (Maybe (Piece, List Piece))
   projectedPiece pr args = do
     let Just (env, extras) = bindParams pr.params args
       | Nothing => pure Nothing
     Just (con, fields) <- Force (valueAt env pr.matched pr.isParam).built
       | Nothing => pure Nothing
-    if !(toFullNames con) /= !(toFullNames pr.con)
+    if !(fullNames con) /= !(fullNames pr.con)
        then pure Nothing
        else pure ((, extras) <$> getAt pr.field fields)
 
@@ -1326,10 +1326,10 @@ mutual
   ||| is then, the template's field says (`Heads`). A field applied to
   ||| further arguments is a function, and roots nothing.
   rootOf : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           ClosedTerm -> List Piece -> Core Root
+           ClosedTerm -> List Piece -> Front Root
   rootOf w acc (App _ f a) args = rootOf w acc f (pieceOf w acc a :: args)
   rootOf w acc (Ref _ nt n) args = do
-    defs <- get Ctxt
+    defs <- getDefs
     case referenceOf (gamma defs) nt n of
       WalkMarker (Var i d) => pure (Parameter i d)
       DataConstructor a => pure (maybe Unrooted Rooted a)
@@ -1353,7 +1353,7 @@ mutual
 ||| first. The one root function of a dictionary: a request's, a site's and
 ||| a field's roots are its result.
 export
-dictionaryRoot : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Root
+dictionaryRoot : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front Root
 dictionaryRoot t = do
   written <- solved t
   form <- case getFn written of
@@ -1376,9 +1376,9 @@ formRoot ctx form = case getFnArgs form of
 
 -- A type read once: its template, as `templateOf` reads it, and its root,
 -- off the same normal form.
-typeReading : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core (Template, Root)
+typeReading : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Template, Root)
 typeReading t = do
-  defs <- get Ctxt
+  defs <- getDefs
   form <- typeForm t
   pure (!(formTemplate form), formRoot (gamma defs) form)
 
@@ -1392,7 +1392,7 @@ typeReading t = do
 ||| argument and of a request's, so the graph and the requests split a
 ||| definition by the same heads.
 export
-rooted : {auto c : Ref Ctxt Defs} -> State.Static -> ClosedTerm -> Core (Template, Root)
+rooted : {auto c : Ref Ctxt Defs} -> State.Static -> ClosedTerm -> Front (Template, Root)
 rooted AType t = typeReading t
 rooted AFamily t = typeReading t
 rooted AForm t = (, Unrooted) <$> templateOf AForm t
@@ -1402,5 +1402,5 @@ rooted ADictionary t = (,) <$> templateOf ADictionary t <*> dictionaryRoot t
 ||| A request's argument read as its key (`rooted`): its height and its
 ||| root.
 export
-closedHeight : {auto c : Ref Ctxt Defs} -> State.Static -> ClosedTerm -> Core (Nat, Root)
+closedHeight : {auto c : Ref Ctxt Defs} -> State.Static -> ClosedTerm -> Front (Nat, Root)
 closedHeight k t = mapFst height <$> rooted k t

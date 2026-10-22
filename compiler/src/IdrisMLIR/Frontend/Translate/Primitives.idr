@@ -7,13 +7,14 @@ module IdrisMLIR.Frontend.Translate.Primitives
 
 import Core.TT
 
-import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
 import IdrisMLIR.Spec.Core.Rules
-import IdrisMLIR.Spec.Ops.Comparisons
+import IdrisMLIR.Spec.Ops.Bigs
+import IdrisMLIR.Spec.Ops.Strings
+import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -56,7 +57,7 @@ shift s integer t = case primTy t of
   _ => Nothing
 
 ||| A comparison, by the type of its operands.
-comparison : CmpPredicate -> PrimType -> Maybe (Prim 2)
+comparison : Comparison -> PrimType -> Maybe (Prim 2)
 comparison op t = case primTy t of
   IntegerP => Just (BigCompare op)
   StringP => Just (StrCompare op)
@@ -68,8 +69,8 @@ comparison op t = case primTy t of
 ||| from a scalar, and a scalar's to another (`Conversion`, which has no
 ||| cast between a `Char` and a `Double`).
 conversion : (result : Ty) -> PrimTy -> PrimTy -> Maybe (Prim 1)
-conversion result IntegerP StringP = Just (Op BigShow result)
-conversion result StringP IntegerP = Just (Op BigFromStr result)
+conversion result IntegerP StringP = Just (Op bigShow result)
+conversion result StringP IntegerP = Just (Op bigFromStr result)
 conversion result IntegerP to = FromBig <$> scalar to
 conversion result from IntegerP = ToBig <$> scalar from
 conversion result StringP to = FromStr <$> numeric to
@@ -82,33 +83,33 @@ conversion result from to = (\a, b => Cast (IntToInt a b)) <$> integral from <*>
 ||| result type given. A fixed width has no negation of one operand:
 ||| `primTerm` subtracts it from 0.
 primOp : (result : Ty) -> PrimFn k -> Maybe (Prim k)
-primOp result (Add t) = arith Add (Just FAdd) (Op BigAdd result) t
-primOp result (Sub t) = arith Sub (Just FSub) (Op BigSub result) t
-primOp result (Mul t) = arith Mul (Just FMul) (Op BigMul result) t
-primOp result (Div t) = arith Div (Just FDiv) (Op BigDiv result) t
-primOp result (Mod t) = arith Mod Nothing (Op BigMod result) t
-primOp result (BAnd t) = arith And Nothing (Op BigAnd result) t
-primOp result (BOr t) = arith Or Nothing (Op BigOr result) t
-primOp result (BXOr t) = arith Xor Nothing (Op BigXor result) t
-primOp result (ShiftL t) = shift ShiftLeft (Op BigShl result) t
-primOp result (ShiftR t) = shift ShiftRight (Op BigShr result) t
+primOp result (Add t) = arith Add (Just FAdd) (Op bigAdd result) t
+primOp result (Sub t) = arith Sub (Just FSub) (Op bigSub result) t
+primOp result (Mul t) = arith Mul (Just FMul) (Op bigMul result) t
+primOp result (Div t) = arith Div (Just FDiv) (Op bigDiv result) t
+primOp result (Mod t) = arith Mod Nothing (Op bigMod result) t
+primOp result (BAnd t) = arith And Nothing (Op bigAnd result) t
+primOp result (BOr t) = arith Or Nothing (Op bigOr result) t
+primOp result (BXOr t) = arith Xor Nothing (Op bigXor result) t
+primOp result (ShiftL t) = shift ShiftLeft (Op bigShl result) t
+primOp result (ShiftR t) = shift ShiftRight (Op bigShr result) t
 primOp result (Neg t) = case primTy t of
-  IntegerP => Just (Op BigNeg result)
+  IntegerP => Just (Op bigNeg result)
   DoubleP => Just Negate
   _ => Nothing
-primOp result (LT t) = comparison CmpPredicate.Lt t
-primOp result (LTE t) = comparison CmpPredicate.Lte t
-primOp result (EQ t) = comparison CmpPredicate.Eq t
-primOp result (GTE t) = comparison CmpPredicate.Gte t
-primOp result (GT t) = comparison CmpPredicate.Gt t
-primOp result StrLength = Just (Op Idr.StrLength result)
-primOp result StrHead = Just (Op Idr.StrHead result)
-primOp result StrTail = Just (Op Idr.StrTail result)
-primOp result StrIndex = Just (Op Idr.StrIndex result)
-primOp result StrCons = Just (Op Idr.StrCons result)
-primOp result StrAppend = Just (Op Idr.StrAppend result)
-primOp result StrReverse = Just (Op Idr.StrReverse result)
-primOp result StrSubstr = Just (Op Idr.StrSubstr result)
+primOp result (LT t) = comparison Values.Lt t
+primOp result (LTE t) = comparison Values.Lte t
+primOp result (EQ t) = comparison Values.Eq t
+primOp result (GTE t) = comparison Values.Gte t
+primOp result (GT t) = comparison Values.Gt t
+primOp result StrLength = Just (Op strLength result)
+primOp result StrHead = Just (Op strHead result)
+primOp result StrTail = Just (Op strTail result)
+primOp result StrIndex = Just (Op strIndex result)
+primOp result StrCons = Just (Op strCons result)
+primOp result StrAppend = Just (Op strAppend result)
+primOp result StrReverse = Just (Op strReverse result)
+primOp result StrSubstr = Just (Op strSubstr result)
 primOp result DoubleExp = Just (Math1 Exp)
 primOp result DoubleLog = Just (Math1 Log)
 primOp result DoublePow = Just Pow
@@ -143,5 +144,5 @@ primTerm : {k : Nat} -> Loc -> (result : Ty) -> PrimFn k -> Maybe ({0 m : Nat} -
 primTerm loc result (Neg t) with (primTy t)
   primTerm loc result (Neg t) | IntP it = Just (\[x] => PrimApp loc (IntOp Sub it) Nothing [Literal loc (LInt it 0), x])
   primTerm loc result (Neg t) | _ = applied loc (primOp result (Neg t))
-primTerm loc result StrSubstr = Just (\[start, len, s] => PrimApp loc (Op Idr.StrSubstr result) Nothing [s, start, len])
+primTerm loc result StrSubstr = Just (\[start, len, s] => PrimApp loc (Op strSubstr result) Nothing [s, start, len])
 primTerm loc result op = applied loc (primOp result op)

@@ -1,23 +1,26 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| Profile rules checked on checked TT and on the source: pragmas, escape
-||| hatches, trusted modules. The rest is checked during translation. Which
+||| Profile rules: imports and pragmas, read from what a checked module
+||| keeps of its source; escape hatches, read from the source itself; and
+||| what the program reaches, read from checked TT. The rest is checked
+||| during translation. Which
 ||| modules are trusted, what they admit and which definitions are escape
 ||| hatches the user may not use is the registry's knowledge; this module
 ||| asks it.
 module IdrisMLIR.Frontend.Profile
 
+import Core.Binary
 import Core.Case.CaseTree
 import Core.Context
 import Core.Core
 import Core.Directory
 import Core.TT
+import Idris.Syntax.Pragmas
 import Libraries.Data.NameMap
 import Libraries.Text.Bounded
 import Libraries.Text.Lexer.Tokenizer
 import Parser.Lexer.Source
 
-import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate
@@ -50,26 +53,6 @@ import System.File.Buffer
 -- Hooks and definitions
 ------------------------------------------------------------------------------
 
-||| What refusing a definition a rule forbids says of it, by its name, for a
-||| rule that puts it outside the language wherever the program reaches it:
-||| threads, finalizers, raw memory, signals and processes. Nothing for the
-||| other rules, which forbid only what user code names (`firstForbidden`).
-outsideLanguage : SomeRule -> Maybe (String -> String)
-outsideLanguage rule = (\why, n => n ++ " " ++ why ++ " outside the language this compiler implements") <$> reason rule
-  where
-    reason : SomeRule -> Maybe String
-    reason (Refusal Threads) = Just "starts or coordinates threads (a mutex, a channel), which are"
-    reason (Refusal Finalizer) = Just "registers a collector finalizer, which is"
-    reason (Refusal RawPointer) = Just "allocates raw memory, which is"
-    reason (Refusal Signal) = Just "handles or sends a signal, which is"
-    reason (Refusal Process) = Just "runs another process, which is"
-    reason _ = Nothing
-
-||| What a refusal of a forbidden definition says: why it is outside the
-||| language, or that it is a use of it.
-exclusion : SomeRule -> String -> String
-exclusion rule n = maybe ("uses " ++ n) (\says => says n) (outsideLanguage rule)
-
 ||| Does a hook answer for every call of a definition, so that its body is
 ||| never translated, and the growth check reads no site in it? The
 ||| identity on its runtime argument and a function of the array language,
@@ -84,18 +67,61 @@ answersForCalls hs = hs.identityOnLast || isJust hs.generating
 ||| its `believe_me` as an action that does not return: the escape hatch in
 ||| each body is the hook's, not the program's.
 answersForBody : Hooks -> Bool
-answersForBody hs = answersForCalls hs || isJust hs.exits
+answersForBody hs = answersForCalls hs || hs.exits
 
 ||| The first of the definitions a user definition refers to that the
 ||| registry forbids in the user's code, with its rule.
 firstForbidden : List Name -> Maybe (Name, SomeRule)
 firstForbidden [] = Nothing
 firstForbidden (r :: rs) = case (hooksOf r).forbidden of
-  Just rule => Just (r, rule)
+  Just (_, rule) => Just (r, rule)
   Nothing => firstForbidden rs
 
 ------------------------------------------------------------------------------
--- Imports
+-- Imports and pragmas, as the checked module keeps them
+------------------------------------------------------------------------------
+
+||| Pragmas the pinned elaborator has already discharged before this
+||| backend sees the term. `%default` is the totality it requires.
+||| `%hide` and `%unhide` resolve names. `%logging` is the driver's log.
+||| The use is not a second copy of any of those.
+discharged : KwPragma -> Bool
+discharged KwDefault = True
+discharged KwHide = True
+discharged KwUnhide = True
+discharged KwLogging = True
+discharged _ = False
+
+||| A user module's imports and pragmas, as its checked module (`checked`,
+||| its TTC) keeps them, each where the source writes it: an import of a
+||| module that is neither one of the project's with source nor a trusted
+||| library's is refused at the import, and a pragma the elaborator has not
+||| discharged where it is written. Each is noted on its own, so every one
+||| is reported.
+export
+checkModule : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+              (ident : ModuleIdent) -> (checked : String) -> Core ()
+checkModule ident checked = do
+  mf <- readDefinitions checked
+  st <- get TState
+  for_ mf.imports $ \i => noted (imported st.modules i)
+  for_ mf.pragmas $ \u => unless (discharged u.kind) $ noted $
+    reject u.loc (show ident) UserPragma ("the pragma %" ++ spelling u.kind)
+  where
+    acceptable : Origin -> Maybe String -> Bool
+    acceptable User source = isJust source
+    acceptable origin _ = covers Trusted origin
+    imported : Modules -> Import -> Front ()
+    imported ms i = case lookup i.path ms of
+      Just m => unless (acceptable m.origin m.source) $
+                  reject i.loc (show ident) ProgramShape
+                    ("imports " ++ show i.path ++ ", which is neither a user module nor a trusted module")
+      -- A broken invariant: a module is checked only once the modules it
+      -- imports are, and the session loads each one it checks.
+      Nothing => internal i.loc ("an import of " ++ show i.path ++ ", which the session did not load")
+
+------------------------------------------------------------------------------
+-- Escape hatches spelled
 ------------------------------------------------------------------------------
 
 ||| A text file's contents, read at once as the bytes its size gives: a
@@ -109,73 +135,41 @@ readText path = coreLift $ do
   size <- rawSize buf
   Right <$> getString buf 0 size
 
-||| The modules a user module's source imports, with the location of each
-||| `import`, where an error about it is reported.
+||| Lexes a user module's source with Idris's lexer and rejects each escape
+||| hatch and each hole it spells, where it is written. Essential: these are
+||| read from the source because elaboration can erase what they spell
+||| (Idris reduces `prim__believe_me` applied to a value), and the checked
+||| module keeps no trace of them.
 export
-imports : ModuleIdent -> String -> Core (List (String, FC))
-imports ident path = do
-  Right text <- readText path
-    | Left _ => pure []
-  pure (go 0 (lines text))
-  where
-    imported : List String -> Maybe String
-    imported ("public" :: n :: _) = Just n
-    imported (n :: _) = Just n
-    imported [] = Nothing
-    go : Int -> List String -> List (String, FC)
-    go i [] = []
-    go i (l :: ls) = case words l of
-      ("import" :: rest) => case imported rest of
-        Just n => (n, MkFC (PhysicalIdrSrc ident) (i, 0) (i, cast (length l))) :: go (i + 1) ls
-        Nothing => go (i + 1) ls
-      _ => go (i + 1) ls
-
-------------------------------------------------------------------------------
--- Pragmas
-------------------------------------------------------------------------------
-
-||| Pragmas the pinned elaborator has already discharged before this
-||| backend sees the term. `%default` is the totality it requires.
-||| `%hide` and `%unhide` resolve names. `%logging` is the driver's log.
-||| The token is not a second copy of any of those.
-discharged : List String
-discharged = ["default", "hide", "unhide", "logging"]
-
-||| Lexes a user module's source with Idris's lexer and rejects each pragma
-||| the elaborator has not already discharged, and each escape hatch
-||| spelled, every one where it is written.
-export
-checkPragmas : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               ModuleIdent -> String -> Core ()
-checkPragmas ident path = do
-  Right text <- readText path
+checkSpelled : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+               ModuleIdent -> String -> Front ()
+checkSpelled ident path = do
+  Right text <- core (readText path)
     | Left err => throw (FileErr path err)
   case lex text of
     Left (_, l, col, _) =>
-      reject (MkFC (PhysicalIdrSrc ident) (l, col) (l, col)) (show ident) UserPragma
+      reject (MkFC (PhysicalIdrSrc ident) (l, col) (l, col)) (show ident) EscapeHatch
              "the source could not be lexed"
-    Right (_, toks) => traverse_ (noted . check) toks
+    Right (_, toks) => traverse_ (\tok => core (noted (check tok))) toks
   where
     at : Located Token -> FC
     at tok = let b = tok.bounds in
              MkFC (PhysicalIdrSrc ident) (b.startLine, b.startCol) (b.endLine, b.endCol)
-    ||| An escape hatch found here is this module's: what reaches it in TT
-    ||| is not reported again (`checkReachable`).
-    found : String -> Core ()
-    found n = update TState { spelled $= insert (ident, n) }
-    ||| An escape hatch in the source: a spelling the registry forbids. Idris
-    ||| reduces `prim__believe_me` applied to a value during elaboration, so
-    ||| it can vanish from TT.
-    spelled : Located Token -> String -> Core ()
+    ||| An escape hatch or a hole found here is this module's: what reaches
+    ||| it in TT is not reported again (`checkReachable`). It is kept as the
+    ||| name Idris gives the identifier spelt, which is the name of the
+    ||| definition a reach of it meets, its namespace aside.
+    found : String -> Front ()
+    found n = updateState { spelled $= insert (ident, UN (Basic n)) }
+    ||| An escape hatch in the source: a spelling the registry forbids.
+    spelled : Located Token -> String -> Front ()
     spelled tok n = case (hooks (Spelling n)).forbidden of
-      Just rule => do
+      Just (_, rule) => do
         found n
         refuse (at tok) (show ident) rule ("the escape hatch " ++ n)
       Nothing => pure ()
-    check : Located Token -> Core ()
+    check : Located Token -> Front ()
     check tok = case tok.val of
-      Pragma p => unless (elem p discharged) $
-                    reject (at tok) (show ident) UserPragma ("the pragma %" ++ p)
       HoleIdent h => do
         found h
         reject (at tok) (show ident) EscapeHatch ("the hole ?" ++ h)
@@ -337,7 +331,7 @@ checkReachable fc roots = do
     -- that reaches it, or the definition's rejection.
     visit : GlobalDef -> Placement -> Loc -> (here : List (Name, Address, FC)) -> (owner : String) ->
             (path : List (Name, Address, FC)) -> (from : Referrer) ->
-            Core (List Reach)
+            Front (List Reach)
     visit def placement loc here owner path from = do
       let full = fullname def
       let key = show full
@@ -351,13 +345,13 @@ checkReachable fc roots = do
                        (key ++ " is in " ++ maybe "" show (locModule loc) ++ ", which is not a trusted library module" ++
                         via path)
         _ => pure ()
-      -- Threads, finalizers, raw memory, signals and processes are
-      -- outside the language wherever they are reached. The world's
-      -- forbidden operations are not: the program root is one, and user
-      -- code is refused where it names them.
-      case (hooksOf full).forbidden >>= \rule => (rule,) <$> outsideLanguage rule of
-        Just (rule, says) => reject (userFC here) owner rule (says key ++ via here)
-        Nothing => pure ()
+      -- What the language does not have is refused wherever it is
+      -- reached; the rest of what the registry forbids, where user code
+      -- names it (below).
+      case (hooksOf full).forbidden of
+        Just (WhereverReached, rule) =>
+          refuse (userFC here) owner rule (key ++ " is outside the language this compiler implements" ++ via here)
+        _ => pure ()
       -- A deprecated name is rejected wherever it is reached. The hook's
       -- text names the replacement.
       case (hooksOf full).deprecated of
@@ -397,11 +391,11 @@ checkReachable fc roots = do
       root <- rootOf full
       when (trusted && not (admits origin (qname root))) $
         reject (userFC here) owner TrustedLibrary (key ++ " is not admitted from its trusted module" ++ via here)
-      refs <- traverse toFullNames (refsOf (hooksOf full) def)
+      refs <- traverse fullNames (refsOf (hooksOf full) def)
       -- User code may not use what the registry forbids, nor forge a world.
       unless trusted $ do
         case firstForbidden refs of
-          Just (r, rule) => refuse (location def) key rule (exclusion rule (show r))
+          Just (r, rule) => refuse (location def) key rule ("uses " ++ show r)
           Nothing => pure ()
         case definition def of
           PMDef _ _ tree _ _ =>
@@ -413,7 +407,7 @@ checkReachable fc roots = do
       -- nothing it reaches is the program's. A user's is walked, since a
       -- proof it forges is a bound the compiler would trust.
       refs' <- if trusted
-                 then filterM (\r => not <$> proofOnly r) (filter (not . assertion . qname) refs)
+                 then keepIf (\r => not <$> core (proofOnly r)) (filter (not . assertion . qname) refs)
                  else pure refs
       pure (map (\r => MkReach r here (if trusted then Library placement else User)) refs')
 
@@ -457,7 +451,7 @@ checkReachable fc roots = do
       let reach = (key, ownerKey)
       let refusing = { reported $= insert reach, refusals $= (r ::) } kept'
       if contains reach kept'.reported ||
-         maybe False (\m => contains (m, nameRoot full) st.spelled) (moduleOf (userFC here))
+         maybe False (\m => contains (m, dropNS full) st.spelled) (moduleOf (userFC here))
         then do
           refuse
           level w0 acc w p refusing rest pending

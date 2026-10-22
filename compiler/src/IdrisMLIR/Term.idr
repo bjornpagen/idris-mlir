@@ -23,11 +23,10 @@
 ||| the closure or the suspension names with its captures.
 module IdrisMLIR.Term
 
-import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Spec.Runtime.Endings
-import IdrisMLIR.Spec.Families.Declaration
+import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 
@@ -131,13 +130,13 @@ record Family where
 -- Terms
 ------------------------------------------------------------------------------
 
-||| What an IO primitive gives besides the next world, as its result kind
-||| says: no value, whose `IORes` holds the unit constructor named; or a
-||| value, its op's first result.
+||| What an IO primitive gives besides the next world, by how many values
+||| its action gives: none, whose `IORes` holds the unit constructor named;
+||| or one, the action's result.
 public export
-data IOGives : IOResult -> Type where
-  GivesUnit : Con 0 -> IOGives WorldOnly
-  GivesValue : IOGives ValueThenWorld
+data IOGives : Nat -> Type where
+  GivesUnit : Con 0 -> IOGives 0
+  GivesValue : IOGives 1
 
 ||| What a `let` binds: an Idris `let`'s binder, its type the one Idris
 ||| checked, which the TTC keeps; or a value the translation binds once
@@ -173,7 +172,7 @@ mutual
     PrimApp : {k : Nat} -> Loc -> Prim k -> (standsFor : Maybe Shown) -> Vect k (Term n) -> Term n
     ||| An IO primitive on its arguments, which end with the world, giving
     ||| the `IORes` (`res`) of what it gives and the next world.
-    Effect : Loc -> (p : IOPrim) -> IOGives (ioResult p) -> List (Term n) -> (res : Con 2) -> Term n
+    Effect : {o : Nat} -> Loc -> IOAction o -> IOGives o -> List (Term n) -> (res : Con 2) -> Term n
     ||| A saturated call, and the library definition it stands for when the
     ||| registry lowered that definition's call to it, as for a primitive.
     ||| `indices` are the terms its callee's erased index parameters are
@@ -375,7 +374,7 @@ mutual
     VarF : Loc -> Fin n -> TermF f n
     LiteralF : Loc -> Lit -> TermF f n
     PrimAppF : {k : Nat} -> Loc -> Prim k -> Maybe Shown -> Vect k (f n) -> TermF f n
-    EffectF : Loc -> (p : IOPrim) -> IOGives (ioResult p) -> List (f n) -> Con 2 -> TermF f n
+    EffectF : {o : Nat} -> Loc -> IOAction o -> IOGives o -> List (f n) -> Con 2 -> TermF f n
     CallF : Loc -> FnId -> Maybe Shown -> List ITerm -> List (f n) -> TermF f n
     ConAppF : {k : Nat} -> Loc -> Con k -> List ITerm -> Vect k (f n) -> TermF f n
     LetF : Loc -> Shown -> LetBinder -> f n -> f (Under 1 n) -> TermF f n

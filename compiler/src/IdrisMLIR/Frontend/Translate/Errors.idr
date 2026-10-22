@@ -29,28 +29,126 @@ isEmptyFC : FC -> Bool
 isEmptyFC EmptyFC = True
 isEmptyFC _ = False
 
+------------------------------------------------------------------------------
+-- The frontend's computations
+------------------------------------------------------------------------------
+
+||| What the frontend computes: Idris's own computation, whose errors are
+||| Idris's, giving either the value or the program's refusal. A refusal is
+||| a value of the computation, never an error beside it: Idris's `Error`
+||| cannot carry one, and the fork, which owns it, imports nothing of the
+||| frontend's.
+public export
+record Front a where
+  constructor MkFront
+  runFront : Core (Either Refusal a)
+
+export
+Functor Front where
+  map f (MkFront c) = MkFront (Core.map (map f) c)
+
+export
+Applicative Front where
+  pure x = MkFront (Core.pure (Right x))
+  MkFront cf <*> MkFront cx = MkFront $ Core.(>>=) cf $ \case
+    Left r => Core.pure (Left r)
+    Right f => Core.map (map f) cx
+
+export
+Monad Front where
+  MkFront cx >>= k = MkFront $ Core.(>>=) cx $ \case
+    Left r => Core.pure (Left r)
+    Right x => runFront (k x)
+
+||| Idris's errors pass through the frontend's computation as they are; a
+||| refusal is no error, so catching one leaves the refusals alone.
+export
+Catchable Front Error where
+  throw e = MkFront (throw e)
+  catch (MkFront c) h = MkFront (catch c (\e => runFront (h e)))
+  breakpoint (MkFront c) = MkFront $ Core.(>>=) (breakpoint c) $ \case
+    Left e => Core.pure (Right (Left e))
+    Right (Left r) => Core.pure (Left r)
+    Right (Right x) => Core.pure (Right (Right x))
+
+||| A computation that runs Idris's own: Idris's `Core`, as it is, and the
+||| frontend's, which refuses nothing there. Helpers that never refuse are
+||| written once for both.
+public export
+interface RunsCore m where
+  core : Core a -> m a
+
+export
+RunsCore Core where
+  core c = c
+
+export
+RunsCore Front where
+  core c = MkFront (Core.map Right c)
+
+||| The translation's state.
+export
+getState : RunsCore m => {auto s : Ref TState TS} -> m TS
+getState = core (get TState)
+
+||| The translation's state, replaced.
+export
+putState : RunsCore m => {auto s : Ref TState TS} -> TS -> m ()
+putState st = core (put TState st)
+
+||| The translation's state, changed.
+export
+updateState : RunsCore m => {auto s : Ref TState TS} -> (TS -> TS) -> m ()
+updateState f = core (update TState f)
+
+||| The definitions Idris has loaded.
+export
+getDefs : RunsCore m => {auto c : Ref Ctxt Defs} -> m Defs
+getDefs = core (get Ctxt)
+
+||| Something with every name in it full.
+export
+fullNames : RunsCore m => HasNames a => {auto c : Ref Ctxt Defs} -> a -> m a
+fullNames x = core (toFullNames x)
+
+||| The definition a context holds at a name, when it holds one.
+export
+lookupExact : RunsCore m => Name -> Context -> m (Maybe GlobalDef)
+lookupExact n ctx = core (lookupCtxtExact n ctx)
+
+||| An action of the host.
+export
+ioLift : RunsCore m => IO a -> m a
+ioLift act = core (coreLift act)
+
+||| The elements a test keeps, in order, the test run on each in turn.
+export
+keepIf : Monad m => (a -> m Bool) -> List a -> m (List a)
+keepIf p [] = pure []
+keepIf p (x :: xs) = do
+  keep <- p x
+  rest <- keepIf p xs
+  pure (if keep then x :: rest else rest)
+
 ||| Where a refusal at an Idris location is: there, or, at no location, at
 ||| the module being compiled.
 export
-siteAt : {auto s : Ref TState TS} -> FC -> Core NonEmptyFC
-siteAt fc = case isNonEmptyFC fc of
-  Just site => pure site
-  Nothing => (.moduleFC) <$> get TState
+siteAt : RunsCore m => {auto s : Ref TState TS} -> FC -> m NonEmptyFC
+siteAt fc = core $ case isNonEmptyFC fc of
+  Just site => Core.pure site
+  Nothing => Core.map (.moduleFC) (get TState)
 
-||| Refuses the program: the refusal is held as the one in flight, and an
-||| Idris error unwinds to `noting`, which records the refusal. The error is
-||| never printed: the refusal is what the program's compilation reports.
+||| Refuses the program: the refusal is the computation's value, which
+||| every step after it passes on untouched up to `noting`.
 export
-rejectWith : {auto s : Ref TState TS} -> Refusal -> Core a
-rejectWith r = do
-  update TState { inFlight := Just r }
-  throw (GenericMsg (justFC r.site) r.message)
+rejectWith : Refusal -> Front a
+rejectWith r = MkFront (Core.pure (Left r))
 
 ||| A user error, by the rule that refuses it, at a location (the module's
 ||| when Idris gives none), the message naming the definition that owns
 ||| what is refused.
 export
-reject : {auto s : Ref TState TS} -> {c : Category} -> FC -> String -> Rule c -> String -> Core a
+reject : {auto s : Ref TState TS} -> {c : Category} -> FC -> String -> Rule c -> String -> Front a
 reject fc owner rule what = do
   site <- siteAt fc
   rejectWith (MkRefusal (Refusal rule) site (owner ++ ": " ++ what))
@@ -58,7 +156,7 @@ reject fc owner rule what = do
 ||| A user error by a rule a registry row names, of whatever category the
 ||| row's rule is: as `reject` refuses.
 export
-refuse : {auto s : Ref TState TS} -> FC -> String -> SomeRule -> String -> Core a
+refuse : {auto s : Ref TState TS} -> FC -> String -> SomeRule -> String -> Front a
 refuse fc owner rule what = do
   site <- siteAt fc
   rejectWith (MkRefusal rule site (owner ++ ": " ++ what))
@@ -66,23 +164,24 @@ refuse fc owner rule what = do
 ||| A compiler bug, not the user's: Idris's own error for one, which the
 ||| frontend's exit status tells apart from every error of the program.
 export
-internal : FC -> String -> Core a
-internal fc msg = throw (InternalError (show fc ++ ": internal error: " ++ msg))
+internal : RunsCore m => FC -> String -> m a
+internal fc msg = core (throw (InternalError (show fc ++ ": internal error: " ++ msg)))
 
 ||| Runs one check, or translates one part, of the program so that its
-||| rejection does not stop the others: the refusal in flight, recorded once
+||| refusal does not stop the others: the part's refusal, recorded once
 ||| however many parts find it, or else the error Idris raised, and the part
-||| gives nothing. The compiler's own error still ends the run,
-||| since nothing after it can be trusted.
+||| gives nothing. The compiler's own error still ends the run, since
+||| nothing after it can be trusted.
 export
-noting : {auto s : Ref TState TS} -> Core a -> Core (Maybe a)
-noting part = catch (Just <$> part) $ \err => case err of
-  InternalError _ => throw err
-  _ => do
-    st <- get TState
-    let found = maybe (ByIdris err) Refused st.inFlight
-    put TState ({ inFlight := Nothing, rejected $= recorded found } st)
-    pure Nothing
+noting : {auto s : Ref TState TS} -> Front a -> Core (Maybe a)
+noting part = do
+  outcome <- catch (Core.map Right (runFront part)) $ \err => case err of
+               InternalError _ => throw err
+               _ => Core.pure (Left err)
+  case outcome of
+    Right (Right x) => Core.pure (Just x)
+    Right (Left r) => recordIt (Refused r)
+    Left err => recordIt (ByIdris err)
   where
     -- Two refusals are one when they are equal, by value. An error of
     -- Idris's has no equality, and no print stands for one: each is
@@ -91,12 +190,14 @@ noting part = catch (Just <$> part) $ \err => case err of
     same (Refused r) (Refused r') = r == r'
     same _ _ = False
 
-    recorded : Rejection -> SnocList Rejection -> SnocList Rejection
-    recorded r rs = if any (same r) rs then rs else rs :< r
+    recordIt : Rejection -> Core (Maybe a)
+    recordIt found = do
+      update TState { rejected $= \rs => if any (same found) rs then rs else rs :< found }
+      Core.pure Nothing
 
 ||| A check run as `noting` runs it, for what it finds alone.
 export
-noted : {auto s : Ref TState TS} -> Core () -> Core ()
+noted : {auto s : Ref TState TS} -> Front () -> Core ()
 noted check = ignore (noting check)
 
 ||| The rejections recorded so far, the first found first.
@@ -104,48 +205,62 @@ export
 rejections : {auto s : Ref TState TS} -> Core (List Rejection)
 rejections = pure ((!(get TState)).rejected <>> [])
 
-||| Where the code of a module comes from, as the registry gives its origin,
-||| and its source file when the project has one, both found anew.
-placeOf : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Span -> Core (Origin, Maybe String)
-placeOf ident sp = do
-  file <- moduleSource (MkFC (PhysicalIdrSrc ident) (sp.startLine, sp.startCol) (sp.endLine, sp.endCol)) ident
-  origin <- originOf ident
-  pure (origin, file)
-
-||| A span of a module as a Core location, the module's origin and source
-||| file found by `place`.
-inModule : (place : ModuleIdent -> Span -> Core (Origin, Maybe String)) -> ModuleIdent -> Span -> Core Loc
-inModule place ident sp = do
-  (origin, file) <- place ident sp
-  pure (MkLoc origin (InModule (shown (show ident)) file sp))
-
-||| An Idris location as a Core location, each module's origin and source
-||| file found by `place`. A package file is in no module.
-located : (place : ModuleIdent -> Span -> Core (Origin, Maybe String)) -> FC -> Core Loc
-located place (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = inModule place ident (MkSpan sl sc el ec)
-located place (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = inModule place ident (MkSpan sl sc el ec)
-located place (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = pure (MkLoc Generated (InPackage file (MkSpan sl sc el ec)))
-located place _ = pure noLoc
-
-||| An Idris location as a Core location, each module's origin and source
-||| file found once per module (`places`).
+||| A table of modules with some modules added, each given with where Idris
+||| found it: its origin, the registry's classification of its home and
+||| path; its source file, which only the project's modules have; and its
+||| printed name, read here once for every module the table is built over,
+||| so that no location searches for its module where it is met. A module
+||| the table holds is not read again.
 export
-toLoc : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Core Loc
-toLoc = located cached
-  where
-    cached : ModuleIdent -> Span -> Core (Origin, Maybe String)
-    cached ident sp = case lookup ident (!(get TState)).places of
-      Just known => pure known
-      Nothing => do
-        known <- placeOf ident sp
-        update TState { places $= insert ident known }
-        pure known
+modulesOf : {auto c : Ref Ctxt Defs} -> Modules -> List (ModuleIdent, Home) -> Core Modules
+modulesOf ms [] = pure ms
+modulesOf ms ((m, home) :: rest) = case lookup m ms of
+  Just _ => modulesOf ms rest
+  Nothing => do
+    file <- case home of
+              Project => moduleSource EmptyFC m
+              _ => pure Nothing
+    modulesOf (insert m (MkLoadedModule (moduleOrigin home (modulePath m)) file (shown (show m))) ms) rest
 
-||| A refusal as the module of a refused program carries it, its site the
-||| location `toLoc` gives, found anew: the program is no longer being
-||| translated when its refusals are written.
+||| The module a site is in, when it is in one: a package file and no
+||| location are in none.
 export
-moduleRefusal : {auto c : Ref Ctxt Defs} -> SomeRule -> NonEmptyFC -> String -> Core ModuleRefusal
-moduleRefusal rule site message = do
-  loc <- located placeOf (justFC site)
-  pure (MkModuleRefusal rule loc message)
+siteModule : NonEmptyFC -> Maybe ModuleIdent
+siteModule (PhysicalIdrSrc ident, _, _) = Just ident
+siteModule _ = Nothing
+
+||| A span of a module as a Core location, what the module is read from a
+||| table; nothing for a module the table lacks.
+inModule : Modules -> ModuleIdent -> Span -> Maybe Loc
+inModule ms ident sp = (\m => MkLoc m.origin (InModule m.printed m.source sp)) <$> lookup ident ms
+
+||| An Idris location as a Core location, what its module is read from a
+||| table; nothing for a module the table lacks. A package file is in no
+||| module, and code at no location is generated.
+located : Modules -> FC -> Maybe Loc
+located ms (MkFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = inModule ms ident (MkSpan sl sc el ec)
+located ms (MkVirtualFC (PhysicalIdrSrc ident) (sl, sc) (el, ec)) = inModule ms ident (MkSpan sl sc el ec)
+located ms (MkFC (PhysicalPkgSrc file) (sl, sc) (el, ec)) = Just (MkLoc Generated (InPackage file (MkSpan sl sc el ec)))
+located ms _ = Just noLoc
+
+||| An Idris location as a Core location, what its module is read from the
+||| session's table (`TS.modules`). A location Idris gives a term is in the
+||| module that term was elaborated in, which the session loaded to hold
+||| the term, and the frontend locates its own refusals in the modules it
+||| reads: a location outside the table is the compiler's error.
+export
+toLoc : RunsCore m => {auto s : Ref TState TS} -> FC -> m Loc
+toLoc fc = core $ do
+  st <- get TState
+  case located st.modules fc of
+    Just loc => Core.pure loc
+    Nothing => internal fc "a location in a module the session did not load"
+
+||| A refusal as the module of a refused program carries it, its site's
+||| module read from a table built over every refusal's module
+||| (`Driver.refusing`), the modules Idris could not load among them.
+export
+moduleRefusal : Modules -> SomeRule -> NonEmptyFC -> String -> Core ModuleRefusal
+moduleRefusal ms rule site message = case located ms (justFC site) of
+  Just loc => pure (MkModuleRefusal rule loc message)
+  Nothing => internal (justFC site) "a refusal in a module its table was not built over"

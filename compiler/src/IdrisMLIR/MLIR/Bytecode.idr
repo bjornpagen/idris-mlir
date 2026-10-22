@@ -36,6 +36,10 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.MLIR.Parts
+import IdrisMLIR.Spec.Core.Enums
+import IdrisMLIR.Spec.Families.Dialect
+import IdrisMLIR.Spec.Families.Group
+import IdrisMLIR.Spec.Families.Terms
 
 import Control.Monad.Error.Either
 import Data.Buffer
@@ -494,10 +498,18 @@ mutual
   idrType w (FnType sig) = encodeFnType <$> heldSignature w sig
   idrType w (LazyType v) = encodeLazyType <$> held w v
   idrType w (GradedType uses hold v) = encodeGradedType uses hold <$> held w v
+  -- A data type's refinement is an optional attribute: none unrefined, an
+  -- array of the tags it is refined to otherwise, empty when uninhabited.
+  -- No constructor's binders are left for the type to state: a case binds
+  -- them as index variables of its region.
   idrType w (DataType group member indices tags) =
-    encodeDataType <$> attrAt w group <*> pure member <*> termNodes w indices <*> pure tags
-  idrType w (SelfType member indices) = encodeSelfType member <$> termNodes w indices
-  idrType w (DestType v) = encodeDestType <$> held w v
+    encodeDataType <$> attrAt w group <*> pure member <*> termsParts w indices <*> refinement tags
+                   <*> termsParts w []
+    where
+      refinement : Maybe (List Nat) -> W (List Part)
+      refinement Nothing = pure [OptionalAttrAt Nothing]
+      refinement (Just ts) = (\r => [OptionalAttrAt (Just r)]) <$> attrNumber w (DenseI32ArrayAttr ts)
+  idrType w (SelfType member indices) = encodeSelfType member <$> termsParts w indices
 
   ||| A type's entry.
   export
@@ -532,53 +544,100 @@ mutual
   attrAt : Writer -> MlirAttr -> W (List Part)
   attrAt w a = (\r => [AttrAt r]) <$> attrNumber w a
 
-  ||| An index term's nodes in preorder, each its kind's parts, a literal,
-  ||| a constructor's family group and a count by their entries.
+  ||| Index terms as the dialect's reader takes them: how many nodes, then
+  ||| each node in preorder, its kind's number in the specification's set of
+  ||| kinds and its payload. A type standing as an index is a constant, a
+  ||| literal of its type attribute; a constructor names its group (none
+  ||| for one of the group being declared), its member, its tag and how many
+  ||| terms it is applied to.
+  termsParts : Writer -> List (TermNode MlirType MlirAttr) -> W (List Part)
+  termsParts w ns = (VarInt (length ns) ::) <$> termNodes w ns
+
+  ||| How many whole terms a run of nodes in preorder holds: a node with no
+  ||| term above it still owed children begins a term, and owes its own.
+  countTerms : List (TermNode MlirType MlirAttr) -> Nat
+  countTerms = go 0 0
+    where
+      children : TermNode MlirType MlirAttr -> Nat
+      children (SuccNode _) = 1
+      children (ConNode _ _ _ arity) = arity
+      children _ = 0
+      go : (whole, owed : Nat) -> List (TermNode MlirType MlirAttr) -> Nat
+      go whole owed [] = whole
+      go whole Z (n :: ns) = go (S whole) (children n) ns
+      go whole (S owed) (n :: ns) = go whole (owed + children n) ns
+
   termNodes : Writer -> List (TermNode MlirType MlirAttr) -> W (List Part)
   termNodes w [] = pure []
   termNodes w (n :: ns) = (++) <$> termNode w n <*> termNodes w ns
 
-  termNode : Writer -> TermNode MlirType MlirAttr -> W (List Part)
-  termNode w (NatNode k) = pure (encodeNatNode k)
-  termNode w (VarNode k) = pure (encodeVarNode k)
-  termNode w (SuccNode k) = pure (encodeSuccNode k)
-  termNode w (LitNode a) = encodeLitNode <$> attrAt w a
-  termNode w (TypeNode t) = encodeTypeNode <$> held w t
-  termNode w (ConNode group member tag) = encodeConNode <$> attrAt w group <*> pure member <*> pure tag
-  termNode w OpaqueNode = pure encodeOpaqueNode
+  kindOf : TermKind -> Part
+  kindOf k = VarInt (position termKindClosed k)
 
-  ||| A sort's parts: a scalar's type and a family member's group by their
-  ||| entries.
+  termNode : Writer -> TermNode MlirType MlirAttr -> W (List Part)
+  termNode w (NatNode k) = pure [kindOf Natural, VarInt k]
+  termNode w (VarNode k) = pure [kindOf Level, VarInt k]
+  termNode w (SuccNode k) = pure [kindOf Successor, VarInt k]
+  termNode w (LitNode a) = (\r => [kindOf Literal, AttrAt r]) <$> attrNumber w a
+  termNode w (TypeNode t) = (\r => [kindOf Literal, AttrAt r]) <$> attrNumber w (TypeAttr t)
+  termNode w (ConNode group member tag arity) =
+    (\r => [kindOf Constructor, OptionalAttrAt (Just r), VarInt member, VarInt tag, VarInt arity])
+      <$> attrNumber w group
+  termNode w OpaqueNode = pure [kindOf Opaque]
+
+  ||| A sort as the dialect's reader takes it: its kind's number in the
+  ||| specification's set of kinds, then a scalar's type, or a family
+  ||| member's group and member.
   sortParts : Writer -> SortOf MlirType MlirAttr -> W (List Part)
-  sortParts w NatSort = pure encodeNatSort
-  sortParts w TypeSort = pure encodeTypeSort
-  sortParts w OpaqueSort = pure encodeOpaqueSort
-  sortParts w (ScalarSort t) = encodeScalarSort <$> held w t
-  sortParts w (FamilySort group member) = encodeFamilySort <$> attrAt w group <*> pure member
+  sortParts w NatSort = pure [VarInt (position sortKindClosed NatSort)]
+  sortParts w TypeSort = pure [VarInt (position sortKindClosed TypeSort)]
+  sortParts w OpaqueSort = pure [VarInt (position sortKindClosed OpaqueSort)]
+  sortParts w (ScalarSort t) = (VarInt (position sortKindClosed ScalarSort) ::) <$> held w t
+  sortParts w (FamilySort group member) =
+    (\r => [VarInt (position sortKindClosed FamilySort), OptionalAttrAt (Just r), VarInt member])
+      <$> attrNumber w group
+
+  ||| Sorts as the dialect's reader takes a list of them: how many, then
+  ||| each.
+  sortsList : Writer -> List (SortOf MlirType MlirAttr) -> W (List Part)
+  sortsList w xs = (\ps => VarInt (length xs) :: concat ps) <$> sortsParts w xs
 
   sortsParts : Writer -> List (SortOf MlirType MlirAttr) -> W (List (List Part))
   sortsParts w [] = pure []
   sortsParts w (x :: xs) = (::) <$> sortParts w x <*> sortsParts w xs
 
-  ||| A constructor's declaration: its label, binder sorts, equation and
-  ||| fields, each type by its entry.
+  ||| A constructor's declaration as the dialect's reader takes it: its
+  ||| label, its binders' sorts, its equation's terms, and its fields'
+  ||| types, how many and then each by its entry.
   ctorParts : Writer -> CtorDecl MlirType MlirAttr -> W (List Part)
   ctorParts w (MkCtorDecl label binders equation fields) =
-    encodeCtorDecl label <$> sortsParts w binders <*> termNodes w equation <*> heldAll w fields
+    (\bs, eq, fs => Str label :: bs ++ eq ++ VarInt (length fields) :: concat fs)
+      <$> sortsList w binders <*> termsParts w equation <*> heldAll w fields
 
-  ctorsParts : Writer -> List (CtorDecl MlirType MlirAttr) -> W (List (List Part))
-  ctorsParts w [] = pure []
-  ctorsParts w (c :: cs) = (::) <$> ctorParts w c <*> ctorsParts w cs
+  ctorsParts : Writer -> List (CtorDecl MlirType MlirAttr) -> W (List Part)
+  ctorsParts w cs = (VarInt (length cs) ::) <$> eachCtor w cs
 
-  ||| A data member of a group: its label, promise, location, index sorts
-  ||| and constructors.
+  eachCtor : Writer -> List (CtorDecl MlirType MlirAttr) -> W (List Part)
+  eachCtor w [] = pure []
+  eachCtor w (c :: cs) = (++) <$> ctorParts w c <*> eachCtor w cs
+
+  ||| A data member of a group as the dialect's reader takes it: its kind
+  ||| among the members' kinds, its label, its promise's number, its
+  ||| location, its index sorts and its constructors. The frontend declares
+  ||| data members alone; defunctionalization's passes add the others.
   memberParts : Writer -> FamilyMember MlirType MlirAttr -> W (List Part)
   memberParts w (MkFamilyMember label promise loc indices ctors) =
-    encodeFamilyMember label promise <$> attrAt w loc <*> sortsParts w indices <*> ctorsParts w ctors
+    (\l, is, cs => [VarInt (position memberKindClosed Data), Str label, VarInt (position promiseClosed promise), AttrAt l]
+                    ++ is ++ cs)
+      <$> attrNumber w loc <*> sortsList w indices <*> ctorsParts w ctors
 
-  membersParts : Writer -> List (FamilyMember MlirType MlirAttr) -> W (List (List Part))
-  membersParts w [] = pure []
-  membersParts w (m :: ms) = (::) <$> memberParts w m <*> membersParts w ms
+  ||| A group's members: how many, then each.
+  membersParts : Writer -> List (FamilyMember MlirType MlirAttr) -> W (List Part)
+  membersParts w ms = (VarInt (length ms) ::) <$> eachMember w ms
+
+  eachMember : Writer -> List (FamilyMember MlirType MlirAttr) -> W (List Part)
+  eachMember w [] = pure []
+  eachMember w (m :: ms) = (++) <$> memberParts w m <*> eachMember w ms
 
   ||| An attribute's entry: an array, a dictionary, a type, a string and a
   ||| float are builtin's records, every `idr` attribute the dialect's; an
@@ -607,12 +666,12 @@ mutual
   idrAttr : Writer -> IdrAttr MlirType MlirAttr -> W (List Part)
   idrAttr w (FamiliesAttr members) = encodeFamiliesAttr <$> membersParts w members
   idrAttr w (BigAttr n) = pure (encodeBigAttr n)
-  idrAttr w (SiteAttr file line column) = pure (encodeSiteAttr file line column)
+  idrAttr w (SiteAttr file line column function) = pure (encodeSiteAttr file line column function)
   idrAttr w (InstanceAttr origin arguments) = pure (encodeInstanceAttr origin arguments)
   idrAttr w MutableSpaceAttr = pure encodeMutableSpaceAttr
   idrAttr w (TerminatesAttr proof) = pure (encodeTerminatesAttr proof)
-  idrAttr w (IndexBindersAttr sorts) = encodeIndexBindersAttr <$> sortsParts w sorts
-  idrAttr w (IndexArgsAttr terms) = encodeIndexArgsAttr <$> termNodes w terms
+  idrAttr w (IndexBindersAttr sorts) = encodeIndexBindersAttr <$> sortsList w sorts
+  idrAttr w (IndexArgsAttr terms) = encodeIndexArgsAttr <$> termsParts w terms <*> pure (countTerms terms)
 
   attrNumbers : Writer -> List MlirAttr -> W (List AttrRef)
   attrNumbers w [] = pure []

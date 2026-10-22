@@ -6,7 +6,6 @@
 ||| registry compares.
 module IdrisMLIR.Frontend.Resolve
 
-import Core.Binary
 import Core.Context
 import Core.Core
 import Core.Directory
@@ -16,8 +15,6 @@ import Core.Name.Namespace
 import Core.Options
 import Core.TT
 import Idris.Host
-import Idris.Version
-import Libraries.Data.Version
 import Libraries.Utils.Path
 
 import IdrisMLIR.Registry
@@ -61,78 +58,43 @@ export
 modulePath : ModuleIdent -> List String
 modulePath ident = reverse (unsafeUnfoldModuleIdent ident)
 
-||| A module given by its path, outermost first.
-export
-moduleIdent : List String -> ModuleIdent
-moduleIdent path = unsafeFoldModuleIdent (reverse path)
-
-||| Where Idris found the TTC it loaded a module from. The module it
-||| elaborates from source is in no TTC, and is the project's. An
-||| installed module's TTC is `<package>-<version>/<ttc version>/<path>.ttc`.
-||| That directory is the package, under the prefix or on the package
-||| search path alike: a test installs into a fresh prefix and leaves the
-||| libraries on the search path. The module's name says nothing about it.
-homeOf : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Core Home
-homeOf ident = do
-  defs <- get Ctxt
-  case lookup ident (map (\(file, (m, _, _)) => (m, file)) defs.allImported) of
-    Nothing => pure Project
-    Just file => do
-      let own = ModuleIdent.toPath ident <.> "ttc"
-      bdir <- ttcBuildDirectory
-      pure $ if dropBase bdir file == Just own then Project
-             else fromMaybe Elsewhere (installed own (splitPath file))
-  where
-    ||| The name before a package directory's `-<version>`.
-    packageName : String -> Maybe String
-    packageName dir =
-      case break (== '-') (reverse (unpack dir)) of
-        (ver, '-' :: name) =>
-          if not (null ver) && not (null name) && all (\c => isDigit c || c == '.') ver
-             then Just (pack (reverse name)) else Nothing
-        _ => Nothing
-    ||| The package whose directory sits above this TTC's version directory.
-    installed : String -> List String -> Maybe Home
-    installed own parts = search parts
-      where
-        ver : String
-        ver = show ttcVersion
-        search : List String -> Maybe Home
-        search (dir :: v :: rest) =
-          if v == ver && splitPath own == rest then
-            case packageName dir of
-              Just name => Just (Installed name)
-              Nothing => search (v :: rest)
-          else search (v :: rest)
-        search _ = Nothing
-
-||| Where the code of a module comes from (the registry's library table),
-||| by the package Idris loaded it from, never by its name alone.
-export
-originOf : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Core Origin
-originOf ident = pure (moduleOrigin !(homeOf ident) (modulePath ident))
+||| Where Idris found a checked module it loaded, as the search recorded it
+||| when it found the TTC: in the project's build directory, in a package
+||| the build added, or in a directory named for imports. The module's name
+||| says nothing about it.
+homeOf : Found -> Home
+homeOf InBuild = Project
+homeOf (InPackage p) = Installed p.name
+homeOf (InExtraDir _) = Elsewhere
 
 ||| The checked module Idris reloads as the file just elaborated has no name.
-unnamed : (String, (ModuleIdent, Bool, Namespace)) -> Bool
-unnamed (_, (m, _, _)) = null (unsafeUnfoldModuleIdent m)
+unnamed : Loaded -> Bool
+unnamed l = null (unsafeUnfoldModuleIdent l.ident)
 
-||| The file just elaborated, recovered from the checked module Idris
-||| reloads with no name. Its path is the file's, which need not be the
-||| module's: a file with no module header is `Main` whatever it is called.
+||| The checked module of the file just elaborated, which Idris reloads
+||| with no name once it has built it: nothing before then.
+export
+elaboratedChecked : {auto c : Ref Ctxt Defs} -> Core (Maybe String)
+elaboratedChecked = do
+  defs <- get Ctxt
+  pure (case map (.file) (filter unnamed defs.allImported) of
+          [ttc] => Just ttc
+          _ => Nothing)
+
+||| The file just elaborated, recovered from its checked module. Its path
+||| is the file's, which need not be the module's: a file with no module
+||| header is `Main` whatever it is called.
 elaboratedFile : {auto c : Ref Ctxt Defs} -> Core (Maybe String)
 elaboratedFile = do
-  defs <- get Ctxt
-  let ttcs = map fst (filter unnamed defs.allImported)
-  case ttcs of
-    [ttc] => do
-      bdir <- ttcBuildDirectory
-      let Just rel = dropBase bdir ttc
-        | Nothing => pure Nothing
-      d <- getDirs
-      let stem = dropExtensions rel
-      let base = maybe stem (\srcdir => srcdir </> stem) (source_dir d)
-      firstAvailable (map (base ++) listOfExtensionsStr)
-    _ => pure Nothing
+  Just ttc <- elaboratedChecked
+    | Nothing => pure Nothing
+  bdir <- ttcBuildDirectory
+  let Just rel = dropBase bdir ttc
+    | Nothing => pure Nothing
+  d <- getDirs
+  let stem = dropExtensions rel
+  let base = maybe stem (\srcdir => srcdir </> stem) (source_dir d)
+  firstAvailable (map (base ++) listOfExtensionsStr)
 
 ||| The source of a module of the project. It is the file named for the
 ||| module, except the main module, which Idris allows to be any file: that
@@ -146,6 +108,19 @@ moduleSource fc ident = do
       elaborated <- elaboratedFile
       pure (elaborated <|> named)
     else pure named
+
+||| Every checked module the session loaded, by name, each with where Idris
+||| found it and its checked file (`allImported`): with the main file, the
+||| modules a term of the program can be located in, since Idris locates a
+||| term in the module it elaborated it in. The file just elaborated is
+||| reloaded under no name (`elaboratedChecked`); it is the project's, and
+||| its terms are located in the module its path names, which is its
+||| namespace but for a file with no module header.
+export
+loadedModules : {auto c : Ref Ctxt Defs} -> Core (List (ModuleIdent, Home, String))
+loadedModules = do
+  defs <- get Ctxt
+  pure (map (\l => (l.ident, homeOf l.foundIn, l.file)) (filter (not . unnamed) defs.allImported))
 
 ------------------------------------------------------------------------------
 -- Refusals
@@ -283,20 +258,27 @@ validate fallback = check entries
     wrong : FC -> QName -> String -> Refusal
     wrong loc q msg = MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC loc)) (show q ++ ": " ++ msg)
 
-    check : List Entry -> Core (Maybe Refusal)
+    check : List AnyEntry -> Core (Maybe Refusal)
     check [] = pure Nothing
     check (e :: es) = case site e of
       Nothing => check es
       Just (q, expected) => do
         defs <- get Ctxt
-        let loaded = map (\(_, (m, _, _)) => modulePath m) defs.allImported
+        let loaded = map (\l => modulePath l.ident) defs.allImported
         Just def <- lookupCtxtExact (toName q) (gamma defs)
           | Nothing => if inModules loaded q then pure (Just (wrong EmptyFC q (mismatch e Missing)))
                        else check es
-        let declared = case (e.key, definition def) of
+        let declared = case (e.entry.key, definition def) of
                          (Foreign _, ForeignDef _ specs) => declares e specs
                          (Foreign _, _) => False
                          _ => True
+        -- The definition's normalised shape where it does not conform to
+        -- the one the entry expects.
+        let unlike : Shape -> Core (Maybe Shape)
+            unlike shape = do
+              ty <- toFullNames (!(host.normalise defs (type def))).value
+              let found = shapeOf ty
+              pure (if conforms shape found then Nothing else Just found)
         if not declared then pure (Just (wrong (location def) q (mismatch e Undeclared))) else
           case expected of
             -- A bodiless declaration is its own shape: there is nothing of
@@ -305,8 +287,16 @@ validate fallback = check entries
             IsBodiless => case definition def of
               ExternDef _ => check es
               _ => pure (Just (wrong (location def) q (mismatch e Bodied)))
-            HasShape shape => do
-              ty <- toFullNames !(host.normalise defs Env.Nil (type def))
-              let found = shapeOf ty
-              if conforms shape found then check es
-                 else pure (Just (wrong (location def) q (mismatch e (Found found))))
+            HasShape shape => case !(unlike shape) of
+              Nothing => check es
+              Just found => pure (Just (wrong (location def) q (mismatch e (Found found))))
+            -- A faster entry lowers a body that is the definition's meaning,
+            -- which a build without the faster entries runs: a definition
+            -- with no body would have no meaning there.
+            WithBody shape => case (definition def, !(unlike shape)) of
+              (PMDef {}, Nothing) => check es
+              (TCon _ _ _ _ _ (Just (_ :: _)) _, Nothing) => check es
+              (PMDef {}, Just found) => pure (Just (wrong (location def) q (mismatch e (Found found))))
+              (TCon _ _ _ _ _ (Just (_ :: _)) _, Just found) =>
+                pure (Just (wrong (location def) q (mismatch e (Found found))))
+              _ => pure (Just (wrong (location def) q (mismatch e Unbodied)))

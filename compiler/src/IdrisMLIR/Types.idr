@@ -11,11 +11,12 @@
 ||| are not data at all: they are `NatT`, a natural as a number.
 module IdrisMLIR.Types
 
-import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Ids
 import IdrisMLIR.MLIR
-import IdrisMLIR.Spec.Ops.Comparisons
+import IdrisMLIR.Spec.Core.Op as Spec
+import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Grades.Grade
+import IdrisMLIR.Spec.Runtime.Clocks
 
 import Data.String
 import Data.Vect
@@ -475,23 +476,23 @@ data Prim : Nat -> Type where
   Negate : Prim 1
   Math1 : UnaryMath -> Prim 1
   Pow : Prim 2
-  Compare : CmpPredicate -> Scalar -> Prim 2
+  Compare : Comparison -> Scalar -> Prim 2
   Cast : Conversion -> Prim 1
-  StrCompare : CmpPredicate -> Prim 2
+  StrCompare : Comparison -> Prim 2
   ||| A scalar shown as a string.
   ToStr : Scalar -> Prim 1
   ||| A string read as a number.
   FromStr : Numeric -> Prim 1
-  BigCompare : CmpPredicate -> Prim 2
+  BigCompare : Comparison -> Prim 2
   ToBig : Scalar -> Prim 1
   FromBig : Scalar -> Prim 1
-  NatCompare : CmpPredicate -> Prim 2
+  NatCompare : Comparison -> Prim 2
   ||| The number of elements of an array a world orders, of this element
   ||| type: the dimension of its memref.
   ArrayLength : Ty -> Prim 1
   ||| The op of a pure primitive of the dialect, on its operands in the op's
   ||| order, each at its own type, giving a value of `result`.
-  Op : (p : PurePrim) -> (result : Ty) -> Prim (primArity p)
+  Op : {i : Nat} -> (op : Spec.Op i 1 0 0) -> (result : Ty) -> Prim i
 
 export
 Show ArithOp where
@@ -565,7 +566,7 @@ Show (Prim k) where
   show (FromBig s) = "cast_Integer" ++ show s
   show (NatCompare op) = show op ++ "_Nat"
   show (ArrayLength e) = "arraySize<" ++ show e ++ ">"
-  show (Op p _) = pureName p
+  show (Op op _) = opName op
 
 ||| The Core type of an integral scalar.
 public export
@@ -601,4 +602,101 @@ slots (ToBig s) = [Just (scalarTy s)]
 slots (FromBig _) = [Just BigT]
 slots (NatCompare _) = [Just NatT, Just NatT]
 slots (ArrayLength e) = [Just (MemRefT Elements e)]
-slots (Op p _) = replicate (primArity p) Nothing
+slots (Op {i} _ _) = replicate i Nothing
+
+------------------------------------------------------------------------------
+-- IO primitives
+------------------------------------------------------------------------------
+
+||| An access to an array a world orders (`ArrayData`, an IORef's cell, a
+||| buffer's bytes), by what it does: a new array, each element the fill;
+||| an element read; an element written. Each is its op of the dialect at
+||| the rank the array's type has, one size or index per dimension, none
+||| for a cell, and a size or index reaches the op as an `index`.
+public export
+data ArrayAccess = NewArray | GetElement | SetElement
+
+||| How many values an access gives.
+public export
+accessResults : ArrayAccess -> Nat
+accessResults NewArray = 1
+accessResults GetElement = 1
+accessResults SetElement = 0
+
+||| A move of a buffer's bytes, within the buffer or between it and a
+||| handle, each behind the check that its span lies in the buffer: a word
+||| loaded or stored at an offset, its width the call's type; bytes copied
+||| from one buffer into another; a string's bytes written, or a run read
+||| as a string; bytes written to a handle, or read from one.
+public export
+data BufferMove = LoadWord | StoreWord | CopyBytes | SetString | GetString | WriteBytes | ReadBytes
+
+||| How many values a move gives.
+public export
+moveResults : BufferMove -> Nat
+moveResults LoadWord = 1
+moveResults StoreWord = 0
+moveResults CopyBytes = 0
+moveResults SetString = 0
+moveResults GetString = 1
+moveResults WriteBytes = 1
+moveResults ReadBytes = 1
+
+||| What a clock's reading tells, as arithmetic on the reading's encoding:
+||| whether the clock was read, its seconds, its nanoseconds.
+public export
+data ClockQuery = Valid | Seconds | Nanoseconds
+
+||| How many values an IO action gives, as a call's `IORes` holds them:
+||| none, or one.
+public export
+data Gives : Nat -> Type where
+  GivesNone : Gives 0
+  GivesOne : Gives 1
+
+||| What an IO primitive does, indexed by how many values it gives: an op of
+||| the dialect with no attribute, whose every operand group is one operand,
+||| on the call's operands, giving what an `IORes` holds; a reading of a
+||| clock of a kind; a reading of a clock no program has (the collector's),
+||| which is the mark of an unread clock; a query of a reading; an access
+||| to an array a world orders; a move of a buffer's bytes; the end of the
+||| process; or nothing, where the platform has nothing to do (setting up a
+||| terminal, which only another system needs).
+public export
+data IOAction : Nat -> Type where
+  Runs : {i, o : Nat} -> {auto gives : Gives o} -> Spec.Op i o 0 0 -> IOAction o
+  ReadsClock : ClockKind -> IOAction 1
+  NeverRead : IOAction 1
+  Queries : ClockQuery -> IOAction 1
+  Accesses : (a : ArrayAccess) -> IOAction (accessResults a)
+  Moves : (m : BufferMove) -> IOAction (moveResults m)
+  Exits : IOAction 0
+  DoesNothing : IOAction 0
+
+||| How many values an action gives.
+public export
+actionGives : IOAction o -> Gives o
+actionGives (Runs {gives} _) = gives
+actionGives (ReadsClock _) = GivesOne
+actionGives NeverRead = GivesOne
+actionGives (Queries _) = GivesOne
+actionGives (Accesses NewArray) = GivesOne
+actionGives (Accesses GetElement) = GivesOne
+actionGives (Accesses SetElement) = GivesNone
+actionGives (Moves LoadWord) = GivesOne
+actionGives (Moves StoreWord) = GivesNone
+actionGives (Moves CopyBytes) = GivesNone
+actionGives (Moves SetString) = GivesNone
+actionGives (Moves GetString) = GivesOne
+actionGives (Moves WriteBytes) = GivesOne
+actionGives (Moves ReadBytes) = GivesOne
+actionGives Exits = GivesNone
+actionGives DoesNothing = GivesNone
+
+||| An IO primitive with how many values it gives, as a registry row names
+||| one.
+public export
+record SomeAction where
+  constructor MkSomeAction
+  {results : Nat}
+  action : IOAction results

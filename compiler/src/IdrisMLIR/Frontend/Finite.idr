@@ -354,14 +354,14 @@ wake dicts (ws :< w@(it, fields)) =
 ||| translation reports is independent. It still waits on the fields it
 ||| took as never built: given one, it is rejected for what it then finds.
 worklist : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           (translate : Request -> Core ()) -> (b : Bounds) -> SortedMap Position Nat ->
+           (translate : Request -> Front ()) -> (b : Bounds) -> SortedMap Position Nat ->
            (0 gen : List (List Request)) -> (0 acc : Accessible (Follows (Fresh b)) gen) ->
            (todo : List (Subset Item (Member gen))) -> (next : List (Subset Item (Below b gen))) ->
            SnocList (Waiting b) -> Core (SnocList (Waiting b))
 worklist translate b bounds gen acc@(Access _) (Element it here :: todo) next waiting = do
   update TState { chain := chainOf it, assumed := empty }
   before <- get TState
-  result <- noting (do translate it.request; requestedUnder b bounds (chainOf it))
+  result <- noting (do translate it.request; core (requestedUnder b bounds (chainOf it)))
   after <- get TState
   let waiting' = waitOn (Element it (resumes acc here)) after.assumed waiting
   case result of
@@ -409,7 +409,7 @@ fieldIn b given@(f, d) = do
 ||| construction site gives.
 export
 translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                (root : Core (Maybe FnId)) -> (translate : Request -> Core ()) -> Core (Maybe FnId)
+                (root : Core (Maybe FnId)) -> (translate : Request -> Front ()) -> Core (Maybe FnId)
 translateFrom root translate = do
   update TState translating
   start <- get TState
