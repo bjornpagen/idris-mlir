@@ -207,6 +207,7 @@ private:
             },
             [](const FlowEdges::Unify &) {}, [](const FlowEdges::Source &) {},
             [](const FlowEdges::Release &) {}, [](const FlowEdges::Overwrite &) {},
+            [](const FlowEdges::Fill &) {},
             [](const FlowEdges::Dispatch &) {});
   }
 

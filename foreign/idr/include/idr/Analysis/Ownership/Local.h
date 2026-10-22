@@ -206,7 +206,8 @@ void forEachTerm(const FlowEdges &edges, OnTerm &&term, OnFresh &&fresh) {
           filled(unify.b, unify.a);
         },
         [](const FlowEdges::Source &) {}, [](const FlowEdges::Release &) {},
-        [](const FlowEdges::Overwrite &) {}, [](const FlowEdges::Dispatch &) {});
+        [](const FlowEdges::Overwrite &) {}, [](const FlowEdges::Fill &) {},
+        [](const FlowEdges::Dispatch &) {});
 }
 
 // What the terms give a value of `origin`, each source's claim asked of

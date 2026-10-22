@@ -135,6 +135,7 @@ bool takesRaised(OpOperand &use) {
         [&](const idr::FlowEdges::Overwrite &overwrite) {
           named |= overwrite.place.of == use.get();
         },
+        [&](const idr::FlowEdges::Fill &fill) { named |= fill.place.of == use.get(); },
         [](const idr::OneOf<idr::FlowEdges::Source, idr::FlowEdges::Fresh, idr::FlowEdges::Constant,
                             idr::FlowEdges::Dispatch> auto &) {});
   return built || !named;

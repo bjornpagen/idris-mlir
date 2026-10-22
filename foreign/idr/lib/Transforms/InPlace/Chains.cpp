@@ -232,7 +232,7 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
               [](const OneOf<FlowSource::Parameter, FlowSource::Result> auto &) {});
         },
         [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release,
-                       FlowEdges::Overwrite, FlowEdges::Dispatch> auto &) {});
+                       FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Dispatch> auto &) {});
   }
   if (!explained)
     ends.push_back(cause(op, Why::Unexplained));

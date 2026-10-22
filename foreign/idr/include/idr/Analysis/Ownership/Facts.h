@@ -71,12 +71,13 @@ concept WholePlace = OneOf<T, FlowSource::Whole, FlowSource::Parameter, FlowSour
 // A move that is no flow from a source into a place.
 template <class T>
 concept NoFlow = OneOf<T, FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh,
-                       FlowEdges::Release, FlowEdges::Overwrite, FlowEdges::Constant,
-                       FlowEdges::Dispatch>;
+                       FlowEdges::Release, FlowEdges::Overwrite, FlowEdges::Fill,
+                       FlowEdges::Constant, FlowEdges::Dispatch>;
 // A move that neither takes a use over nor gives one up.
 template <class T>
 concept KeepsUses = OneOf<T, FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh,
-                          FlowEdges::Overwrite, FlowEdges::Constant, FlowEdges::Dispatch>;
+                          FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Constant,
+                          FlowEdges::Dispatch>;
 
 // How far a claim on a value's own cells reaches into the part `anchor`
 // names: a field's declaration says (fieldReach); the elements, the forced
