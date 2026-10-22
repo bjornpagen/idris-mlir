@@ -10,13 +10,14 @@
 ||| position its writer reads a parameter at, as heavy as the most that
 ||| parameter's occurrences carry (`weights`); a field of a dictionary an
 ||| arc from that field's position of every implementation its record can
-||| be (`fieldRoots`); a member of a choice an arc from the choice's
-||| position; and an applied family that gives an implementation, an arc
-||| from every position of every implementation it can be (`heldRoots`). A
-||| part under a computation draws Stuck arcs, which no feasible potential
-||| satisfies (`measuredOnly`), so it needs no other covering. The order of
-||| the arcs is the order the check reads them in: each site's own, then
-||| each site's from what applied families give, fields and choices.
+||| be (`fieldRoots`); a member of a choice an arc from each position its
+||| members are read from; and an applied family that gives an
+||| implementation, an arc from every position of every implementation it
+||| can be (`heldRoots`). A part under a computation draws Stuck arcs, which
+||| no feasible potential satisfies (`measuredOnly`), so it needs no other
+||| covering. The order of the arcs is the order the check reads them in:
+||| each site's own, then each site's from what applied families give,
+||| fields and choices.
 module IdrisMLIR.Proof.Describes
 
 import IdrisMLIR.Proof.Bound
@@ -107,8 +108,8 @@ mutual
   ||| Every field's, member's and applied family's value in a template read
   ||| here: what an applied family gives is a head over its
   ||| implementation's arguments, a level down; a field is what its
-  ||| position holds, whatever its record writes; a member is what its
-  ||| choice's position holds.
+  ||| position holds, whatever its record writes; a member is what a
+  ||| position its members are read from holds.
   public export
   carriedAt : (Template -> List Address) -> Depth -> Template -> Carried
   carriedAt rts at (Field k rec) = MkCarried (fieldRoots rts at k rec) [] []

@@ -31,7 +31,11 @@
 ||| with no head holds a function that gives an implementation at each use
 ||| (a rank-2 dictionary, `Gives`): a callee given it is given it as
 ||| written and keyed by nothing, and a dispatch through it reads the
-||| flow's set, so it reaches every member's method.
+||| flow's set, so it reaches every member's method. So what reaches a slot
+||| is a heading, an implementation or no head (`Heading`): a set of
+||| implementations alone could not say that a callee keyed by it is also
+||| reached at no head, which a choice whose members are partly computed
+||| by a definition needs.
 |||
 ||| A family (a type parameter whose kind is a function into a universe:
 ||| `tm : Scope -> Type`, a functor's `f`) splits its definition the same
@@ -80,19 +84,49 @@ import Decidable.Equality
 -- Where a dictionary can flow: parameter j of a definition or constructor
 -- (kind 0), field k of an implementation or constructor (kind 1), the
 -- choice of a head (kind 2: an interface's by its address, the arrow's at
--- no address and index 1), or position j of the application at a use
--- (kind 3, which no definition is, at no address). The index is written
--- as an address too, so that a slot is a triple of finite types and every
--- pair of the solution lies in one finite type, whose listing the fork
+-- no address and index 1, the one whose head only an instance shows at no
+-- address and index 2), or position j of the application at a use (kind
+-- 3, which no definition is, at no address). The index is written as an
+-- address too, so that a slot is a triple of finite types and every pair
+-- of the solution lies in one finite type, whose listing the fork
 -- supplies. There is no numbering pass, so no lookup of a slot can miss.
 -- An index is a parameter or field count's, far below 2^63, so distinct
 -- indices are distinct addresses.
 Slot : Type
 Slot = (Fin 4, Address, Address)
 
--- One fact of the solution: this implementation reaches this slot.
+-- What a dictionary that reaches a slot keys a callee it is given to by:
+-- the implementation at its root, or no head, where nothing roots it (a
+-- function that gives an implementation at each use, a member a
+-- definition computes by matching, a lambda). A callee given it is split
+-- by each heading that reaches its parameter, no head among them, so a
+-- choice whose members are rooted at some implementations and computed by
+-- a definition reaches every instance a dispatch on it requests, the one
+-- at no head included. What a dispatch through a dictionary with no head
+-- reaches is what its definition's leaves give, which reach the slot
+-- beside it.
+data Heading = HeadedBy Address | Headless
+
+Eq Heading where
+  HeadedBy a == HeadedBy b = a == b
+  Headless == Headless = True
+  _ == _ = False
+
+Ord Heading where
+  compare Headless Headless = EQ
+  compare Headless (HeadedBy _) = LT
+  compare (HeadedBy _) Headless = GT
+  compare (HeadedBy a) (HeadedBy b) = compare a b
+
+-- Every heading is listed: no head, and each address's.
+Finite Heading where
+  values = Headless :: map HeadedBy (values {a = Address})
+  complete Headless = Here
+  complete (HeadedBy addr) = There (elemMap HeadedBy (complete {a = Address} addr))
+
+-- One fact of the solution: this heading reaches this slot.
 Entry : Type
-Entry = (Slot, Address)
+Entry = (Slot, Heading)
 
 parameterSlot : Address -> Nat -> Slot
 parameterSlot a j = (0, a, bytes 8 (cast j))
@@ -103,6 +137,7 @@ fieldSlot a k = (1, a, bytes 8 (cast k))
 choiceSlot : ChoiceHead -> Slot
 choiceSlot (InterfaceHead a) = (2, a, bytes 8 0)
 choiceSlot ArrowHead = (2, bytes 8 0, bytes 8 1)
+choiceSlot UnshownHead = (2, bytes 8 0, bytes 8 2)
 
 applicationSlot : Nat -> Slot
 applicationSlot j = (3, bytes 8 0, bytes 8 (cast j))
@@ -126,6 +161,14 @@ sameBytes a b = case decideAddress a b of
 sameKind : (i, j : Fin 4) -> Dec (i = j)
 sameKind = decEq
 
+sameHeading : (x, y : Heading) -> Dec (x = y)
+sameHeading Headless Headless = Yes Refl
+sameHeading (HeadedBy a) (HeadedBy b) = case sameBytes a b of
+  Yes Refl => Yes Refl
+  No ne => No (\Refl => ne Refl)
+sameHeading Headless (HeadedBy _) = No (\case Refl impossible)
+sameHeading (HeadedBy _) Headless = No (\case Refl impossible)
+
 -- Any order decides. The definition comes first: the self compile's flow
 -- holds 1,723 entries over 661 slots (measured on the prototype), so two
 -- entries of the seen list almost always differ there.
@@ -133,7 +176,7 @@ same : (x, y : Entry) -> Dec (x = y)
 same ((k, d, i), h) ((k', d', i'), h') =
   case sameBytes d d' of
     No ne => No (\Refl => ne Refl)
-    Yes Refl => case sameBytes h h' of
+    Yes Refl => case sameHeading h h' of
       No ne => No (\Refl => ne Refl)
       Yes Refl => case sameBytes i i' of
         No ne => No (\Refl => ne Refl)
@@ -156,13 +199,38 @@ isNew = isElem @{bytewise}
 -- The solution so far, as each slot's set: a view of the seen list, rebuilt
 -- from it, never a second state.
 View : Type
-View = SortedMap Slot (SortedSet Address)
+View = SortedMap Slot (SortedSet Heading)
 
-at : View -> Slot -> SortedSet Address
+at : View -> Slot -> SortedSet Heading
 at v s = fromMaybe empty (lookup s v)
 
 viewOf : List Entry -> View
 viewOf = foldl (\v, (s, a) => insert s (insert a (at v s)) v) empty
+
+-- The implementations among some headings, ascending: what a dispatch
+-- through the dictionaries reaches, a heading of no head reaching nothing
+-- of its own.
+headsIn : SortedSet Heading -> List Address
+headsIn hs = mapMaybe headed (Prelude.toList hs)
+  where
+    headed : Heading -> Maybe Address
+    headed (HeadedBy a) = Just a
+    headed Headless = Nothing
+
+-- Every choice's members: what reaches the slots of kind 2.
+everyMember : View -> SortedSet Heading
+everyMember v = foldl anyChoice empty (Data.SortedMap.toList v)
+  where
+    anyChoice : SortedSet Heading -> (Slot, SortedSet Heading) -> SortedSet Heading
+    anyChoice acc ((FS (FS FZ), _, _), hs) = union acc hs
+    anyChoice acc _ = acc
+
+-- What a member of a choice can be: at a head its type shows, the members
+-- made there and those made where only an instance shows the head, which
+-- may be that head; at an unshown head, every choice's members.
+membersAt : View -> ChoiceHead -> SortedSet Heading
+membersAt v UnshownHead = everyMember v
+membersAt v k = union (at v (choiceSlot k)) (at v (choiceSlot UnshownHead))
 
 -- How the writer's own parameters read, the one place the flow and the
 -- split differ: parameter i's marker, and the marker applied. A dictionary
@@ -176,13 +244,26 @@ viewOf = foldl (\v, (s, a) => insert s (insert a (at v s)) v) empty
 -- growth theorem's model reads a template alone (`roots`), so it reads it.
 record Own where
   constructor MkOwn
-  ofMarker : Nat -> SortedSet Address
-  ofApplied : Nat -> SortedSet Address
+  ofMarker : Nat -> SortedSet Heading
+  ofApplied : Nat -> SortedSet Heading
 
 -- A reading whose applied markers give nothing: where Core's root answers
 -- for every applied marker.
-markersOnly : (Nat -> SortedSet Address) -> Own
+markersOnly : (Nat -> SortedSet Heading) -> Own
 markersOnly reading = MkOwn reading (const empty)
+
+-- Whose template a part no root is read off belongs to, which decides
+-- what it keys a callee by: a dictionary the running program chooses,
+-- whose members, read off its choice, key the instances a dispatch on it
+-- requests, so the part keys nothing of its own; or one nothing roots,
+-- which a callee is given at no head. A fact of the template's structure,
+-- never of the solution so far, so the flow's equations stay monotone.
+data Unread = OfChosen | OfRootless
+
+-- What a part no root is read off keys a callee by.
+unread : Unread -> SortedSet Heading
+unread OfChosen = empty
+unread OfRootless = singleton Headless
 
 mutual
   -- The roots a template's structure gives, where Core named none. A head
@@ -194,53 +275,60 @@ mutual
   -- field that is one of the implementation's own variables brings in what
   -- its writers gave it. So a projection of the writer's dictionary goes
   -- through the writer's head, never through every implementation that
-  -- reaches the projection's target.
-  byTemplate : View -> Own -> Template -> SortedSet Address
-  byTemplate v own (Var i Z) = own.ofMarker i
-  byTemplate v own (Var _ (S _)) = empty
-  byTemplate v own (Field k s) =
-    foldl (\acc, j => union acc (at v (fieldSlot j k))) empty (Prelude.toList (byTemplate v own s))
-  byTemplate v own (Member k) = at v (choiceSlot k)
-  byTemplate v own (Choice _ leaves) = byLeaves v own leaves
-  byTemplate v own (Head _ _) = empty
-  byTemplate v own (Leaf _) = empty
-  byTemplate v own (Token _) = empty
-  byTemplate v own (Formal _ _) = empty
-  byTemplate v own (Opaque _ _) = empty
-  byTemplate v own (Applied i Z _) = own.ofApplied i
+  -- reaches the projection's target. A dictionary with no head has no
+  -- fields of its own: the implementations its leaves give, which reach
+  -- beside it, hold them. Any other part has no root read off it
+  -- (`Unread`).
+  byTemplate : View -> Own -> Unread -> Template -> SortedSet Heading
+  byTemplate v own u (Var i Z) = own.ofMarker i
+  byTemplate v own u (Field k s) =
+    foldl (\acc, j => union acc (at v (fieldSlot j k))) empty (headsIn (byTemplate v own OfChosen s))
+  byTemplate v own u (Member k) = membersAt v k
+  byTemplate v own u (Choice _ leaves) = byLeaves v own u leaves
+  byTemplate v own u (Applied i Z _) = own.ofApplied i
+  byTemplate v own u (Head _ _) = unread u
+  byTemplate v own u (Leaf _) = unread u
+  byTemplate v own u (Token _) = unread u
+  byTemplate v own u (Formal _ _) = unread u
+  byTemplate v own u (Opaque _ _) = unread u
   -- A part matched out of a value is a runtime part, which a pattern binds
   -- and nothing applies as a dictionary.
-  byTemplate v own (Applied _ (S _) _) = empty
+  byTemplate v own u (Var _ (S _)) = unread u
+  byTemplate v own u (Applied _ (S _) _) = unread u
   -- Met in the graph's field values, whose records are parts of a
   -- template read at a node (`withClosedFamilies`).
-  byTemplate v own (Computing _ _ _) = empty
+  byTemplate v own u (Computing _ _ _) = unread u
 
-  byLeaves : View -> Own -> List Template -> SortedSet Address
-  byLeaves v own [] = empty
-  byLeaves v own (t :: ts) = union (byTemplate v own t) (byLeaves v own ts)
+  byLeaves : View -> Own -> Unread -> List Template -> SortedSet Heading
+  byLeaves v own u [] = empty
+  byLeaves v own u (t :: ts) = union (byTemplate v own u t) (byLeaves v own u ts)
 
 -- A dictionary with the root Core gave it. A parameter matched deeper, or
 -- no root (a projection of what no constructor builds), says nothing of
--- its own, and the template decides.
-byRoot : View -> Own -> Root -> Template -> SortedSet Address
-byRoot v own (Rooted j) _ = singleton j
+-- its own, and the template decides, a part of it no root is read off at
+-- no head. A function that gives an implementation at each use, or a
+-- definition that computes one by matching, is given as written, at no
+-- head, and a dispatch through it reaches what its leaves give.
+byRoot : View -> Own -> Root -> Template -> SortedSet Heading
+byRoot v own (Rooted j) _ = singleton (HeadedBy j)
 -- What the running program chooses, its template says: its choice, which
 -- the reader put in (`asGiven`).
-byRoot v own Chosen t = byTemplate v own t
-byRoot v own (Gives js) _ = fromList (forget js)
+byRoot v own Chosen t = byTemplate v own OfChosen t
+byRoot v own (Gives js) _ = insert Headless (fromList (map HeadedBy (forget js)))
 byRoot v own (Parameter i Z) _ = own.ofMarker i
-byRoot v own (Parameter _ (S _)) t = byTemplate v own t
-byRoot v own Unrooted t = byTemplate v own t
+byRoot v own (Parameter _ (S _)) t = byTemplate v own OfRootless t
+byRoot v own Unrooted t = byTemplate v own OfRootless t
 
 -- A family by its type root: the type constructor there, or the writer's
--- own family there. A family no type constructor heads splits nothing.
-byFamily : Own -> Root -> SortedSet Address
-byFamily own (Rooted j) = singleton j
-byFamily own Chosen = empty
-byFamily own (Gives _) = empty
+-- own family there. A family no type constructor heads (a lambda, a value
+-- the program computes) is given at no head.
+byFamily : Own -> Root -> SortedSet Heading
+byFamily own (Rooted j) = singleton (HeadedBy j)
 byFamily own (Parameter i Z) = own.ofMarker i
-byFamily own (Parameter _ (S _)) = empty
-byFamily own Unrooted = empty
+byFamily own Chosen = singleton Headless
+byFamily own (Gives _) = singleton Headless
+byFamily own (Parameter _ (S _)) = singleton Headless
+byFamily own Unrooted = singleton Headless
 
 -- How an argument splits the definition it lands at: a dictionary by the
 -- implementations it can be, a family by the type constructors that can
@@ -256,17 +344,17 @@ splitting AShape = Nothing
 
 -- What an argument that splits can be, written in a writer whose own
 -- parameters read as `own`.
-byArgument : View -> Own -> Splitting -> Argument -> SortedSet Address
+byArgument : View -> Own -> Splitting -> Argument -> SortedSet Heading
 byArgument v own ByImplementation x = byRoot v own x.root x.template
 byArgument v own ByTypeConstructor x = byFamily own x.root
 
 -- What an argument keys its callee by, at the call: what it can be, but
--- nothing for a function that gives an implementation at each use
+-- no head alone for a function that gives an implementation at each use
 -- (`Gives`), which the callee is given as written, one instance of it
 -- taking every member.
-keyedBy : View -> Own -> Splitting -> Argument -> SortedSet Address
+keyedBy : View -> Own -> Splitting -> Argument -> SortedSet Heading
 keyedBy v own how x = case (how, x.root) of
-  (ByImplementation, Gives _) => empty
+  (ByImplementation, Gives _) => singleton Headless
   _ => byArgument v own how x
 
 -- The arguments a site passes that split their callee, each with how.
@@ -311,16 +399,15 @@ placedBy own xs = xs >>= \x => map (MkPlaced x) (placedAt own x)
 -- What the flow asks of each site and field, read once, each with the
 -- writer whose text holds it and how it reads its parameters. `Into` says
 -- the slot holds every root of this dictionary: an implementation's field,
--- at the field. `Keys` says a choice's slot holds the implementation a
--- member a site makes of it is, where the member names one, as the
--- instance of a callee a dispatch calls at the member is keyed. `Passes`
--- says the callee's parameter holds what this argument can be: a call's
--- dictionary or family, and a use's, at the application's position.
--- `Through` says the function of method k of this dictionary holds what
--- these arguments give, at the parameters the method's field places them
--- at.
+-- at the field. `Passes` says the slot holds what this argument can be: a
+-- call's dictionary or family, at the callee's parameter; a use's, at the
+-- application's position; a member a site makes of a choice, at the
+-- choice, so that a dispatch on it reaches the instance of its callee at
+-- each member, keyed by the member's heading, and, at a member no
+-- implementation roots, what that member's leaves give. `Through` says
+-- the function of method k of this dictionary holds what these arguments
+-- give, at the parameters the method's field places them at.
 data Equation = Into Slot Address Parameters Root Template
-              | Keys Slot Address Parameters Argument
               | Passes Slot Address Parameters Splitting Argument
               | Through Address Parameters Root Template Nat (List (Splitting, Argument))
 
@@ -339,7 +426,10 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
       Builds _ => []
       Dispatches t r k => [Through s.writer s.params r t k (splitters s)]
       Applies => map (passes applicationSlot s) (splitters s)
-      Makes k@(InterfaceHead _) => map (Keys (choiceSlot k) s.writer s.params) s.arguments
+      Makes k@(InterfaceHead _) => map (passes (const (choiceSlot k)) s) (splitters s)
+      -- A member whose head only an instance shows may be an
+      -- implementation's.
+      Makes UnshownHead => map (passes (const (choiceSlot UnshownHead)) s) (splitters s)
       -- A polymorphic function is given as it is, keying nothing, and a
       -- use of it applies each member at the use's own types.
       Makes ArrowHead => []
@@ -362,15 +452,16 @@ candidates fs v eqs = fromList (eqs >>= yield)
     own : Address -> Parameters -> Own
     own w ps = markersOnly (\i => at v (ownSlot w ps i))
 
-    into : Slot -> SortedSet Address -> List Entry
-    into s js = map (s,) (Prelude.toList js)
+    into : Slot -> SortedSet Heading -> List Entry
+    into s hs = map (s,) (Prelude.toList hs)
 
     yield : Equation -> List Entry
     yield (Into s w ps r t) = into s (byRoot v (own w ps) r t)
-    yield (Keys s w ps x) = into s (keyedBy v (own w ps) ByImplementation x)
     yield (Passes s w ps how x) = into s (byArgument v (own w ps) how x)
+    -- A dispatch through a dictionary with no head runs what its leaves
+    -- give, which reach beside it.
     yield (Through w ps r t k xs) = do
-      j <- Prelude.toList (byRoot v (own w ps) r t)
+      j <- headsIn (byRoot v (own w ps) r t)
       case methodAt fs j k of
         Nothing => []
         Just (m, own', _) => do
@@ -448,7 +539,7 @@ flow fs ss = MkFlow fs (viewOf (solve {u = values} complete fs (equations fs ss)
 ||| can head a family there. Sorted and without duplicates.
 export
 reaching : Flow -> Address -> Nat -> List Address
-reaching fl a j = Prelude.toList (at fl.solution (parameterSlot a j))
+reaching fl a j = headsIn (at fl.solution (parameterSlot a j))
 
 ------------------------------------------------------------------------------
 -- The split
@@ -464,7 +555,7 @@ reaching fl a j = Prelude.toList (at fl.solution (parameterSlot a j))
 -- there, so it keys a callee by everything the flow found reaches it.
 headAt : Flow -> Node -> Parameters -> Own
 headAt fl w ps = markersOnly (\i => case parameterOf ps i of
-  WritersOwn j => maybe empty singleton (lookup j w.heads)
+  WritersOwn j => maybe empty (singleton . HeadedBy) (lookup j w.heads)
   UsesPosition j => at fl.solution (applicationSlot j))
 
 -- What a use of the writer's dictionary parameter i can be: its node's
@@ -474,9 +565,9 @@ headAt fl w ps = markersOnly (\i => case parameterOf ps i of
 -- matches on it and runs the member's method, so a dispatch through it
 -- reaches each of them. A position of the application is what the flow
 -- found reaches it.
-dictionaryAt : Flow -> Node -> Parameters -> Nat -> SortedSet Address
+dictionaryAt : Flow -> Node -> Parameters -> Nat -> SortedSet Heading
 dictionaryAt fl w ps i = case parameterOf ps i of
-  WritersOwn j => maybe (at fl.solution (parameterSlot w.definition j)) singleton (lookup j w.heads)
+  WritersOwn j => maybe (at fl.solution (parameterSlot w.definition j)) (singleton . HeadedBy) (lookup j w.heads)
   UsesPosition j => at fl.solution (applicationSlot j)
 
 ||| The implementations a template alone can be, written in the writer's
@@ -486,32 +577,38 @@ dictionaryAt fl w ps i = case parameterOf ps i of
 ||| without duplicates.
 export
 roots : Flow -> (families : List Nat) -> (writer : Node) -> Parameters -> Template -> List Address
-roots fl families w ps t = Prelude.toList (byTemplate fl.solution (MkOwn (dictionaryAt fl w ps) dictionaryApplied) t)
+roots fl families w ps t = headsIn (byTemplate fl.solution (MkOwn (dictionaryAt fl w ps) dictionaryApplied) OfChosen t)
   where
-    dictionaryApplied : Nat -> SortedSet Address
+    dictionaryApplied : Nat -> SortedSet Heading
     dictionaryApplied i = if elem i families then empty else dictionaryAt fl w ps i
 
--- A callee's dictionary parameters with roots, by index, so ascending.
+-- A callee's dictionary and family parameters, by index, so ascending,
+-- each with the headings it can be keyed by.
 Choices : Type
-Choices = SortedMap Nat (SortedSet Address)
+Choices = SortedMap Nat (SortedSet Heading)
 
--- A dictionary with no root is no choice: the request that reaches the
--- callee holds no head at that parameter. The case is the program's (a
--- function that gives an implementation at each use keys nothing, and a
--- projection of a value no constructor builds is rooted by no
--- implementation), not the representation's.
-choice : Nat -> SortedSet Address -> Choices -> Choices
-choice i js cs = if null js then cs else insert i js cs
+-- A parameter with its headings. One that nothing reaches is keyed at no
+-- head alone, as one only `Headless` reaches is: the request that reaches
+-- the callee holds no head there. The case is the program's (a function
+-- that gives an implementation at each use keys nothing, and a projection
+-- of a value no constructor builds is rooted by no implementation), not
+-- the representation's.
+choice : Nat -> SortedSet Heading -> Choices -> Choices
+choice i hs cs = if null hs then cs else insert i hs cs
 
--- One list of heads for each way of choosing a root at each parameter,
--- ascending by index.
+-- One list of heads for each way of choosing a heading at each
+-- parameter, ascending by index: a parameter at no head has none in it.
 combinations : Choices -> List (List (Nat, Address))
 combinations cs = go (Data.SortedMap.toList cs)
   where
-    go : List (Nat, SortedSet Address) -> List (List (Nat, Address))
+    headed : Nat -> Heading -> List (Nat, Address) -> List (Nat, Address)
+    headed i (HeadedBy j) hs = (i, j) :: hs
+    headed i Headless hs = hs
+
+    go : List (Nat, SortedSet Heading) -> List (List (Nat, Address))
     go [] = [[]]
     go ((i, js) :: rest) = let tails = go rest in
-                           [(i, j) :: hs | j <- Prelude.toList js, hs <- tails]
+                           [headed i h hs | h <- Prelude.toList js, hs <- tails]
 
 ||| What a position of the graph is a parameter of: a node, or the
 ||| application of a compile-time form at a use (`Translate.State.AtUse`),
@@ -537,7 +634,7 @@ Ord Holder where
 ||| of an implementation, which the field's template over the
 ||| implementation's parameters writes, and a field read takes its value
 ||| from; or a choice, by its head, which every place that makes a member
-||| of it writes, and every dispatch on it reads.
+||| of it writes, and every dispatch on it reads (`Model.choicePositions`).
 public export
 data Spot = OfParameter Holder Nat | OfField Address Nat | OfChoice ChoiceHead
 
@@ -604,7 +701,7 @@ export
 reaches : Flow -> (writer : Node) -> Site -> List Reached
 reaches fl w s = from s.reach
   where
-    rootsAt : Root -> Template -> SortedSet Address
+    rootsAt : Root -> Template -> SortedSet Heading
     rootsAt = byRoot fl.solution (markersOnly (dictionaryAt fl w s.params))
 
     -- The dictionaries and families among the placed arguments, at their
@@ -633,7 +730,9 @@ reaches fl w s = from s.reach
     from (Calls t) = let placed = atOwnPositions s.arguments in
                      map (\hs => MkReached (Entering (MkNode t hs)) placed Called) (combinations (passed placed empty))
     from (Builds t) = [MkReached (Entering (MkNode t [])) (atOwnPositions s.arguments) Called]
-    from (Dispatches t r k) = Prelude.toList (rootsAt r t) >>= through k
+    -- A dispatch through a dictionary with no head runs what its leaves
+    -- give, which reach beside it.
+    from (Dispatches t r k) = headsIn (rootsAt r t) >>= through k
     -- Every use's application is one, split by nothing: what it applies is
     -- bounded at its positions alone.
     from Applies = [MkReached Applying (atOwnPositions s.arguments) Called]

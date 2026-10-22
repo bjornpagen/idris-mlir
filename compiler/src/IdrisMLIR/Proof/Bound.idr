@@ -30,9 +30,10 @@
 |||   an implementation the dictionary can be received (`AtField`): each
 |||   implementation's field is a position, which the field's template,
 |||   over the implementation's own parameters, writes as any site does;
-|||   and a member of a choice the running program makes writes a value the
-|||   choice's position received (`AtMember`): every place that makes a
-|||   member of it writes the member's form there, as any site does.
+|||   and a member of a choice the running program makes writes a value a
+|||   position its members are read from received (`AtMember`): every
+|||   place that makes a member of it writes the member's form at its
+|||   head's, as any site does.
 ||| A family that computes from what it is given (`Computing`) writes
 ||| nothing any rule states: its arcs are unmeasured, so in an admitted
 ||| graph no position of the writer's reads one.
@@ -47,10 +48,10 @@
 ||| sits in what is written than in its value; for an applied family, an
 ||| arc as heavy as its arguments are high; for a field, an arc from that
 ||| field's position of every implementation its record can be, as heavy
-||| as the field sits deep; for a member of a choice, an arc from the
-||| choice's position, as heavy as the member sits deep. K is at least each
-||| template's own height. If the potential is also feasible, every value
-||| of V at p is within `bound`.
+||| as the field sits deep; for a member of a choice, an arc from each
+||| position its members are read from, as heavy as the member sits deep.
+||| K is at least each template's own height. If the potential is also
+||| feasible, every value of V at p is within `bound`.
 |||
 ||| The graph builds `Describes` for the model it is drawn from
 ||| (`Proof.Describes`). What this does not reach is whether a value a
@@ -197,11 +198,13 @@ record Site (n : Nat) where
 ||| What the theorem reads of the program besides its graph: the sites;
 ||| the position of each implementation's field k (none, or one), which a
 ||| site writes the field's template at, over the implementation's own
-||| parameters (a constructor's field k is its argument k); the position
-||| of each choice (none, or one), which every place that makes a member of
-||| it writes the member at; what each other position is a parameter of (a
-||| definition, or the application at a use) and which, nothing for a
-||| field's or a choice's; and the positions of each definition's nodes.
+||| parameters (a constructor's field k is its argument k); the positions
+||| a member of each choice is read from: its head's (none, or one), which
+||| every place that makes a member of it writes the member at, and the
+||| unshown head's, or, for the unshown head, every choice's; what each
+||| other position is a parameter of (a definition, or the application at
+||| a use) and which, nothing for a field's or a choice's; and the
+||| positions of each definition's nodes.
 public export
 record Model (g : Graph) where
   constructor MkModel
@@ -668,8 +671,8 @@ mutual
   -- part of it no deeper than itself.
   writtenAt ds fe (AtField {p} el inField iv) cov hp = case coveredField cov _ el p inField of
     MkCarries arc wt => carry (partBelow (bounded ds fe iv) Self) wt (arcHolds fe arc)
-  -- A member of a choice writes what the choice's position received,
-  -- carried from there as a field's value is.
+  -- A member of a choice writes what a position its members are read
+  -- from received, carried from there as a field's value is.
   writtenAt ds fe (AtMember {p} inChoice iv) cov hp = case coveredMember cov p inChoice of
     MkCarries arc wt => carry (partBelow (bounded ds fe iv) Self) wt (arcHolds fe arc)
 

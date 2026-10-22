@@ -188,7 +188,7 @@ fieldOf owner (Reads ADictionary) ty a = do
   t <- templateOf [] ADictionary a
   r <- dictionaryRoot a
   head <- choiceHeadOf ty
-  pure (Plain (asGiven head (t, r)) r)
+  pure (Plain (asGiven (Just head) (t, r)) r)
 fieldOf owner (Reads k) ty a = do
   t <- templateOf [] k a
   r <- dictionaryRoot a

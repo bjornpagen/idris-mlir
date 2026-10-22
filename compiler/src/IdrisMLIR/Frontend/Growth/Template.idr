@@ -1478,25 +1478,24 @@ rooted stands AShape t = (, Unrooted) <$> templateOf stands AShape t
 rooted stands ADictionary t = (,) <$> templateOf stands ADictionary t <*> dictionaryRoot t
 
 ||| The head of a choice's type (`ChoiceHead`), its normal form: the arrow
-||| of a function type, the type constructor any other applies. Nothing for
-||| a type headed by neither, a variable or a stuck definition, which only
-||| an instance can show to be a choice's.
+||| of a function type, the type constructor any other applies; for a type
+||| headed by neither, a variable or a stuck definition, the head only an
+||| instance shows.
 export
-choiceHeadOf : TT vs -> Front (Maybe ChoiceHead)
-choiceHeadOf (Bind _ _ (Pi {}) _) = pure (Just ArrowHead)
+choiceHeadOf : TT vs -> Front ChoiceHead
+choiceHeadOf (Bind _ _ (Pi {}) _) = pure ArrowHead
 choiceHeadOf ty = case getFn ty of
   Ref _ (TyCon _) n => do
     ctx <- frozenContext
-    pure (InterfaceHead <$> definitionAddress (gamma (defsOf ctx)) n)
-  _ => pure Nothing
+    pure (maybe UnshownHead InterfaceHead (definitionAddress (gamma (defsOf ctx)) n))
+  _ => pure UnshownHead
 
-||| A dictionary read as a callee is given it (`rooted`), of a type whose
-||| choice has head `k`: where its root says the running program chooses
-||| it, a member of that choice, which every dispatch the translation makes
-||| on it reads whole, or, where an instance fixes it after all, what is
-||| written; any other as it is written. Where the type shows no head, the
-||| member has no choice to be read from: that is a choice only an instance
-||| shows, which the run-time check of each request still catches.
+||| A dictionary read as a callee is given it (`rooted`), where its
+||| binder's type is a choice's, of head `k`: where its root says the
+||| running program chooses it, a member of that choice, which every
+||| dispatch the translation makes on it reads whole, or, where an instance
+||| fixes it after all, what is written; any other as it is written, and
+||| so is every argument that is no dictionary.
 export
 asGiven : Maybe ChoiceHead -> (Template, Root) -> Template
 asGiven (Just k) (t, Chosen) = Choice (Leaf 1) [t, Member k]

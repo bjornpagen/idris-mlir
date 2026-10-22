@@ -33,6 +33,7 @@ import Libraries.Data.NameMap
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Translate.Boundary
 import IdrisMLIR.Frontend.Translate.Cases
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
@@ -370,6 +371,7 @@ mutual
   render names (Field k t) = (\s => s ++ "." ++ show k) <$> render names t
   render names (Member (InterfaceHead a)) = (\s => "{" ++ s ++ " the running program chooses}") <$> nameText a
   render names (Member ArrowHead) = pure "{a polymorphic function the running program chooses}"
+  render names (Member UnshownHead) = pure "{a member the running program chooses}"
 
   renderAll : {auto c : Ref Ctxt Defs} -> (names : List Name) -> List Template -> Front (List String)
   renderAll names [] = pure []
@@ -666,7 +668,7 @@ undelayed t = t
 
 ||| The head of the choice a value at a binder of this type is a member of,
 ||| delayed or not, normalised (`choiceHeadOf`).
-choiceAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Front (Maybe ChoiceHead)
+choiceAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Front ChoiceHead
 choiceAt ty = choiceHeadOf !(normaliseClosed (undelayed ty))
 
 ||| One static argument, closed as its key holds it at its kind, and read
@@ -690,7 +692,7 @@ argument at ps env fc g k = do
       d <- solved (holed env g.offer.arg.written)
       pure (d, heldIn d >>= packing at ps.made fc)
   memberOf <- case k of
-    ADictionary => choiceAt g.binder
+    ADictionary => Just <$> choiceAt g.binder
     _ => pure Nothing
   x <- readArgument ps.made g.position k memberOf v (WrittenText at.writerDef ps env g.offer.arg.written)
   pure (x, !beside)
@@ -739,11 +741,19 @@ lambdaAt at ps env fc lam = do
   -- pair's halves, so the packing is left out with it.
   memberAt at ps env fc ArrowHead d (maybe [] id (closedOverTypes env places)) lam
 
-||| Whether a value of a type the instance decides is a member there: the
-||| type the site's arguments give, normalised, is a choice's
-||| (`choiceType`), as the translation tests it.
-byInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Front Bool
-byInstance ty = choiceType !(normaliseClosed (undelayed ty))
+||| What a value of a type in normal form, over the writer's markers, is:
+||| a member of its type's choice, no member, or what only an instance
+||| decides (`Boundary.choiceHolding`, the decision the translation makes at
+||| each instance, where an undecided head is no member). Over markers an
+||| undecided head is a value an instance puts in, so the walk takes the
+||| value both ways.
+holdingOf : ClosedTerm -> Front Holding
+holdingOf normal = (\r => choiceHolding r.frozen r.interfaces normal) <$> reading
+
+||| What a value of a type the instance decides is (`holdingOf`), the type
+||| the site's arguments give, delayed or not, normalised.
+holdingAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Front Holding
+holdingAt ty = holdingOf !(normaliseClosed (undelayed ty))
 
 ||| The arguments a use gives a member of type `ty`: one at each binder the
 ||| type shows, each the position of the application the use gives it
@@ -767,23 +777,29 @@ useArguments at ty = do
       let x = markerAt (at.arity + j) 0
       (closedArg x ::) <$> arguments n (S j) (subst x sc)
 
-||| An argument at a binder of type `ty` that takes a member: a lambda
-||| there, or one delayed, is that member; anything else is code, where a
-||| definition applied gives its own member (`definitionMember`). A member
-||| of a polymorphic function's choice is applied at each use of the
-||| choice, so its use's walk is made here, once (`Arg.asUse`).
-atMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-           At -> Pats -> Env vs -> FC -> (ty : ClosedTerm) -> Arg vs -> Front (List Site)
-atMember at ps env fc ty a = do
+||| The member an argument at a binder of type `ty` that takes one makes: a
+||| lambda there, or one delayed, is that member; anything else makes its
+||| member as code, where a definition applied gives its own
+||| (`definitionMember`). A member of a polymorphic function's choice is
+||| applied at each use of the choice, so its use's walk is made here,
+||| once (`Arg.asUse`).
+memberMade : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+             At -> Pats -> Env vs -> FC -> (ty : ClosedTerm) -> Arg vs -> Front (List Site)
+memberMade at ps env fc ty a = do
   made <- case a.written of
     lam@(Bind lfc _ (Lam {}) _) => lambdaAt at ps env lfc lam
     TDelay _ _ _ lam@(Bind lfc _ (Lam {}) _) => lambdaAt at ps env lfc lam
     _ => pure []
   used <- case !(choiceAt ty) of
-    Just ArrowHead => a.asUse (undelayed ty)
+    ArrowHead => a.asUse (undelayed ty)
     _ => pure []
-  code <- Force a.asCode
-  pure (made ++ used ++ code)
+  pure (made ++ used)
+
+||| An argument at a binder of type `ty` that takes a member: the member it
+||| makes (`memberMade`), and its walk as code.
+atMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+           At -> Pats -> Env vs -> FC -> (ty : ClosedTerm) -> Arg vs -> Front (List Site)
+atMember at ps env fc ty a = (++) <$> memberMade at ps env fc ty a <*> Force a.asCode
 
 ||| The type of a definition after its arguments, each put in for the binder
 ||| that takes it, normalised.
@@ -796,11 +812,11 @@ typeAfter ty (v :: vs) = do
 
 ||| A definition applied as code where what it gives after its arguments is
 ||| a member (`givesAfter`; where the instance decides, the type `after`
-||| them says): the member of its type's choice
-||| (`Translate.Terms.applyRef`'s `memberHere`), written at its choice's
-||| position (`memberAt`). Essential: a value no compile-time reduction
-||| fixes is a choice, no member, and a type that shows no head is of no
-||| choice.
+||| them says, and where only an instance can, it may be one): the member
+||| of its type's choice (`Translate.Terms.applyRef`'s `memberHere`),
+||| written at its choice's position (`memberAt`), the unshown head's
+||| where the type shows none. Essential: a value no compile-time
+||| reduction fixes is a choice, no member.
 definitionMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                    At -> Pats -> Env vs -> FC -> Defined -> (after : Front ClosedTerm) -> List (Arg vs) ->
                    Front (List Site)
@@ -809,12 +825,13 @@ definitionMember at ps env fc d after args = case givesAfter (length args) (memb
     AMember => made !after
     ByInstance => do
       ty <- after
-      if !(byInstance ty) then made ty else pure []
+      case !(holdingOf ty) of
+        NoMember => pure []
+        _ => made ty
   where
     made : ClosedTerm -> Front (List Site)
     made ty = do
-      Just k <- choiceHeadOf ty
-        | Nothing => pure []
+      k <- choiceHeadOf ty
       let written = foldl (App fc) (Ref fc Func (fullname d.def)) (map (.written) args)
       form <- solved (holed env written)
       FixedNow <- fixing ty form
@@ -827,7 +844,12 @@ definitionMember at ps env fc d after args = case givesAfter (length args) (memb
 givingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Holding -> (result : ClosedTerm) -> Front Giving
 givingOf AMember result = pure (MemberLeaves result)
 givingOf NoMember _ = pure ValueLeaves
-givingOf ByInstance result = (\m => if m then MemberLeaves result else ValueLeaves) <$> byInstance result
+givingOf ByInstance result = giving <$> holdingAt result
+  where
+    -- Where only an instance decides, the leaves may give a member.
+    giving : Holding -> Giving
+    giving NoMember = ValueLeaves
+    giving _ = MemberLeaves result
 
 ||| Arguments as a callee's type takes them: a static one is walked as a
 ||| static value, a runtime one as code, and an erased one not at all, since
@@ -852,27 +874,33 @@ data Taker = AFunction | AConstructor
 ||| table's `givenAt` for a definition's; for a type no definition has,
 ||| every binder as the instance decides): an argument at one is a member
 ||| where it stands (`atMember`), and where the instance decides, where the
-||| binder's type the site's arguments give says (`byInstance`), but a
+||| binder's type the site's arguments give says (`holdingAt`), but a
 ||| function's static argument, which is no value at run time; any other is
-||| walked as its kind says (`walked`). A function given a polymorphic
-||| function as a static value applies it where its own text uses it, as a
-||| use does (`implementationAt`), so the argument's use's walk is made
-||| here (`Arg.asUse`).
+||| walked as its kind says (`walked`). Where only an instance decides, the
+||| argument is both: the member it makes, and walked as its kind says. A
+||| function given a polymorphic function as a static value applies it
+||| where its own text uses it, as a use does (`implementationAt`), so the
+||| argument's use's walk is made here (`Arg.asUse`).
 walkedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
            At -> Pats -> Env vs -> FC -> Taker -> (given : Nat -> Holding) -> List (Given vs) -> Front (List Site)
 walkedAt at ps env fc taker given [] = pure []
 walkedAt at ps env fc taker given (g :: gs) =
   (++) <$> one taker g.taking (given g.position) <*> walkedAt at ps env fc taker given gs
   where
+    decided : Holding -> Front (List Site)
+    decided AMember = atMember at ps env fc g.binder g.offer.arg
+    decided NoMember = walked [g]
+    decided ByInstance = (++) <$> memberMade at ps env fc g.binder g.offer.arg <*> walked [g]
+
     one : Taker -> Taking -> Holding -> Front (List Site)
     one AFunction (AsStatic _) _ = do
       used <- case !(choiceAt g.binder) of
-        Just ArrowHead => g.offer.arg.asUse (undelayed g.binder)
+        ArrowHead => g.offer.arg.asUse (undelayed g.binder)
         _ => pure []
       (used ++) <$> walked [g]
     one _ _ AMember = atMember at ps env fc g.binder g.offer.arg
     one _ _ NoMember = walked [g]
-    one _ _ ByInstance = if !(byInstance g.binder) then atMember at ps env fc g.binder g.offer.arg else walked [g]
+    one _ _ ByInstance = decided !(holdingAt g.binder)
 
 ||| The member at a use's types of a compile-time form of type `t`
 ||| (`Translate.State.AtUse`), which applies the form as by `\f, x1 .. xn
@@ -942,10 +970,13 @@ overType at ps env fc known (a :: as) = do
       False <- polymorphicType t
         | True => heldApplication at ps env fc t (a :: as)
       -- No definition's member table speaks for a type a value has: the
-      -- binder's type decides, as the instance does.
+      -- binder's type decides, as the instance does, and where only an
+      -- instance can, the value is taken both ways.
       here <- case use rig of
                 Erased => pure []
-                Used _ => if !(byInstance b) then atMember at ps env fc b a else Force a.asCode
+                Used _ => case !(holdingAt b) of
+                  NoMember => Force a.asCode
+                  _ => atMember at ps env fc b a
       (here ++) <$> overType at ps env fc (Just (subst (close env a.written) sc)) as
     _ => do
       here <- Force a.asCode
@@ -1035,7 +1066,7 @@ dispatch : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} 
            At -> Pats -> Env vs -> FC -> Projected -> Given vs -> ClosedTerm -> List (Arg vs) -> Front (List Site)
 dispatch at ps env fc p dict rest extras = do
   read <- rooted ps.made ADictionary !(solved (holed env dict.offer.arg.written))
-  tm <- (\head => asGiven head read) <$> choiceAt dict.binder
+  tm <- (\head => asGiven (Just head) read) <$> choiceAt dict.binder
   -- The method's own arguments are those its type shows binders for; any
   -- past them applies its result.
   positions <- argumentsIn rest
@@ -1200,7 +1231,7 @@ mutual
           known <- solved (close env val)
           here <- static ph w acc at ps env val
           used <- case !(choiceHeadOf vty) of
-            Just ArrowHead => useOf ph w acc at ps env vty val
+            ArrowHead => useOf ph w acc at ps env vty val
             _ => pure []
           body <- term ph w acc at ps ((Holds (Known known), x, Just typed) :: env) sc
           pure (here ++ used ++ body)
@@ -1354,7 +1385,7 @@ mutual
             if !(compileTimeBinder rig bty)
               then do
                 used <- case !(choiceHeadOf bty) of
-                  Just ArrowHead => a.asUse bty
+                  ArrowHead => a.asUse bty
                   _ => pure []
                 pure ((Holds (Known !(solved (close env a.written))), x, Just (close env ty)), !(Force a.asStatic) ++ used)
               else do
@@ -1407,7 +1438,7 @@ mutual
   implementationAt (Written next) at ps env fc (Just ty) t args = do
     nty <- normaliseClosed ty
     used <- case !(choiceHeadOf nty) of
-      Just ArrowHead => do
+      ArrowHead => do
         form <- readArgument ps.made 1 ADictionary Nothing t (TermText t)
         useAt at ps env fc nty form args
       _ => pure []
@@ -1457,7 +1488,7 @@ resultMember at ps env tm = case at.giving of
   ValueLeaves => pure []
   MemberLeaves ty => do
     used <- case !(choiceAt ty) of
-      Just ArrowHead => useOf asWritten start (sizeAccessible start) at ps env ty tm
+      ArrowHead => useOf asWritten start (sizeAccessible start) at ps env ty tm
       _ => pure []
     (used ++) <$> under env tm
   where

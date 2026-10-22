@@ -21,27 +21,34 @@ import Data.So
 ||| A choice as the growth graph holds it, program-wide: by the head of the
 ||| type it is a choice of, an implementation's type by the type
 ||| constructor it applies (an interface, or the pair that holds two), a
-||| polymorphic function's by the arrow. The translation keys a choice by
-||| the whole type; a site writes that type over its writer's markers, which
-||| each instance puts values in for, and the head is the one part of it no
-||| value put in changes. So every member the translation adds to a choice
-||| lands at the position of that choice's head, and every dispatch on it
-||| reads there.
+||| polymorphic function's by the arrow; or, where the type a site reads
+||| shows no head (the writer's variable, a definition its markers leave
+||| stuck), as one whose head only an instance shows. The translation keys
+||| a choice by the whole type; a site writes that type over its writer's
+||| markers, which each instance puts values in for, and a head, where the
+||| site's type shows one, is the one part of it no value put in changes.
+||| So every member the translation adds to a choice lands at the position
+||| of that choice's head, or at the unshown one, and every dispatch on it
+||| reads both; a dispatch whose own head is unshown reads every choice's.
 public export
-data ChoiceHead = InterfaceHead Address | ArrowHead
+data ChoiceHead = InterfaceHead Address | ArrowHead | UnshownHead
 
 public export
 Eq ChoiceHead where
   InterfaceHead a == InterfaceHead b = a == b
   ArrowHead == ArrowHead = True
+  UnshownHead == UnshownHead = True
   _ == _ = False
 
 public export
 Ord ChoiceHead where
   compare (InterfaceHead a) (InterfaceHead b) = compare a b
-  compare (InterfaceHead _) ArrowHead = LT
+  compare (InterfaceHead _) _ = LT
   compare ArrowHead (InterfaceHead _) = GT
   compare ArrowHead ArrowHead = EQ
+  compare ArrowHead UnshownHead = LT
+  compare UnshownHead UnshownHead = EQ
+  compare UnshownHead _ = GT
 
 public export
 data Template
@@ -85,7 +92,7 @@ data Template
     Field Nat Template
   | ||| A member of the choice of that head, which the running program
     ||| chooses: whatever a place that makes a member of it wrote at the
-    ||| choice's position.
+    ||| choice's positions (`Model.choicePositions`).
     Member ChoiceHead
 
 mutual

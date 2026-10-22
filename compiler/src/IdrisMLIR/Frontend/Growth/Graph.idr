@@ -9,7 +9,9 @@
 ||| implementation's parameters and a field read takes its value from, so
 ||| a field read inside a field is arcs like any other; or a choice, by its
 ||| head, which every place that makes a member of it writes and every
-||| dispatch on it reads, program-wide. The walk over
+||| dispatch on it reads, program-wide, a dispatch on a choice of a head
+||| also reading the members made where only an instance shows the head,
+||| and one whose own head is unshown every choice's. The walk over
 ||| definitions reads what each reachable one writes (its sites), and the
 ||| walk over nodes follows those sites from main to the nodes they reach.
 ||| Every argument a site writes lands at a position of its callee: it is a
@@ -1006,8 +1008,13 @@ build main = do
       positionsOf a = fromMaybe [] (lookup a byDefinitionAt)
   let fieldPositionsOf : Address -> Nat -> List (Fin (length slots))
       fieldPositionsOf j k = fromMaybe [] (lookup (j, k) byFieldAt)
+  -- A member of a choice is read from its head's position and from the
+  -- unshown head's, whose members may be of that head; a member whose
+  -- head is unshown, from every choice's. Each list is a choice's one
+  -- position, so the join is short.
   let choicePositionsOf : ChoiceHead -> List (Fin (length slots))
-      choicePositionsOf k = fromMaybe [] (lookup k byChoiceAt)
+      choicePositionsOf UnshownHead = values byChoiceAt >>= id
+      choicePositionsOf k = fromMaybe [] (lookup k byChoiceAt) ++ fromMaybe [] (lookup UnshownHead byChoiceAt)
   let positionOf : Fin (length slots) -> Maybe (Head, Nat)
       positionOf f = case Vect.index f position of
                        OfParameter (OfNode node) i => Just (ADefinition node.definition, i)

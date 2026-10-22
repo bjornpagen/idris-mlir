@@ -152,7 +152,8 @@ earliest best@(_, m, _) (x@(_, l, _) :: xs) =
 ||| What holds a position, as a message names it: a node's definition, by
 ||| its name; the application at a use, which no name is; an
 ||| implementation's field, by the implementation's name; or a choice, by
-||| its interface's name, or as the polymorphic functions'.
+||| its interface's name, as the polymorphic functions', or as one whose
+||| type only an instance shows.
 holderText : {auto c : Ref Ctxt Defs} -> FC -> Spot -> Front String
 holderText fc (OfParameter (OfNode node) _) = snd <$> graphDefinition fc node.definition
 holderText fc (OfParameter OfApplication _) = pure "the application of a polymorphic function at its use"
@@ -160,6 +161,8 @@ holderText fc (OfField j k) = (\name => "field " ++ show k ++ " of " ++ name) . 
 holderText fc (OfChoice (InterfaceHead j)) =
   (\name => "the implementations of " ++ name ++ " the running program chooses") . snd <$> graphDefinition fc j
 holderText fc (OfChoice ArrowHead) = pure "the polymorphic functions the running program chooses"
+holderText fc (OfChoice UnshownHead) =
+  pure "the members the running program chooses of a choice whose type only an instance shows"
 
 ||| The definition of the program's own source that holds a position, with
 ||| where it is: nothing for a library's or a generated one, or for the
@@ -263,11 +266,15 @@ ofDataType fc _ = pure False
 ||| The parts of a template that carry an arc's source into it: its
 ||| variable when the writer binds it, an applied family that gives an
 ||| implementation when it is projected, a read of that field when it is a
-||| field's position, a member of that choice when it is a choice's.
+||| field's position, a member read from that choice's position when it is
+||| a choice's: the choice's own, the unshown head's, which every member is
+||| read from, and every one for a member whose head is unshown.
 carries : Source -> Template -> Bool
 carries (Binds i) (Template.Var j _) = i == j
 carries (Projects _) (Template.Applied _ _ _) = True
 carries (ReadsField k) (Template.Field k' _) = k == k'
+carries (ReadsChoice UnshownHead) (Template.Member _) = True
+carries (ReadsChoice _) (Template.Member UnshownHead) = True
 carries (ReadsChoice k) (Template.Member k') = k == k'
 carries _ _ = False
 
