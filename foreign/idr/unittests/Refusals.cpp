@@ -17,7 +17,8 @@
 #include "idr/Support/Id.h"
 #include "idr/Support/Match.h"
 
-#include "mlir/IR/Value.h"
+#include "llvm/ADT/PointerUnion.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -151,6 +152,30 @@ void twoTypes(const Sum &sum) {
   idr::match(sum, [](int) { return 0; }, [](const std::string &) { return 0.5; });
 }
 
+// A case for several alternatives names them, by a list or by a concept
+// they share; a case that takes every type is a default, which an
+// alternative the sum gains would reach silently, in a sum of data or of
+// handles alike.
+int listed(const Sum &sum) {
+  return idr::match(sum, [](const idr::OneOf<int, std::string> auto &) { return 0; });
+}
+
+void everyType(const Sum &sum) {
+  // expected-error@idr/Support/Match.h:* {{no case of a match takes every type}}
+  idr::match(sum, [](int) { return 0; }, [](const auto &) { return 1; });
+}
+
+using Handle = llvm::PointerUnion<int *, double *>;
+
+int listedHandles(Handle handle) {
+  return idr::match(handle, [](idr::OneOf<int *, double *> auto) { return 0; });
+}
+
+void everyHandle(Handle handle) {
+  // expected-error@idr/Support/Match.h:* {{no case of a match takes every type}}
+  idr::match(handle, [](int *) { return 0; }, [](auto *) { return 1; });
+}
+
 } // namespace match_cases
 
 //===----------------------------------------------------------------------===//
@@ -174,23 +199,42 @@ void assigned(idr::Token &into, const idr::Token &held) {
 
 } // namespace token
 
-// A value that owns its whole cell graph alone has one owner: its handle
-// moves and never copies, and only the parse of its type makes one.
-namespace exclusive {
+// At a rejoin a token leaves as a join argument or is dropped, and none
+// comes out of it: the tokens after it are the op's results, which exist
+// only once the op is made again with their types. A join that gives a
+// token back, or a drop that carries one across, is refused.
+namespace rejoin_gives_none {
 
-std::optional<idr::Exclusive> parsed(mlir::Value value) { return idr::asExclusive(value); }
+enum class Size : unsigned char { Small, Large };
 
-idr::Exclusive handedOn(idr::Exclusive owner) { return idr::Exclusive(std::move(owner)); }
+auto wanted = [](const Size &) -> std::uint32_t { return 1; };
+auto joined = [](const Size &, llvm::SmallVector<idr::Token> tokens) {
+  for (idr::Token &token : tokens)
+    (void)std::move(token).consume();
+};
+auto dropped = [](unsigned, const Size &, idr::Token token) { (void)std::move(token).consume(); };
 
-void duplicated(const idr::Exclusive &owner) {
-  idr::Exclusive second(owner); // expected-error {{an exclusive value has one owner}}
+llvm::SmallVector<Size> rejoined(llvm::SmallVector<idr::Available<Size>> arms) {
+  return idr::rejoin(std::move(arms), wanted, joined, dropped);
 }
 
-void forged(mlir::Value value) {
-  idr::Exclusive claimed(value); // expected-error {{calling a private constructor of class 'idr::Exclusive'}}
+llvm::SmallVector<Size> joinGivesOne(llvm::SmallVector<idr::Available<Size>> arms) {
+  auto gives = [](const Size &, llvm::SmallVector<idr::Token> tokens) {
+    return std::move(tokens.front());
+  };
+  // expected-error@+1 {{no matching function for call to 'rejoin'}}
+  return idr::rejoin(std::move(arms), wanted, gives, dropped);
 }
 
-} // namespace exclusive
+llvm::SmallVector<Size> dropCarries(llvm::SmallVector<idr::Available<Size>> arms) {
+  auto carries = [](unsigned, const Size &, idr::Token token) {
+    return std::optional<idr::Token>(std::move(token));
+  };
+  // expected-error@+1 {{no matching function for call to 'rejoin'}}
+  return idr::rejoin(std::move(arms), wanted, joined, carries);
+}
+
+} // namespace rejoin_gives_none
 
 //===----------------------------------------------------------------------===//
 // Solves

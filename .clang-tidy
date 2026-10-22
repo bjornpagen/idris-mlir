@@ -9,8 +9,8 @@
 # and drop what they learned, std::visit's dispatch through function
 # pointers above eleven alternatives, and TypeSwitch's ladder of casts are
 # refused here, by qualified name, since visit is too common a word for a
-# poisoned identifier. A moved handle (a reuse token, an exclusive value)
-# used again is bugprone-use-after-move's.
+# poisoned identifier. A moved reuse token's handle used again is
+# bugprone-use-after-move's.
 Checks: >-
   -*,
   bugprone-*,

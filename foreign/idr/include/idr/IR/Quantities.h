@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What a value's grade proves, carried into the C++ that builds IR from it.
-// A pass holding an mlir::Value can copy it freely, so a value its type
-// says is owned alone, or used once, is held here in a handle C++ treats
-// the same way: it moves and never copies, so our own code cannot hand one
-// cell to two owners or recycle one dead cell into two constructions. A
-// copy fails to compile with the reason in its message.
+// A reuse token's grade, carried into the C++ that builds IR from it. A
+// pass holding an mlir::Value can copy it freely, so counting's walk holds
+// each token, a dead cell its type says is used once, in a handle C++
+// treats the same way: it moves and never copies, and gives its value up
+// only to the one op that uses it, so the walk cannot recycle one dead cell
+// into two constructions or free one it recycled. A copy fails to compile
+// with the reason in its message. A value's other quantities, exclusivity
+// among them, are its grade, in its type, which every reader reads there:
+// a handle beside the type would hold the same claim twice.
 //
 // MLIR's own machinery (clone, OperationState, the conversion driver)
-// builds ops without our builders, so the verifier after every pass stays
-// the complete check of a quantity; these handles move the error to
-// compile time on our own paths. The header names no generated type's
-// definition, so the dialect's builders may take its handles.
+// builds ops without the handle, so the verifier after every pass stays
+// the complete check of a quantity; the handle moves the error to compile
+// time on counting's own path. The header names no generated type, so any
+// header may include it.
 #ifndef IDR_IR_QUANTITIES_H
 #define IDR_IR_QUANTITIES_H
 
@@ -20,58 +23,27 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <algorithm>
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <optional>
 #include <type_traits>
 #include <utility>
 
 namespace idr {
 
-// !idr.token<...>, a reuse token: the dialect's generated type.
-class TokenType;
-
-// A value whose grade is `counted unique deep`: freed by its count, with
-// nothing it reaches shared, so it owns its whole cell graph alone. Its
-// release reads no count, and the builder of that release takes this
-// handle, never a bare Value, so it cannot be handed a value that may be
-// shared. Made only by asExclusive, the parse of the value's type.
-class Exclusive {
-public:
-  Exclusive(Exclusive &&other) noexcept : v(std::exchange(other.v, {})) {}
-  Exclusive &operator=(Exclusive &&other) noexcept {
-    v = std::exchange(other.v, {});
-    return *this;
-  }
-  Exclusive(const Exclusive &) = delete("an exclusive value has one owner");
-  Exclusive &operator=(const Exclusive &) = delete("an exclusive value has one owner");
-
-  // The value, to read its type and place; the handle still owns it.
-  mlir::Value value() const { return v; }
-  // The value handed to the one op that takes it over; the handle is empty.
-  [[nodiscard]] mlir::Value consume() && { return std::exchange(v, {}); }
-
-private:
-  explicit Exclusive(mlir::Value owned) : v(owned) {}
-  friend std::optional<Exclusive> asExclusive(mlir::Value value);
-
-  mlir::Value v;
-};
-
-// The boundary where exclusivity is read: once, from the value's grade, by
-// the one reader of a hold (defined with the grade). None when the grade
-// claims less than `counted unique deep`.
-[[nodiscard]] std::optional<Exclusive> asExclusive(mlir::Value value);
-
-// A reuse token in counting's forward walk: a dead cell of one layout,
-// held until a construction of that layout recycles it. It leaves the walk
-// exactly three ways, each consuming it: into a recycle, as a join
-// argument across a rejoin, or dropped. Made where a token value is born
-// in the walk, never from a value already wrapped.
+// A reuse token in counting's forward walk: a dead cell of one size, held
+// until a construction of that size recycles it. It leaves the walk exactly
+// three ways, each consuming it: into a recycle, as a join argument at a
+// rejoin, or freed; and only `branch` gives more than one handle on it, one
+// per path of which exactly one runs. Made where a token is born in the
+// walk: an op's token result, which that op's verifier holds to be a token
+// used once (its type the grade it is held at, over `!idr.token`), never
+// from a handle's value, which only `consume` gives up.
 class Token {
 public:
-  explicit Token(mlir::TypedValue<TokenType> born) : v(born) {}
+  explicit Token(mlir::Value born) : v(born) {}
   Token(Token &&other) noexcept : v(std::exchange(other.v, {})) {}
   Token &operator=(Token &&other) noexcept {
     v = std::exchange(other.v, {});
@@ -80,57 +52,117 @@ public:
   Token(const Token &) = delete("a token is used once");
   Token &operator=(const Token &) = delete("a token is used once");
 
-  // The token value, to read its layout; the handle still holds it.
-  mlir::TypedValue<TokenType> value() const { return v; }
+  // Its type, the grade it is held at over the cells it may be: what a
+  // choice among tokens reads. The handle still holds it.
+  mlir::Type type() const { return v.getType(); }
   // The token handed to the one op that uses it; the handle is empty.
-  [[nodiscard]] mlir::TypedValue<TokenType> consume() && { return std::exchange(v, {}); }
+  [[nodiscard]] mlir::Value consume() && { return std::exchange(v, {}); }
 
 private:
-  mlir::TypedValue<TokenType> v;
+  mlir::Value v;
 };
 
+// A token held before an op that runs exactly one of its regions, handed to
+// every path the op can take: one handle per path, each consumed on its own
+// path, since only one of them runs. An op that can take none (a match on
+// a type with no constructor) gives none, as nothing past it runs.
+[[nodiscard]] inline llvm::SmallVector<Token> branch(Token held, unsigned paths) {
+  mlir::Value token = std::move(held).consume();
+  llvm::SmallVector<Token> handles;
+  handles.reserve(paths);
+  for (unsigned path = 0; path < paths; ++path)
+    handles.emplace_back(token);
+  return handles;
+}
+
+// What tells tokens apart at a rejoin: the layout a token may be recycled
+// into, compared, and copied into what the rejoin gives back.
+template <class L>
+concept TokenLayout = std::equality_comparable<L> && std::copy_constructible<L>;
+
 // The tokens one path holds at a point, each with the layout it may be
-// recycled into.
-template <class Layout>
+// recycled into, in the order the path gives them up: the first of a layout
+// leaves first.
+template <TokenLayout Layout>
 struct Available {
   llvm::SmallVector<std::pair<Layout, Token>, 2> tokens;
 };
 
-// Which of two rejoining paths a token came from.
-enum class Arm : std::uint8_t { Left, Right };
+// How many tokens of a layout the code after a rejoin can use.
+template <class F, class Layout>
+concept Wants = std::same_as<std::invoke_result_t<F &, const Layout &>, std::uint32_t>;
 
-// Two paths rejoining. A layout both hold becomes one token after the
-// rejoin, which `both` makes from the two (each the join argument of its
-// arm); a token only one arm holds goes to `one`, which drops it or carries
-// it across, giving the token after the rejoin. Both sides are taken by
-// value, so no token of either arm outlives the rejoin unconsumed or is
-// used on both sides of it.
-template <class Layout, class Both, class One>
-  requires std::equality_comparable<Layout> && std::copy_constructible<Layout> &&
-           std::same_as<std::invoke_result_t<Both &, const Layout &, Token, Token>, Token> &&
-           std::same_as<std::invoke_result_t<One &, Arm, const Layout &, Token>,
-                        std::optional<Token>>
-Available<Layout> rejoin(Available<Layout> left, Available<Layout> right, Both both, One one) {
-  Available<Layout> after;
-  for (auto &[layout, token] : left.tokens) {
-    auto partner =
-        llvm::find_if(right.tokens, [&](const auto &held) { return held.first == layout; });
-    if (partner != right.tokens.end()) {
-      Token joined = std::invoke(both, std::as_const(layout), std::move(token),
-                                 std::move(partner->second));
-      after.tokens.emplace_back(layout, std::move(joined));
-      right.tokens.erase(partner);
-      continue;
+// What takes the tokens of a layout that leave a rejoin together, one per
+// path, as join arguments; no token comes back from it.
+template <class F, class Layout>
+concept Joins =
+    std::same_as<std::invoke_result_t<F &, const Layout &, llvm::SmallVector<Token>>, void>;
+
+// What takes a token that does not leave a rejoin, with the position of the
+// path that held it; no token comes back from it.
+template <class F, class Layout>
+concept Drops = std::same_as<std::invoke_result_t<F &, unsigned, const Layout &, Token>, void>;
+
+// The paths an op's regions take, rejoining at its results, each with what
+// it holds at its yield. Of each layout, as many leave together as every
+// path holds and `wanted` caps; the k-th to leave takes each path's k-th
+// token of that layout, in path order, which `join` consumes as join
+// arguments. Every other token goes to `drop`. No token comes out: the
+// tokens after the rejoin are the op's results, which exist only once the
+// op is made again with their types, so the rejoin gives back the layout of
+// each join, in the order `join` was called, for that. The paths are taken
+// by value, so no token of any of them outlives the rejoin unconsumed or
+// is used on two of them; with no path, nothing leaves.
+template <TokenLayout Layout, Wants<Layout> Wanted, Joins<Layout> Join, Drops<Layout> Drop>
+[[nodiscard]] llvm::SmallVector<Layout> rejoin(llvm::SmallVector<Available<Layout>> arms,
+                                               Wanted wanted, Join join, Drop drop) {
+  // Each layout the first path holds, once, with how many of it leave and
+  // where its joins begin among all the joins; a layout the first path
+  // lacks is held by not every path, and none of it leaves.
+  struct Leaving {
+    Layout layout;
+    std::uint32_t count;
+    std::uint32_t first;
+  };
+  llvm::SmallVector<Leaving, 4> leaving;
+  std::uint32_t joins = 0;
+  if (!arms.empty())
+    for (const auto &held : arms.front().tokens) {
+      const Layout &layout = held.first;
+      if (llvm::any_of(leaving, [&](const Leaving &seen) { return seen.layout == layout; }))
+        continue;
+      std::uint32_t count = std::invoke(wanted, layout);
+      for (const Available<Layout> &arm : arms) {
+        auto of = llvm::count_if(arm.tokens, [&](const auto &h) { return h.first == layout; });
+        count = std::min(count, static_cast<std::uint32_t>(of));
+      }
+      leaving.push_back({layout, count, joins});
+      joins += count;
     }
-    if (std::optional<Token> carried =
-            std::invoke(one, Arm::Left, std::as_const(layout), std::move(token)))
-      after.tokens.emplace_back(layout, std::move(*carried));
+  // Each join's tokens, which every path fills in its turn, so each holds
+  // one token per path in path order.
+  llvm::SmallVector<llvm::SmallVector<Token>, 4> together(joins);
+  for (unsigned at = 0; at < arms.size(); ++at) {
+    llvm::SmallVector<std::uint32_t, 4> taken(leaving.size(), 0);
+    for (auto &[layout, token] : arms[at].tokens) {
+      auto entry = llvm::find_if(leaving, [&](const Leaving &l) { return l.layout == layout; });
+      if (entry != leaving.end()) {
+        std::uint32_t &k = taken[static_cast<std::size_t>(entry - leaving.begin())];
+        if (k < entry->count) {
+          together[entry->first + k++].push_back(std::move(token));
+          continue;
+        }
+      }
+      std::invoke(drop, at, std::as_const(layout), std::move(token));
+    }
   }
-  for (auto &[layout, token] : right.tokens)
-    if (std::optional<Token> carried =
-            std::invoke(one, Arm::Right, std::as_const(layout), std::move(token)))
-      after.tokens.emplace_back(layout, std::move(*carried));
-  return after;
+  llvm::SmallVector<Layout> joined;
+  for (const Leaving &l : leaving)
+    for (std::uint32_t k = 0; k < l.count; ++k) {
+      std::invoke(join, l.layout, std::move(together[l.first + k]));
+      joined.push_back(l.layout);
+    }
+  return joined;
 }
 
 } // namespace idr

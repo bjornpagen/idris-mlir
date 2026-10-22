@@ -4,8 +4,9 @@
 // second implementation plain enough to be right by reading, over every
 // input of a small domain. Subsets against the bits of an integer, a set
 // of ids against the order ids rise in, rows against the function that
-// gave them, the fold over a sum against the sum's index, and the walk down
-// a nesting against recursion, on every rooted tree of up to six nodes.
+// gave them, the fold over a sum against the sum's index, read once before
+// the one case runs, and the walk down a nesting against recursion, on
+// every rooted tree of up to six nodes.
 // What the vocabulary holds is counted in Footprint.cpp; what a type
 // refuses to compile is Refusals.cpp's.
 
@@ -249,6 +250,32 @@ TEST(Match, EachAlternativeReachesItsOneCase) {
   };
   EXPECT_EQ(handleCase(Handle(&i)), 0);
   EXPECT_EQ(handleCase(Handle(&d)), 1);
+}
+
+// The fold reads the sum no more once a case has run: a case may replace
+// the sum it was handed, by any alternative, and only that case runs, with
+// a result or without.
+TEST(Match, ACaseMayReplaceTheSumItWasHanded) {
+  const Sum sums[] = {Sum(std::in_place_index<0>, 1), Sum(std::in_place_index<1>, "one"),
+                      Sum(std::in_place_index<2>, 1.0)};
+  for (const Sum &first : sums)
+    for (const Sum &then : sums) {
+      Sum sum = first;
+      unsigned ran = 0;
+      auto replace = [&] { ++ran; sum = then; };
+      idr::match(
+          sum, [&](int &) { replace(); }, [&](std::string &) { replace(); },
+          [&](double &) { replace(); });
+      EXPECT_EQ(ran, 1u) << first.index() << " to " << then.index();
+      EXPECT_EQ(sum.index(), then.index());
+      sum = first;
+      std::size_t found = idr::match(
+          sum, [&](int &) { replace(); return std::size_t{0}; },
+          [&](std::string &) { replace(); return std::size_t{1}; },
+          [&](double &) { replace(); return std::size_t{2}; });
+      EXPECT_EQ(ran, 2u) << first.index() << " to " << then.index();
+      EXPECT_EQ(found, first.index());
+    }
 }
 
 // A rooted tree on nodes 0 to n - 1, 0 its root, read from each other

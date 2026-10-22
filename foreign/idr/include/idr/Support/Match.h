@@ -13,6 +13,19 @@
 // and throws the answer away, or, for visit, dispatches through a matrix
 // of function pointers above eleven alternatives in libc++). The fold is
 // one compare per alternative, which compiles to a jump table at any size.
+//
+// No case takes every type. A generic case beside named ones is a default,
+// and an alternative the sum gains would go to it silently, which is the
+// coverage the fold exists to keep; so the fold probes its cases with a
+// type of its own that no sum holds, and a match one of whose cases takes
+// it does not compile. A case for several alternatives names them: by a
+// list, `OneOf<A, B> auto &`, or by a concept they share and the probe
+// lacks.
+//
+// The fold reads the sum only to find the alternative it holds, before
+// the case runs, and reads neither the sum nor that alternative after the
+// case returns: a case may move or destroy the sum it was handed, as one
+// that pushes or pops the work stack holding it does.
 #ifndef IDR_SUPPORT_MATCH_H
 #define IDR_SUPPORT_MATCH_H
 
@@ -36,7 +49,16 @@ struct Cases : Fs... {
   using Fs::operator()...;
 };
 
+// A case for several alternatives, named by their list: `T`, however it is
+// passed, is one of `Alternatives`.
+template <class T, class... Alternatives>
+concept OneOf = (std::same_as<std::remove_cvref_t<T>, Alternatives> || ...);
+
 namespace detail {
+
+// The probe: a type no sum holds, which only a case that takes every type
+// takes.
+struct Unheld {};
 
 template <class V>
 inline constexpr bool isVariant = false;
@@ -125,34 +147,45 @@ R foldHandles(C &cases, llvm::PointerUnion<PTs...> handle) {
 template <class V>
 concept ClosedSum = detail::isVariant<std::remove_cvref_t<V>>;
 
+// The probe is passed as the sum's alternatives are, so a case is refused
+// exactly when it would take an alternative the sum does not yet hold.
 template <ClosedSum V, class... Fs>
 constexpr decltype(auto) match(V &&sum, Fs &&...fs) {
   using C = Cases<std::remove_cvref_t<Fs>...>;
   using Order = std::make_index_sequence<std::variant_size_v<std::remove_cvref_t<V>>>;
-  static_assert(detail::handlesEach<C, V>(Order{}), "a match has a case for every alternative");
-  if constexpr (detail::handlesEach<C, V>(Order{})) {
-    using R = std::invoke_result_t<C &, detail::Alternative<V, 0>>;
-    static_assert(detail::givesOne<C, V, R>(Order{}), "every case of a match gives one type");
-    if constexpr (detail::givesOne<C, V, R>(Order{})) {
-      C cases{std::forward<Fs>(fs)...};
-      return detail::fold<R>(cases, std::forward<V>(sum), Order{});
+  constexpr bool named = !std::invocable<C &, detail::Like<V, detail::Unheld>>;
+  static_assert(named, "no case of a match takes every type");
+  if constexpr (named) {
+    static_assert(detail::handlesEach<C, V>(Order{}), "a match has a case for every alternative");
+    if constexpr (detail::handlesEach<C, V>(Order{})) {
+      using R = std::invoke_result_t<C &, detail::Alternative<V, 0>>;
+      static_assert(detail::givesOne<C, V, R>(Order{}), "every case of a match gives one type");
+      if constexpr (detail::givesOne<C, V, R>(Order{})) {
+        C cases{std::forward<Fs>(fs)...};
+        return detail::fold<R>(cases, std::forward<V>(sum), Order{});
+      }
     }
   }
 }
 
 // A union of handles is never null where it is matched: each of its
-// alternatives is a handle that names something.
+// alternatives is a handle that names something. Its alternatives are
+// passed as pointers, and so is the probe.
 template <class... PTs, class... Fs>
 decltype(auto) match(llvm::PointerUnion<PTs...> handle, Fs &&...fs) {
   using C = Cases<std::remove_cvref_t<Fs>...>;
-  static_assert((std::invocable<C &, PTs> && ...), "a match has a case for every alternative");
-  if constexpr ((std::invocable<C &, PTs> && ...)) {
-    using R = std::invoke_result_t<C &, PTs...[0]>;
-    static_assert((std::same_as<std::invoke_result_t<C &, PTs>, R> && ...),
-                  "every case of a match gives one type");
-    if constexpr ((std::same_as<std::invoke_result_t<C &, PTs>, R> && ...)) {
-      C cases{std::forward<Fs>(fs)...};
-      return detail::foldHandles<R>(cases, handle);
+  constexpr bool named = !std::invocable<C &, detail::Unheld *>;
+  static_assert(named, "no case of a match takes every type");
+  if constexpr (named) {
+    static_assert((std::invocable<C &, PTs> && ...), "a match has a case for every alternative");
+    if constexpr ((std::invocable<C &, PTs> && ...)) {
+      using R = std::invoke_result_t<C &, PTs...[0]>;
+      static_assert((std::same_as<std::invoke_result_t<C &, PTs>, R> && ...),
+                    "every case of a match gives one type");
+      if constexpr ((std::same_as<std::invoke_result_t<C &, PTs>, R> && ...)) {
+        C cases{std::forward<Fs>(fs)...};
+        return detail::foldHandles<R>(cases, handle);
+      }
     }
   }
 }
