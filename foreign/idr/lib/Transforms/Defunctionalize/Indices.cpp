@@ -5,7 +5,9 @@
 // terms its own carrier names at the same places, and a value's family and
 // its sink's, two carriers one type up to their terms, name as many terms,
 // each at the other's place. A family's forced state is the carrier's value
-// over those places.
+// over those places, so an evaluated suspension of a refined value keeps
+// the terms of the binders its refinement keeps, as a closure keeps the
+// terms its function's binders take.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
@@ -21,10 +23,10 @@ using namespace mlir;
 
 namespace idr::defunctionalize {
 
-// Each index of each data type and a natural's index, through every type
-// the carrier holds, a data type's own parts being its family's. A stack,
-// never a recursion: the next part is on top, so the parts are met in the
-// order they stand.
+// Each index of each data type, then the binders' terms its refinement
+// keeps, and a natural's index, through every type the carrier holds, a
+// data type's own parts being its family's. A stack, never a recursion:
+// the next part is on top, so the parts are met in the order they stand.
 IndexTerms indexTermsOf(Type type) {
   IndexTerms out;
   SmallVector<Type> pending{type};
@@ -34,12 +36,19 @@ IndexTerms indexTermsOf(Type type) {
       // A sort names a family by its position in the group it is declared
       // in; the family that takes the place is of another group, so the
       // sort names its group.
-      for (families::Sort sort : data.getGroup().indices(data.getMember())) {
+      auto place = [&](families::Sort sort) {
         if (sort.kind == families::SortKind::FamilySort && !sort.payload)
           sort.payload = data.getGroup();
         out.sorts.push_back(sort);
-      }
+      };
+      llvm::for_each(data.getGroup().indices(data.getMember()), place);
       llvm::append_range(out.nodes, data.getIndices());
+      // Essential, two types: one refined to a constructor whose binders
+      // its indices leave open keeps their terms, each of its binder's
+      // sort; any other keeps none.
+      if (!data.getBinders().empty())
+        llvm::for_each(data.binderSorts(*data.singleTag()), place);
+      llvm::append_range(out.nodes, data.getBinders());
       continue;
     }
     if (auto nat = dyn_cast<NatType>(next)) {
@@ -55,10 +64,9 @@ IndexTerms indexTermsOf(Type type) {
 }
 
 // Each place takes the next level, in indexTermsOf's order. A refined data
-// type keeps the constructors its refinement leaves; its binders' terms are
-// no index of it and name levels of the carrier's scope, which the family
-// does not bind, so they go. Each type is rebuilt after its parts, in the
-// order they stand, on a stack.
+// type keeps the constructors its refinement leaves, and the binders it
+// keeps take levels after its indices'. Each type is rebuilt after its
+// parts, in the order they stand, on a stack.
 Type overPositions(Type type) {
   MLIRContext *ctx = type.getContext();
   std::uint64_t next = 0;
@@ -70,12 +78,18 @@ Type overPositions(Type type) {
     for (size_t i = 0, n = data.getGroup().indices(data.getMember()).size(); i < n; ++i)
       levels.push_back(level());
     DataType at = DataType::get(ctx, data.getGroup(), data.getMember(), levels);
-    // Essential, two types: a refinement is a fact beyond the indices,
-    // kept; an unrefined type's constructors are its indices' to leave.
+    // Essential, three types: a refinement is a fact beyond the indices,
+    // kept, with the binders' terms it keeps; an unrefined type's
+    // constructors are its indices' to leave.
     if (!data.getRefinement())
       return at;
     const families::TagSet &tags = data.possibleTags();
-    return at.refined(SmallVector<Tag>(tags.begin(), tags.end()));
+    if (data.getBinders().empty())
+      return at.refined(SmallVector<Tag>(tags.begin(), tags.end()));
+    SmallVector<families::TermNode> binders;
+    for (size_t i = 0, n = data.binderSorts(tags.front()).size(); i < n; ++i)
+      binders.push_back(level());
+    return at.refinedTo(tags.front(), binders);
   };
   struct Frame {
     Type type;

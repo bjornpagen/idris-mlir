@@ -361,9 +361,9 @@ void rewrite(const Edits &edits, const Decision &decision);
 IndexArgsAttr givenBinders(DataType family, Tag tag, unsigned depth);
 
 // The index terms a type names, one per place (each index of each data
-// type it holds, a natural's), in the order its parts stand: each place's
-// sort, and the terms' nodes; and the type with each term the level of its
-// place, as a family's forced state is over its indices (Indices.cpp).
+// type it holds, the binders' terms its refinement keeps, a natural's), in
+// order: each place's sort, and the terms' nodes; and the type with each
+// the level of its place, as a forced state is over them (Indices.cpp).
 struct IndexTerms {
   llvm::SmallVector<families::Sort> sorts;
   llvm::SmallVector<families::TermNode> nodes;

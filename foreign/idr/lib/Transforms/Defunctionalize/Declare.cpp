@@ -7,12 +7,13 @@
 // holding its captures; a memo family one per function, memoized or run by
 // name, then its two states, its forced state holding the value. A family
 // is indexed by every index term its carrier names, one index per place a
-// term stands (each index of a data type, a natural's), of the sort of that
-// place; each label binds its function's own index variables, its equation
-// the terms its function's carrier names at the same places. So a label's
-// binders are what the case's refinement solves them to, wherever they
-// stand in a term, and an apply's result type is what each case's call
-// gives with nothing after the call to relate them.
+// term stands (each index of a data type, the binders' terms its refinement
+// keeps, a natural's), of the sort of that place; each label binds its
+// function's own index variables, its equation the terms its function's
+// carrier names at the same places. So a label's binders are what the
+// case's refinement solves them to, wherever they stand in a term, and an
+// apply's result type is what each case's call gives with nothing after
+// the call to relate them.
 //
 // A capture or forced value that is itself a closure is held as its key's
 // family, and a data family of the program whose field holds one is
@@ -31,12 +32,18 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Symbols.h"
 #include "idr/Support/Id.h"
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Endian.h"
+#include "llvm/Support/Format.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/xxhash.h"
 
+#include <array>
 #include <deque>
 
 using namespace mlir;
@@ -51,6 +58,24 @@ namespace {
 unsigned arity(Type carrier) {
   auto fn = dyn_cast<FnType>(carrier);
   return fn ? static_cast<unsigned>(fn.getInputs().size()) : 0;
+}
+
+// The name of a key's family: its kind and the digest of the key, its
+// carrier's content and its labels', each word written low byte first. Two
+// keys are two families, so no two members of one group share a name, and
+// a key names its family alike in every process and on every target.
+StringAttr nameOf(MLIRContext *ctx, const Key &key) {
+  llvm::XXH128_hash_t carrier = stableDigest(key.carrier), labels = stableDigest(key.labels);
+  std::array<std::uint64_t, 4> words{carrier.low64, carrier.high64, labels.low64, labels.high64};
+  std::array<std::uint8_t, 32> bytes;
+  for (auto [at, word] : llvm::enumerate(words))
+    llvm::support::endian::write64le(bytes.data() + 8 * at, word);
+  llvm::XXH128_hash_t digest = llvm::xxh3_128bits(bytes);
+  llvm::SmallString<40> name(carrierOf(key) == Carrier::Lazy ? "lazy." : "fn.");
+  llvm::raw_svector_ostream os(name);
+  os << llvm::format_hex_no_prefix(digest.high64, 16)
+     << llvm::format_hex_no_prefix(digest.low64, 16);
+  return StringAttr::get(ctx, name);
 }
 
 // One new declaration, before its group is known: a key's family, or one
@@ -263,7 +288,7 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
               else
                 decls.push_back(decl);
             }
-            StringAttr name = StringAttr::get(ctx, carrierOf(k) == Carrier::Lazy ? "lazy" : "fn");
+            StringAttr name = nameOf(ctx, k);
             if (carrierOf(k) == Carrier::Closure)
               return families::ClosuresMember{name, indices, decls};
             Type forced = ctors.back().empty() ? Type() : inGroup(ctors.back().front().type, ctors.back().front().slot);
