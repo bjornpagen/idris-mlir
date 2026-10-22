@@ -1,6 +1,6 @@
 # Lane L13 (ops-primitives): ops, the numeric template, rules as data
 
-**Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Ops/`,
+**Exclusive write:** `foreign/idr/lib/IR/Ops/` (new, for new code), `compiler/spec/IdrisMLIR/Spec/Ops/`,
 `foreign/idr/include/idr/IR/Numeric/`,
 `foreign/idr/lib/IR/{Constants,Crashes,Ops,OpsBigs,OpsChecks,OpsFolds,OpsPlatform,OpsScalars,OpsStrings,Ranges,ValueFacts}.cpp`,
 `foreign/idr/lib/IR/{Canon,Fold}/`, `foreign/idr/include/idr/IR/{Canon,Fold,Ranges}.h`,

@@ -1,6 +1,6 @@
 # Lane L01 (effects-ops): the effect tree and its one source
 
-**Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Effects/`,
+**Exclusive write:** `foreign/idr/lib/IR/Effects/` (new, for new code), `compiler/spec/IdrisMLIR/Spec/Effects/`,
 `foreign/idr/include/idr/IR/Effects/`, `foreign/idr/lib/IR/Effects.cpp`.
 
 **Read deeply:** P0 §5.1 whole; in §2 the rulings D9, D13, D14, D20 to

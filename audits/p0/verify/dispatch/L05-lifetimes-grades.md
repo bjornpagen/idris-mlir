@@ -1,6 +1,6 @@
 # Lane L05 (lifetimes-grades): the grade, lifetimes, linearity verification
 
-**Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Grades/`,
+**Exclusive write:** `foreign/idr/lib/IR/Lifetimes/` (new, for new code), `compiler/spec/IdrisMLIR/Spec/Grades/`,
 `compiler/spec/IdrisMLIR/Spec/Lifetimes/`,
 `lib/IR/{Grades,Lifetimes,OpsOwnership}.cpp`,
 `lib/IR/Verify/{Linearity,Owned,OwnedOps,OwnedRegions,Uses}.cpp`,

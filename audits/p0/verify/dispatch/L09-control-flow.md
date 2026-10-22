@@ -1,6 +1,6 @@
 # Lane L09 (control-flow): regions, matches, join points
 
-**Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Control/`,
+**Exclusive write:** `foreign/idr/lib/IR/Control/` (new, for new code), `compiler/spec/IdrisMLIR/Spec/Control/`,
 `foreign/idr/lib/IR/{Flow,FlowEdges,FlowOps,Regions,OpsMatch,OpsMatchSyntax}.cpp`,
 `foreign/idr/include/idr/IR/{Flow,FlowEdges}.h`,
 `foreign/idr/lib/Transforms/Joins/`,

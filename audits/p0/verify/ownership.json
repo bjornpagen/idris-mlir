@@ -32,7 +32,8 @@
  "L01": [
   "compiler/spec/IdrisMLIR/Spec/Effects/",
   "foreign/idr/include/idr/IR/Effects/",
-  "foreign/idr/lib/IR/Effects.cpp"
+  "foreign/idr/lib/IR/Effects.cpp",
+  "foreign/idr/lib/IR/Effects/"
  ],
  "L02": [
   "foreign/idr/lib/Analysis/Effects.cpp",
@@ -120,7 +121,8 @@
   "foreign/idr/lib/Transforms/Stack/",
   "foreign/idr/include/idr/Transforms/Stack.h",
   "foreign/idr/lib/Transforms/Lifetimes/",
-  "foreign/idr/include/idr/Transforms/Lifetimes.h"
+  "foreign/idr/include/idr/Transforms/Lifetimes.h",
+  "foreign/idr/lib/IR/Lifetimes/"
  ],
  "L06": [
   "tools/",
@@ -179,7 +181,8 @@
   "foreign/idr/lib/Conversion/Matches.cpp",
   "foreign/idr/include/idr/Conversion/Matches.h",
   "foreign/idr/lib/Transforms/Joins/",
-  "foreign/idr/include/idr/Transforms/Joins.h"
+  "foreign/idr/include/idr/Transforms/Joins.h",
+  "foreign/idr/lib/IR/Control/"
  ],
  "L10": [
   "foreign/idr/lib/IR/Tail.cpp",
@@ -250,7 +253,8 @@
   "foreign/idr/lib/Conversion/Strings.cpp",
   "foreign/idr/lib/Conversion/Words.cpp",
   "foreign/idr/lib/Conversion/Checks.cpp",
-  "foreign/idr/include/idr/Conversion/Words.h"
+  "foreign/idr/include/idr/Conversion/Words.h",
+  "foreign/idr/lib/IR/Ops/"
  ],
  "L14": [
   "foreign/idr/lib/Analysis/BindingTimes.cpp",
@@ -370,6 +374,7 @@
   "foreign/idr/lib/Target/Partition.cpp",
   "foreign/idr/lib/Target/Schedules.cpp",
   "foreign/idr/lib/Target/Target.cpp",
-  "foreign/idr/include/idr/Target/Target.h"
+  "foreign/idr/include/idr/Target/Target.h",
+  "foreign/idr/lib/Conversion/Lower/"
  ]
 }
