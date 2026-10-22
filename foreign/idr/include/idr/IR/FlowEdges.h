@@ -14,14 +14,13 @@
 // a reference over, which cells may leave their frame, which values hold
 // the only reference to their cells) follows counted references.
 //
-// An anchor, a point and an edge are each a sum: one alternative per kind,
-// holding what that kind has and nothing else, so no reader meets a field
-// that is not its kind's. A reader takes one apart with idr::match, one
-// case per alternative, so the compiler holds it to every kind.
+// An anchor, a source, a place and an edge are each a sum: one alternative
+// per kind, holding what that kind has and nothing else, so no reader
+// meets a field that is not its kind's, and no place is a use taken over.
+// A reader takes one apart with idr::match, one case per alternative, so
+// the compiler holds it to every kind.
 #ifndef IDR_IR_FLOWEDGES_H
 #define IDR_IR_FLOWEDGES_H
-
-#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpDefinition.h"
@@ -141,61 +140,37 @@ struct FlowAnchor {
   bool operator==(const FlowAnchor &) const = default;
 };
 
-inline llvm::hash_code hash_value(const FlowAnchor &anchor) {
-  size_t kind = anchor.place.index();
-  return idr::match(
-      anchor.place,
-      [&](const FlowAnchor::Field &field) {
-        return llvm::hash_combine(kind, field.data, static_cast<std::uint32_t>(field.ctor),
-                                  field.index);
-      },
-      [&](const FlowAnchor::Elements &elements) {
-        return llvm::hash_combine(kind, elements.element);
-      },
-      [&](const FlowAnchor::Forced &forced) { return llvm::hash_combine(kind, forced.lazy); },
-      [&](const FlowAnchor::MemoState &state) { return llvm::hash_combine(kind, state.memo); },
-      [&](const FlowAnchor::Capture &capture) {
-        return llvm::hash_combine(kind, capture.carrier, capture.index);
-      },
-      [&](const FlowAnchor::Hole &hole) { return llvm::hash_combine(kind, hole.dest); });
-}
+// An anchor's hash: its kind, and what it holds.
+llvm::hash_code hash_value(const FlowAnchor &anchor);
 
-// One end of an edge.
-struct FlowPoint {
-  // A use whose value the op takes over, with the reference it holds: only
-  // ever a `from`. Never null: of() makes it from a use.
+// The source of an edge: where what moves comes from. A whole value, a
+// parameter and a result are places too (FlowPlace); a use taken over is a
+// source's alone.
+struct FlowSource {
+  // A use whose value the op takes over, with the reference it holds.
+  // Never null: of() makes it from a use.
   struct Taken {
     mlir::OpOperand *use;
     bool operator==(const Taken &) const = default;
   };
-  // As a `from`, a value the op reads and does not take over (an operand's
-  // value: the use keeps its reference); as a `to`, a result of the op or
+  // As a source, a value the op reads and does not take over (an operand's
+  // value: the use keeps its reference); as a place, a result of the op or
   // an argument of a block of its regions.
   struct Whole {
     mlir::Value value;
     bool operator==(const Whole &) const = default;
   };
-  // What `anchor` holds of a value. As a `from`, the part of an operand's
-  // value, the op taking the whole over (Taken) or only reading it
-  // (Whole); as a `to`, the part of a result or region argument the op
-  // builds, or of an operand's value the op writes in place (Whole).
+  // What `anchor` holds of a value: of an operand's value, the op taking
+  // the whole over (Taken) or only reading it (Whole), or of a result or a
+  // region argument of its own, which it reads back (Whole).
   struct Part {
     std::variant<Taken, Whole> of;
     FlowAnchor anchor;
 
     // The value the part is of, taken or only read: a part always has one.
-    mlir::Value value() const {
-      return idr::match(
-          of, [](Taken taken) { return taken.use->get(); },
-          [](Whole whole) { return whole.value; });
-    }
+    mlir::Value value() const;
     // The use the op takes over where it takes the whole the part is of.
-    std::optional<mlir::OpOperand *> taken() const {
-      using Found = std::optional<mlir::OpOperand *>;
-      return idr::match(
-          of, [](Taken taken) -> Found { return taken.use; },
-          [](Whole) -> Found { return std::nullopt; });
-    }
+    std::optional<mlir::OpOperand *> taken() const;
 
     bool operator==(const Part &) const = default;
   };
@@ -214,54 +189,68 @@ struct FlowPoint {
 
   std::variant<Taken, Whole, Part, Parameter, Result> at;
 
-  static FlowPoint of(mlir::OpOperand &use) { return {Taken{&use}}; }
-  static FlowPoint of(mlir::Value value) { return {Whole{value}}; }
-  static FlowPoint partOf(mlir::OpOperand &use, FlowAnchor anchor) {
+  static FlowSource of(mlir::OpOperand &use) { return {Taken{&use}}; }
+  static FlowSource of(mlir::Value value) { return {Whole{value}}; }
+  static FlowSource partOf(mlir::OpOperand &use, FlowAnchor anchor) {
     return {Part{Taken{&use}, anchor}};
   }
-  static FlowPoint partOf(mlir::Value value, FlowAnchor anchor) {
+  static FlowSource partOf(mlir::Value value, FlowAnchor anchor) {
     return {Part{Whole{value}, anchor}};
   }
-  static FlowPoint parameter(mlir::FlatSymbolRefAttr function, unsigned index) {
+  static FlowSource parameter(mlir::FlatSymbolRefAttr function, unsigned index) {
     return {Parameter{function, index}};
   }
-  static FlowPoint result(mlir::FlatSymbolRefAttr function, unsigned index) {
+  static FlowSource result(mlir::FlatSymbolRefAttr function, unsigned index) {
     return {Result{function, index}};
   }
 
-  // The SSA value at this point: a use's value, a value, or the value a
+  // The SSA value of this source: a use's value, a value, or the value a
   // part is of; none at a parameter or a result.
-  std::optional<mlir::Value> value() const {
-    using Found = std::optional<mlir::Value>;
-    return idr::match(
-        at, [](Taken taken) -> Found { return taken.use->get(); },
-        [](Whole whole) -> Found { return whole.value; },
-        [](const Part &part) -> Found { return part.value(); },
-        [](Parameter) -> Found { return std::nullopt; },
-        [](Result) -> Found { return std::nullopt; });
-  }
+  std::optional<mlir::Value> value() const;
 
-  // The type of what is held at this point, where the op alone says it: a
+  // The type of what is held at this source, where the op alone says it: a
   // use's or a value's, unrestricted, or a part's slot (FlowAnchor::slot);
   // none at a capture, which only the label says, and none at a parameter
-  // or a result, the function's, which the symbol user checks
-  // (lib/IR/FlowEdges.cpp).
+  // or a result, the function's, which the symbol user checks.
   std::optional<mlir::Type> type() const;
 
-  // The use the op takes over at this point: a use taken, or the use whose
+  // The use the op takes over at this source: a use taken, or the use whose
   // value a part is of when the op takes it; none where the op only reads,
-  // makes or writes in place, or at a parameter or a result.
-  std::optional<mlir::OpOperand *> taken() const {
-    using Found = std::optional<mlir::OpOperand *>;
-    return idr::match(
-        at, [](Taken taken) -> Found { return taken.use; },
-        [](Whole) -> Found { return std::nullopt; },
-        [](const Part &part) -> Found { return part.taken(); },
-        [](Parameter) -> Found { return std::nullopt; },
-        [](Result) -> Found { return std::nullopt; });
+  // or at a parameter or a result.
+  std::optional<mlir::OpOperand *> taken() const;
+
+  bool operator==(const FlowSource &) const = default;
+};
+
+// A place: where what moves goes, what a unification joins, what an
+// overwrite writes. A value the op makes, a part of one or of a value it or
+// its parent holds, a parameter or a result; never a use, which only a
+// source takes over.
+struct FlowPlace {
+  // What `anchor` holds of `of`: a part of a result or a region argument
+  // the op builds, of an operand's value it writes in place, or of what its
+  // parent makes or writes.
+  struct Part {
+    mlir::Value of;
+    FlowAnchor anchor;
+  };
+
+  std::variant<FlowSource::Whole, Part, FlowSource::Parameter, FlowSource::Result> at;
+
+  static FlowPlace of(mlir::Value value) { return {FlowSource::Whole{value}}; }
+  static FlowPlace partOf(mlir::Value value, FlowAnchor anchor) { return {Part{value, anchor}}; }
+  static FlowPlace parameter(mlir::FlatSymbolRefAttr function, unsigned index) {
+    return {FlowSource::Parameter{function, index}};
+  }
+  static FlowPlace result(mlir::FlatSymbolRefAttr function, unsigned index) {
+    return {FlowSource::Result{function, index}};
   }
 
-  bool operator==(const FlowPoint &) const = default;
+  // The SSA value at this place: a value, or the value a part is of; none
+  // at a parameter or a result.
+  std::optional<mlir::Value> value() const;
+  // The type of what is held here, as at a source (FlowSource::type).
+  std::optional<mlir::Type> type() const;
 };
 
 // The edges ops declare, as data, in the order they were added. Each edge
@@ -272,13 +261,13 @@ class FlowEdges {
 public:
   // What `from` holds moves to `to`.
   struct Flow {
-    FlowPoint from;
-    FlowPoint to;
+    FlowSource from;
+    FlowPlace to;
   };
   // The labels `a` and `b` hold are one set: a cell both share.
   struct Unify {
-    FlowPoint a;
-    FlowPoint b;
+    FlowPlace a;
+    FlowPlace b;
   };
   // `to`, a closure or a suspension the op makes, holds `label`.
   struct Source {
@@ -304,7 +293,7 @@ public:
   // this, or is the exchange of that memory (an update, a memo cell's
   // force), or writes a hole.
   struct Overwrite {
-    FlowPoint place;
+    FlowPlace::Part place;
   };
   // `to` holds the constant `part`, each part where its carrier says: a
   // closure is its label there, a constructor holds its fields at their
@@ -328,21 +317,21 @@ public:
   };
 
   // What the value at `from` holds moves to `to`, carrying what that value
-  // carries: the value of a Taken or Whole point, the anchor's slot of a
+  // carries: the value of a Taken or Whole source, the anchor's slot of a
   // Part, and at a parameter or a result what `to` holds. `only` keeps
   // those of some carriers: a capture's labels go to its label's
   // parameter, and its reference into its closure's cell.
-  void flow(FlowPoint from, FlowPoint to, Carriers only = Carriers::all());
+  void flow(FlowSource from, FlowPlace to, Carriers only = Carriers::all());
   // The labels `a` and `b` hold are one set.
-  void unify(FlowPoint a, FlowPoint b);
+  void unify(FlowPlace a, FlowPlace b);
   // `to`, a closure or a suspension, holds `label`.
   void source(mlir::FlatSymbolRefAttr label, mlir::Value to);
   // `to` is new: no other value holds a reference to it.
   void fresh(mlir::Value to);
   // The use gives its reference up at the op.
   void release(mlir::OpOperand &use);
-  // What `place` held is released as the op writes it.
-  void overwrite(FlowPoint place);
+  // What `anchor` holds of `of` is released as the op writes it.
+  void overwrite(mlir::Value of, FlowAnchor anchor);
   // `to` holds the constant `part`.
   void constant(mlir::Attribute part, mlir::Value to);
   // `call` runs the labels its callee holds.

@@ -37,8 +37,8 @@ void idr::builtEdges(Value value, DataType data, Tag tag, MutableOperandRange fi
   for (unsigned i = 0, n = static_cast<unsigned>(data.ctor(tag).fields.size()); i < n; ++i) {
     if (llvm::is_contained(holes, static_cast<int32_t>(i)))
       continue;
-    edges.flow(FlowPoint::of(fields[given++]),
-               FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, i)));
+    edges.flow(FlowSource::of(fields[given++]),
+               FlowPlace::partOf(value, FlowAnchor::fieldOf(data, tag, i)));
   }
 }
 
@@ -68,9 +68,9 @@ void labelEdges(Op op, FlowEdges &edges) {
   edges.source(label, self);
   MutableOperandRange captures = op.getCapturesMutable();
   for (unsigned i = 0, n = captures.size(); i < n; ++i) {
-    edges.flow(FlowPoint::of(captures[i]), FlowPoint::parameter(label, i), Carriers::labels());
-    edges.flow(FlowPoint::of(captures[i]),
-               FlowPoint::partOf(self, FlowAnchor::captureOf(carrier, i)), Carrier::Reference);
+    edges.flow(FlowSource::of(captures[i]), FlowPlace::parameter(label, i), Carriers::labels());
+    edges.flow(FlowSource::of(captures[i]),
+               FlowPlace::partOf(self, FlowAnchor::captureOf(carrier, i)), Carrier::Reference);
   }
   edges.fresh(self);
 }
@@ -78,7 +78,7 @@ void labelEdges(Op op, FlowEdges &edges) {
 // An op that hands its operand to its result: the result is the operand's
 // value, and the op takes it over.
 void handOn(OpOperand &use, Value result, FlowEdges &edges) {
-  edges.flow(FlowPoint::of(use), FlowPoint::of(result));
+  edges.flow(FlowSource::of(use), FlowPlace::of(result));
 }
 
 // A numeral and the natural it is converted to or from are one value where
@@ -102,15 +102,15 @@ void idr::CallOp::getFlowEdges(FlowEdges &edges) {
   FlatSymbolRefAttr callee = getCalleeAttr();
   MutableOperandRange args = getArgsMutable();
   for (unsigned i = 0, n = args.size(); i < n; ++i)
-    edges.flow(FlowPoint::of(args[i]), FlowPoint::parameter(callee, i));
+    edges.flow(FlowSource::of(args[i]), FlowPlace::parameter(callee, i));
   for (OpResult result : getOperation()->getResults())
-    edges.flow(FlowPoint::result(callee, result.getResultNumber()), FlowPoint::of(Value(result)));
+    edges.flow(FlowSource::result(callee, result.getResultNumber()), FlowPlace::of(Value(result)));
 }
 
 void idr::ReturnOp::getFlowEdges(FlowEdges &edges) {
   auto fn = FlatSymbolRefAttr::get(cast<FuncOp>(getOperation()->getParentOp()).getSymNameAttr());
   for (OpOperand &use : getOperation()->getOpOperands())
-    edges.flow(FlowPoint::of(use), FlowPoint::result(fn, use.getOperandNumber()));
+    edges.flow(FlowSource::of(use), FlowPlace::result(fn, use.getOperandNumber()));
 }
 
 // A constant's parts are expanded where it is held, by the reader that
@@ -130,7 +130,7 @@ void idr::DataConOp::getFlowEdges(FlowEdges &edges) {
 void idr::DataFieldOp::getFlowEdges(FlowEdges &edges) {
   FlowAnchor field =
       FlowAnchor::fieldOf(getDataType(), getTag(), static_cast<unsigned>(getIndex()));
-  edges.flow(FlowPoint::partOf(getValue(), field), FlowPoint::of(getResult()));
+  edges.flow(FlowSource::partOf(getValue(), field), FlowPlace::of(getResult()));
 }
 
 // The tag is read, and nothing moves.
@@ -153,8 +153,8 @@ void idr::NumeralOfNatOp::getFlowEdges(FlowEdges &edges) {
 // The value moves into the hole the destination writes.
 void idr::DestWriteOp::getFlowEdges(FlowEdges &edges) {
   TypedValue<DestType> dest = getDest();
-  edges.flow(FlowPoint::of(getValueMutable()),
-             FlowPoint::partOf(dest, FlowAnchor::holeOf(dest.getType())));
+  edges.flow(FlowSource::of(getValueMutable()),
+             FlowPlace::partOf(dest, FlowAnchor::holeOf(dest.getType())));
 }
 
 // Each answer is what the region wrote through the destination it receives
@@ -163,8 +163,8 @@ void idr::DestWriteOp::getFlowEdges(FlowEdges &edges) {
 // this op's alone, and that it is written once is its type's.
 void idr::DestAnswerOp::getFlowEdges(FlowEdges &edges) {
   for (auto [dest, answer] : llvm::zip_equal(getBody().getArguments(), getResults()))
-    edges.flow(FlowPoint::partOf(dest, FlowAnchor::holeOf(cast<DestType>(dest.getType()))),
-               FlowPoint::of(answer));
+    edges.flow(FlowSource::partOf(dest, FlowAnchor::holeOf(cast<DestType>(dest.getType()))),
+               FlowPlace::of(answer));
 }
 
 void idr::FnClosureOp::getFlowEdges(FlowEdges &edges) { labelEdges(*this, edges); }
@@ -173,21 +173,22 @@ void idr::FnClosureOp::getFlowEdges(FlowEdges &edges) { labelEdges(*this, edges)
 // slot every force of a cell of that type reads.
 void idr::LazySuspendOp::getFlowEdges(FlowEdges &edges) {
   labelEdges(*this, edges);
-  edges.unify(FlowPoint::result(getCalleeAttr(), 0),
-              FlowPoint::partOf(getResult(), forcedOf(getType())));
+  edges.unify(FlowPlace::result(getCalleeAttr(), 0),
+              FlowPlace::partOf(getResult(), forcedOf(getType())));
 }
 
 // An evaluated suspension holds its value in its forced state and runs no
 // label.
 void idr::LazyDelayOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowPoint::of(getValueMutable()), FlowPoint::partOf(getResult(), forcedOf(getType())));
+  edges.flow(FlowSource::of(getValueMutable()),
+             FlowPlace::partOf(getResult(), forcedOf(getType())));
   edges.fresh(getResult());
 }
 
 // A force reads the forced state of its cell.
 void idr::LazyForceOp::getFlowEdges(FlowEdges &edges) {
   Value cell = getSuspension();
-  edges.flow(FlowPoint::partOf(cell, forcedOf(cell.getType())), FlowPoint::of(getResult()));
+  edges.flow(FlowSource::partOf(cell, forcedOf(cell.getType())), FlowPlace::of(getResult()));
 }
 
 void idr::FnApplyOp::getFlowEdges(FlowEdges &edges) { edges.dispatch(*this); }
@@ -230,15 +231,15 @@ struct Model : FlowOpInterface::ExternalModel<Model<Op, edgesOf>, Op> {
 // The tensor an insert makes is its destination with one element moved in.
 void insertEdges(tensor::InsertOp insert, FlowEdges &edges) {
   Value made = insert.getResult();
-  edges.flow(FlowPoint::of(insert.getScalarMutable()),
-             FlowPoint::partOf(made, elementsOf(made.getType())));
-  edges.flow(FlowPoint::of(insert.getDest()), FlowPoint::of(made));
+  edges.flow(FlowSource::of(insert.getScalarMutable()),
+             FlowPlace::partOf(made, elementsOf(made.getType())));
+  edges.flow(FlowSource::of(insert.getDest()), FlowPlace::of(made));
 }
 
 void extractEdges(tensor::ExtractOp extract, FlowEdges &edges) {
   Value tensor = extract.getTensor();
-  edges.flow(FlowPoint::partOf(tensor, elementsOf(tensor.getType())),
-             FlowPoint::of(extract.getResult()));
+  edges.flow(FlowSource::partOf(tensor, elementsOf(tensor.getType())),
+             FlowPlace::of(extract.getResult()));
 }
 
 // A store writes an element over the one it replaces, which the lowering
@@ -246,28 +247,29 @@ void extractEdges(tensor::ExtractOp extract, FlowEdges &edges) {
 // only reads the value.
 void storeEdges(memref::StoreOp store, FlowEdges &edges) {
   Value buffer = store.getMemRef();
-  edges.flow(FlowPoint::of(store.getValue()), FlowPoint::partOf(buffer, elementsOf(buffer.getType())));
-  edges.overwrite(FlowPoint::partOf(buffer, elementsOf(buffer.getType())));
+  edges.flow(FlowSource::of(store.getValue()),
+             FlowPlace::partOf(buffer, elementsOf(buffer.getType())));
+  edges.overwrite(buffer, elementsOf(buffer.getType()));
 }
 
 // A load reads an element out of its buffer, which keeps it.
 void loadEdges(memref::LoadOp load, FlowEdges &edges) {
   Value buffer = load.getMemRef();
-  edges.flow(FlowPoint::partOf(buffer, elementsOf(buffer.getType())),
-             FlowPoint::of(load.getResult()));
+  edges.flow(FlowSource::partOf(buffer, elementsOf(buffer.getType())),
+             FlowPlace::of(load.getResult()));
 }
 
 void fromElementsEdges(tensor::FromElementsOp made, FlowEdges &edges) {
   Value tensor = made.getResult();
   for (OpOperand &use : made->getOpOperands())
-    edges.flow(FlowPoint::of(use), FlowPoint::partOf(tensor, elementsOf(tensor.getType())));
+    edges.flow(FlowSource::of(use), FlowPlace::partOf(tensor, elementsOf(tensor.getType())));
   edges.fresh(tensor);
 }
 
 void splatEdges(tensor::SplatOp splat, FlowEdges &edges) {
   Value tensor = splat.getResult();
-  edges.flow(FlowPoint::of(splat.getInputMutable()),
-             FlowPoint::partOf(tensor, elementsOf(tensor.getType())));
+  edges.flow(FlowSource::of(splat.getInputMutable()),
+             FlowPlace::partOf(tensor, elementsOf(tensor.getType())));
   edges.fresh(tensor);
 }
 
@@ -275,8 +277,8 @@ void splatEdges(tensor::SplatOp splat, FlowEdges &edges) {
 // makes.
 void yieldEdges(tensor::YieldOp yield, FlowEdges &edges) {
   Value tensor = yield->getParentOp()->getResult(0);
-  edges.flow(FlowPoint::of(yield.getValueMutable()),
-             FlowPoint::partOf(tensor, elementsOf(tensor.getType())));
+  edges.flow(FlowSource::of(yield.getValueMutable()),
+             FlowPlace::partOf(tensor, elementsOf(tensor.getType())));
 }
 
 // A poison is no value the program computes: nothing else holds it, and it

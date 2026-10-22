@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The flow vocabulary's behaviour (FlowEdges.h): what a value carries, the
-// type held at a point, and the helpers ops declare their edges with. An
-// edge carries what the value that moves carries, so a word or a world
-// moves along none. A value is followed whole, or into and out of a part of
-// another, which is how the label solve keeps one set per anchor and
-// ownership one state per value.
+// type held at a source or a place, and the helpers ops declare their edges
+// with. An edge carries what the value that moves carries, so a word or a
+// world moves along none. A value is followed whole, or into and out of a
+// part of another, which is how the label solve keeps one set per anchor
+// and ownership one state per value.
 
 #include "idr/IR/Flow.h"
 
@@ -13,7 +13,10 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Match.h"
 
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <cstdint>
 
 using namespace mlir;
 using namespace idr;
@@ -53,7 +56,58 @@ std::optional<Type> FlowAnchor::slot() const {
       [](const Hole &hole) -> Slot { return hole.dest.getValue(); });
 }
 
-std::optional<Type> FlowPoint::type() const {
+llvm::hash_code idr::hash_value(const FlowAnchor &anchor) {
+  size_t kind = anchor.place.index();
+  return idr::match(
+      anchor.place,
+      [&](const FlowAnchor::Field &field) {
+        return llvm::hash_combine(kind, field.data, static_cast<std::uint32_t>(field.ctor),
+                                  field.index);
+      },
+      [&](const FlowAnchor::Elements &elements) {
+        return llvm::hash_combine(kind, elements.element);
+      },
+      [&](const FlowAnchor::Forced &forced) { return llvm::hash_combine(kind, forced.lazy); },
+      [&](const FlowAnchor::MemoState &state) { return llvm::hash_combine(kind, state.memo); },
+      [&](const FlowAnchor::Capture &capture) {
+        return llvm::hash_combine(kind, capture.carrier, capture.index);
+      },
+      [&](const FlowAnchor::Hole &hole) { return llvm::hash_combine(kind, hole.dest); });
+}
+
+Value FlowSource::Part::value() const {
+  return idr::match(
+      of, [](Taken taken) { return taken.use->get(); }, [](Whole whole) { return whole.value; });
+}
+
+std::optional<OpOperand *> FlowSource::Part::taken() const {
+  using Found = std::optional<OpOperand *>;
+  return idr::match(
+      of, [](Taken taken) -> Found { return taken.use; },
+      [](Whole) -> Found { return std::nullopt; });
+}
+
+std::optional<Value> FlowSource::value() const {
+  using Found = std::optional<Value>;
+  return idr::match(
+      at, [](Taken taken) -> Found { return taken.use->get(); },
+      [](Whole whole) -> Found { return whole.value; },
+      [](const Part &part) -> Found { return part.value(); },
+      [](Parameter) -> Found { return std::nullopt; },
+      [](Result) -> Found { return std::nullopt; });
+}
+
+std::optional<OpOperand *> FlowSource::taken() const {
+  using Found = std::optional<OpOperand *>;
+  return idr::match(
+      at, [](Taken taken) -> Found { return taken.use; },
+      [](Whole) -> Found { return std::nullopt; },
+      [](const Part &part) -> Found { return part.taken(); },
+      [](Parameter) -> Found { return std::nullopt; },
+      [](Result) -> Found { return std::nullopt; });
+}
+
+std::optional<Type> FlowSource::type() const {
   using Held = std::optional<Type>;
   return idr::match(
       at, [](Taken taken) -> Held { return unrestricted(taken.use->get().getType()); },
@@ -62,13 +116,30 @@ std::optional<Type> FlowPoint::type() const {
       [](Parameter) -> Held { return std::nullopt; }, [](Result) -> Held { return std::nullopt; });
 }
 
+std::optional<Value> FlowPlace::value() const {
+  using Found = std::optional<Value>;
+  return idr::match(
+      at, [](FlowSource::Whole whole) -> Found { return whole.value; },
+      [](const Part &part) -> Found { return part.of; },
+      [](FlowSource::Parameter) -> Found { return std::nullopt; },
+      [](FlowSource::Result) -> Found { return std::nullopt; });
+}
+
+std::optional<Type> FlowPlace::type() const {
+  using Held = std::optional<Type>;
+  return idr::match(
+      at, [](FlowSource::Whole whole) -> Held { return unrestricted(whole.value.getType()); },
+      [](const Part &part) -> Held { return part.anchor.slot(); },
+      [](FlowSource::Parameter) -> Held { return std::nullopt; },
+      [](FlowSource::Result) -> Held { return std::nullopt; });
+}
+
 namespace {
 
-// The type of what moves from `from` to `to`: the one end that says it.
-std::optional<Type> movedType(const FlowPoint &from, const FlowPoint &to) {
-  if (std::optional<Type> type = from.type())
-    return type;
-  return to.type();
+// The type of what moves into `to`: what the end it comes from says, or
+// else what the place says.
+std::optional<Type> movedType(std::optional<Type> from, const FlowPlace &to) {
+  return from ? from : to.type();
 }
 
 } // namespace
@@ -78,13 +149,13 @@ void FlowEdges::add(Edge edge) {
     list.push_back(edge);
 }
 
-void FlowEdges::flow(FlowPoint from, FlowPoint to, Carriers only) {
-  if (std::optional<Type> type = movedType(from, to))
+void FlowEdges::flow(FlowSource from, FlowPlace to, Carriers only) {
+  if (std::optional<Type> type = movedType(from.type(), to))
     add({Flow{from, to}, Carriers::of(*type) & only});
 }
 
-void FlowEdges::unify(FlowPoint a, FlowPoint b) {
-  if (std::optional<Type> type = movedType(a, b))
+void FlowEdges::unify(FlowPlace a, FlowPlace b) {
+  if (std::optional<Type> type = movedType(a.type(), b))
     add({Unify{a, b}, Carriers::of(*type) & Carriers::labels()});
 }
 
@@ -100,9 +171,9 @@ void FlowEdges::release(OpOperand &use) {
   add({Release{&use}, Carriers::of(use.get().getType()) & Carrier::Reference});
 }
 
-void FlowEdges::overwrite(FlowPoint place) {
-  if (std::optional<Type> type = place.type())
-    add({Overwrite{place}, Carriers::of(*type) & Carrier::Reference});
+void FlowEdges::overwrite(Value of, FlowAnchor anchor) {
+  if (std::optional<Type> type = anchor.slot())
+    add({Overwrite{{of, anchor}}, Carriers::of(*type) & Carrier::Reference});
 }
 
 void FlowEdges::constant(Attribute part, Value to) {

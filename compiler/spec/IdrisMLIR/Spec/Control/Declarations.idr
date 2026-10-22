@@ -4,10 +4,11 @@
 ||| a region per case; the yield that ends a region; the join points, one
 ||| family of two members by where their tokens are; the jump to one of
 ||| them; the flow interface, which reads what a region branch forwards
-||| from upstream's interface; the upstream ops a condition is chosen with,
-||| `scf.if` and its `scf.yield`, which the frontend writes; and the
-||| skeleton rules of the e-graph pass over these ops. Blocks appear only at
-||| the lowering, in one conversion with upstream's scf patterns.
+||| from upstream's interface; the upstream ops a word or a condition is
+||| chosen with, `scf.index_switch`, `scf.if` and their `scf.yield`, which
+||| the frontend writes; and the skeleton rules of the e-graph pass over
+||| these ops. Blocks appear only at the lowering, in one conversion with
+||| upstream's scf patterns.
 module IdrisMLIR.Spec.Control.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary

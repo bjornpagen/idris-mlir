@@ -39,12 +39,12 @@ void idr::flowEdgesOf(Operation *op, FlowEdges &edges) {
   if (auto flow = dyn_cast<FlowOpInterface>(op))
     flow.getFlowEdges(edges);
   forwardedValues(op, [&](OpOperand &use, Value input) {
-    edges.flow(FlowPoint::of(use), FlowPoint::of(input));
+    edges.flow(FlowSource::of(use), FlowPlace::of(input));
   });
   if (auto select = dyn_cast<SelectLikeOpInterface>(op)) {
     Value result = op->getResult(0);
-    edges.flow(FlowPoint::of(select.getTrueValue()), FlowPoint::of(result));
-    edges.flow(FlowPoint::of(select.getFalseValue()), FlowPoint::of(result));
+    edges.flow(FlowSource::of(select.getTrueValue()), FlowPlace::of(result));
+    edges.flow(FlowSource::of(select.getFalseValue()), FlowPlace::of(result));
   }
 }
 
@@ -161,7 +161,7 @@ LogicalResult writesPartKnown(Operation *op, Value place, const FlowEdges &edges
   bool released = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &other) {
     return idr::match(
         other.move,
-        [&](const FlowEdges::Overwrite &over) { return over.place.value() == place; },
+        [&](const FlowEdges::Overwrite &over) { return over.place.of == place; },
         [](const FlowEdges::Flow &) { return false; },
         [](const FlowEdges::Unify &) { return false; },
         [](const FlowEdges::Source &) { return false; },
@@ -179,13 +179,11 @@ LogicalResult writesPartKnown(Operation *op, Value place, const FlowEdges &edges
 // A move of a reference into `to`: only a move into a part writes memory,
 // which the rule above asks about; a whole value, a parameter or a result
 // is written by none.
-LogicalResult writesKnown(Operation *op, const FlowPoint &to, const FlowEdges &edges) {
+LogicalResult writesKnown(Operation *op, const FlowPlace &to, const FlowEdges &edges) {
   return idr::match(
-      to.at,
-      [&](const FlowPoint::Part &part) { return writesPartKnown(op, part.value(), edges); },
-      [](FlowPoint::Taken) { return success(); }, [](FlowPoint::Whole) { return success(); },
-      [](FlowPoint::Parameter) { return success(); },
-      [](FlowPoint::Result) { return success(); });
+      to.at, [&](const FlowPlace::Part &part) { return writesPartKnown(op, part.of, edges); },
+      [](FlowSource::Whole) { return success(); }, [](FlowSource::Parameter) { return success(); },
+      [](FlowSource::Result) { return success(); });
 }
 
 } // namespace
@@ -203,7 +201,7 @@ LogicalResult idr::verifyFlowEdges(Operation *op) {
            (parent && llvm::is_contained(parent->getOperands(), value));
   };
   // A use of the op's own, which it may take.
-  auto ownUse = [&](FlowPoint::Taken taken) { return taken.use->getOwner() == op; };
+  auto ownUse = [&](FlowSource::Taken taken) { return taken.use->getOwner() == op; };
   // A `from` names a use of the op, an operand's value or a part of either,
   // a part of one of its results or region arguments, or a parameter or a
   // result. A region reads back what an earlier step wrote into the op's
@@ -211,39 +209,25 @@ LogicalResult idr::verifyFlowEdges(Operation *op) {
   // wrote through a place it gave the region (an answer's slot): a part of a
   // value of its own, never the whole, which as a result the op has not
   // made yet and as a region's argument is the region's.
-  auto from = [&](const FlowPoint &point) {
+  auto from = [&](const FlowSource &source) {
     return idr::match(
-        point.at, ownUse, [&](FlowPoint::Whole whole) { return operandValue(whole.value); },
-        [&](const FlowPoint::Part &part) {
-          return idr::match(part.of, ownUse, [&](FlowPoint::Whole whole) {
+        source.at, ownUse, [&](FlowSource::Whole whole) { return operandValue(whole.value); },
+        [&](const FlowSource::Part &part) {
+          return idr::match(part.of, ownUse, [&](FlowSource::Whole whole) {
             return operandValue(whole.value) || ownValue(op, whole.value);
           });
         },
-        [](FlowPoint::Parameter) { return true; }, [](FlowPoint::Result) { return true; });
+        [](FlowSource::Parameter) { return true; }, [](FlowSource::Result) { return true; });
   };
-  // A `to` names a value the op makes, a part of one or of a value it or its
-  // parent holds, or a parameter or a result; never a use it takes.
-  auto toPart = [&](const FlowPoint::Part &part) {
-    return idr::match(
-        part.of, [](FlowPoint::Taken) { return false; },
-        [&](FlowPoint::Whole whole) {
-          return ownValue(op, whole.value) || operandValue(whole.value) ||
-                 parentValue(whole.value);
-        });
+  // A place names a value the op makes, a part of one or of a value it or
+  // its parent holds (what an overwrite writes), or a parameter or a result.
+  auto toPart = [&](const FlowPlace::Part &part) {
+    return ownValue(op, part.of) || operandValue(part.of) || parentValue(part.of);
   };
-  auto to = [&](const FlowPoint &point) {
+  auto to = [&](const FlowPlace &place) {
     return idr::match(
-        point.at, [](FlowPoint::Taken) { return false; },
-        [&](FlowPoint::Whole whole) { return ownValue(op, whole.value); }, toPart,
-        [](FlowPoint::Parameter) { return true; }, [](FlowPoint::Result) { return true; });
-  };
-  // What an overwrite releases is what a part held, a part a `to` may name:
-  // never a whole value, a use, a parameter or a result.
-  auto overwritten = [&](const FlowPoint &point) {
-    return idr::match(
-        point.at, [](FlowPoint::Taken) { return false; }, [](FlowPoint::Whole) { return false; },
-        toPart, [](FlowPoint::Parameter) { return false; },
-        [](FlowPoint::Result) { return false; });
+        place.at, [&](FlowSource::Whole whole) { return ownValue(op, whole.value); }, toPart,
+        [](FlowSource::Parameter) { return true; }, [](FlowSource::Result) { return true; });
   };
   auto unnamed = [&]() -> LogicalResult {
     return op->emitOpError("declares a flow edge whose end is neither its own use, value or "
@@ -252,11 +236,7 @@ LogicalResult idr::verifyFlowEdges(Operation *op) {
   // A reference may move between types (a natural becomes an Integer, a
   // cell a token); labels move only between places of one carrier, which
   // a flow and a unification join.
-  auto oneCarrier = [&](const FlowEdges::Edge &edge, const FlowPoint &a,
-                        const FlowPoint &b) -> LogicalResult {
-    if (!edge.carriesAny(Carriers::labels()))
-      return success();
-    std::optional<Type> source = a.type(), target = b.type();
+  auto oneCarrier = [&](std::optional<Type> source, std::optional<Type> target) -> LogicalResult {
     if (source && target && *source != *target)
       return op->emitOpError("moves a value of carrier ")
              << *source << " into a place of carrier " << *target;
@@ -272,12 +252,16 @@ LogicalResult idr::verifyFlowEdges(Operation *op) {
             return unnamed();
           if (edge.carries(Carrier::Reference) && failed(writesKnown(op, move.to, edges)))
             return failure();
-          return oneCarrier(edge, move.from, move.to);
+          if (!edge.carriesAny(Carriers::labels()))
+            return success();
+          return oneCarrier(move.from.type(), move.to.type());
         },
         [&](const FlowEdges::Unify &move) -> LogicalResult {
           if (!to(move.a) || !to(move.b))
             return unnamed();
-          return oneCarrier(edge, move.a, move.b);
+          if (!edge.carriesAny(Carriers::labels()))
+            return success();
+          return oneCarrier(move.a.type(), move.b.type());
         },
         [&](const FlowEdges::Source &move) -> LogicalResult {
           return ownValue(op, move.to) ? success() : unnamed();
@@ -289,7 +273,7 @@ LogicalResult idr::verifyFlowEdges(Operation *op) {
           return move.use->getOwner() == op ? success() : unnamed();
         },
         [&](const FlowEdges::Overwrite &move) -> LogicalResult {
-          return overwritten(move.place) ? success() : unnamed();
+          return toPart(move.place) ? success() : unnamed();
         },
         [&](const FlowEdges::Constant &move) -> LogicalResult {
           return ownValue(op, move.to) ? success() : unnamed();
@@ -324,18 +308,24 @@ LogicalResult idr::verifyFlowOf(Operation *op) {
   // predecessors.
   Covered covered(op);
   giveSuccessorInputs(op, covered);
-  auto take = [&](FlowPoint::Taken taken) { covered.take(*taken.use); };
-  auto read = [&](FlowPoint::Whole whole) { covered.read(whole.value); };
-  auto note = [&](const FlowPoint &point) {
+  auto take = [&](FlowSource::Taken taken) { covered.take(*taken.use); };
+  auto read = [&](FlowSource::Whole whole) { covered.read(whole.value); };
+  auto note = [&](const FlowSource &source) {
     idr::match(
-        point.at, take, read, [&](const FlowPoint::Part &part) { idr::match(part.of, take, read); },
-        [](FlowPoint::Parameter) {}, [](FlowPoint::Result) {});
+        source.at, take, read,
+        [&](const FlowSource::Part &part) { idr::match(part.of, take, read); },
+        [](FlowSource::Parameter) {}, [](FlowSource::Result) {});
   };
-  auto gives = [&](const FlowPoint &point) {
+  // A unification's first place is read as a source of it would be.
+  auto notePlace = [&](const FlowPlace &place) {
     idr::match(
-        point.at, [](FlowPoint::Taken) {},
-        [&](FlowPoint::Whole whole) { covered.give(whole.value); }, [](const FlowPoint::Part &) {},
-        [](FlowPoint::Parameter) {}, [](FlowPoint::Result) {});
+        place.at, read, [&](const FlowPlace::Part &part) { covered.read(part.of); },
+        [](FlowSource::Parameter) {}, [](FlowSource::Result) {});
+  };
+  auto gives = [&](const FlowPlace &place) {
+    idr::match(
+        place.at, [&](FlowSource::Whole whole) { covered.give(whole.value); },
+        [](const FlowPlace::Part &) {}, [](FlowSource::Parameter) {}, [](FlowSource::Result) {});
   };
   for (const FlowEdges::Edge &edge : edges.edges())
     idr::match(
@@ -345,7 +335,7 @@ LogicalResult idr::verifyFlowOf(Operation *op) {
           gives(move.to);
         },
         [&](const FlowEdges::Unify &move) {
-          note(move.a);
+          notePlace(move.a);
           gives(move.b);
         },
         [&](const FlowEdges::Source &move) { covered.give(move.to); },

@@ -322,7 +322,7 @@ yieldOp = MkOp
   }
 
 ------------------------------------------------------------------------------
--- The upstream ops a condition is chosen with
+-- The upstream ops a word or a condition is chosen with
 ------------------------------------------------------------------------------
 
 -- Upstream's records hold these ops' meanings and effects, which the
@@ -344,10 +344,24 @@ export
 scfIf : Admitted
 scfIf = MkAdmitted SCF "IfOp" "SCF_IfOp" (between Higher Owned) FrontendWrites [] [] Nothing
 
-||| `scf.yield`: ends a region of `scf.if`, and of the scf loops passes
-||| write, with what it gives the op's results. Upstream declares it pure,
-||| as `idr.yield` declares no effect: passing a value out of a region hands
-||| its ownership on, which is no consumption.
+||| `scf.index_switch`: a region per case of an index, and a default region,
+||| rejoining at its results, as a match's cases do. The frontend writes it
+||| where a word is matched against literals (an Int, a Bits, a Char at the
+||| index they cast to, a Double at the position of the first key equal to
+||| it), since a word's literals are the integers upstream already switches
+||| on. Like `scf.if`, its effects are its regions' ops', its forwarding is
+||| its region branch interface's, and a case may jump to an enclosing join
+||| point or never end, which upstream's early exit lets through.
+export
+scfIndexSwitch : Admitted
+scfIndexSwitch =
+  MkAdmitted SCF "IndexSwitchOp" "SCF_IndexSwitchOp" (between Higher Owned) FrontendWrites
+    [] [] Nothing
+
+||| `scf.yield`: ends a region of `scf.if` or `scf.index_switch`, and of the
+||| scf loops passes write, with what it gives the op's results. Upstream
+||| declares it pure, as `idr.yield` declares no effect: passing a value out
+||| of a region hands its ownership on, which is no consumption.
 export
 scfYield : Admitted
 scfYield = MkAdmitted SCF "YieldOp" "SCF_YieldOp" (between Higher Owned) FrontendWrites [] [] Nothing
@@ -355,4 +369,4 @@ scfYield = MkAdmitted SCF "YieldOp" "SCF_YieldOp" (between Higher Owned) Fronten
 ||| Every upstream op control flow admits, once: those the frontend writes.
 export
 controlAdmitted : List Admitted
-controlAdmitted = [scfIf, scfYield]
+controlAdmitted = [scfIf, scfIndexSwitch, scfYield]
