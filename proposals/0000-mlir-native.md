@@ -1827,9 +1827,9 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   and both forms stay; classes merge through a union-find, and
   congruence is restored after each round of merges; a class keeps what
   every member's facts say of its one value, met, so `mod x 8`'s [0, 7]
-  stays with `andi x 7`; extraction chooses each class's member by the
-  costs the specification gives, at run time only over what the graph
-  holds. The interim that carried a replaced node's facts to its
+  stays with `andi x 7`; extraction chooses each class's member by
+  cost, the engine's own (an op one, a constant none) until a measured
+  model replaces it. The interim that carried a replaced node's facts to its
   replacement goes, with the replacement. Rules run in a fixed order of
   rounds and stop at the specification's budget (D108's `nodesPerOp`),
   a spent budget leaving the program less optimized, never refused.
@@ -4567,7 +4567,7 @@ C137.
   polymorphic value. It is refused only where that set or the use types
   are unbounded.
 - **C218** (2026-10-22; the decisions audit C3). Two settlements. The
-  rewrite graph makes no attribute while it is built or rewritten, for
+  e-graph makes no attribute while it is built or rewritten, for
   any constant (sharpens C205): an integer is an `APInt` off its range, a
   double an `APFloat`, and a string, a big past the small range or a
   data constant is read only from an op that already holds it, never
