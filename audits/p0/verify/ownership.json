@@ -152,7 +152,10 @@
   "foreign/idr/include/idr/Transforms/Counting.h",
   "foreign/idr/lib/Transforms/Demand/",
   "foreign/idr/include/idr/Transforms/Demand.h",
-  "foreign/idr/lib/Conversion/Counting.cpp"
+  "foreign/idr/lib/Conversion/Counting.cpp",
+  "compiler/spec/IdrisMLIR/Spec/Counting/",
+  "foreign/idr/lib/IR/Counting/",
+  "foreign/idr/include/idr/IR/Counting/"
  ],
  "L08": [
   "foreign/idr/lib/Analysis/Ownership/Borrows.cpp",
@@ -255,7 +258,8 @@
   "foreign/idr/lib/Conversion/Words.cpp",
   "foreign/idr/lib/Conversion/Checks.cpp",
   "foreign/idr/include/idr/Conversion/Words.h",
-  "foreign/idr/lib/IR/Ops/"
+  "foreign/idr/lib/IR/Ops/",
+  "foreign/idr/include/idr/IR/Ops/"
  ],
  "L14": [
   "foreign/idr/lib/Analysis/BindingTimes.cpp",
@@ -304,7 +308,8 @@
   "foreign/idr/unittests/Words.cpp",
   "foreign/idr/include/idr/Testing/",
   ".clang-tidy",
-  "foreign/idr/unittests/refusals/"
+  "foreign/idr/unittests/refusals/",
+  "foreign/idr/unittests/Support.cpp"
  ],
  "L16": [
   "compiler/src/",
@@ -327,7 +332,8 @@
   "foreign/idr/include/idr/Transforms/Optimize.h",
   "foreign/idr/include/idr/Transforms/OptimizeScheduler.h",
   "foreign/idr/include/idr/Transforms/Specialize.h",
-  "foreign/idr/include/idr/Transforms/SpecializeState.h"
+  "foreign/idr/include/idr/Transforms/SpecializeState.h",
+  "compiler/spec/IdrisMLIR/Spec/Closures/"
  ],
  "L19": [
   "tests/",

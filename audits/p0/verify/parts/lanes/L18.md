@@ -1,6 +1,6 @@
 # Lane L18 (defunc-optimizer): defunctionalization, specialization, the optimizer
 
-**Exclusive write:** `foreign/idr/lib/IR/OpsClosures.cpp`,
+**Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Closures/` (new: the closure ops closure, suspend, delay, force, apply, memo.run), `foreign/idr/lib/IR/OpsClosures.cpp`,
 `foreign/idr/lib/Transforms/{Defunctionalize,Deduplicate,Inline,Optimize,Specialize}/`,
 `foreign/idr/include/idr/Transforms/{Deduplicate,Defunctionalize,Inline,Optimize,OptimizeScheduler,Specialize,SpecializeState}.h`.
 

@@ -1,6 +1,6 @@
 # Lane L07 (counting): placement, reuse, the space promise
 
-**Exclusive write:** `foreign/idr/lib/Analysis/Ownership/{Captures,Reuses,Uses,Values}.cpp`,
+**Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Counting/`, `foreign/idr/lib/IR/Counting/`, `foreign/idr/include/idr/IR/Counting/` (new: the counting ops dup, drop, share, take, unpack, cell.new, cell.init and the reuse ops, their spec, C++ and custom directives), `foreign/idr/lib/Analysis/Ownership/{Captures,Reuses,Uses,Values}.cpp`,
 `foreign/idr/lib/Transforms/Ownership/{Buffers,Cells,Classes,Grades,Placement,Reshape,Reuse,Share,Signatures,Specialize,Take}.cpp`,
 `foreign/idr/lib/Transforms/Counting/`,
 `foreign/idr/include/idr/Transforms/{Ownership,Counting,Demand}.h`,
