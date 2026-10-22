@@ -48,6 +48,11 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
   auto points = cast<JoinPointsOpInterface>(join);
   for (Region &region : join->getRegions())
     normalize(&region.front());
+  // No join region reads a loan from above the op: each is lent again
+  // where the region begins, so its function takes the holder.
+  for (Region &region : join->getRegions().drop_front())
+    if (failed(lendAgain(&region.front().front())))
+      return failure();
   unsigned depth = static_cast<unsigned>(scopeSorts(join->getParentRegion()).size());
 
   // What each join region reads from above the op, closed over the jumps:

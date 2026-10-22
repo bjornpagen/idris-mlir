@@ -56,11 +56,17 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   for (OpOperand &operand : site->getOpOperands())
     if (ofLifetime(operand.get()))
       rewriter.modifyOpInPlace(site, [&] { operand.set(base); });
+  // Neither the rest of the region nor what follows the opener reads a
+  // loan from outside it: each is lent again where that code begins, so a
+  // holder living in the lifetime goes into the package, never its loan.
+  FailureOr<Operation *> restStart = lendAgain(site->getNextNode());
+  if (failed(restStart) || failed(lendAgain(opener->getNextNode())))
+    return failure();
+  Operation *afterSite = *restStart;
   // What the rest of the region reads that the region made before the
   // call: what lives in the lifetime goes into the package, the rest out
   // of the region beside it; the call's operands go out too. A lifetime
   // from outside the region is the component's, which the rest takes.
-  Operation *afterSite = site->getNextNode();
   llvm::SmallVector<Value> restReads = liveIns(afterSite);
   llvm::SmallVector<Value> scoped, plain, outside, reopenedAs, lifetimesRead;
   for (Value value : restReads) {

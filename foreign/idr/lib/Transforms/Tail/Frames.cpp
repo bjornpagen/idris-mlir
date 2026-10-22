@@ -192,7 +192,11 @@ struct Frames : impl::IdrFramesBase<Frames> {
       // The kinds of frame, and the family. A frame holds what its rest
       // takes after the call's results, but the component's lifetimes, each
       // scoped value at the place of the one it lives in, which every
-      // function the rest was made of states among them.
+      // function the rest was made of states among them. It holds no loan
+      // and no view of one: code moved into a function lends again what it
+      // read of a loan (lendAgain), so a frame keeps the loan's holder; an
+      // alias no view makes it holds only under a lifetime that outlives
+      // the call, the component's or static data's.
       footprint::Vector<FrameKind> kinds;
       footprint::Vector<Rest> rests;
       // Each by value: a Framed is two op handles, whose accessors are not

@@ -90,6 +90,19 @@ llvm::SmallVector<mlir::Value> liveIns(mlir::Operation *first);
 // reading them takes as the component's own.
 llvm::SmallVector<mlir::Value> withoutLifetimes(llvm::ArrayRef<mlir::Value> values);
 
+// The ops of `first`'s block from `first` on, code about to move into a
+// function of its own, made to read no loan from outside it: each loan they
+// read, and each view of one, is made again before them, of its holder
+// under the view it was lent under (taken again where that is a view of
+// another lifetime), and an original nothing reads any more goes. So the
+// function takes the holder at its grade, and a frame holds the holder,
+// never a loan's alias, which is a reference of no one's that no rule could
+// follow into the function. An alias no view makes cannot be made again
+// and is handed over as it is, only under a lifetime that outlives the
+// code's call; any other is the lifetime pass's invariant broken, reported.
+// The op the code now starts at.
+mlir::FailureOr<mlir::Operation *> lendAgain(mlir::Operation *first);
+
 // A function the pass made, and what a call of it from the function its
 // code came from passes: the values it takes, then that function's
 // lifetimes.

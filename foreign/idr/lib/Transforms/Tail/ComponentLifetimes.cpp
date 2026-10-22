@@ -83,18 +83,37 @@ Operation *remakeGiving(RewriterBase &rewriter, Operation *op, TypeRange results
 // Every use inside `fn` of a lifetime of owner's scope, read from fn's own:
 // each of owner's lifetimes is fn's at the same place, and a view of one
 // that its moved code reads, `reads`, is taken again of fn's at its entry.
-// Any other lifetime ends with owner's call, which nothing moved out of it
-// may read: a room carved before it is memory of that call. The decide step
-// keeps every such lifetime out of a function that runs a call on frames,
-// so meeting one is its invariant broken.
+// Owner's activation, where only loans of static data read it, is fn's own:
+// static data outlives every lifetime, so its loan stands in any. Any other
+// lifetime ends with owner's call, which nothing moved out of it may read:
+// a room carved before it, or a cell in its activation, is memory of that
+// call. The decide step keeps every such lifetime out of a function that
+// runs a call on frames, so meeting one is its invariant broken.
 LogicalResult Component::adoptLifetimes(FuncOp owner, FuncOp fn, llvm::ArrayRef<Value> reads) {
   llvm::SmallVector<BlockArgument> own = lifetimesOf(fn);
   auto within = [&](OpOperand &use) { return fn->isProperAncestor(use.getOwner()); };
   for (auto [mine, theirs] : llvm::zip_equal(own, lifetimesOf(owner)))
     rewriter.replaceUsesWithIf(theirs, mine, within);
+  auto lendsStatic = [&](OpOperand &use) {
+    auto loan = dyn_cast<CarrierOp>(use.getOwner());
+    return !within(use) || (loan && freedBy(loan.getValue().getType(), Release::Static));
+  };
   for (Value lifetime : reads) {
     if (lifetime.getParentBlock() == &owner.getBody().front() && isa<BlockArgument>(lifetime))
       continue;
+    // One `reads` names twice (code on both sides of a split region reads
+    // it) was taken again the first time, and fn reads it no more.
+    if (llvm::none_of(lifetime.getUses(), within))
+      continue;
+    if (lifetime.getDefiningOp<ActivationOp>() && llvm::all_of(lifetime.getUses(), lendsStatic)) {
+      // fn's one activation, at the top of its body as every activation
+      // is: owner has one, and fn is new, so it had none.
+      rewriter.setInsertionPointToStart(&fn.getBody().front());
+      Value mine =
+          ActivationOp::create(rewriter, lifetime.getLoc(), lifetime.getType()).getLifetime();
+      rewriter.replaceUsesWithIf(lifetime, mine, within);
+      continue;
+    }
     auto forget = lifetime.getDefiningOp<LifetimeForgetOp>();
     std::optional<unsigned> place = placeOf(lifetime, owner);
     if (!forget || !place)

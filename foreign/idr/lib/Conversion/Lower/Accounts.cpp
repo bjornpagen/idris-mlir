@@ -86,7 +86,7 @@ FrozenRewritePatternSet accountPatterns(MLIRContext *ctx, const Runtime &runtime
 
 void keepAccount(FuncOp fn, const FrozenRewritePatternSet &tells, const Layouts &layouts,
                  const Runtime &runtime) {
-  uint64_t bound = fn.getFrameBound();
+  int64_t bound = fn.getFrameBound();
   // A call that holds nothing at any allocation keeps no account.
   if (bound == 0)
     return;
@@ -106,7 +106,7 @@ void keepAccount(FuncOp fn, const FrozenRewritePatternSet &tells, const Layouts 
   OpBuilder b = OpBuilder::atBlockBegin(&fn.getBody().front());
   runtime.call(b, loc, idr::runtime::helper::peakEnter,
                ValueRange{staticAddress(b, loc, StaticNames::text(fn.getSymName())),
-                          i64Constant(b, loc, static_cast<int64_t>(bound))});
+                          i64Constant(b, loc, bound)});
 }
 
 } // namespace idr::conversion
