@@ -12,6 +12,8 @@ module IdrisMLIR.Spec.Core.Cpp
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Core.Enums
 
+import Data.List1
+
 %default total
 
 ||| One declaration of a header.
@@ -29,10 +31,17 @@ data CppDecl : Type where
   ||| One constant.
   Scalar : Ident -> ColumnType -> Cell -> Line -> CppDecl
 
+||| Where a block of a header declares its names: the dialect's own
+||| namespace, `::idr`, where ODS declares the dialect's enums, so a table
+||| there names an enum ODS or the block declares; or a namespace nested in
+||| it, `::idr::<path>`, whose block declares every enum its tables name.
+public export
+data Namespace = DialectNamespace | Nested (List1 Ident)
+
 ||| A header: its file name, and its declarations by namespace, in order.
 public export
 record Header where
   constructor MkHeader
   name : Ident
-  blocks : List (CppName, List CppDecl)
+  blocks : List (Namespace, List CppDecl)
   doc : Doc

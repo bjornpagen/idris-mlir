@@ -165,7 +165,7 @@ joinWord (CountedAs x) (CountedAs y) = CountedAs (joinCounted x y)
 public export
 wordsHeader : Header
 wordsHeader = MkHeader (ident "Words")
-  [ ( ident "idr" ::: [ident "layout"]
+  [ ( Nested (ident "layout" ::: [])
     , [ EnumOf (enumDef componentWordClosed)
       , Array2 (ident "wordJoin") (EnumColumn (enumDef componentWordClosed))
           (map (\a => map (\b => CaseCell (caseRef componentWordClosed (joinWord a b))) kinds) kinds)
@@ -232,13 +232,13 @@ core = { ops := [ SomeOp vectorizeLanes, SomeOp refusalOp ]
        , interfaces := [ valueFactsInterface ]
        , traits := [ resultCarriesOperand, sameValue ]
        , attributes := [ SomeAttr binderAttr ]
-       , headers := [ MkHeader "Rules" [(ident "idr" ::: [], [TableOf Rules.ruleTable])]
+       , headers := [ MkHeader "Rules" [(DialectNamespace, [TableOf Rules.ruleTable])]
                         (brief "the facts of each refusal rule: its category and where it is decided")
                     , wordsHeader
                     , MkHeader "StageFacts"
-                        [(ident "idr" ::: [], [ EnumOf (enumDef closuresClosed), EnumOf (enumDef holdsClosed)
-                                              , EnumOf (enumDef countingClosed), EnumOf (enumDef functionsClosed)
-                                              , EnumOf (enumDef tailsClosed), TableOf stageFacts ])]
+                        [(DialectNamespace, [ EnumOf (enumDef closuresClosed), EnumOf (enumDef countingClosed)
+                                            , EnumOf (enumDef functionsClosed), EnumOf (enumDef tailsClosed)
+                                            , TableOf stageFacts ])]
                         (brief "what each stage of a program implies of its functions")
                     , verdictHeader ]
        } nothing

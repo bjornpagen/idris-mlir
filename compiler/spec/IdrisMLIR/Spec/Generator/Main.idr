@@ -3,9 +3,11 @@
 ||| specgen: writes the specification's outputs under a checkout's root, or
 ||| checks that the committed ones are what it would write. The one module
 ||| that does IO; what it writes is `generate`'s, a pure function. Both modes
-||| fingerprint the specification's and the generator's sources, read in the
-||| order the package lists its modules, and the manifest holds them; both
-||| first fail, writing nothing, naming each thing the generator refuses:
+||| fingerprint the specification's printed value, every output in order,
+||| so an edit that prints nothing new changes nothing, and the generator's
+||| sources, read in the order the package lists its modules; the manifest
+||| holds both. Both first fail, writing nothing, naming each thing the
+||| generator refuses:
 |||   specgen write <root>   rewrites each output whose bytes differ, and the manifest;
 |||   specgen check <root>   writes nothing, and fails naming each file that differs.
 module IdrisMLIR.Spec.Generator.Main
@@ -81,17 +83,22 @@ sourcesText root (m :: ms) = do
   rest <- sourcesText root ms
   pure (m ++ "\n" ++ fromMaybe "" t ++ "\n" ++ rest)
 
-||| The manifest's text for the outputs, fingerprinting the sources.
+||| The specification's printed value: every output, each its path before
+||| its text, in the outputs' order.
+export
+printedValue : List (Path, String) -> String
+printedValue outs = concat (map (\(p, t) => pathText p ++ "\n" ++ t) outs)
+
+||| The manifest's text for the outputs, fingerprinting the specification's
+||| printed value and the generator's sources.
 export
 covering
 manifestText : String -> List (Path, String) -> IO (Either String String)
 manifestText root outs = do
   Just ipkg <- readText (root ++ "/compiler/spec/spec.ipkg")
     | Nothing => pure (Left "no compiler/spec/spec.ipkg under the root")
-  let ms = modulesOf ipkg
-  spec <- sourcesText root (filter (not . generatorModule) ms)
-  gen <- sourcesText root (filter generatorModule ms)
-  pure (Right (manifest (fingerprint (ipkg ++ spec)) (fingerprint gen) outs))
+  gen <- sourcesText root (filter generatorModule (modulesOf ipkg))
+  pure (Right (manifest (fingerprint (printedValue outs)) (fingerprint gen) outs))
 
 ||| Writes `text` at `path` unless the file already holds exactly it.
 export

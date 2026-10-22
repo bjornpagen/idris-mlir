@@ -57,7 +57,7 @@ exitStatus VerdictInternal = 1
 public export
 verdictHeader : Header
 verdictHeader = MkHeader (ident "Verdict")
-  [ ( ident "idr" ::: [ident "driver"]
+  [ ( Nested (ident "driver" ::: [])
     , [ TableOf (table verdictClosed
           [ MkColumn (ident "exitStatus") Unsigned8 (\v => IntCell (natToInteger (exitStatus v)))
               (line "the status the compiler exits with") ]) ] ) ]

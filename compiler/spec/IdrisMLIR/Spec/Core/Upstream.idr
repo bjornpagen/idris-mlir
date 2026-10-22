@@ -139,7 +139,6 @@ data UpInterface
   | HasBreakingControlFlow
   | RegionExitTerminator
   | LoopLike
-  | InferType
   | InferIntRange
   | MemoryEffects
   | Speculatable
@@ -170,7 +169,6 @@ upInterfaceRecord RegionBranchTerminator = ident "RegionBranchTerminatorOpInterf
 upInterfaceRecord HasBreakingControlFlow = ident "HasBreakingControlFlowOpInterface"
 upInterfaceRecord RegionExitTerminator = ident "RegionExitTerminatorOpInterface"
 upInterfaceRecord LoopLike = ident "LoopLikeOpInterface"
-upInterfaceRecord InferType = ident "InferTypeOpInterface"
 upInterfaceRecord InferIntRange = ident "InferIntRangeInterface"
 upInterfaceRecord MemoryEffects = ident "MemoryEffectsOpInterface"
 upInterfaceRecord Speculatable = ident "ConditionallySpeculatable"
@@ -189,6 +187,12 @@ upInterfaceRecord BufferLike = ident "BufferLikeTypeInterface"
 upInterfaceRecord MemRefElementType = ident "MemRefElementTypeInterface"
 upInterfaceRecord TypedAttr = ident "TypedAttrInterface"
 
+||| The upstream ODS file that defines type inference, in its adaptor form,
+||| and the reification of a shaped result's sizes.
+public export
+inferTypeInclude : String
+inferTypeInclude = "mlir/Interfaces/InferTypeOpInterface.td"
+
 ||| The upstream ODS file that defines each interface, which a printed file
 ||| that names it includes.
 public export
@@ -203,7 +207,6 @@ upInterfaceInclude RegionBranchTerminator = "mlir/Interfaces/ControlFlowInterfac
 upInterfaceInclude HasBreakingControlFlow = "mlir/Interfaces/ControlFlowInterfaces.td"
 upInterfaceInclude RegionExitTerminator = "mlir/Interfaces/ControlFlowInterfaces.td"
 upInterfaceInclude LoopLike = "mlir/Interfaces/LoopLikeInterface.td"
-upInterfaceInclude InferType = "mlir/Interfaces/InferTypeOpInterface.td"
 upInterfaceInclude InferIntRange = "mlir/Interfaces/InferIntRangeInterface.td"
 upInterfaceInclude MemoryEffects = "mlir/Interfaces/SideEffectInterfaces.td"
 upInterfaceInclude Speculatable = "mlir/Interfaces/SideEffectInterfaces.td"
@@ -212,7 +215,7 @@ upInterfaceInclude OpAsmType = "mlir/IR/OpAsmInterface.td"
 upInterfaceInclude DestinationStyle = "mlir/Interfaces/DestinationStyleOpInterface.td"
 upInterfaceInclude Tiling = "mlir/Interfaces/TilingInterface.td"
 upInterfaceInclude ViewLike = "mlir/Interfaces/ViewLikeInterface.td"
-upInterfaceInclude ReifyRankedShapedType = "mlir/Interfaces/InferTypeOpInterface.td"
+upInterfaceInclude ReifyRankedShapedType = inferTypeInclude
 upInterfaceInclude ValueBounds = "mlir/Interfaces/ValueBoundsOpInterface.td"
 upInterfaceInclude TransformOp = "mlir/Dialect/Transform/Interfaces/TransformInterfaces.td"
 upInterfaceInclude TransformEffects = "mlir/Dialect/Transform/Interfaces/TransformInterfaces.td"

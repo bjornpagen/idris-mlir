@@ -83,10 +83,19 @@ sameValue : TraitDef
 sameValue = MkTraitDef (MkIdent "SameValue" Oh)
   (MkDoc (MkLine "the result is the operand's value, its identity and exclusivity kept" Oh) (MkProse "" Oh))
 
+||| Which methods an op that infers its result types defines, in upstream's
+||| adaptor form, the one form our ops take: `inferReturnTypes` given the
+||| op's adaptor alone; or, for an op whose results may hold types other
+||| than the inferred ones, `isCompatibleReturnTypes` beside it.
+public export
+data Compatibility = InferredOnly | AlsoCompatible
+
 ||| How a declaration takes an interface: upstream's or ours, with the
 ||| methods its class declares and a hand unit defines (none when every
-||| method has a default it keeps).
+||| method has a default it keeps); or upstream's type inference, whose
+||| methods its form fixes.
 public export
 data InterfaceUse
   = Declares UpInterface (List Ident)
   | Implements InterfaceDef (List Ident)
+  | InfersTypes Compatibility

@@ -179,6 +179,18 @@ data Pipeline : (a : Anchor) -> (s, t : Stage) -> Type where
   RunUpstream : (u : UpstreamPass) -> (why : Line)
      -> {auto 0 placed : So (elem a (upstreamAnchors u))}
      -> Pipeline a s t -> Pipeline a s t
+  ||| A decide step and its apply group: the step decides its answer on the
+  ||| program and runs the group on the program's functions nested in
+  ||| itself, at the stage it leaves, holding the answer in its analysis
+  ||| manager, so each function reads it through a const view and no apply
+  ||| step of the group runs without its decision.
+  RunDeciding : (p : Pass) -> (why : Line)
+     -> {auto 0 here : p.anchor = OnProgram}
+     -> {auto 0 decides : p.kind = Decide}
+     -> {auto 0 starts : So (admits p.stages s)}
+     -> {auto 0 rowsLeft : So (addsWhere OnProgram p.adds)}
+     -> (group : Pipeline OnFunction (leaves p.stages s) (leaves p.stages s))
+     -> Pipeline OnProgram (leaves p.stages s) u -> Pipeline OnProgram s u
   Nest : (inner : Anchor) -> {auto 0 nests : Nests inner a}
      -> Pipeline inner s t -> Pipeline a t u -> Pipeline a s u
 
@@ -417,7 +429,7 @@ tailLoops = MkPass ("tail" ::: ["loops"]) OnFunction (At Owned) Apply Keeps
 
 public export
 narrow : Pass
-narrow = MkPass ("narrow" ::: []) OnProgram (At Owned) Restructure Edits
+narrow = MkPass ("narrow" ::: []) OnProgram (At Owned) Decide Edits
   [ stat "numVersioned" "versioned" "Loops versioned on a small descending natural"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [ MkAction ("narrow" ::: ["fold"]) "a function's conversions folded and the unread ones erased"
@@ -594,7 +606,8 @@ programPipeline =
   Run trmc "after counting, which held the scrutinee's token across the self call" $
   Run frames "after counting and TRMC, so reuse tokens ride in frames" $
   Nest OnFunction (Run tailLoops "after frames, a self tail call a loop" Done) $
-  Run narrow "after counting, whose counts of the bigs it proves small it removes" $
+  RunDeciding narrow "after counting, whose counts of the bigs it proves small it removes"
+    (Run narrowWords "each function's bigs made words under the program's summaries" Done) $
   Nest OnFunction (Run orderedLoops "the generating ops as loops, right before the lowering" Done) $
   Run lowerRuntime "every runtime function declared before any function is lowered" $
   Run lowerStatics "every static datum made before any function is lowered" $

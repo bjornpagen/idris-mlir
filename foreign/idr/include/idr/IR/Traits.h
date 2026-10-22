@@ -4,7 +4,8 @@
 // names (Spec.idr's core declarations) and its printed ODS gives the ops as
 // bases, so IdrDialect.h includes this before them: an op whose result is
 // its operand at another grade, one that keeps its operand's identity too,
-// and a partial op's guards.
+// one whose result is used as often as the values it takes, and a partial
+// op's guards.
 #ifndef IDR_IR_TRAITS_H
 #define IDR_IR_TRAITS_H
 
@@ -35,6 +36,29 @@ public:
 // exclusivity kept, which a value's source looks through.
 template <typename ConcreteType>
 class SameValue : public mlir::OpTrait::TraitBase<ConcreteType, SameValue> {};
+
+// The grade's own rule over an op's groups: each value of its result group
+// `Result` is used once exactly when a value of one of its operand groups
+// `From...` is (a closure over a linear capture is linear). The positions
+// are ODS's groups, printed from the specification's rule.
+template <unsigned Result, unsigned... From>
+struct ResultUsesMax {
+  template <typename ConcreteType>
+  class Impl : public mlir::OpTrait::TraitBase<ConcreteType, Impl> {
+  public:
+    static mlir::LogicalResult verifyTrait(mlir::Operation *op) {
+      auto concrete = llvm::cast<ConcreteType>(op);
+      auto once = [](mlir::Value value) { return usesOf(value.getType()) == Uses::Once; };
+      Uses expected =
+          (llvm::any_of(concrete.getODSOperands(From), once) || ...) ? Uses::Once : Uses::Many;
+      for (mlir::Value result : concrete.getODSResults(Result))
+        if (usesOf(result.getType()) != expected)
+          return op->emitOpError("expects its result to be used once exactly when a value it "
+                                 "takes is");
+      return mlir::success();
+    }
+  };
+};
 
 // A guard a pure total op takes: the guard op `GuardOp`, and the indices of
 // the op's operands it is given, in the guard op's operand order, the one it

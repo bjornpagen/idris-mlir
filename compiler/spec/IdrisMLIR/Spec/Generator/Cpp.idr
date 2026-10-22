@@ -63,10 +63,11 @@ export
 inNamespace : String -> Lines -> Lines
 inNamespace ns body = ["namespace " ++ ns ++ " {", ""] ++ body ++ ["", "} // namespace " ++ ns]
 
-||| The name of a namespace without its leading `::`.
+||| The name of a block's namespace without its leading `::`.
 export
-namespaceText : CppName -> String
-namespaceText n = joinWith "::" (map identText (forget n))
+namespaceText : Namespace -> String
+namespaceText DialectNamespace = "idr"
+namespaceText (Nested path) = joinWith "::" ("idr" :: map identText (forget path))
 
 ||| A list of C++ expressions as a braced initializer, one per line.
 export
@@ -179,36 +180,32 @@ cppDecl sc (Array2 name type rows doc) =
 cppDecl sc (Scalar name type cell doc) =
   slashComment [lineText doc] ++ ["inline constexpr " ++ columnType sc type ++ " " ++ identText name ++ " = " ++ cellText sc cell ++ ";", ""]
 
-||| Whether a block is in the dialect's own namespace, where ODS declares
-||| the dialect's enums.
-export
-dialectNamespace : CppName -> Bool
-dialectNamespace (n ::: []) = identText n == "idr"
-dialectNamespace _ = False
-
 ||| The enums a block declares, each once, in order: every enum it names
 ||| by itself; and, in a namespace of its own, the enum of every table, so
 ||| a reader that includes the header alone (the runtime) needs nothing of
 ||| the dialect's. In the dialect's namespace a table's enum is the
 ||| dialect's or one the block names by itself.
 export
-blockEnums : CppName -> List CppDecl -> List EnumDef
+blockEnums : Namespace -> List CppDecl -> List EnumDef
 blockEnums ns ds = go [] ds
   where
     owns : List EnumDef -> EnumDef -> Bool
     owns seen e = any (\x => x.name == e.name) seen
+    tableEnum : List EnumDef -> EnumDef -> List EnumDef
+    tableEnum seen e = case ns of
+      DialectNamespace => seen
+      Nested _ => if owns seen e then seen else e :: seen
     go : List EnumDef -> List CppDecl -> List EnumDef
     go seen [] = reverse seen
     go seen (EnumOf e :: rest) = go (if owns seen e then seen else e :: seen) rest
-    go seen (TableOf t :: rest) =
-      go (if dialectNamespace ns || owns seen t.enum then seen else t.enum :: seen) rest
+    go seen (TableOf t :: rest) = go (tableEnum seen t.enum) rest
     go seen (_ :: rest) = go seen rest
 
 ||| One block of an area's header: its enums in its namespace, their traits
 ||| in the dialect's (the template's), then its tables, arrays and
 ||| constants, which name the enums by the block's scope.
 export
-headerBlock : (CppName, List CppDecl) -> Lines
+headerBlock : (Namespace, List CppDecl) -> Lines
 headerBlock (ns, ds) =
   let ownEnums = blockEnums ns ds
       sc = MkScope (namespaceText ns) (map (.name) ownEnums)
@@ -318,9 +315,9 @@ export
 enumHome : List Header -> EnumDef -> String
 enumHome hs e = case find declares (concatMap (.blocks) hs) of
   Just (ns, _) => namespaceText ns
-  Nothing => "idr"
+  Nothing => namespaceText DialectNamespace
   where
-    declares : (CppName, List CppDecl) -> Bool
+    declares : (Namespace, List CppDecl) -> Bool
     declares (ns, ds) = any (\x => x.name == e.name) (blockEnums ns ds)
 
 export
@@ -1321,6 +1318,7 @@ addedBy p = filter (\x => any (sameAtom x) (own p)) (forget atomClosed.every)
     own (Run q _ rest) = q.adds ++ own rest
     own (RunUpstream _ _ rest) = own rest
     own (Nest _ _ rest) = own rest
+    own (RunDeciding q _ _ rest) = q.adds ++ own rest
 
 ||| A row as a C++ constant: its atoms, each a case of the atoms' enum.
 export
@@ -1343,6 +1341,10 @@ stepsOf here path (Run p why rest) =
 stepsOf here path (RunUpstream u why rest) =
   let (more, end) = stepsOf here path rest
   in (MkStep here here (nestPath path ++ ".addPass(" ++ upstreamMake u ++ ");") why :: more, end)
+stepsOf here path (RunDeciding p why _ rest) =
+  let next = leaves p.stages here
+      (more, end) = stepsOf next path rest
+  in (MkStep here next (nestPath path ++ ".addPass(" ++ passConstructor p [] ++ ");") why :: more, end)
 stepsOf here path (Nest inner first rest) =
   let (inside, middle) = stepsOf here (inner :: path) first
       (after, end) = stepsOf middle path rest
@@ -1356,6 +1358,49 @@ stepsOf here path (Nest inner first rest) =
       :: steps
       ++ [MkStep done done (nestPath path ++ ".addPass(" ++ passConstructor writeRows [] ++ ");")
             "every row exact again once the nest is done"]
+
+||| A decide step's apply group, which the step runs nested in itself: the
+||| step, and the steps that add the group to a manager on the program,
+||| bracketed by the rows' widening and writing as any nest is.
+public export
+record ApplyGroup where
+  constructor MkApplyGroup
+  decider : Pass
+  steps : List Step
+
+||| Every decide step's apply group in a pipeline that starts at `here`, in
+||| order: the pipeline adds each decide step alone, and the step runs its
+||| group.
+export
+groupsOf : (here : Stage) -> Pipeline a s t -> List ApplyGroup
+groupsOf _ Done = []
+groupsOf here (Run p _ rest) = groupsOf (leaves p.stages here) rest
+groupsOf here (RunUpstream _ _ rest) = groupsOf here rest
+groupsOf here (Nest _ first rest) = groupsOf here first ++ groupsOf (snd (stepsOf here [] first)) rest
+groupsOf here (RunDeciding p _ group rest) =
+  let next = leaves p.stages here
+  in MkApplyGroup p (fst (stepsOf next [] (Nest OnFunction group Done))) :: groupsOf next rest
+
+||| The function that adds a decide step's apply group to a manager on the
+||| program: `applyGroupOfIdrNarrow`.
+export
+applyGroupName : Pass -> String
+applyGroupName p = "applyGroupOf" ++ passRecord p
+
+||| Each decide step's apply group as a function the step calls on a
+||| manager on the program it runs on. A group holds function passes of
+||| ours alone, since no upstream pass runs on our functions, so the
+||| header needs the pipeline's declarations and nothing upstream's.
+export
+applyGroupsHeader : List ApplyGroup -> Lines
+applyGroupsHeader groups =
+  header "ApplyGroups" ["\"idr/Transforms/Pipeline.h\""]
+    (inNamespace "idr::pipeline" (concatMap applyGroup groups))
+  where
+    applyGroup : ApplyGroup -> Lines
+    applyGroup g =
+      slashComment ["The apply group " ++ passArgument g.decider ++ " runs on the program's functions nested in itself, while it holds its decision."]
+      ++ ["inline void " ++ applyGroupName g.decider ++ "(::mlir::OpPassManager &pm) { " ++ joinWith " " (map (.add) g.steps) ++ " }", ""]
 
 ------------------------------------------------------------------------------
 -- Actions
@@ -1412,3 +1457,4 @@ pipelineHeader steps =
   where
     stageValue : Case -> String
     stageValue c = "clEnumValN(::idr::Stage::" ++ identText c.name ++ ", " ++ quoted (spellingText c) ++ ", " ++ quoted (lineText c.doc) ++ ")"
+

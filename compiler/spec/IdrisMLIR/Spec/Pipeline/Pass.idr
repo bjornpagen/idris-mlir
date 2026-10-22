@@ -35,10 +35,12 @@ anchorClass OnFunction = "::idr::FuncOp"
 anchorClass OnLoweredFunction = "::mlir::LLVM::LLVMFuncOp"
 
 ||| Which of the threading's three steps a pass is, or a check: a decide
-||| step computes a whole-program answer and writes it into types and
-||| properties, changing no op; an apply step rewrites functions in parallel
-||| from a decision; a restructure step changes the program's shape; a check
-||| changes nothing and refuses a program or fails a test.
+||| step computes a whole-program answer, makes serially every type and
+||| attribute it needs, and runs the apply group the pipeline pairs it with
+||| nested in itself; an apply step rewrites functions in parallel, from
+||| its own facts or, in a decide step's group, from that step's answer; a
+||| restructure step changes the program's shape; a check changes nothing
+||| and refuses a program or fails a test.
 public export
 data PassKind = Decide | Apply | Restructure | Check
 

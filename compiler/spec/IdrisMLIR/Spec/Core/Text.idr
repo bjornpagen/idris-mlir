@@ -269,11 +269,6 @@ public export
 cppLeaf : CppName -> Ident
 cppLeaf n = last n
 
-||| A name in the dialect's namespace, `::idr::<leaf>`.
-public export
-inIdr : Ident -> CppName
-inIdr leaf = ident "idr" ::: [leaf]
-
 ||| C++ that the specification names but cannot type: a type's spelling in
 ||| a parameter or a result, a default argument's expression. The one
 ||| untyped island, kept to declarations: no body of a function is ever

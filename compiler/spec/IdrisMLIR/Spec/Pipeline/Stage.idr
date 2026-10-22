@@ -4,9 +4,9 @@
 ||| it to, said once on the program so no pass finds it by walking the
 ||| functions and no verifier guesses it from a grade: `higher`, closures
 ||| and suspensions, the frontend's; `first`, the first-order program
-||| defunctionalization makes; `graded`, every parameter's and result's hold
-||| decided (lifetimes, borrows) before counting places a reference;
-||| `owned`, every reference counted; `lowered`, the functions upstream's
+||| defunctionalization makes; `graded`, every hold strengthened as far as
+||| lifetimes and borrows show, before counting places a reference; `owned`,
+||| every reference counted; `lowered`, the functions upstream's
 ||| `llvm.func`, before the program is taken apart. The frontend and the
 ||| harness import it.
 module IdrisMLIR.Spec.Pipeline.Stage
@@ -48,7 +48,7 @@ stageClosed = MkClosed
   , describe = \case
       Higher => MkCase (ident "Higher") (word "higher" ::: []) (line "closures and suspensions, as the frontend writes them")
       First => MkCase (ident "First") (word "first" ::: []) (line "first-order: every closure a sum, every force a call")
-      Graded => MkCase (ident "Graded") (word "graded" ::: []) (line "every hold decided before counting places a reference")
+      Graded => MkCase (ident "Graded") (word "graded" ::: []) (line "every hold strengthened before counting places a reference")
       Owned => MkCase (ident "Owned") (word "owned" ::: []) (line "every reference counted")
       Lowered => MkCase (ident "Lowered") (word "lowered" ::: []) (line "upstream's functions, before the program is taken apart")
   , doc = brief (line "what the functions of a program may hold")
@@ -80,11 +80,6 @@ legalAt (Between f l _) s = rank f <= rank s && rank s <= rank l
 public export
 data StageClosures = ClosuresRemain | FirstOrder
 
-||| Whether every value that holds references has its hold decided: its
-||| lifetime, its borrows, before counting places a reference.
-public export
-data StageHolds = HoldsUndecided | HoldsDecided
-
 ||| Whether references are counted exactly, which placement makes.
 public export
 data StageCounting = ReferencesUncounted | ReferencesCounted
@@ -110,18 +105,6 @@ closuresClosed = MkClosed
       ClosuresRemain => MkCase (ident "Remain") (word "remain" ::: []) (line "closures and suspensions may remain")
       FirstOrder => MkCase (ident "FirstOrder") (word "first_order" ::: []) (line "every closure is a constructor of a sum")
   , doc = brief (line "whether closures may remain") }
-
-public export
-holdsClosed : Closed StageHolds
-holdsClosed = MkClosed
-  { name = ident "StageHolds", shape = OneOf, every = HoldsUndecided ::: [HoldsDecided]
-  , complete = \case
-      HoldsUndecided => Here
-      HoldsDecided => There Here
-  , describe = \case
-      HoldsUndecided => MkCase (ident "Undecided") (word "undecided" ::: []) (line "a hold may still be strengthened before counting")
-      HoldsDecided => MkCase (ident "Decided") (word "decided" ::: []) (line "every hold decided, lifetimes and borrows among them")
-  , doc = brief (line "whether every hold is decided") }
 
 public export
 countingClosed : Closed StageCounting
@@ -165,12 +148,6 @@ closuresAt Higher = ClosuresRemain
 closuresAt _ = FirstOrder
 
 public export
-holdsAt : Stage -> StageHolds
-holdsAt Higher = HoldsUndecided
-holdsAt First = HoldsUndecided
-holdsAt _ = HoldsDecided
-
-public export
 countingAt : Stage -> StageCounting
 countingAt Owned = ReferencesCounted
 countingAt Lowered = ReferencesCounted
@@ -192,7 +169,6 @@ public export
 stageFacts : Table
 stageFacts = table stageClosed
   [ MkColumn (ident "closuresAt") (EnumColumn (enumDef closuresClosed)) (\s => CaseCell (caseRef closuresClosed (closuresAt s))) (line "whether closures may remain")
-  , MkColumn (ident "holdsAt") (EnumColumn (enumDef holdsClosed)) (\s => CaseCell (caseRef holdsClosed (holdsAt s))) (line "whether every hold is decided")
   , MkColumn (ident "countingAt") (EnumColumn (enumDef countingClosed)) (\s => CaseCell (caseRef countingClosed (countingAt s))) (line "whether references are counted")
   , MkColumn (ident "functionsAt") (EnumColumn (enumDef functionsClosed)) (\s => CaseCell (caseRef functionsClosed (functionsAt s))) (line "whose functions the program holds")
   , MkColumn (ident "tailsAt") (EnumColumn (enumDef tailsClosed)) (\s => CaseCell (caseRef tailsClosed (tailsAt s))) (line "whether every call's tail fact is decided")

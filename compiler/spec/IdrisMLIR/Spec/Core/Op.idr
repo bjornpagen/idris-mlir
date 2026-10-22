@@ -290,18 +290,6 @@ record Builder where
 public export
 data Buildable = BuiltI1 | BuiltI8 | BuiltI16 | BuiltI32 | BuiltI64 | BuiltIndex | BuiltF64 | BuiltNone
 
-||| The upstream constraint a fixed result's type is, which ODS builds.
-public export
-builtUpType : Buildable -> UpType
-builtUpType BuiltI1 = I1C
-builtUpType BuiltI8 = I8C
-builtUpType BuiltI16 = I16C
-builtUpType BuiltI32 = I32C
-builtUpType BuiltI64 = I64C
-builtUpType BuiltIndex = IndexC
-builtUpType BuiltF64 = F64C
-builtUpType BuiltNone = NoneTypeC
-
 ||| How one result's type follows from the op's operands, where a simple
 ||| rule fixes it: an operand's own type; the element type of an operand's
 ||| array, as MLIR's element type or self gives it on both sides; or one

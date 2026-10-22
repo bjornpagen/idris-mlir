@@ -29,6 +29,11 @@ export
 idrRecord : String -> String
 idrRecord n = "Idr_" ++ n
 
+||| The record of the dialect an op, type or attribute of ours is defined
+||| in, as upstream's ODS names it.
+dialectRecord : Dialect -> String
+dialectRecord d = identText (odsDialect d)
+
 ||| An enum's records: its info and its attribute.
 export
 enumRecord : EnumDef -> String
@@ -151,7 +156,7 @@ enumOds e =
      ++ indent 4 (zipWith (++) cases (replicate (pred (length cases)) "," ++ [""]))
      ++ ["  ]> {", "  let cppNamespace = \"::idr\";", "  let genSpecializedAttr = 0;"]
      ++ indent 2 printer
-     ++ ["}", "def " ++ enumAttrRecord e ++ " : EnumAttr<Idr_Dialect, " ++ enumRecord e ++ ", " ++ quoted (snakeOf name) ++ ">;", ""]
+     ++ ["}", "def " ++ enumAttrRecord e ++ " : EnumAttr<" ++ dialectRecord Idr ++ ", " ++ enumRecord e ++ ", " ++ quoted (snakeOf name) ++ ">;", ""]
 
 ------------------------------------------------------------------------------
 -- Constraints
@@ -312,13 +317,8 @@ declareMethods OverAttributes = "DeclareAttrInterfaceMethods"
 ||| class declares.
 export
 interfaceUseOds : InterfaceSubject -> InterfaceUse -> String
--- Type inference in upstream's adaptor form, the one form our ops take:
--- `inferReturnTypes` given the op's adaptor, and `isCompatibleReturnTypes`
--- beside it where the op declares that too.
-interfaceUseOds _ (Declares InferType ms) =
-  if any (\m => identText m == "isCompatibleReturnTypes") ms
-    then "InferTypeOpAdaptorWithIsCompatible"
-    else "InferTypeOpAdaptor"
+interfaceUseOds _ (InfersTypes InferredOnly) = "InferTypeOpAdaptor"
+interfaceUseOds _ (InfersTypes AlsoCompatible) = "InferTypeOpAdaptorWithIsCompatible"
 interfaceUseOds _ (Declares u []) = identText (upInterfaceRecord u)
 interfaceUseOds subject (Declares u ms) =
   declareMethods subject ++ "<" ++ identText (upInterfaceRecord u) ++ ", [" ++ joinWith ", " (map (quoted . identText) ms) ++ "]>"
@@ -566,7 +566,7 @@ opOds op =
   let effs = ods op.effects
       base = case op.home of
                InIdr => "Idr_Op<" ++ quoted (mnemonicText op.mnemonic) ++ ", ["
-               InTransform _ => "Op<Transform_Dialect, " ++ quoted (mnemonicText op.mnemonic) ++ ", ["
+               InTransform _ => "Op<" ++ dialectRecord (homeDialect op.home) ++ ", " ++ quoted (mnemonicText op.mnemonic) ++ ", ["
       traits = opTraits op effs
       namespace' = case op.home of
                      InIdr => []
@@ -824,7 +824,7 @@ resourceOdsDef r = ["def " ++ resourceRecord r ++ " : Resource<" ++ quoted ("::i
 export
 dialectOds : DialectDef -> Lines
 dialectOds d =
-  [ "def Idr_Dialect : Dialect {"
+  [ "def " ++ dialectRecord Idr ++ " : Dialect {"
   , "  let name = \"idr\";"
   , "  let cppNamespace = \"::idr\";"
   , "  let summary = " ++ quoted (lineText d.summary) ++ ";" ]
@@ -844,15 +844,15 @@ dialectOds d =
 export
 baseClasses : Lines
 baseClasses =
-  [ "class Idr_Op<string mnemonic, list<Trait> traits = []> : Op<Idr_Dialect, mnemonic, traits>;"
+  [ "class Idr_Op<string mnemonic, list<Trait> traits = []> : Op<" ++ dialectRecord Idr ++ ", mnemonic, traits>;"
   , ""
   , "class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>"
-  , "    : TypeDef<Idr_Dialect, name, traits> {"
+  , "    : TypeDef<" ++ dialectRecord Idr ++ ", name, traits> {"
   , "  let mnemonic = typeMnemonic;"
   , "}"
   , ""
   , "class Idr_Attr<string name, string attrMnemonic, list<Trait> traits = []>"
-  , "    : AttrDef<Idr_Dialect, name, traits> {"
+  , "    : AttrDef<" ++ dialectRecord Idr ++ ", name, traits> {"
   , "  let mnemonic = attrMnemonic;"
   , "}"
   , ""

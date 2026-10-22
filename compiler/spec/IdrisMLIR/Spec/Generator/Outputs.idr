@@ -58,7 +58,8 @@ interfaceIncludes = nub (concatMap fromOp allOps ++ concatMap fromType declarati
     files : List InterfaceUse -> List String
     files [] = []
     files (Declares u _ :: us) = upInterfaceInclude u :: files us
-    files (_ :: us) = files us
+    files (InfersTypes _ :: us) = inferTypeInclude :: files us
+    files (Implements _ _ :: us) = files us
     fromOp : AnyOp -> List String
     fromOp (SomeOp op) = files op.interfaces
     fromType : AnyTypeDef -> List String
@@ -290,7 +291,7 @@ typingRefusals op = case op.typing of
          _ => said y "fixes a group of other than one value")
       ++ (if fixedIs b y.type then [] else said y "fixes a type its constraint is not")
     handInference : InterfaceUse -> List String
-    handInference (Declares InferType _) = [opName op ++ ": its result types have rules and a hand inference"]
+    handInference (InfersTypes _) = [opName op ++ ": its result types have rules and a hand inference"]
     handInference _ = []
 
 ||| An enum property over a set of cases, which a builder would encode as a
@@ -357,6 +358,7 @@ generate =
      , (generated "Laws.h.inc", render (lawsHeader ourOps declarations.admitted))
      , (generated "Hooks.h.inc", render (hooksHeader declarations.directives declarations.predicates declarations.interfaces declarations.types declarations.attributes ourOps))
      , (generated "Pipeline.h.inc", render (pipelineHeader (fst (stepsOf Higher [] pipeline))))
+     , (generated "ApplyGroups.h.inc", render (applyGroupsHeader (groupsOf Higher pipeline)))
      , (generated "Actions.h.inc", render (actionsHeader everyAction)) ]
   ++ map (\t => (generated (identText t ++ ".h.inc"), render (specializationHeader declarations.headers t ourOps))) (templatesOf ourOps)
   ++ map areaHeader declarations.headers

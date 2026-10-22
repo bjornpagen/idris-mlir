@@ -1,11 +1,11 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The one committed manifest of the generated files: the fingerprint of the
-||| specification's sources, of the generator's, and of each file's text. No
-||| generated file carries a stamp, so a file is rewritten only when its
-||| bytes change and an edit recompiles only what it reaches; `make check`
-||| regenerates and compares the files and this, so a hand edit fails, and
-||| so does a generator changed without its outputs.
+||| specification's printed value, of the generator's sources, and of each
+||| file's text. No generated file carries a stamp, so a file is rewritten
+||| only when its bytes change and an edit recompiles only what it reaches;
+||| `make check` regenerates and compares the files and this, so a hand edit
+||| fails, and so does a generator changed without its outputs.
 module IdrisMLIR.Spec.Generator.Manifest
 
 import IdrisMLIR.Spec.Core.Text

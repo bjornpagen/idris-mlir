@@ -39,6 +39,7 @@
 #include "mlir/TableGen/GenInfo.h"
 #include "mlir/TableGen/Operator.h"
 #include "mlir/TableGen/Property.h"
+#include "mlir/TableGen/Trait.h"
 #include "mlir/TableGen/Type.h"
 #include "mlir/Tools/mlir-tblgen/MlirTblgenMain.h"
 
@@ -53,6 +54,7 @@
 #include "llvm/TableGen/Error.h"
 #include "llvm/TableGen/Record.h"
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -230,60 +232,6 @@ std::string maker(const std::string &text) {
   if (pattern.ends_with(" {0}") && !pattern.drop_back(4).contains(' '))
     return pattern.drop_back(4).str();
   return llvm::formatv("(\\v => {0})", llvm::formatv(text.c_str(), "v").str()).str();
-}
-
-//===----------------------------------------------------------------------===//
-// Marks
-//===----------------------------------------------------------------------===//
-
-// The records of the traits `op` lists that are of the TableGen class
-// `name`, in the order ODS lists them, through the trait lists that hold
-// them: a mark of the dialect's is a record of its class, whatever kind of
-// trait it is. The lists open at the walk's point are a stack of what each
-// has left, the innermost last: a trait list's own traits come before the
-// rest of the list that holds it, and however deep ODS nests its lists the
-// native stack stays flat.
-std::vector<const llvm::Record *> traitsOfClass(const Operator &op, StringRef name) {
-  std::vector<const llvm::Record *> found;
-  llvm::SmallVector<llvm::ArrayRef<const llvm::Init *>> open{
-      op.getDef().getValueAsListInit("traits")->getElements()};
-  while (!open.empty()) {
-    if (open.back().empty()) {
-      open.pop_back();
-      continue;
-    }
-    const llvm::Record *def = llvm::cast<llvm::DefInit>(open.back().front())->getDef();
-    open.back() = open.back().drop_front();
-    if (def->isSubClassOf(name) && !llvm::is_contained(found, def))
-      found.push_back(def);
-    if (def->isSubClassOf("TraitList"))
-      open.push_back(def->getValueAsListInit("traits")->getElements());
-  }
-  return found;
-}
-
-// The one mark of class `name` on `op`, or none; two are a fault of ODS.
-const llvm::Record *markOf(const Operator &op, StringRef name) {
-  std::vector<const llvm::Record *> marks = traitsOfClass(op, name);
-  if (marks.size() > 1)
-    llvm::PrintFatalError(op.getLoc(), op.getOperationName() + " has more than one " + name);
-  return marks.empty() ? nullptr : marks.front();
-}
-
-// The index of the operand group `name` of `op`, or none.
-std::optional<int> operandNamed(const Operator &op, StringRef name) {
-  for (int index = 0, e = op.getNumOperands(); index < e; ++index)
-    if (op.getOperand(index).name == name)
-      return index;
-  return std::nullopt;
-}
-
-// The index of the result `name` of `op`, or none.
-std::optional<int> resultNamed(const Operator &op, StringRef name) {
-  for (int index = 0, e = op.getNumResults(); index < e; ++index)
-    if (op.getResultName(index) == name)
-      return index;
-  return std::nullopt;
 }
 
 //===----------------------------------------------------------------------===//
@@ -516,14 +464,101 @@ void emitCaseFields(const Enum &used, llvm::raw_ostream &os) {
 // Values of ops: builtin types and attributes
 //===----------------------------------------------------------------------===//
 
+// How a row of upstream's records is matched against an attribute's
+// record: as the one def it names, or as any def of the class it names.
+enum class Match { TheDef, OfClass };
+
+// What an op attribute holds besides itself that its Idris value writes:
+// nothing, or the value type ODS gives it, which must be one exact builtin
+// type.
+enum class Valued { Alone, ByBuiltinType };
+
+// An upstream attribute the Idris side gives as a value of its own: the
+// record ODS declares it by, how an attribute's base record is matched
+// against it, its Idris type, and the expression that writes `{0}`, in
+// which `{1}` is the builtin value type of a row valued by it. Each record
+// is named here once and resolved once per run, so an op attribute's kind
+// is read off the record it is built on, never off the C++ class that
+// stores it. A def's row comes before the row of a class that holds it.
+struct AttrRow {
+  StringRef record;
+  Match match;
+  Valued valued;
+  StringRef type;
+  StringRef text;
+};
+
+constexpr AttrRow attrRows[] = {
+    {"BoolAttr", Match::TheDef, Valued::Alone, "Bool", "BoolAttr {0}"},
+    {"SignlessIntegerAttrBase", Match::OfClass, Valued::ByBuiltinType, "Integer",
+     "IntegerAttr {0} ({1})"},
+    {"IndexAttr", Match::TheDef, Valued::ByBuiltinType, "Integer", "IntegerAttr {0} ({1})"},
+    {"FloatAttrBase", Match::OfClass, Valued::ByBuiltinType, "Double", "FloatAttr {0} ({1})"},
+    {"StringBasedAttr", Match::OfClass, Valued::Alone, "String", "StringAttr {0}"},
+    {"FlatSymbolRefAttr", Match::TheDef, Valued::Alone, "String",
+     "SymbolRefAttr (MkSymbolRef {0} [])"},
+    {"SymbolRefAttr", Match::TheDef, Valued::Alone, "SymbolRef", "SymbolRefAttr {0}"},
+    {"TypeAttrBase", Match::OfClass, Valued::Alone, "MlirType", "TypeAttr {0}"},
+    {"TypeArrayAttr", Match::TheDef, Valued::Alone, "List MlirType",
+     "ArrayAttr (map TypeAttr {0})"},
+    {"ArrayAttrBase", Match::OfClass, Valued::Alone, "List MlirAttr", "ArrayAttr {0}"},
+    {"DenseI32ArrayAttr", Match::TheDef, Valued::Alone, "List Nat", "DenseI32ArrayAttr {0}"},
+    {"DenseI64ArrayAttr", Match::TheDef, Valued::Alone, "List Integer",
+     "DenseI64ArrayAttr {0}"},
+};
+
+// The upstream records the generator reads an op's ODS by, each named once
+// and resolved once per run: every row's, in the rows' order; the unit
+// attribute, which an op takes as present or absent; the index type; and
+// the two traits by which an op's variadic groups carry their sizes.
+struct Upstream {
+  std::array<const llvm::Record *, std::size(attrRows)> rows;
+  const llvm::Record *unitAttr;
+  const llvm::Record *index;
+  const llvm::Record *operandSegments;
+  const llvm::Record *resultSegments;
+};
+
+const llvm::Record *upstreamDef(const llvm::RecordKeeper &records, StringRef name) {
+  const llvm::Record *def = records.getDef(name);
+  if (!def)
+    llvm::PrintFatalError("upstream's ODS has no def " + name);
+  return def;
+}
+
+Upstream upstream(const llvm::RecordKeeper &records) {
+  Upstream u{{},
+             upstreamDef(records, "UnitAttr"),
+             upstreamDef(records, "Index"),
+             upstreamDef(records, "AttrSizedOperandSegments"),
+             upstreamDef(records, "AttrSizedResultSegments")};
+  for (auto [row, record] : llvm::zip_equal(attrRows, u.rows)) {
+    if (row.match == Match::TheDef) {
+      record = upstreamDef(records, row.record);
+      continue;
+    }
+    record = records.getClass(row.record);
+    if (!record)
+      llvm::PrintFatalError("upstream's ODS has no class " + row.record);
+  }
+  return u;
+}
+
+// Whether `op` lists the trait `trait`, through the trait lists that hold
+// it.
+bool lists(const Operator &op, const llvm::Record *trait) {
+  return llvm::any_of(op.getTraits(),
+                      [&](const mlir::tblgen::Trait &each) { return &each.getDef() == trait; });
+}
+
 // The builtin type an ODS type constraint names when it is one exact type,
 // as a constructor of IdrisMLIR.MLIR's types.
-std::optional<std::string> builtinType(const llvm::Record &type) {
+std::optional<std::string> builtinType(const Upstream &u, const llvm::Record &type) {
   if (type.isSubClassOf("I"))
     return llvm::formatv("IntegerType {0}", type.getValueAsInt("bitwidth")).str();
   if (type.isSubClassOf("F") && type.getValueAsInt("bitwidth") == 64)
     return std::string("F64Type");
-  if (type.getName() == "Index")
+  if (&type == u.index)
     return std::string("IndexType");
   return std::nullopt;
 }
@@ -540,58 +575,33 @@ Kind enumValue(Enums &enums, const llvm::Record *def, int64_t width) {
                         .str()};
 }
 
-// An enum stored as an integer attribute, which the generic form writes as
-// its value: an op attribute of ODS's integer enums.
-std::optional<Kind> integerEnum(Enums &enums, const mlir::tblgen::Attribute &base) {
-  // An EnumAttr is an attribute of its own around the enum, not an integer:
-  // only an enum that is itself the attribute is stored as one.
-  if (!base.getDef().isSubClassOf("EnumInfo"))
-    return std::nullopt;
-  EnumInfo info(&base.getDef());
-  if (info.isBitEnum())
-    return std::nullopt;
-  const llvm::Record *storage = info.getBaseAttrClass();
-  if (!storage || mlir::tblgen::Attribute(storage).getStorageType().trim() != "::mlir::IntegerAttr")
-    return std::nullopt;
-  return enumValue(enums, &base.getDef(), info.getBitwidth());
-}
-
 // How an op attribute of this constraint is given, once what makes it
-// optional is set apart: by the kind of attribute that stores it.
-Kind attributeKind(Enums &enums, const mlir::tblgen::Attribute &attr) {
-  mlir::tblgen::Attribute base = attr.getBaseAttr();
-  StringRef storage = base.getStorageType().trim();
-  if (base.isEnumAttr())
-    if (std::optional<Kind> kind = integerEnum(enums, base))
-      return *kind;
-  if (storage == "::mlir::BoolAttr")
-    return {"Bool", "BoolAttr {0}"};
-  if (storage == "::mlir::IntegerAttr")
-    if (std::optional<mlir::tblgen::Type> type = base.getValueType())
-      if (std::optional<std::string> builtin = builtinType(type->getDef()))
-        return {"Integer", llvm::formatv("IntegerAttr {{0} ({0})", *builtin).str()};
-  if (storage == "::mlir::FloatAttr")
-    if (std::optional<mlir::tblgen::Type> type = base.getValueType())
-      if (std::optional<std::string> builtin = builtinType(type->getDef()))
-        return {"Double", llvm::formatv("FloatAttr {{0} ({0})", *builtin).str()};
-  if (storage == "::mlir::StringAttr")
-    return {"String", "StringAttr {0}"};
-  if (storage == "::mlir::FlatSymbolRefAttr")
-    return {"String", "SymbolRefAttr (MkSymbolRef {0} [])"};
-  if (storage == "::mlir::SymbolRefAttr")
-    return {"SymbolRef", "SymbolRefAttr {0}"};
-  if (storage == "::mlir::TypeAttr")
-    return {"MlirType", "TypeAttr {0}"};
-  if (base.getAttrDefName() == "TypeArrayAttr")
-    return {"List MlirType", "ArrayAttr (map TypeAttr {0})"};
-  if (storage == "::mlir::ArrayAttr")
-    return {"List MlirAttr", "ArrayAttr {0}"};
-  if (storage == "::mlir::DenseI32ArrayAttr")
-    return {"List Nat", "DenseI32ArrayAttr {0}"};
-  if (storage == "::mlir::DenseI64ArrayAttr")
-    return {"List Integer", "DenseI64ArrayAttr {0}"};
-  // Any other kind (an interface, a dialect's attribute) is given as the
-  // attribute its maker wrote.
+// optional is set apart: by the record of the attribute it is built on. An
+// integer enum that is itself the attribute is its case's value (an
+// EnumAttr is an attribute of its own around the enum, a dialect's); a bit
+// enum is the integer attribute ODS stores it in; any attribute no row
+// names (an interface, a dialect's attribute, an integer or a float of no
+// one builtin type) is given as the attribute its maker wrote.
+Kind attributeKind(Enums &enums, const Upstream &u, const mlir::tblgen::Attribute &attr) {
+  const llvm::Record *def = &attr.getBaseAttr().getDef();
+  if (def->isSubClassOf("EnumAttrInfo")) {
+    EnumInfo info(def);
+    if (!info.isBitEnum())
+      return enumValue(enums, def, info.getBitwidth());
+    def = info.getBaseAttrClass();
+  }
+  for (auto [row, record] : llvm::zip_equal(attrRows, u.rows)) {
+    if (row.match == Match::TheDef ? def != record : !def->isSubClassOf(record))
+      continue;
+    if (row.valued == Valued::Alone)
+      return {row.type.str(), row.text.str()};
+    std::optional<mlir::tblgen::Type> type = mlir::tblgen::Attribute(def).getValueType();
+    std::optional<std::string> builtin =
+        type ? builtinType(u, type->getDef()) : std::optional<std::string>();
+    if (builtin)
+      return {row.type.str(), llvm::formatv(row.text.data(), "{0}", *builtin).str()};
+    break;
+  }
   return {"MlirAttr", "{0}"};
 }
 
@@ -777,7 +787,7 @@ std::string guardedBody(const Operator &op,
 // inherent attribute, operand group, region and result group, and the op;
 // with its guards, where the specification gives it any, so a partial op
 // is never written without them.
-void emitOp(Enums &enums, const Operator &op, const llvm::Record &admitted,
+void emitOp(Enums &enums, const Upstream &u, const Operator &op, const llvm::Record &admitted,
             llvm::raw_ostream &os) {
   if (op.getNumSuccessors() != 0)
     llvm::PrintFatalError(op.getLoc(), "the Idris side writes no op with successors");
@@ -819,13 +829,13 @@ void emitOp(Enums &enums, const Operator &op, const llvm::Record &admitted,
       continue;
     std::string param = parameter(attribute->name, "attribute" + llvm::Twine(index));
     std::string key = literal(attribute->name);
-    if (attribute->attr.getBaseAttr().getStorageType().trim() == "::mlir::UnitAttr") {
+    if (&attribute->attr.getBaseAttr().getDef() == u.unitAttr) {
       implicits.push_back({param, "Bool", std::string("False")});
       properties.emplace_back(llvm::formatv("unitIf {0} {1}", key, param).str(),
                               EntryPresence::WhenGiven);
       continue;
     }
-    Kind kind = attributeKind(enums, attribute->attr);
+    Kind kind = attributeKind(enums, u, attribute->attr);
     if (attribute->attr.isOptional() || attribute->attr.hasDefaultValue()) {
       implicits.push_back({param, "Maybe " + parenthesized(kind.type), std::string("Nothing")});
       properties.emplace_back(
@@ -848,11 +858,11 @@ void emitOp(Enums &enums, const Operator &op, const llvm::Record &admitted,
     results.emplace_back(param, arity(result));
     explicits.push_back({param, valuesType("MlirType", arity(result)), std::nullopt});
   }
-  if (op.getTrait("::mlir::OpTrait::AttrSizedOperandSegments"))
+  if (lists(op, u.operandSegments))
     properties.emplace_back(
         llvm::formatv("(\"operandSegmentSizes\", {0})", segments(operands)).str(),
         EntryPresence::Always);
-  if (op.getTrait("::mlir::OpTrait::AttrSizedResultSegments"))
+  if (lists(op, u.resultSegments))
     properties.emplace_back(
         llvm::formatv("(\"resultSegmentSizes\", {0})", segments(results)).str(),
         EntryPresence::Always);
@@ -908,37 +918,45 @@ struct Field {
   Presence presence = Presence::Always;
 };
 
+// The Idris kind of each C++ value a parameter that is no array may be, by
+// the C++ type ODS spells it with: a parameter given as a string is that
+// spelling and nothing more, so it is the one fact to read, and each is
+// spelled here once. A location the Idris side holds as its Location and
+// writes as MLIR writes a location attribute, `loc(...)`, which the
+// parameter's default parser reads.
+struct PlainRow {
+  StringRef cpp;
+  StringRef type;
+  StringRef text;
+};
+
+constexpr PlainRow plainRows[] = {
+    {"::mlir::Type", "ty", "t {0}"},
+    {"::mlir::Attribute", "at", "a {0}"},
+    {"::mlir::FlatSymbolRefAttr", "String", "symbol {0}"},
+    {"::mlir::SymbolRefAttr", "SymbolRef", "symbolRef {0}"},
+    {"::mlir::StringAttr", "String", "utf8 {0}"},
+    {"::llvm::StringRef", "String", "utf8 {0}"},
+    {"::mlir::ArrayAttr", "List at", "array a {0}"},
+    {"::mlir::FunctionType", "Signature ty", "signature t {0}"},
+    {"::mlir::LocationAttr", "Location", "location {0}"},
+    {"unsigned", "Nat", "show {0}"},
+    {"uint32_t", "Nat", "show {0}"},
+    {"uint64_t", "Nat", "show {0}"},
+    {"int", "Integer", "show {0}"},
+    {"int32_t", "Integer", "show {0}"},
+    {"int64_t", "Integer", "show {0}"},
+    {"::llvm::APInt", "Integer", "show {0}"},
+};
+
 // The Idris kind of a C++ value that is no array; nothing for one the Idris
-// side has no value of.
+// side has no value of, which the module then lists as not generated.
 std::optional<Kind> plainKind(StringRef cpp) {
-  if (cpp == "::mlir::Type")
-    return Kind{"ty", "t {0}"};
-  if (cpp == "::mlir::Attribute")
-    return Kind{"at", "a {0}"};
-  if (cpp == "::mlir::FlatSymbolRefAttr")
-    return Kind{"String", "symbol {0}"};
-  if (cpp == "::mlir::SymbolRefAttr")
-    return Kind{"SymbolRef", "symbolRef {0}"};
-  if (cpp == "::mlir::StringAttr" || cpp == "::llvm::StringRef")
-    return Kind{"String", "utf8 {0}"};
-  if (cpp == "::mlir::ArrayAttr")
-    return Kind{"List at", "array a {0}"};
-  if (cpp == "::mlir::FunctionType")
-    return Kind{"Signature ty", "signature t {0}"};
-  // A location, which the Idris side holds as its Location and writes as
-  // MLIR writes a location attribute, `loc(...)`, which the parameter's
-  // default parser reads.
-  if (cpp == "::mlir::LocationAttr")
-    return Kind{"Location", "location {0}"};
-  if (cpp == "unsigned" || cpp == "uint32_t" || cpp == "uint64_t")
-    return Kind{"Nat", "show {0}"};
-  if (cpp == "int" || cpp == "int32_t" || cpp == "int64_t" || cpp == "::llvm::APInt")
-    return Kind{"Integer", "show {0}"};
-  // A type of a dialect's own class (a box's data type) is a type, which
-  // its C++ parser reads as any and checks.
-  if (cpp.starts_with("::") && cpp.ends_with("Type"))
-    return Kind{"ty", "t {0}"};
-  return std::nullopt;
+  const PlainRow *row =
+      llvm::find_if(plainRows, [&](const PlainRow &each) { return each.cpp == cpp; });
+  if (row == std::end(plainRows))
+    return std::nullopt;
+  return Kind{row->type.str(), row->text.str()};
 }
 
 // The Idris kind of a parameter's C++ value; nothing for one the Idris side
@@ -1416,6 +1434,7 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
           [&](const Omitted &omitted) { v.omitted.push_back(what + ": " + omitted.why); });
     }
   llvm::raw_string_ostream opsOs(v.ops);
+  Upstream u = upstream(records);
   for (const llvm::Record *admitted : admittedOps(records)) {
     Operator op(admitted->getValueAsDef("op"));
     if (op.getDialectName() != dialectName || admitted->getValueAsInt("frontendWrites") == 0)
@@ -1425,7 +1444,7 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
       if (!llvm::is_contained(v.causeModules, module))
         v.causeModules.push_back(std::move(module));
     }
-    emitOp(v.enums, op, *admitted, opsOs);
+    emitOp(v.enums, u, op, *admitted, opsOs);
   }
   addCaseFields(v.enums, enumsOfCases(records));
   return v;
@@ -1488,8 +1507,8 @@ bool emitIdrisSyntax(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
   os << "||| The " << dialectName << " dialect's syntax, as the Idris side writes it: the enums\n"
      << "||| its ops, types and attributes take, and its types and attributes, which\n"
      << "||| IdrisMLIR.MLIR's types and attributes hold. Generated by idris-mlir-tblgen\n"
-     << "||| -gen-idris-syntax from the dialect's ODS; `make build` writes it\n"
-     << "||| (tools/dialects.sh). Do not edit.\n"
+     << "||| -gen-idris-syntax from the dialect's ODS; `make test-mlir-tools` generates\n"
+     << "||| it again and fails on any difference. Do not edit.\n"
      << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR.Text\n\n%default total\n\n";
   section(os, "Enums", enumerations);
   section(os, "Types", types);
@@ -1527,7 +1546,8 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
   os << "||| The " << dialectName << " dialect's ops the frontend writes, as the Idris side\n"
      << "||| builds them: one builder per op the specification admits, and the\n"
      << "||| smart constructor of its attributes where its syntax holds them.\n"
-     << "||| Generated by idris-mlir-tblgen -gen-idris-dialect from upstream's ODS.\n"
+     << "||| Generated by idris-mlir-tblgen -gen-idris-dialect from upstream's ODS;\n"
+     << "||| `make test-mlir-tools` generates it again and fails on any difference.\n"
      << "||| Do not edit.\n"
      << "module " << moduleName
      << "\n\nimport IdrisMLIR.MLIR\nimport IdrisMLIR.Spec.Core.Dialect\nimport "
@@ -1955,8 +1975,9 @@ bool emitIdrisBytecode(const llvm::RecordKeeper &records, llvm::raw_ostream &os)
      << "||| members' kinds are known, from its members in order, a type as the parts\n"
      << "||| the writer gives for it. Generated by\n"
      << "||| idris-mlir-tblgen -gen-idris-bytecode from the dialect's bytecode records,\n"
-     << "||| from which mlir-tblgen -gen-bytecode writes the C++ reader; `make build`\n"
-     << "||| writes it (tools/dialects.sh). Do not edit.\n"
+     << "||| from which mlir-tblgen -gen-bytecode writes the C++ reader;\n"
+     << "||| `make test-mlir-tools` generates it again and fails on any difference.\n"
+     << "||| Do not edit.\n"
      << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR.Parts\nimport " << syntaxModuleName
      << "\n\n%default total\n\n";
   section(os, "Types", typesText);
