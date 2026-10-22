@@ -24,6 +24,7 @@ import public IdrisMLIR.MLIR.Text
 import public IdrisMLIR.Encoding.Idr
 import public IdrisMLIR.Encoding.Wire
 import IdrisMLIR.Spec.Core.Dialect
+import IdrisMLIR.Spec.Runtime.Endings
 
 import Data.List
 import Data.Maybe
@@ -318,7 +319,7 @@ mutual
 
 ||| An op as the builder of a partial op gives it: the op, or a guard to
 ||| write before it and what follows given the guard's result. A guard is
-||| its check op, the number of the cause its crash names, the operand it
+||| its check op, the cause its crash names, the operand it
 ||| checks and the others it is given; the op takes the guard's result in
 ||| place of the operand it checks. A builder names each of its operands by
 ||| its own binder, so no guard names an operand by its position, and none
@@ -326,14 +327,14 @@ mutual
 public export
 data Guarded : Type where
   Unguarded : Op -> Guarded
-  Checking : (check : OpName) -> (cause : Nat) -> (checked : Value) -> (others : List Value)
+  Checking : (check : OpName) -> (cause : Cause) -> (checked : Value) -> (others : List Value)
           -> (Value -> Guarded) -> Guarded
 
 ||| Each of `xs` checked in turn by `check` against the same `others`, and
 ||| what follows given their results, in order: how a builder guards a
 ||| group of operands that holds any number.
 export
-checkingEach : (check : OpName) -> (cause : Nat) -> (xs, others : List Value) -> (List Value -> Guarded) -> Guarded
+checkingEach : (check : OpName) -> (cause : Cause) -> (xs, others : List Value) -> (List Value -> Guarded) -> Guarded
 checkingEach check cause [] others next = next []
 checkingEach check cause (x :: xs) others next =
   Checking check cause x others (\x' => checkingEach check cause xs others (\xs' => next (x' :: xs')))

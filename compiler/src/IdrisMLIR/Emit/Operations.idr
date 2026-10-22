@@ -92,7 +92,7 @@ checked l (Checking check cause x others next) = do
   site <- siteOf l
   c <- unguarded (At l) x.type
          (\ty => MkOp check (x :: others)
-                      [ ("cause", IntegerAttr (natToInteger cause) (IntegerType 32))
+                      [ ("cause", Idr.enumAttr causeClosed cause)
                       , ("site", site) ] [] [] [ty])
   checked l (next c)
 
@@ -112,7 +112,7 @@ specGuarded : List (Guard (Fin i)) -> Vect i Value -> (Vect i Value -> Op) -> Gu
 specGuarded [] vs made = Unguarded (made vs)
 specGuarded (g :: gs) vs made =
   let at = Vect.head g.given in
-  Checking (specName g.check) (position causeClosed g.cause) (index at vs)
+  Checking (specName g.check) g.cause (index at vs)
            (toList (map (\k => index k vs) (Vect.tail g.given)))
            (\c => specGuarded gs (replaceAt at c vs) made)
 
