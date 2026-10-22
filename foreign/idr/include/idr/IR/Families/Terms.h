@@ -117,9 +117,10 @@ public:
   TermKind kind() const { return head().kind; }
   llvm::ArrayRef<TermNode> nodes() const { return nodes_; }
 
-  // A Successor's level; a Constructor's argument `index`.
+  // A Successor's level; a Constructor's argument `index`. All of a
+  // Constructor's arguments are argumentsOf's: a vector of terms cannot be
+  // named here, where the term is not yet a complete type.
   Term child(unsigned index) const;
-  llvm::SmallVector<Term> arguments() const;
 
   // Whether it names no level and holds nothing opaque: a value the class
   // rule may unfold.
@@ -146,6 +147,10 @@ std::optional<size_t> countTerms(llvm::ArrayRef<TermNode> nodes);
 // The `count` terms `nodes` holds one after the other, as a type's indices
 // and an equation are held.
 llvm::SmallVector<Term> termsOf(llvm::ArrayRef<TermNode> nodes, size_t count);
+
+// A Constructor's arguments, the terms that follow its head; none for any
+// other term.
+llvm::SmallVector<Term> argumentsOf(Term term);
 
 // One more than the largest level of any of `nodes`.
 uint32_t freeLevelsOf(llvm::ArrayRef<TermNode> nodes);

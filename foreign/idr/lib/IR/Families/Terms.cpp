@@ -70,16 +70,6 @@ Term Term::child(unsigned index) const {
   return Term(nodes_.drop_front(at));
 }
 
-SmallVector<Term> Term::arguments() const {
-  SmallVector<Term> out;
-  size_t at = 1;
-  for (uint32_t index = 0; index < head().arity; ++index) {
-    out.push_back(Term(nodes_.drop_front(at)));
-    at += out.back().nodes().size();
-  }
-  return out;
-}
-
 bool Term::isClosed() const {
   return llvm::none_of(nodes_, [](const TermNode &node) {
     return node.kind == TermKind::Level || node.kind == TermKind::Opaque;
@@ -104,6 +94,12 @@ SmallVector<Term> termsOf(ArrayRef<TermNode> nodes, size_t count) {
     at += out.back().nodes().size();
   }
   return out;
+}
+
+// A Constructor's arity counts the terms after its head; every other kind's
+// is 0.
+SmallVector<Term> argumentsOf(Term term) {
+  return termsOf(term.nodes().drop_front(), term.head().arity);
 }
 
 //===----------------------------------------------------------------------===//

@@ -63,7 +63,7 @@ void LevelMap::write(TermWriter &out, Term term) const {
     }
     if (head.kind == TermKind::Constructor) {
       out.constructor(head.payload, head.member, head.value, head.arity);
-      for (Term argument : llvm::reverse(t.arguments()))
+      for (Term argument : llvm::reverse(argumentsOf(t)))
         pending.push_back(argument);
       continue;
     }

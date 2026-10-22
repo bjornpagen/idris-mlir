@@ -227,8 +227,8 @@ Unified unify(Subst &subst, Term a, Side sa, Term b, Side sb) {
     mlir::Attribute gy = hy.payload ? hy.payload : subst.ownGroup();
     if (gx != gy || hx.member != hy.member || hx.value != hy.value || hx.arity != hy.arity)
       return Unified::Clash;
-    llvm::SmallVector<Term> xs = Term(x.nodes).arguments();
-    llvm::SmallVector<Term> ys = Term(y.nodes).arguments();
+    llvm::SmallVector<Term> xs = argumentsOf(Term(x.nodes));
+    llvm::SmallVector<Term> ys = argumentsOf(Term(y.nodes));
     for (auto [xa, ya] : llvm::reverse(llvm::zip_equal(xs, ys)))
       pending.push_back({Bound{xa.nodes(), x.side, 0}, Bound{ya.nodes(), y.side, 0}});
   }
@@ -278,7 +278,7 @@ Instance Subst::write(TermWriter &out, Term term, Side side, uint32_t shift) con
         continue;
       }
       out.constructor(head.payload ? head.payload : own, head.member, head.value, head.arity);
-      llvm::SmallVector<Term> args = Term(b.nodes).arguments();
+      llvm::SmallVector<Term> args = argumentsOf(Term(b.nodes));
       for (Term arg : llvm::reverse(args))
         pending.push_back(Bound{arg.nodes(), b.side, 0});
       continue;

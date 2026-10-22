@@ -880,7 +880,7 @@ baseClasses =
   , "// The traits the generator gives ops from their facts: a pure runtime op"
   , "// folds by calling its function, a partial op checks its guards, and a"
   , "// result's uses follow the grade's rule over the given operands."
-  , "def Idr_RuntimeFolds : NativeOpTrait<\"RuntimeFolds\"> { let cppNamespace = \"::idr\"; }"
+  , "def Idr_RuntimeFolds : NativeOpTrait<\"RuntimeFolds\"> { let cppNamespace = \"::idr::fold\"; }"
   , "def Idr_GuardedOp : NativeOpTrait<\"GuardedOp\"> { let cppNamespace = \"::idr\"; }"
   , "class Idr_InlineArith<string fn> : ParamNativeOpTrait<\"InlineArith\", fn> {"
   , "  let cppNamespace = \"::idr::numeric\";"

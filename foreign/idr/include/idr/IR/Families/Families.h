@@ -5,7 +5,9 @@
 // specification's IdrisMLIR.Spec.Families.Dialect names each member a hand
 // unit defines here): the set of constructors a type leaves possible, the
 // facts a type computes when it is made, and the one way to read a
-// constructor written by its label.
+// constructor written by its label; and what the op interfaces after it
+// name of index terms and layouts: what a region assumes as it is entered,
+// and the module's layouts by name.
 //
 // A data type is `!idr.data<#F[ts]>`: a member of a group applied to index
 // terms, perhaps refined to fewer constructors, `!idr.data<#List @Cons>`,
@@ -49,12 +51,24 @@
 
 namespace idr {
 
+// The layouts of a module's values, which an op interface reads by
+// reference (the bytes a put takes): its name is enough here, and its
+// definition (Layout.h) needs the dialect's ops, so it follows them.
+class Layouts;
+
 namespace families {
 
 // The constructors a type leaves possible: every declared one, which a type
 // at an index that excludes none and with no refinement has, or the ones
 // its indices or its refinement leave, held in tag order.
 class TagSet {
+  // The tag at each position, over a copy of the set, which the iterators
+  // map positions through. Defined ahead of begin and end, which deduce
+  // their type from it.
+  auto at() const {
+    return [copy = *this](size_t index) { return copy[index]; };
+  }
+
 public:
   static TagSet every(uint32_t declared) { return TagSet(declared, {}); }
   static TagSet listed(llvm::ArrayRef<Tag> tags) { return TagSet(0, tags); }
@@ -74,9 +88,6 @@ public:
 
 private:
   TagSet(uint32_t all, llvm::ArrayRef<Tag> listed) : all(all), listed_(listed) {}
-  auto at() const {
-    return [copy = *this](size_t index) { return copy[index]; };
-  }
   uint32_t all;
   llvm::ArrayRef<Tag> listed_;
 };
@@ -262,6 +273,24 @@ bool refines(mlir::Type sub, mlir::Type super);
 // substitution: a jump's argument against its join region's parameter, a
 // call's operand against its callee's. Context-free, as refines is.
 bool instanceOf(mlir::Type instance, mlir::Type pattern);
+
+// Whose levels an equation's right side names: the binders the region
+// itself binds (a case's constructor's), or the enclosing scope's (an
+// assumed equality).
+enum class Scoped : uint8_t { RegionBinders, Enclosing };
+
+// What a region assumes as it is entered: `count` terms of the enclosing
+// scope equal, one by one, to `count` terms of `inner`'s scope; `group` the
+// family a null group in a term names. The binder interface returns it, so
+// it is declared here, ahead of the interfaces; the scope walk that reads it
+// is Scope.h's.
+struct RegionRefinement {
+  llvm::ArrayRef<TermNode> outer;
+  llvm::ArrayRef<TermNode> inner;
+  size_t count;
+  Scoped scope;
+  FamilyAttr group;
+};
 
 } // namespace families
 

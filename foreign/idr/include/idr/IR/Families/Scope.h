@@ -26,26 +26,6 @@
 
 namespace idr::families {
 
-// Whose levels an equation's right side names: the binders the region
-// itself binds (a case's constructor's), or the enclosing scope's (an
-// assumed equality).
-enum class Scoped : uint8_t { RegionBinders, Enclosing };
-
-// What a region assumes as it is entered: `count` terms of the enclosing
-// scope equal, one by one, to `count` terms of `inner`'s scope; `group` the
-// family a null group in a term names.
-struct RegionRefinement {
-  llvm::ArrayRef<TermNode> outer;
-  llvm::ArrayRef<TermNode> inner;
-  size_t count;
-  Scoped scope;
-  FamilyAttr group;
-};
-
-// What a region of an op that binds index variables but assumes nothing
-// assumes: nothing. ErasedBinderOpInterface's default.
-std::optional<RegionRefinement> noRefinement(mlir::Operation *op, mlir::Region &region);
-
 // What a case of constructor `tag` of a match on a value of `scrutinee`
 // assumes: the scrutinee's indices equal to the constructor's equation over
 // its binders.

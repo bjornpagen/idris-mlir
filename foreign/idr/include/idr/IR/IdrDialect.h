@@ -9,8 +9,9 @@
 // families' queries over them, the hand hooks the printed ODS names
 // (custom directives, predicates, codecs, property hooks), the interfaces
 // and the ops; then each partial op's guards and each op's declared
-// effects. Nothing here restates a fact of the specification: every list
-// over ops, types or cases is generated.
+// effects; then the base the generated passes name. Nothing here restates
+// a fact of the specification: every list over ops, types or cases is
+// generated.
 #ifndef IDR_IR_IDRDIALECT_H
 #define IDR_IR_IDRDIALECT_H
 
@@ -37,10 +38,12 @@
 #include "mlir/Interfaces/TilingInterface.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
+#include "mlir/Pass/Pass.h"
 
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <type_traits>
 
 // The grades and the lifetimes, which the generated types' builders and
 // constraints name.
@@ -74,6 +77,12 @@ class TagSet;
 #include "idr/IR/Generated/EnumTraits.h.inc"
 #include "idr/IR/Generated/Storages.h.inc"
 #include "idr/IR/IdrAttrInterfaces.h.inc"
+// A constant constructor's attribute holds its data type, and the types'
+// parameters hold attributes in turn; the attribute's members name the type
+// by value in declarations alone, so its name is enough here.
+namespace idr {
+class DataType;
+} // namespace idr
 #define GET_ATTRDEF_CLASSES
 #include "idr/IR/IdrAttrs.h.inc"
 
@@ -95,8 +104,12 @@ struct DialectTypes : TypeClasses<
 } // namespace idr
 
 // What the C++ reads of a family and a data type beyond their generated
-// classes, which it names.
+// classes, which it names; then the refinement a region assumes as it is
+// entered, which the hooks and the erased-binder interface return by value,
+// so their callers, the interface's own definition among them, read it
+// whole.
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Scope.h"
 
 // The hand hooks the printed ODS names (custom directives, predicates,
 // parameter codecs, property hooks), after the types and attributes their
@@ -106,13 +119,20 @@ struct DialectTypes : TypeClasses<
 
 // How a value moves and the join family's carrier, which the ops name,
 // after the types its anchors hold; the template a big made of an integer
-// reads its signedness from, which that interface's default calls; then
-// the op interfaces, the flow interface among them. The control flow's
-// skeleton rules, which name the ops, are their own header's
-// (Control/Control.h).
+// reads its signedness from, which that interface's default calls; what
+// intervals know of a guard's condition, which the guard interface decides;
+// the module's layouts, which a put into a lifetime is measured by and
+// which the interface takes by reference alone (their header reads the
+// generated classes, so their name is enough here); then the op
+// interfaces, the flow interface among them. The control flow's skeleton
+// rules, which name the ops, are their own header's (Control/Control.h).
 #include "idr/IR/FlowEdges.h"
 #include "idr/IR/Control/Family.h"
 #include "idr/IR/Ops/BigOfInteger.h"
+#include "idr/IR/Numeric/Intervals.h"
+namespace idr {
+class Layouts;
+} // namespace idr
 #include "idr/IR/IdrInterfaces.h.inc"
 
 // The traits the ops' meanings give them: the one runtime fold, inline
@@ -136,6 +156,65 @@ struct DialectTypes : TypeClasses<
 #include "idr/IR/Ops/Sites.h"
 
 namespace idr {
+
+// The base of every pass whose record names the stage it requires,
+// `Requires`, and the one it leaves, `Sets`: the record's printed
+// baseClass, inside which upstream's generator names the pass `DerivedT`,
+// so the base calls the pass's own body with no virtual. It finds the
+// program the pass runs on (the anchor, the program around it, or the one
+// program of a module), refuses a program at another stage, runs the pass
+// on it (DerivedT::runOnProgram, handed the program it found), and leaves
+// the program at `Sets` unless the pass failed. A pass that runs at any
+// stage derives from upstream's base instead. It is declared here, after
+// the program op and the stages it reads, because every unit that defines
+// a pass reaches this header through its area's header or directly, and
+// the generated definition names it with nothing else included.
+template <typename DerivedT, typename OpT, Stage Requires, Stage Sets>
+class StagedPass : public mlir::OperationPass<OpT> {
+  // A function pass runs beside its siblings, which read the program's
+  // stage; only a pass on the program or on the module may change it. The
+  // specification's pipeline type refuses the case before any C++ exists;
+  // this states the same of the class.
+  static_assert(Requires == Sets || std::is_same_v<OpT, ProgramOp> ||
+                    std::is_same_v<OpT, mlir::ModuleOp>,
+                "a pass on a function leaves the stage it found");
+
+protected:
+  explicit StagedPass(mlir::TypeID passID) : mlir::OperationPass<OpT>(passID) {}
+  StagedPass(const StagedPass &) = default;
+
+private:
+  void runOnOperation() final {
+    OpT anchor = this->getOperation();
+    ProgramOp program;
+    if constexpr (std::is_same_v<OpT, ProgramOp>) {
+      program = anchor;
+    } else if constexpr (std::is_same_v<OpT, mlir::ModuleOp>) {
+      // A module may hold any number of programs, as MLIR sees it; the
+      // pass runs on its one.
+      auto programs = anchor.template getOps<ProgramOp>();
+      if (!llvm::hasSingleElement(programs)) {
+        anchor.emitError("internal error: ")
+            << this->getArgument() << " runs on a module that holds one program, not "
+            << llvm::range_size(programs);
+        return this->signalPassFailure();
+      }
+      program = *programs.begin();
+    } else {
+      program = llvm::cast<ProgramOp>(anchor->getParentOp());
+    }
+    if (program.getStage() != Requires) {
+      anchor->emitError("internal error: ")
+          << this->getArgument() << " runs on a program at " << stringifyStage(Requires)
+          << ", not " << stringifyStage(program.getStage());
+      return this->signalPassFailure();
+    }
+    static_cast<DerivedT &>(*this).runOnProgram(program);
+    if constexpr (Requires != Sets)
+      if (!this->getPassState().irAndPassFailed.getInt())
+        program.setStage(Sets);
+  }
+};
 
 // The words a refusal by `rule` begins with, its separator included:
 // `unsupported (<phrase>): ` for a construct this compiler does not compile,

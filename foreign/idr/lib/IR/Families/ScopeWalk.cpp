@@ -21,9 +21,13 @@
 
 using namespace mlir;
 
-namespace idr::families {
+// ErasedBinderOpInterface's default: a region of an op that binds index
+// variables but assumes nothing assumes nothing.
+std::optional<idr::families::RegionRefinement> idr::noRefinement(Operation *, Region &) {
+  return std::nullopt;
+}
 
-std::optional<RegionRefinement> noRefinement(Operation *, Region &) { return std::nullopt; }
+namespace idr::families {
 
 RegionRefinement caseRefinement(DataType scrutinee, Tag tag) {
   return {scrutinee.getIndices(), scrutinee.ctor(tag).equation,

@@ -161,7 +161,7 @@ std::optional<Descent> descentOf(const DataMember &m, unsigned zero, unsigned su
         field.head().value == result.child(0).head().value)
       argument = std::optional<uint32_t>();
     else if (result.kind() == TermKind::Constructor)
-      for (auto [index, arg] : llvm::enumerate(result.arguments()))
+      for (auto [index, arg] : llvm::enumerate(argumentsOf(result)))
         if (arg == field)
           argument = static_cast<uint32_t>(index);
     if (!argument)
