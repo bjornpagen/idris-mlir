@@ -3699,6 +3699,29 @@ C137.
   or an inline pair. It lowers to one address per run-time component of
   `T`. What a hole may be is stated once, in the type's verifier; L04's
   `destOf` asks it.
+- **C168** (2026-10-21; L11's finding; C40's encoding yields to D89). The
+  count keeps "1 is unique, 0 is static", not Koka's signed encoding:
+  D89, the owner's ruling, keeps the count-0 marker test for the one
+  essential case and rejects a sentinel count, which would write static
+  data that every shard shares read-only. C40's other parts (no atomic
+  count, the word-kind lattice, one `inc` and `dec` per kind) stand.
+- **C169** (2026-10-21; L11's risk). simdutf runs the one implementation
+  the target's entry fixes, called directly through that implementation's
+  `final` class, never chosen at run time: the target's features are a
+  static fact (AGENTS.md: no CPU query outside the target's startup
+  check, which refuses a machine without them, status 126), and run-time
+  selection through a virtual table is an indirect call the stack bound
+  must treat as reaching every function of its type, so simdutf's
+  dispatch would read as a cycle and `--prepare-runtime` would refuse.
+  `Strings/Simd.cpp`'s selection goes; if simdutf offers no direct path,
+  the path is an upstream patch.
+- **C170** (2026-10-21; L09's choice, reviewed). A control op that makes
+  a scoped value (`data.match`, `lit.match`, `join`, `loop`) states its
+  lifetime by one optional `outer` operand, present exactly when one of
+  its results is scoped, through the same `StatesLifetimeOpInterface`
+  as `idr.func` and `idr.call`: a lifetime is an SSA value whose
+  dominance MLIR checks (D93), not a field of a type or an attribute, and
+  one interface states it for every op that makes scoped values.
 
 ## 4. Open: the owner's decisions, in order
 
