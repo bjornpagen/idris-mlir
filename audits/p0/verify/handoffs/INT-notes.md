@@ -93,3 +93,25 @@ handoff lists its own wiring.
   `scf.index_switch` is admitted (L09).
 - **Regenerate the `.td` files** after the TailKind documentation
   change (db35bc4b).
+
+## From the 2026-10-22 evening commits
+
+- **The toolchain checkout.** The local `.toolchain` LLVM checkout is at
+  7208ba24, behind the pinned 416f328b (L06h); the bootstrap moves it.
+- **New upstream patches 100 and 101** (d3935eeb), with their checks
+  under `tests/`. `tools/patches.sh` orders patches by number.
+- **Stale CMake.** `StructureLoops/Nests.cpp` is listed but gone, and
+  `Bufferize/Generating.cpp` is missing; add `StructureLoops/JoinLoops.cpp`
+  (569d1d61) and `Transforms/InPlace/Sites.cpp` (6ab0f70c). IdrStructureLoops
+  links the joins library and IdrIR, and IdrTail links IdrStructureLoops
+  (d5c5cc0f). The e-graph's library links `MLIRInferIntRangeCommon` and
+  reads `StageFacts.h.inc`.
+- **New headers.** `include/idr/IR/Ops/BigOfInteger.h` (df7d56b8), which
+  `IdrInterfaces.h.inc` needs first, and
+  `include/idr/Transforms/Optimize/Tails.h` (fc3c2904).
+- **New spec modules.** `Spec/Closures/Memo.idr` (fc3c2904),
+  `Spec/Families/{Types,Ops}.idr` (0d858dba), `Spec/Core/Verdict.idr`
+  (L03f, in progress); `spec.ipkg` and `Spec.idr` list them (L03).
+- **Regenerate** after L04's `ClosureReach`, `numeralBound`,
+  `layoutMatch` and `isFree`, L13's `folding`, laws and `ShownOutput`,
+  and L09's widened `lit.match`.
