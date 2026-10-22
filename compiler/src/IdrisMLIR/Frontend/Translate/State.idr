@@ -11,6 +11,7 @@ import Core.TT
 import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
@@ -98,32 +99,6 @@ data PKind = TypeParam ClosedTerm
            | IndexParam Sort
            | FormParam ClosedTerm
            | ValueParam Binder (Maybe ClosedTerm) ClosedTerm
-
-||| How a static argument keys its instance, as classify's PKind: a type
-||| (TypeParam), a type family (TypeParam too: a type parameter whose kind
-||| is a function into a universe, `tm : Scope -> Type` or a functor's `f`,
-||| whose value is a type constructor applied to fewer arguments than it
-||| takes, or a lambda), an implementation (DictParam), a form (FormParam),
-||| a shape (ValueParam). A family and an implementation are the kinds whose
-||| value's head splits the definition it is given to (`Root`).
-public export
-data Static = AType | AFamily | ADictionary | AForm | AShape
-
--- The kinds in one order, so that a table can be keyed by kind.
-kindOrder : Static -> Nat
-kindOrder AType = 0
-kindOrder AFamily = 1
-kindOrder ADictionary = 2
-kindOrder AForm = 3
-kindOrder AShape = 4
-
-export
-Eq Static where
-  x == y = kindOrder x == kindOrder y
-
-export
-Ord Static where
-  compare x y = compare (kindOrder x) (kindOrder y)
 
 ||| A request's static argument as the kind of parameter it keys, its term
 ||| left out: what the instance puts in there once the term is the form
@@ -328,14 +303,6 @@ nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ nameKey outer
 nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ nameKey outer
 nameKey n = show n
 
-||| A definition's identity: its address in the context (`Walk.addressOf`);
-||| nothing for a name the context does not hold, which no table keeps.
-||| For a site that needs the address alone; one that needs the definition
-||| too reads it as it was read (`readOf`).
-export
-definitionAddress : Context -> Name -> Maybe Address
-definitionAddress ctx n = addressOf <$> placementIn ctx n
-
 ||| A definition as the growth check splits it (`Growth`): its address,
 ||| the implementation (or interface constructor) at the root of each
 ||| implementation it is given that has one, and the type constructor at
@@ -366,46 +333,30 @@ public export
 Position : Type
 Position = (Node, Nat)
 
-||| The index of the context an address is (`Walk.addressOf`'s inverse): the
-||| index whose eight bytes, the low byte first, it is.
-export
-addressIndex : Address -> Int
-addressIndex a = cast (bytes a)
-  where
-    bytes : Vect k (Fin 256) -> Integer
-    bytes [] = 0
-    bytes (b :: bs) = cast (finToNat b) + 256 * bytes bs
-
-||| The name a definition's address stands for (`addressOf`'s inverse): the
-||| context's entry at that index, for a message to print (`toFullNames`);
-||| nothing for bytes no entry of the context has.
-export
-nameAt : Context -> Address -> Maybe Name
-nameAt ctx a = let i = addressIndex a in
-               if i < nextEntry ctx then Just (Resolved i) else Nothing
-
-||| The definition at an address, as the context holds it; nothing at bytes
-||| no entry of the context has. The one reading of a definition by its
-||| address.
-export
-definitionAt : {auto c : Ref Ctxt Defs} -> Address -> Core (Maybe GlobalDef)
-definitionAt a = do
-  defs <- get Ctxt
-  case nameAt (gamma defs) a of
-    Just n => lookupCtxtExact n (gamma defs)
-    Nothing => pure Nothing
-
 ||| A request's static argument as an instance's reading reads it
-||| (`Template.staticReading`): the form its link writes, its height, and
-||| the definition at its root that splits the node of a request it is
-||| given to, the implementation of a dictionary or the type constructor at
-||| the head of a family, if it has one.
+||| (`Template.staticReading`), kept by its kind and its written key, and
+||| given to every request that argument keys: the reading itself, at
+||| quantity 0, in the frozen context it was read in and at the kind and
+||| the term it was read at, so that what a request puts in for a parameter
+||| its key names is a reading's form by construction; and what the
+||| translation reads of it at run time, each the reading's by type: the
+||| form its link writes, its height (`Readings.readingHeight`), and the
+||| definition at its root that splits the node of a request it is given
+||| to, the implementation of a dictionary or the type constructor at the
+||| head of a family, if it has one (`Readings.splitting`).
 public export
 record StaticReading where
   constructor MkStaticReading
+  {0 readIn : Frozen}
+  {0 readKind : Static}
+  {0 readTerm : ClosedTerm}
+  0 reading : InstanceReading readIn readKind readTerm
   form : ClosedTerm
+  0 isForm : form = reading.form
   height : Nat
+  0 isHeight : height = readingHeight reading
   head : Maybe Address
+  0 isHead : head = splitting reading.root
 
 %prefix_record_projections off
 ||| What a pattern-matching definition's body is to the translation, read
@@ -502,7 +453,9 @@ record SignedAt (what : Instantiates) (keys : List (Maybe (KeyedAs, StaticReadin
 ||| that it is translated at what every call of it holds, with what the
 ||| request keyed each parameter by and that each is put in at it, at
 ||| quantity 0, so that the value an instance holds for a static argument is
-||| the form its key writes there; its key, the call that requested it,
+||| the form its key writes there, and each static argument's reading
+||| (`StaticReading`) holds the instance's reading of it whose form that is;
+||| its key, the call that requested it,
 ||| where and in whose definition, for a message to print, its link, which
 ||| is its identity, and the height of each static argument at the position
 ||| of the growth check's graph it is bounded at, which the worklist checks

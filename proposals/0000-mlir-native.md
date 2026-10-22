@@ -1945,6 +1945,11 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   refused as `value type`, naming the request. `staticsOver` and
   `classifyAt` take the instance's admitted telescope and have no
   missing-binder branch.
+  *Corrected* (L16cd's handoff): only `classifyAt` takes the admitted
+  telescope. `staticsOver` runs in the growth walk over markers, before
+  any instance exists, and its missing-binder case (`PastBinders`) is a
+  real one: requiring an admitted telescope there would refuse
+  `(t : Type) -> F t` as `value type`, a change of acceptance.
 - **C234** (2026-10-22; L16bh's question, under C228 and C123). An
   instance's signature is read once, when the instance is requested, and
   the request holds it: the instance's own step and every call to it read
@@ -1955,6 +1960,10 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   *Sharpened* (L16bj): the request returns the signature indexed by the
   kinds it was requested with, so a caller holds a signature tied to its
   own arguments' kinds by type and re-checks nothing at the call.
+  *Corrected* (L16cd's handoff): a cached signature is keyed by the
+  static kinds alone, so tying it to a caller's other kinds would mean
+  classifying again. What a caller needs of it, which parameters exist at
+  run time, is read off the callee's own signature, where it is fixed.
 - **C235** (2026-10-22; recheck 3, L04's question). A fold over the
   dialect's types is C52's one `match`: `Support/Match.h` gains the
   overload that folds an `mlir::Type` over the dialect's type list, which
@@ -2142,6 +2151,12 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   below what is left of `State` (the cache and `Request`), which imports
   it, and `Template` imports the readings. One layering, no cycle, and
   `State` holds nothing the modules below it need.
+  *Sharpened* (L16cd, as built): `Errors`, `Closed` and `Keys` hold the
+  translation state, so the readings sit below `State` rather than above
+  `Closed`: `Definitions`, `Contraction` (the eta contraction, with
+  `EtaNormal` and `MaximalReading`), `Literals` (`Run`, `writeConstant`)
+  and `Readings` (`InstanceReading` and its relations) come down out of
+  `State`, `Closed` and `Keys`, and nothing imports upward.
 - **C250** (2026-10-22; recheck 3's sweep and the §6 check, under C39
   and C107). A boxed element's take is counting's, as every take is:
   where an array's element is boxed (`layout::element(type).boxed`, the

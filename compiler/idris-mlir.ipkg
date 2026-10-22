@@ -53,7 +53,11 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Emit
         , IdrisMLIR.Frontend.Walk
         , IdrisMLIR.Frontend.Resolve
-        , IdrisMLIR.Frontend.Translate.State
+        , IdrisMLIR.Frontend.Translate.Definitions
+  , IdrisMLIR.Frontend.Translate.Contraction
+  , IdrisMLIR.Frontend.Translate.Literals
+  , IdrisMLIR.Frontend.Translate.Readings
+  , IdrisMLIR.Frontend.Translate.State
         , IdrisMLIR.Frontend.Translate.Boundary
         , IdrisMLIR.Frontend.Translate.Given
         , IdrisMLIR.Frontend.Translate.Errors

@@ -28,7 +28,10 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Boundary
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Definitions
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Literals
+import IdrisMLIR.Frontend.Translate.Readings
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Ids
 import IdrisMLIR.Proof.Forms
@@ -154,15 +157,6 @@ dropsWidth c = case constantLit c of
   Just (LInt _ _) => True
   Just (LBig _) => True
   _ => False
-
-||| A chain of data constructors each applied to the next, n of them,
-||| ending in one applied to nothing: the shape of a run of successors down
-||| to a zero, which the key writes a node per constructor of
-||| (`keyTree`), whatever roles the constructors have.
-public export
-data Run : TT vs -> Nat -> Type where
-  RunZero : Run (Ref fc (DataCon tag arity) z) 0
-  RunSucc : Run a k -> Run (App fc (Ref rfc (DataCon tag arity) s) a) (S k)
 
 ||| How many of a successor a term is a run of down to its zero, the zero,
 ||| and the run.
@@ -307,71 +301,8 @@ quantity Erased = 0
 quantity (Used Once) = 1
 quantity (Used Many) = 2
 
-||| A primitive type by its number.
-export
-primitive : PrimType -> Fin 14
-primitive IntType = 0
-primitive Int8Type = 1
-primitive Int16Type = 2
-primitive Int32Type = 3
-primitive Int64Type = 4
-primitive IntegerType = 5
-primitive Bits8Type = 6
-primitive Bits16Type = 7
-primitive Bits32Type = 8
-primitive Bits64Type = 9
-primitive StringType = 10
-primitive CharType = 11
-primitive DoubleType = 12
-primitive WorldType = 13
-
-public export
-node : Form -> Token Form
-node f = Node f Nothing 0
-
-export
-glyphOf : Char -> Glyph
-glyphOf c = let k = cast {to = Integer} (ord c) in (lowBits 11 (k `div` 1024), lowBits 10 k)
-
-export
-spellChars : List Char -> List (Token Form)
-spellChars [] = []
-spellChars (c :: cs) = node (Spelt (glyphOf c)) :: spellChars cs
-
-export
-spell : String -> List (Token Form)
-spell s = spellChars (unpack s)
-
-||| An integer constant's one token: its type, sign and magnitude. Its body
-||| is public, as `writeConstant`'s is, so that what a proof states of a
-||| constant's key reduces through it to the magnitude.
-public export
-integer : PrimType -> Integer -> List (Token Form)
-integer t v = [Number (IntegerLit (primitive t) (v < 0)) (integerToNat (abs v))]
-
-||| A constant: an integer by its type, sign and magnitude, a string and a
-||| double by their characters (a double's print tells doubles apart), a
-||| character, a primitive type, the world.
-public export
-writeConstant : Constant -> List (Token Form)
-writeConstant (I x) = integer IntType (cast x)
-writeConstant (I8 x) = integer Int8Type (cast x)
-writeConstant (I16 x) = integer Int16Type (cast x)
-writeConstant (I32 x) = integer Int32Type (cast x)
-writeConstant (I64 x) = integer Int64Type (cast x)
-writeConstant (BI x) = integer IntegerType x
-writeConstant (B8 x) = integer Bits8Type (cast x)
-writeConstant (B16 x) = integer Bits16Type (cast x)
-writeConstant (B32 x) = integer Bits32Type (cast x)
-writeConstant (B64 x) = integer Bits64Type (cast x)
-writeConstant (Str x) = node (Shaped Text) :: spell x
-writeConstant (Ch x) = [node (Character (glyphOf x))]
-writeConstant (Db x) = node (Shaped Floating) :: spell (show x)
-writeConstant (PrT t) = [node (PrimitiveType (primitive t))]
-writeConstant WorldVal = [node (Shaped World)]
-
 ||| The runtime value a reference marks, by its number, if it marks one: a
-||| marker is a bound name (`Closed.markerName`, `Walk.probeTerm`), so a
+||| marker is a bound name (`Readings.markerName`, `Walk.probeTerm`), so a
 ||| reference to a constructor or a definition is what it names, whatever
 ||| its name.
 public export
@@ -758,7 +689,7 @@ writtenOf w t = writtenFrom (write w t) (writeFits w t)
 -- arguments is one node of k children, each application one more child of
 -- its function's node; a binder is a node over its scope and the parts it
 -- writes; a string or a double a node with a child per character, as a
--- template reads it (`Template.constant`); a literal or a marker one node
+-- template reads it (`Readings.constant`); a literal or a marker one node
 -- whose weight is its token's. A run of successors is a node per
 -- successor, which weighs what the run's two symbols do.
 
