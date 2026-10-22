@@ -1855,6 +1855,9 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   type the frontend refuses is then refused once, at the request that
   first meets it, which the refusal names; it was refused either way,
   so acceptance does not change.
+  *Sharpened* (L16bj): the request returns the signature indexed by the
+  kinds it was requested with, so a caller holds a signature tied to its
+  own arguments' kinds by type and re-checks nothing at the call.
 - **C235** (2026-10-22; recheck 3, L04's question). A fold over the
   dialect's types is C52's one `match`: `Support/Match.h` gains the
   overload that folds an `mlir::Type` over the dialect's type list, which
