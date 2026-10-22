@@ -4,11 +4,13 @@
 // reuse, each of which writes the cell's header, and its init, which writes
 // its fields and gives each hole's destination; the constructors that build
 // no cell; the reads of tags and fields, each by the layout its type is (a
-// cell, or words in place); and what poison and select make of a value of
-// ours. A cell of a lexical lifetime is Lifetimes.cpp's, and a write through
-// a destination Destinations.cpp's. The lifetime an op here states of a
-// value it makes is read by no pattern: a value at run time is its words,
-// and an arena's handle is read by the source of the cell put into it.
+// cell, or words in place), a field re-packed between the type its slot is
+// laid out at and its type at its value's application; and what poison and
+// select make of a value of ours. A cell of a lexical lifetime is
+// Lifetimes.cpp's, and a write through a destination Destinations.cpp's.
+// The lifetime an op here states of a value it makes is read by no
+// pattern: a value at run time is its words, and an arena's handle is read
+// by the source of the cell put into it.
 //
 // A frame of a frame stack is laid out as a cell and lives on its thread's
 // stack of frames, contiguous in chunks the runtime holds: a push
@@ -48,19 +50,25 @@ namespace {
 DataType dataOf(Type type) { return cast<DataType>(unrestricted(type)); }
 
 // The components each field of a constructor stores in a cell laid out as
-// `cell`: those `given`, in field order, and zero for each of `holes`, so
-// that the cell is whole until the hole's destination is written, an
-// object slot holding an empty reference.
-SmallVector<SmallVector<Value>> fieldsOf(OpBuilder &b, Location loc, const layout::Cell &cell,
-                                         ArrayRef<int32_t> holes, ArrayRef<ValueRange> given) {
+// `cell`, its slots at the types `slots`: each of `operands`, given as
+// `given`, re-packed from its own type into its slot's, in field order, and
+// zero for each of `holes`, so that the cell is whole until the hole's
+// destination is written, an object slot holding an empty reference.
+SmallVector<SmallVector<Value>> fieldsOf(OpBuilder &b, Location loc, const Layouts &layouts,
+                                         const Runtime &runtime, const layout::Cell &cell,
+                                         ArrayRef<Type> slots, ArrayRef<int32_t> holes,
+                                         ValueRange operands, ArrayRef<ValueRange> given) {
   SmallVector<SmallVector<Value>> fields;
-  const ValueRange *next = given.begin();
-  for (auto [index, slots] : llvm::enumerate(cell.fields)) {
+  unsigned next = 0;
+  for (auto [index, slotsOf] : llvm::enumerate(cell.fields)) {
     if (!llvm::binary_search(holes, static_cast<int32_t>(index))) {
-      fields.push_back(SmallVector<Value>(*next++));
+      Type type = operands[next].getType();
+      fields.push_back(
+          repack(b, loc, layouts, runtime, type, slots[index], given[next], takesOf(type)));
+      ++next;
       continue;
     }
-    fields.push_back(llvm::map_to_vector(slots, [&](const layout::Slot &slot) -> Value {
+    fields.push_back(llvm::map_to_vector(slotsOf, [&](const layout::Slot &slot) -> Value {
       return LLVM::ZeroOp::create(b, loc, slot.type);
     }));
   }
@@ -130,10 +138,14 @@ struct LowerCellInit : IdrPattern<CellInitOp> {
   LogicalResult matchAndRewrite(CellInitOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    const layout::Cell &cell = cellLayoutOf(layouts, op.getCell().getType());
+    auto cellType = cast<CellType>(op.getCell().getType());
+    const layout::Cell &cell = cellLayoutOf(layouts, cellType);
     Value value = adaptor.getCell().front();
     ArrayRef<int32_t> holes = op.getHoles();
-    SmallVector<SmallVector<Value>> fields = fieldsOf(rewriter, loc, cell, holes, adaptor.getFields());
+    SmallVector<SmallVector<Value>> fields =
+        fieldsOf(rewriter, loc, layouts, runtime, cell,
+                 layouts.fieldTypes(cellType.getData(), cellType.getTag()), holes, op.getFields(),
+                 adaptor.getFields());
     for (auto [slots, field] : llvm::zip_equal(cell.fields, fields))
       runtime.store(rewriter, loc, value, cellAlignment(), slots, field);
     SmallVector<SmallVector<Value>> out{{value}};
@@ -154,16 +166,25 @@ struct LowerCellInit : IdrPattern<CellInitOp> {
 // so nothing is allocated that no count would free.
 struct LowerDataCon : IdrPattern<DataConOp> {
   using IdrPattern::IdrPattern;
+  // Its fields, each re-packed into the type its slot is laid out at.
+  SmallVector<SmallVector<Value>> slotted(OpBuilder &b, DataConOp op,
+                                          OneToNOpAdaptor adaptor) const {
+    return intoSlots(b, op.getLoc(), layouts, runtime, op.getDataType(), op.getTag(),
+                     op.getFields(), adaptor.getFields());
+  }
   LogicalResult matchAndRewrite(DataConOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     DataType data = op.getDataType();
     Tag tag = op.getTag();
     switch (data.layout()) {
-    case Layout::InPlace:
-      rewriter.replaceOpWithMultiple(
-          op, {unboxedSum(rewriter, loc, layouts.sum(data), tag, adaptor.getFields())});
+    case Layout::InPlace: {
+      SmallVector<SmallVector<Value>> fields = slotted(rewriter, op, adaptor);
+      SmallVector<ValueRange> given(fields.begin(), fields.end());
+      rewriter.replaceOpWithMultiple(op,
+                                     {unboxedSum(rewriter, loc, layouts.sum(data), tag, given)});
       return success();
+    }
     case Layout::FrameStack: {
       const layout::Cell &frame = layouts.cells(data).cell(tag);
       Value address = runtime
@@ -171,7 +192,7 @@ struct LowerDataCon : IdrPattern<DataConOp> {
                                 i64Constant(rewriter, loc, frame.size))
                           .getResult();
       runtime.storeUncountedHeader(rewriter, loc, address, frame);
-      for (auto [slots, field] : llvm::zip_equal(frame.fields, adaptor.getFields()))
+      for (auto [slots, field] : llvm::zip_equal(frame.fields, slotted(rewriter, op, adaptor)))
         runtime.store(rewriter, loc, address, cellAlignment(), slots, field);
       rewriter.replaceOp(op, address);
       return success();
@@ -192,28 +213,31 @@ struct LowerDataCon : IdrPattern<DataConOp> {
 };
 
 // A value in place taken apart: its fields are its words, which move out as
-// they are.
+// they are, each re-packed from its slot's type into the type it is taken
+// at. A frame popped: its values read out, then its bytes given back.
 struct LowerUnpack : IdrPattern<CountUnpackOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(CountUnpackOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
     DataType data = op.getDataType();
-    // A frame popped: its values read out, then its bytes given back.
+    Tag tag = op.getTag();
+    SmallVector<SmallVector<Value>> slots;
     if (data.layout() == Layout::FrameStack) {
-      Location loc = op.getLoc();
-      Value frame = adaptor.getValue().front();
-      SmallVector<SmallVector<Value>> fields = llvm::map_to_vector(
-          layouts.cells(data).cell(op.getTag()).fields, [&](ArrayRef<layout::Slot> slots) {
-            return runtime.load(rewriter, loc, frame, cellAlignment(), slots);
-          });
-      runtime.call(rewriter, loc, idr::runtime::helper::framePop, frame);
-      rewriter.replaceOpWithMultiple(op, std::move(fields));
-      return success();
+      for (ArrayRef<layout::Slot> each : layouts.cells(data).cell(tag).fields)
+        slots.push_back(
+            runtime.load(rewriter, loc, adaptor.getValue().front(), cellAlignment(), each));
+    } else {
+      for (unsigned index = 0, n = static_cast<unsigned>(op.getFields().size()); index < n; ++index)
+        slots.push_back(unboxedField(layouts.sum(data), adaptor.getValue(), tag, index));
     }
     SmallVector<SmallVector<Value>> fields;
-    for (unsigned index = 0, n = static_cast<unsigned>(op.getFields().size()); index < n; ++index)
-      fields.push_back(
-          unboxedField(layouts.sum(op.getDataType()), adaptor.getValue(), op.getTag(), index));
+    for (auto [field, slot, read] :
+         llvm::zip_equal(op.getFields(), layouts.fieldTypes(data, tag), slots))
+      fields.push_back(repack(rewriter, loc, layouts, runtime, slot, field.getType(), read,
+                              takesOf(field.getType())));
+    if (data.layout() == Layout::FrameStack)
+      runtime.call(rewriter, loc, idr::runtime::helper::framePop, adaptor.getValue().front());
     rewriter.replaceOpWithMultiple(op, std::move(fields));
     return success();
   }
@@ -251,45 +275,33 @@ struct LowerDataTag : IdrPattern<DataTagOp> {
 };
 
 // A field's components, loaded from a cell's slots, or read from a value's
-// words in place.
+// words in place, then re-packed from the type its slot is laid out at
+// into the field's type at the value's application, read where the value
+// keeps it.
 struct LowerDataField : IdrPattern<DataFieldOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(DataFieldOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
     auto index = static_cast<unsigned>(op.getIndex());
     Tag tag = op.getTag();
     DataType data = op.getDataType();
+    SmallVector<Value> slot;
     switch (data.layout()) {
     case Layout::Cell:
     case Layout::FrameStack:
-      rewriter.replaceOpWithMultiple(
-          op, {runtime.load(rewriter, op.getLoc(), adaptor.getValue().front(), cellAlignment(),
-                            layouts.cells(data).cell(tag).fields[index], contentsOf(data))});
-      return success();
+      slot = runtime.load(rewriter, loc, adaptor.getValue().front(), cellAlignment(),
+                          layouts.cells(data).cell(tag).fields[index], contentsOf(data));
+      break;
     case Layout::InPlace:
-      rewriter.replaceOpWithMultiple(
-          op, {unboxedField(layouts.sum(data), adaptor.getValue(), tag, index)});
-      return success();
+      slot = unboxedField(layouts.sum(data), adaptor.getValue(), tag, index);
+      break;
     default:
       return rewriter.notifyMatchFailure(op, "a numeral is read by its conversions");
     }
-  }
-};
-
-// The same value at a type its refinements make equal to its own: the same
-// words where the two layouts are; where an index known inside the function
-// changes the layout, the re-pack is the layout's, which this does not make.
-struct LowerReindex : IdrPattern<DataReindexOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(DataReindexOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> converted;
-    if (failed(getTypeConverter()->convertType(op.getResult().getType(), converted)))
-      return rewriter.notifyMatchFailure(op, "the result's type does not convert");
-    ValueRange value = adaptor.getValue();
-    if (!llvm::equal(converted, value.getTypes()))
-      return rewriter.notifyMatchFailure(op, "a reindex that changes the layout");
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(value)});
+    rewriter.replaceOpWithMultiple(
+        op, {repack(rewriter, loc, layouts, runtime, layouts.fieldTypes(data, tag)[index],
+                    op.getResult().getType(), slot, readInPlace)});
     return success();
   }
 };
@@ -375,13 +387,13 @@ struct LowerSelect : IdrPattern<arith::SelectOp> {
 
 // The patterns of cells and data values: a counted cell's source, reuse and
 // init, constructors, their tags and fields, a value in place taken apart,
-// a reindex and an assumed equality, constants, and what poison and select
-// make of a value of ours.
+// an assumed equality, constants, and what poison and select make of a
+// value of ours.
 void populateCellPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                           const Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerCellNew, LowerCellRecycle, LowerCellInit, LowerDataCon, LowerUnpack,
-               LowerDataTag, LowerDataField, LowerReindex, LowerAssume, LowerConstant,
-               LowerPoison, LowerSelect>(converter, patterns.getContext(), layouts, runtime);
+               LowerDataTag, LowerDataField, LowerAssume, LowerConstant, LowerPoison,
+               LowerSelect>(converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

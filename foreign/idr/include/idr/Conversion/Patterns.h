@@ -33,6 +33,16 @@ void populateCountingPatterns(mlir::RewritePatternSet &patterns,
 void populateBigPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                          const Layouts &layouts, Runtime &runtime);
 
+// A numeral's value as a natural, the numeral held in the component `held`,
+// and a natural as a numeral held in `held`, with no test: the meaning of
+// numeral.to_nat and numeral.of_nat at each way a bound is held, which
+// their patterns and a re-pack of a numeral between its two layouts both
+// lower with.
+mlir::Value naturalOf(mlir::OpBuilder &b, mlir::Location loc, const Runtime &runtime,
+                      layout::Component held, mlir::Value numeral);
+mlir::Value numeralOf(mlir::OpBuilder &b, mlir::Location loc, const Runtime &runtime,
+                      layout::Component held, mlir::Value natural);
+
 // The cells memrefs live in, allocated or constant, and the arrays of
 // mutable memory: their reads, writes and updates in place; and the
 // movements a step of a generating op makes in its buffers (a take, a copy,

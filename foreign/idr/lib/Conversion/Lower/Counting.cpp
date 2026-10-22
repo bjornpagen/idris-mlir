@@ -30,13 +30,26 @@ namespace idr::conversion {
 namespace {
 
 // The fields of a value refined to one constructor laid out in a cell, at
-// `cell`, read out with the references the cell held.
+// `cell`, read out with the references the cell held, each as its slot
+// holds it.
 SmallVector<SmallVector<Value>> fieldsAt(OpBuilder &b, Location loc, const Runtime &runtime,
                                          const Layouts &layouts, Value cell, DataType data) {
   const layout::Cell &layout = layouts.cells(data).cell(tagOf(data));
   return llvm::map_to_vector(layout.fields, [&](ArrayRef<layout::Slot> slots) {
     return runtime.load(b, loc, cell, cellAlignment(), slots, contentsOf(data));
   });
+}
+
+// The fields read out of `data`'s cell, moved out at `types`, each
+// re-packed from its slot's type into its own, given on whole.
+SmallVector<SmallVector<Value>> movedOut(OpBuilder &b, Location loc, const Runtime &runtime,
+                                         const Layouts &layouts, DataType data, TypeRange types,
+                                         ArrayRef<SmallVector<Value>> read) {
+  SmallVector<SmallVector<Value>> fields;
+  for (auto [type, slot, values] :
+       llvm::zip_equal(types, layouts.fieldTypes(data, tagOf(data)), read))
+    fields.push_back(repack(b, loc, layouts, runtime, slot, type, values, takesOf(type)));
+  return fields;
 }
 
 DataType refinedOf(Value value) { return cast<DataType>(unrestricted(value.getType())); }
@@ -78,10 +91,13 @@ struct LowerTake : IdrPattern<CountTakeOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     if (!claims(op.getValue().getType(), Unique::Self))
       return rewriter.notifyMatchFailure(op, "a take of a value its type proves nothing of");
+    Location loc = op.getLoc();
     Value cell = adaptor.getValue().front();
+    DataType data = refinedOf(op.getValue());
     SmallVector<SmallVector<Value>> out{{cell}};
-    llvm::append_range(out, fieldsAt(rewriter, op.getLoc(), runtime, layouts, cell,
-                                     refinedOf(op.getValue())));
+    llvm::append_range(out, movedOut(rewriter, loc, runtime, layouts, data,
+                                     TypeRange(op->getResultTypes()).drop_front(),
+                                     fieldsAt(rewriter, loc, runtime, layouts, cell, data)));
     rewriter.replaceOpWithMultiple(op, std::move(out));
     return success();
   }
@@ -129,7 +145,8 @@ struct LowerTakeInto : IdrPattern<CountTakeIntoOp> {
       made = alone.getResult(0);
     }
     SmallVector<SmallVector<Value>> out{{runtime.launder(rewriter, loc, made)}};
-    llvm::append_range(out, fields);
+    llvm::append_range(out, movedOut(rewriter, loc, runtime, layouts, from,
+                                     TypeRange(op->getResultTypes()).drop_front(), fields));
     rewriter.replaceOpWithMultiple(op, std::move(out));
     return success();
   }
@@ -154,10 +171,20 @@ struct LowerMatchUnique : IdrPattern<CountMatchUniqueOp> {
     SmallVector<Value> value(adaptor.getValue());
     Value cell = value.front();
     // The fields are read before the branch: the shared path does not need
-    // them, and reading a live cell's slots is harmless where it runs.
+    // them, and reading a live cell's slots is harmless where it runs. They
+    // move out in the unique path alone, so the re-pack from their slots'
+    // types goes first in the unique region, which then moves whole.
+    DataType data = refinedOf(op.getValue());
+    SmallVector<SmallVector<Value>> read = fieldsAt(rewriter, loc, runtime, layouts, cell, data);
+    Block &unique = op.getUnique().front();
     SmallVector<SmallVector<Value>> uniqueArgs{{cell}};
-    llvm::append_range(uniqueArgs,
-                       fieldsAt(rewriter, loc, runtime, layouts, cell, refinedOf(op.getValue())));
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(&unique);
+      TypeRange moved = TypeRange(unique.getArgumentTypes()).drop_front();
+      llvm::append_range(uniqueArgs,
+                         movedOut(rewriter, loc, runtime, layouts, data, moved, read));
+    }
     auto alone = scf::IfOp::create(rewriter, loc, flat, runtime.isUnique(rewriter, loc, cell),
                                    /*addThenBlock=*/false, /*addElseBlock=*/false);
     moveRegion(rewriter, *getTypeConverter(), op.getUnique(), uniqueArgs, alone.getThenRegion());

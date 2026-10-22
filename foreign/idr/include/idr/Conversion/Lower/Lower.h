@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What the steps of idr-lower share, inside the lowering: the functions as
 // LLVM's (phase 0), what LLVM is told of a row, how a cell is read and a
-// value dropped, and what is made ready of a function before its ops are
-// converted (its lifetimes and its account).
+// value dropped, what is made ready of a function before its ops are
+// converted (its lifetimes and its account), and a value re-packed from
+// one layout into another.
 #ifndef IDR_CONVERSION_LOWER_LOWER_H
 #define IDR_CONVERSION_LOWER_LOWER_H
 
@@ -18,6 +19,8 @@
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <cstdint>
 
 namespace idr::conversion {
 
@@ -121,6 +124,57 @@ mlir::FrozenRewritePatternSet accountPatterns(mlir::MLIRContext *ctx, const Runt
 // nothing where its bound is zero.
 void keepAccount(FuncOp fn, const mlir::FrozenRewritePatternSet &tells, const Layouts &layouts,
                  const Runtime &runtime);
+
+//===----------------------------------------------------------------------===//
+// Re-packs
+//===----------------------------------------------------------------------===//
+
+// How a re-pack gives up a cell it takes apart: the value holds one
+// reference to it among others (each field gains one, the cell loses one),
+// holds it alone (its memory given back, its fields moving out), or frees
+// nothing (it is read where its owner keeps it, or it is scoped or static).
+enum class Taken : std::uint8_t { Shared, Alone, Borrowed };
+
+// How a value's own cell is taken, and every cell its fields reach.
+struct Takes {
+  Taken own;
+  Taken reached;
+};
+
+// A value given on whole, as its grade holds it: a claim on its own cells
+// reaches its first cell, a deep claim every cell.
+Takes takesOf(mlir::Type type);
+
+// A value read where its owner keeps it.
+inline constexpr Takes readInPlace{Taken::Borrowed, Taken::Borrowed};
+
+// `values`, a value of type `from`, as a value of type `to`, two types of
+// one value: a reindex's operand and result, or a field's type at its
+// value's application and the type its slot is laid out at. The same words
+// where the two lay out alike. Otherwise re-packed: a numeral made a
+// natural or made of one, and any other value taken apart at each
+// constructor both types leave possible and built again, its fields
+// re-packed in turn, a cell allocated as every counted cell is and an atom
+// the static cell of its constructor. A cell taken apart is given up as
+// `takes` says.
+llvm::SmallVector<mlir::Value> repack(mlir::OpBuilder &b, mlir::Location loc,
+                                      const Layouts &layouts, const Runtime &runtime,
+                                      mlir::Type from, mlir::Type to, mlir::ValueRange values,
+                                      Takes takes);
+
+// Each field `operands` gives constructor `tag` of `data`, its components
+// `given`, re-packed from its own type into the type its slot is laid out
+// at, each given on whole.
+llvm::SmallVector<llvm::SmallVector<mlir::Value>>
+intoSlots(mlir::OpBuilder &b, mlir::Location loc, const Layouts &layouts, const Runtime &runtime,
+          DataType data, Tag tag, mlir::ValueRange operands,
+          llvm::ArrayRef<mlir::ValueRange> given);
+
+// The pattern of idr.data.reindex: its operand's words where the op is
+// free, else its operand re-packed into its result's layout.
+void populateReindexPatterns(mlir::RewritePatternSet &patterns,
+                             const mlir::TypeConverter &converter, const Layouts &layouts,
+                             Runtime &runtime);
 
 //===----------------------------------------------------------------------===//
 // Functions

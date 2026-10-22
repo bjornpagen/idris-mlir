@@ -167,6 +167,7 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
   populateBufferPatterns(set, converter, layouts, runtime);
   populateStringPatterns(set, converter, layouts, runtime);
   populateCellPatterns(set, converter, layouts, runtime);
+  populateReindexPatterns(set, converter, layouts, runtime);
   populateDestinationPatterns(set, converter, layouts, runtime);
   populateScalarPatterns(set, converter, layouts, runtime);
   populateRuntimeCallPatterns(set, converter, layouts, runtime);
