@@ -154,6 +154,8 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 87 | ub-unreachable-effects | PR: ub.unreachable declares NoMemoryEffect | carried; not filed |
 | 88 | symbol-table-walk-iterative | PR after the recursion RFC and 80's: the symbol tables walked by the iterative stage walk, the same tables in the same order with the same visibility | carried (2026-10-21); not filed |
 | 89 | dataflow-iterative-initialization | PR after the recursion RFC and 80's, 88's and 92's: the sparse and dense analyses initialized by one traversal from an explicit worklist, in the recursions' order | carried (2026-10-21); not filed |
+| 90 | operation-equivalence-iterative | PR after the recursion RFC and 79's: OperationEquivalence compares operations and regions from an explicit stack, in the recursion's order, with the same callbacks in the same order | carried (2026-10-21); not filed |
+| 91 | buffer-type-iterative | PR after the recursion RFC: bufferization computes buffer types from an explicit stack of the values in progress, an implementation run again once the value it asked for is known | carried (2026-10-21); not filed |
 | 92 | dead-code-iterative-initialization | PR after the recursion RFC: dead-code analysis initialized from a worklist | carried; not filed |
 | 93 | call-graph-iterative-construction | PR after the recursion RFC: the call graph built from a worklist | carried; not filed |
 | 94 | snmalloc-pagemap-sanity-checks | PR to microsoft/snmalloc: a bounded pagemap's fast-path range tests under sanity_checks | carried; not filed; Microsoft CLA |
@@ -161,6 +163,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 96 | effectful-argument-inline | nothing: Idris takes no tool-written contribution (**Idris**) | recorded, not carried (nothing stock-built reaches it); pull-request.diff against Idris main 89ba32eb |
 | 97 | bytecode-numbering-iterative | PR after the recursion RFC: the bytecode writer numbers nested attributes and types from an explicit stack | carried (2026-10-21); not filed |
 | 98 | simdutf-constexpr-implementation | PR to simdutf/simdutf: the implementation constructors constexpr, rvv's aside | carried (2026-10-21); not filed; simdutf's AI policy wants a human author who answers for it |
+| 99 | function-interface-edits | PR: FunctionOpInterface's four signature edits are interface methods, the present bodies their defaults, so a caller holding the interface reaches an operation's own | carried (2026-10-21); not filed |
 | fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
@@ -326,7 +329,7 @@ SHA-256; `tools/bootstrap.sh snmalloc` and `tools/bootstrap.sh simdutf`
 do the same for `upstream/*/snmalloc.patch` and `upstream/*/simdutf.patch`
 on exports of third_party/snmalloc and third_party/simdutf. Carried
 for LLVM: 03, 04, 05, 07, 09, 10, 19, 24, 27, 29, 30, 56, 57, 61, 62,
-64 to 77, 79 to 89, 92, 93 and 97, every one applying at 416f328b in that
+64 to 77, 79 to 93, 97 and 99, every one applying at 416f328b in that
 order (`git apply`, the series in order, on the pinned files they touch,
 2026-10-21); for snmalloc: 49, 94 and 95; for simdutf: 98, applying at
 its gitlink (8d82299, 9.3.2); for Idris and Chez: none. No toolchain is built yet with them, on any

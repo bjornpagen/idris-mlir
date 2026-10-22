@@ -1,0 +1,367 @@
+Subject: [PATCH] [mlir][bufferization] Compute buffer types from an explicit stack
+
+`bufferization::getBufferType` asks the value's owner for its buffer
+type, and an implementation of `BufferizableOpInterface::getBufferType`
+calls `bufferization::getBufferType` for each value its own buffer type
+depends on (an operand it aliases, a yielded value, a loop's init_arg),
+so computing the buffer type of the last value of a chain of N tensor
+ops takes N native frames of each, and a long enough chain overflows
+the stack of the thread bufferizing it.
+
+The computation now keeps its place on an explicit stack, one frame per
+value whose buffer type is in progress: the values of the invocation
+stack. An implementation that calls `bufferization::getBufferType` with
+the invocation stack it was given gets its next answer, if it asked for
+it in an earlier run, and otherwise a failure, with the value recorded;
+that run's result is discarded, the value's buffer type is computed by
+a frame of its own, and the implementation runs again from the start.
+So every implementation is asked for the same values, in the same
+order, with the same invocation stack and the same answers as before.
+The running computation lives in `BufferizationState`, as the symbol
+table cache does. An implementation must ask for the same values when
+run again and act on a failed question only by failing, which every one
+in tree does; the interface's documentation says so.
+
+Unit test: the buffer type of the last of 10,000 values, alternately a
+tensor.cast and an arith.select, is computed on a 256 KiB thread.
+---
+diff --git a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
+index b32998d..67a28f7 100644
+--- a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
++++ b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
+@@ -28,6 +28,10 @@ namespace bufferization {
+ class AnalysisState;
+ class BufferizableOpInterface;
+ 
++namespace detail {
++class BufferTypeQuery;
++} // namespace detail
++
+ /// Specifies a fine-grain relationship between buffers to enable more analysis.
+ enum class BufferRelation {
+   Unknown,
+@@ -625,10 +629,17 @@ public:
+   SymbolTableCollection &getSymbolTables() const;
+ 
+ private:
++  friend class detail::BufferTypeQuery;
++
+   /// The cached symbol tables.
+   /// The user is expected to update / invalidate the cached symbol tables if
+   /// the bufferized operation has the Symbol or SymbolTable traits.
+   mutable SymbolTableCollection symbolTables;
++
++  /// The innermost computation of buffer types running on this state: the
++  /// `getBufferType` implementations it runs reach it through
++  /// `bufferization::getBufferType`.
++  mutable detail::BufferTypeQuery *bufferTypeQuery = nullptr;
+ };
+ 
+ /// Create an AllocTensorOp for the given shaped value (memref or tensor).
+@@ -661,7 +672,10 @@ FailureOr<BufferLikeType> getBufferType(Value value,
+ /// Return the buffer type for a given Value (tensor) after bufferization
+ /// without bufferizing any IR. This function (and not the other overload
+ /// without `invocationStack`) can be used from `getBufferType` implementations
+-/// of the `BufferizableOpInterface`.
++/// of the `BufferizableOpInterface`. Called from one with the invocation stack
++/// it was given, it does not recurse: it answers from the computation that runs
++/// that implementation, which runs it again until every answer it needs is
++/// known (see `BufferizableOpInterface::getBufferType`).
+ ///
+ /// Note: It should be sufficient to call `getBuffer()->getType()` in most
+ /// cases. However, when a buffer type should be predicted without modifying any
+diff --git a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td
+index 34aaf74..c9ddc6d 100644
+--- a/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td
++++ b/mlir/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.td
+@@ -522,6 +522,14 @@ def BufferizableOpInterface : OpInterface<"BufferizableOpInterface"> {
+           computations for the same SSA value. (E.g., when bufferized types of a
+           loop.)
+ 
++          The computation does not recurse: `bufferization::getBufferType`
++          fails for a value whose buffer type is not known yet, and this method
++          is run again, from the start and with the same invocation stack, once
++          it is. An implementation must therefore ask for the same values when
++          run again, and act on a failed `bufferization::getBufferType` only by
++          returning failure, with no diagnostic of its own: a failure that is
++          not a value still unknown has its diagnostic where it arose.
++
+           Note: This interface method should never be called directly from user
+           code. Always use `bufferization::getBufferType`.
+         }],
+diff --git a/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp b/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
+index 197e642..956080f 100644
+--- a/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
++++ b/mlir/lib/Dialect/Bufferization/IR/BufferizableOpInterface.cpp
+@@ -17,7 +17,6 @@
+ #include "mlir/IR/TypeUtilities.h"
+ #include "mlir/IR/Value.h"
+ #include "mlir/Interfaces/ControlFlowInterfaces.h"
+-#include "llvm/ADT/ScopeExit.h"
+ #include "llvm/ADT/SmallVectorExtras.h"
+ 
+ //===----------------------------------------------------------------------===//
+@@ -790,6 +789,126 @@ bufferization::getBufferType(Value value, const BufferizationOptions &options,
+   return getBufferType(value, options, state, invocationStack);
+ }
+ 
++namespace mlir::bufferization::detail {
++/// Buffer types computed from an explicit stack, so that the native stack
++/// does not grow with the chains of values whose buffer types depend on each
++/// other. Each frame is a value whose buffer type is being computed; the
++/// frames' values follow those the caller gave on `invocationStack`. A frame's
++/// step asks the value's owner for its buffer type. A `getBufferType`
++/// implementation asks for the buffer type of another value by calling
++/// `bufferization::getBufferType` with the invocation stack it was given,
++/// which reaches `ask` instead of recursing: the step's next answer, if an
++/// earlier run of the step asked for it; otherwise the value is wanted and the
++/// question fails. A step that wanted a value is void: the value is computed by
++/// a frame of its own, its buffer type becomes the step's next answer, and the
++/// step runs again from the start. So every implementation is asked for the
++/// same values, in the same order, with the same invocation stack, and is given
++/// the same answers as in a recursion, provided it asks the same questions
++/// when run again and acts on a failed question only by failing.
++class BufferTypeQuery {
++public:
++  BufferTypeQuery(const BufferizationOptions &options,
++                  const BufferizationState &state, ArrayRef<Value> context)
++      : options(options), state(state),
++        invocationStack(context.begin(), context.end()),
++        outer(state.bufferTypeQuery) {
++    state.bufferTypeQuery = this;
++  }
++  BufferTypeQuery(const BufferTypeQuery &) = delete;
++  BufferTypeQuery &operator=(const BufferTypeQuery &) = delete;
++  ~BufferTypeQuery() { state.bufferTypeQuery = outer; }
++
++  /// The query running on `state` whose implementations are given
++  /// `invocationStack`, if any.
++  static BufferTypeQuery *running(const BufferizationState &state,
++                                  const SmallVector<Value> &invocationStack) {
++    for (BufferTypeQuery *query = state.bufferTypeQuery; query;
++         query = query->outer)
++      if (&query->invocationStack == &invocationStack)
++        return query;
++    return nullptr;
++  }
++
++  /// The buffer type of `value`.
++  FailureOr<BufferLikeType> run(Value value) {
++    push(value);
++    while (true) {
++      wanted = Value();
++      frames.back().given = 0;
++      FailureOr<BufferLikeType> result = step(invocationStack.back());
++      if (wanted) {
++        // The step asked for a value it has no answer for yet: what it
++        // computed is void, and that value is computed first.
++        push(wanted);
++        continue;
++      }
++      Value computed = invocationStack.pop_back_val();
++      frames.pop_back();
++      if (frames.empty())
++        return result;
++      frames.back().answers.emplace_back(computed, result);
++    }
++  }
++
++  /// The answer to the step being run, asking for the buffer type of `value`.
++  FailureOr<BufferLikeType> ask(Value value) {
++    // Once the step has wanted a value, it is void until it runs again.
++    if (wanted)
++      return failure();
++    Frame &frame = frames.back();
++    if (frame.given == frame.answers.size()) {
++      wanted = value;
++      return failure();
++    }
++    auto &[asked, answer] = frame.answers[frame.given++];
++    assert(asked == value && "getBufferType asked differently when run again");
++    (void)asked;
++    return answer;
++  }
++
++private:
++  /// A value whose buffer type is being computed: the answers to the
++  /// questions its step asked, in order, and how many of them the step being
++  /// run has been given.
++  struct Frame {
++    SmallVector<std::pair<Value, FailureOr<BufferLikeType>>, 2> answers;
++    unsigned given = 0;
++  };
++
++  void push(Value value) {
++    invocationStack.push_back(value);
++    frames.emplace_back();
++  }
++
++  /// The buffer type of `value`, as its owner gives it.
++  FailureOr<BufferLikeType> step(Value value) {
++    // Try querying BufferizableOpInterface.
++    Operation *op = getOwnerOfValue(value);
++    auto bufferizableOp = options.dynCastBufferizableOp(op);
++    if (bufferizableOp)
++      return bufferizableOp.getBufferType(value, options, state,
++                                          invocationStack);
++
++    // Op is not bufferizable.
++    auto memSpace =
++        options.defaultMemorySpaceFn(cast<TensorLikeType>(value.getType()));
++    if (!memSpace.has_value())
++      return op->emitError("could not infer memory space");
++
++    return options.unknownTypeConverterFn(cast<TensorLikeType>(value.getType()),
++                                          *memSpace, options);
++  }
++
++  const BufferizationOptions &options;
++  const BufferizationState &state;
++  SmallVector<Value> invocationStack;
++  SmallVector<Frame> frames;
++  /// The value the step being run asked for with no answer, if any.
++  Value wanted;
++  BufferTypeQuery *outer;
++};
++} // namespace mlir::bufferization::detail
++
+ /// Return the buffer type for a given Value (tensor) after bufferization.
+ FailureOr<BufferLikeType>
+ bufferization::getBufferType(Value value, const BufferizationOptions &options,
+@@ -797,23 +916,11 @@ bufferization::getBufferType(Value value, const BufferizationOptions &options,
+                              SmallVector<Value> &invocationStack) {
+   assert(llvm::isa<TensorLikeType>(value.getType()) &&
+          "unexpected non-tensor type");
+-  invocationStack.push_back(value);
+-  llvm::scope_exit popFromStack([&]() { invocationStack.pop_back(); });
+-
+-  // Try querying BufferizableOpInterface.
+-  Operation *op = getOwnerOfValue(value);
+-  auto bufferizableOp = options.dynCastBufferizableOp(op);
+-  if (bufferizableOp)
+-    return bufferizableOp.getBufferType(value, options, state, invocationStack);
+-
+-  // Op is not bufferizable.
+-  auto memSpace =
+-      options.defaultMemorySpaceFn(cast<TensorLikeType>(value.getType()));
+-  if (!memSpace.has_value())
+-    return op->emitError("could not infer memory space");
+-
+-  return options.unknownTypeConverterFn(cast<TensorLikeType>(value.getType()),
+-                                        *memSpace, options);
++  // An implementation the running query runs asks for another value.
++  if (detail::BufferTypeQuery *query =
++          detail::BufferTypeQuery::running(state, invocationStack))
++    return query->ask(value);
++  return detail::BufferTypeQuery(options, state, invocationStack).run(value);
+ }
+ 
+ bool bufferization::hasTensorSemantics(Operation *op) {
+diff --git a/mlir/unittests/Dialect/Bufferization/BufferTypeTest.cpp b/mlir/unittests/Dialect/Bufferization/BufferTypeTest.cpp
+new file mode 100644
+index 0000000..bde8b0c
+--- /dev/null
++++ b/mlir/unittests/Dialect/Bufferization/BufferTypeTest.cpp
+@@ -0,0 +1,72 @@
++//===- BufferTypeTest.cpp - Tests for computing buffer types --------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "mlir/Dialect/Arith/IR/Arith.h"
++#include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
++#include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
++#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
++#include "mlir/Dialect/Bufferization/Transforms/BufferizableOpInterfaceImpl.h"
++#include "mlir/Dialect/Tensor/IR/Tensor.h"
++#include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
++#include "mlir/IR/Builders.h"
++#include "mlir/IR/BuiltinOps.h"
++#include "llvm/Support/thread.h"
++#include "gtest/gtest.h"
++
++using namespace mlir;
++using namespace mlir::bufferization;
++
++namespace {
++
++TEST(BufferTypeTest, LongChainOnASmallStack) {
++  DialectRegistry registry;
++  registry.insert<arith::ArithDialect, BufferizationDialect,
++                  tensor::TensorDialect>();
++  arith::registerBufferizableOpInterfaceExternalModels(registry);
++  bufferization::registerBufferizableOpInterfaceExternalModels(registry);
++  tensor::registerBufferizableOpInterfaceExternalModels(registry);
++  MLIRContext context(registry);
++  context.loadAllAvailableDialects();
++
++  // An allocated tensor, then a chain of `length` values, each with a buffer
++  // type computed from the one before: a tensor.cast, whose implementation
++  // asks for its source's buffer type and builds its own from it, alternating
++  // with an arith.select of the value before and the allocation, whose
++  // implementation asks for both.
++  constexpr unsigned length = 10000;
++  OpBuilder b(&context);
++  Location loc = b.getUnknownLoc();
++  OwningOpRef<ModuleOp> module = ModuleOp::create(loc);
++  b.setInsertionPointToEnd(module->getBody());
++  auto tensorType = RankedTensorType::get({4}, b.getF32Type());
++  Value allocation =
++      AllocTensorOp::create(b, loc, tensorType, ValueRange()).getResult();
++  Value condition =
++      arith::ConstantOp::create(b, loc, b.getIntegerAttr(b.getI1Type(), 1));
++  Value last = allocation;
++  for (unsigned i = 0; i < length; ++i)
++    last = i % 2 == 0 ? Value(tensor::CastOp::create(b, loc, tensorType, last))
++                      : Value(arith::SelectOp::create(b, loc, condition, last,
++                                                      allocation));
++
++  // A computation that took a native frame per value of the chain would
++  // overflow this thread's stack.
++  BufferizationOptions options;
++  BufferizationState state;
++  FailureOr<BufferLikeType> bufferType = failure();
++  llvm::thread computer(/*StackSizeInBytes=*/256 * 1024, [&] {
++    bufferType = getBufferType(last, options, state);
++  });
++  computer.join();
++
++  // Every value of the chain has the allocation's buffer type.
++  ASSERT_TRUE(succeeded(bufferType));
++  EXPECT_EQ(Type(*bufferType), MemRefType::get({4}, b.getF32Type()));
++}
++
++} // namespace
+diff --git a/mlir/unittests/Dialect/Bufferization/CMakeLists.txt b/mlir/unittests/Dialect/Bufferization/CMakeLists.txt
+new file mode 100644
+index 0000000..cc9cb6b
+--- /dev/null
++++ b/mlir/unittests/Dialect/Bufferization/CMakeLists.txt
+@@ -0,0 +1,12 @@
++add_mlir_unittest(MLIRBufferizationTests
++  BufferTypeTest.cpp
++)
++mlir_target_link_libraries(MLIRBufferizationTests
++  PRIVATE
++  MLIRArithDialect
++  MLIRArithTransforms
++  MLIRBufferizationDialect
++  MLIRBufferizationTransforms
++  MLIRTensorDialect
++  MLIRTensorTransforms
++)
+diff --git a/mlir/unittests/Dialect/CMakeLists.txt b/mlir/unittests/Dialect/CMakeLists.txt
+index 5fd8351..dfe50c3 100644
+--- a/mlir/unittests/Dialect/CMakeLists.txt
++++ b/mlir/unittests/Dialect/CMakeLists.txt
+@@ -9,6 +9,7 @@ mlir_target_link_libraries(MLIRDialectTests
+ add_subdirectory(AMDGPU)
+ add_subdirectory(Arith)
+ add_subdirectory(ArmSME)
++add_subdirectory(Bufferization)
+ add_subdirectory(Index)
+ add_subdirectory(Linalg)
+ add_subdirectory(LLVMIR)

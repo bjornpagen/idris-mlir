@@ -525,9 +525,10 @@ which the top-level CMake configure gate reads.
   dictionaries (10), the walks (80), the attribute walker and replacer
   (81), clone (82), destruction (83), region DCE (84), slices (85),
   the symbol-table walk (88), the sparse and dense analyses'
-  initialization (89), dead-code initialization (92), call graph
-  construction (93) and the bytecode writer's numbering of nested
-  attributes and types (97)
+  initialization (89), the comparison of operations and regions (90),
+  bufferization's buffer types along chains of values (91), dead-code
+  initialization (92), call graph construction (93) and the bytecode
+  writer's numbering of nested attributes and types (97)
 - left, for the stage-1 stack painting to measure (D33, S1), each
   recursing through code no explicit stack inside MLIR's own reaches: the
   op parser and printer, which reach a nested region through the op's own
@@ -1089,6 +1090,53 @@ which the top-level CMake configure gate reads.
   80's, 88's and 92's
 - status (2026-10-21): carried; not filed
 
+## operation-equivalence-iterative
+
+- symptom: on llvm main at 416f328b, `OperationEquivalence::isEquivalentTo`
+  and `isRegionEquivalentTo` call each other once per level of region
+  nesting
+- sites: the e-graph's identical-regions rule
+  (foreign/idr/lib/Transforms/Joins/IdenticalRegions.cpp) and the
+  deduplication of functions by partition refinement
+  (foreign/idr/lib/Transforms/Deduplicate/Deduplicate.cpp), on
+  program-sized bodies, under the tools' one small stack (D33, C43, C99)
+- workaround: `upstream/90-operation-equivalence-iterative/llvm.patch`,
+  applying after 79, whose symbol hook it keeps: one comparison from an
+  explicit stack of the pairs of regions being compared, in the
+  recursion's order, so the callbacks are called in the same order and
+  the same first difference stops it; one symbol mapper per comparison;
+  checked by tests/upstream-operation-equivalence-iterative
+- retire: when the pin compares operations and regions without recursion
+  on nesting depth
+- upstream: upstream/90-operation-equivalence-iterative; one pull request
+  after the RFC for MLIR's recursions on input size and after 79's
+- status (2026-10-21): carried; not filed
+
+## buffer-type-iterative
+
+- symptom: on llvm main at 416f328b, `bufferization::getBufferType` and
+  the `getBufferType` implementations call each other once per value of a
+  chain of values whose buffer types depend on each other (an aliased
+  operand, a cast's source, a loop's init_arg and yielded value)
+- sites: the bufferization of arrays, One-Shot Bufferize over the
+  compiler's models (foreign/idr/lib/Transforms/Bufferize/), on
+  program-sized chains, under the tools' one small stack (D33, C43, C99)
+- workaround: `upstream/91-buffer-type-iterative/llvm.patch`: the
+  computation from an explicit stack of the values in progress, held in
+  `BufferizationState`; an implementation's question with no answer yet
+  fails, the value is computed by a frame of its own, and the
+  implementation runs again, so every one is asked the same values in the
+  same order with the same invocation stack and answers. It holds for an
+  implementation that asks the same values when run again and acts on a
+  failed question only by failing, as upstream's and the compiler's
+  models do (the interface's documentation states it); checked by
+  tests/upstream-buffer-type-iterative
+- retire: when the pin computes buffer types without recursion on the
+  length of a chain
+- upstream: upstream/91-buffer-type-iterative; one pull request after the
+  RFC for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
 ## dead-code-iterative-initialization
 
 - symptom: on llvm main at 416f328b, `DeadCodeAnalysis::initializeRecursively`
@@ -1135,6 +1183,27 @@ which the top-level CMake configure gate reads.
   recursion on their depth
 - upstream: upstream/97-bytecode-numbering-iterative; one pull request
   after the RFC for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
+## function-interface-edits
+
+- symptom: on llvm main at 416f328b, `FunctionOpInterface`'s
+  `insertArguments`, `insertResults`, `eraseArguments` and `eraseResults`
+  are shared class declarations, so a caller holding the interface runs
+  the interface's copy and never an operation's own, and none of the hooks
+  they call is given the indices
+- sites: `idr.func`'s positional facts (where each scoped value lives and
+  the bounds between lifetimes, what it gives back, its untouched and
+  bounded parameters), kept by its own edits
+  (foreign/idr/lib/IR/Func/Edits.cpp) under every caller, upstream's
+  passes among them (C187)
+- workaround: `upstream/99-function-interface-edits/llvm.patch`: the four
+  edits are interface methods with the present bodies as their defaults,
+  and the single-item forms reach them through the operation; checked by
+  tests/upstream-function-interface-edits
+- retire: when the pin's `FunctionOpInterface` dispatches the four edits
+  to an operation's own
+- upstream: upstream/99-function-interface-edits; one pull request
 - status (2026-10-21): carried; not filed
 
 ## one-shot-tensor-like-copy

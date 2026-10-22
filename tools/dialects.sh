@@ -91,6 +91,7 @@ math Math $mlir_include/mlir/Dialect/Math/IR/MathOps.td -
 ub UB $mlir_include/mlir/Dialect/UB/IR/UBOps.td -
 memref MemRef $mlir_include/mlir/Dialect/MemRef/IR/MemRefOps.td -
 tensor Tensor $mlir_include/mlir/Dialect/Tensor/IR/TensorOps.td -
+scf SCF $mlir_include/mlir/Dialect/SCF/IR/SCFOps.td -
 EOF
 }
 

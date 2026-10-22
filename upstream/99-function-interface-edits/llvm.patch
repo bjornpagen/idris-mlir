@@ -1,0 +1,428 @@
+Subject: [PATCH] [mlir] FunctionOpInterface: the signature edits are interface methods
+
+`insertArguments`, `insertResults`, `eraseArguments` and `eraseResults`
+are shared class declarations of `FunctionOpInterface`, so the copy in
+the interface class runs whatever the operation is: a caller holding a
+`FunctionOpInterface` never reaches an operation's own version, and an
+operation that keeps facts tied to the positions of its arguments or
+results (an attribute per argument, say) cannot keep them in step under
+a generic caller, since none of the hooks the edits call is given the
+indices.
+
+The four edits become interface methods whose default implementations
+are the present bodies, so every operation that does not override them
+behaves as before. The single-item forms (`insertArgument`,
+`insertResult`, `eraseArgument`, `eraseResult`) call the edit through
+the operation, so they reach an override too.
+
+Test: `test.positional_func` overrides the four edits to keep a tag per
+argument and result, which its verifier checks; the `test-func-*`
+passes, which edit through the interface, keep the tags in step.
+---
+diff --git a/mlir/include/mlir/Interfaces/FunctionInterfaces.td b/mlir/include/mlir/Interfaces/FunctionInterfaces.td
+index 4f312a6..ac1542a 100644
+--- a/mlir/include/mlir/Interfaces/FunctionInterfaces.td
++++ b/mlir/include/mlir/Interfaces/FunctionInterfaces.td
+@@ -118,6 +118,96 @@ def FunctionOpInterface : OpInterface<"FunctionOpInterface", [
+     /*methodBody=*/[{}], /*defaultImplementation=*/[{
+       return success();
+     }]>,
++
++    InterfaceMethod<[{
++      Inserts arguments with the listed types, attributes, and locations at the
++      listed indices. `argIndices` must be sorted. Arguments are inserted in the
++      order they are listed, such that arguments with identical index will
++      appear in the same order that they were listed here. Returns failure if
++      the function cannot be updated to have the new signature.
++
++      An operation that keeps facts tied to the positions of its arguments
++      overrides this method to keep them in step; a caller holding a
++      `FunctionOpInterface` reaches the override.
++    }],
++    "::llvm::LogicalResult", "insertArguments", (ins
++      "::llvm::ArrayRef<unsigned>":$argIndices,
++      "::mlir::TypeRange":$argTypes,
++      "::llvm::ArrayRef<::mlir::DictionaryAttr>":$argAttrs,
++      "::llvm::ArrayRef<::mlir::Location>":$argLocs
++    ), /*methodBody=*/[{}], /*defaultImplementation=*/[{
++      unsigned originalNumArgs = $_op.getNumArguments();
++      ::mlir::Type newType = $_op.getTypeWithArgsAndResults(
++          argIndices, argTypes, /*resultIndices=*/{}, /*resultTypes=*/{});
++      if (!newType)
++        return ::llvm::failure();
++      ::mlir::function_interface_impl::insertFunctionArguments(
++          $_op, argIndices, argTypes, argAttrs, argLocs,
++          originalNumArgs, newType);
++      return ::llvm::success();
++    }]>,
++    InterfaceMethod<[{
++      Inserts results with the listed types at the listed indices.
++      `resultIndices` must be sorted. Results are inserted in the order they are
++      listed, such that results with identical index will appear in the same
++      order that they were listed here. Returns failure if the function
++      cannot be updated to have the new signature.
++
++      An operation that keeps facts tied to the positions of its results
++      overrides this method to keep them in step; a caller holding a
++      `FunctionOpInterface` reaches the override.
++    }],
++    "::llvm::LogicalResult", "insertResults", (ins
++      "::llvm::ArrayRef<unsigned>":$resultIndices,
++      "::mlir::TypeRange":$resultTypes,
++      "::llvm::ArrayRef<::mlir::DictionaryAttr>":$resultAttrs
++    ), /*methodBody=*/[{}], /*defaultImplementation=*/[{
++      unsigned originalNumResults = $_op.getNumResults();
++      ::mlir::Type newType = $_op.getTypeWithArgsAndResults(
++        /*argIndices=*/{}, /*argTypes=*/{}, resultIndices, resultTypes);
++      if (!newType)
++        return ::llvm::failure();
++      ::mlir::function_interface_impl::insertFunctionResults(
++          $_op, resultIndices, resultTypes, resultAttrs,
++          originalNumResults, newType);
++      return ::llvm::success();
++    }]>,
++    InterfaceMethod<[{
++      Erases the arguments listed in `argIndices`. Returns failure if the
++      function cannot be updated to have the new signature.
++
++      An operation that keeps facts tied to the positions of its arguments
++      overrides this method to keep them in step; a caller holding a
++      `FunctionOpInterface` reaches the override.
++    }],
++    "::llvm::LogicalResult", "eraseArguments", (ins
++      "const ::llvm::BitVector &":$argIndices
++    ), /*methodBody=*/[{}], /*defaultImplementation=*/[{
++      ::mlir::Type newType = $_op.getTypeWithoutArgs(argIndices);
++      if (!newType)
++        return ::llvm::failure();
++      ::mlir::function_interface_impl::eraseFunctionArguments(
++        $_op, argIndices, newType);
++      return ::llvm::success();
++    }]>,
++    InterfaceMethod<[{
++      Erases the results listed in `resultIndices`. Returns failure if the
++      function cannot be updated to have the new signature.
++
++      An operation that keeps facts tied to the positions of its results
++      overrides this method to keep them in step; a caller holding a
++      `FunctionOpInterface` reaches the override.
++    }],
++    "::llvm::LogicalResult", "eraseResults", (ins
++      "const ::llvm::BitVector &":$resultIndices
++    ), /*methodBody=*/[{}], /*defaultImplementation=*/[{
++      ::mlir::Type newType = $_op.getTypeWithoutResults(resultIndices);
++      if (!newType)
++        return ::llvm::failure();
++      ::mlir::function_interface_impl::eraseFunctionResults(
++          $_op, resultIndices, newType);
++      return ::llvm::success();
++    }]>,
+   ];
+ 
+   let extraTraitClassDeclaration = [{
+@@ -260,27 +350,7 @@ def FunctionOpInterface : OpInterface<"FunctionOpInterface", [
+     ::llvm::LogicalResult insertArgument(
+         unsigned argIndex, ::mlir::Type argType, ::mlir::DictionaryAttr argAttrs,
+         ::mlir::Location argLoc) {
+-      return insertArguments({argIndex}, {argType}, {argAttrs}, {argLoc});
+-    }
+-
+-    /// Inserts arguments with the listed types, attributes, and locations at the
+-    /// listed indices. `argIndices` must be sorted. Arguments are inserted in the
+-    /// order they are listed, such that arguments with identical index will
+-    /// appear in the same order that they were listed here. Returns failure if
+-    /// the function cannot be updated to have the new signature.
+-    ::llvm::LogicalResult insertArguments(
+-        ::llvm::ArrayRef<unsigned> argIndices, ::mlir::TypeRange argTypes,
+-        ::llvm::ArrayRef<::mlir::DictionaryAttr> argAttrs,
+-        ::llvm::ArrayRef<::mlir::Location> argLocs) {
+-      unsigned originalNumArgs = $_op.getNumArguments();
+-      ::mlir::Type newType = $_op.getTypeWithArgsAndResults(
+-          argIndices, argTypes, /*resultIndices=*/{}, /*resultTypes=*/{});
+-      if (!newType)
+-        return ::llvm::failure();
+-      ::mlir::function_interface_impl::insertFunctionArguments(
+-          $_op, argIndices, argTypes, argAttrs, argLocs,
+-          originalNumArgs, newType);
+-      return ::llvm::success();
++      return $_op.insertArguments({argIndex}, {argType}, {argAttrs}, {argLoc});
+     }
+ 
+     /// Insert a single result of type `resultType` at `resultIndex`.Returns
+@@ -288,27 +358,7 @@ def FunctionOpInterface : OpInterface<"FunctionOpInterface", [
+     ::llvm::LogicalResult insertResult(
+         unsigned resultIndex, ::mlir::Type resultType,
+         ::mlir::DictionaryAttr resultAttrs) {
+-      return insertResults({resultIndex}, {resultType}, {resultAttrs});
+-    }
+-
+-    /// Inserts results with the listed types at the listed indices.
+-    /// `resultIndices` must be sorted. Results are inserted in the order they are
+-    /// listed, such that results with identical index will appear in the same
+-    /// order that they were listed here. Returns failure if the function
+-    /// cannot be updated to have the new signature.
+-    ::llvm::LogicalResult insertResults(
+-        ::llvm::ArrayRef<unsigned> resultIndices,
+-        ::mlir::TypeRange resultTypes,
+-        ::llvm::ArrayRef<::mlir::DictionaryAttr> resultAttrs) {
+-      unsigned originalNumResults = $_op.getNumResults();
+-      ::mlir::Type newType = $_op.getTypeWithArgsAndResults(
+-        /*argIndices=*/{}, /*argTypes=*/{}, resultIndices, resultTypes);
+-      if (!newType)
+-        return ::llvm::failure();
+-      ::mlir::function_interface_impl::insertFunctionResults(
+-          $_op, resultIndices, resultTypes, resultAttrs,
+-          originalNumResults, newType);
+-      return ::llvm::success();
++      return $_op.insertResults({resultIndex}, {resultType}, {resultAttrs});
+     }
+ 
+     /// Erase a single argument at `argIndex`. Returns failure if the function
+@@ -316,18 +366,7 @@ def FunctionOpInterface : OpInterface<"FunctionOpInterface", [
+     ::llvm::LogicalResult eraseArgument(unsigned argIndex) {
+       ::llvm::BitVector argsToErase($_op.getNumArguments());
+       argsToErase.set(argIndex);
+-      return eraseArguments(argsToErase);
+-    }
+-
+-    /// Erases the arguments listed in `argIndices`. Returns failure if the
+-    /// function cannot be updated to have the new signature.
+-    ::llvm::LogicalResult eraseArguments(const ::llvm::BitVector &argIndices) {
+-      ::mlir::Type newType = $_op.getTypeWithoutArgs(argIndices);
+-      if (!newType)
+-        return ::llvm::failure();
+-      ::mlir::function_interface_impl::eraseFunctionArguments(
+-        $_op, argIndices, newType);
+-      return ::llvm::success();
++      return $_op.eraseArguments(argsToErase);
+     }
+ 
+     /// Erase a single result at `resultIndex`. Returns failure if the function
+@@ -335,18 +374,7 @@ def FunctionOpInterface : OpInterface<"FunctionOpInterface", [
+     ::llvm::LogicalResult eraseResult(unsigned resultIndex) {
+       ::llvm::BitVector resultsToErase($_op.getNumResults());
+       resultsToErase.set(resultIndex);
+-      return eraseResults(resultsToErase);
+-    }
+-
+-    /// Erases the results listed in `resultIndices`.  Returns failure if the
+-    /// function cannot be updated to have the new signature.
+-    ::llvm::LogicalResult eraseResults(const ::llvm::BitVector &resultIndices) {
+-      ::mlir::Type newType = $_op.getTypeWithoutResults(resultIndices);
+-      if (!newType)
+-        return ::llvm::failure();
+-      ::mlir::function_interface_impl::eraseFunctionResults(
+-          $_op, resultIndices, newType);
+-      return ::llvm::success();
++      return $_op.eraseResults(resultsToErase);
+     }
+ 
+     /// Return the type of this function with the specified arguments and
+diff --git a/mlir/test/IR/test-func-edit-overrides.mlir b/mlir/test/IR/test-func-edit-overrides.mlir
+new file mode 100644
+index 0000000..0ebb8f5
+--- /dev/null
++++ b/mlir/test/IR/test-func-edit-overrides.mlir
+@@ -0,0 +1,43 @@
++// RUN: mlir-opt %s -split-input-file -test-func-insert-arg | FileCheck %s --check-prefix=INSERT-ARG
++// RUN: mlir-opt %s -split-input-file -test-func-insert-result | FileCheck %s --check-prefix=INSERT-RESULT
++// RUN: mlir-opt %s -split-input-file -test-func-erase-arg | FileCheck %s --check-prefix=ERASE-ARG
++// RUN: mlir-opt %s -split-input-file -test-func-erase-result | FileCheck %s --check-prefix=ERASE-RESULT
++
++// test.positional_func overrides the four edits to keep a tag for each
++// argument and result, which its verifier checks against its signature.
++// Each pass edits it through a FunctionOpInterface handle and reaches the
++// override; the passes that erase leave the functions they erase nothing
++// from as they were.
++
++// INSERT-ARG: test.positional_func private @insert_arg(f32, i32, f32)
++// INSERT-ARG-SAME: arg_tags = array<i64: 0, -1, 1>
++// INSERT-RESULT: test.positional_func private @insert_arg(f32, f32)
++// INSERT-RESULT-SAME: arg_tags = array<i64: 0, 1>
++// ERASE-ARG: test.positional_func private @insert_arg(f32, f32)
++// ERASE-ARG-SAME: arg_tags = array<i64: 0, 1>
++test.positional_func private @insert_arg(f32, f32)
++    attributes {arg_tags = array<i64: 0, 1>, res_tags = array<i64>,
++                test.insert_args = [[1, i32]]}
++
++// -----
++
++// INSERT-RESULT: test.positional_func private @insert_result() -> (f32, i32)
++// INSERT-RESULT-SAME: res_tags = array<i64: 0, -1>
++test.positional_func private @insert_result() -> f32
++    attributes {arg_tags = array<i64>, res_tags = array<i64: 0>,
++                test.insert_results = [[1, i32]]}
++
++// -----
++
++// ERASE-ARG: test.positional_func private @erase_arg(f32, f32)
++// ERASE-ARG-SAME: arg_tags = array<i64: 0, 2>
++test.positional_func private @erase_arg(f32, i32 {test.erase_this_arg}, f32)
++    attributes {arg_tags = array<i64: 0, 1, 2>, res_tags = array<i64>}
++
++// -----
++
++// ERASE-RESULT: test.positional_func private @erase_result() -> f32
++// ERASE-RESULT-SAME: res_tags = array<i64: 1>
++test.positional_func private @erase_result()
++    -> (i32 {test.erase_this_result}, f32)
++    attributes {arg_tags = array<i64>, res_tags = array<i64: 0, 1>}
+diff --git a/mlir/test/lib/Dialect/Test/TestOpDefs.cpp b/mlir/test/lib/Dialect/Test/TestOpDefs.cpp
+index 8a54190..182eb01 100644
+--- a/mlir/test/lib/Dialect/Test/TestOpDefs.cpp
++++ b/mlir/test/lib/Dialect/Test/TestOpDefs.cpp
+@@ -1389,6 +1389,105 @@ void ConversionFuncOp::print(OpAsmPrinter &p) {
+       getArgAttrsAttrName(), getResAttrsAttrName());
+ }
+ 
++//===----------------------------------------------------------------------===//
++// PositionalFuncOp
++//===----------------------------------------------------------------------===//
++
++ParseResult PositionalFuncOp::parse(OpAsmParser &parser,
++                                    OperationState &result) {
++  auto buildFuncType =
++      [](Builder &builder, ArrayRef<Type> argTypes, ArrayRef<Type> results,
++         function_interface_impl::VariadicFlag,
++         std::string &) { return builder.getFunctionType(argTypes, results); };
++
++  return function_interface_impl::parseFunctionOp(
++      parser, result, /*allowVariadic=*/false,
++      getFunctionTypeAttrName(result.name), buildFuncType,
++      getArgAttrsAttrName(result.name), getResAttrsAttrName(result.name));
++}
++
++void PositionalFuncOp::print(OpAsmPrinter &p) {
++  function_interface_impl::printFunctionOp(
++      p, *this, /*isVariadic=*/false, getFunctionTypeAttrName(),
++      getArgAttrsAttrName(), getResAttrsAttrName());
++}
++
++LogicalResult PositionalFuncOp::verify() {
++  if (getArgTags().size() != getNumArguments())
++    return emitOpError("has ") << getArgTags().size() << " argument tags for "
++                               << getNumArguments() << " arguments";
++  if (getResTags().size() != getNumResults())
++    return emitOpError("has ") << getResTags().size() << " result tags for "
++                               << getNumResults() << " results";
++  return success();
++}
++
++/// `tags` with -1 inserted before the original position each of the sorted
++/// `indices` names, in order.
++static SmallVector<int64_t> insertTags(ArrayRef<int64_t> tags,
++                                       ArrayRef<unsigned> indices) {
++  SmallVector<int64_t> result;
++  const unsigned *next = indices.begin();
++  for (unsigned i = 0, e = tags.size(); i <= e; ++i) {
++    for (; next != indices.end() && *next == i; ++next)
++      result.push_back(-1);
++    if (i != e)
++      result.push_back(tags[i]);
++  }
++  return result;
++}
++
++/// `tags` without the positions `erased` sets.
++static SmallVector<int64_t> eraseTags(ArrayRef<int64_t> tags,
++                                      const BitVector &erased) {
++  SmallVector<int64_t> result;
++  for (auto [i, tag] : llvm::enumerate(tags))
++    if (!erased.test(i))
++      result.push_back(tag);
++  return result;
++}
++
++LogicalResult PositionalFuncOp::insertArguments(
++    ArrayRef<unsigned> argIndices, TypeRange argTypes,
++    ArrayRef<DictionaryAttr> argAttrs, ArrayRef<Location> argLocs) {
++  SmallVector<int64_t> tags = insertTags(getArgTags(), argIndices);
++  if (failed(FunctionOpInterface::Trait<PositionalFuncOp>::insertArguments(
++          argIndices, argTypes, argAttrs, argLocs)))
++    return failure();
++  setArgTags(tags);
++  return success();
++}
++
++LogicalResult
++PositionalFuncOp::insertResults(ArrayRef<unsigned> resultIndices,
++                                TypeRange resultTypes,
++                                ArrayRef<DictionaryAttr> resultAttrs) {
++  SmallVector<int64_t> tags = insertTags(getResTags(), resultIndices);
++  if (failed(FunctionOpInterface::Trait<PositionalFuncOp>::insertResults(
++          resultIndices, resultTypes, resultAttrs)))
++    return failure();
++  setResTags(tags);
++  return success();
++}
++
++LogicalResult PositionalFuncOp::eraseArguments(const BitVector &argIndices) {
++  SmallVector<int64_t> tags = eraseTags(getArgTags(), argIndices);
++  if (failed(FunctionOpInterface::Trait<PositionalFuncOp>::eraseArguments(
++          argIndices)))
++    return failure();
++  setArgTags(tags);
++  return success();
++}
++
++LogicalResult PositionalFuncOp::eraseResults(const BitVector &resultIndices) {
++  SmallVector<int64_t> tags = eraseTags(getResTags(), resultIndices);
++  if (failed(FunctionOpInterface::Trait<PositionalFuncOp>::eraseResults(
++          resultIndices)))
++    return failure();
++  setResTags(tags);
++  return success();
++}
++
+ //===----------------------------------------------------------------------===//
+ // TestValueWithBoundsOp
+ //===----------------------------------------------------------------------===//
+diff --git a/mlir/test/lib/Dialect/Test/TestOps.td b/mlir/test/lib/Dialect/Test/TestOps.td
+index 039f8f4..8422ed8 100644
+--- a/mlir/test/lib/Dialect/Test/TestOps.td
++++ b/mlir/test/lib/Dialect/Test/TestOps.td
+@@ -789,6 +789,44 @@ def ConversionFuncOp
+   let hasCustomAssemblyFormat = 1;
+ }
+ 
++def PositionalFuncOp
++    : TEST_Op<"positional_func", [
++        SymbolName, SymbolVisibility,
++        DeclareOpInterfaceMethods<FunctionOpInterface, [
++          "insertArguments", "insertResults", "eraseArguments", "eraseResults"
++        ]>]> {
++  let summary = "function with a tag for each argument and result";
++  let description = [{
++    A function whose own edits of its signature keep `arg_tags` and
++    `res_tags`, one tag for each argument and result, in step with it, as
++    its verifier checks; an inserted argument or result is tagged -1. The
++    edits reach these overrides through a `FunctionOpInterface` handle.
++  }];
++  let arguments = (ins SymbolNameAttr:$sym_name,
++                       TypeAttrOf<FunctionType>:$function_type,
++                       OptionalAttr<DictArrayAttr>:$arg_attrs,
++                       OptionalAttr<DictArrayAttr>:$res_attrs,
++                       OptionalAttr<StrAttr>:$sym_visibility,
++                       DenseI64ArrayAttr:$arg_tags,
++                       DenseI64ArrayAttr:$res_tags);
++  let regions = (region AnyRegion:$body);
++
++  let extraClassDeclaration = [{
++    ::mlir::Region *getCallableRegion() {
++      return isExternal() ? nullptr : &getBody();
++    }
++    ::mlir::ArrayRef<::mlir::Type> getArgumentTypes() {
++      return getFunctionType().getInputs();
++    }
++    ::mlir::ArrayRef<::mlir::Type> getResultTypes() {
++      return getFunctionType().getResults();
++    }
++  }];
++
++  let hasCustomAssemblyFormat = 1;
++  let hasVerifier = 1;
++}
++
+ def FunctionalRegionOp : TEST_Op<"functional_region_op",
+     [CallableOpInterface]> {
+   let regions = (region AnyRegion:$body);

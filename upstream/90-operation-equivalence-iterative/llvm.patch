@@ -1,0 +1,526 @@
+Subject: [PATCH] [mlir] OperationEquivalence: compare regions from an explicit stack
+
+`OperationEquivalence::isEquivalentTo` and `isRegionEquivalentTo` call
+each other once per level of region nesting, so comparing two operations
+nested N deep takes N native frames of each, and a deep enough nest
+overflows the stack of the thread comparing them. Both now run one
+comparison that keeps its place on an explicit stack: for each pair of
+operations whose regions are being compared, the pairs of regions left,
+the map of the current pair's blocks, and the pair of blocks and of
+operations reached. It compares in the order of the recursion, so
+`checkEquivalent`, `markEquivalent` and `checkCommutativeEquivalent`
+are called in the same order and the comparison stops at the same first
+difference; one symbol-reference mapper serves the whole comparison.
+
+Unit test: two chains of operations nested 10,000 deep are compared on a
+256 KiB thread, their values marked equivalent in the recursion's order,
+and a chain whose innermost successors differ is not equivalent.
+---
+diff --git a/mlir/lib/IR/OperationSupport.cpp b/mlir/lib/IR/OperationSupport.cpp
+index 2505cf0..458e936 100644
+--- a/mlir/lib/IR/OperationSupport.cpp
++++ b/mlir/lib/IR/OperationSupport.cpp
+@@ -828,23 +828,167 @@ llvm::hash_code OperationEquivalence::computeHash(
+   return hash;
+ }
+ 
+-/*static*/ bool OperationEquivalence::isRegionEquivalentTo(
+-    Region *lhs, Region *rhs,
+-    function_ref<LogicalResult(Value, Value)> checkEquivalent,
+-    function_ref<void(Value, Value)> markEquivalent,
+-    OperationEquivalence::Flags flags,
+-    function_ref<LogicalResult(ValueRange, ValueRange)>
+-        checkCommutativeEquivalent,
+-    MapSymbolRefFn mapSymbolRef) {
+-  DenseMap<Block *, Block *> blocksMap;
+-  SymbolRefMapper mapper(mapSymbolRef);
+-  auto blocksEquivalent = [&](Block &lBlock, Block &rBlock) {
++namespace {
++/// Two operations, or two lists of regions, compared from an explicit stack,
++/// so that the native stack does not grow with the depth of region nesting.
++/// The comparison runs in the order of a recursion, and calls back in it: an
++/// operation's attributes, properties, operands and results, then each of
++/// its regions in turn, each region's blocks in order, each block's arguments
++/// and then its operations, and an operation's successors once everything
++/// nested in it is compared. It stops at the first difference.
++class EquivalenceComparison {
++public:
++  EquivalenceComparison(
++      function_ref<LogicalResult(Value, Value)> checkEquivalent,
++      function_ref<void(Value, Value)> markEquivalent,
++      OperationEquivalence::Flags flags,
++      function_ref<LogicalResult(ValueRange, ValueRange)>
++          checkCommutativeEquivalent,
++      OperationEquivalence::MapSymbolRefFn mapSymbolRef)
++      : checkEquivalent(checkEquivalent), markEquivalent(markEquivalent),
++        flags(flags), checkCommutativeEquivalent(checkCommutativeEquivalent),
++        mapper(mapSymbolRef) {}
++
++  /// Whether two operations are equivalent, with everything nested in them.
++  bool operations(Operation *lhs, Operation *rhs) {
++    UpToRegions found = compareUpToRegions(lhs, rhs);
++    if (found != UpToRegions::Equivalent)
++      return found == UpToRegions::Same;
++    return regions(lhs->getRegions(), rhs->getRegions());
++  }
++
++  /// Whether each pair of regions is equivalent, with everything nested in
++  /// them; the blocks of each pair are mapped apart.
++  bool regions(MutableArrayRef<Region> lhs, MutableArrayRef<Region> rhs) {
++    SmallVector<Frame> stack;
++    Step step = open(stack, lhs, rhs);
++    if (step != Step::AtBlocks)
++      return step == Step::Done;
++    while (true) {
++      Frame &frame = stack.back();
++      if (frame.lhsOp != frame.lhsBlock->end() &&
++          frame.rhsOp != frame.rhsBlock->end()) {
++        // The next pair of operations of the pair of blocks.
++        Operation *lhsOp = &*frame.lhsOp, *rhsOp = &*frame.rhsOp;
++        UpToRegions found = compareUpToRegions(lhsOp, rhsOp);
++        if (found == UpToRegions::Different)
++          return false;
++        if (found == UpToRegions::Equivalent) {
++          // Opening their regions may move the stack, `frame` with it.
++          step = open(stack, lhsOp->getRegions(), rhsOp->getRegions());
++          if (step == Step::Different)
++            return false;
++          if (step == Step::AtBlocks)
++            continue;
++        }
++      } else {
++        // The pair of blocks is compared: both must end here.
++        if (frame.lhsOp != frame.lhsBlock->end() ||
++            frame.rhsOp != frame.rhsBlock->end())
++          return false;
++        ++frame.lhsBlock;
++        ++frame.rhsBlock;
++        step = seekBlocks(frame);
++        if (step == Step::Different)
++          return false;
++        if (step == Step::AtBlocks)
++          continue;
++        // Every pair of regions of the frame is equivalent, so the pair of
++        // operations holding them is, or the regions the caller gave are.
++        stack.pop_back();
++        if (stack.empty())
++          return true;
++      }
++      // The pair of operations the frame on top has reached is equivalent,
++      // with everything nested in it: its successors are mapped in the
++      // frame's region, and the frame moves on to the next pair.
++      Frame &top = stack.back();
++      if (!mapSuccessors(top))
++        return false;
++      ++top.lhsOp;
++      ++top.rhsOp;
++    }
++  }
++
++private:
++  /// What comparing two operations without their regions found.
++  enum class UpToRegions {
++    /// They differ.
++    Different,
++    /// They are one operation, so equivalent with nothing more compared.
++    Same,
++    /// They are equivalent if their regions are.
++    Equivalent,
++  };
++
++  /// The pairs of regions of two operations being compared, or the regions
++  /// the caller gave: the pairs not yet finished, the one being compared
++  /// first, with the map of its blocks, and the pair of blocks and of
++  /// operations in them the comparison has reached.
++  struct Frame {
++    Frame(MutableArrayRef<Region> lhs, MutableArrayRef<Region> rhs)
++        : lhsRegions(lhs), rhsRegions(rhs), lhsBlock(lhs.front().begin()),
++          rhsBlock(rhs.front().begin()) {}
++
++    MutableArrayRef<Region> lhsRegions, rhsRegions;
++    DenseMap<Block *, Block *> blocks;
++    Region::iterator lhsBlock, rhsBlock;
++    Block::iterator lhsOp, rhsOp;
++  };
++
++  /// Where a frame stands once it has looked for its next pair of blocks.
++  enum class Step {
++    /// The blocks or the regions differ.
++    Different,
++    /// It is at a pair of blocks whose arguments are equivalent.
++    AtBlocks,
++    /// Every pair of its regions is equivalent.
++    Done,
++  };
++
++  /// A frame for two lists of regions, on the stack while it has blocks to
++  /// compare.
++  Step open(SmallVectorImpl<Frame> &stack, MutableArrayRef<Region> lhs,
++            MutableArrayRef<Region> rhs) {
++    if (lhs.empty())
++      return Step::Done;
++    Step step = seekBlocks(stack.emplace_back(lhs, rhs));
++    if (step != Step::AtBlocks)
++      stack.pop_back();
++    return step;
++  }
++
++  /// The frame moved to the pair of blocks its iterators are at, or past the
++  /// end of its pair of regions to the next pair.
++  Step seekBlocks(Frame &frame) {
++    while (true) {
++      bool lhsEnded = frame.lhsBlock == frame.lhsRegions.front().end();
++      bool rhsEnded = frame.rhsBlock == frame.rhsRegions.front().end();
++      if (!lhsEnded && !rhsEnded)
++        return enterBlocks(frame) ? Step::AtBlocks : Step::Different;
++      // The pair of regions is compared: both must end here.
++      if (lhsEnded != rhsEnded)
++        return Step::Different;
++      frame.lhsRegions = frame.lhsRegions.drop_front();
++      frame.rhsRegions = frame.rhsRegions.drop_front();
++      if (frame.lhsRegions.empty())
++        return Step::Done;
++      frame.blocks.clear();
++      frame.lhsBlock = frame.lhsRegions.front().begin();
++      frame.rhsBlock = frame.rhsRegions.front().begin();
++    }
++  }
++
++  /// Whether the frame's pair of blocks map to each other and their
++  /// arguments are equivalent; if so, the frame is at their first operations.
++  bool enterBlocks(Frame &frame) {
++    Block &lBlock = *frame.lhsBlock, &rBlock = *frame.rhsBlock;
+     // Check block arguments.
+     if (lBlock.getNumArguments() != rBlock.getNumArguments())
+       return false;
+ 
+     // Map the two blocks.
+-    auto insertion = blocksMap.insert({&lBlock, &rBlock});
++    auto insertion = frame.blocks.insert({&lBlock, &rBlock});
+     if (insertion.first->getSecond() != &rBlock)
+       return false;
+ 
+@@ -861,27 +1005,116 @@ llvm::hash_code OperationEquivalence::computeHash(
+       if (markEquivalent)
+         markEquivalent(curArg, otherArg);
+     }
++    frame.lhsOp = lBlock.begin();
++    frame.rhsOp = rBlock.begin();
++    return true;
++  }
+ 
+-    auto opsEquivalent = [&](Operation &lOp, Operation &rOp) {
+-      // Check for op equality (recursively).
+-      if (!OperationEquivalence::isEquivalentTo(
+-              &lOp, &rOp, checkEquivalent, markEquivalent, flags,
+-              checkCommutativeEquivalent, mapSymbolRef))
++  /// Whether the successors of the frame's pair of operations map to each
++  /// other in the frame's pair of regions.
++  bool mapSuccessors(Frame &frame) {
++    for (auto successorsPair : llvm::zip(frame.lhsOp->getSuccessors(),
++                                         frame.rhsOp->getSuccessors())) {
++      Block *curSuccessor = std::get<0>(successorsPair);
++      Block *otherSuccessor = std::get<1>(successorsPair);
++      auto insertion = frame.blocks.insert({curSuccessor, otherSuccessor});
++      if (insertion.first->getSecond() != otherSuccessor)
+         return false;
+-      // Check successor mapping.
+-      for (auto successorsPair :
+-           llvm::zip(lOp.getSuccessors(), rOp.getSuccessors())) {
+-        Block *curSuccessor = std::get<0>(successorsPair);
+-        Block *otherSuccessor = std::get<1>(successorsPair);
+-        auto insertion = blocksMap.insert({curSuccessor, otherSuccessor});
+-        if (insertion.first->getSecond() != otherSuccessor)
+-          return false;
++    }
++    return true;
++  }
++
++  /// Two operations compared without their regions: attributes, properties,
++  /// operands and results, the results marked equivalent.
++  UpToRegions compareUpToRegions(Operation *lhs, Operation *rhs) {
++    if (lhs == rhs)
++      return UpToRegions::Same;
++
++    // Each attribute and type below is compared as it is and, when they
++    // differ and `mapSymbolRef` is given, once more with its symbol
++    // references mapped.
++
++    // 1. Compare the operation properties.
++    if (!(flags & OperationEquivalence::IgnoreDiscardableAttrs) &&
++        !mapper.same<Attribute>(lhs->getRawDictionaryAttrs(),
++                                rhs->getRawDictionaryAttrs()))
++      return UpToRegions::Different;
++
++    if (lhs->getName() != rhs->getName() ||
++        lhs->getNumRegions() != rhs->getNumRegions() ||
++        lhs->getNumSuccessors() != rhs->getNumSuccessors() ||
++        lhs->getNumOperands() != rhs->getNumOperands() ||
++        lhs->getNumResults() != rhs->getNumResults())
++      return UpToRegions::Different;
++    if (!(flags & OperationEquivalence::IgnoreProperties) &&
++        !(lhs->getName().compareOpProperties(lhs->getPropertiesStorage(),
++                                             rhs->getPropertiesStorage())) &&
++        (!mapper || mapper.map(lhs->getPropertiesAsAttribute()) !=
++                        mapper.map(rhs->getPropertiesAsAttribute())))
++      return UpToRegions::Different;
++    if (!(flags & OperationEquivalence::IgnoreLocations) &&
++        lhs->getLoc() != rhs->getLoc())
++      return UpToRegions::Different;
++
++    // 2. Compare operands.
++    if (!(flags & OperationEquivalence::IgnoreCommutativity) &&
++        checkCommutativeEquivalent &&
++        lhs->hasTrait<mlir::OpTrait::IsCommutative>()) {
++      auto lhsRange = lhs->getOperands();
++      auto rhsRange = rhs->getOperands();
++      if (failed(checkCommutativeEquivalent(lhsRange, rhsRange)))
++        return UpToRegions::Different;
++    } else {
++      // Check pair wise for equivalence.
++      for (auto operandPair :
++           llvm::zip(lhs->getOperands(), rhs->getOperands())) {
++        Value curArg = std::get<0>(operandPair);
++        Value otherArg = std::get<1>(operandPair);
++        if (curArg == otherArg)
++          continue;
++        if (!mapper.same(curArg.getType(), otherArg.getType()))
++          return UpToRegions::Different;
++        if (failed(checkEquivalent(curArg, otherArg)))
++          return UpToRegions::Different;
+       }
+-      return true;
+-    };
+-    return llvm::all_of_zip(lBlock, rBlock, opsEquivalent);
+-  };
+-  return llvm::all_of_zip(*lhs, *rhs, blocksEquivalent);
++    }
++
++    // 3. Compare result types and mark results as equivalent.
++    for (auto resultPair : llvm::zip(lhs->getResults(), rhs->getResults())) {
++      Value curArg = std::get<0>(resultPair);
++      Value otherArg = std::get<1>(resultPair);
++      if (!mapper.same(curArg.getType(), otherArg.getType()))
++        return UpToRegions::Different;
++      if (markEquivalent)
++        markEquivalent(curArg, otherArg);
++    }
++
++    // 4. The regions are compared by the caller.
++    return UpToRegions::Equivalent;
++  }
++
++  function_ref<LogicalResult(Value, Value)> checkEquivalent;
++  function_ref<void(Value, Value)> markEquivalent;
++  OperationEquivalence::Flags flags;
++  function_ref<LogicalResult(ValueRange, ValueRange)>
++      checkCommutativeEquivalent;
++  /// One for the whole comparison, so what it maps is remembered across
++  /// every operation compared.
++  SymbolRefMapper mapper;
++};
++} // namespace
++
++/*static*/ bool OperationEquivalence::isRegionEquivalentTo(
++    Region *lhs, Region *rhs,
++    function_ref<LogicalResult(Value, Value)> checkEquivalent,
++    function_ref<void(Value, Value)> markEquivalent,
++    OperationEquivalence::Flags flags,
++    function_ref<LogicalResult(ValueRange, ValueRange)>
++        checkCommutativeEquivalent,
++    MapSymbolRefFn mapSymbolRef) {
++  return EquivalenceComparison(checkEquivalent, markEquivalent, flags,
++                               checkCommutativeEquivalent, mapSymbolRef)
++      .regions(*lhs, *rhs);
+ }
+ 
+ // Value equivalence cache to be used with `isRegionEquivalentTo` and
+@@ -958,74 +1191,9 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
+     function_ref<LogicalResult(ValueRange, ValueRange)>
+         checkCommutativeEquivalent,
+     MapSymbolRefFn mapSymbolRef) {
+-  if (lhs == rhs)
+-    return true;
+-
+-  // Each attribute and type below is compared as it is and, when they differ
+-  // and `mapSymbolRef` is given, once more with its symbol references mapped.
+-  SymbolRefMapper mapper(mapSymbolRef);
+-
+-  // 1. Compare the operation properties.
+-  if (!(flags & IgnoreDiscardableAttrs) &&
+-      !mapper.same<Attribute>(lhs->getRawDictionaryAttrs(),
+-                              rhs->getRawDictionaryAttrs()))
+-    return false;
+-
+-  if (lhs->getName() != rhs->getName() ||
+-      lhs->getNumRegions() != rhs->getNumRegions() ||
+-      lhs->getNumSuccessors() != rhs->getNumSuccessors() ||
+-      lhs->getNumOperands() != rhs->getNumOperands() ||
+-      lhs->getNumResults() != rhs->getNumResults())
+-    return false;
+-  if (!(flags & IgnoreProperties) &&
+-      !(lhs->getName().compareOpProperties(lhs->getPropertiesStorage(),
+-                                           rhs->getPropertiesStorage())) &&
+-      (!mapper || mapper.map(lhs->getPropertiesAsAttribute()) !=
+-                      mapper.map(rhs->getPropertiesAsAttribute())))
+-    return false;
+-  if (!(flags & IgnoreLocations) && lhs->getLoc() != rhs->getLoc())
+-    return false;
+-
+-  // 2. Compare operands.
+-  if (!(flags & IgnoreCommutativity) && checkCommutativeEquivalent &&
+-      lhs->hasTrait<mlir::OpTrait::IsCommutative>()) {
+-    auto lhsRange = lhs->getOperands();
+-    auto rhsRange = rhs->getOperands();
+-    if (failed(checkCommutativeEquivalent(lhsRange, rhsRange)))
+-      return false;
+-  } else {
+-    // Check pair wise for equivalence.
+-    for (auto operandPair : llvm::zip(lhs->getOperands(), rhs->getOperands())) {
+-      Value curArg = std::get<0>(operandPair);
+-      Value otherArg = std::get<1>(operandPair);
+-      if (curArg == otherArg)
+-        continue;
+-      if (!mapper.same(curArg.getType(), otherArg.getType()))
+-        return false;
+-      if (failed(checkEquivalent(curArg, otherArg)))
+-        return false;
+-    }
+-  }
+-
+-  // 3. Compare result types and mark results as equivalent.
+-  for (auto resultPair : llvm::zip(lhs->getResults(), rhs->getResults())) {
+-    Value curArg = std::get<0>(resultPair);
+-    Value otherArg = std::get<1>(resultPair);
+-    if (!mapper.same(curArg.getType(), otherArg.getType()))
+-      return false;
+-    if (markEquivalent)
+-      markEquivalent(curArg, otherArg);
+-  }
+-
+-  // 4. Compare regions.
+-  for (auto regionPair : llvm::zip(lhs->getRegions(), rhs->getRegions()))
+-    if (!isRegionEquivalentTo(&std::get<0>(regionPair),
+-                              &std::get<1>(regionPair), checkEquivalent,
+-                              markEquivalent, flags, checkCommutativeEquivalent,
+-                              mapSymbolRef))
+-      return false;
+-
+-  return true;
++  return EquivalenceComparison(checkEquivalent, markEquivalent, flags,
++                               checkCommutativeEquivalent, mapSymbolRef)
++      .operations(lhs, rhs);
+ }
+ 
+ /*static*/ bool OperationEquivalence::isEquivalentTo(Operation *lhs,
+diff --git a/mlir/unittests/IR/OperationSupportTest.cpp b/mlir/unittests/IR/OperationSupportTest.cpp
+index 436fd0e..d729690 100644
+--- a/mlir/unittests/IR/OperationSupportTest.cpp
++++ b/mlir/unittests/IR/OperationSupportTest.cpp
+@@ -14,6 +14,7 @@
+ #include "llvm/ADT/BitVector.h"
+ #include "llvm/ADT/Repeated.h"
+ #include "llvm/Support/FormatVariadic.h"
++#include "llvm/Support/thread.h"
+ #include "gtest/gtest.h"
+ 
+ using namespace mlir;
+@@ -539,4 +540,98 @@ TEST(OperationEquivalenceTest, MapSymbolRefInTypes) {
+   makeC->destroy();
+ }
+ 
++TEST(OperationEquivalenceTest, DeepNestingOnASmallStack) {
++  MLIRContext context;
++  context.allowUnregisteredDialects();
++  Location loc = UnknownLoc::get(&context);
++  Type i32 = Builder(&context).getI32Type();
++
++  // A chain of operations nested `depth` deep, each with one result and one
++  // region of one block with one argument, the block holding the next
++  // operation of the chain and then a use of its argument. The innermost
++  // block holds a region of two blocks, the first branching to the second
++  // and the second to the block `target` names. `marked` lists the values a
++  // comparison marks equivalent, in the order of a recursion: each result,
++  // then the argument of the block in its region, down the chain, then the
++  // uses' results back up. Returns the chain, outermost first.
++  constexpr unsigned depth = 10000;
++  auto makeChain = [&](unsigned target, SmallVectorImpl<Value> &marked) {
++    OpBuilder b(&context);
++    SmallVector<Operation *> chain;
++    SmallVector<Block *> bodies;
++    for (unsigned level = 0; level < depth; ++level) {
++      OperationState nest(loc, "foo.nest");
++      nest.addTypes(i32);
++      nest.addRegion();
++      chain.push_back(b.create(nest));
++      marked.push_back(chain.back()->getResult(0));
++      bodies.push_back(
++          b.createBlock(&chain.back()->getRegion(0), {}, {i32}, {loc}));
++      marked.push_back(bodies.back()->getArgument(0));
++    }
++    OperationState leaf(loc, "foo.leaf");
++    leaf.addRegion();
++    Region &cfg = b.create(leaf)->getRegion(0);
++    Block *blocks[] = {b.createBlock(&cfg), b.createBlock(&cfg)};
++    for (unsigned i = 0; i < 2; ++i) {
++      b.setInsertionPointToEnd(blocks[i]);
++      OperationState br(loc, "foo.br");
++      br.addSuccessors(blocks[i == 0 ? 1 : target]);
++      b.create(br);
++    }
++    for (Block *body : llvm::reverse(bodies)) {
++      b.setInsertionPointToEnd(body);
++      OperationState use(loc, "foo.use");
++      use.addOperands(body->getArgument(0));
++      use.addTypes(i32);
++      marked.push_back(b.create(use)->getResult(0));
++    }
++    return chain;
++  };
++  SmallVector<Value> lhsMarked, rhsMarked, otherMarked;
++  SmallVector<Operation *> lhs = makeChain(1, lhsMarked);
++  SmallVector<Operation *> rhs = makeChain(1, rhsMarked);
++  SmallVector<Operation *> other = makeChain(0, otherMarked);
++
++  // A comparison that took a native frame per level of nesting would
++  // overflow this thread's stack.
++  DenseMap<Value, Value> equivalent;
++  SmallVector<std::pair<Value, Value>> marks;
++  bool chainsEquivalent = false, regionsEquivalent = false,
++       otherEquivalent = true;
++  llvm::thread comparer(/*StackSizeInBytes=*/256 * 1024, [&] {
++    chainsEquivalent = OperationEquivalence::isEquivalentTo(
++        lhs.front(), rhs.front(),
++        [&](Value l, Value r) {
++          return success(l == r || equivalent.lookup(l) == r);
++        },
++        [&](Value l, Value r) {
++          equivalent[l] = r;
++          marks.emplace_back(l, r);
++        },
++        OperationEquivalence::IgnoreLocations);
++    regionsEquivalent = OperationEquivalence::isRegionEquivalentTo(
++        &lhs.front()->getRegion(0), &rhs.front()->getRegion(0),
++        OperationEquivalence::IgnoreLocations);
++    otherEquivalent = OperationEquivalence::isEquivalentTo(
++        lhs.front(), other.front(), OperationEquivalence::IgnoreLocations);
++  });
++  comparer.join();
++
++  EXPECT_TRUE(chainsEquivalent);
++  EXPECT_TRUE(regionsEquivalent);
++  // The innermost branches map the second block to two different blocks.
++  EXPECT_FALSE(otherEquivalent);
++  // Every value is marked once, in the order a recursion marks them.
++  SmallVector<std::pair<Value, Value>> expected;
++  for (auto [l, r] : llvm::zip_equal(lhsMarked, rhsMarked))
++    expected.emplace_back(l, r);
++  EXPECT_TRUE(marks == expected);
++
++  // Innermost first, so that no destruction recurses on the depth either.
++  for (SmallVector<Operation *> *chain : {&lhs, &rhs, &other})
++    for (Operation *op : llvm::reverse(*chain))
++      op->erase();
++}
++
+ } // namespace
