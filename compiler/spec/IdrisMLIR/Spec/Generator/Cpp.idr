@@ -1171,59 +1171,15 @@ predicateDecl p =
                   OnAttribute => "::mlir::Attribute"
   in slashComment [lineText p.doc.summary] ++ ["bool " ++ identText p.name ++ "(" ++ subject ++ " value);", ""]
 
-||| A hand codec a type or an attribute names: of one value of a hand class
-||| (its spelling), or of a wired value's text alone, each with its
-||| directive.
-public export
-data Codec = ValueCodec Code Directive | TextCodec Wired Directive
-
-codecDirective : Codec -> Directive
-codecDirective (ValueCodec _ d) = d
-codecDirective (TextCodec _ d) = d
-
-||| Every hand codec the types and attributes name, a list's elements' too,
-||| once per directive, in first use's order.
+||| A wired value's parser and printer of its text, the hand C++ its
+||| directive names: its bytecode is its wire's, printed beside the readers
+||| that call it (Generated/Wire.cpp.inc). An array is parsed into the
+||| vector that owns its elements, and printed from its view.
 export
-codecsOf : List AnyTypeDef -> List AnyAttrDef -> List Codec
-codecsOf ts as = once [] (concatMap fromType ts ++ concatMap fromAttr as)
-  where
-    hand : ParamKind -> List Codec
-    hand (HandValue c d) = [ValueCodec c d]
-    hand (WiredValue w d) = [TextCodec w d]
-    hand (ListOf k) = hand k
-    hand _ = []
-    fromType : AnyTypeDef -> List Codec
-    fromType (SomeType t) = concatMap (\x => hand x.kind) (toList t.params)
-    fromAttr : AnyAttrDef -> List Codec
-    fromAttr (SomeAttr a) = concatMap (\x => hand x.kind) (toList a.params)
-    once : List Ident -> List Codec -> List Codec
-    once _ [] = []
-    once seen (c :: cs) =
-      let n = (codecDirective c).name
-      in if elem n seen then once seen cs else c :: once (n :: seen) cs
-
-||| A hand codec's parser and printer of its value's text.
-textDecls : (owned, held : String) -> Directive -> Lines
-textDecls owned held d =
-  [ "::mlir::FailureOr<" ++ owned ++ "> parse" ++ identText d.name ++ "(::mlir::AsmParser &parser);"
-  , "void print" ++ identText d.name ++ "(::mlir::AsmPrinter &printer, " ++ held ++ " value);" ]
-
-||| A hand codec's reader and writer of its value in bytecode.
-bytecodeDecls : (owned, held : String) -> Directive -> Lines
-bytecodeDecls owned held d =
-  [ "::mlir::LogicalResult read" ++ identText d.name ++ "(::mlir::DialectBytecodeReader &reader, " ++ owned ++ " &value);"
-  , "void write" ++ identText d.name ++ "(::mlir::DialectBytecodeWriter &writer, " ++ held ++ " value);" ]
-
-||| A codec's declarations: a parser and a printer of the value, and, for a
-||| hand value, its reader and writer in bytecode. An array is parsed and
-||| read into the vector that owns its elements, and printed and written
-||| from its view.
-export
-codecDecls : Codec -> Lines
-codecDecls (ValueCodec c d) = textDecls (codeText c) (codeText c) d ++ bytecodeDecls (codeText c) (codeText c) d ++ [""]
--- A wired value's bytecode is its wire's, printed beside the readers that
--- call it (Generated/Wire.cpp.inc); only its text is hand C++.
-codecDecls (TextCodec w d) = textDecls (wiredParsed w) (wiredHeld w) d ++ [""]
+textCodecDecls : (Wired, Directive) -> Lines
+textCodecDecls (w, d) =
+  [ "::mlir::FailureOr<" ++ wiredParsed w ++ "> parse" ++ identText d.name ++ "(::mlir::AsmParser &parser);"
+  , "void print" ++ identText d.name ++ "(::mlir::AsmPrinter &printer, " ++ wiredHeld w ++ " value);", "" ]
 
 ||| Every hand property the ops hold, once per directive: its class and its
 ||| directive.
@@ -1291,7 +1247,7 @@ hooksHeader : List Directive -> List Predicate -> List InterfaceDef -> List AnyT
 hooksHeader ds ps is ts as ops =
   header "Hooks" ["\"mlir/Bytecode/BytecodeImplementation.h\"", "\"mlir/IR/OpImplementation.h\"", "\"llvm/ADT/Hashing.h\"", "<memory>", "<optional>"]
     (inNamespace "idr" (enumReader ++ concatMap directiveDecls ds ++ concatMap predicateDecl ps
-                        ++ concatMap delegateDecls is ++ concatMap codecDecls (codecsOf ts as)
+                        ++ concatMap delegateDecls is ++ concatMap textCodecDecls (wiredOf ts as)
                         ++ concatMap propertyDecls (propertiesOf ops)))
   where
     enumReader : Lines

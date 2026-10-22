@@ -740,8 +740,8 @@ std::string guardedBody(const Operator &op,
     std::string cause = std::to_string(guard->getValueAsInt("causeNumber"));
     std::vector<std::pair<std::string, char>> others;
     for (std::int64_t group : llvm::ArrayRef(given).drop_front())
-      others.push_back(operands[group]);
-    const auto &[checked, checkedArity] = operands[given.front()];
+      others.push_back(operands[static_cast<std::size_t>(group)]);
+    const auto &[checked, checkedArity] = operands[static_cast<std::size_t>(given.front())];
     std::string opening = checkedArity == '1'   ? "Checking " + check + ' ' + cause + ' ' + checked
                           : checkedArity == '?' ? "checkingEach " + check + ' ' + cause +
                                                       " (toList " + checked + ")"

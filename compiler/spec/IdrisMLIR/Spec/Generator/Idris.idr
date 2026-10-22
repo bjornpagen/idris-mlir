@@ -178,12 +178,39 @@ guardedLines depth ins (g :: gs) made =
   in (padding depth ++ opening ++ " " ++ others ++ " (\\" ++ binder ++ " =>")
      :: guardedLines (S depth) ins gs made
 
+||| The Idris type a fixed result's type is.
+builtIdris : Buildable -> String
+builtIdris BuiltI1 = "IntegerType 1"
+builtIdris BuiltI8 = "IntegerType 8"
+builtIdris BuiltI16 = "IntegerType 16"
+builtIdris BuiltI32 = "IntegerType 32"
+builtIdris BuiltI64 = "IntegerType 64"
+builtIdris BuiltIndex = "IndexType"
+builtIdris BuiltF64 = "F64Type"
+builtIdris BuiltNone = "NoneType"
+
+||| A result's type as its rule computes it from the operands' binders: an
+||| operand's type, its element type or itself (as upstream's
+||| `getElementTypeOrSelf` gives it), or the fixed type.
+typeByRule : Vect i Operand -> TypeRule i -> String
+typeByRule ins (OperandType g) = primed (index g ins).name ++ ".type"
+typeByRule ins (ElementTypeOf g) = "elementTypeOrSelf " ++ primed (index g ins).name ++ ".type"
+typeByRule _ (FixedType b) = builtIdris b
+
+||| The result groups an op's builder is given, and its results' types: each
+||| group's binder where they are stated; none, where every type is fixed by
+||| its rule, which computes it.
+resultsOf : Op i o a r -> (List Result, String)
+resultsOf op = case op.typing of
+  StatedTypes => (toList op.outs, concatList (map resultList (toList op.outs)))
+  InferredTypes rules => ([], concatList (map (\rule => "[" ++ typeByRule op.ins rule ++ "]") (toList rules)))
+
 ||| An op's builder: one argument per required attribute, operand group,
-||| region group and result group, in that order, each attribute that may
-||| be left out a named argument, nothing unless given; and the op it
-||| makes. A partial op's builder gives its guards with it, each before the
-||| op as a guard to write and what follows given its result, so it is
-||| never placed without them.
+||| region group and result group whose types are stated, in that order,
+||| each attribute that may be left out a named argument, nothing unless
+||| given; and the op it makes. A partial op's builder gives its guards with
+||| it, each before the op as a guard to write and what follows given its
+||| result, so it is never placed without them.
 export
 builder : Op i o a r -> Lines
 builder op =
@@ -191,7 +218,7 @@ builder op =
       attrs = toList op.attrs
       ins = toList op.ins
       regions = toList op.regions
-      outs = toList op.outs
+      (outs, resultTypes) = resultsOf op
       required = filter (not . optionalAttr) attrs
       optional = filter optionalAttr attrs
       binders = map (\x => "{" ++ primed x.name ++ "}") optional
@@ -202,7 +229,7 @@ builder op =
               ++ map (\x => regionType x.arity) regions ++ map (\x => resultType x.arity) outs
       made = "MkOp " ++ opNameOf op ++ " (" ++ concatList (map operandList ins) ++ ") ("
              ++ concatList (map attrPair attrs ++ segmentPairs op) ++ ") (" ++ concatList (map regionList regions) ++ ") [] ("
-             ++ concatList (map resultList outs) ++ ")"
+             ++ resultTypes ++ ")"
       (resultTy, body) = case op.guards of
                            [] => ("Op", ["  " ++ made])
                            gs => ("Guarded", guardedLines 0 op.ins gs made)
@@ -470,7 +497,6 @@ paramIdrisType StringValue = "String"
 paramIdrisType IntegerValue = "Integer"
 paramIdrisType CountValue = "Nat"
 paramIdrisType (ListOf k) = "List (" ++ paramIdrisType k ++ ")"
-paramIdrisType (HandValue _ _) = "List Part"
 paramIdrisType (WiredValue w _) = wiredIdris w "TypeRef" "AttrRef"
 
 ||| The parts of a value of a parameter's kind, as an expression over its
@@ -485,7 +511,6 @@ partsOf StringValue v = "[Str " ++ v ++ "]"
 partsOf IntegerValue v = "[IntegerAt " ++ v ++ "]"
 partsOf CountValue v = "[VarInt " ++ v ++ "]"
 partsOf (ListOf k) v = "(VarInt (length " ++ v ++ ") :: concatMap (\\x' => " ++ partsOf k "x'" ++ ") " ++ v ++ ")"
-partsOf (HandValue _ _) v = v
 partsOf (WiredValue w _) v = wiredParts w v
 
 export
@@ -517,7 +542,6 @@ fieldType StringValue = "String"
 fieldType IntegerValue = "Integer"
 fieldType CountValue = "Nat"
 fieldType (ListOf k) = "List (" ++ fieldType k ++ ")"
-fieldType (HandValue _ _) = "List Part"
 fieldType (WiredValue w _) = wiredIdris w "ty" "at"
 
 ||| A parameter's field with what it holds numbered, as an expression over

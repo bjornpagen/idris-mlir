@@ -284,7 +284,44 @@ record Builder where
 -- The op
 ------------------------------------------------------------------------------
 
-||| The group names of an op, every one.
+||| A builtin type ODS can build with no operand to read it from: the
+||| types a result's type may be fixed to.
+public export
+data Buildable = BuiltI1 | BuiltI8 | BuiltI16 | BuiltI32 | BuiltI64 | BuiltIndex | BuiltF64 | BuiltNone
+
+||| The upstream constraint a fixed result's type is, which ODS builds.
+public export
+builtUpType : Buildable -> UpType
+builtUpType BuiltI1 = I1C
+builtUpType BuiltI8 = I8C
+builtUpType BuiltI16 = I16C
+builtUpType BuiltI32 = I32C
+builtUpType BuiltI64 = I64C
+builtUpType BuiltIndex = IndexC
+builtUpType BuiltF64 = F64C
+builtUpType BuiltNone = NoneTypeC
+
+||| How one result's type follows from the op's operands, where a simple
+||| rule fixes it: an operand's own type; the element type of an operand's
+||| array, as MLIR's element type or self gives it on both sides; or one
+||| fixed type, which the result's constraint is. Each is printed into the
+||| C++ type inference upstream's ODS generates and into the op's Idris
+||| builder, which computes the type, so no writer states a type the op
+||| fixes.
+public export
+data TypeRule : (i : Nat) -> Type where
+  OperandType : Fin i -> TypeRule i
+  ElementTypeOf : Fin i -> TypeRule i
+  FixedType : Buildable -> TypeRule i
+
+||| How an op's result types are known: given to it when it is built, or
+||| each fixed by its rule.
+public export
+data ResultTyping : (i, o : Nat) -> Type where
+  StatedTypes : ResultTyping i o
+  InferredTypes : Vect o (TypeRule i) -> ResultTyping i o
+
+||| The group names of an op, every one.||| The group names of an op, every one.
 public export
 groupNames : Vect i Operand -> Vect o Result -> Vect a Attr -> Vect r Region -> List Ident
 groupNames ins outs as rs =
@@ -392,6 +429,7 @@ mutual
     specializations : List Specialized
     laws : List Law
     doc : Doc
+    {default StatedTypes typing : ResultTyping i o}
     {auto 0 named : So (distinct (groupNames ins outs attrs regions))}
 
 ||| The admitted op's name in the C++ table the backend prints:

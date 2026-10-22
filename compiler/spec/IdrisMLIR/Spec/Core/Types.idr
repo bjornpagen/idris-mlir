@@ -173,10 +173,8 @@ data Wired : Type where
 ||| (which the frontend writes typed, from where its source says), a case
 ||| of one held in a hand class over its cases (the class's spelling), or
 ||| none, a string, an integer of any width, a 64-bit count, a list of any
-||| of these, a C++ value of a hand class (its spelling and the custom
-||| directive that reads and writes it), or a value a wire lays out (its
-||| text the directive's, its bytecode printed for both sides from the
-||| wire). An array is held as a view and read into the vector that owns
+||| of these, or a value a wire lays out (its text the directive's, its
+||| bytecode printed for both sides from the wire). An array is held as a view and read into the vector that owns
 ||| its elements until the storage copies them, so no reader interns what
 ||| it read to have somewhere to keep it. A case held
 ||| in a class is written as zero for none, else one more than the case's
@@ -192,7 +190,6 @@ data ParamKind
   | IntegerValue
   | CountValue
   | ListOf ParamKind
-  | HandValue Code Directive
   | WiredValue Wired Directive
 
 ||| Whether a parameter is always written, or has a default that the

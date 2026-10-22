@@ -181,13 +181,47 @@ public export
 builtinModule : Admitted
 builtinModule = MkAdmitted Builtin "ModuleOp" "Builtin_ModuleOp" Always FrontendWrites [] [] Nothing UpstreamFold
 
+||| A refusal of the program, which the frontend writes into the module in
+||| place of a program, one per refusal, at the module's top level: its rule
+||| a case of the closed set of rules, held as a property, so the verdict is
+||| read from the rule and never from text; what it says beside the rule's
+||| phrase; and its site, the op's location. The driver reports each and
+||| compiles nothing, so a refused module never enters the pipeline and the
+||| op stands at the frontend's stage alone. Nothing runs it, so it declares
+||| no effect.
+public export
+refusalOp : Op 0 0 2 0
+refusalOp = MkOp
+  { home = InIdr
+  , mnemonic = "refusal"
+  , ins = []
+  , outs = []
+  , attrs = [property "rule" (EnumProperty (enumDef ruleClosed)), attr "message" (UpstreamAttr StrAttrC)]
+  , regions = []
+  , traits = [HasUpstreamParent (ident "mlir" ::: [ident "ModuleOp"])]
+  , interfaces = []
+  , effects = Definition
+  , speculation = NotSpeculatable
+  , stages = between Higher Higher
+  , meaning = NoFold
+  , verify = DeclarationOnly
+  , format = Declared [ValueOf (AttrRef 0), ValueOf (AttrRef 1), AttrDict]
+  , builders = []
+  , defaultBuilders = WithDefaults
+  , members = []
+  , guards = []
+  , specializations = []
+  , laws = []
+  , doc = brief "a refusal of the program, which the driver reports in place of compiling it"
+  }
+
 ||| What the specification's core declares of the dialect: the stages a
-||| program passes through, the refusal rules and their facts, the value
-||| facts' interface, the traits of ours an op may carry, and the module a
-||| program is.
+||| program passes through, the refusal rules, their facts and the op a
+||| refusal is, the value facts' interface, the traits of ours an op may
+||| carry, and the module a program is.
 public export
 core : Declarations
-core = { ops := [ SomeOp vectorizeLanes ]
+core = { ops := [ SomeOp vectorizeLanes, SomeOp refusalOp ]
        , admitted := [ builtinModule ]
        , enums := [ enumDef stageClosed, enumDef categoryClosed, enumDef scopeClosed, enumDef ruleClosed ]
        , interfaces := [ valueFactsInterface ]

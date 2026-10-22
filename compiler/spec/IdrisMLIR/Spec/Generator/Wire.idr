@@ -311,12 +311,20 @@ compositeCodec (MkComposite n cpp body doc) =
                 KeepsArrays => "::llvm::BumpPtrAllocator &arena, "
                 KeepsNothing => ""
   in slashComment [lineText doc.summary]
-     ++ [ "::mlir::LogicalResult read" ++ identText n ++ "(::mlir::DialectBytecodeReader &reader, " ++ arena ++ cls ++ " &value) {" ]
+     ++ [ "::mlir::LogicalResult read" ++ identText n ++ "(::mlir::DialectBytecodeReader &" ++ named body "reader" ++ ", "
+          ++ arena ++ cls ++ " &" ++ named body "value" ++ ") {" ]
      ++ indent 2 (bodyReader cls body)
      ++ [ "  return ::mlir::success();", "}", ""
-        , "void write" ++ identText n ++ "(::mlir::DialectBytecodeWriter &writer, const " ++ cls ++ " &value) {" ]
+        , "void write" ++ identText n ++ "(::mlir::DialectBytecodeWriter &" ++ named body "writer" ++ ", const " ++ cls
+          ++ " &" ++ named body "value" ++ ") {" ]
      ++ indent 2 (bodyWriter body)
      ++ [ "}", "" ]
+  where
+    -- A composite of no parts (a case of a variant that carries nothing)
+    -- reads and writes nothing, so its codec's parameters are unnamed.
+    named : CompositeBody -> String -> String
+    named (Fields []) _ = ""
+    named _ binder = binder
 
 ||| A wired parameter's reader and writer, named for its directive, which
 ||| the printed bytecode records call: an array's values read into what the

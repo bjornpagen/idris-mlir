@@ -18,8 +18,10 @@ import IdrisMLIR.Spec.Generator.Bytecode
 import IdrisMLIR.Spec.Generator.Idris
 import IdrisMLIR.Spec.Generator.Wire
 
+import Data.Fin
 import Data.List
 import Data.List1
+import Data.Vect
 
 %default total
 
@@ -245,14 +247,55 @@ export
 ourOps : List AnyOp
 ourOps = filter isOurs allOps
 
+||| Why an op's result-type rules cannot be printed, if they cannot: a rule
+||| that reads or fixes a group of other than one value, since the C++ and
+||| the builder read one type each; a fixed type the result's constraint is
+||| not, which ODS would not build; and a hand inference beside the rules,
+||| which upstream's ODS takes over the rules.
+typingRefusals : Op i o a r -> List String
+typingRefusals op = case op.typing of
+  StatedTypes => []
+  InferredTypes rules =>
+    concatMap (\(y, rule) => refused y rule) (toList (zip op.outs rules))
+    ++ concatMap handInference op.interfaces
+  where
+    fixedIs : Buildable -> TypeC -> Bool
+    fixedIs BuiltI1 (UpstreamType I1C) = True
+    fixedIs BuiltI8 (UpstreamType I8C) = True
+    fixedIs BuiltI16 (UpstreamType I16C) = True
+    fixedIs BuiltI32 (UpstreamType I32C) = True
+    fixedIs BuiltI64 (UpstreamType I64C) = True
+    fixedIs BuiltIndex (UpstreamType IndexC) = True
+    fixedIs BuiltF64 (UpstreamType F64C) = True
+    fixedIs BuiltNone (UpstreamType NoneTypeC) = True
+    fixedIs _ _ = False
+    said : Result -> String -> List String
+    said y why = [opName op ++ ": the type rule of " ++ identText y.name ++ " " ++ why]
+    readsOne : Result -> Fin i -> List String
+    readsOne y g = case (y.arity, (index g op.ins).arity) of
+      (Single, Single) => []
+      _ => said y "reads or fixes a group of other than one value"
+    refused : Result -> TypeRule i -> List String
+    refused y (OperandType g) = readsOne y g
+    refused y (ElementTypeOf g) = readsOne y g
+    refused y (FixedType b) =
+      (case y.arity of
+         Single => []
+         _ => said y "fixes a group of other than one value")
+      ++ (if fixedIs b y.type then [] else said y "fixes a type its constraint is not")
+    handInference : InterfaceUse -> List String
+    handInference (Declares InferType _) = [opName op ++ ": its result types have rules and a hand inference"]
+    handInference _ = []
+
 ||| What the generator refuses to print, said for the one who wrote the
 ||| specification: each pair rule over a group that may hold other than one
-||| value.
+||| value, and each op whose result-type rules cannot be printed.
 export
 refusals : List String
 refusals =
   map (\(op, rule) => op ++ ": the pair rule " ++ identText rule ++ " reads a group that may hold other than one value")
       (unpairedRules allOps)
+  ++ concatMap (\(SomeOp op) => typingRefusals op) allOps
 
 ||| Every op key: ours, then the admitted upstream allOps.
 export

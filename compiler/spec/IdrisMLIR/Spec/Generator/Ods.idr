@@ -350,14 +350,34 @@ segmentTraits op =
     stated FixedByCount _ = []
     stated SizesStated t = [t]
 
+||| The traits from which upstream's ODS infers an op's result types and
+||| generates their inference, one per result its rule reads off an operand:
+||| the operand's own type, or its element type or itself as MLIR's
+||| `getElementTypeOrSelf` gives it. A fixed type is the result's own
+||| constraint, which ODS builds, so it needs none.
+typingTraits : Op i o a r -> List String
+typingTraits op = case op.typing of
+  StatedTypes => []
+  InferredTypes rules => concatMap matching (toList (zip op.outs rules))
+  where
+    matchWith : String -> Operand -> Result -> String -> String
+    matchWith what x y transform =
+      "TypesMatchWith<" ++ quoted (identText y.name ++ " has the " ++ what ++ " of " ++ identText x.name) ++ ", "
+        ++ quoted (identText x.name) ++ ", " ++ quoted (identText y.name) ++ ", " ++ quoted transform ++ ">"
+    matching : (Result, TypeRule i) -> List String
+    matching (y, OperandType g) = [matchWith "type" (index g op.ins) y "$_self"]
+    matching (y, ElementTypeOf g) = [matchWith "element type" (index g op.ins) y "::mlir::getElementTypeOrSelf($_self)"]
+    matching (_, FixedType _) = []
+
 ||| Every trait of an op, in one list: its own, its groups' segments', its
-||| laws', its effects', its speculation's, its interfaces', its meaning's,
-||| and the guarded op's when it takes guards.
+||| result types' rules', its laws', its effects', its speculation's, its
+||| interfaces', its meaning's, and the guarded op's when it takes guards.
 export
 opTraits : Op i o a r -> OdsEffects i o -> List String
 opTraits op effs =
   map traitOds op.traits
   ++ segmentTraits op
+  ++ typingTraits op
   ++ concatMap lawOds op.laws
   ++ effectTraits effs
   ++ speculationOds op.speculation
@@ -584,7 +604,6 @@ paramCppType StringValue = "::llvm::StringRef"
 paramCppType IntegerValue = "::llvm::APInt"
 paramCppType CountValue = "uint64_t"
 paramCppType (ListOf k) = "::llvm::ArrayRef<" ++ paramCppType k ++ ">"
-paramCppType (HandValue c _) = codeText c
 paramCppType (WiredValue w _) = wiredHeld w
 
 export
@@ -597,8 +616,6 @@ paramKindOds StringValue = "StringRefParameter<>"
 paramKindOds IntegerValue = "APIntParameter<\"\">"
 paramKindOds CountValue = "\"uint64_t\""
 paramKindOds (ListOf k) = "ArrayRefParameter<" ++ quoted (paramCppType k) ++ ", \"\">"
-paramKindOds (HandValue c d) =
-  "Idr_HandParameter<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
 paramKindOds (WiredValue (WiredArray w) d) =
   "Idr_HandArrayParameter<" ++ quoted (wireCpp w) ++ ", " ++ quoted (identText d.name) ++ ">"
 paramKindOds (WiredValue (WiredOne l) d) =
