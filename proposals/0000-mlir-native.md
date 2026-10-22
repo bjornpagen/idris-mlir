@@ -2145,6 +2145,23 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `Elements.cpp`'s own test in `takeOut` and its shared path (increment,
   decrement, a new box) go, as C107 deletes them; a known claim pays no
   test at run time, and an unknown one pays it once, in the one form.
+  *Corrected* (L07's handoff, the same day). The box has no value at the
+  `idr` level: boxing is layout, decided at the lowering from the
+  element's type and the target's sizes, so counting has nothing to
+  split on, and `idr.match_unique` takes only a value with a cell of its
+  own. So the lowering keeps its one test where it first knows the
+  fact: whether a copy of the array shares the box is known only at run
+  time, and where the array's claim covers its storage (D122's `unique
+  self`) no test is made. L12's removal of that test, which left a
+  shared box taken from untested, is reverted. C107's deletion stands
+  for the wholly placed arrays' test, which is gone; for a shared box,
+  copying on write is the program's meaning, not a test of a static
+  fact.
+- **C253** (2026-10-22; L07's handoff, under C39 and D76). The reuse
+  token is `!idr.reuse_token<…>`, C++ `ReuseTokenType`, C39's
+  `!idr.token` renamed: join points take upstream's builtin `token`
+  (D76), and one name for two types made every unit that saw both
+  ambiguous. Its readers (L04, L05, L15, L16, L19, L21) take the new name.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
