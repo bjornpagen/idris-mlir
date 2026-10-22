@@ -10,9 +10,10 @@
 // to its callee: its types are the callee's signature at its index
 // arguments, a lifetime of any kind standing where a view is asked; its
 // copies are the callee's; what its callee puts into a lifetime its caller
-// passes on fits what the caller says it puts; and a tail call's callee
-// takes as many cursors as its caller and gives back the same result
-// components. Where it stands in its function is the tail calls' to check.
+// passes on fits what the caller says it puts; and a tail call passes its
+// caller's cursors each in its own place, and its callee gives back the
+// same result components. Where it stands in its function is the tail
+// calls' to check.
 
 #include "idr/Analysis/Effects.h"
 #include "idr/IR/Families/Substitute.h"
@@ -153,6 +154,36 @@ auto givenBackResults(FuncOp fn) {
                          [](GivenBackEntryAttr entry) { return entry.entry().result; });
 }
 
+// A tail call's callee takes, as its k-th cursor parameter, its caller's
+// k-th cursor parameter, and every one of them. The two lower to one
+// return, which hands back the cursors the callee returns as the caller's
+// own, by position: a cursor passed out of its place would come back in
+// another's, and one not passed would not come back at all. Equal counts
+// are not enough: two cursors swapped have them. `inputs` are the callee's
+// parameter types at the call, one per argument.
+LogicalResult cursorsInPlace(CallOp call, FuncOp caller, ArrayRef<Type> inputs,
+                             FlatSymbolRefAttr name) {
+  auto mine = llvm::make_filter_range(
+      caller.getBody().front().getArguments(),
+      [](BlockArgument parameter) { return isCursorLifetime(parameter.getType()); });
+  auto next = mine.begin();
+  std::uint32_t position = 0;
+  for (auto [operand, asked] : llvm::zip_equal(call.getArgs(), inputs)) {
+    if (!isCursorLifetime(asked))
+      continue;
+    if (next == mine.end() || operand != *next)
+      return call.emitOpError("is a tail call of ")
+             << name << ", which takes as its cursor " << position
+             << " another value than its caller's cursor parameter " << position;
+    ++next;
+    ++position;
+  }
+  if (next != mine.end())
+    return call.emitOpError("is a tail call of ")
+           << name << ", which takes " << position << " cursors, fewer than its caller";
+  return success();
+}
+
 } // namespace
 
 LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
@@ -207,13 +238,12 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
 
   auto caller = (*this)->getParentOfType<FuncOp>();
 
-  // A tail call and its caller lower to one return: a cursor comes back
-  // from each, and each gives back the same result components, so a
+  // A tail call and its caller lower to one return: each cursor comes back
+  // in its place, and each gives back the same result components, so a
   // result one drops is dropped by both.
   if (getTailKind() == TailKind::tail) {
-    if (!lifetimes::sameCursors(caller.getFunctionType(), fn.getFunctionType()))
-      return emitOpError("is a tail call of ")
-             << name << ", which takes another number of cursors than its caller";
+    if (failed(cursorsInPlace(*this, caller, inputs, name)))
+      return failure();
     if (!llvm::equal(givenBackResults(caller), givenBackResults(fn)))
       return emitOpError("is a tail call of ")
              << name << ", which gives back other result components than its caller";
