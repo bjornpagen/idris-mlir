@@ -148,12 +148,16 @@ since on Chez a representation buys memory and little else (§6).
 | datatypes | per family, the declaration Idris checked (P0's D48): its erased indices; a constructor slice in tag order (a constructor's id is its position, as `ConId`), each with the index variables it binds, its equation and its fields with their quantities; no roles (C80); the in-place promise | the declarations data types carry (§4.10) |
 | ops | per function: opcode (the generated dialect's), operands as result positions, result types, region slices | MLIR bytecode |
 
-- **`subtree_size`, not `parent`** (D8). The interval is what name
-  resolution (§4.4) and lambda lifting (§4.10) read. Depth is the
-  inclusive prefix sum of +1 at each node and −1 one past its subtree,
-  less one. A parent is the last earlier node one level up, as Hsu
-  derives Co-dfns's parent vector (*read*:
-  `hsu-dissertation.pdf.txt:719-760`). Storing both keeps one fact twice.
+- **A size, not `parent`** (D8). Core is in preorder (D9), so a
+  subtree is the interval `[pre, pre + size)` that lambda lifting
+  (§4.10) reads. Depth is the inclusive prefix sum of +1 at each node
+  and −1 one past its subtree, less one. A parent is the last earlier
+  node one level up, as Hsu derives Co-dfns's parent vector (*read*:
+  `hsu-dissertation.pdf.txt:719-760`). Syntax nodes are children before
+  parents, with a size column and one id where the grammar shares a
+  subtree (P0's C216), so every child precedes its parent and a shared
+  subtree has more than one parent, which no `parent` column could
+  hold. Storing both keeps one fact twice.
 - **Core is a table** (D9), moved with Emit in O2. A tree beside it would
   be one concept held twice.
 
@@ -175,7 +179,9 @@ Emit keep naming the term each op comes from, as they have since
 ```idris
 -- sketch: an id of a frozen table is bounded by its extent, erased to a word
 NodeId : (t : Tree) -> Type                          -- Fin (size t)
-parent : (i : NodeId t) -> (p : NodeId t ** LT p i)  -- preorder: parents first
+parent : (i : NodeId t) -> (p : NodeId t ** LT p i)  -- Core, preorder: parents first
+child  : (i : NodeId t) -> Fin (arity i) -> (c : NodeId t ** LT c i)
+                                                     -- syntax (C216): children first, shared
 ```
 
 **Decision (D1)**, restated for growth and the two hosts. No pass handles
@@ -193,8 +199,9 @@ a bare `Bits32`. Ids come in two kinds, because tables come in two kinds:
   row), and a read through it is a lookup until the table is frozen, as
   `Address` is for definitions.
 
-`LT p i` makes every upward walk total. An `extra` slice is decoded by a
-type its `kind` decides.
+In Core, `LT p i` makes every upward walk total; in the parse tree,
+`LT c i` makes every downward walk total, through a shared subtree too
+(C216). An `extra` slice is decoded by a type its `kind` decides.
 
 ## 4. Each phase as array operations
 
