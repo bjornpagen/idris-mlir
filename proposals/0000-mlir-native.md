@@ -3602,6 +3602,25 @@ C137.
   rule over pure values otherwise), or a fold where they rewrite one op
   from its operands alone; none survives as a pattern on the greedy
   driver.
+- **C158** (2026-10-21; settles C11 against D90; for the owner's review).
+  Op names: every op takes the prefix of the family it acts on (C11), the
+  type or resource its operands are, except names a ruling fixes
+  (`idr.func`, `idr.call`, `idr.lifetime`, `idr.activation`, `idr.lend`)
+  and the ops that shape the IR and act on no type or resource
+  (`idr.program`, `idr.return`, `idr.yield`, `idr.join`, `idr.loop`,
+  `idr.jump`, `idr.constant`), which stay bare as upstream's `func` and
+  `scf` structure ops do. The table is
+  `audits/p0/verify/parts/contracts/mnemonics.md` (`data.con`,
+  `data.match`, `lit.match`, `fn.closure`, `lazy.force`, `count.dup`,
+  `int.div_s`, `nat.pred`, `array.tabulate` and kin). Reason: C11's rule,
+  D28's "named for what a thing is", and the names the owner fixed in D90.
+- **C159** (2026-10-21; D61's reach, L02's question). D61's write part
+  exists on a parameter that is `counted unique self` as well as `unique
+  deep`: an in-place rebuild writes only the family's own cells, which
+  `unique self` makes the parameter's alone (D70), so the write is to
+  memory only that parameter reaches. Reason: D70's "every rebuild that
+  can be kept is accepted", and D61's in-place rebuilding made movable,
+  mergeable and deletable where the caller owns the memory.
 
 ## 4. Open: the owner's decisions, in order
 
