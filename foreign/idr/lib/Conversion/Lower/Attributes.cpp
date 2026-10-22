@@ -21,7 +21,7 @@ using effects::Attribute;
 using effects::Location;
 
 LLVM::ModRefInfo modRef(Access access) {
-  return access == Access::ReadsAndWrites ? LLVM::ModRefInfo::ModRef : LLVM::ModRefInfo::Ref;
+  return access == Access::ReadWrite ? LLVM::ModRefInfo::ModRef : LLVM::ModRefInfo::Ref;
 }
 
 // The memory a row may touch, per location LLVM tells apart. Our programs
@@ -40,10 +40,7 @@ bool tells(const effects::Told &told, Attribute attribute) {
 
 } // namespace
 
-void tellFunction(LLVM::LLVMFuncOp fn, effects::Row row, ParameterWrites writes) {
-  effects::Told told = effects::told(row);
-  if (writes == ParameterWrites::Some)
-    told = effects::withParameterWrite(told);
+void tellFunction(LLVM::LLVMFuncOp fn, const effects::Told &told) {
   MLIRContext *ctx = fn.getContext();
   fn.setMemoryEffectsAttr(memoryOf(ctx, told));
   if (tells(told, Attribute::WillReturn))

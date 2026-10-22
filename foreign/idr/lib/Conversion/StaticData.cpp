@@ -103,7 +103,7 @@ void StaticData::cells(ConAttr con) {
   DataType data = con.getData();
   Tag tag = con.getTag();
   families::CtorView ctor = data.ctor(tag);
-  ArrayRef<ArrayAttr> run = con.getCells();
+  unsigned runLength = con.getRunLength();
   const layout::Cell &cell = layouts.cells(data).cell(tag);
   // A memo cell, whose kind says a force writes it, is the one static cell
   // that is not constant. It is one per process: constant data holds its
@@ -148,16 +148,15 @@ void StaticData::cells(ConAttr con) {
     types.push_back(member.type);
   auto structType = LLVM::LLVMStructType::getLiteral(ctx, types, /*isPacked=*/true);
 
-  for (size_t k = run.size(); k-- > 0;) {
-    auto index = static_cast<unsigned>(k);
+  for (unsigned index = runLength; index-- > 0;) {
     global(StaticNames::cell(con, index), structType, mutability, headerBytes,
            [&](OpBuilder &init) -> Value {
              SmallVector<SmallVector<Value>> fields(ctor.fields.size());
-             for (auto [position, value] : llvm::enumerate(run[index].getValue())) {
+             for (auto [position, value] : llvm::enumerate(con.getCell(index).getValue())) {
                unsigned field = con.fieldOfCell(index, static_cast<unsigned>(position));
                fields[field] = components(init, value, ctor.fields[field]);
              }
-             if (k + 1 < run.size())
+             if (index + 1 < runLength)
                fields[con.getSpine()] = {
                    staticAddress(init, at, StaticNames::cell(con, index + 1))};
              SmallVector<Value> values = header(init, cell.info);

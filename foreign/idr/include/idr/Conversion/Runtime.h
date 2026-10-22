@@ -178,10 +178,6 @@ public:
                                       unsigned align, llvm::ArrayRef<layout::Slot> slots,
                                       Contents stays = Contents::MayChange) const;
 
-  // Writes a word at the address of a word of a cell, a destination.
-  void storeWord(mlir::OpBuilder &b, mlir::Location loc, mlir::Value address,
-                 mlir::Value value) const;
-
   // A pointer to memory that held another cell, or will hold another at the
   // next run, made a pointer of its own for LLVM's invariant group: loads
   // through it see only what is written through it.

@@ -20,13 +20,15 @@ namespace idr::conversion {
 
 // The counting ops: a count by the entry of each word's kind, a take of a
 // value its type proves unshared with no test, the one test of sharing
-// where its type proves nothing, and the frees of tokens.
+// where its type proves nothing, the frees of tokens, and the null token.
 void populateCountingPatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, const Layouts &layouts,
                               Runtime &runtime);
 
-// The big op that is no call of one runtime function: a natural made an
-// extent, which crashes at the op where the natural is past every extent.
+// The big and natural ops that are no call of one runtime function: a
+// natural made an extent, which ends the run as out of memory where the
+// natural is past every allocation, and a numeral made a natural or made of
+// one, by the numeral's layout.
 void populateBigPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                          const Layouts &layouts, Runtime &runtime);
 
@@ -54,8 +56,9 @@ void populateStringPatterns(mlir::RewritePatternSet &patterns,
                             const mlir::TypeConverter &converter, const Layouts &layouts,
                             Runtime &runtime);
 
-// The counted cells, each made by its source and written by its init, and
-// the data values, built, read and taken apart by their layouts.
+// The counted cells, each made by its source and written by its init; the
+// data values, built, read and taken apart by their layouts; and the places
+// written once through a destination.
 void populateCellPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                           const Layouts &layouts, Runtime &runtime);
 

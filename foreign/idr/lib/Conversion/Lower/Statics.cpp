@@ -54,7 +54,7 @@ struct LowerStatics : idr::impl::IdrLowerStaticsBase<LowerStatics> {
         data.constant(constant.getValue(), constant.getType());
       if (auto con = dyn_cast<DataConOp>(op);
           con && con.getFields().empty() && con.getDataType().layout() == Layout::Cell)
-        data.constant(ConAttr::get(ctx, cast<DataType>(unrestricted(con.getResult().getType())),
+        data.constant(ConAttr::get(ctx, con.getDataType().refinedTo(con.getTag(), {}),
                                    ArrayAttr::get(ctx, {})),
                       con.getResult().getType());
       if (auto site = dyn_cast_or_null<SiteAttr>(op->getInherentAttr(siteName).value_or(nullptr))) {

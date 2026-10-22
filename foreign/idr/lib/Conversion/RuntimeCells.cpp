@@ -104,10 +104,6 @@ SmallVector<Value> Runtime::load(OpBuilder &b, Location loc, Value address, unsi
   return values;
 }
 
-void Runtime::storeWord(OpBuilder &b, Location loc, Value address, Value value) const {
-  LLVM::StoreOp::create(b, loc, value, address, cellAlignment());
-}
-
 Value Runtime::launder(OpBuilder &b, Location loc, Value cell) const {
   return LLVM::LaunderInvariantGroupOp::create(b, loc, cell.getType(), cell);
 }

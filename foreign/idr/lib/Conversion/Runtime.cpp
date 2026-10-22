@@ -23,7 +23,6 @@ namespace idr::conversion {
 
 namespace {
 
-using idr::runtime::Gives;
 using idr::runtime::OperandKind;
 using idr::runtime::ResultKind;
 
@@ -50,9 +49,13 @@ Type llvmType(MLIRContext *ctx, OperandKind kind) {
   }
 }
 
+// A function that gives nothing back, or never returns, is void.
 Type llvmType(MLIRContext *ctx, ResultKind kind) {
   using enum ResultKind;
   switch (kind) {
+  case Void:
+  case NoReturn:
+    return LLVM::LLVMVoidType::get(ctx);
   case Int32:
   case Order:
     return IntegerType::get(ctx, 32);
@@ -112,20 +115,10 @@ LLVM::LLVMFunctionType runtimeFunctionType(MLIRContext *ctx,
   SmallVector<Type> params;
   for (OperandKind kind : function.operands)
     params.push_back(llvmType(ctx, kind));
-  Type result = LLVM::LLVMVoidType::get(ctx);
-  switch (function.gives) {
-  case Gives::Nothing:
-  case Gives::NeverReturns:
-    break;
-  case Gives::Returns:
-    result = llvmType(ctx, function.results.front());
-    break;
-  case Gives::ThroughPointers:
-    // One pointer for each result, after the operands.
-    params.append(function.results.size(), LLVM::LLVMPointerType::get(ctx));
-    break;
-  }
-  return LLVM::LLVMFunctionType::get(result, params);
+  // A function that gives its results through pointers takes one for each,
+  // after the operands.
+  params.append(function.outs.size(), LLVM::LLVMPointerType::get(ctx));
+  return LLVM::LLVMFunctionType::get(llvmType(ctx, function.result), params);
 }
 
 // Detached: idr-lower-runtime inserts it, once per function of the table.
@@ -137,9 +130,9 @@ LLVM::LLVMFuncOp runtimeDeclaration(Location loc, const idr::runtime::Function &
     if (kind == OperandKind::Bool)
       callee.setArgAttr(static_cast<unsigned>(index), LLVM::LLVMDialect::getZExtAttrName(),
                         b.getUnitAttr());
-  if (function.gives == Gives::Returns && function.results.front() == ResultKind::Bool)
+  if (function.result == ResultKind::Bool)
     callee.setResultAttr(0, LLVM::LLVMDialect::getZExtAttrName(), b.getUnitAttr());
-  if (function.gives == Gives::NeverReturns)
+  if (function.result == ResultKind::NoReturn)
     callee.setNoreturn(true);
   return callee;
 }
@@ -159,7 +152,7 @@ LLVM::CallOp Runtime::call(OpBuilder &b, Location loc, const idr::runtime::Funct
                            ValueRange args) const {
   auto made = LLVM::CallOp::create(b, loc, runtimeFunctionType(b.getContext(), function),
                                    StringRef(function.symbol), args);
-  if (function.gives == Gives::NeverReturns)
+  if (function.result == ResultKind::NoReturn)
     made.setNoreturn(true);
   return made;
 }

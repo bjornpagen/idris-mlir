@@ -11,8 +11,16 @@
 // Inside a function a cursor lives in a slot of the frame, since every put
 // moves it: its value is the slot's address, which a put reads and writes,
 // a call loads into its argument and stores its result back into, and a
-// return reads. A room's puts are laid out once, before the function is
-// converted, each at a static offset in its block.
+// return reads. A lifetime on a stack keeps its mark in the word after its
+// cursor's, where its pack reads it. A room's puts are laid out once,
+// before the function is converted, each at a static offset in its block.
+//
+// A lifetime of one recursion level, on a stack or in a chain, may end its
+// region by packing it before a frame is pushed: the mark of a stack and
+// the values living in it go into a record bumped in its own memory, whose
+// address is the package the frame holds, and its opener then frees
+// nothing. The resume's unpack reads the record back and reopens the
+// lifetime past it, its end the one its source's opener would have run.
 //
 // The runtime owns a chain's memory: arenaChunk gives the room of a cell,
 // in the cursor's chunk or a new one; arenaOpen begins a chain; arenaClose
@@ -44,15 +52,26 @@ Type pointer(MLIRContext *ctx) { return LLVM::LLVMPointerType::get(ctx); }
 
 LifetimeKind kindOf(Type type) { return cast<LifetimeType>(type).getKind(); }
 
-// A slot of the frame for one pointer, at the start of `fn`'s entry block,
-// so it is one per frame however often what needs it runs.
-Value frameSlot(OpBuilder &b, Location loc, Operation *inside) {
+// What a lifetime's slot in the frame holds, a word each: its cursor, and
+// for a lifetime on a stack the mark its end resets the stack to.
+enum class SlotWords : std::uint8_t { Cursor = 1, CursorAndMark = 2 };
+
+// A slot of the frame, at the start of the entry block of the function
+// `inside` is in, so it is one per frame however often what needs it runs.
+Value frameSlot(OpBuilder &b, Location loc, Operation *inside, SlotWords words) {
   OpBuilder::InsertionGuard guard(b);
   Operation *scope = inside->getParentWithTrait<mlir::OpTrait::AutomaticAllocationScope>();
   b.setInsertionPointToStart(&scope->getRegion(0).front());
   Type ptr = pointer(b.getContext());
-  Value one = LLVM::ConstantOp::create(b, loc, b.getI64Type(), 1);
-  return LLVM::AllocaOp::create(b, loc, ptr, ptr, one, cellAlignment());
+  Value count = LLVM::ConstantOp::create(b, loc, b.getI64Type(), static_cast<int64_t>(words));
+  return LLVM::AllocaOp::create(b, loc, ptr, ptr, count, cellAlignment());
+}
+
+// The address of the mark of a lifetime on a stack, the word after its
+// cursor's in its slot.
+Value markOf(OpBuilder &b, Location loc, Value slot) {
+  Type ptr = pointer(b.getContext());
+  return LLVM::GEPOp::create(b, loc, ptr, ptr, slot, ArrayRef<LLVM::GEPArg>{1});
 }
 
 // A room of `bytes` bytes in the cursor whose slot is `slot`: the place the
@@ -215,38 +234,92 @@ struct LowerBlockOpener : IdrPattern<LifetimeBlockOp> {
   }
 };
 
+// How the region of a lifetime of one recursion level ends: at its end, or
+// by packing the lifetime, the last op before its terminator, which the
+// pack's verifier holds there. The two are the problem's: a lifetime that
+// ends here, and one whose memory moves into a frame.
+enum class End : std::uint8_t { Closes, Packs };
+
+End endOf(Region &body) {
+  Operation *last = body.front().getTerminator()->getPrevNode();
+  return isa_and_nonnull<LifetimePackOp>(last) ? End::Packs : End::Closes;
+}
+
+// The end of a chain whose cursor is in `slot`: closed, its chunks given
+// back; packed, nothing, since the chain is the package's.
+void endChain(OpBuilder &b, Location loc, const Runtime &runtime, End end, Value slot) {
+  switch (end) {
+  case End::Closes:
+    runtime.call(b, loc, idr::runtime::helper::arenaClose,
+                 LLVM::LoadOp::create(b, loc, pointer(b.getContext()), slot).getResult());
+    return;
+  case End::Packs:
+    return;
+  }
+}
+
+// The end of a lifetime on the stack of the cursor in `base`, its own in
+// `slot`: closed, the chunks past its mark given back and the base's cursor
+// the mark again; packed, its cells kept and the base's cursor past them,
+// where what the frame's call puts goes.
+void endStack(OpBuilder &b, Location loc, const Runtime &runtime, End end, Value base, Value slot,
+              Value mark) {
+  switch (end) {
+  case End::Closes:
+    runtime.call(b, loc, idr::runtime::helper::stackReset, mark);
+    LLVM::StoreOp::create(b, loc, mark, base);
+    return;
+  case End::Packs: {
+    Value past = LLVM::LoadOp::create(b, loc, pointer(b.getContext()), slot);
+    LLVM::StoreOp::create(b, loc, past, base);
+    return;
+  }
+  }
+}
+
 // A chain of its own: its cursor in a slot of the frame, the chain begun
-// empty, each put bumping it; at the end its chunks given back.
+// empty, each put bumping it.
 struct LowerChainOpener : IdrPattern<LifetimeChainOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(LifetimeChainOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value slot = frameSlot(rewriter, loc, op);
+    End end = endOf(op.getBody());
+    Value slot = frameSlot(rewriter, loc, op, SlotWords::Cursor);
     Value begun = runtime.call(rewriter, loc, idr::runtime::helper::arenaOpen,
                                i64Constant(rewriter, loc, 0))
                       .getResult();
     LLVM::StoreOp::create(rewriter, loc, begun, slot);
     return runRegion(op, rewriter, *getTypeConverter(), {slot}, {}, {}, [&] {
-      Value cursor = LLVM::LoadOp::create(rewriter, loc, pointer(getContext()), slot);
-      runtime.call(rewriter, loc, idr::runtime::helper::arenaClose, cursor);
+      endChain(rewriter, loc, runtime, end, slot);
     });
   }
 };
 
-// A lifetime on its base cursor's stack: its cursor is the base's own, its
-// mark the base's cursor at the open; at the end the chunks past the mark
-// are given back and the base's cursor is the mark again.
+// A lifetime on its base cursor's stack, its cursor and its mark in a slot
+// of its own, both the base's cursor at the open. The base's chain takes
+// its first chunk there if it has none, since a stack is reset to a mark
+// in a chunk, and a chain takes its first chunk at its first put, which
+// only the run knows; the base then holds it.
 struct LowerStackOpener : IdrPattern<LifetimeStackOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(LifetimeStackOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
+    Type ptr = pointer(getContext());
+    End end = endOf(op.getBody());
     Value base = adaptor.getBase().front();
-    Value mark = LLVM::LoadOp::create(rewriter, loc, pointer(getContext()), base);
-    return runRegion(op, rewriter, *getTypeConverter(), {base}, {}, {}, [&] {
-      runtime.call(rewriter, loc, idr::runtime::helper::stackReset, mark);
-      LLVM::StoreOp::create(rewriter, loc, mark, base);
+    Value top = LLVM::LoadOp::create(rewriter, loc, ptr, base);
+    Value mark = runtime
+                     .call(rewriter, loc, idr::runtime::helper::arenaChunk,
+                           ValueRange{top, i64Constant(rewriter, loc, 0)})
+                     .getResult();
+    LLVM::StoreOp::create(rewriter, loc, mark, base);
+    Value slot = frameSlot(rewriter, loc, op, SlotWords::CursorAndMark);
+    LLVM::StoreOp::create(rewriter, loc, mark, slot);
+    LLVM::StoreOp::create(rewriter, loc, mark, markOf(rewriter, loc, slot));
+    return runRegion(op, rewriter, *getTypeConverter(), {slot}, {}, {}, [&] {
+      endStack(rewriter, loc, runtime, end, base, slot, mark);
     });
   }
 };
@@ -280,6 +353,112 @@ struct LowerLend : IdrPattern<LendOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     SmallVector<Value> owner(adaptor.getOwner());
     return runRegion(op, rewriter, *getTypeConverter(), {}, {owner}, {owner}, [] {});
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// A lifetime split around a framed call
+//===----------------------------------------------------------------------===//
+
+// A package's record, laid out once for its pack and its unpack: a stack's
+// mark, then the components of the values it holds, each at its alignment,
+// the whole a multiple of a cell's alignment, so the cursor past it is where
+// a cell may start.
+struct Record {
+  SmallVector<layout::Slot> slots;
+  unsigned bytes = 0;
+};
+
+Record recordOf(const Layouts &layouts, LifetimePackageType package) {
+  Record record;
+  auto place = [&](const layout::Component &component) {
+    unsigned offset = static_cast<unsigned>(
+        llvm::alignTo(record.bytes, layouts.alignmentOf(component.type)));
+    record.slots.push_back(layout::Slot{component, offset});
+    record.bytes = offset + layouts.sizeOf(component.type);
+  };
+  switch (package.getPacked()) {
+  case Packed::FromStack:
+    place(layout::Component{pointer(package.getContext()), layout::Word::Uncounted});
+    break;
+  case Packed::FromChain:
+    break;
+  }
+  for (Type held : package.getHeld())
+    for (const layout::Component &component : layouts.components(held))
+      place(component);
+  record.bytes = static_cast<unsigned>(llvm::alignTo(record.bytes, cellAlignment()));
+  return record;
+}
+
+// The end of a lifetime's region before a frame's push: the record bumped
+// in the lifetime's own memory, the cursor past it, and the package its
+// address; nothing is freed, which the opener's end then keeps so. A record
+// of no bytes, a chain's that holds nothing, is where the cursor is, with
+// no bump.
+struct LowerLifetimePack : IdrPattern<LifetimePackOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(LifetimePackOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Type ptr = pointer(getContext());
+    auto package = cast<LifetimePackageType>(op.getPackage().getType());
+    Record record = recordOf(layouts, package);
+    Value slot = adaptor.getLifetime().front();
+    SmallVector<Value> values;
+    switch (package.getPacked()) {
+    case Packed::FromStack:
+      values.push_back(LLVM::LoadOp::create(rewriter, loc, ptr, markOf(rewriter, loc, slot)));
+      break;
+    case Packed::FromChain:
+      break;
+    }
+    for (ValueRange held : adaptor.getHeld())
+      llvm::append_range(values, held);
+    Value place = record.bytes == 0 ? Value(LLVM::LoadOp::create(rewriter, loc, ptr, slot))
+                                    : bump(rewriter, loc, runtime, slot, record.bytes);
+    runtime.store(rewriter, loc, place, cellAlignment(), record.slots, values);
+    rewriter.replaceOp(op, place);
+    return success();
+  }
+};
+
+// The resume's reopening of a packed lifetime: its record read, its cursor
+// past the record in a slot of the frame, its region run in place with the
+// values it holds restated, and its end its source's, unless it packs
+// again. A chain reopens whole. A stack's mark is in the record, but its
+// end gives its base the mark back, and the unpack names no base: that is
+// the op's to say, so the lowering refuses it as the internal error it is.
+struct LowerLifetimeUnpack : IdrPattern<LifetimeUnpackOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(LifetimeUnpackOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto package = cast<LifetimePackageType>(op.getPackage().getType());
+    switch (package.getPacked()) {
+    case Packed::FromStack:
+      return op.emitOpError("internal error: idr-lower: reopens a stack lifetime but names no "
+                            "base cursor, to which its end gives the mark back");
+    case Packed::FromChain:
+      break;
+    }
+    Record record = recordOf(layouts, package);
+    Value place = adaptor.getPackage().front();
+    SmallVector<Value> read = runtime.load(rewriter, loc, place, cellAlignment(), record.slots);
+    Value cursor = record.bytes == 0 ? place : at(rewriter, loc, place, record.bytes);
+    End end = endOf(op.getBody());
+    Value slot = frameSlot(rewriter, loc, op, SlotWords::Cursor);
+    LLVM::StoreOp::create(rewriter, loc, cursor, slot);
+    SmallVector<SmallVector<Value>> held;
+    ArrayRef<Value> rest = read;
+    for (Type type : package.getHeld()) {
+      size_t count = layouts.components(type).size();
+      held.push_back(SmallVector<Value>(rest.take_front(count)));
+      rest = rest.drop_front(count);
+    }
+    return runRegion(op, rewriter, *getTypeConverter(), {slot}, held, {}, [&] {
+      endChain(rewriter, loc, runtime, end, slot);
+    });
   }
 };
 
@@ -354,7 +533,7 @@ LogicalResult prepareLifetimes(FuncOp fn, const SymbolTable &program, const Layo
   // gives the cursors back after its values, in the parameters' order.
   SmallVector<Value> slots;
   for (BlockArgument arg : entry.getArguments()) {
-    if (!lifetimes::isCursor(arg.getType()))
+    if (!isCursorLifetime(arg.getType()))
       continue;
     auto in = UnrealizedConversionCastOp::create(b, loc, ptr, Value(arg));
     Value one = LLVM::ConstantOp::create(b, loc, b.getI64Type(), 1);
@@ -383,7 +562,7 @@ LogicalResult prepareLifetimes(FuncOp fn, const SymbolTable &program, const Layo
   };
   SmallVector<Room> rooms;
   for (BlockArgument arg : entry.getArguments())
-    if (lifetimes::isRoom(arg.getType()))
+    if (isRoomLifetime(arg.getType()))
       rooms.push_back({arg, 0, {}});
   LogicalResult laid = success();
   fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
@@ -431,8 +610,8 @@ void populateLifetimePatterns(RewritePatternSet &patterns, const TypeConverter &
                               const Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerCellArena, LowerCellStack, LowerReserve, LowerToView<ActivationOp>,
                LowerToView<LifetimeForgetOp>, LowerViewOpener, LowerBlockOpener, LowerChainOpener,
-               LowerStackOpener, LowerHomeOpener, LowerLend>(converter, patterns.getContext(),
-                                                             layouts, runtime);
+               LowerStackOpener, LowerHomeOpener, LowerLend, LowerLifetimePack,
+               LowerLifetimeUnpack>(converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

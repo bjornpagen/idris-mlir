@@ -44,46 +44,61 @@ SmallVector<NamedAttribute> cellFacts(Builder &b, unsigned headerBytes) {
                          b.getI64IntegerAttr(headerBytes))};
 }
 
-// The facts of the first component of a value of `type`, laid out as
-// `components`, which the types say and the LLVM types no longer do: a
-// cell's pointer; the pointer to memory its holder alone reaches (an
-// exclusive counted cell, a quantity-1 buffer's cell), which nothing else
-// the call reaches aliases; an in-place sum's tag, below its number of
-// constructors. No other component has any.
-SmallVector<NamedAttribute> componentFacts(Type type, ArrayRef<Type> components,
-                                           const Layouts &layouts, Builder &b,
-                                           unsigned headerBytes) {
-  SmallVector<NamedAttribute> facts;
+// The facts of each address of a destination, its component's slot, as
+// the place's layout puts it: never null, aligned and as large as the
+// component, and only ever written by the function it is given.
+SmallVector<NamedAttribute> destinationFacts(Builder &b, const Layouts &layouts, Type component) {
+  return {b.getNamedAttr(LLVM::LLVMDialect::getNonNullAttrName(), b.getUnitAttr()),
+          b.getNamedAttr(LLVM::LLVMDialect::getNoUndefAttrName(), b.getUnitAttr()),
+          b.getNamedAttr(LLVM::LLVMDialect::getAlignAttrName(),
+                         b.getI64IntegerAttr(layouts.alignmentOf(component))),
+          b.getNamedAttr(LLVM::LLVMDialect::getDereferenceableAttrName(),
+                         b.getI64IntegerAttr(layouts.sizeOf(component))),
+          b.getNamedAttr(LLVM::LLVMDialect::getWriteOnlyAttrName(), b.getUnitAttr())};
+}
+
+// The facts of each component of a value of `type`, laid out as
+// `components`, which the types say and the LLVM types no longer do: each
+// address of a destination; then, of a value's first component, a cell's
+// pointer; the pointer to memory its holder alone reaches (an exclusive
+// counted cell, a quantity-1 buffer's cell), which nothing else the call
+// reaches aliases; an in-place sum's tag, below its number of constructors.
+// No other component has any. A buffer crosses a call as its cell's pointer
+// alone, the one every free of it goes through; its elements' address is
+// that pointer past the array's header, made inside the function. So every
+// access to it and its free are based on the one `noalias` argument, and
+// LLVM keeps each read before the free.
+SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, ArrayRef<Type> components,
+                                                        const Layouts &layouts, Builder &b,
+                                                        unsigned headerBytes) {
+  SmallVector<SmallVector<NamedAttribute>> facts(components.size());
+  if (auto dest = dyn_cast<DestType>(type)) {
+    for (auto [each, written] : llvm::zip_equal(facts, layouts.components(dest.getValue())))
+      each = destinationFacts(b, layouts, written.type);
+    return facts;
+  }
+  SmallVector<NamedAttribute> &first = facts.front();
   if (isCellPointer(type))
-    facts = cellFacts(b, headerBytes);
+    first = cellFacts(b, headerBytes);
   if (admitsWrite(type) && isa<LLVM::LLVMPointerType>(components.front()))
-    facts.push_back(b.getNamedAttr(LLVM::LLVMDialect::getNoAliasAttrName(), b.getUnitAttr()));
-  if (!facts.empty())
+    first.push_back(b.getNamedAttr(LLVM::LLVMDialect::getNoAliasAttrName(), b.getUnitAttr()));
+  if (!first.empty())
     return facts;
   auto data = dyn_cast<DataType>(unrestricted(type));
   if (!data || data.layout() != Layout::InPlace)
-    return {};
+    return facts;
   std::optional<IntegerType> tag = layouts.sum(data).tag;
   if (!tag)
-    return {};
+    return facts;
   unsigned width = tag->getWidth();
   uint64_t count = data.declaredCount();
   // A tag type its constructors fill has no range to state.
   if (count >= (uint64_t{1} << width))
-    return {};
-  return {b.getNamedAttr(
+    return facts;
+  first.push_back(b.getNamedAttr(
       LLVM::LLVMDialect::getRangeAttrName(),
-      LLVM::ConstantRangeAttr::get(b.getContext(), width, 0, static_cast<int64_t>(count)))};
-}
-
-// Whether `fn` writes through a parameter its record names: one that
-// admits a write part and is not listed untouched.
-ParameterWrites writesOf(FuncOp fn) {
-  ParameterParts parts(fn.getArgumentTypes());
-  size_t untouched = 0;
-  if (DenseI32ArrayAttr listed = fn.getUntouchedAttr())
-    untouched = listed.size();
-  return parts.writable() > untouched ? ParameterWrites::Some : ParameterWrites::None;
+      LLVM::ConstantRangeAttr::get(b.getContext(), width, 0, static_cast<int64_t>(count))));
+  return facts;
 }
 
 } // namespace
@@ -151,17 +166,28 @@ struct LowerEntryBlock : OpConversionPattern<LLVM::LLVMFuncOp> {
 // compile, never silently a call. Each cursor it passes goes in as the
 // cursor its slot holds and comes back as one more result, which the slot
 // then holds, or, from a tail call, which is its caller's return. A call
-// whose result fills a field of cells built before it is a loop by now.
+// whose result fills a field of cells built before it is a loop by now,
+// idr-trmc's promise: one that reaches here is the internal error of a
+// promise missed.
 struct LowerCall : IdrPattern<CallOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(CallOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
+    TailKind tail = op.getTailKind();
+    switch (tail) {
+    case TailKind::nontail:
+    case TailKind::tail:
+      break;
+    case TailKind::modulo_context:
+      return op.emitOpError("internal error: idr-lower: a call modulo its context that idr-trmc "
+                            "did not make a loop");
+    }
     Location loc = op.getLoc();
     MLIRContext *ctx = getContext();
     Type ptr = ptrType(ctx);
     SmallVector<Value> args, slots;
     for (auto [operand, converted] : llvm::zip_equal(op.getArgs(), adaptor.getArgs())) {
-      if (!lifetimes::isCursor(operand.getType())) {
+      if (!isCursorLifetime(operand.getType())) {
         llvm::append_range(args, converted);
         continue;
       }
@@ -184,7 +210,6 @@ struct LowerCall : IdrPattern<CallOp> {
     auto call = LLVM::CallOp::create(rewriter, loc, LLVM::LLVMFunctionType::get(result, params),
                                      op.getCalleeAttr(), args);
     call.setCConv(LLVM::cconv::CConv::Tail);
-    TailKind tail = op.getTailKind();
     if (tail == TailKind::tail)
       call.setTailCallKind(LLVM::tailcallkind::TailCallKind::MustTail);
     // The call's components, one by one out of the struct LLVM returns.
@@ -248,7 +273,7 @@ LLVM::LLVMFunctionType functionType(FunctionType type, const TypeConverter &conv
     (void)converter.convertType(output, results);
   // A cursor goes in and comes back out: one more result each.
   for (Type input : type.getInputs())
-    if (lifetimes::isCursor(input))
+    if (isCursorLifetime(input))
       results.push_back(ptrType(ctx));
   Type result = results.empty()        ? LLVM::LLVMVoidType::get(ctx)
                 : results.size() == 1 ? results.front()
@@ -270,21 +295,24 @@ SmallVector<LLVM::LLVMFuncOp> lowerSignatures(ProgramOp program, const TypeConve
     auto made = LLVM::LLVMFuncOp::create(b, fn.getLoc(), mangled.at(fn.getSymNameAttr()).getValue(),
                                          functionType(type, converter), LLVM::Linkage::Private,
                                          /*dsoLocal=*/true, LLVM::cconv::CConv::Tail);
-    tellFunction(made, fn.getRow(), writesOf(fn));
+    tellFunction(made, rows::told(fn));
     unsigned position = 0;
     for (Type input : type.getInputs()) {
       SmallVector<Type> components;
       (void)converter.convertType(input, components);
-      if (!components.empty())
-        for (const NamedAttribute &fact :
-             componentFacts(input, components, layouts, b, headerBytes))
+      if (components.empty())
+        continue;
+      for (ArrayRef<NamedAttribute> facts :
+           componentFacts(input, components, layouts, b, headerBytes)) {
+        for (const NamedAttribute &fact : facts)
           made.setArgAttr(position, fact.getName(), fact.getValue());
-      position += static_cast<unsigned>(components.size());
+        ++position;
+      }
     }
     // A result of several components is one struct in LLVM, which takes no
     // such facts; a cell pointer is one component.
     if (type.getNumResults() == 1 && isCellPointer(type.getResult(0)) &&
-        llvm::none_of(type.getInputs(), [](Type input) { return lifetimes::isCursor(input); }))
+        llvm::none_of(type.getInputs(), [](Type input) { return isCursorLifetime(input); }))
       for (const NamedAttribute &fact : cellFacts(b, headerBytes))
         made.setResultAttr(0, fact.getName(), fact.getValue());
     made.getBody().takeBody(fn.getBody());

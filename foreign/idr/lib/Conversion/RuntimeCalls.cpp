@@ -35,7 +35,6 @@ namespace idr::conversion {
 
 namespace {
 
-using idr::runtime::Gives;
 using idr::runtime::ResultKind;
 
 // The range an op states for its value whatever its operands are: the
@@ -62,10 +61,11 @@ std::optional<ConstantIntRanges> statedRange(Operation *op) {
 // is the small word of a value that fits a small and a cell's address for
 // any other: only a range of small values says where the words are. LLVM's
 // range is half-open, so a range up to the type's largest value is one it
-// cannot state, and says nothing worth stating. Any other result states no
-// range: a pointer, a bool and a string are no number the op ranges, a
-// double is no integer, and a wrapped integer and an order are read
-// through the op's width and predicate.
+// cannot state, and says nothing worth stating. A function that returns no
+// value states none, and any other result states no range: a pointer, a
+// bool and a string are no number the op ranges, a double is no integer,
+// and a wrapped integer and an order are read through the op's width and
+// predicate.
 std::optional<LLVM::ConstantRangeAttr> givenRange(MLIRContext *ctx, ResultKind kind,
                                                   const ConstantIntRanges &stated) {
   using enum ResultKind;
@@ -85,6 +85,8 @@ std::optional<LLVM::ConstantRangeAttr> givenRange(MLIRContext *ctx, ResultKind k
     uint64_t upper = static_cast<uint64_t>(idris_rt_small_word(*bounds.hi)) + 1;
     return LLVM::ConstantRangeAttr::get(ctx, APInt(64, lower), APInt(64, upper));
   }
+  case Void:
+  case NoReturn:
   case Double:
   case Wrapped:
   case Order:
@@ -155,8 +157,10 @@ struct LowerRuntimeCall : IdrPattern<OpT> {
     for (Type type : op->getResultTypes())
       if (failed(this->getTypeConverter()->convertType(type, converted)))
         return rewriter.notifyMatchFailure(op, "a result's type does not convert");
+    // A function that gives its results through pointers is passed a slot
+    // of this frame for each.
     SmallVector<Value> slots;
-    if (function.gives == Gives::ThroughPointers)
+    if constexpr (!function.outs.empty())
       for (Type type : converted) {
         OpBuilder::InsertionGuard guard(rewriter);
         Operation *scope = op->template getParentWithTrait<mlir::OpTrait::AutomaticAllocationScope>();
@@ -169,24 +173,32 @@ struct LowerRuntimeCall : IdrPattern<OpT> {
     // An op whose types decide what it does says so of itself.
     tellCall(call, classFacts ? *classFacts : callFacts(ctx, rowOf(op)));
     SmallVector<Value> values;
-    switch (function.gives) {
-    case Gives::Nothing:
-    case Gives::NeverReturns:
-      break;
-    case Gives::Returns: {
-      ResultKind kind = function.results.front();
-      if (std::optional<ConstantIntRanges> stated = statedRange(op))
-        if (std::optional<LLVM::ConstantRangeAttr> range = givenRange(ctx, kind, *stated))
-          call.setResAttrsAttr(rewriter.getArrayAttr(rewriter.getDictionaryAttr(
-              rewriter.getNamedAttr(LLVM::LLVMDialect::getRangeAttrName(), *range))));
-      values.push_back(resultOf(op, kind, call.getResult(), converted.front(), rewriter));
-      break;
-    }
-    case Gives::ThroughPointers:
-      for (auto [slot, type, kind] : llvm::zip_equal(slots, converted, function.results))
+    switch (function.result) {
+    case ResultKind::Void:
+      for (auto [slot, type, kind] : llvm::zip_equal(slots, converted, function.outs))
         values.push_back(resultOf(op, kind, LLVM::LoadOp::create(rewriter, loc, type, slot),
                                   type, rewriter));
       break;
+    case ResultKind::NoReturn:
+      break;
+    case ResultKind::Int32:
+    case ResultKind::Int64:
+    case ResultKind::Double:
+    case ResultKind::Wrapped:
+    case ResultKind::Order:
+    case ResultKind::Str:
+    case ResultKind::Big:
+    case ResultKind::Pointer:
+    case ResultKind::Bool: {
+      if (std::optional<ConstantIntRanges> stated = statedRange(op))
+        if (std::optional<LLVM::ConstantRangeAttr> range =
+                givenRange(ctx, function.result, *stated))
+          call.setResAttrsAttr(rewriter.getArrayAttr(rewriter.getDictionaryAttr(
+              rewriter.getNamedAttr(LLVM::LLVMDialect::getRangeAttrName(), *range))));
+      values.push_back(
+          resultOf(op, function.result, call.getResult(), converted.front(), rewriter));
+      break;
+    }
     }
     // A terminator whose function never returns ends its block where the
     // call does.

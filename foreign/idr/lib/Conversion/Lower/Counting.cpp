@@ -7,7 +7,11 @@
 // type rules out. A value its type proves unshared meets no count and no
 // test; the one test of sharing left is a match on uniqueness, which
 // counting made only where the type proves nothing, and which lowers to a
-// branch on the count being 1.
+// branch on the count being 1. A share, of a value or of a token widened at
+// a rejoin, is its operand's words: the one pattern of the ops whose result
+// carries their operand (Lower.cpp) lowers it, as the ops with no runtime
+// form of their own, a buffer counting takes over and a value handed to the
+// memory that stores it.
 
 #include "Lower.h"
 
@@ -59,16 +63,6 @@ struct LowerDrop : IdrPattern<CountDropOp> {
     runtime.dec(rewriter, op.getLoc(), layouts.components(op.getValue().getType()),
                 adaptor.getValue());
     rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-// The value with what is known of its sharing forgotten: the same words.
-struct LowerShare : IdrPattern<CountShareOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(CountShareOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getValue())});
     return success();
   }
 };
@@ -202,8 +196,8 @@ struct LowerTokenNull : IdrPattern<TokenNullOp> {
 
 void populateCountingPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                               const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerDup, LowerDrop, LowerShare, LowerTake, LowerTakeInto, LowerMatchUnique,
-               LowerTokenFree, LowerTokenNull>(converter, patterns.getContext(), layouts, runtime);
+  patterns.add<LowerDup, LowerDrop, LowerTake, LowerTakeInto, LowerMatchUnique, LowerTokenFree,
+               LowerTokenNull>(converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

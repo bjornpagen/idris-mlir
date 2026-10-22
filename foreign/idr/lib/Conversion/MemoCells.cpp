@@ -79,7 +79,7 @@ struct LowerMemoRun : IdrPattern<MemoRunOp> {
     if (auto end = dyn_cast<MemoYieldOp>(op.getRegion().front().getTerminator())) {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPoint(end);
-      rewriter.replaceOpWithNewOp<scf::YieldOp>(end, end.getValues());
+      rewriter.replaceOpWithNewOp<scf::YieldOp>(end, end->getOperands());
     }
     moveRegion(rewriter, *getTypeConverter(), op.getRegion(), captures, run.getRegion());
     ValueRange values = run.getResults();

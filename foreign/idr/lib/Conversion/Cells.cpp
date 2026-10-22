@@ -3,9 +3,17 @@
 // The patterns of cells and of data values: a counted cell's source and its
 // reuse, each of which writes the cell's header, and its init, which writes
 // its fields; the constructors that build no cell; the reads of tags and
-// fields, each by the layout its type is (a cell, or words in place); and
-// what poison and select make of a value of ours. A cell of a lexical
-// lifetime is Lifetimes.cpp's.
+// fields, each by the layout its type is (a cell, or words in place); the
+// places written once through a destination; and what poison and select
+// make of a value of ours. A cell of a lexical lifetime is Lifetimes.cpp's.
+//
+// A destination is one address per component of what it writes, each that
+// component's slot in its place: a hole of a cell an init built, or the
+// slot a function waiting for an answer keeps on its frame. A write is one
+// store per component, with no count changed, since the value's reference
+// moves into the place, and none carries an invariant group: a hole is
+// written once after its zero, and a load through the cell later sees the
+// value.
 //
 // A frame of a frame stack is laid out as a cell and lives on its thread's
 // stack of frames, contiguous in chunks the runtime holds: a push
@@ -125,8 +133,8 @@ struct LowerCellRecycle : IdrPattern<CellRecycleOp> {
 };
 
 // The fields of the cell's constructor at their slots, zero for a hole;
-// then the destination of each hole, the address of its word. The value is
-// the cell.
+// then the destination of each hole, the address of each of its slots. The
+// value is the cell.
 struct LowerCellInit : IdrPattern<CellInitOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(CellInitOp op, OneToNOpAdaptor adaptor,
@@ -140,8 +148,9 @@ struct LowerCellInit : IdrPattern<CellInitOp> {
       runtime.store(rewriter, loc, value, cellAlignment(), slots, field);
     SmallVector<SmallVector<Value>> out{{value}};
     for (int32_t hole : holes)
-      out.push_back({at(rewriter, loc, value,
-                        cell.fields[static_cast<unsigned>(hole)].front().offset)});
+      out.push_back(llvm::map_to_vector(
+          cell.fields[static_cast<unsigned>(hole)],
+          [&](const layout::Slot &slot) { return at(rewriter, loc, value, slot.offset); }));
     rewriter.replaceOpWithMultiple(op, std::move(out));
     return success();
   }
@@ -181,7 +190,7 @@ struct LowerDataCon : IdrPattern<DataConOp> {
       if (!op.getFields().empty())
         return rewriter.notifyMatchFailure(op, "a constructor of a cell with fields is counting's");
       MLIRContext *ctx = getContext();
-      auto atom = ConAttr::get(ctx, dataOf(op.getResult().getType()), ArrayAttr::get(ctx, {}));
+      auto atom = ConAttr::get(ctx, data.refinedTo(tag, {}), ArrayAttr::get(ctx, {}));
       rewriter.replaceOpWithMultiple(
           op, {runtime.constant(rewriter, loc, atom, op.getResult().getType())});
       return success();
@@ -329,14 +338,47 @@ struct LowerConstant : IdrPattern<ConstantOp> {
   }
 };
 
-// A hole's value, written once through its destination.
+// A value written once through its destination: each component stored at
+// its own address, aligned as its slot is.
 struct LowerDestWrite : IdrPattern<DestWriteOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(DestWriteOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    runtime.storeWord(rewriter, op.getLoc(), adaptor.getDest().front(),
-                      adaptor.getValue().front());
+    for (auto [address, value] : llvm::zip_equal(adaptor.getDest(), adaptor.getValue()))
+      LLVM::StoreOp::create(rewriter, op.getLoc(), value, address,
+                            layouts.alignmentOf(value.getType()));
     rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+// A function waiting for an answer written through a destination: a slot
+// of the frame for each component of the answer, made once in the entry
+// block, which the region's destination names; the region runs in place,
+// and the answer is read out of the slots when it ends.
+struct LowerDestAnswer : IdrPattern<DestAnswerOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(DestAnswerOp op, OneToNOpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    SmallVector<layout::Component> components = layouts.components(op.getResult().getType());
+    SmallVector<Value> slots;
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      Operation *scope = op->getParentWithTrait<mlir::OpTrait::AutomaticAllocationScope>();
+      rewriter.setInsertionPointToStart(&scope->getRegion(0).front());
+      for (const layout::Component &component : components)
+        slots.push_back(LLVM::AllocaOp::create(rewriter, loc, ptrType(getContext()),
+                                               component.type, i64Constant(rewriter, loc, 1),
+                                               layouts.alignmentOf(component.type)));
+    }
+    auto run = scf::ExecuteRegionOp::create(rewriter, loc, TypeRange{});
+    moveRegion(rewriter, *getTypeConverter(), op.getBody(), {slots}, run.getRegion());
+    SmallVector<Value> answer;
+    for (auto [component, slot] : llvm::zip_equal(components, slots))
+      answer.push_back(LLVM::LoadOp::create(rewriter, loc, component.type, slot,
+                                            layouts.alignmentOf(component.type)));
+    rewriter.replaceOpWithMultiple(op, {answer});
     return success();
   }
 };
@@ -387,14 +429,15 @@ struct LowerSelect : IdrPattern<arith::SelectOp> {
 
 // The patterns of cells and data values: a counted cell's source, reuse and
 // init, constructors, their tags and fields, a value in place taken apart,
-// a reindex and an assumed equality, constants, the writes of holes, and
-// what poison and select make of a value of ours.
+// a reindex and an assumed equality, constants, the writes through
+// destinations and the slots of answers, and what poison and select make of
+// a value of ours.
 void populateCellPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                           const Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerCellNew, LowerCellRecycle, LowerCellInit, LowerDataCon, LowerUnpack,
                LowerDataTag, LowerDataField, LowerReindex, LowerAssume, LowerConstant,
-               LowerPoison, LowerSelect, LowerDestWrite>(converter, patterns.getContext(), layouts,
-                                                         runtime);
+               LowerPoison, LowerSelect, LowerDestWrite, LowerDestAnswer>(
+      converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

@@ -10,41 +10,73 @@
 #include "idr/IR/Symbols.h"
 #include "idr/Conversion/StaticData.h"
 
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/xxhash.h"
+
+#include <array>
+#include <cstring>
 
 using namespace mlir;
 
 namespace idr::conversion {
 
-std::string StaticNames::string(StringRef bytes) { return reservedName("str", digestOf(bytes)); }
+namespace {
 
-std::string StaticNames::big(BigAttr value) { return reservedName("big", canonicalHash(value)); }
-
-// A memo cell is one per value, as a force needs (it would otherwise run
-// and store the same value twice), and of a kind of its own, written once.
-// A spine run's later cells are named from the run's constant and the
-// cell's place in it, so a run of any length names each cell in one step.
-std::string StaticNames::cell(ConAttr con, unsigned k) {
-  StringRef kind = con.getData().memo() ? "caf" : "cell";
-  if (k == 0)
-    return reservedName(kind, canonicalHash(con));
-  std::string key;
-  llvm::raw_string_ostream(key) << canonicalHash(con) << "+" << k;
-  return reservedName(kind, digestOf(key));
+// A digest as a name's discriminator: 32 lower-case hex digits, the high
+// half first.
+std::string written(llvm::XXH128_hash_t digest) {
+  std::string text;
+  llvm::raw_string_ostream(text) << llvm::format_hex_no_prefix(digest.high64, 16)
+                                 << llvm::format_hex_no_prefix(digest.low64, 16);
+  return text;
 }
 
-// A constant array's name is its value's and type's canonical digests, so a
-// large constant is printed once.
+// The digest of bytes the datum holds as they are: a string's, a text's.
+llvm::XXH128_hash_t digestOf(StringRef bytes) {
+  return llvm::xxh3_128bits(reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size());
+}
+
+// The digest of two digests in order: what a datum made of two contents
+// is named by.
+llvm::XXH128_hash_t digestOf(llvm::XXH128_hash_t first, llvm::XXH128_hash_t second) {
+  std::array<uint64_t, 4> halves{first.high64, first.low64, second.high64, second.low64};
+  std::array<uint8_t, sizeof(halves)> bytes;
+  std::memcpy(bytes.data(), halves.data(), bytes.size());
+  return llvm::xxh3_128bits(bytes.data(), bytes.size());
+}
+
+} // namespace
+
+std::string StaticNames::string(StringRef bytes) {
+  return reservedName("str", written(digestOf(bytes)));
+}
+
+std::string StaticNames::big(BigAttr value) {
+  return reservedName("big", written(stableDigest(Attribute(value))));
+}
+
+// The cells after a run's first are named by the run's digest and their
+// place in it.
+std::string StaticNames::cell(ConAttr con, unsigned k) {
+  StringRef kind = con.getData().memo() ? "caf" : "cell";
+  std::string name = written(stableDigest(Attribute(con)));
+  if (k != 0)
+    name += "_" + std::to_string(k);
+  return reservedName(kind, name);
+}
+
 std::string StaticNames::array(memref::GlobalOp global) {
-  std::string key;
-  llvm::raw_string_ostream(key) << canonicalHash(Attribute(*global.getInitialValue())) << " : "
-                                << canonicalHash(Type(global.getType()));
-  return reservedName("array", digestOf(key));
+  return reservedName("array", written(digestOf(stableDigest(*global.getInitialValue()),
+                                                stableDigest(Type(global.getType())))));
 }
 
 std::string StaticNames::nothing() { return reservedName("nothing", "cell"); }
 
-std::string StaticNames::text(StringRef bytes) { return reservedName("text", digestOf(bytes)); }
+std::string StaticNames::text(StringRef bytes) {
+  return reservedName("text", written(digestOf(bytes)));
+}
 
 std::string StaticNames::homes() { return reservedName("homes", "cursors"); }
 

@@ -24,15 +24,11 @@ namespace idr::conversion {
 // What LLVM is told
 //===----------------------------------------------------------------------===//
 
-// Whether a function writes through a parameter whose memory its holder
-// alone reaches: then that argument's memory is written too, and nothing
-// else besides what its row says.
-enum class ParameterWrites : std::uint8_t { None, Some };
-
-// A function's facts from its row and its record: `memory`, `will_return`,
-// `no_unwind`, and `mustprogress`, `nofree` and `nosync` among its
-// passthrough attributes, each told unless an atom withholds it.
-void tellFunction(mlir::LLVM::LLVMFuncOp fn, effects::Row row, ParameterWrites writes);
+// A function's facts, as the effect system tells them of its row and its
+// record (rows::told): `memory`, `will_return`, `no_unwind`, and
+// `mustprogress`, `nofree` and `nosync` among its passthrough attributes,
+// each told unless an atom withholds it.
+void tellFunction(mlir::LLVM::LLVMFuncOp fn, const effects::Told &told);
 
 // A call's facts from the row it carries, made once where the row is a
 // constant of the op's class: what a call says itself, since linking the
@@ -51,11 +47,10 @@ void tellCall(mlir::LLVM::CallOp call, const CallFacts &facts);
 // The constructor a data type refined to one constructor names.
 inline Tag tagOf(DataType data) { return data.possibleTags().front(); }
 
-// The layout of a cell of `type`: its value's family's cell of the
-// constructor the value is refined to.
+// The layout of a cell of `type`: its family's cell of the constructor the
+// cell is for, both of which the cell's type says.
 inline const layout::Cell &cellLayoutOf(const Layouts &layouts, CellType type) {
-  auto data = mlir::cast<DataType>(type.getValue());
-  return layouts.cells(data).cell(tagOf(data));
+  return layouts.cells(type.getData()).cell(type.getTag());
 }
 
 //===----------------------------------------------------------------------===//
@@ -137,7 +132,8 @@ void populateFunctionPatterns(mlir::RewritePatternSet &patterns,
                               Runtime &runtime);
 
 // The patterns of the lifetimes' ops: the openers, this activation's
-// lifetime, the loan, the derived lifetimes, and the cells put into one.
+// lifetime, the loan, the derived lifetimes, the cells put into one, and
+// the pack and unpack that split a lifetime around a framed call.
 void populateLifetimePatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, const Layouts &layouts,
                               Runtime &runtime);
