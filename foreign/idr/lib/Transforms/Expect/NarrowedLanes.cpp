@@ -24,7 +24,7 @@ namespace {
 // computes on is the pass's one answer (laneWidth), an op on no lanes
 // counting none; 0 when none.
 unsigned widestLane(Operation *loop) {
-  llvm::DenseSet<Operation *> carried = narrow::accumulations(loop);
+  narrow::Accumulations carried(loop);
   unsigned bits = 0;
   loop->walk([&](Operation *op) {
     if (carried.contains(op))

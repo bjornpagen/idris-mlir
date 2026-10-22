@@ -442,9 +442,9 @@ static void stringsAndBignums(void) {
   check(live() == before, "a box releases the bignum and the string it owns");
 }
 
-/* What idr.take and idr.reuse do with a cell whose box dies: when it is
- * exclusive its fields move out with their references and its memory is
- * rewritten in place, or freed alone when nothing reuses it. */
+/* What count.take, cell.recycle and token.free do with a cell whose box
+ * dies: when it is exclusive its fields move out with their references and
+ * its memory is rewritten in place, or freed alone when nothing reuses it. */
 static void tokens(void) {
   uint64_t before = live();
   void *unique = cons(1, NULL), *shared = cons(2, NULL);
