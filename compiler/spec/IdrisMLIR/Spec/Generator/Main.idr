@@ -4,7 +4,8 @@
 ||| checks that the committed ones are what it would write. The one module
 ||| that does IO; what it writes is `generate`'s, a pure function. Both modes
 ||| fingerprint the specification's and the generator's sources, read in the
-||| order the package lists its modules, and the manifest holds them:
+||| order the package lists its modules, and the manifest holds them; both
+||| first fail, writing nothing, naming each thing the generator refuses:
 |||   specgen write <root>   rewrites each output whose bytes differ, and the manifest;
 |||   specgen check <root>   writes nothing, and fails naming each file that differs.
 module IdrisMLIR.Spec.Generator.Main
@@ -130,12 +131,21 @@ report (l :: ls) = do
   putStrLn l
   report ls
 
+||| Fails, naming each thing the generator refuses, where there is any.
+export
+refuse : List String -> IO ()
+refuse [] = pure ()
+refuse rs = do
+  report (map ("specgen: refused: " ++) rs)
+  exitWith (ExitFailure 1)
+
 export
 main : IO ()
 main = do
   args <- getArgs
   case args of
     [_, mode, root] => do
+      refuse refusals
       Right m <- manifestText root generate
         | Left e => do
             putStrLn ("specgen: " ++ e)

@@ -406,7 +406,7 @@ inlineMeaningsHeader ops =
 
 export
 guardText : Guard (Fin i) -> String
-guardText g = "::idr::Guard<::idr::" ++ opRefClass g.check ++ ", " ++ joinWith ", " (map (decimal . finToNat) (forget g.given)) ++ ">"
+guardText g = "::idr::Guard<" ++ opQualifiedClass g.check ++ ", " ++ joinWith ", " (map (decimal . finToNat) (toList g.given)) ++ ">"
 
 export
 guardedOf : AnyOp -> Lines
@@ -675,14 +675,38 @@ export
 effectRow : OdsEffect i o -> String
 effectRow e = "{" ++ kindId e.kind ++ ", " ++ resourceId e.resource ++ ", " ++ subjectText e.subject ++ "}"
 
+||| A typed rule as the table names it: its class over what it reads, one
+||| group or an operand group and a result group.
 export
 ruleType : OdsRule i o -> String
-ruleType r = "::idr::effects::" ++ identText r.rule ++ "<" ++ subjectText' r.subject ++ ">"
+ruleType r = "::idr::effects::" ++ identText r.rule ++ "<" ++ readsText r.reads ++ ">"
   where
     subjectText' : Subject i o -> String
     subjectText' OfOp = "::idr::effects::OnOp"
     subjectText' (OfOperand k) = "::idr::effects::OnOperand<" ++ decimal (finToNat k) ++ ">"
     subjectText' (OfResult k) = "::idr::effects::OnResult<" ++ decimal (finToNat k) ++ ">"
+    readsText : RuleReads i o -> String
+    readsText (ReadsOne s) = subjectText' s
+    readsText (ReadsPair g h) = subjectText' (OfOperand g) ++ ", " ++ subjectText' (OfResult h)
+
+||| A pair rule over a group that may hold other than one value, which the
+||| generator refuses: the C++ pairs each operand with the result at its
+||| position, so a group of any number, or of none, has no partner to read.
+||| Each is the op's name and the rule's.
+export
+unpairedRules : List AnyOp -> List (String, Ident)
+unpairedRules ops = concatMap unpaired ops
+  where
+    refused : Op i o a r -> OdsRule i o -> List (String, Ident)
+    refused op r = case r.reads of
+      ReadsOne _ => []
+      ReadsPair g h => case ((index g op.ins).arity, (index h op.outs).arity) of
+        (Single, Single) => []
+        _ => [(opName op, r.rule)]
+    unpaired : AnyOp -> List (String, Ident)
+    unpaired (SomeOp op) = case ods op.effects of
+      EveryEffect => []
+      Declares _ rules _ => concatMap (refused op) rules
 
 export
 declaredOf : AnyOp -> Lines
@@ -1148,14 +1172,13 @@ predicateDecl p =
   in slashComment [lineText p.doc.summary] ++ ["bool " ++ identText p.name ++ "(" ++ subject ++ " value);", ""]
 
 ||| A hand codec a type or an attribute names: of one value of a hand class
-||| (its spelling), of an array of a hand class's elements (the element's
-||| spelling), or of a wired value's text alone, each with its directive.
+||| (its spelling), or of a wired value's text alone, each with its
+||| directive.
 public export
-data Codec = ValueCodec Code Directive | ArrayCodec Code Directive | TextCodec Wired Directive
+data Codec = ValueCodec Code Directive | TextCodec Wired Directive
 
 codecDirective : Codec -> Directive
 codecDirective (ValueCodec _ d) = d
-codecDirective (ArrayCodec _ d) = d
 codecDirective (TextCodec _ d) = d
 
 ||| Every hand codec the types and attributes name, a list's elements' too,
@@ -1166,7 +1189,6 @@ codecsOf ts as = once [] (concatMap fromType ts ++ concatMap fromAttr as)
   where
     hand : ParamKind -> List Codec
     hand (HandValue c d) = [ValueCodec c d]
-    hand (HandArray c d) = [ArrayCodec c d]
     hand (WiredValue w d) = [TextCodec w d]
     hand (ListOf k) = hand k
     hand _ = []
@@ -1199,10 +1221,6 @@ bytecodeDecls owned held d =
 export
 codecDecls : Codec -> Lines
 codecDecls (ValueCodec c d) = textDecls (codeText c) (codeText c) d ++ bytecodeDecls (codeText c) (codeText c) d ++ [""]
-codecDecls (ArrayCodec c d) =
-  let held = "::llvm::ArrayRef<" ++ codeText c ++ ">"
-      owned = "::llvm::SmallVector<" ++ codeText c ++ ">"
-  in textDecls owned held d ++ bytecodeDecls owned held d ++ [""]
 -- A wired value's bytecode is its wire's, printed beside the readers that
 -- call it (Generated/Wire.cpp.inc); only its text is hand C++.
 codecDecls (TextCodec w d) = textDecls (wiredParsed w) (wiredHeld w) d ++ [""]

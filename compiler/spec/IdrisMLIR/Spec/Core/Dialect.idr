@@ -3,13 +3,16 @@
 ||| The dialects of the contract, once: ours and the upstream dialects whose
 ||| ops the specification admits (the frontend writes them, a pass reads
 ||| them, or an op of ours is defined in them, as the schedule's transform
-||| op is). The frontend's writer numbers dialects by this, the D51 backend
-||| prints one admitted record file per upstream dialect from it, and no
-||| dialect is named by a string anywhere else.
+||| op is). They are a closed set, so the frontend's writer numbers a
+||| dialect by its position and tells two apart by their values; the D51
+||| backend prints one admitted record file per upstream dialect from it,
+||| and no dialect is named by a string anywhere else.
 module IdrisMLIR.Spec.Core.Dialect
 
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Core.Enums
 
+import Data.List.Elem
 import Data.List1
 
 %default total
@@ -27,11 +30,6 @@ data Dialect
   | Bufferization
   | SCF
   | Transform
-
-||| Every dialect, in declaration order: the order the writer numbers them.
-public export
-dialects : List Dialect
-dialects = [Idr, Builtin, Arith, Math, MemRef, Tensor, UB, Linalg, Bufferization, SCF, Transform]
 
 ||| The dialect's namespace in the IR: `arith` in `arith.addi`.
 public export
@@ -117,7 +115,9 @@ bytecodeRecords SCF = Nothing
 bytecodeRecords Transform = Nothing
 
 ||| The dialect in an identifier: the admitted record file's and the Idris
-||| module's name, `IdrAdmittedArith.td`, `IdrisMLIR.Dialect.Arith`.
+||| module's name, `IdrAdmittedArith.td`, `IdrisMLIR.Dialect.Arith`, and the
+||| name of the dialect's constructor here, which the builders the D51
+||| backend prints name it by (`Dialect.Arith`).
 public export
 dialectName : Dialect -> Ident
 dialectName Idr = ident "Idr"
@@ -132,8 +132,45 @@ dialectName Bufferization = ident "Bufferization"
 dialectName SCF = ident "SCF"
 dialectName Transform = ident "Transform"
 
+||| Every dialect, a closed set in declaration order: a dialect's number is
+||| its position, its spelling its namespace.
+public export
+dialectClosed : Closed Dialect
+dialectClosed = MkClosed
+  { name = ident "Dialect"
+  , shape = OneOf
+  , every = Idr ::: [Builtin, Arith, Math, MemRef, Tensor, UB, Linalg, Bufferization, SCF, Transform]
+  , complete = \case
+      Idr => Here
+      Builtin => There Here
+      Arith => There (There Here)
+      Math => There (There (There Here))
+      MemRef => There (There (There (There Here)))
+      Tensor => There (There (There (There (There Here))))
+      UB => There (There (There (There (There (There Here)))))
+      Linalg => There (There (There (There (There (There (There Here))))))
+      Bufferization => There (There (There (There (There (There (There (There Here)))))))
+      SCF => There (There (There (There (There (There (There (There (There Here))))))))
+      Transform => There (There (There (There (There (There (There (There (There (There Here)))))))))
+  , describe = \d => MkCase (dialectName d) (namespaceWord d ::: []) (summaryOf d)
+  , doc = brief (line "a dialect whose ops the frontend writes, a pass reads or an op of ours is defined in")
+  }
+  where
+    summaryOf : Dialect -> Line
+    summaryOf Idr = line "ours"
+    summaryOf Builtin = line "upstream's builtin dialect"
+    summaryOf Arith = line "upstream's arith dialect"
+    summaryOf Math = line "upstream's math dialect"
+    summaryOf MemRef = line "upstream's memref dialect"
+    summaryOf Tensor = line "upstream's tensor dialect"
+    summaryOf UB = line "upstream's ub dialect"
+    summaryOf Linalg = line "upstream's linalg dialect"
+    summaryOf Bufferization = line "upstream's bufferization dialect"
+    summaryOf SCF = line "upstream's scf dialect"
+    summaryOf Transform = line "upstream's transform dialect"
+
 ||| The dialects whose ops the specification admits from upstream: every one
-||| but ours.
+||| but ours, which the set holds first.
 public export
 upstreamDialects : List Dialect
-upstreamDialects = [Builtin, Arith, Math, MemRef, Tensor, UB, Linalg, Bufferization, SCF, Transform]
+upstreamDialects = tail dialectClosed.every

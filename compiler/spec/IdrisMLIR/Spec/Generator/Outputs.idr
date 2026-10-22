@@ -9,6 +9,7 @@ module IdrisMLIR.Spec.Generator.Outputs
 import IdrisMLIR.Spec
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Pipeline.Pass
+import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Pipeline.Pipeline
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
@@ -130,11 +131,13 @@ admittedBaseTd : String
 admittedBaseTd =
   tdFile "IDR_GENERATED_ADMITTED_BASE" ["mlir/IR/OpBase.td"]
     [ "// A guard an admitted op takes, which its Idris builder gives with it:"
-    , "// the guard op's name, the positions among upstream's operand groups of"
-    , "// those it is given (the one it guards first), and the number of the"
-    , "// cause its crash names."
-    , "class IdrAdmittedGuard<string check, list<int> given, int cause> {"
-    , "  string guardOp = check;"
+    , "// the guard op's dialect, as the specification names it, and its name"
+    , "// there; the positions among upstream's operand groups of those it is"
+    , "// given (the one it guards first); and the number of the cause its"
+    , "// crash names."
+    , "class IdrAdmittedGuard<string dialect, string check, list<int> given, int cause> {"
+    , "  string guardDialect = dialect;"
+    , "  string guardName = check;"
     , "  list<int> operandGroups = given;"
     , "  int causeNumber = cause;"
     , "}"
@@ -154,11 +157,14 @@ admittedBaseTd =
     , "}"
     , "" ]
 
-||| A guard of an admitted op, as its record's argument.
+||| A guard of an admitted op, as its record's argument: its op by the
+||| dialect it is defined in and its name there, its groups, and its
+||| cause's position.
 admittedGuard : Guard Nat -> String
 admittedGuard g =
-  "IdrAdmittedGuard<" ++ quoted ("idr." ++ mnemonicText g.check) ++ ", ["
-    ++ joinWith ", " (map decimal (forget g.given)) ++ "], " ++ decimal (caseNumber g.cause) ++ ">"
+  "IdrAdmittedGuard<" ++ quoted (identText (dialectName (homeDialect g.check.home))) ++ ", "
+    ++ quoted (mnemonicText g.check.mnemonic) ++ ", ["
+    ++ joinWith ", " (map decimal (toList g.given)) ++ "], " ++ decimal (position causeClosed g.cause) ++ ">"
 
 export
 admittedRow : Admitted -> String
@@ -177,9 +183,9 @@ admittedRow a =
     bounds Always = ("Higher", "Lowered")
     bounds (Between f l _) = (name f, name l)
 
-||| Whether two dialects are one.
+||| Whether two dialects are one: their positions in the closed set.
 sameDialect : Dialect -> Dialect -> Bool
-sameDialect x y = identText (dialectName x) == identText (dialectName y)
+sameDialect x y = position dialectClosed x == position dialectClosed y
 
 ||| The ops the specification admits from a dialect, in declaration order.
 admittedOf : Dialect -> List Admitted
@@ -238,6 +244,15 @@ writtenDialectsList =
 export
 ourOps : List AnyOp
 ourOps = filter isOurs allOps
+
+||| What the generator refuses to print, said for the one who wrote the
+||| specification: each pair rule over a group that may hold other than one
+||| value.
+export
+refusals : List String
+refusals =
+  map (\(op, rule) => op ++ ": the pair rule " ++ identText rule ++ " reads a group that may hold other than one value")
+      (unpairedRules allOps)
 
 ||| Every op key: ours, then the admitted upstream allOps.
 export

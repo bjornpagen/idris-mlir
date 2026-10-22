@@ -16,6 +16,7 @@ module IdrisMLIR.Spec.Generator.Idris
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
+import IdrisMLIR.Spec.Runtime.Endings
 
 import Data.Fin
 import Data.List
@@ -109,15 +110,6 @@ concatList [] = "[]"
 concatList [x] = x
 concatList xs = joinWith " ++ " xs
 
-||| The position of a case among its enum's cases: its number.
-export
-caseNumber : CaseRef -> Nat
-caseNumber c = go 0 (forget c.enum.cases)
-  where
-    go : Nat -> List Case -> Nat
-    go n [] = n
-    go n (x :: xs) = if x.name == c.name then n else go (S n) xs
-
 ||| How many operands a group holds, as an expression over its binder.
 export
 groupLength : Operand -> String
@@ -146,42 +138,52 @@ segmentPairs op =
     stated FixedByCount _ _ = []
     stated SizesStated key lengths = ["[(" ++ quoted key ++ ", DenseI32ArrayAttr [" ++ joinWith ", " lengths ++ "])]"]
 
-||| The position among the op's operands of group `k`'s first: the number of
-||| operands the groups before it hold.
+||| An op's name as the frontend holds it: the dialect it is defined in,
+||| by the specification's value, and its name there.
 export
-offsetOf : List Operand -> Nat -> String
-offsetOf ins k = case map groupLength (take k ins) of
-  [] => "0"
-  ls => "(" ++ joinWith " + " ls ++ ")"
+opNameOf : Op i o a r -> String
+opNameOf op =
+  "(MkOpName Dialect." ++ identText (dialectName (homeDialect op.home)) ++ " " ++ quoted (mnemonicText op.mnemonic) ++ ")"
 
-||| A guard's rows as an expression of a list: the guard op is given the
-||| operands at the positions of the groups the guard names, which a
-||| group's binder decides where an earlier group holds any number. A group
-||| that holds any number, or none, guarded first, is guarded operand by
-||| operand, each against the same other operands: an index of each
-||| dimension against the array.
-export
-guardRows : Vect i Operand -> Guard (Fin i) -> String
-guardRows ins g =
-  let first = head g.given
-      others = map (\k => offsetOf (toList ins) (finToNat k)) (tail g.given)
-      at = offsetOf (toList ins) (finToNat first)
-      guarded = index first ins
-      check = quoted ("idr." ++ mnemonicText g.check)
-      cause = decimal (caseNumber g.cause)
-      each : String -> String
-      each operands = "map (\\p'' => MkGuard " ++ check ++ " (p'' :: [" ++ joinWith ", " others ++ "]) " ++ cause
-                      ++ ") (positions " ++ at ++ " " ++ operands ++ ")"
-  in case guarded.arity of
-       Single => "[MkGuard " ++ check ++ " [" ++ joinWith ", " (at :: others) ++ "] " ++ cause ++ "]"
-       Optional => each ("(toList " ++ primed guarded.name ++ ")")
-       Variadic => each (primed guarded.name)
+||| An expression as an argument: in parentheses where it is more than one
+||| word.
+argument : String -> String
+argument e = if any (== ' ') (unpack e) then "(" ++ e ++ ")" else e
+
+||| The indentation of a body's line `depth` guards in.
+padding : Nat -> String
+padding depth = pack (replicate (2 + 2 * depth) ' ')
+
+||| A partial op's body, `depth` guards in: each guard written as the check
+||| of the operand group it is given first, against the groups it is given
+||| after, its continuation binding that group's binder again to what the
+||| check gives, so every later guard and the op itself take the checked
+||| value; then the op `made`. A group of one operand is checked by
+||| `Checking`; one that holds any number, or none, by `checkingEach`,
+||| operand by operand against the same others, its binder then the list of
+||| what the checks give, which the op's operand list and a later guard
+||| read as a group's operands either way.
+guardedLines : Nat -> Vect i Operand -> List (Guard (Fin i)) -> String -> Lines
+guardedLines depth ins [] made = [padding depth ++ "Unguarded (" ++ made ++ ")" ++ pack (replicate depth ')')]
+guardedLines depth ins (g :: gs) made =
+  let checked = index (Vect.head g.given) ins
+      others = argument (concatList (map (\k => operandList (index k ins)) (toList (Vect.tail g.given))))
+      check = opNameOf g.check
+      cause = decimal (position causeClosed g.cause)
+      binder = primed checked.name
+      opening = case checked.arity of
+                  Single => "Checking " ++ check ++ " " ++ cause ++ " " ++ binder
+                  Optional => "checkingEach " ++ check ++ " " ++ cause ++ " (toList " ++ binder ++ ")"
+                  Variadic => "checkingEach " ++ check ++ " " ++ cause ++ " " ++ binder
+  in (padding depth ++ opening ++ " " ++ others ++ " (\\" ++ binder ++ " =>")
+     :: guardedLines (S depth) ins gs made
 
 ||| An op's builder: one argument per required attribute, operand group,
 ||| region group and result group, in that order, each attribute that may
 ||| be left out a named argument, nothing unless given; and the op it
-||| makes. A partial op's builder gives its guards with it, so it is never
-||| placed without them.
+||| makes. A partial op's builder gives its guards with it, each before the
+||| op as a guard to write and what follows given its result, so it is
+||| never placed without them.
 export
 builder : Op i o a r -> Lines
 builder op =
@@ -198,22 +200,23 @@ builder op =
       implicits = map (\x => "{default Nothing " ++ primed x.name ++ " : Maybe MlirAttr}") optional
       types = implicits ++ map attrType required ++ map (\x => operandType x.arity) ins
               ++ map (\x => regionType x.arity) regions ++ map (\x => resultType x.arity) outs
-      made = "MkOp " ++ quoted (opName op) ++ " (" ++ concatList (map operandList ins) ++ ") ("
+      made = "MkOp " ++ opNameOf op ++ " (" ++ concatList (map operandList ins) ++ ") ("
              ++ concatList (map attrPair attrs ++ segmentPairs op) ++ ") (" ++ concatList (map regionList regions) ++ ") [] ("
              ++ concatList (map resultList outs) ++ ")"
       (resultTy, body) = case op.guards of
-                           [] => ("Op", made)
-                           gs => ("Guarded", "MkGuarded (" ++ made ++ ") (" ++ concatList (map (guardRows op.ins) gs) ++ ")")
+                           [] => ("Op", ["  " ++ made])
+                           gs => ("Guarded", guardedLines 0 op.ins gs made)
   in barComment ["`" ++ opName op ++ "`: " ++ lineText op.doc.summary]
      ++ ["export", name ++ " : " ++ joinWith " -> " (types ++ [resultTy])]
-     ++ [name ++ spaced binders ++ " =", "  " ++ body, ""]
+     ++ [name ++ spaced binders ++ " ="] ++ body ++ [""]
 
 ||| Whether the frontend writes the op: its stages include the frontend's.
 export
 written : AnyOp -> Bool
 written (SomeOp op) = legalAt op.stages Higher
 
-||| The builders of every op the frontend writes, as one module.
+||| The builders of every op the frontend writes, as one module. A partial
+||| op's builder gives `Guarded`, which the frontend declares with its ops.
 export
 buildersModule : List AnyOp -> Lines
 buildersModule ops =
@@ -221,19 +224,10 @@ buildersModule ops =
   ++ barComment ["The idr dialect's ops the frontend writes, one builder each, printed"
                 , "from the dialect's specification."]
   ++ [ "module IdrisMLIR.Dialect.Idr", ""
-     , "import IdrisMLIR.MLIR", ""
+     , "import IdrisMLIR.MLIR"
+     , "import IdrisMLIR.Spec.Core.Dialect", ""
      , "import Data.Fin", "import Data.List", ""
      , "%default total", "" ]
-  ++ barComment ["A guard a partial op takes, built before it: the guard op's name, the"
-                , "positions among the op's operands of those it is given (the one it"
-                , "guards first), and the number of the cause its crash names."]
-  ++ [ "public export", "record Guard where", "  constructor MkGuard", "  check : String", "  given : List Nat", "  cause : Nat", "" ]
-  ++ barComment ["An op and the guards placed before it."]
-  ++ [ "public export", "record Guarded where", "  constructor MkGuarded", "  op : Op", "  guards : List Guard", "" ]
-  ++ barComment ["The positions of a group's operands, from its first's, by which a"
-                , "builder guards each operand of a group that holds any number; the"
-                , "admitted upstream ops' builders read it too."]
-  ++ [ "export", "positions : Nat -> List a -> List Nat", "positions _ [] = []", "positions p (_ :: xs) = p :: positions (S p) xs", "" ]
   ++ concatMap (\(SomeOp op) => builder op) (filter written ops)
 
 ------------------------------------------------------------------------------
@@ -284,6 +278,7 @@ export
 wiredIdris : Wired -> (ty, at : String) -> String
 wiredIdris (WiredArray w) ty at = "List (" ++ wireIdris w ty at ++ ")"
 wiredIdris (WiredOne l) ty at = leafIdris l ty at
+wiredIdris (WiredOf c) ty at = wireIdris (WireOf c) ty at
 
 ||| A leaf's parts, as an expression over its binder: as the C++ reader
 ||| reads it.
@@ -308,6 +303,7 @@ export
 wiredParts : Wired -> String -> String
 wiredParts (WiredArray w) v = wireParts (WireArray w) v
 wiredParts (WiredOne l) v = leafParts l v
+wiredParts (WiredOf c) v = wireParts (WireOf c) v
 
 ||| A leaf with what it holds numbered, as an expression over its binder in
 ||| the traversal's applicative: a type by `t`, an attribute by `a`.
@@ -328,6 +324,7 @@ export
 wiredTraversal : Wired -> String -> String
 wiredTraversal (WiredArray w) v = wireTraversal (WireArray w) v
 wiredTraversal (WiredOne l) v = leafTraversal l v
+wiredTraversal (WiredOf c) v = wireTraversal (WireOf c) v
 
 ||| A constructor's pattern over its binders, primed: its name alone, or in
 ||| parentheses with them.
@@ -474,7 +471,6 @@ paramIdrisType IntegerValue = "Integer"
 paramIdrisType CountValue = "Nat"
 paramIdrisType (ListOf k) = "List (" ++ paramIdrisType k ++ ")"
 paramIdrisType (HandValue _ _) = "List Part"
-paramIdrisType (HandArray _ _) = "List Part"
 paramIdrisType (WiredValue w _) = wiredIdris w "TypeRef" "AttrRef"
 
 ||| The parts of a value of a parameter's kind, as an expression over its
@@ -490,7 +486,6 @@ partsOf IntegerValue v = "[IntegerAt " ++ v ++ "]"
 partsOf CountValue v = "[VarInt " ++ v ++ "]"
 partsOf (ListOf k) v = "(VarInt (length " ++ v ++ ") :: concatMap (\\x' => " ++ partsOf k "x'" ++ ") " ++ v ++ ")"
 partsOf (HandValue _ _) v = v
-partsOf (HandArray _ _) v = v
 partsOf (WiredValue w _) v = wiredParts w v
 
 export
@@ -523,7 +518,6 @@ fieldType IntegerValue = "Integer"
 fieldType CountValue = "Nat"
 fieldType (ListOf k) = "List (" ++ fieldType k ++ ")"
 fieldType (HandValue _ _) = "List Part"
-fieldType (HandArray _ _) = "List Part"
 fieldType (WiredValue w _) = wiredIdris w "ty" "at"
 
 ||| A parameter's field with what it holds numbered, as an expression over
@@ -580,6 +574,25 @@ traverseSum sum defs =
       "traverse" ++ sum ++ " t a " ++ patternOf cls (map (\x => identText x.name) ps) ++ " = "
       ++ applied cls (map (\x => fieldTraversal x.kind (primed x.name)) ps)
 
+||| The mnemonics of a value sum's constructors, as a list in declaration
+||| order and by value: the frontend's syntax samples check every one is
+||| sampled, as they check the upstream dialects' sums.
+mnemonicsOf : (sum, stem, noun : String) -> List (String, String, List Parameter) -> Lines
+mnemonicsOf sum stem noun defs =
+  barComment ["The mnemonics of the dialect's " ++ noun ++ ", in declaration order."]
+  ++ [ "export", stem ++ "Mnemonics : List String"
+     , stem ++ "Mnemonics = [" ++ joinWith ", " (map (\(_, m, _) => quoted m) defs) ++ "]", "" ]
+  ++ barComment ["The mnemonic of each of the dialect's " ++ noun ++ "."]
+  ++ ["export", stem ++ "Mnemonic : " ++ sum ++ " ty at -> String"]
+  ++ map clause defs
+  ++ [""]
+  where
+    pattern : String -> List Parameter -> String
+    pattern cls [] = cls
+    pattern cls ps = "(" ++ cls ++ spaced (map (const "_") ps) ++ ")"
+    clause : (String, String, List Parameter) -> String
+    clause (cls, m, ps) = stem ++ "Mnemonic " ++ pattern cls ps ++ " = " ++ quoted m
+
 ||| The modules the closed sets of the parameters live in, each once: what
 ||| the encoders import to name their types and compute their positions.
 export
@@ -592,6 +605,7 @@ enumModules ps = go [] (concatMap (\x => homes x.kind) ps)
     homes (ListOf k) = homes k
     homes (WiredValue (WiredOne l) _) = leafHomes l
     homes (WiredValue (WiredArray w) _) = wireHomes w
+    homes (WiredValue (WiredOf c) _) = wireHomes (WireOf c)
     homes _ = []
     go : List String -> List String -> List String
     go _ [] = []
@@ -606,10 +620,10 @@ encodersModule ts as =
       modules = enumModules (concatMap snd types ++ concatMap snd attrs)
   in banner (map (\l => "-- " ++ l))
      ++ barComment ["The idr dialect's types and attributes as the frontend writes them:"
-                   , "their value sums, a closed set's value typed, and each one's bytecode"
-                   , "entry, its layout derived from its parameters as the C++ reader's is,"
-                   , "a closed set's value written as its position; printed from the"
-                   , "dialect's specification."]
+                   , "their value sums, a closed set's value typed, their mnemonics, and each"
+                   , "one's bytecode entry, its layout derived from its parameters as the C++"
+                   , "reader's is, a closed set's value written as its position; printed from"
+                   , "the dialect's specification."]
      ++ [ "module IdrisMLIR.Encoding.Idr", "", "import IdrisMLIR.MLIR.Parts"
         , "import IdrisMLIR.Encoding.Wire"
         , "import IdrisMLIR.Spec.Core.Enums" ]
@@ -617,6 +631,8 @@ encodersModule ts as =
      ++ [ "", "%default total", "" ]
      ++ valueSum "IdrType" "types" types
      ++ valueSum "IdrAttr" "attributes" attrs
+     ++ mnemonicsOf "IdrType" "idrType" "types" (map (\(SomeType t) => (typeClass t, mnemonicText t.mnemonic, toList t.params)) ts)
+     ++ mnemonicsOf "IdrAttr" "idrAttr" "attributes" (map (\(SomeAttr x) => (attrClass x, mnemonicText x.mnemonic, toList x.params)) as)
      ++ concatMap (\(n, (cls, ps)) => encoder "types" n cls ps) (numberedFrom 0 types)
      ++ concatMap (\(n, (cls, ps)) => encoder "attributes" n cls ps) (numberedFrom 0 attrs)
      ++ encodeSum "IdrType" types

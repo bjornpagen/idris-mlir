@@ -59,14 +59,23 @@ record OdsEffect (i, o : Nat) where
   resource : OdsResource
   subject : Subject i o
 
+||| What a typed rule reads: the values of one group, or the op; or an
+||| operand group's values and a result group's together, each operand
+||| with the result at its position.
+public export
+data RuleReads : (i, o : Nat) -> Type where
+  ReadsOne : Subject i o -> RuleReads i o
+  ReadsPair : Fin i -> Fin o -> RuleReads i o
+
 ||| A rule that gives an effect by a value's type (consumption of an owned
-||| operand, a fresh identity of a linear result): the hand C++ rule class
-||| in `::idr::effects` the generated table names, and the value it reads.
+||| operand, a fresh identity of a linear result), or by an operand's type
+||| and a result's together (a re-pack): the hand C++ rule class in
+||| `::idr::effects` the generated table names, and what it reads.
 public export
 record OdsRule (i, o : Nat) where
   constructor MkOdsRule
   rule : Ident
-  subject : Subject i o
+  reads : RuleReads i o
 
 ||| Whether the op's regions' effects are its own too (upstream's
 ||| `RecursiveMemoryEffects`).

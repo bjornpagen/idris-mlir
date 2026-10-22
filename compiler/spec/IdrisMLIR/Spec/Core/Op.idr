@@ -10,6 +10,7 @@
 module IdrisMLIR.Spec.Core.Op
 
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Spec.Core.Hooks
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Upstream
@@ -18,9 +19,9 @@ import IdrisMLIR.Spec.Core.Constraints
 import IdrisMLIR.Spec.Core.Format
 import IdrisMLIR.Spec.Core.Ods
 import IdrisMLIR.Spec.Core.Admitted
-import public IdrisMLIR.Spec.Core.Guard
 import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Spec.Effects.Declaration
+import IdrisMLIR.Spec.Runtime.Endings
 
 import Data.Fin
 import Data.List
@@ -154,6 +155,12 @@ sizedRegions n k = MkRegion n AnyRegions (Sized k)
 public export
 data Home = InIdr | InTransform CppName
 
+||| The dialect an op of ours is defined in, which its name is under.
+public export
+homeDialect : Home -> Dialect
+homeDialect InIdr = Idr
+homeDialect (InTransform _) = Transform
+
 ||| Another op of the dialect named by an op's trait: by its mnemonic,
 ||| whose class is ODS's default. A name, since two ops may name each other
 ||| (a match and its yield), which values cannot.
@@ -235,30 +242,6 @@ data Meaning : (i, o : Nat) -> Type where
   HandFolder : Meaning i o
   NoFold : Meaning i o
 
-||| A constant of an op's member of a C++ class template the generator
-||| specializes per op (its family's constants, its word op): a case of an
-||| enum of the specification's, in the namespace its header declares it
-||| in; an integer; an admitted upstream op's class; no class, where the
-||| member names none (a big op whose word is the value itself); or a
-||| runtime function the lowering calls, by the helper's row of the
-||| runtime's ABI (a show's writer).
-public export
-data Constant
-  = EnumConstant CaseRef
-  | IntConstant Integer
-  | UpstreamClass Admitted
-  | NoClass
-  | HelperConstant RuntimeHelper
-
-||| A class template of hand C++ in `::idr`, specialized for each op that
-||| is a member, its members the op's constants: the one carrier of a
-||| family's facts, and of membership itself.
-public export
-record Specialized where
-  constructor MkSpecialized
-  template : Ident
-  constants : List (Ident, Constant)
-
 ||| A constant a law names: an integer, or a string (the empty string is
 ||| `str.append`'s identity). Written as a literal of either kind.
 public export
@@ -313,31 +296,109 @@ distinct : List Ident -> Bool
 distinct [] = True
 distinct (x :: xs) = not (elem x xs) && distinct xs
 
+-- An op's guards are ops of ours, an admitted op takes guards too, and a
+-- constant of an op's names an admitted op: the four refer to each other,
+-- so they are declared together.
+mutual
+  ||| A guard a partial op takes, an op of ours or an admitted upstream one,
+  ||| which the frontend builds before the op from what the specification
+  ||| states, so no writer places it by hand and no op is written without
+  ||| it: the guard op itself, by its value; the guarded op's operand groups
+  ||| it is given, one per operand of the guard op, the first the one it
+  ||| checks and gives back; and the crash cause it names. A group is named
+  ||| by its position among the guarded op's operand groups, of the type
+  ||| `position`: a `Fin` for an op of ours, whose groups the specification
+  ||| holds; a number for an admitted op, whose groups are upstream's
+  ||| record's, so the backend that reads that record is where a position
+  ||| past its groups is refused.
+  public export
+  record Guard (position : Type) where
+    constructor MkGuard
+    ||| How many operands the guard op takes besides the one it checks.
+    {0 others : Nat}
+    check : Op (S others) 1 2 0
+    given : Vect (S others) position
+    cause : Cause
+
+  ||| An admitted op. Its alias names it among every admitted op of every
+  ||| dialect, where upstream's record names it only among its own dialect's
+  ||| (`scf.yield`'s record and `transform.yield`'s are both `YieldOp`): the
+  ||| C++ class, the per-op tables' key and the e-graph's kind read it, so it
+  ||| carries its dialect where the record does not (`SCF_YieldOp`, and
+  ||| `Arith_AddIOp` as the record already is). Its guards are what upstream
+  ||| leaves undefined and Idris crashes on (`arith.divui`'s zero divisor), as
+  ||| an op of ours states its own: each position is among upstream's operand
+  ||| groups. Its range is absent where upstream has no range function for it
+  ||| (`arith.cmpi` reads its predicate, `arith.select` is arith's own). Its
+  ||| folding says whether upstream's fold may run at compile time.
+  public export
+  record Admitted where
+    constructor MkAdmitted
+    dialect : Dialect
+    upstreamRecord : Ident
+    alias : Ident
+    legal : Legal
+    writer : Writer
+    guards : List (Guard Nat)
+    laws : List UpLaw
+    range : Maybe RangeFunction
+    folding : UpFold
+
+  ||| A constant of an op's member of a C++ class template the generator
+  ||| specializes per op (its family's constants, its word op): a case of an
+  ||| enum of the specification's, in the namespace its header declares it
+  ||| in; an integer; an admitted upstream op's class; no class, where the
+  ||| member names none (a big op whose word is the value itself); or a
+  ||| runtime function the lowering calls, by the helper's row of the
+  ||| runtime's ABI (a show's writer).
+  public export
+  data Constant : Type where
+    EnumConstant : CaseRef -> Constant
+    IntConstant : Integer -> Constant
+    UpstreamClass : Admitted -> Constant
+    NoClass : Constant
+    HelperConstant : RuntimeHelper -> Constant
+
+  ||| A class template of hand C++ in `::idr`, specialized for each op that
+  ||| is a member, its members the op's constants: the one carrier of a
+  ||| family's facts, and of membership itself.
+  public export
+  record Specialized where
+    constructor MkSpecialized
+    template : Ident
+    constants : List (Ident, Constant)
+
+  public export
+  record Op (i, o, a, r : Nat) where
+    constructor MkOp
+    home : Home
+    mnemonic : Mnemonic
+    ins : Vect i Operand
+    outs : Vect o Result
+    attrs : Vect a Attr
+    regions : Vect r Region
+    traits : List (Trait i o)
+    interfaces : List InterfaceUse
+    effects : Declaration i o
+    speculation : Speculation
+    stages : Legal
+    meaning : Meaning i o
+    verify : Verify
+    format : Format i o a r
+    builders : List Builder
+    defaultBuilders : DefaultBuilders
+    members : List Member
+    guards : List (Guard (Fin i))
+    specializations : List Specialized
+    laws : List Law
+    doc : Doc
+    {auto 0 named : So (distinct (groupNames ins outs attrs regions))}
+
+||| The admitted op's name in the C++ table the backend prints:
+||| `::idr::admitted::SCF_YieldOp`, an alias of upstream's class.
 public export
-record Op (i, o, a, r : Nat) where
-  constructor MkOp
-  home : Home
-  mnemonic : Mnemonic
-  ins : Vect i Operand
-  outs : Vect o Result
-  attrs : Vect a Attr
-  regions : Vect r Region
-  traits : List (Trait i o)
-  interfaces : List InterfaceUse
-  effects : Declaration i o
-  speculation : Speculation
-  stages : Legal
-  meaning : Meaning i o
-  verify : Verify
-  format : Format i o a r
-  builders : List Builder
-  defaultBuilders : DefaultBuilders
-  members : List Member
-  guards : List (Guard (Fin i))
-  specializations : List Specialized
-  laws : List Law
-  doc : Doc
-  {auto 0 named : So (distinct (groupNames ins outs attrs regions))}
+admittedAlias : Admitted -> String
+admittedAlias a = "::idr::admitted::" ++ identText a.alias
 
 ||| An op of any counts, as a list of the dialect's holds them.
 public export

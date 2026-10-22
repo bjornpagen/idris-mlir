@@ -234,7 +234,6 @@ odsBaseIncludes =
   , "mlir/IR/SymbolInterfaces.td"
   , "mlir/IR/BuiltinAttributes.td"
   , "mlir/IR/BuiltinTypeInterfaces.td"
-  , "mlir/IR/OpAsmInterface.td"
   , "mlir/Interfaces/SideEffectInterfaces.td"
   , "mlir/Interfaces/ControlFlowInterfaces.td"
   ]

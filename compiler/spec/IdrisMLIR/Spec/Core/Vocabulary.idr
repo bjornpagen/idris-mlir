@@ -16,7 +16,6 @@ import public IdrisMLIR.Spec.Core.Types
 import public IdrisMLIR.Spec.Core.Constraints
 import public IdrisMLIR.Spec.Core.Format
 import public IdrisMLIR.Spec.Core.Ods
-import public IdrisMLIR.Spec.Core.Guard
 import public IdrisMLIR.Spec.Core.Admitted
 import public IdrisMLIR.Spec.Core.Op
 import public IdrisMLIR.Spec.Core.Rewrite

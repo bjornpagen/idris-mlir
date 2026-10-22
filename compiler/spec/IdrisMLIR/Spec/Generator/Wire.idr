@@ -74,6 +74,7 @@ wiredOf ts as = once [] (concatMap (\x => wiredOfKind x.kind) (paramsOf ts as))
 wiredComposites : Wired -> List Composite
 wiredComposites (WiredArray w) = wireComposites w
 wiredComposites (WiredOne _) = []
+wiredComposites (WiredOf c) = wireComposites (WireOf c)
 
 ||| Every composite the dialect's parameters reach, once, each after every
 ||| composite it holds: one codec each, and one type on the frontend's side.
@@ -113,6 +114,7 @@ export
 wiredHeld : Wired -> String
 wiredHeld (WiredArray w) = "::llvm::ArrayRef<" ++ wireCpp w ++ ">"
 wiredHeld (WiredOne l) = leafCpp l
+wiredHeld (WiredOf c) = codeText (compositeCpp c)
 
 ||| What a wired parameter's reader fills: an array's values with the arena
 ||| that keeps what they view, until the builder it is given to has made
@@ -121,41 +123,11 @@ export
 wiredRead : Wired -> String
 wiredRead (WiredArray w) = "Kept<" ++ wireCpp w ++ ">"
 wiredRead (WiredOne l) = leafCpp l
+wiredRead (WiredOf c) = codeText (compositeCpp c)
 
 ------------------------------------------------------------------------------
 -- C++ codecs
 ------------------------------------------------------------------------------
-
-||| Whether reading a value keeps an array, which then needs the arena the
-||| reading is given: a composite whose parts hold none is read without one.
-data Keeping = KeepsArrays | KeepsNothing
-
-both : Keeping -> Keeping -> Keeping
-both KeepsNothing k = k
-both KeepsArrays _ = KeepsArrays
-
-mutual
-  wireKeeping : Wire -> Keeping
-  wireKeeping (WireLeaf _) = KeepsNothing
-  wireKeeping (WireArray _) = KeepsArrays
-  wireKeeping (WireOf (MkComposite _ _ b _)) = bodyKeeping b
-
-  bodyKeeping : CompositeBody -> Keeping
-  bodyKeeping (Fields fs) = fieldsKeeping fs
-  bodyKeeping (Flat _ _ cases) = casesKeeping cases
-  bodyKeeping (Variant _ alternatives) = alternativesKeeping alternatives
-
-  fieldsKeeping : List WireField -> Keeping
-  fieldsKeeping [] = KeepsNothing
-  fieldsKeeping (MkWireField _ w :: fs) = both (wireKeeping w) (fieldsKeeping fs)
-
-  casesKeeping : List (List WireField) -> Keeping
-  casesKeeping [] = KeepsNothing
-  casesKeeping (fs :: rest) = both (fieldsKeeping fs) (casesKeeping rest)
-
-  alternativesKeeping : List Composite -> Keeping
-  alternativesKeeping [] = KeepsNothing
-  alternativesKeeping (MkComposite _ _ b _ :: rest) = both (bodyKeeping b) (alternativesKeeping rest)
 
 ||| What a wired parameter's text parser gives: the vector that owns an
 ||| array's values, which the storage copies; or, where the values view
@@ -167,6 +139,7 @@ wiredParsed (WiredArray w) = case wireKeeping w of
   KeepsArrays => "::llvm::ArrayRef<" ++ wireCpp w ++ ">"
   KeepsNothing => "::llvm::SmallVector<" ++ wireCpp w ++ ">"
 wiredParsed (WiredOne l) = leafCpp l
+wiredParsed (WiredOf c) = codeText (compositeCpp c)
 
 ||| A composite's codec's name, `read<Name>` and `write<Name>`.
 codecName : Composite -> String
@@ -367,6 +340,16 @@ wiredCodec (WiredOne l, d) =
         , "void write" ++ name ++ "(::mlir::DialectBytecodeWriter &writer, " ++ leafCpp l ++ " value) {" ]
      ++ indent 2 (leafWriter l "value")
      ++ [ "}", "" ]
+-- One composite's value is read and written by its own codec, which holds
+-- no array, so its reader takes no arena.
+wiredCodec (WiredOf c, d) =
+  let name = identText d.name
+      cls = codeText (compositeCpp c)
+  in slashComment [lineText d.doc.summary]
+     ++ [ "::mlir::LogicalResult read" ++ name ++ "(::mlir::DialectBytecodeReader &reader, " ++ cls ++ " &value) {"
+        , "  return read" ++ codecName c ++ "(reader, value);", "}", ""
+        , "void write" ++ name ++ "(::mlir::DialectBytecodeWriter &writer, " ++ cls ++ " value) {"
+        , "  write" ++ codecName c ++ "(writer, value);", "}", "" ]
 
 ||| Every composite's codec, then every wired parameter's, as the dialect's
 ||| bytecode unit includes them before the readers mlir-tblgen writes: the

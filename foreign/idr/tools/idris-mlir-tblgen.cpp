@@ -12,8 +12,9 @@
 //   attributes with the printers of the syntax ODS declares for them
 //   (compiler/src/IdrisMLIR/Syntax/).
 // - -gen-idris-dialect, a builder of each admitted op the frontend writes,
-//   a guarded op's with the guards its admitted record gives it
-//   (compiler/src/IdrisMLIR/Dialect/).
+//   a guarded op's with the guards its admitted record gives it, and, for a
+//   dialect whose syntax holds its attributes, the smart constructor that
+//   spells one (compiler/src/IdrisMLIR/Dialect/).
 // - -gen-idris-bytecode, an upstream dialect's bytecode entries for the
 //   Idris writer, from its records in upstream's bytecode DSL
 //   (compiler/src/IdrisMLIR/Encoding/).
@@ -122,14 +123,15 @@ std::string camel(StringRef name, bool upper) {
 // parameter of one of these names would hide it. `t` and `a` are the
 // printers of the types and attributes a type or an attribute holds, `ty`
 // and `at` the types of them; `os`, `rs` and `rest` what a primitive's
-// clause binds of its operands and results.
+// clause binds of its operands and results; `checkingEach` what a guarded
+// builder checks a group of any number by.
 bool isUsedInBodies(StringRef name) {
   static constexpr StringRef names[] = {
       "concat", "toList",    "length",    "map",       "show",   "unitIf",
       "attrIf", "commaSeparated", "v",    "t",         "a",      "ty",
       "at",     "fastConcat", "maybe",    "null",      "symbol", "symbolRef",
       "utf8",   "array",     "signature", "separated", "minus",  "iterateN",
-      "os",     "rs",        "rest",      "positions"};
+      "os",     "rs",        "rest",      "checkingEach"};
   return llvm::is_contained(names, name);
 }
 
@@ -170,6 +172,12 @@ std::string literal(StringRef text) {
     out += c;
   }
   return out + "\"";
+}
+
+// The last name of a dotted module name.
+StringRef lastName(StringRef module) {
+  size_t dot = module.rfind('.');
+  return dot == StringRef::npos ? module : module.drop_front(dot + 1);
 }
 
 // A summary as one line of documentation.
@@ -695,25 +703,31 @@ std::string valuesType(StringRef single, char arity) {
 // Builders
 //===----------------------------------------------------------------------===//
 
-// The guards the specification gives an admitted op, as the list its
-// builder returns with it: each guard op given the operands at the positions
-// of the groups the guard names, a group's first operand at the number of
-// operands the groups before it hold. A group that holds any number, or
-// none, guarded first, is guarded operand by operand, each against the same
-// other operands. The specification cannot know upstream's operand groups,
-// so a position past them is refused here, where the record is read.
-std::string guardsOf(const Operator &op, const llvm::Record &admitted,
-                     const std::vector<std::pair<std::string, char>> &operands) {
-  auto offsetOf = [&](std::size_t group) {
-    std::vector<std::string> lengths;
-    for (const auto &[name, partArity] : llvm::ArrayRef(operands).take_front(group))
-      lengths.push_back(partArity == '1'   ? std::string("1")
-                        : partArity == '?' ? "length (toList " + name + ")"
-                                           : "length " + name);
-    return lengths.empty() ? std::string("0") : "(" + llvm::join(lengths, " + ") + ")";
-  };
-  std::vector<std::string> lists;
-  for (const llvm::Record *guard : admitted.getValueAsListOfDefs("guards")) {
+// The name of the dialect the Idris module is of, as the specification's
+// closed set of dialects names it: the module's last name, which the
+// specification gives as the dialect's constructor (`Dialect.Arith`).
+std::string dialectConstructor() { return ("Dialect." + lastName(moduleName)).str(); }
+
+// The body of an admitted op's builder, `made` the op: its guards, each
+// written before the op as the check of the operand group the guard is
+// given first, against the groups it is given after, its continuation
+// binding that group's parameter again to what the check gives, so every
+// later guard and the op itself take the checked value; then the op. A
+// group of one operand is checked by `Checking`; one that holds any number,
+// or none, by `checkingEach`, operand by operand against the same others,
+// its parameter then the list of what the checks give, which the op's
+// operand list and a later guard read as a group's operands either way.
+// The specification cannot know upstream's operand groups, so a position
+// past them is refused here, where the record is read.
+std::string guardedBody(const Operator &op,
+                        llvm::ArrayRef<const llvm::Record *> guards,
+                        const std::vector<std::pair<std::string, char>> &operands,
+                        const std::string &made) {
+  if (guards.empty())
+    return "  " + made + "\n";
+  std::string body;
+  std::size_t depth = 0;
+  for (const llvm::Record *guard : guards) {
     std::vector<std::int64_t> given = guard->getValueAsListOfInts("operandGroups");
     if (given.empty() || llvm::any_of(given, [&](std::int64_t group) {
           return group < 0 || static_cast<std::uint64_t>(group) >= operands.size();
@@ -721,23 +735,24 @@ std::string guardsOf(const Operator &op, const llvm::Record &admitted,
       llvm::PrintFatalError(op.getLoc(), op.getOperationName() +
                                              " has a guard whose operand groups are not among "
                                              "its record's");
-    std::string check = literal(guard->getValueAsString("guardOp"));
+    std::string check = "(MkOpName Dialect." + guard->getValueAsString("guardDialect").str() +
+                        ' ' + literal(guard->getValueAsString("guardName")) + ")";
     std::string cause = std::to_string(guard->getValueAsInt("causeNumber"));
-    std::vector<std::string> others;
+    std::vector<std::pair<std::string, char>> others;
     for (std::int64_t group : llvm::ArrayRef(given).drop_front())
-      others.push_back(offsetOf(group));
-    const auto &[guarded, guardedArity] = operands[given.front()];
-    std::string at = offsetOf(given.front());
-    if (guardedArity == '1') {
-      others.insert(others.begin(), at);
-      lists.push_back("[MkGuard " + check + " [" + llvm::join(others, ", ") + "] " + cause + "]");
-      continue;
-    }
-    lists.push_back("map (\\p'' => MkGuard " + check + " (p'' :: [" + llvm::join(others, ", ") +
-                    "]) " + cause + ") (positions " + at + " " +
-                    (guardedArity == '?' ? "(toList " + guarded + ")" : guarded) + ")");
+      others.push_back(operands[group]);
+    const auto &[checked, checkedArity] = operands[given.front()];
+    std::string opening = checkedArity == '1'   ? "Checking " + check + ' ' + cause + ' ' + checked
+                          : checkedArity == '?' ? "checkingEach " + check + ' ' + cause +
+                                                      " (toList " + checked + ")"
+                                                : "checkingEach " + check + ' ' + cause + ' ' +
+                                                      checked;
+    body += std::string(2 + 2 * depth, ' ') + opening + ' ' + listOf(others) + " (\\" + checked +
+            " =>\n";
+    ++depth;
   }
-  return lists.empty() ? std::string() : llvm::join(lists, " ++ ");
+  return body + std::string(2 + 2 * depth, ' ') + "Unguarded (" + made + ")" +
+         std::string(depth, ')') + "\n";
 }
 
 // The builder of an upstream op the frontend writes: one argument per
@@ -820,9 +835,10 @@ void emitOp(Enums &enums, const Operator &op, const llvm::Record &admitted,
     properties.emplace_back(
         llvm::formatv("(\"resultSegmentSizes\", {0})", segments(results)).str(), true);
 
-  std::string made = "MkOp " + literal(operationName) + ' ' + listOf(operands) + ' ' +
-                     dictionaryOf(properties) + ' ' + listOf(regions) + " [] " + listOf(results);
-  std::string guards = guardsOf(op, admitted, operands);
+  std::string made = "MkOp (MkOpName " + dialectConstructor() + ' ' + literal(mnemonic) + ") " +
+                     listOf(operands) + ' ' + dictionaryOf(properties) + ' ' + listOf(regions) +
+                     " [] " + listOf(results);
+  std::vector<const llvm::Record *> guards = admitted.getValueAsListOfDefs("guards");
   os << "||| `" << op.getOperationName() << "`" << summary(op.getSummary());
   os << "\nexport\n" << name << " : ";
   for (const Parameter &p : implicits)
@@ -832,10 +848,7 @@ void emitOp(Enums &enums, const Operator &op, const llvm::Record &admitted,
   os << (guards.empty() ? "Op" : "Guarded") << "\n" << name;
   for (const Parameter &p : explicits)
     os << ' ' << p.name;
-  if (guards.empty())
-    os << " =\n  " << made << "\n\n";
-  else
-    os << " =\n  MkGuarded (" << made << ") (" << guards << ")\n\n";
+  os << " =\n" << guardedBody(op, guards, operands, made) << "\n";
 }
 
 //===----------------------------------------------------------------------===//
@@ -1312,12 +1325,6 @@ Written<Def> defOf(Enums &enums, const AttrOrTypeDef &def, bool isType, StringRe
   });
 }
 
-// The last name of a dotted module name.
-StringRef lastName(StringRef module) {
-  size_t dot = module.rfind('.');
-  return dot == StringRef::npos ? module : module.drop_front(dot + 1);
-}
-
 //===----------------------------------------------------------------------===//
 // The Idris modules
 //===----------------------------------------------------------------------===//
@@ -1448,16 +1455,37 @@ bool emitIdrisSyntax(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
   return false;
 }
 
+// The smart constructor of a dialect's attributes, where its syntax holds
+// them in a sum: an attribute spelled as the syntax writes it, under the
+// dialect, so no writer spells one by hand and none is spelled under
+// another dialect.
+std::string spelledAttributes(const Vocabulary &v) {
+  if (v.attrs.empty())
+    return "";
+  std::string lower = camel(dialectName, false);
+  std::string sum = (lastName(moduleName) + "Attr").str();
+  return llvm::formatv("||| An attribute of the {0} dialect, spelled as its syntax writes it.\n"
+                       "export\n"
+                       "{1} : {2} MlirType MlirAttr -> MlirAttr\n"
+                       "{1} x = Spelled {3} (MkSpelling ({1}AttrText typeText attrText x))\n\n",
+                       dialectName.getValue(), lower, sum, dialectConstructor())
+      .str();
+}
+
 bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
   if (syntaxModuleName.empty())
     llvm::PrintFatalError("-gen-idris-dialect needs -idris-syntax-module");
   Vocabulary v = read(records, "gen-idris-dialect");
   writeLicense(os);
   os << "||| The " << dialectName << " dialect's ops the frontend writes, as the Idris side\n"
-     << "||| builds them: one builder per op the specification admits. Generated by\n"
-     << "||| idris-mlir-tblgen -gen-idris-dialect from upstream's ODS. Do not edit.\n"
-     << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR\nimport IdrisMLIR.Dialect.Idr\nimport "
+     << "||| builds them: one builder per op the specification admits, and the\n"
+     << "||| smart constructor of its attributes where its syntax holds them.\n"
+     << "||| Generated by idris-mlir-tblgen -gen-idris-dialect from upstream's ODS.\n"
+     << "||| Do not edit.\n"
+     << "module " << moduleName
+     << "\n\nimport IdrisMLIR.MLIR\nimport IdrisMLIR.Spec.Core.Dialect\nimport "
      << syntaxModuleName << "\n\nimport Data.List\n\n%default total\n\n";
+  section(os, "Attributes", spelledAttributes(v));
   section(os, "Ops", v.ops);
   return false;
 }

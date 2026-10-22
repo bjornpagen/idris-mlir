@@ -106,11 +106,63 @@ public export
 variant : (c : Closed a) -> (a -> Composite) -> CompositeBody
 variant c alternative = Variant (enumDef c) (map alternative (forget c.every))
 
+||| Whether reading a value keeps an array, which then needs an arena that
+||| outlives the reading: a composite whose parts hold none is read without
+||| one.
+public export
+data Keeping = KeepsArrays | KeepsNothing
+
+||| What two parts' readings keep together.
+public export
+keepingOfBoth : Keeping -> Keeping -> Keeping
+keepingOfBoth KeepsNothing k = k
+keepingOfBoth KeepsArrays _ = KeepsArrays
+
+mutual
+  public export
+  wireKeeping : Wire -> Keeping
+  wireKeeping (WireLeaf _) = KeepsNothing
+  wireKeeping (WireArray _) = KeepsArrays
+  wireKeeping (WireOf (MkComposite _ _ b _)) = bodyKeeping b
+
+  public export
+  bodyKeeping : CompositeBody -> Keeping
+  bodyKeeping (Fields fs) = fieldsKeeping fs
+  bodyKeeping (Flat _ _ cases) = casesKeeping cases
+  bodyKeeping (Variant _ alternatives) = alternativesKeeping alternatives
+
+  public export
+  fieldsKeeping : List WireField -> Keeping
+  fieldsKeeping [] = KeepsNothing
+  fieldsKeeping (MkWireField _ w :: fs) = keepingOfBoth (wireKeeping w) (fieldsKeeping fs)
+
+  public export
+  casesKeeping : List (List WireField) -> Keeping
+  casesKeeping [] = KeepsNothing
+  casesKeeping (fs :: rest) = keepingOfBoth (fieldsKeeping fs) (casesKeeping rest)
+
+  public export
+  alternativesKeeping : List Composite -> Keeping
+  alternativesKeeping [] = KeepsNothing
+  alternativesKeeping (MkComposite _ _ b _ :: rest) = keepingOfBoth (bodyKeeping b) (alternativesKeeping rest)
+
+||| Whether reading a composite keeps an array.
+public export
+compositeKeeping : Composite -> Keeping
+compositeKeeping (MkComposite _ _ b _) = bodyKeeping b
+
 ||| What a wired parameter holds, as its storage keeps it: an array of a
 ||| wire's values, read into the arena that keeps every array they view
-||| until the storage copies them; or one leaf, which views nothing.
+||| until the storage copies them; one leaf, which views nothing; or one
+||| composite's value, held and read as its C++ class (a struct, a flat
+||| struct over a closed set, or a variant whose alternatives carry fields
+||| or none), which holds no array, so it too views nothing and its reading
+||| needs no arena.
 public export
-data Wired = WiredArray Wire | WiredOne Leaf
+data Wired : Type where
+  WiredArray : Wire -> Wired
+  WiredOne : Leaf -> Wired
+  WiredOf : (c : Composite) -> {auto 0 viewsNothing : compositeKeeping c = KeepsNothing} -> Wired
 
 ------------------------------------------------------------------------------
 -- Parameters
@@ -122,12 +174,11 @@ data Wired = WiredArray Wire | WiredOne Leaf
 ||| of one held in a hand class over its cases (the class's spelling), or
 ||| none, a string, an integer of any width, a 64-bit count, a list of any
 ||| of these, a C++ value of a hand class (its spelling and the custom
-||| directive that reads and writes it), an array of a hand class's
-||| elements (the element's spelling and the directive), or a value a wire
-||| lays out (its text the directive's, its bytecode printed for both
-||| sides from the wire). An array is held as a view and read into the
-||| vector that owns its elements until the storage copies them, so no
-||| reader interns what it read to have somewhere to keep it. A case held
+||| directive that reads and writes it), or a value a wire lays out (its
+||| text the directive's, its bytecode printed for both sides from the
+||| wire). An array is held as a view and read into the vector that owns
+||| its elements until the storage copies them, so no reader interns what
+||| it read to have somewhere to keep it. A case held
 ||| in a class is written as zero for none, else one more than the case's
 ||| position, by a codec generated for both sides; the class gives its case
 ||| and is made from one.
@@ -142,7 +193,6 @@ data ParamKind
   | CountValue
   | ListOf ParamKind
   | HandValue Code Directive
-  | HandArray Code Directive
   | WiredValue Wired Directive
 
 ||| Whether a parameter is always written, or has a default that the

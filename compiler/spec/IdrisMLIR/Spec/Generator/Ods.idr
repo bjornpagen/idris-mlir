@@ -585,7 +585,6 @@ paramCppType IntegerValue = "::llvm::APInt"
 paramCppType CountValue = "uint64_t"
 paramCppType (ListOf k) = "::llvm::ArrayRef<" ++ paramCppType k ++ ">"
 paramCppType (HandValue c _) = codeText c
-paramCppType (HandArray c _) = "::llvm::ArrayRef<" ++ codeText c ++ ">"
 paramCppType (WiredValue w _) = wiredHeld w
 
 export
@@ -600,12 +599,12 @@ paramKindOds CountValue = "\"uint64_t\""
 paramKindOds (ListOf k) = "ArrayRefParameter<" ++ quoted (paramCppType k) ++ ", \"\">"
 paramKindOds (HandValue c d) =
   "Idr_HandParameter<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
-paramKindOds (HandArray c d) =
-  "Idr_HandArrayParameter<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
 paramKindOds (WiredValue (WiredArray w) d) =
   "Idr_HandArrayParameter<" ++ quoted (wireCpp w) ++ ", " ++ quoted (identText d.name) ++ ">"
 paramKindOds (WiredValue (WiredOne l) d) =
   "Idr_HandParameter<" ++ quoted (leafCpp l) ++ ", " ++ quoted (identText d.name) ++ ">"
+paramKindOds (WiredValue (WiredOf c) d) =
+  "Idr_HandParameter<" ++ quoted (codeText (compositeCpp c)) ++ ", " ++ quoted (identText d.name) ++ ">"
 
 export
 parameterOds : Parameter -> String
@@ -851,8 +850,8 @@ baseClasses =
   , "  let printer = \"::idr::print\" # directive # \"($_printer, $_self)\";"
   , "}"
   , ""
-  , "// An array of a hand class's elements: held as a view the storage copies,"
-  , "// parsed into the vector that owns them."
+  , "// An array of a wire's values: held as a view the storage copies, parsed"
+  , "// into the vector that owns them."
   , "class Idr_HandArrayParameter<string element, string directive>"
   , "    : ArrayRefParameter<element, \"\"> {"
   , "  let parser = \"::idr::parse\" # directive # \"($_parser)\";"
