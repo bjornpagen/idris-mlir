@@ -168,6 +168,18 @@ export
 familyParam : Directive
 familyParam = MkDirective "FamilyRef" [] (brief "a family, by its alias")
 
+||| A member's position in its group, `1`, in 32 bits, as every builder,
+||| reader and wire of a member holds it; its text is printed after `at`.
+export
+memberParam : Directive
+memberParam = MkDirective "MemberPosition" [] (brief "a member's position in its group: `1`")
+
+||| A member of a group, by its position: what a data type and a member of
+||| the group being declared name.
+export
+memberPositionKind : ParamKind
+memberPositionKind = WiredValue (WiredOne LeafWord32) memberParam
+
 ||| A data type, a constant's, by its entry.
 export
 dataParam : Directive

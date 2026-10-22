@@ -23,23 +23,19 @@ FamilyAttr idr::readFamily(DialectBytecodeReader &reader, MLIRContext *context,
   return FamilyAttr::getChecked([&] { return reader.emitError(); }, context, members);
 }
 
+// A member is read in 32 bits by its wire's codec, which refuses a wider
+// number, so what is checked here is that the family has it.
 DataType idr::readDataType(DialectBytecodeReader &reader, MLIRContext *, FamilyAttr group,
-                           uint64_t member, ArrayRef<TermNode> indices,
+                           uint32_t member, ArrayRef<TermNode> indices,
                            DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
-  if (member > UINT32_MAX) {
-    reader.emitError() << "expects a member of the family, got " << member;
-    return {};
-  }
-  return DataType::getNormalized([&] { return reader.emitError(); }, group,
-                                 static_cast<uint32_t>(member), indices, refinement, binders);
+  return DataType::getNormalized([&] { return reader.emitError(); }, group, member, indices,
+                                 refinement, binders);
 }
 
-SelfType idr::readSelf(DialectBytecodeReader &reader, MLIRContext *context, uint64_t member,
+// Which group the member is of is the declaration's that holds it, which
+// the family's own verifier checks.
+SelfType idr::readSelf(DialectBytecodeReader &, MLIRContext *context, uint32_t member,
                        ArrayRef<TermNode> indices) {
-  if (member > UINT32_MAX) {
-    reader.emitError() << "expects a member of the group, got " << member;
-    return {};
-  }
   return SelfType::get(context, member, indices);
 }
 

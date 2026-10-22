@@ -19,7 +19,7 @@ using namespace idr::families;
 
 void DataType::print(AsmPrinter &printer) const {
   FamilyAttr group = getGroup();
-  auto member = static_cast<uint32_t>(getMember());
+  uint32_t member = getMember();
   printer << '<';
   printer.printAttribute(group);
   if (member != 0)

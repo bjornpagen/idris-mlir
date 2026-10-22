@@ -296,8 +296,7 @@ idr::detail::FamilyAttrStorage::construct(AttributeStorageAllocator &allocator, 
           SmallVector<MemberRef> reached;
           switch (fieldReach(field)) {
           case FieldReach::OwnFamily:
-            reached.push_back(
-                {Attribute(), static_cast<uint32_t>(cast<SelfType>(valueOf(field)).getMember())});
+            reached.push_back({Attribute(), cast<SelfType>(valueOf(field)).getMember()});
             break;
           case FieldReach::InPlaceFamily: {
             auto data = cast<DataType>(valueOf(field));

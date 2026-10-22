@@ -103,7 +103,7 @@ bool unreachableBody(Region &region) {
 
 class Walk {
 public:
-  explicit Walk(Operation *function) : function(function) {
+  explicit Walk(Operation *function) {
     stack.push_back(Frame{function, 0, 0, 0, LevelMap(), Unified::Consistent});
   }
   LogicalResult enter(Operation *op, Region &region);
@@ -131,7 +131,6 @@ private:
   // refined further.
   bool sameHere(Type a, Type b, Narrowing narrowing);
 
-  Operation *function;
   // The regions the walk is inside, and the equations that hold in them,
   // outermost first, each held once however deep the regions nest: both
   // sized by the function's nesting, in the footprint's storage.

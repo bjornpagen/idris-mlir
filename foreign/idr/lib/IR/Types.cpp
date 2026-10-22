@@ -18,6 +18,8 @@
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <tuple>
+
 using namespace mlir;
 using namespace idr;
 using namespace idr::families;
@@ -40,10 +42,9 @@ struct DataKey {
   ArrayRef<TermNode> binders;
   DataType base;
 
-  bool operator==(const DataKey &other) const {
-    return group == other.group && member == other.member && indices == other.indices &&
-           refinement == other.refinement && binders == other.binders;
-  }
+  // The parts that are the identity, which the base is a function of: what
+  // the storage compares a key by.
+  auto identity() const { return std::tie(group, member, indices, refinement, binders); }
 };
 
 // The parameters are the key; the rest is derived when the type is made.
@@ -58,18 +59,15 @@ struct DataTypeStorage : TypeStorage {
   // The key of the parameters as the builders give them: a refined one's
   // unrefined application is made here, before the type, never while it
   // is being made.
-  static KeyTy getKey(FamilyAttr group, uint64_t member, ArrayRef<TermNode> indices,
+  static KeyTy getKey(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices,
                       DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
-    auto own = static_cast<uint32_t>(member);
     DataType base = refinement || !binders.empty()
-                        ? DataType::get(group.getContext(), group, own, indices)
+                        ? DataType::get(group.getContext(), group, member, indices)
                         : DataType();
-    return DataKey{group, own, indices, refinement, binders, base};
+    return DataKey{group, member, indices, refinement, binders, base};
   }
 
-  bool operator==(const KeyTy &other) const {
-    return other == KeyTy{group, member, indices, refinement, binders};
-  }
+  bool operator==(const KeyTy &other) const { return other.identity() == getAsKey(); }
   // The parameters as MLIR walks and replaces them: a replacement rebuilds
   // the type through its builder.
   std::tuple<FamilyAttr, uint32_t, ArrayRef<TermNode>, DenseI32ArrayAttr, ArrayRef<TermNode>>
@@ -98,9 +96,9 @@ struct DataTypeStorage : TypeStorage {
 // A member of the group being declared, and its indices over the
 // constructor's binders.
 struct SelfTypeStorage : TypeStorage {
-  using KeyTy = std::tuple<uint64_t, ArrayRef<TermNode>>;
+  using KeyTy = std::tuple<uint32_t, ArrayRef<TermNode>>;
 
-  SelfTypeStorage(uint64_t member, ArrayRef<TermNode> indices) : member(member), indices(indices) {}
+  SelfTypeStorage(uint32_t member, ArrayRef<TermNode> indices) : member(member), indices(indices) {}
 
   bool operator==(const KeyTy &key) const { return key == KeyTy(member, indices); }
   KeyTy getAsKey() const { return KeyTy(member, indices); }
@@ -112,7 +110,7 @@ struct SelfTypeStorage : TypeStorage {
         SelfTypeStorage(std::get<0>(key), allocator.copyInto(std::get<1>(key)));
   }
 
-  uint64_t member;
+  uint32_t member;
   ArrayRef<TermNode> indices;
 };
 
@@ -171,21 +169,23 @@ void IdrDialect::registerTypes() {
 //===----------------------------------------------------------------------===//
 
 FamilyAttr DataType::getGroup() const { return getImpl()->group; }
-uint64_t DataType::getMember() const { return getImpl()->member; }
+uint32_t DataType::getMember() const { return getImpl()->member; }
 ArrayRef<TermNode> DataType::getIndices() const { return getImpl()->indices; }
 DenseI32ArrayAttr DataType::getRefinement() const { return getImpl()->refinement; }
 ArrayRef<TermNode> DataType::getBinders() const { return getImpl()->binders; }
 
-uint64_t SelfType::getMember() const { return getImpl()->member; }
+uint32_t SelfType::getMember() const { return getImpl()->member; }
 ArrayRef<TermNode> SelfType::getIndices() const { return getImpl()->indices; }
 
 //===----------------------------------------------------------------------===//
 // What a reader asks of a data type
 //===----------------------------------------------------------------------===//
 
+// Through the parameters, as every builder passes them: upstream checks the
+// type's invariants on them, and the storage makes its key from them.
 DataType DataType::get(MLIRContext *context, FamilyAttr group, uint32_t member,
                        ArrayRef<TermNode> indices) {
-  return Base::get(context, idr::detail::DataKey{group, member, indices, {}, {}});
+  return Base::get(context, group, member, indices, DenseI32ArrayAttr(), ArrayRef<TermNode>());
 }
 
 DataType DataType::unrefined() const {

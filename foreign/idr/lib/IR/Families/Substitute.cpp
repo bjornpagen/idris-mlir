@@ -507,7 +507,7 @@ IndexArgsAttr opaqueArgs(MLIRContext *context, uint32_t count) {
 // staticSizeAt makes an axis static at the closed terms, the rule the
 // signature's mapping reads, so the copy has that axis static as the call's
 // view of it does.
-std::optional<IndexArgsAttr> classesUnder(FunctionType signature, ExtentsAttr extents,
+std::optional<IndexArgsAttr> classesUnder(FunctionType signature, ArrayRef<Extent> extents,
                                           IndexArgsAttr args) {
   auto count = static_cast<uint32_t>(args.getCount());
   SmallVector<Term> terms = termsOf(args.getTerms(), count);
@@ -529,20 +529,18 @@ std::optional<IndexArgsAttr> classesUnder(FunctionType signature, ExtentsAttr ex
     return WalkResult::advance();
   });
   walker.walk(signature);
-  if (extents)
-    for (ExtentAttr attr : extents.getEntries()) {
-      Extent entry = attr.extent();
-      SmallVector<TermNode> nodes;
-      TermWriter write(nodes);
-      closed.write(write, entry.term);
-      if (!staticSizeAt(signature.getInputs(), entry.at, Term(nodes)))
-        continue;
-      for (const TermNode &node : entry.term.nodes())
-        if (node.kind == TermKind::Level) {
-          assert(node.value < count && "an extent's term names a binder of its function");
-          keep[node.value] = true;
-        }
-    }
+  for (const Extent &entry : extents) {
+    SmallVector<TermNode> nodes;
+    TermWriter write(nodes);
+    closed.write(write, entry.term);
+    if (!staticSizeAt(signature.getInputs(), entry.at, Term(nodes)))
+      continue;
+    for (const TermNode &node : entry.term.nodes())
+      if (node.kind == TermKind::Level) {
+        assert(node.value < count && "an extent's term names a binder of its function");
+        keep[node.value] = true;
+      }
+  }
   if (llvm::none_of(keep, [](bool k) { return k; }))
     return std::nullopt;
   SmallVector<TermNode> nodes;

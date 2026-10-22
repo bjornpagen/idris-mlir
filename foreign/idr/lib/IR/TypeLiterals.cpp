@@ -48,7 +48,7 @@ bool NatType::isLiteral(Attribute literal) const {
   if (!big || big.getValue().isNegative())
     return false;
   families::Term index(getIndex());
-  return index.kind() != families::TermKind::Natural ||
+  return index.kind() != TermKind::Natural ||
          (big.getValue().getActiveBits() <= 64 &&
           big.getValue().getZExtValue() == index.head().value);
 }

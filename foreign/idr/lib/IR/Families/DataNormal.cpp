@@ -52,8 +52,6 @@ DenseI32ArrayAttr tagsAttr(MLIRContext *context, ArrayRef<Tag> tags) {
   return DenseI32ArrayAttr::get(context, numbers);
 }
 
-uint32_t memberOf(DataType type) { return static_cast<uint32_t>(type.getMember()); }
-
 } // namespace
 
 // The constructors of `tags` this type and its indices leave possible: none
@@ -73,7 +71,7 @@ DataType DataType::refined(ArrayRef<Tag> tags) const {
 DataType DataType::refinedTo(Tag tag, ArrayRef<TermNode> binders) const {
   DataType one = refined({tag});
   if (binders.empty() || !one.singleTag() ||
-      determined(getGroup(), memberOf(*this), getIndices(), tag))
+      determined(getGroup(), getMember(), getIndices(), tag))
     return one;
   return get(getContext(), getGroup(), getMember(), getIndices(), tagsAttr(getContext(), {tag}),
              binders);
@@ -87,11 +85,10 @@ namespace {
 // constructor a refinement names. The tags as read, ascending and once
 // each; none where the type is unrefined.
 FailureOr<std::optional<SmallVector<Tag>>>
-checkParts(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group, uint64_t member,
+checkParts(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group, uint32_t at,
            ArrayRef<TermNode> indices, DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
-  if (!group || member >= group.getMembers().size())
+  if (!group || at >= group.getMembers().size())
     return emitError() << "expects a member of the family";
-  auto at = static_cast<uint32_t>(member);
   if (countTerms(indices) != group.indices(at).size())
     return emitError() << "expects " << group.indices(at).size() << " whole index terms";
   std::optional<SmallVector<Tag>> tags;
@@ -120,17 +117,16 @@ checkParts(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group, uint6
 // indices leave possible and fewer than all of them, its binders kept only
 // where the indices leave them undetermined.
 LogicalResult DataType::verify(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group,
-                               uint64_t member, ArrayRef<TermNode> indices,
+                               uint32_t at, ArrayRef<TermNode> indices,
                                DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
   FailureOr<std::optional<SmallVector<Tag>>> tags =
-      checkParts(emitError, group, member, indices, refinement, binders);
+      checkParts(emitError, group, at, indices, refinement, binders);
   if (failed(tags))
     return failure();
   if (!*tags)
     return success();
-  auto at = static_cast<uint32_t>(member);
   SmallVector<Tag> possible = possibleAt(group, at, indices);
-  if ((*tags)->size() != refinement.size() ||
+  if ((*tags)->size() != refinement.asArrayRef().size() ||
       !llvm::all_of(**tags, [&](Tag tag) { return llvm::is_contained(possible, tag); }) ||
       (*tags)->size() == possible.size())
     return emitError() << "is refined to constructors not in normal form: ascending, once each, "
@@ -162,7 +158,7 @@ DataType DataType::getNormalized(function_ref<InFlightDiagnostic()> emitError, F
 std::optional<SmallVector<TermNode>> DataType::bindersOf(Tag tag) const {
   if (!getBinders().empty() && singleTag() == tag)
     return SmallVector<TermNode>(getBinders());
-  return determined(getGroup(), memberOf(*this), getIndices(), tag);
+  return determined(getGroup(), getMember(), getIndices(), tag);
 }
 
 // The fields of `tag` at this application: each field type with the

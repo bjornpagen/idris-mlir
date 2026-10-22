@@ -153,7 +153,7 @@ dataType = MkTypeDef
   { mnemonic = "data"
   , params =
       [ MkParameter "group" (WiredValue (WiredOne (LeafAttr "::idr::FamilyAttr")) familyParam) AlwaysWritten "the family"
-      , MkParameter "member" CountValue AlwaysWritten "the member of the family"
+      , MkParameter "member" memberPositionKind AlwaysWritten "the member of the family"
       , MkParameter "indices" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "one term per index"
       , MkParameter "refinement" (WiredValue (WiredOne (LeafMaybeAttr "::mlir::DenseI32ArrayAttr")) refinementParam) (DefaultsTo "{}") "the tags of the constructors it is refined to, ascending; none unrefined, empty uninhabited"
       , MkParameter "binders" (WiredValue (WiredArray termWire) termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders" ]
@@ -216,7 +216,7 @@ selfType : TypeDef 2
 selfType = MkTypeDef
   { mnemonic = "self"
   , params =
-      [ MkParameter "member" CountValue AlwaysWritten "the member of the group being declared"
+      [ MkParameter "member" memberPositionKind AlwaysWritten "the member of the group being declared"
       , MkParameter "indices" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "one term per index, over the constructor's binders" ]
   , syntax = HandSyntax
   , interfaces = []

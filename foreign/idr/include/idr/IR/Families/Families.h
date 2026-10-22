@@ -321,10 +321,10 @@ void ConAttr::walkFields(Each &&each) const {
 FamilyAttr readFamily(mlir::DialectBytecodeReader &reader, mlir::MLIRContext *context,
                       llvm::ArrayRef<families::Member> members);
 DataType readDataType(mlir::DialectBytecodeReader &reader, mlir::MLIRContext *context,
-                      FamilyAttr group, uint64_t member, llvm::ArrayRef<families::TermNode> indices,
+                      FamilyAttr group, uint32_t member, llvm::ArrayRef<families::TermNode> indices,
                       mlir::DenseI32ArrayAttr refinement,
                       llvm::ArrayRef<families::TermNode> binders);
-SelfType readSelf(mlir::DialectBytecodeReader &reader, mlir::MLIRContext *context, uint64_t member,
+SelfType readSelf(mlir::DialectBytecodeReader &reader, mlir::MLIRContext *context, uint32_t member,
                   llvm::ArrayRef<families::TermNode> indices);
 IndexBindersAttr readIndexBinders(mlir::DialectBytecodeReader &reader, mlir::MLIRContext *context,
                                   llvm::ArrayRef<families::Sort> sorts);

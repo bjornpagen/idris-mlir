@@ -56,8 +56,7 @@ std::optional<ArrayRef<Sort>> sortsOfMember(Attribute payload, uint32_t member,
 bool sortFits(const Sort &binder, const Sort &position) { return binder == position; }
 
 template <std::invocable<> Emit>
-LogicalResult verifyTerm(Emit &&emitError, Term term, const Sort &sort, ArrayRef<Sort> binders,
-                         ArrayRef<Member> own) {
+LogicalResult verifyTerm(Emit &&emitError, Term term, const Sort &sort, ArrayRef<Sort> binders) {
   const TermNode &head = term.head();
   switch (head.kind) {
   case TermKind::Opaque:
@@ -98,14 +97,14 @@ LogicalResult verifyTerm(Emit &&emitError, Term term, const Sort &sort, ArrayRef
 }
 
 LogicalResult verifyEquation(EmitError emitError, StringRef label, ArrayRef<TermNode> equation,
-                             ArrayRef<Sort> indices, ArrayRef<Sort> binders, ArrayRef<Member> own) {
+                             ArrayRef<Sort> indices, ArrayRef<Sort> binders) {
   if (countTerms(equation) != indices.size())
     return emitError() << "@" << label << "'s equation does not hold one whole term per index";
   size_t at = 0;
   for (const Sort &sort : indices) {
     Term term(equation.drop_front(at));
     if (failed(verifyTerm([&] { return emitError() << "@" << label << "'s equation "; }, term,
-                          sort, binders, own)))
+                          sort, binders)))
       return failure();
     at += term.nodes().size();
   }
@@ -187,7 +186,7 @@ LogicalResult verifyCtor(EmitError emitError, StringRef label, ArrayRef<Sort> bi
                          ArrayRef<TermNode> equation, ArrayRef<Type> fields,
                          ArrayRef<Sort> indices, ArrayRef<Member> own,
                          Holder holder = Holder::Constructor) {
-  if (failed(verifyEquation(emitError, label, equation, indices, binders, own)))
+  if (failed(verifyEquation(emitError, label, equation, indices, binders)))
     return failure();
   for (const Sort &sort : binders)
     if (sort.kind == SortKind::FamilySort && !sortsOfMember(sort.payload, sort.member, own))
@@ -213,20 +212,22 @@ LogicalResult FamilyAttr::verify(EmitError emitError, ArrayRef<Member> members) 
     return emitError() << "expects a group of one member or more";
   llvm::SmallDenseSet<StringRef> memberLabels;
   for (const Member &member : members) {
-    StringRef name =
+    StringRef memberLabel =
         match(member, [](const OneOf<DataMember, ClosuresMember, MemoMember, FramesMember> auto &m) {
           return m.label.getValue();
         });
-    if (name.empty() || !memberLabels.insert(name).second)
-      return emitError() << "expects members with distinct labels, got \"" << name << "\"";
+    if (memberLabel.empty() || !memberLabels.insert(memberLabel).second)
+      return emitError() << "expects members with distinct labels, got \"" << memberLabel
+                         << "\"";
     ArrayRef<Sort> indices = storage::indicesOf(member);
     for (const Sort &sort : indices)
       if (sort.kind == SortKind::FamilySort && !sortsOfMember(sort.payload, sort.member, members))
-        return emitError() << "\"" << name << "\" is indexed by a member its group does not have";
+        return emitError() << "\"" << memberLabel
+                           << "\" is indexed by a member its group does not have";
     llvm::SmallDenseSet<StringRef> labels{memoRunning, memoForced};
     auto distinct = [&](StringRef label) -> LogicalResult {
       if (label.empty() || !labels.insert(label).second)
-        return emitError() << "\"" << name << "\" has two constructors @" << label
+        return emitError() << "\"" << memberLabel << "\" has two constructors @" << label
                            << ", or one with a memo state's label";
       return success();
     };
@@ -259,7 +260,7 @@ LogicalResult FamilyAttr::verify(EmitError emitError, ArrayRef<Member> members) 
                                   l.label.equation, l.label.fields, indices, members)))
               return failure();
           if (!m.forced || !isFieldType(m.forced))
-            return emitError() << "\"" << name << "\" forces a value of no field type";
+            return emitError() << "\"" << memberLabel << "\" forces a value of no field type";
           return success();
         },
         [&](const FramesMember &m) -> LogicalResult {

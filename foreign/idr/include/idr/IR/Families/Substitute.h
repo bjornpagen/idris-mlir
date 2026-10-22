@@ -20,6 +20,7 @@
 
 namespace idr {
 
+struct Extent;
 class ExtentsAttr;
 class FuncOp;
 class IndexArgsAttr;
@@ -102,13 +103,16 @@ IndexArgsAttr levelArgs(mlir::MLIRContext *context, uint32_t first, uint32_t cou
 // `count` opaque terms: every binder stays.
 IndexArgsAttr opaqueArgs(mlir::MLIRContext *context, uint32_t count);
 
-// The layout class a call's terms give its callee, whose extents are
-// `extents` (null for none): each term that turns a type of the signature
-// into an application whose class is closed kept, and each that makes an
-// axis static by staticSizeAt, each other opaque; none when no
-// type of the signature changes its layout, so the call needs no copy.
-std::optional<IndexArgsAttr> classesUnder(mlir::FunctionType signature, ExtentsAttr extents,
-                                          IndexArgsAttr args);
+// The layout class a call's terms give its callee, `extents` the entries
+// of the callee's extents a size may key a copy at, in (side, position,
+// axis) order: each term that turns a type of the signature into an
+// application whose class is closed kept, and each that makes an axis
+// static by staticSizeAt, each other opaque; none when no type of the
+// signature changes its layout, so the call needs no copy. The entries are
+// views of the terms the callee's attribute owns, so a caller that keys on
+// some of them filters them with no attribute made.
+std::optional<IndexArgsAttr> classesUnder(mlir::FunctionType signature,
+                                          llvm::ArrayRef<Extent> extents, IndexArgsAttr args);
 
 } // namespace families
 } // namespace idr
