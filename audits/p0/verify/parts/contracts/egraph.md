@@ -17,8 +17,9 @@ specgen prints `Spec.Core.Rewrite`'s records into
 - **`inline constexpr table::Condition conditions[]`**, each on a `var`:
   `IsConstant`, `PowerOfTwo`, `InRange{lo,hi}` or `Clean`.
 - **`inline constexpr table::Rule rules[]`**, sorted by root kind. Each
-  rule is `{vars, lhs, lhsSize, rhs, rhsSize, conditions, conditionCount,
-  direction}`, where `direction` is `Simplify` or `Equal`.
+  rule is `{vars, lhs, lhsSize, rhs, rhsSize, conditions, conditionCount}`.
+  Every rule is one-way (D106); the `direction` field and the `Equal`
+  path are deleted (L14, 7d39d9bb; L03 drops them from `Spec/Core/Rewrite`).
 - **`inline constexpr std::uint32_t rulesOfKind[]`**: `Kinds::size + 1`
   offsets into `rules`.
 - **`using Kinds = table::OpList<...>`**: the op classes a pattern names.
