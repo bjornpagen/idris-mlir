@@ -8,12 +8,11 @@
 // of meaning, so no clock, division, shift or char conversion is spelt
 // here.
 
-#include "Lower/Lower.h"
-
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Declared.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Numeric/Trait.h"
 #include "idr/Conversion/IdrPattern.h"
+#include "idr/Conversion/Lower/Lower.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
 

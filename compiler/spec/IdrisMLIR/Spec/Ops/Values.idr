@@ -92,7 +92,7 @@ natType : TypeDef 1
 natType = MkTypeDef
   { mnemonic = "nat"
   , params =
-      [ MkParameter "index" (HandValue "::llvm::ArrayRef<::idr::families::TermNode>" termsParam)
+      [ MkParameter "index" (HandArray "::idr::families::TermNode" termsParam)
           AlwaysWritten "the index term the natural is, opaque where none is known" ]
   , syntax = HandSyntax
   , interfaces = scalarInterfaces

@@ -2,13 +2,14 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The runtime's scalar operands and results as constants: integers by the
 // kind the runtime takes or gives them in, Doubles, truths and orders; and
-// the elements of a constant list, with the string a list of characters
-// packs to or a list of strings concatenates to.
+// the string a constant list of characters packs to or a constant list of
+// strings concatenates to.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
 #include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Grades.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/MLIRContext.h"
@@ -88,13 +89,17 @@ Attribute ordered(MLIRContext *ctx, unsigned predicate, int32_t order) {
   return BoolAttr::get(ctx, holds);
 }
 
-// A list is a family whose shape is base's list, a constructor with no
-// field and one of an element and the list, which the family's declaration
-// says (its ListShape), so the walk reads no role and no name. It goes from
-// each cons to its rest, a part of the attribute it was read from, so it
-// ends.
-std::optional<SmallVector<Attribute>> listElements(Attribute list) {
-  SmallVector<Attribute> elements;
+namespace {
+
+// The elements of a constant list: a chain of its type's cons cells ending
+// in its nil; nothing for any other constant. A list is a family whose
+// shape is base's list, a constructor with no field and one of an element
+// and the list, which the family's declaration says (its ListShape), so
+// the walk reads no role and no name. It goes from each cons to its rest,
+// a part of the attribute it was read from, so it ends. A list is as long
+// as the program's text makes it.
+std::optional<footprint::Vector<Attribute>> listElements(Attribute list) {
+  footprint::Vector<Attribute> elements;
   for (auto con = dyn_cast_or_null<ConAttr>(list); con;) {
     std::optional<families::ListShape> shape = con.getData().listShape();
     if (!shape)
@@ -107,41 +112,41 @@ std::optional<SmallVector<Attribute>> listElements(Attribute list) {
   return std::nullopt;
 }
 
+} // namespace
+
 // The runtime packs a list of characters as the cons of each onto the rest,
 // from the empty string, and concatenates a list of strings as the append
 // of each, in order: the functions of str.cons and str.append. Which one is
 // the elements' kind: a verified constant holds each at the list's element
-// type. Each string is kept once the next is made from it, the last by the
-// attribute that copies it.
+// type. Each step's scope holds the string before it and the element's
+// own, released once the next string is made from them, which the runtime
+// makes fresh: a fold holds a fixed number of references however long the
+// list. The last string is kept by the attribute that copies it.
 Attribute stringOfList(MLIRContext *ctx, Attribute list) {
-  std::optional<SmallVector<Attribute>> elements = listElements(list);
+  std::optional<footprint::Vector<Attribute>> elements = listElements(list);
   if (!elements)
     return {};
-  Scope scope(ctx);
   const idris_rt_str *s = idris_rt_str_from_utf8("", 0);
-  auto step = [&](const idris_rt_str *next) {
-    scope.keep(s);
-    s = next;
-  };
   if (llvm::any_of(*elements, [](Attribute e) { return isa<StringAttr>(e); })) {
     for (Attribute piece : *elements) {
-      std::optional<const idris_rt_str *> p = strOf(scope, piece);
-      if (!p) {
-        scope.keep(s);
+      Scope step(ctx);
+      step.keep(s);
+      std::optional<const idris_rt_str *> p = strOf(step, piece);
+      if (!p)
         return {};
-      }
-      step(runtime::Abi<StrAppendOp>::function(s, *p));
+      s = runtime::Abi<StrAppendOp>::function(s, *p);
     }
-    return strAttr(scope, s);
-  }
-  for (Attribute c : llvm::reverse(*elements)) {
-    std::optional<int32_t> ch = int32Of(c);
-    if (!ch) {
-      scope.keep(s);
-      return {};
+  } else {
+    for (Attribute c : llvm::reverse(*elements)) {
+      Scope step(ctx);
+      step.keep(s);
+      std::optional<int32_t> ch = int32Of(c);
+      if (!ch)
+        return {};
+      s = runtime::Abi<StrConsOp>::function(*ch, s);
     }
-    step(runtime::Abi<StrConsOp>::function(*ch, s));
   }
+  Scope scope(ctx);
   return strAttr(scope, s);
 }
 

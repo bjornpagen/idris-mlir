@@ -26,9 +26,9 @@ class IoPutStrOp;
 
 // Whether a string is never empty: a non-empty constant, a string a builder
 // makes never empty (one built with a character or a number in it, the
-// trait NeverEmpty), or an append of such a string and another. A guard
-// that the string is not empty, and a literal match's case of the empty
-// string, read it.
+// trait NeverEmpty), or an append of such a string and another, through
+// appends none other shares. A guard that the string is not empty, and a
+// literal match's case of the empty string, read it.
 bool neverEmpty(mlir::Value str);
 
 } // namespace idr

@@ -6,24 +6,29 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Numeric/Intervals.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace mlir;
 
-// Appends share their parts, so each is looked at once. An append is never
-// empty where either part is not, which only its parts tell: essential, the
-// one builder whose answer is its operands'.
+// An append is never empty where either part is not, which only its parts
+// tell: essential, the one builder whose answer is its operands'. The walk
+// enters the append that makes `str`, and below it only an append whose
+// one use is the append it was reached from, so what it walks is a tree,
+// each op entered once with nothing remembered of it. A shared append
+// below the first is judged by its builder alone, an append, so a
+// never-empty part under it goes unseen. A string's tree is as large as
+// the program's text makes it.
 bool idr::neverEmpty(Value str) {
-  SmallVector<Value> work{str};
-  llvm::SmallPtrSet<Operation *, 8> seen;
+  footprint::Vector<Value> work{str};
   while (!work.empty()) {
-    Value next = work.pop_back_val();
+    Value next = work.back();
+    work.pop_back();
     Operation *def = next.getDefiningOp();
-    if (!def || !seen.insert(def).second)
+    if (!def)
       continue;
     if (def->hasTrait<NeverEmpty>())
       return true;
@@ -33,10 +38,11 @@ bool idr::neverEmpty(Value str) {
         return true;
       continue;
     }
-    if (auto append = dyn_cast<StrAppendOp>(def)) {
-      work.push_back(append.getLhs());
-      work.push_back(append.getRhs());
-    }
+    auto append = dyn_cast<StrAppendOp>(def);
+    if (!append || (next != str && !next.hasOneUse()))
+      continue;
+    work.push_back(append.getLhs());
+    work.push_back(append.getRhs());
   }
   return false;
 }

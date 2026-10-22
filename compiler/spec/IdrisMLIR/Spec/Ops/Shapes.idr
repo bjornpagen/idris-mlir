@@ -8,6 +8,7 @@ module IdrisMLIR.Spec.Ops.Shapes
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
+import IdrisMLIR.Spec.Runtime.Endings
 
 import Data.Fin
 import Data.List
@@ -159,9 +160,10 @@ byteBuffer = SatisfiesType byteBufferP
 ||| record holds its meaning and its effects, which the specification never
 ||| restates: none has a memory effect, so only its uses order it. Its laws
 ||| are the ones upstream has no trait for, which the e-graph and the
-||| accumulator read.
+||| accumulator read. It takes no guard: an op whose operands a condition
+||| restricts states its guard where it is admitted.
 arithOp : Ident -> List UpLaw -> Admitted
-arithOp r laws = MkAdmitted Arith r Always FrontendWrites laws
+arithOp r laws = MkAdmitted Arith r Always FrontendWrites [] laws
 
 ||| A word or a Double as its literal; folding materializes one too.
 public export
@@ -276,17 +278,22 @@ cmpF : Admitted
 cmpF = arithOp "Arith_CmpFOp" []
 
 -- An unsigned quotient and remainder, upstream's meaning: their divisor is
--- the result of idr.check.nonzero, so each stands below its guard by data
+-- the result of idr.check.nonzero, which the frontend builds before each
+-- from the guard stated here, so each stands below its guard by data
 -- dependence, as every total op does, and upstream speculates neither
 -- unless its divisor is a constant other than zero.
 
+||| The divisor, upstream's second operand group, is not zero.
+divisorNonzero : Guard Nat
+divisorNonzero = MkGuard "check.nonzero" (1 ::: []) (caseRef causeClosed DivisionByZero)
+
 public export
 divUI : Admitted
-divUI = arithOp "Arith_DivUIOp" []
+divUI = { guards := [divisorNonzero] } (arithOp "Arith_DivUIOp" [])
 
 public export
 remUI : Admitted
-remUI = arithOp "Arith_RemUIOp" []
+remUI = { guards := [divisorNonzero] } (arithOp "Arith_RemUIOp" [])
 
 ||| Every upstream op the dialect admits, once.
 public export

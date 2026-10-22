@@ -214,10 +214,6 @@ private:
 // which idr.constant's verifier and the folders of the constructions ask.
 bool buildable(mlir::Attribute value, mlir::Type type);
 
-// The elements of a constant list: a chain of its type's cons cells ending
-// in its nil; nothing for any other constant.
-std::optional<llvm::SmallVector<mlir::Attribute>> listElements(mlir::Attribute list);
-
 // The string a constant list of characters packs to, or a constant list of
 // strings concatenates to, as the runtime builds it; null for any other
 // constant.

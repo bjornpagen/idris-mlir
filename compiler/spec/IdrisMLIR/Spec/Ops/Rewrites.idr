@@ -19,6 +19,8 @@
 module IdrisMLIR.Spec.Ops.Rewrites
 
 import IdrisMLIR.Spec.Core.Vocabulary
+import IdrisMLIR.Spec.Effects.Declaration
+import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Scalars
@@ -164,23 +166,34 @@ rulesHeader = "idr" ::: ["IR", "Ops", "Rules.h"]
 rooted : Ident -> List OpRef -> Line -> List SkeletonRule
 rooted name roots doc = map (\root => MkSkeletonRule name rulesHeader root doc) roots
 
-||| The guards whose condition is of their operands alone, so a value one of
-||| them gave holds it wherever it is used.
-operandGuards : List OpRef
-operandGuards = ["check.nonzero", "check.in_bounds", "check.nonempty", "check.finite", "check.range"]
-
-||| Every guard. A handle's string is the handle table's, which a free
-||| between two guards of one handle changes, so its guard is decided but
-||| never taken as repeated.
+||| Every guard.
 guardRoots : List OpRef
-guardRoots = operandGuards ++ ["check.holds_string"]
+guardRoots = map (\(SomeOp op) => op.mnemonic) guardOps
+
+||| An effect that reads the run's state as a whole.
+readsState : Effect i o -> Occurs
+readsState (OnState Read _) = Somewhere
+readsState _ = Nowhere
+
+||| The guards whose condition is of their operands alone, which a guard's
+||| declaration says by reading no state of the run: a value one of them
+||| gave holds it wherever it is used. A condition read off the run's state
+||| (a handle's string is the handle table's, which a free between two
+||| guards of one handle changes) is decided but never taken as repeated.
+repeatableRoots : List OpRef
+repeatableRoots = concatMap repeatable guardOps
+  where
+    repeatable : AnyOp -> List OpRef
+    repeatable (SomeOp op) = case anyOf readsState (effectsOf op.effects) of
+      Nowhere => [op.mnemonic]
+      Somewhere => []
 
 public export
 skeletonRules : List SkeletonRule
 skeletonRules = concat
   [ rooted "GuardDecided" guardRoots
       "a guard whose condition holds on its operands' constants or intervals goes; one whose condition fails is a crash of its cause at its site"
-  , rooted "GuardRepeated" operandGuards
+  , rooted "GuardRepeated" repeatableRoots
       "a guard of a value an identical guard gave goes: the first checked it"
   , rooted "NeverEmptyString" ["check.nonempty"]
       "a guard of a string a builder makes never empty, or an append of one, goes"

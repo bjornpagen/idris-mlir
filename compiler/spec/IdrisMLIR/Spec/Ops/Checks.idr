@@ -21,6 +21,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Control.Flow
+import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 
 import Data.List1
@@ -187,16 +188,26 @@ decideMember = MkMember OnClass "::idr::numeric::Known" "decide"
 readsTableOrCrashes : Declaration i o
 readsTableOrCrashes = Executes [OnState Read RuntimeState, OnState Write Crash] [] Covered Untouched
 
+||| What a guard's condition is: one of the numeric template's conditions,
+||| or the guard's own code, where the condition is no integer arithmetic
+||| (a string's emptiness, a Double's finiteness, what the handle table
+||| holds).
+data GuardMeaning = OfTemplate GuardCondition | OwnCode
+
+guardMeaning : GuardMeaning -> Meaning i o
+guardMeaning (OfTemplate c) = InlineCondition (conditionName c)
+guardMeaning OwnCode = HandFolder
+
 ||| A guard over its operands, its result the first of them, with its own
-||| cause and site, and the effects its condition has: a crash where it
-||| fails, which every guard's declaration writes, and what the condition
-||| reads besides its operands.
+||| cause and site, its condition, and the effects its condition has: a
+||| crash where it fails, which every guard's declaration writes, and what
+||| the condition reads besides its operands.
 guardOp : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (checked : TypeC)
-       -> (eff : Declaration i 1) -> List (Trait i 1) -> List InterfaceUse -> Doc
+       -> GuardMeaning -> (eff : Declaration i 1) -> List (Trait i 1) -> List InterfaceUse -> Doc
        -> {auto 0 fails : Found (anyOf crashes (effectsOf eff))}
        -> {auto 0 named : So (distinct (groupNames ins [result "checked" checked] [causeSlot, siteSlot] []))}
        -> Op i 1 2 0
-guardOp m ins checked eff traits ifaces d = MkOp
+guardOp m ins checked tested eff traits ifaces d = MkOp
   { home = InIdr
   , mnemonic = m
   , ins = ins
@@ -208,7 +219,7 @@ guardOp m ins checked eff traits ifaces d = MkOp
   , effects = eff
   , speculation = NotSpeculatable
   , stages = Always
-  , meaning = HandFolder
+  , meaning = guardMeaning tested
   , verify = DeclarationOnly
   , format = Declared
       (operandItems i ++ [Lit ",", ValueOf (AttrRef 0), Lit "at", ValueOf (AttrRef 1), AttrDict, Lit ":", FunctionalType OfOperands OfResults])
@@ -227,7 +238,7 @@ public export
 nonzeroOp : Op 1 1 2 0
 nonzeroOp = guardOp "check.nonzero"
   [single "value" (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer")]
-  (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer") endsByCrash
+  (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer") (OfTemplate DivisorNonzero) endsByCrash
   [SameOperandsAndResultType]
   [Implements flowInterface ["getFlowEdges"], Declares InferIntRange ["inferResultRanges"]]
   (says "the value, which must not be zero, else the program crashes")
@@ -240,7 +251,7 @@ inBoundsOp : Op 2 1 2 0
 inBoundsOp = guardOp "check.in_bounds"
   [ single "index" i64
   , single "indexed" (AnyOfTypes (strRead ::: [SatisfiesType rank1ArrayP]) "a string or an array of one dimension") ]
-  i64 endsByCrash []
+  i64 (OfTemplate IndexInBounds) endsByCrash []
   [Declares InferIntRange ["inferResultRangesFromOptional"]]
   (says "the index, which must be at least 0 and below the length of what it indexes, else the program crashes")
 
@@ -248,21 +259,21 @@ inBoundsOp = guardOp "check.in_bounds"
 ||| whose reference it hands on.
 public export
 nonemptyOp : Op 1 1 2 0
-nonemptyOp = guardOp "check.nonempty" [single "str" strValue] strValue endsByCrash
+nonemptyOp = guardOp "check.nonempty" [single "str" strValue] strValue OwnCode endsByCrash
   [SameOperandsAndResultType]
   [Implements flowInterface ["getFlowEdges"]]
   (says "the string, which must have at least one byte, else the program crashes")
 
 public export
 finiteOp : Op 1 1 2 0
-finiteOp = guardOp "check.finite" [single "value" f64] f64 endsByCrash [SameOperandsAndResultType] []
+finiteOp = guardOp "check.finite" [single "value" f64] f64 OwnCode endsByCrash [SameOperandsAndResultType] []
   (says "the value, which must be neither NaN nor infinite, else the program crashes")
 
 ||| The bytes [offset, offset + count) of something of `size` bytes: both
 ||| at least 0, and the end, computed without overflow, at most the size.
 public export
 rangeOp : Op 3 1 2 0
-rangeOp = guardOp "check.range" [single "offset" i64, single "count" i64, single "size" i64] i64 endsByCrash
+rangeOp = guardOp "check.range" [single "offset" i64, single "count" i64, single "size" i64] i64 (OfTemplate BytesInRange) endsByCrash
   []
   [Declares InferIntRange ["inferResultRanges"]]
   (says "the offset, whose range of `count` bytes must lie in `size`, else the program crashes")
@@ -274,12 +285,18 @@ rangeOp = guardOp "check.range" [single "offset" i64, single "count" i64, single
 ||| standard streams, and every string handle is one the runtime gave.
 public export
 holdsStringOp : Op 1 1 2 0
-holdsStringOp = guardOp "check.holds_string" [single "handle" i64] i64 readsTableOrCrashes
+holdsStringOp = guardOp "check.holds_string" [single "handle" i64] i64 OwnCode readsTableOrCrashes
   [SameOperandsAndResultType] []
   (says "the handle, which must hold a string, else the program crashes")
 
+||| Every guard: the ops the e-graph's guard rules are rooted at, each rule
+||| reading what it needs of a guard off the guard's own declaration.
+public export
+guardOps : List AnyOp
+guardOps =
+  [ SomeOp nonzeroOp, SomeOp inBoundsOp, SomeOp nonemptyOp, SomeOp finiteOp, SomeOp rangeOp
+  , SomeOp holdsStringOp ]
+
 public export
 checkOps : List AnyOp
-checkOps =
-  [ SomeOp crashOp, SomeOp crashMessageOp, SomeOp nonzeroOp
-  , SomeOp inBoundsOp, SomeOp nonemptyOp, SomeOp finiteOp, SomeOp rangeOp, SomeOp holdsStringOp ]
+checkOps = SomeOp crashOp :: SomeOp crashMessageOp :: guardOps
