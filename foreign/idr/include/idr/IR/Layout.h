@@ -101,6 +101,11 @@ struct Component {
   bool counted() const { return word != Word::Uncounted; }
 };
 
+// Where a cell keeps its constructor's group: in its header's tag, which
+// tells apart every constructor of a sum of at most IDRIS_RT_TAG_LIMIT, or
+// in an object slot of its own, in every cell of a wider sum.
+enum class GroupIn : uint8_t { HeaderTag, OwnSlot };
+
 // A component placed in a cell or an element, at its offset from the start.
 struct Slot : Component {
   unsigned offset;
@@ -348,7 +353,7 @@ private:
   void record(mlir::Type component);
   // The cell of a constructor of `fieldTypes`, object slots first.
   layout::Cell cellOf(llvm::ArrayRef<llvm::SmallVector<layout::Component>> fields, Tag tag,
-                      bool grouped, MemberKind kind) const;
+                      layout::GroupIn group, MemberKind kind) const;
   // The components of each of `fields`.
   llvm::SmallVector<llvm::SmallVector<layout::Component>>
   componentsOf(llvm::ArrayRef<mlir::Type> fields) const;

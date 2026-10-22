@@ -32,6 +32,11 @@ namespace idr {
 
 namespace {
 
+// Where a cell counts its object slots: in its header's objs field, or in
+// the word after its header, where the header cannot count them or the
+// cell keeps its group in a slot of its own.
+enum class ObjectsCountedIn : uint8_t { Header, OwnWord };
+
 // The size and alignment of `component` as `target` lays it out.
 std::pair<unsigned, unsigned> measure(const DataLayout &target, Type component) {
   return {static_cast<unsigned>(target.getTypeSize(component).getFixedValue()),
@@ -220,17 +225,18 @@ unsigned Layouts::alignmentOf(Type component) const {
 // into another, the value a force stores over the captures it took, so
 // every state's cell is as large as the largest.
 layout::CellLayout Layouts::cellsOf(DataType type, const FieldTypes &fields) const {
-  bool grouped = type.declaredCount() > IDRIS_RT_TAG_LIMIT;
+  layout::GroupIn group = type.declaredCount() > IDRIS_RT_TAG_LIMIT ? layout::GroupIn::OwnSlot
+                                                                    : layout::GroupIn::HeaderTag;
   layout::CellLayout out;
   unsigned size = 0;
   for (uint32_t t = 0, n = type.declaredCount(); t < n; ++t) {
-    out.cells.push_back(cellOf(componentsOf(fields[t]), Tag{t}, grouped, type.kind()));
+    out.cells.push_back(cellOf(componentsOf(fields[t]), Tag{t}, group, type.kind()));
     size = std::max(size, out.cells.back().size);
   }
   if (type.kind() == MemberKind::Memo)
     for (layout::Cell &cell : out.cells)
       cell.size = size;
-  if (grouped)
+  if (group == layout::GroupIn::OwnSlot)
     out.group = out.cells.front().words.back().offset;
   return out;
 }
@@ -273,7 +279,7 @@ layout::OwnCells Layouts::ownCellsOf(DataType type, const FieldTypes &fields) co
 // array.
 layout::Element Layouts::element(Type type) const {
   SmallVector<SmallVector<layout::Component>> one{components(type)};
-  layout::Cell cell = cellOf(one, Tag{0}, /*grouped=*/false, MemberKind::Data);
+  layout::Cell cell = cellOf(one, Tag{0}, layout::GroupIn::HeaderTag, MemberKind::Data);
   constexpr unsigned header = sizeof(idris_rt_header);
   SmallVector<layout::Slot> slots = cell.fields.front();
   unsigned end = 0, alignment = 1;
@@ -301,9 +307,9 @@ layout::Element Layouts::element(Type type) const {
 // the small ones share a word: the order of fields in the source is not a
 // layout.
 layout::Cell Layouts::cellOf(ArrayRef<SmallVector<layout::Component>> fieldComponents, Tag tag,
-                             bool grouped, MemberKind kind) const {
+                             layout::GroupIn group, MemberKind kind) const {
   SmallVector<SmallVector<layout::Slot>> fields;
-  unsigned objs = grouped ? 1u : 0u;
+  unsigned objs = group == layout::GroupIn::OwnSlot ? 1u : 0u;
   for (const SmallVector<layout::Component> &field : fieldComponents) {
     SmallVector<layout::Slot> slots;
     for (const layout::Component &component : field) {
@@ -313,16 +319,18 @@ layout::Cell Layouts::cellOf(ArrayRef<SmallVector<layout::Component>> fieldCompo
     fields.push_back(std::move(slots));
   }
   Type i64 = IntegerType::get(root->getContext(), 64);
-  bool wide = grouped || objs > layout::mostObjects;
+  ObjectsCountedIn counted =
+      group == layout::GroupIn::OwnSlot || objs > layout::mostObjects ? ObjectsCountedIn::OwnWord
+                                                                      : ObjectsCountedIn::Header;
   unsigned at = sizeof(idris_rt_header);
   SmallVector<layout::OwnWord> words;
-  if (wide) {
+  if (counted == ObjectsCountedIn::OwnWord) {
     words.push_back(layout::OwnWord{i64, at, static_cast<int64_t>(objs)});
     at += IDRIS_RT_WORD_BYTES;
   }
-  if (grouped) {
-    int64_t group = static_cast<int64_t>(static_cast<uint32_t>(tag) / IDRIS_RT_TAG_LIMIT);
-    words.push_back(layout::OwnWord{i64, at, static_cast<int64_t>(idris_rt_small_word(group))});
+  if (group == layout::GroupIn::OwnSlot) {
+    int64_t number = static_cast<int64_t>(static_cast<uint32_t>(tag) / IDRIS_RT_TAG_LIMIT);
+    words.push_back(layout::OwnWord{i64, at, static_cast<int64_t>(idris_rt_small_word(number))});
     at += IDRIS_RT_WORD_BYTES;
   }
   SmallVector<std::pair<unsigned, unsigned>> order;
@@ -346,7 +354,8 @@ layout::Cell Layouts::cellOf(ArrayRef<SmallVector<layout::Component>> fieldCompo
   });
   for (auto [f, c] : others)
     place(f, c);
-  std::optional<unsigned> headerObjs = wide ? std::nullopt : std::optional<unsigned>(objs);
+  std::optional<unsigned> headerObjs =
+      counted == ObjectsCountedIn::OwnWord ? std::nullopt : std::optional<unsigned>(objs);
   layout::CellInfo info = kind == MemberKind::Memo ? layout::CellInfo::thunk(tag, headerObjs)
                                                    : layout::CellInfo::constructor(tag, headerObjs);
   return layout::Cell{std::move(fields),
