@@ -90,7 +90,8 @@ private:
 };
 
 // A machine integer as a big: its small word, inline, or a large one, which
-// only a value outside 63 bits needs (Operands.cpp).
+// only a value outside 63 bits needs, its limbs written straight into its
+// cell with no GMP temporary, signed or unsigned (Operands.cpp).
 idris_rt_big largeOfInt64(int64_t v);
 inline idris_rt_big ofInt64(int64_t v) {
   return fits(v) ? idris_rt_small_word(v) : largeOfInt64(v);

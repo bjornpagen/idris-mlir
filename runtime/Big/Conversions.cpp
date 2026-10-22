@@ -19,12 +19,6 @@ extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_from_int_s(int64_t v
   return ofInt64(value);
 }
 
-[[gnu::noinline]] idris_rt_big rt::big::fromUnsignedLarge(uint64_t value) {
-  Result r;
-  mpz_set_ui(r.get(), value);
-  return r.finish();
-}
-
 extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_from_int_u(uint64_t value) {
   if (value <= static_cast<uint64_t>(IDRIS_RT_SMALL_MAX)) [[likely]]
     return idris_rt_small_word(static_cast<int64_t>(value));
