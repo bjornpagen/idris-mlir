@@ -3,19 +3,23 @@
 // The index term each unknown axis of a function's signature is
 // (`#idr.extents`, each entry its own `#idr.extent`, whose storage owns its
 // term's nodes): their syntax, what each entry and the list hold of
-// themselves, and how an edit of the signature moves them. What an entry
-// names of the signature and of the binders is the function's verifier's.
+// themselves, how an edit of the signature moves them, and the one rule of
+// which axis a constant makes static. What an entry names of the signature
+// and of the binders, and where a constant may stand, is the function's
+// verifier's.
 // Their bytecode is printed from their wires; the entries' list is
 // written with the hooks the specification declares.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 
 using namespace mlir;
@@ -81,19 +85,39 @@ void ExtentAttr::print(AsmPrinter &printer) const {
 }
 
 // One whole term, since a bytecode read writes nodes no builder wrote and
-// every walk of the term trusts its extent; and one that names a binder,
-// since a term naming none is a constant, whose axis the type makes
-// static, or opaque, which names no size: either way the axis has no
-// entry.
+// every walk of the term trusts its extent; and not an opaque one, which
+// names no size, as the `?` already says, so the axis has no entry. A
+// constant is no fact of the entry alone: it stands where the type keeps
+// the axis `?` on purpose (a result, a graded array), so a known size is
+// never dropped, and is refused where the type would hold the axis static
+// instead (a bare tensor input). Which of the two an axis is depends on
+// the function's types, which an attribute does not see, so that rule is
+// the function's verifier's.
 LogicalResult ExtentAttr::verify(function_ref<InFlightDiagnostic()> emitError, ExtentSide,
                                  std::uint32_t, std::uint32_t,
                                  ArrayRef<families::TermNode> term) {
   if (families::countTerms(term) != std::optional<std::size_t>(1))
     return emitError() << "expects one index term";
-  if (families::freeLevelsOf(term) == 0)
-    return emitError() << "names an axis by a term over no binder: a constant's axis is "
-                          "static, and an opaque term names no size";
+  if (families::Term(term).kind() == TermKind::Opaque)
+    return emitError() << "names an axis by an opaque term, which names no size";
   return success();
+}
+
+namespace {
+
+// What a known size makes an axis, by the side it is on: static on an
+// input; kept on a result, which keeps the callee's type.
+enum class AtSize { Static, Kept };
+
+} // namespace
+
+std::optional<std::int64_t> idr::staticSizeAt(ArrayRef<Type> inputs, ExtentAt at,
+                                              families::Term term) {
+  if (onSide(at.side, AtSize::Static, AtSize::Kept) == AtSize::Kept ||
+      !isa<RankedTensorType>(inputs[at.position]) || term.kind() != TermKind::Natural ||
+      term.head().value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+    return std::nullopt;
+  return static_cast<std::int64_t>(term.head().value);
 }
 
 //===----------------------------------------------------------------------===//

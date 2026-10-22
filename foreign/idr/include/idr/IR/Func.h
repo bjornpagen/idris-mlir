@@ -41,6 +41,7 @@
 #include <concepts>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <variant>
 
 namespace idr {
@@ -248,6 +249,19 @@ Values onSide(ExtentSide side, Values inputs, Values results) {
   }
   llvm_unreachable("a value of a signature is an input or a result");
 }
+
+// The size at which a constant term `term` makes the axis `at` of a
+// signature whose inputs are `inputs` static: a bare tensor input's axis,
+// which tensor.cast reaches, at a natural a dimension holds. None where
+// the type keeps the axis `?` on purpose, so the entry keeps the size: a
+// result keeps its callee's type, since a cast after a call would take a
+// tail call out of tail position; a graded array keeps its `?`, since no
+// cast keeps a grade; and a natural past MLIR's signed dimension is no
+// size. The substitution makes an axis static exactly where this gives a
+// size, and the function's verifier refuses a constant entry exactly
+// there, so the two read one rule.
+std::optional<std::int64_t> staticSizeAt(llvm::ArrayRef<mlir::Type> inputs, ExtentAt at,
+                                         families::Term term);
 
 //===----------------------------------------------------------------------===//
 // The record's parts, by parameter

@@ -5,11 +5,14 @@
 ||| size is no constant, since MLIR's tensor type has no symbolic dimension;
 ||| where Idris's signature names that size by an index term, the function
 ||| holds the term, over its own binders, so a call that fixes the binders
-||| fixes the size, and a specialized copy whose term becomes a constant has
-||| that axis static. An entry says which term a `?` is and nothing the type
-||| says: there is none for a static axis, and none for an axis no term
-||| names. Bufferization makes the tensor a buffer with the same axes, so
-||| an entry names an axis of either.
+||| fixes the size, and a specialized copy whose term becomes a size has
+||| that axis static where it is a bare tensor input's. Where the type keeps
+||| the axis `?` on purpose (a result, a graded array), the copy's entry
+||| holds the constant, so a known size is never dropped. An entry says
+||| which term a `?` is and nothing the type says: there is none for a
+||| static axis, and none for an axis no term names. Bufferization makes
+||| the tensor a buffer with the same axes, so an entry names an axis of
+||| either.
 |||
 ||| Each entry is its own small attribute holding its term, so the
 ||| attribute's storage owns the term's nodes; the function lists them in
@@ -62,9 +65,10 @@ extentEntriesDirective = MkDirective
 ||| `#idr.extent<input 0 axis 1 = v0>`, C++ `ExtentAttr`: axis 1 of the
 ||| function's argument 0 is `?` in its type, and its size is the term `v0`
 ||| over the function's binders. The term is one whole term in the
-||| families' normal form, naming at least one binder: a term naming none
-||| is a constant, whose axis the type makes static, or opaque, which names
-||| nothing. Printed inside `#idr.extents` without its own name.
+||| families' normal form, and never opaque, which names nothing. A
+||| constant stands only where the type keeps the axis `?` on purpose,
+||| which the function's verifier checks, since it reads the function's
+||| types. Printed inside `#idr.extents` without its own name.
 export
 extentAttr : AttrDef 4
 extentAttr = MkAttrDef

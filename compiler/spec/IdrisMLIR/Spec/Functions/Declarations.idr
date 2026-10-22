@@ -171,7 +171,8 @@ programOp = MkOp
 ||| visibility is no fact of its own: it is public exactly when it is its
 ||| program's root. Its body is one block. Its verifier checks that its
 ||| record, its `lives_in`, its `given_back` and its `extents` name only
-||| what its signature and its binders have; its region verifier, that its
+||| what its signature and its binders have, an extent's constant never at
+||| an axis its type would hold static; its region verifier, that its
 ||| row and record cover what its body does, and where its calls stand. It
 ||| states its parameters' lifetimes.
 ||| Inserting and erasing parameters and results are its own implementations
@@ -314,10 +315,12 @@ callOp = MkOp
       Built of a callee, it takes the callee's result types at its index
       arguments, row, write part and lives_in, and takes them again when the
       callee's change; its symbol-use verifier holds the four equal to the
-      callee's, and its operand types to the callee's parameters, a lifetime
-      of any kind standing where a view is asked. Where it stands is the
-      tail calls' to decide and check; a tail call's callee takes as many
-      cursors as its caller and gives back the same result components.
+      callee's, and its operand types to the callee's parameters, a ranked
+      tensor meeting one whose shape MLIR finds compatible (`?` meeting any
+      size) and a lifetime of any kind standing where a view is asked.
+      Where it stands is the tail calls' to decide and check; a tail call's
+      callee takes as many cursors as its caller and gives back the same
+      result components.
       """
   }
 

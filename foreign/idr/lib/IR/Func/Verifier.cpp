@@ -22,6 +22,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -116,12 +117,12 @@ LogicalResult givenBackFits(FuncOp fn) {
 }
 
 // Each extent names an axis its signature's type leaves `?`, by a term over
-// the function's own binders. The attributes hold the rest themselves: the
-// entries' order, and each term whole and naming a binder. The value's
-// shape is a ranked tensor, or the buffer bufferization makes of it with
-// the same axes, which upstream's function bufferization sets as the
-// signature's type with no edit of it: the entry names the same axis of
-// either.
+// the function's own binders, or by a constant where the type keeps that
+// axis `?` on purpose. The attributes hold the rest themselves: the
+// entries' order, and each term whole and not opaque. The value's shape is
+// a ranked tensor, or the buffer bufferization makes of it with the same
+// axes, which upstream's function bufferization sets as the signature's
+// type with no edit of it: the entry names the same axis of either.
 LogicalResult extentsFit(FuncOp fn) {
   ExtentsAttr extents = fn.getExtentsAttr();
   if (!extents)
@@ -144,6 +145,16 @@ LogicalResult extentsFit(FuncOp fn) {
       return fn.emitOpError("names axis ")
              << entry.at.axis << " of " << side << " " << entry.at.position << " by binder v"
              << entry.term.freeLevels() - 1 << ", though it binds " << binders;
+    // A constant at a bare tensor input's axis is a size the type would
+    // hold static instead, and the substitution makes it so; anywhere else
+    // the type keeps the `?` and the entry keeps the size. Which axis is
+    // which is read off the signature's types, so this rule is the
+    // function's, not the entry's.
+    if (std::optional<std::int64_t> size =
+            staticSizeAt(fn.getArgumentTypes(), entry.at, entry.term))
+      return fn.emitOpError("names axis ")
+             << entry.at.axis << " of " << side << " " << entry.at.position << " by the constant "
+             << *size << ", which its type holds static instead";
   }
   return success();
 }
