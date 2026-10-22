@@ -33,7 +33,7 @@ admitAliased d r alias legal writer = MkAdmitted d r alias legal writer [] [] No
 ||| also write (columns, structured loops, bufferization's preparation):
 ||| until bufferization makes them buffers.
 tensorAdmitted : List Admitted
-tensorAdmitted = map (\(r : Ident) => admitNamed Tensor r (between Higher First) FrontendWrites)
+tensorAdmitted = map (\r : Ident => admitNamed Tensor r (between Higher First) FrontendWrites)
   [ "Tensor_CastOp", "Tensor_DimOp", "Tensor_EmptyOp", "Tensor_ExtractOp"
   , "Tensor_ExtractSliceOp", "Tensor_FromElementsOp", "Tensor_InsertOp"
   , "Tensor_InsertSliceOp", "Tensor_ExpandShapeOp", "Tensor_CollapseShapeOp" ]
