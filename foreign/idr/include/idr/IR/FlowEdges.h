@@ -81,11 +81,15 @@ private:
 // Where a value holds part of what it is, the same place in every value of
 // a kind. The label solve keeps one set of labels per anchor, so what one
 // value of the kind holds there, every value of the kind may. Each anchor
-// holds the type it means, so no reader casts one.
+// holds what it means, a declaration or a type, so no reader casts one.
 struct FlowAnchor {
-  // A field of a constructor of a data type.
+  // A field of a constructor of a member of a family, by the declaration
+  // alone: every value of the member names it, at whatever index terms and
+  // refinement the program meets the member, as the field's slot is the
+  // declaration's.
   struct Field {
-    DataType data;
+    FamilyAttr group;
+    std::uint32_t member;
     Tag ctor;
     unsigned index;
     bool operator==(const Field &) const = default;
@@ -121,7 +125,7 @@ struct FlowAnchor {
   std::variant<Field, Elements, Forced, MemoState, Capture, Hole> place;
 
   static FlowAnchor fieldOf(DataType data, Tag ctor, unsigned index) {
-    return {Field{data, ctor, index}};
+    return {Field{data.getGroup(), data.getMember(), ctor, index}};
   }
   static FlowAnchor elementsOf(mlir::Type element) { return {Elements{element}}; }
   static FlowAnchor forcedOf(LazyType lazy) { return {Forced{lazy}}; }

@@ -45,7 +45,7 @@ std::optional<Type> FlowAnchor::slot() const {
   return idr::match(
       place,
       [](const Field &field) -> Slot {
-        return unrestricted(field.data.ctor(field.ctor).fields[field.index]);
+        return unrestricted(field.group.ctor(field.member, field.ctor).fields[field.index]);
       },
       [](const Elements &elements) -> Slot { return elements.element; },
       [](const Forced &forced) -> Slot { return unrestricted(forced.lazy.getValue()); },
@@ -61,8 +61,8 @@ llvm::hash_code idr::hash_value(const FlowAnchor &anchor) {
   return idr::match(
       anchor.place,
       [&](const FlowAnchor::Field &field) {
-        return llvm::hash_combine(kind, field.data, static_cast<std::uint32_t>(field.ctor),
-                                  field.index);
+        return llvm::hash_combine(kind, field.group, field.member,
+                                  static_cast<std::uint32_t>(field.ctor), field.index);
       },
       [&](const FlowAnchor::Elements &elements) {
         return llvm::hash_combine(kind, elements.element);
