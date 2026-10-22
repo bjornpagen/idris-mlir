@@ -53,7 +53,7 @@ export
                   Spine t (Ref rfc Func j) args -> Defines ctx j d -> Admits ctx ev.unfolding d ->
                   definition d = PMDef info ns body -> Evaluates ev.running info ByName ->
                   TreeOf body (STerm i rhs) -> (same : length args = length ns) ->
-                  Reduces ev ctx (substs (mkSizeOf ns) (markersOf fc mk.bounds) (embed rhs)) built ->
+                  Reduces ev ctx (substs (mkSizeOf ns) (markersOf {vars = []} fc mk.bounds) (embed {outer = []} rhs)) built ->
                   Reduces ev ctx t (substs (mkSizeOf ns) (bindArguments args ns same) (refsToLocals mk.bounds built))
 rootedReduces mk spine defines admits isDef evaluates tree same steps =
   let none = leafFresh mk.fresh defines isDef tree in
@@ -76,5 +76,5 @@ export
                    Spine (Var.index env (MkVar p)) (Ref cfc (DataCon tag arity) h) fields ->
                    SameEntry ctx h cn -> (fsame : length fields = length cargs) ->
                    Chooses ev ctx env (Case idx p ty [ConCase cn ctag cargs (STerm i leaf)])
-                     (substs (mkSizeOf (Scope.addInner pns cargs)) (bindFields fields cargs fsame env) (embed leaf))
+                     (substs (mkSizeOf (Scope.addInner pns cargs)) (bindFields fields cargs fsame env) (embed {outer = []} leaf))
 projectedField spine entry fsame = ByCase (AsItIs Itself) (Takes (ByConstructor spine entry fsame ToLeaf))

@@ -22,17 +22,28 @@
 ||| context defines as nothing, reduce only to themselves
 ||| (`erasedReduces`, `undefinedReduces`).
 |||
+||| A site's term and an instance's are related by putting the instance's
+||| values in for the site's markers (`Idris.Host.putIn`), which rebuilds an
+||| application from its parts put in (`putInApp`) and keeps every head no
+||| value is put in for (`putInHead`): so at a node of the site's term an
+||| inert head heads, whatever the instance's values, the instance's term
+||| reduces under the same head, its arguments put in (`inertPutIn`), and
+||| each argument of a normal form it reaches is normal
+||| (`argumentsIrreducible`).
+|||
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Inversion
 
 import Core.Context
 import Core.TT
 import Idris.Host
+import Libraries.Data.List.SizeOf
 
 import IdrisMLIR.Proof.Reading
 
 import Data.List
 import Data.List.Elem
+import Data.List.Quantifiers
 
 %default total
 
@@ -403,3 +414,75 @@ refContracts s (EtaDelayed _) = void (notDelayed s)
 refContracts s (EtaDelay _ _) = void (notDelay s)
 refContracts s (EtaForce _) = void (notForce s)
 refContracts s (EtaDotted _) = void (notErased s)
+
+------------------------------------------------------------------------------
+-- Values put in under a head no value is put in for
+------------------------------------------------------------------------------
+
+||| A head putting values in keeps: a data constructor, a type constructor,
+||| or a bound name the bounds do not replace (a runtime part, a hole, an
+||| argument of a family's value).
+public export
+data KeptHead : Bounds ns -> NameType -> Name -> Type where
+  KeptData : KeptHead bs (DataCon tag arity) n
+  KeptFamily : KeptHead bs (TyCon arity) n
+  KeptBound : (0 _ : replaces bs n = False) -> KeptHead bs Bound n
+
+||| Putting values in rebuilds an application from its parts put in:
+||| `substTerm` and `mkLocals` are public, and each rebuilds one so.
+export
+0 putInApp : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+             (f, a : Term (outer ++ vars)) ->
+             putIn o sz bs vs (App fc f a) = App fc (putIn o sz bs vs f) (putIn o sz bs vs a)
+putInApp o sz None vs f a = Refl
+putInApp o sz (Add new old rest) vs f a = Refl
+
+||| Putting values in keeps a head no value is put in for.
+export
+0 putInHead : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+              KeptHead bs nt n -> putIn o sz bs vs (Ref fc nt n) = Ref fc nt n
+putInHead o sz None vs KeptData = Refl
+putInHead o sz (Add new old rest) vs KeptData = Refl
+putInHead o sz None vs KeptFamily = Refl
+putInHead o sz (Add new old rest) vs KeptFamily = Refl
+putInHead o sz bs vs (KeptBound none) = putInUnreplaced o sz bs vs none
+
+-- One more element at the end, mapped.
+0 mapSnoc : (g : a -> b) -> (xs : List a) -> (x : a) -> map g (xs ++ [x]) = map g xs ++ [g x]
+mapSnoc g [] x = Refl
+mapSnoc g (y :: ys) x = cong (g y ::) (mapSnoc g ys x)
+
+-- A spine read with its head written another way.
+0 headAs : Spine t h args -> h = h' -> Spine t h' args
+headAs s Refl = s
+
+||| A spine with values put in is the head put in over its arguments put in.
+export
+0 putInSpine : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+               Spine t h args -> Spine (putIn o sz bs vs t) (putIn o sz bs vs h) (map (putIn o sz bs vs) args)
+putInSpine o sz bs vs Head = Head
+putInSpine o sz bs vs (Applied {fc} {f} {a} {args} s) =
+  rewrite putInApp {fc} o sz bs vs f a in
+  rewrite mapSnoc (putIn o sz bs vs) args a in
+  Applied (putInSpine o sz bs vs s)
+
+||| What an instance's reduction makes of a node of the site's term that a
+||| head no value is put in for and no step rewrites heads: the same head,
+||| at some location, over what each argument, put in, reduces to.
+export
+0 inertPutIn : {0 ev : Evaluation} -> {0 ctx : Frozen} ->
+               (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+               Inert nt -> KeptHead bs nt n -> Spine u (Ref fc nt n) args ->
+               Reduces ev ctx (putIn o sz bs vs u) w -> InertReduct ev ctx nt n (map (putIn o sz bs vs) args) w
+inertPutIn o sz bs vs inert kept s r = inertReduces inert (headAs (putInSpine o sz bs vs s) (putInHead o sz bs vs kept)) r
+
+-- A property of every member of a list, from one of each member.
+0 everyElem : {0 p : a -> Type} -> (xs : List a) -> ((x : a) -> Elem x xs -> p x) -> All p xs
+everyElem [] f = []
+everyElem (x :: xs) f = f x Here :: everyElem xs (\y, el => f y (There el))
+
+||| Every argument of a normal form is normal (`argumentIrreducible`).
+export
+0 argumentsIrreducible : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Spine u h args -> Irreducible ev ctx u ->
+                         All (Irreducible ev ctx) args
+argumentsIrreducible {args} s normal = everyElem args (\a, el => argumentIrreducible s el normal)

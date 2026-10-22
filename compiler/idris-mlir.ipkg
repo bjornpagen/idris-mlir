@@ -74,9 +74,11 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Proof.Markers
         , IdrisMLIR.Proof.Dictionaries
         , IdrisMLIR.Proof.Inversion
+        , IdrisMLIR.Proof.Primitives
         , IdrisMLIR.Frontend.Growth.Potential
         , IdrisMLIR.Frontend.Growth.Check
         , IdrisMLIR.Frontend.Growth.Template
+        , IdrisMLIR.Proof.Covers
         , IdrisMLIR.Frontend.Finite
         , IdrisMLIR.Frontend.Translate.Shapes
         , IdrisMLIR.Frontend.Translate.Keys

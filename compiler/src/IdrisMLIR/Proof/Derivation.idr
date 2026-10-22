@@ -174,7 +174,7 @@ argumentSized {h} ms based ds fe (Keyed d under) =
                    Based m w -> LTE w (measureBase b) -> Describes m -> Feasible g pot ->
                    (as : List (Maybe (Written form))) -> (hs : List Nat) ->
                    ArgumentsWithin m pot b as hs ->
-                   Pointwise (map argumentSize as) (map (weightAt b) (padded (length as) hs))
+                   Pointwise (map Requests.argumentSize as) (map (weightAt b) (padded (length as) hs))
 argumentsSized ms based ds fe [] hs NoArguments = []
 argumentsSized ms based ds fe (a :: as) (h :: hs) (AtHeight x rest) =
   argumentSized ms based ds fe x :: argumentsSized ms based ds fe as hs rest

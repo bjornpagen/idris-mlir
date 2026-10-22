@@ -375,6 +375,7 @@ withinLight (LightChoice ts) (InChoice el wi) = withinLight (allLightAt el ts) w
 0 runLight : LTE 1 w -> RunRead h t -> Light w r t
 runLight one RunReadZero = LightHead LTEZero NoneLight
 runLight one (RunReadSucc x) = LightHead (transitive one (stepsAbove _ _)) (EachLight (runLight one x) NoneLight)
+runLight one RunReadLeaf = LightLeaf
 
 mutual
   ||| Another reading of a light value is light.

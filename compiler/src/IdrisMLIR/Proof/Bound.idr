@@ -299,14 +299,17 @@ data DropsLast : Template -> Template -> Type where
   OnlyApplied : DropsLast (Head Nothing [w, x]) w
 
 ||| A run of successors read node by node: a constructor of none, one high,
-||| or a head of one child over a run one shorter. An instance reads a
-||| closed run as its leaf (`Template.closedRun`), and the same run, a part
-||| of a value put in, node by node where it is no closed run of its own
-||| key's, or the other way about.
+||| or a head of one child over a run one shorter, whose rest may be read
+||| as its leaf. An instance reads a closed run as its leaf
+||| (`Template.closedRun`), and the same run, a part of a value put in,
+||| node by node where it is no closed run of its own key's, or the other
+||| way about; a reading node by node reads each of its parts as a term of
+||| its own, which may be a closed run's leaf again.
 public export
 data RunRead : Nat -> Template -> Type where
   RunReadZero : RunRead 1 (Head a [])
   RunReadSucc : RunRead h t -> RunRead (S h) (Head a [t])
+  RunReadLeaf : RunRead h (Leaf h)
 
 mutual
   ||| Two readings of one closed value: every node the same, but an argument
@@ -653,6 +656,7 @@ export
 0 runReadHeight : RunRead h t -> height t = h
 runReadHeight RunReadZero = Refl
 runReadHeight (RunReadSucc {t} r) = cong S (trans (maximumZeroNLeft (height t)) (runReadHeight r))
+runReadHeight RunReadLeaf = Refl
 
 mutual
   ||| Two readings of one value are as high.
@@ -668,6 +672,48 @@ mutual
   0 allRereadHeight : AllReread ts us -> tallest us = tallest ts
   allRereadHeight NoneReread = Refl
   allRereadHeight (EachReread x xs) = cong2 maximum (rereadHeight x) (allRereadHeight xs)
+
+------------------------------------------------------------------------------
+-- A part one level further down
+------------------------------------------------------------------------------
+
+||| A child of a part d deep is a part one deeper: `Sub` takes its first
+||| level at the top, and a match takes its next one at the bottom.
+export
+0 subChild : Sub d v (Head a cs) -> Elem c cs -> Sub (S d) v c
+subChild Self el = Child el Self
+subChild (Child el' sub) el = Child el' (subChild sub el)
+subChild (Peel sub) el = Peel (subChild sub el)
+
+||| The predecessor of a run d deep is a part one deeper.
+export
+0 subPeel : Sub d v (Leaf (S h)) -> Sub (S d) v (Leaf h)
+subPeel Self = Peel Self
+subPeel (Child el sub) = Child el (subPeel sub)
+subPeel (Peel sub) = Peel (subPeel sub)
+
+||| Where a list read again holds a template, the list it was read again from
+||| holds one it is a reading of.
+export
+0 rereadAt : AllReread ts us -> Elem u us -> (t : Template ** (Elem t ts, Reread t u))
+rereadAt (EachReread r _) Here = (_ ** (Here, r))
+rereadAt (EachReread _ rs) (There el) = case rereadAt rs el of
+  (t ** (el', r)) => (t ** (There el', r))
+rereadAt NoneReread el = absurd el
+
+||| What a match one level below a part of a value binds: where the part,
+||| read again, is a head (a constructor applied, or a run read node by
+||| node), each of its children is another reading of a part of the value
+||| one level deeper. So a marker a match binds to one field of what a
+||| marker stood for stands for a part of the same value of V.
+export
+0 fieldHolds : Sub d v u -> Reread u (Head a us) -> Elem t us -> (u' : Template ** (Sub (S d) v u', Reread u' t))
+fieldHolds sub RereadSame el = (_ ** (subChild sub el, RereadSame))
+fieldHolds sub (RereadHead xs) el = case rereadAt xs el of
+  (u' ** (el', r)) => (u' ** (subChild sub el', r))
+fieldHolds sub (RereadAsRun (RunReadSucc run)) Here = (_ ** (subPeel sub, RereadAsRun run))
+fieldHolds sub (RereadAsRun (RunReadSucc run)) (There el) = absurd el
+fieldHolds sub (RereadAsRun RunReadZero) el = absurd el
 
 ||| Lemma 1, the pattern's half: a part d levels down is at least d lower.
 export

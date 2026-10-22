@@ -450,7 +450,7 @@ joinAllMeasured {xs = []} ma [] = ma
 joinAllMeasured {xs = (i, w) :: rest} ma (mw :: ms) = joinAllMeasured (insertMeasured mw ma) ms
 
 0 settledMeasured : {xs : List (Nat, Weight)} -> All (\x => MeasuredWeight (snd x)) xs ->
-                    All (\x => MeasuredWeight (snd x)) (map settledEntry xs)
+                    All (\x => MeasuredWeight (snd x)) (map Template.settledEntry xs)
 settledMeasured {xs = []} [] = []
 settledMeasured {xs = (i, w) :: rest} (MeasuredBy :: ms) = MeasuredBy :: settledMeasured ms
 

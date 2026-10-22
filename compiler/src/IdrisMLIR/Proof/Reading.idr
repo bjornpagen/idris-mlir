@@ -365,11 +365,6 @@ record NormalReading (form : NormalForm) (ctx : Frozen) (t : ClosedTerm) where
   0 reduct : Reduct form ctx t
   0 contraction : EtaContracts reduct.value readForm
 
-||| What a normal reading gives is read off the term.
-export
-0 readingReadOff : (r : NormalReading form ctx t) -> ReadOff form ctx t r.readForm
-readingReadOff r = ReducedThenContracted r.reduct.steps r.contraction
-
 ||| What the readers read is no taller than the host's normal form they
 ||| read it off.
 export

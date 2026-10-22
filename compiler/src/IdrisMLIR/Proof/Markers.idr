@@ -72,14 +72,14 @@ orBoth Refl Refl = Refl
                 (0 p : IsVar nm i (outer ++ (ns ++ vars))) ->
                 mentions UnknownOnly bs (substTerm o sz (markersOf {vars} fc bs) (Local lfc r i p)) = False
 markedLocal o sz bs p = case range (size o) (size sz) i of
-  InFirst lt => localUnnamed (substBelow o sz (markersOf fc bs) p lt)
+  InFirst lt => localUnnamed (substBelow o sz (markersOf {vars} fc bs) p lt)
   InSecond j eq lt =>
     let (w ** wj) = varAt sz j lt in
     rewrite substMiddle o sz (markersOf {vars} fc bs) p w (trans eq (cong (size o +) (sym wj))) in
     rewrite the (weakenNs o (Var.index (markersOf {vars} fc bs) w) = Ref fc Bound (replacedAt bs w))
                 (trans (cong (weakenNs o) (markerNamed bs w)) weakenRef) in
     Refl
-  PastBoth k eq => localUnnamed (substPast o sz (markersOf fc bs) p k eq)
+  PastBoth k eq => localUnnamed (substPast o sz (markersOf {vars} fc bs) p k eq)
 
 mutual
   ||| A term over a scope, under binders, with the markers put in for the
@@ -157,6 +157,7 @@ mutual
 ||| names no unknown by them where it names none of them itself.
 export
 0 closedNoUnknown : {ns : Scope} -> (bs : Bounds ns) -> (t : Term ns) -> mentions BoundOrUnknown bs t = False ->
-                    mentions UnknownOnly bs (substs (mkSizeOf ns) (markersOf {vars = []} fc bs) (embed t)) = False
+                    mentions UnknownOnly bs (substs (mkSizeOf ns) (markersOf {vars = []} fc bs) (embed {outer = []} t)) = False
 closedNoUnknown bs t none =
-  markedNoUnknown zero (mkSizeOf ns) bs (embed t) (trans (mentionsEmbed BoundOrUnknown bs t) none)
+  markedNoUnknown {vars = []} zero (mkSizeOf ns) bs (embed {outer = []} t)
+                  (trans (mentionsEmbed {outer = []} BoundOrUnknown bs t) none)

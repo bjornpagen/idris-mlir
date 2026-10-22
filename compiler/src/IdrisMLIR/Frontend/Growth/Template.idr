@@ -306,7 +306,7 @@ data Values : Type -> Scope -> Type where
   (::) : a -> Values a vs -> Values a (v :: vs)
 
 ||| What a variable stands for, which its scope says is there.
-export
+public export
 valueAt : Values a vs -> (idx : Nat) -> (0 _ : IsVar n idx vs) -> a
 valueAt (x :: _) Z _ = x
 valueAt (_ :: xs) (S i) v = valueAt xs i (dropLater v)
@@ -388,14 +388,52 @@ walkMarker stands n = case probeOf n of
 
 ||| Whether a bound name is a marker of a runtime value an implementation
 ||| closes over (`Closed.markerName`), with the evidence either way.
+public export
 data HoleView : Name -> Type where
   IsHole : (i : Nat) -> (0 _ : Closed.markerOf n = Just i) -> HoleView n
   NotHole : (0 _ : Closed.markerOf n = Nothing) -> HoleView n
 
+export
 holeView : (n : Name) -> HoleView n
 holeView n with (Closed.markerOf n) proof found
   _ | Just i = IsHole i found
   _ | Nothing = NotHole found
+
+||| A bound name that is no argument of a family's value.
+public export
+0 NotFormal : Name -> Type
+NotFormal n = (j, k : Nat) -> Not (probeOf n = Just (ProbeFormal j k))
+
+||| Whether a bound name is an argument of a family's value
+||| (`Walk.ProbeFormal`), with the evidence either way.
+public export
+data FormalView : Name -> Type where
+  IsFormal : (j, k : Nat) -> (0 _ : probeOf n = Just (ProbeFormal j k)) -> FormalView n
+  NotFormalName : (0 _ : NotFormal n) -> FormalView n
+
+-- A name that is another probe, or none, is no argument of a family's value.
+0 otherThan : probeOf n = q -> ((j, k : Nat) -> Not (q = Just (ProbeFormal j k))) -> NotFormal n
+otherThan found apart j k same = apart j k (trans (sym found) same)
+
+export
+formalView : (n : Name) -> FormalView n
+formalView n with (probeOf n) proof found
+  _ | Just (ProbeFormal j k) = IsFormal j k found
+  _ | Nothing = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeBinder _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeHole _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeHoleFound _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just ProbeUnknown = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just ProbeRuntime = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeRuntimeAt _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeStandIn _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbePattern _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just ProbeForm = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeAxis _ _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeAxisAt _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeSize _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeVar _ _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeFieldPath _ _ _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
 
 ||| A reference as every reading and every match takes it. In order: a hole
 ||| marker (a runtime value an implementation closes over, which the key
@@ -967,6 +1005,25 @@ public export
 0 AddressedAs : Mode -> Name -> Maybe Address -> Type
 AddressedAs m n a = definitionAddress (gamma (defsOf m.inContext)) n = a
 
+||| A binder a reading reads as one node over its parts and its scope:
+||| every binder but a lambda, which is a family's value (`SLambda`) or a
+||| chain a site keeps around a call (`SEta`), so that one term has one
+||| reading at every node.
+public export
+data NodeBinder : Binder t -> Type where
+  NodeLet : NodeBinder (Let fc rig v ty)
+  NodePi : NodeBinder (Pi fc rig info ty)
+  NodePVar : NodeBinder (PVar fc rig info ty)
+  NodePLet : NodeBinder (PLet fc rig v ty)
+  NodePVTy : NodeBinder (PVTy fc rig ty)
+
+0 lambdaNoNode : NodeBinder (Lam fc rig info ty) -> Void
+lambdaNoNode NodeLet impossible
+lambdaNoNode NodePi impossible
+lambdaNoNode NodePVar impossible
+lambdaNoNode NodePLet impossible
+lambdaNoNode NodePVTy impossible
+
 ||| Which eta-redexes a reading's normal forms are contracted at: a site's
 ||| type, read beside the unfoldings of its calls, keeps a redex around a
 ||| call (`Closed.CallsKept`), which it reads as both its forms (`SEta`);
@@ -1059,8 +1116,9 @@ mutual
     ||| One of the writer's markers, in a site's term.
     SMarker : (0 _ : walkMarker stands n = Just t) -> AllReadAs (MkMode (OfSite stands) kp cl ctx) env as ts ->
               SpineAs (MkMode (OfSite stands) kp cl ctx) env (Ref fc Bound n) as (markedOf t ts)
-    ||| Any other bound name: a runtime part, one node.
-    SPart : (0 _ : Closed.markerOf n = Nothing) -> AllReadAs m env as ts ->
+    ||| Any other bound name, which is no argument of a family's value: a
+    ||| runtime part, one node.
+    SPart : (0 _ : Closed.markerOf n = Nothing) -> (0 _ : NotFormal n) -> AllReadAs m env as ts ->
             SpineAs m env (Ref fc Bound n) as (partOf m.keeping (Leaf 1) ts)
     ||| A definition with no place: what is not known of a runtime value.
     SNoDefinition : (0 _ : AddressedAs m n Nothing) -> AllReadAs m env as ts ->
@@ -1117,10 +1175,10 @@ mutual
     PAuto : PassingAs m env AutoImplicit []
     PDefault : ReadAs m env d r -> PassingAs m env (DefImplicit d) [r]
 
-  ||| A binder's parts: its default, its type, and a `let`'s value.
+  ||| A binder's parts, of a binder that is no lambda (`NodeBinder`): its
+  ||| default, its type, and a `let`'s value.
   public export
   data BinderAs : Mode -> Values Substitute vs -> TTBinder (TT vs) -> List Template -> Type where
-    BLam : PassingAs m env info ps -> ReadAs m env ty t -> BinderAs m env (Lam fc rig info ty) (ps ++ [t])
     BLet : ReadAs m env v tv -> ReadAs m env ty t -> BinderAs m env (Let fc rig v ty) [tv, t]
     BPi : PassingAs m env info ps -> ReadAs m env ty t -> BinderAs m env (Pi fc rig info ty) (ps ++ [t])
     BPVar : PassingAs m env info ps -> ReadAs m env ty t -> BinderAs m env (PVar fc rig info ty) (ps ++ [t])
@@ -1467,13 +1525,13 @@ formalsFrom j (k :: ks) (S n) = FormalArgument j k :: formalsFrom (S j) ks n
 ||| family's value: in a site's term, one of the writer's markers, or a
 ||| runtime part; in an instance's, which holds no marker, a runtime part.
 siteBound : {0 vs : Scope} -> {0 stand : Values Substitute vs} -> {0 as : List (TT vs)} ->
-            (m : Mode) -> (fc : FC) -> (n : Name) -> (0 _ : Closed.markerOf n = Nothing) ->
+            (m : Mode) -> (fc : FC) -> (n : Name) -> (0 _ : Closed.markerOf n = Nothing) -> (0 _ : NotFormal n) ->
             (ts : List Template) -> (0 _ : AllReadAs m stand as ts) ->
             Subset Template (SpineAs m stand (Ref fc Bound n) as)
-siteBound (MkMode (OfSite stands) kp cl ctx) fc n none ts rs with (walkMarker stands n) proof found
+siteBound (MkMode (OfSite stands) kp cl ctx) fc n none plain ts rs with (walkMarker stands n) proof found
   _ | Just t = Element (markedOf t ts) (SMarker found rs)
-  _ | Nothing = Element (partOf kp (Leaf 1) ts) (SPart none rs)
-siteBound (MkMode OfInstance kp cl ctx) fc n none ts rs = Element (partOf kp (Leaf 1) ts) (SPart none rs)
+  _ | Nothing = Element (partOf kp (Leaf 1) ts) (SPart none plain rs)
+siteBound (MkMode OfInstance kp cl ctx) fc n none plain ts rs = Element (partOf kp (Leaf 1) ts) (SPart none plain rs)
 
 ||| A bound name that is no hole marker, read: an argument of a family's
 ||| value its own; any other as `siteBound` reads it.
@@ -1481,9 +1539,9 @@ boundName : {0 vs : Scope} -> {0 stand : Values Substitute vs} -> {0 as : List (
             (m : Mode) -> (fc : FC) -> (n : Name) -> (0 _ : Closed.markerOf n = Nothing) ->
             (ts : List Template) -> (0 _ : AllReadAs m stand as ts) ->
             Subset Template (SpineAs m stand (Ref fc Bound n) as)
-boundName m fc n none ts rs with (probeOf n) proof formal
-  _ | Just (ProbeFormal j k) = Element (partOf m.keeping (Formal j k) ts) (SFormal none formal rs)
-  _ | _ = siteBound m fc n none ts rs
+boundName m fc n none ts rs = case formalView n of
+  IsFormal j k formal => Element (partOf m.keeping (Formal j k) ts) (SFormal none formal rs)
+  NotFormalName plain => siteBound m fc n none plain ts rs
 
 ||| A site's call beside its unfolding: as written, which every instance
 ||| that leaves it stuck writes, and what the unfolding gives the others;
@@ -1627,13 +1685,11 @@ mutual
     rs <- readings args
     pure (Element (nodeOf m.keeping (appliedConstant k rs.fst)) (SConstant rs.snd))
   spine m w acc stand (Bind fc x (Lam lfc rig info ty) sc) args = lambdaSpine m w acc stand fc x lfc rig info ty sc args
-  -- Any other binder is a head above its parts and its scope, in which
-  -- its variable is a placeholder.
-  spine m w acc stand (Bind _ x b sc) args = do
-    ps <- binder m w acc stand b
-    s <- read m w acc (Placeholding :: stand) sc
-    rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing ((ps.fst ++ [s.fst]) ++ rs.fst))) (SBinder ps.snd s.snd rs.snd))
+  spine m w acc stand (Bind fc x b@(Let _ _ _ _) sc) args = nodeBinder m w acc stand fc x b NodeLet sc args
+  spine m w acc stand (Bind fc x b@(Pi _ _ _ _) sc) args = nodeBinder m w acc stand fc x b NodePi sc args
+  spine m w acc stand (Bind fc x b@(PVar _ _ _ _) sc) args = nodeBinder m w acc stand fc x b NodePVar sc args
+  spine m w acc stand (Bind fc x b@(PLet _ _ _ _) sc) args = nodeBinder m w acc stand fc x b NodePLet sc args
+  spine m w acc stand (Bind fc x b@(PVTy _ _ _) sc) args = nodeBinder m w acc stand fc x b NodePVTy sc args
   spine m w acc stand (TDelayed _ _ u) args = do
     t <- read m w acc stand u
     rs <- readings args
@@ -1770,30 +1826,41 @@ mutual
   passing m w acc stand AutoImplicit = pure (Element [] PAuto)
   passing m w acc stand (DefImplicit d) = (\r => Element [r.fst] (PDefault r.snd)) <$> read m w acc stand d
 
-  ||| A binder's parts: its default, its type, and a `let`'s value before it.
+  ||| A binder that is no lambda, applied: a head above its parts, its scope,
+  ||| in which its variable is a placeholder, and the arguments.
+  nodeBinder : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+               (stand : Values Substitute vs) -> (fc : FC) -> (x : Name) -> (b : TTBinder (TT vs)) -> (0 _ : NodeBinder b) ->
+               (sc : TT (x :: vs)) -> (args : List (Arg m stand)) ->
+               Front (Subset Template (SpineAs m stand (Bind fc x b sc) (termsOf args)))
+  nodeBinder m w acc stand fc x b node sc args = do
+    ps <- binder m w acc stand b node
+    s <- read m w acc (Placeholding :: stand) sc
+    rs <- readings args
+    pure (Element (nodeOf m.keeping (Head Nothing ((ps.fst ++ [s.fst]) ++ rs.fst))) (SBinder ps.snd s.snd rs.snd))
+
+  ||| A binder's parts, of a binder that is no lambda: its default, its type,
+  ||| and a `let`'s value before it.
   binder : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           (stand : Values Substitute vs) -> (b : TTBinder (TT vs)) -> Front (Subset (List Template) (BinderAs m stand b))
-  binder m w acc stand (Lam _ _ info ty) = do
-    ps <- passing m w acc stand info
-    t <- read m w acc stand ty
-    pure (Element (ps.fst ++ [t.fst]) (BLam ps.snd t.snd))
-  binder m w acc stand (Let _ _ v ty) = do
+           (stand : Values Substitute vs) -> (b : TTBinder (TT vs)) -> (0 _ : NodeBinder b) ->
+           Front (Subset (List Template) (BinderAs m stand b))
+  binder m w acc stand (Lam _ _ _ _) node = void (lambdaNoNode node)
+  binder m w acc stand (Let _ _ v ty) _ = do
     tv <- read m w acc stand v
     t <- read m w acc stand ty
     pure (Element [tv.fst, t.fst] (BLet tv.snd t.snd))
-  binder m w acc stand (Pi _ _ info ty) = do
+  binder m w acc stand (Pi _ _ info ty) _ = do
     ps <- passing m w acc stand info
     t <- read m w acc stand ty
     pure (Element (ps.fst ++ [t.fst]) (BPi ps.snd t.snd))
-  binder m w acc stand (PVar _ _ info ty) = do
+  binder m w acc stand (PVar _ _ info ty) _ = do
     ps <- passing m w acc stand info
     t <- read m w acc stand ty
     pure (Element (ps.fst ++ [t.fst]) (BPVar ps.snd t.snd))
-  binder m w acc stand (PLet _ _ v ty) = do
+  binder m w acc stand (PLet _ _ v ty) _ = do
     tv <- read m w acc stand v
     t <- read m w acc stand ty
     pure (Element [tv.fst, t.fst] (BPLet tv.snd t.snd))
-  binder m w acc stand (PVTy _ _ ty) = do
+  binder m w acc stand (PVTy _ _ ty) _ = do
     t <- read m w acc stand ty
     pure (Element [t.fst] (BPVTy t.snd))
 
@@ -2178,15 +2245,17 @@ formedTemplate t = (.fst) <$> formedReading t
 
 ||| How a reading's form was read off its term: the host's normal form of
 ||| it, contracted (a type, a family, a form, a shape no constructor
-||| heads); or the term as written, its unknowns' solutions put in, then
-||| contracted (a dictionary, a shape a constructor heads), each what a
-||| reader reads off the term (`Proof.Reading.ReadOff`). A dictionary, and
-||| no other kind, that closes over runtime values is the implementation
-||| the frontend's own reduction finds it to be (`Closed.implementationOf`),
-||| contracted, which no relation of the host's yet states.
+||| heads), with the evidence that it is normal, which the reading lemma
+||| compares an instance's normal form by; or the term as written, its
+||| unknowns' solutions put in, then contracted (a dictionary, a shape a
+||| constructor heads), each what a reader reads off the term
+||| (`Proof.Reading.ReadOff`). A dictionary, and no other kind, that closes
+||| over runtime values is the implementation the frontend's own reduction
+||| finds it to be (`Closed.implementationOf`), contracted, which no
+||| relation of the host's yet states.
 public export
 data FormFrom : State.Static -> Frozen -> ClosedTerm -> ClosedTerm -> Type where
-  FromNormalForm : ReadOff OfNormaliseTypes ctx t u -> FormFrom k ctx t u
+  FromNormalForm : (r : NormalReading OfNormaliseTypes ctx t) -> FormFrom k ctx t r.readForm
   FromWritten : ReadOff OfNormaliseHoles ctx t u -> FormFrom k ctx t u
   FromImplementation : EtaContracts v u -> FormFrom ADictionary ctx t u
 
@@ -2234,7 +2303,7 @@ normalSite : {auto c : Ref Ctxt Defs} -> {0 k : State.Static} -> (m : Mode) -> (
 normalSite m t = do
   n <- readNormal (contractingFor m) m.inContext t
   r <- readFromStart m n.readForm
-  pure (MkSiteReading m n.readForm (FromNormalForm (readingReadOff n)) r.fst r.snd r.fst AsRead)
+  pure (MkSiteReading m n.readForm (FromNormalForm n) r.fst r.snd r.fst AsRead)
 
 ||| What a site, a field or a cap writes at a static argument of kind k, a
 ||| term whose stand-ins are `stands`, read as its key writes it there
@@ -2263,7 +2332,7 @@ siteReading stands AForm t = do
   n <- readNormal (contractingFor (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx)) ctx t
   r <- readFromStart (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.readForm
   f <- formedReading r.fst
-  pure (MkSiteReading (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.readForm (FromNormalForm (readingReadOff n))
+  pure (MkSiteReading (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.readForm (FromNormalForm n)
                       r.fst r.snd f.fst f.snd)
 siteReading stands ADictionary t = do
   ctx <- frozenContext
@@ -2415,6 +2484,7 @@ mutual
 -- them computes, or carries on a family where a computing value lands. A
 -- family's value may apply an argument it is given, and what that
 -- argument computes from its own arguments is then in the result.
+export
 argumentsBeta : (Nat -> Landing) -> List Template -> Beta
 argumentsBeta c ts = both (betaAll ts) (if any computing (ts >>= familiesIn) then Computes else Inert)
   where
@@ -2423,6 +2493,17 @@ argumentsBeta c ts = both (betaAll ts) (if any computing (ts >>= familiesIn) the
       Computed => True
       Evaluable _ => True
       _ => False
+
+||| A family of the writer's, applied, read at a node: by what lands at its
+||| position and what beta makes of its arguments (`withClosedFamilies`).
+public export
+landedAs : Landing -> Beta -> (i, d : Nat) -> List Template -> Template
+landedAs Computed _ i d ts = Computing i d ts
+landedAs (Evaluable _) _ i d ts = Computing i d ts
+landedAs (Closed _) Computes i d ts = Computing i d ts
+landedAs Open Computes i d ts = Computing i d ts
+landedAs (Closed k) Inert i d ts = raise k (Head Nothing ts)
+landedAs Open Inert i d ts = Applied i d ts
 
 mutual
   ||| A template read at a node, each applied family of the writer's by what
@@ -2435,16 +2516,10 @@ mutual
   ||| an arc when its arguments are closed (`appliedWeight`), and a sum of
   ||| two heights otherwise; and where a value may compute, or an argument
   ||| does, it reads as computing (`Computing`), a value nothing bounds.
-  export
+  public export
   withClosedFamilies : (landing : Nat -> Landing) -> Template -> Template
   withClosedFamilies c (Applied i d ts) =
-    let ts' = allWithClosed c ts in
-    case (c i, argumentsBeta c ts') of
-      (Computed, _) => Computing i d ts'
-      (Evaluable _, _) => Computing i d ts'
-      (_, Computes) => Computing i d ts'
-      (Closed k, Inert) => raise k (Head Nothing ts')
-      (Open, Inert) => Applied i d ts'
+    let ts' = allWithClosed c ts in landedAs (c i) (argumentsBeta c ts') i d ts'
   withClosedFamilies c (Computing i d ts) = Computing i d (allWithClosed c ts)
   withClosedFamilies c (Head a ts) = Head a (allWithClosed c ts)
   withClosedFamilies c (Opaque a ts) = Opaque a (allWithClosed c ts)
@@ -2456,6 +2531,7 @@ mutual
   withClosedFamilies c t@(Member _) = t
   withClosedFamilies c t@(Formal _ _) = t
 
+  public export
   allWithClosed : (landing : Nat -> Landing) -> List Template -> List Template
   allWithClosed c [] = []
   allWithClosed c (t :: ts) = withClosedFamilies c t :: allWithClosed c ts
@@ -2810,7 +2886,7 @@ choiceHeadOf ty = case getFn ty of
 ||| dispatch the translation makes on it reads whole, or, where an instance
 ||| fixes it after all, what is written; any other as it is written, and
 ||| so is every argument that is no dictionary.
-export
+public export
 asGiven : Maybe ChoiceHead -> (Template, Root) -> Template
 asGiven (Just k) (t, Chosen _) = Choice (Leaf 1) [t, Member k]
 asGiven _ (t, _) = t
@@ -2845,7 +2921,7 @@ normalInstance ctx rootOfForm t = do
   n <- readNormal EveryRedex ctx t
   r <- readFromStart (InstanceMode ctx) n.readForm
   root <- rootOfForm n.readForm
-  pure (MkInstanceReading n.readForm (FromNormalForm (readingReadOff n)) r.fst r.snd root)
+  pure (MkInstanceReading n.readForm (FromNormalForm n) r.fst r.snd root)
 
 -- A form and a shape split nothing.
 noRoot : ClosedTerm -> Front Root
@@ -2953,9 +3029,6 @@ elemRight (_ :: xs) e = There (elemRight xs e)
 0 lengthJoin : (xs, ys : List a) -> length (xs ++ ys) = length xs + length ys
 lengthJoin [] ys = Refl
 lengthJoin (_ :: xs) ys = cong S (lengthJoin xs ys)
-
-0 lteJoin : (xs, ys : List a) -> LTE (length xs) (length (xs ++ ys))
-lteJoin xs ys = lteToEq (sym (lengthJoin xs ys)) (lteAddRight (length xs))
 
 ||| A key tree applied to more arguments, each one more child of its node,
 ||| as the key writes an application.
@@ -3185,7 +3258,7 @@ mutual
     headChanged (markerNode w fc n found) (partWithin (holeOwn i) (allWithin w rs))
   spineWithin w (SFormal {fc} {n} {j} {k} none _ rs) =
     headChanged (unmarkedNode w fc n none) (partWithin (oneNode (Formal j k) lteRefl) (allWithin w rs))
-  spineWithin w (SPart {fc} {n} none rs) =
+  spineWithin w (SPart {fc} {n} none _ rs) =
     headChanged (unmarkedNode w fc n none) (partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs))
   spineWithin w (SNoDefinition _ rs) = partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs)
   spineWithin w (SData _ rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
@@ -3207,9 +3280,6 @@ mutual
   passingWithin w (PDefault {r} rd) = MkOwn [(r ** (Here, readWithin w rd))] lteRefl
 
   0 binderWithin : (w : Writer) -> BinderAs (InstanceMode ctx) env b ps -> Own (binderTrees w b) ps
-  binderWithin w (BLam {ps} {t} pa rt) =
-    let o = passingWithin w pa in
-    MkOwn (widen o.inside (\_, el => elemLeft el)) (transitive o.many (lteJoin ps [t]))
   binderWithin w (BLet {tv} {t} rv rt) =
     MkOwn [(tv ** (Here, readWithin w rv)), (t ** (There Here, readWithin w rt))] lteRefl
   binderWithin w (BPi {ps} {t} pa rt) =
@@ -3308,7 +3378,7 @@ mutual
   chainSpine ChainErased (SPlaceholder []) = MkCapRead lteRefl LTEZero LTEZero
   chainSpine (ChainUnsaid none) (SHole found _) = void (nothingNotJust (trans (sym none) found))
   chainSpine (ChainUnsaid none) (SFormal _ _ []) = MkCapRead lteRefl LTEZero LTEZero
-  chainSpine (ChainUnsaid none) (SPart _ []) = MkCapRead lteRefl LTEZero LTEZero
+  chainSpine (ChainUnsaid none) (SPart _ _ []) = MkCapRead lteRefl LTEZero LTEZero
   chainSpine (ChainUnknown _) (SNoDefinition _ []) = MkCapRead lteRefl LTEZero LTEZero
   chainSpine (ChainUnknown _) (SKept _ []) = MkCapRead lteRefl LTEZero LTEZero
 
@@ -3347,7 +3417,8 @@ chainContracted (ChainStep c) (EtaApp cf ca) = rewrite referenceKept cf in rewri
 ||| (`chainContracted`), and a shape is never read off an implementation.
 export
 0 shapeForm : ChainShape ctx t h -> FormFrom AShape ctx t u -> ChainShape ctx u h
-shapeForm c (FromNormalForm (ReducedThenContracted r k)) = rewrite chainContracted (chainReduces c r) k in chainReduces c r
+shapeForm c (FromNormalForm r) =
+  rewrite chainContracted (chainReduces c r.reduct.steps) r.contraction in chainReduces c r.reduct.steps
 shapeForm c (FromWritten (ReducedThenContracted r k)) = rewrite chainContracted (chainReduces c r) k in chainReduces c r
 
 ||| What the cut of a capped parameter's argument gives the request that
@@ -3431,7 +3502,7 @@ public export
 ReadingCovers m s stands k t r =
   {0 ns : Scope} -> (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
   MarkersHold m s r.mode.inContext stands mk.bounds vs ->
-  (inst : InstanceReading r.mode.inContext k (putIn zero (mkSizeOf ns) mk.bounds vs t)) ->
+  (inst : InstanceReading r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t)) ->
   Writes m s r.template inst.template
 
 ||| What a site of the model writes at a request's argument, of any kind,
@@ -3443,6 +3514,6 @@ export
                    s.site.template = r.template -> ReadingCovers m s.site stands k t r ->
                    (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
                    MarkersHold m s.site r.mode.inContext stands mk.bounds vs ->
-                   (inst : InstanceReading r.mode.inContext k (putIn zero (mkSizeOf ns) mk.bounds vs t)) ->
+                   (inst : InstanceReading r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t)) ->
                    SiteWrites m p inst.template
 siteWritesFrom s r same covers mk vs held inst = siteWritten s (rewrite same in covers mk vs held inst)

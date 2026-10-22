@@ -716,7 +716,7 @@ describes ps fps cps positionOf held beyond caps ss uncapped fe = sitesCovered s
 
     0 sitesCovered : (rest : List (Site n, tag)) -> All (\x => index (fst x).target caps = Nothing) rest ->
                      ((y : (Site n, tag)) -> Elem y rest -> Elem y ss) ->
-                     All (Covers (graphOf ps fps cps beyond caps ss) (modelOf ps fps cps positionOf held beyond caps ss)) (map fst rest)
+                     All (Covers (graphOf ps fps cps beyond caps ss) (modelOf ps fps cps positionOf held beyond caps ss)) (map Builtin.fst rest)
     sitesCovered [] [] _ = []
     sitesCovered ((s, x) :: rest) (u :: us) sub =
       MkCovers u (needed s x (sub (s, x) Here))
