@@ -297,8 +297,13 @@ LogicalResult State::local(Operation &op) {
   forwardedValues(&op, [&](OpOperand &use, Value input) {
     if (failed(merged) || !freedBy(input.getType(), Release::Scoped))
       return;
+    // An upstream region op (scf's) states no lifetime for what it makes,
+    // so a scoped value never passes through one: the decide step counts it.
     Value into = lifetimes::statedLifetime(input);
-    if (!into || !livesAsLong(use.get(), into))
+    if (!into)
+      merged = op.emitOpError("passes a scoped value on through a region op that states no "
+                              "lifetime for it, as no upstream region op does");
+    else if (!livesAsLong(use.get(), into))
       merged = op.emitOpError("passes a value on into a lifetime it does not outlive");
   });
   return merged;

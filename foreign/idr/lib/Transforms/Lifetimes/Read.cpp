@@ -293,15 +293,15 @@ void Planner::read(Operation *op, OpAt at, const Where &where) {
       return;
     }
     match(
-        move.to.at, [&](const FlowPoint::Parameter &) { mustCount(*from); },
+        move.to.at, [&](const FlowSource::Parameter &) { mustCount(*from); },
         // A copy puts what it returns at a position its copies may put.
-        [&](const FlowPoint::Result &result) {
+        [&](const FlowSource::Result &result) {
           if (reading == Reading::Put && llvm::is_contained(copies[self]->results, result.index))
             returned.push_back(node(*from));
           else
             mustCount(*from);
         },
-        [&](const FlowPoint::Whole &whole) { into(*from, whole.value); },
+        [&](const FlowSource::Whole &whole) { into(*from, whole.value); },
         // A part of what the op makes that no reference is (an array's
         // elements) is stored where no lifetime follows it.
         [&](const FlowPlace::Part &part) {
