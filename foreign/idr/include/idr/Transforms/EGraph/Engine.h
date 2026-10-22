@@ -10,12 +10,17 @@
 // position and a terminator stays in the skeleton of its region, in
 // order, and so does an op whose value depends on its parent
 // (DependsOnParent), which two parents would make two values. A node is
-// made with its classes' analyses (a constant, by the op's fold with
-// constant operands only; an interval, by upstream's transfer functions)
-// and the specification's rules rooted at its kind run at once, each right
-// side built the same way, the first that matches replacing the node's
-// class: every rule runs one way. A class never changes once made, so no
-// id goes stale and nothing is rebuilt. A repeated read in a region with
+// made with its analyses (a constant, by the op's fold with constant
+// operands only; an interval, by upstream's transfer functions), a node a
+// rule builds read as the op the write-back would make of it, and the
+// specification's rules rooted at its kind run at once, each right side
+// built the same way, the first that matches replacing the node: every
+// rule runs one way. The class a node lands in, its own or the one that
+// replaces it, meets what the node knows, so a rewrite loses no fact of
+// the form it replaced. A class's members never change once made and its
+// analyses only narrow, so no id goes stale and nothing is rebuilt: a
+// node made over a class reads its analyses as they stood when it was
+// made. A repeated read in a region with
 // no write of what it reads between merges into the first, and a repeated
 // op of the region's parent into the first; the skeleton rules decide
 // their edits.
@@ -116,12 +121,24 @@ struct Node {
   Run children;
 };
 
+// What the e-graph knows of a value: the constant it is and the interval
+// it lies in, each where known.
+struct Facts {
+  mlir::Attribute constant;
+  std::optional<mlir::ConstantIntRanges> range;
+
+  // What is known of one value known two ways, both of which hold: it is
+  // either's constant (two constants of one value are one) and lies in
+  // both intervals.
+  void meet(const Facts &other);
+};
+
 struct Class {
   Run members;
   mlir::Type type;
-  // The analyses, each computed once, when the class is made.
-  mlir::Attribute constant;
-  std::optional<mlir::ConstantIntRanges> range;
+  // What its node knew when the class was made, met with what each node
+  // that landed in it since knew.
+  Facts facts;
 };
 
 // What becomes of a skeleton op when the function is written back.
@@ -230,13 +247,16 @@ private:
                                 mlir::Operation *origin, Identity identity, mlir::Type type,
                                 std::span<const ClassId> operands, Rules rules);
   ClassId alone(Node node, ClassId into);
-  void analyse(Class &cls, const Node &node);
+  // A node's analyses, read off the op it stands for over its operands'
+  // classes.
+  Facts analyse(const Node &node);
+  Facts factsOf(mlir::Operation *op, std::span<const ClassId> operands) const;
   std::optional<ClassId> giveBack(const node::Op &op, std::span<const ClassId> operands,
                                   mlir::Type type);
   // The rules rooted at a node's kind (Rules.cpp): the class of the right
-  // side of the first that matches, which replaces the node's class; none
-  // when no rule matches.
-  std::optional<ClassId> rewrite(NodeId made, const Class &analysed);
+  // side of the first that matches, which the node lands in; none when no
+  // rule matches.
+  std::optional<ClassId> rewrite(NodeId made);
   std::optional<ClassId> buildSide(const table::Rule &rule, const Bindings &bindings,
                                    std::uint32_t &at, mlir::Type type, mlir::Dialect *dialect);
   std::optional<std::uint32_t> matchClass(std::uint32_t at, ClassId cls, Bindings &bindings) const;

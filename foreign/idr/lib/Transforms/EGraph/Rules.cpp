@@ -164,7 +164,7 @@ std::optional<std::uint32_t> Function::matchClass(std::uint32_t at, ClassId cls,
     return at + 1;
   }
   case table::PatternKind::Literal: {
-    std::optional<APInt> value = integerOf(this->at(cls).constant);
+    std::optional<APInt> value = integerOf(this->at(cls).facts.constant);
     if (!value || value->getSignificantBits() > 64 || value->getSExtValue() != pattern.literal)
       return std::nullopt;
     return at + 1;
@@ -204,19 +204,19 @@ std::optional<std::uint32_t> Function::matchNode(std::uint32_t at, NodeId n,
 // it, a call only where its row carries neither crash nor divergence, and
 // a leaf's maker stays in the skeleton whatever a rule drops.
 bool Function::holds(const table::Condition &condition, const Bindings &bindings) const {
-  const Class &cls = at(*bindings.vars[condition.var]);
+  const Facts &known = at(*bindings.vars[condition.var]).facts;
   switch (condition.kind) {
   case table::ConditionKind::IsConstant:
-    return static_cast<bool>(cls.constant);
+    return static_cast<bool>(known.constant);
   case table::ConditionKind::PowerOfTwo: {
-    std::optional<APInt> value = integerOf(cls.constant);
+    std::optional<APInt> value = integerOf(known.constant);
     return value && value->isStrictlyPositive() && value->isPowerOf2();
   }
   case table::ConditionKind::InRange:
-    return cls.range && cls.range->smin().getSignificantBits() <= 64 &&
-           cls.range->smax().getSignificantBits() <= 64 &&
-           cls.range->smin().getSExtValue() >= condition.lo &&
-           cls.range->smax().getSExtValue() <= condition.hi;
+    return known.range && known.range->smin().getSignificantBits() <= 64 &&
+           known.range->smax().getSignificantBits() <= 64 &&
+           known.range->smin().getSExtValue() >= condition.lo &&
+           known.range->smax().getSExtValue() <= condition.hi;
   case table::ConditionKind::Clean:
     return true;
   }
@@ -259,11 +259,17 @@ std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindin
   return std::nullopt;
 }
 
-std::optional<ClassId> Function::rewrite(NodeId made, const Class &analysed) {
-  const auto &op = std::get<node::Op>(at(made).what);
-  if (!op.kind)
+std::optional<ClassId> Function::rewrite(NodeId made) {
+  // Copied out first: a right side built grows the node table, which moves
+  // the node, and a later rule is still tried when that side does not apply.
+  auto [kind, type, dialect] = [&] {
+    const Node &node = at(made);
+    const auto &op = std::get<node::Op>(node.what);
+    return std::tuple(op.kind, node.type, op.name.getDialect());
+  }();
+  if (!kind)
     return std::nullopt;
-  for (std::uint32_t r = generated::rulesOfKind[*op.kind]; r < generated::rulesOfKind[*op.kind + 1];
+  for (std::uint32_t r = generated::rulesOfKind[*kind]; r < generated::rulesOfKind[*kind + 1];
        ++r) {
     const table::Rule &rule = generated::rules[r];
     Bindings bindings;
@@ -276,12 +282,11 @@ std::optional<ClassId> Function::rewrite(NodeId made, const Class &analysed) {
     if (!llvm::all_of(conditions, [&](const table::Condition &c) { return holds(c, bindings); }))
       continue;
     std::uint32_t at = rule.rhs;
-    std::optional<ClassId> side =
-        buildSide(rule, bindings, at, analysed.type, op.name.getDialect());
+    std::optional<ClassId> side = buildSide(rule, bindings, at, type, dialect);
     // A specification sort is coarser than an MLIR type, which holds index
     // terms: a right side whose class is of another type here does not
     // apply here, since no rewrite changes a value's type.
-    if (!side || this->at(*side).type != analysed.type)
+    if (!side || this->at(*side).type != type)
       continue;
     return side;
   }
