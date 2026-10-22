@@ -101,7 +101,8 @@
     "foreign/idr/include/idr/IR/Layout.h",
     "foreign/idr/include/idr/IR/TypeGraph.h",
     "foreign/idr/include/idr/IR/Families/",
-    "foreign/idr/lib/IR/Families/"
+    "foreign/idr/lib/IR/Families/",
+    "foreign/idr/include/idr/IR/Layout/"
   ],
   "L05": [
     "compiler/spec/IdrisMLIR/Spec/Grades/",
