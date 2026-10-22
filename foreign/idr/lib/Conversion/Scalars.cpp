@@ -17,6 +17,7 @@
 #include "idr/Conversion/Runtime.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -51,19 +52,25 @@ struct LowerCrashMessage : IdrPattern<CrashMessageOp> {
 };
 
 // The IO a trusted library runs for a pure value runs where the value is
-// demanded: its region in place of the op, and the values its yield gives in
-// place of the op's results. Its effects were ordered by its row up to here;
-// what is left is the code.
+// demanded: its region run once in place, as upstream's region op of that
+// shape, whose results are the values its yield gives. Its effects were
+// ordered by its row up to here; what is left is the code. A region that
+// never ends, or that breaks out to a join point around the op, keeps its
+// own end, which the one conversion of scf to blocks leaves as it is.
 struct LowerUnsafeRun : IdrPattern<IoUnsafeRunOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(IoUnsafeRunOp op, OpAdaptor,
+  LogicalResult matchAndRewrite(IoUnsafeRunOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    Block &body = op.getBody().front();
-    Operation *yield = body.getTerminator();
-    SmallVector<Value> results(yield->getOperands());
-    rewriter.inlineBlockBefore(&body, op);
-    rewriter.eraseOp(yield);
-    rewriter.replaceOp(op, results);
+    FailureOr<SmallVector<SmallVector<Type>>> converted =
+        convertedResults(op, *getTypeConverter());
+    if (failed(converted))
+      return rewriter.notifyMatchFailure(op, "a result's type does not convert");
+    SmallVector<Type> flat;
+    for (ArrayRef<Type> components : *converted)
+      llvm::append_range(flat, components);
+    auto run = scf::ExecuteRegionOp::create(rewriter, op.getLoc(), flat);
+    moveRegion(rewriter, *getTypeConverter(), op.getBody(), {}, run.getRegion());
+    rewriter.replaceOpWithMultiple(op, groupResults(run.getResults(), *converted));
     return success();
   }
 };

@@ -176,7 +176,11 @@ exitStops = StopsByExit
 ||| its region, one block ending in `idr.yield`, runs where the op stands,
 ||| and its effects are its region's, so the function that demands the
 ||| value carries them in its row and orders them with every other effect.
-||| No world is forged: the effects order it. Lowered by inlining its region.
+||| No world is forged: the effects order it. Nothing runs at its end but
+||| the handing on of its results, so a break crosses it: a jump from its
+||| region to a join point around it, and frames splitting a call on its
+||| function's own cycle inside it, whose continuation is the code after
+||| it. Lowered to a region run once, which keeps such a jump.
 public export
 unsafeRun : Op 0 1 0 1
 unsafeRun = MkOp
@@ -186,7 +190,7 @@ unsafeRun = MkOp
   , outs = [results "results" (UpstreamType AnyTypeC)]
   , attrs = []
   , regions = [sized "body" 1]
-  , traits = [SingleBlock, HasNestedTerminator ("yield" ::: [])]
+  , traits = [SingleBlock, PropagateControlFlowBreak, HasNestedTerminator ("yield" ::: [])]
   , interfaces = [Declares RegionBranch ["getSuccessorRegions"]]
   , effects = Executes [] [] Recursive Untouched
   , speculation = RecursivelySpeculatable

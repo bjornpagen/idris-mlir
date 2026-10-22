@@ -107,15 +107,26 @@ ConstantIntRanges nonNegative(unsigned width, uint64_t min, uint64_t max) {
   return ConstantIntRanges::fromUnsigned(APInt(width, min), APInt(width, max));
 }
 
-// A big and a natural prove more than their storage; any other value has
-// upstream's maximum range (IntegerValueRange::getMaxRange), so a seed
-// joins every range an op infers at the width the op infers it.
+// A big, a natural and a numeral prove more than their storage; any other
+// value has upstream's maximum range (IntegerValueRange::getMaxRange), so a
+// seed joins every range an op infers at the width the op infers it.
 IntegerValueRange ofType(Type type) {
   type = unrestricted(type);
   if (isa<NatType>(type))
     return IntegerValueRange(rangeOf(natural()));
   if (isa<BigType>(type))
     return IntegerValueRange(rangeOf({}));
+  // A numeral whose indices fix its bound is a word of its layout's width,
+  // up to the largest value they allow, which the type kept when it was
+  // made (`#Fin[3]` 0 to 2, so no bounds check on an index of one is
+  // built); one whose index is open is laid out as a natural, at least 0.
+  // A data type of any other layout holds no integer.
+  if (auto data = dyn_cast<DataType>(type)) {
+    if (std::optional<uint64_t> largest = data.numeralBound())
+      return IntegerValueRange(nonNegative(families::numberBits(data.layout()), 0, *largest));
+    if (data.layout() == Layout::Natural)
+      return IntegerValueRange(rangeOf(natural()));
+  }
   unsigned width = ConstantIntRanges::getStorageBitwidth(type);
   // A width-0 APInt has no sign bit, so upstream stores the range of a value
   // that holds no integer as the one width-0 value in all four bounds.

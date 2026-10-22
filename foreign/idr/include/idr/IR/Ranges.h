@@ -65,7 +65,9 @@ mlir::ConstantIntRanges rangeOf(Bounds bounds) noexcept;
 mlir::ConstantIntRanges nonNegative(unsigned width, uint64_t min, uint64_t max);
 
 // The range every value of `type` is in, whatever its grade, as the type
-// alone proves it: at least 0 for a natural, none for a big; for any other
+// alone proves it: at least 0 for a natural, none for a big; for a numeral
+// 0 to the largest value its indices allow, at its layout's width, or a
+// natural's range where its index fixes no bound; for any other
 // type upstream's maximum range of a value of it (getMaxRange): its storage
 // width's whole range for an integer, an index or a shaped value of them,
 // and the initialized width-0 range for a type that holds no integer (a

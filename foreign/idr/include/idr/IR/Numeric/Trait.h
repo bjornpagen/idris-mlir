@@ -6,9 +6,10 @@
 // over words), its integer ranges (F over intervals, through upstream's
 // InferIntRangeInterface, which the op lists with no method of its own:
 // the trait's method is the op's by inheritance, as AlwaysSpeculatableImpl
-// supplies getSpeculatability) and, through `expand`, its arith (F over an
-// IR builder). So an op's class says nothing of its arithmetic, and no
-// reader of an inline op names the op.
+// supplies getSpeculatability; and, with no op at all, `inferRanges`, the
+// same function) and, through `expand`, its arith (F over an IR builder).
+// So an op's class says nothing of its arithmetic, and no reader of an
+// inline op names the op.
 //
 // The fold is over constant operands alone: an identity with one operand
 // unknown (a quotient by 1) is a rule of the specification, checked
@@ -47,6 +48,17 @@ concept GuardsItsOperands = requires(typename ConcreteOp::FoldAdaptor adaptor) {
 
 template <class F>
 struct InlineArith {
+  // F over the operands' intervals, at the shape of upstream's own range
+  // functions (`mlir::intrange::inferAnd` and kin): one body, which the op's
+  // interface answers with and which the e-graph's table of range functions
+  // names for a node a rule built, where no op stands to be asked.
+  static mlir::ConstantIntRanges inferRanges(llvm::ArrayRef<mlir::ConstantIntRanges> ranges) {
+    Intervals d;
+    return [&]<std::size_t... I>(std::index_sequence<I...>) {
+      return F::apply(d, ranges[I]...);
+    }(std::make_index_sequence<F::arity>());
+  }
+
   template <class ConcreteOp>
   class Impl : public mlir::OpTrait::TraitBase<ConcreteOp, Impl> {
     static constexpr std::size_t arity = F::arity;
@@ -73,15 +85,10 @@ struct InlineArith {
       return attrOf(op->getResult(0).getType(), result);
     }
 
-    // F over the operands' intervals, as upstream's analyses and the
-    // e-graph's interval analysis ask.
+    // F over the operands' intervals, as upstream's analyses ask.
     void inferResultRanges(llvm::ArrayRef<mlir::ConstantIntRanges> ranges,
                            mlir::SetIntRangeFn setResultRange) {
-      Intervals d;
-      mlir::ConstantIntRanges result = [&]<std::size_t... I>(std::index_sequence<I...>) {
-        return F::apply(d, ranges[I]...);
-      }(std::make_index_sequence<arity>());
-      setResultRange(this->getOperation()->getResult(0), result);
+      setResultRange(this->getOperation()->getResult(0), InlineArith::inferRanges(ranges));
     }
 
     // F built as arith at `builder`'s insertion point over `operands`, the

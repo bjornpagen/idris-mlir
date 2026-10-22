@@ -161,91 +161,111 @@ byteBuffer = SatisfiesType byteBufferP
 ||| restates: none has a memory effect, so only its uses order it. Its laws
 ||| are the ones upstream has no trait for, which the e-graph and the
 ||| accumulator read. It takes no guard: an op whose operands a condition
-||| restricts states its guard where it is admitted.
-arithOp : Ident -> List UpLaw -> Admitted
-arithOp r laws = MkAdmitted Arith r Always FrontendWrites [] laws
+||| restricts states its guard where it is admitted. Its range is the
+||| function upstream computes its interval with, by which a node a rule
+||| built gets one with no op standing for it; none where upstream has no
+||| one function for it. Its record's name carries its dialect, so it is its
+||| own alias.
+arithOp : Ident -> List UpLaw -> Maybe RangeFunction -> Admitted
+arithOp r laws range = MkAdmitted Arith r r Always FrontendWrites [] laws range
 
-||| A word or a Double as its literal; folding materializes one too.
+||| Upstream's range function of an op, by its name in upstream's common
+||| integer range inference.
+rangedBy : Ident -> Maybe RangeFunction
+rangedBy f = Just (InIntRange f)
+
+||| A word or a Double as its literal; folding materializes one too. A
+||| node of one is its constant, so it needs no range function.
 public export
 arithConstant : Admitted
-arithConstant = arithOp "Arith_ConstantOp" []
+arithConstant = arithOp "Arith_ConstantOp" [] Nothing
 
 -- The wrapping arithmetic and the bitwise ops of signless words, which the
--- rules build and the big ops name as what they compute on words.
+-- rules build and the big ops name as what they compute on words. A rule's
+-- node is written with no overflow flag, so it wraps, and its interval is
+-- upstream's with none.
 
 public export
 addI : Admitted
-addI = arithOp "Arith_AddIOp" [UpAssociative, UpIdentity 0]
+addI = arithOp "Arith_AddIOp" [UpAssociative, UpIdentity 0] (rangedBy "inferAdd")
 
 public export
 subI : Admitted
-subI = arithOp "Arith_SubIOp" []
+subI = arithOp "Arith_SubIOp" [] (rangedBy "inferSub")
 
 public export
 mulI : Admitted
-mulI = arithOp "Arith_MulIOp" [UpAssociative, UpIdentity 1]
+mulI = arithOp "Arith_MulIOp" [UpAssociative, UpIdentity 1] (rangedBy "inferMul")
 
 public export
 andI : Admitted
-andI = arithOp "Arith_AndIOp" [UpAssociative, UpIdentity (-1)]
+andI = arithOp "Arith_AndIOp" [UpAssociative, UpIdentity (-1)] (rangedBy "inferAnd")
 
 public export
 orI : Admitted
-orI = arithOp "Arith_OrIOp" [UpAssociative, UpIdentity 0]
+orI = arithOp "Arith_OrIOp" [UpAssociative, UpIdentity 0] (rangedBy "inferOr")
 
 public export
 xorI : Admitted
-xorI = arithOp "Arith_XOrIOp" [UpAssociative, UpIdentity 0]
+xorI = arithOp "Arith_XOrIOp" [UpAssociative, UpIdentity 0] (rangedBy "inferXor")
 
 ||| A clock reading's seconds, by the constant bits of its nanoseconds: an
 ||| amount below the width, the only shift of arith's the frontend writes.
 ||| Idris's own shifts are the dialect's total ones.
 public export
 shrUI : Admitted
-shrUI = arithOp "Arith_ShRUIOp" []
+shrUI = arithOp "Arith_ShRUIOp" [] (rangedBy "inferShrU")
 
+||| A comparison's interval is a truth its predicate decides, which no one
+||| range function of its operands computes.
 public export
 cmpI : Admitted
-cmpI = arithOp "Arith_CmpIOp" []
+cmpI = arithOp "Arith_CmpIOp" [] Nothing
 
 public export
 maxSI : Admitted
-maxSI = arithOp "Arith_MaxSIOp" []
+maxSI = arithOp "Arith_MaxSIOp" [] (rangedBy "inferMaxS")
 
+||| A choice's interval is its condition's side, or both sides joined,
+||| which arith computes itself and no range function of upstream's does.
+||| Its record's name holds no dialect, so its alias does.
 public export
 arithSelect : Admitted
-arithSelect = arithOp "SelectOp" []
+arithSelect = { alias := "Arith_SelectOp" } (arithOp "SelectOp" [] Nothing)
 
 -- Conversions between words of two widths, a word and an index, and a word
--- and a Double: the sign on the op where the computation differs.
+-- and a Double: the sign on the op where the computation differs. A change
+-- of width has upstream's interval at the result's width; an index cast
+-- extends or truncates as the two widths fall, which no one range function
+-- says, and a Double holds no interval.
 
 public export
 truncI : Admitted
-truncI = arithOp "Arith_TruncIOp" []
+truncI = arithOp "Arith_TruncIOp" [] (rangedBy "truncRange")
 
 public export
 extUI : Admitted
-extUI = arithOp "Arith_ExtUIOp" []
+extUI = arithOp "Arith_ExtUIOp" [] (rangedBy "extUIRange")
 
 public export
 extSI : Admitted
-extSI = arithOp "Arith_ExtSIOp" []
+extSI = arithOp "Arith_ExtSIOp" [] (rangedBy "extSIRange")
 
 public export
 indexCast : Admitted
-indexCast = arithOp "Arith_IndexCastOp" []
+indexCast = arithOp "Arith_IndexCastOp" [] Nothing
 
 public export
 indexCastUI : Admitted
-indexCastUI = arithOp "Arith_IndexCastUIOp" []
+indexCastUI = arithOp "Arith_IndexCastUIOp" [] Nothing
 
 public export
 uiToFP : Admitted
-uiToFP = arithOp "Arith_UIToFPOp" []
+uiToFP = arithOp "Arith_UIToFPOp" [] Nothing
 
 public export
 siToFP : Admitted
-siToFP = arithOp "Arith_SIToFPOp" []
+siToFP = arithOp "Arith_SIToFPOp" [] Nothing
 
 -- A Double's arithmetic is IEEE 754's binary64 as upstream's arith means
 -- it: rounded to nearest, ties to even, and written with no fast-math flag,
@@ -255,27 +275,27 @@ siToFP = arithOp "Arith_SIToFPOp" []
 
 public export
 addF : Admitted
-addF = arithOp "Arith_AddFOp" []
+addF = arithOp "Arith_AddFOp" [] Nothing
 
 public export
 subF : Admitted
-subF = arithOp "Arith_SubFOp" []
+subF = arithOp "Arith_SubFOp" [] Nothing
 
 public export
 mulF : Admitted
-mulF = arithOp "Arith_MulFOp" []
+mulF = arithOp "Arith_MulFOp" [] Nothing
 
 public export
 divF : Admitted
-divF = arithOp "Arith_DivFOp" []
+divF = arithOp "Arith_DivFOp" [] Nothing
 
 public export
 negF : Admitted
-negF = arithOp "Arith_NegFOp" []
+negF = arithOp "Arith_NegFOp" [] Nothing
 
 public export
 cmpF : Admitted
-cmpF = arithOp "Arith_CmpFOp" []
+cmpF = arithOp "Arith_CmpFOp" [] Nothing
 
 -- An unsigned quotient and remainder, upstream's meaning: their divisor is
 -- the result of idr.check.nonzero, which the frontend builds before each
@@ -289,11 +309,84 @@ divisorNonzero = MkGuard "check.nonzero" (1 ::: []) (caseRef causeClosed Divisio
 
 public export
 divUI : Admitted
-divUI = { guards := [divisorNonzero] } (arithOp "Arith_DivUIOp" [])
+divUI = { guards := [divisorNonzero] } (arithOp "Arith_DivUIOp" [] (rangedBy "inferDivU"))
 
 public export
 remUI : Admitted
-remUI = { guards := [divisorNonzero] } (arithOp "Arith_RemUIOp" [])
+remUI = { guards := [divisorNonzero] } (arithOp "Arith_RemUIOp" [] (rangedBy "inferRemU"))
+
+-- A Double's functions of the C library and its exact ones (a root, a
+-- floor, a ceiling) are IEEE 754's binary64 as upstream's math means them,
+-- each the C library's function, written with no fast-math flag.
+
+||| An op of math the frontend writes, legal at every stage as arith's ops
+||| are: the lowering leaves it to upstream's conversion. Upstream's record
+||| holds its meaning and its effects: none, so only its uses order it. It
+||| takes no guard, since it is defined on every Double: a value outside
+||| the function's domain gives IEEE's NaN, as the C library's does. Its
+||| values are Doubles, so it has no range. Its record's name carries its
+||| dialect, so it is its own alias.
+mathOp : Ident -> Admitted
+mathOp r = MkAdmitted Math r r Always FrontendWrites [] [] Nothing
+
+public export
+expF : Admitted
+expF = mathOp "Math_ExpOp"
+
+public export
+logF : Admitted
+logF = mathOp "Math_LogOp"
+
+public export
+sinF : Admitted
+sinF = mathOp "Math_SinOp"
+
+public export
+cosF : Admitted
+cosF = mathOp "Math_CosOp"
+
+public export
+tanF : Admitted
+tanF = mathOp "Math_TanOp"
+
+public export
+asinF : Admitted
+asinF = mathOp "Math_AsinOp"
+
+public export
+acosF : Admitted
+acosF = mathOp "Math_AcosOp"
+
+public export
+atanF : Admitted
+atanF = mathOp "Math_AtanOp"
+
+public export
+sqrtF : Admitted
+sqrtF = mathOp "Math_SqrtOp"
+
+public export
+floorF : Admitted
+floorF = mathOp "Math_FloorOp"
+
+public export
+ceilF : Admitted
+ceilF = mathOp "Math_CeilOp"
+
+public export
+powF : Admitted
+powF = mathOp "Math_PowFOp"
+
+||| What ends a region Idris proved never runs: a match none of whose cases
+||| can be, a value of an empty type. The frontend writes it, every pass
+||| keeps it, and the lowering ends a crash with it, so it stands at every
+||| stage. Upstream's record holds its meaning, undefined where reached,
+||| which no program the frontend accepts reaches, and its effects: none,
+||| since nothing after it runs to see one. Its record's name holds no
+||| dialect, so its alias does.
+public export
+ubUnreachable : Admitted
+ubUnreachable = MkAdmitted UB "UnreachableOp" "UB_UnreachableOp" Always FrontendWrites [] [] Nothing
 
 ||| Every upstream op the dialect admits, once.
 public export
@@ -301,7 +394,8 @@ opAdmitted : List Admitted
 opAdmitted =
   [ arithConstant, addI, subI, mulI, andI, orI, xorI, shrUI, cmpI, maxSI, arithSelect, truncI
   , extUI, extSI, indexCast, indexCastUI, uiToFP, siToFP, addF, subF, mulF, divF, negF, cmpF
-  , divUI, remUI ]
+  , divUI, remUI, expF, logF, sinF, cosF, tanF, asinF, acosF, atanF, sqrtF, floorF, ceilF, powF
+  , ubUnreachable ]
 
 ------------------------------------------------------------------------------
 -- Effects, as each runtime function has them
