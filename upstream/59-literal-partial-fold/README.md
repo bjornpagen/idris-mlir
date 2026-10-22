@@ -2,6 +2,8 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [Idris2] A literal checked before its type is known is folded halfway, its conversion's body inlined into the caller
 
+After: upstream/18-elaboration-primitive-folding
+
 At the pin (third_party/Idris2 at 1c630e67, the toolchain's `idris2`
 0.8.0-1c630e67c), elaboration folds a literal's conversion applied to a
 constant (`fromInteger 2`) by normalising it (`normalisePrims`,

@@ -2,6 +2,8 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [Idris2] A relevant implicit the clauses leave out is reported not covering
 
+After: upstream/50-erased-coverage-nested-match
+
 At the pin (third_party/Idris2 at 1c630e67, the toolchain's
 `idris2` 0.8.0-1c630e67c), the coverage checker rejects a definition above
 quantity 0 whose clauses leave a relevant implicit to unification, when the

@@ -2,6 +2,8 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # [Idris2] A constructor's implicit a clause leaves out keeps no mark
 
+After: upstream/52-relevant-implicit-split
+
 At the pin (third_party/Idris2 at 1c630e67, the toolchain's
 `idris2` 0.8.0-1c630e67c), a function that matches a constructor whose
 implicit argument the clause leaves out, and that the pattern of a later
