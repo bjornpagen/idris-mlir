@@ -11,6 +11,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Rules.h"
+#include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ranges.h"
 #include "idr/IR/Symbols.h"
@@ -37,8 +38,18 @@ std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
   Type field = (*fields)[index];
   if (data.kind() == MemberKind::Frames)
     return field;
-  return fieldType(value, unrestricted(field), usesOf(field),
-                   fieldReach(data.ctor(tag).fields[index]));
+  Type read = fieldType(value, unrestricted(field), usesOf(field),
+                        fieldReach(data.ctor(tag).fields[index]));
+  // A read whose slot is laid out apart from the field's type re-packs it,
+  // and one whose re-pack builds a cell or an array gives a fresh value,
+  // counted and claimed unique whatever the container's hold, so counting
+  // frees it as any fresh value. The slot is laid out at the unrefined
+  // application's field, as the layouts lay it out.
+  auto laidOut = [](DataType type, Tag at) { return Layouts::fieldsAt(type, at); };
+  Type slot = Layouts::fieldsAt(data.unrefined(), tag)[index];
+  if (families::builds(slot, field, laidOut))
+    return atHold(read, Hold::counted(Unique::Self));
+  return read;
 }
 
 //===----------------------------------------------------------------------===//
@@ -61,7 +72,8 @@ void DataFieldOp::build(OpBuilder &builder, OperationState &state, Value value, 
 
 // The field at the type a read of it gives, so a read follows its value's
 // grade wherever a pass changes it, and the interface's verifier holds the
-// result to it.
+// result to it: a read whose slot's re-pack builds is counted and claimed
+// unique.
 LogicalResult DataFieldOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
                                             Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
   Type value = adaptor.getValue().getType();
