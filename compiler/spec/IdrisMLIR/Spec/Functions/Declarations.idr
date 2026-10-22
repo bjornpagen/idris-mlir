@@ -161,8 +161,10 @@ programOp = MkOp
 ||| does, and where its calls stand. It states its parameters' lifetimes.
 ||| Inserting and erasing parameters and results are its own implementations
 ||| of the function interface's methods, so whoever edits its signature,
-||| through the op or the interface, moves what it states by position with
-||| the positions.
+||| through the op or the interface, one item or many, moves what it states
+||| by position with the positions. Its type is a function type by its
+||| attribute's constraint, so the interface's own clone of it, and each edit
+||| of its signature, builds the new type from it and never meets a null.
 export
 funcOp : Op 0 0 13 1
 funcOp = MkOp
@@ -172,7 +174,7 @@ funcOp = MkOp
   , outs = []
   , attrs =
       [ MkAttr "sym_name" (AnAttribute (UpstreamAttr SymbolNameAttrC) Required)
-      , MkAttr "function_type" (AnAttribute (UpstreamAttr TypeAttrC) Required)
+      , MkAttr "function_type" (AnAttribute (TypeAttrOf (UpstreamType FunctionTypeC)) Required)
       , MkAttr "arg_attrs" (AnAttribute (UpstreamAttr ArrayAttrC) MayBeAbsent)
       , MkAttr "res_attrs" (AnAttribute (UpstreamAttr ArrayAttrC) MayBeAbsent)
       , MkAttr "binders" indexBinders
@@ -188,7 +190,7 @@ funcOp = MkOp
   , regions = [MkRegion "body" OneRegion (Sized 1)]
   , traits = [AffineScope, IsolatedFromAbove, HasParent ("program" ::: [])]
   , interfaces =
-      [ Declares FunctionOp []
+      [ Declares FunctionOp ["insertArguments", "insertResults", "eraseArguments", "eraseResults"]
       , Declares OpAsm ["getDefaultDialect"]
       , Implements erasedBinderInterface ["getBoundSorts"]
       , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"] ]
@@ -204,26 +206,13 @@ funcOp = MkOp
       [ MkMember OnObject "::mlir::Region *" "getCallableRegion" []
       , MkMember OnObject "::llvm::ArrayRef<::mlir::Type>" "getArgumentTypes" []
       , MkMember OnObject "::llvm::ArrayRef<::mlir::Type>" "getResultTypes" []
-      , MkMember OnObject "::mlir::Type" "cloneTypeWith"
-          [param "::mlir::TypeRange" "inputs", param "::mlir::TypeRange" "results"]
       , MkMember OnObject "bool" "isExternal" []
       , MkMember OnObject "ProgramOp" "getProgram" []
       , MkMember OnObject "bool" "isRoot" []
       , MkMember OnObject "::mlir::SymbolTable::Visibility" "getVisibility" []
       , MkMember OnObject "void" "setVisibility"
           [param "::mlir::SymbolTable::Visibility" "visibility"]
-      , MkMember OnObject "::idr::Termination" "getTermination" []
-      , MkMember OnObject "::mlir::LogicalResult" "insertArguments"
-          [ param "::llvm::ArrayRef<unsigned>" "indices", param "::mlir::TypeRange" "types"
-          , param "::llvm::ArrayRef<::mlir::DictionaryAttr>" "attrs"
-          , param "::llvm::ArrayRef<::mlir::Location>" "locs" ]
-      , MkMember OnObject "::mlir::LogicalResult" "insertResults"
-          [ param "::llvm::ArrayRef<unsigned>" "indices", param "::mlir::TypeRange" "types"
-          , param "::llvm::ArrayRef<::mlir::DictionaryAttr>" "attrs" ]
-      , MkMember OnObject "::mlir::LogicalResult" "eraseArguments"
-          [param "const ::llvm::BitVector &" "arguments"]
-      , MkMember OnObject "::mlir::LogicalResult" "eraseResults"
-          [param "const ::llvm::BitVector &" "results"] ]
+      , MkMember OnObject "::idr::Termination" "getTermination" [] ]
   , guards = []
   , specializations = []
   , laws = []

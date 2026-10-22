@@ -44,9 +44,6 @@ StringRef idr::FuncOp::getDefaultDialect() { return IdrDialect::getDialectNamesp
 Region *idr::FuncOp::getCallableRegion() { return &getBody(); }
 ArrayRef<Type> idr::FuncOp::getArgumentTypes() { return getFunctionType().getInputs(); }
 ArrayRef<Type> idr::FuncOp::getResultTypes() { return getFunctionType().getResults(); }
-Type idr::FuncOp::cloneTypeWith(TypeRange inputs, TypeRange results) {
-  return FunctionType::get(getContext(), inputs, results);
-}
 // Every function of the program is defined in it, its body the one block
 // its region holds.
 bool idr::FuncOp::isExternal() { return false; }

@@ -10,13 +10,15 @@
 // single forms through them. Each edit says where every old parameter and
 // result goes, and what is stated moves there, computed before the
 // signature changes, since the parameters' parts are read off their old
-// types.
+// types. Each builds its new type from the function's own function type,
+// which always has the clone it asks for, so the type it sets is never
+// null and no edit has a failure of its type to answer.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/TypeUtilities.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
@@ -121,12 +123,12 @@ struct Stated {
   PutBoundsAttr bounded;
 };
 
-// The edit `change` makes, its parameters becoming `inputs`, with what `fn`
-// states moved as `parameters` and `results` say. It fails, with nothing
-// changed, when a value kept would lose the lifetime it lives in: the
-// function cannot have that signature.
+// The edit `change` makes, the function's type becoming `type`, with what
+// `fn` states moved as `parameters` and `results` say. It fails, with
+// nothing changed, when a value kept would lose the lifetime it lives in:
+// the function cannot have that signature.
 template <std::invocable<> Change>
-LogicalResult editSignature(FuncOp fn, TypeRange inputs, ArrayRef<std::optional<std::uint32_t>> parameters,
+LogicalResult editSignature(FuncOp fn, FunctionType type, ArrayRef<std::optional<std::uint32_t>> parameters,
                             ArrayRef<std::optional<std::uint32_t>> results, Change &&change) {
   MLIRContext *context = fn.getContext();
   Stated stated{};
@@ -138,7 +140,7 @@ LogicalResult editSignature(FuncOp fn, TypeRange inputs, ArrayRef<std::optional<
   }
   if (GivenBackAttr given = fn.getGivenBackAttr())
     stated.given = given.renumber(parameters, results);
-  ParameterParts before(fn.getArgumentTypes()), after(inputs);
+  ParameterParts before(fn.getArgumentTypes()), after(type.getInputs());
   stated.untouched =
       moved(context, fn.getUntouchedAttr(), amongThose<WritePart>(before, parameters, after));
   stated.bounded = moved(context, fn.getBoundedAttr(), amongThose<PutPart>(before, parameters, after));
@@ -155,10 +157,8 @@ LogicalResult editSignature(FuncOp fn, TypeRange inputs, ArrayRef<std::optional<
 LogicalResult idr::FuncOp::insertArguments(ArrayRef<unsigned> indices, TypeRange types,
                                           ArrayRef<DictionaryAttr> attrs, ArrayRef<Location> locs) {
   unsigned count = getNumArguments();
-  SmallVector<Type> storage;
-  TypeRange inputs = insertTypesInto(getArgumentTypes(), indices, types, storage);
-  Type type = cloneTypeWith(inputs, getResultTypes());
-  return editSignature(*this, inputs, inserting(count, indices), inserting(getNumResults(), {}), [&] {
+  FunctionType type = getFunctionType().getWithArgsAndResults(indices, types, {}, {});
+  return editSignature(*this, type, inserting(count, indices), inserting(getNumResults(), {}), [&] {
     function_interface_impl::insertFunctionArguments(*this, indices, types, attrs, locs, count, type);
   });
 }
@@ -166,30 +166,20 @@ LogicalResult idr::FuncOp::insertArguments(ArrayRef<unsigned> indices, TypeRange
 LogicalResult idr::FuncOp::insertResults(ArrayRef<unsigned> indices, TypeRange types,
                                         ArrayRef<DictionaryAttr> attrs) {
   unsigned count = getNumResults();
-  SmallVector<Type> storage;
-  TypeRange outputs = insertTypesInto(getResultTypes(), indices, types, storage);
-  Type type = cloneTypeWith(getArgumentTypes(), outputs);
-  return editSignature(*this, getArgumentTypes(), inserting(getNumArguments(), {}),
-                       inserting(count, indices), [&] {
-                         function_interface_impl::insertFunctionResults(*this, indices, types, attrs,
-                                                                        count, type);
-                       });
+  FunctionType type = getFunctionType().getWithArgsAndResults({}, {}, indices, types);
+  return editSignature(*this, type, inserting(getNumArguments(), {}), inserting(count, indices), [&] {
+    function_interface_impl::insertFunctionResults(*this, indices, types, attrs, count, type);
+  });
 }
 
 LogicalResult idr::FuncOp::eraseArguments(const llvm::BitVector &arguments) {
-  SmallVector<Type> storage;
-  TypeRange inputs = filterTypesOut(getArgumentTypes(), arguments, storage);
-  Type type = cloneTypeWith(inputs, getResultTypes());
-  return editSignature(*this, inputs, erasing(getNumArguments(), arguments),
-                       inserting(getNumResults(), {}),
+  FunctionType type = getFunctionType().getWithoutArgsAndResults(arguments, llvm::BitVector());
+  return editSignature(*this, type, erasing(getNumArguments(), arguments), inserting(getNumResults(), {}),
                        [&] { function_interface_impl::eraseFunctionArguments(*this, arguments, type); });
 }
 
 LogicalResult idr::FuncOp::eraseResults(const llvm::BitVector &results) {
-  SmallVector<Type> storage;
-  TypeRange outputs = filterTypesOut(getResultTypes(), results, storage);
-  Type type = cloneTypeWith(getArgumentTypes(), outputs);
-  return editSignature(*this, getArgumentTypes(), inserting(getNumArguments(), {}),
-                       erasing(getNumResults(), results),
+  FunctionType type = getFunctionType().getWithoutArgsAndResults(llvm::BitVector(), results);
+  return editSignature(*this, type, inserting(getNumArguments(), {}), erasing(getNumResults(), results),
                        [&] { function_interface_impl::eraseFunctionResults(*this, results, type); });
 }
