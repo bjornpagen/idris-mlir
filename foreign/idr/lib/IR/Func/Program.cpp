@@ -42,8 +42,12 @@ FuncOp idr::ProgramOp::lookupRoot() {
 }
 
 // A program is the whole of what runs: nothing outside it discards it.
-SymbolTable::Visibility idr::ProgramOp::getVisibility() { return SymbolTable::Visibility::Public; }
-void idr::ProgramOp::setVisibility(SymbolTable::Visibility) {}
+// Spelled `mlir::SymbolTable`, since inside the op `SymbolTable` names its
+// trait.
+mlir::SymbolTable::Visibility idr::ProgramOp::getVisibility() {
+  return mlir::SymbolTable::Visibility::Public;
+}
+void idr::ProgramOp::setVisibility(mlir::SymbolTable::Visibility) {}
 
 // The root, checked once: a function of the program that takes nothing.
 // Before the program is lowered it is an idr.func whose every result holds

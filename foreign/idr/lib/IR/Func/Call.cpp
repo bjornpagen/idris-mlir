@@ -48,7 +48,7 @@ FunctionType signatureAt(FuncOp callee, IndexArgsAttr args) {
 // A call's result types are its callee's at its index arguments, as its
 // row, write part and lives_in are its callee's: taken from the callee, so
 // no builder states them apart.
-void idr::CallOp::build(OpBuilder &builder, OperationState &state, FuncOp callee,
+void idr::CallOp::build(OpBuilder &, OperationState &state, FuncOp callee,
                         IndexArgsAttr indexArgs, ValueRange args, TailKind tail) {
   state.addTypes(signatureAt(callee, indexArgs).getResults());
   state.addOperands(args);

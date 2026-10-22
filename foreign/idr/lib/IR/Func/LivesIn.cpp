@@ -157,8 +157,12 @@ Attribute LivesInAttr::parse(AsmParser &parser, Type) {
   }
   if (parser.parseGreater())
     return {};
+  // The lists as the generated builder takes them, whose body sees the
+  // storage, rather than as the base's template would deduce them, which
+  // would need the storage here.
   return LivesInAttr::getChecked([&] { return parser.emitError(parser.getNameLoc()); },
-                                 parser.getContext(), *parameters, *results, bounds);
+                                 parser.getContext(), ArrayRef<LivesIn>(*parameters),
+                                 ArrayRef<LivesIn>(*results), ArrayRef<Outlives>(bounds));
 }
 
 void LivesInAttr::print(AsmPrinter &printer) const {

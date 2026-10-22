@@ -57,8 +57,11 @@ ExtentAttr parseEntry(AsmParser &parser) {
   if (parser.parseInteger(position) || parser.parseKeyword("axis") || parser.parseInteger(axis) ||
       parser.parseEqual() || families::parseTerm(parser, term, nullptr))
     return {};
+  // The term as the generated builder takes it, whose body sees the
+  // storage, rather than as the base's template would deduce it, which
+  // would need the storage here.
   return ExtentAttr::getChecked([&] { return parser.emitError(loc); }, parser.getContext(), *side,
-                                position, axis, term);
+                                position, axis, ArrayRef<families::TermNode>(term));
 }
 
 void printEntry(AsmPrinter &printer, ExtentAttr entry) {

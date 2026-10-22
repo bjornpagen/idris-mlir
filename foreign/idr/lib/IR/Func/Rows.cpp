@@ -114,7 +114,7 @@ effects::Told rows::told(FuncOp fn) {
   effects::Told facts = effects::told(fn.getRow());
   std::size_t untouched = 0;
   if (DenseI32ArrayAttr listed = fn.getUntouchedAttr())
-    untouched = listed.size();
+    untouched = listed.asArrayRef().size();
   if (ParameterParts(fn.getArgumentTypes()).writable() > untouched)
     facts = effects::withParameterWrite(facts);
   return facts;
