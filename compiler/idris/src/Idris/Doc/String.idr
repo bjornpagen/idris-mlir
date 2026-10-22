@@ -100,7 +100,8 @@ getImplDocs keep
               let Just Func = defNameType (definition def)
                 | _ => pure []
               -- Check that the type mentions the name of interest
-              ty <- toFullNames =<< normaliseHoles defs Env.empty =<< typeOf def
+              defTy <- typeOf def
+              ty <- toFullNames =<< normaliseHoles defs Env.empty defTy
               True <- keep ty
                 | False => pure []
               ty <- resugar Env.empty ty
@@ -446,7 +447,8 @@ getDocsForName fc n config
                                (pure (Nothing, []))
 
              -- Then form the type declaration
-             ty <- resugar Env.empty =<< normaliseHoles defs Env.empty =<< typeOf def
+             defTy <- typeOf def
+             ty <- resugar Env.empty =<< normaliseHoles defs Env.empty defTy
              -- when printing e.g. interface methods there is no point in
              -- repeating the interface's name
              let ty = ifThenElse (not dropFirst) ty $ case ty of
@@ -499,7 +501,8 @@ getDocsForImplementation t = do
     -- get the return type of all the candidate hints
     Just (ix, def) <- lookupCtxtExactI hint (gamma defs)
       | Nothing => pure Nothing
-    ty <- resugar Env.empty =<< normaliseHoles defs Env.empty =<< typeOf def
+    defTy <- typeOf def
+    ty <- resugar Env.empty =<< normaliseHoles defs Env.empty defTy
     let (_, retTy) = underPis ty
     -- try to see whether it approximates what we are looking for
     -- we throw the head away because it'll be the interface name (I)
