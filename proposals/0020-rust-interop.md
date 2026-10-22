@@ -2,14 +2,33 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # Proposal 0020: Rust as the one foreign world
 
-**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** Rust is its own
-foreign runtime, reached as IO, never optimized as Rust, and it never
-calls back into Idris (D92). So §8.8's callbacks and the cycle check they
-feed, and the Rust-specific counting (the run-time move test), are
-withdrawn; when a Rust object's destructor runs and whether a by-value
-move is decided at compile time are settled when this proposal is
-taken, not in P0. Where this file still speaks of callbacks or the
-world (§9, §11.2), D92 and D20 govern.
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`), by D92, C2 and
+D20.**
+- **D92: Rust is its own foreign runtime,** reached as IO, with no
+  optimization special to Rust, and it never calls back into Idris.
+  Withdrawn: §8.8's callbacks (`IdrisFn`, the flow interface on
+  `idr.rust.call`, lent handles, stored callbacks and the cycle edge
+  they feed) and their stage, R3; and the Rust-specific counting, the
+  run-time move test (`idris_rt_is_unique`, §8.4, §10.2). D30's and
+  D32's promises cover compiled Idris and nothing past a Rust call.
+  Left to this proposal, to be settled when it is taken, not in P0: when
+  a Rust object's destructor runs relative to output (L20's Q2, C2's R5),
+  and whether a by-value move is decided at compile time (L20's Q3).
+- **C2: a foreign call's effects come from its operands' types and
+  grades** (R4): `io`, contents read through `&` and written through
+  `&mut`, consumption, acquisition, and always `exit`, `crash` and
+  `divergence`; it may free, and it takes no callback operand. A drop of
+  a value whose type may reach a foreign cell writes `IO` (R5). A
+  constant's or a static's object keeps no run-time borrow state (§8.7,
+  §10.2).
+- **D20: the world ends at Emit.** No shim call takes or gives a world;
+  it is ordered with all other IO by its row's `io` atom, held on the op
+  (§9, §11.2, §14).
+
+The rest stands as written for the 2026-10-18 tree. Where it names that
+tree's grades (`!idr.q`, `excl`, `own`, `borrow`) or crash entries
+(`idris_rt_crash`, `IDRIS_RT_CRASHED`), P0's names govern (D90, D37,
+C101).
 
 **Status (2026-10-19, read at 77eaa5b1):** parked; nothing is built.
 The tree has no `foreign/rust/`, `libs/mlir-rust/`,
@@ -94,8 +113,9 @@ From AGENTS.md:
   and none is made by elaborator reflection.
 - A binding's one meaning is its shim's; there is no oracle.
 - Facts Idris proved live in types, so a call's modes are grades (§11.2).
-- The heap stays acyclic (`lib/IR/Verify/Knots.cpp`), so a stored
-  callback is an edge for the cycle check (§8.8).
+- The heap stays acyclic (`lib/IR/Verify/Knots.cpp`). A foreign cell has
+  no object slots and Rust is handed no Idris function (D92), so no Rust
+  object is an edge for the cycle check.
 - No option or mode, so a check that stays is one behaviour (§10.2).
 - Four targets (0002), each decided in its target entry.
 - No primitive is implemented in Idris, and no Rust call runs at compile
@@ -124,16 +144,17 @@ Three more are this design's:
 **In:** synchronous Rust APIs: free functions, associated functions,
 inherent and trait methods, constructors, destructors, constants and
 statics; generic items at the instances §8.6 derives; trait objects;
-Idris closures as callbacks (§8.8); C libraries as Rust crates only.
+C libraries as Rust crates only.
 
 **Out, by decision:**
 
 - C directly, in any form.
 - A **tokio island**: async Rust on a Rust runtime, a second scheduler
   and I/O the runtime cannot see.
-- Rust calling into Idris from another thread. Counts are plain
-  arithmetic; under 0007's shards a foreign thread may wake a shard and
-  never touch a count, a cell or a world (0007 §3.3).
+- Rust calling into Idris, on any thread: Rust never calls back into
+  Idris (D92), so an item that takes a closure is not bound (§8.8).
+  Counts are plain arithmetic; under 0007's shards a foreign thread may
+  wake a shard and never touch a count or a cell (0007 §3.3).
 - Dynamic linking of Rust in any form.
 - `unsafe` functions and `static mut`, whose contracts a binding cannot
   uphold (§11.5).
@@ -154,14 +175,14 @@ protocol overlays (§13).
   its reason. Its outputs are printed from it alone, so they cannot
   disagree.
 - **`libs/mlir-rust`**, in-house plain Idris over base: the module `Rust`,
-  with the handle type `Rust` (§8.3) and the callback support (§8.8).
+  with the handle type `Rust` (§8.3).
   Every binding package depends on it.
 - **The support crate**, `idris-rt`, which every shim crate depends on:
   the runtime's C interface, which bindgen (on the pinned clang) generates
   from `runtime/idris_rt.h` and the ODS-generated `idris_rt_ops.h`, so the
   headers stay the one copy; and the Rust half of the runtime's side: the
-  foreign cell and its borrow state, `IdrisFn`, the panic hook and the
-  global allocator.
+  foreign cell and its borrow state, the panic hook and the global
+  allocator.
 - **The shim crate**: one shim per bound item and instance, over the
   named crates and `idris-rt`.
 
@@ -423,7 +444,7 @@ surface's columns are its views:
 | Rust | Idris | at a call |
 |---|---|---|
 | `x: T`, `self`, plain or data | the value | copied in |
-| `x: T`, `self`, an object | `(1 _ : Rust t)` | moved out of its cell, which needs the only reference (§10.2) |
+| `x: T`, `self`, an object | `(1 _ : Rust t)` | moved out of its cell, which needs the only reference; no run-time test of Rust's own decides it (D92, §10.2) |
 | `&T`, `&self` | the value, or `Rust t` | data copied in; an object borrowed shared for the call |
 | `&mut T`, `&mut self`, plain or data | the value, and its new value comes back in the result | copied in and back |
 | `&mut T`, `&mut self`, an object; `&mut [u8]` | `Rust t`; `Buffer` | borrowed exclusive for the call, changed in place |
@@ -440,8 +461,8 @@ surface's columns are its views:
 - **What a result may borrow from:** one parameter, an object or a
   string (an Idris string never changes). A result that borrows from two
   parameters, or from a `Buffer`, which Idris may change, is left out
-  (`lifetime`). So is an argument that must be `'static` and is not a
-  callback (`&'static str`).
+  (`lifetime`). So is an argument that must be `'static`
+  (`&'static str`).
 - **How compound values cross** (*decision*). A shim cannot know a
   program's layouts, which are decided per program before the lowering
   (`lib/IR/Layout/`), so no Idris data moves through a shim. A compound
@@ -543,7 +564,7 @@ Which types is derived (*decision*):
 
 - **Left out** (`generic`): an item no candidate fits, a const generic
   parameter, and a type parameter bounded by a closure trait anywhere but
-  a callback (§8.8).
+  a closure parameter, which is not bound at all (§8.8).
 
 Cost (*conjecture*, measured at R2): candidates multiply across a
 function's parameters. No cap is set, since a cap would make whether an
@@ -561,10 +582,12 @@ the forms are decided here:
   into its uses (*conjecture*, R1). `pub const MAX_SIZE: usize = 4096` is
   `MAX_SIZE : Bits64`.
 - **A `const` that holds an object** is that object, made once and
-  borrowed shared forever, as an immutable static's is: a constant never
-  changes, so an exclusive or by-value use of it stops the program
-  (§10.2), and a use that needs a copy of its own calls `clone` where the
-  type is `Clone`.
+  shared forever, as an immutable static's is. That it is shared forever
+  is static, so it keeps no run-time borrow state (C2): an exclusive or
+  by-value use of it is a statically certain crash, compiled as a plain
+  crash where evaluation reaches it, with no state read (AGENTS.md). A
+  use that needs a copy of its own calls `clone` where the type is
+  `Clone`.
 - **A `const` whose type has interior mutability** (`const ZERO:
   AtomicUsize`: a type that is not `Freeze`, which the probe asks rustc,
   §8.6; *recalled*) is left out (`const`): each Rust use of it is a fresh
@@ -574,8 +597,10 @@ the forms are decided here:
   change.
 - **An immutable `static` of an object type** is a pure `Rust t` naming
   the static itself. Its identity is fixed, so naming it twice is
-  harmless. It is borrowed shared forever, so an exclusive or by-value use
-  of it stops the program (§10.2), where Rust refuses one at compile time.
+  harmless. It is shared forever, which is static, so it keeps no
+  run-time borrow state (C2): an exclusive or by-value use of it is a
+  statically certain crash, a plain crash where evaluation reaches it,
+  where Rust refuses one at compile time.
   A static with interior mutability (`AtomicU64`, `Mutex<T>`) is such an
   object, and its methods are `IO`, as every method is.
 - **A `static mut`** is left out (`unsafe`).
@@ -584,38 +609,17 @@ the forms are decided here:
 - **Neither is folded by the compiler**: the value is the shim's, and no
   primitive has an implementation in Idris (§14).
 
-### 8.8 Callbacks (withdrawn by P0's D92: Rust never calls back into Idris)
+### 8.8 Callbacks: none (P0's D92)
 
-A parameter `impl Fn(A) -> B`, `impl FnMut`, `impl FnOnce`, `&dyn Fn`,
-`Box<dyn Fn>` or `F: Fn(A) -> B` takes an Idris function `A -> IO B`
-(§9).
-
-- **Shim side:** a wrapper `IdrisFn<A, B>` per signature holds the
-  closure as one counted word and the address of its dispatch function,
-  and implements `Fn` by calling it.
-- **Compiler side** (*decision*): `idr.rust.call` declares the flow
-  interface in its ODS (`IdrFlow.td`), with each closure operand flowing
-  into a callback key of its own, so the label solve sees every label that
-  reaches Rust. Defunctionalization makes the key a sum and gives it one
-  private dispatch function, a case of direct calls named from the key.
-  The op carries the sum boxed (how it gets its box is decided by fit,
-  `lib/IR/Layout/Fit.cpp`, when R3 starts) and a symbol use of the
-  dispatch function, whose address the lowering passes to the shim. That
-  use keeps the function and its parameters whole: `remove-dead-values`
-  leaves alone the parameters of a function named other than as a callee
-  (*read*: PINS.md `remove-dead-values-address-taken`). Its one outside
-  caller passes only plain, data and handle values, never a closure or a
-  suspension, which the op's verifier checks, so no label enters from
-  outside and the closed world holds; nothing is exported.
-- **An object a callback receives is lent** (*decision*): its borrow
-  handle expires when the callback returns, and a later use of it stops
-  the program, naming it (§10.2).
-- **Lifetime.** A callback is called only before the Rust call returns,
-  unless the API stores it (`'static`). Then the object's cell holds the
-  closure, which is an edge of the object's type to the closure's sum for
-  the cycle check. A callback that would need `Send` is left out
-  (`send`).
-- **Re-entrancy** is the borrow state's (§10.2).
+Rust never calls back into Idris (D92): a Rust call is an IO action into
+Rust's own runtime, and nothing is handed to Rust to call (C2's R3 and
+R4). So an item with a parameter of closure type (`impl Fn(A) -> B`,
+`impl FnMut`, `impl FnOnce`, `&dyn Fn`, `Box<dyn Fn>`, `F: Fn(A) -> B`)
+is left out, and `idr.rust.call` takes no closure operand. The design
+this section held (an `IdrisFn` wrapper per signature, the flow interface
+on the call, lent handles that expire, stored callbacks as edges of the
+cycle check) is withdrawn with its stage, R3. §11.5 names no reason for
+such an item yet; one is added when this proposal is taken.
 
 ## 9. Effects: every call is `IO`
 
@@ -638,8 +642,9 @@ system, and a pure Idris function cannot call into a crate. A pure API
 over a crate would be a library of ours in `libs/`, its purity a claim in
 trusted code that review checks, never a manifest flag.
 
-In the compiler, every shim call takes and gives the world, so it is
-ordered with every other effect, in program order (§11.2).
+In the compiler, no world reaches the IR: it ends at Emit (D20). A shim
+call's effect row carries `io`, IO's typed carrier, so the call is
+ordered with every other IO, in program order (§11.2; C2's R4).
 
 ## 10. Soundness
 
@@ -683,22 +688,25 @@ see them, and AGENTS.md keeps linearity out of correctness, so each object
 keeps them at run time, as Rust's `RefCell` does:
 
 - **One borrow state per object:** free, shared by n, or exclusive. A
-  static's and a constant's is shared forever.
+  static's or a constant's object keeps none: that it is shared forever
+  is static, so an exclusive or by-value use of one is a plain crash
+  where evaluation reaches it, with no state read (C2; §8.7).
 - **A call borrows each object it is given for as long as it runs**:
   shared for `&`, exclusive for `&mut`. A borrow handle keeps its object
   borrowed until it is released (§8.4). So one check covers aliased
   arguments (one object given twice, where the second exclusive borrow
-  fails), re-entrancy (a callback touching an object the running call has
-  borrowed) and a `&mut` borrow handle still alive.
+  fails) and a `&mut` borrow handle still alive. Nothing re-enters a
+  running call, since Rust never calls back into Idris (D92).
 - **A by-value parameter moves the object out**, which needs the only
-  reference to its cell (`idris_rt_is_unique`) and a free state. There
-  is no moved-out state, since no reference outlives the move; and no
-  clone is made in its place, so a move never turns on whether a type is
-  `Clone`.
+  reference to its cell and a free state. P0 withdraws the run-time test
+  of the reference (`idris_rt_is_unique`), counting special to Rust
+  (D92); whether the move is decided at compile time, as D24 decides the
+  in-place promise, is L20's Q3, settled when this proposal is taken.
+  There is no moved-out state, since no reference outlives the move; and
+  no clone is made in its place, so a move never turns on whether a type
+  is `Clone`.
 - **Two byte buffers in one call, one of them `&mut`, are compared**,
   since a `Buffer` has no borrow state.
-- **A handle lent to a callback expires** when the callback returns
-  (§8.8).
 - **A pinned object stays put**: a method taking `Pin<&mut Self>` marks
   its object pinned, and a later move of it stops the program (P3 needs
   this for futures).
@@ -706,7 +714,6 @@ keeps them at run time, as Rust's `RefCell` does:
 Each failure stops the program as an index out of bounds does, through
 `idris_rt_crash`, with a message naming the item, the parameter and the
 state: `rust: Graph::merge: other is borrowed exclusively by self`,
-`rust: RequestBuilder::send: self is shared and cannot be moved`,
 `rust: Config::set: CONFIG is a static and cannot be borrowed
 exclusively`.
 
@@ -714,13 +721,12 @@ exclusively`.
 emits each check around the shim's call, as `idr.take`'s lowering reads
 its operand, and the shim checks nothing. A check is emitted only where
 the operand's grade leaves it open. An `excl` operand is the only
-reference, so no borrow handle holds it and its state is free; an owned
-unique operand needs no uniqueness test. With no Idris code between a
-borrow and its release, the two writes of the state fold away after
-inlining. One behaviour, no mode (*decision*): a check that stays is a
-run-time check, never a rejection, and `idr-expect`'s `tests-nothing=@f`
-(`lib/Transforms/Expect/TestsNothing.cpp`) reads an `idr.rust.call`'s
-by-value and `&mut` operands as it reads takes.
+reference, so no borrow handle holds it and its state is free. With no
+Idris code between a borrow and its release, the two writes of the state
+fold away after inlining. One behaviour, no mode (*decision*): a check
+that stays is a run-time check, never a rejection, and `idr-expect`'s
+`tests-nothing=@f` (`lib/Transforms/Expect/TestsNothing.cpp`) reads an
+`idr.rust.call`'s by-value and `&mut` operands as it reads takes.
 
 ### 10.3 Panics
 
@@ -736,10 +742,9 @@ unwinder, nothing unwinds.
 A program is single-threaded (`idris_rt.h`: counts are plain
 arithmetic). Rust may start threads of its own (rayon, a pool's reaper),
 and they may allocate and free, but nothing of Idris reaches them:
-`IdrisFn` is `!Send` and `!Sync`, so rustc keeps Idris callbacks on their
-thread, and an item whose bounds would need one to cross is left out
-(`send`). A handle is an Idris value. 0007's shards keep the rule (0007
-§3.3).
+Rust is handed no Idris function (D92), and an item whose bounds would
+move an Idris value to another thread is left out (`send`). A handle is
+an Idris value. 0007's shards keep the rule (0007 §3.3).
 
 ### 10.5 One process
 
@@ -747,9 +752,9 @@ thread, and an item whose bounds would need one to cross is left out
 the platform layer of the program, and there is one process, so the two
 must agree on it. Nothing in the bindings sets `std` apart: the ordinary
 reasons leave out what would take the process from the runtime
-(`std::thread::spawn` and `std::panic::set_hook` need closures that are
-`Send`, so `send`; `std::env::set_var` and `std::alloc::alloc` are
-`unsafe`). A program that writes one stream from both sides, or reads
+(`std::thread::spawn` and `std::panic::set_hook` take closures, which
+Rust is never handed, §8.8; `std::env::set_var` and `std::alloc::alloc`
+are `unsafe`). A program that writes one stream from both sides, or reads
 standard input from both, gets what two buffers on one descriptor give;
 that is the program's doing, and nothing here arranges for it. One
 thing is not the program's doing:
@@ -790,8 +795,9 @@ runs (§11.3).
 - **One layout** (*decision*): the compiler only holds the cell's word
   and never builds, copies or places one, so it needs no size and no
   layout table.
-- **Drop glue that releases Idris values** (an `IdrisFn`'s closure)
-  pushes onto the current dying list through a new entry,
+- **Drop glue that releases a counted cell** (a borrow handle's
+  reference to its owner, §8.4) pushes onto the current dying list
+  through a new entry,
   `idris_rt_release_deferred`, which releases at once outside a release,
   so freeing keeps constant stack however Rust and Idris cells interleave.
 - **Never persistent, never in a frame.** No foreign call runs at compile
@@ -826,15 +832,17 @@ runs (§11.3).
   The verifier checks operands and results against it, as `idr.call` is
   checked against its callee; `idr-rc` and the ownership verifier read
   its grades as a callee's.
-- **Effects** (*decision*): every shim call takes and gives the world in
-  its signature. The op declares its effects through
-  `MemoryEffectOpInterface` on the IO, crash and divergence resources, as
-  `idr.call` does (`lib/IR/Effects.cpp`), always: a crate may do I/O,
-  panic or loop. A constant's or a static's binding is a pure Idris value
-  that trusted code computes from the call (§8.7), so the op itself is
-  never pure.
-- **Flow:** it implements the flow interface for its closure operands
-  (§8.8), and is the only op here that carries one.
+- **Effects** (C2's R4, under D20): no world operand or result; the
+  call's effect row is held on the op, as `idr.call`'s is, and comes
+  from its operands' types and grades: `io`, contents read through `&`
+  and written through `&mut`, consumption and acquisition, and always
+  `exit`, `crash` and `divergence`, since a crate may do I/O, end the
+  process, panic or loop; it may free, and it is never `nosync`,
+  `willreturn` or `mustprogress`. A constant's or a static's binding is a
+  pure Idris value that trusted code computes from the call (§8.7), so
+  the op itself is never pure.
+- **No closure operand** (C2's R4, D92), so no label reaches Rust and the
+  op carries no flow interface for one (§8.8).
 - **Lowering:** an `llvm.call` of the symbol, each operand as its runtime
   word, between the borrow checks its grades leave (§10.2). The
   convention is the runtime's C ABI: words in, borrowed unless the grade
@@ -1035,7 +1043,7 @@ for third-party Idris packages. A library-level `ST` is not adopted (§18).
 
 No Rust call runs at compile time. Static normalization runs on the type
 checker's interpreter (0010), where code that reaches a world is stuck
-and runs at run time (0010 §2). Every binding takes the world, and a
+and runs at run time (0010 §2). Every binding is an `IO` action, and a
 constant's pure value is computed from a shim whose meaning is in the
 program's archive, never in the compiler's process, so to the type
 checker it is a neutral term, as any opaque constant is, and it is
@@ -1063,7 +1071,7 @@ proposal's half:
   and a synchronous crate with an I/O-free core (rustls's `Connection`,
   `httparse`) talks to the network over sockets the program owns.
 - **Blocking calls:** every synchronous call runs on the calling thread,
-  in world order. P3 decides how a call that blocks leaves the shard,
+  in IO's order (D20). P3 decides how a call that blocks leaves the shard,
   with no manifest field marking one (0007 §10.4).
 - **Never** a tokio island (§3).
 
@@ -1179,12 +1187,6 @@ nothing kept beside it.
   `&dyn Trait` and `impl Trait` arguments. Fixtures: sha2, serde_json
   (`from_str` at `Value` and at a type of the program's own fixture
   crate), and rusqlite with `bundled`.
-- **R3, callbacks** (AFTER-SELF; after R2): §8.8, `IdrisFn` and the flow
-  interface (the sum's box decided with fit), lent handles that expire,
-  stored callbacks and their cycle edge. Fixtures: a capturing callback,
-  one whose argument the closure ignores, a re-entrant callback that
-  stops the program, a stored callback, and a stored callback that
-  captures its own object as a reject test.
 
 Size (*conjecture*): generator 6–9k lines of Rust; support crate 1–1.5k;
 `libs/mlir-rust` 0.3k of Idris; frontend 1–1.5k; dialect, lowering,
@@ -1256,8 +1258,7 @@ driver and runtime 2–3k; bootstrap and tests about 1.5k.
   thread-safety, so every binding would need annotations nothing checks;
   the `-sys` crates and their safe crates have done that work.
 - **A tokio island** (§3, §15); **shims that build Idris data** (layouts
-  are per program, §8.4); **a `linkRust` step** (§11.3); **an exported
-  apply entry per callback sum** (a public function beside the root);
+  are per program, §8.4); **a `linkRust` step** (§11.3);
   **an `idr.func` declaration as callee** (every `idr.func` has a body);
   **a `%foreign` spec per binding** (AGENTS.md admits none beyond base's);
   **a registry entry per binding** (§10.1).
@@ -1302,7 +1303,8 @@ built unless it says so.
   `CallableOpInterface`, and `idr.rust.call @sym` implementing
   `CallOpInterface` and `SymbolUserOpInterface`, whose `verifySymbolUses`
   checks against the declaration; an unused binding goes by SymbolDCE.
-- §10.2's checks are guard ops, `idr.check.unique` and
-  `idr.check.distinct` (`Idr_Guarded`), each folding away on an `excl`
-  operand; `tests-nothing` reads guards through the interface (it reads
-  only `TakeOp`s today, `Expect/TestsNothing.cpp`).
+- §10.2's checks are guard ops, `idr.check.distinct` (`Idr_Guarded`)
+  among them, each folding away on an `excl` operand (the move test's
+  `idr.check.unique` went with that test, D92); `tests-nothing` reads
+  guards through the interface (it reads only `TakeOp`s today,
+  `Expect/TestsNothing.cpp`).

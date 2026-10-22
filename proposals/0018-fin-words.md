@@ -2,13 +2,31 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0018: `Fin n` as a machine word where its bound is static
 
-**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** D1 changes
-(C22, D48): layout is not the frontend's. A family of numeral shape
-(`Fin`, `Elem`, `LNat`, a user's Peano type) has a number layout computed
-from its type, a fixed width at a closed bound and a natural otherwise,
-one function of the type; the frontend states only Idris's facts. The
-rest stands, read through P0's families (D48) and specialization by
-layout class (D58).
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`), by C22, D48, D58,
+C4, D90 and D41.** P0 decides what F1 and F2 were to build, in its own
+terms:
+- **The type decides, not the frontend (C22, D48).** A family of numeral
+  shape (`Fin`, `Elem`, `LNat`, a user's Peano type) is the family Idris
+  checked, applied to its index terms (`!idr.data<#Fin[n]>`), with a
+  number layout, one function of the type: a fixed width at a closed
+  bound, a natural otherwise. It converts by `idr.numeral.to_nat` and
+  `idr.numeral.of_nat`, with no range check. This replaces §6.1's (c),
+  D1 and D5.
+- **One form per type (D58).** A known index meets code compiled for
+  every index by specialization by layout class, so `Fin 256` is a byte
+  through calls, "one mechanism with 0018's". F1's seam, one type in two
+  forms by position, is gone (§6.2, D3), and F1 and F2 become that one
+  mechanism (C22, taking L04's I7).
+- **The countdown recognizer goes (C4),** so D6 has nothing to widen.
+- **A linear word is graded `once`** (`!idr.graded<…>`, D90), not
+  `!idr.lin` (§11).
+- **Unsigned division is `arith`'s** behind `idr.check.nonzero`, and the
+  signed division and the four shifts are inline arithmetic, each one C++
+  template (P0 §5.3, D41, C23): the MLIR form owed below.
+
+What stands: D2 (byte classes), D4's rule (the height from constructor
+types, never names), D8, §5, §7, and F0's measurement. F0's gate decided
+F2, which D58 now rules.
 
 **Status:** open, nothing built (2026-10-19). Every stage is
 **AFTER-SELF**: `make self` needs none of it. F0 is next, on the first
@@ -87,8 +105,10 @@ x86_64, and make the vectorizers scalarise arrays.
 - **`Data.Fin`** (*read*, `third_party/Idris2/libs/base/Data/Fin.idr`):
   - `Fin : (n : Nat) -> Type`; `n` is an index, not a parameter (`:18-22`).
   - `finToNat` is the unary recursion (`:56-58`). idr-tail's countdown
-    rewrite turns it into the identity, but only for a `!idr.nat`
-    argument (`lib/Transforms/Tail/AccumulatorPlan.cpp`).
+    rewrite turned it into the identity, for a `!idr.nat` argument only
+    (`lib/Transforms/Tail/AccumulatorPlan.cpp`); C4 deletes that
+    recognizer, a countdown being the closed form of an accumulated
+    loop (D6).
   - `natToFinLT` is the identity through the registry
     (`compiler/src/IdrisMLIR/Registry/Recognized.idr`).
   - Base's own `%builtin NaturalToInteger` for `finToInteger` is
@@ -149,8 +169,8 @@ both are sound arithmetic (*read*, `Data/Fin.idr`).
 | `FZ` | literal 0, a natural | literal 0, a word |
 | `FS x : Fin (S k)` | `idr.big.add x 1` | add 1; first zero-extend when `S k` crosses a class (257, 65537, 2^32 + 1) |
 | match on `FZ`/`FS` | match zero, predecessor by `idr.big.pred` | match 0, predecessor = subtract 1 (truncated when `k` falls a class) |
-| `natToFinLT` | the identity (registry) | natural to word: `idr.big.to_int`, no check; Idris proved `x < n` |
-| `finToNat`, `weaken`, `Eq`/`Ord`/`DecEq (Fin n)` | open `n`, one instance; the countdowns become the identity | unchanged: the caller passes a natural, made of the word by `idr.big.from_int` unsigned |
+| `natToFinLT` | the identity (registry) | natural to word: `idr.numeral.of_nat` (C22), no check; Idris proved `x < n` |
+| `finToNat`, `weaken`, `Eq`/`Ord`/`DecEq (Fin n)` | open `n`, one instance; the countdowns become the identity | the caller passes a natural, made of the word by `idr.numeral.to_nat` (C22); under P0 a call whose callee's layout changes at the caller's closed class reaches a copy at that class instead (D58) |
 | `natToFin x n`, `last {n}`, `integerToFin` | `n` at run time | unchanged (open) |
 | `index : Fin n -> Vect n a -> a` | walks cells; `n` erased | unchanged (open) |
 | an array's `!!` with `Index s` | coordinates, as naturals, to extents | unchanged: `Index`'s field is `Fin n` with `n` an index |
@@ -333,17 +353,23 @@ byte classes (D2).
     `arith`, range analysis, bufferization and the vectorizer already
     serve `i8`. And `n` has no consumer (§3).
 - **(c) The frontend decides.** A Numeral with a static height is
-  `IntT UIntW`, and every other Nat-like type stays `NatT`. The dialect
-  is unchanged:
-  - the widths are already `Idr_Int`;
-  - the conversions exist: `idr.big.from_int` (unsigned) makes a
-    natural of a word, and `idr.big.to_int` a word of a natural.
+  `IntT UIntW`, and every other Nat-like type stays `NatT`, with the
+  dialect unchanged and the width computed at translation by one
+  function.
 
-  AGENTS.md gives the frontend the choice of representations. The fact
-  stays in one place, the Idris type. The width is computed from it at
-  translation, by one function.
-
-*Decision: (c).* (a) and (b) are rejected for the reasons above.
+*Decided by P0, replacing (c) (C22, under D48; C81; C111).* Layout is not
+the frontend's. A numeral family is the family Idris checked, applied to
+its index terms (`!idr.data<#Fin[n]>`, D48), so the IR states `n` with no
+scalar type of its own beside the builtin integers, which (b) would have
+added. Its layout is a number, one function of the type computed when
+the type is made (C81): a fixed width at a closed bound, a natural
+otherwise. A numeral and a natural convert by `idr.numeral.to_nat` and
+`idr.numeral.of_nat`, with no range check (C22). The ranges domain seeds
+a `Fin n` operand with `[0, n-1]`, so a bounds check on a `Fin n` index
+is never built (C111). (c) goes because the frontend cannot decide a
+width it does not know: inside a function compiled for every `n` the
+index is a variable, and only a copy at a closed class has the word
+(D58; L04's I7, which C22 takes).
 
 ### 6.2 Where the bound may decide: the keys
 
@@ -355,28 +381,22 @@ The obstacle is a function that is polymorphic in `n` over a container of
   the callee holds bigs;
 - passing one to the other would copy the list.
 
-There are two ways through:
+There were two ways through. F1 decided only at the top of a position
+whose type the instance key closed, reading every nested type with its
+indices erased, so one Idris type, `Fin 256`, had two forms by position:
+a word at the top of an instance's own types, a big inside a type
+argument. P0 removes that seam (D58): a known index meets code compiled
+for every index by specialization by layout class. A call whose callee's
+layout changes under the call's indices targets a copy of the callee at
+that class, a refined recursive call is specialized in turn, and an index
+that climbs past the shape budget reaches the general copy; the class
+set is finite, so the specialization ends by construction, and the
+budget only ever leaves code less optimized. A bounded conversion
+(`idr.reindex`) remains only where an index becomes known inside a
+function. So `Fin 256` is a byte through calls, F2's one form per type,
+"one mechanism with 0018's" (D58). F2's design as written, the
+mechanism D58 names:
 
-- **F1: decide only at the top of a position whose type the instance
-  key closes.** These positions are:
-  - a function's parameters and result;
-  - a constructor's declared field types;
-  - binders.
-
-  Everything nested in another type is read with its indices erased, as
-  data keys already read it: data type arguments, array elements and
-  closure domains.
-  - **Arrays change.** Today `valueArrayOf` reads the element's whole
-    type (`Types.idr:752`). That is harmless only while every Numeral is
-    a natural.
-  - **Every conversion is a scalar one, at a boundary.** A word becomes
-    a natural with no tag test. A natural becomes a word with one tag
-    test, which `idr-narrow` folds where the natural was made of a word.
-    No conversion is ever proportional to a value's size.
-  - **No key changes.**
-  - **The cost:** one Idris type, `Fin 256`, has two forms by position.
-    It is a word at the top of an instance's own types, and a big inside
-    a type argument.
 - **F2: give each type one form.**
   - **Data keys.** A type argument keeps a Numeral's class: `Vect[-, Fin
     _:u8]`.
@@ -399,12 +419,10 @@ There are two ways through:
     the exact `n` would give `allFins 256` 256 instances, one for each
     `n` its recursion visits.
 
-*Decision:* F2 is the target, because it is one form per type. F1 is
-its first stage and complete on its own: its seam, `Fin 256` a word at
-the top of a position and a big inside a type argument, is scalar
-conversions at boundaries, never a copy. F1's conversions at type
-arguments are what F2 deletes. F2 is built only when F0 shows that it
-pays.
+*Decision:* F2 is the target, because it is one form per type. P0
+decides it as D58's specialization by layout class, over C22's number
+layout, and F1's seam does not exist (C22, taking L04's I7). F0's gate
+on F2 is §9's, written before D58.
 
 ### 6.3 `Natness`, keys and the growth checker
 
@@ -462,24 +480,28 @@ pays.
 
 - D1. **Amended by P0 (C22, D48):** a numeral family's number layout is
   one function of its type, computed from the family, never the
-  frontend's choice; there is no dialect type and no seeded range.
+  frontend's choice; there is no scalar type of its own, and the ranges
+  domain seeds a `Fin n` operand from its type (C111; §6.1).
 - D2. **Byte classes:** u8, u16, u32, u64, else a natural. No exact
   widths (§5).
-- D3. **F1's scope is the top of a position.** That means instance
-  parameters and results, declared constructor fields, and binders.
-  Every nested type is read with its indices erased, array elements
-  included (§6.2).
+- D3. **Withdrawn by P0 (D58).** No position decides apart: a numeral's
+  layout is its type's wherever it occurs, and a call that meets a closed
+  index reaches a copy of its callee at that class (§6.2).
 - D4. **The height comes from `Natness`'s `Numeral`,** from constructor
   types, generically. `Fin` gets no special case, so `Elem` and a user's
   numerals get the height too (§6.3).
-- D5. **Two existing ops convert,** at scalar boundaries only:
-  - word to natural: `idr.big.from_int` (unsigned);
-  - natural to word: `idr.big.to_int`, with no range check, since Idris
-    proved the bound.
-- D6. **The countdown rewrite takes an unsigned word as well as a
-  natural** (`AccumulatorPlan.cpp`). Without this, a
-  closed-signature countdown would fall from the identity back to a
-  recursion as deep as its value.
+- D5. **Amended by P0 (C22): a numeral's own ops convert,** with no range
+  check, since Idris proved the bound:
+  - numeral to natural: `idr.numeral.to_nat`, the identity at a natural's
+    layout and a widening at a fixed width;
+  - natural to numeral: `idr.numeral.of_nat`, a narrowing at a fixed
+    width.
+- D6. **Withdrawn by P0 (C4).** The countdown recognizer goes: a
+  countdown is the closed form of an accumulated loop, which
+  `idr-accumulate` makes of a self call combined in a tail by an exactly
+  associative operation with its identity, `+` on naturals and on fixed
+  widths among them. So a closed-signature countdown needs no rewrite of
+  its own here.
 - D7. **F2 is the target** (one form per type), built on F0's measure
   (§9).
 - D8. **A bound known only at run time stays a big** (§7).
@@ -489,7 +511,7 @@ pays.
 | Stage | Needs | Content | Proof |
 | --- | --- | --- | --- |
 | F0 **AFTER-SELF** | the first stage-1 self run (0001's S4) | (1) A sampling profile of the stage-1 self run and the bench set, by source location. It reports the share in code over closed-bound numerals (`addressOf`, `lowBits`, `doubled`, `sameAddress`, `Ord (Vect …)`, `Glyph`, `Form` codes) and over run-time bounds. (2) Fixtures written twice, with `Fin 256` and with `Bits8`: a record of fields, a `Vect 8` of them, and an array of them. The `Bits8` version is what F1 and F2 would make, so the ratio bounds their gain. | Decides F2. Go if closed-bound numerals inside type arguments take at least 2% of the self run, or if any `Bits8` fixture runs at least 1.3× faster (0012's bar) or takes at most half the memory. F1 does not wait on it. |
-| F1 **AFTER-SELF** | nothing (`Natness` is built) | D1 to D6. `Numeral`'s height. Words at the top of positions. `FZ`, `FS` and the match on words. Conversions at the boundaries. Array elements and closure domains read with indices erased. The countdown rewrite on words. | Fixtures, on every target: a record of `Fin 256` fields; `FS` across 256 and 65536; a `Fin (power 2 64)` at its top value; a `Fin (power 2 100)` that stays a big; a closed-signature countdown at `Fin (power 2 62)`, which times out unless it is the identity; a closed `Fin` through an open-`n` function and through a closure in `map`; an `Elem` as a numeral. A new `idr-expect` property, `no-bigs=@f`: @f computes on no big and no natural. It holds of a closed-signature function after F1 and fails today. |
+| F1 **AFTER-SELF** | nothing (`Natness` is built) | D1, D2, D4 and D5 as P0 amends them (D3 and D6 withdrawn). `Numeral`'s height. Words at closed bounds, wherever they occur (D58). `FZ`, `FS` and the match on words. Conversions by C22's ops. | Fixtures, on every target: a record of `Fin 256` fields; `FS` across 256 and 65536; a `Fin (power 2 64)` at its top value; a `Fin (power 2 100)` that stays a big; a closed-signature countdown at `Fin (power 2 62)`, which times out unless it is the identity; a closed `Fin` through an open-`n` function and through a closure in `map`; an `Elem` as a numeral. A new `idr-expect` property, `no-bigs=@f`: @f computes on no big and no natural. It holds of a closed-signature function after F1 and fails today. |
 | F2 **AFTER-SELF** | F0's go; F1 | Class keys for type arguments and for value binders that bound a numeral (§6.2). The `replace` case settled. | F0's fixtures, with `Fin 256` within 10% of the `Bits8` version. An array of `Fin 256` is a `memref` of `i8`. A property that no definition has more than five class instances. The self run's `Address` cells hold no counted byte. |
 
 ## 10. Rejected alternatives
@@ -513,11 +535,13 @@ Rejected for their own reasons:
 - **Erased does not mean constant.** Only a closed bound, or F2's class
   of what a call site passes, decides a width. An erased binder is never
   read as a value.
-- **One representation.** F2 gives one form per type. F1 names its seam:
-  two forms by position, with scalar conversions between them.
+- **One representation.** F2 gives one form per type, which P0 decides
+  as D58's specialization by layout class; F1's seam of two forms by
+  position does not exist (§6.2).
 - **No fact in a discardable attribute.** The width is the value's type.
-- **Quantities.** A linear `Fin` is `!idr.lin<i8>`, so the grade wraps
-  the word.
+- **Quantities.** A linear `Fin` is graded `once`
+  (`!idr.graded<once, …>`): uses apply to every type, a linear word
+  included (D90), so the grade wraps the numeral whatever its layout.
 - **No per-target cases.** The byte classes are the same on every
   target.
 - **No refusal.** A bound past 2^64 is a natural.
@@ -525,8 +549,8 @@ Rejected for their own reasons:
   the vectorizer do the work; there is no new dialect type.
 - **Two hosts.** No Idris source and no library changes; `Data.Fin`
   means what base says.
-- **Hard cutover.** A closed numeral at the top of a position is a word,
-  with no option.
+- **Hard cutover.** A numeral at a closed bound is a word wherever it
+  occurs (C22, D58), with no option.
 - **Tests check behaviour.** That means outputs, timeouts, and an
   `idr-expect` property, never op sequences.
 
@@ -545,7 +569,7 @@ Rejected for their own reasons:
 - **0009.** Arrays of closed-bound numerals become `memref`s of bytes
   under F2. An `Index`'s coordinates stay naturals, since their bounds
   are the shape's.
-- **idr-tail.** D6.
+- **idr-tail.** D6, withdrawn by C4.
 - **0011.** Its typed ids are bounded at run time. This proposal does
   not make them words (§7).
 
@@ -558,10 +582,17 @@ built unless it says so.
 - Built by the representation wave: signedness is the op, not a flag
   (`divs`/`divu`, `mods`/`modu`, `shls`/`shlu`, `shrs`/`shru`,
   `to_char_s`/`_u`, `int_head_s`/`_u`, `io.put_sint`/`uint`,
-  `str.show_sint`/`uint`, `big.from_sint`/`uint`). `idr.big.from_int`
-  (unsigned) above is `idr.big.from_uint`.
-- Open, decided when F1 starts: whether `idr.divu` and `modu` stay ours
-  (lowered to `arith.divui`/`remui`) or the frontend emits arith after
-  `idr.check.nonzero`; whether `big.from_uint` choosing a big or a natural
-  by its result type splits into `idr.nat.from_int`; the shifts as
-  `arith.select` over arith's shifts, a measurement.
+  `str.show_sint`/`uint`, `big.from_sint`/`uint`).
+- Decided by P0, where this text left them open:
+  - `divu` and `modu` go: unsigned division is `arith.divui` and
+    `arith.remui` behind `idr.check.nonzero`, which the frontend writes
+    (P0 §5.3).
+  - Signed (Euclidean) division, the four shifts (kept four, C23) and the
+    char conversions are inline arithmetic: each op's meaning is one C++
+    template, instantiated as its folder, as its integer ranges and as
+    its expansion into `arith`, emitted at the stage that needs `arith`;
+    the op stays until then (D41).
+  - A numeral converts by its own ops, `idr.numeral.to_nat` and `of_nat`
+    (C22), never through `big.from_uint`, so whether that op's choice of
+    a big or a natural by its result type splits is no question of this
+    proposal's.

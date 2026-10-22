@@ -2,25 +2,36 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0017: the heap as Apple's data memory-dependent prefetcher reads it
 
-**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** D9 comes free
-(C104): a recursion's depth lives on D31's frame stacks, whose chunks
-come from the runtime's allocator, and the native stack is small and
-computed when the program is built (D32, D35), so D9's 64 GiB stack, its
-1 GiB budget and P1 go. The heap is one span aligned to 4 GiB, reserved
-as address space only, shrinking under `ulimit -v` (C100); only the
-alignment matters to the prefetcher. What stands here: the native
-measurement P0 (this proposal's own P0, not the cutover) and D10.
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`), by C104, C100 and
+C5.** P0 withdraws D9 and P1, and amends D7:
+- **D9 and P1 go (C104).** A recursion's depth lives on D31's frame
+  stacks, whose chunks come from the runtime's allocator, in the heap's
+  span, and the native stack is small, its size computed when the
+  program is built and laid out at the span's start (D32, C5, C104). So
+  D9's 64 GiB reservation, its 1 GiB budget and P1 (the stack beside the
+  heap, and the census D2 and D10 would read) have nothing left to do.
+  No stage of P0 takes up the census.
+- **D7 becomes a coordinate (C100).** The heap is one span whose start is
+  aligned to 4 GiB. Every chunk is reserved at a fixed address from it as
+  snmalloc asks, and nothing is committed before it is used. No region is
+  reserved, so a `ulimit -v` needs no shrinking rule (C5 as amended), and
+  only the alignment matters to the prefetcher, never the size (C5). The
+  heap is bounded by its host, never "with no bound" (D35, D36).
+
+What stands: D1 to D6, D8 and D10, the native measurement P0 (this
+proposal's own P0, not the cutover), and P2 to P4.
 
 **Status:** open (2026-10-19).
 - **Built:** the heap's first block is one 4 GiB region aligned to 4 GiB
-  (efe0ad36; `HeapConfig` in `runtime/Alloc/Cells.cpp`), past which
-  snmalloc grows as it does with no bound (1445d894). `tests/heap-region`
-  passes on arm64 macOS. That is D7.
+  (efe0ad36; `HeapConfig` in `runtime/Alloc/Cells.cpp`). That is D7.
+  `tests/heap-region` passes on arm64 macOS. P0's cutover replaces the
+  reserved region and snmalloc's growth past it (1445d894) with C100's
+  span, bounded by the host (D7 below).
 - **Next:** P0, the native measurement that can withdraw every speedup
-  claim here, and then P1, the stack beside the heap (D9) and the census
-  D10 reads. Both run on the arm64 macOS build machine, a native Apple
+  claim here. It runs on the arm64 macOS build machine, a native Apple
   M2 Max (`kern.hv_vmm_present` 0, two performance levels, *measured*
-  2026-10-19), and wait on nothing in the tree. §3's numbers were taken in a macOS guest; its C
+  2026-10-19), and waits on nothing in the tree. P1 went with C104. §3's
+  numbers were taken in a macOS guest; its C
   sources and the audit's were scratch and are gone, so P0 rebuilds the
   pairs from §3's method.
 - **AFTER-SELF:** P2 lands with 0009's stages 3 and 4, P3 with 0012's
@@ -90,8 +101,8 @@ the program follows the reference at once, as in a pure pointer chase.
 | Arrays | an element is a one-field cell less the header, object slots first; one too large for the header's fields is boxed, one reference (`Layouts.cpp`); arrays of records are columns (`include/idr/Transforms/Columns.h`) | an array of boxes, or a counted column, is Augury's array of pointers, 8 bytes apart |
 | Sums held in place | a tag plus shared slots; a counted slot that a constructor does not use is NULL (`include/idr/IR/Layout.h`) | a zero word, never a candidate |
 | Closures, suspensions, dictionaries | a closure is a constructor of a sum held in place, boxed only when its sum contains itself (`lib/Transforms/Defunctionalize/`, `lib/IR/Layout/Fit.cpp`); a suspension is a memo cell laid out as a box; specialization leaves no dictionary at a monomorphic site | a closure is usually no reference at all; a thunk's captures come first |
-| The heap's region | `HeapConfig` (`runtime/Alloc/Cells.cpp`): snmalloc's standard configuration, whose global range is given one 4 GiB-aligned region at the first allocation; past it snmalloc grows from its platform layer | before efe0ad36 the heap began in the executable's region and left it after about 800 MiB, and 47% of cell-to-cell references crossed at 1.3 GiB live. After: no crossing below 4 GiB (*measured* by the audit) |
-| The stack, and stack cells | the program runs on one reservation of 64 GiB (`stackSize`, `runtime/Start/Runner.cpp`), an mmap with no address hint (`rt::platform::reserve`), so it lies in regions of its own. idr-stack builds a box that does not escape (≤ 256 bytes; ≤ 1024 bytes per frame) in the frame (`lib/Transforms/Stack/Stack.cpp`) | every reference between a frame and the heap crosses regions (D9) |
+| The heap's region | read at efe0ad36: `HeapConfig` (`runtime/Alloc/Cells.cpp`), snmalloc's standard configuration, whose global range is given one 4 GiB-aligned region at the first allocation; past it snmalloc grows from its platform layer. P0 makes the region a coordinate: one span whose start is aligned to 4 GiB, bounded by the host (C100, D7) | before efe0ad36 the heap began in the executable's region and left it after about 800 MiB, and 47% of cell-to-cell references crossed at 1.3 GiB live. After: no crossing below 4 GiB (*measured* by the audit) |
+| The stack, and stack cells | read at efe0ad36: one reservation of 64 GiB, an mmap with no address hint, in regions of its own. P0 replaces it (AGENTS.md's never-line on that reservation): the native stack is small, its size computed when the program is built (D32, C5), at the heap span's start, and a recursion on a call cycle keeps its depth on D31's frame stacks, whose chunks come from the runtime's allocator, in the heap's span (C104). idr-stack builds a box that does not escape (≤ 256 bytes; ≤ 1024 bytes per frame) in the frame (`lib/Transforms/Stack/Stack.cpp`) | at efe0ad36 every reference between a frame and the heap crossed regions. Under C104 frames lie in the heap's span, so their references to cells are followed as the heap's own are |
 | Static data | persistent cells in the executable image (`lib/Conversion/StaticData.cpp`), in region 0x1 on arm64 macOS (the audit) | a heap cell's reference to one always crosses; a constant's reference to another constant does not (D10) |
 
 The stack cell rule itself needs no change (*conjecture*, from §1): a
@@ -121,8 +132,9 @@ sum slots, applied to every data type in the dumps, gives the following:
   slots, 97.5% of placements have every slot in the header's 64-byte
   line. Every miss is in the 48-byte class. The runtime's classes step by
   8 bytes, not the 16 this model took, so 24-, 40- and 56-byte cells
-  exist and some of their placements miss too: P1's census recomputes the
-  share on the real classes.
+  exist and some of their placements miss too. P1's census was to
+  recompute the share on the real classes; it went with P1 (C104), and no
+  stage carries it now.
 - **Share of references.** 207 of the 355 components of those cells (58%)
   are references, and 62 of the cells hold nothing else.
 
@@ -295,7 +307,9 @@ Each of these is measured (§3) or read (§1):
   a proposal for low tags would have to be argued on other grounds and is
   not made.
 - **References across 4 GiB regions:** measured DMP-blind. Fixed for
-  heap to heap (efe0ad36). D9 and D10 decide the stack and static data.
+  heap to heap (efe0ad36; a coordinate under C100, D7). The stack needs
+  no rule of its own: frames lie in the heap's span (C104). D10 decides
+  static data.
 - **Setting DIT** turns the DMP off on M3 and later. Nothing in the tree
   sets it today (*read*: `runtime/` names `dit` only as a CPU feature bit,
   `cpu_aarch64.h:35`). D6 keeps it that way.
@@ -320,7 +334,8 @@ Each of these is measured (§3) or read (§1):
   line.** The first part is built (`cellOf`). With it, 97.5% of corpus
   placements hold every reference in the line that the first load fills
   (a match reads the tag in the header; a dup or drop reads the count),
-  a share P1's census recomputes on the runtime's 8-byte classes (§2).
+  a share modelled on 16-byte steps; the census that would have
+  recomputed it on the runtime's 8-byte classes went with P1 (C104, §2).
   Padding cells of 33 to 48 bytes to 64 buys nothing consistent (§3,
   "Size classes") and costs a third more memory than the 48-byte class.
   *Decision*, measured. The threshold to revisit: a corpus or bench
@@ -366,7 +381,7 @@ Each of these is measured (§3) or read (§1):
   - Or it is one mechanism, with at most a number in the entry (D3's
     distance).
   - Or it is one address-space layout, the same code on every target
-    (D7, D9).
+    (D7, and the frames in the heap's span, C104).
   - Or it is measured on every target, with the DMP inside the arm64
     baseline (D4).
 - **D6. The runtime never sets DIT and never lowers its thread's QoS.**
@@ -374,9 +389,15 @@ Each of these is measured (§3) or read (§1):
   QoS through the efficiency cores. *Decision.* This is the runtime's
   rule. It is written here because it is what keeps D1's benefit, and
   0020 inherits it: Rust code that sets DIT restores it before it returns.
-- **D7. The heap lives in one 4 GiB-aligned region while it fits.** Built
-  (efe0ad36; `tests/heap-region`). A larger heap grows from snmalloc's
-  platform layer, with no bound.
+- **D7. The heap's first 4 GiB lie in one 4 GiB-aligned region.** Built
+  as a reserved region (efe0ad36; `tests/heap-region`), and amended by P0
+  into a coordinate (C100): the heap is one span whose start is aligned
+  to 4 GiB, every chunk reserved at a fixed address from it as snmalloc
+  asks, nothing committed before it is used. A larger heap goes on in
+  the span. Its bound is the host's: the span is the address space the
+  host leaves, and the program keeps to its memory limit and ends with
+  the named out-of-memory ending when it would cross it (D35, D36, C103,
+  D23).
 - **D8. An arm64 bench record carries a DMP calibration:** §3's
   array-of-references pair at work 64, raw against the region bit, run
   beside the bench. A record whose pair reads under 1.1 had no DMP (an
@@ -403,12 +424,13 @@ Each of these is measured (§3) or read (§1):
     anyway (*conjecture*).
   - **Constants among themselves.** A constant's references to other
     constants stay in the image's one region and are followed.
-  - **When to revisit.** If P1's census of live references, sorted by the
+  - **When to revisit.** If a census of live references, sorted by the
     target's place (heap, stack, static), finds a bench program with more
     than 10% of its heap's references going to static data, that program
     is measured with its constants rebuilt on the heap (a C model, as in
     §3). The representation is reconsidered only if that model wins by
-    1.1× natively.
+    1.1× natively. P1 was to take that census; it went with C104, and no
+    stage carries it now.
 
 ## 6. How it relates to 0012, 0009 and 0011
 
@@ -456,9 +478,9 @@ Everything this proposal changes or keeps:
 - the cell's field order and size (D2);
 - the prefetch, an LLVM intrinsic every target lower (D3);
 - the 0012 rule (D4);
-- the runtime's rules (D6, D7, D9, D10): DIT does not exist on x86, and
-  one 4 GiB region for the heap and the stack's top is address-space
-  layout, free where no DMP reads it.
+- the runtime's rules (D6, D7, D10): DIT does not exist on x86, and a
+  heap span aligned to 4 GiB with the frames in it (C100, C104) is
+  address-space layout, free where no DMP reads it.
 
 The one machine-specific fact is that Apple's CPUs have a DMP (arm64
 macOS, and arm64 Linux on Apple Silicon), and no code reads it (D5). D3's
@@ -469,7 +491,7 @@ serve every target (D3).
 
 | Stage | Needs | Content | Discriminator, and the test that shows it |
 |---|---|---|---|
-| P0 | nothing | §3's pairs rebuilt from its method (array, list, tree, stack) with GoFetch's activation test (one load per line, a 100 µs wait, a dependent chain through the targets), committed with their results as a record, `bench/records/<date>-dmp-darwin-arm64/`, since a directory of `bench/` is a benchmark. GoFetch and Augury snapshotted under `sources/papers/` (`chen-2024-gofetch`, `vicarte-2022-augury`), a download the owner approves when it is made. Run natively on the arm64 macOS build machine (M2 Max), on an M3 or later when one is at hand, and on x86_64 Linux once 0002's machine exists | **Native arm64:** raw, low tags and top byte within 5% of each other; the region-test failures ≥ 1.5× at work 64; the stack pair ≥ 1.1× at work 32; the activation test at L2 latency for raw, low tag and top byte and at DRAM latency for no reference, bit 48 and the next region. **x86:** every key within 5% of raw. **If native arm64 shows no effect,** every DMP claim in §3 and §5 is withdrawn and recorded so: D1 and D2 stand on their other reasons, D3 on its own measurement (it gains on every target), and D9 is dropped |
+| P0 | nothing | §3's pairs rebuilt from its method (array, list, tree, stack) with GoFetch's activation test (one load per line, a 100 µs wait, a dependent chain through the targets), committed with their results as a record, `bench/records/<date>-dmp-darwin-arm64/`, since a directory of `bench/` is a benchmark. GoFetch and Augury snapshotted under `sources/papers/` (`chen-2024-gofetch`, `vicarte-2022-augury`), a download the owner approves when it is made. Run natively on the arm64 macOS build machine (M2 Max), on an M3 or later when one is at hand, and on x86_64 Linux once 0002's machine exists | **Native arm64:** raw, low tags and top byte within 5% of each other; the region-test failures ≥ 1.5× at work 64; the stack pair ≥ 1.1× at work 32; the activation test at L2 latency for raw, low tag and top byte and at DRAM latency for no reference, bit 48 and the next region. **x86:** every key within 5% of raw. **If native arm64 shows no effect,** every DMP claim in §3 and §5 is withdrawn and recorded so: D1 and D2 stand on their other reasons, and D3 on its own measurement (it gains on every target) |
 | P1 | — | withdrawn by the cutover (C104): D9 comes free from D31's frame stacks | — |
 | P2 **AFTER-SELF** | 0009's stages 3 and 4 (structured gathers) | D3: a prefetch of the element `d` ahead in a structured loop that follows references or indices | Benchmarks, each a `bench/` directory with its `main.c`: a map with work over an `Array` of boxes, a gather through an array of `Fin n` into a table, and a fold over a cons of boxes for the control. Each must run ≥ 1.3× faster on every target, and no bench program may run > 2% slower (0009 D35). An `idr-expect` property `prefetched=@f`, stated as a pass guarantee as `fused` is, shows the pass fired |
 | P3 **AFTER-SELF** | 0012's F2 to F4 | D4: 0012's gates read on every target with D8's calibration; id columns carry P2's prefetch | 0012's own fixtures and gates |
@@ -506,13 +528,16 @@ on an M3 or later, since DIT does not turn the DMP off on M1 or M2.
 - **Four first-class targets with nothing per target outside the entry**
   (D5). The only facts that may enter an entry are a prefetch distance
   (D3) and 0009's L1 size.
-- **OS calls behind the runtime's platform layer** (D9's reservation),
+- **OS calls behind the runtime's platform layer** (the heap span's
+  reservations, C100),
   and intrinsics through LLVM with no inline asm (D3). DIT, if ever set,
   is set through the platform layer (§8).
 - **No pass refuses anything here.** D3 is an optimization, so skipping it
   leaves the program as it was.
 - **Tests check behaviour:**
-  - P1's test checks a placement;
+  - `tests/heap-region` checks a placement: cells of a heap under 4 GiB
+    share one region, and a frame, a frame-stack chunk and a cell share
+    bits 32 and up (C104, from L11's I12);
   - P2's property is the pass's guarantee;
   - the speed claims are bench records, not tests.
 - **No oracle:** every measurement here compares a layout with itself
