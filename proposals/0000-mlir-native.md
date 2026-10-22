@@ -4175,6 +4175,16 @@ C137.
   frontend refuses with `runtime closure` or `static argument` only where
   that set or the set of use types is one no analysis bounds; a program
   whose choices the program fixes compiles.
+- **C214** (2026-10-22; L21's re-pack under C206). Three consequences of
+  one re-pack. A `dest.write` converts the written value to its slot's
+  layout with the same re-pack, so `!idr.dest<T>` keeps the field's type
+  and TRMC makes a hole wherever it finds one. A re-pack reaches into
+  arrays: an array field whose elements lay out differently at the two
+  types is re-packed element by element, and `layoutMatch` says
+  `OtherLayout` for it. A re-pack that builds a cell gives a fresh
+  counted value, claimed unique, whatever the operand's hold, so
+  counting frees it as any fresh cell; only a free reindex keeps its
+  operand's hold.
 
 ## 4. Open: the owner's decisions, in order
 
