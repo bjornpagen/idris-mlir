@@ -2,8 +2,8 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| Closures and suspensions in symbol form: the body of a lambda or a delay
 ||| as a function of its own, which takes first the values the body uses
-||| from outside it, its captures, which an `idr.closure` or an
-||| `idr.suspend` of the function then holds. Its erased index parameters
+||| from outside it, its captures, which an `idr.fn.closure` or an
+||| `idr.lazy.suspend` of the function then holds. Its erased index parameters
 ||| are its owner's scope where it is written, so the index terms of its
 ||| captures' types keep their levels, and the closure passes that scope's
 ||| levels. It is named from its owner and its place among the owner's
@@ -32,14 +32,15 @@ import Data.SortedSet
 -- Captures
 ------------------------------------------------------------------------------
 
-||| What a walk of a body has seen: the names defined so far, and the
-||| values used before any definition, in the order first used. SSA names
-||| are unique within a function, so one set of what is defined serves every
-||| region: a name defined in one region is never used in a sibling.
+||| What a walk of a body has seen: the values defined so far, and the
+||| values used before any definition, in the order first used. A value's
+||| identity is unique within a function, so one set of what is defined
+||| serves every region: a value defined in one region is never used in a
+||| sibling.
 record Seen where
   constructor MkSeen
-  defined : SortedSet String
-  captured : SortedSet String
+  defined : SortedSet ValueId
+  captured : SortedSet ValueId
   order : SnocList Value
 
 seen : Seen -> Occurrence -> Seen
@@ -47,7 +48,7 @@ seen st (Uses v) =
   if contains v.name st.defined || contains v.name st.captured then st
   else { captured $= insert v.name, order $= (:< v) } st
 seen st (Binds v) = { defined $= insert v.name } st
-seen st (Defines _ names) = { defined $= \d => foldl (flip insert) d names } st
+seen st (Defines names) = { defined $= \d => foldl (flip insert) d names } st
 
 ||| The values a body uses that it does not define, its own arguments
 ||| among what it defines: an op's operands before what its regions hold,
@@ -96,9 +97,9 @@ lift : Loc -> (kind : Lifted) -> (telescope : List (SortOf MlirType MlirAttr)) -
     -> List Statement -> List MlirType -> E (String, List Value)
 lift l kind telescope params body results = do
   let caps = captures (MkRegion params body)
-  names <- traverse (const fresh) caps
+  names <- traverse (\_ => (\n => Bound n 0) <$> fresh) caps
   let args = zipWith (\c, n => MkArgument (MkValue n c.type) (At l)) caps names ++ params
-      outside = \n => fromMaybe n (lookup n (the (SortedMap String String) (fromList (zip (map (.name) caps) names))))
+      outside = \v => fromMaybe v (lookup v (the (SortedMap ValueId ValueId) (fromList (zip (map (.name) caps) names))))
       region = renameRegion outside (MkRegion args body)
       type = FunctionType (MkSignature (map (.value.type) args) results)
   st <- get

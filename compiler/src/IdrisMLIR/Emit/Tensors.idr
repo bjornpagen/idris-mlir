@@ -1,12 +1,12 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The array language in ops, each primitive in its meaning: a new array is
-||| `idr.tabulate` into a fresh destination, a fold along the last axis
-||| `idr.fold_last`, a scan `idr.scan_last`, each a region from indices (and
-||| an accumulator) to an element; a transpose of words is upstream's
-||| `linalg.transpose`, of counted elements a tabulation reading at the
-||| swapped coordinates; a join of words is two slices inserted into a
-||| fresh destination, of counted elements a tabulation reading the one
+||| `idr.array.tabulate` into a fresh destination, a fold along the last
+||| axis `idr.array.fold_last`, a scan `idr.array.scan_last`, each a region
+||| from indices (and an accumulator) to an element; a transpose of words is
+||| upstream's `linalg.transpose`, of counted elements a tabulation reading
+||| at the swapped coordinates; a join of words is two slices inserted into
+||| a fresh destination, of counted elements a tabulation reading the one
 ||| array or the other; a read is `tensor.extract`, a write
 ||| `tensor.insert`, and a slice and a reshape the `tensor` ops of each.
 ||| An array of counted elements is written whole by the op that makes it,
@@ -234,7 +234,7 @@ region l args body = do
 
 ||| Fresh `index` values, one per axis: the coordinates a region binds.
 indices : (k : Nat) -> E (Vect k Value)
-indices k = traverse (\_ => (\n => MkValue n IndexType) <$> fresh) (replicate k ())
+indices k = traverse (\_ => (\n => MkValue (Bound n 0) IndexType) <$> fresh) (replicate k ())
 
 ||| The sizes of the leading dimensions `ds` that are dynamic, from the
 ||| extents given, each guarded as an allocation's: a static one is the
@@ -508,7 +508,7 @@ tensorOp ix l binder rt (Reshape x extents) = do
 ------------------------------------------------------------------------------
 
 ||| A new array of `rt` of the extents given, each element or cell what
-||| `body` gives at the coordinates: `idr.tabulate` of the extents `rt`
+||| `body` gives at the coordinates: `idr.array.tabulate` of the extents `rt`
 ||| leaves dynamic, its region binding the coordinates. A cell's own
 ||| dimensions are `rt`'s, those it leaves dynamic the cells' own, which
 ||| every cell shares. The variable `binder` is bound to it.
@@ -530,8 +530,8 @@ tabulate ix l binder rt extents body = do
   Just <$> value {binder} ix l rt (\t => Idr.arrayTabulateOp dest r [t])
 
 ||| A reduction of `x` along the axis after the frame of `z`, from `z`'s
-||| accumulators, left to right in index order: `idr.fold_last` keeping the
-||| last accumulators, `idr.scan_last` every one. The frame is the axes `z`
+||| accumulators, left to right in index order: `idr.array.fold_last`
+||| keeping the last accumulators, `idr.array.scan_last` every one. The frame is the axes `z`
 ||| has beyond an accumulator's; the region binds the frame's indices, the
 ||| index along the axis and the accumulator, reads `x`'s element there and
 ||| gives the next accumulator. An accumulator of no frame and no axis of
@@ -577,7 +577,7 @@ reduce ix l binder r acc elem rt z x body = do
 ------------------------------------------------------------------------------
 
 ||| The array, the dynamic dimensions stated of it equal to the sizes given
-||| (`idr.tie_shape`): the extent of another array's axis, exact, or a
+||| (`idr.array.tie_shape`): the extent of another array's axis, exact, or a
 ||| natural, converted as an extent; the other dynamic dimensions read from
 ||| it. Itself when nothing is stated of a dynamic dimension. The variable
 ||| `binder` is bound to it.

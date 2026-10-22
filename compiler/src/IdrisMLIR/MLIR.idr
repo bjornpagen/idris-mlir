@@ -266,11 +266,32 @@ attrIf name make = maybe [] (\x => [(name, make x)])
 -- Operations
 ------------------------------------------------------------------------------
 
-||| A value an op uses or a region binds: its SSA name and its type.
+||| A value's identity in its function: result `i` of what binds it, by
+||| that binder's number among the function's (a block's argument binds
+||| one, its result 0); or none, for what is no value of the module
+||| (Idris's world), which no op may take. Values are looked up and told
+||| apart by it, never by text.
+public export
+data ValueId = Bound Nat Nat | Unbound
+
+export
+Eq ValueId where
+  Bound b i == Bound c j = b == c && i == j
+  Unbound == Unbound = True
+  _ == _ = False
+
+export
+Ord ValueId where
+  compare (Bound b i) (Bound c j) = compare (b, i) (c, j)
+  compare (Bound _ _) Unbound = LT
+  compare Unbound (Bound _ _) = GT
+  compare Unbound Unbound = EQ
+
+||| A value an op uses or a region binds: its identity and its type.
 public export
 record Value where
   constructor MkValue
-  name : String
+  name : ValueId
   type : MlirType
 
 ||| A block argument: the value it binds, at the binder's location.
@@ -308,12 +329,12 @@ mutual
   public export
   data Region = NoBlocks | MkRegion (List Argument) (List Statement)
 
-  ||| An op where it stands: the name of its results, if it has any, and
-  ||| its location.
+  ||| An op where it stands: its number among its function's binders, if
+  ||| it has results, which they are bound at, and its location.
   public export
   record Statement where
     constructor MkStatement
-    result : Maybe String
+    result : Maybe Nat
     op : Op
     at : Location
 
@@ -339,18 +360,10 @@ checkingEach check cause [] others next = next []
 checkingEach check cause (x :: xs) others next =
   Checking check cause x others (\x' => checkingEach check cause xs others (\xs' => next (x' :: xs')))
 
-||| The name of result `i` of the `n` an op gives, its statement's name
-||| `r`: `r` itself for one result, `r#i` of several, as an op's operands
-||| name them.
+||| The values a statement binds, its results in order.
 export
-resultAt : (r : String) -> (n : Nat) -> (i : Nat) -> String
-resultAt r (S Z) _ = r
-resultAt r _ i = r ++ "#" ++ show i
-
-||| The names a statement binds its results to, in order.
-export
-boundNames : Statement -> List String
-boundNames (MkStatement (Just r) o _) = let n = length o.results in map (resultAt r n) (take n [0 .. n])
+boundNames : Statement -> List ValueId
+boundNames (MkStatement (Just r) o _) = let n = length o.results in map (Bound r) (take n [0 .. n])
 boundNames (MkStatement Nothing _ _) = []
 
 ------------------------------------------------------------------------------
@@ -359,10 +372,10 @@ boundNames (MkStatement Nothing _ _) = []
 
 ||| What a walk of a region meets of its values, in order: each block's
 ||| arguments, then, for each statement, the values its op uses, then the
-||| statement's name and the names its results are bound to (`boundNames`),
-||| then what the op's regions hold.
+||| values its results are bound to (`boundNames`), then what the op's
+||| regions hold.
 public export
-data Occurrence = Uses Value | Binds Value | Defines String (List String)
+data Occurrence = Uses Value | Binds Value | Defines (List ValueId)
 
 mutual
   ||| A fold over a region's values, in the order `Occurrence` says.
@@ -376,7 +389,7 @@ mutual
   walkStatements f acc (MkStatement r (MkOp n operands props regions attrs results) at :: ss) =
     let used = foldl (\x, v => f x (Uses v)) acc operands
         named = case r of
-          Just name => f used (Defines name (boundNames (MkStatement r (MkOp n operands props regions attrs results) at)))
+          Just _ => f used (Defines (boundNames (MkStatement r (MkOp n operands props regions attrs results) at)))
           Nothing => used
     in walkStatements f (walkRegions f named regions) ss
 
@@ -385,22 +398,21 @@ mutual
   walkRegions f acc (r :: rs) = walkRegions f (walkRegion f acc r) rs
 
 mutual
-  ||| A region with every value renamed by `f`, where it is defined and
-  ||| where it is used: block arguments, statements' names, operands. A
-  ||| use of one of several results is renamed as itself, `name#i`.
+  ||| A region with every value it binds as a block's argument, and every
+  ||| value its ops use, renamed by `f`: what a lifted function's body
+  ||| uses of its captures becomes its own arguments.
   export
-  renameRegion : (String -> String) -> Region -> Region
+  renameRegion : (ValueId -> ValueId) -> Region -> Region
   renameRegion f NoBlocks = NoBlocks
   renameRegion f (MkRegion args ss) =
     MkRegion (map (\a => { value.name $= f } a) args) (renameStatements f ss)
 
-  renameStatements : (String -> String) -> List Statement -> List Statement
+  renameStatements : (ValueId -> ValueId) -> List Statement -> List Statement
   renameStatements f [] = []
   renameStatements f (MkStatement r (MkOp n operands props regions attrs results) at :: ss) =
-    MkStatement (map f r)
-                (MkOp n (map (\v => { name $= f } v) operands) props (renameRegions f regions) attrs results) at
+    MkStatement r (MkOp n (map (\v => { name $= f } v) operands) props (renameRegions f regions) attrs results) at
       :: renameStatements f ss
 
-  renameRegions : (String -> String) -> List Region -> List Region
+  renameRegions : (ValueId -> ValueId) -> List Region -> List Region
   renameRegions f [] = []
   renameRegions f (r :: rs) = renameRegion f r :: renameRegions f rs

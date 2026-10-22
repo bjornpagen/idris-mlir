@@ -72,7 +72,7 @@ unguarded : Location -> MlirType -> (MlirType -> Op) -> E Value
 unguarded at t build = do
   r <- fresh
   append (MkStatement (Just r) (build t) at)
-  pure (MkValue r t)
+  pure (MkValue (Bound r 0) t)
 
 ||| The length of an array a world orders, its memref's dimension, as an
 ||| `Int`, the variable `binder` bound to it.
@@ -150,10 +150,10 @@ specOp op vs ts = specGuarded op.guards vs (\ws => MkOp (specName op) (toList ws
 -- Writing ops
 ------------------------------------------------------------------------------
 
-||| A total op where it stands, at `at`, and the name of its statement,
-||| which binds its results (`resultAt`); an op of no results binds none.
+||| A total op where it stands, at `at`, and its statement's number, which
+||| its results are bound at (`Bound`); an op of no results binds none.
 export
-placed : Location -> Op -> E (Maybe String)
+placed : Location -> Op -> E (Maybe Nat)
 placed at o = case o.results of
   [] => Nothing <$ append (MkStatement Nothing o at)
   _ :: _ => do
@@ -161,10 +161,10 @@ placed at o = case o.results of
     append (MkStatement (Just r) o at)
     pure (Just r)
 
-||| The op of a guarded builder where it stands, after its guards, and the
-||| name of its statement.
+||| The op of a guarded builder where it stands, after its guards, and its
+||| statement's number.
 export
-place : Loc -> Guarded -> E (Maybe String)
+place : Loc -> Guarded -> E (Maybe Nat)
 place l g = placed (At l) !(checked l g)
 
 ||| A total op with one result, of type `t`, at `at`.
@@ -173,7 +173,7 @@ mlirValueAt : Location -> MlirType -> (MlirType -> Op) -> E Value
 mlirValueAt at t build = do
   r <- fresh
   append (MkStatement (Just r) (build t) at)
-  pure (MkValue r t)
+  pure (MkValue (Bound r 0) t)
 
 ||| A total op with one result, of an MLIR type that is no Core type's (a
 ||| condition, an index).
@@ -209,7 +209,7 @@ guardedValue ix l t build = do
   o <- checked l (build (gradedType ix Many held t))
   r <- fresh
   append (MkStatement (Just r) o (madeAtPlace binder (placeOf stands l) Many))
-  pure (val r t Many held)
+  pure (val (Bound r 0) t Many held)
 
 ||| A total op without results.
 export
@@ -383,7 +383,7 @@ prim binder stands ix l (ToBig (SIntegral (SInt t))) [x] = case signedness t of
 prim binder stands ix l (ToBig (SIntegral SChar)) [c] = value {binder} {stands} ix l BigT (Idr.bigFromUintOp (operand ix c))
 prim binder stands ix l (ToBig SDouble) [d] = guardedValue {binder} {stands} ix l BigT (Idr.bigFromDoubleOp (operand ix d))
 prim binder stands ix l (FromBig (SIntegral (SInt t))) [b] = value {binder} {stands} ix l (IntT t) (Idr.bigToIntOp (operand ix b))
--- The code point if the integer is one, else 0; `idr.to_char_s` decides
+-- The code point if the integer is one, else 0; `idr.int.to_char_s` decides
 -- for the integers an `i64` holds, and 0 stands for the rest.
 prim binder stands ix l (FromBig (SIntegral SChar)) [b] = do
   lo <- literal ix l (LBig 0)
@@ -460,7 +460,7 @@ fieldOperands ix l (f :: fs) (v :: vs) = (::) <$> held f <*> fieldOperands ix l 
       mlirValue l (fieldType ix (TensorT ds e)) (Bufferization.toBufferOp t)
     held b = operand ix <$> coerce ix l b.quantity v
 
-||| A constructor application (`idr.con`), built with every field: its value
+||| A constructor application (`idr.data.con`), built with every field: its value
 ||| is of the family at the index terms its equation gives with its binders
 ||| substituted, refined to its constructor, which is how the op knows its
 ||| tag. The variable `binder` is bound to it.
@@ -468,18 +468,19 @@ export
 con : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Con k -> List ITerm -> Vect k Val -> E Val
 con ix l c bs vs = do
   os <- fieldOperands ix l c.fields vs
-  let v = MkVal "" (conType c bs) Many (Hold.Counted Deep) (OneOf (c.tag ::: []))
-  r <- mlirValueAt (madeAt binder l Many) (valueType ix v) (Idr.dataConOp os [])
-  pure ({ name := r.name } v)
+  let t = conType c bs
+      refined = OneOf (c.tag ::: [])
+  r <- mlirValueAt (madeAt binder l Many) (valueTypeOf ix t Many (Hold.Counted Deep) refined) (Idr.dataConOp os [])
+  pure (MkVal r.name t Many (Hold.Counted Deep) refined)
 
 ------------------------------------------------------------------------------
 -- Effects
 ------------------------------------------------------------------------------
 
-||| What an action wrote: nothing, or the name of the one value it gives.
+||| What an action wrote: nothing, or the one value it gives.
 data Acted : Nat -> Type where
   ActedNone : Acted 0
-  ActedOne : String -> Acted 1
+  ActedOne : ValueId -> Acted 1
 
 ||| An effect: the IO action on its operands, after its checks, with no
 ||| world (its order is the effects its ops declare), and the `IORes` `res`
@@ -493,9 +494,6 @@ effect binder ix l a gives vs res = do
     | Nothing => pure Nothing
   Just <$> answer gives done
   where
-    world : Val
-    world = val "" WorldT Once made
-
     -- What a value-giving action gives, the type of its `IORes`'s field.
     given : Ty
     given = typeOf (head res.fields)
@@ -507,8 +505,8 @@ effect binder ix l a gives vs res = do
     answer : IOGives n -> Acted n -> E Val
     answer (GivesUnit u) ActedNone = do
       v <- con ix l u [] []
-      con {binder} ix l res [] [v, world]
-    answer GivesValue (ActedOne r) = con {binder} ix l res [] [val r given Many made, world]
+      con {binder} ix l res [] [v, worldVal]
+    answer GivesValue (ActedOne r) = con {binder} ix l res [] [val r given Many made, worldVal]
 
     int64 : Integer -> E Value
     int64 n = mlirValue l (IntegerType 64) (Arith.constantOp (IntegerAttr n (IntegerType 64)))
@@ -520,7 +518,7 @@ effect binder ix l a gives vs res = do
     written GivesOne build = do
       Just r <- place l (build [givenType])
         | Nothing => internal "an IO op that gives a value wrote none"
-      pure (Just (ActedOne r))
+      pure (Just (ActedOne (Bound r 0)))
 
     -- A value an action gives, made by a total op.
     gave : E Value -> E (Maybe (Acted 1))

@@ -655,10 +655,9 @@ newWriter = runEitherT $
 -- Ops and regions
 ------------------------------------------------------------------------------
 
-||| The values in scope, by SSA name, the only identity a value has in
-||| `IdrisMLIR.MLIR`, with their numbers.
+||| The values in scope, by their identities, with their numbers.
 Scope : Type
-Scope = SortedMap String Nat
+Scope = SortedMap ValueId Nat
 
 ||| The values a block defines directly: its arguments, then its ops'
 ||| results in order.
@@ -717,7 +716,7 @@ mutual
   operand : Bytes -> Scope -> Value -> W ()
   operand out scope v = case lookup v.name scope of
     Just n => varint out n
-    Nothing => throwE ("an operand " ++ v.name ++ " that nothing in scope defines")
+    Nothing => throwE "an operand that nothing in scope defines"
 
   ||| An op nested in a region, its regions inline, their values after
   ||| every value of the regions around them (`base`).

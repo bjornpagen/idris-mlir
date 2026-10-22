@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The emission monad: the operations of the region being written, fresh
-||| SSA names, and the functions the lambdas and delays of the function
-||| being written become.
+||| binder numbers, which name the values they bind, and the functions the
+||| lambdas and delays of the function being written become.
 module IdrisMLIR.Emit.Monad
 
 import IdrisMLIR.Ids
@@ -56,12 +56,14 @@ export
 internal : String -> E a
 internal msg = lift (Left msg)
 
+||| The next binder's number in the function: a statement's or a block
+||| argument's, each value it binds named by it (`Bound`).
 export
-fresh : E String
+fresh : E Nat
 fresh = do
   st <- get
   put ({ next $= S } st)
-  pure ("%" ++ show st.next)
+  pure st.next
 
 export
 append : Statement -> E ()
@@ -84,7 +86,7 @@ collect act = do
 public export
 data Refinement = AnyConstructor | OneOf (List1 Nat)
 
-||| A value: its SSA name, its type, how often it may be used, how it is
+||| A value: its identity, its type, how often it may be used, how it is
 ||| held, the grade's hold (who frees what it holds, and what is known of
 ||| its sharing), and which constructors it is known to be. Its MLIR type
 ||| is these together (`Index.valueType`). The frontend writes no weaker
@@ -92,7 +94,7 @@ data Refinement = AnyConstructor | OneOf (List1 Nat)
 public export
 record Val where
   constructor MkVal
-  name : String
+  name : ValueId
   type : Ty
   uses : Uses
   hold : Hold
@@ -100,8 +102,14 @@ record Val where
 
 ||| A value known to be no more than its type says.
 export
-val : String -> Ty -> Uses -> Hold -> Val
+val : ValueId -> Ty -> Uses -> Hold -> Val
 val n t u h = MkVal n t u h AnyConstructor
+
+||| Idris's world as a value the fold passes along: no value of the
+||| module, so it is bound to none, and its type keeps it out of every op.
+export
+worldVal : Val
+worldVal = val Unbound WorldT Once made
 
 ||| What a variable in scope stands for: one SSA value; or Idris's world,
 ||| which is no value of the module, since after the frontend IO is ordered

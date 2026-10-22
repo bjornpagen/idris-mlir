@@ -188,9 +188,15 @@ named stem samples =
 -- The samples are no program's, so every op and block argument is at no
 -- location.
 
-||| An op whose results the statement names `r`.
-binding : String -> Op -> Statement
+||| An op whose results the statement binds, by its number `r` in its
+||| function.
+binding : Nat -> Op -> Statement
 binding r o = MkStatement (Just r) o (At noLoc)
+
+||| The value a binder of the number given binds first: its argument, or
+||| its statement's one result.
+bound : Nat -> MlirType -> Value
+bound k t = MkValue (Bound k 0) t
 
 ||| An op with no result.
 stmt : Op -> Statement
@@ -206,10 +212,10 @@ index n = Arith.constantOp (IntegerAttr n IndexType) IndexType
 ||| One op of each shape, in a function of the values they use.
 sample : Statement
 sample =
-  let v = MkValue "%v" vecAny
-      n = MkValue "%n" nat
-      x = MkValue "%x" i64
-      s = MkValue "%s" str
+  let v = bound 0 vecAny
+      n = bound 1 nat
+      x = bound 2 i64
+      s = bound 3 str
       fn = Idr (FnType [i64] [i64])
       lazy = Idr (LazyType i64)
       vec = RankedTensorType [Dynamic] i64
@@ -217,80 +223,80 @@ sample =
       buffer = MemRefType [Dynamic] i64 Nothing
       grid = RankedTensorType [Static 2, Static 3] i64
       flipped = RankedTensorType [Static 3, Static 2] i64
-      i = MkValue "%i" IndexType
-      c4 = MkValue "%c4" IndexType
-      cons = MkValue "%cons" consCell
+      i = bound 20 IndexType
+      c4 = bound 17 IndexType
+      cons = bound 14 consCell
   in stmt (Idr.funcOp {binders' = Just (IdrHand (BindersOf [SortOfNatSort]))} (StringAttr "sample")
             (TypeAttr (FunctionType (MkSignature [vecAny, nat, i64, str] [i64])))
             (block [v, n, x, s]
                [ -- A constructor, its value refined to it, then reindexed.
-                 binding "%nil" (Idr.dataConOp [] [] (IdrHand (DataOf natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])))))
-               , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (IdrHand (DataOf natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0]))))) [] vecAny)
-               , binding "%lin" (Idr.linCastOp x [] (Idr (GradedType Once Nothing i64)))
-               , binding "%used" (Idr.linCastOp (MkValue "%lin" (Idr (GradedType Once Nothing i64))) [] i64)
-               , binding "%checked" (Idr.checkNonzeroOp DivisionByZero (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x)
+                 binding 4 (Idr.dataConOp [] [] (IdrHand (DataOf natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])))))
+               , binding 5 (Idr.dataReindexOp (bound 4 (IdrHand (DataOf natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0]))))) [] vecAny)
+               , binding 6 (Idr.linCastOp x [] (Idr (GradedType Once Nothing i64)))
+               , binding 7 (Idr.linCastOp (bound 6 (Idr (GradedType Once Nothing i64))) [] i64)
+               , binding 8 (Idr.checkNonzeroOp DivisionByZero (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x)
                  -- A closure and a suspension of functions, with the
                  -- scope's levels.
-               , binding "%f" (Idr.fnClosureOp {index_args' = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} (SymbolRefAttr (MkSymbolRef "callee" [])) [] fn)
-               , binding "%lazy" (Idr.lazySuspendOp {index_args' = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} (SymbolRefAttr (MkSymbolRef "thunk" [])) [x] lazy)
-               , binding "%applied" (Idr.fnApplyOp (MkValue "%f" fn) [x] [i64])
+               , binding 9 (Idr.fnClosureOp {index_args' = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} (SymbolRefAttr (MkSymbolRef "callee" [])) [] fn)
+               , binding 10 (Idr.lazySuspendOp {index_args' = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} (SymbolRefAttr (MkSymbolRef "thunk" [])) [x] lazy)
+               , binding 11 (Idr.fnApplyOp (bound 9 fn) [x] [i64])
                  -- A match whose case binds its scrutinee refined to the
                  -- constructor and its binder, its fields reads of it.
-               , binding "%m" (Idr.dataMatchOp (DenseI32ArrayAttr [0, 1]) v [] [] NoBlocks
-                                 [ block [MkValue "%none" (IdrHand (DataOf natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [0]))))]
-                                     [stmt (Idr.yieldOp [MkValue "%checked" i64])]
+               , binding 12 (Idr.dataMatchOp (DenseI32ArrayAttr [0, 1]) v [] [] NoBlocks
+                                 [ block [bound 13 (IdrHand (DataOf natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [0]))))]
+                                     [stmt (Idr.yieldOp [bound 8 i64])]
                                  , block [cons]
-                                     [ binding "%hd" (Idr.dataFieldOp (IntegerAttr 0 (IntegerType 64)) cons [] nat)
-                                     , binding "%tl" (Idr.dataFieldOp (IntegerAttr 1 (IntegerType 64)) cons [] (IdrHand (DataOf natLists 0 [TermNodeLevel 1] Nothing)))
+                                     [ binding 15 (Idr.dataFieldOp (IntegerAttr 0 (IntegerType 64)) cons [] nat)
+                                     , binding 16 (Idr.dataFieldOp (IntegerAttr 1 (IntegerType 64)) cons [] (IdrHand (DataOf natLists 0 [TermNodeLevel 1] Nothing)))
                                      , stmt (Idr.yieldOp [x]) ] ]
                                  [i64])
-               , binding "%c4" (Arith.constantOp (IntegerAttr 4 IndexType) IndexType)
-               , binding "%dest" (Tensor.emptyOp [c4] vec)
-               , binding "%t" (Idr.arrayTabulateOp (MkValue "%dest" vec)
-                                 (block [i] [ binding "%iv" (Arith.indexCastOp i i64)
-                                            , stmt (Idr.arrayYieldOp [MkValue "%iv" i64]) ]) [vec])
-               , binding "%z" (Tensor.fromElementsOp [x] scalar)
-               , binding "%sum" (Idr.arrayFoldLastOp [MkValue "%z" scalar] c4 (accumulate "fold") [scalar])
+               , binding 17 (Arith.constantOp (IntegerAttr 4 IndexType) IndexType)
+               , binding 18 (Tensor.emptyOp [c4] vec)
+               , binding 19 (Idr.arrayTabulateOp (bound 18 vec)
+                                 (block [i] [ binding 21 (Arith.indexCastOp i i64)
+                                            , stmt (Idr.arrayYieldOp [bound 21 i64]) ]) [vec])
+               , binding 22 (Tensor.fromElementsOp [x] scalar)
+               , binding 23 (Idr.arrayFoldLastOp [bound 22 scalar] c4 accumulate [scalar])
                  -- An array's buffer, as a field holds an array, and the
                  -- array of the buffer, as a read of the field gives it.
-               , binding "%buf" (Bufferization.toBufferOp (MkValue "%t" vec) buffer)
-               , binding "%back" (Bufferization.toTensorOp {restrict = True} (MkValue "%buf" buffer) vec)
+               , binding 28 (Bufferization.toBufferOp (bound 19 vec) buffer)
+               , binding 29 (Bufferization.toTensorOp {restrict = True} (bound 28 buffer) vec)
                  -- An array transposed into one of the swapped shape.
-               , binding "%grid" (Tensor.emptyOp [] grid)
-               , binding "%flipped" (Tensor.emptyOp [] flipped)
-               , binding "%tr" (Linalg.transposeOp (MkValue "%grid" grid) (MkValue "%flipped" flipped) [1, 0] [flipped])
+               , binding 30 (Tensor.emptyOp [] grid)
+               , binding 31 (Tensor.emptyOp [] flipped)
+               , binding 32 (Linalg.transposeOp (bound 30 grid) (bound 31 flipped) [1, 0] [flipped])
                  -- A choice on a condition, a region per arm.
-               , binding "%cond" (Arith.cmpiOp CmpIPredicate.Eq x x (IntegerType 1))
-               , binding "%chosen" (SCF.ifOp (MkValue "%cond" (IntegerType 1))
+               , binding 33 (Arith.cmpiOp CmpIPredicate.Eq x x (IntegerType 1))
+               , binding 34 (SCF.ifOp (bound 33 (IntegerType 1))
                                       (block [] [stmt (SCF.yieldOp [x])])
-                                      (block [] [stmt (SCF.yieldOp [MkValue "%checked" i64])]) [i64])
-               , binding "%r" (Idr.callOp {index_args' = Just (IdrHand (ArgsOf [[TermNodeOpaque]]))} (SymbolRefAttr (MkSymbolRef "callee" [])) NonTail [x] [i64])
-               , stmt (Idr.returnOp [MkValue "%r" i64])
+                                      (block [] [stmt (SCF.yieldOp [bound 8 i64])]) [i64])
+               , binding 35 (Idr.callOp {index_args' = Just (IdrHand (ArgsOf [[TermNodeOpaque]]))} (SymbolRefAttr (MkSymbolRef "callee" [])) NonTail [x] [i64])
+               , stmt (Idr.returnOp [bound 35 i64])
                ]))
   where
     -- A fold's region: the index along its axis and the accumulator, the
     -- array's element there added to it.
-    accumulate : String -> Region
-    accumulate stem =
-      let j = MkValue ("%" ++ stem ++ "j") IndexType
-          acc = MkValue ("%" ++ stem ++ "acc") i64
-          el = MkValue ("%" ++ stem ++ "el") i64
-          next = MkValue ("%" ++ stem ++ "next") i64
-      in block [j, acc] [ binding el.name (Tensor.extractOp (MkValue "%t" (RankedTensorType [Dynamic] i64)) [j] i64)
-                        , binding next.name (Arith.addiOp acc el i64)
+    accumulate : Region
+    accumulate =
+      let j = bound 24 IndexType
+          acc = bound 25 i64
+          el = bound 26 i64
+          next = bound 27 i64
+      in block [j, acc] [ binding 26 (Tensor.extractOp (bound 19 (RankedTensorType [Dynamic] i64)) [j] i64)
+                        , binding 27 (Arith.addiOp acc el i64)
                         , stmt (Idr.arrayYieldOp [next]) ]
 
 ||| A function called and closed over by `@sample`, proved to end.
 callee : Statement
 callee =
-  let a = MkValue "%a" i64
+  let a = bound 0 i64
   in stmt (Idr.funcOp {terminates' = Just (Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof 0))))} (StringAttr "callee")
             (TypeAttr (FunctionType (MkSignature [i64] [i64]))) (block [a] [stmt (Idr.returnOp [a])]))
 
 ||| A function `@sample` suspends.
 thunk : Statement
 thunk =
-  let a = MkValue "%a" i64
+  let a = bound 0 i64
   in stmt (Idr.funcOp (StringAttr "thunk") (TypeAttr (FunctionType (MkSignature [i64] [i64]))) (block [a] [stmt (Idr.returnOp [a])]))
 
 ||| A function that crashes, at its site, naming itself.

@@ -194,9 +194,14 @@ refine t tags = t
 ||| the constructors it is known to be.
 export
 valueType : Index -> Val -> MlirType
-valueType ix v = case v.refinement of
-  AnyConstructor => gradedType ix v.uses v.hold v.type
-  OneOf tags => refine (gradedType ix v.uses v.hold v.type) tags
+valueType ix v = valueTypeOf ix v.type v.uses v.hold v.refinement
+
+||| The module's type of a value of type `t`, used as `u`, held as `h`,
+||| known to be the constructors `r` says.
+export
+valueTypeOf : Index -> Ty -> Uses -> Hold -> Refinement -> MlirType
+valueTypeOf ix t u h AnyConstructor = gradedType ix u h t
+valueTypeOf ix t u h (OneOf tags) = refine (gradedType ix u h t) tags
 
 ||| The constructors of a family no case of a match takes, by tag.
 export

@@ -16,7 +16,7 @@
 ||| erased binders, its fields reads of the refined value; a match on
 ||| literals is `idr.lit.match`, its default binding the scrutinee refined
 ||| to the complement of its keys; a lambda and a `Delay` are each a
-||| function of its own, which an `idr.closure` or an `idr.suspend` names
+||| function of its own, which an `idr.fn.closure` or an `idr.lazy.suspend` names
 ||| with its captures and its scope's levels; an array is made, folded and
 ||| scanned by the array ops, each a region from indices to an element; a
 ||| data type is its family's group and member applied to index terms.

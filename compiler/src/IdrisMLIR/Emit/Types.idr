@@ -25,5 +25,5 @@ export
 freshVal : Index -> Ty -> Uses -> E (Val, Value)
 freshVal ix t q = do
   n <- fresh
-  let v = val n t q made
+  let v = val (Bound n 0) t q made
   pure (v, operand ix v)

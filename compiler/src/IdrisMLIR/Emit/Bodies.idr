@@ -78,11 +78,6 @@ levels ss = map IVar (take (length ss) [0 .. length ss])
 -- Operands
 ------------------------------------------------------------------------------
 
-||| The world's value: no value of the module. An op's operands, a call's
-||| arguments, a constructor's fields and a region's results leave it out.
-worldVal : Val
-worldVal = val "" WorldT Once made
-
 ||| The value a variable stands for; the world for Idris's world.
 standing : InScope -> Val
 standing (Whole v) = v
@@ -517,7 +512,7 @@ alg ix (CaseF l x arms) sc w = do
     refinedArg : Val -> List1 Nat -> E (Val, Argument)
     refinedArg scrut tags = do
       n <- fresh
-      let r = MkVal n scrut.type scrut.uses scrut.hold (OneOf tags)
+      let r = MkVal (Bound n 0) scrut.type scrut.uses scrut.hold (OneOf tags)
       pure (r, MkArgument (operand ix r) (At l))
     alternative : Val -> AltF (Sub Em) nv -> E Case
     alternative scrut (MkAltF {k} c fs body) = do
@@ -590,7 +585,7 @@ alg ix (CaseNatF l x arms) sc w = case arms of
 -- suspension of one, each over the values its body uses from where it is
 -- written and its scope's levels: the body is written first, as a region,
 -- and the function made of it. A suspension of a value is that value
--- held, `idr.delay %v`. A lambda's parameter and result are at the types
+-- held, `idr.lazy.delay %v`. A lambda's parameter and result are at the types
 -- the context expects of them: a closure's type holds the extents its
 -- values are made at dynamic.
 alg ix (LamF l name b body) sc w = do
@@ -747,7 +742,7 @@ alg ix (ReadBackF l e x cs body) sc w = do
   ixs <- traverse (coordinate ix l) coords
   Just n <- placed (At l) (Idr.arrayReadOp (operand ix xv) ixs)
     | Nothing => internal "a linear array's read gives nothing"
-  body.result (bind [Whole (val (resultAt n 2 0) e Many made), Whole ({ name := resultAt n 2 1 } xv)] sc) w
+  body.result (bind [Whole (val (Bound n 0) e Many made), Whole ({ name := Bound n 1 } xv)] sc) w
 -- Each extent of the array a linear array's cell holds gives the array
 -- back as a new value, threaded from one read to the next; the body binds
 -- the extents and the last array given back.
@@ -763,5 +758,5 @@ alg ix (ExtentsBackF {k} l x body) sc w = do
       Just n <- placed (At l) (Idr.arrayExtentOp (IntegerAttr (natToInteger a) (IntegerType 64)) (operand ix arr)
                                  (gradedType ix Many made (NatT IOpaque)) (operand ix arr).type)
         | Nothing => internal "a linear array's extent gives nothing"
-      (rest, final) <- readExtents j (S a) ({ name := resultAt n 2 1 } arr)
-      pure (Whole (val (resultAt n 2 0) (NatT IOpaque) Many made) :: rest, final)
+      (rest, final) <- readExtents j (S a) ({ name := Bound n 1 } arr)
+      pure (Whole (val (Bound n 0) (NatT IOpaque) Many made) :: rest, final)
