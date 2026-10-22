@@ -4172,6 +4172,15 @@ C137.
   each clause's pattern variables after operators are regrouped by the
   fixities in force, so a join over the parse tree has no reader unless
   Desugar reads the columns.
+- **C217** (2026-10-22; L16's eighth pass; extends C213). A polymorphic
+  function kept at run time (in a field, as a result, or chosen at run
+  time) is a value of a closed sum keyed by its function type: its
+  constructors are the functions and closures the whole program puts at
+  that type, each with its captures, and each use matches on it and
+  calls that member monomorphized at the use's own types. The frontend
+  writes it as a data family, as C174's dictionary, so the C++ meets no
+  polymorphic value. It is refused only where that set or the use types
+  are unbounded.
 - **C211** (2026-10-22; L09's finding; the mechanism under C166 and
   C204). `idr.lit.match` forwards its scrutinee into its default, as C166
   reads it (`sourceOf` maps the binding to its scrutinee), so upstream's
