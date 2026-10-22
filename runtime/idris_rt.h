@@ -392,6 +392,10 @@ idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg, const idris_rt
 /* The bytes of the stack the runner gave fn's thread, the plan's with the
  * host's own part, in pages: a tool gives each of its threads as many. */
 uint64_t idris_rt_thread_stack_bytes(void);
+/* Run first on each other thread a tool starts, on it: a signal stack as
+ * fn's thread has, and its stack's guard known to the fault handler, so
+ * reaching it is the tool's internal error; given back as the thread ends. */
+void idris_rt_start_thread(void);
 /* The memory a tool may plan for: physical memory, capped by the process's
  * address-space limit and by what its cgroup lets it still commit. */
 uint64_t idris_rt_host_memory(void);

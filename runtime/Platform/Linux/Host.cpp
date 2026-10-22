@@ -4,11 +4,13 @@
 // reservation that never lands on a mapping, where the address space is
 // free, how much memory the process's cgroup lets it reach before the
 // kernel's killer ends it (its own files, read by Posix/Cgroups.cpp), and
-// what the kernel's signal frame takes. Each read once, at start.
+// what the kernel's signal frame takes, each read once, at start; and where
+// the C library put a thread's guard.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 
 #include <errno.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -67,6 +69,21 @@ size_t signalStackMinimum() noexcept {
   constexpr unsigned long minimumSignalStackEntry = 51;
   unsigned long kernel = getauxval(minimumSignalStackEntry);
   return kernel != 0 ? static_cast<size_t>(kernel) : static_cast<size_t>(MINSIGSTKSZ);
+}
+
+// The C library reports a thread's stack without its guard, which lies
+// just below it; a thread whose attributes it cannot read claims no fault.
+Guard libraryGuard() noexcept {
+  pthread_attr_t attributes;
+  if (pthread_getattr_np(pthread_self(), &attributes) != 0)
+    return {0, 0};
+  void *low = nullptr;
+  size_t size = 0, guard = 0;
+  pthread_attr_getstack(&attributes, &low, &size);
+  pthread_attr_getguardsize(&attributes, &guard);
+  pthread_attr_destroy(&attributes);
+  auto bottom = reinterpret_cast<uintptr_t>(low);
+  return {bottom - guard, bottom};
 }
 
 } // namespace rt::platform

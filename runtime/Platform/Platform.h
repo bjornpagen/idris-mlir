@@ -303,6 +303,30 @@ bool runThread(void (*fn)(void *), void *arg, char *stack, size_t size) noexcept
 // Makes the n bytes at p the calling thread's stack for signal handlers.
 void useSignalStack(char *p, size_t n) noexcept;
 
+// The calling thread has no stack for signal handlers any more.
+void dropSignalStack() noexcept;
+
+// A stack's guard: a fault at an address in [low, high) is its thread
+// reaching the end of its stack.
+struct Guard {
+  uintptr_t low;
+  uintptr_t high;
+  bool holds(uintptr_t address) const noexcept { return address >= low && address < high; }
+};
+
+// Each thread's guard, where the fault handler finds it on the thread a
+// fault is met on: keepGuard makes `guard` the calling thread's (null for
+// none), keptGuard reads it (null on a thread that kept none), and `atEnd`
+// takes one still kept when its thread ends. guardsEnd is called before a
+// second thread runs; false when the system has no slot left for it.
+bool guardsEnd(void (*atEnd)(Guard *guard)) noexcept;
+void keepGuard(Guard *guard) noexcept;
+Guard *keptGuard() noexcept;
+
+// The guard the C library placed below the calling thread's stack when it
+// made the thread, as the operating system's unit reads it.
+Guard libraryGuard() noexcept;
+
 // The terminal (Posix/Terminal.cpp).
 
 // Standard input without echo and without line editing, so a read sees each

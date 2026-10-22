@@ -2,13 +2,15 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What a Darwin host decides, which only Darwin says how to read: a fixed
 // reservation that never lands on a mapping, where the address space is
-// free, and what the kernel's signal frame takes. Darwin enforces no limit
-// a process can read as its kill point, nor an address-space limit, so the
-// heap's only bound is the address space.
+// free, what the kernel's signal frame takes, and where the C library put a
+// thread's guard. Darwin enforces no limit a process can read as its kill
+// point, nor an address-space limit, so the heap's only bound is the address
+// space.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 
 #include <mach/vm_param.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -57,5 +59,21 @@ size_t physicalMemory() noexcept {
 
 // The SDK's minimum, which Darwin's signal frame fits.
 size_t signalStackMinimum() noexcept { return MINSIGSTKSZ; }
+
+// Darwin gives a thread's stack top and size, and puts its guard just below
+// the stack, as large as the attributes' default, which a thread made with
+// no guard of its own (as LLVM's are) has.
+Guard libraryGuard() noexcept {
+  pthread_t self = pthread_self();
+  uintptr_t bottom = reinterpret_cast<uintptr_t>(pthread_get_stackaddr_np(self)) -
+                     pthread_get_stacksize_np(self);
+  pthread_attr_t defaults;
+  size_t guard = 0;
+  if (pthread_attr_init(&defaults) == 0) {
+    pthread_attr_getguardsize(&defaults, &guard);
+    pthread_attr_destroy(&defaults);
+  }
+  return {bottom - guard, bottom};
+}
 
 } // namespace rt::platform

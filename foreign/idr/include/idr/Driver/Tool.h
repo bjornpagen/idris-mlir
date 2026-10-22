@@ -21,8 +21,9 @@
 // The target entry's description: the program CPU's features.
 #include "idr/TargetEntry.h"
 
-// The runtime's C ABI: the runner, the stack it gives its thread and the
-// out-of-memory ending; and the target entry's list of processor features.
+// The runtime's C ABI: the runner, the stack it gives its thread, what each
+// other thread runs as it starts and the out-of-memory ending; and the
+// target entry's list of processor features.
 #include "cpu_features.h"
 #include "idris_rt.h"
 
@@ -87,10 +88,14 @@ static_assert(IDRIS_MLIR_TOOL_STACK_BYTES <= std::numeric_limits<unsigned>::max(
 // A pool's strategy as a tool gives it: `strategy`, each worker on as large
 // a stack as the runner gave the tool's own thread, so a pass or a bin's
 // code generation on a worker has the main thread's depth and no thread of
-// the tool runs on the host's default. Asked inside runTool's body, once
-// the runner has sized that stack.
+// the tool runs on the host's default; and each worker, as it starts, given
+// a signal stack as large as the main thread's, with its stack's guard
+// known to the runtime's fault handler, so reaching it is the tool's
+// internal error, as on the main thread. Asked inside runTool's body, once
+// the runner has sized those stacks.
 inline llvm::ThreadPoolStrategy onToolStack(llvm::ThreadPoolStrategy strategy) {
   strategy.StackSizeInBytes = static_cast<unsigned>(idris_rt_thread_stack_bytes());
+  strategy.OnThreadStart = idris_rt_start_thread;
   return strategy;
 }
 

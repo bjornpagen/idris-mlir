@@ -17,6 +17,13 @@ struct Thread {
   void *arg;
 };
 
+// The slot each thread's guard is kept in, and what takes one still kept
+// when its thread ends.
+pthread_key_t guardSlot;
+void (*guardEnd)(rt::platform::Guard *) = nullptr;
+
+void endGuard(void *guard) { guardEnd(static_cast<rt::platform::Guard *>(guard)); }
+
 void *startThread(void *argument) {
   auto &thread = *static_cast<Thread *>(argument);
   thread.fn(thread.arg);
@@ -47,6 +54,25 @@ void useSignalStack(char *p, size_t n) noexcept {
   alternate.ss_size = n;
   sigaltstack(&alternate, nullptr);
 }
+
+void dropSignalStack() noexcept {
+  stack_t none{};
+  none.ss_flags = SS_DISABLE;
+  sigaltstack(&none, nullptr);
+}
+
+// A thread's own slot, which the fault handler reads on the faulting thread
+// without allocating: a thread that never kept a guard reads null.
+bool guardsEnd(void (*atEnd)(Guard *guard)) noexcept {
+  if (guardEnd == nullptr && pthread_key_create(&guardSlot, endGuard) != 0)
+    return false;
+  guardEnd = atEnd;
+  return true;
+}
+
+void keepGuard(Guard *guard) noexcept { pthread_setspecific(guardSlot, guard); }
+
+Guard *keptGuard() noexcept { return static_cast<Guard *>(pthread_getspecific(guardSlot)); }
 
 // POSIX's least stack a thread may be given, which the C library sizes by
 // what it keeps at the stack's top: its thread's descriptor and the static

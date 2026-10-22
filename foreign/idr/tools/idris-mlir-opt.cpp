@@ -33,6 +33,8 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/Threading.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -147,6 +149,11 @@ int optMain(int argc, char **argv) {
       pm.addPass(std::make_unique<Finish>(checking, staging));
     return mlir::success();
   });
+  // The pool every context MlirOptMain makes shares, every CPU, each worker
+  // on the tools' stack as this thread is; declared before MlirOptMain runs,
+  // so it outlives it. --mlir-disable-threading still disables threading.
+  llvm::StdThreadPool pool(idr::driver::onToolStack(llvm::hardware_concurrency()));
+  config.setThreadPool(&pool);
   // MlirOptMain answers these before it reads any input, which then need not
   // exist.
   if (config.shouldShowDialects() || config.shouldListPasses())
