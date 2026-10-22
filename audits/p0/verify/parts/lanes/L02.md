@@ -26,7 +26,7 @@ inliner's effect queries, `InliningUtils.cpp`.
 `idr.call`), never in a value type; one derivation from the ops, held to
 it by the verifier per function; a call carries its callee's row. Seams
 fixed here: `idr.call`'s verifier calls `idr::tail::verify(CallOp)`,
-declared in `include/idr/IR/Tail.h` by L10; the inliner's call
+declared in `include/idr/IR/Tail.h` by L10, and `idr.func`'s region verifier calls `idr::tail::verify(FuncOp)` (one walk of the tail spine, C20); the inliner's call
 conversion creates L05's `idr.lifetime.forget` for a `view` parameter.
 
 **End state:** `Spec.Functions` declares `idr.func` and `idr.call`: the
