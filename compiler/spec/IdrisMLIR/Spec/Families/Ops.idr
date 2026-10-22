@@ -169,7 +169,8 @@ fieldOp = MkOp
   }
 
 ||| `idr.data.tag`: the constructor of a data value, in [0, n-1] for its n
-||| declared constructors; it folds where the type leaves one possible.
+||| declared constructors, an `i64` its result's rule fixes, so no builder
+||| states it; it folds where the type leaves one possible.
 export
 tagOp : Op 1 1 0 0
 tagOp = MkOp
@@ -194,6 +195,7 @@ tagOp = MkOp
   , specializations = []
   , laws = []
   , doc = brief "the constructor tag of a data value"
+  , typing = InferredTypes [FixedType BuiltI64]
   }
 
 ||| `idr.data.reindex`: the same value at a type equal to its own under the
