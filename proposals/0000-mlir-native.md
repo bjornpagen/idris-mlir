@@ -2127,6 +2127,26 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   k t` beside the key, and `ArgumentFrom` is whole. A request's kinds
   are a `Vect` of its callee's applied arity, so a request keying an
   instance by more arguments than it has parameters is unrepresentable.
+- **C250** (2026-10-22; recheck 3's sweep and the §6 check, under C39
+  and C107). A boxed element's take is counting's, as every take is:
+  where an array's element is boxed (`layout::element(type).boxed`, the
+  one decision, from the element's type and the target's sizes, which
+  counting asks as the lowering does), counting expands the element's
+  take into `idr.match_unique`, folded by grade (`unique deep` to the
+  unique region, a scoped value to the shared one) and lowered to
+  `scf.if` on "count is 1" only where it stays unfolded, as C39 has it.
+  `Elements.cpp`'s own test in `takeOut` and its shared path (increment,
+  decrement, a new box) go, as C107 deletes them; a known claim pays no
+  test at run time, and an unknown one pays it once, in the one form.
+- **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
+  reference" counts code, tests' expected behaviour, generated files and
+  current documentation. It does not count history kept on purpose:
+  AGENTS.md's "Never:" lines, which name what the tree once did; dated
+  records under `bench/records/`; a test's planted witness, an input
+  holding the forbidden form so the check that refuses it is seen to
+  refuse it; and a document's account of a deletion as done. A stale
+  sentence that describes a deleted thing as present is a remaining
+  reference and goes.
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
