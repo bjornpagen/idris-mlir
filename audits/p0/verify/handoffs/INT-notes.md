@@ -115,3 +115,10 @@ handoff lists its own wiring.
 - **Regenerate** after L04's `ClosureReach`, `numeralBound`,
   `layoutMatch` and `isFree`, L13's `folding`, laws and `ShownOutput`,
   and L09's widened `lit.match`.
+
+- **The arena's decode cost (L17, 2026-10-22).** Measure calls to the
+  fork's `typeOf` per definition and the time spent decoding stored
+  definitions, from the frontend's `--timing` on the self-compile at
+  stage 0 and stage 3. About twelve frontend sites read a definition's
+  type. Add no cache unless the stage-3 number shows it pays: a `Lazy`
+  in `Root` memoizes under idris-mlir but not on Chez's default laziness.
