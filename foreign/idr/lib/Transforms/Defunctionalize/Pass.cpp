@@ -1,44 +1,36 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-defunctionalize: every closure and suspension becomes a constructor of
-// a sum, every apply a match over its callee's sum, every force a call of
-// its memo sum's dispatch function.
+// idr-defunctionalize, on the program as the frontend wrote it: no
+// optimization runs before it, so the label solve reads the program's own
+// flow, and the families it decides are the ones idr-knots then judges.
 //
-// The solve finds every slot's labels, with no unknown: every key becomes a
-// sum, so the pass refuses nothing, and fails only when the compiler broke
-// its own invariant. The labels whose runs the outside observes are found
-// next, over the calls and the labels each apply and force runs, so that
-// each memo sum is made once with its `by_name` labels; a label a static
-// suspension names is never one. The decision is
-// made whole, every sum and every dispatch function with it, then each
-// function the program had converts on its own, in parallel, reading the
-// decision and a plan of its own values: under its target no closure,
-// suspension, apply, force or evaluated suspension is legal, nor any value,
-// signature or constant of a closure or a suspension until it has its
-// slot's type. Folding is off in the driver: a closure or a suspension
-// folded into a constant there would be a value the decision never saw.
-// Then the types that hold a slot are made anew, every type is final, and
-// the boxes are decided: the program is first-order.
+// The solve finds every slot's labels, with no unknown, so every key
+// becomes a family: the pass refuses nothing, a run-time choice among the
+// implementations the program fixes included, which is a closed sum like
+// any other, and it fails only when the compiler broke its own invariant.
+// Before the families are declared, the labels whose runs read or write the
+// outside are found: a label's own ops, its calls and the labels its
+// applies and forces run, followed backwards from every function whose own
+// ops touch the outside. Such a label runs by name in its memo family:
+// memoizing it would run its effect at the first demand only. A crash, an
+// exit or a loop happens once whoever demands it, so only the outside
+// decides.
+//
+// Then the decision is made whole, serially, and each function rewritten
+// on its own, in parallel, reading it. The program is first-order after it:
+// its program graph is built on its calls, and every row derived over it.
 
-#include "idr/IR/IdrDialect.h"
 #include "idr/Analysis/Effects.h"
 #include "idr/Analysis/Labels.h"
-#include "idr/IR/Layout.h"
-#include "idr/IR/TypeGraph.h"
+#include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Defunctionalize.h"
+#include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Pipeline.h"
 
-#include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Threading.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/DialectConversion.h"
-
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
-
-#include <algorithm>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRDEFUNCTIONALIZE
@@ -49,113 +41,86 @@ using namespace mlir;
 
 namespace {
 
-using idr::defunctionalize::Plan;
-using idr::defunctionalize::SlotTypeConverter;
-using idr::defunctionalize::Slots;
+// A function's own atoms, its calls and its runs of labels read apart: the
+// by-name question joins them over the program's runs itself.
+struct OwnOps {
+  void call(idr::CallOp, idr::rows::Fold &, idr::rows::Runs) {}
+  idr::rows::Read other(Operation *op, idr::rows::Fold &, idr::rows::Runs) {
+    return isa<idr::RunsLabelsOpInterface>(op) ? idr::rows::Read::ByReader
+                                                : idr::rows::Read::ByDeclaration;
+  }
+  void after(Operation *, idr::rows::Fold &) {}
+};
 
-// What has its slot's type, and owes no move into another slot. The
-// callbacks outlive this call, so they hold the converter by address.
-void addTarget(ConversionTarget &target, const SlotTypeConverter &types) {
-  const SlotTypeConverter *converter = &types;
-  const Slots *slots = &types.slots();
-  // A closure or a suspension is a constructor of its key's sum, an apply a
-  // match, a force a call, and an evaluated suspension its memo sum's
-  // Forced state.
-  target.addIllegalOp<idr::ClosureOp, idr::SuspendOp, idr::ApplyOp, idr::ForceOp,
-                      idr::DelayOp>();
-  target.addDynamicallyLegalOp<idr::FuncOp>([=](idr::FuncOp fn) {
-    return fn.getFunctionType() == slots->signature(fn.getSymNameAttr()).converted &&
-           llvm::all_of(fn.getArguments(), [&](Value arg) { return converter->legal(arg); });
+// The functions whose runs reach the outside: each function whose own ops
+// read or write it, and every function that calls one or runs one as a
+// label, followed backwards. A marking, so its state is a bit per function
+// and it ends when no function is newly marked.
+llvm::DenseSet<StringAttr> observedRuns(idr::ProgramOp program, const idr::Labels &labels) {
+  SmallVector<idr::FuncOp> fns(program.getOps<idr::FuncOp>());
+  llvm::DenseMap<StringAttr, unsigned> position;
+  for (auto [at, fn] : llvm::enumerate(fns))
+    position.try_emplace(fn.getSymNameAttr(), static_cast<unsigned>(at));
+  // Each function's own reach of the outside, and what it runs, each read
+  // on a worker into its own slot.
+  SmallVector<std::uint8_t> outside(fns.size(), 0);
+  SmallVector<SmallVector<unsigned>> runs(fns.size());
+  parallelFor(program.getContext(), 0, fns.size(), [&](size_t at) {
+    OwnOps reader;
+    outside[at] = idr::rows::derive(fns[at], reader).atoms.contains(idr::effects::Atom::io);
+    fns[at].walk([&](Operation *op) {
+      if (auto call = dyn_cast<idr::CallOp>(op))
+        runs[at].push_back(position.find(call.getCalleeAttr().getAttr())->second);
+      else if (auto runner = dyn_cast<idr::RunsLabelsOpInterface>(op))
+        for (auto label : labels.runs(runner).getAsRange<FlatSymbolRefAttr>())
+          runs[at].push_back(position.find(label.getAttr())->second);
+    });
   });
-  // A constant is converted once its value holds no closure, which is what
-  // the decision makes of one; what it made is the pattern's to write. The
-  // constant's address is no key here: a function's conversion erases what
-  // it replaced, and a constant another makes after may take that address.
-  target.addDynamicallyLegalOp<idr::ConstantOp>([=](idr::ConstantOp constant) {
-    bool holdsClosure =
-        constant.getValue()
-            .walk([](idr::ClosureAttr) { return WalkResult::interrupt(); })
-            .wasInterrupted();
-    return converter->legal(constant.getResult()) && !holdsClosure;
-  });
-  target.markUnknownOpDynamicallyLegal([=](Operation *op) { return converter->legal(op); });
-}
-
-// One function, from its own plan. With rollback, erasures wait for the end,
-// so the values and operands the plan is indexed by stay distinct for the
-// whole run.
-LogicalResult convert(idr::FuncOp fn, const Slots &slots) {
-  MLIRContext *ctx = fn.getContext();
-  Plan plan = slots.plan(fn);
-  SlotTypeConverter converter(slots, plan);
-  ConversionTarget target(*ctx);
-  addTarget(target, converter);
-  RewritePatternSet patterns(ctx);
-  idr::defunctionalize::populateDefunctionalizePatterns(patterns, converter);
-  idr::defunctionalize::populateCallOpTypeConversionPattern(patterns, converter);
-  idr::defunctionalize::populateReturnOpTypeConversionPattern(patterns, converter);
-  ConversionConfig config;
-  config.allowPatternRollback = true;
-  config.foldingMode = DialectConversionFoldingMode::Never;
-  if (succeeded(applyFullConversion(fn.getOperation(), target, std::move(patterns), config)))
-    return success();
-  return fn.emitError("internal error: idr-defunctionalize: the conversion left an op the "
-                      "target does not accept");
+  SmallVector<SmallVector<unsigned>> callers(fns.size());
+  for (auto [at, out] : llvm::enumerate(runs))
+    for (unsigned callee : out)
+      callers[callee].push_back(static_cast<unsigned>(at));
+  SmallVector<unsigned> work;
+  for (auto [at, reaches] : llvm::enumerate(outside))
+    if (reaches)
+      work.push_back(static_cast<unsigned>(at));
+  while (!work.empty()) {
+    unsigned at = work.pop_back_val();
+    for (unsigned caller : callers[at])
+      if (!outside[caller]) {
+        outside[caller] = 1;
+        work.push_back(caller);
+      }
+  }
+  llvm::DenseSet<StringAttr> observed;
+  for (auto [fn, reaches] : llvm::zip_equal(fns, outside))
+    if (reaches)
+      observed.insert(fn.getSymNameAttr());
+  return observed;
 }
 
 struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
   void runOnProgram(idr::ProgramOp program) override {
-    SymbolTable &symbols = getAnalysis<SymbolTable>();
-    idr::Labels &labels = getAnalysis<idr::Labels>();
-    llvm::DenseSet<idr::FuncOp> observed = idr::observableRuns(
-        program, symbols,
-        [&](idr::RunsLabelsOpInterface runner, SmallVectorImpl<idr::FuncOp> &run) {
-          for (auto label : labels.runs(runner).getAsRange<FlatSymbolRefAttr>())
-            run.push_back(labels.function(label.getAttr()));
-        });
-    // A label a static suspension names keeps its memo, effect or not: a
-    // constant names one value, evaluated once, and its effect is observed
-    // that once. A static suspension is a closure constant that captures
-    // every parameter of its label.
-    llvm::DenseSet<idr::FuncOp> statics;
-    program.walk([&](idr::ConstantOp constant) {
-      constant.getValue().walk([&](idr::ClosureAttr closure) {
-        auto label = symbols.lookup<idr::FuncOp>(closure.getCallee().getAttr());
-        if (label && closure.getCaptures().size() == label.getNumArguments())
-          statics.insert(label);
-      });
-    });
+    const idr::Labels &labels = getAnalysis<idr::Labels>();
+    llvm::DenseSet<StringAttr> byName = observedRuns(program, labels);
     // The functions the program had: the decision adds a dispatch function
-    // for each memo sum, made converted.
+    // per memo family, born rewritten.
     SmallVector<idr::FuncOp> functions(program.getOps<idr::FuncOp>());
-    FailureOr<std::unique_ptr<Slots>> slots =
-        Slots::decide(program, labels, symbols, [&](idr::FuncOp label) {
-          return observed.contains(label) && !statics.contains(label);
-        });
-    if (failed(slots))
+    FailureOr<std::unique_ptr<idr::defunctionalize::Decision>> decision =
+        idr::defunctionalize::Decision::decide(program, labels, byName);
+    if (failed(decision))
       return signalPassFailure();
-    const Slots &decision = **slots;
+    const idr::defunctionalize::Decision &decided = **decision;
     if (failed(failableParallelForEach(&getContext(), functions, [&](idr::FuncOp fn) {
-          return convert(fn, decision);
+          return idr::defunctionalize::rewrite(fn, decided);
         })))
       return signalPassFailure();
-    if (failed((*slots)->remake()))
-      return signalPassFailure();
-    FailureOr<unsigned> boxed = idr::layout::fit(program);
-    if (failed(boxed))
-      return signalPassFailure();
-    numBoxed += *boxed;
-    numSums += decision.numSums();
-    numConstructors += decision.numConstructors();
-    // The type graph of the final types, built here: one cached from before
-    // this pass would hold the types it replaced.
-    idr::TypeGraph graph(program);
-    unsigned largest = 0;
-    for (idr::DataType data : graph.declarations())
-      if (data.isClosures() && graph.boxed(data))
-        largest = std::max(largest, static_cast<unsigned>(data.getCtors().size()));
-    if (largest > largestBoxedSum)
-      largestBoxedSum = largest;
+    numFamilies += decided.numFamilies();
+    // The program is first-order: its graph sees every call, and every
+    // function's row and every call's are derived over it.
+    const auto &graph = getAnalysis<idr::solver::ProgramGraph>();
+    idr::rows::write(program, graph);
+    markAnalysesPreserved<idr::solver::ProgramGraph>();
   }
 };
 

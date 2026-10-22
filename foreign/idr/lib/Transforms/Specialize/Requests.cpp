@@ -1,75 +1,28 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What a call is granted when it requests its key from the nodes of one
-// run of idr-optimize, and the redirect step that makes the requests.
+// idr-redirect: the step of idr-optimize's inner pipeline that requests,
+// for each call of a function, the copy its key names, and calls it.
 //
-// A call's key is requested by the function that holds it, in its walk
-// order; the first request of a key makes its node, named from the key's
-// canonical hash, so every requester calls the same node, and calls it at
-// once: the name is known before the node is built.
-//
-// A spec request is judged against the spec keys of its owner the function
-// was given before, its own calls' and those of the code inlined into it
-// alike, and, for a key whose node is not yet in the program, those of its
-// owner on the function's request chain: its own key, and the chains of
-// the nodes whose requests made it, back to functions the program held, so
-// that a node's own recursion keeps one key. Keys compare only within one
-// owner, so they are kept by owner. A key that grows an earlier one
-// (Order: the earlier with more structure) is refused, and its call stays
-// a call. A key of an earlier one's shape that differs from it is lifted
-// (lift): each scalar where the two differ becomes a hole, a parameter of
-// the node whose operand the call passes, and the lifted key is judged
-// again; a lift that leaves no structure is refused. So `loop (Just n) =
-// loop (Just (n - 1))`, from `Just 1000000`, is given loop[Just 1000000]
-// and then loop[Just _], which every later call of it reaches; a float or a
-// string that steps is lifted the same way.
-//
-// This ends. Two keys of one shape that differ differ in a scalar, so each
-// lift turns at least one scalar of the key into a hole, and a request
-// lifts finitely often. The keys one function is given are then of
-// pairwise distinct shapes, and none grows one given before it. What a
-// key embeds in is a function of its shape, the shapes of one owner that
-// embed both ways in one another are finitely many (finitely many tags,
-// kinds and holes fill a shape of one size), and the embedding is a
-// well-quasi-order (Kruskal's theorem, Dickson's lemma for its flat case).
-// So an infinite sequence of distinct shapes would hold an earlier one
-// embedded in a later one that does not embed back, which the table
-// refuses: a function is given finitely many nodes, and a request chain,
-// judged the same way, is finite. A raise request is not judged: a raise
-// key grows nothing and is never lifted, and the raise keys are finitely
-// many by their forms (Order).
-//
-// A call of a member of the requester's own component is requested only
-// where it applies closures built for it (appliesBuiltClosures): every
-// closure or suspension it passes is a constructor the requester built for
-// this call alone. Its key fixes those, so its node takes their parts as
-// parameters and the closures are never built: the beta step of a
-// recursion whose rounds hand each other fresh closures, as a bind's run
-// hands the next statement its continuation. Its owner is not final, and
-// the node is built from the owner as the component's turn, the one that
-// asks, has left it; the table judges the key as every other, so a round
-// that builds the same closures calls the same node, and one that builds
-// them around the last round's is refused.
-//
-// Which requests made a node must not depend on which worker came first:
-// a node's parents are the requesters whose requests of its key were
-// followed in the wave that made it, each checked against its own chain,
-// all of them finished before the ready set places the node and the node
-// requests anything itself. A request of a key whose node is already in
-// the program, judged against the requester's own keys alone, makes
-// nothing, and calls it.
+// It runs first in each round of a member, so that a combinator called on
+// known closures is a call of its copy for those closures before the
+// e-graph sees the member: the laws of a combinator tower are known-case
+// folds inside the copy, which a simplification of the caller alone could
+// never reach. A call's callee is read only once it is final, or where it
+// is of the member's own component and the call applies closures built for
+// it alone (the beta step of a recursion), as the member's turn left it.
+
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Worklist.h"
+#include "idr/Transforms/Optimize.h"
 #include "idr/Transforms/Specialize.h"
-#include "idr/Transforms/SpecializeState.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <cassert>
-#include <mutex>
-#include <optional>
+namespace idr {
+#define GEN_PASS_DEF_IDRREDIRECT
+#include "idr/Transforms/InnerPasses.h.inc"
+} // namespace idr
 
 using namespace mlir;
 
@@ -85,240 +38,164 @@ struct Erased : RewriterBase::Listener {
   llvm::DenseSet<Operation *> ops;
 };
 
-// The spec keys of `owner` on the request chain of `from`: its own, and
-// those on the chain of each node whose request made it. Each node of the
-// chain is read once.
-SmallVector<SpecKeyAttr> chainOf(const Node *from, StringAttr owner) {
-  SmallVector<SpecKeyAttr> keys;
-  OnceWorklist<const Node *> chain;
-  if (from)
-    chain.push(from);
-  while (std::optional<const Node *> at = chain.pop()) {
-    if (const auto *spec = std::get_if<SpecKeyAttr>(&(*at)->key);
-        spec && spec->getOrigin() == owner)
-      keys.push_back(*spec);
-    for (const Node *parent : (*at)->parents)
-      chain.push(parent);
+// The binding times of a callee's parameters as a call in `requester`
+// sees them: within the recursion of the component both stand for, the
+// callee's own; entering that component from outside, each is fixed.
+SmallVector<BindingTime> seenBy(const optimize::Schedule &schedule, FunctionId requester,
+                                FunctionId callee, const optimize::Readable &read) {
+  if (schedule.sameComponent(schedule.originOf(requester), schedule.originOf(callee)))
+    return SmallVector<BindingTime>(read.times);
+  return SmallVector<BindingTime>(read.fn.getNumArguments(), BindingTime::Fixed);
+}
+
+// The type of the copy a grant names, known from the key before the copy
+// is built: a pattern copy takes its key's holes and returns its owner's
+// results; a signature copy has its key's signature; a raise copy takes
+// the call's operands and the consumer's free values and returns what the
+// consumer does.
+FunctionType typeOf(const Nodes::Grant &grant, FuncOp owner, const Want &want) {
+  return idr::match(
+      want,
+      [&](const PatternWant &) {
+        SmallVector<Type> holes;
+        for (auto [pattern, type] : llvm::zip_equal(grant.key->params, owner.getArgumentTypes()))
+          holeTypes(*pattern, type, holes);
+        return FunctionType::get(owner.getContext(), holes, owner.getResultTypes());
+      },
+      [](const SignatureWant &copy) { return copy.key->signature; },
+      [&](const RaiseWant &raise) {
+        return FunctionType::get(owner.getContext(), ValueRange(raise.operands).getTypes(),
+                                 raise.consumer.dispatch->getResultTypes());
+      });
+}
+
+// The index arguments a call of a signature copy passes: the call's own at
+// each binder the copy keeps, where the copy's classes name a variable,
+// none where a class is fixed.
+IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr classes) {
+  if (!call)
+    return call;
+  SmallVector<families::TermNode> kept;
+  ArrayRef<families::TermNode> mine = call.getTerms(), theirs = classes.getTerms();
+  while (!mine.empty()) {
+    families::Term own(mine), fixed(theirs);
+    if (fixed.head().kind == families::TermKind::Level)
+      llvm::append_range(kept, own.nodes());
+    mine = mine.drop_front(own.nodes().size());
+    theirs = theirs.drop_front(fixed.nodes().size());
   }
-  return keys;
+  return IndexArgsAttr::get(ctx, kept);
 }
 
-// The function the program held that `fn` stands for: itself, or for a
-// node the origin it was made with.
-StringAttr originOf(const Nodes::State &s, StringAttr fn) {
-  const Node *node = s.byName.lookup(fn);
-  return node ? node->origin : fn;
-}
-
-// Whether the node of `key` is in the program: a call of it makes nothing,
-// so no chain judges it. Under the lock.
-bool placed(const Nodes::State &s, Attribute key) {
-  auto found = s.byKey.find(key);
-  return found != s.byKey.end() && std::holds_alternative<Placed>(found->second->state);
-}
-
-// The kind a node's name says, by its key.
-StringRef kindOf(const Key &key) {
-  return std::visit(llvm::makeVisitor([](SpecKeyAttr) { return StringRef("spec"); },
-                                      [](RaiseKey) { return StringRef("raise"); }),
-                    key);
-}
-
-// The node of `key`, made if new, given to `requester`, which is `mine`
-// when it is a node. A node not in the program yet takes the requester as
-// a parent. A name another key holds is an internal error at `at`. A name
-// is its key's content, so a function the program held under it when the
-// run began is the node of the same key an earlier run made, already
-// placed: the request calls it. Under the lock.
-FailureOr<Node *> grant(Nodes::State &s, idr::FuncOp requester, const Node *mine, const Key &key,
-                        Operation *at) {
-  Attribute attr = attributeOf(key);
-  auto found = s.byKey.find(attr);
-  if (found == s.byKey.end()) {
-    StringAttr owner = ownerOf(key);
-    FailureOr<StringAttr> name =
-        s.names.intern(at->getLoc(), owner.getValue(), kindOf(key), canonicalHash(attr));
-    if (failed(name))
-      return failure();
-    auto made = std::make_unique<Node>();
-    made->key = key;
-    made->origin = originOf(s, owner);
-    made->name = FlatSymbolRefAttr::get(*name);
-    if (optimize::Node *earlier = s.schedule.held(*name))
-      made->state = Placed{earlier};
-    s.byName[*name] = made.get();
-    found = s.byKey.insert({attr, std::move(made)}).first;
-  }
-  Node &node = *found->second;
-  if (!std::holds_alternative<Placed>(node.state) && mine &&
-      !llvm::is_contained(node.parents, mine))
-    node.parents.push_back(mine);
-  s.requesters[requester.getOperation()].give(node, &node == mine);
-  return &node;
-}
-
-// What a spec request is granted: the node it calls, its key (the one asked
-// for, or lifted against an earlier one of its shape), and for each hole of
-// that key where the call's operand comes from.
-struct SpecGrant {
-  FlatSymbolRefAttr name;
-  SpecKeyAttr key;
-  SmallVector<Source> sources;
-};
-
-// The node `requester` is granted for `want`'s key, made if new; none when
-// the key, as asked or lifted, grows an earlier key of its owner, or a lift
-// leaves no structure, which makes nothing.
-FailureOr<std::optional<SpecGrant>> requestSpec(Nodes::State &s, idr::FuncOp requester,
-                                                const SpecWant &want, Operation *at) {
-  std::lock_guard lock(s.mutex);
-  Requester &asking = s.requesters[requester.getOperation()];
-  const Node *mine = s.byName.lookup(requester.getSymNameAttr());
-  SpecKeyAttr key = want.key;
-  StringAttr owner = key.getOrigin();
-  SmallVector<Source> sources;
-  for (unsigned hole = 0; hole < want.leaves.size(); ++hole)
-    sources.push_back(Kept{hole});
-  // The keys the request is compared with: the owner's earlier ones, and
-  // its chain's when the key is new.
-  auto earlierOf = [&] {
-    SmallVector<SpecKeyAttr> earlier(asking.keysOf(owner));
-    if (!placed(s, key))
-      llvm::append_range(earlier, chainOf(mine, owner));
-    return earlier;
-  };
-  SmallVector<SpecKeyAttr> earlier = earlierOf();
-  auto grows = [&] {
-    return llvm::any_of(earlier, [&](SpecKeyAttr e) { return s.order.grows(e, key); });
-  };
-  auto differing = [&]() -> std::optional<SpecKeyAttr> {
-    auto differs =
-        llvm::find_if(earlier, [&](SpecKeyAttr e) { return e != key && sameShape(e, key); });
-    if (differs == earlier.end())
-      return std::nullopt;
-    return *differs;
-  };
-  if (grows())
-    return std::optional<SpecGrant>();
-  // Each lift turns a scalar of the key into a hole, so the lifts end.
-  for (std::optional<SpecKeyAttr> differs = differing(); differs; differs = differing()) {
-    SmallVector<Source> lifted;
-    key = lift(*differs, key, lifted);
-    sources = llvm::map_to_vector(lifted, [&](const Source &source) {
-      return std::visit(llvm::makeVisitor([&](Kept kept) { return sources[kept.hole]; },
-                                          [](const Lifted &l) { return Source(l); }),
-                        source);
-    });
-    if (llvm::none_of(key.getPatterns(), hasStructure))
-      return std::optional<SpecGrant>();
-    earlier = earlierOf();
-    if (grows())
-      return std::optional<SpecGrant>();
-  }
-  FailureOr<Node *> node = grant(s, requester, mine, key, at);
-  if (failed(node))
-    return failure();
-  (*node)->sharedClosure |= sharesClosure(cast<idr::CallOp>(at));
-  return std::optional<SpecGrant>(SpecGrant{(*node)->name, key, std::move(sources)});
-}
-
-// The node `requester` is granted for `want`'s key, made if new.
-FailureOr<FlatSymbolRefAttr> requestRaise(Nodes::State &s, idr::FuncOp requester,
-                                          const RaiseWant &want, Operation *at) {
-  std::lock_guard lock(s.mutex);
-  FailureOr<Node *> node =
-      grant(s, requester, s.byName.lookup(requester.getSymNameAttr()), want.key, at);
-  if (failed(node))
-    return failure();
-  return (*node)->name;
-}
-
-// The binding times of `callee`'s parameters as a call in `requester` sees
-// them: within the recursion of the component both stand for, the callee's
-// own; entering that component from outside, the callee is on no cycle the
-// call is on, and each is fixed.
-SmallVector<BindingTime> seenBy(Nodes::State &s, idr::FuncOp requester, StringAttr name,
-                                const KnownCallee &callee) {
-  StringAttr from, to;
-  {
-    std::lock_guard lock(s.mutex);
-    from = originOf(s, requester.getSymNameAttr());
-    to = originOf(s, name);
-  }
-  if (s.schedule.sameComponent(from, to))
-    return SmallVector<BindingTime>(callee.times);
-  idr::FuncOp fn = callee.fn;
-  return SmallVector<BindingTime>(fn.getNumArguments(), BindingTime::Fixed);
-}
-
-} // namespace
-
-FailureOr<unsigned> Nodes::redirectCalls(idr::FuncOp fn) const {
-  State &s = *state;
-  const Node *requester = find(fn.getSymNameAttr());
-  SmallVector<idr::CallOp> calls;
-  fn.walk<WalkOrder::PreOrder>([&](idr::CallOp call) { calls.push_back(call); });
+// Each call of `fn` in walk order: its want decided, its key requested,
+// and the call made a call of the granted copy. How many calls it
+// redirected; a failure is an internal error, emitted.
+FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes &nodes) {
+  FunctionId self = schedule.idOf(fn);
+  Requester &asking = schedule.requesterOf(self);
+  const Node *requester = nodes.find(self);
+  SmallVector<CallOp> calls;
+  fn.walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
   Erased erased;
   IRRewriter rewriter(fn.getContext(), &erased);
   unsigned redirected = 0;
-  for (idr::CallOp call : calls) {
+  for (CallOp call : calls) {
     if (erased.ops.contains(call.getOperation()))
       continue;
-    StringAttr name = call.getCalleeAttr().getAttr();
-    // A callee not final is of the function's own component, or one it
-    // waits on: nothing is read of it, but where the call applies closures
-    // built for it alone to a member of the component, which is the beta
-    // step of the recursion: the node of the closures it applies, the
-    // closures' parts its parameters, takes the call's place, and their
-    // cells are never built. Its key fixes those closures alone, judged as
-    // every key is, so a recursion that builds the same closures again
-    // calls the same node, and one that builds them deeper is refused.
+    // A call of a copy made in this wave names no function of the schedule
+    // until the wave ends: it is pending, and nothing is read of it.
+    std::optional<FunctionId> callee = schedule.find(call.getCalleeAttr());
+    if (!callee)
+      continue;
     FailureOr<std::optional<Want>> want = std::optional<Want>();
-    if (std::optional<KnownCallee> callee = s.schedule.finalCallee(name))
-      want = decide(call, requester, callee->fn, find(name), seenBy(s, fn, name, *callee), s.forms);
-    else if (s.schedule.knownCallee(fn.getSymNameAttr(), name))
-      if (std::optional<SmallVector<BindingTime>> times = appliesBuiltClosures(call))
-        want = decideApplied(call, find(name), *times);
+    if (std::optional<optimize::Readable> known = schedule.final(*callee)) {
+      want = decide(nodes.arena(), nodes.forms(), call, requester, known->fn, *callee,
+                    nodes.find(*callee), seenBy(schedule, self, *callee, *known));
+    } else if (schedule.sameComponent(self, *callee)) {
+      // The beta step: closures built for this call alone, applied to a
+      // member of the component, keyed by those closures, so their cells
+      // are never built.
+      if (std::optional<SmallVector<BindingTime>> times = appliesBuiltClosures(call)) {
+        const Node *node = nodes.find(*callee);
+        const PatternKey *own = nullptr;
+        FunctionId owner = *callee;
+        if (node)
+          idr::match(
+              node->key,
+              [&](const PatternKey *key) {
+                own = key;
+                owner = key->owner;
+              },
+              [](const auto *) {});
+        if (std::optional<PatternWant> composed =
+                composeKey(nodes.arena(), call, owner, own, *times))
+          want = std::optional<Want>(std::move(*composed));
+      }
+    }
     if (failed(want))
       return failure();
     if (!*want)
       continue;
-    // The kind decides what is asked, what the call becomes and the action
-    // that names it.
-    LogicalResult done = std::visit(
-        llvm::makeVisitor(
-            [&](const SpecWant &spec) -> LogicalResult {
-              FailureOr<std::optional<SpecGrant>> granted = requestSpec(s, fn, spec, call);
-              if (failed(granted))
-                return failure();
-              // Refused: the call stays a call.
-              if (!*granted)
-                return success();
-              // The key's owner is the callee or the owner of the node it
-              // is: final, or of this function's component.
-              std::optional<KnownCallee> owner =
-                  s.schedule.knownCallee(fn.getSymNameAttr(), (*granted)->key.getOrigin());
-              assert(owner && "a spec key's owner is a function its requester may read");
-              redirected += support::perform<SpecializeCloneAction>(call, [&] {
-                SmallVector<Value> operands = operandsOf(
-                    rewriter, call, spec, (*granted)->key, (*granted)->sources, *owner);
-                redirect(rewriter, call, (*granted)->name, operands);
-              });
-              return success();
-            },
-            [&](const RaiseWant &raise) -> LogicalResult {
-              FailureOr<FlatSymbolRefAttr> node = requestRaise(s, fn, raise, call);
-              if (failed(node))
-                return failure();
-              redirected += support::perform<RaiseAction>(
-                  call, [&] { redirect(rewriter, call, *node, raise); });
-              return success();
-            }),
-        **want);
-    if (failed(done))
+    FailureOr<std::optional<Nodes::Grant>> granted = nodes.request(self, asking, **want, call);
+    if (failed(granted))
       return failure();
+    // Refused: the call stays a call.
+    if (!*granted)
+      continue;
+    const Nodes::Grant &grant = **granted;
+    FunctionId owner = idr::match(
+        grant.node->key, [](const PatternKey *k) { return k->owner; },
+        [](const RaiseKey *k) { return k->callee; }, [](const SignatureKey *k) { return k->owner; });
+    FuncOp ownerFn = schedule.readable(self, owner).fn;
+    FunctionType type = typeOf(grant, ownerFn, **want);
+    FlatSymbolRefAttr target = grant.node->name;
+    redirected += idr::match(
+        **want,
+        [&](const PatternWant &pattern) {
+          return support::perform<SpecializeCloneAction>(call, [&] {
+            SmallVector<Value> operands =
+                operandsOf(rewriter, call, pattern, *grant.key, grant.sources, ownerFn);
+            redirect(rewriter, call, target, type, call.getIndexArgsAttr(), operands);
+          });
+        },
+        [&](const SignatureWant &copy) {
+          return support::perform<SpecializeCloneAction>(call, [&] {
+            SmallVector<Value> operands(call.getArgs());
+            redirect(rewriter, call, target, type,
+                     keptArgs(fn.getContext(), call.getIndexArgsAttr(), copy.key->indices), operands);
+          });
+        },
+        [&](const RaiseWant &raise) {
+          return support::perform<RaiseAction>(call,
+                                               [&] { redirect(rewriter, call, target, type, raise); });
+        });
   }
   return redirected;
+}
+
+struct Redirect : impl::IdrRedirectBase<Redirect> {
+  Redirect(optimize::Schedule &schedule, Nodes &nodes, Pass::Statistic &numRedirected)
+      : schedule(schedule), nodes(nodes), numRedirected(numRedirected) {}
+
+  void runOnOperation() override {
+    FailureOr<unsigned> redirected = redirectCalls(getOperation(), schedule, nodes);
+    if (failed(redirected))
+      return signalPassFailure();
+    numRedirected += *redirected;
+    if (*redirected == 0)
+      markAllAnalysesPreserved();
+  }
+
+  optimize::Schedule &schedule;
+  Nodes &nodes;
+  Pass::Statistic &numRedirected;
+};
+
+} // namespace
+
+std::unique_ptr<Pass> createRedirect(optimize::Schedule &schedule, Nodes &nodes,
+                                     Pass::Statistic &redirected) {
+  return std::make_unique<Redirect>(schedule, nodes, redirected);
 }
 
 } // namespace idr::specialize

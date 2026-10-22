@@ -5,273 +5,183 @@
 // writes its own members alone: every component of a wave is another, so
 // the turns run in parallel and each is a function of what it reads.
 //
-// The members a turn takes up get their binding times and what they give
-// back, solved over them; then each member runs its loop: a round (inline
-// its calls into final callees, then run the inner pipeline), and another
-// round for each batch of nodes the pipeline's redirect step was given,
-// once every node of the batch is final. A batch with a node not final
-// before the wave parks the member until the wave ends, since only then is
-// the node in the program and taken up; resumed, the member runs a round,
-// so a call of a node now final is read with the node's summary.
+// The members a turn takes up get their binding times; then each member
+// runs its loop: a round of its inner pipeline, and another while the round
+// asked for copies, once each copy is final, or inlined a leaf. A batch
+// holding a copy that is not final parks the member until the wave ends,
+// since only then is the copy in the program and taken up.
 //
-// A call says what it may do by its own effects, which upstream's
-// canonicalize and cse read, and which the component's entry is summed
-// from. Each call of a final callee is given the callee's entry when the
-// callee becomes final (Waves.cpp); a call made later, of a node final
-// before it was asked for again, is given it by its own function's turn,
-// before each run of the inner pipeline and before the component's
-// summaries are read. A call of a callee not final keeps every effect.
+// The loop ends by construction: a member is given finitely many copies,
+// each once, so the rounds that ask for one are finitely many, and a round
+// that inlines a leaf grows the member, which the caller cap bounds. A
+// round that only simplified ends the loop: what it exposed and no later
+// round reads leaves the program less optimized, never different.
 //
-// The loop ends because a member is given finitely many nodes: the table
-// judges every request of a function, its own and those of the code
-// inlined into it alike, against the keys it was given before, which
-// bounds them. Each batch takes nodes the member was never given before,
-// so the batches are finitely many, and so are the parks. A redirect to a node given before
-// names no new node, so after the batches one fixed step takes such a call
-// in: one more inline step, then, when it inlined anything, the pipeline
-// once more and the batch it asks for, built and followed no further than
-// a park. A call that step leaves is a call: a spent step only leaves the
-// program less optimized. When every member is done the component's
-// summaries are read off its final bodies; they are published between
-// waves.
+// When every member is done, the component becomes final between waves,
+// where its facts are read off its final bodies: its unread parameters
+// dropped first, then its rows and what each member gives back.
 
 #include "idr/Transforms/OptimizeScheduler.h"
 
 #include "idr/Analysis/BindingTimes.h"
-#include "idr/Analysis/Constants.h"
 #include "idr/Analysis/Identities.h"
-#include "idr/Analysis/Inline.h"
-#include "idr/IR/Func.h"
+#include "idr/IR/Effects.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Profile.h"
+#include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Inline.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
 namespace idr::optimize {
 
-namespace {
-
-SmallVector<FuncOp> functionsOf(ArrayRef<Node *> members) {
-  SmallVector<FuncOp> fns;
-  for (Node *member : members)
-    fns.push_back(member->fn);
-  return fns;
+Scheduler::Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &nodes,
+                     const InnerCounts &counts, AnalysisManager am, Admission &admission)
+    : pass(pass), schedule(schedule), nodes(nodes), counts(counts), am(am), admission(admission),
+      inner(FuncOp::getOperationName()) {
+  buildInnerPipeline(inner, schedule, nodes, counts);
 }
 
-} // namespace
-
-Scheduler::Scheduler(Analyses in, RunPipeline run)
-    : analyses(in), runPipeline(std::move(run)), inner(FuncOp::getOperationName()) {
-  buildInnerPipeline(inner, analyses.inner);
-}
-
-// Each call in `node`'s body of a callee final now carries the callee's
-// entry. The node's turn holds its body.
-void Scheduler::writeCallEffects(const Node &node) const {
-  const ReadySet &set = analyses.set;
-  FuncOp fn = node.fn;
+// A round: each call of a final callee says what its callee may now do,
+// so the e-graph deletes and floats it by the callee's final row; then the
+// pipeline, entered as the member's arena admits.
+LogicalResult Scheduler::round(FunctionId member) {
+  FuncOp fn = schedule.function(member);
   fn.getBody().walk([&](CallOp call) {
-    Callee callee = set.callee(node, call.getCalleeAttr().getAttr());
-    if (const auto *known = std::get_if<Final>(&callee))
-      call.setEffects(known->summary.effects);
+    if (std::optional<FunctionId> callee = schedule.find(call.getCalleeAttr()))
+      if (std::optional<Readable> known = schedule.final(*callee))
+        call.setRow(known->fn.getRow());
   });
-}
-
-LogicalResult Scheduler::runInner(Node *node) {
-  writeCallEffects(*node);
   OpPassManager *pm = nullptr;
   {
-    std::lock_guard<std::mutex> lock(pipelinesMutex);
+    std::lock_guard lock(pipelinesMutex);
     if (idle.empty()) {
       pipelines.push_back(std::make_unique<OpPassManager>(inner));
       idle.push_back(pipelines.back().get());
     }
     pm = idle.pop_back_val();
   }
-  LogicalResult result = runPipeline(*pm, node->fn);
-  std::lock_guard<std::mutex> lock(pipelinesMutex);
+  std::uint64_t arena = egraph::arenaBytes(static_cast<std::uint64_t>(inlining::bodyOf(fn).size));
+  admission.enter(arena);
+  LogicalResult result = runNested(pass, *pm, fn);
+  admission.leave(arena);
+  std::lock_guard lock(pipelinesMutex);
   idle.push_back(pm);
   return result;
 }
 
-// The cse counts into statistics of its own, on each copy of the pipeline
-// that ran (`inner` never runs); upstream's canonicalize counts nothing.
-// MLIR's pass manager reports the statistics of its own pipeline, and a
-// pipeline a pass runs through runPipeline is none of it, so the counts are
-// read here off the copies, through upstream's own statistics. MLIR names a
-// statistic by its pass's argument and its own name, as it prints them, so
-// the table below says by those names which of the run's counts each adds
-// to. No worker runs once the waves end; the copies are read under their
-// lock all the same, as everywhere else.
-void Scheduler::addInnerStatistics() {
-  const InnerCounts &counts = analyses.inner.counts;
-  struct Into {
-    StringRef step, statistic;
-    Pass::Statistic &total;
-  };
-  // A copy is matched by the argument MLIR gives its pass, the only name a copy carries.
-  const Into into[] = {{"cse", "num-cse'd", counts.cseMerged},
-                       {"cse", "num-dce'd", counts.cseErased}};
-  std::lock_guard<std::mutex> lock(pipelinesMutex);
-  for (const std::unique_ptr<OpPassManager> &pm : pipelines)
-    for (Pass &pass : pm->getPasses())
-      for (Pass::Statistic *statistic : pass.getStatistics())
-        for (const Into &each : into)
-          if (pass.getArgument() == each.step && StringRef(statistic->getName()) == each.statistic)
-            each.total += statistic->getValue();
-}
-
-// The table gives each node to one claimant, which builds it detached: the
-// build reads only its owner, which is final, or a member of the
-// claimant's own component (a call of one that applies closures built for
-// it, Requests.cpp), which only this turn writes, and requests nothing,
-// the node's calls being its own turns' to redirect. Which turn of a wave
-// builds a node changes nothing, since its body is a function of its key
-// and its owner, and an owner of the claimant's component is asked for by
-// that component's turn alone.
-LogicalResult Scheduler::build(ArrayRef<specialize::Node *> requests, Node *claimant,
+// The schedule gives each copy to one claimant, which builds it detached:
+// the build reads only its owner, final or of the claimant's own component,
+// and its body is a function of its key and its owner, whichever turn
+// builds it.
+LogicalResult Scheduler::build(ArrayRef<specialize::Node *> asked, FunctionId claimant,
                                Turn &turn) {
-  const specialize::Nodes &nodes = analyses.nodes;
-  for (specialize::Node *made : requests) {
+  for (specialize::Node *made : asked) {
     if (!nodes.claim(*made))
       continue;
-    if (failed(nodes.build(*made, claimant->fn.getSymNameAttr())))
+    if (failed(nodes.build(*made, claimant)))
       return failure();
     turn.built.push_back(made);
   }
   return success();
 }
 
-bool Scheduler::inlineStep(Node *node, Turn &turn) {
-  const ReadySet &set = analyses.set;
-  auto callee = [&](StringAttr name) { return set.callee(*node, name); };
-  inlining::Step step = inlining::inlineCalls(node->fn, callee);
-  turn.inlined += step.inlined;
-  turn.capped += step.capped;
-  return step.inlined != 0;
-}
-
-LogicalResult Scheduler::round(Node *node, Turn &turn) {
-  (void)inlineStep(node, turn);
-  return runInner(node);
-}
-
-// A member that parks moves what its turn solved into its park.
-FailureOr<bool> Scheduler::parks(Node *node, SmallVector<specialize::Node *> asked, Turn &turn) {
-  if (failed(build(asked, node, turn)))
+// A member whose batch holds a copy that is neither final nor of its own
+// component parks on the batch's first copy, keeping what its turn solved.
+FailureOr<Outcome> Scheduler::parks(FunctionId member, SmallVector<specialize::Node *> asked,
+                                    Turn &turn) {
+  if (failed(build(asked, member, turn)))
     return failure();
-  const specialize::Nodes &nodes = analyses.nodes;
-  if (llvm::all_of(asked, [&](specialize::Node *made) { return nodes.ready(*made); }))
-    return false;
-  node->state = Node::Parked{asked.front(), std::move(std::get<Node::Done>(node->state).solved)};
-  turn.parked.emplace_back(node, std::move(asked));
-  return true;
+  auto ready = [&](const specialize::Node *made) {
+    return idr::match(
+        made->phase,
+        [&](const specialize::Placed &placed) {
+          return schedule.final(placed.id).has_value() || schedule.sameComponent(placed.id, member);
+        },
+        [](const auto &) { return false; });
+  };
+  if (llvm::all_of(asked, ready))
+    return Outcome::Continues;
+  Schedule::Member &state = schedule.members[member.index()];
+  Solved solved = idr::match(
+      state.phase, [](Done &done) { return std::move(done.solved); },
+      [](auto &) { return Solved{}; });
+  state.phase = Parked{asked.front(), std::move(solved)};
+  turn.parked.emplace_back(member, std::move(asked));
+  return Outcome::Parks;
 }
 
-// A member runs done, holding what its turn solved, and stays done unless
-// it parks.
-LogicalResult Scheduler::runMember(Node *node, Turn &turn) {
-  IDR_ZONE(node->fn.getSymName());
-  const specialize::Nodes &nodes = analyses.nodes;
-  if (failed(round(node, turn)))
-    return failure();
-  for (SmallVector<specialize::Node *> asked = nodes.takeRequests(node->fn); !asked.empty();
-       asked = nodes.takeRequests(node->fn)) {
-    FailureOr<bool> parked = parks(node, std::move(asked), turn);
-    if (failed(parked))
+LogicalResult Scheduler::runMember(FunctionId member, Turn &turn) {
+  IDR_ZONE(schedule.symbolOf(member).getValue());
+  specialize::Requester &asking = schedule.requesterOf(member);
+  while (true) {
+    if (failed(round(member)))
       return failure();
-    if (*parked)
-      return success();
-    if (failed(round(node, turn)))
-      return failure();
-  }
-  // The fixed last step: a call the last pipeline redirected to a node the
-  // member was given before is inlined here, and the pipeline cleans what
-  // that brought, its batch built and followed no further than a park.
-  if (inlineStep(node, turn)) {
-    if (failed(runInner(node)))
-      return failure();
-    if (SmallVector<specialize::Node *> asked = nodes.takeRequests(node->fn); !asked.empty()) {
-      FailureOr<bool> parked = parks(node, std::move(asked), turn);
-      if (failed(parked))
-        return failure();
-      if (*parked)
+    SmallVector<specialize::Node *> asked = asking.take();
+    unsigned leaves = schedule.takeLeaves(member);
+    if (asked.empty()) {
+      if (leaves == 0)
         return success();
+      continue;
     }
+    FailureOr<Outcome> outcome = parks(member, std::move(asked), turn);
+    if (failed(outcome))
+      return failure();
+    if (*outcome == Outcome::Parks)
+      return success();
   }
-  return success();
-}
-
-// Every callee outside the component is final now, the nodes a member
-// asked for among them, so the component's summaries are read off its
-// final bodies, its entry from its calls' effects. Nothing outside the
-// component reads them before settle makes it final.
-Finished Scheduler::finish(const Scc &scc) {
-  for (Node *member : scc.members)
-    writeCallEffects(*member);
-  Finished done{componentEffects(functionsOf(scc.members), analyses.symbols), {}};
-  bool shared = scc.members.size() > 1;
-  for (Node *member : scc.members)
-    done.members.push_back({returnedConstants(member->fn),
-                            inlining::factsOf(member->fn, member->calls(),
-                                              shared || member->stepOfRecursion())});
-  return done;
 }
 
 // A function the program held gets its binding times from the bodies of
-// the held members taken up with it; a made node inherited its owner's when
-// it was built. What each gives back is solved over the members taken up,
-// a callee outside them read as its own component's turn or its
-// publication left it. Each member's is written once, here, into its
-// state: taken up, it is done until it parks.
-void Scheduler::takeUp(ArrayRef<Node *> starters) {
-  SmallVector<FuncOp> held;
-  for (Node *member : starters)
-    if (std::holds_alternative<Node::Held>(member->origin))
-      held.push_back(member->fn);
-
-  const Node &reader = *starters.front();
-  auto outside = [&](StringAttr callee) { return givenBack(analyses.set.callee(reader, callee)); };
-  SmallVector<std::optional<unsigned>> given =
-      identities::givesBackOf(functionsOf(starters), outside);
-
-  for (auto [member, each] : llvm::zip_equal(starters, given)) {
-    Solved solved;
-    solved.givesBack = each;
-    solved.times = std::visit(
-        llvm::makeVisitor([&](Node::Held &) { return bindingTimesOf(member->fn, held); },
-                          [](Node::Made &made) { return std::move(made.times); }),
-        member->origin);
-    member->state = Node::Done{std::move(solved)};
+// the held members taken up with it; a copy inherited its owner's when it
+// was built. Each member's are written once, here.
+void Scheduler::takeUp(ArrayRef<FunctionId> starters) {
+  SmallVector<solver::Member> held;
+  for (FunctionId member : starters)
+    if (!schedule.members[member.index()].node)
+      held.push_back(solver::Member{member, schedule.function(member)});
+  std::vector<SmallVector<BindingTime>> solved = bindingTimesOf(schedule.graph, held);
+  unsigned next = 0;
+  for (FunctionId member : starters) {
+    Schedule::Member &state = schedule.members[member.index()];
+    SmallVector<BindingTime> times =
+        state.node ? std::move(state.inherited) : std::move(solved[next++]);
+    state.phase = Done{Solved{std::move(times)}};
   }
 }
 
 LogicalResult Scheduler::turn(Turn &work) {
   profile::ThreadTrace trace;
-  // A turn of resumed members alone takes none up.
   if (!work.starters.empty())
     takeUp(work.starters);
-  for (Node *member : work.starters) {
+  for (FunctionId member : work.starters) {
     // A member the debug counter skips is left as it is, done.
     LogicalResult ran = success();
-    (void)support::perform<NodeAction>(member->fn, [&] { ran = runMember(member, work); });
+    (void)support::perform<NodeAction>(schedule.function(member),
+                                       [&] { ran = runMember(member, work); });
     if (failed(ran))
       return failure();
   }
-  for (Node *member : work.resumed) {
-    // Resumed, it runs done again, with what its turn solved.
-    member->state = Node::Done{std::move(std::get<Node::Parked>(member->state).solved)};
+  for (FunctionId member : work.resumed) {
+    Schedule::Member &state = schedule.members[member.index()];
+    Solved solved = idr::match(
+        state.phase, [](Parked &parked) { return std::move(parked.solved); },
+        [](auto &) { return Solved{}; });
+    state.phase = Done{std::move(solved)};
     if (failed(runMember(member, work)))
       return failure();
   }
-  Scc &scc = work.scc;
-  if (llvm::all_of(scc.members, [](const Node *member) {
-        return std::holds_alternative<Node::Done>(member->state);
+  // Every member done: the component's final bodies state its facts.
+  ArrayRef<FunctionId> ids = schedule.byComponent.find(work.component)->second;
+  if (!llvm::all_of(ids, [&](FunctionId id) {
+        return idr::match(schedule.members[id.index()].phase,
+                          [](const Done &) { return true; }, [](const auto &) { return false; });
       }))
-    work.finished = finish(scc);
+    return success();
+  work.ends = Turn::Ends::Yes;
   return success();
 }
 

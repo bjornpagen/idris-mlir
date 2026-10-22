@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// A specialization node's function: its owner's final body with the static
-// parts of the key substituted for its parameters, whose new parameters
-// are the key's holes, parameter i holding the i-th hole in pre-order.
+// The two alphabets' copies.
 //
-// It is built from the key and the owner alone, never from a call that
-// asked for it, so every schedule builds the same function: each op it
-// adds takes the location of the parameter it replaces, and a new
-// parameter the function's, unless it is the whole parameter. A call of the
-// owner in it with the node's own key, a fixed parameter passed on
-// unchanged, becomes the node's own call when its first turn redirects it.
+// A pattern copy is its owner's body with the static parts of the key
+// substituted for its parameters, whose new parameters are the key's
+// holes, parameter i holding the i-th hole in pre-order. Each op it adds
+// takes the location of the parameter it replaces, and a new parameter
+// the function's, unless it is the whole parameter.
+//
+// A signature copy is its owner's body under the key's index arguments,
+// substituted, with each parameter at the type the key gives it: a layout
+// class fixed makes a known index's shape inline, and a static hold makes
+// counting count nothing of what the parameter holds.
+
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Specialize.h"
 
@@ -19,35 +23,54 @@
 
 using namespace mlir;
 
-namespace idr::specialize::detail {
+namespace idr::specialize {
 
-FailureOr<idr::FuncOp> buildSpec(idr::FuncOp from, SpecKeyAttr key, StringAttr name) {
-  ArrayAttr patterns = key.getPatterns();
-  unsigned arity = from.getNumArguments();
-  if (patterns.size() != arity)
-    return from.emitError() << "internal error: a specialization key of @" << from.getSymName()
-                            << " has " << patterns.size() << " patterns for " << arity
-                            << " parameters";
+namespace {
 
-  // The copy keeps the owner's location, instance and the facts Idris gave
-  // it; what it may do is written once its component is final.
-  auto clone = cast<idr::FuncOp>(from->clone());
-  clone.setSymName(name.getValue());
-  clone.setEffects(::idr::anyEffect);
+// A pattern's canonical bytes, in pre-order: its kind, a constructor's tag
+// and arity, a constant's content. Positions fix every type, so no type is
+// written.
+void writePattern(const Pattern *pattern, Bytes &bytes) {
+  SmallVector<const Pattern *> work{pattern};
+  while (!work.empty()) {
+    const Pattern *at = work.pop_back_val();
+    idr::match(
+        at->get(), [&](Hole) { bytes.word(0); },
+        [&](const Con &con) {
+          bytes.word(1);
+          bytes.word(static_cast<unsigned>(con.tag));
+          bytes.word(con.fields.size());
+          for (const Pattern *field : llvm::reverse(con.fields))
+            work.push_back(field);
+        },
+        [&](const Const &constant) {
+          bytes.word(2);
+          bytes.attribute(constant.value);
+        });
+  }
+}
 
+} // namespace
+
+void Patterns::write(Key key, Bytes &bytes) {
+  for (const Pattern *param : key->params)
+    writePattern(param, bytes);
+}
+
+LogicalResult Patterns::edit(Key key, FuncOp clone) {
+  unsigned arity = clone.getNumArguments();
   SmallVector<unsigned> positions;
   SmallVector<Type> types;
   SmallVector<Location> locs;
-  for (auto [p, pattern] : llvm::enumerate(patterns)) {
+  for (auto [p, pattern] : llvm::enumerate(key->params)) {
     BlockArgument param = clone.getArgument(static_cast<unsigned>(p));
-    unsigned before = static_cast<unsigned>(types.size());
-    holeTypes(pattern, param.getType(), types);
+    size_t before = types.size();
+    detail::holeTypes(*pattern, param.getType(), types);
     // A hole that is the whole parameter is that binder, and keeps its
-    // location; a hole inside a pattern is a binder of the pass's, at the
-    // function's location, which no binder of Idris's has, so no check
-    // reads it as the parameter it was taken out of.
-    Location at = isa<KeyHoleAttr>(pattern) ? param.getLoc() : clone.getLoc();
-    for (unsigned hole = before; hole < types.size(); ++hole) {
+    // location; a hole inside a pattern is the pass's binder, at the
+    // function's location, which no binder of Idris's has.
+    Location at = pattern->hasStructure() ? clone.getLoc() : param.getLoc();
+    for (size_t hole = before; hole < types.size(); ++hole) {
       positions.push_back(arity);
       locs.push_back(at);
     }
@@ -59,14 +82,36 @@ FailureOr<idr::FuncOp> buildSpec(idr::FuncOp from, SpecKeyAttr key, StringAttr n
   SmallVector<Value> holes(entry.getArguments().drop_front(arity));
   OpBuilder b = OpBuilder::atBlockBegin(&entry);
   unsigned next = 0;
-  for (auto [p, pattern] : llvm::enumerate(patterns)) {
+  for (auto [p, pattern] : llvm::enumerate(key->params)) {
     BlockArgument param = entry.getArgument(static_cast<unsigned>(p));
-    param.replaceAllUsesWith(rebuild(b, param.getLoc(), pattern, param.getType(), holes, next));
+    param.replaceAllUsesWith(
+        detail::rebuild(b, param.getLoc(), *pattern, param.getType(), holes, next));
   }
   llvm::BitVector originals(clone.getNumArguments());
   originals.set(0, arity);
-  (void)clone.eraseArguments(originals);
-  return clone;
+  return clone.eraseArguments(originals);
 }
 
-} // namespace idr::specialize::detail
+void Signatures::write(Key key, Bytes &bytes) {
+  bytes.type(key->signature);
+  bytes.attribute(key->indices);
+}
+
+LogicalResult Signatures::edit(Key key, FuncOp clone) {
+  // The index arguments first, through the one substitution every pass
+  // that instantiates a function shares: each case a known index makes
+  // impossible goes with it.
+  FailureOr<SmallVector<families::Sort>> kept = families::substituteFunction(clone, key->indices);
+  if (failed(kept))
+    return failure();
+  clone.setBindersAttr(IndexBindersAttr::get(clone.getContext(), *kept));
+  // Then each parameter the key gives another type: a static hold, which
+  // the grades derived from it follow.
+  Block &entry = clone.getBody().front();
+  for (auto [arg, type] : llvm::zip_equal(entry.getArguments(), key->signature.getInputs()))
+    arg.setType(type);
+  clone.setFunctionType(key->signature);
+  return grades::follow(clone);
+}
+
+} // namespace idr::specialize

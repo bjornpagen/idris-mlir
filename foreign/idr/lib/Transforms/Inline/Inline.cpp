@@ -1,168 +1,158 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The inline step. Every callee it reads is final, so its body is the one
-// every caller copies and no worker writes it, or a member of the caller's
-// own component, which only the component's turn, this one, writes; the
-// caller is the one function this step writes. The calls are taken once, before the first
-// inline, so a body copied in brings calls the step does not see: those
-// the callee kept, which the rule already weighed, and those its cleanup
-// exposes, which the next step of the caller's loop sees.
+// Leaf inlining, an inner pass of idr-optimize, and the verdict of the
+// inline phase.
 //
-// A callee that ends in ub.unreachable never returns: the inliner keeps
-// its terminator and leaves the rest of the call's block unreachable, a
-// second block of the caller. It goes once, after every call the step took
-// is inlined or kept: a call taken before may sit in it, inlined there to
-// no effect, and an erase between two inlines would leave that call freed.
+// Inlining never clears what Idris proved of the caller: a callee inlined
+// from another component adds no cycle through its caller, and inside one
+// a beta step calls the recursion, never itself, so every loop through the
+// caller ran through it before. What the callee may do the caller's row
+// already covered, since a call's row is its callee's; the writer derives
+// the caller's own once its component is final. A call the inlined body
+// holds keeps its tail fact only where the call it replaced was in tail
+// position: the dialect's inliner interface composes them.
+//
+// A callee that ends in ub.unreachable never returns: inlining leaves the
+// rest of the call's block unreachable, which goes once every call the
+// step took is inlined or kept, since a call taken before may sit in it.
 
 #include "idr/Transforms/Inline.h"
 
 #include "idr/Analysis/Inline.h"
-#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
 
-#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Visitors.h"
-#include "mlir/Transforms/Inliner.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
 
-#include <variant>
+namespace idr {
+#define GEN_PASS_DEF_IDRINLINELEAVES
+#include "idr/Transforms/InnerPasses.h.inc"
+} // namespace idr
 
 using namespace mlir;
 
+namespace idr::inlining {
+
 namespace {
 
-// idr-optimize's inline step inlines one call; the unit is the call.
-struct InlineAction : idr::support::TaggedAction<InlineAction> {
+// idr-optimize inlines one call; the unit is the call.
+struct InlineAction : support::TaggedAction<InlineAction> {
   using TaggedAction::TaggedAction;
   static constexpr llvm::StringLiteral tag = "idr-optimize-inline";
 };
 
-// Whether `param`, a parameter of a callee, is taken apart by a match:
-// its own scrutinee, or through the grades on the way to one.
-bool dispatched(Value param) {
-  for (Operation *user : param.getUsers()) {
-    if (auto match = dyn_cast<idr::MatchOp>(user); match && match.getScrutinee() == param)
-      return true;
-    if (isa<idr::LinUseOp, idr::LinEnterOp>(user) && dispatched(user->getResult(0)))
-      return true;
-  }
-  return false;
-}
-
-// Whether every call in `fn` of a function not final (a member of the
-// component, or one it waits on) sits in a case of a match on `param`
-// other than `tag`'s.
-bool callsOnlyBeside(idr::FuncOp fn, Value param, idr::Tag tag,
-                     llvm::function_ref<idr::optimize::Callee(StringAttr)> callee) {
-  return !fn.getBody()
-              .walk([&](idr::CallOp inner) {
-                if (std::holds_alternative<idr::optimize::Final>(
-                        callee(inner.getCalleeAttr().getAttr())))
-                  return WalkResult::advance();
-                for (Region *region = inner->getParentRegion(); region != &fn.getBody();
-                     region = region->getParentOp()->getParentRegion()) {
-                  auto match = dyn_cast<idr::MatchOp>(region->getParentOp());
-                  if (!match || idr::throughLinear(match.getScrutinee()) != param)
-                    continue;
-                  std::optional<idr::Tag> known = match.knownTag(*region);
-                  if (known && *known != tag)
-                    return WalkResult::advance();
-                }
-                return WalkResult::interrupt();
-              })
-              .wasInterrupted();
-}
-
-// Whether inlining `call` of `fn`, a member of the caller's own component,
-// is beta reduction: at a parameter `fn` dispatches on, the call passes a
-// closure or suspension the caller built for it alone (or a constant one),
-// of a label whose function is final, so of no function of the recursion,
-// and every call `fn` makes of a member is in another case of a match on
-// that parameter. Inlined, each such match takes the label's case, and the
-// inline leaves no call of the component: it cannot unroll the recursion,
-// which the members' rule against inlining one another is for.
-bool betaReduces(idr::CallOp call, idr::FuncOp fn,
-                 llvm::function_ref<idr::optimize::Callee(StringAttr)> callee) {
-  for (auto [arg, param] : llvm::zip_equal(call.getArgs(), fn.getArguments())) {
-    idr::DataType data = idr::dataTypeOf(arg.getType());
-    if (!data || !(data.isClosures() || data.isMemo()) || !dispatched(param))
-      continue;
-    Value made = idr::throughLinear(arg);
-    std::optional<idr::Tag> tag;
-    idr::ConAttr constant;
-    if (auto con = made.getDefiningOp<idr::ConOp>(); con && arg.hasOneUse() && made.hasOneUse())
-      tag = con.getTag();
-    else if (matchPattern(made, m_Constant(&constant)))
-      tag = constant.getTag();
-    if (!tag)
-      continue;
-    const auto *label = std::get_if<idr::role::Label>(&data.getCtor(*tag).role);
-    if (label && std::holds_alternative<idr::optimize::Final>(callee(label->fn.getAttr())) &&
-        callsOnlyBeside(fn, param, *tag, callee))
-      return true;
-  }
-  return false;
-}
-
 } // namespace
 
-idr::inlining::Step
-idr::inlining::inlineCalls(FuncOp caller,
-                           llvm::function_ref<optimize::Callee(StringAttr)> callee) {
-  Step step;
-  SmallVector<CallOp> calls;
-  caller.getBody().walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
-  if (calls.empty())
-    return step;
-  int64_t size = inlineSize(caller);
-  InlinerInterface interface(caller.getContext());
-  InlinerConfig config;
-  for (CallOp call : calls) {
-    optimize::Callee answer = callee(call.getCalleeAttr().getAttr());
-    // A callee that is not final is a member of the caller's own
-    // component, or one it waits on: never inlined, and never read, but
-    // for a member of the component the call applies to a closure of no
-    // member's (betaReduces), read as its turn left it.
-    FuncOp fn;
-    int64_t calleeSize = 0;
-    if (const auto *known = std::get_if<optimize::Final>(&answer)) {
-      if (!known->summary.facts.inlines)
-        continue;
-      fn = known->fn;
-      calleeSize = known->summary.facts.size;
-    } else if (const auto *sibling = std::get_if<optimize::Sibling>(&answer)) {
-      if (sibling->fn == caller || !betaReduces(call, sibling->fn, callee))
-        continue;
-      fn = sibling->fn;
-      calleeSize = inlineSize(fn);
-    } else {
-      continue;
-    }
-    if (!fitsCap(size, calleeSize)) {
-      ++step.capped;
-      continue;
-    }
-    (void)idr::support::perform<InlineAction>(call, [&] {
-      if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
-                            /*shouldCloneInlinedRegion=*/true)))
-        return;
-      caller.absorb(fn);
-      call.erase();
-      size += calleeSize - 1;
-      ++step.inlined;
-    });
+Body bodyOf(FuncOp fn) {
+  Body body{0, Calls::None};
+  fn.getBody().walk([&](Operation *op) {
+    ++body.size;
+    if (isa<CallOp>(op))
+      body.calls = Calls::Some;
+  });
+  return body;
+}
+
+Verdict verdictOf(const solver::ProgramGraph &graph, solver::FunctionId caller,
+                  solver::FunctionId callee, const Body &body) {
+  if (graph.sccOf(caller) == graph.sccOf(callee) || caller == callee)
+    return Keep{Reason::Cycle};
+  if (body.calls == Calls::None && body.size <= kLeafSize)
+    return Leaf{};
+  return Weighed{body.size, graph.callSites(callee)};
+}
+
+Profitability::Profitability(const solver::ProgramGraph &graph) : graph(graph) {}
+
+bool Profitability::operator()(const Inliner::ResolvedCall &resolved) {
+  auto caller = cast<FuncOp>(resolved.sourceNode->getCallableRegion()->getParentOp());
+  auto callee = cast<FuncOp>(resolved.targetNode->getCallableRegion()->getParentOp());
+  solver::FunctionId from = graph.id(FlatSymbolRefAttr::get(caller.getSymNameAttr()));
+  solver::FunctionId to = graph.id(FlatSymbolRefAttr::get(callee.getSymNameAttr()));
+  auto sizeOf = [&](solver::FunctionId fn, FuncOp op) -> std::int64_t & {
+    auto [at, fresh] = sizes.try_emplace(fn, 0);
+    if (fresh)
+      at->second = bodyOf(op).size;
+    return at->second;
+  };
+  auto [body, fresh] = bodies.try_emplace(to, Body{});
+  if (fresh)
+    body->second = bodyOf(callee);
+  bool profitable = idr::match(
+      verdictOf(graph, from, to, body->second), [](Keep) { return false; },
+      [](Leaf) { return true; },
+      [](const Weighed &weighed) {
+        return (static_cast<std::int64_t>(weighed.calls) - 1) * (weighed.size - kSmall) <= kProduct;
+      });
+  if (!profitable)
+    return false;
+  std::int64_t &size = sizeOf(from, caller);
+  if (!fitsCap(size, body->second.size)) {
+    ++numCapped;
+    return false;
   }
-  // Only an inline leaves a block unreachable.
-  if (step.inlined != 0) {
+  size += body->second.size - 1;
+  ++numInlined;
+  return true;
+}
+
+namespace {
+
+struct InlineLeaves : impl::IdrInlineLeavesBase<InlineLeaves> {
+  InlineLeaves(optimize::Schedule &schedule, Pass::Statistic &numInlined)
+      : schedule(schedule), numInlined(numInlined) {}
+
+  // Each call the function holds when the step starts whose callee is
+  // final and a leaf, in walk order, while the caller stays within the
+  // cap. A body brought in calls nothing, so the step brings no call.
+  void runOnOperation() override {
+    FuncOp caller = getOperation();
+    SmallVector<CallOp> calls;
+    caller.getBody().walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
+    std::int64_t size = bodyOf(caller).size;
+    InlinerInterface interface(caller.getContext());
+    InlinerConfig config;
+    unsigned inlined = 0;
+    for (CallOp call : calls) {
+      std::optional<solver::FunctionId> callee = schedule.find(call.getCalleeAttr());
+      if (!callee)
+        continue;
+      std::optional<optimize::Readable> known = schedule.final(*callee);
+      if (!known)
+        continue;
+      const Body &body = schedule.summaryOf(*callee)->body;
+      if (body.calls != Calls::None || body.size > kLeafSize || !fitsCap(size, body.size))
+        continue;
+      FuncOp fn = known->fn;
+      (void)support::perform<InlineAction>(call, [&] {
+        if (failed(inlineCall(interface, config.getCloneCallback(), call, fn, &fn.getBody(),
+                              /*shouldCloneInlinedRegion=*/true)))
+          return;
+        call.erase();
+        size += body.size - 1;
+        ++inlined;
+      });
+    }
+    numInlined += inlined;
+    schedule.noteLeaves(schedule.idOf(caller), inlined);
+    if (inlined == 0)
+      return markAllAnalysesPreserved();
     IRRewriter rewriter(caller.getContext());
     (void)eraseUnreachableBlocks(rewriter, caller.getBody());
   }
-  return step;
+
+  optimize::Schedule &schedule;
+  Pass::Statistic &numInlined;
+};
+
+} // namespace
+
+std::unique_ptr<Pass> createInlineLeaves(optimize::Schedule &schedule, Pass::Statistic &inlined) {
+  return std::make_unique<InlineLeaves>(schedule, inlined);
 }
+
+} // namespace idr::inlining

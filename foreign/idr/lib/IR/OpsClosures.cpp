@@ -4,92 +4,32 @@
 // parameters, and idr.apply runs one. idr.suspend builds a cell and does
 // not run its function; idr.force reads that cell, and the first entry
 // computes the value and leaves it there. After idr-defunctionalize the cell
-// is a box of a memo sum, a force is a call of its dispatch, and the
-// dispatch exchanges the cell's state through idr.memo.run, which moves the
-// captures out and the value in. A suspension of a value that already
-// exists, idr.delay, is evaluated where it is built: forcing it computes
-// nothing, and the force is the value.
+// is a value of a memo family, a force is a call of the family's dispatch,
+// and the dispatch exchanges the cell's state through idr.memo.run, which
+// moves the captures out and the value in. A suspension of a value that
+// already exists, idr.delay, is evaluated where it is built: forcing it
+// computes nothing, and the force is the value.
+//
+// A suspension has no fold: the cell it builds is the one thing that
+// changes while references to it live, so folding one into a constant
+// would make every run share one cell whose forced value lives until the
+// program ends, and a trusted library's effect inside it would run once
+// instead of where its value is demanded. Nor do these ops carry rewrite
+// patterns: defunctionalization replaces every one of them before any
+// simplification runs, and what is left of a force after it (a call of a
+// known label, a cell forced in one case) is the e-graph's.
 
-#include "idr/IR/Arrays.h"
+#include "idr/IR/Fold.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Canon.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/IR/Matchers.h"
-#include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/DenseSet.h"
 
 using namespace mlir;
 using namespace idr;
 
 namespace {
-
-// A call of `callee` in place of a force: what it may do is the callee's.
-CallOp callOf(OpBuilder &builder, Location loc, FlatSymbolRefAttr callee, TypeRange results,
-              ValueRange args) {
-  return CallOp::create(builder, loc, results, callee, args, /*arg_attrs=*/nullptr,
-                        /*res_attrs=*/nullptr);
-}
-
-// A suspension nothing else uses is this call. The body runs once, where
-// it is forced. A shared suspension stays a cell: the first force stores
-// the value and every later force reads it. So does a suspension of
-// constants, which folds to one cell in static data that every run of the
-// force shares, its label run once for all of them: the fold is its
-// canonical form, whichever the driver reaches first.
-struct ForceOfOneUse : OpRewritePattern<ForceOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ForceOp force, PatternRewriter &rewriter) const override {
-    auto suspend = force.getSuspension().getDefiningOp<SuspendOp>();
-    if (!suspend || !suspend.getResult().hasOneUse())
-      return failure();
-    SmallVector<OpFoldResult> constant;
-    if (succeeded(suspend->fold(constant)))
-      return failure();
-    rewriter.setInsertionPoint(force);
-    CallOp call = callOf(rewriter, force.getLoc(), suspend.getCalleeAttr(),
-                         TypeRange(force.getResult().getType()), suspend.getCaptures());
-    rewriter.replaceOp(force, call.getResults());
-    rewriter.eraseOp(suspend);
-    return success();
-  }
-};
-
-// The forces sit in different cases of one match, so only one of them runs
-// and the cell would never be read twice. Each case calls.
-struct ForceInOneCase : OpRewritePattern<SuspendOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(SuspendOp suspend, PatternRewriter &rewriter) const override {
-    if (suspend.getResult().hasOneUse())
-      return failure();
-    Operation *match = nullptr;
-    SmallVector<ForceOp> forces;
-    for (OpOperand &use : suspend.getResult().getUses()) {
-      auto force = dyn_cast<ForceOp>(use.getOwner());
-      Operation *parent = force ? force->getParentOp() : nullptr;
-      if (!force || !isa<MatchOpInterface>(parent) || (match && match != parent))
-        return failure();
-      match = parent;
-      forces.push_back(force);
-    }
-    if (!match || match->isAncestor(suspend) || forces.size() < 2)
-      return failure();
-    llvm::SmallDenseSet<Region *, 4> regions;
-    for (ForceOp force : forces)
-      if (!regions.insert(force->getParentRegion()).second)
-        return failure();
-    for (ForceOp force : forces) {
-      rewriter.setInsertionPoint(force);
-      CallOp call = callOf(rewriter, force.getLoc(), suspend.getCalleeAttr(),
-                           TypeRange(force.getResult().getType()), suspend.getCaptures());
-      rewriter.replaceOp(force, call.getResults());
-    }
-    rewriter.eraseOp(suspend);
-    return success();
-  }
-};
 
 } // namespace
 
@@ -100,7 +40,7 @@ struct ForceInOneCase : OpRewritePattern<SuspendOp> {
 // The callee's leading parameters are the captures, and the rest of its
 // signature is the closure's carrier, whatever quantity the captures give
 // it (Idr_LinearWhenACaptureIs).
-LogicalResult ClosureOp::verifySymbolUses(SymbolTableCollection &symbols) {
+LogicalResult FnClosureOp::verifySymbolUses(SymbolTableCollection &symbols) {
   auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(*this, getCalleeAttr());
   if (!fn)
     return emitOpError("refers to an unknown function ") << getCalleeAttr();
@@ -118,12 +58,14 @@ LogicalResult ClosureOp::verifySymbolUses(SymbolTableCollection &symbols) {
   return success();
 }
 
-// A capture folds only as a constant the dialect builds at its type: a
-// poison capture is the program's value where control never arrives, which
-// no constant holds, so the closure stays an op around it.
-OpFoldResult ClosureOp::fold(FoldAdaptor adaptor) {
+// A closure of constants is an immutable value nothing reads the identity
+// of, so it is the constant. A capture folds only as a constant the
+// dialect builds at its type: a poison capture is the program's value
+// where control never arrives, which no constant holds, so the closure
+// stays an op around it.
+OpFoldResult FnClosureOp::fold(FoldAdaptor adaptor) {
   for (auto [capture, operand] : llvm::zip_equal(adaptor.getCaptures(), getCaptures()))
-    if (!capture || !canon::buildable(capture, operand.getType()))
+    if (!capture || !fold::buildable(capture, operand.getType()))
       return {};
   return ClosureAttr::get(getContext(), getCalleeAttr(),
                           ArrayAttr::get(getContext(), adaptor.getCaptures()));
@@ -135,7 +77,7 @@ OpFoldResult ClosureOp::fold(FoldAdaptor adaptor) {
 
 // Every parameter is a capture, and the function's one result is the
 // suspension's value.
-LogicalResult SuspendOp::verifySymbolUses(SymbolTableCollection &symbols) {
+LogicalResult LazySuspendOp::verifySymbolUses(SymbolTableCollection &symbols) {
   auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(*this, getCalleeAttr());
   if (!fn)
     return emitOpError("refers to an unknown function ") << getCalleeAttr();
@@ -144,8 +86,6 @@ LogicalResult SuspendOp::verifySymbolUses(SymbolTableCollection &symbols) {
       !llvm::equal(getCaptures().getTypes(), inputs))
     return emitOpError("captures ")
            << getCaptures().getTypes() << ", which are not the parameters of " << getCalleeAttr();
-  // The function returns the carrier. After idr-rc that return is owned
-  // and this cell is too; the carrier is what the two still share.
   Type value = cast<LazyType>(unrestricted(getResult().getType())).getValue();
   if (fn.getResultTypes().size() != 1 || unrestricted(fn.getResultTypes()[0]) != unrestricted(value))
     return emitOpError("suspends ") << getCalleeAttr() << ", which returns "
@@ -153,38 +93,23 @@ LogicalResult SuspendOp::verifySymbolUses(SymbolTableCollection &symbols) {
   return success();
 }
 
-// A capture folds only as a constant the dialect builds at its type: a
-// poison capture is the program's value where control never arrives, which
-// no constant holds, so the suspension stays an op around it.
-OpFoldResult SuspendOp::fold(FoldAdaptor adaptor) {
-  for (auto [capture, operand] : llvm::zip_equal(adaptor.getCaptures(), getCaptures()))
-    if (!capture || !canon::buildable(capture, operand.getType()))
-      return {};
-  return ClosureAttr::get(getContext(), getCalleeAttr(),
-                          ArrayAttr::get(getContext(), adaptor.getCaptures()));
-}
-
 //===----------------------------------------------------------------------===//
 // idr.force
 //===----------------------------------------------------------------------===//
 
-// The force of an evaluated suspension is the value it holds. A linear
-// value is taken this way only by the suspension's one force, which would
-// otherwise use it twice.
-OpFoldResult ForceOp::fold(FoldAdaptor) {
-  auto delay = getSuspension().getDefiningOp<DelayOp>();
+// The force of an evaluated suspension is the value it holds. A value
+// used once is taken this way only by the suspension's one force, which
+// would otherwise use it twice.
+OpFoldResult LazyForceOp::fold(FoldAdaptor) {
+  auto delay = getSuspension().getDefiningOp<LazyDelayOp>();
   if (!delay)
     return {};
   Value value = delay.getValue();
   if (value.getType() != getType())
     return {};
-  if (quantityOf(value.getType()) == Quantity::One && !delay.getResult().hasOneUse())
+  if (isLinear(value.getType()) && !delay.getResult().hasOneUse())
     return {};
   return value;
-}
-
-void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  results.add<ForceOfOneUse, ForceInOneCase>(context);
 }
 
 //===----------------------------------------------------------------------===//
@@ -193,44 +118,63 @@ void ForceOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContex
 
 DataType MemoRunOp::getDataType() { return dataTypeOf(getCell().getType()); }
 
-void MemoRunOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  canon::addMemoRunPatterns(results, context);
-}
-
 // The cell is in the state of a label that memoizes: a label run by name
-// leaves its cell as it is. The region binds that label's captures, each
-// at its field's type at any permission: plain before idr-rc, owned after
-// it where it holds references, as the cell's own reference moves out with
-// it; and at the cell's lifetime, as any field read from it is.
+// leaves its cell as it is, so it has no exchange. A memo family's states
+// are its labels, then running and forced, by its kind, so a tag past its
+// labels names a state, which no exchange runs. The region binds that
+// label's captures, each as a field read from the cell is.
 LogicalResult MemoRunOp::verify() {
-  FailureOr<std::reference_wrapper<const Ctor>> found =
-      idr::detail::ctorAt(*this, getCell().getType(), getTag());
-  if (failed(found))
-    return failure();
-  const Ctor &ctor = *found;
-  const auto *label = std::get_if<role::Label>(&ctor.role);
-  if (!label || label->byName)
-    return emitOpError("runs @") << ctor.name.getValue()
-                                 << ", which is no label of the cell that memoizes";
+  DataType cell = getDataType();
+  std::optional<families::MemoView> memo = cell ? cell.memo() : std::nullopt;
+  if (!memo)
+    return emitOpError("exchanges the state of ") << getCell().getType()
+                                                  << ", which is no memo family's cell";
+  ArrayRef<families::MemoLabelDecl> labels = memo->labels();
+  auto tag = static_cast<unsigned>(getTag());
+  if (tag >= labels.size() || labels[tag].mode != families::Mode::Memoized)
+    return emitOpError("runs the state ") << tag
+                                          << ", which is no label of the cell that memoizes";
+  const families::LabelDecl &label = labels[tag].label;
   Block &body = getRegion().front();
-  if (body.getNumArguments() != ctor.fields.size())
-    return emitOpError("binds ") << body.getNumArguments() << " captures where @"
-                                 << ctor.name.getValue() << " has " << ctor.fields.size();
-  for (auto [arg, field] : llvm::zip_equal(body.getArguments(), ctor.fields))
-    if (arg.getType() != atLifetime(atPermission(field, gradeOf(arg.getType()).permission),
-                                    lifetimeOf(getCell().getType())))
+  if (body.getNumArguments() != label.fields.size())
+    return emitOpError("binds ") << body.getNumArguments() << " captures where its label "
+                                 << label.fn << " has " << label.fields.size();
+  for (auto [arg, field] : llvm::zip_equal(body.getArguments(), label.fields))
+    if (arg.getType() != fieldType(getCell().getType(), field))
       return emitOpError("binds a capture of type ")
-             << arg.getType() << " where @" << ctor.name.getValue() << " holds " << field;
+             << arg.getType() << " where its label " << label.fn << " holds " << field;
   return success();
 }
 
-// The region yields the value the cell's forced state holds, at any
-// permission, then each result.
+// The region ends in idr.memo.yield of the value the cell's forced state
+// holds, then each result.
 LogicalResult MemoRunOp::verifyRegions() {
   DataType memo = getDataType();
-  SmallVector<Type> types{memo.getCtor(memo.getForcedTag()).fields.front()};
+  SmallVector<Type> types{memo.ctor(memo.memo()->forced()).fields.front()};
   llvm::append_range(types, getOuts().getTypes());
-  return arrays::verifyEnd(*this, types, [](unsigned at) { return at == 0; });
+  auto end = dyn_cast<MemoYieldOp>(getRegion().front().getTerminator());
+  if (!end)
+    return emitOpError("ends its region in no idr.memo.yield");
+  if (!llvm::equal(end.getValues().getTypes(), types))
+    return emitOpError("yields ") << end.getValues().getTypes() << " where its cell's forced "
+                                  << "value and its results are " << types;
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// idr.memo.yield
+//===----------------------------------------------------------------------===//
+
+// One value at least: the forced state's.
+LogicalResult MemoYieldOp::verify() {
+  if (getValues().empty())
+    return emitOpError("yields no value for its cell's forced state");
+  return success();
+}
+
+// The forced value moves into the cell; what follows it leaves the op.
+MutableOperandRange MemoYieldOp::getMutableSuccessorOperands(RegionSuccessor) {
+  return MutableOperandRange(getOperation(), 1, getNumOperands() - 1);
 }
 
 // The region runs once, between the move out and the move in, and what it
@@ -254,19 +198,9 @@ void MemoRunOp::getRegionInvocationBounds(ArrayRef<Attribute>,
   bounds.emplace_back(1, 1);
 }
 
-// It reads the captures out of the cell and writes its state, the memo
-// state every read of a memo sum's value reads (MemoStateResource); the
-// region's effects are its own.
-void MemoRunOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  OpOperand &cell = getCellMutable();
-  effects.emplace_back(MemoryEffects::Read::get(), &cell, MemoStateResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), &cell, MemoStateResource::get());
-}
-
 // Each capture moves out of its field of the label's state into the
 // region, with the reference the cell held; the yield moves the value into
-// the forced state (idr.array.yield's edges).
+// the forced state.
 void MemoRunOp::getFlowEdges(FlowEdges &edges) {
   Value cell = getCell();
   DataType memo = getDataType();

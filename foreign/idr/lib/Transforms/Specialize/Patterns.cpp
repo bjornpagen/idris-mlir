@@ -1,20 +1,24 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Patterns: taking a value's shape as a key attribute, what a key asks of a
-// shape, rebuilding the value a key's pattern stands for, and erasing a
-// shape a call no longer reads.
-#include "idr/IR/IdrDialect.h"
+// Patterns: a value's shape taken into the run's arena, the value a
+// pattern stands for built again, and a shape a call no longer reads
+// erased.
+//
+// A constructor is keyed only where its type fixes its fields' types: the
+// copy builds the value again from the key alone, so a constructor whose
+// fields name binders its application leaves open (a closure label's own
+// index parameters, bound afresh by each case that takes it apart) is a
+// runtime leaf. Each walk keeps its own stack: a shape is as deep as the
+// constructors a call's arguments nest.
+
 #include "idr/IR/Grades.h"
-#include "idr/IR/Symbols.h"
-#include "idr/Support/Worklist.h"
+#include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Specialize.h"
 
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
-
-#include <optional>
+#include "llvm/ADT/SmallPtrSet.h"
 
 using namespace mlir;
 
@@ -22,142 +26,219 @@ namespace idr::specialize::detail {
 
 namespace {
 
-// A constant the node builds again as it was built here: the value of an
-// op the dialect materializes, as rebuild does.
-bool constant(Value value, Attribute &out) {
-  return isa_and_nonnull<ConstantOp, arith::ConstantOp>(value.getDefiningOp()) &&
-         matchPattern(value, m_Constant(&out));
+// A constant the copy builds again as it was built here: the value of an
+// op the dialect materializes.
+std::optional<Attribute> constantOf(Value value) {
+  Attribute known;
+  Operation *def = value.getDefiningOp();
+  if (!def || !def->hasTrait<OpTrait::ConstantLike>() || !matchPattern(value, m_Constant(&known)))
+    return std::nullopt;
+  return known;
 }
 
-// Whether `op` builds part of a shape, which the node's call takes apart:
-// a constructor, which builds its value whole, or an entry into a linear
-// type.
-bool isShapeOp(Operation *op) { return isa_and_nonnull<ConOp, LinEnterOp>(op); }
-
-// The field types of constructor `tag` of the data type a value of `type`
-// is of.
-ArrayRef<Type> fieldTypes(Type type, Tag tag) {
-  return dataTypeOf(type).getCtor(tag).fields;
+// The constructor that built `value`, through the ops that only change its
+// grade, where its type fixes its fields' types.
+DataConOp constructorOf(Value value) {
+  auto con = throughLinear(value).getDefiningOp<DataConOp>();
+  if (!con)
+    return {};
+  DataType data = dataTypeOf(con.getResult().getType());
+  if (!data || !data.determinedFields(con.getTag()))
+    return {};
+  return con;
 }
 
-// Whether a position of `type` is linear: a value there entered a linear
-// type, which a rebuilt value enters again.
-bool isLinearPosition(Type type) { return unrestricted(type) != type; }
+// The field types of constructor `tag` at a position of `type`, which the
+// key fixed only where the type determines them.
+llvm::SmallVector<Type> fieldTypes(Type type, Tag tag) {
+  return *dataTypeOf(unrestricted(type)).determinedFields(tag);
+}
+
+// Whether a position of `type` holds a value used at most once: a value
+// there entered that quantity, which a rebuilt value enters again.
+bool usedOncePosition(Type type) { return isLinear(type); }
+
+// One node of a shape in pre-order: a hole, a constant, or a constructor
+// over the next `arity` nodes' subtrees.
+struct LeafNode {};
+struct ConstNode {
+  Attribute value;
+};
+struct ConNode {
+  Tag tag;
+  unsigned arity;
+};
+using ShapeNode = std::variant<LeafNode, ConstNode, ConNode>;
 
 } // namespace
 
-// A constant the node would not build again is a leaf, as is a linear
-// value, whose shape its one use keeps. A constant is keyed as itself, a run
-// as the run it is, so a key is as large as the code and the constants that
-// make it; a constructor is its tag, not a symbol use, so a key keeps no
-// function alive. A value entered into a linear type is keyed as the value:
-// the type of its position says it is linear.
-Attribute shapeOf(Value value, SmallVectorImpl<Value> &leaves) {
-  MLIRContext *ctx = value.getContext();
-  Attribute known;
-  if (constant(value, known))
-    return known;
-  if (auto con = value.getDefiningOp<ConOp>()) {
-    SmallVector<Attribute> fields =
-        llvm::map_to_vector(con.getFields(), [&](Value field) { return shapeOf(field, leaves); });
-    return KeyConAttr::get(ctx, con.getTag(), ArrayAttr::get(ctx, fields));
+const Pattern *shapeOf(Arena &arena, Value value, SmallVectorImpl<Value> &leaves) {
+  // The nodes in pre-order, the leaves in that order as they are met.
+  SmallVector<ShapeNode> order;
+  SmallVector<Value> work{value};
+  while (!work.empty()) {
+    Value at = work.pop_back_val();
+    if (std::optional<Attribute> known = constantOf(at)) {
+      order.push_back(ConstNode{*known});
+      continue;
+    }
+    DataConOp con = constructorOf(at);
+    if (!con) {
+      order.push_back(LeafNode{});
+      leaves.push_back(at);
+      continue;
+    }
+    order.push_back(ConNode{con.getTag(), static_cast<unsigned>(con.getFields().size())});
+    for (Value field : llvm::reverse(con.getFields()))
+      work.push_back(field);
   }
-  if (auto enter = value.getDefiningOp<LinEnterOp>()) {
-    Attribute inner = shapeOf(enter.getValue(), leaves);
-    if (!isa<KeyHoleAttr>(inner))
-      return inner;
-    // A leaf that entered is a leaf itself: the entry stays with the caller.
-    leaves.pop_back();
-  }
-  leaves.push_back(value);
-  return KeyHoleAttr::get(ctx);
+  // Built from the last node back: a constructor's subtrees follow it in
+  // pre-order, so they are built when it is reached.
+  SmallVector<const Pattern *> built;
+  for (const ShapeNode &node : llvm::reverse(order))
+    idr::match(
+        node, [&](LeafNode) { built.push_back(arena.hole()); },
+        [&](const ConstNode &constant) { built.push_back(arena.constant(constant.value)); },
+        [&](const ConNode &con) {
+          SmallVector<const Pattern *> fields;
+          for (unsigned i = 0; i < con.arity; ++i)
+            fields.push_back(built.pop_back_val());
+          built.push_back(arena.con(con.tag, fields));
+        });
+  return built.front();
 }
 
-bool hasStructure(Attribute pattern) { return isa<KeyConAttr, ConAttr>(pattern); }
-
-// Whether `value` is closed: a constant, or a constructor of closed values.
 bool isClosed(Value value) {
-  if (matchPattern(value, m_Constant()))
-    return true;
-  auto con = value.getDefiningOp<ConOp>();
-  return con && llvm::all_of(con.getFields(), isClosed);
+  SmallVector<Value> work{value};
+  while (!work.empty()) {
+    Value at = work.pop_back_val();
+    if (matchPattern(at, m_Constant()))
+      continue;
+    auto con = at.getDefiningOp<DataConOp>();
+    if (!con)
+      return false;
+    llvm::append_range(work, con.getFields());
+  }
+  return true;
 }
 
-// Whether the shape of `value` has no use but the one that reads it: each
-// operation that built it is used once. A call on such a shape takes its
-// leaves alone once the shape is erased.
+// Each op that built the shape, through the ops that only change a grade,
+// has one use: the call that reads it.
 bool usedOnce(Value value) {
-  Operation *def = value.getDefiningOp();
-  if (!isShapeOp(def))
-    return true;
-  return value.hasOneUse() && llvm::all_of(def->getOperands(), usedOnce);
+  SmallVector<Value> work{value};
+  while (!work.empty()) {
+    Value at = work.pop_back_val();
+    Operation *def = at.getDefiningOp();
+    bool builds = def && (isa<DataConOp>(def) || throughLinear(at) != at);
+    if (!builds)
+      continue;
+    if (!at.hasOneUse())
+      return false;
+    llvm::append_range(work, def->getOperands());
+  }
+  return true;
 }
 
-// Erases the operations that built the shapes of `values` once nothing
-// uses them. They hold the leaves, which the node's call now takes itself:
-// a linear leaf used by both would be used twice. An operation enters the
-// worklist when it has no use left, which happens once, since erasing
-// only takes uses away; a value passed twice names one operation, erased
-// once.
+// An op is erased once it has no use left, which happens once, since
+// erasing only takes uses away: a value passed twice names one op, met
+// twice, erased the first time.
 void eraseUnused(RewriterBase &rewriter, ArrayRef<Value> values) {
-  OnceWorklist<Operation *> dead;
+  SmallVector<Operation *> dead;
+  llvm::SmallPtrSet<Operation *, 8> gone;
   auto consider = [&](Value value) {
-    if (Operation *def = value.getDefiningOp(); isShapeOp(def) && def->use_empty())
-      dead.push(def);
+    Operation *def = value.getDefiningOp();
+    if (def && !gone.contains(def) && (isa<DataConOp>(def) || throughLinear(value) != value) &&
+        def->use_empty()) {
+      gone.insert(def);
+      dead.push_back(def);
+    }
   };
   llvm::for_each(values, consider);
-  while (std::optional<Operation *> op = dead.pop()) {
-    SmallVector<Value> operands((*op)->getOperands());
-    rewriter.eraseOp(*op);
+  while (!dead.empty()) {
+    Operation *op = dead.pop_back_val();
+    SmallVector<Value> operands(op->getOperands());
+    rewriter.eraseOp(op);
     llvm::for_each(operands, consider);
   }
 }
 
-// A key's pattern rebuilt at a position of `type`: a hole is the next
-// parameter, a linear position enters what is rebuilt inside it, a
-// constructor is built over its fields at their declared types, and a
-// constant is the one the dialect materializes.
-Value rebuild(OpBuilder &b, Location loc, Attribute pattern, Type type, ArrayRef<Value> holes,
-              unsigned &next) {
-  if (isa<KeyHoleAttr>(pattern))
-    return holes[next++];
-  if (isLinearPosition(type))
-    return LinEnterOp::create(b, loc, type,
-                              rebuild(b, loc, pattern, unrestricted(type), holes, next));
-  if (auto con = dyn_cast<KeyConAttr>(pattern)) {
-    ArrayRef<Type> types = fieldTypes(type, con.getTag());
-    SmallVector<Value> fields;
-    for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), types))
-      fields.push_back(rebuild(b, loc, field, fieldType, holes, next));
-    return ConOp::create(b, loc, type, con.getTag(), fields).getResult();
-  }
+namespace {
+
+// One step of a rebuild: a pattern to build at a position of a type, or a
+// constructor whose fields, the last `arity` values built, are ready; or a
+// value to enter a quantity-one position once built.
+struct BuildAt {
+  const Pattern *pattern;
+  Type type;
+};
+struct MakeCon {
+  Type type;
+  Tag tag;
+  unsigned arity;
+};
+struct Enter {
+  Type type;
+};
+using RebuildStep = std::variant<BuildAt, MakeCon, Enter>;
+
+} // namespace
+
+// A hole is the next parameter, a quantity-one position enters what is
+// built inside it, a constructor is built over its fields at their
+// determined types, and a constant is the one the dialect materializes.
+Value rebuild(OpBuilder &b, Location loc, const Pattern &pattern, Type type,
+              ArrayRef<Value> holes, unsigned &next) {
   Dialect *idr = b.getContext()->getLoadedDialect<IdrDialect>();
-  return idr->materializeConstant(b, pattern, type, loc)->getResult(0);
-}
-
-void holeTypes(Attribute pattern, Type type, SmallVectorImpl<Type> &out) {
-  if (isa<KeyHoleAttr>(pattern)) {
-    out.push_back(type);
-    return;
+  SmallVector<Value> built;
+  SmallVector<RebuildStep> work{BuildAt{&pattern, type}};
+  while (!work.empty()) {
+    RebuildStep step = work.pop_back_val();
+    idr::match(
+        step,
+        [&](const Enter &enter) {
+          Value inner = built.pop_back_val();
+          built.push_back(LinCastOp::create(b, loc, enter.type, inner).getResult());
+        },
+        [&](const MakeCon &make) {
+          SmallVector<Value> fields(built.end() - make.arity, built.end());
+          built.resize(built.size() - make.arity);
+          built.push_back(DataConOp::create(b, loc, make.type, make.tag, fields).getResult());
+        },
+        [&](const BuildAt &at) {
+          idr::match(
+              at.pattern->get(), [&](Hole) { built.push_back(holes[next++]); },
+              [&](const Con &con) {
+                if (usedOncePosition(at.type)) {
+                  work.push_back(Enter{at.type});
+                  work.push_back(BuildAt{at.pattern, unrestricted(at.type)});
+                  return;
+                }
+                SmallVector<Type> types = fieldTypes(at.type, con.tag);
+                work.push_back(MakeCon{at.type, con.tag, static_cast<unsigned>(con.fields.size())});
+                for (unsigned k = con.fields.size(); k-- > 0;)
+                  work.push_back(BuildAt{con.fields[k], types[k]});
+              },
+              [&](const Const &constant) {
+                built.push_back(idr->materializeConstant(b, constant.value, at.type, loc)->getResult(0));
+              });
+        });
   }
-  auto con = dyn_cast<KeyConAttr>(pattern);
-  if (!con)
-    return;
-  ArrayRef<Type> types = fieldTypes(unrestricted(type), con.getTag());
-  for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), types))
-    holeTypes(field, fieldType, out);
+  return built.front();
 }
 
-unsigned countHoles(Attribute pattern) {
-  if (isa<KeyHoleAttr>(pattern))
-    return 1;
-  auto con = dyn_cast<KeyConAttr>(pattern);
-  if (!con)
-    return 0;
-  unsigned holes = 0;
-  for (Attribute field : con.getFields())
-    holes += countHoles(field);
-  return holes;
+void holeTypes(const Pattern &pattern, Type type, SmallVectorImpl<Type> &out) {
+  SmallVector<std::pair<const Pattern *, Type>> work{{&pattern, type}};
+  while (!work.empty()) {
+    auto [at, position] = work.pop_back_val();
+    idr::match(
+        at->get(), [&](Hole) { out.push_back(position); },
+        [&](const Con &con) {
+          SmallVector<Type> types = fieldTypes(position, con.tag);
+          for (unsigned k = con.fields.size(); k-- > 0;)
+            work.push_back({con.fields[k], types[k]});
+        },
+        [](const Const &) {});
+  }
 }
 
 } // namespace idr::specialize::detail
