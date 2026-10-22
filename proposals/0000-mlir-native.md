@@ -4011,6 +4011,38 @@ C137.
   lends nothing around a call on its caller's own cycle, so frames can
   split every region it is handed; C1's derived borrows stand
   elsewhere.
+- **C197** (2026-10-22; L19's sixth pass; amends C134's "primitives").
+  The harness's table of builtins keeps what is the test's own: each
+  builtin's spelling as a program writes it, and its meaning, the
+  oracle's, written from upstream's language and `runtime/`'s
+  documentation. The harness imports neither the fork nor the frontend,
+  and C6 keeps base's names out of the specification, so nothing else
+  could hold the spelling. What a builtin is in the dialect comes from
+  the specification's op value its entry names: the op, its family and
+  host dependence, its operand and result types, and the guard where it
+  crashes. The table's own operation sum and parameter domains go (19
+  G6). The oracle's meaning includes each crash the runtime documents,
+  so a generated program that reaches one is checked, not avoided.
+- **C198** (2026-10-22; L13's seventh pass). No fold whose answer
+  depends on the compiling machine. Upstream's folds of `math.exp`,
+  `log`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan` and `powf` call the
+  compiling machine's libm, whose results IEEE does not pin, so a
+  folded constant could differ in its last digit from what the target
+  computes, and removing an optimization would change a result. The
+  specification marks those admitted records as never folded, and
+  every reader of folds (the e-graph's generated table among them)
+  omits them, so they run on the target as written. `sqrt`, `floor` and
+  `ceil` are exact under IEEE, so their folds stay.
+- **C199** (2026-10-22; L17's third pass). The fork's known identifiers
+  are held once. `Core.Name.Known` spells each of its 824 identifiers
+  four times, as a constructor, its text, its ordinal and the inverse,
+  kept in step by a proof run when the compiler is built; a copy kept
+  in step by a check is still a copy. One Idris list of pairs, a
+  constructor and its text, is the source, in the fork; a generator in
+  the fork's tree, written in the subset both hosts compile, prints the
+  module from it. The output is committed with its fingerprint in
+  `generated.manifest`, and `make check` regenerates it, as for the
+  dialect's TableGen.
 
 ## 4. Open: the owner's decisions, in order
 
