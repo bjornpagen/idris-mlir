@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the forms share: a region moved or copied into the code that runs
-// it, a new array, and a read or a write at an index, of an element or of
+// What the forms share: a region moved into the code that runs it, the
+// sizes of a domain, and a read or a write at an index, of an element or of
 // a cell, whose sizes are the cell's own.
 
 #include "idr/Transforms/StructureLoops.h"
 
-#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/IR/IRMapping.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 
 using namespace mlir;
@@ -17,20 +16,7 @@ namespace idr::structure {
 
 namespace {
 
-// What the terminator `end` gives, of types `given`, each value as
-// `mapping` maps it (an empty mapping keeps every value): a yield's values,
-// or, where the region ends in ub.unreachable and never returns, poison
-// made with `b`, which no path reaches.
-SmallVector<Value> givenBy(OpBuilder &b, Operation *end, const IRMapping &mapping,
-                           TypeRange given) {
-  if (auto yield = dyn_cast<ArrayYieldOp>(end))
-    return llvm::map_to_vector(yield.getValues(),
-                               [&](Value value) { return mapping.lookupOrDefault(value); });
-  return llvm::map_to_vector(
-      given, [&](Type type) -> Value { return ub::PoisonOp::create(b, end->getLoc(), type); });
-}
-
-// The offsets, sizes and strides of the cell of `cellSizes` at `indices`.
+// The cell of `cellSizes` at `indices` of an array's leading dimensions.
 struct Slice {
   SmallVector<OpFoldResult> offsets, sizes, strides;
 };
@@ -57,37 +43,20 @@ SmallVector<Value> inlineRegion(RewriterBase &rewriter, Operation *op, ValueRang
   Operation *end = body.getTerminator();
   rewriter.inlineBlockBefore(&body, rewriter.getInsertionBlock(), rewriter.getInsertionPoint(),
                              args);
-  SmallVector<Value> values = givenBy(rewriter, end, IRMapping(), given);
+  SmallVector<Value> values =
+      isa<ArrayYieldOp>(end)
+          ? SmallVector<Value>(cast<ArrayYieldOp>(end).getValues())
+          : llvm::map_to_vector(given, [&](Type type) -> Value {
+              return ub::PoisonOp::create(rewriter, end->getLoc(), type);
+            });
   rewriter.eraseOp(end);
   return values;
 }
 
-SmallVector<Value> cloneRegion(OpBuilder &b, Operation *op, ValueRange args, TypeRange given) {
-  Block &body = op->getRegion(0).front();
-  IRMapping mapping;
-  mapping.map(body.getArguments(), args);
-  for (Operation &inner : body.without_terminator())
-    b.clone(inner, mapping);
-  return givenBy(b, body.getTerminator(), mapping, given);
-}
-
-SmallVector<OpFoldResult> extentsOf(OpBuilder &b, Operation *op, unsigned dims) {
-  auto generating = cast<GeneratingOpInterface>(op);
-  return llvm::map_to_vector(llvm::seq(0u, dims),
-                             [&](unsigned d) { return generating.getExtent(b, d); });
-}
-
-SmallVector<Value> valuesOf(OpBuilder &b, Location loc, ArrayRef<OpFoldResult> sizes) {
-  return llvm::map_to_vector(
-      sizes, [&](OpFoldResult size) { return getValueOrCreateConstantIndexOp(b, loc, size); });
-}
-
-Value emptyOf(OpBuilder &b, Location loc, RankedTensorType type, ArrayRef<OpFoldResult> dims) {
-  SmallVector<Value> dynamic;
-  for (auto [d, size] : llvm::enumerate(dims))
-    if (type.isDynamicDim(static_cast<unsigned>(d)))
-      dynamic.push_back(getValueOrCreateConstantIndexOp(b, loc, size));
-  return tensor::EmptyOp::create(b, loc, type, dynamic);
+SmallVector<OpFoldResult> extentsOf(OpBuilder &b, DestinationStyleOpInterface op,
+                                    unsigned dims) {
+  return llvm::map_to_vector(arrays::domainOf(b, op, dims),
+                             [](const Range &range) { return range.size; });
 }
 
 Value readCell(OpBuilder &b, Location loc, Value array, ValueRange indices, Type cell) {

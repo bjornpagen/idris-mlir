@@ -33,19 +33,32 @@ void placeElement(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime, mlir
                   const layout::Element &element, mlir::ValueRange value);
 
 // Writes `value`, of `type`, over the element at `address`: what the place
-// held loses the reference it had, and `value` moves in with its own. An
-// empty place releases nothing.
+// held loses the reference it had, and `value` moves in with its own.
 void writeElement(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime,
                   const Layouts &layouts, mlir::Value address, const layout::Element &element,
                   mlir::Type type, mlir::ValueRange value);
 
+// An element moved out of its place to be rebuilt and moved back: its
+// value, with the references the place held, and, for a boxed element, the
+// box the rebuilt value goes back into.
+struct Taken {
+  llvm::SmallVector<mlir::Value> value;
+  mlir::Value box;
+};
+
 // The value of type `type` at `address`, moved out with the references the
 // place held, which then holds nothing to release until a value is put
-// back.
-llvm::SmallVector<mlir::Value> takeElement(mlir::OpBuilder &b, mlir::Location loc,
-                                           Runtime &runtime, const Layouts &layouts,
-                                           mlir::Value address, const layout::Element &element,
-                                           mlir::Type type);
+// back. A boxed element's box is kept for the value put back where the
+// place alone held it, and a new one is made where a copy of the array
+// shares it, which keeps its value and loses the place's reference: so the
+// box the place held is never freed only to make another of its size.
+Taken takeElement(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime,
+                  const Layouts &layouts, mlir::Value address, const layout::Element &element,
+                  mlir::Type type);
+
+// Puts `value` back in the place `taken` left at `address`.
+void putBack(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime, mlir::Value address,
+             const layout::Element &element, const Taken &taken, mlir::ValueRange value);
 
 } // namespace idr::conversion
 

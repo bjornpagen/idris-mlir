@@ -3,8 +3,9 @@
 // What a vectorized loop computes on, what it reads from outside, and how
 // often it runs.
 
-#include "idr/Support/Worklist.h"
 #include "idr/Transforms/Narrow.h"
+
+#include "llvm/ADT/SetVector.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -99,33 +100,36 @@ llvm::DenseSet<Operation *> accumulations(Operation *root) {
       if (!isa<VectorType>(arg.getType()))
         continue;
       OpOperand &next = yield->getOpOperand(static_cast<unsigned>(index));
-      OnceWorklist<Operation *> reached;
+      // Each op enters once, in the order reached, and is read from the
+      // front: the ops of a loop are finitely many.
+      llvm::SetVector<Operation *> reached;
       auto reach = [&](Value value) {
         for (Operation *user : value.getUsers())
           if (user->hasTrait<OpTrait::Elementwise>())
-            (void)reached.push(user);
+            reached.insert(user);
       };
       reach(arg);
-      while (std::optional<Operation *> op = reached.pop())
-        for (Value result : (*op)->getResults())
+      for (size_t at = 0; at < reached.size(); ++at)
+        for (Value result : reached[at]->getResults())
           reach(result);
-      llvm::DenseSet<Operation *> kept(reached.entered().begin(), reached.entered().end());
+      llvm::DenseSet<Operation *> kept(reached.begin(), reached.end());
       auto feeds = [&](Operation *op) {
         return !op->use_empty() && llvm::all_of(op->getUses(), [&](OpOperand &use) {
           return &use == &next || kept.contains(use.getOwner());
         });
       };
-      OnceWorklist<Operation *> left;
+      // An op leaves once: it is erased from the kept set as it leaves.
+      SmallVector<Operation *> left;
       auto ask = [&](Operation *op) {
         if (kept.contains(op) && !feeds(op)) {
           kept.erase(op);
-          (void)left.push(op);
+          left.push_back(op);
         }
       };
-      for (Operation *op : reached.entered())
+      for (Operation *op : reached)
         ask(op);
-      while (std::optional<Operation *> op = left.pop())
-        for (Value operand : (*op)->getOperands())
+      while (!left.empty())
+        for (Value operand : left.pop_back_val()->getOperands())
           if (Operation *def = operand.getDefiningOp())
             ask(def);
       carried.insert(kept.begin(), kept.end());

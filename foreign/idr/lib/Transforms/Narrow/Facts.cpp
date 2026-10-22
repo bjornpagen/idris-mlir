@@ -6,7 +6,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Narrow.h"
 #include "idr/IR/Grades.h"
-#include "idr/IR/Ownership.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
@@ -36,18 +35,13 @@ Value widened(OpBuilder &b, Location loc, Value source) {
 
 } // namespace
 
-// The grade says whether a big holds a reference of its own, and a value
-// that stands for one (a small big, poison) holds none.
-bool Facts::owned(Value value) const {
-  return isOwned(value.getType()) && !ownership::isStatic(value);
-}
+// The grade says whether a big holds a reference of its own: freed by its
+// count. Static data, which its type says is static, holds none.
+bool Facts::owned(Value value) const { return freedBy(value.getType(), Release::Counted); }
 
-// From the owned stage on, which the passes that read it declare, every
-// value that holds references and is no view is graded owned.
-bool Facts::borrowed(Value value) const {
-  Type type = value.getType();
-  return holdsReferences(type) && !isOwned(type) && !ownership::isStatic(value);
-}
+// A view holds references and none of its own: freed when its lifetime
+// ends.
+bool Facts::borrowed(Value value) const { return freedBy(value.getType(), Release::Scoped); }
 
 Bounds Facts::of(Value value) const {
   // The program's poison may be taken to be any value, so a small one.
@@ -97,9 +91,9 @@ Value Facts::word(OpBuilder &b, Location loc, Value value) {
     return widened<arith::ExtSIOp>(b, loc, from.getValue());
   if (auto from = made.getDefiningOp<BigFromUIntOp>())
     return widened<arith::ExtUIOp>(b, loc, from.getValue());
-  // After counting an owned big is read through a view of it.
-  Value seen = isOwned(value.getType()) ? BorrowOp::create(b, loc, value).getResult() : value;
-  Value converted = BigToIntOp::create(b, loc, i64, seen);
+  // A big is read in place at any hold, so its conversion takes nothing of
+  // it.
+  Value converted = BigToIntOp::create(b, loc, i64, value);
   convert(converted.getDefiningOp());
   return converted;
 }

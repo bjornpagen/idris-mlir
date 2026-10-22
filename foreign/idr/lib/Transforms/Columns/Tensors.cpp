@@ -4,7 +4,8 @@
 // elements: an op that only moves arrays whole does to each column what it
 // did to the array, a slice or a reshape keeping each column's trailing
 // dimensions whole, and a read or a write at an index reads or writes each
-// column there, building the record or taking it apart.
+// column there, building the record or taking it apart; a read that gives
+// its array back gives each column back.
 
 #include "idr/Transforms/Columns.h"
 
@@ -61,8 +62,8 @@ SmallVector<ReassociationIndices> extend(ArrayRef<ReassociationIndices> groups, 
 // An op that does to an array of records what it does to each column: the
 // op once per column, given that column of each array it takes and every
 // other operand as it is, and giving that column of each array it makes.
-// An empty array, a cast, a tie, a linear position entered or used, a
-// choice of one of two arrays, a poison.
+// An empty array, a cast, a tie, a change of uses, a choice of one of two
+// arrays, a poison.
 struct PerColumn : ConversionPattern {
   PerColumn(const TypeConverter &converter, StringRef name, MLIRContext *ctx)
       : ConversionPattern(converter, name, 1, ctx) {}
@@ -232,6 +233,33 @@ struct InsertColumns : OpConversionPattern<tensor::InsertOp> {
   }
 };
 
+// A read that gives its array back reads each column there and gives each
+// back, so that whatever writes a column next takes the column the read
+// gave, as it took the array.
+struct ReadColumns : OpConversionPattern<ArrayReadOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult matchAndRewrite(ArrayReadOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    const Records &records = recordsOf(*getTypeConverter());
+    std::optional<Record> element = records.recordOf(op.getValue().getType());
+    if (!element)
+      return rewriter.notifyMatchFailure(op, "reads no record");
+    SmallVector<Value> indices = flatten(adaptor.getIndices());
+    SmallVector<Value> leaves, after;
+    for (Value column : adaptor.getArray()) {
+      auto type = cast<RankedTensorType>(column.getType());
+      auto read = ArrayReadOp::create(rewriter, op.getLoc(), type.getElementType(), type, column,
+                                      indices);
+      leaves.push_back(read.getValue());
+      after.push_back(read.getAfter());
+    }
+    ValueRange given = leaves;
+    Value record = records.build(rewriter, op.getLoc(), *element, given);
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{record}, after});
+    return success();
+  }
+};
+
 } // namespace
 
 // Every op here is legal once the types it carries are converted, but a
@@ -248,6 +276,7 @@ void populateTensorColumnPatterns(const TypeConverter &converter, RewritePattern
   addColumns<ExpandColumns, tensor::ExpandShapeOp>(converter, patterns, target, legal);
   addColumns<ExtractColumns, tensor::ExtractOp>(converter, patterns, target, legal);
   addColumns<InsertColumns, tensor::InsertOp>(converter, patterns, target, legal);
+  addColumns<ReadColumns, ArrayReadOp>(converter, patterns, target, legal);
   ConversionTarget::DynamicLegalityCallbackFn select =
       [&converter](Operation *op) -> std::optional<bool> {
     return isa<ShapedType>(cast<arith::SelectOp>(op).getCondition().getType()) ||
@@ -255,9 +284,8 @@ void populateTensorColumnPatterns(const TypeConverter &converter, RewritePattern
   };
   std::pair<StringRef, ConversionTarget::DynamicLegalityCallbackFn> perColumn[] = {
       {tensor::EmptyOp::getOperationName(), legal}, {tensor::CastOp::getOperationName(), legal},
-      {TieShapeOp::getOperationName(), legal},      {LinEnterOp::getOperationName(), legal},
-      {LinUseOp::getOperationName(), legal},        {arith::SelectOp::getOperationName(), select},
-      {ub::PoisonOp::getOperationName(), legal}};
+      {TieShapeOp::getOperationName(), legal},      {LinCastOp::getOperationName(), legal},
+      {arith::SelectOp::getOperationName(), select}, {ub::PoisonOp::getOperationName(), legal}};
   for (auto &[name, legality] : perColumn) {
     patterns.add<PerColumn>(converter, name, ctx);
     target.addDynamicallyLegalOp(OperationName(name, ctx), legality);

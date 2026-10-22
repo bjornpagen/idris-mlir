@@ -1,18 +1,29 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The rules the ops on arrays share, each said once (idr/IR/Arrays.h); and
-// the ops of the generating set that make no region of their own: the
-// transpose, a whole array moved, and the yield that ends every region of
-// an array op.
+// The rules the ops on arrays share, each said once (idr/IR/Arrays.h); the
+// folds and scans along the last dimension, idr.fold_last and
+// idr.scan_last; and the yield that ends every region of the generating
+// set.
+//
+// A fold and a scan are destination-style, as upstream's structured ops
+// are: on tensors each result is its destination with the region's values
+// written in, on buffers the op writes its destinations and gives nothing.
+// For each index of the frame a fold folds from what its destination holds
+// there and leaves the last accumulator in its place; a scan reads its
+// first accumulators from its inputs and writes every accumulator into its
+// destination. On buffers each is its loops, made by upstream's
+// lowerToLoopsUsingSCFForOp from the three tiling methods each implements,
+// in row-major order, the last axis fastest; every other tiling method
+// keeps its failing default, so nothing retiles an order the program can
+// observe.
 
 #include "idr/IR/Arrays.h"
-#include "idr/IR/Symbols.h"
+#include "idr/IR/Grades.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/Dialect/Utils/IndexingUtils.h"
-
-#include <algorithm>
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 using namespace mlir;
 using namespace idr;
@@ -21,13 +32,16 @@ namespace idr::arrays {
 
 // What each rule says is in idr/IR/Arrays.h.
 
-Type cellOf(RankedTensorType array, unsigned lead) {
+Type cellOf(ShapedType array, unsigned lead) {
   if (lead == array.getRank())
     return array.getElementType();
-  return RankedTensorType::get(array.getShape().drop_front(lead), array.getElementType());
+  ArrayRef<int64_t> shape = array.getShape().drop_front(lead);
+  if (isa<RankedTensorType>(array))
+    return RankedTensorType::get(shape, array.getElementType());
+  return MemRefType::get(shape, array.getElementType());
 }
 
-bool sameLead(RankedTensorType a, RankedTensorType b, unsigned lead) {
+bool sameLead(ShapedType a, ShapedType b, unsigned lead) {
   return a.getRank() >= lead && b.getRank() >= lead &&
          a.getShape().take_front(lead) == b.getShape().take_front(lead);
 }
@@ -38,12 +52,12 @@ FlowPoint elementsOf(Value array) {
 }
 
 FlowPoint atIndex(OpOperand &use) {
-  if (auto cell = dyn_cast<RankedTensorType>(use.get().getType()))
+  if (auto cell = dyn_cast<ShapedType>(use.get().getType()))
     return FlowPoint::partOf(use, FlowAnchor::elementsOf(cell.getElementType()));
   return FlowPoint::of(use);
 }
 FlowPoint atIndex(Value value) {
-  if (isa<RankedTensorType>(value.getType()))
+  if (isa<ShapedType>(value.getType()))
     return elementsOf(value);
   return FlowPoint::of(value);
 }
@@ -53,24 +67,13 @@ void generatingSuccessors(Operation *op, SmallVectorImpl<RegionSuccessor> &regio
   regions.push_back(RegionSuccessor(op));
 }
 
-LogicalResult verifyEnd(Operation *op, TypeRange types, function_ref<bool(unsigned)> graded) {
-  Operation *end = op->getRegion(0).front().getTerminator();
-  if (isa<ub::UnreachableOp>(end))
-    return success();
-  auto yield = dyn_cast<ArrayYieldOp>(end);
+LogicalResult verifyEnd(Operation *op, TypeRange types) {
+  auto yield = dyn_cast<ArrayYieldOp>(op->getRegion(0).front().getTerminator());
   if (!yield)
-    return op->emitOpError("ends its region in ") << end->getName()
-                                                  << ", not idr.array.yield or ub.unreachable";
-  if (yield.getValues().size() != types.size())
-    return yield.emitOpError("yields ") << yield.getValues().size() << " values where "
-                                        << op->getName() << " takes " << types.size();
-  for (auto [at, value, type] : llvm::enumerate(yield.getValues(), types)) {
-    bool any = graded && graded(static_cast<unsigned>(at));
-    if (value.getType() != (any ? atPermission(type, gradeOf(value.getType()).permission) : type))
-      return yield.emitOpError("yields ")
-             << value.getType() << " at " << at << " where " << op->getName() << " takes "
-             << type;
-  }
+    return success();
+  if (yield.getValues().getTypes() != types)
+    return yield.emitOpError("yields ") << yield.getValues().getTypes() << " where "
+                                        << op->getName() << " takes " << types;
   return success();
 }
 
@@ -85,103 +88,378 @@ LogicalResult verifyIndices(Operation *op, unsigned rank) {
   return success();
 }
 
-void boundIndex(Value value, Block::BlockArgListType indices,
-                function_ref<AffineExpr(unsigned)> extent, ValueBoundsConstraintSet &cstr) {
-  auto index = dyn_cast<BlockArgument>(value);
-  if (!index || indices.empty() || index.getOwner() != indices.front().getOwner() ||
-      index.getArgNumber() >= indices.size())
-    return;
-  cstr.bound(value) >= 0;
-  cstr.bound(value) < extent(index.getArgNumber());
+OpFoldResult sizeOf(OpBuilder &b, Location loc, Value array, unsigned dim) {
+  // A tensor's dimension and a buffer's are two ops, one per dialect.
+  if (isa<RankedTensorType>(array.getType()))
+    return tensor::getMixedSize(b, loc, array, dim);
+  return memref::getMixedSize(b, loc, array, dim);
+}
+
+// The last axis of a fold or a scan is its length, which a scan's
+// destination also has and a fold's has not; every other dimension of the
+// domain is the first destination's.
+ValueBoundsConstraintSet::Variable extentOf(DestinationStyleOpInterface op, unsigned dim) {
+  if (auto fold = dyn_cast<LastAxisFoldOpInterface>(op.getOperation());
+      fold && dim == fold.getFrameRank())
+    return fold.getLength();
+  return {op.getDpsInits().front(), static_cast<int64_t>(dim)};
+}
+
+SmallVector<Range> domainOf(OpBuilder &b, DestinationStyleOpInterface op, unsigned rank) {
+  Location loc = op.getLoc();
+  OpFoldResult zero = b.getIndexAttr(0);
+  OpFoldResult one = b.getIndexAttr(1);
+  auto fold = dyn_cast<LastAxisFoldOpInterface>(op.getOperation());
+  return llvm::map_to_vector(llvm::seq(0u, rank), [&](unsigned dim) {
+    OpFoldResult size = fold && dim == fold.getFrameRank()
+                            ? OpFoldResult(fold.getLength())
+                            : sizeOf(b, loc, op.getDpsInits().front(), dim);
+    return Range{zero, size, one};
+  });
+}
+
+namespace {
+
+// Whether an effect ends the run, as a crash or a divergence writes it. The
+// resources are compared exactly, never by kind.
+bool endsTheRun(const MemoryEffects::EffectInstance &effect) {
+  return isa<MemoryEffects::Write>(effect.getEffect()) &&
+         (effect.getResource() == effects::Crash::get() ||
+          effect.getResource() == effects::Divergence::get());
+}
+
+} // namespace
+
+bool computesOnly(Operation *op) {
+  std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = getEffectsRecursively(op);
+  if (!effects)
+    return false;
+  return llvm::all_of(*effects, [&](const MemoryEffects::EffectInstance &effect) {
+    if (isa<MemoryEffects::Allocate>(effect.getEffect())) {
+      auto made = dyn_cast_or_null<OpResult>(effect.getValue());
+      return made && op->isAncestor(made.getOwner());
+    }
+    return endsTheRun(effect);
+  });
+}
+
+bool computes(Operation *op) {
+  return llvm::all_of(op->getRegion(0).front().without_terminator(),
+                      [](Operation &inner) { return computesOnly(&inner); });
+}
+
+SmallVector<utils::IteratorType> iteratorsOf(Operation *op, unsigned rank, unsigned frame) {
+  utils::IteratorType across =
+      computes(op) ? utils::IteratorType::parallel : utils::IteratorType::reduction;
+  SmallVector<utils::IteratorType> iterators(frame, across);
+  iterators.append(rank - frame, utils::IteratorType::reduction);
+  return iterators;
+}
+
+Value takeAt(OpBuilder &b, Location loc, Value buffer, ValueRange indices) {
+  auto type = cast<MemRefType>(buffer.getType());
+  return ArrayTakeOp::create(b, loc, cellOf(type, static_cast<unsigned>(indices.size())), buffer,
+                             indices);
+}
+
+Value copyAt(OpBuilder &b, Location loc, Value buffer, ValueRange indices) {
+  auto type = cast<MemRefType>(buffer.getType());
+  return ArrayCopyOp::create(b, loc, cellOf(type, static_cast<unsigned>(indices.size())), buffer,
+                             indices);
+}
+
+void placeAt(OpBuilder &b, Location loc, Value value, Value buffer, ValueRange indices) {
+  ArrayPlaceOp::create(b, loc, value, buffer, indices);
 }
 
 } // namespace idr::arrays
 
 using namespace idr::arrays;
 
-//===----------------------------------------------------------------------===//
-// idr.transpose
-//===----------------------------------------------------------------------===//
+namespace {
 
-LogicalResult TransposeOp::verify() {
-  auto from = getInput().getType();
-  auto to = getResult().getType();
-  ArrayRef<int64_t> permutation = getPermutation();
-  if (from.getElementType() != to.getElementType() || from.getRank() != to.getRank() ||
-      permutation.size() != static_cast<size_t>(to.getRank()) || !isPermutationVector(permutation))
-    return emitOpError("takes ") << from << " to " << to << " by " << permutation
-                                 << ", which is no permutation of its dimensions";
-  for (auto [d, from_d] : llvm::enumerate(permutation)) {
-    int64_t a = to.getDimSize(static_cast<unsigned>(d));
-    int64_t b = from.getDimSize(static_cast<unsigned>(from_d));
-    if (!ShapedType::isDynamic(a) && !ShapedType::isDynamic(b) && a != b)
-      return emitOpError("gives dimension ") << d << " the size " << a << " of a dimension of "
-                                             << b;
+// A fold's or a scan's destinations or inputs, of which ODS has checked
+// there is one: all sharing their `frame` leading dimensions, and an
+// accumulator each, its element or cell there, and every one a tensor or
+// every one a buffer.
+LogicalResult verifyAccumulators(Operation *op, ValueRange arrays, unsigned frame,
+                                 Block::BlockArgListType accumulators) {
+  if (accumulators.size() != arrays.size())
+    return op->emitOpError("binds ") << accumulators.size() << " accumulators for "
+                                     << arrays.size() << " arrays";
+  auto first = cast<ShapedType>(arrays.front().getType());
+  for (auto [array, accumulator] : llvm::zip_equal(arrays, accumulators)) {
+    auto type = cast<ShapedType>(array.getType());
+    if (!sameLead(first, type, frame))
+      return op->emitOpError("folds ") << type << ", whose frame of " << frame
+                                       << " dimensions is not that of " << first;
+    if (accumulator.getType() != cellOf(type, frame))
+      return op->emitOpError("binds an accumulator of ")
+             << accumulator.getType() << " for an array of " << type;
   }
   return success();
 }
 
-// The identity is its input; a transpose of a transpose that undoes it, the
-// first one's input.
-OpFoldResult TransposeOp::fold(FoldAdaptor) {
-  ArrayRef<int64_t> permutation = getPermutation();
-  if (isIdentityPermutation(permutation) && getInput().getType() == getType())
-    return getInput();
-  auto inner = getInput().getDefiningOp<TransposeOp>();
-  if (!inner || inner.getInput().getType() != getType() ||
-      !llvm::equal(invertPermutationVector(inner.getPermutation()), permutation))
-    return {};
-  return inner.getInput();
+// An op on tensors or an op on buffers, never one on both: its results are
+// its destinations written, or it writes them.
+LogicalResult verifyOneForm(DestinationStyleOpInterface op) {
+  if (op.hasPureTensorSemantics() || op.hasPureBufferSemantics())
+    return success();
+  return op->emitOpError("writes tensors and buffers in one op");
 }
 
-// A new array of the input's elements.
-void TransposeOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(elementsOf(getInput()), elementsOf(getResult()));
-  edges.fresh(getResult());
+// What a step of a fold or a scan on buffers reads and gives, at the
+// frame's index `frame` and the step `step`.
+SmallVector<Value> stepArgs(ValueRange frame, Value step, ValueRange accumulators) {
+  SmallVector<Value> args(frame);
+  args.push_back(step);
+  llvm::append_range(args, accumulators);
+  return args;
 }
 
-LogicalResult TransposeOp::reifyResultShapes(OpBuilder &b, ReifiedRankedShapedTypeDims &shapes) {
-  shapes.push_back(applyPermutation(tensor::getMixedSizes(b, getLoc(), getInput()),
-                                    getPermutation()));
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// idr.fold_last
+//===----------------------------------------------------------------------===//
+
+MutableOperandRange FoldLastOp::getDpsInitsMutable() { return getInitsMutable(); }
+
+unsigned FoldLastOp::getFrameRank() { return getRank() - 1; }
+
+unsigned FoldLastOp::getRank() {
+  return getBody()->getNumArguments() - static_cast<unsigned>(getInits().size());
+}
+
+Block::BlockArgListType FoldLastOp::getAccumulators() {
+  return getBody()->getArguments().drop_front(getRank());
+}
+
+LogicalResult FoldLastOp::verify() {
+  if (getBody()->getNumArguments() <= getInits().size())
+    return emitOpError("binds no index of the fold before its accumulators");
+  if (failed(verifyOneForm(*this)) || failed(verifyIndices(*this, getRank())))
+    return failure();
+  return verifyAccumulators(*this, getInits(), getFrameRank(), getAccumulators());
+}
+
+LogicalResult FoldLastOp::verifyRegions() {
+  return verifyEnd(*this, ValueRange(getAccumulators()).getTypes());
+}
+
+void FoldLastOp::getSuccessorRegions(RegionBranchPoint, SmallVectorImpl<RegionSuccessor> &regions) {
+  generatingSuccessors(*this, regions);
+}
+
+SmallVector<utils::IteratorType> FoldLastOp::getLoopIteratorTypes() {
+  return iteratorsOf(*this, getRank(), getFrameRank());
+}
+
+SmallVector<Range> FoldLastOp::getIterationDomain(OpBuilder &b) {
+  return domainOf(b, *this, getRank());
+}
+
+// At the frame's index, each accumulator is taken out of its destination,
+// the region runs with it, and the next is placed where it was.
+LogicalResult FoldLastOp::generateScalarImplementation(OpBuilder &b, Location loc,
+                                                       ValueRange ivs) {
+  if (!hasPureBufferSemantics())
+    return emitOpError("is made loops on tensors, which it writes in no order");
+  ValueRange frame = ivs.take_front(getFrameRank());
+  SmallVector<Value> accumulators = llvm::map_to_vector(
+      getInits(), [&](Value init) { return takeAt(b, loc, init, frame); });
+  cloneStep(b, loc, getRegion(), stepArgs(frame, ivs.back(), accumulators),
+            [&](OpBuilder &at, ValueRange next) {
+              for (auto [value, init] : llvm::zip_equal(next, getInits()))
+                placeAt(at, loc, value, init, frame);
+            });
   return success();
 }
 
-void TransposeOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
-                                                  ValueBoundsConstraintSet &cstr) {
-  cstr.bound(value)[dim] ==
-      cstr.getExpr(getInput(), getPermutation()[static_cast<size_t>(dim)]);
+// A tensor result is its destination with the last accumulators written at
+// the frame's indices; every accumulator is first what its destination
+// holds there, then what the step before gave, which the yield moves in.
+void FoldLastOp::getFlowEdges(FlowEdges &edges) {
+  for (auto [init, result] : llvm::zip_equal(getInitsMutable(), getResults()))
+    edges.flow(FlowPoint::of(init), FlowPoint::of(result));
+  for (auto [init, accumulator] : llvm::zip_equal(getInits(), getAccumulators()))
+    edges.flow(elementsOf(init), atIndex(accumulator));
+}
+
+ValueRange FoldLastOp::getYieldTargets() {
+  return hasPureTensorSemantics() ? ValueRange(getResults()) : ValueRange(getInits());
+}
+
+LogicalResult FoldLastOp::reifyResultShapes(OpBuilder &b, ReifiedRankedShapedTypeDims &shapes) {
+  for (Value init : getInits())
+    shapes.push_back(tensor::getMixedSizes(b, getLoc(), init));
+  return success();
+}
+
+void FoldLastOp::populateBoundsForIndexValue(Value value, ValueBoundsConstraintSet &cstr) {
+  boundIndex(value, getBody()->getArguments().take_front(getRank()),
+             [&](unsigned dim) { return cstr.getExpr(extentOf(*this, dim)); }, cstr);
+}
+
+// A result is shaped as its destination.
+void FoldLastOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
+                                                 ValueBoundsConstraintSet &cstr) {
+  unsigned at = cast<OpResult>(value).getResultNumber();
+  cstr.bound(value)[dim] == cstr.getExpr(getInits()[at], dim);
+}
+
+Speculation::Speculatability FoldLastOp::getSpeculatability() {
+  return hasPureTensorSemantics() ? Speculation::RecursivelySpeculatable
+                                  : Speculation::NotSpeculatable;
+}
+
+//===----------------------------------------------------------------------===//
+// idr.scan_last
+//===----------------------------------------------------------------------===//
+
+MutableOperandRange ScanLastOp::getDpsInitsMutable() { return getOutsMutable(); }
+
+unsigned ScanLastOp::getFrameRank() { return getRank() - 1; }
+
+unsigned ScanLastOp::getRank() {
+  return getBody()->getNumArguments() - static_cast<unsigned>(getInits().size());
+}
+
+Block::BlockArgListType ScanLastOp::getAccumulators() {
+  return getBody()->getArguments().drop_front(getRank());
+}
+
+LogicalResult ScanLastOp::verify() {
+  if (getBody()->getNumArguments() <= getInits().size())
+    return emitOpError("binds no index of the scan before its accumulators");
+  if (failed(verifyOneForm(*this)) || failed(verifyIndices(*this, getRank())) ||
+      failed(verifyAccumulators(*this, getInits(), getFrameRank(), getAccumulators())))
+    return failure();
+  if (getOuts().size() != getInits().size())
+    return emitOpError("writes ") << getOuts().size() << " arrays for " << getInits().size()
+                                  << " inputs";
+  unsigned frame = getFrameRank();
+  std::optional<int64_t> length = getConstantIntValue(getLength());
+  for (auto [init, out] : llvm::zip_equal(getInits().getTypes(), getOuts().getTypes())) {
+    auto from = cast<ShapedType>(init);
+    auto to = cast<ShapedType>(out);
+    bool shaped = to.getElementType() == from.getElementType() &&
+                  to.getRank() == from.getRank() + 1 &&
+                  to.getShape().take_front(frame) == from.getShape().take_front(frame) &&
+                  to.getShape().drop_front(frame + 1) == from.getShape().drop_front(frame);
+    if (!shaped)
+      return emitOpError("writes ") << to << " for an input of " << from << " and a frame of "
+                                    << frame << " dimensions";
+    if (length && !to.isDynamicDim(frame) && to.getDimSize(frame) != *length)
+      return emitOpError("writes ") << to << " for a scan " << *length << " long";
+  }
+  return success();
+}
+
+LogicalResult ScanLastOp::verifyRegions() {
+  return verifyEnd(*this, ValueRange(getAccumulators()).getTypes());
+}
+
+void ScanLastOp::getSuccessorRegions(RegionBranchPoint, SmallVectorImpl<RegionSuccessor> &regions) {
+  generatingSuccessors(*this, regions);
+}
+
+SmallVector<utils::IteratorType> ScanLastOp::getLoopIteratorTypes() {
+  return iteratorsOf(*this, getRank(), getFrameRank());
+}
+
+// Every destination has the frame's dimensions, then the scan's.
+SmallVector<Range> ScanLastOp::getIterationDomain(OpBuilder &b) {
+  return domainOf(b, *this, getRank());
+}
+
+// At the frame's index and a step, each accumulator is a copy of what the
+// input holds at the frame's index for the first step, else of what the
+// step before wrote, which both keep; the next is placed at the step.
+LogicalResult ScanLastOp::generateScalarImplementation(OpBuilder &b, Location loc,
+                                                       ValueRange ivs) {
+  if (!hasPureBufferSemantics())
+    return emitOpError("is made loops on tensors, which it writes in no order");
+  ValueRange frame = ivs.take_front(getFrameRank());
+  Value step = ivs.back();
+  Value zero = arith::ConstantIndexOp::create(b, loc, 0);
+  Value first = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, step, zero);
+  auto read = scf::IfOp::create(
+      b, loc, first,
+      [&](OpBuilder &at, Location l) {
+        SmallVector<Value> copies = llvm::map_to_vector(
+            getInits(), [&](Value init) { return copyAt(at, l, init, frame); });
+        scf::YieldOp::create(at, l, copies);
+      },
+      [&](OpBuilder &at, Location l) {
+        Value one = arith::ConstantIndexOp::create(at, l, 1);
+        SmallVector<Value> before(frame);
+        before.push_back(arith::SubIOp::create(at, l, step, one));
+        SmallVector<Value> copies = llvm::map_to_vector(
+            getOuts(), [&](Value out) { return copyAt(at, l, out, before); });
+        scf::YieldOp::create(at, l, copies);
+      });
+  SmallVector<Value> at(ivs);
+  cloneStep(b, loc, getRegion(), stepArgs(frame, step, read.getResults()),
+            [&](OpBuilder &here, ValueRange next) {
+              for (auto [value, out] : llvm::zip_equal(next, getOuts()))
+                placeAt(here, loc, value, out, at);
+            });
+  return success();
+}
+
+// A tensor result is its destination with every accumulator written; an
+// accumulator is a copy of what an input or the result holds, which keep
+// theirs.
+void ScanLastOp::getFlowEdges(FlowEdges &edges) {
+  for (auto [out, result] : llvm::zip_equal(getOutsMutable(), getResults()))
+    edges.flow(FlowPoint::of(out), FlowPoint::of(result));
+  for (auto [init, accumulator] : llvm::zip_equal(getInits(), getAccumulators()))
+    edges.flow(elementsOf(init), atIndex(accumulator));
+  for (auto [out, accumulator] : llvm::zip_equal(getYieldTargets(), getAccumulators()))
+    edges.flow(elementsOf(out), atIndex(accumulator));
+}
+
+ValueRange ScanLastOp::getYieldTargets() {
+  return hasPureTensorSemantics() ? ValueRange(getResults()) : ValueRange(getOuts());
+}
+
+LogicalResult ScanLastOp::reifyResultShapes(OpBuilder &b, ReifiedRankedShapedTypeDims &shapes) {
+  for (Value out : getOuts())
+    shapes.push_back(tensor::getMixedSizes(b, getLoc(), out));
+  return success();
+}
+
+void ScanLastOp::populateBoundsForIndexValue(Value value, ValueBoundsConstraintSet &cstr) {
+  boundIndex(value, getBody()->getArguments().take_front(getRank()),
+             [&](unsigned dim) { return cstr.getExpr(extentOf(*this, dim)); }, cstr);
+}
+
+void ScanLastOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
+                                                 ValueBoundsConstraintSet &cstr) {
+  unsigned at = cast<OpResult>(value).getResultNumber();
+  cstr.bound(value)[dim] == cstr.getExpr(getOuts()[at], dim);
+}
+
+Speculation::Speculatability ScanLastOp::getSpeculatability() {
+  return hasPureTensorSemantics() ? Speculation::RecursivelySpeculatable
+                                  : Speculation::NotSpeculatable;
 }
 
 //===----------------------------------------------------------------------===//
 // idr.array.yield
 //===----------------------------------------------------------------------===//
 
-// One rule for every parent, read from what the parent holds
-// (YieldTargetsOpInterface, which the yield's parent rule requires): with
-// k targets, the j-th value, j < k, moves into the j-th (at its index of an
-// array, or a memo cell's forced state), and the values from the k-th on go
-// on to the parent's successor, a world to the next step and out, an
-// update's or a force's outs out of the op. The values that
-// move in are the first min(k, n) of the n given: RegionBranchOpInterface's
-// verifier, which runs before the parent's own, may ask a yield of fewer
-// values than arrays, which then forwards none, and the parent's verifier
-// refuses it.
+// What a step gives goes into memory, never to a successor: nothing is
+// forwarded.
 MutableOperandRange ArrayYieldOp::getMutableSuccessorOperands(RegionSuccessor) {
-  ValueRange targets = cast<YieldTargetsOpInterface>((*this)->getParentOp()).getYieldTargets();
-  auto count = static_cast<unsigned>(getValues().size());
-  unsigned leading = std::min(static_cast<unsigned>(targets.size()), count);
-  return MutableOperandRange(*this, leading, count - leading);
+  return MutableOperandRange(*this, 0, 0);
 }
 
-// Two kinds of memory hold what a yield moves in, each as its type says:
-// an array holds the value at an index, an element or the elements of a
-// cell, and a memo cell holds the value whole, as its forced state.
+// The j-th value moves into the j-th array its parent writes, at the step's
+// index: an element, or the elements of a cell.
 void ArrayYieldOp::getFlowEdges(FlowEdges &edges) {
   ValueRange targets = cast<YieldTargetsOpInterface>((*this)->getParentOp()).getYieldTargets();
-  for (auto [value, target] : llvm::zip(getValuesMutable(), targets)) {
-    if (DataType memo = dataTypeOf(target.getType()); memo && memo.isMemo())
-      edges.flow(FlowPoint::of(value), FlowPoint::partOf(target, FlowAnchor::memoStateOf(memo)));
-    else
-      edges.flow(atIndex(value), elementsOf(target));
-  }
+  for (auto [value, target] : llvm::zip_equal(getValuesMutable(), targets))
+    edges.flow(atIndex(value), elementsOf(target));
 }

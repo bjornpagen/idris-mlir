@@ -13,12 +13,10 @@
 // builds the record, and a write takes the record apart.
 //
 // A record the conversion cannot hold so is kept whole, never refused: one
-// whose field is graded (a linear field is used once, and its column would
-// be used as the array is), an array a world orders, an array of a shape
-// its type leaves dynamic (records of one array type may hold arrays of
-// different lengths), or an array of records; and one an array of which a
-// data type of the program holds, as a constructor's field holds it whole
-// (Records). Where an array of records meets another op the conversion
+// whose field is used once (its column would be used as the array is) or
+// holds an array, which a field holds as its buffer; and one an array of
+// which a data type of the program holds, as a constructor's field holds
+// it whole (Records). Where an array of records meets another op the conversion
 // does not take, it is gathered from its columns there, and taken apart
 // into them again where it comes out: the program is the same, held in two
 // ways at that boundary.
@@ -47,11 +45,12 @@ namespace idr {
 namespace idr::columns {
 
 // A data type whose arrays are held as one array per leaf: a record, whose
-// one constructor, the first of its body, every value is built with.
+// one constructor, the first of its declaration, every value is built
+// with, so its type fixes the constructor.
 struct Record {
   static constexpr Tag tag{0};
   DataType data;
-  llvm::ArrayRef<mlir::Type> fields() const { return data.getCtor(tag).fields; }
+  llvm::ArrayRef<mlir::Type> fields() const { return data.ctor(tag).fields; }
 };
 
 // The records of a program whose arrays are held as their columns, and

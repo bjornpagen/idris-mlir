@@ -75,7 +75,7 @@ llvm::SmallVector<mlir::Value> componentsOf(mlir::OpBuilder &b, mlir::Location l
 // the converter of idr's ops, function boundaries and cells, takes a
 // descriptor apart into components; `descriptors`, the converter of
 // upstream's memref patterns, builds a descriptor from components, lays an
-// element of ours out as its bytes, and puts the world's memory in address
+// element of ours out as its bytes, and puts mutable memory in address
 // space 0. A legal op that holds a memref (a word's load or store, a linalg
 // op over words) gets the memref cast from its descriptor, which meets the
 // inverse cast in convert-to-llvm.

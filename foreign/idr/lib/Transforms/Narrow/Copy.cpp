@@ -16,7 +16,9 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -101,18 +103,19 @@ bool Copy::fits(DataFlowSolver &solver) {
               .wasInterrupted();
 }
 
-// Upstream's narrowing patterns under upstream's driver, configured as its
-// own passes configure it: users first (its int-range-narrowing's
-// bottom-up traversal), so that a comparison still finds the ranges of its
-// operands, which are the values analysed; the solver told of every op the
-// driver erases; and no folding and no region simplification (its
-// int-range-optimizations), which can erase a block argument without a
-// word to the solver, so that a new one at its address would take its
-// range. The driver folds the index cast chains the narrowing leaves (the
-// set holds that pattern) and erases what no one reads. It stops at
-// upstream's default iteration budget, and its result is not read: a
-// budget spent leaves the copy less narrowed, its other lanes wide, never
-// wrong.
+// Upstream's narrowing patterns, applied in two walks of the copy, each a
+// fixed sequence: the first narrows every op the analysis proves fits,
+// each visited once in the walk's order, a narrowed op's widened result
+// carrying the range of the result it replaces (the patterns copy it to
+// the solver), so that a user visited after it still finds the range of
+// what it reads; the second folds the pairs of index casts the first left
+// where a narrowed result meets a narrowed user, which the set's cast-chain
+// pattern takes and the narrowing patterns, finding every op already
+// narrowed, leave. Then one walk from the end erases what no one reads.
+// The solver is told of every op erased, so a new op at an erased one's
+// address takes no stale range. Nothing folds and no region is simplified
+// (upstream's int-range-optimizations' setting): a fold can erase a block
+// argument without a word to the solver.
 void Copy::narrow(DataFlowSolver &solver) {
   struct Listener : RewriterBase::Listener {
     explicit Listener(DataFlowSolver &s) : solver(s) {}
@@ -125,12 +128,15 @@ void Copy::narrow(DataFlowSolver &solver) {
   } listener(solver);
   RewritePatternSet patterns(module->getContext());
   arith::populateIntRangeNarrowingPatterns(patterns, solver, {32});
-  (void)applyPatternsGreedily(function, std::move(patterns),
-                              GreedyRewriteConfig()
-                                  .setUseTopDownTraversal(false)
-                                  .enableFolding(false)
-                                  .setRegionSimplificationLevel(GreedySimplifyRegionLevel::Disabled)
-                                  .setListener(&listener));
+  FrozenRewritePatternSet frozen(std::move(patterns));
+  walkAndApplyPatterns(function, frozen, &listener);
+  walkAndApplyPatterns(function, frozen, &listener);
+  function.walk<WalkOrder::PostOrder, ReverseIterator>([&](Operation *op) {
+    if (isOpTriviallyDead(op)) {
+      listener.notifyOperationErased(op);
+      op->erase();
+    }
+  });
 
   // The narrowing widens a result back with arith.extui, and knows the word
   // it widens is non-negative (its range, kept on the cast); the flag says

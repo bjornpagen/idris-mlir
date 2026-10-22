@@ -2,36 +2,38 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Releases, and what may touch a released buffer after one.
 //
-// A release hands a buffer to a place One-Shot does not see: a cell's field
-// (idr.con, the yield of idr.memo.run), a linear thread (idr.lin.enter), or a callee,
-// which may keep it in either. The analysis sees the release read and write
-// the buffer, so a later read of it makes the release copy. It sees no read
-// after a later write that does not read: such a write would overwrite a
-// buffer something else now holds, and nothing would conflict. So before any
-// analysis, the program is made such that no such write exists: each
-// tensor.empty is one buffer with one use, where common subexpression
-// elimination would have shared one between two writes, and a write-only use
-// of a released buffer after its release writes a tensor.empty of its own.
-// Its contents were never read, so only its shape is the program's.
+// A release hands a buffer to a place One-Shot does not see: a cell
+// (bufferization.to_buffer before idr.con, a memo cell's forced value) or a
+// callee, which may keep it in one. The analysis sees the release read and
+// write the buffer, so a later read of it makes the release copy. It sees
+// no read after a later write that does not read: such a write would
+// overwrite a buffer something else now holds, and nothing would conflict.
+// So before any analysis, the program is made such that no such write
+// exists: each tensor.empty is one buffer with one use, where common
+// subexpression elimination would have shared one between two writes, and
+// a write-only use of a released buffer after its release writes a
+// tensor.empty of its own. Its contents were never read, so only its shape
+// is the program's.
 //
 // Which buffers may be one is every aliasing relation the models declare,
-// followed both ways, before the analysis decides any of them; when one
-// value may run after another is by position, through loops and branches,
-// as One-Shot's own conflict check reads it.
+// followed both ways, before the analysis decides any of them: a partition
+// of the program's tensor values made once. When one value may run after
+// another is by position, through loops and branches, as One-Shot's own
+// conflict check reads it.
 #include "idr/Transforms/BufferizeModels.h"
 
+#include "idr/IR/Arrays.h"
+#include "idr/IR/Grades.h"
+
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-
-#include "idr/Support/Worklist.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
-#include "llvm/Support/ErrorHandling.h"
-
-#include <optional>
 
 using namespace mlir;
 using namespace mlir::bufferization;
@@ -63,20 +65,36 @@ void writeOwn(RewriterBase &rewriter, OpOperand &use) {
 
 } // namespace
 
-// Each value enters once, and the values of the program are finitely many.
-llvm::SetVector<Value> idr::bufferize::sharers(Value value, const BufferizationOptions &options) {
+// Each value enters the partition once, joined with each value an aliasing
+// relation names, and the values of the program are finitely many.
+idr::bufferize::AliasClasses::AliasClasses(Operation *program,
+                                           const BufferizationOptions &options) {
   AnalysisState state(options);
-  OnceWorklist<Value> found;
-  found.push(value);
-  while (std::optional<Value> sharer = found.pop()) {
-    for (AliasingOpOperand alias : state.getAliasingOpOperands(*sharer))
-      found.push(alias.opOperand->get());
-    for (OpOperand &use : sharer->getUses())
-      for (AliasingValue alias : state.getAliasingValues(use))
-        found.push(alias.value);
-  }
-  ArrayRef<Value> entered = found.entered();
-  return llvm::SetVector<Value>(entered.begin(), entered.end());
+  auto join = [&](Value value) {
+    if (!isa<TensorLikeType>(value.getType()))
+      return;
+    classes.insert(value);
+    for (AliasingOpOperand alias : state.getAliasingOpOperands(value))
+      classes.unionSets(value, alias.opOperand->get());
+  };
+  program->walk([&](Operation *op) {
+    for (Value result : op->getResults())
+      join(result);
+    for (Region &region : op->getRegions())
+      for (Block &block : region)
+        for (BlockArgument arg : block.getArguments())
+          join(arg);
+    for (OpOperand &operand : op->getOpOperands())
+      if (isa<TensorLikeType>(operand.get().getType()))
+        for (AliasingValue alias : state.getAliasingValues(operand))
+          classes.unionSets(operand.get(), alias.value);
+  });
+}
+
+llvm::iterator_range<llvm::EquivalenceClasses<Value>::member_iterator>
+idr::bufferize::AliasClasses::sharers(Value value) const {
+  auto leader = classes.findLeader(value);
+  return llvm::make_range(leader, classes.member_end());
 }
 
 bool idr::bufferize::mayRunAfter(Operation *later, Operation *earlier, Value value,
@@ -98,8 +116,6 @@ bool idr::bufferize::mayRunAfter(Operation *later, Operation *earlier, Value val
        region = region->getParentRegion())
     if (region->findAncestorOpInRegion(*later))
       common = region;
-  if (!common)
-    llvm_unreachable("two ops of one function share no region");
   Operation *first = common->findAncestorOpInRegion(*earlier);
   Operation *second = common->findAncestorOpInRegion(*later);
   if (first == second) {
@@ -140,7 +156,26 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
     }
   });
 
+  // A generating op's fresh destination of elements that hold references is
+  // placed slot by slot, no slot released: it is an allocation of its own,
+  // which empty-tensor elimination never makes a slice of an array whose
+  // slots still hold elements.
+  SmallVector<tensor::EmptyOp> fresh;
+  program->walk([&](Operation *op) {
+    if (!idr::arrays::isGenerating(op))
+      return;
+    for (Value out : cast<DestinationStyleOpInterface>(op).getDpsInits())
+      if (auto empty = out.getDefiningOp<tensor::EmptyOp>();
+          empty && idr::holdsReferences(empty.getType().getElementType()))
+        fresh.push_back(empty);
+  });
+  for (tensor::EmptyOp empty : fresh) {
+    rewriter.setInsertionPoint(empty);
+    rewriter.replaceOpWithNewOp<AllocTensorOp>(empty, empty.getType(), empty.getDynamicSizes());
+  }
+
   AnalysisState state(options);
+  AliasClasses aliases(program, options);
   SmallVector<OpOperand *> releases;
   program->walk([&](Operation *op) {
     for (OpOperand &operand : op->getOpOperands())
@@ -149,7 +184,10 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
   });
   for (OpOperand *release : releases) {
     Operation *releaser = release->getOwner();
-    for (Value sharer : sharers(release->get(), options)) {
+    // The sharers are read whole before any use changes: a write given an
+    // empty tensor of its own leaves the partition the program had.
+    SmallVector<Value> sharers = llvm::to_vector(aliases.sharers(release->get()));
+    for (Value sharer : sharers) {
       if (!isa<RankedTensorType>(sharer.getType()))
         continue;
       for (OpOperand *use : usesOf(sharer))

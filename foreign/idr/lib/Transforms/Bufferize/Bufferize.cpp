@@ -15,9 +15,17 @@
 // one is reported here: an analysis that fails is the compiler's broken
 // invariant.
 //
+// A graded tensor is tensor-like where its value is a tensor, by its own
+// models, and its buffer keeps its grade: One-Shot bufferizes a linear
+// array's wrapper and every signature that carries one itself, and a copy
+// of one is an alloc_tensor of its value with the grade put back. A field
+// of a cell holds its buffer from the frontend on, which crosses into the
+// tensor world through upstream's to_buffer and to_tensor, so no type of
+// the program is retyped after the analysis.
+//
 // On the buffers, a read of an element that holds references, whose place
 // the next write to the buffer overwrites, is the element's update
-// (idr.element.update): the element moves out with the buffer's reference
+// (idr.array.update): the element moves out with the buffer's reference
 // and the written value moves in, so a vector's pop counts nothing twice.
 //
 // A buffer is a cell of the runtime: an allocation is memref.alloc, which
@@ -25,21 +33,13 @@
 // runtime's copy, which counts the references of the elements it copies.
 // No ownership deallocation runs: counting frees cells, one ownership
 // system and not two.
-//
-// A linear array is no tensor to One-Shot, and nor is a data type that
-// holds one: a type interface belongs to its class, and the class of a
-// linear array is that of every grade, the world's included. Once every
-// tensor has its buffer, one retyping of the program turns every tensor
-// left inside another type into its cell's buffer type, so a wrapper keeps
-// its grade around the buffer and a body holds the buffer.
 #include "idr/Transforms/Bufferize.h"
 
 #include "idr/Transforms/BufferizeModels.h"
 
-#include "idr/IR/Flow.h"
+#include "idr/IR/Arrays.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -50,19 +50,19 @@
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotModuleBufferize.h"
 #include "mlir/Dialect/Bufferization/Transforms/Transforms.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/SmallVectorExtras.h"
 
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace idr {
@@ -78,14 +78,12 @@ MemRefType idr::bufferize::bufferType(RankedTensorType type) {
   return cast<MemRefType>(getMemRefTypeWithStaticIdentityLayout(type));
 }
 
-BufferLikeType idr::bufferize::cellType(Value value) {
-  return cast<BufferLikeType>(bufferType(cast<RankedTensorType>(value.getType())));
-}
-
-Type idr::bufferize::heldType(Type type) {
-  if (auto tensor = dyn_cast<RankedTensorType>(type))
-    return bufferType(tensor);
-  return type;
+BufferLikeType idr::bufferize::cellType(TensorLikeType type) {
+  auto tensor = cast<RankedTensorType>(idr::unrestricted(type));
+  Type buffer = bufferType(tensor);
+  if (type != tensor)
+    buffer = idr::graded(idr::gradeOf(type), buffer);
+  return cast<BufferLikeType>(buffer);
 }
 
 FailureOr<Value> idr::bufferize::cellBuffer(RewriterBase &rewriter, Value value,
@@ -94,10 +92,12 @@ FailureOr<Value> idr::bufferize::cellBuffer(RewriterBase &rewriter, Value value,
   FailureOr<Value> buffer = getBuffer(rewriter, value, options, state);
   if (failed(buffer))
     return failure();
-  MemRefType cell = bufferType(cast<RankedTensorType>(value.getType()));
+  BufferLikeType cell = cellType(cast<TensorLikeType>(value.getType()));
   if (buffer->getType() == cell)
     return buffer;
-  return castOrReallocMemRefValue(rewriter, *buffer, cell, options);
+  // A graded buffer is a whole cell wherever it is made, so only a plain
+  // one is ever a slice.
+  return castOrReallocMemRefValue(rewriter, *buffer, cast<MemRefType>(cell), options);
 }
 
 void idr::bufferize::registerModels(DialectRegistry &registry) {
@@ -105,8 +105,10 @@ void idr::bufferize::registerModels(DialectRegistry &registry) {
     idr::FuncOp::attachInterface<calls::FuncOpBufferizableModel<idr::FuncOp>>(*ctx);
     idr::CallOp::attachInterface<calls::CallOpBufferizableModel<idr::CallOp>>(*ctx);
     idr::ReturnOp::attachInterface<calls::ReturnOpBufferizableModel<idr::ReturnOp>>(*ctx);
+    attachGradedModels(ctx);
     attachLinearModels(ctx);
     attachDataModels(ctx);
+    attachGeneratingModels(ctx);
     attachTieShapeModel(ctx);
   });
   registry.addExtension(+[](MLIRContext *ctx, ub::UBDialect *) { attachPoisonModel(ctx); });
@@ -141,12 +143,15 @@ auto keepErrors(SmallVectorImpl<Kept> &kept) {
   };
 }
 
-// No program reaches a failure of One-Shot: a link is an entry nothing
-// touches after, a release whose buffer a later write would overwrite was
-// given a buffer of its own, and every op that holds a tensor has a model.
-// So a step of One-Shot that fails is the compiler's broken invariant,
-// reported with One-Shot's own words, which the step's handler keeps.
-LogicalResult underOneShot(idr::ProgramOp program, function_ref<LogicalResult()> step) {
+// No program reaches a failure of One-Shot: a write of an exclusive
+// array's thread is in place by its grade, a release whose buffer a later
+// write would overwrite was given a buffer of its own, and every op that
+// holds a tensor has a model. So a step of One-Shot that fails is the
+// compiler's broken invariant, reported with One-Shot's own words, which
+// the step's handler keeps.
+template <typename Step>
+  requires std::is_invocable_r_v<LogicalResult, Step>
+LogicalResult underOneShot(idr::ProgramOp program, Step &&step) {
   SmallVector<Kept> kept;
   LogicalResult result = failure();
   {
@@ -182,19 +187,31 @@ bool takesBuffer(Operation *op) {
       .wasInterrupted();
 }
 
+// Whether two indices are one: the same value, or two constants of the same
+// value, which a pass that puts a constant in place of a value it knows
+// makes once per use.
+bool sameIndex(Value x, Value y) {
+  if (x == y)
+    return true;
+  APInt a, b;
+  return matchPattern(x, m_ConstantInt(&a)) && matchPattern(y, m_ConstantInt(&b)) &&
+         a.getBitWidth() == b.getBitWidth() && a == b;
+}
+
 // The read of the element `store` overwrites: the load of the same element
-// that is the nearest op before the store, in its block, that takes a buffer
-// or does more than compute, when no op between uses what it read. What lies
-// between is judged by itself alone, never by what a callee is known to do,
-// so the rule holds whatever bufferization made of the calls. The ops before
-// the store in its block are finitely many.
+// of the same buffer that is the nearest op before the store, in its block,
+// that takes a buffer or does more than compute and crash (a read moves
+// across a crash, which nothing after observes), when no op between uses
+// what it read. What lies between is judged by itself alone, never by what
+// a callee is known to do, so the rule holds whatever bufferization made of
+// the calls. The ops before the store in its block are finitely many.
 std::optional<memref::LoadOp> readBefore(memref::StoreOp store) {
   for (Operation *op = store->getPrevNode(); op; op = op->getPrevNode()) {
-    if (!takesBuffer(op) && idr::onlyAllocates(op))
+    if (!takesBuffer(op) && idr::arrays::computesOnly(op))
       continue;
     auto load = dyn_cast<memref::LoadOp>(op);
-    if (!load || !idr::sameElement(load.getMemref(), load.getIndices(), store.getMemref(),
-                                   store.getIndices()))
+    if (!load || load.getMemref() != store.getMemref() ||
+        !llvm::equal(load.getIndices(), store.getIndices(), sameIndex))
       return std::nullopt;
     Block *block = store->getBlock();
     bool usedBetween = llvm::any_of(load.getResult().getUses(), [&](OpOperand &use) {
@@ -212,7 +229,7 @@ std::optional<memref::LoadOp> readBefore(memref::StoreOp store) {
 // buffer, read just before it, becomes the element's update, where the
 // write was: the element leaves the op when anything after the write uses
 // it, and the written value, the element itself when the write gives it
-// back, is the first value the region yields.
+// back, is the first value the region gives.
 void moveElementsOut(idr::ProgramOp program) {
   SmallVector<memref::StoreOp> stores;
   program.walk([&](memref::StoreOp store) {
@@ -233,18 +250,15 @@ void moveElementsOut(idr::ProgramOp program) {
       outs.push_back(element.getType());
     Location loc = rewriter.getFusedLoc({load->getLoc(), store.getLoc()});
     rewriter.setInsertionPoint(store);
-    // An update takes its indices as words, as an array a world orders does.
-    SmallVector<Value> indices = llvm::map_to_vector(store.getIndices(), [&](Value index) -> Value {
-      return arith::IndexCastOp::create(rewriter, loc, rewriter.getI64Type(), index);
-    });
-    auto update = idr::ElementUpdateOp::create(rewriter, loc, outs, store.getMemref(), indices);
+    auto update = idr::ArrayUpdateOp::create(rewriter, loc, outs, store.getMemref(),
+                                             store.getIndices());
     rewriter.createBlock(&update.getRegion(), {}, {element.getType()}, {load->getLoc()});
-    Value moving = update.getElement();
-    SmallVector<Value> yielded{store.getValueToStore() == element ? moving
-                                                                  : store.getValueToStore()};
+    Value moving = update.getRegion().front().getArgument(0);
+    Value back = store.getValueToStore() == element ? moving : store.getValueToStore();
+    SmallVector<Value> out;
     if (leaves)
-      yielded.push_back(moving);
-    idr::ArrayYieldOp::create(rewriter, loc, yielded);
+      out.push_back(moving);
+    idr::ArrayUpdateYieldOp::create(rewriter, loc, back, out);
     rewriter.eraseOp(store);
     if (leaves)
       rewriter.replaceAllUsesWith(element, update.getOuts().front());
@@ -257,10 +271,8 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
   // creates ops of; the pass manager appends every pass's registry before
   // the pipeline runs, so a pass before this one that analyzes for
   // bufferization sees them too.
-  // The indices of an element's update are words, cast from the store's.
   void getDependentDialects(DialectRegistry &registry) const override {
     Base::getDependentDialects(registry);
-    registry.insert<arith::ArithDialect>();
     idr::bufferize::registerModels(registry);
   }
 
@@ -272,10 +284,25 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
     // A buffer that crosses a call is a whole cell, and so is a new one;
     // the defaults would give both a fully dynamic layout.
     options.setFunctionBoundaryTypeConversion(LayoutMapOption::IdentityLayoutMap);
-    options.unknownTypeConverterFn = [](TensorLikeType type, Attribute memorySpace,
+    // A tensor-like type that is not a builtin tensor is a graded one: its
+    // buffer is its cell's at its grade.
+    options.unknownTypeConverterFn = [](TensorLikeType type, Attribute,
                                         const BufferizationOptions &) {
-      return cast<BufferLikeType>(
-          getMemRefTypeWithStaticIdentityLayout(cast<TensorType>(type), memorySpace));
+      return idr::bufferize::cellType(type);
+    };
+    // A graded tensor's copy is a copy of its value at its grade; one with
+    // undefined contents, a new value of its shape at its grade.
+    options.tensorAllocationFn = [](OpBuilder &b, Location loc, Value value, bool copy,
+                                    const BufferizationOptions &) -> FailureOr<Value> {
+      auto tensor = cast<RankedTensorType>(idr::unrestricted(value.getType()));
+      Value plain = idr::heldAs(b, loc, value, tensor);
+      SmallVector<Value> sizes;
+      if (!copy)
+        for (int64_t d = 0, e = tensor.getRank(); d < e; ++d)
+          if (tensor.isDynamicDim(d))
+            sizes.push_back(tensor::DimOp::create(b, loc, plain, d));
+      auto made = AllocTensorOp::create(b, loc, tensor, sizes, copy ? plain : Value());
+      return idr::heldAs(b, loc, made.getResult(), value.getType());
     };
     // The cell's header places the elements, so an allocation asks for no
     // alignment of its own.
@@ -310,24 +337,6 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
         })))
       return signalPassFailure();
     moveElementsOut(program);
-
-    // Every tensor left in a function is inside another type: a wrapper, a
-    // body, a signature. Each becomes its cell's buffer, and a data type
-    // whose body held one becomes a new type of its own. The values are the
-    // functions'; the initial value of a constant's global, beside them in
-    // the program, is a constant of tensor type, whatever buffer holds it.
-    auto toBuffer = [](Type type,
-                       std::optional<idr::DataRemap::FieldPlace>) -> std::optional<Type> {
-      if (auto tensor = dyn_cast<RankedTensorType>(type))
-        return idr::bufferize::bufferType(tensor);
-      return std::nullopt;
-    };
-    FailureOr<std::unique_ptr<idr::DataRemap>> buffers =
-        idr::DataRemap::create(program, "buffers", toBuffer);
-    if (failed(buffers))
-      return signalPassFailure();
-    for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
-      (*buffers)->retype(fn);
 
     numAllocs += static_cast<uint64_t>(statistics.numBufferAlloc);
     numInPlace += static_cast<uint64_t>(statistics.numTensorInPlace);

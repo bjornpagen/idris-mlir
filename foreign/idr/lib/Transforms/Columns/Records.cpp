@@ -12,6 +12,9 @@
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVectorExtras.h"
+
+#include <type_traits>
 
 using namespace mlir;
 
@@ -19,13 +22,10 @@ namespace idr::columns {
 
 namespace {
 
-// An array of the dimensions `dims` holding `leaf` at each index: its
-// dimensions, then the leaf's own where it is an array.
+// An array of the dimensions `dims` holding `leaf` at each index. A leaf
+// is never an array: a field holds an array's buffer, and a record with
+// one is kept whole.
 RankedTensorType columnOf(ArrayRef<int64_t> dims, Type leaf) {
-  if (auto array = dyn_cast<RankedTensorType>(leaf))
-    return RankedTensorType::get(
-        llvm::to_vector(llvm::concat<const int64_t>(dims, array.getShape())),
-        array.getElementType());
   return RankedTensorType::get(dims, leaf);
 }
 
@@ -33,14 +33,14 @@ RankedTensorType columnOf(ArrayRef<int64_t> dims, Type leaf) {
 // data types, each once.
 void reach(Type type, llvm::DenseSet<Type> &seen, SmallVectorImpl<DataType> &found) {
   type = unrestricted(type);
-  if (auto array = dyn_cast<RankedTensorType>(type))
+  if (auto array = dyn_cast<ShapedType>(type))
     return reach(array.getElementType(), seen, found);
   auto data = dyn_cast<DataType>(type);
   if (!data || !seen.insert(data).second)
     return;
   found.push_back(data);
-  for (const Ctor &ctor : data.getCtors())
-    for (Type field : ctor.fields)
+  for (Tag tag : data.possibleTags())
+    for (Type field : data.ctor(tag).fields)
       reach(field, seen, found);
 }
 
@@ -58,33 +58,30 @@ Records::Records(ProgramOp program) {
           reach(arg.getType(), seen, found);
   });
   for (DataType data : found)
-    for (const Ctor &ctor : data.getCtors())
-      for (Type field : ctor.fields)
-        if (auto array = dyn_cast<RankedTensorType>(unrestricted(field)))
+    for (Tag tag : data.possibleTags())
+      for (Type field : data.ctor(tag).fields)
+        if (auto array = dyn_cast<ShapedType>(unrestricted(field)))
           if (isa<DataType>(array.getElementType()))
             held.insert(array.getElementType());
 }
 
 // Whether the record `data` splits: no data type of the program holds an
-// array of it, and it has one plain constructor of at least one field,
-// each an element an array holds whole (no grade, so no linear field; no
-// field used once by its type, as the world is; and no array a world
-// orders) or an array of a static shape whose element is no record that
-// splits. A field that is a record that splits is its leaves in turn: a
-// record never holds itself but through a box, so the leaves are found by
+// array of it, and it is data (no closure or memo sum) of one constructor
+// of at least one field, each an element an array holds whole: used any
+// number of times (a linear field is used once, and its column would be
+// used as the array is), and no buffer (an array a field holds is its
+// buffer, of mutable memory or a value array's, which a column cannot
+// hold). A field that is a record that splits is its leaves in turn: a
+// record never holds itself but through a cell, so the leaves are found by
 // structure.
 bool Records::splits(DataType data) const {
-  if (held.contains(data) || data.getKind() != SumKind::Plain || data.getCtors().size() != 1)
+  if (held.contains(data) || data.memo() || data.closures() || data.declaredCount() != 1)
     return false;
-  const Ctor &ctor = data.getCtor(Record::tag);
-  if (ctor.fields.empty())
+  ArrayRef<Type> fields = data.ctor(Record::tag).fields;
+  if (fields.empty())
     return false;
-  return llvm::all_of(ctor.fields, [&](Type field) {
-    if (!gradeOf(field).plain() || isLinearByType(field) || isa<BaseMemRefType>(field))
-      return false;
-    if (auto array = dyn_cast<RankedTensorType>(field))
-      return array.hasStaticShape() && !recordOf(array.getElementType());
-    return !isa<ShapedType>(field);
+  return llvm::all_of(fields, [&](Type field) {
+    return !isLinear(field) && !isa<ShapedType>(unrestricted(field));
   });
 }
 
@@ -122,8 +119,8 @@ SmallVector<Value> Records::takeApart(OpBuilder &b, Location loc, Value value,
   SmallVector<Value> leaves;
   for (auto [index, field] : llvm::enumerate(record.fields())) {
     auto at = static_cast<unsigned>(index);
-    Value given =
-        con ? con.getFields()[at] : FieldOp::create(b, loc, value, Record::tag, at).getResult();
+    Type read = fieldType(value.getType(), unrestricted(field), usesOf(field), Recursion::Other);
+    Value given = con ? con.getFields()[at] : FieldOp::create(b, loc, read, value, at).getResult();
     if (std::optional<Record> inner = recordOf(field))
       llvm::append_range(leaves, takeApart(b, loc, given, *inner));
     else
@@ -142,7 +139,7 @@ Value Records::build(OpBuilder &b, Location loc, Record record, ValueRange &leav
     fields.push_back(leaves.front());
     leaves = leaves.drop_front();
   }
-  return ConOp::create(b, loc, record.data, Record::tag, fields).getResult();
+  return ConOp::create(b, loc, record.data, fields).getResult();
 }
 
 Value Records::readRecord(OpBuilder &b, Location loc, Record element, ValueRange columns,
@@ -167,15 +164,21 @@ SmallVector<Value> Records::writeRecord(OpBuilder &b, Location loc, Value value,
 namespace {
 
 // A tabulation over the dimensions of `shape`, whose sizes `source`'s
-// dimensions give, making arrays of `types`, its region given its indices.
+// dimensions give, writing fresh arrays of `types`, its region given its
+// indices. Each destination has the domain's dimensions, then its leaf's
+// own, which its type fixes.
 template <typename BodyFn>
+  requires std::is_invocable_r_v<SmallVector<Value>, BodyFn, ValueRange>
 TabulateOp tabulation(OpBuilder &b, Location loc, RankedTensorType shape, Value source,
-                      TypeRange types, BodyFn body) {
+                      TypeRange types, BodyFn &&body) {
   SmallVector<Value> sizes;
   for (unsigned d = 0, e = static_cast<unsigned>(shape.getRank()); d < e; ++d)
     if (shape.isDynamicDim(d))
       sizes.push_back(tensor::DimOp::create(b, loc, source, d));
-  auto made = TabulateOp::create(b, loc, types, sizes);
+  SmallVector<Value> outs = llvm::map_to_vector(types, [&](Type type) -> Value {
+    return tensor::EmptyOp::create(b, loc, cast<RankedTensorType>(type), sizes);
+  });
+  auto made = TabulateOp::create(b, loc, types, outs);
   OpBuilder::InsertionGuard guard(b);
   SmallVector<Type> indices(static_cast<size_t>(shape.getRank()), b.getIndexType());
   Block *region = b.createBlock(&made.getRegion(), {}, indices,

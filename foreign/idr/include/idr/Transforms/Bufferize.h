@@ -3,7 +3,8 @@
 // idr-bufferize: every array value of the program put in a buffer, in
 // place wherever the program allows, by One-Shot Bufferize on the whole
 // program, before counting. A buffer is a cell of the runtime, a copy the
-// runtime's counted copy, and a linear array's thread is written in place.
+// runtime's counted copy, and an exclusive array's thread is written in
+// place by its grade.
 #ifndef IDR_TRANSFORMS_BUFFERIZE_H
 #define IDR_TRANSFORMS_BUFFERIZE_H
 
@@ -18,9 +19,9 @@ namespace idr {
 
 namespace bufferize {
 
-// The bufferization models of the idr ops that hold tensors, upstream's
-// own for idr.func, idr.call and idr.return, and of ub.poison, which
-// upstream gives none.
+// The bufferization models of the idr ops and types that hold tensors,
+// upstream's own for idr.func, idr.call and idr.return, and of ub.poison,
+// which upstream gives none.
 void registerModels(mlir::DialectRegistry &registry);
 
 // Whether `op` copies an array because a write could not be in place: a

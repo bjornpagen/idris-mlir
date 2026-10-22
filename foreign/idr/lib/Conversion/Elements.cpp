@@ -3,7 +3,7 @@
 // The place of an element of an array (Elements.h): its slots in place, or
 // one counted pointer to a cell of its own; its value read with no
 // reference of its own, written over what it held, put where nothing is
-// held, and moved out with the place's references.
+// held, and moved out with the place's references to be put back.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -52,34 +52,49 @@ void placeElement(OpBuilder &b, Location loc, Runtime &runtime, Value address,
 void writeElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts,
                   Value address, const layout::Element &element, Type type, ValueRange value) {
   if (element.boxed) {
-    runtime.dec(b, loc, boxOf(b, loc, runtime, address, element));
+    runtime.dec(b, loc, layout::Word::Cell, boxOf(b, loc, runtime, address, element));
   } else {
     SmallVector<layout::Component> components = layouts.components(type);
+    // An element of words holds nothing to release, which its layout says:
+    // its place is not read.
     if (llvm::any_of(components, [](const layout::Component &c) { return c.counted; }))
-      runtime.dec(b, loc, references(components, readElement(b, loc, runtime, address, element)));
+      runtime.dec(b, loc, components, readElement(b, loc, runtime, address, element));
   }
   placeElement(b, loc, runtime, address, element, value);
 }
 
-SmallVector<Value> takeElement(OpBuilder &b, Location loc, Runtime &runtime,
-                               const Layouts &layouts, Value address,
-                               const layout::Element &element, Type type) {
+Taken takeElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts,
+                  Value address, const layout::Element &element, Type type) {
   if (!element.boxed)
-    return readElement(b, loc, runtime, address, element);
+    return {readElement(b, loc, runtime, address, element), Value()};
   Value cell = boxOf(b, loc, runtime, address, element);
   SmallVector<Value> value =
       runtime.load(b, loc, cell, cellAlignment(), element.boxed->fields.front());
-  // The cell alone holds the value: its memory goes and the value moves
-  // out. A cell a copy shares keeps the value, which gains a reference of
-  // its own, and loses the place's.
-  auto alone = scf::IfOp::create(b, loc, runtime.exclusive(b, loc, cell), /*withElseRegion=*/true);
+  // Whether a copy of the array shares the box is known only at run time:
+  // a copy shares every box of the array it copies. Held by the place
+  // alone, the box keeps its memory for the value put back; shared, it
+  // keeps its value, which gains a reference of its own, and loses the
+  // place's, and the value put back goes into a box of its own.
+  auto alone = scf::IfOp::create(b, loc, ptrType(b.getContext()),
+                                 runtime.exclusive(b, loc, cell), /*withElseRegion=*/true);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(alone.thenBlock());
-  runtime.call(b, loc, idr::runtime::helper::freeCell, cell);
+  scf::YieldOp::create(b, loc, cell);
   b.setInsertionPointToStart(alone.elseBlock());
-  runtime.inc(b, loc, references(layouts.components(type), value));
-  runtime.dec(b, loc, cell);
-  return value;
+  runtime.inc(b, loc, layouts.components(type), value);
+  runtime.dec(b, loc, layout::Word::Cell, cell);
+  scf::YieldOp::create(b, loc, runtime.allocate(b, loc, *element.boxed));
+  return {std::move(value), alone.getResult(0)};
+}
+
+void putBack(OpBuilder &b, Location loc, Runtime &runtime, Value address,
+             const layout::Element &element, const Taken &taken, ValueRange value) {
+  if (!element.boxed) {
+    placeElement(b, loc, runtime, address, element, value);
+    return;
+  }
+  runtime.store(b, loc, taken.box, cellAlignment(), element.boxed->fields.front(), value);
+  runtime.store(b, loc, address, elementAlignment(element), element.slots, taken.box);
 }
 
 } // namespace idr::conversion

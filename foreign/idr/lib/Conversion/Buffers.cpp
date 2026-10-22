@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// A machine word in a buffer of bytes. The buffer is a memref of bytes a
-// world orders: its cell and its size (Arrays.h). The word is at its offset
+// A machine word in a buffer of bytes. The buffer is a memref of bytes of
+// mutable memory: its cell and its size (Arrays.h). The word is at its offset
 // from the first byte, right after the cell's header, where the op's guard
 // found its bytes within that size: the access tests nothing itself. The
 // load and the store are the target's own, at alignment 1: the endianness

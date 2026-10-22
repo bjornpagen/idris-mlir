@@ -63,14 +63,13 @@ struct PoisonModel : BufferizableOpInterface::ExternalModel<PoisonModel, ub::Poi
   FailureOr<BufferLikeType> getBufferType(Operation *, Value value, const BufferizationOptions &,
                                           const BufferizationState &,
                                           SmallVector<Value> &) const {
-    return idr::bufferize::cellType(value);
+    return idr::bufferize::cellType(cast<TensorLikeType>(value.getType()));
   }
 
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter, const BufferizationOptions &,
                           BufferizationState &) const {
     replaceOpWithNewBufferizedOp<ub::PoisonOp>(
-        rewriter, op,
-        idr::bufferize::bufferType(cast<RankedTensorType>(op->getResult(0).getType())));
+        rewriter, op, idr::bufferize::cellType(cast<TensorLikeType>(op->getResult(0).getType())));
     return success();
   }
 };

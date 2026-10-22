@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What an op of the generating set is lowered to. The op says how it visits
-// each dimension; what its region does says whether that visit's freedom is
-// kept. A region that does no more than compute and crash, over arrays of
-// words, keeps a parallel dimension parallel; a fold's ordered dimension
-// becomes a reduction only where each combiner is one integer op whose law
-// lets it run in any order. A float sum keeps its order on every target.
+// What an op of the generating set becomes. Its iterator types say which
+// dimensions its region leaves free; the arrays it writes and reads say
+// whether a linalg op may hold them. A region that does no more than
+// compute and crash, over arrays of words, keeps a parallel dimension
+// parallel; a fold's ordered dimension becomes a reduction only where each
+// combiner is one integer op whose law lets it run in any order. A float
+// sum keeps its order on every target. Every other op stays as it is, for
+// its loops.
 //
-// The facts each form rests on are the IR's: effects through
-// MemoryEffectOpInterface, a call's its own, the laws through the combining
-// op, and the equality of sizes through value bounds, which idr.tie_shape
-// carries across calls.
+// The facts each form rests on are the IR's: effects through the region's
+// own (the iterator types), the laws through the combining op, and the
+// equality of sizes through value bounds, which idr.tie_shape carries
+// across calls.
 
 #include "idr/Transforms/StructureLoops.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
@@ -36,55 +36,21 @@ bool notWords(Type type) {
   return array && !isWord(array.getElementType());
 }
 
-// Whether `op` itself does no more than compute, allocate its own results
-// and crash, as it declares (a call declares its own effects). A crash
-// writes the crash resource, and the IO resource to keep its order with
-// output, which is its own and no output. An op that declares no effects of
-// its own has its regions' (each of their ops asked on its own), or may do
-// anything when MLIR knows none: the two ways MLIR leaves an op's effects
-// undeclared.
-bool atMostCrashes(Operation *op) {
-  auto declared = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!declared)
-    return op->hasTrait<OpTrait::HasRecursiveMemoryEffects>();
-  SmallVector<MemoryEffects::EffectInstance> effects;
-  declared.getEffects(effects);
-  bool crashes = isa<MayCrashOpInterface>(op);
-  return llvm::all_of(effects, [&](const MemoryEffects::EffectInstance &effect) {
-    if (isa<MemoryEffects::Allocate>(effect.getEffect())) {
-      auto made = dyn_cast_or_null<OpResult>(effect.getValue());
-      return made && made.getOwner() == op;
-    }
-    if (!isa<MemoryEffects::Write>(effect.getEffect()))
-      return false;
-    return effect.getResource() == CrashResource::get() ||
-           (crashes && effect.getResource() == IOResource::get());
-  });
-}
-
-// Whether the region of `op` returns, and does no more than compute and
-// crash, its every op asked on its own.
-bool computes(Operation *op) {
-  Region &region = op->getRegion(0);
-  if (!isa<ArrayYieldOp>(region.front().getTerminator()))
+// Whether the arrays `op` writes and reads hold words, its region gives a
+// word at each index (an element, never a cell) and binds a word for each
+// accumulator, and reads, makes or carries no array of other elements: the
+// arrays of non-word elements never reach a linalg op, since no linalg
+// body holds a reference while counting runs. A dimension asked of such an
+// array reads none of its elements.
+bool overWords(Operation *op) {
+  Block &body = op->getRegion(0).front();
+  auto words = [](Type type) { return isWord(type); };
+  if (llvm::any_of(op->getOperandTypes(), notWords) ||
+      !llvm::all_of(body.getArgumentTypes(), words))
     return false;
-  return !region
-              .walk([&](Operation *inner) {
-                return atMostCrashes(inner) ? WalkResult::advance() : WalkResult::interrupt();
-              })
-              .wasInterrupted();
-}
-
-// Whether the arrays `op` makes and folds hold words, each element one,
-// and its region reads, makes or carries no array of other elements: the
-// arrays of non-word elements never reach a linalg op. A dimension asked
-// of such an array reads none of its elements.
-bool overWords(Operation *op, TypeRange arrays, unsigned rank) {
-  for (Type type : arrays) {
-    auto array = cast<RankedTensorType>(type);
-    if (!isWord(array.getElementType()) || array.getRank() != rank)
-      return false;
-  }
+  if (auto yield = dyn_cast<ArrayYieldOp>(body.getTerminator());
+      yield && !llvm::all_of(yield.getValues().getTypes(), words))
+    return false;
   return !op->getRegion(0)
               .walk([](Operation *inner) {
                 if (isa<tensor::DimOp>(inner))
@@ -128,12 +94,8 @@ bool same(const ValueBoundsConstraintSet::Variable &a,
 
 } // namespace
 
-bool structurable(Operation *op) {
-  return isa<TabulateOp, TabulateIOOp, FoldLastOp, ScanLastOp, TransposeOp>(op);
-}
-
 SmallVector<Read> readsOf(Operation *op, unsigned dims) {
-  auto generating = cast<GeneratingOpInterface>(op);
+  auto dps = cast<DestinationStyleOpInterface>(op);
   Region &region = op->getRegion(0);
   Block &body = region.front();
   MLIRContext *ctx = op->getContext();
@@ -149,7 +111,7 @@ SmallVector<Read> readsOf(Operation *op, unsigned dims) {
       if (!arg || arg.getOwner() != &body || arg.getArgNumber() >= dims ||
           !seen.insert(arg.getArgNumber()).second ||
           !same({read.getTensor(), static_cast<int64_t>(at)},
-                generating.getExtentBound(arg.getArgNumber())))
+                arrays::extentOf(dps, arg.getArgNumber())))
         break;
       exprs.push_back(getAffineDimExpr(arg.getArgNumber(), ctx));
     }
@@ -160,21 +122,19 @@ SmallVector<Read> readsOf(Operation *op, unsigned dims) {
 }
 
 Form formOf(Operation *op) {
-  if (auto transpose = dyn_cast<TransposeOp>(op))
-    return isWord(transpose.getType().getElementType()) ? Form::Parallel : Form::Ordered;
-  // A world carried from step to step is an order no linalg op keeps.
-  if (isa<TabulateIOOp>(op))
+  // The parallel dimensions lead; what follows them is ordered. An op whose
+  // region does more than compute visits every dimension in order.
+  SmallVector<utils::IteratorType> iterators = cast<TilingInterface>(op).getLoopIteratorTypes();
+  auto rank = static_cast<unsigned>(iterators.size());
+  auto frame = static_cast<unsigned>(llvm::count(iterators, utils::IteratorType::parallel));
+  if (frame == 0 || !overWords(op))
     return Form::Ordered;
-  // The parallel dimensions lead; what follows them is ordered.
-  auto generating = cast<GeneratingOpInterface>(op);
-  SmallVector<Iteration> iterations = generating.getIterations();
-  auto frame = static_cast<unsigned>(llvm::count(iterations, Iteration::Parallel));
-  if (!computes(op) || !overWords(op, generating.getHeldArrays().getTypes(), frame))
-    return Form::Ordered;
-  if (frame == iterations.size())
+  if (frame == rank)
     return Form::Parallel;
-  // A reduction's extent is the size of an input along it: linalg reads the
-  // domain off its operands.
+  // Of the two folds along the last axis, the scan keeps every step, so
+  // only the fold may combine its steps in another order. A reduction's
+  // extent is the size of an input along it: linalg reads the domain off
+  // its operands.
   if (auto fold = dyn_cast<FoldLastOp>(op)) {
     AffineExpr last = getAffineDimExpr(frame, op->getContext());
     bool extent = llvm::any_of(readsOf(fold, frame + 1), [&](const Read &read) {
@@ -183,7 +143,7 @@ Form formOf(Operation *op) {
     if (extent && reassociates(fold))
       return Form::Reduction;
   }
-  return frame > 0 ? Form::Interchange : Form::Ordered;
+  return Form::Interchange;
 }
 
 } // namespace idr::structure

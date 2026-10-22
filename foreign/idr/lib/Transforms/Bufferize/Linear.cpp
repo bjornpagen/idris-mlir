@@ -1,115 +1,111 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The linear positions: idr.lin.enter is a release, idr.lin.use a writable
-// root, and every link of a linear thread is written in place.
+// Grades: a graded tensor is a tensor to One-Shot, and the cast between
+// grades is its operand.
 //
-// A linear binder does not imply unique ownership, so the grade assumes
-// nothing: entering a linear type reads and writes the tensor's buffer, and
-// One-Shot copies there exactly when that buffer is read again afterwards
-// or is not writable (a constant, an array read from the heap). Past the
-// release, the buffer is the thread's alone, so the use that takes it out
-// again starts a buffer the thread may write.
+// A grade wraps any value, so whether a graded type is tensor-like is a
+// fact of the instance, which upstream's per-instance check reads: tensor-
+// like where its value is a tensor, buffer-like where it is a buffer, its
+// buffer the value's cell buffer at the same grade. One-Shot then sees a
+// linear array's wrapper, and every signature and region that carries one,
+// as it sees a tensor, and bufferizes it itself.
 //
-// The in-place promise of a linear array is that every write of its thread
-// is in place. Inside a function the thread is a chain of destinations,
-// which the analysis puts in place because nothing reads an old version;
-// at the thread's boundaries (a call, a block, a cell) the chain passes
-// through an entry whose buffer a use began and which nothing touches after
-// it, a link, which must bufferize in place. A copy there would be the
-// compiler's, never the program's. An entry that is not a link is a
-// thread's head, a plain release, which copies when its meaning does: a
-// fresh array, an array thawed, or the array of a use that is still read
-// after the entry, as when a frozen thread is thawed again.
+// idr.lin.cast changes a value's uses and nothing of its contents: it is
+// its operand, an equivalent alias that reads and writes nothing. A linear
+// binder does not imply unique ownership, so the grade's uses decide
+// nothing here; its sharing does. A cast of a value graded `unique deep`
+// is in place, always: no other reference reaches the buffer, so a write
+// on its thread overwrites a version nothing reads again, and a copy there
+// would be the compiler's, never the program's, which One-Shot reports as
+// its own conflict.
 #include "idr/Transforms/BufferizeModels.h"
 
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "idr/IR/Grades.h"
 
-#include "llvm/ADT/STLExtras.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 
 using namespace mlir;
 using namespace mlir::bufferization;
 
-bool idr::bufferize::isLink(OpOperand &released, const BufferizationOptions &options) {
-  Operation *enter = released.getOwner();
-  AnalysisState state(options);
-
-  // Through the destinations of the writes, which are the same buffer, and
-  // no further: a slice of a thread is not the thread's buffer.
-  auto began = [](Value value) { return static_cast<bool>(value.getDefiningOp<LinUseOp>()); };
-  TraversalConfig config;
-  config.followEquivalentOnly = true;
-  if (!llvm::all_of(state.findValueInReverseUseDefChain(&released, began, config), began))
-    return false;
-
-  for (Value sharer : sharers(released.get(), options))
-    for (OpOperand &use : sharer.getUses())
-      if ((state.bufferizesToMemoryRead(use) || state.bufferizesToMemoryWrite(use)) &&
-          mayRunAfter(use.getOwner(), enter, sharer, options))
-        return false;
-  return true;
-}
-
 namespace {
 
-struct EnterModel : BufferizableOpInterface::ExternalModel<EnterModel, idr::LinEnterOp> {
-  bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
-    return true;
-  }
-  bool bufferizesToMemoryWrite(Operation *, OpOperand &, const AnalysisState &) const {
-    return true;
-  }
-  // It makes no tensor: the linear value is the thread's from here on.
-  AliasingValueList getAliasingValues(Operation *, OpOperand &, const AnalysisState &) const {
-    return {};
+// A graded tensor: tensor-like where its value is a tensor, its buffer a
+// graded buffer of the same grade whose value is the tensor's buffer.
+struct GradedTensorLike : TensorLikeType::ExternalModel<GradedTensorLike, idr::GradedType> {
+  bool isTensorLike(Type type) const {
+    return isa<RankedTensorType>(idr::unrestricted(type));
   }
 
-  // One-Shot asks of a tensor operand alone.
-  bool mustBufferizeInPlace(Operation *, OpOperand &released, const AnalysisState &state) const {
-    return idr::bufferize::isLink(released, state.getOptions());
-  }
-
-  // A thread's buffer is a whole cell, so a link never reallocates; a head
-  // entered from a slice gets a cell of its own.
-  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
-                          const BufferizationOptions &options, BufferizationState &state) const {
-    auto enter = cast<idr::LinEnterOp>(op);
-    FailureOr<Value> buffer =
-        idr::bufferize::cellBuffer(rewriter, enter.getValue(), options, state);
-    if (failed(buffer))
-      return failure();
-    rewriter.replaceOpWithNewOp<idr::LinEnterOp>(enter, idr::linear(buffer->getType()), *buffer);
+  LogicalResult verifyCompatibleBufferType(Type type, BufferLikeType buffer,
+                                           function_ref<InFlightDiagnostic()> emitError) const {
+    auto tensor = cast<RankedTensorType>(idr::unrestricted(type));
+    auto memref = dyn_cast<MemRefType>(idr::unrestricted(buffer));
+    if (!memref || idr::gradeOf(buffer) != idr::gradeOf(type))
+      return emitError() << "the buffer " << buffer << " of " << type
+                         << " is not a buffer at the same grade";
+    if (memref.getShape() != tensor.getShape() ||
+        memref.getElementType() != tensor.getElementType())
+      return emitError() << "the buffer " << buffer << " of " << type
+                         << " has another shape or element";
     return success();
   }
 };
 
-struct UseModel : BufferizableOpInterface::ExternalModel<UseModel, idr::LinUseOp> {
-  // A root of its own: the release that made the linear value gave its
-  // buffer to the thread.
-  AliasingOpOperandList getAliasingOpOperands(Operation *, Value, const AnalysisState &) const {
-    return {};
-  }
-  bool isWritable(Operation *, Value, const AnalysisState &) const { return true; }
-  bool bufferizesToAllocation(Operation *, Value) const { return false; }
+// A graded buffer: buffer-like where its value is a buffer.
+struct GradedBufferLike : BufferLikeType::ExternalModel<GradedBufferLike, idr::GradedType> {
+  bool isBufferLike(Type type) const { return isa<BaseMemRefType>(idr::unrestricted(type)); }
+};
 
-  FailureOr<BufferLikeType> getBufferType(Operation *, Value value, const BufferizationOptions &,
-                                          const BufferizationState &,
-                                          SmallVector<Value> &) const {
-    return idr::bufferize::cellType(value);
+struct CastModel : BufferizableOpInterface::ExternalModel<CastModel, idr::LinCastOp> {
+  bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
+    return false;
+  }
+  bool bufferizesToMemoryWrite(Operation *, OpOperand &, const AnalysisState &) const {
+    return false;
+  }
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &, const AnalysisState &) const {
+    return {{op->getResult(0), BufferRelation::Equivalent, /*isDefinite=*/true}};
   }
 
-  LogicalResult bufferize(Operation *op, RewriterBase &rewriter, const BufferizationOptions &,
-                          BufferizationState &) const {
-    auto use = cast<idr::LinUseOp>(op);
-    replaceOpWithNewBufferizedOp<idr::LinUseOp>(
-        rewriter, op, idr::bufferize::bufferType(cast<RankedTensorType>(use.getType())),
-        use.getLinear());
+  // The thread of an exclusive array is written in place by its grade.
+  bool mustBufferizeInPlace(Operation *op, OpOperand &, const AnalysisState &) const {
+    return idr::claims(op->getOperand(0).getType(), idr::Unique::Deep) ||
+           idr::claims(op->getResult(0).getType(), idr::Unique::Deep);
+  }
+
+  FailureOr<BufferLikeType> getBufferType(Operation *op, Value value,
+                                          const BufferizationOptions &options,
+                                          const BufferizationState &state,
+                                          SmallVector<Value> &invocationStack) const {
+    FailureOr<BufferLikeType> from =
+        bufferization::getBufferType(op->getOperand(0), options, state, invocationStack);
+    if (failed(from))
+      return failure();
+    // The same buffer at the result's grade.
+    return cast<BufferLikeType>(idr::graded(idr::gradeOf(value.getType()),
+                                            idr::unrestricted(*from)));
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options, BufferizationState &state) const {
+    FailureOr<Value> buffer = getBuffer(rewriter, op->getOperand(0), options, state);
+    if (failed(buffer))
+      return failure();
+    FailureOr<BufferLikeType> type = bufferization::getBufferType(op->getResult(0), options, state);
+    if (failed(type))
+      return failure();
+    replaceOpWithNewBufferizedOp<idr::LinCastOp>(rewriter, op, *type, *buffer);
     return success();
   }
 };
 
 } // namespace
 
+void idr::bufferize::attachGradedModels(MLIRContext *ctx) {
+  idr::GradedType::attachInterface<GradedTensorLike, GradedBufferLike>(*ctx);
+}
+
 void idr::bufferize::attachLinearModels(MLIRContext *ctx) {
-  idr::LinEnterOp::attachInterface<EnterModel>(*ctx);
-  idr::LinUseOp::attachInterface<UseModel>(*ctx);
+  idr::LinCastOp::attachInterface<CastModel>(*ctx);
 }

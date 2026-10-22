@@ -5,8 +5,9 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Actions.h"
-#include "idr/Support/Worklist.h"
 #include "idr/Transforms/Narrow.h"
+
+#include "llvm/ADT/SetVector.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -43,29 +44,30 @@ struct NarrowVersionAction : support::TaggedAction<NarrowVersionAction> {
 bool descends(Value yielded, BlockArgument arg, scf::WhileOp loop) {
   using Goal = std::pair<Value, std::optional<Value>>;
   scf::ConditionOp condition = loop.getConditionOp();
-  OnceWorklist<Goal> goals;
-  (void)goals.push({yielded, std::nullopt});
-  while (std::optional<Goal> goal = goals.pop()) {
-    auto [value, again] = *goal;
+  // Each goal enters once, and is read from the front.
+  llvm::SetVector<Goal> goals;
+  goals.insert({yielded, std::nullopt});
+  for (size_t at = 0; at < goals.size(); ++at) {
+    auto [value, again] = goals[at];
     if (value == arg)
       continue;
     APInt goes;
     if (again && matchPattern(*again, m_ConstantInt(&goes)) && goes.isZero())
       continue;
     if (auto pred = value.getDefiningOp<BigPredOp>()) {
-      (void)goals.push({pred.getValue(), again});
+      goals.insert({pred.getValue(), again});
       continue;
     }
     // An op that only changes its operand's grade (idr.borrow, which
     // counting puts before each read) gives the same natural.
     if (Operation *def = value.getDefiningOp(); def && def->hasTrait<ResultCarriesOperand>()) {
-      (void)goals.push({def->getOperand(0), again});
+      goals.insert({def->getOperand(0), again});
       continue;
     }
     if (auto forwarded = dyn_cast<BlockArgument>(value)) {
       if (forwarded.getOwner() != &loop.getAfter().front())
         return false;
-      (void)goals.push(
+      goals.insert(
           {condition.getArgs()[forwarded.getArgNumber()], Value(condition.getCondition())});
       continue;
     }
@@ -88,7 +90,7 @@ bool descends(Value yielded, BlockArgument arg, scf::WhileOp loop) {
       }
       std::optional<Value> decision =
           together ? std::optional<Value>(terminator->getOperand(decided.getResultNumber())) : again;
-      (void)goals.push({terminator->getOperand(result.getResultNumber()), decision});
+      goals.insert({terminator->getOperand(result.getResultNumber()), decision});
     }
   }
   return true;
@@ -123,12 +125,11 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
   Type nat = init.getType();
   rewriter.setInsertionPoint(loop);
   APInt max(64, static_cast<uint64_t>(IDRIS_RT_SMALL_MAX), /*isSigned=*/true);
-  // The bound is static data: plain before counting, a view after it.
-  Value bound =
-      ConstantOp::create(rewriter, loc, isOwned(nat) ? view(nat) : nat, BigAttr::get(ctx, max));
-  // After counting an owned natural is read through a view of it.
-  Value seen = isOwned(nat) ? BorrowOp::create(rewriter, loc, init).getResult() : init;
-  Value small = BigCmpOp::create(rewriter, loc, CmpPredicate::lte, seen, bound);
+  // The bound is static data, as a constant's type says; the natural is
+  // read in place at any hold, so the comparison takes nothing of it.
+  Value bound = ConstantOp::create(rewriter, loc, atHold(nat, Hold::staticData()),
+                                   BigAttr::get(ctx, max));
+  Value small = BigCmpOp::create(rewriter, loc, CmpPredicate::lte, init, bound);
   // The branch gives back the results something reads. A result nothing
   // reads is what the loop's condition forwards on the path not taken
   // (poison): left unread in each copy, it stays that, which the owned

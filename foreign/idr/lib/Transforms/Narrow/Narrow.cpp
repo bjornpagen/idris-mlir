@@ -14,14 +14,13 @@
 // program's solve from the parent's cache. A narrowed op becomes `arith` on
 // the values, which idr.big.to_int and the bigs made of integers convert
 // where the web meets a big it does not prove; the pairs they form inside a
-// web fold away, under upstream's driver.
+// web fold away, each by its own folder, in one walk.
 
 #include "idr/Transforms/Narrow.h"
 
 #include "idr/Analysis/Ranges.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
-#include "idr/IR/TypeGraph.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Pipeline.h"
 
@@ -33,8 +32,8 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Rewrite/FrozenRewritePatternSet.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Transforms/FoldUtils.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -96,8 +95,8 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     }
 
     // A word made a big and back is the word, and a conversion of a
-    // constant is its constant: upstream's driver folds each conversion by
-    // its own folder, and erases what no one reads (the conversions made, a
+    // constant is its constant: each conversion is folded by its own
+    // folder, then what no one reads is erased (the conversions made, a
     // versioned loop's start once its copy took the word, and a big made of
     // a word that every reader now takes as the word, with the views
     // counting read such a big through, and a big constant whose readers
@@ -121,11 +120,29 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
           drop->erase();
         dropped = true;
       }
+    // One walk forward folds each conversion, in the order the function
+    // holds them, a producer before its readers, so that a reader's fold
+    // sees its operand folded already; one walk back erases each that no
+    // one reads, after its readers, so that a conversion whose every reader
+    // went goes too. A fold that replaces its op erases it, and only it.
     bool changed = false;
     (void)support::perform<NarrowFoldAction>(fn, [&] {
-      (void)applyOpPatternsGreedily(
-          conversions, FrozenRewritePatternSet(),
-          GreedyRewriteConfig().setStrictness(GreedyRewriteStrictness::ExistingOps), &changed);
+      OperationFolder folder(&getContext());
+      SmallVector<Operation *> kept;
+      for (Operation *op : conversions) {
+        bool inPlace = false;
+        if (succeeded(folder.tryToFold(op, &inPlace))) {
+          changed = true;
+          if (!inPlace)
+            continue;
+        }
+        kept.push_back(op);
+      }
+      for (Operation *op : llvm::reverse(kept))
+        if (isOpTriviallyDead(op)) {
+          op->erase();
+          changed = true;
+        }
     });
     if (carried == 0 && narrowed == 0 && !dropped && !changed)
       markAllAnalysesPreserved();
@@ -157,7 +174,7 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
     // or removed. Otherwise the first solve is the one the functions read.
     if (versioned != 0) {
       AnalysisManager::PreservedAnalyses kept;
-      kept.preserve<TypeGraph, Layouts, SymbolTable>();
+      kept.preserve<Layouts, SymbolTable>();
       getAnalysisManager().invalidate(kept);
       solved = getAnalysis<Ranges>().solved();
       if (failed(solved))
@@ -172,7 +189,7 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
       return signalPassFailure();
     numVersioned += versioned;
     // No declaration changes, and no symbol is added or removed.
-    markAnalysesPreserved<TypeGraph, Layouts, SymbolTable>();
+    markAnalysesPreserved<Layouts, SymbolTable>();
   }
 };
 

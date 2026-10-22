@@ -178,7 +178,7 @@ void addMemrefConversions(TypeConverter &components, LLVMTypeConverter &descript
     return LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), layouts.element(type).stride);
   });
   descriptors.addTypeAttributeConversion(
-      [](BaseMemRefType, WorldSpaceAttr) -> TypeConverter::AttributeConversionResult {
+      [](BaseMemRefType, MutableAttr) -> TypeConverter::AttributeConversionResult {
         return TypeConverter::AttributeConversionResult::result(Attribute());
       });
   // Registered after upstream's own, so tried first: upstream would make a
