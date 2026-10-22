@@ -19,7 +19,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Transforms/Deduplicate.h"
-#include "idr/Transforms/Specialize.h"
+#include "Calls.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"

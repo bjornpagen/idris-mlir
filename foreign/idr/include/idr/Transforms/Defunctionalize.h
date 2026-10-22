@@ -10,32 +10,41 @@
 // signature, every memo family's dispatch function, every constant), and
 // then one walk per function, in parallel, gives each value its type in
 // place and replaces each closure op by what it means, reading the
-// decision and nothing else. No conversion driver, no pattern set and no
-// type made on a worker: every family and type the walk needs is made in
-// the decision.
+// decision and nothing else. No conversion driver and no pattern set:
+// every family and signature the walk needs is made in the decision, and
+// what a worker remakes of another type or a constant goes through the
+// decision's replacer, under its lock.
 //
 // A key is a slot's carrier at no grade and the labels the solve found for
 // it. A closure key becomes a closure family, one label per function of
 // its set; a lazy key a memo family, its labels each memoized or run by
 // name, then its two states. A label runs by name exactly when its row
 // reads or writes the outside: memoizing it would run its effect once
-// instead of at each demand.
+// instead of at each demand. Its row is the one derivation of rows, joined
+// over the program graph, which is born in the decision: the label solve's
+// runs complete it, each a call of the label it runs, until the rewrite
+// makes every run a call of its own.
 #ifndef IDR_TRANSFORMS_DEFUNCTIONALIZE_H
 #define IDR_TRANSFORMS_DEFUNCTIONALIZE_H
 
 #include "idr/Analysis/Labels.h"
+#include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
+#include "idr/IR/Effects/Vocabulary.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
+#include "idr/Support/Id.h"
 #include "idr/Transforms/EGraph.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <memory>
+#include <mutex>
 #include <optional>
 
 namespace idr {
@@ -86,17 +95,28 @@ template <> struct llvm::DenseMapInfo<idr::defunctionalize::Key> {
 namespace idr::defunctionalize {
 
 // What the decision holds for one key: its family's type, and for a lazy
-// key its dispatch function.
+// key its dispatch function; and the key's own index variables, in the
+// order its carrier first names them, at which every slot of the key holds
+// the family.
 struct Family {
   Key key;
   DataType type;
   mlir::FlatSymbolRefAttr force;
+  llvm::SmallVector<families::TermNode> args;
 };
 
 // A function's signature as its slots have it.
 struct Signature {
   mlir::FunctionType converted;
   llvm::SmallVector<Slot> arguments, results;
+};
+
+// A function whose body runs a label, by its id in the program graph: its
+// row in the graph holds each label it runs as a call until the rewrite
+// makes every run a call of its own, and is read again from those calls.
+struct Runner {
+  solver::FunctionId id;
+  FuncOp fn;
 };
 
 // The decision. It exists only whole: `decide`, its one maker, returns it
@@ -107,11 +127,13 @@ class Decision {
 public:
   // Every key the program asks for, each key's family, every signature,
   // each memo family's dispatch function added to the program, every
-  // constant converted. `byName` holds each label whose row reads or writes
-  // the outside. Failure, after an internal error, only where the compiler
-  // broke its own invariant.
+  // constant converted. Before any type changes, `graph`, the program's
+  // calls, takes the label solve's runs as calls, and every function's
+  // atoms are joined over it, the join's work added to `work`: a label
+  // whose row reads or writes the outside runs by name. Failure, after an
+  // internal error, only where the compiler broke its own invariant.
   static mlir::FailureOr<std::unique_ptr<Decision>>
-  decide(ProgramOp program, const Labels &labels, const llvm::DenseSet<mlir::StringAttr> &byName);
+  decide(ProgramOp program, const Labels &labels, solver::ProgramGraph &graph, solver::Work &work);
 
   // Keys of the slots the walk meets.
   Slot keyOf(mlir::Value value) const;
@@ -129,8 +151,15 @@ public:
   // A constant of the program converted to its slots, or the constant
   // itself where it holds no closure.
   mlir::Attribute constantOf(mlir::Attribute value, const Slot &slot) const;
+  // The slot of what `family`'s dispatch function gives: its forced
+  // state's value, which the lazy key's anchor keys.
+  Slot forcedOf(const Family &family) const {
+    return anchorKey(FlowAnchor::forcedOf(llvm::cast<LazyType>(family.key.carrier)));
+  }
   // Every force function the decision defined.
   llvm::ArrayRef<FuncOp> forces() const { return made; }
+  // Every function whose row the decision gave the labels it runs.
+  llvm::ArrayRef<Runner> runners() const { return running; }
 
   unsigned numFamilies() const { return static_cast<unsigned>(families.size()); }
 
@@ -144,8 +173,17 @@ private:
   void slotsIn(mlir::Type type, llvm::SmallVectorImpl<Slot> &out) const;
   void widen();
 
-  // The families, signatures and constants (Declare.cpp).
-  mlir::LogicalResult declare(const llvm::DenseSet<mlir::StringAttr> &byName);
+  // The program graph completed by the label solve's runs: each function
+  // that runs labels holds each as a call of no tail kind yet, which the
+  // atoms' join never reads (Decide.cpp).
+  void complete(solver::ProgramGraph &graph,
+                IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> &ran);
+
+  // The families (Declare.cpp); `atoms` is each function's row over
+  // `calls`, the completed graph.
+  mlir::LogicalResult declare(const solver::ProgramGraph &calls,
+                              const IndexVector<solver::FunctionId, effects::Row> &atoms);
+  // Every signature converted and set on its function (Convert.cpp).
   void convertSignatures();
   void convertConstants();
 
@@ -161,7 +199,7 @@ private:
   llvm::DenseMap<mlir::Value, Key> widened;
   // Every key, by its dense id in the order met.
   llvm::DenseMap<Key, KeyId> ids;
-  llvm::SmallVector<Family> families;
+  footprint::Vector<Family> families;
   llvm::DenseMap<mlir::StringAttr, Signature> signatures;
   // Every type the program names, remade where its parts hold a slot:
   // the program's data families whose fields hold closures, the shaped
@@ -169,7 +207,11 @@ private:
   mlir::AttrTypeReplacer replacer;
   // Each part of the program's constants converted in its slot.
   mutable llvm::DenseMap<std::pair<mlir::Attribute, mlir::Attribute>, mlir::Attribute> converted;
-  llvm::SmallVector<FuncOp> made;
+  // Held while the walks' workers read the replacer, `converted` or
+  // `holding`, each of which keeps what it made (Convert.cpp).
+  mutable std::mutex replacing;
+  footprint::Vector<FuncOp> made;
+  footprint::Vector<Runner> running;
   ClosureParts holding;
 };
 

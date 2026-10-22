@@ -4,14 +4,15 @@
 // ops it held when the walk began:
 //   - read: each value's key and each operand's move, from the solve,
 //     while every value still has the type the solve read;
-//   - retype: each value its slot's type, in place, and the function its
-//     converted signature;
+//   - retype: each value its slot's type, in place, the entry block's
+//     arguments the converted signature the decision gave the function;
 //   - coerce: before each operand whose move goes between two keys, the
 //     match that rebuilds its value in the other family;
 //   - replace: each closure op by what it means, and the ops it replaced
 //     erased at the end, so no value the solve names is freed while the
 //     walk reads the solve.
-// Another function is read only through the decision's signatures; what a
+// Another function is read only through the decision's signatures and the
+// converted type the decision gave it before any walk began; what a
 // constructor of a family runs is the function its label names.
 
 #include "idr/Analysis/Labels.h"
@@ -37,11 +38,11 @@ namespace {
 // definition before it is replaced.
 enum class TailPosition : bool { Within, Tail };
 
-// A call of a function the decision knows, built with a tail fact the one
+// A call of a function the decision knows, its results the callee's
+// converted signature at `indices`, built with a tail fact the one
 // definition of tail position rewrites once the function is whole.
-CallOp callOf(OpBuilder &b, Location loc, FuncOp callee, IndexArgsAttr indices,
-              TypeRange results, ValueRange args) {
-  return CallOp::create(b, loc, callee, indices, results, args, TailKind::nontail);
+CallOp callOf(OpBuilder &b, Location loc, FuncOp callee, IndexArgsAttr indices, ValueRange args) {
+  return CallOp::create(b, loc, callee, indices, args, TailKind::nontail);
 }
 
 // The case of `tag` in `match`, over `scrutinee` of `family`: a block
@@ -178,8 +179,7 @@ LogicalResult rewrite(FuncOp fn, const Decision &decision) {
   SmallVector<Read<LazyForceOp>> forces = readAll<LazyForceOp>(fn, decision);
   SmallVector<Read<ConstantOp>> constants = readAll<ConstantOp>(fn, decision);
 
-  // Retype: the function's signature and entry block, then every value.
-  fn.setFunctionType(sig.converted);
+  // Retype: the entry block, then every value.
   for (auto [arg, type] : llvm::zip_equal(fn.getArguments(), sig.converted.getInputs()))
     arg.setType(type);
   for (const Retype &each : retypes)
@@ -250,17 +250,20 @@ LogicalResult rewrite(FuncOp fn, const Decision &decision) {
       const Signature &run = decision.signature(label.getAttr());
       auto target = SymbolTable::lookupNearestSymbolFrom<FuncOp>(apply, label);
       auto captures = static_cast<unsigned>(taken.fields.size());
+      // The label's parameters at the case's binders, which the call
+      // passes as its index arguments.
+      FunctionType bound = families::substitute(run.converted, taken.binders);
       SmallVector<Value> args;
-      for (auto [field, type] : llvm::zip_equal(taken.fields, run.converted.getInputs().take_front(captures)))
+      for (auto [field, type] : llvm::zip_equal(taken.fields, bound.getInputs().take_front(captures)))
         args.push_back(heldAs(b, loc, field, type));
       for (auto [i, arg] : llvm::enumerate(apply.getArgs())) {
         Value value = arg;
         const Slot &into = run.arguments[captures + i];
         if (const Slot &own = read.keys[1 + i]; own && into && *own != *into)
           value = coerce(b, loc, value, *own, *into, decision);
-        args.push_back(heldAs(b, loc, value, run.converted.getInput(captures + i)));
+        args.push_back(heldAs(b, loc, value, bound.getInput(captures + i)));
       }
-      CallOp call = callOf(b, loc, target, taken.binders, run.converted.getResults(), args);
+      CallOp call = callOf(b, loc, target, taken.binders, args);
       made.push_back(call);
       SmallVector<Value> yields;
       for (auto [j, result] : llvm::enumerate(call.getResults())) {
@@ -289,12 +292,14 @@ LogicalResult rewrite(FuncOp fn, const Decision &decision) {
     const Family &memo = decision.familyOf(*read.keys.front());
     auto dispatch = SymbolTable::lookupNearestSymbolFrom<FuncOp>(force, memo.force);
     DataType cell = cast<DataType>(unrestricted(force.getSuspension().getType()));
-    Value taken = heldAs(b, loc, force.getSuspension(), dispatch.getArgumentTypes().front());
-    CallOp call = callOf(b, loc, dispatch, IndexArgsAttr::get(b.getContext(), cell.getIndices()),
-                         dispatch.getResultTypes(), ValueRange(taken));
+    // The dispatch function at the cell's indices, which the call passes.
+    auto indices = IndexArgsAttr::get(b.getContext(), cell.getIndices());
+    Value taken = heldAs(b, loc, force.getSuspension(),
+                         families::substitute(dispatch.getFunctionType(), indices).getInput(0));
+    CallOp call = callOf(b, loc, dispatch, indices, ValueRange(taken));
     made.push_back(call);
     Value value = call.getResult(0);
-    const Slot &forced = decision.signature(memo.force.getAttr()).results.front();
+    Slot forced = decision.forcedOf(memo);
     if (const Slot &own = read.keys.back(); own && forced && *own != *forced)
       value = coerce(b, loc, value, *forced, *own, decision);
     force.getResult().replaceAllUsesWith(heldAs(b, loc, value, force.getResult().getType()));

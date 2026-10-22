@@ -34,9 +34,11 @@
 
 #include "idr/Transforms/Deduplicate.h"
 
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/OperationSupport.h"
@@ -234,14 +236,15 @@ namespace {
 // The merge of one class into its first; the unit is the function kept.
 struct DeduplicateMergeAction : idr::support::TaggedAction<DeduplicateMergeAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-deduplicate-merge";
+  static constexpr std::string_view tag = ::idr::actions::deduplicateMerge;
 };
 
 struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
   void runOnProgram(idr::ProgramOp program) {
     using namespace idr::deduplicate;
     MLIRContext *context = &getContext();
-    SmallVector<idr::FuncOp> fns(program.getOps<idr::FuncOp>());
+    auto held = program.getOps<idr::FuncOp>();
+    idr::footprint::Vector<idr::FuncOp> fns(held.begin(), held.end());
     auto n = static_cast<unsigned>(fns.size());
     llvm::DenseMap<StringAttr, unsigned> index;
     for (auto [at, fn] : llvm::enumerate(fns))
@@ -249,8 +252,8 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
 
     // Each function hashed once, every reference one placeholder of a
     // reference's own kind; its references listed in order.
-    SmallVector<llvm::hash_code> hashes;
-    SmallVector<SmallVector<unsigned>> refs;
+    idr::footprint::Vector<llvm::hash_code> hashes;
+    idr::footprint::Vector<SmallVector<unsigned>> refs;
     auto placeholder = FlatSymbolRefAttr::get(StringAttr::get(context, ""));
     auto anyReference = [&](SymbolRefAttr) -> Attribute { return placeholder; };
     for (idr::FuncOp fn : fns) {
@@ -261,12 +264,14 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
     // The partition: classes numbered by their first member in program
     // order, refined by the classes each member's references name until
     // their count stops growing.
-    SmallVector<unsigned> classOf(n);
+    idr::footprint::Vector<unsigned> classOf(n);
     unsigned classes = 0;
     auto renumber = [&](auto &&keyOf) {
       using KeyT = std::decay_t<decltype(keyOf(0u))>;
-      std::map<KeyT, unsigned> numbers;
-      SmallVector<unsigned> next(n);
+      std::map<KeyT, unsigned, std::less<KeyT>,
+               idr::footprint::Allocator<std::pair<const KeyT, unsigned>>>
+          numbers;
+      idr::footprint::Vector<unsigned> next(n);
       for (unsigned at = 0; at < n; ++at)
         next[at] = numbers.try_emplace(keyOf(at), static_cast<unsigned>(numbers.size())).first->second;
       classOf = std::move(next);
@@ -276,7 +281,7 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
       while (true) {
         unsigned before = classes;
         renumber([&](unsigned at) {
-          std::vector<unsigned> key{classOf[at]};
+          idr::footprint::Vector<unsigned> key{classOf[at]};
           for (unsigned ref : refs[at])
             key.push_back(classOf[ref]);
           return key;
@@ -290,7 +295,7 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
     // Each class's members in symbol order, each confirmed against the
     // first of its part, a reference read as its class's first; a class
     // whose members differ splits into its parts and the rounds run again.
-    SmallVector<SmallVector<unsigned>> members;
+    idr::footprint::Vector<SmallVector<unsigned>> members;
     auto representative = [&](SymbolRefAttr ref) -> Attribute {
       auto found = index.find(ref.getRootReference());
       if (found == index.end())
@@ -304,7 +309,7 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
         members[classOf[at]].push_back(at);
       for (SmallVector<unsigned> &list : members)
         llvm::sort(list, [&](unsigned a, unsigned b) { return fns[a].getSymName() < fns[b].getSymName(); });
-      SmallVector<unsigned> part(n, 0);
+      idr::footprint::Vector<unsigned> part(n, 0);
       bool split = false;
       for (ArrayRef<unsigned> list : members) {
         SmallVector<unsigned, 2> firsts{list.front()};

@@ -89,14 +89,15 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
     const families::MemoLabelDecl &label = labels[at];
     auto target = SymbolTable::lookupNearestSymbolFrom<FuncOp>(program, label.label.fn);
     Location at_ = target.getLoc();
-    // The label's function on `captures`, its value held as the force
-    // gives it.
+    // The label's function on `captures`, at the case's binders, which the
+    // call passes as its index arguments; its value held as the force gives
+    // it. The decision converted the function's type before this body.
+    FunctionType bound = families::substitute(target.getFunctionType(), binders);
     auto call = [&](ValueRange captures) {
       SmallVector<Value> args;
-      for (auto [capture, param] : llvm::zip_equal(captures, target.getArgumentTypes()))
+      for (auto [capture, param] : llvm::zip_equal(captures, bound.getInputs()))
         args.push_back(heldAs(b, at_, capture, param));
-      auto called = CallOp::create(b, at_, target, binders, target.getResultTypes(), args,
-                                   TailKind::nontail);
+      auto called = CallOp::create(b, at_, target, binders, args, TailKind::nontail);
       return heldAs(b, at_, called.getResult(0), value);
     };
     switch (label.mode) {

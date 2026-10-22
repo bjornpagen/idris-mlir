@@ -25,7 +25,7 @@
 #include "idr/Transforms/Optimize.h"
 #include "idr/Transforms/OptimizeScheduler.h"
 #include "idr/Transforms/Pipeline.h"
-#include "idr/Transforms/Specialize.h"
+#include "idr/Transforms/SpecializeState.h"
 
 #include "mlir/IR/Remarks.h"
 #include "llvm/ADT/Statistic.h"

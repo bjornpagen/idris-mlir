@@ -21,11 +21,14 @@
 // behind. A copy's name is a digest of its key's canonical bytes, the owner
 // spelled by its symbol, so it is the same at any thread count and on any
 // machine, and a name another key holds is the compiler's error.
+//
+// The nodes of one run, which these keys make, are SpecializeState.h's.
 #ifndef IDR_TRANSFORMS_SPECIALIZE_H
 #define IDR_TRANSFORMS_SPECIALIZE_H
 
 #include "idr/Analysis/BindingTimes.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Actions.h"
@@ -57,20 +60,16 @@ namespace idr {
 // call.
 struct RaiseAction : support::TaggedAction<RaiseAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-raise";
+  static constexpr std::string_view tag = ::idr::actions::raise;
 };
 
 // idr-redirect calls a copy of its callee.
 struct SpecializeCloneAction : support::TaggedAction<SpecializeCloneAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-specialize-clone";
+  static constexpr std::string_view tag = ::idr::actions::specializeClone;
 };
 
 } // namespace idr
-
-namespace idr::optimize {
-class Schedule;
-} // namespace idr::optimize
 
 namespace idr::specialize {
 
@@ -332,223 +331,6 @@ struct Signatures {
 static_assert(KeyAlphabet<Patterns>);
 static_assert(KeyAlphabet<Signatures>);
 
-//===----------------------------------------------------------------------===//
-// The nodes of one run
-//===----------------------------------------------------------------------===//
-
-// A node's phases, each holding what it has: asked for and not built;
-// claimed by the one worker that builds it; built, detached, with its
-// parameters' binding times; placed in the program as the function the
-// schedule numbered.
-struct Requested {};
-struct Claimed {};
-struct Built {
-  FuncOp fn;
-  llvm::SmallVector<BindingTime> times;
-};
-struct Placed {
-  FunctionId id;
-};
-using Phase = std::variant<Requested, Claimed, Built, Placed>;
-
-struct Node {
-  Key key;
-  // What inlining the copy does to the recursion its origin is on, the
-  // function's own `copy` once the run ends: a step of a recursion on
-  // static data, whose next step is another copy, so inlining it would
-  // unroll the recursion into its callers; or a beta step, whose key fixes
-  // closures alone, of labels outside the origin's component and none of
-  // them shared, so inlined it consumes the constructors its caller built
-  // and calls the recursion, never itself. None for a raise, a signature
-  // copy, or a pattern copy of an origin on no cycle, which the inline
-  // verdict weighs as any function. Decided when the key is granted; a
-  // later request that shares a closure makes a beta step a step, and
-  // nothing makes a step anything else.
-  std::optional<CopyKind> copy;
-  // The function the program held that it stands for, back through the
-  // copies it was made from.
-  FunctionId origin;
-  mlir::FlatSymbolRefAttr name;
-  // The nodes whose requests made it in the wave it was made, a set: the
-  // keys on a request chain are read as a set, and its order is never.
-  llvm::SmallVector<const Node *> parents;
-  Phase phase = Requested{};
-};
-
-// The consumer forms raising has met: each a detached function, interned
-// by upstream's structural equivalence (idr-deduplicate's) and known by
-// the digest of its structure, which names the raise copies of it. The
-// number a form gets is the order workers met it in, so nothing outside
-// this table reads it: a name reads the digest. Safe from any worker; a
-// form is never written once interned.
-class Forms {
-public:
-  FormId intern(mlir::OwningOpRef<FuncOp> consumer);
-  FuncOp at(FormId form) const;
-  llvm::XXH128_hash_t digestOf(FormId form) const;
-
-private:
-  struct Form {
-    mlir::OwningOpRef<FuncOp> fn;
-    llvm::XXH128_hash_t digest;
-  };
-  mutable std::mutex mutex;
-  llvm::DenseMap<std::uint64_t, llvm::SmallVector<FormId, 1>> byDigest;
-  std::vector<Form> forms;
-};
-
-// What a requester asked for: the keys it was given, by owner, against
-// which every key of that owner it asks for later is judged, and the nodes
-// it has not taken yet. Held by the requester's turn, which one worker
-// owns, so judging a request takes no lock.
-class Requester {
-public:
-  llvm::ArrayRef<const PatternKey *> given(FunctionId owner) const;
-  void give(Node &node);
-  // The nodes given since the last take, in name order, each once.
-  llvm::SmallVector<Node *> take();
-
-private:
-  llvm::SmallVector<std::pair<FunctionId, llvm::SmallVector<const PatternKey *, 2>>, 4> keys;
-  llvm::SmallVector<Node *> waiting;
-};
-
-// What one call asks for.
-struct PatternWant {
-  const PatternKey *key;
-  llvm::SmallVector<mlir::Value> leaves;
-};
-struct RaiseWant {
-  const RaiseKey *key;
-  Elimination consumer;
-  llvm::SmallVector<mlir::Value> operands;
-};
-struct SignatureWant {
-  const SignatureKey *key;
-};
-using Want = std::variant<PatternWant, RaiseWant, SignatureWant>;
-
-// The table of one run: every node by key, the arena, the forms. Workers
-// share it; a node is inserted and its phase moved under the lock, and
-// nothing else is.
-class Nodes {
-public:
-  explicit Nodes(const optimize::Schedule &schedule);
-  ~Nodes();
-
-  Arena &arena() { return keys; }
-  Forms &forms() { return consumers; }
-
-  // The node `fn` is, or null for a function the program held.
-  const Node *find(FunctionId fn) const;
-
-  // The node `want`'s key names for `requester`, judged on its own state
-  // and made if new; none where the key grows one given before, or a lift
-  // leaves no structure: the call stays a call. A name another key holds
-  // is an internal error, emitted at `at`.
-  struct Grant {
-    Node *node;
-    const PatternKey *key;
-    llvm::SmallVector<Source> sources;
-  };
-  mlir::FailureOr<std::optional<Grant>> request(FunctionId requester, Requester &state,
-                                                const Want &want, mlir::Operation *at);
-
-  // True for exactly one caller per node: it goes from requested to
-  // claimed.
-  bool claim(Node &node);
-  // The node's function, built detached from its owner as the schedule
-  // lets `claimant` read it: it goes from claimed to built.
-  mlir::LogicalResult build(Node &node, FunctionId claimant);
-  // The node, built, was numbered by the schedule as `id`.
-  void place(Node &node, FunctionId id);
-  bool placed(const Node &node) const;
-  // Once no turn runs: each placed copy's kind written on its function,
-  // where the inline verdict reads it after the run.
-  void writeCopies();
-
-private:
-  struct State;
-  std::unique_ptr<State> state;
-  Arena keys;
-  Forms consumers;
-};
-
-// idr-redirect, a step of idr-optimize's inner pipeline: each call whose
-// arguments compose a key, or whose result a dispatch consumes, requests
-// its node and calls it.
-std::unique_ptr<mlir::Pass> createRedirect(optimize::Schedule &schedule, Nodes &nodes,
-                                           mlir::Pass::Statistic &redirected);
-
-namespace detail {
-
-// The pattern of `value` and its runtime leaves in pre-order, or a hole
-// for a value no pattern knows more of. A constant is itself, a constructor
-// its tag over its fields; a value entered into a quantity-one position is
-// keyed as the value, whose position's type keeps its quantity.
-const Pattern *shapeOf(Arena &arena, mlir::Value value, llvm::SmallVectorImpl<mlir::Value> &leaves);
-// Whether `value` is closed (a constant, or a constructor of closed
-// values), and whether every op that built its shape has one use.
-bool isClosed(mlir::Value value);
-bool usedOnce(mlir::Value value);
-// Erases the ops that built the shapes of `values` once nothing uses them.
-void eraseUnused(mlir::RewriterBase &rewriter, llvm::ArrayRef<mlir::Value> values);
-// The value `pattern` stands for at a position of `type`, each hole taken
-// from `holes[next++]`.
-mlir::Value rebuild(mlir::OpBuilder &b, mlir::Location loc, const Pattern &pattern, mlir::Type type,
-                    llvm::ArrayRef<mlir::Value> holes, unsigned &next);
-void holeTypes(const Pattern &pattern, mlir::Type type, llvm::SmallVectorImpl<mlir::Type> &out);
-
-// What a call fixes, by the binding times its callee's parameters have as
-// the call sees them: a pattern key over the owner's parameters, or none.
-// `own` is the callee's key when the callee is a pattern copy, its holes
-// filled with the call's shapes.
-std::optional<PatternWant> composeKey(Arena &arena, CallOp call, FunctionId owner,
-                                      const PatternKey *own, llvm::ArrayRef<BindingTime> seen);
-
-// What a pattern key fixes when it fixes closures alone: the labels of
-// those closures, none of them capturing, at any depth, a closure of its
-// own label; or data (a constructor of a data family, or a closure that
-// would let a recursion walk), which a recursion could walk.
-struct FixesData {};
-struct FixesClosures {
-  llvm::SmallVector<mlir::FlatSymbolRefAttr, 2> labels;
-};
-using Fixes = std::variant<FixesData, FixesClosures>;
-Fixes fixes(const PatternKey &key, mlir::TypeRange params);
-
-// Whether `call` passes a closure, or one a constructor it passes holds,
-// that something else uses too.
-bool sharesClosure(CallOp call);
-// Where the call applies to a member of its own component closures built
-// for it alone: fixed there, varying elsewhere.
-std::optional<llvm::SmallVector<BindingTime>> appliesBuiltClosures(CallOp call);
-
-// Raising.
-std::optional<Elimination> consumerOf(CallOp call);
-mlir::OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consumer,
-                                           llvm::SmallVectorImpl<mlir::Value> &free);
-FuncOp buildRaise(FuncOp callee, const RaiseKey &key, mlir::StringAttr name, const Forms &forms);
-
-// What a call wants, by kind: its signature copy where its index arguments
-// fix a layout class the callee's layout changes under or it passes static
-// data where the callee would count; else its raise; else its pattern key.
-mlir::FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
-                                            const Node *requester, FuncOp callee,
-                                            FunctionId calleeId, const Node *calleeNode,
-                                            llvm::ArrayRef<BindingTime> seen);
-
-// Calling a node.
-llvm::SmallVector<mlir::Value> operandsOf(mlir::RewriterBase &rewriter, CallOp call,
-                                          const PatternWant &want, const PatternKey &key,
-                                          llvm::ArrayRef<Source> sources, FuncOp owner);
-CallOp redirect(mlir::RewriterBase &rewriter, CallOp call, mlir::FlatSymbolRefAttr target,
-                mlir::FunctionType type, IndexArgsAttr indices,
-                llvm::ArrayRef<mlir::Value> operands);
-CallOp redirect(mlir::RewriterBase &rewriter, CallOp call, mlir::FlatSymbolRefAttr target,
-                mlir::FunctionType type, const RaiseWant &want);
-
-} // namespace detail
 } // namespace idr::specialize
 
 #endif // IDR_TRANSFORMS_SPECIALIZE_H

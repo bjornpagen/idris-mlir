@@ -9,14 +9,24 @@
 // part's is its anchor's, the same for every value of its kind; a value's
 // is its own point's, unless the widening gave it the one key all its uses
 // move it into.
+//
+// And the decision made whole, in its order: the program graph it reads
+// rows over is the program's calls, and each run of labels the label solve
+// found as a call of each label it runs.
 
+#include "idr/Analysis/Effects.h"
 #include "idr/Analysis/Labels.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
+#include "idr/Support/Id.h"
 #include "idr/Transforms/Defunctionalize.h"
+#include "idr/Transforms/Effects.h"
 
 #include "llvm/ADT/STLExtras.h"
+
+#include <tuple>
 
 using namespace mlir;
 
@@ -82,7 +92,7 @@ void Decision::note(ArrayRef<Slot> slots, ArrayRef<Type> types) {
     Slot slot = pending.pop_back_val();
     if (!slot || !ids.try_emplace(*slot, static_cast<KeyId>(families.size())).second)
       continue;
-    families.push_back(Family{*slot, DataType(), FlatSymbolRefAttr()});
+    families.push_back(Family{*slot, DataType(), FlatSymbolRefAttr(), {}});
     if (carrierOf(*slot) == Carrier::Lazy) {
       auto lazy = cast<LazyType>(slot->carrier);
       push({anchorKey(FlowAnchor::forcedOf(lazy))}, {lazy.getValue()});
@@ -142,6 +152,118 @@ void Decision::widen() {
         labels::within(own->labels, common->labels))
       widened[value] = *common;
   });
+}
+
+// Each function's calls, and in its row beside them each label it runs,
+// with how many of its runs run it. A run has no tail kind until the
+// rewrite makes it a call, and the atoms' join reads none, so it stands as
+// a call within; the row stays in the graph's one order, a (callee, kind)
+// once, merged with a direct call of the same label.
+void Decision::complete(solver::ProgramGraph &graph,
+                        IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> &ran) {
+  Count<solver::FunctionId> space = ran.size();
+  solver::Editor editor = graph.thaw();
+  for (solver::FunctionId f : space.ids()) {
+    footprint::Vector<solver::FunctionId> &labelled = ran[f];
+    if (labelled.empty())
+      continue;
+    llvm::sort(labelled);
+    std::span<const solver::Call> direct = editor.callees(f);
+    llvm::SmallVector<solver::Call, 4> row;
+    std::size_t next = 0;
+    for (std::size_t from = 0; from < labelled.size();) {
+      solver::FunctionId label = labelled[from];
+      std::size_t to = from;
+      while (to < labelled.size() && labelled[to] == label)
+        ++to;
+      auto sites = static_cast<std::uint32_t>(to - from);
+      from = to;
+      while (next < direct.size() && std::tuple(direct[next].callee, direct[next].kind) <
+                                         std::tuple(label, TailKind::nontail))
+        row.push_back(direct[next++]);
+      if (next < direct.size() && direct[next].callee == label &&
+          direct[next].kind == TailKind::nontail)
+        sites += direct[next++].sites;
+      row.push_back({label, TailKind::nontail, sites});
+    }
+    row.append(direct.begin() + static_cast<std::ptrdiff_t>(next), direct.end());
+    editor.setCallees(f, row);
+  }
+  std::move(editor).freeze();
+}
+
+namespace {
+
+// The decision's reader of a body for the atoms' join: a call adds nothing
+// of its own, nor does a run of labels, since the graph holds both as
+// calls, whose callees' rows the join gives.
+struct ByGraph {
+  void call(CallOp, rows::Fold &, rows::Runs) {}
+  rows::Read other(Operation *op, rows::Fold &, rows::Runs) {
+    return isa<RunsLabelsOpInterface>(op) ? rows::Read::ByReader : rows::Read::ByDeclaration;
+  }
+};
+
+} // namespace
+
+FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const Labels &labels,
+                                                      solver::ProgramGraph &graph,
+                                                      solver::Work &work) {
+  std::unique_ptr<Decision> decision(new Decision(program, labels));
+  Decision &d = *decision;
+  // Every signature first, which every other key of a parameter or a
+  // result reads; then the widening, which reads the sinks; then every key
+  // the program's values and types ask for, and the labels each run runs,
+  // read in the same walk.
+  for (FuncOp fn : program.getOps<FuncOp>()) {
+    Signature &sig = d.signatures[fn.getSymNameAttr()];
+    for (BlockArgument arg : fn.getArguments())
+      sig.arguments.push_back(d.keyWith(arg.getType(), FlowPoint::of(Value(arg))));
+    auto name = FlatSymbolRefAttr::get(fn.getSymNameAttr());
+    for (auto [j, type] : llvm::enumerate(fn.getResultTypes()))
+      sig.results.push_back(d.keyWith(type, FlowPoint::result(name, static_cast<unsigned>(j))));
+  }
+  d.widen();
+  IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> ran(graph.size());
+  for (FuncOp fn : program.getOps<FuncOp>()) {
+    const Signature &sig = d.signature(fn.getSymNameAttr());
+    FunctionType type = fn.getFunctionType();
+    solver::FunctionId self = graph.id(fn);
+    d.note(llvm::to_vector(llvm::concat<const Slot>(sig.arguments, sig.results)),
+           llvm::to_vector(llvm::concat<const Type>(type.getInputs(), type.getResults())));
+    fn.walk([&](Operation *op) {
+      if (auto runner = dyn_cast<RunsLabelsOpInterface>(op))
+        for (auto label : labels.runs(runner).getAsRange<FlatSymbolRefAttr>())
+          ran[self].push_back(graph.id(label));
+      for (Value result : op->getResults())
+        d.note({d.keyOf(result)}, {result.getType()});
+      for (Region &region : op->getRegions())
+        for (Block &block : region)
+          for (Value arg : block.getArguments())
+            d.note({d.keyOf(arg)}, {arg.getType()});
+    });
+    if (!ran[self].empty())
+      d.running.push_back({self, fn});
+  }
+  // Each label's row, before any type changes: every function's own atoms
+  // joined over the graph its runs completed, callees first.
+  d.complete(graph, ran);
+  IndexVector<solver::FunctionId, effects::Row> atoms =
+      rows::solveAtoms(graph, ByGraph{}, *d.ctx, work);
+  if (failed(d.declare(graph, atoms)))
+    return failure();
+  d.convertSignatures();
+  // Each memo family's dispatch function, born rewritten.
+  for (Family &family : d.families) {
+    if (carrierOf(family.key) != Carrier::Lazy)
+      continue;
+    FailureOr<FuncOp> force = d.defineForce(family);
+    if (failed(force))
+      return failure();
+    family.force = FlatSymbolRefAttr::get(force->getSymNameAttr());
+    d.made.push_back(*force);
+  }
+  return decision;
 }
 
 } // namespace idr::defunctionalize

@@ -19,6 +19,7 @@
 #include "idr/Transforms/Inline.h"
 
 #include "idr/Analysis/Inline.h"
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
@@ -42,7 +43,7 @@ namespace {
 // idr-optimize inlines one call; the unit is the call.
 struct InlineAction : support::TaggedAction<InlineAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-optimize-inline";
+  static constexpr std::string_view tag = ::idr::actions::optimizeInline;
 };
 
 } // namespace
@@ -70,36 +71,33 @@ Verdict verdictOf(const solver::ProgramGraph &graph, solver::FunctionId caller,
   return Weighed{body.size, graph.callSites(callee)};
 }
 
-Profitability::Profitability(const solver::ProgramGraph &graph) : graph(graph) {}
+Profitability::Profitability(const solver::ProgramGraph &graph)
+    : graph(graph), sizes(graph.size()), bodies(graph.size()) {}
 
 bool Profitability::operator()(const Inliner::ResolvedCall &resolved) {
   auto caller = cast<FuncOp>(resolved.sourceNode->getCallableRegion()->getParentOp());
   auto callee = cast<FuncOp>(resolved.targetNode->getCallableRegion()->getParentOp());
-  solver::FunctionId from = graph.id(FlatSymbolRefAttr::get(caller.getSymNameAttr()));
-  solver::FunctionId to = graph.id(FlatSymbolRefAttr::get(callee.getSymNameAttr()));
-  auto sizeOf = [&](solver::FunctionId fn, FuncOp op) -> std::int64_t & {
-    auto [at, fresh] = sizes.try_emplace(fn, 0);
-    if (fresh)
-      at->second = bodyOf(op).size;
-    return at->second;
-  };
-  auto [body, fresh] = bodies.try_emplace(to, Body{});
-  if (fresh)
-    body->second = bodyOf(callee);
+  solver::FunctionId from = graph.id(caller);
+  solver::FunctionId to = graph.id(callee);
+  std::optional<Body> &body = bodies[to];
+  if (!body)
+    body = bodyOf(callee);
   bool profitable = idr::match(
-      verdictOf(graph, from, to, body->second, callee.getCopy()), [](Keep) { return false; },
+      verdictOf(graph, from, to, *body, callee.getCopy()), [](Keep) { return false; },
       [](Leaf) { return true; },
       [](const Weighed &weighed) {
         return (static_cast<std::int64_t>(weighed.calls) - 1) * (weighed.size - kSmall) <= kProduct;
       });
   if (!profitable)
     return false;
-  std::int64_t &size = sizeOf(from, caller);
-  if (!fitsCap(size, body->second.size)) {
+  std::optional<std::int64_t> &size = sizes[from];
+  if (!size)
+    size = bodyOf(caller).size;
+  if (!fitsCap(*size, body->size)) {
     ++numCapped;
     return false;
   }
-  size += body->second.size - 1;
+  *size += body->size - 1;
   ++numInlined;
   return true;
 }

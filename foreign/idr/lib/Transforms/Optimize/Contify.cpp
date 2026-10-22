@@ -24,9 +24,11 @@
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/Func.h"
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Transforms/Joins.h"
 #include "idr/Transforms/Optimize.h"
 
@@ -46,7 +48,7 @@ namespace {
 // function whose join points it becomes.
 struct ContifyAction : idr::support::TaggedAction<ContifyAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-contify-group";
+  static constexpr std::string_view tag = ::idr::actions::contifyGroup;
 };
 
 // A node of the return graph: the root, a function, or the continuation of
@@ -65,13 +67,13 @@ using Node = std::variant<Root, Function, Continuation>;
 // the iterative algorithm of Cooper, Harvey and Kennedy over a reverse
 // postorder, each walk with its own stack. A node the root does not reach
 // has none.
-SmallVector<int> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) {
+idr::footprint::Vector<int> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) {
   unsigned n = static_cast<unsigned>(succ.size());
-  SmallVector<int> order(n, -1);
-  SmallVector<unsigned> post;
+  idr::footprint::Vector<int> order(n, -1);
+  idr::footprint::Vector<unsigned> post;
   {
-    SmallVector<std::pair<unsigned, unsigned>> stack{{0, 0}};
-    SmallVector<char> seen(n, 0);
+    idr::footprint::Vector<std::pair<unsigned, unsigned>> stack{{0, 0}};
+    idr::footprint::Vector<char> seen(n, 0);
     seen[0] = 1;
     while (!stack.empty()) {
       auto &[node, next] = stack.back();
@@ -88,11 +90,11 @@ SmallVector<int> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) {
       stack.pop_back();
     }
   }
-  SmallVector<SmallVector<unsigned, 2>> pred(n);
+  idr::footprint::Vector<SmallVector<unsigned, 2>> pred(n);
   for (unsigned from = 0; from < n; ++from)
     for (unsigned to : succ[from])
       pred[to].push_back(from);
-  SmallVector<int> idom(n, -1);
+  idr::footprint::Vector<int> idom(n, -1);
   idom[0] = 0;
   auto intersect = [&](int a, int b) {
     while (a != b) {
@@ -124,16 +126,17 @@ SmallVector<int> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) {
 
 // How many groups a run placed.
 unsigned contify(idr::ProgramOp program) {
-  SmallVector<idr::FuncOp> fns(program.getOps<idr::FuncOp>());
+  auto held = program.getOps<idr::FuncOp>();
+  idr::footprint::Vector<idr::FuncOp> fns(held.begin(), held.end());
   llvm::DenseMap<StringAttr, unsigned> position;
   for (auto [at, fn] : llvm::enumerate(fns))
     position.try_emplace(fn.getSymNameAttr(), static_cast<unsigned>(at));
   // The return graph: node 0 the root, 1..F the functions, then one node
   // per non-tail call.
-  SmallVector<Node> nodes{Root{}};
+  idr::footprint::Vector<Node> nodes{Root{}};
   for (unsigned at = 0; at < fns.size(); ++at)
     nodes.push_back(Function{at});
-  SmallVector<SmallVector<unsigned, 2>> succ(nodes.size());
+  idr::footprint::Vector<SmallVector<unsigned, 2>> succ(nodes.size());
   succ[0].push_back(1 + position.find(program.getRootAttr().getAttr())->second);
   for (auto [at, fn] : llvm::enumerate(fns))
     fn.walk([&](idr::CallOp call) {
@@ -148,7 +151,7 @@ unsigned contify(idr::ProgramOp program) {
       succ[0].push_back(k);
       succ[k].push_back(callee);
     });
-  SmallVector<int> idom = dominators(succ);
+  idr::footprint::Vector<int> idom = dominators(succ);
 
   // Each function's place: the continuation or the function its group
   // stands at, read down the dominator tree, a function placed into a

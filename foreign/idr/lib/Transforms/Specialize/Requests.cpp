@@ -13,7 +13,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Optimize.h"
-#include "idr/Transforms/Specialize.h"
+#include "Calls.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/DenseSet.h"

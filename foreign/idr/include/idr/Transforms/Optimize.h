@@ -23,9 +23,10 @@
 #include "idr/Analysis/Constants.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Inline.h"
-#include "idr/Transforms/Specialize.h"
+#include "idr/Transforms/SpecializeState.h"
 
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -181,17 +182,18 @@ private:
   specialize::Nodes *nodes = nullptr;
   // Each function's member, by its id: ids are dense, and a copy placed
   // between waves takes the next one the editor mints.
-  std::vector<Member> members;
+  footprint::Vector<Member> members;
   llvm::BitVector cyclic;
   // The functions a family's label names, by id; each copy placed adds a
   // bit, clear.
   llvm::BitVector labelled;
   // The components: each function's class, merged where a wait closes a
-  // cycle; per class leader its callees not yet final and its members, in
-  // id order.
+  // cycle; per class leader, by the leader's id, its callees not yet final
+  // and its members, in id order. A function that leads no class has no
+  // members and counts nothing.
   llvm::IntEqClasses components;
-  llvm::DenseMap<unsigned, unsigned> unfinished;
-  llvm::DenseMap<unsigned, llvm::SmallVector<FunctionId>> byComponent;
+  footprint::Vector<unsigned> unfinished;
+  footprint::Vector<footprint::Vector<FunctionId>> byComponent;
   // The members some of whose waits are not met, by id: the only ones a
   // cycle of waits can run through.
   llvm::DenseSet<unsigned> blocked;

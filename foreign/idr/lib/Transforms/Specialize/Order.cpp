@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The run's arena of patterns and keys, the order keys of one owner are
-// compared by, and lifting.
+// The order keys of one owner are compared by.
 //
 // The order ends specialization whatever else a program does: a key is
 // refused when it grows a key its requester was given before, or one on
 // its request chain, and a key that differs from earlier ones of its shape
-// only in scalars is lifted to what it shares with all of them at once.
-// The embedding is homeomorphic: a pattern embeds in another when it is
-// the other with parts taken away, and what a pattern embeds in depends on
-// its shape alone, so over finitely many tags and kinds it is a
-// well-quasi-order, and every sequence of keys of one owner none of which
-// grows an earlier one is finite.
+// only in scalars is lifted (Lift.cpp). The embedding is homeomorphic: a
+// pattern embeds in another when it is the other with parts taken away,
+// and what a pattern embeds in depends on its shape alone, so over finitely
+// many tags and kinds it is a well-quasi-order, and every sequence of keys
+// of one owner none of which grows an earlier one is finite.
 //
 // A pattern is as deep as the constructors a call's arguments nest, which
 // the program's size bounds, so every walk here keeps its own stack.
@@ -25,143 +23,6 @@
 using namespace mlir;
 
 namespace idr::specialize {
-
-//===----------------------------------------------------------------------===//
-// The arena
-//===----------------------------------------------------------------------===//
-
-namespace {
-
-// The kinds of thing the arena interns, each in its own buckets.
-enum class Interned : unsigned { Hole, Con, Const, PatternKey, RaiseKey, SignatureKey };
-
-Interned kindOf(const Pattern::Node &node) {
-  return idr::match(
-      node, [](Hole) { return Interned::Hole; }, [](const Con &) { return Interned::Con; },
-      [](const Const &) { return Interned::Const; });
-}
-
-llvm::hash_code hashOf(const Pattern::Node &node) {
-  return idr::match(
-      node, [](Hole) { return llvm::hash_value(0); },
-      [](const Con &con) {
-        return llvm::hash_combine(static_cast<unsigned>(con.tag),
-                                  llvm::hash_combine_range(con.fields.begin(), con.fields.end()));
-      },
-      [](const Const &constant) { return llvm::hash_value(constant.value.getAsOpaquePointer()); });
-}
-
-// Whether two nodes are one: of one kind, a constructor of one tag over the
-// same fields, a constant of the same attribute.
-bool sameNode(const Pattern::Node &a, const Pattern::Node &b) {
-  return idr::match(
-      a,
-      [&](Hole) {
-        return idr::match(b, [](Hole) { return true; }, [](const auto &) { return false; });
-      },
-      [&](const Con &con) {
-        return idr::match(
-            b,
-            [&](const Con &other) { return con.tag == other.tag && llvm::equal(con.fields, other.fields); },
-            [](const auto &) { return false; });
-      },
-      [&](const Const &constant) {
-        return idr::match(
-            b, [&](const Const &other) { return constant.value == other.value; },
-            [](const auto &) { return false; });
-      });
-}
-
-} // namespace
-
-llvm::ArrayRef<const Pattern *> Arena::copy(llvm::ArrayRef<const Pattern *> list) {
-  auto *at = storage.Allocate<const Pattern *>(list.size());
-  llvm::copy(list, at);
-  return {at, list.size()};
-}
-
-const Pattern *Arena::intern(Pattern::Node node, unsigned holes) {
-  std::lock_guard lock(mutex);
-  llvm::SmallVector<const void *, 1> &bucket =
-      byHash[{static_cast<unsigned>(kindOf(node)), hashOf(node)}];
-  for (const void *met : bucket)
-    if (sameNode(static_cast<const Pattern *>(met)->get(), node))
-      return static_cast<const Pattern *>(met);
-  // A constructor's fields are the caller's until copied into the arena.
-  Pattern::Node owned = idr::match(
-      node, [](Hole hole) -> Pattern::Node { return hole; },
-      [&](const Con &con) -> Pattern::Node { return Con{con.tag, copy(con.fields)}; },
-      [](const Const &constant) -> Pattern::Node { return constant; });
-  auto *made = new (storage.Allocate<Pattern>()) Pattern(owned);
-  made->holeCount = holes;
-  bucket.push_back(made);
-  return made;
-}
-
-const Pattern *Arena::hole() { return intern(Hole{}, 1); }
-
-const Pattern *Arena::con(Tag tag, llvm::ArrayRef<const Pattern *> fields) {
-  unsigned holes = 0;
-  for (const Pattern *field : fields)
-    holes += field->holes();
-  return intern(Con{tag, fields}, holes);
-}
-
-const Pattern *Arena::constant(Attribute value) { return intern(Const{value}, 0); }
-
-const PatternKey *Arena::key(FunctionId owner, llvm::ArrayRef<const Pattern *> params) {
-  std::lock_guard lock(mutex);
-  llvm::hash_code hash =
-      llvm::hash_combine(owner.index(), llvm::hash_combine_range(params.begin(), params.end()));
-  llvm::SmallVector<const void *, 1> &bucket =
-      byHash[{static_cast<unsigned>(Interned::PatternKey), hash}];
-  for (const void *met : bucket) {
-    const auto *key = static_cast<const PatternKey *>(met);
-    if (key->owner == owner && llvm::equal(key->params, params))
-      return key;
-  }
-  auto *made = new (storage.Allocate<PatternKey>()) PatternKey{owner, copy(params)};
-  bucket.push_back(made);
-  return made;
-}
-
-const RaiseKey *Arena::key(FunctionId callee, FormId form) {
-  std::lock_guard lock(mutex);
-  llvm::hash_code hash = llvm::hash_combine(callee.index(), static_cast<unsigned>(form));
-  llvm::SmallVector<const void *, 1> &bucket =
-      byHash[{static_cast<unsigned>(Interned::RaiseKey), hash}];
-  for (const void *met : bucket) {
-    const auto *key = static_cast<const RaiseKey *>(met);
-    if (key->callee == callee && key->form == form)
-      return key;
-  }
-  auto *made = new (storage.Allocate<RaiseKey>()) RaiseKey{callee, form};
-  bucket.push_back(made);
-  return made;
-}
-
-const SignatureKey *Arena::key(FunctionId owner, FunctionType signature,
-                               IndexArgsAttr indices) {
-  std::lock_guard lock(mutex);
-  llvm::hash_code hash = llvm::hash_combine(owner.index(), signature, indices);
-  llvm::SmallVector<const void *, 1> &bucket =
-      byHash[{static_cast<unsigned>(Interned::SignatureKey), hash}];
-  for (const void *met : bucket) {
-    const auto *key = static_cast<const SignatureKey *>(met);
-    if (key->owner == owner && key->signature == signature && key->indices == indices)
-      return key;
-  }
-  auto *made = new (storage.Allocate<SignatureKey>()) SignatureKey{owner, signature, indices};
-  bucket.push_back(made);
-  return made;
-}
-
-unsigned PatternKey::holes() const {
-  unsigned total = 0;
-  for (const Pattern *param : params)
-    total += param->holes();
-  return total;
-}
 
 //===----------------------------------------------------------------------===//
 // The order
@@ -381,126 +242,6 @@ bool grows(const PatternKey &earlier, const PatternKey &key) {
 
 bool sameShape(const PatternKey &a, const PatternKey &b) {
   return a.owner == b.owner && llvm::all_of_zip(a.params, b.params, oneShape);
-}
-
-//===----------------------------------------------------------------------===//
-// Lifting
-//===----------------------------------------------------------------------===//
-
-namespace {
-
-// What the lift knows at one position: the key's part there and every
-// peer's, all of one shape.
-struct Position {
-  const Pattern *part;
-  llvm::SmallVector<const Pattern *, 2> peers;
-};
-
-// One step of the lift's walk: a position to visit, or a constructor whose
-// fields, the last `arity` results, are ready to be built over.
-struct Visit {
-  Position at;
-};
-struct Build {
-  Tag tag;
-  unsigned arity;
-};
-using Step = std::variant<Visit, Build>;
-
-// Whether every peer is the constant constructor of one cell and of `tag`.
-bool oneCellOf(Tag tag, llvm::ArrayRef<const Pattern *> peers) {
-  return llvm::all_of(peers, [&](const Pattern *peer) {
-    return idr::match(
-        peer->get(),
-        [&](const Const &theirs) {
-          auto con = dyn_cast<ConAttr>(theirs.value);
-          return con && con.getTag() == tag && con.getRunLength() == 1;
-        },
-        [](const auto &) { return false; });
-  });
-}
-
-// The field `i` of a peer that is a constant constructor of one cell, or
-// of a peer that is a constructor.
-const Pattern *fieldOf(Arena &arena, const Pattern *peer, unsigned i) {
-  return idr::match(
-      peer->get(), [&](const Con &con) { return con.fields[i]; },
-      [&](const Const &constant) {
-        return arena.constant(llvm::to_vector(cast<ConAttr>(constant.value).getFields())[i]);
-      },
-      [&](Hole) { return peer; });
-}
-
-} // namespace
-
-// Each position in pre-order: a hole kept is the hole it was, counted in
-// pre-order; a scalar where any peer differs is lifted out into a hole; a
-// constructor is its fields'; a constant constructor of one cell that
-// differs is taken apart into its constructor over its fields, and a run
-// of more than one cell is one constant, lifted whole, so a key never
-// unrolls a run. The walk keeps its own stack, the built parts on another.
-const PatternKey *liftOver(Arena &arena, const PatternKey &key,
-                           llvm::ArrayRef<const PatternKey *> peers,
-                           llvm::SmallVectorImpl<Source> &sources) {
-  unsigned next = 0;
-  llvm::SmallVector<const Pattern *> built;
-  llvm::SmallVector<Step> work;
-  for (auto [i, param] : llvm::enumerate(llvm::reverse(key.params))) {
-    unsigned position = key.params.size() - 1 - i;
-    Position at{param, {}};
-    for (const PatternKey *peer : peers)
-      at.peers.push_back(peer->params[position]);
-    work.push_back(Visit{std::move(at)});
-  }
-  while (!work.empty()) {
-    Step step = work.pop_back_val();
-    idr::match(
-        step,
-        [&](const Build &make) {
-          llvm::SmallVector<const Pattern *> fields(built.end() - make.arity, built.end());
-          built.resize(built.size() - make.arity);
-          built.push_back(arena.con(make.tag, fields));
-        },
-        [&](const Visit &visit) {
-          const Position &at = visit.at;
-          // A constructor's fields, pushed so that the first is visited
-          // first and the constructor built once all are.
-          auto expand = [&](Tag tag, unsigned arity, auto &&fieldAt) {
-            work.push_back(Build{tag, arity});
-            for (unsigned k = arity; k-- > 0;) {
-              Position field{fieldAt(at.part, k), {}};
-              for (const Pattern *peer : at.peers)
-                field.peers.push_back(fieldAt(peer, k));
-              work.push_back(Visit{std::move(field)});
-            }
-          };
-          idr::match(
-              at.part->get(),
-              [&](Hole) {
-                sources.push_back(Kept{next++});
-                built.push_back(arena.hole());
-              },
-              [&](const Con &con) {
-                expand(con.tag, con.fields.size(),
-                       [&](const Pattern *p, unsigned k) { return fieldOf(arena, p, k); });
-              },
-              [&](const Const &constant) {
-                if (llvm::all_of(at.peers, [&](const Pattern *peer) { return peer == at.part; })) {
-                  built.push_back(at.part);
-                  return;
-                }
-                auto con = dyn_cast<ConAttr>(constant.value);
-                if (!con || con.getRunLength() > 1 || !oneCellOf(con.getTag(), at.peers)) {
-                  sources.push_back(Lifted{constant.value});
-                  built.push_back(arena.hole());
-                  return;
-                }
-                expand(con.getTag(), llvm::size(con.getFields()),
-                       [&](const Pattern *p, unsigned k) { return fieldOf(arena, p, k); });
-              });
-        });
-  }
-  return arena.key(key.owner, built);
 }
 
 } // namespace idr::specialize

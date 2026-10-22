@@ -144,7 +144,7 @@ void Scheduler::takeUp(ArrayRef<FunctionId> starters) {
   for (FunctionId member : starters)
     if (!schedule.members[member.index()].node)
       held.push_back(solver::Member{member, schedule.function(member)});
-  std::vector<SmallVector<BindingTime>> solved = bindingTimesOf(schedule.graph, held);
+  footprint::Vector<SmallVector<BindingTime>> solved = bindingTimesOf(schedule.graph, held, spent);
   unsigned next = 0;
   for (FunctionId member : starters) {
     Schedule::Member &state = schedule.members[member.index()];
@@ -176,7 +176,7 @@ LogicalResult Scheduler::turn(Turn &work) {
       return failure();
   }
   // Every member done: the component's final bodies state its facts.
-  ArrayRef<FunctionId> ids = schedule.byComponent.find(work.component)->second;
+  ArrayRef<FunctionId> ids = schedule.byComponent[work.component];
   if (!llvm::all_of(ids, [&](FunctionId id) {
         return idr::match(schedule.members[id.index()].phase,
                           [](const Done &) { return true; }, [](const auto &) { return false; });

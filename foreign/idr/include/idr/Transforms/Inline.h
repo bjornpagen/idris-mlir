@@ -17,6 +17,7 @@
 #include "idr/Analysis/Inline.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Id.h"
 
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/Inliner.h"
@@ -87,10 +88,12 @@ public:
 
 private:
   const solver::ProgramGraph &graph;
-  // Each function's size now, walked once and kept current by every inline
-  // this answers.
-  llvm::DenseMap<solver::FunctionId, std::int64_t> sizes;
-  llvm::DenseMap<solver::FunctionId, Body> bodies;
+  // Each caller's size now, walked the first time it is asked and kept
+  // current by every inline this answers; each callee's body, walked the
+  // first time it is asked. Indexed by the graph's ids, so the tables count
+  // in the pass's footprint.
+  IndexVector<solver::FunctionId, std::optional<std::int64_t>> sizes;
+  IndexVector<solver::FunctionId, std::optional<Body>> bodies;
   std::uint64_t numInlined = 0, numCapped = 0;
 };
 

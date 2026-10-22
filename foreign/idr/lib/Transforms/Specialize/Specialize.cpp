@@ -22,8 +22,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Optimize.h"
-#include "idr/Transforms/Specialize.h"
-#include "idr/Transforms/SpecializeState.h"
+#include "Calls.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -85,7 +84,7 @@ Nodes::~Nodes() = default;
 
 const Node *Nodes::find(FunctionId fn) const {
   std::lock_guard lock(state->mutex);
-  return state->byFunction.lookup(fn);
+  return state->placedAt(fn);
 }
 
 namespace {
@@ -253,20 +252,16 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
     if (s.byName.contains(name))
       return emitError(at->getLoc())
              << "internal error: idr-optimize: two keys name the copy @" << name.getValue();
-    auto made = std::make_unique<Node>();
-    made->key = key;
-    made->copy = copy;
-    made->origin = origin;
-    made->name = FlatSymbolRefAttr::get(name);
+    Node &made = s.nodes.emplace_back(
+        Node{key, copy, origin, FlatSymbolRefAttr::get(name), {}, Requested{}});
     // A name the program held when the run began is the copy an earlier
     // run made of this key.
     if (std::optional<FunctionId> earlier = schedule.graph.find(FlatSymbolRefAttr::get(name))) {
-      made->phase = Placed{*earlier};
-      s.byFunction[*earlier] = made.get();
+      made.phase = Placed{*earlier};
+      s.placeAt(*earlier, made);
     }
-    s.byName[name] = made.get();
-    slot = made.get();
-    s.nodes.push_back(std::move(made));
+    s.byName[name] = &made;
+    slot = &made;
   }
   Node &node = *slot;
   // A step stays a step: a later request that shares makes no beta of it.
@@ -342,7 +337,7 @@ LogicalResult Nodes::build(Node &node, FunctionId claimant) {
 void Nodes::place(Node &node, FunctionId id) {
   std::lock_guard lock(state->mutex);
   node.phase = Placed{id};
-  state->byFunction[id] = &node;
+  state->placeAt(id, node);
 }
 
 bool Nodes::placed(const Node &node) const {
@@ -354,10 +349,10 @@ bool Nodes::placed(const Node &node) const {
 // Every copy's function says what it is, none included: a function the
 // program held under a copy's name keeps nothing an earlier run wrote.
 void Nodes::writeCopies() {
-  for (const std::unique_ptr<Node> &node : state->nodes)
+  for (const Node &node : state->nodes)
     idr::match(
-        node->phase,
-        [&](const Placed &placed) { state->schedule.function(placed.id).setCopy(node->copy); },
+        node.phase,
+        [&](const Placed &placed) { state->schedule.function(placed.id).setCopy(node.copy); },
         [](const auto &) {});
 }
 

@@ -18,7 +18,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Remake.h"
-#include "idr/Transforms/Specialize.h"
+#include "Calls.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"

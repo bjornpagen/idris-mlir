@@ -30,6 +30,8 @@ solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
   cyclic.resize(ids);
   labelled.resize(ids);
   components.grow(ids);
+  unfinished.assign(ids, 0);
+  byComponent.resize(ids);
   // A member per id, a gap's with no function: ids are dense.
   for (solver::FunctionId fn : frozen.size().ids())
     members.push_back(Member{frozen.op(fn), nullptr, fn, fn});
@@ -58,10 +60,10 @@ solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
         if (unsigned theirs = components.findLeader(call.callee.index()); theirs != mine)
           callees.insert(theirs);
     }
-    unfinished[mine] = callees.size();
+    unfinished[mine] = static_cast<unsigned>(callees.size());
   }
-  for (auto &entry : byComponent)
-    llvm::sort(entry.second);
+  for (footprint::Vector<FunctionId> &group : byComponent)
+    llvm::sort(group);
   // The functions the families' labels name, read once off every distinct
   // type the program's values have.
   AttrTypeWalker walker;

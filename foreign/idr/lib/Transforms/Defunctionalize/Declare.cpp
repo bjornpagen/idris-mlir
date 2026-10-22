@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Every family the walk writes, declared before any function is rewritten,
-// and every signature and constant as their slots have them.
+// Every family the walk writes, declared before any function is rewritten.
 //
 // A closure family has one label per function of its key's set, in the
 // order of their functions in the program, each naming its function and
@@ -19,19 +18,22 @@
 // declared anew with the family in that field: so declarations reference
 // one another, and a reference can close a cycle (a closure capturing a
 // value of the family whose field holds it). Each strongly connected group
-// of new declarations is one group of families, its members referring to
-// one another by position, declared after the groups it refers to.
+// of new declarations, as the solver layer's components find them over the
+// references, is one group of families, its members referring to one
+// another by position, declared after the groups it refers to.
 
 #include "idr/Analysis/Labels.h"
+#include "idr/Analysis/Solver/Components.h"
+#include "idr/Analysis/Solver/Graph.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Id.h"
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/IR/BuiltinOps.h"
-#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <deque>
@@ -114,12 +116,19 @@ struct ForData {
 };
 using Node = std::variant<ForKey, ForData>;
 
+// A new declaration by its place among them, numbered by the decision.
+struct DeclarationTag {
+  using Minter = Decision;
+};
+using DeclarationId = Id<DeclarationTag>;
+
 } // namespace
 
-LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
+LogicalResult Decision::declare(const solver::ProgramGraph &calls,
+                                const IndexVector<solver::FunctionId, effects::Row> &atoms) {
   // Every new declaration: each key's, then each member of each data group
   // a slot reaches, through the fields of the program's data types.
-  SmallVector<Node> nodes;
+  footprint::Vector<Node> nodes;
   for (unsigned at = 0; at < families.size(); ++at)
     nodes.push_back(ForKey{static_cast<KeyId>(at)});
   llvm::DenseMap<FamilyAttr, unsigned> firstOf;
@@ -198,28 +207,37 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
         });
     return out;
   };
-  std::vector<std::vector<unsigned>> edges(nodes.size() + 1);
-  for (auto [at, node] : llvm::enumerate(nodes))
+  // The references between the new declarations, and their groups, callees
+  // first, each group's members in the order the declarations were met.
+  CsrBuilder<DeclarationTag> references(Count<DeclarationId>(static_cast<std::uint32_t>(nodes.size())));
+  for (auto [at, node] : llvm::enumerate(nodes)) {
+    DeclarationId from(static_cast<std::uint32_t>(at));
     for (const SmallVector<Field> &ctor : fieldsOf(node))
       for (const Field &field : ctor) {
         if (field.slot)
-          edges[at].push_back(static_cast<unsigned>(ids.find(*field.slot)->second));
+          references.edge(from, DeclarationId(static_cast<std::uint32_t>(ids.find(*field.slot)->second)));
         AttrTypeWalker refs;
         refs.addWalk([&](DataType data) {
           if (std::optional<unsigned> to = nodeOfType(data))
-            edges[at].push_back(*to);
+            references.edge(from, DeclarationId(*to));
         });
         refs.walk(field.type);
       }
-  unsigned root = nodes.size();
-  for (unsigned at = 0; at < root; ++at)
-    edges[root].push_back(at);
+  }
+  Partition<DeclarationTag> groupsOf = components(std::move(references).finish());
+  footprint::Vector<footprint::Vector<unsigned>> sccs;
+  for (auto group : groupsOf.size().ids()) {
+    footprint::Vector<unsigned> &scc = sccs.emplace_back();
+    for (DeclarationId member : groupsOf.members(group))
+      scc.push_back(member.index());
+    llvm::sort(scc);
+  }
 
   // Each group, callees first: its members' positions, then each member
   // declared with its references to the group by position and to earlier
   // groups by their types.
-  SmallVector<DataType> made(nodes.size());
-  SmallVector<std::optional<std::pair<unsigned, unsigned>>> placed(nodes.size());
+  footprint::Vector<DataType> made(nodes.size());
+  footprint::Vector<std::optional<std::pair<unsigned, unsigned>>> placed(nodes.size());
   std::deque<SmallVector<Type>> fieldStore;
   std::deque<SmallVector<families::LabelDecl>> labelStore;
   std::deque<SmallVector<families::MemoLabelDecl>> memoStore;
@@ -227,65 +245,7 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
   std::deque<SmallVector<families::Sort>> sortStore;
   std::deque<SmallVector<families::TermNode>> termStore;
 
-  struct Graph {
-    const std::vector<std::vector<unsigned>> *edges;
-    unsigned root;
-  };
-  Graph graph{&edges, root};
-  std::vector<std::vector<unsigned>> sccs;
-  {
-    // An explicit Tarjan over the reference graph: no recursion follows the
-    // depth of references.
-    std::vector<int> index(nodes.size() + 1, -1), low(nodes.size() + 1, 0);
-    std::vector<bool> onStack(nodes.size() + 1, false);
-    std::vector<unsigned> stack;
-    int counter = 0;
-    struct Frame {
-      unsigned node;
-      unsigned next;
-    };
-    std::vector<Frame> frames{{root, 0}};
-    index[root] = low[root] = counter++;
-    stack.push_back(root);
-    onStack[root] = true;
-    while (!frames.empty()) {
-      Frame &frame = frames.back();
-      const std::vector<unsigned> &out = (*graph.edges)[frame.node];
-      if (frame.next < out.size()) {
-        unsigned to = out[frame.next++];
-        if (index[to] < 0) {
-          index[to] = low[to] = counter++;
-          stack.push_back(to);
-          onStack[to] = true;
-          frames.push_back({to, 0});
-        } else if (onStack[to]) {
-          low[frame.node] = std::min(low[frame.node], index[to]);
-        }
-        continue;
-      }
-      unsigned done = frame.node;
-      frames.pop_back();
-      if (!frames.empty())
-        low[frames.back().node] = std::min(low[frames.back().node], low[done]);
-      if (low[done] != index[done])
-        continue;
-      std::vector<unsigned> scc;
-      unsigned member;
-      do {
-        member = stack.back();
-        stack.pop_back();
-        onStack[member] = false;
-        if (member != root)
-          scc.push_back(member);
-      } while (member != done);
-      if (!scc.empty()) {
-        llvm::sort(scc);
-        sccs.push_back(std::move(scc));
-      }
-    }
-  }
-
-  for (const std::vector<unsigned> &scc : sccs) {
+  for (const footprint::Vector<unsigned> &scc : sccs) {
     for (auto [position, node] : llvm::enumerate(scc))
       placed[node] = std::pair(static_cast<unsigned>(&scc - sccs.data()), static_cast<unsigned>(position));
     // A field's type in the group: a slot's key family, a reference to a
@@ -342,8 +302,9 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
                 binders = bound.getSorts();
               families::LabelDecl decl{label.getAttr(), label, binders, terms, fields};
               if (carrierOf(k) == Carrier::Lazy)
-                memos.push_back({byName.contains(label.getAttr()) ? families::Mode::ByName
-                                                                   : families::Mode::Memoized,
+                memos.push_back({atoms[calls.id(label)].contains(effects::Atom::io)
+                                     ? families::Mode::ByName
+                                     : families::Mode::Memoized,
                                  decl});
               else
                 decls.push_back(decl);
@@ -391,12 +352,17 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
   }
 
   // Each key's family, applied at its uses to the variables its carrier
-  // names; and every old data type replaced by its new declaration.
-  for (unsigned at = 0; at < families.size(); ++at)
+  // names; and every old data type replaced by its new declaration, which
+  // the replacer reads for the decision's life, so it holds its own tables.
+  for (unsigned at = 0; at < families.size(); ++at) {
     families[at].type = made[at];
-  replacer.addReplacement([&](DataType data) -> std::optional<Type> {
-    if (auto first = firstOf.find(data.getGroup()); first != firstOf.end()) {
-      DataType now = made[first->second + data.getMember()];
+    for (std::uint64_t level : equate(families[at].key.carrier, families[at].key.carrier).levels)
+      families[at].args.push_back(families::TermNode{families::TermKind::Level, 0, 0, level, Attribute()});
+  }
+  replacer.addReplacement([this, firsts = std::move(firstOf),
+                           remade = std::move(made)](DataType data) -> std::optional<Type> {
+    if (auto first = firsts.find(data.getGroup()); first != firsts.end()) {
+      DataType now = remade[first->second + data.getMember()];
       return DataType::get(ctx, now.getGroup(), now.getMember(), data.getIndices());
     }
     return std::nullopt;
@@ -408,153 +374,6 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
     return shaped.clone(typeOf(element, anchorKey(FlowAnchor::elementsOf(element))));
   });
   return success();
-}
-
-// A slot's type: its key's family applied to the variables the carrier
-// names, at the carrier's grade; any other type remade where its parts
-// hold slots.
-Type Decision::typeOf(Type type, const Slot &slot) const {
-  if (!slot)
-    return const_cast<AttrTypeReplacer &>(replacer).replace(type);
-  DataType family = familyOf(*slot).type;
-  Equation vars = equate(slot->carrier, slot->carrier);
-  SmallVector<families::TermNode> args;
-  for (std::uint64_t level : vars.levels)
-    args.push_back(families::TermNode{families::TermKind::Level, 0, 0, level, Attribute()});
-  return graded(gradeOf(type), DataType::get(ctx, family.getGroup(), family.getMember(), args));
-}
-
-Tag Decision::tagOf(const Key &key, FlatSymbolRefAttr label) const {
-  return Tag{*labels.positionIn(key.labels, label)};
-}
-
-void Decision::convertSignatures() {
-  for (FuncOp fn : program.getOps<FuncOp>()) {
-    Signature &sig = signatures[fn.getSymNameAttr()];
-    SmallVector<Type> inputs, results;
-    for (auto [type, slot] : llvm::zip_equal(fn.getArgumentTypes(), sig.arguments))
-      inputs.push_back(typeOf(type, slot));
-    for (auto [type, slot] : llvm::zip_equal(fn.getResultTypes(), sig.results))
-      results.push_back(typeOf(type, slot));
-    sig.converted = FunctionType::get(ctx, inputs, results);
-  }
-}
-
-// A constant held in `slot`, each closure in it its label's constructor in
-// its slot's family, each constructor of a data family remade with its
-// fields in their slots. A part shared by many constants is converted once
-// per slot.
-Attribute Decision::constantOf(Attribute value, const Slot &slot) const {
-  if (!const_cast<ClosureParts &>(holding).holds(value))
-    return value;
-  // A part is converted once per slot it is held in, the slot named by its
-  // family's type, or by nothing where it holds no closure itself.
-  auto keyFor = [&](Attribute part, const Slot &s) {
-    return std::pair(part, s ? Attribute(TypeAttr::get(familyOf(*s).type)) : Attribute());
-  };
-  if (auto found = converted.find(keyFor(value, slot)); found != converted.end())
-    return found->second;
-  // The parts in post-order with their slots, each built once its fields are.
-  struct Visit {
-    Attribute part;
-    Slot slot;
-    bool expanded;
-  };
-  SmallVector<Visit> work{{value, slot, false}};
-  auto &done = converted;
-  auto fieldSlots = [&](Attribute part, const Slot &s) {
-    SmallVector<std::pair<Attribute, Slot>> out;
-    if (auto closure = dyn_cast<ClosureAttr>(part)) {
-      const Signature &sig = signature(closure.getCallee().getAttr());
-      for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
-        out.push_back({capture, sig.arguments[i]});
-    } else if (auto con = dyn_cast<ConAttr>(part)) {
-      DataType data = con.getData();
-      con.walkFields([&](Attribute field, unsigned i) {
-        out.push_back({field, anchorKey(FlowAnchor::fieldOf(data, con.getTag(), i))});
-      });
-    }
-    return out;
-  };
-  while (!work.empty()) {
-    Visit &visit = work.back();
-    auto key = keyFor(visit.part, visit.slot);
-    if (done.contains(key) || !const_cast<ClosureParts &>(holding).holds(visit.part)) {
-      if (!done.contains(key))
-        done[key] = visit.part;
-      work.pop_back();
-      continue;
-    }
-    SmallVector<std::pair<Attribute, Slot>> parts = fieldSlots(visit.part, visit.slot);
-    if (!visit.expanded) {
-      visit.expanded = true;
-      for (auto &[part, s] : parts)
-        work.push_back({part, s, false});
-      continue;
-    }
-    SmallVector<Attribute> fields;
-    for (auto &[part, s] : parts)
-      fields.push_back(done.at(keyFor(part, s)));
-    Attribute result;
-    if (auto closure = dyn_cast<ClosureAttr>(visit.part)) {
-      DataType family = cast<DataType>(unrestricted(typeOf(visit.slot->carrier, visit.slot)));
-      result = ConAttr::get(ctx, family.refinedTo(tagOf(*visit.slot, closure.getCallee()), {}),
-                            ArrayAttr::get(ctx, fields));
-    } else {
-      auto con = cast<ConAttr>(visit.part);
-      Type remade = const_cast<AttrTypeReplacer &>(replacer).replace(con.getType());
-      result = ConAttr::get(ctx, remade, ArrayAttr::get(ctx, fields));
-    }
-    done[key] = result;
-    work.pop_back();
-  }
-  return done.at(keyFor(value, slot));
-}
-
-FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const Labels &labels,
-                                                      const llvm::DenseSet<StringAttr> &byName) {
-  std::unique_ptr<Decision> decision(new Decision(program, labels));
-  Decision &d = *decision;
-  // Every signature first, which every other key of a parameter or a
-  // result reads; then the widening, which reads the sinks; then every key
-  // the program's values and types ask for.
-  for (FuncOp fn : program.getOps<FuncOp>()) {
-    Signature &sig = d.signatures[fn.getSymNameAttr()];
-    for (BlockArgument arg : fn.getArguments())
-      sig.arguments.push_back(d.keyWith(arg.getType(), FlowPoint::of(Value(arg))));
-    auto name = FlatSymbolRefAttr::get(fn.getSymNameAttr());
-    for (auto [j, type] : llvm::enumerate(fn.getResultTypes()))
-      sig.results.push_back(d.keyWith(type, FlowPoint::result(name, static_cast<unsigned>(j))));
-  }
-  d.widen();
-  for (FuncOp fn : program.getOps<FuncOp>()) {
-    const Signature &sig = d.signature(fn.getSymNameAttr());
-    FunctionType type = fn.getFunctionType();
-    d.note(llvm::to_vector(llvm::concat<const Slot>(sig.arguments, sig.results)),
-           llvm::to_vector(llvm::concat<const Type>(type.getInputs(), type.getResults())));
-    fn.walk([&](Operation *op) {
-      for (Value result : op->getResults())
-        d.note({d.keyOf(result)}, {result.getType()});
-      for (Region &region : op->getRegions())
-        for (Block &block : region)
-          for (Value arg : block.getArguments())
-            d.note({d.keyOf(arg)}, {arg.getType()});
-    });
-  }
-  if (failed(d.declare(byName)))
-    return failure();
-  d.convertSignatures();
-  // Each memo family's dispatch function, born rewritten.
-  for (Family &family : d.families) {
-    if (carrierOf(family.key) != Carrier::Lazy)
-      continue;
-    FailureOr<FuncOp> force = d.defineForce(family);
-    if (failed(force))
-      return failure();
-    family.force = FlatSymbolRefAttr::get(force->getSymNameAttr());
-    d.made.push_back(*force);
-  }
-  return decision;
 }
 
 } // namespace idr::defunctionalize

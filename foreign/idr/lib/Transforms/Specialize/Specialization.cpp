@@ -15,7 +15,7 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Transforms/Specialize.h"
+#include "Calls.h"
 
 #include "mlir/IR/Builders.h"
 #include "llvm/ADT/BitVector.h"

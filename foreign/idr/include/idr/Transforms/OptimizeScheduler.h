@@ -6,12 +6,14 @@
 #ifndef IDR_TRANSFORMS_OPTIMIZESCHEDULER_H
 #define IDR_TRANSFORMS_OPTIMIZESCHEDULER_H
 
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Analysis/Identities.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Match.h"
 #include "idr/Transforms/Optimize.h"
-#include "idr/Transforms/Specialize.h"
+#include "idr/Transforms/SpecializeState.h"
 
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/PassManager.h"
@@ -33,7 +35,7 @@ namespace idr::optimize {
 // function stays as it was.
 struct NodeAction : support::TaggedAction<NodeAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-optimize-node";
+  static constexpr std::string_view tag = ::idr::actions::optimizeNode;
 };
 
 // One component's turn in a wave: the members it takes up, those it
@@ -72,6 +74,14 @@ mlir::LogicalResult runNested(OptimizePass &pass, mlir::OpPassManager &pm, mlir:
 // Whether a member's batch left it parked on a copy not yet final.
 enum class Outcome : bool { Continues, Parks };
 
+// Whether a phase is past waiting, and whether it is final.
+inline bool takenUp(const Phase &phase) {
+  return idr::match(phase, [](Waiting) { return false; }, [](const auto &) { return true; });
+}
+inline bool isFinal(const Phase &phase) {
+  return idr::match(phase, [](const Final &) { return true; }, [](const auto &) { return false; });
+}
+
 // The waves. A wave is every step queued: the turn of every component
 // whose callees are final and whose members wait on nothing, run in
 // parallel as their arenas admit. Between waves, on the pass thread with no
@@ -79,8 +89,9 @@ enum class Outcome : bool { Continues, Parks };
 // become final and publish their summaries, waits are counted, components
 // a wait would close a cycle through are merged, and the steps that can go
 // on are queued. Every turn reads a fixed set of final functions, so the
-// output is the same at any thread count, and so is the work of the solve
-// of what each finished component gives back, added to `spent`.
+// output is the same at any thread count, and so is the work of the solves
+// of each component taken up (its binding times) and finished (what it
+// gives back), added to `spent`.
 class Scheduler {
 public:
   Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &nodes, const InnerCounts &counts,
@@ -101,7 +112,7 @@ private:
   mlir::LogicalResult build(llvm::ArrayRef<specialize::Node *> asked, FunctionId claimant,
                             Turn &turn);
 
-  // Between waves (Waves.cpp).
+  // The waves (Waves.cpp), and between them (Settle.cpp).
   void enable(llvm::SmallVectorImpl<Step> &ready);
   llvm::SmallVector<Turn, 0> gather(llvm::ArrayRef<Step> ready);
   void settle(llvm::MutableArrayRef<Turn> wave);

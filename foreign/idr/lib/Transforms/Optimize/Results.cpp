@@ -29,6 +29,7 @@
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/OptimizeScheduler.h"
 
@@ -152,8 +153,8 @@ void dropDeadResults(Schedule &schedule) {
   const solver::Editor &graph = schedule.graph;
   // Every result of every function, numbered function by function in id
   // order; a gap in the ids has none.
-  std::vector<FuncOp> fns;
-  std::vector<unsigned> first{0};
+  footprint::Vector<FuncOp> fns;
+  footprint::Vector<unsigned> first{0};
   for (FunctionId id : graph.size().ids()) {
     FuncOp fn = schedule.function(id);
     fns.push_back(fn);
@@ -180,8 +181,8 @@ void dropDeadResults(Schedule &schedule) {
   // call gives to anything but its caller's return; a result a caller
   // returns at a position read makes its own read.
   llvm::BitVector read(joined.getNumClasses());
-  std::vector<SmallVector<unsigned, 1>> feeds(joined.getNumClasses());
-  SmallVector<unsigned> work;
+  footprint::Vector<SmallVector<unsigned, 1>> feeds(joined.getNumClasses());
+  footprint::Vector<unsigned> work;
   auto mark = [&](unsigned c) {
     if (read.test(c))
       return;
@@ -210,13 +211,14 @@ void dropDeadResults(Schedule &schedule) {
     });
   }
   while (!work.empty()) {
-    unsigned at = work.pop_back_val();
+    unsigned at = work.back();
+    work.pop_back();
     for (unsigned fed : feeds[at])
       mark(fed);
   }
 
   // Each function's dead results.
-  std::vector<llvm::BitVector> dead(fns.size());
+  footprint::Vector<llvm::BitVector> dead(fns.size());
   bool any = false;
   for (FunctionId self : graph.size().ids()) {
     FuncOp fn = fns[self.index()];

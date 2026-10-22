@@ -381,6 +381,6 @@ declarations =
   , types := [SomeType fnType, SomeType lazyType]
   , interfaces := [runsLabelsInterface]
   , predicates := [closureValue, suspensionValue, memoCell]
-  , skeleton := [ MkSkeletonRule "ForceFreshCell" "memo.run"
+  , skeleton := [ MkSkeletonRule "ForceFreshCell" ("idr" ::: ["Transforms", "Defunctionalize.h"]) "memo.run"
                     "an exchange of a cell built for it alone runs its label in place: no reader sees the cell running or forced" ]
   } nothing
