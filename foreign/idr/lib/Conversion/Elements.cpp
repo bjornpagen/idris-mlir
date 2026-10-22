@@ -3,9 +3,10 @@
 // The place of an element of an array (Elements.h): its address in its
 // buffer; its slots in place, or one counted pointer to a cell of its own;
 // its value read with no reference of its own, written over what it held,
-// put where nothing is held, and moved out with the place's references to
-// be put back.
+// put where nothing is held, and moved out with the place's references,
+// the place left to be put back into.
 
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/Conversion/Arrays.h"
@@ -105,38 +106,41 @@ void writeElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &l
   placeElement(b, loc, runtime, address, element, value);
 }
 
-Taken takeElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts,
-                  Value address, const layout::Element &element, Type type) {
+BoxSharing boxSharingOf(Type array) {
+  return claims(array, Unique::Deep) ? BoxSharing::Unshared : BoxSharing::AtRunTime;
+}
+
+SmallVector<Value> takeOut(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts,
+                           Value address, const layout::Element &element, Type type,
+                           BoxSharing sharing) {
   if (!element.boxed)
-    return {readElement(b, loc, runtime, address, element), Value()};
+    return readElement(b, loc, runtime, address, element);
   Value cell = boxOf(b, loc, runtime, address, element);
   SmallVector<Value> value =
       runtime.load(b, loc, cell, cellAlignment(), element.boxed->fields.front());
-  // Whether a copy of the array shares the box is known only at run time:
-  // a copy shares every box of the array it copies. Held by the place
-  // alone, the box keeps its memory for the value put back; shared, it
-  // keeps its value, which gains a reference of its own, and loses the
-  // place's, and the value put back goes into a box of its own.
-  auto alone = scf::IfOp::create(b, loc, ptrType(b.getContext()),
-                                 runtime.isUnique(b, loc, cell), /*withElseRegion=*/true);
+  if (sharing == BoxSharing::Unshared)
+    return value;
+  // Whether a copy of the array shares the box is known only here, at run
+  // time. Held by the place alone, the box stays for the value put back.
+  auto alone = scf::IfOp::create(b, loc, runtime.isUnique(b, loc, cell),
+                                 /*withElseRegion=*/true);
   OpBuilder::InsertionGuard guard(b);
-  b.setInsertionPointToStart(alone.thenBlock());
-  scf::YieldOp::create(b, loc, cell);
-  b.setInsertionPointToStart(alone.elseBlock());
+  b.setInsertionPoint(alone.elseBlock()->getTerminator());
   runtime.inc(b, loc, layouts.components(type), value);
   runtime.dec(b, loc, layout::Word::Cell, cell);
-  scf::YieldOp::create(b, loc, runtime.allocate(b, loc, *element.boxed));
-  return {std::move(value), alone.getResult(0)};
+  runtime.store(b, loc, address, elementAlignment(element), element.slots,
+                runtime.allocate(b, loc, *element.boxed));
+  return value;
 }
 
-void putBack(OpBuilder &b, Location loc, Runtime &runtime, Value address,
-             const layout::Element &element, const Taken &taken, ValueRange value) {
+void putIn(OpBuilder &b, Location loc, Runtime &runtime, Value address,
+           const layout::Element &element, ValueRange value) {
   if (!element.boxed) {
     placeElement(b, loc, runtime, address, element, value);
     return;
   }
-  runtime.store(b, loc, taken.box, cellAlignment(), element.boxed->fields.front(), value);
-  runtime.store(b, loc, address, elementAlignment(element), element.slots, taken.box);
+  runtime.store(b, loc, boxOf(b, loc, runtime, address, element), cellAlignment(),
+                element.boxed->fields.front(), value);
 }
 
 } // namespace idr::conversion

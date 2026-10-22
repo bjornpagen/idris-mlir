@@ -22,12 +22,12 @@ import IdrisMLIR.Spec.Arrays.Memory
 
 ||| An upstream op whose record's name carries its dialect, its own alias.
 admitNamed : Dialect -> Ident -> Legal -> Writer -> Admitted
-admitNamed d r legal writer = MkAdmitted d r r legal writer [] [] Nothing
+admitNamed d r legal writer = MkAdmitted d r r legal writer [] [] Nothing UpstreamFold
 
 ||| An upstream op whose record's name does not carry its dialect: its
 ||| alias does.
 admitAliased : Dialect -> Ident -> Ident -> Legal -> Writer -> Admitted
-admitAliased d r alias legal writer = MkAdmitted d r alias legal writer [] [] Nothing
+admitAliased d r alias legal writer = MkAdmitted d r alias legal writer [] [] Nothing UpstreamFold
 
 ||| The tensor ops the frontend writes on arrays as values, which passes
 ||| also write (columns, structured loops, bufferization's preparation):

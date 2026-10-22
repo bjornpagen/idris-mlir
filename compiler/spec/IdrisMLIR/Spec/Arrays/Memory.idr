@@ -49,23 +49,13 @@ mutableAttr = MkAttrDef
   , doc = brief "the memory space of memory written while it is shared"
   }
 
-||| An array of mutable memory: `memref<?xE, #idr.mutable>` or `memref<E,
-||| #idr.mutable>` (an IORef) of a field type E, at any grade. Its C++ is
-||| the grade's header's (`isArray`).
-export
-mutableArray : Predicate
-mutableArray = MkPredicate "isArray" OnType
-  (brief "an array of mutable memory, at any grade")
-
-||| What an update rebuilds an element of: mutable memory, or a value
-||| array's buffer, whose element a read and a write of one place move.
-updatable : TypeC
-updatable = AnyOfTypes (SatisfiesType mutableArray ::: [SatisfiesType valueBuffer])
-  "an array of mutable memory or a value array's buffer"
-
-||| An access reads its index within the array: an idr.check.in_bounds of
-||| each index against the array guards it, the primitive's own meaning of
-||| an index outside the array.
+||| An access of mutable memory reads its index within the array: an
+||| idr.check.in_bounds of each index, at the `index` the access takes,
+||| against the array guards it, the primitive's own meaning of an index
+||| outside the array, since base's arrays are indexed by an `Int` no type
+||| bounds. An IORef's access takes no index, and is checked by nothing. A
+||| read of a value array is indexed by a `Fin` per axis, which proves it in
+||| bounds, so its records carry no guard.
 inBounds : {0 i : Nat} -> (indices, arr : Fin i) -> Guard (Fin i)
 inBounds indices arr = MkGuard "check.in_bounds" (indices ::: [arr]) (caseRef causeClosed IndexOutOfBounds)
 

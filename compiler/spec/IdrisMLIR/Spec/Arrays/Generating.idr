@@ -3,7 +3,8 @@
 ||| The generating set of the array language: a tabulation, a fold and a
 ||| scan along the last axis, each a region from the indices of a domain to
 ||| what goes at that index, and the yield that ends their regions; and the
-||| three movements a step of one makes in its buffers.
+||| movements a step of one, or an element's update split around a call,
+||| makes in its buffers.
 |||
 ||| Each op is destination-style, as upstream's structured ops are, and
 ||| means upstream's tensor semantics: on tensors its results are its
@@ -46,6 +47,22 @@ export
 valueBuffer : Predicate
 valueBuffer = MkPredicate "isValueBuffer" OnType
   (brief "a value array's buffer, a memref in the default memory space, at any grade")
+
+||| An array of mutable memory: `memref<?xE, #idr.mutable>` or `memref<E,
+||| #idr.mutable>` (an IORef) of a field type E, at any grade. Its C++ is
+||| the grade's header's (`isArray`).
+export
+mutableArray : Predicate
+mutableArray = MkPredicate "isArray" OnType
+  (brief "an array of mutable memory, at any grade")
+
+||| What an update rebuilds an element of, and what a take moves an element
+||| out of and a put-back moves it back into: mutable memory, or a value
+||| array's buffer, whose element a read and a write of one place move.
+export
+updatable : TypeC
+updatable = AnyOfTypes (SatisfiesType mutableArray ::: [SatisfiesType valueBuffer])
+  "an array of mutable memory or a value array's buffer"
 
 ||| A destination of the generating set, or an input of a scan: a value
 ||| array as a tensor, or, after bufferization, its buffer.
@@ -305,14 +322,17 @@ arrayYieldOp = MkOp
 -- A step's movements on buffers
 ------------------------------------------------------------------------------
 
--- A step of a generating op on buffers, made by its tiling method right
--- before the lowering, moves what it reads and gives in three ways, each
--- its own op: out of slots that then hold nothing, out with references of
--- its own while the slots keep theirs, and into slots that hold nothing.
--- Each moves what the slots under its indices hold: an element under as
--- many indices as the buffer has dimensions, else the cell after them, a
--- fresh buffer of the identity layout. They exist only past counting,
--- whose decisions they keep: no count is placed for them.
+-- A step of a generating op on buffers, made by its tiling method, moves
+-- what it reads and gives in four ways, each its own op: out of slots
+-- that are left to be put back into, out with references of its own while
+-- the slots keep theirs, into slots that hold nothing, and back into the
+-- place a take left. Each moves what the slots under its indices hold: an
+-- element under as many indices as the buffer has dimensions, else the
+-- cell after them, a fresh buffer of the identity layout, at any grade. An
+-- element's update whose region calls into its function's own cycle is a
+-- take and a put-back around its region's code, so frames can split it,
+-- in mutable memory or a value array's buffer alike. They exist only past
+-- counting, whose decisions they keep: no count is placed for them.
 
 movementInterfaces : List InterfaceUse
 movementInterfaces = [Implements flowInterface ["getFlowEdges"]]
@@ -322,15 +342,17 @@ movementFormat = Declared
   [ ValueOf (OperandRef 0), Lit "[", ValueOf (OperandRef 1), Lit "]", AttrDict
   , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->", TypeOf (OfGroup (ResultRef 0)) ]
 
-||| `idr.array.take`: what the slots hold, moved out with their references;
-||| they hold nothing to release until a value is placed back. A fold's
-||| accumulator.
+||| `idr.array.take`: what the slots hold, moved out with their references,
+||| the place left to be put back into: slots in place hold nothing to
+||| release, and a boxed element's place keeps an empty box, its own where
+||| a copy of the array shares the one it held. A fold's accumulator, and
+||| an element whose update is split around a call.
 export
 arrayTakeOp : Op 2 1 0 0
 arrayTakeOp = MkOp
   { home = InIdr
   , mnemonic = "array.take"
-  , ins = [single "buffer" (SatisfiesType valueBuffer), variadic "indices" (UpstreamType IndexC)]
+  , ins = [single "buffer" updatable, variadic "indices" (UpstreamType IndexC)]
   , outs = [result "value" (UpstreamType AnyTypeC)]
   , attrs = []
   , regions = []
@@ -385,8 +407,7 @@ arrayCopyOp = MkOp
 ||| `idr.array.place`: a value moved into slots that hold nothing to
 ||| release: an element into its slot, or a cell's elements into the slots
 ||| under the indices, each with a reference of its own, the cell's own
-||| reference given up. What a tabulation and a scan write, and a fold's
-||| next accumulator.
+||| reference given up. What a tabulation and a scan write.
 export
 arrayPlaceOp : Op 3 0 0 0
 arrayPlaceOp = MkOp
@@ -417,6 +438,40 @@ arrayPlaceOp = MkOp
   , doc = brief "a value moved into slots of a buffer that hold nothing"
   }
 
+||| `idr.array.put_back`: a value moved back into the place a take left,
+||| as a place moves one into slots that hold nothing, but a boxed element
+||| into the box the take left there. A fold's next accumulator, and an
+||| element's rebuilt value where its update was split around a call.
+export
+arrayPutBackOp : Op 3 0 0 0
+arrayPutBackOp = MkOp
+  { home = InIdr
+  , mnemonic = "array.put_back"
+  , ins = [ single "value" (UpstreamType AnyTypeC), single "buffer" updatable
+          , variadic "indices" (UpstreamType IndexC) ]
+  , outs = []
+  , attrs = []
+  , regions = []
+  , traits = []
+  , interfaces = movementInterfaces
+  , effects = Executes [OnValues Write Contents (Operands 1)] [Consumes 0] Covered Untouched
+  , speculation = NotSpeculatable
+  , stages = between Owned Owned
+  , meaning = NoFold
+  , verify = VerifiesOp
+  , format = Declared
+      [ ValueOf (OperandRef 0), Lit ",", ValueOf (OperandRef 1), Lit "[", ValueOf (OperandRef 2)
+      , Lit "]", AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit ","
+      , TypeOf (OfGroup (OperandRef 1)) ]
+  , builders = []
+  , defaultBuilders = WithDefaults
+  , members = []
+  , guards = []
+  , specializations = []
+  , laws = []
+  , doc = brief "a value moved back into the place a take left"
+  }
+
 ------------------------------------------------------------------------------
 -- The area's part
 ------------------------------------------------------------------------------
@@ -425,7 +480,7 @@ export
 generatingOps : List AnyOp
 generatingOps =
   [ SomeOp tabulateOp, SomeOp foldLastOp, SomeOp scanLastOp, SomeOp arrayYieldOp
-  , SomeOp arrayTakeOp, SomeOp arrayCopyOp, SomeOp arrayPlaceOp ]
+  , SomeOp arrayTakeOp, SomeOp arrayCopyOp, SomeOp arrayPlaceOp, SomeOp arrayPutBackOp ]
 
 export
 generatingInterfacesDeclared : List InterfaceDef

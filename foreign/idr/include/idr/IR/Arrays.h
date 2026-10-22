@@ -150,8 +150,8 @@ bool computes(mlir::Operation *op);
 // indices.
 //
 // The value of a step's region's argument, taken out of `buffer` at
-// `indices` with what its slots held: they hold nothing to release after
-// it, until a value is placed back.
+// `indices` with what its slots held: their place is left to be put back
+// into (putBackAt).
 mlir::Value takeAt(mlir::OpBuilder &b, mlir::Location loc, mlir::Value buffer,
                    mlir::ValueRange indices);
 // A copy of what `buffer` holds at `indices`, with references of its own:
@@ -162,6 +162,9 @@ mlir::Value copyAt(mlir::OpBuilder &b, mlir::Location loc, mlir::Value buffer,
 // release.
 void placeAt(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, mlir::Value buffer,
              mlir::ValueRange indices);
+// `value` moved back into `buffer` at `indices`, the place a take left.
+void putBackAt(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, mlir::Value buffer,
+               mlir::ValueRange indices);
 
 // The body of a generating op's region cloned at `b` with its arguments
 // standing for `args`, and what its yield gives, through `place`, which

@@ -14,8 +14,9 @@
 //
 // An op whose region holds a call on its function's own cycle is made its
 // loops on the counted program, before the frames are made, as join points
-// (joinCycles), from the same tiling methods: frames split a join region,
-// and no other region of the generating set.
+// from the same tiling methods, and an element's update holding one a take
+// and a put-back around its region's code (joinCycles): frames split a
+// join region and straight code, and no other region of these ops.
 //
 //===----------------------------------------------------------------------===//
 
@@ -33,6 +34,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
@@ -115,22 +117,42 @@ mlir::Value writeCell(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, 
 // step moves are decided again where they now stand.
 mlir::LogicalResult joinLoops(mlir::RewriterBase &rewriter, mlir::DestinationStyleOpInterface op);
 
-// Every op of the generating set in `fn` whose region holds a call that
-// `onCycle` says runs a function of `fn`'s own cycle, made its join-point
-// loops, run where the program is counted and before its frames are made.
-// An op inside another is made its loops first, so the outer op's step
-// clones loops already, and no op is visited twice.
+// `update`, whose region holds a call on its function's own cycle, split
+// where frames can take it apart: its element taken out of its place, its
+// region's code inline, the rebuilt element put back. The calls it moves
+// are decided again where they now stand.
+void splitUpdate(mlir::RewriterBase &rewriter, ArrayUpdateOp update);
+
+// Every op in `fn` whose region holds a call that `onCycle` says runs a
+// function of `fn`'s own cycle, made what frames can split: each element's
+// update split around its code, then each op of the generating set made
+// its join-point loops. Run where the program is counted and before its
+// frames are made. An update holds no op of the generating set, which
+// writes memory an update's region may not touch, so the updates go first;
+// an op of the generating set inside another is made its loops first, so
+// the outer op's step clones loops already, and no op is visited twice.
 template <typename OnCycle>
   requires std::predicate<OnCycle &, CallOp>
 mlir::LogicalResult joinCycles(mlir::RewriterBase &rewriter, FuncOp fn, OnCycle &&onCycle) {
+  auto holds = [&](mlir::Operation *op) {
+    return op
+        ->walk([&](CallOp call) {
+          return onCycle(call) ? mlir::WalkResult::interrupt() : mlir::WalkResult::advance();
+        })
+        .wasInterrupted();
+  };
+  footprint::Vector<ArrayUpdateOp> updates;
+  fn.walk([&](ArrayUpdateOp update) {
+    if (holds(update))
+      updates.push_back(update);
+  });
+  // The last first: a region that never returns ends its block, and what
+  // followed it, a later update among it, goes.
+  for (ArrayUpdateOp update : llvm::reverse(updates))
+    splitUpdate(rewriter, update);
   footprint::Vector<mlir::DestinationStyleOpInterface> holding;
   fn->walk<mlir::WalkOrder::PostOrder>([&](mlir::Operation *op) {
-    if (!arrays::isGenerating(op))
-      return;
-    if (op->walk([&](CallOp call) {
-            return onCycle(call) ? mlir::WalkResult::interrupt() : mlir::WalkResult::advance();
-          })
-            .wasInterrupted())
+    if (arrays::isGenerating(op) && holds(op))
       holding.push_back(llvm::cast<mlir::DestinationStyleOpInterface>(op));
   });
   for (mlir::DestinationStyleOpInterface op : holding)

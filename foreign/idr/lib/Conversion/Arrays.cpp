@@ -193,10 +193,10 @@ struct LowerArraySet : IdrPattern<ArraySetOp> {
 // An element rebuilt in its place, in mutable memory or in a value array's
 // buffer. It moves out into the region with the reference the array held,
 // the region runs once, here, as an scf.execute_region whose yield is the
-// region's, and the first value it gives moves back into the place it left
-// (a boxed element into the box it left where the place alone held it);
-// the values after it are the op's results. A region that never returns
-// ends as it is.
+// region's, and the first value it gives is put back into the place it left
+// (takeOut, putIn: the take and the put-back of a split update's); the
+// values after it are the op's results. A region that never returns ends
+// as it is.
 struct LowerUpdate : IdrPattern<ArrayUpdateOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ArrayUpdateOp op, OneToNOpAdaptor adaptor,
@@ -217,18 +217,19 @@ struct LowerUpdate : IdrPattern<ArrayUpdateOp> {
     layout::Element element = layouts.element(elementType);
     Value at = elementAddress(rewriter, loc, runtime, type, adaptor.getArray(), element,
                               indicesOf(adaptor.getIndices()));
-    Taken taken = takeElement(rewriter, loc, runtime, layouts, at, element, elementType);
+    SmallVector<Value> taken = takeOut(rewriter, loc, runtime, layouts, at, element, elementType,
+                                       boxSharingOf(op.getArray().getType()));
     SmallVector<Type> flat;
     for (ArrayRef<Type> components : given)
       llvm::append_range(flat, components);
     Block *body = &op.getRegion().front();
     TypeConverter::SignatureConversion entry(body->getNumArguments());
-    entry.remapInput(0, taken.value);
+    entry.remapInput(0, taken);
     rewriter.applySignatureConversion(body, entry, getTypeConverter());
     auto run = scf::ExecuteRegionOp::create(rewriter, loc, flat);
     rewriter.inlineRegionBefore(op.getRegion(), run.getRegion(), run.getRegion().end());
     ValueRange values = run.getResults();
-    putBack(rewriter, loc, runtime, at, element, taken, values.take_front(given.front().size()));
+    putIn(rewriter, loc, runtime, at, element, values.take_front(given.front().size()));
     values = values.drop_front(given.front().size());
     SmallVector<SmallVector<Value>> results;
     for (ArrayRef<Type> out : ArrayRef(given).drop_front()) {

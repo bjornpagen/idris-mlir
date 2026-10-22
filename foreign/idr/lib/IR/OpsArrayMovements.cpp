@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The three movements a step of a generating op on buffers makes (take,
-// copy, place), each of what the slots under its indices hold, and their
-// builders, which every step's loops call (idr/IR/Arrays.h); and the copy
-// that first writes a buffer allocated for it, which places its slots and
-// releases none.
+// The four movements a step of a generating op on buffers makes (take,
+// copy, place, put back), each of what the slots under its indices hold,
+// and their builders, which every step's loops and an update split around
+// a call use (idr/IR/Arrays.h); and the copy that first writes a buffer
+// allocated for it, which places its slots and releases none.
 
 #include "idr/IR/Arrays.h"
 #include "idr/IR/Grades.h"
@@ -20,16 +20,27 @@ namespace {
 
 // A movement at `indices` of a buffer moves what its slots there hold: an
 // element at as many indices as the buffer has dimensions, else the cell
-// under them, a buffer of the identity layout.
-LogicalResult verifyMoved(Operation *op, Type moved, MemRefType buffer, size_t indices) {
+// under them, a buffer of the identity layout; the buffer and what moves
+// at any grade, which a take and a put-back of an update's element carry.
+template <typename Movement>
+LogicalResult verifyMoved(Movement op) {
+  auto buffer = cast<MemRefType>(unrestricted(op.getBuffer().getType()));
+  size_t indices = op.getIndices().size();
   if (indices > static_cast<size_t>(buffer.getRank()))
-    return op->emitOpError("takes ") << indices << " indices for a buffer of rank "
-                                     << buffer.getRank();
+    return op.emitOpError("takes ") << indices << " indices for a buffer of rank "
+                                    << buffer.getRank();
   Type expected = cellOf(buffer, static_cast<unsigned>(indices));
-  if (moved != expected)
-    return op->emitOpError("moves ") << moved << " where the buffer holds " << expected
-                                     << " at " << indices << " indices";
+  Type moved = op.getValue().getType();
+  if (unrestricted(moved) != expected)
+    return op.emitOpError("moves ") << moved << " where the buffer holds " << expected << " at "
+                                    << indices << " indices";
   return success();
+}
+
+// What the slots under `indices` of `buffer` hold.
+Type heldAt(Value buffer, ValueRange indices) {
+  return cellOf(cast<MemRefType>(unrestricted(buffer.getType())),
+                static_cast<unsigned>(indices.size()));
 }
 
 } // namespace
@@ -38,23 +49,15 @@ LogicalResult verifyMoved(Operation *op, Type moved, MemRefType buffer, size_t i
 // The movements of a step on buffers
 //===----------------------------------------------------------------------===//
 
-LogicalResult ArrayTakeOp::verify() {
-  return verifyMoved(*this, getValue().getType(), cast<MemRefType>(getBuffer().getType()),
-                     getIndices().size());
-}
+LogicalResult ArrayTakeOp::verify() { return verifyMoved(*this); }
+LogicalResult ArrayCopyOp::verify() { return verifyMoved(*this); }
+LogicalResult ArrayPlaceOp::verify() { return verifyMoved(*this); }
+LogicalResult ArrayPutBackOp::verify() { return verifyMoved(*this); }
 
-LogicalResult ArrayCopyOp::verify() {
-  return verifyMoved(*this, getValue().getType(), cast<MemRefType>(getBuffer().getType()),
-                     getIndices().size());
-}
-
-LogicalResult ArrayPlaceOp::verify() {
-  return verifyMoved(*this, getValue().getType(), cast<MemRefType>(getBuffer().getType()),
-                     getIndices().size());
-}
-
-// A take moves what the slots hold out, which leaves them holding nothing;
-// a copy reads it with references of its own; a place moves a value in.
+// A take moves what the slots hold out, which leaves their place to be put
+// back into; a copy reads it with references of its own; a place moves a
+// value into slots that hold nothing, and a put-back into the place a take
+// left.
 void ArrayTakeOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowSource::partOf(getBuffer(), elementsOf(getBuffer())), atIndex(getValue()));
   edges.overwrite(getBuffer(), elementsOf(getBuffer()));
@@ -66,23 +69,26 @@ void ArrayCopyOp::getFlowEdges(FlowEdges &edges) {
 void ArrayPlaceOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(atIndex(getValueMutable()), FlowPlace::partOf(getBuffer(), elementsOf(getBuffer())));
 }
+void ArrayPutBackOp::getFlowEdges(FlowEdges &edges) {
+  edges.flow(atIndex(getValueMutable()), FlowPlace::partOf(getBuffer(), elementsOf(getBuffer())));
+}
 
 namespace idr::arrays {
 
 Value takeAt(OpBuilder &b, Location loc, Value buffer, ValueRange indices) {
-  auto type = cast<MemRefType>(buffer.getType());
-  return ArrayTakeOp::create(b, loc, cellOf(type, static_cast<unsigned>(indices.size())), buffer,
-                             indices);
+  return ArrayTakeOp::create(b, loc, heldAt(buffer, indices), buffer, indices);
 }
 
 Value copyAt(OpBuilder &b, Location loc, Value buffer, ValueRange indices) {
-  auto type = cast<MemRefType>(buffer.getType());
-  return ArrayCopyOp::create(b, loc, cellOf(type, static_cast<unsigned>(indices.size())), buffer,
-                             indices);
+  return ArrayCopyOp::create(b, loc, heldAt(buffer, indices), buffer, indices);
 }
 
 void placeAt(OpBuilder &b, Location loc, Value value, Value buffer, ValueRange indices) {
   ArrayPlaceOp::create(b, loc, value, buffer, indices);
+}
+
+void putBackAt(OpBuilder &b, Location loc, Value value, Value buffer, ValueRange indices) {
+  ArrayPutBackOp::create(b, loc, value, buffer, indices);
 }
 
 } // namespace idr::arrays

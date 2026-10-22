@@ -41,20 +41,6 @@ LogicalResult verifyElement(Operation *op, StringRef what, Type type, MemRefType
   return success();
 }
 
-// A movement at `indices` of a buffer moves what its slots there hold: an
-// element at as many indices as the buffer has dimensions, else the cell
-// under them, a buffer of the identity layout.
-LogicalResult verifyMoved(Operation *op, Type moved, MemRefType buffer, size_t indices) {
-  if (indices > static_cast<size_t>(buffer.getRank()))
-    return op->emitOpError("takes ") << indices << " indices for a buffer of rank "
-                                     << buffer.getRank();
-  Type expected = cellOf(buffer, static_cast<unsigned>(indices));
-  if (moved != expected)
-    return op->emitOpError("moves ") << moved << " where the buffer holds " << expected
-                                     << " at " << indices << " indices";
-  return success();
-}
-
 } // namespace
 
 namespace idr {

@@ -113,7 +113,7 @@ SmallVector<Range> ArrayFoldLastOp::getIterationDomain(OpBuilder &b) {
 }
 
 // At the frame's index, each accumulator is taken out of its destination,
-// the region runs with it, and the next is placed where it was.
+// the region runs with it, and the next is put back where it was.
 LogicalResult ArrayFoldLastOp::generateScalarImplementation(OpBuilder &b, Location loc,
                                                        ValueRange ivs) {
   if (!hasPureBufferSemantics())
@@ -124,7 +124,7 @@ LogicalResult ArrayFoldLastOp::generateScalarImplementation(OpBuilder &b, Locati
   cloneStep(b, loc, getRegion(), stepArgs(frame, ivs.back(), accumulators),
             [&](OpBuilder &at, ValueRange next) {
               for (auto [value, init] : llvm::zip_equal(next, getInits()))
-                placeAt(at, loc, value, init, frame);
+                putBackAt(at, loc, value, init, frame);
             });
   return success();
 }
