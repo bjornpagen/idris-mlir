@@ -74,8 +74,8 @@ in its own `build/`.
 | Lane | Area (its files) | Spec |
 | --- | --- | --- |
 | ownership | memo cells, grades and lifetimes, the owned verifier, idr-rc, the runtime's counting (Transforms/Ownership, IR/Verify, IR/Grades except throughLinear, runtime) | audits/bugs.md (ownership); "Each fact once" (ownership) after self-hosting |
-| defunc | the label solve and the quadratics on its path (Analysis/Labels, Defunctionalize, Moves, Verify/Program) | audits/bugs.md (defunc) |
-| control | idr-trmc, raising, forcing, IO binds; `throughLinear` (Transforms/Tail, Transforms/Specialize, IR/Canon) | audits/bugs.md (control) |
+| defunc | the label solve and the quadratics on its path (Analysis/Labels, Defunctionalize, Verify/Program) | audits/bugs.md (defunc) |
+| control | idr-trmc, raising, forcing, IO binds; `throughLinear` (Transforms/Tail, Transforms/Specialize) | audits/bugs.md (control) |
 | arrays | the frontend's data keys and array shapes, and the array programs end to end (compiler/src, libs/mlir-array, libs/mlir-linear) | audits/bugs.md (arrays) |
 | target | the one description of the target (CPU, features, runtime flags, retarget, the CPU test's bits), and the build-time check that the runtime inlines into programs (CMakeLists.txt target entries, Target/, Driver/ runtime linking) | the owner's directive: one place, the mismatch unrepresentable |
 | upstream | new LLVM patches: linalg.index ranges, CSE of a nested linalg.index, affine.delinearize_index with an empty basis; the stale mlir.expect step names | audits/bugs.md (upstream) |
