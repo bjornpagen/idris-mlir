@@ -627,6 +627,24 @@ accessResults NewArray = 1
 accessResults GetElement = 1
 accessResults SetElement = 0
 
+||| How many operands an access takes besides the world, at an array of
+||| `rank` dimensions: a new array its sizes and its fill; a read the array
+||| and its indices; a write those and the value.
+public export
+accessOperands : ArrayAccess -> (rank : Nat) -> Nat
+accessOperands NewArray rank = S rank
+accessOperands GetElement rank = S rank
+accessOperands SetElement rank = S (S rank)
+
+||| The rank of the array an access is on, from how many operands it takes
+||| besides the world; none for a count no rank gives.
+public export
+accessRank : ArrayAccess -> (operands : Nat) -> Maybe Nat
+accessRank NewArray (S rank) = Just rank
+accessRank GetElement (S rank) = Just rank
+accessRank SetElement (S (S rank)) = Just rank
+accessRank _ _ = Nothing
+
 ||| A move of a buffer's bytes, within the buffer or between it and a
 ||| handle, each behind the check that its span lies in the buffer: a word
 ||| loaded or stored at an offset, its width the call's type; bytes copied
@@ -646,6 +664,20 @@ moveResults GetString = 1
 moveResults WriteBytes = 1
 moveResults ReadBytes = 1
 
+||| How many operands a move takes besides the world: the buffer and the
+||| offset of a word, and the word stored; a source, its offset, a length,
+||| a destination and its offset; a buffer, an offset and a string or a
+||| length; a handle, a buffer, an offset and a count.
+public export
+moveOperands : BufferMove -> Nat
+moveOperands LoadWord = 2
+moveOperands StoreWord = 3
+moveOperands CopyBytes = 5
+moveOperands SetString = 3
+moveOperands GetString = 3
+moveOperands WriteBytes = 4
+moveOperands ReadBytes = 4
+
 ||| What a clock's reading tells, as arithmetic on the reading's encoding:
 ||| whether the clock was read, its seconds, its nanoseconds.
 public export
@@ -658,38 +690,39 @@ data Gives : Nat -> Type where
   GivesNone : Gives 0
   GivesOne : Gives 1
 
-||| What an IO primitive does, indexed by how many values it gives: an op of
-||| the dialect with no attribute, whose every operand group is one operand,
-||| on the call's operands, giving what an `IORes` holds; a reading of a
-||| clock of a kind; a reading of a clock no program has (the collector's),
-||| which is the mark of an unread clock; a query of a reading; a reading
-||| of one field of a file-time handle (`io.file_time`'s); an access
-||| to an array a world orders; a move of a buffer's bytes; the end of the
-||| process; or nothing, where the platform has nothing to do (setting up a
-||| terminal, which only another system needs).
+||| What an IO primitive does, indexed by how many operands it takes besides
+||| the world and how many values it gives: an op of the dialect with no
+||| attribute, whose every operand group is one operand, on the call's
+||| operands, giving what an `IORes` holds; a reading of a clock of a
+||| kind; a reading of a clock no program has (the collector's), which is
+||| the mark of an unread clock; a query of a reading; a reading of one
+||| field of a file-time handle (`io.file_time`'s); an access to an array a
+||| world orders, at its rank; a move of a buffer's bytes; the end of the
+||| process, at its status; or nothing, where the platform has nothing to
+||| do (setting up a terminal, which only another system needs).
 public export
-data IOAction : Nat -> Type where
-  Runs : {i, o : Nat} -> {auto gives : Gives o} -> Spec.Op i o 0 0 -> IOAction o
-  ReadsClock : ClockKind -> IOAction 1
-  NeverRead : IOAction 1
-  Queries : ClockQuery -> IOAction 1
-  ReadsFileTime : FileTimeField -> IOAction 1
-  Accesses : (a : ArrayAccess) -> IOAction (accessResults a)
-  Moves : (m : BufferMove) -> IOAction (moveResults m)
-  Exits : IOAction 0
-  DoesNothing : IOAction 0
+data IOAction : (operands, results : Nat) -> Type where
+  Runs : {i, o : Nat} -> {auto gives : Gives o} -> Spec.Op i o 0 0 -> IOAction i o
+  ReadsClock : ClockKind -> IOAction 0 1
+  NeverRead : IOAction 0 1
+  Queries : ClockQuery -> IOAction 1 1
+  ReadsFileTime : FileTimeField -> IOAction 1 1
+  Accesses : (a : ArrayAccess) -> (rank : Nat) -> IOAction (accessOperands a rank) (accessResults a)
+  Moves : (m : BufferMove) -> IOAction (moveOperands m) (moveResults m)
+  Exits : IOAction 1 0
+  DoesNothing : IOAction 0 0
 
 ||| How many values an action gives.
 public export
-actionGives : IOAction o -> Gives o
+actionGives : IOAction i o -> Gives o
 actionGives (Runs {gives} _) = gives
 actionGives (ReadsClock _) = GivesOne
 actionGives NeverRead = GivesOne
 actionGives (Queries _) = GivesOne
 actionGives (ReadsFileTime _) = GivesOne
-actionGives (Accesses NewArray) = GivesOne
-actionGives (Accesses GetElement) = GivesOne
-actionGives (Accesses SetElement) = GivesNone
+actionGives (Accesses NewArray _) = GivesOne
+actionGives (Accesses GetElement _) = GivesOne
+actionGives (Accesses SetElement _) = GivesNone
 actionGives (Moves LoadWord) = GivesOne
 actionGives (Moves StoreWord) = GivesNone
 actionGives (Moves CopyBytes) = GivesNone
@@ -700,10 +733,11 @@ actionGives (Moves ReadBytes) = GivesOne
 actionGives Exits = GivesNone
 actionGives DoesNothing = GivesNone
 
-||| An IO primitive with how many values it gives, as a registry row names
-||| one.
+||| An IO primitive with how many operands it takes and values it gives, as
+||| a registry row names one.
 public export
 record SomeAction where
   constructor MkSomeAction
+  {operands : Nat}
   {results : Nat}
-  action : IOAction results
+  action : IOAction operands results

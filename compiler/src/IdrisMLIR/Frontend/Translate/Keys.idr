@@ -142,12 +142,15 @@ mutual
 ||| that mention it), and after the body's, so the blocks a body refers to
 ||| keep their numbers. For a solved metavariable these are its
 ||| solution's.
-referencesOf : GlobalDef -> List Reference
-referencesOf def =
-  let body = case definition def of
-               PMDef _ _ tree _ pats => treeRefs [<] tree <>> (pats >>= patRefs)
-               _ => []
-  in body ++ (termRefs [<] (type def) <>> [])
+referencesOf : GlobalDef -> Front (List Reference)
+referencesOf def = do
+  body <- case definition def of
+            PMDef _ _ b => do
+              tree <- treeOfBody b
+              pats <- core (clausesOf b)
+              pure (treeRefs [<] tree <>> (pats >>= patRefs))
+            _ => pure []
+  pure (body ++ (termRefs [<] !(typeOfDefinition def) <>> []))
   where
     patRefs : (vs : Scope ** (Env Term vs, Term vs, Term vs)) -> List Reference
     patRefs (_ ** (_, lhs, rhs)) = termRefs (termRefs [<] lhs) rhs <>> []
@@ -190,7 +193,7 @@ mutual
     case enter placement w of
       Nothing => nameUnder origin ks w0 acc w p rest
       Just (Element w1 q) => do
-        MkReached ks' w2 q2 <- nameUnder origin ks w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
+        MkReached ks' w2 q2 <- nameUnder origin ks w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf def)
         MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
         pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
   nameUnder origin ks w0 acc@(Access rec) w p (ARef r :: rest) = do
@@ -212,7 +215,7 @@ mutual
     let name = origin ++ "." ++ kind ++ show k
     let ks' = insert kind (S k) ks
     updateState { blockNames $= insert key name }
-    MkReached _ w2 q2 <- nameUnder name empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
+    MkReached _ w2 q2 <- nameUnder name empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf def)
     MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
     pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
 
@@ -234,7 +237,7 @@ mutual
       | Nothing => pure (Element w (noMore w))
     let origin = plainOrigin full
     updateState { blockNames $= insert key origin }
-    MkReached _ w2 q2 <- nameUnder origin empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referencesOf def)
+    MkReached _ w2 q2 <- nameUnder origin empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf def)
     pure (Element w2 (thenNoMore q2 (fewer q)))
 
 ||| Names the blocks of a definition that is no block, once.

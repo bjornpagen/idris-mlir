@@ -280,7 +280,7 @@ data Hook : Kind -> Type where
   ||| the call fixes (a buffer's word) on the call's arguments, then the
   ||| literals listed (a new buffer's zero byte).
   ||| Handler: `Frontend.Translate.application`.
-  IOCall : {auto 0 lowers : Lowers kd} -> {o : Nat} -> IOAction o -> List Lit -> Hook kd
+  IOCall : {auto 0 lowers : Lowers kd} -> {i, o : Nat} -> IOAction i o -> List Lit -> Hook kd
   ||| An array primitive of the backend contract, polymorphic in its
   ||| element: its calls are the access named at the element type the call
   ||| fixes, one size or index per dimension of the array a world orders
@@ -305,9 +305,15 @@ data Hook : Kind -> Type where
   ||| `BaseListSum`). Handler: `Frontend.Translate.Types.dataInstance`.
   ListType : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A data type whose cells every program is checked to rebuild in place
-  ||| and hold exclusive (`Term.DataShape`'s `InPlaceSum`). Handler:
-  ||| `Frontend.Translate.Types.dataInstance`.
+  ||| and hold exclusive, which only a type with exactly one constructor
+  ||| that holds fields can keep. Handler:
+  ||| `Frontend.Translate.Types.familyIn`.
   InPlaceType : Hook Stricter
+  ||| Idris's equality, `Builtin.Equal`: a match on an erased proof of it
+  ||| (`Refl`, which `replace` and `rewrite` match) holds where its two
+  ||| sides are equal, on Idris's word alone. Handler:
+  ||| `Frontend.Translate.Cases.tree`.
+  EqualityType : Hook Contract
   ||| A `%foreign` definition whose calls are this primitive, pure, on the
   ||| call's runtime arguments: a buffer's size (`ArrayLength` of bytes).
   ||| Handler: `Frontend.Translate.application`.
@@ -333,7 +339,7 @@ data Hook : Kind -> Type where
   ||| calls of that function. Handler: `Frontend.Translate.application`.
   Alias : {auto 0 lowers : Lowers kd} -> QName -> Hook kd
   ||| The identity on its last runtime argument, wherever it stands among
-  ||| the proofs and types (`natToFinLT`'s precedes two erased ones); a
+  ||| the proofs and types (a pointer cast's follows its erased type); a
   ||| runtime argument before it is not read (`nest`'s cell form). Handler:
   ||| `Frontend.Translate.application`.
   IdentityOnLastArgument : {auto 0 lowers : Lowers kd} -> Hook kd
@@ -369,11 +375,11 @@ data Hook : Kind -> Type where
   ||| `Frontend.Profile.checkReachable`, `Frontend.Translate.primitive`.
   LibraryCrash : {auto 0 lowers : Lowers kd} -> Hook kd
 
-||| What sum a data type is, by the registry: base's list, or a type whose
-||| cells are rebuilt in place. One field holds both, so a type cannot be
-||| both.
+||| What sum a data type is, by the registry: base's list, a type whose
+||| cells are rebuilt in place, or Idris's equality. One field holds them,
+||| so a type cannot be two.
 public export
-data SumHook = IsList | IsInPlace
+data SumHook = IsList | IsInPlace | IsEquality
 
 ||| What the registry says of one definition: one field per kind of hook,
 ||| each the hook of the first entry of that kind that names it. A reader
@@ -421,6 +427,7 @@ withHook hs h = case h of
   Generating g => { generating $= keep g } hs
   ListType => { sumShape $= keep IsList } hs
   InPlaceType => { sumShape $= keep IsInPlace } hs
+  EqualityType => { sumShape $= keep IsEquality } hs
   PrimCall p ls => { primCall $= keep ((_ ** p), ls) } hs
   Handle l => { handle $= keep l } hs
   WordType => { wordType := True } hs

@@ -4,11 +4,13 @@
 ||| locations: an Idris location as a Core one.
 module IdrisMLIR.Frontend.Translate.Errors
 
+import Core.Case.CaseTree
 import Core.Context
 import Core.Core
 import Core.Directory
 import Core.FC
 import Core.TT
+import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Emit
@@ -18,6 +20,8 @@ import IdrisMLIR.Loc
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Spec.Core.Rules
 
+import Data.DPair
+import Data.List
 import Data.Maybe
 import Data.SnocList
 import Data.SortedMap
@@ -33,43 +37,50 @@ isEmptyFC _ = False
 -- The frontend's computations
 ------------------------------------------------------------------------------
 
-||| What the frontend computes: Idris's own computation, whose errors are
-||| Idris's, giving either the value or the program's refusal. A refusal is
-||| a value of the computation, never an error beside it: Idris's `Error`
-||| cannot carry one, and the fork, which owns it, imports nothing of the
-||| frontend's.
+||| What the frontend computes: Idris's own computation over the context
+||| frozen once the program and everything it imports were loaded, which
+||| every normaliser reads, whose errors are Idris's, giving either the
+||| value or the program's refusal. A refusal is a value of the
+||| computation, never an error beside it: Idris's `Error` cannot carry
+||| one, and the fork, which owns it, imports nothing of the frontend's.
 public export
 record Front a where
   constructor MkFront
-  runFront : Core (Either Refusal a)
+  runFront : Frozen -> Core (Either Refusal a)
 
 export
 Functor Front where
-  map f (MkFront c) = MkFront (Core.map (map f) c)
+  map f (MkFront c) = MkFront (\fz => Core.map (map f) (c fz))
 
 export
 Applicative Front where
-  pure x = MkFront (Core.pure (Right x))
-  MkFront cf <*> MkFront cx = MkFront $ Core.(>>=) cf $ \case
+  pure x = MkFront (\_ => Core.pure (Right x))
+  MkFront cf <*> MkFront cx = MkFront $ \fz => Core.(>>=) (cf fz) $ \case
     Left r => Core.pure (Left r)
-    Right f => Core.map (map f) cx
+    Right f => Core.map (map f) (cx fz)
 
 export
 Monad Front where
-  MkFront cx >>= k = MkFront $ Core.(>>=) cx $ \case
+  MkFront cx >>= k = MkFront $ \fz => Core.(>>=) (cx fz) $ \case
     Left r => Core.pure (Left r)
-    Right x => runFront (k x)
+    Right x => runFront (k x) fz
 
 ||| Idris's errors pass through the frontend's computation as they are; a
 ||| refusal is no error, so catching one leaves the refusals alone.
 export
 Catchable Front Error where
-  throw e = MkFront (throw e)
-  catch (MkFront c) h = MkFront (catch c (\e => runFront (h e)))
-  breakpoint (MkFront c) = MkFront $ Core.(>>=) (breakpoint c) $ \case
+  throw e = MkFront (\_ => throw e)
+  catch (MkFront c) h = MkFront (\fz => catch (c fz) (\e => runFront (h e) fz))
+  breakpoint (MkFront c) = MkFront $ \fz => Core.(>>=) (breakpoint (c fz)) $ \case
     Left e => Core.pure (Right (Left e))
     Right (Left r) => Core.pure (Left r)
     Right (Right x) => Core.pure (Right (Right x))
+
+||| The context the normalisers read: frozen once, when the program and
+||| everything it imports were loaded, and never changed after.
+export
+frozenContext : Front Frozen
+frozenContext = MkFront (\fz => Core.pure (Right fz))
 
 ||| A computation that runs Idris's own: Idris's `Core`, as it is, and the
 ||| frontend's, which refuses nothing there. Helpers that never refuse are
@@ -84,7 +95,7 @@ RunsCore Core where
 
 export
 RunsCore Front where
-  core c = MkFront (Core.map Right c)
+  core c = MkFront (\_ => Core.map Right c)
 
 ||| The translation's state.
 export
@@ -116,6 +127,32 @@ export
 lookupExact : RunsCore m => Name -> Context -> m (Maybe GlobalDef)
 lookupExact n ctx = core (lookupCtxtExact n ctx)
 
+||| A definition's type, read through the context's accessor, which decodes
+||| the type of a definition read from a checked module where it is held
+||| stored.
+export
+typeOfDefinition : RunsCore m => GlobalDef -> m ClosedTerm
+typeOfDefinition def = core ((.fst) <$> host.typeOf def)
+
+||| A pattern-matching definition's case tree, read through the context's
+||| accessor, as its type is.
+export
+treeOfBody : RunsCore m => {args : Scope} -> Body args -> m (CaseTree args)
+treeOfBody body = core ((.fst) <$> host.treeOf body)
+
+||| The right-hand side of a definition whose case tree is one leaf, or
+||| nothing for one that matches: read through the context's walk of the
+||| tree, so that of a stored definition only that leaf is decoded, and of
+||| one that matches nothing is.
+export
+leafOfBody : RunsCore m => {args : Scope} -> Body args -> m (Maybe (Core.TT.Term.Term args))
+leafOfBody body = core (walkTree body leaf)
+  where
+    leaf : {0 t : Scoped} -> Leaves t -> CaseTree' t args -> Core (Maybe (Core.TT.Term.Term args))
+    leaf leaves (STerm _ r) =
+      Just . replace {p = Core.TT.Term.Term} (appendNilRightNeutral args) <$> leaves.leafTerm {outer = []} r
+    leaf _ _ = pure Nothing
+
 ||| An action of the host.
 export
 ioLift : RunsCore m => IO a -> m a
@@ -142,7 +179,7 @@ siteAt fc = core $ case isNonEmptyFC fc of
 ||| every step after it passes on untouched up to `noting`.
 export
 rejectWith : Refusal -> Front a
-rejectWith r = MkFront (Core.pure (Left r))
+rejectWith r = MkFront (\_ => Core.pure (Left r))
 
 ||| A user error, by the rule that refuses it, at a location (the module's
 ||| when Idris gives none), the message naming the definition that owns
@@ -175,7 +212,8 @@ internal fc msg = core (throw (InternalError (show fc ++ ": internal error: " ++
 export
 noting : {auto s : Ref TState TS} -> Front a -> Core (Maybe a)
 noting part = do
-  outcome <- catch (Core.map Right (runFront part)) $ \err => case err of
+  frozen <- Core.map (.frozen) (get TState)
+  outcome <- catch (Core.map Right (runFront part frozen)) $ \err => case err of
                InternalError _ => throw err
                _ => Core.pure (Left err)
   case outcome of

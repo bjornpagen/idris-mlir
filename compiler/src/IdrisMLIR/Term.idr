@@ -173,9 +173,11 @@ mutual
     ||| registry lowered that definition's call to it, for a message to
     ||| name; nothing computes with it.
     PrimApp : {k : Nat} -> Loc -> Prim k -> (standsFor : Maybe Shown) -> Vect k (Term n) -> Term n
-    ||| An IO primitive on its arguments, which end with the world, giving
-    ||| the `IORes` (`res`) of what it gives and the next world.
-    Effect : {o : Nat} -> Loc -> IOAction o -> IOGives o -> List (Term n) -> (res : Con 2) -> Term n
+    ||| An IO primitive on its operands, as many as its action takes, and the
+    ||| world, giving the `IORes` (`res`) of what it gives and the next
+    ||| world.
+    Effect : {i, o : Nat} -> Loc -> IOAction i o -> IOGives o -> Vect i (Term n) -> (world : Term n) -> (res : Con 2) ->
+             Term n
     ||| A saturated call, and the library definition it stands for when the
     ||| registry lowered that definition's call to it, as for a primitive.
     ||| `indices` are the terms its callee's erased index parameters are
@@ -207,6 +209,12 @@ mutual
     Resume : Loc -> Term n -> Term n
     ||| A term Idris proved never runs: a match with no possible arm.
     Unreachable : Loc -> Term n
+    ||| A region in which an erased equality Idris proved holds, its two
+    ||| sides index terms of the scope: a match on an erased `Refl`, which
+    ||| `replace` and `rewrite` are. The body's value leaves it at the type
+    ||| its context expects, cast to it inside the region, where the
+    ||| equation makes the two types one.
+    Assume : Loc -> (lhs, rhs : ITerm) -> Term n -> Term n
     ||| A crash of a partial definition, its cause one of the
     ||| specification's (`NoClauseMatched` for a case it does not cover);
     ||| Emit gives it its site and the definition it is in, as data.
@@ -292,7 +300,7 @@ mutual
   rename f (Var l x) = Var l (f x)
   rename f (Literal l x) = Literal l x
   rename f (PrimApp l p stands as) = PrimApp l p stands (renameVect f as)
-  rename f (Effect l p gives as res) = Effect l p gives (renameAll f as) res
+  rename f (Effect l p gives as w res) = Effect l p gives (renameVect f as) (rename f w) res
   rename f (Call l fn stands is as) = Call l fn stands is (renameAll f as)
   rename f (ConApp l c bs as) = ConApp l c bs (renameVect f as)
   rename f (Let l x b v body) = Let l x b (rename f v) (rename (liftRen {k = 1} f) body)
@@ -304,6 +312,7 @@ mutual
   rename f (Suspend l body) = Suspend l (rename f body)
   rename f (Resume l e) = Resume l (rename f e)
   rename f (Unreachable l) = Unreachable l
+  rename f (Assume l a b body) = Assume l a b (rename f body)
   rename f (Crash l m) = Crash l m
   rename f (CrashWith l m) = CrashWith l (rename f m)
   rename f (NewWorld l) = NewWorld l
@@ -381,7 +390,7 @@ mutual
     VarF : Loc -> Fin n -> TermF f n
     LiteralF : Loc -> Lit -> TermF f n
     PrimAppF : {k : Nat} -> Loc -> Prim k -> Maybe Shown -> Vect k (f n) -> TermF f n
-    EffectF : {o : Nat} -> Loc -> IOAction o -> IOGives o -> List (f n) -> Con 2 -> TermF f n
+    EffectF : {i, o : Nat} -> Loc -> IOAction i o -> IOGives o -> Vect i (f n) -> f n -> Con 2 -> TermF f n
     CallF : Loc -> FnId -> Maybe Shown -> List ITerm -> List (f n) -> TermF f n
     ConAppF : {k : Nat} -> Loc -> Con k -> List ITerm -> Vect k (f n) -> TermF f n
     LetF : Loc -> Shown -> LetBinder -> f n -> f (Under 1 n) -> TermF f n
@@ -393,6 +402,7 @@ mutual
     SuspendF : Loc -> f n -> TermF f n
     ResumeF : Loc -> f n -> TermF f n
     UnreachableF : Loc -> TermF f n
+    AssumeF : Loc -> ITerm -> ITerm -> f n -> TermF f n
     CrashF : Loc -> Cause -> TermF f n
     CrashWithF : Loc -> f n -> TermF f n
     NewWorldF : Loc -> TermF f n
@@ -421,7 +431,7 @@ hmap : ({0 m : Nat} -> f m -> g m) -> TermF f n -> TermF g n
 hmap h (VarF l x) = VarF l x
 hmap h (LiteralF l x) = LiteralF l x
 hmap h (PrimAppF l p stands as) = PrimAppF l p stands (map h as)
-hmap h (EffectF l p gives as res) = EffectF l p gives (map h as) res
+hmap h (EffectF l p gives as w res) = EffectF l p gives (map h as) (h w) res
 hmap h (CallF l fn stands is as) = CallF l fn stands is (map h as)
 hmap h (ConAppF l c bs as) = ConAppF l c bs (map h as)
 hmap h (LetF l x b v body) = LetF l x b (h v) (h body)
@@ -448,6 +458,7 @@ hmap h (AppF l f x) = AppF l (h f) (h x)
 hmap h (SuspendF l body) = SuspendF l (h body)
 hmap h (ResumeF l e) = ResumeF l (h e)
 hmap h (UnreachableF l) = UnreachableF l
+hmap h (AssumeF l a b body) = AssumeF l a b (h body)
 hmap h (CrashF l m) = CrashF l m
 hmap h (CrashWithF l m) = CrashWithF l (h m)
 hmap h (NewWorldF l) = NewWorldF l
@@ -467,7 +478,7 @@ mutual
   para alg (Var l x) = alg (VarF l x)
   para alg (Literal l x) = alg (LiteralF l x)
   para alg (PrimApp l p stands as) = alg (PrimAppF l p stands (paraVect alg as))
-  para alg (Effect l p gives as res) = alg (EffectF l p gives (paraAll alg as) res)
+  para alg (Effect l p gives as w res) = alg (EffectF l p gives (paraVect alg as) (sub alg w) res)
   para alg (Call l fn stands is as) = alg (CallF l fn stands is (paraAll alg as))
   para alg (ConApp l c bs as) = alg (ConAppF l c bs (paraVect alg as))
   para alg (Let l x b v body) = alg (LetF l x b (sub alg v) (sub alg body))
@@ -479,6 +490,7 @@ mutual
   para alg (Suspend l body) = alg (SuspendF l (sub alg body))
   para alg (Resume l e) = alg (ResumeF l (sub alg e))
   para alg (Unreachable l) = alg (UnreachableF l)
+  para alg (Assume l a b body) = alg (AssumeF l a b (sub alg body))
   para alg (Crash l m) = alg (CrashF l m)
   para alg (CrashWith l m) = alg (CrashWithF l (sub alg m))
   para alg (NewWorld l) = alg (NewWorldF l)

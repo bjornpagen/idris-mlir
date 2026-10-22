@@ -25,6 +25,7 @@ import Data.List.Elem
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 
+import Data.DPair
 import Data.List
 import Data.Maybe
 import Data.String
@@ -242,7 +243,8 @@ shapeOf tm = spine tm []
 ------------------------------------------------------------------------------
 
 ||| Every entry, resolved against the loaded context once per
-||| compilation, before anything uses the registry. An entry whose module the
+||| compilation, before anything uses the registry, each type normalised in
+||| the context as frozen once it was loaded. An entry whose module the
 ||| program does not load is not checked; one whose definition is present
 ||| must be what the entry expects. There is no fallback: a mismatch stops
 ||| the compilation. A test of the validation gives it a program whose own
@@ -250,8 +252,8 @@ shapeOf tm = spine tm []
 ||| not validate is refused where its definition is, or, when the
 ||| definition is missing, at `fallback`.
 export
-validate : {auto c : Ref Ctxt Defs} -> (fallback : NonEmptyFC) -> Core (Maybe Refusal)
-validate fallback = check entries
+validate : {auto c : Ref Ctxt Defs} -> Frozen -> (fallback : NonEmptyFC) -> Core (Maybe Refusal)
+validate frozen fallback = check entries
   where
     wrong : FC -> QName -> String -> Refusal
     wrong loc q msg = MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC loc)) (show q ++ ": " ++ msg)
@@ -274,7 +276,7 @@ validate fallback = check entries
         -- the one the entry expects.
         let unlike : Shape -> Core (Maybe Shape)
             unlike shape = do
-              ty <- toFullNames (!(host.normalise defs (type def))).value
+              ty <- toFullNames (!(host.normalise frozen (!(host.typeOf def)).fst)).value
               let found = shapeOf ty
               pure (if conforms shape found then Nothing else Just found)
         if not declared then pure (Just (wrong (location def) q (mismatch e Undeclared))) else

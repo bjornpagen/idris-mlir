@@ -120,12 +120,13 @@ checkComponent members = do
   defs <- get Ctxt
   let inside = the (SortedSet Address) (fromList (map (.address) members))
   let within = \n => maybe False (\a => contains a inside) (definitionAddress (gamma defs) n)
-  let calls = [ (caller.name, call.fnCall, call.fnArgs)
-              | caller <- members, call <- caller.calls, within call.fnCall ]
+  let calls = [ (caller.name, call) | caller <- members, call <- caller.calls, within call.fnCall ]
   let verdicts = loopsTerminate calls (map (.name) members)
   st <- get TState
   let component = MkComponentId st.nextComponent
-      termination = \n, ends => if ends then Terminates component else MayDiverge (shown (show n) ::: [])
+      termination : Name -> Loops -> Termination
+      termination n Decreasing = Terminates component
+      termination n (Endless _) = MayDiverge (shown (show n) ::: [])
   put TState ({ nextComponent $= S
               , loops $= \m => foldl (\m', (n, v) => maybe m' (\a => insert a (termination n v) m')
                                                             (definitionAddress (gamma defs) n))

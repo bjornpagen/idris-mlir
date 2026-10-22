@@ -27,6 +27,7 @@ import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.Registry
 import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Proof.Forms
@@ -153,7 +154,7 @@ constructorsOf def = case definition def of
   where
     read : GlobalDef -> Front Constructor
     read d = do
-      ty <- normaliseClosed (type d) >>= fullNames
+      ty <- normaliseClosed !(typeOfDefinition d) >>= fullNames
       let (bs, ret) = conBinders d none 0 ty
       pure (MkConstructor d ty bs ret)
 
@@ -264,7 +265,7 @@ keyedOf def params conTys = case definition def of
     -- may be declared through a definition of its kind (`data CaseTree :
     -- Scoped`, where `Scoped = Scope -> Type`): its binders are those of
     -- the normal form.
-    ty <- normaliseClosed (type def)
+    ty <- normaliseClosed !(typeOfDefinition def)
     let values = kinds ty
     let types = filter (\i => elem i params && not (fromMaybe False (getAt i values))) (iterateN arity S 0)
     -- Without its constructors, every type parameter counts.
@@ -302,7 +303,7 @@ shorter a b Refl = rewrite sym (plusSuccRightSucc a b) in LTESucc (lteAddRight a
 heldOf : {auto c : Ref Ctxt Defs} -> GlobalDef -> (params, keys : List Nat) -> List Constructor -> Front (List Nat)
 heldOf def ps keys conTys = case definition def of
   TCon arity _ _ _ _ _ _ => do
-    ty <- normaliseClosed (type def)
+    ty <- normaliseClosed !(typeOfDefinition def)
     let values = kinds ty
     -- Every argument position: `[0 .. minus arity 1]` would be `[0]` at
     -- arity 0.
@@ -766,7 +767,7 @@ conIdOf inst def = do
   -- The type as written may hide its binders behind a definition (`a -@ b`
   -- is `(1 _ : a) -> b`), so the type constructor is read off its normal
   -- form, as `constructor` reads the layout.
-  Just tn <- built <$> normaliseClosed (type def)
+  Just tn <- built <$> normaliseClosed !(typeOfDefinition def)
     | Nothing => pure Nothing
   defs <- getDefs
   Just tdef <- lookupExact tn (gamma defs)
@@ -1175,16 +1176,29 @@ mutual
                                            fc owner fam found.link args params roles)
                               datacons
           let sorted = sortBy (\(a, _), (b, _) => compare (snd a).tag (snd b).tag) conList
-          let promise = case (hooksOf (fullname def)).sumShape of
-                          Just IsInPlace => InPlace
-                          _ => None
-          updateState { families $= insert fam (MkFamily fam found.key promise sorts (map fst sorted) loc)
+          let cons = map fst sorted
+          promise <- promised tname (hooksOf (fullname def)).sumShape cons
+          updateState { families $= insert fam (MkFamily fam found.key promise sorts cons loc)
                         , familyOrder $= (:< fam) }
           pure (fam, DataT fam indices)
     where
+      -- What the registry promises of the family's values, where its entry
+      -- meets the family's constructors: a promise to rebuild them in
+      -- place is kept only by a family with exactly one constructor that
+      -- holds fields, the one whose cell each rebuild takes; any other
+      -- family the entry names is the entry's mismatch, refused here, so
+      -- no family holds a promise it cannot keep.
+      promised : String -> Maybe SumHook -> List (k ** Con k) -> Front Promise
+      promised tname (Just IsInPlace) cons = case filter (\(k ** _) => k > 0) cons of
+        [_] => pure InPlace
+        cells => reject fc owner HookShape
+                   (tname ++ ": the registry's entry promises that its values are rebuilt in place, which only " ++
+                    "a type with exactly one constructor that holds fields keeps, and it has " ++ show (length cells))
+      promised _ _ _ = pure None
+
       -- The sorts of a type constructor's index positions, from its type.
       indexSorts : GlobalDef -> List Nat -> Front (List Sort)
-      indexSorts d ps = go none 0 !(normaliseClosed (type d))
+      indexSorts d ps = go none 0 !(normaliseClosed !(typeOfDefinition d))
         where
           go : Given vs -> Nat -> TT vs -> Front (List Sort)
           go g i (Bind bfc _ (Pi _ _ _ a) sc) = do
@@ -1214,7 +1228,7 @@ mutual
     -- The type as written may hide its binders behind a definition
     -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,
     -- with the quantity that makes a field linear.
-    ty <- normaliseClosed (type def)
+    ty <- normaliseClosed !(typeOfDefinition def)
     let layout = paramLayout def ps roles ty
     -- Every match binds `arity` arguments: a layout of another length
     -- would misplace every field after the first difference.

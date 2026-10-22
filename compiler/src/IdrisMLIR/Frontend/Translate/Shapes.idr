@@ -306,7 +306,7 @@ sizedTelescope arity ty kinds = go 0 arity ty kinds
       let Bind _ _ (Pi _ _ _ a) sc = t'
         | _ => internal EmptyFC ("a parameter past the binders of " ++ show t')
       a' <- normaliseClosed a
-      dims <- case typeOf <$> boundAtRuntime k of
+      dims <- case (.type) <$> boundAtRuntime k of
                 Just (TensorT ds _) => pairDims ds <$> dimensionSources a'
                 _ => pure []
       (rest, res) <- go (S i) j (subst (value i k) sc) ks

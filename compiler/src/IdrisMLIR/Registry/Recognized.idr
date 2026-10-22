@@ -142,6 +142,18 @@ inPlace =
             InPlaceType ]
 
 ------------------------------------------------------------------------------
+-- What a match assumes
+------------------------------------------------------------------------------
+
+||| Idris's equality, `Equal : forall a, b . a -> b -> Type`, a builtin
+||| whose one constructor, matched on an erased proof, is its meaning: its
+||| two sides are equal where the match holds.
+equality : AnyEntry
+equality = entry (Def (MkQName ["Builtin"] "Equal"))
+                 (External (Pi M0 TypeOfTypes (Pi M0 TypeOfTypes (Pi Mw Hole (Pi Mw Hole TypeOfTypes)))))
+                 EqualityType
+
+------------------------------------------------------------------------------
 -- Pointers and the exit
 ------------------------------------------------------------------------------
 
@@ -240,7 +252,8 @@ export
 recognized : List AnyEntry
 recognized =
   arrayLanguage ++ inPlace ++ outsideLanguage ++
-  [ pointerCast "prim__castPtr" (Pi Mw anyPtr (ptr Hole))
+  [ equality
+  , pointerCast "prim__castPtr" (Pi Mw anyPtr (ptr Hole))
   , pointerCast "prim__forgetPtr" (Pi Mw (ptr Hole) anyPtr)
   , exitWith
   , rootOnly "unsafePerformIO" (Pi M0 TypeOfTypes (Pi Mw (Head (Def (MkQName ["PrimIO"] "IO")) [Hole]) Hole))

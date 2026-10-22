@@ -21,6 +21,7 @@ import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
+import IdrisMLIR.Registry
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Grades.Grade
@@ -308,7 +309,7 @@ siblings alts = case mapMaybe conName alts of
     defs <- getDefs
     Just def <- lookupExact cn (gamma defs)
       | Nothing => pure []
-    let Just tn = built (type def)
+    let Just tn = built !(typeOfDefinition def)
       | Nothing => pure []
     Just tdef <- lookupExact tn (gamma defs)
       | Nothing => pure []
@@ -357,7 +358,7 @@ mutual
   -- them, and crashes.
   tree ctx env cls (Unmatched msg) = missingCase ctx <$> toLoc ctx.fc
   tree ctx env cls Impossible = Unreachable <$> toLoc ctx.fc
-  tree ctx env cls (Case {name} idx p _ alts) = do
+  tree ctx env cls (Case {name} idx p scTy alts) = do
     loc <- toLoc ctx.fc
     case getAt idx env of
       Just (Runtime i (Just WorldT) _) => case alts of
@@ -476,9 +477,10 @@ mutual
           delayed [] = matched loc v i
 
       forced : List (CaseAlt vars) -> Front (Term nv)
-      forced [ConCase cn _ args rhs] =
-        tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env)
-             (afterCon args scrutinee cls) rhs
+      forced [ConCase cn _ args rhs] = do
+        body <- tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env)
+                     (afterCon args scrutinee cls) rhs
+        assumed body
       forced [DefaultCase rhs] = tree ctx env cls rhs
       forced _ = do
         cons <- traverse altName alts
@@ -492,6 +494,25 @@ mutual
           altName (ConstCase c _) = pure (show c)
           altName (DelayCase {}) = pure "Delay"
           altName (DefaultCase _) = pure "the default"
+
+      -- The alternative of a match on an erased proof of an equality
+      -- (`Refl`: `replace` and `rewrite` are such matches) holds where the
+      -- proof's two sides are equal, on Idris's word alone: its body is the
+      -- region that assumes it. A side outside the language refines
+      -- nothing, and neither does a region assuming it.
+      assumed : Term nv -> Front (Term nv)
+      assumed body = do
+        ty <- normaliseClosed (closeWritten ctx.fc env scTy)
+        let (Ref _ (TyCon _) tn, [_, _, l, r]) = getFnArgs ty
+          | _ => pure body
+        let Just IsEquality = (hooksOf !(fullNames tn)).sumShape
+          | _ => pure body
+        case (!(indexTerm l), !(indexTerm r)) of
+          (IOpaque, _) => pure body
+          (_, IOpaque) => pure body
+          (lhs, rhs) => do
+            loc <- toLoc ctx.fc
+            pure (Assume loc lhs rhs body)
 
   ||| A match on a `Nat`-like value: zero, or a successor binding the
   ||| predecessor. The default stands for whichever the tree leaves out.
@@ -659,8 +680,8 @@ mutual
       fieldAt : (k : Nat) -> Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo (Fin (Under k nv))
       fieldAt k i b ity s = case natToFin i k of
         Just f => case s of
-          Just s' => shaped (Bound {n = nv} f) (typeOf b) ity s'
-          Nothing => Runtime (Bound {n = nv} f) (Just (typeOf b)) (Just ity)
+          Just s' => shaped (Bound {n = nv} f) b.type ity s'
+          Nothing => Runtime (Bound {n = nv} f) (Just b.type) (Just ity)
         Nothing => TypeValue (Erased EmptyFC Placeholder)
   conAlternatives ctx env cls scrutinee shape every built inst (DefaultCase rhs :: _) =
     if every then pure (empty, [], Absent)

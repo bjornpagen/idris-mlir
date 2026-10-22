@@ -261,9 +261,7 @@ hasRuntimePart = mentions part
 ||| come back as themselves (`markerName`).
 export
 lambdasApplied : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
-lambdasApplied tm = do
-  defs <- getDefs
-  (.value) <$> core (host.normaliseHoles defs tm)
+lambdasApplied tm = (.value) <$> core (host.normaliseHoles !frozenContext tm)
 
 ||| A written form with the solutions of its metavariables filled in, and
 ||| nothing else evaluated when it has none.
@@ -286,7 +284,10 @@ solution fc n args = do
   Just def <- lookupExact n (gamma defs)
     | Nothing => internal fc ("the metavariable " ++ show n ++ " is not in the context")
   case definition def of
-    PMDef _ [] (STerm _ tm) _ _ => pure (Just (apply (embedClosed tm) args zero Subst.empty))
+    PMDef _ [] body => do
+      Just tm <- leafOfBody body
+        | Nothing => internal fc ("the solution of " ++ show n ++ " is not a term")
+      pure (Just (apply (embedClosed tm) args zero Subst.empty))
     PMDef {} => internal fc ("the solution of " ++ show n ++ " is not a term")
     _ => pure Nothing
   where
@@ -299,9 +300,7 @@ solution fc n args = do
 ||| `closeNormalise`.
 export
 normaliseClosed : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front ClosedTerm
-normaliseClosed tm = do
-  defs <- getDefs
-  (.value) <$> core (host.normaliseTypes defs tm)
+normaliseClosed tm = (.value) <$> core (host.normaliseTypes !frozenContext tm)
 
 ||| What a binder of quantity `rig` takes, where no definition's decision
 ||| is there to read: a computed type's binder.
@@ -367,7 +366,7 @@ argumentsOf def = do
       pure found
   where
     read : Front (List ArgumentAt)
-    read = argumentsOfNormal def <$> normaliseClosed (type def)
+    read = argumentsOfNormal def <$> normaliseClosed !(typeOfDefinition def)
 
 ||| The last of the arguments given at a definition's positions that it
 ||| takes at run time, an index or a proof after it read nowhere.
@@ -459,10 +458,10 @@ showingBinder ty = normaliseClosed ty
 export
 holeMarker : Nat -> ClosedTerm
 
-||| One of Idris's normalisers: a closed term's normal form, with the steps
-||| that reach it.
-Normaliser : Type
-Normaliser = (defs : Defs) -> (t : ClosedTerm) -> Core (Reduct defs t)
+||| One of Idris's normalisers: a closed term's normal form of its kind in
+||| the frozen context, with the steps that reach it.
+Normaliser : NormalForm -> Type
+Normaliser form = (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct form ctx t)
 
 ||| A projection: a definition that matches one of its parameters against
 ||| one constructor and returns one of that constructor's arguments, as
@@ -479,19 +478,28 @@ record Projection where
   con : Name
   field : Nat
 
-||| The projection a definition is, if it is one.
-projectionOf : GlobalDef -> Maybe Projection
+||| The projection a definition is, if it is one: its case tree read as
+||| far as its root's one alternative, whose one leaf alone is decoded.
+projectionOf : GlobalDef -> Front (Maybe Projection)
 projectionOf def = case definition def of
-  PMDef _ pargs (Case idx v _ [ConCase cn _ cargs (STerm _ (Local _ _ k _))]) _ _ =>
-    if k < length cargs then Just (MkProjection pargs idx _ v cn k) else Nothing
-  _ => Nothing
+  PMDef _ pargs body => core (walkTree body (projected pargs))
+  _ => pure Nothing
+  where
+    projected : (pargs : Scope) -> {0 t : Scoped} -> Leaves t -> CaseTree' t pargs -> Core (Maybe Projection)
+    projected pargs leaves (Case idx v _ [ConCase cn _ cargs (STerm _ r)]) = do
+      Local _ _ k _ <- leaves.leafTerm {outer = []} r
+        | _ => pure Nothing
+      pure (if k < length cargs then Just (MkProjection pargs idx _ v cn k) else Nothing)
+    projected _ _ _ = pure Nothing
 
 ||| The projection a definition is, if it is one.
 export
 projection : {auto c : Ref Ctxt Defs} -> Name -> Front (Maybe Projection)
 projection n = do
   defs <- getDefs
-  pure (projectionOf =<< !(lookupExact n (gamma defs)))
+  Just def <- lookupExact n (gamma defs)
+    | Nothing => pure Nothing
+  projectionOf def
 
 ||| The definition a case, with or nested block belongs to, through every
 ||| block between: a case or with block's parent is its full name, which
@@ -604,13 +612,12 @@ partialIn tm = firstOf (functionsIn tm)
 ||| the translation reduces goes through here, so none runs what Idris does
 ||| not prove ends; the one that applies lambdas (`lambdasApplied`) runs
 ||| none.
-normalisedBy : {auto c : Ref Ctxt Defs} -> Normaliser -> ClosedTerm -> Front (Either Name ClosedTerm)
+normalisedBy : {auto c : Ref Ctxt Defs} -> Normaliser form -> ClosedTerm -> Front (Either Name ClosedTerm)
 normalisedBy normaliser tm = do
   filled <- solved tm
   Nothing <- partialIn filled
     | Just n => pure (Left n)
-  defs <- getDefs
-  (Right . (.value)) <$> core (normaliser defs filled)
+  (Right . (.value)) <$> core (normaliser !frozenContext filled)
 
 ||| A closed term expanded by Idris's normaliser, implementations unfolded
 ||| to their constructors: the form a projection's field is taken from,
@@ -829,13 +836,18 @@ mutual
   unfolded ph w acc@(Access rec) n tm args = do
     Just (placement, def) <- core (resolve n)
       | Nothing => pure (Stuck (OnRuntime tm))
-    case definition def of
-      PMDef _ pargs (STerm _ body) _ _ => case params pargs args of
+    -- A definition of one right-hand side, read without decoding the
+    -- tree of one that matches.
+    leaf <- the (Front (Maybe (vs : Scope ** TT vs))) $ case definition def of
+              PMDef _ pargs body => map (\rhs => (pargs ** rhs)) <$> leafOfBody body
+              _ => pure Nothing
+    case leaf of
+      Just (pargs ** body) => case params pargs args of
         Nothing => pure (Stuck (OnValue tm))
         Just (env, rest) => case enter placement w of
           Nothing => again tm
           Just (Element w' less) => reduce asWritten w' (rec w' less) env body rest
-      _ => case projectionOf def of
+      Nothing => projectionOf def >>= \found => case found of
         Nothing => normalised ph w acc tm
         -- A projection: the field it takes from the constructor its record
         -- reduces to here, its arguments as written, so that an
@@ -1165,7 +1177,7 @@ lookupDef fc owner n = do
 ||| name for one: `VarSet : Scoped` is `Scope -> Type`.
 export
 computesType : {auto c : Ref Ctxt Defs} -> GlobalDef -> Front Bool
-computesType def = isTypeLike <$> normaliseClosed (type def)
+computesType def = isTypeLike <$> normaliseClosed !(typeOfDefinition def)
 
 mutual
   ||| A term with every eta-redex in it contracted, the innermost first:
@@ -1264,10 +1276,16 @@ canonicalTypeArg tm = contracted <$> walk False (contracted tm)
       -- The type as written is enough for `Nat -> Type`. A name for one
       -- (`VarSet : Scoped`) needs the normalised type, and that lookup is
       -- the uncommon case.
-      yes <- if isTypeLike (type gdef) then pure True else computesType gdef
+      yes <- if isTypeLike !(typeOfDefinition gdef) then pure True else computesType gdef
       if yes then case definition gdef of
-             PMDef _ _ _ _ [(_ ** (_, _, body))] => normaliseClause fc body
-             PMDef _ _ (STerm _ body) _ _ => normaliseClause fc body
+             PMDef _ _ body => do
+               clauses <- core (clausesOf body)
+               case clauses of
+                 [(_ ** (_, _, rhs))] => normaliseClause fc rhs
+                 _ => do
+                   Just rhs <- leafOfBody body
+                     | Nothing => pure Nothing
+                   normaliseClause fc rhs
              _ => pure Nothing
         else pure Nothing
 
@@ -1436,7 +1454,7 @@ plain n = do
   Just (placement, def) <- core (resolve n)
     | Nothing => pure Nothing
   case definition def of
-    PMDef _ pargs (STerm _ body) _ _ => pure (Just (pargs ** (body, placement)))
+    PMDef _ pargs body => map (\rhs => (pargs ** (rhs, placement))) <$> leafOfBody body
     _ => pure Nothing
 
 ||| Does a definition compute a type?

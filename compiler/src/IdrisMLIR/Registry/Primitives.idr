@@ -73,7 +73,7 @@ programRoot = entry (Def (MkQName ["PrimIO"] "unsafePerformIO"))
 
 ||| An IO primitive of `Prelude.IO`, by its spec, with the name that
 ||| declares it and its type.
-ioPrimitive : {o : Nat} -> Spec -> String -> Shape -> IOAction o -> AnyEntry
+ioPrimitive : {i, o : Nat} -> Spec -> String -> Shape -> IOAction i o -> AnyEntry
 ioPrimitive spec name shape a =
   entry (Foreign spec) (Declared (MkQName ["Prelude", "IO"] name) shape) (IOCall a [])
 
@@ -163,7 +163,7 @@ cPrimitive spec space name shape hook =
 
 ||| A primitive of base, declared `%foreign` by its C spec, whose calls are
 ||| an IO action.
-cCall : {o : Nat} -> String -> List String -> String -> Shape -> IOAction o -> AnyEntry
+cCall : {i, o : Nat} -> String -> List String -> String -> Shape -> IOAction i o -> AnyEntry
 cCall spec space name shape a = cPrimitive spec space name shape (IOCall a [])
 
 export
@@ -176,7 +176,7 @@ list : Shape -> Shape
 list a = Head (Def (MkQName ["Prelude", "Basics"] "List")) [a]
 
 ||| A buffer primitive, declared `%foreign` by its Chez spec.
-bufferPrimitive : {o : Nat} -> String -> String -> Shape -> IOAction o -> AnyEntry
+bufferPrimitive : {i, o : Nat} -> String -> String -> Shape -> IOAction i o -> AnyEntry
 bufferPrimitive spec name shape a =
   entry (Foreign (MkSpec "scheme" spec)) (Declared (MkQName bufferModule name) shape) (IOCall a [])
 
@@ -332,7 +332,7 @@ osClock = Head (Def (MkQName clockModule "OSClock")) []
 
 ||| A clock primitive of base's System.Clock, by its Chez spec: a clock
 ||| declares no C one.
-clockPrimitive : String -> String -> Shape -> IOAction 1 -> AnyEntry
+clockPrimitive : {i : Nat} -> String -> String -> Shape -> IOAction i 1 -> AnyEntry
 clockPrimitive spec name shape a =
   entry (Foreign (MkSpec "scheme" spec)) (Declared (MkQName clockModule name) shape) (IOCall a [])
 
@@ -441,19 +441,19 @@ primitives =
   , entry (Def (MkQName bufferModule "Buffer")) (External TypeOfTypes) (OrderedArrayType Elements (Just byte))
   , entry (Foreign (MkSpec "scheme" "blodwen-new-buffer"))
             (Declared (MkQName bufferModule "prim__newBuffer") (Pi Mw int (Pi M1 world (ioRes buffer))))
-            (IOCall (Accesses NewArray) [LInt UInt8 0])
+            (IOCall (Accesses NewArray 1) [LInt UInt8 0])
   , deprecatedForeign "blodwen-buffer-setbyte" "prim__setByte"
                       (Pi Mw buffer (Pi Mw int (Pi Mw int (Pi M1 world (ioRes unit)))))
                       "setByte is deprecated; use setBits8"
   , deprecatedDef "setByte" "setByte is deprecated; use setBits8"
   , bufferPrimitive "blodwen-buffer-setbyte" "prim__setBits8"
-                    (Pi Mw buffer (Pi Mw int (Pi Mw bits8 (Pi M1 world (ioRes unit))))) (Accesses SetElement)
+                    (Pi Mw buffer (Pi Mw int (Pi Mw bits8 (Pi M1 world (ioRes unit))))) (Accesses SetElement 1)
   , deprecatedForeign "blodwen-buffer-getbyte" "prim__getByte"
                       (Pi Mw buffer (Pi Mw int (Pi M1 world (ioRes int))))
                       "getByte is deprecated; use getBits8"
   , deprecatedDef "getByte" "getByte is deprecated; use getBits8"
   , bufferPrimitive "blodwen-buffer-getbyte" "prim__getBits8"
-                    (Pi Mw buffer (Pi Mw int (Pi M1 world (ioRes bits8)))) (Accesses GetElement)
+                    (Pi Mw buffer (Pi Mw int (Pi M1 world (ioRes bits8)))) (Accesses GetElement 1)
   , entry (Foreign (MkSpec "scheme" "blodwen-buffer-size"))
             (Declared (MkQName bufferModule "prim__bufferSize") (Pi Mw buffer int))
             (PrimCall (ArrayLength byte) [])

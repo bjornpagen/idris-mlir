@@ -7,6 +7,7 @@ module IdrisMLIR.Frontend.Translate.State
 import Core.Context
 import Core.Core
 import Core.TT
+import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
@@ -433,6 +434,9 @@ Modules = SortedMap ModuleIdent LoadedModule
 public export
 record TS where
   constructor MkTS
+  ||| The context as the normalisers read it, frozen once the session had
+  ||| loaded the program and everything it imports (`Errors.frozenContext`).
+  frozen : Frozen
   ||| The family instances registered, each by its link, its identity
   ||| minted once, the next one `nextFamily`; each family by its identity;
   ||| and the families in the order they were registered.
@@ -535,9 +539,10 @@ record TS where
   sizes : Bounds
 
 export
-initState : Modules -> SortedSet Name -> NonEmptyFC -> TS
-initState loaded ifaces fc = MkTS
-  { familyIds = empty, nextFamily = 0, families = empty, familyOrder = [<]
+initState : Frozen -> Modules -> SortedSet Name -> NonEmptyFC -> TS
+initState frozen loaded ifaces fc = MkTS
+  { frozen = frozen
+  , familyIds = empty, nextFamily = 0, families = empty, familyOrder = [<]
   , cons = empty, fns = empty, fnOrder = [<], instances = empty, requested = [<], moduleFC = fc
   , nextComponent = 0
   , loops = empty, named = empty, keyLinks = empty, blockNames = empty
@@ -569,9 +574,9 @@ keepFound from = { rejected := from.rejected, refused := from.refused
                  , blockNames := from.blockNames }
 
 ||| The state the translation starts from: nothing of the phases before it
-||| but the modules, the interfaces, what they found that outlives them
-||| (`keepFound`), and the growth check's bounds.
+||| but the frozen context, the modules, the interfaces, what they found
+||| that outlives them (`keepFound`), and the growth check's bounds.
 export
 translating : TS -> TS
 translating st = keepFound st ({ bounds := st.bounds, sizes := st.sizes }
-                                 (initState st.modules st.interfaces st.moduleFC))
+                                 (initState st.frozen st.modules st.interfaces st.moduleFC))

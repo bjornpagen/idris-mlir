@@ -11,6 +11,7 @@ import IdrisMLIR.Registry.Entry
 import IdrisMLIR.Registry.Name
 import IdrisMLIR.Registry.Primitives
 import IdrisMLIR.Registry.Recognized
+import IdrisMLIR.Spec.Families.Ops
 import IdrisMLIR.Spec.Ops.Bigs
 import IdrisMLIR.Spec.Ops.Strings
 import IdrisMLIR.Spec.Ops.Values
@@ -76,13 +77,14 @@ fin = Head (Def (MkQName ["Data", "Fin"] "Fin")) [Hole]
 ||| base's arrays; the functions of its generating set and of its linear
 ||| arrays that have bodies, whose calls are the tensor operations of their
 ||| sequential meaning; and base's `natToFinLT` and `finToNat`, the
-||| identity on a natural, a `Fin` being one: a coordinate is its natural,
-||| so an index's position reads as the index, and a loop over an array
-||| computes on words. A linear array is no value type: it is its family,
-||| a cell holding its array, as the growable vector is, so that its grade
-||| says what may write it in place. Its operations take the array out of
-||| the cell, run on it and build the cell again; `freeze`, whose body does
-||| only that, compiles from its body.
+||| conversions between a natural and a `Fin`, a numeral laid out as a
+||| number, with no range check, its bound its type's: a coordinate is its
+||| natural, so an index's position reads as the index, and a loop over an
+||| array computes on words. A linear array is no value type: it is its
+||| family, a cell holding its array, as the growable vector is, so that
+||| its grade says what may write it in place. Its operations take the
+||| array out of the cell, run on it and build the cell again; `freeze`,
+||| whose body does only that, compiles from its body.
 arrays : List (Entry Faster)
 arrays =
   [ MkEntry (Def (MkQName arrayCore "Array")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
@@ -96,27 +98,12 @@ arrays =
   , computing larrayCore "read" (implicits 2 (linear larrayShape (arg indexShape Hole))) ARead
   , computing larrayCore "write" (implicits 2 (linear larrayShape (arg indexShape (arg Hole larrayShape)))) AWrite
   , computing larrayCore "thaw" (implicits 3 (arg arrayShape (linear (linear larrayShape Hole) Hole))) AThaw
-  , MkEntry (Def (MkQName ["Data", "Fin"] "natToFinLT")) (Typed (arg nat (implicits 2 fin))) IdentityOnLastArgument
-  , MkEntry (Def (MkQName ["Data", "Fin"] "finToNat")) (Typed (implicits 1 (arg fin nat))) IdentityOnLastArgument ]
+  , MkEntry (Def (MkQName ["Data", "Fin"] "natToFinLT")) (Typed (arg nat (implicits 2 fin))) (PureCall numeralOfNatOp [])
+  , MkEntry (Def (MkQName ["Data", "Fin"] "finToNat")) (Typed (implicits 1 (arg fin nat))) (PureCall numeralToNatOp []) ]
 
 ------------------------------------------------------------------------------
--- Rewriting, lists and strings
+-- Lists and strings
 ------------------------------------------------------------------------------
-
-||| `Builtin.Equal` applied to its two types and two sides, which is what
-||| `x = y` and `x === y` normalise to.
-equal : Shape
-equal = Head (Def (MkQName ["Builtin"] "Equal")) [Hole, Hole, Hole, Hole]
-
-||| A rewriting combinator: a type, two erased values and an erased
-||| predicate, an erased proof that the values are equal, and the value to
-||| rewrite, the one runtime argument, which it returns.
-rewriting : Shape
-rewriting = Pi M0 TypeOfTypes (Pi M0 Hole (Pi M0 Hole (Pi M0 Hole (Pi M0 equal (Pi M1 Hole Hole)))))
-
-||| `replace` and `rewrite__impl`, which `rewrite` elaborates to.
-identity : String -> Entry Faster
-identity name = MkEntry (Def (MkQName ["Builtin"] name)) (Typed rewriting) IdentityOnLastArgument
 
 ||| Base's list, a sum whose nil and cons the string builders take apart:
 ||| its kind is the registry's, never guessed from its shape; its nil and
@@ -133,4 +120,4 @@ listsAndStrings =
 ||| Every faster entry.
 export
 faster : List (Entry Faster)
-faster = naturals ++ arrays ++ [identity "replace", identity "rewrite__impl"] ++ listsAndStrings
+faster = naturals ++ arrays ++ listsAndStrings

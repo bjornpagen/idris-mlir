@@ -54,22 +54,24 @@ translateInstance p = do
   False <- pure (maybe False (\a => contains a before.refused) address)
     | True => pure ()
   let fc = location def
-  PMDef _ args treeCT clausePats _ <- pure (definition def)
+  PMDef _ args body <- pure (definition def)
     | _ => reject fc owner DefinitionShape "not a pattern-matching definition"
+  ty <- typeOfDefinition def
   -- A missing case crashes.
   let complete = case isCovering (totality def) of
                    MissingCases _ => False
                    _ => True
-  (kinds, resTy) <- classifyInstance fc owner (length args) (type def) (givenArgs p.kinds)
+  (kinds, resTy) <- classifyInstance fc owner (length args) ty (givenArgs p.kinds)
   result <- coreType fc owner ValueType !(normaliseClosed resTy)
-  (params, env) <- pure (runtimeParams 0 (parameterNames (type def)) kinds)
-  tree' <- tree (MkCtx owner fc complete) env (clauses args clausePats) treeCT
+  (params, env) <- pure (runtimeParams 0 (parameterNames ty) kinds)
+  clausePats <- core (clausePatsOf body)
+  tree' <- tree (MkCtx owner fc complete) env (clauses args clausePats) !(treeOfBody body)
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
   -- instance with no array parameter has none to state.
-  ties <- if any (isJust . valueDims . typeOf) (runtimeBinders kinds)
-            then (entryTies . fst) <$> sizedTelescope (length args) (type def) kinds
+  ties <- if any (isJust . valueDims . (.type)) (runtimeBinders kinds)
+            then (entryTies . fst) <$> sizedTelescope (length args) ty kinds
             else pure []
   let body = tied loc (allFins (Runtimes kinds)) ties tree'
   -- What Idris proved of its loops: its component was checked when the
@@ -127,11 +129,11 @@ translateInstance p = do
     runtimeParams level xs (ChoiceParam b known :: ks) =
       let (x, xs') = named xs
           (ps, env) = runtimeParams level xs' ks in
-      ((x, b) :: ps, Runtime FZ (Just (typeOf b)) (Just known) :: map (map FS) env)
+      ((x, b) :: ps, Runtime FZ (Just b.type) (Just known) :: map (map FS) env)
     runtimeParams level xs (ValueParam b shape known :: ks) =
       let (x, xs') = named xs
           (ps, env) = runtimeParams level xs' ks in
-      ((x, b) :: ps, maybe (Runtime FZ (Just (typeOf b)) (Just known)) (shaped FZ (typeOf b) known) shape
+      ((x, b) :: ps, maybe (Runtime FZ (Just b.type) (Just known)) (shaped FZ b.type known) shape
                        :: map (map FS) env)
 
 ||| The families a family's fields name.

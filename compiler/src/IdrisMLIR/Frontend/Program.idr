@@ -12,6 +12,7 @@ import Core.Context
 import Core.Core
 import Core.Directory
 import Core.TT
+import Idris.Host
 import Idris.Syntax
 
 import IdrisMLIR.Emit
@@ -114,7 +115,7 @@ reportTimes (Just path) times =
 ||| anything uses them; a broken entry is a refusal, at the module when the
 ||| entry has no location.
 validated : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Front ()
-validated = case !(core (validate (!getState).moduleFC)) of
+validated = case !(core (validate !frozenContext (!getState).moduleFC)) of
   Nothing => pure ()
   Just r => rejectWith r
 
@@ -169,7 +170,10 @@ program loaded mainFile timing mlirPath = do
   interfaces <- SortedSet.fromList . map fst . ANameMap.toList . (.ifaces) <$> get Syn
   -- Until main is found, a refusal is at the main file's start.
   let fileSite : NonEmptyFC = (PhysicalIdrSrc mainFile, (0, 0), (0, 0))
-  s <- newRef TState (initState loaded interfaces fileSite)
+  -- Idris has loaded the program and everything it imports: the context
+  -- changes no more, and every normaliser reads it as frozen here.
+  frozen <- host.freezeContext
+  s <- newRef TState (initState frozen loaded interfaces fileSite)
   noted (compiled t0 fileSite)
   rejections
   where

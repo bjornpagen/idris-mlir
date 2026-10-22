@@ -232,9 +232,9 @@ passed loc choice field (x :: xs) =
 dispatcher : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Dispatch -> Front ()
 dispatcher d = do
   def <- lookupDef d.site d.owner d.callee
-  let PMDef _ params _ _ _ = definition def
+  let PMDef _ params _ = definition def
     | _ => internal d.site ("a dispatch on " ++ show (fullname def) ++ ", which is no function")
-  (kinds, resTy) <- classifyInstance d.site d.owner (length params) (type def) (givenArgs d.kinds)
+  (kinds, resTy) <- classifyInstance d.site d.owner (length params) !(typeOfDefinition def) (givenArgs d.kinds)
   result <- coreType d.site d.owner ValueType !(normaliseClosed resTy)
   loc <- toLoc d.site
   st <- getState

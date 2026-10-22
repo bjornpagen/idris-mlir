@@ -227,15 +227,16 @@ proofOnly n = do
     | Nothing => pure False
   pure (isErased (multiplicity def))
 
-refsOf : Hooks -> GlobalDef -> List Name
-refsOf hs def =
-  let fromType = keys (Core.TT.getRefs (UN Underscore) (type def)) in
+refsOf : Hooks -> GlobalDef -> Core (List Name)
+refsOf hs def = do
+  fromType <- keys . Core.TT.getRefs (UN Underscore) <$> typeOfDefinition def
   case definition def of
-    PMDef _ _ tree _ _ =>
-      if answersForBody hs then fromType
-      else fromType ++ keys (Core.Case.CaseTree.getRefs (UN Underscore) tree) ++ keys (Core.Case.CaseTree.getMetas tree)
-    TCon _ _ _ _ _ cons _ => fromType ++ fromMaybe [] cons
-    _ => fromType
+    PMDef _ _ body =>
+      if answersForBody hs then pure fromType else do
+        tree <- treeOfBody body
+        pure (fromType ++ keys (Core.Case.CaseTree.getRefs (UN Underscore) tree) ++ keys (Core.Case.CaseTree.getMetas tree))
+    TCon _ _ _ _ _ cons _ => pure (fromType ++ fromMaybe [] cons)
+    _ => pure fromType
 
 ||| What refers to a definition the walk reaches: a user definition, or the
 ||| program's root; or a trusted definition, by its placement, which the
@@ -394,14 +395,15 @@ checkReachable fc roots = do
       root <- rootOf full
       when (trusted && not (admits origin (qname root))) $
         reject (userFC here) owner TrustedLibrary (key ++ " is not admitted from its trusted module" ++ via here)
-      refs <- traverse fullNames (refsOf (hooksOf full) def)
+      refs <- traverse fullNames !(core (refsOf (hooksOf full) def))
       -- User code may not use what the registry forbids, nor forge a world.
       unless trusted $ do
         case firstForbidden refs of
           Just (r, rule) => refuse (location def) key rule ("uses " ++ show r)
           Nothing => pure ()
         case definition def of
-          PMDef _ _ tree _ _ =>
+          PMDef _ _ body => do
+            tree <- treeOfBody body
             when (treeMentionsWorld tree) $ reject (location def) key TrustedLibrary "uses %MkWorld"
           _ => pure ()
       -- A library's own totality assertions are trusted, and so are its
