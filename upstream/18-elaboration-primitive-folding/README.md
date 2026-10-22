@@ -180,9 +180,9 @@ through the frontend.
 
 With the change, the program this compiler consumes keeps every primitive
 call the user wrote, and the runtime computes it, at compile time or at
-run time. The test generators no longer hide literals behind an identity
-(`harness/Sem.idr`'s `litInt`, the `lit<T>` of `harness/TwoLevels.idr` and
-`harness/Fuzz.idr`): a primitive applied to literals is what they test. The
+run time. The test generators (`harness/Sem.idr`, `harness/Fuzz.idr`) no
+longer hide literals behind an identity Idris does not reduce: a primitive
+applied to literals is what they test. The
 fixtures `tests/closed-*` hold each example to the
 runtime's documented meaning.
 

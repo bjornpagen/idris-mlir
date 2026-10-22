@@ -33,7 +33,8 @@ removal is written there, each `checkImp rig (addAmbig ...)` becoming
 Since e5b39cb2 (lane L17's second half), the syntax that writes a type
 and its value alike (`(l, r)`, `()`, `(x ** p)`) is one node read by its
 expected type's sort, not an alternative of two readings nested at each
-level of a tuple (PINS.md tuple-node); that commit is its record.
+level of a tuple: upstream/fork-tuple-node, with its own diff (PINS.md
+tuple-node).
 
 ## Why there is no patch
 

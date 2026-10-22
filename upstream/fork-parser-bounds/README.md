@@ -25,11 +25,11 @@ text; a part of the change in a file of the fork's own, with no upstream
 counterpart, is left out and said below. Hunks the commit shares between
 entries sit in one of them, as each entry's text says.
 
-Upstream's parser is a grammar data type that `doParse` runs, where the
-fork's is functions (`MkGrammar`): the change is written on `doParse` and
+The fork's parser is upstream's, a grammar data type that `doParse`
+runs, so the change is written as the fork has it: on `doParse` and
 `ParseResult` (`Located` tokens, `Irrelevant` and `Relevant` results),
-and `terminalAt` is upstream's `Position` then `Terminal`, which gives
-the same bounds and errors.
+with `terminalAt` as `Position` then `Terminal`, a token read with its
+bounds.
 
 ## Why there is no patch
 

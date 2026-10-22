@@ -28,23 +28,20 @@
 #     tools/dialects.sh check      say whether each module is current
 #
 # With `typecheck` after either, the generator is make typecheck's
-# idris-mlir-tblgen, and mlir-tblgen and MLIR's ODS are those of the
-# TableGen-only LLVM/MLIR its bootstrap step builds and the patched tree it
-# reads (tools/bootstrap.sh typecheck), where stage 2 is not built. The
-# records are the same, so are the modules and their fingerprints.
+# idris-mlir-tblgen, and MLIR's ODS is that of the patched tree its
+# bootstrap step reads (tools/bootstrap.sh typecheck), where stage 2 is
+# not built. The records are the same, so are the modules.
 #
-# The modules are checked in, so that the Idris build needs no other step
+# The modules are committed, so that the Idris build needs no other step
 # and a change of upstream's ODS, or of what the specification admits,
-# shows as a change of the Idris it means. Each ends with the fingerprint
-# of what it was generated from (the records the pinned mlir-tblgen reads
-# from the dialect's admitted record file or its bytecode file, and the
-# generator's source) and of the text above it. `check` needs no build: a
-# module whose first fingerprint is not that of its records and the
-# generator now is stale, one whose second is not that of its text was
-# edited, and `make build` writes either again.
+# shows as a change of the Idris it means. A module carries no stamp of
+# what it was generated from: `check` writes each again with the generator
+# the build made and compares it with the committed file, so a stale
+# module and one edited by hand both differ, and `make build` writes
+# either again. So `check` runs where the generator is built (make
+# test-mlir-tools).
 root=$(cd "$(dirname "$0")/.." && pwd)
 . "$root/tools/toolchain.sh"
-generator_source=$root/foreign/idr/tools/idris-mlir-tblgen.cpp
 src=$root/compiler/src/IdrisMLIR
 # The include directory the admitted record files resolve their own
 # include of idr/IR/Generated/IdrAdmittedBase.td against, and the files.
@@ -57,36 +54,31 @@ usage() {
 }
 [ $# -eq 1 ] || [ $# -eq 2 ] || usage
 case $1 in generate | check) ;; *) usage ;; esac
-# mlir_tblgen, and the include directories of MLIR's ODS (mlir_include)
-# and of LLVM's (llvm_include): one installed tree in stage 2's prefix, the
-# source tree's two in the typecheck build's.
+# The include directories of MLIR's ODS (mlir_include) and of LLVM's
+# (llvm_include): one installed tree in stage 2's prefix, the source
+# tree's two in the typecheck build's.
 case ${2-} in
   '')
-    mlir_tblgen=$llvm_bin/mlir-tblgen
     mlir_include=${llvm_bin%/bin}/include
     llvm_include=$mlir_include
+    step='make build'
     ;;
   typecheck)
-    typecheck_build=$(stamp_field "$typecheck_toolchain" llvm_build)
     typecheck_tree=$(stamp_field "$typecheck_toolchain" tree)
-    if [ -z "$typecheck_build" ] || [ -z "$typecheck_tree" ]; then
+    if [ -z "$typecheck_tree" ]; then
       echo "tools/dialects.sh: no typecheck build; run: tools/bootstrap.sh typecheck" >&2
       exit 1
     fi
-    mlir_tblgen=$typecheck_build/bin/mlir-tblgen
     mlir_include=$typecheck_tree/mlir/include
     llvm_include=$typecheck_tree/llvm/include
     idris_mlir_tblgen=$typecheck_tblgen
+    step='make typecheck-tblgen'
     ;;
   *) usage ;;
 esac
-# Without mlir-tblgen no record is read, so say which step builds it.
-if [ ! -x "$mlir_tblgen" ]; then
-  case ${2-} in
-    '') step='make bootstrap' ;;
-    typecheck) step='tools/bootstrap.sh typecheck (make typecheck)' ;;
-  esac
-  echo "tools/dialects.sh: $mlir_tblgen is missing; $step builds it" >&2
+# Without the generator no module is written, so say which step builds it.
+if [ ! -x "$idris_mlir_tblgen" ]; then
+  echo "tools/dialects.sh: $idris_mlir_tblgen is missing; $step builds it" >&2
   exit 1
 fi
 
@@ -111,23 +103,6 @@ dialects() {
 work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-dialects.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT
 
-# fingerprint TD: the checksum of the records mlir-tblgen reads from TD,
-# followed by the generator's source.
-fingerprint() {
-  "$mlir_tblgen" -I "$mlir_include" -I "$llvm_include" -I "$idr_include" "$1" \
-    > "$work/records" 2> "$work/records.err" || {
-    echo "tools/dialects.sh: mlir-tblgen cannot read $1:" >&2
-    cat "$work/records.err" >&2
-    exit 1
-  }
-  cat "$work/records" "$generator_source" | cksum | awk '{ print $1 "-" $2 }'
-}
-
-# text_fingerprint FILE: the checksum of a module's text.
-text_fingerprint() {
-  cksum < "$1" | awk '{ print $1 "-" $2 }'
-}
-
 # Each dialect's modules, as generator:directory: its syntax, its ops, which
 # import the syntax, and its entries, which import the syntax too.
 modules="syntax:Syntax dialect:Dialect bytecode:Encoding"
@@ -148,35 +123,24 @@ done > "$work/modules"
 
 status=0
 while read -r generator directory name module source; do
-  expected=$(fingerprint "$source") || exit 1
   path=$src/$directory/$module.idr
   out=$work/$directory-$module.idr
-  if [ "$1" = generate ]; then
+  "$idris_mlir_tblgen" "-gen-idris-$generator" "-idris-dialect=$name" \
+    "-idris-module=IdrisMLIR.$directory.$module" \
+    "-idris-syntax-module=IdrisMLIR.Syntax.$module" -I "$mlir_include" -I "$llvm_include" \
+    -I "$idr_include" "$source" -o "$out" || exit 1
+  if cmp -s "$out" "$path"; then
+    [ "$1" = check ] && echo "IdrisMLIR.$directory.$module: current"
+  elif [ "$1" = generate ]; then
     mkdir -p "$src/$directory"
-    "$idris_mlir_tblgen" "-gen-idris-$generator" "-idris-dialect=$name" \
-      "-idris-module=IdrisMLIR.$directory.$module" \
-      "-idris-syntax-module=IdrisMLIR.Syntax.$module" -I "$mlir_include" -I "$llvm_include" \
-      -I "$idr_include" "$source" -o "$out" || exit 1
-    printf -- '-- fingerprint: %s %s\n' "$expected" "$(text_fingerprint "$out")" >> "$out"
-    if ! cmp -s "$out" "$path"; then
-      mv "$out" "$path" || exit 1
-      echo "tools/dialects.sh: wrote IdrisMLIR.$directory.$module"
-    fi
+    mv "$out" "$path" || exit 1
+    echo "tools/dialects.sh: wrote IdrisMLIR.$directory.$module"
+  elif [ -f "$path" ]; then
+    echo "IdrisMLIR.$directory.$module: not what the generator writes (make build writes it again)"
+    status=1
   else
-    recorded=$(sed -n 's/^-- fingerprint: //p' "$path" 2> /dev/null)
-    sed '/^-- fingerprint: /d' "$path" > "$work/text" 2> /dev/null
-    if [ ! -f "$path" ]; then
-      echo "IdrisMLIR.$directory.$module: missing (make build writes it)"
-      status=1
-    elif [ "${recorded% *}" != "$expected" ]; then
-      echo "IdrisMLIR.$directory.$module: stale (make build writes it again)"
-      status=1
-    elif [ "${recorded##* }" != "$(text_fingerprint "$work/text")" ]; then
-      echo "IdrisMLIR.$directory.$module: edited by hand (make build writes it again)"
-      status=1
-    else
-      echo "IdrisMLIR.$directory.$module: current"
-    fi
+    echo "IdrisMLIR.$directory.$module: missing (make build writes it)"
+    status=1
   fi
 done < "$work/modules"
 

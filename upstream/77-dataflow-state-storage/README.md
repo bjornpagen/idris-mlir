@@ -31,8 +31,8 @@ anchor's map is a `SmallDenseMap<TypeID, ..., 2>`, a state's dependents a
 `SetVector` with 4 inline elements, and the solver's uniquer is told it
 runs on one thread (`disableMultithreading`): about 0.2 KB per state,
 fifteenfold less (A4's P1), no API change. Not built; the qualification
-measures it on Ranges and Borrows, bytes per anchor on all four targets,
-the scale fixtures and stage 1 (proposals/0000 C32, S3), and the record
+measures it on Ranges, bytes per anchor on all four targets, the scale
+fixtures and stage 1 (proposals/0000 C32, S3), and the record
 goes here.
 
 ## Upstreaming plan

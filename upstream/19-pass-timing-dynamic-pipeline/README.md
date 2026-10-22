@@ -11,10 +11,11 @@ pass's row and in its own), and the report's Rest, the total less its
 top-level rows, goes negative. Two such pipelines on the same op name, one
 run while the other runs, share one timer, which then adds up the wrong
 intervals. Upstream, the inliner (its default pipeline on each callable)
-and `composite-fixed-point-pass` show it. Here, idr-simplify, idr-eval,
-idr-inline, idr-target and idr-canonicalize run pipelines that way, so
-`idris-mlir --mlir-timing` shows it inside those steps' rows: a step's rows
-add up to more than the step.
+and `composite-fixed-point-pass` show it. Here, idr-optimize (its
+per-function pipeline), idr-narrow (idr-narrow-words on each function) and
+idr-inline (upstream's inliner, idr-simplify on each callable) run
+pipelines that way, so `idris-mlir --mlir-timing` shows it inside those
+steps' rows: a step's rows add up to more than the step.
 
 Reported upstream as llvm/llvm-project#169443 (2025-11-25). The fix is
 the open pull request llvm/llvm-project#169615, whose code change

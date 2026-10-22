@@ -52,7 +52,7 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   never from the file's header. For simdutf (48), the pull request to
   that project, which nothing reaches. For Idris: 96, a fix to the stock
   Idris nothing it builds reaches, recorded and not carried; and (18, 20,
-  21, 50, 51, 52, 53, 59 and the seventeen fork-* directories) the change
+  21, 50, 51, 52, 53, 59 and the eighteen fork-* directories) the change
   the fork carries as its own code (for 21, the smaller change the fork
   has since gone past), laid out against third_party/Idris2 at its
   gitlink, each applying to the pin alone or, for a series (50, 52, 53;
@@ -187,6 +187,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | fork | fork-erase-args | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
 | fork | fork-parser-bounds | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
 | fork | fork-dead-options | nothing (**Idris**) | carried as fork code (a386fe4d); the diff records it for re-syncs |
+| fork | fork-tuple-node | nothing (**Idris**) | carried as fork code (e5b39cb2); the diff records it for re-syncs |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14

@@ -82,14 +82,14 @@
 #     with the passes around it, and, anywhere, every `(A)` row under a
 #     function pass, which computes no analysis and so is outside its
 #     place;
-#   - the verifier: the VerifierPass rows inside idr-optimize, and the one
-#     after idr-rc, each against the total;
+#   - the verifier: the VerifierPass rows inside idr-optimize, against
+#     the total;
 #   - the optimizer's serial part: idr-optimize's own time (its row less
 #     the rows inside it, the scheduler's), its VerifierPass rows' wall
 #     against user time, and its (A) CallGraph rows, each against
 #     idr-optimize's;
-#   - the Canonicalizer and CSE rows inside idr-optimize, its per-function
-#     pipeline's.
+#   - the e-graph's rows inside idr-optimize (idr-simplify), its
+#     per-function pipeline's.
 #
 # MLIR's timing merges the rows of one pass's runs, so the per-function
 # pipeline's rows are the sum over the functions it ran on.
@@ -284,18 +284,9 @@ tree_report() {
       printf "- VerifierPass rows: %.4f s wall, %.4f s user (%.1f%% of it, %.1f%% of Total)\n",
         verify, verifyUser, (s > 0 ? 100 * verify / s : 0), (total > 0 ? 100 * verify / total : 0)
       printf "- (A) CallGraph rows: %.4f s (%.1f%% of it)\n", callgraph, (s > 0 ? 100 * callgraph / s : 0)
-      # The VerifierPass row after idr-rc: the sibling that follows it.
-      for (i = 1; i <= n; i++) {
-        if (key(name[i]) != "idrrc") continue
-        m = split(children[parent[i]], kids, " ")
-        for (j = 1; j < m; j++)
-          if (kids[j] == i && name[kids[j + 1]] == "VerifierPass")
-            printf "VerifierPass after idr-rc: %.4f s wall, %.4f s user (%.1f%% of Total)\n",
-              wall[kids[j + 1]], user[kids[j + 1]], (total > 0 ? 100 * wall[kids[j + 1]] / total : 0)
-      }
       printf "\nInside idr-optimize:\n"
       for (i = 1; i <= n; i++)
-        if ((name[i] == "Canonicalizer" || name[i] == "CSE") && within(i, "idroptimize"))
+        if (key(name[i]) == "idrsimplify" && within(i, "idroptimize"))
           printf "- %s: %.4f s wall, %.4f s user\n", path(i), wall[i], user[i]
     }' "$1"
 }

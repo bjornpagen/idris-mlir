@@ -139,8 +139,8 @@ which the top-level CMake configure gate reads.
   a label reached only through an idr.closure returned poison, a silent
   miscompile
 - sites: every analysis on MLIR's solver that loads DeadCodeAnalysis
-  (idr-constants, narrowing's copy analysis, Ranges and Borrows, per
-  function); remove-dead-values, if the qualification's trial brings it
+  (idr-constants, narrowing's copy analysis and Ranges, per function);
+  remove-dead-values, if the qualification's trial brings it
   back (C35)
 - workaround: `upstream/29-dead-code-nested-symbol-use/llvm.patch`: the use
   is resolved in the table being walked; checked by
@@ -160,8 +160,9 @@ which the top-level CMake configure gate reads.
   argument registers, ending in a runtime call, made six programs crash
   after main returned: `__idr$entry$body` reloaded its frame record 16
   bytes low and returned into the heap
-- sites: foreign/idr/lib/Conversion/TailCalls.cpp and TailCallPlan.cpp
-  (which functions take `tailcc`); every arm64 target
+- sites: foreign/idr/lib/Conversion/Lower/Functions.cpp (every function
+  of the program takes `tailcc`) and TailCalls.cpp (its tail calls
+  `musttail`); every arm64 target
 - workaround: `upstream/30-aarch64-sibcall-callee-pop/llvm.patch`: a
   function with stack arguments to pop makes no sibling call, under
   SelectionDAG and GlobalISel; checked by
@@ -272,7 +273,7 @@ which the top-level CMake configure gate reads.
   (`normalisePrims`), compiler/idris/src/Core/Primitives.idr (`sharedOp`)
   and compiler/idris/src/Core/Value.idr (`sharedPrimsOnly`). The test
   generators write literals as they are (harness/Sem.idr,
-  harness/TwoLevels.idr, harness/Fuzz.idr), where they hid each behind an
+  harness/Fuzz.idr), where they hid each behind an
   identity that Idris does not reduce
 - workaround: none; the fork carries the fix as its own code, the change
   of `upstream/18-elaboration-primitive-folding/pull-request.diff` (the
@@ -484,9 +485,11 @@ which the top-level CMake configure gate reads.
   that ends in `ub.unreachable`
 - sites: none in our code; the patch. A body that never returns (a crash,
   a body Idris proved impossible, a match none of whose regions returns)
-  ends in `ub.unreachable`, as Emit writes it and idr-tail-loops and the
-  match canonicalization leave it. idr-optimize inlines with upstream's
-  `mlir::inlineCall` (foreign/idr/lib/Transforms/Optimize), whose fast
+  ends in `ub.unreachable`, as Emit writes it and the e-graph's match
+  rules leave it (foreign/idr/lib/Transforms/Joins/MatchRules.cpp).
+  idr-optimize's leaf inlining calls upstream's `mlir::inlineCall`
+  (foreign/idr/lib/Transforms/Inline/Inline.cpp) and idr-inline runs
+  upstream's `Inliner` (Inline/InlinePass.cpp), both through the fast
   path the patch fixes. The match ops declare `SingleBlock`, which the
   inliner reads: such a callee is inlined into a function body, and a call
   of it in a match region stays a call, since the block after it would be
@@ -501,6 +504,7 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/07-inline-unreachable-terminator (not yet filed);
   plan in its README: an issue and a pull request, #206083 named as a
   separate case
+- status (2026-10-21): carried; not filed; applies at 416f328b
 
 ## ub-unreachable-effects
 
@@ -708,8 +712,9 @@ which the top-level CMake configure gate reads.
   `parentScopes`, where `runBeforePass` records adaptors alone (main's
   #232948 rewrote the file for thread safety and kept that). The pipeline's time is
   counted twice, and two pipelines on one op name, one run inside the
-  other, share one timer. idr-optimize (its per-function pipeline), idr-rc,
-  idr-narrow, idr-returned-arguments and idr-tail-calls run pipelines so:
+  other, share one timer. idr-optimize (its per-function pipeline),
+  idr-narrow (idr-narrow-words on each function) and idr-inline
+  (upstream's inliner, idr-simplify on each callable) run pipelines so:
   without the patch, in `idris-mlir --mlir-timing`, their pipelines are
   rows beside the pass that runs them, and the rows add up to more than
   the pass
@@ -1028,8 +1033,8 @@ which the top-level CMake configure gate reads.
   with no inline size, two 64-bucket hash tables from the first entry:
   about 2.9 KB for one bit of liveness (measured, arm64 macOS)
 - sites: the per-function solves on upstream's framework: idr-constants,
-  narrowing's copy analysis, Ranges and Borrows, measured on it before any
-  leaves it (C32, S3)
+  narrowing's copy analysis and Ranges, measured on it before any leaves
+  it (C32, S3)
 - workaround: `upstream/77-dataflow-state-storage/llvm.patch`: small maps
   and sets inline, the solver's uniquer single-threaded; about fifteenfold
   less per state; checked by tests/upstream-dataflow-state-storage
@@ -1081,7 +1086,8 @@ which the top-level CMake configure gate reads.
   nesting
 - sites: the substitution of family index terms
   (foreign/idr/lib/IR/Families/Substitute.cpp), the type graph
-  (foreign/idr/lib/IR/TypeGraph.cpp), operation-equivalence-symbol-hook's
+  (foreign/idr/lib/Analysis/Solver/TypeGraph.cpp),
+  operation-equivalence-symbol-hook's
   mapping, and upstream's symbol-use walks and renames, under the tools'
   one small stack (D33, C43, C99)
 - workaround: `upstream/81-attr-type-walker-iterative/llvm.patch`: an
@@ -2008,8 +2014,9 @@ which the top-level CMake configure gate reads.
   TTImp/Elab/Case.idr, TTImp/Elab/Quote.idr, TTImp/BindImplicits.idr,
   TTImp/Impossible.idr, TTImp/Reflect.idr, TTImp/Utils.idr,
   TTImp/WithClause.idr
-- workaround: none; the fork's own code (e5b39cb2): one node holding its
-  parts once, read by the expected type's sort (`Universe`, `Known`,
+- workaround: none; the fork carries the change of
+  `upstream/fork-tuple-node/pull-request.diff` (e5b39cb2): one node holding
+  its parts once, read by the expected type's sort (`Universe`, `Known`,
   `Unknown`); under an unknown sort the site waits, and at the last chance
   takes upstream's rule; the three alternatives go, so a tuple elaborates
   in time linear in its size (C126). Where the two readings are different

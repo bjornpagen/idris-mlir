@@ -94,9 +94,9 @@ first), and rejects every other op, for every linalg op, before
 
 ## Our workaround
 
-None: the patch below is carried. `idr-vectorize`
-(`foreign/idr/lib/Vectorize/Tiles.cppm`, `vectorizable`) asks the
-precondition alone before it tiles anything; a generic it refuses stays
+None: the patch below is carried. The vectorization schedule's
+`transform.idr.vectorize_lanes` (`foreign/idr/lib/Target/Schedules.cpp`,
+`vectorizeLoop`) asks the precondition alone before it tiles anything; a generic it refuses stays
 whole, and `convert-linalg-to-loops` runs its body in the program's order.
 Before the patch it also asked `hasOnlyScalarElementwiseOp` of the body.
 

@@ -17,8 +17,8 @@ replacing a value nested N deep needs a native stack that grows with N.
 The tree reaches both on every compilation: the compiler's own
 substitution of a family's index terms (`AttrTypeReplacer`,
 `foreign/idr/lib/IR/Families/Substitute.cpp`) and its type graph
-(`AttrTypeWalker`, `foreign/idr/lib/IR/TypeGraph.cpp`), and upstream's
-symbol uses, which walk every operation's attributes for references
+(`AttrTypeWalker`, `foreign/idr/lib/Analysis/Solver/TypeGraph.cpp`), and
+upstream's symbol uses, which walk every operation's attributes for references
 (`walkSymbolRefs`, `mlir/lib/IR/SymbolTable.cpp`) and replace them on a
 rename (`replaceAllSymbolUsesImpl`). Under the compiler's one small,
 measured stack for every thread (proposals/0000 D33, C43, C99), a value

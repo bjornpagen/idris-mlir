@@ -39,8 +39,10 @@ function, calls such a function and compares its stack pointer before and
 after the call. Compiled by idris-mlir for arm64 macOS it exits on SIGBUS
 (138) instead of 0.
 
-In the compiler, idr-tail-calls gives `tailcc` to the functions on cycles
-of tail calls (TailCallPlan). Such a function of more arguments than the
+In the compiler, every function of the program takes `tailcc` (idr-lower
+gives it, `foreign/idr/lib/Conversion/Lower/Functions.cpp`); when the bug
+was found, idr-tail-calls gave it to the functions on cycles of tail
+calls. Such a function of more arguments than the
 argument registers, whose last action is a runtime call (`idris_rt_dec` of
 a string just printed), returned to its caller 16 bytes low: six programs
 (tests directory-listing, files-roundtrip, array-of-arrays,
