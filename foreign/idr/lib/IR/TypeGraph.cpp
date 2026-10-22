@@ -84,7 +84,7 @@ TypeGraph::TypeGraph(Operation *module) {
   // read and ends with the types the module's values reach. A member's
   // fields are its declaration's, over its binders: a field of its own
   // group names that member by position.
-  SmallVector<std::pair<unsigned, unsigned>> edges;
+  footprint::Vector<std::pair<unsigned, unsigned>> edges;
   SmallVector<unsigned> to;
   for (unsigned at = 0; at < types.size(); ++at) {
     to.clear();

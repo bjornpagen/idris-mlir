@@ -20,6 +20,8 @@ import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Terms
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Families.Layout
+import IdrisMLIR.Spec.Grades.Grade
+import IdrisMLIR.Spec.Lifetimes.Declarations
 
 import Data.Fin
 import Data.List.Elem
@@ -182,6 +184,38 @@ reachClosed = MkClosed
   , doc = brief "whether a value's type bounds everything it reaches"
   }
 
+||| Whether a value holds references, the grade's fact of a carrier, which a
+||| data type computes when it is made and a family at an unknown index.
+export
+refsClosed : Closed Refs
+refsClosed = MkClosed
+  { name = "Refs"
+  , shape = OneOf
+  , every = Words ::: [References]
+  , complete = \case
+      Words => Here
+      References => There Here
+  , describe = \case
+      Words => MkCase "Words" ("words" ::: []) "words alone, no reference a count accounts for"
+      References => MkCase "References" ("references" ::: []) "a reference a count accounts for"
+  , doc = brief "whether a value holds references"
+  }
+
+export
+buffersClosed : Closed Buffers
+buffersClosed = MkClosed
+  { name = "Buffers"
+  , shape = OneOf
+  , every = NoBuffer ::: [HoldsBuffer]
+  , complete = \case
+      NoBuffer => Here
+      HoldsBuffer => There Here
+  , describe = \case
+      NoBuffer => MkCase "NoBuffer" ("no_buffer" ::: []) "no cell the claim on its own cells covers holds a buffer"
+      HoldsBuffer => MkCase "HoldsBuffer" ("holds_buffer" ::: []) "a cell the claim on its own cells covers holds a buffer"
+  , doc = brief "whether a member's own cells hold a buffer"
+  }
+
 ||| The header the families' hand C++ includes: the closed sets above and
 ||| the shape budget.
 export
@@ -191,7 +225,8 @@ familiesHeader = MkHeader "Families"
     , [ EnumOf (enumDef termKindClosed), EnumOf (enumDef sortKindClosed)
       , EnumOf (enumDef promiseClosed), EnumOf (enumDef modeClosed)
       , EnumOf (enumDef memberKindClosed), EnumOf (enumDef layoutClosed)
-      , EnumOf (enumDef classClosed), EnumOf (enumDef reachClosed)
+      , EnumOf (enumDef classClosed), EnumOf (enumDef reachClosed), EnumOf (enumDef refsClosed)
+      , EnumOf (enumDef buffersClosed)
       , Scalar "shapeBudget" Unsigned32 (IntCell (natToInteger shapeBudget))
           "the most components a closed application unfolds to in place" ] ) ]
   (brief "the families' closed sets and the shape budget")
@@ -230,6 +265,11 @@ export
 dataParam : Directive
 dataParam = MkDirective "DataRef" [] (brief "a data type, by its entry")
 
+||| Index terms as a parameter holds them: an array of nodes, read into the
+||| vector that owns them, which the storage copies.
+terms : Directive -> ParamKind
+terms = HandArray "::idr::families::TermNode"
+
 termsCode : Code
 termsCode = "::llvm::ArrayRef<::idr::families::TermNode>"
 
@@ -241,7 +281,10 @@ termsCode = "::llvm::ArrayRef<::idr::families::TermNode>"
 ||| content, the facts of the group that need no index computed when it is
 ||| made (whether it holds itself, each member's shape, numeral descent and
 ||| what it holds at an unknown index). Its storage is hand C++, since those
-||| facts are kept beside its key.
+||| facts are kept beside its key. Its members are one value, not an array:
+||| a member views arrays of its own (constructors, binders, fields), which
+||| no flat vector of members owns, so their reader makes the family, which
+||| copies every array once.
 export
 familyAttr : AttrDef 1
 familyAttr = MkAttrDef
@@ -252,6 +295,7 @@ familyAttr = MkAttrDef
   , interfaces = []
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readFamily"
+  , storage = HandStorage
   , members =
       [ MkMember OnObjectConst "::idr::families::Containment" "containment" []
       , MkMember OnObjectConst "::idr::MemberKind" "memberKind" [param "uint32_t" "member"]
@@ -268,6 +312,7 @@ familyAttr = MkAttrDef
       , MkMember OnObjectConst "::std::optional<::idr::families::ClosuresView>" "closures" [param "uint32_t" "member"]
       , MkMember OnObjectConst "::idr::Refs" "refsAtUnknown" [param "uint32_t" "member"]
       , MkMember OnObjectConst "::idr::Reach" "reachAtUnknown" [param "uint32_t" "member"]
+      , MkMember OnObjectConst "::idr::Buffers" "ownBuffers" [param "uint32_t" "member"]
       , MkMember OnObjectConst "::llvm::ArrayRef<::idr::families::MemberRef>" "selfCells" [param "uint32_t" "member"]
       , MkMember OnObjectConst "::mlir::FlatSymbolRefAttr" "labelFunction" [param "uint32_t" "member", param "::idr::Tag" "tag"]
       , MkMember OnObjectConst "::std::optional<::idr::Mode>" "labelMode" [param "uint32_t" "member", param "::idr::Tag" "tag"]
@@ -298,13 +343,14 @@ dataType = MkTypeDef
   , params =
       [ MkParameter "group" (HandValue "::idr::FamilyAttr" familyParam) AlwaysWritten "the family"
       , MkParameter "member" CountValue AlwaysWritten "the member of the family"
-      , MkParameter "indices" (HandValue termsCode termsParam) AlwaysWritten "one term per index"
+      , MkParameter "indices" (terms termsParam) AlwaysWritten "one term per index"
       , MkParameter "refinement" (HandValue "::mlir::DenseI32ArrayAttr" refinementParam) (DefaultsTo "{}") "the tags of the constructors it is refined to, ascending; none unrefined, empty uninhabited"
-      , MkParameter "binders" (HandValue termsCode termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders" ]
+      , MkParameter "binders" (terms termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders" ]
   , syntax = HandSyntax
   , interfaces = [Declares MemRefElementType [], Implements valueFactsInterface []]
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readDataType"
+  , storage = HandStorage
   , members =
       [ MkMember OnClass "::idr::DataType" "get" [param "::mlir::MLIRContext *" "context", param "::idr::FamilyAttr" "group", param "uint32_t" "member", param termsCode "indices"]
       , MkMember OnClass "::idr::DataType" "getNormalized" [param "::llvm::function_ref<::mlir::InFlightDiagnostic()>" "emitError", param "::idr::FamilyAttr" "group", param "uint32_t" "member", param termsCode "indices", param "::mlir::DenseI32ArrayAttr" "refinement", param termsCode "binders"]
@@ -321,6 +367,7 @@ dataType = MkTypeDef
       , MkMember OnObjectConst "::std::optional<::idr::families::ClosuresView>" "closures" []
       , MkMember OnObjectConst "::std::optional<::idr::families::ListShape>" "listShape" []
       , MkMember OnObjectConst "::idr::Promise" "promise" []
+      , MkMember OnObjectConst "::idr::Unique" "promisedClaim" []
       , MkMember OnObjectConst "::mlir::FlatSymbolRefAttr" "labelFunction" [param "::idr::Tag" "tag"]
       , MkMember OnObjectConst "::std::optional<::idr::Mode>" "labelMode" [param "::idr::Tag" "tag"]
       , MkMember OnObjectConst "::idr::Layout" "layout" []
@@ -356,11 +403,12 @@ selfType = MkTypeDef
   { mnemonic = "self"
   , params =
       [ MkParameter "member" CountValue AlwaysWritten "the member of the group being declared"
-      , MkParameter "indices" (HandValue termsCode termsParam) AlwaysWritten "one term per index, over the constructor's binders" ]
+      , MkParameter "indices" (terms termsParam) AlwaysWritten "one term per index, over the constructor's binders" ]
   , syntax = HandSyntax
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = CheckedBy "readSelf"
+  , storage = HandStorage
   , members = []
   , facts = NoValueFacts
   , doc = brief "a member of the group a field is declared in, by position"
@@ -373,12 +421,13 @@ export
 indexBindersAttr : AttrDef 1
 indexBindersAttr = MkAttrDef
   { mnemonic = "index_binders"
-  , params = [MkParameter "sorts" (HandValue "::llvm::ArrayRef<::idr::families::Sort>" sortsParam) AlwaysWritten "the binders' sorts, in level order"]
+  , params = [MkParameter "sorts" (HandArray "::idr::families::Sort" sortsParam) AlwaysWritten "the binders' sorts, in level order"]
   , syntax = HandSyntax
   , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = CheckedBy "readIndexBinders"
+  , storage = HandStorage
   , members = []
   , doc = brief "the sorts of the index variables a scope binds"
   }
@@ -390,13 +439,14 @@ indexArgsAttr : AttrDef 2
 indexArgsAttr = MkAttrDef
   { mnemonic = "index_args"
   , params =
-      [ MkParameter "terms" (HandValue termsCode termsParam) AlwaysWritten "the terms, one after the other"
+      [ MkParameter "terms" (terms termsParam) AlwaysWritten "the terms, one after the other"
       , MkParameter "count" CountValue AlwaysWritten "how many terms" ]
   , syntax = HandSyntax
   , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = CheckedBy "readIndexArgs"
+  , storage = HandStorage
   , members = []
   , doc = brief "the terms a call or a jump gives its target's index variables"
   }
@@ -408,13 +458,14 @@ equationAttr : AttrDef 2
 equationAttr = MkAttrDef
   { mnemonic = "equation"
   , params =
-      [ MkParameter "lhs" (HandValue termsCode termsParam) AlwaysWritten "the left term"
-      , MkParameter "rhs" (HandValue termsCode termsParam) AlwaysWritten "the right term" ]
+      [ MkParameter "lhs" (terms termsParam) AlwaysWritten "the left term"
+      , MkParameter "rhs" (terms termsParam) AlwaysWritten "the right term" ]
   , syntax = HandSyntax
   , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = CheckedBy "readEquation"
+  , storage = HandStorage
   , members = []
   , doc = brief "an erased equality between two index terms"
   }
@@ -439,6 +490,7 @@ conAttr = MkAttrDef
   , interfaces = []
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readCon"
+  , storage = HandStorage
   , members =
       [ MkMember OnClass "::idr::ConAttr" "get" [param "::mlir::MLIRContext *" "context", param "::idr::DataType" "data", param "::mlir::ArrayAttr" "fields"]
       , MkMember OnClass "::idr::ConAttr" "getRun" [param "::mlir::MLIRContext *" "context", param "::idr::DataType" "data", param "unsigned" "spine", param "::llvm::ArrayRef<::mlir::ArrayAttr>" "cells"]
@@ -496,6 +548,22 @@ numeralValue = MkPredicate "isNumeralValue" OnType (brief "a value of a family o
 export
 naturalValue : Predicate
 naturalValue = MkPredicate "isNaturalValue" OnType (brief "a natural, at any grade")
+
+||| A lifetime a scoped result lives in.
+lifetimeOperand : TypeC
+lifetimeOperand = OurType (SomeType lifetimeType)
+
+||| What every op that can make a scoped value defines of the interface that
+||| states its lifetime.
+lifetimeMethods : List Ident
+lifetimeMethods = ["getStatedLifetime", "setStatedLifetime"]
+
+||| `in (%l : !idr.lifetime<view>)`: the lifetime a scoped result lives in,
+||| written with its type, whose kind no format can infer; nothing where the
+||| result is not scoped.
+statedIn : Fin i -> Item i o a r
+statedIn k =
+  OptionalGroup [Lit "in", Lit "("] (ValueOf (OperandRef k)) [Lit ":", TypeOf (OfGroup (OperandRef k)), Lit ")"]
 
 ------------------------------------------------------------------------------
 -- The interface over the ops that bind index variables
@@ -562,27 +630,36 @@ countedResultDirective = MkDirective "CountedResult" [TypeArg, RefTypeArg]
 ||| constructor of those fields claims, `unique deep` where each field leaves
 ||| everything it reaches unshared, and the builder from a carrier gives the
 ||| result that claim.
+|||
+||| It takes over each field that owns its count, so moving it where it
+||| would not have run would give that field up on a path that keeps it: it
+||| may be speculated only where it takes no field over and uses none once.
+||| A scoped result lives in the lifetime `outers` states, one its scoped
+||| fields all outlive.
 export
-conOp : Op 1 1 0 0
+conOp : Op 2 1 0 0
 conOp = MkOp
   { home = InIdr
   , mnemonic = "data.con"
-  , ins = [variadic "fields" (UpstreamType AnyTypeC)]
+  , ins = [variadic "fields" (UpstreamType AnyTypeC), variadic "outers" lifetimeOperand]
   , outs = [result "result" (SatisfiesType refinedValue)]
   , attrs = []
   , regions = []
-  , traits = []
-  , interfaces = [Implements flowInterface ["getFlowEdges"]]
-  , effects = Executes [] [NewIdentity 0] Covered Untouched
-  , speculation = AlwaysSpeculatable
+  , traits = [AttrSizedOperandSegments]
+  , interfaces =
+      [ Implements flowInterface ["getFlowEdges"], Implements statesLifetime lifetimeMethods
+      , Implements statesOuters [] ]
+  , effects = Executes [] [Consumes 0, NewIdentity 0] Covered Untouched
+  , speculation = Conditionally
   , stages = Always
   , meaning = HandFolder
   , verify = VerifiesOp
   , format = Declared
       [ Custom fieldsDirective [Group (OperandRef 0), TypeOfGroup (OperandRef 0)]
-      , AttrDict, Lit ":", TypeOf (OfGroup (ResultRef 0)) ]
+      , statedIn 1, AttrDict, Lit ":", TypeOf (OfGroup (ResultRef 0)) ]
   , builders =
-      [MkBuilder [param "::idr::DataType" "carrier", param "::idr::Uses" "uses", param "::mlir::ValueRange" "fields"]]
+      [ MkBuilder [param "::idr::DataType" "carrier", param "::idr::Uses" "uses", param "::mlir::ValueRange" "fields"]
+      , MkBuilder [param "::mlir::Type" "result", param "::mlir::ValueRange" "fields"] ]
   , defaultBuilders = WithDefaults
   , members =
       [ MkMember OnObject "::idr::DataType" "getDataType" []
@@ -601,25 +678,31 @@ conOp = MkOp
 ||| `idr.data.field`: field `index` of a value refined to one constructor, read
 ||| at the value's uses times the field's, as a match binds it: a total read,
 ||| since the type fixes the constructor, so it may run anywhere its operand
-||| is. A memo cell's field reads its state, which a force writes.
+||| is. A memo cell's field reads its state, which a force writes. Its type
+||| is inferred from the value's (`fieldReadType`), so a read follows its
+||| value's grade wherever a pass changes it. A field of a scoped value is
+||| scoped, and `outers` states its lifetime: the value's, or one that
+||| lifetime encloses.
 export
-fieldOp : Op 1 1 1 0
+fieldOp : Op 2 1 1 0
 fieldOp = MkOp
   { home = InIdr
   , mnemonic = "data.field"
-  , ins = [single "value" (SatisfiesType refinedValue)]
+  , ins = [single "value" (SatisfiesType refinedValue), variadic "outers" lifetimeOperand]
   , outs = [result "result" (UpstreamType AnyTypeC)]
   , attrs = [attr "index" (UpstreamAttr I64AttrC)]
   , regions = []
   , traits = []
-  , interfaces = [Implements flowInterface ["getFlowEdges"]]
+  , interfaces =
+      [ Declares InferType ["inferReturnTypes"], Implements flowInterface ["getFlowEdges"]
+      , Implements statesLifetime lifetimeMethods, Implements statesOuters [] ]
   , effects = Executes [] [ReadsMemo 0] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
   , meaning = HandFolder
   , verify = VerifiesOp
   , format = Declared
-      [ ValueOf (OperandRef 0), Lit "[", ValueOf (AttrRef 0), Lit "]", AttrDict
+      [ ValueOf (OperandRef 0), Lit "[", ValueOf (AttrRef 0), Lit "]", statedIn 1, AttrDict
       , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->", TypeOf (OfGroup (ResultRef 0)) ]
   , builders = [MkBuilder [param "::mlir::Value" "value", param "unsigned" "index"]]
   , defaultBuilders = WithDefaults
@@ -665,27 +748,31 @@ tagOp = MkOp
 ||| equality), or a refined data type given where its unrefined one is
 ||| asked. Pure; free where the two layouts are equal, a bounded re-pack
 ||| where an index known inside a function changes the layout. Checked by
-||| the function's scope walk, which holds the refinements.
+||| the function's scope walk, which holds the refinements. A scoped value
+||| stays scoped, and `outers` states its lifetime: the operand's, or one
+||| that lifetime encloses.
 export
-dataReindexOp : Op 1 1 0 0
+dataReindexOp : Op 2 1 0 0
 dataReindexOp = MkOp
   { home = InIdr
   , mnemonic = "data.reindex"
-  , ins = [single "value" (UpstreamType AnyTypeC)]
+  , ins = [single "value" (UpstreamType AnyTypeC), variadic "outers" lifetimeOperand]
   , outs = [result "result" (UpstreamType AnyTypeC)]
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Declares Speculatable ["getSpeculatability"]]
+  , interfaces =
+      [ Implements flowInterface ["getFlowEdges"], Implements statesLifetime lifetimeMethods
+      , Implements statesOuters [] ]
   , effects = noEffects
   , speculation = Conditionally
   , stages = Always
   , meaning = HandFolder
   , verify = VerifiesOp
   , format = Declared
-      [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
+      [ ValueOf (OperandRef 0), statedIn 1, AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
       , Lit "to", TypeOf (OfGroup (ResultRef 0)) ]
-  , builders = []
+  , builders = [MkBuilder [param "::mlir::Type" "result", param "::mlir::Value" "value"]]
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
@@ -743,7 +830,7 @@ numeralToNatOp = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = []
+  , interfaces = [Implements flowInterface ["getFlowEdges"]]
   , effects = Executes [] [Acquires 0] Covered Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -773,7 +860,7 @@ numeralOfNatOp = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = []
+  , interfaces = [Implements flowInterface ["getFlowEdges"]]
   , effects = noEffects
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -802,5 +889,8 @@ numeralOfNatOp = MkOp
 export
 familySkeleton : List SkeletonRule
 familySkeleton =
-  [ MkSkeletonRule "FieldOfCon" "data.field" "a field of a value idr.data.con built is the field it was given"
-  , MkSkeletonRule "ConEta" "data.con" "a constructor rebuilt from every field of a value refined to it is that value" ]
+  [ MkSkeletonRule "FieldOfCon" rules "data.field" "a field of a value idr.data.con built is the field it was given"
+  , MkSkeletonRule "ConEta" rules "data.con" "a constructor rebuilt from every field of a value refined to it is that value" ]
+  where
+    rules : Path
+    rules = "idr" ::: ["IR", "Families", "Rules.h"]

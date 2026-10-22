@@ -7,13 +7,13 @@
 // OpsConReads.cpp's; what writes one into a cell counting gives it is
 // counting's.
 
+#include "idr/Analysis/Ownership/Local.h"
 #include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
 
 #include "llvm/ADT/STLExtras.h"
-
-#include <algorithm>
 
 using namespace mlir;
 using namespace idr;
@@ -35,21 +35,15 @@ DataType DataConOp::getDataType() { return builtData(getResult().getType()); }
 Tag DataConOp::getTag() { return *getDataType().singleTag(); }
 
 // The cell is new, so nothing but its fields shares what the value
-// reaches: everything stays unshared where every field leaves what it
-// reaches unshared (a field that holds no reference leaves nothing), and
-// the value's own cells stay unshared where every field the claim on them
-// reaches (fieldReach) claims as much; a field it does not reach leaves them
-// unshared whatever it holds.
+// reaches: the most a fresh value built of those fields may claim, each
+// field bounding it as the local rule says (freshest, from the grade's read
+// table), a field that holds no reference bounding nothing.
 Unique DataConOp::freshClaim(DataType carrier, TypeRange fields) {
   Unique claim = Unique::Deep;
   for (auto [declared, field] : llvm::zip_equal(carrier.ctor(*carrier.singleTag()).fields, fields)) {
     std::optional<Hold> hold = holdOf(field);
-    if (!hold)
-      continue;
-    Unique given = hold->claim();
-    if (fieldReach(declared) == FieldReach::Other && given != Unique::Deep)
-      given = Unique::Self;
-    claim = std::min(claim, given);
+    claim = ownership::lesser(
+        claim, ownership::freshest(fieldReach(declared), hold ? hold->claim() : Unique::Deep));
   }
   return claim;
 }
@@ -62,6 +56,27 @@ void DataConOp::build(OpBuilder &builder, OperationState &state, DataType carrie
   if (holdsReferences(carrier))
     hold = Hold::counted(freshClaim(carrier, fields.getTypes()));
   build(builder, state, graded(Grade{uses, hold}, carrier), fields);
+}
+
+// A value of `result`, which states no lifetime: a scoped one has its
+// lifetime stated by the step that decides lifetimes, one its scoped fields
+// all outlive.
+void DataConOp::build(OpBuilder &builder, OperationState &state, Type result, ValueRange fields) {
+  build(builder, state, result, fields, ValueRange());
+}
+
+Value DataConOp::getStatedLifetime(Value made) { return lifetimes::statedOuter(*this, made, 0); }
+void DataConOp::setStatedLifetime(Value made, Value lifetime) {
+  lifetimes::stateOuter(*this, made, lifetime, 0);
+}
+
+// Moving it where it would not have run would take a field over, or use a
+// field used once, on a path that keeps that field for itself.
+Speculation::Speculatability DataConOp::getSpeculatability() {
+  for (OpOperand &field : getFieldsMutable())
+    if (effects::consumes(field) || usesOf(field.get().getType()) == Uses::Once)
+      return Speculation::NotSpeculatable;
+  return Speculation::Speculatable;
 }
 
 // The result is refined to one constructor, which its type determines the
@@ -89,7 +104,7 @@ LogicalResult DataConOp::verify() {
       return emitOpError("pushes ") << value.getType() << " into a frame that keeps it as "
                                     << expected;
   }
-  return success();
+  return lifetimes::verifyOuters(*this, 0);
 }
 
 // A constructor of constants is a constant, where nothing reads which value

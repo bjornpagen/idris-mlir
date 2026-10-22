@@ -12,6 +12,7 @@
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Families/Unify.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -39,13 +40,14 @@ struct Equation {
   size_t count;
 };
 
-// A region the walk is inside: the scope's depth in it, the equations that
-// hold in it, the refinement they make, and whether they clash.
+// A region the walk is inside: the scope's depth in it, how many of the
+// walk's equations hold in it (the regions' around it, then its own), the
+// refinement they make, and whether they clash.
 struct Frame {
   Operation *owner;
   uint32_t depthAtOwner;
   uint32_t depth;
-  SmallVector<Equation> equations;
+  size_t equations;
   LevelMap refinement;
   Unified unified = Unified::Consistent;
 };
@@ -98,10 +100,15 @@ bool unreachableBody(Region &region) {
 class Walk {
 public:
   explicit Walk(Operation *function) : function(function) {
-    stack.push_back(Frame{function, 0, 0, {}, LevelMap(), Unified::Consistent});
+    stack.push_back(Frame{function, 0, 0, 0, LevelMap(), Unified::Consistent});
   }
   LogicalResult enter(Operation *op, Region &region);
-  void leave() { stack.pop_back(); }
+  // The region's own equation, if it assumed one, goes with it.
+  void leave() {
+    stack.pop_back();
+    equations.erase(equations.begin() + static_cast<std::ptrdiff_t>(stack.back().equations),
+                    equations.end());
+  }
   LogicalResult checkOp(Operation *op);
 
 private:
@@ -121,7 +128,11 @@ private:
   bool sameHere(Type a, Type b, Narrowing narrowing);
 
   Operation *function;
-  SmallVector<Frame> stack;
+  // The regions the walk is inside, and the equations that hold in them,
+  // outermost first, each held once however deep the regions nest: both
+  // sized by the function's nesting, in the footprint's storage.
+  footprint::Vector<Frame> stack;
+  footprint::Vector<Equation> equations;
   // The levels each type names, for this walk: types are uniqued, so each
   // is read once however many values have it.
   llvm::DenseMap<Type, Named> seen;
@@ -194,20 +205,22 @@ bool Walk::sameHere(Type a, Type b, Narrowing narrowing) {
 }
 
 LogicalResult Walk::enter(Operation *op, Region &region) {
-  Frame next{op, stack.back().depth, stack.back().depth, stack.back().equations, LevelMap(),
+  Frame next{op, stack.back().depth, stack.back().depth, equations.size(), LevelMap(),
              Unified::Consistent};
   auto binders = dyn_cast<ErasedBinderOpInterface>(op);
   if (binders) {
     next.depth += static_cast<uint32_t>(binders.getBoundSorts(region).size());
     if (std::optional<RegionRefinement> refinement = binders.getRefinement(region)) {
       uint32_t shift = refinement->scope == Scoped::RegionBinders ? next.depthAtOwner : 0;
-      next.equations.push_back(
+      equations.push_back(
           {intoScope(refinement->outer, refinement->count, 0, refinement->group),
            intoScope(refinement->inner, refinement->count, shift, refinement->group),
            refinement->count});
+      next.equations = equations.size();
     }
   }
-  std::tie(next.refinement, next.unified) = solve(next.equations, next.depth);
+  std::tie(next.refinement, next.unified) =
+      solve(ArrayRef<Equation>(equations.data(), next.equations), next.depth);
   // A case whose equation clashes with its scrutinee's index does not
   // exist: only a substitution's dead region may stand, unreachable.
   if (next.unified == Unified::Clash && !unreachableBody(region))
@@ -258,7 +271,7 @@ LogicalResult Walk::checkOp(Operation *op) {
     Operation *owner = token.getOwner()->getParentOp();
     auto points = cast<JoinPointsOpInterface>(owner);
     Region *target = points.getTarget(token);
-    const Frame *at = llvm::find_if(stack, [&](const Frame &f) { return f.owner == owner; });
+    auto at = llvm::find_if(stack, [&](const Frame &f) { return f.owner == owner; });
     if (at == stack.end())
       return jump.emitOpError("jumps to a join point that does not enclose it");
     IndexArgsAttr terms = jump.getTermsAttr();

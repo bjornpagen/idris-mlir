@@ -17,6 +17,7 @@
 #include "idr/Analysis/Solver/Components.h"
 #include "idr/Analysis/Solver/Graph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -75,7 +76,8 @@ private:
   // The nodes a field or an element of `type` names, inserted as met.
   void named(mlir::Type type, llvm::SmallVectorImpl<unsigned> &out);
 
-  llvm::SmallVector<mlir::Type> types;
+  // Every node's type, sized by the program, in the footprint's storage.
+  footprint::Vector<mlir::Type> types;
   llvm::DenseMap<Key, unsigned> index;
   std::optional<Csr<TypeNode>> graph;
   std::optional<Partition<TypeNode>> parts;

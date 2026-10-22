@@ -12,7 +12,7 @@
 // asks is read here too, since a declaration is its own scope; what a
 // value's type may name is the function's scope walk's.
 
-#include "FamilyStorage.h"
+#include "idr/IR/Families/FamilyStorage.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Match.h"

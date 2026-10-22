@@ -7,7 +7,7 @@
 // A member's arrays nest, so a replacement rebuilds them in a scratch arena
 // the new family copies when it is made.
 
-#include "FamilyStorage.h"
+#include "idr/IR/Families/FamilyStorage.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Match.h"

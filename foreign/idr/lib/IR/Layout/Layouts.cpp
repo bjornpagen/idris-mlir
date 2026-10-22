@@ -11,6 +11,7 @@
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -46,17 +47,17 @@ DataType heldData(Type field) {
   return dyn_cast<DataType>(value);
 }
 
-// The field types of constructor `tag` at this application: at the binders
-// its indices determine, or at the constructor's own binders where they
-// leave one open. Either way a member of the group named by position is
-// its data type, laid out as a value of that type is, by its class.
-SmallVector<Type> fieldsAt(DataType type, Tag tag) {
+} // namespace
+
+// At the binders its indices determine, or at the constructor's own
+// binders where they leave one open. Either way a member of the group named
+// by position is its data type, laid out as a value of that type is, by its
+// class.
+SmallVector<Type> Layouts::fieldsAt(DataType type, Tag tag) {
   if (std::optional<SmallVector<Type>> fields = type.determinedFields(tag))
     return std::move(*fields);
   return families::instantiateFields(type.getGroup(), type.ctor(tag).fields, {});
 }
-
-} // namespace
 
 // The components of each field of constructor `tag` at this application.
 SmallVector<SmallVector<layout::Component>> Layouts::fieldsOf(DataType type, Tag tag) const {
@@ -112,7 +113,7 @@ Layouts::Layouts(Operation *op) : root(op) {
   // A number has neither slots nor cells: its value is its word. A frame
   // stack's frames are laid out as cells.
   auto computed = [&](DataType type) {
-    return sums.contains(type) || cellLayouts.contains(type) ||
+    return numbered.contains(type) ||
            (type.layout() != Layout::InPlace && type.layout() != Layout::Cell &&
             type.layout() != Layout::FrameStack);
   };
@@ -132,21 +133,32 @@ Layouts::Layouts(Operation *op) : root(op) {
       }
       for (DataType data : held)
         found.insert(data);
-      if (type.layout() == Layout::InPlace)
-        sums.try_emplace(type, std::make_unique<layout::SumLayout>(sumOf(type)));
-      else
-        cellLayouts.try_emplace(type, cellsOf(type));
-      owned.try_emplace(type, ownCellsOf(type));
+      // Its slots or cells are computed before it takes its number: a read
+      // of another entry while they are copies what it reads, and nothing
+      // moves once the layouts are made.
+      std::variant<layout::SumLayout, layout::CellLayout> shape =
+          type.layout() == Layout::InPlace
+              ? std::variant<layout::SumLayout, layout::CellLayout>(sumOf(type))
+              : std::variant<layout::SumLayout, layout::CellLayout>(cellsOf(type));
+      layout::OwnCells own = ownCellsOf(type);
+      numbered.try_emplace(type, static_cast<uint32_t>(laidOut.size()));
+      laidOut.push_back(LaidOut{type, std::move(shape), std::move(own), std::nullopt});
     }
   }
-  for (auto &[type, sum] : sums)
-    for (const layout::Component &component : sum->words)
-      record(component.type);
-  for (auto &[type, cells] : cellLayouts)
-    for (const layout::Cell &cell : cells.cells)
-      for (const SmallVector<layout::Slot> &field : cell.fields)
-        for (const layout::Slot &slot : field)
-          record(slot.type);
+  for (const LaidOut &entry : laidOut)
+    match(
+        entry.shape,
+        [&](const layout::SumLayout &sum) {
+          for (const layout::Component &component : sum.words)
+            record(component.type);
+        },
+        [&](const layout::CellLayout &cells) {
+          for (const layout::Cell &cell : cells.cells)
+            for (const SmallVector<layout::Slot> &field : cell.fields)
+              for (const layout::Slot &slot : field)
+                record(slot.type);
+        });
+  computeReach();
 }
 
 void Layouts::record(Type component) {
@@ -154,25 +166,32 @@ void Layouts::record(Type component) {
     measures.try_emplace(component, measure(DataLayout::closest(root), component));
 }
 
+// Essential: a pass may ask of a type the module did not hold when its
+// layouts were computed, which is the compiler's error, not the program's.
+const Layouts::LaidOut &Layouts::entryOf(DataType type, StringRef what) const {
+  if (auto it = numbered.find(type.unrefined()); it != numbered.end())
+    return laidOut[it->second];
+  llvm::reportFatalInternalError(llvm::Twine("no ") + what +
+                                 " of a data type that no value of the module held when its "
+                                 "layouts were computed");
+}
+
+// A type's layout is one of the two, as its class says: asking a value in
+// place for its cells, or a cell for its slots, is the asker's error.
 const layout::SumLayout &Layouts::sum(DataType type) const {
-  if (auto it = sums.find(type.unrefined()); it != sums.end())
-    return *it->second;
-  llvm::reportFatalInternalError("no slots of a data type held in place that no value of the "
-                                 "module held when its layouts were computed");
+  if (const auto *slots = std::get_if<layout::SumLayout>(&entryOf(type, "slots").shape))
+    return *slots;
+  llvm::reportFatalInternalError("the slots of a data type held in a cell");
 }
 
 const layout::CellLayout &Layouts::cells(DataType type) const {
-  if (auto it = cellLayouts.find(type.unrefined()); it != cellLayouts.end())
-    return it->second;
-  llvm::reportFatalInternalError("no cells of a data type held in a cell that no value of the "
-                                 "module held when its layouts were computed");
+  if (const auto *held = std::get_if<layout::CellLayout>(&entryOf(type, "cells").shape))
+    return *held;
+  llvm::reportFatalInternalError("the cells of a data type held in place");
 }
 
 const layout::OwnCells &Layouts::ownCells(DataType type) const {
-  if (auto it = owned.find(type.unrefined()); it != owned.end())
-    return it->second;
-  llvm::reportFatalInternalError("no own cells of a data type that no value of the module held "
-                                 "when its layouts were computed");
+  return entryOf(type, "own cells").owned;
 }
 
 unsigned Layouts::sizeOf(Type component) const {

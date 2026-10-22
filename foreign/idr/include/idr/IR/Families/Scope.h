@@ -15,6 +15,7 @@
 #define IDR_IR_FAMILIES_SCOPE_H
 
 #include "idr/IR/Families/Families.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Region.h"
@@ -97,8 +98,9 @@ concept FunctionRule = requires(H &rule, mlir::Operation *op, mlir::Region &regi
 
 // Walks the regions of `function` in order, each op checked by every rule
 // before its regions are entered and each region entered and left by every
-// rule around its ops, with no recursion: the nesting waits on a stack. The
-// first failure ends the walk.
+// rule around its ops, with no recursion: the nesting waits on a stack, as
+// deep as the function nests, in the footprint's storage. The first failure
+// ends the walk.
 template <FunctionRule... Rules>
 mlir::LogicalResult walkFunction(mlir::Operation *function, Rules &...rules) {
   struct Level {
@@ -107,7 +109,7 @@ mlir::LogicalResult walkFunction(mlir::Operation *function, Rules &...rules) {
     mlir::Region::iterator block;
     mlir::Block::iterator at;
   };
-  llvm::SmallVector<Level, 8> stack;
+  footprint::Vector<Level> stack;
   auto enter = [&](mlir::Operation *owner, unsigned index) -> mlir::LogicalResult {
     mlir::Region &region = owner->getRegion(index);
     if ((failed(rules.enter(owner, region)) || ...))

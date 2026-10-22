@@ -3,7 +3,7 @@
 // What a reader asks of a family, over the one view of a constructor and
 // the facts its storage derived when it was made.
 
-#include "FamilyStorage.h"
+#include "idr/IR/Families/FamilyStorage.h"
 #include "idr/Support/Match.h"
 
 using namespace mlir;
@@ -14,6 +14,8 @@ using namespace idr::families::storage;
 //===----------------------------------------------------------------------===//
 // What a reader asks of a group
 //===----------------------------------------------------------------------===//
+
+ArrayRef<Member> FamilyAttr::getMembers() const { return getImpl()->members; }
 
 Containment FamilyAttr::containment() const { return getImpl()->containment; }
 
@@ -104,6 +106,8 @@ Refs FamilyAttr::refsAtUnknown(uint32_t member) const {
 Reach FamilyAttr::reachAtUnknown(uint32_t member) const {
   return getImpl()->facts[member].reachAtUnknown;
 }
+
+Buffers FamilyAttr::ownBuffers(uint32_t member) const { return getImpl()->facts[member].buffers; }
 
 ArrayRef<MemberRef> FamilyAttr::selfCells(uint32_t member) const {
   return getImpl()->facts[member].selfCells;

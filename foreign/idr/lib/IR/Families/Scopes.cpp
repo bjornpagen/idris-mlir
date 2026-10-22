@@ -4,10 +4,12 @@
 // declaration's own group (`!idr.self`), the sorts a scope binds
 // (`#idr.index_binders`), the terms a call or a jump gives them
 // (`#idr.index_args`) and an assumed equality (`#idr.equation`); each held
-// as its arrays of nodes in its storage, its key its sub-elements, and
-// written as its terms and sorts are.
+// as its arrays of nodes in its storage (FamilyStorage.h, and Types.cpp for
+// the type), its key its sub-elements, and written as its terms and sorts
+// are.
 
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/FamilyStorage.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -18,71 +20,15 @@ using namespace mlir;
 using namespace idr;
 using namespace idr::families;
 
-namespace idr::detail {
+//===----------------------------------------------------------------------===//
+// The parameters, as their storages hold them
+//===----------------------------------------------------------------------===//
 
-struct SelfTypeStorage : TypeStorage {
-  using KeyTy = std::tuple<uint32_t, ArrayRef<TermNode>>;
-  SelfTypeStorage(uint32_t member, ArrayRef<TermNode> indices) : member(member), indices(indices) {}
-  bool operator==(const KeyTy &key) const { return key == KeyTy(member, indices); }
-  KeyTy getAsKey() const { return KeyTy(member, indices); }
-  static llvm::hash_code hashKey(const KeyTy &key) {
-    return llvm::hash_combine(std::get<0>(key), llvm::hash_combine_range(std::get<1>(key)));
-  }
-  static SelfTypeStorage *construct(TypeStorageAllocator &allocator, const KeyTy &key) {
-    return new (allocator.allocate<SelfTypeStorage>())
-        SelfTypeStorage(std::get<0>(key), allocator.copyInto(std::get<1>(key)));
-  }
-  uint32_t member;
-  ArrayRef<TermNode> indices;
-};
-
-struct IndexBindersAttrStorage : AttributeStorage {
-  using KeyTy = ArrayRef<Sort>;
-  explicit IndexBindersAttrStorage(ArrayRef<Sort> sorts) : sorts(sorts) {}
-  bool operator==(const KeyTy &key) const { return key == sorts; }
-  KeyTy getAsKey() const { return sorts; }
-  static llvm::hash_code hashKey(const KeyTy &key) { return llvm::hash_combine_range(key); }
-  static IndexBindersAttrStorage *construct(AttributeStorageAllocator &allocator,
-                                            const KeyTy &key) {
-    return new (allocator.allocate<IndexBindersAttrStorage>())
-        IndexBindersAttrStorage(allocator.copyInto(key));
-  }
-  ArrayRef<Sort> sorts;
-};
-
-struct IndexArgsAttrStorage : AttributeStorage {
-  using KeyTy = std::tuple<ArrayRef<TermNode>, uint64_t>;
-  IndexArgsAttrStorage(ArrayRef<TermNode> terms, uint64_t count) : terms(terms), count(count) {}
-  bool operator==(const KeyTy &key) const { return key == KeyTy(terms, count); }
-  KeyTy getAsKey() const { return KeyTy(terms, count); }
-  static llvm::hash_code hashKey(const KeyTy &key) {
-    return llvm::hash_combine(llvm::hash_combine_range(std::get<0>(key)), std::get<1>(key));
-  }
-  static IndexArgsAttrStorage *construct(AttributeStorageAllocator &allocator, const KeyTy &key) {
-    return new (allocator.allocate<IndexArgsAttrStorage>())
-        IndexArgsAttrStorage(allocator.copyInto(std::get<0>(key)), std::get<1>(key));
-  }
-  ArrayRef<TermNode> terms;
-  uint64_t count;
-};
-
-struct EquationAttrStorage : AttributeStorage {
-  using KeyTy = std::tuple<ArrayRef<TermNode>, ArrayRef<TermNode>>;
-  EquationAttrStorage(ArrayRef<TermNode> lhs, ArrayRef<TermNode> rhs) : lhs(lhs), rhs(rhs) {}
-  bool operator==(const KeyTy &key) const { return key == KeyTy(lhs, rhs); }
-  KeyTy getAsKey() const { return KeyTy(lhs, rhs); }
-  static llvm::hash_code hashKey(const KeyTy &key) {
-    return llvm::hash_combine(llvm::hash_combine_range(std::get<0>(key)),
-                              llvm::hash_combine_range(std::get<1>(key)));
-  }
-  static EquationAttrStorage *construct(AttributeStorageAllocator &allocator, const KeyTy &key) {
-    return new (allocator.allocate<EquationAttrStorage>())
-        EquationAttrStorage(allocator.copyInto(std::get<0>(key)), allocator.copyInto(std::get<1>(key)));
-  }
-  ArrayRef<TermNode> lhs, rhs;
-};
-
-} // namespace idr::detail
+ArrayRef<Sort> IndexBindersAttr::getSorts() const { return getImpl()->sorts; }
+ArrayRef<TermNode> IndexArgsAttr::getTerms() const { return getImpl()->terms; }
+uint64_t IndexArgsAttr::getCount() const { return getImpl()->count; }
+ArrayRef<TermNode> EquationAttr::getLhs() const { return getImpl()->lhs; }
+ArrayRef<TermNode> EquationAttr::getRhs() const { return getImpl()->rhs; }
 
 //===----------------------------------------------------------------------===//
 // Sorts in text

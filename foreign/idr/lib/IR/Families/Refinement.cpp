@@ -10,6 +10,7 @@
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Scope.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
 
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/STLExtras.h"
@@ -31,15 +32,32 @@ Layout layoutOf(Type type) {
 // idr.data.reindex
 //===----------------------------------------------------------------------===//
 
+// A scoped value cast stays where it lives: the cast states the operand's
+// lifetime, which it passes through.
+void DataReindexOp::build(OpBuilder &builder, OperationState &state, Type result, Value value) {
+  SmallVector<Value, 1> outers;
+  if (Value lifetime = lifetimes::statedLifetime(value);
+      lifetime && freedBy(result, Release::Scoped))
+    outers.push_back(lifetime);
+  build(builder, state, result, value, outers);
+}
+
 // One type is the other at some instance of its levels, or a refinement of
 // it: a cast of anything else could be no refinement's.
 LogicalResult DataReindexOp::verify() {
   Type from = getValue().getType();
   Type to = getType();
-  if (refines(from, to) || refines(to, from))
-    return success();
-  return emitOpError("casts ") << from << " to " << to
-                               << ", which no refinement of index terms relates";
+  if (!refines(from, to) && !refines(to, from))
+    return emitOpError("casts ") << from << " to " << to
+                                 << ", which no refinement of index terms relates";
+  return lifetimes::verifyOuters(*this, 0);
+}
+
+Value DataReindexOp::getStatedLifetime(Value made) {
+  return lifetimes::statedOuter(*this, made, 0);
+}
+void DataReindexOp::setStatedLifetime(Value made, Value lifetime) {
+  lifetimes::stateOuter(*this, made, lifetime, 0);
 }
 
 // A cast to its operand's own type is the operand; a cast of a cast casts

@@ -16,39 +16,19 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/FamilyStorage.h"
 
 #include "mlir/IR/DialectImplementation.h"
 
 using namespace mlir;
 using namespace idr;
 
-namespace idr::detail {
-
-// The cells are attributes, each an array of its fields, the verifier
-// says: an array of arrays a bytecode reader can own as it reads.
-struct ConAttrStorage : AttributeStorage {
-  using KeyTy = std::tuple<DataType, ArrayRef<Attribute>, uint64_t>;
-
-  ConAttrStorage(DataType data, ArrayRef<Attribute> cells, uint64_t spine)
-      : data(data), cells(cells), spine(spine) {}
-
-  bool operator==(const KeyTy &key) const { return key == KeyTy(data, cells, spine); }
-  KeyTy getAsKey() const { return KeyTy(data, cells, spine); }
-  static llvm::hash_code hashKey(const KeyTy &key) {
-    return llvm::hash_combine(std::get<0>(key).getAsOpaquePointer(),
-                              llvm::hash_combine_range(std::get<1>(key)), std::get<2>(key));
-  }
-  static ConAttrStorage *construct(AttributeStorageAllocator &allocator, const KeyTy &key) {
-    return new (allocator.allocate<ConAttrStorage>())
-        ConAttrStorage(std::get<0>(key), allocator.copyInto(std::get<1>(key)), std::get<2>(key));
-  }
-
-  DataType data;
-  ArrayRef<Attribute> cells;
-  uint64_t spine;
-};
-
-} // namespace idr::detail
+// The parameters, as the storage holds them (FamilyStorage.h): the cells
+// are attributes, each an array of its fields, the verifier says, an array
+// of arrays a bytecode reader can own as it reads.
+DataType ConAttr::getData() const { return getImpl()->data; }
+ArrayRef<Attribute> ConAttr::getCells() const { return getImpl()->cells; }
+uint64_t ConAttr::getSpine() const { return getImpl()->spine; }
 
 namespace {
 

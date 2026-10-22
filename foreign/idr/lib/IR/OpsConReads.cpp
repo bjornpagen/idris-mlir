@@ -10,6 +10,8 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Rules.h"
+#include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ranges.h"
 #include "idr/IR/Symbols.h"
 
@@ -46,45 +48,58 @@ std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
 DataType DataFieldOp::getDataType() { return dyn_cast<DataType>(unrestricted(getValue().getType())); }
 Tag DataFieldOp::getTag() { return *getDataType().singleTag(); }
 
+// A field of a scoped value lives where the value does: the read states
+// the value's lifetime, which it passes through.
 void DataFieldOp::build(OpBuilder &builder, OperationState &state, Value value, unsigned index) {
-  build(builder, state, *fieldReadType(value.getType(), index), value, uint64_t{index});
+  Type result = *fieldReadType(value.getType(), index);
+  SmallVector<Value, 1> outers;
+  if (Value lifetime = lifetimes::statedLifetime(value);
+      lifetime && freedBy(result, Release::Scoped))
+    outers.push_back(lifetime);
+  build(builder, state, result, value, outers, uint64_t{index});
 }
 
-LogicalResult DataFieldOp::verify() {
-  std::optional<Type> expected = fieldReadType(getValue().getType(), getIndex());
-  if (!expected)
-    return emitOpError("reads field ") << getIndex() << " of " << getValue().getType()
-                                       << ", which is refined to no one constructor with it";
-  if (*expected != getType())
-    return emitOpError("has result ") << getType() << ", but the field of a "
-                                      << getValue().getType() << " is read as " << *expected;
+// The field at the type a read of it gives, so a read follows its value's
+// grade wherever a pass changes it, and the interface's verifier holds the
+// result to it.
+LogicalResult DataFieldOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
+                                            ValueRange operands, DictionaryAttr attributes,
+                                            OpaqueProperties properties, RegionRange regions,
+                                            SmallVectorImpl<Type> &inferred) {
+  Adaptor adaptor(operands, attributes, properties, regions);
+  Type value = adaptor.getValue().getType();
+  std::optional<Type> read = fieldReadType(value, static_cast<unsigned>(adaptor.getIndex()));
+  if (!read)
+    return emitOptionalError(location, "reads field ", adaptor.getIndex(), " of ", value,
+                             ", which is refined to no one constructor with it");
+  inferred.push_back(*read);
   return success();
 }
 
-// A field of a known constructor: the field an idr.data.con was given,
-// where its state still holds (a memo cell's changes) and the read takes
-// it at the type it was given; a linear field moves out of the constructor,
-// so only the constructor's one read takes it. Or a field of a constant,
-// read in place: off a run's spine that costs nothing however long the run
-// is. A constant is no linear value, so a linear field of one stays a read.
+LogicalResult DataFieldOp::verify() { return lifetimes::verifyOuters(*this, 0); }
+
+Value DataFieldOp::getStatedLifetime(Value made) { return lifetimes::statedOuter(*this, made, 0); }
+void DataFieldOp::setStatedLifetime(Value made, Value lifetime) {
+  lifetimes::stateOuter(*this, made, lifetime, 0);
+}
+
+// A field of a known constructor: the field an idr.data.con was given
+// (givenField). Or a field of a constant, read in place: off a run's spine
+// that costs nothing however long the run is. A constant is no linear
+// value, so a linear field of one stays a read.
 OpFoldResult DataFieldOp::fold(FoldAdaptor adaptor) {
-  auto index = static_cast<unsigned>(getIndex());
   Value source = getValue();
-  if (!builtStateHolds(source, getOperation()))
-    return {};
   if (auto con = source.getDefiningOp<DataConOp>()) {
-    Value field = con.getFields()[index];
-    if (field.getType() == getType() &&
-        (usesOf(field.getType()) != Uses::Once || fieldReadOnce(con.getResult(), index)))
+    if (Value field = families::givenField(con, *this))
       return field;
     return {};
   }
-  if (isLinear(getType()))
+  if (isLinear(getType()) || !builtStateHolds(source, getOperation()))
     return {};
   auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
   if (!con)
     matchPattern(source, m_Constant(&con));
-  return con ? con.getField(index) : Attribute();
+  return con ? con.getField(static_cast<unsigned>(getIndex())) : Attribute();
 }
 
 //===----------------------------------------------------------------------===//

@@ -17,6 +17,7 @@
 #define IDR_IR_LAYOUT_H
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -31,6 +32,14 @@
 #include <optional>
 #include <utility>
 #include <variant>
+
+// The kind of word a component is, which decides how a count is kept of it
+// and so which runtime entry increments and decrements it (Word: no count; a
+// pointer to a cell, never null; a pointer that may be null, a slot of a
+// value in place that another constructor leaves empty or a reuse token; a
+// big's word, a small integer or a cell's address; a slot that may be any
+// of these), and its lattice (wordJoin), from the runtime's word kinds.
+#include "idr/IR/Generated/Words.h.inc"
 
 namespace idr::layout {
 
@@ -77,23 +86,10 @@ private:
   uint32_t bits;
 };
 
-// The kind of word a component is, which decides how a count is kept of it
-// and so which runtime entry increments and decrements it: no count; a
-// pointer to a cell, never null; a pointer that may be null (a slot of a
-// value in place that another constructor leaves empty, a reuse token); a
-// big's word, a small integer or a cell's address; a slot that may be any
-// of these. A lattice: Cell below MaybeCell and Big, their join Any.
-enum class Word : uint8_t { Uncounted, Cell, MaybeCell, Big, Any };
-
-// The least kind both `a` and `b` stand in.
+// The least kind both `a` and `b` stand in, read from the lattice the
+// runtime's word kinds generate (Word, wordJoin).
 constexpr Word join(Word a, Word b) {
-  if (a == b || b == Word::Uncounted)
-    return a;
-  if (a == Word::Uncounted)
-    return b;
-  if ((a == Word::Cell && b == Word::MaybeCell) || (a == Word::MaybeCell && b == Word::Cell))
-    return Word::MaybeCell;
-  return Word::Any;
+  return wordJoin[static_cast<unsigned>(a)][static_cast<unsigned>(b)];
 }
 
 // One runtime component of a value, and the kind of word it is: the type
@@ -287,14 +283,43 @@ public:
   // `unique self` frees its fields: its field types are made here, since
   // no lowering worker makes a type.
   const layout::OwnCells &ownCells(DataType type) const;
-  // The bytes a component of type `component` takes, as the target lays it
-  // out.
+  // The most bytes of memory everything a value of `type` reaches takes,
+  // its own cell included where it is held in one, where its type bounds
+  // what it reaches (layout::reachOf): the largest over the constructors
+  // its indices leave possible of the cell and what each field reaches, so
+  // a refined value is bounded by its unrefined type's. Nothing for a
+  // value whose type does not bound it. What a frame holding the value
+  // past its last use holds of it, at most.
+  std::optional<uint64_t> reachedBytes(mlir::Type type) const;
+  // The bytes a component of type `component` takes, and the alignment it
+  // takes them at, as the target lays it out: measured once, with the
+  // layouts, for every component a layout holds, and where asked for any
+  // other.
   unsigned sizeOf(mlir::Type component) const;
+  unsigned alignmentOf(mlir::Type component) const;
   // The element layout of an array of `element`.
   layout::Element element(mlir::Type element) const;
 
 private:
-  unsigned alignmentOf(mlir::Type component) const;
+  // A data type held in place or in a cell, as the layouts hold it: its
+  // slots or its cells, how a `unique self` drop frees its fields, and the
+  // bytes everything a value of it reaches takes, none where its type does
+  // not bound it.
+  struct LaidOut {
+    DataType type;
+    std::variant<layout::SumLayout, layout::CellLayout> shape;
+    layout::OwnCells owned;
+    std::optional<uint64_t> reached;
+  };
+
+  // The entry of `type`'s unrefined application; an internal error, saying
+  // `what` was asked, for a type no value of the module held.
+  const LaidOut &entryOf(DataType type, llvm::StringRef what) const;
+  // The bytes each bounded type reaches, its fields' first, once every
+  // entry's cells are laid out.
+  void computeReach();
+  // The field types of constructor `tag` at this application.
+  static llvm::SmallVector<mlir::Type> fieldsAt(DataType type, Tag tag);
   void record(mlir::Type component);
   // The cell of a constructor of `fieldTypes`, object slots first.
   layout::Cell cellOf(llvm::ArrayRef<llvm::SmallVector<layout::Component>> fields, Tag tag,
@@ -309,9 +334,11 @@ private:
   layout::OwnCells ownCellsOf(DataType type) const;
 
   mlir::Operation *root;
-  llvm::DenseMap<DataType, std::unique_ptr<layout::SumLayout>> sums;
-  llvm::DenseMap<DataType, layout::CellLayout> cellLayouts;
-  llvm::DenseMap<DataType, layout::OwnCells> owned;
+  // Each laid-out type, unrefined, numbered once in the order its layout
+  // was computed, and its place: one lookup, then every fact one load. The
+  // entries are sized by the program, in the footprint's storage.
+  llvm::DenseMap<DataType, uint32_t> numbered;
+  footprint::Vector<LaidOut> laidOut;
   llvm::DenseMap<mlir::Type, std::pair<unsigned, unsigned>> measures;
 };
 

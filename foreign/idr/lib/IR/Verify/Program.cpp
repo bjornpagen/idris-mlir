@@ -11,14 +11,16 @@
 // function's: one walk of its body under every rule read per op (what the
 // stage lets its values and ops hold, its scopes and refinements, its
 // closures' flow while they exist, its effect row derived from its ops and
-// held to what it says), then its linear values and its lifetimes. The
-// stage is read from the program, never from what a function holds.
+// held to what it says, what each value typed `unique deep` is given by its
+// sources, its lifetimes), then its linear values. The stage is read from
+// the program, never from what a function holds.
 //
 // What a data type is held as, whether a memo sum is in a cell and whether
 // a type contains itself in place, is no rule here: the class rule decides
 // each when the type is made, so no program can say otherwise.
 
 #include "idr/Analysis/Effects.h"
+#include "idr/Analysis/Ownership/Local.h"
 #include "idr/IR/Counting/Counting.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Scope.h"
@@ -213,8 +215,10 @@ LogicalResult idr::verify::function(FuncOp fn) {
   StageRules rules(closuresAt[stage], countingAt[stage]);
   families::ScopeWalk scopes(fn);
   rows::Check row(fn);
-  if (failed(families::walkFunction(fn, rules, scopes, row)) || failed(linearity(fn)) ||
-      failed(lifetimes(fn)))
+  ownership::LocalCheck local;
+  LifetimeRules lifetimes(fn);
+  if (failed(families::walkFunction(fn, rules, scopes, row, local, lifetimes)) ||
+      failed(linearity(fn)))
     return failure();
   return success();
 }
