@@ -11,7 +11,7 @@
 // A lifetime of any kind may be passed where a view is asked, which upstream
 // meets as a type that differs at the call: the parameter becomes the
 // view of the lifetime given, `idr.lifetime.forget`, the one op whose result
-// is a lifetime, defined where the argument is in scope.
+// is its operand's view, defined where the argument is in scope.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"

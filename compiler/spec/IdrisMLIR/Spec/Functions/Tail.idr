@@ -34,9 +34,9 @@ tailKindClosed = MkClosed
       Tail => There Here
       ModuloContext => There (There Here)
   , describe = \case
-      NonTail => MkCase "NonTail" ("nontail" ::: []) "returns to its caller, which goes on"
-      Tail => MkCase "Tail" ("tail" ::: []) "its result is its caller's, so the call is a jump"
-      ModuloContext => MkCase "ModuloContext" ("modulo_context" ::: [])
+      NonTail => MkCase "nontail" ("nontail" ::: []) "returns to its caller, which goes on"
+      Tail => MkCase "tail" ("tail" ::: []) "its result is its caller's, so the call is a jump"
+      ModuloContext => MkCase "modulo_context" ("modulo_context" ::: [])
                          "its result fills a field of cells built before it, so the call is a loop"
   , doc = MkDoc "where a call stands in its function"
       """

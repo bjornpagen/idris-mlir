@@ -1,31 +1,37 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What idr.func and idr.call hold beyond their generated classes, declared
-// before them, since the attributes the specification gives them name
-// these classes: Idris's proof that a function's own loops end, the bound a
-// function puts into a lifetime parameter, and which part of a function's
-// per-parameter record each parameter's type admits. Each part exists only
-// where the parameter's type admits it: the record names a parameter by its
-// position among the parameters that admit that part, so a write part
-// cannot describe a lifetime, nor an amount a value. Then the dialect's
-// inliner rules.
+// What idr.func and idr.call hold beyond their generated classes, which
+// the specification's attributes and properties name, so it comes before
+// them: the row as the IR holds it, Idris's proof that a function's own
+// loops end, the bound a function puts into a lifetime parameter, where
+// each scoped parameter and result lives, what a function gives back, and
+// which part of a function's per-parameter record each parameter's type
+// admits. Each part exists only where the parameter's type admits it: the
+// record names a parameter by its position among the parameters that admit
+// that part, so a write part cannot describe a lifetime, nor an amount a
+// value. Then the dialect's inliner rules.
 //
-// It reads types alone (Grades.h, Lifetimes.h) and no op, so the dialect's
-// header includes it before its generated classes; what a function's body
-// does and the one derivation of its row are Analysis/Effects.h's.
+// It reads types alone (Grades.h, Lifetimes.h) and the effect system's
+// words, and no op; what a function's body does and the one derivation of
+// its row are Analysis/Effects.h's.
 #ifndef IDR_IR_FUNC_H
 #define IDR_IR_FUNC_H
 
+#include "idr/IR/Effects/Vocabulary.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/Support/Match.h"
 
+#include "mlir/Bytecode/BytecodeImplementation.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <variant>
@@ -33,11 +39,26 @@
 namespace idr {
 
 class IdrDialect;
+class GivenBackEntryAttr;
 
 // Every call, op and region of the dialect may be inlined; a return becomes
 // the values it gives back, and a lifetime given where a view is asked
 // passes as the view it is.
 void addInlinerInterface(IdrDialect &dialect);
+
+//===----------------------------------------------------------------------===//
+// The row, as the IR holds it
+//===----------------------------------------------------------------------===//
+
+// A row's form in the generic syntax and a property dictionary: its atoms'
+// names, in the order the effect system lists them.
+mlir::Attribute convertRowToAttribute(mlir::MLIRContext *context, effects::Row row);
+mlir::LogicalResult convertRowFromAttribute(effects::Row &row, mlir::Attribute attribute,
+                                            llvm::function_ref<mlir::InFlightDiagnostic()> emitError);
+llvm::hash_code hashRow(effects::Row row);
+// In bytecode: how many atoms, then each one's number.
+void writeRow(mlir::DialectBytecodeWriter &writer, effects::Row row);
+mlir::LogicalResult readRow(mlir::DialectBytecodeReader &reader, effects::Row &row);
 
 //===----------------------------------------------------------------------===//
 // Termination
@@ -69,8 +90,11 @@ using Termination = std::variant<Unproved, InComponent, Acyclic>;
 llvm::hash_code hash_value(const TerminationProof &proof);
 
 // The attribute's parameter: `component 3`, `acyclic`.
-mlir::ParseResult parseTerminationProof(mlir::AsmParser &parser, TerminationProof &proof);
-void printTerminationProof(mlir::AsmPrinter &printer, const TerminationProof &proof);
+mlir::FailureOr<TerminationProof> parseTerminationProof(mlir::AsmParser &parser);
+void printTerminationProof(mlir::AsmPrinter &printer, TerminationProof proof);
+mlir::LogicalResult readTerminationProof(mlir::DialectBytecodeReader &reader,
+                                         TerminationProof &proof);
+void writeTerminationProof(mlir::DialectBytecodeWriter &writer, TerminationProof proof);
 
 //===----------------------------------------------------------------------===//
 // Amounts put into a lifetime
@@ -148,10 +172,74 @@ struct PutBound {
 };
 
 llvm::hash_code hash_value(const PutBound &bound);
+mlir::LogicalResult readPutBound(mlir::DialectBytecodeReader &reader, PutBound &bound);
+void writePutBound(mlir::DialectBytecodeWriter &writer, const PutBound &bound);
 
-// The attribute's element: `2: 64`.
-mlir::ParseResult parsePutBound(mlir::AsmParser &parser, PutBound &bound);
-void printPutBound(mlir::AsmPrinter &printer, const PutBound &bound);
+//===----------------------------------------------------------------------===//
+// Where scoped values live
+//===----------------------------------------------------------------------===//
+
+// A scoped parameter or result at `value`, and the lifetime parameter at
+// `lifetime` it lives in, both positions in the signature: `2 in 0`.
+struct LivesIn {
+  std::uint32_t value;
+  std::uint32_t lifetime;
+  bool operator==(const LivesIn &) const = default;
+};
+
+// The lifetime parameter at `longer` lives at least as long as the one at
+// `shorter`: `0 >= 1`.
+struct Outlives {
+  std::uint32_t longer;
+  std::uint32_t shorter;
+  bool operator==(const Outlives &) const = default;
+};
+
+llvm::hash_code hash_value(const LivesIn &entry);
+llvm::hash_code hash_value(const Outlives &bound);
+mlir::LogicalResult readLivesIn(mlir::DialectBytecodeReader &reader, LivesIn &entry);
+void writeLivesIn(mlir::DialectBytecodeWriter &writer, const LivesIn &entry);
+mlir::LogicalResult readOutlives(mlir::DialectBytecodeReader &reader, Outlives &bound);
+void writeOutlives(mlir::DialectBytecodeWriter &writer, const Outlives &bound);
+
+//===----------------------------------------------------------------------===//
+// What a function gives back
+//===----------------------------------------------------------------------===//
+
+// A component of a result or of the arguments: the value at `index`, then
+// down through `fields`, each a field of a constructor its type lays out
+// inline. A view: the attribute owns what it holds, and whoever builds one
+// owns the fields until the attribute copies them.
+struct GivenBackPath {
+  std::uint32_t index;
+  llvm::ArrayRef<std::uint32_t> fields;
+  bool operator==(const GivenBackPath &other) const {
+    return index == other.index && fields == other.fields;
+  }
+  // The order entries are listed in: by position, then field by field.
+  bool operator<(const GivenBackPath &other) const {
+    if (index != other.index)
+      return index < other.index;
+    return std::lexicographical_compare(fields.begin(), fields.end(), other.fields.begin(),
+                                        other.fields.end());
+  }
+};
+
+// On every path that returns, component `result` of the result is
+// component `argument` of the arguments: the same value.
+struct GivenBackEntry {
+  GivenBackPath result;
+  GivenBackPath argument;
+  bool operator==(const GivenBackEntry &) const = default;
+};
+
+// A position in a signature or a constructor, in bytecode.
+mlir::LogicalResult readPosition(mlir::DialectBytecodeReader &reader, std::uint32_t &position);
+void writePosition(mlir::DialectBytecodeWriter &writer, std::uint32_t position);
+// An entry of `#idr.given_back`, in bytecode, as the attribute it is.
+mlir::LogicalResult readGivenBackEntry(mlir::DialectBytecodeReader &reader,
+                                       GivenBackEntryAttr &entry);
+void writeGivenBackEntry(mlir::DialectBytecodeWriter &writer, GivenBackEntryAttr entry);
 
 //===----------------------------------------------------------------------===//
 // The record's parts, by parameter
@@ -160,12 +248,10 @@ void printPutBound(mlir::AsmPrinter &printer, const PutBound &bound);
 // Whether a parameter of `type` admits a write part: a value freed by its
 // count whose holder alone reaches what a write in place touches, its own
 // family's cells or everything it reaches. Rebuilding in place writes only
-// the family's cells, which the spine's claim covers.
+// the family's cells, which the spine's claim covers. Whether it admits an
+// amount is whether it is a lifetime something may be put into
+// (admitsPuts).
 bool admitsWrite(mlir::Type type);
-
-// Whether a parameter of `type` admits an amount: a lifetime something may
-// be put into (every kind but a view).
-bool admitsPut(mlir::Type type);
 
 // The part a parameter's type admits, with its position among the
 // parameters that admit that part.

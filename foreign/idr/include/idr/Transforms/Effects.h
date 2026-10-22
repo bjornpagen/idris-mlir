@@ -24,9 +24,9 @@
 // lowering. A nested pass that adds effects runs after `widen`, which
 // gives every function and call at least the atoms it may add.
 //
-// idr-constants is the last step of idr-optimize's inner pipeline
-// (InnerPasses.td): one function's constants, its calls' results taken
-// from their callees' summaries.
+// idr-constants is the last step of idr-optimize's inner pipeline: one
+// function's constants, its calls' results taken from their callees'
+// summaries in the optimizer's schedule.
 #ifndef IDR_TRANSFORMS_EFFECTS_H
 #define IDR_TRANSFORMS_EFFECTS_H
 
@@ -60,7 +60,7 @@ void widen(ProgramOp program, effects::Row atoms);
 // One component's members, when the optimizer finishes the component:
 // every callee outside it is final, and each call of one holds the
 // callee's row already (the optimizer writes a caller's calls when its turn
-// begins, copyRow), so the members' rows read only their own bodies.
+// begins, copyCallee), so the members' rows read only their own bodies.
 // `names` resolves a callee to its id: the frozen graph, or the editor the
 // optimizer holds.
 template <solver::FunctionNames N>
@@ -129,11 +129,12 @@ IndexVector<solver::FunctionId, effects::Row> solveAtoms(const solver::ProgramGr
 
 namespace idr::optimize {
 
-class ReadySet;
+class Schedule;
 
-// The step for one run of idr-optimize: it reads the summaries `set`
-// publishes, and counts the values it replaces into `constants`.
-std::unique_ptr<mlir::Pass> createConstants(const ReadySet &set,
+// The step for one run of idr-optimize: it reads the summaries of the
+// functions `schedule` holds final, and counts the values it replaces into
+// `constants`.
+std::unique_ptr<mlir::Pass> createConstants(const Schedule &schedule,
                                             mlir::Pass::Statistic &constants);
 
 } // namespace idr::optimize

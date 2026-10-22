@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr.call and idr.return. A call holds its callee's row and write part, as
-// llvm.call holds its memory effects, and declares to MLIR what they stand
-// for (its typed rule reads them), so every pass, upstream's among them,
-// reads a call alone. Its symbol-use verifier, run once per verification of
-// its program from the collection MLIR shares among every symbol user,
-// holds the call to its callee: its types are the callee's signature at
-// its index arguments, a lifetime of any kind standing where a view is
-// asked; its row and write part are the callee's; and what its callee puts
-// into a lifetime its caller passes on fits what the caller says it puts.
-// Where it stands in its function is the tail calls' to check.
+// idr.call and idr.return. A call holds its callee's row, write part and
+// lives_in, as llvm.call holds its memory effects, and declares to MLIR
+// what they stand for (its typed rule reads them), so every pass, upstream's
+// among them, reads a call alone. Its symbol-use verifier, run once per
+// verification of its program from the collection MLIR shares among every
+// symbol user, holds the call to its callee: its types are the callee's
+// signature at its index arguments, a lifetime of any kind standing where a
+// view is asked; its copies are the callee's; what its callee puts into a
+// lifetime its caller passes on fits what the caller says it puts; and a
+// tail call's callee takes as many cursors as its caller and gives back the
+// same result components. Where it stands in its function is the tail
+// calls' to check.
 
 #include "idr/Analysis/Effects.h"
-#include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
@@ -34,9 +36,40 @@ void idr::CallOp::build(OpBuilder &builder, OperationState &state, FuncOp callee
   Properties &properties = state.getOrAddProperties<Properties>();
   properties.callee = FlatSymbolRefAttr::get(callee.getSymNameAttr());
   properties.index_args = indexArgs;
-  properties.tail = tail;
+  properties.tail_kind = tail;
   properties.row = callee.getRow();
   properties.untouched = callee.getUntouchedAttr();
+  properties.lives_in = callee.getLivesInAttr();
+}
+
+// What a call holds of its callee, taken whole: the copies its symbol-use
+// verifier holds equal, for a call whose callee changed or whose callee's
+// facts did.
+void idr::CallOp::copyCallee(FuncOp callee) {
+  setRow(callee.getRow());
+  setUntouchedAttr(callee.getUntouchedAttr());
+  setLivesInAttr(callee.getLivesInAttr());
+}
+
+// Each operand the callee writes through: every operand that admits a
+// write part and is not listed untouched. The order is the operands', and
+// the untouched positions increase, so one pass meets both. The visitor is
+// type-erased since the class's members are declared by the specification,
+// which declares no template.
+void idr::CallOp::forEachWritten(function_ref<void(OpOperand &)> visit) {
+  ArrayRef<std::int32_t> untouched;
+  if (DenseI32ArrayAttr listed = getUntouchedAttr())
+    untouched = listed.asArrayRef();
+  std::int32_t position = 0;
+  for (OpOperand &operand : getArgsMutable()) {
+    if (!admitsWrite(operand.get().getType()))
+      continue;
+    if (!untouched.empty() && untouched.front() == position)
+      untouched = untouched.drop_front();
+    else
+      visit(operand);
+    ++position;
+  }
 }
 
 CallInterfaceCallable idr::CallOp::getCallableForCallee() { return getCalleeAttr(); }
@@ -46,26 +79,64 @@ void idr::CallOp::setCalleeFromCallable(CallInterfaceCallable callee) {
 Operation::operand_range idr::CallOp::getArgOperands() { return getArgs(); }
 MutableOperandRange idr::CallOp::getArgOperandsMutable() { return getArgsMutable(); }
 
-// The positions the call lists untouched name operands that admit a write
-// part, as its callee's name parameters: a local fact of the call. Where
-// it stands is the one definition of tail position's to check.
-LogicalResult idr::CallOp::verify() {
-  if (DenseI32ArrayAttr untouched = getUntouchedAttr(); untouched && !untouched.empty()) {
-    auto writable = static_cast<std::int32_t>(
-        llvm::count_if(getArgs().getTypes(), [](Type type) { return admitsWrite(type); }));
-    if (untouched.asArrayRef().back() >= writable)
-      return emitOpError("lists operand ")
-             << untouched.asArrayRef().back() << " untouched among its " << writable
-             << " that admit a write part";
-  }
-  return tail::verify(*this);
-}
+// Where it stands is the one definition of tail position's to check; every
+// copy the call holds is its callee's, which its symbol-use verifier holds.
+LogicalResult idr::CallOp::verify() { return tail::verify(*this); }
 
 // A call may run where it would not have when it returns wherever it runs
 // and the outside cannot hold it: its row says so.
 Speculation::Speculatability idr::CallOp::getSpeculatability() {
   return rows::speculatable(getRow()) ? Speculation::Speculatable : Speculation::NotSpeculatable;
 }
+
+//===----------------------------------------------------------------------===//
+// The lifetimes a call states
+//===----------------------------------------------------------------------===//
+
+// A scoped result lives in the lifetime operand at the position its
+// callee's signature names, which the call's copy holds.
+Value idr::CallOp::getStatedLifetime(Value made) {
+  auto result = dyn_cast<OpResult>(made);
+  LivesInAttr lives = getLivesInAttr();
+  if (!result || !lives || result.getOwner() != getOperation())
+    return nullptr;
+  std::optional<std::uint32_t> lifetime = lives.lifetimeOfResult(result.getResultNumber());
+  return lifetime ? getOperand(*lifetime) : Value();
+}
+
+// A call states a result's lifetime only as one of its own operands: given
+// anything else, it states nothing. Its statement is a copy of its
+// callee's signature, so whoever restates it restates the callee's too and
+// copies it (copyCallee); a statement of the call's alone fails its
+// symbol-use verifier.
+void idr::CallOp::setStatedLifetime(Value made, Value lifetime) {
+  auto result = dyn_cast<OpResult>(made);
+  if (!result || result.getOwner() != getOperation())
+    return;
+  auto operand = llvm::find(getOperands(), lifetime);
+  if (!lifetime || operand == getOperands().end())
+    return;
+  LivesInAttr lives = getLivesInAttr();
+  SmallVector<LivesIn> results;
+  if (lives)
+    llvm::append_range(results, lives.getResults());
+  LivesIn stated{result.getResultNumber(),
+                 static_cast<std::uint32_t>(std::distance(getOperands().begin(), operand))};
+  auto at = llvm::lower_bound(results, stated.value, [](const LivesIn &each, std::uint32_t value) {
+    return each.value < value;
+  });
+  if (at != results.end() && at->value == stated.value)
+    *at = stated;
+  else
+    results.insert(at, stated);
+  setLivesInAttr(LivesInAttr::get(getContext(),
+                                  lives ? lives.getParameters() : ArrayRef<LivesIn>(), results,
+                                  lives ? lives.getBounds() : ArrayRef<Outlives>()));
+}
+
+//===----------------------------------------------------------------------===//
+// The call against its callee
+//===----------------------------------------------------------------------===//
 
 namespace {
 
@@ -90,6 +161,13 @@ rows::Runs runsOf(Operation *op, FuncOp fn) {
   return rows::Runs::Once;
 }
 
+// The result components a function gives back, in their order.
+auto givenBackResults(FuncOp fn) {
+  GivenBackAttr given = fn.getGivenBackAttr();
+  return llvm::map_range(given ? given.getEntries() : ArrayRef<GivenBackEntryAttr>(),
+                         [](GivenBackEntryAttr entry) { return entry.entry().result; });
+}
+
 } // namespace
 
 LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
@@ -110,8 +188,8 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   if (binding != giving)
     return emitOpError("gives ") << giving << " index arguments to " << name << ", which binds "
                                  << binding;
-  auto signature = cast<FunctionType>(
-      args ? families::substitute(fn.getFunctionType(), args) : Type(fn.getFunctionType()));
+  FunctionType signature =
+      args ? families::substitute(fn.getFunctionType(), args) : fn.getFunctionType();
   ArrayRef<Type> inputs = signature.getInputs();
   if (getArgs().size() != inputs.size())
     return emitOpError("passes ") << getArgs().size() << " arguments to " << name
@@ -131,12 +209,29 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
       return emitOpError("expects ") << std::get<0>(pair) << " as result " << index << " of "
                                      << name << ", which returns " << std::get<1>(pair);
 
-  // The call's copy of its callee's row and write part is exact, so what a
-  // pass reads off the call alone says what the callee may do, no more.
+  // The call's copies of its callee's facts are exact, so what a pass reads
+  // off the call alone says what the callee may do and where its results
+  // live, no more.
   if (getRow() != fn.getRow())
     return emitOpError("holds a row other than ") << name << "'s";
   if (getUntouchedAttr() != fn.getUntouchedAttr())
     return emitOpError("lists other operands untouched than ") << name << " does";
+  if (getLivesInAttr() != fn.getLivesInAttr())
+    return emitOpError("states other lifetimes for its results than ") << name << " does";
+
+  auto caller = (*this)->getParentOfType<FuncOp>();
+
+  // A tail call and its caller lower to one return: a cursor comes back
+  // from each, and each gives back the same result components, so a
+  // result one drops is dropped by both.
+  if (getTailKind() == TailKind::tail) {
+    if (!lifetimes::sameCursors(caller.getFunctionType(), fn.getFunctionType()))
+      return emitOpError("is a tail call of ")
+             << name << ", which takes another number of cursors than its caller";
+    if (!llvm::equal(givenBackResults(caller), givenBackResults(fn)))
+      return emitOpError("is a tail call of ")
+             << name << ", which gives back other result components than its caller";
+  }
 
   // What the callee puts into a lifetime its caller was given fits what
   // the caller says it puts into it: no more than its bound, and no bound
@@ -145,36 +240,24 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   ParameterParts calleeParts(inputs);
   if (calleeParts.puttable() == 0)
     return success();
-  auto caller = (*this)->getParentOfType<FuncOp>();
   ParameterParts callerParts(caller.getArgumentTypes());
   for (auto [index, operand] : llvm::enumerate(getArgs())) {
     auto parameter = dyn_cast<BlockArgument>(operand);
     if (!parameter || parameter.getOwner() != &caller.getBody().front())
       continue;
-    LogicalResult fits = idr::match(
-        calleeParts[static_cast<unsigned>(index)],
-        [&](PutPart theirs) -> LogicalResult {
-          Amount put = boundOf(fn, theirs.position);
-          if (put.none())
-            return success();
-          return idr::match(
-              callerParts[parameter.getArgNumber()],
-              [&](PutPart mine) -> LogicalResult {
-                if (runsOf(getOperation(), caller) == rows::Runs::Repeatedly)
-                  put = Amount::unbounded();
-                if (put.within(boundOf(caller, mine.position)))
-                  return success();
-                return emitOpError("passes its caller's put parameter #")
-                       << parameter.getArgNumber() << " to " << name
-                       << ", which puts more into it than the caller's bound";
-              },
-              [](WritePart) -> LogicalResult { return success(); },
-              [](NoPart) -> LogicalResult { return success(); });
-        },
-        [](WritePart) -> LogicalResult { return success(); },
-        [](NoPart) -> LogicalResult { return success(); });
-    if (failed(fits))
-      return failure();
+    auto theirs = std::get_if<PutPart>(&calleeParts[static_cast<unsigned>(index)]);
+    auto mine = std::get_if<PutPart>(&callerParts[parameter.getArgNumber()]);
+    if (!theirs || !mine)
+      continue;
+    Amount put = boundOf(fn, theirs->position);
+    if (put.none())
+      continue;
+    if (runsOf(getOperation(), caller) == rows::Runs::Repeatedly)
+      put = Amount::unbounded();
+    if (!put.within(boundOf(caller, mine->position)))
+      return emitOpError("passes its caller's put parameter #")
+             << parameter.getArgNumber() << " to " << name
+             << ", which puts more into it than the caller's bound";
   }
   return success();
 }

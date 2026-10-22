@@ -28,9 +28,11 @@
 #ifndef IDR_ANALYSIS_EFFECTS_H
 #define IDR_ANALYSIS_EFFECTS_H
 
-#include "idr/IR/Effects/Effects.h"
+#include "idr/IR/Effects/LLVM.h"
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/IR/Operation.h"
@@ -42,6 +44,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <optional>
 #include <variant>
 
 namespace idr::rows {
@@ -63,29 +66,10 @@ constexpr bool licensesDropOrMove(effects::Row row) {
 // to its caller wherever it runs, and the outside cannot hold it.
 constexpr bool speculatable(effects::Row row) { return (row & effects::mayNotReturn).empty(); }
 
-// A call takes its callee's row and write part together: what its symbol
-// uses' verifier holds equal, and what upstream reads off the call.
-void copyRow(CallOp call, FuncOp callee);
-
-// Each operand of `call` its callee writes through: every operand that
-// admits a write part and is not listed untouched. The order is the
-// operands', and the untouched positions increase, so one pass meets both.
-template <std::invocable<mlir::OpOperand &> Visit>
-void forEachWritten(CallOp call, Visit &&visit) {
-  llvm::ArrayRef<std::int32_t> untouched;
-  if (mlir::DenseI32ArrayAttr listed = call.getUntouchedAttr())
-    untouched = listed.asArrayRef();
-  std::int32_t position = 0;
-  for (mlir::OpOperand &operand : call.getArgsMutable()) {
-    if (!admitsWrite(operand.get().getType()))
-      continue;
-    if (!untouched.empty() && untouched.front() == position)
-      untouched = untouched.drop_front();
-    else
-      visit(operand);
-    ++position;
-  }
-}
+// What LLVM is told of `fn`: its row's facts from the effect system's one
+// table, and argument memory written where its record says it writes
+// through a parameter.
+effects::Told told(FuncOp fn);
 
 //===----------------------------------------------------------------------===//
 // The derivation
@@ -152,10 +136,15 @@ private:
   // What an op that may do anything does: every atom, a write through
   // every write-admitting parameter, no bound on any put parameter.
   void anything();
+  // The layouts of the function's own types, made the first time a put
+  // into a put parameter needs its bytes: a function that puts into none
+  // never lays out a type.
+  const Layouts &layouts();
 
   FuncOp fn;
   ParameterParts parts;
   Derived derived;
+  std::optional<Layouts> laidOut;
 };
 
 // What an op the reader reads is, to the fold: read by its declaration, or
@@ -233,9 +222,9 @@ struct CallCopies {
 
 extern template Derived derive<CallCopies>(FuncOp fn, CallCopies &reader);
 
-// `fn`'s row and record cover what its body does, and its record names
-// only parameters that admit a part: the function's region verifier. A
-// failure names the function, what it lacks and the op that needs it; it
+// `fn`'s row and record cover what its body does: the function's region
+// verifier, after its own verifier has held the record to the signature.
+// A failure names the function, what it lacks and the op that needs it; it
 // is the error of the pass that broke it, never a refusal of the program.
 mlir::LogicalResult verify(FuncOp fn);
 

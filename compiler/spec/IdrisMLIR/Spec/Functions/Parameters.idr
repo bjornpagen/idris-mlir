@@ -81,8 +81,9 @@ Record = All Part
 -- The bounded amounts, as the IR holds them
 ------------------------------------------------------------------------------
 
-||| One bound of `#idr.put_bounds`, read and written by a hand directive:
-||| `2: 64`, the third put parameter's bound of 64 bytes.
+||| One bound of `#idr.put_bounds`, `2: 64`, the third put parameter's bound
+||| of 64 bytes: printed by the attribute's own syntax, read and written in
+||| bytecode by hand.
 export
 boundDirective : Directive
 boundDirective = MkDirective
@@ -101,7 +102,7 @@ putBoundsAttr = MkAttrDef
   , params =
       [ MkParameter "bounds" (ListOf (HandValue "::idr::PutBound" boundDirective))
           AlwaysWritten "each bounded put parameter's position among them and its bound" ]
-  , syntax = Declarative [Keyword "<", ParamAt FZ, Keyword ">"]
+  , syntax = HandSyntax
   , typed = Untyped
   , interfaces = []
   , verifier = VerifiesParameters

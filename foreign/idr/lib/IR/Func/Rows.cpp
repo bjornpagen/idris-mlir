@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // A function's row and per-parameter record, held to its body: the fold
-// every derivation shares, the verifier's instantiation of it, and the
-// hand values the specification's attributes hold (a termination proof, a
-// put bound) with the parameter view their positions are read through.
+// every derivation shares, the verifier's instantiation of it, what LLVM is
+// told of a function, and the hand values the specification's attributes
+// and properties hold (a row, a termination proof, a put bound) with the
+// parameter view their positions are read through.
 
 #include "idr/Analysis/Effects.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Diagnostics.h"
-#include "mlir/Interfaces/DataLayoutInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
@@ -24,7 +26,86 @@ using namespace mlir;
 using namespace idr;
 
 //===----------------------------------------------------------------------===//
-// The attributes' hand values
+// The row, as the IR holds it
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// An atom's printed name, from the effect system's generated table.
+StringRef nameOf(effects::Atom atom) {
+  return EnumTraits<effects::Atom>::names[static_cast<std::size_t>(std::to_underlying(atom))];
+}
+
+// The atoms a row holds, in their order.
+auto atomsOf(effects::Row row) {
+  static constexpr auto every = allOf<effects::Atom>();
+  return llvm::make_filter_range(every, [row](effects::Atom atom) { return row.contains(atom); });
+}
+
+} // namespace
+
+Attribute idr::convertRowToAttribute(MLIRContext *context, effects::Row row) {
+  SmallVector<Attribute> names;
+  for (effects::Atom atom : atomsOf(row))
+    names.push_back(StringAttr::get(context, nameOf(atom)));
+  return ArrayAttr::get(context, names);
+}
+
+// Text read at the boundary: each name is matched once against the
+// table's, and the row holds the atoms from there on.
+LogicalResult idr::convertRowFromAttribute(effects::Row &row, Attribute attribute,
+                                           function_ref<InFlightDiagnostic()> emitError) {
+  auto names = dyn_cast<ArrayAttr>(attribute);
+  if (!names)
+    return emitError() << "expected a row, the list of its atoms' names";
+  static constexpr auto every = allOf<effects::Atom>();
+  effects::Row read;
+  for (Attribute name : names) {
+    auto text = dyn_cast<StringAttr>(name);
+    auto atom =
+        text ? llvm::find_if(every,
+                             [&](effects::Atom candidate) { return nameOf(candidate) == text.getValue(); })
+             : every.end();
+    if (atom == every.end())
+      return emitError() << name << " is no atom of a row";
+    read = read | effects::Row{*atom};
+  }
+  row = read;
+  return success();
+}
+
+llvm::hash_code idr::hashRow(effects::Row row) {
+  SmallVector<unsigned> numbers;
+  for (effects::Atom atom : atomsOf(row))
+    numbers.push_back(static_cast<unsigned>(std::to_underlying(atom)));
+  return llvm::hash_combine_range(numbers);
+}
+
+void idr::writeRow(DialectBytecodeWriter &writer, effects::Row row) {
+  writer.writeVarInt(row.size());
+  for (effects::Atom atom : atomsOf(row))
+    writer.writeVarInt(static_cast<std::uint64_t>(std::to_underlying(atom)));
+}
+
+LogicalResult idr::readRow(DialectBytecodeReader &reader, effects::Row &row) {
+  std::uint64_t count = 0;
+  if (failed(reader.readVarInt(count)))
+    return failure();
+  effects::Row read;
+  for (std::uint64_t at = 0; at < count; ++at) {
+    std::uint64_t number = 0;
+    if (failed(reader.readVarInt(number)))
+      return failure();
+    if (number >= EnumTraits<effects::Atom>::count)
+      return reader.emitError() << "atom " << number << " is no atom of a row";
+    read = read | effects::Row{static_cast<effects::Atom>(number)};
+  }
+  row = read;
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Termination proofs and put bounds
 //===----------------------------------------------------------------------===//
 
 llvm::hash_code idr::hash_value(const TerminationProof &proof) {
@@ -33,35 +114,94 @@ llvm::hash_code idr::hash_value(const TerminationProof &proof) {
       [](Acyclic) { return llvm::hash_combine(1u); });
 }
 
-ParseResult idr::parseTerminationProof(AsmParser &parser, TerminationProof &proof) {
-  if (succeeded(parser.parseOptionalKeyword("acyclic"))) {
-    proof = Acyclic{};
-    return success();
-  }
+FailureOr<TerminationProof> idr::parseTerminationProof(AsmParser &parser) {
+  if (succeeded(parser.parseOptionalKeyword("acyclic")))
+    return TerminationProof(Acyclic{});
   std::uint32_t component = 0;
   if (parser.parseKeyword("component") || parser.parseInteger(component))
     return failure();
-  proof = InComponent{component};
-  return success();
+  return TerminationProof(InComponent{component});
 }
 
-void idr::printTerminationProof(AsmPrinter &printer, const TerminationProof &proof) {
+void idr::printTerminationProof(AsmPrinter &printer, TerminationProof proof) {
   idr::match(
       proof, [&](InComponent in) { printer << "component " << in.component; },
       [&](Acyclic) { printer << "acyclic"; });
+}
+
+// In bytecode: zero for acyclic, else the component plus one.
+LogicalResult idr::readTerminationProof(DialectBytecodeReader &reader, TerminationProof &proof) {
+  std::uint64_t word = 0;
+  if (failed(reader.readVarInt(word)))
+    return failure();
+  if (word == 0) {
+    proof = Acyclic{};
+    return success();
+  }
+  if (word - 1 > std::numeric_limits<std::uint32_t>::max())
+    return reader.emitError() << "termination component " << (word - 1) << " out of range";
+  proof = InComponent{static_cast<std::uint32_t>(word - 1)};
+  return success();
+}
+
+void idr::writeTerminationProof(DialectBytecodeWriter &writer, TerminationProof proof) {
+  idr::match(
+      proof, [&](InComponent in) { writer.writeVarInt(std::uint64_t{in.component} + 1); },
+      [&](Acyclic) { writer.writeVarInt(0); });
+}
+
+Termination idr::FuncOp::getTermination() {
+  TerminatesAttr proof = getTerminatesAttr();
+  if (!proof)
+    return Unproved{};
+  return idr::match(
+      proof.getProof(), [](InComponent in) -> Termination { return in; },
+      [](Acyclic acyclic) -> Termination { return acyclic; });
 }
 
 llvm::hash_code idr::hash_value(const PutBound &bound) {
   return llvm::hash_combine(bound.parameter, bound.bytes);
 }
 
-ParseResult idr::parsePutBound(AsmParser &parser, PutBound &bound) {
-  return failure(parser.parseInteger(bound.parameter) || parser.parseColon() ||
-                 parser.parseInteger(bound.bytes));
+LogicalResult idr::readPutBound(DialectBytecodeReader &reader, PutBound &bound) {
+  std::uint64_t parameter = 0;
+  if (failed(reader.readVarInt(parameter)) || failed(reader.readVarInt(bound.bytes)))
+    return failure();
+  if (parameter > std::numeric_limits<std::uint32_t>::max())
+    return reader.emitError() << "put parameter " << parameter << " out of range";
+  bound.parameter = static_cast<std::uint32_t>(parameter);
+  return success();
 }
 
-void idr::printPutBound(AsmPrinter &printer, const PutBound &bound) {
-  printer << bound.parameter << ": " << bound.bytes;
+void idr::writePutBound(DialectBytecodeWriter &writer, const PutBound &bound) {
+  writer.writeVarInt(bound.parameter);
+  writer.writeVarInt(bound.bytes);
+}
+
+// `<[0: 64, 2: 128]>`.
+Attribute PutBoundsAttr::parse(AsmParser &parser, Type) {
+  SmallVector<PutBound> bounds;
+  auto one = [&]() -> ParseResult {
+    PutBound bound{};
+    if (parser.parseInteger(bound.parameter) || parser.parseColon() ||
+        parser.parseInteger(bound.bytes))
+      return failure();
+    bounds.push_back(bound);
+    return success();
+  };
+  if (parser.parseLess() ||
+      parser.parseCommaSeparatedList(AsmParser::Delimiter::Square, one) || parser.parseGreater())
+    return {};
+  return PutBoundsAttr::getChecked([&] { return parser.emitError(parser.getNameLoc()); },
+                                   parser.getContext(), bounds);
+}
+
+void PutBoundsAttr::print(AsmPrinter &printer) const {
+  printer << "<[";
+  llvm::interleaveComma(getBounds(), printer, [&](const PutBound &bound) {
+    printer << bound.parameter << ": " << bound.bytes;
+  });
+  printer << "]>";
 }
 
 // Positions increase, each once: a parameter has at most one bound, and the
@@ -84,37 +224,38 @@ bool idr::admitsWrite(Type type) {
   return hold && hold->release() == Release::Counted && hold->claims(Unique::Self);
 }
 
-bool idr::admitsPut(Type type) { return lifetimes::admitsPuts(type); }
-
 idr::ParameterParts::ParameterParts(TypeRange parameters) {
   parts.reserve(parameters.size());
   for (Type type : parameters) {
     if (admitsWrite(type))
       parts.push_back(WritePart{writes++});
-    else if (admitsPut(type))
+    else if (admitsPuts(type))
       parts.push_back(PutPart{puts++});
     else
       parts.push_back(NoPart{});
   }
 }
 
-Termination idr::FuncOp::getTermination() {
-  TerminatesAttr proof = getTerminatesAttr();
-  if (!proof)
-    return Unproved{};
-  return idr::match(
-      proof.getProof(), [](InComponent in) -> Termination { return in; },
-      [](Acyclic acyclic) -> Termination { return acyclic; });
+//===----------------------------------------------------------------------===//
+// What LLVM is told
+//===----------------------------------------------------------------------===//
+
+// A write through a parameter is argument memory written, which the row's
+// atoms do not hold: the record says it wherever it lists fewer untouched
+// parameters than admit a write part.
+effects::Told rows::told(FuncOp fn) {
+  effects::Told facts = effects::told(fn.getRow());
+  std::size_t untouched = 0;
+  if (DenseI32ArrayAttr listed = fn.getUntouchedAttr())
+    untouched = listed.size();
+  if (ParameterParts(fn.getArgumentTypes()).writable() > untouched)
+    facts = effects::withParameterWrite(facts);
+  return facts;
 }
 
 //===----------------------------------------------------------------------===//
 // The fold
 //===----------------------------------------------------------------------===//
-
-void rows::copyRow(CallOp call, FuncOp callee) {
-  call.setRow(callee.getRow());
-  call.setUntouchedAttr(callee.getUntouchedAttr());
-}
 
 // A region branch says which of its regions may run again; an op with
 // regions that is no region branch says nothing of how often they run, so
@@ -135,11 +276,25 @@ rows::Fold::Fold(FuncOp fn) : fn(fn), parts(fn.getArgumentTypes()) {
       [](Acyclic) {});
 }
 
+const Layouts &rows::Fold::layouts() {
+  if (!laidOut)
+    laidOut.emplace(fn.getOperation());
+  return *laidOut;
+}
+
 rows::Declares rows::Fold::declared(Operation *op, Runs runs) {
   join(effects::reportedBy(op));
-  if (auto putter = dyn_cast<LifetimePutOpInterface>(op))
-    put(putter.getPutLifetime(), Amount::finite(putter.getPutBytes(DataLayout::closest(op))),
-        runs);
+  // Only a put into a put parameter is the record's, and one in a region
+  // that runs again has no bound whatever its size: the bytes are read
+  // only for a put once per run into a put parameter.
+  if (auto putter = dyn_cast<LifetimePutOpInterface>(op)) {
+    Value lifetime = putter.getPutLifetime();
+    if (std::holds_alternative<PutPart>(partOf(lifetime)))
+      put(lifetime,
+          runs == Runs::Repeatedly ? Amount::unbounded()
+                                   : Amount::finite(putter.getPutBytes(layouts())),
+          runs);
+  }
   auto declaring = dyn_cast<MemoryEffectOpInterface>(op);
   if (!declaring) {
     // An op of another dialect is bounded by its regions alone where it
@@ -163,7 +318,7 @@ rows::Declares rows::Fold::declared(Operation *op, Runs runs) {
 // is the record's; anything else done there is the row's.
 void rows::Fold::effect(const effects::Effect &effect) {
   effects::Row atoms = effects::project(effect);
-  if (!effect.value || effect.kind == effects::EffectKind::Allocate) {
+  if (!effect.value || effect.kind == effects::Kind::Allocate) {
     join(atoms);
     return;
   }
@@ -180,7 +335,7 @@ void rows::Fold::effect(const effects::Effect &effect) {
 
 void rows::Fold::writeThrough(Value value) {
   effect(effects::Effect{
-      .kind = effects::EffectKind::Write, .resource = effects::ResourceId::Contents, .value = value});
+      .kind = effects::Kind::Write, .resource = effects::ResourceId::Contents, .value = value});
 }
 
 void rows::Fold::put(Value lifetime, Amount amount, Runs runs) {
@@ -242,7 +397,7 @@ void rows::Fold::anything() {
 
 void rows::CallCopies::call(CallOp call, Fold &fold, Runs) {
   fold.join(call.getRow());
-  forEachWritten(call, [&](OpOperand &operand) { fold.writeThrough(operand.get()); });
+  call.forEachWritten([&](OpOperand &operand) { fold.writeThrough(operand.get()); });
 }
 
 template rows::Derived rows::derive<rows::CallCopies>(FuncOp fn, rows::CallCopies &reader);
@@ -257,12 +412,7 @@ namespace {
 std::string spell(effects::Row row) {
   std::string text;
   llvm::raw_string_ostream out(text);
-  static constexpr auto atoms = allOf<effects::Atom>();
-  llvm::interleaveComma(
-      llvm::make_filter_range(atoms, [&](effects::Atom atom) { return row.contains(atom); }),
-      out, [&](effects::Atom atom) {
-        out << EnumTraits<effects::Atom>::names[static_cast<std::size_t>(std::to_underlying(atom))];
-      });
+  llvm::interleaveComma(atomsOf(row), out, [&](effects::Atom atom) { out << nameOf(atom); });
   return text;
 }
 
@@ -292,39 +442,6 @@ llvm::SmallVector<Amount, 2> declaredPuts(FuncOp fn, std::uint32_t puttable) {
   return declared;
 }
 
-// The record names only parameters that admit its part, and a room, whose
-// block has a static size, has a bound.
-LogicalResult recordFits(FuncOp fn, const ParameterParts &parts) {
-  if (DenseI32ArrayAttr untouched = fn.getUntouchedAttr();
-      untouched && !untouched.empty() &&
-      static_cast<std::uint32_t>(untouched.asArrayRef().back()) >= parts.writable())
-    return fn.emitOpError("lists parameter ")
-           << untouched.asArrayRef().back() << " untouched among its " << parts.writable()
-           << " that admit a write part";
-  PutBoundsAttr bounded = fn.getBoundedAttr();
-  if (bounded && !bounded.getBounds().empty() &&
-      bounded.getBounds().back().parameter >= parts.puttable())
-    return fn.emitOpError("bounds put parameter ")
-           << bounded.getBounds().back().parameter << " among its " << parts.puttable()
-           << " that admit an amount";
-  llvm::SmallVector<Amount, 2> declared = declaredPuts(fn, parts.puttable());
-  for (auto [index, type] : llvm::enumerate(fn.getArgumentTypes())) {
-    LogicalResult fits = idr::match(
-        parts[static_cast<unsigned>(index)],
-        [&](PutPart part) -> LogicalResult {
-          if (!lifetimes::isRoom(type) || declared[part.position] != Amount::unbounded())
-            return success();
-          return fn.emitOpError("puts into its room parameter #")
-                 << index << " with no bound, though a room's block has a static size";
-        },
-        [](WritePart) -> LogicalResult { return success(); },
-        [](NoPart) -> LogicalResult { return success(); });
-    if (failed(fits))
-      return failure();
-  }
-  return success();
-}
-
 } // namespace
 
 // Containment after every pass, equality only right after the writer: a
@@ -332,9 +449,6 @@ LogicalResult recordFits(FuncOp fn, const ParameterParts &parts) {
 // erased) leaves a row that says too much, which is sound, and no pass of
 // another's can rewrite every caller's copy on the spot.
 LogicalResult rows::verify(FuncOp fn) {
-  ParameterParts parts(fn.getArgumentTypes());
-  if (failed(recordFits(fn, parts)))
-    return failure();
   CallCopies copies;
   Derived derived = derive(fn, copies);
 
@@ -366,7 +480,8 @@ LogicalResult rows::verify(FuncOp fn) {
         return fn.emitOpError("lists its write-admitting parameter ")
                << position << " untouched, which its body writes through";
 
-  llvm::SmallVector<Amount, 2> declared = declaredPuts(fn, parts.puttable());
+  llvm::SmallVector<Amount, 2> declared =
+      declaredPuts(fn, static_cast<std::uint32_t>(derived.puts.size()));
   for (auto [position, put] : llvm::enumerate(derived.puts))
     if (!put.within(declared[position]))
       return fn.emitOpError("bounds what it puts into its put parameter ")

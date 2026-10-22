@@ -17,20 +17,25 @@
 ||| call claims every atom and every write, which says too much and never
 ||| too little.
 |||
-||| A function also carries its signature: grades, index binders, and
-||| lifetime parameters, whose kind says whether the function puts into
-||| them. A call carries its index arguments, its lifetime operands, and
-||| where it stands in its function (`tail`), written with no default by
-||| whoever makes the call.
+||| A function also carries its signature: grades, index binders, lifetime
+||| parameters, whose kind says whether the function puts into them, and
+||| the lifetime each scoped parameter and result lives in (`lives_in`); and
+||| what it gives back of its arguments (`given_back`), which the optimizer
+||| alone proves. A call carries its index arguments, its lifetime operands,
+||| its copy of its callee's `lives_in`, and where it stands in its function
+||| (`tail_kind`), written with no default by whoever makes the call.
 module IdrisMLIR.Spec.Functions.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Control.Flow
+import IdrisMLIR.Spec.Lifetimes.Declarations
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Spec.Functions.Parameters
+import IdrisMLIR.Spec.Functions.GivenBack
+import IdrisMLIR.Spec.Functions.LivesIn
 
 import Data.Fin
 import Data.List1
@@ -42,9 +47,24 @@ import Data.Vect
 -- What a function and a call hold of a run
 ------------------------------------------------------------------------------
 
-||| The row: a set of atoms, every one when the op is built without it.
+||| A row as the IR holds it, by hand: `effects::Row`, the set of atoms the
+||| effect system declares, printed as its atoms' names.
+export
+rowDirective : Directive
+rowDirective = MkDirective
+  { name = "Row"
+  , args = []
+  , doc = brief "a row: the atoms of what a run may do"
+  }
+
+||| The row: a set of atoms, every one when the op is built without it, so
+||| an op built before any derivation says too much and never too little.
 rowSlot : AttrKind
-rowSlot = AProperty (DefaultedEnumProperty (enumDef atomClosed) "::idr::effects::Row::top()")
+rowSlot = AProperty (HandProperty "::idr::effects::Row" rowDirective "::idr::effects::Row::top()")
+
+||| Where the scoped parameters and results live. Absent, none is scoped.
+livesInSlot : AttrKind
+livesInSlot = AnAttribute (OurAttr (SomeAttr livesInAttr)) MayBeAbsent
 
 ||| The positions, among the parameters (or a call's operands) that admit a
 ||| write part, of those the function never writes through: increasing,
@@ -121,10 +141,12 @@ programOp = MkOp
 
 ||| A function of the program and what is known of a run of it. Its
 ||| visibility is no fact of its own: it is public exactly when it is its
-||| program's root. Its body is one block. Its region verifier checks that
-||| its row and record cover what its body does, and where its calls stand.
+||| program's root. Its body is one block. Its verifier checks that its
+||| record, its `lives_in` and its `given_back` name only what its signature
+||| has; its region verifier, that its row and record cover what its body
+||| does, and where its calls stand. It states its parameters' lifetimes.
 export
-funcOp : Op 0 0 9 1
+funcOp : Op 0 0 11 1
 funcOp = MkOp
   { home = InIdr
   , mnemonic = "func"
@@ -140,18 +162,21 @@ funcOp = MkOp
       , MkAttr "untouched" untouchedSlot
       , MkAttr "bounded" boundedSlot
       , MkAttr "terminates" terminatesSlot
+      , MkAttr "lives_in" livesInSlot
+      , MkAttr "given_back" (AnAttribute (OurAttr (SomeAttr givenBackAttr)) MayBeAbsent)
       ]
   , regions = [MkRegion "body" OneRegion (Sized 1)]
   , traits = [AffineScope, IsolatedFromAbove, HasParent ("program" ::: [])]
   , interfaces =
-      [ Declares FunctionOpInterfaceI []
-      , Declares OpAsmOpInterfaceI ["getDefaultDialect"]
-      , Implements erasedBinderInterface ["getBoundSorts"] ]
+      [ Declares FunctionOp []
+      , Declares OpAsm ["getDefaultDialect"]
+      , Implements erasedBinderInterface ["getBoundSorts"]
+      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"] ]
   , effects = Definition
   , speculation = NotSpeculatable
   , stages = between Higher Owned
   , meaning = NoFold
-  , verify = VerifiesRegions
+  , verify = VerifiesOpAndRegions
   , format = HandFormat
   , builders = []
   , defaultBuilders = WithDefaults
@@ -173,10 +198,11 @@ funcOp = MkOp
   , laws = []
   , doc = MkDoc "a function of the program, with what is known of a run of it"
       """
-      Its row, its record per parameter and its termination proof are
-      inherent: no pass drops one without changing the op, and only the one
-      writer of rows and a clone copying its source write the row and the
-      record.
+      Its row, its record per parameter, its termination proof, where its
+      scoped values live and what it gives back are inherent: no pass drops
+      one without changing the op. Only the one writer of rows and a clone
+      copying its source write the row and the record; only the optimizer
+      writes what it gives back.
       """
   }
 
@@ -191,10 +217,11 @@ funcOp = MkOp
 callEffects : Declaration 1 1
 callEffects = Executes [] [Summarized, Consumes FZ, NewIdentity FZ] Covered Untouched
 
-||| A call of a function by name, with its callee's row and write part, so
-||| upstream's dead code, CSE and sinking read a call alone.
+||| A call of a function by name, with its callee's row, write part and
+||| `lives_in`, so upstream's dead code, CSE and sinking, and a pass on the
+||| caller, read a call alone. It states its scoped results' lifetimes.
 export
-callOp : Op 1 1 7 0
+callOp : Op 1 1 8 0
 callOp = MkOp
   { home = InIdr
   , mnemonic = "call"
@@ -203,19 +230,20 @@ callOp = MkOp
   , attrs =
       [ MkAttr "callee" (AnAttribute (UpstreamAttr FlatSymbolRefAttrC) Required)
       , MkAttr "index_args" indexArgs
-      , MkAttr "tail" (AProperty (EnumProperty (enumDef tailKindClosed)))
+      , MkAttr "tail_kind" (AProperty (EnumProperty (enumDef tailKindClosed)))
       , MkAttr "row" rowSlot
       , MkAttr "untouched" untouchedSlot
+      , MkAttr "lives_in" livesInSlot
       , MkAttr "arg_attrs" (AnAttribute (UpstreamAttr ArrayAttrC) MayBeAbsent)
       , MkAttr "res_attrs" (AnAttribute (UpstreamAttr ArrayAttrC) MayBeAbsent)
       ]
   , regions = []
   , traits = []
   , interfaces =
-      [ Declares CallOpInterfaceI []
-      , Declares SymbolUserOpInterfaceI ["verifySymbolUses"]
-      , Declares OpAsmOpInterfaceI ["getAsmResultNames"]
-      , Implements flowInterface ["getFlowEdges"] ]
+      [ Declares CallOp []
+      , Declares SymbolUser ["verifySymbolUses"]
+      , Implements flowInterface ["getFlowEdges"]
+      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"] ]
   , effects = callEffects
   , speculation = Conditionally
   , stages = between Higher Owned
@@ -235,16 +263,21 @@ callOp = MkOp
       , MkMember OnObject "void" "setCalleeFromCallable"
           [param "::mlir::CallInterfaceCallable" "callee"]
       , MkMember OnObject "::mlir::Operation::operand_range" "getArgOperands" []
-      , MkMember OnObject "::mlir::MutableOperandRange" "getArgOperandsMutable" [] ]
+      , MkMember OnObject "::mlir::MutableOperandRange" "getArgOperandsMutable" []
+      , MkMember OnObject "void" "copyCallee" [param "FuncOp" "callee"]
+      , MkMember OnObject "void" "forEachWritten"
+          [param "::llvm::function_ref<void(::mlir::OpOperand &)>" "visit"] ]
   , guards = []
   , specializations = []
   , laws = []
   , doc = MkDoc "a call of a function by name, with its callee's row"
       """
-      Built of a callee, it takes the callee's row and write part; its
-      symbol-use verifier holds both equal to the callee's, and its operand
-      types to the callee's parameters, a lifetime of any kind standing where
-      a view is asked. Where it stands is the tail calls' to decide and check.
+      Built of a callee, it takes the callee's row, write part and lives_in;
+      its symbol-use verifier holds the three equal to the callee's, and its
+      operand types to the callee's parameters, a lifetime of any kind
+      standing where a view is asked. Where it stands is the tail calls' to
+      decide and check; a tail call's callee takes as many cursors as its
+      caller and gives back the same result components.
       """
   }
 
@@ -289,7 +322,8 @@ export
 declarations : Declarations
 declarations =
   { ops := [SomeOp programOp, SomeOp funcOp, SomeOp callOp, SomeOp returnOp]
-  , attributes := [SomeAttr terminatesAttr, SomeAttr putBoundsAttr]
+  , attributes :=
+      [ SomeAttr terminatesAttr, SomeAttr putBoundsAttr, SomeAttr livesInAttr
+      , SomeAttr givenBackEntryAttr, SomeAttr givenBackAttr ]
   , enums := [enumDef tailKindClosed]
-  , directives := [proofDirective, boundDirective]
   } nothing

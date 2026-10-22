@@ -3,17 +3,17 @@
 // idr-constants: sparse conditional constant propagation through one
 // function, as upstream's solver and analyses do it, with a call's results
 // taken from what its callee returns once the callee's component of the
-// ready set is final. It is the last step of idr-optimize's inner
-// pipeline, so that a function's final body states its own summary: every
-// value the solve holds constant is a constant op when the step ends, a
-// return's operands among them, and the ready set reads the summary from
-// there when the component finishes. A replacement an action handler skips
-// leaves the value as it was, and the summary knows that much less of it.
+// schedule is final. It is the last step of idr-optimize's inner pipeline,
+// so that a function's final body states its own summary: every value the
+// solve holds constant is a constant op when the step ends, a return's
+// operands among them, and the schedule reads the summary from there when
+// the component finishes. A replacement an action handler skips leaves the
+// value as it was, and the summary knows that much less of it.
 //
-// The summaries are on the nodes of idr-optimize's ready set for the run,
-// which the step is given when it is made; a function never reads another
-// function's body. A call of a callee not final, of the function's own
-// component, assumes nothing of it: unknown at every result, the state
+// The summaries are the schedule's for the run, which the step is given
+// when it is made; a function never reads another function's body. A call
+// of a callee not final (of the function's own component, or a copy not
+// yet placed) assumes nothing of it: unknown at every result, the state
 // upstream's solve starts a value it cannot see from.
 #include "idr/Transforms/Effects.h"
 
@@ -30,9 +30,6 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/FoldUtils.h"
 #include "llvm/ADT/STLExtras.h"
-
-#include <cassert>
-#include <variant>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRCONSTANTS
@@ -169,25 +166,23 @@ Rewritten rewrite(DataFlowSolver &solver, idr::FuncOp fn) {
 }
 
 struct IdrConstantsPass : idr::impl::IdrConstantsBase<IdrConstantsPass> {
-  IdrConstantsPass(const idr::optimize::ReadySet &set, Pass::Statistic &numConstants)
-      : set(set), numConstants(numConstants) {}
+  IdrConstantsPass(const idr::optimize::Schedule &schedule, Pass::Statistic &numConstants)
+      : schedule(schedule), numConstants(numConstants) {}
 
   void runOnOperation() override {
     idr::FuncOp fn = getOperation();
-    // The scheduler runs the pipeline on the functions of its ready set.
-    const idr::optimize::Node *reader = set.nodeOf(fn.getSymNameAttr());
-    assert(reader && "the inner pipeline runs on a function of the ready set");
     auto constantsOf = [&](idr::CallOp call) -> idr::ConstantResults {
-      idr::optimize::Callee callee = set.callee(*reader, call.getCalleeAttr().getAttr());
-      if (const auto *known = std::get_if<idr::optimize::Final>(&callee))
-        return known->summary.constants;
+      using idr::optimize::FunctionId;
+      if (std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr()))
+        if (const idr::optimize::Summary *final = schedule.summaryOf(*callee))
+          return final->constants;
       return idr::ConstantResults(call->getNumResults(), ConstantValue::getUnknownConstant());
     };
     // A function holds no symbol table, so the solve resolves no callee:
     // every call is the hook's.
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
     solver.load<dataflow::DeadCodeAnalysis>();
-    solver.load<idr::SummarizedConstantPropagation>(constantsOf);
+    solver.load<idr::SummarizedConstantPropagation<decltype(constantsOf)>>(constantsOf);
     if (failed(solver.initializeAndRun(fn)))
       return signalPassFailure();
     Rewritten done = rewrite(solver, fn);
@@ -196,14 +191,14 @@ struct IdrConstantsPass : idr::impl::IdrConstantsBase<IdrConstantsPass> {
       markAllAnalysesPreserved();
   }
 
-  const idr::optimize::ReadySet &set;
+  const idr::optimize::Schedule &schedule;
   Pass::Statistic &numConstants;
 };
 
 } // namespace
 
-std::unique_ptr<Pass> idr::optimize::createConstants(const ReadySet &set,
+std::unique_ptr<Pass> idr::optimize::createConstants(const Schedule &schedule,
                                                      Pass::Statistic &constants) {
-  return std::make_unique<IdrConstantsPass>(set, constants);
+  return std::make_unique<IdrConstantsPass>(schedule, constants);
 }
 

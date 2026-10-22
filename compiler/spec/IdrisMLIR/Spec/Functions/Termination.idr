@@ -32,8 +32,8 @@ data Termination = Unproved | InComponent Nat | Acyclic
 public export
 data Proof = ProvedIn Nat | MadeAcyclic
 
-||| The attribute's one parameter, read and written by a hand directive:
-||| `component 3`, `acyclic`.
+||| The attribute's one parameter, read and written by hand: `component 3`,
+||| `acyclic`.
 export
 proofDirective : Directive
 proofDirective = MkDirective
@@ -51,7 +51,7 @@ terminatesAttr = MkAttrDef
   , params =
       [ MkParameter "proof" (HandValue "::idr::TerminationProof" proofDirective)
           AlwaysWritten "the component Idris proved it in, or a made function's acyclicity" ]
-  , syntax = Declarative [Keyword "<", CustomParams proofDirective [FZ], Keyword ">"]
+  , syntax = Declarative [Keyword "<", ParamAt FZ, Keyword ">"]
   , typed = Untyped
   , interfaces = []
   , verifier = AnyParameters

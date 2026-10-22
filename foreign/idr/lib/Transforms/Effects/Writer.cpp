@@ -158,7 +158,7 @@ BitSet<WriteNode> markWrites(const WriteNodes &nodes, llvm::ArrayRef<Owner> owne
             [](Local) {}, [](Elsewhere) {});
   }
   Csr<WriteTag> graph = std::move(edges).finish();
-  return mark(graph, std::span<const WriteNode>(seeds), Forward{});
+  return mark<Forward>(graph, std::span<const WriteNode>(seeds));
 }
 
 // A write through a callee's written parameter, passed something the
@@ -383,7 +383,7 @@ struct ComponentCalls {
     CallCopies copies;
     copies.call(call, fold, runs);
     for (Value operand : call.getArgs())
-      if (admitsPut(operand.getType()))
+      if (admitsPuts(operand.getType()))
         fold.put(operand, Amount::unbounded(), runs);
   }
   Read other(Operation *, Fold &, Runs) { return Read::ByDeclaration; }
