@@ -56,27 +56,22 @@ import Data.String
 
 %default covering
 
+-- A definition's clauses joined to the definition that follows it when that
+-- one defines the same name, at the first one's location.
+joinClauses : FC -> Name -> List ImpClause -> List ImpDecl -> List ImpDecl
+joinClauses loc fn cs next@(IDef _ fn' cs' :: ds)
+    = if fn == fn' then IDef loc fn (cs ++ cs') :: ds else IDef loc fn cs :: next
+joinClauses loc fn cs ds = IDef loc fn cs :: ds
+
 -- The clauses of one definition are desugared one at a time, each a
 -- definition of its own; neighbouring ones of the same name become one.
 -- Upstream kept this in its parser of raw TTImp files, which nothing here
--- reads.
+-- reads. The declarations after a definition are collected first, so the
+-- run of its neighbours has become one definition by the time it is joined
+-- to them, and every recursive call is on the rest of the list.
 collectDefs : List ImpDecl -> List ImpDecl
 collectDefs [] = []
-collectDefs (IDef loc fn cs :: ds)
-    = let (cs', rest) = spanMap (isClause fn) ds in
-          IDef loc fn (cs ++ cs') :: assert_total (collectDefs rest)
-  where
-    spanMap : (a -> Maybe (List b)) -> List a -> (List b, List a)
-    spanMap f [] = ([], [])
-    spanMap f (x :: xs) = case f x of
-                               Nothing => ([], x :: xs)
-                               Just y => case spanMap f xs of
-                                              (ys, zs) => (y ++ ys, zs)
-
-    isClause : Name -> ImpDecl -> Maybe (List ImpClause)
-    isClause n (IDef _ n' cs)
-        = if n == n' then Just cs else Nothing
-    isClause n _ = Nothing
+collectDefs (IDef loc fn cs :: ds) = joinClauses loc fn cs (collectDefs ds)
 collectDefs (INamespace loc ns nds :: ds)
     = INamespace loc ns (collectDefs nds) :: collectDefs ds
 collectDefs (IFail loc msg nds :: ds)

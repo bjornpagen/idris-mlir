@@ -28,28 +28,55 @@ import Libraries.Data.WithDefault
 
 %default covering
 
-export
-changeVar : (old : Var vs) -> (new : Var vs) -> Term vs -> Term vs
-changeVar old (MkVar new) (Local fc r idx p)
-    = if old == MkVar p
-         then Local fc r _ new
-         else Local fc r _ p
-changeVar old new (Meta fc nm i args)
-    = Meta fc nm i (map (changeVar old new) args)
-changeVar (MkVar old) (MkVar new) (Bind fc x b sc)
-    = Bind fc x (assert_total (map (changeVar (MkVar old) (MkVar new)) b))
-           (changeVar (MkVar (Later old)) (MkVar (Later new)) sc)
-changeVar old new (App fc fn arg)
-    = App fc (changeVar old new fn) (changeVar old new arg)
-changeVar old new (As fc s nm p)
-    = As fc s (changeVar old new nm) (changeVar old new p)
-changeVar old new (TDelayed fc r p)
-    = TDelayed fc r (changeVar old new p)
-changeVar old new (TDelay fc r t p)
-    = TDelay fc r (changeVar old new t) (changeVar old new p)
-changeVar old new (TForce fc r p)
-    = TForce fc r (changeVar old new p)
-changeVar old new tm = tm
+-- Each kind of node a term holds terms in is walked by a function of its
+-- own rather than by `map`, so that every recursive call is on a part of
+-- the term it was given.
+mutual
+  changeVarPi : (old : Var vs) -> (new : Var vs) -> PiInfo (Term vs) -> PiInfo (Term vs)
+  changeVarPi old new Implicit = Implicit
+  changeVarPi old new Explicit = Explicit
+  changeVarPi old new AutoImplicit = AutoImplicit
+  changeVarPi old new (DefImplicit t) = DefImplicit (changeVar old new t)
+
+  changeVarBinder : (old : Var vs) -> (new : Var vs) -> Binder (Term vs) -> Binder (Term vs)
+  changeVarBinder old new (Lam fc c p ty)
+      = Lam fc c (changeVarPi old new p) (changeVar old new ty)
+  changeVarBinder old new (Let fc c val ty)
+      = Let fc c (changeVar old new val) (changeVar old new ty)
+  changeVarBinder old new (Pi fc c p ty)
+      = Pi fc c (changeVarPi old new p) (changeVar old new ty)
+  changeVarBinder old new (PVar fc c p ty)
+      = PVar fc c (changeVarPi old new p) (changeVar old new ty)
+  changeVarBinder old new (PLet fc c val ty)
+      = PLet fc c (changeVar old new val) (changeVar old new ty)
+  changeVarBinder old new (PVTy fc c ty) = PVTy fc c (changeVar old new ty)
+
+  changeVars : (old : Var vs) -> (new : Var vs) -> List (Term vs) -> List (Term vs)
+  changeVars old new [] = []
+  changeVars old new (t :: ts) = changeVar old new t :: changeVars old new ts
+
+  export
+  changeVar : (old : Var vs) -> (new : Var vs) -> Term vs -> Term vs
+  changeVar old (MkVar new) (Local fc r idx p)
+      = if old == MkVar p
+           then Local fc r _ new
+           else Local fc r _ p
+  changeVar old new (Meta fc nm i args)
+      = Meta fc nm i (changeVars old new args)
+  changeVar (MkVar old) (MkVar new) (Bind fc x b sc)
+      = Bind fc x (changeVarBinder (MkVar old) (MkVar new) b)
+             (changeVar (MkVar (Later old)) (MkVar (Later new)) sc)
+  changeVar old new (App fc fn arg)
+      = App fc (changeVar old new fn) (changeVar old new arg)
+  changeVar old new (As fc s nm p)
+      = As fc s (changeVar old new nm) (changeVar old new p)
+  changeVar old new (TDelayed fc r p)
+      = TDelayed fc r (changeVar old new p)
+  changeVar old new (TDelay fc r t p)
+      = TDelay fc r (changeVar old new t) (changeVar old new p)
+  changeVar old new (TForce fc r p)
+      = TForce fc r (changeVar old new p)
+  changeVar old new tm = tm
 
 toRig1 : {idx : Nat} -> (0 p : IsVar nm idx vs) -> Env Term vs -> Env Term vs
 toRig1 First (b :: bs)

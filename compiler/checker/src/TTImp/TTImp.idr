@@ -589,33 +589,44 @@ mutual
 
   %name ImpDecl' decl
 
+  -- A declaration holding declarations shows them through showDecls, not
+  -- `map show`, so that showing one recurses on its own parts.
+  covering
+  showDecl : Show nm => ImpDecl' nm -> String
+  showDecl (IClaim (MkFCVal _ $ MkIClaimData c _ opts ty))
+      = show opts ++ " " ++ show c ++ " " ++ show ty
+  showDecl (IData _ _ _ d) = show d
+  showDecl (IDef _ n cs) = "(%def " ++ show n ++ " " ++ show cs ++ ")"
+  showDecl (IParameters _ ps ds)
+      = "parameters " ++ show ps ++ "\n\t" ++
+        showSep "\n\t" (showDecls ds)
+  showDecl (IRecord _ _ _ _ d) = show d.val
+  showDecl (IFail _ msg decls)
+      = "fail" ++ maybe "" ((" " ++) . show) msg ++ "\n" ++
+        showSep "\n" (map ("  " ++) (showDecls decls))
+  showDecl (INamespace _ ns decls)
+      = "namespace " ++ show ns ++
+        showSep "\n" (showDecls decls)
+  showDecl (ITransform _ n lhs rhs)
+      = "%transform " ++ show n ++ " " ++ show lhs ++ " ==> " ++ show rhs
+  showDecl (IRunElabDecl _ tm)
+      = "%runElab " ++ show tm
+  showDecl (IPragma {}) = "[externally defined pragma]"
+  showDecl (ILog Nothing) = "%logging off"
+  showDecl (ILog (Just (topic, lvl))) = "%logging " ++ case topic of
+    [] => show lvl
+    _  => concat (intersperse "." topic) ++ " " ++ show lvl
+  showDecl (IBuiltin _ type name) = "%builtin " ++ show type ++ " " ++ show name
+
+  covering
+  showDecls : Show nm => List (ImpDecl' nm) -> List String
+  showDecls [] = []
+  showDecls (d :: ds) = showDecl d :: showDecls ds
+
   export
   covering
   Show nm => Show (ImpDecl' nm) where
-    show (IClaim (MkFCVal _ $ MkIClaimData c _ opts ty))
-        = show opts ++ " " ++ show c ++ " " ++ show ty
-    show (IData _ _ _ d) = show d
-    show (IDef _ n cs) = "(%def " ++ show n ++ " " ++ show cs ++ ")"
-    show (IParameters _ ps ds)
-        = "parameters " ++ show ps ++ "\n\t" ++
-          showSep "\n\t" (assert_total $ map show ds)
-    show (IRecord _ _ _ _ d) = show d.val
-    show (IFail _ msg decls)
-        = "fail" ++ maybe "" ((" " ++) . show) msg ++ "\n" ++
-          showSep "\n" (assert_total $ map (("  " ++) . show) decls)
-    show (INamespace _ ns decls)
-        = "namespace " ++ show ns ++
-          showSep "\n" (assert_total $ map show decls)
-    show (ITransform _ n lhs rhs)
-        = "%transform " ++ show n ++ " " ++ show lhs ++ " ==> " ++ show rhs
-    show (IRunElabDecl _ tm)
-        = "%runElab " ++ show tm
-    show (IPragma {}) = "[externally defined pragma]"
-    show (ILog Nothing) = "%logging off"
-    show (ILog (Just (topic, lvl))) = "%logging " ++ case topic of
-      [] => show lvl
-      _  => concat (intersperse "." topic) ++ " " ++ show lvl
-    show (IBuiltin _ type name) = "%builtin " ++ show type ++ " " ++ show name
+    show = showDecl
 
 
 export

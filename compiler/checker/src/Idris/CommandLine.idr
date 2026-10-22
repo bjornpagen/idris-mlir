@@ -10,7 +10,9 @@ import Idris.Pretty
 
 import Core.Options
 
+import Control.WellFounded
 import Data.Maybe
+import Data.Nat
 import Data.String
 import Libraries.Utils.String
 import Data.Either
@@ -315,63 +317,73 @@ usage = """
 checkNat : Integer -> Maybe Nat
 checkNat n = toMaybe (n >= 0) (integerToNat n)
 
-processArgs : String -> OptArg -> List String ->
-              Either String (List CLOpt, List String)
-processArgs flag (NoArg f) xs = Right (f, xs)
+-- What an option leaves of the arguments after its flag: never more than
+-- there were.
+record Rest (args : List String) where
+  constructor MkRest
+  rest : List String
+  0 noLonger : Nat.LTE (length rest) (length args)
+
+processArgs : String -> OptArg -> (xs : List String) ->
+              Either String (List CLOpt, Rest xs)
+processArgs flag (NoArg f) xs = Right (f, MkRest xs reflexive)
 -- Missing required arguments
-processArgs flag (Optional a f) [] = Right (f Nothing, [])
+processArgs flag (Optional a f) [] = Right (f Nothing, MkRest [] LTEZero)
 processArgs flag opt [] =
   Left $ "Missing required argument " ++ showArg opt ++ " for flag " ++ flag
 -- Happy cases
 processArgs flag (RequiredNat a f) (x :: xs) =
   do arg <- maybeToEither ("Expected Nat argument " ++ show x ++ " for flag " ++ flag)
                           (parseSigned x >>= checkNat)
-     Right (f arg, xs)
+     Right (f arg, MkRest xs (lteSuccRight reflexive))
 processArgs flag (RequiredLogLevel a f) (x :: xs) =
   do arg <- maybeToEither ("Expected LogLevel argument " ++ show x ++ " for flag " ++ flag)
                           (parseLogLevel x)
-     Right (f arg, xs)
-processArgs flag (AutoNat a f) ("auto" :: xs) = Right (f Nothing, xs)
+     Right (f arg, MkRest xs (lteSuccRight reflexive))
+processArgs flag (AutoNat a f) ("auto" :: xs) = Right (f Nothing, MkRest xs (lteSuccRight reflexive))
 processArgs flag (AutoNat a f) (x :: xs) =
   do arg <- maybeToEither ("Expected Nat or \"auto\" argument " ++ show x ++ " for flag " ++ flag)
                           (parseSigned x >>= checkNat)
-     Right (f (Just arg), xs)
-processArgs flag (Required a f) (x :: xs) = Right (f x, xs)
+     Right (f (Just arg), MkRest xs (lteSuccRight reflexive))
+processArgs flag (Required a f) (x :: xs) = Right (f x, MkRest xs (lteSuccRight reflexive))
 processArgs flag (Optional a f) (x :: xs) =
   if isPrefixOf "-" x
-    then Right (f Nothing, x :: xs)
-    else Right (f $ Just x, xs)
+    then Right (f Nothing, MkRest (x :: xs) reflexive)
+    else Right (f $ Just x, MkRest xs (lteSuccRight reflexive))
 
-matchFlag : (d : OptDesc) -> List String ->
-            Either String (Maybe (List CLOpt, List String))
-matchFlag d [] = Right Nothing -- Nothing left to match
-matchFlag d (x :: xs)
+-- The argument matched is given apart from those after it: there is always
+-- one, since the loop over the arguments stops when none are left.
+matchFlag : (d : OptDesc) -> (x : String) -> (xs : List String) ->
+            Either String (Maybe (List CLOpt, Rest xs))
+matchFlag d x xs
     = if x `elem` flags d
          then do args <- processArgs x (arg d) xs
                  Right (Just args)
          else Right Nothing
 
-findMatch : List OptDesc -> List String ->
-            Either String (List CLOpt, List String)
-findMatch [] [] = Right ([], [])
-findMatch [] (f :: args) = case unpack f of
+findMatch : List OptDesc -> (x : String) -> (xs : List String) ->
+            Either String (List CLOpt, Rest xs)
+findMatch [] f args = case unpack f of
   '-' :: '-' :: _ => Left "Unknown flag \{f}"
-  _ => Right ([InputFile f], args)
-findMatch (d :: ds) args
-    = case !(matchFlag d args) of
-           Nothing => findMatch ds args
+  _ => Right ([InputFile f], MkRest args reflexive)
+findMatch (d :: ds) x xs
+    = case !(matchFlag d x xs) of
+           Nothing => findMatch ds x xs
            Just res => Right res
 
-parseOpts : List OptDesc -> List String -> Either String (List CLOpt)
-parseOpts opts [] = Right []
-parseOpts opts args
-   = do (cl, rest) <- findMatch opts args
-        cls <- assert_total (parseOpts opts rest) -- 'rest' smaller than 'args'
+-- Each option takes at least its flag from the arguments, so fewer are left
+-- after it, which `acc` bounds.
+parseOpts : List OptDesc -> (args : List String) ->
+            (0 acc : Accessible Nat.LT (length args)) -> Either String (List CLOpt)
+parseOpts opts [] _ = Right []
+parseOpts opts (x :: xs) (Access rec)
+   = do (cl, MkRest rest le) <- findMatch opts x xs
+        cls <- parseOpts opts rest (rec (length rest) (LTESucc le))
         pure (cl ++ cls)
 
 export
 getOpts : List String -> Either String (List CLOpt)
-getOpts opts = parseOpts options opts
+getOpts opts = parseOpts options opts (wellFounded (length opts))
 
 export covering
 getCmdOpts : IO (Either String (List CLOpt))
