@@ -6,9 +6,12 @@
 // its MLIR effect instances, folded into a set once per query, which is
 // where the effect system meets MLIR's open set of ops and resources. And
 // MLIR's `getEffects` of every op of ours whose effects follow from types,
-// generated from the specification, each the query API's `declare`.
+// generated from the specification, each the typed half's `declare`.
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Classify.h"
+#include "idr/IR/Effects/Consumption.h"
+#include "idr/IR/Effects/Declared.h"
+#include "idr/IR/Effects/Whole.h"
 
 #include "idr/IR/IdrDialect.h"
 
