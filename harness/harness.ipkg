@@ -8,22 +8,30 @@ brief = "The golden test runner of idris-mlir, over tests/"
 -- hosts, and idris-mlir ships neither contrib nor test.
 depends = idris-mlir-spec
 sourcedir = "."
-modules = Case
+modules = Covers
+        , Determinism
         , Facts
         , Files
         , Fuzz
+        , FuzzRun
         , Gen
+        , Harness
         , Json
         , Lazy
+        , Lex
         , Linear
+        , Lit
         , Lock
         , Prims
+        , Programs
         , Properties
         , Reject
         , Runner
         , RuntimeEffects
         , Scale
         , Sem
+        , Serve
         , Trace
+        , Universal
 main = Main
 executable = runtests

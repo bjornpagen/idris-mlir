@@ -5,30 +5,14 @@
 # does, held against a reading of the function that is not the
 # declaration's: LLVM's own, of the runtime's bitcode as every program's
 # module takes it in, after opt has inferred each function's attributes
-# from its body. The declared half is the specification's, as the runner
-# prints it (runtests --runtime-effects); derive.awk reads the derived
-# half off the module opt prints (what each function proves of memory and
-# of returning, the endings its calls reach, the operands it writes
-# through), and relations.awk holds the one to the other, naming each op
-# that breaks a relation. Where a function reaches code outside the module
-# (the C library, GMP), LLVM knows nothing of what it does to memory, and
-# the memory relations do not judge it; its endings, its calls and its
-# parameters are judged all the same. Then each relation is shown to catch
-# what it forbids (plant.awk): on copies of the two tables with one row
-# made wrong, the check names that row's op for that relation, a finding
-# the true tables do not give.
+# from its body. The runner holds the specification's declarations to the
+# module opt prints (runtests --runtime-effects, RuntimeEffects.idr): what
+# each function proves of memory and of returning, the endings its calls
+# reach and the operands it writes through, naming each op that breaks a
+# relation, and each relation shown to catch what it forbids on copies of
+# the tables with one row made wrong.
 step_limit=300
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-
-if ! "$runtests" --runtime-effects > "$work/declared" 2> "$work/declared.err"; then
-  say "declared: the runner prints no table"
-  show "$work/declared.err"
-  exit 0
-fi
-if ! grep -q '^op ' "$work/declared"; then
-  say "declared: no op calls the runtime"
-  exit 0
-fi
 
 # The runtime's bitcode, in the file beside the prepared object, as on every
 # target.
@@ -48,41 +32,4 @@ if ! bounded "$llvm_bin/opt" -passes='inferattrs,cgscc(function-attrs),rpo-funct
   exit 0
 fi
 say "runtime bitcode: read"
-
-awk -f "$here/derive.awk" "$work/declared" "$work/runtime.ll" > "$work/derived"
-
-if grep -q '^ending .* absent$' "$work/derived"; then
-  say "endings: no function of the runtime ends a process as:"
-  sed -n 's/^ending \(.*\) absent$/  \1/p' "$work/derived"
-else
-  say "endings: each the specification names ends a process through a function of the runtime"
-fi
-
-awk -f "$here/relations.awk" "$work/declared" "$work/derived" > "$work/findings"
-if [ -s "$work/findings" ]; then
-  say "relations: declarations that do not cover what their runtime function does:"
-  sed 's/^/  /' "$work/findings"
-else
-  say "relations: every op's declaration covers what its runtime function does"
-fi
-
-# Each relation, on copies of the tables with one row made wrong: the
-# finding the planted row must bring is printed by plant.awk, and must be
-# among the copies' findings and not among the true tables'.
-missed=""
-for relation in stops crash exit inert operand writes; do
-  if ! expected=$(awk -v relation="$relation" -v declaredOut="$work/planted.declared" \
-      -v derivedOut="$work/planted.derived" -f "$here/plant.awk" "$work/declared" "$work/derived"); then
-    missed="$missed $relation (no row to plant)"
-    continue
-  fi
-  awk -f "$here/relations.awk" "$work/planted.declared" "$work/planted.derived" > "$work/planted.findings"
-  if ! grep -qF -- "$expected" "$work/planted.findings" || grep -qF -- "$expected" "$work/findings"; then
-    missed="$missed $relation"
-  fi
-done
-if [ -z "$missed" ]; then
-  say "planted: each relation names the op of the row made wrong"
-else
-  say "planted: relations that do not name the row made wrong:$missed"
-fi
+bounded "$runtests" --runtime-effects "$work/runtime.ll"

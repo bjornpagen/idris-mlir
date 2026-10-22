@@ -3,12 +3,11 @@
 ||| The lazy fuzzer: programs of lazy structures, each read as a case says,
 ||| whose every run must end with exit 0, nothing on stderr (the checked
 ||| runtime ends a run that leaves a cell live as an internal error) and
-||| each case's lines as the case's model computes them
-||| (`fuzz_lazy` in harness/lib/fuzz.sh).
+||| each case's lines as the case's model computes them (`fuzzLazy`,
+||| FuzzRun.idr).
 |||
 |||     runtests --lazy-program <seed> <cases> main|stdin
 |||     runtests --lazy-program checks
-|||     runtests --lazy-check <seed> <cases> <stdout-file>
 |||
 ||| A case is a structure and a reader. The structure is a sequence from an
 ||| affine step, x -> (a * x + b) mod m, written one of four ways:
@@ -320,8 +319,8 @@ programOf ["checks"] =
   Just (unlines (map (\(name, holds) => "lazy-check: " ++ name ++ ": " ++ (if holds then "ok" else "failed")) checkerChecks))
 programOf _ = Nothing
 
-||| `runtests --lazy-check <seed> <cases>`, of the text of a program's
-||| stdout: the cases that print other than their model, a line each.
+||| The check of a program of `<seed> <cases>`, of the text of its stdout:
+||| the cases that print other than their model, a line each.
 export covering
 checkOf : List String -> (output : String) -> Maybe String
 checkOf [seed, n] output = do

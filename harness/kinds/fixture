@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # A dialect fixture: the one .mlir file of the test's directory, its RUN
-# lines run by lit (lit_fixture, lib/lit.sh), every one of which must
+# lines run by lit (lit_fixture, Lit.idr), every one of which must
 # hold (fixture.expected). harness/one.sh runs it in that directory.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 lit_fixture

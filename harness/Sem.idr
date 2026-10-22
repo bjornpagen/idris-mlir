@@ -29,15 +29,11 @@
 ||| type in lower case and the word as Idris spells the builtin
 ||| (`prim-int8-add`, `prim-bits64-cast`). They run as
 ||| `tests/semantics@<name>`, one test of the runner per name
-||| (harness/Main.idr), whose `run` asks the runner for the programs and
-||| the cases of the second:
-|||
-|||     runtests --sem-program written|stdin prim-<type>-<word>
-|||     runtests --sem-cases prim-<type>-<word> <cases-dir>
-|||
-||| `runtests --sem-expected <name>` prints the stdout the written program
-||| must print, the value `result` ends with when every case agrees, so that
-||| the value is stated once, here.
+||| (harness/Main.idr), whose run builds the two programs and the cases of
+||| the second from what this module gives (`semCase`, Programs.idr):
+||| `programOf`, `writeCases`, and `expectedOf`, the stdout the written
+||| program must print, the value `result` ends with when every case
+||| agrees, so that the value is stated once, here.
 module Sem
 
 import Prelude
@@ -386,13 +382,6 @@ stdinCases segments =
 public export
 data Given = InProgram | OnStdin
 
-||| The word `runtests --sem-program` takes for each.
-export
-givenOf : String -> Maybe Given
-givenOf "written" = Just InProgram
-givenOf "stdin" = Just OnStdin
-givenOf _ = Nothing
-
 ||| The name of every test, in the order of the tables: the runner runs
 ||| tests/semantics once for each (harness/Main.idr).
 export
@@ -411,9 +400,8 @@ export
 expectedOf : (name : String) -> Maybe String
 expectedOf name = (\_ => show agreed ++ "\n") <$> lookup name byName
 
-||| `runtests --sem-cases <name> <dir>`: the cases of a test's stdin
-||| program written under `dir`, a directory each, as an end-to-end
-||| fixture's cases are.
+||| The cases of a test's stdin program written under `dir`, a directory
+||| each, as a program test's cases are.
 export
 writeCases : (name : String) -> (dir : String) -> IO (Either String ())
 writeCases name dir = case lookup name byName of

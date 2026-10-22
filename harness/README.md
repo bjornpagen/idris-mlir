@@ -26,14 +26,14 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
   sources `testutils.sh`, prints one line per check, and its stdout must
   be its `expected`.
 - a `Main.idr` and no `run`: a compiled program (`kinds/program`,
-  `e2e_io` in `lib/e2e.sh`). It is compiled once, linked with the checked
+  `e2e_io`, Programs.idr). It is compiled once, linked with the checked
   runtime, with every pass's contracts and the promises every compiled
   program keeps checked as it runs (`--idr-contracts`) and the properties
   its `mlir.expect` states of each stage checked after every pass of that
-  stage (`--idr-expect-at`, `lib/expect.sh`); it is checked as every
+  stage (`--idr-expect-at`, Harness.idr); it is checked as every
   compilation is (the object's imports; compiled again from its emitted
   module with a drawn set of the optimizations' actions skipped, it ends
-  every case as before, `lib/actions.sh`), then run once per case of its
+  every case as before, Universal.idr), then run once per case of its
   `cases` (below); with no `cases` it is compiled only (a program that
   never ends). `packages`, `heap-free` and `covers` are marks of the
   compilation (`testutils.sh`). Its `expected` is the transcript of a good
@@ -44,7 +44,7 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
   header holds the rule, so its name is free. It may hold its nearest
   accepted neighbour in `near/` (below).
 - one `.mlir` file, `<name>.mlir`, and nothing else: a dialect fixture
-  (`kinds/fixture`, `lit_fixture` in `lib/lit.sh`), for an IR shape a
+  (`kinds/fixture`, `lit_fixture`, Lit.idr), for an IR shape a
   pass must handle that no program reaches. Its `// RUN:` lines run in
   order and every one must hold; a command that is to fail names the
   failure it expects. No RUN line names a pass: a stage slice
@@ -56,8 +56,8 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
 
 **Cases.** A program's cases are `cases/<case>/`, one directory per run,
 named in letters, digits and dashes, each one record of its run; the
-runs go in the order of the names. Its files (`case_fields`, `e2e_case`
-in `lib/e2e.sh`):
+runs go in the order of the names. Its files (`caseFields`, `e2eCase`
+in Programs.idr):
 
 | file | what it says; when absent |
 | --- | --- |
@@ -135,25 +135,44 @@ clone numbers, function order or SSA names.
   specification alone and creates no process. `runs.sh` makes the runs
   between the runner's plan and its tally; `one.sh` runs one test in a
   process of its own and writes its output to `build/output/<name>`.
+- `Serve.idr`: the runner's one way of running a tool. A check that needs
+  one runs as a session with the glue (`serve`, `lib/harness.sh`): the
+  runner names each command on a channel, the glue starts it bounded by
+  the step limit, so a hang is a failure, and answers its status.
+- `Harness.idr`: what every check stands on: the tools and places a run
+  script names, a test's output, a fixture's files and a build's
+  artifacts, a program compiled (its time recorded), linked, or built over
+  the pinned MLIR, and a program's stage properties. `Programs.idr`: the
+  program tests, their cases, the semantics tests, the refused programs
+  and their neighbours, the registry's broken entries. `Universal.idr`:
+  what holds of every compilation (its objects' imports, its actions
+  skipped). `Covers.idr`: a `covers` program held to the prelude module it
+  names. `Lit.idr`: the dialect tests' RUN lines and `%differential`.
+  `Determinism.idr`: compilations at several thread counts held alike.
+  `FuzzRun.idr`: the fuzzers run, shrunk where a case fails. `Lex.idr`:
+  Idris source, code told from comments and literals.
 - `Facts.idr`: what the harness reads of the specification (endings,
-  rules); `Case.idr`, `Reject.idr`: a case's ending and a refused
-  program's header, each read once into its record; `Trace.idr`: time
-  traces summed; `Json.idr`, `Files.idr`: what they read.
-- `testutils.sh` and `lib/`: what the scripts share, one file per concern;
-  `lib/spec.sh`, the specification's generated files as the spec tests
-  read them, and `lib/scale.sh`, a scale fixture compiled at two sizes and
-  held to its relation, are sourced by their tests alone.
+  rules); `Reject.idr`: a refused program's header, read once into its
+  record; `Trace.idr`: time traces summed; `Json.idr`, `Files.idr`: what
+  they read.
+- `testutils.sh` and `lib/`: what the scripts share. `lib/harness.sh` is
+  the glue: the work directory, a command bounded, a RUN line's commands,
+  and the runner's checks by the names the scripts call them; the rest,
+  one file per concern: `lib/planted.sh`,
+  `lib/cpp-lex.sh`, `lib/bench.sh`, and `lib/spec.sh` and `lib/scale.sh`,
+  sourced by their tests alone.
 - `kinds/`: the script of each kind of test that has no `run` of its own.
 - `prop/`: the headers and the build of the runtime's property programs,
   and the program a runtime C test runs as, through the runtime's start.
 - `Fuzz.idr`, `Gen.idr`, `Lazy.idr`, `Linear.idr`, `Prims.idr`, `Sem.idr`,
-  `Scale.idr`, `Properties.idr`, `RuntimeEffects.idr`, `Lock.idr`: what the runner computes for tests that ask it; `Linear.idr`
-  generates linear programs, each with its de-linearized twin and the
-  verdict the in-place rule predicts for it; `Scale.idr` the scale
-  fixtures, the dialect's text spelled from the specification;
-  `Properties.idr` idr-expect's properties, one record each, from which
-  its C++ table is printed; `RuntimeEffects.idr` what each op that calls
-  the runtime declares, against which its runtime function is read.
+  `Scale.idr`, `Properties.idr`, `RuntimeEffects.idr`, `Lock.idr`: what the
+  runner computes for tests that ask it; `Linear.idr` generates linear
+  programs, each with its de-linearized twin and the verdict the in-place
+  rule predicts for it; `Scale.idr` the scale fixtures, the dialect's text
+  spelled from the specification; `Properties.idr` idr-expect's
+  properties, one record each, from which its C++ table is printed;
+  `RuntimeEffects.idr` what each op that calls the runtime declares, held
+  to LLVM's reading of its runtime function.
 - `templates/`: a minimal test of each kind to copy.
 
 ## Adding a test

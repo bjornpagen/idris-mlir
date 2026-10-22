@@ -4,18 +4,16 @@
 ||| the rule (one of the specification's, Facts.idr), the line and the
 ||| words its message holds; the compilation's report, read once into its
 ||| verdict and its errors, each with its rule; and the one comparison of
-||| the two (lib/profile.sh, profile_reject):
+||| the two (`judged`; `profileReject`, Programs.idr):
 |||
 |||     runtests --reject <test> <report> <output>
 |||
 ||| prints a line for the rule, the line and, when the header has one, the
 ||| message (found anywhere in <output>, what the compilation printed), and
-||| exits 1 when any of them is not what the header says. A script that
+||| exits 1 when any of them is not what the header says. A check that
 ||| expects a refusal by a rule without a header to hold it (the registry's
-||| broken entries, lib/profile.sh; the prelude's escape hatches,
-||| lib/prelude.sh) asks the same reader:
-|||
-|||     runtests --refused-by <report> <rule> [<file>]
+||| broken entries, Programs.idr; the prelude's escape hatches, Covers.idr)
+||| asks the same reader (`refusedAs`).
 module Reject
 
 import Data.List
@@ -174,16 +172,25 @@ compareWith h report output =
       checks = ruleLine :: lineLine :: messageLine
   in (map fst checks, all snd checks)
 
+||| A refused program held to its header: the lines of the comparison, and
+||| whether every one holds; a header that cannot be read is one line, why,
+||| which does not hold.
+export
+judged : (test : String) -> (report : String) -> (output : String) -> IO (List String, Bool)
+judged test reportPath output = do
+  main <- readOrDie (test ++ "/Main.idr")
+  case headerOf main of
+    Left why => pure ([why], False)
+    Right header => do
+      report <- reportOf <$> fromMaybe "" <$> readIfThere reportPath
+      pure (compareWith header report output)
+
 ||| `--reject <test> <report> <output>`.
 export
 reject : (test : String) -> (report : String) -> (output : String) -> IO ()
 reject test reportPath outputPath = do
-  main <- readOrDie (test ++ "/Main.idr")
-  let Right header = headerOf main
-    | Left why => do putStrLn why; exitFailure
-  report <- reportOf <$> fromMaybe "" <$> readIfThere reportPath
   output <- bytesIfThere outputPath
-  let (shown, holds) = compareWith header report output
+  (shown, holds) <- judged test reportPath output
   traverse_ putStrLn shown
   if holds then exitSuccess else exitFailure
 
@@ -197,20 +204,12 @@ within : Within -> Refusal -> Bool
 within Anywhere _ = True
 within (InFile f) r = map (.file) r.place == Just f
 
-||| `--refused-by <report> <rule> [<file>]`: the compilation was refused,
-||| with at least one error, and every error is by the rule (named by its
-||| phrase, read into the specification's rule once) and within the file
-||| when one is named; the status is 1 when not. A phrase that is no rule's
-||| fails the check and is named on stderr, which a failing test shows, so
-||| a stale phrase is found rather than read as a refusal not made.
+||| Whether a compilation was refused, with at least one error, and every
+||| error by the rule and within the file when one is named.
 export
-refusedBy : (report : String) -> (phrase : String) -> Within -> IO ()
-refusedBy reportPath phrase area = do
-  let Just rule = ruleNamed phrase
-    | Nothing => die (phrase ++ " is no rule's phrase")
+refusedAs : SomeRule -> Within -> (report : String) -> IO Bool
+refusedAs rule area reportPath = do
   report <- reportOf <$> fromMaybe "" <$> readIfThere reportPath
-  case report.verdict of
-    Just VerdictRefused =>
-      if not (null report.errors) && all (\r => byRule rule r && within area r) report.errors
-         then exitSuccess else exitFailure
-    _ => exitFailure
+  pure $ case report.verdict of
+    Just VerdictRefused => not (null report.errors) && all (\r => byRule rule r && within area r) report.errors
+    _ => False

@@ -16,53 +16,32 @@
 #
 # A program fixture may carry a mark, a file named for what it changes in
 # its compilation; what a run reads and gives, and the marks of one run,
-# are the files of a case (case_fields, e2e_case in e2e.sh). Any other file
-# but the test's own and its modules fails the test (fixture_files_known,
-# in e2e.sh, which holds the one list):
+# are the files of a case (Programs.idr, which holds the one list of
+# both). Any other file but the test's own and its modules fails the test:
 #
 #     heap-free       no op of the module that is lowered allocates a heap
-#                     cell (expect.sh, stage_options)
+#                     cell (Harness.idr, stageOptions)
 #     covers          the program uses every run-time export of the prelude
-#                     module the file names, as its module shows (prelude.sh)
-#     mlir.expect     the properties the program's stages hold (expect.sh)
+#                     module the file names, as its module shows (Covers.idr)
+#     mlir.expect     the properties the program's stages hold
 #
-# The helpers are in harness/lib, one file per concern, sourced below after
-# the limits, each after what it uses:
+# What the scripts share is the runner's (harness/*.idr, which Main.idr
+# lists), called by its shell name from harness/lib/harness.sh, the glue
+# that starts each tool a check needs; the rest of harness/lib, one file
+# per concern, is sourced below after the limits, each after what it uses:
 #
-#     harness.sh       the work directory, bounded commands, output, fixtures,
-#                      the packages a fixture names
-#     timing.sh        the record of every compilation's wall time
-#     rules.sh         the rules a refusal names, from the specification
-#     compile.sh       compiling a program, and the artifacts it leaves; a
-#                      C++ program over the pinned MLIR
-#     run.sh           running a compiled program
-#     heap.sh          the C library calls an e2e program's objects may make
-#     expect.sh        properties of a module by name (idr-expect), and of a
-#                      program's stages (mlir.expect)
-#     prelude.sh       a prelude module whose every export a program uses
-#     e2e.sh           the end-to-end programs, each compiled once and run on
-#                      each case, the generated semantics tests, and a refused
-#                      program's neighbour
-#     properties.sh    what holds of every compilation, off its dumps, as one line
-#     profile.sh       the profile's accept and reject fixtures
-#     determinism.sh   compilations at 1, 3, 5 and 13 threads and in a second
-#                      process, and one thread against the pool, byte for byte
-#     actions.sh       a program compiled again with a drawn set of the
-#                      optimizations' actions skipped keeps its verdict and
-#                      its cases
-#     lit.sh           the dialect tests' RUN lines
-#     differential.sh  %differential: two modules' programs agree on every input
+#     harness.sh       the work directory, a command bounded, the runner's
+#                      checks by name, and a RUN line's commands
 #     planted.sh       a repository rule on its planted witness and near
 #                      miss; a frontend built with a planted module
-#     fuzz.sh          the fuzzer
-#     idris-lex.sh     Idris source, code told from comments and strings
 #     cpp-lex.sh       C and C++ source, code told from comments and literals
 #     bench.sh         the benchmarks, built and run on small inputs
 
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 
 # No test can hang. Every command a test runs is bounded (`bounded`, in
-# lib/harness.sh) by step_limit seconds, and the whole run script by
+# lib/harness.sh, through which the runner starts each tool too) by
+# step_limit seconds, and the whole run script by
 # test_limit seconds: the first time this file is sourced, it runs the script
 # again under `timeout` and, if the script is killed, prints that it timed
 # out, which no expected output holds, so the test fails. A run script that
@@ -91,8 +70,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   exit "$deadline_status"
 fi
 
-for lib_file in harness timing rules compile run heap expect prelude properties e2e \
-                profile determinism actions lit differential planted fuzz idris-lex cpp-lex bench; do
+for lib_file in harness planted cpp-lex bench; do
   . "$root/harness/lib/$lib_file.sh"
 done
 unset lib_file

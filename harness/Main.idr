@@ -3,17 +3,18 @@
 ||| The golden test runner. It builds and runs under both hosts, the pinned
 ||| Idris on Chez and idris-mlir itself, so it depends on base and the
 ||| dialect's specification alone, and it creates no process: the runs are
-||| harness/runs.sh's, between the plan this writes and the tally it reads.
+||| harness/runs.sh's, between the plan this writes and the tally it reads,
+||| and a check that needs a tool asks the glue to start it (Serve.idr).
 |||
 ||| Every test is a directory of `tests/`, all at that one level, and its
 ||| kind is what it holds (`kindOf`): a `run` script is a scripted test; a
 ||| `Main.idr` without one is a compiled program, refused by one rule when
 ||| its first line is `-- expect: <rule>, line <n>`; one `.mlir` file and
-||| nothing to run it is a dialect fixture, whose RUN lines lit runs. The
-||| suite a test belongs to follows from its kind (a fixture is `test-idr`,
-||| anything else `test`), unless the test names another in a `suite` file,
-||| the one way any test declares one. A directory of `tests/` that is no
-||| test stops the runner: nothing sits there unread.
+||| nothing to run it is a dialect fixture, whose RUN lines Lit.idr runs.
+||| The suite a test belongs to follows from its kind (a fixture is
+||| `test-idr`, anything else `test`), unless the test names another in a
+||| `suite` file, the one way any test declares one. A directory of
+||| `tests/` that is no test stops the runner: nothing sits there unread.
 |||
 ||| harness/one.sh runs each test in a process of its own, in the test's
 ||| directory, and compares its stdout with its `expected`, or with the
@@ -35,40 +36,40 @@
 ||| A test may run once per parameter: `parameterized` names it, and it
 ||| runs as `<name>@<parameter>`, its run script given the parameter as `$2`.
 |||
-||| It also answers the scripts that need Idris:
+||| It also computes every check the run scripts share, under the names
+||| harness/lib/harness.sh gives them. Those that start a tool run as a
+||| session with the glue:
 |||
-|||     runtests --case-status <case>   how a case's run ends (Case.idr)
+|||     runtests --serve <dir> <check> <argument>...
+|||       compile-program|compile-checked [OPTION]... SOURCE OUTPUT
+|||       link-program ARG... | mlir-check WHAT SOURCE ARG... | copy-fixture FIXTURE DEST
+|||       e2e-io FIXTURE | sem-case NAME | near-neighbour FIXTURE   (Programs.idr)
+|||       profile-reject FIXTURE | registry-shadowed KEY CASE SOURCE MODULE NAME EDIT MAIN [OPTION]...
+|||       determinism FIXTURE [INPUT]... | determinism-threads FIXTURE   (Determinism.idr)
+|||       fuzz SEED | fuzz-lazy SEED   (FuzzRun.idr)
+|||       lit FILE | lit-fixture | lit-differential FILE BEFORE AFTER   (Lit.idr)
+|||
+||| and those that read files alone run by themselves:
+|||
+|||     runtests --show FILE... | --empty NAME FILE | --first-word FILE | --package-options DIR
+|||     runtests --artifact-files|--artifact-file DIR NAME KIND | --artifacts DIR NAME | --no-artifacts DIR
+|||     runtests --stage-options FIXTURE | --timing-rows REPORT | --idris-lex code|strings FILE
+|||     runtests --artifact-kinds | --runtime-fact <dev-prefix> NAME
+|||     runtests --lit-fails any|N STATUS STDERR CMD...
+|||                                     how a RUN line's command that is to fail failed
 |||     runtests --reject <test> <report> <output>
 |||                                     a refused program held to its header (Reject.idr)
-|||     runtests --refused-by <report> <rule> [<file>]
-|||                                     a compilation refused by that rule alone,
-|||                                     at places in the file when one is named
-|||     runtests --rules                every rule's phrase and its category's (Facts.idr)
-|||     runtests --trace-totals <trace> | --trace-units <trace>...
-|||                                     time traces summed (Trace.idr)
-|||     runtests --sem-program written|stdin <name>
-|||                                     the program of a semantics test, its
-|||                                     operands written in it or read
-|||     runtests --sem-cases <name> <dir>
-|||                                     the cases of its reading program,
-|||                                     those its guards stop among them
-|||     runtests --sem-expected <name>  the stdout its written program must print
+|||     runtests --rules | --rule-phrases [CATEGORY] | --rule-category PHRASE
+|||                                     every rule's phrase and its category's (Facts.idr)
 |||     runtests --linear-program <seed> <case> linear|twin|stdin|verdict | checks
 |||                                     a generated linear program, its
 |||                                     de-linearized twin, its input, the
 |||                                     verdict the rule predicts (Linear.idr)
 |||     runtests --linear-check <seed> <case> <status> <report>
 |||                                     a compilation held to that verdict
-|||     runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ...
-|||                                     a program or a case of the fuzzer (Fuzz.idr)
-|||     runtests --fuzz-check overran <request>
-|||     runtests --fuzz-check ending|agree|model|first|modelled <request> <stdout-file> <status> <stderr-file>
-|||                                     how a fuzzer program ran, checked (Fuzz.idr)
-|||     runtests --lazy-program <seed> <cases> main|stdin | checks
-|||                                     a program of the lazy fuzzer (Lazy.idr),
-|||                                     or its checker's own checks
-|||     runtests --lazy-check <seed> <cases> <stdout-file>
-|||                                     what it printed, checked against its model
+|||     runtests --fuzz-program <request> | --lazy-program <request>
+|||                                     a program of the fuzzers, or their
+|||                                     checkers' own checks (Fuzz.idr, Lazy.idr)
 |||     runtests --expect-table         idr-expect's table of properties, printed
 |||                                     from their records (Properties.idr)
 |||     runtests --scale-print <fixture> 1|2
@@ -76,9 +77,11 @@
 |||     runtests --scale-check <report> <trace> <report> <trace>
 |||                                     the two compilations held to the
 |||                                     scaling relation (Scale.idr)
-|||     runtests --runtime-effects      what each op that calls the runtime
-|||                                     declares, per runtime function
-|||                                     (RuntimeEffects.idr)
+|||     runtests --runtime-effects <module>
+|||                                     each op's declared effects held to its
+|||                                     runtime function (RuntimeEffects.idr)
+|||     runtests --trace-totals <trace> | --trace-units <trace>...
+|||                                     time traces summed (Trace.idr)
 |||     runtests --lock                 the check of toolchain.lock.json
 module Main
 
@@ -87,34 +90,36 @@ import Data.List
 import Data.Maybe
 import Data.SortedMap
 import Data.SortedSet
+import Data.So
 import Data.String
 import System
 import System.Directory
 import System.File
 
-import Case
+import Covers
+import Determinism
 import Facts
 import Files
 import Fuzz
+import FuzzRun
+import Harness
 import Lazy
+import Lex
 import Linear
+import Lit
 import Lock
+import Programs
 import Properties
 import Reject
 import Runner
 import RuntimeEffects
 import Scale
 import Sem
+import Serve
 import Trace
+import Universal
 
 %default covering
-
-isDirectory : String -> IO Bool
-isDirectory path = do
-  Right d <- openDir path
-    | Left _ => pure False
-  closeDir d
-  pure True
 
 ||| The names in a directory, sorted, but the hidden ones (a desktop's
 ||| `.DS_Store`, an editor's swap file), which no one put there as a test.
@@ -313,8 +318,8 @@ pools tests suite =
 ||| The repository root, IDRIS_MLIR_ROOT, which the Makefile exports to
 ||| every test command, as it does the host's names; without it the runner
 ||| refuses to start.
-root : IO String
-root = do
+repositoryRoot : IO String
+repositoryRoot = do
   Just r <- getEnv "IDRIS_MLIR_ROOT"
     | Nothing => do
         putStrLn "tests: IDRIS_MLIR_ROOT is unset; run the tests through make"
@@ -326,18 +331,27 @@ usage = unlines
   [ "usage: runtests --plan <results> <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list]"
   , "                [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]"
   , "       runtests --tally <results>"
-  , "       runtests --case-status <case>"
-  , "       runtests --reject <test> <report> <output> | --refused-by <report> <rule> [<file>] | --rules"
-  , "       runtests --trace-totals <trace> | --trace-units <trace>..."
-  , "       runtests --sem-program written|stdin <name> | --sem-cases <name> <dir> | --sem-expected <name> | --lock"
+  , "       runtests --serve <dir> compile-program|compile-checked [OPTION]... SOURCE OUTPUT"
+  , "       runtests --serve <dir> link-program ARG... | mlir-check WHAT SOURCE ARG... | copy-fixture FIXTURE DEST"
+  , "       runtests --serve <dir> e2e-io FIXTURE | sem-case NAME | near-neighbour FIXTURE"
+  , "       runtests --serve <dir> profile-reject FIXTURE | registry-shadowed KEY CASE SOURCE MODULE NAME shape|gone MAIN [OPTION]..."
+  , "       runtests --serve <dir> determinism FIXTURE [INPUT]... | determinism-threads FIXTURE"
+  , "       runtests --serve <dir> fuzz SEED | fuzz-lazy SEED"
+  , "       runtests --serve <dir> lit FILE | lit-fixture | lit-differential FILE BEFORE AFTER"
+  , "       runtests --show FILE... | --empty NAME FILE | --first-word FILE | --package-options DIR"
+  , "       runtests --artifact-files|--artifact-file DIR NAME module|objects|executable"
+  , "       runtests --artifacts DIR NAME | --no-artifacts DIR | --stage-options FIXTURE | --timing-rows REPORT"
+  , "       runtests --idris-lex code|strings FILE | --lit-fails any|N STATUS STDERR CMD..."
+  , "       runtests --artifact-kinds | --runtime-fact <dev-prefix> NAME"
+  , "       runtests --reject <test> <report> <output>"
+  , "       runtests --rules | --rule-phrases [CATEGORY] | --rule-category PHRASE"
+  , "       runtests --trace-totals <trace> | --trace-units <trace>... | --lock"
   , "       runtests --linear-program <seed> <case> linear|twin|stdin|verdict | --linear-program checks"
   , "       runtests --linear-check <seed> <case> <status> <report>"
   , "       runtests --expect-table | --scale-print <fixture> 1|2 | --scale-check <report> <trace> <report> <trace>"
-  , "       runtests --runtime-effects"
+  , "       runtests --runtime-effects <module>"
   , "       runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ..."
-  , "       runtests --fuzz-check overran <request> | ending|agree|model|first|modelled <request> <stdout-file> <status> <stderr-file>"
-  , "                (a request: program <seed> <cases> <part> | replay <tape> <part>)"
-  , "       runtests --lazy-program <seed> <cases> main|stdin | --lazy-program checks | --lazy-check <seed> <cases> <stdout-file>"
+  , "       runtests --lazy-program <seed> <cases> main|stdin | --lazy-program checks"
   ]
 
 ||| `--plan <results> <idris-mlir> <options>`: the runs the options select,
@@ -363,18 +377,58 @@ plan results args = do
      then putStr (unlines (selected >>= map fst . (.runs)))
      else writePlan results opts.threads notHere selected
 
-||| `--fuzz-check overran <request>`, or `--fuzz-check <how> <request>
-||| <stdout-file> <status> <stderr-file>`, the run's output and standard
-||| error read here, byte for byte.
-fuzzCheck : List String -> IO ()
-fuzzCheck ("overran" :: request) = maybe (die usage) putStr (Fuzz.overranOf request)
-fuzzCheck (how :: rest) = case [<] <>< rest of
-  request :< out :< status :< err => do
-    output <- bytesOrDie out
-    errors <- bytesOrDie err
-    maybe (die usage) putStr (Fuzz.checkOf how (request <>> []) (observed output status errors))
-  _ => die usage
-fuzzCheck [] = die usage
+||| The exit status of a check that answers with one.
+exitAs : Nat -> IO ()
+exitAs n =
+  let code = cast {to = Int} n in
+  case choose (not (code == 0)) of
+    Left nonZero => exitWith (ExitFailure code @{nonZero})
+    Right _ => exitSuccess
+
+||| A status a check reports as its own, the shell's number.
+exitWith' : Status -> IO ()
+exitWith' = exitAs . raw
+
+||| The last two words of a compilation's, its source and its output, and
+||| the options before them.
+compilation : List String -> Maybe (List String, String, String)
+compilation args = case [<] <>< args of
+  options :< source :< output => Just (options <>> [], source, output)
+  _ => Nothing
+
+||| `--serve <dir> <check> <argument>...`: the checks that start tools.
+serve : Env -> List String -> IO ()
+serve e ("compile-program" :: args) = case compilation args of
+  Just (options, source, output) => compileProgram e options source output >>= exitWith'
+  Nothing => die usage
+serve e ("compile-checked" :: args) = case compilation args of
+  Just (options, source, output) => compileChecked e options source output >>= exitWith'
+  Nothing => die usage
+serve e ("link-program" :: args) = linkProgram e args ToCaller (Apart ToCaller) >>= exitWith'
+serve e ("mlir-check" :: what :: source :: args) = mlirCheck e what source args
+serve e ["copy-fixture", fixture, dest] = copyFixture e fixture dest >>= exitWith'
+serve e ["e2e-io", fixture] = e2eIo e fixture
+serve e ["sem-case", name] = semCase e name
+serve e ["near-neighbour", fixture] = nearNeighbour e fixture
+serve e ["profile-reject", fixture] = profileReject e fixture
+serve e ("registry-shadowed" :: args) = fromMaybe (die usage) (registryShadowedOf e args)
+serve e ("determinism" :: fixture :: inputs) = determinism e fixture inputs
+serve e ["determinism-threads", fixture] = determinismThreads e fixture
+serve e ["fuzz", seed] = fuzz e seed
+serve e ["fuzz-lazy", seed] = fuzzLazy e seed
+serve e ["lit", file] = litLines e file >>= traverse_ (tell e)
+serve e ["lit-fixture"] = litFixture e
+serve e ("lit-differential" :: file :: modules) = litDifferential e file modules >>= exitAs
+serve _ _ = die usage
+
+||| `--lit-fails <want> <status> <stderr> <command>...`: the line of how the
+||| command did not fail as stated, if it did not, and status 1 then.
+litFailsCheck : (want, status, stderr : String) -> List String -> IO ()
+litFailsCheck want status stderr command = do
+  errors <- bytesIfThere stderr
+  case litFails want (fromMaybe 0 (parsePositive status)) errors command of
+    Nothing => exitSuccess
+    Just line => do putStrLn line; exitFailure
 
 main : IO ()
 main = do
@@ -382,32 +436,41 @@ main = do
   case drop 1 args of
     ("--plan" :: results :: _ :: rest) => plan results rest
     ["--tally", results] => tally results
-    ["--case-status", dir] => caseStatus dir
+    ("--serve" :: dir :: check) => withSession dir $ \s => do
+      tools <- toolsOf
+      serve (MkEnv tools s "") check
+    ("--show" :: files) => showFiles files
+    ["--empty", name, file] => emptiness name file
+    ["--first-word", file] => firstWord file >>= traverse_ putStrLn
+    ["--package-options", dir] => packageOptions dir >>= putStrLn . unwords
+    ["--artifact-files", dir, name, kind] =>
+      maybe (die usage) (\k => artifactFiles dir (buildNamed name) k >>= putStr . unlines) (kindNamed kind)
+    ["--artifact-file", dir, name, kind] =>
+      maybe (die usage) (\k => artifactFile dir (buildNamed name) k >>= traverse_ putStrLn) (kindNamed kind)
+    ["--artifacts", dir, name] => artifactLines dir name >>= putStr . unlines
+    ["--no-artifacts", dir] => noArtifactsLine dir >>= putStrLn
+    ["--stage-options", fixture] => stageOptions fixture >>= putStr . unlines
+    ["--artifact-kinds"] => putStrLn (unwords (map kindName artifactKinds))
+    ["--runtime-fact", devPrefix, name] =>
+      runtimeFact devPrefix name >>= either (\line => do putStrLn line; exitFailure) putStrLn
+    ["--timing-rows", report] => readOrDie report >>= putStr . unlines . timingRows
+    ["--idris-lex", mode, file] =>
+      maybe (die usage) (\m => readOrDie file >>= putStr . unlines . lexed m) (lexedNamed mode)
+    ("--lit-fails" :: want :: status :: stderr :: command) => litFailsCheck want status stderr command
     ["--reject", test, report, output] => reject test report output
-    ["--refused-by", report, rule] => refusedBy report rule Anywhere
-    ["--refused-by", report, rule, file] => refusedBy report rule (InFile file)
     ["--trace-totals", trace] => traceTotals trace
     ("--trace-units" :: traces@(_ :: _)) => traceUnits traces
-    ["--sem-program", given, name] =>
-      maybe (die ("no semantics test " ++ name)) putStr (givenOf given >>= \g => Sem.programOf g name)
-    ["--sem-cases", name, dir] => do
-      Right () <- Sem.writeCases name dir
-        | Left why => die why
-      pure ()
-    ["--sem-expected", name] =>
-      maybe (die ("no semantics test " ++ name)) putStr (expectedOf name)
     ("--fuzz-program" :: fuzz) => maybe (die usage) putStr (Fuzz.programOf fuzz)
-    ("--fuzz-check" :: check) => fuzzCheck check
     ("--linear-program" :: request) => maybe (die usage) putStr (Linear.programOf request)
     ["--linear-check", seed, n, status, report] => Linear.check seed n status report
     ("--lazy-program" :: request) => maybe (die usage) putStr (Lazy.programOf request)
-    ["--lazy-check", seed, n, file] => do
-      output <- bytesOrDie file
-      maybe (die usage) putStr (Lazy.checkOf [seed, n] output)
     ["--expect-table"] => putStr Properties.table
     ("--scale-print" :: request) => maybe (die usage) putStr (Scale.printOf request)
     ("--scale-check" :: files) => scaleCheck files
-    ["--runtime-effects"] => putStr (unlines effectLines)
-    ["--lock"] => Lock.check !root
+    ["--runtime-effects", module'] => readOrDie module' >>= putStr . unlines . heldLines
+    ["--lock"] => repositoryRoot >>= Lock.check
     ["--rules"] => putStr (unlines ruleLines)
+    ["--rule-phrases"] => putStr (unlines (rulePhrases Nothing))
+    ["--rule-phrases", category] => putStr (unlines (rulePhrases (Just category)))
+    ["--rule-category", phrase] => maybe exitFailure putStrLn (categoryOfPhrase phrase)
     _ => die usage

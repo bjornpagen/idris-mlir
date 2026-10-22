@@ -4,7 +4,7 @@
 ||| written four ways, whose values must agree with each other and, over
 ||| the integers, with what the builtins mean, and whose run must end as the
 ||| oracle says: returned, or crashed at the first case that reaches a
-||| guard that fails, by its cause (`fuzz` in harness/lib/fuzz.sh).
+||| guard that fails, by its cause (`fuzz`, FuzzRun.idr).
 |||
 |||     runtests --fuzz-program program <seed> <cases> runtime|static main|stdin
 |||     runtests --fuzz-program threads <seed>
@@ -12,12 +12,10 @@
 |||     runtests --fuzz-program replay <tape> runtime|static main|stdin
 |||     runtests --fuzz-program shrink <tape>
 |||     runtests --fuzz-program two-hosts
-|||     runtests --fuzz-check overran <request>
-|||     runtests --fuzz-check ending|agree|model|first|modelled <request> <stdout-file> <status> <stderr-file>
 |||
-||| where a check's request is `program <seed> <cases> runtime|static` or
-||| `replay <tape> runtime|static`, and the status is how the run ended as
-||| the shell saw it, `code <n>` or `signal <name>`.
+||| and checks a run of one: a check's request is `program <seed> <cases>
+||| runtime|static` or `replay <tape> runtime|static`, and the status is
+||| how the run ended as the shell saw it, `code <n>` or `signal <name>`.
 |||
 ||| A case is one expression, well typed by construction, which Gen draws on
 ||| the case's own seed (output n of splitmix64 from the program's seed), so
@@ -824,7 +822,7 @@ checked name part cs run =
       if contains n disagreed then Just (n, Disagrees)
       else if contains n missed then Just (n, MissesModel) else Nothing
 
-||| What `--fuzz-check` reports of a run.
+||| What a check reports of a run.
 data Check = OfEnding | OfAgreement | OfModel | OfFirst | OfModelled
 
 parseCheck : String -> Maybe Check
@@ -835,8 +833,8 @@ parseCheck "first" = Just OfFirst
 parseCheck "modelled" = Just OfModelled
 parseCheck _ = Nothing
 
-||| `runtests --fuzz-check overran <request>`: the first case of the
-||| request whose tape ran out, a valid case but not the one its seed drew,
+||| The check `overran` of a request: the first case of the request whose
+||| tape ran out, a valid case but not the one its seed drew,
 ||| as `<name>: overran: case <n>`, or nothing.
 export covering
 overranOf : List String -> Maybe String
@@ -846,9 +844,8 @@ overranOf request = do
     Just (n, _) => name ++ ": overran: case " ++ show n ++ "\n"
     Nothing => ""
 
-||| `runtests --fuzz-check ending|agree|model|first|modelled <request>
-||| <stdout-file> <status> <stderr-file>`, of the run's output, status and
-||| stderr: how the run's ending differs from the oracle's, the cases whose
+||| The checks `ending`, `agree`, `model`, `first` and `modelled` of a
+||| request, of the run's output, status and stderr: how the run's ending differs from the oracle's, the cases whose
 ||| lines disagree, the cases that miss their model, a line each, or the
 ||| first case that fails and how (`<n> ending`, `<n> agree` or `<n>
 ||| model`); or how many of the cases the run prints have a model, which
