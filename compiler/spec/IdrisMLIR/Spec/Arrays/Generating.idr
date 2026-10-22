@@ -13,6 +13,10 @@
 ||| destination model) and counting (its flow and its effects), and is then
 ||| its loops, made by upstream's `lowerToLoopsUsingSCFForOp` from the three
 ||| tiling methods it implements, in row-major order, the last axis fastest.
+||| An op whose region holds a call on its function's own cycle is made its
+||| loops earlier, on the counted program before the frames are made, as
+||| recursive join points from the same methods: frames split a join region
+||| and no region of this set, so the cycle's depth stays on their stacks.
 ||| Every other tiling method keeps its failing default, so nothing retiles
 ||| an order the program can observe. Its iterator types are its region's:
 ||| `parallel` on its frame where the region only computes, `reduction`

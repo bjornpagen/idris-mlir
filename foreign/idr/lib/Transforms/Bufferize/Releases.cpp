@@ -49,6 +49,14 @@ using namespace mlir::bufferization;
 
 namespace {
 
+// What a cell must claim of its sharing for the buffer one of its fields
+// holds to be the cell's alone, which may then be written in place:
+// everything the cell reaches unshared, since a claim of its own cells
+// alone does not reach the storage of a buffer it holds. Should that claim
+// come to cover a held buffer's storage, never its elements, only this
+// constant changes.
+constexpr idr::Unique bufferClaim = idr::Unique::Deep;
+
 // Whether `region` runs again after each run of it, by its op's model.
 bool isRepetitive(Region *region, const BufferizationOptions &options) {
   BufferizableOpInterface op = options.dynCastBufferizableOp(region->getParentOp());
@@ -194,14 +202,19 @@ bool idr::bufferize::isRelease(OpOperand &operand, const AnalysisState &state) {
 void idr::bufferize::prepare(Operation *program, const BufferizationOptions &options) {
   IRRewriter rewriter(program->getContext());
 
-  // A buffer read out of a cell whose grade claims its own family's cells
-  // unshared, as a deep claim does too, is the cell's alone, so the tensor
-  // upstream's to_tensor makes of it, the only one of that buffer
-  // (`restrict`), is writable: One-Shot copies it only where the program
-  // reads it again. The tensor takes the buffer at its own grade, which
-  // claims nothing, so a share may stand between them; it forgets the claim
-  // of a value something else may also read, so it is looked through only
-  // where it is the field's one reader and its result the tensor's alone.
+  // A buffer read out of a cell whose grade makes bufferClaim is the
+  // cell's alone, so the tensor upstream's to_tensor makes of it, the only
+  // one of that buffer (`restrict`), is writable: One-Shot copies it only
+  // where the program reads it again. Every operation of a linear array
+  // has this form: it opens the cell, runs on the array the field holds
+  // and rebuilds the cell through to_buffer and data.con, so an array whose
+  // cell makes the claim is written in place. The field is read with no
+  // claim of its own (the array is unrestricted to the program), so the
+  // claim read is the cell's. The tensor takes the buffer at its own grade,
+  // which claims nothing, so a share may stand between them; it forgets the
+  // claim of a value something else may also read, so it is looked through
+  // only where it is the field's one reader and its result the tensor's
+  // alone.
   auto alone = [](Value value) {
     return llvm::all_of(idr::linearPositions(value), [](Value at) { return at.hasOneUse(); });
   };
@@ -215,7 +228,7 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
       read = idr::throughLinear(share.getValue());
     }
     auto field = read.getDefiningOp<idr::DataFieldOp>();
-    if (field && idr::claims(field.getValue().getType(), idr::Unique::Self))
+    if (field && idr::claims(field.getValue().getType(), bufferClaim))
       rewriter.modifyOpInPlace(tensor, [&] { tensor.setWritable(true); });
   });
 

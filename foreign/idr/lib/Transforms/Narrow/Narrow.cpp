@@ -103,7 +103,8 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     Changed changed = decideJoints(facts, decided);
 
     // One pass over the steps, in the walk's order: a joint's arguments
-    // become words as it is entered, so what runs inside reads them; its
+    // become words as it is entered, and a literal match on a big that fits
+    // matches its word, so what runs inside reads them; its
     // results and what it passes as it is left, after everything inside;
     // every other op that takes or gives a big when it is reached, after
     // every op that gave it its operands.
@@ -112,7 +113,12 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     applicator.applyDefaultCostModel();
     for (const Step &step : facts.steps())
       match(
-          step, [&](const Enter &in) { enter(rewriter, facts, decided, in); },
+          step,
+          [&](const Enter &in) {
+            enter(rewriter, facts, decided, in);
+            if (succeeded(applicator.matchAndRewrite(in.joint, rewriter)))
+              changed = Changed::Yes;
+          },
           [&](const Leave &out) { leave(rewriter, facts, decided, out); },
           [&](const Word &reached) {
             rewriter.step = &reached;

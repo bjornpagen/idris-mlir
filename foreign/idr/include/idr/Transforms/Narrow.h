@@ -232,6 +232,8 @@ mlir::Value word(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value);
 // The big of type `type` whose value is `word`, which fits a small: it
 // holds no reference, so counting skips it.
 mlir::Value big(mlir::OpBuilder &b, mlir::Location loc, mlir::Type type, mlir::Value word);
+// Retypes the big block argument `arg` to i64: its uses get the big of it.
+void narrowArgument(mlir::RewriterBase &rewriter, mlir::BlockArgument arg);
 
 // What is decided: the values of the webs the joints carry, before the
 // rewrite (decideJoints); the results of each op made its word op, which
@@ -266,7 +268,8 @@ public:
 
 // The patterns of the ops with a word form, MLIR's dispatch on them, each
 // rooted at its op (Ops.cpp): every big op whose word op the ODS names
-// (BigToWord), a guard, and counting. Built once per pass.
+// (BigToWord), a guard, counting, and a literal match, applied as the walk
+// enters it. Built once per pass.
 void populateWordPatterns(mlir::RewritePatternSet &patterns);
 
 // Whether `loop` is vectorized, as its ops say.

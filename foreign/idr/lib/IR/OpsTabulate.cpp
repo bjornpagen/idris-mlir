@@ -80,7 +80,7 @@ LogicalResult ArrayTabulateOp::generateScalarImplementation(OpBuilder &b, Locati
 // index by the yield.
 void ArrayTabulateOp::getFlowEdges(FlowEdges &edges) {
   for (auto [out, array] : llvm::zip_equal(getOutsMutable(), getArrays()))
-    edges.flow(FlowPoint::of(out), FlowPoint::of(array));
+    edges.flow(FlowSource::of(out), FlowPlace::of(array));
 }
 
 ValueRange ArrayTabulateOp::getYieldTargets() {

@@ -134,9 +134,9 @@ LogicalResult ArrayFoldLastOp::generateScalarImplementation(OpBuilder &b, Locati
 // holds there, then what the step before gave, which the yield moves in.
 void ArrayFoldLastOp::getFlowEdges(FlowEdges &edges) {
   for (auto [init, result] : llvm::zip_equal(getInitsMutable(), getResults()))
-    edges.flow(FlowPoint::of(init), FlowPoint::of(result));
+    edges.flow(FlowSource::of(init), FlowPlace::of(result));
   for (auto [init, accumulator] : llvm::zip_equal(getInits(), getAccumulators()))
-    edges.flow(elementsOf(init), atIndex(accumulator));
+    edges.flow(FlowSource::partOf(init, elementsOf(init)), atIndex(accumulator));
 }
 
 ValueRange ArrayFoldLastOp::getYieldTargets() {
@@ -268,11 +268,11 @@ LogicalResult ArrayScanLastOp::generateScalarImplementation(OpBuilder &b, Locati
 // theirs.
 void ArrayScanLastOp::getFlowEdges(FlowEdges &edges) {
   for (auto [out, result] : llvm::zip_equal(getOutsMutable(), getResults()))
-    edges.flow(FlowPoint::of(out), FlowPoint::of(result));
+    edges.flow(FlowSource::of(out), FlowPlace::of(result));
   for (auto [init, accumulator] : llvm::zip_equal(getInits(), getAccumulators()))
-    edges.flow(elementsOf(init), atIndex(accumulator));
+    edges.flow(FlowSource::partOf(init, elementsOf(init)), atIndex(accumulator));
   for (auto [out, accumulator] : llvm::zip_equal(getYieldTargets(), getAccumulators()))
-    edges.flow(elementsOf(out), atIndex(accumulator));
+    edges.flow(FlowSource::partOf(out, elementsOf(out)), atIndex(accumulator));
 }
 
 ValueRange ArrayScanLastOp::getYieldTargets() {
@@ -317,5 +317,5 @@ MutableOperandRange ArrayYieldOp::getMutableSuccessorOperands(RegionSuccessor) {
 void ArrayYieldOp::getFlowEdges(FlowEdges &edges) {
   ValueRange targets = cast<YieldTargetsOpInterface>((*this)->getParentOp()).getYieldTargets();
   for (auto [value, target] : llvm::zip_equal(getValuesMutable(), targets))
-    edges.flow(atIndex(value), elementsOf(target));
+    edges.flow(atIndex(value), FlowPlace::partOf(target, elementsOf(target)));
 }

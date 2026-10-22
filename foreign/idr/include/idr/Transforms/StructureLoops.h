@@ -12,6 +12,11 @@
 // upstream's lowerToLoopsUsingSCFForOp, from the op's own tiling methods,
 // in row-major order. Which form an op takes reads the op alone.
 //
+// An op whose region holds a call on its function's own cycle is made its
+// loops on the counted program, before the frames are made, as join points
+// (joinCycles), from the same tiling methods: frames split a join region,
+// and no other region of the generating set.
+//
 //===----------------------------------------------------------------------===//
 
 #ifndef IDR_TRANSFORMS_STRUCTURELOOPS_H
@@ -19,6 +24,7 @@
 
 #include "idr/IR/Arrays.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -28,6 +34,8 @@
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <concepts>
 
 namespace idr {
 #define GEN_PASS_DECL_IDRSTRUCTURELOOPS
@@ -99,6 +107,37 @@ mlir::Value readCell(mlir::OpBuilder &b, mlir::Location loc, mlir::Value array,
 // dimensions (at no index, the cell itself).
 mlir::Value writeCell(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, mlir::Value array,
                       mlir::ValueRange indices);
+
+// `op`, an op of the generating set on buffers, made its loops as join
+// points: one idr.loop per dimension of its domain, in row-major order,
+// each entered at 0 and turning while its index is below its dimension's
+// size, the step its own tiling method makes at the indices. The calls the
+// step moves are decided again where they now stand.
+mlir::LogicalResult joinLoops(mlir::RewriterBase &rewriter, mlir::DestinationStyleOpInterface op);
+
+// Every op of the generating set in `fn` whose region holds a call that
+// `onCycle` says runs a function of `fn`'s own cycle, made its join-point
+// loops, run where the program is counted and before its frames are made.
+// An op inside another is made its loops first, so the outer op's step
+// clones loops already, and no op is visited twice.
+template <typename OnCycle>
+  requires std::predicate<OnCycle &, CallOp>
+mlir::LogicalResult joinCycles(mlir::RewriterBase &rewriter, FuncOp fn, OnCycle &&onCycle) {
+  footprint::Vector<mlir::DestinationStyleOpInterface> holding;
+  fn->walk<mlir::WalkOrder::PostOrder>([&](mlir::Operation *op) {
+    if (!arrays::isGenerating(op))
+      return;
+    if (op->walk([&](CallOp call) {
+            return onCycle(call) ? mlir::WalkResult::interrupt() : mlir::WalkResult::advance();
+          })
+            .wasInterrupted())
+      holding.push_back(llvm::cast<mlir::DestinationStyleOpInterface>(op));
+  });
+  for (mlir::DestinationStyleOpInterface op : holding)
+    if (mlir::failed(joinLoops(rewriter, op)))
+      return mlir::failure();
+  return mlir::success();
+}
 
 } // namespace idr::structure
 

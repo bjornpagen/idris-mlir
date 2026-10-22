@@ -36,20 +36,20 @@ bool sameLead(ShapedType a, ShapedType b, unsigned lead) {
          a.getShape().take_front(lead) == b.getShape().take_front(lead);
 }
 
-FlowPoint elementsOf(Value array) {
+FlowAnchor elementsOf(Value array) {
   auto shaped = cast<ShapedType>(unrestricted(array.getType()));
-  return FlowPoint::partOf(array, FlowAnchor::elementsOf(shaped.getElementType()));
+  return FlowAnchor::elementsOf(shaped.getElementType());
 }
 
-FlowPoint atIndex(OpOperand &use) {
+FlowSource atIndex(OpOperand &use) {
   if (auto cell = dyn_cast<ShapedType>(use.get().getType()))
-    return FlowPoint::partOf(use, FlowAnchor::elementsOf(cell.getElementType()));
-  return FlowPoint::of(use);
+    return FlowSource::partOf(use, FlowAnchor::elementsOf(cell.getElementType()));
+  return FlowSource::of(use);
 }
-FlowPoint atIndex(Value value) {
+FlowPlace atIndex(Value value) {
   if (isa<ShapedType>(value.getType()))
-    return elementsOf(value);
-  return FlowPoint::of(value);
+    return FlowPlace::partOf(value, elementsOf(value));
+  return FlowPlace::of(value);
 }
 
 bool onContents(const effects::Effect &each) {

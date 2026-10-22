@@ -3,11 +3,13 @@
 // An op whose bigs all fit made an op on words. Each pattern is rooted at
 // its op, so MLIR finds the one for the op the rewrite is at; it decides on
 // the numbers of what the op took and gave as the walk met it, which the
-// bigs standing in for them share, and then rewrites.
+// bigs standing in for them share, and then rewrites. A literal match is a
+// joint, met as the walk enters it, before anything its regions hold.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Lifetimes.h"
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Narrow.h"
@@ -227,6 +229,58 @@ struct NarrowCount : OpRewritePattern<OpT> {
   }
 };
 
+// A literal match on a big matches its word when every key is a word and
+// the value its default binds, the scrutinee none of the keys, fits a
+// small: the scrutinee is then a word wherever the match reads it. Its
+// keys become words, and its default binds the word, whose uses read the
+// big of it, which holds no reference. The match reads its scrutinee in
+// place and takes nothing of it. The bound asked is the default's binding,
+// a value of the joint the walk numbered, as the rewrite enters the joint
+// before any op of its regions is rewritten.
+struct NarrowLiteralMatch : OpRewritePattern<LitMatchOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(LitMatchOp match, PatternRewriter &base) const override {
+    WordRewriter &rewriter = at(base);
+    Value scrutinee = match.getScrutinee();
+    if (!isBig(scrutinee.getType()))
+      return failure();
+    BlockArgument refined = match.getDefaultRegion().getArgument(0);
+    ValueId binding = rewriter.facts.at(refined);
+    if (!rewriter.facts.fits(binding))
+      return failure();
+    // A big's and a natural's keys are big literals, as their types say.
+    SmallVector<Attribute> keys;
+    for (Attribute key : match.getCases()) {
+      const APInt &value = cast<BigAttr>(key).getValue();
+      if (value.getSignificantBits() > 64)
+        return failure();
+      keys.push_back(rewriter.getI64IntegerAttr(value.getSExtValue()));
+    }
+    // A binding of a view lived in the lifetime the match states for it,
+    // the last it states, since only its default binds; a word lives in
+    // none.
+    SmallVector<Value> outers(match.getOuters());
+    if (borrowed(refined))
+      outers.pop_back();
+    bool done = support::perform<NarrowWordAction>(match, [&] {
+      rewriter.setInsertionPoint(match);
+      Value small = word(rewriter, match.getLoc(), scrutinee);
+      rewriter.modifyOpInPlace(match, [&] {
+        match.getScrutineeMutable().set(small);
+        match.setCasesAttr(rewriter.getArrayAttr(keys));
+        lifetimes::restateOuters(cast<StatesOutersOpInterface>(match.getOperation()), outers);
+      });
+      narrowArgument(rewriter, refined);
+    });
+    if (!done)
+      return failure();
+    // The binding is now made of a word, so counting it counts nothing.
+    (void)rewriter.decided.computed.raise(binding);
+    return success();
+  }
+};
+
 // One NarrowArith rooted at each op of `OpTs`.
 template <typename... OpTs>
 void addArith(RewritePatternSet &patterns) {
@@ -240,8 +294,8 @@ void populateWordPatterns(RewritePatternSet &patterns) {
 #define GET_BIG_TO_WORD_LIST
 #include "idr/IR/Generated/BigToWord.h.inc"
       >(patterns);
-  patterns.add<NarrowGuard, NarrowCount<CountDupOp>, NarrowCount<CountDropOp>>(
-      patterns.getContext());
+  patterns.add<NarrowGuard, NarrowCount<CountDupOp>, NarrowCount<CountDropOp>,
+               NarrowLiteralMatch>(patterns.getContext());
 }
 
 } // namespace idr::narrow

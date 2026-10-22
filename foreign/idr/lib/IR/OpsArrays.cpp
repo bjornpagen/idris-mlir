@@ -104,15 +104,17 @@ LogicalResult ArrayNewOp::reifyResultShapes(OpBuilder &, ReifiedRankedShapedType
 // through a write, which releases the element it replaces; a read borrows
 // it, the reference a reader keeps being counting's to take.
 void ArrayNewOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowPoint::of(getFillMutable()), elementsOf(getArray()));
+  edges.flow(FlowSource::of(getFillMutable()),
+             FlowPlace::partOf(getArray(), elementsOf(getArray())));
   edges.fresh(getArray());
 }
 void ArrayGetOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(elementsOf(getArray()), FlowPoint::of(getValue()));
+  edges.flow(FlowSource::partOf(getArray(), elementsOf(getArray())), FlowPlace::of(getValue()));
 }
 void ArraySetOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowPoint::of(getValueMutable()), elementsOf(getArray()));
-  edges.overwrite(elementsOf(getArray()));
+  edges.flow(FlowSource::of(getValueMutable()),
+             FlowPlace::partOf(getArray(), elementsOf(getArray())));
+  edges.overwrite(getArray(), elementsOf(getArray()));
 }
 
 //===----------------------------------------------------------------------===//
@@ -174,7 +176,8 @@ void ArrayUpdateOp::getRegionInvocationBounds(ArrayRef<Attribute>,
 // The element moves out of its place into the region, whose end moves the
 // rebuilt one back in.
 void ArrayUpdateOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(elementsOf(getArray()), FlowPoint::of(getRegion().front().getArgument(0)));
+  edges.flow(FlowSource::partOf(getArray(), elementsOf(getArray())),
+             FlowPlace::of(getRegion().front().getArgument(0)));
 }
 
 ValueRange ArrayUpdateOp::getYieldTargets() { return getODSOperands(0); }
@@ -187,7 +190,8 @@ MutableOperandRange ArrayUpdateYieldOp::getMutableSuccessorOperands(RegionSucces
 // The rebuilt element moves back into its place.
 void ArrayUpdateYieldOp::getFlowEdges(FlowEdges &edges) {
   auto update = cast<ArrayUpdateOp>((*this)->getParentOp());
-  edges.flow(FlowPoint::of(getElementMutable()), elementsOf(update.getArray()));
+  edges.flow(FlowSource::of(getElementMutable()),
+             FlowPlace::partOf(update.getArray(), elementsOf(update.getArray())));
 }
 
 //===----------------------------------------------------------------------===//
@@ -212,6 +216,6 @@ LogicalResult ArrayReadOp::verify() {
 // The array given back is the array; the element is borrowed from it, the
 // reference a reader keeps being counting's to take.
 void ArrayReadOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowPoint::of(getArrayMutable()), FlowPoint::of(getAfter()));
-  edges.flow(elementsOf(getArray()), FlowPoint::of(getValue()));
+  edges.flow(FlowSource::of(getArrayMutable()), FlowPlace::of(getAfter()));
+  edges.flow(FlowSource::partOf(getArray(), elementsOf(getArray())), FlowPlace::of(getValue()));
 }

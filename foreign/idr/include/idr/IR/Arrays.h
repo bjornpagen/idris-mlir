@@ -47,13 +47,14 @@ mlir::Type cellOf(mlir::ShapedType array, unsigned lead);
 // size where both are static, both dynamic otherwise.
 bool sameLead(mlir::ShapedType a, mlir::ShapedType b, unsigned lead);
 
-// The elements of `array`, a part of it.
-FlowPoint elementsOf(mlir::Value array);
+// The part of `array` that holds its elements.
+FlowAnchor elementsOf(mlir::Value array);
 
 // What a value at an index of an array is: an element, or the elements of
-// a cell, a part of the cell.
-FlowPoint atIndex(mlir::OpOperand &use);
-FlowPoint atIndex(mlir::Value value);
+// a cell, a part of the cell. An operand's is where it moves from, a value
+// the op or its region makes where it moves to.
+FlowSource atIndex(mlir::OpOperand &use);
+FlowPlace atIndex(mlir::Value value);
 
 // Whether an effect may reach memory written in place: a read, a write or
 // a release on contents or on a state above it. An allocation names a

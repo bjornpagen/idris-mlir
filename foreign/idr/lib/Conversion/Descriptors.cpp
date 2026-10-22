@@ -9,6 +9,7 @@
 #include "idr/IR/Layout.h"
 #include "idr/Conversion/Arrays.h"
 #include "idr/Conversion/Words.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Conversion/LLVMCommon/MemRefBuilder.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -17,6 +18,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 
+#include <concepts>
 #include <optional>
 
 // The runtime's ABI, printed from the specification: the bytes of an
@@ -31,11 +33,6 @@ namespace idr::conversion {
 namespace {
 
 Attribute word(OpBuilder &b, int64_t value) { return b.getI64IntegerAttr(value); }
-
-// Whether the value carries `field` as a component of its own.
-bool carries(const layout::DescriptorField &field) {
-  return std::holds_alternative<layout::Carried>(field);
-}
 
 // The row-major strides of `sizes`: the product of the sizes after each.
 SmallVector<OpFoldResult> rowMajor(OpBuilder &b, Location loc, ArrayRef<OpFoldResult> sizes) {
@@ -87,10 +84,9 @@ Descriptor unpack(OpBuilder &b, Location loc, MemRefType type, ValueRange compon
   layout::DescriptorFields fields = layout::DescriptorFields::of(type);
   auto next = components.begin();
   auto read = [&](const layout::DescriptorField &field) {
-    return std::visit(llvm::makeVisitor(
-                          [&](layout::Fixed fixed) { return OpFoldResult(word(b, fixed.value)); },
-                          [&](layout::Carried) { return OpFoldResult(*next++); }),
-                      field);
+    return match(
+        field, [&](layout::Fixed fixed) { return OpFoldResult(word(b, fixed.value)); },
+        [&](layout::Carried) { return OpFoldResult(*next++); });
   };
   Descriptor d;
   d.cell = *next++;
@@ -104,9 +100,11 @@ Descriptor unpack(OpBuilder &b, Location loc, MemRefType type, ValueRange compon
 SmallVector<Value> pack(OpBuilder &b, Location loc, MemRefType type, const Descriptor &d) {
   layout::DescriptorFields fields = layout::DescriptorFields::of(type);
   SmallVector<Value> components{d.cell};
+  // A field the type fixes is no component; a carried one is the next.
   auto carry = [&](const layout::DescriptorField &field, OpFoldResult value) {
-    if (carries(field))
-      components.push_back(asWord(b, loc, value));
+    match(
+        field, [](layout::Fixed) {},
+        [&](layout::Carried) { components.push_back(asWord(b, loc, value)); });
   };
   carry(fields.offset, d.offset);
   for (auto [field, size] : llvm::zip_equal(fields.sizes, d.sizes))
@@ -136,9 +134,9 @@ SmallVector<Value> componentsOf(OpBuilder &b, Location loc, MemRefType type, Val
   layout::DescriptorFields fields = layout::DescriptorFields::of(type);
   // Only the fields the components hold are read.
   SmallVector<Value> components{descriptor.allocatedPtr(b, loc)};
-  auto carry = [&](const layout::DescriptorField &field, auto read) {
-    if (carries(field))
-      components.push_back(read());
+  auto carry = [&](const layout::DescriptorField &field, std::invocable auto read) {
+    match(
+        field, [](layout::Fixed) {}, [&](layout::Carried) { components.push_back(read()); });
   };
   carry(fields.offset, [&] { return descriptor.offset(b, loc); });
   for (auto [k, size] : llvm::enumerate(fields.sizes))

@@ -29,16 +29,6 @@ struct NarrowJointAction : support::TaggedAction<NarrowJointAction> {
   static constexpr std::string_view tag = ::idr::actions::narrowJoint;
 };
 
-// Retypes the big block argument `arg` to i64: its uses get the big of it.
-void narrowArgument(RewriterBase &rewriter, BlockArgument arg) {
-  Type type = arg.getType();
-  rewriter.modifyOpInPlace(arg.getOwner()->getParentOp(),
-                           [&] { arg.setType(rewriter.getI64Type()); });
-  rewriter.setInsertionPointToStart(arg.getOwner());
-  Value made = big(rewriter, arg.getLoc(), type, arg);
-  rewriter.replaceAllUsesExcept(arg, made, made.getDefiningOp());
-}
-
 // Retypes the big result `result` to i64: its uses get the big of it.
 void narrowResult(RewriterBase &rewriter, OpResult result) {
   Type type = result.getType();
@@ -76,6 +66,15 @@ bool givenByTailCall(const Facts &facts, const Pass &pass) {
 }
 
 } // namespace
+
+void narrowArgument(RewriterBase &rewriter, BlockArgument arg) {
+  Type type = arg.getType();
+  rewriter.modifyOpInPlace(arg.getOwner()->getParentOp(),
+                           [&] { arg.setType(rewriter.getI64Type()); });
+  rewriter.setInsertionPointToStart(arg.getOwner());
+  Value made = big(rewriter, arg.getLoc(), type, arg);
+  rewriter.replaceAllUsesExcept(arg, made, made.getDefiningOp());
+}
 
 // A web is carried when every value it becomes and every value forwarded
 // into it fits, and nothing forwarded into it is what a tail call gives.

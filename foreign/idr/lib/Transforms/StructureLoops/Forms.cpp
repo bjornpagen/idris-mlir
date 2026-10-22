@@ -6,7 +6,8 @@
 // arrays of words, keeps a parallel dimension parallel; a fold's ordered
 // dimension becomes a reduction only where each combiner is one integer op
 // whose law lets it run in any order. A float sum keeps its order on every
-// target. Every other op stays as it is, for its loops.
+// target. Every other op stays as it is, for its loops, and so does an op
+// whose region calls.
 //
 // The facts each form rests on are the IR's: effects through the region's
 // own (the iterator types), the laws through the combining op, and the
@@ -16,6 +17,7 @@
 #include "idr/Transforms/StructureLoops.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
@@ -59,6 +61,17 @@ bool overWords(Operation *op) {
                 return other ? WalkResult::interrupt() : WalkResult::advance();
               })
               .wasInterrupted();
+}
+
+// Whether `op`'s region makes a call. No linalg body that calls is
+// vectorized, and a call on its function's own cycle must stand where
+// frames can split it, in the op's join-point loops, which a pass on one
+// function cannot tell from any other call: so a region that calls keeps
+// its op for its loops.
+bool calls(Operation *op) {
+  return op->getRegion(0)
+      .walk([](CallOpInterface) { return WalkResult::interrupt(); })
+      .wasInterrupted();
 }
 
 // Whether each next accumulator of `fold` is one associative and
@@ -126,7 +139,7 @@ Form formOf(Operation *op) {
   SmallVector<utils::IteratorType> iterators = cast<TilingInterface>(op).getLoopIteratorTypes();
   auto rank = static_cast<unsigned>(iterators.size());
   auto frame = static_cast<unsigned>(llvm::count(iterators, utils::IteratorType::parallel));
-  if (frame == 0 || !overWords(op))
+  if (frame == 0 || !overWords(op) || calls(op))
     return Form::Ordered;
   if (frame == rank)
     return Form::Parallel;
