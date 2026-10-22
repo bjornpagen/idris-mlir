@@ -9,6 +9,7 @@
 
 #include "idr/Transforms/Columns.h"
 
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Pipeline.h"
 
@@ -42,7 +43,7 @@ namespace {
 // one conversion; the unit is the program.
 struct ColumnsConvertAction : idr::support::TaggedAction<ColumnsConvertAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-columns-convert";
+  static constexpr std::string_view tag = ::idr::actions::columnsConvert;
 };
 
 struct Columns : idr::impl::IdrColumnsBase<Columns> {

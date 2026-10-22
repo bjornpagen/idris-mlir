@@ -38,7 +38,9 @@
 // no bound narrows; the copy is cloned into the version, and the function
 // itself is never analysed.
 
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -72,7 +74,7 @@ namespace {
 // is the scf.for.
 struct NarrowLanesVersionAction : support::TaggedAction<NarrowLanesVersionAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-narrow-lanes-version";
+  static constexpr std::string_view tag = ::idr::actions::narrowLanesVersion;
 };
 
 // The exponents of the bounds tried: below 2^31 every index fits i32, and
@@ -227,7 +229,7 @@ struct NarrowLanes : idr::impl::IdrNarrowLanesBase<NarrowLanes> {
     // The loops are found first, inner ones first, and versioned after:
     // each is outermost, so none holds another, and a version's copies
     // are no loops of the list.
-    SmallVector<scf::ForOp> loops;
+    footprint::Vector<scf::ForOp> loops;
     getOperation()->walk([&](scf::ForOp loop) {
       if (outermostOnWideLanes(loop))
         loops.push_back(loop);

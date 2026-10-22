@@ -22,8 +22,11 @@
 #include "idr/Analysis/Ranges.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -57,7 +60,7 @@ namespace {
 // reads; the unit is the function.
 struct NarrowFoldAction : support::TaggedAction<NarrowFoldAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-narrow-fold";
+  static constexpr std::string_view tag = ::idr::actions::narrowFold;
 };
 
 // The word rewrite of one function, solved under the summaries idr-narrow
@@ -105,7 +108,7 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     // a word that every reader now takes as the word, with each cast of
     // such a big into or out of a linear position, and a big constant whose
     // readers now read its word), these ops and no other.
-    SmallVector<Operation *> conversions;
+    footprint::Vector<Operation *> conversions;
     auto conversion = [&](Operation *op) {
       return op && (facts.made(op) || isa<BigSmallOp, BigFromSIntOp, BigFromUIntOp>(op) ||
                     (isa<ConstantOp>(op) && isBig(op->getResult(0).getType())));
@@ -132,7 +135,7 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     bool changed = false;
     (void)support::perform<NarrowFoldAction>(fn, [&] {
       OperationFolder folder(&getContext());
-      SmallVector<Operation *> kept;
+      footprint::Vector<Operation *> kept;
       for (Operation *op : conversions) {
         bool inPlace = false;
         if (succeeded(folder.tryToFold(op, &inPlace))) {

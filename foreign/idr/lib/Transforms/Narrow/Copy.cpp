@@ -5,6 +5,7 @@
 // function's arguments, so the analysis sees no bound on them but the
 // stand-ins', and each trial solves one loop, not its whole function.
 
+#include "idr/IR/Effects/Whole.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "mlir/Analysis/DataFlow/IntegerRangeAnalysis.h"

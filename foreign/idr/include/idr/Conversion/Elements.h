@@ -13,9 +13,18 @@
 #include "idr/Conversion/Runtime.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace idr::conversion {
+
+// The address of the element at `indices`, each an `index`, of a buffer of
+// `type` whose components are `components` and whose element is laid out
+// as `element`: every access to a buffer's element, of mutable memory or of
+// a value array, a step's movements among them, addresses it here.
+mlir::Value elementAddress(mlir::OpBuilder &b, mlir::Location loc, const Runtime &runtime,
+                           mlir::MemRefType type, mlir::ValueRange components,
+                           const layout::Element &element, mlir::ValueRange indices);
 
 // The alignment of an element's start: the cell's elements start at a word,
 // and each is the stride after the one before.

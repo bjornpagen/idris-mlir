@@ -27,12 +27,12 @@
 #define IDR_TRANSFORMS_COLUMNS_H
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Remake.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
@@ -109,8 +109,9 @@ public:
 
 private:
   bool splits(DataType data) const;
-  // The records an array of which some data type of the program holds.
-  llvm::DenseSet<mlir::Type> held;
+  // The records an array of which some data type of the program holds,
+  // each once, sorted by their uniqued storage.
+  footprint::Vector<mlir::Type> held;
 };
 
 // The conversion: arrays of records, at any grade, to their columns, with

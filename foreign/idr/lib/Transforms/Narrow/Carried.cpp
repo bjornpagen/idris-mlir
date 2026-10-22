@@ -5,6 +5,7 @@
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Narrow.h"
 
@@ -27,7 +28,7 @@ namespace {
 // idr-narrow makes one joint's carried bigs words; the unit is the joint op.
 struct NarrowJointAction : support::TaggedAction<NarrowJointAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-narrow-joint";
+  static constexpr std::string_view tag = ::idr::actions::narrowJoint;
 };
 
 // Retypes the big block argument `arg` to i64: its uses get the big of it.

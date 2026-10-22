@@ -15,6 +15,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 
 #include <optional>
 
@@ -69,6 +70,10 @@ Value asIndex(OpBuilder &b, Location loc, OpFoldResult field) {
   if (auto attr = dyn_cast<Attribute>(field))
     return arith::ConstantIndexOp::create(b, loc, cast<IntegerAttr>(attr).getInt());
   return arith::IndexCastOp::create(b, loc, b.getIndexType(), cast<Value>(field));
+}
+
+SmallVector<Value> indicesOf(ArrayRef<ValueRange> indices) {
+  return llvm::map_to_vector(indices, [](ValueRange index) { return index.front(); });
 }
 
 Value countOf(OpBuilder &b, Location loc, ArrayRef<OpFoldResult> sizes) {

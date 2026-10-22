@@ -3,7 +3,9 @@
 // An op whose bigs all fit made an op on words.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Narrow.h"
 
@@ -28,7 +30,7 @@ namespace {
 // apply-pattern attempts a pattern; the unit is the op.
 struct NarrowWordAction : support::TaggedAction<NarrowWordAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-narrow-word";
+  static constexpr std::string_view tag = ::idr::actions::narrowWord;
 };
 
 arith::IntegerOverflowFlags noWrap(bool nonNegative) {

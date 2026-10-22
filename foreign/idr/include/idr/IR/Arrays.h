@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The rules the ops on arrays share, each said once: what an array holds at
-// an index, where an element moves, what a region of the generating set
-// must end in and bind, the bounds of the indices it binds, and how a step
-// of a generating op on buffers moves what it reads and gives
-// (lib/IR/OpsGenerating.cpp defines them); and a read and a write of one
-// element made its update, the skeleton rule on mutable memory and the
-// step on a value array's buffers (lib/IR/OpsArrays.cpp).
+// an index, where an element moves, what memory an element's update may not
+// touch, what a region of the generating set must end in and bind, and the
+// bounds of the indices it binds (lib/IR/OpsArrayRules.cpp defines them);
+// how a step of a generating op on buffers moves what it reads and gives
+// (lib/IR/OpsArrayMovements.cpp); and a read and a write of one element made
+// its update, the skeleton rule on mutable memory and the step on a value
+// array's buffers (lib/IR/OpsArrayFusion.cpp).
 #ifndef IDR_IR_ARRAYS_H
 #define IDR_IR_ARRAYS_H
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Effects/Classify.h"
 #include "idr/Transforms/EGraph.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -52,6 +54,16 @@ FlowPoint elementsOf(mlir::Value array);
 // a cell, a part of the cell.
 FlowPoint atIndex(mlir::OpOperand &use);
 FlowPoint atIndex(mlir::Value value);
+
+// Whether an effect may reach memory written in place: a read, a write or
+// a release on contents or on a state above it. An allocation names a
+// fresh value, which nothing else reaches.
+bool onContents(const effects::Effect &each);
+
+// Whether `op`, with everything in it, may touch memory written in place,
+// or does what MLIR cannot say: what no op inside an update's region may
+// do, since the element's place is empty while it runs.
+bool touchesInPlace(mlir::Operation *op);
 
 // A region of the generating set is entered from the op and from its own
 // end, each time it ends for an index, and left from the op when the
@@ -127,7 +139,7 @@ llvm::SmallVector<mlir::utils::IteratorType> iteratorsOf(mlir::Operation *op, un
 bool computes(mlir::Operation *op);
 
 // What one step of a generating op on buffers moves, each a movement the
-// lowering writes once (lib/Conversion/Arrays.cpp). A slot of a buffer
+// lowering writes once (lib/Conversion/Movements.cpp). A slot of a buffer
 // holds an element; a cell's slots are the elements under its leading
 // indices.
 //

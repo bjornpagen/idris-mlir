@@ -1,19 +1,17 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The cells memrefs live in, which the runtime allocates or which are
-// constants; mutable memory's reads, writes and updates in place; and the
-// three movements a step of a generating op makes in its buffers (take,
-// copy, place). A memref's runtime form is Descriptors.cpp's, an element's
-// place Elements.cpp's, and the other ops on buffers Memrefs.cpp's. An
-// access tests nothing itself: its index is within the array, by its type
-// or by the guard before it.
+// constants; and mutable memory's reads, writes and updates in place, with
+// a value array's buffer's updates. A memref's runtime form is
+// Descriptors.cpp's, an element's place and address Elements.cpp's, a
+// step's movements Movements.cpp's, and the other ops on buffers
+// Memrefs.cpp's. An access tests nothing itself: its index is within the
+// array, by its type or by the guard before it.
 //
 // A read borrows its element: the reference a reader keeps is counting's
 // to take, placed before the lowering. A write releases what it replaces
 // and a new array's fill is taken once per element, the runtime meaning of
-// mutable memory. A step's place puts a value where its slots hold nothing,
-// so it releases nothing; a cell of a step is moved slot by slot. A copy
-// placed in a buffer allocated for it releases nothing either.
+// mutable memory.
 //
 // No cell is filled before its first write: each maker writes every element
 // whole before anything reads, releases or frees the cell (a new array its
@@ -30,7 +28,6 @@
 #include "idr/Conversion/Runtime.h"
 #include "idr/Conversion/Words.h"
 
-#include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -39,20 +36,14 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/MathExtras.h"
 
-#include <type_traits>
-
 using namespace mlir;
 
 namespace idr::conversion {
 
-namespace {
-
-// A new cell of `count` elements of `element`, from the runtime: fresh
-// memory, which no other pointer reaches, its elements unwritten, which its
-// maker writes before anything reads, releases or frees them. Fresh is said
-// at the call (the runtime's definition replaces the declaration's
-// attributes when it is linked in), so that a loop over two arrays keeps
-// what it accumulates in a register across the reads of the other.
+// Fresh is said at the call (the runtime's definition replaces the
+// declaration's attributes when it is linked in), so that a loop over two
+// arrays keeps what it accumulates in a register across the reads of the
+// other.
 Value newCell(OpBuilder &b, Location loc, Runtime &runtime, Value count,
               const layout::Element &element) {
   LLVM::CallOp cell = runtime.call(b, loc, idr::runtime::helper::arrayNewUnwritten,
@@ -61,6 +52,8 @@ Value newCell(OpBuilder &b, Location loc, Runtime &runtime, Value count,
       b.getNamedAttr(LLVM::LLVMDialect::getNoAliasAttrName(), b.getUnitAttr()))));
   return cell.getResult();
 }
+
+namespace {
 
 // A buffer's cell: as many elements as the product of the extents, a
 // product past 64 bits being UINT64_MAX, which the runtime finds too large
@@ -167,49 +160,6 @@ struct LowerArrayNew : IdrPattern<ArrayNewOp> {
   }
 };
 
-// The memref type upstream's getStridedElementPtr addresses an element of
-// `type` through, `element` its layout: `type` itself, whose element the
-// descriptors converter gives as what an element holds (a word as itself,
-// an element of ours as its bytes), so the address steps by the element's
-// stride. An element that is itself an array is what the converter cannot
-// give: it gives an array as the descriptor a value of it is in a
-// function, while an element holds its components (Layouts::element), two
-// runtime forms of one type that no conversion of the type alone tells
-// apart. Only mutable memory holds an array (a value array holds no shaped
-// element), and its layout is the identity of rank 1 at most, whose strides
-// its type fixes: it is addressed as a view of the same cell's bytes, each
-// stride scaled by the element's.
-MemRefType addressedAs(MemRefType type, const layout::Element &element) {
-  if (!isa<ShapedType>(type.getElementType()))
-    return type;
-  auto [strides, offset] = type.getStridesAndOffset();
-  auto scaled = [&](int64_t elements) { return elements * static_cast<int64_t>(element.stride); };
-  MLIRContext *ctx = type.getContext();
-  return MemRefType::get(
-      type.getShape(), IntegerType::get(ctx, 8),
-      StridedLayoutAttr::get(ctx, scaled(offset), llvm::map_to_vector(strides, scaled)),
-      type.getMemorySpace());
-}
-
-// The address of the element at `indices`, each an index converted to a
-// word, of a buffer of `type` whose components are `components`: upstream's
-// strided address over its descriptor.
-Value elementAddress(OpBuilder &b, Location loc, const Runtime &runtime, MemRefType type,
-                     ValueRange components, const layout::Element &element,
-                     ValueRange indices) {
-  SmallVector<Value> words =
-      llvm::map_to_vector(indices, [&](Value index) { return indexWord(b, loc, index); });
-  const LLVMTypeConverter &descriptors = runtime.llvmTypeConverter();
-  Value descriptor = descriptorOf(b, loc, descriptors.convertType(type), type, components);
-  return LLVM::getStridedElementPtr(b, loc, descriptors, addressedAs(type, element), descriptor,
-                                    words, LLVM::GEPNoWrapFlags::inbounds);
-}
-
-// Each index of a converted operand group, one value each.
-SmallVector<Value> indicesOf(ArrayRef<ValueRange> indices) {
-  return llvm::map_to_vector(indices, [](ValueRange index) { return index.front(); });
-}
-
 // An element of mutable memory, borrowed: the array keeps its reference.
 struct LowerArrayGet : IdrPattern<ArrayGetOp> {
   using IdrPattern::IdrPattern;
@@ -304,175 +254,19 @@ struct LowerUpdateYield : IdrPattern<ArrayUpdateYieldOp> {
   }
 };
 
-// What a step moves, and how: out of slots that then hold nothing (take),
-// out with references of its own, the slots keeping theirs (copy), or into
-// slots that hold nothing (place). A cell is moved element by element, its
-// slots under the step's leading indices.
-enum class Movement { Take, Copy, Place };
-
-// The element at `from` moved to `to`, as `movement` moves it; `type` the
-// element's.
-void moveElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts,
-                 Movement movement, Value from, Value to, const layout::Element &element,
-                 Type type) {
-  SmallVector<Value> value = readElement(b, loc, runtime, from, element);
-  placeElement(b, loc, runtime, to, element, value);
-  if (movement != Movement::Take)
-    runtime.inc(b, loc, layouts.components(type), value);
-}
-
-// The cell under `lead` leading indices of a buffer of `type`,
-// `components` its runtime form: its extents, the buffer's trailing ones.
-struct CellOf {
-  SmallVector<OpFoldResult> sizes;
-};
-CellOf cellOf(OpBuilder &b, Location loc, MemRefType type, ValueRange components,
-              size_t lead) {
-  Descriptor d = unpack(b, loc, type, components);
-  return {SmallVector<OpFoldResult>(ArrayRef(d.sizes).drop_front(lead))};
-}
-
-// Each element of a cell of `sizes`, its index within the cell given to
-// `each` inside a loop nest in row-major order.
-template <typename Each>
-  requires std::is_invocable_v<Each, OpBuilder &, ValueRange>
-void forEachElement(OpBuilder &b, Location loc, ArrayRef<OpFoldResult> sizes, Each &&each) {
-  SmallVector<Value> lower, upper, steps;
-  for (OpFoldResult size : sizes) {
-    lower.push_back(arith::ConstantIndexOp::create(b, loc, 0));
-    upper.push_back(asIndex(b, loc, size));
-    steps.push_back(arith::ConstantIndexOp::create(b, loc, 1));
-  }
-  scf::buildLoopNest(b, loc, lower, upper, steps,
-                     [&](OpBuilder &at, Location, ValueRange ivs) { each(at, ivs); });
-}
-
-// A fresh cell of `cellType` with the extents `sizes`: the runtime's cell,
-// and each dynamic extent.
-SmallVector<Value> freshCell(OpBuilder &b, Location loc, Runtime &runtime, MemRefType cellType,
-                             ArrayRef<OpFoldResult> sizes, const layout::Element &element) {
-  Value cell = newCell(b, loc, runtime, countOf(b, loc, sizes), element);
-  Descriptor d{cell, b.getI64IntegerAttr(0), SmallVector<OpFoldResult>(sizes), {}};
-  return pack(b, loc, cellType, d);
-}
-
-// A take or a copy: what the slots under the op's indices hold, an element
-// or a fresh cell of the elements under them.
-template <typename OpT, Movement movement>
-struct LowerMoveOut : IdrPattern<OpT> {
-  using IdrPattern<OpT>::IdrPattern;
-  LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    auto type = cast<MemRefType>(op.getBuffer().getType());
-    Type elementType = type.getElementType();
-    layout::Element element = this->layouts.element(elementType);
-    SmallVector<Value> indices = indicesOf(adaptor.getIndices());
-    auto cellType = dyn_cast<MemRefType>(op.getValue().getType());
-    if (!cellType) {
-      Value from = elementAddress(rewriter, loc, this->runtime, type, adaptor.getBuffer(), element,
-                                  indices);
-      SmallVector<Value> value = readElement(rewriter, loc, this->runtime, from, element);
-      if constexpr (movement == Movement::Copy)
-        this->runtime.inc(rewriter, loc, this->layouts.components(elementType), value);
-      rewriter.replaceOpWithMultiple(op, {value});
-      return success();
-    }
-    CellOf cell = cellOf(rewriter, loc, type, adaptor.getBuffer(), indices.size());
-    SmallVector<Value> made =
-        freshCell(rewriter, loc, this->runtime, cellType, cell.sizes, element);
-    forEachElement(rewriter, loc, cell.sizes, [&](OpBuilder &b, ValueRange ivs) {
-      SmallVector<Value> at(indices);
-      llvm::append_range(at, ivs);
-      Value from = elementAddress(b, loc, this->runtime, type, adaptor.getBuffer(), element, at);
-      Value to = elementAddress(b, loc, this->runtime, cellType, made, element, ivs);
-      moveElement(b, loc, this->runtime, this->layouts, movement, from, to, element, elementType);
-    });
-    rewriter.replaceOpWithMultiple(op, {made});
-    return success();
-  }
-};
-
-// A place: the value into the slots under the op's indices, which hold
-// nothing. A cell's elements are copied in, each with a reference of its
-// own, and the cell's own reference is given up: whether another value
-// shares the cell is known only at run time, from its count, and a cell no
-// one else holds is freed, its elements losing the references the copy
-// gave them back.
-struct LowerArrayPlace : IdrPattern<ArrayPlaceOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ArrayPlaceOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    auto type = cast<MemRefType>(op.getBuffer().getType());
-    Type elementType = type.getElementType();
-    layout::Element element = layouts.element(elementType);
-    SmallVector<Value> indices = indicesOf(adaptor.getIndices());
-    auto cellType = dyn_cast<MemRefType>(op.getValue().getType());
-    if (!cellType) {
-      Value to = elementAddress(rewriter, loc, runtime, type, adaptor.getBuffer(), element, indices);
-      placeElement(rewriter, loc, runtime, to, element, adaptor.getValue());
-      rewriter.eraseOp(op);
-      return success();
-    }
-    ValueRange value = adaptor.getValue();
-    CellOf cell = cellOf(rewriter, loc, cellType, value, 0);
-    forEachElement(rewriter, loc, cell.sizes, [&](OpBuilder &b, ValueRange ivs) {
-      SmallVector<Value> at(indices);
-      llvm::append_range(at, ivs);
-      Value from = elementAddress(b, loc, runtime, cellType, value, element, ivs);
-      Value to = elementAddress(b, loc, runtime, type, adaptor.getBuffer(), element, at);
-      moveElement(b, loc, runtime, layouts, Movement::Copy, from, to, element, elementType);
-    });
-    runtime.dec(rewriter, loc, layout::Word::Cell, value.front());
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-// A copy placed in a buffer allocated for it: each element of the source
-// moved into the target's slot at its index, which holds nothing, with a
-// reference of its own; the source keeps its own, and nothing is released.
-// A copy of words is upstream's copy: a slot of words holds nothing to
-// release, so placing it and writing over it are one write.
-struct LowerArrayPlaceCopy : IdrPattern<ArrayPlaceCopyOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ArrayPlaceCopyOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    auto from = cast<MemRefType>(op.getSource().getType());
-    auto to = cast<MemRefType>(op.getTarget().getType());
-    Type elementType = from.getElementType();
-    layout::Element element = layouts.element(elementType);
-    if (llvm::none_of(element.slots, [](const layout::Slot &slot) { return slot.counted(); })) {
-      rewriter.replaceOpWithNewOp<memref::CopyOp>(op, op.getSource(), op.getTarget());
-      return success();
-    }
-    CellOf cell = cellOf(rewriter, loc, to, adaptor.getTarget(), 0);
-    forEachElement(rewriter, loc, cell.sizes, [&](OpBuilder &b, ValueRange ivs) {
-      Value at = elementAddress(b, loc, runtime, from, adaptor.getSource(), element, ivs);
-      Value into = elementAddress(b, loc, runtime, to, adaptor.getTarget(), element, ivs);
-      moveElement(b, loc, runtime, layouts, Movement::Copy, at, into, element, elementType);
-    });
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
 } // namespace
 
 // The patterns of the cells memrefs live in, constant or allocated, of
-// mutable memory, of the elements of a buffer rebuilt in place, of a
-// step's movements, and of a fresh buffer's placed copy.
+// mutable memory, of the elements of a buffer rebuilt in place, and of a
+// step's movements and a fresh buffer's placed copy (Movements.cpp).
 void populateArrayPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                            const Layouts &layouts, Runtime &runtime,
                            const DenseMap<StringAttr, ConstantArray> &arrays) {
   MLIRContext *ctx = patterns.getContext();
   patterns.add<LowerAlloc, LowerArrayNew, LowerArrayGet, LowerArraySet, LowerUpdate,
-               LowerUpdateYield, LowerMoveOut<ArrayTakeOp, Movement::Take>,
-               LowerMoveOut<ArrayCopyOp, Movement::Copy>, LowerArrayPlace, LowerArrayPlaceCopy>(
-      converter, ctx, layouts, runtime);
+               LowerUpdateYield>(converter, ctx, layouts, runtime);
   patterns.add<LowerGetGlobal>(converter, ctx, layouts, runtime, arrays);
+  populateMovementPatterns(patterns, converter, layouts, runtime);
 }
 
 } // namespace idr::conversion

@@ -3,6 +3,7 @@
 // What a vectorized loop computes on, what it reads from outside, and how
 // often it runs.
 
+#include "idr/IR/Effects/Whole.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "llvm/ADT/SetVector.h"

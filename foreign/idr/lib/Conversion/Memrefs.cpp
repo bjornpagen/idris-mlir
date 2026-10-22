@@ -62,25 +62,17 @@ Value inFrame(OpBuilder &b, Location loc, Operation *op, Value descriptor) {
   return slot;
 }
 
-// The address of the element a memref.load or memref.store names:
-// upstream's strided address over the buffer's descriptor, at the indices
-// as words.
+// The address of the element a memref.load or memref.store names, and the
+// layout of what it holds.
 template <typename OpT>
 std::pair<Value, layout::Element> elementAt(OpT op,
                                             typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                             ConversionPatternRewriter &rewriter,
                                             const Layouts &layouts, const Runtime &runtime) {
-  Location loc = op.getLoc();
   MemRefType type = op.getMemRefType();
   layout::Element element = layouts.element(type.getElementType());
-  SmallVector<Value> indices;
-  for (ValueRange index : adaptor.getIndices())
-    indices.push_back(indexWord(rewriter, loc, index.front()));
-  const LLVMTypeConverter &descriptors = runtime.llvmTypeConverter();
-  Value descriptor =
-      descriptorOf(rewriter, loc, descriptors.convertType(type), type, adaptor.getMemref());
-  Value address = LLVM::getStridedElementPtr(rewriter, loc, descriptors, type, descriptor,
-                                             indices, LLVM::GEPNoWrapFlags::inbounds);
+  Value address = elementAddress(rewriter, op.getLoc(), runtime, type, adaptor.getMemref(),
+                                 element, indicesOf(adaptor.getIndices()));
   return {address, std::move(element)};
 }
 

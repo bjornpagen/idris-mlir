@@ -93,9 +93,24 @@ mlir::Value elementsOf(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell)
 mlir::Value indexWord(mlir::OpBuilder &b, mlir::Location loc, mlir::Value index);
 mlir::Value asIndex(mlir::OpBuilder &b, mlir::Location loc, mlir::OpFoldResult field);
 
+// Each index of a converted operand group, one value each.
+llvm::SmallVector<mlir::Value> indicesOf(llvm::ArrayRef<mlir::ValueRange> indices);
+
 // The number of elements `sizes` cover, as an i64.
 mlir::Value countOf(mlir::OpBuilder &b, mlir::Location loc,
                     llvm::ArrayRef<mlir::OpFoldResult> sizes);
+
+// A new cell of `count` elements of `element`, from the runtime: fresh
+// memory, which no other pointer reaches, its elements unwritten, which its
+// maker writes before anything reads, releases or frees them.
+mlir::Value newCell(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime, mlir::Value count,
+                    const layout::Element &element);
+
+// The patterns of the three movements a step makes in its buffers and of a
+// fresh buffer's placed copy (Movements.cpp), which the array patterns add.
+void populateMovementPatterns(mlir::RewritePatternSet &patterns,
+                              const mlir::TypeConverter &converter, const Layouts &layouts,
+                              Runtime &runtime);
 
 } // namespace idr::conversion
 

@@ -94,17 +94,30 @@ SmallVector<ReassociationIndices> expansionOf(tensor::InsertSliceOp insert) {
 
 } // namespace
 
-// Each value enters the partition once, joined with each value an aliasing
-// relation names, and the values of the program are finitely many.
 idr::bufferize::AliasClasses::AliasClasses(Operation *program,
-                                           const BufferizationOptions &options) {
+                                           const BufferizationOptions &options)
+    : classes(components(related(program, options))) {}
+
+std::uint32_t idr::bufferize::AliasClasses::numberOf(Value value) {
+  auto [at, made] = number.try_emplace(value, static_cast<std::uint32_t>(values.size()));
+  if (made)
+    values.push_back(value);
+  return at->second;
+}
+
+// Each tensor value is numbered, with each value an aliasing relation names
+// beside it, and the relations are kept as pairs of numbers until the walk
+// has numbered every value; the values of the program are finitely many.
+idr::Csr<idr::bufferize::AliasedValue>
+idr::bufferize::AliasClasses::related(Operation *program, const BufferizationOptions &options) {
   AnalysisState state(options);
+  footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> relations;
   auto join = [&](Value value) {
     if (!isa<TensorLikeType>(value.getType()))
       return;
-    classes.insert(value);
+    std::uint32_t at = numberOf(value);
     for (AliasingOpOperand alias : state.getAliasingOpOperands(value))
-      classes.unionSets(value, alias.opOperand->get());
+      relations.emplace_back(at, numberOf(alias.opOperand->get()));
   };
   program->walk([&](Operation *op) {
     for (Value result : op->getResults())
@@ -116,14 +129,22 @@ idr::bufferize::AliasClasses::AliasClasses(Operation *program,
     for (OpOperand &operand : op->getOpOperands())
       if (isa<TensorLikeType>(operand.get().getType()))
         for (AliasingValue alias : state.getAliasingValues(operand))
-          classes.unionSets(operand.get(), alias.value);
+          relations.emplace_back(numberOf(operand.get()), numberOf(alias.value));
   });
+  CsrBuilder<AliasedValue> graph(Count<Node>(static_cast<std::uint32_t>(values.size())));
+  for (auto [from, to] : relations) {
+    graph.edge(Node(from), Node(to));
+    graph.edge(Node(to), Node(from));
+  }
+  return std::move(graph).finish();
 }
 
-llvm::iterator_range<llvm::EquivalenceClasses<Value>::member_iterator>
-idr::bufferize::AliasClasses::sharers(Value value) const {
-  auto leader = classes.findLeader(value);
-  return llvm::make_range(leader, classes.member_end());
+// Every tensor value the walk met has its number: a release's value is an
+// operand of the program, a result or a block argument the walk numbered.
+SmallVector<Value> idr::bufferize::AliasClasses::sharers(Value value) const {
+  Node at(number.find(value)->second);
+  return llvm::map_to_vector(classes.members(classes.componentOf(at)),
+                             [&](Node member) { return values[member.index()]; });
 }
 
 bool idr::bufferize::mayRunAfter(Operation *later, Operation *earlier, Value value,
@@ -181,7 +202,7 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
   // inserts read their destination.
   {
     AnalysisState state(options);
-    SmallVector<tensor::InsertSliceOp> whole;
+    footprint::Vector<tensor::InsertSliceOp> whole;
     program->walk([&](tensor::InsertSliceOp insert) {
       if (idr::holdsReferences(insert.getType().getElementType()) &&
           !state.bufferizesToMemoryRead(insert.getDestMutable()))
@@ -213,7 +234,7 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
 
   AnalysisState state(options);
   AliasClasses aliases(program, options);
-  SmallVector<OpOperand *> releases;
+  footprint::Vector<OpOperand *> releases;
   program->walk([&](Operation *op) {
     for (OpOperand &operand : op->getOpOperands())
       if (isRelease(operand, state))
@@ -223,8 +244,7 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
     Operation *releaser = release->getOwner();
     // The sharers are read whole before any use changes: a write given an
     // empty tensor of its own leaves the partition the program had.
-    SmallVector<Value> sharers = llvm::to_vector(aliases.sharers(release->get()));
-    for (Value sharer : sharers) {
+    for (Value sharer : aliases.sharers(release->get())) {
       if (!isa<RankedTensorType>(sharer.getType()))
         continue;
       for (OpOperand *use : usesOf(sharer))
@@ -238,7 +258,7 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
   // a write-only use's own among them, is placed slot by slot, no slot
   // released: it is an allocation of its own, which empty-tensor
   // elimination never makes a slice of an array whose slots hold elements.
-  SmallVector<tensor::EmptyOp> fresh;
+  footprint::Vector<tensor::EmptyOp> fresh;
   program->walk([&](Operation *op) {
     if (!idr::arrays::isGenerating(op))
       return;

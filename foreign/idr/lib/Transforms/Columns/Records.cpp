@@ -11,10 +11,14 @@
 #include "idr/Transforms/StructureLoops.h"
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 
+#include <algorithm>
+#include <functional>
 #include <type_traits>
+#include <utility>
 
 using namespace mlir;
 
@@ -29,40 +33,54 @@ RankedTensorType columnOf(ArrayRef<int64_t> dims, Type leaf) {
   return RankedTensorType::get(dims, leaf);
 }
 
-// Every data type a type reaches, through grades, arrays and the fields of
-// data types, each once.
-void reach(Type type, llvm::DenseSet<Type> &seen, SmallVectorImpl<DataType> &found) {
-  type = unrestricted(type);
-  if (auto array = dyn_cast<ShapedType>(type))
-    return reach(array.getElementType(), seen, found);
-  auto data = dyn_cast<DataType>(type);
-  if (!data || !seen.insert(data).second)
-    return;
-  found.push_back(data);
-  for (Tag tag : data.possibleTags())
-    for (Type field : data.ctor(tag).fields)
-      reach(field, seen, found);
+// Types in the order of their uniqued storage: a total order that says
+// nothing of the program, by which a sorted list of types answers whether
+// it holds one.
+bool before(Type a, Type b) {
+  return std::less<const void *>()(a.getAsOpaquePointer(), b.getAsOpaquePointer());
 }
 
 } // namespace
 
 Records::Records(ProgramOp program) {
+  // Every data type the program's values reach, through grades, arrays and
+  // the fields of data types, each once. A chain of data types each holding
+  // the next is as deep as the program's types, so the types still to
+  // visit are a stack of their own, drained after each op.
   llvm::DenseSet<Type> seen;
-  SmallVector<DataType> found;
+  footprint::Vector<DataType> found;
+  footprint::Vector<Type> pending;
+  auto reach = [&] {
+    while (!pending.empty()) {
+      Type type = unrestricted(pending.back());
+      pending.pop_back();
+      if (auto array = dyn_cast<ShapedType>(type)) {
+        pending.push_back(array.getElementType());
+        continue;
+      }
+      auto data = dyn_cast<DataType>(type);
+      if (!data || !seen.insert(data).second)
+        continue;
+      found.push_back(data);
+      for (Tag tag : data.possibleTags())
+        llvm::append_range(pending, data.ctor(tag).fields);
+    }
+  };
   program->walk([&](Operation *op) {
-    for (Type type : op->getResultTypes())
-      reach(type, seen, found);
+    llvm::append_range(pending, op->getResultTypes());
     for (Region &region : op->getRegions())
       for (Block &block : region)
-        for (BlockArgument arg : block.getArguments())
-          reach(arg.getType(), seen, found);
+        llvm::append_range(pending, block.getArgumentTypes());
+    reach();
   });
   for (DataType data : found)
     for (Tag tag : data.possibleTags())
       for (Type field : data.ctor(tag).fields)
         if (auto array = dyn_cast<ShapedType>(unrestricted(field)))
           if (isa<DataType>(array.getElementType()))
-            held.insert(array.getElementType());
+            held.push_back(array.getElementType());
+  llvm::sort(held, before);
+  held.erase(std::unique(held.begin(), held.end()), held.end());
 }
 
 // Whether the record `data` splits: no data type of the program holds an
@@ -75,7 +93,7 @@ Records::Records(ProgramOp program) {
 // record never holds itself but through a cell, so the leaves are found by
 // structure.
 bool Records::splits(DataType data) const {
-  if (held.contains(data) || data.memo() || data.closures() || data.declaredCount() != 1)
+  if (std::binary_search(held.begin(), held.end(), Type(data), before) || data.memo() || data.closures() || data.declaredCount() != 1)
     return false;
   ArrayRef<Type> fields = data.ctor(Record::tag).fields;
   if (fields.empty())
@@ -92,14 +110,28 @@ std::optional<Record> Records::recordOf(Type type) const {
   return Record{data};
 }
 
+// A record nests records as deep as the program's types, so each walk of
+// one below keeps the records it is inside on a stack of its own, each with
+// the next of its fields, in field order.
 void Records::leavesOf(Type type, SmallVectorImpl<Type> &leaves) const {
   std::optional<Record> record = recordOf(type);
   if (!record) {
     leaves.push_back(type);
     return;
   }
-  for (Type field : record->fields())
-    leavesOf(field, leaves);
+  SmallVector<std::pair<Record, unsigned>> inside{{*record, 0}};
+  while (!inside.empty()) {
+    auto &[at, next] = inside.back();
+    if (next == at.fields().size()) {
+      inside.pop_back();
+      continue;
+    }
+    Type field = at.fields()[next++];
+    if (std::optional<Record> inner = recordOf(field))
+      inside.push_back({*inner, 0});
+    else
+      leaves.push_back(field);
+  }
 }
 
 void Records::columnsOf(RankedTensorType array, SmallVectorImpl<Type> &columns) const {
@@ -115,13 +147,28 @@ void Records::columnsOf(RankedTensorType array, SmallVectorImpl<Type> &columns) 
 
 SmallVector<Value> Records::takeApart(OpBuilder &b, Location loc, Value value,
                                       Record record) const {
-  auto con = value.getDefiningOp<DataConOp>();
+  // A value being taken apart: its record, the idr.data.con that built it,
+  // if one did, whose fields it gives, and its next field.
+  struct Apart {
+    Record record;
+    Value value;
+    DataConOp con;
+    unsigned next;
+  };
   SmallVector<Value> leaves;
-  for (auto [index, field] : llvm::enumerate(record.fields())) {
-    auto at = static_cast<unsigned>(index);
-    Value given = con ? con.getFields()[at] : DataFieldOp::create(b, loc, value, at).getResult();
+  SmallVector<Apart> inside{{record, value, value.getDefiningOp<DataConOp>(), 0}};
+  while (!inside.empty()) {
+    Apart &top = inside.back();
+    if (top.next == top.record.fields().size()) {
+      inside.pop_back();
+      continue;
+    }
+    unsigned at = top.next++;
+    Type field = top.record.fields()[at];
+    Value given =
+        top.con ? top.con.getFields()[at] : DataFieldOp::create(b, loc, top.value, at).getResult();
     if (std::optional<Record> inner = recordOf(field))
-      llvm::append_range(leaves, takeApart(b, loc, given, *inner));
+      inside.push_back({*inner, given, given.getDefiningOp<DataConOp>(), 0});
     else
       leaves.push_back(given);
   }
@@ -129,16 +176,32 @@ SmallVector<Value> Records::takeApart(OpBuilder &b, Location loc, Value value,
 }
 
 Value Records::build(OpBuilder &b, Location loc, Record record, ValueRange &leaves) const {
-  SmallVector<Value> fields;
-  for (Type field : record.fields()) {
-    if (std::optional<Record> inner = recordOf(field)) {
-      fields.push_back(build(b, loc, *inner, leaves));
+  // A value being built: its record and the fields it has so far; an inner
+  // record is built before the one that holds it.
+  struct Building {
+    Record record;
+    SmallVector<Value> fields;
+  };
+  SmallVector<Building> inside;
+  inside.push_back({record, {}});
+  while (true) {
+    Building &top = inside.back();
+    ArrayRef<Type> fields = top.record.fields();
+    if (top.fields.size() == fields.size()) {
+      Value made = DataConOp::create(b, loc, top.record.data, top.fields).getResult();
+      inside.pop_back();
+      if (inside.empty())
+        return made;
+      inside.back().fields.push_back(made);
       continue;
     }
-    fields.push_back(leaves.front());
+    if (std::optional<Record> inner = recordOf(fields[top.fields.size()])) {
+      inside.push_back({*inner, {}});
+      continue;
+    }
+    top.fields.push_back(leaves.front());
     leaves = leaves.drop_front();
   }
-  return DataConOp::create(b, loc, record.data, fields).getResult();
 }
 
 Value Records::readRecord(OpBuilder &b, Location loc, Record element, ValueRange columns,

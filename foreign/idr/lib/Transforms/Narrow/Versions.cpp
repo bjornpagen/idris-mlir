@@ -5,6 +5,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Narrow.h"
 
@@ -28,7 +29,7 @@ namespace {
 // scf.while.
 struct NarrowVersionAction : support::TaggedAction<NarrowVersionAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-narrow-version";
+  static constexpr std::string_view tag = ::idr::actions::narrowVersion;
 };
 
 // Whether `yielded`, what `loop` yields round for its argument `arg`, is

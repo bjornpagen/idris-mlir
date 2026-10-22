@@ -53,6 +53,7 @@
 #include "idr/IR/Arrays.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -232,9 +233,10 @@ LogicalResult placedFirst(idr::ProgramOp program) {
 
 // Each write into a value array's buffer whose read stands before it
 // becomes the element's update (idr::arrays::moveOut), the rule
-// idr-simplify keeps for mutable memory.
+// idr-simplify keeps for mutable memory. The writes are the program's, so
+// the footprint counts them.
 void moveElementsOut(idr::ProgramOp program) {
-  SmallVector<memref::StoreOp> stores;
+  idr::footprint::Vector<memref::StoreOp> stores;
   program.walk([&](memref::StoreOp store) {
     if (!store.getMemRefType().getMemorySpace())
       stores.push_back(store);
