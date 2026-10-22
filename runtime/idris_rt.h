@@ -246,11 +246,23 @@ typedef struct idris_rt_memref {
 
 /* A text of the program's static data, which the runtime only writes out:
  * a source file's name or a function's in a crash site, shared by every site
- * that names it, and the program's own name. */
+ * that names it. Its length, then its bytes, with no padding between, since
+ * bytes need none: the constant idr-lower writes is { i32, [length x i8] }.
+ * C++ has no flexible array member to name the bytes, so they are read past
+ * the struct (idris_rt_text_bytes), as a string's and an array's are. */
 typedef struct idris_rt_text {
   uint32_t length;
-  char bytes[];
 } idris_rt_text;
+
+#ifdef __cplusplus
+inline const char *idris_rt_text_bytes(const idris_rt_text *text) {
+  return reinterpret_cast<const char *>(text + 1);
+}
+#else
+static inline const char *idris_rt_text_bytes(const idris_rt_text *text) {
+  return (const char *)(text + 1);
+}
+#endif
 
 /* What the lowering knows of the program, one constant @main passes to
  * idris_rt_start: the body, the IO root, which takes and gives nothing; and
@@ -386,13 +398,14 @@ typedef enum idris_rt_ran { IDRIS_RT_RAN, IDRIS_RT_REFUSED } idris_rt_ran;
  * (its folders, its tools, idr-lower's static data), and so do the runtime's
  * tests. The tools run on idris_rt_run_on_stack, as a program runs on
  * idris_rt_start's runner: it passes the same startup check (the page, and
- * the IDRIS_RT_CPU_FEATURES bits of what the code it runs was compiled to
- * use), then sets up the heap and GMP's allocation once, before anything
- * else of the runtime runs, so every other function here is called from
- * inside fn. A tool's own allocator that runs out ends the process through
- * idris_rt_out_of_memory, as lowered code does. */
+ * the IDRIS_RT_CPU_FEATURES bits of the program CPU's features, which the
+ * runtime's native code a tool links needs), then sets up the heap and GMP's
+ * allocation once, before anything else of the runtime runs, so every other
+ * function here is called from inside fn. A tool's own allocator that runs
+ * out ends the process through idris_rt_out_of_memory, as lowered code
+ * does. */
 idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg, const idris_rt_stack_plan *plan,
-                                   const char *name, size_t name_bytes, uint64_t cpu_features);
+                                   const char *name, size_t name_bytes);
 /* The bytes of the stack the runner gave fn's thread, the plan's with the
  * host's own part, in pages: a tool gives each of its threads as many. */
 uint64_t idris_rt_thread_stack_bytes(void);

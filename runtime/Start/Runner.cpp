@@ -8,6 +8,7 @@
 #include "End/End.h"
 #include "Platform/Platform.h"
 #include "Start/Start.h"
+#include "cpu_features.h"
 #include "idris_rt.h"
 
 #include <stddef.h>
@@ -21,9 +22,21 @@
 #error "the target entry gives the stack outside code takes (IDRIS_RT_OUTSIDE_STACK_BYTES)"
 #endif
 
+// The program CPU's features as LLVM names them, from the target's entry
+// (CMakeLists.txt): what the target's programs are compiled to use.
+#ifndef IDRIS_RT_PROGRAM_CPU_FEATURES
+#error "the target entry gives the program CPU's features (IDRIS_RT_PROGRAM_CPU_FEATURES)"
+#endif
+
 namespace {
 
 constexpr size_t outsideBytes = IDRIS_RT_OUTSIDE_STACK_BYTES;
+
+// The processor features a tool needs, as the startup check's bits: the
+// runtime's native code it links calls the target's simdutf kernels, whose
+// features are the program CPU's. A constant of the runtime's build, which
+// is the target's, so no tool restates it.
+constexpr uint64_t toolCpuFeatures = rt::platform::featureBitsOf(IDRIS_RT_PROGRAM_CPU_FEATURES);
 
 // What the runner gave its thread, kept while fn runs, which a tool's other
 // threads take too: the guard, the stack, and the signal stack's need (the
@@ -136,16 +149,14 @@ idris_rt_ran rt::start::run(void (*fn)(void *), void *arg, const idris_rt_stack_
 
 // The tools' runner: their stack is their build's measured need (idris-mlir
 // and its sibling tools pass it), their name the one every message of the
-// runtime's begins with, the processor features their code was compiled to
-// use (the runtime's native code calls the target's simdutf kernels, whose
-// features are the program CPU's), and their heap bounded by nothing but
-// the machine. The tools run here without idris_rt_start, so it passes
-// the same startup check first.
+// runtime's begins with, and their heap bounded by nothing but the machine.
+// The tools run here without idris_rt_start, so it passes the same startup
+// check first, against what the runtime's own native code needs.
 extern "C" idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg,
                                               const idris_rt_stack_plan *plan, const char *name,
-                                              size_t name_bytes, uint64_t cpu_features) {
+                                              size_t name_bytes) {
   rt::end::name(name, name_bytes);
-  rt::start::checkMachine(cpu_features);
+  rt::start::checkMachine(toolCpuFeatures);
   return rt::start::run(fn, arg, *plan, SIZE_MAX);
 }
 

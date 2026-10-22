@@ -208,10 +208,14 @@ set(IDRIS_MLIR_SIMDUTF_INCLUDE_DIRECTORIES
 # and so is a unit of it a test compiles (c-flags, below), but the page and
 # which runtime it joins: what code outside the compiled code takes on a
 # stack, measured for the target, which the runner adds to a program's and a
-# tool's (Start/Runner.cpp); the simdutf implementation the runtime calls,
-# its header and its class; and what simdutf itself is told.
+# tool's (Start/Runner.cpp); the program CPU's features as LLVM names them,
+# which the machine a tool runs on must have, since the runtime's native
+# code the tool links calls simdutf kernels of those features
+# (Start/Runner.cpp); the simdutf implementation the runtime calls, its
+# header and its class; and what simdutf itself is told.
 set(IDRIS_RT_UNIT_DEFINITIONS
 	IDRIS_RT_OUTSIDE_STACK_BYTES=${IDRIS_MLIR_OUTSIDE_STACK_BYTES}
+	"IDRIS_RT_PROGRAM_CPU_FEATURES=\"${IDRIS_MLIR_PROGRAM_CPU_FEATURES}\""
 	"IDRIS_RT_SIMDUTF_HEADER=\"simdutf/${IDRIS_MLIR_RUNTIME_SIMDUTF}/implementation.h\""
 	IDRIS_RT_SIMDUTF_CLASS=simdutf::${IDRIS_MLIR_RUNTIME_SIMDUTF}::implementation
 	${IDRIS_MLIR_SIMDUTF_DEFINITIONS}

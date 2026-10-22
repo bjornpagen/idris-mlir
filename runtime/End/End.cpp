@@ -40,7 +40,7 @@ public:
     add(text, N - 1);
   }
   IDRIS_RT_BASELINE void add(const idris_rt_text *text) noexcept {
-    add(text->bytes, text->length);
+    add(idris_rt_text_bytes(text), text->length);
   }
   void add(std::string_view text) noexcept { add(text.data(), text.size()); }
 
@@ -111,25 +111,8 @@ private:
   size_t numbers = 0;
 };
 
-// An ending that leaves by an exit status: from the table, or its own.
-template <class E>
-concept Exits = requires(const E &ending) {
-  { statusOf(ending) } -> std::same_as<uint8_t>;
-};
-
-// An ending that leaves by a signal, once its message is written.
-template <class E>
-concept Raises = requires {
-  { E::signal } -> std::convertible_to<idr::endings::EndingSignal>;
-};
-
-// What an ending says: a silent one (a return, an exit, a reader gone)
-// says nothing.
-template <class E>
-concept Says = requires(const E &ending, Message &message) { say(message, ending); };
-
 IDRIS_RT_BASELINE uint8_t fixed(idr::endings::FixedStatus status) noexcept {
-  return idr::endings::statusCode[static_cast<size_t>(status)];
+  return idr::endings::statusCode[status];
 }
 
 uint8_t statusOf(const Returned &) noexcept { return fixed(idr::endings::FixedStatus::Returned); }
@@ -149,9 +132,8 @@ IDRIS_RT_BASELINE uint8_t statusOf(const WrongPage &) noexcept {
 // clause's names the function its site lies in.
 void say(Message &m, const Failed &ending) noexcept {
   m.place(ending.site);
-  auto at = static_cast<size_t>(ending.cause);
-  m.add(idr::endings::causePhrase[at]);
-  if (idr::endings::causeNaming[at] == idr::endings::CauseNaming::WithFunction) {
+  m.add(idr::endings::causePhrase[ending.cause]);
+  if (idr::endings::causeNaming[ending.cause] == idr::endings::CauseNaming::WithFunction) {
     m.add(" ");
     m.add(ending.site.function);
   }
@@ -201,7 +183,7 @@ IDRIS_RT_BASELINE void say(Message &m, const WrongPage &ending) noexcept {
 // An internal error: its phrase from the table, then the detail it carries.
 void internal(Message &m, idr::endings::Internal which) noexcept {
   m.add("internal error: ");
-  m.add(idr::endings::internalPhrase[static_cast<size_t>(which)]);
+  m.add(idr::endings::internalPhrase[which]);
 }
 
 void say(Message &m, const StackExhausted &) noexcept {
@@ -234,6 +216,30 @@ void say(Message &m, const LibraryFailed &ending) noexcept {
   m.add(" ");
   m.addTerminated(ending.text);
 }
+
+// Each concept below follows the overloads it asks for. A call in a concept
+// finds by ordinary lookup only what is declared before the concept, and by
+// argument-dependent lookup only what lives beside its arguments' types:
+// statusOf takes only an ending, which lives in rt::end, while its
+// overloads are this file's, so above them Exits found none and every
+// ending read as leaving by neither way.
+
+// An ending that leaves by an exit status: from the table, or its own.
+template <class E>
+concept Exits = requires(const E &ending) {
+  { statusOf(ending) } -> std::same_as<uint8_t>;
+};
+
+// An ending that leaves by a signal, once its message is written.
+template <class E>
+concept Raises = requires {
+  { E::signal } -> std::convertible_to<idr::endings::EndingSignal>;
+};
+
+// What an ending says: a silent one (a return, an exit, a reader gone)
+// says nothing.
+template <class E>
+concept Says = requires(const E &ending, Message &message) { say(message, ending); };
 
 } // namespace
 
@@ -332,7 +338,7 @@ extern "C" void idris_rt_out_of_memory(void) { rt::end::end(rt::end::OutOfMemory
 // whichever host runs, ended as the runtime's internal error with the
 // check's own text. Not in a signal handler, so the C library may format it.
 _LIBCPP_BEGIN_NAMESPACE_STD
-void __libcpp_verbose_abort(const char *format, ...) _LIBCPP_VERBOSE_ABORT_NOEXCEPT {
+void __libcpp_verbose_abort(const char *format, ...) noexcept {
   static char text[1024];
   va_list arguments;
   va_start(arguments, format);
