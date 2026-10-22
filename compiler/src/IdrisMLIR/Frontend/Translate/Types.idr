@@ -343,20 +343,32 @@ export
 polymorphicType : TT vars -> Front Bool
 polymorphicType ty = (\r => isMember (polymorphicHolding r.frozen r.interfaces ty)) <$> reading
 
-||| Is a value of this type (normalised), held at run time, a value of the
-||| type's choice (`choiceFamily`, `Boundary.choiceHolding`): a
-||| polymorphic function, or an implementation?
-export
-choiceType : TT vars -> Front Bool
-choiceType ty = (\r => isMember (choiceHolding r.frozen r.interfaces ty)) <$> reading
+||| A type a choice is of, read off its head (`ChoiceType`): a function
+||| type keys its choice itself, and one a type constructor heads by that
+||| constructor at its arguments; any other heads no choice. The one
+||| reading of what keys a choice, which `choiceFamily` registers it by.
+choiceHead : ClosedTerm -> Maybe ChoiceType
+choiceHead ty@(Bind {}) = Just (MkChoiceType ty ByItself)
+choiceHead ty = case getFnArgs ty of
+  (Ref _ _ n, args) => Just (MkChoiceType ty (ByHead n args))
+  _ => Nothing
 
-||| Is a value at a place a member of its type's choice: as the member
-||| table says (`MemberPlaces`), and where the instance decides, as the
-||| instance's type there (`ty`, normalised) does.
+||| Where a value of this type (normalised), held at run time, is a value
+||| of the type's choice (`choiceFamily`, `Boundary.choiceHolding`), a
+||| polymorphic function or an implementation, the type as a choice's,
+||| with what keys its choice; nothing for any other.
 export
-holds : Holding -> (ty : ClosedTerm) -> Front Bool
-holds AMember _ = pure True
-holds NoMember _ = pure False
+choiceType : ClosedTerm -> Front (Maybe ChoiceType)
+choiceType ty = (\r => if isMember (choiceHolding r.frozen r.interfaces ty) then choiceHead ty else Nothing) <$> reading
+
+||| Where a value at a place is a member of its type's choice, the type as
+||| a choice's (`choiceType`): as the member table says (`MemberPlaces`),
+||| and where the instance decides, as the instance's type there (`ty`,
+||| normalised) does.
+export
+holds : Holding -> (ty : ClosedTerm) -> Front (Maybe ChoiceType)
+holds AMember ty = pure (choiceHead ty)
+holds NoMember _ = pure Nothing
 holds ByInstance ty = choiceType ty
 
 ||| Does a binder of this quantity and (normalised) type bind a value the
@@ -397,31 +409,30 @@ explicitBinders : TT vs -> TT vs
 explicitBinders (Bind fc x (Pi pfc rig _ a) sc) = Bind fc x (Pi pfc rig Explicit a) (explicitBinders sc)
 explicitBinders tm = tm
 
-||| The choice of a type (`choiceType`): the closed sum of the
-||| implementations of an interface type, or of the polymorphic functions
-||| of a function type, that the program fixes as runtime values
-||| (`Choice`), one constructor each, which the translation adds as it
-||| finds them (`Choices.memberBare`). An interface's is keyed as a family
-||| of the type constructor at its arguments would be, each argument
-||| whole; a function type's by the type itself, its binders explicit. It
-||| is not the interface's record: which implementation or function a
-||| value is, not its methods, is what a dispatch on it reads.
+||| The choice of a type, as `choiceType` read it (`ChoiceType`): the
+||| closed sum of the implementations of an interface type, or of the
+||| polymorphic functions of a function type, that the program fixes as
+||| runtime values (`Choice`), one constructor each, which the translation
+||| adds as it finds them (`Choices.memberBare`). An interface's is keyed
+||| as a family of the type constructor at its arguments would be, each
+||| argument whole; a function type's by the type itself, its binders
+||| explicit. It is not the interface's record: which implementation or
+||| function a value is, not its methods, is what a dispatch on it reads.
 export
 choiceFamily : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               FC -> String -> ClosedTerm -> Front Choice
-choiceFamily fc owner ty@(Bind {}) = do
-  let canonical = explicitBinders ty
-  (written, key) <- functionKey canonical
-  registeredChoice (OfFunction written) key canonical !(toLoc fc)
-choiceFamily fc owner ty = do
-  -- Every type given here is one `choiceType` answered a member's, whose
-  -- head is an interface's type constructor, and the answer is a `Bool`.
-  let (Ref _ _ n, args) = getFnArgs ty
-    | _ => internal fc ("a choice of no implementation type: " ++ !(showTT ty))
-  iface <- lookupDef fc owner n
-  keyed <- traverse (\a => Just <$> argumentKey fc owner Keyed !(canonicalTypeArg a)) args
-  (_, found) <- instanceKey fc owner (fullname iface.def) id keyed
-  registeredChoice (OfInterface found.link) found.key ty !(toLoc (location iface.def))
+               FC -> String -> ChoiceType -> Front Choice
+choiceFamily fc owner ct = keyedBy ct.keying
+  where
+    keyedBy : KeyedBy -> Front Choice
+    keyedBy ByItself = do
+      let canonical = explicitBinders ct.type
+      (written, key) <- functionKey canonical
+      registeredChoice (OfFunction written) key canonical !(toLoc fc)
+    keyedBy (ByHead n args) = do
+      iface <- lookupDef fc owner n
+      keyed <- traverse (\a => Just <$> argumentKey fc owner Keyed !(canonicalTypeArg a)) args
+      (_, found) <- instanceKey fc owner (fullname iface.def) id keyed
+      registeredChoice (OfInterface found.link) found.key ct.type !(toLoc (location iface.def))
 
 ||| A value array of these dimensions of this element: an array of value
 ||| arrays is one, the element's dimensions after these. An array of
@@ -659,7 +670,7 @@ mutual
     -- type's choice: which of the functions the program puts there it is.
     False <- polymorphicType tm
       | True => do
-          choice <- choiceFamily fc owner !(normaliseClosed (close g tm))
+          choice <- choiceFamily fc owner (MkChoiceType !(normaliseClosed (close g tm)) ByItself)
           pure (DataT choice.family [])
     let g' = give (Erased bfc Placeholder) g
     case use rig of
@@ -679,7 +690,12 @@ mutual
   coreTypeIn chain acc g fc owner rule tm = do
     True <- implementationType tm
       | False => dataTypeIn chain acc g fc owner rule tm
-    choice <- choiceFamily fc owner !(normaliseClosed (close g tm))
+    -- The choice is keyed by the type constructor at the head of the
+    -- closed type's normal form, an interface's or the pair's; a form no
+    -- type constructor heads keys no choice, and is read as any type is.
+    Just ct <- choiceHead <$> normaliseClosed (close g tm)
+      | Nothing => dataTypeIn chain acc g fc owner rule tm
+    choice <- choiceFamily fc owner ct
     pure (DataT choice.family [])
 
   ||| A type that is no implementation's, by its head.

@@ -43,6 +43,27 @@ record Holes where
   types : List1 ClosedTerm
   binder : Binder
 
+||| What keys the choice of a type (`Types.choiceFamily`): a polymorphic
+||| function's type keys it itself; an interface's type, or a pair of
+||| them, by the type constructor at its head at that constructor's
+||| arguments, as a family of it would be keyed.
+public export
+data KeyedBy = ByItself | ByHead Name (List ClosedTerm)
+
+%prefix_record_projections off
+
+||| A type whose values, held at run time, are its choice's (`Choices`),
+||| read once where a value of it is found to be one (`Types.choiceType`),
+||| with what keys its choice, so that registering the choice reads
+||| nothing of the type again.
+public export
+record ChoiceType where
+  constructor MkChoiceType
+  type : ClosedTerm
+  keying : KeyedBy
+
+%prefix_record_projections on
+
 ||| Parameter classification after instantiation (`Instances.classify`). A
 ||| type parameter and an implementation (a value of an interface's type,
 ||| such as an interface constraint, or a polymorphic function passed as a
@@ -54,11 +75,12 @@ record Holes where
 ||| implementation the call chooses at run time among those the program
 ||| fixes is a choice (`ChoiceParam`): a runtime value of the closed sum of
 ||| the implementations of its interface type (`Choices`), with its binder
-||| and that type; a call given one is a dispatch on it, never an instance
-||| at it. A parameter of quantity 0 is no parameter at runtime and keys
-||| nothing: absent, or, when it occurs as an index of an inductive family
-||| in a runtime parameter's type or the result and nowhere a
-||| representation depends on it, an index parameter of the instance, of
+||| and that type as the classification read it (`ChoiceType`); a call
+||| given one is a dispatch on it, never an instance at it. A parameter of
+||| quantity 0 is no parameter at runtime and keys nothing: absent, or,
+||| when it occurs as an index of an inductive family in a runtime
+||| parameter's type or the result and nowhere a representation depends on
+||| it, an index parameter of the instance, of
 ||| its sort, whose level is the number of index parameters before it, so
 ||| that the instance's types name it (`!idr.data<#Vect[v0]>`). Any other
 ||| binds as its binder says, with its closed Idris type, which tells a
@@ -72,7 +94,7 @@ record Holes where
 public export
 data PKind = TypeParam ClosedTerm
            | DictParam ClosedTerm (Maybe Holes)
-           | ChoiceParam Binder ClosedTerm
+           | ChoiceParam Binder ChoiceType
            | ErasedParam
            | IndexParam Sort
            | FormParam ClosedTerm
@@ -582,7 +604,7 @@ record Choice where
 ||| member is an instance of the callee with that field fixed
 ||| (`Choices.heldDispatch`).
 public export
-data Chosen = Given (rest : Nat) Binder ClosedTerm | Held (j : Nat) ClosedTerm Holes
+data Chosen = Given (rest : Nat) Binder ChoiceType | Held (j : Nat) ClosedTerm Holes
 
 ||| The kind of the parameter a dispatch finds its choice in.
 export
@@ -596,9 +618,9 @@ chosenKind (Held _ form hs) = DictParam form (Just hs)
 ||| (a definition, or a member at a use, whose choice the use dispatches
 ||| on), its kinds as the call classified them, split at the parameter its
 ||| choice is found in (`Chosen`), so that the parameter and its kind are
-||| one, the choice's family, where and in whose definition it was made,
-||| and for each member the signature of the callee's instance at that
-||| member, which its arm calls, by the member's position.
+||| one, the choice's family, and where and in whose definition it was
+||| made. None of it changes once made; its arms, which grow with its
+||| choice, are its own table's (`Facts.dispatchArms`).
 public export
 record Dispatch where
   constructor MkDispatch
@@ -612,7 +634,20 @@ record Dispatch where
   family : FamilyId
   site : FC
   owner : String
-  arms : SortedMap Nat InstanceSig
+
+%prefix_record_projections off
+
+||| A dispatch's arm for one member of its choice, made when the later of
+||| the two is: the member, and the signature of the callee's instance at
+||| it, which the arm calls. The arm holds the member it is for, so no arm
+||| is written for a member it cannot name.
+public export
+record DispatchArm where
+  constructor MkDispatchArm
+  member : ChoiceMember
+  target : InstanceSig
+
+%prefix_record_projections on
 
 ||| A dispatch's kinds, as its call classified them.
 export
@@ -839,10 +874,11 @@ applicationOver t f u =
 ||| a value of one of these types, or of a pair of or a function to such
 ||| values, `Boundary.implementationHolding`); and what follows from the
 ||| definitions alone, found once from them: each type constructor's facts
-||| (`TypeConstructors`), what Idris proved of each definition's loops by
-||| the component of its call graph (`Recursion`), and what each case, with
-||| and nested block is called, `<parent>.case<k>` (`Boundary`), each by
-||| its address. Nothing the translation does changes it.
+||| (`TypeConstructors`), the component of the call graph each definition
+||| whose loops Idris proved to end is proved in (`Recursion`; one with no
+||| proof may diverge, `terminationOf`), and what each case, with and
+||| nested block is called, `<parent>.case<k>` (`Boundary`), each by its
+||| address. Nothing the translation does changes it.
 public export
 record Read where
   constructor MkRead
@@ -851,8 +887,18 @@ record Read where
   application : Application
   interfaces : SortedSet Name
   tyCons : SortedMap Address TyConFacts
-  loops : SortedMap Address Termination
+  loops : SortedMap Address ComponentId
   blockNames : SortedMap Address String
+
+||| What Idris proved of a definition's loops: that they end, in the
+||| component the proof is of, or, with no proof, that they may diverge, by
+||| the definition's own name. Total: a definition with no proof is one
+||| that may diverge, whatever left it unproved.
+export
+terminationOf : Read -> Defined -> Termination
+terminationOf r d = case lookup (addressOf d.placement) r.loops of
+  Just component => Terminates component
+  Nothing => MayDiverge (shown (show (fullname d.def)) ::: [])
 
 ||| What was read of a name: the definition at the entry the frozen context
 ||| resolves it to; no definition, for a name the context defines as
@@ -894,8 +940,9 @@ definedIn r n = case readOf r n of
 ||| found (a print that drops what it claims to keep, or a collision of the
 ||| hash bits a lossy key carries); the choices, each by what it is a
 ||| choice of (`ChoiceKey`), its family numbered with the families, and
-||| each by its family; the dispatches, each by its identity, and those on
-||| each choice, by its family, which a new member is joined with; and each
+||| each by its family; the dispatches on each choice, by its family, which
+||| a new member is joined with, and each dispatch's arms, by its identity
+||| and its member's position, which orders its match; and each
 ||| static argument a request has given, read (`StaticReading`), by its
 ||| kind and as a link writes it (`Keys.write`), which tells two arguments
 ||| apart as Idris's `==` does, so an argument read for one request is read
@@ -919,8 +966,8 @@ record Facts where
   keyLinks : SortedMap InstanceKey (Link Form)
   choiceIds : SortedMap ChoiceKey FamilyId
   choices : SortedMap FamilyId Choice
-  dispatches : SortedMap FnId Dispatch
-  dispatchesOn : SortedMap FamilyId (List FnId)
+  dispatchesOn : SortedMap FamilyId (List Dispatch)
+  dispatchArms : SortedMap FnId (SortedMap Nat DispatchArm)
   readings : SortedMap (Static, Written Form) StaticReading
 
 ||| No fact.
@@ -957,8 +1004,8 @@ merged t d =
   MkFacts (over f.familyIds t.familyIds) f.nextFamily (over f.families t.families) (t.familyOrder ++ f.familyOrder)
           (over f.cons t.cons) (over f.instances t.instances)
           (t.fnOrder ++ f.fnOrder) (over f.fns t.fns) (over f.named t.named) (over f.keyLinks t.keyLinks)
-          (over f.choiceIds t.choiceIds) (over f.choices t.choices) (over f.dispatches t.dispatches)
-          (over f.dispatchesOn t.dispatchesOn) (over f.readings t.readings)
+          (over f.choiceIds t.choiceIds) (over f.choices t.choices) (over f.dispatchesOn t.dispatchesOn)
+          (over f.dispatchArms t.dispatchArms) (over f.readings t.readings)
   where
     -- The step's entries over the table's, the step's kept where both
     -- hold a key.

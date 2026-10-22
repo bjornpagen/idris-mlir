@@ -361,7 +361,7 @@ validate frozen sites fallback = check sites
       -- the one the entry expects.
       let unlike : Shape -> Core (Maybe Shape)
           unlike shape = do
-            ty <- fullNamesIn frozen . (.value) <$> host.normalise frozen (!(host.typeOf def)).fst
+            ty <- fullNamesIn frozen . (.value) <$> host.normalise frozen (!(readTypeOf def)).fst
             let found = shapeOf ty
             pure (if conforms shape found then Nothing else Just found)
       if not declared then pure (Just (wrong (location def) q (mismatch e Undeclared))) else

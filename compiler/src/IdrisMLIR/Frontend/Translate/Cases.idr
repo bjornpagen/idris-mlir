@@ -814,8 +814,8 @@ mutual
           | _ => internal ctx.fc "an implementation's field matched under a parameter given no implementation"
         let count = maybe 0 (length . forget . (.types)) held
         (form', fieldType) <- holding count form (place.steps <>> [])
-        True <- choiceType fieldType
-          | False => reject ctx.fc ctx.owner RuntimeClosure
+        Just _ <- choiceType fieldType
+          | Nothing => reject ctx.fc ctx.owner RuntimeClosure
                             ("an implementation's field no compile-time reduction reaches, matched where the " ++
                              "implementation was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
         let types = maybe (fieldType ::: []) (\hs => appendl hs.types [fieldType]) held

@@ -70,8 +70,8 @@ mutual
   ||| once every definition it reaches is. `w0` is where the walk was once
   ||| it entered the definition, and every definition it enters below
   ||| leaves fewer than `w0` to enter (`Walk`), which is why the search
-  ||| ends.
-  visit : Read -> SortedMap Address Termination -> Member ->
+  ||| ends. `done` are the definitions whose components are checked.
+  visit : Read -> SortedSet Address -> Member ->
           (w0 : Walked) -> (0 _ : SizeAccessible w0) -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w0))
   visit r done v w0 acc s0 = do
     let key = v.address
@@ -88,7 +88,7 @@ mutual
   ||| not entered is visited, and one on the stack lowers the definition's
   ||| link. A callee is read as the translation reads it (`definedIn`); a
   ||| name no definition has is no callee.
-  successors : Read -> SortedMap Address Termination -> Address ->
+  successors : Read -> SortedSet Address -> Address ->
                (w0 : Walked) -> (0 _ : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
                List Name -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w))
   successors r done key w0 acc w p [] s = pure (s, Element w (noMore w))
@@ -96,7 +96,7 @@ mutual
     Just d <- definedIn r x
       | Nothing => successors r done key w0 acc w p xs s
     let xkey = addressOf d.placement
-    let False = isJust (lookup xkey done)
+    let False = contains xkey done
       | True => successors r done key w0 acc w p xs s
     -- Entered already: met before in this search.
     let Just (Element w1 q) = enter d.placement w
@@ -110,16 +110,21 @@ mutual
       lower : Address -> Nat -> Search -> Search
       lower k n st = { low $= \m => insert k (min n (fromMaybe n (lookup k m))) m } st
 
-||| The components checked so far: the next one's number, and what Idris
-||| proved of each definition's loops, by address.
+||| The components checked so far: the next one's number, the definitions
+||| in them, and the component each definition whose loops Idris proved to
+||| end is proved in, by address. A definition checked with no proof may
+||| diverge: a proof is the one fact kept, so no definition holds a
+||| verdict its component did not give it.
 record Checked where
   constructor MkChecked
   nextComponent : Nat
-  proved : SortedMap Address Termination
+  inComponent : SortedSet Address
+  proved : SortedMap Address ComponentId
 
 ||| Checks one component, numbered as it is found: each definition whose
 ||| loops Idris's graphs prove to end terminates in it; any other may
-||| diverge, by its own name. Whether its recursion asks for ever more
+||| diverge. The verdicts are the members', one each, in order, so each is
+||| kept at its member's address. Whether its recursion asks for ever more
 ||| instances is the growth check's to say (`Growth`), on the program's
 ||| static positions.
 checkComponent : Read -> Checked -> List Member -> Checked
@@ -130,26 +135,27 @@ checkComponent r checked members =
       calls = [ (caller.name, call) | caller <- members, call <- caller.calls, within call.fnCall ]
       verdicts = loopsTerminate calls (map (.name) members)
       component = MkComponentId checked.nextComponent
-      termination : Name -> Loops -> Termination
-      termination n Decreasing = Terminates component
-      termination n (Endless _) = MayDiverge (shown (show n) ::: [])
   in MkChecked (S checked.nextComponent)
-               (foldl (\m, (n, v) => maybe m (\a => insert a (termination n v) m) (definitionAddress names n))
-                      checked.proved verdicts)
+               (foldl (flip insert) checked.inComponent (map (.address) members))
+               (foldl (\m, a => insert a component m) checked.proved (mapMaybe provedAt (zip members verdicts)))
+  where
+    provedAt : (Member, (Name, Loops)) -> Maybe Address
+    provedAt (m, (_, Decreasing)) = Just m.address
+    provedAt (_, (_, Endless _)) = Nothing
 
 ||| What Idris proved of the loops of every definition read from what
-||| `main` reaches, by address: the component of each, found from each in
-||| the order the table holds them, once, and numbered as found. What a
-||| definition's loops are follows from the definitions alone, so every
-||| one is found where the program is read, before any instance is
-||| requested.
+||| `main` reaches, by address: the component each one whose loops end is
+||| proved in, found from each definition in the order the table holds
+||| them, once, and numbered as found. What a definition's loops are
+||| follows from the definitions alone, so every one is found where the
+||| program is read, before any instance is requested.
 export
-loopsOf : Read -> Core (SortedMap Address Termination)
-loopsOf r = (.proved) <$> foldlM from (MkChecked 0 empty) (values r.definitions)
+loopsOf : Read -> Core (SortedMap Address ComponentId)
+loopsOf r = (.proved) <$> foldlM from (MkChecked 0 empty empty) (values r.definitions)
   where
     from : Checked -> Defined -> Core Checked
     from checked d =
-      if isJust (lookup (addressOf d.placement) checked.proved) then pure checked else do
+      if contains (addressOf d.placement) checked.inComponent then pure checked else do
         let w = startAt d.placement
-        (result, _) <- visit r checked.proved (memberOf r.frozen d) w (sizeAccessible w) (MkSearch 0 empty empty [] empty [])
+        (result, _) <- visit r checked.inComponent (memberOf r.frozen d) w (sizeAccessible w) (MkSearch 0 empty empty [] empty [])
         pure (foldl (checkComponent r) checked result.found)

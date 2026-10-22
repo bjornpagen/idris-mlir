@@ -139,7 +139,7 @@ lookupExact n ctx = core (lookupCtxtExact n ctx)
 ||| stored.
 export
 typeOfDefinition : RunsCore m => GlobalDef -> m ClosedTerm
-typeOfDefinition def = core ((.fst) <$> host.typeOf def)
+typeOfDefinition def = core ((.fst) <$> readTypeOf def)
 
 ||| A pattern-matching definition's case tree, read through the context's
 ||| accessor, as its type is, with the evidence that it is the tree the
@@ -148,7 +148,7 @@ typeOfDefinition def = core ((.fst) <$> host.typeOf def)
 ||| alone (`.fst`) at no cost.
 export
 caseTreeOf : RunsCore m => {args : Scope} -> (body : Body args) -> m (Subset (CaseTree args) (TreeOf body))
-caseTreeOf body = core (host.treeOf body)
+caseTreeOf body = core (readTreeOf body)
 
 ||| The right-hand side of a definition whose case tree is one leaf, or
 ||| nothing for one that matches: read through the context's walk of the

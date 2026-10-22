@@ -74,7 +74,7 @@ runtimeParams level xs (_ :: vs) (DictParam t (Just h) :: ks) same =
 runtimeParams level xs (_ :: vs) (ChoiceParam b known :: ks) same =
   let (x, xs') = parameterName xs
       (ps, env) = runtimeParams level xs' vs ks (predecessors same) in
-  (x :: ps, Runtime FZ (BothTypes b.type known) :: map (map FS) env)
+  (x :: ps, Runtime FZ (BothTypes b.type known.type) :: map (map FS) env)
 runtimeParams level xs (_ :: vs) (ValueParam b shape known :: ks) same =
   let (x, xs') = parameterName xs
       (ps, env) = runtimeParams level xs' vs ks (predecessors same) in
@@ -136,11 +136,8 @@ translateDefinition p sig n m counted = do
             then (entryTies . fst) <$> sizedTelescope ty sig.kinds
             else pure []
   let body = tied loc (allFins (Runtimes sig.kinds)) ties tree'
-  -- What Idris proved of its loops, read with the program for every
-  -- definition read (`Recursion`), in a table its addresses key, whose
-  -- type does not say every definition read has an entry.
-  let Just termination = lookup address (!reading).loops
-    | Nothing => internal fc (owner ++ " has no component of Idris's call graph read")
+  -- What Idris proved of its loops, read with the program (`Recursion`).
+  termination <- (\r => terminationOf r d) <$> reading
   updateState (derive { fns $= insert p.inst (MkTFn p.key (telescopeOf sig.kinds) (Runtimes sig.kinds) sig.callee names
                                                       body loc termination) })
   where

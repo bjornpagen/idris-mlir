@@ -262,7 +262,7 @@ registeredOf def = do
 readDefinition : {auto c : Ref Ctxt Defs} -> Int -> Placement -> GlobalDef -> Core Unfrozen
 readDefinition i p def0 = do
   (def, ends) <- verdictOf i def0
-  ty <- (.fst) <$> host.typeOf def
+  ty <- (.fst) <$> readTypeOf def
   m <- case definition def of
          PMDef _ args body => Just <$> matched args body
          _ => pure Nothing
@@ -270,7 +270,7 @@ readDefinition i p def0 = do
   where
     matched : (args : Scope) -> Body args -> Core Matched
     matched args body = do
-      tree <- (.fst) <$> host.treeOf body
+      tree <- (.fst) <$> readTreeOf body
       pats <- clausePatsOf body
       only <- onlyClauseOf body
       pure (MkMatched args tree pats only)

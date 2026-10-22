@@ -135,7 +135,7 @@ givenArgs = map given
     given (TypeParam t) = Just (known t AValue)
     given (DictParam t Nothing) = Just (known t AnImplementation)
     given (DictParam t (Just h)) = Just ({ holed := pure (Just (t, h.types)) } (known t AnImplementation))
-    given (ChoiceParam _ t) = Just (known t AChoice)
+    given (ChoiceParam _ t) = Just (known t.type AChoice)
     given ErasedParam = Nothing
     given (IndexParam _) = Nothing
     given (FormParam f) = Just (known f AValue)
@@ -481,13 +481,13 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) vals = parameter
         -- like any other, whose uses apply it, each result a choice.
         chosen : Uses -> ClosedTerm -> ArgValues -> Front (Classified (S k))
         chosen q a' vals' = do
-          True <- choiceType a'
-            | False => do
+          Just ct <- choiceType a'
+            | Nothing => do
                 b <- coreBinder fc owner ValueType q a'
                 mapFst (ValueParam b Nothing a' ::)
                   <$> classifiedAfter level !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
-          choice <- choiceFamily fc owner a'
-          mapFst (ChoiceParam (MkBinder q (DataT choice.family [])) a' ::)
+          choice <- choiceFamily fc owner ct
+          mapFst (ChoiceParam (MkBinder q (DataT choice.family [])) ct ::)
             <$> classifiedAfter level !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
 
         -- A type or a form the call leaves out: the call's value is a

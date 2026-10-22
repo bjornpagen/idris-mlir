@@ -622,10 +622,10 @@ mutual
            (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
            Ctx -> StandsFor vars (Fin nv) -> (ty : ClosedTerm) -> TT vars -> Front (Term nv)
   atType ph w acc ctx env ty tm@(Bind fc _ (Lam {}) _) = do
-    True <- holds ctx.resultHolding ty
-      | False => term ph w acc ctx env tm
+    Just ct <- holds ctx.resultHolding ty
+      | Nothing => term ph w acc ctx env tm
     loc <- toLoc (bestFC ctx fc)
-    Just m <- member ph w acc ctx env fc loc ty tm
+    Just m <- member ph w acc ctx env fc loc ct tm
       | Nothing => term ph w acc ctx env tm
     pure m
   atType ph w acc ctx env ty tm@(Bind fc x (Let lfc rig val vty) sc) = case delayedLets tm of
@@ -1230,31 +1230,31 @@ mutual
 
   ||| An implementation or a polymorphic function the program fixes, written
   ||| in a runtime position, as the member of its type's choice it is
-  ||| (`Choices`): its form, with the runtime values it closes over as its
-  ||| field. Nothing for one the running program chooses (stuck on a
-  ||| runtime value), or one a definition Idris does not prove ends
-  ||| computes, which no compile-time reduction runs: it is translated as
-  ||| the computation it is, whose value is the choice among the members
-  ||| its own body fixes.
+  ||| (`Choices`), the type as `holds` read it a choice's: its form, with
+  ||| the runtime values it closes over as its field. Nothing for one the
+  ||| running program chooses (stuck on a runtime value), or one a
+  ||| definition Idris does not prove ends computes, which no compile-time
+  ||| reduction runs: it is translated as the computation it is, whose
+  ||| value is the choice among the members its own body fixes.
   member : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
            (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-           Ctx -> StandsFor vars (Fin nv) -> FC -> Loc -> (type : ClosedTerm) -> TT vars -> Front (Maybe (Term nv))
-  member ph w acc ctx env fc loc ty written = do
+           Ctx -> StandsFor vars (Fin nv) -> FC -> Loc -> ChoiceType -> TT vars -> Front (Maybe (Term nv))
+  member ph w acc ctx env fc loc ct written = do
     impl <- solved (closeWritten fc env written)
     if not !(runtimeDependent impl)
       then do
-        FixedNow <- fixing ty impl
+        FixedNow <- fixing ct.type impl
           | ChosenAtRunTime _ => pure Nothing
-        con <- memberBare fc ctx.owner ty !(implementationOf impl)
+        con <- memberBare fc ctx.owner ct !(implementationOf impl)
         pure (Just (ConApp loc con [] []))
       else do
         Just (shape, values) <- holed ph w acc ctx env fc written
           | Nothing => pure Nothing
         form <- implementationOf shape
-        FixedNow <- fixing ty form
+        FixedNow <- fixing ct.type form
           | ChosenAtRunTime _ => pure Nothing
         held <- coreType fc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
-        con <- memberHolding fc ctx.owner ty form (MkHoles (map fst values) (MkBinder Many held))
+        con <- memberHolding fc ctx.owner ct form (MkHoles (map fst values) (MkBinder Many held))
         v <- pack fc ctx.owner loc !(valuesOf values)
         pure (Just (ConApp loc con [] [v]))
 
@@ -1329,9 +1329,9 @@ mutual
           Just ty <- typeAfter d.type args
             | Nothing => pure Nothing
           ty' <- normaliseClosed ty
-          True <- holds holding ty'
-            | False => pure Nothing
-          member ph w acc ctx env afc loc ty' (foldl (App rfc) (Ref rfc nt name) (map (.written) args))
+          Just ct <- holds holding ty'
+            | Nothing => pure Nothing
+          member ph w acc ctx env afc loc ct (foldl (App rfc) (Ref rfc nt name) (map (.written) args))
 
       -- A definition's type after arguments, each substituted where the
       -- rest mentions it; unknown once the type shows no more binders.
@@ -1404,9 +1404,9 @@ mutual
         where
           asMember : ClosedTerm -> TT vars -> Front (Maybe (Term nv))
           asMember ty lam = do
-            True <- holds (givenAt j places) ty
-              | False => pure Nothing
-            member ph w acc ctx env afc loc ty lam
+            Just ct <- holds (givenAt j places) ty
+              | Nothing => pure Nothing
+            member ph w acc ctx env afc loc ct lam
 
       argValues : List (Arg vars nv) -> ArgValues
       argValues = map (argValueIn env afc)
