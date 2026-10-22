@@ -62,3 +62,40 @@ type. There is no tag attribute.
 
 **`idr.field`** takes an operand refined to one constructor:
 `idr.field %v[i] : !T -> R`, with no tag (D105).
+
+## Additions and corrections (L04, later on 2026-10-21)
+
+**Names:**
+- `indexCount(m)` does not exist: use `group.indices(m).size()`.
+- `DataType::get(ctx, group, member, indices)` always takes the context.
+- The opaque sort is `SortKind::OpaqueSort`; `TermKind::Opaque` is the
+  opaque term.
+- `ConAttr::get(ctx, refinedType, ArrayAttr fields)`. There is no
+  form that takes a tag: pass `data.refinedTo(tag, {})` as the type.
+- `idr.data.reindex` / `DataReindexOp`. A cast from a known index to `_`
+  (opaque) verifies.
+- `SelfType::getMember()` (generated) and `DataType::boundsReach()`. The
+  latter reads `Reach { Bounded, Unbounded }` from `Spec.Families.Layout`,
+  computed once when the type is made; a spent budget counts as
+  `Unbounded`.
+
+**Matching is one-way for opaque terms:** `#Vect[3]` refines `#Vect[_]`,
+but `#Vect[_]` does not refine `#Vect[3]`. That direction needs a case or
+an assume.
+
+**`stableDigest(Type)` and `stableDigest(Attribute)`** are declared in
+`idr/IR/Symbols.h` and return `llvm::XXH128_hash_t`.
+- The digest is XXH3-128 over what each dialect's bytecode interface
+  writes, each nested value contributing its own digest.
+- No printing, no TypeID, no address; it does not recurse.
+- A value its dialect's bytecode cannot write is an internal error.
+
+**A data type's refinement** is a uniqued `DenseI32ArrayAttr`: null means
+unrefined, empty means uninhabited. Read it through `possibleTags()`. In
+the frontend's encoder, the refinement is an optional attribute entry.
+
+**`Subst`** takes an `Opacity` argument (`MeetsAnything | StaysOpen`)
+before `own`.
+
+**The directives** Fields and OwnedResult are in
+`lib/IR/Families/Directives.cpp`.
