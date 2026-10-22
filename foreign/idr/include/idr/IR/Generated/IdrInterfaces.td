@@ -19,6 +19,13 @@ def Idr_ValueFactsTypeInterface : TypeInterface<"ValueFactsTypeInterface"> {
   ];
 }
 
+def Idr_StructureOpInterface : OpInterface<"StructureOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"how its result is built of its operands: a constructor of its fields, a natural's successor or predecessor of one, or none of these", "::idr::Structure", "getStructure", (ins)>
+  ];
+}
+
 def Idr_DeclaredEffectsOpInterface : OpInterface<"DeclaredEffectsOpInterface"> {
   let cppNamespace = "::idr";
   let methods = [

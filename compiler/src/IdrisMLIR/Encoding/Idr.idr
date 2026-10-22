@@ -35,7 +35,7 @@ data IdrType : (ty : Type) -> (at : Type) -> Type where
   BigType : IdrType ty at
   NatType : (index' : List (TermNode ty at)) -> IdrType ty at
   CellType : (value' : ty) -> IdrType ty at
-  TokenType : (sources' : List (ty)) -> IdrType ty at
+  ReuseTokenType : (sources' : List (ty)) -> IdrType ty at
   FnType : (inputs' : List (ty)) -> (results' : List (ty)) -> IdrType ty at
   LazyType : (value' : ty) -> IdrType ty at
   DestType : (value' : ty) -> IdrType ty at
@@ -60,11 +60,12 @@ data IdrAttr : (ty : Type) -> (at : Type) -> Type where
   MutableAttr : IdrAttr ty at
   SiteAttr : (file' : String) -> (line' : Nat) -> (column' : Nat) -> (function' : String) -> IdrAttr ty at
   BigAttr : (value' : Integer) -> IdrAttr ty at
+  ClosureAttr : (callee' : at) -> (captures' : at) -> IdrAttr ty at
 
 ||| The mnemonics of the dialect's types, in declaration order.
 export
 idrTypeMnemonics : List String
-idrTypeMnemonics = ["data", "self", "graded", "lifetime", "lifetime.package", "str", "big", "nat", "cell", "token", "fn", "lazy", "dest"]
+idrTypeMnemonics = ["data", "self", "graded", "lifetime", "lifetime.package", "str", "big", "nat", "cell", "reuse_token", "fn", "lazy", "dest"]
 
 ||| The mnemonic of each of the dialect's types.
 export
@@ -78,7 +79,7 @@ idrTypeMnemonic StrType = "str"
 idrTypeMnemonic BigType = "big"
 idrTypeMnemonic (NatType _) = "nat"
 idrTypeMnemonic (CellType _) = "cell"
-idrTypeMnemonic (TokenType _) = "token"
+idrTypeMnemonic (ReuseTokenType _) = "reuse_token"
 idrTypeMnemonic (FnType _ _) = "fn"
 idrTypeMnemonic (LazyType _) = "lazy"
 idrTypeMnemonic (DestType _) = "dest"
@@ -86,7 +87,7 @@ idrTypeMnemonic (DestType _) = "dest"
 ||| The mnemonics of the dialect's attributes, in declaration order.
 export
 idrAttrMnemonics : List String
-idrAttrMnemonics = ["binder", "terminates", "put_bounds", "lives_in", "given_back.entry", "given_back", "extent", "extents", "family", "index_binders", "index_args", "equation", "con", "mutable", "site", "big"]
+idrAttrMnemonics = ["binder", "terminates", "put_bounds", "lives_in", "given_back.entry", "given_back", "extent", "extents", "family", "index_binders", "index_args", "equation", "con", "mutable", "site", "big", "closure"]
 
 ||| The mnemonic of each of the dialect's attributes.
 export
@@ -107,6 +108,7 @@ idrAttrMnemonic (ConAttr _ _ _) = "con"
 idrAttrMnemonic MutableAttr = "mutable"
 idrAttrMnemonic (SiteAttr _ _ _ _) = "site"
 idrAttrMnemonic (BigAttr _) = "big"
+idrAttrMnemonic (ClosureAttr _ _) = "closure"
 
 ||| The code of `DataType`, its place among the dialect's types.
 export
@@ -198,15 +200,15 @@ export
 encodeCellType : TypeRef -> List Part
 encodeCellType value' = [VarInt cellTypeCode] ++ [TypeAt value']
 
-||| The code of `TokenType`, its place among the dialect's types.
+||| The code of `ReuseTokenType`, its place among the dialect's types.
 export
-tokenTypeCode : Nat
-tokenTypeCode = 9
+reuseTokenTypeCode : Nat
+reuseTokenTypeCode = 9
 
-||| The parts of `TokenType`: its code, then each parameter.
+||| The parts of `ReuseTokenType`: its code, then each parameter.
 export
-encodeTokenType : List (TypeRef) -> List Part
-encodeTokenType sources' = [VarInt tokenTypeCode] ++ (VarInt (length sources') :: concatMap (\x' => [TypeAt x']) sources')
+encodeReuseTokenType : List (TypeRef) -> List Part
+encodeReuseTokenType sources' = [VarInt reuseTokenTypeCode] ++ (VarInt (length sources') :: concatMap (\x' => [TypeAt x']) sources')
 
 ||| The code of `FnType`, its place among the dialect's types.
 export
@@ -398,6 +400,16 @@ export
 encodeBigAttr : Integer -> List Part
 encodeBigAttr value' = [VarInt bigAttrCode] ++ [IntegerAt value']
 
+||| The code of `ClosureAttr`, its place among the dialect's attributes.
+export
+closureAttrCode : Nat
+closureAttrCode = 16
+
+||| The parts of `ClosureAttr`: its code, then each parameter.
+export
+encodeClosureAttr : AttrRef -> AttrRef -> List Part
+encodeClosureAttr callee' captures' = [VarInt closureAttrCode] ++ [AttrAt callee'] ++ [AttrAt captures']
+
 ||| The parts of a value of `IdrType`, its types and attributes by their entries.
 export
 encodeIdrType : IdrType TypeRef AttrRef -> List Part
@@ -410,7 +422,7 @@ encodeIdrType (StrType) = encodeStrType
 encodeIdrType (BigType) = encodeBigType
 encodeIdrType (NatType index') = encodeNatType index'
 encodeIdrType (CellType value') = encodeCellType value'
-encodeIdrType (TokenType sources') = encodeTokenType sources'
+encodeIdrType (ReuseTokenType sources') = encodeReuseTokenType sources'
 encodeIdrType (FnType inputs' results') = encodeFnType inputs' results'
 encodeIdrType (LazyType value') = encodeLazyType value'
 encodeIdrType (DestType value') = encodeDestType value'
@@ -434,6 +446,7 @@ encodeIdrAttr (ConAttr data' cells' spine') = encodeConAttr data' cells' spine'
 encodeIdrAttr (MutableAttr) = encodeMutableAttr
 encodeIdrAttr (SiteAttr file' line' column' function') = encodeSiteAttr file' line' column' function'
 encodeIdrAttr (BigAttr value') = encodeBigAttr value'
+encodeIdrAttr (ClosureAttr callee' captures') = encodeClosureAttr callee' captures'
 
 ||| A value of `IdrType` with each type it holds given by `t` and each attribute by `a`.
 export
@@ -447,7 +460,7 @@ traverseIdrType t a StrType = pure StrType
 traverseIdrType t a BigType = pure BigType
 traverseIdrType t a (NatType index') = pure NatType <*> traverse (\x' => traverseTermNode t a x') index'
 traverseIdrType t a (CellType value') = pure CellType <*> t value'
-traverseIdrType t a (TokenType sources') = pure TokenType <*> traverse (\x' => t x') sources'
+traverseIdrType t a (ReuseTokenType sources') = pure ReuseTokenType <*> traverse (\x' => t x') sources'
 traverseIdrType t a (FnType inputs' results') = pure FnType <*> traverse (\x' => t x') inputs' <*> traverse (\x' => t x') results'
 traverseIdrType t a (LazyType value') = pure LazyType <*> t value'
 traverseIdrType t a (DestType value') = pure DestType <*> t value'
@@ -471,4 +484,5 @@ traverseIdrAttr t a (ConAttr data' cells' spine') = pure ConAttr <*> t data' <*>
 traverseIdrAttr t a MutableAttr = pure MutableAttr
 traverseIdrAttr t a (SiteAttr file' line' column' function') = pure SiteAttr <*> pure file' <*> pure line' <*> pure column' <*> pure function'
 traverseIdrAttr t a (BigAttr value') = pure BigAttr <*> pure value'
+traverseIdrAttr t a (ClosureAttr callee' captures') = pure ClosureAttr <*> a callee' <*> a captures'
 

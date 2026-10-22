@@ -9,7 +9,7 @@
 include "idr/IR/Generated/IdrBase.td"
 include "idr/IR/Generated/IdrInterfaces.td"
 
-def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, Idr_ValueFactsTypeInterface]> {
+def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a data type: a member of a family applied to index terms";
   let description = [{
     Written `!idr.data<#Vect[v0]>`, `!idr.data<#Tree at 1 [v0]>`, refined
@@ -18,7 +18,7 @@ def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, Idr_Val
     do not determine. Identity is content. Its class, layout and what it
     holds are computed when it is made.
   }];
-  let parameters = (ins Idr_HandParameter<"::idr::FamilyAttr", "FamilyRef">:$group, "uint64_t":$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices, Idr_HandParameter<"::mlir::DenseI32ArrayAttr", "Refinement", "{}">:$refinement, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms", "{}">:$binders);
+  let parameters = (ins Idr_HandParameter<"::idr::FamilyAttr", "FamilyRef">:$group, Idr_HandParameter<"uint32_t", "MemberPosition">:$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices, Idr_HandParameter<"::mlir::DenseI32ArrayAttr", "Refinement", "{}">:$refinement, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms", "{}">:$binders);
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
   let genStorageClass = 0;
@@ -52,28 +52,24 @@ def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, Idr_Val
     uint32_t freeLevels() const;
     ::std::optional<::llvm::SmallVector<::idr::families::TermNode>> bindersOf(::idr::Tag tag) const;
     ::std::optional<::llvm::SmallVector<::mlir::Type>> determinedFields(::idr::Tag tag) const;
-    bool holdsReferences() const;
-    bool isLinearByType() const;
-    bool isCounted() const;
-    bool isCellPointer() const;
   }];
 }
 
 def Idr_SelfType : Idr_Type<"Self", "self", []> {
   let summary = "a member of the group a field is declared in, by position";
-  let parameters = (ins "uint64_t":$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices);
+  let parameters = (ins Idr_HandParameter<"uint32_t", "MemberPosition">:$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices);
   let hasCustomAssemblyFormat = 1;
   let genStorageClass = 0;
 }
 
-def Idr_GradedType : Idr_Type<"Graded", "graded", [Idr_ValueFactsTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]> {
+def Idr_GradedType : Idr_Type<"Graded", "graded", [DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a value at a grade: its uses and, on a carrier that holds references, its hold";
   let parameters = (ins Idr_EnumParameter<Idr_Uses>:$uses, "::std::optional<::idr::Hold>":$hold, "::mlir::Type":$carrier);
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
 }
 
-def Idr_LifetimeType : Idr_Type<"Lifetime", "lifetime", [Idr_ValueFactsTypeInterface]> {
+def Idr_LifetimeType : Idr_Type<"Lifetime", "lifetime", [DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a lifetime: what it is at run time is its kind; its opener says where its memory comes from";
   let parameters = (ins Idr_HandParameter<"::idr::LifetimeKind", "LifetimeKind">:$kind);
   let assemblyFormat = [{ `<` $kind `>` }];
@@ -85,7 +81,7 @@ def Idr_LifetimeType : Idr_Type<"Lifetime", "lifetime", [Idr_ValueFactsTypeInter
   }];
 }
 
-def Idr_LifetimePackageType : Idr_Type<"LifetimePackage", "lifetime.package", [Idr_ValueFactsTypeInterface]> {
+def Idr_LifetimePackageType : Idr_Type<"LifetimePackage", "lifetime.package", [DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a per-level lifetime packed around a framed call, with the values it holds";
   let parameters = (ins Idr_EnumParameter<Idr_Packed>:$packed, Idr_ArrayRefParameter<"::mlir::Type">:$held);
   let assemblyFormat = [{ `<` $packed `,` $held `>` }];
@@ -97,7 +93,7 @@ def Idr_LifetimePackageType : Idr_Type<"LifetimePackage", "lifetime.package", [I
   }];
 }
 
-def Idr_StrType : Idr_Type<"Str", "str", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral"]>, Idr_ValueFactsTypeInterface]> {
+def Idr_StrType : Idr_Type<"Str", "str", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a string (UTF-8)";
   let parameters = (ins);
   let assemblyFormat = [{  }];
@@ -109,7 +105,7 @@ def Idr_StrType : Idr_Type<"Str", "str", [MemRefElementTypeInterface, DeclareTyp
   }];
 }
 
-def Idr_BigType : Idr_Type<"Big", "big", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral"]>, Idr_ValueFactsTypeInterface]> {
+def Idr_BigType : Idr_Type<"Big", "big", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "an Integer";
   let parameters = (ins);
   let assemblyFormat = [{  }];
@@ -121,7 +117,7 @@ def Idr_BigType : Idr_Type<"Big", "big", [MemRefElementTypeInterface, DeclareTyp
   }];
 }
 
-def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral"]>, Idr_ValueFactsTypeInterface]> {
+def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_LiteralTypeInterface, ["isLiteral", "parseLiteral"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a natural number: an Integer never negative, linked to its index term";
   let parameters = (ins Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$index);
   let hasCustomAssemblyFormat = 1;
@@ -134,7 +130,7 @@ def Idr_NatType : Idr_Type<"Nat", "nat", [MemRefElementTypeInterface, DeclareTyp
   }];
 }
 
-def Idr_CellType : Idr_Type<"Cell", "cell", [Idr_ValueFactsTypeInterface]> {
+def Idr_CellType : Idr_Type<"Cell", "cell", [DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "the memory of one cell of a constructor, its header written, its fields not yet";
   let parameters = (ins "::mlir::Type":$value);
   let assemblyFormat = [{ `<` $value `>` }];
@@ -151,14 +147,14 @@ def Idr_CellType : Idr_Type<"Cell", "cell", [Idr_ValueFactsTypeInterface]> {
   }];
 }
 
-def Idr_TokenType : Idr_Type<"Token", "token", [Idr_ValueFactsTypeInterface]> {
+def Idr_ReuseTokenType : Idr_Type<"ReuseToken", "reuse_token", [DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "the memory of a cell whose fields a take moved out, or null";
   let parameters = (ins Idr_ArrayRefParameter<"::mlir::Type">:$sources);
   let assemblyFormat = [{ `<` `{` $sources `}` `>` }];
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
-    static ::idr::TokenType of(::idr::DataType source);
-    static ::idr::TokenType merged(::llvm::ArrayRef<::idr::TokenType> tokens);
+    static ::idr::ReuseTokenType of(::idr::DataType source);
+    static ::idr::ReuseTokenType merged(::llvm::ArrayRef<::idr::ReuseTokenType> tokens);
   }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return true; }
@@ -168,7 +164,7 @@ def Idr_TokenType : Idr_Type<"Token", "token", [Idr_ValueFactsTypeInterface]> {
   }];
 }
 
-def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, Idr_ValueFactsTypeInterface]> {
+def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a closure: a cell holding its captures";
   let parameters = (ins Idr_ArrayRefParameter<"::mlir::Type">:$inputs, Idr_ArrayRefParameter<"::mlir::Type">:$results);
   let assemblyFormat = [{ `<` `(` $inputs `)` `->` `(` $results `)` `>` }];
@@ -180,7 +176,7 @@ def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface, DeclareTypeIn
   }];
 }
 
-def Idr_LazyType : Idr_Type<"Lazy", "lazy", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, Idr_ValueFactsTypeInterface]> {
+def Idr_LazyType : Idr_Type<"Lazy", "lazy", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a suspension of one value, forced once into its cell";
   let parameters = (ins "::mlir::Type":$value);
   let assemblyFormat = [{ `<` $value `>` }];
@@ -192,7 +188,7 @@ def Idr_LazyType : Idr_Type<"Lazy", "lazy", [MemRefElementTypeInterface, Declare
   }];
 }
 
-def Idr_DestType : Idr_Type<"Dest", "dest", [Idr_ValueFactsTypeInterface]> {
+def Idr_DestType : Idr_Type<"Dest", "dest", [DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a place to be written once with a value of its type";
   let parameters = (ins "::mlir::Type":$value);
   let assemblyFormat = [{ `<` $value `>` }];
@@ -405,6 +401,12 @@ def Idr_BigAttr : Idr_Attr<"Big", "big", []> {
   let parameters = (ins Idr_APIntParameter<"">:$value);
   let assemblyFormat = [{ `<` $value `>` }];
   let genStorageClass = 0;
+}
+
+def Idr_ClosureAttr : Idr_Attr<"Closure", "closure", []> {
+  let summary = "a closure whose captures are constants";
+  let parameters = (ins Idr_HandParameter<"::mlir::FlatSymbolRefAttr", "CalleeRef">:$callee, Idr_HandParameter<"::mlir::ArrayAttr", "Captures">:$captures);
+  let assemblyFormat = [{ `<` $callee `,` $captures `>` }];
 }
 
 #endif // IDR_GENERATED_TYPES

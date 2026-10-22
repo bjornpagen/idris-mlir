@@ -12,8 +12,8 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 
 def VectorizeLanesOp : Op<Transform_Dialect, "idr.vectorize_lanes", [
     ReportTrackingListenerFailuresOpTrait,
-    TransformOpInterface,
-    MemoryEffectsOpInterface
+    DeclareOpInterfaceMethods<TransformOpInterface, ["apply"]>,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface, ["getEffects"]>
   ]> {
   let cppNamespace = "::idr::target";
   let summary = "Computes each loop over an array on the target's vector lanes";

@@ -37,6 +37,7 @@ enum class OpIndex : std::uint16_t {
   LifetimeChainOp,
   ActivationOp,
   LendOp,
+  CarrierOp,
   LifetimeForgetOp,
   LifetimeReserveOp,
   CellStackOp,
@@ -292,7 +293,7 @@ enum class OpIndex : std::uint16_t {
 
 template <>
 struct EnumTraits<OpIndex> {
-  static constexpr std::size_t count = 271;
+  static constexpr std::size_t count = 272;
 };
 
 // The index of an op's class; no primary definition, so a class outside the set has none.
@@ -339,6 +340,8 @@ template <>
 struct IndexOf<::idr::ActivationOp> : std::integral_constant<OpIndex, OpIndex::ActivationOp> {};
 template <>
 struct IndexOf<::idr::LendOp> : std::integral_constant<OpIndex, OpIndex::LendOp> {};
+template <>
+struct IndexOf<::idr::CarrierOp> : std::integral_constant<OpIndex, OpIndex::CarrierOp> {};
 template <>
 struct IndexOf<::idr::LifetimeForgetOp> : std::integral_constant<OpIndex, OpIndex::LifetimeForgetOp> {};
 template <>

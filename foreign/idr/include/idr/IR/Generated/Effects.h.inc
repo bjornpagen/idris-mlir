@@ -164,6 +164,14 @@ struct Declared<::idr::LendOp> {
 };
 
 template <>
+struct Declared<::idr::CarrierOp> {
+  static constexpr Form form = Form::Declares;
+  static constexpr std::array<Static, 0> effects{{}};
+  using Rules = std::tuple<>;
+  static constexpr Bodies bodies = Bodies::Own;
+};
+
+template <>
 struct Declared<::idr::LifetimeForgetOp> {
   static constexpr Form form = Form::Declares;
   static constexpr std::array<Static, 0> effects{{}};

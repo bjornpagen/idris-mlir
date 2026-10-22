@@ -20,9 +20,7 @@
 #ifndef IDR_IR_GENERATED_SHOWN_OUTPUT_H_INC
 #define IDR_IR_GENERATED_SHOWN_OUTPUT_H_INC
 
-#include "idr/IR/Generated/AdmittedClasses.h.inc"
 #include "idr/IR/Generated/RuntimeAbi.h.inc"
-#include <cstdint>
 
 namespace idr {
 

@@ -64,6 +64,7 @@ add_mlir_dialect_library(IdrIR
 	Fold/Values.cpp
 	Func/Call.cpp
 	Func/Edits.cpp
+	Func/Extents.cpp
 	Func/Fold.cpp
 	Func/Func.cpp
 	Func/GivenBack.cpp
@@ -82,6 +83,7 @@ add_mlir_dialect_library(IdrIR
 	Layout/Slots.cpp
 	Lifetimes/Cast.cpp
 	Lifetimes/Kind.cpp
+	Lifetimes/Loans.cpp
 	Lifetimes/Ops.cpp
 	Lifetimes/Proof.cpp
 	Lifetimes/Spine.cpp

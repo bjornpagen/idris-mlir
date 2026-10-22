@@ -24,6 +24,7 @@ def Idr_ProgramOp : Idr_Op<"program", [
     IsolatedFromAbove,
     SingleBlock,
     NoTerminator,
+    SymbolName,
     Symbol
   ]> {
   let summary = "a closed program: its functions, its root and its stage";
@@ -52,6 +53,7 @@ def Idr_FuncOp : Idr_Op<"func", [
     AffineScope,
     IsolatedFromAbove,
     HasParent<"::idr::ProgramOp">,
+    SymbolName,
     DeclareOpInterfaceMethods<FunctionOpInterface, ["insertArguments", "insertResults", "eraseArguments", "eraseResults"]>,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getDefaultDialect"]>,
     DeclareOpInterfaceMethods<Idr_ErasedBinderOpInterface, ["getBoundSorts"]>,
@@ -67,7 +69,7 @@ def Idr_FuncOp : Idr_Op<"func", [
     record; only the optimizer writes what it gives back and what copy it
     is.
   }];
-  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<FunctionType>:$function_type, OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs, DefaultValuedAttr<Idr_IndexBindersAttr, "::idr::IndexBindersAttr::get($_builder.getContext(), {})">:$binders, DefaultValuedAttr<Idr_ExtentsAttr, "::idr::ExtentsAttr::get($_builder.getContext(), ::llvm::ArrayRef<::idr::ExtentAttr>())">:$extents, Idr_HandProperty<"::idr::effects::Row", "Row", "::idr::effects::Row::top()", "a row: the atoms of what a run may do">:$row, OptionalAttr<ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>>:$untouched, OptionalAttr<Idr_PutBoundsAttr>:$bounded, OptionalAttr<Idr_TerminatesAttr>:$terminates, OptionalAttr<Idr_LivesInAttr>:$lives_in, OptionalAttr<Idr_GivenBackAttr>:$given_back, OptionalAttr<Idr_CopyKindAttr>:$copy, DefaultValuedProp<IntProp<"uint64_t">, "0">:$frame_bound);
+  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<FunctionType>:$function_type, OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs, DefaultValuedAttr<Idr_IndexBindersAttr, "::idr::IndexBindersAttr::get($_builder.getContext(), {})">:$binders, DefaultValuedAttr<Idr_ExtentsAttr, "::idr::ExtentsAttr::get($_builder.getContext(), ::llvm::ArrayRef<::idr::ExtentAttr>())">:$extents, Idr_HandProperty<"::idr::effects::Row", "Row", "::idr::effects::Row::top()", "a row: the atoms of what a run may do">:$row, OptionalAttr<ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>>:$untouched, OptionalAttr<Idr_PutBoundsAttr>:$bounded, OptionalAttr<Idr_TerminatesAttr>:$terminates, OptionalAttr<Idr_LivesInAttr>:$lives_in, OptionalAttr<Idr_GivenBackAttr>:$given_back, OptionalAttr<Idr_CopyKindAttr>:$copy, DefaultValuedProp<I64Prop, "0">:$frame_bound);
   let results = (outs);
   let regions = (region SizedRegion<1>:$body);
   let hasCustomAssemblyFormat = 1;
@@ -146,7 +148,8 @@ def Idr_DataConOp : Idr_Op<"data.con", [
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
-    Idr_StatesOutersOpInterface
+    Idr_StatesOutersOpInterface,
+    DeclareOpInterfaceMethods<Idr_StructureOpInterface, ["getStructure"]>
   ]> {
   let summary = "builds a constructor value";
   let description = [{
@@ -280,6 +283,7 @@ def Idr_NumeralOfNatOp : Idr_Op<"numeral.of_nat", [
 def Idr_LinCastOp : Idr_Op<"lin.cast", [
     Idr_ResultCarriesOperandTrait,
     Idr_SameValueTrait,
+    Idr_AdoptsCarrierTrait,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRangesFromOptional"]>,
@@ -420,6 +424,20 @@ def Idr_LendOp : Idr_Op<"lend", [
   let extraClassDeclaration = [{
     ::mlir::Value getView();
   }];
+}
+
+def Idr_CarrierOp : Idr_Op<"carrier", [
+    NoMemoryEffect,
+    Idr_DeclaredEffectsOpInterface,
+    AlwaysSpeculatable,
+    InferTypeOpAdaptor,
+    DeclareOpInterfaceMethods<ViewLikeOpInterface, ["getViewSource"]>,
+    DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
+  ]> {
+  let summary = "a tensor or a buffer lent to upstream's ops under a lifetime";
+  let arguments = (ins Type<CPred<"::idr::isLendable($_self)">, "a tensor or a buffer that holds references, at any grade", "::mlir::Type">:$value, Type<CPred<"::idr::isViewLifetime($_self)">, "a view lifetime", "::mlir::Type">:$lifetime);
+  let results = (outs AnyTypeOf<[AnyTensor, AnyRankedOrUnrankedMemRef], "a bare tensor or buffer">:$result);
+  let assemblyFormat = [{ $value `in` $lifetime attr-dict `:` type($value) `,` type($lifetime) }];
 }
 
 def Idr_LifetimeForgetOp : Idr_Op<"lifetime.forget", [
@@ -968,7 +986,8 @@ def Idr_ArrayTieShapeOp : Idr_Op<"array.tie_shape", [
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<ViewLikeOpInterface, ["getViewSource"]>,
     DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
-    DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForShapedValueDim"]>
+    DeclareOpInterfaceMethods<ValueBoundsOpInterface, ["populateBoundsForShapedValueDim"]>,
+    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry"]>
   ]> {
   let summary = "an array whose dynamic dimensions are the given sizes";
   let arguments = (ins AnyTypeOf<[AnyRankedTensor, Type<CPred<"::idr::isValueBuffer($_self)">, "a value array's buffer, a memref in the default memory space, at any grade", "::mlir::Type">], "a ranked tensor or a value array's buffer">:$value, Variadic<Index>:$dims);
@@ -1017,7 +1036,6 @@ def Idr_IntDivSOp : Idr_Op<"int.div_s", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
-    InferIntRangeInterface,
     Idr_InlineArith<"::idr::numeric::EuclidQuotient">,
     Idr_GuardedOp
   ]> {
@@ -1032,7 +1050,6 @@ def Idr_IntModSOp : Idr_Op<"int.mod_s", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
-    InferIntRangeInterface,
     Idr_InlineArith<"::idr::numeric::EuclidRemainder">,
     Idr_GuardedOp
   ]> {
@@ -1047,7 +1064,6 @@ def Idr_IntShlSOp : Idr_Op<"int.shl_s", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
-    InferIntRangeInterface,
     Idr_InlineArith<"::idr::numeric::ShiftLeftSigned">
   ]> {
   let summary = "Idris shiftL of a signed integer: defined for every amount, wrapped to the width";
@@ -1061,7 +1077,6 @@ def Idr_IntShlUOp : Idr_Op<"int.shl_u", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
-    InferIntRangeInterface,
     Idr_InlineArith<"::idr::numeric::ShiftLeftUnsigned">
   ]> {
   let summary = "Idris shiftL of an unsigned integer: defined for every amount, wrapped to the width";
@@ -1075,7 +1090,6 @@ def Idr_IntShrSOp : Idr_Op<"int.shr_s", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
-    InferIntRangeInterface,
     Idr_InlineArith<"::idr::numeric::ShiftRightSigned">
   ]> {
   let summary = "Idris shiftR of a signed integer: filling with its sign, defined for every amount";
@@ -1089,7 +1103,6 @@ def Idr_IntShrUOp : Idr_Op<"int.shr_u", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
-    InferIntRangeInterface,
     Idr_InlineArith<"::idr::numeric::ShiftRightUnsigned">
   ]> {
   let summary = "Idris shiftR of an unsigned integer: filling with zeros, defined for every amount";
@@ -1102,7 +1115,6 @@ def Idr_IntToCharSOp : Idr_Op<"int.to_char_s", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
-    InferIntRangeInterface,
     Idr_InlineArith<"::idr::numeric::ToCharSigned">
   ]> {
   let summary = "a signed integer as a Char: itself if a scalar value, else 0";
@@ -1115,7 +1127,6 @@ def Idr_IntToCharUOp : Idr_Op<"int.to_char_u", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
-    InferIntRangeInterface,
     Idr_InlineArith<"::idr::numeric::ToCharUnsigned">
   ]> {
   let summary = "an unsigned integer as a Char: itself if a scalar value, else 0";
@@ -1182,6 +1193,7 @@ def Idr_BigAddOp : Idr_Op<"big.add", [
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,
+    DeclareOpInterfaceMethods<Idr_StructureOpInterface, ["getStructure"]>,
     Idr_RuntimeFolds
   ]> {
   let summary = "the sum of two bigs or two naturals";
@@ -1326,6 +1338,7 @@ def Idr_NatPredOp : Idr_Op<"nat.pred", [
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,
+    DeclareOpInterfaceMethods<Idr_StructureOpInterface, ["getStructure"]>,
     Idr_RuntimeFolds
   ]> {
   let summary = "the predecessor of a natural that is not zero";
@@ -2463,6 +2476,7 @@ def Idr_IoHandleFreeOp : Idr_Op<"io.handle_free", [
 }
 
 def Idr_CountDupOp : Idr_Op<"count.dup", [
+    Idr_AdoptsCarrierTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
@@ -2654,6 +2668,7 @@ def Idr_TokenRebuildOp : Idr_Op<"token.rebuild", [
 
 def Idr_OwnAdoptOp : Idr_Op<"own.adopt", [
     Idr_NoRuntimeFormTrait,
+    Idr_AdoptsCarrierTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     InferTypeOpAdaptorWithIsCompatible,
@@ -2669,12 +2684,13 @@ def Idr_OwnGiveOp : Idr_Op<"own.give", [
     Idr_NoRuntimeFormTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
+    InferTypeOpAdaptor,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
   ]> {
   let summary = "hands a stored value's reference to the memory that holds it";
   let arguments = (ins Type<CPred<"::idr::isCountedValue($_self)">, "a value its count frees", "::mlir::Type">:$value);
   let results = (outs AnyType:$result);
-  let assemblyFormat = [{ $value attr-dict `:` type($value) `->` type($result) }];
+  let assemblyFormat = [{ $value attr-dict `:` type($value) }];
   let hasVerifier = 1;
 }
 

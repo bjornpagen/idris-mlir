@@ -30,7 +30,7 @@ class StrType;
 class BigType;
 class NatType;
 class CellType;
-class TokenType;
+class ReuseTokenType;
 class FnType;
 class LazyType;
 class DestType;

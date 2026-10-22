@@ -10,8 +10,13 @@
 #endif // GEN_PASS_DEF_IDRTARGET
 
 #ifdef GEN_PASS_DEF_IDRDEFUNCTIONALIZE
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #endif // GEN_PASS_DEF_IDRDEFUNCTIONALIZE
+
+#ifdef GEN_PASS_DEF_IDRKNOTS
+#include "idr/IR/IdrDialect.h"
+#endif // GEN_PASS_DEF_IDRKNOTS
 
 #ifdef GEN_PASS_DEF_IDRINPLACE
 #include "idr/IR/IdrDialect.h"
@@ -36,8 +41,8 @@
 #endif // GEN_PASS_DEF_IDRINLINE
 
 #ifdef GEN_PASS_DEF_IDRCOLUMNS
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "idr/IR/IdrDialect.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #endif // GEN_PASS_DEF_IDRCOLUMNS
 
 #ifdef GEN_PASS_DEF_IDRSIMPLIFY
@@ -47,6 +52,7 @@
 #endif // GEN_PASS_DEF_IDRSIMPLIFY
 
 #ifdef GEN_PASS_DEF_IDRSTRUCTURELOOPS
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -57,10 +63,15 @@
 #endif // GEN_PASS_DEF_IDRUNIQUERESULTS
 
 #ifdef GEN_PASS_DEF_IDRBUFFERIZE
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #endif // GEN_PASS_DEF_IDRBUFFERIZE
+
+#ifdef GEN_PASS_DEF_IDRACCUMULATE
+#include "idr/IR/IdrDialect.h"
+#endif // GEN_PASS_DEF_IDRACCUMULATE
 
 #ifdef GEN_PASS_DEF_IDRRCCELLS
 #include "idr/IR/IdrDialect.h"
@@ -92,40 +103,52 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #endif // GEN_PASS_DEF_IDRRCEXPAND
 
+#ifdef GEN_PASS_DEF_IDRTRMC
+#include "idr/IR/IdrDialect.h"
+#endif // GEN_PASS_DEF_IDRTRMC
+
 #ifdef GEN_PASS_DEF_IDRFRAMES
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #endif // GEN_PASS_DEF_IDRFRAMES
 
 #ifdef GEN_PASS_DEF_IDRTAILLOOPS
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #endif // GEN_PASS_DEF_IDRTAILLOOPS
 
 #ifdef GEN_PASS_DEF_IDRNARROW
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #endif // GEN_PASS_DEF_IDRNARROW
 
 #ifdef GEN_PASS_DEF_IDRNARROWWORDS
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #endif // GEN_PASS_DEF_IDRNARROWWORDS
 
 #ifdef GEN_PASS_DEF_IDRORDEREDLOOPS
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #endif // GEN_PASS_DEF_IDRORDEREDLOOPS
 
 #ifdef GEN_PASS_DEF_IDRLOWERRUNTIME
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #endif // GEN_PASS_DEF_IDRLOWERRUNTIME
 
 #ifdef GEN_PASS_DEF_IDRLOWERSTATICS
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #endif // GEN_PASS_DEF_IDRLOWERSTATICS
 
 #ifdef GEN_PASS_DEF_IDRLOWER
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
@@ -141,6 +164,7 @@
 #endif // GEN_PASS_DEF_IDRENTRY
 
 #ifdef GEN_PASS_DEF_IDRNARROWLANES
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -161,5 +185,22 @@
 #endif // GEN_PASS_DEF_IDREXPECT
 
 #ifdef GEN_PASS_DEF_IDRREDIRECT
+#include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #endif // GEN_PASS_DEF_IDRREDIRECT
+
+#ifdef GEN_PASS_DEF_IDRINLINELEAVES
+#include "idr/IR/IdrDialect.h"
+#endif // GEN_PASS_DEF_IDRINLINELEAVES
+
+#ifdef GEN_PASS_DEF_IDRCONSTANTS
+#include "idr/IR/IdrDialect.h"
+#endif // GEN_PASS_DEF_IDRCONSTANTS
+
+#ifdef GEN_PASS_DEF_IDRWIDENROWS
+#include "idr/IR/IdrDialect.h"
+#endif // GEN_PASS_DEF_IDRWIDENROWS
+
+#ifdef GEN_PASS_DEF_IDRWRITEROWS
+#include "idr/IR/IdrDialect.h"
+#endif // GEN_PASS_DEF_IDRWRITEROWS

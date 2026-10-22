@@ -40,78 +40,110 @@ class Idr_Wired<string cppType, string directive> :
   WithPrinter<"write" # directive # "($_writer, $_getter)",
   WithType   <cppType>>>>;
 
-def DataType : DialectType<(type Idr_Wired<"::idr::FamilyAttr", "FamilyRef">:$group, VarInt:$member, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$indices, Idr_Wired<"::mlir::DenseI32ArrayAttr", "Refinement">:$refinement, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$binders)> {
+def DataType : DialectType<(type Idr_Wired<"::idr::FamilyAttr", "FamilyRef">:$group, Idr_Wired<"uint32_t", "MemberPosition">:$member, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$indices, Idr_Wired<"::mlir::DenseI32ArrayAttr", "Refinement">:$refinement, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$binders)> {
+  let cType = "::idr::DataType";
   let cBuilder = "::idr::readDataType(reader, context, $_args)";
 }
-def SelfType : DialectType<(type VarInt:$member, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$indices)> {
+def SelfType : DialectType<(type Idr_Wired<"uint32_t", "MemberPosition">:$member, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$indices)> {
+  let cType = "::idr::SelfType";
   let cBuilder = "::idr::readSelf(reader, context, $_args)";
 }
 def GradedType : DialectType<(type Idr_Enum<"Uses">:$uses, Idr_OptionalCase<"::idr::Hold">:$hold, Type:$carrier)> {
+  let cType = "::idr::GradedType";
 }
 def LifetimeType : DialectType<(type Idr_Wired<"::idr::LifetimeKind", "LifetimeKind">:$kind)> {
+  let cType = "::idr::LifetimeType";
 }
 def LifetimePackageType : DialectType<(type Idr_Enum<"Packed">:$packed, Array<Type>:$held)> {
+  let cType = "::idr::LifetimePackageType";
 }
 def StrType : DialectType<(type )> {
+  let cType = "::idr::StrType";
 }
 def BigType : DialectType<(type )> {
+  let cType = "::idr::BigType";
 }
 def NatType : DialectType<(type Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$index)> {
+  let cType = "::idr::NatType";
 }
 def CellType : DialectType<(type Type:$value)> {
+  let cType = "::idr::CellType";
 }
-def TokenType : DialectType<(type Array<Type>:$sources)> {
+def ReuseTokenType : DialectType<(type Array<Type>:$sources)> {
+  let cType = "::idr::ReuseTokenType";
 }
 def FnType : DialectType<(type Array<Type>:$inputs, Array<Type>:$results)> {
+  let cType = "::idr::FnType";
 }
 def LazyType : DialectType<(type Type:$value)> {
+  let cType = "::idr::LazyType";
 }
 def DestType : DialectType<(type Type:$value)> {
+  let cType = "::idr::DestType";
 }
 
 def IdrDialectTypes : DialectTypes<"Idr"> {
-  let elems = [DataType, SelfType, GradedType, LifetimeType, LifetimePackageType, StrType, BigType, NatType, CellType, TokenType, FnType, LazyType, DestType];
+  let elems = [DataType, SelfType, GradedType, LifetimeType, LifetimePackageType, StrType, BigType, NatType, CellType, ReuseTokenType, FnType, LazyType, DestType];
 }
 def BinderAttr : DialectAttribute<(attr Attribute:$definition, VarInt:$index)> {
+  let cType = "::idr::BinderAttr";
 }
 def TerminatesAttr : DialectAttribute<(attr Idr_Wired<"::idr::TerminationProof", "Proof">:$proof)> {
+  let cType = "::idr::TerminatesAttr";
 }
 def PutBoundsAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::PutBound>", "PutBounds">:$bounds)> {
+  let cType = "::idr::PutBoundsAttr";
 }
 def LivesInAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::LivesIn>", "LivesInEntries">:$parameters, Idr_Wired<"Kept<::idr::LivesIn>", "LivesInEntries">:$results, Idr_Wired<"Kept<::idr::Outlives>", "OutlivesBounds">:$bounds)> {
+  let cType = "::idr::LivesInAttr";
 }
 def GivenBackEntryAttr : DialectAttribute<(attr Idr_Wired<"uint32_t", "Position">:$result, Idr_Wired<"Kept<uint32_t>", "FieldPath">:$result_fields, Idr_Wired<"uint32_t", "Position">:$argument, Idr_Wired<"Kept<uint32_t>", "FieldPath">:$argument_fields)> {
+  let cType = "::idr::GivenBackEntryAttr";
 }
 def GivenBackAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::GivenBackEntryAttr>", "GivenBackEntries">:$entries)> {
+  let cType = "::idr::GivenBackAttr";
 }
 def ExtentAttr : DialectAttribute<(attr Idr_Enum<"ExtentSide">:$side, Idr_Wired<"uint32_t", "Position">:$position, Idr_Wired<"uint32_t", "Position">:$axis, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$term)> {
+  let cType = "::idr::ExtentAttr";
 }
 def ExtentsAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::ExtentAttr>", "ExtentEntries">:$entries)> {
+  let cType = "::idr::ExtentsAttr";
 }
 def FamilyAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::families::Member>", "Members">:$members)> {
+  let cType = "::idr::FamilyAttr";
   let cBuilder = "::idr::readFamily(reader, context, $_args)";
 }
 def IndexBindersAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::families::Sort>", "Sorts">:$sorts)> {
+  let cType = "::idr::IndexBindersAttr";
   let cBuilder = "::idr::readIndexBinders(reader, context, $_args)";
 }
 def IndexArgsAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$terms, VarInt:$count)> {
+  let cType = "::idr::IndexArgsAttr";
   let cBuilder = "::idr::readIndexArgs(reader, context, $_args)";
 }
 def EquationAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$lhs, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$rhs)> {
+  let cType = "::idr::EquationAttr";
   let cBuilder = "::idr::readEquation(reader, context, $_args)";
 }
 def ConAttr : DialectAttribute<(attr Idr_Wired<"::idr::DataType", "DataRef">:$data, Array<Attribute>:$cells, VarInt:$spine)> {
+  let cType = "::idr::ConAttr";
   let cBuilder = "::idr::readCon(reader, context, $_args)";
 }
 def MutableAttr : DialectAttribute<(attr )> {
+  let cType = "::idr::MutableAttr";
 }
 def SiteAttr : DialectAttribute<(attr Idr_String:$file, VarInt:$line, VarInt:$column, Idr_String:$function)> {
+  let cType = "::idr::SiteAttr";
 }
 def BigAttr : DialectAttribute<(attr Idr_APInt:$value)> {
+  let cType = "::idr::BigAttr";
+}
+def ClosureAttr : DialectAttribute<(attr Idr_Wired<"::mlir::FlatSymbolRefAttr", "CalleeRef">:$callee, Idr_Wired<"::mlir::ArrayAttr", "Captures">:$captures)> {
+  let cType = "::idr::ClosureAttr";
 }
 
 def IdrDialectAttributes : DialectAttributes<"Idr"> {
-  let elems = [BinderAttr, TerminatesAttr, PutBoundsAttr, LivesInAttr, GivenBackEntryAttr, GivenBackAttr, ExtentAttr, ExtentsAttr, FamilyAttr, IndexBindersAttr, IndexArgsAttr, EquationAttr, ConAttr, MutableAttr, SiteAttr, BigAttr];
+  let elems = [BinderAttr, TerminatesAttr, PutBoundsAttr, LivesInAttr, GivenBackEntryAttr, GivenBackAttr, ExtentAttr, ExtentsAttr, FamilyAttr, IndexBindersAttr, IndexArgsAttr, EquationAttr, ConAttr, MutableAttr, SiteAttr, BigAttr, ClosureAttr];
 }
 
 #endif // IDR_GENERATED_BYTECODE

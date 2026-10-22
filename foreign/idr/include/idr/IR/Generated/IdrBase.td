@@ -23,11 +23,11 @@ include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/Interfaces/ViewLikeInterface.td"
 include "mlir/Interfaces/LoopLikeInterface.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"
 include "mlir/Interfaces/TilingInterface.td"
 include "mlir/Interfaces/ValueBoundsOpInterface.td"
-include "mlir/Interfaces/ViewLikeInterface.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
 
 def Idr_Dialect : Dialect {
@@ -59,9 +59,13 @@ class Idr_Type<string name, string typeMnemonic, list<Trait> traits = []>
   let mnemonic = typeMnemonic;
 }
 
+// A constant of one of our attributes is written as the attribute itself,
+// built in full, as an attribute's default is, which ODS fills in where
+// the op is built without it.
 class Idr_Attr<string name, string attrMnemonic, list<Trait> traits = []>
     : AttrDef<Idr_Dialect, name, traits> {
   let mnemonic = attrMnemonic;
+  let constBuilderCall = "$0";
 }
 
 // The traits the generator gives ops from their facts: a pure runtime op
@@ -342,6 +346,8 @@ def Idr_RunsOnceTrait : NativeOpTrait<"RunsOnce"> { let cppNamespace = "::idr"; 
 def Idr_RunsOnceGivingBackTrait : NativeOpTrait<"RunsOnceGivingBack"> { let cppNamespace = "::idr"; }
 // its result is a lifetime
 def Idr_GivesLifetimeTrait : NativeOpTrait<"GivesLifetime"> { let cppNamespace = "::idr"; }
+// makes a reference of its own from a bare carrier it is given
+def Idr_AdoptsCarrierTrait : NativeOpTrait<"AdoptsCarrier"> { let cppNamespace = "::idr"; }
 // the string it builds has a character at least
 def Idr_NeverEmptyTrait : NativeOpTrait<"NeverEmpty"> { let cppNamespace = "::idr"; }
 // its result is its first operand's word at run time

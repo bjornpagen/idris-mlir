@@ -178,6 +178,7 @@ add_mlir_library(IdrSpecialize
 	IdrIR
 	IdrAnalysis
 	IdrDeduplicate
+	IdrJoins
 	IdrSolver
 	IdrSupport
 	MLIRIR
@@ -291,6 +292,7 @@ add_mlir_library(IdrCounting
 	LINK_LIBS PUBLIC
 	IdrIR
 	IdrAnalysis
+	IdrLifetimes
 	IdrSolver
 	IdrSupport
 	MLIRIR
@@ -303,9 +305,12 @@ add_mlir_library(IdrCounting
 )
 
 # idr-lifetimes: the decide step, read, decided callee first and written
-# at once, so every lifetime is born decided.
+# at once, so every lifetime is born decided; and the loans that lend a
+# counted value to its reads, which counting and the in-place rule open
+# too, so their libraries link this one.
 add_mlir_library(IdrLifetimes
 	Lifetimes/Decide.cpp
+	Lifetimes/Lend.cpp
 	Lifetimes/Pass.cpp
 	Lifetimes/Read.cpp
 	Lifetimes/Write.cpp
@@ -353,6 +358,7 @@ add_mlir_library(IdrInPlace
 	IdrIR
 	IdrAnalysis
 	IdrEffects
+	IdrLifetimes
 	IdrSolver
 	IdrSupport
 	MLIRIR

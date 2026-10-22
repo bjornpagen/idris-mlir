@@ -1204,7 +1204,7 @@ inline constexpr table::PatternNode patterns[] = {
   {table::PatternKind::Literal, 0, 0, 0, 0, 4611686018427387903},
   {table::PatternKind::Node, 2, 0, 2, 0, 0},
   {table::PatternKind::Var, 0, 0, 0, 0, 0},
-  {table::PatternKind::Literal, 0, 0, 0, 0, -9223372036854775808},
+  {table::PatternKind::Literal, 0, 0, 0, 0, (-9223372036854775807 - 1)},
   {table::PatternKind::Node, 4, 0, 2, 0, 0},
   {table::PatternKind::Var, 0, 0, 0, 0, 0},
   {table::PatternKind::Literal, 0, 0, 0, 0, 9223372036854775807},

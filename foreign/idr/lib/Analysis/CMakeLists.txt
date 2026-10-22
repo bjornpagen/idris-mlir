@@ -39,7 +39,6 @@ add_mlir_library(IdrAnalysis
 	Identities.cpp
 	IdentitiesRebuilds.cpp
 	IdentitiesRecord.cpp
-	Inline.cpp
 	LabelSites.cpp
 	Labels.cpp
 	Ownership/Borrows.cpp

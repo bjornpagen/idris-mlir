@@ -21,9 +21,6 @@
 #ifndef IDR_IR_GENERATED_LIFETIME_OPENER_H_INC
 #define IDR_IR_GENERATED_LIFETIME_OPENER_H_INC
 
-#include "idr/IR/Generated/AdmittedClasses.h.inc"
-#include <cstdint>
-
 namespace idr {
 
 template <class OpT>

@@ -122,6 +122,9 @@ bool isRoomLifetime(::mlir::Type value);
 // a view lifetime
 bool isViewLifetime(::mlir::Type value);
 
+// a tensor or a buffer that holds references, at any grade
+bool isLendable(::mlir::Type value);
+
 // a value of a data type, at any grade
 bool isMatchable(::mlir::Type value);
 
@@ -206,6 +209,9 @@ bool isMemoState(::mlir::Type value);
 ::mlir::FailureOr<::idr::FamilyAttr> parseFamilyRef(::mlir::AsmParser &parser);
 void printFamilyRef(::mlir::AsmPrinter &printer, ::idr::FamilyAttr value);
 
+::mlir::FailureOr<uint32_t> parseMemberPosition(::mlir::AsmParser &parser);
+void printMemberPosition(::mlir::AsmPrinter &printer, uint32_t value);
+
 ::mlir::FailureOr<::llvm::SmallVector<::idr::families::TermNode>> parseIndexTerms(::mlir::AsmParser &parser);
 void printIndexTerms(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::families::TermNode> value);
 
@@ -247,6 +253,12 @@ void printSorts(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::families::S
 
 ::mlir::FailureOr<::idr::DataType> parseDataRef(::mlir::AsmParser &parser);
 void printDataRef(::mlir::AsmPrinter &printer, ::idr::DataType value);
+
+::mlir::FailureOr<::mlir::FlatSymbolRefAttr> parseCalleeRef(::mlir::AsmParser &parser);
+void printCalleeRef(::mlir::AsmPrinter &printer, ::mlir::FlatSymbolRefAttr value);
+
+::mlir::FailureOr<::mlir::ArrayAttr> parseCaptures(::mlir::AsmParser &parser);
+void printCaptures(::mlir::AsmPrinter &printer, ::mlir::ArrayAttr value);
 
 // a row: the atoms of what a run may do
 ::mlir::Attribute convertRowToAttribute(::mlir::MLIRContext *context, ::idr::effects::Row value);

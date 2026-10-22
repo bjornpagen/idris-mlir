@@ -389,6 +389,7 @@ def IdrNarrowLanes : Pass<"idr-narrow-lanes", "::mlir::LLVM::LLVMFuncOp"> {
   let baseClass = "::mlir::OperationPass<::mlir::LLVM::LLVMFuncOp>";
   let statistics = [
     Statistic<"numNarrowed", "narrowed", "Vectorized loops given a 32-bit version">,
+    Statistic<"numWide", "wide", "Vectorized loops on wide integer lanes left on 64 bits">,
   ];
   let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect", "::mlir::vector::VectorDialect"];
 }

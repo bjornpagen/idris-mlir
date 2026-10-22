@@ -666,6 +666,17 @@ void writeFamilyRef(::mlir::DialectBytecodeWriter &writer, ::idr::FamilyAttr val
   writer.writeAttribute(value);
 }
 
+// a member's position in its group: `1`
+::mlir::LogicalResult readMemberPosition(::mlir::DialectBytecodeReader &reader, uint32_t &value) {
+  if (::mlir::failed(readWord32(reader, value)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeMemberPosition(::mlir::DialectBytecodeWriter &writer, uint32_t value) {
+  writer.writeVarInt(value);
+}
+
 // index terms in normal form
 ::mlir::LogicalResult readIndexTerms(::mlir::DialectBytecodeReader &reader, Kept<::idr::families::TermNode> &value) {
   auto each = [&](::idr::families::TermNode &element) -> ::mlir::LogicalResult {
@@ -871,5 +882,35 @@ void writeSorts(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<::idr::f
 
 void writeDataRef(::mlir::DialectBytecodeWriter &writer, ::idr::DataType value) {
   writer.writeType(value);
+}
+
+// a constant closure's function, by its symbol: `@f`
+::mlir::LogicalResult readCalleeRef(::mlir::DialectBytecodeReader &reader, ::mlir::FlatSymbolRefAttr &value) {
+  {
+    ::mlir::FlatSymbolRefAttr read;
+    if (::mlir::failed(reader.readAttribute(read)))
+      return ::mlir::failure();
+    value = read;
+  }
+  return ::mlir::success();
+}
+
+void writeCalleeRef(::mlir::DialectBytecodeWriter &writer, ::mlir::FlatSymbolRefAttr value) {
+  writer.writeAttribute(value);
+}
+
+// a constant closure's captures, each a constant
+::mlir::LogicalResult readCaptures(::mlir::DialectBytecodeReader &reader, ::mlir::ArrayAttr &value) {
+  {
+    ::mlir::ArrayAttr read;
+    if (::mlir::failed(reader.readAttribute(read)))
+      return ::mlir::failure();
+    value = read;
+  }
+  return ::mlir::success();
+}
+
+void writeCaptures(::mlir::DialectBytecodeWriter &writer, ::mlir::ArrayAttr value) {
+  writer.writeAttribute(value);
 }
 
