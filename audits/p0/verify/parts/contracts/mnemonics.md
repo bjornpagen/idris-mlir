@@ -39,7 +39,9 @@ The owner names each in its family and lists the name in its handoff:
 - **L13, as named:** `crash.cause` and `crash.message`; `platform.os`;
   `f64.to_int`, `int.head_s`, `int.head_u`, `f64.head`; `buffer.*`,
   `io.clock`, `io.file_time`, `str.of_errno`.
-- **L12:** `tie_shape` (family `array.`, if it survives).
+- **L12:** `array.tie_shape`; `array.place_copy` (C180's fresh-buffer
+  copy, which releases nothing).
+- **L10:** `dest`, `dest.write`, `dest.answer` (C167, C171, C179).
 
 ## Gone by rulings
 

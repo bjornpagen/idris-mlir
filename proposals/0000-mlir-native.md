@@ -3831,6 +3831,19 @@ C137.
     narrowing one of them to the other's span, which refuses a later
     yield the program is entitled to. The same holds for `data.match`,
     `lit.match`, `join` and `loop`.
+- **C180** (2026-10-21; L12's fresh-buffer invariant, and its seam with
+  L16). A write into a buffer bufferization has just allocated releases
+  nothing, so it is its own op, `idr.array.place_copy`, decided in
+  One-Shot's copy hook where the fact is known; and every buffer of
+  elements that hold references is written whole by its first user, a
+  destination-style op that does not read it (`place_copy`, a
+  tabulation or a scan), so no store, copy or release at death reads an
+  unwritten slot and no allocation is zero-filled. The frontend
+  therefore writes a counted join and a rank-0 counted fold init as
+  tabulations, as C107 already writes a counted transpose; joins of
+  words keep their slices, since the invariant concerns only
+  reference-holding elements. No upstream hook is carried: a
+  tabulation is the representation that states the fact.
 
 ## 4. Open: the owner's decisions, in order
 
