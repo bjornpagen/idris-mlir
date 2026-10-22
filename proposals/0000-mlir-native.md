@@ -3652,6 +3652,12 @@ C137.
   dialect that no longer exists. Byte identity is held instead between a
   fresh generation and the committed outputs, on both hosts and all four
   targets (D67), which C78's pure `generate` makes possible.
+- **C165** (2026-10-21; L21's finding; retires C149's and C163's patch).
+  Program functions are built as `llvm.func` by our lowering and never
+  pass through FuncToLLVM, which attaches `noalias`, argument memory and
+  the rest itself (L21). So patch 78 reaches nothing and goes, its report
+  kept as a submission (AGENTS.md: a patch goes when nothing in the tree
+  reaches the bug).
 
 ## 4. Open: the owner's decisions, in order
 
