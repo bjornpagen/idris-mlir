@@ -3,14 +3,16 @@
 // The ops of refinement and of numerals: idr.data.reindex, a value at a
 // type its enclosing refinements make equal to its own; idr.index.assume, a
 // region in which an erased equality holds; and the two conversions between
-// a numeral and a natural. Each op checks here what it says alone; that a
-// cast's two types are equal under the refinements around it is the
+// a numeral and a natural, the first carrying the bound its operand's type
+// proves into the natural's range. Each op checks here what it says alone;
+// that a cast's two types are equal under the refinements around it is the
 // function's scope walk's, which holds them.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Scope.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Ranges.h"
 
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/ADT/STLExtras.h"
@@ -185,6 +187,17 @@ LogicalResult NumeralToNatOp::verify() {
   if (!numeralOf(getValue().getType()))
     return emitOpError("reads ") << getValue().getType() << ", which is no numeral";
   return success();
+}
+
+// At most the largest value the operand's type allows, which the type kept
+// when it was made (`#Fin[3]` gives 0 to 2), read as unsigned since a
+// numeral is never negative; a natural's range where its index fixes no
+// bound.
+void NumeralToNatOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
+                                       SetIntRangeFn setResultRange) {
+  ConstantIntRanges proved = idr::ranges::ofType(getValue().getType()).getValue();
+  setResultRange(getResult(), idr::ranges::rangeOf(idr::ranges::ofInteger(
+                                  proved, idr::numeric::Signedness::Unsigned)));
 }
 
 LogicalResult NumeralOfNatOp::verify() {

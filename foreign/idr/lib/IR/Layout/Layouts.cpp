@@ -176,18 +176,25 @@ const Layouts::LaidOut &Layouts::entryOf(DataType type, StringRef what) const {
                                  "layouts were computed");
 }
 
-// A type's layout is one of the two, as its class says: asking a value in
-// place for its cells, or a cell for its slots, is the asker's error.
+// A type's layout is one of the two, as its class says. Essential: asking
+// a value in place for its cells, or a cell for its slots, is the asker's
+// error, never the program's.
 const layout::SumLayout &Layouts::sum(DataType type) const {
-  if (const auto *slots = std::get_if<layout::SumLayout>(&entryOf(type, "slots").shape))
-    return *slots;
-  llvm::reportFatalInternalError("the slots of a data type held in a cell");
+  return match(
+      entryOf(type, "slots").shape,
+      [](const layout::SumLayout &slots) -> const layout::SumLayout & { return slots; },
+      [](const layout::CellLayout &) -> const layout::SumLayout & {
+        llvm::reportFatalInternalError("the slots of a data type held in a cell");
+      });
 }
 
 const layout::CellLayout &Layouts::cells(DataType type) const {
-  if (const auto *held = std::get_if<layout::CellLayout>(&entryOf(type, "cells").shape))
-    return *held;
-  llvm::reportFatalInternalError("the cells of a data type held in place");
+  return match(
+      entryOf(type, "cells").shape,
+      [](const layout::CellLayout &held) -> const layout::CellLayout & { return held; },
+      [](const layout::SumLayout &) -> const layout::CellLayout & {
+        llvm::reportFatalInternalError("the cells of a data type held in place");
+      });
 }
 
 const layout::OwnCells &Layouts::ownCells(DataType type) const {

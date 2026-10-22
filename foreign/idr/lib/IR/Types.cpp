@@ -206,6 +206,7 @@ std::optional<Mode> DataType::labelMode(Tag tag) const {
 Layout DataType::layout() const { return getImpl()->facts.layout; }
 Class DataType::cls() const { return getImpl()->facts.cls; }
 uint32_t DataType::components() const { return getImpl()->facts.components; }
+std::optional<uint64_t> DataType::numeralBound() const { return getImpl()->facts.bound; }
 bool DataType::boundsReach() const { return getImpl()->facts.reach == Reach::Bounded; }
 ArrayRef<MemberRef> DataType::selfCells() const {
   return getGroup().selfCells(getImpl()->member);

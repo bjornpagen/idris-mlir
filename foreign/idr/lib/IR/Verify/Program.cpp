@@ -4,16 +4,19 @@
 // implications read from the stage table. The program's own, which its
 // region verifier runs after checking its root, once every op of it is
 // verified, on one thread, at the module's read and after every pass on the
-// program: its target; past the higher stage no family whose fields hold a
-// closure or a suspension; and once counted its buffers' globals and the
-// cells its recycles give. And a
-// function's, which its region verifier runs, in parallel with every other
-// function's: one walk of its body under every rule read per op (what the
-// stage lets its values and ops hold, its scopes and refinements, its
-// closures' flow while they exist, its effect row derived from its ops and
-// held to what it says, what each value typed `unique deep` is given by its
-// sources, its lifetimes), then its linear values. The stage is read from
-// the program, never from what a function holds.
+// program: its target, and once counted its buffers' globals and the cells
+// its recycles give. And a function's, which its region verifier runs, in
+// parallel with every other function's: one walk of its body under every
+// rule read per op (what the stage lets its values and ops hold, its scopes
+// and refinements, its closures' flow while they exist, its effect row
+// derived from its ops and held to what it says, what each value typed
+// `unique deep` is given by its sources, its lifetimes), then its linear
+// values. The stage is read from the program, never from what a function
+// holds.
+//
+// Past the higher stage no value reaches a closure or a suspension: the
+// function's rules ask each value's type, which answers from what its
+// family computed when it was made.
 //
 // What a data type is held as, whether a memo sum is in a cell and whether
 // a type contains itself in place, is no rule here: the class rule decides
@@ -29,7 +32,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
-#include "idr/IR/TypeGraph.h"
 #include "idr/IR/Verify.h"
 
 #include "idr/IR/Generated/StageFacts.h.inc"
@@ -97,21 +99,6 @@ LogicalResult recycles(ProgramOp program) {
   return success();
 }
 
-// Past the higher stage every closure is a constructor of a sum, so no
-// family the program's values reach declares a field of a closure or a
-// suspension: each family the type graph reaches answers once.
-LogicalResult firstOrderFamilies(ProgramOp program) {
-  TypeGraph graph(program.getOperation());
-  for (unsigned at = 0; at < graph.size(); ++at) {
-    auto data = dyn_cast<DataType>(graph.type(at));
-    if (data && data.getGroup().namesLabels())
-      return program.emitOpError("holds the family of ")
-             << data << ", a field of which holds a closure or a suspension past the higher "
-             << "stage, where idr-defunctionalize has made each a sum";
-  }
-  return success();
-}
-
 // How a diagnostic names a value of `op`: a result, or an argument of a
 // block of one of its regions.
 InFlightDiagnostic report(Operation *op, Value value) {
@@ -127,14 +114,14 @@ InFlightDiagnostic report(Operation *op, Value value) {
 // What the program's stage lets the ops and values of a function be. A
 // closure or a suspension exists only before idr-defunctionalize makes
 // each a sum, and with it every idr.fn.apply and idr.lazy.force, whose
-// operands are such values; no linalg op past the higher stage reads or
-// writes an element that holds references, which idr-structure-loops makes
-// only of arrays of words and counting so never meets; and once references
-// are counted, every buffer is of a strided layout, whose descriptor the
-// lowering reads, and a buffer is a cell of the runtime: an allocation has
-// the identity layout and an alignment of at most a word, its elements
-// starting a word aligned and no more. While closures exist, each op is
-// held to the flow rule.
+// operands are such values, so past it no value's type reaches one; no
+// linalg op past the higher stage reads or writes an element that holds
+// references, which idr-structure-loops makes only of arrays of words and
+// counting so never meets; and once references are counted, every buffer
+// is of a strided layout, whose descriptor the lowering reads, and a buffer
+// is a cell of the runtime: an allocation has the identity layout and an
+// alignment of at most a word, its elements starting a word aligned and no
+// more. While closures exist, each op is held to the flow rule.
 class StageRules {
 public:
   StageRules(StageClosures closures, StageCounting counting)
@@ -177,9 +164,10 @@ public:
 private:
   LogicalResult value(Operation *op, Value value) {
     Type type = value.getType();
-    if (closures == StageClosures::FirstOrder && families::namesLabels(type))
-      return report(op, value) << "holds a closure or a suspension in a program past the higher "
-                                  "stage, where idr-defunctionalize has made each a sum";
+    if (closures == StageClosures::FirstOrder &&
+        families::closureReach(type) == ClosureReach::ReachesClosure)
+      return report(op, value) << "can reach a closure or a suspension in a program past the "
+                                  "higher stage, where idr-defunctionalize has made each a sum";
     if (auto buffer = dyn_cast<MemRefType>(type);
         buffer && counting == StageCounting::Counted && !buffer.isStrided())
       return report(op, value) << "is a buffer of no strided layout, whose descriptor the "
@@ -201,8 +189,6 @@ LogicalResult idr::verify::program(ProgramOp program) {
   Stage stage = program.getStage();
   if (functionsAt[stage] == StageFunctions::Lowered)
     return success();
-  if (closuresAt[stage] == StageClosures::FirstOrder && failed(firstOrderFamilies(program)))
-    return failure();
   if (countingAt[stage] == StageCounting::Counted)
     return failure(failed(globals(program)) || failed(recycles(program)));
   return success();

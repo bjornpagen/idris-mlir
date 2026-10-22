@@ -213,7 +213,10 @@ LogicalResult FamilyAttr::verify(EmitError emitError, ArrayRef<Member> members) 
     return emitError() << "expects a group of one member or more";
   llvm::SmallDenseSet<StringRef> memberLabels;
   for (const Member &member : members) {
-    StringRef name = match(member, [](const auto &m) { return m.label.getValue(); });
+    StringRef name =
+        match(member, [](const OneOf<DataMember, ClosuresMember, MemoMember, FramesMember> auto &m) {
+          return m.label.getValue();
+        });
     if (name.empty() || !memberLabels.insert(name).second)
       return emitError() << "expects members with distinct labels, got \"" << name << "\"";
     ArrayRef<Sort> indices = storage::indicesOf(member);

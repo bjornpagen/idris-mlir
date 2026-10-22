@@ -142,8 +142,10 @@ std::optional<LayoutFacts> fixedLayout(FamilyAttr group, uint32_t member,
   std::optional<Descent> descent = group.descent(member);
   if (cls == Class::Unknown || !descent)
     return LayoutFacts{cls, Layout::Natural, Refs::References, Reach::Unbounded, 1};
-  return LayoutFacts{cls, widthOf(heightOf(group, member, *descent, indices)), Refs::Words,
-                     Reach::Bounded, 1};
+  // The width and the bound are one fact: the type keeps the bound, which
+  // a range check reads, beside the width it chose.
+  uint64_t height = heightOf(group, member, *descent, indices);
+  return LayoutFacts{cls, widthOf(height), Refs::Words, Reach::Bounded, 1, height};
 }
 
 class Unfolder {

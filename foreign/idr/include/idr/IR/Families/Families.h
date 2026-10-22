@@ -88,6 +88,10 @@ struct LayoutFacts {
   // constructors or more are possible) and its fields'; none where no
   // constructor is possible.
   uint32_t components;
+  // A numeral's largest value, the bound its closed indices fix, which
+  // chose its width: written with a fixed-width layout, by the one rule
+  // that picks the width from it, and with no other.
+  std::optional<uint64_t> bound = std::nullopt;
 };
 
 // Whether a layout is a number: one of the fixed widths or a natural. A
@@ -124,10 +128,11 @@ mlir::ParseResult resolveLabel(mlir::AsmParser &parser, TermNode &node, FamilyAt
 // refinement, yes; where a jump passes a parameter, no.
 enum class Narrowing : uint8_t { Allowed, Exact };
 
-// Whether `type` names a closure or a suspension anywhere but inside a data
-// type or a family, whose fields their declarations answer for
-// (FamilyAttr::namesLabels): what exists only before idr-defunctionalize.
-bool namesLabels(mlir::Type type);
+// Whether a value of `type` can reach a closure or a suspension: one the
+// type names itself, or one a data type it names reaches, which that type's
+// family computed when it was made (FamilyAttr::closureReach), so nothing
+// below a data type is walked. What exists only before idr-defunctionalize.
+ClosureReach closureReach(mlir::Type type);
 
 // Whether a value of `sub` stands where `super` is asked as the same value,
 // with no op between: `sub` is `super` with its levels instantiated by one

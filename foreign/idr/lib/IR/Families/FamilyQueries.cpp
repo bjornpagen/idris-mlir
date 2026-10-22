@@ -19,6 +19,8 @@ ArrayRef<Member> FamilyAttr::getMembers() const { return getImpl()->members; }
 
 Containment FamilyAttr::containment() const { return getImpl()->containment; }
 
+ClosureReach FamilyAttr::closureReach() const { return getImpl()->closureReach; }
+
 MemberKind FamilyAttr::memberKind(uint32_t member) const {
   return memberKindOf(getMembers()[member]);
 }
@@ -28,7 +30,10 @@ ArrayRef<Sort> FamilyAttr::indices(uint32_t member) const {
 }
 
 StringAttr FamilyAttr::label(uint32_t member) const {
-  return match(getMembers()[member], [](const auto &m) { return m.label; });
+  return match(getMembers()[member],
+               [](const OneOf<DataMember, ClosuresMember, MemoMember, FramesMember> auto &m) {
+                 return m.label;
+               });
 }
 
 uint32_t FamilyAttr::tagCount(uint32_t member) const {
@@ -72,7 +77,7 @@ std::optional<Tag> FamilyAttr::tagOf(uint32_t member, StringRef label) const {
 Promise FamilyAttr::promise(uint32_t member) const {
   return match(
       getMembers()[member], [](const DataMember &m) { return m.promise; },
-      [](const auto &) { return Promise::None; });
+      [](const OneOf<ClosuresMember, MemoMember, FramesMember> auto &) { return Promise::None; });
 }
 
 Shape FamilyAttr::shape(uint32_t member) const { return getImpl()->facts[member].shape; }
@@ -89,14 +94,16 @@ std::optional<MemoView> FamilyAttr::memo(uint32_t member) const {
   return match(
       getMembers()[member],
       [](const MemoMember &m) -> std::optional<MemoView> { return MemoView{m.labels}; },
-      [](const auto &) -> std::optional<MemoView> { return std::nullopt; });
+      [](const OneOf<DataMember, ClosuresMember, FramesMember> auto &)
+          -> std::optional<MemoView> { return std::nullopt; });
 }
 
 std::optional<ClosuresView> FamilyAttr::closures(uint32_t member) const {
   return match(
       getMembers()[member],
       [](const ClosuresMember &m) -> std::optional<ClosuresView> { return ClosuresView{m.labels}; },
-      [](const auto &) -> std::optional<ClosuresView> { return std::nullopt; });
+      [](const OneOf<DataMember, MemoMember, FramesMember> auto &)
+          -> std::optional<ClosuresView> { return std::nullopt; });
 }
 
 Refs FamilyAttr::refsAtUnknown(uint32_t member) const {
@@ -134,14 +141,7 @@ std::optional<Mode> FamilyAttr::labelMode(uint32_t member, Tag tag) const {
           return std::nullopt;
         return m.labels[position].mode;
       },
-      [](const auto &) -> std::optional<Mode> { return std::nullopt; });
-}
-
-bool FamilyAttr::namesLabels() const {
-  for (const Member &member : getMembers())
-    for (const CtorView &ctor : ctorsOf(member, {}))
-      for (Type field : ctor.fields)
-        if (families::namesLabels(field))
-          return true;
-  return false;
+      [](const OneOf<DataMember, ClosuresMember, FramesMember> auto &) -> std::optional<Mode> {
+        return std::nullopt;
+      });
 }

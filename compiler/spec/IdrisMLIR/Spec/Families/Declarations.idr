@@ -6,6 +6,8 @@ module IdrisMLIR.Spec.Families.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Families.Dialect
+import IdrisMLIR.Spec.Families.Ops
+import IdrisMLIR.Spec.Families.Types
 
 %default total
 

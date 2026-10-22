@@ -95,7 +95,7 @@ const Sort frameIndex[] = {Sort{SortKind::NatSort, 0, Attribute()}};
 ArrayRef<Sort> indicesOf(const Member &member) {
   return match(
       member, [](const FramesMember &) { return ArrayRef<Sort>(frameIndex); },
-      [](const auto &m) { return m.indices; });
+      [](const OneOf<DataMember, ClosuresMember, MemoMember> auto &m) { return m.indices; });
 }
 
 MemberKind memberKindOf(const Member &member) {

@@ -49,6 +49,14 @@ data Reach = Bounded | Unbounded
 public export
 data Buffers = NoBuffer | HoldsBuffer
 
+||| Whether a value of a family can reach a closure or a suspension, through
+||| its members' fields and the families they name, read off the
+||| declaration when the family is made: each exists only before
+||| idr-defunctionalize makes it a constructor of a sum, so past it no value
+||| reaches one, which a value's type answers with no walk of the program.
+public export
+data ClosureReach = NoClosure | ReachesClosure
+
 ||| The most runtime components a closed application unfolds to before it
 ||| takes its member's layout at an unknown index. It bounds the classes,
 ||| and so the copies specialization by class makes; a spent budget leaves

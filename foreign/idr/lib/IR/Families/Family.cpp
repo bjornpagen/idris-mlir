@@ -2,11 +2,12 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The storage of #idr.family: a group's members, which are its identity,
 // copied into the context once, and the facts of the group that need no
-// index (whether it holds itself, each member's shape and numeral descent,
-// what a member holds at an unknown index, the cells a claim on its own
-// cells covers and whether one holds a buffer, its labels in order for the
-// parser), computed in its construction from the members and the types
-// they name, which exist already: nothing is made while they are.
+// index (whether it holds itself, whether its values can reach a closure
+// or a suspension, each member's shape and numeral descent, what a member
+// holds at an unknown index, the cells a claim on its own cells covers and
+// whether one holds a buffer, its labels in order for the parser),
+// computed in its construction from the members and the types they name,
+// which exist already: nothing is made while they are.
 
 #include "idr/IR/Families/FamilyStorage.h"
 #include "idr/IR/Families/Families.h"
@@ -28,9 +29,8 @@ namespace idr::families::storage {
 Type valueOf(Type field) { return unrestricted(field); }
 
 // Whether `type` names, anywhere in it, a member of the group its
-// declaration is in (`!idr.self`), or a closure or a suspension: the walk
-// stays out of every data type and family, whose own declarations are
-// theirs.
+// declaration is in (`!idr.self`): the walk stays out of every data type
+// and family, whose own declarations are theirs.
 template <typename... Ts>
 bool names(Type type) {
   AttrTypeWalker walker;
@@ -51,7 +51,26 @@ bool names(Type type) {
 
 } // namespace idr::families::storage
 
-bool idr::families::namesLabels(Type type) { return storage::names<FnType, LazyType>(type); }
+// A data type answers with its family's fact, computed when the family was
+// made, so the walk never enters one; a member of the group being made is
+// no data type yet and adds nothing, since the group's answer is the union
+// over its members.
+ClosureReach idr::families::closureReach(Type type) {
+  AttrTypeWalker walker;
+  walker.addWalk([](FamilyAttr) { return WalkResult::skip(); });
+  ClosureReach out = ClosureReach::NoClosure;
+  walker.addWalk([&](Type inner) {
+    auto data = dyn_cast<DataType>(inner);
+    if (data && data.getGroup().closureReach() == ClosureReach::NoClosure)
+      return WalkResult::skip();
+    if (!data && !isa<FnType, LazyType>(inner))
+      return WalkResult::advance();
+    out = ClosureReach::ReachesClosure;
+    return WalkResult::interrupt();
+  });
+  walker.walk<WalkOrder::PreOrder>(type);
+  return out;
+}
 
 using namespace idr::families::storage;
 
@@ -310,6 +329,14 @@ idr::detail::FamilyAttrStorage::construct(AttributeStorageAllocator &allocator, 
         if (llvm::any_of(ctor.fields, [](Type field) { return isa<MemRefType>(valueOf(field)); }))
           f.buffers = Buffers::HoldsBuffer;
     }
+  // Whether a value of the group can reach a closure or a suspension: a
+  // field of any member's constructor or state names one, itself or through
+  // a family of another group, which answered when it was made.
+  for (auto [index, member] : llvm::enumerate(storage->members))
+    for (const CtorView &ctor : ctorsOf(member, facts[index].states))
+      for (Type field : ctor.fields)
+        if (families::closureReach(field) == ClosureReach::ReachesClosure)
+          storage->closureReach = ClosureReach::ReachesClosure;
   storage->facts = allocator.copyInto(ArrayRef<MemberFacts>(facts));
   return storage;
 }

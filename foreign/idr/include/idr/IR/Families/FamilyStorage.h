@@ -3,7 +3,9 @@
 // The storages of the families' attributes, complete wherever the
 // generated attribute classes are defined and registered: each keyed by its
 // parameters, copied into the context once, and #idr.family keeping beside
-// its key what is derived of its members when it is made.
+// its key what is derived of its members when it is made: whether it holds
+// itself, whether its values can reach a closure or a suspension, and each
+// member's facts.
 #ifndef IDR_IR_FAMILIES_FAMILYSTORAGE_H
 #define IDR_IR_FAMILIES_FAMILYSTORAGE_H
 
@@ -89,6 +91,7 @@ struct FamilyAttrStorage : mlir::AttributeStorage {
 
   ArrayRef<Member> members;
   families::Containment containment = families::Containment::Acyclic;
+  ClosureReach closureReach = ClosureReach::NoClosure;
   ArrayRef<MemberFacts> facts;
 };
 
