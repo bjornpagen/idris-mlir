@@ -164,10 +164,14 @@ byteBuffer = SatisfiesType byteBufferP
 ||| restricts states its guard where it is admitted. Its range is the
 ||| function upstream computes its interval with, by which a node a rule
 ||| built gets one with no op standing for it; none where upstream has no
-||| one function for it. Its record's name carries its dialect, so it is its
-||| own alias.
+||| one function for it. Its fold is upstream's, exact on every machine: an
+||| integer's is arithmetic on its bits, a Double's IEEE's own rounding,
+||| which upstream computes without the C library. Its record's name carries
+||| its dialect, so it is its own alias.
 arithOp : Ident -> List UpLaw -> Maybe RangeFunction -> Admitted
-arithOp r laws range = MkAdmitted Arith r r Always FrontendWrites [] laws range
+arithOp r ls rf = MkAdmitted
+  { dialect = Arith, upstreamRecord = r, alias = r, legal = Always, writer = FrontendWrites
+  , guards = [], laws = ls, range = rf, folding = UpstreamFold }
 
 ||| Upstream's range function of an op, by its name in upstream's common
 ||| integer range inference.
@@ -324,69 +328,78 @@ remUI = { guards := [divisorNonzero] } (arithOp "Arith_RemUIOp" [] (rangedBy "in
 ||| holds its meaning and its effects: none, so only its uses order it. It
 ||| takes no guard, since it is defined on every Double: a value outside
 ||| the function's domain gives IEEE's NaN, as the C library's does. Its
-||| values are Doubles, so it has no range. Its record's name carries its
-||| dialect, so it is its own alias.
-mathOp : Ident -> Admitted
-mathOp r = MkAdmitted Math r r Always FrontendWrites [] [] Nothing
+||| values are Doubles, so it has no range. Its fold is the one it states:
+||| upstream folds a C library function by calling the compiling machine's,
+||| whose last digit IEEE leaves to each library, so a folded constant could
+||| differ from what the target computes and removing the fold would change
+||| a result; such an op is never folded and runs on the target as written.
+||| A root, a floor and a ceiling are exact under IEEE, so their folds stay.
+||| Its record's name carries its dialect, so it is its own alias.
+mathOp : UpFold -> Ident -> Admitted
+mathOp f r = MkAdmitted
+  { dialect = Math, upstreamRecord = r, alias = r, legal = Always, writer = FrontendWrites
+  , guards = [], laws = [], range = Nothing, folding = f }
 
 public export
 expF : Admitted
-expF = mathOp "Math_ExpOp"
+expF = mathOp NeverFolded "Math_ExpOp"
 
 public export
 logF : Admitted
-logF = mathOp "Math_LogOp"
+logF = mathOp NeverFolded "Math_LogOp"
 
 public export
 sinF : Admitted
-sinF = mathOp "Math_SinOp"
+sinF = mathOp NeverFolded "Math_SinOp"
 
 public export
 cosF : Admitted
-cosF = mathOp "Math_CosOp"
+cosF = mathOp NeverFolded "Math_CosOp"
 
 public export
 tanF : Admitted
-tanF = mathOp "Math_TanOp"
+tanF = mathOp NeverFolded "Math_TanOp"
 
 public export
 asinF : Admitted
-asinF = mathOp "Math_AsinOp"
+asinF = mathOp NeverFolded "Math_AsinOp"
 
 public export
 acosF : Admitted
-acosF = mathOp "Math_AcosOp"
+acosF = mathOp NeverFolded "Math_AcosOp"
 
 public export
 atanF : Admitted
-atanF = mathOp "Math_AtanOp"
+atanF = mathOp NeverFolded "Math_AtanOp"
 
 public export
 sqrtF : Admitted
-sqrtF = mathOp "Math_SqrtOp"
+sqrtF = mathOp UpstreamFold "Math_SqrtOp"
 
 public export
 floorF : Admitted
-floorF = mathOp "Math_FloorOp"
+floorF = mathOp UpstreamFold "Math_FloorOp"
 
 public export
 ceilF : Admitted
-ceilF = mathOp "Math_CeilOp"
+ceilF = mathOp UpstreamFold "Math_CeilOp"
 
 public export
 powF : Admitted
-powF = mathOp "Math_PowFOp"
+powF = mathOp NeverFolded "Math_PowFOp"
 
 ||| What ends a region Idris proved never runs: a match none of whose cases
 ||| can be, a value of an empty type. The frontend writes it, every pass
 ||| keeps it, and the lowering ends a crash with it, so it stands at every
 ||| stage. Upstream's record holds its meaning, undefined where reached,
 ||| which no program the frontend accepts reaches, and its effects: none,
-||| since nothing after it runs to see one. Its record's name holds no
-||| dialect, so its alias does.
+||| since nothing after it runs to see one. It has no value to fold. Its
+||| record's name holds no dialect, so its alias does.
 public export
 ubUnreachable : Admitted
-ubUnreachable = MkAdmitted UB "UnreachableOp" "UB_UnreachableOp" Always FrontendWrites [] [] Nothing
+ubUnreachable = MkAdmitted
+  { dialect = UB, upstreamRecord = "UnreachableOp", alias = "UB_UnreachableOp", legal = Always
+  , writer = FrontendWrites, guards = [], laws = [], range = Nothing, folding = UpstreamFold }
 
 ||| Every upstream op the dialect admits, once.
 public export

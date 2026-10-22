@@ -13,6 +13,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Control.Flow
+import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Ops.Strings
@@ -55,6 +56,29 @@ bigAttr = MkAttrDef
 public export
 noRuntimeForm : TraitDef
 noRuntimeForm = MkTraitDef "NoRuntimeForm" (says "its result is its first operand's word at run time")
+
+||| `BigOfIntegerOpInterface`: an Integer or a natural made of an integer,
+||| the integer its operand (`getValue`, the operand's own accessor) and how
+||| the integer is read (`getSignedness`, the constant of its class,
+||| `BigOfInteger<Op>`), so a pass that takes a big back to its word asks
+||| the op and lists none.
+public export
+bigOfIntegerInterface : InterfaceDef
+bigOfIntegerInterface = MkInterfaceDef
+  { name = "BigOfIntegerOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject "::mlir::Value" "getValue" [] EveryImplementer "the integer the big is made of"
+      , MkMethod PerObject "::idr::numeric::Signedness" "getSignedness" [] (DelegatesByClass "signednessOfOp")
+          "how the integer is read: its top bit its sign, or the natural its bits are" ]
+  , verifier = Unverified
+  , doc = says "a big made of an integer, and how the integer is read"
+  }
+
+||| The constant of a big made of an integer: how it reads the integer.
+bigOfInteger : Signedness -> Specialized
+bigOfInteger sign = MkSpecialized "BigOfInteger" [("signedness", EnumConstant (caseRef signednessClosed sign))]
 
 ||| An op the fold of which has a condition beyond its guards: the size of
 ||| the constant it would make, or a precondition its type does not carry.
@@ -110,7 +134,9 @@ binary m s ms d = MkOp
 
 ||| The sum and the product of two naturals are natural, so these take
 ||| Integers or naturals, and give what they take: Nat's plus and mult are
-||| these ops. A sum with 0 is the other operand, a law the e-graph reads.
+||| these ops. An Integer's sum and product are exact, never wrapped, so each
+||| is associative, with 0 and 1 its identities: laws the e-graph and the
+||| accumulator read.
 naturalBinary : Mnemonic -> Symbol -> Admitted -> List Law -> Doc -> Op 2 1 0 0
 naturalBinary m s word ls d = MkOp
   { home = InIdr
@@ -142,7 +168,7 @@ bigAdd = naturalBinary "big.add" "big_add" addI [Associative, Identity 0] (says 
 
 public export
 bigMul : Op 2 1 0 0
-bigMul = naturalBinary "big.mul" "big_mul" mulI [] (says "the product of two bigs or two naturals")
+bigMul = naturalBinary "big.mul" "big_mul" mulI [Associative, Identity 1] (says "the product of two bigs or two naturals")
 
 public export
 bigSub : Op 2 1 0 0
@@ -151,17 +177,28 @@ bigSub =
   , specializations := [bigToWord (OnWords subI)] }
   (binary "big.sub" "big_sub" [] (says "the difference of two bigs"))
 
+-- The bitwise ops are the runtime's, on the infinite two's complement of
+-- each Integer, so each is associative bit by bit, and its identity is the
+-- Integer whose every bit leaves the other's: -1, every bit set, for and;
+-- 0, none set, for or and xor.
+
 public export
 bigAnd : Op 2 1 0 0
-bigAnd = binary "big.and" "big_and" [] (says "the bitwise and of two bigs")
+bigAnd =
+  { laws := [Associative, Identity (-1)] }
+  (binary "big.and" "big_and" [] (says "the bitwise and of two bigs"))
 
 public export
 bigOr : Op 2 1 0 0
-bigOr = binary "big.or" "big_or" [] (says "the bitwise or of two bigs")
+bigOr =
+  { laws := [Associative, Identity 0] }
+  (binary "big.or" "big_or" [] (says "the bitwise or of two bigs"))
 
 public export
 bigXor : Op 2 1 0 0
-bigXor = binary "big.xor" "big_xor" [] (says "the bitwise xor of two bigs")
+bigXor =
+  { laws := [Associative, Identity 0] }
+  (binary "big.xor" "big_xor" [] (says "the bitwise xor of two bigs"))
 
 ||| Integer's shifts: every amount has a value, the runtime's; one too large
 ||| to hold is memory exhausted, as for a product. A shift away from zero
@@ -364,7 +401,7 @@ bigFromInt sign = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"], Implements bigOfIntegerInterface []]
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -375,7 +412,7 @@ bigFromInt sign = MkOp
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = []
+  , specializations = [bigOfInteger sign]
   , laws = []
   , doc = says "an integer as a big"
   }
@@ -396,7 +433,7 @@ bigSmall = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"], Implements bigOfIntegerInterface []]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -407,7 +444,7 @@ bigSmall = MkOp
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = []
+  , specializations = [bigOfInteger Signed]
   , laws = []
   , doc = says "the small big or natural of a word that fits"
   }
@@ -493,6 +530,16 @@ bigToDouble = MkOp
   , doc = says "a big as the nearest Double"
   }
 
+showBig : RuntimeCall 1 1
+showBig = MkRuntimeCall "big_show" [TakesBig] (Returns GivesStr)
+
+||| What writes a big's decimal text where the output stands, by the
+||| formatter big_show uses, into the output buffer: no string, and of a big
+||| beyond a small only the runtime's own temporaries.
+public export
+putBig : RuntimeHelper
+putBig = writerOf "ioPutBig" "io_put_big" showBig "writes the decimal text of a big to standard output"
+
 ||| The decimal text of a big, which has a digit at least.
 public export
 bigShow : Op 1 1 0 0
@@ -508,14 +555,14 @@ bigShow = MkOp
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "big_show" [TakesBig] (Returns GivesStr))
+  , meaning = ComputedByRuntime showBig
   , verify = DeclarationOnly
   , format = plain 1
   , builders = []
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = []
+  , specializations = [shownOutput putBig]
   , laws = []
   , doc = says "the decimal text of a big"
   }

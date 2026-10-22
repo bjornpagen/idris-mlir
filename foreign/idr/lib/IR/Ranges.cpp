@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The bounds of bigs and naturals, the ranges of values never negative, and
-// the range a type proves.
+// The bounds of bigs and naturals, the ranges of values never negative, the
+// range a type proves, and the range of a value known to be none of some
+// keys.
 
 #include "idr/IR/Ranges.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/CheckedArithmetic.h"
 
 #include <algorithm>
+#include <concepts>
 #include <cstdint>
 
 using namespace mlir;
@@ -36,6 +39,54 @@ std::optional<int64_t> minus(std::optional<int64_t> x, std::optional<int64_t> y)
   if (x && y)
     return *x - *y;
   return std::nullopt;
+}
+
+// How a range of a value of a type is read: as bounds on the integer a big
+// stands for, or a natural, which is at least 0 besides, a bound past the
+// small range none; or as bounds on a word's bits, each end a bound.
+enum class Reading : unsigned char { Integer, Natural, Bits };
+
+Reading readingOf(Type type) {
+  type = unrestricted(type);
+  if (isa<BigType>(type))
+    return Reading::Integer;
+  if (isa<NatType>(type))
+    return Reading::Natural;
+  // A numeral whose indices fix its bound is a word of its layout's width;
+  // one whose index is open is laid out as a natural.
+  if (auto data = dyn_cast<DataType>(type);
+      data && !data.numeralBound() && data.layout() == Layout::Natural)
+    return Reading::Natural;
+  return Reading::Bits;
+}
+
+// One view's ends, [lo, hi] in its order.
+struct Ends {
+  APInt lo, hi;
+};
+
+// The ends with each of `keys` cut from the end it is, inward while the
+// next key in the view's order `before` is the new end, never past the one
+// value left.
+template <typename Before>
+  requires std::strict_weak_order<Before, const APInt &, const APInt &>
+Ends cut(Ends ends, SmallVector<APInt> keys, Before before) {
+  llvm::sort(keys, before);
+  for (const APInt &key : keys) {
+    if (before(key, ends.lo))
+      continue;
+    if (key != ends.lo || !before(ends.lo, ends.hi))
+      break;
+    ++ends.lo;
+  }
+  for (const APInt &key : llvm::reverse(keys)) {
+    if (before(ends.hi, key))
+      continue;
+    if (key != ends.hi || !before(ends.lo, ends.hi))
+      break;
+    --ends.hi;
+  }
+  return ends;
 }
 
 } // namespace
@@ -111,28 +162,70 @@ ConstantIntRanges nonNegative(unsigned width, uint64_t min, uint64_t max) {
 // value has upstream's maximum range (IntegerValueRange::getMaxRange), so a
 // seed joins every range an op infers at the width the op infers it.
 IntegerValueRange ofType(Type type) {
-  type = unrestricted(type);
-  if (isa<NatType>(type))
-    return IntegerValueRange(rangeOf(natural()));
-  if (isa<BigType>(type))
+  switch (readingOf(type)) {
+  case Reading::Integer:
     return IntegerValueRange(rangeOf({}));
+  case Reading::Natural:
+    return IntegerValueRange(rangeOf(natural()));
+  case Reading::Bits:
+    break;
+  }
+  type = unrestricted(type);
   // A numeral whose indices fix its bound is a word of its layout's width,
   // up to the largest value they allow, which the type kept when it was
   // made (`#Fin[3]` 0 to 2, so no bounds check on an index of one is
-  // built); one whose index is open is laid out as a natural, at least 0.
-  // A data type of any other layout holds no integer.
-  if (auto data = dyn_cast<DataType>(type)) {
+  // built). A data type of any other layout holds no integer.
+  if (auto data = dyn_cast<DataType>(type))
     if (std::optional<uint64_t> largest = data.numeralBound())
       return IntegerValueRange(nonNegative(families::numberBits(data.layout()), 0, *largest));
-    if (data.layout() == Layout::Natural)
-      return IntegerValueRange(rangeOf(natural()));
-  }
   unsigned width = ConstantIntRanges::getStorageBitwidth(type);
   // A width-0 APInt has no sign bit, so upstream stores the range of a value
   // that holds no integer as the one width-0 value in all four bounds.
   if (width == 0)
     return IntegerValueRange(ConstantIntRanges::constant(APInt::getZero(0)));
   return IntegerValueRange(ConstantIntRanges::maxRange(width));
+}
+
+// The signed view is cut for every value; the unsigned only for a word, the
+// one reading with bits for it to bound: a big's range is of the integer,
+// its unsigned view only what the signed one implies. A key wider than the
+// range's width is no value of it, and a big's or a natural's key past the
+// small range is no bound of it, since a bound there is none: neither cuts.
+ConstantIntRanges excluding(Type type, const ConstantIntRanges &range, ArrayRef<APInt> keys) {
+  unsigned width = range.smin().getBitWidth();
+  // A value that holds no integer has no bounds to cut.
+  if (width == 0)
+    return range;
+  Reading reading = readingOf(type);
+  SmallVector<APInt> atWidth;
+  for (const APInt &key : keys) {
+    if (key.getSignificantBits() > width)
+      continue;
+    APInt at = key.sextOrTrunc(width);
+    if (reading != Reading::Bits && !inside(at.trySExtValue()))
+      continue;
+    atWidth.push_back(std::move(at));
+  }
+  Ends s = cut({range.smin(), range.smax()}, atWidth,
+               [](const APInt &a, const APInt &b) { return a.slt(b); });
+  ConstantIntRanges refined = ConstantIntRanges::fromSigned(s.lo, s.hi).intersection(range);
+  switch (reading) {
+  case Reading::Integer:
+  case Reading::Natural:
+    break;
+  case Reading::Bits: {
+    Ends u = cut({range.umin(), range.umax()}, std::move(atWidth),
+                 [](const APInt &a, const APInt &b) { return a.ult(b); });
+    refined = refined.intersection(ConstantIntRanges::fromUnsigned(u.lo, u.hi));
+    break;
+  }
+  }
+  // A range all of whose values are keys has none left once cut, which an
+  // interval cannot hold: no value reaches that default, and its range
+  // stays as it was.
+  if (refined.umin().ugt(refined.umax()) || refined.smin().sgt(refined.smax()))
+    return range;
+  return refined;
 }
 
 void carried(Value result, const IntegerValueRange &range, SetIntLatticeFn setResultRange) {

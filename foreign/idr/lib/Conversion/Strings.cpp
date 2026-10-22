@@ -8,15 +8,20 @@
 // which the runtime's one allocation needs; once more to write each element
 // after the last. The list is read and never counted: the op reads it in
 // place, and a list's cells never change while a reference to them is
-// live. Writing a list's pack or concat, its one use, is the composition
+// live. Writing a list's pack or concat, its one reader, is the composition
 // the lowering emits with no string at all: one walk, each element written
 // as idr.io.put_char or idr.io.put_str writes it, where the output stands.
+// Writing a number's show, its one reader, is the show's writer called
+// there (ShownOutput): the runtime's put and show share the formatter, so
+// the text is formatted into the output and no string is made.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Effects/Declared.h"
 #include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
 #include "idr/Conversion/IdrPattern.h"
+#include "idr/Conversion/Lower/Lower.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
 #include "idr/Conversion/Words.h"
@@ -24,14 +29,78 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/STLExtras.h"
 
 #include <concepts>
+#include <optional>
+
+// Each show's writer: ShownOutput.
+#include "idr/IR/Generated/ShownOutput.h.inc"
 
 using namespace mlir;
 
 namespace idr::conversion {
 
 namespace {
+
+// Whether something may give up a value of `type` before a later reader
+// reads it: its count, or its lifetime's end, where it holds references one
+// of them frees. A value that holds none, and static data, are never freed.
+enum class Lives : unsigned char { Always, UntilGivenUp };
+
+Lives livesOf(Type type) {
+  std::optional<Hold> hold = holdOf(type);
+  if (!hold)
+    return Lives::Always;
+  switch (hold->release()) {
+  case Release::Static:
+    return Lives::Always;
+  case Release::Counted:
+  case Release::Scoped:
+    return Lives::UntilGivenUp;
+  }
+  return Lives::UntilGivenUp;
+}
+
+// The one output of the string `maker` makes, where every other use of the
+// string gives it up and the output may still read what the maker read: a
+// string made only to be written, which the output writes from the maker's
+// operands instead. An operand something may give up is still held where
+// the output follows the maker in its block and nothing between them uses
+// it: only a use gives up a count, and a lifetime ends at the end of its
+// region, which holds both or neither. None where anything else reads the
+// string, or an operand may be gone by the output.
+IoPutStrOp writtenOnly(Operation *maker) {
+  IoPutStrOp output;
+  for (Operation *user : maker->getResult(0).getUsers()) {
+    if (isa<CountDropOp>(user))
+      continue;
+    auto put = dyn_cast<IoPutStrOp>(user);
+    if (!put || output)
+      return {};
+    output = put;
+  }
+  if (!output)
+    return {};
+  Block *block = maker->getBlock();
+  for (Value operand : maker->getOperands()) {
+    if (livesOf(operand.getType()) == Lives::Always)
+      continue;
+    if (output->getBlock() != block)
+      return {};
+    for (Operation *user : operand.getUsers())
+      if (Operation *at = block->findAncestorOpInBlock(*user);
+          at && maker->isBeforeInBlock(at) && at->isBeforeInBlock(output))
+        return {};
+  }
+  return output;
+}
+
+// The string `s` is no longer made: its output and every drop of it go.
+void eraseReaders(ConversionPatternRewriter &rewriter, Value s) {
+  for (Operation *user : llvm::make_early_inc_range(s.getUsers()))
+    rewriter.eraseOp(user);
+}
 
 // The list a builder walks, and its shape: which constructor is its cons
 // and which field its element, which the op's constraint holds it to.
@@ -108,9 +177,9 @@ const idr::runtime::Function &elementOutput() {
 
 // pack and concat walk a list the same way: once for the bytes and the
 // scalar values, then once to write each element after the last. A
-// character's sizes and a string's are the runtime's. Where the string's
-// one use writes it, the walk writes each element there instead, and
-// neither the string nor its output is left.
+// character's sizes and a string's are the runtime's. Where the string is
+// made only to be written, the walk writes each element there instead, and
+// neither the string, its output nor its drops are left.
 template <typename OpT>
 struct LowerStringOfList : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
@@ -120,18 +189,17 @@ struct LowerStringOfList : IdrPattern<OpT> {
     Location loc = op.getLoc();
     List list = listOf(op.getList().getType());
     Value cell = adaptor.getList().front();
-    if (op->hasOneUse())
-      if (auto output = dyn_cast<IoPutStrOp>(*op->user_begin())) {
-        rewriter.setInsertionPoint(output);
-        walk(rewriter, output.getLoc(), this->layouts, this->runtime, list, cell, {},
-             [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
-               this->runtime.call(b, l, elementOutput<OpT>(), head.front());
-               return SmallVector<Value>{};
-             });
-        rewriter.eraseOp(output);
-        rewriter.eraseOp(op);
-        return success();
-      }
+    if (IoPutStrOp output = writtenOnly(op)) {
+      rewriter.setInsertionPoint(output);
+      walk(rewriter, output.getLoc(), this->layouts, this->runtime, list, cell, {},
+           [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
+             this->runtime.call(b, l, elementOutput<OpT>(), head.front());
+             return SmallVector<Value>{};
+           });
+      eraseReaders(rewriter, op.getResult());
+      rewriter.eraseOp(op);
+      return success();
+    }
     Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 64);
     SmallVector<Value> counts =
         walk(rewriter, loc, this->layouts, this->runtime, list, cell, {zero, zero},
@@ -168,13 +236,53 @@ struct LowerStringOfList : IdrPattern<OpT> {
   }
 };
 
+// A show whose string is made only to be written: its writer writes the
+// show's text where the output stood, and neither the string nor its drops
+// are left. Any other show is its runtime call's, which this pattern, tried
+// first, leaves it to.
+template <typename ShowOp>
+struct LowerShownOutput : IdrPattern<ShowOp> {
+  LowerShownOutput(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
+                   Runtime &runtime)
+      : IdrPattern<ShowOp>(converter, ctx, layouts, runtime, ownLowering),
+        facts(callFacts(ctx, effects::bound<IoPutStrOp>().row())) {}
+
+  // What the writer does, which is what the output it stands for does:
+  // made once, with the pattern.
+  CallFacts facts;
+
+  LogicalResult matchAndRewrite(ShowOp op, typename IdrPattern<ShowOp>::OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    IoPutStrOp output = writtenOnly(op);
+    if (!output)
+      return rewriter.notifyMatchFailure(op, "its string is not made only to be written");
+    rewriter.setInsertionPoint(output);
+    tellCall(this->runtime.call(rewriter, op, ShownOutput<ShowOp>::writer, adaptor.getOperands()),
+             facts);
+    eraseReaders(rewriter, op.getResult());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+// One LowerShownOutput rooted at each show of `Shows`.
+template <typename... Shows>
+void addShownOutputs(RewritePatternSet &patterns, const TypeConverter &converter,
+                     const Layouts &layouts, Runtime &runtime) {
+  patterns.add<LowerShownOutput<Shows>...>(converter, patterns.getContext(), layouts, runtime);
+}
+
 } // namespace
 
-// The string builders over lists.
+// The string builders over lists, and the output of a show.
 void populateStringPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                             const Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerStringOfList<StrPackOp>, LowerStringOfList<StrConcatOp>>(
       converter, patterns.getContext(), layouts, runtime);
+  addShownOutputs<
+#define GET_SHOWN_OUTPUT_LIST
+#include "idr/IR/Generated/ShownOutput.h.inc"
+      >(patterns, converter, layouts, runtime);
 }
 
 } // namespace idr::conversion

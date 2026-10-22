@@ -4,8 +4,8 @@
 // every type of the dialect answers from the facts its specification
 // declares, printed into its class, so no answer is written here; the
 // builtin types a value may have answer as external models, attached when
-// the dialect registers its types, with the builtin integers' literals. The
-// free functions are the one way a reader asks (Grades.h).
+// the dialect registers its types, with the literals of the builtin integers
+// and of f64. The free functions are the one way a reader asks (Grades.h).
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -69,6 +69,29 @@ struct IntegerLiterals : LiteralTypeInterface::ExternalModel<IntegerLiterals, In
   }
 };
 
+// A literal of f64 is a Double a literal match compares by IEEE's equality,
+// so one key is one value it matches: never a NaN, which equals nothing,
+// nor negative zero, which equals positive zero and is written as it.
+struct DoubleLiterals : LiteralTypeInterface::ExternalModel<DoubleLiterals, Float64Type> {
+  bool isLiteral(Type type, Attribute literal) const {
+    auto real = dyn_cast<FloatAttr>(literal);
+    return real && real.getType() == type && !real.getValue().isNaN() &&
+           !real.getValue().isNegZero();
+  }
+
+  ParseResult parseLiteral(Type type, AsmParser &parser, Attribute &literal) const {
+    APFloat value(APFloat::IEEEdouble());
+    SMLoc loc = parser.getCurrentLocation();
+    if (parser.parseFloat(APFloat::IEEEdouble(), value))
+      return failure();
+    if (value.isNaN() || value.isNegZero())
+      return parser.emitError(loc, "key is no literal of ")
+             << type << ": a NaN equals no Double, and negative zero is written as zero";
+    literal = FloatAttr::get(type, value);
+    return success();
+  }
+};
+
 } // namespace
 
 void IdrDialect::registerValueFacts() {
@@ -80,6 +103,7 @@ void IdrDialect::registerValueFacts() {
   Float16Type::attachInterface<ScalarFacts<Float16Type>>(context);
   Float32Type::attachInterface<ScalarFacts<Float32Type>>(context);
   Float64Type::attachInterface<ScalarFacts<Float64Type>>(context);
+  Float64Type::attachInterface<DoubleLiterals>(context);
   Float80Type::attachInterface<ScalarFacts<Float80Type>>(context);
   Float128Type::attachInterface<ScalarFacts<Float128Type>>(context);
   VectorType::attachInterface<ScalarFacts<VectorType>>(context);

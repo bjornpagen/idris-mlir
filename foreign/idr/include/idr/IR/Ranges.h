@@ -16,6 +16,8 @@
 #include "idr/IR/Numeric/Domain.h"
 
 #include "mlir/Interfaces/InferIntRangeInterface.h"
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/ArrayRef.h"
 
 #include "idris_rt.h"
 
@@ -73,6 +75,21 @@ mlir::ConstantIntRanges nonNegative(unsigned width, uint64_t min, uint64_t max);
 // and the initialized width-0 range for a type that holds no integer (a
 // box, a string), which leaves no op's inference without its operands.
 mlir::IntegerValueRange ofType(mlir::Type type);
+
+// The range of a value of `type`, of range `range`, known to be none of
+// `keys`: what a literal match's default binds, the scrutinee refined to
+// the complement of the match's keys. A range is one interval per view,
+// which holds no hole, so a key is cut only where it is an end, and the
+// keys are cut inward from each end while the next is the new end: a
+// word's at an end of its unsigned bounds (0 the least) or of its signed
+// bounds; a big's or a natural's at an end of its signed bounds alone, the
+// integer's, and only a key inside the small range, since a bound past it
+// is none. A key strictly inside every view leaves the range
+// as it was, still a range of the value, losing only what the hole would
+// prove; so does a range all of whose values are keys, since no value
+// reaches that default and an interval holds no empty set.
+mlir::ConstantIntRanges excluding(mlir::Type type, const mlir::ConstantIntRanges &range,
+                                  llvm::ArrayRef<llvm::APInt> keys);
 
 // The range an op that only changes its operand's grade gives `result`
 // (::idr::ResultCarriesOperand: a view, a share, a linear position): the

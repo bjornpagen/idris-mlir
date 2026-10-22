@@ -5,7 +5,8 @@
 ||| their string in one walk of the list, their own lowering. A builder of a
 ||| new string acquires nothing before counting. Output of a string is IO's
 ||| (`Spec.Ops.IO`); writing a built string in pieces, and reading the head
-||| of one, are rules (`Spec.Ops.Rewrites`).
+||| of one, are rules (`Spec.Ops.Rewrites`); a number's text made only to be
+||| written is written by its show's writer, with no string.
 module IdrisMLIR.Spec.Ops.Strings
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -57,11 +58,17 @@ builder m ins call traits d = MkOp
   , doc = d
   }
 
+||| The runtime's concatenation is of the two strings' bytes, so it is
+||| associative, and the empty string is its identity, on either side: laws
+||| the e-graph and the accumulator read. Not commutative, which neither
+||| needs: an accumulator combines on the side the call was on.
 public export
 strAppend : Op 2 1 0 0
-strAppend = builder "str.append" [single "lhs" strRead, single "rhs" strRead]
-  (MkRuntimeCall "str_append" [TakesStr, TakesStr] (Returns GivesStr)) []
-  (says "the concatenation of two strings")
+strAppend =
+  { laws := [Associative, Identity ""] }
+  (builder "str.append" [single "lhs" strRead, single "rhs" strRead]
+    (MkRuntimeCall "str_append" [TakesStr, TakesStr] (Returns GivesStr)) []
+    (says "the concatenation of two strings"))
 
 public export
 strCons : Op 2 1 0 0
@@ -75,23 +82,74 @@ strFromChar = builder "str.from_char" [single "value" i32]
   (MkRuntimeCall "str_from_char" [TakesInt32] (Returns GivesStr)) [OurTrait neverEmpty]
   (says "the string of one character")
 
+------------------------------------------------------------------------------
+-- A number's text, and its output
+------------------------------------------------------------------------------
+
+||| The runtime function that writes the text a show's function gives,
+||| where the output stands, through the output buffer and with no string:
+||| the runtime's two entries share the formatter, and this one takes the
+||| show's operand as the show's function takes it, so the two cannot
+||| disagree on it. Writing is IO's, so it returns nothing.
+public export
+writerOf : Ident -> Symbol -> RuntimeCall 1 1 -> Line -> RuntimeHelper
+writerOf name sym shown doc = MkRuntimeHelper name sym [(head shown.takes, "value")] HelperNothing doc
+
+||| A show whose text an output of it alone writes with the show's writer
+||| (`ShownOutput<Op>`): what the lowering emits for a string the show makes
+||| only to write, so `print` of a number builds no string.
+public export
+shownOutput : RuntimeHelper -> Specialized
+shownOutput writer = MkSpecialized "ShownOutput" [("writer", HelperConstant writer)]
+
+showSigned : RuntimeCall 1 1
+showSigned = MkRuntimeCall "str_show_s" [TakesSigned] (Returns GivesStr)
+
+showUnsigned : RuntimeCall 1 1
+showUnsigned = MkRuntimeCall "str_show_u" [TakesUnsigned] (Returns GivesStr)
+
+showDouble : RuntimeCall 1 1
+showDouble = MkRuntimeCall "str_show_f64" [TakesDouble] (Returns GivesStr)
+
+public export
+putSigned : RuntimeHelper
+putSigned = writerOf "ioPutS" "io_put_s" showSigned
+  "writes the decimal text of a signed integer to standard output"
+
+public export
+putUnsigned : RuntimeHelper
+putUnsigned = writerOf "ioPutU" "io_put_u" showUnsigned
+  "writes the decimal text of an unsigned integer to standard output"
+
+public export
+putDouble : RuntimeHelper
+putDouble = writerOf "ioPutF64" "io_put_f64" showDouble
+  "writes the text of a Double to standard output, as str_show_f64 makes it"
+
 public export
 strShowSint : Op 1 1 0 0
-strShowSint = builder "str.show_sint" [single "value" int]
-  (MkRuntimeCall "str_show_s" [TakesSigned] (Returns GivesStr)) [OurTrait neverEmpty]
-  (says "the decimal text of a signed integer")
+strShowSint =
+  { specializations := [shownOutput putSigned] }
+  (builder "str.show_sint" [single "value" int] showSigned [OurTrait neverEmpty]
+    (says "the decimal text of a signed integer"))
 
 public export
 strShowUint : Op 1 1 0 0
-strShowUint = builder "str.show_uint" [single "value" int]
-  (MkRuntimeCall "str_show_u" [TakesUnsigned] (Returns GivesStr)) [OurTrait neverEmpty]
-  (says "the decimal text of an unsigned integer")
+strShowUint =
+  { specializations := [shownOutput putUnsigned] }
+  (builder "str.show_uint" [single "value" int] showUnsigned [OurTrait neverEmpty]
+    (says "the decimal text of an unsigned integer"))
 
 public export
 strShowDouble : Op 1 1 0 0
-strShowDouble = builder "str.show_double" [single "value" f64]
-  (MkRuntimeCall "str_show_f64" [TakesDouble] (Returns GivesStr)) [OurTrait neverEmpty]
-  (says "the text of a Double, as prim__cast_DoubleString writes it")
+strShowDouble =
+  { specializations := [shownOutput putDouble] }
+  (builder "str.show_double" [single "value" f64] showDouble [OurTrait neverEmpty]
+    (says "the text of a Double, as prim__cast_DoubleString writes it"))
+
+------------------------------------------------------------------------------
+-- Other builders
+------------------------------------------------------------------------------
 
 public export
 strSubstr : Op 3 1 0 0

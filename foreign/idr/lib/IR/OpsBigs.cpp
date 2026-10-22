@@ -16,6 +16,9 @@
 
 #include "mlir/Interfaces/Utils/InferIntRangeCommon.h"
 
+// How each big made of an integer reads it: BigOfInteger.
+#include "idr/IR/Generated/BigOfInteger.h.inc"
+
 #include <algorithm>
 #include <limits>
 
@@ -39,6 +42,14 @@ void setBounds(Value result, Bounds bounds, SetIntRangeFn setResultRange) {
 Bounds operandBounds(Value operand, const ConstantIntRanges &range) {
   return idr::ranges::boundsOf(
       range.intersection(idr::ranges::ofType(operand.getType()).getValue()));
+}
+
+// A big made of an integer by `op` has the integer's bounds, read as the
+// op's class reads it.
+template <typename Op>
+void fromInteger(Op op, ArrayRef<ConstantIntRanges> ranges, SetIntRangeFn setResultRange) {
+  setBounds(op.getResult(), idr::ranges::ofInteger(ranges[0], BigOfInteger<Op>::signedness),
+            setResultRange);
 }
 
 } // namespace
@@ -124,17 +135,14 @@ void BigCmpOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
   setResultRange(getResult(), ConstantIntRanges::constant(APInt(1, *decided ? 1 : 0)));
 }
 
-// The integer's bounds, read as the op's signedness says.
 void BigFromSintOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                       SetIntRangeFn setResultRange) {
-  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], numeric::Signedness::Signed),
-            setResultRange);
+  fromInteger(*this, ranges, setResultRange);
 }
 
 void BigFromUintOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                       SetIntRangeFn setResultRange) {
-  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], numeric::Signedness::Unsigned),
-            setResultRange);
+  fromInteger(*this, ranges, setResultRange);
 }
 
 // A small is its word, which the op's writer proved inside the small range.

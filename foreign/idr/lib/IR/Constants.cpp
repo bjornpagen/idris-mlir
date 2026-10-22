@@ -2,11 +2,13 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr.constant: the dialect's values, which hold no type, and the check of a
 // constant through its fields and captures: a constructor against its data
-// type's body, and a closure against its function's signature, once per
-// module verify through the collection the symbol-use walk hands over.
+// type's body, and a closure against its function's signature at its index
+// terms, once per module verify through the collection the symbol-use walk
+// hands over.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Fold.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
@@ -34,25 +36,34 @@ using Checked = footprint::DenseMap<Part, llvm::detail::DenseSetEmpty, llvm::Den
                                     llvm::detail::DenseSetPair<Part>>;
 
 // That `closure`, a part of `type`, names a function that takes its
-// captures, which wait on `parts`, each at its parameter's type.
+// captures, which wait on `parts`, each at its parameter's type at the
+// terms the closure gives the function's index variables, as fn.closure
+// reads its callee at its own.
 LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, ClosureAttr closure,
                             Type type, Parts &parts) {
   auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(op, closure.getCallee());
   if (!fn)
     return op->emitOpError("has a closure of an unknown function ") << closure.getCallee();
-  ArrayRef<Type> inputs = fn.getArgumentTypes();
+  IndexArgsAttr terms = closure.getIndexArgs();
+  std::size_t binding = fn.getBinders().getSorts().size();
+  if (terms.getCount() != binding)
+    return op->emitOpError("has a closure giving ")
+           << terms.getCount() << " index terms to " << closure.getCallee() << ", which binds "
+           << binding;
+  FunctionType at = families::substitute(fn.getFunctionType(), terms);
+  ArrayRef<Type> inputs = at.getInputs();
+  ArrayRef<Type> results = at.getResults();
   size_t captures = closure.getCaptures().size();
   if (captures > inputs.size())
     return op->emitOpError("has a closure with more captures than ")
            << closure.getCallee() << " has parameters";
   if (auto lazy = dyn_cast<LazyType>(type)) {
     // A suspension's function has no arguments past its captures: the cell
-    // is the whole value, and forcing it passes nothing more. idr-rc grades
-    // the function's return; the constant stays a plain cell, and the
-    // carrier is what the two still share.
-    if (captures != inputs.size() || fn.getResultTypes().size() != 1 ||
-        unrestricted(fn.getResultTypes()[0]) != unrestricted(lazy.getValue()) ||
-        llvm::any_of(inputs, isWorld))
+    // is the whole value, and forcing it passes nothing more. Counting
+    // grades the function's return; the constant stays a plain cell, and
+    // the carrier is what the two still share.
+    if (captures != inputs.size() || results.size() != 1 ||
+        unrestricted(results[0]) != unrestricted(lazy.getValue()))
       return op->emitOpError("has a suspension of ")
              << closure.getCallee() << ", where " << type << " is expected";
   } else {
@@ -61,10 +72,10 @@ LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, Closu
     // proved.
     auto actual = dyn_cast<FnType>(unrestricted(type));
     if (!actual || !sameCarriers(inputs.drop_front(captures), actual.getInputs()) ||
-        !sameCarriers(fn.getResultTypes(), actual.getResults()))
+        !sameCarriers(results, actual.getResults()))
       return op->emitOpError("has a closure of ")
              << closure.getCallee() << ", of type "
-             << FnType::get(op->getContext(), inputs.drop_front(captures), fn.getResultTypes())
+             << FnType::get(op->getContext(), inputs.drop_front(captures), results)
              << ", where " << type << " is expected";
   }
   // A constant fills a linear capture as its plain value.
@@ -148,7 +159,7 @@ bool idr::fold::buildable(Attribute value, Type type) {
 
 // The kinds of value idr.constant holds: constructors, closures and the
 // literals of a type that says what its literals are; an integer's literal
-// is arith.constant's. A constant is static data: used any number of times,
+// and a Double's are arith.constant's. A constant is static data: used any number of times,
 // and where its type holds references, held static, graded from what it
 // holds, which nothing frees. A linear value of it is cast from it.
 bool ConstantOp::isBuildableWith(Attribute value, Type type) {
@@ -160,10 +171,11 @@ bool ConstantOp::isBuildableWith(Attribute value, Type type) {
     return dataTypeOf(type) == con.getData();
   if (isa<ClosureAttr>(value))
     return isa<FnType, LazyType>(type);
-  // An integer is a literal of its type too, but its constant is upstream's,
-  // which every fold and pattern of arith reads: one constant op per value.
+  // An integer and a Double are literals of their types too, but their
+  // constant is upstream's, which every fold and pattern of arith reads:
+  // one constant op per value.
   auto literal = dyn_cast<LiteralTypeInterface>(type);
-  return literal && !isa<IntegerType>(type) && literal.isLiteral(value);
+  return literal && !isa<IntegerType, Float64Type>(type) && literal.isLiteral(value);
 }
 
 LogicalResult ConstantOp::verify() {
