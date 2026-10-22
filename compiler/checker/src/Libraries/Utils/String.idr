@@ -54,5 +54,9 @@ stripQuotes = stripSurrounds 1 1
 
 export
 lowerFirst : String -> Bool
-lowerFirst "" = False
-lowerFirst str = isLower $ assert_total $ prim__strHead str
+-- The first character is read as a string of at most one character, so
+-- whether there is one is a list's case: no head of an empty string is
+-- left to rule out.
+lowerFirst str = case unpack (substr 0 1 str) of
+  c :: _ => isLower c
+  [] => False

@@ -70,53 +70,21 @@ export
 emptyTree : Tree root
 emptyTree = MkTree [] []
 
-||| Filter out files and directories that do not satisfy a given predicate.
-export
-filter : (filePred, dirPred : {root : _} -> FileName root -> Bool) ->
-         {root : _} -> Tree root -> Tree root
-filter filePred dirPred (MkTree files dirs) = MkTree files' dirs' where
-
-  files' : List (FileName root)
-  files' = filter filePred files
-
-  dirs' : List (SubTree root)
-  dirs' = flip List.mapMaybe dirs $ \ (dname ** iot) => do
-            guard (dirPred dname)
-            pure (dname ** map (assert_total (filter filePred dirPred)) iot)
-
-||| Sort the lists of files and directories using the given comparison functions
-export
-sortBy : (fileCmp, dirCmp : {root : _} -> FileName root -> FileName root -> Ordering) ->
-         {root : _} -> Tree root -> Tree root
-sortBy fileCmp dirCmp (MkTree files dirs) = MkTree files' dirs' where
-
-  files' : List (FileName root)
-  files' = sortBy fileCmp files
-
-  dirs' : List (SubTree root)
-  dirs' = sortBy (\ d1, d2 => dirCmp (fst d1) (fst d2))
-        $ flip map dirs $ \ (dname ** iot) =>
-          (dname ** map (assert_total (sortBy fileCmp dirCmp)) iot)
-
-||| Sort the list of files and directories alphabetically
-export
-sort : {root : _} -> Tree root -> Tree root
-sort = sortBy cmp cmp where
-
-  cmp : {root : _} -> FileName root -> FileName root -> Ordering
-  cmp a b = compare (fileName a) (fileName b)
-
-
 ||| Exploring a filesystem from a given root to produce a tree
 export
+covering
 explore : (root : Path) -> IO (Tree root)
 
+-- Reading a directory ends when the operating system's stream of its
+-- entries does, which is a fact of the file system at run time and of
+-- nothing the program holds, so the loop is covering, not total.
+covering
 go : {root : Path} -> Directory -> Tree root -> IO (Tree root)
 
 explore root = do
   Right dir <- openDir (show root)
     | Left err => pure emptyTree
-  assert_total (go dir emptyTree)
+  go dir emptyTree
 
 go dir acc = case !(nextDirEntry dir) of
   -- If there is no next entry then we are done and can return the accumulator.
@@ -126,14 +94,14 @@ go dir acc = case !(nextDirEntry dir) of
   Right (Just entry) => do
     -- ignore aliases for current and parent directories
     let False = elem entry [".", ".."]
-         | _ => assert_total (go dir acc)
+         | _ => go dir acc
     -- if the entry is a directory, add it to the (lazily explored)
     -- list of subdirectories
     let entry : FileName root = MkFileName entry
     let acc = if !(directoryExists entry)
                 then { subTrees $= ((entry ** explore _) ::) } acc
                 else { files    $= (entry                ::) } acc
-    assert_total (go dir acc)
+    go dir acc
 
 ||| Depth first traversal of all of the files in a tree
 export

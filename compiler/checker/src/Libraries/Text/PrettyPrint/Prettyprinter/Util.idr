@@ -2,7 +2,6 @@
 -- Copyright (c) 2020 Edwin Brady
 module Libraries.Text.PrettyPrint.Prettyprinter.Util
 
-import Data.List
 import Libraries.Text.PrettyPrint.Prettyprinter.Doc
 import Libraries.Text.PrettyPrint.Prettyprinter.Render.String
 
@@ -11,14 +10,18 @@ import Libraries.Text.PrettyPrint.Prettyprinter.Render.String
 ||| Split an input into word-sized `Doc`.
 export
 words : String -> List (Doc ann)
-words s = map pretty0 $ map pack (helper (unpack s))
+words s = map pretty0 $ map pack (go [<] (unpack s))
   where
-    helper : List Char -> List (List Char)
-    helper s =
-      case dropWhile isSpace s of
-           [] => []
-           s' => let (w, s'') = break isSpace s' in
-                     w :: helper (assert_smaller s s'')
+    -- A word read so far, before the words after it; none if it is empty.
+    flush : SnocList Char -> List (List Char) -> List (List Char)
+    flush [<] ws = ws
+    flush word ws = (word <>> []) :: ws
+
+    -- The runs of characters between whitespace, read one character at a
+    -- time, `word` the run read so far.
+    go : SnocList Char -> List Char -> List (List Char)
+    go word [] = flush word []
+    go word (c :: cs) = if isSpace c then flush word (go [<] cs) else go (word :< c) cs
 
 ||| Optionally annotate a document
 export

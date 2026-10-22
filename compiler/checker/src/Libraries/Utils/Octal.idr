@@ -2,31 +2,7 @@
 -- Copyright (c) 2020 Edwin Brady
 module Libraries.Utils.Octal
 
-import Data.Primitives.Views
-
 %default total
-
-octDigit : Int -> Char
-octDigit 0 = '0'
-octDigit 1 = '1'
-octDigit 2 = '2'
-octDigit 3 = '3'
-octDigit 4 = '4'
-octDigit 5 = '5'
-octDigit 6 = '6'
-octDigit 7 = '7'
-octDigit _ = 'X' -- TMP HACK: Ideally we'd have a bounds proof, generated below
-
-||| Convert a positive integer into a list of octal characters
-export
-asOct : Int -> String
-asOct n = pack $ asOct' n []
-  where
-    asOct' : Int -> List Char -> List Char
-    asOct' 0 oct = oct
-    asOct' n oct with (n `divides` 8)
-      asOct' (8 * div + rem) oct | DivBy div rem _ =
-        assert_total $ asOct' div (octDigit rem :: oct)
 
 export
 fromOctDigit : Char -> Maybe Int

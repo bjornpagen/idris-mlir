@@ -38,14 +38,6 @@ Functor FlattenResult where
   map _ AlreadyFlat = AlreadyFlat
   map _ NeverFlat = NeverFlat
 
-||| Fusion depth parameter.
-public export
-data FusionDepth : Type where
-  ||| Do not dive deep into nested documents.
-  Shallow : FusionDepth
-  ||| Recurse into all parts of the `Doc`. May impact performace.
-  Deep : FusionDepth
-
 ||| This data type represents pretty documents that have
 ||| been annotated with an arbitrary data type `ann`.
 public export
@@ -473,51 +465,6 @@ export
 prettyMaybe : Pretty ann a => Maybe a -> Doc ann
 prettyMaybe = maybe neutral pretty
 
-||| Combines text nodes so they can be rendered more efficiently.
-export
-fuse : FusionDepth -> Doc ann -> Doc ann
-fuse depth (Cat Empty x) = fuse depth x
-fuse depth (Cat x Empty) = fuse depth x
-fuse depth (Cat (Chara c1) (Chara c2)) = Text 2 (strCons c1 (strCons c2 ""))
-fuse depth (Cat (Text lt t) (Chara c)) = Text (lt + 1) (t ++ singleton c)
-fuse depth (Cat (Chara c) (Text lt t)) = Text (lt + 1) (strCons c t)
-fuse depth (Cat (Text l1 t1) (Text l2 t2)) = Text (l1 + l2) (t1 ++ t2)
-fuse depth (Cat (Chara x) (Cat (Chara y) z)) =
-  let sub = Text 2 (strCons x (strCons y "")) in
-      fuse depth $ assert_smaller (Cat (Chara x) (Cat (Chara y) z)) (Cat sub z)
-fuse depth (Cat (Text lx x) (Cat (Chara y) z)) =
-  let sub = Text (lx + 1) (x ++ singleton y) in
-      fuse depth $ assert_smaller (Cat (Text lx x) (Cat (Chara y) z)) (Cat sub z)
-fuse depth (Cat (Chara x) (Cat (Text ly y) z)) =
-  let sub = Text (ly + 1) (strCons x y) in
-      fuse depth $ assert_smaller (Cat (Chara x) (Cat (Text ly y) z)) (Cat sub z)
-fuse depth (Cat (Text lx x) (Cat (Text ly y) z)) =
-  let sub = Text (lx + ly) (x ++ y) in
-      fuse depth $ assert_smaller (Cat (Text lx x) (Cat (Text ly y) z)) (Cat sub z)
-fuse depth (Cat (Cat x (Chara y)) z) =
-  let sub = fuse depth (Cat (Chara y) z) in
-      assert_total $ fuse depth (Cat x sub)
-fuse depth (Cat (Cat x (Text ly y)) z) =
-  let sub = fuse depth (Cat (Text ly y) z) in
-      assert_total $ fuse depth (Cat x sub)
-fuse depth (Cat x y) = Cat (fuse depth x) (fuse depth y)
-fuse depth (Nest i (Nest j x)) = fuse depth $ assert_smaller (Nest i (Nest j x)) (Nest (i + j) x)
-fuse depth (Nest _ Empty) = Empty
-fuse depth (Nest _ (Text lx x)) = Text lx x
-fuse depth (Nest _ (Chara x)) = Chara x
-fuse depth (Nest 0 x) = fuse depth x
-fuse depth (Nest i x) = Nest i (fuse depth x)
-fuse depth (Annotated ann x) = Annotated ann (fuse depth x)
-fuse depth (FlatAlt x y) = FlatAlt (fuse depth x) (fuse depth y)
-fuse depth (Union x y) = Union (fuse depth x) (fuse depth y)
-fuse Shallow (Column f) = Column f
-fuse depth (Column f) = Column (\x => fuse depth $ f x)
-fuse Shallow (WithPageWidth f) = WithPageWidth f
-fuse depth (WithPageWidth f) = WithPageWidth (\x => fuse depth $ f x)
-fuse Shallow (Nesting f) = Nesting f
-fuse depth (Nesting f) = Nesting (\x => fuse depth $ f x)
-fuse depth x = x
-
 ||| This data type represents laid out documents and is used by the display functions.
 public export
 data SimpleDocStream : Type -> Type where
@@ -648,8 +595,6 @@ public export
 FittingPredicate : Type -> Type
 FittingPredicate ann = Int -> Int -> Lazy (Maybe Int) -> SimpleDocStream ann -> Bool
 
-data LayoutPipeline ann = Nil | Cons Int (Doc ann) (LayoutPipeline ann) | UndoAnn (LayoutPipeline ann)
-
 export
 defaultPageWidth : PageWidth
 defaultPageWidth = AvailablePerLine 80 1
@@ -679,7 +624,7 @@ defaultLayoutOptions = MkLayoutOptions defaultPageWidth
 ||| The Wadler/Leijen layout algorithm.
 export
 layoutWadlerLeijen : FittingPredicate ann -> PageWidth -> Doc ann -> SimpleDocStream ann
-layoutWadlerLeijen fits pageWidth_ doc = best 0 0 (Cons 0 doc Nil)
+layoutWadlerLeijen fits pageWidth_ doc = best 0 doc (\_, _ => SEmpty) 0 0
   where
     initialIndentation : SimpleDocStream ann -> Maybe Int
     initialIndentation (SLine i _) = Just i
@@ -691,28 +636,35 @@ layoutWadlerLeijen fits pageWidth_ doc = best 0 0 (Cons 0 doc Nil)
     selectNicer lineIndent currentColumn x y =
       if fits lineIndent currentColumn (initialIndentation y) x then x else y
 
-    best : Int -> Int -> LayoutPipeline ann -> SimpleDocStream ann
-    best _ _ Nil = SEmpty
-    best nl cc (UndoAnn ds) = SAnnPop (best nl cc ds)
-    best nl cc (Cons i Empty ds) = best nl cc ds
-    best nl cc (Cons i (Chara c) ds) = SChar c (best nl (cc + 1) ds)
-    best nl cc (Cons i (Text l t) ds) = SText l t (best nl (cc + l) ds)
-    best nl cc (Cons i Line ds) = let x = best i i ds
-                                      i' = case x of
-                                                SEmpty => 0
-                                                SLine {} => 0
-                                                _ => i in
-                                      SLine i' x
-    best nl cc c@(Cons i (FlatAlt x y) ds) = best nl cc $ assert_smaller c (Cons i x ds)
-    best nl cc (Cons i (Cat x y) ds) = assert_total $ best nl cc (Cons i x (Cons i y ds))
-    best nl cc c@(Cons i (Nest j x) ds) = best nl cc $ assert_smaller c (Cons (i + j) x ds)
-    best nl cc c@(Cons i (Union x y) ds) = let x' = best nl cc $ assert_smaller c (Cons i x ds)
-                                               y' : Lazy (SimpleDocStream ann) = delay $ best nl cc $ assert_smaller c (Cons i y ds) in
-                                               selectNicer nl cc x' y'
-    best nl cc c@(Cons i (Column f) ds) = best nl cc $ assert_smaller c (Cons i (f cc) ds)
-    best nl cc c@(Cons i (WithPageWidth f) ds) = best nl cc $ assert_smaller c (Cons i (f pageWidth_) ds)
-    best nl cc c@(Cons i (Nesting f) ds) = best nl cc $ assert_smaller c (Cons i (f i) ds)
-    best nl cc c@(Cons i (Annotated ann x) ds) = SAnnPush ann $ best nl cc $ assert_smaller c (Cons i x (UndoAnn ds))
+    -- A document laid out at nesting `i`, then what follows it, `rest`,
+    -- from the line's indentation `nl` and the column `cc` the document
+    -- starts at. What follows is a continuation rather than a list of the
+    -- documents still to lay out, so every call lays out a part of the
+    -- document it was given (a function's result is a part of the
+    -- `Column`, `WithPageWidth` or `Nesting` that holds the function),
+    -- and the recursion is on the document's structure.
+    best : (i : Int) -> Doc ann -> (rest : Int -> Int -> SimpleDocStream ann) ->
+           (nl, cc : Int) -> SimpleDocStream ann
+    best i Empty rest nl cc = rest nl cc
+    best i (Chara c) rest nl cc = SChar c (rest nl (cc + 1))
+    best i (Text l t) rest nl cc = SText l t (rest nl (cc + l))
+    best i Line rest nl cc = let x = rest i i
+                                 i' = case x of
+                                           SEmpty => 0
+                                           SLine {} => 0
+                                           _ => i in
+                                 SLine i' x
+    best i (FlatAlt x y) rest nl cc = best i x rest nl cc
+    best i (Cat x y) rest nl cc = best i x (best i y rest) nl cc
+    best i (Nest j x) rest nl cc = best (i + j) x rest nl cc
+    best i (Union x y) rest nl cc = let x' = best i x rest nl cc
+                                        y' : Lazy (SimpleDocStream ann) = delay $ best i y rest nl cc in
+                                        selectNicer nl cc x' y'
+    best i (Column f) rest nl cc = best i (f cc) rest nl cc
+    best i (WithPageWidth f) rest nl cc = best i (f pageWidth_) rest nl cc
+    best i (Nesting f) rest nl cc = best i (f i) rest nl cc
+    best i (Annotated ann x) rest nl cc
+        = SAnnPush ann $ best i x (\nl', cc' => SAnnPop (rest nl' cc')) nl cc
 
 ||| Layout a document with unbounded page width.
 export
@@ -736,57 +688,6 @@ layoutPretty (MkLayoutOptions pageWidth_@(AvailablePerLine lineLength ribbonFrac
     layoutWadlerLeijen (\lineIndent, currentColumn, _, sdoc =>
       fits (remainingWidth lineLength ribbonFraction lineIndent currentColumn) sdoc) pageWidth_
 layoutPretty (MkLayoutOptions Unbounded) = layoutUnbounded
-
-||| Layout algorithm with more lookahead than layoutPretty.
-export
-layoutSmart : LayoutOptions -> Doc ann -> SimpleDocStream ann
-layoutSmart (MkLayoutOptions pageWidth_@(AvailablePerLine lineLength ribbonFraction)) =
-    layoutWadlerLeijen fits pageWidth_
-  where
-    fits : Int -> Int -> Lazy (Maybe Int) -> SimpleDocStream ann -> Bool
-    fits lineIndent currentColumn initialIndentY sdoc = go availableWidth sdoc
-      where
-        availableWidth : Int
-        availableWidth = remainingWidth lineLength ribbonFraction lineIndent currentColumn
-
-        minNestingLevel : Int
-        minNestingLevel = case initialIndentY of
-                               Just i => min i currentColumn
-                               Nothing => currentColumn
-
-        go : Int -> SimpleDocStream ann -> Bool
-        go w s = if w < 0
-          then False
-          else case s of
-                    SEmpty => True
-                    SChar _ x => go (w - 1) $ assert_smaller s x
-                    SText l _ x => go (w - l) $ assert_smaller s x
-                    SLine i x => if minNestingLevel < i
-                                    then go (lineLength - i) $ assert_smaller s x
-                                    else True
-                    SAnnPush _ x => go w x
-                    SAnnPop x => go w x
-layoutSmart (MkLayoutOptions Unbounded) = layoutUnbounded
-
-||| Lays out the document without adding any indentation. This layouter is very fast.
-export
-layoutCompact : Doc ann -> SimpleDocStream ann
-layoutCompact doc = scan 0 [doc]
-  where
-    scan : Int -> List (Doc ann) -> SimpleDocStream ann
-    scan _ [] = SEmpty
-    scan col (Empty :: ds) = scan col ds
-    scan col ((Chara c) :: ds) = SChar c (scan (col + 1) ds)
-    scan col ((Text l t) :: ds) = SText l t (scan (col + l) ds)
-    scan col s@((FlatAlt x _) :: ds) = scan col $ assert_smaller s (x :: ds)
-    scan col (Line :: ds) = SLine 0 (scan 0 ds)
-    scan col s@((Cat x y) :: ds) = scan col $ assert_smaller s (x :: y :: ds)
-    scan col s@((Nest _ x) :: ds) = scan col $ assert_smaller s (x :: ds)
-    scan col s@((Union _ y) :: ds) = scan col $ assert_smaller s (y :: ds)
-    scan col s@((Column f) :: ds) = scan col $ assert_smaller s (f col :: ds)
-    scan col s@((WithPageWidth f) :: ds) = scan col $ assert_smaller s (f Unbounded :: ds)
-    scan col s@((Nesting f) :: ds) = scan col $ assert_smaller s (f 0 :: ds)
-    scan col s@((Annotated _ x) :: ds) = scan col $ assert_smaller s (x :: ds)
 
 
 ------------------------------------------------------------------------

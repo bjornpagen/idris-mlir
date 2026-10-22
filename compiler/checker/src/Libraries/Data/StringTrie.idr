@@ -15,14 +15,6 @@ record StringTrie a where
   node : These a (StringMap (StringTrie a))
 
 public export
-Show a => Show (StringTrie a) where
-  show (MkStringTrie node) = assert_total $ show node
-
-public export
-Functor StringTrie where
-  map f (MkStringTrie node) = MkStringTrie $ assert_total $ bimap f (map (map f)) node
-
-public export
 empty : StringTrie a
 empty = MkStringTrie $ That empty
 
@@ -47,22 +39,3 @@ insertWith (k::ks) f (MkStringTrie nd) =
 public export
 insert : List String -> a -> StringTrie a -> StringTrie a
 insert ks v = insertWith ks (const v)
-
--- fold the trie in a depth-first fashion performing monadic actions on values, then keys
--- note that for `Both` the action on node values will be performed first because of `bitraverse` implementation
-public export
-foldWithKeysM : (Monad m, Monoid b) => (List String -> m b) -> (List String -> a -> m b) -> StringTrie a -> m b
-foldWithKeysM {a} {m} {b} fk fv = go []
-  where
-  go : List String -> StringTrie a -> m b
-  go ks (MkStringTrie nd) =
-    bifold <$> bitraverse
-                (fv ks)
-                (\sm => foldlM
-                          (\x, (k, vs) => do let ks' = ks++[k]
-                                             y <- assert_total $ go ks' vs
-                                             z <- fk ks'
-                                             pure $ x <+> y <+> z)
-                          neutral
-                          (StringMap.toList sm))
-                nd

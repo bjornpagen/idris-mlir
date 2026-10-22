@@ -19,6 +19,11 @@ comment
   <+> many (is '-') <+> reject (is '}')  -- not a closing delimiter
   <+> many (isNot '\n')                  -- till the end of line
 
+-- Every state below is read inside at least one open block comment, so
+-- each consumes: its type is `Lexer` whatever the depth. The depth is a
+-- run-time count no type depends on, `outer`, the comments open around
+-- the innermost; a comment ends only at the closing delimiter of the
+-- outermost, which `closing` reads as its last character.
 mutual
   ||| The mutually defined functions represent different states in a
   ||| small automaton. A state that names another, or itself, does so after
@@ -28,48 +33,54 @@ mutual
   ||| the input until we detect a special character (a dash, an
   ||| opening brace, or a double quote) and then switch to the
   ||| appropriate state.
-  toEndComment : (k : Nat) -> Recognise (k /= 0)
-  toEndComment Z = empty
-  toEndComment (S k)
+  toEndComment : (outer : Nat) -> Lexer
+  toEndComment outer
                = some (pred (\c => c /= '-' && c /= '{' && c /= '"' && c /= '\''))
-                        `andThen` (eof <|> toEndComment (S k))
-             <|> is '{' `andThen` singleBrace k
-             <|> is '-' `andThen` singleDash k
-             <|> (charLit <|> pred (== '\'')) `andThen` toEndComment (S k)
-             <|> stringLit `andThen` toEndComment (S k)
+                        `andThen` (eof <|> toEndComment outer)
+             <|> is '{' `andThen` singleBrace outer
+             <|> is '-' `andThen` singleDash outer
+             <|> (charLit <|> pred (== '\'')) `andThen` toEndComment outer
+             <|> stringLit `andThen` toEndComment outer
+
+  ||| A closing delimiter's brace: the comment's last character where no
+  ||| comment is open around the one it closes, and otherwise the rest of
+  ||| the comment around it.
+  closing : (outer : Nat) -> Lexer
+  closing Z = is '}'
+  closing (S outer) = is '}' `andThen` toEndComment outer
 
   ||| After reading a single brace, we may either finish reading an
   ||| opening delimiter or ignore it (e.g. it could be an implicit
   ||| binder).
-  singleBrace : (k : Nat) -> Lexer
-  singleBrace k
-     =  is '-' <+> many (is '-')                    -- opening delimiter
-               `andThen` (eof <|> singleDash (S k)) -- `singleDash` handles the {----} special case
-                                                    -- `eof` handles the file ending with {---
-    <|> toEndComment (S k)                          -- not a valid comment
+  singleBrace : (outer : Nat) -> Lexer
+  singleBrace outer
+     =  is '-' <+> many (is '-')                        -- opening delimiter
+               `andThen` (eof <|> singleDash (S outer)) -- `singleDash` handles the {----} special case
+                                                        -- `eof` handles the file ending with {---
+    <|> toEndComment outer                              -- not a valid comment
 
   ||| After reading a single dash, we may either find another one,
   ||| meaning we may have started reading a line comment, or find
   ||| a closing brace meaning we have found a closing delimiter.
-  singleDash : (k : Nat) -> Lexer
-  singleDash k
-     =  is '-' `andThen` doubleDash k    -- comment or closing delimiter
-    <|> is '}' `andThen` toEndComment k  -- closing delimiter
-    <|> toEndComment (S k)               -- not a valid comment
+  singleDash : (outer : Nat) -> Lexer
+  singleDash outer
+     =  is '-' `andThen` doubleDash outer  -- comment or closing delimiter
+    <|> closing outer                      -- closing delimiter
+    <|> toEndComment outer                 -- not a valid comment
 
   ||| After reading a double dash, we are potentially reading a line
   ||| comment unless the series of uninterrupted dashes is ended with
   ||| a closing brace in which case it is a closing delimiter.
-  doubleDash : (k : Nat) -> Lexer
-  doubleDash k = with Prelude.(::)
-      many (is '-') <+> choice            -- absorb all dashes
-        [ is '}' `andThen` toEndComment k                -- closing delimiter
-        , many (isNot '\n') <+> toEndComment (S k)       -- line comment
+  doubleDash : (outer : Nat) -> Lexer
+  doubleDash outer = with Prelude.(::)
+      many (is '-') <+> choice                      -- absorb all dashes
+        [ closing outer                             -- closing delimiter
+        , many (isNot '\n') <+> toEndComment outer  -- line comment
         ]
 
 export
 blockComment : Lexer
-blockComment = is '{' <+> is '-' <+> many (is '-') <+> (eof <|> toEndComment 1)
+blockComment = is '{' <+> is '-' <+> many (is '-') <+> (eof <|> toEndComment 0)
 
 -- Identifier Lexer
 -- There are multiple variants.
