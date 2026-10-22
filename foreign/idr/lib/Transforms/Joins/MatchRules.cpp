@@ -184,21 +184,30 @@ void egraph::TakenLiteral::rewrite(LitMatchOp op, const Rewrite &chosen,
     inlineLiteral(rewriter, op, op->getRegion(region));
 }
 
-// In case k of a literal match, the scrutinee is the literal k.
+// In case k of a literal match, the scrutinee is the literal k. The rule
+// chooses the cases whose regions read it.
 std::optional<Edit> egraph::LiteralInCase::decide(LitMatchOp op, const OperandFacts &) {
   Value scrutinee = op.getScrutinee();
-  bool reads = false;
-  for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions()))
-    reads = reads || readsKeyIn(scrutinee, key, region);
-  return rewriteIf(reads);
+  SmallVector<unsigned, 4> reading;
+  for (unsigned i = 0, n = op.getNumCases(); i < n; ++i)
+    if (readsKeyIn(scrutinee, op.getCases()[i], op.getCaseRegions()[i]))
+      reading.push_back(i);
+  return choose(std::move(reading));
 }
 
 // The key's constant is the one its carrier holds, as the dialect makes it:
 // upstream's for a word or a double, ours for a string, a big or a natural.
-// Where no constant op holds the key at the scrutinee's type, its uses stay.
-void egraph::LiteralInCase::rewrite(LitMatchOp op, const Rewrite &, RewriterBase &rewriter) {
+// Where no constant op holds the key at the scrutinee's type, its uses stay,
+// as they do in a case the root no longer has or whose region no longer
+// reads the key.
+void egraph::LiteralInCase::rewrite(LitMatchOp op, const Rewrite &chosen,
+                                    RewriterBase &rewriter) {
   Value scrutinee = op.getScrutinee();
-  for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions())) {
+  for (unsigned at : chosen.chosen) {
+    if (at >= op.getNumCases())
+      continue;
+    Attribute key = op.getCases()[at];
+    Region &region = op.getCaseRegions()[at];
     if (!readsKeyIn(scrutinee, key, region))
       continue;
     rewriter.setInsertionPointToStart(&region.front());
@@ -238,7 +247,9 @@ void egraph::EmptyStringCase::rewrite(LitMatchOp op, const Rewrite &chosen,
 
 // A default the scrutinee's type leaves no constructor for never runs.
 std::optional<Edit> egraph::DeadDefault::decide(DataMatchOp op, const OperandFacts &) {
-  return rewriteIf(defaultDead(op));
+  if (!defaultDead(op))
+    return std::nullopt;
+  return Edit(Rewrite{});
 }
 
 void egraph::DeadDefault::rewrite(DataMatchOp op, const Rewrite &, RewriterBase &rewriter) {
@@ -248,7 +259,9 @@ void egraph::DeadDefault::rewrite(DataMatchOp op, const Rewrite &, RewriterBase 
 
 // A match none of whose regions yields gives nothing.
 std::optional<Edit> egraph::AllExits::decide(MatchOpInterface op, const OperandFacts &) {
-  return rewriteIf(exitsPending(op));
+  if (!exitsPending(op))
+    return std::nullopt;
+  return Edit(Rewrite{});
 }
 
 void egraph::AllExits::rewrite(MatchOpInterface op, const Rewrite &, RewriterBase &rewriter) {
@@ -258,11 +271,12 @@ void egraph::AllExits::rewrite(MatchOpInterface op, const Rewrite &, RewriterBas
 
 // A result of a match no op uses goes, with every yield's operand for it.
 std::optional<Edit> egraph::DeadResults::decide(MatchOpInterface op, const OperandFacts &) {
-  return rewriteIf(someResultUnused(op));
+  return choose(unusedResults(op));
 }
 
-void egraph::DeadResults::rewrite(MatchOpInterface op, const Rewrite &, RewriterBase &rewriter) {
-  unused(rewriter, op.getOperation());
+void egraph::DeadResults::rewrite(MatchOpInterface op, const Rewrite &chosen,
+                                  RewriterBase &rewriter) {
+  dropUnused(rewriter, op.getOperation(), chosen.chosen);
 }
 
 } // namespace idr

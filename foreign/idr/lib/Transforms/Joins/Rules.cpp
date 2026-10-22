@@ -104,21 +104,29 @@ void exits(RewriterBase &rewriter, Operation *op) {
   ub::UnreachableOp::create(rewriter, kept->getLoc());
 }
 
-void unused(RewriterBase &rewriter, Operation *op) {
-  llvm::BitVector keep(op->getNumResults());
+llvm::SmallVector<unsigned, 4> unusedResults(Operation *op) {
+  llvm::SmallVector<unsigned, 4> found;
   for (OpResult result : op->getResults())
-    if (!result.use_empty())
-      keep.set(result.getResultNumber());
+    if (result.use_empty())
+      found.push_back(result.getResultNumber());
+  return found;
+}
+
+// A position the root no longer has, or a result an earlier rewrite gave a
+// use, stays.
+void dropUnused(RewriterBase &rewriter, Operation *op, ArrayRef<unsigned> chosen) {
+  llvm::BitVector keep(op->getNumResults(), true);
+  for (unsigned at : chosen)
+    if (at < op->getNumResults() && op->getResult(at).use_empty())
+      keep.reset(at);
   if (!keep.all())
     keepResults(rewriter, op, keep);
 }
 
-bool someResultUnused(Operation *op) {
-  return llvm::any_of(op->getResults(), [](OpResult result) { return result.use_empty(); });
-}
-
-std::optional<egraph::Edit> rewriteIf(bool holds) {
-  return holds ? std::optional<egraph::Edit>(egraph::Rewrite{}) : std::nullopt;
+std::optional<egraph::Edit> choose(llvm::SmallVector<unsigned, 4> found) {
+  if (found.empty())
+    return std::nullopt;
+  return egraph::Edit(egraph::Rewrite{std::move(found)});
 }
 
 DataConOp constructorOf(Value value, const egraph::OperandFacts &facts) {

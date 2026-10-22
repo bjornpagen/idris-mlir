@@ -13,7 +13,9 @@
 #include "idr/Transforms/EGraph.h"
 
 #include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <optional>
 
@@ -42,17 +44,21 @@ void eraseAfter(mlir::RewriterBase &rewriter, mlir::Operation *op);
 // follows it in its block is dead, and the block ends in ub.unreachable.
 void exits(mlir::RewriterBase &rewriter, mlir::Operation *op);
 
-// A result no op uses goes from the op and from every yield that gives it.
-void unused(mlir::RewriterBase &rewriter, mlir::Operation *op);
+// The results of `op` no op uses, by position.
+llvm::SmallVector<unsigned, 4> unusedResults(mlir::Operation *op);
 
-bool someResultUnused(mlir::Operation *op);
+// Each result of `op` at a position of `chosen` that no op uses still goes,
+// from the op and from every yield that gives it.
+void dropUnused(mlir::RewriterBase &rewriter, mlir::Operation *op,
+                llvm::ArrayRef<unsigned> chosen);
 
 // How many of `op`'s results are scoped: the entries of `outers` before
 // those of what its regions bind.
 unsigned scopedResultCount(mlir::Operation *op);
 
-// A Rewrite, choosing nothing, where `holds`.
-std::optional<egraph::Edit> rewriteIf(bool holds);
+// The rule's choice of what it found, the positions its rewrite carries
+// out on the root as it then is; nothing where it found none.
+std::optional<egraph::Edit> choose(llvm::SmallVector<unsigned, 4> found);
 
 // The idr.data.con that made the chosen form of `value`, seen through a
 // cast that only changes its type (a yield gives a match's results at

@@ -3,22 +3,17 @@
 // The skeleton rule of a match's yielded fields: a result every region
 // that yields builds as one constructor, read only through its fields, is
 // yielded as the constructor's fields, and the constructor is built once
-// after the match. Only while the holds are undecided, so no result it
-// touches is scoped yet and the lifetimes the match states are none.
+// after the match. Only where neither the result nor a field it gives
+// lives in a lifetime, so the lifetimes the match states, one per scoped
+// result and then one per scoped binding, stand as they were.
 
 #include "idr/IR/Control/Control.h"
-#include "idr/IR/Func.h"
+#include "idr/IR/Control/Stated.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Joins/Rules.h"
 
 #include "mlir/IR/PatternMatch.h"
-
-#include <cstddef>
-
-// What each stage implies (holdsAt among it), printed from the
-// specification.
-#include "idr/IR/Generated/StageFacts.h.inc"
 
 using namespace mlir;
 using namespace idr::control;
@@ -31,9 +26,12 @@ namespace {
 // The constructors the regions of `op` that yield give as `result`, when
 // the result is one to split: a data value read only through its fields,
 // so of a type refined to one constructor, which every region that yields
-// builds there of fields of one list of types, for the yield alone.
+// builds there of fields of one list of types, for the yield alone. Neither
+// the result nor a field lives in a lifetime: the result that goes and the
+// fields that come take no entry of what the match states, so every entry
+// keeps its place, and the rule holds at every stage.
 std::optional<SmallVector<DataConOp>> yieldedConstructors(OpResult result) {
-  if (!isMatchable(result.getType()) || result.use_empty() ||
+  if (!isMatchable(result.getType()) || result.use_empty() || scoped(result) ||
       !llvm::all_of(result.getUsers(), llvm::IsaPred<DataFieldOp>))
     return std::nullopt;
   SmallVector<DataConOp> built;
@@ -44,6 +42,7 @@ std::optional<SmallVector<DataConOp>> yieldedConstructors(OpResult result) {
     Value given = yield->getOperand(result.getResultNumber());
     auto con = given.getDefiningOp<DataConOp>();
     if (!con || con->getBlock() != yield->getBlock() || !given.hasOneUse() ||
+        llvm::any_of(con.getFields(), scoped) ||
         (!built.empty() &&
          !llvm::equal(built.front().getFields().getTypes(), con.getFields().getTypes())))
       return std::nullopt;
@@ -54,14 +53,6 @@ std::optional<SmallVector<DataConOp>> yieldedConstructors(OpResult result) {
   return built;
 }
 
-// Whether the holds of `op`'s function are still undecided: once they are,
-// each field's is fixed at its constructor's, and the constructor stays
-// where it was built.
-bool holdsUndecided(Operation *op) {
-  Stage stage = op->getParentOfType<FuncOp>().getProgram().getStage();
-  return holdsAt[static_cast<std::size_t>(stage)] == StageHolds::Undecided;
-}
-
 } // namespace
 
 // A result that every region that yields builds as one constructor, and
@@ -70,11 +61,8 @@ bool holdsUndecided(Operation *op) {
 // where each read of a field folds to the field the regions gave. A field
 // is then the value its region built it of, a linear one the thread it
 // was, never a read of a value the match built: a linear array passed back
-// beside a value stays the one buffer each region wrote. Only while the
-// holds are undecided.
+// beside a value stays the one buffer each region wrote.
 std::optional<Edit> egraph::YieldedFields::decide(MatchOpInterface op, const OperandFacts &) {
-  if (!holdsUndecided(op))
-    return std::nullopt;
   for (OpResult result : op->getResults())
     if (yieldedConstructors(result))
       return Edit(Rewrite{{result.getResultNumber()}});

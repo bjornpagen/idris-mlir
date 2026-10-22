@@ -42,20 +42,46 @@ void dropBindings(RewriterBase &rewriter, Group op, ValueRange bound) {
   });
 }
 
-// A join region no jump reaches goes with its token and its binders; a
-// group left with none is its body, whose yield gives the results.
+// The join regions of `op` some jump reaches, by position: those whose
+// token some region of `op` uses. A region inlined at its one jump is
+// empty, and begins with no token.
 template <typename Group>
-void unreached(RewriterBase &rewriter, Group op) {
+llvm::BitVector reachedTargets(Group op) {
   unsigned targets = static_cast<unsigned>(op.getJoinRegions().size());
-  llvm::BitVector dead(targets, true);
+  llvm::BitVector reached(targets, false);
   for (Region &region : op->getRegions()) {
     if (region.empty())
       continue;
     Block::BlockArgListType tokens = op.getTokens(region);
     for (unsigned i = 0, e = static_cast<unsigned>(tokens.size()); i < e; ++i)
       if (!tokens[i].use_empty())
-        dead.reset(i);
+        reached.set(i);
   }
+  return reached;
+}
+
+// The join regions of `op` no jump reaches, by position.
+template <typename Group>
+SmallVector<unsigned, 4> unreachedTargets(Group op) {
+  llvm::BitVector reached = reachedTargets(op);
+  SmallVector<unsigned, 4> found;
+  for (unsigned i = 0, e = static_cast<unsigned>(reached.size()); i < e; ++i)
+    if (!reached.test(i))
+      found.push_back(i);
+  return found;
+}
+
+// Each join region at a position of `chosen` that no jump reaches still
+// goes with its token and its binders; a group left with none is its
+// body, whose yield gives the results.
+template <typename Group>
+void unreached(RewriterBase &rewriter, Group op, ArrayRef<unsigned> chosen) {
+  unsigned targets = static_cast<unsigned>(op.getJoinRegions().size());
+  llvm::BitVector reached = reachedTargets(op);
+  llvm::BitVector dead(targets, false);
+  for (unsigned at : chosen)
+    if (at < targets && !reached.test(at))
+      dead.set(at);
   if (dead.none())
     return;
   if (dead.all()) {
@@ -116,11 +142,30 @@ void unreached(RewriterBase &rewriter, Group op) {
   rewriter.replaceOp(op, fresh->getResults());
 }
 
-// A parameter no op of its join region uses goes, with every jump's
-// argument for it and the lifetime its op states for it.
+// The join regions of `op` with a parameter no op of the region reads, by
+// position.
 template <typename Group>
-void unread(RewriterBase &rewriter, Group op) {
-  for (Region &region : op.getJoinRegions()) {
+SmallVector<unsigned, 4> unreadTargets(Group op) {
+  SmallVector<unsigned, 4> found;
+  MutableArrayRef<Region> regions = op.getJoinRegions();
+  for (unsigned at = 0, e = static_cast<unsigned>(regions.size()); at < e; ++at)
+    if (!regions[at].empty() &&
+        llvm::any_of(op.getParameters(regions[at]),
+                     [](BlockArgument parameter) { return parameter.use_empty(); }))
+      found.push_back(at);
+  return found;
+}
+
+// In each join region at a position of `chosen`, a parameter no op of the
+// region uses goes, with every jump's argument for it and the lifetime its
+// op states for it.
+template <typename Group>
+void unread(RewriterBase &rewriter, Group op, ArrayRef<unsigned> chosen) {
+  MutableArrayRef<Region> regions = op.getJoinRegions();
+  for (unsigned at : chosen) {
+    if (at >= regions.size() || regions[at].empty())
+      continue;
+    Region &region = regions[at];
     Block::BlockArgListType parameters = op.getParameters(region);
     unsigned leading = static_cast<unsigned>(op.getTokens(region).size());
     for (unsigned i = static_cast<unsigned>(parameters.size()); i-- > 0;) {
@@ -140,29 +185,6 @@ void unread(RewriterBase &rewriter, Group op) {
   }
 }
 
-// Whether some join region of `op` no jump reaches.
-template <typename Group>
-bool someRegionUnreached(Group op) {
-  unsigned targets = static_cast<unsigned>(op.getJoinRegions().size());
-  llvm::BitVector reached(targets, false);
-  for (Region &region : op->getRegions()) {
-    Block::BlockArgListType tokens = op.getTokens(region);
-    for (unsigned i = 0, e = static_cast<unsigned>(tokens.size()); i < e; ++i)
-      if (!tokens[i].use_empty())
-        reached.set(i);
-  }
-  return !reached.all();
-}
-
-// Whether some parameter of a join region of `op` is never read.
-template <typename Group>
-bool someParameterUnread(Group op) {
-  return llvm::any_of(op.getJoinRegions(), [&](Region &region) {
-    return llvm::any_of(op.getParameters(region),
-                        [](BlockArgument parameter) { return parameter.use_empty(); });
-  });
-}
-
 // The jump that ends `op`'s body, when it is the one jump to its target
 // and the target binds no index variable: the region runs in its place.
 JumpOp singleJump(JoinOp op) {
@@ -173,27 +195,35 @@ JumpOp singleJump(JoinOp op) {
   return target && op.getBoundSorts(*target).empty() ? jump : JumpOp();
 }
 
+// The position of the join region a jump of an idr.join's body goes to:
+// its token is the body's argument at that position.
+unsigned targetPosition(JumpOp jump) {
+  return cast<BlockArgument>(jump.getTarget()).getArgNumber();
+}
+
 } // namespace
 
 // A result of a join point's op no op uses goes, with every yield's operand.
 std::optional<Edit> egraph::DeadJoinResults::decide(JoinPointsOpInterface op,
                                                     const OperandFacts &) {
-  return rewriteIf(someResultUnused(op));
+  return choose(unusedResults(op));
 }
 
-void egraph::DeadJoinResults::rewrite(JoinPointsOpInterface op, const Rewrite &,
+void egraph::DeadJoinResults::rewrite(JoinPointsOpInterface op, const Rewrite &chosen,
                                       RewriterBase &rewriter) {
-  unused(rewriter, op.getOperation());
+  dropUnused(rewriter, op.getOperation(), chosen.chosen);
 }
 
 // An idr.loop whose join regions never jump to its own op repeats nothing:
 // it is an idr.join, its join regions' tokens dropped. No token is scoped,
 // so it states the same lifetimes in the same order.
 std::optional<Edit> egraph::LoopToJoin::decide(LoopOp op, const OperandFacts &) {
-  return rewriteIf(llvm::none_of(op.getJoinRegions(), [&](Region &region) {
-    return llvm::any_of(op.getTokens(region),
-                        [](BlockArgument token) { return !token.use_empty(); });
-  }));
+  if (llvm::any_of(op.getJoinRegions(), [&](Region &region) {
+        return llvm::any_of(op.getTokens(region),
+                            [](BlockArgument token) { return !token.use_empty(); });
+      }))
+    return std::nullopt;
+  return Edit(Rewrite{});
 }
 
 void egraph::LoopToJoin::rewrite(LoopOp op, const Rewrite &, RewriterBase &rewriter) {
@@ -215,58 +245,65 @@ void egraph::LoopToJoin::rewrite(LoopOp op, const Rewrite &, RewriterBase &rewri
 // A join region no jump reaches goes with its token and its binders; a
 // group left with none is its body.
 std::optional<Edit> egraph::DeadJoinRegions::decide(JoinOp op, const OperandFacts &) {
-  return rewriteIf(someRegionUnreached(op));
+  return choose(unreachedTargets(op));
 }
 
-void egraph::DeadJoinRegions::rewrite(JoinOp op, const Rewrite &, RewriterBase &rewriter) {
-  unreached(rewriter, op);
+void egraph::DeadJoinRegions::rewrite(JoinOp op, const Rewrite &chosen, RewriterBase &rewriter) {
+  unreached(rewriter, op, chosen.chosen);
 }
 
 std::optional<Edit> egraph::DeadLoopRegions::decide(LoopOp op, const OperandFacts &) {
-  return rewriteIf(someRegionUnreached(op));
+  return choose(unreachedTargets(op));
 }
 
-void egraph::DeadLoopRegions::rewrite(LoopOp op, const Rewrite &, RewriterBase &rewriter) {
-  unreached(rewriter, op);
+void egraph::DeadLoopRegions::rewrite(LoopOp op, const Rewrite &chosen, RewriterBase &rewriter) {
+  unreached(rewriter, op, chosen.chosen);
 }
 
 // A join region of an idr.join reached by one jump, the body's own end,
 // runs there: its block takes the jump's place, the jump's arguments its
 // parameters, whose lifetimes go with them, and the region, now empty,
-// goes.
+// goes. The rule chooses the region by its position.
 std::optional<Edit> egraph::InlineSingleJump::decide(JoinOp op, const OperandFacts &) {
-  return rewriteIf(static_cast<bool>(singleJump(op)));
-}
-
-void egraph::InlineSingleJump::rewrite(JoinOp op, const Rewrite &, RewriterBase &rewriter) {
   JumpOp jump = singleJump(op);
   if (!jump)
+    return std::nullopt;
+  return Edit(Rewrite{{targetPosition(jump)}});
+}
+
+void egraph::InlineSingleJump::rewrite(JoinOp op, const Rewrite &chosen,
+                                       RewriterBase &rewriter) {
+  JumpOp jump = singleJump(op);
+  if (!jump || targetPosition(jump) != chosen.chosen.front())
     return;
+  unsigned at = targetPosition(jump);
   Region *target = op.getTarget(cast<BlockArgument>(jump.getTarget()));
   SmallVector<Value> args(jump.getArgs());
   Block &from = target->front();
   dropBindings(rewriter, op, from.getArguments());
   rewriter.eraseOp(jump);
   rewriter.mergeBlocks(&from, &op.getBody().front(), args);
-  unreached(rewriter, op);
+  unreached(rewriter, op, {at});
 }
 
 // A parameter its join region never reads goes, with every jump's argument
-// for it.
+// for it; the rule chooses the regions that have one.
 std::optional<Edit> egraph::DeadJoinParameters::decide(JoinOp op, const OperandFacts &) {
-  return rewriteIf(someParameterUnread(op));
+  return choose(unreadTargets(op));
 }
 
-void egraph::DeadJoinParameters::rewrite(JoinOp op, const Rewrite &, RewriterBase &rewriter) {
-  unread(rewriter, op);
+void egraph::DeadJoinParameters::rewrite(JoinOp op, const Rewrite &chosen,
+                                         RewriterBase &rewriter) {
+  unread(rewriter, op, chosen.chosen);
 }
 
 std::optional<Edit> egraph::DeadLoopParameters::decide(LoopOp op, const OperandFacts &) {
-  return rewriteIf(someParameterUnread(op));
+  return choose(unreadTargets(op));
 }
 
-void egraph::DeadLoopParameters::rewrite(LoopOp op, const Rewrite &, RewriterBase &rewriter) {
-  unread(rewriter, op);
+void egraph::DeadLoopParameters::rewrite(LoopOp op, const Rewrite &chosen,
+                                         RewriterBase &rewriter) {
+  unread(rewriter, op, chosen.chosen);
 }
 
 } // namespace idr

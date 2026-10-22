@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The flow vocabulary's behaviour (FlowEdges.h): what a value carries, the
 // type held at a source or a place, and the helpers ops declare their edges
-// with. An edge carries what the value that moves carries, so a word or a
-// world moves along none. A value is followed whole, or into and out of a
+// with. An edge carries what the value that moves carries, so a word moves
+// along none. A value is followed whole, or into and out of a
 // part of another, which is how the label solve keeps one set per anchor
 // and ownership one state per value.
 

@@ -265,7 +265,8 @@ struct FlowPlace {
 // The edges ops declare, as data, in the order they were added. Each edge
 // holds the carriers that move along it, those of the value that moves; a
 // helper that would add an edge carrying nothing adds none, so an edge of
-// a word or of a world is never declared.
+// a value that holds no reference, closure or suspension, a word among
+// them, is never declared.
 class FlowEdges {
 public:
   // What `from` holds moves to `to`.

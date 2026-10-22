@@ -379,20 +379,18 @@ void populateJoinTypeConversions(const TypeConverter &converter, RewritePatternS
       [&converter](YieldOp op) { return converter.isLegal(op->getOperandTypes()); });
 }
 
-void populateJoinLoweringPatterns(RewritePatternSet &patterns) {
-  patterns.add<LowerGroup<JoinOp>, LowerGroup<LoopOp>>(patterns.getContext());
-}
-
-LogicalResult lowerControlFlow(Operation *root) {
-  MLIRContext *context = root->getContext();
-  RewritePatternSet patterns(context);
-  populateSCFToControlFlowConversionPatterns(patterns);
-  populateJoinLoweringPatterns(patterns);
-  ConversionTarget target(*context);
+ControlFlowLowering::ControlFlowLowering(MLIRContext &context) : target(context) {
+  RewritePatternSet set(&context);
+  populateSCFToControlFlowConversionPatterns(set);
+  set.add<LowerGroup<JoinOp>, LowerGroup<LoopOp>>(&context);
+  patterns = FrozenRewritePatternSet(std::move(set));
   target.addIllegalOp<scf::ForallOp, scf::ForOp, scf::IfOp, scf::IndexSwitchOp, scf::LoopOp,
                       scf::ParallelOp, scf::WhileOp, scf::ExecuteRegionOp, JoinOp, LoopOp>();
   target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
-  return applyPartialConversion(root, target, std::move(patterns));
+}
+
+LogicalResult lowerControlFlow(Operation *root, const ControlFlowLowering &lowering) {
+  return applyPartialConversion(root, lowering.target, lowering.patterns);
 }
 
 } // namespace idr::conversion

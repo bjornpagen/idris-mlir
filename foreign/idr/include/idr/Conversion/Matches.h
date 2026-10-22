@@ -42,12 +42,22 @@ void populateJoinTypeConversions(const mlir::TypeConverter &converter,
 // scf.index_switch and scf.if leaves in place, is a branch by then: each
 // region's blocks move into the function, each jump a cf.br to its join
 // region's entry, each yield a cf.br to what follows the op. An
-// irreducible group lowers as any other, with no run-time selector.
-void populateJoinLoweringPatterns(mlir::RewritePatternSet &patterns);
+// irreducible group lowers as any other, with no run-time selector. The
+// conversion is the same for every function, so it is made once, before
+// any function is lowered, and every function's lowering reads it,
+// unwritten, from whichever worker runs it.
+struct ControlFlowLowering {
+  explicit ControlFlowLowering(mlir::MLIRContext &context);
 
-// Applies phase 3 to `root`: upstream's scf patterns and the join points',
-// on upstream's own target with the join points' ops illegal beside scf's.
-mlir::LogicalResult lowerControlFlow(mlir::Operation *root);
+  // Upstream's own target for scf, with the join points' ops illegal
+  // beside scf's.
+  mlir::ConversionTarget target;
+  // Upstream's scf patterns and the join points'.
+  mlir::FrozenRewritePatternSet patterns;
+};
+
+// Applies phase 3 to `root`.
+mlir::LogicalResult lowerControlFlow(mlir::Operation *root, const ControlFlowLowering &lowering);
 
 } // namespace idr::conversion
 
