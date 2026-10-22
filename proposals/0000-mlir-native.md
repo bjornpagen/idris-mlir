@@ -3227,7 +3227,8 @@ C137.
   capture family, all `Idr_LinearWhenACaptureIs`: today `delay` lacks it,
   so `idr.delay %x : !idr.lin<..> -> !idr.lazy<..>` verifies and drops a
   quantity. Deletes the separate `delay` definition.
-- **C113** (L13 §1.3, §1.5, §2.1, §2.2) (amended by D98: no
+- **C113** (L13 §1.3, §1.5, §2.1, §2.2) (amended by C204: integer,
+  char and double keys stay on `idr.lit.match`) (amended by D98: no
   canonicalization runs on our ops, so the region-end sum's reader named
   here goes; its reader under D98 is not ruled). The op surface: defs
   printed flat
@@ -4078,6 +4079,18 @@ C137.
   decider; before that stage a call's fact promises nothing. The context
   is still read off the program before counting, as C38 asks, and from
   that stage on every fact is the decider's answer, checked both ways.
+- **C204** (2026-10-22; L05's finding on L16's sixth pass; amends C113's
+  routing of integer keys). A literal match on an integer, a char or a
+  double stays `idr.lit.match`, as one on a string, a big or a natural
+  does, until the lowering. `scf.index_switch` holds neither fact the
+  match keeps: its default binds no refined scrutinee (C166), so a
+  nonzero divisor proved by a `0` case is tested again at run time, and
+  it states no `outers`, so a scoped value through it becomes counted.
+  The idr dialect holds what upstream's do not mean; these two facts are
+  that. The lowering turns a word match into `scf.index_switch`, its
+  default handed the scrutinee, and a double match into its chain of
+  `cmpf oeq`; the frontend writes no `scf.index_switch`, which is
+  admitted only where the lowering writes it.
 
 ## 4. Open: the owner's decisions, in order
 
