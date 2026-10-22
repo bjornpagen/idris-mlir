@@ -116,3 +116,24 @@ idr-returned-arguments (and -drop), idr-binding-times, idr-identity, and
 the idr-rc pipeline. Every stage change is a program or module pass
 (`StagedPass`). Generated pass declarations stay
 `idr/Transforms/Passes.h.inc`, from `IdrPasses.td`.
+
+## Added during the cutover (L03's passes, committed 0e145453 and 7ed6fc8c)
+
+- `Core.Guard`: one `Guard position` record. Our ops take `Guard (Fin i)`;
+  an admitted upstream op takes `guards : List (Guard Nat)`, printed into
+  its `.td`, and its builder returns the guarded value.
+- `InlineCondition`: a guard's condition as a meaning of the numeric
+  template, printed into `InlineMeanings.h.inc` beside the others.
+- `CountProperty n`: an integer property printing `IntProp<"uint64_t">`
+  with default `n` (for example `idr.func`'s `frame_bound`).
+- `OptionalCase`: a parameter whose value is one case of a closed sum or
+  absent (the grade's `Hold`), with a generated codec on both sides.
+- `HandProperty`, `HandArray`, `HandStorage`, template members,
+  `DelegatesByClass`, `ImportedEnum` with its `Source`, and `declaredIn`
+  on a skeleton rule.
+- Segment traits are derived from the operand and result groups; no spec
+  declares `AttrSizedOperandSegments` or `AttrSizedResultSegments` by
+  hand.
+- Type inference prints upstream's adaptor form (`InferTypeOpAdaptor`).
+- Generated outputs added: `Laws`, `SkeletonRules`, `Actions`, `Words`,
+  `InlineMeanings`, `Storages`, `FileTimes`, `RuntimeLayout`, `StageFacts`.
