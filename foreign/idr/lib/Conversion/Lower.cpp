@@ -88,8 +88,9 @@ struct LowerAsOperand : OpTraitConversionPattern<Trait> {
 };
 
 // What every function's lowering reads, made once, before any function is
-// lowered and shared by all: the converter, the target and the patterns.
-// None is written while the functions are lowered.
+// lowered and shared by all: the converter, the target and the patterns of
+// phases 1 and 2, and phase 3's conversion of regions into blocks. None is
+// written while the functions are lowered.
 struct Lowering {
   Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
            const DenseMap<StringAttr, ConstantArray> &arrays);
@@ -99,6 +100,7 @@ struct Lowering {
   FrozenRewritePatternSet structure;
   FrozenRewritePatternSet patterns;
   FrozenRewritePatternSet tells;
+  ControlFlowLowering controlFlow;
 };
 
 // Every op and type of ours and every memref op, taken apart into the
@@ -111,7 +113,7 @@ struct Lowering {
 // lowering gives, or the conversion fails, the compiler's error.
 Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
                    const DenseMap<StringAttr, ConstantArray> &arrays)
-    : target(*program.getContext()) {
+    : target(*program.getContext()), controlFlow(*program.getContext()) {
   MLIRContext *ctx = program.getContext();
   converter.addConversion([](Type type) { return type; });
   converter.addConversion(
@@ -222,7 +224,7 @@ LogicalResult lowerFunction(LLVM::LLVMFuncOp fn, const Lowering &lowering) {
   conversion.foldingMode = DialectConversionFoldingMode::Never;
   if (failed(applyFullConversion(fn, lowering.target, lowering.patterns, conversion)))
     return failure();
-  return lowerControlFlow(fn);
+  return lowerControlFlow(fn, lowering.controlFlow);
 }
 
 struct Lower : idr::impl::IdrLowerBase<Lower> {
