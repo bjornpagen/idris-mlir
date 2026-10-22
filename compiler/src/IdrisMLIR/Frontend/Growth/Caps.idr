@@ -15,11 +15,14 @@
 |||
 ||| The cap is read off the very type the key is cut against, the same way:
 ||| the rest of the callee's type with the parameter standing for its value
-||| (`Template.markerAt`), read by the one template walk (`templateOf
-||| AType`), which normalises with `normaliseClosed` as `neededShape` does
-||| and records each match it meets as a `Choice` on what it matched. The
-||| deepest match on the parameter is the depth the type inspects, and no
-||| second reading of the type exists to drift from it.
+||| (`Template.markerAt`), read by the template walk with every stuck
+||| definition's case tree walked and nothing beside it (`capTemplate`),
+||| which normalises as `neededShape` does and records each match it meets
+||| as a `Choice` on what it matched. A key reading also keeps the call as
+||| written beside each walk, which reduces at the depth a cap cuts at, so
+||| it is no part of what the type matches on. The deepest match on the
+||| parameter is the depth the type inspects, and no second reading of the
+||| type exists to drift from it.
 |||
 ||| Only a chain is capped: a value of a type whose `natness` is `Chain`,
 ||| `Nat`-like with no constructor taking an erased argument. Where the type is stuck on a part
@@ -69,7 +72,7 @@ mutual
   deepest j (Applied i _ ts) = if i == j then Nothing else deepestIn j ts
   -- Never met: only a template read at a node of the graph
   -- (`withClosedFamilies`) computes, and a cap reads its type as
-  -- `templateOf` gives it. The type admits it, so it reads as the applied
+  -- `capTemplate` gives it. The type admits it, so it reads as the applied
   -- family it was.
   deepest j (Computing i _ ts) = if i == j then Nothing else deepestIn j ts
   deepest j (Field _ t) = deepest j t
@@ -185,7 +188,7 @@ capOf addr j = do
         (Ref _ (TyCon _) tn, _) => (.natness) <$> tyConFacts !(lookupDef EmptyFC owner tn)
         _ => pure NotNat
       case natness of
-        Chain => capFrom j <$> templateOf [] AType (rest (markerAt j 0))
+        Chain => capFrom j <$> capTemplate (rest (markerAt j 0))
         -- A tree, a `Numeral`'s shape included, whose whole shape, which
         -- `neededShape` keeps where the type is stuck on a hole, no depth of
         -- the type bounds.

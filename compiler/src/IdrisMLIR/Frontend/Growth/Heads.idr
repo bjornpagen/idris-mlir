@@ -554,28 +554,28 @@ lastOf part l (n :: ns) = lastOf (Template.Field l.taken part) n ns
 -- A constructor's field type over its arguments (`Var c 0` its argument
 -- c), read over the part a level takes apart: each argument the part's
 -- field, as the rebuilt dictionary's other fields are read (`cellsFrom`).
--- Nothing where the type applies an argument as a family, since a
--- template applies only its writer's own family (`Applied`), never a
--- field's value; nor where it recurses on one as nothing bounds, whose
--- arc from the field no potential meets, though each instance holds one
--- closed type there.
+-- An argument applied as a family is the part's field applied, which is
+-- how a reading reads a dictionary's field applied (`markedOf`); and a
+-- recursion stuck on an argument is stuck on the part's field, as one
+-- stuck on any value its writer holds is, with the arc any such recursion
+-- draws.
 mutual
-  overPart : Template -> Template -> Maybe Template
-  overPart part (Template.Var c _) = Just (Template.Field c part)
-  overPart part (Template.Head a ts) = Template.Head a <$> overParts part ts
-  overPart part (Template.Opaque _ _) = Nothing
-  overPart part (Template.Choice m ls) = Template.Choice <$> overPart part m <*> overParts part ls
-  overPart part (Template.Field k r) = Template.Field k <$> overPart part r
-  overPart part (Template.Leaf h) = Just (Template.Leaf h)
-  overPart part (Template.Token k) = Just (Template.Token k)
-  overPart part (Template.Formal j a) = Just (Template.Formal j a)
-  overPart part (Template.Member k) = Just (Template.Member k)
-  overPart part (Template.Applied _ _ _) = Nothing
-  overPart part (Template.Computing _ _ _) = Nothing
+  overPart : Template -> Template -> Template
+  overPart part (Template.Var c _) = Template.Field c part
+  overPart part (Template.Head a ts) = Template.Head a (overParts part ts)
+  overPart part (Template.Opaque a ts) = Template.Opaque a (overParts part ts)
+  overPart part (Template.Choice m ls) = Template.Choice (overPart part m) (overParts part ls)
+  overPart part (Template.Field k r) = Template.Field k (overPart part r)
+  overPart part (Template.Leaf h) = Template.Leaf h
+  overPart part (Template.Token k) = Template.Token k
+  overPart part (Template.Formal j a) = Template.Formal j a
+  overPart part (Template.Member k) = Template.Member k
+  overPart part (Template.Applied c _ ts) = markedOf (Template.Field c part) (overParts part ts)
+  overPart part (Template.Computing c _ ts) = markedOf (Template.Field c part) (overParts part ts)
 
-  overParts : Template -> List Template -> Maybe (List Template)
-  overParts part [] = Just []
-  overParts part (t :: ts) = (::) <$> overPart part t <*> overParts part ts
+  overParts : Template -> List Template -> List Template
+  overParts part [] = []
+  overParts part (t :: ts) = overPart part t :: overParts part ts
 
 -- What each rebuilt constructor's fields hold in the flow: what the
 -- level's root holds there, and where the path goes on, the constructor
@@ -673,8 +673,6 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
       -- use of it applies each member at the use's own types.
       Makes ArrowHead => []
       Repacks x path => [Rebuilds s.writer s.params x.position path]
-      -- The types of values held as one key no callee.
-      Packs _ => []
 
     numbered : Address -> Nat -> List Field -> List Equation
     numbered j k [] = []
@@ -893,23 +891,90 @@ Ord Holder where
   compare OfApplication (OfNode _) = LT
   compare (OfNode _) OfApplication = GT
 
+||| A dictionary's place, whose values a held position bounds: a parameter
+||| of what holds it, a field of an implementation or of a rebuilt
+||| constructor, or a choice, where its members are. Each holds the lists
+||| its givers give it (`Sites.HeldItem`). A field holds what its
+||| dictionary holds, which its dictionary's place bounds, so no list is
+||| given at one; it is where a rebuilt constructor's field lands.
+public export
+data HeldBy = ByParameter Holder Nat | ByField Address Nat | ByChoice ChoiceHead
+
+export
+Eq HeldBy where
+  ByParameter h i == ByParameter h' i' = h == h' && i == i'
+  ByField j k == ByField j' k' = j == j' && k == k'
+  ByChoice k == ByChoice k' = k == k'
+  _ == _ = False
+
+export
+Ord HeldBy where
+  compare (ByParameter h i) (ByParameter h' i') = compare (h, i) (h', i')
+  compare (ByParameter _ _) _ = LT
+  compare _ (ByParameter _ _) = GT
+  compare (ByField j k) (ByField j' k') = compare (j, k) (j', k')
+  compare (ByField _ _) _ = LT
+  compare _ (ByField _ _) = GT
+  compare (ByChoice k) (ByChoice k') = compare k k'
+
+||| How the values of one list a dictionary holds are held
+||| (`Closed.packedType`): one value, held as itself, in no pair; or two or
+||| more, each but the last in a pair with those after it. A list of one
+||| value given on as it is stays one value of the same type, where a list
+||| of several becomes one value as high as its pairs.
+public export
+data Packed = AsItself | InPairs
+
+export
+Eq Packed where
+  AsItself == AsItself = True
+  InPairs == InPairs = True
+  _ == _ = False
+
+export
+Ord Packed where
+  compare AsItself AsItself = EQ
+  compare AsItself InPairs = LT
+  compare InPairs AsItself = GT
+  compare InPairs InPairs = EQ
+
+||| What a held position bounds: the values one dictionary's place holds,
+||| in its lists of one value or in its lists of several. A held position
+||| belongs to a dictionary's place, and no place is a held position, so
+||| values held inside held values have no position of their own: a
+||| dictionary another holds is one value of the other's list, of the type
+||| its own values pack to.
+public export
+record HeldValues where
+  constructor MkHeldValues
+  heldBy : HeldBy
+  packed : Packed
+
+export
+Eq HeldValues where
+  MkHeldValues b p == MkHeldValues b' p' = b == b' && p == p'
+
+export
+Ord HeldValues where
+  compare (MkHeldValues b p) (MkHeldValues b' p') = compare (b, p) (b', p')
+
 ||| A static position of the graph: a parameter of what holds it; field k
 ||| of an implementation, which the field's template over the
 ||| implementation's parameters writes, and a field read takes its value
 ||| from; a choice, by its head, which every place that makes a member of
 ||| it writes, and every dispatch on it reads (`Model.choicePositions`); or
-||| the held types', where every place that holds values as one writes
-||| their types, program-wide, and every pair that holds a list of them
-||| reads (`Graph.heldPackings`).
+||| the values a dictionary's place holds as one, which every place that
+||| gives it a list writes and every pair that holds such a list reads
+||| (`Graph.heldPackings`).
 public export
-data Spot = OfParameter Holder Nat | OfField Address Nat | OfChoice ChoiceHead | OfHeld
+data Spot = OfParameter Holder Nat | OfField Address Nat | OfChoice ChoiceHead | OfHeld HeldValues
 
 export
 Eq Spot where
   OfParameter h i == OfParameter h' i' = h == h' && i == i'
   OfField j k == OfField j' k' = j == j' && k == k'
   OfChoice k == OfChoice k' = k == k'
-  OfHeld == OfHeld = True
+  OfHeld v == OfHeld v' = v == v'
   _ == _ = False
 
 export
@@ -921,17 +986,30 @@ Ord Spot where
   compare (OfField _ _) _ = LT
   compare _ (OfField _ _) = GT
   compare (OfChoice k) (OfChoice k') = compare k k'
-  compare (OfChoice _) OfHeld = LT
-  compare OfHeld (OfChoice _) = GT
-  compare OfHeld OfHeld = EQ
+  compare (OfChoice _) (OfHeld _) = LT
+  compare (OfHeld _) (OfChoice _) = GT
+  compare (OfHeld v) (OfHeld v') = compare v v'
+
+||| A dictionary's place as a position of the graph: the position its
+||| held positions belong to.
+export
+valueSpot : HeldBy -> Spot
+valueSpot (ByParameter h i) = OfParameter h i
+valueSpot (ByField j k) = OfField j k
+valueSpot (ByChoice k) = OfChoice k
 
 ||| Where parameter i of a writer is, at its node, as `ps` reads it: the
 ||| node's own, or a position of the application.
 export
+writerPlace : Node -> Parameters -> Nat -> HeldBy
+writerPlace w ps i = case parameterOf ps i of
+  WritersOwn j => ByParameter (OfNode w) j
+  UsesPosition j => ByParameter OfApplication j
+
+||| The position of parameter i of a writer at its node (`writerPlace`).
+export
 spotAt : Node -> Parameters -> Nat -> Spot
-spotAt w ps i = case parameterOf ps i of
-  WritersOwn j => OfParameter (OfNode w) j
-  UsesPosition j => OfParameter OfApplication j
+spotAt w ps i = valueSpot (writerPlace w ps i)
 
 ||| How a site reached its callee: called or built, its target the callee;
 ||| or dispatched through implementation J's method field k, whose leading
@@ -942,24 +1020,27 @@ data Via : Type where
   Dispatched : (j : Address) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
 
 ||| What a site reaches from a node: a callee node, which the walk enters;
-||| the application at a use; a choice it makes a member of; the fields of
-||| a constructor a dictionary is rebuilt with, which no definition's node
-||| holds, each a field's position; or the types of values held as one.
+||| the application at a use; a choice it makes a member of; or the fields
+||| of a constructor a dictionary is rebuilt with, which no definition's
+||| node holds, each a field's position.
 public export
-data Callee = Entering Node | Applying | Making ChoiceHead | Filling Address | Packing
+data Callee = Entering Node | Applying | Making ChoiceHead | Filling Address
 
-||| Where an argument placed at a callee's parameter i lands: that
+||| The place an argument placed at a callee's parameter i is at: that
 ||| parameter of the node or of the application; at a choice, its one
-||| position, where every member lands whatever it is placed at; at a
-||| rebuilt constructor, its field i; a type held, at the held types' one
-||| position, whatever its place in its list.
+||| place, where every member is whatever it is placed at; at a rebuilt
+||| constructor, its field i. What a dictionary there holds is held there.
+export
+calleePlace : Callee -> Nat -> HeldBy
+calleePlace (Entering n) i = ByParameter (OfNode n) i
+calleePlace Applying i = ByParameter OfApplication i
+calleePlace (Making k) _ = ByChoice k
+calleePlace (Filling con) i = ByField con i
+
+||| Where an argument placed at a callee's parameter i lands (`calleePlace`).
 export
 landsAt : Callee -> Nat -> Spot
-landsAt (Entering n) i = OfParameter (OfNode n) i
-landsAt Applying i = OfParameter OfApplication i
-landsAt (Making k) _ = OfChoice k
-landsAt (Filling con) i = OfField con i
-landsAt Packing _ = OfHeld
+landsAt c i = valueSpot (calleePlace c i)
 
 ||| What a site reaches from a node, with each of the site's arguments
 ||| placed at the parameter it lands at, and how it got there.
@@ -1007,37 +1088,39 @@ reaches fl w s = from s.reach
     through k j = runs fl.dictionaries fl.solution j k >>= \(j', k') => method k' j'
 
     -- A field of a rebuilt constructor, as what the dictionary's argument
-    -- writes there.
+    -- writes there: the field holds what its dictionary holds, no list of
+    -- its own.
     filling : Argument -> (Address, Nat, Template) -> Reached
     filling x (con, c, t) =
-      MkReached (Filling con) [MkPlaced ({ position := c, template := t, root := Unrooted, term := Nothing } x) c] Called
+      MkReached (Filling con) [MkPlaced ({ position := c, template := t, root := Unrooted, term := Nothing, holds := [] } x) c]
+                Called
+
+    -- The field the last level takes, as a value held (`Cases.heldHere`):
+    -- its type over that level's part (`overPart`).
+    stuckField : Argument -> (Template, Level) -> Argument
+    stuckField x (part, l) =
+      { position := 0, kind := AType, template := overPart part l.heldType, root := Unrooted, term := Nothing
+      , memberOf := Nothing, holds := [] } x
 
     -- The writer again, its dictionary parameter, whose argument is `x`,
     -- rebuilt down a chain: at its node with the dictionary's head the
     -- constructor the chain's root is built with, which is the rebuilt
     -- dictionary's root, and every other static parameter as it is; and
-    -- the rebuilt constructors' fields, which no other site writes.
+    -- the rebuilt constructors' fields, which no other site writes. The
+    -- rebuilt dictionary holds the values its writer was given, each as
+    -- itself, and the stuck field after them; and, in each arm of the
+    -- dispatch on that field, those values and then the values the member
+    -- put in its place holds (`Choices.heldMember`).
     rebuiltAt : Argument -> Chain -> List Reached
     rebuiltAt x (l ::: ls) =
       let r = rebuilt (Template.Var x.position 0) l ls
-          dictionary = MkPlaced ({ template := r.template, root := Unrooted, term := Nothing } x) x.position
+          final = lastOf (Template.Var x.position 0) l ls
+          lists = [ EachOf x.position ::: [OfType (stuckField x final ::: [])]
+                  , EachOf x.position ::: [MembersOf (snd final).choiceOf] ]
+          dictionary = MkPlaced ({ template := r.template, root := Unrooted, term := Nothing, holds := lists } x) x.position
           target = MkNode w.definition (headedAt x.position l.holds.builtBy w.heads) in
       MkReached (Entering target) (atOwnPositions s.arguments ++ [dictionary]) Called ::
-        map (filling x) r.fillings ++ heldField x (lastOf (Template.Var x.position 0) l ls)
-
-    -- The field the last level takes, held after the values the
-    -- dictionary held until a dispatch puts a member in its place: its
-    -- type over that level's part (`overPart`), at the held types'
-    -- position. A type that applies an argument as a family reads off no
-    -- field.
-    heldField : Argument -> (Template, Level) -> List Reached
-    heldField x (part, l) = case overPart part l.heldType of
-      Just ty =>
-        [MkReached Packing
-                   [MkPlaced ({ position := 0, kind := AType, template := ty, root := Unrooted, term := Nothing
-                              , memberOf := Nothing } x) 0]
-                   Called]
-      Nothing => []
+        map (filling x) r.fillings
 
     from : Reach -> List Reached
     from (Calls t) = let placed = atOwnPositions s.arguments in
@@ -1050,7 +1133,6 @@ reaches fl w s = from s.reach
     -- bounded at its positions alone.
     from Applies = [MkReached Applying (atOwnPositions s.arguments) Called]
     from (Makes k) = [MkReached (Making k) (atOwnPositions s.arguments) Called]
-    from (Packs _) = [MkReached Packing (atOwnPositions s.arguments) Called]
     -- Where a match finds a field of the dictionary stuck: one request for
     -- each chain to a field the running program may have chosen, none
     -- where every root holds that field fixed, as no translation then
