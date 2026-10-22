@@ -49,10 +49,10 @@ signednessClosed = MkClosed
 
 ||| Which way a shift moves.
 public export
-data Direction = Leftward | Rightward
+data ShiftDirection = Leftward | Rightward
 
 public export
-directionClosed : Closed Direction
+directionClosed : Closed ShiftDirection
 directionClosed = MkClosed
   { name = "Direction"
   , shape = OneOf
@@ -96,7 +96,7 @@ partClosed = MkClosed
 public export
 data InlineMeaning
   = EuclidOf Part
-  | ShiftOf Direction Signedness
+  | ShiftOf ShiftDirection Signedness
   | ToCharOf Signedness
 
 ||| The name the C++ gives the meaning: the template at its constants, as

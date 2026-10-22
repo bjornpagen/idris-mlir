@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The patterns of the crashes (of a cause, of the program's own text), of a
-// trusted library's IO run for a pure value, and of every op of inline
-// arithmetic, whose arith is its meaning over an IR builder
-// (Numeric/Trait.h): one pattern for all of them, so no division, shift or
-// char conversion is spelt here.
+// trusted library's IO run for a pure value, of a clock's reading, and of
+// every op of inline arithmetic, whose arith is its meaning over an IR
+// builder (Numeric/Trait.h): one pattern for all of them, so no division,
+// shift or char conversion is spelt here.
 
+#include "Lower/Lower.h"
+
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Numeric/Trait.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
 
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -63,6 +67,31 @@ struct LowerUnsafeRun : IdrPattern<IoUnsafeRunOp> {
   }
 };
 
+// A clock's reading: the call of the runtime's function of the op's kind,
+// one entry per kind in the kinds' order (AbiByCase), so the kind is
+// chosen as the op is lowered and never passed or tested at run time. What
+// the call does is the op's declaration's, which its class decides, made
+// once with the pattern.
+struct LowerClock : IdrPattern<IoClockOp> {
+  static_assert(effects::DecidedByClass<IoClockOp>);
+  LowerClock(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
+             Runtime &runtime)
+      : IdrPattern(converter, ctx, layouts, runtime),
+        facts(callFacts(ctx, effects::bound<IoClockOp>().row())) {}
+
+  CallFacts facts;
+
+  LogicalResult matchAndRewrite(IoClockOp op, OpAdaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    const idr::runtime::Function &function =
+        idr::runtime::AbiByCase<IoClockOp>::entries[static_cast<size_t>(op.getKind())];
+    LLVM::CallOp call = runtime.call(rewriter, op.getLoc(), function, ValueRange());
+    tellCall(call, facts);
+    rewriter.replaceOp(op, call.getResult());
+    return success();
+  }
+};
+
 // An op of inline arithmetic as its meaning over arith.
 template <typename OpT>
 struct LowerInline : IdrPattern<OpT> {
@@ -90,7 +119,7 @@ void addInline(RewritePatternSet &patterns, const TypeConverter &converter,
 
 void populateScalarPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                             const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerCrash, LowerCrashMessage, LowerUnsafeRun>(
+  patterns.add<LowerCrash, LowerCrashMessage, LowerUnsafeRun, LowerClock>(
       converter, patterns.getContext(), layouts, runtime);
   addInline<
 #define GET_OP_LIST

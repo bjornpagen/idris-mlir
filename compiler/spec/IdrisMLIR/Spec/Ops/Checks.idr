@@ -155,17 +155,17 @@ guardInterface = MkInterfaceDef
   , subject = OverOps
   , bases = []
   , methods =
-      [ MkMethod Instance "::mlir::Value" "getGuarded" [] (Delegates "guardedOperand")
+      [ MkMethod PerObject "::mlir::Value" "getGuarded" [] (Delegates "guardedOperand")
           "the operand the guard guards, its first, which it gives as its result"
-      , MkMethod Instance "::idr::Cause" "getCause" [] EveryImplementer
+      , MkMethod PerObject "::idr::CrashCause" "getCause" [] EveryImplementer
           "the cause its crash names"
-      , MkMethod Instance "::idr::SiteAttr" "getSite" [] EveryImplementer
+      , MkMethod PerObject "::idr::SiteAttr" "getSite" [] EveryImplementer
           "the place in the source its crash is at"
-      , MkMethod Static "::idr::numeric::Known" "decide"
+      , MkMethod PerClass "::idr::numeric::Known" "decide"
           [param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"] EveryImplementer
           "whether its condition holds, fails, or is unknown on its operands' intervals"
       ]
-  , verifier = NoVerifier
+  , verifier = Unverified
   , doc = says "a guard of a partial primitive's operands"
   }
 
@@ -196,7 +196,7 @@ guardOp m ins checked traits ifaces d = MkOp
   , attrs = [causeSlot, siteSlot]
   , regions = []
   , traits = traits
-  , interfaces = Ours guardInterface [] :: ifaces
+  , interfaces = Implements guardInterface [] :: ifaces
   , effects = endsByCrash
   , speculation = NotSpeculatable
   , stages = Always
@@ -221,7 +221,7 @@ nonzeroOp = guardOp "check.nonzero"
   [single "value" (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer")]
   (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer")
   [SameOperandsAndResultType]
-  [Ours flowInterface ["getFlowEdges"], Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  [Implements flowInterface ["getFlowEdges"], Declares InferIntRange ["inferResultRanges"]]
   (says "the value, which must not be zero, else the program crashes")
 
 ||| An index of a string or of an array of one dimension, below its length:
@@ -233,7 +233,7 @@ inBoundsOp = guardOp "check.in_bounds"
   [ single "index" i64
   , single "indexed" (AnyOfTypes (strRead ::: [SatisfiesType rank1ArrayP]) "a string or an array of one dimension") ]
   i64 []
-  [Upstream InferIntRangeInterfaceI ["inferResultRangesFromOptional"]]
+  [Declares InferIntRange ["inferResultRangesFromOptional"]]
   (says "the index, which must be at least 0 and below the length of what it indexes, else the program crashes")
 
 ||| A string, which must have a byte at least. Its result is its operand,
@@ -241,7 +241,7 @@ inBoundsOp = guardOp "check.in_bounds"
 public export
 nonemptyOp : Op 1 1 2 0
 nonemptyOp = guardOp "check.nonempty" [single "str" strValue] strValue [SameOperandsAndResultType]
-  [Ours flowInterface ["getFlowEdges"]]
+  [Implements flowInterface ["getFlowEdges"]]
   (says "the string, which must have at least one byte, else the program crashes")
 
 public export
@@ -254,7 +254,7 @@ finiteOp = guardOp "check.finite" [single "value" f64] f64 [SameOperandsAndResul
 public export
 rangeOp : Op 3 1 2 0
 rangeOp = guardOp "check.range" [single "offset" i64, single "count" i64, single "size" i64] i64 []
-  [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  [Declares InferIntRange ["inferResultRanges"]]
   (says "the offset, whose range of `count` bytes must lie in `size`, else the program crashes")
 
 public export

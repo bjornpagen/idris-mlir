@@ -13,6 +13,7 @@
 
 #include "idr/Transforms/EGraph.h"
 
+#include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 
 #include <optional>
@@ -22,6 +23,13 @@ namespace idr {
 class GuardOpInterface;
 class CheckNonemptyOp;
 class IoPutStrOp;
+
+// Whether a string is never empty: a non-empty constant, a string a builder
+// makes never empty (one built with a character or a number in it, the
+// trait NeverEmpty), or an append of such a string and another. A guard
+// that the string is not empty, and a literal match's case of the empty
+// string, read it.
+bool neverEmpty(mlir::Value str);
 
 } // namespace idr
 

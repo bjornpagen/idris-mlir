@@ -194,7 +194,7 @@ reader m ins res call ifaces d = MkOp
   }
 
 ranges : InterfaceUse
-ranges = Upstream InferIntRangeInterfaceI ["inferResultRanges"]
+ranges = Declares InferIntRange ["inferResultRanges"]
 
 public export
 strLength : Op 1 1 0 0

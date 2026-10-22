@@ -38,6 +38,18 @@ noRuntimeForm = MkTraitDef "NoRuntimeForm" (says "its result is its first operan
 foldable : Member
 foldable = MkMember OnClass "bool" "foldable" [param "::llvm::ArrayRef<::mlir::Attribute>" "constants"]
 
+||| What a big op computes on words where its bigs all fit, which idr-narrow
+||| makes it: the word itself, for an op whose result is its operand's word
+||| (a natural as an Integer); an arith op on its operands' words; or one on
+||| its first operand's word and a constant. The pass reads it as the
+||| generated `BigToWord<Op>`, and an op with none keeps its bigs.
+data WordForm = TheWord | OnWords Admitted | OnWordAnd Admitted Integer
+
+bigToWord : WordForm -> Specialized
+bigToWord TheWord = MkSpecialized "BigToWord" [("Op", NoClass)]
+bigToWord (OnWords a) = MkSpecialized "BigToWord" [("Op", UpstreamClass a)]
+bigToWord (OnWordAnd a k) = MkSpecialized "BigToWord" [("Op", UpstreamClass a), ("constant", IntConstant k)]
+
 ||| An Integer's function of two Integers, `idris_rt_big_<stem>`.
 twoBigs : Symbol -> RuntimeCall 2 1
 twoBigs s = MkRuntimeCall s [TakesBig, TakesBig] (Returns GivesBig)
@@ -76,8 +88,8 @@ binary m s ms d = MkOp
 ||| The sum and the product of two naturals are natural, so these take
 ||| Integers or naturals, and give what they take: Nat's plus and mult are
 ||| these ops. A sum with 0 is the other operand, a law the e-graph reads.
-naturalBinary : Mnemonic -> Symbol -> List Law -> Doc -> Op 2 1 0 0
-naturalBinary m s ls d = MkOp
+naturalBinary : Mnemonic -> Symbol -> Admitted -> List Law -> Doc -> Op 2 1 0 0
+naturalBinary m s word ls d = MkOp
   { home = InIdr
   , mnemonic = m
   , ins = [single "lhs" bigOrNatRead, single "rhs" bigOrNatRead]
@@ -85,7 +97,7 @@ naturalBinary m s ls d = MkOp
   , attrs = []
   , regions = []
   , traits = [SameTypeOperands]
-  , interfaces = [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -96,22 +108,24 @@ naturalBinary m s ls d = MkOp
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = []
+  , specializations = [bigToWord (OnWords word)]
   , laws = ls
   , doc = d
   }
 
 public export
 bigAdd : Op 2 1 0 0
-bigAdd = naturalBinary "big.add" "big_add" [Identity 0] (says "the sum of two bigs or two naturals")
+bigAdd = naturalBinary "big.add" "big_add" addI [Identity 0] (says "the sum of two bigs or two naturals")
 
 public export
 bigMul : Op 2 1 0 0
-bigMul = naturalBinary "big.mul" "big_mul" [] (says "the product of two bigs or two naturals")
+bigMul = naturalBinary "big.mul" "big_mul" mulI [] (says "the product of two bigs or two naturals")
 
 public export
 bigSub : Op 2 1 0 0
-bigSub = { interfaces := [Upstream InferIntRangeInterfaceI ["inferResultRanges"]] }
+bigSub =
+  { interfaces := [Declares InferIntRange ["inferResultRanges"]]
+  , specializations := [bigToWord (OnWords subI)] }
   (binary "big.sub" "big_sub" [] (says "the difference of two bigs"))
 
 public export
@@ -194,7 +208,7 @@ natPred = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -205,7 +219,7 @@ natPred = MkOp
   , defaultBuilders = WithDefaults
   , members = [foldable]
   , guards = []
-  , specializations = []
+  , specializations = [bigToWord (OnWordAnd subI 1)]
   , laws = []
   , doc = says "the predecessor of a natural that is not zero"
   }
@@ -222,7 +236,7 @@ bigCmp = MkOp
   , attrs = [property "predicate" (EnumProperty (enumDef comparisonClosed))]
   , regions = []
   , traits = [SameTypeOperands]
-  , interfaces = [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -233,7 +247,7 @@ bigCmp = MkOp
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = []
+  , specializations = [bigToWord (OnWords cmpI)]
   , laws = []
   , doc = says "compares two bigs or two naturals"
   }
@@ -255,8 +269,8 @@ natToBig = MkOp
   , regions = []
   , traits = [OurTrait noRuntimeForm]
   , interfaces =
-      [ Ours flowInterface ["getFlowEdges"]
-      , Upstream InferIntRangeInterfaceI ["inferResultRanges"] ]
+      [ Implements flowInterface ["getFlowEdges"]
+      , Declares InferIntRange ["inferResultRanges"] ]
   , effects = Executes [] [Consumes 0] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -267,7 +281,7 @@ natToBig = MkOp
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = []
+  , specializations = [bigToWord TheWord]
   , laws = []
   , doc = says "a natural as an Integer"
   }
@@ -286,7 +300,7 @@ natFromBig = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = Executes [OnValues Write Count (Results 0)] [] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -297,7 +311,7 @@ natFromBig = MkOp
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = []
+  , specializations = [bigToWord (OnWordAnd maxSI 0)]
   , laws = []
   , doc = says "an Integer as a natural, 0 if it is negative"
   }
@@ -327,7 +341,7 @@ bigFromInt sign = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -359,7 +373,7 @@ bigSmall = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -386,7 +400,7 @@ bigToInt = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -397,7 +411,7 @@ bigToInt = MkOp
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
-  , specializations = []
+  , specializations = [bigToWord (OnWords truncI)]
   , laws = []
   , doc = says "a big or a natural as an integer, wrapped to its width"
   }

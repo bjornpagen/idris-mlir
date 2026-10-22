@@ -14,6 +14,33 @@
 
 using namespace mlir;
 
+// Appends share their parts, so each is looked at once. An append is never
+// empty where either part is not, which only its parts tell: essential, the
+// one builder whose answer is its operands'.
+bool idr::neverEmpty(Value str) {
+  SmallVector<Value> work{str};
+  llvm::SmallPtrSet<Operation *, 8> seen;
+  while (!work.empty()) {
+    Value next = work.pop_back_val();
+    Operation *def = next.getDefiningOp();
+    if (!def || !seen.insert(def).second)
+      continue;
+    if (def->hasTrait<NeverEmpty>())
+      return true;
+    if (auto constant = dyn_cast<ConstantOp>(def)) {
+      auto text = dyn_cast<StringAttr>(constant.getValue());
+      if (text && !text.getValue().empty())
+        return true;
+      continue;
+    }
+    if (auto append = dyn_cast<StrAppendOp>(def)) {
+      work.push_back(append.getLhs());
+      work.push_back(append.getRhs());
+    }
+  }
+  return false;
+}
+
 namespace idr::egraph {
 
 namespace {
@@ -98,39 +125,6 @@ std::optional<Edit> GuardRepeated::decide(GuardOpInterface guard, const OperandF
 }
 
 void GuardRepeated::rewrite(GuardOpInterface, const Rewrite &, RewriterBase &) {}
-
-namespace {
-
-// Whether a string is never empty: a non-empty constant, a builder's whose
-// string is never empty (one built with a character or a number in it), or
-// an append of such a string and another, which only its parts tell: the
-// one builder whose answer is its operands'. Appends share their parts, so
-// each is looked at once.
-bool neverEmpty(Value str) {
-  SmallVector<Value> work{str};
-  llvm::SmallPtrSet<Operation *, 8> seen;
-  while (!work.empty()) {
-    Value next = work.pop_back_val();
-    Operation *def = next.getDefiningOp();
-    if (!def || !seen.insert(def).second)
-      continue;
-    if (def->hasTrait<NeverEmpty>())
-      return true;
-    if (auto constant = dyn_cast<ConstantOp>(def)) {
-      auto text = dyn_cast<StringAttr>(constant.getValue());
-      if (text && !text.getValue().empty())
-        return true;
-      continue;
-    }
-    if (auto append = dyn_cast<StrAppendOp>(def)) {
-      work.push_back(append.getLhs());
-      work.push_back(append.getRhs());
-    }
-  }
-  return false;
-}
-
-} // namespace
 
 std::optional<Edit> NeverEmptyString::decide(CheckNonemptyOp guard, const OperandFacts &) {
   if (neverEmpty(guard.getStr()))

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Phase 2 of idr-lower, for bigs and naturals: the op that is no call of
-// one runtime function. Every other big op is the plain call of its runtime
-// function (RuntimeCalls.cpp), whose small case the runtime keeps inline,
-// so the tagged arithmetic exists once and is inlined wherever the
+// Phase 2 of idr-lower, for bigs and naturals: the ops that are no call of
+// one runtime function, a natural made an extent and a numeral made a
+// natural or made of one. Every other big op is the plain call of its
+// runtime function (RuntimeCalls.cpp), whose small case the runtime keeps
+// inline, so the tagged arithmetic exists once and is inlined wherever the
 // runtime's bitcode is joined to the program; a natural made a big is the
 // same word (NoRuntimeForm).
 
@@ -17,6 +18,10 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/Support/MathExtras.h"
+
+// The runtime's C ABI: the small Integer word's range.
+#include "idris_rt.h"
 
 using namespace mlir;
 
@@ -50,13 +55,89 @@ struct LowerNatToExtent : IdrPattern<NatToExtentOp> {
   }
 };
 
+// Whether every value of the integer type `number` is in the small range,
+// so the natural of each is a small word and never a cell.
+bool fitsSmall(Type number) {
+  return llvm::maxUIntN(number.getIntOrFloatBitWidth()) <=
+         static_cast<uint64_t>(IDRIS_RT_SMALL_MAX);
+}
+
+// A numeral's value as a natural. A numeral whose bound is open is held as
+// its natural already. One held in a number of a fixed width is below the
+// width's top, as Idris proved: where every number of the width is in the
+// small range, its natural is the small word 2v + 1, as
+// idris_rt_small_word makes it (an inline function emitted code cannot
+// call); where a number of the width may lie past it, its natural is the
+// runtime's of an unsigned word, big.from_uint's function, whose small case
+// the runtime keeps inline. Essential: the three are the ways a numeral's
+// bound can be held.
+struct LowerNumeralToNat : IdrPattern<NumeralToNatOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(NumeralToNatOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value numeral = adaptor.getValue();
+    layout::Component held = layouts.components(op.getValue().getType()).front();
+    if (held.word == layout::Word::Big) {
+      rewriter.replaceOp(op, numeral);
+      return success();
+    }
+    if (!fitsSmall(held.type)) {
+      rewriter.replaceOp(
+          op, runtime.call(rewriter, loc, idr::runtime::Abi<BigFromUintOp>::entry, numeral)
+                  .getResult());
+      return success();
+    }
+    Value wide = arith::ExtUIOp::create(rewriter, loc, rewriter.getI64Type(), numeral);
+    Value one = arith::ConstantIntOp::create(rewriter, loc, 1, 64);
+    Value twice = arith::ShLIOp::create(
+        rewriter, loc, wide, one,
+        arith::IntegerOverflowFlags::nsw | arith::IntegerOverflowFlags::nuw);
+    rewriter.replaceOpWithNewOp<arith::OrIOp>(op, twice, one);
+    return success();
+  }
+};
+
+// A natural as a numeral of the bound Idris proved it below, with no test.
+// A numeral whose bound is open is held as the natural. Held in a number of
+// a fixed width, the natural is below the width's top: where every number
+// of the width is in the small range, the natural is a small word, whose
+// value is the word shifted right as idris_rt_small_value reads it, which
+// the width holds; where a number of the width may lie past it, the value
+// is the runtime's word of a big, big.to_int's function.
+struct LowerNumeralOfNat : IdrPattern<NumeralOfNatOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(NumeralOfNatOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value natural = adaptor.getValue();
+    layout::Component held = layouts.components(op.getResult().getType()).front();
+    if (held.word == layout::Word::Big) {
+      rewriter.replaceOp(op, natural);
+      return success();
+    }
+    if (!fitsSmall(held.type)) {
+      rewriter.replaceOp(
+          op,
+          runtime.call(rewriter, loc, idr::runtime::Abi<BigToIntOp>::entry, natural).getResult());
+      return success();
+    }
+    Value one = arith::ConstantIntOp::create(rewriter, loc, 1, 64);
+    Value value = arith::ShRUIOp::create(rewriter, loc, natural, one);
+    rewriter.replaceOpWithNewOp<arith::TruncIOp>(op, held.type, value,
+                                                 arith::IntegerOverflowFlags::nuw);
+    return success();
+  }
+};
+
 } // namespace
 
-// The pattern of the big op that is no call of one runtime function: a
-// natural made an extent.
+// The patterns of the big ops that are no call of one runtime function: a
+// natural made an extent, and a numeral made a natural or made of one.
 void populateBigPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                          const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerNatToExtent>(converter, patterns.getContext(), layouts, runtime);
+  patterns.add<LowerNatToExtent, LowerNumeralToNat, LowerNumeralOfNat>(
+      converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

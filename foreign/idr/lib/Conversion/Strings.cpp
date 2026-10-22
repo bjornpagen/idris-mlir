@@ -61,14 +61,14 @@ SmallVector<Value> walk(OpBuilder &b, Location loc, const Layouts &layouts, Runt
   auto loop = scf::WhileOp::create(
       b, loc, types, operands,
       [&](OpBuilder &before, Location l, ValueRange args) {
-        Value tag = runtime.loadTag(before, l, args[0], list.data, layouts);
+        Value tag = runtime.loadTag(before, l, args[0], list.data, Contents::Stays);
         Value consTag = arith::ConstantIntOp::create(
             before, l, static_cast<uint32_t>(list.shape.cons), 64);
         Value isCons = arith::CmpIOp::create(before, l, arith::CmpIPredicate::eq, tag, consTag);
         scf::ConditionOp::create(before, l, isCons, args);
       },
       [&](OpBuilder &after, Location l, ValueRange args) {
-        const layout::Cell &layout = layouts.box(list.data).cell(list.shape.cons);
+        const layout::Cell &layout = layouts.cells(list.data).cell(list.shape.cons);
         Value cons = args[0];
         unsigned element = list.shape.element;
         SmallVector<Value> head =

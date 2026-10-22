@@ -6,6 +6,7 @@
 // module verify through the collection the symbol-use walk hands over.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Families/Families.h"
 #include "idr/IR/Fold.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
@@ -78,9 +79,9 @@ LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, Closu
 // captures, with every symbol resolved. Each part is one the leaf rule of a
 // constant's fields and captures accepts (fold::buildable), which the
 // folders of constructors and closures ask too. A constructor is checked a
-// cell at a time, each field at its field's type, however long its run, and
-// never through the suffix that reading the field along its spine would
-// build. Each (value, type) is checked once.
+// cell at a time, each field at its type in its own cell's application,
+// however long its run, and never through the suffix that reading the field
+// along its spine would build. Each (value, type) is checked once.
 LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols, Attribute value,
                              Type type, Checked &checked) {
   if (!checked.insert({value, type}).second)
@@ -93,23 +94,33 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols, Attr
   auto con = dyn_cast<ConAttr>(value);
   if (!con)
     return success();
-  const Ctor &ctor = con.getCtor();
   // Each cell after the first is the field along the spine of the one
-  // before, so that field holds the constant's own type. One cell has no
-  // field after it.
-  unsigned spine = con.getSpine();
-  if (con.getRunLength() > 1 && unrestricted(ctor.fields[spine]) != type)
-    return op->emitOpError("has a run of @")
-           << ctor.name.getValue() << " along field " << spine << ", which does not hold "
-           << type;
-  for (auto [cell, fields] : llvm::enumerate(con.getCells()))
-    for (auto [position, field] : llvm::enumerate(fields)) {
-      unsigned index =
-          con.fieldOfCell(static_cast<unsigned>(cell), static_cast<unsigned>(position));
+  // before, so its application is that field's type there, refined to the
+  // same constructor: a run of a vector's cells is checked at each cell's
+  // own index. One cell has no field after it.
+  Tag tag = con.getTag();
+  auto spine = static_cast<unsigned>(con.getSpine());
+  DataType at = con.getData();
+  StringRef label = at.ctor(tag).label;
+  for (unsigned cell = 0, cells = con.getRunLength(); cell < cells; ++cell) {
+    std::optional<SmallVector<Type>> fields = at.determinedFields(tag);
+    if (!fields)
+      return op->emitOpError("has a cell of @")
+             << label << " at " << at << ", where its binders are not determined";
+    for (auto [position, field] : llvm::enumerate(con.getCell(cell))) {
+      unsigned index = con.fieldOfCell(cell, static_cast<unsigned>(position));
       // A constant fills a linear field as its plain value.
-      if (failed(verifyConstant(op, symbols, field, unrestricted(ctor.fields[index]), checked)))
+      if (failed(verifyConstant(op, symbols, field, unrestricted((*fields)[index]), checked)))
         return failure();
     }
+    if (cell + 1 == cells)
+      break;
+    auto next = dyn_cast<DataType>(unrestricted((*fields)[spine]));
+    if (!next || next.getGroup() != at.getGroup() || next.getMember() != at.getMember())
+      return op->emitOpError("has a run of @")
+             << label << " along field " << spine << ", which holds no @" << label;
+    at = next.refined({tag});
+  }
   return success();
 }
 

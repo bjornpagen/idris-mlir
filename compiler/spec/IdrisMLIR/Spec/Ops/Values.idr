@@ -9,6 +9,7 @@ module IdrisMLIR.Spec.Ops.Values
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
+import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Ops.Shapes
 
 import Data.List.Elem
@@ -19,45 +20,6 @@ import Data.List1
 ------------------------------------------------------------------------------
 -- The runtime's values
 ------------------------------------------------------------------------------
-
-||| The values the runtime holds of its own: a string, an Integer, a
-||| natural, which is an Integer never negative.
-public export
-data Scalar = Str | Big | Nat
-
-public export
-scalarClosed : Closed Scalar
-scalarClosed = MkClosed
-  { name = "RuntimeValue"
-  , shape = OneOf
-  , every = Str ::: [Big, Nat]
-  , complete = \case
-      Str => Here
-      Big => There Here
-      Nat => There (There Here)
-  , describe = \case
-      Str => MkCase "Str" ("str" ::: []) "a string, UTF-8"
-      Big => MkCase "Big" ("big" ::: []) "an Integer: a small in its word, or a cell"
-      Nat => MkCase "Nat" ("nat" ::: []) "a natural: an Integer never negative"
-  , doc = brief "a value the runtime holds of its own"
-  }
-
-||| What a value of each holds, as the type's ValueFactsTypeInterface answers
-||| it: each holds a reference and is counted; a string's word is always its
-||| cell, an Integer's a small or a cell. None is used once by its type.
-public export
-scalarFacts : Table
-scalarFacts = table scalarClosed
-  [ MkColumn "holdsReferences" TruthColumn (\_ => TruthCell True) "whether a value holds a reference"
-  , MkColumn "isLinearByType" TruthColumn (\_ => TruthCell False) "whether every value is used exactly once by its type"
-  , MkColumn "isCounted" TruthColumn (\_ => TruthCell True) "whether a reference is counted"
-  , MkColumn "isCellPointer" TruthColumn cellPointer "whether its word is always a cell's address"
-  ]
-  where
-    cellPointer : Scalar -> Cell
-    cellPointer Str = TruthCell True
-    cellPointer Big = TruthCell False
-    cellPointer Nat = TruthCell False
 
 ||| How a literal of a runtime value is written and read: a quoted string,
 ||| or a `#idr.big` for an Integer and a natural (never negative). Every op
@@ -70,47 +32,76 @@ literalType = MkInterfaceDef
   , subject = OverTypes
   , bases = []
   , methods =
-      [ MkMethod Instance "bool" "isLiteral" [param "::mlir::Attribute" "literal"]
+      [ MkMethod PerObject "bool" "isLiteral" [param "::mlir::Attribute" "literal"]
           EveryImplementer "whether the attribute is a literal of this type"
-      , MkMethod Instance "::mlir::ParseResult" "parseLiteral"
+      , MkMethod PerObject "::mlir::ParseResult" "parseLiteral"
           [param "::mlir::AsmParser &" "parser", param "::mlir::Attribute &" "literal"]
           EveryImplementer "reads a literal of this type"
       ]
-  , verifier = NoVerifier
+  , verifier = Unverified
   , doc = brief "how a literal of a type is written and read"
   }
 
-||| A runtime value's type: no parameter, its name the one an SSA value of it
-||| is printed with, its literal its own.
-scalarType : Mnemonic -> Doc -> TypeDef 0
-scalarType m d = MkTypeDef
+||| What a runtime value's type is to MLIR: an element of an array, its
+||| values printed with its own name, its literal its own.
+scalarInterfaces : List InterfaceUse
+scalarInterfaces =
+  [ Declares MemRefElementType []
+  , Declares OpAsmType ["getAsmName"]
+  , Implements literalType ["isLiteral", "parseLiteral"] ]
+
+||| What a value of a runtime value's type holds: a reference, counted, and
+||| none is used once by its type; what its word is, the type says.
+scalarFacts : CellWord -> TypeFacts
+scalarFacts word = Answers (MkValueFacts HoldsReferences UsedAsGraded Counted word)
+
+||| A runtime value's type with no parameter.
+scalarType : Mnemonic -> CellWord -> Doc -> TypeDef 0
+scalarType m word d = MkTypeDef
   { mnemonic = m
   , params = []
   , syntax = Declarative []
-  , interfaces =
-      [ Upstream MemRefElementTypeInterfaceI []
-      , Upstream OpAsmOpInterfaceI ["getAsmName"]
-      , Ours literalType ["isLiteral", "parseLiteral"] ]
+  , interfaces = scalarInterfaces
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []
+  , facts = scalarFacts word
   , doc = d
   }
 
+||| A string's word is always its cell.
 public export
 strType : TypeDef 0
-strType = scalarType "str" (says "a string (UTF-8)")
+strType = scalarType "str" AlwaysCell (says "a string (UTF-8)")
 
+||| An Integer's word is a small in the word, or a cell.
 public export
 bigType : TypeDef 0
-bigType = scalarType "big" (says "an Integer")
+bigType = scalarType "big" MayBeOtherWord (says "an Integer")
 
 ||| Nat, and every type Idris shapes like it: a big at run time, never
 ||| negative. Every op that makes one keeps it so, and the one way in from
-||| an Integer, idr.nat.from_big, clamps, so the type proves the range.
+||| an Integer, idr.nat.from_big, clamps, so the type proves the range. A
+||| natural keeps its link to the index term it is, `!idr.nat<3>`,
+||| `!idr.nat<v0>`, or `!idr.nat<_>` where no term is known, so a call that
+||| passes one passes its term too. The term is read and printed by hand (a
+||| natural's own syntax over the families' terms), held to one whole term
+||| at the boundary, and written in bytecode as the families write terms.
 public export
-natType : TypeDef 0
-natType = scalarType "nat" (says "a natural number: an Integer never negative")
+natType : TypeDef 1
+natType = MkTypeDef
+  { mnemonic = "nat"
+  , params =
+      [ MkParameter "index" (HandValue "::llvm::ArrayRef<::idr::families::TermNode>" termsParam)
+          AlwaysWritten "the index term the natural is, opaque where none is known" ]
+  , syntax = HandSyntax
+  , interfaces = scalarInterfaces
+  , verifier = VerifiesParameters
+  , bytecode = Derived
+  , members = []
+  , facts = scalarFacts MayBeOtherWord
+  , doc = says "a natural number: an Integer never negative, linked to its index term"
+  }
 
 ------------------------------------------------------------------------------
 -- Comparisons
@@ -162,9 +153,9 @@ constantOp = MkOp
   , regions = []
   , traits = [ConstantLike]
   , interfaces =
-      [ Upstream SymbolUserOpInterfaceI ["verifySymbolUses"]
-      , Upstream OpAsmOpInterfaceI ["getAsmResultNames"]
-      , Upstream InferIntRangeInterfaceI ["inferResultRanges"] ]
+      [ Declares SymbolUser ["verifySymbolUses"]
+      , Declares OpAsm ["getAsmResultNames"]
+      , Declares InferIntRange ["inferResultRanges"] ]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always

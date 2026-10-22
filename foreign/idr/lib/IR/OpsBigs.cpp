@@ -6,9 +6,10 @@
 // constant would be too large to make, the predecessor of zero, which no
 // natural is); and the fold of the one op with no runtime form, a natural
 // as an Integer. Every other op folds through its runtime function
-// (Fold.h).
+// (Fold.h). And the natural's type, linked to its index term.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Families/Terms.h"
 #include "idr/IR/Fold.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Ranges.h"
@@ -210,4 +211,34 @@ bool NatPredOp::foldable(ArrayRef<Attribute> constants) {
 // that materializes it takes from the op's result.
 OpFoldResult NatToBigOp::fold(FoldAdaptor adaptor) {
   return dyn_cast_or_null<BigAttr>(adaptor.getValue());
+}
+
+//===----------------------------------------------------------------------===//
+// The natural's type
+//===----------------------------------------------------------------------===//
+
+// `!idr.nat<t>`: the natural linked to the index term `t`, written as the
+// families write a term, `_` where no term is known.
+Type NatType::parse(AsmParser &parser) {
+  SmallVector<families::TermNode> index;
+  if (parser.parseLess() || families::parseTerms(parser, 1, index, nullptr) ||
+      parser.parseGreater())
+    return {};
+  return getChecked([&] { return parser.emitError(parser.getNameLoc()); }, parser.getContext(),
+                    index);
+}
+
+void NatType::print(AsmPrinter &printer) const {
+  printer << '<';
+  families::printTerms(printer, getIndex(), 1, Attribute());
+  printer << '>';
+}
+
+// One whole term: a bytecode read writes nodes no builder wrote, and every
+// walk of the term trusts its extent.
+LogicalResult NatType::verify(function_ref<InFlightDiagnostic()> emitError,
+                              ArrayRef<families::TermNode> index) {
+  if (families::countTerms(index) != std::optional<size_t>(1))
+    return emitError() << "expects a natural linked to one index term";
+  return success();
 }

@@ -3,8 +3,7 @@
 // The values cells, static data and idr-lower's patterns are built from:
 // the pointer type, constant words as LLVM writes them, the address
 // of a component of a cell and the alignment it has there, the empty
-// value of a counted component, the counted components of a value, and an
-// unboxed sum's components.
+// value of a counted component, and an unboxed sum's components.
 
 #ifndef IDR_CONVERSION_WORDS_H
 #define IDR_CONVERSION_WORDS_H
@@ -46,11 +45,6 @@ mlir::Value groupBase(mlir::OpBuilder &b, mlir::Location loc, mlir::Value word);
 
 // The empty value of a counted component: a null pointer, or the word 0.
 mlir::Value nullComponent(mlir::OpBuilder &b, mlir::Location loc, mlir::Type component);
-
-// The values of `values`, the components `components` of a value in order,
-// whose component is counted: what Runtime::inc and Runtime::dec count.
-llvm::SmallVector<mlir::Value> references(llvm::ArrayRef<layout::Component> components,
-                                          mlir::ValueRange values);
 
 // The components of the constructor `tag` of an unboxed sum laid out as
 // `layout`, each field's components given by `fields` in order: its words,

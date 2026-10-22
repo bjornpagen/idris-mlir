@@ -344,7 +344,8 @@ errorText = MkOp
 ||| A reading of one of the clocks that exist, the property `kind`: an
 ||| OSClock, or -1 where the clock cannot be read. Time moves, and a failure
 ||| saves errno, so a reading is IO. The runtime's entries are one template
-||| instantiated per kind, its row keyed by the op and the kind.
+||| instantiated per kind, `idris_rt_io_clock_<kind>`, and the lowering calls
+||| the one the op's kind names, so no kind is passed or tested at run time.
 public export
 clock : Op 0 1 1 0
 clock = MkOp
@@ -359,7 +360,7 @@ clock = MkOp
   , effects = outside Untouched
   , speculation = NotSpeculatable
   , stages = Always
-  , meaning = CallsRuntime (MkRuntimeCall "io_clock" [] (Returns GivesInt64))
+  , meaning = CallsRuntimeByCase (enumDef clockKindClosed) (MkRuntimeCall "io_clock" [] (Returns GivesInt64))
   , verify = DeclarationOnly
   , format = Declared [ValueOf (AttrRef 0), AttrDict]
   , builders = []

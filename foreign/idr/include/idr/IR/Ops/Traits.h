@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The traits of this area's ops that the specification names and a rule
-// reads: a builder whose string is never empty (Spec.Ops.Strings), which a
-// guard that a string is not empty folds away on (idr/IR/Ops/Rules.h). The
-// generated ops name it as a base, so the dialect's header includes this
-// before them.
+// The traits of this area's ops that the specification names: a builder
+// whose string is never empty (Spec.Ops.Strings), which a guard that a
+// string is not empty folds away on (idr/IR/Ops/Rules.h); and an op with
+// no runtime form (Spec.Ops.Bigs), which the lowering lowers to its
+// operand. The generated ops name them as bases, so the dialect's header
+// includes this before them.
 #ifndef IDR_IR_OPS_TRAITS_H
 #define IDR_IR_OPS_TRAITS_H
 
@@ -16,6 +17,12 @@ namespace idr {
 // character or a number in it. A marker the NeverEmptyString rule reads.
 template <typename ConcreteType>
 class NeverEmpty : public mlir::OpTrait::TraitBase<ConcreteType, NeverEmpty> {};
+
+// An op whose result is its first operand's word at run time, under
+// another type (a natural as an Integer): idr-lower gives the result the
+// operand's components, by one pattern for every op with the trait.
+template <typename ConcreteType>
+class NoRuntimeForm : public mlir::OpTrait::TraitBase<ConcreteType, NoRuntimeForm> {};
 
 } // namespace idr
 

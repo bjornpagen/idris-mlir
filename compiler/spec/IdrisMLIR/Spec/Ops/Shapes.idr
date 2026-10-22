@@ -151,6 +151,47 @@ byteBuffer : TypeC
 byteBuffer = SatisfiesType byteBufferP
 
 ------------------------------------------------------------------------------
+-- The upstream ops this area admits
+------------------------------------------------------------------------------
+
+||| An op of arith the frontend writes: the inline arithmetic of words, which
+||| the rules build and the big ops name as what they compute on words.
+arithOp : Ident -> Admitted
+arithOp r = MkAdmitted Arith r Always FrontendWrites []
+
+public export
+addI : Admitted
+addI = arithOp "Arith_AddIOp"
+
+public export
+subI : Admitted
+subI = arithOp "Arith_SubIOp"
+
+public export
+mulI : Admitted
+mulI = arithOp "Arith_MulIOp"
+
+public export
+andI : Admitted
+andI = arithOp "Arith_AndIOp"
+
+public export
+cmpI : Admitted
+cmpI = arithOp "Arith_CmpIOp"
+
+public export
+maxSI : Admitted
+maxSI = arithOp "Arith_MaxSIOp"
+
+public export
+truncI : Admitted
+truncI = arithOp "Arith_TruncIOp"
+
+public export
+opAdmitted : List Admitted
+opAdmitted = [addI, subI, mulI, andI, cmpI, maxSI, truncI]
+
+------------------------------------------------------------------------------
 -- Effects, as each runtime function has them
 ------------------------------------------------------------------------------
 

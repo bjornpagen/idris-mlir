@@ -20,6 +20,7 @@ module IdrisMLIR.Spec.Ops.Rewrites
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Ops.Numeric
+import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Scalars
 import IdrisMLIR.Spec.Ops.Bigs
 import IdrisMLIR.Spec.Ops.Strings
@@ -29,18 +30,6 @@ import Data.So
 import Data.Vect
 
 %default total
-
-------------------------------------------------------------------------------
--- The admitted upstream ops the rules build
-------------------------------------------------------------------------------
-
-public export
-subI : Admitted
-subI = MkAdmitted Arith "Arith_SubIOp" Always FrontendWrites []
-
-public export
-andI : Admitted
-andI = MkAdmitted Arith "Arith_AndIOp" Always FrontendWrites []
 
 ------------------------------------------------------------------------------
 -- How a rule is made

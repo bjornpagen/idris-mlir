@@ -19,11 +19,14 @@ using namespace mlir;
 
 namespace idr::fold {
 
+// Each reference is released by the runtime's entry of its word's kind: a
+// string's word is always its cell, a big's a small or a cell. A string's
+// bytes are immutable; its count is the one word a release writes.
 Scope::~Scope() {
   for (const idris_rt_str *s : strings)
-    idris_rt_str_release(s);
+    idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
   for (idris_rt_big b : bigs)
-    idris_rt_big_release(b);
+    idris_rt_dec_big(b);
 }
 
 const idris_rt_str *Scope::keep(const idris_rt_str *s) {

@@ -49,14 +49,6 @@ Value nullComponent(OpBuilder &b, Location loc, Type component) {
   return LLVM::ConstantOp::create(b, loc, component, 0);
 }
 
-SmallVector<Value> references(ArrayRef<layout::Component> components, ValueRange values) {
-  SmallVector<Value> counted;
-  for (auto [component, value] : llvm::zip_equal(components, values))
-    if (component.counted)
-      counted.push_back(value);
-  return counted;
-}
-
 SmallVector<Value> unboxedSum(OpBuilder &b, Location loc, const layout::SumLayout &layout,
                               Tag tag, ArrayRef<ValueRange> fields) {
   SmallVector<std::optional<Value>> given(layout.words.size());

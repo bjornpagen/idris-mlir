@@ -51,7 +51,7 @@ division part = MkOp
   , attrs = []
   , regions = []
   , traits = [SameOperandsAndResultType]
-  , interfaces = [Upstream InferIntRangeInterfaceI []]
+  , interfaces = [Declares InferIntRange []]
   , effects = computes
   , speculation = Conditionally
   , stages = Always
@@ -79,13 +79,13 @@ mods = division Remainder
 -- Shifts
 ------------------------------------------------------------------------------
 
-shiftName : Direction -> Signedness -> Mnemonic
+shiftName : ShiftDirection -> Signedness -> Mnemonic
 shiftName Leftward Signed = "int.shl_s"
 shiftName Leftward Unsigned = "int.shl_u"
 shiftName Rightward Signed = "int.shr_s"
 shiftName Rightward Unsigned = "int.shr_u"
 
-shiftDoc : Direction -> Signedness -> Doc
+shiftDoc : ShiftDirection -> Signedness -> Doc
 shiftDoc Leftward Signed = says "Idris shiftL of a signed integer: defined for every amount, wrapped to the width"
 shiftDoc Leftward Unsigned = says "Idris shiftL of an unsigned integer: defined for every amount, wrapped to the width"
 shiftDoc Rightward Signed = says "Idris shiftR of a signed integer: filling with its sign, defined for every amount"
@@ -97,7 +97,7 @@ shiftDoc Rightward Unsigned = says "Idris shiftR of an unsigned integer: filling
 ||| arith's shifts are poison from the width up: the expansion never builds
 ||| one at the width.
 public export
-shift : Direction -> Signedness -> Op 2 1 0 0
+shift : ShiftDirection -> Signedness -> Op 2 1 0 0
 shift dir sign = MkOp
   { home = InIdr
   , mnemonic = shiftName dir sign
@@ -106,7 +106,7 @@ shift dir sign = MkOp
   , attrs = []
   , regions = []
   , traits = [SameOperandsAndResultType]
-  , interfaces = [Upstream InferIntRangeInterfaceI []]
+  , interfaces = [Declares InferIntRange []]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -163,7 +163,7 @@ toChar sign = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Upstream InferIntRangeInterfaceI []]
+  , interfaces = [Declares InferIntRange []]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -212,7 +212,7 @@ intHead sign = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -276,7 +276,7 @@ f64Head = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Upstream InferIntRangeInterfaceI ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
