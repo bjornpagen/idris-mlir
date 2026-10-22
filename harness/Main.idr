@@ -301,6 +301,7 @@ optionsOf = go defaults
     go o ("--suite" :: s :: rest) =
       if isJust (lookup s suites) then go ({ suite := Just s } o) rest else Left ("unknown suite " ++ s)
     go o ("--list" :: rest) = go ({ listing := True } o) rest
+    -- The stock host defaults parsePositive's type here unless named: upstream/108-case-split-pattern-fragment.
     go o ("--threads" :: n :: rest) =
       maybe (Left ("--threads takes a positive number, not " ++ n)) (\k => go ({ threads := k } o) rest) (parsePositive {a = Nat} n)
     go o ("--only" :: ws :: rest) = go ({ only $= (words ws ++) } o) rest
@@ -385,6 +386,7 @@ plan results args = do
   let only = extra ++ opts.only
   let chosen = maybe (map fst suites) pure opts.suite
   let found = map (pools tests) chosen
+  -- The stock host cannot infer this update's lambda: upstream/108-case-split-pattern-fragment.
   let keep : Pool -> Pool
       keep pool = { runs $= filter (selects only opts.except . fst) } pool
   let selected = map keep (concatMap fst found)

@@ -860,9 +860,7 @@ checkOf how request run = do
     OfEnding => unlines report.ending
     OfAgreement => unlines report.agree
     OfModel => unlines report.model
-    OfFirst => case report.first of
-      Nothing => ""
-      Just (n, f) => show n ++ " " ++ failureWord f ++ "\n"
+    OfFirst => maybe "" (\(n, f) => show n ++ " " ++ failureWord f ++ "\n") report.first
     OfModelled =>
       let numbered = zip [the Nat 1 .. length cs] (map fst cs)
           shownCases = map fst (expectedRun part numbered).printed
@@ -893,11 +891,8 @@ checkerChecks =
       ending = observedEnding run.ending
       ok = checked "1" Runtime cs (MkObserved agreeing (fst ending) (snd ending))
       firstShown = head' run.printed
-      firstAgain : String
-      firstAgain = case firstShown of
-        Nothing => ""
-        Just (n, m) => label m n ++ " x\n"
-      bad = checked "1" Runtime cs (MkObserved (agreeing ++ firstAgain) (fst ending) (snd ending))
+      bad = checked "1" Runtime cs
+              (MkObserved (agreeing ++ maybe "" (\(n, m) => label m n ++ " x\n") firstShown) (fst ending) (snd ending))
       dropped = lines agreeing
       short = checked "1" Runtime cs (MkObserved (unlines (drop 1 dropped)) (fst ending) (snd ending))
       silent = checked "1" Runtime cs (MkObserved "" (fst ending) (snd ending))
