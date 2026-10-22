@@ -189,54 +189,54 @@ letToLam [] = []
 letToLam (Let fc c val ty :: env) = Lam fc c Explicit ty :: letToLam env
 letToLam (b :: env) = b :: letToLam env
 
+-- The locals a term mentions, the types and values of the binders it holds
+-- among them, added to a set. A local is not followed to its binder here:
+-- what a binder of the environment mentions is added once, by `closeUsed`.
 mutual
-  findUsed : {vars : _} ->
-             Env Term vars -> VarSet vars -> Term vars -> VarSet vars
-  findUsed env used (Local fc r idx p)
-      = let v := MkVar p in
-        if v `elem` used
-           then used
-           else assert_total (findUsedInBinder env (VarSet.insert v used)
-                                               (getBinder p env))
-  findUsed env used (Meta _ _ _ args)
-      = findUsedArgs env used args
-    where
-      findUsedArgs : Env Term vars -> VarSet vars -> List (Term vars) -> VarSet vars
-      findUsedArgs env u [] = u
-      findUsedArgs env u (a :: as)
-          = findUsedArgs env (findUsed env u a) as
-  findUsed env used (Bind fc x b tm)
-      = assert_total $
-          VarSet.dropFirst (findUsed (b :: env)
-                          (weaken {tm = VarSet} (findUsedInBinder env used b))
-                          tm)
-  findUsed env used (App fc fn arg)
-      = findUsed env (findUsed env used fn) arg
-  findUsed env used (As fc s a p)
-      = findUsed env (findUsed env used a) p
-  findUsed env used (TDelayed fc r tm)
-      = findUsed env used tm
-  findUsed env used (TDelay fc r ty tm)
-      = findUsed env (findUsed env used ty) tm
-  findUsed env used (TForce fc r tm)
-      = findUsed env used tm
-  findUsed env used (Erased fc (Dotted tm))
-      = findUsed env used tm
-  findUsed env used _ = used
+  usedInTerms : VarSet vars -> List (Term vars) -> VarSet vars
+  usedInTerms used [] = used
+  usedInTerms used (t :: ts) = usedInTerms (usedIn used t) ts
 
-  findUsedInBinder : {vars : _} ->
-                     Env Term vars -> VarSet vars ->
-                     Binder (Term vars) -> VarSet vars
-  findUsedInBinder env used (Let _ _ val ty)
-    = findUsed env (findUsed env used val) ty
-  findUsedInBinder env used (PLet _ _ val ty)
-    = findUsed env (findUsed env used val) ty
-  findUsedInBinder env used b = findUsed env used (binderType b)
+  -- A binder's type, and a let's value with it (a default implicit's value
+  -- is not read).
+  usedInBinder : VarSet vars -> Binder (Term vars) -> VarSet vars
+  usedInBinder used (Lam _ _ _ ty) = usedIn used ty
+  usedInBinder used (Let _ _ val ty) = usedIn (usedIn used val) ty
+  usedInBinder used (Pi _ _ _ ty) = usedIn used ty
+  usedInBinder used (PVar _ _ _ ty) = usedIn used ty
+  usedInBinder used (PLet _ _ val ty) = usedIn (usedIn used val) ty
+  usedInBinder used (PVTy _ _ ty) = usedIn used ty
+
+  usedIn : VarSet vars -> Term vars -> VarSet vars
+  usedIn used (Local fc r idx p) = VarSet.insert (MkVar p) used
+  usedIn used (Meta _ _ _ args) = usedInTerms used args
+  usedIn used (Bind fc x b tm)
+      = VarSet.dropFirst (usedIn (weaken {tm = VarSet} (usedInBinder used b)) tm)
+  usedIn used (App fc fn arg) = usedIn (usedIn used fn) arg
+  usedIn used (As fc s a p) = usedIn (usedIn used a) p
+  usedIn used (TDelayed fc r tm) = usedIn used tm
+  usedIn used (TDelay fc r ty tm) = usedIn (usedIn used ty) tm
+  usedIn used (TForce fc r tm) = usedIn used tm
+  usedIn used (Erased fc (Dotted tm)) = usedIn used tm
+  usedIn used _ = used
+
+-- Adds to a set of the environment's locals what each local in it mentions
+-- through its binder, and so on. A binder of the environment mentions only
+-- locals bound before it, further out, so one walk outward from the
+-- innermost local adds them all, reading each binder of the set once.
+closeUsed : Env Term vars -> VarSet vars -> VarSet vars
+closeUsed [] used = used
+closeUsed (b :: env) used
+    = let rest = VarSet.dropFirst used in
+      if first `VarSet.elem` used
+         then VarSet.insert first
+                (weaken {tm = VarSet} (closeUsed env (usedInBinder rest b)))
+         else weaken {tm = VarSet} (closeUsed env rest)
 
 export
 findUsedLocs : {vars : _} ->
                Env Term vars -> Term vars -> VarSet vars
-findUsedLocs env tm = findUsed env VarSet.empty tm
+findUsedLocs env tm = closeUsed env (usedIn VarSet.empty tm)
 
 mkShrinkSub : {n : _} ->
               (vars : _) -> VarSet (n :: vars) ->
@@ -271,7 +271,7 @@ shrinkEnv env Refl = Just env
 shrinkEnv (b :: env) (Drop p) = shrinkEnv env p
 shrinkEnv (b :: env) (Keep p)
     = do env' <- shrinkEnv env p
-         b' <- assert_total (shrinkBinder b p)
+         b' <- shrinkBinder b p
          pure (b' :: env')
 
 export

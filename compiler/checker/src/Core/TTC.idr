@@ -26,11 +26,6 @@ import Libraries.Utils.Binary
 %default covering
 
 export
-TTC InlineOk where
-  toBuf = toBuf . (YesInline ==)
-  fromBuf = Core.map (\ b => ifThenElse b YesInline NotInline) $ fromBuf
-
-export
 TTC Namespace where
   toBuf = toBuf . unsafeUnfoldNamespace
   fromBuf = Core.map unsafeFoldNamespace $ fromBuf

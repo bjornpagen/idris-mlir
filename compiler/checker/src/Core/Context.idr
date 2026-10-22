@@ -1501,7 +1501,7 @@ getSimilarNames nm = case show <$> userNameRoot nm of
   Nothing => pure Nothing
   Just str => if length str <= 1 then pure (Just (str, [])) else
     do defs <- get Ctxt
-       let threshold : Nat := max 1 (assert_total (divNat (length str) 3))
+       let threshold : Nat := max 1 (divNatNZ (length str) 3 ItIsSucc)
        let test : Name -> Core (Maybe (Visibility, Nat)) := \ nm => do
                let (Just str') = show <$> userNameRoot nm
                    | _ => pure Nothing

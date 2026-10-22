@@ -214,6 +214,13 @@ strLength : Vect 1 (NF vars) -> Maybe (NF vars)
 strLength [NPrimVal fc (Str s)] = Just (NPrimVal fc (I (prim__strLength s)))
 strLength _ = Nothing
 
+-- The host declares the head, the tail and an index of a string partial
+-- outside the string alone: an empty string has no head or tail, and an
+-- index names a character only within it. The clause before each call
+-- tests that of the string the program being checked holds, known only
+-- when the compiler runs; that the primitive then returns is the host's
+-- fact, trusted at each call, since the host gives these primitives no
+-- type that could carry the test's evidence.
 strHead : Vect 1 (NF vars) -> Maybe (NF vars)
 strHead [NPrimVal fc (Str "")] = Nothing
 strHead [NPrimVal fc (Str str)]
@@ -296,6 +303,12 @@ mul (I64 x) (I64 y) = pure $ I64 (prim__mul_Int64 x y)
 mul (Db x) (Db y) = pure $ Db (prim__mul_Double x y)
 mul _ _ = Nothing
 
+-- The host declares its integer division and remainder partial, for a
+-- zero divisor alone. The clause before each call tests the divisor, a
+-- constant of the program being checked and so known only when the
+-- compiler runs, against zero; that the primitive returns on any other is
+-- the host's fact, trusted at each call, since the host gives these
+-- primitives no type that could carry the test's evidence.
 div : Constant -> Constant -> Maybe Constant
 div (BI x) (BI 0) = Nothing
 div (BI x) (BI y) = pure $ BI (assert_total (prim__div_Integer x y))
@@ -323,6 +336,7 @@ div (B64 x) (B64 y) = pure $ B64 (assert_total (prim__div_Bits64 x y))
 div (Db x) (Db y) = pure $ Db (x / y)
 div _ _ = Nothing
 
+-- Trusted as division is, behind the same test of the divisor.
 mod : Constant -> Constant -> Maybe Constant
 mod (BI x) (BI 0) = Nothing
 mod (BI x) (BI y) = pure $ BI (assert_total (prim__mod_Integer x y))
