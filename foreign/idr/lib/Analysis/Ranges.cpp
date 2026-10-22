@@ -29,6 +29,20 @@ using namespace mlir::dataflow;
 
 namespace {
 
+// The integers a literal match's keys are: a word's or a char's, and a
+// big's or a natural's. A Double's and a string's keys are none, and their
+// scrutinee's range, of no width, has no bound for one to cut.
+SmallVector<APInt> integerKeys(idr::LitMatchOp match) {
+  SmallVector<APInt> keys;
+  for (Attribute key : match.getCases()) {
+    if (auto word = dyn_cast<IntegerAttr>(key))
+      keys.push_back(word.getValue());
+    else if (auto big = dyn_cast<idr::BigAttr>(key))
+      keys.push_back(big.getValue());
+  }
+  return keys;
+}
+
 class SummarizedRanges : public IntegerRangeAnalysis {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SummarizedRanges)
@@ -62,20 +76,29 @@ public:
     return IntegerRangeAnalysis::visitOperation(op, operands, results);
   }
 
-  // A literal match's default binds the scrutinee itself: its argument has
-  // the scrutinee's range, which the match forwards to no region as an
-  // operand, so MLIR's analysis would start it at its type's range and lose
-  // a natural's bound in every arm that takes a successor apart.
-  void visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
-                                    ValueRange inputs,
-                                    ArrayRef<IntegerValueRangeLattice *> lattices) override {
+  // A literal match's default binds its scrutinee, which it forwards, so
+  // upstream would join the binding with the scrutinee's whole range and
+  // never ask the op; but there the scrutinee is none of the keys, so the
+  // binding takes the scrutinee's range with each key cut where it is an
+  // end. The binding stays the scrutinee for every reader of forwarding.
+  // The default's one predecessor is the match, and a block is visited
+  // only once it is live. Every other region successor is upstream's.
+  void visitRegionSuccessors(ProgramPoint *point, RegionBranchOpInterface branch,
+                             RegionSuccessor successor,
+                             ArrayRef<AbstractSparseLattice *> lattices) override {
     ++visits;
-    auto match = dyn_cast<idr::LitMatchOp>(op);
-    if (!match || successor.getSuccessor() != &match.getDefaultRegion() || inputs.size() != 1)
-      return IntegerRangeAnalysis::visitNonControlFlowArguments(op, successor, inputs, lattices);
-    const IntegerValueRangeLattice *scrutinee = getLatticeElementFor(
-        getProgramPointBefore(&match.getDefaultRegion().front()), match.getScrutinee());
-    propagateIfChanged(lattices.front(), lattices.front()->join(scrutinee->getValue()));
+    auto match = dyn_cast<idr::LitMatchOp>(branch.getOperation());
+    if (!match || successor.getSuccessor() != &match.getDefaultRegion())
+      return AbstractSparseForwardDataFlowAnalysis::visitRegionSuccessors(point, branch, successor,
+                                                                          lattices);
+    Value scrutinee = match.getScrutinee();
+    const IntegerValueRange &known = getLatticeElementFor(point, scrutinee)->getValue();
+    if (known.isUninitialized())
+      return;
+    IntegerValueRange refined(
+        idr::ranges::excluding(scrutinee.getType(), known.getValue(), integerKeys(match)));
+    auto *binding = static_cast<IntegerValueRangeLattice *>(lattices.front());
+    propagateIfChanged(binding, binding->join(refined));
   }
 
   // A call's results are what its callee returns, as summarized; a result
