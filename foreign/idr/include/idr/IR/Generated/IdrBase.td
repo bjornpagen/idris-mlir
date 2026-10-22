@@ -67,7 +67,7 @@ class Idr_Attr<string name, string attrMnemonic, list<Trait> traits = []>
 // The traits the generator gives ops from their facts: a pure runtime op
 // folds by calling its function, a partial op checks its guards, and a
 // result's uses follow the grade's rule over the given operands.
-def Idr_RuntimeFolds : NativeOpTrait<"RuntimeFolds"> { let cppNamespace = "::idr"; }
+def Idr_RuntimeFolds : NativeOpTrait<"RuntimeFolds"> { let cppNamespace = "::idr::fold"; }
 def Idr_GuardedOp : NativeOpTrait<"GuardedOp"> { let cppNamespace = "::idr"; }
 class Idr_InlineArith<string fn> : ParamNativeOpTrait<"InlineArith", fn> {
   let cppNamespace = "::idr::numeric";
@@ -76,18 +76,37 @@ class Idr_ResultUsesMax<string positions> : ParamNativeOpTrait<"ResultUsesMax", 
   let cppNamespace = "::idr";
 }
 
-class Idr_HandParameter<string cppType, string directive>
+// The parameter classes, each taking its default last: a parameter's
+// default is its class's `defaultValue`, which a dag argument cannot set,
+// and none is the empty string. Upstream's classes that take no default
+// are given one here.
+class Idr_EnumParameter<EnumInfo enumInfo, string default = "">
+    : EnumParameter<enumInfo> {
+  let defaultValue = default;
+}
+class Idr_APIntParameter<string desc, string default = "">
+    : APIntParameter<desc> {
+  let defaultValue = default;
+}
+class Idr_ArrayRefParameter<string arrayOf, string default = "">
+    : ArrayRefParameter<arrayOf, ""> {
+  let defaultValue = default;
+}
+
+class Idr_HandParameter<string cppType, string directive, string default = "">
     : AttrOrTypeParameter<cppType, ""> {
   let parser = "::idr::parse" # directive # "($_parser)";
   let printer = "::idr::print" # directive # "($_printer, $_self)";
+  let defaultValue = default;
 }
 
 // An array of a wire's values: held as a view the storage copies, parsed
 // into the vector that owns them.
-class Idr_HandArrayParameter<string element, string directive>
+class Idr_HandArrayParameter<string element, string directive, string default = "">
     : ArrayRefParameter<element, ""> {
   let parser = "::idr::parse" # directive # "($_parser)";
   let printer = "::idr::print" # directive # "($_printer, $_self)";
+  let defaultValue = default;
 }
 
 // A property of a hand class: held as itself, its attribute form, its hash
@@ -213,6 +232,16 @@ def Idr_ProofKind : I32EnumAttr<"ProofKind", "which proof a function's terminati
   let genSpecializedAttr = 0;
 }
 def Idr_ProofKindAttr : EnumAttr<Idr_Dialect, Idr_ProofKind, "proof_kind">;
+
+// the side of a function's signature a value is on
+def Idr_ExtentSide : I32EnumAttr<"ExtentSide", "the side of a function's signature a value is on", [
+    I32EnumAttrCase<"Input", 0, "input">,
+    I32EnumAttrCase<"Result", 1, "result">
+  ]> {
+  let cppNamespace = "::idr";
+  let genSpecializedAttr = 0;
+}
+def Idr_ExtentSideAttr : EnumAttr<Idr_Dialect, Idr_ExtentSide, "extent_side">;
 
 // how often Idris lets a value be used
 def Idr_Uses : I32EnumAttr<"Uses", "how often Idris lets a value be used", [

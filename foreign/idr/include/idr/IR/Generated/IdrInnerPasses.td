@@ -15,6 +15,7 @@ def IdrRedirect : Pass<"idr-redirect", "::idr::FuncOp"> {
     known closures is a call of its copy before the e-graph sees the caller.
   }];
   let baseClass = "::mlir::OperationPass<::idr::FuncOp>";
+  let dependentDialects = ["::mlir::tensor::TensorDialect"];
   let constructor = "::idr::specialize::createRedirect(schedule, nodes, redirected)";
 }
 

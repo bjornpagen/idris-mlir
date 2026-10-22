@@ -56,6 +56,12 @@ struct EnumTraits<::idr::ProofKind> {
 };
 
 template <>
+struct EnumTraits<::idr::ExtentSide> {
+  static constexpr std::size_t count = 2;
+  static constexpr std::array<std::string_view, 2> names{{"input", "result"}};
+};
+
+template <>
 struct EnumTraits<::idr::Uses> {
   static constexpr std::size_t count = 2;
   static constexpr std::array<std::string_view, 2> names{{"once", "many"}};

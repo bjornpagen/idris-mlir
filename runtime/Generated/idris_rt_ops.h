@@ -271,6 +271,8 @@ bool idris_rt_is_unique(const idris_rt_header *cell);
 void idris_rt_free_token(idris_rt_header *cell);
 // frees the memory of a reuse token that may be null, whose fields were moved out
 void idris_rt_free_maybe_token(idris_rt_header *cell);
+// releases the references of a cell proved dead, whose own count nothing reads, and every cell that dies in turn, and frees them
+void idris_rt_release_dead(idris_rt_header *cell);
 // whether a handle holds a string, the program's or the runtime's: what check.holds_string asks
 bool idris_rt_handle_holds_string(int64_t handle);
 // a new string of bytes bytes and scalars scalar values, to be written in place

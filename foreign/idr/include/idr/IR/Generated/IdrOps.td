@@ -59,14 +59,15 @@ def Idr_FuncOp : Idr_Op<"func", [
   ]> {
   let summary = "a function of the program, with what is known of a run of it";
   let description = [{
-    Its row, its record per parameter, its termination proof, where its
-    scoped values live, what it gives back, what kind of copy it is and
-    its frame bound are inherent: no pass drops one without changing the
-    op. Only the one writer of rows and a clone copying its source write
-    the row and the record; only the optimizer writes what it gives back
-    and what copy it is.
+    Its row, its record per parameter, its termination proof, the index
+    term each unknown axis of its signature is, where its scoped values
+    live, what it gives back, what kind of copy it is and its frame bound
+    are inherent: no pass drops one without changing the op. Only the one
+    writer of rows and a clone copying its source write the row and the
+    record; only the optimizer writes what it gives back and what copy it
+    is.
   }];
-  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<FunctionType>:$function_type, OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs, DefaultValuedAttr<Idr_IndexBindersAttr, "::idr::IndexBindersAttr::get($_builder.getContext(), {})">:$binders, Idr_HandProperty<"::idr::effects::Row", "Row", "::idr::effects::Row::top()", "a row: the atoms of what a run may do">:$row, OptionalAttr<ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>>:$untouched, OptionalAttr<Idr_PutBoundsAttr>:$bounded, OptionalAttr<Idr_TerminatesAttr>:$terminates, OptionalAttr<Idr_LivesInAttr>:$lives_in, OptionalAttr<Idr_GivenBackAttr>:$given_back, OptionalAttr<Idr_CopyKindAttr>:$copy, DefaultValuedProp<IntProp<"uint64_t">, "0">:$frame_bound);
+  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<FunctionType>:$function_type, OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs, DefaultValuedAttr<Idr_IndexBindersAttr, "::idr::IndexBindersAttr::get($_builder.getContext(), {})">:$binders, DefaultValuedAttr<Idr_ExtentsAttr, "::idr::ExtentsAttr::get($_builder.getContext(), ::llvm::ArrayRef<::idr::ExtentAttr>())">:$extents, Idr_HandProperty<"::idr::effects::Row", "Row", "::idr::effects::Row::top()", "a row: the atoms of what a run may do">:$row, OptionalAttr<ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>>:$untouched, OptionalAttr<Idr_PutBoundsAttr>:$bounded, OptionalAttr<Idr_TerminatesAttr>:$terminates, OptionalAttr<Idr_LivesInAttr>:$lives_in, OptionalAttr<Idr_GivenBackAttr>:$given_back, OptionalAttr<Idr_CopyKindAttr>:$copy, DefaultValuedProp<IntProp<"uint64_t">, "0">:$frame_bound);
   let results = (outs);
   let regions = (region SizedRegion<1>:$body);
   let hasCustomAssemblyFormat = 1;
@@ -99,10 +100,12 @@ def Idr_CallOp : Idr_Op<"call", [
     Built of a callee, it takes the callee's result types at its index
     arguments, row, write part and lives_in, and takes them again when the
     callee's change; its symbol-use verifier holds the four equal to the
-    callee's, and its operand types to the callee's parameters, a lifetime
-    of any kind standing where a view is asked. Where it stands is the
-    tail calls' to decide and check; a tail call's callee takes as many
-    cursors as its caller and gives back the same result components.
+    callee's, and its operand types to the callee's parameters, a ranked
+    tensor meeting one whose shape MLIR finds compatible (`?` meeting any
+    size) and a lifetime of any kind standing where a view is asked.
+    Where it stands is the tail calls' to decide and check; a tail call's
+    callee takes as many cursors as its caller and gives back the same
+    result components.
   }];
   let arguments = (ins Variadic<AnyType>:$args, FlatSymbolRefAttr:$callee, DefaultValuedAttr<Idr_IndexArgsAttr, "::idr::IndexArgsAttr::get($_builder.getContext(), {}, 0)">:$index_args, EnumProp<Idr_TailKind>:$tail_kind, Idr_HandProperty<"::idr::effects::Row", "Row", "::idr::effects::Row::top()", "a row: the atoms of what a run may do">:$row, OptionalAttr<ConfinedAttr<DenseI32ArrayAttr, [DenseArrayNonNegative<DenseI32ArrayAttr>, DenseArrayStrictlySorted<DenseI32ArrayAttr>]>>:$untouched, OptionalAttr<Idr_LivesInAttr>:$lives_in, OptionalAttr<ArrayAttr>:$arg_attrs, OptionalAttr<ArrayAttr>:$res_attrs);
   let results = (outs Variadic<AnyType>:$results);
@@ -167,6 +170,7 @@ def Idr_DataConOp : Idr_Op<"data.con", [
 }
 
 def Idr_DataFieldOp : Idr_Op<"data.field", [
+    Idr_EliminatesOperandTrait,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
@@ -210,7 +214,8 @@ def Idr_DataReindexOp : Idr_Op<"data.reindex", [
     DeclareOpInterfaceMethods<ConditionallySpeculatable>,
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>,
     DeclareOpInterfaceMethods<Idr_StatesLifetimeOpInterface, ["getStatedLifetime", "setStatedLifetime"]>,
-    Idr_StatesOutersOpInterface
+    Idr_StatesOutersOpInterface,
+    DeclareOpInterfaceMethods<Idr_CarriesOnOpInterface, ["getCarry"]>
   ]> {
   let summary = "a value at a type its enclosing refinements make equal to its own";
   let arguments = (ins AnyType:$value, Variadic<Idr_LifetimeType>:$outers);
@@ -1871,6 +1876,7 @@ def Idr_CheckHoldsStringOp : Idr_Op<"check.holds_string", [
 }
 
 def Idr_IoPutStrOp : Idr_Op<"io.put_str", [
+    Idr_EliminatesOperandTrait,
     MemoryEffects<[MemRead<Idr_IOResource>, MemWrite<Idr_IOResource>]>,
     Idr_DeclaredEffectsOpInterface
   ]> {

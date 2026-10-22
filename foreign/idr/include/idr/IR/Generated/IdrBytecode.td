@@ -84,6 +84,10 @@ def GivenBackEntryAttr : DialectAttribute<(attr Idr_Wired<"uint32_t", "Position"
 }
 def GivenBackAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::GivenBackEntryAttr>", "GivenBackEntries">:$entries)> {
 }
+def ExtentAttr : DialectAttribute<(attr Idr_Enum<"ExtentSide">:$side, Idr_Wired<"uint32_t", "Position">:$position, Idr_Wired<"uint32_t", "Position">:$axis, Idr_Wired<"Kept<::idr::families::TermNode>", "IndexTerms">:$term)> {
+}
+def ExtentsAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::ExtentAttr>", "ExtentEntries">:$entries)> {
+}
 def FamilyAttr : DialectAttribute<(attr Idr_Wired<"Kept<::idr::families::Member>", "Members">:$members)> {
   let cBuilder = "::idr::readFamily(reader, context, $_args)";
 }
@@ -107,7 +111,7 @@ def BigAttr : DialectAttribute<(attr Idr_APInt:$value)> {
 }
 
 def IdrDialectAttributes : DialectAttributes<"Idr"> {
-  let elems = [BinderAttr, TerminatesAttr, PutBoundsAttr, LivesInAttr, GivenBackEntryAttr, GivenBackAttr, FamilyAttr, IndexBindersAttr, IndexArgsAttr, EquationAttr, ConAttr, MutableAttr, SiteAttr, BigAttr];
+  let elems = [BinderAttr, TerminatesAttr, PutBoundsAttr, LivesInAttr, GivenBackEntryAttr, GivenBackAttr, ExtentAttr, ExtentsAttr, FamilyAttr, IndexBindersAttr, IndexArgsAttr, EquationAttr, ConAttr, MutableAttr, SiteAttr, BigAttr];
 }
 
 #endif // IDR_GENERATED_BYTECODE

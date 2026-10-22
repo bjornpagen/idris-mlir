@@ -18,7 +18,7 @@ def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, Idr_Val
     do not determine. Identity is content. Its class, layout and what it
     holds are computed when it is made.
   }];
-  let parameters = (ins Idr_HandParameter<"::idr::FamilyAttr", "FamilyRef">:$group, "uint64_t":$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices, DefaultValuedParameter<Idr_HandParameter<"::mlir::DenseI32ArrayAttr", "Refinement">, "{}">:$refinement, DefaultValuedParameter<Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">, "{}">:$binders);
+  let parameters = (ins Idr_HandParameter<"::idr::FamilyAttr", "FamilyRef">:$group, "uint64_t":$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices, Idr_HandParameter<"::mlir::DenseI32ArrayAttr", "Refinement", "{}">:$refinement, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms", "{}">:$binders);
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
   let genStorageClass = 0;
@@ -68,7 +68,7 @@ def Idr_SelfType : Idr_Type<"Self", "self", []> {
 
 def Idr_GradedType : Idr_Type<"Graded", "graded", [Idr_ValueFactsTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>]> {
   let summary = "a value at a grade: its uses and, on a carrier that holds references, its hold";
-  let parameters = (ins EnumParameter<Idr_Uses>:$uses, "::std::optional<::idr::Hold>":$hold, "::mlir::Type":$carrier);
+  let parameters = (ins Idr_EnumParameter<Idr_Uses>:$uses, "::std::optional<::idr::Hold>":$hold, "::mlir::Type":$carrier);
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
 }
@@ -87,7 +87,7 @@ def Idr_LifetimeType : Idr_Type<"Lifetime", "lifetime", [Idr_ValueFactsTypeInter
 
 def Idr_LifetimePackageType : Idr_Type<"LifetimePackage", "lifetime.package", [Idr_ValueFactsTypeInterface]> {
   let summary = "a per-level lifetime packed around a framed call, with the values it holds";
-  let parameters = (ins EnumParameter<Idr_Packed>:$packed, ArrayRefParameter<"::mlir::Type", "">:$held);
+  let parameters = (ins Idr_EnumParameter<Idr_Packed>:$packed, Idr_ArrayRefParameter<"::mlir::Type">:$held);
   let assemblyFormat = [{ `<` $packed `,` $held `>` }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return false; }
@@ -153,7 +153,7 @@ def Idr_CellType : Idr_Type<"Cell", "cell", [Idr_ValueFactsTypeInterface]> {
 
 def Idr_TokenType : Idr_Type<"Token", "token", [Idr_ValueFactsTypeInterface]> {
   let summary = "the memory of a cell whose fields a take moved out, or null";
-  let parameters = (ins ArrayRefParameter<"::mlir::Type", "">:$sources);
+  let parameters = (ins Idr_ArrayRefParameter<"::mlir::Type">:$sources);
   let assemblyFormat = [{ `<` `{` $sources `}` `>` }];
   let genVerifyDecl = 1;
   let extraClassDeclaration = [{
@@ -170,7 +170,7 @@ def Idr_TokenType : Idr_Type<"Token", "token", [Idr_ValueFactsTypeInterface]> {
 
 def Idr_FnType : Idr_Type<"Fn", "fn", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<OpAsmTypeInterface, ["getAsmName"]>, Idr_ValueFactsTypeInterface]> {
   let summary = "a closure: a cell holding its captures";
-  let parameters = (ins ArrayRefParameter<"::mlir::Type", "">:$inputs, ArrayRefParameter<"::mlir::Type", "">:$results);
+  let parameters = (ins Idr_ArrayRefParameter<"::mlir::Type">:$inputs, Idr_ArrayRefParameter<"::mlir::Type">:$results);
   let assemblyFormat = [{ `<` `(` $inputs `)` `->` `(` $results `)` `>` }];
   let extraClassDefinition = [{
     bool $cppClass::holdsReferences() const { return true; }
@@ -280,6 +280,33 @@ def Idr_GivenBackAttr : Idr_Attr<"GivenBack", "given_back", []> {
   }];
 }
 
+def Idr_ExtentAttr : Idr_Attr<"Extent", "extent", []> {
+  let summary = "an unknown axis of a signature and the index term its size is";
+  let parameters = (ins Idr_EnumParameter<Idr_ExtentSide>:$side, Idr_HandParameter<"uint32_t", "Position">:$position, Idr_HandParameter<"uint32_t", "Position">:$axis, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$term);
+  let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
+  let extraClassDeclaration = [{
+    ::idr::Extent extent() const;
+  }];
+}
+
+def Idr_ExtentsAttr : Idr_Attr<"Extents", "extents", []> {
+  let summary = "the index term each unknown axis of a function's signature is";
+  let description = [{
+    Each listed axis of an argument or a result is `?` in its type, and its
+    size is the listed term over the function's binders. An axis not
+    listed is static, or no term names it. Empty in a function that names
+    none. Moving the signature's positions keeps it so.
+  }];
+  let parameters = (ins Idr_HandArrayParameter<"::idr::ExtentAttr", "ExtentEntries">:$entries);
+  let assemblyFormat = [{ `<` $entries `>` }];
+  let genVerifyDecl = 1;
+  let extraClassDeclaration = [{
+    static ::idr::ExtentsAttr get(::mlir::MLIRContext * context, ::llvm::ArrayRef<::idr::Extent> entries);
+    ::idr::ExtentsAttr renumber(::llvm::ArrayRef<::std::optional<uint32_t>> parameters, ::llvm::ArrayRef<::std::optional<uint32_t>> results) const;
+  }];
+}
+
 def Idr_FamilyAttr : Idr_Attr<"Family", "family", []> {
   let summary = "a family's declaration: a group of members, by content";
   let description = [{
@@ -343,7 +370,7 @@ def Idr_EquationAttr : Idr_Attr<"Equation", "equation", []> {
 
 def Idr_ConAttr : Idr_Attr<"Con", "con", []> {
   let summary = "a constant constructor value, a run of its cells";
-  let parameters = (ins Idr_HandParameter<"::idr::DataType", "DataRef">:$data, ArrayRefParameter<"::mlir::Attribute", "">:$cells, DefaultValuedParameter<"uint64_t", "0">:$spine);
+  let parameters = (ins Idr_HandParameter<"::idr::DataType", "DataRef">:$data, Idr_ArrayRefParameter<"::mlir::Attribute">:$cells, DefaultValuedParameter<"uint64_t", "0">:$spine);
   let hasCustomAssemblyFormat = 1;
   let genVerifyDecl = 1;
   let genStorageClass = 0;
@@ -369,13 +396,13 @@ def Idr_MutableAttr : Idr_Attr<"Mutable", "mutable", []> {
 
 def Idr_SiteAttr : Idr_Attr<"Site", "site", []> {
   let summary = "the place in the source a crash is at";
-  let parameters = (ins StringRefParameter<>:$file, "uint64_t":$line, "uint64_t":$column, StringRefParameter<>:$function);
+  let parameters = (ins StringRefParameter<"">:$file, "uint64_t":$line, "uint64_t":$column, StringRefParameter<"">:$function);
   let assemblyFormat = [{ `<` $file `,` $line `,` $column `,` $function `>` }];
 }
 
 def Idr_BigAttr : Idr_Attr<"Big", "big", []> {
   let summary = "an integer of any size";
-  let parameters = (ins APIntParameter<"">:$value);
+  let parameters = (ins Idr_APIntParameter<"">:$value);
   let assemblyFormat = [{ `<` $value `>` }];
   let genStorageClass = 0;
 }

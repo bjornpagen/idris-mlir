@@ -16,6 +16,8 @@ def IdrAdmitted_Arith_MulIOp : IdrAdmitted<Arith_MulIOp, "Arith_MulIOp", "Higher
 def IdrAdmitted_Arith_AndIOp : IdrAdmitted<Arith_AndIOp, "Arith_AndIOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_OrIOp : IdrAdmitted<Arith_OrIOp, "Arith_OrIOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_XOrIOp : IdrAdmitted<Arith_XOrIOp, "Arith_XOrIOp", "Higher", "Lowered", 1, []>;
+def IdrAdmitted_Arith_DivUIOp : IdrAdmitted<Arith_DivUIOp, "Arith_DivUIOp", "Higher", "Lowered", 1, [IdrAdmittedGuard<"Idr", "check.nonzero", [1], "IdrisMLIR.Spec.Runtime.Endings", "causeClosed", 0>]>;
+def IdrAdmitted_Arith_RemUIOp : IdrAdmitted<Arith_RemUIOp, "Arith_RemUIOp", "Higher", "Lowered", 1, [IdrAdmittedGuard<"Idr", "check.nonzero", [1], "IdrisMLIR.Spec.Runtime.Endings", "causeClosed", 0>]>;
 def IdrAdmitted_Arith_ShRUIOp : IdrAdmitted<Arith_ShRUIOp, "Arith_ShRUIOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_CmpIOp : IdrAdmitted<Arith_CmpIOp, "Arith_CmpIOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_MaxSIOp : IdrAdmitted<Arith_MaxSIOp, "Arith_MaxSIOp", "Higher", "Lowered", 1, []>;
@@ -36,6 +38,4 @@ def IdrAdmitted_Arith_MulFOp : IdrAdmitted<Arith_MulFOp, "Arith_MulFOp", "Higher
 def IdrAdmitted_Arith_DivFOp : IdrAdmitted<Arith_DivFOp, "Arith_DivFOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_NegFOp : IdrAdmitted<Arith_NegFOp, "Arith_NegFOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_CmpFOp : IdrAdmitted<Arith_CmpFOp, "Arith_CmpFOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Arith_DivUIOp : IdrAdmitted<Arith_DivUIOp, "Arith_DivUIOp", "Higher", "Lowered", 1, [IdrAdmittedGuard<"Idr", "check.nonzero", [1], "IdrisMLIR.Spec.Runtime.Endings", "causeClosed", 0>]>;
-def IdrAdmitted_Arith_RemUIOp : IdrAdmitted<Arith_RemUIOp, "Arith_RemUIOp", "Higher", "Lowered", 1, [IdrAdmittedGuard<"Idr", "check.nonzero", [1], "IdrisMLIR.Spec.Runtime.Endings", "causeClosed", 0>]>;
 #endif // IDR_GENERATED_ADMITTED_ARITH

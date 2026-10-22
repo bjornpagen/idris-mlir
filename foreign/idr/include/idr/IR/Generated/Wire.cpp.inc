@@ -771,7 +771,7 @@ void writeOutlivesBounds(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef
   });
 }
 
-// a position in a signature: `1`
+// a position in a signature, or an axis of a shape: `1`
 ::mlir::LogicalResult readPosition(::mlir::DialectBytecodeReader &reader, uint32_t &value) {
   if (::mlir::failed(readWord32(reader, value)))
     return ::mlir::failure();
@@ -808,6 +808,17 @@ void writeFieldPath(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<uint
 }
 
 void writeGivenBackEntries(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<::idr::GivenBackEntryAttr> value) {
+  writer.writeAttributes(value);
+}
+
+// the axes a signature names by a term: `[input 0 axis 1 = v0, result 0 axis 0 = v0 + 1]`
+::mlir::LogicalResult readExtentEntries(::mlir::DialectBytecodeReader &reader, Kept<::idr::ExtentAttr> &value) {
+  if (::mlir::failed(reader.readAttributes(value.items)))
+    return ::mlir::failure();
+  return ::mlir::success();
+}
+
+void writeExtentEntries(::mlir::DialectBytecodeWriter &writer, ::llvm::ArrayRef<::idr::ExtentAttr> value) {
   writer.writeAttributes(value);
 }
 

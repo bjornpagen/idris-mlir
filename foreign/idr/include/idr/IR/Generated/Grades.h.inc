@@ -30,7 +30,7 @@ enum class Release : std::uint8_t {
 enum class Unique : std::uint8_t {
   // nothing is known of its sharing
   None,
-  // its own family's cells are reached through it alone
+  // its own cells are reached through it alone: its family's, its in_place fields', and the storage of the buffers they hold, never their elements
   Self,
   // nothing it reaches is shared
   Deep,
@@ -50,6 +50,8 @@ enum class FieldReach : std::uint8_t {
   OwnFamily,
   // a field of an in_place family, whose own cells are the value's
   InPlaceFamily,
+  // a buffer an own cell holds, whose storage is the value's and whose elements are not
+  HeldBuffer,
   // a field of any other type
   Other,
 };
@@ -66,13 +68,13 @@ enum class QuantityChange : std::uint8_t {
 enum class HoldCase : std::uint8_t {
   // counted, claiming nothing
   Counted,
-  // counted, its family's own cells unshared
+  // counted, its own cells unshared
   CountedSelf,
   // counted, nothing it reaches shared
   CountedDeep,
   // scoped, claiming nothing
   Scoped,
-  // scoped, its family's own cells unshared
+  // scoped, its own cells unshared
   ScopedSelf,
   // scoped, nothing it reaches shared
   ScopedDeep,
@@ -105,8 +107,8 @@ struct EnumTraits<::idr::Refs> {
 
 template <>
 struct EnumTraits<::idr::FieldReach> {
-  static constexpr std::size_t count = 3;
-  static constexpr std::array<std::string_view, 3> names{{"own_family", "in_place_family", "other"}};
+  static constexpr std::size_t count = 4;
+  static constexpr std::array<std::string_view, 4> names{{"own_family", "in_place_family", "held_buffer", "other"}};
 };
 
 template <>
@@ -171,25 +173,25 @@ inline constexpr ::idr::EnumArray<::idr::HoldCase, std::uint8_t> holdFitsMask{{
 }};
 
 // the hold of a field read from a value, by how far the value's claim reaches into it
-inline constexpr std::array<std::array<::idr::HoldCase, 3>, 7> holdReadsOnce{{
-    {{::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted}},
-    {{::idr::HoldCase::CountedSelf, ::idr::HoldCase::CountedSelf, ::idr::HoldCase::Counted}},
-    {{::idr::HoldCase::CountedDeep, ::idr::HoldCase::CountedDeep, ::idr::HoldCase::CountedDeep}},
-    {{::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped}},
-    {{::idr::HoldCase::ScopedSelf, ::idr::HoldCase::ScopedSelf, ::idr::HoldCase::Scoped}},
-    {{::idr::HoldCase::ScopedDeep, ::idr::HoldCase::ScopedDeep, ::idr::HoldCase::ScopedDeep}},
-    {{::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static}},
+inline constexpr std::array<std::array<::idr::HoldCase, 4>, 7> holdReadsOnce{{
+    {{::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted}},
+    {{::idr::HoldCase::CountedSelf, ::idr::HoldCase::CountedSelf, ::idr::HoldCase::CountedSelf, ::idr::HoldCase::Counted}},
+    {{::idr::HoldCase::CountedDeep, ::idr::HoldCase::CountedDeep, ::idr::HoldCase::CountedDeep, ::idr::HoldCase::CountedDeep}},
+    {{::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped}},
+    {{::idr::HoldCase::ScopedSelf, ::idr::HoldCase::ScopedSelf, ::idr::HoldCase::ScopedSelf, ::idr::HoldCase::Scoped}},
+    {{::idr::HoldCase::ScopedDeep, ::idr::HoldCase::ScopedDeep, ::idr::HoldCase::ScopedDeep, ::idr::HoldCase::ScopedDeep}},
+    {{::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static}},
 }};
 
 // the hold of a field read from a value, by how far the value's claim reaches into it
-inline constexpr std::array<std::array<::idr::HoldCase, 3>, 7> holdReadsMany{{
-    {{::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted}},
-    {{::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted}},
-    {{::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted}},
-    {{::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped}},
-    {{::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped}},
-    {{::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped}},
-    {{::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static}},
+inline constexpr std::array<std::array<::idr::HoldCase, 4>, 7> holdReadsMany{{
+    {{::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted}},
+    {{::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted}},
+    {{::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted, ::idr::HoldCase::Counted}},
+    {{::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped}},
+    {{::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped}},
+    {{::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped, ::idr::HoldCase::Scoped}},
+    {{::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static, ::idr::HoldCase::Static}},
 }};
 
 // the product of two uses

@@ -92,6 +92,58 @@ enum class EndingSignal : std::uint8_t {
   BrokenPipe,
 };
 
+// what an ending writes before it says anything
+enum class Writes : std::uint8_t {
+  // standard output's pending bytes, then the program's files, closed
+  Everything,
+  // standard output's pending bytes alone, as a signal handler may write them
+  OutputOnly,
+  // nothing: a machine that cannot run the program, which has written nothing
+  Nothing,
+};
+
+// the endings that leave by a status no program chooses
+enum class FixedEnding : std::uint8_t {
+  // the program returned from main
+  Returned,
+  // a crash of a cause of the closed set, at its site
+  Failed,
+  // a crash of the text a trusted library gave idris_crash, at its site
+  Said,
+  // a crash at an exit whose status no parent could read
+  Unreportable,
+  // the machine ran out of memory
+  OutOfMemory,
+  // the processor lacks a feature the program was compiled to use
+  MissingFeatures,
+  // the system's page is not the one the runtime was built for
+  WrongPage,
+};
+
+// the ending whose status the program chose
+enum class ChosenEnding : std::uint8_t {
+  // the program ended itself with a status a parent reads
+  Exited,
+};
+
+// the endings that leave by a signal
+enum class SignalEnding : std::uint8_t {
+  // a reader of one of the program's outputs went away
+  Piped,
+  // the stack is exhausted
+  StackExhausted,
+  // cells live at the end:
+  CellsLeaked,
+  // a count operation on a cell that died
+  CountOfDeadCell,
+  // a call held more bytes it no longer needs than its bound:
+  FrameBoundExceeded,
+  // the allocator failed:
+  AllocatorFailed,
+  // a library check failed:
+  LibraryFailed,
+};
+
 
 } // namespace idr::endings
 
@@ -131,6 +183,30 @@ template <>
 struct EnumTraits<::idr::endings::EndingSignal> {
   static constexpr std::size_t count = 2;
   static constexpr std::array<std::string_view, 2> names{{"abort", "broken_pipe"}};
+};
+
+template <>
+struct EnumTraits<::idr::endings::Writes> {
+  static constexpr std::size_t count = 3;
+  static constexpr std::array<std::string_view, 3> names{{"everything", "output_only", "nothing"}};
+};
+
+template <>
+struct EnumTraits<::idr::endings::FixedEnding> {
+  static constexpr std::size_t count = 7;
+  static constexpr std::array<std::string_view, 7> names{{"returned", "failed", "said", "unreportable", "out_of_memory", "missing_features", "wrong_page"}};
+};
+
+template <>
+struct EnumTraits<::idr::endings::ChosenEnding> {
+  static constexpr std::size_t count = 1;
+  static constexpr std::array<std::string_view, 1> names{{"exited"}};
+};
+
+template <>
+struct EnumTraits<::idr::endings::SignalEnding> {
+  static constexpr std::size_t count = 7;
+  static constexpr std::array<std::string_view, 7> names{{"piped", "stack_exhausted", "cells_leaked", "count_of_dead_cell", "frame_bound_exceeded", "allocator_failed", "library_failed"}};
 };
 
 
@@ -182,6 +258,55 @@ inline constexpr ::idr::EnumArray<::idr::endings::FixedStatus, std::uint8_t> sta
     1,
     111,
     126,
+}};
+
+// the status a parent reads
+inline constexpr ::idr::EnumArray<::idr::endings::FixedEnding, ::idr::endings::FixedStatus> fixedStatus{{
+    ::idr::endings::FixedStatus::Returned,
+    ::idr::endings::FixedStatus::Crashed,
+    ::idr::endings::FixedStatus::Crashed,
+    ::idr::endings::FixedStatus::Crashed,
+    ::idr::endings::FixedStatus::OutOfMemory,
+    ::idr::endings::FixedStatus::CannotRun,
+    ::idr::endings::FixedStatus::CannotRun,
+}};
+
+// what the ending writes before it says anything
+inline constexpr ::idr::EnumArray<::idr::endings::FixedEnding, ::idr::endings::Writes> fixedWrites{{
+    ::idr::endings::Writes::Everything,
+    ::idr::endings::Writes::Everything,
+    ::idr::endings::Writes::Everything,
+    ::idr::endings::Writes::Everything,
+    ::idr::endings::Writes::Everything,
+    ::idr::endings::Writes::Nothing,
+    ::idr::endings::Writes::Nothing,
+}};
+
+// what the ending writes before it says anything
+inline constexpr ::idr::EnumArray<::idr::endings::ChosenEnding, ::idr::endings::Writes> chosenWrites{{
+    ::idr::endings::Writes::Everything,
+}};
+
+// the signal the ending raises
+inline constexpr ::idr::EnumArray<::idr::endings::SignalEnding, ::idr::endings::EndingSignal> signalOf{{
+    ::idr::endings::EndingSignal::BrokenPipe,
+    ::idr::endings::EndingSignal::Abort,
+    ::idr::endings::EndingSignal::Abort,
+    ::idr::endings::EndingSignal::Abort,
+    ::idr::endings::EndingSignal::Abort,
+    ::idr::endings::EndingSignal::Abort,
+    ::idr::endings::EndingSignal::Abort,
+}};
+
+// what the ending writes before it says anything
+inline constexpr ::idr::EnumArray<::idr::endings::SignalEnding, ::idr::endings::Writes> signalWrites{{
+    ::idr::endings::Writes::Everything,
+    ::idr::endings::Writes::OutputOnly,
+    ::idr::endings::Writes::OutputOnly,
+    ::idr::endings::Writes::OutputOnly,
+    ::idr::endings::Writes::OutputOnly,
+    ::idr::endings::Writes::OutputOnly,
+    ::idr::endings::Writes::OutputOnly,
 }};
 
 

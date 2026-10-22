@@ -253,6 +253,8 @@ enum class OpIndex : std::uint16_t {
   Arith_AndIOp,
   Arith_OrIOp,
   Arith_XOrIOp,
+  Arith_DivUIOp,
+  Arith_RemUIOp,
   Arith_ShRUIOp,
   Arith_CmpIOp,
   Arith_MaxSIOp,
@@ -286,8 +288,6 @@ enum class OpIndex : std::uint16_t {
   Math_CeilOp,
   Math_PowFOp,
   UB_UnreachableOp,
-  Arith_DivUIOp,
-  Arith_RemUIOp,
 };
 
 template <>
@@ -772,6 +772,10 @@ struct IndexOf<::idr::admitted::Arith_OrIOp> : std::integral_constant<OpIndex, O
 template <>
 struct IndexOf<::idr::admitted::Arith_XOrIOp> : std::integral_constant<OpIndex, OpIndex::Arith_XOrIOp> {};
 template <>
+struct IndexOf<::idr::admitted::Arith_DivUIOp> : std::integral_constant<OpIndex, OpIndex::Arith_DivUIOp> {};
+template <>
+struct IndexOf<::idr::admitted::Arith_RemUIOp> : std::integral_constant<OpIndex, OpIndex::Arith_RemUIOp> {};
+template <>
 struct IndexOf<::idr::admitted::Arith_ShRUIOp> : std::integral_constant<OpIndex, OpIndex::Arith_ShRUIOp> {};
 template <>
 struct IndexOf<::idr::admitted::Arith_CmpIOp> : std::integral_constant<OpIndex, OpIndex::Arith_CmpIOp> {};
@@ -837,10 +841,6 @@ template <>
 struct IndexOf<::idr::admitted::Math_PowFOp> : std::integral_constant<OpIndex, OpIndex::Math_PowFOp> {};
 template <>
 struct IndexOf<::idr::admitted::UB_UnreachableOp> : std::integral_constant<OpIndex, OpIndex::UB_UnreachableOp> {};
-template <>
-struct IndexOf<::idr::admitted::Arith_DivUIOp> : std::integral_constant<OpIndex, OpIndex::Arith_DivUIOp> {};
-template <>
-struct IndexOf<::idr::admitted::Arith_RemUIOp> : std::integral_constant<OpIndex, OpIndex::Arith_RemUIOp> {};
 
 template <class OpT>
 inline constexpr OpIndex indexOf = IndexOf<OpT>::value;

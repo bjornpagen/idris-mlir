@@ -236,6 +236,9 @@ void printFieldPath(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<uint32_t> valu
 ::mlir::FailureOr<::llvm::SmallVector<::idr::GivenBackEntryAttr>> parseGivenBackEntries(::mlir::AsmParser &parser);
 void printGivenBackEntries(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::GivenBackEntryAttr> value);
 
+::mlir::FailureOr<::llvm::SmallVector<::idr::ExtentAttr>> parseExtentEntries(::mlir::AsmParser &parser);
+void printExtentEntries(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::ExtentAttr> value);
+
 ::mlir::FailureOr<::llvm::ArrayRef<::idr::families::Member>> parseMembers(::mlir::AsmParser &parser);
 void printMembers(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::families::Member> value);
 

@@ -7,6 +7,7 @@
 #define IDR_GENERATED_ADMITTED_LINALG
 
 include "mlir/Dialect/Linalg/IR/LinalgStructuredOps.td"
+include "mlir/Dialect/Linalg/IR/LinalgOps.td"
 include "idr/IR/Generated/IdrAdmittedBase.td"
 
 def IdrAdmitted_Linalg_TransposeOp : IdrAdmitted<TransposeOp, "Linalg_TransposeOp", "Higher", "Owned", 1, []>;

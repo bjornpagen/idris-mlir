@@ -106,7 +106,7 @@ def IdrOptimize : Pass<"idr-optimize", "::idr::ProgramOp"> {
     Statistic<"numConstants", "constants", "Values replaced by a constant">,
     Statistic<"numWork", "work", "Steps the pass's solves took, the same at any thread count">,
   ];
-  let dependentDialects = ["::idr::IdrDialect", "::mlir::arith::ArithDialect"];
+  let dependentDialects = ["::idr::IdrDialect", "::mlir::arith::ArithDialect", "::mlir::tensor::TensorDialect"];
 }
 
 def IdrInline : Pass<"idr-inline", "::idr::ProgramOp"> {

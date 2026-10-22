@@ -160,4 +160,11 @@ def Idr_BuildsLabelOpInterface : OpInterface<"BuildsLabelOpInterface"> {
   ];
 }
 
+def Idr_CarriesOnOpInterface : OpInterface<"CarriesOnOpInterface"> {
+  let cppNamespace = "::idr";
+  let methods = [
+    InterfaceMethod<"what this op does at run time to give its first operand's value on as its result", "::idr::Carry", "getCarry", (ins)>
+  ];
+}
+
 #endif // IDR_GENERATED_INTERFACES

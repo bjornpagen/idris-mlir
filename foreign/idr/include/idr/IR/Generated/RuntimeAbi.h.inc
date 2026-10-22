@@ -776,6 +776,8 @@ inline constexpr std::array<OperandKind, 1> freeTokenOperands{{OperandKind::Poin
 inline constexpr Function freeToken{"idris_rt_free_token", freeTokenOperands, ResultKind::Void};
 inline constexpr std::array<OperandKind, 1> freeMaybeTokenOperands{{OperandKind::Pointer}};
 inline constexpr Function freeMaybeToken{"idris_rt_free_maybe_token", freeMaybeTokenOperands, ResultKind::Void};
+inline constexpr std::array<OperandKind, 1> releaseDeadOperands{{OperandKind::Pointer}};
+inline constexpr Function releaseDead{"idris_rt_release_dead", releaseDeadOperands, ResultKind::Void};
 inline constexpr std::array<OperandKind, 1> handleHoldsStringOperands{{OperandKind::Int64}};
 inline constexpr Function handleHoldsString{"idris_rt_handle_holds_string", handleHoldsStringOperands, ResultKind::Bool};
 inline constexpr std::array<OperandKind, 2> strAllocOperands{{OperandKind::Int64, OperandKind::Int64}};
@@ -823,7 +825,7 @@ inline constexpr Function ioPutBig{"idris_rt_io_put_big", ioPutBigOperands, Resu
 } // namespace helper
 
 // Every function of the runtime lowered code calls, each once.
-inline constexpr std::array<const Function *, 152> functions{{
+inline constexpr std::array<const Function *, 153> functions{{
     &Abi<::idr::IntHeadSOp>::entry,
     &Abi<::idr::IntHeadUOp>::entry,
     &Abi<::idr::F64ToIntOp>::entry,
@@ -954,6 +956,7 @@ inline constexpr std::array<const Function *, 152> functions{{
     &helper::isUnique,
     &helper::freeToken,
     &helper::freeMaybeToken,
+    &helper::releaseDead,
     &helper::handleHoldsString,
     &helper::strAlloc,
     &helper::strPutChar,

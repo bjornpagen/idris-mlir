@@ -19,4 +19,22 @@ struct BigAttrStorage;
 
 } // namespace idr::detail
 
+namespace idr {
+
+class DataType;
+class SelfType;
+class GradedType;
+class LifetimeType;
+class LifetimePackageType;
+class StrType;
+class BigType;
+class NatType;
+class CellType;
+class TokenType;
+class FnType;
+class LazyType;
+class DestType;
+
+} // namespace idr
+
 #endif // IDR_IR_GENERATED_STORAGES_H_INC
