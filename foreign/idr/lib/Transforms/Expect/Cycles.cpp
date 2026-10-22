@@ -7,23 +7,30 @@
 #include "idr/Transforms/Expect.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SetVector.h"
+
+#include <algorithm>
 
 using namespace mlir;
 
 namespace idr::expect {
 
 // What a function's own attributes name is no use by its body, so only
-// the uses inside the body count.
-SmallVector<Operation *> callees(SymbolTable &symbols, Operation *fn) {
-  llvm::SetVector<Operation *, SmallVector<Operation *>> out;
-  Region &body = cast<FunctionOpInterface>(fn).getFunctionBody();
+// the uses inside the body count. A body may name one function many times,
+// so the numbers it names are sorted and each kept once: the program's
+// order, the same in every run.
+SmallVector<FunctionNumbering::Node> callees(const FunctionNumbering &numbering,
+                                             SymbolTable &symbols, FunctionNumbering::Node fn) {
+  SmallVector<FunctionNumbering::Node> named;
+  Region &body = cast<FunctionOpInterface>(numbering[fn]).getFunctionBody();
   if (std::optional<SymbolTable::UseRange> uses = SymbolTable::getSymbolUses(&body))
     for (const SymbolTable::SymbolUse &use : *uses)
       if (Operation *target = symbols.lookup(use.getSymbolRef().getRootReference());
           isa_and_nonnull<FunctionOpInterface>(target))
-        out.insert(target);
-  return out.takeVector();
+        if (std::optional<FunctionNumbering::Node> id = numbering.idOf(target))
+          named.push_back(*id);
+  llvm::sort(named);
+  named.erase(std::unique(named.begin(), named.end()), named.end());
+  return named;
 }
 
 } // namespace idr::expect

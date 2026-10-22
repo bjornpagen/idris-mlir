@@ -202,7 +202,7 @@ tailFact = concatMap named (toList callOp.attrs)
   where
     named : Attr -> String
     named (MkAttr n (AProperty (EnumProperty d))) =
-      if d.name == (enumDef tailKindClosed).name then identText n else ""
+      if d.enum.name == (enumDef tailKindClosed).name then identText n else ""
     named _ = ""
 
 ||| A call whose result something after it uses, so the call is no tail

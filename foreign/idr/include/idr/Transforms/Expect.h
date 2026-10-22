@@ -36,6 +36,7 @@
 #include "idr/Analysis/Solver/Components.h"
 #include "idr/Analysis/Solver/Graph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Changed.h"
 #include "idr/Support/Id.h"
 #include "idr/Transforms/ExpectArguments.h"
 
@@ -50,7 +51,6 @@
 #include "mlir/Pass/PassInstrumentation.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -182,47 +182,31 @@ mlir::SymbolTable &symbolsOf(mlir::ModuleOp module, mlir::AnalysisManager &analy
 // its own location names `f`.
 bool names(mlir::FunctionOpInterface fn, llvm::StringRef f);
 
-// The functions the body of `fn` names by a symbol use (a call, a closure,
-// a constant), in the order the walk meets them, each once.
-llvm::SmallVector<mlir::Operation *> callees(mlir::SymbolTable &symbols, mlir::Operation *fn);
-
-// What `edges` gives of a function: the functions it refers to.
-template <class Edges>
-concept FunctionEdges = std::invocable<Edges &, mlir::Operation *> &&
-                        std::convertible_to<std::invoke_result_t<Edges &, mlir::Operation *>,
-                                            llvm::SmallVector<mlir::Operation *>>;
-
-// Every function `roots` reach by `edges`, the roots included, each once,
-// in the order first reached. The set is a test's question of one module,
-// asked once per check: the functions it reaches are its answer, kept
-// nowhere after it.
-template <FunctionEdges Edges>
-llvm::SmallVector<mlir::Operation *> reachable(llvm::ArrayRef<mlir::Operation *> roots,
-                                               Edges edges) {
-  llvm::SetVector<mlir::Operation *, llvm::SmallVector<mlir::Operation *>> seen;
-  seen.insert(roots.begin(), roots.end());
-  for (std::size_t at = 0; at < seen.size(); ++at)
-    for (mlir::Operation *next : std::invoke(edges, seen[at]))
-      seen.insert(next);
-  return seen.takeVector();
-}
+class FunctionNumbering;
 
 namespace detail {
-// The functions of one check, numbered in the order given: the minter of
-// the ids the solver layer's graph of them is built on.
-class FunctionNumbering;
+// The functions of the program a check reads, numbered by
+// FunctionNumbering.
 struct CheckedFunction {
   using Minter = FunctionNumbering;
 };
+} // namespace detail
+
+// The program's functions, numbered once in their order: the analysis of
+// the op that holds them, so every check of one module asks for it once
+// and they share it. Its map from a function to its number is the one
+// map a check keeps of functions; every set or fact a check holds of them
+// is a bit set or a table indexed by that number.
 class FunctionNumbering {
 public:
-  using Node = Id<CheckedFunction>;
-  explicit FunctionNumbering(llvm::ArrayRef<mlir::Operation *> nodes) : nodes(nodes) {
-    for (auto [at, fn] : llvm::enumerate(nodes))
-      number.try_emplace(fn, static_cast<std::uint32_t>(at));
-  }
+  using Node = Id<detail::CheckedFunction>;
+
+  // The functions `program` holds, in their order (functionsOf).
+  explicit FunctionNumbering(mlir::Operation *program);
+
   Count<Node> count() const { return Count<Node>(static_cast<std::uint32_t>(nodes.size())); }
-  // The id of a function of the check; none for one outside it.
+  // The number of a function; none for an op the program does not hold,
+  // which a symbol of another table can name.
   std::optional<Node> idOf(mlir::Operation *fn) const {
     auto at = number.find(fn);
     if (at == number.end())
@@ -232,35 +216,80 @@ public:
   mlir::Operation *operator[](Node n) const { return nodes[n.index()]; }
 
 private:
-  llvm::ArrayRef<mlir::Operation *> nodes;
-  // The numbering a check reads its functions into, once, where it reads
-  // them: no fact about a function lives here, only its number.
+  llvm::SmallVector<mlir::Operation *> nodes;
   llvm::DenseMap<mlir::Operation *, std::uint32_t> number;
 };
-} // namespace detail
 
-// The cycles among `nodes` by `edges`, an edge to a node outside `nodes`
-// dropped: each strongly connected component of two or more, or of one
-// that refers to itself, callees first, found by the solver layer's
-// components over the graph of the check's functions.
+// The program's functions, numbered once for every property that asks.
+const FunctionNumbering &numberingOf(mlir::ModuleOp module, mlir::AnalysisManager &analyses);
+
+// The functions the body of `fn` names by a symbol use (a call, a closure,
+// a constant), each once, by number, in the program's order.
+llvm::SmallVector<FunctionNumbering::Node> callees(const FunctionNumbering &numbering,
+                                                   mlir::SymbolTable &symbols,
+                                                   FunctionNumbering::Node fn);
+
+// What `edges` gives of a function: the functions it refers to, each by its
+// number.
+template <class Edges>
+concept FunctionEdges =
+    std::invocable<Edges &, FunctionNumbering::Node> &&
+    std::convertible_to<std::invoke_result_t<Edges &, FunctionNumbering::Node>,
+                        llvm::SmallVector<FunctionNumbering::Node>>;
+
+// Every function `roots` reach by `edges`, the roots included, each once,
+// by its number, in the order first reached; a root the numbering does not
+// hold is no function of the program, and reaches nothing. The set is a
+// test's question of one module, asked once per check: a bit per function
+// of the numbering while it is asked, the functions it reaches its answer.
 template <FunctionEdges Edges>
-llvm::SmallVector<llvm::SmallVector<mlir::Operation *>>
-cycles(llvm::ArrayRef<mlir::Operation *> nodes, Edges edges) {
-  detail::FunctionNumbering numbering(nodes);
+llvm::SmallVector<FunctionNumbering::Node> reachable(const FunctionNumbering &numbering,
+                                                     llvm::ArrayRef<mlir::Operation *> roots,
+                                                     Edges edges) {
+  BitSet<FunctionNumbering::Node> seen(numbering.count());
+  llvm::SmallVector<FunctionNumbering::Node> order;
+  auto reach = [&](FunctionNumbering::Node id) {
+    if (seen.raise(id) == Changed::Yes)
+      order.push_back(id);
+  };
+  for (mlir::Operation *root : roots)
+    if (std::optional<FunctionNumbering::Node> id = numbering.idOf(root))
+      reach(*id);
+  for (std::size_t at = 0; at < order.size(); ++at)
+    for (FunctionNumbering::Node next : std::invoke(edges, order[at]))
+      reach(next);
+  return order;
+}
+
+// The cycles among `nodes` by `edges`, an edge to a function outside
+// `nodes` dropped: each strongly connected component of two or more, or of
+// one that refers to itself, callees first, found by the solver layer's
+// components over the graph of the program's functions, whose edges are
+// those of `nodes` alone.
+template <FunctionEdges Edges>
+llvm::SmallVector<llvm::SmallVector<FunctionNumbering::Node>>
+cycles(const FunctionNumbering &numbering, llvm::ArrayRef<FunctionNumbering::Node> nodes,
+       Edges edges) {
+  using Node = FunctionNumbering::Node;
+  BitSet<Node> among(numbering.count());
+  llvm::SmallVector<Node> ids;
+  for (Node id : nodes)
+    if (among.raise(id) == Changed::Yes)
+      ids.push_back(id);
   CsrBuilder<detail::CheckedFunction> builder(numbering.count());
-  for (detail::FunctionNumbering::Node from : numbering.count().ids())
-    for (mlir::Operation *target : std::invoke(edges, numbering[from]))
-      if (std::optional<detail::FunctionNumbering::Node> to = numbering.idOf(target))
-        builder.edge(from, *to);
+  for (Node from : ids)
+    for (Node to : std::invoke(edges, from))
+      if (among.test(to))
+        builder.edge(from, to);
   Csr<detail::CheckedFunction> graph = std::move(builder).finish();
   Partition<detail::CheckedFunction> parts = components(graph);
-  llvm::SmallVector<llvm::SmallVector<mlir::Operation *>> out;
+  llvm::SmallVector<llvm::SmallVector<Node>> out;
   for (auto component : parts.size().ids()) {
     if (!parts.cyclic(component))
       continue;
-    llvm::SmallVector<mlir::Operation *> &cycle = out.emplace_back();
-    for (detail::FunctionNumbering::Node member : parts.members(component))
-      cycle.push_back(numbering[member]);
+    llvm::SmallVector<Node> &cycle = out.emplace_back();
+    for (Node member : parts.members(component))
+      cycle.push_back(member);
   }
   return out;
 }

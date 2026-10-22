@@ -42,6 +42,21 @@ SymbolTable &symbolsOf(ModuleOp module, AnalysisManager &analyses) {
   return analyses.nest(program).getAnalysis<SymbolTable>();
 }
 
+FunctionNumbering::FunctionNumbering(Operation *program) {
+  for (FunctionOpInterface fn : program->getRegion(0).getOps<FunctionOpInterface>()) {
+    number.try_emplace(fn, static_cast<std::uint32_t>(nodes.size()));
+    nodes.push_back(fn);
+  }
+}
+
+// The numbering is the analysis of the program's own op, as the table is.
+const FunctionNumbering &numberingOf(ModuleOp module, AnalysisManager &analyses) {
+  Operation *program = programOf(module);
+  if (program == module.getOperation())
+    return analyses.getAnalysis<FunctionNumbering>();
+  return analyses.nest(program).getAnalysis<FunctionNumbering>();
+}
+
 namespace {
 
 // A location names `f` where a NameLoc called `f` is reached through the

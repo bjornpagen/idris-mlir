@@ -38,20 +38,21 @@ LogicalResult noHeapAllocation(const Request<Roots> &request) {
   ModuleOp module = request.module;
   const std::optional<Functions> &scope = request.argument.scope;
   SymbolTable *symbols = scope ? &symbolsOf(module, request.analyses) : nullptr;
+  const FunctionNumbering &numbering = numberingOf(module, request.analyses);
   SmallVector<Operation *> roots;
   for (FunctionOpInterface fn : scope ? scope->functions : functionsOf(module))
     roots.push_back(fn);
   // After lowering a body calls the runtime, whose functions are
   // declarations: the property is one of the idr functions.
-  auto edges = [&](Operation *fn) {
-    auto function = cast<FunctionOpInterface>(fn);
-    if (!symbols || function.isExternal() || !isa<FuncOp>(fn))
-      return SmallVector<Operation *>();
-    return callees(*symbols, fn);
+  auto edges = [&](FunctionNumbering::Node id) {
+    Operation *fn = numbering[id];
+    if (!symbols || cast<FunctionOpInterface>(fn).isExternal() || !isa<FuncOp>(fn))
+      return SmallVector<FunctionNumbering::Node>();
+    return callees(numbering, *symbols, id);
   };
   bool held = true;
-  for (Operation *next : reachable(roots, edges)) {
-    auto fn = cast<FunctionOpInterface>(next);
+  for (FunctionNumbering::Node next : reachable(numbering, roots, edges)) {
+    auto fn = cast<FunctionOpInterface>(numbering[next]);
     if (fn.isExternal()) {
       if (symbols) {
         fail(fn->getLoc(), request.property)
