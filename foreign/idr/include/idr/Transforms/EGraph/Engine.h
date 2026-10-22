@@ -10,17 +10,17 @@
 // position and a terminator stays in the skeleton of its region, in
 // order, and so does an op whose value depends on its parent
 // (DependsOnParent), which two parents would make two values. A node of
-// the input is made with its analyses (an interval, by upstream's transfer
-// function, whose one value, where it has one, is the integer it is; and,
-// for a constant with no integer form, the op's own fold over the
-// attributes its operands hold, never an op whose fold the compiling
-// machine would compute) and the specification's rules rooted at its kind
+// the input is made with its analysis (an interval, by upstream's transfer
+// function, whose one value, where it has one, is the integer it is; the
+// op's own fold is never asked, since a fold makes an attribute and the
+// graph makes none) and the specification's rules rooted at its kind
 // run at once, the first that matches replacing the node with its right
 // side: every rule runs one way. A node a right side builds has no op to
 // ask and none is made for it: its interval is its kind's range function
 // over its operands' intervals, from the generated table, so one built
 // over constants is its integer at once; it runs no rules. An integer is a
-// value until the write-back makes its attribute. The class a node lands
+// value until the write-back makes its attribute; any other constant is
+// one an op of the input holds. The class a node lands
 // in, its own or the one that replaces it, meets what the node knows, so a
 // rewrite loses no fact of the form it replaced.
 // A class's members never change once made and its
@@ -47,7 +47,6 @@
 #ifndef IDR_TRANSFORMS_EGRAPH_ENGINE_H
 #define IDR_TRANSFORMS_EGRAPH_ENGINE_H
 
-#include "idr/Analysis/Constants.h"
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
@@ -132,9 +131,9 @@ struct Built {
   std::uint16_t kind;
   mlir::RegisteredOperationName name;
 };
-// A constant held as an attribute: one an op of the input holds, or one a
-// fold made where the constant has no integer form; materialized by
-// `dialect`'s hook where it is placed.
+// A constant an op of the input holds as an attribute, which the graph
+// reads and never makes; materialized by `dialect`'s hook where it is
+// placed.
 struct Constant {
   mlir::Attribute value;
   mlir::Dialect *dialect;
@@ -301,9 +300,8 @@ private:
   // A class of its own for a node just made, holding what it knows.
   ClassId ownClass(NodeId made, mlir::Type type, Facts facts);
   ClassId alone(Node node, ClassId into);
-  // What an op of the input computes over its operands' classes, and the
-  // interval alone, which upstream's transfer function gives.
-  Facts factsOf(mlir::Operation *op, std::span<const ClassId> operands) const;
+  // The interval upstream's transfer function gives an op of the input over
+  // its operands' classes.
   std::optional<mlir::ConstantIntRanges> intervalOf(mlir::Operation *op,
                                                     std::span<const ClassId> operands) const;
   // What a node a right side built computes over its operands' classes:

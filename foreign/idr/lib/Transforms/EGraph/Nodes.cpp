@@ -212,37 +212,6 @@ std::optional<ConstantIntRanges> Function::intervalOf(Operation *op,
   return interval;
 }
 
-// What `op` computes over its operands' classes: its interval, whose one
-// value, where it has one, is the integer it is, so no fold is asked and no
-// attribute made; else, where every operand's class holds an attribute,
-// what the op's own fold makes of them, an integer read off as its one
-// value. That fold is the one place an attribute is made while the graph
-// is built: a constant with no integer form (a string, a data constant, a
-// closure, a Double, a big), or an integer read off one (a data constant's
-// tag, a string's length); never by an op whose fold would compute on the
-// compiling machine. An operand known only as an integer the graph
-// computed holds no attribute, so an op over it folds at the next point,
-// where the write-back has made it an op's.
-Facts Function::factsOf(Operation *op, std::span<const ClassId> operands) const {
-  Facts facts{intervalOf(op, operands), Attribute()};
-  if (facts.integer() || foldingOf(op) == Folding::Never)
-    return facts;
-  SmallVector<Attribute, 4> attributes;
-  for (ClassId operand : operands)
-    attributes.push_back(at(operand).facts.attribute);
-  if (!llvm::all_of(attributes, [](Attribute a) { return static_cast<bool>(a); }))
-    return facts;
-  SmallVector<OpFoldResult, 1> folded;
-  if (failed(op->fold(attributes, folded)) || folded.size() != 1)
-    return facts;
-  if (auto made = dyn_cast_if_present<Attribute>(folded.front())) {
-    facts.attribute = made;
-    if (auto integer = dyn_cast<IntegerAttr>(made))
-      facts.range = ConstantIntRanges::constant(integer.getValue());
-  }
-  return facts;
-}
-
 Run Function::childrenFor(std::span<const ClassId> operands) {
   Run run{static_cast<std::uint32_t>(children.size()), static_cast<std::uint32_t>(operands.size())};
   children.insert(children.end(), operands.begin(), operands.end());
@@ -257,8 +226,9 @@ ClassId Function::ownClass(NodeId made, Type type, Facts facts) {
 
 // The class of a floating op of the input over `operands`: an equal node's
 // class, found in the hash-cons; or a new node, its analyses computed and
-// the rules rooted at its kind run on it, in the class those decide: a
-// constant's when it folds, an argument's when its callee gives that back,
+// the rules rooted at its kind run on it, in the class those decide: an
+// integer's when its interval is one value, an argument's when its callee
+// gives that back,
 // a right side's when a rule matches, else a class of its own. A class that
 // replaces the node is the same value, so it meets what the node knew.
 ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> operands) {
@@ -269,16 +239,19 @@ ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> ope
       return *found;
     }
   NodeId made = newNode(std::move(node));
-  Facts facts = factsOf(op.origin, operands);
+  // What the op computes is its interval alone. Its own fold is never
+  // asked: a fold makes the attribute of what it computes, and the graph
+  // makes none, so a constant that is no integer (a string, a Double, a big
+  // past the small range, a data constant) is known only where an op of the
+  // input holds it, and the write-back makes what it writes.
+  Facts facts{intervalOf(op.origin, operands), Attribute()};
 
   auto replacedBy = [&](ClassId cls) {
     at(cls).facts.meet(facts);
     return cls;
   };
-  // A constant an op holds is that op's; an integer computed is a value.
+  // An integer computed is a value: the interval's one value.
   auto decided = [&]() -> ClassId {
-    if (facts.attribute)
-      return replacedBy(constant(facts.attribute, type, op.origin->getDialect(), facts.range));
     if (std::optional<APInt> value = facts.integer())
       if (std::optional<ClassId> cls = integer(*value, type))
         return replacedBy(*cls);
