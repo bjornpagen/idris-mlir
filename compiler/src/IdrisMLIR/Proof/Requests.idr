@@ -786,6 +786,9 @@ Universe forms names b =
                          (below (S b.breadth)))
           (headsOver names).values
 
+||| A link no longer than the breadth, each of whose arguments weighs within
+||| its parameter's size, is one of the universe's.
+export
 0 inUniverse : (forms : Listed form) -> (names : Listed Address) -> (b : Bounds) -> (l : Link form) ->
                LTE (length l.arguments) b.breadth ->
                Pointwise (sizes l) (sizesAt b (length l.arguments) l.head) ->

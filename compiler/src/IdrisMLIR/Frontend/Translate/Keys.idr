@@ -33,6 +33,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Ids
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Proof.Sizes
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Grades.Grade
@@ -696,8 +697,213 @@ writtenFrom ts fits = MkWritten (weighs ts) ts Refl (replace {p = \b => All (Fit
 
 ||| A compile-time argument written out: its size the weight of its
 ||| symbols, every number in it below that size.
+export
 writtenOf : Writer -> ClosedTerm -> Written Form
 writtenOf w t = writtenFrom (write w t) (writeFits w t)
+
+------------------------------------------------------------------------------
+-- What a key weighs, against what the universe lets it weigh
+------------------------------------------------------------------------------
+
+-- A term's key read as a tree of its heads (`Proof.Sizes.KeyTree`), so
+-- that its weight is bounded by its height, its widest node and its
+-- heaviest symbol, the measures a template has: a head applied to k
+-- arguments is one node of k children, each application one more child of
+-- its function's node; a binder is a node over its scope and the parts it
+-- writes; a string or a double a node with a child per character, as a
+-- template reads it (`Template.constant`); a literal or a marker one node
+-- whose weight is its token's. A run of successors is a node per
+-- successor, which weighs what the run's two symbols do.
+
+0 lteL : x = x' -> LTE x y -> LTE x' y
+lteL Refl le = le
+
+0 lteR : y = y' -> LTE x y -> LTE x y'
+lteR Refl le = le
+
+0 glyphTrees : List Char -> List KeyTree
+glyphTrees [] = []
+glyphTrees (_ :: cs) = KeyNode 1 [] :: glyphTrees cs
+
+0 constantTree : Constant -> KeyTree
+constantTree (Str x) = KeyNode 1 (glyphTrees (unpack x))
+constantTree (Db x) = KeyNode 1 (glyphTrees (unpack (show x)))
+constantTree c = KeyNode (weighs (writeConstant c)) []
+
+mutual
+  ||| A term's key as a tree of its heads. Never computed: the proofs of
+  ||| what a key weighs read it.
+  export
+  0 keyTree : Writer -> TT vs -> KeyTree
+  keyTree w (Local _ _ _ _) = KeyNode 1 []
+  keyTree w (Ref _ _ n) = KeyNode (weighs (referenceTo w.context n (markerOf n))) []
+  keyTree w (Meta _ _ _ args) = KeyNode 1 (keyTrees w args)
+  keyTree w (Bind _ _ b sc) = KeyNode 1 (keyTree w sc :: binderTrees w b)
+  keyTree w (App _ f a) = addChild (keyTree w f) (keyTree w a)
+  keyTree w (As _ _ a p) = KeyNode 1 [keyTree w a, keyTree w p]
+  keyTree w (TDelayed _ _ t) = KeyNode 1 [keyTree w t]
+  keyTree w (TDelay _ _ t a) = KeyNode 1 [keyTree w t, keyTree w a]
+  keyTree w (TForce _ _ t) = KeyNode 1 [keyTree w t]
+  keyTree w (PrimVal _ c) = constantTree c
+  keyTree w (Erased _ Placeholder) = KeyNode 1 []
+  keyTree w (Erased _ Impossible) = KeyNode 1 []
+  keyTree w (Erased _ (Dotted t)) = KeyNode 1 [keyTree w t]
+  keyTree w (TType _ _) = KeyNode 1 []
+
+  0 keyTrees : Writer -> List (TT vs) -> List KeyTree
+  keyTrees w [] = []
+  keyTrees w (t :: ts) = keyTree w t :: keyTrees w ts
+
+  0 binderTrees : Writer -> TTBinder (TT vs) -> List KeyTree
+  binderTrees w (Lam _ _ info _) = passingTrees w info
+  binderTrees w (Let _ _ v ty) = [keyTree w v, keyTree w ty]
+  binderTrees w (Pi _ _ info ty) = keyTree w ty :: passingTrees w info
+  binderTrees w (PVar _ _ info ty) = keyTree w ty :: passingTrees w info
+  binderTrees w (PLet _ _ v ty) = [keyTree w v, keyTree w ty]
+  binderTrees w (PVTy _ _ ty) = [keyTree w ty]
+
+  0 passingTrees : Writer -> PiInfo (TT vs) -> List KeyTree
+  passingTrees w Implicit = []
+  passingTrees w Explicit = []
+  passingTrees w AutoImplicit = []
+  passingTrees w (DefImplicit t) = [keyTree w t]
+
+-- A leaf charges its own weight.
+0 leafWithin : (n : Nat) -> LTE n (keyWeight (KeyNode n []))
+leafWithin n = lteAddRight {m = Z} n
+
+-- A node over one part charges two more than the part, and a node over two
+-- parts two more than both and one more besides.
+0 overOne : {x, t : Nat} -> LTE x t -> LTE (S x) (S (S (t + 0)))
+overOne le = LTESucc (lteSuccRight (transitive le (lteAddRight {m = Z} t)))
+
+0 overTwo : {x, y, s, t : Nat} -> LTE x s -> LTE y t -> LTE (x + y) (s + S (t + 0))
+overTwo ls lt = plusLteMonotone ls (lteSuccRight (transitive lt (lteAddRight {m = Z} t)))
+
+-- A run one successor longer weighs two more.
+0 succeedingWeight : (s : Address) -> (ts : List (Token Form)) -> LTE (weighs (succeeding s ts)) (S (S (weighs ts)))
+succeedingWeight s [] = reflexive
+succeedingWeight s [t] = reflexive
+succeedingWeight s (t :: Node f k n :: rest) = reflexive
+succeedingWeight s (t :: Number g m :: rest) = lengthenedWeight (runOf s t g)
+  where
+    lengthenedWeight : (starts : Bool) ->
+                       LTE (weighs (lengthened starts s t g m rest)) (S (S (weighs (t :: Number g m :: rest))))
+    lengthenedWeight True = lteL (sym (twoMore (weight t) (S m + weighs rest))) reflexive
+    lengthenedWeight False = reflexive
+
+0 glyphsWithin : (cs : List Char) -> LTE (weighs (spellChars cs)) (childWeights (glyphTrees cs))
+glyphsWithin [] = LTEZero
+glyphsWithin (_ :: cs) = LTESucc (lteSuccRight (glyphsWithin cs))
+
+0 constantWithin : (c : Constant) -> LTE (weighs (writeConstant c)) (keyWeight (constantTree c))
+constantWithin (I x) = leafWithin (weighs (writeConstant (I x)))
+constantWithin (I8 x) = leafWithin (weighs (writeConstant (I8 x)))
+constantWithin (I16 x) = leafWithin (weighs (writeConstant (I16 x)))
+constantWithin (I32 x) = leafWithin (weighs (writeConstant (I32 x)))
+constantWithin (I64 x) = leafWithin (weighs (writeConstant (I64 x)))
+constantWithin (BI x) = leafWithin (weighs (writeConstant (BI x)))
+constantWithin (B8 x) = leafWithin (weighs (writeConstant (B8 x)))
+constantWithin (B16 x) = leafWithin (weighs (writeConstant (B16 x)))
+constantWithin (B32 x) = leafWithin (weighs (writeConstant (B32 x)))
+constantWithin (B64 x) = leafWithin (weighs (writeConstant (B64 x)))
+constantWithin (Str x) = LTESucc (glyphsWithin (unpack x))
+constantWithin (Ch x) = leafWithin (weighs (writeConstant (Ch x)))
+constantWithin (Db x) = LTESucc (glyphsWithin (unpack (show x)))
+constantWithin (PrT t) = leafWithin (weighs (writeConstant (PrT t)))
+constantWithin WorldVal = leafWithin (weighs (writeConstant WorldVal))
+
+mutual
+  -- What a term's key weighs is at most what its tree charges.
+  0 writeWithinTree : (w : Writer) -> (t : TT vs) -> LTE (weighs (write w t)) (keyWeight (keyTree w t))
+  writeWithinTree w (Local _ _ _ _) = reflexive
+  writeWithinTree w (Ref _ _ n) = leafWithin (weighs (referenceTo w.context n (markerOf n)))
+  writeWithinTree w (Meta _ _ _ args) = LTESucc (allWithinTrees w args)
+  writeWithinTree w (Bind _ _ b sc) =
+    lteL (sym (weighsAppend (writeBinder w b) (write w sc))) $
+      lteSuccRight $
+        lteR (cong S (plusCommutative (childWeights (binderTrees w b)) (keyWeight (keyTree w sc)))) $
+          plusLteMonotone (binderWithinTrees w b) (writeWithinTree w sc)
+  writeWithinTree w (App _ f a) =
+    lteR (sym (addChildWeight (keyTree w f) (keyTree w a))) (applicationWithin w (successorOf w f) f a)
+  writeWithinTree w (As _ _ a p) =
+    LTESucc (lteSuccRight (lteL (sym (weighsAppend (write w a) (write w p)))
+                                (overTwo (writeWithinTree w a) (writeWithinTree w p))))
+  writeWithinTree w (TDelayed _ _ t) = overOne (writeWithinTree w t)
+  writeWithinTree w (TDelay _ _ t a) =
+    LTESucc (lteSuccRight (lteL (sym (weighsAppend (write w t) (write w a)))
+                                (overTwo (writeWithinTree w t) (writeWithinTree w a))))
+  writeWithinTree w (TForce _ _ t) = overOne (writeWithinTree w t)
+  writeWithinTree w (PrimVal _ c) = constantWithin c
+  writeWithinTree w (Erased _ Placeholder) = reflexive
+  writeWithinTree w (Erased _ Impossible) = reflexive
+  writeWithinTree w (Erased _ (Dotted t)) = overOne (writeWithinTree w t)
+  writeWithinTree w (TType _ _) = reflexive
+
+  -- An application charges one for itself, its function's tree and its
+  -- argument's; a successor's run, two more than its argument, which its
+  -- function's node, weighing at least one, covers.
+  0 applicationWithin : (w : Writer) -> (m : Maybe Address) -> (f, a : TT vs) ->
+                        LTE (weighs (writeApplication w m f a)) (S (keyWeight (keyTree w f) + keyWeight (keyTree w a)))
+  applicationWithin w Nothing f a =
+    LTESucc (lteL (sym (weighsAppend (write w f) (write w a)))
+                  (plusLteMonotone (writeWithinTree w f) (writeWithinTree w a)))
+  applicationWithin w (Just s) f a =
+    transitive (succeedingWeight s (write w a))
+               (LTESucc (plusLteMonotone (transitive (writeWeighs w f) (writeWithinTree w f)) (writeWithinTree w a)))
+
+  0 allWithinTrees : (w : Writer) -> (ts : List (TT vs)) -> LTE (weighs (writeAll w ts)) (childWeights (keyTrees w ts))
+  allWithinTrees w [] = LTEZero
+  allWithinTrees w (t :: ts) =
+    lteL (sym (weighsAppend (write w t) (writeAll w ts))) $
+      lteSuccRight (plusLteMonotone (writeWithinTree w t) (allWithinTrees w ts))
+
+  0 binderWithinTrees : (w : Writer) -> (b : TTBinder (TT vs)) ->
+                        LTE (weighs (writeBinder w b)) (S (childWeights (binderTrees w b)))
+  binderWithinTrees w (Lam _ q info _) = passingWithinTrees w Lambda q info
+  binderWithinTrees w (Let _ q v ty) =
+    LTESucc (lteSuccRight (lteL (sym (weighsAppend (write w v) (write w ty)))
+                                (overTwo (writeWithinTree w v) (writeWithinTree w ty))))
+  binderWithinTrees w (Pi _ q info ty) = typedWithinTrees w PiType q info ty
+  binderWithinTrees w (PVar _ q info ty) = typedWithinTrees w Pattern q info ty
+  binderWithinTrees w (PLet _ q v ty) =
+    LTESucc (lteSuccRight (lteL (sym (weighsAppend (write w v) (write w ty)))
+                                (overTwo (writeWithinTree w v) (writeWithinTree w ty))))
+  binderWithinTrees w (PVTy _ q ty) = overOne (writeWithinTree w ty)
+
+  0 passingWithinTrees : (w : Writer) -> (b : Binding) -> (q : RigCount) -> (info : PiInfo (TT vs)) ->
+                         LTE (weighs (writePassing w b q info)) (S (childWeights (passingTrees w info)))
+  passingWithinTrees w b q Implicit = reflexive
+  passingWithinTrees w b q Explicit = reflexive
+  passingWithinTrees w b q AutoImplicit = reflexive
+  passingWithinTrees w b q (DefImplicit t) = overOne (writeWithinTree w t)
+
+  -- A pi's or a pattern variable's passing, then its type.
+  0 typedWithinTrees : (w : Writer) -> (b : Binding) -> (q : RigCount) -> (info : PiInfo (TT vs)) -> (ty : TT vs) ->
+                       LTE (weighs (writePassing w b q info ++ write w ty))
+                           (S (childWeights (keyTree w ty :: passingTrees w info)))
+  typedWithinTrees w b q Implicit ty = overOne (writeWithinTree w ty)
+  typedWithinTrees w b q Explicit ty = overOne (writeWithinTree w ty)
+  typedWithinTrees w b q AutoImplicit ty = overOne (writeWithinTree w ty)
+  typedWithinTrees w b q (DefImplicit t) ty =
+    LTESucc (lteSuccRight (lteL (sym (weighsAppend (write w t) (write w ty)))
+                                (lteL (plusCommutative (weighs (write w ty)) (weighs (write w t)))
+                                      (overTwo (writeWithinTree w ty) (writeWithinTree w t)))))
+
+||| A key's written size is at most what the universe lets a key weigh
+||| (`Proof.Requests.sizeWithin`) at any height at least its tree's, any
+||| arity at least its widest node's, and any heaviest token at least its
+||| heaviest own symbol's weight, or 1: the measures the template it is
+||| read as gives it.
+export
+0 writtenWithin : (w : Writer) -> (t : ClosedTerm) -> {a, h, e : Nat} ->
+                  LTE (keyHeight (keyTree w t)) h -> LTE (keyArity (keyTree w t)) a ->
+                  LTE (keyHeaviest (keyTree w t)) (maximum 1 e) ->
+                  LTE (writtenOf w t).size (sizeWithin a h e)
+writtenWithin w t high wide light =
+  transitive (writeWithinTree w t)
+             (treeWithin {a} {h} {e} (keyTree w t) high wide
+                         (lightEnough {h} {e} (transitive (keyTall (keyTree w t)) high) light))
 
 ------------------------------------------------------------------------------
 -- The identity as text
