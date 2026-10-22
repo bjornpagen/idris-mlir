@@ -21,12 +21,13 @@ export
 memberOf : ParamKind -> String
 memberOf TypeValue = "Type"
 memberOf AttrValue = "Attribute"
-memberOf (EnumValue e) = "Idr_Enum<" ++ quoted (identText e.name) ++ ">"
+memberOf (EnumValue e) = "Idr_Enum<" ++ quoted (identText e.enum.name) ++ ">"
 memberOf StringValue = "Idr_String"
 memberOf IntegerValue = "Idr_APInt"
 memberOf CountValue = "VarInt"
 memberOf (ListOf k) = "Array<" ++ memberOf k ++ ">"
 memberOf (HandValue c d) = "Idr_HandMember<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
+memberOf (HandArray c d) = "Idr_HandArrayMember<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
 
 export
 builderOf : Bytecode -> List String
@@ -79,6 +80,13 @@ bytecodeOds ts as =
         , "  WithBuilder<\"$_args\","
         , "  WithPrinter<\"::idr::write\" # directive # \"($_writer, $_getter)\","
         , "  WithType   <cppType>>>>;"
+        , "// An array of a hand class's elements, read into the vector that owns"
+        , "// them, which the builder's storage copies; written from its view."
+        , "class Idr_HandArrayMember<string element, string directive> :"
+        , "  WithParser <\"succeeded(::idr::read\" # directive # \"($_reader, $_var))\","
+        , "  WithBuilder<\"$_args\","
+        , "  WithPrinter<\"::idr::write\" # directive # \"($_writer, $_getter)\","
+        , "  WithType   <\"::llvm::SmallVector<\" # element # \">\">>>>;"
         , "" ]
      ++ concatMap snd types
      ++ ["", "def IdrDialectTypes : DialectTypes<\"Idr\"> {", "  let elems = [" ++ joinWith ", " (map fst types) ++ "];", "}"]

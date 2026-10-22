@@ -93,7 +93,6 @@ private:
 #include "idr/Transforms/Lifetimes.h"
 #include "idr/Transforms/Narrow.h"
 #include "idr/Transforms/Optimize.h"
-#include "idr/Transforms/Ownership.h"
 #include "idr/Transforms/StructureLoops.h"
 #include "idr/Transforms/Tail.h"
 
@@ -113,9 +112,21 @@ void buildPipeline(mlir::OpPassManager &pm, Stage from = Stage::Higher,
 // options the stages it runs between.
 void registerIdrPipeline();
 
+// Registers every upstream pass the pipeline runs, from its one list, and
+// no other.
+void registerUpstreamPasses();
+
 // The schedule's interpreter, given the library's entry point: the one
 // upstream pass the pipeline configures.
 std::unique_ptr<mlir::Pass> scheduleInterpreter();
+
+namespace pipeline {
+// The steps around a nest of function passes that add atoms to rows: every
+// function's and call's row given at least `atoms` before the nest, and
+// every row written equal to its derivation after it.
+std::unique_ptr<mlir::Pass> createWidenRows(effects::Row atoms);
+std::unique_ptr<mlir::Pass> createWriteRows();
+} // namespace pipeline
 
 } // namespace idr
 

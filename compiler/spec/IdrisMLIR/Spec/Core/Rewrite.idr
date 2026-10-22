@@ -125,10 +125,14 @@ data AnyRewrite : Type where
   SomeRewrite : {0 n : Nat} -> Rewrite n -> AnyRewrite
 
 ||| A one-way rule over an effectful op or a region, hand C++: the class
-||| `::idr::egraph::<name>` the engine runs where the op `root` is.
+||| `::idr::egraph::<name>`, declared in the header at `declaredIn` (its
+||| path under the include root, `idr/IR/Control/Control.h`), which the
+||| engine runs where the op `root` is. The generator includes every rule's
+||| header once, so the engine lists none by hand.
 public export
 record SkeletonRule where
   constructor MkSkeletonRule
   name : Ident
+  declaredIn : Path
   root : OpRef
   doc : Line

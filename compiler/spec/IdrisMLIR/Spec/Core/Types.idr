@@ -22,20 +22,25 @@ import Data.Vect
 ------------------------------------------------------------------------------
 
 ||| What a parameter holds, which decides its C++ storage, its syntax and
-||| its bytecode member: a type, an attribute, a case of an enum of ours, a
+||| its bytecode member: a type, an attribute, a case of an enum of ours
+||| (which the frontend writes typed, from where its source says), a
 ||| string, an integer of any width, a 64-bit count, a list of any of these,
-||| or a C++ value of a hand class (its spelling and the custom directive
-||| that reads and writes it).
+||| a C++ value of a hand class (its spelling and the custom directive that
+||| reads and writes it), or an array of a hand class's elements (the
+||| element's spelling and the directive). An array is held as a view and
+||| read into the vector that owns its elements until the storage copies
+||| them, so no reader interns what it read to have somewhere to keep it.
 public export
 data ParamKind
   = TypeValue
   | AttrValue
-  | EnumValue EnumDef
+  | EnumValue ImportedEnum
   | StringValue
   | IntegerValue
   | CountValue
   | ListOf ParamKind
   | HandValue Code Directive
+  | HandArray Code Directive
 
 ||| Whether a parameter is always written, or has a default that the
 ||| syntax and the encoder leave out: the default's C++ expression.
@@ -146,6 +151,13 @@ valueFactsInterface = MkInterfaceDef
 public export
 data ParamVerifier = AnyParameters | VerifiesParameters
 
+||| Where a type's or an attribute's storage comes from: ODS's, holding its
+||| parameters alone; or a hand class, `::idr::detail::<Class>Storage`,
+||| which keeps beside its key what is computed of it when it is made, so no
+||| reader computes it again.
+public export
+data Storage = GeneratedStorage | HandStorage
+
 ||| A type of the dialect, its C++ class `<Camel>Type` from its mnemonic:
 ||| `!idr.graded` is `GradedType`.
 public export
@@ -157,6 +169,7 @@ record TypeDef (p : Nat) where
   interfaces : List InterfaceUse
   verifier : ParamVerifier
   bytecode : Bytecode
+  {default GeneratedStorage storage : Storage}
   members : List Member
   facts : TypeFacts
   doc : Doc
@@ -179,6 +192,7 @@ record AttrDef (p : Nat) where
   interfaces : List InterfaceUse
   verifier : ParamVerifier
   bytecode : Bytecode
+  {default GeneratedStorage storage : Storage}
   members : List Member
   doc : Doc
 

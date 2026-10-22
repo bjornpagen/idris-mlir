@@ -144,6 +144,7 @@ data UpInterface
   | MemoryEffects
   | Speculatable
   | OpAsm
+  | OpAsmType
   | DestinationStyle
   | Tiling
   | ViewLike
@@ -174,6 +175,7 @@ upInterfaceRecord InferIntRange = ident "InferIntRangeInterface"
 upInterfaceRecord MemoryEffects = ident "MemoryEffectsOpInterface"
 upInterfaceRecord Speculatable = ident "ConditionallySpeculatable"
 upInterfaceRecord OpAsm = ident "OpAsmOpInterface"
+upInterfaceRecord OpAsmType = ident "OpAsmTypeInterface"
 upInterfaceRecord DestinationStyle = ident "DestinationStyleOpInterface"
 upInterfaceRecord Tiling = ident "TilingInterface"
 upInterfaceRecord ViewLike = ident "ViewLikeOpInterface"
@@ -206,6 +208,7 @@ upInterfaceInclude InferIntRange = "mlir/Interfaces/InferIntRangeInterface.td"
 upInterfaceInclude MemoryEffects = "mlir/Interfaces/SideEffectInterfaces.td"
 upInterfaceInclude Speculatable = "mlir/Interfaces/SideEffectInterfaces.td"
 upInterfaceInclude OpAsm = "mlir/IR/OpAsmInterface.td"
+upInterfaceInclude OpAsmType = "mlir/IR/OpAsmInterface.td"
 upInterfaceInclude DestinationStyle = "mlir/Interfaces/DestinationStyleOpInterface.td"
 upInterfaceInclude Tiling = "mlir/Interfaces/TilingInterface.td"
 upInterfaceInclude ViewLike = "mlir/Interfaces/ViewLikeInterface.td"

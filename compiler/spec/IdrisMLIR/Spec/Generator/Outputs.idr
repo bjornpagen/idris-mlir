@@ -120,21 +120,21 @@ innerPassesTd =
       Registered => False
       MadeBy _ _ => True
 
-||| The record every admitted op is, which the D51 backend reads.
+||| The record every admitted op is, which the D51 backend reads. Its laws
+||| are not here: the e-graph's rules and the laws' table are printed from
+||| the specification directly.
 export
 admittedBaseTd : String
 admittedBaseTd =
   tdFile "IDR_GENERATED_ADMITTED_BASE" ["mlir/IR/OpBase.td"]
     [ "// An upstream op the dialect admits: upstream's own record, the stages"
-    , "// it may stand at, whether the frontend writes it (its Idris builder is"
-    , "// printed), and whether it is associative, which upstream has no trait"
-    , "// for."
-    , "class IdrAdmitted<Op upstream, string first, string last, int written, int associative> {"
+    , "// it may stand at, and whether the frontend writes it (its Idris builder"
+    , "// is printed)."
+    , "class IdrAdmitted<Op upstream, string first, string last, int written> {"
     , "  Op op = upstream;"
     , "  string firstStage = first;"
     , "  string lastStage = last;"
     , "  int frontendWrites = written;"
-    , "  int isAssociative = associative;"
     , "}"
     , "" ]
 
@@ -145,11 +145,8 @@ admittedRow a =
       written = case a.writer of
                   FrontendWrites => "1"
                   PassesOnly => "0"
-      assoc = case a.laws of
-                [] => "0"
-                _ => "1"
   in "def IdrAdmitted_" ++ identText a.upstreamRecord ++ " : IdrAdmitted<" ++ identText a.upstreamRecord ++ ", "
-       ++ quoted first ++ ", " ++ quoted last ++ ", " ++ written ++ ", " ++ assoc ++ ">;"
+       ++ quoted first ++ ", " ++ quoted last ++ ", " ++ written ++ ">;"
   where
     name : Stage -> String
     name s = identText (stageClosed.describe s).name
@@ -200,14 +197,18 @@ generate =
   ++ [ (generated "EnumTraits.h.inc", render (odsEnumTraits declarations.enums))
      , (generated "OpIndex.h.inc", render (opIndexHeader opKeys))
      , (generated "Guards.h.inc", render (guardsHeader ourOps))
+     , (generated "InlineMeanings.h.inc", render (inlineMeaningsHeader ourOps))
      , (generated "RuntimeAbi.h.inc", render (runtimeAbi ourOps declarations.helpers))
      , ("runtime" ::: ["Generated", "idris_rt_ops.h"], render (runtimeOps ourOps declarations.helpers))
      , (generated "Resources.h.inc", render (resourcesHeader declarations.resources))
      , (generated "Effects.h.inc", render (effectsHeader ourOps))
      , (generated "Effects.cpp.inc", render (effectsDefinitions ourOps))
-     , (generated "Rewrites.h.inc", render (rewritesHeader declarations.rewrites ourOps declarations.skeleton))
-     , (generated "Hooks.h.inc", render (hooksHeader declarations.directives declarations.predicates declarations.interfaces declarations.types declarations.attributes))
-     , (generated "Pipeline.h.inc", render (pipelineHeader (fst (stepsOf Higher [] pipeline)))) ]
+     , (generated "SkeletonRules.h.inc", render (skeletonRulesHeader declarations.skeleton))
+     , (generated "Rewrites.h.inc", render (rewritesHeader declarations.rewrites ourOps declarations.admitted declarations.skeleton))
+     , (generated "Laws.h.inc", render (lawsHeader ourOps declarations.admitted))
+     , (generated "Hooks.h.inc", render (hooksHeader declarations.directives declarations.predicates declarations.interfaces declarations.types declarations.attributes ourOps))
+     , (generated "Pipeline.h.inc", render (pipelineHeader (fst (stepsOf Higher [] pipeline))))
+     , (generated "Actions.h.inc", render (actionsHeader everyAction)) ]
   ++ map (\t => (generated (identText t ++ ".h.inc"), render (specializationHeader t ourOps))) (templatesOf ourOps)
   ++ map areaHeader declarations.headers
   ++ [ ("compiler" ::: ["src", "IdrisMLIR", "Dialect", "Idr.idr"], render (buildersModule ourOps))

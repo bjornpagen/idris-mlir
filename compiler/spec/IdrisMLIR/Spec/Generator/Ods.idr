@@ -186,6 +186,9 @@ export
 propertyC : PropertyC -> String
 propertyC (EnumProperty e) = "EnumProp<" ++ enumRecord e ++ ">"
 propertyC (DefaultedEnumProperty e c) = "DefaultValuedProp<EnumProp<" ++ enumRecord e ++ ">, " ++ quoted (codeText c) ++ ">"
+propertyC (HandProperty c d dflt) =
+  "Idr_HandProperty<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ", "
+    ++ quoted (codeText dflt) ++ ", " ++ quoted (lineText d.doc.summary) ++ ">"
 
 ------------------------------------------------------------------------------
 -- Effects
@@ -280,6 +283,7 @@ traitOds AttrSizedResultSegments = "AttrSizedResultSegments"
 traitOds PropagateControlFlowBreak = "PropagateControlFlowBreak"
 traitOds ReportTrackingListenerFailures = "ReportTrackingListenerFailuresOpTrait"
 traitOds TokenProducer = "TokenProducerTrait"
+traitOds TokenConsumer = "TokenConsumerTrait"
 traitOds (HasNestedTerminator ps) = "HasNestedTerminator<[" ++ joinWith ", " (map (\p => quoted ("::idr::" ++ opRefClass p)) (forget ps)) ++ "]>"
 traitOds (OurTrait d) = traitRecord d
 traitOds (HasParent (p ::: [])) = "HasParent<" ++ quoted ("::idr::" ++ opRefClass p) ++ ">"
@@ -289,14 +293,24 @@ traitOds (ImplicitTerminator p) = "SingleBlockImplicitTerminator<" ++ quoted (":
 traitOds (ResultUsesMaxOf res from) =
   "Idr_ResultUsesMax<\"" ++ joinWith ", " (map (decimal . finToNat) (res :: from)) ++ "\">"
 
+||| ODS's class that declares an interface's methods on a class of what it
+||| is over: an op's, a type's or an attribute's.
 export
-interfaceUseOds : InterfaceUse -> String
-interfaceUseOds (Declares u []) = identText (upInterfaceRecord u)
-interfaceUseOds (Declares u ms) =
-  "DeclareOpInterfaceMethods<" ++ identText (upInterfaceRecord u) ++ ", [" ++ joinWith ", " (map (quoted . identText) ms) ++ "]>"
-interfaceUseOds (Implements d []) = interfaceRecord d
-interfaceUseOds (Implements d ms) =
-  "DeclareOpInterfaceMethods<" ++ interfaceRecord d ++ ", [" ++ joinWith ", " (map (quoted . identText) ms) ++ "]>"
+declareMethods : InterfaceSubject -> String
+declareMethods OverOps = "DeclareOpInterfaceMethods"
+declareMethods OverTypes = "DeclareTypeInterfaceMethods"
+declareMethods OverAttributes = "DeclareAttrInterfaceMethods"
+
+||| An interface taken by a declaration over `subject`, with the methods its
+||| class declares.
+export
+interfaceUseOds : InterfaceSubject -> InterfaceUse -> String
+interfaceUseOds _ (Declares u []) = identText (upInterfaceRecord u)
+interfaceUseOds subject (Declares u ms) =
+  declareMethods subject ++ "<" ++ identText (upInterfaceRecord u) ++ ", [" ++ joinWith ", " (map (quoted . identText) ms) ++ "]>"
+interfaceUseOds _ (Implements d []) = interfaceRecord d
+interfaceUseOds subject (Implements d ms) =
+  declareMethods subject ++ "<" ++ interfaceRecord d ++ ", [" ++ joinWith ", " (map (quoted . identText) ms) ++ "]>"
 
 export
 speculationOds : Speculation -> List String
@@ -328,7 +342,7 @@ opTraits op effs =
   ++ concatMap lawOds op.laws
   ++ effectTraits effs
   ++ speculationOds op.speculation
-  ++ map interfaceUseOds op.interfaces
+  ++ map (interfaceUseOds OverOps) op.interfaces
   ++ meaningTraits op.meaning
   ++ (case op.guards of
         [] => []
@@ -471,18 +485,27 @@ builderFields bs d =
                      ++ ["];"]
   in skip ++ decls
 
-||| A member's C++ declaration.
+||| A member function's declaration, after its template head if any.
 export
-memberDecl : Member -> String
-memberDecl m =
-  let params = joinWith ", " (map (\p => codeText p.type ++ " " ++ identText p.name) m.params)
-      head = case m.binding of
-               OnClass => "static " ++ codeText m.result
-               _ => codeText m.result
-      tail = case m.binding of
+functionDecl : Binding -> Code -> Ident -> List Param -> String
+functionDecl binding result name ps =
+  let params = joinWith ", " (map (\p => codeText p.type ++ " " ++ identText p.name) ps)
+      head = case binding of
+               OnClass => "static " ++ codeText result
+               _ => codeText result
+      tail = case binding of
                OnObjectConst => ") const;"
                _ => ");"
-  in head ++ " " ++ identText m.name ++ "(" ++ params ++ tail
+  in head ++ " " ++ identText name ++ "(" ++ params ++ tail
+
+||| A member's C++ declaration: a function, or a function template whose
+||| every type parameter its concept constrains.
+export
+memberDecl : Member -> String
+memberDecl (MkMember binding result name ps) = functionDecl binding result name ps
+memberDecl (MkTemplateMember tps binding result name ps) =
+  "template <" ++ joinWith ", " (map (\t => codeText t.concept ++ " " ++ identText t.name) (forget tps)) ++ "> "
+    ++ functionDecl binding result name ps
 
 export
 membersField : List Member -> Lines
@@ -535,24 +558,27 @@ export
 paramCppType : ParamKind -> String
 paramCppType TypeValue = "::mlir::Type"
 paramCppType AttrValue = "::mlir::Attribute"
-paramCppType (EnumValue e) = "::idr::" ++ identText e.name
+paramCppType (EnumValue e) = "::idr::" ++ identText e.enum.name
 paramCppType StringValue = "::llvm::StringRef"
 paramCppType IntegerValue = "::llvm::APInt"
 paramCppType CountValue = "uint64_t"
 paramCppType (ListOf k) = "::llvm::ArrayRef<" ++ paramCppType k ++ ">"
 paramCppType (HandValue c _) = codeText c
+paramCppType (HandArray c _) = "::llvm::ArrayRef<" ++ codeText c ++ ">"
 
 export
 paramKindOds : ParamKind -> String
 paramKindOds TypeValue = "\"::mlir::Type\""
 paramKindOds AttrValue = "\"::mlir::Attribute\""
-paramKindOds (EnumValue e) = "EnumParameter<" ++ enumRecord e ++ ">"
+paramKindOds (EnumValue e) = "EnumParameter<" ++ enumRecord e.enum ++ ">"
 paramKindOds StringValue = "StringRefParameter<>"
 paramKindOds IntegerValue = "APIntParameter<\"\">"
 paramKindOds CountValue = "\"uint64_t\""
 paramKindOds (ListOf k) = "ArrayRefParameter<" ++ quoted (paramCppType k) ++ ", \"\">"
 paramKindOds (HandValue c d) =
   "Idr_HandParameter<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
+paramKindOds (HandArray c d) =
+  "Idr_HandArrayParameter<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ">"
 
 export
 parameterOds : Parameter -> String
@@ -590,8 +616,14 @@ verifierFields AnyParameters = []
 verifierFields VerifiesParameters = ["let genVerifyDecl = 1;"]
 
 export
-interfaceTraits : List InterfaceUse -> List String
-interfaceTraits = map interfaceUseOds
+interfaceTraits : InterfaceSubject -> List InterfaceUse -> List String
+interfaceTraits subject = map (interfaceUseOds subject)
+
+||| A hand storage: ODS declares the class and the hand unit defines it.
+export
+storageFields : Storage -> Lines
+storageFields GeneratedStorage = []
+storageFields HandStorage = ["let genStorageClass = 0;"]
 
 ||| A fact's answer, printed as the method's one return.
 export
@@ -638,11 +670,12 @@ export
 typeOds : TypeDef p -> Lines
 typeOds t =
   ["def " ++ typeRecord t ++ " : Idr_Type<" ++ quoted (camelMnemonic t.mnemonic) ++ ", "
-     ++ quoted (mnemonicText t.mnemonic) ++ ", [" ++ joinWith ", " (interfaceTraits t.interfaces ++ factsTraits t.facts) ++ "]> {"]
+     ++ quoted (mnemonicText t.mnemonic) ++ ", [" ++ joinWith ", " (interfaceTraits OverTypes t.interfaces ++ factsTraits t.facts) ++ "]> {"]
   ++ indent 2 (docFields t.doc
                ++ ["let parameters = " ++ dag "ins" (map parameterOds (toList t.params)) ++ ";"]
                ++ syntaxFields t.params t.syntax
                ++ verifierFields t.verifier
+               ++ storageFields t.storage
                ++ membersField t.members
                ++ factsFields t.facts)
   ++ ["}", ""]
@@ -651,11 +684,12 @@ export
 attributeOds : AttrDef p -> Lines
 attributeOds x =
   ["def " ++ attrRecord x ++ " : Idr_Attr<" ++ quoted (camelMnemonic x.mnemonic) ++ ", "
-     ++ quoted (mnemonicText x.mnemonic) ++ ", [" ++ joinWith ", " (interfaceTraits x.interfaces) ++ "]> {"]
+     ++ quoted (mnemonicText x.mnemonic) ++ ", [" ++ joinWith ", " (interfaceTraits OverAttributes x.interfaces) ++ "]> {"]
   ++ indent 2 (docFields x.doc
                ++ ["let parameters = " ++ dag "ins" (map (typedParameterOds x.typed) (indexed x.params)) ++ ";"]
                ++ syntaxFields x.params x.syntax
                ++ verifierFields x.verifier
+               ++ storageFields x.storage
                ++ membersField x.members)
   ++ ["}", ""]
 
@@ -683,13 +717,15 @@ methodOds subject m =
                OverAttributes => "$_attr"
       args = map (\p => quoted (codeText p.type) ++ ":$" ++ identText p.name) m.params
       callArgs = map (\p => identText p.name) m.params
+      given = case m.binding of
+                PerObject => self :: callArgs
+                PerClass => callArgs
+      calls : Ident -> String
+      calls fn = ", [{}], [{ return ::idr::" ++ identText fn ++ "(" ++ joinWith ", " given ++ "); }]"
       fallback = case m.fallback of
                    EveryImplementer => ""
-                   Delegates fn =>
-                     let given = case m.binding of
-                                   PerObject => self :: callArgs
-                                   PerClass => callArgs
-                     in ", [{}], [{ return ::idr::" ++ identText fn ++ "(" ++ joinWith ", " given ++ "); }]"
+                   Delegates fn => calls fn
+                   DelegatesByClass fn => calls fn
   in kind ++ "<" ++ quoted (lineText m.doc) ++ ", " ++ quoted (codeText m.result) ++ ", "
        ++ quoted (identText m.name) ++ ", " ++ dag "ins" args ++ fallback ++ ">"
 
@@ -786,6 +822,26 @@ baseClasses =
   , "    : AttrOrTypeParameter<cppType, \"\"> {"
   , "  let parser = \"::idr::parse\" # directive # \"($_parser)\";"
   , "  let printer = \"::idr::print\" # directive # \"($_printer, $_self)\";"
+  , "}"
+  , ""
+  , "// An array of a hand class's elements: held as a view the storage copies,"
+  , "// parsed into the vector that owns them."
+  , "class Idr_HandArrayParameter<string element, string directive>"
+  , "    : ArrayRefParameter<element, \"\"> {"
+  , "  let parser = \"::idr::parse\" # directive # \"($_parser)\";"
+  , "  let printer = \"::idr::print\" # directive # \"($_printer, $_self)\";"
+  , "}"
+  , ""
+  , "// A property of a hand class: held as itself, its attribute form, its hash"
+  , "// and its bytecode the hooks its directive names, which a hand unit defines."
+  , "class Idr_HandProperty<string cppType, string directive, string default, string desc>"
+  , "    : Property<cppType, desc> {"
+  , "  let convertToAttribute = \"return ::idr::convert\" # directive # \"ToAttribute($_ctxt, $_storage);\";"
+  , "  let convertFromAttribute = \"return ::idr::convert\" # directive # \"FromAttribute($_storage, $_attr, $_diag);\";"
+  , "  let hashProperty = \"::idr::hash\" # directive # \"($_storage)\";"
+  , "  let writeToMlirBytecode = \"::idr::write\" # directive # \"($_writer, $_storage);\";"
+  , "  let readFromMlirBytecode = \"if (::mlir::failed(::idr::read\" # directive # \"($_reader, $_storage))) return ::mlir::failure();\";"
+  , "  let defaultValue = default;"
   , "}"
   , "" ]
 

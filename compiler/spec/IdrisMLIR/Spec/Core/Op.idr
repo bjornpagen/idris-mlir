@@ -171,6 +171,8 @@ data Trait : (i, o : Nat) -> Type where
   ReportTrackingListenerFailures : Trait i o
   ||| An op whose results or region arguments may be upstream's `token`.
   TokenProducer : Trait i o
+  ||| An op whose operands may be upstream's `token`.
+  TokenConsumer : Trait i o
   ||| An op whose nested regions end only in the named terminators.
   HasNestedTerminator : List1 OpRef -> Trait i o
   OurTrait : TraitDef -> Trait i o

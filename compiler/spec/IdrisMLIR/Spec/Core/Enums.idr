@@ -91,6 +91,36 @@ position c x = elemIndex (c.complete x)
     elemIndex (There later) = S (elemIndex later)
 
 ------------------------------------------------------------------------------
+-- A closed set the frontend writes values of
+------------------------------------------------------------------------------
+
+||| Where the Idris side finds a closed set it writes values of: the module
+||| that declares its type, the type, and the module and name of the closed
+||| set, whose order gives a value its position. The generated encoder
+||| takes the value typed and writes its position, so the wire form is
+||| written once and the frontend never holds a value as a bare number. A
+||| wrong name is the generated module's compile error.
+public export
+record Source where
+  constructor MkSource
+  typeHome : List1 Ident
+  typeName : Ident
+  setHome : List1 Ident
+  setName : Ident
+
+||| A closed set a value of the dialect holds and the frontend writes: the
+||| C++ enum, and where the Idris side finds it.
+public export
+record ImportedEnum where
+  constructor MkImportedEnum
+  enum : EnumDef
+  source : Source
+
+public export
+imported : Closed a -> Source -> ImportedEnum
+imported c s = MkImportedEnum (enumDef c) s
+
+------------------------------------------------------------------------------
 -- Tables
 ------------------------------------------------------------------------------
 

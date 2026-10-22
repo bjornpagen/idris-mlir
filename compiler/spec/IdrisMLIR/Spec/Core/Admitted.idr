@@ -20,10 +20,11 @@ public export
 data Writer = FrontendWrites | PassesOnly
 
 ||| A law of an upstream op that upstream has no trait for, so the e-graph
-||| reads it here (associativity; commutativity and the rest are upstream's
-||| traits, which the backend reads).
+||| and the accumulator read it here: associativity, and the identity an
+||| operand of which leaves the other as it is (commutativity and the rest
+||| are upstream's traits).
 public export
-data UpLaw = UpAssociative
+data UpLaw = UpAssociative | UpIdentity Integer
 
 public export
 record Admitted where

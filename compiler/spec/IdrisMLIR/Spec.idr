@@ -23,8 +23,25 @@ import IdrisMLIR.Spec.Arrays.Declarations as Arrays
 import IdrisMLIR.Spec.Ops.Declarations as Ops
 import IdrisMLIR.Spec.Counting.Declarations as Counting
 import IdrisMLIR.Spec.Closures.Declarations as Closures
+import IdrisMLIR.Spec.Tail.Declarations as Tail
+
+-- The modules each area's declarations are written from, named here too so
+-- the root names every module of the specification.
+import IdrisMLIR.Spec.Counting.Types
+import IdrisMLIR.Spec.Families.Dialect
+import IdrisMLIR.Spec.Families.Group
+import IdrisMLIR.Spec.Families.Layout
+import IdrisMLIR.Spec.Families.Terms
+import IdrisMLIR.Spec.Functions.Copy
+import IdrisMLIR.Spec.Functions.GivenBack
+import IdrisMLIR.Spec.Functions.LivesIn
+import IdrisMLIR.Spec.Runtime.Clocks
+import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Runtime.Helpers
+import IdrisMLIR.Spec.Runtime.Layout
 
 import Data.List
+import Data.List.Elem
 import Data.List1
 import Data.So
 import Data.Vect
@@ -94,6 +111,66 @@ vectorizeLanes = MkOp
       "For each linalg.generic of `target` on buffers with a parallel dimension that the\nvectorizer takes: lanes along its last parallel dimension (the module's\nmax_vector_op_width for its CPU over the widest word the loop computes) and one\nelement along every other, the lane dimension's tile loop peeled, the full tiles\nvectorized without masks and the last one masked. Any other op, or a loop the\nvectorizer refuses, is left as it is. `vectorized` holds each function that now\ncomputes on lanes, once. Consumes `target`."
   }
 
+||| The kind of word a runtime component is, which decides how its count is
+||| kept and so which runtime entry counts it: no count, or one of the
+||| counted kinds the runtime has an entry for. The counted kinds are the
+||| runtime's own, so a kind the runtime adds is a case of this, and of the
+||| lattice the lowering joins kinds in.
+public export
+data ComponentWord = NoCount | CountedAs WordKind
+
+public export
+componentWordClosed : Closed ComponentWord
+componentWordClosed = MkClosed
+  { name = ident "Word"
+  , shape = OneOf
+  , every = NoCount ::: [CountedAs Helpers.CellWord, CountedAs Helpers.MaybeCellWord, CountedAs Helpers.BigWord, CountedAs Helpers.AnyWord]
+  , complete = \case
+      NoCount => Here
+      CountedAs Helpers.CellWord => There Here
+      CountedAs Helpers.MaybeCellWord => There (There Here)
+      CountedAs Helpers.BigWord => There (There (There Here))
+      CountedAs Helpers.AnyWord => There (There (There (There Here)))
+  , describe = \case
+      NoCount => MkCase (ident "Uncounted") (word "uncounted" ::: []) (line "no count is kept of it")
+      CountedAs Helpers.CellWord => MkCase (ident "Cell") (word "cell" ::: []) (line "a pointer to a cell, never null")
+      CountedAs Helpers.MaybeCellWord => MkCase (ident "MaybeCell") (word "maybe_cell" ::: []) (line "a pointer to a cell, or null where a constructor leaves the slot empty")
+      CountedAs Helpers.BigWord => MkCase (ident "Big") (word "big" ::: []) (line "a big's word: a small integer or a cell's address")
+      CountedAs Helpers.AnyWord => MkCase (ident "Any") (word "any" ::: []) (line "a slot that may be any of these")
+  , doc = brief (line "the kind of word a runtime component is")
+  }
+
+||| The least kind two kinds both stand in: no count is the bottom, a cell
+||| and a slot that may be empty join to the latter, and any other two
+||| different kinds join to any.
+public export
+joinWord : ComponentWord -> ComponentWord -> ComponentWord
+joinWord NoCount b = b
+joinWord a NoCount = a
+joinWord (CountedAs x) (CountedAs y) = CountedAs (joinCounted x y)
+  where
+    joinCounted : WordKind -> WordKind -> WordKind
+    joinCounted Helpers.CellWord Helpers.CellWord = Helpers.CellWord
+    joinCounted Helpers.CellWord Helpers.MaybeCellWord = Helpers.MaybeCellWord
+    joinCounted Helpers.MaybeCellWord Helpers.CellWord = Helpers.MaybeCellWord
+    joinCounted Helpers.MaybeCellWord Helpers.MaybeCellWord = Helpers.MaybeCellWord
+    joinCounted Helpers.BigWord Helpers.BigWord = Helpers.BigWord
+    joinCounted _ _ = Helpers.AnyWord
+
+||| The kinds, and their join as a table the lowering reads by load.
+public export
+wordsHeader : Header
+wordsHeader = MkHeader (ident "Words")
+  [ ( ident "idr" ::: [ident "layout"]
+    , [ EnumOf (enumDef componentWordClosed)
+      , Array2 (ident "wordJoin") (EnumColumn (enumDef componentWordClosed))
+          (map (\a => map (\b => CaseCell (caseRef componentWordClosed (joinWord a b))) kinds) kinds)
+          (line "the least kind both stand in, by the kinds' positions") ] ) ]
+  (brief (line "the kinds of word a runtime component is, and their lattice"))
+  where
+    kinds : List ComponentWord
+    kinds = forget componentWordClosed.every
+
 ||| What the specification's core declares of the dialect: the stages a
 ||| program passes through, the refusal rules and their facts, the value
 ||| facts' interface, and the traits of ours an op may carry.
@@ -106,6 +183,7 @@ core = { ops := [ SomeOp vectorizeLanes ]
        , attributes := [ SomeAttr binderAttr ]
        , headers := [ MkHeader "Rules" [(ident "idr" ::: [], [TableOf ruleTable])]
                         (brief "the facts of each refusal rule: its category and where it is decided")
+                    , wordsHeader
                     , MkHeader "StageFacts"
                         [(ident "idr" ::: [], [ EnumOf (enumDef closuresClosed), EnumOf (enumDef holdsClosed)
                                               , EnumOf (enumDef countingClosed), EnumOf (enumDef functionsClosed)
@@ -129,6 +207,7 @@ areas =
   , Ops.declarations
   , Counting.declarations
   , Closures.declarations
+  , Tail.declarations
   ]
 
 ||| The dialect's declarations, whole.
@@ -136,10 +215,11 @@ public export
 declarations : Declarations
 declarations = foldr union nothing areas
 
-||| Every op's name in the IR.
+||| Every op's name in the IR. The root's own declarations, which every area
+||| module's share a name with.
 public export
 opNames : List String
-opNames = map (\(SomeOp op) => opName op) declarations.ops
+opNames = map (\(SomeOp op) => opName op) (Spec.declarations).ops
 
 ||| Whether no string occurs twice.
 public export

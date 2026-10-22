@@ -44,7 +44,10 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Families.Group
         , IdrisMLIR.Spec.Families.Layout
         , IdrisMLIR.Spec.Families.Terms
+        , IdrisMLIR.Spec.Functions.Copy
         , IdrisMLIR.Spec.Functions.Declarations
+        , IdrisMLIR.Spec.Functions.GivenBack
+        , IdrisMLIR.Spec.Functions.LivesIn
         , IdrisMLIR.Spec.Functions.Parameters
         , IdrisMLIR.Spec.Functions.Tail
         , IdrisMLIR.Spec.Functions.Termination
@@ -70,6 +73,8 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Runtime.Declarations
         , IdrisMLIR.Spec.Runtime.Endings
         , IdrisMLIR.Spec.Runtime.Helpers
+        , IdrisMLIR.Spec.Runtime.Layout
+        , IdrisMLIR.Spec.Tail.Declarations
         , IdrisMLIR.Spec.Generator.Bytecode
         , IdrisMLIR.Spec.Generator.Cpp
         , IdrisMLIR.Spec.Generator.Idris

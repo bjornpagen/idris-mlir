@@ -22,10 +22,14 @@ public export
 data MethodBinding = PerObject | PerClass
 
 ||| What a method does when its implementer says nothing: every implementer
-||| defines it, or it calls the hand function `fn` with the object and the
-||| method's arguments.
+||| defines it; it calls the hand function `fn` with the object (an op as an
+||| `Operation *`, a type, an attribute) and the method's arguments, which
+||| the generator declares; or it calls the hand function template `fn` with
+||| the op as its own class, which a hand header declares before the
+||| interface, since only a template keeps the class the default is
+||| instantiated for, and the generator declares nothing.
 public export
-data MethodDefault = EveryImplementer | Delegates Ident
+data MethodDefault = EveryImplementer | Delegates Ident | DelegatesByClass Ident
 
 public export
 record Method where

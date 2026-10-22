@@ -314,6 +314,30 @@ namespace Symbol
   fromString s = MkSymbol s ok
 
 ------------------------------------------------------------------------------
+-- Bytes
+------------------------------------------------------------------------------
+
+||| A string's bytes in UTF-8, each character's one to four bytes before the
+||| next character's: what both hosts read a source file as, what a
+||| fingerprint hashes, and what the frontend writes and hashes. The one
+||| encoder, so no two readers of a string's bytes can disagree.
+export
+utf8 : String -> List Bits8
+utf8 s = foldr encode [] (unpack s)
+  where
+    byte : Int -> Bits8
+    byte = cast
+    encode : Char -> List Bits8 -> List Bits8
+    encode c rest =
+      let v = ord c in
+      if v < 0x80 then byte v :: rest
+      else if v < 0x800 then byte (0xC0 + v `div` 0x40) :: byte (0x80 + v `mod` 0x40) :: rest
+      else if v < 0x10000 then byte (0xE0 + v `div` 0x1000) :: byte (0x80 + (v `div` 0x40) `mod` 0x40)
+                                 :: byte (0x80 + v `mod` 0x40) :: rest
+      else byte (0xF0 + v `div` 0x40000) :: byte (0x80 + (v `div` 0x1000) `mod` 0x40)
+             :: byte (0x80 + (v `div` 0x40) `mod` 0x40) :: byte (0x80 + v `mod` 0x40) :: rest
+
+------------------------------------------------------------------------------
 -- Paths
 ------------------------------------------------------------------------------
 

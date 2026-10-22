@@ -4,11 +4,13 @@
 // printed ODS (idr/IR/Generated/*.td), with what the generated code needs
 // declared before it, in the order it needs it: the grades and the
 // lifetimes, the quantity handles builders take, the traits the ops are
-// built on, the effect tree's resources the ops' effects name, and the hand
-// hooks the printed ODS names (custom directives, predicates, codecs); then
-// the generated enums, attributes, dialect, interfaces, types and ops; then
-// each partial op's guards. Nothing here restates a fact of the
-// specification: every list over ops, types or cases is generated.
+// built on, the effect tree's resources the ops' effects name, a family's
+// declaration, and what functions and calls hold; then the generated enums,
+// attributes, dialect and types, the families' queries over them, the hand
+// hooks the printed ODS names (custom directives, predicates, codecs,
+// property hooks), the interfaces and the ops; then each partial op's
+// guards and each op's declared effects. Nothing here restates a fact of
+// the specification: every list over ops, types or cases is generated.
 #ifndef IDR_IR_IDRDIALECT_H
 #define IDR_IR_IDRDIALECT_H
 
@@ -48,8 +50,21 @@
 // The traits the generated ops are built on.
 #include "idr/IR/Traits.h"
 // The effect system's words and sets, the tree's states among them, which
-// the ops' printed effects and the effect interface name.
+// the ops' printed effects and the effect interface name; the template the
+// interface's default calls is declared there, before the interface.
 #include "idr/IR/Effects/Set.h"
+// A family's declaration, its index terms and sorts, which the generated
+// attributes' and types' parameters and members name. The one set of
+// constructors a data type leaves possible is defined with the queries over
+// the generated classes (Families.h); its members name it by reference, so
+// its name is enough here.
+#include "idr/IR/Families/Declaration.h"
+namespace idr::families {
+class TagSet;
+} // namespace idr::families
+// What idr.func and idr.call hold beyond their generated classes, which
+// their attributes and properties name: it reads types alone.
+#include "idr/IR/Func.h"
 
 // The dialect's enums (which Grades.h includes, the graded type's parameter
 // being one) and their counts, then its attributes: the dialect's helpers
@@ -67,20 +82,22 @@
 #define GET_TYPEDEF_CLASSES
 #include "idr/IR/IdrTypes.h.inc"
 
+// What the C++ reads of a family and a data type beyond their generated
+// classes, which it names.
+#include "idr/IR/Families/Families.h"
+
 // The hand hooks the printed ODS names (custom directives, predicates,
-// parameter codecs), after the types and attributes their signatures name;
-// their definitions are hand C++, a missing one a link error.
+// parameter codecs, property hooks), after the types and attributes their
+// signatures name; their definitions are hand C++, a missing one a link
+// error.
 #include "idr/IR/Generated/Hooks.h.inc"
 
-// What idr.func and idr.call hold beyond their generated classes, which
-// their attributes name: it reads types alone.
-#include "idr/IR/Func.h"
-
-// How a value moves and the control-flow vocabulary the ops name, after the
-// types its anchors hold; then the op interfaces, the flow interface among
-// them.
+// How a value moves and the join family's carrier, which the ops name,
+// after the types its anchors hold; then the op interfaces, the flow
+// interface among them. The control flow's skeleton rules, which name the
+// ops, are their own header's (Control/Control.h).
 #include "idr/IR/FlowEdges.h"
-#include "idr/IR/Control/Control.h"
+#include "idr/IR/Control/Family.h"
 #include "idr/IR/IdrInterfaces.h.inc"
 
 // The traits the ops' meanings give them: the one runtime fold, inline
@@ -98,6 +115,9 @@
 #include "idr/IR/Generated/Guards.h.inc"
 #include "idr/IR/Effects/Query.h"
 #include "idr/IR/Generated/Effects.h.inc"
+
+// The site a crash a pass builds carries, read off a location.
+#include "idr/IR/Ops/Sites.h"
 
 namespace idr {
 
@@ -118,6 +138,15 @@ mlir::InFlightDiagnostic refuse(mlir::Operation *op, Rule rule);
 // diagnostic: a diagnostic that is no refusal is the one case the metadata
 // lacks a rule, which the problem has.
 std::optional<Rule> refusalRule(mlir::Diagnostic &diagnostic);
+
+namespace laws {
+// The identity of `op`'s operation, as the constant the dialect
+// materializes at its result's type, where the specification calls the
+// operation exactly associative with an identity (Generated/Laws.h.inc):
+// what an accumulator starts from. Nothing for any other op, and nothing at
+// a type the identity is no value of.
+std::optional<mlir::Attribute> identityOf(mlir::Operation *op);
+} // namespace laws
 
 namespace detail {
 // Adds the dialect's asm interface: the aliases of its families.

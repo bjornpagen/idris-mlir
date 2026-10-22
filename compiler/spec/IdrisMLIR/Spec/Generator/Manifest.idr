@@ -17,32 +17,19 @@ import Data.List1
 
 %default total
 
-||| The bytes of a character in UTF-8: the specification's text is ASCII, a
-||| source file's comment may not be, and both hosts read files as UTF-8.
-export
-utf8 : Char -> List Bits64
-utf8 c =
-  let n = cast {to = Bits64} (ord c)
-  in if n < 0x80 then [n]
-     else if n < 0x800 then [0xC0 .|. shiftR n 6, 0x80 .|. (n .&. 0x3F)]
-     else if n < 0x10000 then [0xE0 .|. shiftR n 12, 0x80 .|. (shiftR n 6 .&. 0x3F), 0x80 .|. (n .&. 0x3F)]
-     else [0xF0 .|. shiftR n 18, 0x80 .|. (shiftR n 12 .&. 0x3F), 0x80 .|. (shiftR n 6 .&. 0x3F), 0x80 .|. (n .&. 0x3F)]
-
 ||| FNV-1a over 64 bits: a pure function of the bytes, the same on both
 ||| hosts, which wrap a 64-bit product alike.
 export
-fnv : Bits64 -> List Char -> Bits64
+fnv : Bits64 -> List Bits8 -> Bits64
 fnv h [] = h
-fnv h (c :: cs) = fnv (step h (utf8 c)) cs
-  where
-    step : Bits64 -> List Bits64 -> Bits64
-    step x [] = x
-    step x (b :: bs) = step (xor x b * 0x100000001b3) bs
+fnv h (b :: bs) = fnv (xor h (cast b) * 0x100000001b3) bs
 
-||| A text's fingerprint, sixteen hexadecimal digits.
+||| A text's fingerprint, sixteen hexadecimal digits: of its UTF-8, since the
+||| specification's text is ASCII but a source file's comment may not be,
+||| and both hosts read files as UTF-8.
 export
 fingerprint : String -> String
-fingerprint s = hex64 (integerToNat (cast {to = Integer} (fnv 0xcbf29ce484222325 (unpack s))))
+fingerprint s = hex64 (integerToNat (cast {to = Integer} (fnv 0xcbf29ce484222325 (utf8 s))))
 
 ||| The manifest's text: the specification's and the generator's
 ||| fingerprints, then each output's, in the outputs' order.

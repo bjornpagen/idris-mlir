@@ -3,12 +3,14 @@
 ||| A pass, as the pipeline and its registration read it: its name, the op
 ||| it runs on, the stages it requires and leaves, its kind (decide, apply,
 ||| restructure, or check), what it does to the program graph, its counters,
-||| and the dialects it loads. Only a test's checks are options: nothing
-||| selects how a program is compiled. Its C++ base, its constructor and its
+||| the actions it takes, the atoms it may add to a function's row, and the
+||| dialects it loads. Only a test's checks are options: nothing selects how
+||| a program is compiled. Its C++ base, its constructor and its
 ||| registration are printed from this.
 module IdrisMLIR.Spec.Pipeline.Pass
 
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Effects.Atom
 import IdrisMLIR.Spec.Pipeline.Stage
 
 import Data.List
@@ -87,6 +89,22 @@ record Statistic where
   argument : Line
   doc : Line
 
+||| A transform a pass takes as an action of MLIR's action framework: its
+||| tag after `idr-` (`optimize-node` is `idr-optimize-node`), by which a
+||| profile lists it and a debug counter skips it, and what its unit is.
+||| Only a transform is one: a skipped one leaves the IR as it was, and
+||| valid, so a solve's unit never is.
+public export
+record Action where
+  constructor MkAction
+  tag : List1 Word
+  doc : Line
+
+||| The action's tag as MLIR's action framework reads it.
+public export
+actionTag : Action -> String
+actionTag a = "idr-" ++ concat (intersperse "-" (map wordText (forget a.tag)))
+
 ||| The dialects a pass may create ops of, which its registration loads.
 public export
 data Loads
@@ -117,8 +135,9 @@ public export
 data Options = NoOptions | Holds
 
 ||| How a pass is made: by its generated constructor, registered with the
-||| others; or, for a step one pass runs inside another, by a hand factory
-||| in a namespace given what the outer pass holds, never registered.
+||| others; or, for a step one pass runs inside another or the pipeline
+||| runs around a nest, by a hand factory in a namespace given what its
+||| maker holds, never registered.
 public export
 data Construction = Registered | MadeBy CppName (List Ident)
 
@@ -134,6 +153,13 @@ record Pass where
   kind : PassKind
   graph : GraphEffect
   statistics : List Statistic
+  actions : List Action
+  ||| The atoms a pass on functions may add to its function's row and its
+  ||| calls': the pipeline widens every row by them before the nest the
+  ||| pass runs in and writes the rows after it, so each function's row
+  ||| covers its body while its siblings run. A pass on the program or the
+  ||| module that adds effects writes the rows itself and adds none here.
+  adds : List Atom
   options : Options
   loads : List Loads
   construction : Construction

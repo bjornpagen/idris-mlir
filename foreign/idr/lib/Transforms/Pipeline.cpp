@@ -7,9 +7,13 @@
 // run; a test runs a slice between two stages of the same table.
 
 #include "idr/Transforms/Pipeline.h"
+#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Target/Target.h"
+#include "idr/Transforms/Effects.h"
 
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/Transform/Transforms/Passes.h"
 #include "mlir/Pass/Pass.h"
@@ -19,10 +23,52 @@
 
 #include "idr/IR/Generated/Pipeline.h.inc"
 
+namespace idr {
+#define GEN_PASS_DEF_IDRWIDENROWS
+#define GEN_PASS_DEF_IDRWRITEROWS
+#include "idr/Transforms/InnerPasses.h.inc"
+} // namespace idr
+
 std::unique_ptr<mlir::Pass> idr::scheduleInterpreter() {
   mlir::transform::InterpreterPassOptions schedule;
   schedule.entryPoint = idr::target::vectorizeSchedule.str();
   return mlir::transform::createInterpreterPass(schedule);
+}
+
+namespace {
+
+// The atoms the nest after it may add, read from the passes' records; the
+// widening changes no op and keeps every analysis.
+struct WidenRows : idr::impl::IdrWidenRowsBase<WidenRows> {
+  explicit WidenRows(idr::effects::Row atoms) : atoms(atoms) {}
+
+  void runOnOperation() override {
+    idr::rows::widen(getOperation(), atoms);
+    markAllAnalysesPreserved();
+  }
+
+  idr::effects::Row atoms;
+};
+
+// The one writer of rows over the program graph, which it keeps, its work
+// the pass's.
+struct WriteRows : idr::impl::IdrWriteRowsBase<WriteRows> {
+  void runOnOperation() override {
+    idr::solver::Work work;
+    idr::rows::write(getOperation(), getAnalysis<idr::solver::ProgramGraph>(), work);
+    numWork += work.steps();
+    markAnalysesPreserved<idr::solver::ProgramGraph>();
+  }
+};
+
+} // namespace
+
+std::unique_ptr<mlir::Pass> idr::pipeline::createWidenRows(effects::Row atoms) {
+  return std::make_unique<WidenRows>(atoms);
+}
+
+std::unique_ptr<mlir::Pass> idr::pipeline::createWriteRows() {
+  return std::make_unique<WriteRows>();
 }
 
 // A step runs when the stages it runs between lie within the slice asked
@@ -45,6 +91,8 @@ struct Slice : mlir::PassPipelineOptions<Slice> {
 };
 
 } // namespace
+
+void idr::registerUpstreamPasses() { pipeline::registerUpstream(); }
 
 void idr::registerIdrPipeline() {
   mlir::PassPipelineRegistration<Slice>(

@@ -10,6 +10,8 @@ module IdrisMLIR.Spec.Core.Hooks
 
 import IdrisMLIR.Spec.Core.Text
 
+import Data.List1
+
 %default total
 
 ||| A parameter of a declared C++ function: its type's spelling and its
@@ -28,16 +30,26 @@ param = MkParam
 public export
 data Binding = OnObject | OnObjectConst | OnClass
 
+||| A type parameter of a member function template: the concept that
+||| constrains it, `::std::invocable<::mlir::OpOperand &>`, and its name. A
+||| callback is a template parameter a concept constrains, never a
+||| type-erased `function_ref`, so its call is inlined where it is made.
+public export
+record TypeParam where
+  constructor MkTypeParam
+  concept : Code
+  name : Ident
+
 ||| A member a class declares and a hand unit defines: a method MLIR finds
 ||| by its name on the class (an attribute's sub-element walk), or one the
-||| C++ calls on it. Its result's spelling, its name, its parameters.
+||| C++ calls on it, by its result's spelling, its name and its parameters;
+||| or a function template of at least one type parameter, whose definition
+||| a hand header gives, since a template is instantiated where it is used.
 public export
-record Member where
-  constructor MkMember
-  binding : Binding
-  result : Code
-  name : Ident
-  params : List Param
+data Member : Type where
+  MkMember : (binding : Binding) -> (result : Code) -> (name : Ident) -> (params : List Param) -> Member
+  MkTemplateMember : (typeParams : List1 TypeParam) -> (binding : Binding) -> (result : Code)
+                  -> (name : Ident) -> (params : List Param) -> Member
 
 ||| What one argument of a custom directive is, which decides the C++ type
 ||| its parse and print take: an operand, an operand group, its type, its
