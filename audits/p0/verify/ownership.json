@@ -198,7 +198,9 @@
   "foreign/idr/lib/Conversion/Frame.cpp",
   "foreign/idr/include/idr/Conversion/TailCallPlan.h",
   "foreign/idr/include/idr/Conversion/TailPosition.h",
-  "foreign/idr/include/idr/Conversion/Frame.h"
+  "foreign/idr/include/idr/Conversion/Frame.h",
+  "compiler/spec/IdrisMLIR/Spec/Tail/",
+  "foreign/idr/lib/IR/Tail/"
  ],
  "L11": [
   "runtime/",

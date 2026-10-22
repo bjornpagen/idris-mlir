@@ -1,6 +1,6 @@
 # Lane L10 (tail-frames): proper tail calls, frame stacks, TRMC
 
-**Exclusive write:** `foreign/idr/lib/IR/Tail.cpp`,
+**Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Tail/`, `foreign/idr/lib/IR/Tail/` (new: `!idr.dest` and `dest.write`, TRMC's destinations), `foreign/idr/lib/IR/Tail.cpp`,
 `foreign/idr/include/idr/IR/Tail.h`, `foreign/idr/lib/Transforms/Tail/`,
 `foreign/idr/include/idr/Transforms/Tail.h`,
 `foreign/idr/lib/Conversion/{TailCallPlan,TailCalls,TailPosition,Frame}.cpp`,
