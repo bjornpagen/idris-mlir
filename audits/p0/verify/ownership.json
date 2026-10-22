@@ -122,7 +122,9 @@
     "foreign/idr/include/idr/Transforms/Stack.h",
     "foreign/idr/lib/Transforms/Lifetimes/",
     "foreign/idr/include/idr/Transforms/Lifetimes.h",
-    "foreign/idr/lib/IR/Lifetimes/"
+    "foreign/idr/lib/IR/Lifetimes/",
+    "foreign/idr/include/idr/IR/Lifetimes/",
+    "foreign/idr/include/idr/Transforms/Lifetimes/"
   ],
   "L06": [
     "tools/",
