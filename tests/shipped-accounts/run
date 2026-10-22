@@ -84,7 +84,7 @@ fi
 while IFS= read -r object; do
   references "$object" | sed "s|^|${object##*/} |"
 done < "$work/objects" > "$work/referenced"
-if awk '{ print $2 }' "$work/referenced" | grep -qF 'idris_rt_inc_'; then
+if awk 'index($2, "idris_rt_inc_") { found = 1 } END { exit !found }' "$work/referenced"; then
   say "budget: an object calls an increment of the runtime, so a function is past it"
 else
   say "budget: no object calls an increment of the runtime, so no function is past it"
