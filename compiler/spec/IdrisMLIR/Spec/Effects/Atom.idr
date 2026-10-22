@@ -22,6 +22,7 @@ import Data.List
 import Data.List.Elem
 import Data.List.Quantifiers
 import Data.List1
+import Decidable.Equality
 
 %default total
 
@@ -193,39 +194,34 @@ data Kept : Kind -> Resource -> List Atom -> Type where
             -> Kept k r atoms
   KeptLocal : (0 local : Local k r) -> Kept k r []
 
+||| What keeping says of one kind on one state, whatever the effect names.
+0 KeptFor : Resource -> Kind -> Type
+KeptFor r k = (n : Target) -> Kept k r (project k r n)
+
+||| Each state's admitted kinds in the order `admittedKinds` lists them, each
+||| kept. One clause per state, its entries checked at a known kind and
+||| state, so each index reduces to a closed list and no case is a proof
+||| taken apart: the root admits nothing, so its entry is empty.
+0 keptOn : (r : Resource) -> All (KeptFor r) (admittedKinds r)
+keptOn Root = []
+keptOn Frame = [\_ => KeptLocal FrameCellMade]
+keptOn Heap = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl]]
+keptOn Contents = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl]]
+keptOn Count = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl], \_ => KeptLocal CountTakenOver]
+keptOn MemoState = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl]]
+keptOn Identity = [\_ => KeptLocal IdentityMade]
+keptOn IO = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl]]
+keptOn RuntimeState = [\_ => Projected IsNonEmpty [Refl]]
+keptOn Exit = [\_ => Projected IsNonEmpty [Refl]]
+keptOn Crash = [\_ => Projected IsNonEmpty [Refl]]
+keptOn Divergence = [\_ => Projected IsNonEmpty [Refl]]
+
 ||| Every effect an op of ours may declare is kept: the row never says less
-||| than the ops it summarizes.
+||| than the ops it summarizes. The kind's admission is its place in its
+||| state's list, which picks its entry.
 export
 0 kept : (k : Kind) -> (r : Resource) -> AdmitsKind r k -> (n : Target) -> Kept k r (project k r n)
-kept _ Root admitted _ = absurd admitted
-kept Allocate Frame Here _ = KeptLocal FrameCellMade
-kept _ Frame (There later) _ = absurd later
-kept Allocate Heap Here _ = Projected IsNonEmpty [Refl]
-kept Free Heap (There Here) _ = Projected IsNonEmpty [Refl]
-kept _ Heap (There (There later)) _ = absurd later
-kept Read Contents Here _ = Projected IsNonEmpty [Refl]
-kept Write Contents (There Here) _ = Projected IsNonEmpty [Refl]
-kept _ Contents (There (There later)) _ = absurd later
-kept Read Count Here _ = Projected IsNonEmpty [Refl]
-kept Write Count (There Here) _ = Projected IsNonEmpty [Refl]
-kept Free Count (There (There Here)) _ = KeptLocal CountTakenOver
-kept _ Count (There (There (There later))) _ = absurd later
-kept Read MemoState Here _ = Projected IsNonEmpty [Refl]
-kept Write MemoState (There Here) _ = Projected IsNonEmpty [Refl]
-kept _ MemoState (There (There later)) _ = absurd later
-kept Allocate Identity Here _ = KeptLocal IdentityMade
-kept _ Identity (There later) _ = absurd later
-kept Read IO Here _ = Projected IsNonEmpty [Refl]
-kept Write IO (There Here) _ = Projected IsNonEmpty [Refl]
-kept _ IO (There (There later)) _ = absurd later
-kept Read RuntimeState Here _ = Projected IsNonEmpty [Refl]
-kept _ RuntimeState (There later) _ = absurd later
-kept Write Exit Here _ = Projected IsNonEmpty [Refl]
-kept _ Exit (There later) _ = absurd later
-kept Write Crash Here _ = Projected IsNonEmpty [Refl]
-kept _ Crash (There later) _ = absurd later
-kept Write Divergence Here _ = Projected IsNonEmpty [Refl]
-kept _ Divergence (There later) _ = absurd later
+kept _ r admitted = indexAll {p = KeptFor r} admitted (keptOn r)
 
 ------------------------------------------------------------------------------
 -- The tables the C++ reads
