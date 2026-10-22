@@ -43,6 +43,7 @@ bool raisable(Type type) {
 
 namespace {
 
+using ownership::Made;
 using ownership::Term;
 using ownership::Via;
 
@@ -54,8 +55,7 @@ bool madeBy(Value value, Operation *op) {
   return cast<BlockArgument>(value).getOwner()->getParentOp() == op;
 }
 
-// Whether the op that makes a value declares it new.
-enum class Made : std::uint8_t { Elsewhere, New };
+// Whether the op that makes a value infers its type from its operands.
 enum class Inferred : std::uint8_t { No, Yes };
 
 // Whether every term is a part read or taken out, and there is one: what
@@ -187,7 +187,7 @@ private:
         role = Role::Read;
       std::uint32_t owner = role == Role::Same || role == Role::Called ? owners[at] : first;
       body.nodes.push_back({role, ownership::claimOfSource(body.values[at]),
-                            ownership::originOf<Local>(made[at] == Made::New, terms), owner,
+                            ownership::originOf<Local>(made[at], terms), owner,
                             last});
     }
     // Who reads each value: the values whose terms name it, and a Same

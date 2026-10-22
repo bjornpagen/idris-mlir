@@ -273,15 +273,18 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
           judged.push_back(arg);
   for (Value value : judged) {
     llvm::SmallVector<Term<Value>, 4> terms;
-    bool fresh = false;
+    Made made = Made::Elsewhere;
     forEachTerm(
         edges,
         [&](Value target, const Term<Value> &term) {
           if (target == value)
             terms.push_back(term);
         },
-        [&](Value target) { fresh |= target == value; });
-    Origin origin = originOf<Value>(fresh, terms);
+        [&](Value target) {
+          if (target == value)
+            made = Made::New;
+        });
+    Origin origin = originOf<Value>(made, terms);
     // A value no edge of the op names is forwarded into from its regions (a
     // region branch's results, held at each terminator), or bound by the
     // op's own rule (a token and fields a uniqueness match binds, held by

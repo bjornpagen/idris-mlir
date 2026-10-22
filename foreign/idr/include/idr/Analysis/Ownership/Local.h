@@ -100,6 +100,9 @@ struct Term {
 // elsewhere, or no edge of the op explains it.
 enum class Origin : std::uint8_t { Unexplained, Fresh, Flows };
 
+// Whether the op that makes a value declares it new (a Fresh edge).
+enum class Made : std::uint8_t { Elsewhere, New };
+
 // Each term of a value among `edges`, an op's declared edges, handed to
 // `term(target, Term<Value>)`, and each value the op makes new to
 // `fresh(target)`. Only edges that carry a reference are read; a parameter
@@ -250,10 +253,10 @@ std::optional<Unique> claimFrom(Origin origin, llvm::ArrayRef<Term<Source>> term
 // The origin a value's terms give it: made new by the op, or moved into
 // whole, or neither.
 template <class Source>
-Origin originOf(bool fresh, llvm::ArrayRef<Term<Source>> terms) {
+Origin originOf(Made made, llvm::ArrayRef<Term<Source>> terms) {
   // A part built or filled says what the value may claim, never that
   // anything moved into it whole.
-  if (fresh)
+  if (made == Made::New)
     return Origin::Fresh;
   bool whole = llvm::any_of(terms, [](const Term<Source> &term) {
     return term.via != Via::Built && term.via != Via::Filled;
