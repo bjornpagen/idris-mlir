@@ -14,7 +14,10 @@
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Footprint.h"
 
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 using namespace idr;
@@ -34,6 +37,31 @@ using Parts = footprint::Vector<Part>;
 // content, never a node of the IR.
 using Checked = footprint::DenseMap<Part, llvm::detail::DenseSetEmpty, llvm::DenseMapInfo<Part>,
                                     llvm::detail::DenseSetPair<Part>>;
+
+// That the carrier a closure's function has at its terms meets the one
+// the constant's type states: the same type, or two ranked tensors of one
+// element type and encoding whose axes are compatible by upstream's rule,
+// a `?` meeting any size. The function's view makes static a bare input's
+// axis its terms fix, while the constant keeps the `?` Idris's type gives
+// it; a call's operands meet its callee's view the same way.
+bool carrierMeets(Type view, Type stated) {
+  if (view == stated)
+    return true;
+  auto fixed = dyn_cast<RankedTensorType>(view);
+  auto open = dyn_cast<RankedTensorType>(stated);
+  return fixed && open && fixed.getElementType() == open.getElementType() &&
+         fixed.getEncoding() == open.getEncoding() &&
+         succeeded(verifyCompatibleShape(fixed.getShape(), open.getShape()));
+}
+
+// Each part's uses as Idris proved them, exactly, and its carrier as
+// carrierMeets has it.
+template <TypeSequence View, TypeSequence Stated>
+bool carriersMeet(View &&view, Stated &&stated) {
+  return llvm::equal(view, stated, [](Type a, Type b) {
+    return usesOf(a) == usesOf(b) && carrierMeets(unrestricted(a), unrestricted(b));
+  });
+}
 
 // That `closure`, a part of `type`, names a function that takes its
 // captures, which wait on `parts`, each at its parameter's type at the
@@ -68,11 +96,11 @@ LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, Closu
              << closure.getCallee() << ", where " << type << " is expected";
   } else {
     // The function's signature carries the grades reference counting
-    // added. The constant names the same carriers at the quantities Idris
-    // proved.
+    // added. The constant names carriers that meet them at the quantities
+    // Idris proved.
     auto actual = dyn_cast<FnType>(unrestricted(type));
-    if (!actual || !sameCarriers(inputs.drop_front(captures), actual.getInputs()) ||
-        !sameCarriers(results, actual.getResults()))
+    if (!actual || !carriersMeet(inputs.drop_front(captures), actual.getInputs()) ||
+        !carriersMeet(results, actual.getResults()))
       return op->emitOpError("has a closure of ")
              << closure.getCallee() << ", of type "
              << FnType::get(op->getContext(), inputs.drop_front(captures), results)
