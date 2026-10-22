@@ -5,8 +5,9 @@
 // version of a function the solve kept beyond the general one becomes a
 // grade copy, made by the specializer's one clone-and-key template right
 // after its original; then every version's values the solve proved
-// exclusive are graded `unique deep`, its signature with them, each call
-// goes to the version of its callee the solve sent it to, and wherever an
+// exclusive are graded `unique deep`, its signature with them, what each
+// take gives is inferred again from the value it takes, each call goes to
+// the version of its callee the solve sent it to, and wherever an
 // exclusive value meets a position that takes less (a call of the general
 // version, a result some return leaves shared, a region input another
 // predecessor shares), it is shared into it. Every type is made here, in
@@ -26,11 +27,11 @@
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Pipeline.h"
 
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "llvm/ADT/STLExtras.h"
-
-#include <tuple>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRRCEXCLUSIVE
@@ -64,15 +65,15 @@ idr::ownership::ContextCopies::Key keyOf(FunctionId owner, idr::FuncOp fn,
 // `version`'s exclusive values of `fn` graded `unique deep`, and its
 // signature with them: its entry arguments and its exclusive results. The
 // followed values are read whole before any is graded, since grading one
-// takes it out of what the walk follows. Returns how many it graded.
-unsigned writeVersion(idr::FuncOp fn, const Exclusivity::Version &version) {
+// takes it out of what the walk follows. Returns the values it graded.
+SmallVector<Value> writeVersion(idr::FuncOp fn, const Exclusivity::Version &version) {
   SmallVector<Value> values;
   idr::exclusivity::forEachFollowed(fn, [&](Value value, std::uint32_t) { values.push_back(value); });
-  unsigned graded = 0;
+  SmallVector<Value> graded;
   for (auto [local, value] : llvm::enumerate(values))
     if (version.exclusive.test(static_cast<unsigned>(local))) {
       value.setType(idr::ownership::claiming(value.getType(), idr::Unique::Deep));
-      ++graded;
+      graded.push_back(value);
     }
   SmallVector<Type> results(fn.getResultTypes());
   for (auto [index, type] : llvm::enumerate(results))
@@ -84,27 +85,48 @@ unsigned writeVersion(idr::FuncOp fn, const Exclusivity::Version &version) {
   return graded;
 }
 
-// `fn`'s row of the program graph: each distinct (callee, tail kind) once,
-// with how many of its calls have it, as the graph keeps rows.
-SmallVector<idr::solver::Call> rowOf(idr::FuncOp fn, const idr::solver::Editor &editor) {
-  SmallVector<idr::solver::Call> row;
-  fn.getBody().walk([&](idr::CallOp call) {
-    row.push_back({editor.id(call.getCalleeAttr()), call.getTailKind(), 1});
-  });
-  llvm::sort(row, [](const idr::solver::Call &a, const idr::solver::Call &b) {
-    return std::tuple(a.callee.index(), a.kind) < std::tuple(b.callee.index(), b.kind);
-  });
-  SmallVector<idr::solver::Call> merged;
-  for (const idr::solver::Call &call : row)
-    if (!merged.empty() && merged.back().callee == call.callee && merged.back().kind == call.kind)
-      ++merged.back().sites;
-    else
-      merged.push_back(call);
-  return merged;
+// Each op whose results its operands infer (a take: its token and its
+// fields) that takes a value the solve just graded, its results inferred
+// again from its operands as now graded: what a take gives is a fact of the
+// value it takes, never a second answer of the solve, so a take of a value
+// now `unique deep` gives the token that holds its cell. A field taken out
+// of such a value is unshared at the take whatever a later use does to it;
+// where the solve proved less of it over its life, it is shared into what
+// was proved right after the op, so every use reads the proved type and no
+// op past it takes another operand type. An op that admits its results at
+// any grade (a cell's init) keeps them, and one met twice is met again with
+// nothing left to change. A failed inference was reported at the op.
+LogicalResult reinfer(llvm::ArrayRef<Value> graded) {
+  SmallVector<InferTypeOpInterface> inferring;
+  for (Value value : graded)
+    for (Operation *user : value.getUsers())
+      if (auto infer = dyn_cast<InferTypeOpInterface>(user))
+        inferring.push_back(infer);
+  for (InferTypeOpInterface infer : inferring) {
+    Operation *op = infer.getOperation();
+    SmallVector<Type> inferred;
+    if (failed(infer.inferReturnTypes(op->getContext(), op->getLoc(), op->getOperands(),
+                                      op->getRawDictionaryAttrs(), op->getPropertiesStorage(),
+                                      op->getRegions(), inferred)))
+      return failure();
+    if (infer.isCompatibleReturnTypes(inferred, op->getResultTypes()))
+      continue;
+    OpBuilder builder(op->getContext());
+    builder.setInsertionPointAfter(op);
+    for (auto [result, type] : llvm::zip_equal(op->getResults(), inferred)) {
+      Type proved = result.getType();
+      if (proved == type)
+        continue;
+      result.setType(type);
+      auto shared = idr::CountShareOp::create(builder, op->getLoc(), proved, result);
+      result.replaceAllUsesExcept(shared.getResult(), shared);
+    }
+  }
+  return success();
 }
 
 struct Exclusive : idr::impl::IdrRcExclusiveBase<Exclusive> {
-  void runOnProgram(idr::ProgramOp program) override {
+  void runOnProgram(idr::ProgramOp program) {
     const Exclusivity &solved = getAnalysis<Exclusivity>();
     if (solved.brokeInvariant())
       return signalPassFailure();
@@ -128,11 +150,15 @@ struct Exclusive : idr::impl::IdrRcExclusiveBase<Exclusive> {
       }
     }
 
-    // Every version's values and signature, before any call reads a
-    // callee's.
+    // Every version's values and signature, and what its takes give,
+    // before any call reads a callee's.
     for (FunctionId fn : functions)
-      for (auto [version, op] : llvm::zip_equal(solved.versions(fn), versionOps[fn]))
-        numExclusive += writeVersion(op, version);
+      for (auto [version, op] : llvm::zip_equal(solved.versions(fn), versionOps[fn])) {
+        SmallVector<Value> graded = writeVersion(op, version);
+        numExclusive += graded.size();
+        if (failed(reinfer(graded)))
+          return signalPassFailure();
+      }
 
     // Every call to the version the solve sent it to, with its results
     // that version's; then every position met.
@@ -161,7 +187,7 @@ struct Exclusive : idr::impl::IdrRcExclusiveBase<Exclusive> {
         edited.emplace_back(editor.insert(copy), copy);
     }
     for (auto [id, op] : edited)
-      editor.setCallees(id, rowOf(op, editor));
+      editor.setCallees(id, idr::solver::rowOf(op, editor));
     std::move(editor).freeze();
     // A parameter now exclusive may carry a write of its own, and a copy's
     // calls are its version's: the one writer of rows makes every row its

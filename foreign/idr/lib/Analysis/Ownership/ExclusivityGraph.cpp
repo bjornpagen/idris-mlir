@@ -76,7 +76,7 @@ public:
       });
     });
     WalkResult walked = fn.walk([&](Operation *op) {
-      if (op->hasTrait<OpTrait::IsTerminator>() && op->getNumSuccessors() != 0) {
+      if (op->hasTrait<mlir::OpTrait::IsTerminator>() && op->getNumSuccessors() != 0) {
         op->emitOpError("internal error: exclusivity meets a terminator with block "
                         "successors before the lowering");
         return WalkResult::interrupt();

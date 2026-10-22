@@ -18,7 +18,7 @@ namespace idr {
 namespace {
 
 struct Knots : idr::impl::IdrKnotsBase<Knots> {
-  void runOnProgram(idr::ProgramOp program) override {
+  void runOnProgram(idr::ProgramOp program) {
     if (mlir::failed(idr::verify::knots(program, getAnalysis<idr::TypeGraph>())))
       return signalPassFailure();
     markAllAnalysesPreserved();

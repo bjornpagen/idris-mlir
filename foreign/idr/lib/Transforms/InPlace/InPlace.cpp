@@ -41,7 +41,6 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <array>
-#include <tuple>
 #include <vector>
 
 namespace idr {
@@ -435,27 +434,10 @@ private:
         edited.emplace_back(editor.insert(copy), copy);
     }
     for (auto [id, op] : edited)
-      editor.setCallees(id, rowOf(op, editor));
+      editor.setCallees(id, idr::solver::rowOf(op, editor));
     std::move(editor).freeze();
     idr::rows::write(program, graph);
     return success();
-  }
-
-  static SmallVector<idr::solver::Call> rowOf(idr::FuncOp fn, const idr::solver::Editor &editor) {
-    SmallVector<idr::solver::Call> row;
-    fn.getBody().walk([&](idr::CallOp call) {
-      row.push_back({editor.id(call.getCalleeAttr()), call.getTailKind(), 1});
-    });
-    llvm::sort(row, [](const idr::solver::Call &a, const idr::solver::Call &b) {
-      return std::tuple(a.callee.index(), a.kind) < std::tuple(b.callee.index(), b.kind);
-    });
-    SmallVector<idr::solver::Call> merged;
-    for (const idr::solver::Call &call : row)
-      if (!merged.empty() && merged.back().callee == call.callee && merged.back().kind == call.kind)
-        ++merged.back().sites;
-      else
-        merged.push_back(call);
-    return merged;
   }
 
   idr::ProgramOp program;
@@ -471,7 +453,7 @@ private:
 };
 
 struct InPlace : idr::impl::IdrInPlaceBase<InPlace> {
-  void runOnProgram(idr::ProgramOp program) override {
+  void runOnProgram(idr::ProgramOp program) {
     idr::solver::ProgramGraph &graph = getAnalysis<idr::solver::ProgramGraph>();
     Keeps keeps = keepsOf(graph);
     Summaries summaries = summariesOf(graph, keeps);

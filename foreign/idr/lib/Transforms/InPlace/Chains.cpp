@@ -235,14 +235,18 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                     [&](const FlowPoint::Taken &taken) {
                       next.push_back({taken.use->get(), asks, taken.use});
                     },
+                    // Out of a field: a self requirement on the value is
+                    // met by one on its holder where the holder's claim
+                    // covers the field (a field of its own group, or one
+                    // of an in_place family), so a record that holds a
+                    // rebuilt list owes `unique self`; out of any other
+                    // field only a deep claim covers it.
                     [&](const FlowPoint::Part &part) {
                       Value whole = *flow.from.value();
                       std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
                       Asks of = asks == Asks::Self && field &&
-                                        ownership::ownStorage(field->data, field->ctor,
-                                                              field->index) &&
-                                        ownership::sameFamily(ownership::familyOf(value.getType()),
-                                                              ownership::familyOf(whole.getType()))
+                                        ownership::selfCovers(field->data, field->ctor,
+                                                              field->index)
                                     ? Asks::Self
                                     : Asks::Deep;
                       OpOperand *use = ownership::reachOf(part) == ownership::Reach::Taken

@@ -4,8 +4,9 @@
 // (Chains.cpp), the program-wide solves over them (Rule.cpp), and the pass
 // that refuses or writes the verdict (InPlace.cpp).
 //
-// A requirement asks a value's cells to be unshared, its own family's
-// (Asks::Self) or everything it reaches (Asks::Deep). It is met where the
+// A requirement asks a value's cells to be unshared, its own family's and
+// the own cells of every in-place field it holds (Asks::Self), or
+// everything it reaches (Asks::Deep). It is met where the
 // value is made anew each time it is evaluated (a construction of values
 // that meet it in turn), moved out of a value that meets it, given back by a
 // callee whose every return meets it (given what the callee's parameters
@@ -187,11 +188,11 @@ private:
 
 // Whether a requirement of `asks` on a field `index` of constructor `tag`
 // of `data` reaches the field: a deep one every field that holds
-// references, a self one the family's own storage.
+// references, a self one each field `unique self` covers.
 inline bool reachesField(Asks asks, DataType data, Tag tag, unsigned index,
                          mlir::Type fieldValue) {
   return holdsReferences(fieldValue) &&
-         (asks == Asks::Deep || ownership::ownStorage(data, tag, index));
+         (asks == Asks::Deep || ownership::selfCovers(data, tag, index));
 }
 
 // What every callee keeps of each of its parameters: a backward marking of

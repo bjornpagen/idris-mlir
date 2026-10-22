@@ -11,9 +11,10 @@
 // function a value whose own family's cells are unshared. A call that
 // cannot be proved to pay is refused, `unsupported (uniqueness)`, at the
 // user's call, naming the cause. The verdict is types and ops: each
-// obligation the grade `unique self` (or `unique deep` where a value
-// encloses the one rebuilt) on its parameter and on every value of the
-// chain that pays it, and each rebuild a take at the case's entry whose
+// obligation the grade `unique self` on its parameter and on every value
+// of the chain that pays it (a record that holds the value rebuilt owes
+// it too, since `unique self` covers the own cells of an in-place field,
+// never its elements), and each rebuild a take at the case's entry whose
 // linear token idr.token.rebuild consumes.
 #ifndef IDR_TRANSFORMS_INPLACE_H
 #define IDR_TRANSFORMS_INPLACE_H

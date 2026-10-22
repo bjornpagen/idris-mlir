@@ -94,14 +94,15 @@ private:
 // Borrow inference: each parameter that holds references, of a function or
 // of a join point, is a view of its caller's value (`scoped`, counted
 // nothing) or `counted`, the grade's own release axis. Counted is forced
-// where the callee consumes or stores the parameter or takes it apart into
-// a rebuild site (a parameter a callee counts is counted in every function
-// that passes it its own parameter on), and wherever a caller's argument is
-// bound at quantity 1, or is dead after the call while its type does not
-// bound what it reaches, or is passed by a tail call or a call modulo
-// context (a jump is a tail transfer). The root's parameters are counted
-// (its caller is outside); a memo cell's are views (a force writes it while
-// its caller reads it).
+// where the callee consumes any part of the parameter: returns, stores,
+// releases or takes apart (a rebuild site among those) the parameter or a
+// value read from it, or passes one to a counted parameter, since what is
+// read from a view is a view and no view is consumed; and wherever a
+// caller's argument is bound at quantity 1, or is dead after the call while
+// its type does not bound what it reaches, or is passed by a tail call or a
+// call modulo context (a jump is a tail transfer). The root's parameters
+// are counted (its caller is outside); a memo cell's are views (a force
+// writes it while its caller reads it).
 class Borrows {
 public:
   using FunctionId = solver::FunctionId;

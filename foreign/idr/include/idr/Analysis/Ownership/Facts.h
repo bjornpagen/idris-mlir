@@ -3,13 +3,14 @@
 // The facts of a value's type and of the IR that the ownership markings
 // read (exclusivity, borrows, the in-place check), each answered by the
 // declaration that holds it: the grade's axes by the grade (Grades.h), a
-// family's promise, constructors and recursive fields by the data type
-// (Families/), how a value moves by the flow interface and upstream's
+// family's promise, constructors and what `unique self` covers by the data
+// type (Families/), how a value moves by the flow interface and upstream's
 // region interfaces. Nothing here decides: each line reads one fact its
 // owner keeps, so no marking holds a second copy of a type's facts.
 #ifndef IDR_ANALYSIS_OWNERSHIP_FACTS_H
 #define IDR_ANALYSIS_OWNERSHIP_FACTS_H
 
+#include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -21,6 +22,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
+#include "llvm/ADT/STLExtras.h"
 
 #include <cstdint>
 #include <optional>
@@ -28,9 +30,10 @@
 namespace idr::ownership {
 
 // What a requirement on a value asks of its cells, on the grade's sharing
-// axis: its own family's cells unshared, through every recursive field of
-// the family (`unique self`), or nothing it reaches shared (`unique deep`).
-// Deep asks all that Self does, so the two are ordered as their claims.
+// axis: its own family's cells unshared and, recursively, the own cells of
+// every in_place field it holds (`unique self`, selfCovers), or nothing it
+// reaches shared (`unique deep`). Deep asks all that Self does, so the two
+// are ordered as their claims.
 enum class Asks : std::uint8_t { Self, Deep };
 
 constexpr Unique claimFor(Asks asks) { return asks == Asks::Self ? Unique::Self : Unique::Deep; }
@@ -92,15 +95,16 @@ inline bool isMemo(DataType data) {
   return data && data.kind() == MemberKind::Memo;
 }
 
-// Whether field `index` of constructor `tag` of `data` is the family's own
-// storage, which `unique self` speaks for: a recursive field (a member of
-// the group naming its own member), or the buffer of an array the family
-// holds in place.
-inline bool ownStorage(DataType data, Tag tag, unsigned index) {
-  mlir::Type field = unrestricted(data.ctor(tag).fields[index]);
-  if (auto self = llvm::dyn_cast<SelfType>(field))
-    return self.getMember() == data.getMember();
-  return llvm::isa<mlir::TensorType, mlir::BaseMemRefType>(field);
+// Whether `unique self` on a value of `data` refined to `tag` covers field
+// `index`: a field of the family's own group (a `self[...]` field), or one
+// of the family's in-place fields, of an in_place family whose own cells
+// the claim reaches in turn, which the family computed once when the type
+// was made. The grade's rule for a field read from a `unique self` value
+// keeps the claim on exactly these fields, so a requirement that reaches
+// them reaches what the types say, no more and no less.
+inline bool selfCovers(DataType data, Tag tag, unsigned index) {
+  return llvm::isa<SelfType>(unrestricted(data.ctor(tag).fields[index])) ||
+         llvm::is_contained(data.inPlaceFields(), families::FieldRef{tag, index});
 }
 
 // The constructor a value of `type` is refined to, when one: what a case

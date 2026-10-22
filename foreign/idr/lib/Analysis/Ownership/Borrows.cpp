@@ -6,15 +6,19 @@
 // some active call still needs it after the call, or its type bounds all it
 // reaches.
 //
-// A parameter is counted when the callee consumes it (a value it is moves
-// whole into a cell, is released, or is taken apart, a rebuild site among
-// those), or passes it to a counted parameter; and when some call or jump
-// gives it an argument it may not borrow: one bound at quantity 1 in the
-// caller, or one dead after the call that is neither static, nor a view
-// (a scoped value, or the caller's own parameter or a part read from one
-// while that parameter is itself borrowed), nor of a type that bounds all
-// it reaches at a call that is not a tail transfer. Every other parameter
-// that holds a counted reference is a view.
+// A parameter is counted when the callee consumes any part of it: the
+// parameter, or a value read from it (a field, a view of its buffer, an
+// element it holds), moves whole into a cell, is released, is taken apart
+// (a rebuild site among those), is given back or forwarded into a region's
+// result, or is passed to a counted parameter. What is read from a view is
+// a view, and no view is consumed, so a part consumed makes the whole
+// counted. A parameter is counted too when some call or jump gives it an
+// argument it may not borrow: one bound at quantity 1 in the caller, or one
+// dead after the call that is neither static, nor a view (a scoped value,
+// or the caller's own parameter or a part read from one while that
+// parameter is itself borrowed), nor of a type that bounds all it reaches
+// at a call that is not a tail transfer. Every other parameter that holds a
+// counted reference is a view.
 //
 // One backward marking of the program's parameters, from the parameters a
 // body forces counted, along "counted here makes counted there": a callee's
@@ -30,9 +34,10 @@
 #include "idr/Analysis/Solver/Graph.h"
 #include "idr/Analysis/Solver/Mark.h"
 #include "idr/IR/Flow.h"
+#include "idr/IR/Ownership.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "idr/Support/Match.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
@@ -82,27 +87,15 @@ struct Convention {
   std::uint32_t node;
 };
 
-// A view an edge reads out of a part of a value, with that value: a move
-// from a part read (not taken) into a value whole.
-std::optional<std::pair<Value, Value>> partRead(const FlowEdges::Edge &edge) {
-  using Read = std::optional<std::pair<Value, Value>>;
-  auto none = [](const auto &) -> Read { return std::nullopt; };
-  return match(
-      edge.move,
-      [](const FlowEdges::Flow &flow) -> Read {
-        auto whole = [&](const FlowPoint::Part &part) -> Read {
-          std::optional<Value> to = flow.to.value();
-          bool intoWhole = match(
-              flow.to.at, [](const FlowPoint::Whole &) { return true; },
-              [](const auto &) { return false; });
-          if (ownership::reachOf(part) == ownership::Reach::Read && to && intoWhole)
-            return std::pair(*to, *flow.from.value());
-          return std::nullopt;
-        };
-        return match(flow.from.at, whole, [](const auto &) -> Read { return std::nullopt; });
-      },
-      none);
-}
+// How a value stands to a parameter of its function: the parameter
+// itself, or a part read of it (ownership::readFrom), a view wherever the
+// parameter is one.
+enum class Holding : std::uint8_t { Whole, Part };
+
+struct Owner {
+  Convention param;
+  Holding holding;
+};
 
 // Whether `value` is used, other than by `call`, where the call may run
 // before it.
@@ -162,17 +155,22 @@ private:
     });
   }
 
-  // The parameter `value` is, seen through the positions that hand a value
-  // on as itself and the region entries that bind it again (a case's
-  // refined scrutinee): a parameter of the function or one of its join
-  // points. None for a value the body makes.
-  std::optional<Convention> parameterOf(Value value) const {
+  // The parameter, of the function or of one of its join points, that
+  // `value` is or is read from: seen through the positions that hand a
+  // value on as itself, the region entries that bind it again (a case's
+  // refined scrutinee) and what each part was read from. None for a value
+  // that holds no counted reference, which no part of a view is consumed
+  // as, and for a value the body makes.
+  std::optional<Owner> ownerOf(Value value) const {
+    if (!ownership::counted(value.getType()))
+      return std::nullopt;
+    Holding holding = Holding::Whole;
     for (Value at = value;;) {
       if (auto arg = dyn_cast<BlockArgument>(at)) {
         if (arg.getOwner() == &fn.getBody().front())
-          return params[*current][arg.getArgNumber()];
+          return Owner{params[*current][arg.getArgNumber()], holding};
         if (auto join = joinIndex.find(arg); join != joinIndex.end())
-          return joins[*current][join->second];
+          return Owner{joins[*current][join->second], holding};
         auto entry = enteredFrom.find(arg);
         if (entry == enteredFrom.end())
           return std::nullopt;
@@ -183,14 +181,13 @@ private:
         at = *same;
         continue;
       }
+      if (Value whole = ownership::readFrom(at)) {
+        at = whole;
+        holding = Holding::Part;
+        continue;
+      }
       return std::nullopt;
     }
-  }
-
-  // The parameter a part read of `value` is a view of, when it is one.
-  std::optional<Convention> partOfParameter(Value value) const {
-    auto whole = partOf.find(value);
-    return whole == partOf.end() ? std::nullopt : parameterOf(whole->second);
   }
 
   void force(const Convention &convention) {
@@ -213,27 +210,16 @@ private:
     fn = graph.op(id);
     joinIndex.clear();
     enteredFrom.clear();
-    partOf.clear();
     borrows::forEachJoinParameter(fn, [&](BlockArgument arg, std::uint32_t at) {
       joinIndex.try_emplace(arg, at);
     });
-    // What each region entry binds again, and what each view reads a part
-    // of, read before any use is judged.
+    // What each region entry binds again, read before any use is judged.
     fn.walk([&](Operation *op) {
       forwardedValues(op, [&](OpOperand &operand, Value input) {
         auto arg = dyn_cast<BlockArgument>(input);
         if (arg && arg.getOwner()->getParentOp() == op && !joinIndex.contains(arg))
           enteredFrom.try_emplace(arg, operand.get());
       });
-      auto declared = dyn_cast<FlowOpInterface>(op);
-      if (!declared || isa<CallOpInterface>(op))
-        return;
-      FlowEdges flows;
-      declared.getFlowEdges(flows);
-      for (const FlowEdges::Edge &edge : flows.edges())
-        if (edge.carries(Carrier::Reference))
-          if (std::optional<std::pair<Value, Value>> read = partRead(edge))
-            partOf.try_emplace(read->first, read->second);
     });
     fn.walk([&](Operation *op) {
       if (auto call = dyn_cast<CallOp>(op))
@@ -242,23 +228,24 @@ private:
     });
   }
 
-  // What the op does with each use of a parameter: consumes it (it moves
-  // whole into a cell, is released, is taken apart, or is forwarded into a
-  // region's result), or hands it to a join point, which is a call of it.
+  // What the op does with each value it uses that is a parameter or is
+  // read from one: consumes it (it moves whole into a cell, is released, is
+  // taken apart, is given back, or is forwarded into a region's result),
+  // which counts the parameter; or hands it to a join point, which is a
+  // call of it, as is every value a jump passes.
   void readUses(Operation *op) {
     // A position that hands a value on as itself is that value.
     if (op->hasTrait<SameValue>())
       return;
     forwardedValues(op, [&](OpOperand &operand, Value input) {
-      std::optional<Convention> param = parameterOf(operand.get());
-      if (!param)
-        return;
       auto arg = dyn_cast<BlockArgument>(input);
       if (arg && joinIndex.contains(arg))
         return readArgument(operand, joins[*current][joinIndex.lookup(arg)], op, Transfer::Jump);
+      // The entry of a region binds the value again: it is that value.
       if (arg && arg.getOwner()->getParentOp() == op)
-        return; // the entry of a region binds the value again: it is that value
-      force(*param);
+        return;
+      if (std::optional<Owner> owner = ownerOf(operand.get()))
+        force(owner->param);
     });
     // The op's own moves, as it declares them; what it forwards was read
     // above.
@@ -281,8 +268,8 @@ private:
           [](const FlowEdges::Constant &) -> Taken { return std::nullopt; },
           [](const FlowEdges::Dispatch &) -> Taken { return std::nullopt; });
       if (taken)
-        if (std::optional<Convention> param = parameterOf((*taken)->get()))
-          force(*param);
+        if (std::optional<Owner> owner = ownerOf((*taken)->get()))
+          force(owner->param);
     }
   }
 
@@ -295,7 +282,7 @@ private:
   void readCall(CallOp call) {
     FunctionId callee = graph.id(call.getCalleeAttr());
     Transfer transfer =
-        call.getTailKind() == TailKind::NonTail ? Transfer::Returns : Transfer::Tail;
+        call.getTailKind() == TailKind::nontail ? Transfer::Returns : Transfer::Tail;
     for (auto [index, operand] : llvm::enumerate(call->getOpOperands()))
       readArgument(operand, params[callee][index], call, transfer);
   }
@@ -303,9 +290,15 @@ private:
   // `operand`, passed to the parameter `to` by `transfer`, at `site`.
   void readArgument(OpOperand &operand, const Convention &to, Operation *site,
                     Transfer transfer) {
-    if (to.fixed != Fixed::Open)
-      return readConsumed(operand, to);
     Value arg = operand.get();
+    std::optional<Owner> owner = ownerOf(arg);
+    // Counted here makes counted the caller's parameter the argument is or
+    // is read from: a counted parameter consumes what it is passed, and no
+    // view, nor anything read from one, is consumed.
+    if (owner)
+      follows(to, owner->param);
+    if (to.fixed != Fixed::Open)
+      return;
     // A value bound at quantity 1 moves to its one use: the callee counts.
     if (usesOf(arg.getType()) == Uses::Once)
       return force(to);
@@ -314,30 +307,19 @@ private:
     // After a jump, the join point's region runs and the join op's results
     // follow it: what is used after the join op is used after the jump.
     Operation *after = transfer == Transfer::Jump ? joinOpOf(operand) : site;
-    if (lent || usedAfter(arg, after)) {
-      readConsumed(operand, to);
+    if (lent || usedAfter(arg, after))
       return;
-    }
-    bool bounded = transfer == Transfer::Returns && ownership::boundsWhatItReaches(arg.getType());
-    if (std::optional<Convention> mine = parameterOf(arg)) {
-      // The caller's parameter lent on: a view while it is itself borrowed.
-      follows(*mine, to);
-      follows(to, *mine);
+    // The caller's parameter lent on whole: a view while it is itself
+    // borrowed.
+    if (owner && owner->holding == Holding::Whole)
+      return follows(owner->param, to);
+    if (transfer == Transfer::Returns && ownership::boundsWhatItReaches(arg.getType()))
       return;
-    }
-    if (std::optional<Convention> whole = partOfParameter(arg)) {
-      if (!bounded)
-        follows(*whole, to);
-      return;
-    }
-    if (!bounded)
-      force(to);
-  }
-
-  // A counted parameter passed the caller's own parameter consumes it.
-  void readConsumed(OpOperand &operand, const Convention &to) {
-    if (std::optional<Convention> mine = parameterOf(operand.get()))
-      follows(to, *mine);
+    // A part of the caller's parameter: a view while the parameter is one;
+    // any other value dead after the call is the callee's to count.
+    if (owner)
+      return follows(owner->param, to);
+    force(to);
   }
 
   // The join op whose region the jump's `operand` enters, read off the
@@ -363,7 +345,6 @@ private:
   FuncOp fn;
   llvm::DenseMap<BlockArgument, std::uint32_t> joinIndex;
   llvm::DenseMap<BlockArgument, Value> enteredFrom;
-  llvm::DenseMap<Value, Value> partOf;
 };
 
 } // namespace
