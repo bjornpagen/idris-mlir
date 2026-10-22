@@ -9,7 +9,7 @@
 // conversion, so LLVM emulates the one and scalarizes the other, where
 // 32-bit lanes have both. Upstream's narrowing reaches an index lane
 // through index casts, as it reaches a word. Each vectorized loop that
-// computes on lanes of integers wider than 32 bits (laneWidth: a select or
+// computes on lanes of integers wider than 32 bits (integerWidth: a select or
 // a cast only moves lanes, and costs the same at any width), outside the
 // accumulations it carries round (a sum is as wide as the program made
 // it), becomes two versions: where every integer it reads from outside

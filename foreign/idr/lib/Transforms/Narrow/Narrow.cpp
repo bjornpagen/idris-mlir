@@ -20,6 +20,7 @@
 #include "idr/Transforms/Narrow.h"
 
 #include "idr/Analysis/Ranges.h"
+#include "idr/Analysis/Solver/Decision.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Effects/Whole.h"
@@ -33,7 +34,6 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
@@ -45,8 +45,6 @@
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
-
-#include <functional>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRNARROW
@@ -84,15 +82,10 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
   void runOnProgram(ProgramOp program) {
     FuncOp fn = getOperation();
     // Only idr-narrow decides the program's summaries and holds them for
-    // this pass: run without it, there is nothing to read.
-    std::optional<std::reference_wrapper<Ranges>> ranges =
-        getCachedParentAnalysis<Ranges>(program);
-    if (!ranges) {
-      fn.emitError("internal error: idr-narrow-words: no Ranges of the program");
-      return signalPassFailure();
-    }
+    // this pass.
+    const Ranges &ranges = solver::decided(getCachedParentAnalysis<Ranges>(program));
     solver::Work work;
-    FailureOr<std::unique_ptr<const Ranges::Solved>> solved = ranges->get().solve(fn, work);
+    FailureOr<std::unique_ptr<const Ranges::Solved>> solved = ranges.solve(fn, work);
     if (failed(solved)) {
       fn.emitError("internal error: idr-narrow-words: the range analysis failed");
       return signalPassFailure();
@@ -133,21 +126,18 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     // them: a versioned loop's start once its copy took the word, a big made
     // of a word that every reader now takes as the word, with each cast of
     // such a big into or out of a linear position; a big constant whose
-    // readers now read its word, and the program's poison whose word was
-    // taken), these ops and no other. What made a big says, through its
-    // interface, never a list of ops.
+    // readers now read its word, the program's poison among them), these
+    // ops and no other. What made a big says, through its interface or its
+    // trait; the integer read out of a big is the one op `word` writes.
     footprint::Vector<Operation *> conversions;
     auto conversion = [&](Operation *op) {
       if (!op)
         return false;
-      Value result = op->getResult(0);
       if (isa<BigOfIntegerOpInterface>(op))
         return true;
-      if (isa<BigToIntOp>(op))
-        return true;
-      if (isa<ub::PoisonOp>(op))
-        return isBig(result.getType()) && decided.asked.test(facts.at(result));
-      return isa<ConstantOp>(op) && isBig(result.getType());
+      if (op->hasTrait<OpTrait::ConstantLike>())
+        return isBig(op->getResult(0).getType());
+      return isa<BigToIntOp>(op);
     };
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
       if (op->getNumResults() == 1 &&

@@ -31,12 +31,12 @@
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Pass/Pass.h"
 
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SetVector.h"
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <variant>
 
@@ -276,36 +276,30 @@ bool testable(mlir::Value value);
 // Whether a word of `range` fits a signed 32-bit one.
 bool fits32(const mlir::ConstantIntRanges &range);
 
-// What an op computes on, the one answer the pass and its property
-// (narrowed-lanes) read: for an elementwise op that is no cast and no
-// select, the widest integer among its operand and result types, in bits,
-// and whether it computes on lanes (one of them is a vector); none, {0,
-// false}, for any other. A cast or a select only moves lanes, and costs the
-// same at any width.
-struct LaneWidth {
+// How an op computes on its integers: one in a scalar, or lanes of a
+// vector (one of its types is a vector).
+enum class Spread : std::uint8_t { Scalar, Lanes };
+// What an op computes on: the widest integer among its operand and result
+// types, in bits, and how it spreads them.
+struct IntegerWidth {
   unsigned bits;
-  bool lanes;
+  Spread spread;
 };
-LaneWidth laneWidth(mlir::Operation *op);
-// The ops of `root` that only combine into a vector a loop in it carries
-// round: each elementwise op the loop's iteration argument of vector type
-// reaches whose results go only to one another and to the yield that
-// carries that argument. Their width is the program's, as a sum is as wide
-// as the program made it, so no bound on the sizes makes them fit, and
-// they are no lane the narrowing is for. The ops of `root` are numbered
-// once, in the walk's order, the one map keyed by an IR handle, and every
-// fact the search keeps about an op is a bit by its number.
-class Accumulations {
-public:
-  explicit Accumulations(mlir::Operation *root);
-  // Whether `op`, an op of `root`, is one of them.
-  bool contains(mlir::Operation *op) const;
-
-private:
-  footprint::DenseMap<mlir::Operation *, std::uint32_t> number;
-  footprint::Vector<mlir::Operation *> ops;
-  llvm::BitVector carried;
-};
+// What `op` computes on, the one answer the pass and its property
+// (narrowed-lanes) read: none for an op that is not elementwise, for a cast
+// or a select, which only move lanes and cost the same at any width, and
+// for an op with no integer among its types.
+std::optional<IntegerWidth> integerWidth(mlir::Operation *op);
+// The ops of `root`, in the walk's order, but those that only combine into
+// a vector a loop in it carries round: each elementwise op the loop's
+// iteration argument of vector type reaches whose results go only to one
+// another and to the yield that carries that argument. Their width is the
+// program's, as a sum is as wide as the program made it, so no bound on the
+// sizes makes them fit, and they are no lane the narrowing is for. The ops
+// of `root` are numbered once, in the walk's order, by the one map keyed by
+// an IR handle, which is gone when the search ends; every fact the search
+// keeps about an op is a bit by its number.
+footprint::Vector<mlir::Operation *> outsideAccumulations(mlir::Operation *root);
 // Whether `loop` computes on lanes of integers wider than 32 bits outside
 // its accumulations.
 bool computesWideLanes(mlir::scf::ForOp loop);

@@ -17,7 +17,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -52,32 +52,40 @@ struct AliasedValue {
 
 // The tensor values of a program that may share one buffer: every aliasing
 // relation the models declare, followed both ways, before the analysis
-// decides any of them. Made once, by `prepare`, and read by every question
-// of a release, never closed again per question. A relation is an edge
-// each way between two numbered values, so the classes are the components
-// of that graph, laid out by the solver layer; the graph and its
-// components are the footprint's.
+// decides any of them; and the program's releases, each with the number of
+// the value it gives away. Made once, by `prepare`, in one walk, and read
+// by every question of a release, never closed again per question. A
+// relation is an edge each way between two numbered values, so the classes
+// are the components of that graph, laid out by the solver layer; the
+// graph and its components are the footprint's. The walk numbers each
+// value as it first meets it, by the one map keyed by an IR handle, which
+// is gone when the walk ends: every question after it asks by number.
 class AliasClasses {
 public:
+  using Node = Id<AliasedValue>;
+  // A release (isRelease), and the number of the value it gives away.
+  struct Release {
+    mlir::OpOperand *operand;
+    Node value;
+  };
+
   AliasClasses(mlir::Operation *program, const mlir::bufferization::BufferizationOptions &options);
 
-  // The values that may share `value`'s buffer, `value` among them: a
-  // tensor value of the program, which the walk numbered.
-  llvm::SmallVector<mlir::Value> sharers(mlir::Value value) const;
+  // The program's releases, in the walk's order.
+  llvm::ArrayRef<Release> releases() const { return released; }
+  // The values that may share the buffer of the value numbered `value`, it
+  // among them.
+  llvm::SmallVector<mlir::Value> sharers(Node value) const;
 
 private:
-  using Node = Id<AliasedValue>;
-
   // The graph of the relations among `program`'s values, each value
-  // numbered as it is first met.
+  // numbered as it is first met, and its releases.
   Csr<AliasedValue> related(mlir::Operation *program,
                             const mlir::bufferization::BufferizationOptions &options);
-  std::uint32_t numberOf(mlir::Value value);
 
-  // Each value's number, the one map keyed by an IR handle, and each
-  // number's value; both are made before the classes.
-  llvm::DenseMap<mlir::Value, std::uint32_t> number;
+  // Each number's value and the releases, both made before the classes.
   footprint::Vector<mlir::Value> values;
+  footprint::Vector<Release> released;
   Partition<AliasedValue> classes;
 };
 

@@ -8,7 +8,6 @@
 
 #include "llvm/ADT/SetVector.h"
 
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -16,9 +15,11 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/CastInterfaces.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Transforms/RegionUtils.h"
 
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstdint>
@@ -75,16 +76,20 @@ bool fits32(const ConstantIntRanges &range) {
 }
 
 // An op computes on the integers of its types when it is elementwise and
-// neither a cast nor a select; on lanes of them when one is a vector. The
-// widest of its types says how wide.
-LaneWidth laneWidth(Operation *op) {
-  if (!op->hasTrait<OpTrait::Elementwise>() || isa<CastOpInterface, arith::SelectOp>(op))
-    return {0, false};
-  LaneWidth width{0, false};
+// neither a cast nor a select, each of which only moves lanes, as their
+// interfaces say; on lanes of them when one is a vector. The widest of its
+// types says how wide; a type that is no integer is none wide.
+std::optional<IntegerWidth> integerWidth(Operation *op) {
+  if (!op->hasTrait<OpTrait::Elementwise>() || isa<CastOpInterface, SelectLikeOpInterface>(op))
+    return std::nullopt;
+  IntegerWidth width{0, Spread::Scalar};
   for (Type type : llvm::concat<const Type>(op->getOperandTypes(), op->getResultTypes())) {
     width.bits = std::max(width.bits, ConstantIntRanges::getStorageBitwidth(type));
-    width.lanes = width.lanes || isa<VectorType>(type);
+    if (isa<VectorType>(type))
+      width.spread = Spread::Lanes;
   }
+  if (width.bits == 0)
+    return std::nullopt;
   return width;
 }
 
@@ -95,12 +100,14 @@ LaneWidth laneWidth(Operation *op) {
 // not feed only the set leaves it, once, after which the kept ops that
 // feed it are asked again. The asking ends with the ops that leave. What
 // is reached and kept is a bit per op of `root`, by its number.
-Accumulations::Accumulations(Operation *root) {
+footprint::Vector<Operation *> outsideAccumulations(Operation *root) {
+  footprint::DenseMap<Operation *, std::uint32_t> number;
+  footprint::Vector<Operation *> ops;
   root->walk<WalkOrder::PreOrder>([&](Operation *op) {
     number.try_emplace(op, static_cast<std::uint32_t>(ops.size()));
     ops.push_back(op);
   });
-  carried.resize(static_cast<unsigned>(ops.size()));
+  llvm::BitVector carried(static_cast<unsigned>(ops.size()));
   llvm::BitVector reachedAt(static_cast<unsigned>(ops.size()));
   llvm::BitVector kept(static_cast<unsigned>(ops.size()));
   // The number of `op`, an op of `root`: every op a value of `root` meets
@@ -160,24 +167,20 @@ Accumulations::Accumulations(Operation *root) {
       carried |= kept;
     }
   });
-}
-
-bool Accumulations::contains(Operation *op) const {
-  auto found = number.find(op);
-  return found != number.end() && carried.test(found->second);
+  footprint::Vector<Operation *> outside;
+  for (auto [at, op] : llvm::enumerate(ops))
+    if (!carried.test(static_cast<unsigned>(at)))
+      outside.push_back(op);
+  return outside;
 }
 
 // Lanes of integers wider than 32 bits are what the narrowing is for, but
 // for an accumulation's.
 bool computesWideLanes(scf::ForOp loop) {
-  Accumulations carried(loop);
-  return loop
-      .walk([&](Operation *op) {
-        LaneWidth width = laneWidth(op);
-        return width.lanes && width.bits > 32 && !carried.contains(op) ? WalkResult::interrupt()
-                                                                       : WalkResult::advance();
-      })
-      .wasInterrupted();
+  return llvm::any_of(outsideAccumulations(loop), [](Operation *op) {
+    std::optional<IntegerWidth> width = integerWidth(op);
+    return width && width->spread == Spread::Lanes && width->bits > 32;
+  });
 }
 
 // A loop runs at most once when its upper bound exceeds its lower bound by

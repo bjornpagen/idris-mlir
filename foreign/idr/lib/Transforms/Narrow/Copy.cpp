@@ -81,9 +81,9 @@ FailureOr<std::unique_ptr<DataFlowSolver>> Copy::analyse(unsigned exponent) {
 // Whether an op's 32-bit form computes the same is the narrowing's to
 // decide: it leaves wide an op whose 32-bit form would compute something
 // else, and an accumulation, which fits under no bound. An op that computes
-// on no integer wider than 32 bits (laneWidth) is not asked, a select among
-// them: it moves lanes, and costs the same at any width. The set of ops
-// tried does not depend on the bound, so a smaller bound still fits
+// on no integer wider than 32 bits (integerWidth) is not asked, a select
+// among them: it moves lanes, and costs the same at any width. The set of
+// ops tried does not depend on the bound, so a smaller bound still fits
 // whatever a larger one does.
 bool Copy::fits(DataFlowSolver &solver) {
   auto fit = [&](Value value) {
@@ -92,15 +92,11 @@ bool Copy::fits(DataFlowSolver &solver) {
     std::optional<ConstantIntRanges> range = Ranges::rangeOf(solver, value);
     return range && fits32(*range);
   };
-  Accumulations carried(copy);
-  return !copy
-              ->walk([&](Operation *op) {
-                if (laneWidth(op).bits <= 32 || carried.contains(op) ||
-                    (llvm::all_of(op->getOperands(), fit) && llvm::all_of(op->getResults(), fit)))
-                  return WalkResult::advance();
-                return WalkResult::interrupt();
-              })
-              .wasInterrupted();
+  return llvm::all_of(outsideAccumulations(copy), [&](Operation *op) {
+    std::optional<IntegerWidth> width = integerWidth(op);
+    return !width || width->bits <= 32 ||
+           (llvm::all_of(op->getOperands(), fit) && llvm::all_of(op->getResults(), fit));
+  });
 }
 
 // Upstream's narrowing patterns, applied in two walks of the copy, each a

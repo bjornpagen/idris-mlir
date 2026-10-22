@@ -77,8 +77,8 @@ std::pair<Value, layout::Element> elementAt(OpT op,
 }
 
 // An element of ours read from a buffer: its slots. The reference a counted
-// one needs is idr-rc's, which takes it right after the load. A word is
-// upstream's.
+// one needs is counting's, which duplicates it right after the load. A word
+// is upstream's.
 struct LowerElementLoad : IdrPattern<memref::LoadOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(memref::LoadOp op, OneToNOpAdaptor adaptor,

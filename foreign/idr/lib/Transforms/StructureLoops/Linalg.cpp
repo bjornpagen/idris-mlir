@@ -10,8 +10,9 @@
 
 #include "idr/Transforms/StructureLoops.h"
 
+#include "idr/Support/Footprint.h"
+
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <type_traits>
@@ -36,9 +37,11 @@ struct Inputs {
   SmallVector<unsigned> of;
 };
 
+// The reads are numbered by what they read, the one map keyed by IR
+// handles, which is the footprint's and is gone once the inputs are made.
 Inputs inputsOf(ArrayRef<Read> reads) {
   Inputs made;
-  DenseMap<std::pair<Value, AffineMap>, unsigned> numbered;
+  footprint::DenseMap<std::pair<Value, AffineMap>, unsigned> numbered;
   for (Read read : reads) {
     auto [at, fresh] = numbered.try_emplace({read.op.getTensor(), read.map},
                                             static_cast<unsigned>(made.inputs.size()));

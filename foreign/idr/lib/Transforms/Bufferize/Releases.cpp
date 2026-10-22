@@ -106,19 +106,20 @@ idr::bufferize::AliasClasses::AliasClasses(Operation *program,
                                            const BufferizationOptions &options)
     : classes(components(related(program, options))) {}
 
-std::uint32_t idr::bufferize::AliasClasses::numberOf(Value value) {
-  auto [at, made] = number.try_emplace(value, static_cast<std::uint32_t>(values.size()));
-  if (made)
-    values.push_back(value);
-  return at->second;
-}
-
 // Each tensor value is numbered, with each value an aliasing relation names
 // beside it, and the relations are kept as pairs of numbers until the walk
-// has numbered every value; the values of the program are finitely many.
+// has numbered every value; the values of the program are finitely many. A
+// release's value is a tensor operand, numbered as the walk meets it.
 idr::Csr<idr::bufferize::AliasedValue>
 idr::bufferize::AliasClasses::related(Operation *program, const BufferizationOptions &options) {
   AnalysisState state(options);
+  footprint::DenseMap<Value, std::uint32_t> number;
+  auto numberOf = [&](Value value) {
+    auto [at, made] = number.try_emplace(value, static_cast<std::uint32_t>(values.size()));
+    if (made)
+      values.push_back(value);
+    return at->second;
+  };
   footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> relations;
   auto join = [&](Value value) {
     if (!isa<TensorLikeType>(value.getType()))
@@ -134,10 +135,14 @@ idr::bufferize::AliasClasses::related(Operation *program, const BufferizationOpt
       for (Block &block : region)
         for (BlockArgument arg : block.getArguments())
           join(arg);
-    for (OpOperand &operand : op->getOpOperands())
-      if (isa<TensorLikeType>(operand.get().getType()))
-        for (AliasingValue alias : state.getAliasingValues(operand))
-          relations.emplace_back(numberOf(operand.get()), numberOf(alias.value));
+    for (OpOperand &operand : op->getOpOperands()) {
+      if (!isa<TensorLikeType>(operand.get().getType()))
+        continue;
+      for (AliasingValue alias : state.getAliasingValues(operand))
+        relations.emplace_back(numberOf(operand.get()), numberOf(alias.value));
+      if (isRelease(operand, state))
+        released.push_back({&operand, Node(numberOf(operand.get()))});
+    }
   });
   CsrBuilder<AliasedValue> graph(Count<Node>(static_cast<std::uint32_t>(values.size())));
   for (auto [from, to] : relations) {
@@ -147,11 +152,8 @@ idr::bufferize::AliasClasses::related(Operation *program, const BufferizationOpt
   return std::move(graph).finish();
 }
 
-// Every tensor value the walk met has its number: a release's value is an
-// operand of the program, a result or a block argument the walk numbered.
-SmallVector<Value> idr::bufferize::AliasClasses::sharers(Value value) const {
-  Node at(number.find(value)->second);
-  return llvm::map_to_vector(classes.members(classes.componentOf(at)),
+SmallVector<Value> idr::bufferize::AliasClasses::sharers(Node value) const {
+  return llvm::map_to_vector(classes.members(classes.componentOf(value)),
                              [&](Node member) { return values[member.index()]; });
 }
 
@@ -272,17 +274,11 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
 
   AnalysisState state(options);
   AliasClasses aliases(program, options);
-  footprint::Vector<OpOperand *> releases;
-  program->walk([&](Operation *op) {
-    for (OpOperand &operand : op->getOpOperands())
-      if (isRelease(operand, state))
-        releases.push_back(&operand);
-  });
-  for (OpOperand *release : releases) {
-    Operation *releaser = release->getOwner();
+  for (const AliasClasses::Release &release : aliases.releases()) {
+    Operation *releaser = release.operand->getOwner();
     // The sharers are read whole before any use changes: a write given an
     // empty tensor of its own leaves the partition the program had.
-    for (Value sharer : aliases.sharers(release->get())) {
+    for (Value sharer : aliases.sharers(release.value)) {
       if (!isa<RankedTensorType>(sharer.getType()))
         continue;
       for (OpOperand *use : usesOf(sharer))

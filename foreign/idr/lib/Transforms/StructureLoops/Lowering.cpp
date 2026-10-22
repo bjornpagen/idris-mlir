@@ -53,12 +53,6 @@ SmallVector<Value> inlineRegion(RewriterBase &rewriter, Operation *op, ValueRang
   return values;
 }
 
-SmallVector<OpFoldResult> extentsOf(OpBuilder &b, DestinationStyleOpInterface op,
-                                    unsigned dims) {
-  return llvm::map_to_vector(arrays::domainOf(b, op, dims),
-                             [](const Range &range) { return range.size; });
-}
-
 Value readCell(OpBuilder &b, Location loc, Value array, ValueRange indices, Type cell) {
   auto shaped = dyn_cast<RankedTensorType>(cell);
   if (!shaped)

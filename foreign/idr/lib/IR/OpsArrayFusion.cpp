@@ -18,7 +18,7 @@
 #include <algorithm>
 #include <optional>
 
-// What each stage of a program implies: whether its holds are decided.
+// What each stage of a program implies: whether its references are counted.
 #include "idr/IR/Generated/StageFacts.h.inc"
 
 using namespace mlir;
@@ -76,12 +76,12 @@ Value unguarded(Value index) {
 // whichever guard checked it.
 bool sameIndex(Value a, Value b) { return isEqualConstantIntOrValue(unguarded(a), unguarded(b)); }
 
-// Whether the program `op` stands in counts no reference yet: its holds are
-// undecided, as they are at every stage before lifetimes are decided. The
-// stage is the program's, which a pass at any stage meets only as it runs.
+// Whether the program `op` stands in counts no reference yet, as its stage
+// says. The stage is the program's, which a pass at any stage meets only as
+// it runs.
 bool uncounted(Operation *op) {
   ProgramOp program = op->getParentOfType<FuncOp>().getProgram();
-  return holdsAt[program.getStage()] == StageHolds::Undecided;
+  return countingAt[program.getStage()] == StageCounting::Uncounted;
 }
 
 // The fusion of `write` with the read of its element, or nothing.

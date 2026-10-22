@@ -94,11 +94,6 @@ void lowerInterchange(mlir::RewriterBase &rewriter, Op op);
 llvm::SmallVector<mlir::Value> inlineRegion(mlir::RewriterBase &rewriter, mlir::Operation *op,
                                             mlir::ValueRange args, mlir::TypeRange given);
 
-// The sizes of the first `dims` dimensions of the domain of `op`.
-llvm::SmallVector<mlir::OpFoldResult> extentsOf(mlir::OpBuilder &b,
-                                                mlir::DestinationStyleOpInterface op,
-                                                unsigned dims);
-
 // What `array` holds at `indices` of its leading dimensions, of type
 // `cell`: the element, or the cell of the dimensions after them (at no
 // index, the array itself).
