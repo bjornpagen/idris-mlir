@@ -13,13 +13,13 @@
 // read writes nothing outside the record and reads the body once.
 #include "Solver/IdentityRecords.h"
 
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -200,7 +200,7 @@ Build Reader<N>::buildOf(Value value) {
           // A read whose op does more than compute (a memo cell's state,
           // which forcing writes) is no part of anything.
           [&](const idr::Field &field) -> Build {
-            if (Operation *op = value.getDefiningOp(); op && !isMemoryEffectFree(op))
+            if (Operation *op = value.getDefiningOp(); op && !effects::whole(op).onlyComputes())
               return build::Opaque{};
             return build::Read{numbering.at(field.scrutinee), Field{field.tag, field.index},
                                value.getType()};

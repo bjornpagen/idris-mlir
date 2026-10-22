@@ -21,11 +21,16 @@
 // component writes its own members' summaries alone, in its members'
 // order, and joins only finished components', so the summaries are the
 // same bytes at any thread count.
+//
+// A solve's work is the transfers the range analysis makes over the
+// function: each op, call and region entry it visits, each time it visits
+// one.
 #ifndef IDR_ANALYSIS_RANGES_H
 #define IDR_ANALYSIS_RANGES_H
 
 #include "idr/Analysis/Solver/Decision.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -70,9 +75,10 @@ public:
   // arguments, each function solved alone.
   Ranges(mlir::Operation *program, mlir::AnalysisManager &am);
 
-  // `fn`'s solve under the summaries; failure when MLIR's solver failed, an
-  // internal error the reader reports.
-  mlir::FailureOr<std::unique_ptr<const Solved>> solve(idr::FuncOp fn) const;
+  // `fn`'s solve under the summaries, its transfers added to `work`;
+  // failure when MLIR's solver failed, an internal error the reader
+  // reports.
+  mlir::FailureOr<std::unique_ptr<const Solved>> solve(idr::FuncOp fn, solver::Work &work) const;
 
   // The one read of an integer range lattice, of this solver or of any
   // other that ran MLIR's integer range analysis.
@@ -84,10 +90,14 @@ public:
     return returns[graph.id(callee)];
   }
 
+  // The transfers the summaries' solves made, the decide step's work.
+  std::uint64_t work() const { return spent.steps(); }
+
 private:
   const solver::ProgramGraph &graph;
   IndexVector<solver::FunctionId, RangeSummary> returns;
   IndexVector<solver::FunctionId, RangeSummary> arguments;
+  solver::Work spent;
 };
 
 } // namespace idr

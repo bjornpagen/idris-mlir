@@ -76,6 +76,7 @@ SetTable::SetTable() { sets.emplace_back(); }
 SetId SetTable::intern(ArrayRef<Label> members) {
   if (members.empty())
     return SetId{};
+  read += members.size();
   if (auto it = ids.find(members); it != ids.end())
     return it->second;
   ArrayRef<Label> kept = members.copy(storage);
@@ -87,8 +88,9 @@ SetId SetTable::intern(ArrayRef<Label> members) {
 
 ArrayRef<Label> SetTable::members(SetId set) const { return sets[llvm::to_underlying(set)]; }
 
-bool SetTable::within(SetId part, SetId whole) const {
+bool SetTable::within(SetId part, SetId whole) {
   ArrayRef<Label> in = members(whole);
+  read += members(part).size();
   return llvm::all_of(members(part), [&](Label label) { return std::binary_search(in.begin(), in.end(), label); });
 }
 
@@ -111,6 +113,7 @@ SetId SetTable::unite(SmallVectorImpl<SetId> &inputs) {
     SmallVector<Label> all;
     for (SetId part : inputs)
       llvm::append_range(all, members(part));
+    read += all.size();
     llvm::sort(all);
     all.erase(std::unique(all.begin(), all.end()), all.end());
     result = intern(all);
@@ -207,6 +210,7 @@ SmallVector<Firing> Graph::wave() {
   vertexIn.resize(parents.size(), 0);
   SmallVector<Node> order;
   auto take = [&](Node node) {
+    ++steps;
     Node root = find(node);
     if (takenIn[at(root)] == waves)
       return;
@@ -233,6 +237,7 @@ SmallVector<Firing> Graph::wave() {
   for (unsigned v = 0; v < n; ++v) {
     SmallVector<Node, 2> kept;
     for (Node next : classes[at(order[v])].successors) {
+      ++steps;
       unsigned w = vertexOf(next);
       if (w == v || seen[w] == v)
         continue;
@@ -250,6 +255,7 @@ SmallVector<Firing> Graph::wave() {
   std::vector<SmallVector<SetId, 1>> owed(n);
   for (auto [from, to] : added)
     owed[vertexOf(to)].push_back(classes[at(find(from))].labels);
+  steps += added.size();
   added.clear();
   std::vector<SetId> before(n);
   for (unsigned v = 0; v < n; ++v)
@@ -292,11 +298,13 @@ SmallVector<Firing> Graph::wave() {
   // has run a subset of them.
   SmallVector<Firing> firings;
   for (auto [d, run] : llvm::enumerate(runs)) {
+    ++steps;
     SetId set = classes[at(find(run.callee))].labels;
     if (set == run.ran)
       continue;
     SmallVector<Label> unrun;
     ArrayRef<Label> now = sets.members(set), had = sets.members(run.ran);
+    steps += now.size() + had.size();
     std::set_difference(now.begin(), now.end(), had.begin(), had.end(), std::back_inserter(unrun));
     for (Label label : unrun)
       firings.emplace_back(Dispatch(static_cast<unsigned>(d)), label);
@@ -315,11 +323,12 @@ void Graph::fire(Firing firing) {
 
 // Every node's labels are its root's, one attribute per set: its labels
 // in the labels' order, their functions' order in the program.
-Solution Graph::solve() && {
+Solution Graph::solve(solver::Work &work) && {
   seed();
   for (SmallVector<Firing> firings = wave(); !firings.empty(); firings = wave())
     for (Firing firing : firings)
       fire(firing);
+  work.add(steps + sets.labelsRead());
   llvm::DenseMap<SetId, ArrayAttr> attrs;
   auto n = static_cast<unsigned>(parents.size());
   out.labels.assign(n, out.empty);
@@ -391,7 +400,7 @@ namespace idr {
 Labels::Labels(Operation *program, AnalysisManager &am) : solution([&] {
   labels::Graph graph(std::get<0>(reads(am)));
   graph.walk(program);
-  return std::move(graph).solve();
+  return std::move(graph).solve(spent);
 }()) {}
 
 } // namespace idr

@@ -66,9 +66,11 @@ void Function::elaborate(RewriterBase &rewriter) {
   // Where each class is placed so far: a scope and its value there.
   std::vector<SmallVector<std::pair<RegionId, Value>, 1>> placed(classes.size());
   auto placedIn = [&](ClassId c, RegionId scope) -> std::optional<Value> {
-    for (auto [region, value] : placed[c.index()])
+    for (auto [region, value] : placed[c.index()]) {
+      ++steps;
       if (visible(region, scope))
         return value;
+    }
     const Node &node = at(*best[c.index()]);
     if (const auto *leaf = std::get_if<node::Leaf>(&node.what))
       return leaf->value;

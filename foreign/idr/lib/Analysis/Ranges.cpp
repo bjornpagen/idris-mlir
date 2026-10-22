@@ -54,6 +54,7 @@ public:
   // a merge it flows into.
   LogicalResult visitOperation(Operation *op, ArrayRef<const IntegerValueRangeLattice *> operands,
                                ArrayRef<IntegerValueRangeLattice *> results) override {
+    ++visits;
     if (isa<ub::PoisonOp>(op))
       return success();
     return IntegerRangeAnalysis::visitOperation(op, operands, results);
@@ -66,6 +67,7 @@ public:
   void visitNonControlFlowArguments(Operation *op, const RegionSuccessor &successor,
                                     ValueRange inputs,
                                     ArrayRef<IntegerValueRangeLattice *> lattices) override {
+    ++visits;
     auto match = dyn_cast<idr::LitMatchOp>(op);
     if (!match || successor.getSuccessor() != &match.getDefaultRegion() || inputs.size() != 1)
       return IntegerRangeAnalysis::visitNonControlFlowArguments(op, successor, inputs, lattices);
@@ -79,6 +81,7 @@ public:
   // starts at its type's range.
   void visitExternalCall(CallOpInterface call, ArrayRef<const IntegerValueRangeLattice *>,
                          ArrayRef<IntegerValueRangeLattice *> results) override {
+    ++visits;
     auto direct = cast<idr::CallOp>(call.getOperation());
     const idr::RangeSummary &returned = summaries.returnsOf(direct.getCalleeAttr());
     for (auto [lattice, value] : llvm::zip_equal(results, returned)) {
@@ -90,10 +93,14 @@ public:
     }
   }
 
+  // The transfers made: each op, call and region entry visited, each time.
+  std::uint64_t transfers() const { return visits; }
+
 private:
   idr::FuncOp fn;
   const idr::RangeSummary &arguments;
   const idr::Ranges &summaries;
+  std::uint64_t visits = 0;
 };
 
 // Joins `range` into `into`.
@@ -122,13 +129,16 @@ std::optional<ConstantIntRanges> Ranges::rangeOf(const DataFlowSolver &solver, V
   return state->getValue().getValue();
 }
 
-FailureOr<std::unique_ptr<const Ranges::Solved>> Ranges::solve(FuncOp fn) const {
+FailureOr<std::unique_ptr<const Ranges::Solved>> Ranges::solve(FuncOp fn,
+                                                               solver::Work &work) const {
   std::unique_ptr<Solved> solved(new Solved());
   // The integer range analysis is silent without dead code analysis, and
   // reads constants through constant propagation.
   loadBaselineAnalyses(solved->dataflow);
-  solved->dataflow.load<SummarizedRanges>(fn, arguments[graph.id(fn)], *this);
-  if (failed(solved->dataflow.initializeAndRun(fn)))
+  auto *ranges = solved->dataflow.load<SummarizedRanges>(fn, arguments[graph.id(fn)], *this);
+  LogicalResult ran = solved->dataflow.initializeAndRun(fn);
+  work.add(ranges->transfers());
+  if (failed(ran))
     return failure();
   return std::unique_ptr<const Solved>(std::move(solved));
 }
@@ -157,7 +167,7 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
       solver::SolveUnit unit("idr-narrow returns", fn.getSymName());
-      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn);
+      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, spent);
       if (failed(solved))
         continue;
       RangeSummary &out = returns[f];
@@ -199,7 +209,7 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
       solver::SolveUnit unit("idr-narrow arguments", fn.getSymName());
-      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn);
+      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, spent);
       // What a call passes: what its solve found, nothing where the solve
       // never reached it; a caller whose solve failed knows nothing of what
       // it passes, so it passes every value the operand's type allows.

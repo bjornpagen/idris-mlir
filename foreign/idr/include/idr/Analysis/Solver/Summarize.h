@@ -23,12 +23,12 @@
 
 #include "idr/Analysis/Solver/Lattice.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/MLIRContext.h"
 
 #include <concepts>
-#include <span>
 
 namespace idr::solver {
 
@@ -44,21 +44,11 @@ concept SummaryProblem = requires(const P &p, const ProgramGraph &g, FunctionId 
 };
 
 // Every function's summary, each component solved after the components it
-// reads: its callees' (CalleesFirst) or its callers' (CallersFirst).
+// reads: its callees' (CalleesFirst) or its callers' (CallersFirst). The
+// transfers it makes are added to `work`.
 template <Order O, SummaryProblem P>
 IndexVector<FunctionId, typename P::Summary> summarize(const ProgramGraph &g, const P &problem,
-                                                       mlir::MLIRContext &context);
-
-// The summaries again after a change: the components of `seeds`, whose
-// local facts changed, are solved afresh from bottom, and a component whose
-// members' summaries changed makes the components that read it be solved
-// afresh too, in the schedule's order; one whose summaries come out equal
-// stops the change there. Serial: the change is local, and the order is
-// the schedule's.
-template <Order O, SummaryProblem P>
-void resummarize(const ProgramGraph &g, const P &problem,
-                 IndexVector<FunctionId, typename P::Summary> &done,
-                 std::span<const FunctionId> seeds);
+                                                       mlir::MLIRContext &context, Work &work);
 
 } // namespace idr::solver
 

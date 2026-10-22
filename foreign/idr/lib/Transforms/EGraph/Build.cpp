@@ -5,9 +5,10 @@
 // skeleton and its rules.
 #include "Engine.h"
 
+#include "idr/IR/Effects/Query.h"
+
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/CallInterfaces.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -38,13 +39,15 @@ std::optional<std::uint16_t> Kinds::kindOf(Operation *op) const {
 
 namespace {
 
-// How an op enters the e-graph, read off its declared effects, the
-// declaration every reader of effects reads: none, or an acquisition of
-// memory for the op itself, which only reports, floats; an op whose every
-// effect gives its result a fresh identity is a node of its own; an op
-// that only reads may merge with an equal read no write separates from
-// it; every other op is ordered. An op that declares nothing it does is
-// ordered: what it does is not known.
+// How an op enters the e-graph, read off its own effects as the one query
+// API gives them: an op that only computes its result floats (memory it
+// acquires that no value names is only reported); one whose result also
+// takes a fresh identity, which an allocation is always of, is a node of
+// its own; one that reads and changes nothing may merge with an equal read
+// nothing between changes; every other op is ordered, and an op that
+// declares nothing it does is among them, since it may do anything. A
+// crash and a divergence are writes, so a call whose row carries either is
+// ordered and never floats.
 //
 // An op whose value depends on its parent (DependsOnParent: the iteration
 // index of the structured op around it) computes something else under
@@ -53,48 +56,16 @@ namespace {
 // op of the same region, which nothing between can change.
 enum class Entry : std::uint8_t { Floats, OwnIdentity, Reads, OfParent, Ordered };
 
-Entry entryOf(Operation *op) {
-  auto effects = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!effects)
+Entry entryOf(Operation *op, const effects::EffectSet &does) {
+  using effects::Kind;
+  if (!does.byKind[Kind::Write].empty() || !does.byKind[Kind::Free].empty())
     return Entry::Ordered;
-  SmallVector<MemoryEffects::EffectInstance> instances;
-  effects.getEffects(instances);
-  bool owns = false, reads = false;
-  for (const MemoryEffects::EffectInstance &instance : instances) {
-    if (isa<MemoryEffects::Allocate>(instance.getEffect())) {
-      owns = owns || static_cast<bool>(instance.getValue());
-      continue;
-    }
-    if (isa<MemoryEffects::Read>(instance.getEffect())) {
-      reads = true;
-      continue;
-    }
-    return Entry::Ordered;
-  }
-  if (reads)
+  if (!does.byKind[Kind::Read].empty())
     return Entry::Reads;
+  Entry alone = does.byKind[Kind::Allocate].empty() ? Entry::Floats : Entry::OwnIdentity;
   if (op->hasTrait<OpTrait::DependsOnParent>())
-    return owns ? Entry::Ordered : Entry::OfParent;
-  return owns ? Entry::OwnIdentity : Entry::Floats;
-}
-
-// Whether `writer`'s effects may change what `reader` reads: a write or a
-// free on a resource not disjoint from one the reader reads.
-bool mayChange(Operation *writer, Operation *reader) {
-  auto writes = dyn_cast<MemoryEffectOpInterface>(writer);
-  if (!writes)
-    return true;
-  SmallVector<MemoryEffects::EffectInstance> written, read;
-  writes.getEffects(written);
-  cast<MemoryEffectOpInterface>(reader).getEffects(read);
-  for (const MemoryEffects::EffectInstance &w : written) {
-    if (!isa<MemoryEffects::Write, MemoryEffects::Free>(w.getEffect()))
-      continue;
-    for (const MemoryEffects::EffectInstance &r : read)
-      if (!w.getResource()->isDisjointFrom(r.getResource()))
-        return true;
-  }
-  return false;
+    return alone == Entry::Floats ? Entry::OfParent : Entry::Ordered;
+  return alone;
 }
 
 // Whether `op` stays where it is whatever its effects: a terminator, a
@@ -115,6 +86,7 @@ bool staysPut(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 NodeId Function::newNode(Node node) {
+  ++steps;
   nodes.push_back(std::move(node));
   return NodeId(static_cast<std::uint32_t>(nodes.size() - 1));
 }
@@ -305,8 +277,17 @@ std::optional<ClassId> Function::insert(OperationName name, std::optional<std::u
       return replace->by;
     Run joined{static_cast<std::uint32_t>(members.size()), 1};
     members.push_back(made);
+    // The joined class's members are copied from the array they are
+    // appended to, so by position, with room made first: an iterator into
+    // the array would not survive its growth.
     if (const auto *join = std::get_if<Join>(&rewritten)) {
-      llvm::append_range(members, membersOf(at(join->with)));
+      Run with = at(join->with).members;
+      members.reserve(members.size() + with.count);
+      for (std::uint32_t position = with.first; position < with.first + with.count; ++position) {
+        NodeId member = members[position];
+        members.push_back(member);
+      }
+      steps += with.count;
       joined.count = static_cast<std::uint32_t>(members.size()) - joined.first;
     }
     analysed.members = joined;
@@ -393,7 +374,8 @@ void Function::build() {
         firstRegions.pop_back();
       }
       RegionId region = open.back();
-      Entry entry = entryOf(op);
+      effects::EffectSet does = effects::own(op);
+      Entry entry = entryOf(op, does);
       if (!staysPut(op) && (entry == Entry::Floats || entry == Entry::OwnIdentity)) {
         SmallVector<ClassId, 4> operands = classesOf(op);
         Value result = op->getResult(0);
@@ -408,8 +390,9 @@ void Function::build() {
         return;
       }
       // A skeleton op: its results are leaves. A repeated read with nothing
-      // between that may change it is the first read; a repeated op of the
-      // region's parent is the first.
+      // between that may change it is the first read: no op between, with
+      // everything in its regions, conflicts with what the read does, which
+      // changes nothing. A repeated op of the region's parent is the first.
       std::vector<Skeletal> &list = perRegion[region.index()];
       std::vector<Mergeable> &earlier = mergeable[region.index()];
       Fate fate = Kept{};
@@ -418,9 +401,13 @@ void Function::build() {
           if (entry == Entry::OfParent)
             return true;
           return llvm::none_of(llvm::ArrayRef(list).drop_front(first.since),
-                               [&](const Skeletal &between) { return mayChange(between.op, op); });
+                               [&](const Skeletal &between) {
+                                 ++steps;
+                                 return effects::whole(between.op).conflicts(does);
+                               });
         };
-        for (const Mergeable &first : earlier)
+        for (const Mergeable &first : earlier) {
+          ++steps;
           if (first.op->getName() == op->getName() &&
               first.op->getResultTypes() == op->getResultTypes() &&
               classesOf(first.op) == classesOf(op) &&
@@ -431,6 +418,7 @@ void Function::build() {
             fate = Merged{first.op};
             break;
           }
+        }
         if (std::holds_alternative<Kept>(fate))
           earlier.push_back({op, static_cast<std::uint32_t>(list.size() + 1)});
       }
@@ -462,7 +450,7 @@ void Function::build() {
 void Function::sweep(RewriterBase &rewriter) {
   std::vector<Operation *> ops;
   fn.getBody().walk([&](Operation *op) {
-    Entry entry = entryOf(op);
+    Entry entry = entryOf(op, effects::own(op));
     if (!staysPut(op) &&
         (entry == Entry::Floats || entry == Entry::OwnIdentity || entry == Entry::OfParent))
       ops.push_back(op);

@@ -196,6 +196,9 @@ public:
   mlir::Operation *originOf(mlir::Value value) const;
   Cost costOf(mlir::Value value) const;
 
+  // What the function's e-graph did so far, the pass's work.
+  std::uint64_t work() const { return steps; }
+
 private:
   // Minting.
   NodeId newNode(Node node);
@@ -286,6 +289,12 @@ private:
   // Extraction: each class's chosen member and its cost.
   std::vector<std::optional<NodeId>> best;
   std::vector<Cost> cost;
+
+  // Each step of work, in the e-graph's own units: a node made, a member a
+  // join copies, an earlier op a repeated read is compared with and an op
+  // between them read, a placement an elaboration looks at. Extraction
+  // reads each member once, which its making counted.
+  std::uint64_t steps = 0;
 };
 
 } // namespace idr::egraph::detail

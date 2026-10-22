@@ -39,6 +39,10 @@
 // The graph is spent by its solve, which leaves a Solution: every point's
 // node, each node's labels and each operand's sink, read and never written
 // from then on.
+//
+// The solve's work is what its waves read: each class taken, each edge,
+// each dispatch, and each label a union, an interning or a dispatch's new
+// labels read.
 #ifndef IDR_ANALYSIS_LABELS_H
 #define IDR_ANALYSIS_LABELS_H
 
@@ -46,6 +50,7 @@
 #include "idr/IR/IdrDialect.h"
 
 #include "idr/Analysis/Solver/Decision.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/SymbolTable.h"
@@ -225,11 +230,14 @@ public:
   SetId unite(llvm::SmallVectorImpl<SetId> &inputs);
   // The members of `set`, in rank order.
   llvm::ArrayRef<Label> members(SetId set) const;
+  // The labels the table has read to intern and unite.
+  std::uint64_t labelsRead() const { return read; }
 
 private:
   // Whether every label of `part` is one of `whole`'s.
-  bool within(SetId part, SetId whole) const;
+  bool within(SetId part, SetId whole);
 
+  std::uint64_t read = 0;
   llvm::BumpPtrAllocator storage;
   // Each set's members, by id, in `storage`.
   std::vector<llvm::ArrayRef<Label>> sets;
@@ -251,8 +259,9 @@ public:
   // Mints a label for each function of `program`, an idr.program, in
   // program order, then reads its statements.
   void walk(mlir::Operation *program);
-  // The least solution of the statements; the graph is spent.
-  Solution solve() &&;
+  // The least solution of the statements, what the waves read added to
+  // `work`; the graph is spent.
+  Solution solve(solver::Work &work) &&;
 
 private:
   // What a class of the union-find holds; only a root's is current: the
@@ -313,6 +322,9 @@ private:
   std::vector<std::uint32_t> takenIn;
   std::vector<std::uint32_t> vertexIn;
   std::uint32_t waves = 0;
+
+  // The classes, edges, dispatches and new labels the waves read.
+  std::uint64_t steps = 0;
 };
 
 // A class a wave takes, numbered by its wave: the vertices of the wave's
@@ -363,7 +375,12 @@ public:
     return solution.positionIn(set, label);
   }
 
+  // What the solve read, the work of the pass that computes the labels.
+  std::uint64_t work() const { return spent.steps(); }
+
 private:
+  // Before the solution, which its solve counts into as it is made.
+  solver::Work spent;
   labels::Solution solution;
 };
 

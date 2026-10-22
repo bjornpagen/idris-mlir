@@ -66,9 +66,16 @@ template Component Component::read<solver::Editor>(const solver::Editor &,
 
 std::span<const solver::FunctionId> Component::outsideCallees() const { return records->outside; }
 
-std::vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> outside) && {
+std::vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> outside,
+                                    solver::Work &work) && {
   const std::vector<Record> &members = records->members;
   auto count = static_cast<unsigned>(members.size());
+  // Each reading of a member visits its every value: its record's, once
+  // when it was read, and a reading's at each check and publication.
+  std::uint64_t visited = 0;
+  auto visit = [&](std::uint32_t member) { visited += members[member].values.value(); };
+  for (std::uint32_t member = 0; member < count; ++member)
+    visit(member);
 
   // Every member starts assumed to give back each argument of a result's
   // type, as a whole, at that result.
@@ -118,6 +125,7 @@ std::vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> 
     queued.reset(member);
     std::vector<std::span<const GivesBack>> facts = calleeFacts(member);
     Facts kept = wholeFactsAmong(members[member], facts, assumed[member]);
+    visit(member);
     if (kept.size() == assumed[member].size())
       continue;
     assumed[member] = std::move(kept);
@@ -130,8 +138,11 @@ std::vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> 
 
   std::vector<Facts> out;
   out.reserve(count);
-  for (std::uint32_t member = 0; member < count; ++member)
+  for (std::uint32_t member = 0; member < count; ++member) {
     out.push_back(everyFact(members[member], calleeFacts(member)));
+    visit(member);
+  }
+  work.add(visited);
   return out;
 }
 

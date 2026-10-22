@@ -23,11 +23,14 @@
 // frozen, every field path of them. Each member is read once, into a
 // record of how its body builds each value, numbered in walk order so one
 // loop over the values ascending reads every value after what it is made
-// of; the checks read the record and never walk the body again.
+// of; the checks read the record and never walk the body again. The
+// solve's work is the values its readings visit: each member's once when
+// it is read, and again at each check and when its facts are published.
 #ifndef IDR_ANALYSIS_IDENTITIES_H
 #define IDR_ANALYSIS_IDENTITIES_H
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "llvm/ADT/ArrayRef.h"
@@ -85,8 +88,10 @@ public:
   std::span<const solver::FunctionId> outsideCallees() const;
 
   // The facts of every member, in the component's order, given the frozen
-  // facts of each outside callee in outsideCallees' order.
-  std::vector<Facts> solve(std::span<const std::span<const GivesBack>> outside) &&;
+  // facts of each outside callee in outsideCallees' order; the values its
+  // readings visited added to `work`.
+  std::vector<Facts> solve(std::span<const std::span<const GivesBack>> outside,
+                           solver::Work &work) &&;
 
   struct Records;
 
@@ -101,15 +106,16 @@ extern template Component Component::read<solver::Editor>(const solver::Editor &
                                                           llvm::ArrayRef<solver::Member>);
 
 // The facts of every member of `component`, in its order: the frozen facts
-// each outside callee has are read once, before the solve.
+// each outside callee has are read once, before the solve, whose work is
+// added to `work`.
 template <solver::FunctionNames N, Outside O>
 std::vector<Facts> givesBackOf(const N &names, llvm::ArrayRef<solver::Member> component,
-                               const O &outside) {
+                               const O &outside, solver::Work &work) {
   Component bodies = Component::read(names, component);
   std::vector<std::span<const GivesBack>> frozen;
   for (solver::FunctionId callee : bodies.outsideCallees())
     frozen.push_back(outside(callee));
-  return std::move(bodies).solve(frozen);
+  return std::move(bodies).solve(frozen, work);
 }
 
 } // namespace idr::identities

@@ -102,8 +102,10 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     if (rewrites.empty()) {
       IRRewriter rewriter(&getContext());
       first.elaborate(rewriter);
+      numWork += first.work();
       return;
     }
+    numWork += first.work();
     Erasures erasures;
     IRRewriter rewriter(&getContext(), &erasures);
     for (const idr::egraph::Function::Pending &pending : rewrites) {
@@ -118,6 +120,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     second.decide(idr::egraph::Round::Second);
     IRRewriter writer(&getContext());
     second.elaborate(writer);
+    numWork += second.work();
   }
 
   std::shared_ptr<const idr::egraph::Kinds> kinds;
