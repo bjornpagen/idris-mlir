@@ -371,4 +371,7 @@ private:
 
 } // namespace idr::egraph::detail
 
+// What a skeleton rule reads, inline over the tables above.
+#include "idr/Transforms/EGraph/Reads.h"
+
 #endif // IDR_TRANSFORMS_EGRAPH_ENGINE_H

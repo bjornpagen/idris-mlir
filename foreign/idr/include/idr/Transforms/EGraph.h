@@ -287,4 +287,8 @@ std::unique_ptr<mlir::Pass> createIdrSimplify(const egraph::CalleeFacts &callees
 
 } // namespace idr
 
+// What OperandFacts answers, inline over the engine's tables: a skeleton
+// rule, wherever its library sits, reads it with no symbol of the engine's.
+#include "idr/Transforms/EGraph/Engine.h"
+
 #endif // IDR_TRANSFORMS_EGRAPH_H

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-simplify: one function's e-graph per run, in two rounds at most
-// (EGraph.h), and what a skeleton rule and the optimizer read of it.
+// (EGraph.h), and what the optimizer reads of it.
 #include "idr/Transforms/EGraph/Engine.h"
 
 #include "idr/Analysis/Solver/Trace.h"
@@ -28,18 +28,6 @@ namespace idr::egraph {
 using detail::Function;
 using detail::Kinds;
 using detail::Round;
-
-Attribute OperandFacts::constant(Value value) const {
-  return function.classOfValue(value).facts.attribute;
-}
-
-std::optional<ConstantIntRanges> OperandFacts::range(Value value) const {
-  return function.classOfValue(value).facts.range;
-}
-
-Operation *OperandFacts::origin(Value value) const { return function.originOf(value); }
-
-Cost OperandFacts::cost(Value value) const { return function.costOf(value); }
 
 void CalleeFacts::publish(solver::FunctionId f, identities::Facts given) {
   if (f.index() >= facts.size().value()) {

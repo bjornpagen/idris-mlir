@@ -221,14 +221,8 @@ void Function::sweep(RewriterBase &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
-// What a skeleton rule reads
+// Deciding
 //===----------------------------------------------------------------------===//
-
-const Class &Function::classOfValue(Value value) const {
-  return at(*classOf[numbering.at(value)]);
-}
-
-Cost Function::costOf(Value value) const { return cost[classOf[numbering.at(value)]->index()]; }
 
 // The skeleton rules, in the order the specification lists them, each
 // asked of every skeleton op its root is, once the e-graph is extracted;
@@ -264,14 +258,6 @@ footprint::Vector<Function::Pending> Function::rewrites() const {
               [](const Forward &) {}, [](const Take &) {});
         });
   return out;
-}
-
-// The op of the input the value's chosen member is, if it is one.
-Operation *Function::originOf(Value value) const {
-  const std::optional<NodeId> &chosen = best[classOf[numbering.at(value)]->index()];
-  return match(at(*chosen).what, [](const node::Input &op) { return op.origin; },
-               [](const node::Built &) -> Operation * { return nullptr; },
-               []<Atom N>(const N &) -> Operation * { return nullptr; });
 }
 
 } // namespace idr::egraph::detail
