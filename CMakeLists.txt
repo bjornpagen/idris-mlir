@@ -417,10 +417,22 @@ target_compile_options(idris_mlir_warnings INTERFACE
 	-Wimplicit-fallthrough
 )
 
-# The language profile of our tools. No FP contraction anywhere. Every
-# frame is probed a page at a time on every target, so no frame of a tool
-# steps over the one-page guard below its stack (idr/Driver/Tool.h): the
-# pinned clang probes on Darwin as on Linux. The Release build of our code
+# Stack probes, for the tools' profile below and the runtime's
+# (runtime/CMakeLists.txt): every frame is probed a page at a time on every
+# target, so no frame steps over the one-page guard below its stack
+# (idr/Driver/Tool.h); the pinned clang probes on Darwin as on Linux. The
+# typecheck build alone leaves them out: probes are code generation only,
+# and it runs nothing it compiles, so no meaning changes, while the host's
+# compiler it uses may lack Darwin's probes and call the flag unused, an
+# error under the warnings' -Werror.
+if(IDRIS_MLIR_TYPECHECK)
+	set(IDRIS_MLIR_STACK_PROBES "")
+else()
+	set(IDRIS_MLIR_STACK_PROBES -fstack-clash-protection)
+endif()
+
+# The language profile of our tools. No FP contraction anywhere, and stack
+# probes in every build that makes code (above). The Release build of our code
 # is full LTO, linked with LLVM's and MLIR's libraries as the native code
 # stage 2 built them. The precompiled header our libraries share
 # (foreign/idr/lib/IR) holds no timestamp, so the compile cache takes it,
@@ -430,7 +442,7 @@ target_link_libraries(idris_mlir_language_profile INTERFACE idris_mlir_warnings)
 
 target_compile_options(idris_mlir_language_profile INTERFACE
 	-ffp-contract=off
-	-fstack-clash-protection
+	${IDRIS_MLIR_STACK_PROBES}
 	"$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Xclang -fno-pch-timestamp>"
 	"$<$<CONFIG:Release>:-ffunction-sections;-fdata-sections;-flto=full>"
 )
