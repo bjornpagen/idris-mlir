@@ -156,14 +156,16 @@ endfunction()
 #   compiler does not size touches every page it takes. A program's own
 #   frames, the runtime bodies it joins among them, are sized by code
 #   generation and checked against the guard when it is built, so the
-#   bodies shed their probes when joined (linkRuntime);
+#   bodies shed their probes when joined (linkRuntime). The typecheck
+#   build, which runs nothing, leaves them out (IDRIS_MLIR_STACK_PROBES,
+#   CMakeLists.txt);
 # - no FP contraction.
 add_library(idris_mlir_runtime_profile INTERFACE)
 target_compile_options(idris_mlir_runtime_profile INTERFACE
 	-O3
 	${IDRIS_MLIR_BASELINE_CPU}
 	${IDRIS_MLIR_RUNTIME_BITCODE_FLAGS}
-	-fstack-clash-protection
+	${IDRIS_MLIR_STACK_PROBES}
 	-ffp-contract=off
 	${IDRIS_MLIR_RUNTIME_SECTIONS}
 )
