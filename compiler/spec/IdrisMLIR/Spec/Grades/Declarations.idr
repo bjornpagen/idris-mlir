@@ -6,9 +6,9 @@
 |||
 ||| Printed: `!idr.graded<once, counted unique deep, !List>`,
 ||| `!idr.graded<many, scoped, !Tree>`, `!idr.graded<many, static, !String>`,
-||| `!idr.graded<once, i64>`. A bare type is its carrier's bare grade
-||| (`bare`): a word used freely, or a value that holds references used
-||| freely, counted and claiming nothing; the builder gives the carrier for
+||| `!idr.graded<once, i64>`. A bare type is its carrier's bare grade: a
+||| word used freely, or a value that holds references used freely, counted
+||| and claiming nothing; the builder gives the carrier for
 ||| it, so one fact has one spelling and upstream's ops take it as it is.
 module IdrisMLIR.Spec.Grades.Declarations
 
@@ -98,8 +98,9 @@ fieldReachClosed = MkClosed
   , doc = brief (line "how far a value's claim on its own cells reaches into a field")
   }
 
-||| Whether a carrier holds references, the fact `Grade` is indexed by: a
-||| data type computes it when it is made, and a family at an unknown index.
+||| Whether a carrier holds references, the fact that decides whether its
+||| grade has a hold: a data type computes it when it is made, and a family
+||| at an unknown index.
 export
 refsClosed : Closed Refs
 refsClosed = MkClosed

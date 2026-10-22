@@ -290,27 +290,11 @@ refineFits (Scoped u) c = ScopedForgets c
 refineFits Static _ = StaticStays
 
 --------------------------------------------------------------------------------
--- The grade, by what its carrier holds
+-- What a carrier holds
 --------------------------------------------------------------------------------
 
 ||| Whether a carrier holds references: a fact of the carrier, computed when
-||| its type is made, never asked of the grade.
+||| its type is made, never asked of the grade. A grade has a hold exactly
+||| when its carrier holds references.
 public export
 data Refs = Words | References
-
-||| A grade, indexed by its carrier's fact: a carrier that holds no
-||| reference has uses alone, so an owned word cannot be written; one that
-||| holds references has uses and a hold, so no hold is ever undecided.
-public export
-data Grade : Refs -> Type where
-  OnWords : Uses -> Grade Words
-  OnReferences : Uses -> Hold -> Grade References
-
-||| The grade a bare type has, so it is never written as a graded type: a
-||| word used freely (the form upstream's ops take); a value that holds
-||| references, used freely, counted, claiming nothing (every such value
-||| before counting, and what a pass that learns nothing leaves).
-public export
-bare : (r : Refs) -> Grade r
-bare Words = OnWords Many
-bare References = OnReferences Many (Counted None)
