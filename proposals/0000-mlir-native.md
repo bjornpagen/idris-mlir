@@ -2669,7 +2669,11 @@ improvements (`audits/p0/verify/`), each citing its lane and section.
   hand nests, the linearity verifier's `Numbering`, `holders`, `byBlock`.
 - **C42** (DP-61: conv-Q2). Two program passes (declare every runtime
   function, make every static datum, once), then the lowering as a
-  function pass. Deletes the worker-and-merge scheduler.
+  function pass. Deletes the worker-and-merge scheduler. *Corrected*
+  (recheck 3, L21): the lowering is anchored on the program and lowers
+  each function inside it, since a pass cannot replace its own anchor
+  `idr.func`; the contract `parts/contracts/spec-core.md` and
+  `Pipeline.idr` say so, and no worker-and-merge scheduler is left.
 - **C43** (DP-62: drv-Q4; L10 §1 D33, L15 §1.3). Every thread of the
   compiler runs on one stack size, D33's measured bound with a margin,
   set through a carried patch giving `StdThreadPool` a stack size and
