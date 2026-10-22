@@ -13,9 +13,9 @@
 // where it keeps one, and its lifetimes made ready (its cursor parameters
 // in slots, its rooms laid out), every function at once;
 // then every function's name mangled and the function made an llvm.func
-// (phase 0). Then each function on its own, in parallel: its matches as
-// scf and its views of memrefs as offsets, sizes and strides, still on idr
-// types (phase 1); every op and type of ours converted into the layouts
+// (phase 0). Then each function on its own, in parallel: its exchanges of
+// memo cells as their steps, its matches as scf and its views of memrefs
+// as offsets, sizes and strides, still on idr types (phase 1); every op and type of ours converted into the layouts
 // of Layouts, and every memref op by upstream's patterns or, where the
 // memory is a cell of ours, our own (phase 2); and every region made the
 // blocks upstream's scf patterns make (phase 3). The program is lowered.
@@ -186,12 +186,18 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
   patterns = FrozenRewritePatternSet(std::move(set));
 }
 
-// Phases 1 to 3 of one function. Phase 1 is one walk: the matches become
-// scf, and the views of memrefs an offset, sizes and strides read from their
-// source in upstream's terms, each op once, new ops untouched, so there is
-// nothing to iterate to.
+// Phases 1 to 3 of one function. Phase 1 makes each exchange of a memo
+// cell its steps, so the exchange has one lowering, its steps', and nothing
+// is left at its end to run; then one walk: the matches become scf, and the
+// views of memrefs an offset, sizes and strides read from their source in
+// upstream's terms, each op once, new ops untouched, so there is nothing to
+// iterate to. Splitting moves the exchange's code out of its region, and
+// every call in it was already no tail, since the cell is written after it,
+// and still is, the store following it in its block.
 LogicalResult lowerFunction(LLVM::LLVMFuncOp fn, const Lowering &lowering) {
   IDR_ZONE_IN("idr-lower function", Conversion);
+  IRRewriter rewriter(fn.getContext());
+  fn.walk([&](MemoRunOp exchange) { exchange.split(rewriter); });
   walkAndApplyPatterns(fn, lowering.structure);
   ConversionConfig conversion;
   conversion.allowPatternRollback = false;
