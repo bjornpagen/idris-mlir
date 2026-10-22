@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # idris-mlir-front's own command line, which idris-mlir gives it: the
-# prefix is required, the program's Core and module are written where
-# --core and -o say and nowhere else, in directories made for them when
-# they do not exist, and the exit status is idris-mlir's: 2 for a usage
+# prefix is required, the program's module, its one output, is written
+# where -o says and nowhere else, in directories made for it when they do
+# not exist, and the exit status is idris-mlir's: 2 for a usage
 # error, 3 for the program's error. The compiler's own error, 1, is a
 # broken invariant, which no input a test can give reaches. What it
 # printed is read from both streams.
@@ -50,27 +50,45 @@ says() {
 
 front no-arguments "$work"
 says no-arguments 'usage: idris-mlir-front'
-front no-prefix "$work" --no-prelude --core m.core -o m.mlir Main.idr
+front no-prefix "$work" --no-prelude -o m.mlir Main.idr
 says no-prefix 'no --prefix'
-front hello "$work" --prefix "$checkout_prefix" --no-prelude --core m.core -o m.mlir Main.idr
-if [ -s "$work/m.core" ] && [ -s "$work/m.mlir" ]; then
-  say "hello: exit $(cat "$work/hello.status"), the Core and the module written"
+front hello "$work" --prefix "$checkout_prefix" --no-prelude -o m.mlir Main.idr
+if [ -s "$work/m.mlir" ]; then
+  say "hello: exit $(cat "$work/hello.status"), the module written"
 else
-  say "hello: exit $(cat "$work/hello.status"), the Core or the module missing"
+  say "hello: exit $(cat "$work/hello.status"), the module missing"
   show "$work/hello.log"
 fi
 if [ -e "$work/build/exec" ]; then say "hello: build/exec made"; else say "hello: nothing else written"; fi
-front nested "$work" --prefix "$checkout_prefix" --no-prelude --core out/a/m.core -o out/b/m.mlir Main.idr
-if [ -s "$work/out/a/m.core" ] && [ -s "$work/out/b/m.mlir" ]; then
-  say "nested: exit $(cat "$work/nested.status"), the directories made and both written"
+front nested "$work" --prefix "$checkout_prefix" --no-prelude -o out/b/m.mlir Main.idr
+if [ -s "$work/out/b/m.mlir" ]; then
+  say "nested: exit $(cat "$work/nested.status"), the directories made and the module written"
 else
-  say "nested: exit $(cat "$work/nested.status"), the Core or the module missing"
+  say "nested: exit $(cat "$work/nested.status"), the module missing"
   show "$work/nested.log"
+fi
+# Every path is POSIX's, on every target: a colon is part of a name and
+# never a volume, so a source in a directory whose name holds one is read,
+# and the module written, where the paths say, relative and absolute.
+mkdir "$work/in:put" && cp "$work/Main.idr" "$work/in:put/Main.idr"
+front colon "$work" --prefix "$checkout_prefix" --no-prelude -o out:put/m.mlir in:put/Main.idr
+if [ -s "$work/out:put/m.mlir" ]; then
+  say "colon: exit $(cat "$work/colon.status"), the module written where its relative path says"
+else
+  say "colon: exit $(cat "$work/colon.status"), the module not where its relative path says"
+  show "$work/colon.log"
+fi
+front colon-absolute "$work" --prefix "$checkout_prefix" --no-prelude -o "$work/a:b/m.mlir" "$work/in:put/Main.idr"
+if [ -s "$work/a:b/m.mlir" ]; then
+  say "colon-absolute: exit $(cat "$work/colon-absolute.status"), the module written where its absolute path says"
+else
+  say "colon-absolute: exit $(cat "$work/colon-absolute.status"), the module not where its absolute path says"
+  show "$work/colon-absolute.log"
 fi
 # A program Idris rejects: the frontend prints nothing of it and writes
 # the refusal into the module, which idris-mlir reads and reports, an
 # elaboration refusal at the line Idris names.
-front undefined "$work/bad" --prefix "$checkout_prefix" --no-prelude --core m.core -o m.mlir Main.idr
+front undefined "$work/bad" --prefix "$checkout_prefix" --no-prelude -o m.mlir Main.idr
 if [ -s "$work/bad/m.mlir" ]; then
   say "undefined: exit $(cat "$work/undefined.status"), the module written"
 else
@@ -85,5 +103,5 @@ else
   say "undefined: the module holds no elaboration refusal at Main.idr:6"
   show "$work/undefined-report.log"
 fi
-front idris-option "$work" --prefix "$checkout_prefix" --cg mlir --core m.core -o m.mlir Main.idr
+front idris-option "$work" --prefix "$checkout_prefix" --cg mlir -o m.mlir Main.idr
 says idris-option 'unknown option --cg'

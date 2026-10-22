@@ -1,4 +1,4 @@
 compile: exit 0
-artifacts: core module objects executable
+artifacts: module objects executable
 cases: each as expected
 universal: holds

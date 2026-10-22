@@ -1,3 +1,4 @@
 probes: each read back as itself
+probes in another session: each read back as itself
 axes: each read back as itself
 other names: no probe

@@ -1,5 +1,5 @@
 compile: exit 0
-artifacts: core module objects executable
+artifacts: module objects executable
 cases: each as expected
 universal: holds
 prelude Prelude.Basics: 34 exports, each used (9 compile-time only: Bool List Not SnocList cong cong2 depCong depCong2 irrelevantEq)

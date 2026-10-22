@@ -55,6 +55,11 @@ IDR_EXPECT_PROPERTY("specialized-once", Functions, specializedOnce)
 // used nowhere else: each continuation is part of what it continues.
 IDR_EXPECT_PROPERTY("contified", Nothing, contified)
 
+// Every function of the program is reached from its roots, the
+// functions its symbol table makes public, by the symbols the bodies
+// of the functions reached before it name.
+IDR_EXPECT_PROPERTY("reached", Nothing, reached)
+
 // Some call in @f calls @g or a copy of it; after lowering @g may be
 // a function of the runtime, named by its symbol.
 IDR_EXPECT_PROPERTY("calls", Pair, calls)

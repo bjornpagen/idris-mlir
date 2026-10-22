@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/100-mlir-opt-main-thread-pool: MlirOptMain runs its input on the
+# thread pool its caller gives it, so a tool built on it, idris-mlir-opt
+# among them, says how its workers are made. A pass records the pool of
+# the context it runs in, which is the one the caller set on the config:
+# built against the toolchain's MLIR, statically, the program prints "ok".
+# At the pin no caller can give MlirOptMain a pool, and it does not build.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "a pass runs in a context that shares the pool its caller gave MlirOptMain" \
+  "$root/upstream/100-mlir-opt-main-thread-pool/callers-pool.cpp"

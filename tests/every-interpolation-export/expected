@@ -1,5 +1,5 @@
 compile: exit 0
-artifacts: core module objects executable
+artifacts: module objects executable
 cases: each as expected
 universal: holds
 prelude Prelude.Interpolation: 3 exports, each used (2 compile-time only: Interpolation MkInterpolation)

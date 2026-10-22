@@ -4,7 +4,11 @@
 ||| (`probeOf . probeName`), every axis through its term and back
 ||| (`probeOfTerm . probeTerm`), and names no probe has. A probe read back is
 ||| compared with the probe itself, constructor and arguments, so two probes
-||| that one name spells cannot pass.
+||| that one name spells cannot pass. Each probe's name is read back again
+||| as a TTC carries it to another session, every identifier by its text,
+||| interned in a table that met other texts first: a probe is spelled by
+||| the known vocabulary, at the same identifier in every session, so it is
+||| still that probe there.
 module Main
 
 import Core.Context
@@ -82,6 +86,46 @@ others =
 roundTrips : Probe -> Bool
 roundTrips p = maybe False (sameProbe p) (probeOf (probeName p))
 
+||| A session's table that has met texts no probe spells before any probe:
+||| an identifier made for a probe at run time, in another session, would
+||| hold an id this table gives another text.
+elsewhere : Idents
+elsewhere = snd (internIn "y" (snd (internIn "x1" seeded)))
+
+rereadIdents : List Ident -> Idents -> (List Ident, Idents)
+rereadIdents [] t = ([], t)
+rereadIdents (i :: rest) t =
+  let (j, t1) = internIn i.text t
+      (js, t2) = rereadIdents rest t1
+  in (j :: js, t2)
+
+rereadUser : UserName -> Idents -> (UserName, Idents)
+rereadUser (Basic i) t = let (j, t1) = internIn i.text t in (Basic j, t1)
+rereadUser (Field i) t = let (j, t1) = internIn i.text t in (Field j, t1)
+rereadUser Underscore t = (Underscore, t)
+
+||| A name as a TTC carries it to another session: each identifier by its
+||| text, interned in that session's table.
+reread : Name -> Idents -> (Name, Idents)
+reread (NS ns n) t =
+  let (parts, t1) = rereadIdents (unsafeUnfoldNamespace ns) t
+      (m, t2) = reread n t1
+  in (NS (unsafeFoldNamespace parts) m, t2)
+reread (UN u) t = let (v, t1) = rereadUser u t in (UN v, t1)
+reread (MN i k) t = let (j, t1) = internIn i.text t in (MN j k, t1)
+reread (PV n k) t = let (m, t1) = reread n t in (PV m k, t1)
+reread (DN i n) t =
+  let (j, t1) = internIn i.text t
+      (m, t2) = reread n t1
+  in (DN j m, t2)
+reread (Nested p n) t = let (m, t1) = reread n t in (Nested p m, t1)
+reread (CaseBlock n k) t = let (m, t1) = reread n t in (CaseBlock m k, t1)
+reread (WithBlock n k) t = let (m, t1) = reread n t in (WithBlock m k, t1)
+reread (Resolved k) t = (Resolved k, t)
+
+rereadRoundTrips : Probe -> Bool
+rereadRoundTrips p = maybe False (sameProbe p) (probeOf (fst (reread (probeName p) elsewhere)))
+
 axisRoundTrips : (Nat, Nat) -> Bool
 axisRoundTrips (i, j) =
   let p = ProbeAxis i j in maybe False (sameProbe p) (probeOfTerm (the ClosedTerm (probeTerm p)))
@@ -93,6 +137,7 @@ report what bad = for_ bad $ \b => putStrLn (what ++ ": WRONG " ++ b)
 main : IO ()
 main = do
   report "probes" (map (show . probeName) (filter (not . roundTrips) probes))
+  report "probes in another session" (map (show . probeName) (filter (not . rereadRoundTrips) probes))
   report "axes" (map show (filter (not . axisRoundTrips) [(i, j) | i <- small, j <- small]))
   case map show (filter (isJust . probeOf) others) of
     [] => putStrLn "other names: no probe"

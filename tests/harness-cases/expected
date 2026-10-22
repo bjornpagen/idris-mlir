@@ -1,5 +1,5 @@
 compile: exit 0
-artifacts: core module objects executable
+artifacts: module objects executable
 case no-crash: ended by code 0, expected code 1
 case no-crash: stderr differs from expected-stderr
   | 1d0

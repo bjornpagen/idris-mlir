@@ -3,6 +3,7 @@ witness: each planted file is found
 near miss: nothing found
 llvm: its patches apply to the pinned source in order
 idris: its patches apply to the pinned source in order
+idris: every change the fork records applies to the pinned source
 snmalloc: its patches apply to the pinned source in order
 simdutf: its patches apply to the pinned source in order
 chez: its patches apply to the pinned source in order

@@ -7,7 +7,10 @@
 # dialects are idr and the upstream dialects the specification lists as the
 # ones the frontend writes, in its output WrittenDialects.txt. So
 #   - each generated module builds ops of one dialect of the contract, and
-#     the contract's dialects each have one;
+#     the contract's dialects each have one. An op's name is the
+#     specification's dialect and a name within it (`MkOpName Arith
+#     "addi"`), and the dialect's namespace is the specification's
+#     (`namespaceWord`), read from it;
 #   - no string literal of Emit.idr, Emit/*.idr, MLIR.idr or MLIR/Text.idr,
 #     the modules that write a module, spells a name of a contract
 #     dialect: `<dialect>.<name>`, or the prefix `<dialect>.` that code
@@ -34,15 +37,24 @@ fi
 contract=idr$(awk '/^#/ || NF == 0 { next } { printf " %s", $1 }' "$written")
 src=compiler/src/IdrisMLIR
 
+# The namespace of each of the specification's dialects, `Dialect word`,
+# from its one table of them.
+sed -n 's/^namespaceWord \([A-Za-z]*\) = word "\([a-z_]*\)"$/\1 \2/p' \
+  compiler/spec/IdrisMLIR/Spec/Core/Dialect.idr > "$work/namespaces"
+
 : > "$work/built"
 for file in "$src"/Dialect/*.idr; do
   module=${file##*/}
   # grep reads all of the lexer's output: one that stops at the first match
   # closes the pipe on awk, which says so on stderr.
-  idris_lex code "$file" | grep 'MkOp' > /dev/null || { say "IdrisMLIR.Dialect.${module%.idr}: builds no op"; continue; }
-  # The op names are the literals that follow MkOp; the lexer blanks them
-  # in code, so they are read from the source.
-  dialects=$(grep -o 'MkOp "[a-z_]*\.' "$file" | sed 's/^MkOp "//; s/\.$//' | sort -u | tr '\n' ' ')
+  idris_lex code "$file" | grep 'MkOpName' > /dev/null || { say "IdrisMLIR.Dialect.${module%.idr}: builds no op"; continue; }
+  # The dialect of each op is the constructor its name holds, however
+  # qualified, as the namespace the specification gives it; one the
+  # specification has not is said by its constructor.
+  dialects=$(idris_lex code "$file" | grep -o 'MkOpName \([A-Za-z]*\.\)*[A-Z][A-Za-z]*' |
+    sed 's/^MkOpName //; s/.*\.//' | sort -u | while IFS= read -r constructor; do
+      awk -v c="$constructor" '$1 == c { print $2; found = 1 } END { if (!found) print c }' "$work/namespaces"
+    done | sort -u | tr '\n' ' ')
   case $dialects in
     *' '?*) say "IdrisMLIR.Dialect.${module%.idr}: builds ops of several dialects: $dialects" ;;
     *)

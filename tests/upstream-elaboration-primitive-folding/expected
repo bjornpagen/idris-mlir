@@ -1,6 +1,4 @@
 compile: exit 0
-plain: the call stays, applied to "12.7"
-infinity: the call stays, applied to 1.0
-eAcute: the call stays, applied to 233
-viaLiteral: the call stays, applied to "12.7"
-small: the constant 42
+artifacts: module objects executable
+cases: each as expected
+universal: holds

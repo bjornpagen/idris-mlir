@@ -1,0 +1,1 @@
+a pass runs in a context that shares the pool its caller gave MlirOptMain

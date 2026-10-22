@@ -14,15 +14,10 @@ gen: swarm zeroes every option on some tape and keeps it on another: ok
 gen: every candidate is before its tape in shortlex order: ok
 gen: shrinking ends at a failing tape no candidate of which fails: ok
 gen: a draw's loop sums the same seeded and replayed: ok
-two-levels: every primitive has an argument set: ok
-two-levels: every term's text is unique: ok
-two-levels: no term's text holds " = ": ok
 fuzz-check: an agreeing output names no case: ok
 fuzz-check: an output with one disagreeing line names that case: ok
 fuzz-check: an output missing one line of a case names that case: ok
 fuzz-check: an empty output names every case: ok
-two-levels-check: an agreeing output names no term: ok
-two-levels-check: an output with one disagreeing line names that term: ok
 lazy-check: the model's output names no case: ok
 lazy-check: an output with a case's line changed names that case: ok
 lazy-check: an output without a case's lines names that case: ok

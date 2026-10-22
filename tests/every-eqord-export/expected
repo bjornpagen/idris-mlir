@@ -1,5 +1,5 @@
 compile: exit 0
-artifacts: core module objects executable
+artifacts: module objects executable
 cases: each as expected
 universal: holds
 prelude Prelude.EqOrd: 21 exports, each used (5 compile-time only: Eq MkEq MkOrd Ord Ordering)

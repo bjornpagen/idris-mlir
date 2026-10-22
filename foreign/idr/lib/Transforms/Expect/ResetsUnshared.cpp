@@ -14,11 +14,10 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
-
-#include <variant>
 
 using namespace mlir;
 
@@ -77,9 +76,9 @@ bool givenAnotherReference(Value value) {
     for (Value alias = value; alias;) {
       if (referenced(alias))
         return true;
-      Source source = sourceOf(alias);
-      const auto *same = std::get_if<Same>(&source);
-      alias = same ? same->value : Value();
+      alias = match(
+          sourceOf(alias), [](const Same &same) { return same.value; },
+          [](OneOf<Made, Field> auto &&) { return Value(); });
     }
   return false;
 }

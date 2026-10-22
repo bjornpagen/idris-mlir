@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/101-thread-pool-thread-start: a thread pool's strategy names a
+# function each thread it starts runs first, on that thread, so the
+# compiler's own workers get the signal stack the tools give every thread.
+# A pool of one worker on a 256 KiB stack, whose strategy installs a
+# signal stack as the worker starts, runs a task that recurses into the
+# stack's guard; the handler for the fault, installed to run on the signal
+# stack, prints "ok". At the pin no worker has a signal stack, the
+# handler never runs and the process dies of the fault.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "a worker's guard fault reaches the handler on the signal stack its pool installed" \
+  "$root/upstream/101-thread-pool-thread-start/signal-stack.cpp"

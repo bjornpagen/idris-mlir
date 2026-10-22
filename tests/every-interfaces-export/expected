@@ -1,5 +1,5 @@
 compile: exit 0
-artifacts: core module objects executable
+artifacts: module objects executable
 cases: each as expected
 universal: holds
 prelude Prelude.Interfaces: 107 exports, each used (22 compile-time only: Alternative Applicative Bifoldable Bifunctor Bitraversable Foldable Functor MkAlternative MkApplicative MkBifoldable MkBifunctor MkBitraversable MkFoldable MkFunctor MkMonad MkMonoid MkSemigroup MkTraversable Monad Monoid Semigroup Traversable)

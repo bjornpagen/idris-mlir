@@ -1,8 +1,10 @@
 no-arguments: exit 2, says usage: idris-mlir-front
 no-prefix: exit 2, says no --prefix
-hello: exit 0, the Core and the module written
+hello: exit 0, the module written
 hello: nothing else written
-nested: exit 0, the directories made and both written
+nested: exit 0, the directories made and the module written
+colon: exit 0, the module written where its relative path says
+colon-absolute: exit 0, the module written where its absolute path says
 undefined: exit 3, the module written
 undefined: the module holds an elaboration refusal at Main.idr:6
 idris-option: exit 2, says unknown option --cg

@@ -1,5 +1,5 @@
 compile: exit 0
-artifacts: core module objects executable
+artifacts: module objects executable
 cases: each as expected
 universal: holds
 prelude Prelude.Num: 22 exports, each used (10 compile-time only: Abs Fractional Integral MkAbs MkFractional MkIntegral MkNeg MkNum Neg Num)

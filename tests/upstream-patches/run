@@ -9,8 +9,12 @@
 # patches before it, as tools/bootstrap.sh applies them; and every carried
 # patch is present where the tree checks it: its tests/upstream-<bug>, the
 # bug's name without its number, which says whether the pinned tools have
-# the fix. The pinned sources are only read: the patches are applied in
-# order to a copy of the files they touch. The policy is `upstream_policy
+# the fix. And every change the fork of Idris's compiler carries as its own
+# code, recorded as upstream/<bug>/pull-request.diff against the pinned
+# Idris (a bug whose README is titled for Idris2), still applies to that
+# pin, so the record a re-sync reads has not gone stale. The pinned
+# sources are only read: the patches are applied in order to a copy of the
+# files they touch, and a record is only checked. The policy is `upstream_policy
 # ROOT`, run on the repository and on the planted trees (lib/planted.sh):
 # witness/ holds a bug for each way of breaking it (no README, no plan,
 # neither a patch nor its reason, both, a patch named for no project, a
@@ -46,7 +50,7 @@ upstream_policy() (
     # A carried patch's check is tests/upstream-<bug>, the bug's name
     # without its number.
     bug=${dir#upstream/}
-    check=tests/upstream-${bug#[0-9][0-9]-}
+    check=tests/upstream-${bug#*-}
     for file in $patch_files; do
       [ "$reason" = yes ] && say "$file: a patch, beside '## Why there is no patch'"
       name=${file##*/}
@@ -121,13 +125,38 @@ if [ -n "$(patches llvm)" ] && [ "$(git -C "$llvm_source" rev-parse HEAD 2> /dev
 else
   check_project llvm "$llvm_source" "the pinned llvm-project"
 fi
+# fork_records SOURCE: each change the fork records against the pinned
+# Idris, checked against SOURCE, a checkout of that pin. A bug's README
+# names its project in its title, and a record of the fork's is titled for
+# Idris2; what the stock Idris lacks and nothing it builds reaches is
+# titled for Idris and laid out against Idris's main, not the pin.
+fork_records() {
+  : > "$work/fork.failed"
+  for readme in "$root"/upstream/*/README.md; do
+    record=${readme%/README.md}/pull-request.diff
+    [ -f "$record" ] || continue
+    case $(grep -m 1 '^# ' "$readme") in
+      '# [Idris2]'*) ;;
+      *) continue ;;
+    esac
+    git -C "$1" apply --check "$record" > "$work/fork.out" 2>&1 ||
+      { say "${record#"$root"/} does not apply to the pinned Idris:"; show "$work/fork.out"; } >> "$work/fork.failed"
+  done
+  if [ -s "$work/fork.failed" ]; then
+    cat "$work/fork.failed"
+  else
+    say "idris: every change the fork records applies to the pinned source"
+  fi
+}
+
 # Idris: third_party/Idris2 at its gitlink, unmodified.
 idris_source=${IDRIS_MLIR_IDRIS_SOURCE:-$root/third_party/Idris2}
-if [ -n "$(patches idris)" ] && ! "$root/tools/verify-pins.sh" source > "$work/idris.pin" 2>&1; then
+if ! "$root/tools/verify-pins.sh" source > "$work/idris.pin" 2>&1; then
   say "idris: third_party/Idris2 is not its pinned commit:"
   show "$work/idris.pin"
 else
   check_project idris "$idris_source" "third_party/Idris2"
+  fork_records "$idris_source"
 fi
 # snmalloc: third_party/snmalloc at the lock's revision, the source the
 # bootstrap exports with its patches for the runtime's build.

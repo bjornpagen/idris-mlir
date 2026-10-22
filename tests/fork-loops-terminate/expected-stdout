@@ -1,4 +1,4 @@
-diverging 3-cycle: [(f, False), (g, False), (h, False)]
-terminating 3-cycle: [(f, True), (g, True), (h, True)]
-swapping: [(f, True)]
-swapping for ever: [(f, False)]
+diverging 3-cycle: f goes round for ever, g goes round for ever, h goes round for ever
+terminating 3-cycle: f decreases, g decreases, h decreases
+swapping: f decreases
+swapping for ever: f goes round for ever

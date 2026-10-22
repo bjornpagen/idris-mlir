@@ -14,6 +14,7 @@
 
 #include "idr/Analysis/Labels.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/DenseSet.h"
@@ -125,28 +126,27 @@ private:
 // The point `key` names, for an error: where a value is, the anchor of the
 // type every value of its kind holds there, or a function's result.
 InFlightDiagnostic failAt(Operation *program, const PointKey &key, StringRef property) {
-  return std::visit(
-      llvm::makeVisitor(
-          [&](Value value) {
-            Operation *op = value.getDefiningOp();
-            if (!op)
-              op = value.getParentBlock()->getParentOp();
-            return std::move(fail(value.getLoc(), property) << "a value of " << where(op));
-          },
-          [&](const FlowAnchor &anchor) {
-            InFlightDiagnostic diag = fail(program->getLoc(), property);
-            if (std::optional<Type> slot = anchor.slot())
-              diag << "the anchor of " << *slot;
-            else
-              diag << "a capture's anchor";
-            return diag;
-          },
-          [&](const FlowPoint::Result &result) {
-            return std::move(fail(program->getLoc(), property)
-                             << "result " << result.index << " of @"
-                             << result.function.getValue());
-          }),
-      key);
+  return match(
+      key,
+      [&](Value value) {
+        Operation *op = value.getDefiningOp();
+        if (!op)
+          op = value.getParentBlock()->getParentOp();
+        return std::move(fail(value.getLoc(), property) << "a value of " << where(op));
+      },
+      [&](const FlowAnchor &anchor) {
+        InFlightDiagnostic diag = fail(program->getLoc(), property);
+        if (std::optional<Type> slot = anchor.slot())
+          diag << "the anchor of " << *slot;
+        else
+          diag << "a capture's anchor";
+        return diag;
+      },
+      [&](const FlowSource::Result &result) {
+        return std::move(fail(program->getLoc(), property)
+                         << "result " << result.index << " of @"
+                         << result.function.getValue());
+      });
 }
 
 } // namespace
