@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| A program, once Idris has built its main file: the user's `main` checked
-||| against the profile, translated to Core and emitted as MLIR, the Core and
-||| the module written to the paths idris-mlir names. Before the translation,
+||| against the profile, translated to Core and emitted as MLIR, the module,
+||| the compilation's one output, written to the path idris-mlir names. Before the translation,
 ||| the growth check bounds every static position, or refuses the types that
 ||| grow without bound. Nothing runs a tool: the pipeline and the link are
 ||| idris-mlir's.
@@ -16,7 +16,7 @@ import Idris.Syntax
 
 import IdrisMLIR.Emit
 import IdrisMLIR.Ids
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Term
 import IdrisMLIR.Frontend.Growth
 import IdrisMLIR.Frontend.Profile
@@ -62,8 +62,7 @@ write path text = do
 ||| The module, written as Emit makes it, top-level op by top-level op, so
 ||| that no text of the whole module is held. It streams to its path, and a
 ||| module Emit gives up on is removed, so a failed emit leaves no partial
-||| module there: its message, with the Core it could not emit, is the
-||| compiler's failure. There is no write beside the path and rename onto
+||| module there: its message is the compiler's failure. There is no write beside the path and rename onto
 ||| it: base has no rename, and `%foreign` is outside the language this
 ||| compiler compiles, which the frontend is written in.
 writeModule : FC -> String -> Source -> Core ()
@@ -77,7 +76,6 @@ writeModule fc path src = do
     Right () => pure ()
     Left msg => do
       ignore (coreLift (removeFile path))
-      ignore (coreLift (fPutStrLn stderr (showSource src)))
       internal fc ("Emit: " ++ msg)
 
 ||| A program refused, written where its module would be: a module that
@@ -159,9 +157,8 @@ entryPoint = do
       _ => pure False
 
 ||| Compiles the program Idris has built from its main file, whose path
-||| names the module `mainFile`, into the Core at `corePath` and the module
-||| at `mlirPath`, or gives the program's rejections, the first found
-||| first, and writes neither. The checks of the source and of what the
+||| names the module `mainFile`, into the module at `mlirPath`, or gives the
+||| program's rejections, the first found first, and writes nothing. The checks of the source and of what the
 ||| program reaches report every rejection they find, the growth check
 ||| every cause of a type grown without bound, and the translation of a
 ||| program the growth check admits every rejected instance of what the
@@ -171,8 +168,8 @@ entryPoint = do
 export
 program : {auto c : Ref Ctxt Defs} -> {auto syn : Ref Syn SyntaxInfo} ->
           (mainFile : ModuleIdent) -> (timing : Maybe String) ->
-          (corePath, mlirPath : String) -> Core (List Rejection)
-program mainFile timing corePath mlirPath = do
+          (mlirPath : String) -> Core (List Rejection)
+program mainFile timing mlirPath = do
   t0 <- now
   -- The interfaces of every module Idris loaded for the program, which
   -- Idris keeps with their syntax rather than with their definitions.
@@ -235,10 +232,6 @@ program mainFile timing corePath mlirPath = do
           t4 <- now
           reportTimes timing (checked ++ [("translate", t4 - t3)])
     t4 <- now
-    -- The Core is printed once the module is written, so that neither text
-    -- is held while the other is made, and a compilation Emit gives up on
-    -- writes neither.
     writeModule fc mlirPath prog
-    write corePath (showSource prog)
     t5 <- now
     reportTimes timing (checked ++ [("translate", t4 - t3), ("emit", t5 - t4)])

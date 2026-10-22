@@ -8,12 +8,13 @@ module IdrisMLIR.Emit.Monad
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
 import Control.Monad.State
+import Data.List1
 import Data.SnocList
-import Data.SortedMap
 import Data.Vect
 
 %default total
@@ -26,21 +27,25 @@ record ES where
   ||| The operations of the region being written.
   ops : SnocList Statement
   ||| The function of the program being written, which owns the functions
-  ||| its lambdas and delays become, and its Idris definition, where their
-  ||| code is from.
+  ||| its lambdas and delays become: its identity, its symbol, its Idris
+  ||| definition (where their code is from, and the function a crash in
+  ||| them names), and what Idris proved of its loops, which they take.
   owner : FnId
+  ownerSymbol : String
   definition : Shown
+  termination : Termination
   ||| Those functions, each with its symbol, in the order their bodies were
-  ||| finished, and the key of each by its symbol, the name MLIR is given,
-  ||| so that two contents on one name are found: one function per key.
+  ||| finished, which is also the ordinal each symbol carries.
   lifted : SnocList (String, Statement)
-  keys : SortedMap String String
+  liftedCount : Nat
+  ||| The next number a binder of the definition is given, its parameters
+  ||| first: with the definition's symbol, a binder's identity.
+  nextBinder : Nat
 
-||| The state before the function `owner` of the program, from the
-||| definition `definition`, is written.
+||| The state before the function `f` of the program is written.
 export
-initial : FnId -> Shown -> ES
-initial owner definition = MkES 0 [<] owner definition [<] empty
+initial : TFn -> ES
+initial f = MkES 0 [<] f.id f.symbol (shown f.key.origin) f.termination [<] 0 f.arity
 
 public export
 E : Type -> Type
@@ -73,64 +78,95 @@ collect act = do
   modify { ops := saved }
   pure (x, inner <>> [])
 
-||| Whether a value of type `t`, used as `q` says, is held linearly
-||| (`!idr.lin<T>`): used exactly once, unless it is the world, which is
-||| linear by its own type and held as itself.
-public export
-linear : Quantity -> Ty -> Bool
-linear One WorldT = False
-linear One _ = True
-linear Many _ = False
+namespace Held
+  ||| Who frees what a value of a type that holds references holds: its
+  ||| count, or nobody, a literal's static data, which lives for the run.
+  ||| Before counting the frontend states no more of a value's sharing.
+  public export
+  data Held = Counted | Static
 
-||| A value: its SSA name, its type, and how often it may be used.
+||| What is known of which constructor a value of a family is: nothing
+||| more than its type says, or one of those listed, as inside a region of
+||| a match on it, where its type says so and a field read of it is total.
+public export
+data Refinement = AnyConstructor | OneOf (List1 Nat)
+
+||| A value: its SSA name, its type, how often it may be used, how it is
+||| held, and which constructors it is known to be. Its MLIR type is these
+||| together (`Index.valueType`).
 public export
 record Val where
   constructor MkVal
   name : String
   type : Ty
-  use : Quantity
+  uses : Uses
+  hold : Held
+  refinement : Refinement
 
-||| What a variable in scope stands for: one SSA value, or a constructor a
-||| match took apart, which a use builds again from its fields as the region
-||| holds them. A match uses a linear scrutinee, so a variable naming it
-||| inside a case region names the constructor of the fields the region
-||| bound. A constructor taken apart is no SSA value: its key, which no
-||| operation defines, is what `matched` (Bodies) renames by.
+||| A value known to be no more than its type says.
+export
+val : String -> Ty -> Uses -> Held -> Val
+val n t u h = MkVal n t u h AnyConstructor
+
+||| What a variable in scope stands for: one SSA value; or Idris's world,
+||| which is no value of the module, since after the frontend IO is ordered
+||| by effects alone.
 public export
-data InScope : Type where
-  Whole : Val -> InScope
-  Taken : {k : Nat} -> Con k -> Vect k InScope -> String -> InScope
+data InScope = Whole Val | World
 
-||| The variable a context binds a value to: its name, and the quantity it
-||| holds the value at.
+||| The variable a context binds a value to: its name, the quantity it
+||| holds the value at, which is its binder's, never demoted, and its
+||| identity, the definition's symbol and its number there.
 public export
 record Binding where
   constructor MkBinding
   name : Shown
-  held : Quantity
+  held : Uses
+  definition : String
+  number : Nat
+
+||| A binder of the definition being written, numbered: the variable a
+||| context binds its value to.
+export
+binding : Shown -> Uses -> E Binding
+binding name q = do
+  st <- get
+  put ({ nextBinder $= S } st)
+  pure (MkBinding name q st.ownerSymbol st.nextBinder)
+
+||| Where a value stands in its function: as its result (`InTail`); as the
+||| last field computed of a constructor that is its result or another such
+||| field (`InContext`), where a call of the function itself is a loop with
+||| a destination; or anywhere else. A call carries what this gives it.
+public export
+data Position = InTail | InContext | Elsewhere
 
 ||| What a context wants of the value a term gives: the type it expects, if
-||| it knows it, and the variable it binds the value to, if it binds one.
+||| it knows it, the variable it binds the value to, if it binds one, and
+||| where the value stands.
 public export
 record Wanted where
   constructor MkWanted
   type : Maybe Ty
   binder : Maybe Binding
+  position : Position
 
-||| A context that expects a value of a type, if it knows it, and binds it
-||| to no variable: an operand's, a region's, a function's.
+||| A context that expects a value of a type, if it knows it, binds it to
+||| no variable, and uses it before its function returns: an operand's.
 export
 expecting : Maybe Ty -> Wanted
-expecting t = MkWanted t Nothing
+expecting t = MkWanted t Nothing Elsewhere
 
-||| Where an op that makes a value of type `t`, held as `u`, stands: at the
-||| name of the variable the value is bound to, when the variable holds it
-||| as it is made, so that MLIR names the SSA value after the Idris
-||| variable (an op's result has the op's location, the one place MLIR keeps
-||| a result's name); else at `l`. A value made at another quantity than
-||| its variable's is entered or used into it by an op of its own, which
-||| stands at the name.
+||| Where an op that makes a value bound to `binder` stands: at the name of
+||| the variable, when the variable holds it as it is made, so that MLIR
+||| names the SSA value after the Idris variable (an op's result has the
+||| op's location, the one place MLIR keeps a result's name); else at `l`.
+||| A value made at other uses than its variable's is cast into it by an op
+||| of its own, which stands at the name.
 export
-madeAt : Maybe Binding -> Loc -> Ty -> Quantity -> Location
-madeAt (Just b) l t u = if linear u t == linear b.held t then Named b.name l else At l
-madeAt Nothing l t u = At l
+madeAt : Maybe Binding -> Loc -> Uses -> Location
+madeAt (Just b) l u = case (b.held, u) of
+  (Once, Once) => Binder b.name l b.definition b.number
+  (Many, Many) => Binder b.name l b.definition b.number
+  _ => At l
+madeAt Nothing l u = At l

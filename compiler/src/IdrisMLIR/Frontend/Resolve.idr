@@ -22,7 +22,10 @@ import Libraries.Utils.Path
 
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+
+import Data.List.Elem
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 
 import Data.List
@@ -154,13 +157,22 @@ moduleSource fc ident = do
 public export
 record Refusal where
   constructor MkRefusal
-  rule : Rule
+  rule : SomeRule
   site : NonEmptyFC
   message : String
 
+||| A rule's place among every rule, the one order the specification
+||| gives them: two refusals are of one rule when their places are one.
+rulePlace : SomeRule -> Nat
+rulePlace r = place (ruleIn r)
+  where
+    place : Elem x xs -> Nat
+    place Here = 0
+    place (There e) = S (place e)
+
 export
 Eq Refusal where
-  r == r' = r.rule == r'.rule && r.site == r'.site && r.message == r'.message
+  r == r' = rulePlace r.rule == rulePlace r'.rule && r.site == r'.site && r.message == r'.message
 
 ||| Why a program is not compiled: a refusal, or an error Idris raised,
 ||| held as Idris gave it until the driver renders its message (rendering
@@ -186,8 +198,8 @@ export
 foreignHookOf : NonEmptyFC -> (owner : String) -> (via : String) -> Name -> List String -> Either Refusal Hooks
 foreignHookOf site owner via n specs = case foreignHook (qname n) specs of
   Just (Right hs) => Right hs
-  Just (Left (e, m)) => Left (MkRefusal HookShape site (show n ++ ": " ++ mismatch e m))
-  Nothing => Left (MkRefusal EscapeHatch site (owner ++ ": %foreign " ++ show n ++ via))
+  Just (Left (e, m)) => Left (MkRefusal (Refusal HookShape) site (show n ++ ": " ++ mismatch e m))
+  Nothing => Left (MkRefusal (Refusal EscapeHatch) site (owner ++ ": %foreign " ++ show n ++ via))
 
 ------------------------------------------------------------------------------
 -- Shapes
@@ -197,25 +209,25 @@ foreignHookOf site owner via n specs = case foreignHook (qname n) specs of
 ||| binder of no runtime value, whose position whoever meets it leaves
 ||| out), or as a quantity says.
 public export
-data Use = Erased | Used Quantity
+data Use = Erased | Used Uses
 
 ||| The use a binder's multiplicity gives its value.
 export
 use : RigCount -> Use
-use = elimSemi Erased (Used One) (const (Used Many))
+use = elimSemi Erased (Used Once) (const (Used Many))
 
 ||| A use as the registry writes a binder's multiplicity.
 export
 multiplicity : Use -> Multiplicity
 multiplicity Erased = M0
-multiplicity (Used One) = M1
+multiplicity (Used Once) = M1
 multiplicity (Used Many) = Mw
 
 ||| The product of two quantities, as Idris uses a field through the
 ||| binder that holds its value: one is the unit, and many absorbs.
 export
-quantityTimes : Quantity -> Quantity -> Quantity
-quantityTimes One q = q
+quantityTimes : Uses -> Uses -> Uses
+quantityTimes Once q = q
 quantityTimes Many _ = Many
 
 ||| A primitive type as the registry has it.
@@ -269,7 +281,7 @@ validate : {auto c : Ref Ctxt Defs} -> (fallback : NonEmptyFC) -> Core (Maybe Re
 validate fallback = check entries
   where
     wrong : FC -> QName -> String -> Refusal
-    wrong loc q msg = MkRefusal HookShape (fromMaybe fallback (isNonEmptyFC loc)) (show q ++ ": " ++ msg)
+    wrong loc q msg = MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC loc)) (show q ++ ": " ++ msg)
 
     check : List Entry -> Core (Maybe Refusal)
     check [] = pure Nothing

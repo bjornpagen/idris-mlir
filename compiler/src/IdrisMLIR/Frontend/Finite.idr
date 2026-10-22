@@ -49,7 +49,8 @@ import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Generations
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 

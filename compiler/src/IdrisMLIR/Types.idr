@@ -3,14 +3,19 @@
 ||| Types, literals and primitives of Core.
 |||
 ||| There is one type language: every type of full Core exists at runtime,
-||| and MLIR removes abstraction. A data instance is declared once
-||| (`Term.Data`), so `DataT` names the instance and nothing more. Types
-||| Idris flags `ZERO`/`SUCC` are not data at all: they are `NatT`.
+||| and MLIR removes abstraction. A data type is the inductive family Idris
+||| checked, applied to index terms (`DataT`): the family is declared once
+||| (`Term.Family`), its identity a dense number of the program's family
+||| table, and the application states what is known of each erased index,
+||| as the scope it is written in knows it. Types Idris flags `ZERO`/`SUCC`
+||| are not data at all: they are `NatT`, a natural as a number.
 module IdrisMLIR.Types
 
 import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Ids
 import IdrisMLIR.MLIR
+import IdrisMLIR.Spec.Ops.Comparisons
+import IdrisMLIR.Spec.Grades.Grade
 
 import Data.String
 import Data.Vect
@@ -18,16 +23,8 @@ import Data.Vect
 %default total
 
 ------------------------------------------------------------------------------
--- Quantities and integer types
+-- Integer types
 ------------------------------------------------------------------------------
-
-||| A quantity as the Core dump writes it: `1` for a value used exactly
-||| once, `w` for one used any number of times. A binder Idris erased binds
-||| no runtime value, so it is not represented.
-export
-quantityText : Quantity -> String
-quantityText One = "1"
-quantityText Many = "w"
 
 public export
 data IntTy = IdrisInt | SInt8 | SInt16 | SInt32 | SInt64 | UInt8 | UInt16 | UInt32 | UInt64
@@ -67,13 +64,19 @@ width SInt32 = 32
 width UInt32 = 32
 width _ = 64
 
+||| How an Idris integer type reads its bits: which of an op's two
+||| members (`divs` or `divu`, `extsi` or `extui`) computes on it. A choice
+||| between two ops, never a `Bool`.
+public export
+data Signedness = Signed | Unsigned
+
 export
-signed : IntTy -> Bool
-signed UInt8 = False
-signed UInt16 = False
-signed UInt32 = False
-signed UInt64 = False
-signed _ = True
+signedness : IntTy -> Signedness
+signedness UInt8 = Unsigned
+signedness UInt16 = Unsigned
+signedness UInt32 = Unsigned
+signedness UInt64 = Unsigned
+signedness _ = Signed
 
 ------------------------------------------------------------------------------
 -- Types
@@ -97,44 +100,117 @@ orderedDims Cell = []
 orderedDims Elements = [Dynamic]
 
 mutual
-  ||| The types of Core. `BigT` is `Integer`; `NatT` is `Nat` and every
-  ||| `Nat`-like type, an integer that is never negative, the same
-  ||| big at runtime; `FunT` is a closure, binding its argument as a lambda
-  ||| does; `LazyT` is a suspension, one cell whose value is shared by every
-  ||| force; `DataT` is a data instance, whatever it holds: how its values
-  ||| are laid out, boxed or not, is the dialect's to decide. `TensorT` is a
-  ||| value of the array language (`Array s a`, `LArray s a`): a ranked
-  ||| tensor of its element, one dimension per axis of the form of `s`,
-  ||| outermost first, static where the shape's normal form at the instance
-  ||| is a literal; an array of arrays is one tensor, the element's
-  ||| dimensions after the shape's, so its element is never a tensor or a
-  ||| memref. An array of records is a tensor of the record's data
-  ||| instance, which the dialect splits into one tensor per field.
-  ||| `MemRefT` is an array a world orders, read and written through the
-  ||| world (`Ordered`); its element is never a tensor.
+  ||| What is known of an erased index, in the scope it is written in: a
+  ||| natural as a number; a level of the scope's telescope of erased
+  ||| binders (a function's index parameters, then each enclosing case's
+  ||| constructor binders, outermost first); a term plus a constant; a
+  ||| literal of a scalar sort, or a type; a constructor of a family member
+  ||| applied to its binders and then its fields, in declaration order; or
+  ||| nothing, an index outside the language, which refines nothing. Only
+  ||| normal forms are built (`succ`, `iCon`): no successor of a number or
+  ||| of a successor, and a numeral family's constructors read as numbers.
+  public export
+  data ITerm
+    = INat Nat
+    | IVar Nat
+    | ISucc ITerm Nat
+    | ILit Lit
+    | IType Ty
+    | ICon FamilyId Nat (List ITerm)
+    | IOpaque
+
+  ||| The sort of an erased binder or of a family's index: a natural, a
+  ||| type, an index outside the language, a scalar of the type given, or a
+  ||| value of a family.
+  public export
+  data Sort = SNat | SType | SOpaque | SScalar Ty | SFamily FamilyId
+
+  ||| The types of Core. `BigT` is `Integer`; `NatT` is `Nat`, an integer
+  ||| that is never negative, a number at runtime; `FunT` is a closure,
+  ||| binding its argument as a lambda does; `LazyT` is a suspension, one
+  ||| cell whose value is shared by every force; `DataT` is a family
+  ||| applied to one term per index, whatever its values hold: how they are
+  ||| laid out, inline or in a cell, is the dialect's to decide from the
+  ||| type. `TensorT` is a value of the array language (`Array s a`,
+  ||| `LArray s a`): a ranked tensor of its element, one dimension per axis
+  ||| of the form of `s`, outermost first, static where the shape's normal
+  ||| form at the instance is a literal; an array of arrays is one tensor,
+  ||| the element's dimensions after the shape's, so its element is never a
+  ||| tensor or a memref. `MemRefT` is an array a world orders (`Ordered`);
+  ||| its element is never a tensor. `WorldT` is Idris's world, which Core
+  ||| keeps so that the translation reads IO as Idris wrote it; Emit writes
+  ||| no value of it, since after the frontend IO is ordered by effects.
   public export
   data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT | WorldT
-          | DataT DataId
+          | DataT FamilyId (List ITerm)
           | FunT Binder Ty
           | LazyT Ty
           | TensorT (List Dim) Ty
           | MemRefT Ordered Ty
 
-  ||| What a parameter, a lambda, an arrow or a constructor field binds: a
-  ||| value of a type, used as Idris proved. A binder of quantity zero binds
-  ||| no runtime value, so it is not a binder: the position is absent.
+  ||| What a parameter, a lambda, an arrow, a `let` or a constructor field
+  ||| binds: a value of a type, used as Idris proved, once or many times.
+  ||| A binder of quantity zero binds no runtime value, so it is not a
+  ||| binder: the position is absent, or an erased binder of the scope's
+  ||| telescope (`Sort`) when an index refers to it.
   public export
   record Binder where
     constructor MkBinder
-    quantity : Quantity
+    quantity : Uses
     type : Ty
+
+  ||| A literal. `LNat` is a natural, never negative: one constant of
+  ||| `NatT`, however large, never a chain of successors.
+  public export
+  data Lit = LInt IntTy Integer | LChar Integer | LStr String | LDouble Double | LBig Integer
+           | LNat Integer
 
 ||| The type of what a binder binds.
 public export
 typeOf : Binder -> Ty
 typeOf = (.type)
 
+||| `t + k` in normal form: a successor of a number is a number, and of a
+||| successor one successor of the sum.
+export
+succ : ITerm -> Nat -> ITerm
+succ t Z = t
+succ (INat a) k = INat (a + k)
+succ (ISucc t a) k = ISucc t (a + k)
+succ t k = ISucc t k
+
+||| Whether two uses are one: the quantities a binder can hold.
+export
+sameUses : Uses -> Uses -> Bool
+sameUses Once Once = True
+sameUses Many Many = True
+sameUses _ _ = False
+
 mutual
+  sameTerm : ITerm -> ITerm -> Bool
+  sameTerm (INat a) (INat b) = a == b
+  sameTerm (IVar a) (IVar b) = a == b
+  sameTerm (ISucc t a) (ISucc u b) = a == b && sameTerm t u
+  sameTerm (ILit a) (ILit b) = sameLit a b
+  sameTerm (IType a) (IType b) = sameTy a b
+  sameTerm (ICon f c as) (ICon g d bs) = f == g && c == d && sameTerms as bs
+  sameTerm IOpaque IOpaque = True
+  sameTerm _ _ = False
+
+  sameTerms : List ITerm -> List ITerm -> Bool
+  sameTerms [] [] = True
+  sameTerms (a :: as) (b :: bs) = sameTerm a b && sameTerms as bs
+  sameTerms _ _ = False
+
+  sameLit : Lit -> Lit -> Bool
+  sameLit (LInt s a) (LInt t b) = s == t && a == b
+  sameLit (LChar a) (LChar b) = a == b
+  sameLit (LStr a) (LStr b) = a == b
+  sameLit (LDouble a) (LDouble b) = a == b
+  sameLit (LBig a) (LBig b) = a == b
+  sameLit (LNat a) (LNat b) = a == b
+  sameLit _ _ = False
+
   sameTy : Ty -> Ty -> Bool
   sameTy (IntT a) (IntT b) = a == b
   sameTy CharT CharT = True
@@ -143,7 +219,7 @@ mutual
   sameTy BigT BigT = True
   sameTy NatT NatT = True
   sameTy WorldT WorldT = True
-  sameTy (DataT a) (DataT b) = a == b
+  sameTy (DataT f ts) (DataT g us) = f == g && sameTerms ts us
   sameTy (FunT a r) (FunT a' r') = sameBinder a a' && sameTy r r'
   sameTy (LazyT a) (LazyT b) = sameTy a b
   sameTy (TensorT ds a) (TensorT es b) = ds == es && sameTy a b
@@ -151,7 +227,11 @@ mutual
   sameTy _ _ = False
 
   sameBinder : Binder -> Binder -> Bool
-  sameBinder (MkBinder q t) (MkBinder q' t') = q == q' && sameTy t t'
+  sameBinder (MkBinder q t) (MkBinder q' t') = sameUses q q' && sameTy t t'
+
+export
+Eq ITerm where
+  (==) = sameTerm
 
 export
 Eq Ty where
@@ -161,42 +241,52 @@ export
 Eq Binder where
   (==) = sameBinder
 
+export
+Eq Lit where
+  (==) = sameLit
+
 mutual
-  ||| A type as the Core dump writes it, each data instance named by `name`:
-  ||| the one type printer, so that the dump can name an instance by its
-  ||| key, as the module does.
+  ||| A type as a message names it: text for a human, never compared.
   export
-  tyText : (name : DataId -> String) -> Ty -> String
-  tyText name (IntT t) = show t
-  tyText name CharT = "Char"
-  tyText name DoubleT = "Double"
-  tyText name StrT = "String"
-  tyText name BigT = "Integer"
-  tyText name NatT = "Nat"
-  tyText name WorldT = "%World"
-  tyText name (DataT d) = name d
-  tyText name (FunT a r) = "((" ++ binderText name a ++ ") -> " ++ tyText name r ++ ")"
-  tyText name (LazyT a) = "Lazy (" ++ tyText name a ++ ")"
-  tyText name (TensorT ds a) = "Tensor [<" ++ joinBy ", " (map dimText ds) ++ "] (" ++ tyText name a ++ ")"
+  tyText : Ty -> String
+  tyText (IntT t) = show t
+  tyText CharT = "Char"
+  tyText DoubleT = "Double"
+  tyText StrT = "String"
+  tyText BigT = "Integer"
+  tyText NatT = "Nat"
+  tyText WorldT = "%World"
+  tyText (DataT f ts) = "data " ++ show f ++ "[" ++ joinBy ", " (termsText ts) ++ "]"
+  tyText (FunT a r) = "((" ++ binderText a ++ ") -> " ++ tyText r ++ ")"
+  tyText (LazyT a) = "Lazy (" ++ tyText a ++ ")"
+  tyText (TensorT ds a) = "Tensor [<" ++ joinBy ", " (map dimText ds) ++ "] (" ++ tyText a ++ ")"
     where
       dimText : Dim -> String
       dimText (Static n) = show n
       dimText Dynamic = "?"
-  tyText name (MemRefT Cell a) = "Mut (" ++ tyText name a ++ ")"
-  tyText name (MemRefT Elements a) = "Array (" ++ tyText name a ++ ")"
+  tyText (MemRefT Cell a) = "Mut (" ++ tyText a ++ ")"
+  tyText (MemRefT Elements a) = "Array (" ++ tyText a ++ ")"
 
-  ||| `1 T` or `w T`, as the Core dump writes a binder.
-  export
-  binderText : (name : DataId -> String) -> Binder -> String
-  binderText name (MkBinder q t) = quantityText q ++ " " ++ tyText name t
+  binderText : Binder -> String
+  binderText (MkBinder Once t) = "1 " ++ tyText t
+  binderText (MkBinder Many t) = "w " ++ tyText t
+
+  termText : ITerm -> String
+  termText (INat n) = show n
+  termText (IVar k) = "v" ++ show k
+  termText (ISucc t k) = termText t ++ " + " ++ show k
+  termText (ILit l) = "lit"
+  termText (IType t) = "type " ++ tyText t
+  termText (ICon f c as) = show f ++ "@" ++ show c ++ "(" ++ joinBy ", " (termsText as) ++ ")"
+  termText IOpaque = "_"
+
+  termsText : List ITerm -> List String
+  termsText [] = []
+  termsText (t :: ts) = termText t :: termsText ts
 
 export
 Show Ty where
-  show = tyText show
-
-export
-Show Binder where
-  show = binderText show
+  show = tyText
 
 ||| The dimensions a type contributes to a tensor that holds it: a tensor's
 ||| own, none for anything else.
@@ -318,34 +408,6 @@ Show Reduction where
   show ScanLast = "scan_last"
 
 ------------------------------------------------------------------------------
--- Literals
-------------------------------------------------------------------------------
-
-||| `LNat` is a natural, never negative: a `Nat`-like value.
-public export
-data Lit = LInt IntTy Integer | LChar Integer | LStr String | LDouble Double | LBig Integer
-         | LNat Nat
-
-export
-Eq Lit where
-  LInt s a == LInt t b = s == t && a == b
-  LChar a == LChar b = a == b
-  LStr a == LStr b = a == b
-  LDouble a == LDouble b = a == b
-  LBig a == LBig b = a == b
-  LNat a == LNat b = a == b
-  _ == _ = False
-
-export
-Show Lit where
-  show (LInt t n) = show n ++ ":" ++ show t
-  show (LChar c) = "chr " ++ show c
-  show (LStr s) = show s
-  show (LDouble d) = prim__cast_DoubleString d ++ ":Double"
-  show (LBig n) = show n ++ ":Integer"
-  show (LNat n) = show n ++ ":Nat"
-
-------------------------------------------------------------------------------
 -- Primitives
 ------------------------------------------------------------------------------
 
@@ -375,11 +437,12 @@ likeWidth : IntLike -> Nat
 likeWidth (SInt t) = width t
 likeWidth SChar = 32
 
-||| The signedness of a fixed-width integer or a `Char`.
+||| The signedness of a fixed-width integer or a `Char`, which reads as
+||| unsigned.
 export
-likeSigned : IntLike -> Bool
-likeSigned (SInt t) = signed t
-likeSigned SChar = False
+likeSignedness : IntLike -> Signedness
+likeSignedness (SInt t) = signedness t
+likeSignedness SChar = Unsigned
 
 ||| The operand types of comparisons and conversions: an integral one, or a
 ||| double.

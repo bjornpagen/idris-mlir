@@ -16,7 +16,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry.Libraries
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
 
 import Data.Maybe
 import Data.SnocList
@@ -50,8 +50,16 @@ rejectWith r = do
 ||| when Idris gives none), the message naming the definition that owns
 ||| what is refused.
 export
-reject : {auto s : Ref TState TS} -> FC -> String -> Rule -> String -> Core a
+reject : {auto s : Ref TState TS} -> {c : Category} -> FC -> String -> Rule c -> String -> Core a
 reject fc owner rule what = do
+  site <- siteAt fc
+  rejectWith (MkRefusal (Refusal rule) site (owner ++ ": " ++ what))
+
+||| A user error by a rule a registry row names, of whatever category the
+||| row's rule is: as `reject` refuses.
+export
+refuse : {auto s : Ref TState TS} -> FC -> String -> SomeRule -> String -> Core a
+refuse fc owner rule what = do
   site <- siteAt fc
   rejectWith (MkRefusal rule site (owner ++ ": " ++ what))
 
@@ -62,9 +70,9 @@ internal : FC -> String -> Core a
 internal fc msg = throw (InternalError (show fc ++ ": internal error: " ++ msg))
 
 ||| Runs one check, or translates one part, of the program so that its
-||| rejection does not stop the others: the refusal in flight, or else the
-||| error Idris raised, is recorded, once however many parts find it, and
-||| the part gives nothing. The compiler's own error still ends the run,
+||| rejection does not stop the others: the refusal in flight, recorded once
+||| however many parts find it, or else the error Idris raised, and the part
+||| gives nothing. The compiler's own error still ends the run,
 ||| since nothing after it can be trusted.
 export
 noting : {auto s : Ref TState TS} -> Core a -> Core (Maybe a)
@@ -76,16 +84,11 @@ noting part = catch (Just <$> part) $ \err => case err of
     put TState ({ inFlight := Nothing, rejected $= recorded found } st)
     pure Nothing
   where
-    -- An error of Idris's as it prints, which is all that tells two apart:
-    -- Idris gives its errors no equality.
-    printed : Error -> String
-    printed = show
-
-    -- Two rejections are one when they are equal: a refusal by its value,
-    -- an error of Idris's by how it prints.
+    -- Two refusals are one when they are equal, by value. An error of
+    -- Idris's has no equality, and no print stands for one: each is
+    -- recorded where a part finds it.
     same : Rejection -> Rejection -> Bool
     same (Refused r) (Refused r') = r == r'
-    same (ByIdris e) (ByIdris e') = printed e == printed e'
     same _ _ = False
 
     recorded : Rejection -> SnocList Rejection -> SnocList Rejection
@@ -142,7 +145,7 @@ toLoc = located cached
 ||| location `toLoc` gives, found anew: the program is no longer being
 ||| translated when its refusals are written.
 export
-moduleRefusal : {auto c : Ref Ctxt Defs} -> Rule -> NonEmptyFC -> String -> Core ModuleRefusal
+moduleRefusal : {auto c : Ref Ctxt Defs} -> SomeRule -> NonEmptyFC -> String -> Core ModuleRefusal
 moduleRefusal rule site message = do
   loc <- located placeOf (justFC site)
   pure (MkModuleRefusal rule loc message)

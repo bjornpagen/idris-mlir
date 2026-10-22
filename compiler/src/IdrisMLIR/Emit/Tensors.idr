@@ -1,11 +1,13 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The array language in ops, each primitive in its meaning: a new array is
-||| `idr.tabulate` (in a world's order `idr.tabulate_io`), a fold along the
-||| last axis `idr.fold_last`, a scan `idr.scan_last`, each a region from
-||| indices (and an accumulator) to an element, and a transpose
-||| `idr.transpose`; a read is `tensor.extract`, a write `tensor.insert`,
-||| and a slice, a join and a reshape the `tensor` ops of each. Nothing here decides that an iteration's order is
+||| `idr.tabulate` into a fresh destination, a fold along the last axis
+||| `idr.fold_last`, a scan `idr.scan_last`, each a region from indices (and
+||| an accumulator) to an element; a transpose of words is upstream's
+||| `linalg.transpose`, of counted elements a tabulation reading at the
+||| swapped coordinates; a read is `tensor.extract`, a write
+||| `tensor.insert`, and a slice, a join and a reshape the `tensor` ops of
+||| each. Nothing here decides that an iteration's order is
 ||| free: the MLIR side does, once it knows what a region does. A coordinate
 ||| is an `index` at its access, unguarded, since its type bounds it by an
 ||| extent; an extent enters `index` at an allocation, guarded. An array of
@@ -14,6 +16,7 @@ module IdrisMLIR.Emit.Tensors
 
 import IdrisMLIR.Dialect.Arith as Arith
 import IdrisMLIR.Dialect.Idr as Idr
+import IdrisMLIR.Dialect.Linalg as Linalg
 import IdrisMLIR.Dialect.Tensor as Tensor
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
@@ -22,6 +25,7 @@ import IdrisMLIR.Emit.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -52,24 +56,24 @@ noWrap = Just (arith (IntegerOverflowFlagsAttr [Nsw, Nuw]))
 export
 coordinate : Index -> Loc -> Val -> E Value
 coordinate ix l n = do
-  w <- mlirValue l (IntegerType 64) (Idr.bigToIntOp (operand !(coerce ix l Many n)))
+  w <- mlirValue l (IntegerType 64) (Idr.bigToIntOp (operand ix !(coerce ix l Many n)))
   mlirValue l IndexType (Arith.indexCastuiOp w)
 
 ||| A coordinate as a natural, the variable `binder` bound to it.
-natural : {default Nothing binder : Maybe Binding} -> Loc -> Value -> E Val
-natural l i = do
+natural : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Value -> E Val
+natural ix l i = do
   w <- mlirValue l (IntegerType 64) (Arith.indexCastuiOp i)
-  r <- mlirValueAt (madeAt binder l NatT Many) (idr NatType) (Idr.bigSmallOp w)
-  pure (MkVal r.name NatT Many)
+  r <- mlirValueAt (madeAt binder l Many) (gradedType ix Many Held.Counted NatT) (Idr.bigSmallOp w)
+  pure (val r.name NatT Many Held.Counted)
 
 ||| A natural as the extent of an array to be made: past every allocation
 ||| either target can make, it is the allocation's failure.
 extent : Index -> Loc -> Val -> E Value
-extent ix l n = mlirValue l IndexType (Idr.natToExtentOp (operand !(coerce ix l Many n)))
+extent ix l n = mlirValue l IndexType (Idr.natToExtentOp (operand ix !(coerce ix l Many n)))
 
 ||| A value as a plain operand: a linear one is used here.
 plainOperand : Index -> Loc -> Val -> E Value
-plainOperand ix l v = operand <$> coerce ix l Many v
+plainOperand ix l v = operand ix <$> coerce ix l Many v
 
 ||| The dimensions of an array value.
 dimsOf : Val -> E (List Dim)
@@ -152,33 +156,45 @@ resultSize Dynamic otherwise = otherwise
 -- Casts
 ------------------------------------------------------------------------------
 
-||| How a value of a type fits a slot: as it is; cast to the slot's type, a
-||| tensor whose type differs from the slot's only in which dimensions are
-||| static; or not at all, the frontend's error. Any other value is of the
-||| slot's type, but for the extents of the tensors in it, which a closure's
-||| type holds dynamic. A value of one data instance where its slot takes
-||| another is one type translated as two, and a match on the slot's would
-||| take the constructors the value was built with as never built.
-data Fitting = AsIs | CastTo Ty | Mismatch String Ty
+||| How a value fits a slot: as it is; cast to the slot's type, a tensor
+||| whose type differs from the slot's only in which dimensions are static;
+||| reindexed to it (`idr.reindex`), a value of the slot's family at index
+||| terms the scope's refinements make equal to the slot's, or one known to
+||| be a constructor the slot's type does not name; or not at all, the
+||| frontend's error. Any other value is of the slot's type, but for the
+||| extents of the tensors in it, which a closure's type holds dynamic. A
+||| value of one family where its slot takes another is one type translated
+||| as two, and a match on the slot's would take the constructors the value
+||| was built with as never built.
+data Fitting = AsIs | CastTo Ty | Reindex Ty | Mismatch String Ty
 
-fitting : Maybe Ty -> Ty -> Fitting
-fitting (Just (TensorT ds e)) (TensorT es e') =
+fitting : Maybe Ty -> Ty -> Refinement -> Fitting
+fitting (Just (TensorT ds e)) (TensorT es e') _ =
   if ds == es then AsIs
   else if length ds == length es && e == e' then CastTo (TensorT ds e)
   else Mismatch "an array" (TensorT ds e)
-fitting (Just (TensorT _ _)) _ = AsIs
-fitting (Just slot) t = if dynamicDims t == dynamicDims slot then AsIs else Mismatch "a value" slot
-fitting Nothing _ = AsIs
+fitting (Just (TensorT _ _)) _ _ = AsIs
+fitting (Just slot@(DataT f ts)) (DataT g us) r =
+  if f /= g then Mismatch "a value" slot
+  else case r of
+    AnyConstructor => if ts == us then AsIs else Reindex slot
+    OneOf _ => Reindex slot
+fitting (Just slot) t _ = if dynamicDims t == dynamicDims slot then AsIs else Mismatch "a value" slot
+fitting Nothing _ _ = AsIs
 
 ||| `v` where a slot of type `slot` takes it, as `fitting` fits it, the
 ||| variable `binder` bound to a cast it is given.
 export
 fit : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Maybe Ty -> Val -> E Val
-fit ix l slot v = case fitting slot v.type of
+fit ix l slot v = case fitting slot v.type v.refinement of
   AsIs => pure v
   CastTo t => do
-    r <- mlirValueAt (madeAt binder l t Many) (mlirType t) (Tensor.castOp !(plainOperand ix l v))
-    pure (MkVal r.name t Many)
+    r <- mlirValueAt (madeAt binder l Many) (mlirType ix t) (Tensor.castOp !(plainOperand ix l v))
+    pure (val r.name t Many Held.Counted)
+  Reindex t => do
+    let v' = { type := t, refinement := AnyConstructor } v
+    r <- mlirValueAt (madeAt binder l v.uses) (valueType ix v') (Idr.dataReindexOp (operand ix v))
+    pure ({ name := r.name } v')
   Mismatch what expected =>
     internal (what ++ " of type " ++ show v.type ++ " where " ++ show expected ++ " is expected")
 
@@ -187,7 +203,7 @@ fit ix l slot v = case fitting slot v.type of
 ||| the op's value, or the cast of it.
 export
 fitted : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Maybe Ty -> Ty -> (MlirType -> Op) -> E Val
-fitted ix l slot made build = case fitting slot made of
+fitted ix l slot made build = case fitting slot made AnyConstructor of
   AsIs => value {binder} ix l made build
   _ => fit {binder} ix l slot !(value ix l made build)
 
@@ -298,7 +314,7 @@ tensorOp ix l binder rt (Extent j x) = do
   xv <- plainOperand ix l x
   ds <- dimsOf x
   (_, own, _) <- ownAxis "an extent" j ds
-  natural {binder} l !(sizeValue l !(sizeAt l xv own))
+  natural {binder} ix l !(sizeValue l !(sizeAt l xv own))
 tensorOp ix l binder rt (Extract x coords) = read ix l binder rt x coords
 tensorOp ix l binder rt (Insert x v coords) = write ix l binder rt x v coords
 tensorOp ix l binder rt (Take a k x) = do
@@ -345,7 +361,7 @@ tensorOp ix l binder rt (Concat a x y) = do
   let sizes = pre ++ mid :: post
       joined = TensorT (dimsOfSizes sizes) (elementOf rt)
   empty <- value ix l joined (Tensor.emptyOp (fst (mixed sizes)))
-  let ev = operand empty
+  let ev = operand ix empty
   xsizes <- traverse (sizeAt l xv) (withAxes xds)
   ysizes <- traverse (sizeAt l yv) (withAxes yds)
   shift <- sizeAt l xv xown
@@ -356,6 +372,10 @@ tensorOp ix l binder rt (Concat a x y) = do
       (_, strides) = mixed (map (const (Right 1)) rds)
   first <- mlirValue l ev.type (Tensor.insertSliceOp xv ev xo xs [] xso xss strides)
   fitted {binder} ix l (Just rt) joined (Tensor.insertSliceOp yv first yo ys [] yso yss strides)
+-- A transpose of words is upstream's `linalg.transpose` into a fresh
+-- destination, its permutation given once; of elements that hold
+-- references it is a tabulation reading at the swapped coordinates, since
+-- no linalg body holds a reference while counting runs.
 tensorOp ix l binder rt (Transpose a x) = do
   xv <- plainOperand ix l x
   ds <- dimsOf x
@@ -364,8 +384,27 @@ tensorOp ix l binder rt (Transpose a x) = do
     next :: rest => pure (next, rest)
     [] => internal ("a transpose of axis " ++ show a ++ " of an array of rank " ++ show (length ds))
   let perm = map fst before ++ S a :: a :: map fst rest
-      swapped = TensorT (map snd before ++ db :: da :: map snd rest) (elementOf x.type)
-  fitted {binder} ix l (Just rt) swapped (Idr.transposeOp xv (map cast perm))
+      swappedDims = map snd before ++ db :: da :: map snd rest
+      swapped = TensorT swappedDims (elementOf x.type)
+  sizes <- traverse (sizeAt l xv) (zip perm swappedDims)
+  case reaches ix (elementOf x.type) of
+    WordsOnly => do
+      dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
+      fitted {binder} ix l (Just rt) swapped (\t => Linalg.transposeOp xv dest (map cast perm) [t])
+    HoldsReferences => do
+      ivs <- indices (length perm)
+      reg <- region l (toList ivs) $ do
+        e <- readAt ix l Nothing (elementOf x.type) x (swapAt a (toList ivs))
+        pure (Just [!(given ix l (elementOf x.type) e)])
+      dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
+      fitted {binder} ix l (Just rt) swapped (\t => Idr.arrayTabulateOp dest reg [t])
+  where
+    -- The coordinates of `x` a result's coordinates read: the transpose
+    -- swaps axis `j` with the one after it, and so does reading back.
+    swapAt : Nat -> List Value -> List Value
+    swapAt Z (c :: d :: cs) = d :: c :: cs
+    swapAt (S j) (c :: cs) = c :: swapAt j cs
+    swapAt _ cs = cs
 tensorOp ix l binder rt (Reshape x extents) = do
   xv <- plainOperand ix l x
   ds <- dimsOf x
@@ -377,10 +416,10 @@ tensorOp ix l binder rt (Reshape x extents) = do
       e = elementOf x.type
       leading = take r ds
       n = if all isStatic leading then Static (product (map staticOf leading)) else Dynamic
-      flatTy = mlirType (TensorT (n :: cell) e)
+      flatTy = mlirType ix (TensorT (n :: cell) e)
       -- The flattened array is the result when the result has one leading
       -- axis of its type.
-      flatAt = if t == 1 && TensorT (n :: cell) e == rt then madeAt binder l rt Many else At l
+      flatAt = if t == 1 && TensorT (n :: cell) e == rt then madeAt binder l Many else At l
   cellSizes <- traverse (sizeAt l xv) (drop r (withAxes ds))
   flat <- case r of
     S Z => pure xv
@@ -388,24 +427,24 @@ tensorOp ix l binder rt (Reshape x extents) = do
       let (outs, static) = mixed (Right 1 :: cellSizes)
       mlirValueAt flatAt flatTy (Tensor.expandShapeOp xv (map ArrayAttr (unitGroups cellRank)) outs static)
     _ => mlirValueAt flatAt flatTy (Tensor.collapseShapeOp xv (groups r cellRank))
-  let rt' = mlirType rt
-      at = madeAt binder l rt Many
+  let rt' = mlirType ix rt
+      at = madeAt binder l Many
   case t of
     S Z => do
       res <- if TensorT (n :: cell) e == rt then pure flat else mlirValueAt at rt' (Tensor.castOp flat)
-      pure (MkVal res.name rt Many)
+      pure (val res.name rt Many Held.Counted)
     Z => do
-      let unitTy = mlirType (TensorT (Static 1 :: cell) e)
+      let unitTy = mlirType ix (TensorT (Static 1 :: cell) e)
       unit <- if n == Static 1 then pure flat else mlirValue l unitTy (Tensor.castOp flat)
       res <- mlirValueAt at rt' (Tensor.collapseShapeOp unit (map ArrayAttr (unitGroups cellRank)))
-      pure (MkVal res.name rt Many)
+      pure (val res.name rt Many Held.Counted)
     _ => do
       let (lead, cellDims) = splitAt t rds
       leadSizes <- traverse (\(d, ext) => resultSize d (Left <$> coordinate ix l ext)) (zip lead extents)
       restSizes <- traverse (\(d, xd) => resultSize d (sizeAt l xv xd)) (zip cellDims (drop r (withAxes ds)))
       let (outs, static) = mixed (leadSizes ++ restSizes)
       res <- mlirValueAt at rt' (Tensor.expandShapeOp flat (groups t cellRank) outs static)
-      pure (MkVal res.name rt Many)
+      pure (val res.name rt Many Held.Counted)
   where
     isStatic : Dim -> Bool
     isStatic (Static _) = True
@@ -439,10 +478,13 @@ tabulate ix l binder rt extents body = do
   sizes <- dynamicExtents ix l (take k ds) (toList extents)
   ivs <- indices k
   r <- region l (toList ivs) $ do
-    Just v <- body !(traverse (natural l) ivs)
+    Just v <- body !(traverse (natural ix l) ivs)
       | Nothing => pure Nothing
     pure (Just [!(given ix l cell v)])
-  Just <$> value {binder} ix l rt (\t => Idr.tabulateOp sizes r [t])
+  -- The tabulation writes a fresh destination, never one an element was
+  -- read from.
+  dest <- mlirValue l (mlirType ix rt) (Tensor.emptyOp sizes)
+  Just <$> value {binder} ix l rt (\t => Idr.arrayTabulateOp dest r [t])
 
 ||| A reduction of `x` along the axis after the frame of `z`, from `z`'s
 ||| accumulators, left to right in index order: `idr.fold_last` keeping the
@@ -465,59 +507,19 @@ reduce ix l binder r acc elem rt z x body = do
     TensorT _ _ => case r of
       FoldLast => given ix l rt z
       ScanLast => plainOperand ix l z
-    t => mlirValue l (RankedTensorType [] (mlirType t)) (Tensor.fromElementsOp [!(plainOperand ix l z)])
+    t => mlirValue l (RankedTensorType [] (mlirType ix t)) (Tensor.fromElementsOp [!(plainOperand ix l z)])
   ivs <- indices (S frame)
-  (a, av) <- freshVal acc Many
+  (a, av) <- freshVal ix acc Many
   reg <- region l (toList ivs ++ [av]) $ do
     Just a' <- body a !(readAt ix l Nothing elem x (toList ivs))
       | Nothing => pure Nothing
     pure (Just [!(given ix l acc a')])
   case (r, rt) of
-    (FoldLast, TensorT _ _) => Just <$> value {binder} ix l rt (\t => Idr.foldLastOp [init] len reg [t])
+    (FoldLast, TensorT _ _) => Just <$> value {binder} ix l rt (\t => Idr.arrayFoldLastOp [init] len reg [t])
     (FoldLast, _) => do
-      held <- mlirValue l init.type (\t => Idr.foldLastOp [init] len reg [t])
+      held <- mlirValue l init.type (\t => Idr.arrayFoldLastOp [init] len reg [t])
       Just <$> value {binder} ix l rt (Tensor.extractOp held [])
-    (ScanLast, _) => Just <$> value {binder} ix l rt (\t => Idr.scanLastOp [init] len reg [t])
-
-||| A new array of `rt` of the extents given, made in the world's order:
-||| `idr.tabulate_io`, its region given the coordinates and the world before
-||| each element and giving the element and the world after it, which it
-||| takes from the body's `IORes` (`step`) by a match of its one
-||| constructor. Its value is the `IORes` (`done`) of the array and the last
-||| world, the variable `binder` bound to it.
-export
-tabulateIO : {k : Nat} -> Index -> Loc -> Maybe Binding -> Ty -> Vect k Val -> Val
-          -> (Vect k Val -> Val -> E (Maybe Val)) -> (step, done : Con 2) -> E (Maybe Val)
-tabulateIO ix l binder rt extents world body step done = do
-  let ds = tensorDims rt
-      cell = shaped (drop k ds) (elementOf rt)
-  sizes <- dynamicExtents ix l (take k ds) (toList extents)
-  ivs <- indices k
-  (w0, wv) <- freshVal WorldT Many
-  r <- region l (toList ivs ++ [wv]) $ do
-    Just res <- body !(traverse (natural l) ivs) w0
-      | Nothing => pure Nothing
-    (e, w1) <- taken (typeOf (head step.fields)) res
-    pure (Just [!(given ix l cell e), w1])
-  let t = mlirType rt
-      wt = mlirType WorldT
-  Just n <- placed (At l) (Idr.tabulateIoOp sizes (operand world) r [t] wt)
-    | Nothing => internal "a tabulation in the world's order without results"
-  Just <$> con {binder} ix l done [MkVal (resultAt n 2 0) rt Many, MkVal (resultAt n 2 1) WorldT Many]
-  where
-    -- The element and the world of an `IORes`, held plainly: a match of
-    -- its one constructor, whose case yields its fields, and no default.
-    taken : Ty -> Val -> E (Val, Value)
-    taken et res = do
-      let et' = mlirType et
-          wt = mlirType WorldT
-      x <- fresh
-      w1 <- fresh
-      let arm = MkRegion [MkArgument (MkValue x et') (At l), MkArgument (MkValue w1 wt) (At l)]
-                         [MkStatement Nothing (Idr.yieldOp [MkValue x et', MkValue w1 wt]) (At l)]
-      Just n <- placed (At l) (Idr.matchOp (operand res) [step.tag] NoBlocks [arm] [et', wt])
-        | Nothing => internal "a match on an IORes without results"
-      pure (MkVal (resultAt n 2 0) et Many, MkValue (resultAt n 2 1) wt)
+    (ScanLast, _) => Just <$> value {binder} ix l rt (\t => Idr.arrayScanLastOp [init] len reg [t])
 
 ------------------------------------------------------------------------------
 -- Ties
@@ -539,8 +541,8 @@ tie ix l binder v stated = do
     dims <- traverse (\(j, d) => case lookup j sizes of
                         Just s => pure s
                         Nothing => sizeValue l !(sizeAt l xv (j, d))) dynamic
-    r <- mlirValueAt (madeAt binder l v.type Many) xv.type (Idr.tieShapeOp xv dims)
-    pure (MkVal r.name v.type Many)
+    r <- mlirValueAt (madeAt binder l Many) xv.type (Idr.arrayTieShapeOp xv dims)
+    pure (val r.name v.type Many Held.Counted)
   where
     size : Stated Val -> E Value
     size (SameAs n) = coordinate ix l n

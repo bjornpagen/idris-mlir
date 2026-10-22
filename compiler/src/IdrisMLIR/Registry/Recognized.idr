@@ -11,7 +11,8 @@ import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Registry.Entry
 import IdrisMLIR.Registry.Name
 import IdrisMLIR.Registry.Primitives
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Ops.Comparisons
 import IdrisMLIR.Types
 
 %default total
@@ -33,13 +34,13 @@ identity name = MkEntry (Def (MkQName ["Builtin"] name)) (Typed rewriting) Ident
 
 ||| A world operation of `PrimIO`, reachable only through the program root.
 rootOnly : String -> Shape -> Entry
-rootOnly name shape = MkEntry (Def (MkQName ["PrimIO"] name)) (Typed shape) (Forbidden WorldUse)
+rootOnly name shape = MkEntry (Def (MkQName ["PrimIO"] name)) (Typed shape) (Forbidden (Refusal TrustedLibrary))
 
 ||| An escape hatch as the user can write it. Idris evaluates
 ||| `prim__believe_me` applied to a constructor while elaborating, so it can
 ||| vanish from TT; the source is scanned instead.
 spelling : String -> Entry
-spelling s = MkEntry (Spelling s) Written (Forbidden EscapeHatch)
+spelling s = MkEntry (Spelling s) Written (Forbidden (Refusal EscapeHatch))
 
 ------------------------------------------------------------------------------
 -- Naturals
@@ -177,13 +178,19 @@ baseList : List Entry
 baseList =
   [ MkEntry (Def (MkQName ["Prelude", "Basics"] "List")) (Typed (Pi Mw TypeOfTypes TypeOfTypes)) ListType ]
 
-||| The types of `mlir-linear` whose cells are rebuilt in place and held
-||| exclusive: a promise of the library's types, which every program that
-||| uses them is checked against, never a choice of the command line.
+||| The types of `mlir-linear` and `mlir-array` whose cells are rebuilt in
+||| place and held exclusive: a promise of the library's types, which every
+||| program that uses them is checked against, never a choice of the
+||| command line. A linear array and the growable vector are written in
+||| place by the one mechanism the linear list is.
 inPlace : List Entry
 inPlace =
   [ MkEntry (Def (MkQName ["Linear", "List"] "LList")) (Typed (Pi Mw TypeOfTypes TypeOfTypes)) InPlaceType
-  , MkEntry (Def (MkQName ["Linear", "Nat"] "LNat")) (Typed TypeOfTypes) InPlaceType ]
+  , MkEntry (Def (MkQName ["Linear", "Nat"] "LNat")) (Typed TypeOfTypes) InPlaceType
+  , MkEntry (Def (MkQName arrayCore "LArray")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes))) InPlaceType
+  , MkEntry (Def (MkQName ["Linear", "Vec"] "Vec"))
+            (Typed (Pi Mw (Head (Def (MkQName ["Prelude", "Types"] "Nat")) []) (Pi Mw TypeOfTypes TypeOfTypes)))
+            InPlaceType ]
 
 ------------------------------------------------------------------------------
 -- Pointers and the exit
@@ -214,7 +221,7 @@ exitWith = MkEntry (Def (MkQName ["System"] "exitWith"))
 ||| A definition the language this compiler implements does not include.
 ||| The refusal does not depend on the type, so the shape is a hole:
 ||| validation checks that the library still defines it.
-ruledOut : List String -> String -> Rule -> Entry
+ruledOut : List String -> String -> SomeRule -> Entry
 ruledOut ns name rule =
   MkEntry (Def (MkQName ns name)) (Typed Hole) (Forbidden rule)
 
@@ -223,9 +230,9 @@ ruledOut ns name rule =
 ||| the primitive of its name (`makeMutex` calls `prim__makeMutex`).
 threads : List Entry
 threads =
-  map (\n => ruledOut ["Prelude", "IO"] n Threads)
+  map (\n => ruledOut ["Prelude", "IO"] n (Refusal Threads))
       ["fork", "prim__fork", "threadWait", "prim__threadWait"] ++
-  concatMap (\n => [ruledOut concurrency n Threads, ruledOut concurrency ("prim__" ++ n) Threads])
+  concatMap (\n => [ruledOut concurrency n Threads, ruledOut concurrency ("prim__" ++ n) (Refusal Threads)])
       [ "setThreadData", "getThreadData", "getThreadId"
       , "makeMutex", "mutexAcquire", "mutexRelease"
       , "makeCondition", "conditionWait", "conditionWaitTimeout", "conditionSignal", "conditionBroadcast"
@@ -240,14 +247,14 @@ threads =
 ||| the handling and sending of signals) and its public functions.
 signals : List Entry
 signals =
-  map (\n => ruledOut signal ("prim__" ++ n) Signal)
+  map (\n => ruledOut signal ("prim__" ++ n) (Refusal Signal))
       [ "sighup", "sigint", "sigabrt", "sigquit", "sigill", "sigsegv", "sigtrap", "sigfpe"
       , "sigusr1", "sigusr2", "ignoreSignal", "defaultSignal", "collectSignal"
       , "handleNextCollectedSignal", "sendSignal", "raiseSignal" ] ++
-  map (\n => ruledOut signal n Signal)
+  map (\n => ruledOut signal n (Refusal Signal))
       [ "signalCode", "toSignal", "ignoreSignal", "defaultSignal", "collectSignal"
       , "handleNextCollectedSignal", "handleManyCollectedSignals", "raiseSignal" ] ++
-  [ruledOut (signal ++ ["Posix"]) "sendSignal" Signal]
+  [ruledOut (signal ++ ["Posix"]) "sendSignal" (Refusal Signal)]
   where
     signal : List String
     signal = ["System", "Signal"]
@@ -257,13 +264,13 @@ signals =
 ||| the primitives they call. The module's `fflush` is a file's.
 processes : List Entry
 processes =
-  map (\n => ruledOut ["System"] n Process) ["prim__system", "system", "run", "runProcessingOutput"] ++
-  map (\n => ruledOut ["System", "Escaped"] n Process) ["system", "run", "runProcessingOutput"] ++
-  map (\n => ruledOut pipes n Process)
+  map (\n => ruledOut ["System"] n (Refusal Process)) ["prim__system", "system", "run", "runProcessingOutput"] ++
+  map (\n => ruledOut ["System", "Escaped"] n (Refusal Process)) ["system", "run", "runProcessingOutput"] ++
+  map (\n => ruledOut pipes n (Refusal Process))
       [ "prim__popen", "prim__pclose", "prim__popen2", "prim__popen2WaitByPid"
       , "prim__popen2WaitByHandler", "prim__popen2ChildPid", "prim__popen2ChildHandler"
       , "prim__popen2FileIn", "prim__popen2FileOut", "popen", "pclose", "popen2", "popen2Wait" ] ++
-  map (\n => ruledOut (pipes ++ ["Escaped"]) n Process) ["popen", "popen2"]
+  map (\n => ruledOut (pipes ++ ["Escaped"]) n (Refusal Process)) ["popen", "popen2"]
   where
     pipes : List String
     pipes = ["System", "File", "Process"]
@@ -275,8 +282,8 @@ processes =
 outsideLanguage : List Entry
 outsideLanguage =
   threads ++
-  map (\n => ruledOut ["Prelude", "IO"] n Finalizer) ["onCollect", "onCollectAny"] ++
-  map (\n => ruledOut ["System", "FFI"] n RawPointer) ["prim__malloc", "malloc"] ++
+  map (\n => ruledOut ["Prelude", "IO"] n (Refusal Finalizer)) ["onCollect", "onCollectAny"] ++
+  map (\n => ruledOut ["System", "FFI"] n (Refusal RawPointer)) ["prim__malloc", "malloc"] ++
   signals ++ processes
 
 ||| The table.

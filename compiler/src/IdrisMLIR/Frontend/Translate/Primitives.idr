@@ -12,7 +12,8 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.Registry
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Ops.Comparisons
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 

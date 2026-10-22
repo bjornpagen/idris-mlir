@@ -19,7 +19,7 @@ import public IdrisMLIR.Registry.Entry
 import public IdrisMLIR.Registry.Name
 import public IdrisMLIR.Registry.Primitives
 import IdrisMLIR.Registry.Recognized
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Types
 
 import Data.List

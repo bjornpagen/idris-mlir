@@ -3,10 +3,12 @@
 ||| Closures and suspensions in symbol form: the body of a lambda or a delay
 ||| as a function of its own, which takes first the values the body uses
 ||| from outside it, its captures, which an `idr.closure` or an
-||| `idr.suspend` of the function then holds. The function is named from its
-||| owner and its content, so that no counter and no place in the owner
-||| reaches its name, and two bodies of one owner that are one function are
-||| written once.
+||| `idr.suspend` of the function then holds. Its erased index parameters
+||| are its owner's scope where it is written, so the index terms of its
+||| captures' types keep their levels, and the closure passes that scope's
+||| levels. It is named from its owner and its place among the owner's
+||| lifted functions, in the order their bodies are finished, which the
+||| fold fixes.
 module IdrisMLIR.Emit.Closures
 
 import IdrisMLIR.Dialect.Idr as Idr
@@ -14,6 +16,9 @@ import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.Spec.Functions.Termination
+import IdrisMLIR.Term
+import IdrisMLIR.Types
 
 import Control.Monad.State
 import Data.List
@@ -52,45 +57,23 @@ captures : Region -> List Value
 captures r = (walkRegion seen (MkSeen empty empty [<]) r).order <>> []
 
 ------------------------------------------------------------------------------
--- Names
-------------------------------------------------------------------------------
-
-||| The names of a function's values in the order they are defined: its
-||| arguments, then each statement's results before what its regions bind,
-||| `%0` on. A statement of several results is one name, its results named
-||| from it (`resultAt`).
-record Numbering where
-  constructor MkNumbering
-  next : Nat
-  -- By SSA name, the only identity a value has in `IdrisMLIR.MLIR`.
-  names : SortedMap String String
-
-numbered : Numbering -> Occurrence -> Numbering
-numbered st (Uses _) = st
-numbered st (Binds v) = { next $= S, names $= insert v.name ("%" ++ show st.next) } st
-numbered st (Defines name results) =
-  let fresh = "%" ++ show st.next
-      n = length results
-      renames = zipWith (\i, old => (old, resultAt fresh n i)) [0 .. n] results
-  in MkNumbering (S st.next) (foldl (\m, (old, new) => insert old new m) (insert name fresh st.names) renames)
-
-renamedBy : SortedMap String String -> String -> String
-renamedBy m n = fromMaybe n (lookup n m)
-
-||| A function's one region with its values named in definition order, so
-||| that its text is its content, wherever it was written from.
-renumbered : Region -> Region
-renumbered r = renameRegion (renamedBy (walkRegion numbered (MkNumbering 0 empty) r).names) r
-
-------------------------------------------------------------------------------
 -- The function
 ------------------------------------------------------------------------------
 
-||| The function of a body, total: it has no loop of its own, since a
-||| recursion goes through a function of the program, which carries its own
-||| proof or its absence.
-functionOp : String -> MlirType -> Region -> Op
-functionOp sym type body = Idr.funcOp {total' = True} sym type body
+||| An `idr.func`: its symbol, its telescope (the sorts of its erased index
+||| parameters), its type, its body, and what Idris proved of its loops,
+||| written as the Idris component every loop through it stays in exactly
+||| when Idris's checker proved that component's calls decrease, and absent
+||| otherwise. Its row is the derivation's, written later from its ops.
+export
+functionOp : String -> List (SortOf MlirType MlirAttr) -> MlirType -> Region -> Term.Termination -> Op
+functionOp sym telescope type body termination =
+  Idr.funcOp {binders = Just (Idr (IndexBindersAttr telescope)), terminates = proof termination} sym type body
+  where
+    proof : Term.Termination -> Maybe MlirAttr
+    proof (Terminates c) = Just (Idr (TerminatesAttr (ProvedIn c.index)))
+    proof Acyclic = Just (Idr (TerminatesAttr MadeAcyclic))
+    proof (MayDiverge _) = Nothing
 
 ||| What a lifted function's body was in its owner, which its symbol says.
 public export
@@ -102,31 +85,26 @@ liftedText LiftedLambda = "lam"
 liftedText LiftedDelay = "delay"
 
 ||| The function a lambda's or a delay's body becomes, among its owner's,
-||| and its symbol and captures. `params` are the arguments the body binds
-||| itself (a lambda's parameter, none for a delay), `body` its statements
-||| to its end, `results` its result types, `l` where it is written. Its
-||| arguments are its captures, at their types and at `l`, then `params`.
-||| Its symbol is the owner's with `kind` and the hash of the function's
-||| text without its name and locations; a symbol written already with that
-||| text is the same function, and with another text an internal error.
+||| and its symbol and captures. `telescope` is the sorts of the scope's
+||| erased binders where the body is written, which become the function's
+||| index parameters; `params` are the arguments the body binds itself (a
+||| lambda's parameter, none for a delay), `body` its statements to its
+||| end, `results` its result types, `l` where it is written. Its arguments
+||| are its captures, at their types and at `l`, then `params`. What Idris
+||| proved of its loops is its owner's.
 export
-lift : Loc -> (kind : Lifted) -> List Argument -> List Statement -> List MlirType
-    -> E (String, List Value)
-lift l kind params body results = do
+lift : Loc -> (kind : Lifted) -> (telescope : List (SortOf MlirType MlirAttr)) -> List Argument
+    -> List Statement -> List MlirType -> E (String, List Value)
+lift l kind telescope params body results = do
   let caps = captures (MkRegion params body)
   names <- traverse (const fresh) caps
   let args = zipWith (\c, n => MkArgument (MkValue n c.type) (At l)) caps names ++ params
-      outside = renamedBy (fromList (zip (map (.name) caps) names))
-      region = renumbered (renameRegion outside (MkRegion args body))
+      outside = \n => fromMaybe n (lookup n (the (SortedMap String String) (fromList (zip (map (.name) caps) names))))
+      region = renameRegion outside (MkRegion args body)
       type = FunctionType (MkSignature (map (.value.type) args) results)
-      key = genericForm (functionOp "" type region)
   st <- get
-  let sym = contentName st.owner.name (liftedText kind) key
-  case lookup sym st.keys of
-    Just known =>
-      if known == key then pure (sym, caps)
-      else internal ("two functions of " ++ show st.owner ++ " are named " ++ sym)
-    Nothing => do
-      put ({ keys $= insert sym key,
-             lifted $= (:< (sym, MkStatement Nothing (functionOp sym type region) (Named st.definition l))) } st)
-      pure (sym, caps)
+  let sym = st.ownerSymbol ++ "." ++ liftedText kind ++ show st.liftedCount
+  put ({ liftedCount $= S,
+         lifted $= (:< (sym, MkStatement Nothing (functionOp sym telescope type region st.termination)
+                                         (Named st.definition l))) } st)
+  pure (sym, caps)

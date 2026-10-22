@@ -2,13 +2,14 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| A module as MLIR bytecode, the file the driver reads. One encoding, the
 ||| same for every module:
-||| version 6, the pinned reader's current one; each type and attribute
-||| that holds another, each location and each string an entry of its
-||| dialect's bytecode encoding (IdrisMLIR.Encoding.*), which refers to what
-||| it holds by entry, and every other entry its text, the bytecode's own
-||| fallback, a data type among them, whose text is its name: its body is
-||| written once, in the program's table of data types (`#idr.types`, the
-||| program's attribute, the dialect's record `encodeDataTable`);
+||| version 6, the pinned reader's current one; every type, every `idr`
+||| attribute, each builtin attribute that holds another, each float (as
+||| its bits), each location and each string an entry of its dialect's
+||| bytecode encoding (IdrisMLIR.Encoding.*), which refers to what it holds
+||| by entry; only an identity layout and `arith`'s and `ub`'s attributes
+||| are their text, the bytecode's own fallback, which upstream's parsers
+||| read. A data type holds its family's group by entry, so a family is
+||| written once however many types apply it;
 ||| every op name recorded as registered, as it is where the file is read;
 ||| every op's inherent attributes in its one attribute dictionary, with its
 ||| discardable ones. Creating an op moves each inherent attribute into its
@@ -330,12 +331,6 @@ attrEntry w d parts = do
 textual : Writer -> MlirAttr -> W Entry
 textual w a = (\n => (n, Textual (attrText a))) <$> dialectNumber w (attrDialect a)
 
-||| A type's entry as its text.
-typeTextEntry : Writer -> MlirType -> W TypeRef
-typeTextEntry w t = do
-  e <- (\n => (n, Textual (typeText t))) <$> dialectNumber w (typeDialect t)
-  MkTypeRef <$> number w.typeTable e (pure e)
-
 ||| An attribute's entry as its text: a symbol reference's found by its
 ||| names, so that its text is made once.
 attrTextEntry : Writer -> MlirAttr -> W AttrRef
@@ -393,15 +388,19 @@ locationNumber w (Named n l) = do
   name <- stringAttrNumber w (show n)
   child <- placeNumber w l.located
   library w l !(attrEntry w BuiltinDialect (encodeNameLoc name child))
+locationNumber w (Binder n l def k) = do
+  named <- locationNumber w (Named n l)
+  identity <- attrEntry w IdrDialect (encodeBinderAttr def k)
+  attrEntry w BuiltinDialect (encodeFusedLocWithMetadata [named] identity)
 
 ------------------------------------------------------------------------------
 -- Types and attributes
 ------------------------------------------------------------------------------
 
 ||| How a type is written: a type of a record of the two dialects'
-||| encodings, as that record, each type it holds by its entry; any other
-||| type, as its text, a data type's its name.
-data Native = Record Dialect (List Part) | AsText
+||| encodings, as that record, each type it holds by its entry. Every type
+||| the frontend writes has a record.
+data Native = Record Dialect (List Part)
 
 ||| A record of `d`, from the parts of the one type it holds.
 recordOf : Dialect -> (List Part -> List Part) -> List Part -> Native
@@ -413,17 +412,60 @@ extent : Dim -> Integer
 extent (Static n) = cast n
 extent Dynamic = dynamicExtent
 
+||| 2 to the `n`, as a double, exactly: a power of two in range is a
+||| double.
+twoTo : Nat -> Double
+twoTo Z = 1.0
+twoTo (S n) = 2.0 * twoTo n
+
+||| The exponent and significand of a finite positive double: the `e` with
+||| `2^e <= x < 2^(e+1)`, found by halving or doubling, each exact, from
+||| below 2^1024 and at least 2^-1074; and `x / 2^e`. A double has 2098
+||| binary exponents, so each search ends within that many steps.
+binade : Double -> (Integer, Double)
+binade x = if x >= 1.0 then down 1024 x 0 else up 1075 x 0
+  where
+    down : Nat -> Double -> Integer -> (Integer, Double)
+    down Z y e = (e, y)
+    down (S k) y e = if y >= 2.0 then down k (y / 2.0) (e + 1) else (e, y)
+    up : Nat -> Double -> Integer -> (Integer, Double)
+    up Z y e = (e, y)
+    up (S k) y e = if y < 1.0 then up k (y * 2.0) (e - 1) else (e, y)
+
+||| A double's IEEE 754 binary64 bits, read as a signed 64-bit integer as
+||| MLIR's reader takes a float of 64 bits (`readAPIntWithKnownWidth`): its
+||| sign, biased exponent and fraction, computed exactly in the double's own
+||| arithmetic (scaling by powers of two loses nothing), so the value that
+||| crosses is the one the program wrote, on either host, with no decimal
+||| text between.
+export
+doubleBits : Double -> Integer
+doubleBits d =
+  if d /= d then 0x7FF8000000000000
+  else if d == 1.0 / 0.0 then 0x7FF0000000000000
+  else if d == -1.0 / 0.0 then signedOf 0xFFF0000000000000
+  else if d == 0.0 then (if 1.0 / d < 0.0 then signedOf 0x8000000000000000 else 0)
+  else let sign = if d < 0.0 then 0x8000000000000000 else 0
+           x = abs d
+           (e, m) = binade x
+       in signedOf (sign + magnitude e m x)
+  where
+    signedOf : Integer -> Integer
+    signedOf u = if u >= 0x8000000000000000 then u - 0x10000000000000000 else u
+    -- A normal double's fraction is its significand's 52 bits past the
+    -- leading one; a subnormal's is the value in units of 2^-1074.
+    magnitude : Integer -> Double -> Double -> Integer
+    magnitude e m x =
+      if e >= -1022
+        then (e + 1023) * 0x10000000000000 + cast {to = Integer} ((m - 1.0) * twoTo 52)
+        else cast {to = Integer} (x * twoTo 1074)
+
 -- Every recursion is on a part of the type or attribute written, through
--- mutual helpers for lists, as `typesText` is, so that totality holds.
+-- mutual helpers for lists, so that totality holds.
 mutual
   ||| The one switch over the kinds of type: how `t` is written.
   native : Writer -> MlirType -> W Native
-  native w (Idr (QType q p v l) _) =
-    recordOf IdrDialect (\value => encodeQType q p value (maybe Lifetime.Heap id l)) <$> held w v
-  native w (Idr (FnType sig) _) = recordOf IdrDialect encodeFnType <$> heldSignature w sig
-  native w (Idr (LazyType v) _) = recordOf IdrDialect encodeLazyType <$> held w v
-  native w (Idr (BoxType v) _) = recordOf IdrDialect encodeBoxType <$> held w v
-  native w (Idr (DestType v) _) = recordOf IdrDialect encodeDestType <$> held w v
+  native w (Idr t) = Record IdrDialect <$> idrType w t
   native w (FunctionType sig) = recordOf BuiltinDialect id <$> functionType w sig
   native w (RankedTensorType ds e) =
     recordOf BuiltinDialect (encodeRankedTensorType (map extent ds)) <$> held w e
@@ -436,14 +478,32 @@ mutual
     s <- attrNumber w space
     layout <- attrTextEntry w (IdentityMap (length ds))
     recordOf BuiltinDialect (\x => encodeMemRefTypeWithMemSpace s (map extent ds) x layout) <$> held w e
-  native w _ = pure AsText
+  -- Upstream packs a signless integer type's width with its signedness,
+  -- 0, in the two low bits (`IntegerType`'s bytecode record).
+  native w (IntegerType n) = pure (Record BuiltinDialect [VarInt integerTypeCode, VarInt (4 * n)])
+  native w F64Type = pure (Record BuiltinDialect encodeFloat64Type)
+  native w IndexType = pure (Record BuiltinDialect encodeIndexType)
+  native w NoneType = pure (Record BuiltinDialect encodeNoneType)
+
+  ||| An `idr` type's record: the dialect's encoder of its kind, each type
+  ||| and attribute it holds by its entry.
+  idrType : Writer -> IdrType MlirType MlirAttr -> W (List Part)
+  idrType w StrType = pure encodeStrType
+  idrType w BigType = pure encodeBigType
+  idrType w NatType = pure encodeNatType
+  idrType w (FnType sig) = encodeFnType <$> heldSignature w sig
+  idrType w (LazyType v) = encodeLazyType <$> held w v
+  idrType w (GradedType uses hold v) = encodeGradedType uses hold <$> held w v
+  idrType w (DataType group member indices tags) =
+    encodeDataType <$> attrAt w group <*> pure member <*> termNodes w indices <*> pure tags
+  idrType w (SelfType member indices) = encodeSelfType member <$> termNodes w indices
+  idrType w (DestType v) = encodeDestType <$> held w v
 
   ||| A type's entry.
   export
   typeNumber : Writer -> MlirType -> W TypeRef
   typeNumber w t = case !(native w t) of
     Record d parts => typeEntry w d parts
-    AsText => typeTextEntry w t
 
   ||| A type a record holds: its entry.
   held : Writer -> MlirType -> W (List Part)
@@ -461,17 +521,68 @@ mutual
   functionEntry : Writer -> Signature MlirType -> W TypeRef
   functionEntry w sig = typeEntry w BuiltinDialect !(functionType w sig)
 
-  ||| The builtin function type a closure's record holds, by its entry. The
-  ||| generated `FnType` holds its signature, not that type, so this is
-  ||| `held` of the function type, on the signature, which is the part the
-  ||| recursion is on.
+  ||| The builtin function type a closure's record holds, by its entry: the
+  ||| generated `FnType` holds its signature, so this is `held` of the
+  ||| function type, on the signature, which is the part the recursion is
+  ||| on.
   heldSignature : Writer -> Signature MlirType -> W (List Part)
   heldSignature w sig = (\r => [TypeAt r]) <$> functionEntry w sig
 
-  ||| An attribute's entry: an array, a dictionary and a type, which can
-  ||| hold a data type, are builtin's records; the table of data types is
-  ||| the dialect's record, each body's fields by their entries; every other
-  ||| is its text.
+  ||| An attribute a record holds: its entry.
+  attrAt : Writer -> MlirAttr -> W (List Part)
+  attrAt w a = (\r => [AttrAt r]) <$> attrNumber w a
+
+  ||| An index term's nodes in preorder, each its kind's parts, a literal,
+  ||| a constructor's family group and a count by their entries.
+  termNodes : Writer -> List (TermNode MlirType MlirAttr) -> W (List Part)
+  termNodes w [] = pure []
+  termNodes w (n :: ns) = (++) <$> termNode w n <*> termNodes w ns
+
+  termNode : Writer -> TermNode MlirType MlirAttr -> W (List Part)
+  termNode w (NatNode k) = pure (encodeNatNode k)
+  termNode w (VarNode k) = pure (encodeVarNode k)
+  termNode w (SuccNode k) = pure (encodeSuccNode k)
+  termNode w (LitNode a) = encodeLitNode <$> attrAt w a
+  termNode w (TypeNode t) = encodeTypeNode <$> held w t
+  termNode w (ConNode group member tag) = encodeConNode <$> attrAt w group <*> pure member <*> pure tag
+  termNode w OpaqueNode = pure encodeOpaqueNode
+
+  ||| A sort's parts: a scalar's type and a family member's group by their
+  ||| entries.
+  sortParts : Writer -> SortOf MlirType MlirAttr -> W (List Part)
+  sortParts w NatSort = pure encodeNatSort
+  sortParts w TypeSort = pure encodeTypeSort
+  sortParts w OpaqueSort = pure encodeOpaqueSort
+  sortParts w (ScalarSort t) = encodeScalarSort <$> held w t
+  sortParts w (FamilySort group member) = encodeFamilySort <$> attrAt w group <*> pure member
+
+  sortsParts : Writer -> List (SortOf MlirType MlirAttr) -> W (List (List Part))
+  sortsParts w [] = pure []
+  sortsParts w (x :: xs) = (::) <$> sortParts w x <*> sortsParts w xs
+
+  ||| A constructor's declaration: its label, binder sorts, equation and
+  ||| fields, each type by its entry.
+  ctorParts : Writer -> CtorDecl MlirType MlirAttr -> W (List Part)
+  ctorParts w (MkCtorDecl label binders equation fields) =
+    encodeCtorDecl label <$> sortsParts w binders <*> termNodes w equation <*> heldAll w fields
+
+  ctorsParts : Writer -> List (CtorDecl MlirType MlirAttr) -> W (List (List Part))
+  ctorsParts w [] = pure []
+  ctorsParts w (c :: cs) = (::) <$> ctorParts w c <*> ctorsParts w cs
+
+  ||| A data member of a group: its label, promise, location, index sorts
+  ||| and constructors.
+  memberParts : Writer -> FamilyMember MlirType MlirAttr -> W (List Part)
+  memberParts w (MkFamilyMember label promise loc indices ctors) =
+    encodeFamilyMember label promise <$> attrAt w loc <*> sortsParts w indices <*> ctorsParts w ctors
+
+  membersParts : Writer -> List (FamilyMember MlirType MlirAttr) -> W (List (List Part))
+  membersParts w [] = pure []
+  membersParts w (m :: ms) = (::) <$> memberParts w m <*> membersParts w ms
+
+  ||| An attribute's entry: an array, a dictionary, a type, a string and a
+  ||| float are builtin's records, every `idr` attribute the dialect's; an
+  ||| identity layout and `arith`'s and `ub`'s attributes are their text.
   attrNumber : Writer -> MlirAttr -> W AttrRef
   attrNumber w (ArrayAttr as) = do
     rs <- attrNumbers w as
@@ -483,8 +594,25 @@ mutual
     r <- typeNumber w t
     attrEntry w BuiltinDialect (encodeTypeAttr [TypeAt r])
   attrNumber w (StringAttr s) = stringAttrNumber w s
-  attrNumber w (Idr (DataTableAttr ds) _) = attrEntry w IdrDialect (encodeDataTable !(rows w ds))
+  -- A float of 64 bits crosses as its bits, as a signed integer of its
+  -- width, which is how upstream's reader takes it.
+  attrNumber w (FloatAttr d t) = do
+    r <- typeNumber w t
+    attrEntry w BuiltinDialect [VarInt floatAttrCode, TypeAt r, SignedVarInt (doubleBits d)]
+  attrNumber w (Idr a) = attrEntry w IdrDialect !(idrAttr w a)
+  attrNumber w (LocAttr l) = locationNumber w l
   attrNumber w a = attrTextEntry w a
+
+  ||| An `idr` attribute's record: the dialect's encoder of its kind.
+  idrAttr : Writer -> IdrAttr MlirType MlirAttr -> W (List Part)
+  idrAttr w (FamiliesAttr members) = encodeFamiliesAttr <$> membersParts w members
+  idrAttr w (BigAttr n) = pure (encodeBigAttr n)
+  idrAttr w (SiteAttr file line column) = pure (encodeSiteAttr file line column)
+  idrAttr w (InstanceAttr origin arguments) = pure (encodeInstanceAttr origin arguments)
+  idrAttr w MutableSpaceAttr = pure encodeMutableSpaceAttr
+  idrAttr w (TerminatesAttr proof) = pure (encodeTerminatesAttr proof)
+  idrAttr w (IndexBindersAttr sorts) = encodeIndexBindersAttr <$> sortsParts w sorts
+  idrAttr w (IndexArgsAttr terms) = encodeIndexArgsAttr <$> termNodes w terms
 
   attrNumbers : Writer -> List MlirAttr -> W (List AttrRef)
   attrNumbers w [] = pure []
@@ -496,30 +624,6 @@ mutual
   namedNumbers w [] = pure []
   namedNumbers w ((name, a) :: es) =
     (\n, v, rest => (n, v) :: rest) <$> stringAttrNumber w name <*> attrNumber w a <*> namedNumbers w es
-
-  ||| The table's rows, one per data type in order, as `encodeDataTable`
-  ||| takes them: its name, its kind of sum, its constructors and its
-  ||| instance's entry, an `#idr.instance` attribute. A constructor is its name, its role, the function a
-  ||| label names and whether it is by name (none and 0: the frontend writes
-  ||| no label) and its fields' entries.
-  rows : Writer -> List (String, IdrSum MlirType MlirAttr) ->
-         W (List (String, SumKind, List (String, CtorRole, Maybe AttrRef, Nat, List (List Part)), Maybe AttrRef))
-  rows w [] = pure []
-  rows w ((name, MkIdrSum kind ctors instanceOf) :: ds) = do
-    cs <- ctorRows w ctors
-    inst <- instanceRef w instanceOf
-    ((name, kind, cs, inst) ::) <$> rows w ds
-
-  ctorRows : Writer -> List (IdrCtor MlirType) ->
-             W (List (String, CtorRole, Maybe AttrRef, Nat, List (List Part)))
-  ctorRows w [] = pure []
-  ctorRows w (MkIdrCtor name fields role :: cs) = do
-    fs <- heldAll w fields
-    ((name, role, Nothing, 0, fs) ::) <$> ctorRows w cs
-
-  instanceRef : Writer -> Maybe MlirAttr -> W (Maybe AttrRef)
-  instanceRef w Nothing = pure Nothing
-  instanceRef w (Just a) = Just <$> attrNumber w a
 
 ------------------------------------------------------------------------------
 -- The writer

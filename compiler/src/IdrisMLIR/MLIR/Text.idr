@@ -121,26 +121,6 @@ signature t s =
 -- Literals
 ------------------------------------------------------------------------------
 
-||| An exact MLIR float literal: the shortest decimal that reads back as the
-||| same double (the compiler runs on Chez Scheme, whose `number->string`
-||| prints that), with a point as MLIR requires, and hexadecimal bits for
-||| NaN and the infinities.
-export
-floatLiteral : Double -> String
-floatLiteral d =
-  if d /= d then "0x7FF8000000000000"
-  else if d > 1.7976931348623157e308 then "0x7FF0000000000000"
-  else if d < -1.7976931348623157e308 then "0xFFF0000000000000"
-  else decimal (prim__cast_DoubleString d)
-  where
-    -- Chez marks subnormals with a precision suffix, `5e-324|1`.
-    decimal : String -> String
-    decimal s =
-      let s' = fst (break (== '|') s)
-          (mant, ex) = break (== 'e') s'
-          mant' = if any (== '.') (unpack mant) then mant else mant ++ ".0"
-      in mant' ++ ex
-
 ||| The two's complement bit pattern of `n` in `w` bits, read as signed:
 ||| how an integer attribute of that width is written.
 export
@@ -158,12 +138,15 @@ twos w n = let m = pow w
 -- Locations
 ------------------------------------------------------------------------------
 
-||| An operation's location: a source span, or an Idris name at one, MLIR's
-||| `NameLoc`. Names reach MLIR only this way: as debug information, which
+||| An operation's location: a source span; an Idris name at one, MLIR's
+||| `NameLoc`; or a binder of a definition's, its name at its span fused
+||| with its identity (`#idr.binder`: the definition's symbol and the
+||| binder's number in it), the one key a check of a binder's quantity
+||| reads. Names reach MLIR only this way: as debug information, which
 ||| passes keep and diagnostics print, and never as data a pass could
 ||| compare.
 public export
-data Location = At Loc | Named Shown Loc
+data Location = At Loc | Named Shown Loc | Binder Shown Loc String Nat
 
 ||| A span of a file as MLIR writes a `FileLineColRange`, 1-based at both
 ||| ends: one point, a range on one line, or a range across lines.
@@ -198,3 +181,4 @@ export
 location : Location -> String
 location (At l) = wrapped l (fromMaybe "unknown" (placeText l.located))
 location (Named n l) = wrapped l (quoted (show n) ++ maybe "" (\p => "(" ++ p ++ ")") (placeText l.located))
+location (Binder n l _ _) = location (Named n l)

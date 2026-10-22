@@ -26,7 +26,8 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Registry
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -85,17 +86,19 @@ request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           FC -> (owner : String) -> Name -> List PKind -> Core FnId
 request fc owner n kinds = do
   found <- instanceKey fc owner n snd (map staticKindOf kinds)
-  let inst = MkFnId found.symbol
   st <- get TState
-  unless (contains inst st.seen) $ do
-    checkRecursion n
-    read <- readings 0 found.arguments
-    let node = MkNode found.link.definition (mapMaybe (\(i, r) => (i,) <$> r.head) read)
-    update TState { seen $= insert inst
-                  , fnOrder $= (:< inst)
-                  , requested $= (:< MkRequest inst n kinds found.key fc (shown owner) found.link node
-                                               (map (\(i, r) => (i, r.height)) read)) }
-  pure inst
+  case lookup found.link st.fnIds of
+    Just inst => pure inst
+    Nothing => do
+      let inst = MkFnId st.nextInstance
+      update TState { fnIds $= insert found.link inst, nextInstance $= S }
+      checkRecursion n
+      read <- readings 0 found.arguments
+      let node = MkNode found.link.definition (mapMaybe (\(i, r) => (i,) <$> r.head) read)
+      update TState { fnOrder $= (:< inst)
+                    , requested $= (:< MkRequest inst n kinds found.key fc (shown owner) found.link node
+                                                 (map (\(i, r) => (i, r.height)) read)) }
+      pure inst
 
 ||| What a call knows of an argument it gives: an implementation known at
 ||| compile time, whatever binds it (Idris passes an enclosing function's

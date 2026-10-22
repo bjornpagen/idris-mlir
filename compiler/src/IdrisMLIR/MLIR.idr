@@ -2,23 +2,23 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| MLIR's ops, types and attributes, as `Emit` makes them. A type and an
 ||| attribute are data: the builtin ones the frontend uses are constructors
-||| here, and each dialect's are the constructors of the sums generated from
-||| the dialect's ODS (IdrisMLIR.Syntax.*), which this module's types and
-||| attributes hold. A data type is its name: its body is the module's, in
-||| its table of data types, which the handoff writes once. The handoff is
-||| MLIR bytecode (IdrisMLIR.MLIR.Bytecode): each type and attribute that
-||| can hold a data type is an entry of its dialect's bytecode encoding,
-||| which refers to what it holds by entry, and every other is its text, in
-||| the syntax ODS declares for it, which the dialect's generated C++ parser
-||| reads; every op is its parts: name, operands, attributes (its inherent
-||| ones, which become its properties when it is made, with its discardable
-||| ones), regions, result types and location. The generated builders make
-||| the ops (IdrisMLIR.Dialect.*). An op's text, in MLIR's generic form, a
-||| data type in it by its name, is only what a content key hashes.
+||| here, and the `idr` dialect's are the values of the sums printed from
+||| the dialect's specification beside their bytecode encoders
+||| (IdrisMLIR.Encoding.Idr), which this module's types and attributes
+||| hold. The handoff is MLIR bytecode (IdrisMLIR.MLIR.Bytecode): every
+||| `idr` type and attribute is an entry of the dialect's bytecode encoding,
+||| which refers to what it holds by entry, so no `idr` text crosses the
+||| handoff; a double crosses as its 64 bits. Only `arith`'s and `ub`'s
+||| attributes, and an identity layout, are their text, in the syntax their
+||| dialects declare, which upstream's parsers read. Every op is its parts:
+||| name, operands, attributes (its inherent ones, which become its
+||| properties when it is made, with its discardable ones), regions, result
+||| types and location. The generated builders make the ops
+||| (IdrisMLIR.Dialect.*).
 module IdrisMLIR.MLIR
 
 import public IdrisMLIR.MLIR.Text
-import public IdrisMLIR.Syntax.Idr
+import public IdrisMLIR.Encoding.Idr
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Syntax.UB
 
@@ -44,12 +44,10 @@ Eq Dim where
   Dynamic == Dynamic = True
   _ == _ = False
 
-||| The text a dialect's syntax gives one of its types or attributes. It is
-||| made with the value it spells, by the value's one constructor (`idr`,
-||| `arith`, `ub`), so it is always that value's: a dialect's syntax writes
-||| what it holds by a function it is given, a recursion the totality
-||| checker cannot follow into, so the text of what a dialect's value holds
-||| is made before the value is, and the value's own text only reads it.
+||| The text a dialect's syntax gives one of its attributes, for the
+||| dialects whose attributes cross as text (`arith`, `ub`). It is made with
+||| the value it spells, by the value's one constructor (`arith`, `ub`), so
+||| it is always that value's.
 export
 data Spelling = MkSpelling (Lazy String)
 
@@ -60,11 +58,12 @@ namespace MlirAttr
   data MlirAttr : Type
 
 namespace MlirType
-  ||| A type: a builtin one, or a dialect's, which holds types of its own.
-  ||| A signless integer type, `i64`, is read as an op that reads it says.
-  ||| A ranked tensor's and a memref's dimensions are outermost first; a
-  ||| tensor has no encoding, and a memref the identity layout and the
-  ||| memory space given, the default one when none is.
+  ||| A type: a builtin one, or one of the `idr` dialect, which holds types
+  ||| and attributes of its own. A signless integer type, `i64`, is read as
+  ||| an op that reads it says. A ranked tensor's and a memref's dimensions
+  ||| are outermost first; a tensor has no encoding, and a memref the
+  ||| identity layout and the memory space given, the default one when none
+  ||| is.
   public export
   data MlirType
     = IntegerType Nat
@@ -74,8 +73,8 @@ namespace MlirType
     | RankedTensorType (List Dim) MlirType
     | MemRefType (List Dim) MlirType (Maybe MlirAttr)
     | FunctionType (Signature MlirType)
-    | ||| A type of the `idr` dialect, made by `idr`.
-      Idr (IdrType MlirType) Spelling
+    | ||| A type of the `idr` dialect.
+      Idr (IdrType MlirType MlirAttr)
 
 ------------------------------------------------------------------------------
 -- Attributes
@@ -84,13 +83,13 @@ namespace MlirType
 namespace MlirAttr
   ||| An attribute: a builtin one, or a dialect's, which holds types and
   ||| attributes of its own. An integer is of an integer type or of `index`,
-  ||| a float of a float type; a string is written as its UTF-8 bytes; the
-  ||| dense array of `i32` is the number of values in each group of an op's
-  ||| operands or results, where more than one group may vary in length, and
-  ||| that of `i64` the static entries of an op's mixed index lists; a
-  ||| dictionary is an op's attributes of one kind, by name; the identity
-  ||| map of a rank is the layout a memref of that rank has, which its entry
-  ||| names.
+  ||| a float of a float type (its value crosses as its bits); a string is
+  ||| written as its UTF-8 bytes; the dense array of `i32` is the number of
+  ||| values in each group of an op's operands or results, where more than
+  ||| one group may vary in length, and that of `i64` the static entries of
+  ||| an op's mixed index lists; a dictionary is an op's attributes of one
+  ||| kind, by name; the identity map of a rank is the layout a memref of
+  ||| that rank has, which its entry names.
   public export
   data MlirAttr
     = UnitAttr
@@ -105,8 +104,10 @@ namespace MlirAttr
     | DenseI64ArrayAttr (List Integer)
     | DictionaryAttr (List (String, MlirAttr))
     | IdentityMap Nat
-    | ||| An attribute of the `idr` dialect, made by `idr`.
-      Idr (IdrAttr MlirType MlirAttr) Spelling
+    | ||| A location, as an attribute holds one (a family's declaration).
+      LocAttr Location
+    | ||| An attribute of the `idr` dialect.
+      Idr (IdrAttr MlirType MlirAttr)
     | ||| An attribute of the `arith` dialect, made by `arith`.
       Arith (ArithAttr MlirType MlirAttr) Spelling
     | ||| An attribute of the `ub` dialect, made by `ub`.
@@ -124,8 +125,9 @@ dimText (Static n) = show n ++ "x"
 dimText Dynamic = "?x"
 
 mutual
-  ||| A type's text. A builtin type writes what it holds by this function;
-  ||| a dialect's type was spelled when it was made.
+  ||| A builtin type's text, as an attribute that crosses as text holds it:
+  ||| `arith`'s and `ub`'s attributes hold builtin types only. An `idr` type
+  ||| never crosses as text; it is its entry (`MLIR.Bytecode`).
   export
   typeText : MlirType -> String
   typeText (IntegerType w) = "i" ++ show w
@@ -136,20 +138,24 @@ mutual
   typeText (MemRefType ds e Nothing) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ">"])
   typeText (MemRefType ds e (Just a)) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ", " ++ attrText a, ">"])
   typeText (FunctionType (MkSignature ins outs)) = signature id (MkSignature (typesText ins) (typesText outs))
-  typeText (Idr _ (MkSpelling s)) = s
+  -- No text attribute holds one, so this is never read.
+  typeText (Idr _) = "none"
 
   typesText : List MlirType -> List String
   typesText [] = []
   typesText (t :: ts) = typeText t :: typesText ts
 
-  ||| An attribute's text, each builtin attribute it holds written by this
-  ||| function.
+  ||| The text of an attribute that crosses as text: `arith`'s and `ub`'s,
+  ||| spelled when made, and an identity layout. Every other attribute is
+  ||| its entry (`MLIR.Bytecode`); a builtin attribute that `arith`'s or
+  ||| `ub`'s text holds is written by this function.
   export
   attrText : MlirAttr -> String
   attrText UnitAttr = "unit"
   attrText (BoolAttr b) = if b then "true" else "false"
   attrText (IntegerAttr n t) = show n ++ " : " ++ typeText t
-  attrText (FloatAttr d t) = floatLiteral d ++ " : " ++ typeText t
+  -- A float never crosses as text: its entry holds its bits.
+  attrText (FloatAttr _ t) = "0 : " ++ typeText t
   attrText (StringAttr s) = Text.utf8 s
   attrText (SymbolRefAttr r) = symbolRef r
   attrText (TypeAttr t) = typeText t
@@ -162,13 +168,12 @@ mutual
   attrText (IdentityMap n) =
     let dims = commaSeparated (map (\i => "d" ++ show i) (take n [0 .. n])) in
     fastConcat ["affine_map<(", dims, ") -> (", dims, ")>"]
-  attrText (Idr _ (MkSpelling s)) = s
+  -- No text attribute holds one of these, so this is never read.
+  attrText (LocAttr _) = "unit"
+  attrText (Idr _) = "unit"
   attrText (Arith _ (MkSpelling s)) = s
   attrText (UB _ (MkSpelling s)) = s
 
-  ||| A member of the table of data types: its name, then its body, the
-  ||| kind of sum, the constructors with their fields and, but for a plain
-  ||| one, their roles, and the instance when it is of one.
   attrsText : List MlirAttr -> List String
   attrsText [] = []
   attrsText (a :: as) = attrText a :: attrsText as
@@ -179,18 +184,7 @@ mutual
   entriesText ((name, UnitAttr) :: es) = name :: entriesText es
   entriesText ((name, a) :: es) = (name ++ " = " ++ attrText a) :: entriesText es
 
-namespace MlirType
-  ||| A type of the `idr` dialect, spelled as its syntax writes it.
-  export
-  idr : IdrType MlirType -> MlirType
-  idr x = Idr x (MkSpelling (idrTypeText typeText x))
-
 namespace MlirAttr
-  ||| An attribute of the `idr` dialect, spelled as its syntax writes it.
-  export
-  idr : IdrAttr MlirType MlirAttr -> MlirAttr
-  idr x = Idr x (MkSpelling (idrAttrText typeText attrText x))
-
   ||| An attribute of the `arith` dialect, spelled as its syntax writes it.
   export
   arith : ArithAttr MlirType MlirAttr -> MlirAttr
@@ -204,13 +198,13 @@ namespace MlirAttr
 ||| The dialect a type is of, by its constructor.
 export
 typeDialect : MlirType -> String
-typeDialect (Idr _ _) = "idr"
+typeDialect (Idr _) = "idr"
 typeDialect _ = "builtin"
 
 ||| The dialect an attribute is of, by its constructor.
 export
 attrDialect : MlirAttr -> String
-attrDialect (Idr _ _) = "idr"
+attrDialect (Idr _) = "idr"
 attrDialect (Arith _ _) = "arith"
 attrDialect (UB _ _) = "ub"
 attrDialect _ = "builtin"
@@ -229,12 +223,6 @@ unitIf name set = if set then [(name, UnitAttr)] else []
 export
 attrIf : String -> (a -> MlirAttr) -> Maybe a -> List NamedAttr
 attrIf name make = maybe [] (\x => [(name, make x)])
-
-||| An attribute dictionary between `opening` and `closing`, after a space,
-||| if it has any entries.
-dictionary : String -> String -> List NamedAttr -> String
-dictionary opening closing [] = ""
-dictionary opening closing as = " " ++ opening ++ commaSeparated (entriesText as) ++ closing
 
 ------------------------------------------------------------------------------
 -- Operations
@@ -348,63 +336,3 @@ mutual
   renameRegions : (String -> String) -> List Region -> List Region
   renameRegions f [] = []
   renameRegions f (r :: rs) = renameRegion f r :: renameRegions f rs
-
-------------------------------------------------------------------------------
--- The generic form
-------------------------------------------------------------------------------
-
-indent : Nat -> String
-indent d = replicate (2 * d) ' '
-
-||| The name of an op's results, as its statement binds them.
-named : Maybe String -> Nat -> String
-named (Just r) (S (S k)) = r ++ ":" ++ show (S (S k)) ++ " = "
-named (Just r) _ = r ++ " = "
-named Nothing _ = ""
-
--- The text is written as pieces, each function's before the `rest` it is
--- given, and joined once: appending two strings copies both, so building
--- an op's text from its regions' texts would copy every statement once
--- per region around it, which grows with the square of the op.
-mutual
-  ||| An op in the generic form, its regions indented by `d`:
-  ||| `"dialect.op"(operands) <{properties}> ({regions}) {attributes} : type`.
-  opText : Nat -> Op -> List String -> List String
-  opText d (MkOp name operands properties regions attributes results) rest =
-    let start = fastConcat [quoted name, "(", commaSeparated (map (.name) operands), ")",
-                            dictionary "<{" "}>" properties]
-        end = fastConcat [dictionary "{" "}" attributes, " : ",
-                          signature typeText (MkSignature (map (.type) operands) results)]
-    in case regions of
-         [] => start :: end :: rest
-         rs => start :: " (" :: regionsText d rs (")" :: end :: rest)
-
-  regionsText : Nat -> List Region -> List String -> List String
-  regionsText d [] rest = rest
-  regionsText d [r] rest = regionText d r rest
-  regionsText d (r :: rs) rest = regionText d r (", " :: regionsText d rs rest)
-
-  ||| A region: `{}`, of no blocks, or its one block, labelled even when it
-  ||| has no arguments, since the generic form reads `{}` as a region of no
-  ||| blocks.
-  regionText : Nat -> Region -> List String -> List String
-  regionText d NoBlocks rest = "{}" :: rest
-  regionText d (MkRegion arguments statements) rest =
-    fastConcat ["{\n", indent d, "^bb0", argumentsText arguments, ":\n"] ::
-    statementsText (S d) statements (indent d :: "}" :: rest)
-
-  argumentsText : List Argument -> String
-  argumentsText [] = ""
-  argumentsText as =
-    "(" ++ commaSeparated (map (\a => a.value.name ++ ": " ++ typeText a.value.type) as) ++ ")"
-
-  statementsText : Nat -> List Statement -> List String -> List String
-  statementsText d [] rest = rest
-  statementsText d (MkStatement result op _ :: ss) rest =
-    indent d :: named result (length op.results) :: opText d op ("\n" :: statementsText d ss rest)
-
-||| An op in MLIR's generic form without the locations of what it holds:
-||| what the op is, wherever it stands. A content key hashes it.
-export
-genericForm : Op -> String
-genericForm o = fastConcat (opText 0 o [])

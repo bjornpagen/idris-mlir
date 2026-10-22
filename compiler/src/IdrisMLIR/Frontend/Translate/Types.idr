@@ -25,7 +25,8 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.Registry
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Growth
@@ -719,12 +720,12 @@ shortName : Name -> String
 shortName (NS _ n) = shortName n
 shortName n = show n
 
-||| A constructor's identity in a data instance: its tag as a position
+||| A constructor's identity in a family instance: its tag as a position
 ||| among the constructors of the type its result is. Nothing when the
 ||| definition is no constructor, its type's constructors are not known,
 ||| or its tag is past them.
 export
-conIdOf : {auto c : Ref Ctxt Defs} -> DataId -> GlobalDef -> Core (Maybe ConId)
+conIdOf : {auto c : Ref Ctxt Defs} -> FamilyId -> GlobalDef -> Core (Maybe ConId)
 conIdOf inst def = do
   let DCon tag _ _ = definition def
     | _ => pure Nothing
@@ -803,17 +804,6 @@ valueArrayOf : List Dim -> Ty -> Ty
 valueArrayOf ds (TensorT cs el) = TensorT (ds ++ cs) el
 valueArrayOf ds e = TensorT ds e
 
-||| The sum the registry says a data type is: base's list, whose
-||| constructors are one of no fields and one of two, a sum updated in
-||| place, or a plain sum. A list type of other constructors is the
-||| registry's broken contract with base.
-sumShapeOf : FC -> (tname : String) -> Maybe SumHook -> List (k ** Con k) -> Core DataShape
-sumShapeOf fc tname (Just IsList) [(0 ** nil), (2 ** cons)] = pure (BaseListSum nil cons)
-sumShapeOf fc tname (Just IsList) _ =
-  internal fc (tname ++ " is base's list, but not of a constructor of no fields and one of two")
-sumShapeOf fc tname (Just IsInPlace) cons = pure (InPlaceSum cons)
-sumShapeOf fc tname Nothing cons = pure (PlainSum cons)
-
 ||| The registrations in progress: the bounds the growth check gave
 ||| (`TS.sizes`, which nothing changes while the translation runs), and the
 ||| links of the data instances being registered, the innermost first.
@@ -852,27 +842,118 @@ boundsHold fc what t statics = do
     (h, _) <- closedHeight AType a
     heightWithin fc what st.bounds (MkNode t [], j) h
 
+||| What is known of an erased index, from its normal form: a constructor
+||| binder's stand-in (`marker`) is that binder's level; a chain of
+||| successors of `Nat` (Idris's `ZERO` and `SUCC` flags, never names) over
+||| zero or a stand-in is a number or a level plus one per successor; a
+||| non-negative integer literal is a number; anything else is outside the
+||| language, refining nothing. Read once, where a type is read.
+indexTerm : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core ITerm
+indexTerm = go 0
+  where
+    roleOf : ClosedTerm -> Core (Maybe NatRole)
+    roleOf tm = case getFn tm of
+      Ref _ (DataCon _ _) n => do
+        defs <- get Ctxt
+        pure (natRole =<< !(lookupCtxtExact n (gamma defs)))
+      _ => pure Nothing
+    go : Nat -> ClosedTerm -> Core ITerm
+    go k tm = case markerOf tm of
+      Just level => pure (succ (IVar level) k)
+      Nothing => case tm of
+        App _ _ pred => case !(roleOf tm) of
+          Just Zero => pure (INat k)
+          Just Succ => go (S k) pred
+          Nothing => pure IOpaque
+        Ref _ (DataCon _ _) _ => case !(roleOf tm) of
+          Just Zero => pure (INat k)
+          _ => pure IOpaque
+        PrimVal _ c => case constantLit c of
+          Just (LBig i) => pure (if i >= 0 then INat (k + integerToNat i) else IOpaque)
+          _ => pure IOpaque
+        _ => pure IOpaque
+
+||| The sort of an erased binder or index, from its type's normal form: a
+||| natural for Idris's `Nat` (a chain), a type for a universe, outside the
+||| language for anything else.
+sortOfType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Core Sort
+sortOfType (TType _ _) = pure SType
+sortOfType tm = case getFn tm of
+  Ref _ (TyCon _) n => do
+    defs <- get Ctxt
+    Just def <- lookupCtxtExact n (gamma defs)
+      | Nothing => pure SOpaque
+    case (!(tyConFacts def)).natness of
+      Chain => pure SNat
+      _ => pure SOpaque
+  _ => pure SOpaque
+
+||| The levels a term or a type names, each once.
+mutual
+  levelsOfTerm : ITerm -> List Nat
+  levelsOfTerm (IVar k) = [k]
+  levelsOfTerm (ISucc t _) = levelsOfTerm t
+  levelsOfTerm (ICon _ _ as) = levelsOfTerms as
+  levelsOfTerm (IType t) = levelsOfTy t
+  levelsOfTerm _ = []
+
+  levelsOfTerms : List ITerm -> List Nat
+  levelsOfTerms [] = []
+  levelsOfTerms (t :: ts) = levelsOfTerm t ++ levelsOfTerms ts
+
+  levelsOfTy : Ty -> List Nat
+  levelsOfTy (DataT _ ts) = levelsOfTerms ts
+  levelsOfTy (FunT (MkBinder _ a) r) = levelsOfTy a ++ levelsOfTy r
+  levelsOfTy (LazyT a) = levelsOfTy a
+  levelsOfTy (TensorT _ a) = levelsOfTy a
+  levelsOfTy (MemRefT _ a) = levelsOfTy a
+  levelsOfTy _ = []
+
+||| A term or a type with its levels renamed by `f`: a level `f` drops is
+||| outside the language there.
+mutual
+  relevelTerm : (Nat -> Maybe Nat) -> ITerm -> ITerm
+  relevelTerm f (IVar k) = maybe IOpaque IVar (f k)
+  relevelTerm f (ISucc t k) = succ (relevelTerm f t) k
+  relevelTerm f (ICon g c as) = ICon g c (relevelTerms f as)
+  relevelTerm f (IType t) = IType (relevelTy f t)
+  relevelTerm f t = t
+
+  relevelTerms : (Nat -> Maybe Nat) -> List ITerm -> List ITerm
+  relevelTerms f [] = []
+  relevelTerms f (t :: ts) = relevelTerm f t :: relevelTerms f ts
+
+  export
+  relevelTy : (Nat -> Maybe Nat) -> Ty -> Ty
+  relevelTy f (DataT g ts) = DataT g (relevelTerms f ts)
+  relevelTy f (FunT (MkBinder q a) r) = FunT (MkBinder q (relevelTy f a)) (relevelTy f r)
+  relevelTy f (LazyT a) = LazyT (relevelTy f a)
+  relevelTy f (TensorT ds a) = TensorT ds (relevelTy f a)
+  relevelTy f (MemRefT o a) = MemRefT o (relevelTy f a)
+  relevelTy f t = t
+
+||| What the walk of a constructor's type finds: its arguments' kinds, the
+||| type of each of its quantity-0 arguments in order (its candidate
+||| binders, each given its stand-in where it is bound), and the type it
+||| returns, under those stand-ins.
+record Walked where
+  constructor MkWalked
+  kinds : List ArgKind
+  erasedTypes : List ClosedTerm
+  returns : ClosedTerm
+
 mutual
   ||| The Core type of a type, read under binders whose values are given,
-  ||| in the registration of the data instances on `chain` (`heldTypeIn`).
-  coreTypeIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               (chain : Registering) -> (0 _ : Descending chain) ->
-               Given vars -> FC -> String -> Rule -> TT vars -> Core Ty
-  coreTypeIn chain acc g fc owner rule tm = fst <$> heldTypeIn chain acc g fc owner rule tm
-
-  ||| The Core type of a type, read under binders whose values are given,
-  ||| in the registration of the data instances on `chain`, and, for a data
-  ||| instance that is no declaration, the binder of its one runtime field,
-  ||| whose value its values are (`newtypes`). The type is normalised
+  ||| in the registration of the families on `chain`. The type is normalised
   ||| (`coreType` normalises it once), so every part of it is too, and the
   ||| reading is structural. A type that has no runtime representation is
   ||| reported under `rule`: `ValueType`, or `DependentField` for a
   ||| constructor field. An argument of quantity 0 is no argument at
   ||| runtime, so a function type that takes one is the type of its result.
-  heldTypeIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+  coreTypeIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                (chain : Registering) -> (0 _ : Descending chain) ->
-               Given vars -> FC -> String -> Rule -> TT vars -> Core (Ty, Maybe Binder)
-  heldTypeIn chain acc g fc owner rule (PrimVal _ (PrT t)) = pure (prim (primTy t), Nothing)
+               {cat : Category} -> Given vars -> FC -> String -> Rule cat -> TT vars -> Core Ty
+  coreTypeIn chain acc g fc owner rule (PrimVal _ (PrT t)) = pure (prim (primTy t))
     where
       prim : PrimTy -> Ty
       prim (IntP it) = IntT it
@@ -881,40 +962,42 @@ mutual
       prim CharP = CharT
       prim DoubleP = DoubleT
       prim WorldP = WorldT
-  heldTypeIn chain acc g fc owner rule (Bind bfc x (Pi _ rig _ a) sc) = do
+  coreTypeIn chain acc g fc owner rule (Bind bfc x (Pi _ rig _ a) sc) = do
     let g' = give (Erased bfc Placeholder) g
     case use rig of
-      Erased => (, Nothing) <$> coreTypeIn chain acc g' fc owner rule sc
+      Erased => coreTypeIn chain acc g' fc owner rule sc
       Used q => do
         arg <- coreBinderIn chain acc g fc owner rule q a
         when !(erasedOutsideIndices owner (close g' sc)) $
           reject fc owner rule "a function type that depends on its argument"
         rt <- coreTypeIn chain acc g' fc owner rule sc
         -- A closure's type is one for every extent its values are made at.
-        pure (FunT ({ type $= dynamicDims } arg) (dynamicDims rt), Nothing)
+        pure (FunT ({ type $= dynamicDims } arg) (dynamicDims rt))
   -- `Inf` is a suspension like `Lazy`.
-  heldTypeIn chain acc g fc owner rule (TDelayed _ _ t) =
-    (, Nothing) . LazyT . dynamicDims <$> coreTypeIn chain acc g fc owner rule t
-  heldTypeIn chain acc g fc owner rule tm = case getFnArgs tm of
+  coreTypeIn chain acc g fc owner rule (TDelayed _ _ t) =
+    LazyT . dynamicDims <$> coreTypeIn chain acc g fc owner rule t
+  coreTypeIn chain acc g fc owner rule tm = case getFnArgs tm of
     (Ref rfc (TyCon _) n, args) => do
       def <- lookupDef fc owner n
       -- A word type is a machine word whatever its arguments: what a
       -- `Ptr t` points to names what its handle holds, not its
       -- representation.
       let hs = hooksOf (fullname def)
-      -- A Nat-like type, a numeral or a chain, is a natural.
-      let NotNat = (!(tyConFacts def)).natness
-        | _ => pure (NatT, Nothing)
-      if hs.wordType
-         then pure (IntT UInt64, Nothing)
+      -- Idris's `Nat`, a chain of successors, is a natural. A family of
+      -- the same shape whose constructors take an erased index (`Fin`,
+      -- `Elem`) is a family: the dialect lays it out as a number.
+      case (!(tyConFacts def)).natness of
+       Chain => pure NatT
+       _ => if hs.wordType
+         then pure (IntT UInt64)
          else case hs.orderedArray of
-           Just (o, Just e) => pure (MemRefT o e, Nothing)
+           Just (o, Just e) => pure (MemRefT o e)
            Just (o, Nothing) => case tm of
              App _ (Ref _ _ _) a => do
                e <- coreTypeIn chain acc g fc owner rule a
                case e of
                  TensorT _ _ => reject fc owner rule ("an array a world orders holding an array value: " ++ !(showTT (close g tm)))
-                 _ => pure (MemRefT o e, Nothing)
+                 _ => pure (MemRefT o e)
              _ => internal fc "the array type without its one element type"
            Nothing =>
              if hs.valueArray
@@ -924,11 +1007,9 @@ mutual
                    e <- coreTypeIn chain acc g fc owner rule a
                    case e of
                      MemRefT _ _ => reject fc owner rule ("an array value holding an array a world orders: " ++ !(showTT (close g tm)))
-                     _ => pure (valueArrayOf ds e, Nothing)
+                     _ => pure (valueArrayOf ds e)
                  _ => internal fc "a value array without its shape and element"
-               else do
-                 (inst, t) <- dataInstanceIn chain acc fc owner n !(traverse (normaliseClosed . close g) args)
-                 pure (t, newtypeOf inst !(get TState))
+               else snd <$> familyIn chain acc fc owner n !(traverse (normaliseClosed . close g) args)
     (TType _ _, _) => reject fc owner rule "Type in a runtime position"
     (Erased _ _, _) => reject fc owner rule "a type that depends on a runtime or erased value"
     -- A binder of the type read so far stands for a value of quantity 0 or
@@ -936,50 +1017,45 @@ mutual
     (Local {}, _) => reject fc owner rule "a type that depends on a runtime or erased value"
     _ => do reject fc owner rule ("unsupported runtime type " ++ !(showTT (close g tm)))
 
-  ||| Registers a monomorphic data instance, once, and gives the type its
-  ||| values have. A data type with one constructor and exactly one runtime
-  ||| field is no declaration: a value of it is the field's value, so its
-  ||| type is the field's. One that a field referred to while it was being
-  ||| registered is declared whatever its shape (`data Rose = MkRose (List
-  ||| Rose)`), since a value of it contains itself and its type cannot be
-  ||| its field's. Registering descends on the room the chain leaves among
+  ||| Registers a family instance, once, and gives the type of a value of
+  ||| it at the index terms its arguments give. A family is the type
+  ||| constructor at the arguments its key holds; its indices are the
+  ||| positions the key does not hold, each read into an index term
+  ||| (`indexTerm`). Its identity is minted before its constructors are
+  ||| read, so a field of the family itself finds it: a recursive family
+  ||| names itself. Registering descends on the room the chain leaves among
   ||| the links within the growth check's bounds (`Descending`): a new
   ||| instance is checked against those bounds and pushed. A data type
-  ||| whose fields need ever larger instances of itself
-  ||| (`data T a = L a | N (T (a, a))`) is refused before translation, by
-  ||| the growth phase.
-  dataInstanceIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                   (chain : Registering) -> (0 _ : Descending chain) ->
-                   FC -> String -> Name -> List ClosedTerm -> Core (DataId, Ty)
-  dataInstanceIn chain (Access rec) fc owner tcon args0 = do
+  ||| whose fields need ever larger instances of itself (`data T a = L a |
+  ||| N (T (a, a))`) is refused before translation, by the growth phase.
+  familyIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             (chain : Registering) -> (0 _ : Descending chain) ->
+             FC -> String -> Name -> List ClosedTerm -> Core (FamilyId, Ty)
+  familyIn chain (Access rec) fc owner tcon args0 = do
     def <- lookupDef fc owner tcon
     let tname = show (fullname def)
-    -- An index is compile-time information; instances differ by the
-    -- arguments their key holds only (`argumentKey`).
     facts <- tyConFacts def
     let params = facts.params
     let roles = facts.roles
+    let positions = [0 .. length args0]
     args <- traverse (\(i, a) => let r = roleAt i roles in
                                  if inKey r then argumentKey fc owner r !(canonicalTypeArg a)
                                             else pure (Erased EmptyFC Placeholder))
-                     (zip [0 .. length args0] args0)
-    let statics = map (\(i, a) => if inKey (roleAt i roles) then Just a else Nothing) (zip [0 .. List.length args] args)
+                     (zip positions args0)
+    let statics = map (\(i, a) => if inKey (roleAt i roles) then Just a else Nothing) (zip positions args)
+    indices <- traverse indexTerm (map snd (filter (\(i, _) => not (inKey (roleAt i roles))) (zip positions args0)))
     found <- instanceKey fc owner (fullname def) id statics
-    let inst = MkDataId found.symbol
-    let key = found.key
     st <- get TState
-    case lookup inst st.instances of
-      Just (Declared _) => pure (inst, DataT inst)
-      Just (Newtype b) => pure (inst, typeOf b)
+    case lookup found.link st.familyIds of
+      Just fam => pure (fam, DataT fam indices)
       Nothing => case elemLink found.link chain.links of
-        -- A data instance being registered is referred to by its own
-        -- fields when it is recursive: it is declared, whatever its shape.
-        -- The problem has this case: a value of it contains itself.
-        Holds _ => do
-          update TState { reentered $= insert inst }
-          pure (inst, DataT inst)
+        -- A link on the chain is in the table already: its identity was
+        -- minted before its constructors were read.
+        Holds _ => internal fc (tname ++ ", registered, is not in the table of families")
         Fails fresh => do
-          let what = keyText key ++ ", registered,"
+          let fam = MkFamilyId st.nextFamily
+          update TState { familyIds $= insert found.link fam, nextFamily $= S }
+          let what = keyText found.key ++ ", registered,"
           boundsHold fc what found.link.definition statics
           inside <- sizedWithin fc what chain.sizes found.link
           TCon arity _ _ _ _ datacons _ <- pure (definition def)
@@ -987,40 +1063,48 @@ mutual
           let Just datacons = datacons
             | Nothing => reject fc owner DataType (tname ++ " has no known constructors")
           loc <- toLoc (location def)
+          sorts <- indexSorts def (filter (\i => not (inKey (roleAt i roles))) (take arity [0 .. arity]))
           conList <- traverse (constructor (MkRegistering chain.sizes (found.link :: chain.links))
                                            (rec (found.link :: chain.links)
                                                 (Extend (\e => fresh (replace {p = Elem found.link} (keyedBySelf chain.links) e))
                                                         inside.member))
-                                           fc owner inst found.link args params roles)
+                                           fc owner fam found.link args params roles)
                               datacons
           let sorted = sortBy (\(a, _), (b, _) => compare (snd a).tag (snd b).tag) conList
-          again <- contains inst . (.reentered) <$> get TState
-          let fields : List Binder = case sorted of
-                         [(_, kinds)] => mapMaybe fieldBinder kinds
-                         _ => []
-          case (again, fields) of
-            (False, [b]) => do
-              update TState { instances $= insert inst (Newtype b) }
-              pure (inst, typeOf b)
-            _ => do
-              shape <- sumShapeOf fc tname (hooksOf (fullname def)).sumShape (map fst sorted)
-              update TState { instances $= insert inst (Declared (MkData inst key shape loc)), dataOrder $= (:< inst) }
-              pure (inst, DataT inst)
+          let promise = case (hooksOf (fullname def)).sumShape of
+                          Just IsInPlace => InPlace
+                          _ => None
+          update TState { families $= insert fam (MkFamily fam found.key promise sorts (map fst sorted) loc)
+                        , familyOrder $= (:< fam) }
+          pure (fam, DataT fam indices)
+    where
+      -- The sorts of a type constructor's index positions, from its type.
+      indexSorts : GlobalDef -> List Nat -> Core (List Sort)
+      indexSorts d ps = go none 0 !(normaliseClosed (type d))
+        where
+          go : Given vs -> Nat -> TT vs -> Core (List Sort)
+          go g i (Bind bfc _ (Pi _ _ _ a) sc) = do
+            rest <- go (give (Erased bfc Placeholder) g) (S i) sc
+            if elem i ps then (:: rest) <$> sortOfType !(normaliseClosed (close g a)) else pure rest
+          go g i _ = pure []
 
-  ||| A constructor of a data instance being registered, with its
-  ||| arguments' kinds, registered too. Its dictionary fields are keyed
-  ||| here, by the instance's link and the constructor's and argument's
-  ||| places (`DictField`).
+  ||| A constructor of a family being registered, with its arguments'
+  ||| kinds, registered too: its erased binders (the quantity-0 arguments an
+  ||| index of its result or a field's type names, renumbered as levels of
+  ||| its own scope in order), its equation (the index terms its result
+  ||| type gives) and its fields. The translation holds a field's type with
+  ||| the constructor's levels outside the language, since a field read in
+  ||| a body is at the scope's levels, which the match gives it.
   constructor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                 (chain : Registering) -> (0 _ : Descending chain) ->
-                FC -> String -> DataId -> Link Form -> List ClosedTerm -> List Nat -> List Role -> Name ->
+                FC -> String -> FamilyId -> Link Form -> List ClosedTerm -> List Nat -> List Role -> Name ->
                 Core ((k ** Con k), List ArgKind)
-  constructor chain acc fc owner inst link targs ps roles dcon = do
+  constructor chain acc fc owner fam link targs ps roles dcon = do
     def <- lookupDef fc owner dcon
     let cname = show (fullname def)
     DCon _ arity _ <- pure (definition def)
       | _ => reject fc owner CompiledModule (cname ++ " is not a constructor")
-    Just cid <- conIdOf inst def
+    Just cid <- conIdOf fam def
       | Nothing => reject fc owner CompiledModule (cname ++ " is not a constructor")
     loc <- toLoc (location def)
     -- The type as written may hide its binders behind a definition
@@ -1033,72 +1117,89 @@ mutual
     when (length layout /= arity) $
       internal (location def) (cname ++ " has " ++ show arity ++ " arguments, but its type binds " ++
                                show (length layout))
-    kinds <- walk chain acc cname (location def) (\at => (link, finToNat cid.index, at)) targs 0 0 layout none ty
-    let fields = mapMaybe fieldBinder kinds
-    let con = (length fields ** MkCon cid (shortName (fullname def)) (fromList fields) loc)
-    update TState { cons $= insert cid (MkConLayout kinds (fullname def) con) }
-    pure (con, kinds)
+    walked <- walk chain acc cname (location def) (\at => (link, finToNat cid.index, at)) targs 0 0 0 layout none ty
+    -- The result's index terms, at the family's index positions.
+    let resultArgs = snd (getFnArgs walked.returns)
+    equation0 <- traverse indexTerm
+                   (map snd (filter (\(i, _) => not (inKey (roleAt i roles))) (zip [0 .. length resultArgs] resultArgs)))
+    let fields0 = mapMaybe fieldBinder walked.kinds
+    -- A binder no index and no field names is an erased proof: it does
+    -- not exist.
+    let used = nub (levelsOfTerms equation0 ++ concatMap (levelsOfTy . (.type)) fields0)
+        kept = filter (\k => elem k used) (take (length walked.erasedTypes) [0 .. length walked.erasedTypes])
+        renumber = \k => findIndex' k kept
+    binders <- traverse (\k => maybe (pure SOpaque) (\t => sortOfType !(normaliseClosed t)) (getAt k walked.erasedTypes)) kept
+    let fields = map (\b => { type $= relevelTy renumber } b) fields0
+        equation = relevelTerms renumber equation0
+        con = (length fields ** MkCon cid (shortName (fullname def)) binders equation (fromList fields) loc)
+        unlinkedKinds = map (\k => case k of
+                                     Field i b t => Field i ({ type $= relevelTy (const Nothing) } b) t
+                                     other => other) walked.kinds
+    update TState { cons $= insert cid (MkConLayout unlinkedKinds (fullname def) con) }
+    pure (con, unlinkedKinds)
+    where
+      findIndex' : Nat -> List Nat -> Maybe Nat
+      findIndex' k ks = finToNat <$> findIndex (== k) ks
 
   ||| The constructor's arguments, read under the binders passed, each
   ||| given its value: a parameter is the instance's, one of quantity 0 is
-  ||| none, an implementation is a compile-time value of the instance
-  ||| (`Dictionaries`), anything else is the next field.
+  ||| no field and is given its stand-in, the next level of the
+  ||| constructor's own scope, an implementation is a compile-time value
+  ||| of the instance (`Dictionaries`), anything else is the next field.
   walk : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          (chain : Registering) -> (0 _ : Descending chain) ->
-         String -> FC -> (dict : Nat -> DictField) -> List ClosedTerm -> (at, i : Nat) -> List (Maybe Nat) ->
-         Given vs -> TT vs -> Core (List ArgKind)
-  walk chain acc cname dfc dict targs at i (Just p :: ls) g (Bind bfc _ (Pi {}) sc) = do
+         String -> FC -> (dict : Nat -> DictField) -> List ClosedTerm -> (at, i, e : Nat) -> List (Maybe Nat) ->
+         Given vs -> TT vs -> Core Walked
+  walk chain acc cname dfc dict targs at i e (Just p :: ls) g (Bind bfc _ (Pi {}) sc) = do
     let v = fromMaybe (Erased bfc Placeholder) (getAt p targs)
-    (Param v ::) <$> walk chain acc cname dfc dict targs (S at) i ls (give v g) sc
-  walk chain acc cname dfc dict targs at i (Nothing :: ls) g (Bind bfc _ (Pi _ rig _ a) sc) = do
-    let g' = give (Erased bfc Placeholder) g
+    w <- walk chain acc cname dfc dict targs (S at) i e ls (give v g) sc
+    pure ({ kinds $= (Param v ::) } w)
+  walk chain acc cname dfc dict targs at i e (Nothing :: ls) g (Bind bfc _ (Pi _ rig _ a) sc) =
     case use rig of
-      Erased => (ErasedArg ::) <$> walk chain acc cname dfc dict targs (S at) i ls g' sc
+      Erased => do
+        w <- walk chain acc cname dfc dict targs (S at) i (S e) ls (give (marker e) g) sc
+        pure ({ kinds $= (ErasedArg ::), erasedTypes $= (close g a ::) } w)
       Used q => do
+        let g' = give (Erased bfc Placeholder) g
         a' <- normaliseClosed (close g a)
-        if !(implementationType a') then (DictArg (dict at) a' ::) <$> walk chain acc cname dfc dict targs (S at) i ls g' sc else do
-          when !(erasedOutsideIndices cname a') $ do
-            reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
-          b <- coreBinderIn chain acc none dfc cname DependentField q a'
-          (Field i b a' ::) <$> walk chain acc cname dfc dict targs (S at) (S i) ls g' sc
-  walk _ _ _ _ _ _ _ _ _ _ _ = pure []
+        if !(implementationType a')
+          then do
+            w <- walk chain acc cname dfc dict targs (S at) i e ls g' sc
+            pure ({ kinds $= (DictArg (dict at) a' ::) } w)
+          else do
+            when !(erasedOutsideIndices cname a') $ do
+              reject dfc cname DependentField ("a field type that depends on another field: " ++ !(showTT a'))
+            b <- coreBinderIn chain acc none dfc cname DependentField q a'
+            w <- walk chain acc cname dfc dict targs (S at) (S i) e ls g' sc
+            pure ({ kinds $= (Field i b a' ::) } w)
+  walk _ _ _ _ _ _ _ _ _ _ g t = pure (MkWalked [] [] (close g t))
 
-  ||| The data instance a type names, when it is a data type and not a
-  ||| natural, a machine word or an array of either kind: the instance, and
-  ||| the type its values have, which is its field's for a type with one
-  ||| runtime field.
+  ||| The family a type names, when it is a data type and not a natural, a
+  ||| machine word or an array of either kind: the family, and the type of
+  ||| its values at the type's index terms.
   dataOfIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              (chain : Registering) -> (0 _ : Descending chain) ->
-             Given vars -> FC -> String -> TT vars -> Core (Maybe (DataId, Ty))
+             Given vars -> FC -> String -> TT vars -> Core (Maybe (FamilyId, Ty))
   dataOfIn chain acc g fc owner tm = case getFnArgs tm of
     (Ref _ (TyCon _) n, args) => do
       def <- lookupDef fc owner n
       let hs = hooksOf (fullname def)
-      -- A Nat-like type, a numeral or a chain, is a natural.
-      let NotNat = (!(tyConFacts def)).natness
-        | _ => pure Nothing
-      if hs.wordType || isJust hs.orderedArray || hs.valueArray then pure Nothing else do
-        args' <- traverse (normaliseClosed . close g) args
-        Just <$> dataInstanceIn chain acc fc owner n args'
+      case (!(tyConFacts def)).natness of
+        Chain => pure Nothing
+        _ => if hs.wordType || isJust hs.orderedArray || hs.valueArray then pure Nothing else do
+               args' <- traverse (normaliseClosed . close g) args
+               Just <$> familyIn chain acc fc owner n args'
     _ => pure Nothing
 
-  ||| The binder of a position of this type at this rig: the Core type at
-  ||| the rig's quantity, taken through a type with one runtime field,
-  ||| whose value is its field's, so that what the binder binds is the
-  ||| field at the product of the rig's quantity and the field's, as
-  ||| Idris uses the field of a value bound at the rig. Erasing such a
-  ||| type to its field's type alone would give a binder at the rig's
-  ||| quantity the field's value at that quantity, and a field Idris
-  ||| binds unrestricted (the one field of `!* a`) would be held linear.
+  ||| The binder of a position of this type at this quantity: the Core type
+  ||| at the quantity Idris gave the position.
   coreBinderIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                  (chain : Registering) -> (0 _ : Descending chain) ->
-                 Given vars -> FC -> String -> Rule -> Quantity -> TT vars -> Core Binder
-  coreBinderIn chain acc g fc owner rule q tm = do
-    (t, field) <- heldTypeIn chain acc g fc owner rule tm
-    pure (MkBinder (maybe q (quantityTimes q . (.quantity)) field) t)
+                 {cat : Category} -> Given vars -> FC -> String -> Rule cat -> Uses -> TT vars -> Core Binder
+  coreBinderIn chain acc g fc owner rule q tm = MkBinder q <$> coreTypeIn chain acc g fc owner rule tm
 
 ||| Reads a type from the start of a registration: its normal form, under
-||| no binder, with no data instance being registered.
+||| no binder, with no family being registered.
 outermost : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             ((chain : Registering) -> (0 _ : Descending chain) ->
              Given Scope.empty -> ClosedTerm -> Core a) -> ClosedTerm -> Core a
@@ -1111,14 +1212,14 @@ outermost read tm = do
 ||| `DependentField` for a constructor field.
 export
 coreType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           FC -> String -> Rule -> ClosedTerm -> Core Ty
+           {cat : Category} -> FC -> String -> Rule cat -> ClosedTerm -> Core Ty
 coreType fc owner rule = outermost (\chain, acc, g => coreTypeIn chain acc g fc owner rule)
 
-||| The data instance a closed type names, when it is a data type and not
-||| a natural, a machine word or an array of either kind (`dataOfIn`).
+||| The family a closed type names, when it is a data type and not a
+||| natural, a machine word or an array of either kind (`dataOfIn`).
 export
 dataOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-         FC -> String -> ClosedTerm -> Core (Maybe (DataId, Ty))
+         FC -> String -> ClosedTerm -> Core (Maybe (FamilyId, Ty))
 dataOf fc owner = outermost (\chain, acc, g => dataOfIn chain acc g fc owner)
 
 ||| The binder of a position of a closed type at a rig (`coreBinderIn`). A
@@ -1127,7 +1228,7 @@ dataOf fc owner = outermost (\chain, acc, g => dataOfIn chain acc g fc owner)
 ||| compiler's error, never a binder at some quantity.
 export
 coreBinder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> Rule -> RigCount -> ClosedTerm -> Core Binder
+             {cat : Category} -> FC -> String -> Rule cat -> RigCount -> ClosedTerm -> Core Binder
 coreBinder fc owner rule rig tm = case use rig of
   Erased => internal fc (owner ++ ": a binder of quantity 0 given a runtime representation")
   Used q => outermost (\chain, acc, g => coreBinderIn chain acc g fc owner rule q) tm

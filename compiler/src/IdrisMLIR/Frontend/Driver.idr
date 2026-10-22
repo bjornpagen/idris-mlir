@@ -3,8 +3,8 @@
 ||| idris-mlir-front, the Idris side of idris-mlir: a function from files to
 ||| files. Given a program's main file, Idris builds it and the modules it
 ||| imports, reading and writing their TTCs, and the frontend writes the
-||| program's Core and its idr module at the paths it is given; idris-mlir
-||| then compiles the module. Given a package, Idris builds, checks,
+||| program's idr module, its one output, at the path it is given;
+||| idris-mlir then compiles the module. Given a package, Idris builds, checks,
 ||| installs or cleans it, which is how the prefix the frontend reads is
 ||| made. It runs no other program and reads no environment: the prefix
 ||| and the package directories are its arguments.
@@ -14,7 +14,7 @@
 |||
 ||| where TASK is one of
 |||
-|||     [--timing FILE] --core FILE -o FILE SOURCE
+|||     [--timing FILE] -o FILE SOURCE
 |||                       the program whose main file is SOURCE
 |||     --check SOURCE    SOURCE and what it imports, built and checked
 |||     [--timing FILE] --build PACKAGE.ipkg, --install PACKAGE.ipkg,
@@ -58,7 +58,8 @@ import IdrisMLIR.Frontend.Program
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
 import IdrisMLIR.Registry.Libraries
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
 
 import Data.List
 import Data.List1
@@ -76,9 +77,9 @@ import System.File
 
 ||| What a run does.
 data Task
-  = ||| The program whose main file is the source: its Core and its module
-    ||| written at these paths, its phases' times at the first when given.
-    Compile (Maybe String) String String String
+  = ||| The program whose main file is the source: its module written at
+    ||| this path, its phases' times at the first when given.
+    Compile (Maybe String) String String
   | ||| A main file and what it imports, built and checked.
     Check String
   | ||| One of Idris's package commands on a package file, its time written
@@ -96,7 +97,6 @@ record Arguments where
   packages : SnocList String
   noPrelude : Bool
   timing : Maybe String
-  corePath : Maybe String
   output : Maybe String
   check : Maybe String
   package : Maybe (PkgCommand, String)
@@ -104,7 +104,7 @@ record Arguments where
   sources : SnocList String
 
 none : Arguments
-none = MkArguments Nothing [<] [<] False Nothing Nothing Nothing Nothing Nothing False [<]
+none = MkArguments Nothing [<] [<] False Nothing Nothing Nothing Nothing False [<]
 
 ||| What a run is given: the prefix, the rest of its session's arguments,
 ||| and its task.
@@ -117,7 +117,7 @@ record Run where
 synopsis : String
 synopsis = """
         usage: idris-mlir-front --prefix DIR [--package-path DIR]... [-p PACKAGE]... [--no-prelude] TASK
-          TASK: [--timing FILE] --core FILE -o FILE SOURCE
+          TASK: [--timing FILE] -o FILE SOURCE
               | --check SOURCE
               | [--timing FILE] --build|--install|--typecheck|--clean PACKAGE.ipkg
               | --libdir
@@ -125,7 +125,7 @@ synopsis = """
 
 ||| The options that take a value.
 valued : SortedSet String
-valued = SortedSet.fromList [ "--prefix", "--package-path", "-p", "--timing", "--core", "-o", "--check"
+valued = SortedSet.fromList [ "--prefix", "--package-path", "-p", "--timing", "-o", "--check"
                             , "--build", "--install", "--typecheck", "--clean" ]
 
 once : String -> Maybe a -> a -> Either String (Maybe a)
@@ -150,9 +150,6 @@ parse a ("--no-prelude" :: rest) = parse ({ noPrelude := True } a) rest
 parse a ("--timing" :: f :: rest) = do
   t <- once "--timing" a.timing f
   parse ({ timing := t } a) rest
-parse a ("--core" :: f :: rest) = do
-  c <- once "--core" a.corePath f
-  parse ({ corePath := c } a) rest
 parse a ("-o" :: f :: rest) = do
   o <- once "-o" a.output f
   parse ({ output := o } a) rest
@@ -191,19 +188,17 @@ taskOf a = case (a.check, a.package, a.libDir) of
   where
     onlyFor : String -> Either String ()
     onlyFor task =
-      if isJust a.corePath || isJust a.output || not (null a.sources)
-        then Left (task ++ " takes no source, --core or -o")
+      if isJust a.output || not (null a.sources)
+        then Left (task ++ " takes no source or -o")
         else Right ()
     untimed : String -> Either String ()
     untimed task = if isJust a.timing then Left (task ++ " takes no --timing") else Right ()
     compile : Either String Task
     compile = do
-      let Just core = a.corePath
-        | Nothing => Left "no --core"
       let Just out = a.output
         | Nothing => Left "no -o"
       case a.sources <>> [] of
-        [source] => Right (Compile a.timing core out source)
+        [source] => Right (Compile a.timing out source)
         [] => Left "no source file"
         _ => Left "more than one source file"
 
@@ -285,7 +280,7 @@ mainSite source = (\m => (PhysicalIdrSrc m, (0, 0), (0, 0))) <$> ctxtPathToNS so
 ||| total.
 refusalOf : {auto c : Ref Ctxt Defs} -> (main : NonEmptyFC) -> Rejection -> Core ModuleRefusal
 refusalOf main (Refused r) = moduleRefusal r.rule r.site r.message
-refusalOf main (ByIdris e) = moduleRefusal Elaboration (fromMaybe main (getErrorLoc e >>= isNonEmptyFC)) (show e)
+refusalOf main (ByIdris e) = moduleRefusal (Refusal Elaboration) (fromMaybe main (getErrorLoc e >>= isNonEmptyFC)) (show e)
 
 ||| The program refused: each rejection written as a refusal into the module
 ||| at `out`, in the order found, with no Core and nothing printed, since
@@ -314,11 +309,11 @@ perform : {auto c : Ref Ctxt Defs} ->
           {auto s : Ref Syn SyntaxInfo} ->
           {auto o : Ref ROpts REPLOpts} ->
           Task -> Core ()
-perform (Compile timing core out source) = do
+perform (Compile timing out source) = do
   main <- mainSite source
   Right mainModule <- built source
     | Left errs => refusing main out (map ByIdris errs)
-  [] <- program mainModule timing core out
+  [] <- program mainModule timing out
     | (r :: rs) => refusing main out (r ::: rs)
   pure ()
 perform (Check source) = do

@@ -1,28 +1,29 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| Core's values as the contract's, each at the type the index gives
-||| (Emit.Index).
+||| Core's values as the module's, each at the type its uses and hold give
+||| it (Emit.Index).
 module IdrisMLIR.Emit.Types
 
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
 import IdrisMLIR.MLIR
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 
 import Control.Monad.State
 
 %default total
 
-||| A value as an op uses it: its name and its type as it is held.
+||| A value as an op uses it: its name and its type as it is graded.
 export
-operand : Val -> Value
-operand v = MkValue v.name (heldType v.use v.type)
+operand : Index -> Val -> Value
+operand ix v = MkValue v.name (valueType ix v)
 
-||| A value of type `t` held as `q`, of a fresh name, and the value that
-||| binds it: a region's argument.
+||| A value of type `t` used as `q` and freed by its count, of a fresh
+||| name, and the value that binds it: a region's argument.
 export
-freshVal : Ty -> Quantity -> E (Val, Value)
-freshVal t q = do
+freshVal : Index -> Ty -> Uses -> E (Val, Value)
+freshVal ix t q = do
   n <- fresh
-  let v = MkVal n t q
-  pure (v, operand v)
+  let v = val n t q Held.Counted
+  pure (v, operand ix v)

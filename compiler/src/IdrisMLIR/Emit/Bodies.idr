@@ -1,10 +1,13 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| Function bodies: the algebra of the fold that writes a term, its
-||| matches as regions, its lambdas and delays as functions of their own
-||| (Emit.Closures) and its arrays as the array ops (Emit.Tensors).
+||| matches as a region per case, its lambdas and delays as functions of
+||| their own (Emit.Closures) and its arrays as the array ops
+||| (Emit.Tensors). Quantities are read off the binders, which the
+||| translation made right; nothing here counts a use.
 module IdrisMLIR.Emit.Bodies
 
+import IdrisMLIR.Dialect.Bufferization as Bufferization
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Dialect.UB as UB
 import IdrisMLIR.Emit.Index
@@ -16,6 +19,9 @@ import IdrisMLIR.Emit.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Functions.Tail
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -25,129 +31,80 @@ import Data.List
 import Data.List1
 import Data.Maybe
 import Data.SnocList
-import Data.SortedMap
-import Data.SortedSet
 import Data.String
 import Data.Vect
 
 %default total
 
-||| What the fold makes of a term in scope `nv`: given what its variables
-||| stand for and what its context wants (the type it expects, if known,
-||| and the variable it binds the value to, if any), it appends the term's
-||| operations and returns its value, or `Nothing` when the term never
-||| returns (its region then ends in `ub.unreachable`).
+------------------------------------------------------------------------------
+-- Scopes
+------------------------------------------------------------------------------
+
+||| The scope a term is written in: what each of its variables stands for;
+||| the sorts of the erased binders its index terms' levels name, the
+||| function's index parameters then each enclosing case's constructor
+||| binders, in order; and the function a call of which is a self call,
+||| none inside a lambda or a delay, whose function is lifted.
+public export
+record Scope (nv : Nat) where
+  constructor MkScope
+  vars : Fin nv -> InScope
+  telescope : List Sort
+  self : Maybe FnId
+
+||| What the fold makes of a term in scope `nv`: given its scope and what
+||| its context wants, it appends the term's operations and returns its
+||| value, or `Nothing` when the term never returns (its region has then
+||| ended in a terminator).
 public export
 Em : Nat -> Type
-Em nv = (Fin nv -> InScope) -> Wanted -> E (Maybe Val)
+Em nv = Scope nv -> Wanted -> E (Maybe Val)
 
-||| What a binder's variables stand for, over those outside.
-bind : {k : Nat} -> Vect k InScope -> (Fin nv -> InScope) -> Fin (Under k nv) -> InScope
-bind vs env v = case splitUnder {k} v of
-  Left i => index i vs
-  Right x => env x
+||| A scope under a binder of `k` variables, standing for `vs`.
+bind : {k : Nat} -> Vect k InScope -> Scope nv -> Scope (Under k nv)
+bind vs sc = { vars := \v => case splitUnder {k} v of
+                              Left i => index i vs
+                              Right x => sc.vars x } sc
 
-mutual
-  ||| The most times one run of a term uses the variable `v`: along a path
-  ||| the uses add, across a match's arms the most of any counts, a match
-  ||| uses its scrutinee once (its regions name what stands for it), and a
-  ||| use in a region that runs once per index counts as many.
-  export
-  mostUses : Fin n -> Term n -> Nat
-  mostUses v (Var _ x) = if v == x then 1 else 0
-  mostUses v (Literal _ _) = 0
-  mostUses v (PrimApp _ _ _ as) = vectUses v as
-  mostUses v (Effect _ _ _ as _) = allUses v as
-  mostUses v (Call _ _ _ as) = allUses v as
-  mostUses v (ConApp _ _ as) = vectUses v as
-  mostUses v (Let _ _ _ x b) = mostUses v x + mostUses (FS v) b
-  mostUses v (Case _ x arms) = if v == x then 1 else armsUses v arms
-  mostUses v (CaseLit _ x arms) = if v == x then 1 else litArmsUses v arms
-  mostUses v (CaseNat _ x arms) = (if v == x then 1 else 0) + natArmsUses v arms
-  mostUses v (Lam _ _ _ body) = mostUses (FS v) body
-  mostUses v (App _ f x) = mostUses v f + mostUses v x
-  mostUses v (Suspend _ body) = mostUses v body
-  mostUses v (Resume _ e) = mostUses v e
-  mostUses v (Unreachable _) = 0
-  mostUses v (Crash _ _) = 0
-  mostUses v (CrashWith _ m) = mostUses v m
-  mostUses v (NewWorld _) = 0
-  mostUses v (Tensor _ _ op) = opUses v op
-  mostUses v (Tabulate {k} _ _ es body) = vectUses v es + many (mostUses (Free {k} v) body)
-  mostUses v (TabulateIO {k} _ _ es w body _ _) =
-    vectUses v es + mostUses v w + many (mostUses (Free {k = S k} v) body)
-  mostUses v (Reduce _ _ _ _ _ z x body) = mostUses v z + mostUses v x + many (mostUses (Free {k = 2} v) body)
-  mostUses v (Tie _ x ds) = mostUses v x + statedUses v ds
+||| The scope of a case region: its constructor's binders appended to the
+||| telescope, at the next levels.
+binding : List Sort -> Scope nv -> Scope nv
+binding sorts sc = { telescope := sc.telescope ++ sorts } sc
 
-  allUses : Fin n -> List (Term n) -> Nat
-  allUses v [] = 0
-  allUses v (t :: ts) = mostUses v t + allUses v ts
+||| The levels of a scope's telescope, each as the term naming it: what a
+||| function lifted from the scope is given for its index parameters.
+levels : List Sort -> List ITerm
+levels ss = map IVar (take (length ss) [0 .. length ss])
 
-  vectUses : Fin n -> Vect k (Term n) -> Nat
-  vectUses v [] = 0
-  vectUses v (t :: ts) = mostUses v t + vectUses v ts
+------------------------------------------------------------------------------
+-- Operands
+------------------------------------------------------------------------------
 
-  opUses : Fin n -> TensorOp (Term n) -> Nat
-  opUses v (Extent _ x) = mostUses v x
-  opUses v (Extract x cs) = mostUses v x + allUses v cs
-  opUses v (Insert x e cs) = mostUses v x + mostUses v e + allUses v cs
-  opUses v (Take _ k x) = mostUses v k + mostUses v x
-  opUses v (Drop _ k x) = mostUses v k + mostUses v x
-  opUses v (Concat _ x y) = mostUses v x + mostUses v y
-  opUses v (Transpose _ x) = mostUses v x
-  opUses v (Reshape x es) = mostUses v x + allUses v es
+||| The world's value: no value of the module. An op's operands, a call's
+||| arguments, a constructor's fields and a region's results leave it out.
+worldVal : Val
+worldVal = val "" WorldT Once Held.Counted
 
-  statedUses : Fin n -> List (Nat, Stated (Term n)) -> Nat
-  statedUses v [] = 0
-  statedUses v ((_, SameAs t) :: ds) = mostUses v t + statedUses v ds
-  statedUses v ((_, Natural t) :: ds) = mostUses v t + statedUses v ds
+||| The value a variable stands for; the world for Idris's world.
+standing : InScope -> Val
+standing (Whole v) = v
+standing World = worldVal
 
-  altUse : Fin n -> Alt n -> Nat
-  altUse v (MkAlt {k} _ _ body) = mostUses (Free {k} v) body
+||| The values of the module among `vs`: every one but the world's.
+present : List Val -> List Val
+present = filter (\v => case v.type of
+                          WorldT => False
+                          _ => True)
 
-  altUses : Fin n -> List (Alt n) -> Nat
-  altUses v [] = 0
-  altUses v (alt :: alts) = max (altUse v alt) (altUses v alts)
-
-  armsUses : Fin n -> CaseArms n -> Nat
-  armsUses v (Defaulted alts d) = max (altUses v alts) (mostUses v d)
-  armsUses v (Exhaustive (alt ::: alts)) = max (altUse v alt) (altUses v alts)
-
-  litUses : Fin n -> List (Lit, Term n) -> Nat
-  litUses v [] = 0
-  litUses v ((_, t) :: alts) = max (mostUses v t) (litUses v alts)
-
-  litArmsUses : Fin n -> LitArms n -> Nat
-  litArmsUses v (LitDefault alts d) = max (litUses v alts) (mostUses v d)
-  litArmsUses v (LitNoDefault ((_, t) ::: alts)) = max (mostUses v t) (litUses v alts)
-
-  natArmsUses : Fin n -> NatArms n -> Nat
-  natArmsUses v (OnlyZero z) = mostUses v z
-  natArmsUses v (OnlySucc _ s) = mostUses (FS v) s
-  natArmsUses v (Both z _ s) = max (mostUses v z) (mostUses (FS v) s)
-
-  many : Nat -> Nat
-  many Z = Z
-  many (S _) = 2
-
-||| How a binder of quantity `q` holds its value, which its scope uses at
-||| most `uses` times in one run: as Idris bound it, unless the scope uses
-||| a linear value more than once (a trusted library's code reads one and
-||| gives it back), when it is used once where it is bound and held plain.
-||| The uses are counted only of a linear binder.
+||| The types of the module a result of type `t` is: none for the world.
 export
-heldAs : Quantity -> (uses : Lazy Nat) -> Quantity
-heldAs One uses = if uses >= 2 then Many else One
-heldAs Many _ = Many
-
-||| A bound value held as its scope's uses of it allow (`heldAs`).
-export
-holdFor : Index -> Loc -> Lazy Nat -> Val -> E Val
-holdFor ix l uses v = coerce ix l (heldAs v.use uses) v
+resultTypes : Index -> Ty -> List MlirType
+resultTypes ix WorldT = []
+resultTypes ix t = [gradedType ix Many Held.Counted t]
 
 ||| What a layer's operands give, left to right: the next is written only
 ||| when the one before it returns, so that nothing follows a value that
-||| never does (its region has ended in `ub.unreachable`).
+||| never does (its region has ended in a terminator).
 record Operands a where
   constructor MkOperands
   written : E (Maybe a)
@@ -162,56 +119,46 @@ Applicative Operands where
       | Nothing => pure Nothing
     map g <$> x
 
-||| A subterm's value where a slot takes it: checked against the type the
-||| slot expects, if it says one, and held as the slot binds it, plainly
-||| where it says nothing; bound to no variable.
-operand1 : Index -> Loc -> (Fin nv -> InScope) -> Maybe Binder -> Sub Em nv -> Operands Val
-operand1 ix l env slot a = MkOperands $ do
-  Just v <- a.result env (expecting (typeOf <$> slot))
+||| A subterm's value where a slot takes it, at a position: checked against
+||| the type the slot expects, if it says one, and used as the slot binds
+||| it, many times where it says nothing; bound to no variable.
+operand1 : Index -> Loc -> Scope nv -> Position -> Maybe Binder -> Sub Em nv -> Operands Val
+operand1 ix l sc pos slot a = MkOperands $ do
+  Just v <- a.result sc (MkWanted (typeOf <$> slot) Nothing pos)
     | Nothing => pure Nothing
   Just <$> coerce ix l (maybe Many (.quantity) slot) !(fit ix l (typeOf <$> slot) v)
 
 ||| A layer's operands, each in its slot, left to right; `Nothing` once one
 ||| never returns.
-operands : Traversable t => Index -> Loc -> (Fin nv -> InScope) -> t (Maybe Binder, Sub Em nv) -> E (Maybe (t Val))
-operands ix l env xs = (traverse (\(slot, a) => operand1 ix l env slot a) xs).written
+operands : Traversable t => Index -> Loc -> Scope nv -> t (Maybe Binder, Sub Em nv) -> E (Maybe (t Val))
+operands ix l sc xs = (traverse (\(slot, a) => operand1 ix l sc Elsewhere slot a) xs).written
 
-||| Operands that no slot types: each at its own type, held plainly.
+||| Operands that no slot types: each at its own type, used many times.
 unslotted : Functor t => t (Sub Em nv) -> t (Maybe Binder, Sub Em nv)
 unslotted = map (\a => (Nothing, a))
 
-||| A value as a region or a function returns it: as itself, never linear.
+||| A constructor's fields, each in its slot (its type with the
+||| constructor's binders given), left to right, the last at `last`: the
+||| field a context cell's self call fills is the last one computed.
+fields : Index -> Loc -> Scope nv -> Position -> Vect k Binder -> Vect k (Sub Em nv) -> Operands (Vect k Val)
+fields ix l sc last [] [] = pure []
+fields ix l sc last [b] [a] = (\v => [v]) <$> operand1 ix l sc last (Just b) a
+fields ix l sc last (b :: bs) (a :: as) =
+  (::) <$> operand1 ix l sc Elsewhere (Just b) a <*> fields ix l sc last bs as
+
+||| A value as a region or a function gives it: used many times.
 export
 plain : Index -> Loc -> E (Maybe Val) -> E (Maybe Val)
 plain ix l act = act >>= traverse (coerce ix l Many)
 
-||| What a match renames a variable's value by: an SSA value's name, or the
-||| key of a constructor taken apart.
-keyOf : InScope -> String
-keyOf (Whole v) = v.name
-keyOf (Taken _ _ k) = k
+||| The values a region or a function gives: none for the world.
+given : Index -> Maybe Val -> List Value
+given ix Nothing = []
+given ix (Just v) = map (operand ix) (present [v])
 
-mutual
-  ||| `s`, with what is keyed `before`, itself or a field of it, replaced by
-  ||| `after`.
-  renamed : (before : String) -> (after : InScope) -> InScope -> InScope
-  renamed before after (Whole v) = if v.name == before then after else Whole v
-  renamed before after (Taken c fs k) = if k == before then after else Taken c (renamedAll before after fs) k
-
-  renamedAll : (before : String) -> (after : InScope) -> Vect k InScope -> Vect k InScope
-  renamedAll before after [] = []
-  renamedAll before after (v :: vs) = renamed before after v :: renamedAll before after vs
-
-||| The scope of a match's regions. A match takes a linear scrutinee apart,
-||| so inside the regions every variable that named it (a catch-all's, or an
-||| outer clause's after a nested match) names what stands for it there:
-||| the value the default region binds, or the constructor rebuilt from the
-||| fields a case bound. SSA names and keys are unique within a function,
-||| so the key says which variables those are; the fields of a rebuilt
-||| constructor are renamed the same way, as an inner match takes them
-||| apart in turn.
-matched : InScope -> InScope -> (b -> InScope) -> b -> InScope
-matched before after env y = renamed (keyOf before) after (env y)
+------------------------------------------------------------------------------
+-- Matches
+------------------------------------------------------------------------------
 
 ||| An arm of a match: the arguments of its region, its operations, and its
 ||| value, which it yields.
@@ -221,50 +168,46 @@ record Arm where
   result : Maybe Val
   statements : List Statement
 
-||| The yield that ends a region with its value; a region that never
-||| returns has ended in `ub.unreachable` already.
-yielding : Index -> Loc -> Maybe Val -> E (List Statement)
-yielding ix l Nothing = pure []
-yielding ix l (Just v) = pure [MkStatement Nothing (Idr.yieldOp [operand v]) (At l)]
+||| A case of a match: its constructor's tag, the sorts of the binders it
+||| binds, and its arm.
+record Case where
+  constructor MkCase
+  tag : Nat
+  binders : List (SortOf MlirType MlirAttr)
+  arm : Arm
 
-||| A match, from its arms, with the builder of its op over its default
-||| region, its case regions and its results: results when an arm yields,
-||| and none, followed by `ub.unreachable`, when no arm returns. The default
-||| region is empty when the cases are exhaustive. The arms join at the type
-||| the context expects, else the first case's, else the default's; an
-||| arm's array of another static shape is cast to it.
-match : Index -> Loc -> Wanted -> (MLIR.Region -> List MLIR.Region -> List MlirType -> Op)
-     -> CaseArmsOf Arm Arm -> E (Maybe Val)
-match ix l w build arms =
-  case w.type <|> map (.type) (head' (mapMaybe (.result) cases) <|> fallback) of
-    Just t => if all (\a => isNothing a.result) cases && isNothing fallback then never else do
-      cs <- traverse (close t) cases
-      d <- case arms of
-        Defaulted _ d => close t d
-        Exhaustive _ => pure NoBlocks
-      Just <$> value {binder = w.binder} ix l t (\r => build d cs [r])
+||| The yield that ends a region with its value; a region that never
+||| returns has ended in a terminator already.
+yielding : Index -> Loc -> Maybe Val -> List Statement
+yielding ix l Nothing = []
+yielding ix l (Just v) = [MkStatement Nothing (Idr.yieldOp (given ix (Just v))) (At l)]
+
+||| A match from its arms, with the builder of its op over its cases, its
+||| default region (none when the cases are exhaustive) and its results:
+||| results when an arm yields, and none when no arm returns. The arms join
+||| at the type the context expects, else the first arm's that returns; an
+||| arm's value at other index terms, or an array of another static shape,
+||| is cast to it.
+match : Index -> Loc -> Wanted -> (List Case -> MLIR.Region -> List MlirType -> Op)
+     -> List Case -> Maybe Arm -> E (Maybe Val)
+match ix l w build cases fallback =
+  let arms = map (.arm) cases ++ toList fallback in
+  case w.type <|> map (.type) (head' (mapMaybe (.result) arms)) of
+    Just t => if all (\a => isNothing a.result) arms then never else do
+      cs <- traverse (\c => (\r => { arm.statements := r } c) <$> close t c.arm) cases
+      d <- maybe (pure NoBlocks) (\a => MkRegion a.arguments <$> close t a) fallback
+      Just <$> value {binder = w.binder} ix l t (\r => build cs d [r])
     Nothing => never
   where
-    cases : List Arm
-    cases = case arms of
-      Defaulted cs _ => cs
-      Exhaustive cs => forget cs
-    fallback : Maybe Val
-    fallback = case arms of
-      Defaulted _ d => d.result
-      Exhaustive _ => Nothing
-    unclosed : Arm -> MLIR.Region
-    unclosed a = MkRegion a.arguments a.statements
-    close : Ty -> Arm -> E MLIR.Region
+    close : Ty -> Arm -> E (List Statement)
     close t a = do
       (v, cast) <- collect (traverse (fit ix l (Just t)) a.result)
-      pure (MkRegion a.arguments (a.statements ++ cast ++ !(yielding ix l v)))
+      pure (a.statements ++ cast ++ yielding ix l v)
+    -- A match whose every arm ends in a terminator has no results, and
+    -- nothing after it runs: its region ends in `ub.unreachable`.
     never : E (Maybe Val)
     never = do
-      let d = case arms of
-                Defaulted _ d => unclosed d
-                Exhaustive _ => NoBlocks
-      statement l (build d (map unclosed cases) [])
+      ignore (placed (At l) (build cases (maybe NoBlocks (\a => MkRegion a.arguments a.statements) fallback) []))
       statement l UB.unreachableOp
       pure Nothing
 
@@ -273,9 +216,131 @@ key : Lit -> MlirAttr
 key (LInt t n) = IntegerAttr (twos (width t) n) (IntegerType (width t))
 key (LChar c) = IntegerAttr c (IntegerType 32)
 key (LStr s) = StringAttr s
-key (LBig n) = idr (BigAttr n)
-key (LNat n) = idr (BigAttr (cast n))
+key (LBig n) = Idr (BigAttr n)
+key (LNat n) = Idr (BigAttr n)
 key (LDouble d) = FloatAttr d F64Type
+
+mutual
+  ||| Whether a term names one of the `k` variables from `from` of its
+  ||| scope, the fields an alternative binds (from 0, and further out under
+  ||| each binder inside): an alternative that names a field of a scrutinee
+  ||| used once takes it apart, one that names none keeps it whole. The
+  ||| problem has both cases (`xs@(_ :: _)` names the value and no field);
+  ||| the quantities stay the binders'.
+  names : (from, k : Nat) -> Term n -> Bool
+  names from k (Var _ x) = namesVar from k x
+  names from k (Literal _ _) = False
+  names from k (PrimApp _ _ _ as) = anyNames from k (toList as)
+  names from k (Effect _ _ _ as _) = anyNames from k as
+  names from k (Call _ _ _ _ as) = anyNames from k as
+  names from k (ConApp _ _ _ as) = anyNames from k (toList as)
+  names from k (Let _ _ _ v b) = names from k v || names (S from) k b
+  names from k (Case _ x arms) = namesVar from k x || armsName from k arms
+  names from k (CaseLit _ x arms) = namesVar from k x || litArmsName from k arms
+  names from k (CaseNat _ x arms) = namesVar from k x || natArmsName from k arms
+  names from k (Lam _ _ _ body) = names (S from) k body
+  names from k (App _ f x) = names from k f || names from k x
+  names from k (Suspend _ body) = names from k body
+  names from k (Resume _ e) = names from k e
+  names from k (Unreachable _) = False
+  names from k (Crash _ _) = False
+  names from k (CrashWith _ m) = names from k m
+  names from k (NewWorld _) = False
+  names from k (Tensor _ _ op) = anyNames from k (toList op)
+  names from k (Tabulate {k = j} _ _ es body) = anyNames from k (toList es) || names (j + from) k body
+  names from k (TabulateIO {k = j} _ _ es w body _ _) =
+    anyNames from k (toList es) || names from k w || names (S j + from) k body
+  names from k (Reduce _ _ _ _ _ z x body) = names from k z || names from k x || names (2 + from) k body
+  names from k (Tie _ x ds) = names from k x || anyNames from k (map (stated . snd) ds)
+    where
+      stated : Stated (Term n) -> Term n
+      stated (SameAs t) = t
+      stated (Natural t) = t
+  names from k (ReadBack _ _ x cs _) = names from k x || anyNames from k cs
+  names from k (ExtentsBack {k = j} _ x body _) = names from k x || names (j + from) k body
+
+  namesVar : (from, k : Nat) -> Fin n -> Bool
+  namesVar from k x = from <= finToNat x && finToNat x < from + k
+
+  anyNames : (from, k : Nat) -> List (Term n) -> Bool
+  anyNames from k [] = False
+  anyNames from k (t :: ts) = names from k t || anyNames from k ts
+
+  altNames : (from, k : Nat) -> Alt n -> Bool
+  altNames from k (MkAlt {k = j} _ _ body) = names (j + from) k body
+
+  armsName : (from, k : Nat) -> CaseArms n -> Bool
+  armsName from k (Defaulted alts d) = any (altNames from k) alts || names from k d
+  armsName from k (Exhaustive alts) = any (altNames from k) (forget alts)
+
+  litArmsName : (from, k : Nat) -> LitArms n -> Bool
+  litArmsName from k (LitDefault alts d) = any (names from k . snd) alts || names from k d
+  litArmsName from k (LitNoDefault alts) = any (names from k . snd) (forget alts)
+
+  natArmsName : (from, k : Nat) -> NatArms n -> Bool
+  natArmsName from k (OnlyZero z) = names from k z
+  natArmsName from k (OnlySucc _ s) = names (S from) k s
+  natArmsName from k (Both z _ s) = names from k z || names (S from) k s
+
+||| The scope inside a region of a match on the variable `x`: the variable
+||| that named the scrutinee names the value the region binds, refined to
+||| the region's constructors, so a field is a read of a value whose type
+||| fixes its constructor, and a constructor is never rebuilt from fields.
+refining : Fin nv -> Val -> Scope nv -> Scope nv
+refining x r sc = { vars := \y => if y == x then Whole r else sc.vars y } sc
+
+||| The fields of constructor `c` in a case at depth `d`: their types with
+||| the constructor's binders at the levels `d ..`, each bound at the
+||| scrutinee's uses times its own: a field of a value used many times is
+||| used many times.
+fieldBinders : Nat -> Uses -> Con k -> Vect k Binder
+fieldBinders d u c =
+  let bs = map IVar (take (length c.binders) [d .. d + length c.binders])
+  in map (\b => MkBinder (times u b.quantity) (substTy bs b.type)) c.fields
+  where
+    times : Uses -> Uses -> Uses
+    times Once q = q
+    times Many _ = Many
+
+||| A case's fields as the region holds them, from its refined value `r`:
+||| for a scrutinee used many times, each a read of `r` (`idr.field`); for
+||| one used once whose alternative names a field, all of them taken apart
+||| at once (`idr.unpack`), since reading one by one would use `r` again;
+||| none for the world, which is no value of the module.
+caseFields : Index -> Loc -> Val -> (takenApart : Bool) -> Vect k Binder -> E (Vect k InScope)
+caseFields ix l r takenApart bs = case (r.uses, takenApart) of
+  (Once, True) => do
+    let types = map (\b => gradedType ix b.quantity Held.Counted b.type) (present' (toList bs))
+    Just n <- placed (At l) (Idr.dataUnpackOp (operand ix r) types)
+      | Nothing => pure (map worldOrPlaceholder bs)
+    pure (unpacked n (length types) 0 bs)
+  (Once, False) => pure (map worldOrPlaceholder bs)
+  (Many, _) => traverse (\(i, b) => read (finToNat i) b) (zip range bs)
+  where
+    present' : List Binder -> List Binder
+    present' = filter (\b => case b.type of
+                               WorldT => False
+                               _ => True)
+    -- A field no name of the alternative reads: never looked at.
+    worldOrPlaceholder : Binder -> InScope
+    worldOrPlaceholder _ = World
+    unpacked : String -> (n : Nat) -> Nat -> Vect j Binder -> Vect j InScope
+    unpacked s n i [] = []
+    unpacked s n i (MkBinder _ WorldT :: rest) = World :: unpacked s n i rest
+    unpacked s n i (b :: rest) = Whole (val (resultAt s n i) b.type b.quantity Held.Counted) :: unpacked s n (S i) rest
+    read : Nat -> Binder -> E InScope
+    read i (MkBinder _ WorldT) = pure World
+    -- An array field is held as its buffer; its value is the tensor of it,
+    -- restricted, so the buffer is no one else's while the tensor lives,
+    -- and never written in place here: what may write it is decided once
+    -- exclusivity is.
+    read i (MkBinder _ t@(TensorT _ _)) = do
+      buf <- mlirValue l (fieldType ix t) (Idr.dataFieldOp (operand ix r) i)
+      v <- mlirValue l (mlirType ix t) (Bufferization.toTensorOp {restrict = True} buf)
+      pure (Whole (val v.name t Many Held.Counted))
+    read i b = do
+      v <- mlirValue l (gradedType ix Many Held.Counted b.type) (Idr.dataFieldOp (operand ix r) i)
+      pure (Whole (val v.name b.type Many Held.Counted))
 
 ||| Starts a function: its own SSA numbers and operations.
 export
@@ -289,259 +354,291 @@ inFunction act = do
   pure (x, inner <>> [])
 
 ||| The end of a function's body: its value, returned; a body that never
-||| returns has ended in `ub.unreachable` already, as every term that never
-||| returns ends.
+||| returns has ended in a terminator already.
 export
 epilogue : Index -> Loc -> Maybe Val -> List Statement -> E (List Statement)
-epilogue ix l (Just v) ops = pure (ops ++ [MkStatement Nothing (Idr.returnOp [operand v]) (At l)])
+epilogue ix l (Just v) ops = pure (ops ++ [MkStatement Nothing (Idr.returnOp (given ix (Just v))) (At l)])
 epilogue ix l Nothing ops = pure ops
-
-mutual
-  ||| A value held plainly, or a constructor a match took apart, rebuilt
-  ||| from plain values into fields none of which is linear.
-  plainHeld : InScope -> Bool
-  plainHeld (Whole v) = not (linear v.use v.type)
-  plainHeld (Taken c fs _) = all (\f => f.quantity == Many) c.fields && allPlain fs
-
-  allPlain : Vect k InScope -> Bool
-  allPlain [] = True
-  allPlain (v :: vs) = plainHeld v && allPlain vs
-
-mutual
-  ||| Whether a suspended term is a value already, so that forcing it would
-  ||| compute nothing: a literal; a variable whose value is not linear, its
-  ||| constructor rebuilt, if a match took it apart, from fields none of
-  ||| which is linear; or a constructor of such values, none of its fields
-  ||| linear. Its ops are then only constants and constructors of plain
-  ||| values, and the suspension holds the value itself.
-  evaluated : (Fin n -> InScope) -> Term n -> Bool
-  evaluated env (Var _ x) = plainHeld (env x)
-  evaluated env (Literal _ _) = True
-  evaluated env (ConApp _ c as) = all (\f => f.quantity == Many) c.fields && allEvaluated env as
-  evaluated env _ = False
-
-  allEvaluated : (Fin n -> InScope) -> Vect k (Term n) -> Bool
-  allEvaluated env [] = True
-  allEvaluated env (t :: ts) = evaluated env t && allEvaluated env ts
 
 ||| A closure or a suspension of a function, made by `build` at type `t`
 ||| over `captures`, the variable `binder` bound to it. One that holds a
-||| linear value is used once, as what it holds: its op makes it at its
-||| linear type.
+||| linear value is used once: the dialect gives a closure's type the
+||| quantity of its captures, which its op's result type states.
 holding : Index -> Loc -> Maybe Binding -> Ty -> List Value -> (MlirType -> Op) -> E Val
 holding ix l binder t captures build =
-  -- Essential: the dialect gives the closure's type the quantity of its
-  -- captures (a type rule of the op), which the op's result type states.
   if any linearType captures
     then do
-      r <- mlirValueAt (madeAt binder l t One) (heldType One t) build
-      pure (MkVal r.name t One)
+      r <- mlirValueAt (madeAt binder l Once) (gradedType ix Once Held.Counted t) build
+      pure (val r.name t Once Held.Counted)
     else value {binder} ix l t build
   where
     linearType : Value -> Bool
     linearType v = case v.type of
-      Idr (QType One _ _ _) _ => True
+      Idr (GradedType Once _ _) => True
       _ => False
+
+||| The tail fact of a call at a position: in tail position a tail call; as
+||| the last field computed of a context cell, a call of the function
+||| itself a loop with a destination; anywhere else an ordinary call.
+tailKind : Scope nv -> FnId -> Position -> TailKind
+tailKind sc fn InTail = Tail
+tailKind sc fn InContext = if sc.self == Just fn then ModuloContext else NonTail
+tailKind sc fn Elsewhere = NonTail
 
 ||| A call passes as many values as its callee takes. A count that differs
 ||| is a position the translator did not drop; nothing is written for it.
-saturated : Index -> Loc -> Term n -> String -> (given, taken : Nat) -> E ()
-saturated ix l term what given taken =
+saturated : Loc -> String -> (given, taken : Nat) -> E ()
+saturated l what given taken =
   unless (given == taken) $
-    internal (fastConcat [show l, ": ", what, " passes ", show given, " values; it takes ",
-                          show taken, ": ", showBody (names ix) term 0])
+    internal (fastConcat [show l, ": ", what, " passes ", show given, " values; it takes ", show taken])
 
 ||| The algebra: one layer of `Term` to its emitter. A layer whose value is
-||| a subterm's (a `let`'s body, a match of one possible arm) passes what
-||| its context wants on to it; every other subterm is an operand or a
-||| region's, bound to no variable.
+||| a subterm's (a `let`'s body, a match's arms) passes what its context
+||| wants on to it; every other subterm is an operand or a region's, bound
+||| to no variable.
 export
 alg : {0 nv : Nat} -> Index -> TermF (Sub Em) nv -> Em nv
-alg ix (VarF l x) env w = Just <$> force {binder = w.binder} ix l (env x)
-alg ix (LiteralF l x) env w = Just <$> literal {binder = w.binder} ix l x
-alg ix (PrimAppF l p _ as) env w = do
-  Just vs <- operands ix l env (zip (map (map (MkBinder Many)) (slots p)) as)
+alg ix (VarF l x) sc w = pure (Just (standing (sc.vars x)))
+alg ix (LiteralF l x) sc w = Just <$> literal {binder = w.binder} ix l x
+alg ix (PrimAppF l p _ as) sc w = do
+  Just vs <- operands ix l sc (zip (map (map (MkBinder Many)) (slots p)) as)
     | Nothing => pure Nothing
   Just <$> prim w.binder ix l p vs
--- An IO primitive takes its operands at their own types.
-alg ix (EffectF l p gives as res) env w = do
-  Just vs <- operands ix l env (unslotted as)
+-- An IO primitive takes its operands at their own types, the world aside.
+alg ix (EffectF l p gives as res) sc w = do
+  Just vs <- operands ix l sc (unslotted as)
     | Nothing => pure Nothing
-  effect w.binder ix l p gives vs res
-alg ix (CallF l fn stands as) env w = do
+  effect w.binder ix l p gives (present vs) res
+-- A call passes its callee's index parameters their terms here and its
+-- arguments at the callee's binders with those terms substituted, so its
+-- operand and result types are the callee's signature at the call.
+alg ix (CallF l fn stands is as) sc w = do
   Just f <- pure (lookup fn ix.fns)
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
-  saturated ix l (Call l fn stands (map (.term) as)) ("a call of " ++ fn.name) (length as) f.arity
-  Just vs <- operands ix l env (zip (map (Just . snd) (toList f.params)) as)
+  saturated l ("a call of " ++ f.symbol) (length as) f.arity
+  let slots = map (\(_, b) => Just (MkBinder b.quantity (substTy is b.type))) (toList f.params)
+  Just vs <- operands ix l sc (zip slots as)
     | Nothing => pure Nothing
-  Just <$> fitted {binder = w.binder} ix l w.type f.result (\r => Idr.callOp fn.name (map operand vs) [r])
-alg ix (ConAppF l c as) env w = do
-  Just vs <- operands ix l env (zip (map Just c.fields) as)
+  let rt = substTy is f.result
+      kind = tailKind sc fn w.position
+      args = map (operand ix) (present vs)
+  case resultTypes ix rt of
+    [] => do
+      statement l (Idr.callOp {indexArgs = Just (Idr (IndexArgsAttr (termNodes ix is)))} f.symbol kind args [])
+      pure (Just worldVal)
+    [r] => Just <$> fitted {binder = w.binder} ix l w.type rt (\t => Idr.callOp {indexArgs = Just (Idr (IndexArgsAttr (termNodes ix is)))} f.symbol kind args [t])
+    _ => internal ("a call of " ++ f.symbol ++ " giving more than one value")
+-- A constructor's fields are checked at their types with its binders
+-- given; the last computed is a context cell's field when the value is the
+-- function's result or another context cell's field.
+alg ix (ConAppF l c bs as) sc w = do
+  let last = case w.position of
+               Elsewhere => Elsewhere
+               _ => InContext
+  Just vs <- (fields ix l sc last (map (\b => { type $= substTy bs } b) c.fields) as).written
     | Nothing => pure Nothing
-  Just <$> con {binder = w.binder} ix l c vs
--- A `let` binds an SSA value; its type is its value's, and the op that
--- makes it as the variable holds it stands at the variable's name.
-alg ix (LetF l name q v b) env w = do
-  let held = heldAs q (mostUses FZ b.term)
-      binding = Just (MkBinding name held)
-  Just x <- v.result env (MkWanted Nothing binding)
-    | Nothing => pure Nothing
-  x' <- coerce {binder = binding} ix l held x
-  b.result (bind [Whole x'] env) w
--- A match takes its scrutinee at its grade: a linear one is used by the
--- match, whose cases bind the fields as the constructor holds them and
--- whose default gets the value back; a plain one is read, its fields plain
--- (the product of the quantities, as Idris binds pattern variables), and
--- its default binds it again. Inside every region the scrutinee is what
--- the region binds.
-alg ix (CaseF l x arms) env w = do
-  let before = env x
-  scrut <- force ix l before
-  DataT _ <- pure scrut.type
-    | t => internal ("a match on a value of type " ++ show t)
-  (tags, shape) <- the (E (List Nat, CaseArmsOf Arm Arm)) $ case arms of
-    Defaulted alts d => do
-      cs <- traverse (alternative before scrut) alts
-      pure (map fst cs, Defaulted (map snd cs) !(defaultArm before scrut d))
-    Exhaustive alts => do
-      cs <- traverse (alternative before scrut) alts
-      pure (forget (map fst cs), Exhaustive (map snd cs))
-  match ix l w (\d, cs, ts => Idr.matchOp (operand scrut) tags d cs ts) shape
+  Just <$> con {binder = w.binder} ix l c bs vs
+-- A `let` binds an SSA value at its binder's type and quantity, as Idris
+-- checked them; the op that makes it as the variable holds it stands at
+-- the variable's name.
+alg ix (LetF l name b v body) sc w = case b of
+  Checked (MkBinder _ WorldT) => do
+    Just _ <- v.result sc (expecting (Just WorldT))
+      | Nothing => pure Nothing
+    body.result (bind [World] sc) w
+  Checked (MkBinder q t) => bound q (Just t)
+  OfValue q => bound q Nothing
   where
-    -- A case is its constructor's tag, each field a block argument at its
-    -- pattern variable's name.
-    alternative : InScope -> Val -> AltF (Sub Em) nv -> E (Nat, Arm)
-    alternative before scrut (MkAltF {k} c fs body) = do
-      let takenApart = linear scrut.use scrut.type
-      let use = if takenApart then (\b : Binder => b.quantity) else const Many
-      bound <- traverse (\f => freshVal (typeOf f) (use f)) c.fields
-      let args = toList (zipWith (\field, (_, o) => MkArgument o (Named field l)) fs bound)
+    bound : Uses -> Maybe Ty -> E (Maybe Val)
+    bound q t = do
+      b <- binding name q
+      Just x <- v.result sc (MkWanted t (Just b) Elsewhere)
+        | Nothing => pure Nothing
+      case x.type of
+        WorldT => body.result (bind [World] sc) w
+        _ => do
+          x' <- coerce {binder = Just b} ix l q !(fit ix l t x)
+          body.result (bind [Whole x'] sc) w
+-- A match takes its scrutinee as it is held. Each case binds the scrutinee
+-- refined to its constructor, and its constructor's binders at the next
+-- levels; its fields are reads of the refined value, or, for a scrutinee
+-- used once whose alternative names a field, the value taken apart. The
+-- default binds the scrutinee refined to the constructors no case takes.
+-- Inside every region the variable that named the scrutinee names the
+-- value the region binds.
+alg ix (CaseF l x arms) sc w = do
+  let scrut = standing (sc.vars x)
+  DataT _ _ <- pure scrut.type
+    | t => internal ("a match on a value of type " ++ show t)
+  (cases, fallback) <- the (E (List Case, Maybe Arm)) $ case arms of
+    Defaulted alts d => do
+      cs <- traverse (alternative scrut) alts
+      pure (cs, Just !(defaultArm scrut (map (.tag) cs) d))
+    Exhaustive alts => do
+      cs <- traverse (alternative scrut) (forget alts)
+      pure (cs, Nothing)
+  match ix l w (\cs, d, ts => Idr.dataMatchOp (operand ix scrut) (map caseRegion cs) d ts) cases fallback
+  where
+    caseRegion : Case -> (Nat, List (SortOf MlirType MlirAttr), MLIR.Region)
+    caseRegion c = (c.tag, c.binders, MkRegion c.arm.arguments c.arm.statements)
+    -- The value a region binds: the scrutinee refined to the constructors
+    -- given, its argument at the region's start.
+    refinedArg : Val -> List1 Nat -> E (Val, Argument)
+    refinedArg scrut tags = do
+      n <- fresh
+      let r = MkVal n scrut.type scrut.uses scrut.hold (OneOf tags)
+      pure (r, MkArgument (operand ix r) (At l))
+    alternative : Val -> AltF (Sub Em) nv -> E Case
+    alternative scrut (MkAltF {k} c fs body) = do
+      let d = length sc.telescope
+      (r, arg) <- refinedArg scrut (c.tag ::: [])
+      let bs = fieldBinders d scrut.uses c
+          inner = refining x r (binding c.binders sc)
       (res, ops) <- collect $ do
-        vals <- traverse (\(i, (v, _)) => Whole <$> holdFor ix l (mostUses (Bound {n = nv} i) body.term) v)
-                         (zip range bound)
-        -- Inside a case of a linear scrutinee, the scrutinee is the
-        -- constructor of the fields the case bound.
-        inner <- if takenApart
-          then (\r => matched before (Taken c vals r) env) <$> fresh
-          else pure env
-        plain ix l (body.result (bind vals inner) (expecting w.type))
-      pure (c.tag, MkArm args res ops)
-    -- The default binds the scrutinee at its held type: a linear one given
-    -- back, a plain one again.
-    defaultArm : InScope -> Val -> Sub Em nv -> E Arm
-    defaultArm before scrut d = do
-      (back, arg) <- freshVal scrut.type scrut.use
-      (res, ops) <- collect (plain ix l (d.result (matched before (Whole back) env) (expecting w.type)))
-      pure (MkArm [MkArgument arg (At l)] res ops)
+        vals <- caseFields ix l r (names 0 k body.term) bs
+        plain ix l (body.result (bind vals inner) ({ binder := Nothing } w))
+      pure (MkCase c.tag (map (sortOf ix) c.binders) (MkArm [arg] res ops))
+    -- The default binds the scrutinee refined to the constructors no case
+    -- takes; none is left only when Idris proved the cases cover it, which
+    -- is `Exhaustive`, so a default here has at least one.
+    defaultArm : Val -> List Nat -> Sub Em nv -> E Arm
+    defaultArm scrut taken d = do
+      DataT f _ <- pure scrut.type
+        | t => internal ("a match on a value of type " ++ show t)
+      (back, arg) <- case untaken ix f taken of
+        t :: ts => refinedArg scrut (t ::: ts)
+        [] => do
+          (v, a) <- freshVal ix scrut.type scrut.uses
+          pure (v, MkArgument a (At l))
+      (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
+      pure (MkArm [arg] res ops)
 -- `idr.match_lit` has no exhaustive form: when Idris proved the default
 -- impossible, the last possible alternative stands for it, and a match of
 -- one is that alternative.
-alg ix (CaseLitF l x arms) env w = case arms of
+alg ix (CaseLitF l x arms) sc w = case arms of
   LitDefault alts d => literals alts d
   LitNoDefault alts => literals (init alts) (snd (last alts))
   where
     literals : List (Lit, Sub Em nv) -> Sub Em nv -> E (Maybe Val)
-    literals [] d = d.result env w
+    literals [] d = d.result sc w
     literals cases d = do
-      scrut <- coerce ix l Many !(force ix l (env x))
-      let inner = matched (env x) (Whole scrut) env
+      scrut <- coerce ix l Many (standing (sc.vars x))
+      let inner = refining x scrut sc
       arms <- traverse (\(_, c) => do
-                          (res, ops) <- collect (plain ix l (c.result inner (expecting w.type)))
+                          (res, ops) <- collect (plain ix l (c.result inner ({ binder := Nothing } w)))
                           pure (MkArm [] res ops)) cases
-      (back, arg) <- freshVal scrut.type Many
-      (res, ops) <- collect (plain ix l (d.result (matched (env x) (Whole back) env) (expecting w.type)))
-      match ix l w (\dr, cs, ts => Idr.matchLitOp (operand scrut) (map (key . fst) cases) dr cs ts)
-            (Defaulted arms (MkArm [MkArgument arg (At l)] res ops))
+      (back, arg) <- freshVal ix scrut.type Many
+      (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
+      litMatch (map fst cases) scrut arms (MkArm [MkArgument arg (At l)] res ops)
+    litMatch : List Lit -> Val -> List Arm -> Arm -> E (Maybe Val)
+    litMatch ks scrut arms fallback =
+      match ix l w (\cs, dr, ts => Idr.litMatchOp (operand ix scrut) (map key ks) dr (map (\c => MkRegion [] c.arm.statements) cs) ts)
+            (map (\a => MkCase 0 [] a) arms) (Just fallback)
 -- The predecessor exists only where the value is not zero: the successor's
 -- arm computes it from the value it binds, and only it binds it.
-alg ix (CaseNatF l x arms) env w = case arms of
-  OnlyZero z => z.result env w
-  OnlySucc p s => successor p s env w !(coerce ix l Many !(force ix l (env x)))
+alg ix (CaseNatF l x arms) sc w = case arms of
+  OnlyZero z => z.result sc w
+  OnlySucc p s => successor p s sc w !(coerce ix l Many (standing (sc.vars x)))
   Both z p s => do
-    n <- coerce ix l Many !(force ix l (env x))
-    (zr, zops) <- collect (plain ix l (z.result env (expecting w.type)))
-    (back, arg) <- freshVal NatT Many
-    (sr, sops) <- collect (plain ix l (successor p s (matched (env x) (Whole back) env) (expecting w.type) back))
-    match ix l w (\dr, cs, ts => Idr.matchLitOp (operand n) [key (LNat 0)] dr cs ts)
-          (Defaulted [MkArm [] zr zops] (MkArm [MkArgument arg (At l)] sr sops))
+    n <- coerce ix l Many (standing (sc.vars x))
+    (zr, zops) <- collect (plain ix l (z.result sc ({ binder := Nothing } w)))
+    (back, arg) <- freshVal ix NatT Many
+    (sr, sops) <- collect (plain ix l (successor p s (refining x back sc) ({ binder := Nothing } w) back))
+    match ix l w (\cs, dr, ts => Idr.litMatchOp (operand ix n) [key (LNat 0)] dr (map (\c => MkRegion [] c.arm.statements) cs) ts)
+          [MkCase 0 [] (MkArm [] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
   where
-    successor : Shown -> Sub Em (Under 1 nv) -> (Fin nv -> InScope) -> Wanted -> Val -> E (Maybe Val)
+    successor : Shown -> Sub Em (Under 1 nv) -> Scope nv -> Wanted -> Val -> E (Maybe Val)
     successor p s scope w' n = do
-      pv <- value {binder = Just (MkBinding p Many)} ix l NatT (Idr.bigPredOp (operand n))
+      b <- binding p Many
+      pv <- value {binder = Just b} ix l NatT (Idr.natPredOp (operand ix n))
       s.result (bind [Whole pv] scope) w'
 -- A lambda is a closure of a function of its own, and a `Delay` a
 -- suspension of one, each over the values its body uses from where it is
--- written: the body is written first, as a region, and the function made
--- of it. A suspension of a value is that value held, `idr.delay %v`. A
--- lambda's parameter and result are at the types the context expects of
--- them, the parameter cast inside to its binder's own: a closure's type
--- holds the extents its values are made at dynamic.
-alg ix (LamF l name b body) env w = do
+-- written and its scope's levels: the body is written first, as a region,
+-- and the function made of it. A suspension of a value is that value
+-- held, `idr.delay %v`. A lambda's parameter and result are at the types
+-- the context expects of them: a closure's type holds the extents its
+-- values are made at dynamic.
+alg ix (LamF l name b body) sc w = do
   let (param, result) = case w.type of
                           Just (FunT a r) => (typeOf a, Just r)
                           _ => (typeOf b, Nothing)
-  (p, arg) <- freshVal param b.quantity
-  (r, ops) <- collect $ do
-    inner <- coerce ix l (heldAs b.quantity (mostUses FZ body.term)) !(fit ix l (Just (typeOf b)) p)
-    plain ix l (body.result (bind [Whole inner] env) (expecting result)) >>= traverse (fit ix l result)
+  -- A lambda of the world, an action, binds no value for it.
+  (args, r, ops) <- case param of
+    WorldT => do
+      (r, ops) <- collect $
+        plain ix l (body.result (bind [World] ({ self := Nothing } sc)) (MkWanted result Nothing InTail))
+          >>= traverse (fit ix l result)
+      pure ([], r, ops)
+    _ => do
+      (p, arg) <- freshVal ix param b.quantity
+      (r, ops) <- collect $ do
+        inner <- coerce ix l b.quantity !(fit ix l (Just (typeOf b)) p)
+        plain ix l (body.result (bind [Whole inner] ({ self := Nothing } sc)) (MkWanted result Nothing InTail))
+          >>= traverse (fit ix l result)
+      st <- get
+      put ({ nextBinder $= S } st)
+      pure ([MkArgument arg (Binder name l st.ownerSymbol st.nextBinder)], r, ops)
   Just t <- pure (result <|> map (.type) r)
     | Nothing => internal "the result type of a lambda whose body never returns"
-  let rt = mlirType t
   ops' <- epilogue ix l r ops
-  (sym, captures) <- lift l LiftedLambda [MkArgument arg (Named name l)] ops' [rt]
-  Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) t) captures (Idr.closureOp sym captures)
-alg ix (AppF l f x) env w = do
-  Just fv <- plain ix l (f.result env (expecting Nothing))
+  (sym, captures) <- lift l LiftedLambda (map (sortOf ix) sc.telescope) args ops' (resultTypes ix t)
+  Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) t) captures
+                   (Idr.fnClosureOp {indexArgs = Just (Idr (IndexArgsAttr (termNodes ix (levels sc.telescope))))} sym captures)
+alg ix (AppF l f x) sc w = do
+  Just fv <- plain ix l (f.result sc (expecting Nothing))
     | Nothing => pure Nothing
   FunT a r <- pure fv.type
     | t => internal ("an application of a value of type " ++ show t)
-  Just v <- x.result env (expecting (Just (typeOf a)))
+  Just v <- x.result sc (expecting (Just (typeOf a)))
     | Nothing => pure Nothing
-  xv <- coerce ix l a.quantity !(fit ix l (Just (typeOf a)) v)
-  Just <$> fitted {binder = w.binder} ix l w.type r (\t => Idr.applyOp (operand fv) [operand xv] [t])
-alg ix (SuspendF l body) env w = do
+  -- An action is applied to the world, which is no value: it takes none.
+  xs <- case a.type of
+    WorldT => pure []
+    _ => (\xv => [operand ix xv]) <$> coerce ix l a.quantity !(fit ix l (Just (typeOf a)) v)
+  case resultTypes ix r of
+    [] => do
+      statement l (Idr.fnApplyOp (operand ix fv) xs [])
+      pure (Just worldVal)
+    _ => Just <$> fitted {binder = w.binder} ix l w.type r (\t => Idr.fnApplyOp (operand ix fv) xs [t])
+alg ix (SuspendF l body) sc w = do
   let result = case w.type of
                  Just (LazyT r) => Just r
                  _ => Nothing
-  if evaluated env body.term
-    then do
-      Just v <- plain ix l (body.result env (expecting result))
-        | Nothing => internal "a suspended value that never returns"
-      Just <$> value {binder = w.binder} ix l (LazyT v.type) (Idr.delayOp (operand v))
-    else do
-      (r, ops) <- collect (plain ix l (body.result env (expecting result)) >>= traverse (fit ix l result))
-      Just t <- pure (result <|> map (.type) r)
-        | Nothing => internal "the result type of a Delay whose body never returns"
-      let rt = mlirType t
-      ops' <- epilogue ix l r ops
-      (sym, captures) <- lift l LiftedDelay [] ops' [rt]
-      Just <$> holding ix l w.binder (LazyT t) captures (Idr.suspendOp sym captures)
-alg ix (ResumeF l e) env w = do
-  Just ev <- plain ix l (e.result env (expecting Nothing))
+  (r, ops) <- collect (plain ix l (body.result ({ self := Nothing } sc) (MkWanted result Nothing InTail))
+                       >>= traverse (fit ix l result))
+  Just t <- pure (result <|> map (.type) r)
+    | Nothing => internal "the result type of a Delay whose body never returns"
+  ops' <- epilogue ix l r ops
+  (sym, captures) <- lift l LiftedDelay (map (sortOf ix) sc.telescope) [] ops' (resultTypes ix t)
+  Just <$> holding ix l w.binder (LazyT t) captures
+                   (Idr.lazySuspendOp {indexArgs = Just (Idr (IndexArgsAttr (termNodes ix (levels sc.telescope))))} sym captures)
+alg ix (ResumeF l e) sc w = do
+  Just ev <- plain ix l (e.result sc (expecting Nothing))
     | Nothing => pure Nothing
   LazyT r <- pure ev.type
     | t => internal ("a force of a value of type " ++ show t)
-  Just <$> fitted {binder = w.binder} ix l w.type r (Idr.forceOp (operand ev))
+  Just <$> fitted {binder = w.binder} ix l w.type r (Idr.lazyForceOp (operand ix ev))
 -- The array language: each operand bound once, in order, by the frontend;
 -- each body a region of the array op Emit.Tensors writes.
-alg ix (TensorF l rt op) env w = do
-  Just vs <- operands ix l env (unslotted op)
+alg ix (TensorF l rt op) sc w = do
+  Just vs <- operands ix l sc (unslotted op)
     | Nothing => pure Nothing
   Just <$> tensorOp ix l w.binder rt vs
-alg ix (TabulateF {k} l rt es body) env w = do
-  Just extents <- operands ix l env (unslotted es)
+alg ix (TabulateF {k} l rt es body) sc w = do
+  Just extents <- operands ix l sc (unslotted es)
     | Nothing => pure Nothing
   tabulate ix l w.binder rt extents
-           (\coords => plain ix l (body.result (bind (map Whole coords) env) (expecting Nothing)))
-alg ix (ReduceF l r acc el rt z x body) env w = do
-  Just zv <- (operand1 ix l env Nothing z).written
+           (\coords => plain ix l (body.result (bind (map Whole coords) sc) (expecting Nothing)))
+alg ix (ReduceF l r acc el rt z x body) sc w = do
+  Just zv <- (operand1 ix l sc Elsewhere Nothing z).written
     | Nothing => pure Nothing
-  Just xv <- (operand1 ix l env Nothing x).written
+  Just xv <- (operand1 ix l sc Elsewhere Nothing x).written
     | Nothing => pure Nothing
   reduce ix l w.binder r acc el rt zv xv
-         (\a, e => plain ix l (body.result (bind [Whole a, Whole e] env) (expecting (Just acc))))
-alg ix (TieF l x ds) env w = do
-  Just xv <- plain ix l (x.result env (expecting Nothing))
+         (\a, e => plain ix l (body.result (bind [Whole a, Whole e] sc) (expecting (Just acc))))
+alg ix (TieF l x ds) sc w = do
+  Just xv <- plain ix l (x.result sc (expecting Nothing))
     | Nothing => pure Nothing
   Just dims <- statedAll ds
     | Nothing => pure Nothing
@@ -549,7 +646,7 @@ alg ix (TieF l x ds) env w = do
   where
     -- Each statement a natural.
     natural : Sub Em nv -> E (Maybe Val)
-    natural d = plain ix l (d.result env (expecting (Just NatT)))
+    natural d = plain ix l (d.result sc (expecting (Just NatT)))
     statedAll : List (Nat, Stated (Sub Em nv)) -> E (Maybe (List (Nat, Stated Val)))
     statedAll [] = pure (Just [])
     statedAll ((a, SameAs d) :: rest) = do
@@ -560,28 +657,70 @@ alg ix (TieF l x ds) env w = do
       Just v <- natural d
         | Nothing => pure Nothing
       map ((a, Natural v) ::) <$> statedAll rest
-alg ix (TabulateIOF {k} l rt es w body step done) env wanted = do
-  Just extents <- operands ix l env (unslotted es)
+-- An array made in the order of IO is a tabulation whose body's effects
+-- its ops declare: no world threads it, so the body's `IORes` gives the
+-- element and the array's `IORes` is built of the array alone.
+alg ix (TabulateIOF {k} l rt es w body step done) sc wanted = do
+  Just extents <- operands ix l sc (unslotted es)
     | Nothing => pure Nothing
-  Just world <- w.result env (expecting (Just WorldT))
+  Just _ <- w.result sc (expecting (Just WorldT))
     | Nothing => pure Nothing
-  tabulateIO ix l wanted.binder rt extents world
-             (\coords, wv => plain ix l (body.result (bind (snoc (map Whole coords) (Whole wv)) env) (expecting Nothing)))
-             step done
-alg ix (UnreachableF l) env _ = do
+  Just arr <- tabulate ix l Nothing rt extents
+                (\coords => do
+                   Just res <- plain ix l (body.result (bind (snoc (map Whole coords) World) sc) (expecting Nothing))
+                     | Nothing => pure Nothing
+                   Just <$> resultOf res)
+    | Nothing => pure Nothing
+  Just <$> con {binder = wanted.binder} ix l done [] [arr, worldVal]
+  where
+    -- The element an `IORes` holds: its first field, read.
+    resultOf : Val -> E Val
+    resultOf res = do
+      let e = typeOf (head step.fields)
+      v <- mlirValue l (gradedType ix Many Held.Counted e) (Idr.dataFieldOp (operand ix res) 0)
+      pure (val v.name e Many Held.Counted)
+alg ix (UnreachableF l) sc _ = do
   statement l UB.unreachableOp
   pure Nothing
--- A crash reports its message and never returns: fixed, or computed (a
--- trusted library's crash of a string, whose string is the cause the
--- runtime prints).
-alg ix (CrashF l msg) env _ = do
-  statement l (Idr.crashOp msg)
-  statement l UB.unreachableOp
+-- A crash ends its region: its cause, its site and the definition it is
+-- in are data the op holds; a trusted library's crash of a string reports
+-- that string.
+alg ix (CrashF l cause) sc _ = do
+  st <- get
+  statement l (Idr.crashAtOp cause (siteOf l) (show st.definition))
   pure Nothing
-alg ix (CrashWithF l m) env _ = do
-  Just s <- (operand1 ix l env (Just (MkBinder Many StrT)) m).written
+alg ix (CrashWithF l m) sc _ = do
+  Just s <- (operand1 ix l sc Elsewhere (Just (MkBinder Many StrT)) m).written
     | Nothing => pure Nothing
-  statement l (Idr.crashStrOp (operand s))
-  statement l UB.unreachableOp
+  statement l (Idr.crashMessageOp (operand ix s) (siteOf l))
   pure Nothing
-alg ix (NewWorldF l) env w = Just <$> value {binder = w.binder} ix l WorldT Idr.worldNewOp
+alg ix (NewWorldF l) sc w = pure (Just worldVal)
+-- A linear array's read gives back the array as a new value, so what
+-- consumes the array next comes after the read by data dependence.
+alg ix (ReadBackF l e x cs res) sc w = do
+  Just xv <- (operand1 ix l sc Elsewhere Nothing x).written
+    | Nothing => pure Nothing
+  Just coords <- operands ix l sc (unslotted cs)
+    | Nothing => pure Nothing
+  ixs <- traverse (coordinate ix l) coords
+  Just n <- placed (At l) (Idr.arrayReadOp (operand ix xv) ixs
+                             [gradedType ix Many Held.Counted e, (operand ix xv).type])
+    | Nothing => internal "a linear array's read gives nothing"
+  Just <$> con {binder = w.binder} ix l res [] [val (resultAt n 2 0) e Many Held.Counted, { name := resultAt n 2 1 } xv]
+-- Each extent of a linear array read gives the array back as a new value,
+-- threaded from one read to the next.
+alg ix (ExtentsBackF {k} l x body res) sc w = do
+  Just xv <- (operand1 ix l sc Elsewhere Nothing x).written
+    | Nothing => pure Nothing
+  (extents, final) <- readExtents k 0 xv
+  Just v <- body.result (bind extents sc) (expecting Nothing)
+    | Nothing => pure Nothing
+  Just <$> con {binder = w.binder} ix l res [] [v, final]
+  where
+    readExtents : (j : Nat) -> Nat -> Val -> E (Vect j InScope, Val)
+    readExtents Z a arr = pure ([], arr)
+    readExtents (S j) a arr = do
+      Just n <- placed (At l) (Idr.arrayExtentOp (operand ix arr) a [gradedType ix Many Held.Counted NatT, (operand ix arr).type])
+        | Nothing => internal "a linear array's extent gives nothing"
+      (rest, final) <- readExtents j (S a) ({ name := resultAt n 2 1 } arr)
+      pure (Whole (val (resultAt n 2 0) NatT Many Held.Counted) :: rest, final)

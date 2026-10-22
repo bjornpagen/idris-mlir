@@ -33,7 +33,8 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Ids
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Requests
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 import IdrisMLIR.Term
 
@@ -243,6 +244,15 @@ namespaceOf (NS ns _) = Just ns
 namespaceOf (DN _ n) = namespaceOf n
 namespaceOf _ = Nothing
 
+||| A case or with block's printed name: its parent's, then `.case<k>` or
+||| `.with<k>`, its ordinal under that parent; nothing for any other name.
+||| Its parent is a full name Idris keeps, and may be a block itself.
+typedBlock : Name -> Maybe String
+typedBlock (NS _ n) = typedBlock n
+typedBlock (CaseBlock parent k) = Just (fromMaybe (plainOrigin parent) (typedBlock parent) ++ ".case" ++ show k)
+typedBlock (WithBlock parent k) = Just (fromMaybe (plainOrigin parent) (typedBlock parent) ++ ".with" ++ show k)
+typedBlock _ = Nothing
+
 ||| The definition's printed name, which a key starts with: Idris's full
 ||| name (`plainOrigin`), and for a case, with or nested block its
 ||| parent's, then `.case<k>`, `.with<k>` or `.<name><k>`. A block is named
@@ -258,6 +268,10 @@ namespaceOf _ = Nothing
 keyOrigin : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core String
 keyOrigin n = do
   full <- toFullNames n
+  -- A case or with block names its parent and its ordinal under it, which
+  -- Idris keeps: its name is read off it, with no search.
+  let Nothing = typedBlock full
+    | Just o => pure o
   let Just _ = blockOf full
     | Nothing => pure (plainOrigin full)
   -- Naming blocks only reads the context, so this one read is the context
@@ -297,6 +311,7 @@ keyOrigin n = do
       case !(named key) of
         Just _ => pure ()
         Nothing => search key cs
+
 
 ------------------------------------------------------------------------------
 -- What a term is read beside
@@ -482,7 +497,7 @@ argumentText w tm = pure (render w 0 Alone !(toFullNames tm))
 ||| A quantity by its number: 0, 1, many.
 quantity : Use -> Fin 3
 quantity Erased = 0
-quantity (Used One) = 1
+quantity (Used Once) = 1
 quantity (Used Many) = 2
 
 ||| A primitive type by its number.

@@ -19,7 +19,8 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.State
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -196,10 +197,20 @@ delayedLets (TDelay fc _ _ arg) = Just (fc, arg)
 delayedLets (Bind fc x b@(Let {}) sc) = map (Bind fc x b) <$> delayedLets sc
 delayedLets _ = Nothing
 
+||| Is a name the stand-in for a runtime value (`ProbeRuntime`): a part of
+||| a written or closed term no compile-time value fills? Idris keeps its
+||| own reasons for erasure, `Impossible` among them, so the frontend's
+||| stand-in is a probe of its own, never one of Idris's terms.
+export
+runtimePart : Name -> Bool
+runtimePart n = case probeOf n of
+  Just ProbeRuntime => True
+  _ => False
+
 ||| A term in scope as a closed term, with compile-time values substituted
 ||| and not normalised, so that an implementation keeps its written form. A
-||| runtime variable becomes `Erased` with reason `Impossible`, which
-||| `runtimeDependent` detects.
+||| runtime variable becomes the stand-in for a runtime value
+||| (`runtimePart`), which `runtimeDependent` detects.
 export
 closeWritten : {vars : Scope} -> FC -> List (VarInfo a) -> TT vars -> ClosedTerm
 closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)))
@@ -210,7 +221,7 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
     -- A shape is what is known of the value at compile time; its holes
     -- are the runtime parts (`skeleton`).
     value (Shaped _ _ _ s) = s
-    value (Runtime {}) = Erased fc Impossible
+    value (Runtime {}) = probeTerm ProbeRuntime
 
 ||| Does a term mention a metavariable? Idris can leave a solved one in an
 ||| elaborated term (the implementation for the inner pair of a triple).
@@ -241,8 +252,7 @@ hasRuntimePart : TT vars -> Bool
 hasRuntimePart = mentions part
   where
     part : TT vs -> Bool
-    part (Erased _ Impossible) = True
-    part (Ref _ _ n) = isJust (markerOf n)
+    part (Ref _ _ n) = isJust (markerOf n) || runtimePart n
     part _ = False
 
 ||| A closed term with its lambdas applied and the solutions of its
@@ -307,8 +317,8 @@ erasedArgs n = do
 data Applied = OfType | Depends | Taking (List Bool)
 
 ||| Does a written implementation depend on a runtime value: does a part
-||| that stands for one (`Erased` with reason `Impossible`: a runtime
-||| variable, or a part of a runtime value its shape does not say; or
+||| that stands for one (`runtimePart`: a runtime variable, or a part of a
+||| runtime value its shape does not say; or
 ||| `holeMarker`, the value an implementation closes over) stand
 ||| where a value exists at runtime? A type does not (a binder's type, a
 ||| type constructor's arguments), nor does an argument a definition or a
@@ -322,8 +332,7 @@ runtimeDependent = go
   where
     mutual
       go : TT vs -> Core Bool
-      go (Erased _ Impossible) = pure True
-      go (Ref _ _ n) = pure (isJust (markerOf n))
+      go (Ref _ _ n) = pure (isJust (markerOf n) || runtimePart n)
       go (Erased _ (Dotted t)) = go t
       go (Bind _ _ (Pi {}) _) = pure False
       go (Bind _ _ (Let _ _ v _) sc) = if !(go v) then pure True else go sc
@@ -412,24 +421,10 @@ projection n = do
   defs <- get Ctxt
   pure (projectionOf =<< !(lookupCtxtExact n (gamma defs)))
 
-||| The outermost definition named in the string Idris gives a case or with
-||| block for its parent: `case block in f`, `with block in f`, or `f,go`
-||| for a block of `f`'s nested `go`. A prefix comes off as the part of the
-||| string it stands before, so that each is one fewer.
-outermost : String -> String
-outermost s = pack (takeWhile (/= ',') (blocks (unpack s)))
-  where
-    blocks : List Char -> List Char
-    blocks ('c' :: 'a' :: 's' :: 'e' :: ' ' :: 'b' :: 'l' :: 'o' :: 'c' :: 'k' :: ' ' :: 'i' :: 'n' :: ' ' :: rest) =
-      blocks rest
-    blocks ('w' :: 'i' :: 't' :: 'h' :: ' ' :: 'b' :: 'l' :: 'o' :: 'c' :: 'k' :: ' ' :: 'i' :: 'n' :: ' ' :: rest) =
-      blocks rest
-    blocks cs = cs
-
 ||| The definition a case, with or nested block belongs to, through every
-||| block between: a case or with block's parent is a string, in the
-||| block's namespace; a nested function's parent is its place in the
-||| context. Idris's numbers in a nested name are those of the session that
+||| block between: a case or with block's parent is its full name, which
+||| Idris keeps; a nested function's parent is its place in the context.
+||| Idris's numbers in a nested name are those of the session that
 ||| elaborated it, so the parents of a loaded one can lead anywhere, even
 ||| back to a name passed already: the walk enters each parent once
 ||| (`Walk`), and stops at a name whose parent it has entered.
@@ -440,8 +435,8 @@ rootOf n = climb start (sizeAccessible start) n
     -- The accessibility proof is erased, and every clause matches its one
     -- constructor: no alternative is chosen by it.
     climb : (w : Walked) -> (0 _ : SizeAccessible w) -> Name -> Core Name
-    climb w (Access _) (NS ns (CaseBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
-    climb w (Access _) (NS ns (WithBlock outer _)) = pure (NS ns (UN (Basic (outermost outer))))
+    climb w (Access rec) m@(NS _ (CaseBlock outer _)) = parent w rec m outer
+    climb w (Access rec) m@(NS _ (WithBlock outer _)) = parent w rec m outer
     climb w (Access rec) m@(NS _ (Nested (outer, _) _)) = do
       -- A negative parent is no place, which Idris's bare `Int` allows.
       let Just placement = placementOf outer
@@ -451,6 +446,15 @@ rootOf n = climb start (sizeAccessible start) n
         Nothing => pure m
         Just (Element w' less) => climb w' (rec w' less) !(toFullNames (Resolved outer))
     climb w (Access _) m = pure m
+
+    -- A block's parent, entered once, as a nested function's is.
+    parent : (w : Walked) -> (0 rec : (w' : Walked) -> Smaller w' w -> SizeAccessible w') -> Name -> Name -> Core Name
+    parent w rec m outer = do
+      Just (placement, _) <- resolve outer
+        | Nothing => pure m
+      case enter placement w of
+        Nothing => pure m
+        Just (Element w' less) => climb w' (rec w' less) outer
 
 ||| Did Idris prove that every call of a definition ends? Idris's own
 ||| termination check, which follows everything the definition calls, so
@@ -682,7 +686,6 @@ normalHead ctxt tm = spine tm []
     spine (Ref _ (DataCon _ _) n) args = Built n args
     spine (Ref _ Bound _) _ = Stuck (OnRuntime tm)
     spine (Ref _ Func n) _ = Stuck (maybe (OnRuntime tm) (const (OnValue tm)) (getNameID n ctxt))
-    spine (Erased _ Impossible) _ = Stuck (OnRuntime tm)
     spine _ _ = Stuck (OnValue tm)
 
 ||| A definition the reduction meets again on its head path: unfolding it
@@ -735,9 +738,10 @@ mutual
   reduce ph w acc env (Ref _ (DataCon _ _) n) args = pure (Built n args)
   reduce ph w acc env tm@(Ref _ (TyCon _) _) args = pure (Stuck (OnValue (whole env tm args)))
   reduce ph w acc env tm@(Ref _ Bound _) args = pure (Stuck (OnRuntime (whole env tm args)))
-  reduce ph w acc env tm@(Ref _ Func n) args = unfolded ph w acc n (whole env tm args) args
+  reduce ph w acc env tm@(Ref _ Func n) args =
+    if runtimePart n then pure (Stuck (OnRuntime (whole env tm args)))
+      else unfolded ph w acc n (whole env tm args) args
   reduce ph w acc env tm@(Meta _ _ i _) args = filledIn ph w acc i (whole env tm args)
-  reduce ph w acc env tm@(Erased _ Impossible) args = pure (Stuck (OnRuntime (whole env tm args)))
   reduce ph w acc env tm args = normalised ph w acc (whole env tm args)
 
   ||| A part met on the path.
@@ -935,13 +939,13 @@ shapeHead tm = case getFnArgs tm of
 ||| The shape of a term as written: the constructors it is built with,
 ||| everything else erased, and nothing when its head is no constructor.
 ||| Nothing is evaluated: a constant, a variable or a call says nothing.
-||| What the shape does not say is a part of a runtime value, so a hole
-||| has the reason `Impossible`, as a runtime variable has in the written
-||| form: `runtimeDependent` refuses it wherever a value is needed.
+||| What the shape does not say is a part of a runtime value, so a hole is
+||| the stand-in for one, as a runtime variable is in the written form:
+||| `runtimeDependent` refuses it wherever a value is needed.
 export
 skeleton : ClosedTerm -> Maybe ClosedTerm
 skeleton con@(Ref _ (DataCon _ _) _) = Just con
-skeleton (App fc f a) = (\f' => App fc f' (fromMaybe (Erased fc Impossible) (skeleton a))) <$> skeleton f
+skeleton (App fc f a) = (\f' => App fc f' (fromMaybe (probeTerm ProbeRuntime) (skeleton a))) <$> skeleton f
 skeleton _ = Nothing
 
 ||| A runtime value of a type with what its shape says, if anything.

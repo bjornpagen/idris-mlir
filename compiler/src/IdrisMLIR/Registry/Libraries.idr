@@ -100,6 +100,7 @@ moduleOrigin (Installed "prelude") _ = Library Prelude
 moduleOrigin (Installed "base") _ = Library Base
 moduleOrigin (Installed "mlir-linear") _ = Library InHouse
 moduleOrigin (Installed "mlir-array") _ = Library InHouse
+moduleOrigin (Installed "mlir-relational") _ = Library InHouse
 moduleOrigin (Installed "idris-compiler") _ = Library Compiler
 moduleOrigin _ _ = Untrusted
 

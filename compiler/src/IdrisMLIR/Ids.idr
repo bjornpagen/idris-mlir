@@ -1,9 +1,11 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| Identifiers. Each kind of name is its own type, so a function name cannot
-||| be used where a data type is meant. A name the compiler makes is derived
-||| from the content it names, through XXH3's 128-bit hash, never from a
-||| counter, so the order things are made in cannot reach the output.
+||| Identifiers. Each kind of identity is its own type, so a function cannot
+||| be named where a family is meant. An identity is a dense number of the
+||| table that mints it, once; no identity reaches the output. A name the
+||| output carries (a symbol) is derived from the content it names, through
+||| XXH3's 128-bit hash where its print loses part of it, never from a
+||| number, so the order things are made in cannot reach the output.
 module IdrisMLIR.Ids
 
 import Data.Bits
@@ -15,28 +17,41 @@ import Data.Vect
 
 %default total
 
-||| A function instance, by its symbol (`Term.keyText`).
+||| A function instance, by its place in the program's instance table:
+||| minted once, when the instance is first requested, and never derived
+||| from text. Its symbol is a column of that table, printed once from its
+||| key (`Term.keyText`), for MLIR and for readers; nothing compares it.
 public export
 record FnId where
   constructor MkFnId
-  name : String
+  index : Nat
 
-||| A monomorphic data instance, by its symbol: `<Idris name>[<type
-||| arguments>]`, with the identity's hash where the print loses part of it.
+||| A family instance (a type constructor at its keyed parameters), by its
+||| place in the program's family table, minted once when the family is
+||| first registered. Its identity in the module is its content (the
+||| declaration Emit writes); this number only finds it in the table.
 public export
-record DataId where
-  constructor MkDataId
-  name : String
+record FamilyId where
+  constructor MkFamilyId
+  index : Nat
 
-||| A constructor of a data instance: the instance, and the constructor's
+||| A constructor of a family instance: the family, and the constructor's
 ||| position among its type's constructors, which is Idris's tag for it.
 ||| Its name is printed from the context that declares it (`Con.name`).
 public export
 record ConId where
   constructor MkConId
-  dataId : DataId
+  family : FamilyId
   {0 arity : Nat}
   index : Fin arity
+
+||| A strongly connected component of Idris's own call graph, whose
+||| size-change graphs Idris keeps: by its place in the table of components
+||| the translation has checked, minted once per component.
+public export
+record ComponentId where
+  constructor MkComponentId
+  index : Nat
 
 ||| An Idris name as it is printed: what the compiler reports, never what it
 ||| compares. It has `Show` and no `Eq`, so code outside the registry can
@@ -89,19 +104,24 @@ record InstanceKey where
   arguments : KeyArguments
   print : KeyPrint
 
-export Eq FnId where a == b = a.name == b.name
-export Ord FnId where compare a b = compare a.name b.name
-export Show FnId where show = (.name)
+export Eq FnId where a == b = a.index == b.index
+export Ord FnId where compare a b = compare a.index b.index
+-- For the compiler's own errors: what a user reads names an instance by
+-- its symbol.
+export Show FnId where show f = "instance " ++ show f.index
 
-export Eq DataId where a == b = a.name == b.name
-export Ord DataId where compare a b = compare a.name b.name
-export Show DataId where show = (.name)
+export Eq FamilyId where a == b = a.index == b.index
+export Ord FamilyId where compare a b = compare a.index b.index
+export Show FamilyId where show f = "family " ++ show f.index
 
-export Eq ConId where a == b = a.dataId == b.dataId && finToNat a.index == finToNat b.index
-export Ord ConId where compare a b = compare (a.dataId, finToNat a.index) (b.dataId, finToNat b.index)
+export Eq ConId where a == b = a.family == b.family && finToNat a.index == finToNat b.index
+export Ord ConId where compare a b = compare (a.family, finToNat a.index) (b.family, finToNat b.index)
 -- The identity, for the compiler's own errors: what a user or a test reads
 -- names a constructor by `Con.name`.
-export Show ConId where show c = show c.dataId ++ "#" ++ show (finToNat c.index)
+export Show ConId where show c = show c.family ++ "#" ++ show (finToNat c.index)
+
+export Eq ComponentId where a == b = a.index == b.index
+export Ord ComponentId where compare a b = compare a.index b.index
 
 ------------------------------------------------------------------------------
 -- Names from content

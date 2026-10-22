@@ -7,7 +7,9 @@ module IdrisMLIR.Registry.Entry
 
 import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Registry.Name
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
+import IdrisMLIR.Spec.Ops.Comparisons
 import IdrisMLIR.Types
 
 import Data.List
@@ -310,7 +312,7 @@ data Hook : Type where
   ||| a definition the user's definitions refer to, or a spelling in the
   ||| user's source. Handler:
   ||| `Frontend.Profile.checkReachable`, `Frontend.Profile.checkPragmas`.
-  Forbidden : Rule -> Hook
+  Forbidden : SomeRule -> Hook
   ||| A deprecated name. The text names the replacement, and a program that
   ||| calls the name is rejected. Handler: `Frontend.Profile.checkReachable`.
   Deprecated : String -> Hook
@@ -384,7 +386,7 @@ record Hooks where
   natOperation : Maybe NatMeaning
   exits : Maybe IOPrim
   systemInfo : Maybe SystemFact
-  forbidden : Maybe Rule
+  forbidden : Maybe SomeRule
   deprecated : Maybe String
   libraryCrash : Bool
 

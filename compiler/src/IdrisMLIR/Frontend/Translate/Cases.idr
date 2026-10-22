@@ -23,7 +23,9 @@ import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -94,7 +96,7 @@ variableOf _ = Nothing
 ||| (Idris proved no input reaches it), a crash otherwise.
 missingCase : {0 nv : Nat} -> Ctx -> Loc -> IdrisMLIR.Term.Term nv
 missingCase ctx loc =
-  if ctx.complete then Unreachable loc else Crash loc ("unhandled input for " ++ ctx.owner)
+  if ctx.complete then Unreachable loc else Crash loc NoClauseMatched
 
 ||| An arm of a match as its tree gives it: none, one no value takes (Idris
 ||| proved it impossible, or the value's shape rules it out), or one that
@@ -114,7 +116,7 @@ orElse arm _ = arm
 ||| What runs where the tree has no arm: nothing in a covering definition,
 ||| a crash otherwise.
 missingArm : {0 nv : Nat} -> Ctx -> Loc -> Arm (IdrisMLIR.Term.Term nv)
-missingArm ctx loc = if ctx.complete then Dead else Present (Crash loc ("unhandled input for " ++ ctx.owner))
+missingArm ctx loc = if ctx.complete then Dead else Present (Crash loc NoClauseMatched)
 
 ||| A match's possible arms: its alternatives and its default when one runs,
 ||| its alternatives when none does; with no possible arm, the match is
@@ -201,7 +203,7 @@ mutual
   export
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
          Ctx -> List (VarInfo (Fin nv)) -> Clauses vars -> CaseTree vars -> Core (Term nv)
-  tree ctx env cls (STerm _ tm) = term asWritten start (sizeAccessible start) ctx (heldAt cls env) tm
+  tree ctx env cls (STerm clause tm) = term asWritten start (sizeAccessible start) ctx (heldAt (cast clause) cls env) tm
   -- Idris proved it cannot be reached. An `Unmatched` leaf of a covering
   -- definition is one too: a definition whose clauses are all impossible
   -- has only that leaf. In a definition with missing cases it is one of
@@ -244,12 +246,12 @@ mutual
       -- type. The Core type names it when it is a declaration the
       -- constructor belongs to; a value of a type with one runtime field
       -- has its field's type, so the Idris type names it then.
-      instanceOf : VarInfo (Fin nv) -> GlobalDef -> Core DataId
+      instanceOf : VarInfo (Fin nv) -> GlobalDef -> Core FamilyId
       instanceOf v def = do
         st <- get TState
         let cn = fullname def
         fromCore <- case coreTyOf v of
-                      Just (DataT d) => do
+                      Just (DataT d _) => do
                         Just cid <- conIdOf d def
                           | Nothing => pure Nothing
                         pure (case lookup cid st.cons of
@@ -281,29 +283,27 @@ mutual
           (cn :: _) => do
             def <- lookupDef ctx.fc ctx.owner cn
             let shape = shapeOf v
-            case natRole def of
-              -- A `Nat`-like value is a natural: a match on its
-              -- constructors is a match on zero.
-              Just _ => natCase ctx env cls scrutinee shape loc i (idrisTypeOf v) alts
-              Nothing => do
+            case (natRole def, coreTyOf v) of
+              -- A value of Idris's `Nat` is a natural: a match on its
+              -- constructors is a match on zero. A family of the same shape
+              -- (`Fin`, `Elem`) is a family like any other, laid out as a
+              -- number by the dialect.
+              (Just _, Just NatT) => natCase ctx env cls scrutinee shape loc i (idrisTypeOf v) alts
+              _ => do
                 inst <- instanceOf v def
-                st <- get TState
-                if isJust (newtypeOf inst st)
-                   then newtypeCase ctx env cls scrutinee v inst alts
-                   else do
-                     every <- coversAll alts
-                     built <- builtNamed shape alts
-                     (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst alts
-                     st' <- get TState
-                     -- Constructors a tree with no default leaves out are
-                     -- impossible when the definition is covering, and
-                     -- crash otherwise.
-                     let crashing = case (fallback, ctx.complete, declared inst st') of
-                                      (Absent, False, Just dt) =>
-                                        map (\(k ** c) => MkAlt c (replicate k (shown "_")) (missingCase ctx loc))
-                                            (filter (\(_ ** c) => not (contains c.id named)) (consOf dt))
-                                      _ => []
-                     pure (armsOf loc i (conAlts ++ crashing) fallback)
+                every <- coversAll alts
+                built <- builtNamed shape alts
+                (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst alts
+                -- The constructors a tree with no default leaves out are one
+                -- default: impossible when the definition is covering, a
+                -- crash otherwise.
+                let crashing = case (fallback, ctx.complete) of
+                                 (Absent, False) => case familyOf inst !(get TState) of
+                                   Just f => if all (\(_ ** c) => contains c.id named) f.cons
+                                               then Absent else Present (missingCase ctx loc)
+                                   Nothing => Absent
+                                 _ => fallback
+                pure (armsOf loc i conAlts crashing)
 
       -- A match on a runtime value, by what its alternatives match: a
       -- suspension's form, a natural's constructors, one runtime field's
@@ -324,7 +324,7 @@ mutual
                           _ => Runtime FZ Nothing Nothing
             body <- tree ctx (under {k = 1} [TypeValue (Erased ctx.fc Placeholder), value] env)
                          (afterDelay scrutinee cls) rhs
-            pure (Let loc (binderName arg) Many (Resume loc (Var loc i)) body)
+            pure (Let loc (binderName arg) (OfValue Many) (Resume loc (Var loc i)) body)
           delayed (_ :: rest) = delayed rest
           delayed [] = matched loc v i
 
@@ -453,49 +453,6 @@ mutual
       pick cn infos (_ :: rest) = pick cn infos rest
       pick cn infos [] = internal ctx.fc ("no alternative for " ++ show cn)
 
-  ||| A match on a value of a type with one runtime field, which is the
-  ||| field's value: nothing is matched at runtime, the alternative's
-  ||| arguments stand for what the constructor holds, and its field for the
-  ||| matched value itself, at the field's type.
-  newtypeCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
-                Ctx -> List (VarInfo (Fin nv)) -> Clauses vars -> Var vars ->
-                VarInfo (Fin nv) -> DataId -> List (CaseAlt vars) -> Core (Term nv)
-  newtypeCase ctx env cls here scrutinee inst alts = firstNamed alts
-    where
-      -- The field is the matched value itself, with what its shape says
-      -- of it.
-      field : Nat -> Binder -> ClosedTerm -> Maybe ClosedTerm -> VarInfo (Fin nv)
-      field _ b ity s = case (variableOf scrutinee, s) of
-        (Just x, Just s') => shaped x (typeOf b) ity s'
-        (Just x, Nothing) => Runtime x (Just (typeOf b)) (Just ity)
-        (Nothing, _) => TypeValue (Erased EmptyFC Placeholder)
-
-      -- The default, when no alternative names the constructor.
-      fallback : List (CaseAlt vars) -> Core (Term nv)
-      fallback (DefaultCase rhs :: _) = tree ctx env cls rhs
-      fallback (_ :: rest) = fallback rest
-      fallback [] = internal ctx.fc "a match on a value of one field without an alternative"
-
-      -- The first alternative that names the constructor, or the default.
-      firstNamed : List (CaseAlt vars) -> Core (Term nv)
-      firstNamed (ConCase cn _ args rhs :: _) = do
-        def <- lookupDef ctx.fc ctx.owner cn
-        Just cid <- conIdOf inst def
-          | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
-        st <- get TState
-        let Just info = lookup cid st.cons
-          | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
-        when (length info.args /= length args) $
-          reject ctx.fc ctx.owner CompiledModule
-                 ("constructor " ++ show (fullname def) ++ " binds an unexpected number of arguments")
-        -- A dictionary field no construction site has given is one of no
-        -- value: the alternative is unreachable (`Dictionaries`).
-        Just infos <- argsBound field info.args (shapeArgs (shapeOf scrutinee))
-          | Nothing => Unreachable <$> toLoc ctx.fc
-        tree ctx (infos ++ env) !(afterCon cn (type def) here args cls) rhs
-      firstNamed (_ :: rest) = firstNamed rest
-      firstNamed [] = fallback alts
-
   ||| The constructors a match's alternatives name, its possible
   ||| alternatives, each over its fields, named as the alternative names
   ||| them, and the default: none when the alternatives name every
@@ -506,7 +463,7 @@ mutual
   ||| is no possible one.
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> List (VarInfo (Fin nv)) -> Clauses vars -> Var vars ->
-                    Maybe ClosedTerm -> Bool -> Bool -> DataId ->
+                    Maybe ClosedTerm -> Bool -> Bool -> FamilyId ->
                     List (CaseAlt vars) -> Core (SortedSet ConId, List (Alt nv), Arm (Term nv))
   conAlternatives ctx env cls scrutinee shape every built inst [] = pure (empty, [], Absent)
   conAlternatives ctx env cls scrutinee shape every built inst (ConCase cn _ args rhs :: rest) = do

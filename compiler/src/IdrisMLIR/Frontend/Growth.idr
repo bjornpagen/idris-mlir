@@ -26,7 +26,7 @@ import IdrisMLIR.Loc
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Registry.Libraries
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
 
 import Data.Fin
 import Data.List

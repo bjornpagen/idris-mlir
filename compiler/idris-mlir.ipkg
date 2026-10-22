@@ -4,7 +4,7 @@ package idris-mlir
 version = 0.1.0
 brief = "Compiler from checked Idris 2 TT to MLIR"
 
-depends = idris-compiler
+depends = idris-compiler, idris-mlir-spec
 sourcedir = "src"
 modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Registry.Libraries
@@ -15,17 +15,17 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Registry.Primitives
         , IdrisMLIR.Registry.Recognized
         , IdrisMLIR.Registry
-        , IdrisMLIR.Facts
         , IdrisMLIR.Term
         , IdrisMLIR.MLIR.Text
         , IdrisMLIR.MLIR.Parts
-        , IdrisMLIR.Syntax.Idr
         , IdrisMLIR.Syntax.Builtin
         , IdrisMLIR.Syntax.Arith
         , IdrisMLIR.Syntax.Math
         , IdrisMLIR.Syntax.UB
         , IdrisMLIR.Syntax.MemRef
         , IdrisMLIR.Syntax.Tensor
+        , IdrisMLIR.Syntax.Linalg
+        , IdrisMLIR.Syntax.Bufferization
         , IdrisMLIR.Encoding.Idr
         , IdrisMLIR.Encoding.Builtin
         , IdrisMLIR.MLIR
@@ -37,6 +37,8 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Dialect.UB
         , IdrisMLIR.Dialect.MemRef
         , IdrisMLIR.Dialect.Tensor
+        , IdrisMLIR.Dialect.Linalg
+        , IdrisMLIR.Dialect.Bufferization
         , IdrisMLIR.Emit.Index
         , IdrisMLIR.Emit.Monad
         , IdrisMLIR.Emit.Types

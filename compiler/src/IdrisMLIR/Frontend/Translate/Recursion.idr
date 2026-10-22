@@ -4,8 +4,9 @@
 ||| Idris's termination checker keeps for every definition (`sizeChange`),
 ||| and what each says of its loops. Every loop through a definition
 ||| terminates when the graphs of the calls in its component decrease some
-||| argument each time round, which is what the definition's
-||| `terminating` fact says (`Facts`): a loop never leaves its component.
+||| argument each time round: its termination names the component, so that
+||| a cycle a later pass makes through two components (a stored function, a
+||| method's projection) is never read as one Idris proved.
 ||| Idris folds a case block's calls into its parent's graph, so the
 ||| definitions here are the ones Idris checks.
 module IdrisMLIR.Frontend.Translate.Recursion
@@ -19,6 +20,10 @@ import Libraries.Data.SparseMatrix
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Ids
+import IdrisMLIR.Term
+
+import Data.List1
 
 import Control.WellFounded
 import Data.DPair
@@ -66,7 +71,7 @@ mutual
   ||| it entered the definition, and every definition it enters below
   ||| leaves fewer than `w0` to enter (`Walk`), which is why the search
   ||| ends.
-  visit : {auto c : Ref Ctxt Defs} -> SortedMap Address Bool -> Member ->
+  visit : {auto c : Ref Ctxt Defs} -> SortedMap Address Termination -> Member ->
           (w0 : Walked) -> (0 _ : SizeAccessible w0) -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w0))
   visit done v w0 acc s0 = do
     let key = v.address
@@ -82,7 +87,7 @@ mutual
   ||| The calls of the definition at `key`, in order: a callee the walk has
   ||| not entered is visited, and one on the stack lowers the definition's
   ||| link.
-  successors : {auto c : Ref Ctxt Defs} -> SortedMap Address Bool -> Address ->
+  successors : {auto c : Ref Ctxt Defs} -> SortedMap Address Termination -> Address ->
                (w0 : Walked) -> (0 _ : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
                List Name -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w))
   successors done key w0 acc w p [] s = pure (s, Element w (noMore w))
@@ -105,10 +110,11 @@ mutual
       lower : Address -> Nat -> Search -> Search
       lower k n st = { low $= \m => insert k (min n (fromMaybe n (lookup k m))) m } st
 
-||| Checks one component: whether every loop through each of its
-||| definitions terminates, which its definitions' `terminating` fact says.
-||| Whether its recursion asks for ever more instances is the growth
-||| check's to say (`Growth`), on the program's static positions.
+||| Checks one component, numbered as it is found: each definition whose
+||| loops Idris's graphs prove to end terminates in it; any other may
+||| diverge, by its own name. Whether its recursion asks for ever more
+||| instances is the growth check's to say (`Growth`), on the program's
+||| static positions.
 checkComponent : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Member -> Core ()
 checkComponent members = do
   defs <- get Ctxt
@@ -117,8 +123,13 @@ checkComponent members = do
   let calls = [ (caller.name, call.fnCall, call.fnArgs)
               | caller <- members, call <- caller.calls, within call.fnCall ]
   let verdicts = loopsTerminate calls (map (.name) members)
-  update TState { loops $= \m => foldl (\m', (n, v) => maybe m' (\a => insert a v m') (definitionAddress (gamma defs) n))
-                                        m verdicts }
+  st <- get TState
+  let component = MkComponentId st.nextComponent
+      termination = \n, ends => if ends then Terminates component else MayDiverge (shown (show n) ::: [])
+  put TState ({ nextComponent $= S
+              , loops $= \m => foldl (\m', (n, v) => maybe m' (\a => insert a (termination n v) m')
+                                                            (definitionAddress (gamma defs) n))
+                                      m verdicts } st)
 
 ||| Checks the component of a definition, and of every definition it
 ||| reaches, once each.

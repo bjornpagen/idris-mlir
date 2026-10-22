@@ -24,10 +24,11 @@
 module IdrisMLIR.Term
 
 import IdrisMLIR.Dialect.Idr
-import IdrisMLIR.Facts
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Families.Declaration
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 
 import Data.Fin
@@ -35,7 +36,6 @@ import Data.Fin.Split
 import Data.List
 import Data.List1
 import Data.Maybe
-import Data.SortedMap
 import Data.String
 import Data.Vect
 
@@ -75,18 +75,25 @@ liftRen f v = case splitUnder {k} v of
   Right x => Free {k} (f x)
 
 ------------------------------------------------------------------------------
--- Constructors and data instances
+-- Families
 ------------------------------------------------------------------------------
 
-||| A constructor of a data instance, of `k` fields (its runtime fields, not
-||| its parameters, each as it binds), with its identity and its name
-||| within its data type, as the module and the dump print it
-||| (`Types.shortName`). Every reference to a constructor holds it.
+||| A constructor of a family instance, of `k` fields: its identity (the
+||| family and its position, Idris's tag), its name within its type, as the
+||| module labels it (`Types.shortName`); its erased binders, the levels
+||| `0 .. j-1` of its own scope (Idris's quantity-0 arguments that an index
+||| of its result or a field's type refers to; a proof no index reads is no
+||| binder); the term each index of its family equals, one per index, in
+||| that scope; and its fields (its runtime arguments, not its parameters),
+||| each as it binds, its type in that scope. A field of quantity 0 does not
+||| exist. Every reference to a constructor holds it.
 public export
 record Con (k : Nat) where
   constructor MkCon
   id : ConId
   name : String
+  binders : List Sort
+  equation : List ITerm
   fields : Vect k Binder
   loc : Loc
 
@@ -95,36 +102,30 @@ public export
 (.tag) : Con k -> Nat
 (.tag) c = finToNat c.id.index
 
-||| A data instance's constructors, in tag order, and the sum they are: a
-||| plain sum; a sum whose cells every program is checked to rebuild in
-||| place and hold exclusive (the registry's `InPlaceType`); or base's list,
-||| its nil and its cons, which the string builders take apart (the
-||| registry's `ListType`).
-public export
-data DataShape
-  = PlainSum (List (k ** Con k))
-  | InPlaceSum (List (k ** Con k))
-  | BaseListSum (Con 0) (Con 2)
+||| The terms a constructor's binders are given where the scope links none
+||| of them to a level or a constant: an index outside the language, which
+||| refines nothing.
+export
+unlinked : Con k -> List ITerm
+unlinked c = map (const IOpaque) c.binders
 
-||| A data instance. Its key is what it is an instance of, and its Idris
-||| name is the key's origin. It says nothing of how its values are laid
-||| out: whether a value is boxed is the dialect's decision, made once from
-||| the type graph.
+||| A family instance: the inductive family Idris checked, at the
+||| parameters its key holds (keyed parameters substituted, dictionary
+||| fields fixed for the program), carried whole: the sorts of its erased
+||| indices, its constructors in tag order, and what its library promises
+||| of its values (`Promise`: rebuilt in place, the registry's
+||| `InPlaceType`). Its key is what it is an instance of, and its Idris
+||| name is the key's origin. How its values are laid out, inline or in a
+||| cell, is the dialect's, from the type.
 public export
-record Data where
-  constructor MkData
-  id : DataId
+record Family where
+  constructor MkFamily
+  id : FamilyId
   key : InstanceKey
-  shape : DataShape
+  promise : Promise
+  indices : List Sort
+  cons : List (k ** Con k)
   loc : Loc
-
-||| A data instance's constructors, in tag order.
-public export
-consOf : Data -> List (k ** Con k)
-consOf d = case d.shape of
-  PlainSum cs => cs
-  InPlaceSum cs => cs
-  BaseListSum nil cons => [(0 ** nil), (2 ** cons)]
 
 ------------------------------------------------------------------------------
 -- Terms
@@ -137,6 +138,13 @@ public export
 data IOGives : IOResult -> Type where
   GivesUnit : Con 0 -> IOGives WorldOnly
   GivesValue : IOGives ValueThenWorld
+
+||| What a `let` binds: an Idris `let`'s binder, its type the one Idris
+||| checked, which the TTC keeps; or a value the translation binds once
+||| (an argument evaluated where the call puts it, a held value), at the
+||| quantity it makes it at, its type the value's own.
+public export
+data LetBinder = Checked Binder | OfValue Uses
 
 ||| A match's possible alternatives and its default, or alternatives that
 ||| cover every constructor, at least one: a match with no possible arm is
@@ -160,21 +168,25 @@ mutual
     Var : Loc -> Fin n -> Term n
     Literal : Loc -> Lit -> Term n
     ||| A primitive, and the library definition it stands for when the
-    ||| registry lowered that definition's call to it: the dump writes it,
-    ||| so that what a program uses can be read off its Core, and nothing
-    ||| computes with it.
+    ||| registry lowered that definition's call to it, for a message to
+    ||| name; nothing computes with it.
     PrimApp : {k : Nat} -> Loc -> Prim k -> (standsFor : Maybe Shown) -> Vect k (Term n) -> Term n
     ||| An IO primitive on its arguments, which end with the world, giving
     ||| the `IORes` (`res`) of what it gives and the next world.
     Effect : Loc -> (p : IOPrim) -> IOGives (ioResult p) -> List (Term n) -> (res : Con 2) -> Term n
     ||| A saturated call, and the library definition it stands for when the
     ||| registry lowered that definition's call to it, as for a primitive.
-    Call : Loc -> FnId -> (standsFor : Maybe Shown) -> List (Term n) -> Term n
+    ||| `indices` are the terms its callee's erased index parameters are
+    ||| given, in the caller's scope, one per parameter of the callee's
+    ||| telescope (`TFn.telescope`).
+    Call : Loc -> FnId -> (standsFor : Maybe Shown) -> (indices : List ITerm) -> List (Term n) -> Term n
     ||| A saturated constructor application; parameters are not fields.
-    ConApp : {k : Nat} -> Loc -> Con k -> Vect k (Term n) -> Term n
-    ||| `let`, with its variable's name and how it is used. TTC does not
-    ||| keep let types: `Emit` synthesizes them.
-    Let : Loc -> (name : Shown) -> Quantity -> Term n -> Term (Under 1 n) -> Term n
+    ||| `binders` are the terms the constructor's erased binders are given,
+    ||| in the scope it is written in, one per binder: the indices of its
+    ||| value are its equation with them substituted.
+    ConApp : {k : Nat} -> Loc -> Con k -> (binders : List ITerm) -> Vect k (Term n) -> Term n
+    ||| `let`, with its variable's name and what it binds.
+    Let : Loc -> (name : Shown) -> LetBinder -> Term n -> Term (Under 1 n) -> Term n
     Case : Loc -> Fin n -> CaseArmsOf (Alt n) (Term n) -> Term n
     CaseLit : Loc -> Fin n -> LitArmsOf (Term n) -> Term n
     ||| A match on a `Nat`-like value: zero, or a successor, whose
@@ -190,14 +202,16 @@ mutual
     Resume : Loc -> Term n -> Term n
     ||| A term Idris proved never runs: a match with no possible arm.
     Unreachable : Loc -> Term n
-    ||| A case the definition does not cover: a crash, its message fixed.
-    Crash : Loc -> String -> Term n
+    ||| A crash of a partial definition, its cause one of the
+    ||| specification's (`NoClauseMatched` for a case it does not cover);
+    ||| Emit gives it its site and the definition it is in, as data.
+    Crash : Loc -> Cause -> Term n
     ||| A trusted library's crash with a message computed at run time.
     CrashWith : Loc -> Term n -> Term n
     ||| A world forged where a trusted library runs an IO action for a pure
     ||| value (`unsafePerformIO`): the first world of a chain of its own.
-    ||| Its op performs IO and takes no world, so it is neither a pure nor
-    ||| an IO primitive.
+    ||| Like every world it is no value of the module: the action's effects
+    ||| are ordered by the effects its ops declare.
     NewWorld : Loc -> Term n
     ||| An operation of the array language on its operands, giving a value
     ||| of `result`.
@@ -227,10 +241,23 @@ mutual
     ||| statement gives, axis by axis (an axis counted from 0, outermost
     ||| first).
     Tie : Loc -> Term n -> List (Nat, Stated (Term n)) -> Term n
+    ||| A read of a linear array: the element or cell at the coordinates
+    ||| (naturals, one per leading axis), and the array given back as a new
+    ||| value, the `Res` (`res`) of both, as Idris's type says, so that what
+    ||| consumes the array next comes after the read by data dependence.
+    ReadBack : Loc -> (elem : Ty) -> (array : Term n) -> List (Term n) -> (res : Con 2) -> Term n
+    ||| The extents of a linear array, each read giving the array back as a
+    ||| new value: the body binds extent j (outermost first) as `Bound j`, a
+    ||| natural, and its value and the array given back last are the `Res`
+    ||| (`res`).
+    ExtentsBack : {k : Nat} -> Loc -> (array : Term n) -> Term (Under k n) -> (res : Con 2) -> Term n
 
   ||| A constructor alternative binds the constructor's fields (not its
   ||| parameters), each named as its pattern variable: field `i` is
-  ||| `Bound i`, bound as the constructor holds it.
+  ||| `Bound i`, bound as the constructor holds it. Its region also binds
+  ||| the constructor's erased binders, at the next levels of the scope's
+  ||| telescope, and inside it the scrutinee is the value refined to the
+  ||| constructor.
   public export
   data Alt : Nat -> Type where
     MkAlt : {k : Nat} -> Con k -> Vect k Shown -> Term (Under k n) -> Alt n
@@ -260,9 +287,9 @@ mutual
   rename f (Literal l x) = Literal l x
   rename f (PrimApp l p stands as) = PrimApp l p stands (renameVect f as)
   rename f (Effect l p gives as res) = Effect l p gives (renameAll f as) res
-  rename f (Call l fn stands as) = Call l fn stands (renameAll f as)
-  rename f (ConApp l c as) = ConApp l c (renameVect f as)
-  rename f (Let l x q v b) = Let l x q (rename f v) (rename (liftRen {k = 1} f) b)
+  rename f (Call l fn stands is as) = Call l fn stands is (renameAll f as)
+  rename f (ConApp l c bs as) = ConApp l c bs (renameVect f as)
+  rename f (Let l x b v body) = Let l x b (rename f v) (rename (liftRen {k = 1} f) body)
   rename f (Case l x arms) = Case l (f x) (renameArms f arms)
   rename f (CaseLit l x arms) = CaseLit l (f x) (renameLitArms f arms)
   rename f (CaseNat l x arms) = CaseNat l (f x) (renameNatArms f arms)
@@ -280,6 +307,8 @@ mutual
     TabulateIO l ty (renameVect f es) (rename f w) (rename (liftRen {k = S k} f) body) step done
   rename f (Reduce l r acc el ty z x body) = Reduce l r acc el ty (rename f z) (rename f x) (rename (liftRen {k = 2} f) body)
   rename f (Tie l x ds) = Tie l (rename f x) (renameStated f ds)
+  rename f (ReadBack l e x cs res) = ReadBack l e (rename f x) (renameAll f cs) res
+  rename f (ExtentsBack {k} l x body res) = ExtentsBack l (rename f x) (rename (liftRen {k} f) body) res
 
   renameAll : (Fin n -> Fin m) -> List (Term n) -> List (Term m)
   renameAll f [] = []
@@ -347,9 +376,9 @@ mutual
     LiteralF : Loc -> Lit -> TermF f n
     PrimAppF : {k : Nat} -> Loc -> Prim k -> Maybe Shown -> Vect k (f n) -> TermF f n
     EffectF : Loc -> (p : IOPrim) -> IOGives (ioResult p) -> List (f n) -> Con 2 -> TermF f n
-    CallF : Loc -> FnId -> Maybe Shown -> List (f n) -> TermF f n
-    ConAppF : {k : Nat} -> Loc -> Con k -> Vect k (f n) -> TermF f n
-    LetF : Loc -> Shown -> Quantity -> f n -> f (Under 1 n) -> TermF f n
+    CallF : Loc -> FnId -> Maybe Shown -> List ITerm -> List (f n) -> TermF f n
+    ConAppF : {k : Nat} -> Loc -> Con k -> List ITerm -> Vect k (f n) -> TermF f n
+    LetF : Loc -> Shown -> LetBinder -> f n -> f (Under 1 n) -> TermF f n
     CaseF : Loc -> Fin n -> CaseArmsOf (AltF f n) (f n) -> TermF f n
     CaseLitF : Loc -> Fin n -> LitArmsOf (f n) -> TermF f n
     CaseNatF : Loc -> Fin n -> NatArmsOf (f n) (f (Under 1 n)) -> TermF f n
@@ -358,7 +387,7 @@ mutual
     SuspendF : Loc -> f n -> TermF f n
     ResumeF : Loc -> f n -> TermF f n
     UnreachableF : Loc -> TermF f n
-    CrashF : Loc -> String -> TermF f n
+    CrashF : Loc -> Cause -> TermF f n
     CrashWithF : Loc -> f n -> TermF f n
     NewWorldF : Loc -> TermF f n
     TensorF : Loc -> Ty -> TensorOp (f n) -> TermF f n
@@ -366,6 +395,8 @@ mutual
     TabulateIOF : {k : Nat} -> Loc -> Ty -> Vect k (f n) -> f n -> f (Under (S k) n) -> Con 2 -> Con 2 -> TermF f n
     ReduceF : Loc -> Reduction -> Ty -> Ty -> Ty -> f n -> f n -> f (Under 2 n) -> TermF f n
     TieF : Loc -> f n -> List (Nat, Stated (f n)) -> TermF f n
+    ReadBackF : Loc -> Ty -> f n -> List (f n) -> Con 2 -> TermF f n
+    ExtentsBackF : {k : Nat} -> Loc -> f n -> f (Under k n) -> Con 2 -> TermF f n
 
   public export
   data AltF : (Nat -> Type) -> Nat -> Type where
@@ -385,9 +416,9 @@ hmap h (VarF l x) = VarF l x
 hmap h (LiteralF l x) = LiteralF l x
 hmap h (PrimAppF l p stands as) = PrimAppF l p stands (map h as)
 hmap h (EffectF l p gives as res) = EffectF l p gives (map h as) res
-hmap h (CallF l fn stands as) = CallF l fn stands (map h as)
-hmap h (ConAppF l c as) = ConAppF l c (map h as)
-hmap h (LetF l x q v b) = LetF l x q (h v) (h b)
+hmap h (CallF l fn stands is as) = CallF l fn stands is (map h as)
+hmap h (ConAppF l c bs as) = ConAppF l c bs (map h as)
+hmap h (LetF l x b v body) = LetF l x b (h v) (h body)
 hmap h (CaseF l x arms) = CaseF l x (armsMap arms)
   where
     alt : AltF f n -> AltF g n
@@ -419,6 +450,8 @@ hmap h (TabulateF l ty es body) = TabulateF l ty (map h es) (h body)
 hmap h (TabulateIOF l ty es w body step done) = TabulateIOF l ty (map h es) (h w) (h body) step done
 hmap h (ReduceF l r acc el ty z x body) = ReduceF l r acc el ty (h z) (h x) (h body)
 hmap h (TieF l x ds) = TieF l (h x) (map (\(a, s) => (a, map h s)) ds)
+hmap h (ReadBackF l e x cs res) = ReadBackF l e (h x) (map h cs) res
+hmap h (ExtentsBackF l x body res) = ExtentsBackF l (h x) (h body) res
 
 mutual
   ||| The paramorphism: each layer with its subterms as they were and as the
@@ -429,9 +462,9 @@ mutual
   para alg (Literal l x) = alg (LiteralF l x)
   para alg (PrimApp l p stands as) = alg (PrimAppF l p stands (paraVect alg as))
   para alg (Effect l p gives as res) = alg (EffectF l p gives (paraAll alg as) res)
-  para alg (Call l fn stands as) = alg (CallF l fn stands (paraAll alg as))
-  para alg (ConApp l c as) = alg (ConAppF l c (paraVect alg as))
-  para alg (Let l x q v b) = alg (LetF l x q (sub alg v) (sub alg b))
+  para alg (Call l fn stands is as) = alg (CallF l fn stands is (paraAll alg as))
+  para alg (ConApp l c bs as) = alg (ConAppF l c bs (paraVect alg as))
+  para alg (Let l x b v body) = alg (LetF l x b (sub alg v) (sub alg body))
   para alg (Case l x arms) = alg (CaseF l x (paraArms alg arms))
   para alg (CaseLit l x arms) = alg (CaseLitF l x (paraLitArms alg arms))
   para alg (CaseNat l x arms) = alg (CaseNatF l x (paraNatArms alg arms))
@@ -449,6 +482,8 @@ mutual
     alg (TabulateIOF l ty (paraVect alg es) (sub alg w) (sub alg body) step done)
   para alg (Reduce l r acc el ty z x body) = alg (ReduceF l r acc el ty (sub alg z) (sub alg x) (sub alg body))
   para alg (Tie l x ds) = alg (TieF l (sub alg x) (paraStated alg ds))
+  para alg (ReadBack l e x cs res) = alg (ReadBackF l e (sub alg x) (paraAll alg cs) res)
+  para alg (ExtentsBack l x body res) = alg (ExtentsBackF l (sub alg x) (sub alg body) res)
 
   sub : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) -> Term n -> Sub f n
   sub alg t = MkSub t (para alg t)
@@ -519,28 +554,54 @@ cata alg = para (\layer => alg (hmap (.result) layer))
 -- Programs
 ------------------------------------------------------------------------------
 
-||| A function instance of full Core: its key, and its runtime parameters,
-||| each with the name Idris gave it; a parameter Idris erased is not one.
+||| What Idris proved of a function instance's loops, which is where the
+||| divergence of a call through it comes from: every loop through it is
+||| a loop of the one Idris component (its strongly connected component of
+||| Idris's call graph) named, whose size-change graphs decrease; it is a
+||| function the frontend made with no loop of its own (the program's
+||| root); or some loop through it is not proved to end, by the
+||| definitions named. A function another one's lambda or delay became
+||| takes its owner's.
+public export
+data Termination = Terminates ComponentId | Acyclic | MayDiverge (List1 Shown)
+
+||| A function instance of full Core: its identity, its symbol (its key
+||| printed, `keyText`, once), its key; its telescope, the sorts of its
+||| erased index parameters (the levels `0 .. p-1` of its body's scope);
+||| its runtime parameters, each with the name Idris gave it and its
+||| binder, a parameter Idris erased being none; its result; its body; and
+||| what Idris proved of its loops.
 public export
 record TFn where
   constructor MkTFn
   id : FnId
+  symbol : String
   key : InstanceKey
+  telescope : List Sort
   arity : Nat
   params : Vect arity (Shown, Binder)
   result : Ty
   body : Term arity
   loc : Loc
-  facts : Facts
+  termination : Termination
 
-||| A whole program in full Core: its data instances, its root, the only
-||| function the module exports, whose type says what kind of program it is
-||| (`main : Int`, or world-passing IO), and its other functions. The
-||| module and the dump write the others, then the root.
+||| A group of families: a strongly connected component of the graph of
+||| family instances whose fields refer to each other (`Rose`'s `List (Rose
+||| a)` is a member with `Rose`), found once, as the families are
+||| registered, its members in the order they were registered.
+public export
+FamilyGroup : Type
+FamilyGroup = List1 Family
+
+||| A whole program in full Core: its family groups, in an order where a
+||| group's fields refer only to its own members and to earlier groups; its
+||| root, the only function the module exports, whose type says what kind
+||| of program it is (`main : Int`, or IO); and its other functions. The
+||| module writes the others, then the root.
 public export
 record Source where
   constructor MkSource
-  datas : List IdrisMLIR.Term.Data
+  groups : List FamilyGroup
   root : TFn
   others : List TFn
 
@@ -570,13 +631,12 @@ keyPrint : String -> KeyArguments -> String
 keyPrint origin NoArguments = origin
 keyPrint origin arguments@(UpTo _ _) = fastConcat [origin, "[", joinBy ", " (argumentsText arguments), "]"]
 
-||| A key as its symbol, the symbol of a function or data instance in the
-||| Core dump and in the module alike, a function of the key alone (no other
-||| key changes it): its print whole, or, when the print drops part of the
-||| instance's identity or is longer than symbolBytes, as much of it as
-||| fits, `;` and the low 64 bits of the identity's hash as 16 hex digits.
-||| No print ends in `;` and 16 hex digits: a print shows `;` only inside a
-||| string or character literal, which ends in its quote.
+||| A key as its symbol, a function of the key alone (no other key changes
+||| it): its print whole, or, when the print drops part of the instance's
+||| identity or is longer than symbolBytes, as much of it as fits, `;` and
+||| the low 64 bits of the identity's hash as 16 hex digits. No print ends
+||| in `;` and 16 hex digits: a print shows `;` only inside a string or
+||| character literal, which ends in its quote.
 export
 keyText : InstanceKey -> String
 keyText k = symbol k.print
@@ -584,148 +644,3 @@ keyText k = symbol k.print
     symbol : KeyPrint -> String
     symbol Whole = keyPrint k.origin k.arguments
     symbol (Lossy h) = prefixWithin (symbolBytes `minus` 17) (keyPrint k.origin k.arguments) ++ ";" ++ hex16 h
-
-------------------------------------------------------------------------------
--- Printing
-------------------------------------------------------------------------------
-
-||| How the dump names a function and a data instance.
-public export
-record Names where
-  constructor MkNames
-  fnName : FnId -> String
-  dataName : DataId -> String
-
-||| Each function and data instance of a program by its key printed; an id
-||| the program does not declare, by itself.
-export
-sourceNames : Source -> Names
-sourceNames p =
-  let fns = SortedMap.fromList (map (\f => (f.id, keyText f.key)) (p.root :: p.others))
-      datas = SortedMap.fromList (map (\d => (d.id, keyText d.key)) p.datas)
-  in MkNames (\f => fromMaybe (show f) (lookup f fns)) (\d => fromMaybe (show d) (lookup d datas))
-
-indent : Nat -> String
-indent d = replicate (2 * d) ' '
-
-||| What the printer makes of a term in scope `n`: given each variable's de
-||| Bruijn index (`#0` is the innermost) and the indentation depth.
-Printed : Nat -> Type
-Printed n = (Fin n -> Nat) -> Nat -> String
-
-||| The indices under a binder of `k` variables.
-under : {k : Nat} -> (Fin n -> Nat) -> Fin (Under k n) -> Nat
-under ix v = case splitUnder {k} v of
-  Left i => finToNat i
-  Right x => k + ix x
-
-||| The library definition a lowered primitive or call stands for, in braces
-||| after its head, as an implementation is written after its method.
-standing : Maybe Shown -> String
-standing Nothing = ""
-standing (Just q) = "{" ++ show q ++ "}"
-
-||| The types a primitive's call fixes, in angle brackets after its head.
-typeArgs : Names -> List Ty -> String
-typeArgs names [] = ""
-typeArgs names ts = "<" ++ joinBy ", " (map (tyText names.dataName) ts) ++ ">"
-
-printer : Names -> TermF Printed n -> Printed n
-printer names (VarF _ x) ix d = "#" ++ show (ix x)
-printer names (LiteralF _ x) ix d = show x
-printer names (PrimAppF _ p stands as) ix d =
-  show p ++ standing stands ++ "(" ++ joinBy ", " (map (\a => a ix d) (toList as)) ++ ")"
-printer names (EffectF _ p _ as _) ix d =
-  "io." ++ ioName p ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
-printer names (CallF _ fn stands as) ix d = names.fnName fn ++ standing stands ++ "(" ++ joinBy ", " (map (\a => a ix d) as) ++ ")"
-printer names (ConAppF _ c as) ix d =
-  names.dataName c.id.dataId ++ "::" ++ c.name ++ "(" ++ joinBy ", " (map (\a => a ix d) (toList as)) ++ ")"
-printer names (LetF _ _ q v b) ix d =
-  "let " ++ quantityText q ++ " = " ++ v ix (S d) ++ "\n" ++ indent d ++ b (under {k = 1} ix) d
-printer names (CaseF _ x arms) ix d = "case #" ++ show (ix x) ++ " of" ++ armsText arms
-  where
-    alt : AltF Printed n -> String
-    alt (MkAltF {k} c fs body) =
-      "\n" ++ indent (S d) ++ c.name ++ "/" ++ show k ++ " => " ++ body (under {k} ix) (S (S d))
-    armsText : CaseArmsOf (AltF Printed n) (Printed n) -> String
-    armsText (Defaulted alts def) = concatMap alt alts ++ "\n" ++ indent (S d) ++ "_ => " ++ def ix (S (S d))
-    armsText (Exhaustive alts) = concatMap alt (forget alts)
-printer names (CaseLitF _ x arms) ix d = "case #" ++ show (ix x) ++ " of" ++ armsText arms
-  where
-    lit : (Lit, Printed n) -> String
-    lit (k, e) = "\n" ++ indent (S d) ++ show k ++ " => " ++ e ix (S (S d))
-    armsText : LitArmsOf (Printed n) -> String
-    armsText (LitDefault alts def) = concatMap lit alts ++ "\n" ++ indent (S d) ++ "_ => " ++ def ix (S (S d))
-    armsText (LitNoDefault alts) = concatMap lit (forget alts)
-printer names (CaseNatF _ x arms) ix d = "case #" ++ show (ix x) ++ " of" ++ armsText arms
-  where
-    zero : Printed n -> String
-    zero z = "\n" ++ indent (S d) ++ "0 => " ++ z ix (S (S d))
-    succ : Printed (Under 1 n) -> String
-    succ s = "\n" ++ indent (S d) ++ "S _ => " ++ s (under {k = 1} ix) (S (S d))
-    armsText : NatArmsOf (Printed n) (Printed (Under 1 n)) -> String
-    armsText (OnlyZero z) = zero z
-    armsText (OnlySucc _ s) = succ s
-    armsText (Both z _ s) = zero z ++ succ s
-printer names (LamF _ _ b body) ix d =
-  "\\(" ++ binderText names.dataName b ++ ") => " ++ body (under {k = 1} ix) d
-printer names (AppF _ f x) ix d = "(" ++ f ix d ++ " " ++ x ix d ++ ")"
-printer names (SuspendF _ body) ix d = "delay (" ++ body ix d ++ ")"
-printer names (ResumeF _ e) ix d = "force (" ++ e ix d ++ ")"
-printer names (UnreachableF _) ix d = "unreachable"
-printer names (CrashF _ m) ix d = "crash " ++ show m
-printer names (CrashWithF _ m) ix d = "idr.crash_str(" ++ m ix d ++ ")"
-printer names (NewWorldF _) ix d = "new-world"
-printer names (TensorF _ ty op) ix d =
-  "tensor." ++ tensorOpName op ++ typeArgs names [ty] ++ "(" ++ joinBy ", " (map (\a => a ix d) (toList op)) ++ ")"
-printer names (TabulateF {k} _ ty es body) ix d =
-  "tabulate" ++ typeArgs names [ty] ++ "(" ++ joinBy ", " (map (\e => e ix d) (toList es)) ++ ")/" ++
-  show k ++ " => " ++ body (under {k} ix) d
-printer names (TabulateIOF {k} _ ty es w body _ _) ix d =
-  "io.tabulate" ++ typeArgs names [ty] ++ "(" ++ joinBy ", " (map (\e => e ix d) (toList es)) ++ "; " ++
-  w ix d ++ ")/" ++ show (S k) ++ " => " ++ body (under {k = S k} ix) d
-printer names (ReduceF _ r acc el ty z x body) ix d =
-  show r ++ typeArgs names [acc, el, ty] ++ "(" ++ z ix d ++ ", " ++ x ix d ++ ")/2 => " ++
-  body (under {k = 2} ix) d
-printer names (TieF _ x ds) ix d =
-  "tie(" ++ x ix d ++ "; " ++ joinBy ", " (map dim ds) ++ ")"
-  where
-    dim : (Nat, Stated (Printed n)) -> String
-    dim (a, SameAs e) = show a ++ "=" ++ e ix d
-    dim (a, Natural e) = show a ++ "=" ++ e ix d
-
-||| A function body, parameter `i` being `#i`, each function and data
-||| instance named by `names`.
-export
-showBody : Names -> Term n -> Nat -> String
-showBody names t = cata (printer names) t finToNat
-
-||| A data instance's kind of sum, as the dump writes it after its key.
-kindText : DataShape -> String
-kindText (PlainSum _) = ""
-kindText (InPlaceSum _) = " (" ++ show SumKind.InPlace ++ ")"
-kindText (BaseListSum _ _) = " (" ++ show SumKind.BaseList ++ ")"
-
-export
-showSource : Source -> String
-showSource p =
-  let names = sourceNames p
-  in unlines (map (dataDecl names) p.datas ++ map (fnDecl names) (p.others ++ [p.root]) ++
-              ["root " ++ names.fnName p.root.id])
-  where
-    con : Names -> String -> (k ** Con k) -> String
-    con names role (_ ** c) =
-      "\n  " ++ c.name ++ " tag " ++ show c.tag ++ " (" ++
-      joinBy ", " (map (binderText names.dataName) (toList c.fields)) ++ ")" ++ role
-    dataDecl : Names -> IdrisMLIR.Term.Data -> String
-    dataDecl names d = "data " ++ keyText d.key ++ kindText d.shape ++ conText d.shape ++ "\n"
-      where
-        conText : DataShape -> String
-        conText (PlainSum cs) = concatMap (con names "") cs
-        conText (InPlaceSum cs) = concatMap (con names "") cs
-        conText (BaseListSum nil cons) =
-          con names (" " ++ show CtorRole.ListNil) (0 ** nil) ++ con names (" " ++ show CtorRole.ListCons) (2 ** cons)
-    fnDecl : Names -> TFn -> String
-    fnDecl names f = keyText f.key ++ " " ++
-                     concatMap (\(_, b) => "(" ++ binderText names.dataName b ++ ") ") (toList f.params) ++
-                     ": " ++ tyText names.dataName f.result ++ " =\n  " ++ showBody names f.body 1 ++ "\n"

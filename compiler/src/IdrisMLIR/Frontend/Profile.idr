@@ -27,7 +27,8 @@ import IdrisMLIR.Loc
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Registry
 import IdrisMLIR.Registry.Libraries
-import IdrisMLIR.Syntax.Idr
+import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 
 import Control.WellFounded
@@ -53,20 +54,20 @@ import System.File.Buffer
 ||| rule that puts it outside the language wherever the program reaches it:
 ||| threads, finalizers, raw memory, signals and processes. Nothing for the
 ||| other rules, which forbid only what user code names (`firstForbidden`).
-outsideLanguage : Rule -> Maybe (String -> String)
+outsideLanguage : SomeRule -> Maybe (String -> String)
 outsideLanguage rule = (\why, n => n ++ " " ++ why ++ " outside the language this compiler implements") <$> reason rule
   where
-    reason : Rule -> Maybe String
-    reason Threads = Just "starts or coordinates threads (a mutex, a channel), which are"
-    reason Finalizer = Just "registers a collector finalizer, which is"
-    reason RawPointer = Just "allocates raw memory, which is"
-    reason Signal = Just "handles or sends a signal, which is"
-    reason Process = Just "runs another process, which is"
+    reason : SomeRule -> Maybe String
+    reason (Refusal Threads) = Just "starts or coordinates threads (a mutex, a channel), which are"
+    reason (Refusal Finalizer) = Just "registers a collector finalizer, which is"
+    reason (Refusal RawPointer) = Just "allocates raw memory, which is"
+    reason (Refusal Signal) = Just "handles or sends a signal, which is"
+    reason (Refusal Process) = Just "runs another process, which is"
     reason _ = Nothing
 
 ||| What a refusal of a forbidden definition says: why it is outside the
 ||| language, or that it is a use of it.
-exclusion : Rule -> String -> String
+exclusion : SomeRule -> String -> String
 exclusion rule n = maybe ("uses " ++ n) (\says => says n) (outsideLanguage rule)
 
 ||| Does a hook answer for every call of a definition, so that its body is
@@ -87,7 +88,7 @@ answersForBody hs = answersForCalls hs || isJust hs.exits
 
 ||| The first of the definitions a user definition refers to that the
 ||| registry forbids in the user's code, with its rule.
-firstForbidden : List Name -> Maybe (Name, Rule)
+firstForbidden : List Name -> Maybe (Name, SomeRule)
 firstForbidden [] = Nothing
 firstForbidden (r :: rs) = case (hooksOf r).forbidden of
   Just rule => Just (r, rule)
@@ -155,7 +156,7 @@ checkPragmas ident path = do
              "the source could not be lexed"
     Right (_, toks) => traverse_ (noted . check) toks
   where
-    at : WithBounds Token -> FC
+    at : Located Token -> FC
     at tok = let b = tok.bounds in
              MkFC (PhysicalIdrSrc ident) (b.startLine, b.startCol) (b.endLine, b.endCol)
     ||| An escape hatch found here is this module's: what reaches it in TT
@@ -165,13 +166,13 @@ checkPragmas ident path = do
     ||| An escape hatch in the source: a spelling the registry forbids. Idris
     ||| reduces `prim__believe_me` applied to a value during elaboration, so
     ||| it can vanish from TT.
-    spelled : WithBounds Token -> String -> Core ()
+    spelled : Located Token -> String -> Core ()
     spelled tok n = case (hooks (Spelling n)).forbidden of
       Just rule => do
         found n
-        reject (at tok) (show ident) rule ("the escape hatch " ++ n)
+        refuse (at tok) (show ident) rule ("the escape hatch " ++ n)
       Nothing => pure ()
-    check : WithBounds Token -> Core ()
+    check : Located Token -> Core ()
     check tok = case tok.val of
       Pragma p => unless (elem p discharged) $
                     reject (at tok) (show ident) UserPragma ("the pragma %" ++ p)
@@ -400,11 +401,11 @@ checkReachable fc roots = do
       -- User code may not use what the registry forbids, nor forge a world.
       unless trusted $ do
         case firstForbidden refs of
-          Just (r, rule) => reject (location def) key rule (exclusion rule (show r))
+          Just (r, rule) => refuse (location def) key rule (exclusion rule (show r))
           Nothing => pure ()
         case definition def of
           PMDef _ _ tree _ _ =>
-            when (treeMentionsWorld tree) $ reject (location def) key WorldUse "uses %MkWorld"
+            when (treeMentionsWorld tree) $ reject (location def) key TrustedLibrary "uses %MkWorld"
           _ => pure ()
       -- A library's own totality assertions are trusted, and so are its
       -- proofs: a definition of quantity 0 (the `0 lemma` of a where block,

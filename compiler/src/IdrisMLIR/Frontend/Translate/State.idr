@@ -120,8 +120,8 @@ export
 nameKey : Name -> String
 nameKey (NS ns n) = show (NS ns (UN (Basic (nameKey n))))
 nameKey (DN str n) = str ++ "{" ++ nameKey n ++ "}"
-nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ outer
-nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ outer
+nameKey (CaseBlock outer i) = "case block " ++ show i ++ " in " ++ nameKey outer
+nameKey (WithBlock outer i) = "with block " ++ show i ++ " in " ++ nameKey outer
 nameKey n = show n
 
 ||| A definition's identity: its address in the context (`Walk.addressOf`);
@@ -343,25 +343,16 @@ watched : Role -> Bool
 watched Index = False
 watched _ = True
 
-||| A data instance as registered: declared, a sum of its constructors; or a
-||| newtype, one constructor of one runtime field, not declared, its
-||| constructor the identity, by the binder of that field, whose type is the
-||| type of its values. The binder keeps the field's quantity, which a
-||| binder of the instance's type takes through its own (`coreBinder`).
-public export
-data Registered = Declared IdrisMLIR.Term.Data | Newtype Binder
-
 public export
 record TS where
   constructor MkTS
-  ||| The data instances registered, each declared or a newtype.
-  instances : SortedMap DataId Registered
-  ||| The declared instances in the order they were registered.
-  dataOrder : SnocList DataId
-  ||| The instances a field referred to while they were being registered:
-  ||| each is declared, whatever its shape, since its values contain
-  ||| themselves.
-  reentered : SortedSet DataId
+  ||| The family instances registered, each by its link, its identity
+  ||| minted once, the next one `nextFamily`; each family by its identity;
+  ||| and the families in the order they were registered.
+  familyIds : SortedMap (Link Form) FamilyId
+  nextFamily : Nat
+  families : SortedMap FamilyId Family
+  familyOrder : SnocList FamilyId
   cons : SortedMap ConId ConLayout
   fns : SortedMap FnId TFn
   ||| The instances in the order they were first requested, the root first:
@@ -369,7 +360,11 @@ record TS where
   ||| (`Finite`), and so the order of the program's functions. An instance
   ||| translated again keeps its place.
   fnOrder : SnocList FnId
-  seen : SortedSet FnId
+  ||| The function instances requested, each by its link, its identity
+  ||| minted once, in request order, the next one `nextInstance`: a number,
+  ||| never text, and never part of what the program is called.
+  fnIds : SortedMap (Link Form) FnId
+  nextInstance : Nat
   ||| The instances requested since the worklist last took them, in the
   ||| order requested (`Finite.requestedUnder`).
   requested : SnocList Request
@@ -379,10 +374,12 @@ record TS where
   ||| The refusal being unwound to `Errors.noting`, which records it: Idris's
   ||| own `Error` cannot carry a `Refusal`, so the one in flight is here.
   inFlight : Maybe Refusal
-  ||| The definitions whose component of the call graph has been checked
-  ||| (`Recursion`), by address, each with whether every loop through it
-  ||| terminates.
-  loops : SortedMap Address Bool
+  ||| The definitions whose component of Idris's call graph has been
+  ||| checked (`Recursion`), by address, each with what Idris proved of its
+  ||| loops; the components are numbered as they are checked, the next one
+  ||| `nextComponent`.
+  loops : SortedMap Address Termination
+  nextComponent : Nat
   ||| The instances made, by their identity, the link (`Keys.instanceKey`):
   ||| each with its symbol and its key.
   named : SortedMap (Link Form) (String, InstanceKey)
@@ -450,26 +447,18 @@ record TS where
 export
 initState : SortedSet Name -> NonEmptyFC -> TS
 initState ifaces fc = MkTS
-  { instances = empty, dataOrder = [<], reentered = empty
-  , cons = empty, fns = empty, fnOrder = [<], seen = empty, requested = [<], moduleFC = fc, inFlight = Nothing
+  { familyIds = empty, nextFamily = 0, families = empty, familyOrder = [<]
+  , cons = empty, fns = empty, fnOrder = [<], fnIds = empty, nextInstance = 0, requested = [<], moduleFC = fc
+  , inFlight = Nothing, nextComponent = 0
   , loops = empty, named = empty, symbols = empty, blockNames = empty, dicts = empty
   , assumed = empty, chain = [], interfaces = ifaces, rejected = [<], refused = empty
   , spelled = empty, places = empty, tyCons = empty, readings = empty, bounds = empty
   , sizes = MkBounds (const []) 0 0 0 }
 
-||| The declaration of a data instance registered as a sum.
+||| A family registered, by its identity.
 export
-declared : DataId -> TS -> Maybe IdrisMLIR.Term.Data
-declared inst st = case lookup inst st.instances of
-  Just (Declared d) => Just d
-  _ => Nothing
-
-||| The field binder of a data instance registered as a newtype.
-export
-newtypeOf : DataId -> TS -> Maybe Binder
-newtypeOf inst st = case lookup inst st.instances of
-  Just (Newtype b) => Just b
-  _ => Nothing
+familyOf : FamilyId -> TS -> Maybe Family
+familyOf f st = lookup f st.families
 
 ||| What a translation has found that outlives what found it, put back in
 ||| a state: the rejections and what they refused (no refusal is in flight
@@ -484,6 +473,7 @@ export
 keepFound : (from : TS) -> TS -> TS
 keepFound from = { rejected := from.rejected, inFlight := Nothing, refused := from.refused, places := from.places
                  , tyCons := from.tyCons, readings := from.readings, loops := from.loops
+                 , nextComponent := from.nextComponent
                  , blockNames := from.blockNames }
 
 ||| The state the translation starts from: nothing of the phases before it

@@ -10,13 +10,12 @@
 ||| holds a value at run time, so a leaf reads an erased variable as the
 ||| variable that holds its binder, as Idris's run time tree does. Idris's
 ||| quantity check of the clause gives every binder its right side uses at
-||| run time such a place. Idris keeps no clause number in a tree it reads
-||| back, so the clauses a leaf reads are those whose left-hand side every
-||| input that reaches it matches: an equation of such a clause holds there,
-||| and the leaf's own clause is one. What a place tests is what Idris's
-||| tree splits on there (`Pattern`): a term the unifier computed from the
-||| other places (the index `cs ++ ps` of the value `ConClauses cs rest`)
-||| tests nothing, so a clause that holds one at run time still matches.
+||| run time such a place. Each clause's places are the ones the case
+||| builder read, which Idris keeps beside the tree, and each leaf names its
+||| clause, so a leaf reads its own clause's places and no other. What a
+||| place tests is what Idris's tree splits on there (`Pattern`): a term
+||| the unifier computed from the other places (the index `cs ++ ps` of the
+||| value `ConClauses cs rest`) tests nothing.
 module IdrisMLIR.Frontend.Translate.Forced
 
 import Core.Case.CaseBuilder
@@ -25,7 +24,6 @@ import Core.Context
 import Core.Core
 import Core.Env
 import Core.TT
-import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
@@ -37,8 +35,8 @@ import Data.Vect
 %default total
 
 mutual
-  ||| A place of a clause's left-hand side as Idris's case builder reads it
-  ||| (`argToPat`), read once (`patternOf`): the clause's binders, by number,
+  ||| A place of a clause's left-hand side as Idris's case builder read it,
+  ||| read once (`patternOf`): the clause's binders, by number,
   ||| that it names the whole by (a variable, and the names its as-patterns
   ||| give), and what tests the value there.
   record Pattern where
@@ -106,10 +104,11 @@ data Occurrences : Scope -> Type where
   (::) : Occurrence -> Occurrences vars -> Occurrences (v :: vars)
 
 ||| The clauses whose left-hand sides the inputs that reach a point of a
-||| case tree may match, each as occurrences of the tree's scope there.
+||| case tree may match, each by its index among the definition's clauses,
+||| as occurrences of the tree's scope there.
 public export
 Clauses : Scope -> Type
-Clauses vars = List (Occurrences vars)
+Clauses vars = List (Nat, Occurrences vars)
 
 ||| The occurrence of the variable at a position of the scope.
 occurrenceAt : (idx : Nat) -> (0 _ : IsVar n idx vars) -> Occurrences vars -> Occurrence
@@ -168,18 +167,14 @@ leftSide (_ :: as) (q :: qs) [] = MkOccurrence q wildcard :: leftSide as qs []
 
 ||| A definition's clauses, at the root of its compile-time tree, whose
 ||| scope is the definition's parameters (`args`, of the type `ty`), each
-||| argument of a clause read as the case builder reads it, from the clause
-||| closed as Idris closes it to build the tree.
+||| by its index, its places as the case builder read them, which Idris
+||| keeps with the definition (`PMDef`'s clause patterns), read once here.
 export
 clauses : {auto c : Ref Ctxt Defs} -> (args : Scope) -> (ty : ClosedTerm) ->
-          List (vs : Scope ** (Env TT vs, TT vs, TT vs)) -> Core (Clauses args)
+          List (List Pat) -> Core (Clauses args)
 clauses args ty pats = do
   qs <- quantities (length args) ty
-  traverse (\(_ ** (env, lhs, _)) => do
-              full <- toFullNames (close EmptyFC placeName env lhs)
-              places <- traverse host.argToPat (snd (getFnArgs full))
-              pure (leftSide args qs (map patternOf places)))
-           pats
+  pure (zip [0 .. length pats] (map (\places => leftSide args qs (map patternOf places)) pats))
 
 ||| The arguments a match binds, each at the quantity of its binder times
 ||| the quantity of what the match took apart.
@@ -215,14 +210,14 @@ afterCon : {auto c : Ref Ctxt Defs} -> Name -> (ty : ClosedTerm) -> Var vars -> 
            Clauses vars -> Core (Clauses (Scope.addInner vars args))
 afterCon cn ty (MkVar {varIdx} p) args cls = do
   qs <- quantities (length args) ty
-  taken <- traverse (split cn varIdx p args qs) cls
+  taken <- traverse (\(i, os) => map (i,) <$> split cn varIdx p args qs os) cls
   pure (mapMaybe id taken)
 
 ||| The clauses that take a match on a suspension at a variable: the
 ||| suspension's type, erased, and its value, in front.
 export
 afterDelay : Var vars -> Clauses vars -> Clauses (Scope.addInner vars [ty, arg])
-afterDelay (MkVar {varIdx} p) = mapMaybe forced
+afterDelay (MkVar {varIdx} p) = mapMaybe (\(i, os) => (i,) <$> forced os)
   where
     forced : Occurrences vars -> Maybe (Occurrences (Scope.addInner vars [ty, arg]))
     forced os =
@@ -237,7 +232,7 @@ afterDelay (MkVar {varIdx} p) = mapMaybe forced
 ||| The clauses that take a match's alternative for a literal at a variable.
 export
 afterLit : Constant -> Var vars -> Clauses vars -> Clauses vars
-afterLit c (MkVar {varIdx} p) = mapMaybe literal
+afterLit c (MkVar {varIdx} p) = mapMaybe (\(i, os) => (i,) <$> literal os)
   where
     literal : Occurrences vars -> Maybe (Occurrences vars)
     literal os =
@@ -248,18 +243,7 @@ afterLit c (MkVar {varIdx} p) = mapMaybe literal
         Con _ _ => Nothing
         Suspended _ _ => Nothing
 
-||| Does every input that reaches a leaf match the clause: does no place
-||| at a variable that holds a value at run time still test it? Idris's
-||| tree matches every such place of a clause before the clause's leaf, and
-||| an erased place is fixed by those its type depends on.
-covers : Occurrences vars -> Bool
-covers [] = True
-covers (o :: os) = case (use o.quantity, o.matched.test) of
-  (Erased, _) => covers os
-  (Used _, Untested) => covers os
-  (Used _, _) => False
-
-||| The variables a leaf reads elsewhere by one clause, by position: each
+||| The variables a leaf reads elsewhere by its clause, by position: each
 ||| one of quantity 0 whose binder a variable that holds a value at run
 ||| time also binds, with the outermost such variable, which the matches
 ||| bound first.
@@ -276,21 +260,15 @@ aliasesBy vs = mapMaybe alias vs
       Erased => map (\(j, _) => (i, j)) (find (holds o.matched.names) (reverse vs))
       Used _ => Nothing
 
-||| The variables a leaf reads elsewhere, by every clause whose left-hand
-||| side the inputs that reach it match, the first clause's reading first:
-||| by position, the position read in its place.
-aliases : Clauses vars -> SortedMap Nat Nat
-aliases = foldl more empty
-  where
-    more : SortedMap Nat Nat -> Occurrences vars -> SortedMap Nat Nat
-    more found os = if covers os then mergeLeft found (fromList (aliasesBy (positioned os))) else found
-
 ||| A leaf's environment, one entry per variable of its scope by position:
 ||| each erased variable read as the variable that holds its binder at run
-||| time (`aliases`), which is never itself one read elsewhere.
+||| time by the leaf's own clause (`clause`, the index the leaf names),
+||| which is never itself one read elsewhere.
 export
-heldAt : Clauses vars -> List a -> List a
-heldAt cls env = foldl hold env (SortedMap.toList (aliases cls))
+heldAt : (clause : Nat) -> Clauses vars -> List a -> List a
+heldAt clause cls env = case lookup clause cls of
+  Just os => foldl hold env (aliasesBy (positioned os))
+  Nothing => env
   where
     setAt : Nat -> a -> List a -> List a
     setAt Z v (_ :: xs) = v :: xs
