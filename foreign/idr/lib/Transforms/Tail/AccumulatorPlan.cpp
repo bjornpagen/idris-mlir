@@ -37,7 +37,11 @@
 // for the frames to keep its depth. A short circuit's second operand runs
 // only where the first does not decide, so it moves before the call only
 // where it may run on every path; the recursion then runs to its base
-// case, as the source's does, and gives what the source gives.
+// case, as the source's does, and gives what the source gives. Where the
+// self call only computes (no crash, no divergence, no other effect), the
+// rest of the recursion cannot be told from its value: the match takes the
+// second operand first, the call goes into the region it does not decide,
+// as `x && f(...)` is written, and the loop leaves as soon as one decides.
 //
 //===----------------------------------------------------------------------===//
 
@@ -173,11 +177,15 @@ std::optional<ShortCircuit> shortCircuitOf(DataMatchOp match, CallOp call, FuncO
     if (!regions[at] || regions[at]->empty())
       return std::nullopt;
   }
+  // Skipping a call is deleting it where it would have run, which only its
+  // row licenses: a crash and a divergence are writes of the effect system,
+  // so a call that only computes has neither, nor any effect left to order.
+  Exit exit = effects::whole(call).onlyComputes() ? Exit::WhenDecided : Exit::AtBase;
   for (unsigned absorbs = 0; absorbs < 2; ++absorbs) {
     unsigned other = 1 - absorbs;
     if (givesBack(*regions[absorbs], tags[absorbs]) && mayLead(*regions[other], call, fn))
       return ShortCircuit{tags[absorbs], tags[other], regions[absorbs]->getArgument(0).getType(),
-                          regions[other]->getArgument(0).getType()};
+                          regions[other]->getArgument(0).getType(), exit};
   }
   return std::nullopt;
 }
@@ -212,7 +220,7 @@ std::optional<Combined> combinedAt(CallOp call, FuncOp fn) {
 
 // Whether `site` combines by the plan's operation: the same op with the
 // same attributes, or a short circuit absorbing on the same constructor
-// (of the one result type every site has).
+// (of the one result type every site has) whose loop ends alike.
 bool sameOperation(const Combination &plan, const Combination &site) {
   return idr::match(
       plan,
@@ -228,7 +236,9 @@ bool sameOperation(const Combination &plan, const Combination &site) {
       [&](const ShortCircuit &circuit) {
         return idr::match(
             site, [](const Law &) { return false; },
-            [&](const ShortCircuit &other) { return other.absorbing == circuit.absorbing; });
+            [&](const ShortCircuit &other) {
+              return other.absorbing == circuit.absorbing && other.exit == circuit.exit;
+            });
       });
 }
 

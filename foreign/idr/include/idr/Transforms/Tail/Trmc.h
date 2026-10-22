@@ -82,7 +82,7 @@ private:
   mlir::Value makeHole(const Into &hole);
   // The ops after `producer` in its block, its terminator aside, moved
   // before it, in order: the context's cells and what their other fields
-  // need, which the rule proved may run there. The changes of grade of the
+  // need, which the rule proved may run there. The carries of the
   // producer's own results go, which the hole no longer reads.
   void buildBefore(mlir::Operation *producer);
   // `call` made a call of the clone that fills `dest`. Its kind is decided
@@ -95,8 +95,8 @@ private:
                      llvm::SmallVectorImpl<Pending> &work);
   // `rejoin` made again without result `position`.
   void remakeWithout(mlir::Operation *rejoin, unsigned position);
-  // `terminator` forwards nothing at `position`; the changes of grade only
-  // that operand read go. The op whose region it ends drops that result
+  // `terminator` forwards nothing at `position`; the carries only that
+  // operand read go. The op whose region it ends drops that result
   // once every region has (fillByRegions), and the clone its own at last.
   void dropForwarded(mlir::Operation *terminator, unsigned position);
 

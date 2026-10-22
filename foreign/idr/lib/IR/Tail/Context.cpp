@@ -11,7 +11,6 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Traits.h"
 #include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -176,15 +175,15 @@ std::optional<Context> contextOf(CallOp call) {
   // call, then each region op a rejoin leaves, with the steps in its block.
   llvm::SmallVector<Operation *, 2> anchors{call};
 
-  // From the call's result to the hole: changes of grade and rejoins.
+  // From the call's result to the hole: carries and rejoins.
   Value at = call->getResult(0);
   for (;;) {
     OpOperand *use = onlyUse(at);
     if (!use)
       return std::nullopt;
     Operation *user = use->getOwner();
-    if (user->hasTrait<ResultCarriesOperand>() && use->getOperandNumber() == 0) {
-      context.approach.push_back(Regrade{user});
+    if (carriesOn(user) && use->getOperandNumber() == 0) {
+      context.approach.push_back(Carry{user});
       at = user->getResult(0);
       continue;
     }
@@ -256,8 +255,8 @@ std::optional<Context> contextOf(CallOp call) {
         return std::nullopt;
       break;
     }
-    if (user->hasTrait<ResultCarriesOperand>() && number == 0) {
-      context.rest.push_back(Regrade{user});
+    if (carriesOn(user) && number == 0) {
+      context.rest.push_back(Carry{user});
       at = user->getResult(0);
       continue;
     }
@@ -302,12 +301,12 @@ std::optional<Context> contextOf(CallOp call) {
       return true;
     for (const Approach &step : context.approach)
       if (idr::match(
-              step, [&](const Regrade &regrade) { return regrade.op == op; },
+              step, [&](const Carry &carry) { return carry.op == op; },
               [](const Forward &) { return false; }))
         return true;
     for (const Step &step : context.rest)
       if (idr::match(
-              step, [&](const Regrade &regrade) { return regrade.op == op; },
+              step, [&](const Carry &carry) { return carry.op == op; },
               [&](const Into &into) { return into.op == op; },
               [&](const ReadBack &read) { return read.op == op; },
               [](const Forward &) { return false; }))

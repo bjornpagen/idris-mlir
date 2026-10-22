@@ -11,7 +11,6 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
-#include "idr/IR/Traits.h"
 #include "idr/Support/Match.h"
 #include "idr/Support/Remake.h"
 
@@ -25,14 +24,33 @@ namespace idr::tail::trmc {
 
 namespace {
 
-// The value a change of grade carries, through every such change.
-Value throughRegrades(Value value) {
+// The value a carry gives on (carriesOn), through every such carry.
+Value throughCarries(Value value) {
   while (Operation *def = value.getDefiningOp()) {
-    if (!def->hasTrait<ResultCarriesOperand>())
+    if (!carriesOn(def))
       break;
     value = def->getOperand(0);
   }
   return value;
+}
+
+// Every carry of `value` nothing reads any more, from the last back, so a
+// chain of them goes whole: a value it carried on to the hole's field, or
+// to a given result, no longer goes there.
+void eraseUnreadCarries(RewriterBase &rewriter, Value value) {
+  llvm::SmallVector<Operation *> carries;
+  llvm::SmallVector<Value> reached{value};
+  while (!reached.empty()) {
+    Value at = reached.pop_back_val();
+    for (Operation *user : at.getUsers())
+      if (carriesOn(user) && user->getOperand(0) == at) {
+        carries.push_back(user);
+        reached.push_back(user->getResult(0));
+      }
+  }
+  for (Operation *carry : llvm::reverse(carries))
+    if (carry->use_empty())
+      rewriter.eraseOp(carry);
 }
 
 } // namespace
@@ -46,11 +64,11 @@ Context mapped(const Context &context, const IRMapping &mapping) {
   Context to{cast<CallOp>(op(context.call)), {}, into(context.hole), {}};
   for (const Approach &step : context.approach)
     to.approach.push_back(idr::match(
-        step, [&](const Regrade &r) -> Approach { return Regrade{op(r.op)}; },
+        step, [&](const Carry &c) -> Approach { return Carry{op(c.op)}; },
         [&](const Forward &f) -> Approach { return Forward{op(f.terminator), f.position}; }));
   for (const Step &step : context.rest)
     to.rest.push_back(idr::match(
-        step, [&](const Regrade &r) -> Step { return Regrade{op(r.op)}; },
+        step, [&](const Carry &c) -> Step { return Carry{op(c.op)}; },
         [&](const Into &i) -> Step { return into(i); },
         [&](const ReadBack &r) -> Step { return ReadBack{op(r.op), value(r.part)}; },
         [&](const Forward &f) -> Step { return Forward{op(f.terminator), f.position}; }));
@@ -63,7 +81,7 @@ Making Rewrite::makerOf(Value value) const {
       return Hole{context.hole};
     for (const Step &step : context.rest) {
       Making found = idr::match(
-          step, [](const Regrade &) -> Making { return std::monostate{}; },
+          step, [](const Carry &) -> Making { return std::monostate{}; },
           [&](const Into &into) -> Making {
             return into.built == value ? Making(Outer{into}) : Making(std::monostate{});
           },
@@ -93,17 +111,14 @@ Value Rewrite::makeHole(const Into &hole) {
 }
 
 void Rewrite::buildBefore(Operation *producer) {
+  for (Value result : producer->getResults())
+    eraseUnreadCarries(rewriter, result);
   llvm::SmallVector<Operation *> after;
   for (Operation *op = producer->getNextNode(); !op->hasTrait<OpTrait::IsTerminator>();
        op = op->getNextNode())
     after.push_back(op);
-  for (Operation *op : after) {
-    if (op->hasTrait<ResultCarriesOperand>() &&
-        throughRegrades(op->getOperand(0)).getDefiningOp() == producer && op->use_empty())
-      rewriter.eraseOp(op);
-    else
-      rewriter.moveOpBefore(op, producer);
-  }
+  for (Operation *op : after)
+    rewriter.moveOpBefore(op, producer);
 }
 
 void Rewrite::fillByCall(CallOp call, Value dest) {
@@ -112,18 +127,16 @@ void Rewrite::fillByCall(CallOp call, Value dest) {
   args.push_back(dest);
   CallOp::create(rewriter, call.getLoc(), clone, call.getIndexArgsAttr(), args,
                  TailKind::nontail);
-  // Its results' changes of grade read nothing now.
-  for (Operation *user : llvm::make_early_inc_range(call->getUsers()))
-    if (user->hasTrait<ResultCarriesOperand>() && user->use_empty())
-      rewriter.eraseOp(user);
+  // Its results' carries read nothing now.
+  for (Value result : call->getResults())
+    eraseUnreadCarries(rewriter, result);
   rewriter.eraseOp(call);
 }
 
 void Rewrite::dropForwarded(Operation *terminator, unsigned position) {
   Value dropped = terminator->getOperand(position);
   rewriter.modifyOpInPlace(terminator, [&] { terminator->eraseOperand(position); });
-  for (Operation *def = dropped.getDefiningOp();
-       def && def->hasTrait<ResultCarriesOperand>() && def->use_empty();) {
+  for (Operation *def = dropped.getDefiningOp(); def && carriesOn(def) && def->use_empty();) {
     Value carried = def->getOperand(0);
     rewriter.eraseOp(def);
     def = carried.getDefiningOp();
@@ -199,7 +212,7 @@ LogicalResult Rewrite::take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &
   Operation *terminator = step.terminator;
   unsigned position = step.position;
   Value value = terminator->getOperand(position);
-  Value source = throughRegrades(value);
+  Value source = throughCarries(value);
   Operation *def = source.getDefiningOp();
   Value dest = destOf(step.target);
 
@@ -245,7 +258,7 @@ LogicalResult Rewrite::take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &
             return false;
           },
           [&](const Outer &o) {
-            Value next = throughRegrades(o.into.op->getOperand(o.into.operand));
+            Value next = throughCarries(o.into.op->getOperand(o.into.operand));
             Operation *maker = next.getDefiningOp();
             if (maker && maker->hasTrait<OpTrait::PropagateControlFlowBreak>())
               hole = o.into;
@@ -254,14 +267,14 @@ LogicalResult Rewrite::take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &
             return false;
           },
           [&](const Part &p) {
-            inner = throughRegrades(p.read.op->getOperand(0));
+            inner = throughCarries(p.read.op->getOperand(0));
             return false;
           });
       if (stuck)
         return terminator->emitOpError(
             "internal error: idr-trmc: a context whose cells end in no hole");
     }
-    Value filler = throughRegrades(hole->op->getOperand(hole->operand));
+    Value filler = throughCarries(hole->op->getOperand(hole->operand));
     Operation *producer = filler.getDefiningOp();
     Value holeDest = makeHole(*hole);
     buildBefore(producer);

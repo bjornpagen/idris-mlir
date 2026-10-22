@@ -66,6 +66,13 @@ struct Law {
   mlir::Attribute identity;
 };
 
+// How a short circuit's loop ends. The recursion runs to its base case,
+// as the source's does, where the rest of it could be told (a crash, a
+// divergence, any other effect of the self call); where the self call
+// only computes, skipping the rest cannot be told, and the loop leaves as
+// soon as an operand gives the absorbing constructor.
+enum class Exit : std::uint8_t { AtBase, WhenDecided };
+
 // `&&` and `||` as they reach the pass: base's functions of a lazy second
 // operand, inlined, are a match on the first operand, of a type of two
 // constructors that hold nothing, whose region for one, the absorbing
@@ -74,12 +81,13 @@ struct Law {
 // constructor, else b" is exactly associative, the other constructor its
 // identity, and reads b only where a does not decide. Held as the two
 // constructors and the refined scrutinee each region binds, from which the
-// clone builds the match again.
+// pass builds the match again, and how the loop ends.
 struct ShortCircuit {
   Tag absorbing;
   Tag identity;
   mlir::Type absorbingType;
   mlir::Type identityType;
+  Exit exit;
 };
 
 // The operation a tail combines a self call's result by.

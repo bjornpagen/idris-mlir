@@ -76,8 +76,9 @@ mlir::Operation *rejoinOf(mlir::Operation *terminator);
 // function returns. Each names the op that takes the path's value and the
 // value it gives on.
 //
-// A change of grade, with no run-time form.
-struct Regrade {
+// The value given on with no run-time work (carriesOn): a change of
+// grade, or a reindex whose two types share a run-time layout.
+struct Carry {
   mlir::Operation *op;
 };
 // Into field `field` of a value `op` builds for it, fresh: a cell, a
@@ -99,10 +100,10 @@ struct Forward {
   mlir::Operation *terminator;
   unsigned position;
 };
-using Step = std::variant<Regrade, Into, ReadBack, Forward>;
-// Before the hole, only a change of grade or a rejoin can take the
-// call's result: a value laid out inline holds no hole.
-using Approach = std::variant<Regrade, Forward>;
+using Step = std::variant<Carry, Into, ReadBack, Forward>;
+// Before the hole, only a carry or a rejoin can take the call's result: a
+// value laid out inline holds no hole.
+using Approach = std::variant<Carry, Forward>;
 
 // A self call modulo a context, as its rule reads it: the steps from its
 // result to the cell field it fills (the hole, a cell laid out in memory,

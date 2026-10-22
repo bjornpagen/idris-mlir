@@ -11,7 +11,10 @@
 // short circuit (`&&`, `||` with the self call first) combines by a match
 // the clone builds of the two constructors, whose second operand moves
 // before the call: it runs on every path, which only a value that
-// computes and may run anywhere does.
+// computes and may run anywhere does. Where the self call only computes
+// too, the short circuit needs no clone: its matches are turned in place
+// to take the second operand first, the call a tail call in the region it
+// does not decide, and the loop leaves as soon as one decides.
 //
 // What the clone combines by is held as data, never as an op of the
 // function: the first site's op is gone once its site is rewritten, and
@@ -49,6 +52,7 @@
 #include "mlir/Pass/Pass.h"
 
 #include <array>
+#include <concepts>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRACCUMULATE
@@ -76,6 +80,24 @@ Value forgetRefinement(OpBuilder &b, Location loc, Value value, Type type) {
   return heldAs(b, loc, value, type);
 }
 
+// A match on `a`, of results `type`, whose absorbing region gives the
+// constructor back and whose other region is what `rest` builds, ending
+// it: the one shape the pass builds a short circuit in.
+template <std::invocable Rest>
+Value circuitOn(RewriterBase &rewriter, Location loc, const ShortCircuit &circuit, Type type,
+                Value a, Rest rest) {
+  std::array<Tag, 2> tags{circuit.absorbing, circuit.identity};
+  auto made = DataMatchOp::create(rewriter, loc, TypeRange(type), a, ValueRange(), tags);
+  OpBuilder::InsertionGuard guard(rewriter);
+  Region &absorbing = made.getCaseRegion(0);
+  Block *absorbs = rewriter.createBlock(&absorbing, absorbing.end(), circuit.absorbingType, loc);
+  YieldOp::create(rewriter, loc, forgetRefinement(rewriter, loc, absorbs->getArgument(0), type));
+  Region &other = made.getCaseRegion(1);
+  rewriter.createBlock(&other, other.end(), circuit.identityType, loc);
+  rest();
+  return made->getResult(0);
+}
+
 // `a ⊕ b` at `type`, the function's result type: the law's op made again
 // from what it is; or the short circuit's match, which gives `a` where `a`
 // is the absorbing constructor and `b` where it is the other, so `b` is
@@ -99,18 +121,8 @@ Value combine(RewriterBase &rewriter, Location loc, const Combination &by, Type 
           return a;
         if (known == circuit.identity)
           return b;
-        std::array<Tag, 2> tags{circuit.absorbing, circuit.identity};
-        auto made = DataMatchOp::create(rewriter, loc, TypeRange(type), a, ValueRange(), tags);
-        OpBuilder::InsertionGuard guard(rewriter);
-        Region &absorbing = made.getCaseRegion(0);
-        Block *absorbs =
-            rewriter.createBlock(&absorbing, absorbing.end(), circuit.absorbingType, loc);
-        YieldOp::create(rewriter, loc,
-                        forgetRefinement(rewriter, loc, absorbs->getArgument(0), type));
-        Region &other = made.getCaseRegion(1);
-        rewriter.createBlock(&other, other.end(), circuit.identityType, loc);
-        YieldOp::create(rewriter, loc, b);
-        return made->getResult(0);
+        return circuitOn(rewriter, loc, circuit, type, a,
+                         [&] { YieldOp::create(rewriter, loc, b); });
       });
 }
 
@@ -240,6 +252,64 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
   ReturnOp::create(rewriter, fn.getLoc(), call.getResults());
 }
 
+// The short circuit whose loop leaves when decided: each site's match is
+// turned to take its second operand first, and the self call goes into the
+// region that operand does not decide, a tail call there, as `x && f(...)`
+// is written. The function keeps itself, with no clone and no carried
+// value: once an operand decides, the answer is decided, and the rest of
+// the recursion, which only computes, is skipped. idr-tail-loops makes the
+// loop. Where the operand's type already says which constructor it is,
+// that decides here: the call stays, a tail call, or goes.
+void exitWhenDecided(RewriterBase &rewriter, const Accumulator &plan,
+                     const ShortCircuit &circuit) {
+  for (const Site &site : plan.sites)
+    idr::match(
+        site, [](CallOp) {},
+        [&](const Combined &combined) {
+          CallOp call = combined.call;
+          Operation *at = combined.combine;
+          Location loc = at->getLoc();
+          Value other = otherOf(rewriter, combined, at);
+          std::optional<Tag> known = statedConstructor(other);
+          if (known == circuit.absorbing) {
+            rewriter.replaceOp(at, other);
+            rewriter.eraseOp(call);
+            return;
+          }
+          if (known == circuit.identity) {
+            rewriter.moveOpBefore(call, at);
+            rewriter.replaceOp(at, call->getResults());
+          } else {
+            rewriter.setInsertionPoint(at);
+            Value decided =
+                circuitOn(rewriter, loc, circuit, at->getResult(0).getType(), other, [&] {
+                  auto yield = YieldOp::create(rewriter, loc, call->getResults());
+                  rewriter.moveOpBefore(call, yield);
+                });
+            rewriter.replaceOp(at, decided);
+          }
+          call.setTailKind(decide(call));
+        });
+}
+
+// What becomes of `fn` under `plan`: a clone that carries the combination,
+// or, for a short circuit whose loop leaves when decided, its matches
+// turned in place.
+void rewriteBy(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumulator &plan) {
+  idr::match(
+      plan.by, [&](const Law &) { seed(rewriter, symbols, fn, plan); },
+      [&](const ShortCircuit &circuit) {
+        switch (circuit.exit) {
+        case Exit::AtBase:
+          seed(rewriter, symbols, fn, plan);
+          return;
+        case Exit::WhenDecided:
+          exitWhenDecided(rewriter, plan, circuit);
+          return;
+        }
+      });
+}
+
 struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
   void runOnProgram(ProgramOp program) {
     SymbolTable &symbols = getAnalysis<SymbolTable>();
@@ -251,7 +321,7 @@ struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
     unsigned performed = 0;
     for (auto &[fn, plan] : plans)
       performed += support::perform<AccumulateAction>(fn, [&] {
-        seed(rewriter, symbols, fn, plan);
+        rewriteBy(rewriter, symbols, fn, plan);
         ++numFunctions;
         numTails += static_cast<uint64_t>(llvm::count_if(plan.sites, [](const Site &site) {
           return idr::match(
