@@ -128,6 +128,13 @@ bool GradedType::isLinearByType() const { return false; }
 bool GradedType::isCounted() const { return idr::isCounted(getCarrier()); }
 bool GradedType::isCellPointer() const { return idr::isCellPointer(getCarrier()); }
 
+// A value at a grade is its carrier's value, so it prints with the name its
+// carrier gives one; a carrier that names none leaves it upstream's number.
+void GradedType::getAsmName(OpAsmSetNameFn setNameFn) const {
+  if (auto named = dyn_cast<OpAsmTypeInterface>(getCarrier()))
+    named.getAsmName(setNameFn);
+}
+
 //===----------------------------------------------------------------------===//
 // A type at a grade
 //===----------------------------------------------------------------------===//

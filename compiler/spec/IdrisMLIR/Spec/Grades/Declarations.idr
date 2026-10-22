@@ -218,7 +218,8 @@ holdTable = table holdClosed
 ||| of a grade, none of a type used once by its type, a hold exactly on a
 ||| carrier that holds references, never the carrier's bare grade. What a
 ||| value of it holds is its carrier's, so it answers the value facts by
-||| asking the carrier, which no constant answer could say.
+||| asking the carrier, which no constant answer could say, and a value of it
+||| prints with its carrier's name.
 export
 graded : TypeDef 3
 graded = MkTypeDef
@@ -239,7 +240,7 @@ graded = MkTypeDef
           AlwaysWritten (line "who frees what it holds and what is known of its sharing")
       , MkParameter (ident "carrier") TypeValue AlwaysWritten (line "the value itself") ]
   , syntax = HandSyntax
-  , interfaces = [Implements valueFactsInterface []]
+  , interfaces = [Implements valueFactsInterface [], Declares OpAsmType ["getAsmName"]]
   , verifier = VerifiesParameters
   , bytecode = Derived
   , members = []
