@@ -6,7 +6,9 @@
 // its operand at another grade, which gives it on with no run-time work,
 // one that keeps its operand's identity too, one that eliminates its first
 // operand, one whose result is used as often as the values it takes, and a
-// partial op's guards.
+// partial op's guards. And the answer StructureOpInterface gives, a sum
+// whose alternatives hold values, which no generated header can state, so
+// it is declared here, before the generated interfaces that name it.
 #ifndef IDR_IR_TRAITS_H
 #define IDR_IR_TRAITS_H
 
@@ -21,8 +23,36 @@
 
 #include <array>
 #include <tuple>
+#include <variant>
 
 namespace idr {
+
+// How an op's result is built of its operands, as StructureOpInterface
+// answers: a constructor of its fields, a natural's successor or
+// predecessor of another, or none of these where the op runs. Each
+// alternative holds only what its kind has, so a reader folds the answer
+// and names no op.
+namespace structural {
+// The constructor `tag`, its fields `fields`, operands of the op.
+struct Built {
+  Tag tag;
+  mlir::OperandRange fields;
+};
+// `of` plus one.
+struct Successor {
+  mlir::Value of;
+};
+// `of` minus one, `of` a natural that is not zero.
+struct Predecessor {
+  mlir::Value of;
+};
+// None of these: an op that builds its result of an operand where its
+// operands allow, here computing it otherwise (a sum neither of whose
+// operands is a constant one).
+struct Unbuilt {};
+} // namespace structural
+using Structure = std::variant<structural::Unbuilt, structural::Built, structural::Successor,
+                               structural::Predecessor>;
 
 // Declared by the generated interfaces, after this header.
 class CarriesOnOpInterface;

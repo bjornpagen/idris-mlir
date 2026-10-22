@@ -93,6 +93,26 @@ eliminatesOperand : TraitDef
 eliminatesOperand = MkTraitDef (MkIdent "EliminatesOperand" Oh)
   (MkDoc (MkLine "the op eliminates its first operand, and does nothing else with it" Oh) (MkProse "" Oh))
 
+||| How an op's result is built of its operands: a constructor of its
+||| fields, or a natural's successor or predecessor of another, or none of
+||| these where the op runs (a sum neither of whose operands is a constant
+||| one). A reader that looks through construction asks the op and folds
+||| the answer, a closed sum (`::idr::Structure`, which the traits' header
+||| declares before the interfaces), so it names no op, and an op that
+||| gains a structure joins every reader by implementing this.
+public export
+structureInterface : InterfaceDef
+structureInterface = MkInterfaceDef
+  { name = ident "StructureOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject (code "::idr::Structure") (ident "getStructure") [] EveryImplementer
+          (line "how its result is built of its operands: a constructor of its fields, a natural's successor or predecessor of one, or none of these") ]
+  , verifier = Unverified
+  , doc = brief (line "an op whose result may be built of its operands by a constructor or a natural's successor or predecessor")
+  }
+
 ||| Which methods an op that infers its result types defines, in upstream's
 ||| adaptor form, the one form our ops take: `inferReturnTypes` given the
 ||| op's adaptor alone; or, for an op whose results may hold types other

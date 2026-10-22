@@ -4,13 +4,14 @@
 //
 // Each value is numbered in walk order and given how it is built: an entry
 // argument; the same value as another or a field of a refined value
-// (idr::sourceOf); a call's result; a constructor; a natural's successor or
-// predecessor; a match's result; a constant; or opaque. A call is resolved
-// to its callee's id once, here. Each use that can rebuild a part carries
-// what the case regions around it say of their scrutinees: a data match's
-// region binds its scrutinee refined, to one constructor in a case and to
-// the ones left in its default; a literal match's case is its literal. The
-// read writes nothing outside the record and reads the body once.
+// (idr::sourceOf); a call's result; a match's result; what an op's
+// structure says it is built of, a constructor or a natural's successor or
+// predecessor; a constant; or opaque. A call is resolved to its callee's
+// id once, here. Each use that can rebuild a part carries what the case
+// regions around it say of their scrutinees: a data match's region binds
+// its scrutinee refined, to one constructor in a case and to the ones left
+// in its default; a literal match's case is its literal. The read writes
+// nothing outside the record and reads the body once.
 #include "idr/Analysis/Solver/IdentityRecords.h"
 
 #include "idr/IR/Effects/Whole.h"
@@ -50,12 +51,6 @@ bool operator==(const KnownLiteral &a, const KnownLiteral &b) {
 }
 
 namespace {
-
-// A big or natural constant one: what a successor adds.
-bool isOne(Value value) {
-  BigAttr big;
-  return matchPattern(value, m_Constant(&big)) && big.getValue().isOne();
-}
 
 // What a constant of `type` is to a case: a constructor with no fields has
 // one value, its tag; any other constant is its literal.
@@ -160,7 +155,10 @@ std::uint32_t Reader<N>::sideOf(Operation *match) {
 }
 
 // What a result is built of, where idr::sourceOf found it made here: the
-// closed set of constructs this question reads, each through its own op.
+// closed set of constructs this question reads, each through MLIR's
+// dispatch for it: a call, a match, an op's structure, a constant. Each
+// alternative of a structure is one of the record's builds, as the op
+// answered it, so no op is named and nothing it said is derived again.
 template <solver::FunctionNames N>
 Build Reader<N>::ofResult(OpResult result) {
   Operation *op = result.getOwner();
@@ -174,16 +172,19 @@ Build Reader<N>::ofResult(OpResult result) {
   }
   if (isa<MatchOpInterface>(op))
     return build::Join{sideOf(op), result.getResultNumber()};
-  if (auto con = dyn_cast<DataConOp>(op))
-    return build::Con{con.getTag(), result.getType(), push(con.getFields()), framesAt(op)};
-  if (auto pred = dyn_cast<NatPredOp>(op))
-    return build::Pred{numbering.at(pred.getValue())};
-  if (auto add = dyn_cast<BigAddOp>(op)) {
-    Value rest = isOne(add.getRhs()) ? add.getLhs() : isOne(add.getLhs()) ? add.getRhs() : Value();
-    if (rest)
-      return build::Successor{numbering.at(rest)};
-    return build::Opaque{};
-  }
+  if (auto structured = dyn_cast<StructureOpInterface>(op))
+    return match(
+        structured.getStructure(),
+        [&](const structural::Built &built) -> Build {
+          return build::Con{built.tag, result.getType(), push(built.fields), framesAt(op)};
+        },
+        [&](const structural::Successor &successor) -> Build {
+          return build::Successor{numbering.at(successor.of)};
+        },
+        [&](const structural::Predecessor &predecessor) -> Build {
+          return build::Pred{numbering.at(predecessor.of)};
+        },
+        [](const structural::Unbuilt &) -> Build { return build::Opaque{}; });
   Attribute constant;
   if (matchPattern(result, m_Constant(&constant)))
     return build::Constant{knownOf(constant, result.getType()), result.getType()};

@@ -164,9 +164,15 @@ naturalBinary m s word ls d = MkOp
   , doc = d
   }
 
+||| A natural's successor is a sum with a constant one, so asked how its
+||| result is built, a sum one of whose operands is a constant one answers
+||| the successor of the other, read off its own operands, and any other
+||| sum answers that it builds none.
 public export
 bigAdd : Op 2 1 0 0
-bigAdd = naturalBinary "big.add" "big_add" addI [Associative, Identity 0] (says "the sum of two bigs or two naturals")
+bigAdd =
+  { interfaces := [Declares InferIntRange ["inferResultRanges"], Implements structureInterface ["getStructure"]] }
+  (naturalBinary "big.add" "big_add" addI [Associative, Identity 0] (says "the sum of two bigs or two naturals"))
 
 public export
 bigMul : Op 2 1 0 0
@@ -260,7 +266,8 @@ bigNeg = MkOp
 ||| The predecessor of a natural that is not zero, which the frontend writes
 ||| where a match on a natural found it is not zero, so the value visibly
 ||| shrinks. A constant zero is on a path the match excludes: no fold makes
-||| its predecessor (`foldable`).
+||| its predecessor (`foldable`). Asked how its result is built, it answers
+||| the predecessor of its operand.
 public export
 natPred : Op 1 1 0 0
 natPred = MkOp
@@ -271,7 +278,7 @@ natPred = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"], Implements structureInterface ["getStructure"]]
   , effects = builds 0 Touched
   , speculation = AlwaysSpeculatable
   , stages = Always

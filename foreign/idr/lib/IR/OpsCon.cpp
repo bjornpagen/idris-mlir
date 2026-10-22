@@ -36,6 +36,9 @@ DataType builtData(Type type) {
 DataType DataConOp::getDataType() { return builtData(getResult().getType()); }
 Tag DataConOp::getTag() { return *getDataType().singleTag(); }
 
+// Its result is its constructor applied to its fields, whatever they are.
+Structure DataConOp::getStructure() { return structural::Built{getTag(), getFields()}; }
+
 // The cell is new, so nothing but its fields shares what the value
 // reaches: the most a fresh value built of those fields may claim, each
 // field bounding it as the local rule says (freshest, from the grade's read

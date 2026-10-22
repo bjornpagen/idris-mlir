@@ -6,7 +6,8 @@
 // constant would be too large to make, the predecessor of zero, which no
 // natural is); and the fold of the one op with no runtime form, a natural
 // as an Integer. Every other op folds through its runtime function
-// (Fold.h). And the natural's type, linked to its index term.
+// (Fold.h). How a natural's predecessor and successor are built of their
+// operands. And the natural's type, linked to its index term.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Terms.h"
@@ -228,6 +229,31 @@ bool NatPredOp::foldable(ArrayRef<Attribute> constants) {
 // that materializes it takes from the op's result, where it holds it there.
 OpFoldResult NatToBigOp::fold(FoldAdaptor adaptor) {
   return fold::held(dyn_cast_or_null<BigAttr>(adaptor.getValue()), getResult().getType());
+}
+
+//===----------------------------------------------------------------------===//
+// How a result is built of its operands
+//===----------------------------------------------------------------------===//
+
+// Its result is its operand's predecessor, the operand a natural that is
+// not zero.
+Structure NatPredOp::getStructure() { return structural::Predecessor{getValue()}; }
+
+// A natural's successor is a sum with a constant one, at whatever width
+// the big was written: the other operand plus one. Whether an operand is
+// that constant is known only where the op is, so the sum reads its own
+// operands each time it is asked; a sum with no constant one builds its
+// result of no operand.
+Structure BigAddOp::getStructure() {
+  auto isOne = [](Value operand) {
+    BigAttr big;
+    return matchPattern(operand, m_Constant(&big)) && big.getValue().isOne();
+  };
+  if (isOne(getRhs()))
+    return structural::Successor{getLhs()};
+  if (isOne(getLhs()))
+    return structural::Successor{getRhs()};
+  return structural::Unbuilt{};
 }
 
 //===----------------------------------------------------------------------===//

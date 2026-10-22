@@ -93,7 +93,9 @@ statedIn k =
 ||| would not have run would give that field up on a path that keeps it: it
 ||| may be speculated only where it takes no field over and uses none once.
 ||| A scoped result lives in the lifetime `outers` states, one its scoped
-||| fields all outlive.
+||| fields all outlive. Asked how its result is built, it answers its
+||| constructor and its fields, so a reader that looks through construction
+||| names no op.
 public export
 conOp : Op 2 1 0 0
 conOp = MkOp
@@ -106,7 +108,7 @@ conOp = MkOp
   , traits = []
   , interfaces =
       [ Implements flowInterface ["getFlowEdges"], Implements statesLifetime lifetimeMethods
-      , Implements statesOuters [] ]
+      , Implements statesOuters [], Implements structureInterface ["getStructure"] ]
   , effects = Executes [] [Consumes 0, NewIdentity 0] Covered Untouched
   , speculation = Conditionally
   , stages = Always

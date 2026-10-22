@@ -239,14 +239,15 @@ refusalOp = MkOp
 
 ||| What the specification's core declares of the dialect: the stages a
 ||| program passes through, the refusal rules, their facts and the op a
-||| refusal is, the value facts' interface, the traits of ours an op may
-||| carry, and the module a program is.
+||| refusal is, the value facts' interface and the one an op's structure
+||| is asked through, the traits of ours an op may carry, and the module a
+||| program is.
 public export
 core : Declarations
 core = { ops := [ SomeOp vectorizeLanes, SomeOp refusalOp ]
        , admitted := [ builtinModule ]
        , enums := [ enumDef stageClosed, enumDef categoryClosed, enumDef scopeClosed, enumDef Rules.ruleClosed ]
-       , interfaces := [ valueFactsInterface ]
+       , interfaces := [ valueFactsInterface, structureInterface ]
        , traits := [ resultCarriesOperand, sameValue, eliminatesOperand ]
        , attributes := [ SomeAttr binderAttr ]
        , headers := [ MkHeader "Rules" [(DialectNamespace, [TableOf Rules.ruleTable])]
