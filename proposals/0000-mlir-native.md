@@ -4274,6 +4274,18 @@ C137.
   counting frees it as any fresh cell. A reindex that builds nothing,
   free or not (a cell taken apart in place, a numeral re-widened), keeps
   its operand's hold, since its result's memory is the operand's.
+- **C221** (2026-10-22; L16's growth passes; under D68). What the
+  growth proof's readings are. Every reading of the growth check takes
+  its term normalised by the host and then eta-contracted, so a family
+  is read as itself whatever stands for it. The proof covers that form:
+  a reading is the host's reduction followed by eta contraction, a
+  relation of the frontend's proof beside the host's, and the
+  contraction gives its result with that evidence at quantity 0. The
+  host's reduction relation gains no eta step: its trusted claim that
+  every reduction of a term goes on to the normaliser's result would
+  then be false, since a contracted term does not reduce back to the
+  uncontracted form the normaliser can return. Reading the uncontracted
+  reduct instead would make two forms of one family two keys.
 
 ## 4. Open: the owner's decisions, in order
 
