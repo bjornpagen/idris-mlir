@@ -3286,8 +3286,9 @@ C137.
 - **C106** (L12 §1.5, §3.1, I2, I3). `merge e x` keeps its extents
   (`tensor.collapse_shape`, then `tensor.expand_shape` to the frame's and
   `e`'s; `nest` stays the identity), so an empty frame's shape is `[<0,
-  k]`. A linear `read` or `shape` is one linear use: `lin.use`,
-  `tensor.extract`, `lin.enter`, so Emit never demotes it
+  k]`. A linear `read` or `shape` is one linear use of a value graded
+  `once` (D43: no `lin.use` or `lin.enter` exists, the grade carries
+  linearity on the tensor itself), so Emit never demotes it
   (`Terms.idr:1570-1589`). Deletes `merge`'s identity entry
   (`Recognized.idr:147`) and those sites' reliance on Emit's demotion.
 - **C107** (L12 §1.6, §3.4, I4, I6, I7; L07 I8; D60). The generating ops
