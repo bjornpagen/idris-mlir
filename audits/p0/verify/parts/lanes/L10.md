@@ -22,7 +22,7 @@ LLVM's `musttail` and `tailcc` rules.
 
 **Contract:** a call in tail position never grows the stack; tail
 position is one fact on `idr.call` (C139), decided once, verified by
-`idr::tail::verify(CallOp)` which you declare in `include/idr/IR/Tail.h`
+`idr::tail::verify(CallOp)` (local) and `idr::tail::verify(FuncOp)` (one walk of the tail spine, C20), which you declare in `include/idr/IR/Tail.h`
 and L02's call verifier calls; a tail call the compiler fails to make is
 an internal error; recursion on a call cycle lives on typed, linear,
 uncounted, contiguous frame stacks, one per result type (D31); the
