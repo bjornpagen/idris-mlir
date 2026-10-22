@@ -135,6 +135,21 @@ bool allocates(Operation *op, Value value) {
                   [&](const MemoryEffects::EffectInstance &instance) { return instance.getValue() == value; });
 }
 
+// Memory is acquired on the heap or in a frame, as the tree reads each
+// instance. An allocation on `identity` is a fresh name and no memory: a
+// call declares one on each linear result, which may be the very memory an
+// argument passed in and the callee gave back. An op that says nothing MLIR
+// can read acquires nothing its function may keep to itself.
+bool acquires(Operation *op, Value value) {
+  constexpr Resources memory{ResourceId::Heap, ResourceId::Frame};
+  bool acquired = false;
+  (void)eachOwnEffect(op, [&](const Effect &each) {
+    acquired = each.kind == Kind::Allocate && each.value == value && memory.contains(each.resource);
+    return acquired ? Walked::Stopped : Walked::All;
+  });
+  return acquired;
+}
+
 } // namespace idr::effects
 
 // MLIR's `getEffects` of each op whose effects follow from types.
