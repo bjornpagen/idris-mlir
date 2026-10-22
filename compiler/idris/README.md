@@ -370,7 +370,10 @@ merge; each says what changed in its interface.
   index still decides where `>>=` and `>>` take an `Inf` continuation.
   Interface changes: `parse` and `parseWith` take the tokens as columns
   (`columns`) and give back no tokens left, so a grammar that must read
-  them all ends with `eof`; `mapToken`, which nothing used and which a
+  them all ends with `eof`; `parseWith` takes the state to begin with,
+  which a grammar changes by `updateState`, a step that gives a value,
+  where upstream's `act` appended an action to a monoid's (a branch that
+  fails drops its steps, as it drops its warnings); `mapToken`, which nothing used and which a
   function cannot be mapped through, is gone; `>>` is `export %inline` rather than
   `public export %tcinline`, which only served the totality checker; and
   the combinators that build a closure are no longer `%inline`, since
@@ -406,8 +409,10 @@ merge; each says what changed in its interface.
   descriptions and an action whose type `ActType` computed from that list.
   No option takes more than one argument. The usage text and the errors are
   upstream's.
-- `Idris.Syntax`: `StartExpr` holds a `PTerm' Name`, which the parser
-  builds; upstream's was over any name type, which the constructor hid.
+- `Idris.Syntax`: a directive (`Directive'`) is over what its `StartExpr`
+  holds, the parse tree's node while parsing and a `PTerm' Name` once
+  decoded; upstream's held a term over any name type, which the
+  constructor hid.
 
 - `Parser.Rule.Source.decorationFromBounded`: a parser's semantic
   decoration holds no name. Upstream's matched on the type of what the
@@ -500,6 +505,20 @@ merge; each says what changed in its interface.
   another by interned name, never by position, so nothing is shared across
   definitions and no table grows under a read. A TTC still holds trees
   (PINS.md term-arena).
+- The parser makes a flat parse tree (`Idris.Syntax.Tree`): a node for
+  each form of the syntax it parses, made in the parse's state, so a
+  branch that fails drops its nodes; children before parents, each node
+  holding its location, its children's ids and how many nodes it unfolds
+  to; a subtree the grammar writes twice (a data type's return type in its
+  constructors, a tuple section's variable) is one node. Once the parse is
+  done the nodes are frozen into columns and decoded into the `PTerm`s,
+  clauses and declarations Desugar reads. What upstream's grammar read back
+  from the terms it had built is read from the tree: a hole written as an
+  argument is bracketed in the node made last, a `with` clause written
+  `_` relocates its parent's left side in a node, the hole names are those
+  of the hole nodes, and decoding groups neighbouring clauses into
+  definitions (`collectDefs`) and decides whether a `let` in a `do` block
+  binds a variable (PINS.md parse-tree).
 - A package the build adds is recorded with its name and version, as its
   directory names them (`PackageDir`, `addPkgDir`), and each TTC the
   session reads with where the search found it (`Loaded`, `Found`: the

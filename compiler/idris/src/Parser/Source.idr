@@ -12,6 +12,8 @@ import Core.Name
 import Core.Metadata
 import Core.FC
 
+import Idris.Syntax.Tree
+
 import System.File
 
 %default total
@@ -37,20 +39,26 @@ internTokens toks
         = do val <- traverseIdents @{Applicative.CORE} (internWith ids) tok.val
              pure (MkLocated val tok.bounds)
 
+-- The parse tree a grammar made is frozen and read here, once the parse is
+-- done, so the syntax a parse gives is made once, of what it kept.
 parseTokens : {e : _} ->
               (origin : OriginDesc) ->
-              Grammar ParsingState Token e ty ->
+              Grammar ParsingState Token e (Read ty) ->
               List (Located ()) -> Tokens Token ->
               Either Error (List Warning, State, ty)
 parseTokens origin p cs toks
-    = do (decs, ws, parsed) <- mapFst (fromParsingErrors origin) $ parseWith p toks
+    = do (st, ws, reader) <- mapFst (fromParsingErrors origin) $ parseWith parsing p toks
+         let Just frozen = frozenTree st.tree
+             | Nothing => Left (InternalError "A parse tree has a child that is none of its nodes")
+         let Just parsed = reader frozen
+             | Nothing => Left (InternalError "A parse tree decodes to no syntax")
          let cs : SemanticDecorations
                 = cs <&> \ c => ((origin, startBounds c.bounds, endBounds c.bounds), Comment, Nothing)
          let ws = ws <&> \ (mb, warn) =>
                     let mkFC = \ b => MkFC origin (startBounds b) (endBounds b)
                     in ParserWarning (maybe EmptyFC mkFC mb) warn
          let state : State
-             state = { decorations $= (cs++) } (toState decs)
+             state = MkState (cs ++ cast st.decorated) (holesWritten st.tree) (cast st.pragmasWritten)
          pure (ws, state, parsed)
 
 export
@@ -58,7 +66,7 @@ runParserTo : {auto c : Ref Ctxt Defs} ->
               {e : _} ->
               (origin : OriginDesc) ->
               Maybe LiterateStyle -> Lexer ->
-              String -> Grammar ParsingState Token e ty ->
+              String -> Grammar ParsingState Token e (Read ty) ->
               Core (Either Error (List Warning, State, ty))
 runParserTo origin lit reject str p
     = case lexSource origin lit reject str of
@@ -69,7 +77,7 @@ export
 runParser : {auto c : Ref Ctxt Defs} ->
             {e : _} ->
             (origin : OriginDesc) -> Maybe LiterateStyle -> String ->
-            Grammar ParsingState Token e ty ->
+            Grammar ParsingState Token e (Read ty) ->
             Core (Either Error (List Warning, State, ty))
 runParser origin lit = runParserTo origin lit (pred $ const False)
 
@@ -77,7 +85,7 @@ export covering
 parseFile : {auto c : Ref Ctxt Defs}
          -> (fname : String)
          -> (origin : OriginDesc)
-         -> Rule ty
+         -> Rule (Read ty)
          -> Core (Either Error (List Warning, State, ty))
 parseFile fname origin p
     = do Right str <- coreLift (readFile fname)

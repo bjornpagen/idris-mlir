@@ -10,6 +10,7 @@ import Data.List1
 import Data.SnocList
 import Data.String
 import Idris.Syntax
+import Idris.Syntax.Tree
 import Libraries.Text.Bounded
 
 %hide Core.Core.(>>)
@@ -17,45 +18,31 @@ import Libraries.Text.Bounded
 
 %default total
 
-||| This version of the Parser's state is parameterized over
-||| the container for SemanticDecorations. The parser should
-||| only work the ParsingState type below and after parsing
-||| is complete, use the regular State type.
+||| What parsing a source has made so far: its semantic decorations and the
+||| pragmas it writes, each where it is written, and its parse tree. A
+||| branch that fails takes its state with it, so only what the parse kept
+||| is here.
 public export
-record ParserState (container : Type -> Type) where
+record ParsingState where
+  constructor MkParsing
+  decorated : SnocList ASemanticDecoration
+  pragmasWritten : SnocList PragmaUse
+  tree : Builder
+
+||| Nothing parsed yet.
+export
+parsing : ParsingState
+parsing = MkParsing [<] [<] noNodes
+
+||| What parsing a source made, once it is done: its decorations, the names
+||| of the holes it writes, read from its tree's hole nodes, and the
+||| pragmas it writes.
+public export
+record State where
   constructor MkState
-  decorations : container ASemanticDecoration
+  decorations : List ASemanticDecoration
   holeNames : List Ident
-  ||| The pragmas the source writes, each where it is written: a branch
-  ||| that fails takes its state with it, so only what the parse kept is here.
-  pragmaUses : container PragmaUse
-
-||| This state needs to provide efficient concatenation.
-public export
-ParsingState : Type
-ParsingState = ParserState SnocList
-
-||| This is the final state after parsing. We no longer
-||| need to support efficient concatenation.
-public export
-State : Type
-State = ParserState List
-
-export
-toState : ParsingState -> State
-toState (MkState decs hs ps) = MkState (cast decs) hs (cast ps)
-
--- To help prevent concatenation slow downs, we only
--- provide Semigroup and Monoid for the efficient
--- version of the ParserState.
-export
-Semigroup ParsingState where
-  MkState decs1 hs1 ps1 <+> MkState decs2 hs2 ps2
-    = MkState (decs1 <+> decs2) (hs1 ++ hs2) (ps1 <+> ps2)
-
-export
-Monoid ParsingState where
-  neutral = MkState [<] [] [<]
+  pragmaUses : List PragmaUse
 
 public export
 BRule : Bool -> Type -> Type
@@ -71,11 +58,19 @@ EmptyRule = BRule False
 
 export
 actD : List ASemanticDecoration -> EmptyRule ()
-actD s = act (MkState (cast s) [] [<])
+actD s = updateState (\st => ({ decorated $= (<>< s) } st, ()))
 
+||| A step of making the parse tree, taken in the parse's state, so that a
+||| branch that fails drops the nodes it made.
 export
-actH : Ident -> EmptyRule ()
-actH s = act (MkState [<] [s] [<])
+build : Build a -> EmptyRule a
+build b = updateState (\st => let (t, x) = runBuild b st.tree in ({ tree := t } st, x))
+
+||| A node of the parse tree, of the form its rule gives, made of what the
+||| rule parsed.
+export
+node : NodeOf Id -> EmptyRule (Id x)
+node n = build (make n)
 
 ||| A magic debug directive, with where it is written.
 export
@@ -280,7 +275,8 @@ pragma fname kw
                      \case
                        Pragma k => guard (k == kw)
                        _ => Nothing
-         act (MkState [<] [] [<MkPragmaUse kw (MkFC fname (startBounds b) (endBounds b))])
+         let use = MkPragmaUse kw (MkFC fname (startBounds b) (endBounds b))
+         updateState (\st => ({ pragmasWritten $= (:< use) } st, ()))
 
 export
 cgDirective : Rule String

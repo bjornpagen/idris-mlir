@@ -101,6 +101,7 @@ modules =
     Idris.Syntax.Pragmas,
     Idris.Syntax.TTC,
     Idris.Syntax.Traversals,
+    Idris.Syntax.Tree,
     Idris.Syntax.Views,
     Idris.Version,
     IdrisPaths,

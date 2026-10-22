@@ -424,30 +424,36 @@ mutual
   getPClauseLoc (MkWithClause fc _ _ _ _) = fc
   getPClauseLoc (MkImpossible fc _) = fc
 
+  ||| A directive, its `%start` expression a `tm`: the node of the parse tree
+  ||| for one while parsing, a term once the tree is decoded.
   public export
-  data Directive : Type where
-       Hide : HidingDirective -> Directive
-       Unhide : Name -> Directive
-       Logging : Maybe LogLevel -> Directive
-       LazyOn : Bool -> Directive
-       UnboundImplicits : Bool -> Directive
-       PairNames : Name -> Name -> Name -> Directive
-       RewriteName : Name -> Name -> Directive
-       PrimInteger : Name -> Directive
-       PrimString : Name -> Directive
-       PrimChar : Name -> Directive
-       PrimDouble : Name -> Directive
-       PrimTTImp : Name -> Directive
-       PrimName : Name -> Directive
-       PrimDecls : Name -> Directive
-       CGAction : String -> String -> Directive
-       Names : Name -> List String -> Directive
-       StartExpr : PTerm' Name -> Directive
-       Overloadable : Name -> Directive
-       Extension : LangExt -> Directive
-       DefaultTotality : TotalReq -> Directive
-       PrefixRecordProjections : Bool -> Directive
-       NFMetavarThreshold : Nat -> Directive
+  data Directive' : Type -> Type where
+       Hide : HidingDirective -> Directive' tm
+       Unhide : Name -> Directive' tm
+       Logging : Maybe LogLevel -> Directive' tm
+       LazyOn : Bool -> Directive' tm
+       UnboundImplicits : Bool -> Directive' tm
+       PairNames : Name -> Name -> Name -> Directive' tm
+       RewriteName : Name -> Name -> Directive' tm
+       PrimInteger : Name -> Directive' tm
+       PrimString : Name -> Directive' tm
+       PrimChar : Name -> Directive' tm
+       PrimDouble : Name -> Directive' tm
+       PrimTTImp : Name -> Directive' tm
+       PrimName : Name -> Directive' tm
+       PrimDecls : Name -> Directive' tm
+       CGAction : String -> String -> Directive' tm
+       Names : Name -> List String -> Directive' tm
+       StartExpr : tm -> Directive' tm
+       Overloadable : Name -> Directive' tm
+       Extension : LangExt -> Directive' tm
+       DefaultTotality : TotalReq -> Directive' tm
+       PrefixRecordProjections : Bool -> Directive' tm
+       NFMetavarThreshold : Nat -> Directive' tm
+
+  public export
+  Directive : Type
+  Directive = Directive' (PTerm' Name)
 
   public export
   RecordField' : Type -> Type
@@ -580,6 +586,33 @@ export
 isPDef : PDecl -> Maybe (WithFC (List PClause))
 isPDef (MkWithData fc (PDef cs)) = Just (MkWithData fc cs)
 isPDef _ = Nothing
+
+||| A directive with its `%start` expression changed by `g`, the one term a
+||| directive holds.
+export
+traverseDirective : Applicative f => (a -> f b) -> Directive' a -> f (Directive' b)
+traverseDirective g (Hide h) = pure (Hide h)
+traverseDirective g (Unhide n) = pure (Unhide n)
+traverseDirective g (Logging l) = pure (Logging l)
+traverseDirective g (LazyOn b) = pure (LazyOn b)
+traverseDirective g (UnboundImplicits b) = pure (UnboundImplicits b)
+traverseDirective g (PairNames ty l r) = pure (PairNames ty l r)
+traverseDirective g (RewriteName eq rw) = pure (RewriteName eq rw)
+traverseDirective g (PrimInteger n) = pure (PrimInteger n)
+traverseDirective g (PrimString n) = pure (PrimString n)
+traverseDirective g (PrimChar n) = pure (PrimChar n)
+traverseDirective g (PrimDouble n) = pure (PrimDouble n)
+traverseDirective g (PrimTTImp n) = pure (PrimTTImp n)
+traverseDirective g (PrimName n) = pure (PrimName n)
+traverseDirective g (PrimDecls n) = pure (PrimDecls n)
+traverseDirective g (CGAction cg dir) = pure (CGAction cg dir)
+traverseDirective g (Names n ns) = pure (Names n ns)
+traverseDirective g (StartExpr e) = StartExpr <$> g e
+traverseDirective g (Overloadable n) = pure (Overloadable n)
+traverseDirective g (Extension e) = pure (Extension e)
+traverseDirective g (DefaultTotality t) = pure (DefaultTotality t)
+traverseDirective g (PrefixRecordProjections b) = pure (PrefixRecordProjections b)
+traverseDirective g (NFMetavarThreshold n) = pure (NFMetavarThreshold n)
 
 
 definedInData : PDataDecl -> List Name

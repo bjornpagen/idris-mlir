@@ -28,11 +28,10 @@ public export
 ParsingWarnings : Type
 ParsingWarnings = List (Maybe Bounds, String)
 
--- What a grammar's actions and warnings have made so far: how to add an
--- action to the state, the state, and the warnings.
+-- What a grammar's steps and warnings have made so far: the state, and the
+-- warnings.
 record Made state where
   constructor MkMade
-  append : state -> state -> state
   st : state
   warnings : ParsingWarnings
 
@@ -284,11 +283,14 @@ export %inline
        Grammar state tok (c1 || c2) b
 (*>) x y = map (const id) x <*> y
 
+||| A step of the grammar's state, giving a value. A branch that fails
+||| drops its steps with the rest of its input.
 export
-act : state -> Grammar state tok False ()
-act action
+updateState : (state -> (state, a)) -> Grammar state tok False a
+updateState f
     = MkGrammar $ \inp =>
-        Res ({ made.st := inp.made.append inp.made.st action } inp) (Irrelevant ())
+        let (st', x) = f inp.made.st in
+        Res ({ made.st := st' } inp) (Irrelevant x)
 
 ||| Always succeed with the given value.
 export
@@ -445,20 +447,20 @@ withWarning warn p
       do warning res.bounds warn
          pure res.val
 
-||| Parse tokens according to the given grammar, from the first. A grammar
-||| that must read them all ends with `eof`.
+||| Parse tokens according to the given grammar, from the first, its state
+||| `initial` to begin with. A grammar that must read them all ends with
+||| `eof`.
+export
+parseWith : {c : Bool} -> (initial : state) -> (act : Grammar state tok c ty) ->
+            Tokens tok -> Either (List1 (ParsingError tok)) (state, ParsingWarnings, ty)
+parseWith initial act toks
+    = case runGrammar act (MkInput (MkMade initial []) False toks Z) of
+           Failure _ _ errs => Left errs
+           Res inp v => Right (inp.made.st, inp.made.warnings, v.val)
+
+||| Parse tokens according to a grammar that keeps no state, from the first.
+||| A grammar that must read them all ends with `eof`.
 export
 parse : {c : Bool} -> (act : Grammar () tok c ty) -> Tokens tok ->
         Either (List1 (ParsingError tok)) (ParsingWarnings, ty)
-parse act toks
-    = case runGrammar act (MkInput (MkMade (<+>) neutral []) False toks Z) of
-           Failure _ _ errs => Left errs
-           Res inp v => Right (inp.made.warnings, v.val)
-
-export
-parseWith : Monoid state => {c : Bool} -> (act : Grammar state tok c ty) -> Tokens tok ->
-        Either (List1 (ParsingError tok)) (state, ParsingWarnings, ty)
-parseWith act toks
-    = case runGrammar act (MkInput (MkMade (<+>) neutral []) False toks Z) of
-           Failure _ _ errs => Left errs
-           Res inp v => Right (inp.made.st, inp.made.warnings, v.val)
+parse act toks = map (\(_, ws, v) => (ws, v)) (parseWith () act toks)
