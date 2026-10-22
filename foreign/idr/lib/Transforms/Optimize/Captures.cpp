@@ -29,7 +29,6 @@
 #include "idr/Transforms/OptimizeScheduler.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <concepts>
@@ -78,7 +77,7 @@ std::optional<Unread> unread(Schedule &schedule) {
   // program's types hold, once.
   footprint::Vector<Label> &labels = out.labels;
   footprint::Vector<std::optional<unsigned>> &labelOf = out.labelOf;
-  llvm::DenseMap<Ctor, unsigned> &ownerOf = out.ownerOf;
+  footprint::DenseMap<Ctor, unsigned> &ownerOf = out.ownerOf;
   labelOf.resize(graph.size().value());
   auto note = [&](const families::LabelDecl &decl, Ctor ctor) {
     FunctionId fn = graph.id(decl.fn);
@@ -90,7 +89,7 @@ std::optional<Unread> unread(Schedule &schedule) {
     labels[*at].ctors.push_back(ctor);
     ownerOf.try_emplace(ctor, *at);
   };
-  llvm::DenseSet<FamilyAttr> seen;
+  footprint::DenseSet<FamilyAttr> seen;
   AttrTypeWalker declared;
   declared.addWalk([&](DataType data) {
     FamilyAttr group = data.getGroup();

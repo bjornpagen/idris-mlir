@@ -15,6 +15,8 @@
 // the program's size bounds, so every walk here keeps its own stack.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
+#include "idr/Support/Nest.h"
 #include "idr/Transforms/Specialize.h"
 
 #include "llvm/ADT/APInt.h"
@@ -53,34 +55,30 @@ bool unsignedAtMost(const APInt &lhs, const APInt &rhs) {
 
 // The size of a constant: one for a scalar, and for a constructor its
 // cells, each one more than its fields. Each part measured once however
-// often it is shared.
-APInt sizeOf(Attribute constant, llvm::DenseMap<Attribute, APInt> &sizes) {
-  llvm::SmallVector<std::pair<Attribute, bool>> work{{constant, false}};
-  while (!work.empty()) {
-    auto [at, expanded] = work.back();
-    if (sizes.contains(at)) {
-      work.pop_back();
-      continue;
-    }
-    auto con = dyn_cast<ConAttr>(at);
-    if (!con) {
-      sizes[at] = APInt(1, 1);
-      work.pop_back();
-      continue;
-    }
-    if (!expanded) {
-      work.back().second = true;
-      con.walkFields([&](Attribute part, unsigned) {
-        if (!sizes.contains(part))
-          work.push_back({part, false});
+// often it is shared, a constructor once its fields are.
+APInt sizeOf(Attribute constant, footprint::DenseMap<Attribute, APInt> &sizes) {
+  auto fieldsOf = [](Attribute at) {
+    llvm::SmallVector<Attribute> fields;
+    cast<ConAttr>(at).walkFields([&](Attribute part, unsigned) { fields.push_back(part); });
+    return fields;
+  };
+  depthFirst(
+      constant, fieldsOf,
+      [&](Attribute at) {
+        if (sizes.contains(at))
+          return Descend::Past;
+        if (!isa<ConAttr>(at)) {
+          sizes[at] = APInt(1, 1);
+          return Descend::Past;
+        }
+        return Descend::Into;
+      },
+      [&](Attribute at) {
+        auto con = cast<ConAttr>(at);
+        APInt total(64, con.getRunLength());
+        con.walkFields([&](Attribute part, unsigned) { total = plus(total, sizes.at(part)); });
+        sizes[at] = total;
       });
-      continue;
-    }
-    APInt total(64, con.getRunLength());
-    con.walkFields([&](Attribute part, unsigned) { total = plus(total, sizes.at(part)); });
-    sizes[at] = total;
-    work.pop_back();
-  }
   return sizes.at(constant);
 }
 
@@ -186,8 +184,8 @@ private:
         });
   }
 
-  llvm::DenseMap<Pair, bool> known;
-  llvm::DenseMap<Attribute, APInt> sizes;
+  footprint::DenseMap<Pair, bool> known;
+  footprint::DenseMap<Attribute, APInt> sizes;
 };
 
 // Whether `a` and `b` are one shape: holes where holes are, one

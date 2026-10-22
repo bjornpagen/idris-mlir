@@ -45,7 +45,6 @@
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/OperationSupport.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <concepts>
@@ -150,8 +149,8 @@ bool sameBody(FuncOp lhs, FuncOp rhs, MapRef map) {
 template <std::invocable<SymbolRefAttr> PositionOf>
 SmallVector<unsigned> referencesOf(FuncOp fn, PositionOf &&positionOf) {
   SmallVector<unsigned> out;
-  llvm::DenseMap<Attribute, SmallVector<unsigned, 2>> inAttributes;
-  llvm::DenseMap<Type, SmallVector<unsigned, 2>> inTypes;
+  footprint::DenseMap<Attribute, SmallVector<unsigned, 2>> inAttributes;
+  footprint::DenseMap<Type, SmallVector<unsigned, 2>> inTypes;
   auto list = [&](auto element, auto &held) {
     if (!element)
       return;

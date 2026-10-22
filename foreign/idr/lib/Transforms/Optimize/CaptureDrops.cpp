@@ -160,7 +160,7 @@ void drop(Schedule &schedule, const Unread &unread) {
     out.fields = kept;
     return out;
   };
-  llvm::DenseMap<FamilyAttr, FamilyAttr> anew;
+  footprint::DenseMap<FamilyAttr, FamilyAttr> anew;
   for (auto [l, label] : llvm::enumerate(unread.labels)) {
     if (unread.dropped[l].none())
       continue;

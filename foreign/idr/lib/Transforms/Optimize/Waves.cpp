@@ -12,7 +12,6 @@
 
 #include "mlir/IR/Remarks.h"
 #include "mlir/IR/Threading.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -57,18 +56,18 @@ void Scheduler::enable(SmallVectorImpl<Step> &ready) {
 }
 
 // One turn per component, in leader order, its starters and resumed
-// members in id order.
+// members in id order. `enable` queues a component's steps together, the
+// leaders in order, so a step of another component than the last begins
+// its turn.
 SmallVector<Turn, 0> Scheduler::gather(ArrayRef<Step> ready) {
   SmallVector<Turn, 0> wave;
-  llvm::DenseMap<unsigned, unsigned> turnOf;
   for (const Step &step : ready) {
     FunctionId id = idr::match(step, [](Start start) { return start.member; },
                                [](const Resume &resume) { return resume.member; });
     unsigned leader = schedule.components.findLeader(id.index());
-    auto [at, fresh] = turnOf.try_emplace(leader, wave.size());
-    if (fresh)
+    if (wave.empty() || wave.back().component != leader)
       wave.emplace_back(leader);
-    Turn &turn = wave[at->second];
+    Turn &turn = wave.back();
     idr::match(
         step, [&](Start start) { turn.starters.push_back(start.member); },
         [&](const Resume &resume) { turn.resumed.push_back(resume.member); });

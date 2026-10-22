@@ -103,7 +103,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
   footprint::Vector<Node> nodes;
   for (unsigned at = 0; at < families.size(); ++at)
     nodes.push_back(ForKey{static_cast<KeyId>(at)});
-  llvm::DenseMap<FamilyAttr, unsigned> firstOf;
+  footprint::DenseMap<FamilyAttr, unsigned> firstOf;
   AttrTypeWalker groups;
   groups.addWalk([&](DataType data) {
     FamilyAttr group = data.getGroup();
@@ -325,8 +325,10 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
   }
 
   // Each key's family, applied at its uses to the index terms its carrier
-  // names; and every old data type replaced by its new declaration, which
-  // the replacer reads for the decision's life, so it holds its own tables.
+  // names; and every old data type replaced by its new declaration, at its
+  // own indices and refined as it was, since a member declared anew keeps
+  // its constructors in their order. The replacer reads these tables for
+  // the decision's life, so it holds its own.
   for (unsigned at = 0; at < families.size(); ++at) {
     families[at].type = made[at];
     families[at].at = DataType::get(ctx, made[at].getGroup(), made[at].getMember(),
@@ -334,11 +336,17 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
   }
   replacer.addReplacement([this, firsts = std::move(firstOf),
                            remade = std::move(made)](DataType data) -> std::optional<Type> {
-    if (auto first = firsts.find(data.getGroup()); first != firsts.end()) {
-      DataType now = remade[first->second + data.getMember()];
-      return DataType::get(ctx, now.getGroup(), now.getMember(), data.getIndices());
-    }
-    return std::nullopt;
+    auto first = firsts.find(data.getGroup());
+    if (first == firsts.end())
+      return std::nullopt;
+    DataType now = remade[first->second + data.getMember()];
+    DataType out = DataType::get(ctx, now.getGroup(), now.getMember(), data.getIndices());
+    if (!data.getRefinement())
+      return out;
+    const families::TagSet &tags = data.possibleTags();
+    if (tags.size() == 1 && !data.getBinders().empty())
+      return out.refinedTo(tags.front(), data.getBinders());
+    return out.refined(SmallVector<Tag>(tags.begin(), tags.end()));
   });
   replacer.addReplacement([&](ShapedType shaped) -> std::optional<Type> {
     Type element = shaped.getElementType();

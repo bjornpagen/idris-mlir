@@ -37,8 +37,6 @@
 #include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/IntEqClasses.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -221,7 +219,7 @@ private:
   footprint::Vector<footprint::Vector<FunctionId>> byComponent;
   // The members some of whose waits are not met, by id: the only ones a
   // cycle of waits can run through.
-  llvm::DenseSet<unsigned> blocked;
+  footprint::DenseSet<unsigned> blocked;
 
   // Reads what the editor will not hold into the tables above, then thaws
   // the graph: initialized last, once the tables exist.

@@ -18,6 +18,7 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Nest.h"
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -79,68 +80,85 @@ void Decision::convertSignatures() {
 Attribute Decision::constantOf(Attribute value, const Slot &slot) {
   if (!holding.holds(value))
     return value;
-  // A part is converted once per slot it is held in, the slot named by its
-  // family's type, or by nothing where it holds no closure itself.
-  auto keyFor = [&](Attribute part, const Slot &s) {
-    return std::pair(part, s ? Attribute(TypeAttr::get(familyOf(*s).type)) : Attribute());
-  };
-  if (auto found = converted.find(keyFor(value, slot)); found != converted.end())
-    return found->second;
-  // The parts in post-order with their slots, each built once its fields are.
-  struct Visit {
-    Attribute part;
+  // A part in the slot it is held in. It is converted once per slot, the
+  // slot named by its family's type, or by nothing where it holds no
+  // closure itself.
+  struct Part {
+    Attribute value;
     Slot slot;
-    bool expanded;
+    Attribute in;
   };
-  SmallVector<Visit> work{{value, slot, false}};
-  auto fieldSlots = [&](Attribute part) {
-    SmallVector<std::pair<Attribute, Slot>> out;
-    if (auto closure = dyn_cast<ClosureAttr>(part)) {
+  auto partIn = [&](Attribute part, const Slot &s) {
+    return Part{part, s, s ? Attribute(TypeAttr::get(familyOf(*s).type)) : Attribute()};
+  };
+  // A part's fields in their slots, in the order the part holds them: a
+  // closure's captures as its function's leading parameters, a constructor's
+  // fields cell by cell along its run.
+  auto fieldsOf = [&](const Part &part) {
+    SmallVector<Part> out;
+    if (auto closure = dyn_cast<ClosureAttr>(part.value)) {
       const Signature &sig = signature(graph.id(closure.getCallee()));
       for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
-        out.push_back({capture, sig.arguments[i]});
-    } else if (auto con = dyn_cast<ConAttr>(part)) {
+        out.push_back(partIn(capture, sig.arguments[i]));
+    } else if (auto con = dyn_cast<ConAttr>(part.value)) {
       DataType data = con.getData();
       con.walkFields([&](Attribute field, unsigned i) {
-        out.push_back({field, anchorKey(FlowAnchor::fieldOf(data, con.getTag(), i))});
+        out.push_back(partIn(field, anchorKey(FlowAnchor::fieldOf(data, con.getTag(), i))));
       });
     }
     return out;
   };
-  while (!work.empty()) {
-    Visit &visit = work.back();
-    auto key = keyFor(visit.part, visit.slot);
-    if (converted.contains(key) || !holding.holds(visit.part)) {
-      if (!converted.contains(key))
-        converted[key] = visit.part;
-      work.pop_back();
-      continue;
-    }
-    SmallVector<std::pair<Attribute, Slot>> parts = fieldSlots(visit.part);
-    if (!visit.expanded) {
-      visit.expanded = true;
-      for (auto &[part, s] : parts)
-        work.push_back({part, s, false});
-      continue;
-    }
-    SmallVector<Attribute> fields;
-    for (auto &[part, s] : parts)
-      fields.push_back(converted.at(keyFor(part, s)));
-    Attribute result;
-    // A constant closure holds no index terms, so its label binds none its
-    // family does not determine: a closure at terms folds to no constant.
-    if (auto closure = dyn_cast<ClosureAttr>(visit.part)) {
-      DataType family = familyOf(*visit.slot).at;
-      result = ConAttr::get(ctx, family.refinedTo(tagOf(*visit.slot, closure.getCallee()), {}),
-                            ArrayAttr::get(ctx, fields));
-    } else {
-      auto con = cast<ConAttr>(visit.part);
-      result = ConAttr::get(ctx, replacer.replace(con.getType()), ArrayAttr::get(ctx, fields));
-    }
-    converted[key] = result;
-    work.pop_back();
-  }
-  return converted.at(keyFor(value, slot));
+  // The parts in post-order. Each part's converted form is pushed once its
+  // fields' are, which it takes off the top in the order it holds them; a
+  // part converted before, or holding no closure, is pushed as it is and
+  // not gone into.
+  SmallVector<Attribute> done;
+  depthFirst(
+      partIn(value, slot), fieldsOf,
+      [&](const Part &part) {
+        if (auto found = converted.find(std::pair(part.value, part.in)); found != converted.end()) {
+          done.push_back(found->second);
+          return Descend::Past;
+        }
+        if (!holding.holds(part.value)) {
+          done.push_back(part.value);
+          return Descend::Past;
+        }
+        return Descend::Into;
+      },
+      [&](const Part &part) {
+        Attribute result;
+        // A constant closure holds no index terms, so its label binds none
+        // its family does not determine: a closure at terms folds to no
+        // constant.
+        if (auto closure = dyn_cast<ClosureAttr>(part.value)) {
+          auto fields = ArrayRef<Attribute>(done).take_back(closure.getCaptures().size());
+          DataType family = familyOf(*part.slot).at;
+          result = ConAttr::get(ctx, family.refinedTo(tagOf(*part.slot, closure.getCallee()), {}),
+                                ArrayAttr::get(ctx, fields));
+          done.truncate(done.size() - fields.size());
+        } else {
+          // A run is rebuilt cell by cell, each cell its own fields, so it
+          // stays one run in the converted family.
+          auto con = cast<ConAttr>(part.value);
+          size_t held = 0;
+          for (unsigned cell = 0; cell < con.getRunLength(); ++cell)
+            held += con.getCell(cell).size();
+          ArrayRef<Attribute> fields = ArrayRef<Attribute>(done).take_back(held);
+          SmallVector<ArrayAttr> cells;
+          for (unsigned cell = 0; cell < con.getRunLength(); ++cell) {
+            size_t width = con.getCell(cell).size();
+            cells.push_back(ArrayAttr::get(ctx, fields.take_front(width)));
+            fields = fields.drop_front(width);
+          }
+          result = ConAttr::getRun(ctx, cast<DataType>(replacer.replace(con.getData())),
+                                   static_cast<unsigned>(con.getSpine()), cells);
+          done.truncate(done.size() - held);
+        }
+        converted[std::pair(part.value, part.in)] = result;
+        done.push_back(result);
+      });
+  return done.back();
 }
 
 // The constructor of `tag` in `family`, at `binders` where a case binds

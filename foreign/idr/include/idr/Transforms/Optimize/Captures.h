@@ -13,7 +13,6 @@
 #include "idr/Transforms/Optimize.h"
 
 #include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -44,7 +43,7 @@ struct Label {
 struct Unread {
   footprint::Vector<Label> labels;
   footprint::Vector<std::optional<unsigned>> labelOf;
-  llvm::DenseMap<Ctor, unsigned> ownerOf;
+  footprint::DenseMap<Ctor, unsigned> ownerOf;
   footprint::Vector<llvm::BitVector> dropped;
 
   // The captures the label of `ctor` drops; none where it drops none.

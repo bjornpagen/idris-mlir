@@ -323,7 +323,7 @@ private:
   // it into, where that key holds its own labels; null where its own stand.
   footprint::Vector<mlir::ArrayAttr> widened;
   // Every key, by its dense id in the order met.
-  llvm::DenseMap<Key, KeyId> ids;
+  footprint::DenseMap<Key, KeyId> ids;
   footprint::Vector<Family> families;
   IndexVector<solver::FunctionId, Signature> signatures;
   // Every type the program names, remade where its parts hold a slot:
@@ -331,15 +331,15 @@ private:
   // types whose elements do.
   mlir::AttrTypeReplacer replacer;
   // Each part of the program's constants converted in its slot.
-  llvm::DenseMap<std::pair<mlir::Attribute, mlir::Attribute>, mlir::Attribute> converted;
+  footprint::DenseMap<std::pair<mlir::Attribute, mlir::Attribute>, mlir::Attribute> converted;
   ClosureParts holding;
   // The matches and coercions the edits build, each once: a match by the
   // type of the value it matches and its depth, a coercion by that, the
   // key it moves into and its depth.
   footprint::Vector<Match> matches;
   footprint::Vector<Coercion> coercions;
-  llvm::DenseMap<std::pair<mlir::Type, unsigned>, MatchId> matchIds;
-  llvm::DenseMap<std::tuple<mlir::Type, unsigned, unsigned>, CoercionId> coercionIds;
+  footprint::DenseMap<std::pair<mlir::Type, unsigned>, MatchId> matchIds;
+  footprint::DenseMap<std::tuple<mlir::Type, unsigned, unsigned>, CoercionId> coercionIds;
   footprint::Vector<mlir::IntegerAttr> fieldIndices;
   mlir::ub::PoisonAttr poisoned;
   footprint::Vector<Edits> planned;

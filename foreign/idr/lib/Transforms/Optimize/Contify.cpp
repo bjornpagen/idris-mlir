@@ -172,19 +172,26 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
       at = static_cast<unsigned>(up);
     }
   };
-  // The groups, by place, each in the numbering's order; deepest first, so
-  // a group placed inside a function moves before that function moves.
-  llvm::DenseMap<unsigned, SmallVector<FunctionId>> groups;
-  SmallVector<unsigned> places;
+  // The groups, each its place's node and its members in the numbering's
+  // order, found by the place's node; placed deepest first, so a group
+  // placed inside a function moves before that function moves.
+  struct Placement {
+    unsigned place;
+    SmallVector<FunctionId> members;
+  };
+  idr::footprint::Vector<Placement> groups;
+  idr::footprint::Vector<std::optional<unsigned>> groupAt(nodes.size());
   for (FunctionId f : graph.functions()) {
     unsigned node = nodeOf(f);
     if (idom[node] <= 0)
       continue;
     unsigned place = placeOf(node);
-    auto [found, fresh] = groups.try_emplace(place);
-    if (fresh)
-      places.push_back(place);
-    found->second.push_back(f);
+    std::optional<unsigned> &at = groupAt[place];
+    if (!at) {
+      at = static_cast<unsigned>(groups.size());
+      groups.push_back(Placement{place, {}});
+    }
+    groups[*at].members.push_back(f);
   }
   auto depth = [&](unsigned node) {
     unsigned d = 0;
@@ -192,7 +199,9 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
       ++d;
     return d;
   };
-  llvm::stable_sort(places, [&](unsigned a, unsigned b) { return depth(a) > depth(b); });
+  llvm::stable_sort(groups, [&](const Placement &a, const Placement &b) {
+    return depth(a.place) > depth(b.place);
+  });
 
   IRRewriter rewriter(program.getContext());
   // Each call left in a body a group just moved, its tail fact where it now
@@ -206,8 +215,9 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
   // its id; none for any other.
   idr::IndexVector<FunctionId, std::optional<unsigned>> memberOf =
       graph.table<std::optional<unsigned>>(std::nullopt);
-  for (unsigned place : places) {
-    ArrayRef<FunctionId> members = groups.find(place)->second;
+  for (const Placement &placing : groups) {
+    unsigned place = placing.place;
+    ArrayRef<FunctionId> members = placing.members;
     for (auto [i, fn] : llvm::enumerate(members))
       memberOf[fn] = static_cast<unsigned>(i);
     SmallVector<idr::joins::Member> regions;

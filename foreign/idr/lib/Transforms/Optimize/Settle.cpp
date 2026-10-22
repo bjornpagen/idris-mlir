@@ -213,17 +213,14 @@ void Scheduler::finalize(unsigned component) {
 }
 
 LogicalResult Scheduler::settle(MutableArrayRef<Turn> wave) {
-  // What the turns asked joins the table in name order, so which turn asked
-  // first changes nothing; each copy new to it is built, each by one task
-  // in parallel, from its key and its owner as the owner stands with no
-  // turn running; then each goes into the program, by name.
+  // What the turns asked joins the table, which orders it by name; each
+  // copy new to it is built, each by one task in parallel, from its key and
+  // its owner as the owner stands with no turn running; then each goes into
+  // the program, by name.
   SmallVector<specialize::Asked> asked;
   for (Turn &turn : wave)
     llvm::append_range(asked, turn.asked);
-  llvm::stable_sort(asked, [](const specialize::Asked &lhs, const specialize::Asked &rhs) {
-    return lhs.name.getValue() < rhs.name.getValue();
-  });
-  FailureOr<SmallVector<specialize::Node *>> made = nodes.admit(asked);
+  FailureOr<SmallVector<specialize::Node *>> made = nodes.admit(std::move(asked));
   if (failed(made))
     return failure();
   if (failed(failableParallelForEach(schedule.program.getContext(), *made,
@@ -254,7 +251,7 @@ LogicalResult Scheduler::settle(MutableArrayRef<Turn> wave) {
   // The cycles the waits close, condensed once: every component of a
   // cycle joins one, and the waits inside it are met.
   WaitGraph waits;
-  llvm::DenseMap<unsigned, unsigned> nodeOf;
+  footprint::DenseMap<unsigned, unsigned> nodeOf;
   auto nodeFor = [&](unsigned leader) {
     auto [at, fresh] = nodeOf.try_emplace(leader, waits.leaders.size());
     if (fresh) {

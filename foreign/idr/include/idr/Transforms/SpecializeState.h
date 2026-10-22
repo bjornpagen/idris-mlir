@@ -14,7 +14,6 @@
 
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/Pass/Pass.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/xxhash.h"
 
@@ -90,7 +89,7 @@ private:
     llvm::XXH128_hash_t digest;
   };
   mutable std::mutex mutex;
-  llvm::DenseMap<std::uint64_t, llvm::SmallVector<FormId, 1>> byDigest;
+  footprint::DenseMap<std::uint64_t, llvm::SmallVector<FormId, 1>> byDigest;
   footprint::Vector<Form> forms;
 };
 
@@ -169,11 +168,12 @@ public:
   // The node of `key`, once the table admitted it, or null.
   const Node *known(const Key &key) const;
 
-  // Between waves: what the turns asked joins the table, in the order
-  // given, each key's node made the first time, a function the program
-  // held under its name placed as it is; the nodes made, to build, in that
-  // order. Two keys on one name are an internal error.
-  mlir::FailureOr<llvm::SmallVector<Node *>> admit(llvm::ArrayRef<Asked> asked);
+  // Between waves: what the turns asked joins the table in name order, so
+  // which turn asked first changes nothing, each key's node made the first
+  // time, a function the program held under its name placed as it is; the
+  // nodes made, to build, in that order. Two keys on one name are an
+  // internal error.
+  mlir::FailureOr<llvm::SmallVector<Node *>> admit(llvm::SmallVector<Asked> asked);
   // The node's function, built detached from its owner as it stands, no
   // turn running: it goes from requested to built. Each node is built by
   // one task, so builds run in parallel.
@@ -205,15 +205,12 @@ struct Nodes::State {
   // life, in the footprint's storage; and by its key's identity in the
   // arena.
   std::deque<Node, footprint::Allocator<Node>> nodes;
-  llvm::DenseMap<const void *, Node *> byKey;
-  // Each name a key took, to its node: a second key on one name is the
-  // compiler's error, and a name the program held when the run began is a
-  // copy an earlier run made of the same key.
-  llvm::DenseMap<mlir::StringAttr, Node *> byName;
+  footprint::DenseMap<const void *, Node *> byKey;
   // The node each placed function is, by its id, null for a function the
   // program held. It grows as copies are placed, each at the next id the
   // graph's editor minted, so an id past its end is a function no node is
-  // yet.
+  // yet. A name a node took is found through the graph's editor, the
+  // program's one table of names: every node is placed before a turn runs.
   footprint::Vector<Node *> byFunction;
 
   void placeAt(FunctionId id, Node &node) {

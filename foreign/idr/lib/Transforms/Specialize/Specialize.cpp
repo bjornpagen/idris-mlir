@@ -253,13 +253,16 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
       key, [](const RaiseKey *) { return std::optional<CopyKind>(); },
       [](const SignatureKey *) { return std::optional<CopyKind>(); }, copyOf);
 
-  // A name another key's node holds is the compiler's error; the asks of
-  // one wave meet each other's names when they are admitted.
-  if (const Node *named = s.byName.lookup(name);
-      named && identityOf(named->key) != identityOf(key))
-    return emitError(at->getLoc())
-           << "internal error: idr-optimize: two keys name the copy @" << name.getValue();
-  Asked asked{key, FlatSymbolRefAttr::get(name), copy, origin, mine, at->getLoc()};
+  // A name another key's node holds is the compiler's error. Every node is
+  // placed while a turn runs, so the program's table of names finds it; the
+  // asks of one wave meet each other's names when they are admitted.
+  auto named = FlatSymbolRefAttr::get(name);
+  if (std::optional<FunctionId> held = schedule.graph.find(named))
+    if (const Node *holder = s.placedAt(*held);
+        holder && identityOf(holder->key) != identityOf(key))
+      return emitError(at->getLoc())
+             << "internal error: idr-optimize: two keys name the copy @" << name.getValue();
+  Asked asked{key, named, copy, origin, mine, at->getLoc()};
   // Its own key, asked by a copy of its own recursion, is the copy's own
   // call already, and waits on nothing.
   if (!mine || identityOf(mine->key) != identityOf(key))
@@ -267,27 +270,40 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
   return std::optional<Grant>(Grant{std::move(asked), granted, std::move(sources)});
 }
 
-FailureOr<SmallVector<Node *>> Nodes::admit(ArrayRef<Asked> asked) {
+FailureOr<SmallVector<Node *>> Nodes::admit(SmallVector<Asked> asked) {
   State &s = *state;
+  llvm::stable_sort(asked, [](const Asked &lhs, const Asked &rhs) {
+    return lhs.name.getValue() < rhs.name.getValue();
+  });
+  auto twoKeys = [](const Asked &each) -> LogicalResult {
+    return emitError(each.at) << "internal error: idr-optimize: two keys name the copy @"
+                              << each.name.getValue();
+  };
   SmallVector<Node *> made;
+  const Asked *previous = nullptr;
   for (const Asked &each : asked) {
+    // The asks of one name stand together in name order, so another key
+    // on a name asked in this wave is the one before it.
+    if (previous && previous->name == each.name &&
+        identityOf(previous->key) != identityOf(each.key))
+      return twoKeys(each);
+    previous = &each;
     Node *&slot = s.byKey[identityOf(each.key)];
     if (!slot) {
-      StringAttr name = each.name.getAttr();
-      if (s.byName.contains(name))
-        return emitError(each.at)
-               << "internal error: idr-optimize: two keys name the copy @" << name.getValue();
+      // A name the program holds is a node placed by an earlier wave, which
+      // another key took, or a function the program held when the run
+      // began, the copy an earlier run made of this key.
+      std::optional<FunctionId> earlier = s.schedule.graph.find(each.name);
+      if (earlier && s.placedAt(*earlier))
+        return twoKeys(each);
       Node &node =
           s.nodes.emplace_back(Node{each.key, each.copy, each.origin, each.name, {}, Requested{}});
-      // A name the program held when the run began is the copy an earlier
-      // run made of this key.
-      if (std::optional<FunctionId> earlier = s.schedule.graph.find(each.name)) {
+      if (earlier) {
         node.phase = Placed{*earlier};
         s.placeAt(*earlier, node);
       } else {
         made.push_back(&node);
       }
-      s.byName[name] = &node;
       slot = &node;
     }
     Node &node = *slot;
