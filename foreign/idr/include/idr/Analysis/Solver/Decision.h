@@ -11,10 +11,11 @@
 //
 // An apply step is a nested group of function passes. Each function reads
 // the decision through a const reference and rewrites itself whole; it
-// reads no sibling. An apply step runs only under its decide step, which
-// holds the decision in the program's analysis manager while it runs the
-// group, so a missing decision is an internal error, never a state to
-// recover from.
+// reads no sibling. The pipeline's one list pairs each decide step with its
+// apply group, which the decide step runs nested in itself (the generated
+// applyGroupOf functions) while it holds the decision in the program's
+// analysis manager, so no apply step is scheduled without its decision,
+// and a missing one is an internal error, never a state to recover from.
 //
 // A restructure step is a pass on idr.program that adds, erases or
 // redirects functions, editing the program graph through its editor.

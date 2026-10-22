@@ -54,10 +54,6 @@ std::span<const identities::GivesBack> CalleeFacts::of(FlatSymbolRefAttr callee)
   return facts[*f];
 }
 
-std::uint64_t arenaBytes(std::uint64_t ops) {
-  return std::uint64_t(nodesPerOp()) * ops * detail::bytesPerNode;
-}
-
 } // namespace idr::egraph
 
 namespace {

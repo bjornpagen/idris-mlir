@@ -268,19 +268,6 @@ private:
   IndexVector<solver::FunctionId, identities::Facts> facts;
 };
 
-//===----------------------------------------------------------------------===//
-// The budget
-//===----------------------------------------------------------------------===//
-// A function's e-graph holds at most B nodes per op of its body, B a
-// constant of the specification, so the bytes its arena takes are known
-// before its search starts, from the program alone: every run of the pass,
-// whichever pass runs it, is admitted only while its arena fits beside the
-// arenas in flight in the host's memory, so a small host compiles more
-// slowly and never differently.
-std::uint32_t nodesPerOp();
-// The bytes the arena of a function of `ops` ops takes.
-std::uint64_t arenaBytes(std::uint64_t ops);
-
 } // namespace egraph
 
 // The pass the optimizer runs in its inner pipeline, reading the table it

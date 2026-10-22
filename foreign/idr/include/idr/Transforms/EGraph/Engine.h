@@ -239,6 +239,15 @@ Kinds makeKinds(mlir::MLIRContext *context);
 // stands; in the second a Rewrite is kept as it is (OperandFacts' header).
 enum class Round : std::uint8_t { First, Second };
 
+// A function's e-graph holds at most this many nodes per op of its body, a
+// constant of the specification, so the bytes its arena takes are known
+// before its search starts, from the function alone: every run of the
+// pass, whichever pass runs it, is admitted only while its arena fits
+// beside the arenas in flight in the host's memory, so a small host
+// compiles more slowly and never differently. Read from the generated
+// tables, which only Rules.cpp includes.
+std::uint32_t nodesPerOp();
+
 // What one node costs the arena, every table it enters counted: the node,
 // a class of its own, its place among the members and the operands, and
 // the hash-cons's two slots at half full.

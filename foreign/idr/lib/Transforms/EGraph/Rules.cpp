@@ -28,13 +28,9 @@
 
 using namespace mlir;
 
-namespace idr::egraph {
+namespace idr::egraph::detail {
 
 std::uint32_t nodesPerOp() { return generated::nodesPerOp; }
-
-} // namespace idr::egraph
-
-namespace idr::egraph::detail {
 
 namespace {
 

@@ -15,9 +15,9 @@
 // question open. A node for a value whose type settles it (a quantity-1
 // parameter for a borrow, an erased thing anywhere) cannot be written.
 //
-// The one map keyed by an IR handle is a Numbering's, while one function
-// is numbered; it is gone when the numbering finishes. It and every other
-// table here are the footprint's.
+// The one map keyed by an IR handle is a Numbering's, while one function,
+// or one region compared with others, is numbered; it is gone when the
+// numbering finishes. It and every other table here are the footprint's.
 #ifndef IDR_ANALYSIS_SOLVER_EXTRACTION_H
 #define IDR_ANALYSIS_SOLVER_EXTRACTION_H
 
@@ -39,18 +39,18 @@
 
 namespace idr::solver {
 
-// The one walk order of a function's values: its entry arguments; then, op
-// by op, each region's block arguments as the walk enters it, and the op's
-// results once its regions are done. Every region holds one block until the
-// lowering, so a value comes after every value it is made from: an operand
-// before the op that reads it, and a region's yielded values before the
-// results they become.
+// The one walk order of a region's values: its entry arguments; then, op by
+// op, each nested region's block arguments as the walk enters it, and the
+// op's results once its regions are done. Every region holds one block
+// until the lowering, so a value comes after every value of the region it
+// is made from: an operand before the op that reads it, and a region's
+// yielded values before the results they become.
 template <class Visit>
   requires std::invocable<Visit &, mlir::Value>
-void inWalkOrder(idr::FuncOp fn, Visit &&visit) {
-  for (mlir::BlockArgument arg : fn.getBody().getArguments())
+void inWalkOrder(mlir::Region &body, Visit &&visit) {
+  for (mlir::BlockArgument arg : body.getArguments())
     visit(mlir::Value(arg));
-  for (mlir::Operation &top : fn.getBody().front())
+  for (mlir::Operation &top : body.front())
     top.walk([&](mlir::Operation *op, const mlir::WalkStage &stage) {
       if (stage.isAfterAllRegions()) {
         for (mlir::Value result : op->getResults())
@@ -63,10 +63,27 @@ void inWalkOrder(idr::FuncOp fn, Visit &&visit) {
     });
 }
 
-// One function's values numbered in walk order: a value's id is above the
-// id of every value it is made from, so a loop over ids ascending is a
-// topological order of the function's dataflow.
-template <class Tag>
+// A function's walk is its body's, so a function and a region inside one
+// are numbered in the one order.
+template <class Visit>
+  requires std::invocable<Visit &, mlir::Value>
+void inWalkOrder(idr::FuncOp fn, Visit &&visit) {
+  inWalkOrder(fn.getBody(), std::forward<Visit>(visit));
+}
+
+// What a numbering spans. A function is isolated from above, so every
+// value it reads is its own and has an id. A region inside a function also
+// reads values the ops around it made, which are not its own and get none:
+// a region's body compared with another's (two cases of one match) holds
+// both kinds, its own matched to the other body's and those from around it
+// matched to themselves, and the two kinds are the problem's.
+enum class Scope : std::uint8_t { Isolated, Nested };
+
+// One function's, or one nested region's, values numbered in walk order: a
+// value's id is above the id of every value of the scope it is made from,
+// so a loop over ids ascending is a topological order of the scope's
+// dataflow.
+template <class Tag, Scope S = Scope::Isolated>
 class Numbering {
 public:
   using Node = Id<Tag>;
@@ -75,16 +92,36 @@ public:
     IndexVector<Node, mlir::Value> values;
   };
 
-  explicit Numbering(idr::FuncOp fn) {
-    inWalkOrder(fn, [&](mlir::Value value) {
-      index.try_emplace(value, static_cast<std::uint32_t>(values.size()));
-      values.push_back(value);
-    });
+  explicit Numbering(idr::FuncOp fn)
+    requires(S == Scope::Isolated)
+  {
+    number(fn.getBody());
+  }
+
+  explicit Numbering(mlir::Region &body)
+    requires(S == Scope::Nested)
+  {
+    number(body);
   }
 
   // The id of a value of the function: verified IR defines every operand
   // inside the function before its use, so every value asked has one.
-  Node at(mlir::Value value) const { return Node(index.find(value)->second); }
+  Node at(mlir::Value value) const
+    requires(S == Scope::Isolated)
+  {
+    return Node(index.find(value)->second);
+  }
+
+  // The id of a value the region made; none for one made around it.
+  std::optional<Node> find(mlir::Value value) const
+    requires(S == Scope::Nested)
+  {
+    auto it = index.find(value);
+    if (it == index.end())
+      return std::nullopt;
+    return Node(it->second);
+  }
+
   Count<Node> size() const { return Count<Node>(static_cast<std::uint32_t>(values.size())); }
 
   // The numbering's answer; the map is gone after this.
@@ -97,6 +134,13 @@ public:
   }
 
 private:
+  void number(mlir::Region &body) {
+    inWalkOrder(body, [&](mlir::Value value) {
+      index.try_emplace(value, static_cast<std::uint32_t>(values.size()));
+      values.push_back(value);
+    });
+  }
+
   footprint::DenseMap<mlir::Value, std::uint32_t> index;
   footprint::Vector<mlir::Value> values;
 };
