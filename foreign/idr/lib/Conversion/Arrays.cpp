@@ -217,7 +217,8 @@ struct LowerUpdate : IdrPattern<ArrayUpdateOp> {
     layout::Element element = layouts.element(elementType);
     Value at = elementAddress(rewriter, loc, runtime, type, adaptor.getArray(), element,
                               indicesOf(adaptor.getIndices()));
-    SmallVector<Value> taken = takeOut(rewriter, loc, runtime, at, element);
+    SmallVector<Value> taken = takeOut(rewriter, loc, runtime, layouts, at, element, elementType,
+                                       boxSharingOf(op.getArray().getType()));
     SmallVector<Type> flat;
     for (ArrayRef<Type> components : given)
       llvm::append_range(flat, components);

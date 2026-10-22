@@ -6,6 +6,7 @@
 // put where nothing is held, and moved out with the place's references,
 // the place left to be put back into.
 
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/Conversion/Arrays.h"
@@ -13,6 +14,7 @@
 #include "idr/Conversion/Words.h"
 
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 
 using namespace mlir;
@@ -104,12 +106,33 @@ void writeElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &l
   placeElement(b, loc, runtime, address, element, value);
 }
 
-SmallVector<Value> takeOut(OpBuilder &b, Location loc, Runtime &runtime, Value address,
-                           const layout::Element &element) {
+BoxSharing boxSharingOf(Type array) {
+  return claims(array, Unique::Self) ? BoxSharing::Unshared : BoxSharing::AtRunTime;
+}
+
+SmallVector<Value> takeOut(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &layouts,
+                           Value address, const layout::Element &element, Type type,
+                           BoxSharing sharing) {
   if (!element.boxed)
     return readElement(b, loc, runtime, address, element);
-  return runtime.load(b, loc, boxOf(b, loc, runtime, address, element), cellAlignment(),
-                      element.boxed->fields.front());
+  Value cell = boxOf(b, loc, runtime, address, element);
+  SmallVector<Value> value =
+      runtime.load(b, loc, cell, cellAlignment(), element.boxed->fields.front());
+  if (sharing == BoxSharing::Unshared)
+    return value;
+  // The test pays for a fact known only at run time: whether a copy of the
+  // array shares the box. Held by the place alone, the box stays for the
+  // value put back; shared, the value gains its own references, the box
+  // loses the place's, and the place takes a fresh box of its own.
+  auto alone = scf::IfOp::create(b, loc, runtime.isUnique(b, loc, cell),
+                                 /*withElseRegion=*/true);
+  OpBuilder::InsertionGuard guard(b);
+  b.setInsertionPoint(alone.elseBlock()->getTerminator());
+  runtime.inc(b, loc, layouts.components(type), value);
+  runtime.dec(b, loc, layout::Word::Cell, cell);
+  runtime.store(b, loc, address, elementAlignment(element), element.slots,
+                runtime.allocate(b, loc, *element.boxed));
+  return value;
 }
 
 void putIn(OpBuilder &b, Location loc, Runtime &runtime, Value address,

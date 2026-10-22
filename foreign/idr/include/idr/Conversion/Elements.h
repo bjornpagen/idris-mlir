@@ -16,6 +16,8 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <cstdint>
+
 namespace idr::conversion {
 
 // The address of the element at `indices`, each an `index`, of a buffer of
@@ -47,13 +49,30 @@ void writeElement(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime,
                   const Layouts &layouts, mlir::Value address, const layout::Element &element,
                   mlir::Type type, mlir::ValueRange value);
 
-// The value at `address`, moved out with the references the place held,
-// the place left to be put back into (putIn): slots in place hold nothing
-// to release; a boxed element's place keeps its box, emptied, for the value
-// put back. A take reaches the lowering as the unique case of counting's
-// split, so the box is the place's alone and nothing is tested.
+// What is known of a boxed element's box as it is moved out: unshared,
+// where the array's claim covers its storage, of which a box is part, the
+// lowering's layout; or known only at run time, since a copy of an array
+// shares every box of the array it copies, and no idr value is the box for
+// counting to split on.
+enum class BoxSharing : std::uint8_t { Unshared, AtRunTime };
+
+// What the type of `array`, at its grade, says of its boxes: unshared
+// where it claims its own cells unshared, which covers its storage (or
+// everything it reaches, which implies that).
+BoxSharing boxSharingOf(mlir::Type array);
+
+// The value of type `type` at `address`, moved out with the references the
+// place held, the place left to be put back into (putIn): slots in place
+// hold nothing to release; a boxed element's place keeps its box, emptied,
+// for the value put back. A box a copy of the array shares keeps its value,
+// which gains a reference of its own, and loses the place's, and the place
+// takes an empty box of its own: so the box the place held is never freed
+// only to make another of its size, and a copy's element never changes.
+// Where the box is unshared by `sharing`, nothing is tested.
 llvm::SmallVector<mlir::Value> takeOut(mlir::OpBuilder &b, mlir::Location loc, Runtime &runtime,
-                                       mlir::Value address, const layout::Element &element);
+                                       const Layouts &layouts, mlir::Value address,
+                                       const layout::Element &element, mlir::Type type,
+                                       BoxSharing sharing);
 
 // Puts `value` back in the place a take left at `address`: into its slots,
 // or into the box the take left there.

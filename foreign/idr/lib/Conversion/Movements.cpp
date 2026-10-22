@@ -99,8 +99,8 @@ SmallVector<Value> freshCell(OpBuilder &b, Location loc, Runtime &runtime, MemRe
 
 // A take or a copy: what the slots under the op's indices hold, an element
 // or a fresh cell of the elements under them. A take moves each element
-// out of its box with no test, in mutable memory or a value array's
-// buffer: counting split it, and the lowering meets its unique case.
+// out of a box with no test where the buffer's grade claims its storage
+// unshared (boxSharingOf), in mutable memory or a value array's buffer.
 template <typename OpT, Out out>
 struct LowerMoveOut : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
@@ -114,7 +114,8 @@ struct LowerMoveOut : IdrPattern<OpT> {
     // What one element moves out as, `from` its address.
     auto moved = [&](OpBuilder &b, Value from) -> SmallVector<Value> {
       if constexpr (out == Out::Take) {
-        return takeOut(b, loc, this->runtime, from, element);
+        return takeOut(b, loc, this->runtime, this->layouts, from, element, elementType,
+                       boxSharingOf(op.getBuffer().getType()));
       } else {
         SmallVector<Value> value = readElement(b, loc, this->runtime, from, element);
         this->runtime.inc(b, loc, this->layouts.components(elementType), value);
