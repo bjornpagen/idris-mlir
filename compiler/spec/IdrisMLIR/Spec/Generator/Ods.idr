@@ -175,15 +175,21 @@ mutual
   typeC : TypeC -> String
   typeC (UpstreamType u) = identText (upTypeRecord u)
   typeC (OurType t) = typeRecordOf t
-  typeC (AnyOfTypes ts s) = "AnyTypeOf<[" ++ joinWith ", " (typeCs (forget ts)) ++ "], " ++ quoted (lineText s) ++ ">"
+  typeC (AnyOfTypes ts s) = "AnyTypeOf<[" ++ joinWith ", " (typeCs ts) ++ "], " ++ quoted (lineText s) ++ ">"
   typeC (AllOfTypes ts s) =
-    "Type<And<[" ++ joinWith ", " (map (++ ".predicate") (typeCs (forget ts))) ++ "]>, " ++ quoted (lineText s) ++ ", \"::mlir::Type\">"
+    "Type<And<[" ++ joinWith ", " (map (++ ".predicate") (typeCs ts)) ++ "]>, " ++ quoted (lineText s) ++ ", \"::mlir::Type\">"
   typeC (SatisfiesType p) =
     "Type<CPred<\"::idr::" ++ identText p.name ++ "($_self)\">, " ++ quoted (lineText p.doc.summary) ++ ", \"::mlir::Type\">"
 
-  typeCs : List TypeC -> List String
-  typeCs [] = []
-  typeCs (t :: ts) = typeC t :: typeCs ts
+  ||| The records of a run of constraints, matched on the run itself and
+  ||| never on a conversion of it, so every call is on a part of the
+  ||| constraint and the recursion is structural.
+  typeCs : List1 TypeC -> List String
+  typeCs (t ::: ts) = typeC t :: restTypeCs ts
+
+  restTypeCs : List TypeC -> List String
+  restTypeCs [] = []
+  restTypeCs (t :: ts) = typeC t :: restTypeCs ts
 
 export
 attrC : AttrC -> String
@@ -303,7 +309,7 @@ traitOds (HasParent ps) = "ParentOneOf<[" ++ joinWith ", " (map (\p => quoted ("
 traitOds (HasUpstreamParent cls) = "HasParent<" ++ quoted (cppText cls) ++ ">"
 traitOds (ImplicitTerminator p) = "SingleBlockImplicitTerminator<" ++ quoted ("::idr::" ++ opRefClass p) ++ ">"
 traitOds (ResultUsesMaxOf res from) =
-  "Idr_ResultUsesMax<\"" ++ joinWith ", " (map (decimal . finToNat) (res :: from)) ++ "\">"
+  "Idr_ResultUsesMax<\"" ++ joinWith ", " (decimal (finToNat res) :: map (decimal . finToNat) from) ++ "\">"
 
 ||| ODS's class that declares an interface's methods on a class of what it
 ||| is over: an op's, a type's or an attribute's.
