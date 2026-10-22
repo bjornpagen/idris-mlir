@@ -15,6 +15,8 @@
 ||| crashes with its cause at its site where its condition fails, and gives
 ||| its operand otherwise, which the total op takes, so the op stays below
 ||| its check by data dependence and a proof is the absence of the guard.
+||| The upstream ops one of these guards guards (arith's unsigned division) are
+||| admitted here, since each names its guard op by value.
 module IdrisMLIR.Spec.Ops.Checks
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -312,3 +314,31 @@ guardOps =
 public export
 checkOps : List AnyOp
 checkOps = SomeOp crashOp :: SomeOp crashMessageOp :: guardOps
+
+------------------------------------------------------------------------------
+-- The upstream ops these guards guard
+------------------------------------------------------------------------------
+
+-- An unsigned quotient and remainder, upstream's meaning: their divisor is
+-- the result of idr.check.nonzero, which the frontend builds before each
+-- from the guard stated here, so each stands below its guard by data
+-- dependence, as every total op does, and upstream speculates neither
+-- unless its divisor is a constant other than zero. Each names its guard
+-- op by value, so it is declared here, beside the guard.
+
+||| The divisor, upstream's second operand group, is not zero.
+divisorNonzero : Guard Nat
+divisorNonzero = MkGuard nonzeroOp [1] DivisionByZero
+
+public export
+divUI : Admitted
+divUI = { guards := [divisorNonzero] } (arithOp "Arith_DivUIOp" [] (rangedBy "inferDivU"))
+
+public export
+remUI : Admitted
+remUI = { guards := [divisorNonzero] } (arithOp "Arith_RemUIOp" [] (rangedBy "inferRemU"))
+
+||| Every upstream op the dialect admits with a guard, once.
+public export
+checkedAdmitted : List Admitted
+checkedAdmitted = [divUI, remUI]

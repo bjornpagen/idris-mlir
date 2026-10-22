@@ -23,6 +23,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Clocks
 import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.Shapes
 
 import Data.List.Elem
@@ -482,7 +483,7 @@ handleString = MkOp
   , builders = []
   , defaultBuilders = WithDefaults
   , members = []
-  , guards = [MkGuard "check.holds_string" (0 ::: []) (caseRef causeClosed NotAString)]
+  , guards = [MkGuard holdsStringOp [0] NotAString]
   , specializations = []
   , laws = []
   , doc = says "the string a string handle holds, with a reference of its own"

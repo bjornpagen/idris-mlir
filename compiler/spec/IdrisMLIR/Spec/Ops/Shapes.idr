@@ -8,7 +8,6 @@ module IdrisMLIR.Spec.Ops.Shapes
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
-import IdrisMLIR.Spec.Runtime.Endings
 
 import Data.Fin
 import Data.List
@@ -179,6 +178,7 @@ byteBuffer = SatisfiesType byteBufferP
 ||| integer's is arithmetic on its bits, a Double's IEEE's own rounding,
 ||| which upstream computes without the C library. Its record's name carries
 ||| its dialect, so it is its own alias.
+public export
 arithOp : Ident -> List UpLaw -> Maybe RangeFunction -> Admitted
 arithOp r ls rf = MkAdmitted
   { dialect = Arith, upstreamRecord = r, alias = r, legal = Always, writer = FrontendWrites
@@ -186,6 +186,7 @@ arithOp r ls rf = MkAdmitted
 
 ||| Upstream's range function of an op, by its name in upstream's common
 ||| integer range inference.
+public export
 rangedBy : Ident -> Maybe RangeFunction
 rangedBy f = Just (InIntRange f)
 
@@ -312,24 +313,6 @@ public export
 cmpF : Admitted
 cmpF = arithOp "Arith_CmpFOp" [] Nothing
 
--- An unsigned quotient and remainder, upstream's meaning: their divisor is
--- the result of idr.check.nonzero, which the frontend builds before each
--- from the guard stated here, so each stands below its guard by data
--- dependence, as every total op does, and upstream speculates neither
--- unless its divisor is a constant other than zero.
-
-||| The divisor, upstream's second operand group, is not zero.
-divisorNonzero : Guard Nat
-divisorNonzero = MkGuard "check.nonzero" (1 ::: []) (caseRef causeClosed DivisionByZero)
-
-public export
-divUI : Admitted
-divUI = { guards := [divisorNonzero] } (arithOp "Arith_DivUIOp" [] (rangedBy "inferDivU"))
-
-public export
-remUI : Admitted
-remUI = { guards := [divisorNonzero] } (arithOp "Arith_RemUIOp" [] (rangedBy "inferRemU"))
-
 -- A Double's functions of the C library and its exact ones (a root, a
 -- floor, a ceiling) are IEEE 754's binary64 as upstream's math means them,
 -- each the C library's function, written with no fast-math flag.
@@ -412,13 +395,14 @@ ubUnreachable = MkAdmitted
   { dialect = UB, upstreamRecord = "UnreachableOp", alias = "UB_UnreachableOp", legal = Always
   , writer = FrontendWrites, guards = [], laws = [], range = Nothing, folding = UpstreamFold }
 
-||| Every upstream op the dialect admits, once.
+||| Every upstream op the dialect admits that takes no guard, once; the
+||| guarded ones are beside their guard (`Spec.Ops.Checks`).
 public export
 opAdmitted : List Admitted
 opAdmitted =
   [ arithConstant, addI, subI, mulI, andI, orI, xorI, shrUI, cmpI, maxSI, arithSelect, truncI
   , extUI, extSI, indexCast, indexCastUI, uiToFP, siToFP, addF, subF, mulF, divF, negF, cmpF
-  , divUI, remUI, expF, logF, sinF, cosF, tanF, asinF, acosF, atanF, sqrtF, floorF, ceilF, powF
+  , expF, logF, sinF, cosF, tanF, asinF, acosF, atanF, sqrtF, floorF, ceilF, powF
   , ubUnreachable ]
 
 ------------------------------------------------------------------------------

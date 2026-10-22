@@ -12,6 +12,7 @@ module IdrisMLIR.Spec.Ops.Strings
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Values
 
@@ -176,7 +177,7 @@ strDropBytes = builder "str.drop_bytes" [single "str" strRead, single "offset" i
 public export
 strTail : Op 1 1 0 0
 strTail =
-  { guards := [MkGuard "check.nonempty" (0 ::: []) (caseRef causeClosed TailOfEmptyString)]
+  { guards := [MkGuard nonemptyOp [0] TailOfEmptyString]
   , speculation := Conditionally }
   (builder "str.tail" [single "str" strRead]
     (MkRuntimeCall "str_tail" [TakesStr] (Returns GivesStr)) []
@@ -288,7 +289,7 @@ strScalarBytes = reader "str.scalar_bytes" [single "value" i32] (result "result"
 public export
 strIndex : Op 2 1 0 0
 strIndex =
-  { guards := [MkGuard "check.in_bounds" (1 ::: [0]) (caseRef causeClosed StringIndexOutOfRange)]
+  { guards := [MkGuard inBoundsOp [1, 0] StringIndexOutOfRange]
   , speculation := Conditionally }
   (reader "str.index" [single "str" strRead, single "index" i64] (result "result" i32)
     (MkRuntimeCall "str_index" [TakesStr, TakesInt64] (Returns GivesInt32)) []
@@ -299,7 +300,7 @@ strIndex =
 public export
 strHead : Op 1 1 0 0
 strHead =
-  { guards := [MkGuard "check.nonempty" (0 ::: []) (caseRef causeClosed HeadOfEmptyString)]
+  { guards := [MkGuard nonemptyOp [0] HeadOfEmptyString]
   , speculation := Conditionally }
   (reader "str.head" [single "str" strRead] (result "result" i32)
     (MkRuntimeCall "str_head" [TakesStr] (Returns GivesInt32)) []
