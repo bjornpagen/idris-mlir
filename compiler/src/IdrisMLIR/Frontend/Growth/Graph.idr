@@ -35,6 +35,7 @@ import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Frontend.Finite
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Proof.Template
 import Libraries.Data.List.Finite
 
 import Control.WellFounded
@@ -137,7 +138,7 @@ kindOf a def = case definition def of
             fs <- fieldSites a def cs js
             rd <- readingOf a def
             pure ({ sites $= (fs ++) } rd, js))
-  PMDef _ params _ _ _ => pure ([length params], plain)
+  PMDef _ params _ => pure ([length params], plain)
   _ => pure ([], plain)
   where
     plain : Front (Reading, List Nat)
@@ -209,19 +210,19 @@ definitions main = do
 
 -- Two nodes, as the machine compares their parts: the definition's
 -- address by its bytes, then each head by its parameter and its address.
-decideNode : (x, y : Node) -> Decision (x = y)
+decideNode : (x, y : Node) -> Decided (x = y)
 decideNode (MkNode d hs) (MkNode d' hs') = case decideAddress d d' of
-  Proof.Growth.Fails ne => Proof.Growth.Fails (\Refl => ne Refl)
-  Proof.Growth.Holds Refl => case sameList decideHead hs hs' of
-    Proof.Growth.Fails ne => Proof.Growth.Fails (\Refl => ne Refl)
-    Proof.Growth.Holds Refl => Proof.Growth.Holds Refl
+  Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
+  Proof.Growth.Yes Refl => case sameList decideHead hs hs' of
+    Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
+    Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
   where
-    decideHead : (h, h' : (Nat, Address)) -> Decision (h = h')
+    decideHead : (h, h' : (Nat, Address)) -> Decided (h = h')
     decideHead (i, a) (j, b) = case sameNat i j of
-      Proof.Growth.Fails ne => Proof.Growth.Fails (\Refl => ne Refl)
-      Proof.Growth.Holds Refl => case decideAddress a b of
-        Proof.Growth.Fails ne => Proof.Growth.Fails (\Refl => ne Refl)
-        Proof.Growth.Holds Refl => Proof.Growth.Holds Refl
+      Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
+      Proof.Growth.Yes Refl => case decideAddress a b of
+        Proof.Growth.No ne => Proof.Growth.No (\Refl => ne Refl)
+        Proof.Growth.Yes Refl => Proof.Growth.Yes Refl
 
 -- A node not yet in a list, with the erased proof.
 data IsNew : Node -> List Node -> Type where
@@ -231,8 +232,8 @@ data IsNew : Node -> List Node -> Type where
 novel : (x : Node) -> (xs : List Node) -> Maybe (IsNew x xs)
 novel x [] = Just (New (\case _ impossible))
 novel x (y :: ys) = case decideNode x y of
-  Proof.Growth.Holds _ => Nothing
-  Proof.Growth.Fails no => case novel x ys of
+  Proof.Growth.Yes _ => Nothing
+  Proof.Growth.No no => case novel x ys of
     Nothing => Nothing
     Just (New notIn) => Just (New (\case Here => no Refl; There e => notIn e))
 
@@ -553,15 +554,20 @@ landed _ (Evaluable _) = Computed
 landed (Closed a) (Closed b) = Closed (max a b)
 landed _ _ = Open
 
--- What an argument is, landing: a closed value that computes (`beta`),
+-- What an argument is, landing: a choice of implementation made at run
+-- time (a rank-2 dictionary, a computed one), which an application of it
+-- does not beta-reduce but gives one of its members of, so it lands as a
+-- value no closed reading bounds; a closed value that computes (`beta`),
 -- which is its term; any other that computes; a closed one no higher than
 -- its height; or one whose height an arc carries.
 landingOf : Argument -> Landing
-landingOf x = case (beta x.template, selfBounded x.template, x.term) of
-  (Computes, True, Just tm) => Evaluable [tm]
-  (Computes, _, _) => Computed
-  (Inert, True, _) => Closed (height x.template)
-  (Inert, False, _) => Open
+landingOf x = case x.root of
+  Members _ => Open
+  _ => case (beta x.template, selfBounded x.template, x.term) of
+    (Computes, True, Just tm) => Evaluable [tm]
+    (Computes, _, _) => Computed
+    (Inert, True, _) => Closed (height x.template)
+    (Inert, False, _) => Open
 
 -- The walked edges' one traversal, which every reading of what they place
 -- shares: each argument placed, in the walk's order, with the node whose
@@ -748,8 +754,8 @@ leadingArcs nodes m j leading =
     -- implementation on both. A dictionary without a root has no head.
     agreesAt : Node -> (Nat, Nat) -> Bool
     agreesAt jn (p, q) = case sameMaybe decideAddress (lookup p jn.heads) (lookup q m.heads) of
-      Proof.Growth.Holds _ => True
-      Proof.Growth.Fails _ => False
+      Proof.Growth.Yes _ => True
+      Proof.Growth.No _ => False
 
     agrees : Node -> Bool
     agrees jn = all (agreesAt jn) leading

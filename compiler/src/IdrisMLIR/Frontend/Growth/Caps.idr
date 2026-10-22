@@ -42,6 +42,7 @@ import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Proof.Template
 
 import Data.List
 
@@ -168,10 +169,11 @@ capOf addr j = do
   Just def <- core (definitionAt addr)
     | Nothing => internal EmptyFC "an address with no definition"
   let owner = show (fullname def)
-  (kinds, _) <- staticsOver owner (S j) (type def) [Just (markerAt i 0, AValue) | i <- [0 .. j]]
+  ty <- typeOfDefinition def
+  (kinds, _) <- staticsOver owner (S j) ty [Just (markerAt i 0, AValue) | i <- [0 .. j]]
   case Vect.last kinds of
     Just AShape => do
-      (a, rest) <- parameterAt j (type def)
+      (a, rest) <- parameterAt j ty
       -- `tyConFacts`' `natness` is the one reading of whether a shape is a
       -- run of successors, read as a data instance reads its type; a type
       -- that is no type constructor applied is no `Nat`-like one. A chain is

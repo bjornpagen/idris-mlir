@@ -1,7 +1,8 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| Templates: what a definition writes at a static argument, read as the
-||| key of the request it makes holds it.
+||| Templates (`Proof.Template`), read off checked terms: what a definition
+||| writes at a static argument, read as the key of the request it makes
+||| holds it.
 |||
 ||| A static argument (a type, a family, a dictionary, a form, a shape) is a
 ||| closed term over markers for the writer's own static parameters. Its
@@ -56,6 +57,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Proof.Template
 
 import Control.WellFounded
 import Data.DPair
@@ -68,43 +70,18 @@ import Data.Vect
 %default total
 
 ------------------------------------------------------------------------------
--- The language
+-- Roots
 ------------------------------------------------------------------------------
-
-public export
-data Template
-  = Var Nat Nat                         -- the writer's parameter i, bound by its pattern at depth d (0: unmatched)
-  | Head (Maybe Address) (List Template) -- a head: a type or data constructor, an implementation, an interface's
-                                        -- constructor (Just), a binder or primitive type former (Nothing)
-  | Leaf Nat                            -- a closed part of that height: a Nat literal's run (n: n + 1), a primitive type,
-                                        -- a bound variable, an Erased placeholder (1)
-  | Token Nat                           -- any other literal, or a hole marker: height 1, carrying its key token's weight
-                                        -- for Bounds.heaviest
-  | Choice Template (List Template)     -- one of its leaves at every instance, behind what it matched on: a stuck
-                                        -- non-recursive definition, unfolded; a definition given fewer arguments than
-                                        -- its parameters, as written and walked over the arguments it lacks; one stuck
-                                        -- on an argument of a family's value, as written and as what beta computes; a
-                                        -- projection of a record no constructor yet, as written and as its field; a
-                                        -- structural recursion, its other leaves and its argument raised by them
-  | Opaque Address (List Template)      -- a recursive definition, stuck on what its arguments hold
-  | Applied Nat Nat (List Template)     -- the writer's family Var i d applied, which every instance beta-reduces
-  | Computing Nat Nat (List Template)   -- the writer's family Var i d applied where its value, or an argument, computes
-                                        -- from what it is given: what beta makes there nothing bounds
-  | Formal Nat Nat                      -- argument j of a family's value, taking a arguments of its own: what beta
-                                        -- substitutes, a leaf of height 1 until it does; nothing matches one, so it
-                                        -- has no depth
-  | Field Nat Template                  -- field k (a method or a superclass) of a dictionary not yet a constructor
-  | Held Address Nat                    -- the dictionary data constructor C holds at field p, matched out of a value
-                                        -- (SortedDMap's Ord)
 
 ||| What a dictionary or a family is at its root: the definition there (an
 ||| implementation or an interface constructor a dictionary is, the type
 ||| constructor a family's value applies); the implementations a dictionary
 ||| a definition Idris does not prove ends computes can be, the ones its
 ||| leaves give, each a member of the closed sum the translation makes of
-||| it and calls a callee at; the writer's own parameter there (a marker
-||| `Var i d`); or neither (a lambda's result, `\_ => __Impl_Eq_Int`; a
-||| family that is a lambda).
+||| it and calls a callee at, and so are those a function that computes an
+||| implementation from its argument gives (a rank-2 dictionary); the
+||| writer's own parameter there (a marker `Var i d`); or neither (a
+||| lambda's result, `\_ => __Impl_Eq_Int`; a family that is a lambda).
 public export
 data Root = Rooted Address
           | Members (List1 Address)
@@ -434,36 +411,6 @@ recursion ctx self predecessor args idx arms = case go arms of
                  Just (leaf :: bases, kids, calls)
          else Nothing
 
-mutual
-  ||| The tallest of some templates; 0 for none.
-  tallest : List Template -> Nat
-  tallest [] = 0
-  tallest (t :: ts) = max (height t) (tallest ts)
-
-  ||| The model's height of a template: a marker, a field and a held
-  ||| dictionary are 0 (what they stand for is weighed by their arcs), a
-  ||| leaf its own, a token and an argument of a family's value 1 (the
-  ||| key's bound variable), a head and an applied family one above their
-  ||| tallest child, a choice its tallest leaf.
-  export
-  height : Template -> Nat
-  height (Var _ _) = 0
-  height (Field _ _) = 0
-  height (Held _ _) = 0
-  height (Leaf h) = h
-  height (Token _) = 1
-  height (Formal _ _) = 1
-  height (Head _ ts) = S (tallest ts)
-  height (Opaque _ ts) = S (tallest ts)
-  height (Applied _ _ ts) = S (tallest ts)
-  height (Computing _ _ ts) = S (tallest ts)
-  height (Choice _ ts) = tallest ts
-
-||| `c` levels of a head above a template.
-raise : Nat -> Template -> Template
-raise Z t = t
-raise (S c) t = Head Nothing [raise c t]
-
 ------------------------------------------------------------------------------
 -- The readings
 ------------------------------------------------------------------------------
@@ -721,10 +668,11 @@ mutual
     Just (placement, def) <- core (resolve n)
       | Nothing => folded
     case definition def of
-      PMDef _ pargs tree _ _ =>
-        let terms = map (\x => Force x.value) args in
+      PMDef _ pargs body => do
+        tree <- treeOfBody body
+        let terms = map (\x => Force x.value) args
         case (bindParams pargs terms, tree) of
-          (Nothing, _) => given r w acc placement a terms (type def) pargs tree folded
+          (Nothing, _) => given r w acc placement a terms !(typeOfDefinition def) pargs tree folded
           (Just _, STerm {}) => folded
           (Just (env, extras), _) => case enter placement w of
             Nothing => Opaque a <$> readings args
@@ -955,26 +903,6 @@ templateOf AShape t = do
 -- The measures
 ------------------------------------------------------------------------------
 
-mutual
-  widest : List Template -> Nat
-  widest [] = 0
-  widest (t :: ts) = max (arity t) (widest ts)
-
-  ||| The most children of any node, a choice's leaves' own.
-  export
-  arity : Template -> Nat
-  arity (Head _ ts) = max (length ts) (widest ts)
-  arity (Opaque _ ts) = max (length ts) (widest ts)
-  arity (Applied _ _ ts) = max (S (length ts)) (widest ts)
-  arity (Computing _ _ ts) = max (S (length ts)) (widest ts)
-  arity (Choice _ ts) = widest ts
-  arity (Field _ s) = arity s
-  arity (Var _ _) = 0
-  arity (Leaf _) = 0
-  arity (Token _) = 0
-  arity (Held _ _) = 0
-  arity (Formal _ _) = 0
-
 ||| What beta makes of the family values a template holds, each read as
 ||| its meaning (lambdas' variables and the parameters a definition lacks
 ||| as arguments, `Formal`): no higher than the value above the tallest
@@ -1102,9 +1030,8 @@ mutual
   ||| A template read at a node, each applied family of the writer's by what
   ||| lands at its position (`Graph`). Beta of an inert family no higher
   ||| than k, applied to arguments no higher than h, is no higher than k + h
-  ||| (`Proof.Bound.betaHeight`'s statement): the value's meaning is no
-  ||| higher than the value and holds each argument no deeper than the value
-  ||| is high. So where only closed values no higher than k land, an
+  ||| (`Proof.Bound.instHeight`): the value's meaning is a part of the
+  ||| value, no higher than it. So where only closed values no higher than k land, an
   ||| applied family reads as k heads above its arguments; where values not
   ||| all closed land, it stays applied, the family's own height carried by
   ||| an arc when its arguments are closed (`appliedWeight`), and a sum of
@@ -1224,27 +1151,6 @@ export
 weights : Template -> List (Nat, Weight)
 weights t = map (\(i, w) => (i, settled w)) (SortedMap.toList (weightsAt 0 t empty))
 
-mutual
-  heaviestOf : List Template -> Nat
-  heaviestOf [] = 0
-  heaviestOf (t :: ts) = max (heaviest t) (heaviestOf ts)
-
-  ||| The heaviest literal or hole token a template holds, a choice's
-  ||| leaves' included and its scrutinee skipped; 0 for none.
-  export
-  heaviest : Template -> Nat
-  heaviest (Token k) = k
-  heaviest (Head _ ts) = heaviestOf ts
-  heaviest (Opaque _ ts) = heaviestOf ts
-  heaviest (Applied _ _ ts) = heaviestOf ts
-  heaviest (Computing _ _ ts) = heaviestOf ts
-  heaviest (Choice _ ts) = heaviestOf ts
-  heaviest (Field _ s) = heaviest s
-  heaviest (Var _ _) = 0
-  heaviest (Leaf _) = 0
-  heaviest (Held _ _) = 0
-  heaviest (Formal _ _) = 0
-
 ------------------------------------------------------------------------------
 -- Roots and requests
 ------------------------------------------------------------------------------
@@ -1258,6 +1164,11 @@ record Piece where
   written : Lazy ClosedTerm
   built : Lazy (Front (Maybe (Name, List Piece)))
   root : Lazy (Front Root)
+
+||| The implementations a choice can be, as its root: none roots nothing.
+membersOf : List Address -> Root
+membersOf [] = Unrooted
+membersOf (m :: ms) = Members (m ::: ms)
 
 -- A dictionary is taken apart the way the growth graph reads one
 -- (`Implementations.fieldsOf`, `Heads`) and the translation projects one
@@ -1297,15 +1208,20 @@ mutual
     Just (placement, def) <- core (resolve n)
       | Nothing => pure Nothing
     case definition def of
-      PMDef _ pargs (STerm _ body) _ _ => case bindParams pargs args of
-        Nothing => pure Nothing
-        -- Entered already: met again on its own unfolding.
-        Just (env, extras) => case enter placement w of
+      PMDef _ pargs pbody => do
+        -- A definition of one right-hand side; of one that matches, nothing
+        -- is decoded.
+        Just body <- leafOfBody pbody
+          | Nothing => pure Nothing
+        case bindParams pargs args of
           Nothing => pure Nothing
-          Just (Element w' less) =>
-            let written : Piece -> ClosedTerm
-                written p = Force p.written in
-            builtOf w' (rec w' less) (applyTo (closeBy written env body) (map written extras)) []
+          -- Entered already: met again on its own unfolding.
+          Just (env, extras) => case enter placement w of
+            Nothing => pure Nothing
+            Just (Element w' less) =>
+              let written : Piece -> ClosedTerm
+                  written p = Force p.written in
+              builtOf w' (rec w' less) (applyTo (closeBy written env body) (map written extras)) []
       _ => pure Nothing
 
   ||| A projection applied to its parameters: the field it takes from the
@@ -1350,6 +1266,21 @@ mutual
       FormalMarker _ _ => pure Unrooted
       RuntimePart => pure Unrooted
       TypeConstructor _ => pure Unrooted
+  -- A dictionary delayed, or forced, is that dictionary: a choice's leaves
+  -- hold their alternatives lazily.
+  rootOf w acc (TDelay _ _ _ t) args = rootOf w acc t args
+  rootOf w acc (TForce _ _ t) args = rootOf w acc t args
+  -- A function that computes an implementation from what it is given (a
+  -- rank-2 dictionary, `\{y} => if y == 0 then loud else quiet`): its
+  -- body applies a definition to its variable, so at run time it gives
+  -- one of the implementations that definition's leaves give, the
+  -- members of the closed sum the translation makes of it. A body that
+  -- does not use its variable chooses nothing: a lambda's result, which
+  -- roots nothing.
+  rootOf w acc (Bind _ _ (Lam {}) sc) [] = case getFnArgs (subst unknownPart sc) of
+    (Ref _ Func n, as@(_ :: _)) =>
+      if any mentionsUnknown as then membersOf <$> leafRoots w acc n (map (pieceOf w acc) as) else pure Unrooted
+    _ => pure Unrooted
   rootOf w acc _ _ = pure Unrooted
 
   ||| A definition applied that is no projection, at its root: itself, an
@@ -1365,9 +1296,7 @@ mutual
   definitionRoot w acc head n a args = do
     Stuck (OnPartial _) <- whnf (applyTo head (map (\p => Force p.written) args))
       | _ => pure (Rooted a)
-    pure (case !(leafRoots w acc n args) of
-            [] => Unrooted
-            m :: ms => Members (m ::: ms))
+    membersOf <$> leafRoots w acc n args
 
   ||| The implementations a definition applied gives at the leaves of its
   ||| case tree: every alternative's, since what it matches on is known
@@ -1379,10 +1308,10 @@ mutual
   leafRoots w acc@(Access rec) n args = do
     Just (placement, def) <- core (resolve n)
       | Nothing => pure []
-    let PMDef _ pargs tree _ _ = definition def
+    let PMDef _ pargs body = definition def
       | _ => pure []
     case (bindParams pargs (map (\p => Force p.written) args), enter placement w) of
-      (Just (env, extras), Just (Element w' less)) => leaves w' (rec w' less) env tree extras
+      (Just (env, extras), Just (Element w' less)) => leaves w' (rec w' less) env !(treeOfBody body) extras
       _ => pure []
 
   ||| The implementations a case tree gives at its leaves, its variables

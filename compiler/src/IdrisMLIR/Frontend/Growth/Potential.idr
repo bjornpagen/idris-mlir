@@ -545,8 +545,8 @@ tooLong ts nd sub len =
 find : (x : Fin n) -> (ts : List (Fin n)) -> Decision (Elem x ts)
 find x [] = Fails (\case _ impossible)
 find x (t :: ts) = case samePosition x t of
-  Holds eq => Holds (rewrite eq in Here)
-  Fails ne => case find x ts of
+  Yes eq => Holds (rewrite eq in Here)
+  No ne => case find x ts of
     Holds e => Holds (There e)
     Fails ne' => Fails (\case Here => ne Refl; There e => ne' e)
 

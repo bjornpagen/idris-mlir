@@ -347,93 +347,93 @@ fittingUnder xs ys one fx fy =
 -- Comparing requests at runtime
 ------------------------------------------------------------------------------
 
--- Every comparison decides, keeping its evidence: the machine compares the
--- numbers (`samePosition`, `==` on naturals), and every proof that the
--- comparison means equality is erased, so a decision costs its comparisons.
+-- Every comparison decides by the machine's comparisons of the numbers
+-- (`samePosition`, `==` on naturals), and every proof that the comparison
+-- means equality is erased, so a decision costs its comparisons.
 
 export
-sameNat : (k, k' : Nat) -> Decision (k = k')
+sameNat : (k, k' : Nat) -> Decided (k = k')
 sameNat k k' = case choose (k == k') of
-  Left same => Holds (irrelevantEq (equalSo same))
-  Right other => Fails (\Refl => soNotToNotSo other (equalSelf k))
+  Left same => Yes (equalSo same)
+  Right other => No (\Refl => soNotToNotSo other (equalSelf k))
 
 -- A form compares as its writer decides.
-sameForm : DecEq form => (f, g : form) -> Decision (f = g)
+sameForm : DecEq form => (f, g : form) -> Decided (f = g)
 sameForm f g = case decEq f g of
-  Yes eq => Holds eq
-  No ne => Fails ne
+  Yes eq => Yes eq
+  No ne => No ne
 
 ||| Two addresses are one exactly when their bytes are.
 export
-decideAddress : (a, b : Vect k (Fin 256)) -> Decision (a = b)
-decideAddress [] [] = Holds Refl
+decideAddress : (a, b : Vect k (Fin 256)) -> Decided (a = b)
+decideAddress [] [] = Yes Refl
 decideAddress (x :: xs) (y :: ys) = case samePosition x y of
-  Fails ne => Fails (\Refl => ne Refl)
-  Holds Refl => case decideAddress xs ys of
-    Fails ne => Fails (\Refl => ne Refl)
-    Holds Refl => Holds Refl
+  No ne => No (\Refl => ne Refl)
+  Yes Refl => case decideAddress xs ys of
+    No ne => No (\Refl => ne Refl)
+    Yes Refl => Yes Refl
 
 ||| Two addresses are one: their bytes compare equal.
 export
 sameAddress : Vect k (Fin 256) -> Vect k (Fin 256) -> Bool
 sameAddress a b = case decideAddress a b of
-  Holds _ => True
-  Fails _ => False
+  Yes _ => True
+  No _ => False
 
 ||| Two optional parts are one when both are absent, or both present and one.
 export
-sameMaybe : ((x, y : a) -> Decision (x = y)) -> (m, m' : Maybe a) -> Decision (m = m')
-sameMaybe same Nothing Nothing = Holds Refl
+sameMaybe : ((x, y : a) -> Decided (x = y)) -> (m, m' : Maybe a) -> Decided (m = m')
+sameMaybe same Nothing Nothing = Yes Refl
 sameMaybe same (Just x) (Just y) = case same x y of
-  Fails ne => Fails (\Refl => ne Refl)
-  Holds Refl => Holds Refl
-sameMaybe same Nothing (Just _) = Fails (\case Refl impossible)
-sameMaybe same (Just _) Nothing = Fails (\case Refl impossible)
+  No ne => No (\Refl => ne Refl)
+  Yes Refl => Yes Refl
+sameMaybe same Nothing (Just _) = No (\case Refl impossible)
+sameMaybe same (Just _) Nothing = No (\case Refl impossible)
 
 ||| Two lists are one when they are as long and one at every place.
 export
-sameList : ((x, y : a) -> Decision (x = y)) -> (xs, ys : List a) -> Decision (xs = ys)
-sameList same [] [] = Holds Refl
+sameList : ((x, y : a) -> Decided (x = y)) -> (xs, ys : List a) -> Decided (xs = ys)
+sameList same [] [] = Yes Refl
 sameList same (x :: xs) (y :: ys) = case same x y of
-  Fails ne => Fails (\Refl => ne Refl)
-  Holds Refl => case sameList same xs ys of
-    Fails ne => Fails (\Refl => ne Refl)
-    Holds Refl => Holds Refl
-sameList same [] (_ :: _) = Fails (\case Refl impossible)
-sameList same (_ :: _) [] = Fails (\case Refl impossible)
+  No ne => No (\Refl => ne Refl)
+  Yes Refl => case sameList same xs ys of
+    No ne => No (\Refl => ne Refl)
+    Yes Refl => Yes Refl
+sameList same [] (_ :: _) = No (\case Refl impossible)
+sameList same (_ :: _) [] = No (\case Refl impossible)
 
-sameToken : DecEq form => (t, u : Token form) -> Decision (t = u)
+sameToken : DecEq form => (t, u : Token form) -> Decided (t = u)
 sameToken (Node f m k) (Node g m' k') = case sameForm f g of
-  Fails ne => Fails (\Refl => ne Refl)
-  Holds Refl => case sameMaybe decideAddress m m' of
-    Fails ne => Fails (\Refl => ne Refl)
-    Holds Refl => case sameNat k k' of
-      Fails ne => Fails (\Refl => ne Refl)
-      Holds Refl => Holds Refl
+  No ne => No (\Refl => ne Refl)
+  Yes Refl => case sameMaybe decideAddress m m' of
+    No ne => No (\Refl => ne Refl)
+    Yes Refl => case sameNat k k' of
+      No ne => No (\Refl => ne Refl)
+      Yes Refl => Yes Refl
 sameToken (Number f k) (Number g k') = case sameForm f g of
-  Fails ne => Fails (\Refl => ne Refl)
-  Holds Refl => case sameNat k k' of
-    Fails ne => Fails (\Refl => ne Refl)
-    Holds Refl => Holds Refl
-sameToken (Node _ _ _) (Number _ _) = Fails (\case Refl impossible)
-sameToken (Number _ _) (Node _ _ _) = Fails (\case Refl impossible)
+  No ne => No (\Refl => ne Refl)
+  Yes Refl => case sameNat k k' of
+    No ne => No (\Refl => ne Refl)
+    Yes Refl => Yes Refl
+sameToken (Node _ _ _) (Number _ _) = No (\case Refl impossible)
+sameToken (Number _ _) (Node _ _ _) = No (\case Refl impossible)
 
 -- Two writings are one when their sizes and symbols are: the proofs that
 -- the symbols weigh and fit the size are erased, and unique (`writtenEq`).
-sameWritten : DecEq form => (w, v : Written form) -> Decision (w = v)
+sameWritten : DecEq form => (w, v : Written form) -> Decided (w = v)
 sameWritten (MkWritten s ts p b) (MkWritten t us q c) = case sameNat s t of
-  Fails ne => Fails (\eq => ne (cong (.size) eq))
-  Holds same => case sameList sameToken ts us of
-    Fails ne => Fails (\eq => ne (cong (.symbols) eq))
-    Holds alike => Holds (irrelevantEq (writtenEq same alike))
+  No ne => No (\eq => ne (cong (.size) eq))
+  Yes same => case sameList sameToken ts us of
+    No ne => No (\eq => ne (cong (.symbols) eq))
+    Yes alike => Yes (writtenEq same alike)
 
 -- Two links are one exactly when their definitions and arguments are.
-sameLink : DecEq form => (x, y : Link form) -> Decision (x = y)
+sameLink : DecEq form => (x, y : Link form) -> Decided (x = y)
 sameLink (MkLink d as) (MkLink e bs) = case decideAddress d e of
-  Fails ne => Fails (\Refl => ne Refl)
-  Holds Refl => case sameList (sameMaybe sameWritten) as bs of
-    Fails ne => Fails (\Refl => ne Refl)
-    Holds Refl => Holds Refl
+  No ne => No (\Refl => ne Refl)
+  Yes Refl => case sameList (sameMaybe sameWritten) as bs of
+    No ne => No (\Refl => ne Refl)
+    Yes Refl => Yes Refl
 
 ||| Links are equal as `sameLink` decides, by the machine's comparisons:
 ||| what a short list of links, such as the fields the passes learn, is
@@ -441,8 +441,8 @@ sameLink (MkLink d as) (MkLink e bs) = case decideAddress d e of
 export
 DecEq form => DecEq (Link form) where
   decEq x y = case sameLink x y of
-    Holds eq => Yes eq
-    Fails ne => No (\eq => void (ne eq))
+    Yes Refl => Yes Refl
+    No ne => No (\eq => void (ne eq))
 
 ------------------------------------------------------------------------------
 -- Every request, listed
@@ -768,12 +768,12 @@ record InUniverse (0 forms : Listed form) (0 names : Listed Address) (b : Bounds
 ||| heights padded with 0.
 export
 within : (0 forms : Listed form) -> (0 names : Listed Address) -> (b : Bounds) -> (l : Link form) ->
-         Decision (InUniverse forms names b l)
+         Decided (InUniverse forms names b l)
 within forms names b l = case choose (length l.arguments <= b.breadth) of
-  Right long => Fails (\inside => notLteSo long inside.short)
+  Right long => No (\inside => notLteSo long inside.short)
   Left fits => case allFit l.arguments (b.heightAt l.definition) of
-    No large => Fails (\inside => large inside.sized)
-    Yes sized => Holds (MkIn (lteSo fits) sized (inUniverse forms names b l (lteSo fits) sized))
+    No large => No (\inside => large inside.sized)
+    Yes sized => Yes (MkIn (lteSo fits) sized (inUniverse forms names b l (lteSo fits) sized))
   where
     -- One argument against its parameter's height, then the rest.
     next : (a : Maybe (Written form)) -> (h : Nat) -> Lazy (Decided (Pointwise ss hs)) ->
@@ -801,7 +801,7 @@ export
 elemLink : DecEq form => (l : Link form) -> (ls : List (Link form)) -> Decided (Elem l ls)
 elemLink l [] = No absurd
 elemLink l (k :: ks) = case sameLink l k of
-  Holds Refl => Yes Here
-  Fails other => case elemLink l ks of
+  Yes Refl => Yes Here
+  No other => case elemLink l ks of
     Yes e => Yes (There e)
     No ne => No (neitherHereNorThere other ne)

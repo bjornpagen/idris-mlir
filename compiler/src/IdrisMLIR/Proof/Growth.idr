@@ -36,9 +36,9 @@ import public Data.Vect
 -- Deciding at run time
 ------------------------------------------------------------------------------
 
-||| A decision as the frontend makes it at run time: the evidence that it
-||| holds, which the frontend reads, or the erased evidence that it does
-||| not.
+||| A decision whose evidence the frontend reads at run time (a place in a
+||| list it cuts at): the evidence that it holds, or the erased evidence
+||| that it does not.
 public export
 data Decision : Type -> Type where
   Holds : p -> Decision p
@@ -98,10 +98,10 @@ equalSelf (S m) = equalSelf m
 ||| Two positions, as the machine compares them: a `Fin` is the number it
 ||| is, at run time as in proofs.
 export
-samePosition : (x, y : Fin n) -> Decision (x = y)
+samePosition : (x, y : Fin n) -> Decided (x = y)
 samePosition x y = case choose (finToNat x == finToNat y) of
-  Left so => Holds (irrelevantEq (injective {f = finToNat} (equalSo so)))
-  Right no => Fails (\Refl => soNotToNotSo no (equalSelf (finToNat x)))
+  Left so => Yes (injective {f = finToNat} (equalSo so))
+  Right no => No (\Refl => soNotToNotSo no (equalSelf (finToNat x)))
 
 ------------------------------------------------------------------------------
 -- Weights
@@ -334,22 +334,29 @@ capAt (Within le :: _) FZ Refl = le
 capAt (Uncapped :: _) FZ eq = absurd eq
 capAt (_ :: hs) (FS p) eq = capAt hs p eq
 
+-- The cap at the first position, and those after it.
+0 firstCap : CapsHold k (c :: cs) (v :: vs) -> CapHolds k c v
+firstCap (h :: _) = h
+
+0 laterCaps : CapsHold k (c :: cs) (v :: vs) -> CapsHold k cs vs
+laterCaps (_ :: hs) = hs
+
 ||| Whether every cap holds under a potential, position by position: the
-||| machine's comparison at each capped position.
+||| machine's comparison at each capped position, its evidence erased.
 export
-capsHold : (k : Nat) -> (cs : Vect n (Maybe Nat)) -> (vs : Vect n Nat) -> Decision (CapsHold k cs vs)
-capsHold k [] [] = Holds []
+capsHold : (k : Nat) -> (cs : Vect n (Maybe Nat)) -> (vs : Vect n Nat) -> Decided (CapsHold k cs vs)
+capsHold k [] [] = Yes []
 capsHold k (c :: cs) (v :: vs) = case capHolds c of
-  Fails no => Fails (\(h :: _) => no h)
-  Holds h => case capsHold k cs vs of
-    Fails no => Fails (\(_ :: hs) => no hs)
-    Holds hs => Holds (h :: hs)
+  No no => No (\hs => no (firstCap hs))
+  Yes h => case capsHold k cs vs of
+    No no => No (\hs => no (laterCaps hs))
+    Yes hs => Yes (h :: hs)
   where
-    capHolds : (c : Maybe Nat) -> Decision (CapHolds k c v)
-    capHolds Nothing = Holds Uncapped
+    capHolds : (c : Maybe Nat) -> Decided (CapHolds k c v)
+    capHolds Nothing = Yes Uncapped
     capHolds (Just c) = case choose (c <= k + v) of
-      Left le => Holds (Within (lteSo le))
-      Right nle => Fails (\(Within le) => notLteSo nle le)
+      Left le => Yes (Within (lteSo le))
+      Right nle => No (\(Within le) => notLteSo nle le)
 
 namespace Below
   ||| One vector nowhere above another.

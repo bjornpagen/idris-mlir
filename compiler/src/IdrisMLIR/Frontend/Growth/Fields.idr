@@ -123,6 +123,6 @@ fieldSites t tdef cons rs = (>>= id) <$> traverse constructorSites cons
                        ("the context does not hold " ++ show cn ++ ", a constructor of " ++ show (fullname tdef))
       -- The type as written may hide binders behind a definition (`a -@
       -- b`); its normal form shows each one, as the translation reads it.
-      ty <- normaliseClosed (type cdef)
+      ty <- normaliseClosed !(typeOfDefinition cdef)
       fts <- fieldTypes none 0 (bindings rs (returned none 0 ty)) ty
       (>>= id) <$> traverse (\ft => map (\st => { fc := location cdef } st) <$> sitesIn t (addressOf placement) ft) fts

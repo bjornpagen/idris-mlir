@@ -22,6 +22,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Proof.Template
 
 import Data.List
 import Data.SortedMap
@@ -88,8 +89,9 @@ bindingOf rig a = case use rig of
 marks : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
         (owner : String) -> GlobalDef -> (arity : Nat) -> Front (List (VarInfo ()))
 marks owner def arity = do
-  (kinds, _) <- staticsOver owner arity (type def) (map (\i => Just (markerAt i 0, AValue)) (iterateN arity S 0))
-  pure (standing 0 (toList kinds) (type def))
+  ty <- typeOfDefinition def
+  (kinds, _) <- staticsOver owner arity ty (map (\i => Just (markerAt i 0, AValue)) (iterateN arity S 0))
+  pure (standing 0 (toList kinds) ty)
   where
     standing : Nat -> List (Maybe Static) -> TT vs -> List (VarInfo ())
     standing i (Just _ :: ks) (Bind _ _ (Pi {}) sc) = TypeValue (markerAt i 0) :: standing (S i) ks sc
@@ -167,7 +169,7 @@ methodField owner field = do
     | Nothing => pure (Plain (Leaf 1) Unrooted)
   let am = addressOf placement
   let xs = map value passed
-  (kinds, _) <- staticsOver owner (length xs) (type mdef) (map (\x => Just (x, AValue)) xs)
+  (kinds, _) <- staticsOver owner (length xs) !(typeOfDefinition mdef) (map (\x => Just (x, AValue)) xs)
   ts <- traverse (\(k, x) => templateOf k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList kinds) xs))
   pure (Method am (Head (Just am) ts) own (leadingOf passed))
   where
@@ -210,7 +212,7 @@ implementationFields def args body = do
   defs <- getDefs
   Just cdef <- lookupExact con (gamma defs)
     | Nothing => pure Nothing
-  fs <- fieldsAlong owner !(normaliseClosed (type cdef)) cargs
+  fs <- fieldsAlong owner !(normaliseClosed !(typeOfDefinition cdef)) cargs
   pure (Just fs)
 
 ||| The fields of a definition, over its parameters. An
@@ -227,8 +229,12 @@ fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> GlobalDef -> 
 fieldsOf def = case definition def of
     DCon _ arity _ =>
       pure (Just (map (\j => Plain (Var j 0) (Parameter j 0)) (iterateN arity S 0)))
-    PMDef _ args (STerm _ body) _ _ => do
-      True <- implementationType (type def)
+    PMDef _ args body => do
+      True <- implementationType !(typeOfDefinition def)
         | False => pure Nothing
-      implementationFields def args body
+      -- An implementation has one right-hand side; of one that matches,
+      -- nothing is decoded.
+      Just rhs <- leafOfBody body
+        | Nothing => pure Nothing
+      implementationFields def args rhs
     _ => pure Nothing

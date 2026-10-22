@@ -32,6 +32,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Proof.Template
 import IdrisMLIR.Registry
 
 import Control.WellFounded
@@ -523,8 +524,12 @@ mutual
     Just (_, def) <- definitionOf n
       | Nothing => pure []
     case definition def of
-      PMDef _ _ (STerm {}) _ _ => heldOver def 0 (type def) args
-      DCon {} => heldOver def 0 (type def) args
+      -- A definition of one right-hand side; of one that matches, nothing
+      -- is decoded.
+      PMDef _ pargs body => case !(leafOfBody {args = pargs} body) of
+        Just _ => heldOver def 0 !(typeOfDefinition def) args
+        Nothing => pure []
+      DCon {} => heldOver def 0 !(typeOfDefinition def) args
       _ => pure []
   heldSpine _ _ = pure []
 
@@ -644,15 +649,15 @@ piNames _ = []
 
 ||| How many parameters a definition takes: its case tree's scope, or the
 ||| arity Idris records, or the binders its type shows.
-arityOf : GlobalDef -> Nat
+arityOf : {auto c : Ref Ctxt Defs} -> GlobalDef -> Front Nat
 arityOf def = case definition def of
-  PMDef _ args _ _ _ => length args
-  DCon _ arity _ => arity
-  TCon arity _ _ _ _ _ _ => arity
-  Builtin {arity} _ => arity
-  ForeignDef arity _ => arity
-  ExternDef arity => arity
-  _ => length (piNames (type def))
+  PMDef _ args _ => pure (length args)
+  DCon _ arity _ => pure arity
+  TCon arity _ _ _ _ _ _ => pure arity
+  Builtin {arity} _ => pure arity
+  ForeignDef arity _ => pure arity
+  ExternDef arity => pure arity
+  _ => length . piNames <$> typeOfDefinition def
 
 ||| A data constructor applied: `Calls` of it at its dictionary arguments,
 ||| so that the flow sees what a match on them reads, when it has any; and
@@ -662,7 +667,7 @@ constructed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scop
               At -> Pats -> Env vs -> FC -> Address -> GlobalDef -> List (Arg vs) ->
               Front (List Site, List (Given vs), ClosedTerm)
 constructed at ps env fc a def args = do
-  (gs, rest) <- taken at ps env (type def) !(argumentsOf def) args
+  (gs, rest) <- taken at ps env !(typeOfDefinition def) !(argumentsOf def) args
   calls <- case filter holdsDictionary gs of
     [] => pure []
     dictionaries => callSite at ps env fc (Calls a) dictionaries
@@ -684,31 +689,41 @@ record Projected where
   field : Nat
   params : List (Maybe Nat)
 
-projectionShape : CaseTree vs -> Maybe Projected
-projectionShape (Case idx _ _ [ConCase _ _ cargs (STerm _ body)]) = case getFnArgs body of
-  (Local _ _ k _, fargs) =>
-    if k < length cargs then Just (MkProjected idx k (map (parameter (length cargs)) fargs)) else Nothing
-  _ => Nothing
+||| Read off the tree's root as the context holds it, so that of a stored
+||| definition only the one leaf of a projection is decoded, and of any
+||| other nothing.
+projectionShape : {args : Scope} -> Body args -> Front (Maybe Projected)
+projectionShape body = core (walkTree body shape)
   where
     -- Below the alternative's own variables, a variable is a parameter.
     parameter : Nat -> TT ws -> Maybe Nat
     parameter n (Local _ _ m _) = if m >= n then Just (minus m n) else Nothing
     parameter _ _ = Nothing
-projectionShape _ = Nothing
+
+    shape : {0 t : Scoped} -> Leaves t -> CaseTree' t args -> Core (Maybe Projected)
+    shape leaves (Case idx _ _ [ConCase _ _ cargs (STerm _ r)]) = do
+      rhs <- leaves.leafTerm {outer = []} r
+      pure $ case getFnArgs rhs of
+        (Local _ _ k _, fargs) =>
+          if k < length cargs then Just (MkProjected idx k (map (parameter (length cargs)) fargs)) else Nothing
+        _ => Nothing
+    shape _ _ = pure Nothing
 
 ||| The record a call of a projection-shaped definition matches, when the
 ||| call gives every parameter and the record is a dictionary: a method call.
-methodRecord : GlobalDef -> List (Given vs) -> Maybe (Projected, Given vs)
+methodRecord : GlobalDef -> List (Given vs) -> Front (Maybe (Projected, Given vs))
 methodRecord def gs = case definition def of
-  PMDef _ params tree _ _ => do
-    p <- projectionShape tree
-    Yes _ <- pure (isLTE (length params) (length gs))
-      | No _ => Nothing
-    g <- getAt p.matched gs
-    AsStatic ADictionary <- pure g.taking
-      | _ => Nothing
-    pure (p, g)
-  _ => Nothing
+  PMDef _ params body => do
+    Just p <- projectionShape body
+      | Nothing => pure Nothing
+    pure $ do
+      Yes _ <- pure (isLTE (length params) (length gs))
+        | No _ => Nothing
+      g <- getAt p.matched gs
+      AsStatic ADictionary <- pure g.taking
+        | _ => Nothing
+      pure (p, g)
+  _ => pure Nothing
 
 ||| The method a call dispatches on its dictionary: the record's template
 ||| and root, at the method's own static arguments, those past the
@@ -751,7 +766,7 @@ hookCalls at ps env fc hs args = case hs.natOperation of
     aliased q = do
       Just (a, def) <- definitionOf !(core (toName q))
         | Nothing => pure []
-      (gs, _) <- taken at ps env (type def) !(argumentsOf def) (take (arityOf def) args)
+      (gs, _) <- taken at ps env !(typeOfDefinition def) !(argumentsOf def) (take !(arityOf def) args)
       callSite at ps env fc (Calls a) gs
 
 ||| The registry's hooks of a definition, as the translation finds them: a
@@ -773,12 +788,12 @@ hooksFor def = case definition def of
 call : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
        At -> Pats -> Env vs -> FC -> Address -> GlobalDef -> List (Arg vs) -> Front (List Site)
 call at ps env fc a def args = do
-  let arity = arityOf def
-  (gs, rest) <- taken at ps env (type def) !(argumentsOf def) (take arity args)
+  arity <- arityOf def
+  (gs, rest) <- taken at ps env !(typeOfDefinition def) !(argumentsOf def) (take arity args)
   own <- callSite at ps env fc (Calls a) gs
   instead <- hookCalls at ps env fc (hooksFor def) args
   now <- walked gs
-  later <- case methodRecord def gs of
+  later <- case !(methodRecord def gs) of
     Just (p, dict) => dispatch at ps env fc p dict rest (drop arity args)
     Nothing => overType env (Just rest) (drop arity args)
   pure (own ++ instead ++ now ++ later)
@@ -819,11 +834,12 @@ staticRef at ps env fc n args = do
   case definition def of
     DCon _ arity _ => do
       (sites, gs, _) <- constructed at ps env fc a def (take arity args)
-      fields <- if !(implementationType (type def)) then walked gs else statics (take arity args)
+      fields <- if !(implementationType !(typeOfDefinition def)) then walked gs else statics (take arity args)
       (\later => sites ++ fields ++ later) <$> statics (drop arity args)
     _ => do
-      own <- if not !(implementationType (type def)) then pure [] else do
-        (gs, _) <- taken at ps env (type def) !(argumentsOf def) (take (arityOf def) args)
+      ty <- typeOfDefinition def
+      own <- if not !(implementationType ty) then pure [] else do
+        (gs, _) <- taken at ps env ty !(argumentsOf def) (take !(arityOf def) args)
         callSite at ps env fc (Calls a) gs
       (own ++) <$> statics args
 
@@ -1081,7 +1097,7 @@ conStands : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             Pats -> Stand -> List ClosedTerm -> Address -> GlobalDef -> ClosedTerm -> (args : List Name) ->
             Front (Env args, ClosedTerm, Pats)
 conStands ps v r ca cdef con args = do
-  ty <- normaliseClosed (type cdef)
+  ty <- normaliseClosed !(typeOfDefinition cdef)
   layout <- layoutOf ty
   (env, ps') <- bind ps layout 0 ty args
   pure (env, foldl (App EmptyFC) con (map (\(s, _, _) => termOf s) (standings env)), ps')
@@ -1223,7 +1239,7 @@ mutual
   expand at ps env p r (cn :: cns) rhs = do
     here <- the (Front (List Site)) $ case !(definitionOf cn) of
       Just (ca, cdef@(MkGlobalDef {definition = DCon tag arity _, _})) => do
-        (_, con, ps') <- conStands ps (Pattern p) r ca cdef (Ref EmptyFC (DataCon tag arity) cn) (piNames (type cdef))
+        (_, con, ps') <- conStands ps (Pattern p) r ca cdef (Ref EmptyFC (DataCon tag arity) cn) (piNames !(typeOfDefinition cdef))
         tree at ps' (rebound p con env) rhs
       -- A type's constructors are constructors the context holds.
       _ => pure []
@@ -1239,20 +1255,16 @@ mutual
 ||| first constructor binds at that position of the type it returns.
 export
 parameterNames : {auto c : Ref Ctxt Defs} -> GlobalDef -> Front (List Name)
-parameterNames def = case definition def of
-  TCon _ _ _ _ _ (Just (con :: _)) _ => do
-    defs <- getDefs
-    Just cdef <- lookupExact con (gamma defs)
-      | Nothing => pure own
-    pure (zipWith named own (returned [] (type cdef) ++ repeat Nothing))
-  _ => pure own
+parameterNames def = do
+  own <- piNames <$> typeOfDefinition def
+  case definition def of
+    TCon _ _ _ _ _ (Just (con :: _)) _ => do
+      defs <- getDefs
+      Just cdef <- lookupExact con (gamma defs)
+        | Nothing => pure own
+      pure (zipWith named own (returned [] !(typeOfDefinition cdef) ++ replicate (length own) Nothing))
+    _ => pure own
   where
-    own : List Name
-    own = piNames (type def)
-
-    repeat : Maybe Name -> List (Maybe Name)
-    repeat x = replicate (length own) x
-
     named : Name -> Maybe Name -> Name
     named n@(MN _ _) (Just x) = x
     named n _ = n
@@ -1332,14 +1344,15 @@ envOf [] _ = []
 envOf (x :: xs) (e :: es) = e :: envOf xs es
 envOf (x :: xs) [] = (Runtime, x, Nothing) :: envOf xs []
 
-||| A projection of a dictionary parameter, by its case tree and its own
+||| A projection of a dictionary parameter, by its body and its own
 ||| parameters' kinds.
-dictionaryProjection : List (Maybe Static) -> CaseTree vs -> Maybe Projected
-dictionaryProjection kinds t = do
-  p <- projectionShape t
-  Just ADictionary <- getAt p.matched kinds
-    | _ => Nothing
-  pure p
+dictionaryProjection : {args : Scope} -> List (Maybe Static) -> Body args -> Front (Maybe Projected)
+dictionaryProjection kinds body = do
+  Just p <- projectionShape body
+    | Nothing => pure Nothing
+  pure (case getAt p.matched kinds of
+          Just (Just ADictionary) => Just p
+          _ => Nothing)
 
 ||| The one site of a projection of a dictionary parameter: its record's
 ||| method, dispatched on the record, at the field's arguments that are the
@@ -1410,17 +1423,18 @@ nodeValues (S n) heads i ty = do
 nodeSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             At -> GlobalDef -> List ClosedTerm -> Front (List (Maybe Static), List Site)
 nodeSites at def values = do
-  let arity = arityOf def
-  (kinds', _) <- staticsOver at.owner arity (type def) (map (\v => Just (v, AValue)) values)
+  arity <- arityOf def
+  ty <- typeOfDefinition def
+  (kinds', _) <- staticsOver at.owner arity ty (map (\v => Just (v, AValue)) values)
   let kinds = toList kinds'
-  (sig, ps, params) <- signature at (zip kinds values) 0 (type def) (MkPats 0 [])
+  (sig, ps, params) <- signature at (zip kinds values) 0 ty (MkPats 0 [])
   body <- the (Front (List Site)) $ case definition def of
-    PMDef _ args treeCT _ _ => do
+    PMDef _ args pbody => do
       st <- getState
       if contains at.writer st.refused || answersForCalls (hooksOf (fullname def)) then pure [] else
-        case dictionaryProjection kinds treeCT of
+        case !(dictionaryProjection kinds pbody) of
           Just p => (\site => [site]) <$> projectionSite at (zip kinds params) p
-          Nothing => tree at ps (envOf args params) treeCT
+          Nothing => tree at ps (envOf args params) !(treeOfBody pbody)
     _ => pure []
   pure (kinds, sig ++ body)
 
@@ -1445,14 +1459,14 @@ atNode : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 atNode a heads = do
   Just (at, def) <- writerAt a a
     | Nothing => pure ([], [])
-  nodeSites at def !(nodeValues (arityOf def) heads 0 (type def))
+  nodeSites at def !(nodeValues !(arityOf def) heads 0 !(typeOfDefinition def))
 
 ||| A definition as its node with no heads reads it, from the definition
 ||| the walk holds.
 export
 readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> GlobalDef -> Front Reading
 readingOf a def = do
-  (kinds, ss) <- nodeSites (atDefinition a a def) def !(nodeValues (arityOf def) [] 0 (type def))
+  (kinds, ss) <- nodeSites (atDefinition a a def) def !(nodeValues !(arityOf def) [] 0 !(typeOfDefinition def))
   pure (MkReading ss (mapMaybe family (zip [0 .. length kinds] kinds)))
   where
     family : (Nat, Maybe Static) -> Maybe Nat

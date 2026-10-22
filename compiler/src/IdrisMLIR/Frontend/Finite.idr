@@ -189,8 +189,9 @@ heightWithin fc what bounds (node, j) h = do
 export
 sizedWithin : FC -> (what : String) -> (b : Bounds) -> (l : Link Form) -> Core (Inside b l)
 sizedWithin fc what b l = case within forms addresses b l of
-  Holds inside => pure inside
-  Fails _ => unsound fc what ("has " ++ show (length l.arguments) ++ " arguments weighing " ++ show (sizes l) ++
+  -- Its fields are erased, so the evidence costs nothing to hold.
+  Yes inside => pure (MkIn inside.short inside.sized inside.member)
+  No _ => unsound fc what ("has " ++ show (length l.arguments) ++ " arguments weighing " ++ show (sizes l) ++
                               ", outside the heights " ++ show (b.heightAt l.definition) ++ " (arity " ++ show b.arity ++
                               ", heaviest " ++ show b.heaviest ++ ") and the breadth " ++ show b.breadth ++ " of its bounds")
 

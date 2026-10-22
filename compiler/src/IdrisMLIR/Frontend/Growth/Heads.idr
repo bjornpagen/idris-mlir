@@ -48,6 +48,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Proof.Template
 
 import Libraries.Data.List.Finite
 
@@ -96,8 +97,8 @@ fieldSlot a k = (1, a, bytes 8 (cast k))
 -- each byte's whole value.
 sameBytes : (a, b : Address) -> Dec (a = b)
 sameBytes a b = case decideAddress a b of
-  Proof.Growth.Holds eq => Yes eq
-  Proof.Growth.Fails ne => No (\eq => void (ne eq))
+  Proof.Growth.Yes Refl => Yes Refl
+  Proof.Growth.No ne => No (\eq => void (ne eq))
 
 sameKind : (i, j : Fin 2) -> Dec (i = j)
 sameKind FZ FZ = Yes Refl

@@ -60,8 +60,9 @@ public export
 data Verdict : Graph -> Type where
   ||| At least one cause, by its type.
   Grows : List1 (Cause g) -> Verdict g
-  ||| A potential every arc satisfies: a bound on every position.
-  Bounded : (pot : Vect g.size Nat) -> Feasible g pot -> Verdict g
+  ||| A potential every arc satisfies: a bound on every position. Only
+  ||| proofs read the certificate, so it is erased.
+  Bounded : (pot : Vect g.size Nat) -> (0 _ : Feasible g pot) -> Verdict g
 
 ------------------------------------------------------------------------------
 -- Tables
@@ -500,15 +501,15 @@ walkBack pl (S r) inner start ws = case at pl ws start of
 ||| built by putting an edge before the walk at its target, but the table
 ||| does not tie an entry to its place, so the chain is compared here, once.
 ring : (first : Fin g.size) -> (e : Edge g) -> (w : Walk g) ->
-       Decision (Ring g first e.from (e.at :: map (\s => s.edge.at) w))
+       Decided (Ring g first e.from (e.at :: map (\s => s.edge.at) w))
 ring first e [] = case samePosition e.to first of
-  Holds t => Holds (Last (cong (.from) e.is) (trans (cong (.to) e.is) t))
-  Fails nt => Fails (\(Last _ t) => nt (trans (sym (cong (.to) e.is)) t))
+  Yes t => Yes (Last (cong (.from) e.is) (trans (cong (.to) e.is) t))
+  No nt => No (\(Last _ t) => nt (trans (sym (cong (.to) e.is)) t))
 ring first e (s :: w) = case samePosition e.to s.edge.from of
-  Fails nt => Fails (\(Next _ t r) => nt (trans (sym (cong (.to) e.is)) (trans t (startsAt s r))))
-  Holds t => case ring first s.edge w of
-    Holds r => Holds (Next (cong (.from) e.is) (trans (cong (.to) e.is) t) r)
-    Fails nr => Fails (\(Next _ _ r) => nr (replace {p = \x => Ring g first x (s.edge.at :: map (\s' => s'.edge.at) w)}
+  No nt => No (\(Next _ t r) => nt (trans (sym (cong (.to) e.is)) (trans t (startsAt s r))))
+  Yes t => case ring first s.edge w of
+    Yes r => Yes (Next (cong (.from) e.is) (trans (cong (.to) e.is) t) r)
+    No nr => No (\(Next _ _ r) => nr (replace {p = \x => Ring g first x (s.edge.at :: map (\s' => s'.edge.at) w)}
                                                    (startsAt s r) r))
   where
     -- A ring whose first arc is a steady edge starts at the edge's source.
@@ -540,12 +541,12 @@ cycleThrough g pl rounds inner [] = Nothing
 cycleThrough g pl rounds inner (e :: es) =
   case walkBack pl rounds inner e.edge.to (put pl e.edge.from (Just []) (Every Nothing)) of
     Just w => case ring e.edge.from e.edge w of
-      Holds r => Just (Cycle (e.edge.at :: map (\s => s.edge.at) w) (Sums r (finiteAll e.edge w) (rises e w)))
+      Yes r => Just (Cycle (e.edge.at :: map (\s => s.edge.at) w) (Sums r (finiteAll e.edge w) (rises e w)))
       -- A walk that does not chain is no cycle the check can name. If no
       -- candidate's does, the component is settled as bounded, the
       -- potential fails `feasibleIn`, and `heaviest` over every arc still
       -- finds the cycle, so no verdict rests on this.
-      Fails _ => cycleThrough g pl rounds inner es
+      No _ => cycleThrough g pl rounds inner es
     Nothing => cycleThrough g pl rounds inner es
 
 ||| What the components settled so far leave: the potential, final on them
@@ -647,32 +648,32 @@ raised (v :: vs) (l :: ls) =
 ||| Whether one arc fits the potential a table holds, read at its ends:
 ||| `index` into the listed potential would walk the positions before each
 ||| end, for every arc.
-satisfiesIn : {n : Nat} -> (pl : Places n d) -> (t : Table d Nat) -> (a : Arc n) -> Decision (Satisfies (listed pl t) a)
+satisfiesIn : {n : Nat} -> (pl : Places n d) -> (t : Table d Nat) -> (a : Arc n) -> Decided (Satisfies (listed pl t) a)
 -- No potential bounds an Unmeasured arc. `check` asks only of a graph
 -- whose arcs are all Measured, but reads them here as the graph holds them.
-satisfiesIn pl t (MkArc q p Unmeasured) = Fails (\case _ impossible)
+satisfiesIn pl t (MkArc q p Unmeasured) = No (\case _ impossible)
 satisfiesIn pl t (MkArc q p (Measured gain loss)) = case choose (at pl t q + gain <= at pl t p + loss) of
-  Left le => Holds (MkSatisfies (rewrite indexListed pl t q in rewrite indexListed pl t p in lteSo le))
-  Right nle => Fails (\(MkSatisfies le) => notLteSo nle (the (LTE (at pl t q + gain) (at pl t p + loss))
+  Left le => Yes (MkSatisfies (rewrite indexListed pl t q in rewrite indexListed pl t p in lteSo le))
+  Right nle => No (\(MkSatisfies le) => notLteSo nle (the (LTE (at pl t q + gain) (at pl t p + loss))
                                                             (rewrite sym (indexListed pl t q) in
                                                              rewrite sym (indexListed pl t p) in le)))
 
-satisfyAllIn : {n : Nat} -> (pl : Places n d) -> (t : Table d Nat) -> (as : List (Arc n)) -> Decision (All (Satisfies (listed pl t)) as)
-satisfyAllIn pl t [] = Holds []
+satisfyAllIn : {n : Nat} -> (pl : Places n d) -> (t : Table d Nat) -> (as : List (Arc n)) -> Decided (All (Satisfies (listed pl t)) as)
+satisfyAllIn pl t [] = Yes []
 satisfyAllIn pl t (a :: as) = case satisfiesIn pl t a of
-  Fails nf => Fails (\(f :: _) => nf f)
-  Holds f => case satisfyAllIn pl t as of
-    Fails nfs => Fails (\(_ :: fs) => nfs fs)
-    Holds fs => Holds (f :: fs)
+  No nf => No (\fs => nf (head fs))
+  Yes f => case satisfyAllIn pl t as of
+    No nfs => No (\fs => nfs (tail fs))
+    Yes fs => Yes (f :: fs)
 
 ||| Whether a table's potential is feasible: every arc of the graph, its
 ||| ends read in the table, and every cap.
-feasibleIn : (g : Graph) -> (pl : Places g.size d) -> (t : Table d Nat) -> Decision (Feasible g (listed pl t))
+feasibleIn : (g : Graph) -> (pl : Places g.size d) -> (t : Table d Nat) -> Decided (Feasible g (listed pl t))
 feasibleIn g pl t = case satisfyAllIn pl t g.arcs of
-  Fails nfs => Fails (\(MkFeasible fs _) => nfs fs)
-  Holds fs => case capsHold g.constant g.caps (listed pl t) of
-    Fails ncs => Fails (\(MkFeasible _ cs) => ncs cs)
-    Holds cs => Holds (MkFeasible fs cs)
+  No nfs => No (\(MkFeasible fs _) => nfs fs)
+  Yes fs => case capsHold g.constant g.caps (listed pl t) of
+    No ncs => No (\(MkFeasible _ cs) => ncs cs)
+    Yes cs => Yes (MkFeasible fs cs)
 
 ||| The potential over the components, before `check` rechecks it.
 export
@@ -693,13 +694,13 @@ check g =
     -- a cause.
     ([], Some ss) => Grows (map snd ss)
     ([], None fin) => case feasibleIn g pl st.pot of
-      Holds f => Bounded (listed pl st.pot) f
+      Yes f => Bounded (listed pl st.pot) f
       -- The potential over the components is the least one when they are
       -- right, so a failure here is this module's own bug, which the
       -- exhaustive box shows. `heaviest` over every arc still answers with
       -- a certificate, from a start no lower than the caps' floors, which
       -- it only raises.
-      Fails _ =>
+      No _ =>
         let start = raised (listed pl st.pot) (floors g) in
         case heaviest g (everyArc g) fin start.fst of
           Left (as ** pf) => Grows (Cycle as pf ::: [])

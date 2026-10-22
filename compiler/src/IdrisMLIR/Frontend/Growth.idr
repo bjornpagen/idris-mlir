@@ -25,6 +25,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Loc
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
+import IdrisMLIR.Proof.Template
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Spec.Core.Rules
 
