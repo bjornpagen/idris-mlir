@@ -16,7 +16,6 @@ import Core.Name
 import IdrisMLIR.Frontend.Walk
 import Data.List
 import Data.List1
-import Data.Vect
 
 %default total
 
@@ -37,7 +36,6 @@ sameProbe (ProbeSize a) (ProbeSize b) = a == b
 sameProbe (ProbeVar a c) (ProbeVar b d) = a == b && c == d
 sameProbe (ProbeFormal a c) (ProbeFormal b d) = a == b && c == d
 sameProbe (ProbeFieldPath a c fs) (ProbeFieldPath b d gs) = a == b && c == d && forget fs == forget gs
-sameProbe (ProbeHeld a p) (ProbeHeld b q) = toList a == toList b && p == q
 sameProbe _ _ = False
 
 ||| The small numbers every numbered family is drawn at, with two of more
@@ -49,12 +47,6 @@ small = [0, 1, 2, 3, 10, 12]
 paths : List (List1 Nat)
 paths = [0 ::: [], 3 ::: [], 2 ::: [0, 5], 1 ::: [1]]
 
-||| Held addresses: the least, the greatest, and one of every kind of byte.
-heldAddresses : List Address
-heldAddresses =
-  [ [0, 0, 0, 0, 0, 0, 0, 0], [255, 255, 255, 255, 255, 255, 255, 255]
-  , [1, 2, 3, 4, 5, 6, 7, 255] ]
-
 ||| Every probe that is one name, at the arguments above.
 probes : List Probe
 probes =
@@ -63,7 +55,6 @@ probes =
                       , ProbeStandIn i, ProbePattern i, ProbeAxisAt i, ProbeSize i ]) small
   ++ concatMap (\i => concatMap (\d => [ProbeVar i d, ProbeFormal i d]) small) small
   ++ concatMap (\i => concatMap (\d => map (ProbeFieldPath i d) paths) small) small
-  ++ concatMap (\a => map (ProbeHeld a) small) heldAddresses
 
 ||| Names a user program or Idris may hold, which are no probe, their texts
 ||| interned in one table seeded as a session's is: a text of the known
