@@ -97,8 +97,8 @@ lit_not() {
 # nothing when every such command names one. LATER is the text of the RUN
 # lines after LINE. A failure is named when the line checks which one it
 # is: CMD is a decision (diff, cmp, grep, test, ls: status 1 is the answer
-# no); CMD is idris-mlir under `%status` (its status is its verdict: 1 an
-# internal error, 2 a usage error, 3 a refusal); CMD runs
+# no); CMD is idris-mlir under `%status` (its status is its verdict, by
+# the driver's one table of verdicts); CMD runs
 # -verify-diagnostics; CMD asks idr-expect for properties (lit_fails then
 # requires one of them to fail); CMD's stderr is piped on (`2>&1 |`); or
 # CMD writes its stderr or a report (`2> FILE`, `--report=FILE`) to a file

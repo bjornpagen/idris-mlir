@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/70-early-exit-region-graph: the region graph's walk reads only
+# the successors a region has, so a pass that asks it over a region an
+# exit leaves (bufferization's analysis) runs to its end.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/70-early-exit-region-graph/region-graph.mlir
+if bounded "$llvm_bin/mlir-opt" "$input" -one-shot-bufferize -o /dev/null 2> "$work/err"; then
+  say "one-shot-bufferize: runs to its end"
+else
+  say "one-shot-bufferize: fails"
+  show "$work/err"
+fi

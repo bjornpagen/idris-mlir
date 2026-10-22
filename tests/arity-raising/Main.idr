@@ -2,7 +2,7 @@ module Main
 
 import Prelude
 
--- countdown returns an action. Arity raising: idr-specialize moves the
+-- countdown returns an action. Arity raising: specialization moves the
 -- apply that runs the action into a clone of countdown, where it meets the
 -- closures the body built, so no closure is left and the loop takes the
 -- world as an argument. The count comes from stdin.

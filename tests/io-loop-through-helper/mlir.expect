@@ -1,4 +1,0 @@
-# Each record goes once round the loop of process, body and push's
-# actions, so once idr-tail-calls has run no call reachable from the
-# program grows the stack, however many records the input holds.
-idr-tail-calls: constant-stack=@$idris-mlir.root

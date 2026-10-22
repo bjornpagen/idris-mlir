@@ -1,7 +1,7 @@
 module Main
 
 -- `digits` recurses on a runtime value, so the string it returns is not
--- known at compile time, but its only use is output, so idr-specialize
+-- known at compile time, but its only use is output, so specialization
 -- makes a clone of `digits` that writes at each tail, where output fusion
 -- takes the append apart: no string is built at runtime. The clone writes
 -- the leading digits before the levels around them end, which is what the

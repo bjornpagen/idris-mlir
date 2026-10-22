@@ -1,77 +1,104 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# Skipped actions: a transform that is an action of MLIR's action framework
-# only makes the code faster or smaller, and skipped it leaves valid IR
-# (foreign/idr/include/idr/Support/Actions.h). So a program's module run
-# through idris-mlir-opt's pipeline with any set of them skipped gives a
-# program that holds every case its fixture names, as the compilation with
-# none skipped does: the same output and exit status, and no cell live at
-# exit. That is the compiler's own claim, no oracle outside the program. A
-# cell put in a frame it outlives (a dangling pointer) shows as a case that
-# changes when that cell is left on the heap. Every program here links the
-# checked runtime (runtime/Alloc/Alloc.h), which ends it at the first
-# count operation on a cell that died or on a stack cell whose frame has
-# returned, so a double release or a dangling cell fails its case where it
-# happens, whatever it would have printed.
-
-# The sets skipped: none, every cell put in a frame, every cell reused,
-# every call inlined, all three at once, and one drawn stack cell and one
-# drawn reuse site alone (each the only one performed), from a seed the
-# run draws from the clock, which a failure names and
-# IDRIS_MLIR_ACTIONS_SEED replays.
+# Acceptance is a property of the program, never of the optimizer: a
+# transform an optimization makes is an action of MLIR's action framework
+# that only makes the code faster or smaller, and skipped it leaves valid
+# IR whose behaviour is the same but for the stack and the heap it needs.
+# So every program, compiled again from the module the frontend emitted
+# with a drawn set of those actions skipped, is accepted again and holds
+# every case its test names, and every refused program is refused again by
+# the same rule at the same line. A promise's obligation (an in-place
+# rebuild, a tail call's jump, a destination) is no action: it is the
+# pipeline's, never skippable, so a verdict that rested on an optimization
+# shows here as a verdict that changes.
+#
+# The set is drawn per test from a seed the run takes from the clock, which
+# a failure names and IDRIS_MLIR_ACTIONS_SEED replays: each action tag
+# (every action the passes take, as idris-mlir-opt names them,
+# `--idr-action-tags`) is left whole, skipped whole, or cut after its first
+# few actions.
 actions_seed=${IDRIS_MLIR_ACTIONS_SEED:-$(date +%s)}
-actions_drawn=$((actions_seed % 8))
-actions_skipped="none idr-stack-cell-count=0 idr-reuse-site-count=0 idr-optimize-inline-count=0
-idr-stack-cell-count=0,idr-reuse-site-count=0,idr-optimize-inline-count=0
-idr-stack-cell-skip=$actions_drawn,idr-stack-cell-count=1
-idr-reuse-site-skip=$actions_drawn,idr-reuse-site-count=1"
 
-# skipped_actions FIXTURE: the program of FIXTURE (Main.idr and the
-# packages its `packages` names) compiled once, its module then through
-# idr-pipeline with each set of actions_skipped and through idris-mlir to
-# an executable that links the checked runtime, each run on every case of
-# FIXTURE (e2e_case). One line per set when every case holds, the set named
-# without the drawn index; otherwise the cases that did not, under it.
-skipped_actions() {
-  sa_fixture=$1
-  rm -rf "$work/sa"
-  mkdir "$work/sa"
-  copy_fixture "$sa_fixture" "$work/sa"
-  # shellcheck disable=SC2046 # the packages are words
-  compile_program $(package_options "$sa_fixture") "$work/sa/Main.idr" prog
-  if [ "$compiled" -ne 0 ]; then
-    say "compile: exit $compiled"
-    show "$work/compile.out" "$work/compile.err"
-    return
-  fi
-  mkdir -p "$work/ours/build/exec"
-  for sa_set in $actions_skipped; do
-    sa_name=$(printf '%s' "$sa_set" | sed 's/-skip=[0-9]*,/-skip=drawn,/')
-    case $sa_set in
-      none) sa_counter= ;;
-      *) sa_counter=--mlir-debug-counter=$sa_set ;;
+# drawn_skips: the debug counter of the set drawn from actions_seed, as one
+# option; nothing when the draw skips nothing.
+drawn_skips() {
+  ds_tags=$("$idris_mlir_opt" --idr-action-tags) || return 1
+  ds_x=$actions_seed
+  ds_counter=
+  for ds_tag in $ds_tags; do
+    ds_x=$(( (ds_x * 1103515245 + 12345) % 2147483648 ))
+    case $(( ds_x % 3 )) in
+      1) ds_counter="$ds_counter,$ds_tag-count=0" ;;
+      2) ds_counter="$ds_counter,$ds_tag-skip=0,$ds_tag-count=$(( (ds_x / 3) % 8 ))" ;;
     esac
-    rm -f "$work/ours/build/exec/prog"
-    # shellcheck disable=SC2086 # no counter is no argument
-    if ! bounded "$idris_mlir_opt" "$work/sa/build/exec/prog.mlirbc" $sa_counter \
-      --idr-target --idr-pipeline -o "$work/sa/lowered.mlir" > "$work/sa.out" 2> "$work/sa.err" ||
-      ! bounded "$idris_mlir" "$work/sa/lowered.mlir" \
-        "--runtime=$dev_prefix/foreign/idr/idris_rt_checked.o" -o "$work/ours/build/exec/prog" \
-        >> "$work/sa.out" 2>> "$work/sa.err"; then
-      say "skipped $sa_name: does not compile"
-      show "$work/sa.out" "$work/sa.err"
-      continue
-    fi
-    : > "$work/sa.failed"
-    for sa_case in "$sa_fixture"/cases/*/; do
-      sa_case=${sa_case%/}
-      e2e_case "$sa_case" "${sa_case##*/}" >> "$work/sa.failed"
-    done
-    if [ -s "$work/sa.failed" ]; then
-      say "skipped $sa_name: cases differ (IDRIS_MLIR_ACTIONS_SEED=$actions_seed)"
-      cat "$work/sa.failed"
-    else
-      say "skipped $sa_name: each case as expected"
+  done
+  [ -n "$ds_counter" ] && say "--mlir-debug-counter=${ds_counter#,}"
+  return 0
+}
+
+# skips_hold FIXTURE MODULE [OPTION]...: the program of FIXTURE, whose
+# emitted module is MODULE, compiled again from it with the drawn skips
+# and OPTION... (its contracts and stage properties), linked with the
+# checked runtime, is accepted, and on every case of FIXTURE ends as the
+# program compiled with none skipped ended (the same status, stdout and
+# stderr, which e2e_case kept in $work/case-runs): the cases' own
+# expectations are e2e_case's to hold, so a wrong case is named once.
+# Nothing when it holds; otherwise the lines of what differs, under one
+# naming the seed, and status 1.
+skips_hold() {
+  sh_fixture=$1
+  sh_module=$2
+  shift 2
+  if ! sh_counter=$(drawn_skips); then
+    say "skipped actions: idris-mlir-opt names no action tags"
+    return 1
+  fi
+  rm -rf "$work/skipped"
+  mkdir -p "$work/skipped"
+  # shellcheck disable=SC2086 # no counter is no argument
+  if ! bounded "$idris_mlir" "$sh_module" "--runtime=$checked_runtime" $sh_counter "$@" \
+       -o "$work/skipped/prog" > "$work/skipped.out" 2> "$work/skipped.err"; then
+    say "skipped actions (IDRIS_MLIR_ACTIONS_SEED=$actions_seed): not accepted again"
+    show "$work/skipped.out" "$work/skipped.err"
+    return 1
+  fi
+  [ -d "$sh_fixture/cases" ] || return 0
+  sh_differ=
+  for sh_case in "$sh_fixture"/cases/*/; do
+    sh_case=${sh_case%/}
+    sh_name=${sh_case##*/}
+    # A case whose ending could not be read never ran, and is named already.
+    [ -f "$work/case-runs/$sh_name.status" ] || continue
+    sh_stdin=/dev/null
+    [ -f "$sh_case/stdin" ] && sh_stdin=$sh_case/stdin
+    run_program skipped-run "$work/skipped/prog" "$sh_stdin"
+    if [ "$ran" != "$(cat "$work/case-runs/$sh_name.status")" ] ||
+       ! cmp -s "$work/skipped-run.out" "$work/case-runs/$sh_name.out" ||
+       ! cmp -s "$work/skipped-run.err" "$work/case-runs/$sh_name.err"; then
+      sh_differ="$sh_differ $sh_name"
     fi
   done
+  [ -z "$sh_differ" ] && return 0
+  say "skipped actions (IDRIS_MLIR_ACTIONS_SEED=$actions_seed): cases end otherwise:$sh_differ"
+  return 1
+}
+
+# skips_refuse FIXTURE MODULE: the refused program of FIXTURE, whose
+# emitted module is MODULE (written whatever the verdict, --emitted),
+# compiled again from it with the drawn skips, is refused again as its
+# header says (Reject.idr). Nothing when it is; otherwise the lines of the
+# comparison, under one naming the seed.
+skips_refuse() {
+  if ! sr_counter=$(drawn_skips); then
+    say "skipped actions: idris-mlir-opt names no action tags"
+    return
+  fi
+  # shellcheck disable=SC2086 # no counter is no argument
+  bounded "$idris_mlir" "$2" $sr_counter "--report=$work/skipped.report" \
+    -o "$work/skipped.prog" > "$work/skipped.out" 2> "$work/skipped.err"
+  cat "$work/skipped.out" "$work/skipped.err" > "$work/skipped.all"
+  if ! "$runtests" --reject "$1" "$work/skipped.report" "$work/skipped.all" > "$work/skipped.lines"; then
+    say "skipped actions (IDRIS_MLIR_ACTIONS_SEED=$actions_seed): not refused alike"
+    sed 's/^/  | /' "$work/skipped.lines"
+  fi
 }

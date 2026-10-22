@@ -27,8 +27,8 @@ determinism_phrase='1, 3, 5 and 13 threads, a drawn count and in a second proces
 # determinism FIXTURE [INPUT...]: an IO program in Main.idr with the
 # installed packages its `packages` names, compiled by each of
 # determinism_runs, gives byte-identical artifacts of every kind
-# (lib/compile.sh) and the same module after every step of the pipeline;
-# and the executable of every compilation, each run in a process of its
+# (lib/compile.sh), the module the frontend emitted among them; and the
+# executable of every compilation, each run in a process of its
 # own, prints the same bytes and exits alike on every input: the stdin of
 # each of the fixture's cases, the empty input, and each INPUT, a line
 # written to stdin. --num-threads comes after
@@ -46,9 +46,8 @@ determinism() {
   for det_threads in $determinism_runs; do
     det_run=$((det_run + 1))
     rm -rf "$work/det/build"
-    # shellcheck disable=SC2046,SC2086 # the packages and the dump options are words
-    compile_program $det_packages --num-threads="$det_threads" \
-      $(dump_options "$work/det/build/exec/prog.dump" all) "$work/det/Main.idr" prog
+    # shellcheck disable=SC2086 # the packages are words
+    compile_program $det_packages --num-threads="$det_threads" "$work/det/Main.idr" prog
     if [ "$det_threads" -eq 1 ]; then det_what="1 thread"; else det_what="$det_threads threads"; fi
     [ "$det_run" -eq 5 ] && det_what="a drawn count of threads"
     case " $det_seen " in *" $det_threads "*) det_what="$det_what, a second process" ;; esac
@@ -88,27 +87,6 @@ determinism() {
       say "$det_kind: identical at $determinism_phrase"
     fi
   done
-  det_differ=
-  for det_run in $det_runs; do
-    step_dumps "$work/det$det_run/build/exec/prog.dump" > "$work/dumps$det_run"
-    sed 's|^.*/||' "$work/dumps$det_run" > "$work/steps$det_run"
-  done
-  det_count=$(wc -l < "$work/dumps1" | tr -d ' ')
-  for det_run in $det_runs; do
-    cmp -s "$work/steps1" "$work/steps$det_run" || det_differ="$det_differ (the steps)"
-    paste "$work/dumps1" "$work/dumps$det_run" > "$work/pairs"
-    while IFS="$(printf '\t')" read -r det_one det_other; do
-      cmp -s "$det_one" "$det_other" || det_differ="$det_differ ${det_one##*/}"
-    done < "$work/pairs"
-  done
-  if [ "$det_count" -eq 0 ]; then
-    say "dumps: none"
-  elif [ -n "$det_differ" ]; then
-    say "dumps: differ at $determinism_phrase:$det_differ"
-    say "  the drawn count: $determinism_drawn threads (IDRIS_MLIR_DETERMINISM_SEED=$determinism_seed)"
-  else
-    say "dumps: identical at $determinism_phrase"
-  fi
   # The runs: each input, to each compilation's executable.
   det_fixture=$1
   shift
@@ -146,10 +124,9 @@ determinism() {
 # determinism_threads FIXTURE: the module the fixture's program hands the
 # driver, through idris-mlir-opt's idr-pipeline under one thread and under
 # MLIR's pool, and under the pool again: the same module, byte for byte
-# with its locations, the same statistics, and the same remarks of the
-# function pass that emits them (idr-narrow-lanes, through the diagnostic
-# engine, which orders what a pass says of each function by the function,
-# whichever thread ran it). With threading on, MLIR hands a nested
+# with its locations, the same statistics, and the same remarks (through
+# the diagnostic engine, which orders what a pass says of each function by
+# the function, whichever thread ran it). With threading on, MLIR hands a nested
 # pipeline's work to the pool's threads even when the pool has one, so
 # per-thread state shows on any host. The remarks print as they are
 # emitted and the statistics when the pipeline ends, after its last remark,
@@ -171,7 +148,7 @@ determinism_threads() {
     [ "$det_run" = one ] && det_flags=--mlir-disable-threading
     # shellcheck disable=SC2086 # empty or one flag
     if ! bounded "$idris_mlir_opt" $det_flags --mlir-print-debuginfo --mlir-pass-statistics \
-        --mlir-pass-statistics-display=list --remarks-filter=idr-narrow-lanes \
+        --mlir-pass-statistics-display=list --remarks-filter='.*' \
         --idr-target --idr-pipeline "$det_input" \
         -o "$work/$det_run.mlir" 2> "$work/$det_run.err"; then
       say "$det_run: exit $bounded_status"

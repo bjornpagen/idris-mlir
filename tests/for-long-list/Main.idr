@@ -2,8 +2,8 @@ module Main
 
 -- for_ over IO is traverse_ flipped, the Prelude's foldr of (*>): each
 -- element's action runs, then the fold of the rest, in tail position. A
--- million elements, where the harness gives a program a 1 MiB stack; the
--- list is built by a tail-recursive loop, so what is tested is for_.
+-- million elements, in a bounded native stack; the list is built by a
+-- tail-recursive loop, so what is tested is for_.
 
 import Prelude
 

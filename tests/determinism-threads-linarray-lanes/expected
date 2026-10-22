@@ -3,4 +3,4 @@ module: identical under one thread and under many
 module: identical under many, again
 statistics: identical under one thread and under many
 remarks: identical under one thread and under many
-remarks: idr-narrow-lanes remarks
+remarks: some

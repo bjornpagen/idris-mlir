@@ -1,5 +1,0 @@
-original: compile exit 0
-edited: compile exit 0
-witness: a renamed function that holds no code of Main.step is found
-emitted: every symbol that moved holds code of Main.step
-steps up to lowering: every symbol that moved holds code of Main.step

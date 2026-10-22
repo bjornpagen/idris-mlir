@@ -1,8 +1,8 @@
 module Main
 
 -- Three IO functions that call one another in tail position, through an
--- if, a case and a with: a million calls, on the 1 MiB stack the harness
--- gives.
+-- if, a case and a with: a million calls, each a jump, so the native
+-- stack never grows.
 
 import Prelude
 

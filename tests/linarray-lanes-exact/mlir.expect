@@ -1,9 +1,6 @@
 # The residues' loop computes from the index alone, so its body only
-# computes and it is structured; after the vectorization it runs on the
-# target's lanes, and that idr-narrow-lanes leaves those lanes 64-bit is
-# what the output shows: the 64-bit residues expected-stdout holds. The
-# structuring and the vectorization each run over the functions in a
-# group, which dumps no module: each property is read at the first step
-# after its group.
-idr-bufferize: structured-loops
-idr-returned-arguments: vectorized
+# computes and it is structured; once vectorized it runs on the target's
+# lanes, and that those lanes stay 64-bit is what the output shows: the
+# 64-bit residues expected-stdout holds.
+owned: structured-loops
+lowered: vectorized

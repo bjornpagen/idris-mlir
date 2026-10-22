@@ -1,11 +1,10 @@
 module Main
 
 -- Data.List's replicate and take return a constructor around their own
--- result, so idr-trmc writes each cell to the destination it was given, in
--- a loop: ten million elements, where the harness gives a program a 1 MiB
--- stack. Their recursive call decrements a Nat it then gives up, which
+-- result, so each cell is written to the destination it was given, in
+-- a loop: ten million elements, in a bounded native stack. Their recursive call decrements a Nat it then gives up, which
 -- borrow inference makes the callee's own, so that no drop sits between the
--- call and the constructor that idr-trmc moves the call past. The lists are
+-- call and the constructor the call is moved past. The lists are
 -- summed by a tail-recursive loop, so what is tested is replicate and take.
 
 import Prelude

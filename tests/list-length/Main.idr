@@ -1,8 +1,8 @@
 module Main
 
 -- A successor of a recursive result is an accumulator, so length is a
--- loop. The harness gives a 1 MiB stack: a hundred thousand elements would
--- keep a frame each. The element is an Int, so replicate writes each cell
+-- loop. A hundred thousand elements would otherwise keep a native frame
+-- each, past the small stack the program is built with. The element is an Int, so replicate writes each cell
 -- in a loop already, and what is tested is length. The first line is a
 -- short list; the second is the long list; the third is the count it was
 -- built from.

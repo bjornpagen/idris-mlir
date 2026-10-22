@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/78-func-to-llvm-expanded-arg-attrs: a memref argument's
+# `llvm.noalias` survives its expansion into a descriptor, on the
+# allocated and the aligned pointer, so what a quantity-1 buffer promises
+# reaches LLVM.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/78-func-to-llvm-expanded-arg-attrs/memref-noalias.mlir
+if ! bounded "$llvm_bin/mlir-opt" "$input" -convert-func-to-llvm -o "$work/out.mlir" 2> "$work/err"; then
+  say "convert-func-to-llvm: fails"
+  show "$work/err"
+  exit 0
+fi
+kept=$(grep -o 'llvm\.noalias' "$work/out.mlir" | wc -l | tr -d ' ')
+case $kept in
+  2) say "convert-func-to-llvm: the allocated and the aligned pointer keep llvm.noalias" ;;
+  *) say "convert-func-to-llvm: llvm.noalias on $kept arguments, not the descriptor's two pointers" ;;
+esac

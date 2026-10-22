@@ -1,9 +1,9 @@
 module Main
 
 -- isEven and isOdd call each other in tail position: neither calls itself,
--- so idr-tail-loops makes no loop of them, and the recursion runs in
--- constant stack only as guaranteed tail calls. Ten million calls, on the
--- 1 MiB stack the harness gives.
+-- so no loop is made of them, and the recursion runs in
+-- constant stack only as guaranteed tail calls. Ten million calls, each a
+-- jump.
 
 import Prelude
 

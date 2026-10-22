@@ -6,7 +6,7 @@ module Main
 -- action and the continuation of its bind, which calls body: in tail
 -- position all the way, through the closures of the binds, so it runs in
 -- constant stack, on an input long enough that a frame kept per character
--- would exhaust the 1 MiB stack the harness gives the program.
+-- would exhaust the small native stack the program is built with.
 
 import Prelude
 import Data.IOArray.Prims

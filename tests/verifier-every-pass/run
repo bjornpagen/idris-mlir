@@ -7,10 +7,9 @@
 # name, instead of a later pass or the program going wrong. It does, in every
 # tool and every test: MLIR's pass manager verifies after each pass by
 # default, idris-mlir-opt's -verify-each is on by default, and the pipelines
-# a pass runs itself (idr-optimize's per-function pipeline, which it runs
-# through runPipeline, and the nested steps of idr-rc, idr-narrow,
-# idr-returned-arguments and idr-tail-calls) inherit the setting of the
-# manager that runs the pass. The
+# a pass runs itself (the optimizer's per-function pipeline, which it runs
+# through runPipeline, and the nested steps a pass runs inside its own run)
+# inherit the setting of the manager that runs the pass. The
 # manager skips the verifier only after a pass that says it preserved every
 # analysis, which ours say only when they changed nothing.
 #

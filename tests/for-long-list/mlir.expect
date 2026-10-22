@@ -1,4 +1,0 @@
-# for_ over the list is a loop, so once idr-tail-calls has run no call
-# reachable from the program grows the stack, however many elements the
-# count on stdin makes.
-idr-tail-calls: constant-stack=@$idris-mlir.root

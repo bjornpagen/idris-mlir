@@ -1,0 +1,2 @@
+# Both rebuilds are in place: bump1 takes apart only exclusive cells.
+owned: tests-nothing=@Main.bump1

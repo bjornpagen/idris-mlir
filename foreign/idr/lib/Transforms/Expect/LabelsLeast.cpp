@@ -14,7 +14,7 @@
 #include "idr/Transforms/Expect.h"
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Worklist.h"
+#include "llvm/ADT/SetVector.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/STLExtras.h"
@@ -48,8 +48,10 @@ public:
 
   // Once the program is read: every pair it derives.
   void derive() {
-    while (std::optional<std::pair<unsigned, FlatSymbolRefAttr>> pair = work.pop()) {
-      auto [point, label] = *pair;
+    // Each pair is derived once, in the order first reached; the vector
+    // grows as the walk reaches new pairs, so the index runs to its end.
+    for (std::size_t at = 0; at < work.size(); ++at) {
+      auto [point, label] = work[at];
       for (unsigned i = 0; i < edges[point].size(); ++i)
         reach(edges[point][i], label);
       for (CallOpInterface call : calls.lookup(point))
@@ -80,7 +82,7 @@ private:
     return it->second;
   }
   void reach(unsigned point, FlatSymbolRefAttr label) {
-    if (work.push({point, label}))
+    if (work.insert({point, label}))
       held[point].push_back(label);
   }
   // A new edge carries every label its source holds already.
@@ -96,7 +98,7 @@ private:
   std::vector<SmallVector<unsigned, 2>> edges;
   std::vector<SmallVector<FlatSymbolRefAttr, 2>> held;
   llvm::DenseMap<unsigned, SmallVector<CallOpInterface, 1>> calls;
-  OnceWorklist<std::pair<unsigned, FlatSymbolRefAttr>> work;
+  llvm::SetVector<std::pair<unsigned, FlatSymbolRefAttr>> work;
 };
 
 // The point `key` names, for an error: where a value is, a function's

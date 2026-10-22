@@ -1,5 +1,0 @@
-# The run of a bind whose left action is a bind is a tail call carrying
-# the bind's continuation as a frame (idr-frames), so once idr-tail-calls
-# has run no call reachable from the program grows the stack, however long
-# the list.
-idr-tail-calls: constant-stack=@$idris-mlir.root

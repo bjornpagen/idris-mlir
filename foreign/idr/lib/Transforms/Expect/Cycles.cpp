@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The graphs the properties of reach and recursion are stated over: the
+// The graph the properties of reach and recursion are stated over: the
 // functions a body names by symbol, whatever op names them, before
-// lowering and after it.
+// lowering and after it; its reach and its cycles are Expect.h's.
 
 #include "idr/Transforms/Expect.h"
-
-#include "idr/Support/Scc.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
@@ -26,15 +24,6 @@ SmallVector<Operation *> callees(SymbolTable &symbols, Operation *fn) {
           isa_and_nonnull<FunctionOpInterface>(target))
         out.insert(target);
   return out.takeVector();
-}
-
-SmallVector<SmallVector<Operation *>>
-cycles(ArrayRef<Operation *> nodes, function_ref<SmallVector<Operation *>(Operation *)> edges) {
-  SmallVector<SmallVector<Operation *>> out;
-  for (SmallVector<Operation *> &component : idr::stronglyConnected<Operation *>(nodes, edges))
-    if (component.size() > 1 || llvm::is_contained(edges(component.front()), component.front()))
-      out.push_back(std::move(component));
-  return out;
 }
 
 } // namespace idr::expect

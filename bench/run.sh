@@ -10,7 +10,7 @@
 # floating-point contraction,
 # which this compiler never does: the columns compare compilers, not
 # instruction sets or rounding. Prints
-# what it ran on (the host, its CPU, the stack limit and every compiler's
+# what it ran on (the host, its CPU and every compiler's
 # version) on stderr, checks that this compiler's and clang's outputs agree
 # (agree, below), and then prints bench/report.sh's results: the best
 # of several wall-clock times per compiler and the wall-clock time this
@@ -27,9 +27,9 @@
 # compiler and with clang and their outputs have agreed: a run that fails
 # leaves no record.
 #
-# Times come from now_ns (tools/host.sh). Every program runs with the
-# largest stack the system allows (stack_max: unlimited on Linux, the hard
-# limit of about 64 MiB on macOS). The Idris environment is the Makefile's,
+# Times come from now_ns (tools/host.sh). Every program runs on the stack
+# the system gives; a compiled program's native stack is its own, small
+# and computed when it is built. The Idris environment is the Makefile's,
 # set here too, so that a direct run builds against this checkout's libs/:
 # this compiler on its own prefix, the stock Idris on the pinned prefix and
 # what this checkout installed for it (`make bench` makes both). Every
@@ -92,8 +92,6 @@ target_triple=$("$idris_mlir" --print-target-triple) || die "idris-mlir names no
 # generators are linked so, as this compiler's programs are.
 link_flags=$("$idris_mlir" --print-link-flags) ||
   die "idris-mlir --print-link-flags names no link flags for the target; run make build"
-# The stack every program runs with: as large as the system allows.
-stack=$(stack_max && ulimit -s) || die "cannot raise the stack limit"
 
 runs=5
 keep=
@@ -126,7 +124,7 @@ mkdir "$record"
 : > "$record/compile.tsv"
 
 # What the run measured on, first, so that its record describes itself:
-# when and at which revision, the host, its CPU, the stack and each
+# when and at which revision, the host, its CPU and each
 # column's compiler, or why it reads n/a.
 first_line() {
   "$@" 2>&1 | head -n 1
@@ -136,10 +134,6 @@ revision=$(git -C "$root" describe --always --dirty 2> /dev/null) || revision=un
   echo "Measured on $(date -u '+%Y-%m-%d at %H:%M UTC'), at $revision."
   echo
   echo "Host: $(uname -srm), $(cpu_name), $(getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1) CPUs."
-  case $stack in
-    unlimited) echo "Stack: unlimited (ulimit -s), the most this system allows." ;;
-    *) echo "Stack: $stack KiB (ulimit -s), the most this system allows." ;;
-  esac
   echo
   echo "- this compiler: $revision, for $target_triple, CPU flags: $(printf "%s\n" "$cpu_flags" | paste -s -d ' ' -); link flags: $(printf "%s" "$link_flags" | tr "\n" " ")"
   echo "- Idris Chez: $(first_line "$idris2" --version); Chez Scheme $(first_line "${CHEZ:-scheme}" --version)"
@@ -199,12 +193,11 @@ timed() {
   run=0
   while [ "$run" -lt "$runs" ]; do
     start=$(now_ns)
-    # With the largest stack the system allows. Only cfold needs a deep
-    # one: its programs recurse between 48 and 56 MiB on x86-64, which
-    # fits macOS's ~64 MiB hard cap; the run raises the soft limit to the
-    # hard one so the program runs, rather than the cap's meaning
-    # changing.
-    (ulimit -s "$stack" && bounded "$1" < "$work/stdin" > "$2" 2> "$work/stderr")
+    # On the stack the system gives: a compiled program's own is the one
+    # it was built with, computed from its frames, and its recursions keep
+    # their depth on frame stacks; a C program that needs more fails here,
+    # as it would anywhere.
+    bounded "$1" < "$work/stdin" > "$2" 2> "$work/stderr"
     status=$?
     end=$(now_ns)
     [ "$status" -eq 0 ] || die "$1 exited $status: $(cat "$work/stderr")"

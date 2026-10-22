@@ -2,7 +2,7 @@ module Main
 
 -- Loops written with when and unless: the recursive call is the action
 -- they run when the condition holds, in tail position of the function.
--- A million iterations each, on the 1 MiB stack the harness gives.
+-- A million iterations each, every one a jump.
 
 import Prelude
 

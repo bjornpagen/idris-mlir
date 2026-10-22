@@ -1,8 +1,9 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| The golden test runner. It reads its options with Idris's own
-||| `Test.Golden`, as third_party/Idris2/tests/Main.idr does, and runs the
-||| tests itself (Runner.idr).
+||| The golden test runner. It builds and runs under both hosts, the pinned
+||| Idris on Chez and idris-mlir itself, so it depends on base and the
+||| dialect's specification alone, and it creates no process: the runs are
+||| harness/runs.sh's, between the plan this writes and the tally it reads.
 |||
 ||| Every test is a directory of `tests/`, all at that one level, and its
 ||| kind is what it holds (`kindOf`): a `run` script is a scripted test; a
@@ -17,22 +18,31 @@
 ||| harness/one.sh runs each test in a process of its own, in the test's
 ||| directory, and compares its stdout with its `expected`, or with the
 ||| kind's expectation where the kind fixes it (a fixture's RUN lines all
-||| hold). Run from `tests/`, by make (`make check`, `make test`,
-||| `make test-idr`, `make test-mlir-tools`):
+||| hold). Run from `tests/`, by make, through harness/runs.sh:
 |||
-|||     runtests <idris-mlir> [--suite check|test|test-idr|test-mlir-tools] [--list]
-|||              [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]
+|||     runtests --plan <results> <idris-mlir> [--suite check|test|test-idr|test-mlir-tools]
+|||              [--list] [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]
+|||     runtests --tally <results>
 |||
-||| `--list` prints the names of the tests the options select, and runs
-||| none. A new expectation is written by hand: a test with no `expected`
-||| fails and prints its whole output, which its author reads and, when it
-||| is right, copies to `expected`. Nothing accepts output for a test.
+||| `--list` prints the names of the runs the options select, and plans
+||| none. `--only` and `--except` take words, each a part of a test's name;
+||| a run is selected when its name holds one of `--only`'s (or there are
+||| none) and none of `--except`'s. A new expectation is written by hand: a
+||| test with no `expected` fails and prints its whole output, which its
+||| author reads and, when it is right, copies to `expected`. Nothing
+||| accepts output for a test.
 |||
 ||| A test may run once per parameter: `parameterized` names it, and it
 ||| runs as `<name>@<parameter>`, its run script given the parameter as `$2`.
 |||
-||| It also answers the `run` scripts that need Idris:
+||| It also answers the scripts that need Idris:
 |||
+|||     runtests --case-status <case>   how a case's run ends (Case.idr)
+|||     runtests --reject <test> <report> <output>
+|||                                     a refused program held to its header (Reject.idr)
+|||     runtests --rules                every rule's phrase and its category's (Facts.idr)
+|||     runtests --trace-totals <trace> | --trace-units <trace>...
+|||                                     time traces summed (Trace.idr)
 |||     runtests --sem-program <name>   the program of a semantics test
 |||     runtests --sem-expected <name>  the stdout its program must print
 |||     runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ...
@@ -58,13 +68,16 @@ import System.Directory
 import System.File
 import System.Path
 
-import Test.Golden
-
+import Case
+import Facts
+import Files
 import Fuzz
 import Lazy
 import Lock
+import Reject
 import Runner
 import Sem
+import Trace
 
 %default covering
 
@@ -96,16 +109,23 @@ hostNames = do
         exitWith (ExitFailure 2)
   pure (fromList (words names))
 
-||| Whether TEST runs here. A test with no `targets` file holds everywhere;
-||| one with a `targets` file holds only where it names one of this host's
+||| Whether a test runs on this host.
+data Placement = Here | Elsewhere
+
+isHere : Placement -> Bool
+isHere Here = True
+isHere Elsewhere = False
+
+||| Where TEST runs. A test with no `targets` file holds everywhere; one
+||| with a `targets` file holds only where it names one of this host's
 ||| names, which is how an x86-only, arm64-only or Linux-only test runs
 ||| where it holds; elsewhere it is reported as not run, never counted as
 ||| passed.
-runsHere : SortedSet String -> String -> IO Bool
-runsHere names test = do
+placementOf : SortedSet String -> String -> IO Placement
+placementOf names test = do
   Right text <- readFile (test ++ "/targets")
-    | Left _ => pure True
-  pure (any (\word => contains word names) (words text))
+    | Left _ => pure Here
+  pure (if any (\word => contains word names) (words text) then Here else Elsewhere)
 
 ||| What a test is, read from what its directory holds; harness/one.sh runs
 ||| each kind its own way.
@@ -118,24 +138,20 @@ Eq Kind where
   Fixture == Fixture = True
   _ == _ = False
 
-||| The kind's name, as harness/one.sh is given it.
-kindName : Kind -> String
-kindName Script = "script"
-kindName Program = "program"
-kindName Reject = "reject"
-kindName Fixture = "fixture"
+||| What the runner knows of a kind: its name, as harness/one.sh is given
+||| it; what its tests are, for a pool's banner; and the suite a test of it
+||| is in when it names none.
+record KindFacts where
+  constructor MkKindFacts
+  name : String
+  title : String
+  suite : String
 
-||| What the tests of a kind are, for a pool's banner.
-kindTitle : Kind -> String
-kindTitle Script = "scripts"
-kindTitle Program = "compiled programs"
-kindTitle Reject = "programs refused by one rule"
-kindTitle Fixture = "dialect fixtures"
-
-||| The suite a test of a kind is in when it names none.
-defaultSuite : Kind -> String
-defaultSuite Fixture = "test-idr"
-defaultSuite _ = "test"
+facts : Kind -> KindFacts
+facts Script = MkKindFacts "script" "scripts" "test"
+facts Program = MkKindFacts "program" "compiled programs" "test"
+facts Reject = MkKindFacts "reject" "programs refused by one rule" "test"
+facts Fixture = MkKindFacts "fixture" "dialect fixtures" "test-idr"
 
 ||| The kind of the test in DIR, or why DIR is no test. A `run` script
 ||| decides, since a script may build its program or its module from the
@@ -149,7 +165,7 @@ kindOf dir = do
        Right text <- readFile (dir ++ "/Main.idr")
          | Left err => pure (Left (show err))
        let first = fromMaybe "" (head' (lines text))
-       let header = isPrefixOf "--" first && isPrefixOf "expect:" (trim (strSubstr 2 (strLength first) first))
+       let header = isPrefixOf "--" first && isPrefixOf "expect:" (trim (pack (drop 2 (unpack first))))
        pure (Right (if header then Reject else Program))
      else do
        let modules = filter (isSuffixOf ".mlir") !(entries dir)
@@ -158,14 +174,13 @@ kindOf dir = do
                [] => Left "no run script, Main.idr or .mlir file"
                _ => Left "more than one .mlir file and no run script")
 
-||| A test: its name, its kind, the suite it is in, and whether it runs on
-||| this host.
+||| A test: its name, its kind, the suite it is in, and where it runs.
 record Test where
   constructor MkTest
   name : String
   kind : Kind
   suite : String
-  here : Bool
+  placement : Placement
 
 ||| The suites, each with what it checks.
 suites : List (String, String)
@@ -182,10 +197,10 @@ testOf names dir = do
   Right kind <- kindOf dir
     | Left why => pure (Left (dir ++ ": " ++ why))
   declared <- readFile (dir ++ "/suite")
-  let suite = either (const (defaultSuite kind)) trim declared
+  let suite = either (const (facts kind).suite) trim declared
   if isNothing (lookup suite suites)
      then pure (Left (dir ++ ": suite names no suite: " ++ suite))
-     else pure (Right (MkTest dir kind suite !(runsHere names dir)))
+     else pure (Right (MkTest dir kind suite !(placementOf names dir)))
 
 ||| Every test of `tests/`, the current directory, or the directories
 ||| that are none, each with why.
@@ -212,6 +227,47 @@ runsOf name = case lookup name parameterized of
   Just values => map (\p => name ++ "@" ++ p) values
   Nothing => [name]
 
+------------------------------------------------------------------------------
+-- The options of a plan
+------------------------------------------------------------------------------
+
+||| What a plan is asked for: the suite (every suite when none), whether
+||| only to list the runs, the threads to run them on, and the words that
+||| select them by name.
+record Options where
+  constructor MkOptions
+  suite : Maybe String
+  listing : Bool
+  threads : Nat
+  only : List String
+  except : List String
+  onlyFile : Maybe String
+
+defaults : Options
+defaults = MkOptions Nothing False 1 [] [] Nothing
+
+||| The options, or the argument that is none. An empty `--only` or
+||| `--except` (make passes both, often empty) selects by nothing.
+optionsOf : List String -> Either String Options
+optionsOf = go defaults
+  where
+    go : Options -> List String -> Either String Options
+    go o [] = Right o
+    go o ("--suite" :: s :: rest) =
+      if isJust (lookup s suites) then go ({ suite := Just s } o) rest else Left ("unknown suite " ++ s)
+    go o ("--list" :: rest) = go ({ listing := True } o) rest
+    go o ("--threads" :: n :: rest) =
+      maybe (Left ("--threads takes a positive number, not " ++ n)) (\k => go ({ threads := k } o) rest) (parsePositive n)
+    go o ("--only" :: ws :: rest) = go ({ only $= (words ws ++) } o) rest
+    go o ("--except" :: ws :: rest) = go ({ except $= (words ws ++) } o) rest
+    go o ("--only-file" :: p :: rest) = go ({ onlyFile := Just p } o) rest
+    go o (arg :: _) = Left ("not an option of the runner: " ++ arg)
+
+||| Whether the options select the run `name`.
+selects : (only : List String) -> (except : List String) -> String -> Bool
+selects only except name =
+  (null only || any (`isInfixOf` name) only) && all (not . (`isInfixOf` name)) except
+
 ||| The pools of a suite, one per kind, each run with its kind's name, as
 ||| harness/one.sh takes them; and the runs whose `targets` file names no
 ||| name of this host.
@@ -220,32 +276,11 @@ pools tests suite =
   let inSuite = filter (\t => t.suite == suite) tests
       description = fromMaybe "" (lookup suite suites)
       poolOf = \kind =>
-        MkPool (suite ++ ": " ++ kindTitle kind ++ "; " ++ description)
-               (filter (\t => t.kind == kind && t.here) inSuite >>= \t => map (\r => (r, kindName t.kind)) (runsOf t.name))
-  in (filter (not . null . (.runs)) (map poolOf [Program, Reject, Fixture, Script]),
-      filter (\t => not t.here) inSuite >>= \t => runsOf t.name)
-
-||| `--suite NAME` and the other arguments.
-takeOwn : List String -> (Maybe String, List String)
-takeOwn ("--suite" :: name :: rest) = let (_, others) = takeOwn rest in (Just name, others)
-takeOwn (arg :: rest) = let (suite, others) = takeOwn rest in (suite, arg :: others)
-takeOwn [] = (Nothing, [])
-
-fuzzCheckUsage : String
-fuzzCheckUsage = "runtests --fuzz-check overran|agree|model|first|modelled program <seed> <cases> <part> | replay <tape> <part> [<stdout-file>]"
-
-lazyUsage : String
-lazyUsage = "runtests --lazy-program <seed> <cases> main|stdin | --lazy-program checks | --lazy-check <seed> <cases> <stdout-file>"
-
-runnerUsage : String
-runnerUsage = unlines
-  [ "usage: runtests <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list]"
-  , "                [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]"
-  , "       runtests --sem-program <name> | --sem-expected <name> | --lock"
-  , "       runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ..."
-  , "       " ++ fuzzCheckUsage
-  , "       " ++ lazyUsage
-  ]
+        MkPool (suite ++ ": " ++ (facts kind).title ++ "; " ++ description)
+               (filter (\t => t.kind == kind && isHere t.placement) inSuite
+                 >>= \t => map (\r => (r, (facts t.kind).name)) (runsOf t.name))
+  in (map poolOf [Program, Reject, Fixture, Script],
+      filter (not . isHere . (.placement)) inSuite >>= \t => runsOf t.name)
 
 ||| The repository root: IDRIS_MLIR_ROOT, or the parent of `tests/`.
 root : IO String
@@ -256,86 +291,75 @@ root = do
     | Nothing => die "the current directory is unknown"
   pure (fromMaybe here (parent here))
 
-runSuites : String -> List String -> IO ()
-runSuites prog args = do
-  let (suite, rest) = takeOwn args
-  let list = elem "--list" rest
-  Just opts <- options (prog :: filter (/= "--list") rest)
-    | Nothing => die runnerUsage
-  -- Test.Golden's parser reads options this runner does not honour; one
-  -- given would be ignored, so it is refused instead.
-  when (opts.interactive || opts.timing || isJust opts.failureFile || isJust opts.codegen) $
-    die ("--interactive, --timing, --failure-file and --cg are not options of this runner\n" ++ runnerUsage)
-  case suite of
-    Just s => when (isNothing (lookup s suites)) $ die ("unknown suite " ++ s ++ "\n" ++ runnerUsage)
-    Nothing => pure ()
+usage : String
+usage = unlines
+  [ "usage: runtests --plan <results> <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list]"
+  , "                [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]"
+  , "       runtests --tally <results>"
+  , "       runtests --case-status <case>"
+  , "       runtests --reject <test> <report> <output> | --rules"
+  , "       runtests --trace-totals <trace> | --trace-units <trace>..."
+  , "       runtests --sem-program <name> | --sem-expected <name> | --lock"
+  , "       runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ..."
+  , "       runtests --fuzz-check overran|agree|model|first|modelled program <seed> <cases> <part> | replay <tape> <part> [<stdout-file>]"
+  , "       runtests --lazy-program <seed> <cases> main|stdin | --lazy-program checks | --lazy-check <seed> <cases> <stdout-file>"
+  ]
+
+||| `--plan <results> <idris-mlir> <options>`: the runs the options select,
+||| listed, or written as pools for harness/runs.sh. The compiler under test
+||| is harness/runs.sh's to hand to one.sh; the plan only checks it is named.
+plan : (results : String) -> List String -> IO ()
+plan results args = do
+  let Right opts = optionsOf args
+    | Left why => die (why ++ "\n" ++ usage)
   r <- root
   ignore $ setEnv "IDRIS_MLIR_ROOT" r True
   Right tests <- discover
     | Left bad => die ("tests/ holds what is no test:\n" ++ unlines (map ("  " ++) bad))
   -- Run anywhere but tests/, nothing is found; that must not pass.
   when (null tests) $ die "no tests found: run the runner in tests/, through make"
-  let chosen = maybe (map fst suites) pure suite
+  extra <- maybe (pure []) (\p => words <$> readOrDie p) opts.onlyFile
+  let only = extra ++ opts.only
+  let chosen = maybe (map fst suites) pure opts.suite
   let found = map (pools tests) chosen
-  let selected = concatMap fst found
-  if list
-     then putStr (unlines (filterTests opts (selected >>= map fst . (.runs))))
-     else runPools opts r (concatMap snd found) selected
-
-||| A file's text, or the runner's death naming it.
-readOrDie : String -> IO String
-readOrDie path = do
-  Right text <- readFile path
-    | Left err => die (path ++ ": " ++ show err)
-  pure text
-
-||| A file's bytes, each the Char of its value: a program's output, which
-||| may hold NUL, where a read of the file's text (readFile, through C's
-||| lines) loses the rest of its line; or the runner's death naming it.
-bytesOrDie : String -> IO String
-bytesOrDie path = do
-  Right h <- openFile path Read
-    | Left err => die (path ++ ": " ++ show err)
-  bytes <- go h [<]
-  closeFile h
-  pure (pack bytes)
-  where
-    go : File -> SnocList Char -> IO (List Char)
-    go h acc = do
-      Right c <- fGetChar h
-        | Left err => die (path ++ ": " ++ show err)
-      True <- fEOF h
-        | False => go h (acc :< c)
-      pure (acc <>> [])
+  let keep = \pool => { runs $= filter (\(run, _) => selects only opts.except run) } pool
+  let selected = map keep (concatMap fst found)
+  let notHere = filter (selects only opts.except) (concatMap snd found)
+  if opts.listing
+     then putStr (unlines (selected >>= map fst . (.runs)))
+     else writePlan results opts.threads notHere selected
 
 ||| `--fuzz-check overran <request>`, or `--fuzz-check <how> <request>
 ||| <stdout-file>`, the file read here, byte for byte.
 fuzzCheck : List String -> IO ()
-fuzzCheck ("overran" :: request) = maybe (die ("usage: " ++ fuzzCheckUsage)) putStr (Fuzz.overranOf request)
+fuzzCheck ("overran" :: request) = maybe (die usage) putStr (Fuzz.overranOf request)
 fuzzCheck (how :: rest) = case [<] <>< rest of
   request :< file => do
     output <- bytesOrDie file
-    maybe (die ("usage: " ++ fuzzCheckUsage)) putStr (Fuzz.checkOf how (request <>> []) output)
-  [<] => die ("usage: " ++ fuzzCheckUsage)
-fuzzCheck [] = die ("usage: " ++ fuzzCheckUsage)
+    maybe (die usage) putStr (Fuzz.checkOf how (request <>> []) output)
+  [<] => die usage
+fuzzCheck [] = die usage
 
 main : IO ()
 main = do
   args <- getArgs
   case drop 1 args of
+    ("--plan" :: results :: _ :: rest) => plan results rest
+    ["--tally", results] => tally results
+    ["--case-status", dir] => caseStatus dir
+    ["--reject", test, report, output] => reject test report output
+    ["--trace-totals", trace] => traceTotals trace
+    ("--trace-units" :: traces@(_ :: _)) => traceUnits traces
     ["--sem-program", name] =>
       maybe (die ("no semantics test " ++ name)) putStr (Sem.programOf name)
     ["--sem-expected", name] =>
       maybe (die ("no semantics test " ++ name)) putStr (expectedOf name)
-    ("--fuzz-program" :: fuzz) =>
-      maybe (die "usage: runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ...") putStr
-            (Fuzz.programOf fuzz)
+    ("--fuzz-program" :: fuzz) => maybe (die usage) putStr (Fuzz.programOf fuzz)
     ("--fuzz-check" :: check) => fuzzCheck check
-    ("--lazy-program" :: request) =>
-      maybe (die ("usage: " ++ lazyUsage)) putStr (Lazy.programOf request)
+    ("--lazy-program" :: request) => maybe (die usage) putStr (Lazy.programOf request)
     ["--lazy-check", seed, n, file] => do
       output <- bytesOrDie file
-      maybe (die ("usage: " ++ lazyUsage)) putStr (Lazy.checkOf [seed, n] output)
-    ("--lazy-check" :: _) => die ("usage: " ++ lazyUsage)
+      maybe (die usage) putStr (Lazy.checkOf [seed, n] output)
     ["--lock"] => Lock.check !root
-    rest => runSuites (fromMaybe "runtests" (head' args)) rest
+    ["--rules"] => putStr (unlines ruleLines)
+    _ => die usage

@@ -1,5 +1,5 @@
 built for the system's page: exit 0, the program ran, nothing on stderr
-built for half the page: exit 1, the program did not run, stderr is the crash that names the page it was built for and the system's
-built for a quarter of the page: exit 1, the program did not run, stderr is the crash that names the page it was built for and the system's
-built for twice the page: exit 1, the program did not run, stderr is the crash that names the page it was built for and the system's
-built for four times the page: exit 1, the program did not run, stderr is the crash that names the page it was built for and the system's
+built for half the page: exit 126, the program did not run, stderr is the ending that names the page it was built for and the system's
+built for a quarter of the page: exit 126, the program did not run, stderr is the ending that names the page it was built for and the system's
+built for twice the page: exit 126, the program did not run, stderr is the ending that names the page it was built for and the system's
+built for four times the page: exit 126, the program did not run, stderr is the ending that names the page it was built for and the system's

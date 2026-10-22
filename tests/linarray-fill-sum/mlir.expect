@@ -1,5 +1,5 @@
-# The fill and the sum work on the one array: after bufferization nothing
+# The fill and the sum work on the one array: once it is a buffer nothing
 # in them copies it, the vector moved along its thread. The positions are
 # naturals compared with the size, a natural the run gives, so they are
 # bigs, counted and allocated as naturals are.
-idr-rc-exclusive: in-place=@Main.fill in-place=@Main.sumTo
+owned: in-place=@Main.fill in-place=@Main.sumTo

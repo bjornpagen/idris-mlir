@@ -12,13 +12,13 @@
 fuzz_cases=30
 
 # fuzz SEED: for each part, `runtime` then `static`, the program of SEED,
-# compiled at the seed's thread count with its module after idr-optimize
-# dumped and run on its stdin, and four checks, a line each:
+# compiled at the seed's thread count with the checked runtime and run on
+# its stdin, and four checks, a line each:
 #   - the build compiles, runs, exits 0 and writes nothing on stderr, and
 #     no case ran out of its tape;
 #   - each case's lines (d, j, r, s) print one value, each of them once;
-#   - after idr-optimize no op of main computes on constants alone
-#     (folded=@Main.main), so the folders computed every d line;
+#   - once the program is graded no op of main computes on constants
+#     alone (folded=@Main.main), so the folders computed every d line;
 #   - each case the model covers prints the value its integers mean.
 # The runner reads the output against the cases it generates
 # (runtests --fuzz-check). The first case that disagrees or misses its
@@ -79,29 +79,27 @@ fuzz_check() {
   done
   fuzz_checked "$work/fuzz.compiled" overran program "$fuzz_seed" "$fuzz_cases" "$1"
   cp "$fuzz_dir/main" "$fuzz_dir/prog/Main.idr"
-  fuzz_dumps=$fuzz_dir/prog/build/exec/prog.dump
-  # The one module a check reads, the program after idr-optimize, is the
-  # one dumped: a dump after every step takes most of the compilation.
-  # shellcheck disable=SC2046 # the dump options are words
-  compile_program "--num-threads=$fuzz_threads" $(dump_options "$fuzz_dumps" after:idr-optimize) \
-    "$fuzz_dir/prog/Main.idr" prog
+  compile_checked "--num-threads=$fuzz_threads" "$fuzz_dir/prog/Main.idr" prog
   if [ "$compiled" -ne 0 ]; then
     say "$fuzz_seed: compile exit $compiled" >> "$work/fuzz.compiled"
     cat "$work/compile.out" "$work/compile.err" | head -n 10 | sed 's/^/  | /' >> "$work/fuzz.compiled"
     fuzz_stopped="the compile exited $compiled"
     return
   fi
-  run_ours prog "$fuzz_dir/prog/build/exec/prog" "$fuzz_dir/stdin"
+  run_program prog "$fuzz_dir/prog/build/exec/prog" "$fuzz_dir/stdin"
   if [ "$ran" -ne 0 ] || [ -s "$work/prog.err" ]; then
     say "$fuzz_seed: prog exited $ran" >> "$work/fuzz.compiled"
     head -n 5 "$work/prog.err" | sed 's/^/  | /' >> "$work/fuzz.compiled"
     fuzz_stopped="the program exited $ran or wrote on stderr"
     return
   fi
-  if ! fuzz_optimized=$(step_module idr-optimize "$(artifact_file "$fuzz_dir/prog" prog module)" "$fuzz_dumps"); then
-    say "$fuzz_seed: no module dumped after idr-optimize" >> "$work/fuzz.folded"
-  elif ! expect_holds "$fuzz_optimized" folded=@Main.main; then
-    say "$fuzz_seed: main computes on constants after idr-optimize" >> "$work/fuzz.folded"
+  # A closed expression is folded by the time the program is graded: the
+  # emitted module through the pipeline's slice up to that stage, the
+  # property checked there.
+  if ! bounded "$idris_mlir_opt" --mlir-disable-threading "$(artifact_file "$fuzz_dir/prog" prog module)" \
+       --idr-target --idr-pipeline=to:graded --idr-expect=holds=folded=@Main.main -o /dev/null \
+       > "$work/expect.log" 2>&1; then
+    say "$fuzz_seed: main computes on constants once graded" >> "$work/fuzz.folded"
     show "$work/expect.log" >> "$work/fuzz.folded"
   fi
   fuzz_checked "$work/fuzz.agree" agree program "$fuzz_seed" "$fuzz_cases" "$1" "$work/prog.out"
@@ -165,9 +163,9 @@ fuzz_fails_as() {
     "$runtests" --fuzz-program replay "$2" "$1" "$fuzz_file" > "$work/fuzz-try/$fuzz_file" || return 1
   done
   cp "$work/fuzz-try/main" "$work/fuzz-try/Main.idr"
-  compile_program "--num-threads=$fuzz_threads" "$work/fuzz-try/Main.idr" prog < /dev/null
+  compile_checked "--num-threads=$fuzz_threads" "$work/fuzz-try/Main.idr" prog < /dev/null
   [ "$compiled" -eq 0 ] || return 1
-  run_ours try "$work/fuzz-try/build/exec/prog" "$work/fuzz-try/stdin"
+  run_program try "$work/fuzz-try/build/exec/prog" "$work/fuzz-try/stdin"
   [ "$ran" -eq 0 ] || return 1
   [ "$("$runtests" --fuzz-check first replay "$2" "$1" "$work/try.out")" = "1 $3" ]
 }
@@ -192,9 +190,9 @@ fuzz_report() {
 lazy_cases=8
 
 # fuzz_lazy SEED: the lazy program of SEED and its stdin, compiled with
-# the checked runtime (runtime/Alloc/Alloc.h), which ends a program at the
-# first count operation on a cell that died or on a stack cell whose frame
-# has returned, and run on its stdin (run_ours: no cell live at exit); two
+# the checked runtime, which ends a program at the first count operation on
+# a cell that died, and a run that returns with a cell still live as its
+# internal error, and run on its stdin; two
 # checks, a line each:
 #   - the build compiles, runs, exits 0 and writes nothing on stderr;
 #   - each case prints the lines its model computes (--lazy-check).
@@ -222,15 +220,14 @@ fuzz_lazy_check() {
     fi
   done
   cp "$fuzz_dir/main" "$fuzz_dir/prog/Main.idr"
-  compile_program "--runtime=$dev_prefix/foreign/idr/idris_rt_checked.o" \
-    "$fuzz_dir/prog/Main.idr" prog
+  compile_checked "$fuzz_dir/prog/Main.idr" prog
   if [ "$compiled" -ne 0 ]; then
     say "$fuzz_seed: compile exit $compiled" >> "$work/fuzz.compiled"
     cat "$work/compile.out" "$work/compile.err" | head -n 10 | sed 's/^/  | /' >> "$work/fuzz.compiled"
     fuzz_stopped="the compile exited $compiled"
     return
   fi
-  run_ours prog "$fuzz_dir/prog/build/exec/prog" "$fuzz_dir/stdin"
+  run_program prog "$fuzz_dir/prog/build/exec/prog" "$fuzz_dir/stdin"
   if [ "$ran" -ne 0 ] || [ -s "$work/prog.err" ]; then
     say "$fuzz_seed: prog exited $ran" >> "$work/fuzz.compiled"
     head -n 5 "$work/prog.err" | sed 's/^/  | /' >> "$work/fuzz.compiled"

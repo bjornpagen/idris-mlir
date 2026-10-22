@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/65-early-exits, the pull request that gives a region a break to
+# an enclosing op: its own inputs (early-exit.mlir) parse, SCCP reads a
+# nested exit as an edge, so @early_exit_dead_code's comparison, which no
+# value reaches, folds to a constant, and the loops lower to blocks with
+# their exits, no scf op left.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/65-early-exits/early-exit.mlir
+if bounded "$llvm_bin/mlir-opt" "$input" --sccp -o "$work/sccp.mlir" 2> "$work/err"; then
+  say "sccp: parses and runs"
+else
+  say "sccp: fails"
+  show "$work/err"
+fi
+if bounded "$llvm_bin/mlir-opt" "$input" -convert-scf-to-cf -o "$work/cf.mlir" 2> "$work/err"; then
+  if grep -q 'scf\.' "$work/cf.mlir"; then say "convert-scf-to-cf: scf ops are left"; else say "convert-scf-to-cf: every loop and exit lowered to blocks"; fi
+else
+  say "convert-scf-to-cf: fails"
+  show "$work/err"
+fi

@@ -41,9 +41,9 @@ const Property properties[] = {
     // No call of @f is left (a function the module never had is not called
     // either).
     property<Symbol, notCalled>("not-called"),
-    // Every parameter of a function, every field a match binds and every
-    // constructor field that the module in the file (the emitted module)
-    // declares has the quantity it has there, one or many.
+    // Every binder the module in the file (the emitted module) gives an
+    // identity, a function's parameter or a field a match binds, has the
+    // uses it has there, once or many.
     property<Module, quantitiesKept>("quantities-kept"),
     // In @f every box is built in a recycled cell (idr.cell.recycle), and
     // at least one is.
@@ -74,8 +74,6 @@ const Property properties[] = {
     property<Nothing, contified>("contified"),
     // No string is built only to be written.
     property<Roots, outputFused>("output-fused"),
-    // The folders released every reference they took from the runtime.
-    property<Nothing, foldsBalanced>("folds-balanced"),
     // No op is left in any copy of @f that a fold would have replaced: one
     // with results, no memory effect, no call and no constant, whose
     // operands are constants alone.

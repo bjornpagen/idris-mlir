@@ -14,12 +14,11 @@
 # another's that fails; near-miss/ holds a table whose every property has
 # its failing fixture, and the exemption.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-# Two properties check the compiler against its own oracle, which only a
-# defective compiler makes them disagree with, so no module makes either
-# fail, and they are the exemptions: folds-balanced reads the folders' own
-# count of the cells they left live; labels-least compares the label
-# solve's answer with the least sets derived the plain way.
-exempt='folds-balanced labels-least'
+# One property checks the compiler against its own oracle, which only a
+# defective compiler makes disagree with, so no module makes it fail, and
+# it is the exemption: labels-least compares the label solve's answer with
+# the least sets derived the plain way.
+exempt='labels-least'
 table=foreign/idr/lib/Transforms/Expect/Lookup.cpp
 
 # expect_coverage ROOT: each property of ROOT's table with no fixture of
@@ -50,6 +49,6 @@ if [ -s "$work/unfailed" ]; then
   say "no fixture where it fails:"
   sed 's/^/  /' "$work/unfailed"
 else
-  say "every property has a fixture where it fails, folds-balanced and labels-least aside"
+  say "every property has a fixture where it fails, labels-least aside"
 fi
 planted expect_coverage

@@ -1,0 +1,2 @@
+# reverse rebuilds every cell it takes apart, and tests no count.
+owned: tests-nothing=@Linear.List.reverseOnto reuses-in-place=@Linear.List.reverseOnto

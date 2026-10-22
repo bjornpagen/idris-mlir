@@ -2,28 +2,28 @@
 // Copyright (c) 2026 Bjorn Pagen
 // --idr-contracts: what every pass keeps between the module before it and
 // the module after it, checked by MLIR's pass instrumentation as the pass
-// runs; and the pass that breaks a contract on purpose for their test.
+// runs; the promises every compiled program keeps, checked when the
+// pipeline ends; and the pass that breaks a contract on purpose for their
+// test.
 //
 // A run is checked when its op is the module or the program: those run on
 // the pass manager's own thread, and a pass on each function is checked as
 // the nest that runs it on the program. A run on an op another run is on
-// is part of that run, and is checked as it. A nest adaptor runs its passes
-// on the ops its op holds, never on its own, so such a run comes only from
-// a pass that runs passes through its own pipeline (MLIR's runPipeline,
-// which Pass.cpp's dynamic pipeline callback instruments as any other),
-// and every one of ours runs them on its own op. Between them the pass may
-// hold its op half done: idr-rc-exclusive writes the exclusive grades of
-// the whole program, then commits them function by function in such a
-// run. A contract is a relation at a pass's boundary, so the pass is
-// checked whole.
+// is part of that run, and is checked as it: a pass that runs passes
+// through its own pipeline runs them on its own op, inside its run, and
+// may hold its op half done between them.
 //
-// The state before a run is a clone of the module, which the relations
-// read as they read the module after it: idr-expect's typed checks take it
-// as their module of reference, and each function the pass kept is
-// compared with the clone's function of its symbol.
+// The state before a run is a record per function of what the relations
+// read, never a copy of the module: each relation is stated over those
+// facts, so the contracts on the largest module cost a record per function.
+// What a function's row may do is the verifier's to hold to its body after
+// every pass; a row widens where a pass adds effects (counting, the arrays'
+// buffers), so no relation holds a row to the one before.
 
 #include "idr/Transforms/Contracts.h"
 
+#include "idr/Analysis/Effects.h"
+#include "idr/IR/Effects/Vocabulary.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -39,11 +39,9 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include <cassert>
 
 using namespace mlir;
 
@@ -53,43 +51,27 @@ namespace {
 
 // The relations checked after a pass, in the order they are checked; the
 // name of each is its error's and the test pass's option's.
-enum class Relation {
-  QuantitiesKept,
-  LinearKept,
-  EffectsNotWidened,
-  CrashSitesNotAdded,
-  FoldsBalanced,
+enum class Relation : std::uint8_t { QuantitiesKept, LinearKept, CrashSitesNotAdded };
+
+struct RelationRow {
+  Relation relation;
+  llvm::StringLiteral name;
 };
 
-StringRef nameOf(Relation relation) {
-  switch (relation) {
-  case Relation::QuantitiesKept:
-    return "quantities-kept";
-  case Relation::LinearKept:
-    return "linear-kept";
-  case Relation::EffectsNotWidened:
-    return "effects-not-widened";
-  case Relation::CrashSitesNotAdded:
-    return "crash-sites-not-added";
-  case Relation::FoldsBalanced:
-    return "folds-balanced";
-  }
-  llvm_unreachable("a relation the contracts check");
+// The one table of the relations' names.
+constexpr RelationRow relations[] = {
+    {Relation::QuantitiesKept, "quantities-kept"},
+    {Relation::LinearKept, "linear-kept"},
+    {Relation::CrashSitesNotAdded, "crash-sites-not-added"},
+};
+
+constexpr llvm::StringLiteral nameOf(Relation relation) {
+  return relations[static_cast<unsigned>(relation)].name;
 }
 
-// The relations the test pass breaks, each with its relation's value, so
-// its name is the relation's: quantities-kept and folds-balanced are
-// idr-expect's properties, which idr-expect's own tests make fail.
-enum class Breakable {
-  LinearKept = static_cast<int>(Relation::LinearKept),
-  EffectsNotWidened = static_cast<int>(Relation::EffectsNotWidened),
-  CrashSitesNotAdded = static_cast<int>(Relation::CrashSitesNotAdded),
-};
-
 // Whether a run of a pass on `op` is checked: one on the module or on its
-// program. A run inside the program comes from a worker thread and touches
-// nothing here.
-bool checked(Operation *op) { return isa<ModuleOp, ProgramOp>(op); }
+// program.
+bool checked(Operation *op) { return isa<ModuleOp>(op) || isa<ProgramOp>(op); }
 
 // The module a check reads: the one checked, or the one that holds the
 // program checked.
@@ -108,16 +90,43 @@ std::string nameOf(Pass *pass) {
   return name;
 }
 
+// The facts of one function the relations compare.
+FunctionRecord recordOf(FuncOp fn) {
+  auto uses = [](TypeRange types) { return llvm::map_to_vector(types, [](Type t) { return usesOf(t); }); };
+  return {fn.getSymNameAttr(), uses(fn.getArgumentTypes()), uses(fn.getResultTypes()),
+          fn.getRow().contains(effects::Atom::crash) ? MayCrash::Yes : MayCrash::No};
+}
+
+// The record of every idr.func of the module's program. Once lowered, the
+// program's functions are upstream's, which carry no grade and no row.
+Snapshot snapshotOf(Pass *pass, ModuleOp module) {
+  Snapshot snapshot;
+  snapshot.pass = pass;
+  for (FunctionOpInterface function : expect::functionsOf(module))
+    if (auto fn = dyn_cast<FuncOp>(function.getOperation())) {
+      snapshot.bySymbol.try_emplace(fn.getSymNameAttr(), snapshot.functions.size());
+      snapshot.functions.push_back(recordOf(fn));
+    }
+  return snapshot;
+}
+
 // A function the pass kept: an idr.func of the program after it, and the
-// function of its symbol in the copy before it. A function the pass made or
-// erased is compared with nothing: a copy it makes (a specialization's
-// raise node, a trmc clone) has no predecessor with its contract. Once
-// lowered, the program's functions are upstream's, which declare none of
-// it.
+// record of its symbol before it. A function the pass made or erased is
+// compared with nothing: a copy's signature is derived from its source's by
+// the one derivation the copying passes share.
 struct Kept {
   FuncOp now;
-  FuncOp before;
+  const FunctionRecord *before;
 };
+
+SmallVector<Kept> keptOf(const Snapshot &snapshot, ModuleOp module) {
+  SmallVector<Kept> kept;
+  for (FunctionOpInterface function : expect::functionsOf(module))
+    if (auto fn = dyn_cast<FuncOp>(function.getOperation()))
+      if (auto at = snapshot.bySymbol.find(fn.getSymNameAttr()); at != snapshot.bySymbol.end())
+        kept.push_back({fn, &snapshot.functions[at->second]});
+  return kept;
+}
 
 // The error that `relation` is broken by `pass`, at `loc`; a relation that
 // says where goes on after a colon.
@@ -125,66 +134,40 @@ InFlightDiagnostic broken(Location loc, Relation relation, StringRef pass) {
   return emitError(loc) << "contract " << nameOf(relation) << " broken by " << pass;
 }
 
-// A relation idr-expect states of the module: its check, which reports
-// each place it fails, then the contract's error at the module.
-bool stated(Relation relation, LogicalResult property, StringRef pass, ModuleOp module) {
-  if (succeeded(property))
-    return true;
-  broken(module.getLoc(), relation, pass);
-  return false;
-}
-
 // linear-kept: every parameter and every result of a function the pass
-// kept has the quantity it had. A pass may drop a parameter or a result (a
-// dead one, a returned argument), after which a position names another
-// value, so a list is compared only where its length is unchanged.
+// kept has the uses it had. A pass may drop a parameter or a result (a
+// dead one), after which a position names another value, so a list is
+// compared where its length is unchanged; a changed one is a signature the
+// pass derived, by the derivation the copying passes share.
 bool linearKept(StringRef pass, ArrayRef<Kept> kept) {
   bool held = true;
   for (Kept k : kept) {
-    auto compare = [&](StringRef what, ArrayRef<Type> before, ArrayRef<Type> now) {
+    auto compare = [&](StringRef what, ArrayRef<Uses> before, TypeRange now) {
       if (before.size() != now.size())
         return;
-      for (auto [i, then, type] : llvm::enumerate(before, now)) {
-        Quantity was = quantityOf(then), is = quantityOf(type);
+      for (auto [i, was, type] : llvm::enumerate(before, now)) {
+        Uses is = usesOf(type);
         if (is == was)
           continue;
         broken(k.now.getLoc(), Relation::LinearKept, pass)
-            << ": " << what << " " << i << " of @" << k.now.getSymName() << " has quantity "
-            << stringifyQuantity(is) << " after it, and had " << stringifyQuantity(was)
-            << " before it";
+            << ": " << what << " " << i << " of @" << k.now.getSymName() << " is "
+            << stringifyUses(is) << " after it, and was " << stringifyUses(was) << " before it";
         held = false;
       }
     };
-    compare("parameter", k.before.getArgumentTypes(), k.now.getArgumentTypes());
-    compare("result", k.before.getResultTypes(), k.now.getResultTypes());
+    compare("parameter", k.before->parameters, k.now.getArgumentTypes());
+    compare("result", k.before->results, k.now.getResultTypes());
   }
   return held;
 }
 
-// effects-not-widened: what a function the pass kept may do after it is
-// among what it might do before.
-bool effectsNotWidened(StringRef pass, ArrayRef<Kept> kept) {
-  bool held = true;
-  for (Kept k : kept) {
-    Effect now = k.now.getEffects(), before = k.before.getEffects();
-    if (bitEnumContainsAll(before, now))
-      continue;
-    broken(k.now.getLoc(), Relation::EffectsNotWidened, pass)
-        << ": @" << k.now.getSymName() << " may do " << stringifyEffect(now)
-        << " after it, and did " << stringifyEffect(before) << " before it";
-    held = false;
-  }
-  return held;
-}
-
-// crash-sites-not-added: a function the pass kept that could not crash
-// before it has no place that may crash after it, counted as idr-expect's
-// crash-sites counts them, of that function alone.
+// crash-sites-not-added: a function the pass kept whose row could not
+// crash before it has no place that may crash after it, counted as
+// idr-expect's crash-sites counts them, of that function alone.
 bool crashSitesNotAdded(StringRef pass, SymbolTable &symbols, ArrayRef<Kept> kept) {
   bool held = true;
   for (Kept k : kept) {
-    if (bitEnumContainsAny(k.before.getEffects(), Effect::crash) ||
-        expect::crashSitesOf(k.now, symbols) == 0)
+    if (k.before->crash == MayCrash::Yes || expect::crashSitesOf(k.now, symbols) == 0)
       continue;
     broken(k.now.getLoc(), Relation::CrashSitesNotAdded, pass) << ": @" << k.now.getSymName();
     held = false;
@@ -192,22 +175,10 @@ bool crashSitesNotAdded(StringRef pass, SymbolTable &symbols, ArrayRef<Kept> kep
   return held;
 }
 
-// effects-not-widened, broken: every function may do IO, written with
-// every call of it (writeEffects), so a call holds its callee's effects and
-// every caller, which covered its callees', still covers them.
-void widenEffects(ProgramOp program) {
-  SymbolTableCollection tables;
-  SymbolUserMap users(tables, program);
-  for (FuncOp fn : program.getOps<FuncOp>())
-    writeEffects(fn, fn.getEffects() | Effect::io, users);
-}
-
 // linear-kept, broken: every function no symbol use names gives back each
-// of its linear results unrestricted, its one use moved to the return. No
-// call sees the new type; the root is no such function, since the program
-// names it outside its body. Only a result linear by its grade has an
-// unrestricted form: one linear by its type (the world, a destination)
-// takes no grade, so isLinear, which reads the grade, leaves it as it is.
+// of its linear results unrestricted, its one use the cast to many at the
+// return. No call sees the new type; the root is no such function, since
+// the program names it outside its body.
 void unrestrictResults(ProgramOp program) {
   for (FuncOp fn : program.getOps<FuncOp>()) {
     if (fn.isRoot() || !SymbolTable::symbolKnownUseEmpty(fn, program))
@@ -216,35 +187,36 @@ void unrestrictResults(ProgramOp program) {
     for (unsigned i = 0; i != results.size(); ++i) {
       if (!isLinear(results[i]))
         continue;
-      results[i] = atQuantity(results[i], Quantity::Many);
+      results[i] = atUses(results[i], Uses::Many);
       fn.walk([&](ReturnOp ret) {
         OpBuilder builder(ret);
-        ret->setOperand(i, LinUseOp::create(builder, ret.getLoc(), ret->getOperand(i)));
+        ret->setOperand(i, LinCastOp::create(builder, ret.getLoc(), results[i], ret->getOperand(i)));
       });
     }
     fn.setFunctionType(FunctionType::get(fn.getContext(), fn.getArgumentTypes(), results));
   }
 }
 
-// crash-sites-not-added, broken: every function that could not crash
-// crashes instead of returning, and then every function, with every call of
-// it, may crash, so each covers its body and its calls.
+// crash-sites-not-added, broken: every function whose row could not crash
+// crashes instead of returning, at its own location, and its row is
+// derived again, so each row covers its body and every call its callee's.
 void addCrashSites(ProgramOp program) {
   for (FuncOp fn : program.getOps<FuncOp>()) {
-    if (bitEnumContainsAny(fn.getEffects(), Effect::crash))
+    if (fn.getRow().contains(effects::Atom::crash))
       continue;
     fn.walk([&](ReturnOp ret) {
       OpBuilder builder(ret);
-      CrashOp::create(builder, ret.getLoc(), "contract broken");
+      CrashOp::create(builder, ret.getLoc(), crashSiteOf(fn.getLoc()), Cause::NoClauseMatched);
       ub::UnreachableOp::create(builder, ret.getLoc());
       ret.erase();
     });
   }
-  SymbolTableCollection tables;
-  SymbolUserMap users(tables, program);
-  for (FuncOp fn : program.getOps<FuncOp>())
-    writeEffects(fn, fn.getEffects() | Effect::crash, users);
+  rows::rederive(program);
 }
+
+// The relations the test pass breaks: every one the contracts check but
+// quantities-kept, which idr-expect's own tests make fail.
+enum class Breakable : std::uint8_t { LinearKept, CrashSitesNotAdded };
 
 // The pass the contracts' own test runs, registered in idris-mlir-opt
 // alone: it breaks one relation on purpose and leaves a module that
@@ -266,25 +238,20 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
     registry.insert<ub::UBDialect>();
   }
 
-  // The option's values are the relations' names; unnamed, the first.
   Option<Breakable> relation{
       *this, "relation", llvm::cl::desc("The contract to break"),
       llvm::cl::init(Breakable::LinearKept),
-      llvm::cl::values(
-          clEnumValN(Breakable::LinearKept, nameOf(Relation::LinearKept),
-                     "give a linear result back unrestricted"),
-          clEnumValN(Breakable::EffectsNotWidened, nameOf(Relation::EffectsNotWidened),
-                     "let every function do IO"),
-          clEnumValN(Breakable::CrashSitesNotAdded, nameOf(Relation::CrashSitesNotAdded),
-                     "make every function that could not crash crash"))};
+      llvm::cl::values(clEnumValN(Breakable::LinearKept, nameOf(Relation::LinearKept),
+                                  "give a linear result back unrestricted"),
+                       clEnumValN(Breakable::CrashSitesNotAdded,
+                                  nameOf(Relation::CrashSitesNotAdded),
+                                  "make every function that could not crash crash"))};
 
   void runOnOperation() override {
     ProgramOp program = getOperation();
     switch (relation.getValue()) {
     case Breakable::LinearKept:
       return unrestrictResults(program);
-    case Breakable::EffectsNotWidened:
-      return widenEffects(program);
     case Breakable::CrashSitesNotAdded:
       return addCrashSites(program);
     }
@@ -294,71 +261,55 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
 } // namespace
 
 void ContractInstrumentation::runBeforePass(Pass *pass, Operation *op) {
-  if (!checked(op))
+  // A run inside the run under way is part of it, and takes no record.
+  if (!checked(op) || before)
     return;
-  std::lock_guard<std::mutex> lock(mutex);
-  // The insert decides: an op another run is on already has its entry,
-  // and this run, part of that one, takes no snapshot.
-  auto [at, outermost] = before.try_emplace(op);
-  if (!outermost)
-    return;
-  at->second.pass = pass;
-  at->second.before.op = moduleOf(op).clone();
+  ModuleOp module = moduleOf(op);
+  // The module the frontend emitted, before the first pass: what Idris
+  // proved of its binders, read once. A module Emit gave two binders one
+  // identity says so here, at that binder.
+  if (!proved) {
+    FailureOr<expect::ProvedUses> read = expect::provedUses(module);
+    proved = succeeded(read) ? std::move(*read) : expect::ProvedUses();
+  }
+  before = snapshotOf(pass, module);
 }
 
 void ContractInstrumentation::runAfterPass(Pass *pass, Operation *op) {
-  if (!checked(op))
+  if (!checked(op) || !before || before->pass != pass)
     return;
-  Snapshot snapshot;
-  {
-    std::lock_guard<std::mutex> lock(mutex);
-    // Every run on a checked op finds an entry: its own, or that of the run
-    // it is part of, which that run checks.
-    auto at = before.find(op);
-    assert(at != before.end() && "a run on the module or the program has its entry");
-    if (at->second.pass != pass)
-      return;
-    snapshot = std::move(at->second);
-    before.erase(at);
-  }
+  Snapshot snapshot = std::move(*before);
+  before.reset();
 
   ModuleOp module = moduleOf(op);
   std::string name = nameOf(pass);
   ModuleAnalysisManager mam(module, /*passInstrumentor=*/nullptr);
   AnalysisManager analyses = mam;
-  SymbolTable was(expect::programOf(*snapshot.before.op));
-  SmallVector<Kept> kept;
-  for (FunctionOpInterface function : expect::functionsOf(module))
-    if (auto fn = dyn_cast<FuncOp>(function.getOperation()))
-      if (auto then = was.lookup<FuncOp>(fn.getSymNameAttr()))
-        kept.push_back({fn, then});
+  SmallVector<Kept> kept = keptOf(snapshot, module);
 
   // Every relation is checked, in this order, each reporting every place
   // it fails.
-  bool held = stated(Relation::QuantitiesKept,
-                     expect::quantitiesKept({module, analyses, nameOf(Relation::QuantitiesKept),
-                                             snapshot.before}),
-                     name, module);
+  bool held = true;
+  if (failed(expect::usesKept(*proved, module, nameOf(Relation::QuantitiesKept)))) {
+    broken(module.getLoc(), Relation::QuantitiesKept, name);
+    held = false;
+  }
   held = linearKept(name, kept) && held;
-  held = effectsNotWidened(name, kept) && held;
   held = crashSitesNotAdded(name, expect::symbolsOf(module, analyses), kept) && held;
-  held = stated(Relation::FoldsBalanced,
-                expect::foldsBalanced(
-                    {module, analyses, nameOf(Relation::FoldsBalanced), expect::Nothing{}}),
-                name, module) &&
-         held;
   if (!held)
     signalPassFailure(pass);
 }
 
 void ContractInstrumentation::runAfterPassFailed(Pass *pass, Operation *op) {
-  if (!checked(op))
-    return;
-  std::lock_guard<std::mutex> lock(mutex);
-  auto at = before.find(op);
-  assert(at != before.end() && "a run on the module or the program has its entry");
-  if (at->second.pass == pass)
-    before.erase(at);
+  if (checked(op) && before && before->pass == pass)
+    before.reset();
+}
+
+LogicalResult ContractInstrumentation::finish(ModuleOp module) {
+  ModuleAnalysisManager mam(module, /*passInstrumentor=*/nullptr);
+  AnalysisManager analyses = mam;
+  expect::Functions every{"", expect::functionsOf(module)};
+  return expect::constantStack({module, analyses, "constant-stack", every});
 }
 
 void registerContractTestPass() { PassRegistration<BreakContract>(); }

@@ -17,8 +17,8 @@ Idris Chez backend, except a program over `libs/mlir-array`, whose
 generating set means only what this compiler makes of it; and the pinned
 clang at `-O2` on `main.c`, for this compiler's target CPU, without
 floating-point contraction, linked as `idris-mlir --print-link-flags` says
-the target links a program. Every program runs with the largest stack the
-system allows, and every build and run is killed after 1800 seconds.
+the target links a program. Every program runs on the stack the system
+gives, and every build and run is killed after 1800 seconds.
 This compiler's output must agree with clang's: the same text, with a
 decimal number held to 1e-9 (a double prints as its shortest text in Idris
 and as `printf` writes it in C), and a binary output byte for byte. A

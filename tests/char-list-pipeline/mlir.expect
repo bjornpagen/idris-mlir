@@ -2,8 +2,6 @@
 # turns each cell it visits around in place, and every take in body is of
 # a cell it never gives a second reference; and no walk counts a
 # reference: the input is read into cells without a dup or a drop, and
-# reverse neither counts nor tests one.
-idr-rc-exclusive: reuses-in-place=@Prelude.Types.List.reverseOnto counts-nothing=@Prelude.Types.List.reverseOnto tests-nothing=@Prelude.Types.List.reverseOnto counts-nothing=@Main.readAll resets-unshared=@Main.body
-# Each line is written as its list is walked: no string is built only to
-# be written.
-idr-optimize: output-fused
+# reverse neither counts nor tests one. Each line is written as its list
+# is walked: no string is built only to be written.
+owned: reuses-in-place=@Prelude.Types.List.reverseOnto counts-nothing=@Prelude.Types.List.reverseOnto tests-nothing=@Prelude.Types.List.reverseOnto counts-nothing=@Main.readAll resets-unshared=@Main.body output-fused

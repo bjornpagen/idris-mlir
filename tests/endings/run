@@ -1,0 +1,120 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Every ending of a compiled program has its own exit status, and this is
+# the one place the table is spelled against the promise, each status a
+# literal: every other case reads its status from the specification's
+# table (Case.idr), so a wrong table would be checked by itself anywhere
+# but here. One small program per ending, each run with its stdout before
+# the ending and its stderr compared byte for byte:
+#
+#     returned                 0, nothing on stderr
+#     exit 42                  42, nothing on stderr
+#     exit 256                 1: no parent can read it, so it is a crash
+#                              at the exit's site, its message naming it
+#     a partial function       1, the cause at its site
+#     out of memory            111, named, with no site
+#     a reader gone            the process dies by SIGPIPE (128 + 13 to
+#                              the shell), with no message, every other
+#                              file written
+#
+# A program this machine cannot run ends with 126 (tests/page-size-mismatch
+# builds one). An internal error (SIGABRT after its message) is a bug of the
+# compiler's or the runtime's, which no valid program reaches.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# ending NAME MAIN: the program MAIN (its Main.idr's text) built as
+# $work/NAME/build/exec/prog and run on no input; one line, its name and
+# its status, then its stdout and stderr, each line marked.
+ending() {
+  mkdir -p "$work/$1"
+  printf '%s\n' "$2" > "$work/$1/Main.idr"
+  compile_program "$work/$1/Main.idr" prog
+  if [ "$compiled" -ne 0 ]; then
+    say "$1: compile exit $compiled"
+    show "$work/compile.out" "$work/compile.err"
+    return
+  fi
+  run_program "$1" "$work/$1/build/exec/prog" /dev/null
+  say "$1: status $ran"
+  sed 's/^/  stdout | /' "$work/$1.out"
+  sed 's/^/  stderr | /' "$work/$1.err"
+}
+
+ending returned 'module Main
+
+import Prelude
+
+main : IO ()
+main = putStrLn "returned"'
+
+ending exit-42 'module Main
+
+import Prelude
+import System
+
+main : IO ()
+main = do
+  putStrLn "before the exit"
+  exitWith (ExitFailure 42)'
+
+ending exit-256 'module Main
+
+import Prelude
+import System
+
+main : IO ()
+main = do
+  putStrLn "before the exit"
+  exitWith (ExitFailure 256)'
+
+ending crash 'module Main
+
+import Prelude
+
+partial
+first : List Int -> Int
+first (x :: _) = x
+
+main : IO ()
+main = do
+  putStrLn "before the crash"
+  printLn (first [])'
+
+ending out-of-memory 'module Main
+
+import Prelude
+
+pow2 : Nat -> Integer
+pow2 Z = 1
+pow2 (S k) = 2 * pow2 k
+
+main : IO ()
+main = do
+  putStrLn "before the shift"
+  printLn (prim__shl_Integer 1 (pow2 64))'
+
+# The reader of the program's output reads one byte and goes; the
+# program's status is kept by the shell that ran it, never head's.
+mkdir -p "$work/pipe"
+printf '%s\n' 'module Main
+
+import Prelude
+
+loop : Int -> IO ()
+loop n = do
+  putStrLn (show n)
+  loop (n + 1)
+
+main : IO ()
+main = loop 0' > "$work/pipe/Main.idr"
+compile_program "$work/pipe/Main.idr" prog
+if [ "$compiled" -ne 0 ]; then
+  say "reader-gone: compile exit $compiled"
+  show "$work/compile.out" "$work/compile.err"
+else
+  bounded sh -c '"$1" 2> "$2"; echo "$?" > "$3"' sh "$work/pipe/build/exec/prog" \
+    "$work/pipe.err" "$work/pipe.status" | head -c 1 > /dev/null
+  say "reader-gone: status $(cat "$work/pipe.status")"
+  sed 's/^/  stderr | /' "$work/pipe.err"
+fi

@@ -2,15 +2,18 @@
 // Copyright (c) 2026 Bjorn Pagen
 // crash-sites: how many places of a function may crash, stated the same
 // before lowering and after it, and counted for the contracts of every
-// function a pass kept. Before it, a place is an op that never returns
-// (idr.crash, an exit) or a guard, which crashes when its condition fails;
-// after it, each is a call of a function that never returns. So a guard
+// function a pass kept. Before it, a place is an op whose own effects end
+// the run by a crash (idr.crash, a guard, which crashes when its condition
+// fails, an exit whose status may be unreportable), as the effect system's
+// one query reads its declaration; after it, each is a call of a function
+// that never returns. So a guard
 // lowered to one test and a crash, and the op it guards to no test of its
 // own, keeps the count, and a guard that folded, or a primitive that tests
 // again what its guard tested, changes it.
 
 #include "idr/Transforms/Expect.h"
 
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -21,13 +24,14 @@ namespace idr::expect {
 
 namespace {
 
-// Whether `op` is a place that may crash: an idr op that never returns, a
-// guard, or a call of the LLVM dialect that never returns (the call says
-// so, or its callee).
+// Whether `op` is a place that may crash: an op whose own effects write
+// the crash state, or a call of the LLVM dialect that never returns (the
+// call says so, or its callee). A call of the idr dialect is no place of
+// its own: its callee's crashes are counted where they are.
 bool crashes(Operation *op, SymbolTable &symbols) {
-  if (op->hasTrait<NoReturn>() || isa<GuardOpInterface>(op))
-    return true;
   auto call = dyn_cast<LLVM::CallOp>(op);
+  if (!call && !isa<CallOpInterface>(op))
+    return effects::own(op).on(effects::Kind::Write, effects::ResourceId::Crash);
   if (!call)
     return false;
   if (call.getNoreturn())

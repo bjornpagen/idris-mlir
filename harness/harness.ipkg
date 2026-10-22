@@ -4,15 +4,23 @@ package runtests
 version = 0.1.0
 brief = "The golden test runner of idris-mlir, over tests/"
 
-depends = contrib, test
+-- Base and the dialect's specification alone: the runner builds under both
+-- hosts, and idris-mlir ships neither contrib nor test.
+depends = idris-mlir-spec
 sourcedir = "."
-modules = Fuzz
+modules = Case
+        , Facts
+        , Files
+        , Fuzz
         , Gen
+        , Json
         , Lazy
         , Lock
         , Prims
+        , Reject
         , Runner
         , Sem
+        , Trace
         , TwoLevels
 main = Main
 executable = runtests

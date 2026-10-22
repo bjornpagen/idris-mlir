@@ -25,14 +25,16 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
   sources `testutils.sh`, prints one line per check, and its stdout must
   be its `expected`.
 - a `Main.idr` and no `run`: a compiled program (`kinds/program`,
-  `e2e_io` in `lib/e2e.sh`). It is compiled once, with every pass's
-  contracts checked as it runs (`--idr-contracts`) and only the modules
-  its checks read dumped (`checked_steps`, `lib/mlir.sh`), and checked as
-  every compilation is (the dumps parse again, the object's imports, live
-  cells), then run once per case of its `cases`
-  (below); with no `cases` it is compiled only (a program that never
-  ends). `mlir.expect` states properties of its module (idr-expect);
-  `packages`, `heap-free` and `covers` are marks of the
+  `e2e_io` in `lib/e2e.sh`). It is compiled once, linked with the checked
+  runtime, with every pass's contracts and the promises every compiled
+  program keeps checked as it runs (`--idr-contracts`) and the properties
+  its `mlir.expect` states of each stage checked after every pass of that
+  stage (`--idr-expect-at`, `lib/expect.sh`); it is checked as every
+  compilation is (the object's imports; compiled again from its emitted
+  module with a drawn set of the optimizations' actions skipped, it ends
+  every case as before, `lib/actions.sh`), then run once per case of its
+  `cases` (below); with no `cases` it is compiled only (a program that
+  never ends). `packages`, `heap-free` and `covers` are marks of the
   compilation (`testutils.sh`). Its `expected` is the transcript of a good
   run, which says `cases: each as expected` whatever the number of cases.
 - a `Main.idr` whose first line is `-- expect: <rule>, line <n>`: a
@@ -41,13 +43,13 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
   starts with the rule. It may hold its nearest accepted neighbour in
   `near/` (below).
 - one `.mlir` file, `<name>.mlir`, and nothing else: a dialect fixture
-  (`kinds/fixture`, `lit_fixture` in `lib/lit.sh`). Its `// RUN:` lines
-  run in order and every one must hold; a command that is to fail names
-  the failure it expects. A module of it is one `idr.program`, which
-  names its root, its stage and its data types, each with its body once
-  (`types #idr.types<...>`; a data type is its name wherever else it
-  occurs). `%differential` (below,
-  `lib/differential.sh`) is the oracle for what a pass's output means.
+  (`kinds/fixture`, `lit_fixture` in `lib/lit.sh`), for an IR shape a
+  pass must handle that no program reaches. Its `// RUN:` lines run in
+  order and every one must hold; a command that is to fail names the
+  failure it expects. No RUN line names a pass: a stage slice
+  (`--idr-pipeline=from:<stage>,to:<stage>`), a property
+  (`--idr-expect=holds=...`) or `%differential` (below, the oracle for
+  what the pipeline's output means).
 
 ## The vocabulary: one way of saying each thing
 
@@ -60,36 +62,35 @@ in `lib/e2e.sh`):
 | --- | --- |
 | `stdin` | the bytes on standard input; none |
 | `expected-stdout` | the bytes on standard output, exactly; none |
-| `expected-exit` | the exit status (first word); 0 |
-| `expected-crash` | the cause the runtime names: stderr is exactly `idris-mlir: <cause>` and the status 1; without it stderr is empty |
+| `expected-ending` | how the run ends, the specification's ending (`Facts.idr`): `returned`, `exited <n>`, `crashed <cause>`, `crashed said`, `crashed unreportable`, `out_of_memory`, `cannot_run <reason>`, `broken_pipe`, `internal_error <what>`; `returned` |
+| `expected-stderr` | the bytes on standard error, the runtime's `prog: fatal: ...` line for the ending among them; none |
 | `libm-lines` | stdout's line numbers that hold libm results, compared to a few ulp |
 
-A case with any other file, a crash beside an exit status, or a `cases`
-with no case stops the test before it compiles, naming the fault. A
+A case with any other file, or a `cases` with no case, stops the test
+before it compiles, naming the fault; an ending that is none fails its
+case. The status a run must end with is the runner's to compute from the
+ending, from the specification's table, never spelled in a test but in
+`tests/endings`, the one test of the table against the promise. A
 program that reads nothing is one case with no `stdin`. To add an input,
 add a directory: no transcript changes. A script that builds a program
 in its work directory gives it `cases/` the same way.
 
 **The differential.** `%differential BEFORE AFTER`, on a fixture's RUN
 line, compiles the modules BEFORE and AFTER, each from the stage its
-program is at (the rest of idris-mlir's pipeline after the step that makes
-that stage, read from the registered pipeline and `IdrPassStages.txt`),
-runs both on every input and fails unless both exit alike and print the
-same stdout on each; it names the first input that differs and both
-outcomes, on stderr. The inputs are the empty one and every one-byte one,
+program is at (the registered pipeline from there, which the tool reads
+off the program), BEFORE with every optimization's actions skipped so the
+reference shares no optimization with what it checks, both linked with
+the checked runtime; it runs both on every input and fails unless both end
+alike (the same status, stdout and stderr) on each; it names the first
+input that differs and both outcomes, on stderr. The inputs are the empty one and every one-byte one,
 0x00 to 0xff (getChar reads the end of input as 0xff), unless the fixture
 declares its own, one per `// STDIN: <text>` line, `<text>` read with
-printf's `%b` escapes (`\n`, `\\`, `\0NNN`). Every run is also held to
-what every run of a program is: one that returns from main leaves no cell
-live (`idris-rt: live cells 0`), or the module whose run leaked is named
-with the input. Translation validation of a pass is two lines:
+printf's `%b` escapes (`\n`, `\\`, `\0NNN`). A run that leaks a cell ends as the checked runtime's internal error,
+which differs from a clean return. Translation validation of a stage is
+two lines:
 
-    // RUN: idris-mlir-opt %s --idr-defunctionalize -o %t.mlir
+    // RUN: idris-mlir-opt %s --idr-pipeline=to:first -o %t.mlir
     // RUN: %differential %s %t.mlir
-
-`tests/differential-wrong-rewrite` and `tests/differential-declared-stdin`
-show it failing on a wrong rewrite (`not %differential ... 2>&1 |
-FileCheck %s`), and `tests/rc-live` on a release taken out.
 
 **A refused program's neighbour.** A refused test may hold `near/`, the
 accepted program nearest to it: the same program with the one construct
@@ -125,8 +126,14 @@ clone numbers, function order or SSA names.
 ## Here
 
 - `Main.idr`, `Runner.idr`: the runner (`harness.ipkg`), which every test
-  command builds; `one.sh` runs one test in a process of its own and
-  writes its output to `build/output/<name>`.
+  command builds, under either host: it depends on base and the dialect's
+  specification alone and creates no process. `runs.sh` makes the runs
+  between the runner's plan and its tally; `one.sh` runs one test in a
+  process of its own and writes its output to `build/output/<name>`.
+- `Facts.idr`: what the harness reads of the specification (endings,
+  rules); `Case.idr`, `Reject.idr`: a case's ending and a refused
+  program's header, each read once into its record; `Trace.idr`: time
+  traces summed; `Json.idr`, `Files.idr`: what they read.
 - `testutils.sh` and `lib/`: what the scripts share, one file per concern.
 - `kinds/`: the script of each kind of test that has no `run` of its own.
 - `prop/`: the headers and the build of the runtime's property programs.

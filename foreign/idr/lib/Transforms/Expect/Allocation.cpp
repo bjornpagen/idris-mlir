@@ -6,11 +6,9 @@
 
 #include "idr/Transforms/Expect.h"
 
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Worklist.h"
 
-#include "mlir/IR/Matchers.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include <optional>
 
@@ -20,26 +18,15 @@ namespace idr::expect {
 
 namespace {
 
-// What `op` allocates, or nothing. An op says so by an Allocate effect; a
-// closure is the one exception, Pure as a value but built in a cell at
-// runtime.
+// What `op` acquires of the heap, or nothing: an Allocate the op declares
+// on the heap, the memory every cell lives in, read through the effect
+// system's one query. Building a value acquires nothing until counting
+// makes its cell (a constructor, a closure and a suspension are values
+// until then), and a fresh identity or a frame's slot is no heap memory,
+// so the declaration says it all.
 std::optional<std::string> allocation(Operation *op) {
-  if (auto closure = dyn_cast<ClosureOp>(op))
-    return "a closure of @" + closure.getCallee().str() + " is built";
-  if (auto suspend = dyn_cast<SuspendOp>(op))
-    return "a suspension of @" + suspend.getCallee().str() + " is built";
-  // idr.lin.enter and idr.lin.use allocate a new value, not memory; a cell
-  // in its function's frame (idr.cell.stack) is stack memory.
-  if (auto effects = dyn_cast<MemoryEffectOpInterface>(op)) {
-    SmallVector<MemoryEffects::EffectInstance> all;
-    effects.getEffects(all);
-    if (llvm::any_of(all, [](const MemoryEffects::EffectInstance &effect) {
-          return isa<MemoryEffects::Allocate>(effect.getEffect()) &&
-                 !isa<LinResource, SideEffects::AutomaticAllocationScopeResource>(
-                     effect.getResource());
-        }))
-      return (op->getName().getStringRef() + " allocates").str();
-  }
+  if (effects::own(op).on(effects::Kind::Allocate, effects::ResourceId::Heap))
+    return (op->getName().getStringRef() + " acquires heap memory").str();
   return std::nullopt;
 }
 
@@ -50,13 +37,21 @@ std::optional<std::string> allocation(Operation *op) {
 LogicalResult noHeapAllocation(const Request<Roots> &request) {
   ModuleOp module = request.module;
   const std::optional<Functions> &scope = request.argument.scope;
-  OnceWorklist<Operation *> reached;
-  for (FunctionOpInterface fn : scope ? scope->functions : functionsOf(module))
-    reached.push(fn);
   SymbolTable *symbols = scope ? &symbolsOf(module, request.analyses) : nullptr;
+  SmallVector<Operation *> roots;
+  for (FunctionOpInterface fn : scope ? scope->functions : functionsOf(module))
+    roots.push_back(fn);
+  // After lowering a body calls the runtime, whose functions are
+  // declarations: the property is one of the idr functions.
+  auto edges = [&](Operation *fn) {
+    auto function = cast<FunctionOpInterface>(fn);
+    if (!symbols || function.isExternal() || !isa<FuncOp>(fn))
+      return SmallVector<Operation *>();
+    return callees(*symbols, fn);
+  };
   bool held = true;
-  while (std::optional<Operation *> next = reached.pop()) {
-    auto fn = cast<FunctionOpInterface>(*next);
+  for (Operation *next : reachable(roots, edges)) {
+    auto fn = cast<FunctionOpInterface>(next);
     if (fn.isExternal()) {
       if (symbols) {
         fail(fn->getLoc(), request.property)
@@ -70,18 +65,7 @@ LogicalResult noHeapAllocation(const Request<Roots> &request) {
         fail(op->getLoc(), request.property) << *found << " in " << where(op);
         held = false;
       }
-      auto apply = dyn_cast<ApplyOp>(op);
-      if (symbols && apply && !matchPattern(apply.getCallee(), m_Constant())) {
-        fail(op->getLoc(), request.property) << where(op) << " applies a closure made outside it";
-        held = false;
-      }
     });
-    // After lowering a body calls the runtime, whose functions are
-    // declarations: the property is one of the idr functions.
-    if (!symbols || !isa<FuncOp>(fn.getOperation()))
-      continue;
-    for (Operation *callee : callees(*symbols, fn))
-      reached.push(callee);
   }
   return success(held);
 }

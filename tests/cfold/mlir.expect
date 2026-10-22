@@ -1,4 +1,3 @@
 # The constant folder rebuilds each expression in the cells of the one it
 # takes apart; no cell tested for reuse was given a second reference first.
-idr-contify: contified
-idr-rc-exclusive: resets-unshared
+owned: contified resets-unshared

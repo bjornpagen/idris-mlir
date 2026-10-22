@@ -4,9 +4,8 @@
 // back is rebuilt in its place, stated as the property a test wants of it:
 // the element moves out of the array into the rebuilding, with the
 // reference the array held, so the value it rebuilds holds the one
-// reference to its cell. Every op that makes that move says so by its
-// interface (UpdateOpInterface): idr.array.update on an array a world
-// orders, and idr.element.update on the buffer of a value array.
+// reference to its cell. One op makes that move, idr.array.update, in
+// mutable memory and in a value array's buffer alike.
 
 #include "idr/Transforms/Expect.h"
 
@@ -22,7 +21,7 @@ LogicalResult movesOut(const Request<Roots> &request) {
   SmallVector<Operation *> roots = request.argument.roots(request.module);
   bool moved = false;
   for (Operation *root : roots)
-    root->walk([&](UpdateOpInterface) { moved = true; });
+    root->walk([&](ArrayUpdateOp) { moved = true; });
   if (!moved)
     fail(roots.front()->getLoc(), request.property)
         << "no element of an array is rebuilt in its place" << request.argument.in();

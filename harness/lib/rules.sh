@@ -1,27 +1,18 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The rules a refusal names, read from the one list of them the tests
-# have: IdrRules.txt, which idris-mlir-tblgen -gen-rule-list writes from the
-# dialect's ODS into the build, beside the dialect's other generated
-# headers, so no test holds a rule's phrase or its category by hand. Where
-# stage 2 is not built (make check), the typecheck build's list is read:
-# the records are the same, so is the list. Each line of the list is the
-# phrase a refusal renders, `unsupported (<phrase>)` for a rule of the
-# first two categories, a tab, and the phrase of the rule's category:
-# `megamorphic`, a construct whose choices no compile-time analysis
-# bounds; `outside the language`, what the language this compiler
-# implements does not have; or `user error`, a program Idris itself
-# rejects, whose refusal carries Idris's own message. A line starting with
-# `#` explains.
+# The rules a refusal names, read from the one source of them, the
+# dialect's specification, through the runner (`runtests --rules`,
+# Facts.idr), so no test holds a rule's phrase or its category by hand.
+# Each line is the phrase a refusal renders, `unsupported (<phrase>)` for a
+# rule of the compiler's categories, a tab, and the phrase of the rule's
+# category: a construct whose choices no compile-time analysis bounds,
+# what the language this compiler implements does not have, or a program
+# Idris itself rejects, whose refusal carries Idris's own message.
 
-rules_list=$dev_prefix/foreign/idr/include/idr/IR/IdrRules.txt
-[ -f "$rules_list" ] || rules_list=$typecheck_prefix/foreign/idr/include/idr/IR/IdrRules.txt
-
-# rules_lines: the list's lines, phrase and category, without its comments;
-# nothing, and status 1, when the list is missing.
+# rules_lines: every rule's line, phrase and category; nothing, and status
+# 1, when the runner cannot give them.
 rules_lines() {
-  [ -f "$rules_list" ] || return 1
-  grep -v '^#' "$rules_list" | grep .
+  "$runtests" --rules
 }
 
 # rule_phrases [CATEGORY]: the phrase of every rule, or of every rule of

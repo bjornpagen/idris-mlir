@@ -8,7 +8,6 @@
 
 #include "idr/Transforms/Expect.h"
 
-#include "idr/Support/Worklist.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -25,17 +24,13 @@ LogicalResult reaches(const Request<Pair> &request) {
   SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
   for (FunctionOpInterface start : request.argument.caller.functions) {
-    // Every function reached from the body of `start`, each once.
-    OnceWorklist<Operation *> reached;
-    for (Operation *callee : callees(symbols, start))
-      reached.push(callee);
-    while (std::optional<Operation *> next = reached.pop()) {
-      auto fn = cast<FunctionOpInterface>(*next);
-      if (!fn.isExternal())
-        for (Operation *callee : callees(symbols, fn))
-          reached.push(callee);
-    }
-    if (llvm::any_of(reached.entered(), [&](Operation *fn) {
+    // Every function reached from the body of `start`, each once; a
+    // function without a body in the module calls nothing back.
+    auto edges = [&](Operation *fn) {
+      auto function = cast<FunctionOpInterface>(fn);
+      return function.isExternal() ? SmallVector<Operation *>() : callees(symbols, fn);
+    };
+    if (llvm::any_of(reachable(callees(symbols, start), edges), [&](Operation *fn) {
           return names(cast<FunctionOpInterface>(fn), target);
         }))
       continue;

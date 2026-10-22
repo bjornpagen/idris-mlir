@@ -1,9 +1,9 @@
 # Each of these only rebuilds its argument once the indices are erased, so
 # the optimizer leaves no call of any of them: each became the argument it
 # gives back. not-called holds of a function the module never had, so the
-# emitted module is held to calling each one (one-clone fails on a
+# emitted program is held to calling each one (one-clone fails on a
 # function nothing calls), and a name that is not the function's would fail
 # there instead of holding by default. finToNat is the registry's identity
 # on a natural, so the module never has it, and it is not listed.
-emitted: one-clone=@Main.weakenTerm one-clone=@Main.weakenUnder one-clone=@Main.weakenTree one-clone=@Main.weakenForest one-clone=@Data.Fin.weaken one-clone=@Data.Fin.last
-idr-optimize: not-called=@Main.weakenTerm not-called=@Main.weakenUnder not-called=@Main.weakenTree not-called=@Main.weakenForest not-called=@Data.Fin.weaken not-called=@Data.Fin.last
+higher: one-clone=@Main.weakenTerm one-clone=@Main.weakenUnder one-clone=@Main.weakenTree one-clone=@Main.weakenForest one-clone=@Data.Fin.weaken one-clone=@Data.Fin.last
+owned: not-called=@Main.weakenTerm not-called=@Main.weakenUnder not-called=@Main.weakenTree not-called=@Main.weakenForest not-called=@Data.Fin.weaken not-called=@Data.Fin.last

@@ -1,4 +1,4 @@
 # span (break is one too) and splitAt end their input with a static pair
 # of empty lists, which reaches no cell but the empty list's atom: their
 # results are exclusive, so neither tests a count of what it takes apart.
-idr-rc-exclusive: tests-nothing=@Data.List.span tests-nothing=@Data.List.splitAt
+owned: tests-nothing=@Data.List.span tests-nothing=@Data.List.splitAt

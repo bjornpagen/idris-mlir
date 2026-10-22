@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# What an e2e program needs outside itself, and whether it allocates.
+# What an e2e program needs outside itself.
 #
 # Its object's undefined symbols are the runtime's (read from the runtime
 # object it is linked with, so the list follows the runtime): the bodies
@@ -8,12 +8,7 @@
 # itself imports, which the bodies it did inline call; the calls code
 # generation makes by itself; and libm's, the one list below
 # (libm_symbols). Anything else is a call the program should not make.
-#
-# A file `heap-free` in a test's directory marks a program whose
-# values the compiler keeps off the heap: no op of the module that is
-# lowered allocates a heap cell (idr-expect's no-heap-allocation). The mark
-# is the test: the day an optimization stops keeping those values off the
-# heap, it fails.
+
 
 # runtime_fact NAME: a fact of the target entry that the build writes
 # beside the runtime (runtime/CMakeLists.txt) and the harness reads,
@@ -107,21 +102,5 @@ object_imports() {
   else
     say "object: undefined symbols outside the allowed set:$object_extra"
     return 1
-  fi
-}
-
-# heap_free TEST DUMPS: for a marked test, nothing in the module that
-# idr-lower lowers, its dump before idr-lower in DUMPS (checked_steps),
-# allocates a heap cell; for any other, nothing. Without that dump the
-# module it lowers is not known, and the check fails.
-heap_free() {
-  [ -f "$1/heap-free" ] || return 0
-  if ! heap_module=$(step_module idr-lower "" "$2"); then
-    say "heap: no module dumped before idr-lower, so the module it lowers is not known"
-  elif expect_holds "$heap_module" no-heap-allocation; then
-    say "heap: nothing is allocated on the heap"
-  else
-    say "heap: allocates, though marked heap-free"
-    show "$work/expect.log"
   fi
 }

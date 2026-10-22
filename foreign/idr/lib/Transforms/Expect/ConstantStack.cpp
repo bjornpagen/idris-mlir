@@ -7,8 +7,6 @@
 
 #include "idr/Transforms/Expect.h"
 
-#include "idr/Support/Worklist.h"
-
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
@@ -76,15 +74,11 @@ LogicalResult constantStack(const Request<Functions> &request) {
   // Every function the named ones may call, themselves included, each
   // taken once.
   Graph graph(symbols);
-  OnceWorklist<Operation *> reached;
-  for (FunctionOpInterface fn : request.argument.functions)
-    reached.push(fn);
-  while (std::optional<Operation *> next = reached.pop())
-    for (Reference ref : graph.of(*next))
-      reached.push(ref.target);
+  SmallVector<Operation *> roots =
+      llvm::map_to_vector(request.argument.functions, [](FunctionOpInterface fn) { return fn.getOperation(); });
   auto edges = [&](Operation *fn) { return graph.targets(fn); };
   bool held = true;
-  for (const SmallVector<Operation *> &cycle : cycles(reached.entered(), edges)) {
+  for (const SmallVector<Operation *> &cycle : cycles(reachable(roots, edges), edges)) {
     llvm::DenseSet<Operation *> members(cycle.begin(), cycle.end());
     bool grows = false;
     for (Operation *fn : cycle)

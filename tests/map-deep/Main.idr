@@ -2,9 +2,9 @@ module Main
 
 -- A recursion that returns a constructor around its own result, the
 -- Prelude's map, is written top down through a destination and runs in
--- constant stack: a million elements, where the harness gives a program a
--- 1 MiB stack. The list is built by a tail-recursive loop and summed by
--- one, so what is tested is map.
+-- constant stack: a million elements, in a bounded native stack. The list
+-- is built by a tail-recursive loop and summed by one, so what is tested
+-- is map.
 
 import Prelude
 

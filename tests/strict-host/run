@@ -1,0 +1,51 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A program starts on a strict host: it commits no memory before it uses
+# it and reserves no address space beyond what the host allows, so under a
+# limit of 512 MiB of address space a program that prints and one that
+# allocates a hundred thousand cells both run. Where the host accepts no
+# address-space limit (macOS refuses one), the programs run as the host
+# allows and the transcript is the same, so one expectation serves every
+# host: the case set is the host's, found by asking it, never by its name.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+if (ulimit -v 524288) 2> /dev/null; then limit='ulimit -v 524288'; else limit=:; fi
+
+# strict NAME MAIN: the program MAIN (its Main.idr's text) built and run
+# under the limit where the host takes one; its name, status and stdout.
+strict() {
+  mkdir -p "$work/$1"
+  printf '%s\n' "$2" > "$work/$1/Main.idr"
+  compile_program "$work/$1/Main.idr" prog
+  if [ "$compiled" -ne 0 ]; then
+    say "$1: compile exit $compiled"
+    show "$work/compile.out" "$work/compile.err"
+    return
+  fi
+  (eval "$limit" && bounded "$work/$1/build/exec/prog") < /dev/null > "$work/$1.out" 2> "$work/$1.err"
+  say "$1: status $?, prints $(cat "$work/$1.out")"
+  [ -s "$work/$1.err" ] && show "$work/$1.err"
+  return 0
+}
+
+strict hello 'module Main
+
+import Prelude
+
+main : IO ()
+main = putStrLn "hello"'
+
+strict allocating 'module Main
+
+import Prelude
+
+build : Int -> List Int -> List Int
+build 0 acc = acc
+build n acc = build (n - 1) (n :: acc)
+
+total_ : List Int -> Int -> Int
+total_ [] acc = acc
+total_ (x :: xs) acc = total_ xs (acc + x)
+
+main : IO ()
+main = printLn (total_ (build 100000 []) 0)'

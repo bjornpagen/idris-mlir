@@ -1,13 +1,13 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| The primitives of Idris, as the tests know them: one table, made in the
-||| order and the shape of Idris's own list of them (Core.Primitives), of
-||| each primitive's name, its operation (whose family and host dependence
-||| follow from it), its parameters with the values each may take, and its
-||| result; the integer types' widths, and what the integer primitives
-||| mean, as the runtime documents them (runtime/idris_rt.h); and the
-||| closed expressions over the table, as a program writes them. Fuzz, Sem
-||| and TwoLevels are written on it.
+||| The primitives of Idris, as the tests know them: one table of each
+||| primitive's name as a program writes it, its operation (whose family and
+||| host dependence follow from it), its parameters with the values each may
+||| take, and its result; the integer types' widths, and what the integer
+||| primitives mean, as the runtime documents them (runtime/idris_rt.h); and
+||| the closed expressions over the table, as a program writes them. The
+||| meanings are the oracle's own, written from the documentation, never
+||| read from the compiler. Fuzz, Sem and TwoLevels are written on it.
 module Prims
 
 import Prelude
@@ -532,8 +532,8 @@ compareOn op t = MkPrim (named op t) op (Param t Anything (Param t Anything Done
 whole : Op -> Params [] -> Ty -> Prim
 whole op = MkPrim ("prim__" ++ spelling op) op
 
-||| Idris's divisions by 0 of an integer type crash (idr-lower checks the
-||| divisor); a Double's give an infinity or NaN.
+||| Idris's divisions by 0 of an integer type crash, at the division's
+||| site; a Double's give an infinity or NaN.
 public export
 divisor : Ty -> Domain before
 divisor (TIntegral _) = NonZero
@@ -548,7 +548,7 @@ amount (Fixed _) = Anything
 amount Big = SmallShift
 
 ||| A Double cast to an integer type crashes on NaN and the infinities
-||| (idr-lower checks it is finite). Every other cast is total: from String
+||| (a crash at the cast's site). Every other cast is total: from String
 ||| it reads 0 from text that is no literal, and to Char it gives 0 for a
 ||| value that is not a scalar.
 operand : Ty -> Ty -> Domain before
@@ -588,8 +588,8 @@ prims =
   ++ [ compareOn op t | (op, _) <- comparisons, t <- primTypes ]
   ++ [ whole StrLength (Param TString Anything Done) int
      -- A string's first scalar, its rest and one at an index need a scalar
-     -- there (idr-lower checks, and crashes on, an empty string and an
-     -- index outside it).
+     -- there (an empty string, and an index outside it, crash at the
+     -- primitive's site).
      , whole StrHead (Param TString NonEmpty Done) TChar
      , whole StrTail (Param TString NonEmpty Done) TString
      , whole StrIndex (Param TString NonEmpty (Param int (IndexInto Here) Done)) TChar

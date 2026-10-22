@@ -20,10 +20,11 @@
 # but the test's own and its modules fails the test (fixture_files_known,
 # in e2e.sh, which holds the one list):
 #
-#     heap-free       no op of the lowered module allocates a heap cell
-#                     (heap.sh)
+#     heap-free       no op of the module that is lowered allocates a heap
+#                     cell (expect.sh, stage_options)
 #     covers          the program uses every run-time export of the prelude
 #                     module the file names, as its Core shows (prelude.sh)
+#     mlir.expect     the properties the program's stages hold (expect.sh)
 #
 # The helpers are in harness/lib, one file per concern, sourced below after
 # the limits, each after what it uses:
@@ -31,12 +32,12 @@
 #     harness.sh       the work directory, bounded commands, output, fixtures,
 #                      the packages a fixture names
 #     timing.sh        the record of every compilation's wall time
-#     rules.sh         the rules a refusal names, from their generated list
+#     rules.sh         the rules a refusal names, from the specification
 #     compile.sh       compiling a program, and the artifacts it leaves
 #     run.sh           running a compiled program
 #     heap.sh          the C library calls an e2e program's objects may make
-#     mlir.sh          the modules a compilation dumps, step by step
-#     expect.sh        properties of a module by name (idr-expect), mlir.expect
+#     expect.sh        properties of a module by name (idr-expect), and of a
+#                      program's stages (mlir.expect)
 #     prelude.sh       a prelude module whose every export a program uses
 #     e2e.sh           the end-to-end programs, each compiled once and run on
 #                      each case, the generated semantics tests, and a refused
@@ -45,8 +46,9 @@
 #     profile.sh       the profile's accept and reject fixtures
 #     determinism.sh   compilations at 1, 3, 5 and 13 threads and in a second
 #                      process, and one thread against the pool, byte for byte
-#     actions.sh       a program with the passes' actions skipped holds its
-#                      cases, as with none skipped
+#     actions.sh       a program compiled again with a drawn set of the
+#                      optimizations' actions skipped keeps its verdict and
+#                      its cases
 #     lit.sh           the dialect tests' RUN lines
 #     differential.sh  %differential: two modules' programs agree on every input
 #     planted.sh       a repository rule on its planted witness and near miss
@@ -87,7 +89,7 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   exit "$deadline_status"
 fi
 
-for lib_file in harness timing rules compile run heap mlir expect prelude properties e2e \
+for lib_file in harness timing rules compile run heap expect prelude properties e2e \
                 profile determinism actions lit differential planted fuzz idris-lex cpp-lex bench; do
   . "$root/harness/lib/$lib_file.sh"
 done

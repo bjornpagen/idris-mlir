@@ -3,10 +3,11 @@
 # The end-to-end programs: compiled, run on each of their cases, and held
 # to what each case says the run gives.
 #
-# Each fixture is compiled once, with the passes' contracts checked as they
-# run and the modules its checks read dumped (checked_steps), and
-# everything that holds of a compilation is read off that one compilation
-# (lib/properties.sh); then the executable runs once per case.
+# Each fixture is compiled once, with the passes' contracts, the promises
+# every compiled program keeps and the properties it states of its stages
+# checked as the passes run, and everything else that holds of a
+# compilation is read off that one compilation (lib/properties.sh); then
+# the executable runs once per case.
 
 # stdout_within_a_few_ulp EXPECTED OURS LINES: EXPECTED and OURS print the
 # same text, except that the numbered lines LINES (one number per line) hold
@@ -31,51 +32,54 @@ stdout_within_a_few_ulp() {
 
 # e2e_io FIXTURE: an IO program, Main.idr and its other modules, compiled
 # once, run on each of its cases (e2e_cases), and checked as every
-# compilation is (universal) and by the checks of its modules
-# (module_checks). A fixture with no `cases` directory is compiled only
-# (a program that never ends). `packages` names installed packages it
+# compilation is (universal) and by the properties it states of its
+# modules (stage_options). A fixture with no `cases` directory is compiled
+# only (a program that never ends). `packages` names installed packages it
 # uses.
 e2e_io() {
   io_fixture=$(cd "$1" && pwd)
   fixture_files_known "$io_fixture" || return
   cases_known "$io_fixture" || return
   io_packages=$(package_options "$io_fixture")
-  # The compilation checks every pass's contracts as it runs
-  # (--idr-contracts), which is what holds of every compilation's steps,
-  # and prints the modules the fixture's checks read (checked_steps), and
-  # no other.
+  # The compilation checks every pass's contracts and the promises every
+  # compiled program keeps as it runs (--idr-contracts), and the
+  # properties the fixture states of a stage after every pass of that stage
+  # (stage_options); the executable links the checked runtime, which ends a
+  # run that returns with a cell still live as the runtime's internal error.
   mkdir "$work/ours"
   copy_fixture "$io_fixture" "$work/ours"
-  io_dumps=$work/ours/build/exec/prog.dump
-  # shellcheck disable=SC2046 # the steps and the dump options are words
-  compile_program $io_packages --idr-contracts $(dump_options "$io_dumps" $(checked_steps "$io_fixture")) \
-    "$work/ours/Main.idr" prog
+  # The checks, one per line, which a compilation from the emitted module
+  # takes too (universal); the packages are the frontend's alone.
+  { say --idr-contracts; stage_options "$io_fixture"; } > "$work/options"
+  # shellcheck disable=SC2046,SC2086 # one option per line, none with a space; the packages are words
+  compile_checked $io_packages $(cat "$work/options") "$work/ours/Main.idr" prog
   say "compile: exit $compiled"
   if [ "$compiled" -ne 0 ]; then
     show "$work/compile.out" "$work/compile.err"
     return
   fi
   artifacts "$work/ours" prog
-  io_module=$(artifact_file "$work/ours" prog module)
   [ -d "$io_fixture/cases" ] && e2e_cases
   # shellcheck disable=SC2046 # one path per object, none with a space
-  universal "$io_dumps" $(artifact_files "$work/ours" prog objects)
-  heap_free "$io_fixture" "$io_dumps"
-  module_checks "$io_fixture" "$io_module" "$io_dumps" "$(artifact_file "$work/ours" prog core)"
+  universal "$io_fixture" "$(artifact_file "$work/ours" prog module)" "$work/options" \
+    $(artifact_files "$work/ours" prog objects)
+  [ -f "$io_fixture/heap-free" ] && say "heap: nothing is allocated on the heap"
+  [ -f "$io_fixture/mlir.expect" ] && say "mlir.expect: holds"
+  [ -f "$io_fixture/covers" ] &&
+    covers_prelude "$(first_word "$io_fixture/covers")" "$(artifact_file "$work/ours" prog core)" "$io_fixture"
+  return 0
 }
 
 # The files a case directory may hold, each a field of the one record a
 # case is: what the run reads, what it must give, and the marks of that
 # run. cases_known and the README name them from here.
-case_fields='stdin expected-stdout expected-exit expected-crash libm-lines'
+case_fields='stdin expected-stdout expected-ending expected-stderr libm-lines'
 
 # cases_known FIXTURE: FIXTURE's `cases`, when it has one, is a directory
 # of at least one case, each a directory named in letters, digits and
-# dashes that holds only case_fields, and not both an expected-exit and an
-# expected-crash (a crash's status is the runtime's, 1); otherwise a line
-# naming each fault, and status 1. A case is never skipped: a file no
-# field names, or a case that is no directory, would otherwise pass by
-# never being read.
+# dashes that holds only case_fields; otherwise a line naming each fault,
+# and status 1. A case is never skipped: a file no field names, or a case
+# that is no directory, would otherwise pass by never being read.
 cases_known() {
   [ -e "$1/cases" ] || return 0
   ck_faults=
@@ -104,9 +108,6 @@ cases_known() {
         *) ck_faults="$ck_faults $ck_name/${ck_file##*/} (no field of a case)" ;;
       esac
     done
-    if [ -f "$ck_case/expected-exit" ] && [ -f "$ck_case/expected-crash" ]; then
-      ck_faults="$ck_faults $ck_name (expected-exit beside expected-crash, whose status is 1)"
-    fi
   done
   [ "$ck_count" -gt 0 ] || ck_faults="$ck_faults (no case)"
   [ -z "$ck_faults" ] && return 0
@@ -134,37 +135,48 @@ e2e_cases() {
   fi
 }
 
-# e2e_case CASE NAME: the compiled program run on the case directory CASE:
+# e2e_case CASE NAME: the compiled program, $work/ours/build/exec/prog, run
+# on the case directory CASE:
 #
 #     stdin            the bytes on its standard input; none without it
 #     expected-stdout  the bytes it writes on its standard output; none
 #                      without it
-#     expected-exit    its exit status, the first word; 0 without it
-#     expected-crash   the cause the runtime names when the program
-#                      crashes: then its status is 1 and its standard
-#                      error is exactly `idris-mlir: <cause>`
+#     expected-ending  how the run ends, one line, the specification's
+#                      ending as Facts.idr writes it; `returned` without it
+#     expected-stderr  the bytes it writes on its standard error, the
+#                      runtime's line for its ending among them; none
+#                      without it
 #     libm-lines       the numbered output lines are libm results, whose
 #                      last places are the platform libm's and may differ
 #                      from expected-stdout's
 #
-# Without a crash its standard error is empty. Prints nothing when the run
-# gives what the case says, and a line per difference otherwise, each
-# naming the case.
+# The status the run must end with, an exit code or a signal, is the
+# runner's to compute from the ending, from the specification's table
+# (`runtests --case-status`): no status is spelled here. The shell reports
+# a process a signal ended as 128 plus the signal's number, which `kill -l`
+# names. Prints nothing when the run gives what the case says, and a line
+# per difference otherwise, each naming the case.
 e2e_case() {
   ec_dir=$1
   ec_name=$2
   ec_stdin=/dev/null
   [ -f "$ec_dir/stdin" ] && ec_stdin=$ec_dir/stdin
-  run_ours run "$work/ours/build/exec/prog" "$ec_stdin"
-  ec_expected_exit=0
-  [ -f "$ec_dir/expected-exit" ] && ec_expected_exit=$(first_word "$ec_dir/expected-exit")
-  [ -f "$ec_dir/expected-crash" ] && ec_expected_exit=1
-  if [ "$ran" -ne "$ec_expected_exit" ]; then
-    if [ -f "$ec_dir/expected-crash" ]; then
-      say "case $ec_name: exit $ran, but a crash exits 1"
-    else
-      say "case $ec_name: exit $ran, expected $ec_expected_exit"
-    fi
+  if ! ec_expected=$("$runtests" --case-status "$ec_dir" 2> "$work/case.err"); then
+    say "case $ec_name: its ending cannot be read"
+    show "$work/case.err"
+    return
+  fi
+  run_program run "$work/ours/build/exec/prog" "$ec_stdin"
+  # What the run gave, which the run of the same program compiled with
+  # actions skipped must give too (skips_hold).
+  mkdir -p "$work/case-runs"
+  cp "$work/run.out" "$work/case-runs/$ec_name.out"
+  cp "$work/run.err" "$work/case-runs/$ec_name.err"
+  printf '%s\n' "$ran" > "$work/case-runs/$ec_name.status"
+  ec_got="code $ran"
+  [ "$ran" -gt 128 ] && ec_got="signal $(kill -l "$((ran - 128))")"
+  if [ "$ec_got" != "$ec_expected" ]; then
+    say "case $ec_name: ended by $ec_got, expected $ec_expected"
   fi
   ec_expected_stdout=$ec_dir/expected-stdout
   [ -f "$ec_expected_stdout" ] || ec_expected_stdout=/dev/null
@@ -174,15 +186,11 @@ e2e_case() {
     say "case $ec_name: stdout differs from expected-stdout"
     diff "$ec_expected_stdout" "$work/run.out" | head -n 20 | sed 's/^/  | /'
   fi
-  if [ -f "$ec_dir/expected-crash" ]; then
-    { printf 'idris-mlir: '; cat "$ec_dir/expected-crash"; } > "$work/run.crash"
-    if ! cmp -s "$work/run.crash" "$work/run.err"; then
-      say "case $ec_name: stderr is not the crash expected-crash names"
-      diff "$work/run.crash" "$work/run.err" | head -n 20 | sed 's/^/  | /'
-    fi
-  elif [ -s "$work/run.err" ]; then
-    say "case $ec_name: stderr not empty"
-    show "$work/run.err"
+  ec_expected_stderr=$ec_dir/expected-stderr
+  [ -f "$ec_expected_stderr" ] || ec_expected_stderr=/dev/null
+  if ! cmp -s "$ec_expected_stderr" "$work/run.err"; then
+    say "case $ec_name: stderr differs from expected-stderr"
+    diff "$ec_expected_stderr" "$work/run.err" | head -n 20 | sed 's/^/  | /'
   fi
 }
 
@@ -267,15 +275,4 @@ near_neighbour() {
     mkdir "$work"
     e2e_io "$1/near"
   ) | sed 's/^/near: /'
-}
-
-# module_checks FIXTURE EMITTED DUMPS CORE: every check of the
-# compilation's modules that the fixture holds: mlir.expect
-# (check_expect); covers, the prelude module whose every export the
-# program uses (covers_prelude, on the program's Core, CORE, and its
-# source).
-module_checks() {
-  [ -f "$1/mlir.expect" ] && check_expect "$1/mlir.expect" "$2" "$3"
-  [ -f "$1/covers" ] && covers_prelude "$(first_word "$1/covers")" "$4" "$1"
-  return 0
 }

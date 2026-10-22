@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/69-early-exit-successor-inputs: the dead and duplicate
+# successor-input patterns edit only the inputs their own op owns, so the
+# canonicalizer leaves a module the verifier accepts.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/69-early-exit-successor-inputs/successor-inputs.mlir
+if bounded "$llvm_bin/mlir-opt" "$input" -canonicalize -o "$work/out.mlir" 2> "$work/err" &&
+   bounded "$llvm_bin/mlir-opt" "$work/out.mlir" -o /dev/null 2>> "$work/err"; then
+  say "canonicalize: the module stays valid"
+else
+  say "canonicalize: fails, or leaves a module that does not verify"
+  show "$work/err"
+fi

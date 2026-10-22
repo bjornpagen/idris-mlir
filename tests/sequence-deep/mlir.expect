@@ -1,4 +1,0 @@
-# sequence_'s fold is written top down through destinations and run as a
-# chain of tail calls, so once idr-tail-calls has run no call reachable from
-# the program grows the stack, however long the list.
-idr-tail-calls: constant-stack=@$idris-mlir.root

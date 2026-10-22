@@ -1,6 +1,6 @@
 # The passes over the array, the fill and the check work on the one
-# array: after bufferization nothing in them copies it. The positions are
+# array: once it is a buffer nothing in them copies it. The positions are
 # naturals compared with the size, a natural the run gives, so they are
 # bigs, counted and allocated as naturals are; the vector is moved along
 # its thread.
-idr-rc-exclusive: in-place=@Main.pass in-place=@Main.fill in-place=@Main.check
+owned: in-place=@Main.pass in-place=@Main.fill in-place=@Main.check

@@ -1,0 +1,2 @@
+hello: status 0, prints hello
+allocating: status 0, prints 5000050000

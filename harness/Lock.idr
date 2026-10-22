@@ -11,7 +11,7 @@ module Lock
 import Data.List
 import Data.SortedMap
 import Data.String
-import Language.JSON
+import Json
 import System
 import System.File
 
@@ -83,11 +83,11 @@ check root = do
   let path = root ++ "/toolchain.lock.json"
   Right contents <- readFile path
     | Left err => die "\{path}: \{show err}"
-  let Just (JObject fields) = parse contents
+  let Right (JObject fields) = parse contents
     | _ => putStrLn "toolchain.lock.json: not a JSON object"
-  putStrLn $ case lookup "schema_version" fields of
-    Just (JNumber n) => "schema_version: " ++ show (the Integer (cast n))
-    _ => "schema_version: missing"
+  putStrLn $ case lookup "schema_version" fields >>= integer of
+    Just n => "schema_version: " ++ show n
+    Nothing => "schema_version: missing"
   -- Every entry but the schema's is a tool's.
   let tools = map (\entry => (fst entry, pin entry)) (filter ((/= "schema_version") . fst) fields)
   report "every tool is pinned by revision, repository, version, and tag or describe"

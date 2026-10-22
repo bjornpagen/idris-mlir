@@ -1,4 +1,0 @@
-# Every recursion of the program is a loop or a guaranteed tail call once
-# idr-tail-calls has run: replicate's and take's too, whose self calls
-# idr-trmc made tail calls.
-idr-tail-calls: constant-stack=@$idris-mlir.root

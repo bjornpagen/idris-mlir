@@ -5,11 +5,10 @@
 # (upstream/README.md), and the tree keeps that as data: every
 # upstream/<bug>/ has a README with an upstreaming plan, and either a patch
 # or the reason it has none; every patch is named for a project of
-# tools/patches.sh, and applies to that project's pinned source, alone and
-# after the patches before it, as tools/bootstrap.sh applies them. The
-# pinned sources are only read: each patch is checked against one with
-# `git apply --check`, and the patches are applied in order to a copy of
-# the files they touch. The policy is `upstream_policy ROOT`, run on the
+# tools/patches.sh, and applies to that project's pinned source after the
+# patches before it, as tools/bootstrap.sh applies them. The pinned sources
+# are only read: the patches are applied in order to a copy of the files
+# they touch. The policy is `upstream_policy ROOT`, run on the
 # repository and on the planted trees (lib/planted.sh): witness/ holds a
 # bug for each way of breaking it (no README, no plan, neither a patch nor
 # its reason, both, a patch named for no project); near-miss/ holds a bug
@@ -67,7 +66,7 @@ planted upstream_policy
 check_project() {
   patches "$1" > "$work/$1.list"
   if [ ! -s "$work/$1.list" ]; then
-    say "$1: its patches apply to the pinned source, alone and in order"
+    say "$1: its patches apply to the pinned source in order"
     return 0
   fi
   if [ -z "$2" ] || ! git -C "$2" rev-parse --verify -q HEAD > /dev/null 2>&1; then
@@ -76,10 +75,11 @@ check_project() {
   fi
   : > "$work/$1.failed"
   : > "$work/$1.paths"
+  # A patch may patch what an earlier one of its series added (the early
+  # exits' fixes patch the backport), so a project's patches are checked as
+  # the bootstrap applies them: the whole series, in order, on a copy of
+  # the files they touch.
   while IFS= read -r patch; do
-    name=${patch#"$root"/}
-    git -C "$2" apply --check "$patch" > "$work/$1.out" 2>&1 ||
-      { say "$name does not apply to $3:"; show "$work/$1.out"; } >> "$work/$1.failed"
     git -C "$2" apply --numstat "$patch" 2> /dev/null | cut -f3 >> "$work/$1.paths"
   done < "$work/$1.list"
   copy=$work/$1-copy
@@ -98,7 +98,7 @@ check_project() {
   if [ -s "$work/$1.failed" ]; then
     cat "$work/$1.failed"
   else
-    say "$1: its patches apply to the pinned source, alone and in order"
+    say "$1: its patches apply to the pinned source in order"
   fi
 }
 

@@ -15,13 +15,13 @@ cp "$here/Main.idr" "$work/hash/"
 # the copy names that import.
 awk '{ print } /^module IdrisMLIR\.Ids$/ { print "import Prelude" }' \
   "$root/compiler/src/IdrisMLIR/Ids.idr" > "$work/hash/IdrisMLIR/Ids.idr"
-compile_program "$work/hash/Main.idr" prog
+compile_checked "$work/hash/Main.idr" prog
 say "compile: exit $compiled"
 if [ "$compiled" -ne 0 ]; then
   show "$work/compile.out" "$work/compile.err"
   exit 0
 fi
-run_ours hash "$work/hash/build/exec/prog" /dev/null
+run_program hash "$work/hash/build/exec/prog" /dev/null
 say "run: exit $ran"
 cat "$work/hash.out"
 empty stderr "$work/hash.err"

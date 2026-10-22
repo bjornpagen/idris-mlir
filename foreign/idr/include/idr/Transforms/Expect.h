@@ -29,7 +29,10 @@
 #ifndef IDR_TRANSFORMS_EXPECT_H
 #define IDR_TRANSFORMS_EXPECT_H
 
+#include "idr/Analysis/Solver/Components.h"
+#include "idr/Analysis/Solver/Graph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Id.h"
 #include "idr/Transforms/ExpectArguments.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -40,30 +43,23 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassInstrumentation.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
+#include <concepts>
+#include <cstdint>
+#include <functional>
+#include <optional>
 #include <string>
 
 namespace idr {
 #define GEN_PASS_DECL_IDREXPECT
 #include "idr/Transforms/Passes.h.inc"
 
-// Registers test-idr-facts, the pass that reports what the dialect answers
-// about each op of a function's body as a remark, for the effects' tests.
-void registerFactsTestPass();
-
-// Where a binder a pass makes is bound (a copy's sum, destination or stack,
-// a dispatch's capture): `at`, under the name of what the pass made, which
-// no binder of Idris's has. At `at` alone it would be a binder Emit wrote
-// there (a lambda's parameters are at its function's, a capture at the
-// parameter it becomes), and the quantity Idris proved of that one would
-// be read as its own (quantities-kept, Expect/Quantities.cpp).
-inline mlir::Location passBinder(mlir::Location at, llvm::StringRef kind) {
-  return mlir::NameLoc::get(mlir::StringAttr::get(at.getContext(), "%" + kind), at);
-}
 } // namespace idr
 
 namespace idr::expect {
@@ -102,6 +98,53 @@ constexpr Property property(llvm::StringRef name) {
 // The row of the property named `name`, or null when there is none.
 const Property *lookup(llvm::StringRef name);
 
+// --idr-expect-at=<stage>:<property>,...: properties a test states of a
+// stage of the pipeline, checked in the compilation itself, so no test
+// names a pass and none reads a dump. A property of a stage is checked
+// after every pass that leaves the program at that stage. A property an
+// optimization makes true holds from the pass that makes it on, so it is
+// pending until it first holds and, once held, must hold after every later
+// pass of the stage: a pass that breaks it fails, named. A property still
+// pending when the program leaves its stage, or when the pipeline ends,
+// never held there, and fails. The checks run on the pass manager's own
+// thread, on runs of the module and of its program, as the contracts do.
+struct StageRequest {
+  Stage stage;
+  const Property *property;
+  std::string text;
+};
+
+// The requests one `<stage>:<property>,...` writes: a property's text runs
+// to the next comma outside brackets, so an argument may hold commas in a
+// list. Fails, with an error at `module`, on a stage or a property that is
+// none.
+mlir::FailureOr<llvm::SmallVector<StageRequest>> parseStageRequests(mlir::MLIRContext *context,
+                                                                     llvm::StringRef written);
+
+class StageInstrumentation final : public mlir::PassInstrumentation {
+public:
+  explicit StageInstrumentation(llvm::SmallVector<StageRequest> requests);
+  void runAfterPass(mlir::Pass *pass, mlir::Operation *op) override;
+
+  // After the pipeline: every request of the stage it ended at that never
+  // held fails. The pass manager instruments no end of its own pipeline, so
+  // the tool that ran it calls this once, with the module.
+  mlir::LogicalResult finish(mlir::ModuleOp module);
+
+private:
+  // Whether a request has held yet at its stage.
+  enum class Seen : std::uint8_t { Pending, Held };
+  struct Tracked {
+    StageRequest request;
+    Seen seen = Seen::Pending;
+  };
+  llvm::SmallVector<Tracked> tracked;
+  std::optional<Stage> current;
+
+  // The requests of `stage` still pending fail: each never held there.
+  bool closePending(Stage stage, mlir::ModuleOp module);
+};
+
 // The error that `property` fails at `loc`, to which the caller adds what
 // was found: `expected <property>: <what>`.
 mlir::InFlightDiagnostic fail(mlir::Location loc, llvm::StringRef property);
@@ -127,12 +170,84 @@ bool names(mlir::FunctionOpInterface fn, llvm::StringRef f);
 // a constant), in the order the walk meets them, each once.
 llvm::SmallVector<mlir::Operation *> callees(mlir::SymbolTable &symbols, mlir::Operation *fn);
 
+// What `edges` gives of a function: the functions it refers to.
+template <class Edges>
+concept FunctionEdges = std::invocable<Edges &, mlir::Operation *> &&
+                        std::convertible_to<std::invoke_result_t<Edges &, mlir::Operation *>,
+                                            llvm::SmallVector<mlir::Operation *>>;
+
+// Every function `roots` reach by `edges`, the roots included, each once,
+// in the order first reached. The set is a test's question of one module,
+// asked once per check: the functions it reaches are its answer, kept
+// nowhere after it.
+template <FunctionEdges Edges>
+llvm::SmallVector<mlir::Operation *> reachable(llvm::ArrayRef<mlir::Operation *> roots,
+                                               Edges edges) {
+  llvm::SetVector<mlir::Operation *, llvm::SmallVector<mlir::Operation *>> seen;
+  seen.insert(roots.begin(), roots.end());
+  for (std::size_t at = 0; at < seen.size(); ++at)
+    for (mlir::Operation *next : std::invoke(edges, seen[at]))
+      seen.insert(next);
+  return seen.takeVector();
+}
+
+namespace detail {
+// The functions of one check, numbered in the order given: the minter of
+// the ids the solver layer's graph of them is built on.
+class FunctionNumbering;
+struct CheckedFunction {
+  using Minter = FunctionNumbering;
+};
+class FunctionNumbering {
+public:
+  using Node = Id<CheckedFunction>;
+  explicit FunctionNumbering(llvm::ArrayRef<mlir::Operation *> nodes) : nodes(nodes) {
+    for (auto [at, fn] : llvm::enumerate(nodes))
+      number.try_emplace(fn, static_cast<std::uint32_t>(at));
+  }
+  Count<Node> count() const { return Count<Node>(static_cast<std::uint32_t>(nodes.size())); }
+  // The id of a function of the check; none for one outside it.
+  std::optional<Node> idOf(mlir::Operation *fn) const {
+    auto at = number.find(fn);
+    if (at == number.end())
+      return std::nullopt;
+    return Node(at->second);
+  }
+  mlir::Operation *operator[](Node n) const { return nodes[n.index()]; }
+
+private:
+  llvm::ArrayRef<mlir::Operation *> nodes;
+  // The numbering a check reads its functions into, once, where it reads
+  // them: no fact about a function lives here, only its number.
+  llvm::DenseMap<mlir::Operation *, std::uint32_t> number;
+};
+} // namespace detail
+
 // The cycles among `nodes` by `edges`, an edge to a node outside `nodes`
 // dropped: each strongly connected component of two or more, or of one
-// that refers to itself, callees first.
+// that refers to itself, callees first, found by the solver layer's
+// components over the graph of the check's functions.
+template <FunctionEdges Edges>
 llvm::SmallVector<llvm::SmallVector<mlir::Operation *>>
-cycles(llvm::ArrayRef<mlir::Operation *> nodes,
-       llvm::function_ref<llvm::SmallVector<mlir::Operation *>(mlir::Operation *)> edges);
+cycles(llvm::ArrayRef<mlir::Operation *> nodes, Edges edges) {
+  detail::FunctionNumbering numbering(nodes);
+  CsrBuilder<detail::CheckedFunction> builder(numbering.count());
+  for (detail::FunctionNumbering::Node from : numbering.count().ids())
+    for (mlir::Operation *target : std::invoke(edges, numbering[from]))
+      if (std::optional<detail::FunctionNumbering::Node> to = numbering.idOf(target))
+        builder.edge(from, *to);
+  Csr<detail::CheckedFunction> graph = std::move(builder).finish();
+  Partition<detail::CheckedFunction> parts = components(graph);
+  llvm::SmallVector<llvm::SmallVector<mlir::Operation *>> out;
+  for (auto component : parts.size().ids()) {
+    if (!parts.cyclic(component))
+      continue;
+    llvm::SmallVector<mlir::Operation *> &cycle = out.emplace_back();
+    for (detail::FunctionNumbering::Node member : parts.members(component))
+      cycle.push_back(numbering[member]);
+  }
+  return out;
+}
 
 // Whether `call` calls `g`: its callee's symbol is g, or it calls a
 // function of `symbols` made from the code written as g (`names`).
@@ -143,9 +258,25 @@ bool callsNamed(mlir::CallOpInterface call, const Symbol &g, mlir::SymbolTable &
 // so, or its callee in `symbols`).
 unsigned crashSitesOf(mlir::FunctionOpInterface fn, mlir::SymbolTable &symbols);
 
+// The uses Idris proved of each binder of the emitted module, by the
+// binder's identity: the `#idr.binder<definition, index>` Emit fuses into
+// its location, which passes copy with the value as MLIR copies locations.
+// A typed identity, never a printed key: no two binders share one, so none
+// is dropped.
+using ProvedUses = llvm::DenseMap<BinderAttr, Uses>;
+
+// The uses of every binder of `emitted` that carries an identity: a
+// function's parameters and the fields a match's case binds. Fails, at the
+// second binder, when Emit gave two binders one identity.
+mlir::FailureOr<ProvedUses> provedUses(mlir::ModuleOp emitted);
+
+// Every binder of `module` that carries an identity has the uses `proved`
+// holds for it; each one that does not is an error of `property`.
+mlir::LogicalResult usesKept(const ProvedUses &proved, mlir::ModuleOp module,
+                             llvm::StringRef property);
+
 // The checks, by the shape of their argument; the table says what each
-// checks. quantitiesKept and foldsBalanced are the contracts' too, which
-// call them with the module before a pass and nothing.
+// checks.
 mlir::LogicalResult noClosures(const Request<Roots> &);
 mlir::LogicalResult labels(const Request<Labels> &);
 mlir::LogicalResult labelsLeast(const Request<Nothing> &);
@@ -164,7 +295,6 @@ mlir::LogicalResult resetsUnshared(const Request<Roots> &);
 mlir::LogicalResult reusesEveryCell(const Request<Functions> &);
 mlir::LogicalResult contified(const Request<Nothing> &);
 mlir::LogicalResult outputFused(const Request<Roots> &);
-mlir::LogicalResult foldsBalanced(const Request<Nothing> &);
 mlir::LogicalResult folded(const Request<Functions> &);
 mlir::LogicalResult constantStack(const Request<Functions> &);
 mlir::LogicalResult tailCalls(const Request<Pair> &);

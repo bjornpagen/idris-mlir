@@ -1,8 +1,6 @@
 # The loops over arrays are linalg operations once structured: their
 # bodies only compute, so no loop is left that the structuring would
-# still take. The loops whose bodies are words alone then compute on the
-# target's lanes. The structuring runs over the functions in a group,
-# which dumps no module, and so does the vectorization: each property is
-# read at the first step after its group.
-idr-bufferize: structured-loops
-idr-returned-arguments: vectorized
+# still take; the loops whose bodies are words alone then compute on the
+# target's lanes.
+owned: structured-loops
+lowered: vectorized

@@ -4,8 +4,8 @@ module Main
 -- one): its action, then forever again, in tail position. The profile takes
 -- no System.exitWith, so the program ends the way a partial one does, on
 -- the input its match has no case for: the end of the input, after eleven
--- hundred lines of a thousand letters, each line written as a dot, on the
--- 1 MiB stack the harness gives.
+-- hundred lines of a thousand letters, each line written as a dot; the
+-- loop is a jump, so the native stack never grows with it.
 
 import Prelude
 

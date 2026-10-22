@@ -1,13 +1,9 @@
 # The three loops over the index space compute from the index (and an
 # offset) alone, so their bodies only compute and they are structured;
-# after the vectorization they run on the target's lanes, and after
-# idr-narrow-lanes each loop that computes 64-bit lanes is the 64-bit
-# version beside one computing them in 32 bits, under a bound on n and the
-# offset that the first run's input is below and the second's above, a
-# negative offset above it either way: both versions must give the
-# numbers of 64-bit lanes. The structuring and the
-# vectorization group, idr-narrow-lanes among it, each run over the
-# functions in a group, which dumps no module: each property is read at
-# the first step after its group.
-idr-bufferize: structured-loops
-idr-returned-arguments: vectorized narrowed-lanes
+# vectorized, they run on the target's lanes, and each loop that computes
+# 64-bit lanes is the 64-bit version beside one computing them in 32 bits,
+# under a bound on n and the offset that the first run's input is below and
+# the second's above, a negative offset above it either way: both versions
+# must give the numbers of 64-bit lanes.
+owned: structured-loops
+lowered: vectorized narrowed-lanes

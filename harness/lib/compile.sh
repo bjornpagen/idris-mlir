@@ -4,9 +4,8 @@
 # compilation leaves or must not leave.
 
 # compile_program [OPTION]... SOURCE OUTPUT: SOURCE, an IO program,
-# compiled with idris-mlir's OPTION... (-p PACKAGE, --num-threads=N, and
-# the IR tree printer's --mlir-print-ir-after-all with
-# --mlir-print-ir-tree-dir=DIR) through tools/compile.sh, the one copy of
+# compiled with idris-mlir's OPTION... (-p PACKAGE, --num-threads=N, the
+# checks --idr-contracts and --idr-expect-at) through tools/compile.sh, the one copy of
 # how idris-mlir runs. Its output is in $work/compile.out and
 # $work/compile.err, its exit status in $compiled; its wall time goes to
 # the timing record.
@@ -15,6 +14,19 @@ compile_program() {
   bounded "$compile_sh" "$@" > "$work/compile.out" 2> "$work/compile.err"
   compiled=$?
   record_time "$(( $(now_ms) - compile_started ))" "$@"
+}
+
+# The checked runtime, which every program a test runs links: a cell that
+# dies keeps its memory marked and is never reused, so a release of a dead
+# cell ends the run at the release, and a run that returns from main with a
+# cell still live ends as the runtime's internal error naming the count.
+# The runtime shipped programs link counts nothing.
+checked_runtime=$dev_prefix/runtime/libidris_rt_checked.a
+
+# compile_checked [OPTION]... SOURCE OUTPUT: compile_program, the program
+# linked with the checked runtime.
+compile_checked() {
+  compile_program "--runtime=$checked_runtime" "$@"
 }
 
 # runtime_c CMD ARG...: CMD with ARG... and then the flags a C or C++ source

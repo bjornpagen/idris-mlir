@@ -3,8 +3,9 @@ module Main
 import Prelude
 
 -- A non-tail recursion a million calls deep, as deep as the number on
--- stdin: more frames than the 8 MiB stack a process gets by default holds,
--- and far fewer than the gibibyte the program's entry reserves for it.
+-- stdin: a recursion on a call cycle keeps its depth on the frame stacks,
+-- which grow on the heap, so the native stack stays the small one the
+-- program was built with.
 depth : Int -> Int
 depth 0 = 0
 depth n = let r = depth (n - 1) in if r > n then r - n else r + n

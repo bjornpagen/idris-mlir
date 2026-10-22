@@ -5,7 +5,9 @@
 # names.
 
 # header FILE FIELD: the value of `-- FIELD: <value>` among the lines of that
-# form that start a profile fixture; the status is 1 without one.
+# form that start a refused program; the status is 1 without one. Only
+# whether a neighbour carries one is asked here (near_neighbour); the
+# header's meaning is the runner's (Reject.idr).
 header() {
   awk -v field="$2" '
     !/^--[ \t]*(expect|message):/ { exit }
@@ -29,78 +31,29 @@ profile_compile() {
   compile_program $(package_options "$work/fixture") "$@" "$work/fixture/Main.idr" Main
 }
 
-# profile_reject FIXTURE: `tests/<reason>-<desc>/`, a directory holding
-# Main.idr and its other modules, whose first
-# line is `-- expect: <reason>, line <n>` (and then, optionally,
-# `-- message: <text>`, text the refusal holds anywhere in it, whatever
-# words surround it), the name starting with <reason>, words joined by
-# dashes. It is refused with exit status 3, reported on line n, and leaves
-# no artifact.
-# Who refuses is the reason, read off the compilation's report, the one
-# record of every refusal, whoever made it: a line `verdict: <verdict>`,
-# and a line `diagnostic: <severity> <rule> <file:line>` per diagnostic,
-# the rule's phrase with each space written `-`. The phrase of one of the
-# rules (lib/rules.sh) is the refusal, the report's only error; Idris's
-# own errors are the rules of the user-error category.
+# profile_reject FIXTURE: a directory holding Main.idr and its other
+# modules, whose first line is `-- expect: <rule>, line <n>` (and then,
+# optionally, `-- message: <text>`, text the refusal holds anywhere in it,
+# whatever words surround it). It is refused, by that rule alone, reported
+# on line n, and leaves no artifact. The header and the compilation's
+# report are read once, each into its record, and compared by the runner
+# (`runtests --reject`, Reject.idr): the rule one of the specification's,
+# the report's every error with its rule, Idris's own errors the rules of
+# their category. Nothing here reads the report's text. The module the
+# frontend emitted, which the compiler writes whatever its verdict
+# (--emitted), is then refused again with a drawn set of the optimizations'
+# actions skipped (skips_refuse, lib/actions.sh): a refusal is the
+# program's, never the optimizer's.
 profile_reject() {
-  reject_main=$1/Main.idr
-  reject_name=$(fixture_name "$1")
-  reject_expect=$(header "$reject_main" expect)
-  reject_reason=$(printf '%s\n' "$reject_expect" | sed -n 's/^\(.*\), line \([0-9][0-9]*\)$/\1/p')
-  reject_line=$(printf '%s\n' "$reject_expect" | sed -n 's/^\(.*\), line \([0-9][0-9]*\)$/\2/p')
-  if [ -z "$reject_reason" ]; then
-    say "$reject_name: the first line must be '-- expect: <reason>, line <n>'"
-    return
-  fi
-  if [ ! -f "$rules_list" ]; then
-    say "$reject_name: no list of the rules (IdrRules.txt, which the build writes)"
-    return
-  fi
-  if ! rule_category "$reject_reason" > /dev/null; then
-    say "$reject_name: $reject_reason is no rule's phrase"
-    return
-  fi
-  reject_prefix=$(printf '%s' "$reject_reason" | tr ' ' '-')
-  case $reject_name in
-    "$reject_prefix"*) ;;
-    *) say "$reject_name does not start with $reject_prefix"; return ;;
-  esac
   profile_prepare "$1"
-  profile_compile "--report=$work/report"
+  profile_compile "--report=$work/report" "--emitted=$work/emitted.mlirbc"
   say "compile: exit $compiled"
   cat "$work/compile.out" "$work/compile.err" > "$work/compile.all"
-  # The report's errors, `<rule> <file:line>` each, in the order made, and
-  # how many are refusals by a rule of ours: Idris's own errors are
-  # refusals by the rules of the user-error category.
-  sed -n 's/^diagnostic: error //p' "$work/report" > "$work/report.errors" 2> /dev/null
-  rule_phrases 'user error' | tr ' ' '-' > "$work/rules.idris"
-  reject_count=$(awk 'NR == FNR { idris[$1] = 1; next } !($1 in idris)' "$work/rules.idris" "$work/report.errors" |
-    wc -l | tr -d ' ')
-  if grep -qx 'verdict: internal' "$work/report" 2> /dev/null; then
-    say "$reject_reason: an internal error, not a rejection"
+  if ! "$runtests" --reject "$1" "$work/report" "$work/compile.all"; then
     show "$work/compile.all"
-  elif [ "$(cut -d ' ' -f 1 "$work/report.errors")" = "$reject_prefix" ]; then
-    say "unsupported ($reject_reason): the only error"
-  else
-    say "unsupported ($reject_reason): expected once, among $reject_count unsupported errors"
-    show "$work/compile.all"
-  fi
-  # The first error's line: its location's, after the last `:`; a location
-  # in no file (`-`) has none.
-  reject_reported=$(awk 'NR == 1 && $2 ~ /:[0-9]+$/ { sub(/.*:/, "", $2); print $2 }' "$work/report.errors")
-  if [ "$reject_reported" = "$reject_line" ]; then
-    say "line: as the header says"
-  else
-    say "line: ${reject_reported:-none} reported, the header says $reject_line"
-  fi
-  if reject_message=$(header "$reject_main" message); then
-    if grep -qF -- "$reject_message" "$work/compile.all"; then
-      say "message: as the header says"
-    else
-      say "message: not in the output: $reject_message"
-    fi
   fi
   no_artifacts "$work/fixture"
+  skips_refuse "$1" "$work/emitted.mlirbc"
 }
 
 # registry_shadowed KEY CASE SOURCE MODULE NAME EDIT MAIN [OPTION...]: an

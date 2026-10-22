@@ -3,4 +3,4 @@
 # each case, so each case calls its branch: the loop is a call of a
 # function on a cycle, which is never inlined, and no cell is built on the
 # way round it.
-idr-optimize: no-heap-allocation=@Main.next
+owned: no-heap-allocation=@Main.next

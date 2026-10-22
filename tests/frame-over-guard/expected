@@ -1,0 +1,2 @@
+build: fails, naming the function whose frame is larger than the guard
+object: none

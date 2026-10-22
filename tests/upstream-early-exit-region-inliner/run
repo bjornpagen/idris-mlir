@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/68-early-exit-region-inliner: the region inliner, met with a
+# region an exit escapes, refuses before it changes the IR, so the
+# canonicalizer neither fails nor leaves a module the verifier refuses.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/68-early-exit-region-inliner/region-inliner.mlir
+if bounded "$llvm_bin/mlir-opt" "$input" -canonicalize -o "$work/out.mlir" 2> "$work/err" &&
+   bounded "$llvm_bin/mlir-opt" "$work/out.mlir" -o /dev/null 2>> "$work/err"; then
+  say "canonicalize: the module stays valid"
+else
+  say "canonicalize: fails, or leaves a module that does not verify"
+  show "$work/err"
+fi

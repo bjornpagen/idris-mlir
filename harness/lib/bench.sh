@@ -18,13 +18,13 @@ bench_smoke() {
     mkdir "$work/$bs_name"
     cp "$bs_main" "$work/$bs_name/"
     # shellcheck disable=SC2046 # the packages are words
-    compile_program $(package_options "$root/bench/$bs_name") "$work/$bs_name/Main.idr" prog
+    compile_checked $(package_options "$root/bench/$bs_name") "$work/$bs_name/Main.idr" prog
     if [ "$compiled" -ne 0 ]; then
       say "$bs_name: compile exit $compiled"
       show "$work/compile.out" "$work/compile.err"
       continue
     fi
-    run_ours "$bs_name" "$work/$bs_name/build/exec/prog" "$1/$bs_name.in"
+    run_program "$bs_name" "$work/$bs_name/build/exec/prog" "$1/$bs_name.in"
     if [ "$ran" -ne 0 ] || [ -s "$work/$bs_name.err" ]; then
       say "$bs_name: exit $ran"
       show "$work/$bs_name.err"
