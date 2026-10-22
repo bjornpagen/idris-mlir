@@ -3950,6 +3950,13 @@ C137.
   budget; a spent budget leaves the values counted and refuses nothing.
   Frames' internal error then marks only a broken invariant, never a
   program it was handed by the passes before it.
+- **C190** (2026-10-21; L08's choice, reviewed; follows C173 and C188).
+  `idr-in-place` runs C92's local rule (`unique::raiseClaims`, shared
+  with `idr-unique-results`) after it writes the boundary grade and
+  before it meets positions: a graded parameter's claim otherwise falls
+  to shared at the first match that takes it apart, and bufferization
+  never sees it. One rule, run where the grade it reads has just been
+  written.
 
 ## 4. Open: the owner's decisions, in order
 
