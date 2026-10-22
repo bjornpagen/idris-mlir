@@ -13,10 +13,12 @@ lane's handoff as it arrives; `review.md`; `L19-tests.md`.
 
 **Contract:** INT starts when the lanes have handed off. It edits only
 its hub files; every other failure goes to the coordinator, who
-re-dispatches the owning lane with the failure's text. It runs the
-specification's generator on the stock host and commits nothing (the
-coordinator commits), then builds and runs on the owner's machines for
-the four targets (this machine does not build LLVM).
+re-dispatches the owning lane with the failure's text. Under D111 it does the Idris half on this machine: it runs the
+specification's generator on the stock host, builds the specification,
+the frontend, the fork and the libraries on stock Idris, and routes each
+error to its lane. Then it stops at the LLVM build. The toolchain's
+bootstrap and the C++ build run on the owner's machines for the four
+targets. It commits nothing; the coordinator commits.
 
 **End state:** the hub files wired from the handoffs; the generated
 outputs and manifest reproduced; `make check`, `make build`, `make test`,
