@@ -236,3 +236,30 @@ export
 accumulate : (b -> a -> b) -> Array t b -> Array s (Index t) -> Array s a -> Array t b
 accumulate g z owners values =
   unrestricted (thaw z (\acc => freeze (visit (shape values) (combineAt g owners values) acc)))
+
+------------------------------------------------------------------------------
+-- From a list
+------------------------------------------------------------------------------
+
+||| The elements of `xs`, each written in place at its own position of a
+||| linear array of `n`, the first at `done`: `done` positions come before
+||| them and the list fills the rest, so every position is below `n`.
+writeFrom : (1 _ : LArray [<n] a) -> (done : Nat) -> (xs : List a) -> (0 _ : done + length xs = n) -> LArray [<n] a
+writeFrom arr done [] _ = arr
+writeFrom arr done (x :: xs) fills =
+  let 0 next = trans (plusSuccRightSucc done (length xs)) fills in
+  writeFrom (LArray.write arr [<natToFinLT done {prf = replace {p = LTE (S done)} next (lteAddRight (S done))}] x)
+    (S done) xs next
+
+||| The empty axis has no position, so nothing is ever read from it.
+noIndex : Index [<Z] -> a
+noIndex [<j] = absurd j
+
+||| The list's elements in order along one axis as long as the list. An
+||| empty list has no element to fill slots with, and an array of no element
+||| holds none, so it is the one case built without a write; otherwise the
+||| first element fills the fresh slots and each later one replaces its own.
+export
+fromList : (xs : List a) -> Vector (length xs) a
+fromList [] = tabulate [<Z] noIndex
+fromList (x :: xs) = unrestricted (thaw (fill [<S (length xs)] x) (\arr => freeze (writeFrom arr 1 xs Refl)))
