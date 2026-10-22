@@ -578,11 +578,6 @@ isStrLiteral : PStr -> Maybe (FC, String)
 isStrLiteral (StrInterp {}) = Nothing
 isStrLiteral (StrLiteral fc str) = Just (fc, str)
 
-export
-isPDef : PDecl -> Maybe (WithFC (List PClause))
-isPDef (MkFCVal fc (PDef cs)) = Just (MkFCVal fc cs)
-isPDef _ = Nothing
-
 ||| A directive with its `%start` expression changed by `g`, the one term a
 ||| directive holds.
 export

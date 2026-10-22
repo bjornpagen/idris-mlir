@@ -602,22 +602,26 @@ sizeAt t i = t.sizes !! [<i]
 -- Decoding
 ------------------------------------------------------------------------------
 
+-- A definition's clauses joined to the definition that follows it, when
+-- that one is a definition too, the joined one spanning both.
+joinDef : FC -> List PClause -> List PDecl -> List PDecl
+joinDef fc cs (MkFCVal fc' (PDef cs') :: ds)
+    = MkFCVal (fromMaybe EmptyFC (mergeFC fc' fc)) (PDef (cs ++ cs')) :: ds
+joinDef fc cs ds = MkFCVal fc (PDef cs) :: ds
+
 -- All the clauses get parsed as one-clause definitions. Collect any
 -- neighbouring clauses into one definition. This might mean merging two
 -- functions which are different, if there are forward declarations,
 -- but we'll split them in Desugar.idr. We can't do this when parsing,
--- because we haven't resolved operator precedences yet.
+-- because we haven't resolved operator precedences yet. The declarations
+-- after a definition are collected first, so the definitions following it
+-- are already one when it is joined to them, and every recursive call is
+-- on the rest of the list. The joined location is the same whichever order
+-- a run's locations are merged in: a merge keeps the earliest start and the
+-- latest end of two locations in one source file, and is empty otherwise.
 collectDefs : List PDecl -> List PDecl
 collectDefs [] = []
-collectDefs (def@(MkFCVal _ (PDef cs)) :: ds)
-    = let (csWithFC, rest) = spanBy isPDef ds
-          cs' = cs ++ concat (map (.val) csWithFC)
-          annot' = foldr {t=List}
-                   (\fc1, fc2 => fromMaybe EmptyFC (mergeFC fc1 fc2))
-                   def.fc
-                   (map (.fc) csWithFC)
-      in
-          MkFCVal annot' (PDef cs') :: assert_total (collectDefs rest)
+collectDefs (MkFCVal fc (PDef cs) :: ds) = joinDef fc cs (collectDefs ds)
 collectDefs (MkFCVal annot (PNamespace ns nds) :: ds)
     = MkFCVal annot (PNamespace ns (collectDefs nds)) :: collectDefs ds
 collectDefs (MkFCVal fc (PMutual nds) :: ds)

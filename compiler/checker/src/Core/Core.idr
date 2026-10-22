@@ -984,16 +984,40 @@ namespace Binder
   traverse f (PLet fc c val ty) = pure $ PLet fc c !(f val) !(f ty)
   traverse f (PVTy fc c ty) = pure $ PVTy fc c !(f ty)
 
+-- A metavariable's arguments and a binder's terms are walked by functions of
+-- their own rather than by `traverse`, in its order and stopping at the
+-- first failure as it does, so that each recursive call is on a part of the
+-- term it was given and the traversal is total by its structure.
 export
+total
 mapTermM : ({vars : _} -> Term vars -> Core (Term vars)) ->
            ({vars : _} -> Term vars -> Core (Term vars))
 mapTermM f = goTerm where
 
     goTerm : {vars : _} -> Term vars -> Core (Term vars)
+    goTerms : {vars : _} -> List (Term vars) -> Core (List (Term vars))
+    goPiInfo : {vars : _} -> PiInfo (Term vars) -> Core (PiInfo (Term vars))
+    goBinder : {vars : _} -> Binder (Term vars) -> Core (Binder (Term vars))
+
+    goTerms [] = pure []
+    goTerms (t :: ts) = pure (!(goTerm t) :: !(goTerms ts))
+
+    goPiInfo Implicit = pure Implicit
+    goPiInfo Explicit = pure Explicit
+    goPiInfo AutoImplicit = pure AutoImplicit
+    goPiInfo (DefImplicit t) = pure (DefImplicit !(goTerm t))
+
+    goBinder (Lam fc c p ty) = pure $ Lam fc c !(goPiInfo p) !(goTerm ty)
+    goBinder (Let fc c val ty) = pure $ Let fc c !(goTerm val) !(goTerm ty)
+    goBinder (Pi fc c p ty) = pure $ Pi fc c !(goPiInfo p) !(goTerm ty)
+    goBinder (PVar fc c p ty) = pure $ PVar fc c !(goPiInfo p) !(goTerm ty)
+    goBinder (PLet fc c val ty) = pure $ PLet fc c !(goTerm val) !(goTerm ty)
+    goBinder (PVTy fc c ty) = pure $ PVTy fc c !(goTerm ty)
+
     goTerm tm@(Local {}) = f tm
     goTerm tm@(Ref {}) = f tm
-    goTerm (Meta fc n i args) = f =<< Meta fc n i <$> traverse goTerm args
-    goTerm (Bind fc x bd sc) = f =<< Bind fc x <$> traverse goTerm bd <*> goTerm sc
+    goTerm (Meta fc n i args) = f =<< Meta fc n i <$> goTerms args
+    goTerm (Bind fc x bd sc) = f =<< Bind fc x <$> goBinder bd <*> goTerm sc
     goTerm (App fc fn arg) = f =<< App fc <$> goTerm fn <*> goTerm arg
     goTerm (As fc u as pat) = f =<< As fc u <$> goTerm as <*> goTerm pat
     goTerm (TDelayed fc la d) = f =<< TDelayed fc la <$> goTerm d

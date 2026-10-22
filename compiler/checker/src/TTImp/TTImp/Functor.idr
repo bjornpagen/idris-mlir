@@ -6,162 +6,248 @@ import Core.TT
 import Core.WithData
 import TTImp.TTImp
 
-%default covering
+%default total
 
-mutual
-  export
-  Functor RawImp' where
-    map f (IVar fc nm) = IVar fc (f nm)
-    map f (IPi fc rig info nm a sc)
-      = IPi fc rig (map (map f) info) nm (map f a) (map f sc)
-    map f (ILam fc rig info nm a sc)
-      = ILam fc rig (map (map f) info) nm (map f a) (map f sc)
-    map f (ILet fc lhsFC rig nm ty val sc)
-      = ILet fc lhsFC rig nm (map f ty) (map f val) (map f sc)
-    map f (ICase fc opts sc ty cls)
-      = ICase fc (map (map f) opts) (map f sc) (map f ty) (map (map f) cls)
-    map f (ILocal fc ds sc)
-      = ILocal fc (map (map f) ds) (map f sc)
-    map f (ICaseLocal fc userN intN args sc)
-      = ICaseLocal fc userN intN args (map f sc)
-    map f (IUpdate fc upds rec)
-      = IUpdate fc (map (map f) upds) (map f rec)
-    map f (IApp fc fn t)
-      = IApp fc (map f fn) (map f t)
-    map f (IAutoApp fc fn t)
-      = IAutoApp fc (map f fn) (map f t)
-    map f (INamedApp fc fn nm t)
-      = INamedApp fc (map f fn) nm (map f t)
-    map f (IWithApp fc fn t)
-      = IWithApp fc (map f fn) (map f t)
-    map f (ISearch fc)
-      = ISearch fc
-    map f (IAlternative fc alt ts)
-      = IAlternative fc (map f alt) (map (map f) ts)
-    map f (ITypeOrValue fc ovl)
-      = ITypeOrValue fc (map f ovl)
-    map f (IRewrite fc e t)
-      = IRewrite fc (map f e) (map f t)
-    map f (ICoerced fc e)
-      = ICoerced fc (map f e)
-    map f (IBindHere fc bd t)
-      = IBindHere fc bd (map f t)
-    map f (IBindVar fc str)
-      = IBindVar fc str
-    map f (IAs fc nmFC side nm t)
-      = IAs fc nmFC side nm (map f t)
-    map f (IMustUnify fc reason t)
-      = IMustUnify fc reason (map f t)
-    map f (IDelayed fc reason t)
-      = IDelayed fc reason (map f t)
-    map f (IDelay fc t)
-      = IDelay fc (map f t)
-    map f (IForce fc t)
-      = IForce fc (map f t)
-    map f (IQuote fc t)
-      = IQuote fc (map f t)
-    map f (IQuoteName fc nm)
-      = IQuoteName fc nm
-    map f (IQuoteDecl fc ds)
-      = IQuoteDecl fc (map (map f) ds)
-    map f (IUnquote fc t)
-      = IUnquote fc (map f t)
-    map f (IRunElab fc re t)
-      = IRunElab fc re (map f t)
-    map f (IPrimVal fc c)
-      = IPrimVal fc c
-    map f (IType fc)
-      = IType fc
-    map f (IHole fc str)
-      = IHole fc str
-    map f (IUnifyLog fc lvl t)
-      = IUnifyLog fc lvl (map f t)
-    map f (Implicit fc b)
-      = Implicit fc b
-    map f (IWithUnambigNames fc ns t)
-      = IWithUnambigNames fc ns (map f t)
+-- Every list, option and wrapper the syntax holds terms in is renamed by a
+-- function of its own rather than by `map`, so that each recursive call is
+-- on a part of the term it was given and renaming is total by its
+-- structure. The `Functor` implementations are these functions.
+parameters {0 a : Type} {0 b : Type} (f : a -> b)
 
-  export
-  Functor ImpClause' where
-    map f (PatClause fc lhs rhs)
-      = PatClause fc (map f lhs) (map f rhs)
-    map f (WithClause fc lhs rig wval prf flags xs)
-      = WithClause fc (map f lhs) rig (map f wval) prf flags (map (map f) xs)
-    map f (ImpossibleClause fc lhs)
-      = ImpossibleClause fc (map f lhs)
+  renameRawImp : RawImp' a -> RawImp' b
 
-  export
-  Functor IClaimData where
-    map f (MkIClaimData rig vis opts ty)
-      = MkIClaimData rig vis (map (map f) opts) (map (map f) ty)
+  renameRawImps : List (RawImp' a) -> List (RawImp' b)
+  renameRawImps [] = []
+  renameRawImps (t :: ts) = renameRawImp t :: renameRawImps ts
 
-  export
-  Functor ImpDecl' where
-    map f (IClaim c)
-      = IClaim (map (map f) c)
-    map f (IData fc vis mbtot dt)
-      = IData fc vis mbtot (map f dt)
-    map f (IDef fc nm cls)
-      = IDef fc nm (map (map f) cls)
-    map f (IParameters fc ps ds)
-      = IParameters fc (map (map (map (map f))) ps) (map (map f) ds)
-    map f (IRecord fc cs vis mbtot rec)
-      = IRecord fc cs vis mbtot (map (map f) rec)
-    map f (IFail fc msg ds)
-      = IFail fc msg (map (map f) ds)
-    map f (INamespace fc ns ds)
-      = INamespace fc ns (map (map f) ds)
-    map f (ITransform fc n lhs rhs)
-      = ITransform fc n (map f lhs) (map f rhs)
-    map f (IRunElabDecl fc t)
-      = IRunElabDecl fc (map f t)
-    map f (IPragma fc xs k) = IPragma fc xs k
-    map f (ILog x) = ILog x
-    map f (IBuiltin fc ty n) = IBuiltin fc ty n
+  renameMaybeRawImp : Maybe (RawImp' a) -> Maybe (RawImp' b)
+  renameMaybeRawImp Nothing = Nothing
+  renameMaybeRawImp (Just t) = Just (renameRawImp t)
 
-  export
-  Functor FnOpt' where
-    map f Unsafe = Unsafe
-    map f Inline = Inline
-    map f NoInline = NoInline
-    map f Deprecate = Deprecate
-    map f TCInline = TCInline
-    map f (Hint b) = Hint b
-    map f (GlobalHint b) = GlobalHint b
-    map f ExternFn = ExternFn
-    map f (ForeignFn ts) = ForeignFn (map (map f) ts)
-    map f (ForeignExport ts) = ForeignExport (map (map f) ts)
-    map f Invertible = Invertible
-    map f (Totality tot) = Totality tot
-    map f Macro = Macro
-    map f (SpecArgs ns) = SpecArgs ns
+  renamePiInfo : PiInfo (RawImp' a) -> PiInfo (RawImp' b)
+  renamePiInfo Implicit = Implicit
+  renamePiInfo Explicit = Explicit
+  renamePiInfo AutoImplicit = AutoImplicit
+  renamePiInfo (DefImplicit t) = DefImplicit (renameRawImp t)
 
-  export
-  Functor ImpData' where
-    map f (MkImpData fc n tycon opts datacons)
-      = MkImpData fc n (map (map f) tycon) opts (map (map (map f)) datacons)
-    map f (MkImpLater fc n tycon)
-      = MkImpLater fc n (map f tycon)
+  renamePiBindData : PiBindData (RawImp' a) -> PiBindData (RawImp' b)
+  renamePiBindData (MkPiBindData info ty) = MkPiBindData (renamePiInfo info) (renameRawImp ty)
 
-  export
-  Functor ImpRecordData where
-    map f (MkImpRecord header body)
-      = MkImpRecord (map (map (map (map (map f)))) header)
-                    (map (map (map (map (map f)))) body)
+  renameImpClause : ImpClause' a -> ImpClause' b
 
-  export
-  Functor IFieldUpdate' where
-    map f (ISetField path t) = ISetField path (map f t)
-    map f (ISetFieldApp path t) = ISetFieldApp path (map f t)
+  renameImpClauses : List (ImpClause' a) -> List (ImpClause' b)
+  renameImpClauses [] = []
+  renameImpClauses (cl :: cls) = renameImpClause cl :: renameImpClauses cls
 
-  export
-  Functor AltType' where
-    map f FirstSuccess = FirstSuccess
-    map f Unique = Unique
-    map f (UniqueDefault t) = UniqueDefault (map f t)
+  renameImpClause (PatClause fc lhs rhs)
+    = PatClause fc (renameRawImp lhs) (renameRawImp rhs)
+  renameImpClause (WithClause fc lhs rig wval prf flags xs)
+    = WithClause fc (renameRawImp lhs) rig (renameRawImp wval) prf flags (renameImpClauses xs)
+  renameImpClause (ImpossibleClause fc lhs)
+    = ImpossibleClause fc (renameRawImp lhs)
 
-  export
-  Functor Overlaid' where
-    map f (PairOf l r) = PairOf (map f l) (map f r)
-    map f UnitOf = UnitOf
-    map f (DPairOf opFC nameFC n r) = DPairOf opFC nameFC n (map f r)
+  renameFnOpt : FnOpt' a -> FnOpt' b
+  renameFnOpt Unsafe = Unsafe
+  renameFnOpt Inline = Inline
+  renameFnOpt NoInline = NoInline
+  renameFnOpt Deprecate = Deprecate
+  renameFnOpt TCInline = TCInline
+  renameFnOpt (Hint direct) = Hint direct
+  renameFnOpt (GlobalHint fallback) = GlobalHint fallback
+  renameFnOpt ExternFn = ExternFn
+  renameFnOpt (ForeignFn ts) = ForeignFn (renameRawImps ts)
+  renameFnOpt (ForeignExport ts) = ForeignExport (renameRawImps ts)
+  renameFnOpt Invertible = Invertible
+  renameFnOpt (Totality tot) = Totality tot
+  renameFnOpt Macro = Macro
+  renameFnOpt (SpecArgs ns) = SpecArgs ns
+
+  renameFnOpts : List (FnOpt' a) -> List (FnOpt' b)
+  renameFnOpts [] = []
+  renameFnOpts (opt :: opts) = renameFnOpt opt :: renameFnOpts opts
+
+  renameImpTy : ImpTy' a -> ImpTy' b
+  renameImpTy (MkWithFCTyName fc n ty) = MkWithFCTyName fc n (renameRawImp ty)
+
+  renameImpTys : List (ImpTy' a) -> List (ImpTy' b)
+  renameImpTys [] = []
+  renameImpTys (ty :: tys) = renameImpTy ty :: renameImpTys tys
+
+  renameClaim : IClaimData a -> IClaimData b
+  renameClaim (MkIClaimData rig vis opts ty)
+    = MkIClaimData rig vis (renameFnOpts opts) (renameImpTy ty)
+
+  renameImpData : ImpData' a -> ImpData' b
+  renameImpData (MkImpData fc n tycon opts datacons)
+    = MkImpData fc n (renameMaybeRawImp tycon) opts (renameImpTys datacons)
+  renameImpData (MkImpLater fc n tycon) = MkImpLater fc n (renameRawImp tycon)
+
+  renameParameter : ImpParameter' (RawImp' a) -> ImpParameter' (RawImp' b)
+  renameParameter (MkWithRigName rig n bind) = MkWithRigName rig n (renamePiBindData bind)
+
+  renameParameters : List (ImpParameter' (RawImp' a)) -> List (ImpParameter' (RawImp' b))
+  renameParameters [] = []
+  renameParameters (p :: ps) = renameParameter p :: renameParameters ps
+
+  renameParameters1 : List1 (ImpParameter' (RawImp' a)) -> List1 (ImpParameter' (RawImp' b))
+  renameParameters1 (p ::: ps) = renameParameter p ::: renameParameters ps
+
+  renameFields : List (IField' a) -> List (IField' b)
+  renameFields [] = []
+  renameFields (MkWithFCRigName fc rig n bind :: fields)
+    = MkWithFCRigName fc rig n (renamePiBindData bind) :: renameFields fields
+
+  renameImpRecord : ImpRecordData a -> ImpRecordData b
+  renameImpRecord (MkImpRecord (MkWithName tyn params) (MkWithNameOpts con opts fields))
+    = MkImpRecord (MkWithName tyn (renameParameters params))
+                  (MkWithNameOpts con opts (renameFields fields))
+
+  renameImpDecl : ImpDecl' a -> ImpDecl' b
+
+  renameImpDecls : List (ImpDecl' a) -> List (ImpDecl' b)
+  renameImpDecls [] = []
+  renameImpDecls (d :: ds) = renameImpDecl d :: renameImpDecls ds
+
+  renameImpDecl (IClaim (MkFCVal fc c)) = IClaim (MkFCVal fc (renameClaim c))
+  renameImpDecl (IData fc vis mbtot dt) = IData fc vis mbtot (renameImpData dt)
+  renameImpDecl (IDef fc nm cls) = IDef fc nm (renameImpClauses cls)
+  renameImpDecl (IParameters fc ps ds)
+    = IParameters fc (renameParameters1 ps) (renameImpDecls ds)
+  renameImpDecl (IRecord fc cs vis mbtot (MkFCVal rfc rec))
+    = IRecord fc cs vis mbtot (MkFCVal rfc (renameImpRecord rec))
+  renameImpDecl (IFail fc msg ds) = IFail fc msg (renameImpDecls ds)
+  renameImpDecl (INamespace fc ns ds) = INamespace fc ns (renameImpDecls ds)
+  renameImpDecl (ITransform fc n lhs rhs)
+    = ITransform fc n (renameRawImp lhs) (renameRawImp rhs)
+  renameImpDecl (IRunElabDecl fc t) = IRunElabDecl fc (renameRawImp t)
+  renameImpDecl (IPragma fc xs k) = IPragma fc xs k
+  renameImpDecl (ILog x) = ILog x
+  renameImpDecl (IBuiltin fc ty n) = IBuiltin fc ty n
+
+  renameIFieldUpdate : IFieldUpdate' a -> IFieldUpdate' b
+  renameIFieldUpdate (ISetField path t) = ISetField path (renameRawImp t)
+  renameIFieldUpdate (ISetFieldApp path t) = ISetFieldApp path (renameRawImp t)
+
+  renameIFieldUpdates : List (IFieldUpdate' a) -> List (IFieldUpdate' b)
+  renameIFieldUpdates [] = []
+  renameIFieldUpdates (upd :: upds) = renameIFieldUpdate upd :: renameIFieldUpdates upds
+
+  renameAltType : AltType' a -> AltType' b
+  renameAltType FirstSuccess = FirstSuccess
+  renameAltType Unique = Unique
+  renameAltType (UniqueDefault t) = UniqueDefault (renameRawImp t)
+
+  renameOverlaid : Overlaid' a -> Overlaid' b
+  renameOverlaid (PairOf l r) = PairOf (renameRawImp l) (renameRawImp r)
+  renameOverlaid UnitOf = UnitOf
+  renameOverlaid (DPairOf opFC nameFC n r) = DPairOf opFC nameFC n (renameRawImp r)
+
+  renameRawImp (IVar fc nm) = IVar fc (f nm)
+  renameRawImp (IPi fc rig info nm x sc)
+    = IPi fc rig (renamePiInfo info) nm (renameRawImp x) (renameRawImp sc)
+  renameRawImp (ILam fc rig info nm x sc)
+    = ILam fc rig (renamePiInfo info) nm (renameRawImp x) (renameRawImp sc)
+  renameRawImp (ILet fc lhsFC rig nm ty val sc)
+    = ILet fc lhsFC rig nm (renameRawImp ty) (renameRawImp val) (renameRawImp sc)
+  renameRawImp (ICase fc opts sc ty cls)
+    = ICase fc (renameFnOpts opts) (renameRawImp sc) (renameRawImp ty) (renameImpClauses cls)
+  renameRawImp (ILocal fc ds sc)
+    = ILocal fc (renameImpDecls ds) (renameRawImp sc)
+  renameRawImp (ICaseLocal fc userN intN args sc)
+    = ICaseLocal fc userN intN args (renameRawImp sc)
+  renameRawImp (IUpdate fc upds rec)
+    = IUpdate fc (renameIFieldUpdates upds) (renameRawImp rec)
+  renameRawImp (IApp fc fn t)
+    = IApp fc (renameRawImp fn) (renameRawImp t)
+  renameRawImp (IAutoApp fc fn t)
+    = IAutoApp fc (renameRawImp fn) (renameRawImp t)
+  renameRawImp (INamedApp fc fn nm t)
+    = INamedApp fc (renameRawImp fn) nm (renameRawImp t)
+  renameRawImp (IWithApp fc fn t)
+    = IWithApp fc (renameRawImp fn) (renameRawImp t)
+  renameRawImp (ISearch fc)
+    = ISearch fc
+  renameRawImp (IAlternative fc alt ts)
+    = IAlternative fc (renameAltType alt) (renameRawImps ts)
+  renameRawImp (ITypeOrValue fc ovl)
+    = ITypeOrValue fc (renameOverlaid ovl)
+  renameRawImp (IRewrite fc e t)
+    = IRewrite fc (renameRawImp e) (renameRawImp t)
+  renameRawImp (ICoerced fc e)
+    = ICoerced fc (renameRawImp e)
+  renameRawImp (IBindHere fc bd t)
+    = IBindHere fc bd (renameRawImp t)
+  renameRawImp (IBindVar fc str)
+    = IBindVar fc str
+  renameRawImp (IAs fc nmFC side nm t)
+    = IAs fc nmFC side nm (renameRawImp t)
+  renameRawImp (IMustUnify fc reason t)
+    = IMustUnify fc reason (renameRawImp t)
+  renameRawImp (IDelayed fc reason t)
+    = IDelayed fc reason (renameRawImp t)
+  renameRawImp (IDelay fc t)
+    = IDelay fc (renameRawImp t)
+  renameRawImp (IForce fc t)
+    = IForce fc (renameRawImp t)
+  renameRawImp (IQuote fc t)
+    = IQuote fc (renameRawImp t)
+  renameRawImp (IQuoteName fc nm)
+    = IQuoteName fc nm
+  renameRawImp (IQuoteDecl fc ds)
+    = IQuoteDecl fc (renameImpDecls ds)
+  renameRawImp (IUnquote fc t)
+    = IUnquote fc (renameRawImp t)
+  renameRawImp (IRunElab fc re t)
+    = IRunElab fc re (renameRawImp t)
+  renameRawImp (IPrimVal fc c)
+    = IPrimVal fc c
+  renameRawImp (IType fc)
+    = IType fc
+  renameRawImp (IHole fc str)
+    = IHole fc str
+  renameRawImp (IUnifyLog fc lvl t)
+    = IUnifyLog fc lvl (renameRawImp t)
+  renameRawImp (Implicit fc bindIfUnsolved)
+    = Implicit fc bindIfUnsolved
+  renameRawImp (IWithUnambigNames fc ns t)
+    = IWithUnambigNames fc ns (renameRawImp t)
+
+export
+Functor RawImp' where
+  map = renameRawImp
+
+export
+Functor ImpClause' where
+  map = renameImpClause
+
+export
+Functor IClaimData where
+  map = renameClaim
+
+export
+Functor ImpDecl' where
+  map = renameImpDecl
+
+export
+Functor FnOpt' where
+  map = renameFnOpt
+
+export
+Functor ImpData' where
+  map = renameImpData
+
+export
+Functor ImpRecordData where
+  map = renameImpRecord
+
+export
+Functor IFieldUpdate' where
+  map = renameIFieldUpdate
+
+export
+Functor AltType' where
+  map = renameAltType
+
+export
+Functor Overlaid' where
+  map = renameOverlaid

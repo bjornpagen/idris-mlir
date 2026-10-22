@@ -8,7 +8,13 @@ import TTImp.TTImp
 
 import Data.SnocList
 
-%default covering
+%default total
+
+-- Every list, option and wrapper the syntax holds terms in is walked by a
+-- function of its own rather than by `map` or `traverse`, so that each
+-- recursive call is on a part of the term it was given and each traversal
+-- is total by its structure. The walkers of `mapPTermM` combine their parts
+-- with `<*>`, so every part is walked and the first failure is the result.
 
 export
 mapPTermM : (PTerm' nm -> Core (PTerm' nm)) -> PTerm' nm -> Core (PTerm' nm)
@@ -18,10 +24,10 @@ mapPTermM f = goPTerm where
 
     goPTerm : PTerm' nm -> Core (PTerm' nm)
     goPTerm t@(PRef {}) = f t
-    goPTerm (NewPi x) =
-      NewPi <$> traverse goPBinderScope x
-    goPTerm (Forall x) =
-      Forall <$> traverse (\(a, b) => MkPair a <$> goPTerm b) x
+    goPTerm (NewPi (MkFCVal fc x)) =
+      NewPi . MkFCVal fc <$> goPBinderScope x
+    goPTerm (Forall (MkFCVal fc (ns, x))) =
+      Forall . MkFCVal fc . MkPair ns <$> goPTerm x
     goPTerm (PPi fc x info z argTy retTy) =
       PPi fc x <$> goPiInfo info
                <*> pure z
@@ -47,7 +53,7 @@ mapPTermM f = goPTerm where
                <*> goPClauses xs
       >>= f
     goPTerm (PLocal fc xs scope) =
-      PLocal fc <$> traverse (traverse goPDecl) xs
+      PLocal fc <$> goPDecls xs
                 <*> goPTerm scope
       >>= f
     goPTerm (PUpdate fc xs) =
@@ -104,9 +110,9 @@ mapPTermM f = goPTerm where
       >>= f
     goPTerm t@(PImplicit {}) = f t
     goPTerm t@(PInfer {}) = f t
-    goPTerm (POp fc bind op right) =
+    goPTerm (POp fc (MkFCVal lhsFC lhs) op right) =
       POp fc
-          <$> traverse goOpBinder bind
+          <$> (MkFCVal lhsFC <$> goOpBinder lhs)
           <*> pure op
           <*> goPTerm right
       >>= f
@@ -143,10 +149,10 @@ mapPTermM f = goPTerm where
       PIdiom fc ns <$> goPTerm x
       >>= f
     goPTerm (PList fc nilFC xs) =
-      PList fc nilFC <$> traverse (\(a, t) => MkPair a <$> goPTerm t) xs
+      PList fc nilFC <$> goTagged xs
       >>= f
     goPTerm (PSnocList fc nilFC xs) =
-      PSnocList fc nilFC <$> traverseSnocList (\(a, t) => MkPair a <$> goPTerm t) xs
+      PSnocList fc nilFC <$> goTaggedSnoc xs
       >>= f
     goPTerm (PPair fc x y) =
       PPair fc <$> goPTerm x
@@ -227,10 +233,6 @@ mapPTermM f = goPTerm where
     goPDo (DoLetLocal fc decls) = DoLetLocal fc <$> goPDecls decls
     goPDo (DoRewrite fc t) = DoRewrite fc <$> goPTerm t
 
-    goPRecordDeclLet : PRecordDeclLet' nm -> Core (PRecordDeclLet' nm)
-    goPRecordDeclLet (RecordClaim x) = RecordClaim <$> traverse goPClaim x
-    goPRecordDeclLet (RecordClause x) = RecordClause <$> traverse goPClause x
-
     goPClause : PClause' nm -> Core (PClause' nm)
     goPClause (MkPatClause fc lhs rhs wh) =
       MkPatClause fc <$> goPTerm lhs
@@ -238,7 +240,7 @@ mapPTermM f = goPTerm where
                      <*> goPDecls wh
     goPClause (MkWithClause fc lhs wps flags cls) =
       MkWithClause fc <$> goPTerm lhs
-                      <*> traverseList1 goPWithProblem wps
+                      <*> goPWithProblems1 wps
                       <*> pure flags
                       <*> goPClauses cls
     goPClause (MkImpossible fc lhs) = MkImpossible fc <$> goPTerm lhs
@@ -248,9 +250,9 @@ mapPTermM f = goPTerm where
       = MkPWithProblem rig <$> goPTerm wval <*> pure mnm
 
     goPClaim : PClaimData' nm -> Core (PClaimData' nm)
-    goPClaim (MkPClaim c v opts tdecl) =
+    goPClaim (MkPClaim c v opts (MkFCVal fc tdecl)) =
       MkPClaim c v <$> goPFnOpts opts
-                   <*> traverse goPTypeDecl tdecl
+                   <*> (MkFCVal fc <$> goPTypeDecl tdecl)
 
     goBasicMultiBinder : BasicMultiBinder' nm -> Core (BasicMultiBinder' nm)
     goBasicMultiBinder (MkBasicMultiBinder rig names type)
@@ -259,6 +261,9 @@ mapPTermM f = goPTerm where
     goPBinder : PBinder' nm -> Core (PBinder' nm)
     goPBinder (MkPBinder info bind)
       = MkPBinder <$> goPiInfo info <*> goBasicMultiBinder bind
+
+    goPlainBinder : PlainBinder' nm -> Core (PlainBinder' nm)
+    goPlainBinder (MkWithName n t) = MkWithName n <$> goPTerm t
 
     goPBinderScope : PBinderScope' nm -> Core (PBinderScope' nm)
     goPBinderScope (MkPBinderScope binder scope)
@@ -269,36 +274,38 @@ mapPTermM f = goPTerm where
       PClaim <$> goPClaim claim
     goPDecl (PDef cls) = PDef <$> goPClauses cls
     goPDecl (PData doc v mbt d) = PData doc v mbt <$> goPDataDecl d
-    goPDecl (PParameters nts ps) =
-      PParameters <$> either (\x => Left <$> traverseList1 (traverse goPTerm) x)
-                             (\x => Right <$> traverseList1 goPBinder x) nts
-                  <*> goPDecls ps
+    goPDecl (PParameters (Left nts) ps) =
+      PParameters . Left <$> goPlainBinders1 nts
+                         <*> goPDecls ps
+    goPDecl (PParameters (Right nts) ps) =
+      PParameters . Right <$> goPBinders1 nts
+                          <*> goPDecls ps
     goPDecl (PUsing mnts ps) =
-      PUsing <$> traverse (\(a, t) => MkPair a <$> goPTerm t) mnts
+      PUsing <$> goTagged mnts
              <*> goPDecls ps
     goPDecl (PInterface v mnts n doc nrts ns mn ps) =
-      PInterface v <$> traverse (\(a, t) => MkPair a <$> goPTerm t) mnts
+      PInterface v <$> goTagged mnts
                    <*> pure n
                    <*> pure doc
-                   <*> traverse goBasicMultiBinder nrts
+                   <*> goBasicMultiBinders nrts
                    <*> pure ns
                    <*> pure mn
                    <*> goPDecls ps
     goPDecl (PImplementation v opts p is cs n ts mn ns mps) =
-      PImplementation v opts p <$> traverse (traverse (traverse goPTerm)) is
-                               <*> traverse (\(a, t) => MkPair a <$> goPTerm t) cs
+      PImplementation v opts p <$> goImplicits is
+                               <*> goTagged cs
                                <*> pure n
                                <*> goPTerms ts
                                <*> pure mn
                                <*> pure ns
                                <*> goMPDecls mps
     goPDecl (PRecord doc v tot (MkPRecord n nts opts mn fs)) =
-      pure $ PRecord doc v tot !(MkPRecord n <$> traverse goPBinder nts
+      pure $ PRecord doc v tot !(MkPRecord n <$> goPBinders nts
                                              <*> pure opts
                                              <*> pure mn
                                              <*> goPFields fs)
     goPDecl (PRecord doc v tot (MkPRecordLater n nts)) =
-      pure $ PRecord doc v tot (MkPRecordLater n !(traverse goPBinder nts))
+      pure $ PRecord doc v tot (MkPRecordLater n !(goPBinders nts))
     goPDecl (PFail msg ps) = PFail msg <$> goPDecls ps
     goPDecl (PMutual ps) = PMutual <$> goPDecls ps
     goPDecl (PFixity p) = pure (PFixity p)
@@ -322,12 +329,14 @@ mapPTermM f = goPTerm where
     goPiInfo (DefImplicit t) = DefImplicit <$> goPTerm t
     goPiInfo t = pure t
 
+    goPiBindData : PiBindData (PTerm' nm) -> Core (PiBindData (PTerm' nm))
+    goPiBindData (MkPiBindData info ty)
+      = MkPiBindData <$> goPiInfo info <*> goPTerm ty
+
     goPFnOpt : PFnOpt' nm -> Core (PFnOpt' nm)
     goPFnOpt o@(IFnOpt {}) = pure o
     goPFnOpt (PForeign ts) = PForeign <$> goPTerms ts
     goPFnOpt (PForeignExport ts) = PForeignExport <$> goPTerms ts
-
-    -- Traversable stuff. Inlined for termination checking.
 
     goMPTerm : Maybe (PTerm' nm) -> Core (Maybe $ PTerm' nm)
     goMPTerm Nothing  = pure Nothing
@@ -337,19 +346,13 @@ mapPTermM f = goPTerm where
     goPTerms []        = pure []
     goPTerms (t :: ts) = (::) <$> goPTerm t <*> goPTerms ts
 
-    go3TupledPTerms : List (x, y, PTerm' nm) -> Core (List (x, y, PTerm' nm))
-    go3TupledPTerms [] = pure []
-    go3TupledPTerms ((a, b, t) :: ts) =
-      (::) . (\ c => (a, b, c)) <$> goPTerm t
-                                <*> go3TupledPTerms ts
+    goTagged : List (a, PTerm' nm) -> Core (List (a, PTerm' nm))
+    goTagged [] = pure []
+    goTagged ((l, t) :: ts) = (::) . MkPair l <$> goPTerm t <*> goTagged ts
 
-    go4TupledPTerms : List (x, y, PiInfo (PTerm' nm), PTerm' nm) ->
-                      Core (List (x, y, PiInfo (PTerm' nm), PTerm' nm))
-    go4TupledPTerms [] = pure []
-    go4TupledPTerms ((a, b, p, t) :: ts) =
-      (\ p, d, ts => (a, b, p, d) :: ts) <$> goPiInfo p
-                                         <*> goPTerm t
-                                         <*> go4TupledPTerms ts
+    goTaggedSnoc : SnocList (a, PTerm' nm) -> Core (SnocList (a, PTerm' nm))
+    goTaggedSnoc [<] = pure [<]
+    goTaggedSnoc (ts :< (l, t)) = (:<) <$> goTaggedSnoc ts <*> (MkPair l <$> goPTerm t)
 
     goPStringLines : List (List (PStr' nm)) -> Core (List (List (PStr' nm)))
     goPStringLines []        = pure []
@@ -367,21 +370,35 @@ mapPTermM f = goPTerm where
     goPClauses []          = pure []
     goPClauses (cl :: cls) = (::) <$> goPClause cl <*> goPClauses cls
 
+    goPWithProblems1 : List1 (PWithProblem' nm) -> Core (List1 (PWithProblem' nm))
+    goPWithProblems1 (w ::: ws) = (:::) <$> goPWithProblem w <*> goPWithProblems ws
+
+    goPWithProblems : List (PWithProblem' nm) -> Core (List (PWithProblem' nm))
+    goPWithProblems []        = pure []
+    goPWithProblems (w :: ws) = (::) <$> goPWithProblem w <*> goPWithProblems ws
+
     goMPDecls : Maybe (List (PDecl' nm)) -> Core (Maybe (List (PDecl' nm)))
     goMPDecls Nothing   = pure Nothing
     goMPDecls (Just ps) = Just <$> goPDecls ps
 
     goPDecls : List (PDecl' nm) -> Core (List (PDecl' nm))
     goPDecls []          = pure []
-    goPDecls (d :: ds) = (::) <$> traverse goPDecl d <*> goPDecls ds
+    goPDecls (MkFCVal fc d :: ds) = (::) . MkFCVal fc <$> goPDecl d <*> goPDecls ds
 
     goPFieldUpdates : List (PFieldUpdate' nm) -> Core (List (PFieldUpdate' nm))
     goPFieldUpdates []          = pure []
     goPFieldUpdates (fu :: fus) = (::) <$> goPFieldUpdate fu <*> goPFieldUpdates fus
 
     goPFields : List (PField' nm) -> Core (List (PField' nm))
-    goPFields []        = pure []
-    goPFields (f :: fs) = (::) <$> traverse (traverse goPTerm) f <*> goPFields fs
+    goPFields [] = pure []
+    goPFields (MkWithFCDocRigNames fc d r ns b :: fs)
+      = (::) . MkWithFCDocRigNames fc d r ns <$> goPiBindData b <*> goPFields fs
+
+    goImplicits : List (WithFCRigName (PiBindData (PTerm' nm))) ->
+                  Core (List (WithFCRigName (PiBindData (PTerm' nm))))
+    goImplicits [] = pure []
+    goImplicits (MkWithFCRigName fc r n b :: is)
+      = (::) . MkWithFCRigName fc r n <$> goPiBindData b <*> goImplicits is
 
     goPFnOpts : List (PFnOpt' nm) -> Core (List (PFnOpt' nm))
     goPFnOpts []        = pure []
@@ -389,7 +406,25 @@ mapPTermM f = goPTerm where
 
     goPTypeDecls : List (PTypeDecl' nm) -> Core (List (PTypeDecl' nm))
     goPTypeDecls []        = pure []
-    goPTypeDecls (t :: ts) = (::) <$> traverse goPTypeDecl t <*> goPTypeDecls ts
+    goPTypeDecls (MkFCVal fc t :: ts) = (::) . MkFCVal fc <$> goPTypeDecl t <*> goPTypeDecls ts
+
+    goBasicMultiBinders : List (BasicMultiBinder' nm) -> Core (List (BasicMultiBinder' nm))
+    goBasicMultiBinders []        = pure []
+    goBasicMultiBinders (b :: bs) = (::) <$> goBasicMultiBinder b <*> goBasicMultiBinders bs
+
+    goPBinders1 : List1 (PBinder' nm) -> Core (List1 (PBinder' nm))
+    goPBinders1 (b ::: bs) = (:::) <$> goPBinder b <*> goPBinders bs
+
+    goPBinders : List (PBinder' nm) -> Core (List (PBinder' nm))
+    goPBinders []        = pure []
+    goPBinders (b :: bs) = (::) <$> goPBinder b <*> goPBinders bs
+
+    goPlainBinders1 : List1 (PlainBinder' nm) -> Core (List1 (PlainBinder' nm))
+    goPlainBinders1 (b ::: bs) = (:::) <$> goPlainBinder b <*> goPlainBinders bs
+
+    goPlainBinders : List (PlainBinder' nm) -> Core (List (PlainBinder' nm))
+    goPlainBinders []        = pure []
+    goPlainBinders (b :: bs) = (::) <$> goPlainBinder b <*> goPlainBinders bs
 
 export
 mapPTerm : (PTerm' nm -> PTerm' nm) -> PTerm' nm -> PTerm' nm
@@ -401,20 +436,20 @@ mapPTerm f = goPTerm where
     goPTerm t@(PRef {}) = f t
     goPTerm (Forall binderScope)
       = Forall (map (mapSnd f) binderScope)
-    goPTerm (NewPi binderScope)
-      = NewPi (map goPBinderScope binderScope)
+    goPTerm (NewPi (MkFCVal fc binderScope))
+      = NewPi (MkFCVal fc (goPBinderScope binderScope))
     goPTerm (PPi fc x info z argTy retTy)
       = f $ PPi fc x (goPiInfo info) z (goPTerm argTy) (goPTerm retTy)
     goPTerm (PLam fc x info z argTy scope)
       = f $ PLam fc x (goPiInfo info) z (goPTerm argTy) (goPTerm scope)
     goPTerm (PLet fc x pat nTy nVal scope alts)
-      = f $ PLet fc x (goPTerm pat) (goPTerm nTy) (goPTerm nVal) (goPTerm scope) (goPClause <$> alts)
+      = f $ PLet fc x (goPTerm pat) (goPTerm nTy) (goPTerm nVal) (goPTerm scope) (goPClauses alts)
     goPTerm (PCase fc opts x xs)
-      = f $ PCase fc (goPFnOpt <$>  opts) (goPTerm x) (goPClause <$> xs)
+      = f $ PCase fc (goPFnOpts opts) (goPTerm x) (goPClauses xs)
     goPTerm (PLocal fc xs scope)
-      = f $ PLocal fc (map goPDecl <$> xs) (goPTerm scope)
+      = f $ PLocal fc (goPDecls xs) (goPTerm scope)
     goPTerm (PUpdate fc xs)
-      = f $ PUpdate fc (goPFieldUpdate <$> xs)
+      = f $ PUpdate fc (goPFieldUpdates xs)
     goPTerm (PApp fc x y)
       = f $ PApp fc (goPTerm x) (goPTerm y)
     goPTerm (PWithApp fc x y)
@@ -435,7 +470,7 @@ mapPTerm f = goPTerm where
       = f $ PQuote fc $ goPTerm x
     goPTerm t@(PQuoteName {}) = f t
     goPTerm (PQuoteDecl fc x)
-      = f $ PQuoteDecl fc (map goPDecl <$> x)
+      = f $ PQuoteDecl fc (goPDecls x)
     goPTerm (PUnquote fc x)
       = f $ PUnquote fc $ goPTerm x
     goPTerm (PRunElab fc x)
@@ -461,19 +496,19 @@ mapPTerm f = goPTerm where
     goPTerm (PBracketed fc x)
       = f $ PBracketed fc $ goPTerm x
     goPTerm (PString fc x ys)
-      = f $ PString fc x $ goPStr <$> ys
+      = f $ PString fc x $ goPStrings ys
     goPTerm (PMultiline fc x y zs)
-      = f $  PMultiline fc x y $ map (map goPStr) zs
+      = f $  PMultiline fc x y $ goPStringLines zs
     goPTerm (PDoBlock fc ns xs)
-      = f $ PDoBlock fc ns $ goPDo <$> xs
+      = f $ PDoBlock fc ns $ goPDos xs
     goPTerm (PBang fc x)
       = f $ PBang fc $ goPTerm x
     goPTerm (PIdiom fc ns x)
       = f $ PIdiom fc ns $ goPTerm x
     goPTerm (PList fc nilFC xs)
-      = f $ PList fc nilFC $ map (map goPTerm) xs
+      = f $ PList fc nilFC $ goTagged xs
     goPTerm (PSnocList fc nilFC xs)
-      = f $ PSnocList fc nilFC $ map (map goPTerm) xs
+      = f $ PSnocList fc nilFC $ goTaggedSnoc xs
     goPTerm (PPair fc x y)
       = f $ PPair fc (goPTerm x) (goPTerm y)
     goPTerm (PDPair fc opFC x y z)
@@ -482,13 +517,13 @@ mapPTerm f = goPTerm where
     goPTerm (PIfThenElse fc x y z)
       = f $ PIfThenElse fc (goPTerm x) (goPTerm y) (goPTerm z)
     goPTerm (PComprehension fc x xs)
-      = f $ PComprehension fc (goPTerm x) (goPDo <$> xs)
+      = f $ PComprehension fc (goPTerm x) (goPDos xs)
     goPTerm (PRewrite fc x y)
       = f $ PRewrite fc (goPTerm x) (goPTerm y)
     goPTerm (PRange fc x y z)
-      = f $ PRange fc (goPTerm x) (map goPTerm y) (goPTerm z)
+      = f $ PRange fc (goPTerm x) (goMPTerm y) (goPTerm z)
     goPTerm (PRangeStream fc x y)
-      = f $ PRangeStream fc (goPTerm x) (map goPTerm y)
+      = f $ PRangeStream fc (goPTerm x) (goMPTerm y)
     goPTerm (PUnifyLog fc k x)
       = f $ PUnifyLog fc k (goPTerm x)
     goPTerm (PPostfixApp fc rec fields)
@@ -507,14 +542,14 @@ mapPTerm f = goPTerm where
 
     goPDo : PDo' nm -> PDo' nm
     goPDo (DoExp fc t) = DoExp fc $ goPTerm t
-    goPDo (DoBind fc nameFC n c ty t) = DoBind fc nameFC n c (goPTerm <$> ty) (goPTerm t)
+    goPDo (DoBind fc nameFC n c ty t) = DoBind fc nameFC n c (goMPTerm ty) (goPTerm t)
     goPDo (DoBindPat fc t ty u cls)
-      = DoBindPat fc (goPTerm t) (goPTerm <$> ty) (goPTerm u) (goPClause <$> cls)
+      = DoBindPat fc (goPTerm t) (goMPTerm ty) (goPTerm u) (goPClauses cls)
     goPDo (DoLet fc lhsFC n c t scope)
       = DoLet fc lhsFC n c (goPTerm t) (goPTerm scope)
     goPDo (DoLetPat fc pat t scope cls)
-      = DoLetPat fc (goPTerm pat) (goPTerm t) (goPTerm scope) (goPClause <$> cls)
-    goPDo (DoLetLocal fc decls) = DoLetLocal fc $ map goPDecl <$> decls
+      = DoLetPat fc (goPTerm pat) (goPTerm t) (goPTerm scope) (goPClauses cls)
+    goPDo (DoLetLocal fc decls) = DoLetLocal fc $ goPDecls decls
     goPDo (DoRewrite fc t) = DoRewrite fc $ goPTerm t
 
     goPWithProblem : PWithProblem' nm -> PWithProblem' nm
@@ -522,13 +557,14 @@ mapPTerm f = goPTerm where
 
     goPClause : PClause' nm -> PClause' nm
     goPClause (MkPatClause fc lhs rhs wh)
-      = MkPatClause fc (goPTerm lhs) (goPTerm rhs) (map goPDecl <$> wh)
+      = MkPatClause fc (goPTerm lhs) (goPTerm rhs) (goPDecls wh)
     goPClause (MkWithClause fc lhs wps flags cls)
-      = MkWithClause fc (goPTerm lhs) (goPWithProblem <$> wps) flags (goPClause <$> cls)
+      = MkWithClause fc (goPTerm lhs) (goPWithProblems1 wps) flags (goPClauses cls)
     goPClause (MkImpossible fc lhs) = MkImpossible fc $ goPTerm lhs
 
     goPClaim : PClaimData' nm -> PClaimData' nm
-    goPClaim (MkPClaim c v opts tdecl) = MkPClaim c v (goPFnOpt <$> opts) (map goPTypeDecl tdecl)
+    goPClaim (MkPClaim c v opts (MkFCVal fc tdecl))
+      = MkPClaim c v (goPFnOpts opts) (MkFCVal fc (goPTypeDecl tdecl))
 
     goPBinderScope : PBinderScope' nm -> PBinderScope' nm
     goPBinderScope (MkPBinderScope binder scope)
@@ -537,26 +573,28 @@ mapPTerm f = goPTerm where
     goPDecl : PDeclNoFC' nm -> PDeclNoFC' nm
     goPDecl (PClaim claim)
       = PClaim $ goPClaim claim
-    goPDecl (PDef cls) = PDef $ (map goPClause) cls
+    goPDecl (PDef cls) = PDef $ goPClauses cls
     goPDecl (PData doc v mbt d) = PData doc v mbt $ goPDataDecl d
-    goPDecl (PParameters nts ps)
-      = PParameters (bimap (map (map goPTerm)) (map goPBinder) nts) (map goPDecl <$> ps)
+    goPDecl (PParameters (Left nts) ps)
+      = PParameters (Left (goPlainBinders1 nts)) (goPDecls ps)
+    goPDecl (PParameters (Right nts) ps)
+      = PParameters (Right (goPBinders1 nts)) (goPDecls ps)
     goPDecl (PUsing mnts ps)
-      = PUsing (map (map goPTerm) mnts) (map goPDecl <$> ps)
+      = PUsing (goTagged mnts) (goPDecls ps)
     goPDecl (PInterface v mnts n doc nrts ns mn ps)
-      = PInterface v (map (map goPTerm) mnts) n doc (goBasicMultiBinder <$> nrts) ns mn (map goPDecl <$> ps)
+      = PInterface v (goTagged mnts) n doc (goBasicMultiBinders nrts) ns mn (goPDecls ps)
     goPDecl (PImplementation v opts p is cs n ts mn ns mps)
-      = PImplementation v opts p (map (map (map goPTerm)) is) (map (map goPTerm) cs)
-           n (goPTerm <$> ts) mn ns (map (map goPDecl <$>) mps)
+      = PImplementation v opts p (goImplicits is) (goTagged cs)
+           n (goPTerms ts) mn ns (goMPDecls mps)
     goPDecl (PRecord doc v tot (MkPRecord n nts opts mn fs))
       = PRecord doc v tot
-          (MkPRecord n (map goPBinder nts) opts mn (map (map (map goPTerm)) fs))
+          (MkPRecord n (goPBinders nts) opts mn (goPFields fs))
     goPDecl (PRecord doc v tot (MkPRecordLater n nts))
-      = PRecord doc v tot (MkPRecordLater n (goPBinder <$> nts ))
-    goPDecl (PFail msg ps) = PFail msg $ map goPDecl <$> ps
-    goPDecl (PMutual ps) = PMutual $ map (map goPDecl) ps
+      = PRecord doc v tot (MkPRecordLater n (goPBinders nts))
+    goPDecl (PFail msg ps) = PFail msg $ goPDecls ps
+    goPDecl (PMutual ps) = PMutual $ goPDecls ps
     goPDecl (PFixity p) = PFixity p
-    goPDecl (PNamespace strs ps) = PNamespace strs $ map goPDecl <$> ps
+    goPDecl (PNamespace strs ps) = PNamespace strs $ goPDecls ps
     goPDecl (PTransform n a b) = PTransform n (goPTerm a) (goPTerm b)
     goPDecl (PRunElabDecl a) = PRunElabDecl $ goPTerm a
     goPDecl (PDirective d) = PDirective d
@@ -564,6 +602,9 @@ mapPTerm f = goPTerm where
 
     goPBinder : PBinder' nm -> PBinder' nm
     goPBinder (MkPBinder info bind) = MkPBinder (goPiInfo info) (goBasicMultiBinder bind)
+
+    goPlainBinder : PlainBinder' nm -> PlainBinder' nm
+    goPlainBinder (MkWithName n t) = MkWithName n (goPTerm t)
 
     goBasicMultiBinder : BasicMultiBinder' nm -> BasicMultiBinder' nm
     goBasicMultiBinder (MkBasicMultiBinder rig names type)
@@ -574,25 +615,108 @@ mapPTerm f = goPTerm where
 
     goPDataDecl : PDataDecl' nm -> PDataDecl' nm
     goPDataDecl (MkPData fc n t opts tdecls)
-      = MkPData fc n (map goPTerm t) opts (map goPTypeDecl <$> tdecls)
+      = MkPData fc n (goMPTerm t) opts (goPTypeDecls tdecls)
     goPDataDecl (MkPLater fc n t) = MkPLater fc n $ goPTerm t
-
-    goPRecordDeclLet : PRecordDeclLet' nm -> PRecordDeclLet' nm
-    goPRecordDeclLet (RecordClaim claim) = RecordClaim $ map goPClaim claim
-    goPRecordDeclLet (RecordClause clause) = RecordClause $ map goPClause clause
 
     goPiInfo : PiInfo (PTerm' nm) -> PiInfo (PTerm' nm)
     goPiInfo (DefImplicit t) = DefImplicit $ goPTerm t
     goPiInfo t = t
 
+    goPiBindData : PiBindData (PTerm' nm) -> PiBindData (PTerm' nm)
+    goPiBindData (MkPiBindData info ty) = MkPiBindData (goPiInfo info) (goPTerm ty)
+
     goPFnOpt : PFnOpt' nm -> PFnOpt' nm
     goPFnOpt o@(IFnOpt {}) = o
-    goPFnOpt (PForeign ts) = PForeign $ goPTerm <$> ts
-    goPFnOpt (PForeignExport ts) = PForeignExport $ goPTerm <$> ts
+    goPFnOpt (PForeign ts) = PForeign $ goPTerms ts
+    goPFnOpt (PForeignExport ts) = PForeignExport $ goPTerms ts
 
-    goImplicits : List (x, ImpParameter' (PTerm' nm)) -> List (x, ImpParameter' (PTerm' nm))
+    goMPTerm : Maybe (PTerm' nm) -> Maybe (PTerm' nm)
+    goMPTerm Nothing  = Nothing
+    goMPTerm (Just t) = Just (goPTerm t)
+
+    goPTerms : List (PTerm' nm) -> List (PTerm' nm)
+    goPTerms []        = []
+    goPTerms (t :: ts) = goPTerm t :: goPTerms ts
+
+    goTagged : List (a, PTerm' nm) -> List (a, PTerm' nm)
+    goTagged [] = []
+    goTagged ((l, t) :: ts) = (l, goPTerm t) :: goTagged ts
+
+    goTaggedSnoc : SnocList (a, PTerm' nm) -> SnocList (a, PTerm' nm)
+    goTaggedSnoc [<] = [<]
+    goTaggedSnoc (ts :< (l, t)) = goTaggedSnoc ts :< (l, goPTerm t)
+
+    goPStringLines : List (List (PStr' nm)) -> List (List (PStr' nm))
+    goPStringLines []              = []
+    goPStringLines (line :: lines) = goPStrings line :: goPStringLines lines
+
+    goPStrings : List (PStr' nm) -> List (PStr' nm)
+    goPStrings []            = []
+    goPStrings (str :: strs) = goPStr str :: goPStrings strs
+
+    goPDos : List (PDo' nm) -> List (PDo' nm)
+    goPDos []        = []
+    goPDos (d :: ds) = goPDo d :: goPDos ds
+
+    goPClauses : List (PClause' nm) -> List (PClause' nm)
+    goPClauses []          = []
+    goPClauses (cl :: cls) = goPClause cl :: goPClauses cls
+
+    goPWithProblems1 : List1 (PWithProblem' nm) -> List1 (PWithProblem' nm)
+    goPWithProblems1 (w ::: ws) = goPWithProblem w ::: goPWithProblems ws
+
+    goPWithProblems : List (PWithProblem' nm) -> List (PWithProblem' nm)
+    goPWithProblems []        = []
+    goPWithProblems (w :: ws) = goPWithProblem w :: goPWithProblems ws
+
+    goMPDecls : Maybe (List (PDecl' nm)) -> Maybe (List (PDecl' nm))
+    goMPDecls Nothing   = Nothing
+    goMPDecls (Just ps) = Just (goPDecls ps)
+
+    goPDecls : List (PDecl' nm) -> List (PDecl' nm)
+    goPDecls []                   = []
+    goPDecls (MkFCVal fc d :: ds) = MkFCVal fc (goPDecl d) :: goPDecls ds
+
+    goPFieldUpdates : List (PFieldUpdate' nm) -> List (PFieldUpdate' nm)
+    goPFieldUpdates []          = []
+    goPFieldUpdates (fu :: fus) = goPFieldUpdate fu :: goPFieldUpdates fus
+
+    goPFields : List (PField' nm) -> List (PField' nm)
+    goPFields [] = []
+    goPFields (MkWithFCDocRigNames fc d r ns b :: fs)
+      = MkWithFCDocRigNames fc d r ns (goPiBindData b) :: goPFields fs
+
+    goImplicits : List (WithFCRigName (PiBindData (PTerm' nm))) ->
+                  List (WithFCRigName (PiBindData (PTerm' nm)))
     goImplicits [] = []
-    goImplicits ((a, t) :: ts) = (a,map (map f) t) :: goImplicits ts
+    goImplicits (MkWithFCRigName fc r n b :: is)
+      = MkWithFCRigName fc r n (goPiBindData b) :: goImplicits is
+
+    goPFnOpts : List (PFnOpt' nm) -> List (PFnOpt' nm)
+    goPFnOpts []        = []
+    goPFnOpts (o :: os) = goPFnOpt o :: goPFnOpts os
+
+    goPTypeDecls : List (PTypeDecl' nm) -> List (PTypeDecl' nm)
+    goPTypeDecls []                   = []
+    goPTypeDecls (MkFCVal fc t :: ts) = MkFCVal fc (goPTypeDecl t) :: goPTypeDecls ts
+
+    goBasicMultiBinders : List (BasicMultiBinder' nm) -> List (BasicMultiBinder' nm)
+    goBasicMultiBinders []        = []
+    goBasicMultiBinders (b :: bs) = goBasicMultiBinder b :: goBasicMultiBinders bs
+
+    goPBinders1 : List1 (PBinder' nm) -> List1 (PBinder' nm)
+    goPBinders1 (b ::: bs) = goPBinder b ::: goPBinders bs
+
+    goPBinders : List (PBinder' nm) -> List (PBinder' nm)
+    goPBinders []        = []
+    goPBinders (b :: bs) = goPBinder b :: goPBinders bs
+
+    goPlainBinders1 : List1 (PlainBinder' nm) -> List1 (PlainBinder' nm)
+    goPlainBinders1 (b ::: bs) = goPlainBinder b ::: goPlainBinders bs
+
+    goPlainBinders : List (PlainBinder' nm) -> List (PlainBinder' nm)
+    goPlainBinders []        = []
+    goPlainBinders (b :: bs) = goPlainBinder b :: goPlainBinders bs
 
 ||| Replace the FCs in a term with the one provided.
 ||| The current implementation is not correct: we're only substituting
