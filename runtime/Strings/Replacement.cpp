@@ -4,6 +4,7 @@
 // Standard recommends (chapter 3, U+FFFD substitution of maximal subparts).
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
+#include "End/End.h"
 #include "Strings/Strings.h"
 #include "idris_rt.h"
 
@@ -88,7 +89,7 @@ extern "C" const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n) 
   size_t room;
   if (__builtin_mul_overflow(n - first.input_count, replacementBytes, &room) ||
       __builtin_add_overflow(room, first.input_count, &room))
-    rt::alloc::outOfMemory();
+    rt::end::end(rt::end::OutOfMemory{});
   idris_rt_str *s = rt::strings::newString(room, 0);
   char *start = rt::strings::mutableBytes(s);
   memcpy(start, p, first.input_count);

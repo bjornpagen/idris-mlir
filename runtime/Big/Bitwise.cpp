@@ -5,6 +5,7 @@
 // of every backend (its integers test of Chez, RefC and Node).
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
+#include "End/End.h"
 #include "Big/Big.h"
 #include "idris_rt.h"
 
@@ -26,11 +27,14 @@ uint64_t places(idris_rt_big amount) {
   return v < 0 ? 0 - static_cast<uint64_t>(v) : static_cast<uint64_t>(v);
 }
 
-// a * 2^k. GMP holds at most INT_MAX limbs and aborts past them, so a result
-// that needs more is exhausted memory, the crash any allocation that fails is.
+// a * 2^k, a new value whatever k is: a move of 0 places copies a large a,
+// since the result is fresh and never the argument. GMP holds at most
+// INT_MAX limbs and aborts past them, so a result that needs more is memory
+// the machine cannot give: the out-of-memory ending. 0 moved any number of
+// places is 0.
 idris_rt_big up(idris_rt_big a, uint64_t k) {
-  if (k == 0 || signOf(a) == 0)
-    return owned(a);
+  if (signOf(a) == 0)
+    return a;
   // 2x * 2^k, tagged after: it overflows exactly when x * 2^k is not small.
   idris_rt_big product;
   if (idris_rt_word_is_small(a) && k < 63 &&
@@ -38,19 +42,17 @@ idris_rt_big up(idris_rt_big a, uint64_t k) {
     return product + 1;
   Operand x(a);
   if (mpz_size(x.get()) + k / uint64_t{GMP_NUMB_BITS} + 1 > static_cast<uint64_t>(INT_MAX))
-    rt::alloc::outOfMemory();
+    rt::end::end(rt::end::OutOfMemory{});
   Result r;
   mpz_mul_2exp(r.get(), x.get(), k);
   return r.finish();
 }
 
-// floor(a / 2^k): the two's complement moved right, filling with the sign.
-// A small word 2x + 1 moved k >= 1 places is 2 floor(x / 2^k) plus one bit,
-// which the tag replaces; from 63 places on only the sign is left. A
-// quotient past a large one's limbs is 0 or -1.
+// floor(a / 2^k): the two's complement moved right, filling with the sign,
+// a new value whatever k is, as up's is. A small word 2x + 1 moved k places
+// is 2 floor(x / 2^k) plus one bit, which the tag replaces; from 63 places
+// on only the sign is left. A quotient past a large one's limbs is 0 or -1.
 idris_rt_big down(idris_rt_big a, uint64_t k) {
-  if (k == 0)
-    return owned(a);
   if (idris_rt_word_is_small(a))
     return (a >> (k < 63 ? k : 63)) | 1;
   Operand x(a);
@@ -59,11 +61,14 @@ idris_rt_big down(idris_rt_big a, uint64_t k) {
   return r.finish();
 }
 
-// shl's move when `left`, else shr's: up, or down when the amount is
-// negative.
-idris_rt_big shift(idris_rt_big a, idris_rt_big amount, bool left) {
+// The way a shift moves a value by an amount that is not negative; a
+// negative amount moves it the other way.
+enum class Toward : uint8_t { Left, Right };
+
+idris_rt_big shift(idris_rt_big a, idris_rt_big amount, Toward toward) {
   uint64_t k = places(amount);
-  return left == (signOf(amount) >= 0) ? up(a, k) : down(a, k);
+  Toward moves = signOf(amount) >= 0 ? toward : toward == Toward::Left ? Toward::Right : Toward::Left;
+  return moves == Toward::Left ? up(a, k) : down(a, k);
 }
 
 } // namespace
@@ -84,11 +89,11 @@ namespace rt::big {
 }
 
 [[gnu::noinline]] idris_rt_big shlLarge(idris_rt_big a, idris_rt_big amount) {
-  return shift(a, amount, true);
+  return shift(a, amount, Toward::Left);
 }
 
 [[gnu::noinline]] idris_rt_big shrLarge(idris_rt_big a, idris_rt_big amount) {
-  return shift(a, amount, false);
+  return shift(a, amount, Toward::Right);
 }
 
 } // namespace rt::big

@@ -23,9 +23,6 @@ extern "C" int64_t idris_rt_io_term_raw(void) {
 // raw mode never ran.
 extern "C" void idris_rt_io_term_reset(void) { rt::platform::restoreMode(); }
 
-// Base's setupTerm: a POSIX terminal needs no preparing.
-extern "C" void idris_rt_io_term_setup(void) {}
-
 // The terminal's columns, from standard input's terminal or else standard
 // output's; 0 when neither is one.
 extern "C" int64_t idris_rt_io_term_cols(void) {

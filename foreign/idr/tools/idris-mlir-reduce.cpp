@@ -4,14 +4,11 @@
 // for shrinking a module that makes a pass fail, and with the dialect's
 // reduction patterns, which simplify the ops the reducer cannot erase
 // without leaving their uses without a value. Like idris-mlir-opt, it runs
-// on the runtime's reserved-stack runner, on the tools' stack, so the
-// nested constants MLIR's parser and printer recurse over are bounded by
-// memory, not by the process's stack.
-// PIN(mlir-recursion)
+// on the runtime's runner, on the tools' small stack (idr/Driver/Tool.h).
 
+#include "idr/Driver/Tool.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/InitIdr.h"
-#include "idr/Support/Stack.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
@@ -86,5 +83,5 @@ int reduceMain(int argc, char **argv) {
 } // namespace
 
 int main(int argc, char **argv) {
-  return idr::support::runTool("idris-mlir-reduce", [&] { return reduceMain(argc, argv); });
+  return idr::driver::runTool("idris-mlir-reduce", [&] { return reduceMain(argc, argv); });
 }

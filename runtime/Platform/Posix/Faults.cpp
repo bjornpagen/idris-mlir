@@ -16,8 +16,10 @@ struct sigaction previousBus {};
 
 // A stack running into its guard is SIGSEGV on Linux and SIGBUS on macOS,
 // which reports a fault on a mapped page it may not touch as a bus error;
-// both carry the faulting address in si_addr, so both are caught.
-void onSignal(int signal, siginfo_t *info, void *) {
+// both carry the faulting address in si_addr, so both are caught. It runs on
+// the signal stack, which idris-mlir sizes by the deepest path from here,
+// found by its mark.
+IDRIS_RT_HANDLER void onSignal(int signal, siginfo_t *info, void *) {
   faultHandler(reinterpret_cast<uintptr_t>(info->si_addr));
   sigaction(signal, signal == SIGBUS ? &previousBus : &previousSegv, nullptr);
 }

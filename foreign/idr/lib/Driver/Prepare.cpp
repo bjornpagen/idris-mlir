@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The prepared runtime: one optimized module, written as native code with
-// its bitcode inside it or beside it.
+// its bitcode beside it, which records what code generation gave the
+// native code's frames.
 
 #include "idr/Driver/Artifacts.h"
 #include "idr/Driver/Compile.h"
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Runtime.h"
+#include "idr/Driver/StackBound.h"
 #include "idr/Driver/Verdict.h"
 #include "idr/Target/Target.h"
 
@@ -22,15 +24,13 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/MemoryBufferRef.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/IPO/Internalize.h"
-#include "llvm/Transforms/Utils/ModuleUtils.h"
+#include "llvm/Transforms/Utils/Cloning.h"
 
 #include <memory>
 #include <string>
@@ -62,8 +62,8 @@ static mlir::LogicalResult externalize(llvm::Module &runtime, mlir::Location at)
 }
 
 // The archive's runtime, read for the program's CPU, optimized and written
-// as the object at `output` with its bitcode where the target entry keeps
-// it, which records what it is.
+// as the object at `output` with its bitcode in the file beside it, which
+// records what it is and what its native half's frames are.
 static mlir::LogicalResult prepareArchive(Archived &archived, llvm::TargetMachine &machine,
                                           llvm::StringRef output, mlir::MLIRContext &context) {
   mlir::Location at = mlir::UnknownLoc::get(&context);
@@ -80,39 +80,40 @@ static mlir::LogicalResult prepareArchive(Archived &archived, llvm::TargetMachin
                              std::pair{preparedCpuFlag, &archived.identity.cpu},
                              std::pair{preparedFeaturesFlag, &archived.identity.features}})
     runtime.addModuleFlag(llvm::Module::Error, flag, llvm::MDString::get(llvmContext, *value));
-  // The bitcode half: the same module, every definition available_externally.
-  std::string bitcode;
+  // Its calls, read once before code generation, which rewrites the module
+  // it compiles: a call on a cycle that is no tail call, or a frame sized at
+  // run time, leaves the runtime's stack with no bound.
+  mlir::FailureOr<stack::Graph> calls = stack::Graph::of(runtime, context);
+  if (mlir::failed(calls))
+    return mlir::failure();
+  // Kept only once the object is written too.
+  std::error_code error;
+  std::string path = besideObject(output);
+  llvm::ToolOutputFile beside(path, error, llvm::sys::fs::OF_None);
+  if (error)
+    return cannotWrite(context, path, error);
+  // The native half, from a copy of the module, each frame code generation
+  // lays out gathered.
+  stack::Frames frames;
   {
-    for (llvm::GlobalValue &value : runtime.global_values())
-      if (!value.isDeclaration())
-        value.setLinkage(llvm::GlobalValue::AvailableExternallyLinkage);
-    llvm::raw_string_ostream os(bitcode);
-    llvm::WriteBitcodeToFile(runtime, os);
-    for (llvm::GlobalValue &value : runtime.global_values())
-      if (value.hasAvailableExternallyLinkage())
-        value.setLinkage(llvm::GlobalValue::ExternalLinkage);
-  }
-  switch (runtimeBitcodeHome) {
-  case BitcodeHome::InObject:
-    // The section LLVM's object reader finds bitcode in, which every link
-    // leaves out (embedBufferInModule excludes it).
-    llvm::embedBufferInModule(runtime, llvm::MemoryBufferRef(bitcode, "idris_rt"), ".llvm.lto");
-    return emit(runtime, machine, output, context);
-  case BitcodeHome::BesideObject: {
-    // Kept only once the object is written too.
-    std::error_code error;
-    std::string path = besideObject(output);
-    llvm::ToolOutputFile beside(path, error, llvm::sys::fs::OF_None);
-    if (error)
-      return cannotWrite(context, path, error);
-    beside.os() << bitcode;
-    if (mlir::failed(emit(runtime, machine, output, context)))
+    std::unique_ptr<llvm::Module> native = llvm::CloneModule(runtime);
+    stack::ask(*native);
+    std::unique_ptr<llvm::DiagnosticHandler> previous = llvmContext.getDiagnosticHandler();
+    llvmContext.setDiagnosticHandler(stack::gather(frames));
+    mlir::LogicalResult emitted = emit(*native, machine, output, context);
+    llvmContext.setDiagnosticHandler(std::move(previous));
+    if (mlir::failed(emitted))
       return mlir::failure();
-    beside.keep();
-    return mlir::success();
   }
-  }
-  llvm_unreachable("every home of the bitcode is written");
+  calls->record(runtime, frames, machine);
+  // The bitcode half: the same module, every definition
+  // available_externally.
+  for (llvm::GlobalValue &value : runtime.global_values())
+    if (!value.isDeclaration())
+      value.setLinkage(llvm::GlobalValue::AvailableExternallyLinkage);
+  llvm::WriteBitcodeToFile(runtime, beside.os());
+  beside.keep();
+  return mlir::success();
 }
 
 // The steps of --prepare-runtime, until one fails, which has said why.

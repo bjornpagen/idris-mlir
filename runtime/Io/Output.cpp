@@ -2,11 +2,13 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Standard output and error. Output goes through one static buffer, flushed
 // when it fills, before every read of standard input, before standard
-// error's every write and a crash's message, and when main returns or the
-// program exits. The Prelude's output and base's writes of the handles 1
-// and 2, their streams, share it.
+// error's every write, and when the program ends, however it ends. The
+// Prelude's output and base's writes of the handles 1 and 2, their streams,
+// share it. A reader of either gone ends the program by the signal Unix
+// tools die of, its other files written first.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Doubles/Doubles.h"
+#include "End/End.h"
 #include "Io/Io.h"
 #include "Platform/Platform.h"
 #include "Strings/Strings.h"
@@ -26,8 +28,8 @@ using rt::io::Stream;
 using rt::io::Written;
 using rt::io::bufferSize;
 
-// The pending output and its length. The program's stack running out
-// flushes it from a signal handler on the same thread, so the length is
+// The pending output and its length. An internal error met in the fault
+// handler flushes it from a signal handler on the same thread, so the length is
 // published only after the bytes it covers are written: a relaxed atomic,
 // which is a plain load and store, after a signal fence, which stops the
 // compiler from moving the store above the copy and costs no instruction.
@@ -50,12 +52,19 @@ size_t roomFor(size_t n) {
   return 0;
 }
 
+// A write of the program's own output: a reader gone ends the program; any
+// other failure abandons the rest, as base's output reports none.
+void written(rt::platform::Wrote how) {
+  if (how == rt::platform::Wrote::Broken)
+    rt::end::end(rt::end::Piped{});
+}
+
 // The n bytes at p, after what is pending: into the buffer, or, when they
 // are more than it holds, written at once after it.
 void putBytes(const char *p, size_t n) {
   size_t at = roomFor(n);
   if (n > bufferSize) {
-    rt::platform::writeAll(1, p, n);
+    written(rt::platform::writeAll(1, p, n));
     return;
   }
   memcpy(output + at, p, n);
@@ -111,7 +120,7 @@ constexpr StreamOps errorStream{
     .write =
         [](const Stream &, const char *p, size_t n) {
           idris_rt_flush();
-          rt::platform::writeAll(2, p, n);
+          written(rt::platform::writeAll(2, p, n));
           return Written{n, false};
         },
     .read = readNothing,
@@ -124,19 +133,22 @@ constexpr StreamOps errorStream{
     .poll = pollDescriptor,
 };
 
-} // namespace rt::io
-
-// Writes pending output. The length is taken and 0 published before the
-// write, so a flush the stack running out makes in the middle of this one
+// The length is taken and 0 published before the write, so a flush an
+// internal error makes in the middle of this one, from the fault handler,
 // finds nothing left to write: the output is cut short, never written twice.
 // The handler runs on this thread and does not return, so a plain load and
 // store, kept in order by the fence, are the exchange it needs.
-extern "C" void idris_rt_flush(void) {
+rt::platform::Wrote writePending() {
   size_t n = outputLength.load(std::memory_order_relaxed);
   outputLength.store(0, std::memory_order_relaxed);
   std::atomic_signal_fence(std::memory_order_seq_cst);
-  rt::platform::writeAll(1, output, n);
+  return rt::platform::writeAll(1, output, n);
 }
+
+} // namespace rt::io
+
+// Writes pending output; a reader gone ends the program.
+extern "C" void idris_rt_flush(void) { written(rt::io::writePending()); }
 
 // Writes a string's bytes.
 extern "C" void idris_rt_io_put_str(const idris_rt_str *s) {

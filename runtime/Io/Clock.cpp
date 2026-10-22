@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Base's clocks (System.Clock). An OSClock is an immediate value,
-// seconds << 30 | nanoseconds, so reading a clock allocates nothing and
-// leaves nothing to free. Nanoseconds fit 30 bits, and seconds below 2^33
-// keep the value positive, so -1 is free to mean a clock that is not valid.
+// Base's clocks (System.Clock): one reading per kind of clock, each an
+// instance of one function over the kind. A reading is an immediate value,
+// seconds shifted past the nanoseconds, or the mark of a clock that could
+// not be read (the specification's encoding, IdrisMLIR.Spec.Runtime.Clocks),
+// so reading a clock allocates nothing and leaves nothing to free, and
+// taking one apart is arithmetic the compiler writes, with no call.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Io/Io.h"
 #include "Platform/Platform.h"
@@ -13,59 +15,34 @@
 
 namespace {
 
-constexpr int nanosecondBits = 30;
-constexpr int64_t secondsLimit = int64_t{1} << 33;
-constexpr int64_t invalid = -1;
-
-// The clock's reading as an OSClock, or invalid when the system cannot read
-// it (errno saved) or its seconds are outside what the value holds: before
-// the epoch, or from the year 2242 on.
-int64_t reading(rt::platform::Clock clock) {
+// The clock's reading, or the mark when the system cannot read it (errno
+// saved) or its seconds are outside what a reading holds: before the
+// epoch, or from the year 2242 on.
+template <idr::clocks::ClockKind K>
+int64_t reading() {
   int64_t seconds = 0;
   int64_t nanoseconds = 0;
-  if (!rt::platform::readClock(clock, seconds, nanoseconds)) {
+  if (!rt::platform::readClock(K, seconds, nanoseconds)) {
     rt::io::saveError();
-    return invalid;
+    return idr::clocks::unreadable;
   }
-  if (seconds < 0 || seconds >= secondsLimit)
-    return invalid;
-  return seconds << nanosecondBits | nanoseconds;
+  if (seconds < 0 || seconds >= int64_t{1} << idr::clocks::secondsBits)
+    return idr::clocks::unreadable;
+  return seconds << idr::clocks::nanosecondBits | nanoseconds;
 }
 
 } // namespace
 
-// The time since some point in the past, which never runs backwards:
-// CLOCK_MONOTONIC.
+// The time since some point in the past, which never runs backwards; the
+// time since the epoch, 00:00:00 UTC on 1 January 1970; the CPU time the
+// process has used; the CPU time the calling thread has used.
 extern "C" int64_t idris_rt_io_clock_monotonic(void) {
-  return reading(rt::platform::Clock::Monotonic);
+  return reading<idr::clocks::ClockKind::Monotonic>();
 }
-
-// The time since the epoch, 00:00:00 UTC on 1 January 1970: CLOCK_REALTIME.
-extern "C" int64_t idris_rt_io_clock_utc(void) { return reading(rt::platform::Clock::Utc); }
-
-// The CPU time the process has used: CLOCK_PROCESS_CPUTIME_ID.
+extern "C" int64_t idris_rt_io_clock_utc(void) { return reading<idr::clocks::ClockKind::Utc>(); }
 extern "C" int64_t idris_rt_io_clock_process(void) {
-  return reading(rt::platform::Clock::Process);
+  return reading<idr::clocks::ClockKind::Process>();
 }
-
-// The CPU time the calling thread has used: CLOCK_THREAD_CPUTIME_ID.
-extern "C" int64_t idris_rt_io_clock_thread(void) { return reading(rt::platform::Clock::Thread); }
-
-// The time a collector has taken is never valid: no collector runs, memory
-// is counted and freed as the program goes. Base makes both clocks optional,
-// so clockTime GCCPU and clockTime GCReal give Nothing.
-extern "C" int64_t idris_rt_io_clock_gc_cpu(void) { return invalid; }
-extern "C" int64_t idris_rt_io_clock_gc_real(void) { return invalid; }
-
-// 1 when an OSClock is valid, else 0.
-extern "C" int64_t idris_rt_io_clock_valid(int64_t clock) { return clock >= 0 ? 1 : 0; }
-
-// The seconds of an OSClock; 0 for one that is not valid.
-extern "C" int64_t idris_rt_io_clock_second(int64_t clock) {
-  return clock >= 0 ? clock >> nanosecondBits : 0;
-}
-
-// The nanoseconds of an OSClock, below 10^9; 0 for one that is not valid.
-extern "C" int64_t idris_rt_io_clock_nanosecond(int64_t clock) {
-  return clock >= 0 ? clock & ((int64_t{1} << nanosecondBits) - 1) : 0;
+extern "C" int64_t idris_rt_io_clock_thread(void) {
+  return reading<idr::clocks::ClockKind::Thread>();
 }

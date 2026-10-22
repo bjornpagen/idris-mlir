@@ -37,7 +37,6 @@
 #include "llvm/IR/Attributes.h"
 #include "llvm/Linker/Linker.h"
 #include "llvm/Object/Archive.h"
-#include "llvm/Object/Error.h"
 #include "llvm/Object/IRObjectFile.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Error.h"
@@ -124,7 +123,8 @@ static mlir::LogicalResult onProgramTriple(const llvm::Module &module, llvm::Str
 }
 
 // Turns the runtime's annotations of a member's functions, which
-// llvm.global.annotations lists, into marks.
+// llvm.global.annotations lists, into marks: the baseline's, and the fault
+// handler's, whose code runs on the signal stack.
 static void markAnnotated(llvm::Module &member) {
   const llvm::GlobalVariable *annotations = member.getNamedGlobal("llvm.global.annotations");
   auto *entries = annotations && annotations->hasInitializer()
@@ -144,7 +144,7 @@ static void markAnnotated(llvm::Module &member) {
     if (!function || !data || !data->isCString())
       continue;
     llvm::StringRef mark = data->getAsCString();
-    if (mark == baselineMark)
+    if (mark == baselineMark || mark == handlerMark)
       function->addFnAttr(mark);
   }
 }
@@ -250,32 +250,6 @@ static mlir::LogicalResult prepareMember(llvm::Module &member, llvm::StringRef n
   return forProgramCpu(member, name, machine, at);
 }
 
-// The prepared runtime's bitcode: the file itself when it is bitcode, else
-// its object's bitcode section, where LLVM's object reader finds it
-// (.llvm.lto on ELF), or the file beside the object exactly when the object
-// has none, which `beside` then holds.
-static llvm::Expected<llvm::MemoryBufferRef>
-preparedBitcode(llvm::MemoryBufferRef file, llvm::StringRef path,
-                std::unique_ptr<llvm::MemoryBuffer> &beside) {
-  return llvm::handleExpected(
-      llvm::object::IRObjectFile::findBitcodeInMemBuffer(file),
-      [&]() -> llvm::Expected<llvm::MemoryBufferRef> {
-        std::string besidePath = besideObject(path);
-        auto read = llvm::MemoryBuffer::getFile(besidePath, /*IsText=*/false,
-                                                /*RequiresNullTerminator=*/false);
-        if (!read)
-          return llvm::createStringError(read.getError(), "cannot read " + besidePath);
-        beside = std::move(*read);
-        return beside->getMemBufferRef();
-      },
-      [](const llvm::ECError &error) -> llvm::Error {
-        std::error_code code = error.convertToErrorCode();
-        if (code == llvm::object::object_error::bitcode_section_not_found)
-          return llvm::Error::success();
-        return llvm::errorCodeToError(code);
-      });
-}
-
 std::string idr::driver::besideObject(llvm::StringRef object) {
   llvm::SmallString<128> path(object);
   llvm::sys::path::replace_extension(path, "bc");
@@ -315,23 +289,24 @@ readArchive(llvm::StringRef path, const llvm::MemoryBuffer &buffer, llvm::LLVMCo
                         idr::target::programCpu.features.str()}});
 }
 
-// What --prepare-runtime wrote: its bitcode, with the flags of its
-// identity; a file that holds no bitcode, or bitcode without the flags, is
-// neither kind of runtime.
+// What --prepare-runtime wrote: the object at `path`, which the link
+// line takes, and its bitcode in the file beside it, with the flags of its
+// identity; an object with no file of bitcode beside it, or bitcode without
+// the flags, is neither kind of runtime.
 static mlir::FailureOr<std::variant<Archived, Prepared>>
-readPrepared(llvm::StringRef path, const llvm::MemoryBuffer &buffer,
-             llvm::LLVMContext &llvmContext, mlir::Location at) {
+readPrepared(llvm::StringRef path, llvm::LLVMContext &llvmContext, mlir::Location at) {
   auto neither = [&]() -> mlir::InFlightDiagnostic {
     mlir::InFlightDiagnostic diagnostic = mlir::emitError(at);
     diagnostic << "runtime " << path
                << " is neither the archive --prepare-runtime reads nor a runtime it wrote: ";
     return diagnostic;
   };
-  std::unique_ptr<llvm::MemoryBuffer> beside;
-  auto bitcode = preparedBitcode(buffer.getMemBufferRef(), path, beside);
-  if (!bitcode)
-    return neither() << llvm::toString(bitcode.takeError());
-  auto module = llvm::parseBitcodeFile(*bitcode, llvmContext);
+  std::string besidePath = besideObject(path);
+  auto beside = llvm::MemoryBuffer::getFile(besidePath, /*IsText=*/false,
+                                            /*RequiresNullTerminator=*/false);
+  if (!beside)
+    return neither() << "cannot read " << besidePath << ": " << beside.getError().message();
+  auto module = llvm::parseBitcodeFile((*beside)->getMemBufferRef(), llvmContext);
   if (!module)
     return mlir::emitError(at) << "runtime " << path << ": " << llvm::toString(module.takeError());
   auto flag = [&](llvm::StringRef name) {
@@ -360,7 +335,7 @@ idr::driver::readRuntime(llvm::StringRef path, llvm::LLVMContext &llvmContext,
   mlir::FailureOr<std::variant<Archived, Prepared>> runtime =
       llvm::identify_magic((*buffer)->getBuffer()) == llvm::file_magic::archive
           ? readArchive(path, **buffer, llvmContext, machine, at)
-          : readPrepared(path, **buffer, llvmContext, at);
+          : readPrepared(path, llvmContext, at);
   if (mlir::failed(runtime))
     return mlir::failure();
   std::visit([](auto &read) { llvm::StripDebugInfo(*read.module); }, *runtime);

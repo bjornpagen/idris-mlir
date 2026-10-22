@@ -70,6 +70,12 @@ cl::opt<std::string> idrisPrefix("prefix",
                                  cl::init(IDRIS_MLIR_IDRIS_PREFIX));
 cl::opt<bool> noPrelude("no-prelude", cl::desc("Do not import the Prelude implicitly"),
                         cl::init(false));
+// The frontend's module kept where a test asks, whatever the verdict, as
+// the report is: a refused program's module compiled again.
+cl::opt<std::string> emittedPath("emitted",
+                                 cl::desc("Keep the module the frontend emits at this path, "
+                                          "whatever the verdict"),
+                                 cl::init(""));
 // Which actions -log-actions-to logs: otherwise every one, each pass
 // execution with the whole module.
 cl::list<std::string> logActionsTags(
@@ -157,18 +163,28 @@ cl::opt<bool> contracts("idr-contracts",
                                  "one"),
                         cl::init(false));
 
+// A test's statement of what holds at a stage of the pipeline
+// (idr/Transforms/Expect.h), checked in the compilation itself after every
+// pass that leaves the program at the stage, as idris-mlir-opt has it.
+cl::list<std::string> expectAt(
+    "idr-expect-at",
+    cl::desc("Check properties of a stage after every pass that leaves the program at it: "
+             "<stage>:<property>,..."));
+
 // Every option of the driver's own, each read by the actions that name it
 // below; MLIR's and LLVM's are theirs. (A cl::list's & is its vector's.)
 const cl::Option *const driverOptions[] = {
     std::addressof(inputPath),      std::addressof(outputPath),  std::addressof(reportPath),
     std::addressof(objectOnly),     std::addressof(packages),    std::addressof(packagePath),
-    std::addressof(idrisPrefix),    std::addressof(noPrelude),   std::addressof(logActionsTags),
-    std::addressof(runtimePath),    std::addressof(numThreads),  std::addressof(contracts),
+    std::addressof(idrisPrefix),    std::addressof(noPrelude),   std::addressof(emittedPath),
+    std::addressof(logActionsTags), std::addressof(runtimePath), std::addressof(numThreads),
+    std::addressof(contracts),      std::addressof(expectAt),
 };
 
 // The frontend's options, which only Idris source reads.
 const cl::Option *const frontendOnly[] = {std::addressof(packages), std::addressof(packagePath),
-                                          std::addressof(idrisPrefix), std::addressof(noPrelude)};
+                                          std::addressof(idrisPrefix), std::addressof(noPrelude),
+                                          std::addressof(emittedPath)};
 
 bool given(const cl::Option *option) { return option->getNumOccurrences() != 0; }
 
@@ -221,30 +237,60 @@ llvm::Error checkMlirOptions() {
   return llvm::Error::success();
 }
 
+// The stage requests --idr-expect-at writes, read once here, before
+// anything runs, on a scratch context whose diagnostic is the usage error.
+llvm::Expected<llvm::SmallVector<idr::expect::StageRequest>> stageRequests() {
+  mlir::MLIRContext scratch;
+  std::string said;
+  mlir::ScopedDiagnosticHandler capture(&scratch, [&](mlir::Diagnostic &diagnostic) {
+    said = diagnostic.str();
+    return mlir::success();
+  });
+  llvm::SmallVector<idr::expect::StageRequest> requests;
+  for (const std::string &written : expectAt) {
+    mlir::FailureOr<llvm::SmallVector<idr::expect::StageRequest>> read =
+        idr::expect::parseStageRequests(&scratch, written);
+    if (mlir::failed(read))
+      return llvm::createStringError(llvm::StringRef(said).rtrim());
+    llvm::append_range(requests, *read);
+  }
+  return requests;
+}
+
+std::optional<std::string> givenPath(const cl::opt<std::string> &path) {
+  if (path.empty())
+    return std::nullopt;
+  return path.getValue();
+}
+
 llvm::Expected<Invocation> compileInvocation() {
   if (inputPath.empty() || outputPath.empty())
     return llvm::createStringError("give an input file and -o (see --help)");
   Product product = objectOnly ? Product(Archive{outputPath}) : Product(Executable{outputPath});
-  std::optional<std::string> report;
-  if (!reportPath.empty())
-    report = reportPath.getValue();
   FrontendArgs frontend{idrisPrefix, packagePath, packages, noPrelude};
-  std::optional<Plan> plan =
-      Plan::of(inputPath, std::move(product), std::move(report), std::move(frontend));
+  std::optional<Plan> plan = Plan::of(inputPath, std::move(product), givenPath(reportPath),
+                                      givenPath(emittedPath), std::move(frontend));
   if (!plan)
-    return llvm::createStringError(
-        "-o and --report name outputs that collide with each other or with the input");
+    return llvm::createStringError("-o, --report and --emitted name outputs that collide with "
+                                   "each other or with the input");
   // A module has no frontend to give them to (FromModule holds none).
   if (std::holds_alternative<FromModule>(plan->source) && llvm::any_of(frontendOnly, given))
-    return llvm::createStringError("-p, --package-path, --prefix and --no-prelude are the "
-                                   "frontend's, for Idris source, not for a module");
+    return llvm::createStringError("-p, --package-path, --prefix, --no-prelude and --emitted "
+                                   "are the frontend's, for Idris source, not for a module");
   if (llvm::Error error = checkMlirOptions())
     return std::move(error);
+  llvm::Expected<llvm::SmallVector<idr::expect::StageRequest>> stages = stageRequests();
+  if (!stages)
+    return stages.takeError();
   unsigned threads = given(std::addressof(numThreads))
                          ? numThreads.getValue()
                          : std::max(1u, llvm::hardware_concurrency().compute_thread_count());
-  return Compile{std::move(*plan), runtimePath, threads, logActionsTags,
-                 contracts ? PassChecks::Contracts : PassChecks::Verifier};
+  return Compile{std::move(*plan),
+                 runtimePath,
+                 threads,
+                 logActionsTags,
+                 contracts ? PassChecks::Contracts : PassChecks::Verifier,
+                 std::move(*stages)};
 }
 
 } // namespace

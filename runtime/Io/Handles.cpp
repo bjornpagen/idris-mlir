@@ -21,9 +21,12 @@
 // An operation given a handle that is not open as what it takes (a closed
 // file, a directory where a file goes) fails as the C library fails a stream
 // that is not open, with EBADF: streamOf decides it once for every operation
-// on a stream, openSlot for the others.
+// on a stream, openSlot for the others. Reading a handle as a string is
+// asked only of one that holds a string: the guard at its call site asks
+// first, and crashes there, at the program's place, when it holds none.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
+#include "End/End.h"
 #include "Io/Io.h"
 #include "Platform/Platform.h"
 #include "Rc/Rc.h"
@@ -83,39 +86,39 @@ void grow() {
   slotsHeld = held;
 }
 
-// What the slot holds, released: a file closed, a directory closed, a string
-// losing the slot's reference. A directory's entry slot is a slot of its
-// own, and a standard stream's state is its row's, not the slot's.
-void releasePayload(Slot &slot) {
+// What the slot holds, released: a file closed, which writes what it has
+// pending, and how that went; a directory closed; a string losing the
+// slot's reference. A directory's entry slot is a slot of its own, and a
+// standard stream's state is its row's, not the slot's.
+rt::platform::Wrote releasePayload(Slot &slot) {
   switch (slot.kind) {
   case Kind::File:
-    if (!rt::platform::closeFile(slot.file))
-      rt::io::saveError();
-    break;
+    return rt::platform::closeFile(slot.file);
   case Kind::Directory:
     if (!rt::platform::closeDirectory(slot.directory.stream))
       rt::io::saveError();
-    break;
+    return rt::platform::Wrote::Whole;
   case Kind::String:
   case Kind::KeptString:
     rt::rc::decCell(slot.string);
-    break;
+    return rt::platform::Wrote::Whole;
   case Kind::Input:
   case Kind::Output:
   case Kind::Error:
   case Kind::Times:
   case Kind::Free:
-    break;
+    return rt::platform::Wrote::Whole;
   }
 }
 
 // Releases what the slot holds and frees it for the next newSlot.
-void freeSlot(int64_t handle) {
+rt::platform::Wrote freeSlot(int64_t handle) {
   Slot &slot = slots[handle];
-  releasePayload(slot);
+  rt::platform::Wrote released = releasePayload(slot);
   slot.kind = Kind::Free;
   slot.nextFree = freeHandle;
   freeHandle = handle;
+  return released;
 }
 
 // A stream that is not open. streamOf saves EBADF when it finds one, and
@@ -204,16 +207,17 @@ void keepString(int64_t handle, const idris_rt_str *s) {
 
 // A directory owns the slot of its entry, made with it, which goes after
 // it: the slot is read before freeing writes over it.
-void releaseSlot(int64_t handle) {
+rt::platform::Wrote releaseSlot(int64_t handle) {
   Slot released = slots[handle];
-  freeSlot(handle);
+  rt::platform::Wrote how = freeSlot(handle);
   if (released.kind == Kind::Directory)
-    freeSlot(released.directory.entry);
+    (void)freeSlot(released.directory.entry);
+  return how;
 }
 
 void releaseHandles() {
   for (size_t i = 0; i < slotsUsed; ++i)
-    releasePayload(slots[i]);
+    (void)releasePayload(slots[i]);
   if (slots != seeded.slots)
     rt::alloc::release(slots);
   seeded = seed;
@@ -224,20 +228,18 @@ void releaseHandles() {
 
 } // namespace rt::io
 
-// Base's null pointer: the handle -1. 1 when the handle is null, else 0.
-extern "C" int64_t idris_rt_handle_is_null(int64_t handle) {
-  return handle == rt::io::nullHandle ? 1 : 0;
+// Whether a handle holds a string, the program's or the runtime's: what the
+// guard before base's getString asks, crashing at the program's place when
+// it does not.
+extern "C" bool idris_rt_handle_holds_string(int64_t handle) {
+  rt::io::Kind kind = rt::io::slotOf(handle).kind;
+  return kind == rt::io::Kind::String || kind == rt::io::Kind::KeptString;
 }
 
 // Base's getString: the string a string handle holds, with one more
-// reference. A handle that holds no string is a pointer no primitive gave as
-// a string, and reading one is a crash.
+// reference, of a handle its guard found to hold one.
 extern "C" const idris_rt_str *idris_rt_handle_string(int64_t handle) {
   const rt::io::Slot &slot = rt::io::slotOf(handle);
-  if (slot.kind != rt::io::Kind::String && slot.kind != rt::io::Kind::KeptString) {
-    static constexpr char cause[] = "a pointer read as a string holds none";
-    idris_rt_crash(cause, sizeof cause - 1);
-  }
   rt::rc::incCell(slot.string);
   return slot.string;
 }
@@ -251,7 +253,15 @@ extern "C" void idris_rt_io_handle_free(int64_t handle) {
   case rt::io::Kind::Directory:
   case rt::io::Kind::Times:
   case rt::io::Kind::String:
-    rt::io::releaseSlot(handle);
+    switch (rt::io::releaseSlot(handle)) {
+    case rt::platform::Wrote::Whole:
+      return;
+    case rt::platform::Wrote::Broken:
+      rt::end::end(rt::end::Piped{});
+    case rt::platform::Wrote::Failed:
+      rt::io::saveError();
+      return;
+    }
     return;
   case rt::io::Kind::Input:
   case rt::io::Kind::Output:

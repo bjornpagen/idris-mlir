@@ -13,7 +13,6 @@
 
 set(IDRIS_MLIR_THIRD_PARTY "${PROJECT_SOURCE_DIR}/third_party")
 foreach(file
-		snmalloc/src/snmalloc/snmalloc.h
 		simdutf/src/simdutf.cpp
 		fast_float/include/fast_float/fast_float.h
 		ryu/ryu/d2s.c)
@@ -21,13 +20,20 @@ foreach(file
 		message(FATAL_ERROR "third_party/${file} is missing; run: git submodule update --init")
 	endif()
 endforeach()
+# snmalloc is the copy the bootstrap exports from third_party/snmalloc with
+# its patches applied (IDRIS_MLIR_SNMALLOC, the toolchain file's): the
+# runtime compiles the patched source, never the checkout.
+if(NOT EXISTS "${IDRIS_MLIR_SNMALLOC}/src/snmalloc/snmalloc.h")
+	message(FATAL_ERROR "the runtime's snmalloc is missing at ${IDRIS_MLIR_SNMALLOC}; run: tools/bootstrap.sh snmalloc")
+endif()
 
 # snmalloc as its own build describes it, header-only: its interface target
 # carries what it finds of the system, and what is ours: the step of its
 # size classes (a cell of a header and two fields, 24 bytes, is a size
 # class of its own), the target entry's page, and its own small STL, since
 # the runtime links no C++ library. Its thread teardown, which a
-# header-only build leaves to its user, is idris_rt_compile's.
+# header-only build leaves to its user, and its one mitigation are
+# idris_rt_compile's.
 set(SNMALLOC_HEADER_ONLY_LIBRARY ON CACHE BOOL "" FORCE)
 set(SNMALLOC_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(SNMALLOC_MIN_ALLOC_STEP_SIZE 8 CACHE STRING "" FORCE)
@@ -37,20 +43,24 @@ set(SNMALLOC_USE_SELF_VENDORED_STL ON CACHE BOOL "" FORCE)
 # snmalloc's build links the backtrace library in a debug build when it
 # finds it, so it finds none.
 set(CMAKE_DISABLE_FIND_PACKAGE_Backtrace TRUE)
-add_subdirectory("${IDRIS_MLIR_THIRD_PARTY}/snmalloc" "${CMAKE_CURRENT_BINARY_DIR}/snmalloc"
+add_subdirectory("${IDRIS_MLIR_SNMALLOC}" "${CMAKE_CURRENT_BINARY_DIR}/snmalloc"
 	EXCLUDE_FROM_ALL SYSTEM)
 
 # The runtime's units, one directory per part, each with one header its
 # units share: its memory (Alloc), counting (Rc), strings (Strings), `cast`
 # from String (Numerals), bigs (Big), doubles (Doubles), input and output,
 # the standard streams and base's files, directories, process, terminal,
-# errors and clocks behind the handle table (Io), and the program's entry
-# (Start). The platform layer (Platform) is implemented on every POSIX
-# system by Platform/Posix and on the target's processor by the target
+# errors and clocks behind the handle table (Io), the program's entry and
+# the runner (Start), and the one way a process ends (End). The platform
+# layer (Platform) is implemented on every POSIX system by Platform/Posix,
+# for what the host decides by the target entry's operating system unit
+# (IDRIS_MLIR_RUNTIME_OS), and on the target's processor by the target
 # entry's unit (IDRIS_MLIR_RUNTIME_CPU_TEST).
 set(IDRIS_RT_SOURCES
+	Alloc/Arenas.cpp
 	Alloc/Arrays.cpp
 	Alloc/Cells.cpp
+	Alloc/Frames.cpp
 	Alloc/Gmp.cpp
 	Rc/Counting.cpp
 	Rc/Freeing.cpp
@@ -77,7 +87,6 @@ set(IDRIS_RT_SOURCES
 	Io/Bytes.cpp
 	Io/Clock.cpp
 	Io/Directories.cpp
-	Io/Ending.cpp
 	Io/Errors.cpp
 	Io/Files.cpp
 	Io/FileTimes.cpp
@@ -89,8 +98,10 @@ set(IDRIS_RT_SOURCES
 	Io/Processors.cpp
 	Io/Scratch.cpp
 	Io/Terminal.cpp
+	Start/Arguments.cpp
 	Start/Entry.cpp
 	Start/Runner.cpp
+	End/End.cpp
 	Platform/Posix/Clocks.cpp
 	Platform/Posix/Directories.cpp
 	Platform/Posix/Faults.cpp
@@ -100,19 +111,23 @@ set(IDRIS_RT_SOURCES
 	Platform/Posix/Processors.cpp
 	Platform/Posix/Stacks.cpp
 	Platform/Posix/Terminal.cpp
+	${IDRIS_MLIR_RUNTIME_OS}
 	${IDRIS_MLIR_RUNTIME_CPU_TEST}
 )
 
 # What a unit that includes the runtime's headers reads: this directory
 # (idris_rt.h, the C ABI; cpu_features.h; each part's header, by its path
-# from here) and the target entry's list of the processor features programs
-# may be compiled to use, which cpu_features.h includes and idr-lower and
-# idris-mlir read too. TARGET, a runtime archive, carries them with SCOPE:
-# idris_rt to every library that links it.
+# from here); the declarations generated from the dialect's specification
+# (Generated/idris_rt_ops.h: the functions lowered code calls), committed
+# beside the sources; the specification's other headers the runtime reads
+# and the numeric meanings it shares with the compiler (idr/IR/Generated,
+# idr/IR/Numeric), each freestanding; and the target entry's list of the
+# processor features programs may be compiled to use, which cpu_features.h
+# includes and idr-lower and idris-mlir read too. TARGET, a runtime archive,
+# carries them with SCOPE: idris_rt to every library that links it.
 set(IDRIS_RT_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}"
-	# idris_rt_ops.h: the C declarations of the functions the dialect's ops
-	# call, generated from their ODS (foreign/idr/include/idr/IR).
-	"${PROJECT_BINARY_DIR}/foreign/idr/include/idr/IR")
+	"${CMAKE_CURRENT_SOURCE_DIR}/Generated"
+	"${PROJECT_SOURCE_DIR}/foreign/idr/include")
 function(idris_rt_headers target scope)
 	target_include_directories(${target} ${scope} ${IDRIS_RT_INCLUDE_DIRECTORIES})
 	target_compile_definitions(${target} ${scope}
@@ -130,12 +145,19 @@ endfunction()
 # - each function and datum in its own section, so the linker drops the
 #   unused ones (the target entry's IDRIS_MLIR_RUNTIME_SECTIONS, which is
 #   empty where the object's bitcode forbids them);
+# - stack-clash protection (IDRIS_MLIR_RUNTIME_PROBE_FLAGS) in the native
+#   code idris-mlir and the prepared runtime link, as in GMP and the tools:
+#   code the compiler does not size touches every page it takes. A program's
+#   own frames, the runtime bodies it joins among them, are sized by code
+#   generation and checked against the guard when it is built, so the
+#   bodies shed their probes when joined (linkRuntime);
 # - no FP contraction.
 add_library(idris_mlir_runtime_profile INTERFACE)
 target_compile_options(idris_mlir_runtime_profile INTERFACE
 	-O3
 	${IDRIS_MLIR_BASELINE_CPU}
 	${IDRIS_MLIR_RUNTIME_BITCODE_FLAGS}
+	${IDRIS_MLIR_RUNTIME_PROBE_FLAGS}
 	-ffp-contract=off
 	${IDRIS_MLIR_RUNTIME_SECTIONS}
 )
@@ -175,12 +197,17 @@ function(idris_rt_compile target checked)
 		# folders run on worker threads, a thread that ends keeps its cache, a
 		# cost bounded by the threads a compilation starts.
 		SNMALLOC_USE_THREAD_CLEANUP
-		# The target's page size, which the runtime's startup check compares
-		# with the system's (Platform/Posix/Memory.cpp). The target entry's one
-		# number.
+		# snmalloc's one mitigation: a reservation stays inaccessible until
+		# snmalloc commits it, so a reservation is address space alone and a
+		# commit a strict host refuses is snmalloc's refusal, out of memory
+		# (Alloc/Cells.cpp).
+		SNMALLOC_CHECK_CLIENT_MITIGATIONS=pal_enforce_access
+		# The target's page size, which every host of the runtime compares
+		# with the system's first. The target entry's one number.
 		IDRIS_RT_PAGE_SIZE=${IDRIS_MLIR_PAGE_SIZE}
-		# The target's user address width (Platform/Address.h), the entry's.
-		IDRIS_RT_USER_ADDRESS_BITS=${IDRIS_MLIR_USER_ADDRESS_BITS}
+		# What code outside the program takes on its stack (the C library,
+		# GMP, compiler-rt), measured for the target (Start/Entry.cpp).
+		IDRIS_RT_OUTSIDE_STACK_BYTES=${IDRIS_MLIR_OUTSIDE_STACK_BYTES}
 		IDRIS_RT_CHECKED=${checked}
 	)
 	target_link_libraries(${target} PRIVATE snmalloc idris_mlir_runtime_profile idris_mlir_warnings)
@@ -207,7 +234,6 @@ if(IDRIS_MLIR_TYPECHECK)
 	idris_rt_compile(idris_rt_typecheck 0)
 	target_include_directories(idris_rt_typecheck SYSTEM PRIVATE
 		"${CMAKE_CURRENT_BINARY_DIR}/typecheck-gmp")
-	add_dependencies(idris_rt_typecheck IdrRuntimeAbiIncGen)
 	add_custom_target(idris_rt_check)
 	add_dependencies(idris_rt_check idris_rt_typecheck)
 	return()
@@ -235,16 +261,16 @@ add_library(idris_rt STATIC
 )
 idris_rt_headers(idris_rt PUBLIC)
 idris_rt_compile(idris_rt 0)
-add_dependencies(idris_rt IdrRuntimeAbiIncGen)
 # Its bigs call GMP, so whatever links it links GMP.
 target_link_libraries(idris_rt INTERFACE ${IDRIS_MLIR_GMP})
 
 # The checked runtime: the same units, in which a cell that dies keeps its
-# memory with its header marked, and a count operation on such a cell, or
-# on a stack cell whose frame has returned, ends the program naming it
-# (Alloc/Alloc.h). Nothing links it by default: a test compiles a program
-# with it (--runtime, the object foreign/idr prepares from it) to find the
-# double releases and dangling references that live cells cannot see.
+# memory with its header marked, a count operation on such a cell ends the
+# program as the runtime's internal error, and so does a cell still live
+# when main returns (Alloc/Alloc.h). Nothing links it by default: a test
+# compiles a program with it (--runtime, the object foreign/idr prepares
+# from it) to find the double releases, dangling references and leaks the
+# shipped runtime, which counts nothing, cannot see.
 add_library(idris_rt_checked STATIC
 	${IDRIS_RT_SOURCES}
 	$<TARGET_OBJECTS:idris_rt_simdutf>
@@ -252,7 +278,6 @@ add_library(idris_rt_checked STATIC
 )
 idris_rt_headers(idris_rt_checked PRIVATE)
 idris_rt_compile(idris_rt_checked 1)
-add_dependencies(idris_rt_checked IdrRuntimeAbiIncGen)
 set_target_properties(idris_rt_checked PROPERTIES CXX_CLANG_TIDY ""
 	ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 

@@ -8,7 +8,6 @@
 // PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
-#include "Rc/Rc.h"
 #include "idris_rt.h"
 
 #include <stddef.h>
@@ -30,13 +29,6 @@ inline constexpr idris_rt_str emptyString{{0, stringInfo}, 0, 0};
 // Every byte ASCII. A scalar takes one byte exactly when it is ASCII, so the
 // lengths say it, and say it of every string, a slice included.
 inline bool isAscii(const idris_rt_str *s) { return s->bytes == s->scalars; }
-
-// An argument returned as the result, which the caller owns: one more
-// reference.
-inline const idris_rt_str *shared(const idris_rt_str *s) {
-  rt::rc::incCell(s);
-  return s;
-}
 
 // Where a string's bytes go, after its lengths in the same cell.
 inline char *mutableBytes(idris_rt_str *s) { return reinterpret_cast<char *>(s + 1); }

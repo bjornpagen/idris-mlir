@@ -4,7 +4,7 @@
  * share, which idr-lower writes constants of into static data; the ownership
  * rules every entry point keeps; the ABI's constants; and the prototypes of
  * the functions lowered code does not call. idris_rt_ops.h, generated from
- * the dialect's ODS, declares every function idr-lower calls. A function's
+ * the dialect's specification, declares every function idr-lower calls. A function's
  * meaning is documented beside its definition, in runtime/.
  *
  * Every function the runtime exports is named by a C identifier, with no
@@ -33,21 +33,23 @@ extern "C" {
 /* Every heap object starts with this header.
  *
  * count is how many owned references the object has, or one of two marks:
- * - 0: persistent. Static data is never counted and never freed. Everything a
- *   persistent object points to is persistent: a static memo cell (kind
- *   IDRIS_RT_KIND_THUNK), which its first force writes once, makes the value
- *   it then holds persistent (idris_rt_persist_held), every counted cell it
- *   reaches getting count 0, live until the program ends.
+ * - 0: not counted. Static data, and every cell of a lexical lifetime
+ *   (freed with its lifetime, never by a count), are never counted and never
+ *   freed by one; static data may be read-only.
  * - 1 to UINT32_MAX - 1: owned references, counted with plain arithmetic,
- *   since a program is single-threaded.
+ *   since a program is single-threaded. 1 is the one reference: a cell of
+ *   count 1 is exclusive.
  * - UINT32_MAX: saturated. A count that would overflow stops there, and the
  *   object is never decremented or freed: an overflow leaks the object
  *   instead of freeing it while it is still in use.
+ * Both marks are one unsigned comparison away from a counted value, so the
+ * test that keeps a saturated count saturated is the one that leaves static
+ * data alone, and costs nothing more.
  *
- * info is tag | objs << 16 | kind << 24, with bit 31 marking a stack cell.
- * Freeing reads only objs (and the word that counts a wide cell's slots),
- * kind and bit 31, and an array's tag and length when its elements hold
- * objects, so the runtime frees any cell without knowing its type.
+ * info is tag | objs << 16 | kind << 24. Freeing reads only objs (and the
+ * word that counts a wide cell's slots) and kind, and an array's tag and
+ * length when its elements hold objects, so the runtime frees any cell
+ * without knowing its type.
  * - tag (bits 0-15): a box's constructor tag, a thunk's state (the
  *   constructor of its memo sum it holds), an array's element size in
  *   bytes; 0 for a string and a bignum.
@@ -58,14 +60,7 @@ extern "C" {
  *   come right after that word. Strings and bignums have none. An array's
  *   are per element: its first objs words (idris_rt_array), fewer than
  *   IDRIS_RT_OBJS_WIDE, since an element with more is held boxed.
- * - kind (bits 24-30): one of the IDRIS_RT_KIND_ values.
- * - bit 31: a stack cell, which the compiler builds in a frame; its memory
- *   belongs to that frame and it is never a live cell (idris_rt_live_cells).
- *   When its count reaches 0 its object slots are released but its memory is
- *   not freed, and the live-cell count does not change. A stack cell is
- *   never exclusive (idris_rt_is_unique): a callee it is lent
- *   to could otherwise reuse its memory for a result that outlives the frame
- *   holding it.
+ * - kind (bits 24-31): one of the IDRIS_RT_KIND_ values.
  * idris_rt_info builds the word, and the accessors below take it apart. It
  * does not check its arguments: idr-lower builds every word it writes
  * through its CellInfo, which exists only for a tag below IDRIS_RT_TAG_LIMIT
@@ -74,8 +69,10 @@ extern "C" {
  *
  * An object slot holds a counted reference: a pointer to an object, NULL (an
  * unused pointer slot of an unboxed sum), or an odd word (a small Integer or
- * Nat, as idris_rt_big has them). A cell's other fields come after its object
- * slots, so the slots are all the runtime needs to find. */
+ * Nat, as idris_rt_big has them). Which of those a slot may hold is its
+ * type's, and the counting entry the lowering calls for it is that kind's.
+ * A cell's other fields come after its object slots, so the slots are all
+ * the runtime needs to find. */
 typedef struct idris_rt_header {
   uint32_t count;
   uint32_t info;
@@ -110,7 +107,6 @@ IDRIS_RT_STATIC_ASSERT(sizeof(idris_rt_header) == IDRIS_RT_WORD_BYTES,
 #define IDRIS_RT_KIND_STRING 2u
 #define IDRIS_RT_KIND_BIGNUM 3u
 #define IDRIS_RT_KIND_ARRAY 4u
-#define IDRIS_RT_STACK_CELL 0x80000000u
 
 #define IDRIS_RT_TAG_LIMIT 0x10000u
 #define IDRIS_RT_OBJS_LIMIT 0x100u
@@ -129,7 +125,7 @@ IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info(uint32_t tag, uint32_t objs, uint3
 }
 IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_tag(uint32_t info) { return info & (IDRIS_RT_TAG_LIMIT - 1u); }
 IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_objs(uint32_t info) { return info >> 16 & (IDRIS_RT_OBJS_LIMIT - 1u); }
-IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_kind(uint32_t info) { return info >> 24 & 0x7Fu; }
+IDRIS_RT_INFO_FUNCTION uint32_t idris_rt_info_kind(uint32_t info) { return info >> 24; }
 #undef IDRIS_RT_INFO_FUNCTION
 
 /* A string: the header (kind IDRIS_RT_KIND_STRING, tag 0), the byte
@@ -246,27 +242,88 @@ typedef struct idris_rt_memref {
  * fields, in a cell as large as its largest state. A cell holds no code
  * address. Their field layouts are idr-lower's. */
 
-/* The functions idr-lower calls, the ops' (their Idr_Runtime) and the cell,
- * array, counting, string-building, crash and entry functions, declared from
- * the dialect's ODS, so that a definition in runtime/ that does not take what
- * lowered code passes and give what it expects fails to compile. */
+/* A text of the program's static data, which the runtime only writes out:
+ * a source file's name or a function's in a crash site, shared by every site
+ * that names it, and the program's own name. */
+typedef struct idris_rt_text {
+  uint32_t length;
+  char bytes[];
+} idris_rt_text;
+
+/* What the lowering knows of the program, one constant @main passes to
+ * idris_rt_start: the body, the IO root, which takes and gives nothing; and
+ * the IDRIS_RT_CPU_FEATURES bits (cpu_features.h) of the features its target
+ * enables, which the processor must have. */
+typedef struct idris_rt_program {
+  void (*body)(void);
+  uint64_t cpu_features;
+} idris_rt_program;
+
+/* What only the driver knows of the program, once code generation has given
+ * each function's frame: one constant of an object the driver compiles after
+ * the program's, which every executable links. The bytes of the deepest path
+ * of calls the program's code can make, every frame on it its own size as
+ * code generation laid it out, the runtime's frames included; the largest
+ * single frame, which the guard below the stack is at least, so no frame can
+ * step over it; the bytes of the deepest path the fault handler's code can
+ * take on the signal stack; and the program's name, the executable's as the
+ * driver built it, which every message begins with. Calls into code outside
+ * the program (the C library, GMP) are the runtime's margin for it, a fact of
+ * the target's entry. */
+typedef struct idris_rt_built {
+  uint64_t stack_bytes;
+  uint64_t frame_bytes;
+  uint64_t signal_bytes;
+  const char *name;
+  uint64_t name_bytes;
+} idris_rt_built;
+
+extern const idris_rt_built idris_rt_program_built;
+/* Its name, which the driver defines it by. */
+#define IDRIS_RT_PROGRAM_BUILT_NAME "idris_rt_program_built"
+
+/* A lifetime the program allocates into by a bump: a chain of chunks, and a
+ * cursor, the first free byte of its newest chunk, which compiled code
+ * threads from one cell to the next: idris_rt_arena_chunk gives where a cell
+ * goes, and the next cursor is that plus the cell's bytes, a multiple of the
+ * word. Its cells carry no count (their headers' count is 0) and die with
+ * it: closing the chain gives every chunk back (idris_rt_arena_close), and a
+ * stack lifetime's end gives back the chunks taken since its mark, the
+ * cursor when it opened (idris_rt_stack_reset).
+ *
+ * The thread's frame stack, where a recursion on a cycle of calls keeps its
+ * depth: frames contiguous within chunks, each pushed once
+ * (idris_rt_frame_push) and popped by putting the stack back to it
+ * (idris_rt_frame_pop), which gives back the chunks past it and keeps one
+ * as the spare, so a push and a pop alternating at a chunk's edge call the
+ * allocator at most once. */
+
+/* The functions idr-lower calls, the ops' runtime functions and the helpers
+ * no op names (the cell, array, counting, token, string-building, crash and
+ * entry functions), declared from the dialect's specification, so that a
+ * definition in runtime/ that does not take what lowered code passes and give
+ * what it expects fails to compile. */
 #include "idris_rt_ops.h"
 
-/* Reference counting's entry points take NULL, an odd word and a persistent
- * object too, and then do nothing, but for its test of exclusivity, which
- * takes a cell: an object slot may hold any of them, so callers need no test
- * first.
+/* Counting has one increment and one decrement for each kind of word a
+ * counted reference may be: a cell, a cell or NULL, a cell or a small value,
+ * or any of the three. The lowering calls the one its type says, so each
+ * tests exactly what the kind leaves open and nothing it rules out; a static
+ * or saturated count is left as it is (count 0 and UINT32_MAX, above). A
+ * reuse token's memory is freed with no test of its count: one proved
+ * exclusive with no test at all, one that may be null testing that alone.
  *
  * Ownership at the other entry points. A primitive (the string, big, output,
  * show and parse operations, which the folders call too) borrows its
  * arguments: it neither releases nor keeps them. A primitive that returns an
- * object returns an owned reference: a new object (count 1), a persistent
- * one, or one of its arguments with one more reference.
+ * object returns an owned reference, fresh: a new object (count 1) or a
+ * static one, never one of its arguments, even where its value is one (an
+ * empty string appended, a shift of no places), so its result's identity is
+ * its own. The Nat of an Integer alone gives back a large argument that is
+ * not negative, with one more reference: it writes a count.
  *
  * Strings are immutable; each operation borrows its arguments and returns an
- * owned string: a new one, a persistent one (the empty string), or an
- * argument with one more reference (appending the empty string, reversing an
- * empty one).
+ * owned string: a new one, or a static one (the empty string).
  *
  * Bigs: Integer, and the Nat-like types. Each operation borrows its
  * arguments and returns an owned result: a small word, or a new bignum.
@@ -289,13 +346,6 @@ typedef struct idris_rt_memref {
  * A failing call sets the runtime's saved errno, which base's errno and
  * file errors read. */
 
-/* The exit status of a program the runtime ends with a message on standard
- * error, `idris-mlir: `, the cause idris_rt_crash is given, and a newline: a
- * crash, the stack running out, a processor without the features the
- * program was compiled to use, a system whose page size is not the one the
- * runtime is built for. */
-#define IDRIS_RT_CRASHED 1
-
 /* The mark of what runs before the processor test (the page-size check, the
  * test, and what they write and how they end the process): idris-mlir finds
  * a function annotated with it by this name, and keeps it compiled for the
@@ -303,18 +353,44 @@ typedef struct idris_rt_memref {
 #define IDRIS_RT_BASELINE_MARK "idris-rt-baseline"
 #define IDRIS_RT_BASELINE __attribute__((annotate(IDRIS_RT_BASELINE_MARK)))
 
+/* The mark of the function the kernel calls on a fault, on the signal
+ * stack: idris-mlir finds it by this name and sizes the signal stack by the
+ * deepest path of calls from it, as it sizes the stack by the program's. */
+#define IDRIS_RT_HANDLER_MARK "idris-rt-handler"
+#define IDRIS_RT_HANDLER __attribute__((annotate(IDRIS_RT_HANDLER_MARK)))
+
+/* What a reserved stack is to hold, for the runner: the bytes of the deepest
+ * path of calls the code run on it can make, its largest frame, which the
+ * guard below it is at least, and the bytes the fault handler's path takes on
+ * the signal stack. The runner adds what the host's own thread and signal
+ * delivery take, which it reads at start, and rounds each to pages. */
+typedef struct idris_rt_stack_plan {
+  uint64_t stack_bytes;
+  uint64_t frame_bytes;
+  uint64_t signal_bytes;
+} idris_rt_stack_plan;
+
+/* How a run on a reserved stack went: the function ran and returned, or the
+ * system refused the memory the runner asked for (its stacks, the heap's
+ * page map), which is the process running out of memory. */
+typedef enum idris_rt_ran { IDRIS_RT_RAN, IDRIS_RT_REFUSED } idris_rt_ran;
+
 /* The functions lowered code does not call: idris-mlir calls them natively
  * (its folders, its tools, idr-lower's static data), and so do the runtime's
- * tests. */
-uint64_t idris_rt_live_cells(void);
+ * tests. The tools run on idris_rt_run_on_stack, as a program runs on
+ * idris_rt_start's runner: it sets up the heap and GMP's allocation once,
+ * before anything else of the runtime runs, so every other function here is
+ * called from inside fn. A tool's own allocator that runs out ends the
+ * process through idris_rt_out_of_memory, as lowered code does. */
+idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg, const idris_rt_stack_plan *plan,
+                                   const char *name, size_t name_bytes);
+/* The memory a tool may plan for: physical memory, capped by the process's
+ * address-space limit and by what its cgroup lets it still commit. */
+uint64_t idris_rt_host_memory(void);
 void idris_rt_flush(void);
-int idris_rt_run_on_stack(void (*fn)(void *), void *arg, void (*exhausted)(void));
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
 const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n);
-void idris_rt_str_release(const idris_rt_str *s);
-void idris_rt_big_release(idris_rt_big a);
 size_t idris_rt_utf8_count(const char *p, size_t n);
-void idris_rt_gmp_init(void);
 
 #ifdef __cplusplus
 }

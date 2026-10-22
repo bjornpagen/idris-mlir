@@ -1,127 +1,250 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime's memory over snmalloc: raw blocks, and cells, which it
-// counts while they live. snmalloc is included here alone, so its fast
-// paths inline into newCell and freeCell in every build. Those two, the
-// allocation under them and idris_rt_cell are always inlined wherever the
-// runtime's bitcode is joined, every program among them: idr-lower calls
-// idris_rt_cell with a constant size, so the size class folds and an
-// allocation is a thread-local free-list pop in the caller, whatever the
-// inliner's budget says. A unit compiled alone calls them.
+// The runtime's memory over snmalloc: the heap's span, raw blocks, and
+// cells. snmalloc is included here alone, so its fast paths inline into
+// newCell and freeCell in every build. Those two, the allocation under them
+// and idris_rt_cell are always inlined wherever the runtime's bitcode is
+// joined, every program among them: idr-lower calls idris_rt_cell with a
+// constant size, so the size class folds and an allocation is a
+// thread-local free-list pop in the caller, whatever the inliner's budget
+// says. A unit compiled alone calls them.
 //
-// snmalloc is configured as its own build describes it (runtime/
-// CMakeLists.txt): its defaults, with size classes that step by 8 bytes,
-// so a cell of an 8-byte header and two fields takes exactly 24, the
-// target entry's page, its own small STL and no thread teardown of its
-// own. Its global configuration is HeapConfig below, which places the heap.
+// snmalloc is the copy the bootstrap exports with its patches, configured
+// as its own build describes it (runtime/CMakeLists.txt): size classes
+// that step by 8 bytes, so a cell of an 8-byte header and two fields takes
+// exactly 24; the target entry's page; its own small STL; no thread
+// teardown of its own; and exactly one mitigation, the one that keeps a
+// reservation inaccessible until it is committed, a commit that a strict
+// host refuses being then a refusal, never memory handed out unusable. Its
+// configuration is HeapConfig below, composed from snmalloc's parts as its
+// own configurations are, whose source of chunks is the span.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
-#include "Platform/Address.h"
+#include "End/End.h"
 #include "Platform/Platform.h"
 #include "idris_rt.h"
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
-#include <snmalloc/backend/globalconfig.h>
+#include <snmalloc/backend/fixedglobalconfig.h>
 #include <snmalloc/snmalloc_core.h>
 
 namespace rt::alloc {
 
-// The heap starts in one region of 4 GiB, aligned to 4 GiB, so every cell of
-// a heap smaller than that has the same upper 32 bits as every other. That is
+// The heap's chunks lie in one span, from an address aligned to 4 GiB,
+// reserved in address order as snmalloc asks for them, so every cell of a
+// heap smaller than 4 GiB has the same upper 32 bits as every other. That is
 // what a data memory-dependent prefetcher asks of a word before it follows
 // it (Apple's, which scans each cache line a load fills and fetches what a
-// word in it points to, only when the word and its address share their 4 GiB
-// region). A heap that outgrows the region grows from snmalloc's platform
-// layer, as it would without one. The region is address space alone, which
-// costs nothing on a target with no such prefetcher.
-constexpr size_t heapRegion = size_t{1} << 32;
+// word in it points to, only when the word and its address share their
+// 4 GiB region). Only the alignment is the prefetcher's: nothing of the
+// region is reserved before it is used, which costs nothing on a target
+// with no such prefetcher.
+inline constexpr size_t regionBits = 32;
 
-// snmalloc's standard configuration (StandardConfigClientMeta in
-// snmalloc/backend/globalconfig.h, with no client metadata and without the
-// metadata protection no mitigation of ours enables), with one addition: its
-// initialisation, on the first allocation, gives the global range the heap's
-// region before anything is drawn from it, as snmalloc's fixed-range
-// configuration gives it its one range.
-class HeapConfig final : public snmalloc::CommonConfig {
-  using GlobalPoolState = snmalloc::PoolState<snmalloc::Allocator<HeapConfig>>;
+// snmalloc's POSIX or Apple platform, whose fatal errors (its own state
+// refused, a range it was handed out of bounds) end the process as the
+// runtime's internal error, the output written first, rather than its
+// unflushed abort in another format.
+struct Pal : snmalloc::DefaultPal {
+  [[noreturn]] static void error(const char *const text) noexcept {
+    rt::end::end(rt::end::AllocatorFailed{text});
+  }
+};
 
+// The span: chunks reserved at fixed addresses, in order, from the cursor
+// up, each aligned to its size as snmalloc asks; a mapping already there
+// (the C library's, the program's image) is stepped past. The system
+// refusing address space, or the span's end, is a null, which snmalloc
+// meets as out of memory. Under the global range's lock, as every source of
+// snmalloc's backend is.
+class SpanRange {
 public:
-  using Pal = snmalloc::DefaultPal;
+  static constexpr bool Aligned = true;
+  static constexpr bool ConcurrencySafe = false;
+  using ChunkBounds = snmalloc::capptr::bounds::Arena;
+
+  constexpr SpanRange() = default;
+
+  // The span, from the first byte past the page map to its end.
+  static void set(uintptr_t from, uintptr_t to) noexcept {
+    cursor = from;
+    end = to;
+  }
+
+  // `size` bytes at the cursor, aligned to `alignment`: a chunk, or the
+  // runner's stacks before any chunk.
+  static char *take(size_t size, size_t alignment) noexcept {
+    for (;;) {
+      uintptr_t at = rt::platform::roundUp(cursor, alignment);
+      if (at < cursor || at > end || end - at < size)
+        return nullptr;
+      switch (rt::platform::reserveAt(reinterpret_cast<char *>(at), size)) {
+      case rt::platform::Placed::Reserved:
+        cursor = at + size;
+        return reinterpret_cast<char *>(at);
+      case rt::platform::Placed::Occupied:
+        cursor = at + size;
+        continue;
+      case rt::platform::Placed::Refused:
+        return nullptr;
+      }
+    }
+  }
+
+  snmalloc::capptr::Arena<void> alloc_range(size_t size) {
+    return snmalloc::capptr::Arena<void>::unsafe_from(take(size, size));
+  }
+
+private:
+  SNMALLOC_REQUIRE_CONSTINIT inline static uintptr_t cursor = 0;
+  SNMALLOC_REQUIRE_CONSTINIT inline static uintptr_t end = 0;
+};
+
+// The host's limit on committed memory, after snmalloc's count of it: a
+// commit that would take the count past the limit is a null, out of
+// memory, met before the kernel's killer would end the process unnamed.
+// No limit is the largest size, so the test is one comparison and no flag
+// says whether there is a limit.
+struct LimitRange {
+  template <typename ParentRange>
+  class Type : public snmalloc::ContainsParent<ParentRange> {
+    using snmalloc::ContainsParent<ParentRange>::parent;
+
+  public:
+    static constexpr bool Aligned = ParentRange::Aligned;
+    static constexpr bool ConcurrencySafe = ParentRange::ConcurrencySafe;
+    using ChunkBounds = typename ParentRange::ChunkBounds;
+
+    constexpr Type() = default;
+
+    snmalloc::CapPtr<void, ChunkBounds> alloc_range(size_t size) {
+      size_t committed = parent.get_current_usage();
+      if (committed > limit || limit - committed < size)
+        return snmalloc::CapPtr<void, ChunkBounds>(nullptr);
+      return parent.alloc_range(size);
+    }
+
+    void dealloc_range(snmalloc::CapPtr<void, ChunkBounds> base, size_t size) {
+      parent.dealloc_range(base, size);
+    }
+
+    static void set(size_t bytes) noexcept { limit = bytes; }
+
+  private:
+    SNMALLOC_REQUIRE_CONSTINIT inline static size_t limit = SIZE_MAX;
+  };
+};
+
+// snmalloc's configuration over the span: its fixed-range shape (a bounded
+// page map over the one span, initialised explicitly), its standard ranges
+// with the limit after the count of committed memory, and no client
+// metadata or domestication, since every pointer the runtime frees is a
+// cell of its own heap.
+class HeapConfig final : public snmalloc::CommonConfig {
+public:
+  using Pal = rt::alloc::Pal;
   using ClientMeta = snmalloc::NoClientMetaDataProvider;
   using PagemapEntry = snmalloc::DefaultPagemapEntry<ClientMeta>;
   using SecondaryAllocator = snmalloc::DefaultSecondaryAllocator;
 
 private:
-  using ConcretePagemap =
-      snmalloc::FlatPagemap<snmalloc::MIN_CHUNK_BITS, PagemapEntry, Pal, false>;
-  using Pagemap = snmalloc::BasicPagemap<Pal, ConcretePagemap, PagemapEntry, false>;
-  using ConcreteAuthmap = snmalloc::FlatPagemap<snmalloc::MinBaseSizeBits<Pal>(),
-                                                snmalloc::capptr::Arena<void>, Pal, false>;
-  using Authmap = snmalloc::DefaultAuthmap<ConcreteAuthmap>;
-  using Base = snmalloc::Pipe<snmalloc::PalRange<Pal>, snmalloc::PagemapRegisterRange<Pagemap>,
-                              snmalloc::PagemapRegisterRange<Authmap>>;
-  static_assert(!snmalloc::mitigations(snmalloc::metadata_protection),
-                "the standard local state, not the metadata-protecting one");
+  using ConcretePagemap = snmalloc::FlatPagemap<snmalloc::MIN_CHUNK_BITS, PagemapEntry, Pal, true>;
+  using Pagemap = snmalloc::BasicPagemap<Pal, ConcretePagemap, PagemapEntry, true>;
+
+  struct Authmap {
+    SNMALLOC_REQUIRE_CONSTINIT inline static snmalloc::capptr::Arena<void> arena{nullptr};
+
+    template <bool potentially_out_of_range = false>
+    static SNMALLOC_FAST_PATH snmalloc::capptr::Arena<void>
+    amplify(snmalloc::capptr::Alloc<void> c) {
+      return snmalloc::Aal::capptr_rebound(arena, c);
+    }
+  };
+
+  using Base = snmalloc::Pipe<SpanRange, snmalloc::PagemapRegisterRange<Pagemap>>;
 
 public:
-  using LocalState = snmalloc::StandardLocalState<Pal, Pagemap, Base>;
+  // snmalloc's StandardLocalState, with LimitRange after StatsRange.
+  struct LocalState : snmalloc::BaseLocalStateConstants {
+    using GlobalR = snmalloc::Pipe<
+        Base,
+        snmalloc::LargeBuddyRange<GlobalCacheSizeBits, snmalloc::bits::BITS - 1, Pagemap,
+                                  snmalloc::MinBaseSizeBits<Pal>()>,
+        snmalloc::LogRange<2>, snmalloc::GlobalRange>;
+    using Stats = snmalloc::Pipe<GlobalR, snmalloc::CommitRange<Pal>, snmalloc::StatsRange,
+                                 LimitRange>;
+
+  private:
+    static constexpr size_t pageSizeBits = snmalloc::bits::next_pow2_bits_const(Pal::page_size);
+
+  public:
+    using LargeObjectRange = snmalloc::Pipe<
+        Stats, snmalloc::StaticConditionalRange<snmalloc::LargeBuddyRange<
+                   LocalCacheSizeBits, LocalCacheSizeBits, Pagemap, pageSizeBits>>>;
+
+  private:
+    using ObjectRange = snmalloc::Pipe<LargeObjectRange, snmalloc::SmallBuddyRange>;
+    ObjectRange objectRange;
+
+  public:
+    using GlobalMetaRange = snmalloc::Pipe<ObjectRange, snmalloc::GlobalRange>;
+
+    LargeObjectRange *get_object_range() {
+      return objectRange.template ancestor<LargeObjectRange>();
+    }
+    ObjectRange &get_meta_range() { return objectRange; }
+  };
+
   using Backend = snmalloc::BackendAllocator<Pal, PagemapEntry, Pagemap, Authmap, LocalState>;
+  using GlobalPoolState = snmalloc::PoolState<snmalloc::Allocator<HeapConfig>>;
 
   static constexpr snmalloc::Flags Options{};
 
   static GlobalPoolState &pool() { return allocators; }
 
-  static bool is_initialised() { return initialised; }
-
-  SNMALLOC_FAST_PATH static void ensure_init() {
-    if (initialised.load(snmalloc::stl::memory_order_acquire)) [[likely]]
-      return;
-    initialise();
+  // The page map's storage at the span's start, a 1/1024 of the span
+  // (16 bytes per 16 KiB chunk), reserved inaccessible and committed a page
+  // at a time as chunks are registered; the chunks after it.
+  static bool init(rt::platform::Span span, size_t limit) noexcept {
+    constexpr size_t granule = size_t{1} << snmalloc::MIN_CHUNK_BITS;
+    size_t length = span.length & ~(granule - 1);
+    size_t mapBytes = rt::platform::roundUp((length >> snmalloc::MIN_CHUNK_BITS) * sizeof(PagemapEntry),
+                                            rt::platform::pageSize());
+    if (length <= mapBytes ||
+        rt::platform::reserveAt(span.base, mapBytes) != rt::platform::Placed::Reserved)
+      return false;
+    auto [heapBase, heapLength] = Pagemap::concretePagemap.init(span.base, length);
+    Authmap::arena = snmalloc::capptr::Arena<void>::unsafe_from(heapBase);
+    auto from = reinterpret_cast<uintptr_t>(heapBase);
+    SpanRange::set(from, from + heapLength);
+    // Stats is LimitRange's own type, the last of its pipe.
+    LocalState::Stats::set(limit);
+    return true;
   }
 
 private:
   SNMALLOC_REQUIRE_CONSTINIT inline static GlobalPoolState allocators;
-  SNMALLOC_REQUIRE_CONSTINIT inline static snmalloc::stl::Atomic<bool> initialised{false};
-  SNMALLOC_REQUIRE_CONSTINIT inline static snmalloc::FlagWord initialising{};
+};
 
-  // The region enters the global range as a block from the platform layer
-  // would, registered first: the range keeps its free blocks in their
-  // pagemap entries. A system that grants no such region leaves the range
-  // empty, and the heap grows from the platform layer alone.
-  static void addRegion() {
-    char *region = rt::platform::reserve(heapRegion, heapRegion);
-    if (region == nullptr)
-      return;
-    auto arena = snmalloc::capptr::Arena<void>::unsafe_from(region);
-    if (!Pagemap::register_range(arena, heapRegion) ||
-        !Authmap::register_range(arena, heapRegion)) {
-      rt::platform::release(region, heapRegion);
-      return;
-    }
-    LocalState::GlobalR global;
-    global.dealloc_range(arena, heapRegion);
-  }
+// The continuation every allocation takes: a block, never a null. What no
+// allocation can meet ends the process as out of memory, its output
+// written first and nothing allocated on the way down; the language
+// promises nothing of which allocation that is.
+struct Ends {
+  static void *success(void *p, size_t, bool = false) { return p; }
+  [[noreturn]] static void *failure(size_t) noexcept { rt::end::end(rt::end::OutOfMemory{}); }
+};
 
-  SNMALLOC_SLOW_PATH static void initialise() {
-    snmalloc::with(initialising, [] {
-      if (initialised)
-        return;
-      SecondaryAllocator::initialize();
-      snmalloc::LocalEntropy entropy;
-      entropy.init<Pal>();
-      entropy.make_free_list_key(snmalloc::RemoteAllocator::key_global);
-      entropy.make_free_list_key(snmalloc::freelist::Object::key_root);
-      static constexpr bool randomPagemap = snmalloc::mitigations(snmalloc::random_pagemap) &&
-                                            !snmalloc::aal_supports<snmalloc::StrictProvenance>;
-      Pagemap::concretePagemap.init<randomPagemap>();
-      if constexpr (snmalloc::aal_supports<snmalloc::StrictProvenance>)
-        Authmap::init();
-      addRegion();
-      initialised.store(true, snmalloc::stl::memory_order_release);
-    });
+// The same, its block zeroed, which snmalloc takes from the system's zeroed
+// pages where it can.
+struct EndsZeroed {
+  static void *success(void *p, size_t size, bool secondary = false) {
+    return snmalloc::Zero::success(p, size, secondary);
   }
+  [[noreturn]] static void *failure(size_t) noexcept { rt::end::end(rt::end::OutOfMemory{}); }
 };
 
 } // namespace rt::alloc
@@ -135,50 +258,42 @@ using Config = rt::alloc::HeapConfig;
 
 static_assert(snmalloc::DefaultPal::address_bits <= rt::alloc::heapAddressBits,
               "every heap address fits the bits the dying list keeps");
-// The target's user space lies within what snmalloc's platform layer
-// addresses, so a stack address is bounded as a heap address is.
-static_assert(rt::platform::userAddressBits <= snmalloc::DefaultPal::address_bits,
-              "snmalloc's platform covers the target's user address space");
 // snmalloc decommits and zeroes by its own page, which must be the target
-// entry's (rt::platform checks that one against the system's at startup):
-// POSIX platforms take it from SNMALLOC_PAGESIZE, which the build sets to
-// it, and Apple's platform has its own constant.
+// entry's (every host of the runtime checks that one against the system's
+// first): POSIX platforms take it from SNMALLOC_PAGESIZE, which the build
+// sets to it, and Apple's platform has its own constant.
 static_assert(snmalloc::OS_PAGE_SIZE == IDRIS_RT_PAGE_SIZE,
               "snmalloc's page is the target entry's page");
 static_assert(snmalloc::sizeclass_to_size(snmalloc::size_to_sizeclass_const(24)) == 24,
               "a header and two fields are one size class, with no slack");
-
-namespace {
-
-// The calling thread's live cells. Per thread, so that counting stays plain
-// arithmetic without a data race: a program has one thread, and the
-// compiler's folders, which may run on several, read it around each fold,
-// on their own thread.
-thread_local uint64_t liveCells = 0;
-
-} // namespace
+static_assert(snmalloc::mitigations(snmalloc::pal_enforce_access),
+              "a reservation stays inaccessible until snmalloc commits it");
 
 namespace rt::alloc {
 
-void outOfMemory() {
-  static constexpr char cause[] = "out of memory";
-  idris_rt_crash(cause, sizeof cause - 1);
+bool initialise(size_t limit) noexcept {
+  return HeapConfig::init(rt::platform::heapSpan(size_t{1} << regionBits), limit);
 }
 
-[[gnu::always_inline]] void *allocate(size_t size) {
-  void *block = snmalloc::alloc(size);
-  if (block == nullptr) [[unlikely]]
-    outOfMemory();
-  return block;
+char *reserveFirst(size_t size) noexcept {
+  return SpanRange::take(size, rt::platform::pageSize());
 }
 
-// snmalloc keeps the block when the new size is in its size class, which
-// is most of what GMP's growing integers ask. GMP never asks for 0 bytes,
-// the one size for which realloc frees and gives null.
+[[gnu::always_inline]] void *allocate(size_t size) { return snmalloc::alloc<Ends>(size); }
+
+size_t classSize(size_t size) { return snmalloc::round_size(size); }
+
+size_t bytesToEnd(const void *inside) { return snmalloc::remaining_bytes(inside); }
+
+// A block whose size class holds the new size stays where it is, which is
+// most of what GMP's growing integers ask; any other moves.
 void *reallocate(void *block, size_t size) {
-  void *moved = snmalloc::libc::realloc(block, size);
-  if (moved == nullptr) [[unlikely]]
-    outOfMemory();
+  size_t held = snmalloc::alloc_size(block);
+  if (snmalloc::round_size(size) == held)
+    return block;
+  void *moved = allocate(size);
+  memcpy(moved, block, held < size ? held : size);
+  release(block);
   return moved;
 }
 
@@ -187,13 +302,22 @@ void release(void *block) { snmalloc::dealloc(block); }
 [[gnu::always_inline]] void *newCell(size_t size, uint32_t info) {
   auto *cell = static_cast<idris_rt_header *>(allocate(size));
   *cell = idris_rt_header{1, info};
-  ++liveCells;
+  if constexpr (checked)
+    ++cellsHeld;
+  return cell;
+}
+
+void *newZeroedCell(size_t size, uint32_t info) {
+  auto *cell = static_cast<idris_rt_header *>(snmalloc::alloc<EndsZeroed>(size));
+  *cell = idris_rt_header{1, info};
+  if constexpr (checked)
+    ++cellsHeld;
   return cell;
 }
 
 [[gnu::always_inline]] void freeCell(void *cell) {
-  --liveCells;
   if constexpr (checked) {
+    --cellsHeld;
     // Kept, and marked: no later cell takes its memory, so a reference
     // left to it still reads the mark.
     static_cast<idris_rt_header *>(cell)->info = freedInfo;
@@ -202,22 +326,14 @@ void release(void *block) { snmalloc::dealloc(block); }
   snmalloc::dealloc(cell);
 }
 
-void forgetCell() { --liveCells; }
-
 } // namespace rt::alloc
 
 // A new cell of `size` bytes, a box or a thunk that idr-lower builds (or,
 // with the matching info, anything else the runtime frees): its header is
-// count 1 and `info`, and it counts as a live cell. Exhausted memory ends
-// the process with a crash. The size is a constant at every call idr-lower
-// makes, so once the runtime's bitcode is inlined, snmalloc's size class
-// folds to a constant and the allocation is a free-list pop.
-extern "C" [[gnu::always_inline]] void *idris_rt_cell(size_t size, uint32_t info) {
-  return rt::alloc::newCell(size, info);
+// count 1 and `info`. Running out of memory is the process's ending. The
+// size is a constant at every call idr-lower makes, so once the runtime's
+// bitcode is inlined, snmalloc's size class folds to a constant and the
+// allocation is a free-list pop.
+extern "C" [[gnu::always_inline]] void *idris_rt_cell(int64_t size, int32_t info) {
+  return rt::alloc::newCell(static_cast<size_t>(size), static_cast<uint32_t>(info));
 }
-
-// The heap cells the runtime allocated (idris_rt_cell, strings and bignums)
-// and has not freed yet, counted by the calling thread: a program is
-// single-threaded, and idris-mlir reads it before and after each fold, on
-// the thread that folds, with no atomic operation on the allocation path.
-extern "C" uint64_t idris_rt_live_cells(void) { return liveCells; }

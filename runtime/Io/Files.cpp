@@ -6,6 +6,7 @@
 // slots 0, 1 and 2, with rows of their own (Input.cpp, Output.cpp), and stay
 // open.
 // PIN(runtime-quarantine) — see PINS.md
+#include "End/End.h"
 #include "Io/Io.h"
 #include "Platform/Platform.h"
 #include "idris_rt.h"
@@ -21,6 +22,21 @@ using rt::io::Written;
 
 rt::platform::File *fileOf(const Stream &stream) { return stream.slot->file; }
 
+// How a write, a flush or a close of a file went, which a reader of a pipe
+// gone ends the program by, written first everything else: true when it
+// wrote everything, false with errno saved when it failed.
+bool wrote(rt::platform::Wrote how) {
+  switch (how) {
+  case rt::platform::Wrote::Whole:
+    return true;
+  case rt::platform::Wrote::Broken:
+    rt::end::end(rt::end::Piped{});
+  case rt::platform::Wrote::Failed:
+    rt::io::saveError();
+    return false;
+  }
+}
+
 } // namespace
 
 namespace rt::io {
@@ -31,10 +47,8 @@ namespace rt::io {
 constexpr StreamOps fileStream{
     .write =
         [](const Stream &stream, const char *p, size_t n) {
-          size_t written = rt::platform::writeFile(fileOf(stream), p, n);
-          if (written < n)
-            saveError();
-          return Written{written, written < n};
+          rt::platform::FileWrote written = rt::platform::writeFile(fileOf(stream), p, n);
+          return Written{written.count, !wrote(written.how)};
         },
     .read =
         [](const Stream &stream, char *p, size_t n) {
@@ -53,14 +67,8 @@ constexpr StreamOps fileStream{
           saveError();
           return ByteRead{ByteRead::Got::Failure, 0};
         },
-    .flush =
-        [](const Stream &stream) {
-          if (rt::platform::flushFile(fileOf(stream)))
-            return true;
-          saveError();
-          return false;
-        },
-    .close = [](const Stream &stream) { releaseSlot(stream.handle); },
+    .flush = [](const Stream &stream) { return wrote(rt::platform::flushFile(fileOf(stream))); },
+    .close = [](const Stream &stream) { (void)wrote(releaseSlot(stream.handle)); },
     .failed = [](const Stream &stream) { return rt::platform::fileFailed(fileOf(stream)); },
     .ended = [](const Stream &stream) { return rt::platform::fileEnded(fileOf(stream)); },
     .descriptor = [](const Stream &stream) { return rt::platform::descriptor(fileOf(stream)); },

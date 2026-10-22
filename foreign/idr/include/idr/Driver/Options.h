@@ -13,10 +13,13 @@
 #define IDR_DRIVER_OPTIONS_H
 
 #include "idr/Driver/Artifacts.h"
+#include "idr/Transforms/Expect.h"
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
 
+#include <cstdint>
 #include <string>
 #include <variant>
 #include <vector>
@@ -33,23 +36,26 @@ inline constexpr int ok = 0, failure = 1, usage = 2, rejected = 3;
 // another.
 inline constexpr llvm::StringLiteral preparedRuntime = IDRIS_MLIR_RUNTIME;
 
+// What is checked after each pass of the pipeline: the verifier, always,
+// and with it the passes' contracts (--idr-contracts), which the tests ask
+// for (idr/Transforms/Contracts.h).
+enum class PassChecks : std::uint8_t { Verifier, Contracts };
+
 // Compile the plan's input into its product: with the runtime at
 // `runtime`, what --prepare-runtime wrote or the archive it reads, whose
 // bitcode joins the program and which an executable links; on a pool of
 // `threads` threads, at least one, which the output bytes do not depend
-// on; and with -log-actions-to logging only the actions of `tags`, every
-// one when there are none.
-// What is checked after each pass of the pipeline: the verifier, always,
-// and with it the passes' contracts (--idr-contracts), which the tests ask
-// for (idr/Transforms/Contracts.h).
-enum class PassChecks { Verifier, Contracts };
-
+// on; with -log-actions-to logging only the actions of `tags`, every one
+// when there are none; checking `checks` after every pass, and the
+// properties a test states of the stages (--idr-expect-at), each where the
+// program is at its stage.
 struct Compile {
   Plan plan;
   std::string runtime;
   unsigned threads;
   std::vector<std::string> tags;
   PassChecks checks;
+  llvm::SmallVector<idr::expect::StageRequest> stages;
 };
 
 // Prepare the runtime archive at `archive` once, for every program, into

@@ -1,18 +1,38 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The C ABI's reference counting, over rt::rc's inline counting. A
+// The C ABI's reference counting, over rt::rc's inline counting: one
+// increment and one decrement per kind of word, of one word or of a run of
+// slots, each testing exactly what its kind leaves open; the test of
+// exclusivity; and the two frees of a reuse token, which read no count. A
 // saturated count is not counted, so an increment reaches UINT32_MAX at most
 // and stays there.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
+#include "End/End.h"
 #include "Rc/Rc.h"
 #include "idris_rt.h"
 
-#include <stddef.h>
+#include <stdint.h>
 
 namespace {
 
-[[noreturn]] void misused(const char *cause, size_t length) { idris_rt_crash(cause, length); }
+// Each of `n` contiguous slots from `first`, one more or one less
+// reference, as a cell's release walks them. The C ABI passes the first
+// slot's address as a pointer and the count as a 64-bit integer, never
+// negative.
+template <rt::rc::WordKind K>
+void incRun(void *first, int64_t n) {
+  auto *const *slots = static_cast<void *const *>(first);
+  for (int64_t i = 0; i < n; ++i)
+    rt::rc::inc<K>(slots[i]);
+}
+
+template <rt::rc::WordKind K>
+void decRun(void *first, int64_t n) {
+  auto *const *slots = static_cast<void *const *>(first);
+  for (int64_t i = 0; i < n; ++i)
+    rt::rc::dec<K>(slots[i]);
+}
 
 } // namespace
 
@@ -20,67 +40,82 @@ namespace rt::rc {
 
 // A cell that died is marked (rt::alloc::freedInfo) and kept, so a count
 // operation on it is a release once too often or a reference that outlived
-// its cell. A stack cell lies in the frame of the function that made it,
-// and the stack grows down on every target, as the runner's guard below
-// it says (Start/Runner.cpp): this function's own frame is below every
-// frame that is live, so a stack cell below it is in a frame that has
-// returned. One above it may be too, in memory a later call has taken
-// again: that one is not seen.
+// its cell: the runtime's internal error, of the program as the compiler
+// counted it.
 [[gnu::noinline]] void checkLive(const idris_rt_header *cell) {
-  if (cell->info == rt::alloc::freedInfo) [[unlikely]] {
-    static constexpr char cause[] = "a count operation on a cell that died";
-    misused(cause, sizeof cause - 1);
-  }
-  if (isStack(cell->info) && static_cast<const void *>(cell) < __builtin_frame_address(0))
-      [[unlikely]] {
-    static constexpr char cause[] = "a count operation on a cell of a frame that has returned";
-    misused(cause, sizeof cause - 1);
-  }
+  if (cell->info == rt::alloc::freedInfo) [[unlikely]]
+    rt::end::end(rt::end::CountOfDeadCell{});
 }
 
 } // namespace rt::rc
 
-// One more owned reference; a count that would reach UINT32_MAX saturates
-// there.
-extern "C" void idris_rt_inc(void *o) { rt::rc::inc(o); }
+// One more owned reference, and one less, at 0 releasing the cell: its
+// object slots lose a reference each, then its memory is freed, and cells
+// that reach 0 in turn are released the same way, from a worklist that runs
+// through the dying cells themselves, so freeing takes constant stack
+// however deep the structure is. A word's kind is its type's: a cell; a cell
+// or NULL; a cell or a small value; or any of the three.
+extern "C" void idris_rt_inc_cell(void *word) { rt::rc::inc<rt::rc::CellWord>(word); }
+extern "C" void idris_rt_dec_cell(void *word) { rt::rc::dec<rt::rc::CellWord>(word); }
+extern "C" void idris_rt_inc_maybe_cell(void *word) { rt::rc::inc<rt::rc::MaybeCellWord>(word); }
+extern "C" void idris_rt_dec_maybe_cell(void *word) { rt::rc::dec<rt::rc::MaybeCellWord>(word); }
+extern "C" void idris_rt_inc_big(idris_rt_big word) {
+  rt::rc::inc<rt::rc::BigWord>(reinterpret_cast<const void *>(word));
+}
+extern "C" void idris_rt_dec_big(idris_rt_big word) {
+  rt::rc::dec<rt::rc::BigWord>(reinterpret_cast<const void *>(word));
+}
+extern "C" void idris_rt_inc_any(void *word) { rt::rc::inc<rt::rc::AnyWord>(word); }
+extern "C" void idris_rt_dec_any(void *word) { rt::rc::dec<rt::rc::AnyWord>(word); }
 
-// One owned reference less. At 0 the object is released: a box's or a
-// thunk's object slots lose a reference each, and then its memory is freed
-// (a stack cell's is not). Objects that reach 0 in turn are released the
-// same way, from a worklist that runs through the dying cells themselves:
-// no recursion and no allocation, so freeing takes constant stack however
-// deep the structure is.
-extern "C" void idris_rt_dec(void *o) { rt::rc::dec(o); }
-
-// Whether a cell is exclusive: count 1, and not a stack cell, so never a
-// persistent one. It takes a cell, never a word that may be NULL or a small
-// value: the caller knows which it holds, and a cell is what it asks about.
-extern "C" bool idris_rt_is_unique(const idris_rt_header *cell) {
-  return rt::rc::isExclusive(cell);
+// The same, for each of `n` contiguous slots of one kind: a cell taken
+// apart counts the slots that move, or that die, in one call.
+extern "C" void idris_rt_inc_run_cell(void *first, int64_t n) {
+  incRun<rt::rc::CellWord>(first, n);
+}
+extern "C" void idris_rt_dec_run_cell(void *first, int64_t n) {
+  decRun<rt::rc::CellWord>(first, n);
+}
+extern "C" void idris_rt_inc_run_maybe_cell(void *first, int64_t n) {
+  incRun<rt::rc::MaybeCellWord>(first, n);
+}
+extern "C" void idris_rt_dec_run_maybe_cell(void *first, int64_t n) {
+  decRun<rt::rc::MaybeCellWord>(first, n);
+}
+extern "C" void idris_rt_inc_run_big(void *first, int64_t n) {
+  incRun<rt::rc::BigWord>(first, n);
+}
+extern "C" void idris_rt_dec_run_big(void *first, int64_t n) {
+  decRun<rt::rc::BigWord>(first, n);
+}
+extern "C" void idris_rt_inc_run_any(void *first, int64_t n) {
+  incRun<rt::rc::AnyWord>(first, n);
+}
+extern "C" void idris_rt_dec_run_any(void *first, int64_t n) {
+  decRun<rt::rc::AnyWord>(first, n);
 }
 
-// Frees the memory of a counted heap cell, and nothing else: the caller has
-// already moved out what it owns, having found it exclusive
-// (idris_rt_is_unique), and reuses the memory of such a cell for one of the
-// same size, rewriting the header, or frees it here. A stack cell's memory
-// is its frame's, so a stack cell is left alone too.
-extern "C" void idris_rt_free_cell(void *o) {
-  if (!rt::rc::isObject(o))
+// Whether a counted cell holds the only reference to itself: its count is
+// 1. A static cell (0) and a saturated one are never exclusive. Asked only
+// of a value exclusivity proved nothing of; a value proved exclusive asks
+// nothing.
+extern "C" bool idris_rt_is_unique(void *cell) {
+  return rt::rc::isExclusive(rt::rc::headerOf(cell));
+}
+
+// Frees the memory of a reuse token whose cell was found or proved
+// exclusive, its fields moved out: the caller reuses such a cell's memory
+// for one of its size, rewriting the header, or frees it here. One proved
+// exclusive is a cell, so nothing is read; one that may be null, from a
+// take of a cell exclusivity proved nothing of, tests that alone.
+extern "C" void idris_rt_free_token(void *cell) {
+  rt::rc::touch(rt::rc::headerOf(cell));
+  rt::alloc::freeCell(cell);
+}
+
+extern "C" void idris_rt_free_maybe_token(void *cell) {
+  if (cell == nullptr)
     return;
-  idris_rt_header *cell = rt::rc::headerOf(o);
-  rt::rc::touch(cell);
-  if (rt::rc::isCounted(cell->count) && !rt::rc::isStack(cell->info))
-    rt::alloc::freeCell(cell);
-}
-
-// After a memo cell's force wrote its value: a persistent cell (static
-// data, count 0) makes what it now holds persistent too, so that
-// everything static data reaches is static; a counted cell holds its value
-// counted, released when the cell dies. idr-lower calls it after every
-// force, on the cell, which is a cell, never NULL or an odd word.
-extern "C" void idris_rt_persist_held(void *o) {
-  idris_rt_header *cell = rt::rc::headerOf(o);
-  rt::rc::touch(cell);
-  if (cell->count == 0) [[unlikely]]
-    rt::rc::persistHeld(cell);
+  rt::rc::touch(rt::rc::headerOf(cell));
+  rt::alloc::freeCell(cell);
 }

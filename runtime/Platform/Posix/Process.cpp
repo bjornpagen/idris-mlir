@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The process's environment, its id, waiting, the time, its end, and
-// errno, on a POSIX system: Linux and macOS alike.
+// The process's environment, its id, waiting, the time, its end and the
+// signals it ends by, and errno, on a POSIX system: Linux and macOS alike.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Platform/Platform.h"
 #include "idris_rt.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,5 +53,24 @@ int64_t secondsSinceEpoch() noexcept { return static_cast<int64_t>(time(nullptr)
 int64_t processId() noexcept { return static_cast<int64_t>(getpid()); }
 
 IDRIS_RT_BASELINE void exitProcess(int status) noexcept { _exit(status); }
+
+void ignoreBrokenPipes() noexcept { signal(SIGPIPE, SIG_IGN); }
+
+// The signal's default action restored and the signal unblocked, then
+// raised: the process ends by it, as a parent sees. abort() does all three
+// for SIGABRT; it is also what follows raise(SIGPIPE), which the default
+// action does not return from.
+void raiseSignal(idr::endings::EndingSignal ending) noexcept {
+  if (ending == idr::endings::EndingSignal::BrokenPipe) {
+    signal(SIGPIPE, SIG_DFL);
+    sigset_t pipe;
+    sigemptyset(&pipe);
+    sigaddset(&pipe, SIGPIPE);
+    sigprocmask(SIG_UNBLOCK, &pipe, nullptr);
+    raise(SIGPIPE);
+  }
+  signal(SIGABRT, SIG_DFL);
+  abort();
+}
 
 } // namespace rt::platform

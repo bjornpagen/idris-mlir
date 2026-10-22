@@ -16,6 +16,7 @@
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
 #include "idr/Transforms/Contracts.h"
+#include "idr/Transforms/Expect.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Debug/BreakpointManagers/TagBreakpointManager.h"
@@ -132,18 +133,31 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
 // statistics around each of its runs, before MLIR merges the copies'
 // statistics to print them. The timer is added last: the instrumentations
 // unwind in reverse, so it stops before IR is printed, and a pass's row is
-// the pass's own time. Under --idr-contracts the contracts come first, as
-// idris-mlir-opt installs them, so the profile times each pass without its
-// checks. The manager goes, and prints its statistics, before LLVM starts.
-mlir::LogicalResult runPipeline(mlir::ModuleOp module, PassChecks checks, Outcome &outcome,
-                                mlir::TimingScope &rootTiming) {
+// the pass's own time. A test's checks come first, as idris-mlir-opt
+// installs them, so the profile times each pass without them: under
+// --idr-contracts the contracts, and the properties --idr-expect-at states
+// of the stages. The pass manager instruments no end of its own pipeline,
+// so each check's last word on the module it left is asked here. The
+// manager goes, and prints its statistics, before LLVM starts.
+mlir::LogicalResult runPipeline(mlir::ModuleOp module, const Compile &invocation,
+                                Outcome &outcome, mlir::TimingScope &rootTiming) {
   mlir::PassManager pm(module.getContext());
   if (llvm::AreStatisticsEnabled())
     pm.enableStatistics(mlir::PassDisplayMode::List);
   mlir::LogicalResult ran = mlir::applyPassManagerCLOptions(pm);
+  idr::ContractInstrumentation *contracts = nullptr;
+  idr::expect::StageInstrumentation *stages = nullptr;
   if (mlir::succeeded(ran)) {
-    if (checks == PassChecks::Contracts)
-      pm.addInstrumentation(std::make_unique<idr::ContractInstrumentation>());
+    if (invocation.checks == PassChecks::Contracts) {
+      auto owned = std::make_unique<idr::ContractInstrumentation>();
+      contracts = owned.get();
+      pm.addInstrumentation(std::move(owned));
+    }
+    if (!invocation.stages.empty()) {
+      auto owned = std::make_unique<idr::expect::StageInstrumentation>(invocation.stages);
+      stages = owned.get();
+      pm.addInstrumentation(std::move(owned));
+    }
     idr::profile::addInstrumentation(pm);
     pm.addInstrumentation(foldStatistics(outcome));
     pm.enableTiming(rootTiming);
@@ -153,6 +167,10 @@ mlir::LogicalResult runPipeline(mlir::ModuleOp module, PassChecks checks, Outcom
     pm.addPass(idr::createIdrTarget());
     idr::buildPipeline(pm);
     ran = pm.run(module);
+    if (mlir::succeeded(ran) && contracts != nullptr)
+      ran = contracts->finish(module);
+    if (mlir::succeeded(ran) && stages != nullptr)
+      ran = stages->finish(module);
   }
   // Any error stops the compilation, whether or not what reported it
   // failed: an error from a pass that then goes on is an error all the
@@ -223,18 +241,14 @@ mlir::LogicalResult toObjects(mlir::ModuleOp module, llvm::StringRef runtime,
   return writeObjects(*llvmModule, target, triple, pool, artifacts, context);
 }
 
-// The refusals the frontend left in the module in place of a program, in
-// the dialect's discardable attribute (IdrBase.td's `refusals`): an array of
-// #idr.refusal, one per refusal, in the order found. Each is emitted as the
+// The refusals the frontend left in the module in place of a program: one
+// idr.refusal op each, at the module's top level, in the order found, its
+// site the op's location and its rule a property. Each is emitted as the
 // driver's diagnostic, its rule as data: the driver is their one printer,
-// and foldDiagnostics their one fold into the verdict.
+// and foldDiagnostics their one fold into the verdict. A module the
+// frontend could compile holds a program and no refusal.
 void reemitRefusals(mlir::ModuleOp module) {
-  auto *dialect = module->getContext()->getOrLoadDialect<idr::IdrDialect>();
-  mlir::ArrayAttr refusals = dialect->getRefusalsAttrHelper().getAttr(module);
-  // A module the frontend could compile holds a program and no refusal.
-  if (!refusals)
-    return;
-  for (idr::RefusalAttr refusal : refusals.getAsRange<idr::RefusalAttr>())
+  for (idr::RefusalOp refusal : module.getOps<idr::RefusalOp>())
     idr::refuse(refusal.getLoc(), refusal.getRule()) << refusal.getMessage();
 }
 
@@ -288,8 +302,9 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
     return mlir::failure();
 
   // MLIR's action handler: -log-actions-to and -profile-actions-to, which
-  // --log-actions-tags narrows. With no tag given every action is logged,
-  // which an empty filter would not do.
+  // --log-actions-tags narrows, or else the debug counter that skips the
+  // actions a test draws. With no tag given every action is logged, which
+  // an empty filter would not do.
   mlir::tracing::DebugConfig debugConfig = mlir::tracing::DebugConfig::createFromCLOptions();
   mlir::tracing::TagBreakpointManager loggedTags;
   for (const std::string &tag : invocation.tags)
@@ -303,7 +318,7 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
   // already.
   mlir::LogicalResult lowered = std::visit(
       llvm::makeVisitor(
-          [&](Handoff) { return runPipeline(*module, invocation.checks, outcome, rootTiming); },
+          [&](Handoff) { return runPipeline(*module, invocation, outcome, rootTiming); },
           [](Lowered) { return mlir::success(); }),
       *kind);
   if (mlir::failed(lowered))

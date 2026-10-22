@@ -9,7 +9,8 @@
 #include "idr/Driver/BuiltRuntime.h"
 #include "idr/Driver/Options.h"
 
-// The runtime's C ABI: the name of its baseline annotation.
+// The runtime's C ABI: the names of its annotations and of the constant
+// the driver defines.
 #include "idris_rt.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -33,21 +34,21 @@ class MLIRContext;
 
 namespace idr::driver {
 
-// Where the prepared runtime keeps the bitcode that joins every program, as
-// the target entry decides (CMakeLists.txt): in its object's .llvm.lto
-// section, which every link leaves out (ELF), or in a file of its own
-// beside the object, which no link names (Mach-O, which has no such
-// section). Only --prepare-runtime reads it: a compilation reads where the
-// bitcode is off the runtime it is given.
-enum class BitcodeHome { InObject, BesideObject };
-inline constexpr BitcodeHome runtimeBitcodeHome = BitcodeHome::IDRIS_MLIR_RUNTIME_BITCODE_HOME;
-
 // The runtime's own annotation of a function (IDRIS_RT_BASELINE), as the
 // function attribute it becomes when the archive is read: the CPU test at a
 // program's entry, and what it calls, stays compiled for the target's
 // baseline whatever the program's CPU, since it runs before anything shows
 // that the CPU has more.
 inline constexpr llvm::StringLiteral baselineMark = IDRIS_RT_BASELINE_MARK;
+
+// The runtime's mark of its fault handler (IDRIS_RT_HANDLER), as the
+// function attribute it becomes: the kernel calls it on the signal stack,
+// whose size the stack bound gives from the handler's deepest path.
+inline constexpr llvm::StringLiteral handlerMark = IDRIS_RT_HANDLER_MARK;
+
+// The constant the runtime reads what only the driver knows of the program
+// from (idris_rt_built): the driver defines it, in an object of its own.
+inline constexpr llvm::StringLiteral builtSymbol = IDRIS_RT_PROGRAM_BUILT_NAME;
 
 // What a runtime is: the SHA-256 digest of the archive its code was read
 // from, and the CPU its functions take, LLVM's name and features. A
@@ -103,17 +104,16 @@ struct Prepared {
 };
 
 // The runtime at `path`, for `machine`, the program's. A file that is not an
-// archive is the prepared runtime's object, or its bitcode: its bitcode is
-// the file itself, in the object's bitcode section, or, exactly when the
-// object has none, in the file beside it; one without its identity's flags
-// is neither kind, an error. Every failure is an error in `context`.
+// archive is the prepared runtime's object, whose bitcode is the file beside
+// it on every target, which no link names; bitcode without its identity's
+// flags is neither kind, an error. Every failure is an error in `context`.
 mlir::FailureOr<std::variant<Archived, Prepared>> readRuntime(llvm::StringRef path,
                                                               llvm::LLVMContext &llvmContext,
                                                               const llvm::TargetMachine &machine,
                                                               mlir::MLIRContext &context);
 
-// The file beside the prepared runtime's object that holds its bitcode when
-// its container keeps no section for it: the object's name with .bc.
+// The file beside the prepared runtime's object that holds its bitcode: the
+// object's name with .bc.
 std::string besideObject(llvm::StringRef object);
 
 // The program and the runtime at `path` become one module, linked once with
@@ -125,8 +125,9 @@ std::string besideObject(llvm::StringRef object);
 // piece of runtime state has its one definition; the archive's bodies are
 // definitions, which compile with the program; a program function past
 // the inlining budget calls them (idr::target::inlineCallerInstructions).
-// A program that defines a symbol of the runtime is refused at `source`,
-// the module it was translated from. Every failure is an error.
+// No program symbol can be a runtime symbol: every one the lowering names
+// carries the program's prefix, which no C identifier has. Every failure is
+// an error.
 mlir::LogicalResult linkRuntime(llvm::Module &program, mlir::ModuleOp source,
                                 llvm::StringRef path, const llvm::TargetMachine &machine);
 
@@ -138,14 +139,16 @@ mlir::LogicalResult linkRuntime(llvm::Module &program, mlir::ModuleOp source,
 // The result is an object whose native code is what every executable's link
 // line takes, and the same module as bitcode with every definition
 // available_externally, which is what joins each program's module
-// (linkRuntime), kept where the target entry's container says
-// (runtimeBitcodeHome). The two halves come from the one module, so they
-// name the same symbols: a body the program's optimizer inlines becomes
-// program code, one it does not is dropped and resolves to the native
-// half, and runtime state (the allocator's thread-locals, the output
-// buffer, the live-cell count) is defined once, in the native half,
-// whichever bodies were inlined. Its diagnostics are folded and printed as
-// a compilation's; the exit status of their verdict.
+// (linkRuntime), in the file beside the object. The two halves come from
+// the one module, so they name the same symbols: a body the program's
+// optimizer inlines becomes program code, one it does not is dropped and
+// resolves to the native half, and runtime state (the allocator's
+// thread-locals, the output buffer) is defined once, in the native half,
+// whichever bodies were inlined. The bitcode also records what code
+// generation gave the native half's frames (StackBound.h), since a program
+// whose call reaches one of its bodies stacks that body's frames too. Its
+// diagnostics are folded and printed as a compilation's; the exit status of
+// their verdict.
 int prepare(const Prepare &invocation);
 
 } // namespace idr::driver

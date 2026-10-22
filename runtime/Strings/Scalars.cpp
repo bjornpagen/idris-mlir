@@ -111,12 +111,9 @@ extern "C" const idris_rt_str *idris_rt_str_substr(const idris_rt_str *s, int64_
   return slice(s, from, to);
 }
 
-// The string's scalars in reverse order. The empty string's reverse is
-// itself, given back with one more reference, as appending an empty string
-// gives back the other.
+// The string's scalars in reverse order, a new string, never the argument;
+// the empty one for the empty string.
 extern "C" const idris_rt_str *idris_rt_str_reverse(const idris_rt_str *s) {
-  if (s->bytes == 0)
-    return rt::strings::shared(s);
   idris_rt_str *result = rt::strings::newString(s->bytes, s->scalars);
   const char *from = idris_rt_str_bytes(s);
   char *to = rt::strings::mutableBytes(result) + s->bytes;
@@ -152,18 +149,17 @@ extern "C" int64_t idris_rt_str_scalar_bytes(int32_t c) {
   return static_cast<int64_t>(rt::strings::utf8Length(c));
 }
 
-// The scalars from the boundary an offset stands for on: the string itself
-// (one more reference) from 0, and otherwise a string of those bytes, the
-// persistent empty one at the end. An ASCII string's tail is ASCII, and any
-// other's scalars are counted.
+// The scalars from the boundary an offset stands for on: a new string of
+// those bytes, from 0 too, since the result is fresh and never the
+// argument; the persistent empty one at the end. An ASCII string's tail is
+// ASCII; any other's scalars are its own less those of the bytes dropped,
+// which an iterator's step keeps few.
 extern "C" const idris_rt_str *idris_rt_str_drop_bytes(const idris_rt_str *s, int64_t offset) {
   uint64_t at = boundary(s, offset);
-  if (at == 0)
-    return rt::strings::shared(s);
   uint64_t n = s->bytes - at;
-  const char *p = idris_rt_str_bytes(s) + at;
-  idris_rt_str *result =
-      rt::strings::newString(n, rt::strings::isAscii(s) ? n : idris_rt_utf8_count(p, n));
-  memcpy(rt::strings::mutableBytes(result), p, n);
+  const char *bytes = idris_rt_str_bytes(s);
+  idris_rt_str *result = rt::strings::newString(
+      n, rt::strings::isAscii(s) ? n : s->scalars - idris_rt_utf8_count(bytes, at));
+  memcpy(rt::strings::mutableBytes(result), bytes + at, n);
   return result;
 }

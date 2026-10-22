@@ -1,0 +1,167 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
+||| The runtime's C functions the lowering calls by itself, which no op
+||| names as its meaning: a cell and an array cell, the counted copy, the
+||| counting of each kind of word, the two frees of a reuse token, the
+||| string being built, the crashes at a site and running out of memory,
+||| the lifetimes allocated into by a bump, the frame stack, and the
+||| program's entry.
+||| Each is its prototype and nothing more: its meaning is documented beside
+||| its definition, in runtime/. The generator prints them into the
+||| runtime's declarations, which runtime/idris_rt.h includes, so a
+||| definition that disagrees with its record does not compile, and into the
+||| table the lowering calls through.
+module IdrisMLIR.Spec.Runtime.Helpers
+
+import IdrisMLIR.Spec.Core.Ods
+import IdrisMLIR.Spec.Core.Text
+
+%default total
+
+------------------------------------------------------------------------------
+-- The kinds of a counted word
+------------------------------------------------------------------------------
+
+||| What a word that holds a counted reference may be, which its type
+||| decides once, at the lowering: a cell, never null or small; a slot of an
+||| unboxed sum, a cell or null; a big, a cell or a small value; a slot a
+||| cell and a big share, any of the three. They form a lattice, the cell
+||| below the two others and their join the last, and each has its own
+||| increment and decrement, testing exactly what the kind leaves open.
+public export
+data WordKind = CellWord | MaybeCellWord | BigWord | AnyWord
+
+||| Every kind, in the order their entries are printed.
+public export
+words : List WordKind
+words = [CellWord, MaybeCellWord, BigWord, AnyWord]
+
+||| How a word of the kind is passed: a big as its 64-bit word, every other
+||| as a pointer.
+public export
+passing : WordKind -> OperandKind
+passing BigWord = TakesBig
+passing _ = TakesPointer
+
+||| One more or one less reference.
+public export
+data Count = Increment | Decrement
+
+||| A counting entry's name in the lowering's table and its symbol: of one
+||| word of the kind, or of a run of contiguous slots of it.
+public export
+data Span = OneWord | Run
+
+entry : Count -> Span -> WordKind -> (Ident, Symbol)
+entry Increment OneWord CellWord = (ident "incCell", symbol "inc_cell")
+entry Increment OneWord MaybeCellWord = (ident "incMaybeCell", symbol "inc_maybe_cell")
+entry Increment OneWord BigWord = (ident "incBig", symbol "inc_big")
+entry Increment OneWord AnyWord = (ident "incAny", symbol "inc_any")
+entry Decrement OneWord CellWord = (ident "decCell", symbol "dec_cell")
+entry Decrement OneWord MaybeCellWord = (ident "decMaybeCell", symbol "dec_maybe_cell")
+entry Decrement OneWord BigWord = (ident "decBig", symbol "dec_big")
+entry Decrement OneWord AnyWord = (ident "decAny", symbol "dec_any")
+entry Increment Run CellWord = (ident "incRunCell", symbol "inc_run_cell")
+entry Increment Run MaybeCellWord = (ident "incRunMaybeCell", symbol "inc_run_maybe_cell")
+entry Increment Run BigWord = (ident "incRunBig", symbol "inc_run_big")
+entry Increment Run AnyWord = (ident "incRunAny", symbol "inc_run_any")
+entry Decrement Run CellWord = (ident "decRunCell", symbol "dec_run_cell")
+entry Decrement Run MaybeCellWord = (ident "decRunMaybeCell", symbol "dec_run_maybe_cell")
+entry Decrement Run BigWord = (ident "decRunBig", symbol "dec_run_big")
+entry Decrement Run AnyWord = (ident "decRunAny", symbol "dec_run_any")
+
+||| A counting entry of a kind of word: one word, passed as its kind is, or
+||| a run of `n` contiguous slots from `first`, as a cell's release walks
+||| them, so a wide cell taken apart counts its slots in one call.
+counting : Count -> Span -> WordKind -> RuntimeHelper
+counting c s w =
+  let (name, sym) = entry c s w in
+  MkRuntimeHelper name sym (params s) HelperNothing (doc c s)
+  where
+    params : Span -> List (OperandKind, Ident)
+    params OneWord = [(passing w, ident "word")]
+    params Run = [(TakesPointer, ident "first"), (TakesInt64, ident "n")]
+    doc : Count -> Span -> Line
+    doc Increment OneWord = line "one more owned reference to a word of its kind"
+    doc Decrement OneWord = line "one owned reference less to a word of its kind, a cell released at 0"
+    doc Increment Run = line "one more owned reference to each of n contiguous slots of its kind"
+    doc Decrement Run = line "one owned reference less to each of n contiguous slots of its kind"
+
+------------------------------------------------------------------------------
+-- The helpers
+------------------------------------------------------------------------------
+
+||| A crash's site, which every crash entry takes after what it says: the
+||| function the site lies in, its file, its line and its column, each file
+||| and function one static text of the program, shared by its sites.
+site : List (OperandKind, Ident)
+site = [(TakesPointer, ident "function"), (TakesPointer, ident "file"), (TakesInt32, ident "line"), (TakesInt32, ident "column")]
+
+||| Every helper, in the order the generator prints them.
+public export
+helpers : List RuntimeHelper
+helpers =
+  [ MkRuntimeHelper (ident "cell") (symbol "cell")
+      [(TakesInt64, ident "size"), (TakesInt32, ident "info")] (HelperReturns GivesPointer)
+      (line "a new counted cell of size bytes, its count 1 and its info the one given")
+  , MkRuntimeHelper (ident "arrayNew") (symbol "array_new")
+      [(TakesInt64, ident "count"), (TakesInt32, ident "info")] (HelperReturns GivesPointer)
+      (line "a new array cell of count elements, its header's info the one given")
+  , MkRuntimeHelper (ident "memrefCopy") (symbol "memref_copy")
+      [(TakesInt64, ident "rank"), (TakesPointer, ident "from"), (TakesPointer, ident "to")] HelperNothing
+      (line "memref.copy of one view onto another, counting each object copied")
+  ]
+  ++ [counting c s w | c <- [Increment, Decrement], s <- [OneWord, Run], w <- words]
+  ++
+  [ MkRuntimeHelper (ident "isUnique") (symbol "is_unique")
+      [(TakesPointer, ident "cell")] (HelperReturns GivesBool)
+      (line "whether a counted cell holds the only reference to itself: its count is 1")
+  , MkRuntimeHelper (ident "freeToken") (symbol "free_token")
+      [(TakesPointer, ident "cell")] HelperNothing
+      (line "frees the memory of a reuse token proved exclusive, whose fields were moved out")
+  , MkRuntimeHelper (ident "freeMaybeToken") (symbol "free_maybe_token")
+      [(TakesPointer, ident "cell")] HelperNothing
+      (line "frees the memory of a reuse token that may be null, whose fields were moved out")
+  , MkRuntimeHelper (ident "strAlloc") (symbol "str_alloc")
+      [(TakesInt64, ident "bytes"), (TakesInt64, ident "scalars")] (HelperReturns GivesPointer)
+      (line "a new string of bytes bytes and scalars scalar values, to be written in place")
+  , MkRuntimeHelper (ident "strPutChar") (symbol "str_put_char")
+      [(TakesPointer, ident "s"), (TakesInt64, ident "offset"), (TakesInt32, ident "c")] (HelperReturns GivesInt64)
+      (line "a character's UTF-8 written into a string being built, giving the next offset")
+  , MkRuntimeHelper (ident "strPutStr") (symbol "str_put_str")
+      [(TakesPointer, ident "s"), (TakesInt64, ident "offset"), (TakesStr, ident "part")] (HelperReturns GivesInt64)
+      (line "a string's bytes written into a string being built, giving the next offset")
+  , MkRuntimeHelper (ident "crashAt") (symbol "crash_at")
+      ((TakesInt32, ident "cause") :: site) HelperNeverReturns
+      (line "ends the program as a crash of a cause of the closed set, at its site")
+  , MkRuntimeHelper (ident "crashMessageAt") (symbol "crash_message_at")
+      ((TakesStr, ident "message") :: site) HelperNeverReturns
+      (line "ends the program as a crash of the text a trusted library gave idris_crash, at its site")
+  , MkRuntimeHelper (ident "unreportableAt") (symbol "unreportable_at")
+      ((TakesInt64, ident "status") :: site) HelperNeverReturns
+      (line "ends the program as a crash at an exit whose status no parent could read")
+  , MkRuntimeHelper (ident "outOfMemory") (symbol "out_of_memory")
+      [] HelperNeverReturns
+      (line "ends the program as out of memory, for a size no allocation can meet")
+  , MkRuntimeHelper (ident "arenaOpen") (symbol "arena_open")
+      [(TakesInt64, ident "size_hint")] (HelperReturns GivesPointer)
+      (line "a chain's first cursor, its first chunk at least the bytes its callee puts; null for a hint of 0")
+  , MkRuntimeHelper (ident "arenaChunk") (symbol "arena_chunk")
+      [(TakesPointer, ident "cursor"), (TakesInt64, ident "bytes")] (HelperReturns GivesPointer)
+      (line "where a cell of bytes goes in a cursor's chain: the cursor itself when its chunk has room, else a new chunk's first byte; null starts a chain")
+  , MkRuntimeHelper (ident "arenaClose") (symbol "arena_close")
+      [(TakesPointer, ident "cursor")] HelperNothing
+      (line "every chunk of a cursor's chain given back; null gives back none")
+  , MkRuntimeHelper (ident "stackReset") (symbol "stack_reset")
+      [(TakesPointer, ident "mark")] HelperNothing
+      (line "the chunks of a stack's chain past the one its mark is in given back, the mark its cursor again")
+  , MkRuntimeHelper (ident "framePush") (symbol "frame_push")
+      [(TakesInt64, ident "bytes")] (HelperReturns GivesPointer)
+      (line "the next frame's bytes on the thread's frame stack, contiguous within a chunk")
+  , MkRuntimeHelper (ident "framePop") (symbol "frame_pop")
+      [(TakesPointer, ident "frame")] HelperNothing
+      (line "the frame stack back to a frame it pushed, the chunks past it given back but the one spare")
+  , MkRuntimeHelper (ident "start") (symbol "start")
+      [(TakesPointer, ident "program"), (TakesInt32, ident "argc"), (TakesPointer, ident "argv")] HelperNeverReturns
+      (line "the program's entry, which main calls with the program's static facts")
+  ]

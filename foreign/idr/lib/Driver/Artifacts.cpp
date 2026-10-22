@@ -6,6 +6,8 @@
 
 #include "idr/Driver/Artifacts.h"
 
+#include "idr/Driver/Runtime.h"
+#include "idr/Driver/StackBound.h"
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
 
@@ -20,6 +22,9 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
@@ -54,7 +59,8 @@ Plan::Plan(std::string base, Source source, Product product, std::optional<std::
       report(std::move(report)) {}
 
 std::optional<Plan> Plan::of(llvm::StringRef input, Product product,
-                             std::optional<std::string> report, FrontendArgs frontend) {
+                             std::optional<std::string> report,
+                             std::optional<std::string> emitted, FrontendArgs frontend) {
   std::string base = std::visit(llvm::makeVisitor(
                                     [](const Executable &executable) { return executable.path; },
                                     [](const Archive &archive) {
@@ -66,7 +72,8 @@ std::optional<Plan> Plan::of(llvm::StringRef input, Product product,
   llvm::StringRef extension = llvm::sys::path::extension(input);
   Source source = extension == ".mlir" || extension == ".mlirbc"
                       ? Source(FromModule{input.str()})
-                      : Source(FromIdris{input.str(), base + ".core", base + ".mlirbc",
+                      : Source(FromIdris{input.str(), emitted.value_or(base + ".mlirbc"),
+                                         emitted ? ModuleKept::Always : ModuleKept::WithProduct,
                                          std::move(frontend)});
   Plan plan(std::move(base), std::move(source), std::move(product), std::move(report));
   llvm::StringSet<> seen;
@@ -78,8 +85,9 @@ std::optional<Plan> Plan::of(llvm::StringRef input, Product product,
 
 std::vector<std::string> Plan::outputs() const {
   std::vector<std::string> paths;
-  if (const auto *idris = std::get_if<FromIdris>(&source))
-    paths = {idris->corePath, idris->modulePath};
+  if (const auto *idris = std::get_if<FromIdris>(&source);
+      idris && idris->kept == ModuleKept::WithProduct)
+    paths = {idris->modulePath};
   paths.push_back(std::visit([](const auto &made) { return made.path; }, product));
   return paths;
 }
@@ -95,6 +103,9 @@ std::vector<std::string> Plan::written() const {
   std::vector<std::string> paths = outputs();
   if (report)
     paths.push_back(*report);
+  if (const auto *idris = std::get_if<FromIdris>(&source);
+      idris && idris->kept == ModuleKept::Always)
+    paths.push_back(idris->modulePath);
   return paths;
 }
 
@@ -189,14 +200,16 @@ struct Failed {
 using Compiled = std::variant<Object, Failed>;
 
 // One bin: the optimized module read lazily from its bitcode in a context of
-// its own, cut down to the bin, compiled by a machine of its own. Nothing is
+// its own, cut down to the bin, compiled by a machine of its own, each frame
+// code generation lays out gathered into `frames`, the bin's own. Nothing is
 // shared with another task but the bitcode and the partition, both read.
 Compiled compileBin(const idr::target::Partition &partition, unsigned bin, llvm::StringRef bitcode,
-                    const llvm::Target &target) {
+                    const llvm::Target &target, idr::driver::stack::Frames &frames) {
   idr::profile::ThreadTrace thread;
   const std::string &name = partition.bins()[bin].name;
   IDR_ZONE_IN(name, LLVM);
   llvm::LLVMContext context;
+  context.setDiagnosticHandler(idr::driver::stack::gather(frames));
   llvm::Expected<std::unique_ptr<llvm::Module>> module =
       llvm::getLazyBitcodeModule(llvm::MemoryBufferRef(bitcode, "optimized"), context);
   if (!module)
@@ -214,16 +227,54 @@ Compiled compileBin(const idr::target::Partition &partition, unsigned bin, llvm:
   return object;
 }
 
+// What only the whole program's code generation gives the runtime, as the
+// one constant of an object of its own (idris_rt_built): the stack's need
+// and the program's name, which every message begins with. It is data: the
+// machine compiles it for no CPU of its own.
+Compiled builtObject(const idr::driver::stack::Need &need, llvm::StringRef name,
+                     llvm::TargetMachine &machine) {
+  llvm::LLVMContext context;
+  llvm::Module module("built", context);
+  module.setTargetTriple(machine.getTargetTriple());
+  module.setDataLayout(machine.createDataLayout());
+  module.setPICLevel(llvm::PICLevel::BigPIC);
+  module.setPIELevel(llvm::PIELevel::Large);
+  llvm::Type *word = llvm::Type::getInt64Ty(context);
+  auto *fields = llvm::StructType::get(
+      context, {word, word, word, llvm::PointerType::getUnqual(context), word});
+  llvm::Constant *bytes = llvm::ConstantDataArray::getString(context, name, /*AddNull=*/false);
+  auto *text = new llvm::GlobalVariable(module, bytes->getType(), /*isConstant=*/true,
+                                        llvm::GlobalValue::PrivateLinkage, bytes, "name");
+  text->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+  auto *built = new llvm::GlobalVariable(
+      module, fields, /*isConstant=*/true, llvm::GlobalValue::ExternalLinkage,
+      llvm::ConstantStruct::get(fields, {llvm::ConstantInt::get(word, need.stack),
+                                         llvm::ConstantInt::get(word, need.frame),
+                                         llvm::ConstantInt::get(word, need.signal), text,
+                                         llvm::ConstantInt::get(word, name.size())}),
+      builtSymbol);
+  built->setDSOLocal(true);
+  Object object;
+  llvm::raw_svector_ostream os(object.bytes);
+  if (!objectCode(module, machine, os))
+    return Failed{"the target cannot emit object files"};
+  return object;
+}
+
+// The name of the object of what the driver knows, beside the bins', whose
+// names are hex digits alone.
+constexpr llvm::StringLiteral builtObjectName = "built";
+
 llvm::StringRef bytesOf(const Object &object) {
   return llvm::StringRef(object.bytes.data(), object.bytes.size());
 }
 
-// Each bin's object, in bin order, written whole at its artifacts.addObject.
-mlir::LogicalResult writeEach(llvm::ArrayRef<idr::target::Bin> bins, llvm::ArrayRef<Object> objects,
+// Each object, in order, written whole at its artifacts.addObject.
+mlir::LogicalResult writeEach(llvm::ArrayRef<std::string> names, llvm::ArrayRef<Object> objects,
                               Artifacts &artifacts, mlir::MLIRContext &context) {
   IDR_ZONE_IN("objects", LLVM);
-  for (auto [bin, object] : llvm::zip_equal(bins, objects)) {
-    const std::string &path = artifacts.addObject(bin.name);
+  for (auto [name, object] : llvm::zip_equal(names, objects)) {
+    const std::string &path = artifacts.addObject(name);
     std::error_code error;
     llvm::ToolOutputFile file(path, error, llvm::sys::fs::OF_None);
     if (error)
@@ -234,18 +285,18 @@ mlir::LogicalResult writeEach(llvm::ArrayRef<idr::target::Bin> bins, llvm::Array
   return mlir::success();
 }
 
-// The objects as one archive, in the order of their names, which a link
-// takes whole: every definition is reached from main.
-mlir::LogicalResult writeAsArchive(llvm::ArrayRef<idr::target::Bin> bins,
+// The objects as one archive, in order, which a link takes whole: every
+// definition is reached from main.
+mlir::LogicalResult writeAsArchive(llvm::ArrayRef<std::string> names,
                                    llvm::ArrayRef<Object> objects, const llvm::Triple &triple,
                                    const Archive &archive, mlir::MLIRContext &context) {
   IDR_ZONE_IN("archive", LLVM);
-  std::vector<std::string> names;
+  std::vector<std::string> files;
   std::vector<llvm::NewArchiveMember> members;
-  names.reserve(bins.size());
-  for (auto [bin, object] : llvm::zip_equal(bins, objects)) {
-    names.push_back(bin.name + ".o");
-    members.emplace_back(llvm::MemoryBufferRef(bytesOf(object), names.back()));
+  files.reserve(names.size());
+  for (auto [name, object] : llvm::zip_equal(names, objects)) {
+    files.push_back(name + ".o");
+    members.emplace_back(llvm::MemoryBufferRef(bytesOf(object), files.back()));
   }
   if (llvm::Error error = llvm::writeArchive(archive.path, members,
                                              llvm::SymtabWritingMode::NormalSymtab,
@@ -271,6 +322,18 @@ mlir::LogicalResult idr::driver::writeObjects(llvm::Module &optimized, const llv
       return mlir::emitError(unknown) << llvm::toString(made.takeError());
     partition.emplace(std::move(*made));
   }
+  // The calls of the module as the bins have them, read once, before any
+  // code is generated: a call on a cycle that is no tail call fails the
+  // build here. Code generation is asked for every frame.
+  std::optional<stack::Graph> calls;
+  {
+    IDR_ZONE_IN("calls", LLVM);
+    mlir::FailureOr<stack::Graph> read = stack::Graph::of(optimized, context);
+    if (mlir::failed(read))
+      return mlir::failure();
+    calls.emplace(std::move(*read));
+    stack::ask(optimized);
+  }
   // The module once, as bitcode, on this thread: the one serial step.
   std::string bitcode;
   {
@@ -280,6 +343,7 @@ mlir::LogicalResult idr::driver::writeObjects(llvm::Module &optimized, const llv
   }
   llvm::ArrayRef<idr::target::Bin> bins = partition->bins();
   std::vector<Compiled> compiled(bins.size());
+  std::vector<stack::Frames> frames(bins.size());
   // The largest bins first, so that the last task to finish is a small one.
   std::vector<unsigned> order(bins.size());
   std::iota(order.begin(), order.end(), 0u);
@@ -290,26 +354,41 @@ mlir::LogicalResult idr::driver::writeObjects(llvm::Module &optimized, const llv
     llvm::ThreadPoolTaskGroup tasks(pool);
     for (unsigned bin : order)
       tasks.async([&, bin] {
-        compiled[bin] = compileBin(*partition, bin, bitcode, target);
+        compiled[bin] = compileBin(*partition, bin, bitcode, target, frames[bin]);
       });
     tasks.wait();
   }
-  // Every failure is an error, in bin order; the objects are written only
-  // when there is one for every bin.
+  // What the runtime reads of the program, once every frame is laid out,
+  // compiled last: its object follows the bins'.
+  stack::Frames laid;
+  for (const stack::Frames &bin : frames)
+    laid.join(bin);
+  llvm::Expected<std::unique_ptr<llvm::TargetMachine>> machine = idr::target::machine(target);
+  if (!machine)
+    return mlir::emitError(unknown) << llvm::toString(machine.takeError());
+  compiled.push_back(builtObject(calls->need(laid, **machine),
+                                 llvm::sys::path::filename(artifacts.base), **machine));
+  std::vector<std::string> names;
+  names.reserve(compiled.size());
+  for (const idr::target::Bin &bin : bins)
+    names.push_back(bin.name);
+  names.push_back(builtObjectName.str());
+  // Every failure is an error, in order; the objects are written only when
+  // there is one for every name.
   std::vector<Object> objects;
   for (Compiled &one : compiled)
     std::visit(llvm::makeVisitor(
                    [&](Object &object) { objects.push_back(std::move(object)); },
                    [&](const Failed &failed) { mlir::emitError(unknown) << failed.why; }),
                one);
-  if (objects.size() != bins.size())
+  if (objects.size() != names.size())
     return mlir::failure();
   return std::visit(llvm::makeVisitor(
                         [&](const Executable &) {
-                          return writeEach(bins, objects, artifacts, context);
+                          return writeEach(names, objects, artifacts, context);
                         },
                         [&](const Archive &archive) {
-                          return writeAsArchive(bins, objects, triple, archive, context);
+                          return writeAsArchive(names, objects, triple, archive, context);
                         }),
                     artifacts.product);
 }

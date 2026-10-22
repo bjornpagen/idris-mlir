@@ -56,7 +56,7 @@ inline idris_rt_big owned(idris_rt_big a) {
 
 // Drops a reference the caller owns; a small big is an odd word, which
 // counting leaves alone.
-inline void release(idris_rt_big a) { rt::rc::dec(reinterpret_cast<const void *>(a)); }
+inline void release(idris_rt_big a) { rt::rc::dec<rt::rc::BigWord>(reinterpret_cast<const void *>(a)); }
 
 // Bigs as GMP reads and writes them (Operands.cpp).
 

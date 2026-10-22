@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // GMP's memory functions over the runtime's allocator. GMP cannot recover
-// from a failed allocation; rt::alloc ends the process with a crash instead
-// of returning. They are set once, before a program's big operations run, so
-// none tests for them.
+// from a failed allocation, and none returns one: rt::alloc ends the
+// process as out of memory instead. GMP is built to take its temporaries
+// from these too, never from the stack, so its depth is no part of a
+// program's stack.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
+#include "Start/Start.h"
 #include "idris_rt.h"
 
 #include <stddef.h>
@@ -22,12 +24,6 @@ void release(void *block, size_t) { rt::alloc::release(block); }
 
 } // namespace
 
-// Points GMP's memory functions at the runtime's allocator, so that GMP's
-// scratch integers come from snmalloc and exhausted memory is the runtime's
-// crash. idris_rt_start calls it before the program runs, while no other
-// thread can use GMP. A process that runs big operations without
-// idris_rt_start (idris-mlir, whose folders call them) may call it before
-// it starts any thread that does; GMP otherwise allocates through the C
-// library, which is as correct, since every integer GMP allocates is freed
-// before the operation that made it returns.
-extern "C" void idris_rt_gmp_init(void) { mp_set_memory_functions(allocate, reallocate, release); }
+// The runner sets them once, after the heap and before any thread that
+// may run a big operation starts: a program's and a tool's alike.
+void rt::start::pointGmp() noexcept { mp_set_memory_functions(allocate, reallocate, release); }

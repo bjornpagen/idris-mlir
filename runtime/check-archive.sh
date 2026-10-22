@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # The runtime archive references no symbol of the C++ runtime, not even
-# weakly, and has no static constructors or destructors. The build runs it
+# weakly, has no static constructors or destructors, and defines no count
+# of live cells, which only the checked runtime keeps. The build runs it
 # after the link check (runtime/CMakeLists.txt), through the wrapper it
 # writes with the target entry's spellings (build/<preset>/runtime/
 # check-archive), and so does tests/runtime-archive-check.
@@ -88,7 +89,16 @@ awk -v names="$constructors" '
       if ($2 == list[i] || index($2, list[i] ".") == 1) { print member ": " $2; break }
   }' "$work/sections" > "$work/constructors"
 
+# The count of the cells a program holds is the checked runtime's alone: a
+# shipped program counts nothing for a test.
+grep -E 'cellsHeld' "$work/defined" > "$work/counts" || true
+
 status=0
+if [ -s "$work/counts" ]; then
+  echo "runtime check: the shipped runtime counts the cells a program holds:"
+  sed 's/^/  /' "$work/counts"
+  status=1
+fi
 if [ -s "$work/cxx" ]; then
   echo "runtime check: the runtime references the C++ runtime:"
   sed 's/^/  /' "$work/cxx"
@@ -102,4 +112,4 @@ fi
 [ "$status" -eq 0 ] || exit 1
 
 [ -z "$stamp" ] || : > "$stamp"
-echo "runtime check: no C++ runtime symbol referenced, no static constructors"
+echo "runtime check: no C++ runtime symbol referenced, no static constructors, no count of live cells"

@@ -4,6 +4,8 @@
 // and the Nat of an Integer.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Big/Big.h"
+#include "idr/IR/Numeric/Inline.h"
+#include "idr/IR/Numeric/Small.h"
 #include "idris_rt.h"
 
 #include <stdint.h>
@@ -12,26 +14,13 @@
 
 using namespace rt::big;
 
-namespace {
+using idr::numeric::Smalls;
 
-// Truncating division's remainder takes the dividend's sign. The Euclidean
-// pair has the remainder in [0, |y|), so a negative remainder moves one
-// quotient step the other way. y is not zero.
-void euclidean(int64_t x, int64_t y, int64_t &q, int64_t &r) {
-  q = x / y;
-  r = x % y;
-  if (r >= 0)
-    return;
-  if (y > 0) {
-    --q;
-    r += y;
-  } else {
-    ++q;
-    r -= y;
-  }
-}
-
-} // namespace
+// The small integers are the domain of Euclidean division's one meaning
+// whose quotient of IDRIS_RT_SMALL_MIN by -1 is the least large Integer,
+// which ofInt64 gives back as one.
+static_assert(idr::numeric::euclid<idr::numeric::Part::Quotient>(Smalls{}, IDRIS_RT_SMALL_MIN, -1) ==
+              IDRIS_RT_SMALL_MAX + 1);
 
 // The small paths compute on the tagged words themselves. A small word is
 // 2x + 1, and the small range is exactly the 63-bit integers, so a result
@@ -120,21 +109,17 @@ extern "C" [[gnu::always_inline]] idris_rt_big idris_rt_big_mul(idris_rt_big a, 
 // The quotient. That of two small integers is small, but for
 // IDRIS_RT_SMALL_MIN / -1.
 extern "C" idris_rt_big idris_rt_big_div(idris_rt_big a, idris_rt_big b) {
-  if (bothSmall(a, b)) {
-    int64_t q, r;
-    euclidean(idris_rt_small_value(a), idris_rt_small_value(b), q, r);
-    return ofInt64(q);
-  }
+  if (bothSmall(a, b))
+    return ofInt64(idr::numeric::euclid<idr::numeric::Part::Quotient>(
+        Smalls{}, idris_rt_small_value(a), idris_rt_small_value(b)));
   return binary(a, b, signOf(b) > 0 ? mpz_fdiv_q : mpz_cdiv_q);
 }
 
 // The remainder, below the divisor's magnitude, so small when both are.
 extern "C" idris_rt_big idris_rt_big_mod(idris_rt_big a, idris_rt_big b) {
-  if (bothSmall(a, b)) {
-    int64_t q, r;
-    euclidean(idris_rt_small_value(a), idris_rt_small_value(b), q, r);
-    return idris_rt_small_word(r);
-  }
+  if (bothSmall(a, b))
+    return idris_rt_small_word(idr::numeric::euclid<idr::numeric::Part::Remainder>(
+        Smalls{}, idris_rt_small_value(a), idris_rt_small_value(b)));
   return binary(a, b, mpz_mod);
 }
 

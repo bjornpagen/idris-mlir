@@ -12,27 +12,25 @@
 
 // A character's UTF-8 written into a string being built
 // (idris_rt_str_alloc), at an offset, giving the next offset.
-extern "C" int64_t idris_rt_str_put_char(idris_rt_str *s, int64_t offset, int32_t c) {
-  return offset +
-         static_cast<int64_t>(rt::strings::encodeUtf8(c, rt::strings::mutableBytes(s) + offset));
+extern "C" int64_t idris_rt_str_put_char(void *s, int64_t offset, int32_t c) {
+  char *at = rt::strings::mutableBytes(static_cast<idris_rt_str *>(s)) + offset;
+  return offset + static_cast<int64_t>(rt::strings::encodeUtf8(c, at));
 }
 
 // A string's bytes written into a string being built, at an offset, giving
 // the next offset. An empty part copies nothing: both pointers are valid,
 // its own bytes and the string's end, so the copy needs no test.
-extern "C" int64_t idris_rt_str_put_str(idris_rt_str *s, int64_t offset, const idris_rt_str *part) {
-  memcpy(rt::strings::mutableBytes(s) + offset, idris_rt_str_bytes(part), part->bytes);
+extern "C" int64_t idris_rt_str_put_str(void *s, int64_t offset, const idris_rt_str *part) {
+  memcpy(rt::strings::mutableBytes(static_cast<idris_rt_str *>(s)) + offset,
+         idris_rt_str_bytes(part), part->bytes);
   return offset + static_cast<int64_t>(part->bytes);
 }
 
-// The concatenation of two strings. Appending the empty string gives back
-// the other, with one more reference.
+// The concatenation of two strings, a new string even where one is empty,
+// since the result is fresh and never an argument; the empty one when both
+// are.
 extern "C" const idris_rt_str *idris_rt_str_append(const idris_rt_str *a, const idris_rt_str *b) {
   using namespace rt::strings;
-  if (a->bytes == 0)
-    return shared(b);
-  if (b->bytes == 0)
-    return shared(a);
   idris_rt_str *s = newString(a->bytes + b->bytes, a->scalars + b->scalars);
   memcpy(mutableBytes(s), idris_rt_str_bytes(a), a->bytes);
   memcpy(mutableBytes(s) + a->bytes, idris_rt_str_bytes(b), b->bytes);

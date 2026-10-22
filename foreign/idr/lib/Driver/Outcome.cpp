@@ -27,7 +27,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
-#include <cassert>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -131,8 +130,7 @@ public:
     for (const mlir::Pass::Statistic *statistic : pass->getStatistics())
       values.push_back(statistic->getValue());
     std::lock_guard<std::mutex> lock(mutex);
-    [[maybe_unused]] bool fresh = before.try_emplace(pass, std::move(values)).second;
-    assert(fresh && "a pass instance runs once at a time");
+    before.insert_or_assign(pass, std::move(values));
   }
 
   void runAfterPass(mlir::Pass *pass, mlir::Operation *) override { end(pass); }

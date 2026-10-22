@@ -39,7 +39,7 @@
 
 using namespace idr::driver;
 
-// Idris source to the Core and the module the plan names. The frontend
+// Idris source to the module the plan names. The frontend
 // reads no environment, so its prefix and package directories are its
 // arguments. It prints no refusal: it writes each into the module it
 // leaves (run reads them), so its exit status once it finished is all this
@@ -56,7 +56,7 @@ static mlir::FailureOr<int> frontend(llvm::StringRef frontendPath, const FromIdr
     args.insert(args.end(), {"-p", package});
   if (options.noPrelude)
     args.emplace_back("--no-prelude");
-  args.insert(args.end(), {"--core", idris.corePath, "-o", idris.modulePath, idris.source});
+  args.insert(args.end(), {"-o", idris.modulePath, idris.source});
   std::vector<llvm::StringRef> argv(args.begin(), args.end());
   std::string error;
   bool notRun = false;

@@ -4,17 +4,17 @@
 // list.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
-#include "Platform/Address.h"
 #include "Rc/Rc.h"
 #include "idris_rt.h"
 
+#include <concepts>
 #include <stddef.h>
 #include <stdint.h>
 
 namespace {
 
 // The count holds the low 32 bits of the next cell's address, and the tag
-// field of info its high bits; objs, kind and the stack bit stay. An array
+// field of info its high bits; objs and kind stay. An array
 // whose elements hold objects keeps its tag, the element size its release
 // steps by, and its length holds the high bits instead (steppedLength). The
 // tag field is the header's (IDRIS_RT_TAG_LIMIT), not a second width.
@@ -38,16 +38,14 @@ uint64_t *steppedLength(idris_rt_header *cell) {
 // released: a stack threaded through the cells. A dying cell's count is
 // dead, and so is its tag, or for an array whose elements hold objects the
 // top of its length: addressLowBits + addressHighBits bits, which hold the
-// next cell's address. A heap cell's has no more bits than the allocator's
-// pagemap covers (rt::alloc), and a stack cell's no more than the target's
-// user address space (rt::platform).
+// next cell's address. Every cell that dies is a counted heap cell, whose
+// address has no more bits than the heap's span reaches (rt::alloc): a
+// cell of a lexical lifetime, or static data, is never counted, so it never
+// dies by a count.
 class Dying {
   static_assert(rt::alloc::heapAddressBits <= addressLowBits + addressHighBits,
                 "a heap address fits a count and a tag");
-  static_assert(rt::platform::userAddressBits <= addressLowBits + addressHighBits,
-                "a stack address fits a count and a tag");
-  static_assert(rt::alloc::heapAddressBits <= lengthBits &&
-                    rt::platform::userAddressBits <= lengthBits,
+  static_assert(rt::alloc::heapAddressBits <= lengthBits,
                 "an array's length leaves the top bits free");
 
 public:
@@ -83,12 +81,11 @@ private:
 // Each object slot of `cell`, which an array has per element. A box's or a
 // thunk's are right after the header, one word each, or, when the header's
 // objs is IDRIS_RT_OBJS_WIDE, after the word that counts them: this is the
-// one place the runtime reads a cell's slots, for a death and for a static
-// memo cell's persistence alike. Strings and bignums have none (objs 0), and
+// one place the runtime reads a cell's slots. Strings and bignums have none (objs 0), and
 // a bignum's digits are in its cell. An array's objs is always the count,
 // never the mark: an element with that many slots is held boxed. Dying
 // keeps objs and the count word, so a dying cell is read alike.
-template <typename Each>
+template <std::invocable<void *&> Each>
 void eachSlot(idris_rt_header *cell, Each each) {
   uint32_t objs = idris_rt_info_objs(cell->info);
   auto slots = [&](void **at, uint64_t n) {
@@ -120,27 +117,13 @@ void releaseOwned(idris_rt_header *cell, Dying &dying) {
   });
 }
 
-// A dead cell's memory is freed, but a stack cell's belongs to its frame:
-// there the count becomes 0, so the dead cell is inert, and in the checked
-// runtime it is marked as a heap cell that died is, until its op runs again
-// and writes its header anew.
-void freeDead(idris_rt_header *cell) {
-  if (!rt::rc::isStack(cell->info)) {
-    rt::alloc::freeCell(cell);
-    return;
-  }
-  cell->count = 0;
-  if constexpr (rt::alloc::checked)
-    cell->info = rt::alloc::freedInfo;
-}
-
 // The cells that died while others were released, each released and freed
 // in turn. Each enters once, when its count reaches 0, so the list ends.
 void releaseDying(Dying &dying) {
   while (!dying.empty()) {
     idris_rt_header *cell = dying.pop();
     releaseOwned(cell, dying);
-    freeDead(cell);
+    rt::alloc::freeCell(cell);
   }
 }
 
@@ -154,38 +137,8 @@ namespace rt::rc {
 [[gnu::noinline]] void release(idris_rt_header *cell) {
   Dying dying;
   releaseOwned(cell, dying);
-  freeDead(cell);
+  rt::alloc::freeCell(cell);
   releaseDying(dying);
-}
-
-// The cells still to be walked are kept in a block of the runtime's memory
-// that grows as the walk needs, freed when it ends: a persisted cell's
-// header must keep its tag, so the walk cannot thread through it as dying
-// cells do. Each cell enters once, when its count becomes 0, so the walk
-// ends.
-void persistHeld(idris_rt_header *cell) {
-  size_t size = 16, top = 0;
-  auto **stack = static_cast<idris_rt_header **>(rt::alloc::allocate(size * sizeof(void *)));
-  auto persist = [&](void *slot) {
-    if (!isObject(slot))
-      return;
-    idris_rt_header *held = headerOf(slot);
-    touch(held);
-    if (held->count == 0 || isStack(held->info))
-      return;
-    held->count = 0;
-    rt::alloc::forgetCell();
-    if (top == size) {
-      size *= 2;
-      stack = static_cast<idris_rt_header **>(
-          rt::alloc::reallocate(stack, size * sizeof(void *)));
-    }
-    stack[top++] = held;
-  };
-  eachSlot(cell, persist);
-  while (top != 0)
-    eachSlot(stack[--top], persist);
-  rt::alloc::release(stack);
 }
 
 } // namespace rt::rc

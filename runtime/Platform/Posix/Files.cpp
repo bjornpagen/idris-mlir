@@ -16,11 +16,21 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+namespace {
+
+// How a failed write went, by its errno: the reader of a pipe gone, or any
+// other failure.
+rt::platform::Wrote failed() noexcept {
+  return errno == EPIPE ? rt::platform::Wrote::Broken : rt::platform::Wrote::Failed;
+}
+
+} // namespace
+
 namespace rt::platform {
 
 File *openFile(const char *path, const char *mode) noexcept { return fopen(path, mode); }
 
-bool closeFile(File *file) noexcept { return fclose(file) == 0; }
+Wrote closeFile(File *file) noexcept { return fclose(file) == 0 ? Wrote::Whole : failed(); }
 
 int descriptor(File *file) noexcept { return fileno(file); }
 
@@ -35,9 +45,12 @@ int32_t readByte(File *file) noexcept {
 
 size_t readFile(File *file, char *p, size_t n) noexcept { return fread(p, 1, n, file); }
 
-size_t writeFile(File *file, const char *p, size_t n) noexcept { return fwrite(p, 1, n, file); }
+FileWrote writeFile(File *file, const char *p, size_t n) noexcept {
+  size_t count = fwrite(p, 1, n, file);
+  return {count, count == n ? Wrote::Whole : failed()};
+}
 
-bool flushFile(File *file) noexcept { return fflush(file) == 0; }
+Wrote flushFile(File *file) noexcept { return fflush(file) == 0 ? Wrote::Whole : failed(); }
 
 bool removeFile(const char *path) noexcept { return remove(path) == 0; }
 
@@ -87,25 +100,21 @@ int64_t waitForInput(int fd) noexcept {
 bool isTerminal(int fd) noexcept { return isatty(fd) == 1; }
 
 // A write a signal interrupts before it wrote anything is tried again, as
-// the C library's stdio does; any other failure abandons the rest.
-IDRIS_RT_BASELINE void writeAll(int fd, const char *p, size_t n) noexcept {
+// the C library's stdio does; any other failure abandons the rest. errno is
+// read here, inline, so nothing it calls leaves the baseline.
+IDRIS_RT_BASELINE Wrote writeAll(int fd, const char *p, size_t n) noexcept {
   while (n > 0) {
     ssize_t written = write(fd, p, n);
     if (written < 0 && errno == EINTR)
       continue;
-    if (written <= 0)
-      return;
+    if (written < 0)
+      return errno == EPIPE ? Wrote::Broken : Wrote::Failed;
+    if (written == 0)
+      return Wrote::Failed;
     p += written;
     n -= static_cast<size_t>(written);
   }
-}
-
-IDRIS_RT_BASELINE void writeCrash(const Piece *pieces, size_t count) noexcept {
-  static constexpr char prefix[] = "idris-mlir: ";
-  writeAll(2, prefix, sizeof prefix - 1);
-  for (size_t i = 0; i < count; ++i)
-    writeAll(2, pieces[i].bytes, pieces[i].length);
-  writeAll(2, "\n", 1);
+  return Wrote::Whole;
 }
 
 int64_t readSome(int fd, char *p, size_t n) noexcept { return static_cast<int64_t>(read(fd, p, n)); }

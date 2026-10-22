@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <unistd.h>
 
 namespace {
 
@@ -46,4 +47,13 @@ void useSignalStack(char *p, size_t n) noexcept {
   alternate.ss_size = n;
   sigaltstack(&alternate, nullptr);
 }
+
+// POSIX's least stack a thread may be given, which the C library sizes by
+// what it keeps at the stack's top: its thread's descriptor and the static
+// thread-local storage.
+size_t threadStackMinimum() noexcept {
+  long minimum = sysconf(_SC_THREAD_STACK_MIN);
+  return minimum > 0 ? static_cast<size_t>(minimum) : 0;
+}
+
 } // namespace rt::platform

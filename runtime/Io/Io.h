@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// rt::io: the program's input and output, and its end: standard output and
-// input through static buffers; base's files, directories, process,
-// terminal, errors and clocks over the platform layer (rt::platform), whose
-// pointers are handles of one table; and crash.
+// rt::io: the program's input and output: standard output and input through
+// static buffers; base's files, directories, process, terminal, errors and
+// clocks over the platform layer (rt::platform), whose pointers are handles
+// of one table. A write a reader gone refuses ends the program (rt::end).
 // PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
@@ -15,18 +15,12 @@
 
 namespace rt::io {
 
-// The size of the buffers of standard output and input: a buffer, not a
-// page. It bounds one write's worth of pending output and is never an
-// alignment or a region size (the target entry's page size is
-// IDRIS_MLIR_PAGE_SIZE, which rt::platform's startup check reads); 4096 is a
-// small write's worth on every target. A test build may set
-// IDRIS_RT_IO_BUFFER_SIZE to a few bytes, so that every boundary of the
-// buffers is reached with little data (tests/io-buffer); the
-// production build sets nothing.
-#ifndef IDRIS_RT_IO_BUFFER_SIZE
-#define IDRIS_RT_IO_BUFFER_SIZE 4096
-#endif
-inline constexpr size_t bufferSize = IDRIS_RT_IO_BUFFER_SIZE;
+// The size of the buffers of standard output and input: one page of the
+// target's, the unit the kernel moves a pipe's or a file's bytes in, so a
+// full buffer is one write the kernel takes whole. It bounds one write's
+// worth of pending output; a test reaches every boundary of the buffers by
+// writing past one.
+inline constexpr size_t bufferSize = rt::platform::pageSize();
 static_assert(bufferSize >= 4, "the output buffer holds a character's longest UTF-8, which "
                                "idris_rt_io_put_char encodes in place");
 
@@ -106,14 +100,20 @@ int64_t newString(const idris_rt_str *s);
 void keepString(int64_t handle, const idris_rt_str *s);
 
 // Releases what the slot holds, and with a directory the slot of its entry,
-// and frees the slot for the next newSlot.
-void releaseSlot(int64_t handle);
+// and frees the slot for the next newSlot; how closing a file, which writes
+// what it has pending, went.
+rt::platform::Wrote releaseSlot(int64_t handle);
 
 // Releases what every slot holds: open files are closed, which writes what
 // they have pending, and the strings the runtime keeps lose their reference.
-// The table is then as it was made. When the program ends, so that what it
-// leaves in the table is no live cell.
+// The table is then as it was made. When the program ends, however it ends
+// but by an internal error, so that what it wrote to a file before its end
+// is in the file; a failure here changes nothing of how it ends.
 void releaseHandles();
+
+// Writes standard output's pending bytes (Output.cpp), and how that went:
+// what every ending writes first.
+rt::platform::Wrote writePending();
 
 // Streams: what a handle that names one reads and writes, through the row
 // of its kind.
