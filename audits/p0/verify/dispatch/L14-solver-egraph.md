@@ -138,9 +138,14 @@ them.
 - C++: concept-constrained templates, monomorphized; dispatch over ops
   only through MLIR (an interface, a trait, a rooted pattern), never an
   `isa<A, B>` ladder or a concept that lists ops; a choice is a type or
-  an enum case, never a `bool`; no `assert` (D91): an invariant is a
-  type, a verifier rule, or nothing; no pointer-keyed map holding
-  per-node state; nothing static built per function.
+  an enum case, never a `bool`; invariants asserted freely, always on
+  (D114, D115, C226), C++26 contracts once clang has them; no
+  pointer-keyed map holding per-node state; nothing static built per
+  function.
+- Idris, D112: no run-time check of our own invariant (`internal`,
+  `assert_total`, `assert_smaller`, `believe_me`): the state is made
+  unrepresentable or its proof carried; code is never kept worse to
+  spare the compiler (D113).
 - Idris: in the subset both hosts compile, type-driven (indices, views,
   erased proofs, evidence over `Bool`, C154: evidence at quantity 0 in
   bodies the stock host runs). On the stock host, avoid until fixed:
