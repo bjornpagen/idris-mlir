@@ -19,7 +19,9 @@
 // precondition broken is a verifier error after the pass, an internal one.
 // Whether a loop it makes may run forever is its function's row's to say,
 // from Idris's proof, so nothing of the group marks it. A group states no
-// lifetime: a finder that moves scoped values into one states it after.
+// lifetime: a finder that moves scoped values into one restates its
+// `outers` after, one lifetime per scoped result and then per scoped
+// parameter of each region, in order (lifetimes::restateOuters).
 //
 //===----------------------------------------------------------------------===//
 
@@ -27,6 +29,7 @@
 #define IDR_TRANSFORMS_JOINS_H
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -74,9 +77,10 @@ public:
 
 private:
   friend struct Builder;
-  // Per member, its group op and its join region's index there.
-  llvm::SmallVector<mlir::Operation *> ops;
-  llvm::SmallVector<unsigned> indices;
+  // Per member, its group op and its join region's index there: as many as
+  // the group has members, so counted in the footprint.
+  footprint::Vector<mlir::Operation *> ops;
+  footprint::Vector<unsigned> indices;
 };
 
 // A group just built: its outermost op, its tokens, and its innermost body,

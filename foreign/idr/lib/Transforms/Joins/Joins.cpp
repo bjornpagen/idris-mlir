@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The one construction of join points (Joins.h): the shape from the jump
-// graph, the group's ops, its members moved in, and sites made jumps.
+// graph, the group's ops, its members moved in, and sites made jumps. What
+// it keeps per member or per jump is sized by the group, which may be most
+// of the program's functions, so it lives in the footprint's vectors.
 
 #include "idr/Transforms/Joins.h"
+
+#include "idr/Support/Footprint.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 
 #include <cstdint>
+#include <numeric>
 #include <optional>
 
 using namespace mlir;
@@ -33,23 +38,23 @@ namespace {
 // graph has a cycle. One iterative depth-first walk (no recursion on the
 // group's size): a member's depth is final when it finishes, and goes to
 // the member below it on the stack, which jumps to it.
-std::optional<SmallVector<unsigned>> depthsOf(unsigned members, ArrayRef<Edge> edges) {
+std::optional<footprint::Vector<unsigned>> depthsOf(unsigned members, ArrayRef<Edge> edges) {
   // The edges out of each member, as compressed rows.
-  SmallVector<unsigned> start(members + 1, 0);
+  footprint::Vector<unsigned> start(members + 1, 0);
   for (Edge edge : edges)
     ++start[edge.from + 1];
   for (unsigned m = 0; m < members; ++m)
     start[m + 1] += start[m];
-  SmallVector<unsigned> next(start.begin(), start.end() - 1);
-  SmallVector<unsigned> to(edges.size());
+  footprint::Vector<unsigned> next(start.begin(), start.end() - 1);
+  footprint::Vector<unsigned> to(edges.size());
   for (Edge edge : edges)
     to[next[edge.from]++] = edge.to;
 
   enum class Visit : std::uint8_t { New, Open, Done };
-  SmallVector<Visit> state(members, Visit::New);
-  SmallVector<unsigned> depth(members, 0);
+  footprint::Vector<Visit> state(members, Visit::New);
+  footprint::Vector<unsigned> depth(members, 0);
   // A frame: a member and the next of its edges to follow.
-  SmallVector<std::pair<unsigned, unsigned>> stack;
+  footprint::Vector<std::pair<unsigned, unsigned>> stack;
   for (unsigned root = 0; root < members; ++root) {
     if (state[root] != Visit::New)
       continue;
@@ -137,23 +142,33 @@ Group build(RewriterBase &rewriter, Location loc, TypeRange results, ArrayRef<Me
             ArrayRef<Edge> edges) {
   unsigned count = static_cast<unsigned>(members.size());
   unsigned scope = scopeDepth(rewriter.getInsertionBlock()->getParent());
-  std::optional<SmallVector<unsigned>> depths = depthsOf(count, edges);
+  std::optional<footprint::Vector<unsigned>> depths = depthsOf(count, edges);
   // The ops, outermost first, each with its members: one idr.loop holding
   // every member, or one idr.join per depth, the members jumped to outward,
-  // so each join region sees the tokens of every member it jumps to.
-  SmallVector<SmallVector<unsigned>> levels;
+  // so each join region sees the tokens of every member it jumps to. The
+  // members of level d are the run of `order` from `first[d]` to
+  // `first[d + 1]`, in member order.
+  unsigned levels = depths ? *llvm::max_element(*depths) + 1 : 1;
+  footprint::Vector<unsigned> first(levels + 1, 0);
+  footprint::Vector<unsigned> order(count);
   if (depths) {
-    levels.resize(*llvm::max_element(*depths) + 1);
+    for (unsigned d : *depths)
+      ++first[d + 1];
+    for (unsigned d = 0; d < levels; ++d)
+      first[d + 1] += first[d];
+    footprint::Vector<unsigned> next(first.begin(), first.end() - 1);
     for (unsigned m = 0; m < count; ++m)
-      levels[(*depths)[m]].push_back(m);
+      order[next[(*depths)[m]]++] = m;
   } else {
-    levels.emplace_back(llvm::seq<unsigned>(0, count));
+    first[1] = count;
+    std::iota(order.begin(), order.end(), 0u);
   }
 
   Group group{nullptr, nullptr, Targets()};
   Builder::reserve(group.targets, count);
   Type token = rewriter.getType<TokenType>();
-  for (ArrayRef<unsigned> level : levels) {
+  for (unsigned d = 0; d < levels; ++d) {
+    ArrayRef<unsigned> level(order.data() + first[d], first[d + 1] - first[d]);
     SmallVector<Attribute> binders =
         llvm::map_to_vector(level, [&](unsigned m) -> Attribute { return members[m].binders; });
     Operation *op = depths ? makeOp<JoinOp>(rewriter, loc, results, binders)
@@ -189,8 +204,8 @@ namespace {
 
 // The jump graph of `sites`: an edge from each member whose region holds a
 // site to the member it targets; a site in the body is none.
-SmallVector<Edge> edgesOf(ArrayRef<Member> members, ArrayRef<Site> sites) {
-  SmallVector<Edge> edges;
+footprint::Vector<Edge> edgesOf(ArrayRef<Member> members, ArrayRef<Site> sites) {
+  footprint::Vector<Edge> edges;
   for (const Site &site : sites)
     for (auto [index, member] : llvm::enumerate(members))
       if (member.body->isAncestor(site.op->getParentRegion()))
@@ -208,7 +223,7 @@ void jumpAll(RewriterBase &rewriter, const Targets &targets, ArrayRef<Site> site
 Operation *wrap(RewriterBase &rewriter, Operation *place, ArrayRef<Member> members,
                 ArrayRef<Site> sites) {
   OpBuilder::InsertionGuard guard(rewriter);
-  SmallVector<Edge> edges = edgesOf(members, sites);
+  footprint::Vector<Edge> edges = edgesOf(members, sites);
   rewriter.setInsertionPoint(place);
   Group group = build(rewriter, place->getLoc(), place->getResultTypes(), members, edges);
   rewriter.replaceAllUsesWith(place->getResults(), group.outermost->getResults());
@@ -234,7 +249,7 @@ LoopOp loopSelf(RewriterBase &rewriter, FuncOp fn, ArrayRef<Site> calls) {
       llvm::map_to_vector(old->getArguments(), [](BlockArgument arg) { return arg.getLoc(); }));
   Region moved;
   rewriter.moveBlockBefore(old, &moved, moved.end());
-  SmallVector<Edge> edges(calls.size(), Edge{0, 0});
+  footprint::Vector<Edge> edges(calls.size(), Edge{0, 0});
   Member member{&moved, binders, /*firstLevel=*/0};
   rewriter.setInsertionPointToEnd(entry);
   Group group = build(rewriter, fn.getLoc(), fn.getFunctionType().getResults(), member, edges);

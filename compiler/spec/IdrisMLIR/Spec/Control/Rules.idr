@@ -12,11 +12,18 @@ module IdrisMLIR.Spec.Control.Rules
 
 import IdrisMLIR.Spec.Core.Vocabulary
 
+import Data.List1
+
 %default total
+
+||| The header that declares every rule here, which the generator includes
+||| once.
+controlHeader : Path
+controlHeader = "idr" ::: ["IR", "Control", "Control.h"]
 
 ||| One rule rooted at each op it rewrites.
 rooted : Ident -> List OpRef -> Line -> List SkeletonRule
-rooted name roots doc = map (\root => MkSkeletonRule name root doc) roots
+rooted name roots doc = map (\root => MkSkeletonRule name controlHeader root doc) roots
 
 export
 skeletonRules : List SkeletonRule

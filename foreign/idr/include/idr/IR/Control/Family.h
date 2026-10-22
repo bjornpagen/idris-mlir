@@ -15,6 +15,14 @@ namespace idr {
 template <typename Op>
 struct JoinPointsFamily;
 
+// The members of the family are monomorphic: one instantiation of each
+// template over them per member, chosen by the member's constant.
+template <typename Group>
+concept JoinFamily = requires { JoinPointsFamily<Group>::tokens; };
+
+template <JoinFamily Group>
+inline constexpr auto tokensAt = JoinPointsFamily<Group>::tokens;
+
 } // namespace idr
 
 #endif // IDR_IR_CONTROL_FAMILY_H

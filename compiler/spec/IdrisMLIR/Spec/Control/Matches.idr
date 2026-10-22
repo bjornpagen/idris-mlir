@@ -23,10 +23,12 @@
 ||| integer or a condition is matched by upstream's `scf.index_switch` or
 ||| `scf.if`.
 |||
-||| A scoped value a match makes (a result, a refined value it binds) lives
-||| in the lifetime its `outer` operand states, present exactly when one is
-||| scoped: one hop from the value, as every op that makes a scoped value
-||| states it.
+||| Each scoped value a match makes lives in the lifetime its own entry of
+||| `outers` states, one hop from the value, as every op that makes a scoped
+||| value states it: its scoped results, in result order, then each scoped
+||| position its regions bind, one entry for every region that binds it,
+||| since each binds a position at the same hold. Two values of two
+||| lifetimes keep each its own span.
 module IdrisMLIR.Spec.Control.Matches
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -57,9 +59,25 @@ matchedLiteral : Predicate
 matchedLiteral = MkPredicate "isMatchedLiteral" OnType
   (brief "a value of a type with literals that is no integer, read in place")
 
-||| The lifetime a match states for the scoped values it makes.
-lifetime : TypeC
-lifetime = OurType (SomeType lifetimeType)
+||| The lifetimes a control op states, one per scoped value it makes: its
+||| scoped results, in result order, then the scoped values its regions
+||| bind, in the order its kind says.
+export
+outers : Operand
+outers = variadic "outers" (OurType (SomeType lifetimeType))
+
+||| What the scoped values a control op's regions bind take of its
+||| `outers`, after its scoped results' entries: how many entries, and the
+||| entry of one such value counted from the first, whether or not the value
+||| is scoped yet; none for a value no region of the op binds. A match's
+||| entries are its regions' argument positions, a position scoped where
+||| some region's argument at it is; a join point's op's are every
+||| argument of every region, in region and argument order.
+export
+bindingMembers : List Member
+bindingMembers =
+  [ MkMember OnObject "unsigned" "getScopedBindings" []
+  , MkMember OnObject "std::optional<unsigned>" "getBindingEntry" [param "::mlir::Value" "made"] ]
 
 ------------------------------------------------------------------------------
 -- Their shape, shared
@@ -151,7 +169,7 @@ matchOp = MkOp
   , mnemonic = "data.match"
   , ins = [ single "scrutinee" (SatisfiesType matchable)
           , variadic "forwarded" (UpstreamType AnyTypeC)
-          , optional "outer" lifetime ]
+          , outers ]
   , outs = [results "results" (UpstreamType AnyTypeC)]
   , attrs = [attr "cases" (UpstreamAttr DenseI32ArrayAttrC)]
   , regions = [MkRegion "default_region" OneRegion (AtMost 1), sizedRegions "case_regions" 1]
@@ -161,7 +179,8 @@ matchOp = MkOp
           (branchMethods ++ ["getEntrySuccessorOperands", "areTypesCompatible"])
       , Implements matchInterface ["getNumCases", "getCaseRegion", "caseOf", "keepCases"]
       , Implements erasedBinderInterface ["getBoundSorts", "getRefinement"]
-      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"] ]
+      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"]
+      , Implements statesOuters [] ]
   , effects = Executes [] [ReadsMemo 0] Recursive Untouched
   , speculation = RecursivelySpeculatable
   , stages = between Higher Owned
@@ -171,7 +190,8 @@ matchOp = MkOp
       [ ValueOf (OperandRef 0)
       , OptionalGroup [Lit "forward", Lit "("] (ValueOf (OperandRef 1))
           [Lit ":", TypeOf (OfGroup (OperandRef 1)), Lit ")"]
-      , OptionalGroup [Lit "in"] (ValueOf (OperandRef 2)) []
+      , OptionalGroup [Lit "in", Lit "("] (ValueOf (OperandRef 2))
+          [Lit ":", TypeOf (OfGroup (OperandRef 2)), Lit ")"]
       , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->"
       , Custom resultTypes [TypeOfGroup (ResultRef 0)]
       , AttrDictWithKeyword, Lit "{"
@@ -189,6 +209,7 @@ matchOp = MkOp
       , MkMember OnObject "::idr::DataType" "getDataType" []
       , MkMember OnObject "::mlir::OperandRange" "getEntering" []
       , MkMember OnObject "::llvm::SmallVector<::mlir::Type>" "getDefaultTypes" [] ]
+      ++ bindingMembers
   , guards = []
   , specializations = []
   , laws = []
@@ -199,7 +220,9 @@ matchOp = MkOp
       value at its refined type. A case's fields are reads of its refined
       value. The default region is empty when the cases are exhaustive.
 
-      `%r = idr.data.match %v : !T -> (i64) { case @A(%a: !A) {...} default(%d: !D) {...} }`
+      `%r = idr.data.match %v : !T -> (i64) { case @A(%a: !A) {...} default(%d: !D) {...} }`,
+      with `in (%l : !L)` before the colon the lifetimes it states, one per
+      scoped value it makes.
       """
   }
 
@@ -213,7 +236,7 @@ matchLitOp : Op 2 1 1 2
 matchLitOp = MkOp
   { home = InIdr
   , mnemonic = "lit.match"
-  , ins = [single "scrutinee" (SatisfiesType matchedLiteral), optional "outer" lifetime]
+  , ins = [single "scrutinee" (SatisfiesType matchedLiteral), outers]
   , outs = [results "results" (UpstreamType AnyTypeC)]
   , attrs = [attr "cases" (UpstreamAttr ArrayAttrC)]
   , regions = [sized "default_region" 1, sizedRegions "case_regions" 1]
@@ -221,7 +244,8 @@ matchLitOp = MkOp
   , interfaces =
       [ Declares RegionBranch (branchMethods ++ ["getEntrySuccessorOperands"])
       , Implements matchInterface ["getNumCases", "getCaseRegion", "caseOf", "keepCases"]
-      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"] ]
+      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"]
+      , Implements statesOuters [] ]
   , effects = Executes [] [] Recursive Untouched
   , speculation = RecursivelySpeculatable
   , stages = between Higher Owned
@@ -229,7 +253,8 @@ matchLitOp = MkOp
   , verify = VerifiesOp
   , format = Declared
       [ ValueOf (OperandRef 0)
-      , OptionalGroup [Lit "in"] (ValueOf (OperandRef 1)) []
+      , OptionalGroup [Lit "in", Lit "("] (ValueOf (OperandRef 1))
+          [Lit ":", TypeOf (OfGroup (OperandRef 1)), Lit ")"]
       , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->"
       , Custom resultTypes [TypeOfGroup (ResultRef 0)]
       , AttrDictWithKeyword, Lit "{"
@@ -240,7 +265,7 @@ matchLitOp = MkOp
       [ MkBuilder [ param "::mlir::TypeRange" "results", param "::mlir::Value" "scrutinee"
                   , param "::mlir::ArrayAttr" "cases" ] ]
   , defaultBuilders = DeclaredOnly
-  , members = []
+  , members = bindingMembers
   , guards = []
   , specializations = []
   , laws = []

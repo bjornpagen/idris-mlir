@@ -22,12 +22,14 @@
 ||| Idris did not prove to end may run forever, which its function's row
 ||| holds from Idris's proof, so no op of the loop marks it.
 |||
-||| A scoped value an op of the family makes (a result, a join region's
-||| parameter) lives in the lifetime its `outer` operand states, present
-||| exactly when one is scoped.
+||| Each scoped value an op of the family makes lives in the lifetime its
+||| own entry of `outers` states: its scoped results, in result order, then
+||| each scoped parameter of each region, in region and parameter order,
+||| since each join region binds values of its own.
 module IdrisMLIR.Spec.Control.Joins
 
 import IdrisMLIR.Spec.Core.Vocabulary
+import IdrisMLIR.Spec.Control.Matches
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Lifetimes.Declarations
@@ -125,7 +127,7 @@ joinPoints : TokenScope -> Op 1 1 1 2
 joinPoints scope = MkOp
   { home = InIdr
   , mnemonic = memberName scope
-  , ins = [optional "outer" (OurType (SomeType lifetimeType))]
+  , ins = [outers]
   , outs = [results "results" (UpstreamType AnyTypeC)]
   , attrs = [attr "binders" (UpstreamAttr ArrayAttrC)]
   , regions = [sized "body" 1, sizedRegions "join_regions" 1]
@@ -139,7 +141,7 @@ joinPoints scope = MkOp
   , format = HandFormat
   , builders = []
   , defaultBuilders = WithDefaults
-  , members = []
+  , members = bindingMembers
   , guards = []
   , specializations = [family scope]
   , laws = []
@@ -152,7 +154,8 @@ joinPoints scope = MkOp
       , Declares HasBreakingControlFlow []
       , Implements joinPointsInterface ["getTarget", "getTokens", "getParameters"]
       , Implements erasedBinderInterface ["getBoundSorts"]
-      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"] ]
+      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"]
+      , Implements statesOuters [] ]
 
     interfacesOf : TokenScope -> List InterfaceUse
     interfacesOf InBody = common
@@ -165,8 +168,8 @@ joinPoints scope = MkOp
     docOf : TokenScope -> Doc
     docOf InBody = MkDoc "join points that never repeat: tokens in the body alone"
       """
-      `%r = idr.join tokens(%k) in %l : !L -> (R) {...} join(%p: A) {...}`,
-      `in %l : !L` the lifetime it states where it makes a scoped value. The
+      `%r = idr.join tokens(%k) in (%l : !L) -> (R) {...} join(%p: A) {...}`,
+      `in (%l : !L)` the lifetimes it states, one per scoped value it makes. The
       body's tokens designate the join regions; a join region binds its
       parameters and may jump to an enclosing op's join points, never to its
       own.
@@ -203,7 +206,7 @@ jumpOp = MkOp
   , outs = []
   , attrs = [MkAttr "terms" indexArgs]
   , regions = []
-  , traits = [Terminator]
+  , traits = [Terminator, TokenConsumer]
   , interfaces =
       [ Declares RegionBranchTerminator ["getMutableSuccessorOperands"]
       , Declares RegionExitTerminator ["getPotentialTargets"] ]

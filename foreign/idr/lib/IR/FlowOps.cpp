@@ -10,6 +10,7 @@
 
 #include "idr/IR/Flow.h"
 
+#include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -80,6 +81,19 @@ void handOn(OpOperand &use, Value result, FlowEdges &edges) {
   edges.flow(FlowPoint::of(use), FlowPoint::of(result));
 }
 
+// A numeral and the natural it is converted to or from are one value where
+// the numeral's bound is open, so it is held as that natural: the
+// reference goes on. A numeral of a fixed width is a word, which holds no
+// reference, and the other side is a value the conversion makes, the
+// operand only read: a natural it builds, or a word. Essential: the two are
+// the ways a numeral can be held.
+void numeralEdges(OpOperand &use, Value result, Type numeral, FlowEdges &edges) {
+  if (dataTypeOf(numeral).layout() == families::Layout::Natural)
+    handOn(use, result, edges);
+  else
+    edges.fresh(result);
+}
+
 } // namespace
 
 // A call moves its arguments into its callee's parameters, which take them
@@ -122,6 +136,20 @@ void idr::DataFieldOp::getFlowEdges(FlowEdges &edges) {
 // The tag is read, and nothing moves.
 void idr::DataTagOp::getFlowEdges(FlowEdges &) {}
 
+// A value at a type its refinements make equal to its own is the same
+// value: the reference goes on.
+void idr::DataReindexOp::getFlowEdges(FlowEdges &edges) {
+  handOn(getValueMutable(), getResult(), edges);
+}
+
+void idr::NumeralToNatOp::getFlowEdges(FlowEdges &edges) {
+  numeralEdges(getValueMutable(), getResult(), getValue().getType(), edges);
+}
+
+void idr::NumeralOfNatOp::getFlowEdges(FlowEdges &edges) {
+  numeralEdges(getValueMutable(), getResult(), getType(), edges);
+}
+
 // The value moves into the hole the destination writes.
 void idr::DestWriteOp::getFlowEdges(FlowEdges &edges) {
   TypedValue<DestType> dest = getDest();
@@ -129,14 +157,14 @@ void idr::DestWriteOp::getFlowEdges(FlowEdges &edges) {
              FlowPoint::partOf(dest, FlowAnchor::holeOf(dest.getType())));
 }
 
-// The answer is what the region wrote through the destination it receives,
-// read out of the hole when the region ends. The destination holds no
+// Each answer is what the region wrote through the destination it receives
+// for it, read out of the hole when the region ends. A destination holds no
 // reference, so that it is new to the region declares no edge: the place is
 // this op's alone, and that it is written once is its type's.
 void idr::DestAnswerOp::getFlowEdges(FlowEdges &edges) {
-  Value dest = getBody().getArgument(0);
-  edges.flow(FlowPoint::partOf(dest, FlowAnchor::holeOf(cast<DestType>(dest.getType()))),
-             FlowPoint::of(getResult()));
+  for (auto [dest, answer] : llvm::zip_equal(getBody().getArguments(), getResults()))
+    edges.flow(FlowPoint::partOf(dest, FlowAnchor::holeOf(cast<DestType>(dest.getType()))),
+               FlowPoint::of(answer));
 }
 
 void idr::FnClosureOp::getFlowEdges(FlowEdges &edges) { labelEdges(*this, edges); }

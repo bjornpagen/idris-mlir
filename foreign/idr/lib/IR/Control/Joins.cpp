@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr.join and idr.loop, the one family of join points, and idr.jump,
-// which transfers control to one of their join regions.
+// idr.join and idr.loop, the one family of join points: their regions'
+// shape, the edges upstream's control-flow interfaces read off them, and
+// the lifetimes they state. Their syntax is JoinsSyntax.cpp; idr.jump,
+// which transfers control to one of their join regions, is Jump.cpp.
 //
 // A join point is a continuation local to its function, entered only by a
 // jump in tail position, never an allocated closure. Its op's region 0 is
@@ -29,15 +31,15 @@
 // in its own successors, so upstream's dataflow, dead code and liveness read
 // the edge from the jump to the join region with no reading of ours.
 //
-// A scoped value a member makes, a result or a join region's parameter,
-// lives in the lifetime its `outer` operand states (Control/Stated.h).
+// Each scoped value a member makes, a result or a join region's parameter,
+// lives in the lifetime its own entry of `outers` states (Control/Stated.h).
 
 #include "idr/IR/Control/Family.h"
 #include "idr/IR/Control/Stated.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
 
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/RegionKindInterface.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
@@ -46,15 +48,6 @@ using namespace mlir;
 using namespace idr;
 
 namespace {
-
-// The members of the family are monomorphic: one instantiation of each
-// template below per member, chosen by the member's constant, which the
-// generator writes into the family's carrier.
-template <typename Group>
-concept JoinFamily = requires { JoinPointsFamily<Group>::tokens; };
-
-template <typename Group>
-inline constexpr TokenScope tokensAt = JoinPointsFamily<Group>::tokens;
 
 template <JoinFamily Group>
 unsigned targetsOf(Group op) {
@@ -119,7 +112,7 @@ LogicalResult verifyGroup(Group op) {
   }
   if (!parametersOf(op, op.getBody()).empty())
     return op.emitOpError("expects a body that binds its tokens alone");
-  return control::verifyStated(op);
+  return lifetimes::verifyOuters(op, 0);
 }
 
 // Entered at the body; from a yield, the op's results; from a jump to one
@@ -192,90 +185,6 @@ void predecessorsOf(Group op, RegionSuccessor successor,
   }
 }
 
-// `(%k0, %k1)`, a region's tokens, given the token type.
-ParseResult parseTokens(OpAsmParser &parser, SmallVectorImpl<OpAsmParser::Argument> &args) {
-  Type token = parser.getBuilder().getType<TokenType>();
-  return parser.parseCommaSeparatedList(OpAsmParser::Delimiter::Paren, [&] {
-    if (parser.parseArgument(args.emplace_back()))
-      return failure();
-    args.back().type = token;
-    return success();
-  });
-}
-
-void printValues(OpAsmPrinter &printer, ValueRange values) {
-  printer << '(';
-  llvm::interleaveComma(values, printer, [&](Value value) { printer.printOperand(value); });
-  printer << ')';
-}
-
-// `idr.join tokens(%k0, ...) in %l -> (T, ...) attr-dict {body} join(%p: A, ...) {region} ...`,
-// `in %l` the lifetime it states where it makes a scoped value; an
-// idr.loop's join regions also print their own tokens:
-// `join tokens(%a0, ...)(%p: A, ...) {region}`. The erased binders are a
-// property, printed in the attribute dictionary.
-template <JoinFamily Group>
-ParseResult parseGroup(OpAsmParser &parser, OperationState &state) {
-  SmallVector<OpAsmParser::Argument> body;
-  SmallVector<Type> results;
-  if (parser.parseKeyword("tokens") || parseTokens(parser, body))
-    return failure();
-  if (succeeded(parser.parseOptionalKeyword("in"))) {
-    OpAsmParser::UnresolvedOperand outer;
-    Type lifetime;
-    if (parser.parseOperand(outer) || parser.parseColonType(lifetime) ||
-        parser.resolveOperand(outer, lifetime, state.operands))
-      return failure();
-  }
-  if (parser.parseArrow() || parser.parseLParen())
-    return failure();
-  if (failed(parser.parseOptionalRParen())) {
-    if (parser.parseTypeList(results) || parser.parseRParen())
-      return failure();
-  }
-  state.addTypes(results);
-  if (parser.parseOptionalAttrDictWithKeyword(state.attributes) ||
-      parser.parseRegion(*state.addRegion(), body))
-    return failure();
-  while (succeeded(parser.parseOptionalKeyword("join"))) {
-    SmallVector<OpAsmParser::Argument> args;
-    if constexpr (tokensAt<Group> == TokenScope::InEveryRegion) {
-      if (parser.parseKeyword("tokens") || parseTokens(parser, args))
-        return failure();
-    }
-    if (parser.parseArgumentList(args, OpAsmParser::Delimiter::Paren, /*allowType=*/true) ||
-        parser.parseRegion(*state.addRegion(), args))
-      return failure();
-  }
-  return success();
-}
-
-template <JoinFamily Group>
-void printGroup(Group op, OpAsmPrinter &printer) {
-  printer << " tokens";
-  printValues(printer, tokensOf(op, op.getBody()));
-  if (Value outer = op.getOuter())
-    printer << " in " << outer << " : " << outer.getType();
-  printer << " -> (";
-  llvm::interleaveComma(op->getResultTypes(), printer);
-  printer << ')';
-  printer.printOptionalAttrDictWithKeyword(op->getAttrs());
-  printer << ' ';
-  printer.printRegion(op.getBody(), /*printEntryBlockArgs=*/false);
-  for (Region &region : op.getJoinRegions()) {
-    printer << " join";
-    if constexpr (tokensAt<Group> == TokenScope::InEveryRegion) {
-      printer << " tokens";
-      printValues(printer, tokensOf(op, region));
-    }
-    printer << '(';
-    llvm::interleaveComma(parametersOf(op, region), printer,
-                          [&](BlockArgument arg) { printer.printRegionArgument(arg); });
-    printer << ") ";
-    printer.printRegion(region, /*printEntryBlockArgs=*/false);
-  }
-}
-
 } // namespace
 
 //===----------------------------------------------------------------------===//
@@ -325,17 +234,18 @@ ArrayRef<families::Sort> JoinOp::getBoundSorts(Region &region) {
   return cast<IndexBindersAttr>(getBinders()[region.getRegionNumber() - 1]).getSorts();
 }
 
-Value JoinOp::getStatedLifetime(Value made) { return control::statedFor(*this, made); }
+Value JoinOp::getStatedLifetime(Value made) { return lifetimes::statedOuter(*this, made, 0); }
 
 void JoinOp::setStatedLifetime(Value made, Value lifetime) {
-  control::stateFor(*this, made, lifetime);
+  lifetimes::stateOuter(*this, made, lifetime, 0);
 }
 
-ParseResult JoinOp::parse(OpAsmParser &parser, OperationState &state) {
-  return parseGroup<JoinOp>(parser, state);
+unsigned JoinOp::getScopedBindings() { return control::scopedBindings(*this); }
+
+std::optional<unsigned> JoinOp::getBindingEntry(Value made) {
+  return control::bindingEntry(*this, made);
 }
 
-void JoinOp::print(OpAsmPrinter &printer) { printGroup(*this, printer); }
 
 //===----------------------------------------------------------------------===//
 // idr.loop
@@ -386,58 +296,15 @@ SmallVector<Region *> LoopOp::getLoopRegions() {
   return llvm::map_to_vector(getJoinRegions(), [](Region &region) { return &region; });
 }
 
-Value LoopOp::getStatedLifetime(Value made) { return control::statedFor(*this, made); }
+Value LoopOp::getStatedLifetime(Value made) { return lifetimes::statedOuter(*this, made, 0); }
 
 void LoopOp::setStatedLifetime(Value made, Value lifetime) {
-  control::stateFor(*this, made, lifetime);
+  lifetimes::stateOuter(*this, made, lifetime, 0);
 }
 
-ParseResult LoopOp::parse(OpAsmParser &parser, OperationState &state) {
-  return parseGroup<LoopOp>(parser, state);
+unsigned LoopOp::getScopedBindings() { return control::scopedBindings(*this); }
+
+std::optional<unsigned> LoopOp::getBindingEntry(Value made) {
+  return control::bindingEntry(*this, made);
 }
 
-void LoopOp::print(OpAsmPrinter &printer) { printGroup(*this, printer); }
-
-//===----------------------------------------------------------------------===//
-// idr.jump
-//===----------------------------------------------------------------------===//
-
-// Its target is the join region its token designates, read off the token's
-// owner and number: the token is an entry argument of a region of a join
-// point's op, so dominance already puts the jump inside that op. Every op
-// between the jump and the owner must let a jump through. The arguments are
-// the target's parameters: equal, where the target binds no index
-// variable; an instance under the jump's terms otherwise, which the
-// function's scope walk checks, since the substitution reads the depth of
-// the scope.
-LogicalResult JumpOp::verify() {
-  // A token producer of another dialect may define its token as a result.
-  auto token = dyn_cast<BlockArgument>(getTarget());
-  Operation *owner = token ? token.getOwner()->getParentOp() : nullptr;
-  auto points = dyn_cast_or_null<JoinPointsOpInterface>(owner);
-  Region *target = points ? points.getTarget(token) : nullptr;
-  if (!target)
-    return emitOpError("expects a token that designates a join region");
-  for (Operation *op = (*this)->getParentOp(); op != owner; op = op->getParentOp())
-    if (!op->hasTrait<OpTrait::PropagateControlFlowBreak>())
-      return emitOpError("crosses ") << op->getName() << ", which lets no jump through";
-  Block::BlockArgListType parameters = points.getParameters(*target);
-  if (getArgs().size() != parameters.size())
-    return emitOpError("passes ") << getArgs().size() << " arguments to a join region of "
-                                  << parameters.size() << " parameters";
-  if (cast<ErasedBinderOpInterface>(owner).getBoundSorts(*target).empty() &&
-      TypeRange(getArgs()) != TypeRange(parameters.getTypes()))
-    return emitOpError("passes arguments of types ")
-           << getArgs().getTypes() << " to parameters of types " << parameters.getTypes();
-  return success();
-}
-
-// The values a jump passes become its target's parameters.
-MutableOperandRange JumpOp::getMutableSuccessorOperands(RegionSuccessor) {
-  return getArgsMutable();
-}
-
-// The op whose join region the token designates.
-SmallVector<Operation *> JumpOp::getPotentialTargets() {
-  return {cast<BlockArgument>(getTarget()).getOwner()->getParentOp()};
-}

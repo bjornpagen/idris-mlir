@@ -304,7 +304,7 @@ void populateJoinTypeConversions(const TypeConverter &converter, RewritePatternS
   patterns.add<ConvertGroupTypes<JoinOp>, ConvertGroupTypes<LoopOp>, ConvertJumpTypes,
                ConvertGroupYieldTypes>(converter, patterns.getContext());
   // A join point's op is legal once its types are and it states no
-  // lifetime, its one operand.
+  // lifetime, its operands being only those it states.
   auto groupLegal = [&converter](Operation *op) {
     return op->getNumOperands() == 0 && converter.isLegal(op->getResultTypes()) &&
            llvm::all_of(op->getRegions(), [&](Region &region) {
