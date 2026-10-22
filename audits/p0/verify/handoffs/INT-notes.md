@@ -31,3 +31,8 @@ handoff lists its own wiring.
   (recorded 2.8 s against 95 s), since always-inline runtime entries now
   inline into large functions too (C186). L11's guess is a small cost,
   unmeasured.
+- **Admitted classes (L06, 2026-10-22):** nothing in CMake runs
+  `-gen-admitted-classes` yet; wire it. After specgen `write`, run
+  `tools/dialects.sh generate`, which now reads each dialect's
+  `Generated/IdrAdmitted<Name>.td`; the Idris dialect modules then hold
+  only admitted ops' builders.
