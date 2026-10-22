@@ -199,7 +199,7 @@ everyRule =
 
 ||| The position of each rule in everyRule, by case: the list's order.
 public export
-ruleIn : (r : SomeRule) -> Elem r (forget everyRule)
+ruleIn : (r : SomeRule) -> Elem r (forget Rules.everyRule)
 ruleIn (Refusal ValueType) = Here
 ruleIn (Refusal DependentField) = There Here
 ruleIn (Refusal Polymorphism) = There (There Here)

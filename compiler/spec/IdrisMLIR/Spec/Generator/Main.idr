@@ -16,6 +16,7 @@ import IdrisMLIR.Spec.Generator.Outputs
 
 import Data.List
 import Data.List1
+import Data.Maybe
 import Data.String
 import System
 import System.File

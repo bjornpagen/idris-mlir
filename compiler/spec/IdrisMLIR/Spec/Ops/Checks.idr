@@ -217,8 +217,8 @@ guardMeaning OwnCode = HandFolder
 guardOp : {others : Nat} -> (m : Mnemonic) -> (ins : Vect (S others) Operand)
        -> GuardMeaning -> (eff : Declaration (S others) 1) -> List (Trait (S others) 1)
        -> List InterfaceUse -> Doc
-       -> {auto 0 fails : Found (anyOf crashes (effectsOf eff))}
-       -> {auto 0 named : So (distinct (groupNames ins [result "checked" (head ins).type] [causeSlot, siteSlot] []))}
+       -> {auto 0 fails : Found (anyOf Declaration.crashes (effectsOf eff))}
+       -> {auto 0 named : So (distinct (groupNames ins [result "checked" (head ins).type] [Checks.causeSlot, Checks.siteSlot] []))}
        -> Op (S others) 1 2 0
 guardOp m ins tested eff traits ifaces d = MkOp
   { home = InIdr

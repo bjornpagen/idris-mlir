@@ -61,8 +61,10 @@ data Write = NotWritten | Written
 ||| nothing else.
 public export
 data Amount : LifetimeKind -> Type where
-  Finite : (bytes : Nat) -> Amount kind
-  Unbounded : (0 grows : Not (kind = Room)) -> Amount kind
+  -- The kind is bound by name, since the record fields called `kind` in
+  -- scope would otherwise be what a bare `kind` shadows.
+  Finite : {0 kind : LifetimeKind} -> (bytes : Nat) -> Amount kind
+  Unbounded : {0 kind : LifetimeKind} -> (0 grows : Not (kind = Room)) -> Amount kind
 
 ||| The part a parameter that admits `a` has.
 public export

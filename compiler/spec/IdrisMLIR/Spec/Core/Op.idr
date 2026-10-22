@@ -321,7 +321,7 @@ data ResultTyping : (i, o : Nat) -> Type where
   StatedTypes : ResultTyping i o
   InferredTypes : Vect o (TypeRule i) -> ResultTyping i o
 
-||| The group names of an op, every one.||| The group names of an op, every one.
+||| The group names of an op, every one.
 public export
 groupNames : Vect i Operand -> Vect o Result -> Vect a Attr -> Vect r Region -> List Ident
 groupNames ins outs as rs =

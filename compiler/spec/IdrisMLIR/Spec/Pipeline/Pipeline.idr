@@ -96,7 +96,7 @@ upstreamPasses =
 
 ||| No upstream pass is missing from the list, so none the pipeline runs
 ||| goes unregistered.
-0 everyUpstream : (u : UpstreamPass) -> Elem u upstreamPasses
+0 everyUpstream : (u : UpstreamPass) -> Elem u Pipeline.upstreamPasses
 everyUpstream SymbolDCE = Here
 everyUpstream DebugInfoScope = There Here
 everyUpstream ScheduleInterpreter = There (There Here)

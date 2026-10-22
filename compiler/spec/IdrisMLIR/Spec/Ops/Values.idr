@@ -12,8 +12,10 @@ import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Ops.Shapes
 
+import Data.Fin
 import Data.List.Elem
 import Data.List1
+import Data.Vect
 
 %default total
 

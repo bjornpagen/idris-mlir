@@ -532,9 +532,9 @@ openers = [SomeOp (plainOpener NoMemory), SomeOp (plainOpener AtHome), SomeOp (p
 
 ||| An op with nothing else to say: no guard, law, member or builder of its
 ||| own, its default builders kept.
-op : Mnemonic -> Vect i Operand -> Vect o Result -> Vect a Attr -> Vect r Region
-  -> List (Trait i o) -> List InterfaceUse -> Declaration i o -> Speculation -> Legal
-  -> Verify -> Format i o a r -> List Member -> Doc
+op : Mnemonic -> (ins : Vect i Operand) -> (outs : Vect o Result) -> (attrs : Vect a Attr)
+  -> (regions : Vect r Region) -> List (Trait i o) -> List InterfaceUse -> Declaration i o
+  -> Speculation -> Legal -> Verify -> Format i o a r -> List Member -> Doc
   -> {auto 0 named : So (distinct (groupNames ins outs attrs regions))} -> Op i o a r
 op m ins outs attrs regions traits interfaces effects speculation stages verify format members doc =
   MkOp

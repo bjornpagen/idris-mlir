@@ -33,7 +33,7 @@ neverEmpty = MkTraitDef "NeverEmpty" (says "the string it builds has a character
 ||| as the function takes them.
 builder : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> RuntimeCall i 1 -> List (Trait i 1)
        -> Doc
-       -> {auto 0 named : So (distinct (groupNames ins [result "result" strValue] [] []))}
+       -> {auto 0 named : So (distinct (groupNames ins [result "result" Shapes.strValue] [] []))}
        -> Op i 1 0 0
 builder m ins call traits d = MkOp
   { home = InIdr

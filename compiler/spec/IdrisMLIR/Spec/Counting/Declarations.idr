@@ -133,8 +133,8 @@ cellDestsDirective = MkDirective "CellDests"
 --------------------------------------------------------------------------------
 
 ||| An op of counting: no meaning to fold, no guard, law or specialization.
-countingOp : Mnemonic -> Vect i Operand -> Vect o Result -> Vect a Attr -> Vect r Region
-  -> List (Trait i o) -> List InterfaceUse -> Declaration i o -> Legal -> Verify
+countingOp : Mnemonic -> (ins : Vect i Operand) -> (outs : Vect o Result) -> (attrs : Vect a Attr)
+  -> (regions : Vect r Region) -> List (Trait i o) -> List InterfaceUse -> Declaration i o -> Legal -> Verify
   -> Format i o a r -> List Builder -> DefaultBuilders -> List Member -> Doc
   -> {auto 0 named : So (distinct (groupNames ins outs attrs regions))} -> Op i o a r
 countingOp m ins outs attrs regions traits interfaces effects stages verify format builders defaults members doc =

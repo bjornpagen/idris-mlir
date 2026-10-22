@@ -513,9 +513,9 @@ compositeTraversal (MkComposite n _ body doc) =
       "traverse" ++ name ++ " t a " ++ patternOf sh.con (map fst sh.holds) ++ " = "
       ++ applied sh.con (map (\(b, w) => wireTraversal w (b ++ "'")) sh.holds)
 
-||| The modules the closed sets of a wire's leaves live in, as the
-||| frontend's types of them name them and their positions are computed.
 mutual
+  ||| The modules the closed sets of a wire's leaves live in, as the
+  ||| frontend's types of them name them and their positions are computed.
   wireHomes : Wire -> List String
   wireHomes (WireLeaf l) = leafHomes l
   wireHomes (WireArray w) = wireHomes w

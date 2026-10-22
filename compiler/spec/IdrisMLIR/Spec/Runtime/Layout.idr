@@ -7,6 +7,7 @@
 module IdrisMLIR.Spec.Runtime.Layout
 
 import IdrisMLIR.Spec.Core.Cpp
+import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Text
 
 import Data.List1

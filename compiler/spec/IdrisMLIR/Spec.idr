@@ -232,7 +232,7 @@ core = { ops := [ SomeOp vectorizeLanes, SomeOp refusalOp ]
        , interfaces := [ valueFactsInterface ]
        , traits := [ resultCarriesOperand, sameValue ]
        , attributes := [ SomeAttr binderAttr ]
-       , headers := [ MkHeader "Rules" [(ident "idr" ::: [], [TableOf ruleTable])]
+       , headers := [ MkHeader "Rules" [(ident "idr" ::: [], [TableOf Rules.ruleTable])]
                         (brief "the facts of each refusal rule: its category and where it is decided")
                     , wordsHeader
                     , MkHeader "StageFacts"
@@ -281,5 +281,5 @@ distinctStrings (x :: xs) = not (elem x xs) && distinctStrings xs
 
 ||| No two ops share a name, so no two share a class: a duplicate fails
 ||| here, at the specification's build, before any `.td` exists.
-0 namesDistinct : So (distinctStrings opNames)
+0 namesDistinct : So (distinctStrings Spec.opNames)
 namesDistinct = Oh

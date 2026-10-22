@@ -158,24 +158,25 @@ local : String -> Nat -> String
 local stem Z = stem
 local stem k = stem ++ decimal k
 
+-- Not `failing`, which Idris reserves as the keyword of its failing blocks.
 ||| A call that may fail, ending the function it stands in when it does.
-failing : String -> Lines
-failing call = ["if (::mlir::failed(" ++ call ++ "))", "  return ::mlir::failure();"]
+returnsOnFailure : String -> Lines
+returnsOnFailure call = ["if (::mlir::failed(" ++ call ++ "))", "  return ::mlir::failure();"]
 
 ||| A type or an attribute read at its class, then given to `dst`, whose
 ||| member may hold any of a wider class.
 readAt : Nat -> Code -> String -> String -> Lines
 readAt depth c method dst =
   let r = local "read" depth
-  in ["{", "  " ++ codeText c ++ " " ++ r ++ ";"] ++ indent 2 (failing ("reader." ++ method ++ "(" ++ r ++ ")"))
+  in ["{", "  " ++ codeText c ++ " " ++ r ++ ";"] ++ indent 2 (returnsOnFailure ("reader." ++ method ++ "(" ++ r ++ ")"))
      ++ ["  " ++ dst ++ " = " ++ r ++ ";", "}"]
 
 ||| The statements that read a leaf into `dst`.
 leafReader : Nat -> Leaf -> String -> Lines
-leafReader _ LeafCount dst = failing ("reader.readVarInt(" ++ dst ++ ")")
-leafReader _ LeafWord32 dst = failing ("readWord32(reader, " ++ dst ++ ")")
-leafReader _ (LeafCase _) dst = failing ("readCase(reader, " ++ dst ++ ")")
-leafReader _ LeafLabel dst = failing ("readLabel(reader, " ++ dst ++ ")")
+leafReader _ LeafCount dst = returnsOnFailure ("reader.readVarInt(" ++ dst ++ ")")
+leafReader _ LeafWord32 dst = returnsOnFailure ("readWord32(reader, " ++ dst ++ ")")
+leafReader _ (LeafCase _) dst = returnsOnFailure ("readCase(reader, " ++ dst ++ ")")
+leafReader _ LeafLabel dst = returnsOnFailure ("readLabel(reader, " ++ dst ++ ")")
 leafReader depth (LeafType c) dst = readAt depth c "readType" dst
 leafReader depth (LeafAttr c) dst = readAt depth c "readAttribute" dst
 leafReader depth (LeafMaybeAttr c) dst = readAt depth c "readOptionalAttribute" dst
@@ -193,19 +194,19 @@ mutual
     in ["{", "  ::llvm::SmallVector<" ++ e ++ "> " ++ r ++ ";"]
        ++ indent 2 (elementsReader depth arena w r)
        ++ ["  " ++ dst ++ " = keep(" ++ arena ++ ", ::llvm::ArrayRef<" ++ e ++ ">(" ++ r ++ "));", "}"]
-  wireReader _ arena (WireOf c) dst = failing ("read" ++ codecName c ++ "(reader, " ++ readArguments c arena dst ++ ")")
+  wireReader _ arena (WireOf c) dst = returnsOnFailure ("read" ++ codecName c ++ "(reader, " ++ readArguments c arena dst ++ ")")
 
   ||| The statements that read an array's elements into the vector `into`.
   elementsReader : Nat -> (arena : String) -> Wire -> (into : String) -> Lines
-  elementsReader _ _ (WireLeaf (LeafType _)) into = failing ("reader.readTypes(" ++ into ++ ")")
-  elementsReader _ _ (WireLeaf (LeafAttr _)) into = failing ("reader.readAttributes(" ++ into ++ ")")
+  elementsReader _ _ (WireLeaf (LeafType _)) into = returnsOnFailure ("reader.readTypes(" ++ into ++ ")")
+  elementsReader _ _ (WireLeaf (LeafAttr _)) into = returnsOnFailure ("reader.readAttributes(" ++ into ++ ")")
   elementsReader depth arena w into =
     let each = local "each" depth
         element = local "element" depth
     in ["auto " ++ each ++ " = [&](" ++ wireCpp w ++ " &" ++ element ++ ") -> ::mlir::LogicalResult {"]
        ++ indent 2 (wireReader (S depth) arena w element)
        ++ ["  return ::mlir::success();", "};"]
-       ++ failing ("reader.readList(" ++ into ++ ", " ++ each ++ ")")
+       ++ returnsOnFailure ("reader.readList(" ++ into ++ ", " ++ each ++ ")")
 
 ||| The statements that write a leaf `src`.
 leafWriter : Leaf -> String -> Lines
@@ -251,7 +252,7 @@ alternativeReader : EnumDef -> (Case, Composite) -> Lines
 alternativeReader e (c, alternative) =
   [ "case " ++ caseName e c ++ ": {"
   , "  " ++ codeText (compositeCpp alternative) ++ " alternative;" ]
-  ++ indent 2 (failing ("read" ++ codecName alternative ++ "(reader, " ++ readArguments alternative "arena" "alternative" ++ ")"))
+  ++ indent 2 (returnsOnFailure ("read" ++ codecName alternative ++ "(reader, " ++ readArguments alternative "arena" "alternative" ++ ")"))
   ++ [ "  value = alternative;", "  break;", "}" ]
 
 ||| A variant's alternative written: its case's position, then itself.
@@ -280,13 +281,13 @@ bodyReader : String -> CompositeBody -> Lines
 bodyReader _ (Fields fs) = concatMap fieldReader fs
 bodyReader cls (Flat e tag cases) =
   ["value = " ++ cls ++ "{};"]
-  ++ failing ("readCase(reader, value." ++ identText tag ++ ")")
+  ++ returnsOnFailure ("readCase(reader, value." ++ identText tag ++ ")")
   ++ ["switch (value." ++ identText tag ++ ") {"]
   ++ concatMap (caseArm e fieldReader) (zip (forget e.cases) cases)
   ++ ["}"]
 bodyReader _ (Variant e alternatives) =
   ["::idr::" ++ identText e.name ++ " kind{};"]
-  ++ failing "readCase(reader, kind)"
+  ++ returnsOnFailure "readCase(reader, kind)"
   ++ ["switch (kind) {"]
   ++ concatMap (alternativeReader e) (zip (forget e.cases) alternatives)
   ++ ["}"]

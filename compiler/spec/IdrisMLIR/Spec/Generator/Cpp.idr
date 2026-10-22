@@ -87,14 +87,16 @@ record Scope where
   space : String
   declared : List Ident
 
+-- Named qualified wherever it is used: the rules' `Scope`, where a rule is
+-- decided, is in scope here too, and both are types.
 ||| An enum's name from the global namespace, as the block's scope has it.
 export
-enumName : Scope -> EnumDef -> String
+enumName : Cpp.Scope -> EnumDef -> String
 enumName sc e = (if elem e.name sc.declared then "::" ++ sc.space else "::idr") ++ "::" ++ identText e.name
 
 ||| The C++ type of a column's element.
 export
-columnType : Scope -> ColumnType -> String
+columnType : Cpp.Scope -> ColumnType -> String
 columnType _ Signed64 = "std::int64_t"
 columnType _ Unsigned8 = "std::uint8_t"
 columnType _ Unsigned32 = "std::uint32_t"
@@ -106,7 +108,7 @@ columnType sc (SetColumn e) = "::idr::EnumSet<" ++ enumName sc e ++ ">"
 
 ||| A cell as a C++ constant.
 export
-cellText : Scope -> Cell -> String
+cellText : Cpp.Scope -> Cell -> String
 cellText _ (IntCell i) = integer i
 cellText _ (TextCell t) = quoted t
 cellText _ (TruthCell True) = "true"
@@ -147,7 +149,7 @@ arrayInit xs = "{{" ++ joinWith ", " xs ++ "}}"
 ||| One column of a table: an `EnumArray` indexed by the table's enum, its
 ||| values in the cases' order.
 export
-columnDecl : Scope -> EnumDef -> (Ident, ColumnType, List Cell, Line) -> Lines
+columnDecl : Cpp.Scope -> EnumDef -> (Ident, ColumnType, List Cell, Line) -> Lines
 columnDecl sc e (name, type, cells, doc) =
   slashComment [lineText doc]
   ++ ["inline constexpr ::idr::EnumArray<" ++ enumName sc e ++ ", " ++ columnType sc type ++ "> "
@@ -157,7 +159,7 @@ columnDecl sc e (name, type, cells, doc) =
 
 ||| A declaration of a block other than an enum.
 export
-cppDecl : Scope -> CppDecl -> Lines
+cppDecl : Cpp.Scope -> CppDecl -> Lines
 cppDecl _ (EnumOf _) = []
 cppDecl sc (TableOf t) = concatMap (columnDecl sc t.enum) t.columns
 cppDecl sc (Array1 name type cells doc) =
@@ -481,7 +483,7 @@ givesName GivesBool = "Bool"
 ||| A C declarator: the type, then the name, `const idris_rt_str *s`.
 export
 declarator : String -> String -> String
-declarator type name = if isSuffixOf "*" type then type ++ name else type ++ " " ++ name
+declarator type name = if isSuffixOf ['*'] (unpack type) then type ++ name else type ++ " " ++ name
 
 ||| An op's runtime call, if its meaning is one function.
 export
@@ -1013,6 +1015,12 @@ rangeEntry (ByUpstream f) = "table::rangeBy<&::mlir::intrange::" ++ identText f.
 rangeEntry (ByMeaning fn) = "table::rangeBy<&::idr::numeric::InlineArith<::idr::numeric::" ++ identText fn ++ ">::inferRanges>"
 rangeEntry NoRange = "std::nullopt"
 
+||| Whether upstream's fold of an admitted op is never run at compile time.
+neverFolded : Admitted -> Bool
+neverFolded a = case a.folding of
+  NeverFolded => True
+  UpstreamFold => False
+
 ||| The e-graph's rules as the engine reads them: the patterns in preorder,
 ||| the conditions, the rules grouped by root kind with each kind's offset,
 ||| the kinds and each one's range function, the admitted ops never folded,
@@ -1020,12 +1028,6 @@ rangeEntry NoRange = "std::nullopt"
 ||| nothing is built per function.
 ||| The rules are the specification's, its ops' laws' and its admitted ops'
 ||| laws'.
-||| Whether upstream's fold of an admitted op is never run at compile time.
-neverFolded : Admitted -> Bool
-neverFolded a = case a.folding of
-  NeverFolded => True
-  UpstreamFold => False
-
 export
 rewritesHeader : List AnyRewrite -> List AnyOp -> List Admitted -> List SkeletonRule -> Lines
 rewritesHeader rws ops admitted skeleton =
