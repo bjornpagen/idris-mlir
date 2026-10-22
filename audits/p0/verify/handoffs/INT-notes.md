@@ -150,3 +150,13 @@ handoff lists its own wiring.
   its pin, 1c630e67c against 89ba32eb, which `make spec` refuses), and
   `tools/dialects.sh generate` for the Linalg, Bufferization and SCF
   modules, which needs the C++ idris-mlir-tblgen.
+
+- **The signature's second classification (L16bm, 2026-10-22).** When
+  the frontend first runs, compare in `Instances.request` and in
+  `Cases.heldHere` the caller's kinds with the new `sig.kinds`, position
+  by position (whether each binds at run time, and its static content),
+  across `make test`, `make test-idr` and `make self`. If nothing
+  differs, L16 builds the signature from the call's classification and
+  threads the instance's runtime parameters through the tree (Cases
+  :794, :834 become unrepresentable); if something differs, the kind
+  that differs names the reading to fix. Route the result to L16.
