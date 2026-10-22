@@ -210,6 +210,21 @@ closureReachClosed = MkClosed
   , doc = brief "whether a family's values can reach a closure or a suspension"
   }
 
+export
+layoutMatchClosed : Closed LayoutMatch
+layoutMatchClosed = MkClosed
+  { name = "LayoutMatch"
+  , shape = OneOf
+  , every = SameLayout ::: [OtherLayout]
+  , complete = \case
+      SameLayout => Here
+      OtherLayout => There Here
+  , describe = \case
+      SameLayout => MkCase "SameLayout" ("same_layout" ::: []) "the two are the same words at run time"
+      OtherLayout => MkCase "OtherLayout" ("other_layout" ::: []) "a value of one is re-packed to be a value of the other"
+  , doc = brief "whether two data types are the same words at run time"
+  }
+
 ||| The header the families' hand C++ includes: the closed sets above and
 ||| the shape budget.
 export
@@ -221,6 +236,7 @@ familiesHeader = MkHeader "Families"
       , EnumOf (enumDef memberKindClosed), EnumOf (enumDef layoutClosed)
       , EnumOf (enumDef classClosed), EnumOf (enumDef reachClosed)
       , EnumOf (enumDef buffersClosed), EnumOf (enumDef closureReachClosed)
+      , EnumOf (enumDef layoutMatchClosed)
       , Scalar "shapeBudget" Unsigned32 (IntCell (natToInteger shapeBudget))
           "the most components a closed application unfolds to in place" ] ) ]
   (brief "the families' closed sets and the shape budget")

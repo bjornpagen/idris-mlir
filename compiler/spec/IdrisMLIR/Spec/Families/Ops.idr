@@ -199,11 +199,12 @@ tagOp = MkOp
 ||| `idr.data.reindex`: the same value at a type equal to its own under the
 ||| refinements of the enclosing scopes (a case's equation, an assumed
 ||| equality), or a refined data type given where its unrefined one is
-||| asked. Pure; free where the two layouts are equal, a bounded re-pack
-||| where an index known inside a function changes the layout. Checked by
-||| the function's scope walk, which holds the refinements. A scoped value
-||| stays scoped, and `outers` states its lifetime: the operand's, or one
-||| that lifetime encloses.
+||| asked. Whether it does work is a fact of its two types (`isFree`): none
+||| where they are the same words at run time, a bounded re-pack where an
+||| index known inside a function changes the layout, which builds the cells
+||| a result held in a cell needs. Checked by the function's scope walk,
+||| which holds the refinements. A scoped value stays scoped, and `outers`
+||| states its lifetime: the operand's, or one that lifetime encloses.
 export
 dataReindexOp : Op 2 1 0 0
 dataReindexOp = MkOp
@@ -227,7 +228,7 @@ dataReindexOp = MkOp
       , Lit "to", TypeOf (OfGroup (ResultRef 0)) ]
   , builders = [MkBuilder [param "::mlir::Type" "result", param "::mlir::Value" "value"]]
   , defaultBuilders = WithDefaults
-  , members = []
+  , members = [MkMember OnObject "bool" "isFree" []]
   , guards = []
   , specializations = []
   , laws = []

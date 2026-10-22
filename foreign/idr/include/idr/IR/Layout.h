@@ -169,18 +169,18 @@ struct Element {
   std::optional<Cell> boxed;
 };
 
-// A data type held in place, spread over its words: the tag, where two
-// constructors or more are possible, then the slots of the possible
-// constructors' fields. A slot one constructor leaves empty is null there,
-// so a slot that holds a cell's pointer for some constructors and nothing
-// for others may be null, and the references of a value in place are
-// exactly its counted words.
+// A data type held in place, spread over its words: the tag, where it is
+// laid out over two constructors or more, then the slots of those
+// constructors' fields (Layouts::tagsLaidOut). A slot one constructor
+// leaves empty is null there, so a slot that holds a cell's pointer for
+// some constructors and nothing for others may be null, and the references
+// of a value in place are exactly its counted words.
 struct SumLayout {
   std::optional<mlir::IntegerType> tag;
   llvm::SmallVector<Component> words;
   // For each declared constructor, by tag: for each field, the words of its
-  // components, as indices into `words`; none for a constructor the
-  // indices exclude.
+  // components, as indices into `words`; none for a constructor it is not
+  // laid out over.
   llvm::SmallVector<llvm::SmallVector<llvm::SmallVector<unsigned>>> fields;
 
   llvm::ArrayRef<unsigned> slotsOf(Tag ctor, unsigned field) const {
@@ -318,7 +318,13 @@ private:
   // The bytes each bounded type reaches, its fields' first, once every
   // entry's cells are laid out.
   void computeReach();
-  // The field types of constructor `tag` at this application.
+  // The constructors a value of `type` is laid out over, and the field
+  // types of constructor `tag` there: a closed application held in place
+  // is its own unfolding, over the constructors its indices leave possible
+  // at the fields they determine; any other value of a member is laid out
+  // as the member at an unknown index, over every constructor at its own
+  // fields, so all such applications of the member are the same words.
+  static families::TagSet tagsLaidOut(DataType type);
   static llvm::SmallVector<mlir::Type> fieldsAt(DataType type, Tag tag);
   void record(mlir::Type component);
   // The cell of a constructor of `fieldTypes`, object slots first.

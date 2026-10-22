@@ -57,6 +57,16 @@ data Buffers = NoBuffer | HoldsBuffer
 public export
 data ClosureReach = NoClosure | ReachesClosure
 
+||| Whether values of two applications of one member are the same words at
+||| run time. A closed application held in place is its own unfolding, over
+||| the fields its indices determine; every other value of a member (a
+||| cell, a frame stack, a value in place at an unknown class) is laid out
+||| as its member at an unknown index, which all such applications share;
+||| a number is its layout's word. Where they are not the same words, a
+||| reindex between them re-packs.
+public export
+data LayoutMatch = SameLayout | OtherLayout
+
 ||| The most runtime components a closed application unfolds to before it
 ||| takes its member's layout at an unknown index. It bounds the classes,
 ||| and so the copies specialization by class makes; a spent budget leaves

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The runtime components of a value type, each with the kind of word it
 // is; the plan of a memref's descriptor; and the slots of a data type held
-// in place, over the constructors its indices leave possible.
+// in place, over the constructors it is laid out over.
 //
 // What each type is at run time is said once, in one fold over the
 // dialect's types, as the list its specification generates: a type the
@@ -250,18 +250,18 @@ SmallVector<layout::Component> Layouts::components(Type type) const {
       [&](layout::Spread spread) { return sum(spread.data).words; });
 }
 
-// The tag, where two constructors or more are possible, then each possible
-// constructor's fields, taking the words before them that no field of the
-// same constructor took, of the same type and kind, so two constructors
-// share their words. A pointer slot some possible constructor leaves empty
-// is null there: it may be null.
+// The tag, where two constructors or more are laid out, then each one's
+// fields, taking the words before them that no field of the same
+// constructor took, of the same type and kind, so two constructors share
+// their words. A pointer slot some constructor leaves empty is null there:
+// it may be null.
 layout::SumLayout Layouts::sumOf(DataType type) const {
   using layout::Component;
   using layout::Word;
   layout::SumLayout out;
-  const families::TagSet &possible = type.unrefined().possibleTags();
+  families::TagSet tags = tagsLaidOut(type);
   uint32_t declared = type.declaredCount();
-  if (possible.size() >= 2) {
+  if (tags.size() >= 2) {
     unsigned width = declared <= 256 ? 8u : declared <= 65536 ? 16u : 32u;
     out.tag = IntegerType::get(type.getContext(), width);
     out.words.push_back(Component{*out.tag, Word::Uncounted});
@@ -269,7 +269,7 @@ layout::SumLayout Layouts::sumOf(DataType type) const {
   auto firstField = static_cast<unsigned>(out.words.size());
   out.fields.resize(declared);
   SmallVector<unsigned> users;
-  for (Tag tag : possible) {
+  for (Tag tag : tags) {
     // The free words of each component, in word order: built once per
     // constructor, since searching the words again for every field is
     // quadratic in a wide sum.
@@ -299,7 +299,7 @@ layout::SumLayout Layouts::sumOf(DataType type) const {
     }
   }
   for (unsigned i = firstField, n = static_cast<unsigned>(out.words.size()); i < n; ++i)
-    if (out.words[i].word == Word::Cell && users[i - firstField] < possible.size())
+    if (out.words[i].word == Word::Cell && users[i - firstField] < tags.size())
       out.words[i].word = Word::MaybeCell;
   return out;
 }

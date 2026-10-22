@@ -207,6 +207,26 @@ Layout DataType::layout() const { return getImpl()->facts.layout; }
 Class DataType::cls() const { return getImpl()->facts.cls; }
 uint32_t DataType::components() const { return getImpl()->facts.components; }
 std::optional<uint64_t> DataType::numeralBound() const { return getImpl()->facts.bound; }
+
+// The same words where the two are one application, refinements aside; or
+// numbers of one layout, each its layout's word; or two values of one
+// member the layouts lay out as the member at an unknown index, which every
+// cell, frame stack and value in place at an unknown class of it is. A
+// closed application held in place is its own unfolding, so only that
+// application has its words.
+LayoutMatch DataType::layoutMatch(DataType other) const {
+  DataType self = unrefined();
+  DataType that = other.unrefined();
+  if (self == that)
+    return LayoutMatch::SameLayout;
+  if (self.getGroup() != that.getGroup() || self.getMember() != that.getMember() ||
+      self.layout() != that.layout())
+    return LayoutMatch::OtherLayout;
+  auto unfolded = [](DataType type) {
+    return type.layout() == Layout::InPlace && type.cls() == Class::Closed;
+  };
+  return unfolded(self) || unfolded(that) ? LayoutMatch::OtherLayout : LayoutMatch::SameLayout;
+}
 bool DataType::boundsReach() const { return getImpl()->facts.reach == Reach::Bounded; }
 ArrayRef<MemberRef> DataType::selfCells() const {
   return getGroup().selfCells(getImpl()->member);

@@ -47,15 +47,31 @@ DataType heldData(Type field) {
   return dyn_cast<DataType>(value);
 }
 
+// A closed application held in place: the one value of its member laid out
+// over its own indices.
+bool unfolded(DataType type) {
+  return type.layout() == Layout::InPlace && type.cls() == Class::Closed;
+}
+
 } // namespace
 
-// At the binders its indices determine, or at the constructor's own
-// binders where they leave one open. Either way a member of the group named
-// by position is its data type, laid out as a value of that type is, by its
+// So a reindex between two applications of one member re-packs only where
+// one is a closed application held in place, bounded by the shape budget.
+families::TagSet Layouts::tagsLaidOut(DataType type) {
+  if (unfolded(type))
+    return type.unrefined().possibleTags();
+  return families::TagSet::every(type.declaredCount());
+}
+
+// Unfolded, at the binders its indices determine, or at the constructor's
+// own binders where they leave one open; any other value at the
+// constructor's own binders. Either way a member of the group named by
+// position is its data type, laid out as a value of that type is, by its
 // class.
 SmallVector<Type> Layouts::fieldsAt(DataType type, Tag tag) {
-  if (std::optional<SmallVector<Type>> fields = type.determinedFields(tag))
-    return std::move(*fields);
+  if (unfolded(type))
+    if (std::optional<SmallVector<Type>> fields = type.determinedFields(tag))
+      return std::move(*fields);
   return families::instantiateFields(type.getGroup(), type.ctor(tag).fields, {});
 }
 
@@ -104,7 +120,7 @@ Layouts::Layouts(Operation *op) : root(op) {
   // walk ends. A cell needs nothing of the cells its fields point to.
   auto heldBy = [](DataType type) {
     SmallVector<DataType> held;
-    for (Tag tag : type.unrefined().possibleTags())
+    for (Tag tag : tagsLaidOut(type))
       for (Type field : fieldsAt(type, tag))
         if (DataType data = heldData(field))
           held.push_back(data.unrefined());

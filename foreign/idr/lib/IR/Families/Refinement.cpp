@@ -21,15 +21,6 @@ using namespace mlir;
 using namespace idr;
 using namespace idr::families;
 
-namespace {
-
-Layout layoutOf(Type type) {
-  auto data = dyn_cast<DataType>(unrestricted(type));
-  return data ? data.layout() : Layout::InPlace;
-}
-
-} // namespace
-
 //===----------------------------------------------------------------------===//
 // idr.data.reindex
 //===----------------------------------------------------------------------===//
@@ -74,12 +65,25 @@ OpFoldResult DataReindexOp::fold(FoldAdaptor) {
   return {};
 }
 
-// Free where both layouts are one; a re-pack that builds cells where an
-// index known inside a function changes the layout, which stays where it
-// is.
+// Free where its two types are the same words at run time: one type at
+// two grades, or two data types whose layout facts, computed when each was
+// made, make them one. Essential: a type that holds data types below its
+// grade, an array of them, relates to another only element by element, by
+// a re-pack.
+bool DataReindexOp::isFree() {
+  Type from = unrestricted(getValue().getType());
+  Type to = unrestricted(getType());
+  if (from == to)
+    return true;
+  auto fromData = dyn_cast<DataType>(from);
+  auto toData = dyn_cast<DataType>(to);
+  return fromData && toData && fromData.layoutMatch(toData) == LayoutMatch::SameLayout;
+}
+
+// A re-pack builds the cells its result needs where an index known inside
+// a function changes the layout, so it stays where it is.
 Speculation::Speculatability DataReindexOp::getSpeculatability() {
-  return layoutOf(getValue().getType()) == layoutOf(getType()) ? Speculation::Speculatable
-                                                               : Speculation::NotSpeculatable;
+  return isFree() ? Speculation::Speculatable : Speculation::NotSpeculatable;
 }
 
 //===----------------------------------------------------------------------===//
