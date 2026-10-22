@@ -50,14 +50,6 @@ data Sort : (family : Type) -> Type where
 public export
 data SortKind = NatSort | TypeSort | OpaqueSort | ScalarSort | FamilySort
 
-public export
-sortKind : Sort family -> SortKind
-sortKind SNat = NatSort
-sortKind SType = TypeSort
-sortKind SOpaque = OpaqueSort
-sortKind (SScalar _) = ScalarSort
-sortKind (SFamily _) = FamilySort
-
 ------------------------------------------------------------------------------
 -- Terms
 ------------------------------------------------------------------------------
@@ -87,15 +79,6 @@ data Term : (family, literal : Type) -> (s : Nat) -> Type where
 ||| The kinds of term, the closed set the C++ storage and the bytecode name.
 public export
 data TermKind = Natural | Level | Successor | Literal | Constructor | Opaque
-
-public export
-termKind : Term family literal s -> TermKind
-termKind (TNat _) = Natural
-termKind (TVar _) = Level
-termKind (TSucc _ _) = Successor
-termKind (TLit _) = Literal
-termKind (TCon _ _ _) = Constructor
-termKind TOpaque = Opaque
 
 ||| A term plus `k`, in normal form: what Idris's `S` applied `k` times is.
 ||| Only a term of a natural's sort has a successor; any other term plus a

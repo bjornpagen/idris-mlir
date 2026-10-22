@@ -147,7 +147,7 @@ fieldOp = MkOp
   , regions = []
   , traits = []
   , interfaces =
-      [ Declares InferType ["inferReturnTypes"], Implements flowInterface ["getFlowEdges"]
+      [ InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]
       , Implements statesLifetime lifetimeMethods, Implements statesOuters [] ]
   , effects = Executes [] [ReadsMemo 0] Covered Untouched
   , speculation = AlwaysSpeculatable
