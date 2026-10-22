@@ -390,7 +390,9 @@ fromIntResult : Signedness -> TypeC
 fromIntResult Signed = bigValue
 fromIntResult Unsigned = bigOrNatValue
 
-||| An integer as an Integer, read as the op's signedness says.
+||| An integer as an Integer, read as the op's signedness says. The runtime
+||| writes a large one's limbs straight into the result's cell, so the cell
+||| the result names is all the memory it acquires.
 public export
 bigFromInt : Signedness -> Op 1 1 0 0
 bigFromInt sign = MkOp
@@ -402,7 +404,7 @@ bigFromInt sign = MkOp
   , regions = []
   , traits = []
   , interfaces = [Declares InferIntRange ["inferResultRanges"], Implements bigOfIntegerInterface []]
-  , effects = builds 0 Touched
+  , effects = builds 0 Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
   , meaning = ComputedByRuntime (fromIntCall sign)
