@@ -581,11 +581,21 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   `foreign/idr/`, an in-tree MLIR dialect in upstream's layout and
   conventions; `PINS.md` records every deliberate deviation from it and
   every pinned workaround.
-- The Idris side compiles under two hosts, always: upstream's Idris on Chez
-  Scheme, which may compile it however it chooses but must compile and run
-  it, and idris-mlir itself. This holds for the frontend, the fork, `libs/`
-  and the Idris test machinery, so all of it is written in the subset
-  idris-mlir compiles and uses nothing only one host has. Linearity is a
+- Upstream compiles our Idris; idris-mlir compiling upstream is no goal:
+  "to be crystal clear, i only care that upstrmea compiles our
+  idris-mlir, and i don't care about idris-mlir compiling upsteram"; "you
+  were about to reverse one of our most important decisions"
+  (2026-10-22). Stock Idris on Chez, which may compile it however it
+  chooses, must compile and run all of our Idris: the frontend, the fork,
+  the specification, `libs/` and the Idris test machinery. That is the
+  host our code is written for. The language idris-mlir accepts is the
+  strict subset above, and it is never widened so that idris-mlir can
+  compile our code or upstream's: a construct our best code uses that the
+  subset refuses stays refused. Never: C230 and C232 (2026-10-22), which
+  read "the code is never kept worse to spare the compiler" as "the
+  compiler gains whatever the code uses", and would have pulled types at
+  run time, hidden-type fields and forced indices into the language so
+  that idris-mlir could compile the fork. Linearity is a
   performance property, never a correctness one: a linear program means
   the same under both hosts, and idris-mlir's optimizations of it (update
   in place, no counting) only make it faster. A primitive of `libs/` (an

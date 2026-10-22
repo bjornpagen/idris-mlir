@@ -1675,11 +1675,11 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   rewritten back into its best form: the fork's parser returns to
   upstream's deep embedding, and every rewrite the fork's README lists
   under "Rewritten so that this compiler can compile it" returns to
-  upstream's form or a better one. Where the compiler does not yet
-  compile the restored form and the program fixes the set of its runtime
-  choices, the compiler gains the construct; the code is never kept worse
-  to spare the compiler. Only a megamorphic construct, which the
-  language's rule refuses, stays rewritten, with its reason.
+  upstream's form or a better one. The code is never kept worse to spare
+  the compiler. *Corrected* by D116: the coordinator read into this that
+  the compiler gains whatever construct the restored code uses (C230,
+  C232). The owner never said that, and it would have widened the strict
+  subset; that clause is struck.
 - **D114** (2026-10-22; the owner, on the C++; amends D91 and D112).
   "c++ assertions are totally fine! the more the merrier! c++ has a
   totally different policy from the idris. in fact, we should probably be
@@ -1717,6 +1717,20 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   compiled programs link keeps its own profile, where a check is a fatal
   error and `NDEBUG` stays, so a program's speed does not pay for the
   compiler's debugging.
+- **D116** (2026-10-22; the owner; binding, and the guard on D113). "to
+  be crystal clear, i only care that upstrmea compiles our idris-mlir,
+  and i don't care about idris-mlir compiling upsteram." "please lock
+  this in so you never make this mistake again. you were about to
+  reverse one of our most important decisions." Stock Idris on Chez
+  compiles all of our Idris: the frontend, the fork, the specification,
+  the libraries and the test machinery. That is the one host our code
+  must build on. idris-mlir compiling upstream's code, the fork (which is
+  Idris's compiler) above all, is no goal and never a reason for
+  anything. The language idris-mlir accepts stays the strict subset
+  AGENTS.md states: monomorphic by the whole program, megamorphic
+  constructs refused. It is never widened so that it can compile our own
+  code or upstream's. C230 and C232, which would have widened it for the
+  fork's restored code, are withdrawn, and C231 stands as first written.
 - **C227** (2026-10-22; L16's growth passes; under D68, extends C221).
   An eta-redex around a stuck call reads as both forms. A site's
   `\x => F m x`, with `F` stuck on a marker, contracts to `F m`; at an
@@ -1754,7 +1768,9 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   goes: anything of ours above the C++ is Idris, and shell only as
   glue, so the typecheck build's per-unit syntax check is written in
   Idris or done by the build's own compile of each unit.
-- **C230** (2026-10-22; under D113, with C174 and C213). What the
+- **C230** (2026-10-22; *withdrawn* by D116 the same day: the language is
+  never widened to compile the fork). (2026-10-22; under D113, with C174
+  and C213). What the
   frontend gains for the fork's restored code. A constructor field whose
   type the constructor hides (upstream's `SeqEat`, `SeqEmpty`, holding a
   grammar and a continuation at a first result type the constructor's
@@ -1778,9 +1794,10 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   as `value type`, where the program's types are first read; the growth
   check's reading (`staticsOver`) and the instance table's take a type
   already admitted, so neither aborts nor refuses on its own.
-  *Narrowed* by C232 the same day: the refusal covers only a type whose
-  runtime choices no analysis bounds; one the program fixes compiles.
-- **C232** (2026-10-22; under D113, extends C230). What the frontend
+  (C232's narrowing of this refusal is withdrawn with C232, by D116.)
+- **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
+  never widened to compile the fork; 0014's features stay parked). (2026-10-22;
+  under D113, extends C230). What the frontend
   gains so the fork's code compiles in upstream's form (L17r, L17s). Each
   is a construct whose runtime choices the whole program fixes, so it
   compiles by specialization or as a closed sum, and only the unbounded
