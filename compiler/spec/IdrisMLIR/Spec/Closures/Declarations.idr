@@ -115,6 +115,32 @@ runsLabelsInterface = MkInterfaceDef
   }
 
 ------------------------------------------------------------------------------
+-- What builds a label
+------------------------------------------------------------------------------
+
+||| `BuildsLabelOpInterface`: an op that builds a label's constructor (a
+||| closure or a suspension of a function), which names the function and
+||| the terms its index variables take where it is built, so
+||| defunctionalization builds the constructor at its refined family
+||| without telling the two apart. Each method is the op's own accessor.
+export
+buildsLabelInterface : InterfaceDef
+buildsLabelInterface = MkInterfaceDef
+  { name = "BuildsLabelOpInterface"
+  , subject = OverOps
+  , bases = []
+  , methods =
+      [ MkMethod PerObject "::mlir::Value" "getResult" [] EveryImplementer
+          "the closure or suspension it builds"
+      , MkMethod PerObject "::mlir::FlatSymbolRefAttr" "getCalleeAttr" [] EveryImplementer
+          "the function whose label it builds"
+      , MkMethod PerObject "::idr::IndexArgsAttr" "getIndexArgs" [] EveryImplementer
+          "the terms the function's index variables take where it is built" ]
+  , verifier = Unverified
+  , doc = brief "an op that builds the constructor of a function's label"
+  }
+
+------------------------------------------------------------------------------
 -- The capture family
 ------------------------------------------------------------------------------
 
@@ -178,11 +204,12 @@ buildsMeaning ASuspension = NoFold
 buildsMeaning AnEvaluated = NoFold
 
 ||| A member of a function is checked through the symbol it names, at its
-||| index terms; an evaluated suspension, which names none, checks its value
-||| against its type.
-symbolUse : Made -> List InterfaceUse
-symbolUse OfFunction = [Declares SymbolUser ["verifySymbolUses"]]
-symbolUse OfValue = []
+||| index terms, and builds that function's label; an evaluated suspension,
+||| which names none, checks its value against its type.
+namesFunction : Made -> List InterfaceUse
+namesFunction OfFunction =
+  [Declares SymbolUser ["verifySymbolUses"], Implements buildsLabelInterface []]
+namesFunction OfValue = []
 
 verifyOf : Made -> Verify
 verifyOf OfFunction = DeclarationOnly
@@ -229,7 +256,7 @@ captureOp b = MkOp
   , attrs = attrsOf (madeOf b)
   , regions = []
   , traits = [ResultUsesMaxOf 0 [0]]
-  , interfaces = symbolUse (madeOf b) ++ [Implements flowInterface ["getFlowEdges"]]
+  , interfaces = namesFunction (madeOf b) ++ [Implements flowInterface ["getFlowEdges"]]
   , effects = buildsEffects b
   , speculation = AlwaysSpeculatable
   , stages = between Higher Higher
@@ -339,7 +366,7 @@ declarations : Declarations
 declarations =
   { ops := [SomeOp closureOp, SomeOp suspendOp, SomeOp delayOp, SomeOp forceOp, SomeOp applyOp] ++ memoOps
   , types := [SomeType fnType, SomeType lazyType]
-  , interfaces := [runsLabelsInterface]
+  , interfaces := [runsLabelsInterface, buildsLabelInterface]
   , predicates := [closureValue, suspensionValue, memoState]
   , skeleton := [ MkSkeletonRule "ForceFreshCell" ("idr" ::: ["Transforms", "Defunctionalize.h"]) "memo.run"
                     "an exchange of a cell built for it alone runs its label in place: no reader sees the cell running or forced" ]

@@ -17,7 +17,6 @@
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Memory.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Inline.h"
@@ -68,11 +67,10 @@ struct OptimizePass : impl::IdrOptimizeBase<OptimizePass> {
     // pipeline's own nesting finds it instead of inserting it.
     for (FuncOp fn : program.getOps<FuncOp>())
       (void)getAnalysisManager().nest(fn);
-    inlining::Admission admission(support::hostMemoryBytes());
     // The pass's work: the solves of what each component gives back, then
     // the rows' join over the final graph.
     solver::Work work;
-    Scheduler scheduler(*this, schedule, nodes, counts, getAnalysisManager(), admission, work);
+    Scheduler scheduler(*this, schedule, nodes, counts, getAnalysisManager(), work);
     LogicalResult ran = scheduler.run();
     numNodes += scheduler.made();
     if (failed(ran))

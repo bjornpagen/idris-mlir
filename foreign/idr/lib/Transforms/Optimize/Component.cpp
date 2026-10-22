@@ -27,8 +27,6 @@
 #include "idr/Analysis/Identities.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Profile.h"
-#include "idr/Transforms/EGraph.h"
-#include "idr/Transforms/Inline.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -38,16 +36,15 @@ using namespace mlir;
 namespace idr::optimize {
 
 Scheduler::Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &nodes,
-                     const InnerCounts &counts, AnalysisManager am, inlining::Admission &admission,
-                     solver::Work &spent)
-    : pass(pass), schedule(schedule), nodes(nodes), counts(counts), am(am), admission(admission),
-      spent(spent), inner(FuncOp::getOperationName()) {
+                     const InnerCounts &counts, AnalysisManager am, solver::Work &spent)
+    : pass(pass), schedule(schedule), nodes(nodes), counts(counts), am(am), spent(spent),
+      inner(FuncOp::getOperationName()) {
   buildInnerPipeline(inner, schedule, nodes, counts);
 }
 
 // A round: each call of a final callee says what its callee may now do,
 // so the e-graph deletes and floats it by the callee's final row; then the
-// pipeline, entered as the member's arena admits.
+// pipeline.
 LogicalResult Scheduler::round(FunctionId member) {
   FuncOp fn = schedule.function(member);
   fn.getBody().walk([&](CallOp call) {
@@ -64,10 +61,7 @@ LogicalResult Scheduler::round(FunctionId member) {
     }
     pm = idle.pop_back_val();
   }
-  std::uint64_t arena = egraph::arenaBytes(static_cast<std::uint64_t>(inlining::bodyOf(fn).size));
-  admission.enter(arena);
   LogicalResult result = runNested(pass, *pm, fn);
-  admission.leave(arena);
   std::lock_guard lock(pipelinesMutex);
   idle.push_back(pm);
   return result;

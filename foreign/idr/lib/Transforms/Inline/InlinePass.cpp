@@ -3,9 +3,7 @@
 // idr-inline: inlining once, on the final program graph, with every call
 // site of each callee counted, on upstream's inliner: the verdict is its
 // profitability and the e-graph its simplification of every function it
-// inlined into. A function enters the simplification only while its
-// e-graph's arena fits beside those running, so a small host compiles more
-// slowly and never differently.
+// inlined into.
 //
 // MLton's rule weighs a callee by its size and its calls, which only the
 // final graph counts: specialization is over, so no call is made after the
@@ -15,7 +13,6 @@
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Memory.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Inline.h"
@@ -24,10 +21,6 @@
 
 #include "mlir/Analysis/CallGraph.h"
 #include "mlir/Transforms/Inliner.h"
-#include "llvm/Support/ErrorHandling.h"
-
-#include <cstdint>
-#include <mutex>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRINLINE
@@ -42,25 +35,18 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
   void runOnProgram(idr::ProgramOp program) {
     const auto &graph = getAnalysis<idr::solver::ProgramGraph>();
     idr::inlining::Profitability profitability(graph);
-    idr::inlining::Admission admission(idr::support::hostMemoryBytes());
     InlinerConfig config;
     config.setDefaultPipeline([](OpPassManager &pm) { pm.addPass(idr::createIdrSimplify()); });
-    // Upstream asks from its own workers; each run is admitted by the arena
-    // of the function it simplifies. A function inlining changed takes its
-    // calls' tail facts where they now stand first, as every call the
-    // simplification is verified with must: an inlined body may leave a
+    // Upstream runs this from its own workers. A function inlining changed
+    // takes its calls' tail facts where they now stand first, as every call
+    // the simplification is verified with must: an inlined body may leave a
     // call of the caller's in tail position, or a self call where a context
     // admits it, which no hook on the inlined body sees.
     auto runPipeline = [&](Pass &, OpPassManager &pm, Operation *op) {
       auto fn = cast<idr::FuncOp>(op);
       if (profitability.inlinedInto(graph.id(fn)) != 0)
         (void)idr::optimize::decideTails(fn);
-      std::uint64_t arena = idr::egraph::arenaBytes(
-          static_cast<std::uint64_t>(idr::inlining::bodyOf(cast<idr::FuncOp>(op)).size));
-      admission.enter(arena);
-      LogicalResult ran = this->runPipeline(pm, op);
-      admission.leave(arena);
-      return ran;
+      return this->runPipeline(pm, op);
     };
     CallGraph &calls = getAnalysis<CallGraph>();
     Inliner inliner(program, calls, *this, getAnalysisManager(), runPipeline, config,
@@ -86,23 +72,3 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
 };
 
 } // namespace
-
-// A function whose arena alone exceeds the host's memory ends the
-// compiler through its one out-of-memory handler, a crash of the machine,
-// never a refusal. Any other enters once it fits beside those in flight,
-// or when nothing else runs, so no wait lasts for ever.
-void idr::inlining::Admission::enter(std::uint64_t bytes) {
-  if (bytes > budget)
-    llvm::report_bad_alloc_error("a function's e-graph needs more memory than the host has");
-  std::unique_lock lock(mutex);
-  freed.wait(lock, [&] { return inFlight == 0 || inFlight + bytes <= budget; });
-  inFlight += bytes;
-}
-
-void idr::inlining::Admission::leave(std::uint64_t bytes) {
-  {
-    std::lock_guard lock(mutex);
-    inFlight -= bytes;
-  }
-  freed.notify_all();
-}

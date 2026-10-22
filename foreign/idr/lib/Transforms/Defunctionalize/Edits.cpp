@@ -26,8 +26,6 @@
 
 #include "llvm/ADT/STLExtras.h"
 
-#include <concepts>
-
 using namespace mlir;
 
 namespace idr::defunctionalize {
@@ -37,16 +35,6 @@ namespace {
 // Whether an apply stands in tail position, read by the one definition
 // before it is replaced.
 enum class TailPosition : bool { Within, Tail };
-
-// A closure or a suspension of a function, as its op declares one: it
-// names the function and the terms the function's index variables take
-// where it is built, and gives the value it builds.
-template <class Op>
-concept OfFunction = requires(Op op) {
-  { op.getResult() } -> std::convertible_to<Value>;
-  { op.getCalleeAttr() } -> std::convertible_to<FlatSymbolRefAttr>;
-  { op.getIndexArgs() } -> std::convertible_to<IndexArgsAttr>;
-};
 
 } // namespace
 
@@ -82,14 +70,12 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
   // the terms the op gives its function's index variables; an evaluated
   // suspension its memo family's forced state, which binds none. Each is
   // built at its own grade.
-  auto labelled = [&]<OfFunction Op>(Op op) {
+  fn.walk([&](BuildsLabelOpInterface op) {
     Key key = *keyOf(op.getResult());
     Type type = typeOf(op.getResult().getType(), key);
     edits.constructs.push_back({op, constructorOf(familyOf(key).at, tagOf(key, op.getCalleeAttr()),
                                                   gradeOf(type), op.getIndexArgs().getTerms())});
-  };
-  fn.walk([&](FnClosureOp op) { labelled(op); });
-  fn.walk([&](LazySuspendOp op) { labelled(op); });
+  });
   fn.walk([&](LazyDelayOp op) {
     Key key = *keyOf(op.getResult());
     DataType at = familyOf(key).at;

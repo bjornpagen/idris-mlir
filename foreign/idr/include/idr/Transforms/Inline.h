@@ -22,10 +22,8 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/Inliner.h"
 
-#include <condition_variable>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <variant>
 
@@ -101,26 +99,6 @@ private:
   IndexVector<solver::FunctionId, std::optional<Body>> bodies;
   IndexVector<solver::FunctionId, std::uint32_t> into;
   std::uint64_t numInlined = 0, numCapped = 0;
-};
-
-// The memory the e-graphs of the functions in flight may take together:
-// the host's, read once. idr-inline admits each function upstream's
-// workers simplify, and idr-optimize each run of its pipeline, only while
-// its arena fits beside those running, so a small host compiles more
-// slowly and never differently; one whose arena alone exceeds it ends the
-// compiler through its one out-of-memory handler.
-class Admission {
-public:
-  explicit Admission(std::uint64_t budget) : budget(budget) {}
-  // Blocks until `bytes` fit; then they are in flight.
-  void enter(std::uint64_t bytes);
-  void leave(std::uint64_t bytes);
-
-private:
-  std::uint64_t budget;
-  std::uint64_t inFlight = 0;
-  std::mutex mutex;
-  std::condition_variable freed;
 };
 
 // The inner pipeline's leaf inlining, for one run: each call of a final
