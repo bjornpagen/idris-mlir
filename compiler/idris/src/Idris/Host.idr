@@ -31,9 +31,10 @@
 ||| definition's type and case tree, read through the context's
 ||| accessors, are the ones the evaluator reads, one of each (`typeOnce`,
 ||| `treeOnce`); two normal forms of one term for one normaliser are one
-||| term, but for their locations (`oneNormalForm`); and the steps that
-||| reduce a term reduce it with values put in for its bound names
-||| (`substitutes`). That is the trust
+||| term, but for their locations (`oneNormalForm`); every term a term
+||| reduces to reduces on to the term's normal form (`reachesNormalForm`);
+||| and the steps that reduce a term reduce it with values put in for its
+||| bound names (`substitutes`). That is the trust
 ||| Idris's own type checker rests on, which decides conversion by
 ||| comparing normal forms, and a program that proves its readings of terms
 ||| sound against `Reduces` needs no check, when it runs, that the
@@ -77,8 +78,10 @@ import Libraries.Data.WithDefault
 -- applied only where a statement is a fact of the evaluator, or of the
 -- accessors it reads definitions through, which runs in `Core` where no
 -- proof follows it: to what the normalisers give (`reduct`), to the terms
--- the accessors read (`typeOnce`, `treeOnce`), and to two normal forms of
--- one term (`oneNormalForm`).
+-- the accessors read (`typeOnce`, `treeOnce`), to two normal forms of one
+-- term (`oneNormalForm`), to a term's reducts and its normal form
+-- (`reachesNormalForm`), and to reduction with values put in
+-- (`substitutes`).
 0 trusted : a
 trusted = believe_me ()
 
@@ -172,12 +175,14 @@ export
 0 entryOf : Defines ctx n d -> (i : Int ** Resolves ctx n i)
 entryOf (AtEntry {i} r _) = (i ** r)
 
-||| What a frozen context defines a name as, or the evidence that it
-||| defines it as nothing: a name it does not resolve, or an entry no
-||| definition is at.
+||| What a frozen context defines a name as, at the entry the name resolves
+||| to, so that a reader that also needs the entry resolves the name once;
+||| or the evidence that it defines it as nothing: a name it does not
+||| resolve, or an entry no definition is at.
 public export
 data Definition : Frozen -> Name -> Type where
-  DefinedAs : (d : GlobalDef) -> (0 _ : Defines ctx n d) -> Definition ctx n
+  DefinedAs : (i : Int) -> (0 _ : Resolves ctx n i) ->
+              (d : GlobalDef) -> (0 _ : Defines ctx n d) -> Definition ctx n
   NotDefined : (0 _ : (d : GlobalDef) -> Not (Defines ctx n d)) -> Definition ctx n
 
 0 undefinedWhere : ((i : Int) -> Not (Resolves ctx n i)) ->
@@ -190,11 +195,11 @@ emptyEntry r none d (AtEntry r' held) = nothingIsJust (trans (sym none) (atEntry
 
 definedAt : (ctx : Frozen) -> (i : Int) -> (0 _ : Resolves ctx n i) -> Definition ctx n
 definedAt ctx i r with (IntMap.lookup i (entriesOf ctx)) proof held
-  _ | Just d = DefinedAs d (AtEntry r held)
+  _ | Just d = DefinedAs i r d (AtEntry r held)
   _ | Nothing = NotDefined (emptyEntry r held)
 
-||| The definition a frozen context gives a name: a pure read of an
-||| immutable value.
+||| The definition a frozen context gives a name, with the entry it is at:
+||| one resolution of the name and one pure read of an immutable value.
 export
 definitionIn : (ctx : Frozen) -> (n : Name) -> Definition ctx n
 definitionIn ctx n = case resolveIn ctx n of
@@ -879,6 +884,20 @@ export
 0 oneNormalForm : (r, s : Reduct form ctx t) -> Relocated r.value s.value
 oneNormalForm _ _ = trusted
 
+||| Every term a term reduces to reduces on to the term's normal form, by
+||| the same normaliser's steps. That is the confluence of Idris's
+||| evaluation of the terms its type checker accepts, in the form the type
+||| checker rests on when it decides conversion by comparing normal forms:
+||| a term and a term it reduces to are convertible, so they reach one
+||| normal form. That normal forms are unique (`oneNormalForm`) does not
+||| give it, since it says nothing of a reduct until that reduct is shown
+||| to reach a normal form, and the theory is not strongly normalizing;
+||| no proof of this module's reaches it.
+export
+0 reachesNormalForm : (r : Reduct form ctx t) -> Reduces (evaluationOf form) ctx t u ->
+                      Reduces (evaluationOf form) ctx u r.value
+reachesNormalForm _ _ = trusted
+
 ||| Reduction is closed under putting values in for bound names. No step
 ||| reads a reference to a bound name: each reads a function, a constructor
 ||| or a family through its kind and the entry it resolves to, or a form.
@@ -897,17 +916,20 @@ substitutes _ _ _ = trusted
 
 ||| Normalising commutes with putting closed values in for bound names:
 ||| the normal form of a term with the values put in is the normal form of
-||| its normal form with them put in, but for locations. The steps to the
-||| term's normal form, with the values put in, lead from the term with
-||| them put in to the same place, so both are its normal forms.
+||| its normal form with them put in. The steps to the term's normal form,
+||| with the values put in, lead from the term with them put in to that
+||| normal form with them put in, a reduct of the term with the values put
+||| in, which so reduces on to its normal form (`reachesNormalForm`). With
+||| that normal form's evidence that it is normal, the steps are a reduct
+||| of the normal form with the values put in, which no normaliser runs to
+||| give: `MkReduct s.value (normalisesThrough bs vs r s) s.normal`.
 export
 0 normalisesThrough : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
                       (r : Reduct form ctx t) ->
                       (s : Reduct form ctx (substs (mkSizeOf ns) vs (refsToLocals bs t))) ->
-                      (q : Reduct form ctx (substs (mkSizeOf ns) vs (refsToLocals bs r.value))) ->
-                      Relocated s.value q.value
-normalisesThrough bs vs r s q
-    = oneNormalForm s (MkReduct q.value (Then (substitutes bs vs r.steps) q.steps) q.normal)
+                      Reduces (evaluationOf form) ctx
+                              (substs (mkSizeOf ns) vs (refsToLocals bs r.value)) s.value
+normalisesThrough bs vs r s = reachesNormalForm s (substitutes bs vs r.steps)
 
 -- A normaliser's normal form of a closed term, on the frozen context's
 -- definitions record, with the steps that reach it and the evidence that
