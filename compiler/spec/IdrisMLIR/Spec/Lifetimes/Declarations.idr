@@ -4,9 +4,9 @@
 ||| `!idr.lifetime.package<…>`, the closed sets of `Kind` and their tables,
 ||| the interfaces by which an op states the lifetime of a scoped value it
 ||| makes and an opener says where its memory comes from, and the ops: the
-||| five openers, this call's own lifetime, the loan, the cast to a view, a
-||| room reserved in a cursor, and the pack and unpack that split a lifetime
-||| around a framed call.
+||| five openers, this call's own lifetime, the loan, the carrier lent to
+||| upstream's ops, the cast to a view, a room reserved in a cursor, and the
+||| pack and unpack that split a lifetime around a framed call.
 |||
 ||| A lifetime value is bound only here: an opener's, a loan's or an
 ||| unpack's entry argument, `idr.activation`'s result, a function's
@@ -277,6 +277,20 @@ roomLifetime = SatisfiesType roomPredicate
 anyValue : TypeC
 anyValue = UpstreamType AnyTypeC
 
+||| A tensor or a buffer that holds references, at any grade, its bare one
+||| among them: a bare carrier is its bare grade, counted and claiming
+||| nothing, so a holder at that grade is lent as one at any other is.
+lendablePredicate : Predicate
+lendablePredicate = predicate (ident "isLendable") (line "a tensor or a buffer that holds references, at any grade")
+
+lendable : TypeC
+lendable = SatisfiesType lendablePredicate
+
+||| What upstream's ops take: a tensor or a buffer at no grade.
+bareCarrier : TypeC
+bareCarrier = AnyOfTypes (UpstreamType AnyTensorC ::: [UpstreamType AnyRankedOrUnrankedMemRefC])
+  "a bare tensor or buffer"
+
 --------------------------------------------------------------------------------
 -- Interfaces and traits
 --------------------------------------------------------------------------------
@@ -389,6 +403,17 @@ putMethods = ["getPutLifetime", "getPutBytes"]
 ||| reads: no other op gives one.
 givesLifetime : TraitDef
 givesLifetime = MkTraitDef (ident "GivesLifetime") (brief (line "its result is a lifetime"))
+
+||| An op of ours that makes a reference of its own from a bare carrier it
+||| is given without taking one over: it adopts a buffer upstream made
+||| (`own.adopt`), adds a reference to it (`count.dup`), or casts it into a
+||| linear position (`lin.cast`). An op that takes a reference over says so
+||| by its consumption; this says the rest. A loan's alias is a reference
+||| of no one's, so the loans' check refuses one at either.
+public export
+adoptsCarrier : TraitDef
+adoptsCarrier = MkTraitDef (ident "AdoptsCarrier")
+  (brief (line "makes a reference of its own from a bare carrier it is given"))
 
 ||| A result whose type is its operand's, read and written as nothing.
 sameType : Directive
@@ -586,6 +611,33 @@ lend = op "lend" [single "owner" anyValue, variadic "outers" anyLifetime]
   [MkMember OnObject "::mlir::Value" "getView" []]
   (brief "lends a counted value for a region, giving it back")
 
+||| `idr.carrier %v in %l : T, !idr.lifetime<view>`, C++ `CarrierOp`: a
+||| tensor or a buffer lent to upstream's ops, which take only the bare
+||| carrier. The result is `%v`'s carrier itself (`unrestricted`), the same
+||| words at run time, a view of `%v` (upstream's view interface) valid
+||| while `%l` is open. `%v` stays its holder's at its grade and no count
+||| changes, so nothing moves (its flow edges are none) and the result is a
+||| reference of no one's; `%v` outlives `%l`. A loan reads only its
+||| lifetime's extent and nothing of it at run time, so `%l` is a view, of
+||| any lifetime's extent (`idr.lifetime.forget`), and a loan never puts
+||| into a cursor. A scoped value is projected under its own lifetime, a
+||| counted one under a view opened around the reads, as the op that makes
+||| a value takes its lifetime. A bare alias names no
+||| lifetime, so the function verifier follows every alias of the result
+||| through upstream's alias interfaces, and refuses one that leaves the
+||| region defining `%l` or returns from the function, is the value a write
+||| stores, or is adopted by an op of ours. No effect: it is ordered by its
+||| operands, and kept inside `%l`'s scope by dominance.
+public export
+carrier : Op 2 1 0 0
+carrier = op "carrier" [single "value" lendable, single "lifetime" viewLifetime]
+  [result "result" bareCarrier] [] []
+  [] [InfersTypes InferredOnly, Declares ViewLike ["getViewSource"], Implements flowInterface ["getFlowEdges"]]
+  noEffects AlwaysSpeculatable (between First Owned) DeclarationOnly
+  (Declared [ ValueOf (OperandRef FZ), Lit "in", ValueOf (OperandRef (FS FZ)), AttrDict, Lit ":"
+            , TypeOf (OfGroup (OperandRef FZ)), Lit ",", TypeOf (OfGroup (OperandRef (FS FZ))) ]) []
+  (brief "a tensor or a buffer lent to upstream's ops under a lifetime")
+
 ||| `idr.lifetime.forget %l : !idr.lifetime<K>`, C++ `LifetimeForgetOp`: the
 ||| view of its operand's lifetime, of the same extent; what the inliner
 ||| writes where a view parameter is given another kind. Pure.
@@ -733,13 +785,13 @@ lifetimesHeader = MkHeader "Lifetimes"
 public export
 declarations : Declarations
 declarations =
-  { ops := openers ++ [SomeOp activation, SomeOp lend, SomeOp forget, SomeOp reserve,
+  { ops := openers ++ [SomeOp activation, SomeOp lend, SomeOp carrier, SomeOp forget, SomeOp reserve,
                        SomeOp cellStack, SomeOp cellArena, SomeOp pack, SomeOp unpack]
   , types := [SomeType lifetimeType, SomeType packageType]
   , enums := [enumDef packedClosed]
   , interfaces := [statesLifetime, statesOuters, opensLifetime, putsIntoLifetime]
-  , traits := [runsOnce, runsOnceGivingBack, givesLifetime]
+  , traits := [runsOnce, runsOnceGivingBack, givesLifetime, adoptsCarrier]
   , directives := [sameType, viewOf, roomOf]
-  , predicates := [putsPredicate, cursorPredicate, roomPredicate, viewPredicate]
+  , predicates := [putsPredicate, cursorPredicate, roomPredicate, viewPredicate, lendablePredicate]
   , headers := [lifetimesHeader]
   } nothing

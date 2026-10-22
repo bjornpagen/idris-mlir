@@ -256,7 +256,7 @@ Type mutableElement(Type type) {
   auto memref = dyn_cast<MemRefType>(type);
   if (!memref || memref.getRank() > 1 || !llvm::all_of(memref.getShape(), ShapedType::isDynamic) ||
       !memref.getLayout().isIdentity() ||
-      !isa_and_nonnull<MutableSpaceAttr>(memref.getMemorySpace()))
+      !isa_and_nonnull<MutableAttr>(memref.getMemorySpace()))
     return nullptr;
   return memref.getElementType();
 }

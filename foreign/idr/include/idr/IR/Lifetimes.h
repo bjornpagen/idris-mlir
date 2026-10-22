@@ -13,7 +13,10 @@
 // two ops that derive one lifetime from another (`idr.lifetime.forget`,
 // `idr.lifetime.reserve`), each of the extent of its operand. A value that
 // lives in a lifetime is graded `scoped`, and the op that makes it states
-// which lifetime (StatesLifetimeOpInterface): one hop, never a walk.
+// which lifetime (StatesLifetimeOpInterface): one hop, never a walk. A
+// tensor or a buffer is lent to upstream's ops, which take only the bare
+// carrier, by `idr.carrier %v in %l`, a projection under a lifetime with no
+// region of its own; its aliases are followed (Lifetimes/Loans.h).
 #ifndef IDR_IR_LIFETIMES_H
 #define IDR_IR_LIFETIMES_H
 
@@ -159,9 +162,18 @@ bool isRoomLifetime(mlir::Type type);
 bool isViewLifetime(mlir::Type type);
 bool isLifetimeOfCase(mlir::Type type, LifetimeKindCase kase);
 
+// Whether a value of `type` may be lent to upstream's ops (idr.carrier's
+// operand): a tensor or a buffer that holds references, at any grade, its
+// bare one among them.
+bool isLendable(mlir::Type type);
+
 // The interface of an op that states through `outers`, generated after
 // this header with the dialect's interfaces.
 class StatesOutersOpInterface;
+
+// The loan of a tensor or a buffer to upstream's ops, generated after this
+// header with the dialect's ops.
+class CarrierOp;
 
 } // namespace idr
 
@@ -315,6 +327,17 @@ mlir::LogicalResult verifyOuters(Op op, unsigned own) {
 // the remade op no longer matches.
 void restateOuters(StatesOutersOpInterface op, mlir::ValueRange outers);
 
+// The region a loan's lifetime is the extent of: its opener's region, or
+// the function's body for a lifetime parameter, or the region this
+// activation stands in. No alias of the loan leaves it, and the value lent
+// is given up only outside it.
+mlir::Region *loanRegion(CarrierOp loan);
+
+// The loan `value` is, or is a view of: up through upstream's views, one
+// hop each, to an idr.carrier; null for any other value. A loan is a
+// reference of no one's: nothing counts it, gives it up or takes it over.
+CarrierOp loanOf(mlir::Value value);
+
 } // namespace idr::lifetimes
 
 namespace idr {
@@ -356,6 +379,14 @@ class RunsOnceGivingBack : public RunsOnceAfter<ConcreteType, RunsOnceGivingBack
 // one, which the function verifier reads off this trait.
 template <typename ConcreteType>
 class GivesLifetime : public mlir::OpTrait::TraitBase<ConcreteType, GivesLifetime> {};
+
+// An op of ours that makes a reference of its own from a bare carrier it is
+// given without taking one over (`idr.own.adopt`, `idr.count.dup`,
+// `idr.lin.cast`): where a loan's alias would become someone's reference,
+// which the loans' check reads off this trait, as it reads a reference
+// taken over off the op's consumption.
+template <typename ConcreteType>
+class AdoptsCarrier : public mlir::OpTrait::TraitBase<ConcreteType, AdoptsCarrier> {};
 
 } // namespace idr
 

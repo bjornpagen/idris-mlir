@@ -77,9 +77,9 @@ void State::leave() {
 }
 
 // This activation's lifetime is the rest of its region; then the op's own
-// rules, and the frame-limited rule at each lifetime it uses.
+// rules, a loan's, and the frame-limited rule at each lifetime it uses.
 LogicalResult State::check(Operation &op) {
-  if (failed(local(op)))
+  if (failed(local(op)) || failed(loans(op)))
     return failure();
   if (auto activation = dyn_cast<ActivationOp>(&op))
     open.push_back({activation.getLifetime(), depth() + 1, Discipline::Free, levels.back().again,

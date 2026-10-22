@@ -78,10 +78,12 @@ Plan Planner::plan() {
     Draft putDraft{std::nullopt, {}, {}};
     for (auto [at, site] : llvm::enumerate(sites))
       if (siteFates[at] == Fate::Open)
-        (putHere(site.box) ? putDraft : draftOf(site.run)).sites.push_back(at);
+        (putHere(site.box) ? putDraft : draftOf(site.run))
+            .sites.push_back(static_cast<unsigned>(at));
     for (auto [at, call] : llvm::enumerate(calls))
       if (callFates[at] == Fate::Open)
-        (putHere(call.results.front()) ? putDraft : draftOf(call.run)).calls.push_back(at);
+        (putHere(call.results.front()) ? putDraft : draftOf(call.run))
+            .calls.push_back(static_cast<unsigned>(at));
     // Every run before the runs inside it: the body first, then by where
     // each run's op stands in the order, which puts an op before the ops
     // inside it.
@@ -118,22 +120,7 @@ Plan Planner::plan() {
 // end, and no jump to a join point outside it, which no lifetime lets
 // through.
 bool Planner::spannable(Block &block, OpAt first, OpAt last) const {
-  Operation *firstOp = order.op(first);
-  Operation *lastOp = order.op(last);
-  auto inside = [&](Operation *op) {
-    Operation *top = block.findAncestorOpInBlock(*op);
-    return top && !top->isBeforeInBlock(firstOp) && !lastOp->isBeforeInBlock(top);
-  };
-  for (Operation *op : order.span(first, last)) {
-    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() != TailKind::nontail)
-      return false;
-    for (Value operand : op->getOperands())
-      if (isa<mlir::TokenType>(operand.getType()))
-        if (auto token = dyn_cast<BlockArgument>(operand);
-            !token || !inside(token.getOwner()->getParentOp()))
-          return false;
-  }
-  return true;
+  return regionMayHold(block, order.op(first), order.op(last), order.span(first, last));
 }
 
 // One run's lifetime, or none when a cell or a call of it is counted.

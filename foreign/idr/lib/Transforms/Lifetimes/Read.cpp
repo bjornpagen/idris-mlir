@@ -230,8 +230,7 @@ void Planner::read(Operation *op, OpAt at, const Where &where) {
     // A call that continues on a frame: on its function's own cycle, not
     // in tail position, so the frames pass moves what follows it into a
     // frame.
-    if (call.getTailKind() == TailKind::nontail && graph.onCycle(self) &&
-        graph.sccOf(callee) == graph.sccOf(self))
+    if (continuesOnFrame(graph, self, call))
       framed.push_back(at);
     // A call in tail position, which lowers to its caller's own return.
     if (call.getTailKind() == TailKind::tail)

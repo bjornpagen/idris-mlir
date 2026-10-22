@@ -23,9 +23,13 @@
 #include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ownership.h"
 #include "idr/IR/Verify.h"
 #include "idr/Support/Match.h"
+
+// Whether the program's references are counted (StageCounting).
+#include "idr/IR/Generated/StageFacts.h.inc"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -48,15 +52,19 @@ namespace {
 // value its type uses once); or exactly one giving up of its reference on
 // every path that goes on, the uses that do not consume it not counting (a
 // counted value).
-enum class Rule : std::uint8_t { UsedAtMostOnce, UsedExactlyOnce, ConsumedExactlyOnce };
+enum class Obligation : std::uint8_t { UsedAtMostOnce, UsedExactlyOnce, ConsumedExactlyOnce };
 
-// Whether `rule` holds a value to its uses, or to the giving up of its
+// Whether `obligation` holds a value to its uses, or to the giving up of its
 // reference.
-constexpr bool everyUse(Rule rule) { return rule != Rule::ConsumedExactlyOnce; }
+constexpr bool everyUse(Obligation obligation) {
+  return obligation != Obligation::ConsumedExactlyOnce;
+}
 
-// Whether `rule` asks for exactly one on every path that goes on, not at
+// Whether `obligation` asks for exactly one on every path that goes on, not at
 // most one.
-constexpr bool exactly(Rule rule) { return rule != Rule::UsedAtMostOnce; }
+constexpr bool exactly(Obligation obligation) {
+  return obligation != Obligation::UsedAtMostOnce;
+}
 
 // Which uses of a value one count counts.
 template <typename Counts>
@@ -124,12 +132,12 @@ bool repeated(Operation *op, unsigned index) {
   return !branch || branch.isRepetitiveRegion(index);
 }
 
-// The count of one value under one rule, of the uses `counts` takes.
+// The count of one value under one obligation, of the uses `counts` takes.
 class Count {
 public:
   template <UseFilter Counts>
-  Count(Value value, Rule rule, Exclusivity &exclusivity, Counts &&counts)
-      : value(value), rule(rule), exclusivity(exclusivity) {
+  Count(Value value, Obligation obligation, Exclusivity &exclusivity, Counts &&counts)
+      : value(value), obligation(obligation), exclusivity(exclusivity) {
     for (OpOperand &use : value.getUses())
       if (counts(use))
         users.push_back(use.getOwner());
@@ -145,17 +153,17 @@ public:
     FailureOr<Account> account = accountOf(home);
     if (failed(account))
       return failure();
-    if (!exactly(rule) || account->reach == Reach::EndsRun || account->uses == 1)
+    if (!exactly(obligation) || account->reach == Reach::EndsRun || account->uses == 1)
       return success();
     return emitError(value.getLoc())
-           << (rule == Rule::UsedExactlyOnce
+           << (obligation == Obligation::UsedExactlyOnce
                    ? "is used once by its type and never used on a path that goes on"
                    : "holds a reference that is never given up on a path that goes on");
   }
 
 private:
   // The uses that count which `op` makes itself.
-  unsigned own(Operation *op) const { return llvm::count(users, op); }
+  unsigned own(Operation *op) const { return static_cast<unsigned>(llvm::count(users, op)); }
 
   // Whether a use that counts lies inside `op`'s regions, or inside `region`.
   bool holds(Operation *op) const {
@@ -167,7 +175,7 @@ private:
   }
 
   LogicalResult tooMany(Operation &op) {
-    return op.emitOpError(everyUse(rule)
+    return op.emitOpError(everyUse(obligation)
                               ? "uses a value used once that is already used on the same path"
                               : "gives up a reference already given up on the same path");
   }
@@ -302,20 +310,20 @@ private:
       most = std::max(most, account.uses);
       if (account.reach == Reach::EndsRun)
         continue;
-      if (exactly(rule) && goesOn && *goesOn != account.uses)
-        return op.emitOpError(rule == Rule::UsedExactlyOnce
+      if (exactly(obligation) && goesOn && *goesOn != account.uses)
+        return op.emitOpError(obligation == Obligation::UsedExactlyOnce
                                   ? "uses a value used once by its type on one alternative and not "
                                     "on another"
                                   : "gives up a reference on one alternative and not on another");
       goesOn = account.uses;
     }
-    if (!exactly(rule))
+    if (!exactly(obligation))
       return Account{goesOn ? Reach::GoesOn : Reach::EndsRun, most};
     return Account{goesOn ? Reach::GoesOn : Reach::EndsRun, goesOn.value_or(0)};
   }
 
   Value value;
-  Rule rule;
+  Obligation obligation;
   Exclusivity &exclusivity;
   SmallVector<Operation *, 4> users;
 };
@@ -342,9 +350,9 @@ LogicalResult usedAtMostOnceEachField(Value value, Exclusivity &exclusivity) {
         field && !llvm::is_contained(read, field.getIndex()))
       read.push_back(field.getIndex());
   if (read.empty())
-    return Count(value, Rule::UsedAtMostOnce, exclusivity, anyUse).check();
+    return Count(value, Obligation::UsedAtMostOnce, exclusivity, anyUse).check();
   for (std::uint64_t index : read)
-    if (failed(Count(value, Rule::UsedAtMostOnce, exclusivity,
+    if (failed(Count(value, Obligation::UsedAtMostOnce, exclusivity,
                      [index](OpOperand &use) { return takesField(use, index); })
                    .check()))
       return failure();
@@ -354,11 +362,12 @@ LogicalResult usedAtMostOnceEachField(Value value, Exclusivity &exclusivity) {
 } // namespace
 
 LogicalResult idr::verify::linearity(FuncOp fn) {
-  bool counted = stageFacts(fn.getProgram().getStage()).counted();
+  StageCounting counting = countingAt[fn.getProgram().getStage()];
   Exclusivity exclusivity;
   auto checkValue = [&](Value value) -> LogicalResult {
     Type type = value.getType();
-    if (counted && isa<idr::TokenType>(unrestricted(type)) && usesOf(type) == Uses::Many)
+    if (counting == StageCounting::Counted && isa<idr::TokenType>(unrestricted(type)) &&
+        usesOf(type) == Uses::Many)
       return emitError(value.getLoc()) << "holds a reuse token at many uses";
     // A constant holds nothing a use could take: a folder materializes one
     // wherever it is needed, merges equal ones and hoists them out of
@@ -368,10 +377,14 @@ LogicalResult idr::verify::linearity(FuncOp fn) {
     // Used once by its type: the type alone says so at every stage, and no
     // grade is written on it.
     if (isLinearByType(type))
-      return Count(value, Rule::UsedExactlyOnce, exclusivity, anyUse).check();
+      return Count(value, Obligation::UsedExactlyOnce, exclusivity, anyUse).check();
     if (usesOf(type) == Uses::Once && failed(usedAtMostOnceEachField(value, exclusivity)))
       return failure();
-    if (!counted || !freedBy(type, Release::Counted))
+    if (counting != StageCounting::Counted || !freedBy(type, Release::Counted))
+      return success();
+    // A loan to upstream's ops, and a view of one, is a reference of no
+    // one's: nothing gives it up, as the rule of loans holds.
+    if (lifetimes::loanOf(value))
       return success();
     // A part read with no reference of its own is given up with its owner,
     // whose one consumption counts for it: a use giving it up is a second.
@@ -381,7 +394,7 @@ LogicalResult idr::verify::linearity(FuncOp fn) {
           return use.getOwner()->emitOpError("gives up a part that its owner gives up");
       return success();
     }
-    return Count(value, Rule::ConsumedExactlyOnce, exclusivity,
+    return Count(value, Obligation::ConsumedExactlyOnce, exclusivity,
                  [](OpOperand &use) { return effects::consumes(use); })
         .check();
   };

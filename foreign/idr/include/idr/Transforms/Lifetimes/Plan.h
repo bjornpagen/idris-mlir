@@ -3,8 +3,10 @@
 // The parts of idr-lifetimes' decide step, shared by its units under
 // lib/Transforms/Lifetimes: one function's ops numbered, what a function
 // is decided into, the planner that decides one function (Read.cpp reads
-// it, Decide.cpp decides it), and the writer that writes a plan into a
-// function and its copies (Write.cpp). The pass is Pass.cpp's.
+// it, Decide.cpp decides it), the rule every region the pass opens keeps
+// and the one way it opens one, which the loans (Lend.cpp) share, and the
+// writer that writes a plan into a function and its copies (Write.cpp).
+// The pass is Pass.cpp's.
 #ifndef IDR_TRANSFORMS_LIFETIMES_PLAN_H
 #define IDR_TRANSFORMS_LIFETIMES_PLAN_H
 
@@ -24,8 +26,10 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <array>
+#include <concepts>
 #include <cstdint>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <utility>
 
@@ -318,6 +322,51 @@ private:
   BitSet<Node> boxes;
 };
 
+// Whether a lifetime's region may hold the ops of `block` from `first` to
+// `last`, siblings in that order, `ops` being those ops and everything in
+// them: no call in tail position, whose return would follow the region's
+// end, and no jump to a join point outside them, which no region lets
+// through. The one rule every region this pass opens is held to, a run's
+// and a loan's.
+template <std::ranges::input_range Ops>
+  requires std::convertible_to<std::ranges::range_reference_t<Ops>, mlir::Operation *>
+bool regionMayHold(mlir::Block &block, mlir::Operation *first, mlir::Operation *last, Ops &&ops) {
+  auto inside = [&](mlir::Operation *op) {
+    mlir::Operation *top = block.findAncestorOpInBlock(*op);
+    return top && !top->isBeforeInBlock(first) && !last->isBeforeInBlock(top);
+  };
+  for (mlir::Operation *op : ops) {
+    if (auto call = llvm::dyn_cast<CallOp>(op); call && call.getTailKind() != TailKind::nontail)
+      return false;
+    for (mlir::Value operand : op->getOperands())
+      if (llvm::isa<mlir::TokenType>(operand.getType()))
+        if (auto token = llvm::dyn_cast<mlir::BlockArgument>(operand);
+            !token || !inside(token.getOwner()->getParentOp()))
+          return false;
+  }
+  return true;
+}
+
+// Whether `call`, in function `self`, continues on a frame: it returns to
+// its caller, and its callee is on `self`'s own cycle, so the frames pass
+// moves what follows it into a frame of its own.
+inline bool continuesOnFrame(const solver::ProgramGraph &graph, FunctionId self, CallOp call) {
+  return call.getTailKind() == TailKind::nontail &&
+         graph.sccOf(graph.id(call.getCalleeAttr())) == graph.sccOf(self);
+}
+
+// Opens a lifetime from `source` around the ops from `first` to `last`,
+// siblings: they move into its region, which yields each value they make
+// that something after them uses, a yielded value that lives in a lifetime
+// around them keeping that lifetime as its entry of the opener's `outers`.
+// A cursor's opener is on the stack of `base` where one is given, else its
+// own chain. The lifetime the region binds.
+mlir::Value openLifetime(Opening source, mlir::Operation *first, mlir::Operation *last,
+                         mlir::Value base);
+
+// This activation's lifetime of `fn`, opened once at the top of its body.
+mlir::Value activationOf(FuncOp fn);
+
 // Whether a value of `type` holds a reference a lifetime could hold:
 // static data never needs one, and is linked to nothing.
 bool holdsLiving(mlir::Type type);
@@ -374,9 +423,6 @@ private:
   Resolved resolve(const OpOrder &order, const footprint::Vector<mlir::Value> &values,
                    llvm::ArrayRef<OpAt> sites, llvm::ArrayRef<PutCall> calls,
                    llvm::ArrayRef<Node> scoped);
-  static mlir::Value activation(FuncOp fn);
-  static mlir::Value open(const Group &group, mlir::Operation *first, mlir::Operation *last,
-                          mlir::Value base);
   void write(const Resolved &resolved, mlir::Value lifetime, Cells cells, CopyMode mode);
 
   const Made &made;

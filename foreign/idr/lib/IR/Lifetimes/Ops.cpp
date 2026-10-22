@@ -143,8 +143,9 @@ Value stated(Op op, Value made, unsigned own) {
   return nullptr;
 }
 
+// Named apart from OpState's own `state`, which an op's member finds first.
 template <RunsOnceOp Op>
-void state(Op op, Value made, Value lifetime, unsigned own) {
+void stateLifetime(Op op, Value made, Value lifetime, unsigned own) {
   lifetimes::stateOuter(op, made, lifetime, own);
 }
 
@@ -165,7 +166,9 @@ void state(Op op, Value made, Value lifetime, unsigned own) {
     bounds.emplace_back(1, 1);                                                                     \
   }                                                                                                \
   Value Op::getStatedLifetime(Value made) { return stated(*this, made, Own); }                    \
-  void Op::setStatedLifetime(Value made, Value lifetime) { state(*this, made, lifetime, Own); }
+  void Op::setStatedLifetime(Value made, Value lifetime) {                                        \
+    stateLifetime(*this, made, lifetime, Own);                                                     \
+  }
 
 IDR_RUNS_ONCE(LifetimeOp, 0)
 IDR_RUNS_ONCE(LifetimeHomeOp, 0)

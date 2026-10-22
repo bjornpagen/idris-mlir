@@ -57,6 +57,19 @@
 // holds it, so frames split its region there. A tail call returns as its
 // caller does, cursors included, so a cursor's copy tail calls only its
 // puts, each given its cursor.
+//
+// Then every tensor or buffer an op of upstream's reads is lent to it
+// (Lend.h): the op takes only the bare carrier, and the passes after this
+// one write grades into what it reads, so each read is made a read of a
+// loan (idr.carrier), which no one counts or grades. A scoped value is
+// projected under its own lifetime, static data under this activation's,
+// and a counted value under a view lifetime opened at the smallest region
+// that holds its reads and every use of their aliases: in the innermost
+// block that holds them all, from the first of them there to the last,
+// the aliases found as the verifier's rule of loans finds them. Where no
+// region can hold them, the value is shared into the read, as with no
+// lifetime.
+#include "idr/Transforms/Lifetimes/Lend.h"
 #include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "idr/IR/Grades.h"
@@ -115,7 +128,9 @@ std::optional<Copies> copiesOf(const Plan &plan) {
   return Copies{plan.put->modes, plan.put->results};
 }
 
-struct IdrLifetimes : impl::IdrLifetimesBase<IdrLifetimes> {
+// The generated base is idr's, named in full: both namespaces this unit
+// uses have an `impl`.
+struct IdrLifetimes : idr::impl::IdrLifetimesBase<IdrLifetimes> {
   void runOnProgram(ProgramOp program) {
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     solver::ProgramGraph &graph = getAnalysis<solver::ProgramGraph>();
@@ -219,17 +234,13 @@ struct IdrLifetimes : impl::IdrLifetimesBase<IdrLifetimes> {
       if (llvm::any_of(plan.groups, [](const Group &group) { return !group.calls.empty(); }))
         edited.emplace_back(f, graph.op(f));
     }
-    bool wrote = !written.empty() ||
-                 llvm::any_of(graph.functions(), [&](FunctionId f) { return !ownPlans[f].groups.empty(); });
-    if (!wrote) {
-      numWork = work.steps();
-      return markAllAnalysesPreserved();
-    }
+    bool wrote = !written.empty() || llvm::any_of(graph.functions(), [&](FunctionId f) {
+                   return !ownPlans[f].groups.empty();
+                 });
 
     // The copies join the program graph, every function whose calls changed
-    // and every copy with the row its calls now make; then the one writer of
-    // rows, since a slot is no heap memory and a copy's row is its own.
-    {
+    // and every copy with the row its calls now make.
+    if (wrote) {
       solver::Editor editor = graph.thaw();
       for (auto [f, mode, copy] : written)
         edited.emplace_back(editor.insert(copy), copy);
@@ -237,6 +248,26 @@ struct IdrLifetimes : impl::IdrLifetimesBase<IdrLifetimes> {
         editor.setCallees(id, solver::rowOf(fn, editor));
       std::move(editor).freeze();
     }
+
+    // Every holder an op of upstream's reads, in every function and copy,
+    // lent before a reference is counted, so no pass after this one meets
+    // a holder an op of upstream's takes: the decide step's regions are
+    // written first, and a loan's region nests among them.
+    lifetimes::Lending lent;
+    for (FunctionId f : graph.functions()) {
+      lifetimes::Lending made =
+          lifetimes::lendReads(graph.op(f), f, graph, lifetimes::Holders::Every);
+      lent.opened += made.opened;
+      lent.rewritten += made.rewritten;
+    }
+    numLifetimes += lent.opened;
+    if (!wrote && lent.rewritten == 0) {
+      numWork = work.steps();
+      return markAllAnalysesPreserved();
+    }
+
+    // The one writer of rows, since a slot is no heap memory, a copy's row
+    // is its own, and a share a loan could not stand in place of frees.
     rows::write(program, graph, work);
     numWork = work.steps();
     markAnalysesPreserved<SymbolTable, solver::ProgramGraph>();

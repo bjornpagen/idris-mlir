@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Writing a plan: a copy's lifetime parameter, each run's opener around the
-// ops it spans, its cells as slots or bumped into it, its calls to their
-// callee's copy for its kind, and every value that lives in it graded
-// `scoped`, the op that makes each stating where.
+// ops it spans (the one way the pass opens a lifetime, a loan's too), its
+// cells as slots or bumped into it, its calls to their callee's copy for
+// its kind, and every value that lives in it graded `scoped`, the op that
+// makes each stating where.
 
 #include "idr/Transforms/Lifetimes/Plan.h"
 
@@ -78,7 +79,7 @@ unsigned Writer::write(FuncOp target, const Plan &plan,
   for (auto [at, group] : llvm::enumerate(plan.groups)) {
     Value lifetime;
     if (!group.extent) {
-      lifetime = activation(target);
+      lifetime = activationOf(target);
     } else {
       Value base;
       if (group.source == Opening::Cursor && group.run)
@@ -89,7 +90,8 @@ unsigned Writer::write(FuncOp target, const Plan &plan,
             base = written[outer];
             break;
           }
-      lifetime = open(group, order.op(group.extent->first), order.op(group.extent->second), base);
+      lifetime = openLifetime(group.source, order.op(group.extent->first),
+                              order.op(group.extent->second), base);
     }
     written.push_back(lifetime);
     ++opened;
@@ -111,7 +113,7 @@ Writer::Resolved Writer::resolve(const OpOrder &order, const footprint::Vector<V
   for (Node n : scoped) {
     Value value = values[n.index()];
     auto result = dyn_cast<OpResult>(value);
-    if (result && llvm::any_of(out.calls, [&](const auto &call) {
+    if (result && llvm::any_of(out.calls, [&](std::pair<CallOp, FunctionId> call) {
           return call.first.getOperation() == result.getOwner();
         }))
       continue;
@@ -120,21 +122,20 @@ Writer::Resolved Writer::resolve(const OpOrder &order, const footprint::Vector<V
   return out;
 }
 
-// This activation's lifetime, opened once at the top of the body.
-Value Writer::activation(FuncOp fn) {
-  OpBuilder b = OpBuilder::atBlockBegin(&fn.getBody().front());
+// The body's one activation: the run's lifetime and a loan of static data
+// both stand in it, so whichever is written second finds it at the top.
+Value idr::lifetimes::decide::activationOf(FuncOp fn) {
+  Block &entry = fn.getBody().front();
+  if (auto held = entry.getOps<ActivationOp>(); !held.empty())
+    return (*held.begin()).getLifetime();
+  OpBuilder b = OpBuilder::atBlockBegin(&entry);
   return ActivationOp::create(b, fn.getLoc(),
                               LifetimeType::get(fn.getContext(), LifetimeKind::view()))
       .getLifetime();
 }
 
-// The opener of `group` around the ops from `first` to `last`, siblings:
-// they move into its region, which yields each value they make that
-// something after them uses; a yielded value that lives in a lifetime
-// around them keeps that lifetime, its entry of the opener's `outers`. A
-// cursor's opener is on the stack of `base` where one is given, else its
-// own chain.
-Value Writer::open(const Group &group, Operation *first, Operation *last, Value base) {
+Value idr::lifetimes::decide::openLifetime(Opening source, Operation *first, Operation *last,
+                                           Value base) {
   Block *block = first->getBlock();
   Location loc = first->getLoc();
   MLIRContext *ctx = first->getContext();
@@ -159,7 +160,7 @@ Value Writer::open(const Group &group, Operation *first, Operation *last, Value 
   SmallVector<Type, 4> types(ValueRange(out).getTypes());
   Operation *opener = nullptr;
   LifetimeKind kind = LifetimeKind::view();
-  switch (group.source) {
+  switch (source) {
   case Opening::Activation:
   case Opening::NoMemory:
     opener = LifetimeOp::create(b, loc, types, outers);

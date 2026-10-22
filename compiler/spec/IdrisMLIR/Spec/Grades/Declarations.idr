@@ -261,9 +261,10 @@ graded = MkTypeDef
 ||| 1) or out of one (the one use of a linear value, where it becomes an
 ||| ordinary one), its direction what its types say (`getDirection`). Its
 ||| hold is the operand's or one that hold fits (`Fits`): a claim may be
-||| forgotten on the way, so a value reaches an upstream op at the bare type
-||| it takes, and never raised. A fresh identity both ways: two casts of one
-||| value stay two linear values, and an unused one goes. A scoped result
+||| forgotten on the way, never raised. Given a bare carrier it makes a
+||| reference of its own, so a loan's alias never enters one. A fresh
+||| identity both ways: two casts of one value stay two linear values, and
+||| an unused one goes. A scoped result
 ||| lives in the lifetime `outers` states, its operand's or one that
 ||| lifetime encloses; the builder from a type states its operand's. Its
 ||| fold is the one QTT rule: a cast back of a cast with no other use is the
@@ -278,7 +279,7 @@ linCast = MkOp
   , outs = [result "result" (UpstreamType AnyTypeC)]
   , attrs = []
   , regions = []
-  , traits = [OurTrait resultCarriesOperand, OurTrait sameValue]
+  , traits = [OurTrait resultCarriesOperand, OurTrait sameValue, OurTrait adoptsCarrier]
   , interfaces = [ Declares InferIntRange ["inferResultRangesFromOptional"], Implements flowInterface ["getFlowEdges"]
                  , Implements statesLifetime statedMethods, Implements statesOuters [] ]
   , effects = Executes [OnValues Allocate Identity (Results FZ)] [] Covered Untouched

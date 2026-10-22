@@ -63,7 +63,8 @@ mlir::LogicalResult function(FuncOp fn);
 mlir::LogicalResult linearity(FuncOp fn);
 
 // The lifetimes' rules of one function, a rule of its one walk
-// (families::walkFunction), each local, none following a def-use chain: no
+// (families::walkFunction), each local, none following a def-use chain but
+// a loan's: no
 // lifetime is a terminator's operand or a result of an op that gives none;
 // every value an op makes that is scoped has its lifetime stated, open
 // where the op stands, and outlived by each scoped value the op holds (a
@@ -75,10 +76,16 @@ mlir::LogicalResult linearity(FuncOp fn);
 // lifetimes its callee's signature names and at the return into those its
 // own names; inside a stack lifetime nothing is put into an older cursor;
 // every slot lies in its lifetime's own run; no cell of a lifetime holds a
-// counted field; and every use of a lifetime keeps the frame-limited rule,
+// counted field; every use of a lifetime keeps the frame-limited rule,
 // its cells bounded until its end or each reachable from what is still to
-// be used. The walk enters and leaves each region, so what encloses an op
-// is kept on a stack as the walk goes, never found by walking up.
+// be used; and every loan to upstream's ops (idr.carrier) keeps to its
+// lifetime: its aliases, followed through upstream's alias interfaces since
+// a bare alias names no lifetime, never leave the region that defines it,
+// are never returned, stored as a write's value or adopted by an op of
+// ours, and once references are counted the value lent is given up only
+// outside that region. The walk enters and leaves each region, so what
+// encloses an op is kept on a stack as the walk goes, never found by
+// walking up.
 class LifetimeRules {
 public:
   explicit LifetimeRules(FuncOp fn);

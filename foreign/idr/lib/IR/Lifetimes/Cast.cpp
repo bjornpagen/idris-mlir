@@ -30,10 +30,9 @@ void LinCastOp::build(OpBuilder &builder, OperationState &state, Type result, Va
 }
 
 // The cast is between types of one carrier at other uses, its hold the
-// operand's or one it fits by the grade order: a claim may be forgotten, so
-// a value leaving a linear position reaches an upstream op at the bare type
-// it takes, but never raised, since no cast proves what Idris and
-// exclusivity did not; a scoped result states its lifetime.
+// operand's or one it fits by the grade order: a claim may be forgotten,
+// but never raised, since no cast proves what Idris and exclusivity did
+// not; a scoped result states its lifetime.
 LogicalResult LinCastOp::verify() {
   Type from = getValue().getType();
   Type to = getType();
