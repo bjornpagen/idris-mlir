@@ -319,7 +319,6 @@ containers =
   , (At noLoc, Idr.programOp (StringAttr "samples") (SymbolRefAttr (MkSymbolRef "root" [])) Higher) ]
 
 ||| Writes the samples to `path`.
-covering
 writeSamples : String -> IO ()
 writeSamples path = do
   Right w <- newWriter
@@ -333,7 +332,7 @@ writeSamples path = do
   Right () <- finish w h containers
     | Left e => die ("syntax-samples: " ++ e)
   closeFile h
-covering
+
 main : IO ()
 main = do
   let missed = unsampled

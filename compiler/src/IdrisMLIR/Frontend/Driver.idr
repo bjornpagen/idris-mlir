@@ -296,7 +296,6 @@ refusalOf ms main r@(ByIdris e) = moduleRefusal ms (Refusal Elaboration) (siteOf
 ||| found it in; essential: Idris locates an error in the module it was
 ||| elaborating, which it may never have loaded, and a module it could not
 ||| load is one of the project's it failed to build.
-covering
 refusing : {auto c : Ref Ctxt Defs} -> Modules -> (main : NonEmptyFC) -> (out : String) -> List1 Rejection -> Core ()
 refusing loaded main out rs = do
   homes <- map (\(m, home, _) => (m, home)) <$> loadedModules
@@ -319,7 +318,6 @@ showingItsSource err = case map fst (getErrorLoc err >>= isNonEmptyFC) of
     setCurrentElabSource text
   _ => setCurrentElabSource ""
 
-covering
 perform : {auto c : Ref Ctxt Defs} ->
           {auto s : Ref Syn SyntaxInfo} ->
           {auto o : Ref ROpts REPLOpts} ->
@@ -349,7 +347,6 @@ perform (PackageCommand timing cmd file) = do
   reportTimes timing [(pack (dropWhile (== '-') (unpack (show cmd))), end - start)]
 perform LibDir = coreLift (putStrLn !pkgGlobalDirectory)
 
-covering
 frontend : Run -> Core ()
 frontend r = do
   c <- newRef Ctxt !initDefs
@@ -383,7 +380,6 @@ frontend r = do
       host.emitError err
       coreLift (exitWith (statusOf err))
 
-covering
 main : IO ()
 main = do
   args <- getArgs

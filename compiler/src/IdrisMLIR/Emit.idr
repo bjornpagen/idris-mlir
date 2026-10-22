@@ -71,7 +71,7 @@ each (x :: xs) f = do
 ||| frontend finds two instances on one key where the key is made. A
 ||| failure leaves the file unwritten or partly written; the caller
 ||| discards it.
-export covering
+export
 emit : File -> Source -> IO (Either String ())
 emit h src = do
   let ix = index src
@@ -101,7 +101,7 @@ refusal r = Idr.refusalOp r.rule (StringAttr r.message)
 ||| no program and one `idr.refusal` per refusal, in the order given, its
 ||| site the op's location, its rule a property of the op and its message
 ||| a string, which the driver reports. A refused module has a refusal.
-export covering
+export
 refused : File -> List1 ModuleRefusal -> IO (Either String ())
 refused h rs = do
   Right w <- newWriter
