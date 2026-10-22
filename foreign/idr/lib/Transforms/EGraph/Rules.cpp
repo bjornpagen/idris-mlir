@@ -19,7 +19,6 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/MathExtras.h"
 
 #include <algorithm>
 #include <span>
@@ -91,19 +90,6 @@ void listTypeIds(table::OpList<Ops...>, std::vector<TypeID> &out) {
 }
 
 bool beforeId(TypeID a, TypeID b) { return a.getAsOpaquePointer() < b.getAsOpaquePointer(); }
-
-// The literal `value` as an integer of `type`, the type of the place it
-// fills: a word of the type's width where it fits; none at any other type,
-// so the rule does not apply there. A value: the write-back makes its
-// attribute where it places it.
-std::optional<APInt> literalAt(Type type, std::int64_t value) {
-  if (!type.isIntOrIndex())
-    return std::nullopt;
-  unsigned width = ConstantIntRanges::getStorageBitwidth(type);
-  if (!llvm::isIntN(width, value))
-    return std::nullopt;
-  return APInt(width, static_cast<std::uint64_t>(value), /*isSigned=*/true);
-}
 
 } // namespace
 
@@ -247,10 +233,12 @@ Facts Function::factsOf(const node::Built &op, Type type,
 }
 
 // The right side's subtree at `at`, built bottom-up: a variable is its
-// class; a literal the integer of the type its place takes; a node made
-// over its operands' classes, of `type` at the top and of its first
-// operand's type below (the arithmetic a rule builds keeps its operands'
-// type).
+// class; a literal the integer the dialect reads it as at the type its
+// place takes, a value the write-back makes an attribute, and none where it
+// is no value of that type or the type has no integer form, so the rule
+// does not apply there; a node made over its operands' classes, of `type`
+// at the top and of its first operand's type below (the arithmetic a rule
+// builds keeps its operands' type).
 std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindings &bindings,
                                            std::uint32_t &at, Type type) {
   const table::PatternNode &pattern = generated::patterns[at++];
@@ -258,7 +246,7 @@ std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindin
   case table::PatternKind::Var:
     return bindings.vars[pattern.var];
   case table::PatternKind::Literal: {
-    std::optional<APInt> value = literalAt(type, pattern.literal);
+    std::optional<APInt> value = integerAt(type, pattern.literal);
     if (!value)
       return std::nullopt;
     return integer(*value, type);
