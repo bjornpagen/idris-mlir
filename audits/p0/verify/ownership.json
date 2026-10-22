@@ -341,7 +341,9 @@
     "foreign/idr/include/idr/Transforms/OptimizeScheduler.h",
     "foreign/idr/include/idr/Transforms/Specialize.h",
     "foreign/idr/include/idr/Transforms/SpecializeState.h",
-    "compiler/spec/IdrisMLIR/Spec/Closures/"
+    "compiler/spec/IdrisMLIR/Spec/Closures/",
+    "foreign/idr/include/idr/Transforms/Specialize/",
+    "foreign/idr/include/idr/Transforms/Optimize/"
   ],
   "L19": [
     "tests/",
