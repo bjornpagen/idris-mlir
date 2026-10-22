@@ -1768,6 +1768,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   a type the program fixes, which the growth graph bounds. Only a hidden
   type set no analysis bounds is refused, as `runtime closure` refuses
   today, naming the site.
+- **C231** (2026-10-22; the translation's D112 pass). Two of its
+  judgement calls settled. A registry row that a library's definition
+  contradicts is the boundary's to refuse, once: the validation that
+  already refuses it with `hook shape` hands the translation a validated
+  row carrying that evidence, so the twenty-two places that re-tested it
+  (now refusals, before that internal errors) cannot meet a bad row and
+  go. And a type whose binders a runtime value decides is refused once,
+  as `value type`, where the program's types are first read; the growth
+  check's reading (`staticsOver`) and the instance table's take a type
+  already admitted, so neither aborts nor refuses on its own.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places
