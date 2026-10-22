@@ -186,10 +186,6 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
         return unreached(fn ? fn.getNumArguments() : 0);
       }) {
   MLIRContext &context = *program->getContext();
-  auto cyclic = [&](solver::SccId c) {
-    IdRange<solver::FunctionId> members = graph.members(c);
-    return members.size() > 1 || graph.callsItself(members.front());
-  };
 
   // What each function returns, callees first: the join over its returns
   // of what reaches them. A callee of the same component not yet solved
@@ -219,7 +215,7 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
   // another component, in callee order, for that callee's component.
   IndexVector<solver::FunctionId, footprint::Vector<Passed>> passed(graph.size());
   solver::inSchedule<CallersFirst>(graph, context, [&](solver::SccId c) {
-    bool feedsItself = cyclic(c);
+    bool feedsItself = graph.onCycle(c);
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
       std::span<IntegerValueRange> mine = arguments[f];

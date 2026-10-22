@@ -14,10 +14,12 @@
 // that needs it and never above a match that does not. The skeleton's
 // edits are carried out as their ops are reached. Then every floating op
 // left unused is erased (sweep), and every call takes the tail fact its new
-// place gives it. The placements and both stacks are the footprint's.
+// place gives it. The placements and the regions' stack are the
+// footprint's; a demand's postorder is the shared depth-first walk's.
 #include "idr/Transforms/EGraph/Engine.h"
 
 #include "idr/IR/Tail.h"
+#include "idr/Support/Nest.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -98,30 +100,17 @@ void Function::elaborate(RewriterBase &rewriter) {
 
   // The value of `root` where `scope` demands it, made before the
   // rewriter's insertion point where it is not yet there: a postorder over
-  // the chosen members, on an explicit stack.
+  // the chosen members, which goes past a class `scope` already sees and
+  // makes each other one once its operands are made. The chosen members
+  // form a DAG, so a class shared by two operands is made by the first and
+  // seen by the second.
   auto demand = [&](ClassId root, RegionId scope, Location loc) -> Value {
-    struct Step {
-      ClassId cls;
-      bool expanded;
-    };
-    footprint::Vector<Step> work{{root, false}};
-    while (!work.empty()) {
-      Step step = work.back();
-      if (placedIn(step.cls, scope)) {
-        work.pop_back();
-        continue;
-      }
-      const Node &node = at(*best[step.cls.index()]);
-      std::span<const ClassId> operands = childrenOf(node);
-      if (!step.expanded && !operands.empty()) {
-        work.back().expanded = true;
-        for (ClassId operand : llvm::reverse(operands))
-          if (!placedIn(operand, scope))
-            work.push_back({operand, false});
-        continue;
-      }
+    auto operandsOf = [&](ClassId c) { return childrenOf(at(*best[c.index()])); };
+    auto seen = [&](ClassId c) { return placedIn(c, scope) ? Descend::Past : Descend::Into; };
+    auto make = [&](ClassId c) {
+      const Node &node = at(*best[c.index()]);
       SmallVector<Value, 4> values;
-      for (ClassId operand : operands)
+      for (ClassId operand : childrenOf(node))
         values.push_back(*placedIn(operand, scope));
       // A constant held as an attribute is materialized by its dialect; an
       // integer gets its attribute here, the one place the graph makes one;
@@ -157,9 +146,9 @@ void Function::elaborate(RewriterBase &rewriter) {
             state.addTypes(node.type);
             return rewriter.create(state)->getResult(0);
           });
-      placed[step.cls.index()].emplace_back(scope, made);
-      work.pop_back();
-    }
+      placed[c.index()].emplace_back(scope, made);
+    };
+    depthFirst(root, operandsOf, seen, make);
     return *placedIn(root, scope);
   };
 

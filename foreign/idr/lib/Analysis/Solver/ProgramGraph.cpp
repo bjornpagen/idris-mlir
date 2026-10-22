@@ -199,12 +199,6 @@ void Editor::setCallees(FunctionId f, ArrayRef<Call> row) {
   rows[f.index()].assign(row.begin(), row.end());
 }
 
-void Editor::moveInto(FunctionId f, FunctionId caller) {
-  footprint::Vector<Call> &into = rows[caller.index()];
-  llvm::erase_if(into, [&](const Call &call) { return call.callee == f; });
-  llvm::append_range(into, rows[f.index()]);
-}
-
 FunctionId Editor::id(FlatSymbolRefAttr callee) const {
   return byName.find(callee.getAttr())->second;
 }

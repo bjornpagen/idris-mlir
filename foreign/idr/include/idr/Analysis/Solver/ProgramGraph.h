@@ -95,9 +95,6 @@ public:
   // Reads `program`, an idr.program, through its analysis manager's call
   // graph: each function's calls in parallel, each into its own slot.
   ProgramGraph(mlir::Operation *program, mlir::AnalysisManager &am);
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
-    return !pa.isPreserved<ProgramGraph>();
-  }
 
   // The id space: every table of the graph is this long. Ids with no
   // function (upstream's external nodes, an erased function) are gaps,
@@ -135,11 +132,14 @@ public:
   // Every function, components callees first, each component's members
   // contiguous.
   IdRange<FunctionId> bottomUp() const { return IdRange<FunctionId>(order); }
-  // Whether `f` may have more than one frame live at a time: its component
-  // has two members or more, or it calls itself.
-  bool onCycle(FunctionId f) const {
-    return members(sccOf(f)).size() > 1 || callsItself(f);
+  // Whether a member of component `c` may have more than one frame live at
+  // a time: the component has two members or more, or its one member calls
+  // itself. The one place a component is decided cyclic.
+  bool onCycle(SccId c) const {
+    IdRange<FunctionId> in = members(c);
+    return in.size() > 1 || callsItself(in.front());
   }
+  bool onCycle(FunctionId f) const { return onCycle(sccOf(f)); }
 
   // A fact per function, sized by the id space.
   template <class T>
@@ -194,9 +194,6 @@ public:
   // `f`'s row, replaced whole: a (callee, kind) may appear once, with its
   // count of calls.
   void setCallees(FunctionId f, llvm::ArrayRef<Call> row);
-  // `f` placed into `caller` (contification): `f`'s row joins `caller`'s,
-  // and the calls of `f` from `caller` go.
-  void moveInto(FunctionId f, FunctionId caller);
   std::span<const Call> callees(FunctionId f) const { return rows[f.index()]; }
   // The function `callee` names, which the verifier proved one.
   FunctionId id(mlir::FlatSymbolRefAttr callee) const;

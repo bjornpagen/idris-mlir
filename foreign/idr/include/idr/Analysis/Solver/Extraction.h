@@ -111,18 +111,15 @@ public:
   // The node of the `local`-th item of `f`'s extraction.
   Node node(FunctionId f, std::uint32_t local) const { return Node(base[f] + local); }
   std::uint32_t local(FunctionId f, Node n) const { return n.index() - base[f]; }
-  std::uint32_t itemsOf(FunctionId f) const { return items[f]; }
 
 private:
   template <class T, class C, class F>
   friend Offsets<T> extract(const ProgramGraph &g, mlir::MLIRContext &context, C &&countOf,
                             F &&fill);
-  Offsets(IndexVector<FunctionId, std::uint32_t> base, IndexVector<FunctionId, std::uint32_t> items,
-          std::uint32_t total)
-      : base(std::move(base)), items(std::move(items)), count(total) {}
+  Offsets(IndexVector<FunctionId, std::uint32_t> base, std::uint32_t total)
+      : base(std::move(base)), count(total) {}
 
   IndexVector<FunctionId, std::uint32_t> base;
-  IndexVector<FunctionId, std::uint32_t> items;
   Count<Node> count;
 };
 
@@ -147,7 +144,7 @@ Offsets<Tag> extract(const ProgramGraph &g, mlir::MLIRContext &context, C &&coun
     base[f] = total;
     total += items[f];
   }
-  Offsets<Tag> offsets(std::move(base), std::move(items), total);
+  Offsets<Tag> offsets(std::move(base), total);
   mlir::parallelFor(&context, 0, functions.size(), [&](std::size_t at) {
     FunctionId f = functions[at];
     fill(f, g.op(f), static_cast<const Offsets<Tag> &>(offsets));

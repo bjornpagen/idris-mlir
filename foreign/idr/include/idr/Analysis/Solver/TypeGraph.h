@@ -19,7 +19,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
 
-#include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
@@ -31,8 +30,8 @@ namespace idr {
 
 class TypeGraph;
 
-// A node of the type graph: a member of a family, or an array a world
-// orders.
+// A node of the type graph: a member of a family, or an array of mutable
+// memory.
 struct TypeNode {
   using Minter = TypeGraph;
 };
@@ -46,10 +45,6 @@ struct TypeNode {
 class TypeGraph {
 public:
   explicit TypeGraph(mlir::Operation *module);
-
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
-    return !pa.isPreserved<TypeGraph>();
-  }
 
   // How many nodes there are.
   unsigned size() const { return static_cast<unsigned>(types.size()); }

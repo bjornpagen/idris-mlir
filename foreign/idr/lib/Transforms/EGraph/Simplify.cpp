@@ -1,19 +1,24 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-simplify: one function's e-graph per run, in two rounds at most
-// (EGraph.h), and what the optimizer reads of it.
+// (EGraph.h), each admitted by its arena, and what the optimizer reads of
+// it.
 #include "idr/Transforms/EGraph/Engine.h"
 
 #include "idr/Analysis/Solver/Trace.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
+#include "idr/Support/Memory.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <span>
 
 namespace idr {
@@ -49,20 +54,69 @@ std::span<const identities::GivesBack> CalleeFacts::of(FlatSymbolRefAttr callee)
   return facts[*f];
 }
 
-// What one node costs the arena, every table it enters counted: the node,
-// a class of its own, its place among the members and the operands, and
-// the hash-cons's two slots at half full.
 std::uint64_t arenaBytes(std::uint64_t ops) {
-  constexpr std::uint64_t perNode = sizeof(detail::Node) + sizeof(detail::Class) +
-                                    sizeof(detail::NodeId) + sizeof(detail::ClassId) +
-                                    2 * (sizeof(std::optional<detail::NodeId>) +
-                                         sizeof(std::optional<detail::ClassId>));
-  return std::uint64_t(nodesPerOp()) * ops * perNode;
+  return std::uint64_t(nodesPerOp()) * ops * detail::bytesPerNode;
 }
 
 } // namespace idr::egraph
 
 namespace {
+
+// The host's memory, which the arena of every function's e-graph in flight
+// takes from, whichever pass runs it: the pipeline's points under MLIR's
+// pass manager, upstream's inliner from its workers, the optimizer from
+// its waves. A process runs on one host, so this is one ledger for the
+// process's life, its budget read once. A run enters holding no other
+// arena, so the run in flight always finishes and no wait lasts for ever.
+class HostArenas {
+public:
+  static HostArenas &ofProcess() {
+    static HostArenas host(idr::support::hostMemoryBytes());
+    return host;
+  }
+
+  // An arena alone larger than the host ends the compiler through its one
+  // out-of-memory handler, a crash of the machine, never a refusal; any
+  // other enters once it fits beside those in flight, or when none is.
+  void enter(std::uint64_t bytes) {
+    if (bytes > budget)
+      llvm::report_bad_alloc_error("a function's e-graph needs more memory than the host has");
+    std::unique_lock lock(mutex);
+    freed.wait(lock, [&] { return inFlight == 0 || inFlight + bytes <= budget; });
+    inFlight += bytes;
+  }
+
+  void leave(std::uint64_t bytes) {
+    {
+      std::lock_guard lock(mutex);
+      inFlight -= bytes;
+    }
+    freed.notify_all();
+  }
+
+private:
+  explicit HostArenas(std::uint64_t budget) : budget(budget) {}
+
+  std::uint64_t budget;
+  std::uint64_t inFlight = 0;
+  std::mutex mutex;
+  std::condition_variable freed;
+};
+
+// One function's arena, in flight while it is held: entered before the
+// search starts, left when the e-graph it was admitted for is gone.
+class Admitted {
+public:
+  explicit Admitted(const idr::egraph::Function &function) : bytes(function.arena()) {
+    HostArenas::ofProcess().enter(bytes);
+  }
+  ~Admitted() { HostArenas::ofProcess().leave(bytes); }
+  Admitted(const Admitted &) = delete;
+  Admitted &operator=(const Admitted &) = delete;
+
+private:
+  std::uint64_t bytes;
+};
 
 class Erasures;
 struct RootTag {
@@ -107,21 +161,27 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     return success();
   }
 
+  // Each round's e-graph is admitted alone and gone before the next is
+  // made, so a run holds one arena at a time.
   void runOnOperation() override {
     idr::FuncOp fn = getOperation();
     idr::solver::SolveUnit unit("idr-simplify", fn.getSymName());
-    idr::egraph::Function first(fn, *kinds, callees);
-    first.build();
-    first.extract();
-    first.decide(idr::egraph::Round::First);
-    idr::footprint::Vector<idr::egraph::Function::Pending> rewrites = first.rewrites();
-    if (rewrites.empty()) {
-      IRRewriter rewriter(&getContext());
-      first.elaborate(rewriter);
+    idr::footprint::Vector<idr::egraph::Function::Pending> rewrites;
+    {
+      idr::egraph::Function first(fn, *kinds, callees);
+      Admitted admitted(first);
+      first.build();
+      first.extract();
+      first.decide(idr::egraph::Round::First);
+      rewrites = first.rewrites();
+      if (rewrites.empty()) {
+        IRRewriter rewriter(&getContext());
+        first.elaborate(rewriter);
+      }
       numWork += first.work();
-      return;
     }
-    numWork += first.work();
+    if (rewrites.empty())
+      return;
     Erasures erasures(rewrites);
     IRRewriter rewriter(&getContext(), &erasures);
     for (Root root : erasures.size().ids()) {
@@ -132,6 +192,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
       idr::egraph::Function::rewriteSkeleton(pending, rewriter);
     }
     idr::egraph::Function second(fn, *kinds, callees);
+    Admitted admitted(second);
     second.build();
     second.extract();
     second.decide(idr::egraph::Round::Second);

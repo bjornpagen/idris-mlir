@@ -42,8 +42,9 @@
 // Every id is minted by the table that holds it and never leaves the
 // function; no map holds per-node state by an IR handle but the value
 // numbering, which lives while the function is read; nothing recurses on
-// the input: the walks are MLIR's and the placement's stack is explicit.
-// Every table and stack sized by the function is the footprint's.
+// the input: the walks are MLIR's, the regions' stack is explicit, and a
+// demand's postorder is the shared depth-first walk. Every table sized by
+// the function, and the regions' stack, is the footprint's.
 #ifndef IDR_TRANSFORMS_EGRAPH_ENGINE_H
 #define IDR_TRANSFORMS_EGRAPH_ENGINE_H
 
@@ -238,9 +239,20 @@ Kinds makeKinds(mlir::MLIRContext *context);
 // stands; in the second a Rewrite is kept as it is (OperandFacts' header).
 enum class Round : std::uint8_t { First, Second };
 
+// What one node costs the arena, every table it enters counted: the node,
+// a class of its own, its place among the members and the operands, and
+// the hash-cons's two slots at half full.
+inline constexpr std::uint64_t bytesPerNode =
+    sizeof(Node) + sizeof(Class) + sizeof(NodeId) + sizeof(ClassId) +
+    2 * (sizeof(std::optional<NodeId>) + sizeof(std::optional<ClassId>));
+
 class Function {
 public:
   Function(idr::FuncOp fn, const Kinds &kinds, const CalleeFacts *callees);
+
+  // The bytes its arena may take, its budget's nodes: known once it is
+  // made, from the function alone, before its search starts.
+  std::uint64_t arena() const { return budget * bytesPerNode; }
 
   void build();
   void extract();

@@ -39,7 +39,7 @@ std::uint64_t solveComponent(const ProgramGraph &g, const P &problem, SccId c,
   IdRange<FunctionId> members = g.members(c);
   for (FunctionId f : members)
     done[f] = S::bottom();
-  if (members.size() == 1 && !g.callsItself(members.front())) {
+  if (!g.onCycle(c)) {
     (void)round(g, problem, members, done);
     return 1;
   }
