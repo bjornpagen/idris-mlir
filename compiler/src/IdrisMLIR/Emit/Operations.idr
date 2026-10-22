@@ -268,6 +268,11 @@ literal ix l (LNat n) = heldValue {binder} ix l Hold.Static (NatT (INat (integer
 bool : MlirType
 bool = IntegerType 1
 
+||| A comparison as the predicate property of the dialect's comparisons:
+||| its number among the comparisons, as the specification orders them.
+predicateOf : Comparison -> MlirAttr
+predicateOf c = IntegerAttr (natToInteger (position comparisonClosed c)) (IntegerType 32)
+
 ||| The `arith.cmpi` predicate: `Char`s compare as code points.
 cmpi : Comparison -> Signedness -> CmpIPredicate
 cmpi Values.Eq _ = CmpIPredicate.Eq
@@ -358,8 +363,8 @@ prim binder stands ix l (Compare c (SIntegral t)) [a, b] =
 prim binder stands ix l (Compare c SDouble) [a, b] =
   extend binder stands ix l !(mlirValue l bool (Arith.cmpfOp (cmpf c) (operand ix a) (operand ix b)))
 prim binder stands ix l (Cast (IntToInt (SInt f) SChar)) [a] = case signedness f of
-  Signed => value {binder} {stands} ix l CharT (Idr.intToCharSOp (operand ix a))
-  Unsigned => value {binder} {stands} ix l CharT (Idr.intToCharUOp (operand ix a))
+  Signed => value {binder} {stands} ix l CharT (const (Idr.intToCharSOp (operand ix a)))
+  Unsigned => value {binder} {stands} ix l CharT (const (Idr.intToCharUOp (operand ix a)))
 -- An integral type of the width of another is the other retyped; a wider
 -- one is truncated, a narrower one extended by the source's sign.
 prim binder stands ix l (Cast (IntToInt from to)) [a] =
@@ -373,16 +378,16 @@ prim binder stands ix l (Cast (IntToDouble f)) [a] = case signedness f of
   Unsigned => value {binder} {stands} ix l DoubleT (Arith.uitofpOp (operand ix a))
 prim binder stands ix l (Cast (DoubleToInt t)) [a] = guardedValue {binder} {stands} ix l (IntT t) (Idr.f64ToIntOp (operand ix a))
 prim binder stands ix l (StrCompare c) [a, b] =
-  extend binder stands ix l !(mlirValue l bool (Idr.strCmpOp c (operand ix a) (operand ix b)))
+  extend binder stands ix l !(mlirValue l bool (const (Idr.strCmpOp (predicateOf c) (operand ix a) (operand ix b))))
 prim binder stands ix l (ToStr (SIntegral (SInt t))) [x] = case signedness t of
   Signed => value {binder} {stands} ix l StrT (Idr.strShowSintOp (operand ix x))
   Unsigned => value {binder} {stands} ix l StrT (Idr.strShowUintOp (operand ix x))
 prim binder stands ix l (ToStr (SIntegral SChar)) [c] = value {binder} {stands} ix l StrT (Idr.strFromCharOp (operand ix c))
 prim binder stands ix l (ToStr SDouble) [x] = value {binder} {stands} ix l StrT (Idr.strShowDoubleOp (operand ix x))
 prim binder stands ix l (FromStr (NInt t)) [s] = value {binder} {stands} ix l (IntT t) (Idr.strToIntOp (operand ix s))
-prim binder stands ix l (FromStr NDouble) [s] = value {binder} {stands} ix l DoubleT (Idr.strToDoubleOp (operand ix s))
+prim binder stands ix l (FromStr NDouble) [s] = value {binder} {stands} ix l DoubleT (const (Idr.strToDoubleOp (operand ix s)))
 prim binder stands ix l (BigCompare c) [a, b] =
-  extend binder stands ix l !(mlirValue l bool (Idr.bigCmpOp c (operand ix a) (operand ix b)))
+  extend binder stands ix l !(mlirValue l bool (const (Idr.bigCmpOp (predicateOf c) (operand ix a) (operand ix b))))
 prim binder stands ix l (ToBig (SIntegral (SInt t))) [x] = case signedness t of
   Signed => value {binder} {stands} ix l BigT (Idr.bigFromSintOp (operand ix x))
   Unsigned => value {binder} {stands} ix l BigT (Idr.bigFromUintOp (operand ix x))
@@ -394,16 +399,16 @@ prim binder stands ix l (FromBig (SIntegral (SInt t))) [b] = value {binder} {sta
 prim binder stands ix l (FromBig (SIntegral SChar)) [b] = do
   lo <- literal ix l (LBig 0)
   hi <- literal ix l (LBig 0x10FFFF)
-  ge <- mlirValue l bool (Idr.bigCmpOp Values.Gte (operand ix b) (operand ix !(coerce ix l Many lo)))
-  le <- mlirValue l bool (Idr.bigCmpOp Values.Lte (operand ix b) (operand ix !(coerce ix l Many hi)))
+  ge <- mlirValue l bool (const (Idr.bigCmpOp (predicateOf Values.Gte) (operand ix b) (operand ix !(coerce ix l Many lo))))
+  le <- mlirValue l bool (const (Idr.bigCmpOp (predicateOf Values.Lte) (operand ix b) (operand ix !(coerce ix l Many hi))))
   inRange <- mlirValue l bool (Arith.andiOp ge le)
   n <- mlirValue l (IntegerType 64) (Idr.bigToIntOp (operand ix b))
   outside <- literal ix l (LInt IdrisInt (-1))
   m <- mlirValue l (IntegerType 64) (Arith.selectOp inRange n (operand ix outside))
-  value {binder} {stands} ix l CharT (Idr.intToCharSOp m)
-prim binder stands ix l (FromBig SDouble) [b] = value {binder} {stands} ix l DoubleT (Idr.bigToDoubleOp (operand ix b))
+  value {binder} {stands} ix l CharT (const (Idr.intToCharSOp m))
+prim binder stands ix l (FromBig SDouble) [b] = value {binder} {stands} ix l DoubleT (const (Idr.bigToDoubleOp (operand ix b)))
 prim binder stands ix l (NatCompare c) [a, b] =
-  extend binder stands ix l !(mlirValue l bool (Idr.bigCmpOp c (operand ix a) (operand ix b)))
+  extend binder stands ix l !(mlirValue l bool (const (Idr.bigCmpOp (predicateOf c) (operand ix a) (operand ix b))))
 prim binder stands ix l (ArrayLength _) [a] = do
   n <- memrefLength {binder} {stands} l (operand ix a)
   pure (val n.name (IntT IdrisInt) Many made)
@@ -539,7 +544,7 @@ effect binder ix l a gives vs res = do
     within buf offset count = do
       size <- memrefLength l buf
       mlirValue l (IntegerType 64)
-        (Idr.checkRangeOp (causeAttr ByteRangeOutsideBuffer) !(siteOf l) offset count size)
+        (const (Idr.checkRangeOp (causeAttr ByteRangeOutsideBuffer) !(siteOf l) offset count size))
 
     -- The bytes of a machine word a buffer holds, by its type.
     wordBytes : Ty -> E Value
@@ -567,11 +572,11 @@ effect binder ix l a gives vs res = do
     -- The op's operands are one per group.
     acted (Runs {gives = g} op) xs = written g (specOp op (map arg xs))
     acted (ReadsClock k) [] =
-      gave (mlirValue l givenType (Idr.ioClockOp (IntegerAttr (natToInteger (position clockKindClosed k)) (IntegerType 32))))
+      gave (mlirValue l givenType (const (Idr.ioClockOp (IntegerAttr (natToInteger (position clockKindClosed k)) (IntegerType 32)))))
     acted NeverRead [] = gave (int64 unreadable)
     acted (ReadsFileTime f) [times] =
       gave (mlirValue l givenType
-              (Idr.handleFileTimeOp (IntegerAttr (natToInteger (position fileTimeFieldClosed f)) (IntegerType 32)) (arg times)))
+              (const (Idr.handleFileTimeOp (IntegerAttr (natToInteger (position fileTimeFieldClosed f)) (IntegerType 32)) (arg times))))
     acted (Queries q) [reading] = gave (query q (arg reading))
       where
         query : ClockQuery -> Value -> E Value
@@ -610,7 +615,7 @@ effect binder ix l a gives vs res = do
       dstOff' <- within (arg dst) (arg dstOff) (arg len)
       written GivesNone (specOp bufferCopy [arg src, srcOff', arg len, arg dst, dstOff'])
     acted (Moves SetString) [buf, off, str] = do
-      bytes <- mlirValue l (IntegerType 64) (Idr.strBytesLengthOp (arg str))
+      bytes <- mlirValue l (IntegerType 64) (const (Idr.strBytesLengthOp (arg str)))
       off' <- within (arg buf) (arg off) bytes
       written GivesNone (specOp bufferSetString [arg buf, off', arg str])
     acted (Moves GetString) [buf, off, len] = do

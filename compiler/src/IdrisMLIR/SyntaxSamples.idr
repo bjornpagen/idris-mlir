@@ -228,7 +228,7 @@ sample =
                , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (IdrHand (DataOf natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0]))))) [] vecAny)
                , binding "%lin" (Idr.linCastOp x [] (Idr (GradedType Once Nothing i64)))
                , binding "%used" (Idr.linCastOp (MkValue "%lin" (Idr (GradedType Once Nothing i64))) [] i64)
-               , binding "%checked" (Idr.checkNonzeroOp (IntegerAttr (natToInteger (position causeClosed DivisionByZero)) (IntegerType 32)) (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x i64)
+               , binding "%checked" (Idr.checkNonzeroOp (IntegerAttr (natToInteger (position causeClosed DivisionByZero)) (IntegerType 32)) (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x)
                  -- A closure and a suspension of functions, with the
                  -- scope's levels.
                , binding "%f" (Idr.fnClosureOp {indexArgs = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} "callee" [] fn)
