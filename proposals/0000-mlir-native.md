@@ -4782,11 +4782,12 @@ is settled:
   `IdrDialect.h` with none of our vocabulary headers (C53), explicit
   instantiation (lane 13, `wave1/5.5-cxx26.md` D6); a C++ feature only
   when the pinned clang and the typecheck host both have it (C9).
-- **No assertions** (D91): the toolchain's LLVM and MLIR are built
-  without them in every stage our code compiles against or links, so
-  the compiler shipped is the one the tests ran; our C++ has no
-  `assert`, each invariant one re-tested becoming a type, a verifier
-  rule, or nothing; the price is measured before the cutover lands
+- **Assertions on** (D115, reversing D91; D114): the toolchain's LLVM
+  and MLIR are built with them in every stage our code compiles against
+  or links, and our compiler's C++ without `NDEBUG` to match, so the
+  compiler shipped is the one the tests ran; our C++ asserts its
+  invariants freely (C226), C++26 contracts once clang has them; the
+  price is measured before the cutover lands
   (perf-sources U8).
 - **Every surviving runtime dispatch is listed and justified** in the
   design document (L15 §2.10 adds five).
@@ -5180,7 +5181,7 @@ lists (each document's section 7) hold the symbols; the largest:
   dead `remove-dead-values` registration; patches that reach nothing
   (06, 28, 63), retired (C35); the bench's raised `ulimit -s`, the stale
   "1 MiB" test comments, `defunc-tag-limit`'s awk generator (L19 §2.9);
-  the toolchain's assertions and every `assert` of ours (D91).
+  `LLVM_ENABLE_ASSERTIONS=OFF` and our `NDEBUG` (D115).
 
 ## 7. Execution: one cutover, in dependency order
 
@@ -5192,8 +5193,8 @@ on which lanes 13, 19, 20 and 21 converge, survives as that order:
 - **S0. Settle and fix the tree** (no compiler code): §4's open
   decisions, the starting commit, the corrected records (PINS.md, the
   upstream table); every dependency fast-forwarded to its latest, the
-  toolchain's LLVM and MLIR built without assertions in every stage
-  (D91), the carried patches rebased or dropped, and PR #166688 carried
+  toolchain's LLVM and MLIR built with assertions in every stage
+  (D115), the carried patches rebased or dropped, and PR #166688 carried
   on the new pin,
   rebased by hand (five hunks fail `git apply` at the pin) with C93's
   five fixes beside it (D25); the checkout's `tests/spec/` and
@@ -5214,8 +5215,8 @@ on which lanes 13, 19, 20 and 21 converge, survives as that order:
   (C132); the runner on both hosts (C134).
 - **S3. Upstream trials, each measured**: the storage patch on Ranges and
   Borrows (Returned is deleted, C32); `remove-dead-values` per function
-  with its fixes (C35); D91's price, stage 1 against an assertions-off
-  MLIR at the same commit (perf-sources U8).
+  with its fixes (C35); the assertions' price, stage 1 against an
+  assertions-off MLIR at the same commit (D115, perf-sources U8).
 - **S4. The solver layer's spine**: the shared types, the call graph as a
   carried patch (C33, C114), the marking's four clients.
 - **S5. The dialect redesign from the Idris specification (D16) and its
@@ -5318,7 +5319,7 @@ qualification, then recorded in `audits/bugs.md`.
 - **Verification split by build type** (Modular's practice): AGENTS.md
   verifies grades after every pass, and a behaviour chosen by the build
   is excluded; verification is made cheap by nesting instead, and the
-  toolchain is one, built without assertions (D91).
+  toolchain is one, built with its assertions on (D115).
 - **A staged cutover**, with shims or with steps built on their own: D6,
   D56. The Idris side imports the specification's closed sets (D16,
   D50), so no copy of the dialect stands beside it.
