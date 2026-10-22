@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the units of idr-in-place share (lib/Transforms/InPlace/): the rule's
-// terms read off one body (Chains.cpp), the program-wide solves over them
-// (Rule.cpp), the pass that refuses (InPlace.cpp), the versions the verdict
-// makes of each function (Versions.cpp) and their writer (Writer.cpp).
+// What the units of idr-in-place share (lib/Transforms/InPlace/): a body's
+// rebuild sites (Sites.cpp), the rule's terms read off one body
+// (Chains.cpp), the program-wide solves over them (Rule.cpp), the pass that
+// refuses (InPlace.cpp), the versions the verdict makes of each function
+// (Versions.cpp) and their writer (Writer.cpp).
 //
 // A requirement asks a value's own cells to be unshared (Asks::Self, as
 // far into its fields as the grade's fieldReach says), or everything it

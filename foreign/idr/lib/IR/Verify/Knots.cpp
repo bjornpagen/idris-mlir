@@ -178,7 +178,7 @@ bool takesOrGivesUp(const FlowEdges &edges, OpOperand &use) {
     return match(
         edge.move, [&](const FlowEdges::Flow &flow) { return flow.from.taken() == &use; },
         [&](const FlowEdges::Release &release) { return release.use == &use; },
-        [](const auto &) { return false; });
+        [](const ownership::KeepsUses auto &) { return false; });
   });
 }
 
@@ -194,10 +194,11 @@ bool copies(const FlowEdges &edges, OpOperand &use) {
           bool read = match(
               flow.from.at,
               [&](const FlowPoint::Whole &whole) { return whole.value == use.get(); },
-              [](const auto &) { return false; });
+              [](const OneOf<FlowPoint::Taken, FlowPoint::Part, FlowPoint::Parameter,
+                             FlowPoint::Result> auto &) { return false; });
           return read && flow.to.value().has_value();
         },
-        [](const auto &) { return false; });
+        [](const ownership::NoFlow auto &) { return false; });
   });
 }
 

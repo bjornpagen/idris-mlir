@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The in-place rule's terms read off one body (Rule.h): its rebuild sites
-// and the rewrite of each, and where a requirement on one of its values
-// ends, by the rule of each value's definition. Every walk is iterative,
-// over an explicit stack, so a long chain of definitions costs no native
-// stack.
+// The in-place rule's terms read off one body (Rule.h): where a
+// requirement on one of its values ends, by the rule of each value's
+// definition. Every walk is iterative, over an explicit stack, so a long
+// chain of definitions costs no native stack.
 #include "idr/Transforms/InPlace/Rule.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
@@ -12,8 +11,6 @@
 #include "idr/IR/Flow.h"
 #include "idr/Support/Match.h"
 
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/Visitors.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -39,76 +36,6 @@ OpOperand *operandOf(Operation *op, Value value) {
 }
 
 } // namespace
-
-llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn, const BodyValues &values) {
-  SmallVector<RebuildSite> sites;
-  // The constructions already paired, outer cells first, by their results.
-  BitSet<BodyValue> paired(values.size());
-  fn->walk<WalkOrder::PreOrder>([&](DataMatchOp match) {
-    // The argument each case binds the scrutinee refined to.
-    SmallVector<BlockArgument> bound(match->getNumRegions(), BlockArgument());
-    forwardedValues(match, [&](OpOperand &operand, Value input) {
-      auto arg = dyn_cast<BlockArgument>(input);
-      if (arg && operand.get() == match.getScrutinee() && arg.getOwner()->getParentOp() == match)
-        bound[arg.getOwner()->getParent()->getRegionNumber()] = arg;
-    });
-    for (auto [index, region] : llvm::enumerate(match->getRegions())) {
-      BlockArgument taken = bound[index];
-      if (!taken)
-        continue;
-      Type type = taken.getType();
-      DataType family = ownership::familyOf(type);
-      std::optional<Tag> tag = ownership::refinedTag(type);
-      std::optional<Asks> promised = ownership::promisedAsks(family);
-      // A cell of an in-place family, bound at quantity 1: a parameter's,
-      // or a field's a linear match binds.
-      if (!tag || !ownership::isCell(type) || !promised || usesOf(type) != Uses::Once)
-        continue;
-      DataConOp found;
-      region.walk<WalkOrder::PreOrder>([&](Operation *op) {
-        // A region that may run again would rebuild the one cell twice.
-        if (ownership::repeats(op))
-          return WalkResult::skip();
-        auto con = dyn_cast<DataConOp>(op);
-        if (!con || paired.test(values.at(con.getResult())))
-          return WalkResult::advance();
-        Type built = con.getResult().getType();
-        if (ownership::sameFamily(ownership::familyOf(built), family) &&
-            ownership::refinedTag(built) == tag && ownership::isCell(built)) {
-          found = con;
-          return WalkResult::interrupt();
-        }
-        return WalkResult::advance();
-      });
-      if (!found)
-        continue;
-      BodyValue made = values.at(found.getResult());
-      (void)paired.raise(made);
-      sites.push_back({match, static_cast<unsigned>(index), found, taken, *promised,
-                       SiteAt{values.at(taken).index(), made.index()}});
-    }
-  });
-  return sites;
-}
-
-void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp construction) {
-  Block &entry = match->getRegion(caseIndex).front();
-  BlockArgument cell = entry.getArgument(taken);
-  OpBuilder builder = OpBuilder::atBlockBegin(&entry);
-  auto take = CountTakeOp::create(builder, match.getLoc(), cell);
-  for (OpOperand &use : llvm::make_early_inc_range(cell.getUses()))
-    if (auto field = dyn_cast<DataFieldOp>(use.getOwner())) {
-      field.getResult().replaceAllUsesWith(
-          take.getFields()[static_cast<unsigned>(field.getIndex())]);
-      field.erase();
-    }
-  builder.setInsertionPoint(construction);
-  auto rebuilt = TokenRebuildOp::create(builder, construction.getLoc(),
-                                        construction.getResult().getType(), take.getToken(),
-                                        construction.getFields());
-  construction.getResult().replaceAllUsesWith(rebuilt.getResult());
-  construction.erase();
-}
 
 Chains::Chains(FuncOp fn, const solver::ProgramGraph &graph, const Summaries &summaries,
                const Keeps &keeps)
@@ -263,7 +190,7 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
               flow.to.at,
               // A field moved into the value: the requirement reaches it
               // where it reaches the field.
-              [&](const FlowPoint::Part &into) {
+              [&](const FlowPlace::Part &into) {
                 std::optional<FlowAnchor::Field> field = ownership::fieldOf(into.anchor);
                 Value moved = *flow.from.value();
                 if (!field || !reachesField(asks, into.anchor, moved.getType()))
@@ -275,7 +202,9 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                     },
                     // Read and left its reference, or a part: the value
                     // holds a reference another keeps.
-                    [&](const auto &) { ends.push_back(cause(op, Why::Shared)); });
+                    [&](const ownership::NotTaken auto &) {
+                      ends.push_back(cause(op, Why::Shared));
+                    });
               },
               // The value whole: moved, moved out of a part, or copied.
               [&](const FlowPoint::Whole &) {
@@ -295,11 +224,15 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
                                            : operandOf(op, whole);
                       next.push_back({whole, of, use});
                     },
-                    [&](const auto &) { ends.push_back(cause(op, Why::Shared)); });
+                    [&](const OneOf<FlowPoint::Whole, FlowPoint::Parameter,
+                                    FlowPoint::Result> auto &) {
+                      ends.push_back(cause(op, Why::Shared));
+                    });
               },
-              [](const auto &) {});
+              [](const OneOf<FlowPoint::Parameter, FlowPoint::Result> auto &) {});
         },
-        [](const auto &) {});
+        [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release,
+                       FlowEdges::Overwrite, FlowEdges::Dispatch> auto &) {});
   }
   if (!explained)
     ends.push_back(cause(op, Why::Unexplained));

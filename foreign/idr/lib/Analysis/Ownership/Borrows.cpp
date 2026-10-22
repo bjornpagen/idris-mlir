@@ -309,7 +309,7 @@ private:
       Taken taken = match(
           edge.move, [](const FlowEdges::Flow &flow) -> Taken { return flow.from.taken(); },
           [](const FlowEdges::Release &release) -> Taken { return release.use; },
-          [](const auto &) -> Taken { return std::nullopt; });
+          [](const ownership::KeepsUses auto &) -> Taken { return std::nullopt; });
       if (taken)
         if (std::optional<Owner> owner = ownerOf((*taken)->get()))
           force(owner->param);

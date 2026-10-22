@@ -152,7 +152,8 @@ void forEachTerm(const FlowEdges &edges, OnTerm &&term, OnFresh &&fresh) {
                             term(into.value, Term<mlir::Value>{whole, via, reachAt(part.anchor),
                                                                usesOf(into.value.getType())});
                           },
-                          [&](const auto &) {
+                          [&](const OneOf<FlowAnchor::Elements, FlowAnchor::Forced,
+                                          FlowAnchor::MemoState, FlowAnchor::Capture> auto &) {
                             term(into.value,
                                  Term<mlir::Value>{whole, Via::ReadOut, FieldReach::Other,
                                                    usesOf(into.value.getType())});
@@ -160,48 +161,46 @@ void forEachTerm(const FlowEdges &edges, OnTerm &&term, OnFresh &&fresh) {
                     },
                     [](const FlowPoint::Parameter &) {}, [](const FlowPoint::Result &) {});
               },
-              [&](const FlowPoint::Part &into) {
-                std::optional<mlir::Value> built = flow.to.value();
-                if (!built || flow.to.taken())
-                  return;
+              [&](const FlowPlace::Part &into) {
+                mlir::Value built = into.of;
                 FieldReach reach = reachAt(into.anchor);
                 match(
                     flow.from.at,
                     [&](const FlowPoint::Taken &taken) {
-                      term(*built, Term<mlir::Value>{taken.use->get(), Via::Built, reach});
+                      term(built, Term<mlir::Value>{taken.use->get(), Via::Built, reach});
                     },
-                    [&](const auto &) {
-                      term(*built, Term<mlir::Value>{mlir::Value(), Via::Filled, reach});
+                    [&](const NotTaken auto &) {
+                      term(built, Term<mlir::Value>{mlir::Value(), Via::Filled, reach});
                     });
               },
-              [](const FlowPoint::Taken &) {}, [](const FlowPoint::Parameter &) {},
-              [](const FlowPoint::Result &) {});
+              [](const FlowPoint::Parameter &) {}, [](const FlowPoint::Result &) {});
         },
         // A part of a value the op builds that it joins to another place,
         // a hole another op writes: what fills it is what the hole's
         // destination's type bounds, and anything where the place is no hole.
         [&](const FlowEdges::Unify &unify) {
-          auto holds = [](const FlowPoint &place) {
+          auto holds = [](const FlowPlace &place) {
             return match(
                 place.at,
-                [](const FlowPoint::Part &part) {
+                [](const FlowPlace::Part &part) {
                   return match(
                       part.anchor.place,
                       [](const FlowAnchor::Hole &hole) { return claimOf(hole.dest.getValue()); },
-                      [](const auto &) { return Unique::None; });
+                      [](const OneOf<FlowAnchor::Field, FlowAnchor::Elements, FlowAnchor::Forced,
+                                     FlowAnchor::MemoState, FlowAnchor::Capture> auto &) {
+                        return Unique::None;
+                      });
                 },
-                [](const auto &) { return Unique::None; });
+                [](const WholePlace auto &) { return Unique::None; });
           };
-          auto filled = [&](const FlowPoint &point, const FlowPoint &other) {
+          auto filled = [&](const FlowPlace &place, const FlowPlace &other) {
             match(
-                point.at,
-                [&](const FlowPoint::Part &part) {
-                  if (!point.taken() && point.value())
-                    term(*point.value(), Term<mlir::Value>{mlir::Value(), Via::Filled,
-                                                           reachAt(part.anchor), Uses::Once,
-                                                           holds(other)});
+                place.at,
+                [&](const FlowPlace::Part &part) {
+                  term(part.of, Term<mlir::Value>{mlir::Value(), Via::Filled, reachAt(part.anchor),
+                                                  Uses::Once, holds(other)});
                 },
-                [](const auto &) {});
+                [](const WholePlace auto &) {});
           };
           filled(unify.a, unify.b);
           filled(unify.b, unify.a);

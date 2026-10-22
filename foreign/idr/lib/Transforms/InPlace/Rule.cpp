@@ -99,9 +99,9 @@ ParametersOf::ParametersOf(FuncOp fn) : values(fn), table(values.size()) {
                   if (ownership::reachOf(part) == ownership::Reach::Read && to)
                     inherit(*to, *flow.from.value());
                 },
-                [](const auto &) {});
+                [](const ownership::WholePoint auto &) {});
           },
-          [](const auto &) {});
+          [](const ownership::NoFlow auto &) {});
   });
 }
 

@@ -54,16 +54,41 @@ constexpr Unique readClaim(FieldReach reach, Uses uses, Unique claim) {
   return Hold::counted(claim).read(reach, uses).claim();
 }
 
+// The alternatives of the flow sums that one case takes together, each set
+// named by its list, so an alternative a sum gains is taken by no case
+// until one names it.
+// A point at a whole value, no part of one.
+template <class T>
+concept WholePoint =
+    OneOf<T, FlowPoint::Taken, FlowPoint::Whole, FlowPoint::Parameter, FlowPoint::Result>;
+// A point that is no use the op takes over whole.
+template <class T>
+concept NotTaken =
+    OneOf<T, FlowPoint::Whole, FlowPoint::Part, FlowPoint::Parameter, FlowPoint::Result>;
+// A place at a whole value, no part of one.
+template <class T>
+concept WholePlace = OneOf<T, FlowPoint::Whole, FlowPoint::Parameter, FlowPoint::Result>;
+// A move that is no flow from a point into a place.
+template <class T>
+concept NoFlow = OneOf<T, FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh,
+                       FlowEdges::Release, FlowEdges::Overwrite, FlowEdges::Constant,
+                       FlowEdges::Dispatch>;
+// A move that neither takes a use over nor gives one up.
+template <class T>
+concept KeepsUses = OneOf<T, FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh,
+                          FlowEdges::Overwrite, FlowEdges::Constant, FlowEdges::Dispatch>;
+
 // How far a claim on a value's own cells reaches into the part `anchor`
 // names: a field's declaration says (fieldReach); the elements, the forced
-// state, a capture and a hole are no own cells of the value.
+// state, the memo state, a capture and a hole are no own cells of the value.
 inline FieldReach reachAt(const FlowAnchor &anchor) {
   return match(
       anchor.place,
       [](const FlowAnchor::Field &field) {
         return fieldReach(field.data.ctor(field.ctor).fields[field.index]);
       },
-      [](const auto &) { return FieldReach::Other; });
+      [](const OneOf<FlowAnchor::Elements, FlowAnchor::Forced, FlowAnchor::MemoState,
+                     FlowAnchor::Capture, FlowAnchor::Hole> auto &) { return FieldReach::Other; });
 }
 
 // What a requirement `asks` on a value asks of the holder it is moved out
@@ -258,9 +283,9 @@ inline bool readsPart(mlir::OpOperand &use) {
               [&](const FlowPoint::Part &part) {
                 return reachOf(part) == Reach::Read && flow.from.value() == use.get();
               },
-              [](const auto &) { return false; });
+              [](const WholePoint auto &) { return false; });
         },
-        [](const auto &) { return false; });
+        [](const NoFlow auto &) { return false; });
   });
 }
 
@@ -284,11 +309,14 @@ inline bool readOutOfElements(mlir::Value value) {
               [](const FlowPoint::Part &part) {
                 return match(
                     part.anchor.place, [](const FlowAnchor::Elements &) { return true; },
-                    [](const auto &) { return false; });
+                    [](const OneOf<FlowAnchor::Field, FlowAnchor::Forced, FlowAnchor::MemoState,
+                                   FlowAnchor::Capture, FlowAnchor::Hole> auto &) {
+                      return false;
+                    });
               },
-              [](const auto &) { return false; });
+              [](const WholePoint auto &) { return false; });
         },
-        [](const auto &) { return false; });
+        [](const NoFlow auto &) { return false; });
   });
 }
 

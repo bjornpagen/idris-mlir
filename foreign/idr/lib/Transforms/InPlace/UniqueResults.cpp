@@ -112,25 +112,29 @@ bool takesRaised(OpOperand &use) {
   auto names = [&](const idr::FlowPoint &point) {
     return point.taken() == &use || point.value() == use.get();
   };
+  auto at = [&](const idr::FlowPlace &place) { return place.value() == use.get(); };
   for (const idr::FlowEdges::Edge &edge : edges.edges())
     idr::match(
         edge.move,
         [&](const idr::FlowEdges::Flow &flow) {
-          if (!names(flow.from) && !names(flow.to))
+          if (!names(flow.from) && !at(flow.to))
             return;
           named = true;
           bool moved = idr::match(
               flow.from.at, [&](const idr::FlowPoint::Taken &taken) { return taken.use == &use; },
-              [](const auto &) { return false; });
+              [](const idr::ownership::NotTaken auto &) { return false; });
           bool intoBuilt = idr::match(
-              flow.to.at, [&](const idr::FlowPoint::Part &) { return !flow.to.taken(); },
-              [](const auto &) { return false; });
+              flow.to.at, [](const idr::FlowPlace::Part &) { return true; },
+              [](const idr::ownership::WholePlace auto &) { return false; });
           built |= moved && intoBuilt;
         },
         [&](const idr::FlowEdges::Release &release) { named |= release.use == &use; },
-        [&](const idr::FlowEdges::Unify &unify) { named |= names(unify.a) || names(unify.b); },
-        [&](const idr::FlowEdges::Overwrite &overwrite) { named |= names(overwrite.place); },
-        [](const auto &) {});
+        [&](const idr::FlowEdges::Unify &unify) { named |= at(unify.a) || at(unify.b); },
+        [&](const idr::FlowEdges::Overwrite &overwrite) {
+          named |= overwrite.place.of == use.get();
+        },
+        [](const idr::OneOf<idr::FlowEdges::Source, idr::FlowEdges::Fresh, idr::FlowEdges::Constant,
+                            idr::FlowEdges::Dispatch> auto &) {});
   return built || !named;
 }
 

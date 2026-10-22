@@ -211,25 +211,23 @@ private:
   }
 
   void readFlow(const FlowEdges::Flow &flow) {
-    std::optional<Value> to = flow.to.value();
     match(
         flow.to.at,
         // Into a value whole, which that explains.
-        [&](const FlowPoint::Whole &) {
-          explain(*to);
-          readInto(flow.from, *to);
+        [&](const FlowPoint::Whole &into) {
+          explain(into.value);
+          readInto(flow.from, into.value);
         },
         // Into a part of a value: the value holds what moves in, a memo
         // label's field the label.
-        [&](const FlowPoint::Part &part) {
+        [&](const FlowPlace::Part &part) {
           std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
-          if (field && memoFamily(to->getType()))
+          if (field && memoFamily(part.of.getType()))
             return intoAnchor(flow.from, anchors.of(field->data, field->ctor, field->index));
-          readInto(flow.from, *to);
+          readInto(flow.from, part.of);
         },
         // A parameter or a result: the call's and the return's own reading.
-        [](const FlowPoint::Taken &) {}, [](const FlowPoint::Parameter &) {},
-        [](const FlowPoint::Result &) {});
+        [](const FlowPoint::Parameter &) {}, [](const FlowPoint::Result &) {});
   }
 
   // What `from` brings `to`: a use taken over moves its sharing; a value
