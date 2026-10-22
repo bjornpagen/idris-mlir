@@ -182,15 +182,17 @@ heldValue ix l h t build = do
   pure (val r.name t Many h)
 
 ||| A partial op with one result, of a Core type, after its guards, used
-||| many times, the variable `binder` bound to it, at the library
-||| definition `stands` where the registry lowered one to it.
+||| many times and held as `held` says, the variable `binder` bound to it,
+||| at the library definition `stands` where the registry lowered one to
+||| it.
 export
-guardedValue : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown} -> Index -> Loc -> Ty -> (MlirType -> Guarded) -> E Val
+guardedValue : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown}
+            -> {default Held.Counted held : Held} -> Index -> Loc -> Ty -> (MlirType -> Guarded) -> E Val
 guardedValue ix l t build = do
-  o <- checked l (build (gradedType ix Many Held.Counted t))
+  o <- checked l (build (gradedType ix Many held t))
   r <- fresh
   append (MkStatement (Just r) o (madeAtPlace binder (placeOf stands l) Many))
-  pure (val r t Many Held.Counted)
+  pure (val r t Many held)
 
 ||| A total op without results.
 export
@@ -319,7 +321,16 @@ extend binder stands ix l c = value {binder} {stands} ix l (IntT IdrisInt) (Arit
 ||| the op's), the variable `binder` bound to its value.
 export
 prim : Maybe Binding -> Maybe Shown -> Index -> Loc -> Prim k -> Vect k Val -> E Val
-prim binder stands ix l (Op op r) vs = guardedValue {binder} {stands} ix l r (\t => specOp op (map (operand ix) vs) [t])
+-- An op's result is held as its declaration says where its type holds
+-- references: freed by its count, or static for text the target names.
+-- The frontend writes no other hold for a primitive's result.
+prim binder stands ix l (Op op r h) vs = case h of
+  Hold.Counted None => written Held.Counted
+  Hold.Static => written Held.Static
+  _ => internal ("a primitive's result held otherwise than counted or static: " ++ show r)
+  where
+    written : Held -> E Val
+    written held = guardedValue {binder} {stands} {held} ix l r (\t => specOp op (map (operand ix) vs) [t])
 prim binder stands ix l (IntOp op t) [a, b] = intArith binder stands ix l op t a b
 prim binder stands ix l (IntShift s t) [a, b] = value {binder} {stands} ix l (IntT t) (shiftOp s (signedness t) (operand ix a) (operand ix b))
 prim binder stands ix l (FloatOp op) [a, b] = value {binder} {stands} ix l DoubleT (floatArith op (operand ix a) (operand ix b))

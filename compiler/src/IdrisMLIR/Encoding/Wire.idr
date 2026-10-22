@@ -53,6 +53,150 @@ traverseTermNode t a (TermNodeLiteral payload') = pure TermNodeLiteral <*> a pay
 traverseTermNode t a (TermNodeConstructor payload' member' value' arity') = pure TermNodeConstructor <*> traverse a payload' <*> pure member' <*> pure value' <*> pure arity'
 traverseTermNode t a TermNodeOpaque = pure TermNodeOpaque
 
+||| a view: nothing allocates into it
+public export
+data LifetimeKindView : (ty : Type) -> (at : Type) -> Type where
+  ||| a view: nothing allocates into it
+  MkLifetimeKindView : LifetimeKindView ty at
+
+||| The parts of a `LifetimeKindView`, its types and attributes by their entries.
+export
+partsLifetimeKindView : LifetimeKindView TypeRef AttrRef -> List Part
+partsLifetimeKindView MkLifetimeKindView = []
+
+||| A `LifetimeKindView` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseLifetimeKindView : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindView ty at -> f (LifetimeKindView ty' at')
+traverseLifetimeKindView t a MkLifetimeKindView = pure MkLifetimeKindView
+
+||| a room: a block of static size
+public export
+data LifetimeKindRoom : (ty : Type) -> (at : Type) -> Type where
+  ||| a room: a block of static size
+  MkLifetimeKindRoom : LifetimeKindRoom ty at
+
+||| The parts of a `LifetimeKindRoom`, its types and attributes by their entries.
+export
+partsLifetimeKindRoom : LifetimeKindRoom TypeRef AttrRef -> List Part
+partsLifetimeKindRoom MkLifetimeKindRoom = []
+
+||| A `LifetimeKindRoom` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseLifetimeKindRoom : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindRoom ty at -> f (LifetimeKindRoom ty' at')
+traverseLifetimeKindRoom t a MkLifetimeKindRoom = pure MkLifetimeKindRoom
+
+||| a cursor: an unbounded bump
+public export
+data LifetimeKindCursor : (ty : Type) -> (at : Type) -> Type where
+  ||| a cursor: an unbounded bump
+  MkLifetimeKindCursor : LifetimeKindCursor ty at
+
+||| The parts of a `LifetimeKindCursor`, its types and attributes by their entries.
+export
+partsLifetimeKindCursor : LifetimeKindCursor TypeRef AttrRef -> List Part
+partsLifetimeKindCursor MkLifetimeKindCursor = []
+
+||| A `LifetimeKindCursor` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseLifetimeKindCursor : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindCursor ty at -> f (LifetimeKindCursor ty' at')
+traverseLifetimeKindCursor t a MkLifetimeKindCursor = pure MkLifetimeKindCursor
+
+||| the per-shard home of a site
+public export
+data LifetimeKindHome : (ty : Type) -> (at : Type) -> Type where
+  ||| the per-shard home of a site
+  MkLifetimeKindHome : (site' : Nat) -> LifetimeKindHome ty at
+
+||| The parts of a `LifetimeKindHome`, its types and attributes by their entries.
+export
+partsLifetimeKindHome : LifetimeKindHome TypeRef AttrRef -> List Part
+partsLifetimeKindHome (MkLifetimeKindHome site') = [VarInt site']
+
+||| A `LifetimeKindHome` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseLifetimeKindHome : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindHome ty at -> f (LifetimeKindHome ty' at')
+traverseLifetimeKindHome t a (MkLifetimeKindHome site') = pure MkLifetimeKindHome <*> pure site'
+
+||| a lifetime's kind, its alternative its case
+public export
+data LifetimeKindOf : (ty : Type) -> (at : Type) -> Type where
+  ||| nothing allocates into it: no value at run time
+  LifetimeKindOfView : (lifetimeKindView' : LifetimeKindView ty at) -> LifetimeKindOf ty at
+  ||| a block of static size: a pointer in
+  LifetimeKindOfRoom : (lifetimeKindRoom' : LifetimeKindRoom ty at) -> LifetimeKindOf ty at
+  ||| an unbounded bump: a pointer in and out
+  LifetimeKindOfCursor : (lifetimeKindCursor' : LifetimeKindCursor ty at) -> LifetimeKindOf ty at
+  ||| the per-shard home of a site: no value
+  LifetimeKindOfHome : (lifetimeKindHome' : LifetimeKindHome ty at) -> LifetimeKindOf ty at
+
+||| The parts of a `LifetimeKindOf`, its types and attributes by their entries.
+export
+partsLifetimeKindOf : LifetimeKindOf TypeRef AttrRef -> List Part
+partsLifetimeKindOf (LifetimeKindOfView lifetimeKindView') = [VarInt 0] ++ partsLifetimeKindView lifetimeKindView'
+partsLifetimeKindOf (LifetimeKindOfRoom lifetimeKindRoom') = [VarInt 1] ++ partsLifetimeKindRoom lifetimeKindRoom'
+partsLifetimeKindOf (LifetimeKindOfCursor lifetimeKindCursor') = [VarInt 2] ++ partsLifetimeKindCursor lifetimeKindCursor'
+partsLifetimeKindOf (LifetimeKindOfHome lifetimeKindHome') = [VarInt 3] ++ partsLifetimeKindHome lifetimeKindHome'
+
+||| A `LifetimeKindOf` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseLifetimeKindOf : Applicative f => (ty -> f ty') -> (at -> f at') -> LifetimeKindOf ty at -> f (LifetimeKindOf ty' at')
+traverseLifetimeKindOf t a (LifetimeKindOfView lifetimeKindView') = pure LifetimeKindOfView <*> traverseLifetimeKindView t a lifetimeKindView'
+traverseLifetimeKindOf t a (LifetimeKindOfRoom lifetimeKindRoom') = pure LifetimeKindOfRoom <*> traverseLifetimeKindRoom t a lifetimeKindRoom'
+traverseLifetimeKindOf t a (LifetimeKindOfCursor lifetimeKindCursor') = pure LifetimeKindOfCursor <*> traverseLifetimeKindCursor t a lifetimeKindCursor'
+traverseLifetimeKindOf t a (LifetimeKindOfHome lifetimeKindHome') = pure LifetimeKindOfHome <*> traverseLifetimeKindHome t a lifetimeKindHome'
+
+||| Idris proved the loops end in this component of its call graph
+public export
+data ComponentProof : (ty : Type) -> (at : Type) -> Type where
+  ||| Idris proved the loops end in this component of its call graph
+  MkComponentProof : (component' : Nat) -> ComponentProof ty at
+
+||| The parts of a `ComponentProof`, its types and attributes by their entries.
+export
+partsComponentProof : ComponentProof TypeRef AttrRef -> List Part
+partsComponentProof (MkComponentProof component') = [VarInt component']
+
+||| A `ComponentProof` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseComponentProof : Applicative f => (ty -> f ty') -> (at -> f at') -> ComponentProof ty at -> f (ComponentProof ty' at')
+traverseComponentProof t a (MkComponentProof component') = pure MkComponentProof <*> pure component'
+
+||| a pass made the function with no loop of its own
+public export
+data AcyclicProof : (ty : Type) -> (at : Type) -> Type where
+  ||| a pass made the function with no loop of its own
+  MkAcyclicProof : AcyclicProof ty at
+
+||| The parts of a `AcyclicProof`, its types and attributes by their entries.
+export
+partsAcyclicProof : AcyclicProof TypeRef AttrRef -> List Part
+partsAcyclicProof MkAcyclicProof = []
+
+||| A `AcyclicProof` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseAcyclicProof : Applicative f => (ty -> f ty') -> (at -> f at') -> AcyclicProof ty at -> f (AcyclicProof ty' at')
+traverseAcyclicProof t a MkAcyclicProof = pure MkAcyclicProof
+
+||| a termination proof: its kind, then what the kind holds
+public export
+data TerminationProof : (ty : Type) -> (at : Type) -> Type where
+  ||| Idris proved the loops end in a component of its call graph
+  TerminationProofComponent : (componentProof' : ComponentProof ty at) -> TerminationProof ty at
+  ||| a pass made the function with no loop of its own
+  TerminationProofAcyclic : (acyclicProof' : AcyclicProof ty at) -> TerminationProof ty at
+
+||| The parts of a `TerminationProof`, its types and attributes by their entries.
+export
+partsTerminationProof : TerminationProof TypeRef AttrRef -> List Part
+partsTerminationProof (TerminationProofComponent componentProof') = [VarInt 0] ++ partsComponentProof componentProof'
+partsTerminationProof (TerminationProofAcyclic acyclicProof') = [VarInt 1] ++ partsAcyclicProof acyclicProof'
+
+||| A `TerminationProof` with each type it holds given by `t` and each attribute by `a`.
+export
+traverseTerminationProof : Applicative f => (ty -> f ty') -> (at -> f at') -> TerminationProof ty at -> f (TerminationProof ty' at')
+traverseTerminationProof t a (TerminationProofComponent componentProof') = pure TerminationProofComponent <*> traverseComponentProof t a componentProof'
+traverseTerminationProof t a (TerminationProofAcyclic acyclicProof') = pure TerminationProofAcyclic <*> traverseAcyclicProof t a acyclicProof'
+
 ||| a put parameter's position among them and its bound in bytes
 public export
 data PutBound : (ty : Type) -> (at : Type) -> Type where
