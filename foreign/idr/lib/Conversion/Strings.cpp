@@ -25,6 +25,8 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <concepts>
+
 using namespace mlir;
 
 namespace idr::conversion {
@@ -45,13 +47,17 @@ List listOf(Type type) {
 
 // The body of a walk: the head's components and the values the walk
 // carries, giving the carried values after this element.
-using Step = function_ref<SmallVector<Value>(OpBuilder &, Location, ValueRange head,
-                                             ValueRange carried)>;
+template <class S>
+concept Step = requires(S &step, OpBuilder &b, Location loc, ValueRange head,
+                        ValueRange carried) {
+  { step(b, loc, head, carried) } -> std::same_as<SmallVector<Value>>;
+};
 
 // Walks the list at `cell` while it is a cons, carrying `inits` through
 // `step`; gives the carried values at the nil.
+template <Step S>
 SmallVector<Value> walk(OpBuilder &b, Location loc, const Layouts &layouts, Runtime &runtime,
-                        const List &list, Value cell, ValueRange inits, Step step) {
+                        const List &list, Value cell, ValueRange inits, S &&step) {
   SmallVector<Type> types{cell.getType()};
   SmallVector<Value> operands{cell};
   for (Value init : inits) {
