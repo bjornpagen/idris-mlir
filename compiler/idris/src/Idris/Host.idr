@@ -30,11 +30,10 @@
 ||| declares for that normaliser, and normal for them (`Reduct`); a
 ||| definition's type and case tree, read through the context's
 ||| accessors, are the ones the evaluator reads, one of each (`typeOnce`,
-||| `treeOnce`); two normal forms of one term for one normaliser are one
-||| term, but for their locations (`oneNormalForm`); every term a term
-||| reduces to reduces on to the term's normal form (`reachesNormalForm`);
-||| and the steps that reduce a term reduce it with values put in for its
-||| bound names (`substitutes`). That is the trust
+||| `treeOnce`); every term a term reduces to reduces on to the term's
+||| normal form (`reachesNormalForm`); and the steps that reduce a term
+||| reduce it with values put in for its bound names (`substitutes`).
+||| That is the trust
 ||| Idris's own type checker rests on, which decides conversion by
 ||| comparing normal forms, and a program that proves its readings of terms
 ||| sound against `Reduces` needs no check, when it runs, that the
@@ -78,9 +77,8 @@ import Libraries.Data.WithDefault
 -- applied only where a statement is a fact of the evaluator, or of the
 -- accessors it reads definitions through, which runs in `Core` where no
 -- proof follows it: to what the normalisers give (`reduct`), to the terms
--- the accessors read (`typeOnce`, `treeOnce`), to two normal forms of one
--- term (`oneNormalForm`), to a term's reducts and its normal form
--- (`reachesNormalForm`), and to reduction with values put in
+-- the accessors read (`typeOnce`, `treeOnce`), to a term's reducts and its
+-- normal form (`reachesNormalForm`), and to reduction with values put in
 -- (`substitutes`).
 0 trusted : a
 trusted = believe_me ()
@@ -813,58 +811,6 @@ public export
 0 Irreducible : Evaluation -> Frozen -> Term vars -> Type
 Irreducible ev ctx t = Not (Redex ev ctx t)
 
-mutual
-  ||| One term but for its locations and its variables' hints that they
-  ||| are `let`s, which every relation here is blind to.
-  public export
-  data Relocated : Term vars -> Term vars -> Type where
-    LocalMoved : Relocated (Local fc l idx p) (Local fc' l' idx p)
-    RefMoved : Relocated (Ref fc nt n) (Ref fc' nt n)
-    MetaMoved : AllRelocated scope scope' -> Relocated (Meta fc m i scope) (Meta fc' m i scope')
-    BindMoved : BinderRelocated b b' -> Relocated sc sc' ->
-                Relocated (Bind fc x b sc) (Bind fc' x b' sc')
-    AppMoved : Relocated f f' -> Relocated a a' -> Relocated (App fc f a) (App fc' f' a')
-    AsMoved : Relocated n n' -> Relocated t t' -> Relocated (As fc s n t) (As fc' s n' t')
-    DelayedMoved : Relocated t t' -> Relocated (TDelayed fc r t) (TDelayed fc' r t')
-    DelayMoved : Relocated ty ty' -> Relocated a a' ->
-                 Relocated (TDelay fc d ty a) (TDelay fc' d ty' a')
-    ForceMoved : Relocated t t' -> Relocated (TForce fc r t) (TForce fc' r t')
-    ConstantMoved : Relocated (PrimVal fc c) (PrimVal fc' c)
-    ErasedMoved : WhyRelocated w w' -> Relocated (Erased fc w) (Erased fc' w')
-    TypeMoved : Relocated (TType fc u) (TType fc' u)
-
-  public export
-  data AllRelocated : List (Term vars) -> List (Term vars) -> Type where
-    NoneMoved : AllRelocated [] []
-    EachMoved : Relocated t t' -> AllRelocated ts ts' -> AllRelocated (t :: ts) (t' :: ts')
-
-  public export
-  data BinderRelocated : Binder (Term vars) -> Binder (Term vars) -> Type where
-    LamMoved : PiRelocated p p' -> Relocated ty ty' ->
-               BinderRelocated (Lam fc c p ty) (Lam fc' c p' ty')
-    LetMoved : Relocated val val' -> Relocated ty ty' ->
-               BinderRelocated (Let fc c val ty) (Let fc' c val' ty')
-    PiMoved : PiRelocated p p' -> Relocated ty ty' ->
-              BinderRelocated (Pi fc c p ty) (Pi fc' c p' ty')
-    PVarMoved : PiRelocated p p' -> Relocated ty ty' ->
-                BinderRelocated (PVar fc c p ty) (PVar fc' c p' ty')
-    PLetMoved : Relocated val val' -> Relocated ty ty' ->
-                BinderRelocated (PLet fc c val ty) (PLet fc' c val' ty')
-    PVTyMoved : Relocated ty ty' -> BinderRelocated (PVTy fc c ty) (PVTy fc' c ty')
-
-  public export
-  data PiRelocated : PiInfo (Term vars) -> PiInfo (Term vars) -> Type where
-    ImplicitMoved : PiRelocated Implicit Implicit
-    ExplicitMoved : PiRelocated Explicit Explicit
-    AutoImplicitMoved : PiRelocated AutoImplicit AutoImplicit
-    DefImplicitMoved : Relocated t t' -> PiRelocated (DefImplicit t) (DefImplicit t')
-
-  public export
-  data WhyRelocated : WhyErased (Term vars) -> WhyErased (Term vars) -> Type where
-    PlaceholderMoved : WhyRelocated Placeholder Placeholder
-    ImpossibleMoved : WhyRelocated Impossible Impossible
-    DottedMoved : Relocated t t' -> WhyRelocated (Dotted t) (Dotted t')
-
 ||| A closed term's normal form, as a normaliser gave it, with the steps of
 ||| that normaliser's evaluation that reach it from the term and the
 ||| evidence that it takes none further, which no reader pays for.
@@ -875,24 +821,12 @@ record Reduct (form : NormalForm) (ctx : Frozen) (t : ClosedTerm) where
   0 steps : Reduces (evaluationOf form) ctx t value
   0 normal : Irreducible (evaluationOf form) ctx value
 
-||| Normal forms are unique: two reducts of one term to normal forms of one
-||| normaliser are one term, but for their locations. That is the
-||| confluence of Idris's evaluation of the terms its type checker
-||| accepts, which the type checker rests on when it decides conversion by
-||| comparing normal forms; no proof of this module's reaches it.
-export
-0 oneNormalForm : (r, s : Reduct form ctx t) -> Relocated r.value s.value
-oneNormalForm _ _ = trusted
-
 ||| Every term a term reduces to reduces on to the term's normal form, by
 ||| the same normaliser's steps. That is the confluence of Idris's
 ||| evaluation of the terms its type checker accepts, in the form the type
 ||| checker rests on when it decides conversion by comparing normal forms:
 ||| a term and a term it reduces to are convertible, so they reach one
-||| normal form. That normal forms are unique (`oneNormalForm`) does not
-||| give it, since it says nothing of a reduct until that reduct is shown
-||| to reach a normal form, and the theory is not strongly normalizing;
-||| no proof of this module's reaches it.
+||| normal form. No proof of this module's reaches it.
 export
 0 reachesNormalForm : (r : Reduct form ctx t) -> Reduces (evaluationOf form) ctx t u ->
                       Reduces (evaluationOf form) ctx u r.value
