@@ -4197,6 +4197,18 @@ C137.
   made by a fold inside the graph; the write-back makes what it writes.
   And `idr.refusal` stays bare under C158, as an op that sits in the
   module and acts on no type or resource.
+- **C219** (2026-10-22; L16's growth passes; under D46, D68). The growth
+  graph's remaining shapes. A choice is held program-wide under the key
+  the translation gives it (an interface's address for a dictionary, the
+  function type for C217's), so the graph splits a dispatch by every
+  member the translation can request, not only a site's own leaves.
+  Each implementation field is a position of the graph, so a nested
+  field read is arcs between positions and needs no second mechanism
+  with its own cycle refusal. A member's application is walked once per
+  member, its binders standing for the use's positions, so the requests a
+  member's body makes are met. And the places where members are made are
+  one table, read once at the boundary by the translation and the growth
+  check alike, so neither mirrors the other.
 - **C211** (2026-10-22; L09's finding; the mechanism under C166 and
   C204). `idr.lit.match` forwards its scrutinee into its default, as C166
   reads it (`sourceOf` maps the binding to its scrutinee), so upstream's
