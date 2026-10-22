@@ -140,7 +140,7 @@ void Decision::widen() {
     Value value = op->getResult(0);
     edges.clear();
     flow.getFlowEdges(edges);
-    bool made = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
+    bool builds = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
       return idr::match(
           edge.move, [&](const FlowEdges::Source &source) { return source.to == value; },
           [&](const FlowEdges::Constant &constant) { return constant.to == value; },
@@ -149,7 +149,7 @@ void Decision::widen() {
             return false;
           });
     });
-    if (!made)
+    if (!builds)
       return;
     Slot common;
     for (OpOperand &use : value.getUses()) {

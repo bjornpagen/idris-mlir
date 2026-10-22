@@ -37,7 +37,7 @@ IndexTerms indexTermsOf(Type type) {
       // in; the family that takes the place is of another group, so the
       // sort names its group.
       auto place = [&](families::Sort sort) {
-        if (sort.kind == families::SortKind::FamilySort && !sort.payload)
+        if (sort.kind == SortKind::FamilySort && !sort.payload)
           sort.payload = data.getGroup();
         out.sorts.push_back(sort);
       };
@@ -52,7 +52,7 @@ IndexTerms indexTermsOf(Type type) {
       continue;
     }
     if (auto nat = dyn_cast<NatType>(next)) {
-      out.sorts.push_back({families::SortKind::NatSort, 0, Attribute()});
+      out.sorts.push_back({SortKind::NatSort, 0, Attribute()});
       llvm::append_range(out.nodes, nat.getIndex());
       continue;
     }
@@ -71,7 +71,7 @@ Type overPositions(Type type) {
   MLIRContext *ctx = type.getContext();
   std::uint64_t next = 0;
   auto level = [&] {
-    return families::TermNode{families::TermKind::Level, 0, 0, next++, Attribute()};
+    return families::TermNode{TermKind::Level, 0, 0, next++, Attribute()};
   };
   auto placed = [&](DataType data) -> Type {
     SmallVector<families::TermNode> levels;

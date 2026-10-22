@@ -96,7 +96,7 @@ bool Profitability::operator()(const Inliner::ResolvedCall &resolved) {
   std::optional<std::int64_t> &size = sizes[from];
   if (!size)
     size = bodyOf(caller).size;
-  if (!fitsCap(*size, body->size)) {
+  if (fitsCap(*size, body->size) == Fit::Over) {
     ++numCapped;
     return false;
   }
@@ -133,7 +133,8 @@ struct InlineLeaves : impl::IdrInlineLeavesBase<InlineLeaves> {
       if (!known)
         continue;
       const Body &body = schedule.summaryOf(*callee)->body;
-      if (body.calls != Calls::None || body.size > kLeafSize || !fitsCap(size, body.size))
+      if (body.calls != Calls::None || body.size > kLeafSize ||
+          fitsCap(size, body.size) == Fit::Over)
         continue;
       FuncOp fn = known->fn;
       (void)support::perform<InlineAction>(call, [&] {

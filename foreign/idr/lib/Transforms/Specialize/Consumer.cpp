@@ -20,6 +20,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Transforms/Deduplicate.h"
+#include "idr/Transforms/Joins.h"
 #include "idr/Transforms/Specialize/Calls.h"
 
 #include "mlir/IR/Builders.h"
@@ -69,6 +70,23 @@ namespace detail {
 // The consumer
 //===----------------------------------------------------------------------===//
 
+namespace {
+
+// Whether `root` or an op inside it has a region that binds index
+// variables, which each binder says through the interface.
+bool bindsLevels(Operation *root) {
+  return root
+      ->walk([](ErasedBinderOpInterface binder) {
+        for (Region &region : binder->getRegions())
+          if (!binder.getBoundSorts(region).empty())
+            return WalkResult::interrupt();
+        return WalkResult::advance();
+      })
+      .wasInterrupted();
+}
+
+} // namespace
+
 std::optional<Elimination> consumerOf(CallOp call) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse())
     return std::nullopt;
@@ -90,6 +108,15 @@ std::optional<Elimination> consumerOf(CallOp call) {
     return std::nullopt;
   if (row.contains(effects::Atom::divergence) &&
       effects::rowOf(e->dispatch).contains(effects::Atom::io))
+    return std::nullopt;
+  // The consumer becomes a function that binds no index variable, and is
+  // pushed into the callee's tails, each at its own depth of them: it is
+  // the same code at every depth only where it names no index variable and
+  // binds none. With none in scope where it stands it names none, every
+  // term being scoped where it is written; and no region of its own may
+  // bind one, whose levels would be numbered from where it stands.
+  if (joins::scopeDepth(call->getParentRegion()) != 0 || bindsLevels(e->dispatch) ||
+      llvm::any_of(e->steps(), bindsLevels))
     return std::nullopt;
   return e;
 }
@@ -149,42 +176,50 @@ bool isStatic(Type type) { return freedBy(type, Release::Static); }
 // holding type freed by its count.
 bool counts(Type type) { return freedBy(type, Release::Counted); }
 
-// The callee's extents whose sizes may key a copy at `site`. From outside
-// the callee's call cycle, every one. From inside it, each whose index
-// variables the call gives no closed term but one its caller's body holds
-// as its own: a recursive call that changes a term (`go (S n)`, which the
-// copy at 0 calls at 1) reaches its copy with that axis `?`, as an axis
+// The callee's extents whose sizes may key a copy at `site`, in order. From
+// outside the callee's call cycle, every one. From inside it, each whose
+// index variables the call gives no closed term but one its caller's body
+// holds as its own: a recursive call that changes a term (`go (S n)`, which
+// the copy at 0 calls at 1) reaches its copy with that axis `?`, as an axis
 // the callee names no extent for. So every size a cycle's copies are keyed
 // at entered the cycle by one of the finitely many calls into it, and
-// specialization on sizes ends with no budget. A term over the caller's
-// own binders is no size, and keys nothing wherever it stands. A layout
-// class keys a copy whatever the site, the shape budget bounding its
-// alphabet; where one keeps an index variable for a data type, the axes
-// that variable names are static with it.
-ExtentsAttr keyedBy(ExtentsAttr extents, IndexArgsAttr args, const CallSite &site) {
-  return idr::match(
-      site, [&](OutsideCycle) { return extents; },
+// specialization on sizes ends with no budget. A term over the caller's own
+// binders is no size, and keys nothing wherever it stands. A layout class
+// keys a copy whatever the site, the shape budget bounding its alphabet;
+// where one keeps an index variable for a data type, the axes that variable
+// names are static with it. Each entry is a view of the callee's uniqued
+// attribute, so nothing is made here, on a worker.
+SmallVector<Extent> keyedBy(ExtentsAttr extents, IndexArgsAttr args, const CallSite &site) {
+  SmallVector<Extent> keying;
+  if (!extents)
+    return keying;
+  ArrayRef<ExtentAttr> entries = extents.getEntries();
+  idr::match(
+      site,
+      [&](OutsideCycle) {
+        for (ExtentAttr attr : entries)
+          keying.push_back(attr.extent());
+      },
       [&](const InsideCycle &inside) {
         // An entry names a binder of the callee, so a callee with one binds
         // one, and the call gives each a term.
-        if (!extents || extents.getEntries().empty())
-          return extents;
+        if (entries.empty())
+          return;
         SmallVector<families::Term> terms = families::termsOf(args.getTerms(), args.getCount());
         auto callersOwn = [&](const families::TermNode &node) {
-          if (node.kind != families::TermKind::Level)
+          if (node.kind != TermKind::Level)
             return true;
           assert(node.value < terms.size() && "an extent's term names a binder of its function");
           families::Term term = terms[node.value];
           return !term.isClosed() || llvm::is_contained(inside.own, term);
         };
-        SmallVector<ExtentAttr> kept;
-        for (ExtentAttr attr : extents.getEntries())
-          if (llvm::all_of(attr.extent().term.nodes(), callersOwn))
-            kept.push_back(attr);
-        if (kept.size() == extents.getEntries().size())
-          return extents;
-        return ExtentsAttr::get(extents.getContext(), ArrayRef<ExtentAttr>(kept));
+        for (ExtentAttr attr : entries) {
+          Extent entry = attr.extent();
+          if (llvm::all_of(entry.term.nodes(), callersOwn))
+            keying.push_back(entry);
+        }
       });
+  return keying;
 }
 
 // The signature copy `call` asks of `callee`: its index arguments' layout
@@ -199,7 +234,7 @@ ExtentsAttr keyedBy(ExtentsAttr extents, IndexArgsAttr args, const CallSite &sit
 std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp callee,
                                          FunctionId calleeId, const CallSite &site) {
   ExtentsAttr extents = callee.getExtentsAttr();
-  ExtentsAttr keying = keyedBy(extents, call.getIndexArgsAttr(), site);
+  SmallVector<Extent> keying = keyedBy(extents, call.getIndexArgsAttr(), site);
   std::optional<IndexArgsAttr> classes =
       families::classesUnder(callee.getFunctionType(), keying, call.getIndexArgsAttr());
   FunctionType type = callee.getFunctionType();
@@ -209,7 +244,8 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
       input = atHold(input, Hold::staticData());
   if (!classes && llvm::equal(inputs, type.getInputs()))
     return std::nullopt;
-  unsigned binders = callee.getBindersAttr() ? callee.getBindersAttr().getSorts().size() : 0;
+  // Each binder is a level, and a level is a 32-bit number.
+  auto binders = static_cast<std::uint32_t>(callee.getBinders().getSorts().size());
   IndexArgsAttr indices = classes ? *classes : families::levelArgs(call.getContext(), 0, binders);
   FunctionType signature = families::substitute(
       FunctionType::get(call.getContext(), inputs, type.getResults()), extents, indices);

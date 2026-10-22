@@ -24,6 +24,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <iterator>
 #include <numeric>
 
 using namespace mlir;
@@ -189,7 +190,7 @@ IndexArgsAttr givenBinders(DataType family, Tag tag, unsigned depth) {
     return families::levelArgs(ctx, depth, count);
   SmallVector<families::TermNode> nodes;
   families::TermWriter write(nodes);
-  families::TermNode binder{families::TermKind::Level, 0, 0, 0, Attribute()};
+  families::TermNode binder{TermKind::Level, 0, 0, 0, Attribute()};
   for (std::uint32_t at = 0; at < count; ++at) {
     binder.value = at;
     subst.write(write, families::Term(ArrayRef<families::TermNode>(binder)),
@@ -212,23 +213,23 @@ MatchId Decision::matchOver(Type value, unsigned depth) {
     return found->second;
   DataType family = cast<DataType>(unrestricted(value));
   Grade grade = gradeOf(value);
-  Match made;
+  Match built;
   auto states = static_cast<uint32_t>(family.declaredCount());
   SmallVector<int32_t> tags(states);
   std::iota(tags.begin(), tags.end(), 0);
-  made.tags = DenseI32ArrayAttr::get(ctx, tags);
+  built.tags = DenseI32ArrayAttr::get(ctx, tags);
   for (uint32_t at = 0; at < states; ++at) {
     Tag tag{at};
     IndexArgsAttr binders = families::levelArgs(
         ctx, depth, static_cast<uint32_t>(family.binderSorts(tag).size()));
     Type refined = graded(grade, family.refinedTo(tag, binders.getTerms()));
     Case &taken =
-        made.cases.emplace_back(Case{binders, givenBinders(family, tag, depth), refined, {}});
+        built.cases.emplace_back(Case{binders, givenBinders(family, tag, depth), refined, {}});
     unsigned count = static_cast<unsigned>(family.ctor(tag).fields.size());
     for (unsigned i = 0; i < count; ++i)
       taken.fields.push_back(*fieldReadType(taken.refined, i));
     while (fieldIndices.size() < count)
-      fieldIndices.push_back(IntegerAttr::get(IntegerType::get(ctx, 64), fieldIndices.size()));
+      fieldIndices.push_back(IntegerAttr::get(IntegerType::get(ctx, 64), std::ssize(fieldIndices)));
   }
   // Essential, two families: a closure family's cases call its labels; a
   // memo family's labels run in its dispatch function, and its cases call
@@ -241,12 +242,12 @@ MatchId Decision::matchOver(Type value, unsigned depth) {
   // callee's view by shape compatibility. Its results are the function's
   // either way.
   if (std::optional<families::ClosuresView> closures = family.closures())
-    for (auto [label, taken] : llvm::zip_equal(closures->labels(), made.cases)) {
+    for (auto [label, taken] : llvm::zip_equal(closures->labels(), built.cases)) {
       FunctionType bound = families::substitute(signature(graph.id(label.fn)).converted,
                                                 ExtentsAttr(), taken.given);
-      made.callees.push_back(Callee{labels.function(label.fn.getAttr()), label.fn, bound});
+      built.callees.push_back(Callee{labels.function(label.fn.getAttr()), label.fn, bound});
     }
-  matches.push_back(std::move(made));
+  matches.push_back(std::move(built));
   return found->second;
 }
 
@@ -271,7 +272,7 @@ CoercionId Decision::coercionOf(Type value, const Key &from, const Key &to, unsi
   DataType target = DataType::get(ctx, family.getGroup(), family.getMember(),
                                   cast<DataType>(unrestricted(value)).getIndices());
   Type sink = heldAt(atUses(to.carrier, usesOf(value)), target);
-  Coercion made = NeverRuns{sink};
+  Coercion answer = NeverRuns{sink};
   // A move from a family with no state never runs: a closure no label
   // reaches. A memo family always has its running and forced states.
   if (familyOf(from).at.declaredCount() != 0) {
@@ -285,10 +286,10 @@ CoercionId Decision::coercionOf(Type value, const Key &from, const Key &to, unsi
                                   : Tag{past + (state - labelled)};
       rebuild.into.push_back(constructorOf(target, into, gradeOf(sink), taken.binders.getTerms()));
     }
-    made = std::move(rebuild);
+    answer = std::move(rebuild);
   }
   auto id = static_cast<CoercionId>(coercions.size());
-  coercions.push_back(std::move(made));
+  coercions.push_back(std::move(answer));
   coercionIds[key] = id;
   return id;
 }

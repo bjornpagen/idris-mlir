@@ -83,12 +83,16 @@ enum class CoercionId : std::uint32_t {};
 
 } // namespace idr::defunctionalize
 
+// The carrier's sentinels are the key's, read through the template by its
+// qualified name: inside this specialization the bare name is the class
+// itself. A table's hash is a word by DenseMapInfo's contract, so the
+// combined hash is cut to it.
 template <> struct llvm::DenseMapInfo<idr::defunctionalize::Key> {
   using Key = idr::defunctionalize::Key;
-  static Key getEmptyKey() { return {DenseMapInfo<mlir::Type>::getEmptyKey(), {}}; }
-  static Key getTombstoneKey() { return {DenseMapInfo<mlir::Type>::getTombstoneKey(), {}}; }
+  static Key getEmptyKey() { return {llvm::DenseMapInfo<mlir::Type>::getEmptyKey(), {}}; }
+  static Key getTombstoneKey() { return {llvm::DenseMapInfo<mlir::Type>::getTombstoneKey(), {}}; }
   static unsigned getHashValue(const Key &key) {
-    return llvm::hash_combine(key.carrier, key.labels.getAsOpaquePointer());
+    return static_cast<unsigned>(llvm::hash_combine(key.carrier, key.labels.getAsOpaquePointer()));
   }
   static bool isEqual(const Key &a, const Key &b) { return a == b; }
 };

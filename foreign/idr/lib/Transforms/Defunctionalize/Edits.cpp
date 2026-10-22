@@ -114,9 +114,11 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
                 ? std::optional(coercionOf(typeOf(arg.getType(), own), *own, *into, inner))
                 : std::nullopt);
       }
-      for (auto [j, result] : llvm::enumerate(apply.getResults())) {
+      // Each result with its slot in the label's signature and its type
+      // at the case's terms, one walk over the three.
+      for (auto [result, out, given] :
+           llvm::zip_equal(apply.getResults(), run.results, bound.getResults())) {
         Slot own = keyOf(result);
-        const Slot &out = run.results[j];
         if (!own || !out || *own == *out) {
           moves.results.push_back(std::nullopt);
           continue;
@@ -127,7 +129,7 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
               << "apply's, rebuilt after the call";
           return WalkResult::interrupt();
         }
-        moves.results.push_back(coercionOf(bound.getResult(j), *out, *own, inner));
+        moves.results.push_back(coercionOf(given, *out, *own, inner));
       }
       dispatch.cases.push_back(std::move(moves));
     }

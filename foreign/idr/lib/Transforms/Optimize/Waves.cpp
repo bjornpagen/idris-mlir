@@ -98,11 +98,15 @@ LogicalResult Scheduler::run() {
                << remark::metric("made", numMade);
     enable(ready);
   }
-  // A gap in the ids holds no function, and nothing schedules it.
-  for (const Schedule::Member &member : schedule.members)
-    if (member.fn && !isFinal(member.phase))
-      return member.fn.emitError() << "internal error: idr-optimize: the schedule stopped with @"
-                                   << member.fn.getSymName() << " not final";
+  // A gap in the ids holds no function, and nothing schedules it. A member
+  // is read through a const reference and its function is reported on: its
+  // handle is copied out, as an op is passed.
+  for (const Schedule::Member &member : schedule.members) {
+    FuncOp fn = member.fn;
+    if (fn && !isFinal(member.phase))
+      return fn.emitError() << "internal error: idr-optimize: the schedule stopped with @"
+                            << fn.getSymName() << " not final";
+  }
   return success();
 }
 

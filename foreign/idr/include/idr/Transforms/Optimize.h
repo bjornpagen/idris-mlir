@@ -187,17 +187,17 @@ private:
     // Its own id, which its place in the table is.
     FunctionId self;
     Phase phase = Waiting{};
-    specialize::Requester requests;
+    specialize::Requester requests{};
     // A copy's binding times, its owner's by its key, until its turn takes
     // them up.
-    llvm::SmallVector<BindingTime> inherited;
-    llvm::SmallVector<FunctionId, 2> callers;
+    llvm::SmallVector<BindingTime> inherited{};
+    llvm::SmallVector<FunctionId, 2> callers{};
     // What it waits on, each once: the copies it asked for and the
     // functions a copy calls; and who waits on it. A wait is met once its
     // target is final or of its own component; `unmet` counts the rest,
     // recounted when a merge changes which are of its component.
-    llvm::SmallVector<FunctionId, 2> waitsOn;
-    llvm::SmallVector<FunctionId, 2> waiters;
+    llvm::SmallVector<FunctionId, 2> waitsOn{};
+    llvm::SmallVector<FunctionId, 2> waiters{};
     unsigned unmet = 0;
     unsigned leaves = 0;
   };

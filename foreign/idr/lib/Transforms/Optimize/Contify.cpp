@@ -44,6 +44,9 @@
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cstdint>
+#include <optional>
+
 #define GEN_PASS_DEF_IDRCONTIFY
 #include "idr/IR/Generated/PassDialects.h.inc"
 
@@ -79,10 +82,12 @@ using Node = std::variant<Root, Function, Continuation>;
 // The immediate dominators of a graph given as successor lists from node 0:
 // the iterative algorithm of Cooper, Harvey and Kennedy over a reverse
 // postorder, each walk with its own stack. A node the root does not reach
-// has none.
-idr::footprint::Vector<int> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) {
+// has none; the root is its own.
+idr::footprint::Vector<std::optional<unsigned>> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) {
   unsigned n = static_cast<unsigned>(succ.size());
-  idr::footprint::Vector<int> order(n, -1);
+  // Each reached node's place in the postorder; an unreached node's is
+  // never read, since no walk up the tree meets it.
+  idr::footprint::Vector<unsigned> order(n, 0);
   idr::footprint::Vector<unsigned> post;
   {
     idr::footprint::Vector<std::pair<unsigned, unsigned>> stack{{0, 0}};
@@ -98,7 +103,8 @@ idr::footprint::Vector<int> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) 
         }
         continue;
       }
-      order[node] = static_cast<int>(post.size());
+      // The postorder holds each of the n nodes at most once.
+      order[node] = static_cast<unsigned>(post.size());
       post.push_back(node);
       stack.pop_back();
     }
@@ -107,14 +113,16 @@ idr::footprint::Vector<int> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) 
   for (unsigned from = 0; from < n; ++from)
     for (unsigned to : succ[from])
       pred[to].push_back(from);
-  idr::footprint::Vector<int> idom(n, -1);
-  idom[0] = 0;
-  auto intersect = [&](int a, int b) {
+  idr::footprint::Vector<std::optional<unsigned>> idom(n);
+  idom[0] = 0u;
+  // Both start at nodes with a dominator, and every node a walk up from one
+  // meets has one: the walk follows dominators already set.
+  auto intersect = [&](unsigned a, unsigned b) {
     while (a != b) {
       while (order[a] < order[b])
-        a = idom[a];
+        a = *idom[a];
       while (order[b] < order[a])
-        b = idom[b];
+        b = *idom[b];
     }
     return a;
   };
@@ -124,11 +132,11 @@ idr::footprint::Vector<int> dominators(ArrayRef<SmallVector<unsigned, 2>> succ) 
     for (unsigned node : llvm::reverse(post)) {
       if (node == 0)
         continue;
-      int chosen = -1;
+      std::optional<unsigned> chosen;
       for (unsigned p : pred[node])
-        if (idom[p] >= 0)
-          chosen = chosen < 0 ? static_cast<int>(p) : intersect(static_cast<int>(p), chosen);
-      if (chosen >= 0 && idom[node] != chosen) {
+        if (idom[p])
+          chosen = chosen ? intersect(p, *chosen) : p;
+      if (chosen && idom[node] != chosen) {
         idom[node] = chosen;
         changed = true;
       }
@@ -161,22 +169,31 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
       succ[0].push_back(k);
       succ[k].push_back(callee);
     });
-  idr::footprint::Vector<int> idom = dominators(succ);
+  idr::footprint::Vector<std::optional<unsigned>> idom = dominators(succ);
+  // The node that immediately dominates `node`, a function or a
+  // continuation; none where the root does, or where the root does not
+  // reach `node`.
+  auto above = [&](unsigned node) -> std::optional<unsigned> {
+    std::optional<unsigned> up = idom[node];
+    if (!up || *up == 0)
+      return std::nullopt;
+    return up;
+  };
 
   // Each function's place: the continuation or the function its group
   // stands at, read down the dominator tree, a function placed into a
   // function that is placed in turn going where that one goes. Each step
-  // goes up the dominator tree, so the walk ends at the root.
-  auto placeOf = [&](unsigned node) {
-    unsigned at = node;
-    for (int up = idom[at]; up > 0; at = static_cast<unsigned>(up), up = idom[at]) {
-      bool function = idr::match(
-          nodes[up], [](Root) { return false; }, [](Function) { return true; },
+  // goes up the dominator tree, so the walk ends below the root. `up` is
+  // the node immediately above a function's.
+  auto placeOf = [&](unsigned up) {
+    auto isFunction = [&](unsigned node) {
+      return idr::match(
+          nodes[node], [](Root) { return false; }, [](Function) { return true; },
           [](const Continuation &) { return false; });
-      if (!function || idom[up] <= 0)
-        return static_cast<unsigned>(up);
-    }
-    return at;
+    };
+    for (std::optional<unsigned> next = above(up); next && isFunction(up); next = above(up))
+      up = *next;
+    return up;
   };
   // The groups, each its place's node and its members in the numbering's
   // order, found by the place's node; placed deepest first, so a group
@@ -188,10 +205,10 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
   idr::footprint::Vector<Placement> groups;
   idr::footprint::Vector<std::optional<unsigned>> groupAt(nodes.size());
   for (FunctionId f : graph.functions()) {
-    unsigned node = nodeOf(f);
-    if (idom[node] <= 0)
+    std::optional<unsigned> up = above(nodeOf(f));
+    if (!up)
       continue;
-    unsigned place = placeOf(node);
+    unsigned place = placeOf(*up);
     std::optional<unsigned> &at = groupAt[place];
     if (!at) {
       at = static_cast<unsigned>(groups.size());
@@ -199,9 +216,10 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
     }
     groups[*at].members.push_back(f);
   }
+  // A place is a function or a continuation, one below the root at least.
   auto depth = [&](unsigned node) {
-    unsigned d = 0;
-    for (int at = static_cast<int>(node); at > 0; at = idom[at])
+    unsigned d = 1;
+    for (std::optional<unsigned> up = above(node); up; up = above(*up))
       ++d;
     return d;
   };
@@ -272,7 +290,8 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
             idr::joins::Group group =
                 idr::joins::build(rewriter, h.getLoc(), h.getResultTypes(), all, edges);
             rewriter.setInsertionPointToEnd(group.body);
-            unsigned own = h.getBindersAttr() ? h.getBindersAttr().getSorts().size() : 0;
+            // Each binder is a level, and a level is a 32-bit number.
+            auto own = static_cast<std::uint32_t>(h.getBinders().getSorts().size());
             idr::IndexArgsAttr levels =
                 own ? idr::families::levelArgs(h.getContext(), 0, own) : idr::IndexArgsAttr();
             idr::JumpOp::create(rewriter, h.getLoc(), group.targets.tokenFor(0, group.body->getParent()),
@@ -286,12 +305,15 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
           },
           [&](const Continuation &k) {
             // The call that leaves for the group's entry is a site of the
-            // body, which runs it and gives on what it gives.
+            // body, which runs it and gives on what it gives. The node is
+            // read through a const reference and the call it names is
+            // rewritten: its handle is copied out, as an op is passed.
+            idr::CallOp call = k.call;
             for (auto [i, fn] : llvm::enumerate(members))
               sitesIn(graph.op(fn).getBody(), static_cast<unsigned>(i), 0);
-            sites.push_back(idr::joins::Site{k.call, *memberOf[graph.id(k.call.getCalleeAttr())],
-                                             k.call.getArgs(), k.call.getIndexArgsAttr()});
-            Operation *outer = idr::joins::wrap(rewriter, k.call, regions, sites);
+            sites.push_back(idr::joins::Site{call, *memberOf[graph.id(call.getCalleeAttr())],
+                                             call.getArgs(), call.getIndexArgsAttr()});
+            Operation *outer = idr::joins::wrap(rewriter, call, regions, sites);
             for (Region &region : outer->getRegions())
               decideMoved(region);
           });

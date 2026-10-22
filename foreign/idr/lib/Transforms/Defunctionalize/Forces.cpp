@@ -33,19 +33,19 @@ using namespace mlir;
 namespace idr::defunctionalize {
 
 FailureOr<FuncOp> Decision::defineForce(const Family &family) {
-  DataType cell = family.type;
-  std::optional<families::MemoView> memo = cell.memo();
-  ArrayRef<families::MemoLabelDecl> labels = memo->labels();
-  unsigned indices = static_cast<unsigned>(cell.getIndices().size());
+  DataType declared = family.type;
+  std::optional<families::MemoView> memo = declared.memo();
+  ArrayRef<families::MemoLabelDecl> memoLabels = memo->labels();
+  unsigned indices = static_cast<unsigned>(declared.getIndices().size());
   // The function takes the cell's family indices as its own binders, so a
   // force passes the cell's.
   ArrayRef<families::Sort> sorts = idr::match(
-      cell.getGroup().getMembers()[cell.getMember()],
+      declared.getGroup().getMembers()[declared.getMember()],
       [](const families::MemoMember &member) { return member.indices; },
       [](const OneOf<families::DataMember, families::ClosuresMember, families::FramesMember> auto &) {
         return ArrayRef<families::Sort>();
       });
-  DataType own = DataType::get(ctx, cell.getGroup(), cell.getMember(),
+  DataType own = DataType::get(ctx, declared.getGroup(), declared.getMember(),
                                families::levelArgs(ctx, 0, indices).getTerms());
   Type value = own.ctor(memo->forced()).fields.front();
 
@@ -70,7 +70,7 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
   // binders as the levels after the function's own, and the cell refined to
   // its state.
   SmallVector<Tag> tags;
-  for (unsigned at = 0; at < labels.size() + 2; ++at)
+  for (unsigned at = 0; at < memoLabels.size() + 2; ++at)
     tags.push_back(Tag{at});
   auto match = DataMatchOp::create(b, loc, TypeRange(value), taken, ValueRange(), tags);
   unsigned depth = joins::scopeDepth(match->getParentRegion());
@@ -99,7 +99,7 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
       YieldOp::create(b, loc, heldAs(b, loc, read().front(), value));
       continue;
     }
-    const families::MemoLabelDecl &label = labels[at];
+    const families::MemoLabelDecl &label = memoLabels[at];
     auto target = SymbolTable::lookupNearestSymbolFrom<FuncOp>(program, label.label.fn);
     Location at_ = target.getLoc();
     // The label's function on `captures`, at the terms the case gives its
@@ -124,10 +124,10 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
       return givenAs(b, at_, called.getResult(0), value);
     };
     switch (label.mode) {
-    case families::Mode::ByName:
+    case Mode::ByName:
       YieldOp::create(b, at_, call(read()));
       break;
-    case families::Mode::Memoized: {
+    case Mode::Memoized: {
       // The exchange moves the captures out of the cell, runs the label on
       // them, and moves the value into the cell, which it also gives. Each
       // capture is bound as a read of its field gives it.
@@ -147,7 +147,7 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
   }
   b.setInsertionPointToEnd(entry);
   ReturnOp::create(b, loc, match->getResults());
-  program.getBody()->push_back(fn);
+  program.getBody().front().push_back(fn);
   return fn;
 }
 

@@ -17,8 +17,7 @@ using namespace mlir;
 namespace idr::egraph {
 
 std::optional<Edit> ForceFreshCell::decide(MemoRunOp run, const OperandFacts &facts) {
-  Operation *built = facts.origin(run.getCell());
-  if (!built || !isa<DataConOp>(built) || !run.getCell().hasOneUse())
+  if (!facts.builtBy<DataConOp>(run.getCell()) || !run.getCell().hasOneUse())
     return std::nullopt;
   return Edit(Rewrite{});
 }

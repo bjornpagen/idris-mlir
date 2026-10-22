@@ -78,6 +78,12 @@ StringAttr nameOf(MLIRContext *ctx, const Key &key) {
   return StringAttr::get(ctx, name);
 }
 
+// The levels a member of `group` binds as its own index variables, from 0:
+// one per index, and a level is a 32-bit number.
+IndexArgsAttr ownLevels(MLIRContext *ctx, FamilyAttr group, uint32_t member) {
+  return families::levelArgs(ctx, 0, static_cast<std::uint32_t>(group.indices(member).size()));
+}
+
 // One new declaration, before its group is known: a key's family, or one
 // member of a data family of the program declared anew.
 struct ForKey {
@@ -111,15 +117,15 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
       return;
     bool holds = false;
     for (uint32_t m = 0; m < group.getMembers().size() && !holds; ++m) {
-      DataType member = DataType::get(ctx, group, m,
-                                      families::levelArgs(ctx, 0, group.indices(m).size()).getTerms());
+      DataType member = DataType::get(ctx, group, m, ownLevels(ctx, group, m).getTerms());
       for (Tag tag : member.possibleTags())
         for (Type field : member.ctor(tag).fields)
           holds = holds || carriesLabels(field);
     }
     if (!holds)
       return;
-    firstOf[group] = nodes.size();
+    // Declaration nodes are numbered by 32-bit ids.
+    firstOf[group] = static_cast<unsigned>(nodes.size());
     for (uint32_t m = 0; m < group.getMembers().size(); ++m)
       nodes.push_back(ForData{group, m});
   });
@@ -168,9 +174,8 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
           }
         },
         [&](ForData data) {
-          DataType member = DataType::get(
-              ctx, data.group, data.member,
-              families::levelArgs(ctx, 0, data.group.indices(data.member).size()).getTerms());
+          DataType member = DataType::get(ctx, data.group, data.member,
+                                          ownLevels(ctx, data.group, data.member).getTerms());
           for (Tag tag : member.possibleTags()) {
             SmallVector<Field> fields;
             for (auto [i, field] : llvm::enumerate(member.ctor(tag).fields))
@@ -209,7 +214,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
   // Each group, callees first: its members' positions, then each member
   // declared with its references to the group by position and to earlier
   // groups by their types.
-  footprint::Vector<DataType> made(nodes.size());
+  footprint::Vector<DataType> declared(nodes.size());
   footprint::Vector<std::optional<std::pair<unsigned, unsigned>>> placed(nodes.size());
   std::deque<SmallVector<Type>> fieldStore;
   std::deque<SmallVector<families::LabelDecl>> labelStore;
@@ -233,7 +238,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
         if (std::find(scc.begin(), scc.end(), to) != scc.end())
           held = SelfType::get(ctx, static_cast<uint32_t>(placed[to]->second), terms);
         else
-          held = DataType::get(ctx, made[to].getGroup(), made[to].getMember(), terms);
+          held = DataType::get(ctx, declared[to].getGroup(), declared[to].getMember(), terms);
         return graded(gradeOf(type), held);
       }
       AttrTypeReplacer local;
@@ -243,7 +248,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
           return std::nullopt;
         if (std::find(scc.begin(), scc.end(), *to) != scc.end())
           return SelfType::get(ctx, static_cast<uint32_t>(placed[*to]->second), data.getIndices());
-        return DataType::get(ctx, made[*to].getGroup(), made[*to].getMember(), data.getIndices());
+        return DataType::get(ctx, declared[*to].getGroup(), declared[*to].getMember(), data.getIndices());
       });
       return local.replace(held);
     };
@@ -281,8 +286,8 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
               families::LabelDecl decl{label.getAttr(), label, binders, terms, fields};
               if (carrierOf(k) == Carrier::Lazy)
                 memos.push_back({atoms[graph.id(label)].contains(effects::Atom::io)
-                                     ? families::Mode::ByName
-                                     : families::Mode::Memoized,
+                                     ? Mode::ByName
+                                     : Mode::Memoized,
                                  decl});
               else
                 decls.push_back(decl);
@@ -319,7 +324,7 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
     FamilyAttr group = FamilyAttr::get(ctx, members);
     for (auto [position, node] : llvm::enumerate(scc)) {
       auto indices = static_cast<uint32_t>(group.indices(static_cast<uint32_t>(position)).size());
-      made[node] = DataType::get(ctx, group, static_cast<uint32_t>(position),
+      declared[node] = DataType::get(ctx, group, static_cast<uint32_t>(position),
                                  families::levelArgs(ctx, 0, indices).getTerms());
     }
   }
@@ -330,12 +335,12 @@ LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::R
   // its constructors in their order. The replacer reads these tables for
   // the decision's life, so it holds its own.
   for (unsigned at = 0; at < families.size(); ++at) {
-    families[at].type = made[at];
-    families[at].at = DataType::get(ctx, made[at].getGroup(), made[at].getMember(),
+    families[at].type = declared[at];
+    families[at].at = DataType::get(ctx, declared[at].getGroup(), declared[at].getMember(),
                                     indexTermsOf(families[at].key.carrier).nodes);
   }
   replacer.addReplacement([this, firsts = std::move(firstOf),
-                           remade = std::move(made)](DataType data) -> std::optional<Type> {
+                           remade = std::move(declared)](DataType data) -> std::optional<Type> {
     auto first = firsts.find(data.getGroup());
     if (first == firsts.end())
       return std::nullopt;

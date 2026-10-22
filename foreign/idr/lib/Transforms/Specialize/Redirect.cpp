@@ -76,8 +76,8 @@ SmallVector<Value> operandsOf(RewriterBase &rewriter, CallOp call, const Pattern
   SmallVector<Value> operands;
   for (auto [hole, source] : llvm::enumerate(sources))
     operands.push_back(idr::match(
-        source, [&](Kept kept) { return want.leaves[kept.hole]; },
-        [&](const Lifted &lifted) {
+        source, [&](Kept kept) -> Value { return want.leaves[kept.hole]; },
+        [&](const Lifted &lifted) -> Value {
           return idr->materializeConstant(rewriter, lifted.constant, types[hole], call.getLoc())
               ->getResult(0);
         }));

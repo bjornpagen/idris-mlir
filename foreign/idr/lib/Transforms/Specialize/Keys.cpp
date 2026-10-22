@@ -186,7 +186,7 @@ Fixes fixes(const PatternKey &key, TypeRange params) {
                 path.push_back(label);
                 work.push_back(Leave{});
                 SmallVector<Type> fields = *family.determinedFields(con.tag);
-                for (unsigned k = con.fields.size(); k-- > 0;)
+                for (size_t k = con.fields.size(); k-- > 0;)
                   work.push_back(Visit{con.fields[k], fields[k]});
                 return false;
               },

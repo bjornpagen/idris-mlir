@@ -107,7 +107,7 @@ FunctionId Scheduler::insert(specialize::Node *made) {
       [](OneOf<specialize::Requested, specialize::Placed> auto &) { return specialize::Built{}; });
   FuncOp fn = built.fn;
   FuncOp owner = schedule.function(made->origin);
-  Block &body = *schedule.program.getBody();
+  Block &body = schedule.program.getBody().front();
   Block::iterator at = std::next(Block::iterator(owner.getOperation()));
   for (; at != body.end(); ++at) {
     auto next = dyn_cast<FuncOp>(*at);
@@ -259,8 +259,10 @@ LogicalResult Scheduler::settle(MutableArrayRef<Turn> wave) {
   // cycle joins one, and the waits inside it are met.
   WaitGraph waits;
   footprint::DenseMap<unsigned, unsigned> nodeOf;
+  // A node per component leader, and a leader is a function's id, a 32-bit
+  // number, so the nodes, the root one past them, are numbered by one too.
   auto nodeFor = [&](unsigned leader) {
-    auto [at, fresh] = nodeOf.try_emplace(leader, waits.leaders.size());
+    auto [at, fresh] = nodeOf.try_emplace(leader, static_cast<unsigned>(waits.leaders.size()));
     if (fresh) {
       waits.leaders.push_back(leader);
       waits.edges.emplace_back();
@@ -277,7 +279,7 @@ LogicalResult Scheduler::settle(MutableArrayRef<Turn> wave) {
           !schedule.sameComponent(id, target))
         waits.edges[from].push_back(nodeFor(schedule.components.findLeader(target.index())));
   }
-  waits.root = waits.leaders.size();
+  waits.root = static_cast<unsigned>(waits.leaders.size());
   waits.leaders.push_back(~0u);
   waits.edges.emplace_back();
   for (unsigned n = 0; n < waits.root; ++n)

@@ -104,7 +104,8 @@ llvm::hash_code positionOf(Value value) {
 // its regions' blocks, every symbol reference read through `map`.
 llvm::hash_code hashOf(FuncOp fn, MapRef map) {
   AttrTypeReplacer read = readingThrough(map);
-  llvm::hash_code hash = llvm::hash_value(read.replace(factsOf(fn)));
+  // An attribute's hash is mlir's, found by its argument's namespace.
+  llvm::hash_code hash = hash_value(read.replace(factsOf(fn)));
   fn.getBody().walk<WalkOrder::PreOrder>([&](Operation *op) {
     hash = llvm::hash_combine(hash, OperationEquivalence::computeHash(
                                         op, positionOf, OperationEquivalence::ignoreHashValue,

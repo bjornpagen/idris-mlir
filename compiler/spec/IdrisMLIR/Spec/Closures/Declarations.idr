@@ -81,6 +81,44 @@ lazyType = MkTypeDef
   }
 
 ------------------------------------------------------------------------------
+-- The constant closure
+------------------------------------------------------------------------------
+
+||| A constant closure's function, by its symbol: `@f`.
+export
+calleeRefParam : Directive
+calleeRefParam = MkDirective "CalleeRef" [] (brief "a constant closure's function, by its symbol: `@f`")
+
+||| A constant closure's captures, each a constant: `[1 : i64, #idr.big<7>]`.
+export
+capturesParam : Directive
+capturesParam = MkDirective "Captures" [] (brief "a constant closure's captures, each a constant")
+
+||| `#idr.closure<@f, [captures]>`, C++ `ClosureAttr`: a closure every
+||| capture of which is a constant, what `idr.fn.closure` folds to, held by
+||| `idr.constant` at the closure's type. It names its function with no
+||| index terms: a closure at terms stays an op, so the function's binders
+||| are those its family determines. Before defunctionalization only, which
+||| makes each its label's constructor in its slot's family.
+export
+closureAttr : AttrDef 2
+closureAttr = MkAttrDef
+  { mnemonic = "closure"
+  , params =
+      [ MkParameter "callee" (WiredValue (WiredOne (LeafAttr "::mlir::FlatSymbolRefAttr")) calleeRefParam)
+          AlwaysWritten "the function it closes over"
+      , MkParameter "captures" (WiredValue (WiredOne (LeafAttr "::mlir::ArrayAttr")) capturesParam)
+          AlwaysWritten "its captures, the function's leading parameters, each a constant" ]
+  , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ",", ParamAt 1, Keyword ">"]
+  , typed = Untyped
+  , interfaces = []
+  , verifier = AnyParameters
+  , bytecode = Derived
+  , members = []
+  , doc = brief "a closure whose captures are constants"
+  }
+
+------------------------------------------------------------------------------
 -- What the ops take
 ------------------------------------------------------------------------------
 
@@ -369,6 +407,7 @@ declarations : Declarations
 declarations =
   { ops := [SomeOp closureOp, SomeOp suspendOp, SomeOp delayOp, SomeOp forceOp, SomeOp applyOp] ++ memoOps
   , types := [SomeType fnType, SomeType lazyType]
+  , attributes := [SomeAttr closureAttr]
   , interfaces := [runsLabelsInterface, buildsLabelInterface]
   , predicates := [closureValue, suspensionValue, memoState]
   , skeleton := [ MkSkeletonRule "ForceFreshCell" ("idr" ::: ["Transforms", "Defunctionalize.h"]) "memo.run"

@@ -35,7 +35,7 @@ struct Visit {
 };
 struct Build {
   Tag tag;
-  unsigned arity;
+  size_t arity;
 };
 using Step = std::variant<Visit, Build>;
 
@@ -54,11 +54,11 @@ bool oneCellOf(Tag tag, llvm::ArrayRef<const Pattern *> peers) {
 
 // The field `i` of a peer that is a constant constructor of one cell, or
 // of a peer that is a constructor.
-const Pattern *fieldOf(Arena &arena, const Pattern *peer, unsigned i) {
+const Pattern *fieldOf(Arena &arena, const Pattern *peer, size_t i) {
   return idr::match(
       peer->get(), [&](const Con &con) { return con.fields[i]; },
       [&](const Const &constant) {
-        return arena.constant(llvm::to_vector(cast<ConAttr>(constant.value).getFields())[i]);
+        return arena.constant(cast<ConAttr>(constant.value).getFields().getValue()[i]);
       },
       [&](Hole) { return peer; });
 }
@@ -78,7 +78,7 @@ const PatternKey *liftOver(Arena &arena, const PatternKey &key,
   llvm::SmallVector<const Pattern *> built;
   llvm::SmallVector<Step> work;
   for (auto [i, param] : llvm::enumerate(llvm::reverse(key.params))) {
-    unsigned position = key.params.size() - 1 - i;
+    size_t position = key.params.size() - 1 - i;
     Position at{param, {}};
     for (const PatternKey *peer : peers)
       at.peers.push_back(peer->params[position]);
@@ -97,9 +97,9 @@ const PatternKey *liftOver(Arena &arena, const PatternKey &key,
           const Position &at = visit.at;
           // A constructor's fields, pushed so that the first is visited
           // first and the constructor built once all are.
-          auto expand = [&](Tag tag, unsigned arity, auto &&fieldAt) {
+          auto expand = [&](Tag tag, size_t arity, auto &&fieldAt) {
             work.push_back(Build{tag, arity});
-            for (unsigned k = arity; k-- > 0;) {
+            for (size_t k = arity; k-- > 0;) {
               Position field{fieldAt(at.part, k), {}};
               for (const Pattern *peer : at.peers)
                 field.peers.push_back(fieldAt(peer, k));
@@ -114,7 +114,7 @@ const PatternKey *liftOver(Arena &arena, const PatternKey &key,
               },
               [&](const Con &con) {
                 expand(con.tag, con.fields.size(),
-                       [&](const Pattern *p, unsigned k) { return fieldOf(arena, p, k); });
+                       [&](const Pattern *p, size_t k) { return fieldOf(arena, p, k); });
               },
               [&](const Const &constant) {
                 if (llvm::all_of(at.peers, [&](const Pattern *peer) { return peer == at.part; })) {
@@ -127,8 +127,8 @@ const PatternKey *liftOver(Arena &arena, const PatternKey &key,
                   built.push_back(arena.hole());
                   return;
                 }
-                expand(con.getTag(), llvm::size(con.getFields()),
-                       [&](const Pattern *p, unsigned k) { return fieldOf(arena, p, k); });
+                expand(con.getTag(), con.getFields().size(),
+                       [&](const Pattern *p, size_t k) { return fieldOf(arena, p, k); });
               });
         });
   }

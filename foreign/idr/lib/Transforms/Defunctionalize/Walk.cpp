@@ -13,6 +13,7 @@
 // context, and reads no other function but through what the decision
 // holds of it.
 
+#include "idr/IR/Control/MatchFamily.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Match.h"
@@ -45,12 +46,19 @@ CallOp callOf(OpBuilder &b, Location loc, FuncOp callee, FlatSymbolRefAttr name,
   return CallOp::create(b, loc, results, args, properties);
 }
 
-// A match of `value` over `over`'s cases, forwarding nothing: built from the
-// decision's attribute of its tags, which the match's builder from tags
-// would make.
+// A match of `value` over `over`'s cases, forwarding nothing and in no
+// lifetime: its properties set whole from the decision's attribute of its
+// tags, which the match's one builder, from tags, would make on this
+// worker; its regions the family's, the default first.
 DataMatchOp matchOf(OpBuilder &b, Location loc, TypeRange results, Value value, const Match &over) {
-  return DataMatchOp::create(b, loc, results, value, ValueRange(), ValueRange(), over.tags,
-                             static_cast<unsigned>(over.cases.size()));
+  OperationState state(loc, DataMatchOp::getOperationName());
+  state.addOperands(value);
+  state.addTypes(results);
+  DataMatchOp::Properties &properties = state.getOrAddProperties<DataMatchOp::Properties>();
+  properties.cases = over.tags;
+  properties.operandSegmentSizes = {1, 0, 0};
+  addRegions(state, over.cases.size());
+  return cast<DataMatchOp>(b.create(state));
 }
 
 // Case `at` of `match`: its block, binding the value refined, and each
@@ -101,11 +109,16 @@ Value givenAs(OpBuilder &b, Location loc, Value value, Type type) {
   return DataReindexOp::create(b, loc, type, value);
 }
 
+// The edits are read through a const reference and the IR they name is
+// written: each handle is copied out, as an op or a value is passed.
 void rewrite(const Edits &edits, const Decision &decision) {
-  OpBuilder b(edits.fn.getContext());
+  FuncOp fn = edits.fn;
+  OpBuilder b(fn.getContext());
 
-  for (const Retype &each : edits.retypes)
-    each.value.setType(each.type);
+  for (const Retype &each : edits.retypes) {
+    Value value = each.value;
+    value.setType(each.type);
+  }
 
   for (const Move &move : edits.moves) {
     Operation *owner = move.use->getOwner();
@@ -200,10 +213,11 @@ void rewrite(const Edits &edits, const Decision &decision) {
     erased.push_back(force);
   }
   for (const Constant &each : edits.constants) {
-    b.setInsertionPoint(each.op);
-    each.op.getResult().replaceAllUsesWith(
-        ConstantOp::create(b, each.op.getLoc(), each.op.getResult().getType(), each.value));
-    erased.push_back(each.op);
+    ConstantOp op = each.op;
+    b.setInsertionPoint(op);
+    op.getResult().replaceAllUsesWith(
+        ConstantOp::create(b, op.getLoc(), op.getResult().getType(), each.value));
+    erased.push_back(op);
   }
 
   for (Operation *op : llvm::reverse(erased))

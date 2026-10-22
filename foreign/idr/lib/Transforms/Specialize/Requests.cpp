@@ -54,12 +54,14 @@ CallSite siteOf(const optimize::Schedule &schedule, FunctionId self, const Node 
 
 // The binding times of a callee's parameters as a call sees them: within
 // the recursion of the cycle both stand in, the callee's own; entering it
-// from outside, each is fixed.
+// from outside, each is fixed. The callee is read through a const reference,
+// so its handle is copied out, as an op is passed.
 SmallVector<BindingTime> seenBy(const CallSite &site, const optimize::Readable &read) {
+  FuncOp callee = read.fn;
   return idr::match(
       site, [&](const InsideCycle &) { return SmallVector<BindingTime>(read.times); },
       [&](OutsideCycle) {
-        return SmallVector<BindingTime>(read.fn.getNumArguments(), BindingTime::Fixed);
+        return SmallVector<BindingTime>(callee.getNumArguments(), BindingTime::Fixed);
       });
 }
 
@@ -96,7 +98,7 @@ IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr class
   ArrayRef<families::TermNode> mine = call.getTerms(), theirs = classes.getTerms();
   while (!mine.empty()) {
     families::Term own(mine), fixed(theirs);
-    if (fixed.head().kind == families::TermKind::Level) {
+    if (fixed.head().kind == TermKind::Level) {
       llvm::append_range(kept, own.nodes());
       ++count;
     }

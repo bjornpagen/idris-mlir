@@ -66,7 +66,7 @@ FailureOr<FunctionType> calleeAt(Operation *op, FlatSymbolRefAttr callee, IndexA
 LogicalResult memoizes(Operation *op, DataType cell) {
   ArrayRef<families::MemoLabelDecl> labels = cell.memo()->labels();
   auto state = static_cast<unsigned>(*cell.singleTag());
-  if (state >= labels.size() || labels[state].mode != families::Mode::Memoized)
+  if (state >= labels.size() || labels[state].mode != idr::Mode::Memoized)
     return op->emitOpError("exchanges the state ")
            << state << " of " << cell << ", which is no label of the cell that memoizes";
   return success();
@@ -108,6 +108,34 @@ bool idr::isMemoState(Type type) {
 
 void FnType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("f"); }
 void LazyType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("lazy"); }
+
+//===----------------------------------------------------------------------===//
+// #idr.closure
+//===----------------------------------------------------------------------===//
+
+// A constant closure's function and captures are upstream's attributes, and
+// read and print as upstream's do: `@f`, then `[1 : i64, #idr.big<7>]`.
+FailureOr<FlatSymbolRefAttr> idr::parseCalleeRef(AsmParser &parser) {
+  FlatSymbolRefAttr callee;
+  if (parser.parseAttribute(callee))
+    return failure();
+  return callee;
+}
+
+void idr::printCalleeRef(AsmPrinter &printer, FlatSymbolRefAttr value) {
+  printer.printAttributeWithoutType(value);
+}
+
+FailureOr<ArrayAttr> idr::parseCaptures(AsmParser &parser) {
+  ArrayAttr captures;
+  if (parser.parseAttribute(captures))
+    return failure();
+  return captures;
+}
+
+void idr::printCaptures(AsmPrinter &printer, ArrayAttr value) {
+  printer.printAttributeWithoutType(value);
+}
 
 //===----------------------------------------------------------------------===//
 // idr.fn.closure

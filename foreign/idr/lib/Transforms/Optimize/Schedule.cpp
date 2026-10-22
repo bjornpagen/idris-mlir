@@ -44,22 +44,22 @@ solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
   // wait closes a cycle through two; its callees in other components are
   // counted each once.
   for (solver::SccId scc : frozen.sccCount().ids()) {
-    auto ids = frozen.members(scc);
-    unsigned first = (*ids.begin()).index();
-    for (solver::FunctionId fn : ids)
+    auto component = frozen.members(scc);
+    unsigned first = (*component.begin()).index();
+    for (solver::FunctionId fn : component)
       components.join(first, fn.index());
   }
   for (solver::SccId scc : frozen.sccCount().ids()) {
-    auto ids = frozen.members(scc);
-    unsigned mine = components.findLeader((*ids.begin()).index());
-    llvm::SmallDenseSet<unsigned, 8> callees;
-    for (solver::FunctionId fn : ids) {
+    auto component = frozen.members(scc);
+    unsigned mine = components.findLeader((*component.begin()).index());
+    llvm::SmallDenseSet<unsigned, 8> outside;
+    for (solver::FunctionId fn : component) {
       byComponent[mine].push_back(fn);
       for (const solver::Call &call : frozen.callees(fn))
         if (unsigned theirs = components.findLeader(call.callee.index()); theirs != mine)
-          callees.insert(theirs);
+          outside.insert(theirs);
     }
-    unfinished[mine] = static_cast<unsigned>(callees.size());
+    unfinished[mine] = static_cast<unsigned>(outside.size());
   }
   for (footprint::Vector<FunctionId> &group : byComponent)
     llvm::sort(group);

@@ -28,6 +28,7 @@
 #include "idr/Transforms/OptimizeScheduler.h"
 
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -121,7 +122,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
     if (bits.none())
       continue;
     StringAttr name = fn.getSymNameAttr();
-    auto narrow = [&, at = at](FuncOp caller) {
+    auto narrow = [&](FuncOp caller) {
       caller.getBody().walk([&](CallOp call) {
         if (call.getCalleeAttr().getAttr() != name)
           return;
@@ -150,10 +151,12 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
     idr::match(
         schedule.members[id.index()].phase,
         [&](Done &done) {
+          // A parameter's position is its bit's, which a bit vector
+          // numbers as it numbers its bits.
           SmallVector<BindingTime> kept;
-          for (auto [p, time] : llvm::enumerate(done.solved.times))
+          for (unsigned p : llvm::seq(0u, bits.size()))
             if (!bits.test(p))
-              kept.push_back(time);
+              kept.push_back(done.solved.times[p]);
           done.solved.times = std::move(kept);
         },
         [](OneOf<Waiting, Parked, Final> auto &) {});

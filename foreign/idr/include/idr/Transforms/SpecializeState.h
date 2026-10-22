@@ -78,8 +78,8 @@ struct Node {
   // with the terms its signature key fixed put in, and a raise copy the
   // consumer of each function that asked for it too, whose calls are that
   // function's and stand in its cycles wherever the copy's origin is.
-  llvm::SmallVector<families::Term> own;
-  llvm::SmallVector<FunctionId, 1> cycles;
+  llvm::SmallVector<families::Term> own{};
+  llvm::SmallVector<FunctionId, 1> cycles{};
 };
 
 // The consumer forms raising has met: each a detached function, interned

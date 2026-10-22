@@ -176,7 +176,7 @@ struct BuildAt {
 struct MakeCon {
   Type type;
   Tag tag;
-  unsigned arity;
+  size_t arity;
 };
 struct Enter {
   Type type;
@@ -204,7 +204,13 @@ Value rebuild(OpBuilder &b, Location loc, const Pattern &pattern, Type type,
         [&](const MakeCon &make) {
           SmallVector<Value> fields(built.end() - make.arity, built.end());
           built.resize(built.size() - make.arity);
-          built.push_back(DataConOp::create(b, loc, make.type, make.tag, fields).getResult());
+          // The constructor at the position's grade, which the parameter it
+          // stands for keeps, refined to its tag at the binders the
+          // position's indices determine, as they determine its fields.
+          DataType data = dataTypeOf(make.type);
+          Type result =
+              graded(gradeOf(make.type), data.refinedTo(make.tag, *data.bindersOf(make.tag)));
+          built.push_back(DataConOp::create(b, loc, result, fields).getResult());
         },
         [&](const BuildAt &at) {
           idr::match(
@@ -216,8 +222,8 @@ Value rebuild(OpBuilder &b, Location loc, const Pattern &pattern, Type type,
                   return;
                 }
                 SmallVector<Type> types = fieldTypes(at.type, con.tag);
-                work.push_back(MakeCon{at.type, con.tag, static_cast<unsigned>(con.fields.size())});
-                for (unsigned k = con.fields.size(); k-- > 0;)
+                work.push_back(MakeCon{at.type, con.tag, con.fields.size()});
+                for (size_t k = con.fields.size(); k-- > 0;)
                   work.push_back(BuildAt{con.fields[k], types[k]});
               },
               [&](const Const &constant) {
@@ -236,7 +242,7 @@ void holeTypes(const Pattern &pattern, Type type, SmallVectorImpl<Type> &out) {
         at->get(), [&](Hole) { out.push_back(position); },
         [&](const Con &con) {
           SmallVector<Type> types = fieldTypes(position, con.tag);
-          for (unsigned k = con.fields.size(); k-- > 0;)
+          for (size_t k = con.fields.size(); k-- > 0;)
             work.push_back({con.fields[k], types[k]});
         },
         [](const Const &) {});
