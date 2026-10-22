@@ -267,17 +267,32 @@ data OpKey = OurOp AnyOp | AdmittedOp Admitted
 export
 keyName : OpKey -> String
 keyName (OurOp (SomeOp op)) = opClass op
-keyName (AdmittedOp a) = identText a.upstreamRecord
+keyName (AdmittedOp a) = identText a.alias
 
 export
 keyClass : OpKey -> String
 keyClass (OurOp (SomeOp op)) = opQualifiedClass op
 keyClass (AdmittedOp a) = admittedAlias a
 
+||| Each upstream dialect that admits an op, in the dialects' order, has the
+||| classes of its admitted ops aliased by one run of the backend over its
+||| admitted record file (`IdrAdmitted<Name>Classes.h.inc`), one run per
+||| file since two dialects' records may share a name; this header includes
+||| each after the header that declares the classes it aliases, so a reader
+||| of an admitted op's class includes this alone.
+export
+admittedClassesHeader : List Dialect -> Lines
+admittedClassesHeader ds =
+  header "AdmittedClasses" (concatMap includes ds) []
+  where
+    includes : Dialect -> List String
+    includes d = [ quoted (cppHeader d)
+                 , quoted ("idr/IR/IdrAdmitted" ++ identText (dialectName d) ++ "Classes.h.inc") ]
+
 export
 opIndexHeader : List OpKey -> Lines
 opIndexHeader keys =
-  header "OpIndex" ["\"idr/Support/Enum.h\"", "\"idr/IR/IdrAdmittedClasses.h.inc\"", "<array>", "<cstdint>", "<string_view>", "<type_traits>"]
+  header "OpIndex" ["\"idr/Support/Enum.h\"", "\"idr/IR/Generated/AdmittedClasses.h.inc\"", "<array>", "<cstdint>", "<string_view>", "<type_traits>"]
     (inNamespace "idr"
       ( slashComment ["Every op of the dialect and every admitted upstream op, the key of every per-op table."]
         ++ ["enum class OpIndex : std::uint16_t {"] ++ indent 2 (map (\k => keyName k ++ ",") keys) ++ ["};", ""]
@@ -327,7 +342,7 @@ specializationHeader t ops =
      ++ ["#ifdef " ++ macro, "#undef " ++ macro, ""]
      ++ zipWith (++) (map fst members) (replicate (pred (length members)) "," ++ [""])
      ++ ["", "#else"]
-     ++ header (identText t) ["\"idr/IR/IdrAdmittedClasses.h.inc\"", "<cstdint>"]
+     ++ header (identText t) ["\"idr/IR/Generated/AdmittedClasses.h.inc\"", "<cstdint>"]
           (inNamespace "idr"
              ( ["template <class OpT>", "struct " ++ identText t ++ ";", ""]
                ++ concatMap (\(cls, cs) => ["template <>", "struct " ++ identText t ++ "<" ++ cls ++ "> {"]
@@ -705,17 +720,57 @@ resourcesHeader rs =
 -- The e-graph's rules
 ------------------------------------------------------------------------------
 
-||| A pattern node flattened, its op named by its class: a variable, an op
-||| at one of its results with its arity, or a literal.
+||| Where a kind's node gets its interval when a rule built it and no op
+||| stands for it: the range function upstream has for an admitted op, an
+||| op of ours's inline meaning over intervals, or nowhere.
 public export
-data FlatNode = FVar Nat | FNode String Nat Nat | FLit Integer
+data RangeSource = ByUpstream RangeFunction | ByMeaning Ident | NoRange
 
-||| A rule flattened: its root's class, its variables, its two sides in
+||| The range source an op of ours's meaning gives: only an inline meaning
+||| of values computes over intervals. A condition is a truth, and every
+||| other meaning is the runtime's or hand C++, which needs an op to ask.
+rangeOfMeaning : Meaning i o -> RangeSource
+rangeOfMeaning (Inline fn) = ByMeaning fn
+rangeOfMeaning (InlineCondition _) = NoRange
+rangeOfMeaning (CallsRuntime _) = NoRange
+rangeOfMeaning (CallsRuntimeByCase _ _) = NoRange
+rangeOfMeaning (ComputedByRuntime _) = NoRange
+rangeOfMeaning HandFolder = NoRange
+rangeOfMeaning NoFold = NoRange
+
+||| An op kind a pattern names: its class, which is its identity, and its
+||| range source, read off the op's declaration where the pattern is
+||| flattened and carried with it, so no table is searched by class for it.
+public export
+record OpKind where
+  constructor MkOpKind
+  cls : String
+  rangeSource : RangeSource
+
+export
+kindOfOp : Op i o a r -> OpKind
+kindOfOp op = MkOpKind (opQualifiedClass op) (rangeOfMeaning op.meaning)
+
+export
+kindOfAdmitted : Admitted -> OpKind
+kindOfAdmitted a = MkOpKind (admittedAlias a) (maybe NoRange ByUpstream a.range)
+
+||| Two kinds are one where their classes are.
+export
+sameKind : OpKind -> OpKind -> Bool
+sameKind k l = k.cls == l.cls
+
+||| A pattern node flattened: a variable, an op's kind at one of its
+||| results with its arity, or a literal.
+public export
+data FlatNode = FVar Nat | FNode OpKind Nat Nat | FLit Integer
+
+||| A rule flattened: its root's kind, its variables, its two sides in
 ||| preorder, its conditions as printed rows.
 public export
 record FlatRule where
   constructor MkFlatRule
-  root : String
+  root : OpKind
   vars : Nat
   lhs : List FlatNode
   rhs : List FlatNode
@@ -724,8 +779,8 @@ record FlatRule where
 mutual
   flatPat : Pat n -> List FlatNode
   flatPat (Var v) = [FVar (finToNat v)]
-  flatPat (Node op res args) = FNode (opQualifiedClass op) (finToNat res) (length args) :: flatVect args
-  flatPat (UpstreamNode a args) = FNode (admittedAlias a) 0 (length args) :: flatList args
+  flatPat (Node op res args) = FNode (kindOfOp op) (finToNat res) (length args) :: flatVect args
+  flatPat (UpstreamNode a args) = FNode (kindOfAdmitted a) 0 (length args) :: flatList args
   flatPat (Literal l) = [FLit l]
 
   flatVect : Vect k (Pat n) -> List FlatNode
@@ -737,11 +792,11 @@ mutual
   flatList (p :: ps) = flatPat p ++ flatList ps
 
 export
-flatRoot : Root n -> (String, List FlatNode)
+flatRoot : Root n -> (OpKind, List FlatNode)
 flatRoot (RootedAt op res args) =
-  (opQualifiedClass op, FNode (opQualifiedClass op) (finToNat res) (length args) :: flatVect args)
+  (kindOfOp op, FNode (kindOfOp op) (finToNat res) (length args) :: flatVect args)
 flatRoot (RootedAtUpstream a args) =
-  (admittedAlias a, FNode (admittedAlias a) 0 (length args) :: flatList args)
+  (kindOfAdmitted a, FNode (kindOfAdmitted a) 0 (length args) :: flatList args)
 
 export
 condRow : Cond n -> String
@@ -756,13 +811,13 @@ fromRewrite (SomeRewrite rw) =
   let (root, lhs) = flatRoot rw.lhs
   in MkFlatRule root (length (toList rw.vars)) lhs (flatPat rw.rhs) (map condRow rw.conds)
 
-||| The rules a binary operation's associativity gives, on its class: a
+||| The rules a binary operation's associativity gives, on its kind: a
 ||| chain's two constants combined, `(x . c0) . c1` to `x . (c0 . c1)` and
 ||| `c0 . (c1 . x)` to `(c0 . c1) . x`, which the op's fold then computes.
 ||| Each fires only on two constants. Reassociation alone, which only
 ||| connects equal forms, is no rule: on real code it found nothing
 ||| extraction kept and made every budget stop.
-associativeRules : String -> List FlatRule
+associativeRules : OpKind -> List FlatRule
 associativeRules c =
   let two = FNode c 0 2
       constants : Fin 3 -> Fin 3 -> List String
@@ -770,8 +825,8 @@ associativeRules c =
   in [ MkFlatRule c 3 [two, two, FVar 0, FVar 1, FVar 2] [two, FVar 0, two, FVar 1, FVar 2] (constants 1 2)
      , MkFlatRule c 3 [two, FVar 0, two, FVar 1, FVar 2] [two, two, FVar 0, FVar 1, FVar 2] (constants 0 1) ]
 
-||| The rule of a binary operation's identity on its right, on its class.
-identityRule : String -> Integer -> FlatRule
+||| The rule of a binary operation's identity on its right, on its kind.
+identityRule : OpKind -> Integer -> FlatRule
 identityRule c k = MkFlatRule c 1 [FNode c 0 2, FVar 0, FLit k] [FVar 0] []
 
 ||| The rules an op's laws give: the law is the one fact, so its rules are
@@ -784,8 +839,8 @@ export
 lawRules : AnyOp -> List FlatRule
 lawRules (SomeOp op) = concatMap (rulesOf (length (toList op.ins))) op.laws
   where
-    c : String
-    c = opQualifiedClass op
+    c : OpKind
+    c = kindOfOp op
     two : FlatNode
     two = FNode c 0 2
     rulesOf : Nat -> Law -> List FlatRule
@@ -796,38 +851,38 @@ lawRules (SomeOp op) = concatMap (rulesOf (length (toList op.ins))) op.laws
     rulesOf 1 Involution = [MkFlatRule c 1 [FNode c 0 1, FNode c 0 1, FVar 0] [FVar 0] []]
     rulesOf _ _ = []
 
-||| The rules an admitted upstream op's laws give, on its class: every law
+||| The rules an admitted upstream op's laws give, on its kind: every law
 ||| upstream has no trait for is binary.
 export
 admittedLawRules : Admitted -> List FlatRule
 admittedLawRules a = concatMap rulesOf a.laws
   where
     rulesOf : UpLaw -> List FlatRule
-    rulesOf UpAssociative = associativeRules (admittedAlias a)
-    rulesOf (UpIdentity k) = [identityRule (admittedAlias a) k]
+    rulesOf UpAssociative = associativeRules (kindOfAdmitted a)
+    rulesOf (UpIdentity k) = [identityRule (kindOfAdmitted a) k]
 
-||| The classes a node of the rules names, each once, in first use's order:
+||| The kinds a node of the rules names, each once, in first use's order:
 ||| a kind's number is its position.
 export
-kindsOf : List FlatRule -> List String
-kindsOf rules = nub (concatMap (\r => classes (r.lhs ++ r.rhs)) rules)
+kindsOf : List FlatRule -> List OpKind
+kindsOf rules = nubBy sameKind (concatMap (\r => named (r.lhs ++ r.rhs)) rules)
   where
-    classes : List FlatNode -> List String
-    classes [] = []
-    classes (FNode k _ _ :: ns) = k :: classes ns
-    classes (_ :: ns) = classes ns
+    named : List FlatNode -> List OpKind
+    named [] = []
+    named (FNode k _ _ :: ns) = k :: named ns
+    named (_ :: ns) = named ns
 
-||| The position of a class among the kinds.
+||| The position of a kind among the kinds.
 export
-kindNumber : List String -> String -> Nat
+kindNumber : List OpKind -> OpKind -> Nat
 kindNumber kinds k = go 0 kinds
   where
-    go : Nat -> List String -> Nat
+    go : Nat -> List OpKind -> Nat
     go n [] = n
-    go n (x :: xs) = if x == k then n else go (S n) xs
+    go n (x :: xs) = if sameKind x k then n else go (S n) xs
 
 export
-nodeRow : List String -> FlatNode -> String
+nodeRow : List OpKind -> FlatNode -> String
 nodeRow _ (FVar v) = "{table::PatternKind::Var, 0, 0, 0, " ++ decimal v ++ ", 0}"
 nodeRow kinds (FNode k res arity) =
   "{table::PatternKind::Node, " ++ decimal (kindNumber kinds k) ++ ", " ++ decimal res ++ ", " ++ decimal arity ++ ", 0, 0}"
@@ -836,8 +891,8 @@ nodeRow _ (FLit l) = "{table::PatternKind::Literal, 0, 0, 0, 0, " ++ integer l +
 ||| The rules grouped by their root's kind, in the kinds' order and, within
 ||| a kind, in declaration order: a grouping, never a sort.
 export
-byKind : List String -> List FlatRule -> List (List FlatRule)
-byKind kinds rules = map (\k => filter (\r => r.root == k) rules) kinds
+byKind : List OpKind -> List FlatRule -> List (List FlatRule)
+byKind kinds rules = map (\k => filter (\r => sameKind r.root k) rules) kinds
 
 ||| The rows of the rule table, with each side's and the conditions'
 ||| offsets into the pattern and condition arrays.
@@ -849,7 +904,7 @@ record Laid where
   rules : List String
 
 export
-layRules : List String -> List FlatRule -> Laid
+layRules : List OpKind -> List FlatRule -> Laid
 layRules kinds = go (MkLaid [] [] [])
   where
     go : Laid -> List FlatRule -> Laid
@@ -897,11 +952,21 @@ skeletonRulesHeader rules =
       let p = pathText r.declaredIn
       in if elem p seen then headers seen rs else r.declaredIn :: headers (p :: seen) rs
 
+||| A kind's entry in the range table: the engine's adaptor at upstream's
+||| range function, or at an inline meaning's trait's function over
+||| intervals; none where the kind has neither.
+export
+rangeEntry : RangeSource -> String
+rangeEntry (ByUpstream f) = "table::rangeBy<&::mlir::intrange::" ++ identText f.name ++ ">"
+rangeEntry (ByMeaning fn) = "table::rangeBy<&::idr::numeric::InlineArith<::idr::numeric::" ++ identText fn ++ ">::inferRanges>"
+rangeEntry NoRange = "std::nullopt"
+
 ||| The e-graph's rules as the engine reads them: the patterns in preorder,
 ||| the conditions, the rules grouped by root kind with each kind's offset,
-||| the kinds, the skeleton rules, and the budget, all compile-time
-||| constants, so nothing is built per function. The rules are the
-||| specification's, its ops' laws' and its admitted ops' laws'.
+||| the kinds and each one's range function, the skeleton rules, and the
+||| budget, all compile-time constants, so nothing is built per function.
+||| The rules are the specification's, its ops' laws' and its admitted ops'
+||| laws'.
 export
 rewritesHeader : List AnyRewrite -> List AnyOp -> List Admitted -> List SkeletonRule -> Lines
 rewritesHeader rws ops admitted skeleton =
@@ -909,16 +974,20 @@ rewritesHeader rws ops admitted skeleton =
       kinds = kindsOf rules
       groups = byKind kinds rules
       laid = layRules kinds (concat groups)
-  in header "Rewrites" ["\"idr/Transforms/EGraph.h\"", "\"idr/IR/IdrAdmittedClasses.h.inc\"", "\"idr/IR/Generated/SkeletonRules.h.inc\"", "<cstdint>"]
+  in header "Rewrites" ["\"idr/Transforms/EGraph.h\"", "\"idr/IR/Generated/AdmittedClasses.h.inc\"", "\"idr/IR/Generated/SkeletonRules.h.inc\"", "\"idr/IR/Numeric/Trait.h\"", "\"mlir/Interfaces/Utils/InferIntRangeCommon.h\"", "<cstdint>", "<optional>"]
        (inNamespace "idr::egraph::generated"
-         ( ["using Kinds = table::OpList<" ++ joinWith ", " kinds ++ ">;", ""]
+         ( ["using Kinds = table::OpList<" ++ joinWith ", " (map (.cls) kinds) ++ ">;", ""]
+           ++ slashComment [ "Each kind's interval from its operands', by the kind's number, for a node a rule built, where no op"
+                           , "stands to be asked: upstream's range function for an admitted op, an inline meaning over intervals for"
+                           , "one of ours, none for any other kind." ]
+           ++ ["inline constexpr std::optional<table::IntRangeFn> intRanges[] = {"] ++ indent 2 (braced (map (rangeEntry . (.rangeSource)) kinds)) ++ ["};", ""]
            ++ ["inline constexpr table::PatternNode patterns[] = {"] ++ indent 2 (braced laid.patterns) ++ ["};", ""]
            ++ ["inline constexpr table::Condition conditions[] = {"] ++ indent 2 (braced laid.conditions) ++ ["};", ""]
            ++ ["inline constexpr table::Rule rules[] = {"] ++ indent 2 (braced laid.rules) ++ ["};", ""]
            ++ ["inline constexpr std::uint32_t rulesOfKind[] = {" ++ joinWith ", " (map decimal (offsets groups)) ++ "};", ""]
            ++ ["using SkeletonRules = table::RuleList<" ++ joinWith ", " (map (\n => "::idr::egraph::" ++ identText n) (skeletonClasses skeleton)) ++ ">;", ""]
            ++ slashComment ["Nodes per op of a function's e-graph: its arena, known before its search starts, is this times its ops."]
-           ++ ["inline constexpr std::uint32_t nodesPerOp = 64;"] ))
+           ++ ["inline constexpr std::uint32_t nodesPerOp = " ++ decimal nodesPerOp ++ ";"] ))
 
 ------------------------------------------------------------------------------
 -- Laws
@@ -966,7 +1035,7 @@ unitsOf ops admitted = concatMap ours ops ++ concatMap upstream admitted
 export
 lawsHeader : List AnyOp -> List Admitted -> Lines
 lawsHeader ops admitted =
-  header "Laws" ["\"idr/IR/IdrAdmittedClasses.h.inc\"", "<cstdint>", "<tuple>"]
+  header "Laws" ["\"idr/IR/Generated/AdmittedClasses.h.inc\"", "<cstdint>", "<tuple>"]
     (inNamespace "idr::laws"
       ( slashComment ["An operation the specification calls exactly associative, and its identity."]
         ++ [ "template <class OpT, std::int64_t Identity>"

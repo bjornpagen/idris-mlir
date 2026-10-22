@@ -274,6 +274,16 @@ simplify = MkPass ("simplify" ::: []) OnFunction AnyStage Apply Edits [ stat "nu
   (MkDoc "Simplify a function on an e-graph over its ops, where our ops are"
      "Rules from the specification applied at insertion, effectful ops in a skeleton\nordered per resource, extraction by cost; a call is deleted or moved only where its\nrow carries neither crash nor divergence. Its budget is nodes per op from the program\nalone: a spent budget leaves the function less simplified, never refused.")
 
+||| The simplification's budget: the nodes a function's e-graph may hold per
+||| op of the function, its arena fixed before its search starts. A spent
+||| budget leaves the function less simplified and refuses nothing. Not yet
+||| measured: it is fixed by measuring the stage-1 module (the nodes each
+||| function's search makes against the forms extraction keeps), and until
+||| then holds the engine's first figure.
+public export
+nodesPerOp : Nat
+nodesPerOp = 64
+
 public export
 structureLoops : Pass
 structureLoops = MkPass ("structure" ::: ["loops"]) OnFunction (At First) Apply Keeps

@@ -138,12 +138,14 @@ admittedBaseTd =
     , "  int causeNumber = cause;"
     , "}"
     , ""
-    , "// An upstream op the dialect admits: upstream's own record, the stages"
-    , "// it may stand at, whether the frontend writes it (its Idris builder"
-    , "// is printed), and the guards that builder gives it."
-    , "class IdrAdmitted<Op upstream, string first, string last, int written,"
-    , "                  list<IdrAdmittedGuard> guarded> {"
+    , "// An upstream op the dialect admits: upstream's own record, the alias"
+    , "// its C++ class is known by among every dialect's admitted ops, the"
+    , "// stages it may stand at, whether the frontend writes it (its Idris"
+    , "// builder is printed), and the guards that builder gives it."
+    , "class IdrAdmitted<Op upstream, string aliasName, string first, string last,"
+    , "                  int written, list<IdrAdmittedGuard> guarded> {"
     , "  Op op = upstream;"
+    , "  string alias = aliasName;"
     , "  string firstStage = first;"
     , "  string lastStage = last;"
     , "  int frontendWrites = written;"
@@ -164,8 +166,8 @@ admittedRow a =
       written = case a.writer of
                   FrontendWrites => "1"
                   PassesOnly => "0"
-  in "def IdrAdmitted_" ++ identText a.upstreamRecord ++ " : IdrAdmitted<" ++ identText a.upstreamRecord ++ ", "
-       ++ quoted first ++ ", " ++ quoted last ++ ", " ++ written ++ ", ["
+  in "def IdrAdmitted_" ++ identText a.alias ++ " : IdrAdmitted<" ++ identText a.upstreamRecord ++ ", "
+       ++ quoted (identText a.alias) ++ ", " ++ quoted first ++ ", " ++ quoted last ++ ", " ++ written ++ ", ["
        ++ joinWith ", " (map admittedGuard a.guards) ++ "]>;"
   where
     name : Stage -> String
@@ -174,19 +176,60 @@ admittedRow a =
     bounds Always = ("Higher", "Lowered")
     bounds (Between f l _) = (name f, name l)
 
-||| One admitted record file per upstream dialect.
+||| Whether two dialects are one.
+sameDialect : Dialect -> Dialect -> Bool
+sameDialect x y = identText (dialectName x) == identText (dialectName y)
+
+||| The ops the specification admits from a dialect, in declaration order.
+admittedOf : Dialect -> List Admitted
+admittedOf d = filter (\a => sameDialect a.dialect d) declarations.admitted
+
+||| Whether the frontend writes the op.
+frontendWrites : Admitted -> Bool
+frontendWrites a = case a.writer of
+  FrontendWrites => True
+  PassesOnly => False
+
+||| The upstream dialects that admit an op, in the dialects' order: each has
+||| an admitted record file, read by one run of the backend apiece, and a
+||| dialect that admits nothing has none.
+export
+admittingDialects : List Dialect
+admittingDialects = filter (not . null . admittedOf) upstreamDialects
+
+||| The upstream dialects the frontend writes an op of, in the dialects'
+||| order: the ones the Idris side holds a vocabulary of, generated from
+||| each one's admitted record file.
+export
+writtenDialects : List Dialect
+writtenDialects = filter (any frontendWrites . admittedOf) upstreamDialects
+
+||| One admitted record file per upstream dialect that admits an op.
 export
 admittedTd : Dialect -> (Path, String)
 admittedTd d =
   ( generated ("IdrAdmitted" ++ identText (dialectName d) ++ ".td")
   , tdFile ("IDR_GENERATED_ADMITTED_" ++ pack (map up (unpack (identText (dialectName d)))))
       [odsInclude d, "idr/IR/Generated/IdrAdmittedBase.td"]
-      (map admittedRow (filter (\a => sameDialect a.dialect d) declarations.admitted)) )
+      (map admittedRow (admittedOf d)) )
   where
     up : Char -> Char
     up c = if lower c then chr (ord c - 32) else c
-    sameDialect : Dialect -> Dialect -> Bool
-    sameDialect x y = identText (dialectName x) == identText (dialectName y)
+
+||| The dialects the frontend writes, one per line, as the script that
+||| generates the Idris side's vocabulary of each reads them: its namespace
+||| in the IR, its name (of its admitted record file and its modules), and
+||| its bytecode records under MLIR's include directory, or `-` where the
+||| frontend writes its types and attributes as text.
+export
+writtenDialectsList : String
+writtenDialectsList =
+  render (banner hashComment
+          ++ hashComment ["namespace, name, bytecode records: the upstream dialects the frontend writes."]
+          ++ map row writtenDialects)
+  where
+    row : Dialect -> String
+    row d = wordText (namespaceWord d) ++ " " ++ identText (dialectName d) ++ " " ++ maybe "-" id (bytecodeRecords d)
 
 ||| The dialect's own allOps, which every table and the frontend's builders
 ||| hold; an op the dialect defines in upstream's transform dialect is
@@ -213,8 +256,10 @@ generate =
   , (generated "IdrPasses.td", passesTd)
   , (generated "IdrInnerPasses.td", innerPassesTd)
   , (generated "IdrAdmittedBase.td", admittedBaseTd) ]
-  ++ map admittedTd upstreamDialects
-  ++ [ (generated "EnumTraits.h.inc", render (odsEnumTraits declarations.enums))
+  ++ map admittedTd admittingDialects
+  ++ [ (generated "AdmittedClasses.h.inc", render (admittedClassesHeader admittingDialects))
+     , (generated "WrittenDialects.txt", writtenDialectsList)
+     , (generated "EnumTraits.h.inc", render (odsEnumTraits declarations.enums))
      , (generated "Storages.h.inc", render (storagesHeader declarations.types declarations.attributes))
      , (generated "OpIndex.h.inc", render (opIndexHeader opKeys))
      , (generated "Guards.h.inc", render (guardsHeader ourOps))

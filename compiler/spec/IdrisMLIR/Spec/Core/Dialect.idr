@@ -61,7 +61,7 @@ odsDialect Tensor = ident "Tensor_Dialect"
 odsDialect UB = ident "UB_Dialect"
 odsDialect Linalg = ident "Linalg_Dialect"
 odsDialect Bufferization = ident "Bufferization_Dialect"
-odsDialect SCF = ident "SCFDialect"
+odsDialect SCF = ident "SCF_Dialect"
 odsDialect Transform = ident "Transform_Dialect"
 
 ||| The upstream ODS file that defines the dialect's ops, which an admitted
@@ -79,6 +79,42 @@ odsInclude Linalg = "mlir/Dialect/Linalg/IR/LinalgStructuredOps.td"
 odsInclude Bufferization = "mlir/Dialect/Bufferization/IR/BufferizationOps.td"
 odsInclude SCF = "mlir/Dialect/SCF/IR/SCFOps.td"
 odsInclude Transform = "mlir/Dialect/Transform/IR/TransformOps.td"
+
+||| The C++ header that declares the dialect's ops: the classes its
+||| admitted ops' aliases name are declared there, so the aliases' header
+||| includes it.
+public export
+cppHeader : Dialect -> String
+cppHeader Idr = "idr/IR/IdrDialect.h"
+cppHeader Builtin = "mlir/IR/BuiltinOps.h"
+cppHeader Arith = "mlir/Dialect/Arith/IR/Arith.h"
+cppHeader Math = "mlir/Dialect/Math/IR/Math.h"
+cppHeader MemRef = "mlir/Dialect/MemRef/IR/MemRef.h"
+cppHeader Tensor = "mlir/Dialect/Tensor/IR/Tensor.h"
+cppHeader UB = "mlir/Dialect/UB/IR/UBOps.h"
+cppHeader Linalg = "mlir/Dialect/Linalg/IR/Linalg.h"
+cppHeader Bufferization = "mlir/Dialect/Bufferization/IR/Bufferization.h"
+cppHeader SCF = "mlir/Dialect/SCF/IR/SCF.h"
+cppHeader Transform = "mlir/Dialect/Transform/IR/TransformOps.h"
+
+||| Upstream's file of the dialect's bytecode records, under MLIR's include
+||| directory, where the frontend writes the dialect's types and attributes
+||| in bytecode: its writer's entries are generated from those records.
+||| None where the frontend writes them as text, and none for ours, whose
+||| entries the specification prints itself.
+public export
+bytecodeRecords : Dialect -> Maybe String
+bytecodeRecords Idr = Nothing
+bytecodeRecords Builtin = Just "mlir/IR/BuiltinDialectBytecode.td"
+bytecodeRecords Arith = Nothing
+bytecodeRecords Math = Nothing
+bytecodeRecords MemRef = Nothing
+bytecodeRecords Tensor = Nothing
+bytecodeRecords UB = Nothing
+bytecodeRecords Linalg = Nothing
+bytecodeRecords Bufferization = Nothing
+bytecodeRecords SCF = Nothing
+bytecodeRecords Transform = Nothing
 
 ||| The dialect in an identifier: the admitted record file's and the Idris
 ||| module's name, `IdrAdmittedArith.td`, `IdrisMLIR.Dialect.Arith`.

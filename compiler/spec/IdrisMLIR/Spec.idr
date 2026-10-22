@@ -171,12 +171,20 @@ wordsHeader = MkHeader (ident "Words")
     kinds : List ComponentWord
     kinds = forget componentWordClosed.every
 
+||| `builtin.module`, which the frontend writes around every program and
+||| which stands at every stage: upstream's record holds its meaning.
+public export
+builtinModule : Admitted
+builtinModule = MkAdmitted Builtin "ModuleOp" "Builtin_ModuleOp" Always FrontendWrites [] [] Nothing
+
 ||| What the specification's core declares of the dialect: the stages a
 ||| program passes through, the refusal rules and their facts, the value
-||| facts' interface, and the traits of ours an op may carry.
+||| facts' interface, the traits of ours an op may carry, and the module a
+||| program is.
 public export
 core : Declarations
 core = { ops := [ SomeOp vectorizeLanes ]
+       , admitted := [ builtinModule ]
        , enums := [ enumDef stageClosed, enumDef categoryClosed, enumDef scopeClosed, enumDef ruleClosed ]
        , interfaces := [ valueFactsInterface ]
        , traits := [ resultCarriesOperand, sameValue ]

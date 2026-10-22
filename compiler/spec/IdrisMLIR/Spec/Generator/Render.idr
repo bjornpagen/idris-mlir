@@ -142,6 +142,11 @@ export
 slashComment : List String -> Lines
 slashComment = map (\l => if l == "" then "//" else "// " ++ l)
 
+||| A comment block in a file the shell reads, `# ` before each line.
+export
+hashComment : List String -> Lines
+hashComment = map (\l => if l == "" then "#" else "# " ++ l)
+
 ||| A doc comment in Idris, `||| ` before each line.
 export
 barComment : List String -> Lines
