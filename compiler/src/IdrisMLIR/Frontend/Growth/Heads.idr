@@ -823,15 +823,31 @@ dictionaryAt fl w ps i = case parameterOf ps i of
 
 ||| The implementations a template alone can be, written in the writer's
 ||| node as `ps` reads its parameters, where Core gave no root, the
-||| writer's families by index: a dictionary parameter, and one applied, by
-||| what it can be (`dictionaryAt`); a family applied, nothing. Sorted and
+||| writer's families by index and what lands at each parameter: a
+||| dictionary parameter by what it can be (`dictionaryAt`); one applied by
+||| what it can be only where values not all closed land at it, the one
+||| landing at which the graph reads a use of it applied
+||| (`Template.withClosedFamilies`); a family applied, nothing. Sorted and
 ||| without duplicates.
 export
-roots : Flow -> (families : List Nat) -> (writer : Node) -> Parameters -> Template -> List Address
-roots fl families w ps t = headsIn (byTemplate fl.solution (MkOwn (dictionaryAt fl w ps) dictionaryApplied) OfChosen t)
+roots : Flow -> (families : List Nat) -> (writer : Node) -> Parameters -> (landing : Nat -> Landing) -> Template ->
+        List Address
+roots fl families w ps landing t = headsIn (byTemplate fl.solution (MkOwn (dictionaryAt fl w ps) dictionaryApplied) OfChosen t)
   where
+    -- Essential: a use of a function that gives an implementation is a
+    -- member the flow found only where the graph can read the use
+    -- applied. Where only closed values land, the graph reads it as heads
+    -- above its arguments, beta of a value landed there, a part of that
+    -- value and no member; where a value that computes lands, as
+    -- computing, which nothing an instance writes reaches.
+    appliedWhere : Nat -> Landing -> SortedSet Heading
+    appliedWhere i Open = dictionaryAt fl w ps i
+    appliedWhere i (Closed _) = empty
+    appliedWhere i Computed = empty
+    appliedWhere i (Evaluable _) = empty
+
     dictionaryApplied : Nat -> SortedSet Heading
-    dictionaryApplied i = if elem i families then empty else dictionaryAt fl w ps i
+    dictionaryApplied i = if elem i families then empty else appliedWhere i (landing i)
 
 ------------------------------------------------------------------------------
 -- Visits

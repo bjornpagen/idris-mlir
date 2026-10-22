@@ -143,6 +143,14 @@ methodMeasured (MarkerDraws p) = markerMeasured p 0
 0 packedMeasured : DrawnBy (PacksHeld k) t -> DrawsMeasured t
 packedMeasured (ChainDraws k) = packingMeasured k
 
+||| A site's writers list every parameter its template weighs with an arc,
+||| with the position its writer reads it at: the positions its own arcs
+||| are drawn from (`Proof.Describes.ownArcs`).
+public export
+0 WritersListed : {n : Nat} -> Bound.Site n -> Type
+WritersListed {n} s = (i : Nat) -> (w : Weight) -> Elem (i, w) (weights s.template) -> (lab : Label) -> labelOf w = Just lab ->
+                      (p : Fin n ** Elem (i, p) s.writers)
+
 ||| The graph, and what its numbers stand for: the position met at each
 ||| place, the places where a position was first met, what made each arc,
 ||| and the sizes the worklist's universe needs beside the bounds.
@@ -180,6 +188,9 @@ record Built where
   ||| a marker.
   0 packingsMeasured : (a : Fin (length graph.arcs)) -> (p : Packing) -> Vect.index a wrote = PacksHeld p ->
                        IsFinite (arc graph a).label
+  ||| Each site's writers list every parameter its template weighs with an
+  ||| arc, with the position its writer reads it at.
+  0 writersListed : (s : Bound.Site graph.size) -> Elem s model.sites -> WritersListed s
 
 ------------------------------------------------------------------------------
 -- The definitions
@@ -645,23 +656,12 @@ leadsOf walked = foldl (\m, (_, edges) => foldl lead m edges) empty walked
     -- function's node.
     lead m _ = m
 
--- The positions of the method functions' nodes that leading placements
--- fill.
-leadingPositions : Leads -> List Spot
-leadingPositions leads = SortedMap.toList leads >>= \((m, _, _), pqs) => map (\(_, q) => OfParameter (OfNode m) q) pqs
-
 -- A value landing at a position, with what landed there before.
 put : Spot -> Landing -> SortedMap Spot Landing -> SortedMap Spot Landing
 put p l m = insert p (maybe l (joinLanding l) (lookup p m)) m
 
--- What lands at each position an argument is placed at, as written there:
--- its keys are the positions the arguments name.
-written : List (Node, List (Sites.Site, Reached)) -> SortedMap Spot Landing
-written = eachPlaced (\m, _, _, callee, pl => put (landsAt callee pl.parameter) (landingOf pl.argument) m) empty
-
--- Where a writer no template states lands as well, so nothing there is
--- closed: at a leading arc's position, what J's own writers gave J; at a
--- capped position, every value of the cap's height.
+-- Where values no writing states land as well, so nothing there is
+-- closed: at a capped position, every value of the cap's height.
 opened : List Spot -> SortedMap Spot Landing -> SortedMap Spot Landing
 opened ps m = foldl (\acc, p => put p Open acc) m ps
 
@@ -750,7 +750,7 @@ spread next vis (Access rec) found (x :: xs) = case flag (Vect.index x vis) of
   Right fresh => spread next (mark x vis) (rec _ (visitLeaves x vis fresh)) (x :: found) (next x ++ xs)
 
 -- What lands at every position, from what lands where it is written
--- (`written`, `opened`), with a computing value carried on to every
+-- (`landedAt`, `opened`), with a computing value carried on to every
 -- position that carries a family's value on from where one lands: a
 -- family whose value can be one there may compute when it is applied,
 -- wherever the value was written. Only a position an applied family's
@@ -787,13 +787,57 @@ landings nodes leads walked at =
 closedAt : SortedMap Spot Landing -> Node -> Parameters -> Nat -> Landing
 closedAt ls w ps i = fromMaybe Open (lookup (spotAt w ps i) ls)
 
--- What the graph draws for one template: where its writer reads each of
--- its parameters (a walked node's position, as the site reads its
--- parameters; for values a dictionary holds written on, the held position
--- they come from), the template, read where a node's families hold what lands
--- at them (`withClosedFamilies`), the roots the flow gives its
--- dictionaries there, the position it lands at, and what wrote it, with
--- the template it draws.
+-- Where a writing's writer is read: at a walked node, its parameters as
+-- its site reads them, where the node's families land and the flow roots
+-- its dictionaries; or, for the values a dictionary's place holds written
+-- on, at the held position they come from, whose template applies no
+-- family and holds no dictionary of its own.
+data WriterAt = AtNode Node Parameters | AtHeld
+
+-- What one template wrote, before its writer's families are read where
+-- they land: where its writer reads each of its parameters, the template
+-- as written, where its writer is (`WriterAt`), the position it lands at,
+-- and what wrote it, with the template it draws. What lands at a position
+-- is read off these, every writing the model holds among them
+-- (`landedAt`), and only then is each read where its writer is
+-- (`readAtWriter`), so no writing lands unseen by the landing it is read
+-- at.
+record Written where
+  constructor MkWritten
+  reads : Nat -> Spot
+  template : Template
+  writer : WriterAt
+  target : Spot
+  wrote : Wrote
+  0 draws : DrawnBy wrote template
+
+-- What a writing lands as at its position: an argument as its landing
+-- reads it (`landingOf`); a leading arc's marker, a field's template, a
+-- held value and a held packing's chain as values no closed reading
+-- bounds, since each writes what its writer's own writers gave it.
+landedBy : Wrote -> Landing
+landedBy (FromArgument _ x) = landingOf x
+landedBy ThroughMethod = Open
+landedBy (InField _ _ _) = Open
+landedBy (PacksHeld _) = Open
+
+-- What lands at each position, joined from every writing there: a
+-- position is closed only where every writing there is an argument whose
+-- own landing is closed.
+landedAt : List Written -> SortedMap Spot Landing
+landedAt xs = foldl (\m, x => put x.target (landedBy x.wrote) m) empty xs
+
+-- The positions some writings land at, each once.
+targetsOf : List Written -> List Spot
+targetsOf xs = SortedSet.toList (foldl (\acc, x => insert x.target acc) empty xs)
+
+-- What the graph draws for one template, read where its writer is
+-- (`readAtWriter`): where its writer reads each of its parameters (a walked
+-- node's position, as the site reads its parameters; for values a
+-- dictionary holds written on, the held position they come from), the
+-- template, read where a node's families hold what lands at them
+-- (`withClosedFamilies`), the roots the flow gives its dictionaries there,
+-- the position it lands at, and what wrote it, with the template it draws.
 record Writing where
   constructor MkWriting
   reads : Nat -> Spot
@@ -803,20 +847,53 @@ record Writing where
   wrote : Wrote
   0 draws : DrawnBy wrote template
 
+-- A pair's chain applies no family, so reading it where a node's
+-- families land leaves it as it is.
+0 chainRead : (c : Nat -> Landing) -> (a : Address) -> (n : Nat) -> withClosedFamilies c (pairChain a n) = pairChain a n
+chainRead c a Z = Refl
+chainRead c a (S n) = cong (\u => Template.Head (Just a) [Template.Var 0 0, u]) (chainRead c a n)
+
+0 chainsRead : (c : Nat -> Landing) -> (a : Address) -> (m : Nat) -> Elem t (pairChainsUpTo a m) ->
+               withClosedFamilies c t = t
+chainsRead c a Z el = absurd el
+chainsRead c a (S m) Here = chainRead c a (S m)
+chainsRead c a (S m) (There el) = chainsRead c a m el
+
+0 packingRead : (c : Nat -> Landing) -> (k : Packing) -> withClosedFamilies c (packingTemplate k) = packingTemplate k
+packingRead c AsTheyAre = Refl
+packingRead c (Chained a m _ listed) = chainsRead c a m listed
+
+-- What made a writing holds of its template read where its writer's
+-- families land: an argument's and a field's template is any, and a
+-- leading arc's marker and a held packing's chain apply no family.
+0 drawnRead : (c : Nat -> Landing) -> DrawnBy w t -> DrawnBy w (withClosedFamilies c t)
+drawnRead c ArgumentDraws = ArgumentDraws
+drawnRead c FieldDraws = FieldDraws
+drawnRead c (MarkerDraws p) = MarkerDraws p
+drawnRead c (ChainDraws k) = replace {p = DrawnBy (PacksHeld k)} (sym (packingRead c k)) (ChainDraws k)
+
 -- A node's families, by index, as its definition's walk found them: what
 -- `roots` reads no implementation off where it is applied.
 familiesOf : SortedMap Address (List Nat) -> Node -> List Nat
 familiesOf families w = fromMaybe [] (lookup w.definition families)
 
+-- A writing read where its writer is: at a node, its template read where
+-- the node's families land, and its dictionaries rooted as the flow found
+-- them there, a use of one only where the template still applies it
+-- (`Heads.roots`); at a held position, as written, rooting nothing.
+readAtWriter : Flow -> SortedMap Address (List Nat) -> SortedMap Spot Landing -> Written -> Writing
+readAtWriter fl families ls (MkWritten rs t (AtNode w ps) tgt wr made) =
+  MkWriting rs (withClosedFamilies (closedAt ls w ps) t) (roots fl (familiesOf families w) w ps (closedAt ls w ps))
+            tgt wr (drawnRead (closedAt ls w ps) made)
+readAtWriter fl families ls (MkWritten rs t AtHeld tgt wr made) = MkWriting rs t (const []) tgt wr made
+
 -- Every walked edge's arguments, each at the callee parameter `reaches`
 -- placed it at, the latest first, as the check has always read them.
-writings : Flow -> SortedMap Address (List Nat) -> SortedMap Spot Landing -> List (Node, List (Sites.Site, Reached)) ->
-           List Writing
-writings fl families ls =
+writings : List (Node, List (Sites.Site, Reached)) -> List Written
+writings =
   eachPlaced (\acc, w, s, callee, pl =>
-                MkWriting (spotAt w s.params) (withClosedFamilies (closedAt ls w s.params) pl.argument.template)
-                          (roots fl (familiesOf families w) w s.params)
-                          (landsAt callee pl.parameter) (FromArgument s pl.argument) ArgumentDraws :: acc) []
+                MkWritten (spotAt w s.params) pl.argument.template (AtNode w s.params) (landsAt callee pl.parameter)
+                          (FromArgument s pl.argument) ArgumentDraws :: acc) []
 
 -- What a dispatch that reached M through implementation J's method field
 -- writes at M's leading parameters. The parameters of M its `leading`
@@ -825,11 +902,10 @@ writings fl families ls =
 -- parameter p, unchanged, at M's q. J's own call of M passes its method
 -- dictionaries as run-time values, with no roots, and reaches another node
 -- of M, so without these M's leading positions would have no writer.
-leadingWritings : Flow -> SortedMap Address (List Nat) -> SortedMap Address (List Node) -> Leads -> List Writing
-leadingWritings fl families nodes leads =
+leadingWritings : SortedMap Address (List Node) -> Leads -> List Written
+leadingWritings nodes leads =
   SortedMap.toList leads >>= \((m, j, _), leading) =>
-    [ MkWriting (spotAt jn OwnOnly) (Template.Var p 0) (roots fl (familiesOf families jn) jn OwnOnly) (OfParameter (OfNode m) q)
-                ThroughMethod (MarkerDraws p)
+    [ MkWritten (spotAt jn OwnOnly) (Template.Var p 0) (AtNode jn OwnOnly) (OfParameter (OfNode m) q) ThroughMethod (MarkerDraws p)
     | jn <- fromMaybe [] (lookup j nodes), agrees m leading jn, (p, q) <- leading ]
   where
     -- Two heads at a parameter agree: none on either side, or one
@@ -845,14 +921,13 @@ leadingWritings fl families nodes leads =
 -- What each implementation's fields write at their positions: at each
 -- walked node of the implementation, each field's template over the
 -- node's parameters, read where the node's families hold what lands at
--- them, into that field's position. A field read anywhere takes its value
--- from there, so a nested field read is arcs between these positions.
-fieldWritings : Flow -> SortedMap Address (List Nat) -> SortedMap Address (List Node) -> SortedMap Spot Landing ->
-                SortedMap Address Fields -> List Writing
-fieldWritings fl families nodes ls fs =
+-- them (`readAtWriter`), into that field's position. A field read
+-- anywhere takes its value from there, so a nested field read is arcs
+-- between these positions.
+fieldWritings : SortedMap Address (List Node) -> SortedMap Address Fields -> List Written
+fieldWritings nodes fs =
   SortedMap.toList fs >>= \(j, fields) =>
-    [ MkWriting (spotAt jn OwnOnly) (withClosedFamilies (closedAt ls jn OwnOnly) t) (roots fl (familiesOf families jn) jn OwnOnly)
-                (OfField j k) (InField j k t) FieldDraws
+    [ MkWritten (spotAt jn OwnOnly) t (AtNode jn OwnOnly) (OfField j k) (InField j k t) FieldDraws
     | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numbered 0 (map (fst . fieldRead) fields.inOrder) ]
   where
     numbered : Nat -> List Template -> List (Nat, Template)
@@ -924,7 +999,7 @@ packedHeld (Just pg) count = chainsUpTo pg.pairAddress (pred count)
 ||| list no longer than the count is one of these: each pair's position is
 ||| bounded by the count above the values' heights, and no arc leaves a
 ||| pair's position for a held one, so none of these is on a cycle.
-heldPackings : (count : Nat) -> Maybe Pairing -> List HeldBy -> List Writing
+heldPackings : (count : Nat) -> Maybe Pairing -> List HeldBy -> List Written
 heldPackings count Nothing _ = []
 heldPackings count (Just pg) places = case pred count of
     -- Essential: a list of fewer than two values is held as itself, in no
@@ -934,9 +1009,9 @@ heldPackings count (Just pg) places = case pred count of
   where
     -- At the pair's first, one value; at its rest, one value or the rest
     -- of a list of 3 up to n + 2 values, in pairs.
-    written : Nat -> HeldBy -> List Writing
+    written : Nat -> HeldBy -> List Written
     written n place =
-      [ MkWriting (const (OfHeld (MkHeldValues place InPairs))) (packingTemplate k) (const [])
+      [ MkWritten (const (OfHeld (MkHeldValues place InPairs))) (packingTemplate k) AtHeld
                   (OfParameter (OfNode (MkNode h [])) j) (PacksHeld k) (ChainDraws k)
       | h <- [pg.pairAddress, pg.firstAddress, pg.secondAddress]
       , (j, k) <- (0, AsTheyAre) :: map (1,) (AsTheyAre :: chainsUpTo pg.pairAddress n) ]
@@ -953,14 +1028,14 @@ itemKind (EachOf _) = AnyNumber
 itemKind (MembersOf _) = AnyNumber
 
 -- One way a value of a list is written at a held position: where its
--- template reads its variables, the template, the roots it gives its
--- dictionaries, how many values it brings (`Proof.Held.Brings`), and what
+-- template reads its variables, the template, where its writer is
+-- (`WriterAt`), how many values it brings (`Proof.Held.Brings`), and what
 -- wrote it, with the template it draws.
 record Contribution where
   constructor MkContribution
   reads : Nat -> Spot
   template : Template
-  roots : Template -> List Address
+  writer : WriterAt
   brings : Brings
   wrote : Wrote
   0 draws : DrawnBy wrote template
@@ -1012,16 +1087,15 @@ heldChoices walked = SortedSet.toList (eachPlaced (\acc, _, _, callee, pl => cas
 ||| given list is. The values a dictionary parameter holds, each as
 ||| itself, and those a member holds, come from their places' held
 ||| positions as they are.
-heldWritings : Flow -> SortedMap Address (List Nat) -> SortedMap Spot Landing -> (count : Nat) -> Maybe Pairing ->
-               List ChoiceHead -> List (Node, List (Sites.Site, Reached)) -> List Writing
-heldWritings fl families ls count pg choices walked =
+heldWritings : (count : Nat) -> Maybe Pairing -> List ChoiceHead -> List (Node, List (Sites.Site, Reached)) -> List Written
+heldWritings count pg choices walked =
   eachPlaced (\acc, w, s, callee, pl =>
                 (pl.argument.holds >>= \l => listAt w s (calleePlace callee pl.parameter).fst (forget l)) ++ acc) [] walked
     ++ (walked >>= \(w, edges) => edges >>= \(s, e) => kept w s e)
   where
     fromHeld : HeldBy -> Packed -> Packing -> Brings -> Contribution
     fromHeld place p k b =
-      MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) (const []) b (PacksHeld k) (ChainDraws k)
+      MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) AtHeld b (PacksHeld k) (ChainDraws k)
 
     -- The place a dictionary of the writer's that holds values as one is
     -- at, at the writer's node.
@@ -1031,8 +1105,7 @@ heldWritings fl families ls count pg choices walked =
 
     contributions : Node -> Sites.Site -> HeldItem -> List Contribution
     contributions w s (OfType xs) =
-      [ MkContribution (spotAt w s.params) (withClosedFamilies (closedAt ls w s.params) x.template)
-                       (roots fl (familiesOf families w) w s.params) OneValue (FromArgument s x) ArgumentDraws
+      [ MkContribution (spotAt w s.params) x.template (AtNode w s.params) OneValue (FromArgument s x) ArgumentDraws
       | x <- forget xs ]
     contributions w s (PackedBy h) =
       fromHeld (ownPlace w s h) AsItself AsTheyAre OneValue ::
@@ -1053,30 +1126,55 @@ heldWritings fl families ls count pg choices walked =
       AtMostOne => n
       AnyNumber => n
 
-    listAt : Node -> Sites.Site -> HeldBy -> List HeldItem -> List Writing
+    listAt : Node -> Sites.Site -> HeldBy -> List HeldItem -> List Written
     listAt w s place es =
       es >>= \e => contributions w s e >>= \c =>
-        map (\p => MkWriting c.reads c.template c.roots (OfHeld (MkHeldValues place p)) c.wrote c.draws)
+        map (\p => MkWritten c.reads c.template c.writer (OfHeld (MkHeldValues place p)) c.wrote c.draws)
             (landing (besides e (alwaysIn (map itemKind es))) (pred (length es)) c.brings)
 
     -- The list a dictionary the writer binds closes over, written at its
     -- binding's place at the writer's node.
-    kept : Node -> Sites.Site -> Reached -> List Writing
+    kept : Node -> Sites.Site -> Reached -> List Written
     kept w s (Kept b items) = listAt w s (ByBinding w b) (forget items)
     kept w s (MkReached _ _ _) = []
 
 -- The places whose lists of several values some place writes: the pairs
 -- that hold those lists read their positions.
-pairedPlaces : List Writing -> List HeldBy
+pairedPlaces : List Written -> List HeldBy
 pairedPlaces ws = SortedSet.toList (foldl (\acc, x => case x.target of
                                              OfHeld (MkHeldValues place InPairs) => insert place acc
                                              _ => acc)
                                           empty ws)
 
+-- A parameter kept where its weight is an arc's.
+keptWhere : Maybe Label -> Nat -> List Nat -> List Nat
+keptWhere (Just _) i is = i :: is
+keptWhere Nothing _ is = is
+
+-- The parameters some weights draw an arc from, in order: those whose
+-- weight is an arc's (`labelOf`).
+weighed : List (Nat, Weight) -> List Nat
+weighed [] = []
+weighed ((i, w) :: rest) = keptWhere (labelOf w) i (weighed rest)
+
+0 keptHere : (l : Maybe Label) -> l = Just lab -> Elem i (keptWhere l i is)
+keptHere (Just _) _ = Here
+keptHere Nothing Refl impossible
+
+0 keptBelow : (l : Maybe Label) -> Elem j is -> Elem j (keptWhere l i is)
+keptBelow (Just _) el = There el
+keptBelow Nothing el = el
+
+-- A parameter weighed with an arc is one its weights draw an arc from.
+0 weighedHas : (ws : List (Nat, Weight)) -> Elem (i, w) ws -> labelOf w = Just lab -> Elem i (weighed ws)
+weighedHas [] el _ = absurd el
+weighedHas ((_, v) :: _) Here drawn = keptHere (labelOf v) drawn
+weighedHas ((_, v) :: rest) (There el) drawn = keptBelow (labelOf v) (weighedHas rest el drawn)
+
 -- The writer's parameters a writing draws an arc from: those its template
 -- holds with a weight that is an arc, each once.
 sourcesOf : Writing -> List Nat
-sourcesOf x = [i | (i, w) <- weights x.template, isJust (labelOf w)]
+sourcesOf x = weighed (weights x.template)
 
 -- Where a writing's writer reads parameter i.
 readsAt : Writing -> Nat -> Spot
@@ -1122,25 +1220,55 @@ meetAll (x :: xs) m = let (f, m') = meet x m
                           (fs, m'') = meetAll xs m' in
                       (f :: fs, m'')
 
+-- Parameter i listed with the position met for it, and every parameter
+-- listed before.
+0 listedOn : {0 is : List Nat} -> {0 ws : List (Nat, Fin n)} ->
+             ({k : Nat} -> Elem k is -> (q : Fin n ** Elem (k, q) ws)) ->
+             Elem j (i :: is) -> (q : Fin n ** Elem (j, q) ((i, p) :: ws))
+listedOn {p} _ Here = (p ** Here)
+listedOn listed (There el) = case listed el of
+  (q ** inWs) => (q ** There inWs)
+
+-- The positions met at the next places for some parameters, where the
+-- writer reads each, each paired with its parameter: every parameter is
+-- listed with the position met for it.
+meetEach : {0 n : Nat} -> {0 rest : List Spot} -> (is : List Nat) -> (reads : Nat -> Spot) ->
+           Meeting n (map reads is ++ rest) ->
+           (Subset (List (Nat, Fin n)) (\ws => {k : Nat} -> Elem k is -> (q : Fin n ** Elem (k, q) ws)), Meeting n rest)
+meetEach [] reads m = (Element [] (\el => absurd el), m)
+meetEach (i :: is) reads m =
+  let (p, m') = meet (reads i) m
+      (Element ws listed, m'') = meetEach is reads m' in
+  (Element ((i, p) :: ws) (listedOn listed), m'')
+
 ||| A site of the model with what made it, whose maker's evidence holds of
 ||| the site's template (`DrawnBy`).
 public export
 SiteDrawn : (Bound.Site n, Wrote) -> Type
 SiteDrawn x = DrawnBy (snd x) (fst x).template
 
+-- What a site met keeps of how it was made: what made it holds of its
+-- template, and its writers list every parameter its template weighs with
+-- an arc.
+0 SiteMet : {n : Nat} -> (Bound.Site n, Wrote) -> Type
+SiteMet {n} x = (SiteDrawn x, WritersListed {n} (fst x))
+
 -- A writing as a site of the model, its positions met at its places: where
 -- it lands, then where its writer reads each parameter it draws from; the
--- site's template is the writing's, so its maker's evidence holds of it.
+-- site's template is the writing's, so its maker's evidence holds of it,
+-- and its writers are each parameter its template weighs with an arc
+-- paired with the position met for it, so they list every one.
 siteMet : {0 n : Nat} -> {0 rest : List Spot} -> (x : Writing) ->
-          Meeting n (slotsOf x ++ rest) -> (Subset (Bound.Site n, Wrote) SiteDrawn, Meeting n rest)
+          Meeting n (slotsOf x ++ rest) -> (Subset (Bound.Site n, Wrote) SiteMet, Meeting n rest)
 siteMet x m =
   let (t, m') = meet x.target m
-      (ws, m'') = meetAll (map (readsAt x) (sourcesOf x)) m' in
-  (Element (Bound.MkSite t x.template (zip (sourcesOf x) ws) x.roots, x.wrote) x.draws, m'')
+      (Element ws listed, m'') = meetEach (sourcesOf x) (readsAt x) m' in
+  (Element (Bound.MkSite t x.template ws x.roots, x.wrote)
+           (x.draws, \i, w, inW, lab, drawn => listed (weighedHas (weights x.template) inW drawn)), m'')
 
 -- Writings as sites of the model, in order, each met at its places.
 sitesMet : {0 n : Nat} -> {0 rest : List Spot} -> (xs : List Writing) ->
-           Meeting n (allSlots xs ++ rest) -> (Subset (List (Bound.Site n, Wrote)) (All SiteDrawn), Meeting n rest)
+           Meeting n (allSlots xs ++ rest) -> (Subset (List (Bound.Site n, Wrote)) (All SiteMet), Meeting n rest)
 sitesMet [] m = (Element [] [], m)
 sitesMet (x :: xs) m =
   let (Element here madeHere, m') = siteMet x (replace {p = Meeting n} (sym (appendAssociative (slotsOf x) (allSlots xs) rest)) m)
@@ -1156,15 +1284,22 @@ allRest (_ :: pxs) = pxs
 -- The sites that land at uncapped positions, with the evidence of each and
 -- of what made each, and those that land at capped ones: a capped
 -- position's cap is its bound, so no site into it is drawn.
-uncappedDrawn : (caps : Vect n (Maybe Nat)) -> (ss : List (Bound.Site n, Wrote)) -> (0 _ : All SiteDrawn ss) ->
+uncappedDrawn : (caps : Vect n (Maybe Nat)) -> (ss : List (Bound.Site n, Wrote)) -> (0 _ : All SiteMet ss) ->
                 (Subset (List (Bound.Site n, Wrote))
-                        (\ks => (All (\x => Vect.index (fst x).target caps = Nothing) ks, All SiteDrawn ks)),
+                        (\ks => (All (\x => Vect.index (fst x).target caps = Nothing) ks, All SiteMet ks)),
                  List (Bound.Site n, Wrote))
 uncappedDrawn caps [] _ = (Element [] ([], []), [])
 uncappedDrawn caps (x :: xs) made with (Vect.index (fst x).target caps) proof here
   _ | Nothing = let (Element kept evidence, capped) = uncappedDrawn caps xs (allRest made) in
                 (Element (x :: kept) (here :: fst evidence, allFirst made :: snd evidence), capped)
   _ | Just _ = let (kept, capped) = uncappedDrawn caps xs (allRest made) in (kept, x :: capped)
+
+-- A site of the model is one of the kept sites, whose writers list every
+-- parameter its template weighs with an arc.
+0 listedAmong : {ks : List (Bound.Site n, Wrote)} -> All SiteMet ks -> Elem s (map Builtin.fst ks) -> WritersListed s
+listedAmong {ks = []} [] el = absurd el
+listedAmong {ks = (_, _) :: _} (made :: _) Here = snd made
+listedAmong {ks = _ :: _} (_ :: made) (There el) = listedAmong made el
 
 ------------------------------------------------------------------------------
 -- Positions, caps and the numbering
@@ -1380,29 +1515,34 @@ build main = do
   -- paths its chains held.
   let nodes = byDefinition (the (Node -> Address) (.definition)) (SortedSet.toList (SortedSet.fromList (map fst walked0)))
   let leads = leadsOf walked0
-  -- The positions the arguments name, with what lands at each.
-  let placed0 = written walked0
+  -- What a walk's writings write, before any writer's families are read
+  -- where they land: what the dispatches write at the method functions'
+  -- leading parameters, what the walked implementations' fields write at
+  -- their positions, what the pairs that hold lists of several values are
+  -- given, what each list of values a dictionary is given writes at its
+  -- place's held positions, and what the walked sites' arguments write,
+  -- the latest first: the order the check reads the arcs in.
+  let fixed = leadingWritings nodes leads ++ fieldWritings nodes entered.fields
+  let writtenBy : List (Node, List (Sites.Site, Reached)) -> List Written -> List Written
+      writtenBy ws args =
+        let held = heldWritings count pairing (heldChoices ws) ws in
+        fixed ++ heldPackings count pairing (pairedPlaces held) ++ held ++ args
   -- A capped position takes no arc: its cap, which the graph holds and a
   -- feasible potential meets, stands for every value of its height, so no
-  -- listed site targets it. A position only a data type's arguments give
-  -- is a type argument, which no cap applies to.
-  capped <- capsOf (keys placed0)
-  let lands0 = landings nodes leads walked0 (opened (leadingPositions leads ++ keys capped) placed0)
+  -- listed site targets it. A cap is asked of the positions the arguments
+  -- name; a position only a data type's arguments give is a type
+  -- argument, which no cap applies to.
+  let args0 = writings walked0
+  capped <- capsOf (targetsOf args0)
+  -- What lands at each position is joined from every writing there, and a
+  -- capped position holds every value of its cap's height.
+  let lands0 = landings nodes leads walked0 (opened (keys capped) (landedAt (writtenBy walked0 args0)))
   -- What a family given only closed values computes, evaluated at each.
   walked <- evaluated lands0 walked0
-  let placed = written walked
-  let lands = landings nodes leads walked (opened (leadingPositions leads ++ keys capped) placed)
-  -- What the walked sites write, the latest first, after what the
-  -- dispatches write at the method functions' leading parameters, what
-  -- the walked implementations' fields write at their positions, what the
-  -- pairs that hold lists of several values are given, and what each list
-  -- of values a dictionary is given writes at its place's held positions:
-  -- the order the check reads the arcs in.
-  let args = writings fl entered.families lands walked
-  let held = heldWritings fl entered.families lands count pairing (heldChoices walked) walked
-  let every = leadingWritings fl entered.families nodes leads ++
-              fieldWritings fl entered.families nodes lands entered.fields ++
-              heldPackings count pairing (pairedPlaces held) ++ held ++ args
+  let written = writtenBy walked (writings walked)
+  let lands = landings nodes leads walked (opened (keys capped) (landedAt written))
+  -- Each writing read where its writer is, over what lands where.
+  let every = map (readAtWriter fl entered.families lands) written
   -- The places positions are met at: where each writing lands and where
   -- its writer reads each parameter it draws from, then every represented
   -- argument of a reachable data type. Every place an argument lands is a
@@ -1469,10 +1609,11 @@ build main = do
                 (\a, through => measuredDrawn {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}
                                   (\x => x = ThroughMethod)
                                   (\st, x, el, same => methodMeasured (replace {p = \w => DrawnBy w st.template} same
-                                                                                (indexAll el (snd keptEvidence))))
+                                                                                (fst (indexAll el (snd keptEvidence)))))
                                   (taggedAt arcs a) through)
                 (\a, k, packs => measuredDrawn {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {ss = kept}
                                     (\x => x = PacksHeld k)
                                     (\st, x, el, same => packedMeasured (replace {p = \w => DrawnBy w st.template} same
-                                                                                  (indexAll el (snd keptEvidence))))
-                                    (taggedAt arcs a) packs))
+                                                                                  (fst (indexAll el (snd keptEvidence)))))
+                                    (taggedAt arcs a) packs)
+                (\st, el => listedAmong (snd keptEvidence) el))

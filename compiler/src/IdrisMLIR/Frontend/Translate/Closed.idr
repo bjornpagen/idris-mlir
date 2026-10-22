@@ -1902,21 +1902,33 @@ export
 contracted : (t : TT vs) -> Contracted EveryRedex t
 contracted = contractedBy EveryRedex
 
+||| A reading of the growth check with the evidence, at quantity 0, that
+||| its form is maximal: the contraction it was read by left no redex it
+||| contracts (`EtaNormal`), so a form read with every redex contracted, an
+||| instance's, is what any contraction of it gives
+||| (`Proof.Covers.etaNormalFixed`).
+public export
+record MaximalReading (how : Contracting) (ctx : Frozen) (t : ClosedTerm) where
+  constructor MkMaximalReading
+  reading : NormalReading OfNormaliseTypes ctx t
+  0 maximal : EtaNormal how reading.readForm
+
 ||| A closed term as a reading of the growth check takes it: the host's
 ||| normal form of it (`normaliseClosed`'s) in the frozen context the
 ||| reading reads, eta-contracted as the reading contracts (`Contracting`:
 ||| every redex for an instance, all but those around calls for a site's
 ||| type), so that a family is read as itself whatever stands for it; with
-||| the host's steps and the contraction it was read by, at quantity 0
-||| (`Proof.Reading.NormalReading`), which is what the growth proof covers.
-||| The reading passes its context, so every normal form it states is over
-||| that one context.
+||| the host's steps and the contraction it was read by
+||| (`Proof.Reading.NormalReading`), and the contraction's evidence that it
+||| left no redex it contracts, all at quantity 0, which is what the growth
+||| proof covers. The reading passes its context, so every normal form it
+||| states is over that one context.
 export
-readNormal : Contracting -> (ctx : Frozen) -> (t : ClosedTerm) -> Front (NormalReading OfNormaliseTypes ctx t)
+readNormal : (how : Contracting) -> (ctx : Frozen) -> (t : ClosedTerm) -> Front (MaximalReading how ctx t)
 readNormal how ctx t = do
   r <- core (host.normaliseTypes ctx t)
   let c = contractedBy how r.value
-  pure (MkNormalReading c.etaForm r c.etaSteps)
+  pure (MkMaximalReading (MkNormalReading c.etaForm r c.etaSteps) c.etaNormal)
 
 ||| A type argument as data instances compare them: up to eta, and with
 ||| a type-level function and the lambda of its one clause as one
