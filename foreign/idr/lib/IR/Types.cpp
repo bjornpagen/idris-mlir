@@ -245,32 +245,20 @@ std::optional<uint64_t> DataType::numeralBound() const { return getImpl()->facts
 // cell, frame stack and value in place at an unknown class of it is, at its
 // constructors' own fields, an array field's elements included, so the
 // two share every word they reach. A closed application held in place is
-// its own unfolding, so only that application has its words.
+// its own unfolding, so only that application has its words. Asked of
+// every field a lowering worker reads, so it reads only the two types' own
+// parameters and stored facts, and makes no type.
 LayoutMatch DataType::layoutMatch(DataType other) const {
-  DataType self = unrefined();
-  DataType that = other.unrefined();
-  if (self == that)
+  if (getGroup() != other.getGroup() || getMember() != other.getMember())
+    return LayoutMatch::OtherLayout;
+  if (getIndices() == other.getIndices())
     return LayoutMatch::SameLayout;
-  if (self.getGroup() != that.getGroup() || self.getMember() != that.getMember() ||
-      self.layout() != that.layout())
+  if (layout() != other.layout())
     return LayoutMatch::OtherLayout;
   auto unfolded = [](DataType type) {
     return type.layout() == Layout::InPlace && type.cls() == Class::Closed;
   };
-  return unfolded(self) || unfolded(that) ? LayoutMatch::OtherLayout : LayoutMatch::SameLayout;
-}
-
-// One type at two grades is the same words; two data types are as their
-// layout facts say; any other two, a type holding data types below its
-// grade (an array of them), relate only element by element, by a re-pack.
-LayoutMatch idr::families::layoutMatch(Type from, Type to) {
-  Type fromValue = unrestricted(from);
-  Type toValue = unrestricted(to);
-  if (fromValue == toValue)
-    return LayoutMatch::SameLayout;
-  auto fromData = dyn_cast<DataType>(fromValue);
-  auto toData = dyn_cast<DataType>(toValue);
-  return fromData && toData ? fromData.layoutMatch(toData) : LayoutMatch::OtherLayout;
+  return unfolded(*this) || unfolded(other) ? LayoutMatch::OtherLayout : LayoutMatch::SameLayout;
 }
 
 bool DataType::boundsReach() const { return getImpl()->facts.reach == Reach::Bounded; }

@@ -171,9 +171,47 @@ mlir::ParseResult resolveLabel(mlir::AsmParser &parser, TermNode &node, FamilyAt
 enum class Narrowing : uint8_t { Allowed, Exact };
 
 // Whether a value of `from` and one of `to` are the same words at run time
-// (DataType::layoutMatch): what decides whether a reindex between them is
-// free or re-packs, and so the re-pack's effects.
+// (DataType::layoutMatch, an array as its elements are): what decides
+// whether a reindex between them is free or re-packs, and so the re-pack's
+// effects. Makes no type.
 LayoutMatch layoutMatch(mlir::Type from, mlir::Type to);
+
+// Whether re-packing a value of `from` as one of `to` builds a cell or an
+// array, so the result is a fresh value, counted and claimed unique, where
+// any other reindex's memory is its operand's: never where the two are the
+// same words, nor between two numbers (a numeral widened or narrowed);
+// always into an array and into a value held as a cell; into a value held
+// in place, where re-packing a field of a constructor both leave possible
+// does. `fieldTypes(type, tag)` gives the types the fields of `tag` are
+// laid out at: the layouts' stored ones on a lowering worker, which make no
+// type, or Layouts::fieldsAt where a type may be made. The one answer the
+// reindex's verifier and the lowering's re-pack read.
+template <class FieldTypes>
+  requires std::invocable<FieldTypes &, DataType, Tag>
+bool builds(mlir::Type from, mlir::Type to, FieldTypes &&fieldTypes) {
+  mlir::Type fromValue = unrestricted(from);
+  mlir::Type toValue = unrestricted(to);
+  if (layoutMatch(fromValue, toValue) == LayoutMatch::SameLayout)
+    return false;
+  if (llvm::isa<mlir::MemRefType>(toValue))
+    return true;
+  auto source = llvm::dyn_cast<DataType>(fromValue);
+  auto target = llvm::dyn_cast<DataType>(toValue);
+  if (!source || !target || isNumber(source.layout()))
+    return false;
+  if (target.layout() != Layout::InPlace)
+    return true;
+  for (Tag tag : source.possibleTags()) {
+    if (!target.possibleTags().contains(tag))
+      continue;
+    auto sourceFields = fieldTypes(source, tag);
+    auto targetFields = fieldTypes(target, tag);
+    for (auto [a, z] : llvm::zip_equal(sourceFields, targetFields))
+      if (builds(a, z, fieldTypes))
+        return true;
+  }
+  return false;
+}
 
 // Whether a value of `type` can reach a closure or a suspension: one the
 // type names itself, or one a data type it names reaches, which that type's

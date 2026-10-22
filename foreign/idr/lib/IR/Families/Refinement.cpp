@@ -11,6 +11,7 @@
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Scope.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ranges.h"
 
@@ -36,25 +37,29 @@ void DataReindexOp::build(OpBuilder &builder, OperationState &state, Type result
 }
 
 // One type is the other at some instance of its levels, or a refinement of
-// it: a cast of anything else could be no refinement's. A free reindex is
-// its operand, so it keeps the operand's hold. A re-pack that builds a cell
-// gives a fresh cell, counted and claimed unique whatever the operand's
-// hold, which counting frees as any fresh cell.
+// it: a cast of anything else could be no refinement's. A reindex that
+// builds a cell or an array gives a fresh value, counted and claimed unique
+// whatever the operand's hold, which counting frees as any fresh value.
+// One that builds nothing, free or not (a cell taken apart in place, a
+// numeral widened), keeps the operand's hold, its result's memory the
+// operand's, wherever both hold references. Whether it builds is the one
+// answer the lowering's re-pack reads too, here at the field types the
+// layouts lay out, which a verifier may make.
 LogicalResult DataReindexOp::verify() {
   Type from = getValue().getType();
   Type to = getType();
   if (!refines(from, to) && !refines(to, from))
     return emitOpError("casts ") << from << " to " << to
                                  << ", which no refinement of index terms relates";
-  if (isFree()) {
-    if (holdOf(from) != holdOf(to))
-      return emitOpError("is free, its result its operand, so it keeps the operand's hold; ")
-             << from << " is given as " << to;
-  } else if (auto data = dyn_cast<DataType>(unrestricted(to));
-             data && data.layout() == Layout::Cell &&
-             !(freedBy(to, Release::Counted) && claims(to, Unique::Self))) {
-    return emitOpError("re-packs into a cell, a fresh one, so its result is counted and claimed ")
-           << "unique; it gives " << to;
+  auto laidOut = [](DataType type, Tag tag) { return Layouts::fieldsAt(type, tag); };
+  if (families::builds(from, to, laidOut)) {
+    if (!freedBy(to, Release::Counted) || !claims(to, Unique::Self))
+      return emitOpError("builds a cell or an array, a fresh value, so its result is counted and ")
+             << "claimed unique; it gives " << to;
+  } else if (std::optional<Hold> given = holdOf(from), made = holdOf(to);
+             given && made && *given != *made) {
+    return emitOpError("builds nothing, its result's memory its operand's, so it keeps the ")
+           << "operand's hold; " << from << " is given as " << to;
   }
   return lifetimes::verifyOuters(*this, 0);
 }

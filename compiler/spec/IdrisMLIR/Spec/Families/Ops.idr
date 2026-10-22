@@ -202,10 +202,12 @@ tagOp = MkOp
 ||| asked. Whether it does work is a fact of its two types (`isFree`): none
 ||| where they are the same words at run time, a bounded re-pack where an
 ||| index known inside a function changes the layout, which builds the cells
-||| a result held in a cell needs. A free reindex is its operand and keeps
-||| the operand's hold; a re-pack that builds a cell gives a fresh cell,
-||| counted and claimed unique whatever the operand's hold. Either way it
-||| takes its operand over, and its effects follow from its two types.
+||| a result held in a cell needs. One that builds a cell or an array gives
+||| a fresh value, counted and claimed unique whatever the operand's hold;
+||| one that builds nothing, free or not (a cell taken apart in place, a
+||| numeral widened), keeps the operand's hold, its result's memory the
+||| operand's. Either way it takes its operand over, and its effects follow
+||| from its two types.
 ||| Checked by the function's scope walk, which holds the refinements. A
 ||| scoped value stays scoped, and `outers` states its lifetime: the
 ||| operand's, or one that lifetime encloses.

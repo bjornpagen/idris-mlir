@@ -15,10 +15,9 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
+#include "idr/IR/Layout/SlotPlan.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/Support/Match.h"
-
-#include "SlotPlan.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -232,6 +231,28 @@ Reach reachOf(Type type) {
 }
 
 } // namespace idr::layout
+
+// One type at two grades is the same words; two data types are as their
+// layout facts say; two arrays are where their elements are and their
+// descriptors' words agree; any other two where their words agree. Makes
+// no type: the lowering asks it of every field it reads.
+idr::LayoutMatch idr::families::layoutMatch(Type from, Type to) {
+  Type fromValue = unrestricted(from);
+  Type toValue = unrestricted(to);
+  if (fromValue == toValue)
+    return LayoutMatch::SameLayout;
+  auto fromData = dyn_cast<DataType>(fromValue);
+  auto toData = dyn_cast<DataType>(toValue);
+  if (fromData && toData)
+    return fromData.layoutMatch(toData);
+  auto fromArray = dyn_cast<MemRefType>(fromValue);
+  auto toArray = dyn_cast<MemRefType>(toValue);
+  if (fromArray && toArray &&
+      layoutMatch(fromArray.getElementType(), toArray.getElementType()) == LayoutMatch::OtherLayout)
+    return LayoutMatch::OtherLayout;
+  return layout::slotWordsOf(fromValue) == layout::slotWordsOf(toValue) ? LayoutMatch::SameLayout
+                                                                       : LayoutMatch::OtherLayout;
+}
 
 namespace idr {
 

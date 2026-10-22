@@ -5,8 +5,8 @@
 // that holds it, and kept in the type's storage once the type is made. The
 // one place two constructors of a value held in place share a word, so the
 // count every reader takes is the slots' own.
-#ifndef IDR_LIB_IR_LAYOUT_SLOTPLAN_H
-#define IDR_LIB_IR_LAYOUT_SLOTPLAN_H
+#ifndef IDR_IR_LAYOUT_SLOTPLAN_H
+#define IDR_IR_LAYOUT_SLOTPLAN_H
 
 #include "idr/IR/Families/Families.h"
 
@@ -48,4 +48,4 @@ llvm::SmallVector<SlotWord> flatWords(const Slots &slots);
 
 } // namespace idr::families
 
-#endif // IDR_LIB_IR_LAYOUT_SLOTPLAN_H
+#endif // IDR_IR_LAYOUT_SLOTPLAN_H

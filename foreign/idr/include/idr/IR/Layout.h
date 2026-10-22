@@ -311,6 +311,16 @@ public:
   // The element layout of an array of `element`.
   layout::Element element(mlir::Type element) const;
 
+  // The constructors a value of `type` is laid out over, and the field
+  // types of constructor `tag` there: a closed application held in place
+  // is its own unfolding, over the constructors its indices leave possible
+  // at the fields they determine; any other value of a member is laid out
+  // as the member at an unknown index, over every constructor at its own
+  // fields, so all such applications of the member are the same words.
+  // The second makes types: a lowering worker reads fieldTypes instead.
+  static families::TagSet tagsLaidOut(DataType type);
+  static llvm::SmallVector<mlir::Type> fieldsAt(DataType type, Tag tag);
+
 private:
   // By declared tag, the types of each constructor's fields as the layout
   // lays them out; none for a constructor it is not laid out over.
@@ -334,14 +344,6 @@ private:
   // The bytes each bounded type reaches, its fields' first, once every
   // entry's cells are laid out.
   void computeReach();
-  // The constructors a value of `type` is laid out over, and the field
-  // types of constructor `tag` there: a closed application held in place
-  // is its own unfolding, over the constructors its indices leave possible
-  // at the fields they determine; any other value of a member is laid out
-  // as the member at an unknown index, over every constructor at its own
-  // fields, so all such applications of the member are the same words.
-  static families::TagSet tagsLaidOut(DataType type);
-  static llvm::SmallVector<mlir::Type> fieldsAt(DataType type, Tag tag);
   static FieldTypes fieldTypesOf(DataType type);
   void record(mlir::Type component);
   // The cell of a constructor of `fieldTypes`, object slots first.

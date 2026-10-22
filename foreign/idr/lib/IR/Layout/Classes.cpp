@@ -25,8 +25,7 @@
 #include "idr/IR/Families/Unify.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
-
-#include "SlotPlan.h"
+#include "idr/IR/Layout/SlotPlan.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 

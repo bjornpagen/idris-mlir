@@ -4,7 +4,7 @@
 // arrays: the one word of a cell, a frame stack or a number, or the slots
 // of a value held in place, whose constructors share the words they can.
 
-#include "SlotPlan.h"
+#include "idr/IR/Layout/SlotPlan.h"
 
 #include "idr/Support/Match.h"
 
