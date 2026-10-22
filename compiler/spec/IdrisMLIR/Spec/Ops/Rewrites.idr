@@ -191,7 +191,7 @@ repeatableRoots = concatMap repeatable guardOps
 
 public export
 skeletonRules : List SkeletonRule
-skeletonRules = concat
+skeletonRules = concat {t = List}
   [ rooted "GuardDecided" guardRoots
       "a guard whose condition holds on its operands' constants or intervals goes; one whose condition fails is a crash of its cause at its site"
   , rooted "GuardRepeated" repeatableRoots

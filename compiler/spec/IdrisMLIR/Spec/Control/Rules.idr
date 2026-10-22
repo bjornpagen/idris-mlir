@@ -27,7 +27,7 @@ rooted name roots doc = map (\root => MkSkeletonRule name controlHeader root doc
 
 export
 skeletonRules : List SkeletonRule
-skeletonRules = concat
+skeletonRules = concat {t = List}
   [ rooted "TakenCase" ["data.match"]
       "a match whose region a constant, an idr.data.con or the type's one constructor takes keeps that region alone"
   , rooted "TakenLiteral" ["lit.match"]
