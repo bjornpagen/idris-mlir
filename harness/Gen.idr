@@ -47,11 +47,28 @@ data Slots : Type where
 ||| Where a draw's value comes from: splitmix64's state, or the cell itself.
 data Source = Seeded Bits64 | Replayed
 
+||| Whether a run's draws all found a cell: within its tape, or past its
+||| end, where each draw past it was the smallest value, so the case is
+||| valid but not the one its source would have drawn.
+public export
+data Fit = Within | Overran
+
+public export
+Eq Fit where
+  Within == Within = True
+  Overran == Overran = True
+  _ == _ = False
+
+||| Of two runs' fits, the fit of both.
+past : Fit -> Fit -> Fit
+past Within fit = fit
+past Overran _ = Overran
+
 ||| The cells drawn so far, the last first, and the cells ahead, the next
-||| first; `overran` once a draw found no cell left.
+||| first; `fit`, Overran once a draw found no cell left.
 export
 data Tape : Type where
-  MkTape : (source : Source) -> (1 done : Slots) -> (1 ahead : Slots) -> (overran : Bool) -> Tape
+  MkTape : (source : Source) -> (1 done : Slots) -> (1 ahead : Slots) -> (fit : Fit) -> Tape
 
 ||| A generator: what it does to a tape, which it gives back.
 public export
@@ -121,13 +138,13 @@ belowSucc k v = case decide (v < S k) of
 ||| draw is the smallest, and the tape says it overran.
 step : (n : Nat) -> {auto 0 nonzero : IsSucc n} -> (1 _ : Tape) -> Res (Fin n) (const Tape)
 step Z {nonzero = ItIsSucc} _ impossible
-step (S k) (MkTape (Seeded s) done (Slot _ _ rest) overran) =
+step (S k) (MkTape (Seeded s) done (Slot _ _ rest) fit) =
   let s' = s + gamma
       i = belowSucc k (integerToNat (mod (cast {to = Integer} (mix s')) (natToInteger (S k))))
-  in i # MkTape (Seeded s') (Slot (finToNat i) (S k) done) rest overran
-step (S k) (MkTape Replayed done (Slot v _ rest) overran) =
-  let i = belowSucc k v in i # MkTape Replayed (Slot (finToNat i) (S k) done) rest overran
-step (S k) (MkTape source done End _) = FZ # MkTape source done End True
+  in i # MkTape (Seeded s') (Slot (finToNat i) (S k) done) rest fit
+step (S k) (MkTape Replayed done (Slot v _ rest) fit) =
+  let i = belowSucc k v in i # MkTape Replayed (Slot (finToNat i) (S k) done) rest fit
+step (S k) (MkTape source done End _) = FZ # MkTape source done End Overran
 
 ||| A draw below `n`, which is not 0: every value below it is a choice.
 export
@@ -262,46 +279,57 @@ record Drawn a where
   constructor MkDrawn
   value : a
   tape : List Nat
-  overran : Bool
+  fit : Fit
 
 ||| A value, with the values of the cells done (the last first) put before
 ||| `tape`.
-collect : a -> Bool -> (1 done : Slots) -> List Nat -> Drawn a
-collect x overran End tape = MkDrawn x tape overran
-collect x overran (Slot v _ older) tape = collect x overran older (v :: tape)
+collect : a -> Fit -> (1 done : Slots) -> List Nat -> Drawn a
+collect x fit End tape = MkDrawn x tape fit
+collect x fit (Slot v _ older) tape = collect x fit older (v :: tape)
 
 drawn : (1 _ : Res a (const Tape)) -> Drawn a
-drawn (x # MkTape _ done ahead overran) = case release ahead of () => collect x overran done []
+drawn (x # MkTape _ done ahead fit) = case release ahead of () => collect x fit done []
 
 ||| A case of a seed, on a tape of `capacity` cells.
 export
 seeded : (capacity : Nat) -> (seed : Bits64) -> Gen a -> Drawn a
-seeded capacity seed (MkGen g) = drawn (g (MkTape (Seeded seed) End (blanks capacity) False))
+seeded capacity seed (MkGen g) = drawn (g (MkTape (Seeded seed) End (blanks capacity) Within))
 
-||| A case of each seed, each with whether it overran, on one tape of
+||| A case of each seed, each with its tape's fit, on one tape of
 ||| `capacity` cells that every seed reuses.
 export
-seededEach : (capacity : Nat) -> (seeds : List Bits64) -> Gen a -> List (a, Bool)
+seededEach : (capacity : Nat) -> (seeds : List Bits64) -> Gen a -> List (a, Fit)
 seededEach capacity seeds (MkGen g) = each seeds (blanks capacity) []
   where
-    each : List Bits64 -> (1 _ : Slots) -> List (a, Bool) -> List (a, Bool)
+    each : List Bits64 -> (1 _ : Slots) -> List (a, Fit) -> List (a, Fit)
     each [] cells cases = case release cells of () => reverse cases
     each (s :: ss) cells cases =
-      let x # MkTape _ done ahead overran = g (MkTape (Seeded s) End cells False) in
-      each ss (reverseOnto done ahead) ((x, overran) :: cases)
+      let x # MkTape _ done ahead fit = g (MkTape (Seeded s) End cells Within) in
+      each ss (reverseOnto done ahead) ((x, fit) :: cases)
 
 ||| The case a recorded tape gives. A value past its bound is read as the
 ||| bound's last, and a tape too short as zeros, so every tape is a case.
 export
 replay : (tape : List Nat) -> Gen a -> Drawn a
-replay tape (MkGen g) = drawn (g (MkTape Replayed End (slotsOf tape) False))
+replay tape (MkGen g) = drawn (g (MkTape Replayed End (slotsOf tape) Within))
+
+||| Whether an enumeration gave every value: whole, when it ended within
+||| its limit and no run needed more cells than its tape has; or partial.
+public export
+data Coverage = Whole | Partial
+
+public export
+Eq Coverage where
+  Whole == Whole = True
+  Partial == Partial = True
+  _ == _ = False
 
 ||| Every value of a generator, by the tapes that give them.
 public export
 record Box a where
   constructor MkBox
   values : List a
-  whole : Bool
+  coverage : Coverage
 
 ||| The odometer's next tape after a run, or none.
 data Advance : Type where
@@ -320,19 +348,23 @@ advance (Slot v b older) ahead =
              else advance older (Slot 0 0 ahead)
 
 ||| The values of a generator on every tape of at most `capacity` draws,
-||| in the odometer's order, the first draw the slowest. `whole` when the
+||| in the odometer's order, the first draw the slowest. Whole when the
 ||| enumeration ended within `limit` runs and no run needed more cells.
 export
 exhaustive : (capacity : Nat) -> (limit : Nat) -> Gen a -> Box a
-exhaustive capacity limit (MkGen g) = enumerate limit (blanks capacity) [] False
+exhaustive capacity limit (MkGen g) = enumerate limit (blanks capacity) [] Within
   where
-    enumerate : Nat -> (1 _ : Slots) -> List a -> Bool -> Box a
-    enumerate Z cells found _ = case release cells of () => MkBox (reverse found) False
-    enumerate (S l) cells found over =
-      let x # MkTape _ done ahead overran = g (MkTape Replayed End cells False) in
+    coverageOf : Fit -> Coverage
+    coverageOf Within = Whole
+    coverageOf Overran = Partial
+
+    enumerate : Nat -> (1 _ : Slots) -> List a -> Fit -> Box a
+    enumerate Z cells found _ = case release cells of () => MkBox (reverse found) Partial
+    enumerate (S l) cells found sofar =
+      let x # MkTape _ done ahead fit = g (MkTape Replayed End cells Within) in
       case advance done ahead of
-        Next cells' => enumerate l cells' (x :: found) (over || overran)
-        Finished => MkBox (reverse (x :: found)) (not (over || overran))
+        Next cells' => enumerate l cells' (x :: found) (past sofar fit)
+        Finished => MkBox (reverse (x :: found)) (coverageOf (past sofar fit))
 
 ------------------------------------------------------------------------------
 -- Shrinking
@@ -555,10 +587,10 @@ pairCount = Refl
 0 depValues : (exhaustive 4 100 Gen.dep).values = [0, 0, 1, 0, 1, 2]
 depValues = Refl
 
-0 depWhole : (exhaustive 4 100 Gen.dep).whole = True
+0 depWhole : (exhaustive 4 100 Gen.dep).coverage = Whole
 depWhole = Refl
 
-0 depLimited : (exhaustive 4 3 Gen.dep).whole = False
+0 depLimited : (exhaustive 4 3 Gen.dep).coverage = Partial
 depLimited = Refl
 
 0 replayPast : (replay [7, 9] Gen.pair).value = (2, 1)
@@ -597,17 +629,17 @@ checks =
   [ ("replaying the tape of seed " ++ show s ++ " gives its case",
      let d = seeded 16 s mixed
          r = replay d.tape mixed
-     in r.value == d.value && r.tape == d.tape && not d.overran)
+     in r.value == d.value && r.tape == d.tape && d.fit == Within)
   | s <- [1, 2, 3] ] ++
   [ ("seededEach gives each seed's case on one tape",
      let seeds = [1, 2, 3]
-     in seededEach 16 seeds mixed == map (\s => let d = seeded 16 s mixed in (d.value, d.overran)) seeds)
+     in seededEach 16 seeds mixed == map (\s => let d = seeded 16 s mixed in (d.value, d.fit)) seeds)
   , ("every tape of pair: six values",
-     let box = exhaustive 4 100 pair in length box.values == 6 && box.whole)
+     let box = exhaustive 4 100 pair in length box.values == 6 && box.coverage == Whole)
   , ("every tape of dep, in the odometer's order",
-     let box = exhaustive 4 100 dep in box.values == [0, 0, 1, 0, 1, 2] && box.whole)
-  , ("an enumeration past its limit is not whole", not (exhaustive 4 3 dep).whole)
-  , ("an enumeration past its capacity is not whole", not (exhaustive 1 100 pair).whole)
+     let box = exhaustive 4 100 dep in box.values == [0, 0, 1, 0, 1, 2] && box.coverage == Whole)
+  , ("an enumeration past its limit is not whole", (exhaustive 4 3 dep).coverage == Partial)
+  , ("an enumeration past its capacity is not whole", (exhaustive 1 100 pair).coverage == Partial)
   , ("weighted picks by the running total, never an option of weight 0",
      options (exhaustive 2 100 (weighted (MkWeights [2, 0, 1]))) == [0, 0, 2])
   , ("swarm zeroes every option on some tape and keeps it on another",

@@ -51,8 +51,9 @@ IDR_EXPECT_PROPERTY("not-called", Symbol, notCalled)
 // and @f: a recursion's specializations stop after one step.
 IDR_EXPECT_PROPERTY("specialized-once", Functions, specializedOnce)
 
-// No function is called once, from a function it calls back, and
-// used nowhere else: each continuation is part of what it continues.
+// In a first-order program, no function is called once, from a
+// function it calls back: each continuation is part of what it
+// continues.
 IDR_EXPECT_PROPERTY("contified", Nothing, contified)
 
 // Every function of the program is reached from its roots, the

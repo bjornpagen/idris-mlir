@@ -1,5 +1,5 @@
-io: built at the default size, 4 and 7
-echo: stdout is stdin's lines, each without the "\r\n" or "\n" that ends it, at the default size
-echo: no input, no line, at the default size
-size 4: echo, write and crash print what the default size prints, with the same exit status
-size 7: echo, write and crash print what the default size prints, with the same exit status
+io: linked with the build's runtime, its buffers of the page size
+echo: stdout is stdin's lines, each without the "\r\n" or "\n" that ends it
+echo: no input, no line
+write: stdout is what its pieces print straight to the descriptor
+crash: exit 1, and stdout is what its pieces print straight to the descriptor

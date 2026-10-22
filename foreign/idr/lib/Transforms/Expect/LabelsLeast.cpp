@@ -14,6 +14,7 @@
 
 #include "idr/Analysis/Labels.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -23,7 +24,6 @@
 
 #include <concepts>
 #include <utility>
-#include <vector>
 
 using namespace mlir;
 
@@ -113,14 +113,18 @@ private:
       reach(to, held[at][i]);
   }
 
+  // A (point, label) pair, the unit of the derivation's work.
+  using Pair = std::pair<unsigned, Label>;
+
   const labels::Read &read;
   // By point: where it carries its labels, the labels it holds, and the
-  // dispatches whose callee it is.
-  std::vector<SmallVector<Node, 2>> edges;
-  std::vector<SmallVector<Label, 2>> held;
-  std::vector<SmallVector<Dispatch, 1>> runsAt;
-  llvm::SetVector<std::pair<unsigned, Label>> work;
-  std::vector<labels::Firing> firings;
+  // dispatches whose callee it is. Each is sized by the program, so it is
+  // the footprint's, as the solve's own state is.
+  footprint::Vector<footprint::Vector<Node>> edges;
+  footprint::Vector<footprint::Vector<Label>> held;
+  footprint::Vector<footprint::Vector<Dispatch>> runsAt;
+  llvm::SetVector<Pair, footprint::Vector<Pair>, footprint::DenseSet<Pair>> work;
+  footprint::Vector<labels::Firing> firings;
 };
 
 // The point `key` names, for an error: where a value is, the anchor of the

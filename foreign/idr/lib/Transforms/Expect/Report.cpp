@@ -12,8 +12,8 @@ InFlightDiagnostic fail(Location loc, StringRef property) {
   return emitError(loc) << "expected " << property << ": ";
 }
 
-// Any function: before lowering an idr.func, after it a func.func or an
-// llvm.func.
+// Any function: before lowering an idr.func, after it an llvm.func, and
+// whatever function a hand-written module holds.
 std::string where(Operation *op) {
   auto fn = dyn_cast<FunctionOpInterface>(op);
   if (!fn)

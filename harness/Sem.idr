@@ -52,6 +52,7 @@ import System.File
 import Facts
 import Prims
 
+import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Runtime.Endings
 
 %default covering
@@ -68,8 +69,9 @@ operands f =
   let w = width f
       (lo, hi) = bounds f
       bits = natToInteger w.bits
-      edges = if w.signed then [lo, lo + 1, -1, 0, 1, hi] else [0, 1, 2, pow2 (pred w.bits), hi - 1, hi]
-      small = if w.signed then [-7, -3, -2, 2, 3, 7] else [3, 7]
+      (edges, small) = the (List Integer, List Integer) $ case w.signedness of
+        Signed => ([lo, lo + 1, -1, 0, 1, hi], [-7, -3, -2, 2, 3, 7])
+        Unsigned => ([0, 1, 2, pow2 (pred w.bits), hi - 1, hi], [3, 7])
   in nub (edges ++ small ++ [bits - 1, bits, bits + 1])
 
 ------------------------------------------------------------------------------

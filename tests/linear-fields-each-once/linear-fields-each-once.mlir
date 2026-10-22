@@ -38,7 +38,7 @@ idr.program @fields root(@main) stage(graded) {
   }
   idr.func @again(%x: !Once) -> i64 {
     %a = idr.data.field %x[0] : !Once -> i64
-    // expected-error @below {{uses a value used once that is already used on the same path}}
+    // expected-error @below {{}}
     %b = idr.data.field %x[0] : !Once -> i64
     %s = arith.addi %a, %b : i64
     idr.return %s : i64

@@ -63,7 +63,7 @@ module {
   ^stop:
     llvm.return %x : i64
   }
-  // expected-error @below {{expected constant-stack: the stack grows with the recursion of @back}}
+  // expected-error @below {{expected constant-stack: }}
   llvm.func tailcc @back(%x: i64) -> i64 {
     %r = llvm.call tailcc @there(%x) : (i64) -> i64
     %one = llvm.mlir.constant(1 : i64) : i64

@@ -169,8 +169,9 @@ properties =
       [ "Every copy of @f but @f calls, of @f and its copies, only itself"
       , "and @f: a recursion's specializations stop after one step." ]
   , property "contified" NoArgument Stated
-      [ "No function is called once, from a function it calls back, and"
-      , "used nowhere else: each continuation is part of what it continues." ]
+      [ "In a first-order program, no function is called once, from a"
+      , "function it calls back: each continuation is part of what it"
+      , "continues." ]
   , property "reached" NoArgument Stated
       [ "Every function of the program is reached from its roots, the"
       , "functions its symbol table makes public, by the symbols the bodies"

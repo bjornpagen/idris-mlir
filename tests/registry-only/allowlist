@@ -4,3 +4,4 @@
 #
 # Every name of a library the compiler knows is in
 # compiler/src/IdrisMLIR/Registry*; what is listed here names no definition.
+compiler/spec/IdrisMLIR/Spec/Ops/Checks.idr: "Main.name" -- a doc comment showing how a site prints, text for a person

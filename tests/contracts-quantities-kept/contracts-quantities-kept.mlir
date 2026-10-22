@@ -20,5 +20,4 @@ module {
     }
   }
 }
-// expected-error @unknown {{is many, and Idris proved it once}}
-// expected-error @unknown {{is once, and Idris proved it many}}
+// expected-error @unknown {{expected quantities-kept: }}

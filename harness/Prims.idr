@@ -153,24 +153,25 @@ public export
 fixedTys : List FixedTy
 fixedTys = [FInt, FInt8, FInt16, FInt32, FInt64, FBits8, FBits16, FBits32, FBits64]
 
-||| A fixed-width integer type's width.
+||| A fixed-width integer type's width, and how its bits read: as two's
+||| complement, or as the natural they are.
 public export
 record Width where
   constructor MkWidth
   bits : Nat
-  signed : Bool
+  signedness : Signedness
 
 public export
 width : FixedTy -> Width
-width FInt = MkWidth 64 True
-width FInt8 = MkWidth 8 True
-width FInt16 = MkWidth 16 True
-width FInt32 = MkWidth 32 True
-width FInt64 = MkWidth 64 True
-width FBits8 = MkWidth 8 False
-width FBits16 = MkWidth 16 False
-width FBits32 = MkWidth 32 False
-width FBits64 = MkWidth 64 False
+width FInt = MkWidth 64 Signed
+width FInt8 = MkWidth 8 Signed
+width FInt16 = MkWidth 16 Signed
+width FInt32 = MkWidth 32 Signed
+width FInt64 = MkWidth 64 Signed
+width FBits8 = MkWidth 8 Unsigned
+width FBits16 = MkWidth 16 Unsigned
+width FBits32 = MkWidth 32 Unsigned
+width FBits64 = MkWidth 64 Unsigned
 
 ------------------------------------------------------------------------------
 -- What the integer builtins mean
@@ -193,16 +194,18 @@ public export
 wrap : Width -> Integer -> Integer
 wrap t n =
   let m = modulo n (pow2 t.bits)
-  in if t.signed && m >= pow2 (pred t.bits) then m - pow2 t.bits else m
+  in case t.signedness of
+       Signed => if m >= pow2 (pred t.bits) then m - pow2 t.bits else m
+       Unsigned => m
 
 ||| A fixed-width type's least and greatest values.
 public export
 bounds : FixedTy -> (Integer, Integer)
 bounds f =
   let w = width f in
-  if w.signed
-     then (negate (pow2 (pred w.bits)), pow2 (pred w.bits) - 1)
-     else (0, pow2 w.bits - 1)
+  case w.signedness of
+    Signed => (negate (pow2 (pred w.bits)), pow2 (pred w.bits) - 1)
+    Unsigned => (0, pow2 w.bits - 1)
 
 ||| Euclidean division: the remainder is never negative.
 public export
@@ -218,11 +221,15 @@ euclid a b =
 ||| value divided by -1 is itself), else of the two naturals.
 public export
 quotient : Width -> Integer -> Integer -> Integer
-quotient t a b = if t.signed then wrap t (fst (euclid a b)) else a `div` b
+quotient t a b = case t.signedness of
+  Signed => wrap t (fst (euclid a b))
+  Unsigned => a `div` b
 
 public export
 remainder : Width -> Integer -> Integer -> Integer
-remainder t a b = if t.signed then wrap t (snd (euclid a b)) else a `mod` b
+remainder t a b = case t.signedness of
+  Signed => wrap t (snd (euclid a b))
+  Unsigned => a `mod` b
 
 ||| A bitwise operation of a width, on the values' two's complement: `op`
 ||| is applied to their representatives modulo 2^bits, which are never
@@ -277,7 +284,7 @@ bitLength n = halvings (integerToNat (abs n)) (abs n)
 ||| either's magnitude has, where `bitwise` computes it.
 public export
 bigBitwise : (Integer -> Integer -> Integer) -> Integer -> Integer -> Integer
-bigBitwise op a b = bitwise (MkWidth (2 + max (bitLength a) (bitLength b)) True) op a b
+bigBitwise op a b = bitwise (MkWidth (2 + max (bitLength a) (bitLength b)) Signed) op a b
 
 ||| A value as a value of an integer type: wrapped to a fixed width, any
 ||| for Integer.
@@ -624,11 +631,21 @@ family op = map (\b => b op)
 fixedInts : List IntTy
 fixedInts = map Sized fixedTys
 
+||| The fixed-width types whose bits read as `s` says, in the order the
+||| tests make them.
+readAs : Signedness -> List FixedTy
+readAs s = filter (\f => sameReading s (width f).signedness) fixedTys
+  where
+    sameReading : Signedness -> Signedness -> Bool
+    sameReading Signed Signed = True
+    sameReading Unsigned Unsigned = True
+    sameReading _ _ = False
+
 signedInts : List IntTy
-signedInts = map Sized (filter (\f => (width f).signed) fixedTys)
+signedInts = map Sized (readAs Signed)
 
 unsignedInts : List IntTy
-unsignedInts = map Sized (filter (\f => not (width f).signed) fixedTys)
+unsignedInts = map Sized (readAs Unsigned)
 
 fixed : FixedTy -> Ty
 fixed f = TIntegral (Sized f)
@@ -637,10 +654,10 @@ bitsOf : FixedTy -> Nat
 bitsOf f = (width f).bits
 
 signedTys : List FixedTy
-signedTys = filter (\f => (width f).signed) fixedTys
+signedTys = readAs Signed
 
 unsignedTys : List FixedTy
-unsignedTys = filter (\f => not (width f).signed) fixedTys
+unsignedTys = readAs Unsigned
 
 ||| Idris's comparisons, each by its word and what it decides.
 comparisons : List (String, Integer -> Integer -> Bool)

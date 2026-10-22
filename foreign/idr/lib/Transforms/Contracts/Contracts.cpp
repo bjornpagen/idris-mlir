@@ -104,28 +104,25 @@ Snapshot snapshotOf(Pass *pass, ModuleOp module) {
   Snapshot snapshot;
   snapshot.pass = pass;
   for (FunctionOpInterface function : expect::functionsOf(module))
-    if (auto fn = dyn_cast<FuncOp>(function.getOperation())) {
-      snapshot.bySymbol.try_emplace(fn.getSymNameAttr(), snapshot.functions.size());
+    if (auto fn = dyn_cast<FuncOp>(function.getOperation()))
       snapshot.functions.push_back(recordOf(fn));
-    }
   return snapshot;
 }
 
-// A function the pass kept: an idr.func of the program after it, and the
-// record of its symbol before it. A function the pass made or erased is
-// compared with nothing: a copy's signature is derived from its source's by
-// the one derivation the copying passes share.
+// A function the pass kept: the record of a symbol before it, and the
+// idr.func of the program that symbol names after it. A function the pass
+// made or erased is compared with nothing: a copy's signature is derived
+// from its source's by the one derivation the copying passes share.
 struct Kept {
   FuncOp now;
   const FunctionRecord *before;
 };
 
-SmallVector<Kept> keptOf(const Snapshot &snapshot, ModuleOp module) {
+SmallVector<Kept> keptOf(const Snapshot &snapshot, SymbolTable &symbols) {
   SmallVector<Kept> kept;
-  for (FunctionOpInterface function : expect::functionsOf(module))
-    if (auto fn = dyn_cast<FuncOp>(function.getOperation()))
-      if (auto at = snapshot.bySymbol.find(fn.getSymNameAttr()); at != snapshot.bySymbol.end())
-        kept.push_back({fn, &snapshot.functions[at->second]});
+  for (const FunctionRecord &record : snapshot.functions)
+    if (auto fn = symbols.lookup<FuncOp>(record.symbol))
+      kept.push_back({fn, &record});
   return kept;
 }
 
@@ -311,7 +308,8 @@ void ContractInstrumentation::runAfterPass(Pass *pass, Operation *op) {
   std::string name = nameOf(pass);
   ModuleAnalysisManager mam(module, /*passInstrumentor=*/nullptr);
   AnalysisManager analyses = mam;
-  SmallVector<Kept> kept = keptOf(snapshot, module);
+  SymbolTable &symbols = expect::symbolsOf(module, analyses);
+  SmallVector<Kept> kept = keptOf(snapshot, symbols);
 
   // Every relation is checked, in this order, each reporting every place
   // it fails.
@@ -321,7 +319,7 @@ void ContractInstrumentation::runAfterPass(Pass *pass, Operation *op) {
     held = false;
   }
   held = linearKept(name, kept) && held;
-  held = crashSitesNotAdded(name, expect::symbolsOf(module, analyses), kept) && held;
+  held = crashSitesNotAdded(name, symbols, kept) && held;
   if (!held)
     signalPassFailure(pass);
 }

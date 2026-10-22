@@ -1,4 +1,4 @@
--- expect: world, line 7
+-- expect: library, line 7
 -- message: PrimIO.unsafePerformIO
 module Main
 

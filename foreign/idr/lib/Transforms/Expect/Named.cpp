@@ -16,7 +16,6 @@
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/Location.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
@@ -62,15 +61,18 @@ namespace {
 // A location names `f` where a NameLoc called `f` is reached through the
 // names and the fusions that wrap it: Emit's library wrapper is a fusion,
 // and so is what deduplication made. A call site is no part of a
-// function's own location. Each step is into a part of the location, which
-// is built before it, so the descent ends.
+// function's own location, so the walk passes over everything but a name
+// and a fusion. Locations nest as deep as passes wrapped them, so the walk
+// is upstream's, which keeps its place on a stack of its own, never the
+// native one.
 bool locationNames(Location loc, StringRef f) {
-  if (auto named = dyn_cast<NameLoc>(loc))
-    return named.getName().getValue() == f || locationNames(named.getChildLoc(), f);
-  if (auto fused = dyn_cast<FusedLoc>(loc))
-    return llvm::any_of(fused.getLocations(),
-                        [&](Location part) { return locationNames(part, f); });
-  return false;
+  return loc->walk([&](Location part) {
+              if (auto named = dyn_cast<NameLoc>(part))
+                return named.getName().getValue() == f ? WalkResult::interrupt()
+                                                        : WalkResult::advance();
+              return isa<FusedLoc>(part) ? WalkResult::advance() : WalkResult::skip();
+            })
+      .wasInterrupted();
 }
 
 } // namespace

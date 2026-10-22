@@ -23,7 +23,6 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Pass/PassInstrumentation.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -44,15 +43,14 @@ struct FunctionRecord {
   MayCrash crash;
 };
 
-// The record of every function before one run of a pass, by symbol, and
-// the pass the run is of. Across a pass a function's identity is its
-// symbol, MLIR's own, which follows a function the pass rebuilt as a new
-// op; the key is the uniqued StringAttr, hashed and compared by pointer,
-// never by its text.
+// The record of every function before one run of a pass, and the pass the
+// run is of. Across a pass a function's identity is its symbol, MLIR's own,
+// which follows a function the pass rebuilt as a new op: after the pass
+// each record finds its function through the program's symbol table, the
+// one index of its symbols, so the snapshot keeps none of its own.
 struct Snapshot {
   mlir::Pass *pass = nullptr;
   llvm::SmallVector<FunctionRecord> functions;
-  llvm::DenseMap<mlir::StringAttr, unsigned> bySymbol;
 };
 
 class ContractInstrumentation final : public mlir::PassInstrumentation {

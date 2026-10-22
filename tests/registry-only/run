@@ -6,24 +6,37 @@
 # and compiler/src/IdrisMLIR/Registry/, no string literal in compiler/src or in
 # the dialect's sources under foreign/idr is a qualified Idris name or a
 # namespace the registry classifies, and no Idris name is built from a
-# literal. `allowlist` lists the lines allowed anyway, one per line as
-# `path: text -- reason`; it is empty.
+# literal. The dialect's specification, compiler/spec, spells no name of
+# base's: no literal of it is a name in a namespace the registry
+# classifies, and none builds a name. A file's name the specification
+# writes ("Control.h") is no name; a namespace's word alone is not looked
+# for there, since the specification spells MLIR's builtin dialect, a
+# family's kind and its headers' directories with words base uses too.
+# `allowlist` lists the lines allowed anyway, one per line as `path: text
+# -- reason`: a doc comment of the specification's.
 #
 # The rule is `registry_only ROOT`, its list ROOT/tests/registry-only/
 # allowlist, run on the repository and on the planted trees
 # (lib/planted.sh): witness/ names a definition by a qualified literal, a
-# namespace alone and a name built from a literal, in the Idris and in the
-# dialect's C++ and ODS, and its list has an entry without its reason;
-# near-miss/ holds what is allowed: the registry's own names, the dialect
-# samples' and the googletest boxes', an include, literals that are no
-# qualified name, and a listed line.
+# namespace alone and a name built from a literal, in the Idris, in the
+# specification and in the dialect's C++ and ODS, and its list has an entry
+# without its reason; near-miss/ holds what is allowed: the registry's own
+# names, the dialect samples' and the googletest boxes', an include,
+# literals that are no qualified name, the files and the module of its own
+# the specification spells, and a listed line.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
 # A qualified name: a capitalized namespace, a dot and the rest, with no
 # space ("Prelude.IO.prim__putStr", or the prefix "Builtin.").
 qualified="\"[A-Z][A-Za-z0-9_']*\\.[^\" ]*\""
-# A namespace the registry classifies, alone ("Prelude").
-namespaces='"(Builtin|PrimIO|Prelude|Data|Control|Decidable|Syntax|Main)"'
+# The namespaces the registry classifies, and one of them alone
+# ("Prelude").
+classified='Builtin|PrimIO|Prelude|Data|Control|Decidable|Syntax|Main'
+namespaces="\"($classified)\""
+# A name in one of them ("Prelude.IO.putStr").
+based="\"($classified)\\.[^\" ]*\""
+# A file's name, by the extension of a file the specification writes.
+files='"[^" ]*\.(h|td|inc|cpp|idr|txt)"'
 # An Idris name built from a literal (`UN (Basic "main")`).
 built='Basic "[^"]'
 
@@ -40,6 +53,9 @@ registry_only() (
       ! -path 'compiler/src/IdrisMLIR/Registry/*' ! -path 'compiler/src/IdrisMLIR/Registry.idr' \
       ! -path 'compiler/src/IdrisMLIR/SyntaxSamples.idr' | LC_ALL=C sort | while IFS= read -r f; do
         grep -nE "$qualified|$namespaces|$built" "$f" | sed "s|^|$f:|"
+      done
+    [ -d compiler/spec ] && find compiler/spec -name '*.idr' ! -path '*/build/*' | LC_ALL=C sort | while IFS= read -r f; do
+        sed -E "s/$files/\"\"/g" "$f" | grep -nE "$based|$built" | sed "s|^|$f:|"
       done
     [ -d foreign/idr ] && find foreign/idr -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.td' -o -name '*.inc' \) \
       ! -path 'foreign/idr/unittests/*' | LC_ALL=C sort | while IFS= read -r f; do

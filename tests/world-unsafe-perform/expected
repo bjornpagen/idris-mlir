@@ -1,5 +1,5 @@
 compile: exit 3
-unsupported (world): the only error
+unsupported (library): the only error
 line: as the header says
 message: as the header says
 artifacts: none

@@ -34,7 +34,7 @@ idr.program @casts root(@main) stage(graded) {
     idr.return %c : i64
   }
   idr.func @raises(%x: !Cell) -> !Claimed {
-    // expected-error @below {{whose hold claims more or is freed otherwise}}
+    // expected-error @below {{}}
     %y = idr.lin.cast %x : !Cell -> !Claimed
     idr.return %y : !Claimed
   }

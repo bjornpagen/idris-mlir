@@ -73,6 +73,7 @@ import Gen
 import Prims
 import Sem
 
+import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Runtime.Endings
 
 %default total
@@ -155,10 +156,13 @@ anyIn lo hi WithZero = (\i => lo + natToInteger (finToNat i)) <$> draw (S (integ
 ||| A value of a fixed width: any of its values, twice as likely as each of
 ||| its edges and small values; not 0 when asked. An unsigned width's
 ||| least value is 0, which the set holds once.
-fixedLiteral : (lo, hi : Integer) -> Zero -> Gen Integer
-fixedLiteral lo hi z =
-  let signed = lo < 0
-      small = nub [lo, hi, 0, 1, if signed then -1 else 2, 7, if signed then -100 else 100]
+fixedLiteral : FixedTy -> Zero -> Gen Integer
+fixedLiteral f z =
+  let (lo, hi) = bounds f
+      (near, far) = the (Integer, Integer) $ case (width f).signedness of
+        Signed => (-1, -100)
+        Unsigned => (2, 100)
+      small = nub [lo, hi, 0, 1, near, 7, far]
       vs = Vect.fromList (case z of WithoutZero => filter (/= 0) small; WithZero => small)
   in do i <- weighted (MkWeights (2 :: map (const 1) vs))
         case i.fst of
@@ -178,7 +182,7 @@ bigLiteral z =
 
 ||| A value of an integer type.
 integerLiteral : IntTy -> Zero -> Gen Integer
-integerLiteral (Sized f) z = let (lo, hi) = bounds f in fixedLiteral lo hi z
+integerLiteral (Sized f) z = fixedLiteral f z
 integerLiteral Big z = bigLiteral z
 
 ||| Finite Doubles, edges among them.
@@ -586,8 +590,8 @@ programText request part file cases =
          ++ (nub (ws >>= (.hides)) >>= barrier)
 
 ||| The cases of a program: case n on output n of splitmix64 from the seed,
-||| all on one tape, each with whether its tape overran.
-cases : Bits64 -> Nat -> Part -> List (Case, Bool)
+||| all on one tape, each with its tape's fit.
+cases : Bits64 -> Nat -> Part -> List (Case, Fit)
 cases seed n part = seededEach caseCapacity (map (caseSeed seed) [1 .. n]) (genCase part)
 
 ||| A seed's thread count: one of 1, 3, 5 and 13, each as likely, on the
@@ -662,11 +666,11 @@ expectedRun part numbered = go [<] (statements part numbered)
 -- The check
 ------------------------------------------------------------------------------
 
-||| The cases a request names, each with whether its tape overran, and the
+||| The cases a request names, each with its tape's fit, and the
 ||| request's name in what the check prints: a program's (`program <seed>
 ||| <cases> <part>`, named by its seed) or a tape's one (`replay <tape>
 ||| <part>`, named by its tape).
-casesOf : List String -> Maybe (String, Part, List (Case, Bool))
+casesOf : List String -> Maybe (String, Part, List (Case, Fit))
 casesOf ["program", seed, n, part] = do
   s <- parseSeed seed
   k <- parseCases n
@@ -676,7 +680,7 @@ casesOf ["replay", tape, part] = do
   t <- parseTape tape
   p <- parsePart part
   let d = replay t (genCase p)
-  pure (tape, p, [(d.value, d.overran)])
+  pure (tape, p, [(d.value, d.fit)])
 casesOf _ = Nothing
 
 ||| How a program's run went, as the shell saw it: its output, how it
@@ -829,7 +833,7 @@ export covering
 overranOf : List String -> Maybe String
 overranOf request = do
   (name, _, cs) <- casesOf request
-  pure $ case find (\(_, (_, overran)) => overran) (zip [the Nat 1 .. length cs] cs) of
+  pure $ case find (\(_, (_, fit)) => fit == Overran) (zip [the Nat 1 .. length cs] cs) of
     Just (n, _) => name ++ ": overran: case " ++ show n ++ "\n"
     Nothing => ""
 
