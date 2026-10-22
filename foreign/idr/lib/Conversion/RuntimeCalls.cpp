@@ -7,7 +7,7 @@
 // linking the runtime replaces a declaration's attributes by the
 // definition's.
 
-#include "Lower/Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
@@ -130,11 +130,10 @@ effects::Row rowOf(OpT op) {
 }
 
 // An op whose function is its meaning: the call is all it lowers to, its
-// precondition its guard's, tested before it. Its results are what the
-// function gives: none, the one it returns, or each through a slot of this
-// frame the call is passed. What the call does is the op's declaration's,
-// a constant of its class where its class decides it, made once with the
-// pattern.
+// precondition its guard's, tested before it. Its result is what the
+// function gives: none, or the one it returns. What the call does is the
+// op's declaration's, a constant of its class where its class decides it,
+// made once with the pattern.
 template <typename OpT>
 struct LowerRuntimeCall : IdrPattern<OpT> {
   LowerRuntimeCall(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
@@ -157,28 +156,12 @@ struct LowerRuntimeCall : IdrPattern<OpT> {
     for (Type type : op->getResultTypes())
       if (failed(this->getTypeConverter()->convertType(type, converted)))
         return rewriter.notifyMatchFailure(op, "a result's type does not convert");
-    // A function that gives its results through pointers is passed a slot
-    // of this frame for each.
-    SmallVector<Value> slots;
-    if constexpr (!function.outs.empty())
-      for (Type type : converted) {
-        OpBuilder::InsertionGuard guard(rewriter);
-        Operation *scope = op->template getParentWithTrait<mlir::OpTrait::AutomaticAllocationScope>();
-        rewriter.setInsertionPointToStart(&scope->getRegion(0).front());
-        Value one = LLVM::ConstantOp::create(rewriter, loc, rewriter.getI64Type(), 1);
-        slots.push_back(LLVM::AllocaOp::create(rewriter, loc, ptrType(ctx), type, one, 0));
-      }
-    LLVM::CallOp call =
-        this->runtime.call(rewriter, op, function, adaptor.getOperands(), slots);
+    LLVM::CallOp call = this->runtime.call(rewriter, op, function, adaptor.getOperands());
     // An op whose types decide what it does says so of itself.
     tellCall(call, classFacts ? *classFacts : callFacts(ctx, rowOf(op)));
     SmallVector<Value> values;
     switch (function.result) {
     case ResultKind::Void:
-      for (auto [slot, type, kind] : llvm::zip_equal(slots, converted, function.outs))
-        values.push_back(resultOf(op, kind, LLVM::LoadOp::create(rewriter, loc, type, slot),
-                                  type, rewriter));
-      break;
     case ResultKind::NoReturn:
       break;
     case ResultKind::Int32:

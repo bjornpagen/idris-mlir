@@ -115,9 +115,6 @@ LLVM::LLVMFunctionType runtimeFunctionType(MLIRContext *ctx,
   SmallVector<Type> params;
   for (OperandKind kind : function.operands)
     params.push_back(llvmType(ctx, kind));
-  // A function that gives its results through pointers takes one for each,
-  // after the operands.
-  params.append(function.outs.size(), LLVM::LLVMPointerType::get(ctx));
   return LLVM::LLVMFunctionType::get(llvmType(ctx, function.result), params);
 }
 
@@ -158,7 +155,7 @@ LLVM::CallOp Runtime::call(OpBuilder &b, Location loc, const idr::runtime::Funct
 }
 
 LLVM::CallOp Runtime::call(OpBuilder &b, Operation *op, const idr::runtime::Function &function,
-                           ArrayRef<ValueRange> operands, ArrayRef<Value> resultSlots) const {
+                           ArrayRef<ValueRange> operands) const {
   Location loc = op->getLoc();
   Type i64 = b.getI64Type();
   SmallVector<Value> args;
@@ -171,7 +168,6 @@ LLVM::CallOp Runtime::call(OpBuilder &b, Operation *op, const idr::runtime::Func
                                           : Value(arith::ExtUIOp::create(b, loc, i64, value));
     args.push_back(value);
   }
-  llvm::append_range(args, resultSlots);
   return call(b, loc, function, args);
 }
 

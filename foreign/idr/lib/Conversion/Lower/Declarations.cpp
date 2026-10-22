@@ -10,7 +10,7 @@
 // identifier, which holds no dot, and every program function's lowered
 // name holds one (Mangle.h), so no declaration meets a program symbol.
 
-#include "Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/Conversion/Passes.h"
 #include "idr/Conversion/Runtime.h"

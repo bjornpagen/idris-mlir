@@ -5,15 +5,16 @@
 // the entry of each word's kind, which its type gives (a cell, a cell or
 // null, a cell or a small value, any of them), so no entry tests what the
 // type rules out. A value its type proves unshared meets no count and no
-// test; the one test of sharing left is a match on uniqueness, which
-// counting made only where the type proves nothing, and which lowers to a
-// branch on the count being 1. A share, of a value or of a token widened at
-// a rejoin, is its operand's words: the one pattern of the ops whose result
-// carries their operand (Lower.cpp) lowers it, as the ops with no runtime
-// form of their own, a buffer counting takes over and a value handed to the
-// memory that stores it.
+// test: a take of it is its cell, and a drop of it frees its own cells
+// with no count read. The one test of sharing left is a match on
+// uniqueness, which counting made only where the type proves nothing, and
+// which lowers to a branch on the count being 1. A share, of a value or of
+// a token widened at a rejoin, is its operand's words: the one pattern of
+// the ops whose result carries their operand (Lower.cpp) lowers it, as the
+// ops with no runtime form of their own, a buffer counting takes over and a
+// value handed to the memory that stores it.
 
-#include "Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/Conversion/IdrPattern.h"
@@ -29,14 +30,12 @@ namespace idr::conversion {
 namespace {
 
 // The fields of a value refined to one constructor laid out in a cell, at
-// `cell`, read out with the references the cell held: a data cell's fields
-// stay until its memory is reused, a memo cell's change when it is forced.
+// `cell`, read out with the references the cell held.
 SmallVector<SmallVector<Value>> fieldsAt(OpBuilder &b, Location loc, const Runtime &runtime,
                                          const Layouts &layouts, Value cell, DataType data) {
   const layout::Cell &layout = layouts.cells(data).cell(tagOf(data));
-  Contents stays = data.memo() ? Contents::MayChange : Contents::Stays;
   return llvm::map_to_vector(layout.fields, [&](ArrayRef<layout::Slot> slots) {
-    return runtime.load(b, loc, cell, cellAlignment(), slots, stays);
+    return runtime.load(b, loc, cell, cellAlignment(), slots, contentsOf(data));
   });
 }
 
@@ -55,13 +54,15 @@ struct LowerDup : IdrPattern<CountDupOp> {
   }
 };
 
-// One reference less to each counted word of the value, a cell freed at 0.
+// A drop: one reference less to each counted word of the value, a cell
+// freed at 0, or, where its type claims its own cells unshared, those cells
+// freed with no count read (Drops.cpp).
 struct LowerDrop : IdrPattern<CountDropOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(CountDropOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    runtime.dec(rewriter, op.getLoc(), layouts.components(op.getValue().getType()),
-                adaptor.getValue());
+    dropValue(rewriter, op.getLoc(), runtime, layouts, op.getValue().getType(),
+              adaptor.getValue());
     rewriter.eraseOp(op);
     return success();
   }

@@ -19,8 +19,9 @@
 namespace idr::conversion {
 
 // The counting ops: a count by the entry of each word's kind, a take of a
-// value its type proves unshared with no test, the one test of sharing
-// where its type proves nothing, the frees of tokens, and the null token.
+// value its type proves unshared with no test, a drop of one that frees its
+// own cells with no count read, the one test of sharing where its type
+// proves nothing, the frees of tokens, and the null token.
 void populateCountingPatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, const Layouts &layouts,
                               Runtime &runtime);
@@ -56,11 +57,16 @@ void populateStringPatterns(mlir::RewritePatternSet &patterns,
                             const mlir::TypeConverter &converter, const Layouts &layouts,
                             Runtime &runtime);
 
-// The counted cells, each made by its source and written by its init; the
-// data values, built, read and taken apart by their layouts; and the places
-// written once through a destination.
+// The counted cells, each made by its source and written by its init; and
+// the data values, built, read and taken apart by their layouts.
 void populateCellPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                           const Layouts &layouts, Runtime &runtime);
+
+// The places written once through a destination: a hole of a cell, and the
+// slots of a row's answers.
+void populateDestinationPatterns(mlir::RewritePatternSet &patterns,
+                                 const mlir::TypeConverter &converter, const Layouts &layouts,
+                                 Runtime &runtime);
 
 // The ends of a run, the IO a trusted library runs for a value, and the
 // ops of inline arithmetic.

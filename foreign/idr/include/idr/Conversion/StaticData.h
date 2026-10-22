@@ -3,7 +3,8 @@
 // The constants the program holds as globals: strings, bigs outside the
 // small range, cells of data and memo cells of constant suspensions, the
 // cells of constant arrays, `nothing` (the cell poison of a cell pointer
-// is), and the texts a crash site names (its function and its file).
+// is), the texts a crash site names (its function and its file), and the
+// name of each function whose call keeps an account of what it holds.
 // idr-lower-statics makes each once, before any function is lowered; the
 // lowering names it. Each is named from its content, `__idr$<kind>$<hash>`
 // (reservedName), so both sides reach one global by the one function of
@@ -71,7 +72,8 @@ public:
   static std::string cell(ConAttr con, unsigned k);
   static std::string array(mlir::memref::GlobalOp global);
   static std::string nothing();
-  // A text of a crash site: a function's name, or a source file's.
+  // A text of a crash site or of an account: a function's name, or a source
+  // file's.
   static std::string text(llvm::StringRef bytes);
   // The per-thread cursors of the program's homes, one slot per home site.
   static std::string homes();
@@ -103,7 +105,7 @@ public:
   void constantArray(const ConstantArray &array);
   // The cell poison of a cell pointer is.
   void nothing();
-  // A text of a crash site.
+  // A text of a crash site or of an account.
   void text(llvm::StringRef bytes);
   // The per-thread cursor of each of `sites` homes, each null until its
   // first put: the memory of a shard is its thread's.

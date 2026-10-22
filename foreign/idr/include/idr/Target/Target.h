@@ -153,6 +153,27 @@ private:
   // order, so the module `extract` reads back has the places `of` numbered.
   static std::vector<llvm::GlobalValue *> positions(llvm::Module &module);
 
+  // Components of the reference graph that stay together: their nodes,
+  // the names of their symbols, the instructions they hold, and the place
+  // of their first node.
+  struct Part {
+    llvm::SmallVector<unsigned> nodes;
+    std::vector<llvm::StringRef> names;
+    std::uint64_t size = 0;
+    unsigned position = 0;
+  };
+
+  // A bin, and the parts it holds, by their index.
+  struct Cut {
+    Bin bin;
+    llvm::SmallVector<unsigned> parts;
+  };
+
+  // The bins `parts` are cut into, in name order: grouped by the top-level
+  // namespace their names keep and cut by their hash, so a cut depends only
+  // on its neighbours (Bins.cpp). The Error is the compiler's.
+  static llvm::Expected<std::vector<Cut>> cut(llvm::ArrayRef<Part> parts);
+
   // Where a global value lives: declared only (a declaration, or an alias
   // of nothing a bin defines), copied into each bin that names it (a
   // constant whose address nothing tells apart), or defined by one bin.

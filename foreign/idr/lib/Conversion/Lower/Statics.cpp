@@ -5,10 +5,11 @@
 // its content (StaticNames), which the lowering's reference to it reads:
 // the constants that are static data, the atom a constructor of a cell
 // with no field is, `nothing` (the cell poison of a cell pointer is), the
-// cells of the constant arrays, the texts every crash site names, and the
+// cells of the constant arrays, the texts every crash site names, the name
+// of every function whose call keeps an account of what it holds, and the
 // thread's cursors of the program's homes.
 
-#include "Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
@@ -66,6 +67,9 @@ struct LowerStatics : idr::impl::IdrLowerStaticsBase<LowerStatics> {
             .getKind()
             .fold([] {}, [] {}, [] {}, [&](uint32_t site) { homes = std::max(homes, site + 1); });
     });
+    for (auto fn : program->getRegion(0).getOps<FuncOp>())
+      if (fn.getFrameBound() != 0)
+        data.text(fn.getSymName());
     for (auto global : program->getRegion(0).getOps<memref::GlobalOp>()) {
       FailureOr<ConstantArray> array = ConstantArray::of(global);
       if (failed(array))

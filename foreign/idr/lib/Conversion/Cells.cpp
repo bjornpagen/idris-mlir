@@ -2,18 +2,11 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The patterns of cells and of data values: a counted cell's source and its
 // reuse, each of which writes the cell's header, and its init, which writes
-// its fields; the constructors that build no cell; the reads of tags and
-// fields, each by the layout its type is (a cell, or words in place); the
-// places written once through a destination; and what poison and select
-// make of a value of ours. A cell of a lexical lifetime is Lifetimes.cpp's.
-//
-// A destination is one address per component of what it writes, each that
-// component's slot in its place: a hole of a cell an init built, or the
-// slot a function waiting for an answer keeps on its frame. A write is one
-// store per component, with no count changed, since the value's reference
-// moves into the place, and none carries an invariant group: a hole is
-// written once after its zero, and a load through the cell later sees the
-// value.
+// its fields and gives each hole's destination; the constructors that build
+// no cell; the reads of tags and fields, each by the layout its type is (a
+// cell, or words in place); and what poison and select make of a value of
+// ours. A cell of a lexical lifetime is Lifetimes.cpp's, and a write through
+// a destination Destinations.cpp's.
 //
 // A frame of a frame stack is laid out as a cell and lives on its thread's
 // stack of frames, contiguous in chunks the runtime holds: a push
@@ -23,7 +16,7 @@
 // it no longer needs and keeping one spare. Its memory is the next push's,
 // so nothing read of it stays.
 
-#include "Lower/Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -48,14 +41,6 @@ namespace {
 
 // A data value's type, which an op reads its layout from.
 DataType dataOf(Type type) { return cast<DataType>(unrestricted(type)); }
-
-// What a load of a cell of `data` reads: a data cell is immutable until its
-// memory is reused, which launders the pointer; a memo cell's state and
-// fields change when it is forced, and a frame's memory is the next push's.
-Contents contentsOf(DataType data) {
-  return data.memo() || data.layout() == Layout::FrameStack ? Contents::MayChange
-                                                             : Contents::Stays;
-}
 
 // The components each field of a constructor stores in a cell laid out as
 // `cell`: those `given`, in field order, and zero for each of `holes`, so
@@ -338,51 +323,6 @@ struct LowerConstant : IdrPattern<ConstantOp> {
   }
 };
 
-// A value written once through its destination: each component stored at
-// its own address, aligned as its slot is.
-struct LowerDestWrite : IdrPattern<DestWriteOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(DestWriteOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    for (auto [address, value] : llvm::zip_equal(adaptor.getDest(), adaptor.getValue()))
-      LLVM::StoreOp::create(rewriter, op.getLoc(), value, address,
-                            layouts.alignmentOf(value.getType()));
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
-// A function waiting for an answer written through a destination: a slot
-// of the frame for each component of the answer, made once in the entry
-// block, which the region's destination names; the region runs in place,
-// and the answer is read out of the slots when it ends.
-struct LowerDestAnswer : IdrPattern<DestAnswerOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(DestAnswerOp op, OneToNOpAdaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    SmallVector<layout::Component> components = layouts.components(op.getResult().getType());
-    SmallVector<Value> slots;
-    {
-      OpBuilder::InsertionGuard guard(rewriter);
-      Operation *scope = op->getParentWithTrait<mlir::OpTrait::AutomaticAllocationScope>();
-      rewriter.setInsertionPointToStart(&scope->getRegion(0).front());
-      for (const layout::Component &component : components)
-        slots.push_back(LLVM::AllocaOp::create(rewriter, loc, ptrType(getContext()),
-                                               component.type, i64Constant(rewriter, loc, 1),
-                                               layouts.alignmentOf(component.type)));
-    }
-    auto run = scf::ExecuteRegionOp::create(rewriter, loc, TypeRange{});
-    moveRegion(rewriter, *getTypeConverter(), op.getBody(), {slots}, run.getRegion());
-    SmallVector<Value> answer;
-    for (auto [component, slot] : llvm::zip_equal(components, slots))
-      answer.push_back(LLVM::LoadOp::create(rewriter, loc, component.type, slot,
-                                            layouts.alignmentOf(component.type)));
-    rewriter.replaceOpWithMultiple(op, {answer});
-    return success();
-  }
-};
-
 // Poison may still be dropped, as what a function nobody reads is passed,
 // or what a loop forwards on the path it does not take. Poison of a cell
 // pointer is the static cell `nothing`: a cell, so every fact LLVM is told
@@ -429,15 +369,13 @@ struct LowerSelect : IdrPattern<arith::SelectOp> {
 
 // The patterns of cells and data values: a counted cell's source, reuse and
 // init, constructors, their tags and fields, a value in place taken apart,
-// a reindex and an assumed equality, constants, the writes through
-// destinations and the slots of answers, and what poison and select make of
-// a value of ours.
+// a reindex and an assumed equality, constants, and what poison and select
+// make of a value of ours.
 void populateCellPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                           const Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerCellNew, LowerCellRecycle, LowerCellInit, LowerDataCon, LowerUnpack,
                LowerDataTag, LowerDataField, LowerReindex, LowerAssume, LowerConstant,
-               LowerPoison, LowerSelect, LowerDestWrite, LowerDestAnswer>(
-      converter, patterns.getContext(), layouts, runtime);
+               LowerPoison, LowerSelect>(converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

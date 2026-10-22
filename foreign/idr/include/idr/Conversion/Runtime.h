@@ -98,13 +98,10 @@ public:
   // Calls `function`, the runtime function of `op`, with `operands`, the
   // components of the op's operands in order, each passed as the function
   // takes it: an integer of the op's width extended to 64 bits as Signed or
-  // Unsigned says, any other as its one component. A function that gives
-  // its results through pointers is passed one slot of this frame for each,
-  // after the operands.
+  // Unsigned says, any other as its one component.
   mlir::LLVM::CallOp call(mlir::OpBuilder &b, mlir::Operation *op,
                           const idr::runtime::Function &function,
-                          llvm::ArrayRef<mlir::ValueRange> operands,
-                          llvm::ArrayRef<mlir::Value> resultSlots = {}) const;
+                          llvm::ArrayRef<mlir::ValueRange> operands) const;
 
   // A crash of `cause` at `site`: idris_rt_crash_at, cold, which does not
   // return. The cause passes as its position in the closed set, the

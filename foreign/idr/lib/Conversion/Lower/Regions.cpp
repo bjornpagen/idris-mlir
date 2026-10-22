@@ -5,7 +5,7 @@
 // its region moved in, so the one conversion of scf to blocks makes every
 // block the function has.
 
-#include "Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
 

@@ -9,7 +9,7 @@
 // and name are what its callers' lowering reads. Phase 2's patterns then
 // convert each body on its own.
 
-#include "Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/Analysis/Effects.h"
 #include "idr/IR/Func.h"

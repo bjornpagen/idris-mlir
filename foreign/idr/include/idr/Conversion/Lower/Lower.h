@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // What the steps of idr-lower share, inside the lowering: the functions as
-// LLVM's (phase 0), what LLVM is told of a row, the rules of a lifetime's
-// kind, and the preparation of a function's lifetimes before its ops are
-// converted (phase 1).
-#ifndef IDR_LIB_CONVERSION_LOWER_LOWER_H
-#define IDR_LIB_CONVERSION_LOWER_LOWER_H
+// LLVM's (phase 0), what LLVM is told of a row, how a cell is read and a
+// value dropped, and what is made ready of a function before its ops are
+// converted (its lifetimes and its account).
+#ifndef IDR_CONVERSION_LOWER_LOWER_H
+#define IDR_CONVERSION_LOWER_LOWER_H
 
 #include "idr/IR/Effects/LLVM.h"
 #include "idr/IR/IdrDialect.h"
@@ -15,6 +15,7 @@
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -46,6 +47,22 @@ void tellCall(mlir::LLVM::CallOp call, const CallFacts &facts);
 
 // The constructor a data type refined to one constructor names.
 inline Tag tagOf(DataType data) { return data.possibleTags().front(); }
+
+// What a load of a cell of `data` reads: a data cell is immutable until its
+// memory is reused, which launders the pointer; a memo cell's state and
+// fields change when it is forced, and a frame's memory is the next push's.
+inline Contents contentsOf(DataType data) {
+  return data.memo() || data.layout() == Layout::FrameStack ? Contents::MayChange
+                                                             : Contents::Stays;
+}
+
+// A drop of a value of `type`, its components `value`: where its type claims
+// its own cells unshared and it has some, a data type in a cell or in place,
+// those cells freed with no count read and what the claim says nothing of
+// dropped by its counts; otherwise one reference less to each counted word,
+// a cell freed at 0.
+void dropValue(mlir::OpBuilder &b, mlir::Location loc, const Runtime &runtime,
+               const Layouts &layouts, mlir::Type type, mlir::ValueRange value);
 
 // The layout of a cell of `type`: its family's cell of the constructor the
 // cell is for, both of which the cell's type says.
@@ -80,13 +97,6 @@ groupResults(mlir::ValueRange flat, llvm::ArrayRef<llvm::SmallVector<mlir::Type>
 // Lifetimes
 //===----------------------------------------------------------------------===//
 
-// What a lifetime's kind lowers to, one context-free rule per kind, so the
-// converter caches it: a view and a home to no value, dropped from every
-// signature, call and frame; a room to the pointer to its block; a cursor
-// to a pointer, the cursor at a function's boundary and the address of its
-// slot inside the function.
-void addLifetimeConversions(mlir::TypeConverter &converter);
-
 // A function's lifetimes made ready, still on idr types and before any
 // signature changes: each cursor parameter's value kept in a slot of the
 // frame, which every use reads and every return gives back; each room's
@@ -98,6 +108,17 @@ void addLifetimeConversions(mlir::TypeConverter &converter);
 // error, since a room is a block of static size.
 mlir::LogicalResult prepareLifetimes(FuncOp fn, const mlir::SymbolTable &program,
                                      const Layouts &layouts);
+
+// The patterns that tell a call's account, in the checked runtime, what the
+// call holds that it no longer needs: each reuse token it takes and gives
+// up, and where it ends, at a return or before a call in tail position.
+mlir::FrozenRewritePatternSet accountPatterns(mlir::MLIRContext *ctx, const Layouts &layouts,
+                                              const Runtime &runtime);
+
+// A function's account made ready, still on idr types and before any
+// signature changes: where its frame bound is not zero, opened at its
+// entry with the bound and told by `tells`; nothing where it is zero.
+void keepAccount(FuncOp fn, const mlir::FrozenRewritePatternSet &tells, const Runtime &runtime);
 
 //===----------------------------------------------------------------------===//
 // Functions
@@ -132,12 +153,17 @@ void populateFunctionPatterns(mlir::RewritePatternSet &patterns,
                               Runtime &runtime);
 
 // The patterns of the lifetimes' ops: the openers, this activation's
-// lifetime, the loan, the derived lifetimes, the cells put into one, and
-// the pack and unpack that split a lifetime around a framed call.
+// lifetime, the loan, the derived lifetimes and the cells put into one.
 void populateLifetimePatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, const Layouts &layouts,
                               Runtime &runtime);
 
+// The patterns of the pack and the unpack that split a lifetime around a
+// framed call.
+void populatePackagePatterns(mlir::RewritePatternSet &patterns,
+                             const mlir::TypeConverter &converter, const Layouts &layouts,
+                             Runtime &runtime);
+
 } // namespace idr::conversion
 
-#endif // IDR_LIB_CONVERSION_LOWER_LOWER_H
+#endif // IDR_CONVERSION_LOWER_LOWER_H

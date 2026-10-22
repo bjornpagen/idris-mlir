@@ -10,7 +10,8 @@
 // First the rows are written, last before they become LLVM's attributes.
 // Then, on the program: each call that gives a lifetime where its callee
 // asks a view gives the view; each function's lifetimes made ready (its
-// cursor parameters in slots, its rooms laid out), every function at once;
+// cursor parameters in slots, its rooms laid out) and its account opened
+// and told where it keeps one, every function at once;
 // then every function's name mangled and the function made an llvm.func
 // (phase 0). Then each function on its own, in parallel: its matches as
 // scf and its views of memrefs as offsets, sizes and strides, still on idr
@@ -19,13 +20,14 @@
 // memory is a cell of ours, our own (phase 2); and every region made the
 // blocks upstream's scf patterns make (phase 3). The program is lowered.
 
-#include "Lower/Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Traits.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/Analysis/Solver/Work.h"
 #include "idr/Conversion/Arrays.h"
 #include "idr/Conversion/Matches.h"
 #include "idr/Conversion/Passes.h"
@@ -92,6 +94,7 @@ struct Lowering {
   ConversionTarget target;
   FrozenRewritePatternSet structure;
   FrozenRewritePatternSet patterns;
+  FrozenRewritePatternSet tells;
 };
 
 // Every op and type of ours and every memref op, taken apart into the
@@ -117,8 +120,6 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
       });
   LLVMTypeConverter &descriptors = runtime.llvmTypeConverter();
   addMemrefConversions(converter, descriptors, layouts);
-  // Added last, so asked first: a lifetime's rule is its kind's alone.
-  addLifetimeConversions(converter);
 
   target.addIllegalDialect<IdrDialect, memref::MemRefDialect>();
   target.addLegalDialect<arith::ArithDialect, math::MathDialect, LLVM::LLVMDialect,
@@ -144,6 +145,8 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
     return fn.isExternal() || converter.isLegal(fn.getBody().front().getArgumentTypes());
   });
 
+  tells = accountPatterns(ctx, layouts, runtime);
+
   RewritePatternSet structureSet(ctx);
   populateMatchPatterns(structureSet);
   memref::populateExpandStridedMetadataPatterns(structureSet);
@@ -156,12 +159,14 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
   set.add<LowerAsOperand<NoRuntimeForm>, LowerAsOperand<ResultCarriesOperand>>(converter, ctx);
   populateCountingPatterns(set, converter, layouts, runtime);
   populateLifetimePatterns(set, converter, layouts, runtime);
+  populatePackagePatterns(set, converter, layouts, runtime);
   populateBigPatterns(set, converter, layouts, runtime);
   populateArrayPatterns(set, converter, layouts, runtime, arrays);
   populateMemrefPatterns(set, converter, layouts, runtime);
   populateBufferPatterns(set, converter, layouts, runtime);
   populateStringPatterns(set, converter, layouts, runtime);
   populateCellPatterns(set, converter, layouts, runtime);
+  populateDestinationPatterns(set, converter, layouts, runtime);
   populateScalarPatterns(set, converter, layouts, runtime);
   populateRuntimeCallPatterns(set, converter, layouts, runtime);
   populateCheckPatterns(set, converter, layouts, runtime);
@@ -205,8 +210,10 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
   void runOnProgram(ProgramOp program) {
     MLIRContext *ctx = &getContext();
     // The rows are written last here, before they become LLVM's
-    // attributes, by the one writer of rows.
-    rows::write(program, getAnalysis<solver::ProgramGraph>());
+    // attributes, by the one writer of rows, its work the pass's.
+    solver::Work work;
+    rows::write(program, getAnalysis<solver::ProgramGraph>(), work);
+    numWork += work.steps();
     const Layouts &layouts = getAnalysis<Layouts>();
     // Read from the module's data layout once, here: a data layout fills
     // its caches as it is asked, so no function's lowering may ask it.
@@ -229,7 +236,10 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     {
       SymbolTable symbols(program);
       if (failed(failableParallelForEach(ctx, sources, [&](FuncOp fn) {
-            return prepareLifetimes(fn, symbols, layouts);
+            if (failed(prepareLifetimes(fn, symbols, layouts)))
+              return failure();
+            keepAccount(fn, lowering.tells, runtime);
+            return success();
           })))
         return signalPassFailure();
     }

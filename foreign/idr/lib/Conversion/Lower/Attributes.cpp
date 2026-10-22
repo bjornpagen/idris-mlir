@@ -5,7 +5,7 @@
 // touches and withholds (effects::told), as LLVM's memory effects and its
 // function attributes. Nothing here reads an effect its own way.
 
-#include "Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/IR/Builders.h"

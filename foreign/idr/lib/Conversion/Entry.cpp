@@ -10,19 +10,17 @@
 #include "idr/Conversion/Runtime.h"
 #include "idr/Transforms/Pipeline.h"
 
-#include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Target/LLVMIR/Transforms/TargetUtils.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/Target/TargetMachine.h"
 
-// The target entry's list of CPU features, an X-macro, whose feature bits
-// the runtime's start tests.
+// The target entry's description, and its list of CPU features, an
+// X-macro, whose feature bits the runtime's start tests.
+#include "idr/TargetEntry.h"
+
 #include "cpu_features.h"
 
 namespace idr {
@@ -37,27 +35,11 @@ namespace idr::conversion {
 namespace {
 
 // The IDRIS_RT_CPU_FEATURES bits of the features the module's code may use:
-// those its target's machine has, the CPU's and its features with all they
-// imply, as the code generator reads them, found by their LLVM names. The
-// module's target is the one idr-target wrote, from the target's entry;
-// one LLVM has no machine for is an error.
-FailureOr<uint64_t> requiredCpuFeatures(ModuleOp module) {
-  auto target = module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
-  uint64_t bits = 0;
-  if (!target)
-    return bits;
-  LLVM::detail::initializeBackendsOnce();
-  FailureOr<std::unique_ptr<llvm::TargetMachine>> machine = LLVM::detail::getTargetMachine(target);
-  if (failed(machine) || !*machine)
-    return module.emitError() << "internal error: idr-entry: no target machine for " << target;
-  const llvm::MCSubtargetInfo &subtarget = (*machine)->getMCSubtargetInfo();
-#define IDR_REQUIRED_FEATURE(bit, test, name)                                                   \
-  if (subtarget.checkFeatures("+" name))                                                       \
-    bits |= uint64_t{1} << (bit);
-  IDRIS_RT_CPU_FEATURES(IDR_REQUIRED_FEATURE)
-#undef IDR_REQUIRED_FEATURE
-  return bits;
-}
+// the program CPU's, whose list the target's entry holds, every feature it
+// implies among them, and which idr-target writes on the module. A constant
+// of the build, as the tools' own startup check reads it.
+constexpr uint64_t requiredCpuFeatures =
+    rt::platform::featureBitsOf(IDRIS_MLIR_PROGRAM_CPU_FEATURES);
 
 // Every op of the lowered program moves into the module before it, and the
 // program goes. Every program symbol has the program's prefix and every
@@ -78,10 +60,7 @@ LLVM::LLVMFuncOp takeApart(ProgramOp program) {
 // @main hands it and the program's arguments to idris_rt_start, which runs
 // the body on the stack the program needs and ends the process by the
 // ending the run reaches, so @main does not return.
-LogicalResult makeEntry(ModuleOp module, ProgramOp program) {
-  FailureOr<uint64_t> required = requiredCpuFeatures(module);
-  if (failed(required))
-    return failure();
+void makeEntry(ModuleOp module, ProgramOp program) {
   LLVM::LLVMFuncOp root = takeApart(program);
   MLIRContext *ctx = module.getContext();
   OpBuilder b(ctx);
@@ -113,7 +92,8 @@ LogicalResult makeEntry(ModuleOp module, ProgramOp program) {
     value = LLVM::InsertValueOp::create(b, loc, value, LLVM::AddressOfOp::create(b, loc, body),
                                         ArrayRef<int64_t>{0});
     value = LLVM::InsertValueOp::create(
-        b, loc, value, LLVM::ConstantOp::create(b, loc, i64, static_cast<int64_t>(*required)),
+        b, loc, value,
+        LLVM::ConstantOp::create(b, loc, i64, static_cast<int64_t>(requiredCpuFeatures)),
         ArrayRef<int64_t>{1});
     LLVM::ReturnOp::create(b, loc, value);
   }
@@ -128,16 +108,12 @@ LogicalResult makeEntry(ModuleOp module, ProgramOp program) {
                        ValueRange{facts, entry->getArgument(0), entry->getArgument(1)})
       .setNoreturn(true);
   LLVM::UnreachableOp::create(b, loc);
-  return success();
 }
 
 struct Entry : idr::impl::IdrEntryBase<Entry> {
   using IdrEntryBase::IdrEntryBase;
 
-  void runOnProgram(ProgramOp program) {
-    if (failed(makeEntry(getOperation(), program)))
-      return signalPassFailure();
-  }
+  void runOnProgram(ProgramOp program) { makeEntry(getOperation(), program); }
 };
 
 } // namespace

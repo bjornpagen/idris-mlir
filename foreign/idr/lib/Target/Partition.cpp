@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The partition of the optimized program into the bins whose code is
-// generated at once, and the linkage the bins then read; reading one bin
-// back out of the bitcode is Extract.cpp's. After O3 code generation is local to each function, so
-// a bin holds whole components of the reference graph, each with the callee
-// of its musttail calls (no tail call crosses an object), its comdat and an
-// ifunc's resolver, grouped by the top-level namespace their names keep and
-// cut by their hash, so a cut depends only on its neighbours. A constant
-// whose address nothing tells apart is copied into each bin that reads it.
+// generated at once, and the linkage the bins then read; the cut of its
+// parts into bins is Bins.cpp's, and reading one bin back out of the
+// bitcode Extract.cpp's. After O3 code generation is local to each
+// function, so a bin holds whole components of the reference graph, each
+// with the callee of its musttail calls (no tail call crosses an object),
+// its comdat and an ifunc's resolver. A constant whose address nothing
+// tells apart is copied into each bin that reads it.
 
 #include "idr/Target/Target.h"
 
 #include "idr/IR/Symbols.h"
 #include "idr/Analysis/Solver/Components.h"
 #include "idr/Analysis/Solver/Graph.h"
-#include "idr/Conversion/Mangle.h"
 #include "idr/Support/Id.h"
 #include "idr/Support/Match.h"
 
@@ -24,7 +23,6 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
@@ -34,32 +32,18 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/Format.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/xxhash.h"
 
-#include <bit>
 #include <cstdint>
-#include <numeric>
 #include <optional>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
 
 using namespace llvm;
-using idr::target::Bin;
 using idr::target::Partition;
-using idr::target::binInstructions;
 
 namespace {
-
-// A part closes its bin when its hash, read as a fraction of 2^64, is below
-// its share of the target: hash / (2^64 / target) < size says exactly that
-// when the target is a power of two.
-static_assert(std::has_single_bit(binInstructions));
-constexpr std::uint64_t hashPerInstruction = ~std::uint64_t{0} / binInstructions + 1;
 
 // An error of the partition's, which its caller reports as the compiler's.
 Error internal(const Twine &what) { return createStringError(what); }
@@ -104,15 +88,6 @@ SmallVector<const GlobalValue *> referencesOf(const GlobalValue &value) {
   return found;
 }
 
-// The top-level namespace a name keeps: what precedes its first dot after
-// the program's prefix, which every program symbol has, and one group, the
-// empty one, for every name without a dot.
-StringRef namespaceOf(StringRef name) {
-  StringRef plain = GlobalValue::dropLLVMManglingEscape(name);
-  plain.consume_front(idr::conversion::programPrefix);
-  return plain.contains('.') ? plain.take_front(plain.find('.')) : StringRef();
-}
-
 // The nodes of the reference graph, numbered once by the partition, the
 // one minter of their ids.
 struct NodeMinter;
@@ -125,21 +100,6 @@ struct NodeMinter {
   static NodeId id(unsigned node) { return NodeId(node); }
 };
 
-// The hash of a set of names, sorted, one per line: XXH3's 64 bits, which
-// decide a part's cut and, spelled in hex, name a bin.
-std::uint64_t hashOf(std::vector<StringRef> &names) {
-  sort(names);
-  return xxh3_64bits(arrayRefFromStringRef(join(names, "\n")));
-}
-
-// A bin's name: its hash in 16 lower-case hex digits, so that name order is
-// hash order.
-std::string nameOf(std::uint64_t hash) {
-  std::string name;
-  raw_string_ostream(name) << format_hex_no_prefix(hash, 16, /*Upper=*/false);
-  return name;
-}
-
 // What a symbol of the optimized module is to the partition: declared only,
 // a copied constant, one of the reference graph's nodes, which a bin
 // defines, or an alias, which stands for the node of the object it aliases,
@@ -151,16 +111,6 @@ struct Node {
 struct Alias {
   // The symbol of the object it aliases, or none.
   std::optional<unsigned> base;
-};
-
-// The components that stay together, and what the cut reads of them.
-struct Part {
-  SmallVector<unsigned> nodes;
-  std::vector<StringRef> names;
-  std::uint64_t size = 0, hash = 0;
-  unsigned position = 0;
-  StringRef group() const { return namespaceOf(names.front()); }
-  auto order() const { return std::tuple(group(), hash, names.front(), position); }
 };
 
 } // namespace
@@ -302,58 +252,16 @@ Expected<Partition> Partition::of(Module &module) {
     if (auto *function = dyn_cast<Function>(at[nodes[node]]))
       part.size += function->getInstructionCount();
   }
-  for (Part &part : parts)
-    part.hash = hashOf(part.names);
-  std::vector<unsigned> order(parts.size());
-  std::iota(order.begin(), order.end(), 0u);
-  sort(order, [&](unsigned a, unsigned b) { return parts[a].order() < parts[b].order(); });
-
-  // The cut: before a part, the open bin closes when the part would take it
-  // past twice the target or is of another group; after it, when the bin
-  // holds a quarter of the target and the part's hash says so.
-  std::vector<SmallVector<unsigned>> cut;
-  SmallVector<unsigned> open;
-  std::uint64_t held = 0;
-  auto close = [&] {
-    cut.push_back(std::exchange(open, {}));
-    held = 0;
-  };
-  for (unsigned index : order) {
-    const Part &part = parts[index];
-    if (!open.empty() && (parts[open.front()].group() != part.group() ||
-                          held + part.size > 2 * binInstructions))
-      close();
-    open.push_back(index);
-    held += part.size;
-    if (held >= binInstructions / 4 && part.hash / hashPerInstruction < part.size)
-      close();
-  }
-  if (!open.empty())
-    close();
-
-  // Bins named by the hash of their names, kept in name order.
-  std::vector<std::pair<Bin, SmallVector<unsigned>>> named;
-  for (SmallVector<unsigned> &chosen : cut) {
-    Bin bin;
-    std::vector<StringRef> names;
-    for (unsigned index : chosen) {
-      bin.instructions += parts[index].size;
-      append_range(names, parts[index].names);
-    }
-    bin.name = nameOf(hashOf(names));
-    named.emplace_back(std::move(bin), std::move(chosen));
-  }
-  sort(named, [](const auto &a, const auto &b) { return a.first.name < b.first.name; });
-  for (unsigned index = 0; index + 1 < named.size(); ++index)
-    if (named[index].first.name == named[index + 1].first.name)
-      return internal("two bins are named " + named[index].first.name);
+  Expected<std::vector<Cut>> named = cut(parts);
+  if (!named)
+    return named.takeError();
   // Every node is in one part and every part in one bin, so each node's
   // bin is written once.
-  partition.members.resize(named.size());
+  partition.members.resize(named->size());
   std::vector<unsigned> binOfNode(nodes.size());
-  for (unsigned bin = 0; bin < named.size(); ++bin) {
-    partition.binList.push_back(named[bin].first);
-    for (unsigned index : named[bin].second)
+  for (unsigned bin = 0; bin < named->size(); ++bin) {
+    partition.binList.push_back((*named)[bin].bin);
+    for (unsigned index : (*named)[bin].parts)
       for (unsigned node : parts[index].nodes) {
         binOfNode[node] = bin;
         partition.members[bin].push_back(nodes[node]);

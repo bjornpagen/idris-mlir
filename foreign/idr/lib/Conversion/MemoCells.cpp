@@ -12,7 +12,7 @@
 // its type says so, a fact of its lifetime, so the force writes no mark of
 // its own.
 
-#include "Lower/Lower.h"
+#include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
