@@ -3744,6 +3744,22 @@ C137.
   stack. One recipe on all four targets, nothing per target. Its cost:
   any change to a carried LLVM patch rebuilds stage 1 as well as stage 2,
   on each weekly bump that touches a patch.
+- **C173** (2026-10-21; L08's finding; where D71's "by construction"
+  and C92's local rule run). Bufferization reads the grade (D71), but
+  `unique deep` was written only by the exclusivity marking, which runs
+  after bufferization, and D110's `unique self` covers cells, not
+  buffers; so at bufferization no buffer held in a cell was provably
+  writable, `LArray`'s inside `Array` included. C92's local rule runs
+  before bufferization: a value is `unique deep` when it is fresh (a
+  constructor's, a recycled cell's, or a call's result whose signature
+  says so) or taken or read at a linear position from a `unique deep`
+  value, and flows only through linear positions. The ops' own result-type
+  inference states the local part, and a result's exclusivity in a
+  function type is derived bottom-up over call-graph components as rows
+  are, before bufferization. The verifier checks the rule after every
+  pass; the marking after bufferization adds claims only where it proves
+  more. No ruling changes: D71 already says "by construction", and C92
+  says how.
 
 ## 4. Open: the owner's decisions, in order
 
