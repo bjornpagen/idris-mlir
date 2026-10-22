@@ -89,3 +89,12 @@ back whole, reading `idr::egraph::CalleeFacts`. Only L18's optimizer
 builds those facts, through `createIdrSimplify(const CalleeFacts &)` for
 its inner pipeline. The pipeline's plain `createIdrSimplify()` reads
 none, since the optimizer has already rewritten those calls.
+
+## Found during the cutover (L14, 2026-10-21)
+
+The engine replaces a node when a rule fires and never unions, so every
+class holds one node and `OperandFacts::cost` has no reader; case-of-case
+uses its own unit costs. Whether it becomes a true e-graph or is named a
+hash-consed rewrite graph is the owner's question queued in P0 §4. Until
+then, `cost` is unread, and a replaced node's facts are carried to its
+replacement.

@@ -3979,6 +3979,25 @@ write C185 as recorded, and either answer changes about ten lines of
 L04's `promisedClaim` and L05's read table (L08's
 code reads the promise and does not change).
 
+**Next, after the one above** (L14's evidence, 2026-10-21; to be raised
+alone once the first is ruled). The C++ e-graph is not one: when a rule
+fires the engine replaces the node and never unions (`EGraph/Nodes.cpp`
+193-208; no union-find, no merge), so every class holds one node,
+extraction's tie-break and `OperandFacts::cost` choose nothing, and every
+real choice is made before insertion, by order. One loss follows: a
+replaced node's facts are dropped (Euclidean `mod x 8` keeps [0, 7]; its
+rewrite `andi x 7` has none). The choice: (A) make it a true e-graph, a
+fired one-way rule adding its right side to the left side's class, both
+forms kept, extraction choosing by cost, both forms' facts kept, as D97's
+"shared representation, pushing QTT" asks, at the cost of a union-find,
+merges and an extraction that does work; (B) name it what it is, a
+hash-consed rewrite graph, delete the class table, extraction and cost,
+and keep the replaced node's facts on its replacement, same output, fewer
+tables, and "e-graph" leaves AGENTS.md, D98, D106 and C153; (C) upstream
+CSE and a rule walk, losing copies into arms, the per-walk facts and the
+per-resource read merge. Meanwhile the replaced node's facts are carried
+to its replacement, which holds under (A) and (B).
+
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
 approval (settled, below).
