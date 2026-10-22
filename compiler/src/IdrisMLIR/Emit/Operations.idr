@@ -434,19 +434,15 @@ fieldOperands ix l (MkBinder _ WorldT :: fs) (_ :: vs) = fieldOperands ix l fs v
 fieldOperands ix l (f :: fs) (v :: vs) = (::) <$> held f <*> fieldOperands ix l fs vs
   where
     held : Binder -> E Value
-    held (MkBinder q (TensorT ds e)) = do
+    -- An array's buffer, at the bare grade upstream's op gives it, fills
+    -- its field at any quantity, as any value fills a binder of quantity
+    -- 1. Nothing takes it over here: the buffer behind the tensor may be
+    -- a slice, a parameter's or one read out of a cell, and only
+    -- bufferization knows which buffer is an allocation, where it enters
+    -- the grades.
+    held (MkBinder _ (TensorT ds e)) = do
       t <- operand ix <$> coerce ix l Many v
-      b <- mlirValue l (fieldType ix (TensorT ds e)) (Bufferization.toBufferOp t)
-      case q of
-        -- A buffer at a position used many times stays the array's, which
-        -- other values may share: nothing takes it over.
-        Many => pure b
-        -- A buffer at a linear position is the one reference to it: it
-        -- enters the grades here, taken over by counting, so the cell that
-        -- holds it can claim it unshared, as its type promises.
-        Once => do
-          a <- mlirValue l b.type (Idr.ownAdoptOp b)
-          mlirValue l (Idr (GradedType Once Nothing a.type)) (Idr.linCastOp a [])
+      mlirValue l (fieldType ix (TensorT ds e)) (Bufferization.toBufferOp t)
     held b = operand ix <$> coerce ix l b.quantity v
 
 ||| A constructor application (`idr.con`), built with every field: its value

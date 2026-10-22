@@ -580,9 +580,14 @@ mutual
   staticCase ctx env cls scrutinee t hole alts = do
     Built cn cargs <- whnf t
       | Stuck on => do
-          -- An implementation chosen by a runtime value, or computed by a
-          -- definition no compile-time reduction may run, is one whose set
-          -- of choices nothing bounds.
+          -- No parameter is such a form: an implementation a runtime value
+          -- chooses, or one a definition Idris does not prove ends
+          -- computes, is passed as a choice (`Instances.classify`) and
+          -- translated as the computation it is (`Terms.memberHere`), so
+          -- each member a dispatch fixes reduces. What reaches here is a
+          -- field of a reduced implementation matched again in the same
+          -- tree, whose match would dispatch the rest of the tree over the
+          -- members of its choice.
           let rule = case on of
                        OnRuntime _ => RuntimeClosure
                        _ => StaticArgument

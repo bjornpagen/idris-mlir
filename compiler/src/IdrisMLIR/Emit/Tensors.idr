@@ -20,6 +20,7 @@ module IdrisMLIR.Emit.Tensors
 import IdrisMLIR.Dialect.Arith as Arith
 import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Dialect.Linalg as Linalg
+import IdrisMLIR.Dialect.SCF as SCF
 import IdrisMLIR.Dialect.Tensor as Tensor
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
@@ -394,8 +395,8 @@ tensorOp ix l binder rt (Concat a x y) = do
         let Just iv = getAt a cs
           | Nothing => internal ("a join along axis " ++ show a ++ " of an array of rank " ++ show (length cs))
         below <- mlirValue l (IntegerType 1) (Arith.cmpiOp CmpIPredicate.Ult iv m)
-        flag <- mlirValue l (IntegerType 64) (Arith.extuiOp below)
-        -- Each arm reads in its own region, and only there.
+        -- Each arm reads in its own region, and only there. The choice is
+        -- a condition, upstream's `scf.if`: no Idris value is matched.
         (fromX, xops) <- collect $ do
           e <- readAt ix l Nothing el x cs
           given ix l el e
@@ -403,9 +404,9 @@ tensorOp ix l binder rt (Concat a x y) = do
           j <- mlirValue l IndexType (Arith.subiOp {overflowFlags = noWrap} iv m)
           e <- readAt ix l Nothing el y (replaceAt a j cs)
           given ix l el e
-        r <- mlirValue l (mlirType ix el) (\t => Idr.litMatchOp (ArrayAttr [IntegerAttr 0 (IntegerType 64)]) flag []
-               (MkRegion [] (xops ++ [MkStatement Nothing (Idr.yieldOp [fromX]) (At l)]))
-               [MkRegion [] (yops ++ [MkStatement Nothing (Idr.yieldOp [fromY]) (At l)])] [t])
+        r <- mlirValue l (mlirType ix el) (\t => SCF.ifOp below
+               (MkRegion [] (xops ++ [MkStatement Nothing (SCF.yieldOp [fromX]) (At l)]))
+               (MkRegion [] (yops ++ [MkStatement Nothing (SCF.yieldOp [fromY]) (At l)])) [t])
         pure (Just [r])
       dest <- mlirValue l (mlirType ix joined) (Tensor.emptyOp (fst (mixed sizes)))
       fitted {binder} ix l (Just rt) joined (\t => Idr.arrayTabulateOp dest reg [t])

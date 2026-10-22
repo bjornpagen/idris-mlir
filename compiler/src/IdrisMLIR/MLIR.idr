@@ -19,7 +19,7 @@ module IdrisMLIR.MLIR
 
 import public IdrisMLIR.MLIR.Text
 import public IdrisMLIR.Encoding.Idr
-import public IdrisMLIR.Encoding.Hand
+import public IdrisMLIR.MLIR.HandEncoding
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Syntax.UB
 

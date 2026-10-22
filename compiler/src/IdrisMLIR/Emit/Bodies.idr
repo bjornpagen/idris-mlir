@@ -232,10 +232,10 @@ key (LDouble d) = FloatAttr d F64Type
 mutual
   ||| Whether a term names one of the `k` variables from `from` of its
   ||| scope, the fields an alternative binds (from 0, and further out under
-  ||| each binder inside): an alternative that names a field of a scrutinee
-  ||| used once takes it apart, one that names none keeps it whole. The
-  ||| problem has both cases (`xs@(_ :: _)` names the value and no field);
-  ||| the quantities stay the binders'.
+  ||| each binder inside): a field the alternative names is read, one it
+  ||| never names is not, so a field of a value used once is read at most
+  ||| once. The problem has both cases (`xs@(_ :: _)` names the value and
+  ||| no field); the quantities stay the binders'.
   names : (from, k : Nat) -> Term n -> Bool
   names from k (Var _ x) = namesVar from k x
   names from k (Literal _ _) = False
@@ -308,19 +308,13 @@ fieldBinders d u c =
   in map (\b => MkBinder (times u b.quantity) (substTy bs b.type)) c.fields
 
 ||| A case's fields as the region holds them, from its refined value `r`:
-||| for a scrutinee used many times, each a read of `r` (`idr.field`); for
-||| one used once whose alternative names a field, all of them taken apart
-||| at once (`idr.unpack`), since reading one by one would use `r` again;
-||| none for the world, which is no value of the module.
-caseFields : Index -> Loc -> Val -> (takenApart : Bool) -> Vect k Binder -> E (Vect k InScope)
-caseFields ix l r takenApart bs = case (r.uses, takenApart) of
-  (Once, True) => do
-    let types = map (\b => gradedType ix b.quantity (fieldHold b) b.type) (present' (toList bs))
-    Just n <- placed (At l) (Idr.dataUnpackOp (operand ix r) types)
-      | Nothing => pure (map worldOrPlaceholder bs)
-    pure (unpacked n (length types) 0 bs)
-  (Once, False) => pure (map worldOrPlaceholder bs)
-  (Many, _) => traverse (\(i, b) => read (finToNat i) b) (zip range bs)
+||| each field the alternative names a read of `r` (`idr.data.field`), at
+||| the value's uses times the field's, so a value used once is read once
+||| per field; a field it never names is never read, and the world is no
+||| value of the module. `named i` says whether the alternative names field
+||| `i`.
+caseFields : Index -> Loc -> Val -> (named : Nat -> Bool) -> Vect k Binder -> E (Vect k InScope)
+caseFields ix l r named bs = traverse (\(i, b) => field (finToNat i) b) (zip range bs)
   where
     -- A field at a linear position of a value nothing else reaches is
     -- reached by nothing else either; any other field's sharing is unknown.
@@ -329,30 +323,30 @@ caseFields ix l r takenApart bs = case (r.uses, takenApart) of
       Held.Exclusive => Held.Exclusive
       _ => Held.Counted
     fieldHold (MkBinder Many _) = Held.Counted
-    present' : List Binder -> List Binder
-    present' = filter (\b => case b.type of
-                               WorldT => False
-                               _ => True)
-    -- A field no name of the alternative reads: never looked at.
-    worldOrPlaceholder : Binder -> InScope
-    worldOrPlaceholder _ = World
-    unpacked : String -> (n : Nat) -> Nat -> Vect j Binder -> Vect j InScope
-    unpacked s n i [] = []
-    unpacked s n i (MkBinder _ WorldT :: rest) = World :: unpacked s n i rest
-    unpacked s n i (b :: rest) = Whole (val (resultAt s n i) b.type b.quantity (fieldHold b)) :: unpacked s n (S i) rest
     read : Nat -> Binder -> E InScope
     read i (MkBinder _ WorldT) = pure World
     -- An array field is held as its buffer; its value is the tensor of it,
     -- restricted, so the buffer is no one else's while the tensor lives,
     -- and never written in place here: what may write it is decided once
-    -- exclusivity is.
-    read i (MkBinder _ t@(TensorT _ _)) = do
-      buf <- mlirValue l (fieldType ix t) (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
-      v <- mlirValue l (mlirType ix t) (Bufferization.toTensorOp {restrict = True} buf)
-      pure (Whole (val v.name t Many Held.Counted))
+    -- exclusivity is. The buffer enters the tensor at its bare grade, as
+    -- upstream's op takes it, and the tensor is used as the field is.
+    read i b@(MkBinder q t@(TensorT _ _)) = do
+      let carrier = fieldType ix t
+          graded = case (q, fieldHold b) of
+                     (Many, Held.Counted) => carrier
+                     (u, h) => Idr (GradedType u (Just (holdOf h)) carrier)
+      buf <- mlirValue l graded (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
+      bare <- case q of
+                Many => pure buf
+                Once => mlirValue l carrier (Idr.linCastOp buf [])
+      v <- mlirValue l (mlirType ix t) (Bufferization.toTensorOp {restrict = True} bare)
+      Whole <$> coerce ix l q (val v.name t Many Held.Counted)
     read i b = do
-      v <- mlirValue l (gradedType ix Many (fieldHold b) b.type) (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
-      pure (Whole (val v.name b.type Many (fieldHold b)))
+      v <- mlirValue l (gradedType ix b.quantity (fieldHold b) b.type) (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
+      pure (Whole (val v.name b.type b.quantity (fieldHold b)))
+    -- A field no name of the alternative reads: never looked at.
+    field : Nat -> Binder -> E InScope
+    field i b = if named i then read i b else pure World
 
 ||| Starts a function: its own SSA numbers and operations.
 export
@@ -509,7 +503,7 @@ alg ix (CaseF l x arms) sc w = do
       let bs = fieldBinders d scrut.uses c
           inner = refining x r (binding (map (.sort) c.binders) sc)
       (res, ops) <- collect $ do
-        vals <- caseFields ix l r (names 0 k body.term) bs
+        vals <- caseFields ix l r (\i => names i 1 body.term) bs
         plain ix l (body.result (bind vals inner) ({ binder := Nothing } w))
       pure (MkCase c.tag (MkArm [arg] res ops))
     -- The default binds the scrutinee refined to the constructors no case

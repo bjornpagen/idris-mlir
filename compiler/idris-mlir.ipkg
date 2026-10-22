@@ -20,6 +20,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Laws
         , IdrisMLIR.MLIR.Text
         , IdrisMLIR.MLIR.Parts
+        , IdrisMLIR.MLIR.HandEncoding
         , IdrisMLIR.Syntax.Builtin
         , IdrisMLIR.Syntax.Arith
         , IdrisMLIR.Syntax.Math
@@ -28,8 +29,8 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Syntax.Tensor
         , IdrisMLIR.Syntax.Linalg
         , IdrisMLIR.Syntax.Bufferization
+        , IdrisMLIR.Syntax.SCF
         , IdrisMLIR.Encoding.Idr
-        , IdrisMLIR.Encoding.Hand
         , IdrisMLIR.Encoding.Builtin
         , IdrisMLIR.MLIR
         , IdrisMLIR.MLIR.Bytecode
@@ -42,6 +43,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Dialect.Tensor
         , IdrisMLIR.Dialect.Linalg
         , IdrisMLIR.Dialect.Bufferization
+        , IdrisMLIR.Dialect.SCF
         , IdrisMLIR.Emit.Index
         , IdrisMLIR.Emit.Monad
         , IdrisMLIR.Emit.Types

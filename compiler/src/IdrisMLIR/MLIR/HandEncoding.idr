@@ -10,7 +10,7 @@
 ||| parts here, in the order and the form the hand C++ reads them. `ty` and
 ||| `at` are what the types and attributes they hold are: the frontend's own
 ||| while Emit makes them, their entries once the writer has numbered them.
-module IdrisMLIR.Encoding.Hand
+module IdrisMLIR.MLIR.HandEncoding
 
 import IdrisMLIR.MLIR.Parts
 import IdrisMLIR.Spec.Core.Enums

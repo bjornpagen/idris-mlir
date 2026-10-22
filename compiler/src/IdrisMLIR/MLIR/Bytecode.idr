@@ -563,7 +563,7 @@ mutual
   idrType w (SelfType m is) = pure (encodeSelfType m is)
 
   ||| A hand-coded `idr` type: what it holds numbered, then its parts laid
-  ||| out as the dialect's C++ reads them (`Encoding.Hand`). A data type's
+  ||| out as the dialect's C++ reads them (`MLIR.HandEncoding`). A data type's
   ||| one constructor's undetermined binders are never the frontend's to
   ||| state: a case binds them as index variables of its region.
   handType : Writer -> HandType MlirType MlirAttr -> W (List Part)
@@ -687,7 +687,7 @@ mutual
   idrAttr w (BigAttr n) = pure (encodeBigAttr n)
 
   ||| A hand-coded `idr` attribute: what it holds numbered, then its parts
-  ||| laid out as the dialect's C++ reads them (`Encoding.Hand`).
+  ||| laid out as the dialect's C++ reads them (`MLIR.HandEncoding`).
   handAttr : Writer -> HandAttr MlirType MlirAttr -> W (List Part)
   handAttr w (FamilyOf ms) = encodeFamilyAttr . membersParts <$> membersNumbered w ms
   handAttr w (BindersOf ss) = encodeIndexBindersAttr . sortsParts <$> sortsNumbered w ss

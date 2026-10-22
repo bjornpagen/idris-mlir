@@ -58,9 +58,9 @@ record Among where
 -- What a type holds
 ------------------------------------------------------------------------------
 
-||| Whether a value of a type holds references. A word does not, nor does
-||| an array, a value until bufferization; a string, a big, a natural (a
-||| big when large), a closure and a suspension do; a family's values do
+||| Whether a value of a type holds references. A word does not; a string,
+||| a big, a natural (a big when large), a closure, a suspension and an
+||| array (its buffer, or the buffer it will be) do; a family's values do
 ||| when its group says so. A member of the
 ||| group being declared holds references (`Among.members`): its values
 ||| are cells of a recursive group.
@@ -72,11 +72,9 @@ reachesIn a WorldT = WordsOnly
 reachesIn a (DataT f _) = case lookup f a.members of
   Just _ => HoldsReferences
   Nothing => maybe HoldsReferences (.reaches) (lookup f a.declared)
--- An array is a value until bufferization makes it memory, and upstream's
--- tensor and memref ops take it bare: what its elements hold is counted
--- through its buffer, once it has one.
-reachesIn a (TensorT _ _) = WordsOnly
-reachesIn a (MemRefT _ _) = WordsOnly
+-- An array's cell is a reference, as the dialect's facts of tensors and
+-- memrefs say: used many times and claiming nothing it is the bare type
+-- upstream's ops take, and any other grade states who frees it.
 reachesIn a _ = HoldsReferences
 
 ||| Whether a value of a type holds references, among the program's
@@ -172,7 +170,9 @@ mutual
   nodeIn a IOpaque = [OpaqueNode]
 
 ||| What the specification's grade says of a hold the frontend writes:
-||| freed by its count with no claim of its sharing, or static.
+||| freed by its count with no claim of its sharing, or with all it reaches
+||| unshared, or static.
+export
 holdOf : Held -> Hold
 holdOf Held.Counted = Hold.Counted None
 holdOf Held.Exclusive = Hold.Counted Deep
@@ -253,13 +253,21 @@ export
 fieldType : Index -> Ty -> MlirType
 fieldType ix = fieldTypeIn (MkAmong ix.families empty)
 
+||| The hold of a field's grade: freed by its count with no claim, where
+||| its type holds references; none where it holds words.
+claimless : Reaches -> Maybe Hold
+claimless HoldsReferences = Just (holdOf Held.Counted)
+claimless WordsOnly = Nothing
+
 ||| A field of a declaration: its type in its constructor's scope, its
-||| quantity the only grade it carries (once, or none for many), and no
-||| field for the world, which is no value of the module.
+||| quantity the grade it carries (once, or none for many), with no claim
+||| of sharing where the type holds references, as every grade of such a
+||| type states who frees it; and no field for the world, which is no value
+||| of the module.
 fieldsIn : Among -> List Binder -> List MlirType
 fieldsIn a [] = []
 fieldsIn a (MkBinder _ WorldT :: bs) = fieldsIn a bs
-fieldsIn a (MkBinder Once t :: bs) = Idr (GradedType Once Nothing (fieldTypeIn a t)) :: fieldsIn a bs
+fieldsIn a (MkBinder Once t :: bs) = Idr (GradedType Once (claimless (reachesIn a t)) (fieldTypeIn a t)) :: fieldsIn a bs
 fieldsIn a (MkBinder Many t :: bs) = fieldTypeIn a t :: fieldsIn a bs
 
 ||| A constructor as its family's declaration holds it: its label, its

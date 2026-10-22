@@ -523,11 +523,17 @@ mutual
       aliased (Local _ _ idx _) = getAt idx env
       aliased _ = Nothing
 
+      -- An implementation a definition Idris does not prove ends computes
+      -- is computed when the program runs: a choice, bound as a value.
       dictionary : Loc -> Front (Term nv)
       dictionary loc = do
         impl <- solved (closeWritten bfc env a.written)
         if not !(runtimeDependent impl)
-          then spine ph w acc ctx (Static impl Nothing :: env) afc sc (map overBinder rest)
+          then do
+            reduced <- whnf impl
+            case reduced of
+              Stuck (OnPartial _) => asValue loc
+              _ => spine ph w acc ctx (Static impl Nothing :: env) afc sc (map overBinder rest)
           else do
             -- One a runtime value chooses is a choice, bound as a value.
             Just (shape, values) <- a.held
@@ -971,8 +977,10 @@ mutual
       -- The member of its type's choice an implementation fixed here is,
       -- where the definition applied to the arguments gives one: its form,
       -- with the runtime values it closes over as its field. One a runtime
-      -- value chooses is translated as the computation it is, whose value
-      -- is the choice; a function to implementations is a closure.
+      -- value chooses, or one a definition Idris does not prove ends
+      -- computes, which no compile-time reduction runs, is translated as
+      -- the computation it is, whose value is the choice among the members
+      -- its own body fixes; a function to implementations is a closure.
       memberHere : FC -> Loc -> GlobalDef -> Front (Maybe (Term nv))
       memberHere fc loc def = do
         Just ty <- typeAfter (type def) args
@@ -986,8 +994,12 @@ mutual
         impl <- solved (closeWritten fc env written)
         if not !(runtimeDependent impl)
           then do
-            con <- memberBare fc ctx.owner ty' !(implementationOf impl)
-            pure (Just (ConApp loc con [] []))
+            reduced <- whnf impl
+            case reduced of
+              Stuck (OnPartial _) => pure Nothing
+              _ => do
+                con <- memberBare fc ctx.owner ty' !(implementationOf impl)
+                pure (Just (ConApp loc con [] []))
           else do
             Just (shape, values) <- holed ph ctx env afc written
               | Nothing => pure Nothing
