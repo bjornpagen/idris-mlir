@@ -1,0 +1,150 @@
+diff --git a/src/Core/Coverage.idr b/src/Core/Coverage.idr
+index f597fab..b62b4e5 100644
+--- a/src/Core/Coverage.idr
++++ b/src/Core/Coverage.idr
+@@ -261,19 +261,30 @@ replaceDefaults fc defs nfty cs
+         = c :: dropRep (filter (not . tagIs t) rest)
+     dropRep (c :: rest) = c :: dropRep rest
+ 
++-- What each variable of a case tree stands for in the patterns built so
++-- far, once a split has refined it. A variable not listed stands for
++-- itself: the pattern variable of its own name.
++Bindings : Type
++Bindings = List (Name, ClosedTerm)
++
++-- The next name a split's arguments take in the patterns.
++data FreshArg : Type where
++
+ -- Traverse a case tree and refine the arguments while matching, so that
+ -- when we reach a leaf we know what patterns were used to get there,
+ -- and return those patterns.
+ -- The returned patterns are those arising from the *missing* cases
+ buildArgs : {auto c : Ref Ctxt Defs} ->
++            {auto f : Ref FreshArg Int} ->
+             {vars : _} ->
+             FC -> Defs ->
+             KnownVars vars Int -> -- Things which have definitely match
+             KnownVars vars (List Int) -> -- Things an argument *can't* be
+                                     -- (because a previous case matches)
++            Bindings ->
+             List ClosedTerm -> -- ^ arguments, with explicit names
+             CaseTree vars -> Core (List (List ClosedTerm))
+-buildArgs fc defs known not ps cs@(Case {name = var} idx el ty altsIn)
++buildArgs fc defs known not bound ps cs@(Case {name = var} idx el ty altsIn)
+   -- If we've already matched on 'el' in this branch, restrict the alternatives
+   -- to the tag we already know. Otherwise, add missing cases and filter out
+   -- the ones it can't possibly be (the 'not') because a previous case
+@@ -288,28 +299,73 @@ buildArgs fc defs known not ps cs@(Case {name = var} idx el ty altsIn)
+                               (findTag el not)
+          buildArgsAlt not altsN
+   where
++    -- A tree may split a variable again below a split of it (the tree of a
++    -- default repeats the split), binding its arguments under new names,
++    -- and a split of one of those refines what the first split found. So
++    -- the walk keeps what each variable stands for in 'ps': a split of a
++    -- variable that stands for a constructor binds its arguments to that
++    -- constructor's parts, and is impossible for any other constructor; a
++    -- split of one that stands for a pattern variable substitutes it.
++    standsFor : ClosedTerm
++    standsFor = fromMaybe (Ref fc Bound var) (lookup var bound)
++
++    -- The names 'ps' give a split's arguments, its own: the alternatives
++    -- that stand for a default all use the same names. Each is printed as
++    -- `m`, as theirs are.
++    fieldNames : List Name -> Core (List Name)
++    fieldNames = traverse (\_ => do i <- get FreshArg
++                                    put FreshArg (i + 1)
++                                    pure (MN "m" i))
++
++    refine : ClosedTerm -> (List ClosedTerm, Bindings)
++    refine pat
++        = case standsFor of
++               Ref _ Bound x => (map (substName x pat) ps,
++                                 map (\(n, tm) => (n, substName x pat tm)) bound)
++               _ => (ps, bound)
++
+     buildArgAlt : KnownVars vars (List Int) ->
+                   CaseAlt vars -> Core (List (List ClosedTerm))
+     buildArgAlt not' (ConCase n t args sc)
+         = do let l = mkSizeOf args
+-             let con = Ref fc (DataCon t (size l)) n
+-             let ps' = map (substName var
+-                             (apply fc
+-                                    con (map (Ref fc Bound) args))) ps
+-             buildArgs fc defs (weakenNs l ((MkVar el, t) :: known))
+-                               (weakenNs l not') ps' sc
++             let known' = weakenNs l ((MkVar el, t) :: known)
++             case getFnArgs standsFor of
++                  -- A tag tells data constructors apart; type constructors,
++                  -- which all have tag 0, by their names, resolved or not.
++                  (Ref _ (DataCon t' _) n', parts) =>
++                      if t == t' && (n == n' || !(getFullName n) == !(getFullName n'))
++                         then buildArgs fc defs known' (weakenNs l not')
++                                        (zip args parts ++ bound) ps sc
++                         else pure []
++                  _ => do fields <- fieldNames args
++                          let con = Ref fc (DataCon t (size l)) n
++                          let pat = apply fc con (map (Ref fc Bound) fields)
++                          let (ps', bound') = refine pat
++                          buildArgs fc defs known' (weakenNs l not')
++                                    (zip args (map (Ref fc Bound) fields) ++
++                                       (var, pat) :: bound') ps' sc
+     buildArgAlt not' (DelayCase t a sc)
+-        = let l = mkSizeOf [t, a]
+-              ps' = map (substName var (TDelay fc LUnknown
+-                                             (Ref fc Bound t)
+-                                             (Ref fc Bound a))) ps in
+-              buildArgs fc defs (weakenNs l known) (weakenNs l not')
+-                                ps' sc
++        = do let l = mkSizeOf [t, a]
++             case standsFor of
++                  TDelay _ _ ty arg =>
++                      buildArgs fc defs (weakenNs l known) (weakenNs l not')
++                                ([(t, ty), (a, arg)] ++ bound) ps sc
++                  _ => do [t', a'] <- fieldNames [t, a]
++                                | _ => pure []
++                          let pat = TDelay fc LUnknown (Ref fc Bound t') (Ref fc Bound a')
++                          let (ps', bound') = refine pat
++                          buildArgs fc defs (weakenNs l known) (weakenNs l not')
++                                    ([(t, Ref fc Bound t'), (a, Ref fc Bound a')] ++
++                                       (var, pat) :: bound')
++                                    ps' sc
+     buildArgAlt not' (ConstCase c sc)
+-        = do let ps' = map (substName var (PrimVal fc c)) ps
+-             buildArgs fc defs known not' ps' sc
++        = case standsFor of
++               PrimVal _ c' => if c == c' then buildArgs fc defs known not' bound ps sc
++                                          else pure []
++               _ => do let (ps', bound') = refine (PrimVal fc c)
++                       buildArgs fc defs known not' ((var, PrimVal fc c) :: bound') ps' sc
+     buildArgAlt not' (DefaultCase sc)
+-        = buildArgs fc defs known not' ps sc
++        = buildArgs fc defs known not' bound ps sc
+ 
+     buildArgsAlt : KnownVars vars (List Int) -> List (CaseAlt vars) ->
+                    Core (List (List ClosedTerm))
+@@ -320,11 +376,11 @@ buildArgs fc defs known not ps cs@(Case {name = var} idx el ty altsIn)
+     buildArgsAlt not' (c :: cs)
+         = pure $ !(buildArgAlt not' c) ++ !(buildArgsAlt not' cs)
+ 
+-buildArgs fc defs known not ps (STerm _ vs)
++buildArgs fc defs known not bound ps (STerm _ vs)
+     = pure [] -- matched, so return nothing
+-buildArgs fc defs known not ps (Unmatched msg)
++buildArgs fc defs known not bound ps (Unmatched msg)
+     = pure [ps] -- unmatched, so return it
+-buildArgs fc defs known not ps Impossible
++buildArgs fc defs known not bound ps Impossible
+     = pure [] -- not a possible match, so return nothing
+ 
+ -- Traverse a case tree and return pattern clauses which are not
+@@ -340,7 +396,8 @@ getMissing : {vars : _} ->
+ getMissing fc n ty ctree
+    = do defs <- get Ctxt
+         let psIn = map (Ref fc Bound) vars
+-        pats <- buildArgs fc defs [] [] psIn ctree
++        f <- newRef FreshArg 0
++        pats <- buildArgs fc defs [] [] [] psIn ctree
+         pats <- for pats $ trimArgs defs [<] !(nf defs Env.empty ty)
+         unless (null pats) $
+           logC "coverage.missing" 20 $ map unlines $

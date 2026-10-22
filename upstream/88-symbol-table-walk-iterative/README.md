@@ -17,10 +17,10 @@ function (a generated `else if` chain is one match per branch, nested)
 reaches the guard in each of them: the tools' stack limit would then be
 a limit on the programs the compiler accepts.
 
-What reaches it in this repository: idr-optimize's constant propagation
-and the integer range solves (the ranges analysis, idr-narrow's copies),
-each loading dead-code analysis; idr-inline, which runs upstream's
-inliner; and the continuations check, which builds a `SymbolUserMap`.
+What reaches it in this repository: idr-constants' propagation and the
+integer range solves (the ranges analysis, idr-narrow's copies), each
+loading dead-code analysis; and idr-inline, which runs upstream's
+inliner. Nothing of ours builds a `SymbolUserMap` any more.
 `tests/upstream-dead-code-iterative-initialization` shows it: its
 10,000-deep nest on a 256 KiB thread overflows here, after patch 92 has
 made the rest of dead-code analysis's initialization iterative.

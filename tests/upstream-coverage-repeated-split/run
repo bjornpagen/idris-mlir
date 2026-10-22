@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/104-coverage-repeated-split, carried: the stock Idris's
+# coverage checker, walking a case tree that splits a variable again under
+# a default, kept a wildcard where the second split refines it, so it
+# reported a missing case that is covered. Covering.idr's f is covering
+# (the case it named is impossible or matched), and the patched checker
+# accepts it under %default total.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cp "$root/upstream/104-coverage-repeated-split/Covering.idr" "$work/Covering.idr"
+if (cd "$work" && pinned_idris --check Covering.idr) > "$work/out" 2>&1; then
+  say "covering: the total f is accepted"
+elif grep -q 'not covering' "$work/out"; then
+  say "still reproduces: the total f is reported not covering"
+  show "$work/out"
+else
+  say "the stock Idris fails on the reproducer, which is not this bug"
+  show "$work/out"
+fi

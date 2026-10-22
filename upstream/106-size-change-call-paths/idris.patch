@@ -1,0 +1,50 @@
+--- a/src/Core/Termination/SizeChange.idr
++++ b/src/Core/Termination/SizeChange.idr
+@@ -49,11 +49,16 @@
+ ||| An edge from f to g is given by:
+ |||   the actual changes in g with respect to f
+ |||   the sequence in the call graph leading from f to g
+-||| The path is only here for error-reporting purposes
++||| The path is only here for error-reporting purposes. It is lazy: a
++||| composed graph's path is its two parts' paths appended, so its length is
++||| the sum of theirs and can double with every composition the closure
++||| makes; built eagerly, it costs time and memory exponential in the size
++||| of a mutual block even when every function terminates and no path is
++||| ever reported.
+ record Graph {- f g -} where
+   constructor MkGraph
+   change : Change {- f g -}
+-  seq : CallSeq {- f g -}
++  seq : Lazy CallSeq {- f g -}
+ 
+ ||| Sc graphs to be added
+ WorkList : Type
+@@ -77,7 +82,7 @@
+   compare a1 a2 = compare a1.change a2.change
+ 
+ Show Graph where
+-  show a = show a.change ++ "\n    via call seq: " ++ show a.seq ++ "\n"
++  show a = show a.change ++ "\n    via call seq: " ++ show (force a.seq) ++ "\n"
+ 
+ ------------------------------------------------------------------------
+ -- Utility functions
+@@ -133,7 +138,7 @@
+ composeGraph a1 a2
+     = MkGraph
+         (composeChange a1.change a2.change)
+-        (a1.seq ++ a2.seq)
++        (delay (force a1.seq ++ force a2.seq))
+ 
+ ||| Precompose a give an sc-graph & insert it in the worklist (unless it's already known)
+ preCompose : (f : Name) -> Graph {- f g -} -> -- /!\ g bound later
+@@ -315,8 +320,8 @@
+          let Nothing = findNonTerminatingLoop s
+            | Just (g, loop) =>
+                ifThenElse (def.fullname == g)
+-                 (pure $ NotTerminating (RecPath loop.seq))
+-                 (do setTerminating EmptyFC g (NotTerminating (RecPath loop.seq))
++                 (pure $ NotTerminating (RecPath (force loop.seq)))
++                 (do setTerminating EmptyFC g (NotTerminating (RecPath (force loop.seq)))
+                      let init = prefixCallSeq pred g
+                      setPrefixTerminating init g
+                      pure $ NotTerminating (BadPath init g))

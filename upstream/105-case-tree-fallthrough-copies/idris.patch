@@ -1,0 +1,81 @@
+diff --git a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
+index cb88ae8..26e431d 100644
+--- a/src/Core/Case/CaseBuilder.idr
++++ b/src/Core/Case/CaseBuilder.idr
+@@ -862,6 +862,47 @@ shuffleVars First orig@(MkPatClause pvars lhs pid rhs) = orig -- no-op
+ shuffleVars el (MkPatClause pvars lhs pid rhs)
+     = MkPatClause pvars (moveFirst el lhs) pid rhs
+ 
++-- What a tree may assume of a variable a case further up has matched.
++data Matched = IsCon Name | NoneOf (List Name)
++
++-- Drop the alternatives of every case on the variable that what is known of
++-- it rules out. A data or type constructor is told apart by its name, which
++-- is how the evaluator matches a type constructor. A case left with nothing
++-- is left alone.
++pruneCase : {vars : _} -> Var vars -> Matched -> CaseTree vars -> CaseTree vars
++pruneCase v m (Case idx el ty alts)
++    = let alts' = map pruneAlt alts in
++          Case idx el ty (if MkVar el == v then agreeing alts' else alts')
++  where
++    pruneAlt : CaseAlt vars -> CaseAlt vars
++    pruneAlt (ConCase n t args sc)
++        = ConCase n t args (pruneCase (weakenNs (mkSizeOf args) v) m sc)
++    pruneAlt (DelayCase t a sc)
++        = DelayCase t a (pruneCase (weakenNs (mkSizeOf [t, a]) v) m sc)
++    pruneAlt (ConstCase c sc) = ConstCase c (pruneCase v m sc)
++    pruneAlt (DefaultCase sc) = DefaultCase (pruneCase v m sc)
++
++    conIs : Name -> CaseAlt vars -> Bool
++    conIs n (ConCase n' _ _ _) = n == n'
++    conIs _ _ = False
++
++    conIn : List Name -> CaseAlt vars -> Bool
++    conIn ns (ConCase n _ _ _) = n `elem` ns
++    conIn _ _ = False
++
++    keepSome : List (CaseAlt vars) -> List (CaseAlt vars) -> List (CaseAlt vars)
++    keepSome alts [] = alts
++    keepSome _ kept = kept
++
++    agreeing : List (CaseAlt vars) -> List (CaseAlt vars)
++    agreeing alts
++        = keepSome alts $ case m of
++              IsCon n => case filter (conIs n) alts of
++                              (a :: _) => [a]
++                              [] => filter isDefault alts
++              NoneOf ns => filter (not . conIn ns) alts
++pruneCase v m t = t
++
+ mutual
+   {- 'PatClause' contains a list of patterns still to process (that's the
+      "todo") and a right hand side with the variables we know about "vars".
+@@ -908,10 +949,26 @@ mutual
+   caseGroups fc fn phase el ty gs errorCase
+       = Case idx el (resolveNames vars ty) <$> altGroups gs
+     where
++      matched : forall ne. List01 ne (Group todo vars) -> List Name
++      matched [] = []
++      matched (ConGroup cn _ _ :: cs) = cn :: matched cs
++      matched (_ :: cs) = matched cs
++
++      -- The fallthrough tree is copied into every alternative. Each copy
++      -- is reached only with 'el' known to be that alternative's
++      -- constructor (or, for the default, none of the others), so its own
++      -- cases on 'el' keep only the alternatives that can still match.
++      -- Without this a function whose clauses alternate between a
++      -- constructor and a wildcard in one argument gets a tree exponential
++      -- in the number of clauses.
+       altGroups : forall ne. List01 ne (Group todo vars) -> Core (List (CaseAlt vars))
+-      altGroups [] = pure $ toList $ DefaultCase <$> errorCase
++      altGroups [] = pure $ toList $
++          DefaultCase . pruneCase (MkVar el) (NoneOf (matched gs)) <$> errorCase
+       altGroups (ConGroup {newargs} cn tag rest :: cs)
+-          = do crest <- match fc fn phase rest (map (weakenNs (mkSizeOf newargs)) errorCase)
++          = do let l = mkSizeOf newargs
++               crest <- match fc fn phase rest
++                          (map (pruneCase (weakenNs l (MkVar el)) (IsCon cn) . weakenNs l)
++                               errorCase)
+                cs' <- altGroups cs
+                pure (ConCase cn tag newargs crest :: cs')
+       altGroups (DelayGroup {tyarg} {valarg} rest :: cs)

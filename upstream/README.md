@@ -36,10 +36,12 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   third_party/simdutf's gitlink, which the bootstrap's `simdutf` step
   applies to its export (`.toolchain/simdutf/src`).
 - `idris.patch`: the same for Idris 2, against third_party/Idris2's
-  gitlink, which the bootstrap's `idris` step would apply to its copy of
-  the checkout (the checkout itself stays unmodified). None is carried:
-  the stock Idris only builds stage 0 (the type checker, the frontend and
-  the test runner) and the benchmarks' Chez baseline, and what elaborates
+  gitlink, which the bootstrap's `idris` step applies, in the order of
+  their numbers, to its copy of the checkout (the checkout itself stays
+  unmodified). The stock Idris builds stage 0 (the type checker, the
+  frontend, the specification, the libraries and the test runner) and the
+  benchmarks' Chez baseline; where it gets that code of ours wrong it is
+  patched, and our code is not bent around it (D121). What elaborates
   programs, prelude and base is our type checker in compiler/checker,
   Idris's checker copied into our tree, whose fixes are our own code (its
   README). Nothing goes to Idris (**Idris** under **Rules for
@@ -51,8 +53,7 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   bug** below), which the bootstrap therefore never applies; apply it
   with `git apply`, and take the commit message from `submission.md`,
   never from the file's header. For simdutf (48), the pull request to
-  that project, which nothing reaches. For Idris: 96, a fix to the stock
-  Idris nothing it builds reaches, recorded and not carried.
+  that project, which nothing reaches.
 - `tests/upstream-<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
@@ -157,7 +158,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 93 | call-graph-iterative-construction | PR after the recursion RFC: the call graph built from a worklist | carried; not filed |
 | 94 | snmalloc-pagemap-sanity-checks | PR to microsoft/snmalloc: a bounded pagemap's fast-path range tests under sanity_checks | carried; not filed; Microsoft CLA |
 | 95 | snmalloc-notify-using-result | PR to microsoft/snmalloc: the PALs report a refused commit | carried; not filed; Microsoft CLA |
-| 96 | effectful-argument-inline | nothing: Idris takes no tool-written contribution (**Idris**) | recorded, not carried (nothing stock-built reaches it); pull-request.diff against Idris main 89ba32eb |
+| 96 | effectful-argument-inline | nothing: Idris takes no tool-written contribution (**Idris**) | open: patch owed (D121); the first fix, never built before, and a revision both stop Idris's own base build (2026-10-22, README); the check records the pin still drops the write |
 | 97 | bytecode-numbering-iterative | PR after the recursion RFC: the bytecode writer numbers nested attributes and types from an explicit stack | carried (2026-10-21); not filed |
 | 98 | simdutf-constexpr-implementation | PR to simdutf/simdutf: the implementation constructors constexpr, rvv's aside | carried (2026-10-21); not filed; simdutf's AI policy wants a human author who answers for it |
 | 99 | function-interface-edits | PR: FunctionOpInterface's four signature edits are interface methods, the present bodies their defaults, so a caller holding the interface reaches an operation's own | carried (2026-10-21); not filed |
@@ -165,6 +166,12 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 101 | thread-pool-thread-start | PR after 75's: ThreadPoolStrategy::OnThreadStart, a function each thread a pool starts runs before any task | carried (2026-10-22); not filed |
 | 102 | int-range-ne-either-view | PR: isStaticallyTrue proves `ne` when either the signed or the unsigned ranges are apart (int-range-opts.mlir) | carried (2026-10-22); not filed |
 | 103 | sparse-region-successors-protected | PR: the sparse forward analysis's visitRegionSuccessors protected, so an override may call the base | carried (2026-10-22); not filed |
+| 104 | coverage-repeated-split | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies at the gitlink 89ba32eb |
+| 105 | case-tree-fallthrough-copies | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies at the gitlink 89ba32eb |
+| 106 | size-change-call-paths | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies at the gitlink 89ba32eb |
+| 107 | delayed-case-expected-type | nothing: Idris takes no tool-written contribution (**Idris**) | carried (2026-10-22, D121); applies at the gitlink 89ba32eb; upstream #3418 |
+| 108 | case-split-pattern-fragment | nothing: Idris takes no tool-written contribution (**Idris**) | open: patch owed (a redesign of `caseBlock`'s metas over a split variable); upstream #62; the check records the pin still refuses |
+| 109 | delayed-retry-doubling | nothing: Idris takes no tool-written contribution (**Idris**) | open: a type error under nested delayed elaboration is slow to report; candidate patch to `contra` not built; no check yet |
 
 Gone when the pin moved from llvmorg-23.1.2 to main at 7208ba24, each
 with its check and its PINS.md entry: 13 (uplift-final-counter) and 14
@@ -317,6 +324,7 @@ for LLVM: 03, 04, 05, 07, 09, 10, 19, 24, 27, 29, 30, 56, 57, 61, 62,
 64 to 77, 79 to 93, 97 and 99, every one applying at 416f328b in that
 order (`git apply`, the series in order, on the pinned files they touch,
 2026-10-21); for snmalloc: 49, 94 and 95; for simdutf: 98, applying at
-its gitlink (8d82299, 9.3.2); for Idris and Chez: none. No toolchain is built yet with them, on any
+its gitlink (8d82299, 9.3.2); for Idris: 104 to 107, applying at its
+gitlink (89ba32eb) in that order; for Chez: none. No toolchain is built yet with them, on any
 target, and `make build` refuses until one is. That is this repository's
 build, not a precondition for sending anything upstream.

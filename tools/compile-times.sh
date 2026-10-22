@@ -1,8 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The compile times the golden tests recorded (harness/lib/timing.sh,
-# `record_time`), each compilation broken down by idris-mlir's timing
+# The compile times the golden tests recorded (the runner's `recordTime`,
+# harness/Harness.idr), each compilation broken down by idris-mlir's timing
 # report into the parse, idr-optimize (the optimizer, its ready set and the
 # per-function pipeline it runs), the verifier, the analyses, LLVM and the
 # rest; with --against, what changed since an earlier record of the same

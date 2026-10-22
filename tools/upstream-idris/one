@@ -12,7 +12,6 @@
 # are skipped.
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 . "$root/tools/toolchain.sh"
-. "$root/harness/lib/idris-lex.sh"
 . "$root/tools/upstream-idris/common.sh"
 
 name=${1:?usage: one GROUP/NAME}

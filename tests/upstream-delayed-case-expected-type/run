@@ -1,0 +1,25 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/107-delayed-case-expected-type, carried: the stock Idris
+# elaborated a delayed case block at a fresh type of its own instead of the
+# type its hole was given, so a pattern-matching lambda checked at a Lazy
+# function type (maybe's second argument) was refused ("Can't solve
+# constraint between: String and ?caseTy"). With the patch Lambda.idr's
+# three definitions check, and it prints what they compute.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cp "$root/upstream/107-delayed-case-expected-type/Lambda.idr" "$work/Lambda.idr"
+if (cd "$work" && pinned_idris --exec main Lambda.idr) > "$work/out" 2>&1; then
+  if [ "$(cat "$work/out")" = "$(printf 'n=7\nb')" ]; then
+    say "checked: the pattern lambdas at a Lazy type run, printing n=7 and b"
+  else
+    say "checked, but the reproducer prints other output"
+    show "$work/out"
+  fi
+elif grep -q 'caseTy' "$work/out"; then
+  say "still reproduces: a pattern lambda at a Lazy type is refused"
+  show "$work/out"
+else
+  say "the stock Idris fails on the reproducer, which is not this bug"
+  show "$work/out"
+fi

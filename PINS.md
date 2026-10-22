@@ -179,8 +179,9 @@ which the top-level CMake configure gate reads.
   revisited after each change below it; the patterns of an op with several
   regions (upstream's region branch patterns, ours then on idr.match and
   idr.match_lit) read all of them, so an op of n regions costs n visits of
-  size n: canonicalize in idr-optimize took 30, 120, 223 s at n = 1k, 2k, 4k
-  on defunc-tag-limit's program through the whole pipeline
+  size n: before the cutover, canonicalize in idr-optimize took 30, 120,
+  223 s at n = 1k, 2k, 4k on a program of one `idr.match_lit` of n cases
+  through the whole pipeline (the stress test that generated it is gone)
 - sites: the greedy driver inside the upstream passes the pipeline runs
   over a module that still holds multi-region ops (`convert-linalg-to-loops`,
   `convert-vector-to-scf`, `expand-strided-metadata`,
@@ -950,11 +951,13 @@ which the top-level CMake configure gate reads.
 - symptom: on llvm main at 416f328b, `SymbolTable::walkSymbolTables`
   recurses once for every operation of every block it visits, so its
   native depth is the IR's nesting depth whatever symbols it holds
-- sites: dead-code analysis's initialization (idr-optimize's constant
-  propagation, the ranges analysis, idr-narrow's copies), upstream's
-  inliner in idr-inline (its use lists) and the continuations check's
-  `SymbolUserMap` (foreign/idr/lib/Transforms/Expect/Continuations.cpp),
-  under the tools' one small stack (D33, C43, C99)
+- sites: dead-code analysis's initialization (idr-constants'
+  propagation, foreign/idr/lib/Transforms/Effects/Constants.cpp; the
+  ranges analysis, foreign/idr/lib/Analysis/Ranges.cpp; idr-narrow's
+  copies, foreign/idr/lib/Transforms/Narrow/Copy.cpp) and upstream's
+  inliner in idr-inline (its use lists,
+  foreign/idr/lib/Transforms/Inline/InlinePass.cpp), under the tools' one
+  small stack (D33, C43, C99)
 - workaround: `upstream/88-symbol-table-walk-iterative/llvm.patch`,
   applying after 80: a stage-aware walk with a stack of each open
   operation's visibility, the same tables passed in the same post-order
@@ -1390,3 +1393,93 @@ which the top-level CMake configure gate reads.
 - retire: when Chez Scheme itself is built on the pinned toolchain for the
   host
 - upstream: none
+
+## coverage-repeated-split
+
+- symptom: the stock Idris's coverage checker reports a covered case as
+  missing, with a wildcard where a second split of the same variable
+  (under a default) refines it, so a total definition is refused as not
+  covering; an `impossible` clause for the named case does not help
+- sites: everything the stock host checks under `%default total` or
+  `covering`: stage 0 and the libraries
+- workaround: `upstream/104-coverage-repeated-split/idris.patch`: the walk
+  that proposes missing patterns names a re-split variable's arguments as
+  the later split binds them; checked by
+  tests/upstream-coverage-repeated-split
+- retire: when the Idris pin carries upstream's fix (open issues #550 and
+  #3710 report the symptom)
+- upstream: upstream/104-coverage-repeated-split; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-22): carried
+
+## case-tree-fallthrough-copies
+
+- symptom: the stock Idris builds a case tree exponential in the number
+  of runs of constructor and wildcard patterns in the column it splits
+  first, copying each run's fallthrough whole into every alternative: a
+  definition of thirty such clauses ran 986 s to 18.7 GiB
+- sites: everything the stock host checks: stage 0 and the libraries
+- workaround: `upstream/105-case-tree-fallthrough-copies/idris.patch`:
+  each copy of a fallthrough keeps, in its cases on the variable just
+  matched, only the alternatives that variable can still take; checked by
+  tests/upstream-case-tree-fallthrough-copies
+- retire: when the Idris pin carries an upstream fix that keeps such
+  trees small
+- upstream: upstream/105-case-tree-fallthrough-copies; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-22): carried
+
+## size-change-call-paths
+
+- symptom: the stock Idris's size-change closure appends both call paths
+  of every graph it composes, kept only to report a loop, so the totality
+  check of a mutual block takes time and memory exponential in its size
+  (the checker's decoder in `Idris/Syntax/Tree.idr` passed 8 GiB in about
+  115 s)
+- sites: everything the stock host checks: stage 0 and the libraries
+- workaround: `upstream/106-size-change-call-paths/idris.patch`: the path
+  is lazy, built only where a loop is reported; checked by
+  tests/upstream-size-change-call-paths
+- retire: when the Idris pin carries upstream's fix
+- upstream: upstream/106-size-change-call-paths; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-22): carried
+
+## delayed-case-expected-type
+
+- symptom: the stock Idris elaborates a delayed case block at a fresh type
+  of its own instead of the type its hole was given, so a
+  pattern-matching lambda or `case` checked at a `Lazy` function type (as
+  `maybe`'s second argument) is refused, "Can't solve constraint between:
+  String and ?caseTy"
+- sites: everything the stock host checks: stage 0 and the libraries;
+  code of ours bent around it before the patch, to go once the toolchain
+  carries it: harness/Fuzz.idr's two pattern lambdas written as cases
+  (`checkOf`'s `OfFirst`, `checkerChecks`' `firstAgain`)
+- workaround: `upstream/107-delayed-case-expected-type/idris.patch`:
+  `delayElab` hands the delayed elaborator its hole's type, at which
+  `checkCase` elaborates the block; checked by
+  tests/upstream-delayed-case-expected-type
+- retire: when the Idris pin carries upstream's fix for #3418
+- upstream: upstream/107-delayed-case-expected-type; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-22): carried
+
+## case-split-pattern-fragment
+
+- symptom: the stock Idris refuses a case (a record update) that splits a
+  bound variable while an unsolved meta is applied to that variable: the
+  clause's constraint leaves the pattern fragment, so an inferred lambda's
+  type is never solved, or a `%defaulthint` fires first (upstream #62)
+- sites: everything the stock host checks; code of ours that stands in
+  for the patch: harness/Main.idr's `keep`, given a signature, and its
+  `--threads` parse, `parsePositive {a = Nat}`
+- workaround: none carried: the patch, a change to how `caseBlock` treats
+  a meta applied to the variable it splits, is not written yet
+  (upstream/108-case-split-pattern-fragment); tests/upstream-case-split-pattern-fragment
+  checks that the pin still refuses both reproducers
+- retire: when a carried patch or the pin fixes it, with the two
+  stand-ins in harness/Main.idr
+- upstream: upstream/108-case-split-pattern-fragment; nothing sent (Idris
+  takes no tool-written contribution)
+- status (2026-10-22): open; patch owed

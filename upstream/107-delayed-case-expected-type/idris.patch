@@ -1,0 +1,45 @@
+--- a/src/TTImp/Elab/Delayed.idr
++++ b/src/TTImp/Elab/Delayed.idr
+@@ -110,7 +110,7 @@
+             FC -> RigCount -> Env Term vars ->
+             (expected : Maybe (Glued vars)) ->
+             (pri : DelayReason) ->
+-            Core (Term vars, Glued vars) ->
++            (Glued vars -> Core (Term vars, Glued vars)) ->
+             Core (Term vars, Glued vars)
+ delayElab {vars} fc rig env exp pri elab
+     = do ust <- get UST
+@@ -126,7 +126,12 @@
+                                               (do ust <- get UST
+                                                   let nos' = noSolve ust
+                                                   put UST ({ noSolve := nos } ust)
+-                                                  res <- elab
++                                                  -- the elaborator runs at the type the hole was
++                                                  -- given, solved or not by then, never at a fresh
++                                                  -- one: a case block inferred at a fresh type
++                                                  -- abstracts it over its own scrutinee, which no
++                                                  -- clause can then solve
++                                                  res <- elab expected
+                                                   ust <- get UST
+                                                   put UST ({ noSolve := nos' } ust)
+                                                   pure res)) :: ) }
+--- a/src/TTImp/Elab/Case.idr
++++ b/src/TTImp/Elab/Case.idr
+@@ -373,7 +373,7 @@
+             Maybe (Glued vars) ->
+             Core (Term vars, Glued vars)
+ checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
+-    = delayElab fc rig env exp CaseBlock $
++    = delayElab fc rig env exp CaseBlock $ \expected =>
+         do scrty_exp <- case scrty_in of
+                              Implicit {} => guessScrType alts
+                              _ => pure scrty_in
+@@ -404,7 +404,7 @@
+            logTermNF "elab.case" 5 "Scrutinee type" env scrty
+            defs <- get Ctxt
+            checkConcrete !(nf defs env scrty)
+-           caseBlock rig elabinfo fc nest env opts scr scrtm_in scrty caseRig alts exp
++           caseBlock rig elabinfo fc nest env opts scr scrtm_in scrty caseRig alts (Just expected)
+   where
+     -- For the moment, throw an error if we haven't been able to work out
+     -- the type of the case scrutinee, because we'll need it to build the

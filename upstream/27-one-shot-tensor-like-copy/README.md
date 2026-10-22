@@ -73,9 +73,10 @@ makes builtin ranked tensors alone.
 A graded array, `!idr.graded<uses, hold, T>` over a tensor `T`, is
 tensor-like wherever `T` is, so One-Shot bufferizes graded values and
 signatures itself, and an array
-field is its buffer from the frontend on (proposals/0000 D43, C108): the
-retyping idr-bufferize ran after One-Shot (`idr::DataRemap` with the
-`buffers` kind) is deleted. A graded array that bufferizes out-of-place is
+field is its buffer from the frontend on (proposals/0000 D43, C108). The
+cutover deleted the retyping idr-bufferize used to run after One-Shot
+(the old `idr::DataRemap`'s `buffers` kind), which this replaces; no code
+of it is left. A graded array that bufferizes out-of-place is
 then an OpOperand of a tensor-like type that is not a builtin tensor,
 which this patch copies through the dialect's hook where the pin wrote it
 in place. The per-instance tensor-likeness is the other half,

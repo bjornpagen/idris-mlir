@@ -15,9 +15,11 @@ and `idr.match_lit` (IR/Canon's SinkConsumer, EndAfterNoYield,
 ours, read every region too. So an op of n regions in which every region
 changes costs n visits of size n.
 
-defunc-tag-limit's program, a `match_lit` of n cases, through the whole
-pipeline: canonicalize in idr-optimize took 30, 120 and 223 s at n = 1k,
-2k, 4k (Debug, loaded machine).
+Before the cutover, a program of one `match_lit` of n cases, through the
+whole pipeline: canonicalize in idr-optimize took 30, 120 and 223 s at
+n = 1k, 2k, 4k (Debug, loaded machine). The stress test that generated
+the program is gone with the old pipeline; the measurements stand as
+taken.
 
 ## Reproduce
 
@@ -45,8 +47,8 @@ Tested on a private build of the pinned source with every carried patch
 (Release, assertions, AArch64, Apple clang): check-mlir passes 4101, 0
 failed. The switch at n = 1000 and 2000 canonicalizes in 0.01 and 0.03 s,
 with output byte-identical to the unpatched tool. Linked into
-idris-mlir-opt with upstream 63, defunc-tag-limit's program through
-`--idr-pipeline` takes 1.1, 1.9, 3.4 and 9.8 s at n = 1k, 2k, 4k, 16k
+idris-mlir-opt with upstream 63, that program through the old
+`--idr-pipeline` took 1.1, 1.9, 3.4 and 9.8 s at n = 1k, 2k, 4k, 16k
 (against 17, 56 and 234 s at 1k, 2k, 4k), idr-optimize 0.4 to 3.7 s.
 tests/upstream-greedy-multi-region-ancestors checks the pinned mlir-opt.
 

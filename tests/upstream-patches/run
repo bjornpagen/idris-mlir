@@ -11,7 +11,7 @@
 # bug's name without its number, which says whether the pinned tools have
 # the fix. The pinned sources are only read: the patches are applied in
 # order to a copy of the files they touch. The policy is `upstream_policy
-# ROOT`, run on the repository and on the planted trees (lib/planted.sh):
+# ROOT`, run on the repository and on the planted trees (Planted.idr):
 # witness/ holds a bug for each way of breaking it (no README, no plan,
 # neither a patch nor its reason, both, a patch named for no project, a
 # carried patch with no check); near-miss/ holds a bug with a patch for

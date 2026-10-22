@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/105-case-tree-fallthrough-copies, carried: the stock Idris's
+# case builder copied a fallthrough tree whole into every alternative, so
+# thirty clauses alternating a constructor and a wildcard in their first
+# argument built a tree exponential in the clauses, past the step limit.
+# With the patch each copy keeps only the alternatives what the case above
+# it matched leaves possible, and Fallthrough.idr checks well within a
+# limit the stock Idris passes. The limit is short, since the stock Idris's
+# memory grows with it.
+step_limit=20
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cp "$root/upstream/105-case-tree-fallthrough-copies/Fallthrough.idr" "$work/Fallthrough.idr"
+(cd "$work" && pinned_idris --check Fallthrough.idr) > "$work/out" 2>&1
+case $? in
+  0) say "pruned: the thirty clauses check within the step limit" ;;
+  124) say "still reproduces: the thirty clauses do not check within the step limit" ;;
+  *) say "the stock Idris fails on the reproducer, which is not this bug"
+     show "$work/out" ;;
+esac

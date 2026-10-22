@@ -5,7 +5,11 @@
 # with a run script that receives the compiler as $1 (upstream's own
 # testutils.sh) and the file the script must print, `expected`, which is
 # the test's specification. This compiler is that compiler for the groups
-# that are programs over the prelude and base.
+# that are programs over the prelude and base. What reads Idris source and
+# the specification's rules is the harness's runner, built by the harness's
+# own target.
+
+runtests=$root/harness/build/exec/runtests
 
 # language_group NAME: NAME is a group whose tests are that language
 # (prelude, base, the language checks under idris2/, and the programs
@@ -70,7 +74,7 @@ ident_in() {
 # Threads, collector finalizers, raw pointers, unsafePerformIO in the
 # test's own source, network, and the packages this compiler does not
 # implement. The scan is the source with comments and strings removed
-# (harness/lib/idris-lex.sh) plus the run script's package flags. A script
+# (`runtests --idris-lex code`) plus the run script's package flags. A script
 # that also runs another backend expects that backend's output too, which
 # this compiler does not print.
 skip_reason() {
@@ -80,7 +84,7 @@ skip_reason() {
   find "$skip_dir" \( -name build -o -name prefix \) -prune -o -type f \
     \( -name '*.idr' -o -name '*.lidr' -o -name '*.yaff' \) -print |
     while IFS= read -r skip_file; do
-      idris_lex code "$skip_file" >> "$skip_code"
+      "$runtests" --idris-lex code "$skip_file" >> "$skip_code"
     done
   if [ -f "$skip_dir/run" ]; then
     sed 's/[[:space:]]*#.*//' "$skip_dir/run" >> "$skip_code"
@@ -114,17 +118,41 @@ skip_reason() {
   printf '%s\n' "$skip_found"
 }
 
-. "$root/harness/lib/rules.sh"
+# refusal_rule: the phrase of the first refusal in the text on stdin,
+# `unsupported (<phrase>)` with <phrase> a rule's, the specification's rules
+# as the runner gives them (`runtests --rules`: a phrase, a tab, its
+# category); nothing when there is none. Only the rule is read, never the
+# message after it.
+refusal_rule() {
+  rr_rules=$(mktemp "${TMPDIR:-/tmp}/idris-mlir-rules.XXXXXX") || return 0
+  if "$runtests" --rules > "$rr_rules"; then
+    awk -F'\t' '
+      NR == FNR { if (NF >= 2) rule[$1] = 1; next }
+      {
+        text = $0
+        while ((at = index(text, "unsupported (")) > 0) {
+          text = substr(text, at + 13)
+          close_at = index(text, ")")
+          if (close_at > 0 && (substr(text, 1, close_at - 1) in rule)) {
+            print substr(text, 1, close_at - 1)
+            exit
+          }
+        }
+      }' "$rr_rules" -
+  fi
+  rm -f "$rr_rules"
+}
 
 # rejection_skip TEXT: the rule of the compiler's first refusal in TEXT,
-# when the rule's category is `outside the language` (lib/rules.sh): a program the
-# compiler refused under one is not a failure of this compiler but a test
-# of something the language it implements does not have. Nothing
-# otherwise. Only the rule is read, never the message after it.
+# when the rule's category is `outside the language` (`runtests
+# --rule-category`): a program the compiler refused under one is not a
+# failure of this compiler but a test of something the language it
+# implements does not have. Nothing otherwise. Only the rule is read, never
+# the message after it.
 rejection_skip() {
   rs_rule=$(printf '%s\n' "$1" | refusal_rule)
   [ -n "$rs_rule" ] || return 0
-  [ "$(rule_category "$rs_rule")" = 'outside the language' ] && printf '%s\n' "$rs_rule"
+  [ "$("$runtests" --rule-category "$rs_rule")" = 'outside the language' ] && printf '%s\n' "$rs_rule"
   return 0
 }
 
