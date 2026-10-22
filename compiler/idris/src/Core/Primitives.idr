@@ -317,7 +317,10 @@ div (B32 x) (B32 0) = Nothing
 div (B32 x) (B32 y) = pure $ B32 (assert_total (prim__div_Bits32 x y))
 div (B64 x) (B64 0) = Nothing
 div (B64 x) (B64 y) = pure $ B64 (assert_total (prim__div_Bits64 x y))
-div (Db x) (Db y) = pure $ Db (assert_total (prim__div_Double x y))
+-- A double's division never fails, but its primitive is registered partial
+-- with the integers' divisions, so it is reached through `/`, which is that
+-- primitive for `Double`.
+div (Db x) (Db y) = pure $ Db (x / y)
 div _ _ = Nothing
 
 mod : Constant -> Constant -> Maybe Constant

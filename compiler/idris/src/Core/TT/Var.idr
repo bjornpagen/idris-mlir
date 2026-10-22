@@ -52,24 +52,21 @@ finIdx : {idx : _} -> (0 prf : IsVar x idx vars) ->
 finIdx First = FZ
 finIdx (Later l) = FS (finIdx l)
 
-||| The element at an index. An `IsVar` proof never reaches the empty list
-||| or an index past the end, so those cases are missing and crash.
-partial
-elementAt : List a -> Nat -> a
-elementAt (x :: _) Z = x
-elementAt (_ :: xs) (S k) = elementAt xs k
-
-||| Recover the value pointed at by an IsVar proof.
-||| O(n) in the size of the index. The name the proof binds is erased, so
-||| the value is this element of the list, not that name.
-export
-nameAt : {vars : List a} -> {idx : Nat} -> (0 p : IsVar n idx vars) -> a
-nameAt {vars} {idx} _ = assert_total (elementAt vars idx)
-
 ||| Inversion principle for Later
 export
 dropLater : IsVar nm (S idx) (n :: ns) -> IsVar nm idx ns
 dropLater (Later p) = p
+
+||| Recover the value pointed at by an IsVar proof.
+||| O(n) in the size of the index. The walk matches the list and the index,
+||| which are values; the proof is erased, so it is only carried down, and
+||| it is what makes the empty list impossible.
+export
+nameAt : {vars : List a} -> {idx : Nat} -> (0 p : IsVar n idx vars) -> a
+nameAt {vars = x :: _} {idx = Z} _ = x
+nameAt {vars = _ :: xs} {idx = S k} p = nameAt {vars = xs} {idx = k} (dropLater p)
+nameAt {vars = []} First impossible
+nameAt {vars = []} (Later _) impossible
 
 export
 0 mkIsVar : HasLength m inner -> IsVar nm m (inner ++ nm :: outer)
