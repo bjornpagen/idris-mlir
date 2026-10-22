@@ -243,13 +243,17 @@ data RuleName : Type where
   BufferRead : RuleName
   ||| A buffer operand's memory is written; a tensor is a value and is not.
   BufferWrite : RuleName
+  ||| A value that owns its count is given up, its memory given back with
+  ||| its last reference: a free on the heap. A value that owns none gives
+  ||| nothing back.
+  MemoryRelease : RuleName
 
 public export
 ruleClosed : Closed RuleName
 ruleClosed = MkClosed
   { name = ident "EffectRule"
   , shape = OneOf
-  , every = Consumption ::: [FreshIdentity, Acquisition, MemoRead, SharedCount, Recycling, ForeignRelease, BufferRead, BufferWrite]
+  , every = Consumption ::: [FreshIdentity, Acquisition, MemoRead, SharedCount, Recycling, ForeignRelease, BufferRead, BufferWrite, MemoryRelease]
   , complete = \case
       Consumption => Here
       FreshIdentity => There Here
@@ -260,6 +264,7 @@ ruleClosed = MkClosed
       ForeignRelease => There (There (There (There (There (There Here)))))
       BufferRead => There (There (There (There (There (There (There Here))))))
       BufferWrite => There (There (There (There (There (There (There (There Here)))))))
+      MemoryRelease => There (There (There (There (There (There (There (There (There Here))))))))
   , describe = \case
       Consumption => MkCase (ident "Consumes") (word "consumes" ::: []) (line "takes over a value that owns its count")
       FreshIdentity => MkCase (ident "NewIdentity") (word "new_identity" ::: []) (line "a result whose identity something reads is fresh")
@@ -270,6 +275,7 @@ ruleClosed = MkClosed
       ForeignRelease => MkCase (ident "ReleasesForeign") (word "releases_foreign" ::: []) (line "releasing what may reach a foreign cell writes the outside")
       BufferRead => MkCase (ident "ReadsBuffers") (word "reads_buffers" ::: []) (line "reads a buffer operand's memory")
       BufferWrite => MkCase (ident "WritesBuffers") (word "writes_buffers" ::: []) (line "writes a buffer operand's memory")
+      MemoryRelease => MkCase (ident "Releases") (word "releases" ::: []) (line "gives back the memory of a value that owns its count")
   , doc = brief (line "a rule by which an effect follows from one value's type")
   }
 
@@ -285,6 +291,7 @@ side Recycling = OperandSide
 side ForeignRelease = OperandSide
 side BufferRead = OperandSide
 side BufferWrite = OperandSide
+side MemoryRelease = OperandSide
 
 ||| What each rule means.
 public export
@@ -299,6 +306,7 @@ consequence Recycling =
 consequence ForeignRelease = MkConsequence ReachesForeign (GivenOn (Write ::: []) IO OnTheState) NothingGiven
 consequence BufferRead = MkConsequence Buffer (GivenOn (Read ::: []) Contents OnTheValues) NothingGiven
 consequence BufferWrite = MkConsequence Buffer (GivenOn (Write ::: []) Contents OnTheValues) NothingGiven
+consequence MemoryRelease = MkConsequence OwnsCount (GivenOn (Free ::: []) Heap OnTheValues) NothingGiven
 
 ||| Evidence that a value group is of the side a rule reads.
 public export
@@ -351,10 +359,11 @@ data LandsOnValue : RuleName -> Type where
 public export
 data PairRuleName : Type where
   ||| A result laid out apart from its operand is built anew from the
-  ||| operand's parts: the operand is taken over, a free of its count where
-  ||| it owns one, and the result takes new memory where it owns its count.
-  ||| Where the two are the same words, the result is the operand: nothing
-  ||| is taken over and nothing acquired.
+  ||| operand's parts: the operand is taken over, a free of its count and
+  ||| of its memory where it owns its count, its count read and written
+  ||| where its type does not prove it unshared; and the result takes new
+  ||| memory where it owns its count. Where the two are the same words, the
+  ||| result is the operand: nothing is taken over and nothing acquired.
   Repacking : PairRuleName
 
 public export
@@ -393,13 +402,16 @@ public export
 resultRules : PairConsequence -> List RuleName
 resultRules (MkPairConsequence _ _ result) = result
 
-||| What each pair rule means: a re-pack takes its operand over as a
-||| consumption does and acquires its result as an acquisition does.
+||| What each pair rule means: a re-pack takes its operand apart and gives
+||| it up, counting it where it may be shared and giving its memory back
+||| with its last reference, so a function that re-packs is never said to
+||| free nothing; and acquires its result as an acquisition does.
 public export
 pairConsequence : PairRuleName -> PairConsequence
 pairConsequence Repacking =
-  MkPairConsequence LaidOutApart [Consumption] [Acquisition]
-    {operandLands = [OnTheValueRead Refl Refl]} {resultLands = [OnTheValueRead Refl Refl]}
+  MkPairConsequence LaidOutApart [Consumption, SharedCount, MemoryRelease] [Acquisition]
+    {operandLands = [OnTheValueRead Refl Refl, OnTheValueRead Refl Refl, OnTheValueRead Refl Refl]}
+    {resultLands = [OnTheValueRead Refl Refl]}
 
 ------------------------------------------------------------------------------
 -- An op's typed rules
@@ -471,13 +483,14 @@ WritesBuffers : Fin i -> TypedRule i o
 WritesBuffers g = ByType BufferWrite (Operands g)
 
 ||| Where a value of an operand group and the result at its position are
-||| laid out apart, the result is built anew: the operand is taken over
-||| where it owns its count, and the result takes new memory where it owns
-||| its count. Where they are the same words, nothing.
+||| laid out apart, the result is built anew: the operand is given up as
+||| its type says, and the result takes new memory where it owns its count.
+||| Where they are the same words, nothing.
 public export
 Repacks : Fin i -> Fin o -> TypedRule i o
 Repacks operands results =
-  ByPair Repacking operands results {operandsFit = [ReadsOperand]} {resultsFit = [ReadsResult]}
+  ByPair Repacking operands results
+    {operandsFit = [ReadsOperand, ReadsEither, ReadsOperand]} {resultsFit = [ReadsResult]}
 
 ------------------------------------------------------------------------------
 -- Bodies and runtime memory
