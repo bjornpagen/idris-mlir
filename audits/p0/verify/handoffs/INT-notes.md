@@ -69,3 +69,27 @@ handoff lists its own wiring.
 - **dialects.sh (9771a679).** It needs `Generated/WrittenDialects.txt`
   committed. If 25's or 28's rewritten reproducer fails to parse, its
   test reports "not this bug": send it back to L06.
+
+## From the later 2026-10-22 commits
+
+- **Tool stacks (fa28fa87, C201).** No target entry defines
+  `IDRIS_MLIR_TOOL_STACK_BYTES` or `IDRIS_MLIR_TOOL_SIGNAL_BYTES`. Set
+  both in each entry of the root `CMakeLists.txt`, and emit them from
+  `foreign/idr/CMakeLists.txt` into the generated `idr/TargetEntry.h`,
+  which `Tool.h` includes. Set the stack size to the painted high mark
+  over every thread of `idris-mlir`, `idris-mlir-opt` and
+  `idris-mlir-reduce` (Release), on the stage-1 module and the nesting
+  fixtures, plus the target's outside-code margin (C201), at most
+  UINT_MAX/2. Set the signal size to the deepest painted signal stack
+  with LLVM's crash report running. Record each with its build and
+  input.
+- **Unit tests (23160ccb and after).** `unittests/Quantities.cpp` and
+  `unittests/TokenCases.cpp` go in one box linking IdrIR and
+  MLIRParser.
+- **The frontend's package (2c829605).** `compiler/src/IdrisMLIR/Laws.idr`
+  is deleted, and `idris-mlir.ipkg` no longer depends on
+  `mlir-relational`; check whether the Makefile still installs it for
+  the frontend. Regenerate `IdrisMLIR.Dialect.SCF` once
+  `scf.index_switch` is admitted (L09).
+- **Regenerate the `.td` files** after the TailKind documentation
+  change (db35bc4b).
