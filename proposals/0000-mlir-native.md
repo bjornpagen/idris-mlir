@@ -4312,6 +4312,19 @@ C137.
   inserts reduces. It is derived from the program, never a round
   constant, and refuses nothing the translation makes finitely; a
   program on which either fact fails is reported as a counterexample.
+- **C224** (2026-10-22; L16's growth passes; amends C223). Held values
+  have a position per holder, not one for the program. A dictionary that
+  mentions a dictionary parameter holding values holds those values as
+  one value, of their packed type; with one program-wide held position,
+  writing that type there is an arc from the position to itself, which
+  the graph would refuse though the program wraps nothing deeper. So
+  each dictionary that holds values (a node's parameter, a field, a
+  choice) has its own held position, and a held dictionary wrapped into
+  another is written from its own held position into the new one's by
+  an arc whose gain is its count. It counts as one value in the new
+  list, which C223's longest list now includes. A cycle through such
+  arcs is a recursion that wraps a dictionary deeper at each call, a
+  type that grows at each call, refused as any unbounded growth is.
 
 ## 4. Open: the owner's decisions, in order
 
