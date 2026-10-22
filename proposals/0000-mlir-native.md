@@ -1703,6 +1703,20 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   there is no upstream form to carry yet. When mainline has one, the
   weekly toolchain bump brings it and the checks become `pre`, `post` and
   `contract_assert`, the contract semantic chosen to enforce.
+- **D115** (2026-10-22; the owner; reverses D91's toolchain half). "we
+  should turn on llvm and mlir assertions to help us debug too. i don't
+  know why we're not enabling them either." The toolchain's LLVM and MLIR
+  are built with `LLVM_ENABLE_ASSERTIONS=ON` in every stage our code
+  compiles against or links, still one toolchain the tests run and the
+  compiler ships with. Our C++ is compiled to match, without `NDEBUG`, so
+  the headers it shares with LLVM and MLIR agree, and `assert` is live in
+  our code too. The qualification still records the price, now of having
+  them on.
+  C226 is amended by it: our C++ may use `assert` beside the always-on
+  fatal internal error, since nothing removes it any more; the runtime
+  compiled programs link keeps its own profile, where a check is a fatal
+  error and `NDEBUG` stays, so a program's speed does not pay for the
+  compiler's debugging.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places
