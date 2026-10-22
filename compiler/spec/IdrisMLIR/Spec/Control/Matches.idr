@@ -320,3 +320,39 @@ yieldOp = MkOp
   , laws = []
   , doc = brief "ends a region of an op that rejoins after it, with what the region gives its results"
   }
+
+------------------------------------------------------------------------------
+-- The upstream ops a condition is chosen with
+------------------------------------------------------------------------------
+
+-- Upstream's records hold these ops' meanings and effects, which the
+-- specification never restates. Each stands from the frontend's program to
+-- the lowering, whose one conversion makes their regions blocks with
+-- upstream's scf patterns, so none is left in a lowered function.
+
+||| `scf.if`: a region per arm of a condition, rejoining at its results, as
+||| a match's cases do. The frontend writes it where the choice is a
+||| condition and no Idris value is matched (an array joined of two whose
+||| elements hold references reads one or the other at each coordinate),
+||| and passes write it for choices of their own. Its effects are its
+||| regions' ops' (`RecursiveMemoryEffects`), as a match's are, which the
+||| effect system reads through upstream's interface as it reads every op
+||| it does not declare; what it forwards from a yield to its results, a
+||| reference among it, the flow readers read from its region branch
+||| interface.
+export
+scfIf : Admitted
+scfIf = MkAdmitted SCF "IfOp" (between Higher Owned) FrontendWrites [] []
+
+||| `scf.yield`: ends a region of `scf.if`, and of the scf loops passes
+||| write, with what it gives the op's results. Upstream declares it pure,
+||| as `idr.yield` declares no effect: passing a value out of a region hands
+||| its ownership on, which is no consumption.
+export
+scfYield : Admitted
+scfYield = MkAdmitted SCF "YieldOp" (between Higher Owned) FrontendWrites [] []
+
+||| Every upstream op control flow admits, once: those the frontend writes.
+export
+controlAdmitted : List Admitted
+controlAdmitted = [scfIf, scfYield]
