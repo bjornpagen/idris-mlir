@@ -1816,11 +1816,14 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   gains a reach, a buffer an own cell holds, through which a claim on
   own cells reaches the buffer's storage alone; a constructor's cell
   claims `unique self` only where each buffer it holds does; the
-  family's promised claim is `unique self` for every `in_place` type, so
-  whether an own cell holds a buffer has no reader left and goes; and
+  family's promised claim is `unique self` for every `in_place` type; and
   bufferization writes a held buffer in place where the cell claims
   `unique self`. The exclusivity check reads the promise and does not
-  change.
+  change. *Corrected* (recheck 4, the coordinator's record of the
+  ruling's consequences, not the ruling): whether an own cell holds a
+  buffer keeps one reader and stays, the boundary grading of a
+  quantity-1 parameter (`InPlace/Rule.cpp`'s `boundaryAsks`), where it
+  says when the promise binds, never how much it claims.
 - **D123** (2026-10-22; the owner; §4's question on L14's evidence;
   under D97, D98 and D106; settles D57's union). "A": the e-graph is a
   true one. A fired rule adds its right side to its left side's class
@@ -1854,6 +1857,10 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   reads go. The grade keeps its shape (D88, D90); C's scoped memory
   space is not built, and is open to a later ruling on evidence that the
   check is where escapes are missed.
+- **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
+  the solver layer, is built over MLIR's own analyses and call graph
+  (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
+  never by an IR handle. §5.2 is corrected to say so, in place.
 - **C237** (2026-10-22; L17y's finding, under D119 and D112). A grammar's
   type carries an erased bound on the tokens it may read, and recursion
   between grammars goes through a box: a grammar indexed by n may call a

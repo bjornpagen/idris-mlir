@@ -88,7 +88,7 @@ Stored: `sources/code/idris2/src/TTImp/Elab/Rewrite.idr`, `src/Core/Normalise.id
 `src/Core/GetType.idr`, `src/TTImp/ProcessDef.idr`, `src/TTImp/Elab/Utils.idr`,
 `src/TTImp/WithClause.idr`, `libs/prelude/Builtin.idr`, `libs/base/Data/Nat.idr`, all at the
 `third_party/Idris2` pin (addendum `sources/code/idris2/SNAPSHOT.dependent-equality.md`). The
-repository's fork (`compiler/idris/src/TTImp/Elab/Rewrite.idr`) differs only in threading the
+repository's type checker (`compiler/checker/src/TTImp/Elab/Rewrite.idr`, then `compiler/idris`) differs only in threading the
 delayed-elaboration reference.
 
 **Key ideas.**
@@ -288,7 +288,7 @@ erased proof the user (or a library tactic) must supply.
 Idris proved.
 
 **Limits.** Idris 2's unifier is not Agda's; adopting the framework means changing the forked
-elaborator in `compiler/idris`, which accepts programs upstream Idris 2 rejects.
+elaborator in `compiler/checker` (then `compiler/idris`), which accepts programs upstream Idris 2 rejects.
 
 ### 2.6 Cockx, Piessens, Devriese 2014, Overlapping and order-independent patterns
 
@@ -675,7 +675,7 @@ tiling. Typical obligations: `prod [n, m] = prod [m, n]` (reshape of a transpose
      It stays Idris 2 (AGENTS.md: the compiler implements Idris 2 over prelude and base), and
      the proofs are real (no by-fiat evidence, §2.13-2.14). Cost: type-level evaluation speed
      (Frex's timings, §2.12).
-   - *Conversion level* (in the forked elaborator, `compiler/idris`): canonicalise neutral
+   - *Conversion level* (in the checker's elaborator, `compiler/checker`): canonicalise neutral
      shape arithmetic after evaluation, as ν-rules do (§2.8), so `n * m` and `m * n` are
      *definitionally* equal and no proof is ever written. Ordinary evaluation stays complete for
      constructor forms (Allais's mantra). This changes Idris 2's definitional equality, which

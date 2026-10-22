@@ -67,7 +67,7 @@ Read so that every recommendation below is a change to something that exists.
   (`foreign/idr/lib/Defunctionalize/Sums.cppm:19-35`).
 - **The compiler's own terms** are Idris 2's `Term : Scoped`, a recursive family indexed by its
   scope, with an `FC` in every constructor, a de Bruijn `idx : Nat` with an erased proof
-  `(0 p : IsVar name idx vars)`, and lists of arguments (`compiler/idris/src/Core/TT/Term.idr:98-126`;
+  `(0 p : IsVar name idx vars)`, and lists of arguments (`compiler/checker/src/Core/TT/Term.idr:98-126` when read, then `compiler/idris`;
   binders `Core/TT/Binder.idr:93-115`). Under the layout above every node is a box cell and every
   child a pointer. The context's definitions were just moved to a growable `Linear.Array` table
   (commit `f21bcbfe`; `libs/mlir-linear/Linear/Array.idr:1-21`): the first index-addressed table

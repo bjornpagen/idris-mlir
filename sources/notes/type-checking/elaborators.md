@@ -43,7 +43,7 @@ Docs: `docs/lean-reference-manual/Manual/Releases/v4_{8,17,18,19,23}_0.lean`,
 `docs/agda/doc/user-manual/{tools/performance.rst,language/lossy-unification.lagda.rst,language/opaque-definitions.lagda.rst}`,
 `docs/pop-in-fstar/book/under_the_hood/uth_smt.rst` (staged by the SMT cluster; read here).
 
-Idris 2 (this repository's fork): `compiler/idris/src/Core/Value.idr`,
+Idris 2 (this repository's type checker, `compiler/idris` when read, now `compiler/checker`): `compiler/checker/src/Core/Value.idr`,
 `Core/Normalise/{Eval,Convert}.idr`, `Core/Unify.idr` (structure, Term/Closure instances,
 `solveConstraints`), `Core/AutoSearch.idr` (structure), `Core/Context.idr` (lookup),
 `TTImp/Elab/{Delayed,Ambiguity}.idr` (comments).
@@ -258,7 +258,7 @@ are synthetic because mathlib queries could not be ported (lines 657–660).
 
 Idris 2 resolves `auto` and interface arguments by depth-bounded backtracking search that
 runs the elaborator under `catch` per candidate, with no table
-(`compiler/idris/src/Core/AutoSearch.idr` lines 42–150, 372–430). Diamonds therefore cost
+(`compiler/checker/src/Core/AutoSearch.idr` lines 42–150, 372–430). Diamonds therefore cost
 what they cost Lean 3.
 
 ## 7. Compiled normalization
@@ -393,7 +393,7 @@ exceptions "roughly 1/5 the overhead" (an old, unpublished benchmark,
 
 ## 11. The Idris 2 elaborator this repository forks
 
-Read in `compiler/idris/src/` (HEAD `05070421` and working tree):
+Read in `compiler/idris/src/`, now `compiler/checker/src/` (HEAD `05070421` and working tree):
 
 - **Values are thunks without update.** `Closure` is `MkClosure opts locals env term` or an
   evaluated `MkNFClosure` (`Core/Value.idr` lines 107–113). Arguments are pushed as unevaluated

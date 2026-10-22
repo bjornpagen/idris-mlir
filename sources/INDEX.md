@@ -1133,8 +1133,8 @@ author of smalltt on staging; `abel-2011-dynamic-pattern-unification`,
 - `docs/pop-in-fstar/` addendum (`FStarLang/PoP-in-FStar` at `958d86f2`): `book/intro.rst`,
   `book/part3/part3_typeclasses.rst`, `book/part5/part5_meta.rst`; merge
   `docs/pop-in-fstar/SNAPSHOT.elaborators.md` (+3 files).
-- Read in place, not snapshotted: this repository's Idris 2 fork, `compiler/idris/src/Core/{Value,Normalise/Eval,Normalise/Convert,Unify,AutoSearch,Context}.idr`,
-  `compiler/idris/src/TTImp/Elab/{Delayed,Ambiguity}.idr`.
+- Read in place, not snapshotted: this repository's type checker (P0's D118; `compiler/idris` when read), `compiler/checker/src/Core/{Value,Normalise/Eval,Normalise/Convert,Unify,AutoSearch,Context}.idr`,
+  `compiler/checker/src/TTImp/Elab/{Delayed,Ambiguity}.idr`.
 
 **Read first:** `code/smalltt/README.md` (design and benchmarks),
 `code/lean4/src/kernel/type_checker.h` and `type_checker.cpp` 962–1210,
