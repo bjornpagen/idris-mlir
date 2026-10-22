@@ -23,6 +23,7 @@ using namespace idr;
 // Positions and entries in bytecode
 //===----------------------------------------------------------------------===//
 
+// A position in a signature or a constructor, as an unsigned word.
 LogicalResult idr::readPosition(DialectBytecodeReader &reader, std::uint32_t &position) {
   std::uint64_t word = 0;
   if (failed(reader.readVarInt(word)))
@@ -50,7 +51,7 @@ LogicalResult idr::readLivesIn(DialectBytecodeReader &reader, LivesIn &entry) {
                  failed(readPosition(reader, entry.lifetime)));
 }
 
-void idr::writeLivesIn(DialectBytecodeWriter &writer, const LivesIn &entry) {
+void idr::writeLivesIn(DialectBytecodeWriter &writer, LivesIn entry) {
   writePosition(writer, entry.value);
   writePosition(writer, entry.lifetime);
 }
@@ -60,11 +61,12 @@ LogicalResult idr::readOutlives(DialectBytecodeReader &reader, Outlives &bound) 
                  failed(readPosition(reader, bound.shorter)));
 }
 
-void idr::writeOutlives(DialectBytecodeWriter &writer, const Outlives &bound) {
+void idr::writeOutlives(DialectBytecodeWriter &writer, Outlives bound) {
   writePosition(writer, bound.longer);
   writePosition(writer, bound.shorter);
 }
 
+// An entry of `#idr.given_back`, as the attribute it is.
 LogicalResult idr::readGivenBackEntry(DialectBytecodeReader &reader, GivenBackEntryAttr &entry) {
   return reader.readAttribute(entry);
 }
@@ -77,22 +79,35 @@ void idr::writeGivenBackEntry(DialectBytecodeWriter &writer, GivenBackEntryAttr 
 // #idr.lives_in
 //===----------------------------------------------------------------------===//
 
-namespace {
-
 // `2 in 0`.
-ParseResult parseLivesIn(AsmParser &parser, SmallVectorImpl<LivesIn> &entries) {
+FailureOr<LivesIn> idr::parseLivesIn(AsmParser &parser) {
   LivesIn entry{};
   if (parser.parseInteger(entry.value) || parser.parseKeyword("in") ||
       parser.parseInteger(entry.lifetime))
     return failure();
-  entries.push_back(entry);
-  return success();
+  return entry;
 }
 
-void printLivesIn(AsmPrinter &printer, ArrayRef<LivesIn> entries) {
+void idr::printLivesIn(AsmPrinter &printer, LivesIn entry) {
+  printer << entry.value << " in " << entry.lifetime;
+}
+
+namespace {
+
+// `(2 in 0, 3 in 0)`.
+ParseResult parseLivesInList(AsmParser &parser, SmallVectorImpl<LivesIn> &entries) {
+  return parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, [&]() -> ParseResult {
+    FailureOr<LivesIn> entry = parseLivesIn(parser);
+    if (failed(entry))
+      return failure();
+    entries.push_back(*entry);
+    return success();
+  });
+}
+
+void printLivesInList(AsmPrinter &printer, ArrayRef<LivesIn> entries) {
   printer << '(';
-  llvm::interleaveComma(entries, printer,
-                        [&](const LivesIn &entry) { printer << entry.value << " in " << entry.lifetime; });
+  llvm::interleaveComma(entries, printer, [&](LivesIn entry) { printLivesIn(printer, entry); });
   printer << ')';
 }
 
@@ -104,6 +119,34 @@ std::optional<std::uint32_t> lookUp(ArrayRef<LivesIn> entries, std::uint32_t pos
   if (at == entries.end() || at->value != position)
     return std::nullopt;
   return at->lifetime;
+}
+
+// `entries`, sorted by the position each states a lifetime for, with
+// `position` stated to live in `lifetime`, or in none: its entry made,
+// replaced or gone, the order kept.
+SmallVector<LivesIn> restated(ArrayRef<LivesIn> entries, std::uint32_t position,
+                              std::optional<std::uint32_t> lifetime) {
+  SmallVector<LivesIn> out(entries);
+  LivesIn *at = llvm::lower_bound(
+      out, position, [](const LivesIn &entry, std::uint32_t wanted) { return entry.value < wanted; });
+  bool listed = at != out.end() && at->value == position;
+  if (lifetime && listed)
+    at->lifetime = *lifetime;
+  else if (lifetime)
+    out.insert(at, LivesIn{position, *lifetime});
+  else if (listed)
+    out.erase(at);
+  return out;
+}
+
+// The statement of three lists; none when all three are empty, so a
+// statement emptied by restating or erasing is absent, as one a signature
+// with no scoped value and no bound never had.
+LivesInAttr statement(MLIRContext *context, ArrayRef<LivesIn> parameters,
+                      ArrayRef<LivesIn> results, ArrayRef<Outlives> bounds) {
+  if (parameters.empty() && results.empty() && bounds.empty())
+    return {};
+  return LivesInAttr::get(context, parameters, results, bounds);
 }
 
 // Each list increases by the position it states a lifetime for, so no
@@ -132,12 +175,8 @@ Attribute LivesInAttr::parse(AsmParser &parser, Type) {
     bounds.push_back(each);
     return success();
   };
-  if (parser.parseLess() ||
-      parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren,
-                                     [&] { return parseLivesIn(parser, parameters); }) ||
-      parser.parseArrow() ||
-      parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren,
-                                     [&] { return parseLivesIn(parser, results); }))
+  if (parser.parseLess() || parseLivesInList(parser, parameters) || parser.parseArrow() ||
+      parseLivesInList(parser, results))
     return {};
   if (succeeded(parser.parseOptionalKeyword("where")) &&
       parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, bound))
@@ -150,9 +189,9 @@ Attribute LivesInAttr::parse(AsmParser &parser, Type) {
 
 void LivesInAttr::print(AsmPrinter &printer) const {
   printer << '<';
-  printLivesIn(printer, getParameters());
+  printLivesInList(printer, getParameters());
   printer << " -> ";
-  printLivesIn(printer, getResults());
+  printLivesInList(printer, getResults());
   if (!getBounds().empty()) {
     printer << " where (";
     llvm::interleaveComma(getBounds(), printer, [&](const Outlives &bound) {
@@ -184,6 +223,37 @@ std::optional<std::uint32_t> LivesInAttr::lifetimeOfParameter(std::uint32_t para
 
 std::optional<std::uint32_t> LivesInAttr::lifetimeOfResult(std::uint32_t result) const {
   return lookUp(getResults(), result);
+}
+
+// What a function or a call states of its scoped values, absent when it
+// states none, with one parameter's or one result's lifetime stated anew:
+// a position in the signature, or none for a value no longer scoped.
+LivesInAttr LivesInAttr::restateParameter(MLIRContext *context, LivesInAttr lives,
+                                          std::uint32_t parameter,
+                                          std::optional<std::uint32_t> lifetime) {
+  if (!lives)
+    return statement(context, restated({}, parameter, lifetime), {}, {});
+  return statement(context, restated(lives.getParameters(), parameter, lifetime),
+                   lives.getResults(), lives.getBounds());
+}
+
+LivesInAttr LivesInAttr::restateResult(MLIRContext *context, LivesInAttr lives,
+                                       std::uint32_t result,
+                                       std::optional<std::uint32_t> lifetime) {
+  if (!lives)
+    return statement(context, {}, restated({}, result, lifetime), {});
+  return statement(context, lives.getParameters(), restated(lives.getResults(), result, lifetime),
+                   lives.getBounds());
+}
+
+// Each result at the position `to` gives it, one it gives none gone: what
+// erasing results leaves, in the same order, since erasing keeps the order.
+LivesInAttr LivesInAttr::renumberResults(ArrayRef<std::optional<std::uint32_t>> to) const {
+  SmallVector<LivesIn> results;
+  for (LivesIn entry : getResults())
+    if (std::optional<std::uint32_t> at = to[entry.value])
+      results.push_back({*at, entry.lifetime});
+  return statement(getContext(), getParameters(), results, getBounds());
 }
 
 //===----------------------------------------------------------------------===//
@@ -266,6 +336,21 @@ GivenBackAttr GivenBackAttr::get(MLIRContext *context, ArrayRef<GivenBackEntry> 
     made.push_back(GivenBackEntryAttr::get(context, entry.result.index, entry.result.fields,
                                            entry.argument.index, entry.argument.fields));
   return get(context, ArrayRef<GivenBackEntryAttr>(made));
+}
+
+// Each result at the position `to` gives it, an entry whose result it
+// gives none gone, and none when nothing is left: what erasing results
+// leaves, in the same order.
+GivenBackAttr GivenBackAttr::renumberResults(ArrayRef<std::optional<std::uint32_t>> to) const {
+  SmallVector<GivenBackEntry> kept;
+  for (GivenBackEntryAttr attr : getEntries()) {
+    GivenBackEntry entry = attr.entry();
+    if (std::optional<std::uint32_t> at = to[entry.result.index])
+      kept.push_back({{*at, entry.result.fields}, entry.argument});
+  }
+  if (kept.empty())
+    return {};
+  return get(getContext(), kept);
 }
 
 // `<[0 <- 2, 1[0] <- 0[1]]>`.

@@ -67,10 +67,19 @@ livesInAttr = MkAttrDef
       [ MkMember OnObjectConst "::std::optional<uint32_t>" "lifetimeOfParameter"
           [param "uint32_t" "parameter"]
       , MkMember OnObjectConst "::std::optional<uint32_t>" "lifetimeOfResult"
-          [param "uint32_t" "result"] ]
+          [param "uint32_t" "result"]
+      , MkMember OnClass "::idr::LivesInAttr" "restateParameter"
+          [ param "::mlir::MLIRContext *" "context", param "::idr::LivesInAttr" "lives"
+          , param "uint32_t" "parameter", param "::std::optional<uint32_t>" "lifetime" ]
+      , MkMember OnClass "::idr::LivesInAttr" "restateResult"
+          [ param "::mlir::MLIRContext *" "context", param "::idr::LivesInAttr" "lives"
+          , param "uint32_t" "result", param "::std::optional<uint32_t>" "lifetime" ]
+      , MkMember OnObjectConst "::idr::LivesInAttr" "renumberResults"
+          [param "::llvm::ArrayRef<::std::optional<uint32_t>>" "to"] ]
   , doc = MkDoc "where a function's scoped parameters and results live"
       """
-      On idr.func exactly when a parameter or a result is scoped, every
-      scoped one listed once; on idr.call, its callee's.
+      On idr.func exactly when a parameter or a result is scoped or a bound
+      is declared, every scoped one listed once; on idr.call, its callee's.
+      Restating a value's lifetime, or erasing results, keeps it so.
       """
   }

@@ -99,34 +99,24 @@ Value idr::CallOp::getStatedLifetime(Value made) {
   return lifetime ? getOperand(*lifetime) : Value();
 }
 
-// A call states a result's lifetime only as one of its own operands: given
-// anything else, it states nothing. Its statement is a copy of its
+// A call states a result's lifetime only as one of its own operands; given
+// null, as a call of a copy whose result is no longer scoped is restated,
+// or anything else, it states none. Its statement is a copy of its
 // callee's signature, so whoever restates it restates the callee's too and
 // copies it (copyCallee); a statement of the call's alone fails its
-// symbol-use verifier.
+// symbol-use verifier. Its lifetime is an operand it passes already, at
+// the position its callee's signature names, so no operand of its own
+// states it again.
 void idr::CallOp::setStatedLifetime(Value made, Value lifetime) {
   auto result = dyn_cast<OpResult>(made);
   if (!result || result.getOwner() != getOperation())
     return;
-  auto operand = llvm::find(getOperands(), lifetime);
-  if (!lifetime || operand == getOperands().end())
-    return;
-  LivesInAttr lives = getLivesInAttr();
-  SmallVector<LivesIn> results;
-  if (lives)
-    llvm::append_range(results, lives.getResults());
-  LivesIn stated{result.getResultNumber(),
-                 static_cast<std::uint32_t>(std::distance(getOperands().begin(), operand))};
-  auto at = llvm::lower_bound(results, stated.value, [](const LivesIn &each, std::uint32_t value) {
-    return each.value < value;
-  });
-  if (at != results.end() && at->value == stated.value)
-    *at = stated;
-  else
-    results.insert(at, stated);
-  setLivesInAttr(LivesInAttr::get(getContext(),
-                                  lives ? lives.getParameters() : ArrayRef<LivesIn>(), results,
-                                  lives ? lives.getBounds() : ArrayRef<Outlives>()));
+  auto operand = lifetime ? llvm::find(getOperands(), lifetime) : getOperands().end();
+  std::optional<std::uint32_t> stated;
+  if (operand != getOperands().end())
+    stated = static_cast<std::uint32_t>(std::distance(getOperands().begin(), operand));
+  setLivesInAttr(LivesInAttr::restateResult(getContext(), getLivesInAttr(),
+                                            result.getResultNumber(), stated));
 }
 
 //===----------------------------------------------------------------------===//

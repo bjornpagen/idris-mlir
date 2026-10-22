@@ -85,11 +85,13 @@ givenBackAttr = MkAttrDef
   , members =
       [ MkMember OnClass "::idr::GivenBackAttr" "get"
           [ param "::mlir::MLIRContext *" "context"
-          , param "::llvm::ArrayRef<::idr::GivenBackEntry>" "entries" ] ]
+          , param "::llvm::ArrayRef<::idr::GivenBackEntry>" "entries" ]
+      , MkMember OnObjectConst "::idr::GivenBackAttr" "renumberResults"
+          [param "::llvm::ArrayRef<::std::optional<uint32_t>>" "to"] ]
   , doc = MkDoc "what a function gives back of its arguments"
       """
       On every path that returns, each listed component of the result is the
       listed component of the arguments: the same value. Absent from a
-      function that gives back nothing.
+      function that gives back nothing. Erasing results keeps it so.
       """
   }

@@ -2,37 +2,33 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What idr.func and idr.call hold beyond their generated classes, which
 // the specification's attributes and properties name, so it comes before
-// them: the row as the IR holds it, Idris's proof that a function's own
-// loops end, the bound a function puts into a lifetime parameter, where
-// each scoped parameter and result lives, what a function gives back, and
-// which part of a function's per-parameter record each parameter's type
-// admits. Each part exists only where the parameter's type admits it: the
-// record names a parameter by its position among the parameters that admit
-// that part, so a write part cannot describe a lifetime, nor an amount a
-// value. Last, the operands a call's callee writes through, which every
-// reader of a call's effects asks. The dialect's inliner rules come first.
+// them: Idris's proof that a function's own loops end, the bound a
+// function puts into a lifetime parameter, where each scoped parameter and
+// result lives, what a function gives back, and which part of a
+// function's per-parameter record each parameter's type admits. Each part
+// exists only where the parameter's type admits it: the record names a
+// parameter by its position among the parameters that admit that part, so
+// a write part cannot describe a lifetime, nor an amount a value. Last,
+// the operands a call's callee writes through, which every reader of a
+// call's effects asks. The dialect's inliner rules come first. Each value's
+// text and bytecode, and the row's, are hooks the specification declares
+// with every other (Generated/Hooks.h.inc), after the classes they name.
 //
-// It reads types alone (Grades.h, Lifetimes.h) and the effect system's
-// words, and no op but a call's copy of its callee's write part; what a
-// function's body does and the one derivation of its row are
-// Analysis/Effects.h's.
+// It reads types alone (Grades.h, Lifetimes.h), and no op but a call's
+// copy of its callee's write part; what a function's body does and the one
+// derivation of its row are Analysis/Effects.h's.
 #ifndef IDR_IR_FUNC_H
 #define IDR_IR_FUNC_H
 
-#include "idr/IR/Effects/Vocabulary.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/Support/Match.h"
 
-#include "mlir/Bytecode/BytecodeImplementation.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Hashing.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <algorithm>
@@ -44,26 +40,11 @@
 namespace idr {
 
 class IdrDialect;
-class GivenBackEntryAttr;
 
 // Every call, op and region of the dialect may be inlined; a return becomes
 // the values it gives back, and a lifetime given where a view is asked
 // passes as the view it is.
 void addInlinerInterface(IdrDialect &dialect);
-
-//===----------------------------------------------------------------------===//
-// The row, as the IR holds it
-//===----------------------------------------------------------------------===//
-
-// A row's form in the generic syntax and a property dictionary: its atoms'
-// names, in the order the effect system lists them.
-mlir::Attribute convertRowToAttribute(mlir::MLIRContext *context, effects::Row row);
-mlir::LogicalResult convertRowFromAttribute(effects::Row &row, mlir::Attribute attribute,
-                                            llvm::function_ref<mlir::InFlightDiagnostic()> emitError);
-llvm::hash_code hashRow(effects::Row row);
-// In bytecode: how many atoms, then each one's number.
-void writeRow(mlir::DialectBytecodeWriter &writer, effects::Row row);
-mlir::LogicalResult readRow(mlir::DialectBytecodeReader &reader, effects::Row &row);
 
 //===----------------------------------------------------------------------===//
 // Termination
@@ -93,13 +74,6 @@ using TerminationProof = std::variant<InComponent, Acyclic>;
 using Termination = std::variant<Unproved, InComponent, Acyclic>;
 
 llvm::hash_code hash_value(const TerminationProof &proof);
-
-// The attribute's parameter: `component 3`, `acyclic`.
-mlir::FailureOr<TerminationProof> parseTerminationProof(mlir::AsmParser &parser);
-void printTerminationProof(mlir::AsmPrinter &printer, TerminationProof proof);
-mlir::LogicalResult readTerminationProof(mlir::DialectBytecodeReader &reader,
-                                         TerminationProof &proof);
-void writeTerminationProof(mlir::DialectBytecodeWriter &writer, TerminationProof proof);
 
 //===----------------------------------------------------------------------===//
 // Amounts put into a lifetime
@@ -177,8 +151,6 @@ struct PutBound {
 };
 
 llvm::hash_code hash_value(const PutBound &bound);
-mlir::LogicalResult readPutBound(mlir::DialectBytecodeReader &reader, PutBound &bound);
-void writePutBound(mlir::DialectBytecodeWriter &writer, const PutBound &bound);
 
 //===----------------------------------------------------------------------===//
 // Where scoped values live
@@ -202,10 +174,6 @@ struct Outlives {
 
 llvm::hash_code hash_value(const LivesIn &entry);
 llvm::hash_code hash_value(const Outlives &bound);
-mlir::LogicalResult readLivesIn(mlir::DialectBytecodeReader &reader, LivesIn &entry);
-void writeLivesIn(mlir::DialectBytecodeWriter &writer, const LivesIn &entry);
-mlir::LogicalResult readOutlives(mlir::DialectBytecodeReader &reader, Outlives &bound);
-void writeOutlives(mlir::DialectBytecodeWriter &writer, const Outlives &bound);
 
 //===----------------------------------------------------------------------===//
 // What a function gives back
@@ -237,14 +205,6 @@ struct GivenBackEntry {
   GivenBackPath argument;
   bool operator==(const GivenBackEntry &) const = default;
 };
-
-// A position in a signature or a constructor, in bytecode.
-mlir::LogicalResult readPosition(mlir::DialectBytecodeReader &reader, std::uint32_t &position);
-void writePosition(mlir::DialectBytecodeWriter &writer, std::uint32_t position);
-// An entry of `#idr.given_back`, in bytecode, as the attribute it is.
-mlir::LogicalResult readGivenBackEntry(mlir::DialectBytecodeReader &reader,
-                                       GivenBackEntryAttr &entry);
-void writeGivenBackEntry(mlir::DialectBytecodeWriter &writer, GivenBackEntryAttr entry);
 
 //===----------------------------------------------------------------------===//
 // The record's parts, by parameter

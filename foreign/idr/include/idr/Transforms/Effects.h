@@ -34,14 +34,24 @@
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Summarize.h"
 #include "idr/Analysis/Solver/Work.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Id.h"
+#include "idr/Support/Match.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Threading.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 
+#include <concepts>
+#include <cstdint>
+#include <iterator>
 #include <memory>
 #include <span>
+#include <vector>
 
 namespace idr::rows {
 
@@ -130,6 +140,132 @@ IndexVector<solver::FunctionId, effects::Row> solveAtoms(const solver::ProgramGr
 }
 
 } // namespace idr::rows
+
+// What the two writers, the program's and a component's, read of each body
+// and how its parts join: shared by both, so declared once, here.
+namespace idr::rows::writer {
+
+// A lifetime a call passes on to its callee's put parameter `theirs`, and
+// what it is of the caller's own record.
+struct PassedOn {
+  std::uint32_t theirs;
+  RecordPart mine;
+};
+
+// A call as a writer reads it: its callee; the callee's number among the
+// functions the writer marks writes over, counted once by its reader; where
+// a write through each of its write-admitting operands lands for the
+// caller, in order; and each lifetime it passes on to a put parameter.
+struct Site {
+  CallOp call;
+  solver::FunctionId callee;
+  std::uint32_t ordinal;
+  Runs runs;
+  llvm::SmallVector<Lands, 2> writes;
+  llvm::SmallVector<PassedOn, 1> puts;
+};
+
+// What one body does by itself, and its calls, read once.
+struct Own {
+  Derived derived;
+  llvm::SmallVector<Site, 4> sites;
+};
+
+// `call` of `fn`, which `callee` names and `ordinal` numbers, its operands
+// read by `fold`: the part each parameter admits, by the callee's own
+// signature, since its index arguments change no grade and no lifetime's
+// kind.
+Site siteOf(CallOp call, solver::FunctionId callee, std::uint32_t ordinal, FuncOp fn,
+            const Fold &fold, Runs runs);
+
+class WriteNodes;
+struct WriteTag {
+  using Minter = WriteNodes;
+};
+using WriteNode = Id<WriteTag>;
+
+// The write-admitting parameters of a set of functions, one node each:
+// function `owner`'s parameter at `position` among its write-admitting
+// ones. Owners are numbered by whoever builds the nodes.
+class WriteNodes {
+public:
+  explicit WriteNodes(std::span<const std::uint32_t> writable) {
+    first.reserve(writable.size());
+    for (std::uint32_t count : writable) {
+      first.push_back(total);
+      total += count;
+    }
+  }
+  Count<WriteNode> count() const { return Count<WriteNode>(total); }
+  WriteNode at(std::uint32_t owner, std::uint32_t position) const {
+    return WriteNode(first[owner] + position);
+  }
+
+private:
+  std::vector<std::uint32_t> first;
+  std::uint32_t total = 0;
+};
+
+// One function of a set the marking reads: its number among the set, and
+// what its body does by itself.
+struct Owner {
+  std::uint32_t ordinal;
+  const Own *own;
+};
+
+// Every write-admitting parameter written through: each written by its own
+// body, then each passed on to a written parameter of a callee, marked from
+// callee to caller.
+BitSet<WriteNode> markWrites(const WriteNodes &nodes, llvm::ArrayRef<Owner> owners);
+
+// A write through a callee's written parameter, passed something the
+// caller neither acquired nor was given through a write-admitting
+// parameter of its own, writes memory a caller of the caller may see.
+effects::Row writesElsewhere(llvm::ArrayRef<Site> sites, const WriteNodes &nodes,
+                             const BitSet<WriteNode> &written);
+
+// The positions a function never writes through, as its record lists them;
+// none, as absence says.
+mlir::DenseI32ArrayAttr untouchedOf(mlir::MLIRContext *context, std::uint32_t owner,
+                                    std::uint32_t writable, const WriteNodes &nodes,
+                                    const BitSet<WriteNode> &written);
+
+// The bounded amounts of a function's put parameters, as its record lists
+// them; none, as absence says.
+PutBoundsAttr boundsOf(mlir::MLIRContext *context, llvm::ArrayRef<Amount> puts);
+
+// What a site passes on into the caller's put parameters: the callee's
+// amount, or no bound where the callee lies on the caller's cycle or the
+// call in a region that runs again.
+template <std::invocable<std::uint32_t> TheirsOf>
+void passOn(llvm::MutableArrayRef<Amount> mine, const Site &site, TheirsOf &&theirsOf) {
+  for (const PassedOn &passed : site.puts)
+    idr::match(
+        passed.mine,
+        [&](PutPart part) {
+          Amount theirs = theirsOf(passed.theirs);
+          if (!theirs.none() && site.runs == Runs::Repeatedly)
+            theirs = Amount::unbounded();
+          mine[part.position] = mine[part.position].plus(theirs);
+        },
+        [](WritePart) {}, [](NoPart) {});
+}
+
+// Whether every function of a cycle was proved by Idris in one and the same
+// component of its own, the one way a cycle of ours is known to end.
+template <class Members>
+bool provedTogether(Members &&members) {
+  FuncOp first = *std::begin(members);
+  return idr::match(
+      first.getTermination(), [](Unproved) { return false; }, [](Acyclic) { return false; },
+      [&](InComponent in) {
+        return llvm::all_of(members, [&](FuncOp fn) {
+          return fn.getTermination() == Termination{in};
+        });
+      });
+}
+
+} // namespace idr::rows::writer
 
 namespace idr::optimize {
 

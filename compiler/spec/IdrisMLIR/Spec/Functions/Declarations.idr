@@ -22,9 +22,12 @@
 ||| the lifetime each scoped parameter and result lives in (`lives_in`); and
 ||| what it gives back of its arguments (`given_back`), which the optimizer
 ||| alone proves; and, for a specialized copy, what it is to its origin's
-||| recursion (`copy`), which the specializer decides. A call carries its index arguments, its lifetime operands,
-||| its copy of its callee's `lives_in`, and where it stands in its function
-||| (`tail_kind`), written with no default by whoever makes the call.
+||| recursion (`copy`), which the specializer decides; and the most bytes
+||| an active call of it holds that it no longer needs (`frame_bound`),
+||| computed from types. A call carries its index arguments, its
+||| lifetime operands, its copy of its callee's `lives_in`, and where it
+||| stands in its function (`tail_kind`), written with no default by
+||| whoever makes the call.
 module IdrisMLIR.Spec.Functions.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -83,6 +86,25 @@ boundedSlot = AnAttribute (OurAttr (SomeAttr putBoundsAttr)) MayBeAbsent
 ||| Idris's proof that the function's own loops end. Absent, there is none.
 terminatesSlot : AttrKind
 terminatesSlot = AnAttribute (OurAttr (SomeAttr terminatesAttr)) MayBeAbsent
+
+||| The frame bound as the IR holds it, by hand: a count of bytes, printed
+||| as a 64-bit integer.
+export
+frameBoundDirective : Directive
+frameBoundDirective = MkDirective
+  { name = "FrameBound"
+  , args = []
+  , doc = brief "a frame bound: the most bytes a call holds that it no longer needs"
+  }
+
+||| The most bytes an active call of the function holds that it no longer
+||| needs where memory may be acquired, computed from types, which the
+||| checked runtime holds each call to. Held as the count itself, so a pass
+||| on a worker sets it and makes no attribute; zero when the op is built
+||| without it, since before counting no call holds a cell it no longer
+||| needs.
+frameBoundSlot : AttrKind
+frameBoundSlot = AProperty (HandProperty "uint64_t" frameBoundDirective "0")
 
 ------------------------------------------------------------------------------
 -- idr.program
@@ -147,8 +169,10 @@ programOp = MkOp
 ||| record, its `lives_in` and its `given_back` name only what its signature
 ||| has; its region verifier, that its row and record cover what its body
 ||| does, and where its calls stand. It states its parameters' lifetimes.
+||| Erasing results is its own, so what it states of its results by position
+||| stays true.
 export
-funcOp : Op 0 0 12 1
+funcOp : Op 0 0 13 1
 funcOp = MkOp
   { home = InIdr
   , mnemonic = "func"
@@ -167,6 +191,7 @@ funcOp = MkOp
       , MkAttr "lives_in" livesInSlot
       , MkAttr "given_back" (AnAttribute (OurAttr (SomeAttr givenBackAttr)) MayBeAbsent)
       , MkAttr "copy" (AnAttribute (EnumAttrOf (enumDef copyKindClosed)) MayBeAbsent)
+      , MkAttr "frame_bound" frameBoundSlot
       ]
   , regions = [MkRegion "body" OneRegion (Sized 1)]
   , traits = [AffineScope, IsolatedFromAbove, HasParent ("program" ::: [])]
@@ -195,18 +220,21 @@ funcOp = MkOp
       , MkMember OnObject "::mlir::SymbolTable::Visibility" "getVisibility" []
       , MkMember OnObject "void" "setVisibility"
           [param "::mlir::SymbolTable::Visibility" "visibility"]
-      , MkMember OnObject "::idr::Termination" "getTermination" [] ]
+      , MkMember OnObject "::idr::Termination" "getTermination" []
+      , MkMember OnObject "::mlir::LogicalResult" "eraseResults"
+          [param "const ::llvm::BitVector &" "results"]
+      , MkMember OnObject "::mlir::LogicalResult" "eraseResult" [param "unsigned" "result"] ]
   , guards = []
   , specializations = []
   , laws = []
   , doc = MkDoc "a function of the program, with what is known of a run of it"
       """
       Its row, its record per parameter, its termination proof, where its
-      scoped values live, what it gives back and what kind of copy it is are
-      inherent: no pass drops one without changing the op. Only the one
-      writer of rows and a clone copying its source write the row and the
-      record; only the optimizer writes what it gives back and what copy it
-      is.
+      scoped values live, what it gives back, what kind of copy it is and
+      its frame bound are inherent: no pass drops one without changing the
+      op. Only the one writer of rows and a clone copying its source write
+      the row and the record; only the optimizer writes what it gives back
+      and what copy it is.
       """
   }
 

@@ -19,6 +19,7 @@
 
 #include "idr/Analysis/Constants.h"
 #include "idr/IR/Effects/Query.h"
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
@@ -46,14 +47,14 @@ namespace {
 // value's defining op, or for a block argument its block's parent op.
 struct ConstantsReplaceAction : idr::support::TaggedAction<ConstantsReplaceAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-constants-replace";
+  static constexpr std::string_view tag = ::idr::actions::constantsReplace;
 };
 
 // idr-constants erases one op every result of which became a constant; the
 // unit is the op.
 struct ConstantsEraseAction : idr::support::TaggedAction<ConstantsEraseAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-constants-erase";
+  static constexpr std::string_view tag = ::idr::actions::constantsErase;
 };
 
 // idr-constants hands one constant already in the body to the folder,
@@ -61,7 +62,7 @@ struct ConstantsEraseAction : idr::support::TaggedAction<ConstantsEraseAction> {
 // before; the unit is the constant.
 struct ConstantsUniqueAction : idr::support::TaggedAction<ConstantsUniqueAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-constants-unique";
+  static constexpr std::string_view tag = ::idr::actions::constantsUnique;
 };
 
 // Gives every use of `value` the constant the solve holds for it, made by

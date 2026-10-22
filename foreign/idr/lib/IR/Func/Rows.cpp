@@ -1,21 +1,17 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// A function's row and per-parameter record, held to its body: the fold
-// every derivation shares, the verifier's instantiation of it, what LLVM is
-// told of a function, and the hand values the specification's attributes
-// and properties hold (a row, a termination proof, a put bound) with the
-// parameter view their positions are read through.
+// A function's row: its forms as the IR holds it (text, a property's
+// attribute, bytecode), by the hooks the specification declares; what LLVM
+// is told of a function; and the function's check, which holds the row and
+// the record to the one derivation of its body, the atoms spelled by the
+// names the forms use.
 
 #include "idr/Analysis/Effects.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Layout.h"
-#include "idr/IR/Lifetimes.h"
 
-#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Diagnostics.h"
-#include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -44,6 +40,8 @@ auto atomsOf(effects::Row row) {
 
 } // namespace
 
+// A row's form in the generic syntax and a property dictionary: its atoms'
+// names, in the order the effect system lists them.
 Attribute idr::convertRowToAttribute(MLIRContext *context, effects::Row row) {
   SmallVector<Attribute> names;
   for (effects::Atom atom : atomsOf(row))
@@ -81,6 +79,7 @@ llvm::hash_code idr::hashRow(effects::Row row) {
   return llvm::hash_combine_range(numbers);
 }
 
+// In bytecode: how many atoms, then each one's number.
 void idr::writeRow(DialectBytecodeWriter &writer, effects::Row row) {
   writer.writeVarInt(row.size());
   for (effects::Atom atom : atomsOf(row))
@@ -105,138 +104,6 @@ LogicalResult idr::readRow(DialectBytecodeReader &reader, effects::Row &row) {
 }
 
 //===----------------------------------------------------------------------===//
-// Termination proofs and put bounds
-//===----------------------------------------------------------------------===//
-
-llvm::hash_code idr::hash_value(const TerminationProof &proof) {
-  return idr::match(
-      proof, [](InComponent in) { return llvm::hash_combine(0u, in.component); },
-      [](Acyclic) { return llvm::hash_combine(1u); });
-}
-
-FailureOr<TerminationProof> idr::parseTerminationProof(AsmParser &parser) {
-  if (succeeded(parser.parseOptionalKeyword("acyclic")))
-    return TerminationProof(Acyclic{});
-  std::uint32_t component = 0;
-  if (parser.parseKeyword("component") || parser.parseInteger(component))
-    return failure();
-  return TerminationProof(InComponent{component});
-}
-
-void idr::printTerminationProof(AsmPrinter &printer, TerminationProof proof) {
-  idr::match(
-      proof, [&](InComponent in) { printer << "component " << in.component; },
-      [&](Acyclic) { printer << "acyclic"; });
-}
-
-// In bytecode: zero for acyclic, else the component plus one.
-LogicalResult idr::readTerminationProof(DialectBytecodeReader &reader, TerminationProof &proof) {
-  std::uint64_t word = 0;
-  if (failed(reader.readVarInt(word)))
-    return failure();
-  if (word == 0) {
-    proof = Acyclic{};
-    return success();
-  }
-  if (word - 1 > std::numeric_limits<std::uint32_t>::max())
-    return reader.emitError() << "termination component " << (word - 1) << " out of range";
-  proof = InComponent{static_cast<std::uint32_t>(word - 1)};
-  return success();
-}
-
-void idr::writeTerminationProof(DialectBytecodeWriter &writer, TerminationProof proof) {
-  idr::match(
-      proof, [&](InComponent in) { writer.writeVarInt(std::uint64_t{in.component} + 1); },
-      [&](Acyclic) { writer.writeVarInt(0); });
-}
-
-Termination idr::FuncOp::getTermination() {
-  TerminatesAttr proof = getTerminatesAttr();
-  if (!proof)
-    return Unproved{};
-  return idr::match(
-      proof.getProof(), [](InComponent in) -> Termination { return in; },
-      [](Acyclic acyclic) -> Termination { return acyclic; });
-}
-
-llvm::hash_code idr::hash_value(const PutBound &bound) {
-  return llvm::hash_combine(bound.parameter, bound.bytes);
-}
-
-LogicalResult idr::readPutBound(DialectBytecodeReader &reader, PutBound &bound) {
-  std::uint64_t parameter = 0;
-  if (failed(reader.readVarInt(parameter)) || failed(reader.readVarInt(bound.bytes)))
-    return failure();
-  if (parameter > std::numeric_limits<std::uint32_t>::max())
-    return reader.emitError() << "put parameter " << parameter << " out of range";
-  bound.parameter = static_cast<std::uint32_t>(parameter);
-  return success();
-}
-
-void idr::writePutBound(DialectBytecodeWriter &writer, const PutBound &bound) {
-  writer.writeVarInt(bound.parameter);
-  writer.writeVarInt(bound.bytes);
-}
-
-// `<[0: 64, 2: 128]>`.
-Attribute PutBoundsAttr::parse(AsmParser &parser, Type) {
-  SmallVector<PutBound> bounds;
-  auto one = [&]() -> ParseResult {
-    PutBound bound{};
-    if (parser.parseInteger(bound.parameter) || parser.parseColon() ||
-        parser.parseInteger(bound.bytes))
-      return failure();
-    bounds.push_back(bound);
-    return success();
-  };
-  if (parser.parseLess() ||
-      parser.parseCommaSeparatedList(AsmParser::Delimiter::Square, one) || parser.parseGreater())
-    return {};
-  return PutBoundsAttr::getChecked([&] { return parser.emitError(parser.getNameLoc()); },
-                                   parser.getContext(), bounds);
-}
-
-void PutBoundsAttr::print(AsmPrinter &printer) const {
-  printer << "<[";
-  llvm::interleaveComma(getBounds(), printer, [&](const PutBound &bound) {
-    printer << bound.parameter << ": " << bound.bytes;
-  });
-  printer << "]>";
-}
-
-// Positions increase, each once: a parameter has at most one bound, and the
-// record is read in one pass beside the parameters.
-LogicalResult PutBoundsAttr::verify(function_ref<InFlightDiagnostic()> emitError,
-                                    ArrayRef<PutBound> bounds) {
-  for (auto [before, after] : llvm::zip(bounds, bounds.drop_front()))
-    if (before.parameter >= after.parameter)
-      return emitError() << "lists put parameter " << after.parameter << " after "
-                         << before.parameter << ": positions increase, each once";
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// The parameters' parts
-//===----------------------------------------------------------------------===//
-
-bool idr::admitsWrite(Type type) {
-  std::optional<Hold> hold = holdOf(type);
-  return hold && hold->release() == Release::Counted && hold->claims(Unique::Self);
-}
-
-idr::ParameterParts::ParameterParts(TypeRange parameters) {
-  parts.reserve(parameters.size());
-  for (Type type : parameters) {
-    if (admitsWrite(type))
-      parts.push_back(WritePart{writes++});
-    else if (admitsPuts(type))
-      parts.push_back(PutPart{puts++});
-    else
-      parts.push_back(NoPart{});
-  }
-}
-
-//===----------------------------------------------------------------------===//
 // What LLVM is told
 //===----------------------------------------------------------------------===//
 
@@ -252,153 +119,6 @@ effects::Told rows::told(FuncOp fn) {
     facts = effects::withParameterWrite(facts);
   return facts;
 }
-
-//===----------------------------------------------------------------------===//
-// The fold
-//===----------------------------------------------------------------------===//
-
-// A region branch says which of its regions may run again; an op with
-// regions that is no region branch says nothing of how often they run, so
-// they may run any number of times.
-rows::Runs rows::detail::regionRuns(Operation *op, unsigned index) {
-  auto branch = dyn_cast<RegionBranchOpInterface>(op);
-  return branch && !branch.isRepetitiveRegion(index) ? Runs::Once : Runs::Repeatedly;
-}
-
-// Idris's proof is the one input of the row that is no op: a function it
-// did not prove may run forever by itself.
-rows::Fold::Fold(FuncOp fn) : fn(fn), parts(fn.getArgumentTypes()) {
-  derived.written.resize(parts.writable());
-  derived.puts.assign(parts.puttable(), Amount::finite(0));
-  idr::match(
-      fn.getTermination(),
-      [&](Unproved) { join(effects::Row{effects::Atom::divergence}); }, [](InComponent) {},
-      [](Acyclic) {});
-}
-
-const Layouts &rows::Fold::layouts() {
-  if (!laidOut)
-    laidOut.emplace(fn.getOperation());
-  return *laidOut;
-}
-
-void rows::Fold::declared(Operation *op, Runs runs) {
-  join(effects::reportedBy(op));
-  // Only a put into a put parameter is the record's, and one in a region
-  // that runs again has no bound whatever its size: the bytes are read
-  // only for a put once per run into a put parameter.
-  if (auto putter = dyn_cast<LifetimePutOpInterface>(op)) {
-    Value lifetime = putter.getPutLifetime();
-    if (std::holds_alternative<PutPart>(partOf(lifetime)))
-      put(lifetime,
-          runs == Runs::Repeatedly ? Amount::unbounded()
-                                   : Amount::finite(putter.getPutBytes(layouts())),
-          runs);
-  }
-  auto declaring = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!declaring) {
-    // An op of another dialect is bounded by its regions alone where it
-    // says so; with neither a declaration nor that, it may do anything.
-    if (!op->hasTrait<OpTrait::HasRecursiveMemoryEffects>())
-      anything();
-    return;
-  }
-  SmallVector<MemoryEffects::EffectInstance, 4> instances;
-  declaring.getEffects(instances);
-  for (const MemoryEffects::EffectInstance &instance : instances)
-    effect(effects::effectOf(instance));
-}
-
-// An acquisition is the function's own business only through what it
-// acquired: the effect itself is what `alloc` reports. Any other effect on
-// memory the function acquired is the function's own. A write in place
-// through a write-admitting parameter, what the row would hold as `write`,
-// is the record's; anything else done there is the row's.
-void rows::Fold::effect(const effects::Effect &effect) {
-  effects::Row atoms = effects::project(effect);
-  if (!effect.value || effect.kind == effects::Kind::Allocate) {
-    join(atoms);
-    return;
-  }
-  idr::match(
-      landing(effect.value), [](Local) {},
-      [&](Through through) {
-        if (atoms == effects::Row{effects::Atom::write})
-          derived.written.set(through.position);
-        else
-          join(atoms);
-      },
-      [&](Elsewhere) { join(atoms); });
-}
-
-void rows::Fold::writeThrough(Value value) {
-  effect(effects::Effect{
-      .kind = effects::Kind::Write, .resource = effects::ResourceId::Contents, .value = value});
-}
-
-void rows::Fold::put(Value lifetime, Amount amount, Runs runs) {
-  if (amount.none())
-    return;
-  idr::match(
-      partOf(lifetime),
-      [&](PutPart part) {
-        Amount &total = derived.puts[part.position];
-        total = total.plus(runs == Runs::Repeatedly ? Amount::unbounded() : amount);
-      },
-      [](WritePart) {}, [](NoPart) {});
-}
-
-RecordPart rows::Fold::partOf(Value value) const {
-  auto parameter = dyn_cast<BlockArgument>(value);
-  if (!parameter || parameter.getOwner() != &fn.getBody().front())
-    return NoPart{};
-  return parts[parameter.getArgNumber()];
-}
-
-// Through views to the value whose memory they are, then: a parameter's,
-// read by its part; or what the op that made it acquired on the heap or in
-// the function's frame, the function's own; or anything else. A view's
-// source is one hop, and the chain is as long as the views are deep.
-rows::Lands rows::Fold::landing(Value value) const {
-  while (auto view = value.getDefiningOp<ViewLikeOpInterface>()) {
-    if (view.getViewDest() != value)
-      break;
-    value = view.getViewSource();
-  }
-  auto acquiredHere = [&] {
-    auto made = value.getDefiningOp<MemoryEffectOpInterface>();
-    if (!made)
-      return false;
-    std::optional<MemoryEffects::EffectInstance> acquisition =
-        made.getEffectOnValue<MemoryEffects::Allocate>(value);
-    if (!acquisition)
-      return false;
-    effects::ResourceId where = effects::effectOf(*acquisition).resource;
-    return where == effects::ResourceId::Heap || where == effects::ResourceId::Frame;
-  };
-  return idr::match(
-      partOf(value), [](WritePart part) -> Lands { return Through{part.position}; },
-      [](PutPart) -> Lands { return Elsewhere{}; },
-      [&](NoPart) -> Lands {
-        if (acquiredHere())
-          return Local{};
-        return Elsewhere{};
-      });
-}
-
-void rows::Fold::anything() {
-  join(effects::Row::top());
-  derived.written.set();
-  for (Amount &amount : derived.puts)
-    amount = Amount::unbounded();
-}
-
-void rows::CallCopies::call(CallOp call, Fold &fold, Runs) {
-  fold.join(call.getRow());
-  forEachWritten(call, [&](OpOperand &operand) { fold.writeThrough(operand.get()); });
-}
-
-template class rows::Derivation<rows::CallCopies>;
 
 //===----------------------------------------------------------------------===//
 // The function's check

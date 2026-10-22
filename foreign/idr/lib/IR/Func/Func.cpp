@@ -4,11 +4,11 @@
 // and whose region verifier checks the root and runs the program's rules;
 // a function's text, its row before its symbol and no visibility written,
 // since its program's root decides it; what its signature states beyond
-// its types, held to that signature by its own verifier; the lifetimes it
-// states for its parameters; and the rules of one function, which run
-// after the ops of its body are verified and in parallel with every other
-// function's: its stage's and its row's in its one walk, then its tail
-// calls'.
+// its types, held to that signature by its own verifier, and kept true
+// when its results are erased; the lifetimes it states for its parameters;
+// and the rules of one function, which run after the ops of its body are
+// verified and in parallel with every other function's: its stage's and
+// its row's in its one walk, then its tail calls'.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -288,6 +288,38 @@ LogicalResult idr::FuncOp::verifyRegions() {
 }
 
 //===----------------------------------------------------------------------===//
+// Erasing results
+//===----------------------------------------------------------------------===//
+
+// Upstream's erasure keeps the type and the results' attributes; what the
+// signature states of its results by position, where each scoped result
+// lives and what it gives back, is the function's own, so erasing a result
+// drops its entries and moves every later result's down past it, and no
+// pass that erases one patches them after. The new positions are counted
+// once, before the type changes.
+LogicalResult idr::FuncOp::eraseResults(const llvm::BitVector &results) {
+  Type type = getTypeWithoutResults(results);
+  if (!type)
+    return failure();
+  SmallVector<std::optional<std::uint32_t>> to;
+  std::uint32_t kept = 0;
+  for (unsigned result = 0, count = getNumResults(); result < count; ++result)
+    to.push_back(results[result] ? std::nullopt : std::optional<std::uint32_t>(kept++));
+  function_interface_impl::eraseFunctionResults(*this, results, type);
+  if (LivesInAttr lives = getLivesInAttr())
+    setLivesInAttr(lives.renumberResults(to));
+  if (GivenBackAttr given = getGivenBackAttr())
+    setGivenBackAttr(given.renumberResults(to));
+  return success();
+}
+
+LogicalResult idr::FuncOp::eraseResult(unsigned result) {
+  llvm::BitVector results(getNumResults());
+  results.set(result);
+  return eraseResults(results);
+}
+
+//===----------------------------------------------------------------------===//
 // The lifetimes a function states
 //===----------------------------------------------------------------------===//
 
@@ -303,28 +335,19 @@ Value idr::FuncOp::getStatedLifetime(Value made) {
 }
 
 // A function states a parameter's lifetime only as one of its own
-// parameters: given anything else, it states nothing, and its verifier
-// names the scoped parameter left without one. One entry per parameter, so
-// stating it again replaces it.
+// parameters; given null, as a copy whose parameter is no longer scoped is
+// restated, or anything else, it states none, and its verifier names a
+// scoped parameter left without one. One entry per parameter, so stating
+// it again replaces it.
 void idr::FuncOp::setStatedLifetime(Value made, Value lifetime) {
   Block &entry = getBody().front();
   auto parameter = dyn_cast<BlockArgument>(made);
-  auto in = dyn_cast_or_null<BlockArgument>(lifetime);
-  if (!parameter || !in || parameter.getOwner() != &entry || in.getOwner() != &entry)
+  if (!parameter || parameter.getOwner() != &entry)
     return;
-  LivesInAttr lives = getLivesInAttr();
-  SmallVector<LivesIn> parameters;
-  if (lives)
-    llvm::append_range(parameters, lives.getParameters());
-  LivesIn stated{parameter.getArgNumber(), in.getArgNumber()};
-  auto at = llvm::lower_bound(parameters, stated.value, [](const LivesIn &each, std::uint32_t value) {
-    return each.value < value;
-  });
-  if (at != parameters.end() && at->value == stated.value)
-    *at = stated;
-  else
-    parameters.insert(at, stated);
-  setLivesInAttr(LivesInAttr::get(getContext(), parameters,
-                                  lives ? lives.getResults() : ArrayRef<LivesIn>(),
-                                  lives ? lives.getBounds() : ArrayRef<Outlives>()));
+  auto in = dyn_cast_or_null<BlockArgument>(lifetime);
+  std::optional<std::uint32_t> stated;
+  if (in && in.getOwner() == &entry)
+    stated = in.getArgNumber();
+  setLivesInAttr(LivesInAttr::restateParameter(getContext(), getLivesInAttr(),
+                                               parameter.getArgNumber(), stated));
 }

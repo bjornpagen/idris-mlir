@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
+// The writer of one of the optimizer's components, when the optimizer
+// finishes it: every callee outside the component is final and each call
+// of one holds its callee's row already, so the members' rows read only
+// their own bodies, joined into one row for every member, with the
+// writes through parameters marked within the component (the writers'
+// shared parts).
+
+#include "idr/Transforms/Effects.h"
+
+#include "idr/Analysis/Effects.h"
+#include "idr/IR/Func.h"
+#include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
+#include "idr/Support/Id.h"
+
+#include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
+
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <utility>
+#include <vector>
+
+using namespace mlir;
+using namespace idr;
+using namespace idr::rows;
+using namespace idr::rows::writer;
+using solver::FunctionId;
+
+namespace {
+
+// The optimizer's reader for one component: a call of a member is
+// recorded, joined over the component; a call of a final callee holds the
+// callee's row already, which it gives. What a final callee puts into a
+// lifetime is not on its call, so a put parameter passed on to one has no
+// bound: lifetimes are decided after the optimizer, so none is passed yet.
+template <class N>
+struct ComponentCalls {
+  const N &names;
+  llvm::ArrayRef<std::pair<FunctionId, unsigned>> byId;
+  std::span<const solver::Member> members;
+  llvm::SmallVectorImpl<Site> &sites;
+
+  // The member a callee is, by its number among the members, if it is one:
+  // a call of a final callee is no site.
+  std::optional<unsigned> memberOf(FunctionId callee) const {
+    auto at = llvm::lower_bound(byId, callee, [](const std::pair<FunctionId, unsigned> &entry,
+                                                 FunctionId id) { return entry.first < id; });
+    if (at == byId.end() || at->first != callee)
+      return std::nullopt;
+    return at->second;
+  }
+
+  void call(CallOp call, Fold &fold, Runs runs) {
+    FunctionId callee = names.id(call.getCalleeAttr());
+    if (std::optional<unsigned> member = memberOf(callee)) {
+      sites.push_back(siteOf(call, callee, *member, members[*member].fn, fold, runs));
+      return;
+    }
+    CallCopies copies;
+    copies.call(call, fold, runs);
+    for (Value operand : call.getArgs())
+      if (admitsPuts(operand.getType()))
+        fold.put(operand, Amount::unbounded(), runs);
+  }
+  Read other(Operation *, Fold &, Runs) { return Read::ByDeclaration; }
+};
+
+} // namespace
+
+template <solver::FunctionNames N>
+void rows::writeComponent(std::span<const solver::Member> members, const N &names) {
+  // An op is a handle whose members are not const, so each member's
+  // function is read and written through a copy.
+  FuncOp first = members.front().fn;
+  MLIRContext *context = first.getContext();
+  llvm::SmallVector<std::pair<FunctionId, unsigned>> byId;
+  for (auto [index, member] : llvm::enumerate(members))
+    byId.push_back({member.id, static_cast<unsigned>(index)});
+  llvm::sort(byId, [](const auto &a, const auto &b) { return a.first < b.first; });
+
+  // Each member by itself, each site numbered by its callee's place among
+  // the members.
+  llvm::SmallVector<Own> own(members.size());
+  for (auto [index, member] : llvm::enumerate(members)) {
+    ComponentCalls<N> reader{names, byId, members, own[index].sites};
+    own[index].derived = derive(member.fn, reader);
+  }
+
+  // Writes through parameters, within the component: a final callee's are
+  // on its calls, read by the fold already.
+  std::vector<std::uint32_t> writable;
+  std::vector<Owner> owners;
+  for (auto [index, mine] : llvm::enumerate(own)) {
+    writable.push_back(static_cast<std::uint32_t>(mine.derived.written.size()));
+    owners.push_back({static_cast<std::uint32_t>(index), &mine});
+  }
+  WriteNodes nodes(writable);
+  BitSet<WriteNode> written = markWrites(nodes, owners);
+
+  // One row for every member: what each does and what each writes
+  // elsewhere through another, and the cycle's divergence.
+  effects::Row row;
+  for (const Own &mine : own)
+    row = row | mine.derived.atoms | writesElsewhere(mine.sites, nodes, written);
+  auto callsItself = [&](auto entry) {
+    auto [index, member] = entry;
+    return llvm::any_of(own[index].sites, [&](const Site &site) { return site.callee == member.id; });
+  };
+  if ((members.size() > 1 || llvm::any_of(llvm::enumerate(members), callsItself)) &&
+      !provedTogether(llvm::map_range(members, [](const solver::Member &m) { return m.fn; })))
+    row = row | effects::Row{effects::Atom::divergence};
+
+  // The members' amounts: a put passed on to a member lies on the cycle.
+  llvm::SmallVector<DenseI32ArrayAttr> untouched;
+  llvm::SmallVector<PutBoundsAttr> bounded;
+  for (auto [index, mine] : llvm::enumerate(own)) {
+    llvm::SmallVector<Amount, 2> puts = mine.derived.puts;
+    for (const Site &site : mine.sites)
+      passOn(puts, site, [](std::uint32_t) { return Amount::unbounded(); });
+    auto owner = static_cast<std::uint32_t>(index);
+    untouched.push_back(untouchedOf(context, owner, writable[owner], nodes, written));
+    bounded.push_back(boundsOf(context, puts));
+  }
+
+  for (auto [index, member] : llvm::enumerate(members)) {
+    FuncOp fn = member.fn;
+    fn.setRow(row);
+    fn.setUntouchedAttr(untouched[index]);
+    fn.setBoundedAttr(bounded[index]);
+    for (const Site &site : own[index].sites) {
+      CallOp call = site.call;
+      call.setRow(row);
+      call.setUntouchedAttr(untouched[site.ordinal]);
+    }
+  }
+}
+
+template void rows::writeComponent<solver::ProgramGraph>(std::span<const solver::Member>,
+                                                         const solver::ProgramGraph &);
+template void rows::writeComponent<solver::Editor>(std::span<const solver::Member>,
+                                                   const solver::Editor &);
