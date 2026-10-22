@@ -2030,9 +2030,16 @@ which the top-level CMake configure gate reads.
   `Evaluates`); its steps (`Reduces`, `Contracts`, `Scrutinised`,
   `Chooses`, `Picks`, `Matches`, `Misses`, `Computes`); its normal forms
   (`Redex`, `Irreducible`, `Reduct`, `reachesNormalForm`, `substitutes`,
-  `normalisesThrough`); the accessors' evidence (`TypeOf`,
-  `TreeOf`, `typeOnce`, `treeOnce`); `fullNamesIn`; the trust (`trusted`,
-  `reduct`)
+  `normalisesThrough`); a scope's markers (`markersOf`, `namesApart`,
+  `namesAny`, `substitutesMarkers`); the accessors' evidence (`TypeOf`,
+  `TreeOf`, `typeOnce`, `treeOnce`); a primitive's result size
+  (`SizeBound`, `boundOf`, `resultBound`, `resultBoundMonotone`,
+  `computedWithin`); full names (`fullNameIn`, `fullNamesIn`,
+  `oneEntryPerName`, `fullNameUnresolved`, `sameEntryFullName`,
+  `fullNameSameEntry`); the trust (`trusted`, `reduct`);
+  compiler/idris/src/Core/Context.idr: `getNameID`, `public export`
+  instead of `export`, so that a proof reads off its definition that a
+  resolved name is its own entry (`resolvedItself`)
 - workaround: none; the fork's own code (e5b39cb2, 31013e5a, e129d745,
   a481fe36): the frontend's one stated trust in the evaluator (D68),
   stated of one context, frozen once the program and its imports are
@@ -2051,8 +2058,8 @@ which the top-level CMake configure gate reads.
   tree's alternatives tried in order, each one passed over missing the
   scrutinee), a solved unknown, a primitive from the evaluator's own table
   or `believe_me`, and the rest the evaluator does, so the statement is
-  true of every term. Five postulates, each `trusted` (`believe_me ()` at
-  quantity 0) where no proof reaches, since the evaluator and the
+  true of every term. Nine postulates, each `trusted` (`believe_me ()` at
+  quantity 0) where no proof reaches. Five because the evaluator and the
   accessors run in `Core`: what a normaliser gives is a reduct of its
   input by that normaliser's steps and normal for them (`reduct`); a
   definition's type and a body's case tree, read through the context's
@@ -2064,7 +2071,21 @@ which the top-level CMake configure gate reads.
   in for bound names (`substitutes`), the substitution lemma the type
   checker rests on when it checks a definition used at its arguments.
   That normalising commutes with putting closed values in is proved from
-  the last two (`normalisesThrough`). A frontend that
+  the last two (`normalisesThrough`). One because the fork exports
+  `substs` and `refsToLocals` without their definitions: putting values
+  in for the names that stand for a scope's variables (`markersOf`) is
+  putting them in for the variables, where the names are apart
+  (`namesApart`) and the term names none of them (`namesAny`)
+  (`substitutesMarkers`). Two are facts of the context: it makes one
+  entry for each full name (`oneEntryPerName`) and records no resolved
+  name as a full name (`fullNameUnresolved`), from which, with
+  `getNameID`'s definition, two resolved names are proved to name one
+  entry exactly when their full names agree (`sameEntryFullName`,
+  `fullNameSameEntry`). One is a fact of both hosts' primitives, of
+  idris-mlir's runtime and of Chez Scheme: what the evaluator's table
+  computes from constants stays within the primitive's bound at their
+  sizes (`computedWithin`); that each bound grows with its arguments'
+  sizes is proved (`resultBoundMonotone`). A frontend that
   proves its readings sound against `Reduces` (D46, D68) keeps no check,
   when it runs, that the evaluator agreed with it
 - retire: never; the fork's statement of its own evaluator

@@ -328,7 +328,8 @@ from 7208ba24 on 2026-10-21, so that the patch we carry for a bug we send
 is its pull request (PINS.md); every dependency moves to its latest about
 weekly. One recipe builds the toolchain on all four targets:
 `tools/bootstrap.sh llvm` (stage 1, the target's C library, the runtimes
-and stage 2, into `.toolchain/llvm`, without assertions) applies every
+and stage 2, into `.toolchain/llvm`, with LLVM's and MLIR's assertions
+on in every stage) applies every
 `upstream/*/llvm.patch` in the order of their numbers to the one tree
 stage 1, the runtimes and stage 2 build from, and their stamps record each by
 SHA-256; `tools/bootstrap.sh snmalloc` and `tools/bootstrap.sh simdutf`
