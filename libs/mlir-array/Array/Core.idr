@@ -1,7 +1,8 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| Arrays whose shape is in their type: the shapes, the two array types,
-||| and the generating set every other array function is written over.
+||| Arrays whose shape is in their type: the shapes, the two array types
+||| and the handle a linear array is frozen behind, and the generating set
+||| every other array function is written over.
 |||
 ||| An array is a shape and an element at every index of it, in row-major
 ||| order. A shape is a snoc list of the axes' lengths, outermost first, so
@@ -332,6 +333,24 @@ overwrite : Array s a -> Index s -> a -> Array s a
 overwrite (Empty e empty) i v = void (uninhabited (replace {p = IsSucc} empty (occupied e i)))
 overwrite (Stored e slots) i v = unsafePerformIO (writeSlot e slots (offset e i) v)
 
+namespace Frozen
+  ||| A linear array's elements frozen in place, behind a handle used once
+  ||| in the region `r`: nothing writes them while the handle lives, so a
+  ||| read through it is a value of the handle and the index, and when the
+  ||| handle is given back they are the linear array's again, in the same
+  ||| slots. Only `LArray.withFrozen` makes one, for a region fresh to its
+  ||| continuation, and only it ends one, so neither the handle nor the
+  ||| array it holds outlives that continuation; what leaves it is
+  ||| elements.
+  export
+  data Frozen : (0 r : Type) -> (0 s : Shape) -> Type -> Type where
+    Held : (elements : Array s a) -> Frozen r s a
+
+  ||| The element at an index, and the handle given back.
+  export
+  read : (1 _ : Frozen r s a) -> Index s -> Res a (const (Frozen r s a))
+  read (Held x) i = (x !! i) # Held x
+
 -- A function on linear arrays whose name a function on arrays or on
 -- another type also has is told apart by this namespace, as Prelude tells
 -- a list's from a snoc list's.
@@ -368,6 +387,22 @@ namespace LArray
   export
   thaw : Array s a -> (1 _ : (1 _ : LArray s a) -> !* b) -> !* b
   thaw x k = k (Writing (copied x))
+
+  ||| The handle given back, its elements the linear array's again.
+  thawed : (1 _ : Res b (const (Frozen r s a))) -> Res b (const (LArray s a))
+  thawed (y # Held x) = y # Writing x
+
+  ||| What `k` returns, given the linear array's elements frozen in place
+  ||| behind a handle of a fresh region, and the linear array back with
+  ||| them, thawed in place: no copy either way. The handle is the one way
+  ||| to the elements and `k` gives it back, and `k`'s result cannot name
+  ||| the region, so when the slots are written again nothing but the
+  ||| linear array reaches them.
+  export
+  withFrozen : (1 _ : LArray s a) ->
+               (1 k : {0 r : Type} -> (1 _ : Frozen r s a) -> Res b (const (Frozen r s a))) ->
+               Res b (const (LArray s a))
+  withFrozen (Writing x) k = thawed (k {r = ()} (Held x))
 
   ||| The extents, and the array given back unchanged.
   export %extern

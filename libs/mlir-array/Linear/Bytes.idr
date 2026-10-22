@@ -29,25 +29,23 @@ import Linear.Notation
 ------------------------------------------------------------------------------
 
 ||| A quantity-1 handle to `n` bytes that nothing writes while it lives, in
-||| the region `r`. The array inside is unrestricted, so a read borrows it
-||| and gives the same handle back; the handle itself is used once, and the
-||| one way to end it is to give it back to the `withBytes` that made it.
+||| the region `r`: the linear array's own slots, frozen in place, and how
+||| many there are. A read gives the same handle back; the handle itself is
+||| used once, and the one way to end it is to give it back to the
+||| `withBytes` that made it.
 export
 data Bytes : (0 r : Type) -> (0 n : Nat) -> Type where
-  Frozen : (n : Nat) -> (bytes : Array [<n] Bits8) -> Bytes r n
+  Lent : (n : Nat) -> (1 bytes : Frozen r [<n] Bits8) -> Bytes r n
 
-||| The linear array's bytes as a handle: frozen, so no copy.
-frozenAs : (m : Nat) -> (1 _ : !* (Array [<m] Bits8)) -> Bytes r m
-frozenAs m (MkBang bytes) = Frozen m bytes
+||| The handle's frozen bytes, given back with what `k` returned.
+returned : (1 _ : Res a (const (Bytes r n))) -> Res a (const (Frozen r [<n] Bits8))
+returned (x # Lent _ bytes) = x # bytes
 
-freezeIn : (1 _ : Res (Extents [<n]) (const (LArray [<n] Bits8))) -> Bytes r n
-freezeIn ([<m] # buf) = frozenAs m (LArray.freeze buf)
-
-||| The handle given back, its bytes thawed into a linear array for `next`.
-||| This is the bytes' last use, and no view of them is left, so the thaw
-||| takes the same memory and copies nothing.
-thawBack : (1 _ : a -> (1 _ : LArray [<n] Bits8) -> !* b) -> (1 _ : Res a (const (Bytes r n))) -> !* b
-thawBack next (x # Frozen m bytes) = LArray.thaw bytes (next x)
+||| What `k` returns, given the buffer's bytes frozen in place behind a
+||| handle that holds their count, and the buffer back, thawed in place.
+lent : (1 k : {0 r : Type} -> (1 _ : Bytes r n) -> Res a (const (Bytes r n))) ->
+       (1 _ : Res (Extents [<n]) (const (LArray [<n] Bits8))) -> Res a (const (LArray [<n] Bits8))
+lent k ([<m] # buf) = LArray.withFrozen buf (\bytes => returned (k (Lent m bytes)))
 
 ||| `k` given the buffer's bytes behind a handle of a fresh region, and
 ||| `next` given what `k` returns and the buffer back, with the bytes as `k`
@@ -58,7 +56,7 @@ export
 withBytes : (1 buf : LArray [<n] Bits8) ->
             (1 k : {0 r : Type} -> (1 _ : Bytes r n) -> Res a (const (Bytes r n))) ->
             (1 next : a -> (1 _ : LArray [<n] Bits8) -> !* b) -> !* b
-withBytes buf k next = thawBack next (k {r = ()} (freezeIn (LArray.shape buf)))
+withBytes buf k next = let x # buf = lent k (LArray.shape buf) in next x buf
 
 ||| A buffer's byte at an index, read in the world's order.
 byteOf : Buffer -> Index [<n] -> IO Bits8
@@ -86,9 +84,11 @@ data Peeked : (0 r : Type) -> (0 n : Nat) -> (0 at : Nat) -> Type where
 ||| program's own, its evidence erased.
 export
 peek : (1 _ : Bytes r n) -> (at : Nat) -> Peeked r n at
-peek (Frozen n bytes) at = case choose (at < n) of
-  Left more => Byte (Frozen n bytes) (bytes !! [<natToFinLt at @{more}]) (ltOpReflectsLT at n more)
-  Right _ => End (Frozen n bytes)
+peek (Lent n bytes) at = case choose (at < n) of
+  Left more =>
+    let b # bytes = Frozen.read bytes [<natToFinLt at @{more}] in
+    Byte (Lent n bytes) b (ltOpReflectsLT at n more)
+  Right _ => End (Lent n bytes)
 
 ||| A view of a handle's bytes, from `start` up to `end`, empty when `end`
 ||| is not after `start`: two offsets and nothing they reach.
@@ -99,30 +99,40 @@ record Span (0 r : Type) (0 n : Nat) where
   end : Nat
   0 within : LTE end n
 
-||| The bytes from `s` up to `e`, onto `acc`, the last read first.
-collect : Array [<n] Bits8 -> (s, e : Nat) -> (0 _ : LTE e n) -> List Bits8 -> List Bits8
-collect bytes s Z _ acc = acc
+||| The bytes from `s` up to `e`, onto `acc`, the last read first; the
+||| handle given back.
+collect : (1 _ : Frozen r [<n] Bits8) -> (s, e : Nat) -> (0 _ : LTE e n) -> List Bits8 ->
+          Res (List Bits8) (const (Frozen r [<n] Bits8))
+collect bytes s Z _ acc = acc # bytes
 collect bytes s (S e) fits acc = case choose (s < S e) of
-  Left _ => collect bytes s e (lteSuccLeft fits) ((bytes !! [<natToFinLT e {prf = fits}]) :: acc)
-  Right _ => acc
+  Left _ =>
+    let b # bytes = Frozen.read bytes [<natToFinLT e {prf = fits}] in
+    collect bytes s e (lteSuccLeft fits) (b :: acc)
+  Right _ => acc # bytes
 
 ||| A span's bytes, copied out of the handle, for a value that must outlive
 ||| it; the handle given back.
 export
 copy : (1 _ : Bytes r n) -> Span r n -> Res (List Bits8) (const (Bytes r n))
-copy (Frozen n bytes) sp = collect bytes sp.start sp.end sp.within [] # Frozen n bytes
+copy (Lent n bytes) sp =
+  let got # bytes = collect bytes sp.start sp.end sp.within [] in
+  got # Lent n bytes
 
-||| Whether the bytes from `at` up to `e` are exactly `want`.
-spells : Array [<n] Bits8 -> (at, e : Nat) -> (0 _ : LTE e n) -> List Bits8 -> Bool
-spells bytes at e fits [] = at == e
+||| Whether the bytes from `at` up to `e` are exactly `want`; the handle
+||| given back.
+spells : (1 _ : Frozen r [<n] Bits8) -> (at, e : Nat) -> (0 _ : LTE e n) -> List Bits8 ->
+         Res Bool (const (Frozen r [<n] Bits8))
+spells bytes at e fits [] = (at == e) # bytes
 spells bytes at e fits (c :: cs) = case choose (at < e) of
   Left inside =>
-    bytes !! [<natToFinLT at {prf = transitive (ltOpReflectsLT at e inside) fits}] == c
-      && spells bytes (S at) e fits cs
-  Right _ => False
+    let b # bytes = Frozen.read bytes [<natToFinLT at {prf = transitive (ltOpReflectsLT at e inside) fits}] in
+    if b == c then spells bytes (S at) e fits cs else False # bytes
+  Right _ => False # bytes
 
 ||| Whether a span holds exactly these bytes, with no copy; the handle given
 ||| back.
 export
 matches : (1 _ : Bytes r n) -> Span r n -> List Bits8 -> Res Bool (const (Bytes r n))
-matches (Frozen n bytes) sp want = spells bytes sp.start sp.end sp.within want # Frozen n bytes
+matches (Lent n bytes) sp want =
+  let same # bytes = spells bytes sp.start sp.end sp.within want in
+  same # Lent n bytes
