@@ -187,7 +187,8 @@
     "foreign/idr/lib/Transforms/Joins/",
     "foreign/idr/include/idr/Transforms/Joins.h",
     "foreign/idr/lib/IR/Control/",
-    "foreign/idr/include/idr/IR/Control/"
+    "foreign/idr/include/idr/IR/Control/",
+    "foreign/idr/include/idr/Transforms/Joins/"
   ],
   "L10": [
     "foreign/idr/lib/IR/Tail.cpp",
