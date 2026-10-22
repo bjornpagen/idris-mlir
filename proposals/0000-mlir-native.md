@@ -4113,6 +4113,14 @@ C137.
   instead of failing to convert, since no representation limit refuses
   a program. It is not `ResultCarriesOperand`, whose check and readers
   mean a change of grade alone.
+- **C207** (2026-10-22; L12's seventh pass; completes C194). An
+  `array.update` whose region calls into its caller's own cycle is split
+  by the take, inline and place form generating ops already use, widened
+  to mutable memory and boxed elements: the element is taken out, the
+  region's code runs inline where frames can split it, and the result is
+  placed back. One mechanism covers it, whether the call was written in
+  the region or moved there by fusion, so fusion needs no call graph and
+  no second guard.
 
 ## 4. Open: the owner's decisions, in order
 
