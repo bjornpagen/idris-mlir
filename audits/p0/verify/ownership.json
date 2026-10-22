@@ -173,7 +173,8 @@
     "foreign/idr/lib/IR/Verify/Knots.cpp",
     "foreign/idr/lib/Transforms/InPlace/",
     "foreign/idr/include/idr/Transforms/InPlace.h",
-    "foreign/idr/include/idr/Transforms/InPlace/"
+    "foreign/idr/include/idr/Transforms/InPlace/",
+    "foreign/idr/lib/IR/Verify/Local.cpp"
   ],
   "L09": [
     "compiler/spec/IdrisMLIR/Spec/Control/",
