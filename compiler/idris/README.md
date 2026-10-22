@@ -234,6 +234,30 @@ call is on a part of its argument:
   `lookupCtxtExact` repeated it. So `decode` and `lookupCtxtExact` are
   total, and so are `lookupCtxtName`, `toFullNames` at a name and a term,
   and `isPairType`;
+- the parser (`Libraries.Text.Parser.Core`), which is upstream's again: a
+  `Grammar` is upstream's data type, read by `doParse`, and the
+  combinators of `Libraries.Text.Parser` and the grammars over them are
+  upstream's, guarded by the constructors `>>=`, `>>` and `<|>` stand for,
+  with no assertion. `doParse` itself recurses on the grammar but for the
+  grammar after one that consumed, which a function makes: there it
+  recurses on the tokens left and their accessibility, and every result
+  carries, erased, that it leaves fewer tokens than it was given if its
+  grammar consumes and never more (`Leaves`), where upstream asserted
+  both recursions total. What differs from upstream: the tokens are
+  columns (`Tokens`, made by `columns`), a token at the number of tokens
+  after it, so the parse's position is the count of tokens left and the
+  next is read at one less; `parse` and `parseWith` take the columns and
+  give back no tokens left, so a grammar that must read them all ends
+  with `eof`; `parseWith` takes the state to begin with, which a grammar
+  changes by `updateState` (the constructor `UpdateState`), a step that
+  gives a value, where upstream's `act` appended to a monoid (a branch
+  that fails drops its steps, as it drops its warnings); a sequence's and
+  an alternative's consumption flags are erased, so `map` is one
+  implementation for every grammar; `terminalAt` is `Position` then
+  `Terminal`; the location of `failLoc`, `fatalLoc` and
+  `mustWorkBecause` is a `Maybe Bounds`, as a result's bounds are; and
+  `mapToken`, which nothing used, is gone. (`Idris.Parser` is `covering`,
+  as upstream's is.)
 - `mkdirAll` (`Core.Directory`) is done at once when the directory exists,
   and otherwise creates the path's prefixes, outermost first, as a walk
   over its body, passing those that exist already;
@@ -362,42 +386,6 @@ merge; each says what changed in its interface.
   the public re-exports of `Data.List.Quantifiers`, `Data.List` and
   `Data.Maybe` that came with `Libraries.Data.WithData`
   (`Core.Normalise.Eval` imports `Data.List.Quantifiers` itself).
-- `Libraries.Text.Parser.Core`: a `Grammar` is the parser itself, a
-  function from the parser's input (the state, the warnings, whether the
-  enclosing alternative has committed, the tokens as columns, `Tokens`,
-  and the position of the next) to its result,
-  boxed in a constructor (`noNewtype`, so that a grammar without arguments
-  stays a constant built once). Upstream's was a deep embedding read by
-  `doParse`, whose `SeqEat` and `SeqEmpty` hid the type of the first
-  grammar's result and whose `Bounds`, `NextIs`, `EOF` and `Position` fixed
-  the result type per constructor; here the result type is a parameter and
-  a sequence's intermediate result lives in its closure. Each combinator
-  is `doParse`'s clause for its constructor, so commits, backtracking,
-  fatal errors, the merging of the errors of two failed alternatives and
-  the bounds of every result are upstream's; `map` gives what upstream's
-  structural `map` gave for every grammar over tokens that are not
-  irrelevant (a lexer's never are). The combinators keep their names,
-  types, operators and `Inf` and `Lazy` arguments, and the `consumes`
-  index still decides where `>>=` and `>>` take an `Inf` continuation.
-  Interface changes: `parse` and `parseWith` take the tokens as columns
-  (`columns`) and give back no tokens left, so a grammar that must read
-  them all ends with `eof`; `parseWith` takes the state to begin with,
-  which a grammar changes by `updateState`, a step that gives a value,
-  where upstream's `act` appended an action to a monoid's (a branch that
-  fails drops its steps, as it drops its warnings); `mapToken`, which nothing used and which a
-  function cannot be mapped through, is gone; `>>` is `export %inline` rather than
-  `public export %tcinline`, which only served the totality checker; and
-  the combinators that build a closure are no longer `%inline`, since
-  inlining one moves the building of its arguments into the closure, to be
-  repeated each time it runs. The totality checker took a recursive
-  grammar to be guarded because upstream's `>>=` and `>>` normalised to a
-  constructor holding the `Inf` continuation; a function is not one. The
-  recursions whose termination that hid are now marked: one call in each
-  cycle of `some` and `many`, `count1` and `count`, `someTill` and
-  `manyTill`, `afterSome` and `afterMany` (`Libraries.Text.Parser`) and
-  `blockEntries` (`Parser.Rule.Source`) is `assert_total`, each after a
-  grammar that consumes, as upstream's `doParse` asserted its own
-  recursion. (`Idris.Parser` and `TTImp.Parser` are `covering`.)
 - `Libraries.Text.Lexer.Tokenizer`: the `Compose` constructor makes its
   middle tokenizer and its end lexer from the begin lexeme itself, a
   `String`; upstream's held a `tagger` to a tag type the constructor hid.
