@@ -3926,6 +3926,16 @@ C137.
   behaviour, not a refusal. It is carried as an `upstream/` patch with
   its check and PINS entry (AGENTS.md: the change we need is carried),
   and lets upstream passes edit `idr.func` safely.
+- **C188** (2026-10-21; L08's finding E1; amends C185's "at the
+  boundary"). The frontend writes no sharing claim on a parameter: a
+  call's argument must equal its parameter's type, grade included, and
+  the frontend's own output is verified when it is parsed, so a claim
+  the frontend writes but cannot already prove at every call makes its
+  module fail verification, an internal error, before any analysis
+  could refuse the program. `idr-in-place`, the first pass that can
+  prove calls, writes the boundary grade, reading the promise off the
+  type, and refuses a call it cannot prove with `unsupported
+  (uniqueness)` (D71).
 
 ## 4. Open: the owner's decisions, in order
 
@@ -3933,9 +3943,24 @@ What stands open comes first, each to be raised alone with its full
 context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
-**Open**: none. The last item, the optimizer e-graph's MLIR form (D107,
-under D106's narrow scope and D109's C++ over MLIR), is C153's, for the
-owner's review in the plan's approval (settled, below).
+**Open**: one, raised with the owner on 2026-10-21 (L08's finding E2
+against C185). Writing a linear array or vector in place needs its
+buffer's storage unshared, not its elements; but C185 obliges `unique
+deep`, which reaches the elements, so every `LArray` or `Linear.Vec`
+whose elements are shared values (`withVec n v` puts one `v` in every
+slot; `tests/vec-pop-then-push` holds static data) can never claim it
+and is refused. The choice: (A) `unique self` also covers the storage of
+a buffer an own cell holds, never its elements, as D110 extended it to
+`in_place` fields, and buffer-holding `in_place` types oblige `unique
+self` as every other does (amends D90 and D110; recommended); (B) keep
+C185's `unique deep` and refuse those programs; (C) a new sharing level
+between the two (a third point in the grade). Until it is ruled, lanes
+write C185 as recorded, and either answer changes about ten lines of
+L08's.
+
+The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
+D109's C++ over MLIR) is C153's, for the owner's review in the plan's
+approval (settled, below).
 
 **Not a question** (the owner, 2026-10-21: not enough evidence to ask):
 whether an optimization may raise a program's peak memory
