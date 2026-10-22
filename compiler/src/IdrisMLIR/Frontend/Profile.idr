@@ -70,12 +70,17 @@ answersForBody : Hooks lib -> Bool
 answersForBody hs = answersForCalls hs || hs.exits
 
 ||| The first of the definitions a user definition refers to that the
-||| registry forbids in the user's code, with its rule.
-firstForbidden : List Name -> Maybe (Name, SomeRule)
-firstForbidden [] = Nothing
-firstForbidden (r :: rs) = case (hooksOf r).forbidden of
-  Just (_, rule) => Just (r, rule)
-  Nothing => firstForbidden rs
+||| registry forbids in the user's code, with its rule, as the hooks of its
+||| name were read with it (`Registered`). A name the context defines as
+||| nothing is no definition the registry can forbid.
+firstForbidden : List Name -> Front (Maybe (Name, SomeRule))
+firstForbidden [] = pure Nothing
+firstForbidden (r :: rs) = do
+  Just d <- defined r
+    | Nothing => firstForbidden rs
+  case (namedHooks d.registered).forbidden of
+    Just (_, rule) => pure (Just (r, rule))
+    Nothing => firstForbidden rs
 
 ------------------------------------------------------------------------------
 -- Imports and pragmas, as the checked module keeps them
@@ -329,14 +334,17 @@ checkReachable fc roots = do
     via [] = ""
     via path = " (reached through " ++ joinBy " -> " (map (show . fst) (reverse path)) ++ ")"
 
-    -- One definition, from where the registry says it comes, reached by
-    -- the path, and `here` the path from it and `owner` the user
-    -- definition an error names: what it refers to, each with the path
-    -- that reaches it, or the definition's rejection.
-    visit : GlobalDef -> Placement -> Loc -> (here : List (Name, Address, FC)) -> (owner : String) ->
+    -- One definition, as it was read (`d`), from where the registry says
+    -- it comes, reached by the path, and `here` the path from it and
+    -- `owner` the user definition an error names: what it refers to, each
+    -- with the path that reaches it, or the definition's rejection.
+    visit : Defined -> Loc -> (here : List (Name, Address, FC)) -> (owner : String) ->
             (path : List (Name, Address, FC)) -> (from : Referrer) ->
             Front (List Reach)
-    visit def placement loc here owner path from = do
+    visit d loc here owner path from = do
+      let def = d.def
+      let placement = d.placement
+      let nameHooks = namedHooks d.registered
       let full = fullname def
       let key = show full
       let origin = loc.origin
@@ -352,19 +360,19 @@ checkReachable fc roots = do
       -- What the language does not have is refused wherever it is
       -- reached; the rest of what the registry forbids, where user code
       -- names it (below).
-      case (hooksOf full).forbidden of
+      case nameHooks.forbidden of
         Just (WhereverReached, rule) =>
           refuse (userFC here) owner rule (key ++ " is outside the language this compiler implements" ++ via here)
         _ => pure ()
       -- A deprecated name is rejected wherever it is reached. The hook's
       -- text names the replacement.
-      case (hooksOf full).deprecated of
+      case nameHooks.deprecated of
         Just msg => reject (userFC here) owner Deprecated msg
         Nothing => pure ()
       -- A trusted library may crash with a string. The reach has to come
       -- from a trusted definition: a user's call of the same function is
       -- still an escape hatch, and believe_me stays one either way.
-      let libraryCrash = byLibrary from && (hooksOf full).libraryCrash
+      let libraryCrash = byLibrary from && nameHooks.libraryCrash
       let builtinCrash = byLibrary from && case definition def of
                                           Builtin Crash => True
                                           _ => False
@@ -378,27 +386,32 @@ checkReachable fc roots = do
         Hole {} => reject (userFC here) owner EscapeHatch ("the hole " ++ key ++ via here)
         -- Only the declarations the registry gives a meaning may be
         -- reached: an `%extern` one by its name, a `%foreign` one by its
-        -- spec.
+        -- specs (below).
         ExternDef _ =>
-          unless (meansExtern (hooksOf full)) $
+          unless (meansExtern nameHooks) $
             reject (userFC here) owner EscapeHatch ("%extern " ++ key ++ via here)
-        ForeignDef _ specs => do
-          site <- siteAt (userFC here)
-          case foreignHookOf site owner (via here) full specs of
-            Right hs => case hs.deprecated of
-              Just msg => reject (userFC here) owner Deprecated msg
-              Nothing => pure ()
-            Left r => rejectWith r
         _ => pure ()
+      -- A `%foreign` definition's specs, as the registry read them with it:
+      -- a deprecated spec is rejected wherever it is reached, and specs
+      -- that give it no hooks are refused.
+      case d.registered of
+        BySpecs _ (Right hs) => case hs.deprecated of
+          Just msg => reject (userFC here) owner Deprecated msg
+          Nothing => pure ()
+        BySpecs _ (Left miss) => do
+          site <- siteAt (userFC here)
+          rejectWith (foreignRefusal site owner (via here) full miss)
+        ByName _ => pure ()
       -- A trusted module admits only some of its definitions, and a block
       -- Idris made of one with it.
       root <- rootOf full
       when (trusted && not (admits origin (qname root))) $
         reject (userFC here) owner TrustedLibrary (key ++ " is not admitted from its trusted module" ++ via here)
-      refs <- traverse fullNames !(core (refsOf (hooksOf full) def))
+      refs <- traverse fullNames !(core (refsOf nameHooks def))
       -- User code may not use what the registry forbids, nor forge a world.
       unless trusted $ do
-        case firstForbidden refs of
+        forbidden <- firstForbidden refs
+        case forbidden of
           Just (r, rule) => refuse (location def) key rule ("uses " ++ show r)
           Nothing => pure ()
         case definition def of
@@ -431,9 +444,14 @@ checkReachable fc roots = do
       level w (rec w lt) w (noMore w) kept (next <>> []) Idle
     level w0 acc@(Access rec) w p kept (r :: rest) pending = do
       -- What tells definitions apart is their place in the context; a
-      -- name no definition has is never entered (`Walk`).
-      Just (placement, def) <- resolve r.name
+      -- name no definition has is never entered (`Walk`). Every definition
+      -- the walk reaches was read from what `main` reaches, its references
+      -- the ones the reading followed, so one the reading missed is the
+      -- compiler's error.
+      Just d <- definedIn (!(get TState)).reads r.name
         | Nothing => level w0 acc w p kept rest pending
+      let placement = d.placement
+      let def = d.def
       let full = fullname def
       let key = addressOf placement
       -- Where the definition comes from, as the registry classifies it.
@@ -461,7 +479,7 @@ checkReachable fc roots = do
           refuse
           level w0 acc w p refusing rest pending
         else do
-          Nothing <- noting (visit def placement loc here (show owner) r.path r.from)
+          Nothing <- noting (visit d loc here (show owner) r.path r.from)
             | Just next => level w0 acc w1 (thenNoMore (fewer q) p) kept' rest
                                  (Queued (fewerThen q p) (queued pending <>< next))
           refuse

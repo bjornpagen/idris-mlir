@@ -54,10 +54,13 @@ import Decidable.Equality
 ||| a message; where it is; whether Idris found no missing case; the type
 ||| every leaf of its tree gives (`result`), its expected type, which a
 ||| lambda there that a polymorphic function's choice holds needs, its own
-||| binders not saying it (`atType`); and what a value of that type is to
-||| the choices, as the member table says of the definition applied to its
+||| binders not saying it (`atType`); what a value of that type is to the
+||| choices, as the member table says of the definition applied to its
 ||| parameters (`givesAfter`), or the instance's to decide where no
-||| definition is translated.
+||| definition is translated; and the request of the instance being
+||| translated, the step's own: what it is an instance of, which an exit
+||| reads (`exiting`), and what it was given, which a field taken apart
+||| where it is held reads (`Cases.heldHere`).
 public export
 record Ctx where
   constructor MkCtx
@@ -66,6 +69,7 @@ record Ctx where
   complete : Bool     -- Idris found no missing case
   result : ClosedTerm
   resultHolding : Holding
+  request : Request
 
 bestFC : Ctx -> FC -> FC
 bestFC ctx fc = if isEmptyFC fc then ctx.fc else fc
@@ -1294,14 +1298,14 @@ mutual
     -- is a member of its type's choice.
     Nothing <- memberHere fc loc
       | Just member => pure member
-    case d.registered of
+    case callHooks d.registered of
       -- A `%foreign` definition is known by its spec, an `%extern` one by
       -- its name; one the registry gives no meaning is refused where it
       -- is called.
-      Unhooked miss => do
+      Left miss => do
         site <- siteAt fc
         rejectWith (foreignRefusal site ctx.owner "" full miss)
-      Hooked hs => case definition def of
+      Right hs => case definition def of
         DCon tag arity _ => constructor fc loc d ty arity args
         TCon {} => inRuntime ctx.owner fc env (foldl (App rfc) (Ref rfc nt name) (map (.written) args))
         Builtin {arity} op => primitive fc loc full arity op ty args
@@ -1507,7 +1511,7 @@ mutual
         if length xs >= arity
            then do
              let (now, rest) = splitAt arity xs
-             let Just value = lastValue !(argumentsOf d) now
+             let Just value = lastValue d.taken now
                | Nothing => internal fc ("the identity " ++ show name ++ " without a runtime argument")
              v <- value.translated
              applyOver ctx env fc loc (pure (show name)) v !(typeAfter ty now) rest
@@ -1530,15 +1534,11 @@ mutual
       -- hatch.
       exiting : Front Bool
       exiting = do
-        st <- getState
         -- A member at a use is no definition, and so no exit's.
-        let OfDefinition n :: _ = map (.instantiates) st.chain
-          | _ => pure False
+        let OfDefinition n = ctx.request.instantiates
+          | AtUse _ => pure False
         owner <- lookupDef afc ctx.owner n
-        pure (case owner.registered of
-                Hooked hs => hs.exits
-                -- A definition the registry gives no hooks is no exit.
-                Unhooked _ => False)
+        pure (namedHooks owner.registered).exits
 
       -- Is a definition `believe_me`, whose body is the `BelieveMe`
       -- primitive?
@@ -1683,10 +1683,9 @@ mutual
             reject fc (show (fullname def)) HookShape
                    ("the array type of " ++ show (fullname def) ++ " is opaque: its constructor is applied")
           (_, Just (inst, _)) => do
-            st <- getState
             Just cid <- conIdOf inst d
               | Nothing => internal fc ("the constructor " ++ show (fullname def) ++ " is not registered")
-            let Just info = lookup cid st.cons
+            let Just info = lookupFact (.cons) cid !(getState)
               | Nothing => internal fc ("the constructor " ++ show (fullname def) ++ " is not registered")
             -- Its fields are the call's runtime arguments: an implementation
             -- the constructor holds is a field like any other, the value of

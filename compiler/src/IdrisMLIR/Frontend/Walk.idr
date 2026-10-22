@@ -5,8 +5,8 @@
 ||| ends; and the probes, the names of the frontend's own that no
 ||| definition has.
 |||
-||| Every definition has its place in the context, a non-negative `Int`,
-||| which `resolve` finds with the definition in one lookup (`Placement`).
+||| Every definition has its place in the context, a non-negative `Int`
+||| (`Placement`), read with the definition where the program is read.
 ||| A walk records the places it has entered in a binary tree over the bits
 ||| of a place, and entering a place it has not entered leaves fewer free:
 ||| that count is the measure a walk recurses on, so a walk that enters a
@@ -60,16 +60,6 @@ placementOf i = if i < 0 then Nothing else Just (MkPlacement i (bitsOf i))
 export
 placementIn : Context -> Name -> Maybe Placement
 placementIn ctx n = getNameID n ctx >>= placementOf
-
-||| A name's definition and its placement, in one lookup of the context;
-||| nothing for a name no definition has.
-export
-resolve : {auto c : Ref Ctxt Defs} -> Name -> Core (Maybe (Placement, GlobalDef))
-resolve n = do
-  defs <- get Ctxt
-  Just (i, def) <- lookupCtxtExactI n (gamma defs)
-    | Nothing => pure Nothing
-  pure ((, def) <$> placementOf i)
 
 ||| The `k` bytes of a number, the low byte first.
 export

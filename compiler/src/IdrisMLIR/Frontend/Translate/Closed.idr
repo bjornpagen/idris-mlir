@@ -328,9 +328,10 @@ argumentsWith at = go 0
     go _ _ = []
 
 ||| What a definition takes at each binder of its type in normal form
-||| (`normal`, `argumentAt`). The prefix is the definition's; what an
-||| application past it takes, the type computes, and the instance reads
-||| (`argumentsIn`).
+||| (`normal`, `argumentAt`), read once with the definition, off the normal
+||| form the boundary reads (`Defined.taken`). The prefix is the
+||| definition's; what an application past it takes, the type computes,
+||| and the instance reads (`argumentsIn`).
 export
 argumentsOfNormal : GlobalDef -> (normal : ClosedTerm) -> List ArgumentAt
 argumentsOfNormal def = argumentsWith (argumentAt def)
@@ -341,20 +342,6 @@ argumentsOfNormal def = argumentsWith (argumentAt def)
 export
 argumentsIn : ClosedTerm -> Front (List ArgumentAt)
 argumentsIn ty = argumentsWith (const byQuantity) <$> normaliseClosed ty
-
-||| What a definition takes at each binder of its type in normal form
-||| (`argumentsOfNormal`), read once per definition and kept by its
-||| address (`TS.argumentsTaken`), since its type is normalised to read it.
-export
-argumentsOf : {auto s : Ref TState TS} -> Defined -> Front (List ArgumentAt)
-argumentsOf d = do
-  let key = addressOf d.placement
-  case lookup key (!(getState)).argumentsTaken of
-    Just known => pure known
-    Nothing => do
-      found <- argumentsOfNormal d.def <$> normaliseClosed d.type
-      updateState { argumentsTaken $= insert key found }
-      pure found
 
 ||| The last of the arguments given at a definition's positions that it
 ||| takes at run time, an index or a proof after it read nowhere.

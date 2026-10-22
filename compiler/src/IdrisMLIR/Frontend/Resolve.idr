@@ -165,7 +165,9 @@ data Rejection = Refused Refusal | ByIdris Error
 -- Hooks
 ------------------------------------------------------------------------------
 
-||| The hooks of a definition, by its full name.
+||| The hooks of a definition, by its full name: looked up once, where the
+||| definition is read (`Translate.Boundary`), and read from what was read
+||| after (`Registered`).
 export
 hooksOf : Name -> Hooks QName
 hooksOf n = hooks (Def (qname n))
@@ -210,18 +212,30 @@ record LibraryFunction where
 %prefix_record_projections on
 
 ||| What the registry makes of a definition, read once with it
-||| (`Translate.Boundary`): the hooks a call of it is translated by, each
-||| library function they name read; or, for a `%foreign` definition whose
-||| specs give it none, why not, for which a call of it is refused where it
-||| is made (`foreignRefusal`).
+||| (`Translate.Boundary`), each library function a hook names read. Every
+||| definition has the hooks of its name, which say what reaching it and
+||| naming it are (forbidden, deprecated, a library's crash) and, for any
+||| definition but a `%foreign` one, what its calls are. A `%foreign`
+||| definition's calls are what its specs give: their hooks, or why none,
+||| for which a call of it is refused where it is made (`foreignRefusal`).
 public export
-data Registered = Hooked (Hooks LibraryFunction) | Unhooked ForeignMiss
+data Registered
+  = ByName (Hooks LibraryFunction)
+  | BySpecs (Hooks LibraryFunction) (Either ForeignMiss (Hooks LibraryFunction))
 
-||| What the registry makes of a `%foreign` definition at the site that
-||| reaches it: its hooks, or their refusal there (`foreignRefusal`).
+||| The hooks of a definition's name (`Registered`).
 export
-foreignHookOf : NonEmptyFC -> (owner : String) -> (via : String) -> Name -> List String -> Either Refusal (Hooks QName)
-foreignHookOf site owner via n specs = mapFst (foreignRefusal site owner via n) (foreignHooks n specs)
+namedHooks : Registered -> Hooks LibraryFunction
+namedHooks (ByName hs) = hs
+namedHooks (BySpecs hs _) = hs
+
+||| What a call of a definition is translated by (`Registered`): its
+||| name's hooks, or a `%foreign` definition's specs' hooks or why it has
+||| none.
+export
+callHooks : Registered -> Either ForeignMiss (Hooks LibraryFunction)
+callHooks (ByName hs) = Right hs
+callHooks (BySpecs _ called) = called
 
 ------------------------------------------------------------------------------
 -- Shapes
@@ -283,61 +297,87 @@ shapeOf tm = spine tm []
 -- The registry against the context
 ------------------------------------------------------------------------------
 
-||| Every entry, resolved against the loaded context once per
-||| compilation, before anything uses the registry, each type normalised in
-||| the context as frozen once it was loaded. An entry whose module the
-||| program does not load is not checked; one whose definition is present
-||| must be what the entry expects. There is no fallback: a mismatch stops
-||| the compilation. A test of the validation gives it a program whose own
-||| module defines a keyed name at another shape. The first entry that does
-||| not validate is refused where its definition is, or, when the
-||| definition is missing, at `fallback`.
+%prefix_record_projections off
+
+||| An entry the validation resolves (`site`): the entry, the definition
+||| the registry names, as the registry writes it, for a message, and as
+||| the context names it, interned once where the program is read, before
+||| the context is frozen, and what the validation checks there.
+public export
+record RegistrySite where
+  constructor MkRegistrySite
+  entry : AnyEntry
+  named : QName
+  name : Name
+  expected : SiteCheck
+
+%prefix_record_projections on
+
+||| Every entry the validation resolves, the name of its definition interned
+||| once (`toName`): read where the program is read, before the context is
+||| frozen, so the validation reads the frozen context alone.
 export
-validate : {auto c : Ref Ctxt Defs} -> Frozen -> (fallback : NonEmptyFC) -> Core (Maybe Refusal)
-validate frozen fallback = check entries
+registrySites : {auto c : Ref Ctxt Defs} -> Core (List RegistrySite)
+registrySites = traverse named (mapMaybe (\e => (e,) <$> site e) entries)
+  where
+    named : (AnyEntry, QName, SiteCheck) -> Core RegistrySite
+    named (e, q, expected) = (\n => MkRegistrySite e q n expected) <$> toName q
+
+||| Every entry, resolved against the frozen context once per compilation,
+||| before anything uses the registry, each type normalised in it. An entry
+||| whose module the program does not load is not checked; one whose
+||| definition is present must be what the entry expects. There is no
+||| fallback: a mismatch stops the compilation. A test of the validation
+||| gives it a program whose own module defines a keyed name at another
+||| shape. The first entry that does not validate is refused where its
+||| definition is, or, when the definition is missing, at `fallback`.
+export
+validate : Frozen -> List RegistrySite -> (fallback : NonEmptyFC) -> Core (Maybe Refusal)
+validate frozen sites fallback = check sites
   where
     wrong : FC -> QName -> String -> Refusal
     wrong loc q msg = MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC loc)) (show q ++ ": " ++ msg)
 
-    check : List AnyEntry -> Core (Maybe Refusal)
+    loaded : List (List String)
+    loaded = map (\l => modulePath l.ident) (defsOf frozen).allImported
+
+    check : List RegistrySite -> Core (Maybe Refusal)
     check [] = pure Nothing
-    check (e :: es) = case site e of
-      Nothing => check es
-      Just (q, expected) => do
-        defs <- get Ctxt
-        let loaded = map (\l => modulePath l.ident) defs.allImported
-        Just def <- lookupCtxtExact !(toName q) (gamma defs)
-          | Nothing => if inModules loaded q then pure (Just (wrong EmptyFC q (mismatch e Missing)))
-                       else check es
-        let declared = case (e.entry.key, definition def) of
-                         (Foreign _, ForeignDef _ specs) => declares e specs
-                         (Foreign _, _) => False
-                         _ => True
-        -- The definition's normalised shape where it does not conform to
-        -- the one the entry expects.
-        let unlike : Shape -> Core (Maybe Shape)
-            unlike shape = do
-              ty <- toFullNames (!(host.normalise frozen (!(host.typeOf def)).fst)).value
-              let found = shapeOf ty
-              pure (if conforms shape found then Nothing else Just found)
-        if not declared then pure (Just (wrong (location def) q (mismatch e Undeclared))) else
-          case expected of
-            -- A bodiless declaration is its own shape: there is nothing of
-            -- its type to compare, only that no body gives it a second
-            -- meaning.
-            IsBodiless => case definition def of
-              ExternDef _ => check es
-              _ => pure (Just (wrong (location def) q (mismatch e Bodied)))
-            HasShape shape => case !(unlike shape) of
-              Nothing => check es
-              Just found => pure (Just (wrong (location def) q (mismatch e (Found found))))
-            -- A faster entry lowers a body that is the definition's meaning,
-            -- which a build without the faster entries runs: a definition
-            -- with no body would have no meaning there.
-            WithBody shape => case (definition def, !(unlike shape)) of
-              (PMDef {}, Nothing) => check es
-              (TCon _ _ _ _ _ (Just (_ :: _)) _, Nothing) => check es
-              (PMDef {}, Just found) => pure (Just (wrong (location def) q (mismatch e (Found found))))
-              (TCon _ _ _ _ _ (Just (_ :: _)) _, Just found) =>
-                pure (Just (wrong (location def) q (mismatch e (Found found))))
-              _ => pure (Just (wrong (location def) q (mismatch e Unbodied)))
+    check (s :: ss) = do
+      let e = s.entry
+      let q = s.named
+      let DefinedAs _ _ def _ = definitionIn frozen s.name
+        | NotDefined _ => if inModules loaded q then pure (Just (wrong EmptyFC q (mismatch e Missing)))
+                          else check ss
+      let declared = case (e.entry.key, definition def) of
+                       (Foreign _, ForeignDef _ specs) => declares e specs
+                       (Foreign _, _) => False
+                       _ => True
+      -- The definition's normalised shape where it does not conform to
+      -- the one the entry expects.
+      let unlike : Shape -> Core (Maybe Shape)
+          unlike shape = do
+            ty <- fullNamesIn frozen . (.value) <$> host.normalise frozen (!(host.typeOf def)).fst
+            let found = shapeOf ty
+            pure (if conforms shape found then Nothing else Just found)
+      if not declared then pure (Just (wrong (location def) q (mismatch e Undeclared))) else
+        case s.expected of
+          -- A bodiless declaration is its own shape: there is nothing of
+          -- its type to compare, only that no body gives it a second
+          -- meaning.
+          IsBodiless => case definition def of
+            ExternDef _ => check ss
+            _ => pure (Just (wrong (location def) q (mismatch e Bodied)))
+          HasShape shape => case !(unlike shape) of
+            Nothing => check ss
+            Just found => pure (Just (wrong (location def) q (mismatch e (Found found))))
+          -- A faster entry lowers a body that is the definition's meaning,
+          -- which a build without the faster entries runs: a definition
+          -- with no body would have no meaning there.
+          WithBody shape => case (definition def, !(unlike shape)) of
+            (PMDef {}, Nothing) => check ss
+            (TCon _ _ _ _ _ (Just (_ :: _)) _, Nothing) => check ss
+            (PMDef {}, Just found) => pure (Just (wrong (location def) q (mismatch e (Found found))))
+            (TCon _ _ _ _ _ (Just (_ :: _)) _, Just found) =>
+              pure (Just (wrong (location def) q (mismatch e (Found found))))
+            _ => pure (Just (wrong (location def) q (mismatch e Unbodied)))

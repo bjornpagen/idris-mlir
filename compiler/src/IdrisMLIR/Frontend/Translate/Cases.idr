@@ -405,7 +405,7 @@ mutual
                       Just (DataT d _) => do
                         Just cid <- conIdOf d con
                           | Nothing => pure Nothing
-                        pure (case lookup cid st.cons of
+                        pure (case lookupFact (.cons) cid st of
                                 Just layout => if layout.name == cn then Just d else Nothing
                                 Nothing => Nothing)
                       _ => pure Nothing
@@ -508,7 +508,9 @@ mutual
         ty <- normaliseClosed (closeWritten ctx.fc env scTy)
         let (Ref _ (TyCon _) tn, [_, _, l, r]) = getFnArgs ty
           | _ => pure body
-        let Just IsEquality = (hooksOf !(fullName tn)).sumShape
+        Just tc <- defined tn
+          | Nothing => pure body
+        let Just IsEquality = (namedHooks tc.registered).sumShape
           | _ => pure body
         case (!(indexTerm l), !(indexTerm r)) of
           (IOpaque, _) => pure body
@@ -550,7 +552,7 @@ mutual
   natAlternatives ctx env cls scrutinee shape ity deadDefault loc x [] = pure (Absent, Absent, Absent)
   natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (ConCase cn _ args rhs :: rest) = do
     con <- lookupDef ctx.fc ctx.owner cn
-    taken <- argumentsOf con
+    let taken = con.taken
     dead <- excludedBy shape (fullname con.def)
     let cls' = afterCon args scrutinee cls
     case natRole con.def of
@@ -618,7 +620,7 @@ mutual
     Built cn cargs <- whnf t
       | Stuck on => heldHere on
     cn <- fullName cn
-    taken <- argumentsOf !(lookupDef ctx.fc ctx.owner cn)
+    taken <- (.taken) <$> lookupDef ctx.fc ctx.owner cn
     pick cn (zipWith info taken cargs) alts
     where
       info : ArgumentAt -> ClosedTerm -> VarInfo (Fin nv)
@@ -724,9 +726,7 @@ mutual
       heldHere : StuckOn -> Front (Term nv)
       heldHere on = do
         let place = placeOf scrutinee
-        st <- getState
-        let r :: _ = st.chain
-          | [] => internal ctx.fc "a tree translated with no request"
+        let r = ctx.request
         let Just (DictParam form held) = getAt place.parameter r.kinds
           | _ => internal ctx.fc "an implementation's field matched under a parameter given no implementation"
         let count = maybe 0 (length . forget . (.types)) held
@@ -782,8 +782,7 @@ mutual
     let def = found.def
     Just cid <- conIdOf inst found
       | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
-    st <- getState
-    let Just info = lookup cid st.cons
+    let Just info = lookupFact (.cons) cid !(getState)
       | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
     when (length info.args /= length args) $
       reject ctx.fc ctx.owner CompiledModule

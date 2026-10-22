@@ -113,13 +113,16 @@ reportTimes Nothing _ = pure ()
 reportTimes (Just path) times =
   write path (concatMap (\(name, ns) => name ++ "\t" ++ show (ns `div` 1000000) ++ "\n") times)
 
-||| The registry's entries against the loaded context, once, before the
-||| checks and the translation rely on them; a broken entry is a refusal,
-||| at the module when the entry has no location.
-validated : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Front ()
-validated = case !(core (validate !frozenContext (!getState).moduleFC)) of
-  Nothing => pure ()
-  Just r => rejectWith r
+||| The registry's entries against the frozen context, once, before the
+||| checks and the translation rely on them, each definition an entry names
+||| as it was interned where the program was read (`Read.sites`); a broken
+||| entry is a refusal, at the module when the entry has no location.
+validated : {auto s : Ref TState TS} -> Front ()
+validated = do
+  r <- reading
+  case !(core (validate r.frozen r.sites (!getState).moduleFC)) of
+    Nothing => pure ()
+    Just refusal => rejectWith refusal
 
 isUser : Origin -> Bool
 isUser User = True

@@ -103,9 +103,11 @@ export
 formOf : Spine vs -> TT vs
 formOf sp = foldl (\r, (snoc, _) => App EmptyFC (App EmptyFC snoc r) (Erased EmptyFC Placeholder)) sp.base sp.axes
 
-||| Whether a type constructor is a value array's.
+||| Whether a type constructor is a value array's, as the hooks of its name
+||| were read with it (`Registered`); a name the context defines as nothing
+||| is no type constructor.
 valueArray : Name -> Front Bool
-valueArray n = (\full => (hooksOf full).valueArray) <$> fullName n
+valueArray n = maybe False (\tc => (namedHooks tc.registered).valueArray) <$> defined n
 
 ||| A type constructor applied to two arguments, as a value array's type is
 ||| to its shape and element (`Array s a`), or anything else.

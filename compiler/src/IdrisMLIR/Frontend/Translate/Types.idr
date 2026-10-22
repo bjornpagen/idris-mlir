@@ -22,6 +22,7 @@ import IdrisMLIR.Frontend.Translate.Given
 import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.TypeConstructors
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
@@ -50,24 +51,6 @@ import Data.String
 
 %default total
 
-||| A stand-in for level `i` of a scope's telescope of erased binders: the
-||| `i`th binder of a constructor's type, or a function's `i`th index
-||| parameter (`Instances.classifyCall`).
-export
-marker : Nat -> ClosedTerm
-marker i = probeTerm (ProbeBinder i)
-
-||| The binder a name stands in for (`marker`), by its number.
-markerNumber : Name -> Maybe Nat
-markerNumber n = case probeOf n of
-  Just (ProbeBinder k) => Just k
-  _ => Nothing
-
-||| The binder a term stands in for, if it is a stand-in.
-markerOf : TT vs -> Maybe Nat
-markerOf (Ref _ _ n) = markerNumber n
-markerOf _ = Nothing
-
 ||| A term read in another scope: each level's stand-in replaced by the
 ||| closed term given for it there, and erased where none is given, since a
 ||| level of one scope is never one of another's.
@@ -76,7 +59,7 @@ atLevels : List (Maybe ClosedTerm) -> {vars : _} -> TT vars -> TT vars
 atLevels given = mapTerm at
   where
     at : {vs : _} -> Term vs -> Term vs
-    at t = case markerOf t of
+    at t = case binderOf t of
       Just j => maybe (Erased EmptyFC Placeholder) embedClosed (join (getAt j given))
       Nothing => t
 
@@ -103,7 +86,7 @@ paramLayout con params roles ty =
   let (n ** (ret, taken)) = markAll none 0 ty
       args = snd (getFnArgs ret)
       -- The first parameter a binder's marker is found at.
-      found = SortedMap.fromList (reverse (mapMaybe (\p => (,p) <$> (getAt p args >>= markerOf)) params))
+      found = SortedMap.fromList (reverse (mapMaybe (\p => (,p) <$> (getAt p args >>= binderOf)) params))
   in toList (zipWith (\i, a => lookup (finToNat i) found >>= given a) (allFins n) taken)
   where
     -- What the constructor takes at each binder (`argumentAt`), by
@@ -115,284 +98,6 @@ paramLayout con params roles ty =
     given : ArgumentAt -> Nat -> Maybe Nat
     given (RuntimeValue _) p = if roleAt p roles == Keyed then Just p else Nothing
     given _ p = Just p
-
-||| A constructor as the translation reads it, once: its definition, its
-||| type normalised with every name full (a type may hide its binders
-||| behind a definition, `a -@ b` is `(1 _ : a) -> b`, and a record's
-||| parameter kinds may be solved metavariables), and that type read under
-||| its binders, each given its stand-in (`marker`): what the constructor
-||| takes at each binder, as Idris decided it (`argumentAt`), with the
-||| binder's type, and the type it returns.
-record Constructor where
-  constructor MkConstructor
-  global : GlobalDef
-  normal : ClosedTerm
-  taking : List (ArgumentAt, ClosedTerm)
-  result : ClosedTerm
-
-||| A constructor's type read under its binders, each given its stand-in
-||| (`marker`): what the constructor takes at each binder, with the
-||| binder's type, and the type it returns.
-conBinders : GlobalDef -> Given vs -> Nat -> TT vs -> (List (ArgumentAt, ClosedTerm), ClosedTerm)
-conBinders con g i (Bind _ _ (Pi _ rig _ a) sc) =
-  let (bs, ret) = conBinders con (give (marker i) g) (S i) sc in ((argumentAt con i rig, close g a) :: bs, ret)
-conBinders con g i t = ([], close g t)
-
-||| The constructors of a type constructor, each read once
-||| (`Constructor`). Nothing when Idris does not know the constructors (a
-||| type declared without them) or one names no definition. What the
-||| translation reads of a type constructor is read from these
-||| (`tyConFacts`).
-constructorsOf : Defined -> Front (Maybe (List Constructor))
-constructorsOf tc = case definition tc.def of
-  TCon _ _ _ _ _ (Just cons) _ => do
-    found <- traverse defined cons
-    case the (Maybe (List Defined)) (sequence found) of
-      Just cs => Just <$> traverse read cs
-      Nothing => pure Nothing
-  _ => pure Nothing
-  where
-    read : Defined -> Front Constructor
-    read con = do
-      ty <- normaliseClosed con.type >>= fullTerm
-      let (bs, ret) = conBinders con.def none 0 ty
-      pure (MkConstructor con.def ty bs ret)
-
-||| The parameters of a type constructor: Idris's, and those its own
-||| reading of the constructors' types misses because a type hides its
-||| binders behind a definition (`a -@ LList a -@ LList a`, where Idris sees
-||| only an application of `-@`). On the normalised types, as Idris does: a
-||| position is a parameter when every occurrence of the type, as a field's
-||| result and as the constructor's, has there the same binder of the
-||| constructor, and no earlier position has it too. Such an argument is
-||| never refined by a match, so reading it as a parameter changes nothing
-||| Idris proved. Given the constructors' types (`constructorsOf`).
-dataParams : GlobalDef -> Maybe (List Constructor) -> List Nat
-dataParams def conTys = case definition def of
-  TCon arity params _ _ _ _ _ =>
-    let positions : List Nat = iterateN arity S 0
-        idris = List.filter (\i => elem i params) positions in
-    if length idris == arity then idris else
-      let found : List Nat = case conTys of
-                    Just ts@(_ :: _) => let sets = map (uniform . (.normal)) ts in
-                                        List.filter (\i => all (elem i) sets) positions
-                    _ => [] in
-      List.filter (\i => elem i idris || elem i found) positions
-  _ => []
-  where
-    -- The arguments of an occurrence of the type, as binders; only a
-    -- binder's first position counts.
-    binders : List ClosedTerm -> List (Maybe Nat)
-    binders = go []
-      where
-        go : List Nat -> List ClosedTerm -> List (Maybe Nat)
-        go seen [] = []
-        go seen (a :: as) = case markerOf a of
-          Just k => if elem k seen then Nothing :: go seen as else Just k :: go (k :: seen) as
-          Nothing => Nothing :: go seen as
-    -- The occurrence of the type that a type returns, under its binders.
-    occurrence : Given vs -> TT vs -> Maybe (List ClosedTerm)
-    occurrence g (Bind bfc _ (Pi {}) sc) = occurrence (give (Erased bfc Placeholder) g) sc
-    occurrence g tm = case getFnArgs tm of
-      (Ref _ _ n, args) => if n == fullname def then Just (map (close g) args) else Nothing
-      _ => Nothing
-    merge : List (Maybe Nat) -> List (Maybe Nat) -> List (Maybe Nat)
-    merge = zipWith (\a, b => if a == b then a else Nothing)
-    -- The parameter positions one constructor allows.
-    uniform : ClosedTerm -> List Nat
-    uniform ty = go none 0 Nothing ty
-      where
-        positions : List (Maybe Nat) -> List Nat
-        positions ms = mapMaybe (\(i, m) => map (const i) m) (zip [0 .. length ms] ms)
-        add : Maybe (List (Maybe Nat)) -> ClosedTerm -> Maybe (List (Maybe Nat))
-        add acc t = case occurrence none t of
-          Just args => Just (maybe (binders args) (\ms => merge ms (binders args)) acc)
-          Nothing => acc
-        go : Given vs -> Nat -> Maybe (List (Maybe Nat)) -> TT vs -> List Nat
-        go g i acc (Bind _ _ (Pi _ _ _ a) sc) = go (give (marker i) g) (S i) (add acc (close g a)) sc
-        go g i acc ret = maybe [] positions (add acc (close g ret))
-
-||| Does a term mention the stand-in for the `k`th binder of a constructor's
-||| type?
-mentionsMarker : Nat -> TT vs -> Bool
-mentionsMarker k = mentions (\t => markerOf t == Just k)
-
--- A constructor's binder held at runtime.
-heldBinder : (ArgumentAt, ClosedTerm) -> Bool
-heldBinder (RuntimeValue _, _) = True
-heldBinder _ = False
-
--- Is binder `k` of a constructor's held at runtime, or none of its?
-binderHeld : Nat -> List (ArgumentAt, ClosedTerm) -> Bool
-binderHeld k bs = maybe True heldBinder (getAt k bs)
-
--- Does a binder held at runtime have a type that names binder `k`?
-namedBy : Nat -> (ArgumentAt, ClosedTerm) -> Bool
-namedBy k (RuntimeValue _, a) = mentionsMarker k a
-namedBy k _ = False
-
-||| Is a kind certainly the type of values, not a universe: a variable
-||| (`x : a`) or a data type (`n : Nat`)?
-valueKind : TT vs -> Bool
-valueKind (Local {}) = True
-valueKind tm = case getFnArgs tm of
-  (Ref _ (TyCon _) _, _) => True
-  (PrimVal _ _, _) => True
-  _ => False
-
-||| Whether each argument of a type constructor's kind is certainly a value
-||| (`valueKind`), in order.
-kinds : TT vs -> List Bool
-kinds (Bind _ _ (Pi _ _ _ a) sc) = valueKind a :: kinds sc
-kinds _ = []
-
-||| The `Keyed` positions of a type constructor's arguments: the types a
-||| value of it represents, its parameters whose kind is a universe, and
-||| which some constructor holds at runtime or names in the type of an
-||| argument it holds at runtime. With the `Formed` shapes, they tell
-||| instances apart; every other argument (an index, or a value parameter
-||| such as `Equal`'s `x`) is compile-time information. A parameter no
-||| constructor names is a phantom (the state thread `s` of base's `ST s a`
-||| and `STRef s a`): every type it is given has values of one
-||| representation, so one instance serves them all, and a type
-||| abstraction over it, `{0 s : Type} -> ST s Int`, is a value of that one
-||| instance once applied to whatever type. Given its parameters and its
-||| constructors' types (`constructorsOf`).
-keyedOf : {auto c : Ref Ctxt Defs} -> Defined -> List Nat -> Maybe (List Constructor) -> Front (List Nat)
-keyedOf tc params conTys = case definition tc.def of
-  TCon arity _ _ _ _ _ _ => do
-    -- A record's parameter kinds may be solved metavariables, and a type
-    -- may be declared through a definition of its kind (`data CaseTree :
-    -- Scoped`, where `Scoped = Scope -> Type`): its binders are those of
-    -- the normal form.
-    ty <- normaliseClosed tc.type
-    let values = kinds ty
-    let types = filter (\i => elem i params && not (fromMaybe False (getAt i values))) (iterateN arity S 0)
-    -- Without its constructors, every type parameter counts.
-    pure (case conTys of
-            Just ts@(_ :: _) => filter (\i => any (represents i) ts) types
-            _ => types)
-  _ => pure []
-  where
-    -- Does a constructor represent the parameter at position `p` of the
-    -- type it returns: does it hold the binder there at runtime, or name it
-    -- in the type of an argument it holds at runtime? An erased argument
-    -- has no representation, whatever its type names (`Subset`'s
-    -- predicate, the type of its erased proof). Anything but a binder
-    -- there counts.
-    represents : Nat -> Constructor -> Bool
-    represents p con = case getAt p (snd (getFnArgs con.result)) >>= markerOf of
-      Just k => binderHeld k con.taking || any (namedBy k) con.taking
-      Nothing => True
-
--- A split of candidates that holds one or more leaves fewer out.
-0 shorter : (a, b : Nat) -> a + S b = n -> LT a n
-shorter a b Refl = rewrite sym (plusSuccRightSucc a b) in LTESucc (lteAddRight a)
-
-||| The `Held` positions of a type constructor's arguments: every argument
-||| but a parameter whose kind is a universe and that its values hold. A
-||| value holds such an argument when a constructor that has its own binder
-||| there holds a runtime argument whose type reaches that binder, through
-||| a function type's argument or result, a suspension, or a represented
-||| position of a type constructor (this one's, or another's `Keyed`
-||| ones). It is the least such set: `L : a -> T a` makes `T`'s `a` a
-||| position, and `PCons : P (a, a) -> P a`, whose index no value holds,
-||| does not. Such an index is checked by the growth phase, never a key.
-||| Given the type constructor's parameters, its `Keyed` positions and its
-||| constructors' types (`constructorsOf`).
-heldOf : {auto c : Ref Ctxt Defs} -> Defined -> (params, keys : List Nat) -> List Constructor -> Front (List Nat)
-heldOf tc ps keys conTys = case definition tc.def of
-  TCon arity _ _ _ _ _ _ => do
-    ty <- normaliseClosed tc.type
-    let values = kinds ty
-    -- Every argument position: `[0 .. minus arity 1]` would be `[0]` at
-    -- arity 0.
-    let candidates@(_ :: _) = filter (\i => not (elem i ps) && not (fromMaybe False (getAt i values)))
-                                     (iterateN arity S 0)
-      | [] => pure []
-    least keys conTys [] candidates (wellFounded _)
-  _ => pure []
-  where
-    -- The `Keyed` positions of another type constructor.
-    keysOf : Name -> Front (List Nat)
-    keysOf d = do
-      Just other <- defined d
-        | Nothing => pure []
-      conTys <- constructorsOf other
-      keyedOf other (dataParams other.def conTys) conTys
-
-    mutual
-      -- Does a type reach the stand-in for binder `k`, at the positions
-      -- `own` of this type constructor?
-      reaches : List Nat -> Nat -> TT vs -> Front Bool
-      reaches own k (Ref _ _ n) = pure (markerNumber n == Just k)
-      reaches own k (Bind _ _ (Pi _ rig _ a) sc) = do
-        inA <- case use rig of
-                 Erased => pure False
-                 Used _ => reaches own k a
-        if inA then pure True else reaches own k sc
-      reaches own k (TDelayed _ _ t) = reaches own k t
-      reaches own k tm = case getFnArgs tm of
-        (Ref _ (TyCon _) d, args) => do
-          ks <- if d == fullname tc.def then pure own else keysOf d
-          spine ks own k (length args) tm
-        _ => pure False
-
-      -- The arguments at positions `ks` of an application of `j`
-      -- arguments, the last first, so that each is a subterm.
-      spine : List Nat -> List Nat -> Nat -> Nat -> TT vs -> Front Bool
-      spine ks own k (S j) (App _ f a) = do
-        here <- if elem j ks then reaches own k a else pure False
-        if here then pure True else spine ks own k j f
-      spine _ _ _ _ _ = pure False
-
-    -- Does a binder held at runtime have a type that reaches binder `k`?
-    reachedBy : List Nat -> Nat -> (ArgumentAt, ClosedTerm) -> Front Bool
-    reachedBy own k (RuntimeValue _, a) = reaches own k a
-    reachedBy own k _ = pure False
-
-    -- Does a constructor whose return type has its own binder at `p` hold
-    -- a runtime argument whose type reaches it?
-    holds : List Nat -> Nat -> Constructor -> Front Bool
-    holds own p con = case getAt p (snd (getFnArgs con.result)) >>= markerOf of
-      Just k => any id <$> traverse (reachedBy own k) con.taking
-      Nothing => pure False
-
-    -- The candidates of `out` the set `held` makes held, and the rest, as
-    -- many between them as `out` has.
-    among : List Nat -> List Constructor -> List Nat -> (out : List Nat) ->
-            Front (Subset (List Nat, List Nat) (\s => length (snd s) + length (fst s) = length out))
-    among keys conTys held [] = pure (Element ([], []) Refl)
-    among keys conTys held (p :: ps) = do
-      Element (ins, outs) n <- among keys conTys held ps
-      True <- any id <$> traverse (holds (keys ++ held) p) conTys
-        | False => pure (Element (ins, p :: outs) (cong S n))
-      pure (Element (p :: ins, outs) (trans (sym (plusSuccRightSucc _ _)) (cong S n)))
-
-    -- The least set, from none: each round holds what the set so far makes
-    -- held among the candidates still out, and the set is whole at a round
-    -- that holds none. A round that holds one or more leaves fewer out, so
-    -- the rounds descend on the candidates still out.
-    least : List Nat -> List Constructor -> List Nat -> (out : List Nat) ->
-            (0 _ : Accessible LT (length out)) -> Front (List Nat)
-    least keys conTys held out (Access fewer) = do
-      Element (p :: ps, outs) n <- among keys conTys held out
-        | Element ([], _) _ => pure held
-      least keys conTys (held ++ p :: ps) outs (fewer _ (shorter _ _ n))
-
-||| What a type constructor's values are as numbers, from its constructors
-||| (`constructorsOf`): `Nat`-like when they carry Idris's `ZERO` and
-||| `SUCC` flags, read from Idris's metadata, never from names; a `Chain`
-||| when each also takes every argument at runtime, none at quantity 0. A
-||| key keeps what a constructor takes at quantity 0 (`FS`'s index), so a
-||| chain's values' keys are only their successors: `Nat`, but neither
-||| `Fin` nor `Elem`, which are `Numeral`s.
-natnessOf : Maybe (List Constructor) -> Natness
-natnessOf (Just cons@(_ :: _)) =
-  if not (all (isJust . natRole . (.global)) cons) then NotNat
-    else if all (\con => all heldBinder con.taking) cons then Chain
-    else Numeral
-natnessOf _ = NotNat
 
 ||| An extent's dimension: static where its normal form is a literal, a
 ||| `Nat`-like chain of successors ending at zero (read from Idris's flags,
@@ -430,196 +135,34 @@ shapeDims : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             FC -> String -> ClosedTerm -> Front (List Dim)
 shapeDims fc owner shape = traverse extentDim (extents !(spineOf fc owner !(normaliseClosed shape)))
 
-||| The roles of a value array's arguments, its shape and its element, as
-||| `Shapes.arrayParts` reads them: the shape is its form, and the element
-||| a type. The registry's hook says a type constructor is one; it has no
-||| constructors to read anything else off.
-valueArrayRoles : List Role
-valueArrayRoles = [Formed, Keyed]
-
-mutual
-  -- Each application of a type constructor in a term, with whether each of
-  -- its arguments, the first first, mentions what the test picks.
-  picked : ({0 vs : Scope} -> TT vs -> Bool) -> TT vars -> List (Name, List Bool)
-  picked p tm = applied p tm []
-
-  -- A term applied to arguments, the first first.
-  applied : ({0 vs : Scope} -> TT vs -> Bool) -> TT vars -> List (TT vars) -> List (Name, List Bool)
-  applied p (App _ f a) args = picked p a ++ applied p f (a :: args)
-  applied p (Ref _ (TyCon _) n) args = [(n, map (mentions p) args)]
-  applied p (Bind _ _ b sc) _ = pickedIn p b ++ picked p sc
-  applied p (TDelayed _ _ t) _ = picked p t
-  applied p (TDelay _ _ t a) _ = picked p t ++ picked p a
-  applied p (TForce _ _ t) _ = picked p t
-  applied p (As _ _ _ pat) _ = picked p pat
-  applied p _ _ = []
-
-  -- A binder's type, and a `let`'s value.
-  pickedIn : ({0 vs : Scope} -> TT vs -> Bool) -> TTBinder (TT vars) -> List (Name, List Bool)
-  pickedIn p (Lam _ _ _ ty) = picked p ty
-  pickedIn p (Let _ _ v ty) = picked p v ++ picked p ty
-  pickedIn p (Pi _ _ _ ty) = picked p ty
-  pickedIn p (PVar _ _ _ ty) = picked p ty
-  pickedIn p (PLet _ _ v ty) = picked p v ++ picked p ty
-  pickedIn p (PVTy _ _ ty) = picked p ty
-
--- What the `Formed` positions of type constructors are assumed to be
--- while they are found: those of each type constructor whose own are
--- being found on the walk, by its name, as far as they are found so far.
-Assumed : Type
-Assumed = List (Name, List Nat)
-
-mutual
-  ||| Does a binder of this kind stand where terms put it in a form: is its
-  ||| kind the shape type, and is it, as the test picks it out, in an
-  ||| argument at a `Formed` position of a type constructor applied in one
-  ||| of the terms (a value array's shape, or a shape a data type's array
-  ||| reads)? A tensor's rank is its type, so such a binder keys what its
-  ||| type is. The one rule for a function's erased binder (`formNeeded`)
-  ||| and a data type's parameter (`formedIn`).
-  formRead : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed ->
-             (kind : ClosedTerm) -> ({0 vs : Scope} -> TT vs -> Bool) -> List ClosedTerm -> Front Bool
-  formRead w acc assumed kind p ts =
-    if isShapeType (shapeOf !(fullTerm kind))
-       then inForm w acc assumed (ts >>= picked p)
-       else pure False
-
-  -- Is one of the arguments picked at a `Formed` position of the type
-  -- constructor applied to it?
-  inForm : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> List (Name, List Bool) -> Front Bool
-  inForm w acc assumed [] = pure False
-  inForm w acc assumed ((n, ms) :: rest) = do
-    fs <- formedAt w acc assumed n
-    if any (\j => fromMaybe False (getAt j ms)) fs then pure True else inForm w acc assumed rest
-
-  -- The `Formed` positions of a type constructor, by its name: as assumed
-  -- while its own are being found, as found once and kept (`tyConFacts`),
-  -- or else found here, the walk entering it. Every type constructor the
-  -- walk has entered is assumed, so one it cannot enter is none the
-  -- context holds a place for.
-  formedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Name -> Front (List Nat)
-  formedAt w (Access rec) assumed n = case lookup n assumed of
-    Just fs => pure fs
-    Nothing => do
-      Just tc <- defined n
-        | Nothing => pure []
-      case lookup (addressOf tc.placement) (!(getState)).tyCons of
-        Just known => pure (positionsOf (== Formed) known.roles)
-        Nothing => case enter tc.placement w of
-          Just (Element w' less) => formedIn w' (rec w' less) assumed tc
-          Nothing => pure []
-
-  ||| The `Formed` positions of a type constructor: a value array's shape
-  ||| (`valueArrayRoles`), and the least set of its parameters of which a
-  ||| constructor's runtime field puts the binder at the parameter in a
-  ||| form (`formRead`), this type constructor's own positions read as the
-  ||| set found so far, and those of every type constructor its fields
-  ||| apply found the same way, inside, with this one's assumed. Each round
-  ||| adds what the set so far makes formed among the parameters still out,
-  ||| and the set is whole at a round that adds none, so the rounds descend
-  ||| on the parameters still out, as the walk does on the type
-  ||| constructors it has entered. `Grid : Shape -> Type` with `MkGrid :
-  ||| Array s Int -> Grid s` has its shape formed, and so does a type whose
-  ||| constructor holds a `Grid s`; a phantom shape, which no field puts in
-  ||| an array, has not.
-  formedIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Defined -> Front (List Nat)
-  formedIn w acc assumed tc =
-    if (hooksOf (fullname tc.def)).valueArray then pure (positionsOf (== Formed) valueArrayRoles) else do
-      Just cons <- constructorsOf tc
-        | Nothing => pure []
-      rounds w acc assumed (fullname tc.def) cons [] (dataParams tc.def (Just cons)) (wellFounded _)
-
-  rounds : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Name -> List Constructor ->
-           (formed, out : List Nat) -> (0 _ : Accessible LT (length out)) -> Front (List Nat)
-  rounds w acc assumed self conTys formed out (Access fewer) = do
-    Element (p :: ps, outs) n <- formedAmong w acc ((self, formed) :: assumed) conTys out
-      | Element ([], _) _ => pure (sort formed)
-    rounds w acc assumed self conTys (formed ++ p :: ps) outs (fewer _ (shorter _ _ n))
-
-  -- The parameters of `out` some constructor puts in a form, and the rest,
-  -- as many between them as `out` has.
-  formedAmong : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> List Constructor -> (out : List Nat) ->
-                Front (Subset (List Nat, List Nat) (\s => length (snd s) + length (fst s) = length out))
-  formedAmong w acc assumed conTys [] = pure (Element ([], []) Refl)
-  formedAmong w acc assumed conTys (p :: ps) = do
-    Element (ins, outs) n <- formedAmong w acc assumed conTys ps
-    True <- formedBy w acc assumed p conTys
-      | False => pure (Element (ins, p :: outs) (cong S n))
-    pure (Element (p :: ins, outs) (trans (sym (plusSuccRightSucc _ _)) (cong S n)))
-
-  -- Does a constructor whose return type has its own binder at parameter
-  -- `p` put that binder in a form with a runtime field?
-  formedBy : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Nat -> List Constructor -> Front Bool
-  formedBy w acc assumed p [] = pure False
-  formedBy w acc assumed p (con :: cs) = do
-    let bs = con.taking
-    here <- case getAt p (snd (getFnArgs con.result)) >>= markerOf of
-      Just k => case getAt k bs of
-        Just (_, kind) => formRead w acc assumed kind (\t => markerOf t == Just k) (map snd (filter heldBinder bs))
-        Nothing => pure False
-      Nothing => pure False
-    if here then pure True else formedBy w acc assumed p cs
-
 ||| Does the rest of a function's type need an erased binder's form: is
 ||| the binder a shape that the rest, with `formProbe` for it, puts in a
-||| form (`formRead`)?
+||| form (`TypeConstructors.formRead`), the type constructors' forms as
+||| they were read with the program (`Read.tyCons`)?
 export
-formNeeded : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (kind : ClosedTerm) -> (ClosedTerm -> ClosedTerm) -> Front Bool
-formNeeded kind rest =
-  formRead start (sizeAccessible start) [] kind isFormProbe [!(fullTerm !(normaliseClosed (rest formProbe)))]
+formNeeded : (kind : ClosedTerm) -> (ClosedTerm -> ClosedTerm) -> Front Bool
+formNeeded kind rest = do
+  r <- reading
+  probed <- fullTerm !(normaliseClosed (rest formProbe))
+  core (formRead r r.tyCons start (sizeAccessible start) [] kind isFormProbe [probed])
 
-||| What the translation reads of a type constructor's definition, from its
-||| constructors read once (`constructorsOf`): its parameters
-||| (`dataParams`), the role of each argument (`keyedOf`, `formedIn`,
-||| `heldOf`; a value array's are `valueArrayRoles`), and how it is
-||| `Nat`-like (`natnessOf`), found once per type constructor (`tyCons`).
+||| What the translation reads of a type constructor's definition
+||| (`TyConFacts`), read once with the program (`Read.tyCons`,
+||| `TypeConstructors`). Every type constructor read has them, so a
+||| definition without them is none, which no caller asks of: each asks of
+||| the definition a type constructor's name heads.
 export
-tyConFacts : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             Defined -> Front TyConFacts
+tyConFacts : Defined -> Front TyConFacts
 tyConFacts tc = do
-  let key = addressOf tc.placement
-  case lookup key (!(getState)).tyCons of
-    Just known => pure known
-    Nothing => do
-      found <- facts
-      updateState { tyCons $= insert key found }
-      pure found
-  where
-    roleOf : (keys, forms, held : List Nat) -> Nat -> Role
-    roleOf keys forms held j =
-      if elem j forms then Formed
-        else if elem j keys then Keyed
-        else if elem j held then Held
-        else Index
-
-    facts : Front TyConFacts
-    facts = do
-      conTys <- constructorsOf tc
-      let ps = dataParams tc.def conTys
-      roles <- if (hooksOf (fullname tc.def)).valueArray then pure valueArrayRoles else do
-                 let TCon arity _ _ _ _ _ _ = definition tc.def
-                   | _ => pure []
-                 keys <- keyedOf tc ps conTys
-                 -- The walk starts at this type constructor, entered.
-                 let w = startAt tc.placement
-                 forms <- formedIn w (sizeAccessible w) [] tc
-                 held <- heldOf tc ps keys (fromMaybe [] conTys)
-                 pure (map (roleOf keys forms held) (iterateN arity S 0))
-      pure (MkTyConFacts ps roles (natnessOf conTys))
+  r <- reading
+  let Just facts = lookup (addressOf tc.placement) r.tyCons
+    | Nothing => internal (location tc.def) ("the facts of " ++ show (fullname tc.def) ++ ", which is no type constructor")
+  pure facts
 
 ||| The positions of a type constructor's arguments the growth check
-||| watches (`watched`), read once per type constructor with its other
-||| facts (`tyConFacts`).
+||| watches (`watched`), read with its other facts (`tyConFacts`).
 export
-represented : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Defined -> Front (List Nat)
+represented : Defined -> Front (List Nat)
 represented tc = positionsOf watched . (.roles) <$> tyConFacts tc
 
 ||| The roles of a type constructor's arguments; nothing for a name that
@@ -834,15 +377,15 @@ compileTimeBinder rig ty = case use rig of
 registeredChoice : {auto s : Ref TState TS} -> ChoiceKey -> InstanceKey -> ClosedTerm -> Loc -> Front Choice
 registeredChoice k key ty loc = do
   st <- getState
-  case lookup k st.choiceIds >>= \fam => lookup fam st.choices of
+  case lookupFact (.choiceIds) k st >>= \fam => lookupFact (.choices) fam st of
     Just choice => pure choice
     Nothing => do
-      let fam = MkFamilyId st.nextFamily
+      let fam = MkFamilyId st.derived.facts.nextFamily
       let choice = MkChoice fam ty [<]
-      updateState { choiceIds $= insert k fam, nextFamily $= S
-                  , choices $= insert fam choice
-                  , families $= insert fam (MkFamily fam key None [] [] loc)
-                  , familyOrder $= (:< fam) }
+      updateState (derive { choiceIds $= insert k fam, nextFamily $= S
+                          , choices $= insert fam choice
+                          , families $= insert fam (MkFamily fam key None [] [] loc)
+                          , familyOrder $= (:< fam) })
       pure choice
 
 ||| A function type with every binder explicit: which binders Idris fills
@@ -940,7 +483,7 @@ indexTerm = go 0
         pure (found >>= \con => natRole con.def)
       _ => pure Nothing
     go : Nat -> ClosedTerm -> Front ITerm
-    go k tm = case markerOf tm of
+    go k tm = case binderOf tm of
       Just level => pure (succ (IVar level) k)
       Nothing => case tm of
         App _ _ pred => case !(roleOf tm) of
@@ -1106,7 +649,7 @@ mutual
       -- A word type is a machine word whatever its arguments: what a
       -- `Ptr t` points to names what its handle holds, not its
       -- representation.
-      let hs = hooksOf (fullname tc.def)
+      let hs = namedHooks tc.registered
       -- Idris's `Nat`, a chain of successors, is a natural. A family of
       -- the same shape whose constructors take an erased index (`Fin`,
       -- `Elem`) is a family: the dialect lays it out as a number.
@@ -1171,15 +714,15 @@ mutual
     indices <- traverse indexTerm (map snd (filter (\(i, _) => not (inKey (roleAt i roles))) (zip positions args0)))
     (address, found) <- instanceKey fc owner (fullname def) id statics
     st <- getState
-    case lookup found.link st.familyIds of
+    case lookupFact (.familyIds) found.link st of
       Just fam => pure (fam, DataT fam indices)
       Nothing => case elemLink found.link chain.links of
         -- A link on the chain is in the table already: its identity was
         -- minted before its constructors were read.
         Yes _ => internal fc (tname ++ ", registered, is not in the table of families")
         No fresh => do
-          let fam = MkFamilyId st.nextFamily
-          updateState { familyIds $= insert found.link fam, nextFamily $= S }
+          let fam = MkFamilyId st.derived.facts.nextFamily
+          updateState (derive { familyIds $= insert found.link fam, nextFamily $= S })
           let what = keyText found.key ++ ", registered,"
           boundsHold fc what address statics
           inside <- sizedWithin fc what chain.sizes found.link
@@ -1197,9 +740,9 @@ mutual
                               datacons
           let sorted = sortBy (\(a, _), (b, _) => compare (snd a).tag (snd b).tag) conList
           let cons = map fst sorted
-          promise <- promised tname (hooksOf (fullname def)).sumShape cons
-          updateState { families $= insert fam (MkFamily fam found.key promise sorts cons loc)
-                        , familyOrder $= (:< fam) }
+          promise <- promised tname (namedHooks tc.registered).sumShape cons
+          updateState (derive { families $= insert fam (MkFamily fam found.key promise sorts cons loc)
+                              , familyOrder $= (:< fam) })
           pure (fam, DataT fam indices)
     where
       -- What the registry promises of the family's values, where its entry
@@ -1275,7 +818,7 @@ mutual
         unlinkedKinds = map (\k => case k of
                                      Field i b t => Field i ({ type $= relevelTy (const Nothing) } b) t
                                      other => other) walked.kinds
-    updateState { cons $= insert cid (MkConLayout unlinkedKinds (fullname def) con) }
+    updateState (derive { cons $= insert cid (MkConLayout unlinkedKinds (fullname def) con) })
     pure (con, unlinkedKinds)
     where
       findIndex' : Nat -> List Nat -> Maybe Nat
@@ -1318,7 +861,7 @@ mutual
   dataOfIn chain acc g fc owner tm = case getFnArgs tm of
     (Ref _ (TyCon _) n, args) => do
       tc <- lookupDef fc owner n
-      let hs = hooksOf (fullname tc.def)
+      let hs = namedHooks tc.registered
       case (!(tyConFacts tc)).natness of
         Chain => pure Nothing
         _ => if hs.wordType || isJust hs.orderedArray || hs.valueArray then pure Nothing else do

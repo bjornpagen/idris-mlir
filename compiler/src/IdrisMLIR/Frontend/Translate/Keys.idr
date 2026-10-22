@@ -55,163 +55,6 @@ import Data.Vect
 -- Names
 ------------------------------------------------------------------------------
 
-||| Idris's full name, except that a `DN`, which is how Idris names an
-||| implementation's method, is its inner name: the display name
-||| (`Prelude.Types.map`) is every implementation's in the module, the inner
-||| one (`Prelude.Types.map_Functor_Maybe`) is this one's.
-plainName : Name -> Name
-plainName (NS ns (DN _ m)) = NS ns m
-plainName (DN _ m) = m
-plainName m = m
-
-||| A name as a key prints it (`plainName`).
-plainOrigin : Name -> String
-plainOrigin n = show (plainName n)
-
-||| The kind of block Idris made of a definition: a case block and a with
-||| block, which Idris numbers with one counter for the whole build, and a
-||| nested (`where`) function by its own name, as a key prints it
-||| (`plainName`), which Idris numbers with its parent's place in the
-||| context. None of those numbers says where the block is, and a name says
-||| it only up to the blocks of one kind under one parent: each clause's
-||| `where` may define the same name again.
-data BlockKind = OfCase | OfWith | OfNested Name
-
-Eq BlockKind where
-  OfCase == OfCase = True
-  OfWith == OfWith = True
-  OfNested a == OfNested b = a == b
-  _ == _ = False
-
-Ord BlockKind where
-  compare OfCase OfCase = EQ
-  compare OfCase _ = LT
-  compare OfWith OfCase = GT
-  compare OfWith OfWith = EQ
-  compare OfWith (OfNested _) = LT
-  compare (OfNested a) (OfNested b) = compare a b
-  compare (OfNested _) _ = GT
-
-||| A block's kind as its printed name spells it under its parent.
-kindText : BlockKind -> String
-kindText OfCase = "case"
-kindText OfWith = "with"
-kindText (OfNested inner) = show inner
-
-||| The kind of block a definition is, by its name; nothing for a
-||| definition that is no block.
-blockOf : Name -> Maybe BlockKind
-blockOf (NS _ n) = blockOf n
-blockOf (CaseBlock _ _) = Just OfCase
-blockOf (WithBlock _ _) = Just OfWith
-blockOf (Nested _ inner) = Just (OfNested (plainName inner))
-blockOf _ = Nothing
-
-------------------------------------------------------------------------------
--- Blocks by position
-------------------------------------------------------------------------------
-
-||| What a definition read refers to, in the order the walk meets it
-||| (`Boundary.references`): its body as the translation reads it, then its
-||| type. For a solved metavariable these are its solution's.
-referentsOf : Defined -> List Referent
-referentsOf d = references d.matched d.type
-
-||| Where a walk that names blocks has got to: how many blocks of each
-||| kind are named so far under the definition being walked (none of a
-||| kind the map does not hold), and what the walk has entered, no more
-||| than where it was.
-record Reached (w : Walked) where
-  constructor MkReached
-  counters : SortedMap BlockKind Nat
-  after : Walked
-  0 noMore : NoMore after w
-
-mutual
-  ||| Names the blocks a definition refers to, depth first: each block not
-  ||| yet named gets the next number of its kind under the definition that
-  ||| refers to it first (`.case0`, `.with0`, `.go0`, `.go1`), and its own
-  ||| references are walked at once under its new name. The numbers count
-  ||| from 0 in each parent, so a block's name changes only with its
-  ||| parent's definition, never with how many blocks the rest of the build
-  ||| made. An ordinary reference is walked
-  ||| too: a block is not always referred to by the definition being
-  ||| translated or by the one Idris named it for (a case block of an
-  ||| interface's default method is referred to by the implementation
-  ||| methods the default was elaborated into, under the method's name),
-  ||| so the walk follows references until it reaches a definition that
-  ||| does refer to the block. A solved metavariable is walked through its
-  ||| solution, under the same parent and counters. Every definition the
-  ||| walk meets was read from what `main` reaches (`Boundary`). Each
-  ||| definition and each metavariable is entered once (`Walk`), which is
-  ||| why the walk ends: `w0` is where this level of it began, and every
-  ||| definition it enters leaves fewer than `w0` to enter.
-  nameUnder : {auto s : Ref TState TS} ->
-              String -> SortedMap BlockKind Nat -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
-              (w : Walked) -> (0 _ : NoMore w w0) -> List Referent -> Front (Reached w)
-  nameUnder origin ks w0 acc w p [] = pure (MkReached ks w (noMore w))
-  nameUnder origin ks w0 acc@(Access rec) w p (AMeta m :: rest) = do
-    Just d <- defined m
-      | Nothing => nameUnder origin ks w0 acc w p rest
-    case enter d.placement w of
-      Nothing => nameUnder origin ks w0 acc w p rest
-      Just (Element w1 q) => do
-        MkReached ks' w2 q2 <- nameUnder origin ks w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referentsOf d)
-        MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
-        pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
-  nameUnder origin ks w0 acc@(Access rec) w p (ARef r :: rest) = do
-    full <- fullName r
-    let Just kind = blockOf full
-      | Nothing => do
-          Element w1 q1 <- blocksFrom full w0 acc w p
-          MkReached ks' w2 q2 <- nameUnder origin ks w0 acc w1 (thenNoMore q1 p) rest
-          pure (MkReached ks' w2 (thenNoMore q2 q1))
-    -- A name no definition has is no block to name.
-    Just d <- defined full
-      | Nothing => nameUnder origin ks w0 acc w p rest
-    let key = addressOf d.placement
-    let Nothing = lookup key (!(getState)).blockNames
-      | Just _ => nameUnder origin ks w0 acc w p rest
-    let Just (Element w1 q) = enter d.placement w
-      | Nothing => nameUnder origin ks w0 acc w p rest
-    let k = fromMaybe 0 (lookup kind ks)
-    let name = origin ++ "." ++ kindText kind ++ show k
-    let ks' = insert kind (S k) ks
-    updateState { blockNames $= insert key name }
-    MkReached _ w2 q2 <- nameUnder name empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referentsOf d)
-    MkReached ks'' w3 q3 <- nameUnder origin ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
-    pure (MkReached ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
-
-  ||| Names the blocks of a definition that is no block, once, by its full
-  ||| name.
-  blocksFrom : {auto s : Ref TState TS} ->
-               Name -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
-               (w : Walked) -> (0 _ : NoMore w w0) -> Front (Subset Walked (\w' => NoMore w' w))
-  blocksFrom full w0 acc@(Access rec) w p = do
-    let Nothing = blockOf full
-      | Just _ => pure (Element w (noMore w))
-    -- Nor is a name no definition has a definition to walk.
-    Just d <- defined full
-      | Nothing => pure (Element w (noMore w))
-    let key = addressOf d.placement
-    let Nothing = lookup key (!(getState)).blockNames
-      | Just _ => pure (Element w (noMore w))
-    let Just (Element w1 q) = enter d.placement w
-      | Nothing => pure (Element w (noMore w))
-    let origin = plainOrigin full
-    updateState { blockNames $= insert key origin }
-    MkReached _ w2 q2 <- nameUnder origin empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) (referentsOf d)
-    pure (Element w2 (thenNoMore q2 (fewer q)))
-
-||| Names the blocks of a definition that is no block, once.
-nameBlocksOf : {auto s : Ref TState TS} -> Name -> Front ()
-nameBlocksOf n = ignore (blocksFrom !(fullName n) start (sizeAccessible start) start (noMore start))
-
-namespaceOf : Name -> Maybe Namespace
-namespaceOf (NS ns _) = Just ns
-namespaceOf (DN _ n) = namespaceOf n
-namespaceOf _ = Nothing
-
 ||| A case or with block's printed name: its parent's, then `.case<k>` or
 ||| `.with<k>`, its ordinal under that parent; nothing for any other name.
 ||| Its parent is a full name Idris keeps, and may be a block itself.
@@ -223,19 +66,13 @@ typedBlock _ = Nothing
 
 ||| The definition's printed name, which a key starts with: Idris's full
 ||| name (`plainOrigin`), and for a case, with or nested block its
-||| parent's, then `.case<k>`, `.with<k>` or `.<name><k>`. A block is named
-||| when a definition that refers to it is walked: first the one being
-||| translated, then the block's root, and at last every definition read
-||| from what `main` reaches (`Boundary`), since neither of the first two
-||| need refer to it: a default method's case block is referred to by
-||| the implementation methods the default was elaborated into, and a
-||| nested block's parent index is its place in the context that
-||| elaborated it, which loading does not keep. The block and the
-||| definition Idris made it in share a namespace, so that is where the
-||| search starts. The translation meets only blocks read from what `main`
-||| reaches, each because a definition read refers to it, so a block the
-||| search does not name is the compiler's error.
-keyOrigin : {auto s : Ref TState TS} -> Name -> Front String
+||| parent's, then `.case<k>`, `.with<k>` or `.<name><k>`. A case or with
+||| block's is read off its name, which Idris keeps; a nested block's was
+||| found where the program was read, from what `main` reaches
+||| (`Read.blockNames`). The translation meets only blocks read from what
+||| `main` reaches, each because a definition read refers to it, so a block
+||| with no name is the compiler's error.
+keyOrigin : Name -> Front String
 keyOrigin n = do
   full <- fullName n
   -- A case or with block names its parent and its ordinal under it, which
@@ -247,43 +84,12 @@ keyOrigin n = do
   -- A block no definition has is one no definition can refer to.
   Just d <- defined full
     | Nothing => unreferenced full
-  let key = addressOf d.placement
-  Nothing <- named key
-    | Just o => pure o
-  st <- getState
-  case map (.instantiates) st.chain of
-    OfDefinition n :: _ => nameBlocksOf n
-    -- A member at a use writes no block of its own: a block it calls is
-    -- named under the definition that writes the block.
-    AtUse _ :: _ => pure ()
-    [] => pure ()
-  Nothing <- named key
-    | Just o => pure o
-  nameBlocksOf !(rootOf full)
-  Nothing <- named key
-    | Just o => pure o
-  r <- reading
-  let everyRead = map (\e => fullname e.def) (SortedMap.values r.definitions)
-  let (near, far) = partition (\c => namespaceOf c == namespaceOf full) everyRead
-  search key (near ++ far)
-  Just o <- named key
+  let Just o = lookup (addressOf d.placement) (!reading).blockNames
     | Nothing => unreferenced full
   pure o
   where
     unreferenced : Name -> Front String
     unreferenced full = internal EmptyFC ("no definition read from what main reaches refers to the block " ++ show full)
-
-    named : Address -> Front (Maybe String)
-    named key = pure (lookup key (!(getState)).blockNames)
-
-    search : Address -> List Name -> Front ()
-    search key [] = pure ()
-    search key (c :: cs) = do
-      nameBlocksOf c
-      case !(named key) of
-        Just _ => pure ()
-        Nothing => search key cs
-
 
 ------------------------------------------------------------------------------
 -- What a term is read beside
@@ -1019,7 +825,7 @@ instanceAt fc what head originOf term given = do
   writer <- writerOf (catMaybes args')
   let arguments = map (map (\(x, t) => (x, writtenOf writer t))) resolved
   let link = MkLink head (map (map snd) arguments)
-  case lookup link (!(getState)).named of
+  case lookupFact (.named) link !(getState) of
     Just (symbol, key) => pure (MkInstance link key symbol arguments)
     Nothing => do
       origin <- originOf
@@ -1039,11 +845,11 @@ instanceAt fc what head originOf term given = do
       -- request, before the two are translated as one key. That no two
       -- functions share a symbol is the program's symbol table's, which
       -- MLIR verifies where the symbol is.
-      case lookup key (!(getState)).keyLinks of
+      case lookupFact (.keyLinks) key !(getState) of
         Just other => unless (other == link) $
           internal fc ("two instances on the key " ++ symbol)
         Nothing => pure ()
-      updateState { named $= insert link (symbol, key), keyLinks $= insert key link }
+      updateState (derive { named $= insert link (symbol, key), keyLinks $= insert key link })
       pure (MkInstance link key symbol arguments)
 
 ||| The instance of a definition at its compile-time arguments

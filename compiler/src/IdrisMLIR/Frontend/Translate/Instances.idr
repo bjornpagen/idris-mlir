@@ -17,10 +17,10 @@ import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Keys
-import IdrisMLIR.Frontend.Translate.Recursion
 import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Types
+import IdrisMLIR.Frontend.Translate.TypeConstructors
 import IdrisMLIR.Ids
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Requests
@@ -54,15 +54,16 @@ import Data.SortedSet
 -- growth check, so no root is a `Parameter` here, and no choice, which
 -- keys nothing, so none is a choice's `Members`. An argument is read
 -- once, by its kind and as the request's link writes it, its identity
--- (`TS.readings`): the same type or implementation is given to many
--- requests. Each argument comes with how the link writes it
--- (`Keys.Instance`).
+-- (`Facts.readings`): the same type or implementation is given to many
+-- requests, and a step's readings are merged into the instance table
+-- with the rest of what it derived. Each argument comes with how the link
+-- writes it (`Keys.Instance`).
 readings : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            Nat -> List (Maybe ((Subset Static Requested, ClosedTerm), Written Form)) -> Front (List (Nat, StaticReading))
 readings i [] = pure []
 readings i (Nothing :: as) = readings (S i) as
 readings i (Just ((Element kind _, t), w) :: as) = do
-  here <- case lookup (kind, w) (!(getState)).readings of
+  here <- case lookupFact (.readings) (kind, w) !(getState) of
     Just r => pure r
     Nothing => do
       (h, root) <- closedHeight kind t
@@ -72,7 +73,7 @@ readings i (Just ((Element kind _, t), w) :: as) = do
                              Gives _ => Nothing
                              Unrooted => Nothing
                              Parameter _ _ => Nothing)
-      updateState { readings $= insert (kind, w) r }
+      updateState (derive { readings $= insert (kind, w) r })
       pure r
   ((i, here) ::) <$> readings (S i) as
 
@@ -123,22 +124,20 @@ request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 request fc owner what kinds = do
   (found, positionsOf) <- keyed what
   let inst = InstanceOf found.link
-  st <- getState
-  if contains inst st.instances then pure inst else do
-    updateState { instances $= insert inst }
+  if requestedBefore inst !(getState) then pure inst else do
+    updateState (derive { instances $= insert inst })
     positions <- positionsOf
-    updateState { fnOrder $= (:< inst)
-                  , requested $= (:< MkRequest what kinds found.key fc (shown owner) found.link positions) }
+    updateState (derive { fnOrder $= (:< inst) })
+    updateState { derived->requested $= (:< MkRequest what kinds found.key fc (shown owner) found.link positions) }
     pure inst
   where
     -- The instance, and, for a new one, where the growth check bounds its
-    -- static arguments: a definition's at its node, once its component of
-    -- Idris's call graph is checked; a member at a use's at its link alone.
+    -- static arguments: a definition's at its node; a member at a use's at
+    -- its link alone.
     keyed : Instantiates -> Front (Instance (Subset Static Requested, ClosedTerm), Front (List (Position, Nat)))
     keyed (OfDefinition n) = do
       (address, found) <- instanceKey fc owner n snd (map staticKindOf kinds)
-      pure (found, do core (checkRecursion n)
-                      read <- readings 0 found.arguments
+      pure (found, do read <- readings 0 found.arguments
                       let node = MkNode address (mapMaybe (\(i, r) => (i,) <$> r.head) read)
                       pure (map (\(i, r) => ((node, i), r.height)) read))
     keyed (AtUse uses) = (, pure []) <$> applicationKey fc uses snd (map staticKindOf kinds)

@@ -86,65 +86,70 @@ mutual
 
   ||| The calls of the definition at `key`, in order: a callee the walk has
   ||| not entered is visited, and one on the stack lowers the definition's
-  ||| link. A callee is read as the translation reads it (`readOf`); a name
-  ||| no definition has is no callee, and one the reading missed is the
-  ||| compiler's error.
+  ||| link. A callee is read as the translation reads it (`definedIn`); a
+  ||| name no definition has is no callee.
   successors : Read -> SortedMap Address Termination -> Address ->
                (w0 : Walked) -> (0 _ : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
                List Name -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w))
   successors r done key w0 acc w p [] s = pure (s, Element w (noMore w))
-  successors r done key w0 acc@(Access rec) w p (x :: xs) s = case readOf r x of
-    NoDefinition => successors r done key w0 acc w p xs s
-    Missed => throw (InternalError ("the definitions read for the translation miss the callee " ++ show x))
-    ReadAs d => do
-      let xkey = addressOf d.placement
-      let False = isJust (lookup xkey done)
-        | True => successors r done key w0 acc w p xs s
-      -- Entered already: met before in this search.
-      let Just (Element w1 q) = enter d.placement w
-        | Nothing => successors r done key w0 acc w p xs (maybe s (\n => if contains xkey s.onStack then lower key n s else s)
-                                                             (lookup xkey s.number))
-      (after, Element w2 q2) <- visit r done (memberOf r.frozen d) w1 (rec w1 (fewerThen q p)) s
-      let s' = maybe after (\n => lower key n after) (lookup xkey after.low)
-      (s'', Element w3 q3) <- successors r done key w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) xs s'
-      pure (s'', Element w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
+  successors r done key w0 acc@(Access rec) w p (x :: xs) s = do
+    Just d <- definedIn r x
+      | Nothing => successors r done key w0 acc w p xs s
+    let xkey = addressOf d.placement
+    let False = isJust (lookup xkey done)
+      | True => successors r done key w0 acc w p xs s
+    -- Entered already: met before in this search.
+    let Just (Element w1 q) = enter d.placement w
+      | Nothing => successors r done key w0 acc w p xs (maybe s (\n => if contains xkey s.onStack then lower key n s else s)
+                                                           (lookup xkey s.number))
+    (after, Element w2 q2) <- visit r done (memberOf r.frozen d) w1 (rec w1 (fewerThen q p)) s
+    let s' = maybe after (\n => lower key n after) (lookup xkey after.low)
+    (s'', Element w3 q3) <- successors r done key w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) xs s'
+    pure (s'', Element w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
     where
       lower : Address -> Nat -> Search -> Search
       lower k n st = { low $= \m => insert k (min n (fromMaybe n (lookup k m))) m } st
+
+||| The components checked so far: the next one's number, and what Idris
+||| proved of each definition's loops, by address.
+record Checked where
+  constructor MkChecked
+  nextComponent : Nat
+  proved : SortedMap Address Termination
 
 ||| Checks one component, numbered as it is found: each definition whose
 ||| loops Idris's graphs prove to end terminates in it; any other may
 ||| diverge, by its own name. Whether its recursion asks for ever more
 ||| instances is the growth check's to say (`Growth`), on the program's
 ||| static positions.
-checkComponent : {auto s : Ref TState TS} -> List Member -> Core ()
-checkComponent members = do
-  st <- get TState
-  let names = gamma (defsOf st.reads.frozen)
-  let inside = the (SortedSet Address) (fromList (map (.address) members))
-  let within = \n => maybe False (\a => contains a inside) (definitionAddress names n)
-  let calls = [ (caller.name, call) | caller <- members, call <- caller.calls, within call.fnCall ]
-  let verdicts = loopsTerminate calls (map (.name) members)
-  let component = MkComponentId st.nextComponent
+checkComponent : Read -> Checked -> List Member -> Checked
+checkComponent r checked members =
+  let names = gamma (defsOf r.frozen)
+      inside = the (SortedSet Address) (fromList (map (.address) members))
+      within = \n => maybe False (\a => contains a inside) (definitionAddress names n)
+      calls = [ (caller.name, call) | caller <- members, call <- caller.calls, within call.fnCall ]
+      verdicts = loopsTerminate calls (map (.name) members)
+      component = MkComponentId checked.nextComponent
       termination : Name -> Loops -> Termination
       termination n Decreasing = Terminates component
       termination n (Endless _) = MayDiverge (shown (show n) ::: [])
-  put TState ({ nextComponent $= S
-              , loops $= \m => foldl (\m', (n, v) => maybe m' (\a => insert a (termination n v) m')
-                                                            (definitionAddress names n))
-                                      m verdicts } st)
+  in MkChecked (S checked.nextComponent)
+               (foldl (\m, (n, v) => maybe m (\a => insert a (termination n v) m) (definitionAddress names n))
+                      checked.proved verdicts)
 
-||| Checks the component of a definition, and of every definition it
-||| reaches, once each.
+||| What Idris proved of the loops of every definition read from what
+||| `main` reaches, by address: the component of each, found from each in
+||| the order the table holds them, once, and numbered as found. What a
+||| definition's loops are follows from the definitions alone, so every
+||| one is found where the program is read, before any instance is
+||| requested.
 export
-checkRecursion : {auto s : Ref TState TS} -> Name -> Core ()
-checkRecursion n = do
-  st <- get TState
-  let r = st.reads
-  case readOf r (fullNameIn r.frozen n) of
-    NoDefinition => pure ()
-    Missed => throw (InternalError ("the definitions read for the translation miss " ++ show n))
-    ReadAs d => unless (isJust (lookup (addressOf d.placement) st.loops)) $ do
-      let w = startAt d.placement
-      (result, _) <- visit r st.loops (memberOf r.frozen d) w (sizeAccessible w) (MkSearch 0 empty empty [] empty [])
-      for_ result.found checkComponent
+loopsOf : Read -> Core (SortedMap Address Termination)
+loopsOf r = (.proved) <$> foldlM from (MkChecked 0 empty) (values r.definitions)
+  where
+    from : Checked -> Defined -> Core Checked
+    from checked d =
+      if isJust (lookup (addressOf d.placement) checked.proved) then pure checked else do
+        let w = startAt d.placement
+        (result, _) <- visit r checked.proved (memberOf r.frozen d) w (sizeAccessible w) (MkSearch 0 empty empty [] empty [])
+        pure (foldl (checkComponent r) checked result.found)

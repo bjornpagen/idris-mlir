@@ -161,6 +161,26 @@ replaceAt Z v (_ :: ys) = v :: ys
 replaceAt (S i) v (y :: ys) = y :: replaceAt i v ys
 replaceAt _ _ [] = []
 
+||| A dispatch with its arm for the member at position `i`, as the step
+||| being run derives it: the dispatch as the step reads it
+||| (`lookupFact`), with the arm, superseding the table's.
+withArm : FnId -> Nat -> FnId -> TS -> TS
+withArm inst i arm st = case lookupFact (.dispatches) inst st of
+  Just d => derive { dispatches $= insert inst ({ arms $= insert i arm } d) } st
+  Nothing => st
+
+||| A choice with one more member, and its family with the member's
+||| constructor after the others, as the step being run derives them: each
+||| as the step reads it (`lookupFact`), changed, superseding the table's.
+withMember : FamilyId -> ChoiceMember -> TS -> TS
+withMember fam m st =
+  let st' = case lookupFact (.choices) fam st of
+              Just ch => derive { choices $= insert fam ({ members $= (:< m) } ch) } st
+              Nothing => st in
+  case familyOf fam st' of
+    Just f => derive { families $= insert fam ({ cons $= (++ [conOf m.con]) } f) } st'
+    Nothing => st'
+
 ||| The first choice among a call's kinds: its position, and the type it is
 ||| a choice of.
 firstChoice : List PKind -> Maybe (Nat, ClosedTerm)
@@ -202,11 +222,12 @@ mutual
     found <- instanceFor fc owner what kinds
     let inst = InstanceOf found.link
     st <- getState
-    if contains inst st.instances then pure inst else do
+    if requestedBefore inst st then pure inst else do
       let d = MkDispatch inst found.symbol found.key what kinds choice.family at (Given rest) fc owner empty
-      updateState { instances $= insert inst, fnOrder $= (:< inst)
-                  , dispatches $= insert inst d
-                  , dispatchesOn $= insert choice.family (inst :: fromMaybe [] (lookup choice.family st.dispatchesOn)) }
+      updateState (derive { instances $= insert inst, fnOrder $= (:< inst)
+                          , dispatches $= insert inst d
+                          , dispatchesOn $= insert choice.family
+                                              (inst :: fromMaybe [] (lookupFact (.dispatchesOn) choice.family st)) })
       armsFor rest d 0 (choice.members <>> [])
       pure inst
 
@@ -225,7 +246,7 @@ mutual
           (rest : Nat) -> Dispatch -> (i : Nat) -> ChoiceMember -> Front ()
   armAt rest d i m = do
     arm <- calleeAt rest d.site d.owner d.callee (replaceAt d.at (memberKind m) d.kinds)
-    updateState { dispatches $= updateExisting ({ arms $= insert i arm }) d.inst }
+    updateState (withArm d.inst i arm)
 
 ------------------------------------------------------------------------------
 -- Choices an implementation holds
@@ -306,7 +327,7 @@ heldArmAt d j i m = do
     | _ => internal d.site "an instance split by a choice no implementation it is given holds"
   kind <- heldMember d.site d.owner j form hs m
   arm <- request d.site d.owner d.callee (replaceAt d.at kind d.kinds)
-  updateState { dispatches $= updateExisting ({ arms $= insert i arm }) d.inst }
+  updateState (withArm d.inst i arm)
 
 ||| An instance given an implementation that holds a choice the running
 ||| program made, at parameter `at` and place `j` among its values: a
@@ -324,10 +345,11 @@ heldDispatch r at j ty = do
   choice <- choiceFamily r.site owner ty
   let d = MkDispatch r.inst (keyText r.key) r.key r.instantiates r.kinds choice.family at (Held j) r.site owner empty
   st <- getState
-  let Nothing = lookup r.inst st.dispatches
+  let Nothing = lookupFact (.dispatches) r.inst st
     | Just _ => pure ()
-  updateState { dispatches $= insert r.inst d
-              , dispatchesOn $= insert choice.family (r.inst :: fromMaybe [] (lookup choice.family st.dispatchesOn)) }
+  updateState (derive { dispatches $= insert r.inst d
+                      , dispatchesOn $= insert choice.family
+                                          (r.inst :: fromMaybe [] (lookupFact (.dispatchesOn) choice.family st)) })
   traverse_ (\(i, m) => heldArmAt d j i m) (zip (iterateN (length choice.members) S 0) (choice.members <>> []))
 
 ||| A new member of a choice, joined with every dispatch made on it: each
@@ -335,11 +357,10 @@ heldDispatch r at j ty = do
 added : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Choice -> ChoiceMember -> Front ()
 added choice m = do
   let at = length choice.members
-  updateState { choices $= updateExisting ({ members $= (:< m) }) choice.family
-              , families $= updateExisting ({ cons $= (++ [conOf m.con]) }) choice.family }
+  updateState (withMember choice.family m)
   st <- getState
-  for_ (fromMaybe [] (lookup choice.family st.dispatchesOn)) $ \inst => do
-    let Just d = lookup inst st.dispatches
+  for_ (fromMaybe [] (lookupFact (.dispatchesOn) choice.family st)) $ \inst => do
+    let Just d = lookupFact (.dispatches) inst st
       | Nothing => internal EmptyFC "a dispatch listed on its choice and never made"
     case d.chosen of
       Given rest => armAt rest d at m
@@ -420,7 +441,7 @@ dispatcher d = do
   result <- coreType d.site d.owner ValueType !(normaliseClosed resTy)
   loc <- toLoc d.site
   st <- getState
-  let members = maybe [] (\ch => ch.members <>> []) (lookup d.family st.choices)
+  let members = maybe [] (\ch => ch.members <>> []) (lookupFact (.choices) d.family st)
   let Just choice = natToFin (Runtimes (take d.at kinds)) (Runtimes kinds)
     | Nothing => internal d.site "a dispatch whose choice is no parameter at run time"
   let indices = ownLevels (length (telescopeOf kinds))
@@ -440,9 +461,9 @@ dispatcher d = do
           | Nothing => internal d.site "a choice held past the values an implementation holds"
         arms <- traverse (heldArm loc indices choice params ren (without j typed)) numbered
         pure (matching loc chosen arms)
-  updateState { fns $= insert d.inst (MkTFn d.inst d.symbol d.key (telescopeOf kinds) (Runtimes kinds)
-                                            (map (\b => (shown "x", b)) (runtimeBinders kinds))
-                                            result body loc Acyclic) }
+  updateState (derive { fns $= insert d.inst (MkTFn d.inst d.symbol d.key (telescopeOf kinds) (Runtimes kinds)
+                                                    (map (\b => (shown "x", b)) (runtimeBinders kinds))
+                                                    result body loc Acyclic) })
   where
     matching : {0 p : Nat} -> Loc -> Fin p -> List (Alt p) -> Term p
     matching loc x [] = Unreachable loc
@@ -488,7 +509,8 @@ dispatcher d = do
           pure (MkAlt con [shown "held"] body)
 
 ||| Every dispatch as the function it is, once the translation has found
-||| every member of every choice.
+||| every member of every choice: every dispatch is in the instance table,
+||| the worklist having merged every step's.
 export
 dispatchers : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Front ()
-dispatchers = traverse_ dispatcher (values (!(getState)).dispatches)
+dispatchers = traverse_ dispatcher (values (!(getState)).table.dispatches)

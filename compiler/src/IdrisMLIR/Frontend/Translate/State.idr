@@ -155,7 +155,7 @@ nameKey n = show n
 ||| A definition's identity: its address in the context (`Walk.addressOf`);
 ||| nothing for a name the context does not hold, which no table keeps.
 ||| For a site that needs the address alone; one that needs the definition
-||| too resolves it once (`Walk.resolve`).
+||| too reads it as it was read (`readOf`).
 export
 definitionAddress : Context -> Name -> Maybe Address
 definitionAddress ctx n = addressOf <$> placementIn ctx n
@@ -562,8 +562,10 @@ givesAfter k ps = fromMaybe (beyond ps) (getAt k (forget ps.gives))
 ||| part read once (`Boundary`): its place, the definition, its type as the
 ||| context's accessor reads it, its body when it matches (`Matched`),
 ||| whether Idris proved it ends (`Ends`), what the registry makes of it
-||| (`Registered`), and where its values are members of a choice
-||| (`MemberPlaces`).
+||| (`Registered`), where its values are members of a choice
+||| (`MemberPlaces`), and what it takes at each binder of its type in
+||| normal form (`Closed.argumentAt`), read off the normal form the member
+||| table is read off.
 public export
 record Defined where
   constructor MkDefined
@@ -574,6 +576,7 @@ record Defined where
   ends : Ends
   registered : Registered
   places : MemberPlaces
+  taken : List ArgumentAt
 
 ||| Where a definition's values are members of a choice (`MemberPlaces`),
 ||| read once at the boundary: the lookup the translation and the growth
@@ -588,11 +591,17 @@ memberPlaces d = d.places
 ||| definition the translation can meet from the program's entry, each read
 ||| once and kept by its entry in the context (`Boundary.readProgram`); the
 ||| type a member at a use is applied as by (`Instances.applicationType`),
-||| whose binders' names are interned once; and the type constructors of
-||| the interfaces the program loaded, by full name, Idris's own table of
-||| them, since nothing the translation does declares one. An
-||| implementation is a value of one of these types, or of a pair of or a
-||| function to such values (`Boundary.implementationHolding`). Nothing the
+||| whose binders' names are interned once; the type constructors of the
+||| interfaces the program loaded, by full name, Idris's own table of them,
+||| since nothing the translation does declares one (an implementation is
+||| a value of one of these types, or of a pair of or a function to such
+||| values, `Boundary.implementationHolding`); and what follows from the
+||| definitions alone, found once from them: each type constructor's facts
+||| (`TypeConstructors`), what Idris proved of each definition's loops by
+||| the component of its call graph (`Recursion`), and what each case, with
+||| and nested block is called, `<parent>.case<k>` (`Boundary`), each by
+||| its address; and every entry of the registry the validation resolves,
+||| its definition's name interned (`Resolve.validate`). Nothing the
 ||| translation does changes it.
 public export
 record Read where
@@ -601,6 +610,10 @@ record Read where
   definitions : SortedMap Int Defined
   application : ClosedTerm
   interfaces : SortedSet Name
+  tyCons : SortedMap Address TyConFacts
+  loops : SortedMap Address Termination
+  blockNames : SortedMap Address String
+  sites : List RegistrySite
 
 ||| What was read of a name: the definition at the entry the frozen context
 ||| resolves it to; no definition, for a name the context defines as
@@ -617,7 +630,100 @@ readOf r n = case definitionIn r.frozen n of
   NotDefined _ => NoDefinition
   DefinedAs i _ _ _ => maybe Missed ReadAs (lookup i r.definitions)
 
+||| The definition a name names, as it was read (`readOf`); nothing for a
+||| name the context defines as nothing, a probe's among them. Every
+||| definition a phase can meet was read from what `main` reaches, so one
+||| the context defines and the reading missed is the compiler's error.
+export
+definedIn : Read -> Name -> Core (Maybe Defined)
+definedIn r n = case readOf r n of
+  ReadAs d => pure (Just d)
+  NoDefinition => pure Nothing
+  Missed => throw (InternalError ("the definitions read from what main reaches miss " ++ show (fullNameIn r.frozen n)))
+
 %prefix_record_projections on
+
+||| What the translation derives of the program, each fact by its
+||| content: the family instances, each by its link, its identity numbered
+||| once (the next number `nextFamily`), each by its identity, and in the
+||| order registered; their constructors; the function instances
+||| requested, each by its identity, which is its content (requesting one
+||| derives it, and nothing mints it), in the order first requested, and
+||| the functions made of them; the keys made, each identity's symbol and
+||| key, and each key's identity, so that two identities on one key are
+||| found (a print that drops what it claims to keep, or a collision of the
+||| hash bits a lossy key carries); the choices, each by what it is a
+||| choice of (`ChoiceKey`), its family numbered with the families, and
+||| each by its family; the dispatches, each by its identity, and those on
+||| each choice, by its family, which a new member is joined with; and each
+||| static argument a request has given, read (`StaticReading`), by its
+||| kind and as a link writes it (`Keys.write`), which tells two arguments
+||| apart as Idris's `==` does, so an argument read for one request is read
+||| for every other.
+|||
+||| The instance table is these facts as the worklist has merged them
+||| (`merged`); a step's derivation is these facts as the step made or
+||| changed them, which supersede the table's by key.
+public export
+record Facts where
+  constructor MkFacts
+  familyIds : SortedMap (Link Form) FamilyId
+  nextFamily : Nat
+  families : SortedMap FamilyId Family
+  familyOrder : SnocList FamilyId
+  cons : SortedMap ConId ConLayout
+  instances : SortedSet FnId
+  fnOrder : SnocList FnId
+  fns : SortedMap FnId TFn
+  named : SortedMap (Link Form) (String, InstanceKey)
+  keyLinks : SortedMap InstanceKey (Link Form)
+  choiceIds : SortedMap ChoiceKey FamilyId
+  choices : SortedMap FamilyId Choice
+  dispatches : SortedMap FnId Dispatch
+  dispatchesOn : SortedMap FamilyId (List FnId)
+  readings : SortedMap (Static, Written Form) StaticReading
+
+||| No fact.
+export
+noFacts : Facts
+noFacts = MkFacts empty 0 empty [<] empty empty [<] empty empty empty empty empty empty empty empty
+
+||| What one step of the translation derived (`Programs.step`): the facts it
+||| made or changed, among them its instance's function, by its identity,
+||| its families numbered after the table's; and the instances it requested
+||| that the table lacked, in the order requested, which the worklist judges
+||| against the step's chain and takes in a later generation.
+public export
+record Derived where
+  constructor MkDerived
+  facts : Facts
+  requested : SnocList Request
+
+||| What a step has derived before it derives anything: no fact, the next
+||| family numbered after the table's (`table`), and no request.
+export
+startingFrom : (table : Facts) -> Derived
+startingFrom table = MkDerived ({ nextFamily := table.nextFamily } noFacts) [<]
+
+||| The instance table with a step's derivation merged into it: every fact
+||| the step made or changed supersedes the table's by its key, and the
+||| families and instances it made come after the table's, in order. The
+||| step numbered its families after the table's, so the next family is
+||| the step's. Only the step's own facts are walked.
+export
+merged : Facts -> Derived -> Facts
+merged t d =
+  let f = d.facts in
+  MkFacts (over f.familyIds t.familyIds) f.nextFamily (over f.families t.families) (t.familyOrder ++ f.familyOrder)
+          (over f.cons t.cons) (foldl (\set, x => insert x set) t.instances (SortedSet.toList f.instances))
+          (t.fnOrder ++ f.fnOrder) (over f.fns t.fns) (over f.named t.named) (over f.keyLinks t.keyLinks)
+          (over f.choiceIds t.choiceIds) (over f.choices t.choices) (over f.dispatches t.dispatches)
+          (over f.dispatchesOn t.dispatchesOn) (over f.readings t.readings)
+  where
+    -- The step's entries over the table's, the step's kept where both
+    -- hold a key.
+    over : SortedMap k v -> SortedMap k v -> SortedMap k v
+    over step table = insertFrom (SortedMap.toList step) table
 
 public export
 record TS where
@@ -626,60 +732,16 @@ record TS where
   ||| read once the entry is found, before every phase that reads them;
   ||| each computation of the frontend's reads it (`Errors.reading`).
   reads : Read
-  ||| The family instances registered, each by its link, its identity
-  ||| minted once, the next one `nextFamily`; each family by its identity;
-  ||| and the families in the order they were registered.
-  familyIds : SortedMap (Link Form) FamilyId
-  nextFamily : Nat
-  families : SortedMap FamilyId Family
-  familyOrder : SnocList FamilyId
-  cons : SortedMap ConId ConLayout
-  fns : SortedMap FnId TFn
-  ||| The instances in the order they were first requested, the root first:
-  ||| the order the worklist first takes them in, first in, first out
-  ||| (`Finite`), and so the order of the program's functions. An instance
-  ||| translated again keeps its place.
-  fnOrder : SnocList FnId
-  ||| The function instances requested, by their identity, which is their
-  ||| content: requesting one derives it, and nothing mints it.
-  instances : SortedSet FnId
-  ||| The instances requested since the worklist last took them, in the
-  ||| order requested (`Finite.requestedUnder`).
-  requested : SnocList Request
+  ||| The instance table (`Facts`), as the worklist has merged each step's
+  ||| derivation into it; a step reads it and writes nothing to it.
+  table : Facts
+  ||| What the step being run has derived so far (`Derived`), which every
+  ||| fact it reads supersedes the table's with (`lookupFact`), and the
+  ||| only part of the state a step writes (`derive`).
+  derived : Derived
   ||| Where a refusal at no location of its own is: the main module, at
   ||| main once it is found (`Errors.siteAt`).
   moduleFC : NonEmptyFC
-  ||| The definitions whose component of Idris's call graph has been
-  ||| checked (`Recursion`), by address, each with what Idris proved of its
-  ||| loops; the components are numbered as they are checked, the next one
-  ||| `nextComponent`.
-  loops : SortedMap Address Termination
-  nextComponent : Nat
-  ||| The instances made, by their identity, the link (`Keys.instanceKey`):
-  ||| each with its symbol and its key.
-  named : SortedMap (Link Form) (String, InstanceKey)
-  ||| Each key made, with the identity it stands for: two identities on
-  ||| one key are a print that drops what it claims to keep, or a
-  ||| collision of the hash bits a lossy key carries, found here.
-  keyLinks : SortedMap InstanceKey (Link Form)
-  ||| What each case, with and nested block is called, `<parent>.case<k>`,
-  ||| by its address, and every definition whose blocks are named, by its
-  ||| own origin (`Keys`). A block's name depends only on the definitions,
-  ||| so each is found once.
-  blockNames : SortedMap Address String
-  ||| The choices registered, each by what it is a choice of
-  ||| (`ChoiceKey`), its family minted once from `nextFamily`; and each by
-  ||| its family.
-  choiceIds : SortedMap ChoiceKey FamilyId
-  choices : SortedMap FamilyId Choice
-  ||| The dispatches made, each by its identity, and the dispatches on each
-  ||| choice, by its family, which a new member is joined with.
-  dispatches : SortedMap FnId Dispatch
-  dispatchesOn : SortedMap FamilyId (List FnId)
-  ||| The request chain of the instance being translated: its own request,
-  ||| the one that requested it, back to the root, which its block names
-  ||| and its exits read; the worklist sets it (`Finite.worklist`).
-  chain : List Request
   ||| The program's rejections so far, in the order they were found: a
   ||| check or an instance that is rejected does not stop the others
   ||| (`Errors.noting`), so that one run reports every independent one.
@@ -700,17 +762,6 @@ record TS where
   ||| every location a term of the program has is in one of them
   ||| (`Errors.toLoc`).
   modules : Modules
-  ||| What the translation reads of each type constructor's definition
-  ||| (`Types.tyConFacts`), by address, found once each.
-  tyCons : SortedMap Address TyConFacts
-  ||| What each definition takes at each binder of its type in normal form
-  ||| (`Closed.argumentsOf`), by address, read once each.
-  argumentsTaken : SortedMap Address (List ArgumentAt)
-  ||| Each static argument a request has given, read (`StaticReading`), by its
-  ||| kind and as a link writes it (`Keys.write`), which tells two
-  ||| arguments apart as Idris's `==` does: an argument reads the same in
-  ||| every request that gives it, so it is read once (`Instances.request`).
-  readings : SortedMap (Static, Written Form) StaticReading
   ||| Each static position's height bound, written by the growth check
   ||| (`Growth.checkGrowth`) once, before the translation: a request whose
   ||| static argument is higher, or whose position has none, is the
@@ -725,41 +776,36 @@ export
 initState : Read -> Modules -> NonEmptyFC -> TS
 initState r loaded fc = MkTS
   { reads = r
-  , familyIds = empty, nextFamily = 0, families = empty, familyOrder = [<]
-  , cons = empty, fns = empty, fnOrder = [<], instances = empty, requested = [<], moduleFC = fc
-  , nextComponent = 0
-  , loops = empty, named = empty, keyLinks = empty, blockNames = empty
-  , choiceIds = empty, choices = empty, dispatches = empty, dispatchesOn = empty
-  , chain = [], rejected = [<], refused = empty
-  , spelled = empty, modules = loaded, tyCons = empty, argumentsTaken = empty, readings = empty, bounds = empty
+  , table = noFacts, derived = startingFrom noFacts
+  , moduleFC = fc, rejected = [<], refused = empty
+  , spelled = empty, modules = loaded, bounds = empty
   , sizes = MkBounds (const []) 0 0 0 }
 
-||| A family registered, by its identity.
+||| A fact of the instance table as the step being run reads it: what the
+||| step derived, which supersedes the table's, else what the table holds.
+export
+lookupFact : (Facts -> SortedMap k v) -> k -> TS -> Maybe v
+lookupFact field key st = lookup key (field st.derived.facts) <|> lookup key (field st.table)
+
+||| Has the instance been requested, by the step being run or before it?
+export
+requestedBefore : FnId -> TS -> Bool
+requestedBefore inst st = contains inst st.derived.facts.instances || contains inst st.table.instances
+
+||| A family registered, by its identity, as the step being run reads it
+||| (`lookupFact`).
 export
 familyOf : FamilyId -> TS -> Maybe Family
-familyOf f st = lookup f st.families
+familyOf = lookupFact (.families)
 
-||| What a translation has found that outlives what found it, put back in
-||| a state: the rejections and what they refused, and what it found of
-||| definitions' arguments, type constructors, static arguments, blocks and the call
-||| graph's components, facts of the program's definitions that
-||| nothing the translation does changes. An instance its translation
-||| rejects leaves the state as it was before it but for these
-||| (`Finite.worklist`), and the translation starts with them
-||| (`translating`). The modules were read before any of it, and are the
-||| same in both.
+||| The state with what the step being run has derived changed by `f`: the
+||| one write of the instance table's facts a step makes.
 export
-keepFound : (from : TS) -> TS -> TS
-keepFound from = { rejected := from.rejected, refused := from.refused
-                 , tyCons := from.tyCons, argumentsTaken := from.argumentsTaken, readings := from.readings
-                 , loops := from.loops
-                 , nextComponent := from.nextComponent
-                 , blockNames := from.blockNames }
+derive : (Facts -> Facts) -> TS -> TS
+derive f = { derived->facts $= f }
 
-||| The state the translation starts from: nothing of the phases before it
-||| but what it reads of the program, the modules, what they found that
-||| outlives them (`keepFound`), and the growth check's bounds.
+||| The state the translation starts from: no fact derived, and the rest of
+||| what the phases before it found, the growth check's bounds among them.
 export
 translating : TS -> TS
-translating st = keepFound st ({ bounds := st.bounds, sizes := st.sizes }
-                                 (initState st.reads st.modules st.moduleFC))
+translating = { table := noFacts, derived := startingFrom noFacts }

@@ -8,10 +8,13 @@
 ||| the context, so every function among them whose verdict the checked
 ||| module leaves unchecked is checked as it is read, and the context is
 ||| frozen only then: nothing writes it after, and every normaliser reads
-||| it as frozen. Where a definition's values are members of a choice is
-||| read off its type in normal form, once the context is frozen. The
-||| translation reads these and nothing else of the context
-||| (`Errors.defined`).
+||| it as frozen. Where a definition's values are members of a choice, and
+||| what it takes at each binder, are read off its type in normal form, once
+||| the context is frozen; and what follows from the definitions alone is
+||| found from them once: each type constructor's facts
+||| (`TypeConstructors`), each definition's loops (`Recursion`), and what
+||| each block is called (`blockNamesOf`). The translation reads these and
+||| nothing else of the context (`Errors.defined`).
 |||
 ||| A definition is met through a name some term the translation holds
 ||| refers to: a definition's type or body, or a normal form of terms made
@@ -34,7 +37,9 @@ import Idris.Host
 
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Recursion
 import IdrisMLIR.Frontend.Translate.State
+import IdrisMLIR.Frontend.Translate.TypeConstructors
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Registry
 
@@ -55,7 +60,8 @@ import Data.SortedSet
 
 ||| A name a definition refers to, as a walk over what the program reaches
 ||| follows it: a definition, or a metavariable, whose solution a walk that
-||| names blocks reads under the definition that refers to it (`Keys`).
+||| names blocks reads under the definition that refers to it
+||| (`nameUnder`).
 public export
 data Referent = ARef Name | AMeta Name
 
@@ -159,10 +165,10 @@ parentOf (Nested (outer, _) _) = Just (Resolved outer)
 parentOf _ = Nothing
 
 ||| The names of the library functions the registry's hooks of a
-||| definition name.
+||| definition name: its name's, and a `%foreign` definition's specs'.
 librariesOf : Registered -> List Name
-librariesOf (Hooked hs) = map (.name) (libraries hs)
-librariesOf (Unhooked _) = []
+librariesOf (ByName hs) = map (.name) (libraries hs)
+librariesOf (BySpecs hs called) = map (.name) (libraries hs ++ either (const []) libraries called)
 
 ------------------------------------------------------------------------------
 -- Reading a definition
@@ -235,15 +241,15 @@ verdictOf i def = case definition def of
     endsBy IsTerminating = ProvedToEnd
     endsBy _ = NotProvedToEnd
 
-||| What the registry makes of a definition (`Registered`): a foreign
-||| definition's hooks by its specs, any other's by its name, each library
+||| What the registry makes of a definition (`Registered`): the hooks of
+||| its name, and a foreign definition's by its specs, each library
 ||| function they name interned once, where it enters the compiler.
 registeredOf : {auto c : Ref Ctxt Defs} -> GlobalDef -> Core Registered
-registeredOf def = case definition def of
-  ForeignDef _ specs => case foreignHooks (fullname def) specs of
-    Right hs => Hooked <$> interned hs
-    Left miss => pure (Unhooked miss)
-  _ => Hooked <$> interned (hooksOf (fullname def))
+registeredOf def = do
+  own <- interned (hooksOf (fullname def))
+  case definition def of
+    ForeignDef _ specs => BySpecs own <$> traverse interned (foreignHooks (fullname def) specs)
+    _ => pure (ByName own)
   where
     interned : Hooks QName -> Core (Hooks LibraryFunction)
     interned = readLibraries (\q => MkLibraryFunction q <$> toName q)
@@ -397,6 +403,178 @@ placesOf fz ifs normal = fst (go normal)
     go t = (MkMemberPlaces [] (implementationHolding fz ifs t ::: []), polymorphicHolding fz ifs t)
 
 ------------------------------------------------------------------------------
+-- What each block is called
+------------------------------------------------------------------------------
+
+||| Idris's full name, except that a `DN`, which is how Idris names an
+||| implementation's method, is its inner name: the display name
+||| (`Prelude.Types.map`) is every implementation's in the module, the inner
+||| one (`Prelude.Types.map_Functor_Maybe`) is this one's.
+export
+plainName : Name -> Name
+plainName (NS ns (DN _ m)) = NS ns m
+plainName (DN _ m) = m
+plainName m = m
+
+||| A name as a key prints it (`plainName`).
+export
+plainOrigin : Name -> String
+plainOrigin n = show (plainName n)
+
+||| The kind of block Idris made of a definition: a case block and a with
+||| block, which Idris numbers with one counter for the whole build, and a
+||| nested (`where`) function by its own name, as a key prints it
+||| (`plainName`), which Idris numbers with its parent's place in the
+||| context. None of those numbers says where the block is, and a name says
+||| it only up to the blocks of one kind under one parent: each clause's
+||| `where` may define the same name again.
+export
+data BlockKind = OfCase | OfWith | OfNested Name
+
+Eq BlockKind where
+  OfCase == OfCase = True
+  OfWith == OfWith = True
+  OfNested a == OfNested b = a == b
+  _ == _ = False
+
+Ord BlockKind where
+  compare OfCase OfCase = EQ
+  compare OfCase _ = LT
+  compare OfWith OfCase = GT
+  compare OfWith OfWith = EQ
+  compare OfWith (OfNested _) = LT
+  compare (OfNested a) (OfNested b) = compare a b
+  compare (OfNested _) _ = GT
+
+||| A block's kind as its printed name spells it under its parent.
+kindText : BlockKind -> String
+kindText OfCase = "case"
+kindText OfWith = "with"
+kindText (OfNested inner) = show inner
+
+||| The kind of block a definition is, by its name; nothing for a
+||| definition that is no block.
+export
+blockOf : Name -> Maybe BlockKind
+blockOf (NS _ n) = blockOf n
+blockOf (CaseBlock _ _) = Just OfCase
+blockOf (WithBlock _ _) = Just OfWith
+blockOf (Nested _ inner) = Just (OfNested (plainName inner))
+blockOf _ = Nothing
+
+||| What a definition read refers to, in the order the walk meets it
+||| (`references`): its body as the translation reads it, then its type.
+||| For a solved metavariable these are its solution's.
+referentsOf : Defined -> List Referent
+referentsOf d = references d.matched d.type
+
+||| Where a walk that names blocks has got to: what each definition it has
+||| walked is called, by address, a block by its place under the definition
+||| that refers to it first and any other by its own name; how many blocks
+||| of each kind are named so far under the definition being walked (none
+||| of a kind the map does not hold); and what the walk has entered, no
+||| more than where it was.
+record Reached (w : Walked) where
+  constructor MkReached
+  names : SortedMap Address String
+  counters : SortedMap BlockKind Nat
+  after : Walked
+  0 noMore : NoMore after w
+
+mutual
+  ||| Names the blocks a definition refers to, depth first: each block not
+  ||| yet named gets the next number of its kind under the definition that
+  ||| refers to it first (`.case0`, `.with0`, `.go0`, `.go1`), and its own
+  ||| references are walked at once under its new name. The numbers count
+  ||| from 0 in each parent, so a block's name changes only with its
+  ||| parent's definition, never with how many blocks the rest of the build
+  ||| made. An ordinary reference is walked too: a block is not always
+  ||| referred to by the definition Idris named it for (a case block of an
+  ||| interface's default method is referred to by the implementation
+  ||| methods the default was elaborated into, under the method's name), so
+  ||| the walk follows references until it reaches a definition that does
+  ||| refer to the block. A solved metavariable is walked through its
+  ||| solution, under the same parent and counters. Each definition and each
+  ||| metavariable is entered once (`Walk`), which is why the walk ends:
+  ||| `w0` is where this level of it began, and every definition it enters
+  ||| leaves fewer than `w0` to enter.
+  nameUnder : Read -> String -> SortedMap Address String -> SortedMap BlockKind Nat ->
+              (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
+              (w : Walked) -> (0 _ : NoMore w w0) -> List Referent -> Core (Reached w)
+  nameUnder r origin names ks w0 acc w p [] = pure (MkReached names ks w (noMore w))
+  nameUnder r origin names ks w0 acc@(Access rec) w p (AMeta m :: rest) = do
+    Just d <- definedIn r m
+      | Nothing => nameUnder r origin names ks w0 acc w p rest
+    case enter d.placement w of
+      Nothing => nameUnder r origin names ks w0 acc w p rest
+      Just (Element w1 q) => do
+        MkReached names' ks' w2 q2 <- nameUnder r origin names ks w1 (rec w1 (fewerThen q p)) w1 (noMore w1)
+                                                (referentsOf d)
+        MkReached names'' ks'' w3 q3 <- nameUnder r origin names' ks' w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) rest
+        pure (MkReached names'' ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
+  nameUnder r origin names ks w0 acc@(Access rec) w p (ARef ref :: rest) = do
+    let full = fullNameIn r.frozen ref
+    let Just kind = blockOf full
+      | Nothing => do
+          (names', Element w1 q1) <- blocksFrom r names full w0 acc w p
+          MkReached names'' ks' w2 q2 <- nameUnder r origin names' ks w0 acc w1 (thenNoMore q1 p) rest
+          pure (MkReached names'' ks' w2 (thenNoMore q2 q1))
+    -- A name no definition has is no block to name.
+    Just d <- definedIn r full
+      | Nothing => nameUnder r origin names ks w0 acc w p rest
+    let key = addressOf d.placement
+    let Nothing = lookup key names
+      | Just _ => nameUnder r origin names ks w0 acc w p rest
+    let Just (Element w1 q) = enter d.placement w
+      | Nothing => nameUnder r origin names ks w0 acc w p rest
+    let k = fromMaybe 0 (lookup kind ks)
+    let name = origin ++ "." ++ kindText kind ++ show k
+    MkReached names' _ w2 q2 <- nameUnder r name (insert key name names) empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1)
+                                          (referentsOf d)
+    MkReached names'' ks'' w3 q3 <- nameUnder r origin names' (insert kind (S k) ks) w0 acc w2
+                                              (thenNoMore q2 (thenNoMore (fewer q) p)) rest
+    pure (MkReached names'' ks'' w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
+
+  ||| Names the blocks of a definition that is no block, once, by its full
+  ||| name.
+  blocksFrom : Read -> SortedMap Address String -> Name -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
+               (w : Walked) -> (0 _ : NoMore w w0) -> Core (SortedMap Address String, Subset Walked (\w' => NoMore w' w))
+  blocksFrom r names full w0 acc@(Access rec) w p = do
+    let Nothing = blockOf full
+      | Just _ => pure (names, Element w (noMore w))
+    -- Nor is a name no definition has a definition to walk.
+    Just d <- definedIn r full
+      | Nothing => pure (names, Element w (noMore w))
+    let key = addressOf d.placement
+    let Nothing = lookup key names
+      | Just _ => pure (names, Element w (noMore w))
+    let Just (Element w1 q) = enter d.placement w
+      | Nothing => pure (names, Element w (noMore w))
+    let origin = plainOrigin full
+    MkReached names' _ w2 q2 <- nameUnder r origin (insert key origin names) empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1)
+                                          (referentsOf d)
+    pure (names', Element w2 (thenNoMore q2 (fewer q)))
+
+||| Names the blocks of a definition that is no block, once, on a walk of
+||| its own.
+nameBlocksOf : Read -> SortedMap Address String -> Name -> Core (SortedMap Address String)
+nameBlocksOf r names n = fst <$> blocksFrom r names (fullNameIn r.frozen n) start (sizeAccessible start) start (noMore start)
+
+||| What each case, with and nested block the translation can meet is
+||| called (`nameUnder`), by its address: named first from the program's
+||| entry, then from every definition read, since a block need not be
+||| referred to from what the entry refers to (a default method's case
+||| block is referred to by the implementation methods the default was
+||| elaborated into, and a nested block's parent index is its place in the
+||| context that elaborated it, which loading does not keep). Each name
+||| depends on the definitions alone, and on the one order they are walked
+||| in.
+blockNamesOf : Read -> (entry : Name) -> Core (SortedMap Address String)
+blockNamesOf r entry = do
+  fromEntry <- nameBlocksOf r empty entry
+  foldlM (\names, d => nameBlocksOf r names (fullname d.def)) fromEntry (values r.definitions)
+
+------------------------------------------------------------------------------
 -- Reading the program
 ------------------------------------------------------------------------------
 
@@ -439,23 +617,39 @@ applicationOf = do
 ||| named `entry`, and whose loaded interfaces are `interfaces`: every
 ||| definition it can meet from the entry and from the pair `%pair` names,
 ||| read from the loaded context, every verdict the reading writes in it
-||| before it is frozen; then the context frozen, and where each
-||| definition's values are members of a choice read off its type in
-||| normal form.
+||| and every registry name the validation resolves interned before it is
+||| frozen; then the context frozen, where each definition's values are
+||| members of a choice and what it takes at each binder read off its type
+||| in normal form, and what follows from the definitions alone found once:
+||| each type constructor's facts, each definition's loops, and each
+||| block's name.
 export
 readProgram : {auto c : Ref Ctxt Defs} -> (interfaces : SortedSet Name) -> (entry : Name) -> Core Read
 readProgram ifs entry = do
   defs <- get Ctxt
   let pair = maybe [] (\ns => [pairType ns, fstName ns, sndName ns]) (pairnames (options defs))
   found <- readFrom start (sizeAccessible start) empty (entry :: pair)
+  -- The registry's entries the validation resolves, each definition's name
+  -- interned while the context may still be written.
+  sites <- registrySites
   -- The context changes no more: frozen here, every normaliser reads it as
   -- frozen.
   fz <- host.freezeContext
-  definitions <- traverse (definedIn fz) found
+  definitions <- traverse (frozenAs fz) found
   application <- applicationOf
-  pure (MkRead fz definitions application ifs)
+  -- What follows from the definitions alone is found from them: none of
+  -- the three readings reads what the others find.
+  let fromDefinitions = MkRead fz definitions application ifs empty empty empty sites
+  facts <- typeConstructorsOf fromDefinitions
+  proved <- loopsOf fromDefinitions
+  blocks <- blockNamesOf fromDefinitions entry
+  pure ({ tyCons := facts, loops := proved, blockNames := blocks } fromDefinitions)
   where
-    definedIn : Frozen -> Unfrozen -> Core Defined
-    definedIn fz u = do
+    -- A definition read before the freeze, with what is read off its type
+    -- in normal form once the context is frozen: where its values are
+    -- members of a choice, and what it takes at each binder.
+    frozenAs : Frozen -> Unfrozen -> Core Defined
+    frozenAs fz u = do
       normal <- (.value) <$> host.normaliseTypes fz u.type
-      pure (MkDefined u.placement u.def u.type u.matched u.ends u.registered (placesOf fz ifs normal))
+      pure (MkDefined u.placement u.def u.type u.matched u.ends u.registered (placesOf fz ifs normal)
+                      (argumentsOfNormal u.def normal))

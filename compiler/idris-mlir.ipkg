@@ -59,6 +59,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Given
         , IdrisMLIR.Frontend.Translate.Errors
         , IdrisMLIR.Frontend.Translate.Closed
+        , IdrisMLIR.Frontend.Translate.TypeConstructors
         , IdrisMLIR.Proof.Growth
         , IdrisMLIR.Proof.Bound
         , IdrisMLIR.Proof.Template

@@ -218,12 +218,7 @@ internal fc msg = core (throw (InternalError (show fc ++ ": internal error: " ++
 ||| the reading missed is the compiler's error.
 export
 defined : Name -> Front (Maybe Defined)
-defined n = do
-  r <- reading
-  case readOf r n of
-    ReadAs d => pure (Just d)
-    NoDefinition => pure Nothing
-    Missed => internal EmptyFC ("the definitions read for the translation miss " ++ show (fullNameIn r.frozen n))
+defined n = reading >>= \r => core (definedIn r n)
 
 ||| A name with every part full, as the frozen context names it: a
 ||| resolved name is the full name of the definition at its entry.

@@ -19,6 +19,7 @@ import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Terms
 import IdrisMLIR.Frontend.Translate.Types
+import IdrisMLIR.Frontend.Translate.TypeConstructors
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
@@ -115,7 +116,7 @@ translateDefinition p n = do
   resTy' <- normaliseClosed resTy
   result <- coreType fc owner ValueType resTy'
   (params, env) <- pure (runtimeParams 0 (parameterNames ty) kinds)
-  tree' <- tree (MkCtx owner fc complete resTy' (givesAfter (length m.args) (memberPlaces d))) env (clauses m.args m.pats) m.tree
+  tree' <- tree (MkCtx owner fc complete resTy' (givesAfter (length m.args) (memberPlaces d)) p) env (clauses m.args m.pats) m.tree
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
@@ -124,13 +125,12 @@ translateDefinition p n = do
             then (entryTies . fst) <$> sizedTelescope (length m.args) ty kinds
             else pure []
   let body = tied loc (allFins (Runtimes kinds)) ties tree'
-  -- What Idris proved of its loops: its component was checked when the
-  -- instance was requested (`Recursion`).
-  after <- getState
-  let Just termination = lookup address after.loops
-    | Nothing => internal fc (owner ++ " was requested before its component was checked")
-  updateState { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params
-                                              result body loc termination) }
+  -- What Idris proved of its loops, read with the program for every
+  -- definition read (`Recursion`).
+  let Just termination = lookup address (!reading).loops
+    | Nothing => internal fc (owner ++ " has no component of Idris's call graph read")
+  updateState (derive { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params
+                                                      result body loc termination) })
   where
     -- The body under one `let` per parameter with a tied dimension, in
     -- parameter order: the parameter as its dimensions are stated, which
@@ -164,11 +164,11 @@ translateApplication p uses = do
     | _ => internal fc "a member at a use with no form to apply"
   -- No definition is translated, so what its result is the instance
   -- decides.
-  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True resTy' ByInstance) env resTy'
+  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True resTy' ByInstance p) env resTy'
                  (foldl (App fc) form arguments)
   loc <- toLoc fc
-  updateState { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params
-                                              result body loc Acyclic) }
+  updateState (derive { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params
+                                                      result body loc Acyclic) })
 
 ||| Translates one function instance, of a definition or of a member at a
 ||| use. An instance given an implementation that holds a choice the
@@ -182,6 +182,39 @@ translateInstance p = case p.instantiates of
     Nothing <- heldChoice p.kinds
       | Just (at, j, ty) => heldDispatch p at j ty
     translateApplication p uses
+
+||| One step of the translation's worklist: the instance of a request, the
+||| item's own, translated as a function of what it reads (the program as
+||| read, which every computation of the frontend's is given; and the
+||| instance table and what the phases before it found, as the state
+||| `found` holds them) and of the request, which the translation reads
+||| where it takes apart what the request gives (`Ctx.request`). It runs on
+||| a state of its own, whose derivation starts empty (`startingFrom`), and
+||| gives back what it derived (`Derived`): it changes no other state, so a
+||| step that refuses leaves nothing to undo.
+export
+step : {auto c : Ref Ctxt Defs} -> (found : TS) -> Request -> Front Derived
+step found r = do
+  s <- core (newRef TState ({ derived := startingFrom found.table } found))
+  translateInstance r
+  (.derived) <$> getState
+
+||| The root's request, as a step derives it (`step`): the instance of
+||| `main` the root calls, requested, and what requesting it derived.
+export
+mainRequest : {auto c : Ref Ctxt Defs} -> FC -> Name -> (found : TS) -> Front (FnId, Derived)
+mainRequest fc main found = do
+  s <- core (newRef TState ({ derived := startingFrom found.table } found))
+  inst <- request fc (show main) (OfDefinition main) []
+  pure (inst, (!getState).derived)
+
+||| Every dispatch written as the function it is (`dispatchers`), as a step
+||| derives it (`step`).
+dispatched : {auto c : Ref Ctxt Defs} -> (found : TS) -> Front Derived
+dispatched found = do
+  s <- core (newRef TState ({ derived := startingFrom found.table } found))
+  dispatchers
+  (.derived) <$> getState
 
 ||| The families a family's fields name.
 named : Family -> List FamilyId
@@ -229,14 +262,14 @@ groupsOf fs =
     rounds (S k) edges r = rounds k edges (step edges r)
 
 ||| The program: its families as groups, and its function instances in the
-||| order they were requested. How a family's values are laid out is the
-||| dialect's to decide, from each type, once.
-assemble : {auto s : Ref TState TS} -> TFn -> Front Source
-assemble root = do
-  st <- getState
-  let fams = mapMaybe (\f => familyOf f st) (st.familyOrder <>> [])
-  let fns = mapMaybe (\n => lookup n st.fns) (st.fnOrder <>> [])
-  pure (MkSource (groupsOf fams) root fns)
+||| order they were requested, as the instance table holds them once every
+||| step's derivation is merged into it. How a family's values are laid out
+||| is the dialect's to decide, from each type, once.
+assemble : Facts -> TFn -> Source
+assemble t root =
+  let fams = mapMaybe (\f => lookup f t.families) (t.familyOrder <>> [])
+      fns = mapMaybe (\n => lookup n t.fns) (t.fnOrder <>> []) in
+  MkSource (groupsOf fams) root fns
 
 ||| An IO program. The root is `unsafePerformIO main` written
 ||| directly as world-passing code, which is what `unsafePerformIO`,
@@ -250,17 +283,19 @@ export
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Front (Maybe Source)
 translateIOProgram fc main = do
-  Just inst <- core (translateFrom (noting (request fc (show main) (OfDefinition main) [])) translateInstance)
+  Just inst <- core (translateFrom (mainRequest fc main) step)
     | Nothing => pure Nothing
   let [<] = (!(getState)).rejected
     | _ => pure Nothing
   -- Every member of every choice is known once the translation has ended:
-  -- each dispatch on one is written now.
-  dispatchers
+  -- each dispatch on one is written now, and what writing them derived is
+  -- merged into the instance table with what every step derived.
+  written <- dispatched !getState
+  updateState { table $= \t => merged t written }
   st <- getState
   let owner = show main
   let notIO = reject fc owner ProgramShape "main must have type IO ()"
-  let Just mainFn = lookup inst st.fns
+  let Just mainFn = lookup inst st.table.fns
     | Nothing => internal fc "main was not translated"
   let FunT (MkBinder _ WorldT) res@(DataT _ _) = mainFn.result
     | _ => notIO
@@ -280,4 +315,4 @@ translateIOProgram fc main = do
   -- through the call.
   let root = MkTFn rootId (keyText rootKey) rootKey [] 1 [(shown "world", MkBinder Once WorldT)]
                    res body loc Acyclic
-  Just <$> assemble root
+  pure (Just (assemble st.table root))
