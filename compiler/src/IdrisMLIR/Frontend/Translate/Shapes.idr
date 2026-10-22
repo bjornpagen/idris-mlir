@@ -108,7 +108,7 @@ valueArray : {auto c : Ref Ctxt Defs} -> Name -> Front Bool
 valueArray n = (\full => (hooksOf full).valueArray) <$> fullNames n
 
 ||| A type constructor applied to two arguments, as a value array's type is
-||| to its shape and element (`Array s a`, `LArray s a`), or anything else.
+||| to its shape and element (`Array s a`), or anything else.
 public export
 data ArrayParts : TT vs -> Type where
   ArrayOf : {0 f, f', f'' : FC} -> {0 ar : Nat} -> (n : Name) -> (s, a : TT vs) ->

@@ -7,8 +7,10 @@
 ||| translation made right; nothing here counts a use.
 module IdrisMLIR.Emit.Bodies
 
+import IdrisMLIR.Dialect.Arith as Arith
 import IdrisMLIR.Dialect.Bufferization as Bufferization
 import IdrisMLIR.Dialect.Idr as Idr
+import IdrisMLIR.Dialect.SCF as SCF
 import IdrisMLIR.Dialect.UB as UB
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Closures
@@ -22,6 +24,7 @@ import IdrisMLIR.MLIR
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Grades.Grade
+import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -40,17 +43,15 @@ import Data.Vect
 -- Scopes
 ------------------------------------------------------------------------------
 
-||| The scope a term is written in: what each of its variables stands for;
-||| the sorts of the erased binders its index terms' levels name, the
+||| The scope a term is written in: what each of its variables stands for,
+||| and the sorts of the erased binders its index terms' levels name, the
 ||| function's index parameters then each enclosing case's constructor
-||| binders, in order; and the function a call of which is a self call,
-||| none inside a lambda or a delay, whose function is lifted.
+||| binders, in order.
 public export
 record Scope (nv : Nat) where
   constructor MkScope
   vars : Fin nv -> InScope
   telescope : List Sort
-  self : Maybe FnId
 
 ||| What the fold makes of a term in scope `nv`: given its scope and what
 ||| its context wants, it appends the term's operations and returns its
@@ -119,32 +120,29 @@ Applicative Operands where
       | Nothing => pure Nothing
     map g <$> x
 
-||| A subterm's value where a slot takes it, at a position: checked against
-||| the type the slot expects, if it says one, and used as the slot binds
-||| it, many times where it says nothing; bound to no variable.
-operand1 : Index -> Loc -> Scope nv -> Position -> Maybe Binder -> Sub Em nv -> Operands Val
-operand1 ix l sc pos slot a = MkOperands $ do
-  Just v <- a.result sc (MkWanted (typeOf <$> slot) Nothing pos)
+||| A subterm's value where a slot takes it: checked against the type the
+||| slot expects, if it says one, and used as the slot binds it, many times
+||| where it says nothing; bound to no variable.
+operand1 : Index -> Loc -> Scope nv -> Maybe Binder -> Sub Em nv -> Operands Val
+operand1 ix l sc slot a = MkOperands $ do
+  Just v <- a.result sc (expecting (typeOf <$> slot))
     | Nothing => pure Nothing
   Just <$> coerce ix l (maybe Many (.quantity) slot) !(fit ix l (typeOf <$> slot) v)
 
 ||| A layer's operands, each in its slot, left to right; `Nothing` once one
 ||| never returns.
 operands : Traversable t => Index -> Loc -> Scope nv -> t (Maybe Binder, Sub Em nv) -> E (Maybe (t Val))
-operands ix l sc xs = (traverse (\(slot, a) => operand1 ix l sc Elsewhere slot a) xs).written
+operands ix l sc xs = (traverse (\(slot, a) => operand1 ix l sc slot a) xs).written
 
 ||| Operands that no slot types: each at its own type, used many times.
 unslotted : Functor t => t (Sub Em nv) -> t (Maybe Binder, Sub Em nv)
 unslotted = map (\a => (Nothing, a))
 
 ||| A constructor's fields, each in its slot (its type with the
-||| constructor's binders given), left to right, the last at `last`: the
-||| field a context cell's self call fills is the last one computed.
-fields : Index -> Loc -> Scope nv -> Position -> Vect k Binder -> Vect k (Sub Em nv) -> Operands (Vect k Val)
-fields ix l sc last [] [] = pure []
-fields ix l sc last [b] [a] = (\v => [v]) <$> operand1 ix l sc last (Just b) a
-fields ix l sc last (b :: bs) (a :: as) =
-  (::) <$> operand1 ix l sc Elsewhere (Just b) a <*> fields ix l sc last bs as
+||| constructor's binders given), left to right.
+fields : Index -> Loc -> Scope nv -> Vect k Binder -> Vect k (Sub Em nv) -> Operands (Vect k Val)
+fields ix l sc [] [] = pure []
+fields ix l sc (b :: bs) (a :: as) = (::) <$> operand1 ix l sc (Just b) a <*> fields ix l sc bs as
 
 ||| A value as a region or a function gives it: used many times.
 export
@@ -185,21 +183,22 @@ caseRegions = map (\c => MkRegion c.arm.arguments c.arm.statements)
 fieldIndex : Nat -> MlirAttr
 fieldIndex i = IntegerAttr (natToInteger i) (IntegerType 64)
 
-||| The yield that ends a region with its value; a region that never
-||| returns has ended in a terminator already.
-yielding : Index -> Loc -> Maybe Val -> List Statement
-yielding ix l Nothing = []
-yielding ix l (Just v) = [MkStatement Nothing (Idr.yieldOp (given ix (Just v))) (At l)]
+||| The yield that ends a region with its value, by the yield of the match's
+||| own dialect; a region that never returns has ended in a terminator
+||| already.
+yielding : Index -> Loc -> (List Value -> Op) -> Maybe Val -> List Statement
+yielding ix l rejoin Nothing = []
+yielding ix l rejoin (Just v) = [MkStatement Nothing (rejoin (given ix (Just v))) (At l)]
 
-||| A match from its arms, with the builder of its op over its cases, its
-||| default region (none when the cases are exhaustive) and its results:
-||| results when an arm yields, and none when no arm returns. The arms join
-||| at the type the context expects, else the first arm's that returns; an
-||| arm's value at other index terms, or an array of another static shape,
-||| is cast to it.
-match : Index -> Loc -> Wanted -> (List Case -> MLIR.Region -> List MlirType -> Op)
+||| A match from its arms, with the yield that rejoins its regions and the
+||| builder of its op over its cases, its default region (none when the
+||| cases are exhaustive) and its results: results when an arm yields, and
+||| none when no arm returns. The arms join at the type the context
+||| expects, else the first arm's that returns; an arm's value at other
+||| index terms, or an array of another static shape, is cast to it.
+match : Index -> Loc -> Wanted -> (rejoin : List Value -> Op) -> (List Case -> MLIR.Region -> List MlirType -> Op)
      -> List Case -> Maybe Arm -> E (Maybe Val)
-match ix l w build cases fallback =
+match ix l w rejoin build cases fallback =
   let arms = map (.arm) cases ++ toList fallback in
   case w.type <|> map (.type) (head' (mapMaybe (.result) arms)) of
     Just t => if all (\a => isNothing a.result) arms then never else do
@@ -211,7 +210,7 @@ match ix l w build cases fallback =
     close : Ty -> Arm -> E (List Statement)
     close t a = do
       (v, cast) <- collect (traverse (fit ix l (Just t)) a.result)
-      pure (a.statements ++ cast ++ yielding ix l v)
+      pure (a.statements ++ cast ++ yielding ix l rejoin v)
     -- A match whose every arm ends in a terminator has no results, and
     -- nothing after it runs: its region ends in `ub.unreachable`.
     never : E (Maybe Val)
@@ -220,14 +219,52 @@ match ix l w build cases fallback =
       statement l UB.unreachableOp
       pure Nothing
 
-||| A literal as a key of `idr.lit.match`.
-key : Lit -> MlirAttr
-key (LInt t n) = IntegerAttr (twos (width t) n) (IntegerType (width t))
-key (LChar c) = IntegerAttr c (IntegerType 32)
-key (LStr s) = StringAttr s
-key (LBig n) = Idr (BigAttr n)
-key (LNat n) = Idr (BigAttr n)
-key (LDouble d) = FloatAttr d F64Type
+||| A match on literals as it is written, by its scrutinee's type, its keys
+||| read at that type: a fixed-width integer or a `Char` by upstream's
+||| switch on the index its value casts to, its keys those indices; a
+||| double by the same switch on the position of the first key it equals,
+||| since equality of doubles is no identity of their bits (`-0.0` equals
+||| `0.0`, a NaN equals nothing); a string, a big integer or a natural by
+||| the dialect's match, which reads it in place, its keys as the op holds
+||| them.
+data LitMatch = OnValue IntLike (List Integer) | OnPosition (List Double) | InDialect (List MlirAttr)
+
+||| An integer key as a case of `scf.index_switch`: the index the value
+||| casts to, extended as its type's signedness reads it (a `Char`'s as
+||| unsigned), at the 64 bits the switch's cases hold.
+indexCase : IntLike -> Integer -> Integer
+indexCase t n =
+  let w = likeWidth t
+      s = twos w n
+  in case likeSignedness t of
+       Signed => s
+       Unsigned => twos 64 (if s < 0 then s + pow 2 w else s)
+
+||| The match on literals of a scrutinee of type `t`, its keys read at `t`.
+||| A key of another type than its scrutinee's is the frontend's bug.
+litMatchOf : Ty -> List Lit -> E LitMatch
+litMatchOf (IntT t) ks = OnValue (SInt t) <$> traverse integral ks
+  where
+    integral : Lit -> E Integer
+    integral (LInt _ n) = pure (indexCase (SInt t) n)
+    integral _ = internal "a match on an integer with a key that is no integer"
+litMatchOf CharT ks = OnValue SChar <$> traverse character ks
+  where
+    character : Lit -> E Integer
+    character (LChar c) = pure (indexCase SChar c)
+    character _ = internal "a match on a character with a key that is no character"
+litMatchOf DoubleT ks = OnPosition <$> traverse double ks
+  where
+    double : Lit -> E Double
+    double (LDouble d) = pure d
+    double _ = internal "a match on a double with a key that is no double"
+litMatchOf t ks = InDialect <$> traverse inPlace ks
+  where
+    inPlace : Lit -> E MlirAttr
+    inPlace (LStr s) = pure (StringAttr s)
+    inPlace (LBig n) = pure (Idr (BigAttr n))
+    inPlace (LNat n) = pure (Idr (BigAttr n))
+    inPlace _ = internal ("a match on literals of type " ++ show t ++ " with a key of another type")
 
 mutual
   ||| Whether a term names one of the `k` variables from `from` of its
@@ -265,8 +302,8 @@ mutual
       stated : Stated (Term n) -> Term n
       stated (SameAs t) = t
       stated (Natural t) = t
-  names from k (ReadBack _ _ x cs _) = names from k x || anyNames from k cs
-  names from k (ExtentsBack {k = j} _ x body _) = names from k x || names (j + from) k body
+  names from k (ReadBack _ _ x cs body) = names from k x || anyNames from k cs || names (2 + from) k body
+  names from k (ExtentsBack {k = j} _ x body) = names from k x || names (S j + from) k body
 
   namesVar : (from, k : Nat) -> Fin n -> Bool
   namesVar from k x = from <= finToNat x && finToNat x < from + k
@@ -383,14 +420,6 @@ holding ix l binder t captures build =
       Idr (GradedType Once _ _) => True
       _ => False
 
-||| The tail fact of a call at a position: in tail position a tail call; as
-||| the last field computed of a context cell, a call of the function
-||| itself a loop with a destination; anywhere else an ordinary call.
-tailKind : Scope nv -> FnId -> Position -> TailKind
-tailKind sc fn InTail = Tail
-tailKind sc fn InContext = if sc.self == Just fn then ModuloContext else NonTail
-tailKind sc fn Elsewhere = NonTail
-
 ||| A call passes as many values as its callee takes. A count that differs
 ||| is a position the translator did not drop; nothing is written for it.
 saturated : Loc -> String -> (given, taken : Nat) -> E ()
@@ -417,7 +446,10 @@ alg ix (EffectF l p gives as res) sc w = do
   effect w.binder ix l p gives (present vs) res
 -- A call passes its callee's index parameters their terms here and its
 -- arguments at the callee's binders with those terms substituted, so its
--- operand and result types are the callee's signature at the call.
+-- operand and result types are the callee's signature at the call. Where
+-- it stands in its function is decided once, by the one definition of tail
+-- position, when the program is first order: the frontend writes every
+-- call `nontail`, which promises nothing, and the source states no other.
 alg ix (CallF l fn stands is as) sc w = do
   Just f <- pure (lookup fn ix.fns)
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
@@ -426,22 +458,17 @@ alg ix (CallF l fn stands is as) sc w = do
   Just vs <- operands ix l sc (zip slots as)
     | Nothing => pure Nothing
   let rt = substTy is f.result
-      kind = tailKind sc fn w.position
       args = map (operand ix) (present vs)
   case resultTypes ix rt of
     [] => do
-      statement l (Idr.callOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix is)))} f.symbol kind args [])
+      statement l (Idr.callOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix is)))} f.symbol NonTail args [])
       pure (Just worldVal)
-    [r] => Just <$> fitted {binder = w.binder} ix l w.type rt (\t => Idr.callOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix is)))} f.symbol kind args [t])
+    [r] => Just <$> fitted {binder = w.binder} ix l w.type rt (\t => Idr.callOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix is)))} f.symbol NonTail args [t])
     _ => internal ("a call of " ++ f.symbol ++ " giving more than one value")
 -- A constructor's fields are checked at their types with its binders
--- given; the last computed is a context cell's field when the value is the
--- function's result or another context cell's field.
+-- given.
 alg ix (ConAppF l c bs as) sc w = do
-  let last = case w.position of
-               Elsewhere => Elsewhere
-               _ => InContext
-  Just vs <- (fields ix l sc last (map (\b => { type $= substTy bs } b) c.fields) as).written
+  Just vs <- (fields ix l sc (map (\b => { type $= substTy bs } b) c.fields) as).written
     | Nothing => pure Nothing
   Just <$> con {binder = w.binder} ix l c bs vs
 -- A `let` binds an SSA value at its binder's type and quantity, as Idris
@@ -458,7 +485,7 @@ alg ix (LetF l name b v body) sc w = case b of
     bound : Uses -> Maybe Ty -> E (Maybe Val)
     bound q t = do
       b <- binding name q
-      Just x <- v.result sc (MkWanted t (Just b) Elsewhere)
+      Just x <- v.result sc (MkWanted t (Just b))
         | Nothing => pure Nothing
       case x.type of
         WorldT => body.result (bind [World] sc) w
@@ -486,7 +513,7 @@ alg ix (CaseF l x arms) sc w = do
   -- The frontend forwards no value and states no lifetime: the scoped
   -- values a match makes are decided once lifetimes are, which sets its
   -- `outers`.
-  match ix l w (\cs, d, ts => Idr.dataMatchOp (DenseI32ArrayAttr (map (.tag) cs)) (operand ix scrut) [] [] d (caseRegions cs) ts)
+  match ix l w Idr.yieldOp (\cs, d, ts => Idr.dataMatchOp (DenseI32ArrayAttr (map (.tag) cs)) (operand ix scrut) [] [] d (caseRegions cs) ts)
         cases fallback
   where
     -- The value a region binds: the scrutinee refined to the constructors
@@ -520,13 +547,45 @@ alg ix (CaseF l x arms) sc w = do
           pure (v, MkArgument a (At l))
       (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
       pure (MkArm [arg] res ops)
--- `idr.lit.match` has no exhaustive form: when Idris proved the default
--- impossible, the last possible alternative stands for it, and a match of
--- one is that alternative.
+-- A match on literals has no exhaustive form: when Idris proved the
+-- default impossible, the last possible alternative stands for it, and a
+-- match of one is that alternative. In a case the scrutinee is its
+-- literal. In the default the dialect's match binds it refined to the
+-- complement of its keys; upstream's switch, whose regions bind nothing,
+-- leaves it as it is, its type stating nothing a refinement would.
 alg ix (CaseLitF l x arms) sc w = case arms of
   LitDefault alts d => literals alts d
   LitNoDefault alts => literals (init alts) (snd (last alts))
   where
+    -- The index an integer's value casts to, as its signedness reads it.
+    asIndex : IntLike -> Value -> MlirType -> Op
+    asIndex t v = case likeSignedness t of
+      Signed => Arith.indexCastOp v
+      Unsigned => Arith.indexCastuiOp v
+
+    -- An index's constant.
+    position : Nat -> E Value
+    position k = mlirValue l IndexType (Arith.constantOp (IntegerAttr (natToInteger k) IndexType))
+
+    -- The position of the first of the keys a double equals, or the number
+    -- of keys when it equals none: the keys tested from the last back, each
+    -- equal one's position chosen over what the later ones gave.
+    firstEqual : Val -> List Double -> E Value
+    firstEqual v ks = later (reverse (zip [0 .. length ks] ks)) !(position (length ks))
+      where
+        later : List (Nat, Double) -> Value -> E Value
+        later [] found = pure found
+        later ((k, d) :: rest) found = do
+          key <- literal ix l (LDouble d)
+          equal <- mlirValue l (IntegerType 1) (Arith.cmpfOp CmpFPredicate.OEQ (operand ix v) (operand ix key))
+          here <- position k
+          later rest !(mlirValue l IndexType (Arith.selectOp equal here found))
+
+    -- Upstream's switch on an index: a region per key, and the default.
+    switch : Value -> List Integer -> List Case -> Arm -> E (Maybe Val)
+    switch i ks cases fallback =
+      match ix l w SCF.yieldOp (\cs, dr, ts => SCF.indexSwitchOp i ks dr (caseRegions cs) ts) cases (Just fallback)
+
     literals : List (Lit, Sub Em nv) -> Sub Em nv -> E (Maybe Val)
     literals [] d = d.result sc w
     literals cases d = do
@@ -534,14 +593,21 @@ alg ix (CaseLitF l x arms) sc w = case arms of
       let inner = refining x scrut sc
       arms <- traverse (\(_, c) => do
                           (res, ops) <- collect (plain ix l (c.result inner ({ binder := Nothing } w)))
-                          pure (MkArm [] res ops)) cases
-      (back, arg) <- freshVal ix scrut.type Many
-      (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
-      litMatch (map fst cases) scrut arms (MkArm [MkArgument arg (At l)] res ops)
-    litMatch : List Lit -> Val -> List Arm -> Arm -> E (Maybe Val)
-    litMatch ks scrut arms fallback =
-      match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr (map key ks)) (operand ix scrut) [] dr (caseRegions cs) ts)
-            (map (MkCase 0) arms) (Just fallback)
+                          pure (MkCase 0 (MkArm [] res ops))) cases
+      case !(litMatchOf scrut.type (map fst cases)) of
+        OnValue t ks => do
+          (res, ops) <- collect (plain ix l (d.result inner ({ binder := Nothing } w)))
+          i <- mlirValue l IndexType (asIndex t (operand ix scrut))
+          switch i ks arms (MkArm [] res ops)
+        OnPosition ks => do
+          (res, ops) <- collect (plain ix l (d.result inner ({ binder := Nothing } w)))
+          i <- firstEqual scrut ks
+          switch i (map natToInteger (take (length ks) [0 .. length ks])) arms (MkArm [] res ops)
+        InDialect ks => do
+          (back, arg) <- freshVal ix scrut.type Many
+          (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
+          match ix l w Idr.yieldOp (\cs, dr, ts => Idr.litMatchOp (ArrayAttr ks) (operand ix scrut) [] dr (caseRegions cs) ts)
+                arms (Just (MkArm [MkArgument arg (At l)] res ops))
 -- The predecessor exists only where the value is not zero: the successor's
 -- arm computes it from the value it binds, and only it binds it.
 alg ix (CaseNatF l x arms) sc w = case arms of
@@ -552,7 +618,7 @@ alg ix (CaseNatF l x arms) sc w = case arms of
     (zr, zops) <- collect (plain ix l (z.result sc ({ binder := Nothing } w)))
     (back, arg) <- freshVal ix (NatT IOpaque) Many
     (sr, sops) <- collect (plain ix l (successor p s (refining x back sc) ({ binder := Nothing } w) back))
-    match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [key (LNat 0)]) (operand ix n) [] dr (caseRegions cs) ts)
+    match ix l w Idr.yieldOp (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [Idr (BigAttr 0)]) (operand ix n) [] dr (caseRegions cs) ts)
           [MkCase 0 (MkArm [] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
   where
     successor : Shown -> Sub Em (Under 1 nv) -> Scope nv -> Wanted -> Val -> E (Maybe Val)
@@ -575,14 +641,14 @@ alg ix (LamF l name b body) sc w = do
   (args, r, ops) <- case param of
     WorldT => do
       (r, ops) <- collect $
-        plain ix l (body.result (bind [World] ({ self := Nothing } sc)) (MkWanted result Nothing InTail))
+        plain ix l (body.result (bind [World] sc) (expecting result))
           >>= traverse (fit ix l result)
       pure ([], r, ops)
     _ => do
       (p, arg) <- freshVal ix param b.quantity
       (r, ops) <- collect $ do
         inner <- coerce ix l b.quantity !(fit ix l (Just (typeOf b)) p)
-        plain ix l (body.result (bind [Whole inner] ({ self := Nothing } sc)) (MkWanted result Nothing InTail))
+        plain ix l (body.result (bind [Whole inner] sc) (expecting result))
           >>= traverse (fit ix l result)
       st <- get
       put ({ nextBinder $= S } st)
@@ -613,7 +679,7 @@ alg ix (SuspendF l body) sc w = do
   let result = case w.type of
                  Just (LazyT r) => Just r
                  _ => Nothing
-  (r, ops) <- collect (plain ix l (body.result ({ self := Nothing } sc) (MkWanted result Nothing InTail))
+  (r, ops) <- collect (plain ix l (body.result sc (expecting result))
                        >>= traverse (fit ix l result))
   Just t <- pure (result <|> map (.type) r)
     | Nothing => internal "the result type of a Delay whose body never returns"
@@ -639,9 +705,9 @@ alg ix (TabulateF {k} l rt es body) sc w = do
   tabulate ix l w.binder rt extents
            (\coords => plain ix l (body.result (bind (map Whole coords) sc) (expecting Nothing)))
 alg ix (ReduceF l r acc el rt z x body) sc w = do
-  Just zv <- (operand1 ix l sc Elsewhere Nothing z).written
+  Just zv <- (operand1 ix l sc Nothing z).written
     | Nothing => pure Nothing
-  Just xv <- (operand1 ix l sc Elsewhere Nothing x).written
+  Just xv <- (operand1 ix l sc Nothing x).written
     | Nothing => pure Nothing
   reduce ix l w.binder r acc el rt zv xv
          (\a, e => plain ix l (body.result (bind [Whole a, Whole e] sc) (expecting (Just acc))))
@@ -697,15 +763,16 @@ alg ix (CrashF l cause) sc _ = do
   statement l (Idr.crashCauseOp (causeAttr cause) !(siteOf l))
   pure Nothing
 alg ix (CrashWithF l m) sc _ = do
-  Just s <- (operand1 ix l sc Elsewhere (Just (MkBinder Many StrT)) m).written
+  Just s <- (operand1 ix l sc (Just (MkBinder Many StrT)) m).written
     | Nothing => pure Nothing
   statement l (Idr.crashMessageOp !(siteOf l) (operand ix s))
   pure Nothing
 alg ix (NewWorldF l) sc w = pure (Just worldVal)
--- A linear array's read gives back the array as a new value, so what
--- consumes the array next comes after the read by data dependence.
-alg ix (ReadBackF l e x cs res) sc w = do
-  Just xv <- (operand1 ix l sc Elsewhere Nothing x).written
+-- A read of the array a linear array's cell holds gives the array back as
+-- a new value, so what writes the array next comes after the read by data
+-- dependence; the body builds the cell again from it.
+alg ix (ReadBackF l e x cs body) sc w = do
+  Just xv <- (operand1 ix l sc Nothing x).written
     | Nothing => pure Nothing
   Just coords <- operands ix l sc (unslotted cs)
     | Nothing => pure Nothing
@@ -713,16 +780,15 @@ alg ix (ReadBackF l e x cs res) sc w = do
   Just n <- placed (At l) (Idr.arrayReadOp (operand ix xv) ixs
                              [gradedType ix Many Held.Counted e, (operand ix xv).type])
     | Nothing => internal "a linear array's read gives nothing"
-  Just <$> con {binder = w.binder} ix l res [] [val (resultAt n 2 0) e Many Held.Counted, { name := resultAt n 2 1 } xv]
--- Each extent of a linear array read gives the array back as a new value,
--- threaded from one read to the next.
-alg ix (ExtentsBackF {k} l x body res) sc w = do
-  Just xv <- (operand1 ix l sc Elsewhere Nothing x).written
+  body.result (bind [Whole (val (resultAt n 2 0) e Many Held.Counted), Whole ({ name := resultAt n 2 1 } xv)] sc) w
+-- Each extent of the array a linear array's cell holds gives the array
+-- back as a new value, threaded from one read to the next; the body binds
+-- the extents and the last array given back.
+alg ix (ExtentsBackF {k} l x body) sc w = do
+  Just xv <- (operand1 ix l sc Nothing x).written
     | Nothing => pure Nothing
   (extents, final) <- readExtents k 0 xv
-  Just v <- body.result (bind extents sc) (expecting Nothing)
-    | Nothing => pure Nothing
-  Just <$> con {binder = w.binder} ix l res [] [v, final]
+  body.result (bind (snoc extents (Whole final)) sc) w
   where
     readExtents : (j : Nat) -> Nat -> Val -> E (Vect j InScope, Val)
     readExtents Z a arr = pure ([], arr)

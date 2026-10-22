@@ -138,28 +138,19 @@ binding name q = do
   put ({ nextBinder $= S } st)
   pure (MkBinding name q st.ownerSymbol st.nextBinder)
 
-||| Where a value stands in its function: as its result (`InTail`); as the
-||| last field computed of a constructor that is its result or another such
-||| field (`InContext`), where a call of the function itself is a loop with
-||| a destination; or anywhere else. A call carries what this gives it.
-public export
-data Position = InTail | InContext | Elsewhere
-
 ||| What a context wants of the value a term gives: the type it expects, if
-||| it knows it, the variable it binds the value to, if it binds one, and
-||| where the value stands.
+||| it knows it, and the variable it binds the value to, if it binds one.
 public export
 record Wanted where
   constructor MkWanted
   type : Maybe Ty
   binder : Maybe Binding
-  position : Position
 
-||| A context that expects a value of a type, if it knows it, binds it to
-||| no variable, and uses it before its function returns: an operand's.
+||| A context that expects a value of a type, if it knows it, and binds it
+||| to no variable.
 export
 expecting : Maybe Ty -> Wanted
-expecting t = MkWanted t Nothing Elsewhere
+expecting t = MkWanted t Nothing
 
 ||| Where an op that makes a value bound to `binder` stands: at the name of
 ||| the variable, when the variable holds it as it is made, so that MLIR

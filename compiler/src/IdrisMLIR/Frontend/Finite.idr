@@ -221,8 +221,8 @@ requestedUnder b bounds earlier = do
         -- was requested and stays seen (a rejected instance
         -- restores the state from before it), so a recorded request is new
         -- to its chain.
-        Holds _ => internal r.site ("an instance requested again as new on its own chain: " ++ keyText r.key)
-        Fails new => do
+        Yes _ => internal r.site ("an instance requested again as new on its own chain: " ++ keyText r.key)
+        No new => do
           rest <- judge rs
           pure (Element (MkItem r earlier) (MkUnder new inside.member) :: rest)
 

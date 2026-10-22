@@ -121,6 +121,15 @@ apart loc s r x k = go r x (\ren, ns => k ren (ns <>> []))
                                     (\ren, ns => k' (ren . Free {k = 2}) (ns :< ren (Bound {k = 2} (FS FZ)))))
                               ::: []))
 
+||| A linear array's cell taken apart, by its one constructor, into the
+||| array it holds; the body is built over the array, with the renaming of
+||| the scope outside. Every operation of a linear array runs on that
+||| array and builds the cell again, so the cell is rebuilt in place by
+||| the rule that rebuilds every cell of a type whose values are.
+opened : {0 m : Nat} -> Loc -> Con 1 -> Fin m -> ({0 p : Nat} -> (Fin m -> Fin p) -> Fin p -> Term p) -> Term m
+opened loc writing x k =
+  Case loc x (Exhaustive (MkAlt writing [shown "elements"] (k (Free {k = 1}) (Bound {k = 1} FZ)) ::: []))
+
 ||| The one constructor of a data type (`Res`, `IORes`, a pair, the unit),
 ||| of `k` fields.
 onlyCon : {auto s : Ref TState TS} -> FC -> (k : Nat) -> Ty -> Front (Con k)
@@ -1556,7 +1565,15 @@ mutual
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [x, i] =>
                   apart loc iSnoc r i (\ren', cs => Tensor loc rt (Extract (Var loc (ren' x)) (map (Var loc) cs)))))
         (AUpdate, [xTy, iTy, vTy]) => insert xTy iTy vTy bs
-        (AWrite, [xTy, iTy, vTy]) => insert xTy iTy vTy bs
+        (AWrite, [lTy, iTy, vTy]) => do
+          (writing, ds, e) <- cellOf lTy
+          iSnoc <- snocCons fc iTy
+          let r = minus (length ds) (rank vTy)
+          pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [l, i, v] =>
+                  opened loc writing l (\ren', x =>
+                    apart loc iSnoc r (ren' i) (\ren'', cs =>
+                      ConApp loc writing []
+                        [Tensor loc (TensorT ds e) (Insert (Var loc (ren'' x)) (Var loc (ren'' (ren' v))) (map (Var loc) cs))]))))
         (AFoldLast, [FunT (MkBinder _ accTy) (FunT (MkBinder _ elTy) _), _, _]) => pure (reduce FoldLast accTy elTy bs)
         (AScanLast, [FunT (MkBinder _ accTy) (FunT (MkBinder _ elTy) _), _, _]) => pure (reduce ScanLast accTy elTy bs)
         (AReshape, [eTy, _]) => do
@@ -1602,38 +1619,57 @@ mutual
                   Tensor loc rt (Concat axis
                     (Tensor loc front (Concat axis (copies xTy axis (Var loc x) (Var loc lo) (Var loc v)) (Var loc x)))
                     (copies xTy axis (Var loc x) (Var loc hi) (Var loc v)))))
-        (AWithArray, [eTy, vTy, FunT (MkBinder _ arrTy) _]) => do
+        (AWithArray, [eTy, vTy, FunT (MkBinder _ lTy) _]) => do
+          (writing, ds, e) <- cellOf lTy
           eSnoc <- snocCons fc eTy
-          let r = minus (rank arrTy) (rank vTy)
-          cellsFixed fc arrTy r
-          pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [e, v, k] =>
-                  apart loc eSnoc r e (\ren', ds =>
-                                 App loc (Var loc (ren' k))
-                                     (Tabulate loc arrTy (map (Var loc) (fromList ds))
-                                               (Var loc (Free {k = length ds} (ren' v)))))))
+          let r = minus (length ds) (rank vTy)
+          pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [ex, v, k] =>
+                  apart loc eSnoc r ex (\ren', ns =>
+                    App loc (Var loc (ren' k))
+                        (ConApp loc writing [] [filled ds e (map (Var loc) ns) (Var loc (ren' v))]))))
+        -- The element is read at the type of the held array's cells and
+        -- given at the element's, which may fix extents the cells leave to
+        -- their values.
         (ARead, [lTy, iTy]) => do
+          (writing, ds, e) <- cellOf lTy
           a <- theElement
           iSnoc <- snocCons fc iTy
           res <- onlyCon fc 2 rt
-          let r = minus (rank lTy) (rank a)
+          let r = minus (length ds) (rank a)
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [l, i] =>
-                  apart loc iSnoc r i (\ren', cs =>
-                              ReadBack loc a (Var loc (ren' l)) (map (Var loc) cs) res)))
-        (AThaw, [_, _]) =>
+                  opened loc writing l (\ren', x =>
+                    apart loc iSnoc r (ren' i) (\ren'', cs =>
+                      ReadBack loc (cellAfter r ds e) (Var loc (ren'' x)) (map (Var loc) cs)
+                        (ConApp loc res [] [ Var loc (Bound {k = 2} FZ)
+                                           , ConApp loc writing [] [Var loc (Bound {k = 2} (FS FZ))]])))))
+        (AThaw, [_, FunT (MkBinder _ lTy) _]) => do
+          (writing, ds, e) <- cellOf lTy
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [x, k] =>
-                  App loc (Var loc k) (Var loc x)))
+                  App loc (Var loc k) (ConApp loc writing [] [fresh ds e (Var loc x)])))
         (ALShape, [lTy]) => do
+          (writing, ds, _) <- cellOf lTy
           res <- onlyCon fc 2 rt
           a <- theElement
           s <- snocCons fc (typeOf (Data.Vect.index 0 res.fields))
-          let r = minus (rank lTy) (rank a)
+          let r = minus (length ds) (rank a)
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [l] =>
-                  ExtentsBack {k = r} loc (Var loc l)
-                              (snocValue loc s (toList (map (\j => Var loc (Bound j)) (allFins r)))) res))
+                  opened loc writing l (\ren', x =>
+                    ExtentsBack {k = r} loc (Var loc x)
+                      (ConApp loc res []
+                         [ snocValue loc s (toList (map (\j => Var loc (Bound (weaken j))) (allFins r)))
+                         , ConApp loc writing [] [Var loc (Bound (last {n = r}))]]))))
+        -- The grown array fills a cell of the result's type, as long on the
+        -- last axis as the result's shape says.
         (AGrow, [_, vTy, lTy]) => do
-          let axis = lastAxis lTy vTy
+          (writing, ds, e) <- cellOf lTy
+          (grown, gds, _) <- cellOf rt
+          let arrTy = TensorT ds e
+              axis = lastAxis arrTy vTy
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [k, v, l] =>
-                  Tensor loc rt (Concat axis (Var loc l) (copies lTy axis (Var loc l) (Var loc k) (Var loc v)))))
+                  opened loc writing l (\ren', x =>
+                    ConApp loc grown []
+                      [Tensor loc (TensorT gds e)
+                         (Concat axis (Var loc x) (copies arrTy axis (Var loc x) (Var loc (ren' k)) (Var loc (ren' v))))])))
         (ATabulateIO, [eTy, FunT (MkBinder _ idxTy) (FunT (MkBinder _ WorldT) step@(DataT _ _))]) => do
           FunT _ done@(DataT _ _) <- pure rt
             | _ => internal fc "a world-ordered tabulation whose result is no action"
@@ -1656,6 +1692,45 @@ mutual
                                      stepCon doneCon))))
         _ => internal fc ("the array language's " ++ show name ++ " at operand types it does not have")
         where
+          -- The constructor of a linear array's cell, and the dimensions
+          -- and element of the array it holds.
+          cellOf : Ty -> Front (Con 1, List Dim, Ty)
+          cellOf t = do
+            c <- onlyCon fc 1 t
+            case typeOf (Data.Vect.head c.fields) of
+              TensorT ds e => pure (c, ds, e)
+              held => internal fc ("a linear array whose cell holds a value of type " ++ show held)
+
+          -- The type of the cells after the first `r` axes of an array of
+          -- `ds` of `e`: its element when they are all its axes.
+          cellAfter : Nat -> List Dim -> Ty -> Ty
+          cellAfter r ds e = case drop r ds of
+            [] => e
+            cds => TensorT cds e
+
+          -- A new array of `ds` of `e` whose leading extents are given and
+          -- whose every cell is `v`: the cells' extents are `v`'s, read off
+          -- it, so no type need fix them, and every slot is written once.
+          filled : {0 m : Nat} -> List Dim -> Ty -> List (Term m) -> Term m -> Term m
+          filled ds e ns v =
+            let es = ns ++ map (\j => Tensor loc (NatT IOpaque) (Extent j v)) (axesOf (minus (length ds) (length ns)))
+                v' = weakenUnder (length es) v
+                cell = map (Var loc . Bound) (drop (length ns) (toList (Data.Vect.allFins (length es))))
+                body = case cell of
+                         [] => v'
+                         _ => Tensor loc e (Extract v' cell)
+            in Tabulate loc (TensorT ds e) (fromList es) body
+
+          -- A new array of `ds` of `e` holding every element of `x`, in
+          -- slots of its own: what a linear array made of an array holds,
+          -- so that no other value reaches them while it writes them.
+          fresh : {0 m : Nat} -> List Dim -> Ty -> Term m -> Term m
+          fresh ds e x =
+            let es = map (\j => Tensor loc (NatT IOpaque) (Extent j x)) (axesOf (length ds))
+            in Tabulate loc (TensorT ds e) (fromList es)
+                 (Tensor loc e (Extract (weakenUnder (length es) x)
+                                        (map (Var loc . Bound) (toList (Data.Vect.allFins (length es))))))
+
           -- The one type argument of a call that has one: the element or
           -- the cell.
           theElement : Front Ty

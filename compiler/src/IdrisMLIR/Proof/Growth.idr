@@ -44,6 +44,14 @@ data Decision : Type -> Type where
   Holds : p -> Decision p
   Fails : (0 _ : Not p) -> Decision p
 
+||| A decision whose evidence only proofs read: the erased evidence that it
+||| holds, or the erased evidence that it does not. Deciding one costs its
+||| comparisons alone; no proof of it is built at run time.
+public export
+data Decided : Type -> Type where
+  Yes : (0 _ : p) -> Decided p
+  No : (0 _ : Not p) -> Decided p
+
 -- The machine compares naturals as integers, at a cost that does not grow
 -- with them; these read its answer as a proof. Each recurses on the
 -- numbers, so a decision uses them only where the proof is erased.

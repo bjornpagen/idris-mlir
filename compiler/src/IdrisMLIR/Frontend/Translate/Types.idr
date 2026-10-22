@@ -1155,8 +1155,8 @@ mutual
       Nothing => case elemLink found.link chain.links of
         -- A link on the chain is in the table already: its identity was
         -- minted before its constructors were read.
-        Holds _ => internal fc (tname ++ ", registered, is not in the table of families")
-        Fails fresh => do
+        Yes _ => internal fc (tname ++ ", registered, is not in the table of families")
+        No fresh => do
           let fam = MkFamilyId st.nextFamily
           updateState { familyIds $= insert found.link fam, nextFamily $= S }
           let what = keyText found.key ++ ", registered,"

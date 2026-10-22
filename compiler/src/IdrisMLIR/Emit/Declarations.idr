@@ -46,8 +46,8 @@ function : Index -> TFn -> E (List (String, Statement))
 function ix f = do
   ((args, res), ops) <- inFunction $ do
     bound <- traverse (\(i, p) => parameter ix f.loc f.symbol (finToNat i, p)) (zip (range {len = f.arity}) f.params)
-    let sc = MkScope (\i => fst (index i bound)) f.telescope (Just f.id)
-    res <- plain ix f.loc (para (alg ix) f.body sc (MkWanted (Just f.result) Nothing InTail))
+    let sc = MkScope (\i => fst (index i bound)) f.telescope
+    res <- plain ix f.loc (para (alg ix) f.body sc (expecting (Just f.result)))
     res' <- traverse (fit ix f.loc (Just f.result)) res
     pure (mapMaybe snd (toList bound), res')
   body <- epilogue ix f.loc res ops

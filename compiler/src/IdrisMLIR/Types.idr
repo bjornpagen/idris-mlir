@@ -135,15 +135,16 @@ mutual
   ||| cell whose value is shared by every force; `DataT` is a family
   ||| applied to one term per index, whatever its values hold: how they are
   ||| laid out, inline or in a cell, is the dialect's to decide from the
-  ||| type. `TensorT` is a value of the array language (`Array s a`,
-  ||| `LArray s a`): a ranked tensor of its element, one dimension per axis
-  ||| of the form of `s`, outermost first, static where the shape's normal
-  ||| form at the instance is a literal; an array of arrays is one tensor,
-  ||| the element's dimensions after the shape's, so its element is never a
-  ||| tensor or a memref. `MemRefT` is an array a world orders (`Ordered`);
-  ||| its element is never a tensor. `WorldT` is Idris's world, which Core
-  ||| keeps so that the translation reads IO as Idris wrote it; Emit writes
-  ||| no value of it, since after the frontend IO is ordered by effects.
+  ||| type. `TensorT` is a value of the array language (`Array s a`, which
+  ||| a linear array's cell holds): a ranked tensor of its element, one
+  ||| dimension per axis of the form of `s`, outermost first, static where
+  ||| the shape's normal form at the instance is a literal; an array of
+  ||| arrays is one tensor, the element's dimensions after the shape's, so
+  ||| its element is never a tensor or a memref. `MemRefT` is an array a
+  ||| world orders (`Ordered`); its element is never a tensor. `WorldT` is
+  ||| Idris's world, which Core keeps so that the translation reads IO as
+  ||| Idris wrote it; Emit writes no value of it, since after the frontend
+  ||| IO is ordered by effects.
   public export
   data Ty = IntT IntTy | CharT | DoubleT | StrT | BigT | NatT ITerm | WorldT
           | DataT FamilyId (List ITerm)

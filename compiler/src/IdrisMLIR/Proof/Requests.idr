@@ -674,36 +674,36 @@ nodesGrow m k (S r) = transitive (nodesGrow m k r) (lteSuccRight (lteAddRight (n
 timesLte Z _ = LTEZero
 timesLte (S c) le = plusLteMonotone le (timesLte c le)
 
--- Below a bound that is itself below another: the second proof is erased,
--- so this costs the first's size, however large the bounds.
-lteThrough : LTE a b -> (0 _ : LTE b c) -> LTE a c
+-- Below a bound that is itself below another.
+0 lteThrough : LTE a b -> LTE b c -> LTE a c
 lteThrough LTEZero _ = LTEZero
 lteThrough (LTESucc p) q = rewrite above q in LTESucc (lteThrough p (fromLteSucc (rewrite sym (above q) in q)))
   where
-    0 above : LTE (S n) m -> m = S (pred m)
+    above : LTE (S n) m -> m = S (pred m)
     above (LTESucc _) = Refl
 
 -- From the count n at level k, r levels below the height: whether `size`
 -- fits c times the count at the height. It stops at the first level whose
 -- product reaches `size`, since the counts only grow, so it never builds
--- the product at the height.
+-- the product at the height, and its proof is erased, so it builds no
+-- unary count either.
 climb : (size, c, m : Nat) -> (r, k, n : Nat) -> (0 _ : n = nodesWithin (S m) k) ->
-        Decision (LTE size (c * nodesWithin (S m) (r + k)))
+        Decided (LTE size (c * nodesWithin (S m) (r + k)))
 climb size c m r k n eq = case choose (size <= c * n) of
   Left fits =>
-    Holds (lteThrough (lteSo fits)
-             (replace {p = \z => LTE (c * z) (c * nodesWithin (S m) (r + k))} (sym eq) (timesLte c (nodesGrow m k r))))
+    Yes (lteThrough (lteSo fits)
+           (replace {p = \z => LTE (c * z) (c * nodesWithin (S m) (r + k))} (sym eq) (timesLte c (nodesGrow m k r))))
   Right over => case r of
-    Z => Fails (\le => notLteSo over (replace {p = \z => LTE size (c * z)} (sym eq) le))
-    S r' => replace {p = \t => Decision (LTE size (c * nodesWithin (S m) t))} (sym (plusSuccRightSucc r' k))
+    Z => No (\le => notLteSo over (replace {p = \z => LTE size (c * z)} (sym eq) le))
+    S r' => replace {p = \t => Decided (LTE size (c * nodesWithin (S m) t))} (sym (plusSuccRightSucc r' k))
               (climb size c m r' (S k) (1 + S m * n) (cong (\z => 1 + S m * z) eq))
 
 -- Whether a static argument of a size fits `sizeWithin`, by comparisons of
 -- numbers no larger than the size times the first factor: the terms are
 -- summed only until they pass the size, at most `height` of them.
-fitsWithin : (size, arity, height, heaviest : Nat) -> Decision (LTE size (sizeWithin arity height heaviest))
+fitsWithin : (size, arity, height, heaviest : Nat) -> Decided (LTE size (sizeWithin arity height heaviest))
 fitsWithin size arity height heaviest =
-  replace {p = \t => Decision (LTE size ((2 * height + heaviest) * nodesWithin (S (pred arity)) t))}
+  replace {p = \t => Decided (LTE size ((2 * height + heaviest) * nodesWithin (S (pred arity)) t))}
           (plusZeroRightNeutral height)
           (climb size (2 * height + heaviest) (pred arity) height 0 0 Refl)
 
@@ -772,35 +772,36 @@ within : (0 forms : Listed form) -> (0 names : Listed Address) -> (b : Bounds) -
 within forms names b l = case choose (length l.arguments <= b.breadth) of
   Right long => Fails (\inside => notLteSo long inside.short)
   Left fits => case allFit l.arguments (b.heightAt l.definition) of
-    Fails large => Fails (\inside => large inside.sized)
-    Holds sized => Holds (MkIn (lteSo fits) sized (inUniverse forms names b l (lteSo fits) sized))
+    No large => Fails (\inside => large inside.sized)
+    Yes sized => Holds (MkIn (lteSo fits) sized (inUniverse forms names b l (lteSo fits) sized))
   where
     -- One argument against its parameter's height, then the rest.
-    next : (a : Maybe (Written form)) -> (h : Nat) -> Lazy (Decision (Pointwise ss hs)) ->
-           Decision (Pointwise (argumentSize a :: ss) (sizeWithin b.arity h b.heaviest :: hs))
+    next : (a : Maybe (Written form)) -> (h : Nat) -> Lazy (Decided (Pointwise ss hs)) ->
+           Decided (Pointwise (argumentSize a :: ss) (sizeWithin b.arity h b.heaviest :: hs))
     next a h rest = case fitsWithin (argumentSize a) b.arity h b.heaviest of
-      Fails over => Fails (\(le :: _) => over le)
-      Holds le => case rest of
-        Fails more => Fails (\(_ :: pw) => more pw)
-        Holds pw => Holds (le :: pw)
+      No over => No (\(le :: _) => over le)
+      Yes le => case rest of
+        No more => No (\(_ :: pw) => more pw)
+        Yes pw => Yes (le :: pw)
 
     -- Down the arguments, the heights padded with 0 as they run out, as
     -- `padded` pads them: one height for each argument.
     allFit : (as : List (Maybe (Written form))) -> (hs : List Nat) ->
-             Decision (Pointwise (map Requests.argumentSize as) (map (\h => sizeWithin b.arity h b.heaviest) (padded (length as) hs)))
-    allFit [] _ = Holds []
+             Decided (Pointwise (map Requests.argumentSize as) (map (\h => sizeWithin b.arity h b.heaviest) (padded (length as) hs)))
+    allFit [] _ = Yes []
     allFit (a :: as) [] = next a 0 (allFit as [])
     allFit (a :: as) (h :: hs) = next a h (allFit as hs)
 
 ||| Whether a link is one of a list's, by the machine's comparisons
 ||| (`sameLink`). A chain of requests decides it of each request that
 ||| extends it: the erased evidence that the link is not one of the chain's
-||| keeps the chain free of duplicates.
+||| keeps the chain free of duplicates, and no place in the chain is built
+||| where it is.
 export
-elemLink : DecEq form => (l : Link form) -> (ls : List (Link form)) -> Decision (Elem l ls)
-elemLink l [] = Fails absurd
+elemLink : DecEq form => (l : Link form) -> (ls : List (Link form)) -> Decided (Elem l ls)
+elemLink l [] = No absurd
 elemLink l (k :: ks) = case sameLink l k of
-  Holds Refl => Holds Here
+  Holds Refl => Yes Here
   Fails other => case elemLink l ks of
-    Holds e => Holds (There e)
-    Fails ne => Fails (neitherHereNorThere other ne)
+    Yes e => Yes (There e)
+    No ne => No (neitherHereNorThere other ne)

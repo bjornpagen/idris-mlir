@@ -246,16 +246,17 @@ mutual
     ||| statement gives, axis by axis (an axis counted from 0, outermost
     ||| first).
     Tie : Loc -> Term n -> List (Nat, Stated (Term n)) -> Term n
-    ||| A read of a linear array: the element or cell at the coordinates
-    ||| (naturals, one per leading axis), and the array given back as a new
-    ||| value, the `Res` (`res`) of both, as Idris's type says, so that what
-    ||| consumes the array next comes after the read by data dependence.
-    ReadBack : Loc -> (elem : Ty) -> (array : Term n) -> List (Term n) -> (res : Con 2) -> Term n
-    ||| The extents of a linear array, each read giving the array back as a
-    ||| new value: the body binds extent j (outermost first) as `Bound j`, a
-    ||| natural, and its value and the array given back last are the `Res`
-    ||| (`res`).
-    ExtentsBack : {k : Nat} -> Loc -> (array : Term n) -> Term (Under k n) -> (res : Con 2) -> Term n
+    ||| A read of the array a linear array's cell holds: the element or
+    ||| cell at the coordinates (naturals, one per leading axis), and the
+    ||| array given back as a new value, so that what writes the array next
+    ||| comes after the read by data dependence. The body binds the element
+    ||| (`Bound 0`) and the array given back (`Bound 1`).
+    ReadBack : Loc -> (elem : Ty) -> (array : Term n) -> List (Term n) -> Term (Under 2 n) -> Term n
+    ||| The extents of the array a linear array's cell holds, each read
+    ||| giving the array back as a new value: the body binds extent j
+    ||| (outermost first) as `Bound j`, a natural, and the array given back
+    ||| last as `Bound k`.
+    ExtentsBack : {k : Nat} -> Loc -> (array : Term n) -> Term (Under (S k) n) -> Term n
 
   ||| A constructor alternative binds the constructor's fields (not its
   ||| parameters), each named as its pattern variable: field `i` is
@@ -312,8 +313,8 @@ mutual
     TabulateIO l ty (renameVect f es) (rename f w) (rename (liftRen {k = S k} f) body) step done
   rename f (Reduce l r acc el ty z x body) = Reduce l r acc el ty (rename f z) (rename f x) (rename (liftRen {k = 2} f) body)
   rename f (Tie l x ds) = Tie l (rename f x) (renameStated f ds)
-  rename f (ReadBack l e x cs res) = ReadBack l e (rename f x) (renameAll f cs) res
-  rename f (ExtentsBack {k} l x body res) = ExtentsBack l (rename f x) (rename (liftRen {k} f) body) res
+  rename f (ReadBack l e x cs body) = ReadBack l e (rename f x) (renameAll f cs) (rename (liftRen {k = 2} f) body)
+  rename f (ExtentsBack {k} l x body) = ExtentsBack l (rename f x) (rename (liftRen {k = S k} f) body)
 
   renameAll : (Fin n -> Fin m) -> List (Term n) -> List (Term m)
   renameAll f [] = []
@@ -400,8 +401,8 @@ mutual
     TabulateIOF : {k : Nat} -> Loc -> Ty -> Vect k (f n) -> f n -> f (Under (S k) n) -> Con 2 -> Con 2 -> TermF f n
     ReduceF : Loc -> Reduction -> Ty -> Ty -> Ty -> f n -> f n -> f (Under 2 n) -> TermF f n
     TieF : Loc -> f n -> List (Nat, Stated (f n)) -> TermF f n
-    ReadBackF : Loc -> Ty -> f n -> List (f n) -> Con 2 -> TermF f n
-    ExtentsBackF : {k : Nat} -> Loc -> f n -> f (Under k n) -> Con 2 -> TermF f n
+    ReadBackF : Loc -> Ty -> f n -> List (f n) -> f (Under 2 n) -> TermF f n
+    ExtentsBackF : {k : Nat} -> Loc -> f n -> f (Under (S k) n) -> TermF f n
 
   public export
   data AltF : (Nat -> Type) -> Nat -> Type where
@@ -455,8 +456,8 @@ hmap h (TabulateF l ty es body) = TabulateF l ty (map h es) (h body)
 hmap h (TabulateIOF l ty es w body step done) = TabulateIOF l ty (map h es) (h w) (h body) step done
 hmap h (ReduceF l r acc el ty z x body) = ReduceF l r acc el ty (h z) (h x) (h body)
 hmap h (TieF l x ds) = TieF l (h x) (map (\(a, s) => (a, map h s)) ds)
-hmap h (ReadBackF l e x cs res) = ReadBackF l e (h x) (map h cs) res
-hmap h (ExtentsBackF l x body res) = ExtentsBackF l (h x) (h body) res
+hmap h (ReadBackF l e x cs body) = ReadBackF l e (h x) (map h cs) (h body)
+hmap h (ExtentsBackF l x body) = ExtentsBackF l (h x) (h body)
 
 mutual
   ||| The paramorphism: each layer with its subterms as they were and as the
@@ -487,8 +488,8 @@ mutual
     alg (TabulateIOF l ty (paraVect alg es) (sub alg w) (sub alg body) step done)
   para alg (Reduce l r acc el ty z x body) = alg (ReduceF l r acc el ty (sub alg z) (sub alg x) (sub alg body))
   para alg (Tie l x ds) = alg (TieF l (sub alg x) (paraStated alg ds))
-  para alg (ReadBack l e x cs res) = alg (ReadBackF l e (sub alg x) (paraAll alg cs) res)
-  para alg (ExtentsBack l x body res) = alg (ExtentsBackF l (sub alg x) (sub alg body) res)
+  para alg (ReadBack l e x cs body) = alg (ReadBackF l e (sub alg x) (paraAll alg cs) (sub alg body))
+  para alg (ExtentsBack l x body) = alg (ExtentsBackF l (sub alg x) (sub alg body))
 
   sub : {0 f : Nat -> Type} -> ({0 m : Nat} -> TermF (Sub f) m -> f m) -> Term n -> Sub f n
   sub alg t = MkSub t (para alg t)

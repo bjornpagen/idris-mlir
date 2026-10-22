@@ -72,18 +72,20 @@ computing ns name shape p = MkEntry (Def (MkQName ns name)) (Typed shape) (Gener
 fin : Shape
 fin = Head (Def (MkQName ["Data", "Fin"] "Fin")) [Hole]
 
-||| The array language's two value types, whose bodies hold their elements
-||| in base's arrays; the functions of its generating set and of its linear
+||| The array language's value type, whose body holds its elements in
+||| base's arrays; the functions of its generating set and of its linear
 ||| arrays that have bodies, whose calls are the tensor operations of their
 ||| sequential meaning; and base's `natToFinLT` and `finToNat`, the
 ||| identity on a natural, a `Fin` being one: a coordinate is its natural,
 ||| so an index's position reads as the index, and a loop over an array
-||| computes on words.
+||| computes on words. A linear array is no value type: it is its family,
+||| a cell holding its array, as the growable vector is, so that its grade
+||| says what may write it in place. Its operations take the array out of
+||| the cell, run on it and build the cell again; `freeze`, whose body does
+||| only that, compiles from its body.
 arrays : List (Entry Faster)
 arrays =
   [ MkEntry (Def (MkQName arrayCore "Array")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
-            ArrayValueType
-  , MkEntry (Def (MkQName arrayCore "LArray")) (Typed (Pi M0 shapeType (Pi Mw TypeOfTypes TypeOfTypes)))
             ArrayValueType
   , computing arrayCore "shape" (implicits 2 (arg arrayShape extentsShape)) AShape
   , computing arrayCore "tabulate" (implicits 2 (arg extentsShape (arg (arg indexShape Hole) arrayShape))) ATabulate
@@ -93,7 +95,6 @@ arrays =
   , computing arrayCore "reshape" (implicits 3 (arg extentsShape (Pi M0 Hole (arg arrayShape arrayShape)))) AReshape
   , computing larrayCore "read" (implicits 2 (linear larrayShape (arg indexShape Hole))) ARead
   , computing larrayCore "write" (implicits 2 (linear larrayShape (arg indexShape (arg Hole larrayShape)))) AWrite
-  , MkEntry (Def (MkQName larrayCore "freeze")) (Typed (implicits 2 (linear larrayShape Hole))) IdentityOnLastArgument
   , computing larrayCore "thaw" (implicits 3 (arg arrayShape (linear (linear larrayShape Hole) Hole))) AThaw
   , MkEntry (Def (MkQName ["Data", "Fin"] "natToFinLT")) (Typed (arg nat (implicits 2 fin))) IdentityOnLastArgument
   , MkEntry (Def (MkQName ["Data", "Fin"] "finToNat")) (Typed (implicits 1 (arg fin nat))) IdentityOnLastArgument ]

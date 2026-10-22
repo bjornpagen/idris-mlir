@@ -1,25 +1,28 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| Full Core to the module: one `idr.program` of the `idr`, `arith`,
-||| `math`, `memref`, `linalg`, `ub` and `tensor` dialects in a module, each
-||| op made by its builder, which is printed from the dialect's
-||| specification or from upstream's records (IdrisMLIR.Dialect.*), handed
-||| to the driver as MLIR bytecode (IdrisMLIR.MLIR.Bytecode). Text is no
-||| handoff: MLIR prints the file.
+||| `math`, `memref`, `linalg`, `ub`, `tensor`, `bufferization` and `scf`
+||| dialects in a module, each op made by its builder, which is printed
+||| from the dialect's specification or from upstream's records
+||| (IdrisMLIR.Dialect.*), handed to the driver as MLIR bytecode
+||| (IdrisMLIR.MLIR.Bytecode). Text is no handoff: MLIR prints the file.
 |||
 ||| A body is written by one fold over `Term`, a paramorphism: the algebra
 ||| turns each layer into an emitter, which, given its scope and what the
 ||| context wants, appends the layer's operations and returns its value.
 ||| Quantities are the binders' as Idris checked them: nothing here counts
-||| a use. A match is `idr.match` or `idr.match_lit`, a region per case,
-||| each case binding the scrutinee refined to its constructor and its
-||| constructor's erased binders, its fields reads of the refined value; a
-||| lambda and a `Delay` are each a function of its own, which an
-||| `idr.closure` or an `idr.suspend` names with its captures and its
-||| scope's levels; an array is made, folded and scanned by the array ops,
-||| each a region from indices to an element; a data type is its family's
-||| group and member applied to index terms. Idris's world is no value of
-||| the module: IO is ordered by the effects its ops declare.
+||| a use. A match is `idr.data.match`, a region per case, each case
+||| binding the scrutinee refined to its constructor and its constructor's
+||| erased binders, its fields reads of the refined value; a match on
+||| literals is `idr.lit.match` for a string, a big integer or a natural,
+||| and upstream's `scf.index_switch` for a fixed-width integer, a
+||| character or a double; a lambda and a `Delay` are each a function of
+||| its own, which an `idr.closure` or an `idr.suspend` names with its
+||| captures and its scope's levels; an array is made, folded and scanned
+||| by the array ops, each a region from indices to an element; a data type
+||| is its family's group and member applied to index terms. Idris's world
+||| is no value of the module: IO is ordered by the effects its ops
+||| declare.
 |||
 ||| Types are synthesized as they are written, bidirectionally: every
 ||| emitter returns its value's type, and a context that knows the type it
@@ -36,7 +39,6 @@ import IdrisMLIR.Emit.Declarations
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Monad
 import IdrisMLIR.Ids
-import IdrisMLIR.Laws
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.MLIR.Bytecode
@@ -67,14 +69,12 @@ each (x :: xs) f = do
 ||| so that whatever the pipeline reports about the whole program is at the
 ||| user's code. That no two functions share a symbol is the program's
 ||| symbol table's, which MLIR verifies when it reads the module; the
-||| frontend finds two instances on one key where the key is made. The
-||| program's laws are checked first, on every compilation. A failure
-||| leaves the file unwritten or partly written; the caller discards it.
+||| frontend finds two instances on one key where the key is made. A
+||| failure leaves the file unwritten or partly written; the caller
+||| discards it.
 export
 emit : File -> Source -> IO (Either String ())
 emit h src = do
-  let Right () = laws src
-    | Left e => pure (Left e)
   let ix = index src
   Right w <- newWriter
     | Left e => pure (Left e)

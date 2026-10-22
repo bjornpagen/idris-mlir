@@ -103,12 +103,10 @@ export
 linear : Shape -> Shape -> Shape
 linear = Pi M1
 
-||| The array language's two value types, whose shape type the entries pin;
-||| its generating set and the operations of its linear arrays, whose calls
-||| are the tensor operations of their sequential meaning; and base's
-||| `natToFinLT` and `finToNat`, the identity on a natural, a `Fin` being
-||| one: a coordinate is its natural, so an index's position reads as the
-||| index, and a loop over an array computes on words.
+||| The functions of the array language's generating set and of its linear
+||| arrays that the library declares `%extern`, whose calls are the tensor
+||| operations of their sequential meaning, a linear array's on the array
+||| its cell holds.
 arrayLanguage : List AnyEntry
 arrayLanguage =
   [ generating arrayCore "update" AUpdate

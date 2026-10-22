@@ -292,9 +292,9 @@ data Hook : Kind -> Type where
   ||| element its type argument names (`Nothing`), or of the one given
   ||| (`Buffer`'s byte). Handler: `Frontend.Translate.Types.coreType`.
   OrderedArrayType : {auto 0 lowers : Lowers kd} -> Ordered -> Maybe Ty -> Hook kd
-  ||| A type of the array language that is a value, `Array s a` or
-  ||| `LArray s a`: a tensor. Opaque: no constructor of it is matched or
-  ||| applied. Handler: `Frontend.Translate.Types.coreType`.
+  ||| The type of the array language that is a value, `Array s a`: a
+  ||| tensor. Opaque: no constructor of it is matched or applied. Handler:
+  ||| `Frontend.Translate.Types.coreType`.
   ArrayValueType : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A function of the array language whose calls are the operation its
   ||| `ArrayPrim` names, in their sequential meaning; its body is not
