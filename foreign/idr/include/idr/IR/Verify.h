@@ -11,7 +11,7 @@
 // have and its program's stage, and nothing else of the module, so no pass
 // rewriting a sibling function races them; nothing keeps a table or an
 // answer beyond one verify. The knot rule is no verifier's: it refuses the
-// user's program, so it is the body of a check pass (knots).
+// user's program, so it is a check pass's (idr-knots).
 #ifndef IDR_IR_VERIFY_H
 #define IDR_IR_VERIFY_H
 
@@ -30,8 +30,6 @@
 
 namespace idr {
 
-class TypeGraph;
-
 namespace verify {
 
 // The rules of the program: its target's pointers are the runtime's
@@ -40,11 +38,6 @@ namespace verify {
 // gives a cell of its token's layout. A lowered program is upstream's
 // functions and globals, which hold no rule of ours.
 mlir::LogicalResult program(ProgramOp program);
-
-// No array can hold a reference to itself, by the cycles of `graph`, else
-// the refusal `cycle`: the body of idr-knots, which runs once every closure
-// is a constructor of a sum.
-mlir::LogicalResult knots(ProgramOp program, const TypeGraph &graph);
 
 // The rules of one function at its program's stage: what the stage lets its
 // values hold, past the higher stage no value whose type reaches a closure
