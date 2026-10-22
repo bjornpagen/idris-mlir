@@ -913,10 +913,11 @@ implicitsAs n defs ns tm
 ||| `definedInBlock` is used to figure out which definitions should
 ||| receive the additional arguments introduced by a Parameters directive
 export
+total
 definedInBlock : Namespace -> -- namespace to resolve names
                  List ImpDecl -> List Name
 definedInBlock ns decls =
-    Prelude.toList $ foldl (defName ns) empty decls
+    Prelude.toList $ defNames ns empty decls
   where
     getName : ImpTy -> Name
     getName = (.tyName.val)
@@ -933,14 +934,22 @@ definedInBlock ns decls =
            _ => n
 
     defName : Namespace -> SortedSet Name -> ImpDecl -> SortedSet Name
+
+    -- The declarations a declaration holds are folded by a function of
+    -- their own rather than by `foldl`, so that each call is on a part of
+    -- the declaration it was given and the fold is total by its structure.
+    defNames : Namespace -> SortedSet Name -> List ImpDecl -> SortedSet Name
+    defNames ns acc [] = acc
+    defNames ns acc (d :: ds) = defNames ns (defName ns acc d) ds
+
     defName ns acc (IClaim c) = insert (expandNS ns (getName c.val.type)) acc
     defName ns acc (IDef _ nm _) = insert (expandNS ns nm) acc
     defName ns acc (IData _ _ _ (MkImpData _ n _ _ cons))
         = foldl (flip insert) acc $ expandNS ns n :: map (expandNS ns . getName) cons
     defName ns acc (IData _ _ _ (MkImpLater _ n _)) = insert (expandNS ns n) acc
-    defName ns acc (IParameters _ _ pds) = foldl (defName ns) acc pds
-    defName ns acc (IFail _ _ nds) = foldl (defName ns) acc nds
-    defName ns acc (INamespace _ n nds) = foldl (defName (ns <.> n)) acc nds
+    defName ns acc (IParameters _ _ pds) = defNames ns acc pds
+    defName ns acc (IFail _ _ nds) = defNames ns acc nds
+    defName ns acc (INamespace _ n nds) = defNames (ns <.> n) acc nds
     defName ns acc (IRecord _ fldns _ _ rec)
         = foldl (flip insert) acc $ expandNS ns rec.val.body.name.val :: all
       where
@@ -1084,12 +1093,17 @@ namespace Arg
   apply f (Named fc n a :: args) = apply (INamedApp fc f n a) args
   apply f [] = f
 
+||| The location `apply` gives a function at the first location applied to an
+||| argument at the second: the two merged, or the function's where they do
+||| not merge.
+export
+applicationFC : (fn, arg : FC) -> FC
+applicationFC fnFC argFC = fromMaybe fnFC (mergeFC fnFC argFC)
+
 export
 apply : RawImp' nm -> List (RawImp' nm) -> RawImp' nm
 apply f [] = f
-apply f (x :: xs) =
-  let fFC = getFC f in
-  apply (IApp (fromMaybe fFC (mergeFC fFC (getFC x))) f x) xs
+apply f (x :: xs) = apply (IApp (applicationFC (getFC f) (getFC x)) f x) xs
 
 export
 gapply : RawImp' nm -> List (Maybe Name, RawImp' nm) -> RawImp' nm
@@ -1100,16 +1114,39 @@ gapply f (x :: xs) = gapply (uncurry (app f) x) xs where
   app f Nothing   x = IApp (getFC f) f x
   app f (Just nm) x = INamedApp (getFC f) f nm x
 
+||| A dependent pair's type reading over the pieces given: the type former,
+||| a variable `var` makes, applied to a hole and to `part` under a binder of
+||| the name, at the locations `apply` gives the written ones, which the
+||| pieces do not decide. `typeReading` gives `IVar` and the written part; a
+||| walk that rebuilds the reading gives its own.
+export
+dpairTypeReading : (var : FC -> Name -> RawImp) -> (opFC, nameFC : FC) ->
+                   Name -> (part : RawImp) -> RawImp
+dpairTypeReading var opFC nameFC n part
+    = let vfc = virtualiseFC nameFC
+          hole = Implicit vfc False
+          fnFC = applicationFC opFC vfc in
+          IApp (applicationFC fnFC nameFC) (IApp fnFC (var opFC dpairname) hole)
+               (ILam nameFC top Explicit (Just n) hole part)
+
+||| A dependent pair's value reading over the pieces given: the constructor
+||| applied to the name, both variables `var` makes, and to `part`, at the
+||| locations `apply` gives the written ones, the written part's at
+||| `partFC`.
+export
+dpairValueReading : (var : FC -> Name -> RawImp) -> (opFC, nameFC, partFC : FC) ->
+                    Name -> (part : RawImp) -> RawImp
+dpairValueReading var opFC nameFC partFC n part
+    = let fnFC = applicationFC opFC nameFC in
+          IApp (applicationFC fnFC partFC) (IApp fnFC (var opFC mkdpairname) (var nameFC n))
+               part
+
 ||| The type the syntax writes: its type former applied to its parts.
 export
 typeReading : FC -> Overlaid -> RawImp
 typeReading fc (PairOf l r) = apply (IVar fc pairname) [l, r]
 typeReading fc UnitOf = IVar fc (knownUN KUnit)
-typeReading fc (DPairOf opFC nameFC n r)
-    = let vfc = virtualiseFC nameFC in
-          apply (IVar opFC dpairname)
-                [Implicit vfc False,
-                 ILam nameFC top Explicit (Just n) (Implicit vfc False) r]
+typeReading fc (DPairOf opFC nameFC n r) = dpairTypeReading IVar opFC nameFC n r
 
 ||| The value the syntax writes: its constructor applied to its parts.
 export
@@ -1117,7 +1154,7 @@ valueReading : FC -> Overlaid -> RawImp
 valueReading fc (PairOf l r) = apply (IVar fc mkpairname) [l, r]
 valueReading fc UnitOf = IVar fc (knownUN KMkUnit)
 valueReading fc (DPairOf opFC nameFC n r)
-    = apply (IVar opFC mkdpairname) [IVar nameFC n, r]
+    = dpairValueReading IVar opFC nameFC (getFC r) n r
 
 
 export
