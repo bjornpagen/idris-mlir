@@ -2,10 +2,11 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What counting's passes share (lib/Transforms/Counting), read once from
 // the types, the moves ops declare and upstream's control-flow interfaces:
-// what a value's grade leaves to count, what its type says of its
-// constructor, which values are elements read out of memory and left
-// there, how a terminator leaves its region, and how often a region op runs
-// its regions. Each answer is a choice of an enum, so no pass asks a second
+// what its type says of a value's constructor, which values are elements
+// read out of memory and left there, how a terminator leaves its region,
+// and how often a region op runs its regions. Who frees a value is its
+// hold's release (Grades.h), read where it is asked and never restated
+// here. Each answer is a choice of an enum, so no pass asks a second
 // question to learn what the first one meant.
 #ifndef IDR_TRANSFORMS_COUNTING_FACTS_H
 #define IDR_TRANSFORMS_COUNTING_FACTS_H
@@ -26,40 +27,12 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/ErrorHandling.h"
 
 #include <cstdint>
 #include <iterator>
 #include <optional>
 
 namespace idr::counting {
-
-// What counting does with a value, read off its grade alone:
-//   - None: it holds no reference, so nothing is placed for it;
-//   - Counted: freed by its count: it holds one reference of its own,
-//     which exactly one use on each path consumes, and a use that only
-//     reads it leaves it to be dropped after its last; one Idris lets be
-//     used once has one use, so it never takes a dup;
-//   - Scoped: a view its lifetime frees: it holds no reference of its own,
-//     nothing drops it, and no use may consume it;
-//   - Static: never freed, shared by definition: no count is ever touched,
-//     and a dup or a drop of it cannot be written.
-enum class Counts : std::uint8_t { None, Counted, Scoped, Static };
-
-inline Counts countsOf(mlir::Type type) {
-  Grade grade = gradeOf(type);
-  if (!grade.hold)
-    return Counts::None;
-  switch (grade.hold->release()) {
-  case Release::Counted:
-    return Counts::Counted;
-  case Release::Scoped:
-    return Counts::Scoped;
-  case Release::Static:
-    return Counts::Static;
-  }
-  llvm_unreachable("who frees a value is one of three");
-}
 
 // The constructor a value's type fixes, when it fixes one: a case of a
 // match binds its scrutinee refined to it, and a field is read only of

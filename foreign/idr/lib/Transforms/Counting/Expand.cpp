@@ -93,7 +93,7 @@ SmallVector<Value> dupFields(RewriterBase &rewriter, Location loc, Value owner,
   SmallVector<Value> dups;
   for (unsigned index : fields) {
     Value read = DataFieldOp::create(rewriter, loc, owner, index).getResult();
-    dups.push_back(countsOf(read.getType()) == Counts::Counted
+    dups.push_back(freedBy(read.getType(), Release::Counted)
                        ? CountDupOp::create(rewriter, loc, atHold(read.getType(), Hold::counted()), read)
                              .getResult()
                        : read);

@@ -110,7 +110,7 @@ void Placement::apply() {
       // unless only the end lies ahead.
       if (take.ahead == Ahead::Allocation) {
         for (auto [index, field] : llvm::enumerate(fields))
-          if (!given.test(index) && countsOf(field.getType()) == Counts::Counted) {
+          if (!given.test(index) && freedBy(field.getType(), Release::Counted)) {
             CountDropOp::create(rewriter, loc, field);
             ++dropsPlaced;
           }

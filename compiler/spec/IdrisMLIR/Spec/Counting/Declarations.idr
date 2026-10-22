@@ -100,11 +100,6 @@ token = SatisfiesType tokenValue
 outers : Operand
 outers = variadic "outers" (OurType (SomeType lifetimeType))
 
-||| What each op that makes a scoped value defines of the lifetimes'
-||| interface: the lifetime it states for a value, and its restatement.
-statedMethods : List Ident
-statedMethods = ["getStatedLifetime", "setStatedLifetime"]
-
 --------------------------------------------------------------------------------
 -- The custom directives
 --------------------------------------------------------------------------------
@@ -418,7 +413,9 @@ tokenRebuild = countingOp "token.rebuild" [single "token" token, variadic "field
 ||| a buffer whose elements hold references, the one place a buffer is known
 ||| to be an allocation, and nothing else writes it: a buffer met anywhere
 ||| else (a slice, a parameter's, one read out of a cell) may be counted
-||| already, and taking it over there would count its memory twice.
+||| already, and taking it over there would count its memory twice. So it
+||| is legal from the stage bufferization runs at, and a program at the
+||| frontend's stage cannot hold one, nor has the frontend a builder for it.
 adopt : Op 1 1 0 0
 adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnrankedMemRefC)]
   [result "result" anyValue] [] []
@@ -426,7 +423,7 @@ adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnranked
   [ Declares InferType ["inferReturnTypes", "isCompatibleReturnTypes"]
   , Implements flowInterface ["getFlowEdges"] ]
   (Executes [] [NewIdentity 0] Covered Untouched)
-  (between Higher Owned) DeclarationOnly
+  (between First Owned) DeclarationOnly
   (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
             , Lit "->", TypeOf (OfGroup (ResultRef 0)) ])
   [] WithDefaults []

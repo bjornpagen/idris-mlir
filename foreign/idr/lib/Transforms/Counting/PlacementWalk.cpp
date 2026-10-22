@@ -67,7 +67,7 @@ State Placement::successorState(const RegionSuccessor &successor, Operation *ter
 llvm::SmallBitVector Placement::consumedBy(Operation *op) {
   llvm::SmallBitVector consumed(op->getNumOperands());
   auto moves = [&](unsigned at) {
-    if (countsOf(op->getOperand(at).getType()) == Counts::Counted)
+    if (freedBy(op->getOperand(at).getType(), Release::Counted))
       consumed.set(at);
   };
   auto mark = [&](OperandRange forwarded) {
@@ -95,7 +95,7 @@ llvm::SmallBitVector Placement::consumedBy(Operation *op) {
     for (const RegionSuccessor &entry : entries)
       mark(branch.getEntrySuccessorOperands(entry));
   }
-  if (givesOperandBack(op) && countsOf(op->getOperand(0).getType()) == Counts::Counted)
+  if (givesOperandBack(op) && freedBy(op->getOperand(0).getType(), Release::Counted))
     consumed.set(0);
   for (OpOperand &operand : op->getOpOperands())
     if (!consumed.test(operand.getOperandNumber()) && effects::consumes(operand))

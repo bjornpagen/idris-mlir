@@ -134,7 +134,7 @@ Written writtenBy(Operation *op) {
 // across it.
 void Placement::findElements() {
   solver::inWalkOrder(fn, [&](Value value) {
-    if (countsOf(value.getType()) == Counts::Counted)
+    if (freedBy(value.getType(), Release::Counted))
       if (std::optional<Value> buffer = elementBufferOf(value))
         elements[idOf(value)] = ElementRead{idOf(*buffer), Overwrites::Nothing};
   });
@@ -242,7 +242,7 @@ void Placement::classify() {
         partOf(id, from, field);
         return;
       case Role::Lent:
-        if (countsOf(type) == Counts::Counted) {
+        if (freedBy(type, Release::Counted)) {
           roles[id] = Role::Lent;
           return;
         }
@@ -255,17 +255,24 @@ void Placement::classify() {
     // A reference that upstream's memory takes over from counting.
     if (isa_and_present<OwnGiveOp>(def))
       return;
-    switch (countsOf(type)) {
-    case Counts::None:
-    case Counts::Static:
+    // Who frees the value, its hold says: a value with no hold holds no
+    // reference and static data is never freed, so nothing is placed for
+    // either; a view its lifetime frees holds no reference of its own, so no
+    // use consumes it; a counted value holds one, which one use on each path
+    // consumes.
+    std::optional<Hold> hold = holdOf(type);
+    if (!hold)
       return;
-    case Counts::Scoped:
+    switch (hold->release()) {
+    case Release::Static:
+      return;
+    case Release::Scoped:
       roles[id] = Role::Scoped;
       return;
-    case Counts::Counted:
-      break;
+    case Release::Counted:
+      roles[id] = Role::Owned;
+      return;
     }
-    roles[id] = Role::Owned;
   });
   llvm::stable_sort(pairs, [](const std::pair<std::uint32_t, ValueId> &a,
                               const std::pair<std::uint32_t, ValueId> &b) { return a.first < b.first; });

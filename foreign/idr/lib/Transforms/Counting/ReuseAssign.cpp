@@ -267,7 +267,7 @@ void Reuse::assign() {
         OpBuilder b(drop);
         auto take = CountTakeOp::create(b, drop.getLoc(), drop.getValue());
         for (Value field : take.getFields())
-          if (countsOf(field.getType()) == Counts::Counted)
+          if (freedBy(field.getType(), Release::Counted))
             CountDropOp::create(b, drop.getLoc(), field);
         drop->erase();
         token = take.getToken();

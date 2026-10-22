@@ -30,7 +30,9 @@ using namespace idr;
 
 namespace idr {
 
-bool isCountedValue(Type value) { return holdsReferences(value) && freedBy(value, Release::Counted); }
+// A hold exists exactly where the carrier holds references (GradedType's
+// verifier, and a bare carrier's grade), so the release alone answers.
+bool isCountedValue(Type value) { return freedBy(value, Release::Counted); }
 
 bool isTokenValue(Type value) {
   return isa<TokenType>(unrestricted(value)) && usesOf(value) == Uses::Once;
