@@ -55,3 +55,16 @@ them (2026-10-22). Each item names the type that would carry the fact.
   1784: two readings of a constructor's fields) and `Choices.idr` (453,
   468: a dispatch's choice and held positions), each needing a type the
   growth and instance modules hold.
+
+## From L16ce (the growth builder's evidence), after L16cd lands
+
+- C254: the graph draws the arc for a field read of an applied rank-2
+  dictionary landing open with computing arguments; positions are
+  numbered before landings are read, so `closedLands` is proved from a
+  numbered table (`Growth/Graph.idr`, `Heads.idr`).
+- `Template.rooted` returns its `SiteReading` beside the root, so Sites
+  keeps the written-template equation (`asGiven k (r.template, root)`).
+- The imports of L16cd's moved names in `Proof/Covers.idr`,
+  `Growth/Heads.idr`, `Graph.idr` and `Sites.idr` (`Static`, `Chosen`,
+  `markerOf`, `RunZero` and kin).
+- The reading lemma's open steps, named in `Proof/Covers.idr`'s header.
