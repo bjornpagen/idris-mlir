@@ -14,8 +14,10 @@
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Visitors.h"
-#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <algorithm>
 
 using namespace mlir;
 
@@ -38,11 +40,10 @@ OpOperand *operandOf(Operation *op, Value value) {
 
 } // namespace
 
-llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn) {
+llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn, const BodyValues &values) {
   SmallVector<RebuildSite> sites;
-  // The constructions already paired, outer cells first: this body's own,
-  // gone with the walk.
-  llvm::DenseSet<Operation *> paired;
+  // The constructions already paired, outer cells first, by their results.
+  BitSet<BodyValue> paired(values.size());
   fn->walk<WalkOrder::PreOrder>([&](DataMatchOp match) {
     // The argument each case binds the scrutinee refined to.
     SmallVector<BlockArgument> bound(match->getNumRegions(), BlockArgument());
@@ -69,7 +70,7 @@ llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn) {
         if (ownership::repeats(op))
           return WalkResult::skip();
         auto con = dyn_cast<DataConOp>(op);
-        if (!con || paired.contains(con))
+        if (!con || paired.test(values.at(con.getResult())))
           return WalkResult::advance();
         Type built = con.getResult().getType();
         if (ownership::sameFamily(ownership::familyOf(built), family) &&
@@ -81,8 +82,10 @@ llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn) {
       });
       if (!found)
         continue;
-      paired.insert(found);
-      sites.push_back({match, static_cast<unsigned>(index), found, taken, *promised});
+      BodyValue made = values.at(found.getResult());
+      (void)paired.raise(made);
+      sites.push_back({match, static_cast<unsigned>(index), found, taken, *promised,
+                       SiteAt{values.at(taken).index(), made.index()}});
     }
   });
   return sites;
@@ -109,11 +112,30 @@ void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp co
 
 Chains::Chains(FuncOp fn, const solver::ProgramGraph &graph, const Summaries &summaries,
                const Keeps &keeps)
-    : fn(fn), graph(graph), summaries(summaries), keeps(keeps) {
+    : fn(fn), graph(graph), summaries(summaries), keeps(keeps), values(fn),
+      callAt(values.size()), known(values.size()), open(values.size()), seen(values.size()) {
+  // The operands forwarded into each value, laid out as rows by number.
+  footprint::Vector<std::pair<std::uint32_t, OpOperand *>> pending;
   fn.walk([&](Operation *op) {
     forwardedValues(op, [&](OpOperand &operand, Value input) {
-      forwardedInto[input].push_back(&operand);
+      pending.emplace_back(values.at(input).index(), &operand);
     });
+  });
+  std::stable_sort(pending.begin(), pending.end(),
+                   [](const auto &a, const auto &b) { return a.first < b.first; });
+  std::uint32_t count = values.size().value();
+  forwardStart.assign(count + 1, 0);
+  for (const auto &[at, operand] : pending)
+    ++forwardStart[at + 1];
+  for (std::uint32_t at = 1; at <= count; ++at)
+    forwardStart[at] += forwardStart[at - 1];
+  for (const auto &[at, operand] : pending)
+    forwards.push_back(operand);
+  std::uint32_t place = 0;
+  ownership::forEachCall(fn, [&](CallOp call) {
+    if (call->getNumResults() != 0)
+      callAt[values.at(call->getResult(0))] = place;
+    ++place;
   });
 }
 
@@ -178,9 +200,10 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
   // A region's argument or a branch's result: what every predecessor
   // forwards. A branch whose every case ends where control never comes
   // back forwards nothing, and asks nothing.
-  if (auto sources = forwardedInto.find(value); sources != forwardedInto.end()) {
-    for (OpOperand *source : sources->second)
-      next.push_back({source->get(), asks, source});
+  std::uint32_t row = values.at(value).index();
+  if (forwardStart[row] != forwardStart[row + 1]) {
+    for (std::uint32_t at = forwardStart[row]; at != forwardStart[row + 1]; ++at)
+      next.push_back({forwards[at]->get(), asks, forwards[at]});
     return;
   }
   if (auto arg = dyn_cast<BlockArgument>(value)) {
@@ -194,7 +217,7 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
   }
   if (auto call = dyn_cast<CallOp>(op)) {
     unsigned result = cast<OpResult>(value).getResultNumber();
-    demands.push_back({call, result, asks});
+    demands.push_back({call, *callAt[values.at(call->getResult(0))], result, asks});
     const Need &need = summaries.of(graph.id(call.getCalleeAttr()), result, asks);
     if (!need) {
       ends.push_back(cause(call, Why::ReturnShared));
@@ -279,10 +302,14 @@ SmallVector<Target> Chains::targets(Value value, Asks asks, OpOperand *use) {
   SmallVector<Target> out;
   if (std::optional<Target> again = usedOnce(value, use))
     out.push_back(*again);
-  using Key = std::pair<Value, unsigned>;
-  auto keyOf = [](Value at, Asks strength) { return Key(at, static_cast<unsigned>(strength)); };
-  if (auto hit = known.find(keyOf(value, asks)); hit != known.end()) {
-    out.append(hit->second);
+  auto knownEndsOf = [&](BodyValue at, Asks strength) -> std::optional<llvm::ArrayRef<Target>> {
+    std::optional<Run> run = known[at][slot(strength)];
+    if (!run)
+      return std::nullopt;
+    return llvm::ArrayRef<Target>(knownEnds).slice(run->first, run->count);
+  };
+  if (std::optional<llvm::ArrayRef<Target>> hit = knownEndsOf(values.at(value), asks)) {
+    out.append(hit->begin(), hit->end());
     sortUnique(out);
     return out;
   }
@@ -290,31 +317,31 @@ SmallVector<Target> Chains::targets(Value value, Asks asks, OpOperand *use) {
   // still to take, and whether a cycle was cut short below it, which keeps
   // its ends out of `known`.
   struct Frame {
-    Key key;
+    BodyValue at;
+    Asks asks;
     SmallVector<Step, 4> next;
-    std::size_t at = 0;
+    std::size_t nextAt = 0;
     SmallVector<Target> ends;
     bool cut = false;
   };
   SmallVector<Frame> stack;
-  llvm::DenseSet<Key> open;
   auto push = [&](Value at, Asks strength) {
-    Frame frame{keyOf(at, strength), {}, 0, {}, false};
+    Frame frame{values.at(at), strength, {}, 0, {}, false};
     SmallVector<Demand> reached;
     define(at, strength, frame.ends, frame.next, reached);
-    open.insert(frame.key);
+    open[frame.at][slot(strength)] = Mark::Yes;
     stack.push_back(std::move(frame));
   };
   push(value, asks);
   while (true) {
-    if (stack.back().at < stack.back().next.size()) {
-      Step step = stack.back().next[stack.back().at++];
+    if (stack.back().nextAt < stack.back().next.size()) {
+      Step step = stack.back().next[stack.back().nextAt++];
       if (std::optional<Target> again = usedOnce(step.value, step.use))
         stack.back().ends.push_back(*again);
-      Key key = keyOf(step.value, step.asks);
-      if (auto hit = known.find(key); hit != known.end())
-        stack.back().ends.append(hit->second);
-      else if (open.contains(key))
+      BodyValue at = values.at(step.value);
+      if (std::optional<llvm::ArrayRef<Target>> hit = knownEndsOf(at, step.asks))
+        stack.back().ends.append(hit->begin(), hit->end());
+      else if (open[at][slot(step.asks)] == Mark::Yes)
         stack.back().cut = true;
       else
         push(step.value, step.asks);
@@ -322,10 +349,13 @@ SmallVector<Target> Chains::targets(Value value, Asks asks, OpOperand *use) {
     }
     Frame done = std::move(stack.back());
     stack.pop_back();
-    open.erase(done.key);
+    open[done.at][slot(done.asks)] = Mark::No;
     sortUnique(done.ends);
-    if (!done.cut)
-      known.try_emplace(done.key, done.ends);
+    if (!done.cut) {
+      known[done.at][slot(done.asks)] = Run{static_cast<std::uint32_t>(knownEnds.size()),
+                                            static_cast<std::uint32_t>(done.ends.size())};
+      knownEnds.insert(knownEnds.end(), done.ends.begin(), done.ends.end());
+    }
     if (stack.empty()) {
       out.append(done.ends);
       break;
@@ -339,12 +369,16 @@ SmallVector<Target> Chains::targets(Value value, Asks asks, OpOperand *use) {
 
 void Chains::trace(Value value, Asks asks, Reached &reached) {
   SmallVector<std::pair<Value, Asks>> work{{value, asks}};
-  llvm::DenseSet<std::pair<Value, unsigned>> seen;
+  // What this trace marked, cleared when it is done.
+  SmallVector<std::pair<BodyValue, Asks>> marked;
   while (!work.empty()) {
     auto [at, strength] = work.pop_back_val();
-    if (!seen.insert({at, static_cast<unsigned>(strength)}).second)
+    BodyValue node = values.at(at);
+    if (seen[node][slot(strength)] == Mark::Yes)
       continue;
-    reached.values.push_back({at, strength});
+    seen[node][slot(strength)] = Mark::Yes;
+    marked.emplace_back(node, strength);
+    reached.values.push_back({node.index(), strength});
     SmallVector<Target> ends;
     SmallVector<Step> next;
     SmallVector<Demand> demands;
@@ -353,6 +387,8 @@ void Chains::trace(Value value, Asks asks, Reached &reached) {
     for (const Step &step : next)
       work.push_back({step.value, step.asks});
   }
+  for (auto [node, strength] : marked)
+    seen[node][slot(strength)] = Mark::No;
 }
 
 } // namespace idr::inplace

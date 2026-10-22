@@ -108,17 +108,23 @@ private:
       }
       return;
     }
+    // A position that keeps its operand's value gives it its operand's
+    // claim where it flows on linearly; a result used again is copied, and
+    // claims what its own grade says, which may forget what its operand
+    // claims.
     if (op->hasTrait<SameValue>()) {
-      for (Value result : op->getResults()) {
-        Local at = number.lookup(result);
-        roles[at] = Role::Same;
-        owners[at] = number.lookup(op->getOperand(0));
-      }
+      for (Value result : op->getResults())
+        if (ownership::flowsLinearly(result)) {
+          Local at = number.lookup(result);
+          roles[at] = Role::Same;
+          owners[at] = number.lookup(op->getOperand(0));
+        }
       return;
     }
     // Its results are its inference's, which the write runs again; what it
-    // reads of each operand is the claim it infers from.
-    bool infers = isa<InferTypeOpInterface>(op);
+    // reads of each operand is the claim it infers from. An op of
+    // upstream's infers from carriers alone, never from a claim.
+    bool infers = isa<InferTypeOpInterface>(op) && !ownership::readsOnlyCarriers(op);
     if (infers)
       for (Value operand : op->getOperands())
         body.inferring.push_back(number.lookup(operand));

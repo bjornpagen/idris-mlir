@@ -25,6 +25,7 @@
 
 #include "idr/Analysis/Ownership/Facts.h"
 #include "idr/Analysis/Ownership/Walks.h"
+#include "idr/Analysis/Solver/Extraction.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
@@ -34,10 +35,10 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <array>
 #include <compare>
 #include <cstdint>
 #include <optional>
@@ -67,6 +68,16 @@ struct Cause {
   mlir::Operation *at;
   Why why;
 };
+
+// A value of one body, by its place in the solver's walk
+// (solver::inWalkOrder): the numbering every unit of the rule reads, whose
+// one map from a value to its place lives while a body is read, and the
+// order of the values of a Walk, so a place names its value in every copy.
+struct BodyValueTag {
+  using Minter = solver::Numbering<BodyValueTag>;
+};
+using BodyValue = Id<BodyValueTag>;
+using BodyValues = solver::Numbering<BodyValueTag>;
 
 // Where a requirement ends in one body: a parameter that must meet it, or a
 // cause, by its number among the body's causes.
@@ -113,25 +124,34 @@ public:
   IndexVector<FunctionId, llvm::SmallBitVector> kept;
 };
 
+// A rebuild site by the places in the walk of its function's original body
+// of the argument its case binds the cell to and of its construction's
+// result, which name it in every copy: the match and the case are the
+// argument's.
+struct SiteAt {
+  std::uint32_t taken;
+  std::uint32_t construction;
+};
+
 // A case region that takes apart a cell of an in-place family bound at
 // quantity 1, and the construction of the same family and constructor that
-// rebuilds it there, by their positions in the body's walk (the match among
-// the body's ops, the case among its regions, the construction among the
-// body's ops) so a copy of the body names them the same; and what the
-// family's promise asks of the cell taken apart.
+// rebuilds it there; what the family's promise asks of the cell taken
+// apart; and the site's places.
 struct RebuildSite {
   DataMatchOp match;
   unsigned caseIndex;
   DataConOp construction;
   mlir::BlockArgument taken;
   Asks asks;
+  SiteAt at;
 };
 
-// The rebuild sites of `fn`: in each case region of a cell of an in-place
-// family whose value is bound at quantity 1, the first construction of the
-// family's same constructor in the region's pre-order not paired yet, outer
-// cells first, none inside a region that may run again.
-llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn);
+// The rebuild sites of `fn`, whose values `values` numbers: in each case
+// region of a cell of an in-place family whose value is bound at quantity
+// 1, the first construction of the family's same constructor in the
+// region's pre-order not paired yet, outer cells first, none inside a
+// region that may run again.
+llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn, const BodyValues &values);
 
 // The rebuild of the cell case `caseIndex` of `match` binds as its argument
 // `taken`, by `construction`: a take of the cell at the case's entry, whose
@@ -140,12 +160,14 @@ llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn);
 void rebuild(DataMatchOp match, unsigned caseIndex, unsigned taken, DataConOp construction);
 
 // The reading of one body by the rule: which value meets a requirement
-// given what, each walk iterative. Its maps are the body's numbering and go
-// with it.
+// given what, each walk iterative. Its one map is the body's numbering,
+// which goes with it; what it keeps of each value is in tables by number.
 class Chains {
 public:
   Chains(FuncOp fn, const solver::ProgramGraph &graph, const Summaries &summaries,
          const Keeps &keeps);
+
+  const BodyValues &numbering() const { return values; }
 
   // Where a requirement `asks` on `value`, required by `use` (none for the
   // value a rebuild takes apart, all of whose uses must read parts), ends.
@@ -153,16 +175,18 @@ public:
   llvm::SmallVector<Target> targets(mlir::Value value, Asks asks, mlir::OpOperand *use);
 
   // A call result a requirement reached, with its strength: what the
-  // callee's version must give back.
+  // callee's version must give back. The call is also named by its place
+  // among the body's calls (ownership::forEachCall).
   struct Demand {
     CallOp call;
+    std::uint32_t place;
     unsigned result;
     Asks asks;
   };
-  // Every value a requirement reaches, with its strength, and every call
-  // result among them: what the verdict grades.
+  // Every value a requirement reaches, by its place, with its strength, and
+  // every call result among them: what the verdict grades.
   struct Reached {
-    footprint::Vector<std::pair<mlir::Value, Asks>> values;
+    footprint::Vector<std::pair<std::uint32_t, Asks>> values;
     footprint::Vector<Demand> demands;
   };
   void trace(mlir::Value value, Asks asks, Reached &reached);
@@ -192,14 +216,32 @@ private:
   void define(mlir::Value value, Asks asks, llvm::SmallVectorImpl<Target> &ends,
               llvm::SmallVectorImpl<Step> &next, llvm::SmallVectorImpl<Demand> &demands);
 
+  // Whether a (value, strength) is on the reading's stack, or reached by
+  // the trace being read; each is cleared when it is done.
+  enum class Mark : std::uint8_t { No, Yes };
+  // A run of `knownEnds`.
+  struct Run {
+    std::uint32_t first;
+    std::uint32_t count;
+  };
+  static unsigned slot(Asks asks) { return static_cast<unsigned>(asks); }
+
   FuncOp fn;
   const solver::ProgramGraph &graph;
   const Summaries &summaries;
   const Keeps &keeps;
   footprint::Vector<Cause> causeList;
-  llvm::DenseMap<mlir::Value, llvm::SmallVector<mlir::OpOperand *, 2>> forwardedInto;
+  BodyValues values;
+  // The operands forwarded into each value, as rows by number.
+  footprint::Vector<std::uint32_t> forwardStart;
+  footprint::Vector<mlir::OpOperand *> forwards;
+  // Each call's place among the body's calls, by its first result.
+  IndexVector<BodyValue, std::optional<std::uint32_t>> callAt;
   // The ends of each (value, strength) read whole, no cycle cut short.
-  llvm::DenseMap<std::pair<mlir::Value, unsigned>, llvm::SmallVector<Target>> known;
+  IndexVector<BodyValue, std::array<std::optional<Run>, 2>> known;
+  footprint::Vector<Target> knownEnds;
+  IndexVector<BodyValue, std::array<Mark, 2>> open;
+  IndexVector<BodyValue, std::array<Mark, 2>> seen;
 };
 
 // Whether a requirement of `asks` on a value reaches the field `anchor`
@@ -264,29 +306,16 @@ struct Version {
   footprint::Vector<std::uint32_t> targets;
 };
 
-// The one walk of a body, numbered: its values, its calls, and its ops in
-// pre-order, each by position. A copy is a clone of its original, so the
-// walk numbers both alike.
+// The one walk of a body, by place: its values in the solver's walk, whose
+// places BodyValues gives, and its calls. A copy is a clone of its
+// original, so the walk numbers both alike.
 struct Walk {
   explicit Walk(FuncOp fn) {
-    ownership::forEachValue(fn, [&](mlir::Value value) { values.push_back(value); });
+    solver::inWalkOrder(fn, [&](mlir::Value value) { values.push_back(value); });
     ownership::forEachCall(fn, [&](CallOp call) { calls.push_back(call); });
-    fn->walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *op) { ops.push_back(op); });
   }
   llvm::SmallVector<mlir::Value> values;
   llvm::SmallVector<CallOp> calls;
-  llvm::SmallVector<mlir::Operation *> ops;
-};
-
-// A rebuild site by its positions in the walk of its function's original
-// body, which name it in every copy: its match among the ops, its case
-// among the match's regions, the argument that case binds the cell to, and
-// its construction among the ops.
-struct SiteAt {
-  std::uint32_t match;
-  unsigned caseIndex;
-  unsigned taken;
-  std::uint32_t construction;
 };
 
 // What a verdict makes of each function: its versions, the original first

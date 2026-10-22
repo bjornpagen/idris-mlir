@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Where a value graded with a stronger sharing claim meets a position that
 // takes a weaker one (a call's parameter, a function's result, a region's
-// input), it is shared into it by idr.count.share, the one way a claim goes down.
+// input, an operand of an op of upstream's, which takes the bare carrier),
+// it is shared into it by idr.count.share, the one way a claim goes down.
 // The passes that write a claim into the types (idr-in-place, the commit of
 // idr-rc-exclusive) write it where it is proved, then meet every position
 // once; a position that asks more than its value has is the writer's bug,
@@ -62,6 +63,23 @@ void shareIntoPositions(FuncOp fn, CalleeOf &&calleeOf) {
   mlir::IRRewriter rewriter(fn.getContext());
   for (auto [use, slot] : positions)
     shareInto(rewriter, *use, slot);
+}
+
+// Every operand of an op of upstream's in `fn`, met at its bare grade: such
+// an op takes only the bare carrier, so a value a pass raised reaches it
+// shared. Only a pass before placement meets them, since a share consumes
+// its operand and such an op only reads it; exclusivity, after placement,
+// follows no value such an op reads.
+inline void shareIntoCarriers(FuncOp fn) {
+  llvm::SmallVector<mlir::OpOperand *> reads;
+  fn.walk([&](mlir::Operation *op) {
+    if (readsOnlyCarriers(op))
+      for (mlir::OpOperand &use : op->getOpOperands())
+        reads.push_back(&use);
+  });
+  mlir::IRRewriter rewriter(fn.getContext());
+  for (mlir::OpOperand *use : reads)
+    shareInto(rewriter, *use, idr::shared(use->get().getType()));
 }
 
 } // namespace idr::ownership

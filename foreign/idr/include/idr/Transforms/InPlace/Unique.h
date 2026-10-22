@@ -12,10 +12,11 @@
 // its cells while references to them live), that its op makes new or that
 // is forwarded into, and that flows only through linear positions. A
 // call's result is its callee's derived claim; a value an op keeps as
-// itself is its operand's; a part an op that infers its results reads or
-// takes out is what the read table gives it, as the op's inference does;
-// every other value is what its type says. The write runs each op's
-// inference again.
+// itself is its operand's where it flows on linearly; a part an op of ours
+// that infers its results reads or takes out is what the read table gives
+// it, as the op's inference does; every other value is what its type says.
+// The write runs each such op's inference again, and meets each op of
+// upstream's at the bare grade it takes.
 #ifndef IDR_TRANSFORMS_INPLACE_UNIQUE_H
 #define IDR_TRANSFORMS_INPLACE_UNIQUE_H
 
@@ -45,7 +46,8 @@ enum class Role : std::uint8_t {
   Typed,
   // Raised to what the rule proves from its terms, where it is kept.
   Raised,
-  // Its operand's claim: a position that keeps its operand's value.
+  // Its operand's claim: a position that keeps its operand's value, and
+  // flows on linearly.
   Same,
   // Its callee's derived claim: a call's result.
   Called,

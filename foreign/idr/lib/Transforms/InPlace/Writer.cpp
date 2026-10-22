@@ -11,7 +11,8 @@
 // of the construction paired with it. The local rule then carries every
 // claim written forward into what each value is taken or read into at a
 // linear position, and where a value graded with a claim meets a position
-// that takes less, it is shared into it.
+// that takes less (an op of upstream's among them, which takes the bare
+// carrier), it is shared into it.
 #include "idr/Transforms/InPlace/Rule.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
@@ -72,11 +73,15 @@ void grade(FuncOp op, const Version &version) {
       op.getContext(), llvm::to_vector(op.getBody().front().getArgumentTypes()), results));
 }
 
-// Each rebuild site of a version whose walk is `walk`, rewritten.
+// Each rebuild site of a version whose walk is `walk`, rewritten: the
+// argument its case binds names the match and the case.
 void rewriteSites(llvm::ArrayRef<SiteAt> sites, const Walk &walk) {
-  for (const SiteAt &site : sites)
-    rebuild(cast<DataMatchOp>(walk.ops[site.match]), site.caseIndex, site.taken,
-            cast<DataConOp>(walk.ops[site.construction]));
+  for (const SiteAt &site : sites) {
+    auto taken = cast<BlockArgument>(walk.values[site.taken]);
+    rebuild(cast<DataMatchOp>(taken.getOwner()->getParentOp()),
+            taken.getOwner()->getParent()->getRegionNumber(), taken.getArgNumber(),
+            cast<DataConOp>(walk.values[site.construction].getDefiningOp()));
+  }
 }
 
 } // namespace
@@ -150,8 +155,10 @@ LogicalResult writeVerdict(ProgramOp program, solver::ProgramGraph &graph,
   (void)unique::raiseClaims(graph, *program.getContext(), work);
   for (FunctionId fn : functions)
     if (touched.test(fn))
-      for (FuncOp op : ops[fn])
+      for (FuncOp op : ops[fn]) {
         ownership::shareIntoPositions(op, calleeOf);
+        ownership::shareIntoCarriers(op);
+      }
   rows::write(program, graph, work);
   return success();
 }

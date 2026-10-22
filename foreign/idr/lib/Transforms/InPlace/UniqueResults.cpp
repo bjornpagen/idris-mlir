@@ -9,12 +9,15 @@
 // value whose only use takes less is left as it is and no share is made
 // for it. Every signature is written first; then each body in the one
 // walk's order, so a value's sources are written before it: its raised
-// values, each call's results its callee's again, each position that keeps
-// its operand's value at its operand's hold, and each op that infers its
-// results inferred again where an operand changed. Last, wherever a value
-// now claiming more meets a use that takes less, it is shared into it: at
-// a call, a return or a forward as every pass that raises a claim meets
-// them, and before any other op that would read a type it does not take.
+// values, each call's results its callee's again, each kept position that
+// keeps its operand's value and flows on linearly at its operand's claim
+// (one copied keeps its own, which may forget it), and each op of ours
+// that infers its results inferred again where an operand changed or a
+// step before the rule graded one. Last, wherever a value now claiming
+// more meets a use that takes less, it is shared into it: at a call, a
+// return, a forward or an op of upstream's as every pass that raises a
+// claim meets them, and before any other op that would read a type it does
+// not take.
 #include "idr/Transforms/InPlace.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
@@ -85,13 +88,14 @@ idr::footprint::Vector<Kept> keptOf(const Body &body, llvm::ArrayRef<Local> seed
 
 // Whether `use`, of a value now claiming more, takes it as it is: a
 // position the meeting of positions settles (a call's argument, a return,
-// a forwarded value), an op whose results follow its operands (one that
-// keeps its operand's value, one that infers its results), a field moved
-// into a value the op builds, which any claim fills, or an op that moves
-// nothing of the value.
+// a forwarded value, an operand of an op of upstream's, met at the bare
+// grade), an op of ours whose results follow its operands (one that keeps
+// its operand's value, one that infers its results), a field moved into a
+// value the op builds, which any claim fills, or an op that moves nothing
+// of the value.
 bool takesRaised(OpOperand &use) {
   Operation *user = use.getOwner();
-  if (isa<CallOpInterface, InferTypeOpInterface>(user) ||
+  if (idr::ownership::readsOnlyCarriers(user) || isa<CallOpInterface, InferTypeOpInterface>(user) ||
       user->hasTrait<OpTrait::ReturnLike>() || user->hasTrait<idr::SameValue>())
     return true;
   bool forwarded = false;
@@ -209,6 +213,15 @@ private:
         return touched[number.lookup(operand)] == Touched::Yes;
       });
     };
+    // A result read out of an operand a step before the rule graded (a
+    // parameter graded at the boundary), which the solve proves claims more
+    // than its type: its op was inferred before that grade.
+    auto stale = [&](Operation *op) {
+      return llvm::any_of(op->getResults(), [&](Value result) {
+        Local at = number.lookup(result);
+        return body.nodes[at].role == Role::Read && body.claims[at] != body.nodes[at].typed;
+      });
+    };
     auto raise = [&](Value value) {
       Local at = number.lookup(value);
       if (body.nodes[at].role == Role::Raised && kept[at] == Kept::Yes &&
@@ -232,11 +245,18 @@ private:
             change(result, now);
           }
         } else if (op.hasTrait<idr::SameValue>()) {
-          if (std::optional<idr::Hold> hold = idr::holdOf(op.getOperand(0).getType()))
-            for (Value result : op.getResults())
-              change(result, idr::atHold(result.getType(), *hold));
-        } else if (auto infer = dyn_cast<InferTypeOpInterface>(&op)) {
-          if (anyTouched(&op))
+          // A result kept as its operand, where its claim is kept, claims
+          // what its operand now does; one copied keeps its own grade.
+          Unique operand = idr::ownership::claimOf(op.getOperand(0).getType());
+          for (Value result : op.getResults()) {
+            Local at = number.lookup(result);
+            if (body.nodes[at].role == Role::Same && kept[at] == Kept::Yes &&
+                !idr::ownership::covers(idr::ownership::claimOf(result.getType()), operand))
+              change(result, idr::ownership::claiming(result.getType(), operand));
+          }
+        } else if (auto infer = dyn_cast<InferTypeOpInterface>(&op);
+                   infer && !idr::ownership::readsOnlyCarriers(&op)) {
+          if (anyTouched(&op) || stale(&op))
             reinfer(infer, change);
         } else {
           for (Value result : op.getResults())
@@ -249,7 +269,8 @@ private:
 
   // `infer`'s results inferred again from its operands as now written: what
   // it gives is a fact of what it reads. An op that admits its results at
-  // more grades than it infers keeps them.
+  // more grades than it infers keeps them. An op of upstream's is never
+  // inferred again: it reads its operands at the bare grade, met after.
   template <class Change>
   void reinfer(InferTypeOpInterface infer, Change &&change) {
     Operation *op = infer.getOperation();
@@ -280,6 +301,7 @@ private:
     idr::ownership::shareIntoPositions(graph.op(f), [&](idr::CallOp call) {
       return graph.op(graph.id(call.getCalleeAttr()));
     });
+    idr::ownership::shareIntoCarriers(graph.op(f));
   }
 
   const idr::solver::ProgramGraph &graph;

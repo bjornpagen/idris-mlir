@@ -19,11 +19,14 @@
 
 #include "idr/Analysis/Ownership/Facts.h"
 #include "idr/Analysis/Ownership/Walks.h"
+#include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
+
+#include <optional>
 
 using namespace mlir;
 
@@ -35,20 +38,27 @@ namespace {
 // them live, so what a field holds is the label's, not the cell value's.
 bool memoFamily(Type type) { return ownership::isMemo(ownership::familyOf(type)); }
 
-// The reading of one body. Its one map, from a followed value to its
-// number, is the numbering's: it lives while the body is read and goes with
-// it, and no answer is kept against a pointer.
+// A value of the body being read, by its place in the solver's walk.
+struct BodyValueTag {
+  using Minter = solver::Numbering<BodyValueTag>;
+};
+using BodyValue = Id<BodyValueTag>;
+
+// The reading of one body. Its one map, from a value to its number, is the
+// solver's numbering: it lives while the body is read and goes with it, and
+// what the reading keeps of each value is in tables by that number.
 class Reader {
 public:
   Reader(FuncOp fn, const solver::ProgramGraph &graph, Anchors &anchors)
-      : fn(fn), graph(graph), anchors(anchors) {}
+      : fn(fn), graph(graph), anchors(anchors), numbering(fn), localAt(numbering.size(), noLocal),
+        firstForward(numbering.size()), partOf(numbering.size()) {}
 
   FailureOr<Body> read() {
     body.fn = fn;
     idr::exclusivity::forEachFollowed(fn, [&](Value value, std::uint32_t at) {
-      local.try_emplace(value, at);
+      localAt[numbering.at(value)] = at;
+      body.values = at + 1;
     });
-    body.values = static_cast<std::uint32_t>(local.size());
     explained.emplace(idr::exclusivity::FollowedNumbers::count(body.values));
     for (BlockArgument param : fn.getBody().front().getArguments()) {
       body.params.push_back(localOf(param));
@@ -59,7 +69,8 @@ public:
     fn.walk([&](Operation *op) {
       forwardedValues(op, [&](OpOperand &operand, Value input) {
         if (auto arg = dyn_cast<BlockArgument>(input))
-          forwardedInto[arg].push_back(&operand);
+          if (!firstForward[numbering.at(arg)])
+            firstForward[numbering.at(arg)] = operand.get();
       });
     });
     WalkResult walked = fn.walk([&](Operation *op) {
@@ -93,10 +104,7 @@ public:
   }
 
 private:
-  Local localOf(Value value) const {
-    auto it = local.find(value);
-    return it == local.end() ? noLocal : it->second;
-  }
+  Local localOf(Value value) const { return localAt[numbering.at(value)]; }
 
   void explain(Value value) {
     if (Local at = localOf(value); at != noLocal)
@@ -147,18 +155,18 @@ private:
       if (auto arg = dyn_cast<BlockArgument>(at)) {
         if (arg.getOwner() == &fn.getBody().front())
           return ViewRoot{ViewRoot::Kind::Parameter, arg.getArgNumber()};
-        auto sources = forwardedInto.find(arg);
-        if (sources == forwardedInto.end() || sources->second.empty())
+        std::optional<Value> source = firstForward[numbering.at(arg)];
+        if (!source)
           return std::nullopt;
-        at = sources->second.front()->get();
+        at = *source;
         continue;
       }
       if (std::optional<Value> same = ownership::sameValueSource(at)) {
         at = *same;
         continue;
       }
-      if (auto whole = partOf.find(at); whole != partOf.end()) {
-        at = whole->second;
+      if (std::optional<Value> whole = partOf[numbering.at(at)]) {
+        at = *whole;
         continue;
       }
       return std::nullopt;
@@ -171,12 +179,15 @@ private:
     if (isa<CallOpInterface>(op))
       return;
     // An op that keeps its operand's value is that value: what shares
-    // either shares both, so their grades stay one.
+    // either shares both. Each side is followed at its own grade, so a
+    // result that forgets its operand's claim is proved exclusive only where
+    // nothing copies it, and one kept bare (an op of upstream's reads it)
+    // shares its operand.
     if (op->hasTrait<SameValue>()) {
       Value operand = op->getOperand(0);
       for (Value result : op->getResults()) {
         move(operand, result);
-        edge(localOf(result), localOf(operand));
+        move(result, operand);
         explain(result);
       }
       return;
@@ -241,7 +252,8 @@ private:
             return outOfAnchor(part, anchors.of(field->data, field->ctor, field->index), to);
           if (ownership::reachOf(part) == ownership::Reach::Taken)
             return move(of, to);
-          partOf.try_emplace(to, of);
+          if (!partOf[numbering.at(to)])
+            partOf[numbering.at(to)] = of;
           if (localOf(to) != noLocal) {
             copied(of);
             seed(to);
@@ -310,10 +322,13 @@ private:
   const solver::ProgramGraph &graph;
   Anchors &anchors;
   Body body;
-  llvm::DenseMap<Value, Local> local;
-  llvm::DenseMap<BlockArgument, SmallVector<OpOperand *, 2>> forwardedInto;
-  // Each view read out of a part, with the value it is a part of.
-  llvm::DenseMap<Value, Value> partOf;
+  solver::Numbering<BodyValueTag> numbering;
+  // Each value's number among the followed values, the first value each
+  // region argument is forwarded, and the value each view read out of a
+  // part is a part of.
+  IndexVector<BodyValue, Local> localAt;
+  IndexVector<BodyValue, std::optional<Value>> firstForward;
+  IndexVector<BodyValue, std::optional<Value>> partOf;
   SmallVector<Value> copiedValues;
   // The followed values some declared flow explains, sized once the walk
   // has numbered them.

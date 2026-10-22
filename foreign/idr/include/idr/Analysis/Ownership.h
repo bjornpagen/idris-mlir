@@ -20,8 +20,9 @@
 //
 // Exclusivity's domain is what QTT and freshness do not settle: a value the
 // local rule proves `unique deep` (idr-unique-results, before
-// bufferization) is typed so when the solve runs, and a value whose type
-// answers is followed by no marking.
+// bufferization) is typed so when the solve runs, and neither a value whose
+// type answers nor one an op of upstream's reads at its bare grade is
+// followed by any marking.
 #ifndef IDR_ANALYSIS_OWNERSHIP_H
 #define IDR_ANALYSIS_OWNERSHIP_H
 
@@ -119,12 +120,15 @@ private:
 // value read from it, or passes one to a counted parameter, since what is
 // read from a view is a view and no view is consumed (an element loaded
 // from an array takes its own reference where it is read, and consuming it
-// consumes nothing of the array); and wherever a
-// caller's argument is bound at quantity 1, or is dead after the call while
-// its type does not bound what it reaches, or is passed by a tail call or a
-// call modulo context (a jump is a tail transfer). The root's parameters
-// are counted (its caller is outside); a memo cell's are views (a force
-// writes it while its caller reads it).
+// consumes nothing of the array), or an op of upstream's reads it or a part
+// of it, which takes only the bare carrier; and wherever a caller's
+// argument is bound at quantity 1, or is dead after the call while its type
+// does not bound what it reaches, or is passed where no loan of it may
+// stand: by a tail call or a call modulo context (a jump is a tail
+// transfer), by a call on its caller's own cycle, or by a jump into a join
+// point whose op holds one, since frames split a function at such a call.
+// The root's parameters are counted (its caller is outside); a memo cell's
+// are views (a force writes it while its caller reads it).
 class Borrows {
 public:
   using FunctionId = solver::FunctionId;

@@ -13,7 +13,6 @@
 #include "idr/IR/Flow.h"
 #include "idr/Support/Match.h"
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <array>
@@ -54,17 +53,26 @@ BitSet<Node> markAll(std::uint32_t count,
   return mark<Forward>(graph, std::span<const Node>(starts));
 }
 
-// The parameter each value of `fn` is or reads a part of: through the
-// positions that hand a value on as itself, the region entries that bind
-// it again, and the parts read of it. Read in the walk's order, so a
-// value's source is read before it.
-llvm::DenseMap<Value, unsigned> parametersOf(FuncOp fn) {
-  llvm::DenseMap<Value, unsigned> of;
+// The parameter each value of `fn` is or reads a part of, by the value's
+// number: through the positions that hand a value on as itself, the region
+// entries that bind it again, and the parts read of it. Read in the walk's
+// order, so a value's source is read before it.
+struct ParametersOf {
+  explicit ParametersOf(FuncOp fn);
+  std::optional<unsigned> of(Value value) const { return table[values.at(value)]; }
+
+  BodyValues values;
+  IndexVector<BodyValue, std::optional<unsigned>> table;
+};
+
+ParametersOf::ParametersOf(FuncOp fn) : values(fn), table(values.size()) {
   for (BlockArgument param : fn.getBody().front().getArguments())
-    of.try_emplace(param, param.getArgNumber());
+    table[values.at(param)] = param.getArgNumber();
   auto inherit = [&](Value derived, Value source) {
-    if (auto found = of.find(source); found != of.end())
-      of.try_emplace(derived, found->second);
+    std::optional<unsigned> param = table[values.at(source)];
+    std::optional<unsigned> &into = table[values.at(derived)];
+    if (param && !into)
+      into = param;
   };
   fn->walk<WalkOrder::PreOrder>([&](Operation *op) {
     if (op->hasTrait<SameValue>())
@@ -95,7 +103,6 @@ llvm::DenseMap<Value, unsigned> parametersOf(FuncOp fn) {
           },
           [](const auto &) {});
   });
-  return of;
 }
 
 // Whether `use` hands its value on as the value itself or a part of it,
@@ -158,13 +165,13 @@ Keeps keepsOf(const solver::ProgramGraph &graph) {
   footprint::Vector<std::uint32_t> seeds;
   for (FunctionId fn : graph.functions()) {
     FuncOp op = graph.op(fn);
-    llvm::DenseMap<Value, unsigned> of = parametersOf(op);
+    ParametersOf parameters(op);
     op.walk([&](Operation *user) {
       for (OpOperand &use : user->getOpOperands()) {
-        auto param = of.find(use.get());
-        if (param == of.end() || !holdsReferences(use.get().getType()))
+        std::optional<unsigned> param = parameters.of(use.get());
+        if (!param || !holdsReferences(use.get().getType()))
           continue;
-        std::uint32_t here = base[fn] + param->second;
+        std::uint32_t here = base[fn] + *param;
         // A callee keeps what it keeps: passed on, the parameter is kept
         // where the callee's is.
         if (auto call = dyn_cast<CallOp>(user)) {
@@ -254,7 +261,7 @@ Verdict decide(const solver::ProgramGraph &graph, const Summaries &summaries,
         return node(fn, target.index, target.asks);
       return refusal({op, at, callee, family, chains.causes()[target.index]});
     };
-    for (const RebuildSite &site : rebuildSites(op)) {
+    for (const RebuildSite &site : rebuildSites(op, chains.numbering())) {
       verdict.sites[fn].push_back(site);
       DataType family = ownership::familyOf(site.taken.getType());
       for (const Target &target : chains.targets(site.taken, site.asks, nullptr))

@@ -16,7 +16,6 @@
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <optional>
@@ -39,7 +38,7 @@ public:
   Solve(const solver::ProgramGraph &graph, const Summaries &summaries, const Keeps &keeps,
         const Verdict &verdict)
       : graph(graph), summaries(summaries), keeps(keeps), verdict(verdict), out(graph),
-        positions(graph.table<std::optional<Positions>>()), bodies(graph.table<Version>()) {}
+        bodies(graph.table<Version>()) {}
 
   Versions run() && {
     for (FunctionId fn : graph.functions())
@@ -51,51 +50,25 @@ public:
       auto [fn, version] = pending.pop_back_val();
       traceReturns(fn, version);
     }
-    // A function with a rebuild site has a version, since its site's cell
-    // is among what its body reaches, so its positions are read.
+    // Each rebuild site by its places in the walk of its original body.
     for (FunctionId fn : graph.functions())
-      for (const RebuildSite &site : verdict.sites[fn]) {
-        Positions &at = positionsOf(fn);
-        out.sites[fn].push_back({at.ops.lookup(site.match), site.caseIndex,
-                                 site.taken.getArgNumber(), at.ops.lookup(site.construction)});
-      }
+      for (const RebuildSite &site : verdict.sites[fn])
+        out.sites[fn].push_back(site.at);
     return std::move(out);
   }
 
 private:
-  // Where each value, call and op of a function's original body stands in
-  // the walk, read before anything changes it: the numbering's maps, which
-  // go with the solve.
-  struct Positions {
-    llvm::DenseMap<Value, std::uint32_t> values;
-    llvm::DenseMap<Operation *, std::uint32_t> calls;
-    llvm::DenseMap<Operation *, std::uint32_t> ops;
-  };
-
-  Positions &positionsOf(FunctionId fn) {
-    std::optional<Positions> &at = positions[fn];
-    if (!at) {
-      at.emplace();
-      Walk walk(graph.op(fn));
-      for (auto [index, value] : llvm::enumerate(walk.values))
-        at->values.try_emplace(value, static_cast<std::uint32_t>(index));
-      for (auto [index, call] : llvm::enumerate(walk.calls))
-        at->calls.try_emplace(call, static_cast<std::uint32_t>(index));
-      for (auto [index, op] : llvm::enumerate(walk.ops))
-        at->ops.try_emplace(op, static_cast<std::uint32_t>(index));
-    }
-    return *at;
-  }
-
+  // A version of `fn` that asks nothing: a slot per value and per call of
+  // its original body, by place.
   Version blank(FunctionId fn) {
     FuncOp op = graph.op(fn);
-    Positions &at = positionsOf(fn);
+    Walk walk(op);
     Version version;
     version.results.assign(op.getNumResults(), std::nullopt);
     version.params.assign(verdict.obligations[fn].begin(), verdict.obligations[fn].end());
-    version.grades.assign(at.values.size(), std::nullopt);
-    version.demands.assign(at.calls.size(), {});
-    version.targets.assign(at.calls.size(), 0);
+    version.grades.assign(walk.values.size(), std::nullopt);
+    version.demands.assign(walk.calls.size(), {});
+    version.targets.assign(walk.calls.size(), 0);
     return version;
   }
 
@@ -121,7 +94,7 @@ private:
         }))
       return;
     ensure(fn);
-    record(fn, bodies[fn], reached);
+    record(bodies[fn], reached);
     out.of[fn].front() = bodies[fn];
   }
 
@@ -133,12 +106,11 @@ private:
     out.of[fn].push_back(bodies[fn]);
   }
 
-  void record(FunctionId fn, Version &version, const Chains::Reached &reached) {
-    Positions &at = positionsOf(fn);
-    for (auto [value, asks] : reached.values)
-      raise(version.grades[at.values.lookup(value)], asks);
+  void record(Version &version, const Chains::Reached &reached) {
+    for (auto [place, asks] : reached.values)
+      raise(version.grades[place], asks);
     for (const Chains::Demand &demand : reached.demands) {
-      auto &asked = version.demands[at.calls.lookup(demand.call)];
+      auto &asked = version.demands[demand.place];
       if (asked.empty())
         asked.assign(demand.call->getNumResults(), std::nullopt);
       raise(asked[demand.result], demand.asks);
@@ -222,7 +194,7 @@ private:
     for (auto [result, asks] : llvm::enumerate(out.of[fn][at].results))
       if (asks)
         chains.trace(ret.getOperand(static_cast<unsigned>(result)), *asks, reached);
-    record(fn, out.of[fn][at], reached);
+    record(out.of[fn][at], reached);
     resolve(fn, at);
   }
 
@@ -231,7 +203,6 @@ private:
   const Keeps &keeps;
   const Verdict &verdict;
   Versions out;
-  IndexVector<FunctionId, std::optional<Positions>> positions;
   IndexVector<FunctionId, Version> bodies;
   llvm::SmallVector<std::pair<FunctionId, std::uint32_t>> pending;
 };

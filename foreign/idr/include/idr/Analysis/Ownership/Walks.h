@@ -15,6 +15,9 @@
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
 #include <cstdint>
@@ -49,9 +52,12 @@ void forEachCall(FuncOp fn, Each &&each) {
 namespace idr::exclusivity {
 
 // Whether exclusivity follows `value`: a counted value that holds
-// references whose grade does not already say `unique deep`.
+// references whose grade does not already say `unique deep`, and that no
+// op of upstream's reads. Such an op takes the bare carrier, and after
+// placement no share may stand before it (a share consumes its operand),
+// so that value keeps the bare grade and counts as shared.
 inline bool followed(mlir::Value value) {
-  return ownership::leavesOpen(value.getType(), Unique::Deep);
+  return ownership::leavesOpen(value.getType(), Unique::Deep) && !ownership::readBare(value);
 }
 
 // Every followed value of `fn`'s body, numbered from zero in the walk's
@@ -72,7 +78,16 @@ namespace idr::borrows {
 
 // Whether `arg` is a join parameter: an argument of a region entered only by
 // jumps, never by its parent's own entry, so each jump is a call of it.
-bool isJoinParameter(mlir::BlockArgument arg);
+inline bool isJoinParameter(mlir::BlockArgument arg) {
+  mlir::Region *region = arg.getOwner()->getParent();
+  auto branch = llvm::dyn_cast_or_null<mlir::RegionBranchOpInterface>(region->getParentOp());
+  if (!branch || arg.getOwner() != &region->front())
+    return false;
+  llvm::SmallVector<mlir::RegionSuccessor> entries;
+  branch.getSuccessorRegions(mlir::RegionBranchPoint::parent(), entries);
+  return llvm::none_of(entries,
+                       [&](mlir::RegionSuccessor &entry) { return entry.getSuccessor() == region; });
+}
 
 // Every join parameter of `fn` that holds references, numbered from zero
 // in the walk's order.
