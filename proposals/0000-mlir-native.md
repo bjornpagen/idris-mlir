@@ -4286,6 +4286,17 @@ C137.
   then be false, since a contracted term does not reduce back to the
   uncontracted form the normaliser can return. Reading the uncontracted
   reduct instead would make two forms of one family two keys.
+- **C222** (2026-10-22; L16's growth passes; under D68, extends C219).
+  The translation's requests and the growth model's sites are one
+  table. Today the translation makes each request on its own (a call in
+  a term, a held field's re-request, a dispatch's arms, a family's
+  instance) and imports nothing from the model, so the model's site for
+  that request is a second copy no proof can link to it. The model's
+  sites, built once at the boundary, are the table: each place the
+  translation requests an instance reads its site from it and carries
+  the site's membership at quantity 0, and the request's derivation is
+  built from that site's reading. A request with no site is then
+  unrepresentable rather than an error the run-time re-check reports.
 
 ## 4. Open: the owner's decisions, in order
 
