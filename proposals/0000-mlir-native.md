@@ -1785,6 +1785,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `CommandLine`'s `ActType`, the tokenizer's hidden tag), ours states the
   types it means. Upstream's form is never the target (D118); L17r's and
   L17s's restorations of it are replaced by this.
+- **C237** (2026-10-22; L17y's finding, under D119 and D112). A grammar's
+  type carries an erased bound on the tokens it may read, and recursion
+  between grammars goes through a box: a grammar indexed by n may call a
+  boxed grammar only at a bound below n, which it reaches by consuming a
+  token, and one fixpoint combinator ties a grammar to its boxed self.
+  So every grammar of the checker is total by its types, mutual
+  recursion included (an expression inside brackets is an expression
+  again), and `Idris.Parser` sheds its `%default covering`. This is the
+  sized-parser discipline of total parser combinators (Danielsson's;
+  Allais's agdarsec), on L17w's linear shallow embedding, with the bound
+  at quantity 0 so it costs nothing at run time.
 - **C227** (2026-10-22; L16's growth passes; under D68, extends C221).
   An eta-redex around a stuck call reads as both forms. A site's
   `\x => F m x`, with `F` stuck on a marker, contracts to `F m`; at an
