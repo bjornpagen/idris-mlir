@@ -4164,6 +4164,17 @@ C137.
   a `Nat` is not. Both reads mean the same element; idris-mlir writes
   them as the one operation of the generating set, its index the word
   the bound proves, so the dialect holds one read.
+- **C213** (2026-10-22; L16's seventh pass; extends C174 under D83). A
+  rank-2 argument, a polymorphic function or implementation passed as a
+  value, and a field computed at run time that chooses an implementation
+  are values of a closed sum, as C174's dictionary is: its constructors
+  are the closures and instances the whole program passes there, each
+  carrying its captures and its own constraints' choices. Each use in
+  the callee matches on it and calls that member monomorphized at the
+  use's own types, so no polymorphic value exists at run time. The
+  frontend refuses with `runtime closure` or `static argument` only where
+  that set or the set of use types is one no analysis bounds; a program
+  whose choices the program fixes compiles.
 
 ## 4. Open: the owner's decisions, in order
 
