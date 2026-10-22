@@ -3462,6 +3462,9 @@ C137.
   lifetimes never reach LLVM in any case: D63 erases them at our
   lowering, by design, not as a workaround.
 
+  Fixed upstream on main by 3d88cd257637 (#233919), which the cutover's
+  fast-forward to main 416f328b reaches, so no patch is carried (L06,
+  2026-10-21).
 - **C142** (2026-10-21; the integration's cross-proposal amendments;
   the owner asked the coordinator's preference). P0 amends 0018 (numeral
   families' number layouts, its D1; C22), 0017 (its 1 GiB budget, 64 GiB
