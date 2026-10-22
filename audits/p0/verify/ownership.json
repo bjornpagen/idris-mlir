@@ -154,7 +154,8 @@
     "foreign/idr/include/idr/Transforms/Demand.h",
     "compiler/spec/IdrisMLIR/Spec/Counting/",
     "foreign/idr/lib/IR/Counting/",
-    "foreign/idr/include/idr/IR/Counting/"
+    "foreign/idr/include/idr/IR/Counting/",
+    "foreign/idr/include/idr/Transforms/Counting/"
   ],
   "L08": [
     "foreign/idr/lib/Analysis/Ownership/Borrows.cpp",
@@ -168,7 +169,8 @@
     "foreign/idr/lib/Transforms/Ownership/Knots.cpp",
     "foreign/idr/lib/IR/Verify/Knots.cpp",
     "foreign/idr/lib/Transforms/InPlace/",
-    "foreign/idr/include/idr/Transforms/InPlace.h"
+    "foreign/idr/include/idr/Transforms/InPlace.h",
+    "foreign/idr/include/idr/Transforms/InPlace/"
   ],
   "L09": [
     "compiler/spec/IdrisMLIR/Spec/Control/",
@@ -200,7 +202,8 @@
     "foreign/idr/include/idr/Conversion/TailPosition.h",
     "foreign/idr/include/idr/Conversion/Frame.h",
     "compiler/spec/IdrisMLIR/Spec/Tail/",
-    "foreign/idr/lib/IR/Tail/"
+    "foreign/idr/lib/IR/Tail/",
+    "foreign/idr/include/idr/Transforms/Tail/"
   ],
   "L11": [
     "runtime/",
@@ -287,7 +290,8 @@
     "foreign/idr/lib/Transforms/EGraph/",
     "foreign/idr/include/idr/Transforms/EGraph.h",
     "foreign/idr/lib/Transforms/Identity/",
-    "foreign/idr/include/idr/Transforms/Identity.h"
+    "foreign/idr/include/idr/Transforms/Identity.h",
+    "foreign/idr/include/idr/Transforms/EGraph/"
   ],
   "L15": [
     "foreign/idr/lib/Support/Actions.cpp",
@@ -347,7 +351,8 @@
     "foreign/idr/lib/Transforms/Expect/",
     "foreign/idr/include/idr/Transforms/Contracts.h",
     "foreign/idr/include/idr/Transforms/Expect.h",
-    "foreign/idr/include/idr/Transforms/ExpectArguments.h"
+    "foreign/idr/include/idr/Transforms/ExpectArguments.h",
+    "foreign/idr/include/idr/Transforms/ExpectProperties.inc"
   ],
   "L20": [
     "libs/"
@@ -387,6 +392,7 @@
     "foreign/idr/lib/Target/Target.cpp",
     "foreign/idr/include/idr/Target/Target.h",
     "foreign/idr/lib/Conversion/Lower/",
-    "foreign/idr/lib/Conversion/Counting.cpp"
+    "foreign/idr/lib/Conversion/Counting.cpp",
+    "foreign/idr/include/idr/Conversion/Lower/"
   ]
 }

@@ -3881,6 +3881,15 @@ C137.
   one another by interned name, not by arena position, so no table
   grows under a read. Its cost: no sharing across definitions, which a
   global append-only arena would give at the price of that trust.
+- **C184** (2026-10-21; L19's finding against `no-local-headers` and
+  `zones`). No header sits beside a `.cpp`: each of the ten under `lib/`
+  moves into `include/idr` under its owner, folded into the owner's
+  existing header where it is that unit's interface, or in a directory
+  granted for it (`Transforms/EGraph/` to L14, `Conversion/Lower/` to
+  L21, `Transforms/InPlace/` to L08, `Transforms/Tail/` to L10,
+  `Transforms/Counting/` to L07, `Transforms/ExpectProperties.inc` to
+  L19). The rule stands as written: a declaration two units share has
+  one home.
 
 ## 4. Open: the owner's decisions, in order
 
