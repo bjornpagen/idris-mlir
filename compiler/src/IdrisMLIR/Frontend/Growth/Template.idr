@@ -211,17 +211,19 @@ data Root = Rooted Address
 -- itself (a bound reference stays applied, Eval.idr). None is a hole
 -- marker, since a request's key holds those for runtime values.
 
-||| The marker `Var i d` reads back from: the writer's parameter i, matched
-||| d constructors deep.
+||| The marker of the part of the writer's parameter i that matches reached
+||| along `path`, the parameter's field first: one value an instance gives,
+||| which reads back as `Var i (length path)`. Field k of a match on it is
+||| `markerAt i (path ++ [k])`, a marker of its own.
 export
-markerAt : (i, d : Nat) -> ClosedTerm
-markerAt i d = probeTerm (ProbeVar i d)
+markerAt : (i : Nat) -> (path : List Nat) -> ClosedTerm
+markerAt i path = probeTerm (ProbePart i path)
 
-||| The parameter and depth of `markerAt`'s name, and of no other.
+||| The parameter and path of `markerAt`'s name, and of no other.
 export
-markerOf : Name -> Maybe (Nat, Nat)
+markerOf : Name -> Maybe (Nat, List Nat)
 markerOf n = case probeOf n of
-  Just (ProbeVar i d) => Just (i, d)
+  Just (ProbePart i path) => Just (i, path)
   _ => Nothing
 
 ||| The marker `Formal j a` reads back from: argument j of a family's
@@ -233,34 +235,35 @@ markerOf n = case probeOf n of
 formalAt : (j, a : Nat) -> TT vs
 formalAt j a = probeTerm (ProbeFormal j a)
 
-||| What a site binds a match on a field of the dictionary marker `Var i d`
-||| to, by its path: the dictionary's field first, then a field of that
-||| field. A dictionary with no path is the marker itself, one name per
-||| value.
+||| What a site binds a match on a field of the writer's dictionary
+||| parameter i to, by its path: the dictionary's field first, then a field
+||| of that field. A dictionary with no path is the marker itself, one name
+||| per value. A dictionary keeps its marker through every match, never a
+||| part of anything, so it has no depth: its fields read below `Var i 0`.
 export
-fieldAt : (i, d : Nat) -> (path : List Nat) -> ClosedTerm
-fieldAt i d [] = markerAt i d
-fieldAt i d (k :: ks) = probeTerm (ProbeFieldPath i d (k ::: ks))
+fieldAt : (i : Nat) -> (path : List Nat) -> ClosedTerm
+fieldAt i [] = markerAt i []
+fieldAt i (k :: ks) = probeTerm (ProbeFieldPath i (k ::: ks))
 
 ------------------------------------------------------------------------------
 -- A site's stand-ins
 ------------------------------------------------------------------------------
 
 ||| A stand-in of a site's for a part of a shape no match has taken apart
-||| yet: its number, and the writer's parameter `param` it is a part of,
-||| matched `depth` constructors deep. Each has a marker of its own
-||| (`standInAt`), so that two parts of one parameter at one depth, which
-||| an instance gives two values, are two markers, and a site's term is
-||| what an instance's argument is with a value put in for each of its
-||| markers. Only a reading reads a stand-in as `Var param depth`
-||| (`referenceOf`), from the stand-ins of the site it reads, which it is
-||| given.
+||| yet: its number, the writer's parameter `param` it is a part of, and
+||| the path matches took to it, the parameter's field first. Each has a
+||| marker of its own (`standInAt`), so that two parts of one parameter,
+||| which an instance gives two values, are two markers, and a site's term
+||| is what an instance's argument is with a value put in for each of its
+||| markers. Only a reading reads a stand-in as the part it stands for,
+||| `Var param (length path)` (`walkMarker`), from the stand-ins of the
+||| site it reads, which it is given.
 public export
 record StandIn where
   constructor MkStandIn
   number : Nat
   param : Nat
-  depth : Nat
+  path : List Nat
 
 ||| A stand-in's name: a bound name that is no machine name, since Idris's
 ||| quotation rebinds bound machine names by their number, and the
@@ -279,20 +282,31 @@ public export
 standInNumbered : List StandIn -> Nat -> Maybe StandIn
 standInNumbered stands k = find (\p => p.number == k) stands
 
-||| The parameter and depth a site's marker reads as: the writer's marker
-||| `Var i d`, or one of the site's stand-ins.
+||| The parameter and path of the part a probe stands for in a site: the
+||| writer's marker of a part, or one of the site's stand-ins. The one
+||| place a part is read off a probe.
+public export
+partOfProbe : List StandIn -> Probe -> Maybe (Nat, List Nat)
+partOfProbe stands (ProbePart i path) = Just (i, path)
+partOfProbe stands (ProbePattern k) = (\p => (p.param, p.path)) <$> standInNumbered stands k
+partOfProbe _ _ = Nothing
+
+||| The parameter and path of the part a site's marker stands for.
 export
-standingOf : List StandIn -> Name -> Maybe (Nat, Nat)
-standingOf stands n = case probeOf n of
-  Just (ProbeVar i d) => Just (i, d)
-  Just (ProbePattern k) => (\p => (p.param, p.depth)) <$> standInNumbered stands k
-  _ => Nothing
+standingOf : List StandIn -> Name -> Maybe (Nat, List Nat)
+standingOf stands n = probeOf n >>= partOfProbe stands
 
 ||| The marker a term is, the writer's or a stand-in of the site's, when it
 ||| is one, unapplied.
-bareMarker : List StandIn -> ClosedTerm -> Maybe (Nat, Nat)
+bareMarker : List StandIn -> ClosedTerm -> Maybe (Nat, List Nat)
 bareMarker stands (Ref _ Bound n) = standingOf stands n
 bareMarker _ _ = Nothing
+
+||| A part by its parameter and how many matches deep it is, which is what
+||| a template's marker records of it (`Var`).
+public export
+partDepth : (Nat, List Nat) -> (Nat, Nat)
+partDepth (i, path) = (i, length path)
 
 ------------------------------------------------------------------------------
 -- Scopes
@@ -338,6 +352,29 @@ bindAll : (ns : List Name) -> a -> Values a ns
 bindAll [] _ = []
 bindAll (_ :: ns) x = x :: bindAll ns x
 
+||| What a match read behind what it matched on binds each argument of an
+||| alternative to: on a part of the writer's parameter, the part at that
+||| argument's own field below it, one value an instance gives, each its
+||| own marker; on what is stuck in turn, which no marker stands for, the
+||| stuck term, of which every argument is a part. These are the problem's
+||| two cases: a part's fields are parts an instance gives values for, a
+||| stuck term's are not.
+public export
+data FieldsOf = PartsOf Nat (List Nat) | AllOf ClosedTerm
+
+||| What a match binds argument k of an alternative to (`FieldsOf`).
+public export
+fieldOf : FieldsOf -> Nat -> ClosedTerm
+fieldOf (PartsOf j path) k = markerAt j (path ++ [k])
+fieldOf (AllOf x) _ = x
+
+||| An alternative's arguments from argument k on, each bound as the match
+||| binds it (`fieldOf`).
+public export
+boundFields : FieldsOf -> (k : Nat) -> (ns : List Name) -> Values ClosedTerm ns
+boundFields f k [] = []
+boundFields f k (_ :: ns) = fieldOf f k :: boundFields f (S k) ns
+
 sizeOfValues : Values a vs -> SizeOf vs
 sizeOfValues [] = zero
 sizeOfValues (_ :: xs) = suc (sizeOfValues xs)
@@ -373,18 +410,18 @@ applyTo = foldl (App EmptyFC)
 -- What every reading and every match sees
 ------------------------------------------------------------------------------
 
-||| The writer's marker a bound name is, as a site reads it: the writer's
-||| parameter `Var i d`, a field of its dictionary along a path, or one of
-||| the site's stand-ins, as the part of the parameter it stands for. A
-||| stand-in the site being read did not make is no part of its writer's,
-||| as any other bound name is none.
+||| The writer's marker a bound name is, as a site reads it: a part of the
+||| writer's parameter, `Var i` as many matches deep as its path is long; a
+||| field of its dictionary along a path, below the dictionary's marker,
+||| which no match makes a part; or one of the site's stand-ins, as the
+||| part of the parameter it stands for. A stand-in the site being read did
+||| not make is no part of its writer's, as any other bound name is none.
 public export
 walkMarker : List StandIn -> Name -> Maybe Template
 walkMarker stands n = case probeOf n of
-  Just (ProbeVar i d) => Just (Var i d)
-  Just (ProbeFieldPath i d path) => Just (foldl (\t, k => Field k t) (Var i d) path)
-  Just (ProbePattern k) => (\p => Var p.param p.depth) <$> standInNumbered stands k
-  _ => Nothing
+  Just (ProbeFieldPath i path) => Just (foldl (\t, k => Field k t) (Var i 0) path)
+  Just q => uncurry Template.Var . partDepth <$> partOfProbe stands q
+  Nothing => Nothing
 
 ||| Whether a bound name is a marker of a runtime value an implementation
 ||| closes over (`Closed.markerName`), with the evidence either way.
@@ -432,22 +469,25 @@ formalView n with (probeOf n) proof found
   _ | Just (ProbeAxis _ _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
   _ | Just (ProbeAxisAt _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
   _ | Just (ProbeSize _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
-  _ | Just (ProbeVar _ _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
-  _ | Just (ProbeFieldPath _ _ _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbePart _ _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
+  _ | Just (ProbeFieldPath _ _) = NotFormalName (otherThan found (\_, _ => \case Refl impossible))
 
 ||| A reference as every reading and every match takes it. In order: a hole
 ||| marker (a runtime value an implementation closes over, which the key
 ||| writes as its number), an argument of a family's value, one of the
-||| walk's markers, a bound name that is none of these (a runtime part), a
-||| data or type constructor, a definition with a place, and a definition
-||| with none, which stands for what is not known of a runtime value
-||| (`unknownPart`, as `Closed.normalHead` reads it). Every marker is a
-||| bound name (`Walk.probeTerm`), so a reference to a constructor or a
-||| definition is what its reference says, whatever its name, as the key
-||| writes it (`Keys.holeAt`).
+||| walk's markers (a part of the writer's parameter, by its parameter and
+||| path, the writer's own marker or a stand-in of the site's; or a field
+||| of the writer's dictionary, by its path), a bound name that is none of
+||| these (a runtime part), a data or type constructor, a definition with a
+||| place, and a definition with none, which stands for what is not known
+||| of a runtime value (`unknownPart`, as `Closed.normalHead` reads it).
+||| Every marker is a bound name (`Walk.probeTerm`), so a reference to a
+||| constructor or a definition is what its reference says, whatever its
+||| name, as the key writes it (`Keys.holeAt`).
 data Reference = HoleMarker Nat
                | FormalMarker Nat Nat
-               | WalkMarker Template
+               | PartMarker Nat (List Nat)
+               | FieldMarker Nat (List1 Nat)
                | RuntimePart
                | DataConstructor (Maybe Address)
                | TypeConstructor (Maybe Address)
@@ -458,7 +498,9 @@ referenceOf ctx stands Bound n = case Closed.markerOf n of
   Just i => HoleMarker i
   Nothing => case probeOf n of
     Just (ProbeFormal j a) => FormalMarker j a
-    _ => maybe RuntimePart WalkMarker (walkMarker stands n)
+    Just (ProbeFieldPath i path) => FieldMarker i path
+    Just q => maybe RuntimePart (uncurry PartMarker) (partOfProbe stands q)
+    Nothing => RuntimePart
 referenceOf ctx stands (DataCon _ _) n = DataConstructor (definitionAddress ctx n)
 referenceOf ctx stands (TyCon _) n = TypeConstructor (definitionAddress ctx n)
 referenceOf ctx stands Func n = maybe RuntimePart AtDefinition (definitionAddress ctx n)
@@ -838,14 +880,15 @@ namesLiteral cn k with (isConstantType (dropNS cn))
     OtherLiteral other => No (\named => other (justAlike named))
 
 ||| What a match meets, parsed once: a data or type constructor applied, a
-||| literal, a delay, one of the walk's markers, an argument of a family's
-||| value, a runtime value (a part every reading takes as one node, or a
-||| hole marker), or anything else: an application stuck in turn, a
-||| projection of what is no constructor, an applied marker.
+||| literal, a delay, a part of the writer's parameter (by its parameter
+||| and path), an argument of a family's value, a runtime value (a part
+||| every reading takes as one node, or a hole marker), or anything else:
+||| an application stuck in turn, a projection of what is no constructor,
+||| an applied marker, a field of the writer's dictionary.
 data Scrutinee = Constructed ConstructorHead Name (List ClosedTerm)
                | Literal Constant
                | Suspended ClosedTerm ClosedTerm
-               | Matched Nat Nat
+               | Matched Nat (List Nat)
                | OnFormal Nat Nat
                | AtRuntime
                | StuckInTurn
@@ -859,7 +902,7 @@ scrutineeOf ctx stands s = case getFnArgs (undotted s) of
   (Ref _ (DataCon tag _) n, args) => Constructed (DataHead tag) n args
   (Ref _ (TyCon _) n, args) => Constructed FamilyHead n args
   (Ref _ nt n, args) => case (referenceOf ctx stands nt n, args) of
-    (WalkMarker (Var i d), []) => Matched i d
+    (PartMarker i path, []) => Matched i path
     (FormalMarker j a, []) => OnFormal j a
     (RuntimePart, _) => AtRuntime
     (HoleMarker _, _) => AtRuntime
@@ -880,28 +923,31 @@ scrutineeOf ctx stands s = case getFnArgs (undotted s) of
 ||| default's), which must be closed.
 data Arm = Step ClosedTerm | Base ClosedTerm
 
-||| The alternatives of a match one level deep on a Nat-like argument, each
-||| leaf with the parameters substituted and every argument the match binds
-||| the marker one level deeper; nothing for any other match.
-natArms : Frozen -> ClosedTerm -> Values ClosedTerm vs -> List (CaseAlt vs) -> Maybe (List Arm)
-natArms ctx m env [] = Just []
-natArms ctx m env (ConCase con _ cargs (STerm _ rhs) :: alts) = do
-  let body = close (extend (bindAll cargs m) env) rhs
+||| The alternatives of a match one level deep on a Nat-like argument, the
+||| part of the writer's parameter j at `path`, each leaf with the
+||| parameters substituted and each argument the match binds the part at
+||| its own field below (`PartsOf`); nothing for any other match.
+natArms : Frozen -> (j : Nat) -> (path : List Nat) -> Values ClosedTerm vs -> List (CaseAlt vs) -> Maybe (List Arm)
+natArms ctx j path env [] = Just []
+natArms ctx j path env (ConCase con _ cargs (STerm _ rhs) :: alts) = do
+  let body = close (extend (boundFields (PartsOf j path) 0 cargs) env) rhs
   role <- roleOf ctx con
   let arm = case role of
               Succ => Step body
               Zero => Base body
-  (arm ::) <$> natArms ctx m env alts
-natArms ctx m env (DefaultCase (STerm _ rhs) :: alts) = (Base (close env rhs) ::) <$> natArms ctx m env alts
-natArms ctx m env (_ :: _) = Nothing
+  (arm ::) <$> natArms ctx j path env alts
+natArms ctx j path env (DefaultCase (STerm _ rhs) :: alts) = (Base (close env rhs) ::) <$> natArms ctx j path env alts
+natArms ctx j path env (_ :: _) = Nothing
 
 ||| The other leaves of a structural recursion, and the closed children of
 ||| its successor's leaf, when it is one. The successor's leaf is a
 ||| recursive call, or a data or type constructor applied to children each
-||| of which is a recursive call or closed; every recursive call takes the
+||| of which is a recursive call or closed; every recursive call takes a
 ||| predecessor marker at the matched position and every other argument as
 ||| it came; every other leaf is closed; and at least one call recurs.
-||| Closed means: no marker of the walk's, no mention of the definition.
+||| Closed means: no marker of the walk's, no mention of the definition. A
+||| predecessor is a part of the matched parameter one match deeper, told
+||| by its parameter and depth (`partDepth`), whichever field it is.
 recursion : Context -> List StandIn -> (self : Address) -> (predecessor : (Nat, Nat)) -> (args : List ClosedTerm) ->
             (idx : Nat) -> List Arm -> Maybe (List ClosedTerm, List ClosedTerm)
 recursion ctx stands self predecessor args idx arms = case go arms of
@@ -910,7 +956,8 @@ recursion ctx stands self predecessor args idx arms = case go arms of
   where
     refersOut : {0 vs : Scope} -> TT vs -> Bool
     refersOut (Ref _ nt n) = case referenceOf ctx stands nt n of
-      WalkMarker _ => True
+      PartMarker _ _ => True
+      FieldMarker _ _ => True
       FormalMarker _ _ => True
       AtDefinition a => a == self
       HoleMarker _ => False
@@ -926,7 +973,7 @@ recursion ctx stands self predecessor args idx arms = case go arms of
     -- at every other.
     stepped : Nat -> List ClosedTerm -> List ClosedTerm -> Bool
     stepped _ [] [] = True
-    stepped Z (x :: xs) (_ :: ys) = bareMarker stands x == Just predecessor && xs == ys
+    stepped Z (x :: xs) (_ :: ys) = map partDepth (bareMarker stands x) == Just predecessor && xs == ys
     stepped (S k) (x :: xs) (y :: ys) = x == y && stepped k xs ys
     stepped _ _ _ = False
 
@@ -1257,19 +1304,22 @@ mutual
                   Unfolds m a written env tree extras (Just t) -> GivenUnfolds m a written terms pargs tree t
     GivenAgain : GivenUnfolds m a written terms pargs tree (Opaque a (map Template.substituteTemplate lacking))
 
-  ||| A recursion structural on the writer's marker `Var j e`, a Nat-like
-  ||| argument every recursive call takes the predecessor of: its other
-  ||| leaves, and the marker raised by the tallest of them and of the
-  ||| successor's closed children, less one. Its shape is what `recursion`
-  ||| found in its arms, which the bound rests on.
+  ||| A recursion structural on a part of the writer's parameter j at
+  ||| `path`, which reads as `Var j (length path)`, a Nat-like argument
+  ||| every recursive call takes a predecessor of: its other leaves, and the
+  ||| marker raised by the tallest of them and of the successor's closed
+  ||| children, less one. Its shape is what `recursion` found in its arms,
+  ||| which the bound rests on.
   export
   data Structural : Mode -> (self : Address) -> (args : List ClosedTerm) -> Values ClosedTerm vs -> CaseTree vs ->
                     Template -> Type where
-    Raised : (0 _ : bareMarker (standsOf m) (valueAt env idx p) = Just (j, e)) ->
-             (0 _ : recursion (gamma (defsOf m.inContext)) (standsOf m) self (j, S e) args idx arms = Just (bases, kids)) ->
+    Raised : (0 _ : bareMarker (standsOf m) (valueAt env idx p) = Just (j, path)) ->
+             (0 _ : recursion (gamma (defsOf m.inContext)) (standsOf m) self (j, S (length path)) args idx arms =
+                    Just (bases, kids)) ->
              AllReadAs (unfolding m) [] bases leaves -> AllReadAs (unfolding m) [] kids children ->
              Structural m self args env (Case idx p ty alts)
-                        (Choice (Var j e) (leaves ++ [raise (minus (max (tallest leaves) (tallest children)) 1) (Var j e)]))
+                        (Choice (Var j (length path))
+                                (leaves ++ [raise (minus (max (tallest leaves) (tallest children)) 1) (Var j (length path))]))
 
   ||| What the walk of a case tree read over what its variables stand for
   ||| and the arguments past its parameters: each leaf it reached, read off
@@ -1292,9 +1342,9 @@ mutual
                TakesLiteral m self written env k alts extras r -> Unfolds m self written env (Case idx p ty alts) extras r
     USuspended : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Suspended dty da) ->
                  TakesDelay m self written env dty da alts extras r -> Unfolds m self written env (Case idx p ty alts) extras r
-    UMatched : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Matched j d) ->
-               Alternatives m self written env (markerAt j (S d)) alts extras ls ->
-               Unfolds m self written env (Case idx p ty alts) extras (Just (Choice (Var j d) ls))
+    UMatched : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Matched j path) ->
+               Alternatives m self written env (PartsOf j path) alts extras ls ->
+               Unfolds m self written env (Case idx p ty alts) extras (Just (Choice (Var j (length path)) ls))
     UOnFormal : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = OnFormal j k) ->
                 Unfolds m self written env (Case idx p ty alts) extras
                         (Just (Choice (Formal j k) [written, Opaque self [Formal j k]]))
@@ -1302,7 +1352,7 @@ mutual
                  Unfolds m self written env (Case idx p ty alts) extras (Just written)
     UStuck : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = StuckInTurn) ->
              ReadAs (unfolding m) [] (valueAt env idx p) t ->
-             Alternatives m self written env (valueAt env idx p) alts extras ls ->
+             Alternatives m self written env (AllOf (valueAt env idx p)) alts extras ls ->
              Unfolds m self written env (Case idx p ty alts) extras (Just (Choice t ls))
 
   ||| The alternative a constructor takes, by the entry its name resolves
@@ -1383,24 +1433,25 @@ mutual
     NoDelay : TakesDelay m self written env dty da [] extras (Just written)
 
   ||| Every alternative's leaves, each argument a constructor or a delay
-  ||| binds standing for `x`; an absurd one gives none.
+  ||| binds as the match binds it (`FieldsOf`); an absurd one gives none.
   export
-  data Alternatives : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> ClosedTerm ->
+  data Alternatives : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> FieldsOf ->
                       List (CaseAlt vs) -> List ClosedTerm -> List Template -> Type where
-    NoAlternatives : Alternatives m self written env x [] extras []
-    WithAlternative : AlternativeUnfolds m self written env x alt extras r -> Alternatives m self written env x alts extras ls ->
-                  Alternatives m self written env x (alt :: alts) extras (maybe ls (\u => u :: ls) r)
+    NoAlternatives : Alternatives m self written env f [] extras []
+    WithAlternative : AlternativeUnfolds m self written env f alt extras r -> Alternatives m self written env f alts extras ls ->
+                  Alternatives m self written env f (alt :: alts) extras (maybe ls (\u => u :: ls) r)
 
-  ||| One alternative walked, each argument it binds standing for `x`.
+  ||| One alternative walked, argument k it binds bound as the match binds
+  ||| it (`fieldOf`): a delay's type its first and its value its second.
   export
-  data AlternativeUnfolds : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> ClosedTerm ->
+  data AlternativeUnfolds : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> FieldsOf ->
                             CaseAlt vs -> List ClosedTerm -> Maybe Template -> Type where
-    ConstructorAlternative : Unfolds m self written (extend (bindAll cargs x) env) t extras r ->
-                             AlternativeUnfolds m self written env x (ConCase con tag cargs t) extras r
-    DelayAlternative : Unfolds m self written (x :: x :: env) t extras r ->
-                       AlternativeUnfolds m self written env x (DelayCase tyn argn t) extras r
-    ConstantAlternative : Unfolds m self written env t extras r -> AlternativeUnfolds m self written env x (ConstCase k t) extras r
-    DefaultAlternative : Unfolds m self written env t extras r -> AlternativeUnfolds m self written env x (DefaultCase t) extras r
+    ConstructorAlternative : Unfolds m self written (extend (boundFields f 0 cargs) env) t extras r ->
+                             AlternativeUnfolds m self written env f (ConCase con tag cargs t) extras r
+    DelayAlternative : Unfolds m self written (fieldOf f 0 :: fieldOf f 1 :: env) t extras r ->
+                       AlternativeUnfolds m self written env f (DelayCase tyn argn t) extras r
+    ConstantAlternative : Unfolds m self written env t extras r -> AlternativeUnfolds m self written env f (ConstCase k t) extras r
+    DefaultAlternative : Unfolds m self written env t extras r -> AlternativeUnfolds m self written env f (DefaultCase t) extras r
 
 ||| A template a shape's form rewrites as its key holds it: each `:<` of its
 ||| spine with its extent the leaf an erased extent is, each leaf of a
@@ -1458,9 +1509,9 @@ markersIn = mentioning marker
   where
     marker : {0 ws : Scope} -> TT ws -> Mention
     marker (Ref _ Bound n) = case probeOf n of
-      Just (ProbeVar _ _) => Mentioned
+      Just (ProbePart _ _) => Mentioned
       Just (ProbePattern _) => Mentioned
-      Just (ProbeFieldPath _ _ _) => Mentioned
+      Just (ProbeFieldPath _ _) => Mentioned
       Just (ProbeFormal _ _) => Mentioned
       _ => Unmentioned
     marker _ = Unmentioned
@@ -1725,7 +1776,7 @@ mutual
                 Front (Subset Template (SpineAs m stand (Bind fc x (Lam lfc rig info ty) sc) (termsOf args)))
   lambdaSpine m@(MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) w acc stand fc x lfc rig info ty sc [] =
     case contracted (Bind fc x (Lam lfc rig info ty) sc) of
-      MkContraction g steps => case keptAround (contractingFor m) g of
+      MkContracted g steps _ => case keptAround (contractingFor m) g of
         ContractedAway => plainLambda m w acc stand fc x lfc rig info ty sc []
         KeptAround => do
           Just r <- chainLambda m w acc stand 0 fc x lfc rig info ty sc
@@ -2048,11 +2099,11 @@ mutual
   structural m w acc self args env (Case idx p ty alts) extras =
     case Element (bareMarker (standsOf m) (valueAt env idx p)) Refl of
       Element Nothing _ => pure Nothing
-      Element (Just (j, e)) marked => do
-        let Just arms = natArms m.inContext (markerAt j (S e)) env alts
+      Element (Just (j, path)) marked => do
+        let Just arms = natArms m.inContext j path env alts
           | Nothing => pure Nothing
         arms' <- traverse normalisedArm arms
-        case Element (recursion (gamma (defsOf m.inContext)) (standsOf m) self (j, S e) args idx arms') Refl of
+        case Element (recursion (gamma (defsOf m.inContext)) (standsOf m) self (j, S (length path)) args idx arms') Refl of
           Element Nothing _ => pure Nothing
           Element (Just (bases, kids)) shaped => do
             leaves <- readAll (unfolding m) w acc [] bases
@@ -2093,10 +2144,10 @@ mutual
       Element (Suspended dty da) found =>
         (\r => Element r.fst (USuspended found r.snd)) <$> delayed m w acc self written env dty da alts extras
       -- A constructor's argument is a part of the matched value, one level
-      -- deeper.
-      Element (Matched i d) found =>
-        (\r => Element (Just (Choice (Var i d) r.fst)) (UMatched found r.snd))
-          <$> everyAlt m w acc self written env (markerAt i (S d)) alts extras
+      -- deeper, at its own field.
+      Element (Matched i path) found =>
+        (\r => Element (Just (Choice (Var i (length path)) r.fst)) (UMatched found r.snd))
+          <$> everyAlt m w acc self written env (PartsOf i path) alts extras
       -- An argument of a family's value: as written, which every key of
       -- the value holds and an argument at run time leaves stuck; or, once
       -- beta substitutes the argument, what the match computes from it,
@@ -2107,7 +2158,7 @@ mutual
       -- bounds it.
       Element StuckInTurn found => do
         t <- read (unfolding m) w acc [] (valueAt env idx p)
-        r <- everyAlt m w acc self written env (valueAt env idx p) alts extras
+        r <- everyAlt m w acc self written env (AllOf (valueAt env idx p)) alts extras
         pure (Element (Just (Choice t.fst r.fst)) (UStuck found t.snd r.snd))
 
   ||| The alternative a constructor takes, by the entry its name resolves
@@ -2181,28 +2232,28 @@ mutual
   delayed m w acc self written env dty da [] extras = pure (Element (Just written) NoDelay)
 
   ||| Every alternative's leaves, each argument a constructor or a delay
-  ||| binds standing for `x`; an absurd one gives none.
+  ||| binds as the match binds it (`FieldsOf`); an absurd one gives none.
   everyAlt : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-             (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (x : ClosedTerm) ->
+             (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (f : FieldsOf) ->
              (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
-             Front (Subset (List Template) (Alternatives m self written env x alts extras))
-  everyAlt m w acc self written env x [] extras = pure (Element [] NoAlternatives)
-  everyAlt m w acc self written env x (alt :: alts) extras = do
-    here <- alternative m w acc self written env x alt extras
-    rest <- everyAlt m w acc self written env x alts extras
+             Front (Subset (List Template) (Alternatives m self written env f alts extras))
+  everyAlt m w acc self written env f [] extras = pure (Element [] NoAlternatives)
+  everyAlt m w acc self written env f (alt :: alts) extras = do
+    here <- alternative m w acc self written env f alt extras
+    rest <- everyAlt m w acc self written env f alts extras
     pure (Element (maybe rest.fst (\u => u :: rest.fst) here.fst) (WithAlternative here.snd rest.snd))
 
   alternative : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (x : ClosedTerm) ->
+                (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (f : FieldsOf) ->
                 (alt : CaseAlt vs) -> (extras : List ClosedTerm) ->
-                Front (Subset (Maybe Template) (AlternativeUnfolds m self written env x alt extras))
-  alternative m w acc self written env x (ConCase _ _ cargs t) extras =
-    (\r => Element r.fst (ConstructorAlternative r.snd)) <$> walk m w acc self written (extend (bindAll cargs x) env) t extras
-  alternative m w acc self written env x (DelayCase _ _ t) extras =
-    (\r => Element r.fst (DelayAlternative r.snd)) <$> walk m w acc self written (x :: x :: env) t extras
-  alternative m w acc self written env x (ConstCase _ t) extras =
+                Front (Subset (Maybe Template) (AlternativeUnfolds m self written env f alt extras))
+  alternative m w acc self written env f (ConCase _ _ cargs t) extras =
+    (\r => Element r.fst (ConstructorAlternative r.snd)) <$> walk m w acc self written (extend (boundFields f 0 cargs) env) t extras
+  alternative m w acc self written env f (DelayCase _ _ t) extras =
+    (\r => Element r.fst (DelayAlternative r.snd)) <$> walk m w acc self written (fieldOf f 0 :: fieldOf f 1 :: env) t extras
+  alternative m w acc self written env f (ConstCase _ t) extras =
     (\r => Element r.fst (ConstantAlternative r.snd)) <$> walk m w acc self written env t extras
-  alternative m w acc self written env x (DefaultCase t) extras =
+  alternative m w acc self written env f (DefaultCase t) extras =
     (\r => Element r.fst (DefaultAlternative r.snd)) <$> walk m w acc self written env t extras
 
 ||| A closed term read on a walk that has entered nothing yet.
@@ -2672,7 +2723,7 @@ mutual
     -- deeper would name none of its own, so a root reads no site's
     -- stand-ins.
     case referenceOf (gamma (defsOf ctx)) [] nt n of
-      WalkMarker (Var i d) => pure (Parameter i d)
+      PartMarker i path => pure (Parameter i (length path))
       DataConstructor a => pure (maybe Unrooted Rooted a)
       AtDefinition a => do
         Just pr <- projection n
@@ -2682,7 +2733,7 @@ mutual
         Force field.root
       -- A field of a dictionary, which the template's field says, and
       -- what is no dictionary.
-      WalkMarker _ => pure Unrooted
+      FieldMarker _ _ => pure Unrooted
       HoleMarker _ => pure (Chosen AtRunTimeAlways)
       FormalMarker _ _ => pure Unrooted
       RuntimePart => pure (Chosen AtRunTimeAlways)
@@ -2839,7 +2890,7 @@ formRoot : Context -> ClosedTerm -> Root
 formRoot ctx form = case getFnArgs form of
   (Ref _ (TyCon arity) n, args) =>
     if length args < arity then maybe Unrooted Rooted (definitionAddress ctx n) else Unrooted
-  (Ref _ Bound n, _) => maybe Unrooted (uncurry Parameter) (Template.markerOf n)
+  (Ref _ Bound n, _) => maybe Unrooted (uncurry Parameter . partDepth) (Template.markerOf n)
   _ => Unrooted
 
 -- A site's type read once: its template, as `siteReading` reads it, and

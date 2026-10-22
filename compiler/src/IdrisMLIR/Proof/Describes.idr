@@ -270,6 +270,9 @@ writersOfHas {ws = (j, q) :: rest} (There el) with (i == j)
   _ | True = There (writersOfHas el)
   _ | False = writersOfHas el
 
+||| A parameter listed with a weight that has a label, read at a position,
+||| draws an arc from there at that label.
+export
 0 varArcsHas : {t : Fin n} -> {ws : List (Nat, Fin n)} -> {vs : List (Nat, Weight)} ->
                Elem (i, w) vs -> Elem (i, p) ws -> labelOf w = Just lab -> Elem (MkArc p t lab) (varArcs t ws vs)
 varArcsHas Here wp eq =
@@ -356,6 +359,8 @@ mutual
 -- Weights
 ------------------------------------------------------------------------------
 
+||| Only Stuck dominates Stuck.
+export
 0 overStuck : Dominates w Stuck -> w = Stuck
 overStuck OverAll = Refl
 
@@ -390,6 +395,15 @@ drawnCarries fe (w ** (dom, arcs)) wa = case dom of
                  DrawnOver g s i Stuck -> Elem (i, p) s.writers -> Void
 stuckRefuted fe (w ** (dom, arcs)) wa = case overStuck dom of
   Refl => measuredOnly fe (arcs _ wa Unmeasured Refl)
+
+||| A parameter a site's template weighs Stuck is read at no position of
+||| its writer's, in a feasible graph that holds the site's own arcs: the
+||| arc from such a position is Unmeasured, which no potential meets.
+export
+0 stuckUnread : {g : Graph} -> {pot : Vect g.size Nat} -> Feasible g pot -> (s : Site g.size) ->
+                ((a : Arc g.size) -> Elem a (ownArcs s) -> Elem a g.arcs) ->
+                Elem (i, Stuck) (weights s.template) -> Elem (i, p) s.writers -> Void
+stuckUnread fe s own inW wa = measuredOnly fe (own _ (varArcsHas inW wa Refl))
 
 -- An arc from what an applied family, a field or a member can
 -- be, as heavy as the part sits deep less the depth of what it carries.
@@ -695,6 +709,23 @@ export
 0 listedMeasured : (pa : Address) -> (m : Nat) -> Elem t (pairChainsUpTo pa m) -> DrawsMeasured t
 listedMeasured pa m el = case listedChain pa m el of
   (n ** Refl) => chainDrawsMeasured pa n
+
+-- A site of a model drawn from tagged sites is one of them, with its tag.
+0 taggedSite : {ss : List (Site n, tag)} -> Elem s (map Builtin.fst ss) -> (x : tag ** Elem (s, x) ss)
+taggedSite {ss = []} el = absurd el
+taggedSite {ss = (s', x) :: rest} Here = (x ** Here)
+taggedSite {ss = y :: rest} (There el) = let (x ** inner) = taggedSite el in (x ** There inner)
+
+||| A graph drawn from a model's sites holds each site's own arcs, the arcs
+||| from the positions its writer reads its parameters at.
+export
+0 ownDrawnOf : {n : Nat} -> {ps : Address -> List (Fin n)} -> {fps : Address -> Nat -> List (Fin n)} ->
+               {cps : ChoiceHead -> List (Fin n)} -> {positionOf : Fin n -> Maybe (Head, Nat)} -> {held : Nat} ->
+               {beyond : Nat} -> {caps : Vect n (Maybe Nat)} -> {ss : List (Site n, tag)} ->
+               Elem s (modelOf ps fps cps positionOf held beyond caps ss).sites ->
+               (a : Arc n) -> Elem a (ownArcs s) -> Elem a (graphOf ps fps cps beyond caps ss).arcs
+ownDrawnOf inModel a el = case taggedSite inModel of
+  (x ** inSs) => elemMap fst (elemAppendLeft (allOfHas ownTagged inSs (elemMap (\a' => (a', x)) el)))
 
 ||| A graph drawn from a model's sites describes the model under any
 ||| feasible potential: every site lands at an uncapped position, K stands

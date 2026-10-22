@@ -18,10 +18,11 @@
 ||| contracted term does not reduce back to the uncontracted form the
 ||| normaliser can return. So contraction is the frontend's own relation
 ||| (`EtaContracts`), what a reader reads is the host's normal form
-||| followed by it (`ReadOff`), and the contraction gives its result with
-||| that evidence (`Contraction`). What contraction gives is never taller
-||| than what it was given (`contractionHeight`), so whatever bounds the
-||| normal form bounds what the readers read.
+||| followed by it (`ReadOff`), and the frontend's contraction
+||| (`Closed.contractedBy`) gives its result with that evidence and with
+||| the evidence that no redex it contracts is left. What contraction gives
+||| is never taller than what it was given (`contractionHeight`), so
+||| whatever bounds the normal form bounds what the readers read.
 module IdrisMLIR.Proof.Reading
 
 import Core.TT
@@ -166,111 +167,6 @@ mutual
   piStrengthenedHeight MAutoImplicit = Refl
   piStrengthenedHeight (MDefault t) = strengthenedHeight t
 
-||| What dropping a variable from a part gives: the part over the scope
-||| without it, with the evidence; or nothing, where the part mentions it.
-public export
-data Strengthening : (r : Type) -> (r -> Type) -> Type where
-  Strengthens : (u : r) -> (0 _ : ev u) -> Strengthening r ev
-  MentionsDropped : Strengthening r ev
-
-mutual
-  ||| A term read over its scope with the variable after the first o
-  ||| dropped (`Idris.Host.Strengthened`), or nothing where it mentions
-  ||| that variable: Idris's `shrink` at the thinning that drops it, with
-  ||| the evidence, which a contraction needs.
-  export
-  dropVariable : (o : Nat) -> (0 _ : DropsAt o vs ws) -> (t : Term vs) ->
-                 Strengthening (Term ws) (Strengthened o t)
-  dropVariable o d (Local fc l idx p) = case dropIndex o idx of
-    IsTheDropped _ => MentionsDropped
-    Reindexed j dropped => Strengthens (Local fc l j (droppedVar d dropped p)) (MLocal dropped)
-  dropVariable o d (Ref fc nt nm) = Strengthens (Ref fc nt nm) (MRef (keptByNone nt))
-  dropVariable o d (Meta fc m k args) = case dropVariableAll o d args of
-    MentionsDropped => MentionsDropped
-    Strengthens args' s => Strengthens (Meta fc m k args') (MMeta NoneHere s)
-  dropVariable o d (Bind fc y b sc) = case dropVariableBinder o d b of
-    MentionsDropped => MentionsDropped
-    Strengthens b' sb => case dropVariable (S o) (DropsUnder d) sc of
-      MentionsDropped => MentionsDropped
-      Strengthens sc' ss => Strengthens (Bind fc y b' sc') (MBind sb ss)
-  dropVariable o d (App fc f a) = case dropVariable o d f of
-    MentionsDropped => MentionsDropped
-    Strengthens f' sf => case dropVariable o d a of
-      MentionsDropped => MentionsDropped
-      Strengthens a' sa => Strengthens (App fc f' a') (MApp sf sa)
-  dropVariable o d (As fc s a t) = case dropVariable o d a of
-    MentionsDropped => MentionsDropped
-    Strengthens a' sa => case dropVariable o d t of
-      MentionsDropped => MentionsDropped
-      Strengthens t' st => Strengthens (As fc s a' t') (MAs sa st)
-  dropVariable o d (TDelayed fc r t) = case dropVariable o d t of
-    MentionsDropped => MentionsDropped
-    Strengthens t' st => Strengthens (TDelayed fc r t') (MDelayed st)
-  dropVariable o d (TDelay fc r ty a) = case dropVariable o d ty of
-    MentionsDropped => MentionsDropped
-    Strengthens ty' sty => case dropVariable o d a of
-      MentionsDropped => MentionsDropped
-      Strengthens a' sa => Strengthens (TDelay fc r ty' a') (MDelay sty sa)
-  dropVariable o d (TForce fc r t) = case dropVariable o d t of
-    MentionsDropped => MentionsDropped
-    Strengthens t' st => Strengthens (TForce fc r t') (MForce st)
-  dropVariable o d (PrimVal fc c) = Strengthens (PrimVal fc c) MPrim
-  dropVariable o d (Erased fc Placeholder) = Strengthens (Erased fc Placeholder) MPlaceholder
-  dropVariable o d (Erased fc Impossible) = Strengthens (Erased fc Impossible) MImpossible
-  dropVariable o d (Erased fc (Dotted t)) = case dropVariable o d t of
-    MentionsDropped => MentionsDropped
-    Strengthens t' st => Strengthens (Erased fc (Dotted t')) (MDotted st)
-  dropVariable o d (TType fc u) = Strengthens (TType fc u) MType
-
-  dropVariableAll : (o : Nat) -> (0 _ : DropsAt o vs ws) -> (ts : List (Term vs)) ->
-                    Strengthening (List (Term ws)) (AllMapped DropsOne None (the (SubstEnv [] []) []) o ts)
-  dropVariableAll o d [] = Strengthens [] MNone
-  dropVariableAll o d (t :: ts) = case dropVariable o d t of
-    MentionsDropped => MentionsDropped
-    Strengthens u s => case dropVariableAll o d ts of
-      MentionsDropped => MentionsDropped
-      Strengthens us ss => Strengthens (u :: us) (MEach s ss)
-
-  dropVariableBinder : (o : Nat) -> (0 _ : DropsAt o vs ws) -> (b : Binder (Term vs)) ->
-                       Strengthening (Binder (Term ws)) (BinderMapped DropsOne None (the (SubstEnv [] []) []) o b)
-  dropVariableBinder o d (Lam fc c p ty) = case dropVariablePi o d p of
-    MentionsDropped => MentionsDropped
-    Strengthens p' sp => case dropVariable o d ty of
-      MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (Lam fc c p' ty') (MLam sp sty)
-  dropVariableBinder o d (Let fc c v ty) = case dropVariable o d v of
-    MentionsDropped => MentionsDropped
-    Strengthens v' sv => case dropVariable o d ty of
-      MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (Let fc c v' ty') (MLet sv sty)
-  dropVariableBinder o d (Pi fc c p ty) = case dropVariablePi o d p of
-    MentionsDropped => MentionsDropped
-    Strengthens p' sp => case dropVariable o d ty of
-      MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (Pi fc c p' ty') (MPi sp sty)
-  dropVariableBinder o d (PVar fc c p ty) = case dropVariablePi o d p of
-    MentionsDropped => MentionsDropped
-    Strengthens p' sp => case dropVariable o d ty of
-      MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (PVar fc c p' ty') (MPVar sp sty)
-  dropVariableBinder o d (PLet fc c v ty) = case dropVariable o d v of
-    MentionsDropped => MentionsDropped
-    Strengthens v' sv => case dropVariable o d ty of
-      MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (PLet fc c v' ty') (MPLet sv sty)
-  dropVariableBinder o d (PVTy fc c ty) = case dropVariable o d ty of
-    MentionsDropped => MentionsDropped
-    Strengthens ty' sty => Strengthens (PVTy fc c ty') (MPVTy sty)
-
-  dropVariablePi : (o : Nat) -> (0 _ : DropsAt o vs ws) -> (p : PiInfo (Term vs)) ->
-                   Strengthening (PiInfo (Term ws)) (PiMapped DropsOne None (the (SubstEnv [] []) []) o p)
-  dropVariablePi o d Implicit = Strengthens Implicit MImplicit
-  dropVariablePi o d Explicit = Strengthens Explicit MExplicit
-  dropVariablePi o d AutoImplicit = Strengthens AutoImplicit MAutoImplicit
-  dropVariablePi o d (DefImplicit t) = case dropVariable o d t of
-    MentionsDropped => MentionsDropped
-    Strengthens u s => Strengthens (DefImplicit u) (MDefault s)
-
 ------------------------------------------------------------------------------
 -- Eta contraction
 ------------------------------------------------------------------------------
@@ -333,14 +229,6 @@ mutual
   binderContractionHeight (EtaPVar ty) = maxMono reflexive (contractionHeight ty)
   binderContractionHeight (EtaPLet v ty) = maxMono (contractionHeight v) (contractionHeight ty)
   binderContractionHeight (EtaPVTy ty) = contractionHeight ty
-
-||| A value contracted by a relation, with the contraction that gives it:
-||| what the frontend's contraction returns, the evidence at quantity 0.
-public export
-record Contraction {0 a : Type} (rel : a -> a -> Type) (x : a) where
-  constructor MkContraction
-  etaForm : a
-  0 etaSteps : rel x etaForm
 
 ------------------------------------------------------------------------------
 -- Readings

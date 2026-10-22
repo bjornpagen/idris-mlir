@@ -8,7 +8,8 @@
 |||   reads: the head over what each argument, the instance's values put
 |||   in, reaches as a normal form, contracted and read (`atConstructor`,
 |||   `familyRead`, `boundRead`), or a closed run's leaf;
-||| - a match on a marker binding each field to a marker of its own: the
+||| - a match on a marker binding each field to a marker of its own, the
+|||   part at the field's path, one match deeper (`pathStep`): the
 |||   instance's value for that marker is the field, which the markers then
 |||   hold too (`fieldMarkerHolds`), since any reading of the field is a
 |||   child of a reading of the constructor applied (`readsAny`);
@@ -18,11 +19,18 @@
 |||   `Proof.Bound.AtComputed`;
 ||| - the graph's rewrites of a site's template: what an instance writes
 |||   under the reading, it writes under the template the graph keeps
-|||   (`asGivenWrites`, `closedWrites`);
+|||   (`asGivenWrites`, `closedWrites`), from what the graph's builder
+|||   establishes of the landings (`LandingsWrite`), a family read as
+|||   computing being reached nowhere an instance writes in a feasible
+|||   graph (`computingUnreached`);
 ||| - two readings of one term as an instance's are one reading but for an
 |||   argument's number and a run read as its leaf (`readsAlike`), so a
 |||   request's argument, which a site wrote, holds the requested
-|||   instance's markers (`requestHolds`).
+|||   instance's markers (`requestHolds`);
+||| - contraction is maximal: an eta-normal term contracts to itself
+|||   (`etaNormalFixed`);
+||| - the reading lemma's induction, stated per node (`NodeCovers`), at a
+|||   marker (`markerWrites`).
 |||
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Covers
@@ -39,6 +47,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Proof.Bound
 import IdrisMLIR.Proof.Derivation
+import IdrisMLIR.Proof.Describes
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Inversion
 import IdrisMLIR.Proof.Primitives
@@ -55,6 +64,10 @@ import Data.Nat
 import Data.Vect
 
 %default total
+
+-- A reading's evidence is its `describes`; the graph's proof that it
+-- describes its model is never read here.
+%hide IdrisMLIR.Proof.Describes.describes
 
 0 justSame : Just x = Just y -> x = y
 justSame Refl = Refl
@@ -335,26 +348,18 @@ replaceRead {u} ((::) {ts = rest} _ xs) Here x = (u :: rest ** (x :: xs, Here))
 replaceRead ((::) {t = r} y xs) (There el) x = case replaceRead xs el x of
   (rs' ** (xs', el')) => (r :: rs' ** (y :: xs', There el'))
 
-||| One marker per field: where a match on the marker for x, which reads as
-||| `Var i d`, meets the data constructor the instance's value for x is
-||| applied (`Spine`), each field is put in for a marker of its own, read as
-||| `Var i (S d)`: here y, for the field f. Where the markers held the
-||| instance's values, they hold with that field's added. Any reading of the
-||| field is a child of a reading of the constructor applied (`SData`, the
-||| other fields read as any term is: `readsAnyAll`), which the markers hold
-||| as another reading of a part of a value of V, so the field is another
-||| reading of a part of that value one level deeper
-||| (`Proof.Bound.fieldHolds`). The markers' names, fresh and apart, are the
-||| walk's.
-export
-0 fieldMarkerHolds : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} ->
-                     {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
-                     MarkersHold m s ctx stands bs vs -> (x : Var ns) ->
-                     walkMarker stands (replacedAt bs x) = Just (Template.Var i d) ->
-                     Spine (Var.index vs x) (Ref fc (DataCon tag arity) cn) fields -> Elem f fields ->
-                     walkMarker stands y = Just (Template.Var i (S d)) ->
-                     MarkersHold m s ctx stands (Add new y bs) (f :: vs)
-fieldMarkerHolds held x marked spine el named (MkVar First) i' d' named' u read =
+-- Where the markers held the instance's values, they hold with a value one
+-- match deeper added, put in for a marker read so: the value is a field of
+-- the data constructor the instance's value for x is applied, and any
+-- reading of the field is a child of a reading of the constructor applied.
+0 deeperMarkerHolds : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} ->
+                      {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
+                      MarkersHold m s ctx stands bs vs -> (x : Var ns) ->
+                      walkMarker stands (replacedAt bs x) = Just (Template.Var i d) ->
+                      Spine (Var.index vs x) (Ref fc (DataCon tag arity) cn) fields -> Elem f fields ->
+                      walkMarker stands y = Just (Template.Var i (S d)) ->
+                      MarkersHold m s ctx stands (Add new y bs) (f :: vs)
+deeperMarkerHolds held x marked spine el named (MkVar First) i' d' named' u read =
   case justSame (trans (sym named') named) of
     Refl => case readsAnyAll ctx [] fields of
       (rs ** xs) => case replaceRead xs el read of
@@ -365,7 +370,40 @@ fieldMarkerHolds held x marked spine el named (MkVar First) i' d' named' u read 
           in case held x i d marked _ whole of
                (p ** v ** u' ** (wrote, inV, sub, again)) => case fieldHolds sub again at of
                  (u'' ** (sub', again')) => (p ** v ** u'' ** (wrote, inV, sub', again'))
-fieldMarkerHolds held x marked spine el named (MkVar (Later w)) i' d' named' u read = held (MkVar w) i' d' named' u read
+deeperMarkerHolds held x marked spine el named (MkVar (Later w)) i' d' named' u read = held (MkVar w) i' d' named' u read
+
+||| A path one field longer is one match deeper: the marker of field k of a
+||| match on a part, `markerAt i (path ++ [k])`, reads one level below the
+||| part's own, `Var i (length path)`.
+export
+0 pathStep : (path : List Nat) -> (k : Nat) -> length (path ++ [k]) = S (length path)
+pathStep [] k = Refl
+pathStep (_ :: path) k = cong S (pathStep path k)
+
+||| One marker per field: where a match on the marker for x, the part of
+||| the writer's parameter i at `path`, which reads as `Var i (length
+||| path)`, meets the data constructor the instance's value for x is
+||| applied (`Spine`), each field is put in for a marker of its own, the
+||| part at its field below, `path ++ [k]`, which reads one match deeper
+||| (`pathStep`): here y, for the field f. Where the markers held the
+||| instance's values, they hold with that field's added. Any reading of
+||| the field is a child of a reading of the constructor applied (`SData`,
+||| the other fields read as any term is: `readsAnyAll`), which the markers
+||| hold as another reading of a part of a value of V, so the field is
+||| another reading of a part of that value one level deeper
+||| (`Proof.Bound.fieldHolds`). The markers' names, fresh and apart, are the
+||| walk's.
+export
+0 fieldMarkerHolds : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} ->
+                     {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
+                     MarkersHold m s ctx stands bs vs -> (x : Var ns) ->
+                     walkMarker stands (replacedAt bs x) = Just (Template.Var i (length path)) ->
+                     Spine (Var.index vs x) (Ref fc (DataCon tag arity) cn) fields -> Elem f fields ->
+                     walkMarker stands y = Just (Template.Var i (length (path ++ [k]))) ->
+                     MarkersHold m s ctx stands (Add new y bs) (f :: vs)
+fieldMarkerHolds {path} {k} held x marked spine el named =
+  deeperMarkerHolds held x marked spine el
+    (replace {p = \l => walkMarker stands y = Just (Template.Var i l)} (pathStep path k) named)
 
 ------------------------------------------------------------------------------
 -- A builtin's constant
@@ -455,30 +493,183 @@ asGivenWrites (Just k) (Parameter _ _) wr = wr
 asGivenWrites (Just k) Unrooted wr = wr
 asGivenWrites Nothing _ wr = wr
 
-||| A landing where the value computes, which `landedAs` reads as computing.
-public export
-data LandsComputing : Landing -> Type where
-  ComputedLands : LandsComputing Computed
-  EvaluableLands : LandsComputing (Evaluable es)
+------------------------------------------------------------------------------
+-- Where a part of a site's template is reached
+------------------------------------------------------------------------------
 
-||| What the graph's landings (`withClosedFamilies`) give the model at a
-||| site: where only closed values no higher than k land at a family's
-||| position, each position the site's writer reads the family at is one
-||| that only such values reach (`Proof.Bound.Lands`), and the family's
-||| value gives no member there; where its application computes, no
-||| position of the writer's reads it and it gives no member; and the
-||| implementations a dictionary of the site's can be are the same whether
-||| its families are read landed or not.
+||| Where a part sits in a template, as what an instance writes reaches it:
+||| itself, a head's child, a recursion's argument, a choice's leaf, an
+||| applied or computing family's argument. A choice's scrutinee and a
+||| field's record are no such place: nothing an instance writes is read
+||| off them, and they weigh no parameter (`occurrences`).
+public export
+data Reaches : Template -> Template -> Type where
+  ReachesItself : Reaches t t
+  ReachesChild : Elem c ts -> Reaches c u -> Reaches (Head a ts) u
+  ReachesRecursion : Elem c ts -> Reaches c u -> Reaches (Opaque a ts) u
+  ReachesLeaf : Elem c ls -> Reaches c u -> Reaches (Choice x ls) u
+  ReachesApplied : Elem c ts -> Reaches c u -> Reaches (Applied i d ts) u
+  ReachesComputing : Elem c ts -> Reaches c u -> Reaches (Computing i d ts) u
+
+||| A part of a part reached is reached.
+export
+0 reachedBelow : Reaches t u -> Reaches u v -> Reaches t v
+reachedBelow ReachesItself r = r
+reachedBelow (ReachesChild el x) r = ReachesChild el (reachedBelow x r)
+reachedBelow (ReachesRecursion el x) r = ReachesRecursion el (reachedBelow x r)
+reachedBelow (ReachesLeaf el x) r = ReachesLeaf el (reachedBelow x r)
+reachedBelow (ReachesApplied el x) r = ReachesApplied el (reachedBelow x r)
+reachedBelow (ReachesComputing el x) r = ReachesComputing el (reachedBelow x r)
+
+||| An argument of a family's closed reading, below its k heads.
+export
+0 raisedChild : (k : Nat) -> Elem x ts -> Reaches (raise k (Head Nothing ts)) x
+raisedChild Z el = ReachesChild el ReachesItself
+raisedChild (S k) el = ReachesChild Here (raisedChild k el)
+
+||| Each argument of a family applied at a node, however its landing reads
+||| it (`landedAs`), is reached from it: below k heads, as an applied
+||| family's or a computing family's argument.
+export
+0 landedArgument : (l : Landing) -> (b : Template.Beta) -> Elem x ts -> Reaches (landedAs l b i d ts) x
+landedArgument Computed b el = ReachesComputing el ReachesItself
+landedArgument (Evaluable _) b el = ReachesComputing el ReachesItself
+landedArgument (Closed _) Template.Computes el = ReachesComputing el ReachesItself
+landedArgument Open Template.Computes el = ReachesComputing el ReachesItself
+landedArgument (Closed k) Template.Inert el = raisedChild k el
+landedArgument Open Template.Inert el = ReachesApplied el ReachesItself
+
+-- Lists' own facts about membership in an append.
+0 inFront : Elem x xs -> Elem x (xs ++ ys)
+inFront Here = Here
+inFront (There el) = There (inFront el)
+
+0 behind : (xs : List a) -> Elem x ys -> Elem x (xs ++ ys)
+behind [] el = el
+behind (_ :: xs) el = There (behind xs el)
+
+-- An occurrence in one of some templates is one in all of them.
+0 occursAmong : {e : Nat} -> {cs : List Template} -> Elem c cs -> Elem x (occurrences e c) -> Elem x (occurrencesIn e cs)
+occursAmong {cs = _ :: _} Here el = inFront el
+occursAmong {cs = y :: _} (There k) el = behind (occurrences e y) (occursAmong k el)
+
+0 stuckAmong : {cs : List Template} -> Elem c cs -> Elem x (stuck c) -> Elem x (stuckIn cs)
+stuckAmong {cs = _ :: _} Here el = inFront el
+stuckAmong {cs = y :: _} (There k) el = behind (stuck y) (stuckAmong k el)
+
+mutual
+  ||| A computing family reached in a template is weighed Stuck there,
+  ||| however deep: its own occurrence, `(i, Stuck)`, is listed wherever
+  ||| the template's occurrences are, and under a recursion or an applied
+  ||| family's argument every marker is.
+  export
+  0 reachedOccurs : {e : Nat} -> Reaches t (Computing i d ts) -> Elem (i, Stuck) (occurrences e t)
+  reachedOccurs ReachesItself = Here
+  reachedOccurs (ReachesChild el r) = occursAmong el (reachedOccurs r)
+  reachedOccurs (ReachesRecursion el r) = stuckAmong el (reachedStuck r)
+  reachedOccurs (ReachesLeaf el r) = occursAmong el (reachedOccurs r)
+  reachedOccurs (ReachesApplied el r) = There (stuckAmong el (reachedStuck r))
+  reachedOccurs (ReachesComputing el r) = There (stuckAmong el (reachedStuck r))
+
+  0 reachedStuck : Reaches t (Computing i d ts) -> Elem (i, Stuck) (stuck t)
+  reachedStuck ReachesItself = Here
+  reachedStuck (ReachesChild el r) = stuckAmong el (reachedStuck r)
+  reachedStuck (ReachesRecursion el r) = stuckAmong el (reachedStuck r)
+  reachedStuck (ReachesLeaf el r) = stuckAmong el (reachedStuck r)
+  reachedStuck (ReachesApplied el r) = There (stuckAmong el (reachedStuck r))
+  reachedStuck (ReachesComputing el r) = There (stuckAmong el (reachedStuck r))
+
+------------------------------------------------------------------------------
+-- The landings
+------------------------------------------------------------------------------
+
+||| What the graph's builder establishes of a site of its model, and of
+||| the landings its template is read at (`withClosedFamilies`), for the
+||| rewrite to keep what an instance writes:
+||| - the graph is feasible (`feasible`), and holds the site's own arcs
+|||   (`ownDrawn`, which `Proof.Describes.ownDrawnOf` gives every site of a
+|||   model drawn from sites);
+||| - the writer reads every parameter the template weighs with an arc at a
+|||   position (`writersListed`): the site's writers are its template's
+|||   weighed parameters, each zipped with the position met for it;
+||| - only closed values no higher than k land at each position the writer
+|||   reads a family landing closed at (`closedLands`): what lands at a
+|||   position is joined from every writing there, each argument's closed
+|||   landing an unmarked template no higher than k
+|||   (`closedSelfBounded`), and a position some writing no argument made
+|||   lands at is open;
+||| - an applied parameter whose reading roots an implementation lands
+|||   other than closed, and the roots it is read with are read off its
+|||   head, whatever its arguments (`appliedRoots`): `Heads.roots` reads an
+|||   applied marker by its index alone;
+||| - the roots a field's record gives are kept by the rewrite
+|||   (`recordRoots`).
+||| A family read as computing is then never reached where an instance
+||| writes (`computingUnreached`): it weighs its parameter Stuck, the arc
+||| from the position the writer reads it at is Unmeasured, and no feasible
+||| potential meets one.
 public export
 record LandingsWrite {g : Graph} (m : Model g) (s : Bound.Site g.size) (c : Nat -> Landing) where
   constructor MkLandingsWrite
+  0 potential : Vect g.size Nat
+  0 feasible : Feasible g potential
+  0 ownDrawn : (a : Arc g.size) -> Elem a (ownArcs s) -> Elem a g.arcs
+  0 writersListed : (i : Nat) -> (w : Weight) -> Elem (i, w) (weights s.template) -> (lab : Label) -> labelOf w = Just lab ->
+                    (p : Fin g.size ** Elem (i, p) s.writers)
   0 closedLands : (i, k : Nat) -> c i = Closed k -> (p : Fin g.size) -> Elem (i, p) s.writers -> Lands g m p k
-  0 closedUnrooted : (i, k, d : Nat) -> (ts : List Template) -> c i = Closed k -> (j : Address) ->
-                     Not (Elem j (s.roots (Applied i d ts)))
-  0 computingUnread : (i, d : Nat) -> (ts : List Template) ->
-                      Either (LandsComputing (c i)) (argumentsBeta c (allWithClosed c ts) = Template.Computes) ->
-                      ((p : Fin g.size) -> Not (Elem (i, p) s.writers), (j : Address) -> Not (Elem j (s.roots (Applied i d ts))))
-  0 rootsKept : (t : Template) -> (j : Address) -> Elem j (s.roots t) -> Elem j (s.roots (withClosedFamilies c t))
+  0 appliedRoots : (i, d : Nat) -> (ts : List Template) -> (j : Address) -> Elem j (s.roots (Applied i d ts)) ->
+                   ((k : Nat) -> Not (c i = Closed k), (ts' : List Template) -> Elem j (s.roots (Applied i d ts')))
+  0 recordRoots : (r : Template) -> (j : Address) -> Elem j (s.roots r) -> Elem j (s.roots (withClosedFamilies c r))
+
+||| A family read as computing is reached nowhere an instance writes in a
+||| site's template: reached, it weighs its parameter Stuck
+||| (`reachedOccurs`), so its writer reads it at a position
+||| (`writersListed`) whose arc is Unmeasured, which the feasible graph
+||| holding it does not admit (`Proof.Describes.stuckUnread`).
+export
+0 computingUnreached : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {c : Nat -> Landing} ->
+                       LandingsWrite m s c -> Reaches s.template (Computing i d ts) -> Void
+computingUnreached ls r = case weightsCover s.template (reachedOccurs {e = 0} r) of
+  (v ** (inW, dom)) => case overStuck dom of
+    Refl => case ls.writersListed i Stuck inW Unmeasured Refl of
+      (p ** wp) => stuckUnread ls.feasible s ls.ownDrawn inW wp
+
+-- Two booleans whose conjunction holds.
+0 bothHold : (a, b : Bool) -> (a && b) = True -> (a = True, b = True)
+bothHold True True _ = (Refl, Refl)
+bothHold True False eq = absurd eq
+bothHold False _ eq = absurd eq
+
+mutual
+  ||| What an argument's closed landing gives `Lands`: a self-bounded
+  ||| template (`landingOf`'s `Closed`) read at a node is unmarked and as
+  ||| high as it was. Its leaves hold no applied family; a choice's
+  ||| scrutinee may, which the rewrite reads, but neither unmarkedness nor
+  ||| height reads a scrutinee.
+  export
+  0 closedSelfBounded : (c : Nat -> Landing) -> (t : Template) -> selfBounded t = True ->
+                        (Unmarked (withClosedFamilies c t), height (withClosedFamilies c t) = height t)
+  closedSelfBounded c (Head a ts) sb = case allClosedSelfBounded c ts sb of
+    (um, high) => (UnmarkedHead um, cong S high)
+  closedSelfBounded c (Opaque a ts) sb = case allClosedSelfBounded c ts sb of
+    (um, high) => (UnmarkedOpaque um, cong S high)
+  closedSelfBounded c (Choice x ts) sb = case allClosedSelfBounded c ts sb of
+    (um, high) => (UnmarkedChoice um, high)
+  closedSelfBounded c (Leaf h) _ = (UnmarkedLeaf, Refl)
+  closedSelfBounded c (Token k) _ = (UnmarkedToken, Refl)
+  closedSelfBounded c (Formal j k) _ = (UnmarkedFormal, Refl)
+  closedSelfBounded c (Var _ _) sb = absurd sb
+  closedSelfBounded c (Applied _ _ _) sb = absurd sb
+  closedSelfBounded c (Computing _ _ _) sb = absurd sb
+  closedSelfBounded c (Field _ _) sb = absurd sb
+  closedSelfBounded c (Member _) sb = absurd sb
+
+  0 allClosedSelfBounded : (c : Nat -> Landing) -> (ts : List Template) -> allSelfBounded ts = True ->
+                           (AllUnmarked (allWithClosed c ts), tallest (allWithClosed c ts) = tallest ts)
+  allClosedSelfBounded c [] _ = ([], Refl)
+  allClosedSelfBounded c (t :: ts) sb = case bothHold (selfBounded t) (allSelfBounded ts) sb of
+    (here, rest) => case (closedSelfBounded c t here, allClosedSelfBounded c ts rest) of
+      ((um, high), (ums, highs)) => (um :: ums, cong2 maximum high highs)
 
 ||| What writes a family of the writer's applied, its arguments' writes
 ||| already carried to the rewritten arguments.
@@ -489,41 +680,26 @@ data AppliedWrites : {g : Graph} -> Model g -> Bound.Site g.size -> (i, d : Nat)
   ByPart : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f w -> AppliedWrites m s i d ts ts' w
   ByMember : Elem j (s.roots (Applied i d ts)) -> Arguments m j 0 as -> AppliedWrites m s i d ts ts' (Head (Just j) as)
 
--- Where no position of the writer's reads a family and its value gives no
--- member, nothing writes it applied.
-0 unwritten : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} ->
-              ((p : Fin g.size) -> Not (Elem (i, p) s.writers), (j : Address) -> Not (Elem j (s.roots (Applied i d ts)))) ->
-              AppliedWrites m s i d ts ts' w -> Void
-unwritten (nr, _) (ByBeta {p} wrote _ _ _ _ _) = nr p wrote
-unwritten (nr, _) (ByPart {p} wrote _ _ _) = nr p wrote
-unwritten (_, nm) (ByMember {j} rooted _) = nm j rooted
-
 -- A family applied, rewritten: what wrote it writes it as the landing
--- reads it.
+-- reads it, where the rewritten node is reached in the site's template.
+-- Read as computing, it is reached nowhere (`computingUnreached`).
 0 appliedLanded : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {c : Nat -> Landing} -> LandingsWrite m s c ->
-                  (l : Landing) -> c i = l -> (b : Template.Beta) -> argumentsBeta c (allWithClosed c ts) = b ->
+                  (l : Landing) -> c i = l -> (b : Template.Beta) -> Reaches s.template (landedAs l b i d (allWithClosed c ts)) ->
                   AppliedWrites m s i d ts (allWithClosed c ts) w -> Writes m s (landedAs l b i d (allWithClosed c ts)) w
-appliedLanded ls Open isOpen Template.Inert inert (ByBeta wrote inV sub within aw inst) = Bound.Beta wrote inV sub within aw inst
-appliedLanded ls Open isOpen Template.Inert inert (ByPart wrote inV sub within) = GivenPart wrote inV sub within
-appliedLanded {i} {d} {ts} {c} ls Open isOpen Template.Inert inert (ByMember {j} rooted args) =
-  MemberOf (replace {p = \b => Elem j (s.roots (landedAs Open b i d (allWithClosed c ts)))} inert
-              (replace {p = \l => Elem j (s.roots (landedAs l (argumentsBeta c (allWithClosed c ts)) i d (allWithClosed c ts)))} isOpen
-                 (ls.rootsKept (Applied i d ts) j rooted)))
-           args
-appliedLanded {i} ls (Closed k) isClosed Template.Inert inert (ByBeta {p} wrote inV sub within aw inst) =
+appliedLanded ls Open isOpen Template.Inert r (ByBeta wrote inV sub within aw inst) = Bound.Beta wrote inV sub within aw inst
+appliedLanded ls Open isOpen Template.Inert r (ByPart wrote inV sub within) = GivenPart wrote inV sub within
+appliedLanded {i} {d} {ts} {c} ls Open isOpen Template.Inert r (ByMember {j} rooted args) =
+  MemberOf (snd (ls.appliedRoots i d ts j rooted) (allWithClosed c ts)) args
+appliedLanded {i} ls (Closed k) isClosed Template.Inert r (ByBeta {p} wrote inV sub within aw inst) =
   Landed (ls.closedLands i k isClosed p wrote) inV sub within aw inst
-appliedLanded {i} ls (Closed k) isClosed Template.Inert inert (ByPart {p} wrote inV sub within) =
+appliedLanded {i} ls (Closed k) isClosed Template.Inert r (ByPart {p} wrote inV sub within) =
   LandedMember (ls.closedLands i k isClosed p wrote) inV sub within
-appliedLanded {i} {d} {ts} ls (Closed k) isClosed Template.Inert inert (ByMember {j} rooted args) =
-  void (ls.closedUnrooted i k d ts isClosed j rooted)
-appliedLanded {i} {d} {ts} ls Computed isComputed b _ wr =
-  void (unwritten (ls.computingUnread i d ts (Left (replace {p = LandsComputing} (sym isComputed) ComputedLands))) wr)
-appliedLanded {i} {d} {ts} ls (Evaluable es) isEvaluable b _ wr =
-  void (unwritten (ls.computingUnread i d ts (Left (replace {p = LandsComputing} (sym isEvaluable) EvaluableLands))) wr)
-appliedLanded {i} {d} {ts} ls (Closed k) _ Template.Computes computes wr =
-  void (unwritten (ls.computingUnread i d ts (Right computes)) wr)
-appliedLanded {i} {d} {ts} ls Open _ Template.Computes computes wr =
-  void (unwritten (ls.computingUnread i d ts (Right computes)) wr)
+appliedLanded {i} {d} {ts} ls (Closed k) isClosed Template.Inert r (ByMember {j} rooted args) =
+  void (fst (ls.appliedRoots i d ts j rooted) k isClosed)
+appliedLanded ls Computed _ b r wr = void (computingUnreached ls r)
+appliedLanded ls (Evaluable es) _ b r wr = void (computingUnreached ls r)
+appliedLanded ls (Closed k) _ Template.Computes r wr = void (computingUnreached ls r)
+appliedLanded ls Open _ Template.Computes r wr = void (computingUnreached ls r)
 
 -- A leaf of a choice, rewritten, is a leaf of the choice rewritten.
 0 closedElem : {c : Nat -> Landing} -> Elem x ls -> Elem (withClosedFamilies c x) (allWithClosed c ls)
@@ -539,41 +715,51 @@ closedRaise (S k) t = cong (\u => Head Nothing [u]) (closedRaise k t)
 mutual
   ||| The graph reads a site's template with each family of the writer's
   ||| applied as its landing says (`withClosedFamilies`): what an instance
-  ||| writes under the reading, it writes under the template the graph
-  ||| keeps, where the landings are the model's (`LandingsWrite`).
+  ||| writes under the reading at a part of it, it writes under that part
+  ||| rewritten, wherever the rewritten part is reached in the template the
+  ||| site holds, where the builder establishes the landings
+  ||| (`LandingsWrite`).
   export
   0 closedWrites : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {c : Nat -> Landing} -> LandingsWrite m s c ->
-                   Writes m s t w -> Writes m s (withClosedFamilies c t) w
-  closedWrites ls (AtVar wrote inV sub again) = AtVar wrote inV sub again
-  closedWrites ls (AtHead aw) = AtHead (allClosedWrites ls aw)
-  closedWrites ls (AtOpaque aw) = AtOpaque (allClosedWrites ls aw)
-  closedWrites ls AtLeaf = AtLeaf
-  closedWrites ls (AtComputed aw form measured) = AtComputed (allClosedWrites ls aw) form measured
-  closedWrites ls (AtRun wr run) = AtRun (closedWrites ls wr) run
-  closedWrites ls (AtCut wr high) = AtCut (closedWrites ls wr) high
-  closedWrites ls AtToken = AtToken
-  closedWrites ls AtFormal = AtFormal
-  closedWrites {c} ls (Bound.Chosen el wr) = Bound.Chosen (closedElem {c} el) (closedWrites ls wr)
-  closedWrites {c} ls (AtContracted el wr drops) = AtContracted (closedElem {c} el) (closedWrites ls wr) drops
-  closedWrites {c} ls (Bound.Beta {i} {d} {ts} wrote inV sub within aw inst) =
-    appliedLanded {i} {d} {ts} ls (c i) Refl (argumentsBeta c (allWithClosed c ts)) Refl
-                  (ByBeta wrote inV sub within (allClosedWrites ls aw) inst)
-  closedWrites {c} ls (GivenPart {i} {d} {ts} wrote inV sub within) =
-    appliedLanded {i} {d} {ts} ls (c i) Refl (argumentsBeta c (allWithClosed c ts)) Refl (ByPart wrote inV sub within)
-  closedWrites {c} ls (MemberOf {i} {d} {ts} rooted args) =
-    appliedLanded {i} {d} {ts} ls (c i) Refl (argumentsBeta c (allWithClosed c ts)) Refl (ByMember rooted args)
-  closedWrites {c} ls (Landed {k} {ts} lands inV sub within aw inst) =
-    rewrite closedRaise {c} k (Head Nothing ts) in Landed lands inV sub within (allClosedWrites ls aw) inst
-  closedWrites {c} ls (LandedMember {k} {ts} lands inV sub within) =
+                   Reaches s.template (withClosedFamilies c t) -> Writes m s t w -> Writes m s (withClosedFamilies c t) w
+  closedWrites ls r (AtVar wrote inV sub again) = AtVar wrote inV sub again
+  closedWrites ls r (AtHead aw) = AtHead (allClosedWrites ls (\el => reachedBelow r (ReachesChild el ReachesItself)) aw)
+  closedWrites ls r (AtOpaque aw) = AtOpaque (allClosedWrites ls (\el => reachedBelow r (ReachesRecursion el ReachesItself)) aw)
+  closedWrites ls r AtLeaf = AtLeaf
+  closedWrites ls r (AtComputed aw form measured) =
+    AtComputed (allClosedWrites ls (\el => reachedBelow r (ReachesLeaf Here (ReachesChild el ReachesItself))) aw) form measured
+  closedWrites ls r (AtRun wr run) = AtRun (closedWrites ls (reachedBelow r (ReachesChild Here ReachesItself)) wr) run
+  closedWrites ls r (AtCut wr high) = AtCut (closedWrites ls r wr) high
+  closedWrites ls r AtToken = AtToken
+  closedWrites ls r AtFormal = AtFormal
+  closedWrites {c} ls r (Bound.Chosen el wr) =
+    Bound.Chosen (closedElem {c} el) (closedWrites ls (reachedBelow r (ReachesLeaf (closedElem {c} el) ReachesItself)) wr)
+  closedWrites {c} ls r (AtContracted el wr drops) =
+    AtContracted (closedElem {c} el) (closedWrites ls (reachedBelow r (ReachesChild (closedElem {c} el) ReachesItself)) wr) drops
+  closedWrites {c} ls r (Bound.Beta {i} {d} {ts} wrote inV sub within aw inst) =
+    appliedLanded {i} {d} {ts} ls (c i) Refl (argumentsBeta c (allWithClosed c ts)) r
+                  (ByBeta wrote inV sub within
+                     (allClosedWrites ls (\el => reachedBelow r (landedArgument (c i) (argumentsBeta c (allWithClosed c ts)) el)) aw)
+                     inst)
+  closedWrites {c} ls r (GivenPart {i} {d} {ts} wrote inV sub within) =
+    appliedLanded {i} {d} {ts} ls (c i) Refl (argumentsBeta c (allWithClosed c ts)) r (ByPart wrote inV sub within)
+  closedWrites {c} ls r (MemberOf {i} {d} {ts} rooted args) =
+    appliedLanded {i} {d} {ts} ls (c i) Refl (argumentsBeta c (allWithClosed c ts)) r (ByMember rooted args)
+  closedWrites {s} {c} ls r (Landed {k} {ts} lands inV sub within aw inst) =
+    let r' = replace {p = Reaches s.template} (closedRaise {c} k (Head Nothing ts)) r in
+    rewrite closedRaise {c} k (Head Nothing ts) in
+      Landed lands inV sub within (allClosedWrites ls (\el => reachedBelow r' (raisedChild k el)) aw) inst
+  closedWrites {c} ls r (LandedMember {k} {ts} lands inV sub within) =
     rewrite closedRaise {c} k (Head Nothing ts) in LandedMember lands inV sub within
-  closedWrites ls (AtField {r} {j} rooted at inV) = AtField (ls.rootsKept r j rooted) at inV
-  closedWrites ls (AtMember at inV renumbered) = AtMember at inV renumbered
-  closedWrites ls (AtHeldHole at inV high within) = AtHeldHole at inV high within
+  closedWrites ls r (AtField {r = rd} {j} rooted at inV) = AtField (ls.recordRoots rd j rooted) at inV
+  closedWrites ls r (AtMember at inV renumbered) = AtMember at inV renumbered
+  closedWrites ls r (AtHeldHole at inV high within) = AtHeldHole at inV high within
 
   0 allClosedWrites : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {c : Nat -> Landing} -> LandingsWrite m s c ->
+                      ({x : Template} -> Elem x (allWithClosed c ts) -> Reaches s.template x) ->
                       AllWrite m s ts ws -> AllWrite m s (allWithClosed c ts) ws
-  allClosedWrites ls [] = []
-  allClosedWrites ls (wr :: aw) = closedWrites ls wr :: allClosedWrites ls aw
+  allClosedWrites ls under [] = []
+  allClosedWrites ls under (wr :: aw) = closedWrites ls (under Here) wr :: allClosedWrites ls (\el => under (There el)) aw
 
 ------------------------------------------------------------------------------
 -- Two readings of one term
@@ -727,6 +913,124 @@ mutual
   spinesAlike same (STypeCon at xs) (STypeCon at' ys) = rewrite trans (sym at) at' in RereadHead (allAlike same xs ys)
 
 ------------------------------------------------------------------------------
+-- Contraction is maximal
+------------------------------------------------------------------------------
+
+-- The variable a strengthening drops has no index after it.
+0 droppedNotKept : Dropped o o j -> Void
+droppedNotKept DropPast impossible
+droppedNotKept DropBefore impossible
+droppedNotKept (DropUnder d) = droppedNotKept d
+
+mutual
+  ||| A strengthening drops a variable only from a term that does not
+  ||| mention it: the dropped variable has no index in the scope without it
+  ||| (`Idris.Host.Dropped`), and every other node is rebuilt from its parts.
+  export
+  0 droppedUnmentioned : Strengthened o t u -> Mentions o t -> Void
+  droppedUnmentioned (MLocal moved) MentionsLocal = droppedNotKept moved
+  droppedUnmentioned (MMarker first _) _ = void (noneReplaces first)
+  droppedUnmentioned (MMeta _ ms) (MentionsMeta mentioned) = anyDroppedUnmentioned ms mentioned
+  droppedUnmentioned (MBind mb _) (MentionsBinder mentioned) = binderDroppedUnmentioned mb mentioned
+  droppedUnmentioned (MBind _ ms) (MentionsScope mentioned) = droppedUnmentioned ms mentioned
+  droppedUnmentioned (MApp mf _) (MentionsFunction mentioned) = droppedUnmentioned mf mentioned
+  droppedUnmentioned (MApp _ ma) (MentionsArgument mentioned) = droppedUnmentioned ma mentioned
+  droppedUnmentioned (MAs ma _) (MentionsAsName mentioned) = droppedUnmentioned ma mentioned
+  droppedUnmentioned (MAs _ mt) (MentionsAsPattern mentioned) = droppedUnmentioned mt mentioned
+  droppedUnmentioned (MDelayed mt) (MentionsDelayed mentioned) = droppedUnmentioned mt mentioned
+  droppedUnmentioned (MDelay mty _) (MentionsDelayType mentioned) = droppedUnmentioned mty mentioned
+  droppedUnmentioned (MDelay _ ma) (MentionsDelayValue mentioned) = droppedUnmentioned ma mentioned
+  droppedUnmentioned (MForce mt) (MentionsForce mentioned) = droppedUnmentioned mt mentioned
+  droppedUnmentioned (MDotted mt) (MentionsDotted mentioned) = droppedUnmentioned mt mentioned
+
+  0 anyDroppedUnmentioned : AllMapped DropsOne None (the (SubstEnv [] []) []) o ts us -> AnyMentions o ts -> Void
+  anyDroppedUnmentioned (MEach m _) (MentionedHere mentioned) = droppedUnmentioned m mentioned
+  anyDroppedUnmentioned (MEach _ ms) (MentionedLater mentioned) = anyDroppedUnmentioned ms mentioned
+
+  0 binderDroppedUnmentioned : BinderMapped DropsOne None (the (SubstEnv [] []) []) o b b' -> BinderMentions o b -> Void
+  binderDroppedUnmentioned (MLam mp _) (MentionsLamInfo mentioned) = piDroppedUnmentioned mp mentioned
+  binderDroppedUnmentioned (MLam _ mty) (MentionsLamType mentioned) = droppedUnmentioned mty mentioned
+  binderDroppedUnmentioned (MLet mv _) (MentionsLetValue mentioned) = droppedUnmentioned mv mentioned
+  binderDroppedUnmentioned (MLet _ mty) (MentionsLetType mentioned) = droppedUnmentioned mty mentioned
+  binderDroppedUnmentioned (MPi mp _) (MentionsPiInfo mentioned) = piDroppedUnmentioned mp mentioned
+  binderDroppedUnmentioned (MPi _ mty) (MentionsPiType mentioned) = droppedUnmentioned mty mentioned
+  binderDroppedUnmentioned (MPVar mp _) (MentionsPVarInfo mentioned) = piDroppedUnmentioned mp mentioned
+  binderDroppedUnmentioned (MPVar _ mty) (MentionsPVarType mentioned) = droppedUnmentioned mty mentioned
+  binderDroppedUnmentioned (MPLet mv _) (MentionsPLetValue mentioned) = droppedUnmentioned mv mentioned
+  binderDroppedUnmentioned (MPLet _ mty) (MentionsPLetType mentioned) = droppedUnmentioned mty mentioned
+  binderDroppedUnmentioned (MPVTy mty) (MentionsPVTyType mentioned) = droppedUnmentioned mty mentioned
+
+  0 piDroppedUnmentioned : PiMapped DropsOne None (the (SubstEnv [] []) []) o p p' -> PiMentions o p -> Void
+  piDroppedUnmentioned (MDefault m) (MentionsDefault mentioned) = droppedUnmentioned m mentioned
+
+-- A contraction of every redex keeps no call's redex.
+0 noCallKept : KeptCall EveryRedex g -> Void
+noCallKept (CallOf _ _) impossible
+
+-- A lambda left with its reason to stay is no redex a contraction of every
+-- redex contracts: its body applies nothing to its variable, or applies a
+-- term that mentions it, which no strengthening drops it from.
+0 leftNoRedex : LambdaLeft EveryRedex (App afc f (Local lfc l Z p)) -> Strengthened Z f g -> Void
+leftNoRedex (NoRedex none) _ = absurd none
+leftNoRedex (UsedByFunction mentioned) dropped = droppedUnmentioned dropped mentioned
+leftNoRedex (CallKept why) _ = noCallKept why
+
+-- No binder of its own node is a lambda.
+0 lambdaNoBinder : BinderNormal how (Lam fc c p ty) -> Void
+lambdaNoBinder (NormalLet _ _) impossible
+lambdaNoBinder (NormalPi _) impossible
+lambdaNoBinder (NormalPVar _) impossible
+lambdaNoBinder (NormalPLet _ _) impossible
+lambdaNoBinder (NormalPVTy _) impossible
+
+mutual
+  ||| Contraction is maximal: a term that holds no redex a contraction of
+  ||| every redex contracts (`Closed.EtaNormal`, which `Closed.contractedBy`
+  ||| gives what it returns) contracts to nothing but itself. An instance's
+  ||| form is contracted so, so reading it again reads it as it is.
+  export
+  0 etaNormalFixed : EtaNormal EveryRedex t -> EtaContracts t u -> u = t
+  etaNormalFixed _ EtaSame = Refl
+  etaNormalFixed (NormalLambda _ nsc left) (EtaRedex body dropped) = case etaNormalFixed nsc body of
+    Refl => void (leftNoRedex left dropped)
+  etaNormalFixed (NormalBinder nb _) (EtaRedex _ _) = void (lambdaNoBinder nb)
+  etaNormalFixed (NormalLambda nty nsc _) (EtaBind (EtaLam cty) csc) =
+    case etaNormalFixed nty cty of
+      Refl => case etaNormalFixed nsc csc of Refl => Refl
+  etaNormalFixed (NormalBinder nb nsc) (EtaBind cb csc) =
+    case binderNormalFixed nb cb of
+      Refl => case etaNormalFixed nsc csc of Refl => Refl
+  etaNormalFixed (NormalApp nf na) (EtaApp cf ca) =
+    case etaNormalFixed nf cf of
+      Refl => case etaNormalFixed na ca of Refl => Refl
+  etaNormalFixed (NormalAs na nt) (EtaAs ca ct) =
+    case etaNormalFixed na ca of
+      Refl => case etaNormalFixed nt ct of Refl => Refl
+  etaNormalFixed (NormalDelayed nt) (EtaDelayed ct) = case etaNormalFixed nt ct of
+    Refl => Refl
+  etaNormalFixed (NormalDelay nty na) (EtaDelay cty ca) =
+    case etaNormalFixed nty cty of
+      Refl => case etaNormalFixed na ca of Refl => Refl
+  etaNormalFixed (NormalForce nt) (EtaForce ct) = case etaNormalFixed nt ct of
+    Refl => Refl
+  etaNormalFixed (NormalDotted nt) (EtaDotted ct) = case etaNormalFixed nt ct of
+    Refl => Refl
+
+  0 binderNormalFixed : BinderNormal EveryRedex b -> BinderContracts b b' -> b' = b
+  binderNormalFixed (NormalLet nv nty) (EtaLet cv cty) =
+    case etaNormalFixed nv cv of
+      Refl => case etaNormalFixed nty cty of Refl => Refl
+  binderNormalFixed (NormalPi nty) (EtaPi cty) = case etaNormalFixed nty cty of
+    Refl => Refl
+  binderNormalFixed (NormalPVar nty) (EtaPVar cty) = case etaNormalFixed nty cty of
+    Refl => Refl
+  binderNormalFixed (NormalPLet nv nty) (EtaPLet cv cty) =
+    case etaNormalFixed nv cv of
+      Refl => case etaNormalFixed nty cty of Refl => Refl
+  binderNormalFixed (NormalPVTy nty) (EtaPVTy cty) = case etaNormalFixed nty cty of
+    Refl => Refl
+
+------------------------------------------------------------------------------
 -- The markers along a request chain
 ------------------------------------------------------------------------------
 
@@ -764,3 +1068,36 @@ requestHolds from x i d marked u read = case from x i d marked of
     (at ** inst.template ** inst.template **
       (wrote, siteGives written, Self,
        readsAlike NoKinds inst.describes (replace {p = \z => ReadAs (InstanceMode ctx) [] z u} same read)))
+
+------------------------------------------------------------------------------
+-- The reading lemma's induction
+------------------------------------------------------------------------------
+
+||| What the reading lemma's induction, on the site's reading of its form
+||| (`ReadAs`), proves of each node of the form: where the node, closed by
+||| its substitutes and the instance's values put in, reduces by an
+||| evaluation's steps to a term that takes no step further, which the
+||| instance contracts to an eta-normal term (`Closed.EtaNormal`, what
+||| `Closed.contractedBy` gives) and reads, the node's template writes that
+||| reading. `ReadingCovers` is this at the root, whose instance reading is
+||| the form an `InstanceReading` holds.
+public export
+0 NodeCovers : {g : Graph} -> (m : Model g) -> Bound.Site g.size -> Evaluation -> Frozen -> Bounds ns -> SubstEnv ns [] ->
+               ClosedTerm -> Template -> Type
+NodeCovers {ns} m s ev ctx bs vs u t =
+  {0 w, v : ClosedTerm} -> Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs u) w -> Irreducible ev ctx w ->
+  EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r -> Writes m s t r
+
+||| The induction at a marker of the writer's part, applied to nothing:
+||| where the instance's reading of the term it reaches is its reading of
+||| the value put in for the marker, that is what the markers hold
+||| (`MarkersHold`), a part as deep as the marker reads of a value of V at
+||| a position the writer reads the parameter at (`AtVar`).
+export
+0 markerWrites : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} ->
+                 {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
+                 MarkersHold m s ctx stands bs vs -> (x : Var ns) ->
+                 walkMarker stands (replacedAt bs x) = Just (Template.Var i d) ->
+                 ReadAs (InstanceMode ctx) [] (Var.index vs x) u -> Writes m s (Template.Var i d) u
+markerWrites held x marked read = case held x i d marked u read of
+  (p ** v ** u' ** (wrote, inV, sub, again)) => AtVar wrote inV sub again
