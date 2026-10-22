@@ -18,7 +18,7 @@
 #include "idr/Transforms/Effects.h"
 
 #include "idr/Analysis/Constants.h"
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Actions.h"

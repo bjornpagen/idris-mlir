@@ -8,13 +8,15 @@
 // here once.
 
 #include "idr/Analysis/Effects.h"
+#include "idr/IR/Effects/Classify.h"
+#include "idr/IR/Effects/Consumption.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 
 #include <variant>
@@ -60,18 +62,15 @@ void rows::Fold::declared(Operation *op, Runs runs) {
                                    : Amount::finite(putter.getPutBytes(layouts())),
           runs);
   }
-  auto declaring = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!declaring) {
-    // An op of another dialect is bounded by its regions alone where it
-    // says so; with neither a declaration nor that, it may do anything.
-    if (!op->hasTrait<OpTrait::HasRecursiveMemoryEffects>())
-      anything();
-    return;
-  }
-  SmallVector<MemoryEffects::EffectInstance, 4> instances;
-  declaring.getEffects(instances);
-  for (const MemoryEffects::EffectInstance &instance : instances)
-    effect(effects::effectOf(instance));
+  // The op's own effects alone: the function's walk reads what its regions
+  // hold op by op. One that says nothing MLIR can read, and is not bounded
+  // by its regions, may do anything.
+  effects::Walked walked = effects::eachOwnEffect(op, [&](const effects::Effect &each) {
+    effect(each);
+    return effects::Walked::All;
+  });
+  if (walked == effects::Walked::Stopped)
+    anything();
 }
 
 // An acquisition is the function's own business only through what it
@@ -124,31 +123,21 @@ RecordPart rows::Fold::partOf(Value value) const {
 }
 
 // Through views to the value whose memory they are, then: a parameter's,
-// read by its part; or what the op that made it acquired on the heap or in
-// the function's frame, the function's own; or anything else. A view's
-// source is one hop, and the chain is as long as the views are deep.
+// read by its part; or memory the op that made it acquired, the function's
+// own; or anything else. A view's source is one hop, and the chain is as
+// long as the views are deep.
 rows::Lands rows::Fold::landing(Value value) const {
   while (auto view = value.getDefiningOp<ViewLikeOpInterface>()) {
     if (view.getViewDest() != value)
       break;
     value = view.getViewSource();
   }
-  auto acquiredHere = [&] {
-    auto made = value.getDefiningOp<MemoryEffectOpInterface>();
-    if (!made)
-      return false;
-    std::optional<MemoryEffects::EffectInstance> acquisition =
-        made.getEffectOnValue<MemoryEffects::Allocate>(value);
-    if (!acquisition)
-      return false;
-    effects::ResourceId where = effects::effectOf(*acquisition).resource;
-    return where == effects::ResourceId::Heap || where == effects::ResourceId::Frame;
-  };
   return idr::match(
       partOf(value), [](WritePart part) -> Lands { return Through{part.position}; },
       [](PutPart) -> Lands { return Elsewhere{}; },
       [&](NoPart) -> Lands {
-        if (acquiredHere())
+        Operation *made = value.getDefiningOp();
+        if (made && effects::acquires(made, value))
           return Local{};
         return Elsewhere{};
       });

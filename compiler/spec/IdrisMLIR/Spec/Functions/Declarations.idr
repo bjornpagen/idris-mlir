@@ -87,16 +87,6 @@ boundedSlot = AnAttribute (OurAttr (SomeAttr putBoundsAttr)) MayBeAbsent
 terminatesSlot : AttrKind
 terminatesSlot = AnAttribute (OurAttr (SomeAttr terminatesAttr)) MayBeAbsent
 
-||| The frame bound as the IR holds it, by hand: a count of bytes, printed
-||| as a 64-bit integer.
-export
-frameBoundDirective : Directive
-frameBoundDirective = MkDirective
-  { name = "FrameBound"
-  , args = []
-  , doc = brief "a frame bound: the most bytes a call holds that it no longer needs"
-  }
-
 ||| The most bytes an active call of the function holds that it no longer
 ||| needs where memory may be acquired, computed from types, which the
 ||| checked runtime holds each call to. Held as the count itself, so a pass
@@ -104,7 +94,7 @@ frameBoundDirective = MkDirective
 ||| without it, since before counting no call holds a cell it no longer
 ||| needs.
 frameBoundSlot : AttrKind
-frameBoundSlot = AProperty (HandProperty "uint64_t" frameBoundDirective "0")
+frameBoundSlot = AProperty (CountProperty 0)
 
 ------------------------------------------------------------------------------
 -- idr.program
@@ -169,8 +159,10 @@ programOp = MkOp
 ||| record, its `lives_in` and its `given_back` name only what its signature
 ||| has; its region verifier, that its row and record cover what its body
 ||| does, and where its calls stand. It states its parameters' lifetimes.
-||| Erasing results is its own, so what it states of its results by position
-||| stays true.
+||| Inserting and erasing parameters and results are its own implementations
+||| of the function interface's methods, so whoever edits its signature,
+||| through the op or the interface, moves what it states by position with
+||| the positions.
 export
 funcOp : Op 0 0 13 1
 funcOp = MkOp
@@ -221,9 +213,17 @@ funcOp = MkOp
       , MkMember OnObject "void" "setVisibility"
           [param "::mlir::SymbolTable::Visibility" "visibility"]
       , MkMember OnObject "::idr::Termination" "getTermination" []
+      , MkMember OnObject "::mlir::LogicalResult" "insertArguments"
+          [ param "::llvm::ArrayRef<unsigned>" "indices", param "::mlir::TypeRange" "types"
+          , param "::llvm::ArrayRef<::mlir::DictionaryAttr>" "attrs"
+          , param "::llvm::ArrayRef<::mlir::Location>" "locs" ]
+      , MkMember OnObject "::mlir::LogicalResult" "insertResults"
+          [ param "::llvm::ArrayRef<unsigned>" "indices", param "::mlir::TypeRange" "types"
+          , param "::llvm::ArrayRef<::mlir::DictionaryAttr>" "attrs" ]
+      , MkMember OnObject "::mlir::LogicalResult" "eraseArguments"
+          [param "const ::llvm::BitVector &" "arguments"]
       , MkMember OnObject "::mlir::LogicalResult" "eraseResults"
-          [param "const ::llvm::BitVector &" "results"]
-      , MkMember OnObject "::mlir::LogicalResult" "eraseResult" [param "unsigned" "result"] ]
+          [param "const ::llvm::BitVector &" "results"] ]
   , guards = []
   , specializations = []
   , laws = []

@@ -74,12 +74,15 @@ livesInAttr = MkAttrDef
       , MkMember OnClass "::idr::LivesInAttr" "restateResult"
           [ param "::mlir::MLIRContext *" "context", param "::idr::LivesInAttr" "lives"
           , param "uint32_t" "result", param "::std::optional<uint32_t>" "lifetime" ]
-      , MkMember OnObjectConst "::idr::LivesInAttr" "renumberResults"
-          [param "::llvm::ArrayRef<::std::optional<uint32_t>>" "to"] ]
+      , MkMember OnObjectConst "::mlir::FailureOr<::idr::LivesInAttr>" "renumber"
+          [ param "::llvm::ArrayRef<::std::optional<uint32_t>>" "parameters"
+          , param "::llvm::ArrayRef<::std::optional<uint32_t>>" "results" ] ]
   , doc = MkDoc "where a function's scoped parameters and results live"
       """
       On idr.func exactly when a parameter or a result is scoped or a bound
       is declared, every scoped one listed once; on idr.call, its callee's.
-      Restating a value's lifetime, or erasing results, keeps it so.
+      Restating a value's lifetime, or moving the signature's positions,
+      keeps it so; a move that would leave a value without its lifetime has
+      no statement.
       """
   }

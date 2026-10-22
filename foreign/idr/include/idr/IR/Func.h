@@ -237,6 +237,7 @@ public:
   explicit ParameterParts(mlir::TypeRange parameters);
 
   const RecordPart &operator[](unsigned parameter) const { return parts[parameter]; }
+  unsigned size() const { return parts.size(); }
   std::uint32_t writable() const { return writes; }
   std::uint32_t puttable() const { return puts; }
 

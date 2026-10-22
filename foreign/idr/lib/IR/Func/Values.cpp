@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The hand values a function's attributes and properties hold beside its
-// row: Idris's termination proof, a put bound, and the frame bound, each in
-// text and in bytecode by the hooks the specification declares; and the
-// view of a signature's parameters by the part of the record each admits,
-// which every position of the record is read through.
+// The hand values a function's attributes hold beside its row: Idris's
+// termination proof and a put bound, each in text and in bytecode by the
+// hooks the specification declares; and the view of a signature's
+// parameters by the part of the record each admits, which every position
+// of the record is read through.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
@@ -12,10 +12,8 @@
 #include "idr/IR/Lifetimes.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <limits>
@@ -137,37 +135,6 @@ LogicalResult PutBoundsAttr::verify(function_ref<InFlightDiagnostic()> emitError
       return emitError() << "lists put parameter " << after.parameter << " after "
                          << before.parameter << ": positions increase, each once";
   return success();
-}
-
-//===----------------------------------------------------------------------===//
-// Frame bounds
-//===----------------------------------------------------------------------===//
-
-// The property is held as the count itself, so counting sets it on a
-// worker with no attribute made; its attribute form, in the generic syntax
-// and a property dictionary, is the count as a 64-bit integer.
-Attribute idr::convertFrameBoundToAttribute(MLIRContext *context, std::uint64_t bytes) {
-  return IntegerAttr::get(IntegerType::get(context, 64), llvm::APInt(64, bytes));
-}
-
-// Text read at the boundary: a 64-bit integer, the count of bytes.
-LogicalResult idr::convertFrameBoundFromAttribute(std::uint64_t &bytes, Attribute attribute,
-                                                  function_ref<InFlightDiagnostic()> emitError) {
-  auto integer = dyn_cast<IntegerAttr>(attribute);
-  if (!integer || !integer.getType().isSignlessInteger(64))
-    return emitError() << "expected a frame bound, its bytes as a 64-bit integer";
-  bytes = integer.getValue().getZExtValue();
-  return success();
-}
-
-llvm::hash_code idr::hashFrameBound(std::uint64_t bytes) { return llvm::hash_value(bytes); }
-
-LogicalResult idr::readFrameBound(DialectBytecodeReader &reader, std::uint64_t &bytes) {
-  return reader.readVarInt(bytes);
-}
-
-void idr::writeFrameBound(DialectBytecodeWriter &writer, std::uint64_t bytes) {
-  writer.writeVarInt(bytes);
 }
 
 //===----------------------------------------------------------------------===//

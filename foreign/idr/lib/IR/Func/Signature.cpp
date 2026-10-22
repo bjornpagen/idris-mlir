@@ -4,8 +4,8 @@
 // result lives (`#idr.lives_in`), and what a function gives back of its
 // arguments (`#idr.given_back`, each entry its own `#idr.given_back.entry`,
 // whose storage owns its field positions). Their syntax, their bytecode
-// values, their order, and the lookups a function and a call answer the
-// lifetime of a scoped value by.
+// values, their order, how an edit of the signature moves them, and the
+// lookups a function and a call answer the lifetime of a scoped value by.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -246,14 +246,68 @@ LivesInAttr LivesInAttr::restateResult(MLIRContext *context, LivesInAttr lives,
                    lives.getBounds());
 }
 
-// Each result at the position `to` gives it, one it gives none gone: what
-// erasing results leaves, in the same order, since erasing keeps the order.
-LivesInAttr LivesInAttr::renumberResults(ArrayRef<std::optional<std::uint32_t>> to) const {
-  SmallVector<LivesIn> results;
-  for (LivesIn entry : getResults())
-    if (std::optional<std::uint32_t> at = to[entry.value])
-      results.push_back({*at, entry.lifetime});
-  return statement(getContext(), getParameters(), results, getBounds());
+namespace {
+
+// Each entry of `entries` at the position `values` gives its value and
+// `lifetimes` its lifetime, one whose value goes gone with it; a value kept
+// whose lifetime goes would live in none, so there is no list to give.
+LogicalResult moveEntries(ArrayRef<LivesIn> entries, ArrayRef<std::optional<std::uint32_t>> values,
+                          ArrayRef<std::optional<std::uint32_t>> lifetimes,
+                          SmallVectorImpl<LivesIn> &moved) {
+  for (LivesIn entry : entries) {
+    std::optional<std::uint32_t> value = values[entry.value];
+    if (!value)
+      continue;
+    std::optional<std::uint32_t> lifetime = lifetimes[entry.lifetime];
+    if (!lifetime)
+      return failure();
+    moved.push_back({*value, *lifetime});
+  }
+  return success();
+}
+
+// The bounds between the lifetime parameters `to` keeps, at their new
+// positions. Each one erased is taken out in turn, every bound into it
+// joined to every bound out of it, so a chain through erased lifetimes
+// still bounds its two ends; each bound once, and none of a lifetime by
+// itself. What is left names only lifetimes kept.
+SmallVector<Outlives> movedBounds(ArrayRef<Outlives> bounds, ArrayRef<std::optional<std::uint32_t>> to) {
+  SmallVector<Outlives> left(bounds);
+  for (std::uint32_t gone = 0; gone < to.size(); ++gone) {
+    if (to[gone])
+      continue;
+    SmallVector<std::uint32_t> longer, shorter;
+    for (const Outlives &bound : left) {
+      if (bound.shorter == gone)
+        longer.push_back(bound.longer);
+      if (bound.longer == gone)
+        shorter.push_back(bound.shorter);
+    }
+    llvm::erase_if(left, [&](const Outlives &bound) { return bound.longer == gone || bound.shorter == gone; });
+    for (std::uint32_t outer : longer)
+      for (std::uint32_t inner : shorter)
+        if (Outlives joined{outer, inner}; outer != inner && !llvm::is_contained(left, joined))
+          left.push_back(joined);
+  }
+  SmallVector<Outlives> moved;
+  for (const Outlives &bound : left)
+    moved.push_back({*to[bound.longer], *to[bound.shorter]});
+  return moved;
+}
+
+} // namespace
+
+// Every entry at the positions the signature's edit moves its value and its
+// lifetime to, and every bound kept between the lifetimes it keeps: one
+// rule for inserting and erasing parameters and results alike. Both lists
+// move in order, so each still increases.
+FailureOr<LivesInAttr> LivesInAttr::renumber(ArrayRef<std::optional<std::uint32_t>> parameters,
+                                             ArrayRef<std::optional<std::uint32_t>> results) const {
+  SmallVector<LivesIn> scopedParameters, scopedResults;
+  if (failed(moveEntries(getParameters(), parameters, parameters, scopedParameters)) ||
+      failed(moveEntries(getResults(), results, parameters, scopedResults)))
+    return failure();
+  return statement(getContext(), scopedParameters, scopedResults, movedBounds(getBounds(), parameters));
 }
 
 //===----------------------------------------------------------------------===//
@@ -338,15 +392,18 @@ GivenBackAttr GivenBackAttr::get(MLIRContext *context, ArrayRef<GivenBackEntry> 
   return get(context, ArrayRef<GivenBackEntryAttr>(made));
 }
 
-// Each result at the position `to` gives it, an entry whose result it
-// gives none gone, and none when nothing is left: what erasing results
-// leaves, in the same order.
-GivenBackAttr GivenBackAttr::renumberResults(ArrayRef<std::optional<std::uint32_t>> to) const {
+// Every entry at the positions the signature's edit moves its result and
+// its argument to, one whose result or argument goes gone with it, and none
+// when nothing is left. Results move in order, so the entries stay sorted.
+GivenBackAttr GivenBackAttr::renumber(ArrayRef<std::optional<std::uint32_t>> parameters,
+                                      ArrayRef<std::optional<std::uint32_t>> results) const {
   SmallVector<GivenBackEntry> kept;
   for (GivenBackEntryAttr attr : getEntries()) {
     GivenBackEntry entry = attr.entry();
-    if (std::optional<std::uint32_t> at = to[entry.result.index])
-      kept.push_back({{*at, entry.result.fields}, entry.argument});
+    std::optional<std::uint32_t> result = results[entry.result.index];
+    std::optional<std::uint32_t> argument = parameters[entry.argument.index];
+    if (result && argument)
+      kept.push_back({{*result, entry.result.fields}, {*argument, entry.argument.fields}});
   }
   if (kept.empty())
     return {};

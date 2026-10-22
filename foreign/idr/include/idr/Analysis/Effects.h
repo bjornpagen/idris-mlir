@@ -31,8 +31,8 @@
 #ifndef IDR_ANALYSIS_EFFECTS_H
 #define IDR_ANALYSIS_EFFECTS_H
 
+#include "idr/IR/Effects/Classify.h"
 #include "idr/IR/Effects/LLVM.h"
-#include "idr/IR/Effects/Query.h"
 #include "idr/IR/Families/Scope.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
