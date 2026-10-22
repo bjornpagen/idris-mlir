@@ -169,9 +169,9 @@ cppDecl sc (Array1 name type cells doc) =
   ++ indent 4 (braced (map (cellText sc) cells))
   ++ ["}};", ""]
 cppDecl sc (Array2 name type rows doc) =
-  let width = case rows of
-                [] => 0
-                (r :: _) => length r
+  let width : Nat = case rows of
+                      [] => 0
+                      (r :: _) => length r
   in slashComment [lineText doc]
      ++ ["inline constexpr std::array<std::array<" ++ columnType sc type ++ ", " ++ decimal width ++ ">, "
          ++ decimal (length rows) ++ "> " ++ identText name ++ "{{"]
@@ -313,7 +313,7 @@ opIndexHeader keys =
 ||| dialect's enums.
 export
 enumHome : List Header -> EnumDef -> String
-enumHome hs e = case find declares (concatMap (.blocks) hs) of
+enumHome hs e = case List.find declares (concatMap (.blocks) hs) of
   Just (ns, _) => namespaceText ns
   Nothing => namespaceText DialectNamespace
   where
@@ -1381,7 +1381,7 @@ groupsOf here (RunUpstream _ _ rest) = groupsOf here rest
 groupsOf here (Nest _ first rest) = groupsOf here first ++ groupsOf (snd (stepsOf here [] first)) rest
 groupsOf here (RunDeciding p _ group rest) =
   let next = leaves p.stages here
-  in MkApplyGroup p (fst (stepsOf next [] (Nest OnFunction group Done))) :: groupsOf next rest
+  in MkApplyGroup p (fst (stepsOf next [] (Nest {a = OnProgram} OnFunction group Done))) :: groupsOf next rest
 
 ||| The function that adds a decide step's apply group to a manager on the
 ||| program: `applyGroupOfIdrNarrow`.

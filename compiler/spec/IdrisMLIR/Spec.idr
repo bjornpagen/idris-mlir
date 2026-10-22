@@ -41,8 +41,25 @@ import IdrisMLIR.Spec.Functions.GivenBack
 import IdrisMLIR.Spec.Functions.LivesIn
 import IdrisMLIR.Spec.Runtime.Clocks
 import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Runtime.Handles
 import IdrisMLIR.Spec.Runtime.Helpers
 import IdrisMLIR.Spec.Runtime.Layout
+
+-- The modules that declare ops which reach the root only through an area's
+-- declarations: `namesDistinct` reduces each op's name only where the
+-- module defining it is visible.
+import IdrisMLIR.Spec.Control.Matches
+import IdrisMLIR.Spec.Control.Joins
+import IdrisMLIR.Spec.Arrays.Memory
+import IdrisMLIR.Spec.Arrays.Generating
+import IdrisMLIR.Spec.Ops.Shapes
+import IdrisMLIR.Spec.Ops.Values
+import IdrisMLIR.Spec.Ops.Scalars
+import IdrisMLIR.Spec.Ops.Strings
+import IdrisMLIR.Spec.Ops.Bigs
+import IdrisMLIR.Spec.Ops.Checks
+import IdrisMLIR.Spec.Ops.IO
+import IdrisMLIR.Spec.Ops.Platform
 
 import Data.List
 import Data.List.Elem
