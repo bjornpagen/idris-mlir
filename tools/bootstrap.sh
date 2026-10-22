@@ -914,6 +914,19 @@ llvm_without_host_libraries() {
     -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF
 }
 
+# What llvm-config.h says to every includer, given to every LLVM this
+# script builds, so that the headers the typecheck build makes are stage
+# 2's. Assertions on: LLVM and MLIR stop a misuse of their API at the call
+# that makes it, in the one toolchain the tests run and the compiler ships
+# with, and stage 1's clang checks itself while it compiles the runtimes
+# and the LLVM our tools link. Statistics forced on, so that a statistic's
+# layout is the header's fact, the same for every includer whatever its
+# NDEBUG. No RTTI or exceptions.
+llvm_header_options() {
+  printf '%s\n' -DLLVM_ENABLE_ASSERTIONS=ON -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF \
+    -DLLVM_ENABLE_EH=OFF
+}
+
 args_cmake() {
   printf '%s\n' "--prefix=$cmake_prefix" -- -DCMAKE_USE_OPENSSL=OFF -DBUILD_TESTING=OFF
 }
@@ -943,9 +956,10 @@ args_stage1() {
     "-DCMAKE_C_COMPILER=$host_cc" "-DCMAKE_CXX_COMPILER=$host_cxx" \
     "-DCMAKE_MAKE_PROGRAM=$ninja" "-DCMAKE_INSTALL_PREFIX=$stage1" \
     '-DLLVM_ENABLE_PROJECTS=clang;lld' "-DLLVM_TARGETS_TO_BUILD=$llvm_targets" \
-    "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" -DLLVM_ENABLE_ASSERTIONS=OFF \
+    "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
     -DCLANG_ENABLE_STATIC_ANALYZER=OFF -DCLANG_PLUGIN_SUPPORT=OFF \
     "-DLLVM_DISTRIBUTION_COMPONENTS=$stage1_components"
+  llvm_header_options
   native_cmake_flags
   llvm_without_host_libraries
 }
@@ -1031,27 +1045,26 @@ recipe_runtimes() {
 # What stage 2 installs.
 stage2_components='clang;clang-scan-deps;clang-resource-headers;lld;clang-tidy;llvm-ar;llvm-ranlib;llvm-nm;llvm-objcopy;llvm-strip;llvm-objdump;llvm-readobj;llvm-readelf;llvm-symbolizer;opt;llc;FileCheck;not;count;mlir-opt;mlir-translate;mlir-tblgen;llvm-headers;llvm-libraries;cmake-exports;mlir-headers;mlir-libraries;mlir-cmake-exports'
 
-# Stage 2, by stage 1, against the runtimes beside it, no assertions, no
-# shared libraries or plugins, and no LTO: its libraries are native code,
-# which every build of our tools links as it is, and a rebuild through the
-# compiler cache relinks without optimizing LLVM again. One toolchain,
-# without assertions, is the one our tools link and the tests run: no
-# behaviour is chosen by the build. Statistics are forced on, so that
-# llvm-config.h says they count to every includer, which an LLVM without
-# assertions does not: a pass statistic's layout follows it. Its code takes
-# stack clash protection, so that no frame larger than a page steps over a
-# stack's guard: it is the frames of our tools that our compiler does not
-# size. On every target a PIE linked against the system's C library.
+# Stage 2, by stage 1, against the runtimes beside it, with assertions
+# (llvm_header_options), and no shared libraries, plugins or LTO: its
+# libraries are native code, which every build of our tools links as it
+# is, and a rebuild through the compiler cache relinks without optimizing
+# LLVM again. One toolchain, with LLVM's and MLIR's assertions on, is the
+# one our tools link, the tests run and the compiler ships with: no
+# behaviour is chosen by the build. Its code takes stack clash protection,
+# so that no frame larger than a page steps over a stack's guard: it is
+# the frames of our tools that our compiler does not size. On every target
+# a PIE linked against the system's C library.
 args_stage2() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release
   stage1_tools
   printf '%s\n' "-DCMAKE_INSTALL_PREFIX=$llvm_prefix" \
     '-DLLVM_ENABLE_PROJECTS=clang;lld;mlir;clang-tools-extra' "-DLLVM_TARGETS_TO_BUILD=$llvm_targets" \
     "-DLLVM_HOST_TRIPLE=$triple" "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
-    -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
     -DLLVM_ENABLE_LIBCXX=ON -DLLVM_INSTALL_UTILS=ON \
     -DLLVM_ENABLE_LTO=OFF -DMLIR_INSTALL_AGGREGATE_OBJECTS=OFF -DLLVM_ENABLE_PLUGINS=OFF \
     -DCLANG_PLUGIN_SUPPORT=OFF "-DLLVM_DISTRIBUTION_COMPONENTS=$stage2_components"
+  llvm_header_options
   printf '%s\n' -DCMAKE_C_FLAGS=-fstack-clash-protection -DCMAKE_CXX_FLAGS=-fstack-clash-protection
   native_cmake_flags
   case $object_format in
@@ -1163,17 +1176,16 @@ recipe_idris() {
 typecheck_targets='llvm-tblgen mlir-tblgen MLIRTblgenLib llvm-headers acc_gen analysis_gen vt_gen mlir-headers'
 
 # The typecheck build: stage 2's options that shape the headers our code
-# includes (the triple, the targets, assertions and statistics, which
-# llvm-config.h says to every includer; no RTTI or exceptions), with the
-# host's compilers, which compile our code against it, and none of the
-# host's optional libraries.
+# includes (the triple, the targets, llvm_header_options), with the host's
+# compilers, which compile our code against it, and none of the host's
+# optional libraries.
 args_typecheck() {
   printf '%s\n' -G Ninja -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_C_COMPILER=$host_cc" "-DCMAKE_CXX_COMPILER=$host_cxx" "-DCMAKE_MAKE_PROGRAM=$ninja" \
     -DLLVM_ENABLE_PROJECTS=mlir "-DLLVM_TARGETS_TO_BUILD=$llvm_targets" \
     "-DLLVM_HOST_TRIPLE=$triple" "-DLLVM_DEFAULT_TARGET_TRIPLE=$triple" \
-    -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_FORCE_ENABLE_STATS=ON -DLLVM_ENABLE_RTTI=OFF -DLLVM_ENABLE_EH=OFF \
     -DLLVM_ENABLE_PLUGINS=OFF
+  llvm_header_options
   native_cmake_flags
   llvm_without_host_libraries
 }

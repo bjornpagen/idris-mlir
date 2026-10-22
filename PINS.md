@@ -82,8 +82,8 @@ checking that the pin still has it.
 Retired when the LLVM pin moved from 7208ba24 to llvm main at 416f328b
 (2026-10-21), with every other dependency fast-forwarded to its latest
 (CMake 4.4.4, simdutf 9.3.2; the rest were already their latest) and the
-toolchain built without assertions in every stage our code compiles
-against or links (D91): `print-local-aliases`
+toolchain built with LLVM's and MLIR's assertions on in every stage our
+code compiles against or links (D115): `print-local-aliases`
 (`upstream/60-print-local-aliases`, its check and its report: main's
 8bcccd8b6576, #232518, gives the same printing as
 `-mlir-print-always-use-aliases`, which the harness's dumps take); and,

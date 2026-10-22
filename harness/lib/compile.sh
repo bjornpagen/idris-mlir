@@ -72,7 +72,7 @@ mlir_program() {
   mlir_program_triple=$(sed -n 's/^set(CMAKE_CXX_COMPILER_TARGET "\(.*\)")$/\1/p' "$llvm_prefix/toolchain.cmake" 2> /dev/null)
   mlir_program_config=$llvm_bin/llvm-config
   # shellcheck disable=SC2046 # llvm-config prints words
-  bounded "$llvm_bin/clang++" --target="$mlir_program_triple" -O1 -DNDEBUG $("$mlir_program_config" --cxxflags) \
+  bounded "$llvm_bin/clang++" --target="$mlir_program_triple" -O1 $("$mlir_program_config" --cxxflags) \
     "$1" -o "$2" "$llvm_prefix"/lib/libMLIR*.a \
     $("$mlir_program_config" --ldflags --link-static --libs --system-libs) > "$work/cc.log" 2>&1
 }

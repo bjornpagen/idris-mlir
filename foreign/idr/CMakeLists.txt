@@ -18,6 +18,23 @@ include(TableGen)
 include(AddLLVM)
 include(AddMLIR)
 
+# Our code is compiled as LLVM and MLIR are, with their assertions on. The
+# headers it shares with them read NDEBUG (a statistic's layout, a member
+# kept for a check), so our units and their libraries must agree on it, and
+# assert is live in our code as in theirs. Configuring refuses an LLVM
+# built without assertions, and NDEBUG, which CMake writes into every build
+# type's flags but Debug's, is taken out of this build type's for every
+# unit below. The runtime is compiled apart, under its own profile with
+# NDEBUG (runtime/CMakeLists.txt), so a program pays for none of the
+# compiler's checks.
+if(NOT LLVM_ENABLE_ASSERTIONS)
+	message(FATAL_ERROR "the LLVM at ${LLVM_DIR} is built without assertions, and our code is compiled with them: build the toolchain with tools/bootstrap.sh")
+endif()
+string(TOUPPER "${CMAKE_BUILD_TYPE}" IDR_BUILD_TYPE)
+foreach(lang C CXX)
+	string(REGEX REPLACE "(^| )-DNDEBUG( |$)" " " CMAKE_${lang}_FLAGS_${IDR_BUILD_TYPE} "${CMAKE_${lang}_FLAGS_${IDR_BUILD_TYPE}}")
+endforeach()
+
 # MLIR's and LLVM's headers and the generated ones are system headers,
 # so that the project's warnings apply to our code and not to theirs.
 # TableGen reads the same include path.
