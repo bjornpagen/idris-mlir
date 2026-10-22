@@ -4,7 +4,7 @@
 ||| types `!idr.str`, `!idr.big` and `!idr.nat`, what a value of each holds,
 ||| how a literal of each is written, the comparison an op of strings or
 ||| bigs makes, a constant (`idr.constant`), and the operating system the
-||| target names (`idr.target.os`).
+||| target names (`idr.platform.os`).
 module IdrisMLIR.Spec.Ops.Values
 
 import IdrisMLIR.Spec.Core.Vocabulary

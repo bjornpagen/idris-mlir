@@ -6,13 +6,12 @@
 // which the e-graph's skeleton rule asks: a guard that holds goes, one that
 // fails is a crash of its cause at its site), and narrows its operand's
 // range by the condition. A condition on a constant no interval states is
-// written once and read by both. Three of
-// the conditions are inline arithmetic, the meanings of Numeric/Inline.h
-// over words and over intervals, as the lowering's test is the same meaning
-// over arith (Conversion/Checks.cpp): one condition, written once. A
-// string's emptiness and a Double's finiteness are no integer arithmetic,
-// and say so; what a handle holds is the run's own state, which only the
-// run knows.
+// written once and read by both. Every condition but one is inline
+// arithmetic, a meaning of Numeric/Inline.h over words and over intervals,
+// as the lowering's test is the same meaning over arith
+// (Conversion/Checks.cpp): one condition, written once, over what the guard
+// tests (a string's length, a Double's bits). What a handle holds is the
+// run's own state, which only the run knows.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
@@ -35,12 +34,18 @@ numeric::Word word64(int64_t value) {
   return numeric::Words::of(static_cast<uint64_t>(value), 64);
 }
 
-numeric::Known known(bool holds) { return holds ? numeric::Known::Holds : numeric::Known::Fails; }
+// What a truth of words knows: words are exact, so it holds or it fails.
+numeric::Known knownOf(numeric::Bit truth) {
+  return truth.holds ? numeric::Known::Holds : numeric::Known::Fails;
+}
 
 // An Integer's zero is the runtime's small 0, no word of the op's, and its
-// interval states only a value within i64: its constant decides it.
-// Essential, the two types a divisor has.
-numeric::Known bigNonzero(BigAttr big) { return known(!big.getValue().isZero()); }
+// interval states only a value within i64: its constant decides it, as the
+// one interval it is, at its own width. Essential, the two types a divisor
+// has.
+numeric::Known bigNonzero(BigAttr big) {
+  return numeric::nonzero(numeric::Intervals{}, ConstantIntRanges::constant(big.getValue())).known;
+}
 
 // The length of what is indexed, where an op holds it as a constant string:
 // the runtime's count of its characters, its str.length's function. None
@@ -56,16 +61,23 @@ std::optional<int64_t> lengthOf(Attribute indexed) {
   return runtime::Abi<StrLengthOp>::function(*runtime);
 }
 
-// A string of at least one byte, where an op holds it.
-numeric::Known nonempty(Attribute str) {
-  auto text = dyn_cast_or_null<StringAttr>(str);
-  return text ? known(!text.getValue().empty()) : numeric::Known::Unknown;
+// A string of at least one character, where an op holds it: the
+// condition over its length.
+numeric::Known nonemptyOf(Attribute str) {
+  std::optional<int64_t> length = lengthOf(str);
+  return length ? knownOf(numeric::nonempty(numeric::Words{}, word64(*length)))
+                : numeric::Known::Unknown;
 }
 
-// A Double neither infinite nor NaN, where an op holds it.
-numeric::Known finite(Attribute value) {
+// A Double neither infinite nor NaN, where an op holds it: the condition
+// over its bits.
+numeric::Known finiteOf(Attribute value) {
   auto real = dyn_cast_or_null<FloatAttr>(value);
-  return real ? known(real.getValue().isFinite()) : numeric::Known::Unknown;
+  if (!real)
+    return numeric::Known::Unknown;
+  APInt bits = real.getValue().bitcastToAPInt();
+  return knownOf(
+      numeric::finite(numeric::Words{}, numeric::Words::of(bits.getZExtValue(), bits.getBitWidth())));
 }
 
 } // namespace
@@ -90,11 +102,11 @@ bool CheckInBoundsOp::holds(FoldAdaptor adaptor) {
 }
 
 bool CheckNonemptyOp::holds(FoldAdaptor adaptor) {
-  return nonempty(adaptor.getStr()) == numeric::Known::Holds;
+  return nonemptyOf(adaptor.getStr()) == numeric::Known::Holds;
 }
 
 bool CheckFiniteOp::holds(FoldAdaptor adaptor) {
-  return finite(adaptor.getValue()) == numeric::Known::Holds;
+  return finiteOf(adaptor.getValue()) == numeric::Known::Holds;
 }
 
 // Never of a constant: a program's constant handles are null and the
@@ -143,11 +155,11 @@ numeric::Known CheckInBoundsOp::decide(ArrayRef<ConstantIntRanges> ranges,
 // A string and a Double have no interval: only a constant decides them.
 numeric::Known CheckNonemptyOp::decide(ArrayRef<ConstantIntRanges>,
                                        ArrayRef<Attribute> constants) {
-  return nonempty(constants[0]);
+  return nonemptyOf(constants[0]);
 }
 numeric::Known CheckFiniteOp::decide(ArrayRef<ConstantIntRanges>,
                                      ArrayRef<Attribute> constants) {
-  return finite(constants[0]);
+  return finiteOf(constants[0]);
 }
 
 numeric::Known CheckRangeOp::decide(ArrayRef<ConstantIntRanges> ranges, ArrayRef<Attribute>) {

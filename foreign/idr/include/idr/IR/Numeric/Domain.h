@@ -13,7 +13,7 @@
 // - A truth of the domain is no bool. An IR builder's truth is an i1 value,
 //   and an mlir::Value converts to bool (null or not): a template that
 //   branched on a truth would compile over that domain and lower
-//   `idr.int.divs -7, 2` to -3. Truths are combined and selected on, never
+//   `idr.int.div_s -7, 2` to -3. Truths are combined and selected on, never
 //   branched on, so `Truth` must not be constructible as a bool.
 // - A partial operation takes evidence only the meaning mints. Truncating
 //   division takes a SafeDivisor, which only `divisible` makes, and a shift

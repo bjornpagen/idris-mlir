@@ -120,9 +120,11 @@ inline m = Inline (inlineName m)
 ||| The conditions of `Numeric/Inline.h` a guard names as its meaning
 ||| (`InlineCondition`): its operand passes where the condition holds, so
 ||| its folder, its decision on intervals and its test in the lowering are
-||| one template's instances. Its C++ name is `::idr::numeric::<name>`.
+||| one template's instances. A condition is over what the guard tests,
+||| which is its operand or what the operand determines: a string's length,
+||| a Double's bits. Its C++ name is `::idr::numeric::<name>`.
 public export
-data GuardCondition = DivisorNonzero | IndexInBounds | BytesInRange
+data GuardCondition = DivisorNonzero | IndexInBounds | BytesInRange | LengthNonzero | BitsFinite
 
 ||| The name the C++ gives the condition's function object.
 public export
@@ -130,6 +132,8 @@ conditionName : GuardCondition -> Ident
 conditionName DivisorNonzero = "Nonzero"
 conditionName IndexInBounds = "InBounds"
 conditionName BytesInRange = "InRange"
+conditionName LengthNonzero = "Nonempty"
+conditionName BitsFinite = "Finite"
 
 ------------------------------------------------------------------------------
 -- The laws

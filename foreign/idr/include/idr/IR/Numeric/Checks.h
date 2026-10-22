@@ -17,8 +17,10 @@
 
 #include "idr/IR/Numeric/Laws.h"
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <utility>
 
 namespace idr::numeric::checks {
@@ -144,6 +146,23 @@ static_assert(!inRange(Words{}, w64(1), w64(-1), w64(5)).holds);
 static_assert(!inRange(Words{}, w64(6), w64(0), w64(5)).holds);
 static_assert(!inRange(Words{}, w64(INT64_MAX), w64(INT64_MAX), w64(INT64_MAX)).holds);
 static_assert(!inRange(Words{}, w64(0), w64(1), w64(-1)).holds);
+static_assert(!nonempty(Words{}, w64(0)).holds);
+static_assert(nonempty(Words{}, w64(1)).holds);
+
+// A Double's finiteness on its bits: the constant is the bits of an
+// infinity as C++'s own double has them, and the edges of each class.
+constexpr Word bitsOf(double x) { return Words::of(std::bit_cast<std::uint64_t>(x), 64); }
+static_assert(std::bit_cast<std::uint64_t>(std::numeric_limits<double>::infinity()) ==
+              static_cast<std::uint64_t>(doubleInfinity));
+static_assert(finite(Words{}, bitsOf(0.0)).holds);
+static_assert(finite(Words{}, bitsOf(-0.0)).holds);
+static_assert(finite(Words{}, bitsOf(std::numeric_limits<double>::max())).holds);
+static_assert(finite(Words{}, bitsOf(-std::numeric_limits<double>::max())).holds);
+static_assert(finite(Words{}, bitsOf(std::numeric_limits<double>::denorm_min())).holds);
+static_assert(!finite(Words{}, bitsOf(std::numeric_limits<double>::infinity())).holds);
+static_assert(!finite(Words{}, bitsOf(-std::numeric_limits<double>::infinity())).holds);
+static_assert(!finite(Words{}, bitsOf(std::numeric_limits<double>::quiet_NaN())).holds);
+static_assert(!finite(Words{}, w64(0x7FF0000000000001)).holds);
 
 // One static_assert per input: each is one constant evaluation.
 template <std::uint64_t A>

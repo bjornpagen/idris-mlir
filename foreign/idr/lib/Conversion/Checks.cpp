@@ -3,11 +3,11 @@
 // The patterns of the guards. A guard is the test of its condition, the
 // crash of its cause at its site where the test fails, and then its
 // operand, which the op it guards takes. That op's own lowering tests
-// nothing, so a guard a proof removed leaves no test behind. Three
-// conditions are inline arithmetic, each the meaning its fold and its
-// interval decision instantiate too (Numeric/Inline.h), here over arith; a
-// string's emptiness and a Double's finiteness are no integer arithmetic,
-// and what a handle holds is the runtime's handle table's.
+// nothing, so a guard a proof removed leaves no test behind. Every
+// condition but one is inline arithmetic, the meaning its fold and its
+// interval decision instantiate too (Numeric/Inline.h), here over arith,
+// on what the guard tests (a string's length, a Double's bits); what a
+// handle holds is the runtime's handle table's.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -20,7 +20,6 @@
 #include "idr/Conversion/Words.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 // The runtime's C ABI: the small Integer word's encoding.
@@ -71,20 +70,20 @@ Value fails(CheckInBoundsOp op, Converted<CheckInBoundsOp> in, OpBuilder &b, Loc
   return d.negation(numeric::inBounds(d, index, length)).bit;
 }
 
-// A string of no characters.
+// A string of no characters, by the runtime's count of them.
 Value fails(CheckNonemptyOp, Converted<CheckNonemptyOp> in, OpBuilder &b, Location loc,
             Runtime &runtime) {
   Value length =
       runtime.call(b, loc, idr::runtime::Abi<StrLengthOp>::entry, in.getStr().front()).getResult();
-  return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, length,
-                               arith::ConstantIntOp::create(b, loc, 0, 64));
+  numeric::Arith d(b, loc);
+  return d.negation(numeric::nonempty(d, length)).bit;
 }
 
-// NaN or an infinity.
+// NaN or an infinity, by the Double's bits.
 Value fails(CheckFiniteOp, Converted<CheckFiniteOp> in, OpBuilder &b, Location loc, Runtime &) {
-  Value finite = math::IsFiniteOp::create(b, loc, in.getValue().front());
-  Value yes = arith::ConstantOp::create(b, loc, b.getBoolAttr(true));
-  return arith::XOrIOp::create(b, loc, finite, yes);
+  Value bits = arith::BitcastOp::create(b, loc, b.getI64Type(), in.getValue().front());
+  numeric::Arith d(b, loc);
+  return d.negation(numeric::finite(d, bits)).bit;
 }
 
 // A handle whose slot holds no string, as the runtime's table says: the

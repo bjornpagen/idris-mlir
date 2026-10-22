@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The meaning of each op of inline arithmetic, written once over a numeric
 // domain (Domain.h): Idris's Euclidean division of a signed integer, its
-// total shifts, an integer as a Char, and the conditions of three guards. A
+// total shifts, an integer as a Char, and the conditions of five guards. A
 // meaning is a function of values; it never branches on a truth of its
 // domain, only selects on it, so every domain computes the same function.
 // The one choice made in C++ is a family constant (a signedness, a
@@ -166,6 +166,28 @@ constexpr typename D::Truth inRange(const D &d, typename D::Value offset, typena
   return d.both(notNegative, within);
 }
 
+// A string is not empty: its length, the runtime's count of its
+// characters, is not zero.
+template <Domain D>
+constexpr typename D::Truth nonempty(const D &d, typename D::Value length) {
+  return nonzero(d, length);
+}
+
+// The bits of an infinity of Idris's Double, IEEE binary64: the exponent
+// field all set, the fraction clear.
+inline constexpr std::int64_t doubleInfinity = 0x7FF0000000000000;
+
+// A Double, read as its 64 bits, is neither infinite nor NaN: its exponent
+// field, all of an infinity's bits, is not all set. The test is over the
+// bits so that it is integer arithmetic the domains share; LLVM reads
+// exactly this test as the class test it is (llvm.is.fpclass), so nothing
+// is lost by writing it so.
+template <Domain D>
+constexpr typename D::Truth finite(const D &d, typename D::Value bits) {
+  auto exponent = d.constant(doubleInfinity, bits);
+  return d.negation(d.equal(d.bitAnd(bits, exponent), exponent));
+}
+
 //===----------------------------------------------------------------------===//
 // The meanings as function objects
 //===----------------------------------------------------------------------===//
@@ -237,6 +259,22 @@ struct InRange {
   static constexpr typename D::Truth apply(const D &d, typename D::Value offset,
                                            typename D::Value count, typename D::Value size) {
     return inRange(d, offset, count, size);
+  }
+};
+
+struct Nonempty {
+  static constexpr unsigned arity = 1;
+  template <Domain D>
+  static constexpr typename D::Truth apply(const D &d, typename D::Value length) {
+    return nonempty(d, length);
+  }
+};
+
+struct Finite {
+  static constexpr unsigned arity = 1;
+  template <Domain D>
+  static constexpr typename D::Truth apply(const D &d, typename D::Value bits) {
+    return finite(d, bits);
   }
 };
 

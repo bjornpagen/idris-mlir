@@ -201,8 +201,7 @@ readsTableOrCrashes = Executes [OnState Read RuntimeState, OnState Write Crash] 
 
 ||| What a guard's condition is: one of the numeric template's conditions,
 ||| or the guard's own code, where the condition is no integer arithmetic
-||| (a string's emptiness, a Double's finiteness, what the handle table
-||| holds).
+||| (what the handle table holds).
 data GuardMeaning = OfTemplate GuardCondition | OwnCode
 
 guardMeaning : GuardMeaning -> Meaning i o
@@ -275,17 +274,20 @@ inBoundsOp = guardOp "check.in_bounds"
   [Declares InferIntRange ["inferResultRangesFromOptional"]]
   (says "the index, which must be at least 0 and below the length of what it indexes, else the program crashes")
 
-||| A string, which must have a byte at least. Its result is its operand,
-||| whose reference it hands on.
+||| A string, which must have a byte at least: its length, the runtime's
+||| count of its characters, is not zero. Its result is its operand, whose
+||| reference it hands on.
 public export
 nonemptyOp : Op 1 1 2 0
-nonemptyOp = guardOp "check.nonempty" [single "str" strValue] OwnCode endsByCrash []
+nonemptyOp = guardOp "check.nonempty" [single "str" strValue] (OfTemplate LengthNonzero) endsByCrash []
   [Implements flowInterface ["getFlowEdges"]]
   (says "the string, which must have at least one byte, else the program crashes")
 
+||| A Double, which must be neither NaN nor infinite: the condition is over
+||| its bits, whose exponent field must not be all set.
 public export
 finiteOp : Op 1 1 2 0
-finiteOp = guardOp "check.finite" [single "value" f64] OwnCode endsByCrash [] []
+finiteOp = guardOp "check.finite" [single "value" f64] (OfTemplate BitsFinite) endsByCrash [] []
   (says "the value, which must be neither NaN nor infinite, else the program crashes")
 
 ||| The bytes [offset, offset + count) of something of `size` bytes: both
