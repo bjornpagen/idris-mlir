@@ -30,10 +30,12 @@ import IdrisMLIR.Proof.Template
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Spec.Core.Rules
 
+import Control.Relation
 import Data.Fin
 import Data.List
 import Data.List1
 import Data.Maybe
+import Data.Nat
 import Data.SortedMap
 import Data.String
 import Data.Vect
@@ -44,60 +46,222 @@ import Data.Vect
 -- The bounds
 ------------------------------------------------------------------------------
 
-||| What the potential the check found bounds: each node's position, which
-||| the worklist checks an instance of a definition's static arguments
-||| against, and the application's, by parameter, which bound a member at
-||| a use's link (`Translate.State.AtUse`).
-record Limits where
-  constructor MkLimits
-  atNodes : SortedMap Position Nat
-  atApplication : SortedMap Nat Nat
-
-||| Each position's bound under the potential the check found (`bound`), in
-||| one pass over the places positions were first met at, each position
-||| once. A field's position bounds what field reads write, and a choice's
-||| what its dispatches read, never a request, so no request's position is
-||| either.
-boundsOf : (b : Built) -> Vect b.graph.size Nat -> Limits
-boundsOf b pot = foldl at (MkLimits empty empty) b.firsts
+||| Each node's position's bound under the potential the check found
+||| (`bound`), in one pass over the places positions were first met at,
+||| each position once: what the worklist checks an instance of a
+||| definition's static arguments against. A member at a use is checked
+||| by its link alone, and a field's, a choice's and the held values'
+||| positions bound what reads of them write, never a request.
+boundsOf : (b : Built) -> Vect b.graph.size Nat -> SortedMap Position Nat
+boundsOf b pot = foldl at empty b.firsts
   where
-    at : Limits -> Fin b.graph.size -> Limits
-    at acc f =
-      let h = capped b.graph.constant (index f pot) (index f b.graph.caps) in
-      case index f b.position of
-        OfParameter (OfNode node) i => { atNodes $= insert (node, i) h } acc
-        OfParameter OfApplication i => { atApplication $= insert i h } acc
-        OfField _ _ => acc
-        OfChoice _ => acc
+    at : SortedMap Position Nat -> Fin b.graph.size -> SortedMap Position Nat
+    at acc f = case index f b.position of
+      OfParameter (OfNode node) i => insert (node, i) (bound b.graph pot f) acc
+      OfParameter OfApplication _ => acc
+      OfField _ _ => acc
+      OfChoice _ => acc
+      OfHeld _ => acc
 
-||| Heights by parameter from `next` on, from the height of each parameter
-||| that has one, ascending: a parameter with none is 0, which keys nothing.
-byParameter : (next : Nat) -> List (Nat, Nat) -> List Nat
-byParameter next [] = []
-byParameter next ((j, h) :: rest) = replicate (minus j next) 0 ++ h :: byParameter (S j) rest
+||| The height of parameter i in a list of heights, as the universe pads
+||| them (`Proof.Requests.padded`): 0 past the list's end, which keys
+||| nothing.
+public export
+parameterHeight : List Nat -> Nat -> Nat
+parameterHeight [] _ = 0
+parameterHeight (h :: _) Z = h
+parameterHeight (_ :: hs) (S i) = parameterHeight hs i
 
-||| Each definition's heights by parameter: the largest bound of each of its
-||| parameters over the nodes it is split into.
-heights : SortedMap Position Nat -> SortedMap Address (List Nat)
-heights bs =
-  let largest = fromListWith max [((node.definition, j), h) | ((node, j), h) <- SortedMap.toList bs] in
-  map (byParameter 0) (fromListWith (\new, old => old ++ new)
-                               [(a, the (List (Nat, Nat)) [(j, h)]) | ((a, j), h) <- SortedMap.toList largest])
+-- A list of heights with parameter i's raised to at least x.
+raiseList : Nat -> Nat -> List Nat -> List Nat
+raiseList Z x [] = [x]
+raiseList Z x (h :: hs) = maximum h x :: hs
+raiseList (S i) x [] = 0 :: raiseList i x []
+raiseList (S i) x (h :: hs) = h :: raiseList i x hs
 
-||| The universe the worklist descends in, read from the bounds alone, the
-||| one reading of each: each definition's heights (`heights`), and the
-||| application's, its positions' bounds by parameter, with the graph's
-||| arity, heaviest token and breadth. No size is computed: the worklist
-||| decides each link's sizes against these heights
-||| (`Proof.Requests.within`).
-sizesOf : Built -> Limits -> Bounds
-sizesOf b bs =
-  let table = heights bs.atNodes
-      application = byParameter 0 (SortedMap.toList bs.atApplication)
-      heightAt : Head -> List Nat
-      heightAt (ADefinition a) = fromMaybe [] (lookup a table)
-      heightAt AnApplication = application
-  in MkBounds heightAt b.arity b.heaviest b.breadth
+0 raisedHere : (i, x : Nat) -> (hs : List Nat) -> LTE x (parameterHeight (raiseList i x hs) i)
+raisedHere Z x [] = lteRefl
+raisedHere Z x (h :: hs) = maximumRightUpperBound h x
+raisedHere (S i) x [] = raisedHere i x []
+raisedHere (S i) x (h :: hs) = raisedHere i x hs
+
+0 raisedKeeps : (i, x : Nat) -> (hs : List Nat) -> (j : Nat) -> LTE (parameterHeight hs j) (parameterHeight (raiseList i x hs) j)
+raisedKeeps i x [] j = LTEZero
+raisedKeeps Z x (h :: hs) Z = maximumLeftUpperBound h x
+raisedKeeps Z x (h :: hs) (S j) = lteRefl
+raisedKeeps (S i) x (h :: hs) Z = lteRefl
+raisedKeeps (S i) x (h :: hs) (S j) = raisedKeeps i x hs j
+
+||| What the universe heads a request at a holder of positions by: a
+||| node's definition, or the application at a use.
+public export
+headOf : Holder -> Head
+headOf (OfNode node) = ADefinition node.definition
+headOf OfApplication = AnApplication
+
+-- The heights an entry gives, if it is the head's; else what the rest
+-- gives.
+heightsHere : Decided p -> List Nat -> List Nat -> List Nat
+heightsHere (Yes _) hs later = hs
+heightsHere (No _) hs later = later
+
+||| The heights a table gives a head by parameter: its entry's, none where
+||| it has none.
+public export
+heightsIn : List (Head, List Nat) -> Head -> List Nat
+heightsIn [] g = []
+heightsIn ((h, hs) :: rest) g = heightsHere (decideHead g h) hs (heightsIn rest g)
+
+-- An entry raised, if it is the head's; else the rest raised.
+raiseHere : Decided p -> Head -> List Nat -> Nat -> Nat -> Lazy (List (Head, List Nat)) -> List (Head, List Nat) ->
+            List (Head, List Nat)
+raiseHere (Yes _) h hs i x raisedRest rest = (h, raiseList i x hs) :: rest
+raiseHere (No _) h hs i x raisedRest rest = (h, hs) :: Force raisedRest
+
+-- A table with a head's parameter i raised to at least x.
+raiseAt : Head -> Nat -> Nat -> List (Head, List Nat) -> List (Head, List Nat)
+raiseAt g i x [] = [(g, raiseList i x [])]
+raiseAt g i x ((h, hs) :: rest) = raiseHere (decideHead g h) h hs i x (raiseAt g i x rest) rest
+
+0 lookView : (d : Decided (g = h)) -> (hs, hs', later, later' : List Nat) ->
+             Either (g = h, heightsHere d hs later = hs, heightsHere d hs' later' = hs')
+                    (Not (g = h), heightsHere d hs later = later, heightsHere d hs' later' = later')
+lookView (Yes same) hs hs' later later' = Left (same, Refl, Refl)
+lookView (No other) hs hs' later later' = Right (other, Refl, Refl)
+
+0 raiseView : (d : Decided (g = h)) -> (hs : List Nat) -> (i, x : Nat) -> (r : Lazy (List (Head, List Nat))) ->
+              (rest : List (Head, List Nat)) ->
+              Either (g = h, raiseHere d h hs i x r rest = (h, raiseList i x hs) :: rest)
+                     (Not (g = h), raiseHere d h hs i x r rest = (h, hs) :: Force r)
+raiseView (Yes same) hs i x r rest = Left (same, Refl)
+raiseView (No other) hs i x r rest = Right (other, Refl)
+
+0 lteToEq : b = c -> LTE a b -> LTE a c
+lteToEq Refl le = le
+
+0 lteOfEq : a = b -> LTE b c -> LTE a c
+lteOfEq Refl le = le
+
+-- The parameter a table is raised at is at least that high there.
+0 heightsRaised : (g : Head) -> (i, x : Nat) -> (table : List (Head, List Nat)) ->
+                  LTE x (parameterHeight (heightsIn (raiseAt g i x table) g) i)
+heightsRaised g i x [] = case lookView (decideHead g g) (raiseList i x []) (raiseList i x []) [] [] of
+  Left (_, found, _) => lteToEq (sym (cong (\l => parameterHeight l i) found)) (raisedHere i x [])
+  Right (other, _, _) => void (other Refl)
+heightsRaised g i x ((h, hs) :: rest) =
+  case raiseView (decideHead g h) hs i x (raiseAt g i x rest) rest of
+    Left (same, raised) =>
+      case lookView (decideHead g h) (raiseList i x hs) hs (heightsIn rest g) (heightsIn rest g) of
+        Left (_, found, _) =>
+          lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb g) i) raised) (cong (\l => parameterHeight l i) found)))
+                  (raisedHere i x hs)
+        Right (other, _, _) => void (other same)
+    Right (other, raised) =>
+      case lookView (decideHead g h) hs hs (heightsIn (raiseAt g i x rest) g) (heightsIn rest g) of
+        Left (same, _, _) => void (other same)
+        Right (_, found, _) =>
+          lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb g) i) raised) (cong (\l => parameterHeight l i) found)))
+                  (heightsRaised g i x rest)
+
+-- Raising a table lowers no head's height anywhere.
+0 heightsKeep : (g, k : Head) -> (i, x, j : Nat) -> (table : List (Head, List Nat)) ->
+                LTE (parameterHeight (heightsIn table k) j) (parameterHeight (heightsIn (raiseAt g i x table) k) j)
+heightsKeep g k i x j [] = LTEZero
+heightsKeep g k i x j ((h, hs) :: rest) =
+  case raiseView (decideHead g h) hs i x (raiseAt g i x rest) rest of
+    Left (_, raised) =>
+      case lookView (decideHead k h) hs (raiseList i x hs) (heightsIn rest k) (heightsIn rest k) of
+        Left (_, before, after) =>
+          lteOfEq (cong (\l => parameterHeight l j) before)
+            (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))
+                     (raisedKeeps i x hs j))
+        Right (_, before, after) =>
+          lteOfEq (cong (\l => parameterHeight l j) before)
+            (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))
+                     lteRefl)
+    Right (_, raised) =>
+      case lookView (decideHead k h) hs hs (heightsIn rest k) (heightsIn (raiseAt g i x rest) k) of
+        Left (_, before, after) =>
+          lteOfEq (cong (\l => parameterHeight l j) before)
+            (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))
+                     lteRefl)
+        Right (_, before, after) =>
+          lteOfEq (cong (\l => parameterHeight l j) before)
+            (lteToEq (sym (trans (cong (\tb => parameterHeight (heightsIn tb k) j) raised) (cong (\l => parameterHeight l j) after)))
+                     (heightsKeep g k i x j rest))
+
+||| A position's bound placed within a table of heights: a parameter's
+||| position within its head's height at that parameter; any other
+||| position, which no request lands at, has nothing to place.
+public export
+0 PlacedIn : List (Head, List Nat) -> Nat -> Spot -> Type
+PlacedIn table h (OfParameter holder i) = LTE h (parameterHeight (heightsIn table (headOf holder)) i)
+PlacedIn table h _ = ()
+
+0 keepPlaced : {g : Head} -> {i, x : Nat} -> {table : List (Head, List Nat)} ->
+               (spot : Spot) -> PlacedIn table h spot -> PlacedIn (raiseAt g i x table) h spot
+keepPlaced (OfParameter holder j) le = transitive le (heightsKeep g (headOf holder) i x j table)
+keepPlaced (OfField _ _) u = u
+keepPlaced (OfChoice _) u = u
+keepPlaced (OfHeld _) u = u
+
+-- A table raised where a position is a parameter's: that position placed,
+-- every position placed before kept.
+record Raised (table : List (Head, List Nat)) (h : Nat) (spot : Spot) where
+  constructor MkRaised
+  raised : List (Head, List Nat)
+  0 here : PlacedIn raised h spot
+  0 kept : (spot' : Spot) -> (h' : Nat) -> PlacedIn table h' spot' -> PlacedIn raised h' spot'
+
+raiseFor : (spot : Spot) -> (h : Nat) -> (table : List (Head, List Nat)) -> Raised table h spot
+raiseFor (OfParameter holder i) h table =
+  MkRaised (raiseAt (headOf holder) i h table) (heightsRaised (headOf holder) i h table)
+           (\spot', h', placed => keepPlaced {g = headOf holder} {i} {x = h} {table} spot' placed)
+raiseFor (OfField _ _) h table = MkRaised table () (\_, _, placed => placed)
+raiseFor (OfChoice _) h table = MkRaised table () (\_, _, placed => placed)
+raiseFor (OfHeld _) h table = MkRaised table () (\_, _, placed => placed)
+
+||| Each head's heights by parameter over some positions: the largest bound
+||| of each of its parameters over the positions it holds, a node's in its
+||| definition's, the application's in the application's; with the evidence
+||| that each of the positions is within its parameter's height there.
+record Placing (b : Built) (pot : Vect b.graph.size Nat) (fs : List (Fin b.graph.size)) where
+  constructor MkPlacing
+  table : List (Head, List Nat)
+  0 placed : All (\f => PlacedIn table (bound b.graph pot f) (index f b.position)) fs
+
+0 keptAll : (r : Raised table h spot) -> All (\f => PlacedIn table (bound g pot f) (index f position)) fs ->
+            All (\f => PlacedIn r.raised (bound g pot f) (index f position)) fs
+keptAll r [] = []
+keptAll r (p :: ps) = r.kept _ _ p :: keptAll r ps
+
+-- The positions placed one at a time, the last first.
+heightsFrom : (b : Built) -> (pot : Vect b.graph.size Nat) -> (fs : List (Fin b.graph.size)) -> Placing b pot fs
+heightsFrom b pot [] = MkPlacing [] []
+heightsFrom b pot (f :: fs) =
+  let MkPlacing table placed = heightsFrom b pot fs
+      r = raiseFor (index f b.position) (bound b.graph pot f) table in
+  MkPlacing r.raised (r.here :: keptAll r placed)
+
+||| Each head's heights by parameter, over every position first met.
+heightsOf : (b : Built) -> (pot : Vect b.graph.size Nat) -> Placing b pot b.firsts
+heightsOf b pot = heightsFrom b pot b.firsts
+
+||| Every position is within its parameter's height in the universe: a
+||| request whose argument lands at a parameter's position, and is within
+||| that position's bound, is within the height the universe gives the
+||| parameter of the request's head.
+export
+0 positionWithin : (placing : Placing b pot b.firsts) -> Elem f b.firsts -> index f b.position = OfParameter holder i ->
+                   LTE (bound b.graph pot f) (parameterHeight (heightsIn placing.table (headOf holder)) i)
+positionWithin placing el spotted = replace {p = PlacedIn placing.table (bound b.graph pot f)} spotted (indexAll el placing.placed)
+
+||| The universe the worklist descends in, read from the bounds alone: each
+||| head's heights (`heightsOf`), with the graph's arity, heaviest token
+||| and breadth. No size is computed: the worklist decides each link's
+||| sizes against these heights (`Proof.Requests.within`).
+sizesOf : (b : Built) -> Placing b pot b.firsts -> Bounds
+sizesOf b placing = MkBounds (heightsIn placing.table) b.arity b.heaviest b.breadth
 
 ------------------------------------------------------------------------------
 -- Names and places
@@ -163,6 +327,7 @@ holderText fc (OfChoice (InterfaceHead j)) =
 holderText fc (OfChoice ArrowHead) = pure "the polymorphic functions the running program chooses"
 holderText fc (OfChoice UnshownHead) =
   pure "the members the running program chooses of a choice whose type only an instance shows"
+holderText fc (OfHeld _) = pure "the values a dictionary holds"
 
 ||| The definition of the program's own source that holds a position, with
 ||| where it is: nothing for a library's or a generated one, or for the
@@ -173,6 +338,7 @@ userHolder fc (OfParameter (OfNode node) _) = userDefinition fc node.definition
 userHolder fc (OfParameter OfApplication _) = pure Nothing
 userHolder fc (OfField j _) = userDefinition fc j
 userHolder fc (OfChoice _) = pure Nothing
+userHolder fc (OfHeld _) = pure Nothing
 
 ||| The first user definition among a node's reachers on the walk from
 ||| main, nearest first; nothing when main is reached with none.
@@ -214,15 +380,17 @@ located fc main b first candidates = do
 ||| writer, which the writer's text binds; position i of anything else,
 ||| which the writer's text does not bind: of an implementation an applied
 ||| family gives (the projection rule); an implementation's field k, which
-||| a field read takes its value from; or a choice, which a member read
-||| takes its value from.
-data Source = Binds Nat | Projects Nat | ReadsField Nat | ReadsChoice ChoiceHead
+||| a field read takes its value from; a choice, which a member read takes
+||| its value from; or the values a dictionary holds, whose types a pair
+||| that packs them reads.
+data Source = Binds Nat | Projects Nat | ReadsField Nat | ReadsChoice ChoiceHead | ReadsHeld
 
 ||| A position as what holds it reads it, its own.
 ownSource : Spot -> Source
 ownSource (OfParameter _ i) = Binds i
 ownSource (OfField _ k) = ReadsField k
 ownSource (OfChoice k) = ReadsChoice k
+ownSource (OfHeld _) = ReadsHeld
 
 sourceFor : (writer : Address) -> Spot -> Source
 sourceFor writer (OfParameter (OfNode node) i) = if sameAddress node.definition writer then Binds i else Projects i
@@ -252,6 +420,7 @@ subjectAt fc _ (OfParameter OfApplication i) =
   pure ("argument " ++ show (S i) ++ " of the application of a polymorphic function at its use")
 subjectAt fc _ spot@(OfField _ _) = holderText fc spot
 subjectAt fc _ spot@(OfChoice _) = holderText fc spot
+subjectAt fc _ spot@(OfHeld _) = holderText fc spot
 
 ||| Does a position belong to a data type, which grows through its fields
 ||| where a function grows through its calls?
@@ -268,7 +437,9 @@ ofDataType fc _ = pure False
 ||| implementation when it is projected, a read of that field when it is a
 ||| field's position, a member read from that choice's position when it is
 ||| a choice's: the choice's own, the unshown head's, which every member is
-||| read from, and every one for a member whose head is unshown.
+||| read from, and every one for a member whose head is unshown; and, for
+||| the values a dictionary holds, each held type a packing writes, every
+||| one of whose variables is read there.
 carries : Source -> Template -> Bool
 carries (Binds i) (Template.Var j _) = i == j
 carries (Projects _) (Template.Applied _ _ _) = True
@@ -276,6 +447,7 @@ carries (ReadsField k) (Template.Field k' _) = k == k'
 carries (ReadsChoice UnshownHead) (Template.Member _) = True
 carries (ReadsChoice _) (Template.Member UnshownHead) = True
 carries (ReadsChoice k) (Template.Member k') = k == k'
+carries ReadsHeld (Template.Var _ _) = True
 carries _ _ = False
 
 mutual
@@ -371,6 +543,11 @@ refuseCycle fc main b ring growth = do
     InField _ k _ => do
       x <- subjectAt fc (ownSource spot) spot
       pure (sourceName ++ " places " ++ x ++ " in its field " ++ show k ++ grows)
+    -- A pair that packs held values: a held dictionary wrapped into
+    -- another, so that each call wraps it deeper.
+    PacksHeld _ => do
+      x <- subjectAt fc (ownSource spot) spot
+      pure (target ++ " packs " ++ x ++ " as one held value" ++ grows)
   reject place.at place.owner Polymorphism text
   where
     spotOf : Fin b.graph.size -> Spot
@@ -386,14 +563,15 @@ refuseOpaque fc main b a = do
   let spot = index src b.position
   let target = index to b.position
   -- Essential while an arc's label is not tied to what made it: a leading
-  -- arc is Measured, so only an argument's or a field's template is
-  -- Unmeasured; a field's writer is the implementation, which writes it
-  -- in its own text.
+  -- arc and a held packing are Measured, so only an argument's or a
+  -- field's template is Unmeasured; a field's writer is the
+  -- implementation, which writes it in its own text.
   (writer, home, written, source) <- the (Front (Address, Address, Template, Source)) $
     case index a b.wrote of
       FromArgument site argument => pure (site.writer, site.within, argument.template, sourceOf site spot)
       InField j _ t => pure (j, j, t, sourceFor j spot)
       ThroughMethod => internal fc "an arc no argument wrote as a type-level recursion"
+      PacksHeld _ => internal fc "a held packing as a type-level recursion"
   ((), place) <- located fc main b spot (((), spot) ::: [((), target)])
   let Just computation = computationThrough (carries source) written
     | Nothing => internal fc "an opaque arc whose template holds no type-level computation"
@@ -438,8 +616,7 @@ checkGrowth fc main = do
     | Nothing => pure False
   case check b.graph of
     Bounded pot _ => do
-      let bs = boundsOf b pot
-      updateState { bounds := bs.atNodes, sizes := sizesOf b bs }
+      updateState { bounds := boundsOf b pot, sizes := sizesOf b (heightsOf b pot) }
       pure True
     Grows causes => do
       for_ (forget causes) $ \cause => noted (refuse fc main b cause)

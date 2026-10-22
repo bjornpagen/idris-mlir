@@ -454,16 +454,15 @@ started b = extensionsEnd (Universe forms addresses b) id [] [] [] (wellFounded 
 ||| The growth check's bound on each argument a data instance is keyed by,
 ||| at its type constructor's node (`MkNode t []`), checked where the
 ||| instance is registered, on the arguments as the key holds them (its
-||| `statics`, nothing where it holds none). A position given no bound, or
-||| an argument above its bound, is a flow the check missed: the
-||| compiler's error, never the program's.
+||| `statics`, read as an instance's are, nothing where it holds none). A
+||| position given no bound, or an argument above its bound, is a flow the
+||| check missed: the compiler's error, never the program's.
 boundsHold : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> Address -> (statics : List (Maybe ClosedTerm)) -> Front ()
+             FC -> String -> Address -> (statics : List (Maybe StaticReading)) -> Front ()
 boundsHold fc what t statics = do
   st <- getState
-  for_ (mapMaybe (\(j, a) => (j,) <$> a) (zip (iterateN (length statics) S 0) statics)) $ \(j, a) => do
-    (h, _) <- closedHeight AType a
-    heightWithin fc what st.bounds (MkNode t [], j) h
+  for_ (mapMaybe (\(j, a) => (j,) <$> a) (zip (iterateN (length statics) S 0) statics)) $ \(j, r) =>
+    heightWithin fc what st.bounds (MkNode t [], j) r.height
 
 ||| What is known of an erased index, from its normal form: a constructor
 ||| binder's stand-in (`marker`) is that binder's level; a chain of
@@ -710,9 +709,13 @@ mutual
                                  if inKey r then argumentKey fc owner r !(canonicalTypeArg a)
                                             else pure (Erased EmptyFC Placeholder))
                      (zip positions args0)
-    let statics = map (\(i, a) => if inKey (roleAt i roles) then Just a else Nothing) (zip positions args)
+    -- Each argument the key holds is read once, as an instance's static
+    -- argument is (`Template.staticReading`), and the link writes its
+    -- reading's form: the form the growth check's sites read.
+    statics <- traverse (\(i, a) => if inKey (roleAt i roles) then Just <$> staticReading AType a else pure Nothing)
+                        (zip positions args)
     indices <- traverse indexTerm (map snd (filter (\(i, _) => not (inKey (roleAt i roles))) (zip positions args0)))
-    (address, found) <- instanceKey fc owner (fullname def) id statics
+    (address, found) <- instanceKey fc owner (fullname def) (.form) statics
     st <- getState
     case lookupFact (.familyIds) found.link st of
       Just fam => pure (fam, DataT fam indices)

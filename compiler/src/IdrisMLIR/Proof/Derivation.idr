@@ -9,7 +9,8 @@
 ||| that requests writes where the site's template reads. Its written key
 ||| weighs at most what `sizeWithin` lets a key as high as the reading
 ||| weigh, at the universe's arity and heaviest token (`ArgumentDerivation`,
-||| which `Keys.writtenWithin` gives from the key's tree). Where the universe
+||| which `Template.keyedWithin` gives from the argument's instance reading,
+||| whose template is never smaller than the key its link writes). Where the universe
 ||| bounds the parameter at least as high as the position's bound
 ||| (`ArgumentWithin`), Theorem 1 (`Proof.Bound.bounded`) and the growth of
 ||| `sizeWithin` (`Proof.Sizes.sizeWithinMono`) place the argument within
@@ -23,7 +24,7 @@
 ||| parameter, its field the running program chose fixed to a member, is
 ||| written by a site whose template reads that field as a member of the
 ||| choice (`Member`), which the place that made the member wrote at the
-||| choice's positions.
+||| choice's positions, its holes renumbered as the arm holds them.
 |||
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Derivation
@@ -185,26 +186,30 @@ sitePlaced p v written keyed under = Keyed (MkArgumentDerivation p v (siteGives 
 ||| the callee's instance given, at the dispatched parameter, the
 ||| implementation with the field the running program chose fixed to a
 ||| member of that field's choice, of head k: read there, `argument`, at the
-||| arm's position there, `arm`; the member read alone, `member`. Wherever
-||| the place that made the member wrote it, at one of the choice's
-||| positions, a site into the arm's position writes the arm's argument:
-||| the site's template reads the field as a member of the choice (`Member
-||| k`), which `Writes.AtMember` reads from that position, and every other
-||| part as the implementation is written.
+||| arm's position there, `arm`; the member as the arm holds it, `member`,
+||| its holes renumbered after the ones the arm holds already. Wherever the
+||| place that made the member wrote it, at one of the choice's positions,
+||| as it made it (`made'`), a site into the arm's position writes the
+||| arm's argument: the site's template reads the field as a member of the
+||| choice (`Member k`), which `Writes.AtMember` reads from that position up
+||| to the renumbering, and every other part as the implementation is
+||| written.
 public export
 0 HeldArmWritten : {g : Graph} -> Model g -> ChoiceHead -> (arm : Fin g.size) -> (member, argument : Template) -> Type
 HeldArmWritten {g} m k arm member argument =
-  (made : Fin g.size) -> Elem made (m.choicePositions k) -> InV m made member -> SiteWrites m arm argument
+  (made : Fin g.size) -> Elem made (m.choicePositions k) -> (made' : Template) -> InV m made made' ->
+  Renumbered made' member -> SiteWrites m arm argument
 
-||| A held dispatch's arm, placed: the member is a value of V where it was
-||| made, its sites then write the arm's argument, and that is placed as
-||| every other request's is.
+||| A held dispatch's arm, placed: the member, as it was made, is a value of
+||| V where it was made, its sites then write the arm's argument, and that
+||| is placed as every other request's is.
 export
 0 heldArmPlaced : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {b : Bounds} -> {0 w : Written form} ->
                   (k : ChoiceHead) -> (arm : Fin g.size) -> (member, argument : Template) ->
                   HeldArmWritten m k arm member argument ->
-                  (made : Fin g.size) -> Elem made (m.choicePositions k) -> InV m made member ->
+                  (made : Fin g.size) -> Elem made (m.choicePositions k) -> (made' : Template) -> InV m made made' ->
+                  Renumbered made' member ->
                   LTE w.size (sizeWithin b.arity (height argument) b.heaviest) -> LTE (bound g pot arm) h ->
                   ArgumentWithin m pot b (Just w) h
-heldArmPlaced k arm member argument held made madeAt memberIn keyed under =
-  sitePlaced arm argument (held made madeAt memberIn) keyed under
+heldArmPlaced k arm member argument held made madeAt made' memberIn again keyed under =
+  sitePlaced arm argument (held made madeAt made' memberIn again) keyed under

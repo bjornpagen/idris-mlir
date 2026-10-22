@@ -699,7 +699,7 @@ nodesWithin arity (S h) = 1 + arity * nodesWithin arity h
 ||| The most a static argument weighs written when it is no higher than
 ||| `height`, no node of it has more than `arity` children and no literal
 ||| or hole token weighs more than `heaviest`, its tree read as its key
-||| writes it (`Template.closedHeight`):
+||| writes it (`Template.readInstance`, `Template.keyedWithin`):
 ||| (2 * height + heaviest) * sum [max 1 arity ^ k | k < height].
 ||| Level k of such a tree has at most (max 1 arity)^k nodes, so it has at
 ||| most `nodesWithin (max 1 arity) height` of them, a lone leaf counted

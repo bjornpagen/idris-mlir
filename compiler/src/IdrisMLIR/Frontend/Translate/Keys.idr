@@ -99,7 +99,7 @@ keyOrigin n = do
 ||| What writing a term and printing it read beside it: the context, which
 ||| gives each name its address, and the roles of the constructors of
 ||| `Nat`-like types the term names (`rolesIn`), by address.
-export
+public export
 record Writer where
   constructor MkWriter
   context : Context
@@ -155,29 +155,55 @@ dropsWidth c = case constantLit c of
   Just (LBig _) => True
   _ => False
 
+||| A chain of data constructors each applied to the next, n of them,
+||| ending in one applied to nothing: the shape of a run of successors down
+||| to a zero, which the key writes a node per constructor of
+||| (`keyTree`), whatever roles the constructors have.
+public export
+data Run : TT vs -> Nat -> Type where
+  RunZero : Run (Ref fc (DataCon tag arity) z) 0
+  RunSucc : Run a k -> Run (App fc (Ref rfc (DataCon tag arity) s) a) (S k)
+
+||| How many of a successor a term is a run of down to its zero, the zero,
+||| and the run.
+record Down {0 vs : Scope} (t : TT vs) where
+  constructor MkDown
+  count : Nat
+  zero : Name
+  0 run : Run t count
+
 ||| How many of the successor `s` a term is a run of down to a zero, and
 ||| the zero, if the run ends in one. A run is of one successor, as
-||| `write`'s is, since its print names the successor once.
-toZero : Writer -> Address -> TT vs -> Maybe (Nat, Name)
-toZero w s t@(Ref _ _ z) = case roleOf w t of
-  Just (_, Zero) => Just (0, z)
+||| `write`'s is, since its print names the successor once. Only a data
+||| constructor has a role (`roleOf`), so only one is a step of a run.
+toZero : Writer -> Address -> (t : TT vs) -> Maybe (Down t)
+toZero w s t@(Ref _ (DataCon _ _) z) = case roleOf w t of
+  Just (_, Zero) => Just (MkDown 0 z RunZero)
   _ => Nothing
-toZero w s (App _ f a) = case successorOf w f of
-  Just s' => if sameAddress s s' then (\(k, z) => (S k, z)) <$> toZero w s a else Nothing
+toZero w s (App _ f@(Ref _ (DataCon _ _) _) a) = case successorOf w f of
+  Just s' => if sameAddress s s' then (\d => MkDown (S d.count) d.zero (RunSucc d.run)) <$> toZero w s a else Nothing
   Nothing => Nothing
 toZero w s _ = Nothing
 
 ||| A run of one successor down to a zero, as the writer knows them: the
 ||| successor applied n >= 1 times, the same at each step, to a zero of its
-||| type, as n, the successor and the zero. The one reading of such a run:
-||| the key prints it as a literal (`literalOf`), and the growth check
-||| reads its height (`Template`).
+||| type, as n, the successor, the zero and the run. The one reading of
+||| such a run: the key prints it as a literal (`literalOf`), and the
+||| growth check reads its height (`Template`).
+public export
+record SuccessorRun {0 vs : Scope} (t : TT vs) where
+  constructor MkSuccessorRun
+  count : Nat
+  successor : Name
+  zero : Name
+  0 run : Run t count
+
 export
-successorRun : Writer -> TT vs -> Maybe (Nat, Name, Name)
-successorRun w (App _ f@(Ref _ _ s) a) = do
+successorRun : Writer -> (t : TT vs) -> Maybe (SuccessorRun t)
+successorRun w (App _ f@(Ref _ (DataCon _ _) s) a) = do
   sa <- successorOf w f
-  (k, z) <- toZero w sa a
-  pure (S k, s, z)
+  d <- toZero w sa a
+  pure (MkSuccessorRun (S d.count) s d.zero (RunSucc d.run))
 successorRun w _ = Nothing
 
 ||| A run of a successor down to its zero (`successorRun`), as a literal of
@@ -187,8 +213,9 @@ successorRun w _ = Nothing
 ||| types' literals, whose successors are two names, print apart.
 literalOf : Writer -> TT vs -> Maybe (String, Bool)
 literalOf w t = do
-  (n, s, z) <- successorRun w t
-  pure (plainOrigin s ++ "^" ++ show n ++ " " ++ plainOrigin z, dropsName s || dropsName z)
+  r <- successorRun w t
+  pure (plainOrigin r.successor ++ "^" ++ show r.count ++ " " ++ plainOrigin r.zero,
+        dropsName r.successor || dropsName r.zero)
 
 mutual
   ||| A term at a depth of binders: a variable by its binder's depth, a
@@ -274,12 +301,14 @@ argumentText w tm = pure (render w 0 Alone !(fullNames tm))
 ------------------------------------------------------------------------------
 
 ||| A quantity by its number: 0, 1, many.
+export
 quantity : Use -> Fin 3
 quantity Erased = 0
 quantity (Used Once) = 1
 quantity (Used Many) = 2
 
 ||| A primitive type by its number.
+export
 primitive : PrimType -> Fin 14
 primitive IntType = 0
 primitive Int8Type = 1
@@ -296,26 +325,31 @@ primitive CharType = 11
 primitive DoubleType = 12
 primitive WorldType = 13
 
+public export
 node : Form -> Token Form
 node f = Node f Nothing 0
 
+export
 glyphOf : Char -> Glyph
 glyphOf c = let k = cast {to = Integer} (ord c) in (lowBits 11 (k `div` 1024), lowBits 10 k)
 
+export
 spellChars : List Char -> List (Token Form)
 spellChars [] = []
 spellChars (c :: cs) = node (Spelt (glyphOf c)) :: spellChars cs
 
+export
 spell : String -> List (Token Form)
 spell s = spellChars (unpack s)
 
+export
 integer : PrimType -> Integer -> List (Token Form)
 integer t v = [Number (IntegerLit (primitive t) (v < 0)) (integerToNat (abs v))]
 
 ||| A constant: an integer by its type, sign and magnitude, a string and a
 ||| double by their characters (a double's print tells doubles apart), a
 ||| character, a primitive type, the world.
-export
+public export
 writeConstant : Constant -> List (Token Form)
 writeConstant (I x) = integer IntType (cast x)
 writeConstant (I8 x) = integer Int8Type (cast x)
@@ -333,9 +367,19 @@ writeConstant (Db x) = node (Shaped Floating) :: spell (show x)
 writeConstant (PrT t) = [node (PrimitiveType (primitive t))]
 writeConstant WorldVal = [node (Shaped World)]
 
-||| A reference by what its name is (`markerOf`): a marker of a runtime
+||| The runtime value a reference marks, by its number, if it marks one: a
+||| marker is a bound name (`Closed.markerName`, `Walk.probeTerm`), so a
+||| reference to a constructor or a definition is what it names, whatever
+||| its name.
+public export
+holeAt : NameType -> Name -> Maybe Nat
+holeAt Bound n = markerOf n
+holeAt _ _ = Nothing
+
+||| A reference by what its name is (`holeAt`): a marker of a runtime
 ||| value an implementation closes over by its number, whose magnitude
 ||| weighs itself as a literal's does, and any other name by its address.
+public export
 referenceTo : Context -> Name -> Maybe Nat -> List (Token Form)
 referenceTo ctx n (Just i) = [Number (Shaped Marker) i]
 referenceTo ctx n Nothing = [Node (Shaped Reference) (definitionAddress ctx n) 0]
@@ -382,7 +426,7 @@ mutual
   ||| type's successor, a literal's above all (`Fin 1024`), is two symbols.
   write : Writer -> TT vs -> List (Token Form)
   write w (Local _ _ idx _) = [Node (Shaped Variable) Nothing idx]
-  write w (Ref _ _ n) = referenceTo w.context n (markerOf n)
+  write w (Ref _ nt n) = referenceTo w.context n (holeAt nt n)
   write w (Meta _ _ i args) = Node (Shaped Hole) (addressOf <$> placementOf i) (length args) :: writeAll w args
   write w (Bind _ _ b sc) = writeBinder w b ++ write w sc
   write w (App _ f a) = writeApplication w (successorOf w f) f a
@@ -425,7 +469,7 @@ mutual
   ||| kinds, in the order it writes them, before `acc`: every reference
   ||| but the frontend's own markers.
   namesOf : TT vs -> List (NameType, Name) -> List (NameType, Name)
-  namesOf (Ref _ nt n) acc = maybe ((nt, n) :: acc) (const acc) (markerOf n)
+  namesOf (Ref _ nt n) acc = maybe ((nt, n) :: acc) (const acc) (holeAt nt n)
   namesOf (Meta _ _ _ args) acc = namesOfAll args acc
   namesOf (Bind _ _ b sc) acc = namesOfBinder b (namesOf sc acc)
   namesOf (App _ f a) acc = namesOf f (namesOf a acc)
@@ -583,7 +627,7 @@ appliedWeighs w Nothing f a = LTESucc LTEZero
 mutual
   0 writeWeighs : (w : Writer) -> (t : TT vs) -> LTE 1 (weighs (write w t))
   writeWeighs w (Local _ _ _ _) = LTESucc LTEZero
-  writeWeighs w (Ref _ _ n) = referenceWeighs w.context n (markerOf n)
+  writeWeighs w (Ref _ nt n) = referenceWeighs w.context n (holeAt nt n)
   writeWeighs w (Meta _ _ _ _) = LTESucc LTEZero
   writeWeighs w (Bind _ _ b sc) =
     rewrite weighsAppend (writeBinder w b) (write w sc) in
@@ -647,7 +691,7 @@ argsWeigh w (t :: ts) =
 mutual
   0 writeFits : (w : Writer) -> (t : TT vs) -> All (Fits (weighs (write w t) + length vs)) (write w t)
   writeFits w (Local _ _ idx p) = [LTESucc (lteSuccLeft (varBelow p))]
-  writeFits w (Ref _ _ n) = referenceFits w.context n (markerOf n)
+  writeFits w (Ref _ nt n) = referenceFits w.context n (holeAt nt n)
   writeFits w (Meta _ _ _ args) =
     LTESucc (transitive (argsWeigh w args) (lteAddRight (weighs (writeAll w args))))
       :: fittingMore (lteSuccRight reflexive) (writeAllFits w args)
@@ -721,10 +765,12 @@ lteL Refl le = le
 0 lteR : y = y' -> LTE x y -> LTE x y'
 lteR Refl le = le
 
+public export
 0 glyphTrees : List Char -> List KeyTree
 glyphTrees [] = []
 glyphTrees (_ :: cs) = KeyNode 1 [] :: glyphTrees cs
 
+public export
 0 constantTree : Constant -> KeyTree
 constantTree (Str x) = KeyNode 1 (glyphTrees (unpack x))
 constantTree (Db x) = KeyNode 1 (glyphTrees (unpack (show x)))
@@ -733,10 +779,10 @@ constantTree c = KeyNode (weighs (writeConstant c)) []
 mutual
   ||| A term's key as a tree of its heads. Never computed: the proofs of
   ||| what a key weighs read it.
-  export
+  public export
   0 keyTree : Writer -> TT vs -> KeyTree
   keyTree w (Local _ _ _ _) = KeyNode 1 []
-  keyTree w (Ref _ _ n) = KeyNode (weighs (referenceTo w.context n (markerOf n))) []
+  keyTree w (Ref _ nt n) = KeyNode (weighs (referenceTo w.context n (holeAt nt n))) []
   keyTree w (Meta _ _ _ args) = KeyNode 1 (keyTrees w args)
   keyTree w (Bind _ _ b sc) = KeyNode 1 (keyTree w sc :: binderTrees w b)
   keyTree w (App _ f a) = addChild (keyTree w f) (keyTree w a)
@@ -750,10 +796,12 @@ mutual
   keyTree w (Erased _ (Dotted t)) = KeyNode 1 [keyTree w t]
   keyTree w (TType _ _) = KeyNode 1 []
 
+  public export
   0 keyTrees : Writer -> List (TT vs) -> List KeyTree
   keyTrees w [] = []
   keyTrees w (t :: ts) = keyTree w t :: keyTrees w ts
 
+  public export
   0 binderTrees : Writer -> TTBinder (TT vs) -> List KeyTree
   binderTrees w (Lam _ _ info _) = passingTrees w info
   binderTrees w (Let _ _ v ty) = [keyTree w v, keyTree w ty]
@@ -762,11 +810,23 @@ mutual
   binderTrees w (PLet _ _ v ty) = [keyTree w v, keyTree w ty]
   binderTrees w (PVTy _ _ ty) = [keyTree w ty]
 
+  public export
   0 passingTrees : Writer -> PiInfo (TT vs) -> List KeyTree
   passingTrees w Implicit = []
   passingTrees w Explicit = []
   passingTrees w AutoImplicit = []
   passingTrees w (DefImplicit t) = [keyTree w t]
+
+||| A bound reference marking runtime value i is one node, weighing its
+||| marker's token.
+export
+0 markerNode : (w : Writer) -> (fc : FC) -> (n : Name) -> markerOf n = Just i -> keyTree w (Ref fc Bound n) = KeyNode (S i + 0) []
+markerNode w fc n found = cong (\mo => KeyNode (weighs (referenceTo w.context n mo)) []) found
+
+||| A bound reference marking no runtime value is one node of weight one.
+export
+0 unmarkedNode : (w : Writer) -> (fc : FC) -> (n : Name) -> markerOf n = Nothing -> keyTree w (Ref fc Bound n) = KeyNode 1 []
+unmarkedNode w fc n none = cong (\mo => KeyNode (weighs (referenceTo w.context n mo)) []) none
 
 -- A leaf charges its own weight.
 0 leafWithin : (n : Nat) -> LTE n (keyWeight (KeyNode n []))
@@ -817,7 +877,7 @@ mutual
   -- What a term's key weighs is at most what its tree charges.
   0 writeWithinTree : (w : Writer) -> (t : TT vs) -> LTE (weighs (write w t)) (keyWeight (keyTree w t))
   writeWithinTree w (Local _ _ _ _) = reflexive
-  writeWithinTree w (Ref _ _ n) = leafWithin (weighs (referenceTo w.context n (markerOf n)))
+  writeWithinTree w (Ref _ nt n) = leafWithin (weighs (referenceTo w.context n (holeAt nt n)))
   writeWithinTree w (Meta _ _ _ args) = LTESucc (allWithinTrees w args)
   writeWithinTree w (Bind _ _ b sc) =
     lteL (sym (weighsAppend (writeBinder w b) (write w sc))) $
@@ -1019,23 +1079,27 @@ instanceAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              FC -> (what : String) -> Head -> (originOf : Front String) -> (term : a -> ClosedTerm) -> List (Maybe a) ->
              Front (Instance a)
 instanceAt fc what head originOf term given = do
-  resolved <- traverse (traverse (\x => (x,) <$> fullNames (term x))) given
-  let args' = map (map snd) resolved
+  let forms = map (map term) given
   defs <- getDefs
   -- A broken invariant: a compile-time argument is checked TT, every name
   -- of which the context holds, but the frontend's own markers, which are
-  -- written by their numbers (`markerOf`).
-  let Nothing = foldr (\a, rest => (a >>= unresolved (gamma defs)) <|> rest) Nothing args'
-    | Just stray => internal fc ("a compile-time argument of " ++ what ++ " names " ++ show stray ++
+  -- written by their numbers (`holeAt`).
+  let Nothing = foldr (\a, rest => (a >>= unresolved (gamma defs)) <|> rest) Nothing forms
+    | Just stray => internal fc ("a compile-time argument of " ++ what ++ " names " ++ show !(fullNames stray) ++
                                  ", which the context does not hold")
-  writer <- writerOf (catMaybes args')
-  let arguments = map (map (\(x, t) => (x, writtenOf writer t))) resolved
+  writer <- writerOf (catMaybes forms)
+  -- The link writes each argument as given, a name by the address it
+  -- resolves to, whichever spelling it has, so that the key a request's
+  -- reading bounds (`Template.keyedWithin`) is the one written; only the
+  -- print names each by its full name.
+  let arguments = map (map (\x => (x, writtenOf writer (term x)))) given
   let link = MkLink head (map (map snd) arguments)
   case lookupFact (.named) link !(getState) of
     Just (symbol, key) => pure (MkInstance link key symbol arguments)
     Nothing => do
       origin <- originOf
-      (printed, lost) <- keyed writer args'
+      shown <- traverse (traverse fullNames) forms
+      (printed, lost) <- keyed writer shown
       -- Whole only when the print keeps all of the identity and fits a
       -- symbol (keyText).
       let fits = length (utf8 (keyPrint origin printed)) <= symbolBytes

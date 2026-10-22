@@ -398,6 +398,50 @@ record Contraction {0 a : Type} (rel : a -> a -> Type) (x : a) where
   0 etaSteps : rel x etaForm
 
 ------------------------------------------------------------------------------
+-- No step
+------------------------------------------------------------------------------
+
+mutual
+  ||| Every term reduces to itself, under every evaluation: each node
+  ||| rebuilt from its parts by the congruence that steps under it, each
+  ||| part reduced to itself. A reading that takes a term as written (a
+  ||| dictionary, a shape a constructor heads) reads it off by no step.
+  export
+  0 reducesRefl : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (t : Term vs) -> Reduces ev ctx t t
+  reducesRefl (Local fc l idx p) = ALocal
+  reducesRefl (Ref fc nt n) = ARef
+  reducesRefl (Meta fc m i args) = AMeta (allReduceRefl args)
+  reducesRefl (Bind fc x b sc) = ABind (binderReducesRefl b) (reducesRefl sc)
+  reducesRefl (App fc f a) = AnApp (reducesRefl f) (reducesRefl a)
+  reducesRefl (As fc s n t) = AnAs (reducesRefl n) (reducesRefl t)
+  reducesRefl (TDelayed fc r t) = ADelayed (reducesRefl t)
+  reducesRefl (TDelay fc r ty a) = ADelay (reducesRefl ty) (reducesRefl a)
+  reducesRefl (TForce fc r t) = AForce (reducesRefl t)
+  reducesRefl (PrimVal fc c) = APrimVal
+  reducesRefl (Erased fc Placeholder) = AnErased APlaceholder
+  reducesRefl (Erased fc Impossible) = AnErased AnImpossible
+  reducesRefl (Erased fc (Dotted t)) = AnErased (ADotted (reducesRefl t))
+  reducesRefl (TType fc u) = AType
+
+  0 allReduceRefl : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (ts : List (Term vs)) -> AllReduce ev ctx ts ts
+  allReduceRefl [] = NoneLeft
+  allReduceRefl (t :: ts) = Each (reducesRefl t) (allReduceRefl ts)
+
+  0 binderReducesRefl : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (b : Binder (Term vs)) -> BinderReduces ev ctx b b
+  binderReducesRefl (Lam fc c p ty) = ALam (piReducesRefl p) (reducesRefl ty)
+  binderReducesRefl (Let fc c v ty) = ALet (reducesRefl v) (reducesRefl ty)
+  binderReducesRefl (Pi fc c p ty) = APi (piReducesRefl p) (reducesRefl ty)
+  binderReducesRefl (PVar fc c p ty) = APVar (piReducesRefl p) (reducesRefl ty)
+  binderReducesRefl (PLet fc c v ty) = APLet (reducesRefl v) (reducesRefl ty)
+  binderReducesRefl (PVTy fc c ty) = APVTy (reducesRefl ty)
+
+  0 piReducesRefl : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (p : PiInfo (Term vs)) -> PiReduces ev ctx p p
+  piReducesRefl Implicit = AnImplicit
+  piReducesRefl Explicit = AnExplicit
+  piReducesRefl AutoImplicit = AnAutoImplicit
+  piReducesRefl (DefImplicit t) = ADefImplicit (reducesRefl t)
+
+------------------------------------------------------------------------------
 -- Readings
 ------------------------------------------------------------------------------
 

@@ -38,8 +38,10 @@ import Data.SortedSet
 
 %default total
 
--- Each static argument of a request read as the growth check reads a
--- site's (`Template.closedHeight`), by parameter index: its height, and
+-- Each static argument of a request read once, as an instance's reading
+-- reads it (`Template.staticReading`), by parameter index: the form its
+-- link writes, which is the form a site's reading of the same kind reads,
+-- so that one family is one key whatever stands for it; its height; and
 -- the head that splits the request's node: the implementation at the root
 -- of each static implementation the call gives, and the type constructor
 -- at the head of each family it gives. A type argument has a type
@@ -47,35 +49,17 @@ import Data.SortedSet
 -- it takes, which only a family's value is, so the type arguments that
 -- split the node are the families, those the graph splits a callee by
 -- (`Sites`). An implementation that is a function (`() -> Eq a`) and a
--- family that is a lambda have no root (`Unrooted`) and split nothing:
--- cases the problem has. A function that gives an implementation at each
--- use (`Gives`) is given as written and matched where it is used, so it
--- splits nothing either. A request's arguments hold no marker of the
--- growth check, so no root is a `Parameter` here, and no choice the
--- running program makes, which keys nothing, so none is `Chosen`. An
--- argument is read once, by its kind and as the request's link writes
--- it, its identity (`Facts.readings`): the same type or implementation is
--- given to many requests, and a step's readings are merged into the
--- instance table with the rest of what it derived. Each argument comes
--- with how the link writes it (`Keys.Instance`).
-readings : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           Nat -> List (Maybe ((Subset Static Requested, ClosedTerm), Written Form)) -> Front (List (Nat, StaticReading))
-readings i [] = pure []
-readings i (Nothing :: as) = readings (S i) as
-readings i (Just ((Element kind _, t), w) :: as) = do
-  here <- case lookupFact (.readings) (kind, w) !(getState) of
-    Just r => pure r
-    Nothing => do
-      (h, root) <- closedHeight kind t
-      let r = MkStaticReading h (case root of
-                             Rooted j => Just j
-                             Template.Chosen _ => Nothing
-                             Gives _ => Nothing
-                             Unrooted => Nothing
-                             Parameter _ _ => Nothing)
-      updateState (derive { readings $= insert (kind, w) r })
-      pure r
-  ((i, here) ::) <$> readings (S i) as
+-- family that is a lambda have no root and split nothing: cases the
+-- problem has.
+readArguments : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                List (Maybe (Subset Static Requested, ClosedTerm)) -> Front (List (Maybe StaticReading))
+readArguments = traverse (traverse (\(Element kind _, t) => staticReading kind t))
+
+-- The heights and heads of the arguments a link holds, by parameter index.
+heightsOf : Nat -> List (Maybe (StaticReading, Written Form)) -> List (Nat, StaticReading)
+heightsOf i [] = []
+heightsOf i (Nothing :: as) = heightsOf (S i) as
+heightsOf i (Just (r, _) :: as) = (i, r) :: heightsOf (S i) as
 
 ||| The type a member at a use is applied as by (`AtUse`): `{0 t : Type} ->
 ||| (f : t) -> t`, the form's type, then the form, giving a value of the
@@ -101,12 +85,13 @@ signatureOf fc owner (OfDefinition n) = do
 signatureOf fc owner (AtUse uses) = (2 + uses,) <$> applicationType
 
 ||| The instance of what is instantiated at the static arguments a call's
-||| kinds give it (`Keys`).
+||| kinds give it (`Keys`), each written as its reading's form.
 export
 instanceFor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> String -> Instantiates -> List PKind -> Front (Instance (Subset Static Requested, ClosedTerm))
-instanceFor fc owner (OfDefinition n) kinds = snd <$> instanceKey fc owner n snd (map staticKindOf kinds)
-instanceFor fc owner (AtUse uses) kinds = applicationKey fc uses snd (map staticKindOf kinds)
+             FC -> String -> Instantiates -> List PKind -> Front (Instance StaticReading)
+instanceFor fc owner (OfDefinition n) kinds =
+  snd <$> instanceKey fc owner n (.form) !(readArguments (map staticKindOf kinds))
+instanceFor fc owner (AtUse uses) kinds = applicationKey fc uses (.form) !(readArguments (map staticKindOf kinds))
 
 ||| Requests a function instance, for parameters classified as the call
 ||| gives them, and returns its identity. A new instance is recorded with
@@ -134,13 +119,13 @@ request fc owner what kinds = do
     -- The instance, and, for a new one, where the growth check bounds its
     -- static arguments: a definition's at its node; a member at a use's at
     -- its link alone.
-    keyed : Instantiates -> Front (Instance (Subset Static Requested, ClosedTerm), Front (List (Position, Nat)))
+    keyed : Instantiates -> Front (Instance StaticReading, Front (List (Position, Nat)))
     keyed (OfDefinition n) = do
-      (address, found) <- instanceKey fc owner n snd (map staticKindOf kinds)
-      pure (found, do read <- readings 0 found.arguments
-                      let node = MkNode address (mapMaybe (\(i, r) => (i,) <$> r.head) read)
-                      pure (map (\(i, r) => ((node, i), r.height)) read))
-    keyed (AtUse uses) = (, pure []) <$> applicationKey fc uses snd (map staticKindOf kinds)
+      (address, found) <- instanceKey fc owner n (.form) !(readArguments (map staticKindOf kinds))
+      let read = heightsOf 0 found.arguments
+      let node = MkNode address (mapMaybe (\(i, r) => (i,) <$> r.head) read)
+      pure (found, pure (map (\(i, r) => ((node, i), r.height)) read))
+    keyed (AtUse uses) = (, pure []) <$> applicationKey fc uses (.form) !(readArguments (map staticKindOf kinds))
 
 ||| What a call knows of an argument it gives: an implementation known at
 ||| compile time, whatever binds it (Idris passes an enclosing function's

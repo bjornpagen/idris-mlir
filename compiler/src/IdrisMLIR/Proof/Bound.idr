@@ -33,7 +33,13 @@
 |||   and a member of a choice the running program makes writes a value a
 |||   position its members are read from received (`AtMember`): every
 |||   place that makes a member of it writes the member's form at its
-|||   head's, as any site does.
+|||   head's, as any site does, its holes renumbered as the place that
+|||   reads it renumbers them (`Renumbered`); where a request holds a hole
+|||   in a member's place, a site reading the member writes the hole, as
+|||   high as a member made there (`AtHeldHole`);
+||| - a leaf two high written where a builtin is applied to the writer's
+|||   markers writes the constant it computes at an instance whose values
+|||   are constants (`AtComputed`).
 ||| A family that computes from what it is given (`Computing`) writes
 ||| nothing any rule states: its arcs are unmeasured, so in an admitted
 ||| graph no position of the writer's reads one.
@@ -41,7 +47,8 @@
 ||| V, the least family closed under the sites (`InV`), holds every value
 ||| the theorem bounds. A capped position's type looks only so deep, so the
 ||| frontend keys it by the value cut there: it holds every value of the
-||| cap's height, and no site into it is listed.
+||| cap's height a chain's shape can be, a node with one child at most and
+||| no token, and no site into it is listed.
 |||
 ||| The graph covers a site (`CoveredAt`) as `Describes` draws it: an arc from
 ||| each marker's position weighing at least how much deeper the marker
@@ -180,6 +187,71 @@ mutual
     (::) : Instantiates ws t u -> AllInstantiate ws ts us -> AllInstantiate ws (t :: ts) (u :: us)
 
 ------------------------------------------------------------------------------
+-- Holes renumbered, constants computed
+------------------------------------------------------------------------------
+
+mutual
+  ||| A template with its hole tokens renumbered: every node the same, each
+  ||| token's weight any. A held dispatch's arm renumbers the holes of the
+  ||| member it holds after the ones it holds already.
+  public export
+  data Renumbered : Template -> Template -> Type where
+    TokenRenumbered : Renumbered (Token k) (Token k')
+    HeadRenumbered : AllRenumbered ts us -> Renumbered (Head a ts) (Head a us)
+    OpaqueRenumbered : AllRenumbered ts us -> Renumbered (Opaque a ts) (Opaque a us)
+    AppliedRenumbered : AllRenumbered ts us -> Renumbered (Applied i d ts) (Applied i d us)
+    ComputingRenumbered : AllRenumbered ts us -> Renumbered (Computing i d ts) (Computing i d us)
+    ChoiceRenumbered : Renumbered c c' -> AllRenumbered ts us -> Renumbered (Choice c ts) (Choice c' us)
+    FieldRenumbered : Renumbered r r' -> Renumbered (Field k r) (Field k r')
+    AsItWas : Renumbered t t
+
+  public export
+  data AllRenumbered : List Template -> List Template -> Type where
+    NoneRenumbered : AllRenumbered [] []
+    EachRenumbered : Renumbered t u -> AllRenumbered ts us -> AllRenumbered (t :: ts) (u :: us)
+
+mutual
+  ||| Renumbering holes keeps every height.
+  export
+  0 renumberedHeight : Renumbered v w -> height w = height v
+  renumberedHeight TokenRenumbered = Refl
+  renumberedHeight (HeadRenumbered xs) = cong S (allRenumberedHeight xs)
+  renumberedHeight (OpaqueRenumbered xs) = cong S (allRenumberedHeight xs)
+  renumberedHeight (AppliedRenumbered xs) = cong S (allRenumberedHeight xs)
+  renumberedHeight (ComputingRenumbered xs) = cong S (allRenumberedHeight xs)
+  renumberedHeight (ChoiceRenumbered _ xs) = allRenumberedHeight xs
+  renumberedHeight (FieldRenumbered _) = Refl
+  renumberedHeight AsItWas = Refl
+
+  0 allRenumberedHeight : AllRenumbered ts us -> tallest us = tallest ts
+  allRenumberedHeight NoneRenumbered = Refl
+  allRenumberedHeight (EachRenumbered x xs) = cong2 maximum (renumberedHeight x) (allRenumberedHeight xs)
+
+||| What a constant's template is (`Template.constant`): one token, one
+||| leaf, or a node with a leaf per character.
+public export
+data ConstantForm : Template -> Type where
+  CountedForm : ConstantForm (Token k)
+  LeafForm : ConstantForm (Leaf 1)
+  SpeltForm : All (\c => c = Leaf 1) cs -> ConstantForm (Head Nothing cs)
+
+0 speltBelow : All (\c => c = Leaf 1) cs -> LTE (tallest cs) 1
+speltBelow [] = LTEZero
+speltBelow (Refl :: rest) = leafAbove (speltBelow rest)
+  where
+    leafAbove : LTE t 1 -> LTE (maximum 1 t) 1
+    leafAbove {t = Z} _ = lteRefl
+    leafAbove {t = S Z} _ = lteRefl
+    leafAbove {t = S (S _)} (LTESucc le) = absurd le
+
+||| A constant is no higher than two.
+export
+0 constantHeight : ConstantForm w -> LTE (height w) 2
+constantHeight CountedForm = lteSuccRight lteRefl
+constantHeight LeafForm = lteSuccRight lteRefl
+constantHeight (SpeltForm leaves) = LTESucc (speltBelow leaves)
+
+------------------------------------------------------------------------------
 -- The sites and what an instance writes
 ------------------------------------------------------------------------------
 
@@ -221,8 +293,9 @@ mutual
   data InV : {g : Graph} -> (m : Model g) -> Fin g.size -> Template -> Type where
     ||| A site writes what an instance makes of its template.
     Reduced : (s : Site g.size) -> Elem s m.sites -> Writes m s s.template w -> InV m s.target w
-    ||| A capped position holds every value of the cap's height.
-    Capped : index p g.caps = Just c -> LTE (height v) c -> InV m p v
+    ||| A capped position holds every value of the cap's height a chain's
+    ||| shape can be: no node with more than one child, no token.
+    Capped : index p g.caps = Just c -> LTE (height v) c -> LTE (arity v) 1 -> LTE (heaviest v) 0 -> InV m p v
 
   ||| What an instance writes where a site's template reads.
   public export
@@ -231,6 +304,9 @@ mutual
     AtHead : AllWrite m s ts ws -> Writes m s (Head a ts) (Head a ws)
     AtOpaque : AllWrite m s ts ws -> Writes m s (Opaque a ts) (Opaque a ws)
     AtLeaf : Writes m s (Leaf h) (Leaf h)
+    ||| A leaf two high, where a builtin is applied to the writer's markers:
+    ||| the constant it computes at an instance whose values are constants.
+    AtComputed : ConstantForm w -> Writes m s (Leaf 2) w
     AtToken : Writes m s (Token k) (Token k)
     AtFormal : Writes m s (Formal j k) (Formal j k)
     Chosen : Elem x ls -> Writes m s x w -> Writes m s (Choice c ls) w
@@ -243,7 +319,12 @@ mutual
              Instantiates ws body w -> Writes m s (raise k (Head Nothing ts)) w
     LandedMember : LTE (height f) k -> Within f w -> Writes m s (raise k (Head Nothing ts)) w
     AtField : Elem j (s.roots r) -> Elem p (m.fieldPositions j k) -> InV m p w -> Writes m s (Field k r) w
-    AtMember : Elem p (m.choicePositions k) -> InV m p w -> Writes m s (Member k) w
+    ||| A member of the choice, as a place that makes one made it, its holes
+    ||| renumbered as the reader holds it.
+    AtMember : Elem p (m.choicePositions k) -> InV m p v -> Renumbered v w -> Writes m s (Member k) w
+    ||| A hole where a site reads a member of the choice: one node, no
+    ||| higher than a member made there.
+    AtHeldHole : Elem p (m.choicePositions k) -> InV m p v -> LTE 1 (height v) -> Writes m s (Member k) (Token n)
 
   public export
   data AllWrite : {g : Graph} -> (m : Model g) -> Site g.size -> List Template -> List Template -> Type where
@@ -495,6 +576,7 @@ mutual
   unmarkedWrites u (AtHead xs) = LTESucc (unmarkedAll (unmarkedHead u) xs)
   unmarkedWrites u (AtOpaque xs) = LTESucc (unmarkedAll (unmarkedOpaque u) xs)
   unmarkedWrites u AtLeaf = reflexive
+  unmarkedWrites u (AtComputed form) = constantHeight form
   unmarkedWrites u AtToken = reflexive
   unmarkedWrites u AtFormal = reflexive
   unmarkedWrites u (Chosen el x) =
@@ -511,7 +593,8 @@ mutual
   unmarkedWrites u (LandedMember {k} {ts} hf wm) =
     lteR (sym (raisedHeight k (Head Nothing ts))) (transitive (transitive (withinHeight wm) hf) (lteAddRight k))
   unmarkedWrites u (AtField _ _ _) = absurd u
-  unmarkedWrites u (AtMember _ _) = absurd u
+  unmarkedWrites u (AtMember _ _ _) = absurd u
+  unmarkedWrites u (AtHeldHole _ _ _) = absurd u
 
   0 unmarkedAll : AllUnmarked ts -> AllWrite m s ts ws -> LTE (tallest ws) (tallest ts)
   unmarkedAll [] [] = LTEZero
@@ -616,7 +699,7 @@ mutual
   export
   0 bounded : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {p : Fin g.size} -> {v : Template} ->
               Describes m -> Feasible g pot -> InV m p v -> LTE (height v) (bound g pot p)
-  bounded ds fe (Capped cap le) = boundCapped cap le (transitive le (capHolds fe _ cap))
+  bounded ds fe (Capped cap le _ _) = boundCapped cap le (transitive le (capHolds fe _ cap))
   bounded ds fe (Reduced s el wr) =
     let cov = indexAll el ds in
     rewrite boundUncapped {g} {pot} {p = s.target} cov.uncapped in
@@ -641,6 +724,7 @@ mutual
     lteL (sym (plusSuccRightSucc (tallest ws) e)) $
       allWrittenAt ds fe xs (coveredOpaque cov) (lteL (plusSuccRightSucc (tallest ts) e) hp)
   writtenAt ds fe AtLeaf cov hp = hp
+  writtenAt {e} ds fe (AtComputed form) cov hp = transitive (plusLteMonotoneRight e _ 2 (constantHeight form)) hp
   writtenAt ds fe AtToken cov hp = hp
   writtenAt ds fe AtFormal cov hp = hp
   writtenAt ds fe (Chosen el x) cov hp =
@@ -672,9 +756,15 @@ mutual
   writtenAt ds fe (AtField {p} el inField iv) cov hp = case coveredField cov _ el p inField of
     MkCarries arc wt => carry (partBelow (bounded ds fe iv) Self) wt (arcHolds fe arc)
   -- A member of a choice writes what a position its members are read
-  -- from received, carried from there as a field's value is.
-  writtenAt ds fe (AtMember {p} inChoice iv) cov hp = case coveredMember cov p inChoice of
-    MkCarries arc wt => carry (partBelow (bounded ds fe iv) Self) wt (arcHolds fe arc)
+  -- from received, carried from there as a field's value is; renumbering
+  -- its holes keeps its height.
+  writtenAt {e} ds fe (AtMember {p} inChoice iv again) cov hp = case coveredMember cov p inChoice of
+    MkCarries arc wt =>
+      lteL (cong (+ e) (sym (renumberedHeight again))) (carry (partBelow (bounded ds fe iv) Self) wt (arcHolds fe arc))
+  -- A hole in a member's place is one node, carried as the member is.
+  writtenAt {e} ds fe (AtHeldHole {p} {v} inChoice iv one) cov hp = case coveredMember cov p inChoice of
+    MkCarries arc wt =>
+      transitive (plusLteMonotoneRight e 1 (height v) one) (carry (partBelow (bounded ds fe iv) Self) wt (arcHolds fe arc))
 
   -- A head's children, one deeper.
   0 allWrittenAt : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {s : Site g.size} -> {e : Nat} ->
@@ -708,6 +798,6 @@ mutual
 export
 0 landed : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> {v : Template} ->
            Lands g m p k -> InV m p v -> LTE (height v) k
-landed l (Capped cap _) = absurd (trans (sym cap) l.uncapped)
+landed l (Capped cap _ _ _) = absurd (trans (sym cap) l.uncapped)
 landed l (Reduced s el wr) = case l.under s el Refl of
   (u, le) => transitive (unmarkedWrites u wr) le

@@ -255,6 +255,7 @@ closeWritten fc env tm = zeta (betaAll (wrapLams fc tm) (reverse (map value env)
 
 ||| Does a term mention a metavariable? Idris can leave a solved one in an
 ||| elaborated term (the implementation for the inner pair of a triple).
+export
 hasMeta : TT vars -> Bool
 hasMeta = mentions metaTerm
   where

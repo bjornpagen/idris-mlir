@@ -129,12 +129,13 @@ raise Z t = t
 raise (S c) t = Head Nothing [raise c t]
 
 mutual
+  public export
   widest : List Template -> Nat
   widest [] = 0
   widest (t :: ts) = maximum (arity t) (widest ts)
 
   ||| The most children of any node, a choice's leaves' own.
-  export
+  public export
   arity : Template -> Nat
   arity (Head _ ts) = maximum (length ts) (widest ts)
   arity (Opaque _ ts) = maximum (length ts) (widest ts)
@@ -149,13 +150,14 @@ mutual
   arity (Formal _ _) = 0
 
 mutual
+  public export
   heaviestOf : List Template -> Nat
   heaviestOf [] = 0
   heaviestOf (t :: ts) = maximum (heaviest t) (heaviestOf ts)
 
   ||| The heaviest literal or hole token a template holds, a choice's
   ||| leaves' included and its scrutinee skipped; 0 for none.
-  export
+  public export
   heaviest : Template -> Nat
   heaviest (Token k) = k
   heaviest (Head _ ts) = heaviestOf ts

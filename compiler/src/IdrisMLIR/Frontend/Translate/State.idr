@@ -219,13 +219,15 @@ definitionAt a = do
     Just n => lookupCtxtExact n (gamma defs)
     Nothing => pure Nothing
 
-||| A static argument as the growth check reads it (`Template.closedHeight`):
-||| its height, and the definition at its root that splits the node of a
-||| request it is given to, the implementation of a dictionary or the type
-||| constructor at the head of a family, if it has one.
+||| A request's static argument as an instance's reading reads it
+||| (`Template.staticReading`): the form its link writes, its height, and
+||| the definition at its root that splits the node of a request it is
+||| given to, the implementation of a dictionary or the type constructor at
+||| the head of a family, if it has one.
 public export
 record StaticReading where
   constructor MkStaticReading
+  form : ClosedTerm
   height : Nat
   head : Maybe Address
 
