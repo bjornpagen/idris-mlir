@@ -1,184 +1,176 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What an op does besides computing its results: which uses take over the
-// reference their value holds, as the op's flow says (lib/IR/Flow.cpp), and
-// what taking it over is to every other pass; and what an op, with
-// everything in it, does as one asker sees it, read off MLIR's effects
-// alone, a call's its own.
+// The untyped half of the one query API: an `Operation *`'s effects, read
+// through one interface dispatch. An op of ours answers with its
+// declaration (DeclaredEffectsOpInterface); an op of another dialect with
+// its MLIR effect instances, folded into a set once per query, which is
+// where the effect system meets MLIR's open set of ops and resources.
 
-#include "idr/IR/Flow.h"
-#include "idr/IR/Grades.h"
+#include "idr/IR/Effects/Query.h"
+
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
 
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
-
-#include <variant>
+#include "mlir/IR/Visitors.h"
 
 using namespace mlir;
-using namespace idr;
+
+namespace idr::effects {
 
 namespace {
 
-// Whether parameter `index` of `function`, which `use` moves into, takes it
-// over: whether it is owned. idr-rc writes the owned grades into the
-// signatures, and the program becomes owned, before its placement gives
-// the operands their parameters' grades; so while it places, only the
-// callee's signature says, and placement asks with the program's table,
-// which then decides at any stage. Asked without one, the operand's grade
-// answers: a verified call's operand is at its parameter's grade, and
-// before idr-rc nothing is owned.
-bool ownsParameter(OpOperand &use, FlatSymbolRefAttr function, unsigned index,
-                   const SymbolTable *callees) {
-  if (!callees)
-    return isOwned(use.get().getType());
-  return isOwned(callees->lookup<FuncOp>(function.getAttr()).getArgumentTypes()[index]);
+// Which of upstream's four kinds an effect is. A kind of another dialect's,
+// which MLIR's open set of effects allows, is taken as a write: it keeps
+// the op and orders it with everything it may touch.
+Kind kindOf(const MemoryEffects::Effect *instance) {
+  return [&]<std::size_t... I>(std::index_sequence<I...>) {
+    Kind found = Kind::Write;
+    ((instance->getEffectID() == EffectOf<static_cast<Kind>(I)>::type::getEffectID()
+          ? (found = static_cast<Kind>(I), true)
+          : false) ||
+     ...);
+    return found;
+  }(std::make_index_sequence<EnumTraits<Kind>::count>{});
 }
 
-// Each use of `op` that takes over the reference its value holds, as the
-// edges of the reference carrier say: a use the op moves somewhere (into a
-// result, a part, a function's result, or a parameter that owns it), a use
-// it ends, and the arguments of a dispatch. A forwarded value moves on with
-// its reference. A use may be named more than once.
-// A unification, a source, a fresh value and a constant name no use.
-void eachTaken(Operation *op, const SymbolTable *callees,
-               function_ref<void(OpOperand &)> taken) {
-  FlowEdges edges;
-  flowEdgesOf(op, edges);
-  // A use a flow takes over, unless it moves into a parameter that does
-  // not own it.
-  auto flowed = [&](const FlowEdges::Flow &move) {
-    std::optional<OpOperand *> use = move.from.taken();
-    if (!use)
-      return;
-    const auto *param = std::get_if<FlowPoint::Parameter>(&move.to.at);
-    if (param && !ownsParameter(**use, param->function, param->index, callees))
-      return;
-    taken(**use);
-  };
-  for (const FlowEdges::Edge &edge : edges.edges())
-    if (edge.carries(Carrier::Reference))
-      std::visit(llvm::makeVisitor(flowed, [](const FlowEdges::Unify &) {},
-                                   [](const FlowEdges::Source &) {},
-                                   [](const FlowEdges::Fresh &) {},
-                                   [&](const FlowEdges::Release &move) { taken(*move.use); },
-                                   [](const FlowEdges::Overwrite &) {},
-                                   [](const FlowEdges::Constant &) {},
-                                   [&](FlowEdges::Dispatch move) {
-                                     MutableOperandRange args =
-                                         move.call.getArgOperandsMutable();
-                                     for (unsigned i = 0, n = args.size(); i < n; ++i)
-                                       taken(args[i]);
-                                   }),
-                 edge.move);
+// Which state an effect of MLIR's names: the one dynamic fact of the tree,
+// forced by MLIR's open set of resources, a compare of the resource's class
+// with each state's. A resource that is none of ours nor upstream's root or
+// frame (another dialect's) is the root: it may be anything.
+ResourceId stateOf(const SideEffects::Resource *named) {
+  return [&]<std::size_t... I>(std::index_sequence<I...>) {
+    ResourceId found = ResourceId::Root;
+    ((named->getResourceID() == ClassOf<static_cast<ResourceId>(I)>::type::getResourceID()
+          ? (found = static_cast<ResourceId>(I), true)
+          : false) ||
+     ...);
+    return found;
+  }(std::make_index_sequence<EnumTraits<ResourceId>::count>{});
+}
+
+bool recursive(Operation *op) { return op->hasTrait<OpTrait::HasRecursiveMemoryEffects>(); }
+
+// The instances an op of another dialect declares, folded into a set. An
+// allocation the set keeps is of the op's own results; any other is a write
+// of its state, which keeps the op and orders it.
+EffectSet fold(Operation *op, MemoryEffectOpInterface memory) {
+  SmallVector<MemoryEffects::EffectInstance> instances;
+  memory.getEffects(instances);
+  EffectSet set;
+  for (const MemoryEffects::EffectInstance &instance : instances) {
+    Effect each = effectOf(instance);
+    Kind kind = each.kind == Kind::Allocate && !detail::ownResult(op, each.value) ? Kind::Write : each.kind;
+    set.add(kind, each.resource);
+  }
+  return set;
+}
+
+// Each instance of an op's own effects, visited until `visit` stops.
+detail::Walked eachInstance(MemoryEffectOpInterface memory,
+                            function_ref<detail::Walked(const MemoryEffects::EffectInstance &)> visit) {
+  SmallVector<MemoryEffects::EffectInstance> instances;
+  memory.getEffects(instances);
+  for (const MemoryEffects::EffectInstance &instance : instances)
+    if (visit(instance) == detail::Walked::Stopped)
+      return detail::Walked::Stopped;
+  return detail::Walked::All;
 }
 
 } // namespace
 
-void idr::readsMemoState(
-    OpOperand &value, SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  DataType data = dataTypeOf(value.get().getType());
-  if (data && data.isMemo())
-    effects.emplace_back(MemoryEffects::Read::get(), &value, MemoStateResource::get());
+Effect effectOf(const MemoryEffects::EffectInstance &instance) {
+  Kind kind = kindOf(instance.getEffect());
+  ResourceId state = stateOf(instance.getResource());
+  Value value = instance.getValue();
+  if (state == ResourceId::Root && value)
+    state = valueMemory[kind];
+  return {kind, state, value};
 }
 
-bool idr::consumes(OpOperand &operand, const SymbolTable *callees) {
+Row reportedBy(Operation *op) { return runtimeMemoryAtoms[own(op).memory]; }
+
+EffectSet own(Operation *op) {
+  if (auto declared = dyn_cast<DeclaredEffectsOpInterface>(op))
+    return declared.getDeclaredEffects();
+  if (auto memory = dyn_cast<MemoryEffectOpInterface>(op))
+    return fold(op, memory);
+  if (recursive(op))
+    return {};
+  return EffectSet::everything();
+}
+
+EffectSet whole(Operation *op) {
+  EffectSet set;
+  op->walk<WalkOrder::PreOrder>([&](Operation *nested) {
+    set = set | own(nested);
+    return recursive(nested) ? WalkResult::advance() : WalkResult::skip();
+  });
+  return set;
+}
+
+namespace detail {
+
+bool ownResult(Operation *op, Value value) {
+  auto result = dyn_cast_if_present<OpResult>(value);
+  return result && result.getOwner() == op;
+}
+
+Walked eachEffect(Operation *op, function_ref<Walked(Operation *, const Effect &)> visit) {
+  Walked walked = Walked::All;
+  op->walk<WalkOrder::PreOrder>([&](Operation *nested) {
+    auto memory = dyn_cast<MemoryEffectOpInterface>(nested);
+    if (!memory && !recursive(nested)) {
+      walked = Walked::Stopped;
+      return WalkResult::interrupt();
+    }
+    if (memory &&
+        eachInstance(memory, [&](const MemoryEffects::EffectInstance &instance) {
+          return visit(nested, effectOf(instance));
+        }) == Walked::Stopped) {
+      walked = Walked::Stopped;
+      return WalkResult::interrupt();
+    }
+    return recursive(nested) ? WalkResult::advance() : WalkResult::skip();
+  });
+  return walked;
+}
+
+} // namespace detail
+
+namespace {
+
+// Whether some instance of `op`'s own effects is of one of the kinds, on one
+// of the states, naming what `names` asks for.
+bool declares(Operation *op, Kinds kinds, Resources states,
+              function_ref<bool(const MemoryEffects::EffectInstance &)> names) {
+  auto memory = dyn_cast<MemoryEffectOpInterface>(op);
+  if (!memory)
+    return false;
   bool found = false;
-  eachTaken(operand.getOwner(), callees, [&](OpOperand &use) { found |= &use == &operand; });
+  eachInstance(memory, [&](const MemoryEffects::EffectInstance &instance) {
+    Effect each = effectOf(instance);
+    found = kinds.contains(each.kind) && states.contains(each.resource) && names(instance);
+    return found ? detail::Walked::Stopped : detail::Walked::All;
+  });
   return found;
 }
 
-// A Free on the reference resource is what keeps an op that takes an owned
-// value over from being dropped as dead or merged with another: before
-// idr-rc no value is owned, and the op is as free to drop as its other
-// effects let it be.
-void idr::consumedEffects(
-    Operation *op, SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  if (llvm::none_of(op->getOperandTypes(), [](Type type) { return isOwned(type); }))
-    return;
-  llvm::SmallPtrSet<OpOperand *, 4> freed;
-  eachTaken(op, nullptr, [&](OpOperand &use) {
-    if (isOwned(use.get().getType()) && freed.insert(&use).second)
-      effects.emplace_back(MemoryEffects::Free::get(), &use, ReferenceResource::get());
-  });
-}
-
-// Upstream's walk gathers the effects: `op`'s own, and those of the ops in
-// the regions of every op whose effects are its regions'
-// (RecursiveMemoryEffects); any other op's regions are in what it
-// declares. No answer, an op that declares nothing and is no such op, may
-// do anything. An allocation of a result, the op's own or a nested op's, is
-// part of computing it.
-Does idr::classify(Operation *op,
-                   function_ref<bool(const MemoryEffects::EffectInstance &, Operation *)> touches) {
-  std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = getEffectsRecursively(op);
-  if (!effects)
-    return Does::Touches;
-  Does does = Does::Computes;
-  for (const MemoryEffects::EffectInstance &effect : *effects) {
-    if (touches(effect, op))
-      return Does::Touches;
-    if (!isa<MemoryEffects::Allocate>(effect.getEffect()) ||
-        !isa_and_present<OpResult>(effect.getValue()))
-      does = Does::Effects;
-  }
-  return does;
-}
-
-bool idr::onlyAllocates(Operation *op) {
-  return classify(op, [](const MemoryEffects::EffectInstance &, Operation *) {
-           return false;
-         }) == Does::Computes;
-}
-
-// A crash and a loop that may not end only write the IO resource, which
-// orders them after output without making them output.
-bool idr::performsIO(Operation *op) {
-  return classify(op, [](const MemoryEffects::EffectInstance &effect, Operation *) {
-           return isa<MemoryEffects::Read>(effect.getEffect()) &&
-                  isa<IOResource>(effect.getResource());
-         }) == Does::Touches;
-}
-
-namespace {
-
-// What `value` is the same value as or a part of, back to where it was
-// made (sourceOf), itself first.
-SmallVector<Value, 4> sourcesOf(Value value) {
-  return definitionChain(value, [](Value each) -> std::optional<Value> {
-    Source source = sourceOf(each);
-    if (const auto *same = std::get_if<Same>(&source))
-      return same->value;
-    if (const auto *field = std::get_if<Field>(&source))
-      return field->scrutinee;
-    return std::nullopt;
-  });
-}
-
 } // namespace
 
-bool idr::mayRunAt(CallOp call, Operation *at) {
-  llvm::SmallPtrSet<Value, 8> read;
-  for (Value arg : call.getArgs())
-    for (Value value : sourcesOf(arg))
-      read.insert(value);
-  bool computes = call.getEffects() == Effect::none;
-  for (Operation *op = call->getNextNode(); op != at; op = op->getNextNode()) {
-    std::optional<SmallVector<MemoryEffects::EffectInstance>> effects = getEffectsRecursively(op);
-    if (!effects)
-      return false;
-    for (const MemoryEffects::EffectInstance &effect : *effects) {
-      // IO, a crash or a loop that may not end, ordered with the call's own.
-      if (isa<IOResource>(effect.getResource())) {
-        if (!computes)
-          return false;
-        continue;
-      }
-      if (isa<MemoryEffects::Write, MemoryEffects::Free>(effect.getEffect()) &&
-          read.contains(effect.getValue()))
-        return false;
-    }
-  }
-  return true;
+bool consumes(OpOperand &operand) {
+  return declares(operand.getOwner(), Kinds{Kind::Free}, Resources{ResourceId::Count},
+                  [&](const MemoryEffects::EffectInstance &instance) {
+                    return instance.getEffectValue<OpOperand *>() == &operand;
+                  });
 }
+
+bool allocates(Operation *op, Value value) {
+  return declares(op, Kinds{Kind::Allocate}, Resources::top(),
+                  [&](const MemoryEffects::EffectInstance &instance) { return instance.getValue() == value; });
+}
+
+bool changes(Operation *op, Value value) {
+  return declares(op, Kinds{Kind::Write, Kind::Free}, Resources::top(),
+                  [&](const MemoryEffects::EffectInstance &instance) { return instance.getValue() == value; });
+}
+
+} // namespace idr::effects
