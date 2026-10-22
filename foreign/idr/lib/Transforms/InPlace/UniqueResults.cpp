@@ -27,6 +27,7 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/InPlace/Unique.h"
+#include "idr/Transforms/Lifetimes/Lend.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/Builders.h"
@@ -89,11 +90,11 @@ idr::footprint::Vector<Kept> keptOf(const Body &body, llvm::ArrayRef<Local> seed
 
 // Whether `use`, of a value now claiming more, takes it as it is: a
 // position the meeting of positions settles (a call's argument, a return,
-// a forwarded value, an operand of an op of upstream's, met at the bare
-// grade), an op of ours whose results follow its operands (one that keeps
-// its operand's value, one that infers its results), a field moved into a
-// value the op builds, which any claim fills, or an op that moves nothing
-// of the value.
+// a forwarded value), an operand of an op of upstream's, which reads a loan
+// of the value instead (lendReads), an op of ours whose results follow its
+// operands (one that keeps its operand's value, one that infers its
+// results), a field moved into a value the op builds, which any claim
+// fills, or an op that moves nothing of the value.
 bool takesRaised(OpOperand &use) {
   Operation *user = use.getOwner();
   if (idr::ownership::carriersOnly(user) || isa<CallOpInterface, InferTypeOpInterface>(user) ||
@@ -277,7 +278,7 @@ private:
   // `infer`'s results inferred again from its operands as now written: what
   // it gives is a fact of what it reads. An op that admits its results at
   // more grades than it infers keeps them. An op of upstream's is never
-  // inferred again: it reads its operands at the bare grade, met after.
+  // inferred again: it reads the bare carrier, a loan lent after.
   template <class Change>
   void reinfer(InferTypeOpInterface infer, Change &&change) {
     Operation *op = infer.getOperation();
@@ -308,7 +309,9 @@ private:
     idr::ownership::shareIntoPositions(graph.op(f), [&](idr::CallOp call) {
       return graph.op(graph.id(call.getCalleeAttr()));
     });
-    idr::ownership::shareIntoCarriers(graph.op(f));
+    // An op of upstream's reads only the bare carrier: a holder now graded
+    // past it is lent to that op where the claim is written.
+    (void)idr::lifetimes::lendReads(graph.op(f), f, graph, idr::lifetimes::Holders::Graded);
   }
 
   const idr::solver::ProgramGraph &graph;

@@ -36,19 +36,21 @@ cellType = MkTypeDef
   , doc = brief "the memory of one cell of a constructor, its header written, its fields not yet"
   }
 
-||| `!idr.token<{T, ...}>`, C++ `TokenType`: the memory of a cell whose
-||| fields a take moved out, to be recycled into a construction of its size
-||| or freed. Its parameter is the non-empty set of data types, each refined
-||| to one constructor, whose cell it may be, all of one size: a take gives
-||| a set of one, a rejoin the union of what its paths give, so the type
-||| keeps exactly what every path knows. Its size is derived from any member
-||| and the target's layout, never stored beside it. Used once, graded
-||| `counted unique deep` (it holds its cell, never null) or `counted` (null
-||| where its take found the cell shared).
+||| `!idr.reuse_token<{T, ...}>`, C++ `ReuseTokenType`: the memory of a cell
+||| whose fields a take moved out, to be recycled into a construction of its
+||| size or freed. Named in full, a reuse token: upstream's builtin `token`
+||| is another type, and two classes of one name leave every unit that sees
+||| both namespaces ambiguous. Its parameter is the non-empty set of data
+||| types, each refined to one constructor, whose cell it may be, all of one
+||| size: a take gives a set of one, a rejoin the union of what its paths
+||| give, so the type keeps exactly what every path knows. Its size is
+||| derived from any member and the target's layout, never stored beside it.
+||| Used once, graded `counted unique deep` (it holds its cell, never null)
+||| or `counted` (null where its take found the cell shared).
 export
-tokenType : TypeDef 1
-tokenType = MkTypeDef
-  { mnemonic = "token"
+reuseTokenType : TypeDef 1
+reuseTokenType = MkTypeDef
+  { mnemonic = "reuse_token"
   , params =
       [ MkParameter "sources" (ListOf TypeValue) AlwaysWritten
           "the data types refined to one constructor whose cell it may be" ]
@@ -57,8 +59,8 @@ tokenType = MkTypeDef
   , verifier = VerifiesParameters
   , bytecode = Derived
   , members =
-      [ MkMember OnClass "::idr::TokenType" "of" [param "::idr::DataType" "source"]
-      , MkMember OnClass "::idr::TokenType" "merged" [param "::llvm::ArrayRef<::idr::TokenType>" "tokens"] ]
+      [ MkMember OnClass "::idr::ReuseTokenType" "of" [param "::idr::DataType" "source"]
+      , MkMember OnClass "::idr::ReuseTokenType" "merged" [param "::llvm::ArrayRef<::idr::ReuseTokenType>" "tokens"] ]
   , facts = Answers (MkValueFacts HoldsReferences UsedAsGraded Counted MayBeOtherWord)
   , doc = brief "the memory of a cell whose fields a take moved out, or null"
   }

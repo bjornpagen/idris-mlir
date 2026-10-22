@@ -33,16 +33,18 @@ using namespace mlir;
 
 namespace idr {
 
-namespace exclusivity = detail::exclusivity;
-
+// The solve's parts are named in full, `detail::exclusivity`: the namespace
+// `exclusivity` alone is the public one of the followed values' ids.
 Exclusivity::Exclusivity(Operation *program, AnalysisManager &am)
     : versionsOf(std::get<0>(reads(am)).table<footprint::Vector<Version>>()) {
   const solver::ProgramGraph &graph = std::get<0>(reads(am));
-  exclusivity::Anchors anchors;
-  exclusivity::shareStaticAnchors(cast<ProgramOp>(program), anchors);
-  IndexVector<FunctionId, exclusivity::Body> bodies = graph.table<exclusivity::Body>();
+  detail::exclusivity::Anchors anchors;
+  detail::exclusivity::shareStaticAnchors(cast<ProgramOp>(program), anchors);
+  IndexVector<FunctionId, detail::exclusivity::Body> bodies =
+      graph.table<detail::exclusivity::Body>();
   for (FunctionId fn : graph.functions()) {
-    FailureOr<exclusivity::Body> body = exclusivity::readBody(graph.op(fn), graph, anchors);
+    FailureOr<detail::exclusivity::Body> body =
+        detail::exclusivity::readBody(graph.op(fn), graph, anchors);
     // A body that broke the representation's invariant was reported where
     // it broke; the pass that asked fails with it.
     if (failed(body)) {
@@ -51,8 +53,10 @@ Exclusivity::Exclusivity(Operation *program, AnalysisManager &am)
     }
     bodies[fn] = std::move(*body);
   }
-  IndexVector<FunctionId, llvm::SmallBitVector> copied = exclusivity::copiedViews(bodies, graph);
-  exclusivity::Solution solution = exclusivity::solve(bodies, copied, anchors, graph);
+  IndexVector<FunctionId, llvm::SmallBitVector> copied =
+      detail::exclusivity::copiedViews(bodies, graph);
+  detail::exclusivity::Solution solution =
+      detail::exclusivity::solve(bodies, copied, anchors, graph);
   versionsOf = std::move(solution.versions);
   numContexts = solution.contexts;
   numCopies = solution.copies;

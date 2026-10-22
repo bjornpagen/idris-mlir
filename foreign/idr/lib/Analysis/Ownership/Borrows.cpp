@@ -10,13 +10,13 @@
 // parameter, or a field, a view of its buffer or an element read from it,
 // moves whole into a cell, is released, taken apart, given back, forwarded
 // into a region's result, or passed to a counted parameter), since what is
-// read from a view is a view and no view is consumed; and when an op of
-// upstream's reads any part of it, since such an op takes only the bare
-// carrier and no op crosses a view into one. It is counted too when a call
-// or jump gives it an argument it may not borrow: one bound at quantity 1,
-// or one dead after the call that is neither static, nor a view (a scoped
-// value, or a borrowed parameter of the caller or a part read from one),
-// nor of a type that bounds all it reaches at a call that returns.
+// read from a view is a view and no view is consumed. An op of upstream's
+// reads a loan of it (idr.carrier), which takes nothing over, so such a read
+// leaves it a view. It is counted too when a call or jump gives it an
+// argument it may not borrow: one bound at quantity 1, or one dead after
+// the call that is neither static, nor a view (a scoped value, or a
+// borrowed parameter of the caller or a part read from one), nor of a type
+// that bounds all it reaches at a call that returns.
 //
 // A loan stands around the call, or around the join op a jump enters, and
 // only where one may: nothing follows a tail call, and frames split a
@@ -167,7 +167,7 @@ private:
   // is or is read from, all before any use is judged; then every use.
   void readBody(FunctionId id) {
     current = id;
-    fn = graph.op(id);
+    FuncOp fn = graph.op(id);
     numbering.emplace(fn);
     Count<BodyValue> count = numbering->size();
     joinOf.emplace(count);
@@ -201,7 +201,8 @@ private:
   // jump into any of its join points lends nothing. A join op whose join
   // points lend nothing already was climbed through, with all above it.
   void lendNothingAround(CallOp call) {
-    for (Operation *at = call->getParentOp(); at != fn.getOperation(); at = at->getParentOp()) {
+    Operation *function = graph.op(*current);
+    for (Operation *at = call->getParentOp(); at != function; at = at->getParentOp()) {
       bool climbed = false;
       for (Region &region : at->getRegions())
         for (Block &block : region)
@@ -226,7 +227,7 @@ private:
     if (!holdsReferences(value.getType()))
       return std::nullopt;
     if (auto arg = dyn_cast<BlockArgument>(value)) {
-      if (arg.getOwner() == &fn.getBody().front())
+      if (arg.getOwner() == &graph.op(*current).getBody().front())
         return Owner{params[*current][arg.getArgNumber()], Holding::Whole};
       if (std::optional<std::uint32_t> join = (*joinOf)[at])
         return Owner{joins[*current][*join], Holding::Whole};
@@ -271,19 +272,13 @@ private:
 
   // What the op does with each value it uses that is a parameter or is
   // read from one: consumes it (it moves whole into a cell, is released, is
-  // taken apart, is given back, or is forwarded into a region's result), or
-  // reads it as an op of upstream's, which counts the parameter; or hands it
-  // to a join point, which is a call of it, as is every value a jump passes.
+  // taken apart, is given back, or is forwarded into a region's result); or
+  // hands it to a join point, which is a call of it, as is every value a
+  // jump passes.
   void readUses(Operation *op) {
     // A position that hands a value on as itself is that value.
     if (op->hasTrait<SameValue>())
       return;
-    if (ownership::carriersOnly(op)) {
-      for (Value operand : op->getOperands())
-        if (std::optional<Owner> owner = ownerOf(operand))
-          force(owner->param);
-      return;
-    }
     forwardedValues(op, [&](OpOperand &operand, Value input) {
       if (auto arg = dyn_cast<BlockArgument>(input)) {
         if (std::optional<std::uint32_t> join = (*joinOf)[numbering->at(arg)])
@@ -363,10 +358,10 @@ private:
   std::optional<CsrBuilder<ParameterTag>> edges;
   footprint::Vector<ParameterNode> seeds;
   std::optional<BitSet<ParameterNode>> counted;
-  // The body being read and its tables by number, which go with it: each
-  // value's join parameter and owner, and each join parameter's loan.
+  // The body being read, its op the graph's, and its tables by number,
+  // which go with it: each value's join parameter and owner, and each join
+  // parameter's loan.
   std::optional<FunctionId> current;
-  FuncOp fn;
   std::optional<solver::Numbering<BodyValueTag>> numbering;
   std::optional<IndexVector<BodyValue, std::optional<std::uint32_t>>> joinOf;
   std::optional<IndexVector<BodyValue, std::optional<Owner>>> owners;

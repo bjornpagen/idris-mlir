@@ -48,12 +48,12 @@ DataType CellType::getData() const { return cast<DataType>(getValue()); }
 Tag CellType::getTag() const { return *getData().singleTag(); }
 
 //===----------------------------------------------------------------------===//
-// !idr.token
+// !idr.reuse_token
 //===----------------------------------------------------------------------===//
 
 // A set of one or more cell constructors, each named once.
-LogicalResult TokenType::verify(function_ref<InFlightDiagnostic()> emitError,
-                                ArrayRef<Type> sources) {
+LogicalResult ReuseTokenType::verify(function_ref<InFlightDiagnostic()> emitError,
+                                     ArrayRef<Type> sources) {
   if (sources.empty())
     return emitError() << "a token may hold the cell of at least one constructor";
   for (auto [index, source] : llvm::enumerate(sources)) {
@@ -66,7 +66,7 @@ LogicalResult TokenType::verify(function_ref<InFlightDiagnostic()> emitError,
   return success();
 }
 
-TokenType TokenType::of(DataType source) {
+ReuseTokenType ReuseTokenType::of(DataType source) {
   Type only = source;
   return get(source.getContext(), ArrayRef<Type>(only));
 }
@@ -74,9 +74,9 @@ TokenType TokenType::of(DataType source) {
 // What each token may hold, in the order the tokens name it: the first
 // token's sources, then each new one of the next, so the paths a rejoin
 // meets in one order give one type.
-TokenType TokenType::merged(ArrayRef<TokenType> tokens) {
+ReuseTokenType ReuseTokenType::merged(ArrayRef<ReuseTokenType> tokens) {
   SmallVector<Type, 4> sources;
-  for (TokenType token : tokens)
+  for (ReuseTokenType token : tokens)
     for (Type source : token.getSources())
       if (!llvm::is_contained(sources, source))
         sources.push_back(source);

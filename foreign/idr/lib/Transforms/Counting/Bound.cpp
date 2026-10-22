@@ -40,7 +40,9 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <utility>
 
@@ -197,7 +199,7 @@ void walkHolding(FuncOp fn, const Layouts &layouts, Reader &reader) {
   // verifier holds, so the first one sizes it. A token that receives a
   // forwarded one was held already.
   auto holdToken = [&](Holding &held, Value value, Where where) {
-    auto token = dyn_cast<TokenType>(unrestricted(value.getType()));
+    auto token = dyn_cast<ReuseTokenType>(unrestricted(value.getType()));
     if (!token)
       return;
     auto source = cast<DataType>(token.getSources().front());
@@ -290,10 +292,14 @@ struct Points {
 
 } // namespace
 
-std::uint64_t frameBound(FuncOp fn, const Layouts &layouts) {
+std::int64_t frameBound(FuncOp fn, const Layouts &layouts) {
   Peak peak;
   walkHolding(fn, layouts, peak);
-  return peak.bound;
+  // Bytes held at once in one address space: below 2^63, the signed word's
+  // range, by the address space's size.
+  assert(peak.bound <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) &&
+         "a frame holds more bytes than an address space");
+  return static_cast<std::int64_t>(peak.bound);
 }
 
 llvm::SmallVector<HoldPoint> holdPoints(FuncOp fn, const Layouts &layouts) {

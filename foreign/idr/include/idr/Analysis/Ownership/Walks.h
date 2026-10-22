@@ -41,15 +41,14 @@ void forEachCall(FuncOp fn, Each &&each) {
 namespace idr::exclusivity {
 
 // Whether exclusivity follows `value`: a counted value that holds
-// references whose grade does not already say `unique deep`, that no op
-// of upstream's reads, and that is no element one reads out of an array.
-// An op of upstream's takes the bare carrier, and after placement no share
-// may stand before it (a share consumes its operand), so a value it reads
-// keeps the bare grade; an element it reads out keeps the array's element
-// type, which its own verifier holds it to. Either counts as shared, and
-// no step writes a grade into it.
+// references whose grade does not already say `unique deep`, and that is no
+// element an op of upstream's reads out of an array. Such an op reads a loan
+// of a value (idr.carrier), never the value, which keeps its grade; an
+// element it reads out keeps the array's element type, which its own
+// verifier holds it to, so it counts as shared and no step writes a grade
+// into it.
 inline bool followed(mlir::Value value) {
-  return ownership::leavesOpen(value.getType(), Unique::Deep) && !ownership::readBare(value) &&
+  return ownership::leavesOpen(value.getType(), Unique::Deep) &&
          !ownership::upstreamElement(value);
 }
 

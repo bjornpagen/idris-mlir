@@ -27,6 +27,7 @@
 
 #include "idr/Analysis/Solver/Graph.h"
 #include "idr/Analysis/Solver/Mark.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -126,20 +127,21 @@ private:
     running.clear();
     base.clear();
     footprint::Vector<Reached> seen;
-    footprint::Vector<ContextId> work;
+    // The contexts reached and not yet visited.
+    footprint::Vector<ContextId> pending;
     auto reach = [&](ContextId id) {
       if (seen.size() <= id)
         seen.resize(id + 1, Reached::No);
       if (seen[id] == Reached::Yes)
         return;
       seen[id] = Reached::Yes;
-      work.push_back(id);
+      pending.push_back(id);
     };
     for (FunctionId fn : graph.functions())
       reach(contextsOf[fn].front());
-    while (!work.empty()) {
-      ContextId id = work.back();
-      work.pop_back();
+    while (!pending.empty()) {
+      ContextId id = pending.back();
+      pending.pop_back();
       running.push_back(id);
       for (std::size_t call = 0, e = contexts[id].calls.size(); call != e; ++call)
         reach(targetOf(id, call));
@@ -158,7 +160,7 @@ private:
   // The values each running context shares, with every call's target
   // fixed, and the memo fields after them.
   BitSet<Node> mark() {
-    CsrBuilder<NodeTag> edges(Count<Node>(nodes));
+    CsrBuilder<NodeTag> edges{Count<Node>(nodes)};
     footprint::Vector<Node> seeds;
     std::uint64_t edgeCount = 0;
     auto edge = [&](std::uint32_t from, std::uint32_t to) {
@@ -188,14 +190,16 @@ private:
         // nothing.
         if (!callee.returns)
           continue;
-        for (auto [result, local] : llvm::enumerate(call.results)) {
+        for (auto [local, returned] : llvm::zip_equal(call.results, *callee.returns)) {
           if (local == noLocal)
             continue;
-          Local returned = callee.results[result];
-          if (returned != noLocal)
-            edge(base[target] + returned, at + local);
-          else if (!callee.exclusiveResults.test(result))
-            seed(at + local);
+          Local into = at + local;
+          match(
+              returned, [&](Local from) { edge(base[target] + from, into); },
+              [&](ByType type) {
+                if (type == ByType::Shared)
+                  seed(into);
+              });
         }
         // A view passed to a parameter the callee takes a reference of
         // through a view: its owner here is shared.
@@ -223,9 +227,9 @@ private:
       for (auto [index, call] : llvm::enumerate(body.calls)) {
         Key &key = context.calls[index];
         Key narrowed = key;
-        for (int param = narrowed.find_first(); param != -1; param = narrowed.find_next(param))
-          if (shared.test(Node(base[id] + call.args[static_cast<unsigned>(param)])))
-            narrowed.reset(static_cast<unsigned>(param));
+        for (unsigned param : key.set_bits())
+          if (shared.test(Node(base[id] + call.args[param])))
+            narrowed.reset(param);
         if (narrowed != key) {
           key = std::move(narrowed);
           moved = Changed::Yes;
@@ -245,17 +249,22 @@ private:
   };
 
   Proof proofOf(ContextId id, const BitSet<Node> &shared) {
-    const Body &body = bodies[contexts[id].fn];
+    FunctionId fn = contexts[id].fn;
+    const Body &body = bodies[fn];
     Proof proof{BitSet<Followed>(FollowedNumbers::count(body.values)), {}, {}};
     for (std::uint32_t local = 0; local != body.values; ++local)
       if (!shared.test(Node(base[id] + local)))
         (void)proof.exclusive.raise(FollowedNumbers::at(local));
-    proof.results.resize(static_cast<unsigned>(body.exclusiveResults.size()));
+    // A result is exclusive where the body gives back a followed value this
+    // context proves, or one its type answers; a body that never returns
+    // gives back none.
     if (body.returns)
-      for (auto [index, local] : llvm::enumerate(body.results))
-        if (local == noLocal ? body.exclusiveResults.test(index)
-                             : proof.exclusive.test(FollowedNumbers::at(local)))
-          proof.results.set(static_cast<unsigned>(index));
+      for (const Returned &returned : *body.returns)
+        proof.results.push_back(match(
+            returned, [&](Local local) { return proof.exclusive.test(FollowedNumbers::at(local)); },
+            [](ByType type) { return type == ByType::Exclusive; }));
+    else
+      proof.results.resize(graph.op(fn).getNumResults());
     for (std::size_t call = 0, e = body.calls.size(); call != e; ++call)
       proof.targets.push_back(targetOf(id, call));
     return proof;

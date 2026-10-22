@@ -153,11 +153,12 @@ explicit = between First Owned
 
 ||| `count.dup %v : T`, C++ `CountDupOp`: one more reference to a counted
 ||| value; the result holds it, counted claiming nothing unless written. A
-||| fresh identity, never merged with another dup.
+||| fresh identity, never merged with another dup. Given a bare carrier it
+||| makes a reference of its own, so a loan's alias never enters one.
 public export
 dup : Op 1 1 0 0
 dup = countingOp "count.dup" [single "value" (SatisfiesType countedValue)] [result "result" anyValue] [] []
-  [] [Implements flowInterface ["getFlowEdges"]]
+  [OurTrait adoptsCarrier] [Implements flowInterface ["getFlowEdges"]]
   (Executes [OnValues Read Count (Operands 0), OnValues Write Count (Operands 0)] [NewIdentity 0] Covered Untouched)
   counted VerifiesOp
   (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
@@ -353,12 +354,12 @@ cellInit = countingOp "cell.init"
   , MkMember OnObject "::mlir::Value" "getDest" [param "unsigned" "index"] ]
   (brief "writes the fields of a cell's constructor into it, giving the value")
 
-||| `cell.recycle %t : !idr.token<…> -> !idr.cell<T>`, C++ `CellRecycleOp`:
-||| the token's cell given up and a cell for `T` given, its header written:
-||| the same memory where the token holds its cell, new memory where it is
-||| null. The token, used once, is consumed here. Of one size, which the
-||| program's verifier reads off the two types and the target's layout, the
-||| one place that layout is at hand.
+||| `cell.recycle %t : !idr.reuse_token<…> -> !idr.cell<T>`, C++
+||| `CellRecycleOp`: the token's cell given up and a cell for `T` given, its
+||| header written: the same memory where the token holds its cell, new
+||| memory where it is null. The token, used once, is consumed here. Of one
+||| size, which the program's verifier reads off the two types and the
+||| target's layout, the one place that layout is at hand.
 public export
 cellRecycle : Op 1 1 0 0
 cellRecycle = countingOp "cell.recycle" [single "token" token] [result "cell" cell] [] []
@@ -370,9 +371,9 @@ cellRecycle = countingOp "cell.recycle" [single "token" token] [result "cell" ce
   [] WithDefaults []
   (brief "the cell of a token, or a fresh cell where it is null")
 
-||| `token.free %t : !idr.token<…>`, C++ `TokenFreeOp`: frees the emptied
-||| cell a token holds: with no test where the type proves it holds one, a
-||| test for null where it may not.
+||| `token.free %t : !idr.reuse_token<…>`, C++ `TokenFreeOp`: frees the
+||| emptied cell a token holds: with no test where the type proves it holds
+||| one, a test for null where it may not.
 public export
 tokenFree : Op 1 0 0 0
 tokenFree = countingOp "token.free" [single "token" token] [] [] []
@@ -383,9 +384,10 @@ tokenFree = countingOp "token.free" [single "token" token] [] [] []
   [] WithDefaults []
   (brief "frees the emptied cell a token holds")
 
-||| `token.null : !idr.token<…>`, C++ `TokenNullOp`: the one source of a
-||| null token, which the shared region of a match on uniqueness gives where
-||| its token goes on to a recycle or a free that tests it. Never unique.
+||| `token.null : !idr.reuse_token<…>`, C++ `TokenNullOp`: the one source
+||| of a null token, which the shared region of a match on uniqueness gives
+||| where its token goes on to a recycle or a free that tests it. Never
+||| unique.
 public export
 tokenNull : Op 0 1 0 0
 tokenNull = countingOp "token.null" [] [result "token" token] [] []
@@ -396,7 +398,7 @@ tokenNull = countingOp "token.null" [] [result "token" token] [] []
   [] WithDefaults []
   (brief "the null token, the one a shared path gives")
 
-||| `token.rebuild %t (%x : A, ...) : !idr.token<…> -> T`, C++
+||| `token.rebuild %t (%x : A, ...) : !idr.reuse_token<…> -> T`, C++
 ||| `TokenRebuildOp`: a value of an in-place type rebuilt in the cell its
 ||| token holds, which the in-place check decided on the program as written
 ||| and counting lowers into the recycle of the cell and the init of the
@@ -430,11 +432,13 @@ tokenRebuild = countingOp "token.rebuild" [single "token" token, variadic "field
 ||| already, and taking it over there would count its memory twice. So it
 ||| is legal from the stage bufferization runs at, and a program at the
 ||| frontend's stage cannot hold one, nor has the frontend a builder for it.
+||| It makes a reference of its own of a bare carrier, so a loan's alias
+||| never enters one.
 public export
 adopt : Op 1 1 0 0
 adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnrankedMemRefC)]
   [result "result" anyValue] [] []
-  [OurTrait noRuntimeForm]
+  [OurTrait noRuntimeForm, OurTrait adoptsCarrier]
   [ InfersTypes AlsoCompatible
   , Implements flowInterface ["getFlowEdges"] ]
   (Executes [] [NewIdentity 0] Covered Untouched)
@@ -444,19 +448,20 @@ adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnranked
   [] WithDefaults []
   (brief "a buffer upstream made, taken over by counting")
 
-||| `own.give %v : T -> C`, C++ `OwnGiveOp`: a value an op of upstream's
-||| stores into a buffer hands its reference to the memory, which holds it
-||| from then on; the result is the value at its plain carrier, which the
-||| store takes, and nothing at run time: the value's own words. A value
-||| used once is never given, so the store never loses its quantity.
+||| `own.give %v : T`, C++ `OwnGiveOp`: a value an op of upstream's stores
+||| into a buffer hands its reference to the memory, which holds it from
+||| then on; the result is the value at its plain carrier, which the store
+||| takes, and nothing at run time: the value's own words. The carrier is
+||| the value's type with its grade forgotten, so it is inferred, never
+||| written. A value used once is never given, so the store never loses its
+||| quantity.
 public export
 give : Op 1 1 0 0
 give = countingOp "own.give" [single "value" (SatisfiesType countedValue)] [result "result" anyValue] [] []
-  [OurTrait noRuntimeForm] [Implements flowInterface ["getFlowEdges"]]
+  [OurTrait noRuntimeForm] [InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]]
   (Executes [] [Consumes 0] Covered Untouched)
   explicit VerifiesOp
-  (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
-            , Lit "->", TypeOf (OfGroup (ResultRef 0)) ])
+  (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
   [] WithDefaults []
   (brief "hands a stored value's reference to the memory that holds it")
 
@@ -470,7 +475,7 @@ declarations =
   { ops := [ SomeOp dup, SomeOp drop, SomeOp share, SomeOp take, SomeOp Counting.Declarations.unpack, SomeOp takeInto
            , SomeOp matchUnique, SomeOp cellNew, SomeOp cellInit, SomeOp cellRecycle
            , SomeOp tokenFree, SomeOp tokenNull, SomeOp tokenRebuild, SomeOp adopt, SomeOp give ]
-  , types := [SomeType cellType, SomeType tokenType]
+  , types := [SomeType cellType, SomeType reuseTokenType]
   , directives := [sharedDirective, cellResultDirective, cellDestsDirective]
   , predicates := [countedValue, takeable, unpackable, tokenValue, heldValue]
   } nothing

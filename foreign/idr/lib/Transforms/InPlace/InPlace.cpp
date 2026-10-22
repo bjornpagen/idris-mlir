@@ -56,7 +56,9 @@ StringRef labelOf(idr::DataType family) {
   return family ? family.getGroup().label(family.getMember()).getValue() : StringRef("value");
 }
 
-void report(const Refusal &refusal) {
+// A refusal is a few handles, taken by value as MLIR passes ops: an op's
+// accessors are not const, so a const handle could not name its function.
+void report(Refusal refusal) {
   InFlightDiagnostic error = idr::refuse(refusal.at, idr::Rule::Uniqueness);
   StringRef family = labelOf(refusal.family);
   if (refusal.callee)

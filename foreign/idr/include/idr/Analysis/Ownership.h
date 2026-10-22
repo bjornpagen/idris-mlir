@@ -21,9 +21,9 @@
 // Exclusivity's domain is what QTT and freshness do not settle: a value the
 // local rule proves `unique deep` (idr-unique-results, before
 // bufferization) is typed so when the solve runs, and neither a value whose
-// type answers, nor one an op of upstream's reads at its bare grade, nor an
-// element one reads out of an array at its element type, is followed by any
-// marking.
+// type answers nor an element an op of upstream's reads out of an array at
+// its element type is followed by any marking. Such an op reads a loan of a
+// value (idr.carrier), never the value at its grade.
 #ifndef IDR_ANALYSIS_OWNERSHIP_H
 #define IDR_ANALYSIS_OWNERSHIP_H
 
@@ -118,14 +118,13 @@ private:
 // value read from it, or passes one to a counted parameter, since what is
 // read from a view is a view and no view is consumed (an element loaded
 // from an array is a view by its stretch's row, or a reference of its own
-// where something there writes, never a part of the array), or an op of
-// upstream's reads it or a part of it, which takes only the bare carrier;
-// and wherever a caller's argument is bound at quantity 1, or is dead after
-// the call while its type does not bound what it reaches, or is passed
-// where no loan of it may stand: by a tail call or a call modulo context (a
-// jump is a tail transfer), by a call on its caller's own cycle, or by a
-// jump into a join point whose op holds one, since frames split a function
-// at such a call.
+// where something there writes, never a part of the array); and wherever a
+// caller's argument is bound at quantity 1, or is dead after the call while
+// its type does not bound what it reaches, or is passed where no loan of it
+// may stand: by a tail call or a call modulo context (a jump is a tail
+// transfer), by a call on its caller's own cycle, or by a jump into a join
+// point whose op holds one, since frames split a function at such a call.
+// An op of upstream's reads a loan of it, which takes nothing over.
 // The root's parameters are counted (its caller is outside); a memo cell's
 // are views (a force writes it while its caller reads it).
 class Borrows : public solver::ReadsAnalyses<Borrows, solver::ProgramGraph> {

@@ -15,8 +15,8 @@
 // operand's where it flows on linearly; a part an op of ours that infers
 // its results reads or takes out is what the read table gives it, as the
 // op's inference does; every other value is what its type says. The write
-// runs each such op's inference again, and meets each op of upstream's at
-// the bare grade it takes.
+// runs each such op's inference again, and lends each holder an op of
+// upstream's reads to it (lendReads), as that op takes the bare carrier.
 #ifndef IDR_TRANSFORMS_INPLACE_UNIQUE_H
 #define IDR_TRANSFORMS_INPLACE_UNIQUE_H
 

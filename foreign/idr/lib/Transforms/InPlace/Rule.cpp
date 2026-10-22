@@ -160,9 +160,7 @@ Keeps keepsOf(const solver::ProgramGraph &graph) {
   std::uint32_t nodes = 0;
   for (FunctionId fn : graph.functions()) {
     base[fn] = nodes;
-    std::uint32_t params = graph.op(fn).getNumArguments();
-    keeps.kept[fn].resize(params);
-    nodes += params;
+    nodes += graph.op(fn).getNumArguments();
   }
   footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> edges;
   footprint::Vector<std::uint32_t> seeds;
@@ -191,10 +189,14 @@ Keeps keepsOf(const solver::ProgramGraph &graph) {
     });
   }
   BitSet<Node> kept = markAll(nodes, edges, seeds);
-  for (FunctionId fn : graph.functions())
-    for (unsigned param = 0, e = keeps.kept[fn].size(); param != e; ++param)
+  // Each function's bits, a parameter each, counted as MLIR counts them.
+  for (FunctionId fn : graph.functions()) {
+    unsigned params = graph.op(fn).getNumArguments();
+    keeps.kept[fn].resize(params);
+    for (unsigned param = 0; param != params; ++param)
       if (kept.test(Nodes::at(base[fn] + param)))
         keeps.kept[fn].set(param);
+  }
   return keeps;
 }
 

@@ -30,8 +30,8 @@
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallBitVector.h"
 
 #define GEN_PASS_DEF_IDRRCEXPAND
 #include "idr/IR/Generated/PassDialects.h.inc"
@@ -48,6 +48,24 @@ namespace {
 // What reuse made of a take's token, one case each.
 enum class TokenUse : std::uint8_t { Freed, Recycled, GivenOn };
 
+// The positions of a take's fields, split by what becomes of each: those
+// whose one use is a drop right where the take is die with the cell, and the
+// rest live on. Positions are counted as MLIR numbers an op's results.
+struct Fates {
+  SmallVector<unsigned> living;
+  SmallVector<unsigned> dying;
+};
+
+Fates fatesOf(ResultRange fields) {
+  Fates fates;
+  unsigned index = 0;
+  for (OpResult field : fields) {
+    bool dies = field.hasOneUse() && isa<CountDropOp>(*field.user_begin());
+    (dies ? fates.dying : fates.living).push_back(index++);
+  }
+  return fates;
+}
+
 // A take to expand, read once: the value, its fields and what becomes of
 // each, and of its token.
 struct Taken {
@@ -59,33 +77,24 @@ struct Taken {
   Value given;
   // The free of a freed token.
   Operation *free = nullptr;
-  // The fields whose one use is a drop right where the take is: they die
-  // with the cell.
-  llvm::SmallBitVector dying;
+  Fates fates;
 };
 
 Taken read(CountTakeOp take) {
-  Taken taken{take, take.getValue(), take.getFields(), TokenUse::GivenOn, take.getToken(), nullptr,
-              llvm::SmallBitVector(take.getFields().size())};
+  Taken taken{take, take.getValue(), take.getFields(), TokenUse::GivenOn, take.getToken(),
+              nullptr, fatesOf(take.getFields())};
   Value token = take.getToken();
   if (token.hasOneUse())
     if (auto free = dyn_cast<TokenFreeOp>(*token.user_begin())) {
       taken.use = TokenUse::Freed;
       taken.free = free;
     }
-  for (auto [index, field] : llvm::enumerate(take.getFields()))
-    if (field.hasOneUse() && isa<CountDropOp>(*field.user_begin()))
-      taken.dying.set(index);
   return taken;
 }
 
 Taken read(CountTakeIntoOp into) {
-  Taken taken{into, into.getValue(), into.getFields(), TokenUse::Recycled, into.getCell(), nullptr,
-              llvm::SmallBitVector(into.getFields().size())};
-  for (auto [index, field] : llvm::enumerate(into.getFields()))
-    if (field.hasOneUse() && isa<CountDropOp>(*field.user_begin()))
-      taken.dying.set(index);
-  return taken;
+  return Taken{into, into.getValue(), into.getFields(), TokenUse::Recycled, into.getCell(),
+               nullptr, fatesOf(into.getFields())};
 }
 
 // The fields of a counted value that live on, each read from it, and one
@@ -110,10 +119,7 @@ SmallVector<Value> dupFields(RewriterBase &rewriter, Location loc, Value owner,
 void expand(RewriterBase &rewriter, Taken &taken) {
   Location loc = taken.op->getLoc();
   Type tokenType = taken.op->getResult(0).getType();
-  SmallVector<unsigned> living;
-  for (unsigned index = 0; index < taken.fields.size(); ++index)
-    if (!taken.dying.test(index))
-      living.push_back(index);
+  llvm::ArrayRef<unsigned> living = taken.fates.living;
   // The match's results: what replaces the token or the cell, then the
   // living fields.
   SmallVector<Type> results;
@@ -129,16 +135,15 @@ void expand(RewriterBase &rewriter, Taken &taken) {
     SmallVector<Type> args{graded(Grade{Uses::Once, Hold::counted(Unique::Deep)}, unrestricted(tokenType))};
     if (taken.use == TokenUse::Recycled)
       args[0] = graded(Grade{Uses::Once, Hold::counted(Unique::Deep)},
-                       TokenType::of(cast<DataType>(unrestricted(taken.value.getType()))));
+                       ReuseTokenType::of(cast<DataType>(unrestricted(taken.value.getType()))));
     for (Value field : taken.fields)
       args.push_back(field.getType());
     Block *unique = rewriter.createBlock(&match.getUnique(), {}, args,
                                          SmallVector<Location>(args.size(), loc));
     Value token = unique->getArgument(0);
     SmallVector<Value> yields;
-    for (unsigned index = 0; index < taken.fields.size(); ++index)
-      if (taken.dying.test(index))
-        CountDropOp::create(rewriter, loc, unique->getArgument(1 + index));
+    for (unsigned index : taken.fates.dying)
+      CountDropOp::create(rewriter, loc, unique->getArgument(1 + index));
     switch (taken.use) {
     case TokenUse::Freed:
       TokenFreeOp::create(rewriter, loc, token);
@@ -182,9 +187,8 @@ void expand(RewriterBase &rewriter, Taken &taken) {
     rewriter.replaceAllUsesWith(taken.given, match.getResult(next++));
   for (unsigned index : living)
     rewriter.replaceAllUsesWith(taken.fields[index], match.getResult(next++));
-  for (unsigned index = 0; index < taken.fields.size(); ++index)
-    if (taken.dying.test(index))
-      rewriter.eraseOp(*taken.fields[index].user_begin());
+  for (unsigned index : taken.fates.dying)
+    rewriter.eraseOp(*taken.fields[index].user_begin());
   if (taken.free)
     rewriter.eraseOp(taken.free);
   rewriter.eraseOp(taken.op);

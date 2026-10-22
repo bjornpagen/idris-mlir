@@ -48,8 +48,10 @@ struct HoldPoint {
 };
 
 // The function's frame bound, as reuse leaves it: the most bytes it holds
-// dead at any op that may acquire memory.
-std::uint64_t frameBound(FuncOp fn, const Layouts &layouts);
+// dead at any op that may acquire memory. In the width the function's
+// `frame_bound` holds it, a signed word, which every count of bytes of a
+// 64-bit address space fits, never negative.
+std::int64_t frameBound(FuncOp fn, const Layouts &layouts);
 
 // Every point where what the function holds dead rises or falls, on the
 // function as it stands, in the order the walk meets them; points at one

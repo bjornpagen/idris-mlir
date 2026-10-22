@@ -158,13 +158,15 @@ struct ReusePass : impl::IdrRcReuseBase<ReusePass> {
     const Layouts &layouts = getAnalysis<Layouts>();
     Reuse reuse(fn, layouts);
     reuse.run();
-    std::uint64_t bound = frameBound(fn, layouts);
+    std::int64_t bound = frameBound(fn, layouts);
     fn.setFrameBound(bound);
     numReuses += reuse.reuses;
     numTokensFreed += reuse.freed;
     numFused += reuse.fused;
     numRebuilds += reuse.rebuilds;
-    frameBoundBytes.updateMax(bound);
+    // A bound is a count of bytes, never negative; a statistic counts
+    // unsigned.
+    frameBoundBytes.updateMax(static_cast<std::uint64_t>(bound));
   }
 };
 

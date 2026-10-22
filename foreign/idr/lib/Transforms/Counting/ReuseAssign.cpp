@@ -49,7 +49,7 @@ auto rankFor(Type sinkValue) {
   return [sinkValue](const Held &held) {
     Type type = held.token.type();
     bool unique = claims(type, Unique::Deep);
-    bool own = llvm::is_contained(cast<TokenType>(unrestricted(type)).getSources(),
+    bool own = llvm::is_contained(cast<ReuseTokenType>(unrestricted(type)).getSources(),
                                   cast<DataType>(unrestricted(sinkValue)));
     return std::tuple(!unique, !own, held.order);
   };
@@ -105,14 +105,14 @@ llvm::SmallVector<Held> Reuse::carryAcross(Operation *&op,
   // the sources it is and, where another path's is not, that it is unique.
   llvm::SmallVector<Type> types;
   auto join = [&](const unsigned &, llvm::SmallVector<Token> tokens) {
-    llvm::SmallVector<TokenType> sources;
+    llvm::SmallVector<ReuseTokenType> sources;
     bool unique = true;
     for (const Token &token : tokens) {
-      sources.push_back(cast<TokenType>(unrestricted(token.type())));
+      sources.push_back(cast<ReuseTokenType>(unrestricted(token.type())));
       unique = unique && claims(token.type(), Unique::Deep);
     }
     Type type = graded(Grade{Uses::Once, Hold::counted(unique ? Unique::Deep : Unique::None)},
-                       TokenType::merged(sources));
+                       ReuseTokenType::merged(sources));
     types.push_back(type);
     for (auto [token, yield] : llvm::zip_equal(tokens, yields)) {
       OpBuilder b(yield);
@@ -265,12 +265,12 @@ void Reuse::assign() {
         // field dropped there, the emptied cell kept.
         auto drop = cast<CountDropOp>(op);
         OpBuilder b(drop);
-        auto take = CountTakeOp::create(b, drop.getLoc(), drop.getValue());
-        for (Value field : take.getFields())
+        auto opened = CountTakeOp::create(b, drop.getLoc(), drop.getValue());
+        for (Value field : opened.getFields())
           if (freedBy(field.getType(), Release::Counted))
             CountDropOp::create(b, drop.getLoc(), field);
         drop->erase();
-        token = take.getToken();
+        token = opened.getToken();
       }
       path.held.push_back(Held{*size, nextOrder++, Token(token)});
       return;

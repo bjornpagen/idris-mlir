@@ -43,6 +43,11 @@
 // lent: the view's lifetime keeps the buffer, so it holds no reference,
 // nothing drops it, and a use that consumes it takes a dup.
 //
+// A loan to upstream's ops (idr.carrier) is a reference of no one's: of a
+// counted holder it is a part, the holder held across the op whose region
+// binds the loan's lifetime and dropped after it; of a view or of static
+// data it is lent.
+//
 // On a path that ends the process (a crash, an exit), every value is freed
 // before the path's last allocation, so the end is never reached for want of
 // memory; a drop after that allocation is not placed, since nothing follows
@@ -57,6 +62,7 @@
 #include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ownership.h"
 #include "idr/Transforms/Counting.h"
 #include "idr/Transforms/Pipeline.h"
@@ -238,10 +244,15 @@ void Placement::classify() {
       std::optional<unsigned> field;
       if (auto read = dyn_cast_if_present<DataFieldOp>(def))
         field = static_cast<unsigned>(read.getIndex());
+      CarrierOp loan = lifetimes::loanOf(value);
       switch (roles[from]) {
       case Role::Owned:
       case Role::Part:
         partOf(id, from, field);
+        // A counted holder outlives its loan's lifetime: the op whose region
+        // that lifetime is the extent of holds it across its regions.
+        if (loan && loan.getResult() == value)
+          lent.emplace_back(idOf(lifetimes::extentOf(loan.getLifetime())).index(), *ownerOf[id]);
         return;
       case Role::Lent:
         if (freedBy(type, Release::Counted)) {
@@ -251,6 +262,12 @@ void Placement::classify() {
         break;
       case Role::Untouched:
       case Role::Scoped:
+        // A loan of a view or of static data: what keeps its holder keeps
+        // it, and nothing counts it.
+        if (loan) {
+          roles[id] = Role::Lent;
+          return;
+        }
         break;
       }
     }
@@ -276,8 +293,10 @@ void Placement::classify() {
       return;
     }
   });
-  llvm::stable_sort(pairs, [](const std::pair<std::uint32_t, ValueId> &a,
-                              const std::pair<std::uint32_t, ValueId> &b) { return a.first < b.first; });
+  auto byFirst = [](const std::pair<std::uint32_t, ValueId> &a,
+                    const std::pair<std::uint32_t, ValueId> &b) { return a.first < b.first; };
+  llvm::stable_sort(pairs, byFirst);
+  llvm::stable_sort(lent, byFirst);
   childStart.assign(count.value() + 1, 0);
   for (const auto &[from, part] : pairs)
     ++childStart[from + 1];

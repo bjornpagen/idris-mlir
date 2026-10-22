@@ -239,12 +239,6 @@ inline bool carriersOnly(mlir::Operation *op) {
          !llvm::isa<mlir::RegionBranchOpInterface, mlir::RegionBranchTerminatorOpInterface>(op);
 }
 
-// Whether an op of upstream's reads `value` itself, so its type stays the
-// bare carrier that op takes: counted, claiming nothing.
-inline bool readBare(mlir::Value value) {
-  return llvm::any_of(value.getUsers(), carriersOnly);
-}
-
 // Whether `op` may run one of its regions any number of times (a loop, a
 // recursive join group): a value from outside used in one is used once per
 // run.

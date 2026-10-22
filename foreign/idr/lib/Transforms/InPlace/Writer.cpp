@@ -22,6 +22,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/InPlace/Unique.h"
+#include "idr/Transforms/Lifetimes/Lend.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/SymbolTable.h"
@@ -133,15 +134,23 @@ LogicalResult writeVerdict(ProgramOp program, solver::ProgramGraph &graph,
       for (FuncOp op : ops[fn])
         op.walk([&](CallOp call) { call.copyCallee(calleeOf(call)); });
   // The copies join the program graph, every version's row what its calls
-  // now name.
+  // now name. Each version's id is kept, in the order of `ops`: the
+  // original's own, then each copy's as the editor gives it.
+  IndexVector<FunctionId, SmallVector<FunctionId, 1>> ids =
+      graph.table<SmallVector<FunctionId, 1>>();
+  for (FunctionId fn : functions)
+    ids[fn].push_back(fn);
   solver::Editor editor = graph.thaw();
   SmallVector<std::pair<FunctionId, FuncOp>> edited;
   for (FunctionId fn : functions) {
     if (versions.of[fn].empty())
       continue;
     edited.emplace_back(fn, ops[fn].front());
-    for (FuncOp copy : llvm::drop_begin(ops[fn]))
-      edited.emplace_back(editor.insert(copy), copy);
+    for (FuncOp copy : llvm::drop_begin(ops[fn])) {
+      FunctionId id = editor.insert(copy);
+      ids[fn].push_back(id);
+      edited.emplace_back(id, copy);
+    }
   }
   for (auto [id, op] : edited)
     editor.setCallees(id, solver::rowOf(op, editor));
@@ -151,13 +160,14 @@ LogicalResult writeVerdict(ProgramOp program, solver::ProgramGraph &graph,
   // graded at the boundary reaches what its body takes or reads it into at
   // a linear position, the buffer its cell holds among them, which
   // bufferization reads. Then every position the verdict changed is met,
-  // and every row is its derivation again.
+  // each holder now graded past the bare carrier lent to the ops of
+  // upstream's that read it, and every row is its derivation again.
   (void)unique::raiseClaims(graph, *program.getContext(), work);
   for (FunctionId fn : functions)
     if (touched.test(fn))
-      for (FuncOp op : ops[fn]) {
+      for (auto [op, id] : llvm::zip_equal(ops[fn], ids[fn])) {
         ownership::shareIntoPositions(op, calleeOf);
-        ownership::shareIntoCarriers(op);
+        (void)lifetimes::lendReads(op, id, graph, lifetimes::Holders::Graded);
       }
   rows::write(program, graph, work);
   return success();

@@ -7,7 +7,9 @@
 // its sharing; so is every value read from it, since a value read from a
 // view is a view: what hands it on at another grade (a cast, a share), a
 // part read of it (a field, a view of its buffer), what a region binds it
-// as (a case's refined scrutinee) and what a region gives out of it. Then
+// as (a case's refined scrutinee) and what a region gives out of it. A
+// loan of such a value to upstream's ops keeps its bare carrier, and is
+// projected under the view's own lifetime once the view is made. Then
 // each call or jump that passes a counted value where a view is now asked
 // lends it (`idr.lend`) around the call, or around the join point the jump
 // enters: the value comes back from the loan as the same value, so every
@@ -34,6 +36,7 @@
 #include "idr/IR/Ownership.h"
 #include "idr/Transforms/Counting.h"
 #include "idr/Transforms/Counting/Facts.h"
+#include "idr/Transforms/Lifetimes/Lend.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/Builders.h"
@@ -42,6 +45,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallBitVector.h"
 
+#include <cassert>
 #include <vector>
 
 #define GEN_PASS_DEF_IDRRCBORROWS
@@ -109,12 +113,24 @@ private:
   // The values made views whose readers are still to be retyped: the
   // retyped type is the mark, so each value is met once.
   std::vector<Value> pending;
+  // The loans to upstream's ops of values made views, projected under each
+  // view's own lifetime once the spread has made it one.
+  std::vector<CarrierOp> lentViews;
 };
 
 LogicalResult Writer::run() {
   decide();
   writeSignatures();
   spread();
+  // A loan of a view takes the view's own lifetime, so a scoped holder's
+  // loan has one form, and the lifetime it was lent under while its holder
+  // was counted goes once nothing uses it. After the spread: a projection
+  // may move ops the walk over uses stands on.
+  for (CarrierOp loan : lentViews) {
+    Value lifetime = lifetimes::statedLifetime(loan.getValue());
+    assert(lifetime && "a value the spread made a view states no lifetime");
+    lifetimes::reproject(loan, lifetime);
+  }
   for (FunctionId fn : graph.functions()) {
     SmallVector<Loan> loans;
     if (failed(findLoans(fn, loans)))
@@ -160,8 +176,8 @@ void Writer::writeSignatures() {
       continue;
     FuncOp op = graph.op(fn);
     Block &entry = op.getBody().front();
-    for (int at = bits.find_first(); at >= 0; at = bits.find_next(at))
-      reach(entry.getArgument(static_cast<unsigned>(at)));
+    for (unsigned at : bits.set_bits())
+      reach(entry.getArgument(at));
     op.setFunctionType(FunctionType::get(op.getContext(), entry.getArgumentTypes(),
                                          op.getFunctionType().getResults()));
   }
@@ -201,6 +217,12 @@ void Writer::spread() {
     for (OpOperand &use : view.getUses()) {
       Operation *user = use.getOwner();
       unsigned number = use.getOperandNumber();
+      // A loan to upstream's ops stays the bare carrier they take: its
+      // result is no view to retype, and the loan itself is projected anew.
+      if (auto loan = dyn_cast<CarrierOp>(user)) {
+        lentViews.push_back(loan);
+        continue;
+      }
       if (number == 0 && user->hasTrait<ResultCarriesOperand>())
         reach(user->getResult(0));
       // An element read out of the view's buffer is read from it too, but

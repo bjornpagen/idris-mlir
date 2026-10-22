@@ -29,7 +29,9 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
+#include <optional>
 #include <tuple>
+#include <variant>
 
 namespace idr::detail::exclusivity {
 
@@ -69,6 +71,15 @@ struct Call {
   llvm::SmallVector<std::pair<unsigned, ViewRoot>, 2> views;
 };
 
+// What the type of a value the solve does not follow says of it: exclusive
+// where it reaches no cell or its grade claims all it reaches unshared,
+// shared otherwise.
+enum class ByType : std::uint8_t { Shared, Exclusive };
+
+// What a body gives back at one result: a followed value, whose sharing the
+// solve decides, or a value it does not follow, whose type answers.
+using Returned = std::variant<Local, ByType>;
+
 // One function's body, read once. Its lists are sized by the body, in the
 // containers a pass's footprint counts.
 struct Body {
@@ -77,13 +88,9 @@ struct Body {
   // The local of each parameter, by position; noLocal where it is not
   // followed.
   llvm::SmallVector<Local, 4> params;
-  // The local of each operand of the body's return, by result position;
-  // noLocal where it is not followed. `exclusiveResults` holds the results
-  // whose operand is exclusive by its grade. `returns` is false for a body
-  // that never returns.
-  llvm::SmallVector<Local, 2> results;
-  llvm::SmallBitVector exclusiveResults;
-  bool returns = false;
+  // What each operand of the body's return gives back, by result position;
+  // none for a body that never returns.
+  std::optional<llvm::SmallVector<Returned, 2>> returns;
   footprint::Vector<Edge> edges;
   // Values shared in every context: copies, constants, values no flow
   // explains, inputs no predecessor forwards, region arguments no

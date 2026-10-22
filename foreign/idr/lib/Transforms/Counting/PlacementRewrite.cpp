@@ -19,6 +19,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallBitVector.h"
 
+#include <ranges>
+
 using namespace mlir;
 
 namespace idr::counting::placement {
@@ -77,7 +79,10 @@ void Placement::apply() {
         fields = unpacked.getFields();
       }
       ++takesPlaced;
-      llvm::SmallBitVector given(fields.size());
+      // The fields still in the cell, by position: a field given to a part
+      // leaves it, and what is left goes with the cell. MLIR numbers an op's
+      // results in `unsigned`, so the count of its fields fits one.
+      llvm::SmallBitVector left(static_cast<unsigned>(fields.size()), true);
       for (const auto &[index, part] : childrenOf(wholeId)) {
         if (index == ~0u || index >= fields.size())
           continue;
@@ -90,12 +95,12 @@ void Placement::apply() {
         });
         if (!needed && !beneath)
           continue;
-        if (given.test(index)) {
+        if (!left.test(index)) {
           // A second read of one field takes a dup of the first.
           dupSupplies.push_back({take.where, part});
           continue;
         }
-        given.set(index);
+        left.reset(index);
         Value field = fields[index];
         if (needed) {
           Value view = valueOf(part);
@@ -109,8 +114,8 @@ void Placement::apply() {
       // The fields nothing needs are dropped, and the emptied cell freed,
       // unless only the end lies ahead.
       if (take.ahead == Ahead::Allocation) {
-        for (auto [index, field] : llvm::enumerate(fields))
-          if (!given.test(index) && freedBy(field.getType(), Release::Counted)) {
+        for (unsigned index : left.set_bits())
+          if (Value field = fields[index]; freedBy(field.getType(), Release::Counted)) {
             CountDropOp::create(rewriter, loc, field);
             ++dropsPlaced;
           }
@@ -161,8 +166,7 @@ void Placement::apply() {
   }
   // A part read every use of which took its reference elsewhere goes, the
   // reads beneath it first.
-  for (std::uint32_t at = count.value(); at-- > 0;) {
-    ValueId id = idAt(static_cast<int>(at));
+  for (ValueId id : count.ids() | std::views::reverse) {
     if (roles[id] != Role::Part)
       continue;
     Value value = valueOf(id);

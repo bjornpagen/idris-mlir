@@ -5,9 +5,11 @@
 // A region op that enters one of its regions once per run moves what its
 // regions need into them, each region dropping at its head what a sibling
 // needs and it does not; one that may run a region any number of times, or
-// none, holds what its regions read across it. A terminator's successors
-// say what is needed where it leaves. The walk's stacks are on the heap, so
-// a nesting of any depth costs no native stack.
+// none, holds what its regions read across it, and one whose region binds a
+// lifetime holds what is lent to upstream's ops under it, which outlives
+// the lifetime. A terminator's successors say what is needed where it
+// leaves. The walk's stacks are on the heap, so a nesting of any depth
+// costs no native stack.
 #include "idr/Transforms/Counting/Placement.h"
 
 #include "idr/IR/Effects/Consumption.h"
@@ -131,6 +133,28 @@ llvm::BitVector Placement::heldBy(Operation *op) const {
   return held;
 }
 
+// The counted owners lent to upstream's ops under a lifetime one of `op`'s
+// regions binds: a loan's uses are reads of a part while its owner lives,
+// and the owner outlives the lifetime, so `op` holds it across its regions
+// and it dies, if nothing needs it after, as `op` ends.
+void Placement::holdLent(Operation *op, llvm::BitVector &held) const {
+  if (lent.empty())
+    return;
+  auto byExtent = [](const std::pair<std::uint32_t, ValueId> &row, std::uint32_t extent) {
+    return row.first < extent;
+  };
+  for (Region &region : op->getRegions()) {
+    if (region.empty())
+      continue;
+    for (BlockArgument arg : region.front().getArguments()) {
+      std::uint32_t extent = idOf(arg).index();
+      for (auto at = llvm::lower_bound(lent, extent, byExtent);
+           at != lent.end() && at->first == extent; ++at)
+        held.set(at->second.index());
+    }
+  }
+}
+
 void Placement::stepBlock(BlockWalk &walk) {
   if (!walk.next) {
     finishBlock(walk);
@@ -177,7 +201,8 @@ void Placement::stepBlock(BlockWalk &walk) {
   regions.entries.resize(op->getNumRegions());
   if (regions.runs == Runs::Repeats)
     regions.held = heldBy(op);
-  for (int at = regions.after.live.find_first(); at >= 0; at = regions.after.live.find_next(at))
+  holdLent(op, regions.held);
+  for (unsigned at : regions.after.live.set_bits())
     if (roles[idAt(at)] == Role::Part && !pinned.test(at)) {
       regions.pinnedHere.set(at);
       pinned.set(at);
@@ -246,7 +271,7 @@ State Placement::finishOp(OpWalk &walk) {
     for (const RegionSuccessor &entry : entries)
       if (const std::optional<State> &state = walk.entries[entry.getSuccessor()->getRegionNumber()])
         owners |= state->live;
-    for (int at = owners.find_first(); at >= 0; at = owners.find_next(at))
+    for (unsigned at : owners.set_bits())
       if (roles[idAt(at)] != Role::Owned)
         owners.reset(at);
     before.ahead = Ahead::End;
@@ -257,7 +282,7 @@ State Placement::finishOp(OpWalk &walk) {
         continue;
       llvm::BitVector dead = owners;
       dead.reset(state->live);
-      for (int at = dead.find_first(); at >= 0; at = dead.find_next(at))
+      for (unsigned at : dead.set_bits())
         death(idAt(at), Where::atStart(region->front()), Death::Reading, *state);
       before.live |= state->live;
       if (state->ahead == Ahead::Allocation)
@@ -265,7 +290,7 @@ State Placement::finishOp(OpWalk &walk) {
     }
     before.live |= owners;
   }
-  for (int at = walk.pinnedHere.find_first(); at >= 0; at = walk.pinnedHere.find_next(at)) {
+  for (unsigned at : walk.pinnedHere.set_bits()) {
     ValueId part = idAt(at);
     ValueId owner = *ownerOf[part];
     bool ownerLives = before.live.test(owner.index()) ||
@@ -275,17 +300,16 @@ State Placement::finishOp(OpWalk &walk) {
     dupSupplies.push_back({Where::before(op), part});
     before.live.reset(at);
   }
-  // A value an op that repeats holds across its regions, and nothing needs
-  // after it, dies as the op ends.
-  if (walk.runs == Runs::Repeats) {
-    State after = walk.after;
-    after.live.reset(walk.pinnedHere);
-    llvm::BitVector dying = walk.held;
-    dying.reset(walk.after.live);
-    for (int at = dying.find_first(); at >= 0; at = dying.find_next(at))
-      if (roles[idAt(at)] == Role::Owned)
-        death(idAt(at), Where::past(op), Death::Reading, after);
-  }
+  // A value an op holds across its regions (one that repeats holds what
+  // they read, and any holds what is lent under a lifetime it binds), and
+  // nothing needs after it, dies as the op ends.
+  State after = walk.after;
+  after.live.reset(walk.pinnedHere);
+  llvm::BitVector dying = walk.held;
+  dying.reset(walk.after.live);
+  for (unsigned at : dying.set_bits())
+    if (roles[idAt(at)] == Role::Owned)
+      death(idAt(at), Where::past(op), Death::Reading, after);
   return before;
 }
 

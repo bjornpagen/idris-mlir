@@ -35,7 +35,7 @@ namespace idr {
 bool isCountedValue(Type value) { return freedBy(value, Release::Counted); }
 
 bool isTokenValue(Type value) {
-  return isa<TokenType>(unrestricted(value)) && usesOf(value) == Uses::Once;
+  return isa<ReuseTokenType>(unrestricted(value)) && usesOf(value) == Uses::Once;
 }
 
 bool isHeldValue(Type value) { return holdOf(value).has_value(); }
@@ -60,7 +60,7 @@ bool idr::fillsField(Type type, Type field, std::optional<Hold> built) {
 LogicalResult idr::verifyRecycle(CellRecycleOp recycle, const Layouts &layouts) {
   CellType cell = recycle.getCell().getType();
   unsigned need = layouts.cells(cell.getData()).cell(cell.getTag()).size;
-  auto token = cast<TokenType>(unrestricted(recycle.getToken().getType()));
+  auto token = cast<ReuseTokenType>(unrestricted(recycle.getToken().getType()));
   for (Type source : token.getSources()) {
     auto data = cast<DataType>(source);
     unsigned have = layouts.cells(data).cell(*data.singleTag()).size;
@@ -113,8 +113,8 @@ namespace {
 // Whether a token of `from` may stand where one of `to` is asked: at the
 // same uses, its hold fitting, `to` naming every cell `from` may hold.
 bool widens(Type from, Type to) {
-  auto a = dyn_cast<TokenType>(unrestricted(from));
-  auto b = dyn_cast<TokenType>(unrestricted(to));
+  auto a = dyn_cast<ReuseTokenType>(unrestricted(from));
+  auto b = dyn_cast<ReuseTokenType>(unrestricted(to));
   if (!a || !b || usesOf(from) != usesOf(to))
     return false;
   std::optional<Hold> held = holdOf(from);
@@ -180,13 +180,18 @@ bool OwnAdoptOp::isCompatibleReturnTypes(TypeRange inferred, TypeRange actual) {
   return inferred.size() == 1 && actual.size() == 1 && forgets(inferred.front(), actual.front());
 }
 
+// The store takes the plain carrier: the value's type, its grade forgotten.
+LogicalResult OwnGiveOp::inferReturnTypes(MLIRContext *, std::optional<Location>, Adaptor adaptor,
+                                          SmallVectorImpl<Type> &inferred) {
+  inferred.push_back(unrestricted(adaptor.getValue().getType()));
+  return success();
+}
+
 // The store takes the plain carrier, so a value used once is never given:
 // its quantity would be lost.
 LogicalResult OwnGiveOp::verify() {
   Type value = getValue().getType();
   if (usesOf(value) == Uses::Once)
     return emitOpError("gives ") << value << " to memory, which would lose its one use";
-  if (getResult().getType() != unrestricted(value))
-    return emitOpError("gives ") << getResult().getType() << ", not the carrier of " << value;
   return success();
 }

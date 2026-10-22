@@ -50,8 +50,9 @@ using BodyValue = Id<BodyValueTag>;
 class Reader {
 public:
   Reader(FuncOp fn, const solver::ProgramGraph &graph, Anchors &anchors)
-      : fn(fn), graph(graph), anchors(anchors), numbering(fn), localAt(numbering.size(), noLocal),
-        firstForward(numbering.size()), partOf(numbering.size()) {}
+      : fn(fn), entry(&fn.getBody().front()), graph(graph), anchors(anchors), numbering(fn),
+        localAt(numbering.size(), noLocal), firstForward(numbering.size()),
+        partOf(numbering.size()) {}
 
   FailureOr<Body> read() {
     body.fn = fn;
@@ -60,7 +61,7 @@ public:
       body.values = at + 1;
     });
     explained.emplace(idr::exclusivity::FollowedNumbers::count(body.values));
-    for (BlockArgument param : fn.getBody().front().getArguments()) {
+    for (BlockArgument param : entry->getArguments()) {
       body.params.push_back(localOf(param));
       explain(param);
     }
@@ -153,7 +154,7 @@ private:
       if (Local here = localOf(at); here != noLocal)
         return ViewRoot{ViewRoot::Kind::Value, here};
       if (auto arg = dyn_cast<BlockArgument>(at)) {
-        if (arg.getOwner() == &fn.getBody().front())
+        if (arg.getOwner() == entry)
           return ViewRoot{ViewRoot::Kind::Parameter, arg.getArgNumber()};
         std::optional<Value> source = firstForward[numbering.at(arg)];
         if (!source)
@@ -290,8 +291,7 @@ private:
   }
 
   void readCall(CallOp call) {
-    Call out;
-    out.callee = graph.id(call.getCalleeAttr());
+    Call out{graph.id(call.getCalleeAttr()), {}, {}, {}};
     for (auto [index, arg] : llvm::enumerate(call.getArgOperands())) {
       out.args.push_back(localOf(arg));
       // A view passed on: if the callee takes a reference of it, its owner
@@ -307,21 +307,26 @@ private:
     body.calls.push_back(std::move(out));
   }
 
+  // What the body gives back: for each operand of its return, the followed
+  // value, or what its type says; nothing for a body that never returns.
   void readReturn() {
-    Operation *end = fn.getBody().front().getTerminator();
-    auto ret = dyn_cast_or_null<ReturnOp>(end);
-    body.returns = static_cast<bool>(ret);
-    body.exclusiveResults.resize(fn.getNumResults());
+    auto ret = dyn_cast_or_null<ReturnOp>(entry->getTerminator());
     if (!ret)
       return;
-    for (auto [index, operand] : llvm::enumerate(ret.getOperands())) {
-      body.results.push_back(localOf(operand));
-      if (localOf(operand) == noLocal && exclusiveByType(operand))
-        body.exclusiveResults.set(index);
-    }
+    body.returns.emplace();
+    for (Value operand : ret.getOperands())
+      body.returns->push_back(returned(operand));
+  }
+
+  Returned returned(Value operand) const {
+    if (Local at = localOf(operand); at != noLocal)
+      return at;
+    return exclusiveByType(operand) ? ByType::Exclusive : ByType::Shared;
   }
 
   FuncOp fn;
+  // The body's one block, whose arguments are its parameters.
+  Block *entry;
   const solver::ProgramGraph &graph;
   Anchors &anchors;
   Body body;
@@ -362,9 +367,8 @@ void shareStaticAnchors(ProgramOp program, Anchors &anchors) {
         return;
       for (unsigned index = 0, e = static_cast<unsigned>(con.getFields().size()); index != e;
            ++index)
-        anchors.share(anchors.of(FlowAnchor::Field{data.getGroup(),
-                                                   static_cast<std::uint32_t>(data.getMember()),
-                                                   con.getTag(), index}));
+        anchors.share(anchors.of(
+            FlowAnchor::Field{data.getGroup(), data.getMember(), con.getTag(), index}));
     });
   });
 }

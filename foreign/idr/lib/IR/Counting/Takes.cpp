@@ -75,7 +75,7 @@ DataType takenData(Op op) {
 Type tokenOf(Type type) {
   DataType data = cast<DataType>(unrestricted(type));
   Unique holds = claims(type, Unique::Self) ? Unique::Deep : Unique::None;
-  return graded(Grade{Uses::Once, Hold::counted(holds)}, TokenType::of(data));
+  return graded(Grade{Uses::Once, Hold::counted(holds)}, ReuseTokenType::of(data));
 }
 
 // The fields of a value of `type` taken apart, each at the type a read of
@@ -200,7 +200,7 @@ void CountMatchUniqueOp::getRegionInvocationBounds(ArrayRef<Attribute>,
 LogicalResult CountMatchUniqueOp::verifyRegions() {
   Type value = getValue().getType();
   SmallVector<Type> unique{graded(Grade{Uses::Once, Hold::counted(Unique::Deep)},
-                                  TokenType::of(cast<DataType>(unrestricted(value))))};
+                                  ReuseTokenType::of(cast<DataType>(unrestricted(value))))};
   if (failed(fieldsOf(getLoc(), value, unique)))
     return failure();
   if (!llvm::equal(getUnique().front().getArgumentTypes(), unique))

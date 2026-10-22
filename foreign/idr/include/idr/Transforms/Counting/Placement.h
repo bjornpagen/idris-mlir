@@ -133,7 +133,9 @@ struct OpWalk {
   State after;
   unsigned remaining;
   llvm::SmallVector<std::optional<State>, 2> entries;
-  // What an op that may run its regions many times holds across them.
+  // What the op holds across its regions: what they read, for an op that
+  // may run them many times, and the owners lent under a lifetime one of
+  // them binds.
   llvm::BitVector held;
   // The parts live after the op that its regions may not supply.
   llvm::BitVector pinnedHere;
@@ -165,7 +167,9 @@ private:
   }
 
   ValueId idOf(mlir::Value value) const { return numbering.at(value); }
-  ValueId idAt(int bit) const { return count.ids()[static_cast<std::uint32_t>(bit)]; }
+  // The value a bit of a live set stands for: the sets are numbered as the
+  // values are, a bit per value.
+  ValueId idAt(unsigned bit) const { return count.ids()[bit]; }
   mlir::Value valueOf(ValueId id) const { return done.values[id]; }
 
   // What each value is (Placement.cpp).
@@ -183,6 +187,7 @@ private:
   OpWalk *frameOf(mlir::Operation *op);
   bool aliveAt(ValueId owner, mlir::Operation *op, const State &state) const;
   llvm::BitVector heldBy(mlir::Operation *op) const;
+  void holdLent(mlir::Operation *op, llvm::BitVector &held) const;
 
   // Uses and deaths (PlacementUses.cpp).
   void operandDeaths(mlir::Operation *op, const llvm::SmallBitVector &consumed, State &state,
@@ -224,6 +229,10 @@ private:
   // field (none for a view of a buffer).
   std::vector<std::pair<std::uint32_t, ValueId>> childRows;
   std::vector<std::uint32_t> childStart;
+  // Each counted owner lent to upstream's ops, by the number of the lifetime
+  // its loan's extent is, in that order: the op whose region binds that
+  // lifetime holds the owner across its regions, so it outlives the loan.
+  std::vector<std::pair<std::uint32_t, ValueId>> lent;
 
   llvm::BitVector pinned;
   llvm::SmallVector<BlockWalk, 8> blocks;
