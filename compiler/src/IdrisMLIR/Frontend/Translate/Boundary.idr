@@ -296,17 +296,34 @@ bothHold _ _ = ByInstance
 
 ||| The head of a type: a type constructor, which the type applies whatever
 ||| an instance substitutes; what the instance decides, a variable, an
-||| unknown, or a definition its arguments leave stuck; or anything else,
-||| which no value of a choice has (a constant, a universe, a constructor).
+||| unknown, a definition its arguments leave stuck, or a marker of the
+||| growth walk's, which is the writer's variable; or anything else, which
+||| no value of a choice has (a constant, a universe, a constructor, a
+||| runtime value a probe stands for).
 data Headed = ByTypeConstructor Name | Undecided | Neither
 
 headed : Term vs -> Headed
 headed ty = case getFn ty of
   Ref _ (TyCon _) n => ByTypeConstructor n
   Ref _ Func _ => Undecided
+  Ref _ Bound n => maybe Neither probed (probeOf n)
   Local {} => Undecided
   Meta {} => Undecided
   _ => Neither
+  where
+    -- A bound name no binder binds is a probe. The growth walk's markers
+    -- (the writer's parameter, a part of one a site matched, a field of
+    -- its dictionary, an argument of a family's value) stand for what each
+    -- instance puts in, so only an instance decides a type one heads, as
+    -- the member table leaves a type its variable heads to the instance.
+    -- Any other probe stands for a runtime value or a binder of a
+    -- constructor's type, which no instance puts in.
+    probed : Probe -> Headed
+    probed (ProbeVar _ _) = Undecided
+    probed (ProbePattern _) = Undecided
+    probed (ProbeFieldPath _ _ _) = Undecided
+    probed (ProbeFormal _ _) = Undecided
+    probed _ = Neither
 
 ||| Is a value of a type an implementation, whatever binds it? Idris passes
 ||| a function's constraints to its `where` functions and its case and with
