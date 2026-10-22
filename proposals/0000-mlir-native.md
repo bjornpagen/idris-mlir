@@ -2039,6 +2039,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   hold reaching a return or a yield takes no cast, the use accepting a
   value whose hold fits its own (`holdFits`). The callers of the
   two-argument `substitute` (L02, L13, L18) pass the callee's extents.
+- **C242** (2026-10-22; L16bq's handoff, under D68 and C234). An
+  instance is classified and translated at its key's forms (normal, then
+  eta-contracted), the forms that name it, never at the normalised
+  arguments alone: one instance, one reading of its arguments. The value
+  put in for a requested parameter is then its argument reading's form
+  by construction (`ArgumentFrom`), and `staticReading` keeps the
+  `InstanceReading` it computed with the key it caches, rather than
+  reading it again. The emitted code may change where an argument held an
+  eta-redex; its meaning does not, since Idris's conversion is up to eta.
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
