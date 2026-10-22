@@ -44,6 +44,12 @@ The states are `Root`, `Frame`, `Heap`, `Contents`, `Count`,
 - `ReleasesForeign g`
 - `ReadsBuffers g` and `WritesBuffers g`: L12's generating ops.
 - `Summarized`
+- `Repacks g h` (C206, C214): a pair rule reading operand group `g`'s
+  and result group `h`'s types together. Where their layouts differ it
+  applies consumption, a count where the operand may be shared, and a
+  release where it owns its count, to the operand, and acquisition to the
+  result; where they agree it gives nothing. Each group is one value,
+  paired by position.
 
 ## The rest of a declaration
 
