@@ -22,7 +22,6 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <cassert>
-#include <limits>
 #include <optional>
 
 using namespace mlir;
@@ -157,34 +156,6 @@ LevelMap mapOfArgs(IndexArgsAttr args, uint32_t &kept) {
   return map;
 }
 
-// The size an extent's mapped term makes its axis: a natural a dimension
-// holds. A dimension is a signed word whose least value is MLIR's `?`, so a
-// natural past it is no size, as a natural past a word is opaque; no
-// machine holds an array that long, so its axis stays `?` and no program is
-// refused for it.
-std::optional<int64_t> sizeOf(Term term) {
-  if (term.kind() != TermKind::Natural ||
-      term.head().value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
-    return std::nullopt;
-  return static_cast<int64_t>(term.head().value);
-}
-
-// What an axis becomes where its term is a size, by the side it is on:
-// static on an input; kept on a result, which keeps the callee's type,
-// since a cast after a call would take a tail call out of tail position and
-// a caller learns no more from a result than its own types say.
-enum class AtSize { Static, Kept };
-
-// The array whose axis `at` becomes static once its term is a size: a bare
-// tensor argument's, which tensor.cast reaches. A graded array keeps its
-// axis `?`, since no cast keeps a grade; that leaves the program less
-// optimized and refuses nothing.
-RankedTensorType staticArray(ArrayRef<Type> inputs, ExtentAt at) {
-  if (onSide(at.side, AtSize::Static, AtSize::Kept) == AtSize::Kept)
-    return {};
-  return dyn_cast<RankedTensorType>(inputs[at.position]);
-}
-
 // A signature and its extents under one level map, read once: what
 // substitute gives a call's view and substituteFunction gives the copy, so
 // the two cannot disagree on an axis.
@@ -203,12 +174,12 @@ struct Signature {
 
 // `type` and its `extents` under `map`: every family type mapped, and each
 // entry's term written through the same map. An entry goes where its axis
-// is left no `?` to name, a bare tensor argument's axis whose term became a
-// size and is now static; and where its term became opaque, which names no
-// size, as the `?` already says. Every other entry stays, its term over
-// binders or now a constant: a result and a graded array keep their `?` on
-// purpose, as does an axis whose natural is past a dimension, and a known
-// size is never dropped.
+// is left no `?` to name, made static where staticSizeAt gives its mapped
+// term a size, the one rule idr.func's verifier reads; and where its term
+// became opaque, which names no size, as the `?` already says. Every other
+// entry stays, its term over binders or now a constant: a result and a
+// graded array keep their `?` on purpose, as does an axis whose natural is
+// past a dimension, and a known size is never dropped.
 Signature mapSignature(FunctionType type, ExtentsAttr extents, const LevelMap &map) {
   auto mapped = cast<FunctionType>(mapLevels(type, map));
   Signature at{SmallVector<Type>(mapped.getInputs()), SmallVector<Type>(mapped.getResults()), {},
@@ -229,13 +200,13 @@ Signature mapSignature(FunctionType type, ExtentsAttr extents, const LevelMap &m
       nodes.resize(begin);
       continue;
     }
-    std::optional<int64_t> size = sizeOf(term);
-    RankedTensorType array = staticArray(at.inputs, entry.at);
-    if (!array || !size) {
+    std::optional<int64_t> size = staticSizeAt(at.inputs, entry.at, term);
+    if (!size) {
       named.push_back({entry.at, begin});
       continue;
     }
     nodes.resize(begin);
+    auto array = cast<RankedTensorType>(at.inputs[entry.at.position]);
     assert(array.isDynamicDim(entry.at.axis) && "an extent names an axis whose size is no constant");
     SmallVector<int64_t> shape(array.getShape());
     shape[entry.at.axis] = *size;
@@ -333,33 +304,83 @@ void foldEqualCasts(Operation *root) {
 }
 
 // A value the walk made more static where a tensor.cast reaches the type it
-// had, and that type.
+// had, that type, and the cast back to it once a use has asked for one.
 struct Refined {
   Value value;
   Type had;
+  tensor::CastOp back;
 };
 
-// The uses of `refined` whose type is fixed elsewhere, through one
-// tensor.cast back to the type it had, placed where the value is defined: a
-// use by an op whose results do not follow from its operands (a block
-// argument's, a yield to its parent's result, a return, an op that states
-// its results), or by one whose inference refused the new operand. Every
-// other use took the new type with the op's inferred results.
-void castBack(const Refined &refined, ArrayRef<Operation *> refused) {
+// The value `refined` had, through one tensor.cast placed where it is
+// defined, made the first time a use asks for it and shared by every use
+// after.
+Value castOf(Refined &refined) {
+  if (!refined.back) {
+    OpBuilder builder(refined.value.getContext());
+    if (Operation *def = refined.value.getDefiningOp())
+      builder.setInsertionPointAfter(def);
+    else
+      builder.setInsertionPointToStart(refined.value.getParentBlock());
+    refined.back =
+        tensor::CastOp::create(builder, refined.value.getLoc(), refined.had, refined.value);
+  }
+  return refined.back.getResult();
+}
+
+// The uses of `refined` whose type is fixed elsewhere, through its cast
+// back: a use by an op whose results do not follow from its operands (a
+// block argument's, a yield to its parent's result, a return, an op that
+// states its results). Every op whose results follow from its operands took
+// the new type, kept its own, or reads the cast already.
+void castBack(Refined &refined) {
   SmallVector<OpOperand *> fixed;
   for (OpOperand &use : refined.value.getUses())
-    if (!isa<InferTypeOpInterface>(use.getOwner()) || llvm::is_contained(refused, use.getOwner()))
+    if (!isa<InferTypeOpInterface>(use.getOwner()) &&
+        use.getOwner() != refined.back.getOperation())
       fixed.push_back(&use);
   if (fixed.empty())
     return;
-  OpBuilder builder(refined.value.getContext());
-  if (Operation *def = refined.value.getDefiningOp())
-    builder.setInsertionPointAfter(def);
-  else
-    builder.setInsertionPointToStart(refined.value.getParentBlock());
-  auto back = tensor::CastOp::create(builder, refined.value.getLoc(), refined.had, refined.value);
+  Value back = castOf(refined);
   for (OpOperand *use : fixed)
-    use->set(back.getResult());
+    use->set(back);
+}
+
+// The type a result inferred as `inferred` takes where it had `had`: the
+// inferred type where a tensor.cast takes it back to `had`, a bare tensor
+// made more static; otherwise `had` at the inferred grade. No cast keeps a
+// grade, and a call compares graded types exactly, so a graded value keeps
+// its shape while its hold refines; so does any carrier the cast does not
+// reach, which no use fixed elsewhere could be given back.
+Type takenType(Type inferred, Type had) {
+  if (tensor::CastOp::areCastCompatible(ArrayRef<Type>(inferred), ArrayRef<Type>(had)))
+    return inferred;
+  Type kept = atUses(had, usesOf(inferred));
+  std::optional<Hold> hold = holdOf(inferred);
+  return hold ? atHold(kept, *hold) : kept;
+}
+
+// The types `infer`'s op takes from its operands as they now are: its own
+// where they still agree with that inference by the op's own compatibility,
+// since they may be more precise; otherwise each result as takenType makes
+// it, where the op's own compatibility accepts those. None where inference
+// refuses the operands, or where the op accepts a result only at a carrier
+// no cast takes back. Inference is asked with no location, so a refusal
+// reports nothing.
+std::optional<SmallVector<Type>> takenTypes(InferTypeOpInterface infer) {
+  Operation *op = infer.getOperation();
+  SmallVector<Type> inferred;
+  if (failed(infer.inferReturnTypes(op->getContext(), std::nullopt, op->getOperands(),
+                                    op->getRawDictionaryAttrs(), op->getPropertiesStorage(),
+                                    op->getRegions(), inferred)))
+    return std::nullopt;
+  if (infer.isCompatibleReturnTypes(inferred, op->getResultTypes()))
+    return SmallVector<Type>(op->getResultTypes());
+  SmallVector<Type> taken;
+  for (auto [type, had] : llvm::zip_equal(inferred, op->getResultTypes()))
+    taken.push_back(takenType(type, had));
+  if (!infer.isCompatibleReturnTypes(inferred, taken))
+    return std::nullopt;
+  return taken;
 }
 
 // The body under the copy's signature. Each argument a size made static
@@ -367,49 +388,60 @@ void castBack(const Refined &refined, ArrayRef<Operation *> refused) {
 // in one walk in program order: each op whose results follow from its
 // operands (upstream's InferTypeOpInterface) has them inferred again from
 // its operands as they now are, a hold the caller set on a parameter as
-// much as an axis made static. Where its results no longer agree with that
-// inference by the op's own compatibility, an operand's type differs from
-// the one the op was built with, and the op takes the inferred types; where
-// they still agree it keeps its own, which may be more precise. The caller
+// much as an axis made static. Where its results still agree with that
+// inference by the op's own compatibility, it keeps its own; the caller
 // sets the holds before this runs, so the op's own agreement is the test,
-// not a remembered type. Each op is met after every op whose results it
-// reads, so one walk needs no fixpoint. A value made more static is cast
-// back only for its uses whose type is fixed elsewhere; a cast left where
-// nothing refines past it is the less optimized form, never wrong. A change
-// of grade has no cast, and its uses read the new grade. Upstream's
-// tensor.cast says what the Idris type proves, that the extent is the size.
+// not a remembered type. Otherwise each result takes its inferred grade,
+// and its inferred carrier only where a tensor.cast takes it back, so the
+// walk changes a value's grade or makes a bare tensor more static, never a
+// graded value's shape: no cast keeps a grade, and a call compares graded
+// types exactly. A change of grade has no cast, and its uses read the new
+// grade. An op whose inference refuses its operands, or which accepts a
+// result only at a carrier no cast takes back, reads each operand the walk
+// made more static through that operand's cast back and is inferred again
+// from what it then reads, its operands' carriers being those it was built
+// with; where that is refused too, the problem is the op's, which the walk
+// cannot change, and the op keeps the types it had. Each op is met after
+// every op whose results it reads, so one walk needs no fixpoint. A value
+// made more static is cast back only for its uses whose type is fixed
+// elsewhere; a cast left where nothing refines past it is the less
+// optimized form, never wrong. Upstream's tensor.cast says what the Idris
+// type proves, that the extent is the size.
 void followOperands(FuncOp function, const Signature &at) {
   Block &entry = function.getBody().front();
   SmallVector<Refined> refined;
   for (uint32_t position : at.fixed) {
     BlockArgument arg = entry.getArgument(position);
-    refined.push_back({arg, arg.getType()});
+    refined.push_back({arg, arg.getType(), {}});
     arg.setType(at.inputs[position]);
   }
-  // Inference is asked with no location, so a refusal reports nothing: the
-  // op keeps the types it had through the casts back.
-  SmallVector<Operation *> refused;
   function.walk([&](InferTypeOpInterface infer) {
     Operation *op = infer.getOperation();
-    SmallVector<Type> inferred;
-    if (failed(infer.inferReturnTypes(op->getContext(), std::nullopt, op->getOperands(),
-                                      op->getRawDictionaryAttrs(), op->getPropertiesStorage(),
-                                      op->getRegions(), inferred))) {
-      refused.push_back(op);
-      return;
+    std::optional<SmallVector<Type>> taken = takenTypes(infer);
+    if (!taken) {
+      // A cast states its result, so wherever it is placed the walk asks
+      // nothing of it.
+      for (OpOperand &operand : op->getOpOperands()) {
+        auto *made = llvm::find_if(
+            refined, [&](const Refined &value) { return value.value == operand.get(); });
+        if (made != refined.end())
+          operand.set(castOf(*made));
+      }
+      taken = takenTypes(infer);
     }
-    if (infer.isCompatibleReturnTypes(inferred, op->getResultTypes()))
+    if (!taken)
       return;
-    for (auto [result, type] : llvm::zip_equal(op->getResults(), inferred)) {
+    for (auto [result, type] : llvm::zip_equal(op->getResults(), *taken)) {
       Type had = result.getType();
+      if (had == type)
+        continue;
       result.setType(type);
-      if (had != type &&
-          tensor::CastOp::areCastCompatible(ArrayRef<Type>(type), ArrayRef<Type>(had)))
-        refined.push_back({result, had});
+      if (tensor::CastOp::areCastCompatible(ArrayRef<Type>(type), ArrayRef<Type>(had)))
+        refined.push_back({result, had, {}});
     }
   });
-  for (const Refined &value : refined)
-    castBack(value, refused);
+  for (Refined &value : refined)
+    castBack(value);
 }
 
 } // namespace
@@ -472,9 +504,9 @@ IndexArgsAttr opaqueArgs(MLIRContext *context, uint32_t count) {
 // A binder's term is kept where it makes a data type of the signature
 // whose class is unknown one whose class is closed: there its layout
 // changes, so the call reaches a copy at that class. It is kept too where
-// it makes an axis of a bare tensor argument a size, by the same test the
-// signature's mapping makes, so the copy has that axis static as the
-// call's view of it does.
+// staticSizeAt makes an axis static at the closed terms, the rule the
+// signature's mapping reads, so the copy has that axis static as the call's
+// view of it does.
 std::optional<IndexArgsAttr> classesUnder(FunctionType signature, ExtentsAttr extents,
                                           IndexArgsAttr args) {
   auto count = static_cast<uint32_t>(args.getCount());
@@ -500,12 +532,10 @@ std::optional<IndexArgsAttr> classesUnder(FunctionType signature, ExtentsAttr ex
   if (extents)
     for (ExtentAttr attr : extents.getEntries()) {
       Extent entry = attr.extent();
-      if (!staticArray(signature.getInputs(), entry.at))
-        continue;
       SmallVector<TermNode> nodes;
       TermWriter write(nodes);
       closed.write(write, entry.term);
-      if (!sizeOf(Term(nodes)))
+      if (!staticSizeAt(signature.getInputs(), entry.at, Term(nodes)))
         continue;
       for (const TermNode &node : entry.term.nodes())
         if (node.kind == TermKind::Level) {

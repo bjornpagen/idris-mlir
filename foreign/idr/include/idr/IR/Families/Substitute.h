@@ -64,11 +64,11 @@ llvm::SmallVector<mlir::Type> instantiateFields(FamilyAttr group, llvm::ArrayRef
 // `type`, a callee's signature whose extents are `extents` (null for none),
 // at a call's terms `args`: each binder whose term is opaque stays a
 // binder, renumbered among those that stay; every other is replaced by its
-// term; and each axis of a bare tensor argument an extent names whose term
-// becomes a size is static at it. A result keeps the callee's type, and a
-// graded array its `?`. It is the signature substituteFunction gives the
-// callee's copy at `args`, both read off one mapping, so a call's view of a
-// copy is the copy's type.
+// term; and each axis an extent names is static where staticSizeAt gives
+// its term a size, a bare tensor argument's, the rule idr.func's verifier
+// reads too. A result keeps the callee's type, and a graded array its `?`.
+// It is the signature substituteFunction gives the callee's copy at `args`,
+// both read off one mapping, so a call's view of a copy is the copy's type.
 mlir::FunctionType substitute(mlir::FunctionType type, ExtentsAttr extents, IndexArgsAttr args);
 
 // The function `function` (its signature, its extents and its body)
@@ -81,9 +81,13 @@ mlir::FunctionType substitute(mlir::FunctionType type, ExtentsAttr extents, Inde
 // parameters' types in one walk in program order: each op whose results
 // follow from its operands has them inferred again wherever they no longer
 // agree with its operands, whether an axis was made static here or the
-// caller set a parameter's hold before the call; a value made more static
-// is cast back by tensor.cast only where a use's type is fixed elsewhere.
-// The sorts of the binders that stay, which the caller sets on its op.
+// caller set a parameter's hold before the call. A result's grade follows,
+// and its shape only where it is a bare tensor, which tensor.cast takes
+// back where a use's type is fixed elsewhere; a graded value keeps its
+// shape, since no cast keeps a grade, and an op that accepts a graded
+// result only at the refined shape reads its operands through their casts
+// back instead. The sorts of the binders that stay, which the caller sets
+// on its op.
 mlir::FailureOr<llvm::SmallVector<Sort>> substituteFunction(FuncOp function, IndexArgsAttr args);
 
 // Moves the levels [from, from + count) of every type under `region` to
@@ -101,7 +105,7 @@ IndexArgsAttr opaqueArgs(mlir::MLIRContext *context, uint32_t count);
 // The layout class a call's terms give its callee, whose extents are
 // `extents` (null for none): each term that turns a type of the signature
 // into an application whose class is closed kept, and each that makes an
-// axis of a bare tensor argument a size, each other opaque; none when no
+// axis static by staticSizeAt, each other opaque; none when no
 // type of the signature changes its layout, so the call needs no copy.
 std::optional<IndexArgsAttr> classesUnder(mlir::FunctionType signature, ExtentsAttr extents,
                                           IndexArgsAttr args);
