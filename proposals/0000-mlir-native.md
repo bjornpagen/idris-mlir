@@ -3868,6 +3868,19 @@ C137.
   values. Deriving a bound value's lifetime from what entered it would
   walk through nested matches, which C181 rules out, and one entry for
   several values would narrow them, which C179 rules out.
+- **C183** (2026-10-21; L17's question on 0010's A0 in the fork). A term
+  being elaborated stays an unshared, located tree, as the elaborator's
+  59 location reads need; when a definition is stored, its terms become
+  columns in preorder, shared within the definition, with their
+  locations as one more preorder column, so no location is lost and no
+  shared node needs one. The stored columns are frozen with the
+  definition (an immutable array of `mlir-array`, both hosts), so every
+  read is a pure read of an immutable value and the fork states no new
+  trust: a run-time read hidden as pure is what AGENTS.md allows only a
+  trusted library, and a frozen array needs none. Definitions refer to
+  one another by interned name, not by arena position, so no table
+  grows under a read. Its cost: no sharing across definitions, which a
+  global append-only arena would give at the price of that trust.
 
 ## 4. Open: the owner's decisions, in order
 
