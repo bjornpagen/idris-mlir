@@ -8,7 +8,8 @@
 module IdrisMLIR.Spec.Core.Text
 
 import Data.List
-import Data.List1
+-- A mnemonic, a C++ name and a path are non-empty lists, in every module that holds one.
+import public Data.List1
 -- Every literal of these types is checked by an automatic `So` search in
 -- the module that writes it, which finds `Oh` only where `So` is visible.
 import public Data.So
