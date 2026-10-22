@@ -520,16 +520,18 @@ sameVar (MkVar p) (MkVar q) Refl = varAtSame p q (isVarName p q)
 
 ||| A variable's index is below the size of its scope.
 export
-0 varBelowSize : (s : SizeOf vs) -> (v : Var vs) -> LT (varIdx v) (size s)
+0 varBelowSize : (s : SizeOf vs) -> (v : Var vs) -> LT (varIdx v) (List.SizeOf.size s)
 varBelowSize (MkSizeOf n hl) (MkVar p) = below hl p
   where
     below : HasLength k xs -> IsVar x i xs -> LT i k
+    below Z First impossible
+    below Z (Later _) impossible
     below (S _) First = LTESucc LTEZero
     below (S h) (Later q) = LTESucc (below h q)
 
 ||| The variable at each index below the size of a scope.
 export
-0 varAt : (s : SizeOf vs) -> (j : Nat) -> LT j (size s) -> (w : Var vs ** varIdx w = j)
+0 varAt : (s : SizeOf vs) -> (j : Nat) -> LT j (List.SizeOf.size s) -> (w : Var vs ** varIdx w = j)
 varAt (MkSizeOf n hl) j lt = at hl j lt
   where
     at : HasLength k xs -> (j : Nat) -> LT j k -> (w : Var xs ** varIdx w = j)
@@ -562,9 +564,9 @@ range (S a) b (S i) = case range a b i of
   PastBoth k same => PastBoth k (cong S same)
 
 -- An index below a size, or at or past it, as a found side says.
-data Side : (size, idx : Nat) -> Either a b -> Type where
-  Below : (0 _ : LT idx size) -> Side size idx (Left l)
-  Past : (0 _ : LTE size idx) -> Side size idx (Right r)
+data Side : (bound, idx : Nat) -> Either a b -> Type where
+  Below : (0 _ : LT idx bound) -> Side bound idx (Left l)
+  Past : (0 _ : LTE bound idx) -> Side bound idx (Right r)
 
 0 notLessIsAtLeast : (m, n : Nat) -> So (not (m < n)) -> LTE n m
 notLessIsAtLeast m Z _ = LTEZero
@@ -577,27 +579,28 @@ pastMinus (S n) Z lte = absurd lte
 pastMinus (S n) (S m) (LTESucc lte) = cong S (pastMinus n m lte)
 
 0 locatedBySide : {idx : Nat} -> (s : SizeOf local) -> (0 p : IsVar x idx (local ++ outer)) ->
-                  (c : Either (So (idx < size s)) (So (not (idx < size s)))) ->
-                  Side (size s) idx (locatedBy s p c)
-locatedBySide s p (Left so) = Below (ltOpReflectsLT idx (size s) so)
-locatedBySide s p (Right so) = Past (notLessIsAtLeast idx (size s) so)
+                  (c : Either (So (idx < List.SizeOf.size s)) (So (not (idx < List.SizeOf.size s)))) ->
+                  Side (List.SizeOf.size s) idx (locatedBy {outer} s p c)
+locatedBySide s p (Left so) = Below (ltOpReflectsLT idx (List.SizeOf.size s) so)
+locatedBySide s p (Right so) = Past (notLessIsAtLeast idx (List.SizeOf.size s) so)
 
 0 locateIsVarSide : {idx : Nat} -> (s : SizeOf local) -> (0 p : IsVar x idx (local ++ outer)) ->
-                    Side (size s) idx (locateIsVar s p)
-locateIsVarSide s p = locatedBySide s p (choose (idx < size s))
+                    Side (List.SizeOf.size s) idx (locateIsVar {outer} s p)
+locateIsVarSide s p = locatedBySide s p (choose (idx < List.SizeOf.size s))
 
 -- Where `locateNVar` puts a named variable, by its index.
 data NLocated : SizeOf local -> NVar nm (local ++ outer) -> Either (NVar nm local) (NVar nm outer) -> Type where
-  NIn : (0 _ : nvarIdx w = nvarIdx v) -> (0 _ : LT (nvarIdx v) (size s)) -> NLocated s v (Left w)
-  NPast : (0 _ : nvarIdx v = size s + nvarIdx w) -> NLocated s v (Right w)
+  NIn : (0 _ : nvarIdx w = nvarIdx v) -> (0 _ : LT (nvarIdx v) (List.SizeOf.size s)) -> NLocated s v (Left w)
+  NPast : (0 _ : nvarIdx v = List.SizeOf.size s + nvarIdx w) -> NLocated s v (Right w)
 
 0 nvarAtLocated : {idx : Nat} -> (s : SizeOf local) -> (0 p : IsVar nm idx (local ++ outer)) ->
-                  (e : Either (Erased (IsVar nm idx local)) (Erased (IsVar nm (idx `minus` size s) outer))) ->
-                  Side (size s) idx e -> NLocated s (MkNVar p) (nvarAt {k = size s} e)
+                  (e : Either (Erased (IsVar nm idx local)) (Erased (IsVar nm (idx `minus` List.SizeOf.size s) outer))) ->
+                  Side (List.SizeOf.size s) idx e ->
+                  NLocated {outer} s (MkNVar p) (nvarAt {local} {outer} {k = List.SizeOf.size s} e)
 nvarAtLocated s p (Left q) (Below lt) = NIn Refl lt
-nvarAtLocated s p (Right q) (Past atLeast) = NPast (sym (pastMinus (size s) idx atLeast))
+nvarAtLocated s p (Right q) (Past atLeast) = NPast (sym (pastMinus (List.SizeOf.size s) idx atLeast))
 
-0 locateNVarLocated : (s : SizeOf local) -> (v : NVar nm (local ++ outer)) -> NLocated s v (locateNVar s v)
+0 locateNVarLocated : (s : SizeOf local) -> (v : NVar nm (local ++ outer)) -> NLocated {outer} s v (locateNVar {outer} s v)
 locateNVarLocated s (MkNVar p) = nvarAtLocated s p (locateIsVar s p) (locateIsVarSide s p)
 
 ||| Where `locateVar` puts a variable, by its index: below the local
@@ -605,16 +608,17 @@ locateNVarLocated s (MkNVar p) = nvarAtLocated s p (locateIsVar s p) (locateIsVa
 ||| it.
 public export
 data VarLocated : SizeOf local -> Var (local ++ outer) -> Either (Var local) (Var outer) -> Type where
-  LocatedIn : (0 _ : varIdx w = varIdx v) -> (0 _ : LT (varIdx v) (size s)) -> VarLocated s v (Left w)
-  LocatedPast : (0 _ : varIdx v = size s + varIdx w) -> VarLocated s v (Right w)
+  LocatedIn : (0 _ : varIdx w = varIdx v) -> (0 _ : LT (varIdx v) (List.SizeOf.size s)) -> VarLocated s v (Left w)
+  LocatedPast : (0 _ : varIdx v = List.SizeOf.size s + varIdx w) -> VarLocated s v (Right w)
 
-0 forgetLocated : NLocated s (MkNVar p) e -> VarLocated s (MkVar p) (bimap forgetName forgetName e)
+0 forgetLocated : NLocated {outer} s (MkNVar p) e ->
+                  VarLocated {outer} s (MkVar p) (bimap TT.Var.forgetName TT.Var.forgetName e)
 forgetLocated (NIn {w = MkNVar q} same lt) = LocatedIn same lt
 forgetLocated (NPast {w = MkNVar q} same) = LocatedPast same
 
 ||| What `locateVar` does to a variable's index.
 export
-0 locateVarLocated : (s : SizeOf local) -> (v : Var (local ++ outer)) -> VarLocated s v (locateVar s v)
+0 locateVarLocated : (s : SizeOf local) -> (v : Var (local ++ outer)) -> VarLocated {outer} s v (locateVar {outer} s v)
 locateVarLocated s (MkVar p) = forgetLocated (locateNVarLocated s (MkNVar p))
 
 ||| b + (a + c) is a + (b + c).
@@ -624,30 +628,32 @@ swapPlus a Z c = Refl
 swapPlus a (S b) c = trans (cong S (swapPlus a b c)) (plusSuccRightSucc a (b + c))
 
 0 insertedAtIdx : (p : SizeOf local) -> (q : SizeOf ns) -> (v : NVar name (local ++ outer)) ->
-                  (e : Either (NVar name local) (NVar name outer)) -> NLocated p v e ->
-                  Either (LT (nvarIdx v) (size p), nvarIdx (insertedAt {outer} p q e) = nvarIdx v)
-                         (LTE (size p) (nvarIdx v), nvarIdx (insertedAt {outer} p q e) = size q + nvarIdx v)
+                  (e : Either (NVar name local) (NVar name outer)) -> NLocated {outer} p v e ->
+                  Either (LT (nvarIdx v) (List.SizeOf.size p), nvarIdx (insertedAt {outer} p q e) = nvarIdx v)
+                         (LTE (List.SizeOf.size p) (nvarIdx v),
+                          nvarIdx (insertedAt {outer} p q e) = List.SizeOf.size q + nvarIdx v)
 insertedAtIdx p q v (Left (MkNVar w)) (NIn same lt) = Left (lt, same)
 insertedAtIdx p q v (Right (MkNVar {nvarIdx = j} w)) (NPast same)
-    = Right (replace {p = LTE (size p)} (sym same) (lteAddRight (size p)),
+    = Right (replace {p = LTE (List.SizeOf.size p)} (sym same) (lteAddRight (List.SizeOf.size p)),
              trans (cong (\x => x + j) (sizeAppend p q))
-               (trans (sym (plusAssociative (size p) (size q) j))
-                 (trans (swapPlus (size q) (size p) j) (cong (\x => size q + x) (sym same)))))
+               (trans (sym (plusAssociative (List.SizeOf.size p) (List.SizeOf.size q) j))
+                 (trans (swapPlus (List.SizeOf.size q) (List.SizeOf.size p) j) (cong (\x => List.SizeOf.size q + x) (sym same)))))
 
 ||| What `insertNVarNames` does to a variable's index: one of `local` keeps
 ||| it, one past `local` moves past `ns` too.
 export
 0 insertNVarNamesIdx : (p : SizeOf local) -> (q : SizeOf ns) -> (v : NVar name (local ++ outer)) ->
-                       Either (LT (nvarIdx v) (size p), nvarIdx (insertNVarNames {outer} p q v) = nvarIdx v)
-                              (LTE (size p) (nvarIdx v), nvarIdx (insertNVarNames {outer} p q v) = size q + nvarIdx v)
-insertNVarNamesIdx p q v = insertedAtIdx p q v (locateNVar p v) (locateNVarLocated p v)
+                       Either (LT (nvarIdx v) (List.SizeOf.size p), nvarIdx (insertNVarNames {outer} p q v) = nvarIdx v)
+                              (LTE (List.SizeOf.size p) (nvarIdx v),
+                               nvarIdx (insertNVarNames {outer} p q v) = List.SizeOf.size q + nvarIdx v)
+insertNVarNamesIdx {outer} p q v = insertedAtIdx {outer} p q v (locateNVar {outer} p v) (locateNVarLocated p v)
 
 0 forgetIdx : (w : NVar n vs) -> varIdx (forgetName w) = nvarIdx w
 forgetIdx (MkNVar p) = Refl
 
 ||| Weakening a variable past `ns` adds their count to its index.
 export
-0 weakenVarIdx : (s : SizeOf ns) -> (v : Var vars) -> varIdx (weakenNs s v) = size s + varIdx v
+0 weakenVarIdx : (s : SizeOf ns) -> (v : Var vars) -> varIdx (weakenNs s v) = List.SizeOf.size s + varIdx v
 weakenVarIdx s (MkVar p) = case insertNVarNamesIdx {outer = vars} zero s (MkNVar p) of
   Left (lt, _) => absurd lt
   Right (_, same) => trans (forgetIdx (insertNVarNames {outer = vars} zero s (MkNVar p))) same
@@ -659,5 +665,6 @@ embedVarIdx (MkVar p) = Refl
 
 ||| The variable after `inner`'s is at its size.
 export
-0 mkVarChiplyIdx : {0 inner : SnocList Name} -> (s : SizeOf inner) -> varIdx (mkVarChiply {nm} {outer} s) = size s
+0 mkVarChiplyIdx : {0 inner : SnocList Name} -> (s : SnocList.SizeOf.SizeOf inner) ->
+                   varIdx (mkVarChiply {nm} {outer} s) = SnocList.SizeOf.size s
 mkVarChiplyIdx (MkSizeOf _ _) = Refl

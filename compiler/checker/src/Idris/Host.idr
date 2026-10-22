@@ -574,7 +574,7 @@ mutual
   ||| scrutinee's parts.
   public export
   data Chooses : Evaluation -> Frozen -> SubstEnv args vars -> CaseTree args -> Term vars -> Type where
-    ToLeaf : Chooses ev ctx env (STerm i rhs) (substs (mkSizeOf args) env (embed rhs))
+    ToLeaf : Chooses ev ctx env (STerm i rhs) (substs (mkSizeOf args) env (embed {outer = vars} rhs))
     ByCase : {0 p : IsVar nm idx args} ->
              Scrutinised ev ctx (Var.index env (MkVar p)) s ->
              Picks ev ctx env s alts v ->
@@ -1146,12 +1146,12 @@ weakenMarker o bs w = trans (cong (weakenNs o) (markerName bs w)) weakenRef
 
 mutual
   -- Values put in for no variables leave a term as it is, at any depth.
-  0 substNothing : (o : SizeOf outer) -> (sz : SizeOf []) -> (u : Term (outer ++ vars)) -> substTerm o sz [] u = u
+  0 substNothing : (o : SizeOf outer) -> (sz : SizeOf []) -> (u : Term (outer ++ vars)) -> substTerm {vars} o sz [] u = u
   substNothing o sz (Local fc r i p) = case range (size o) (size sz) i of
     InFirst lt => localAtSame (substBelow o sz [] p lt) IsLocalAt
     InSecond j _ lt => absurd (replace {p = Nat.LT j} (sizesAgree sz zero) lt)
     PastBoth k eq =>
-      localAtSame (replace {p = \x => LocalAt fc r x (substTerm o sz [] (Local fc r i p))}
+      localAtSame (replace {p = \x => LocalAt fc r x (substTerm {vars} o sz [] (Local fc r i p))}
                            (sym (trans eq (cong (\x => size o + (x + k)) (sizesAgree sz zero))))
                            (substPast o sz [] p k eq))
                   IsLocalAt
@@ -1170,12 +1170,12 @@ mutual
   substNothing o sz (TType fc u) = Refl
 
   0 substNothingAll : (o : SizeOf outer) -> (sz : SizeOf []) -> (us : List (Term (outer ++ vars))) ->
-                      substTerms o sz [] us = us
+                      substTerms {vars} o sz [] us = us
   substNothingAll o sz [] = Refl
   substNothingAll o sz (u :: us) = cong2 (::) (substNothing o sz u) (substNothingAll o sz us)
 
   0 substNothingBinder : (o : SizeOf outer) -> (sz : SizeOf []) -> (b : Binder (Term (outer ++ vars))) ->
-                         substBinder o sz [] b = b
+                         substBinder {vars} o sz [] b = b
   substNothingBinder o sz (Lam fc c p ty) = cong2 (Lam fc c) (substNothingPi o sz p) (substNothing o sz ty)
   substNothingBinder o sz (Let fc c v ty) = cong2 (Let fc c) (substNothing o sz v) (substNothing o sz ty)
   substNothingBinder o sz (Pi fc c p ty) = cong2 (Pi fc c) (substNothingPi o sz p) (substNothing o sz ty)
@@ -1184,7 +1184,7 @@ mutual
   substNothingBinder o sz (PVTy fc c ty) = cong (PVTy fc c) (substNothing o sz ty)
 
   0 substNothingPi : (o : SizeOf outer) -> (sz : SizeOf []) -> (p : PiInfo (Term (outer ++ vars))) ->
-                     substPi o sz [] p = p
+                     substPi {vars} o sz [] p = p
   substNothingPi o sz Implicit = Refl
   substNothingPi o sz Explicit = Refl
   substNothingPi o sz AutoImplicit = Refl
@@ -1235,9 +1235,9 @@ mutual
 0 belowBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
               (0 p : IsVar nm i (outer ++ (ns ++ vars))) -> Nat.LT i (size o) ->
               {t : Term (outer ++ vars)} -> LocalAt lfc r i t ->
-              substTerm o sz vs (mkLocals o bs t) = substTerm o sz vs (Local lfc r i p)
+              substTerm o sz vs (mkLocals {vars} o bs t) = substTerm o sz vs (Local lfc r i p)
 belowBack o sz bs vs p lt (IsLocalAt {p = q}) =
-  cong (substTerm o sz vs) (localAtSame (mkLocalsBelow o bs q lt) (IsLocalAt {p}))
+  cong (substTerm o sz vs) (localAtSame (mkLocalsBelow {vars} o bs q lt) (IsLocalAt {p}))
 
 -- A local among the variables values are put in for, at any location, is
 -- the value.
@@ -1252,13 +1252,13 @@ middleBack o sz vs w (IsLocalAt {p = q}) = substMiddle o sz vs q w Refl
 0 pastBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
              (0 p : IsVar nm i (outer ++ (ns ++ vars))) -> (k : Nat) -> i = size o + (size sz + k) ->
              {t : Term (outer ++ vars)} -> LocalAt lfc r (size o + k) t ->
-             substTerm o sz vs (mkLocals o bs t) = substTerm o sz vs (Local lfc r i p)
+             substTerm o sz vs (mkLocals {vars} o bs t) = substTerm o sz vs (Local lfc r i p)
 pastBack o sz bs vs p k eq (IsLocalAt {p = q}) =
   cong (substTerm o sz vs)
-       (localAtSame (replace {p = \x => LocalAt lfc r x (mkLocals o bs (Local lfc r (size o + k) q))}
+       (localAtSame (replace {p = \x => LocalAt lfc r x (mkLocals {vars} o bs (Local lfc r (size o + k) q))}
                              (trans (cong (\x => x + (size o + k)) (sizesAgree (sizeOf bs) sz))
                                     (trans (swapPlus (size o) (size sz) k) (sym eq)))
-                             (mkLocalsPast o bs q (lteAddRight (size o))))
+                             (mkLocalsPast {vars} o bs q (lteAddRight (size o))))
                     (IsLocalAt {p}))
 
 -- A local, closed with a marker in for it where it is one of the scope's
@@ -1267,16 +1267,16 @@ pastBack o sz bs vs p k eq (IsLocalAt {p = q}) =
 -- past them.
 0 localPutBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
                  namesApart bs = True -> (0 p : IsVar nm i (outer ++ (ns ++ vars))) ->
-                 substTerm o sz vs (mkLocals o bs (substTerm o sz (markersOf {vars} fc bs) (Local lfc r i p)))
+                 substTerm o sz vs (mkLocals {vars} o bs (substTerm o sz (markersOf {vars} fc bs) (Local lfc r i p)))
                    = substTerm o sz vs (Local lfc r i p)
 localPutBack o sz bs vs apart p = case range (size o) (size sz) i of
   InFirst lt => belowBack o sz bs vs p lt (substBelow o sz (markersOf fc bs) p lt)
   InSecond j eq lt =>
     let (w ** wj) = varAt sz j lt
         atW = trans eq (cong (size o +) (sym wj)) in
-    trans (cong (\t => substTerm o sz vs (mkLocals o bs t)) (substMiddle o sz (markersOf fc bs) p w atW))
-      (trans (cong (\t => substTerm o sz vs (mkLocals o bs t)) (weakenMarker o bs w))
-        (trans (middleBack o sz vs w (mkLocalsMarker o bs w (firstAt bs apart w)))
+    trans (cong (\t => substTerm o sz vs (mkLocals {vars} o bs t)) (substMiddle o sz (markersOf fc bs) p w atW))
+      (trans (cong (\t => substTerm o sz vs (mkLocals {vars} o bs t)) (weakenMarker o bs w))
+        (trans (middleBack o sz vs w (mkLocalsMarker {vars} o bs w (firstAt bs apart w)))
                (sym (substMiddle o sz vs p w atW))))
   PastBoth k eq => pastBack o sz bs vs p k eq (substPast o sz (markersOf fc bs) p k eq)
 
@@ -1288,15 +1288,15 @@ mutual
   0 markersPutBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
                      namesApart bs = True -> (u : Term (outer ++ (ns ++ vars))) ->
                      mentions BoundOrUnknown bs u = False ->
-                     substTerm o sz vs (mkLocals o bs (substTerm o sz (markersOf {vars} fc bs) u)) = substTerm o sz vs u
+                     substTerm o sz vs (mkLocals {vars} o bs (substTerm o sz (markersOf {vars} fc bs) u)) = substTerm o sz vs u
   markersPutBack o sz bs vs apart (Local lfc r i p) _ = localPutBack o sz bs vs apart p
   markersPutBack o sz bs vs apart (Ref rfc Bound n) none =
-    cong (substTerm o sz vs) (mkLocalsUnreplaced o bs (noneAt bs none))
+    cong (substTerm o sz vs) (mkLocalsUnreplaced {vars} o bs (noneAt bs none))
   markersPutBack o sz bs vs apart (Ref rfc Func n) _ = Refl
   markersPutBack o sz bs vs apart (Ref rfc (DataCon tag arity) n) _ = Refl
   markersPutBack o sz bs vs apart (Ref rfc (TyCon arity) n) _ = Refl
   markersPutBack o sz bs vs apart (Meta mfc m k args) none =
-    trans (cong (substTerm o sz vs) (mkLocalsUnknown o bs (noneAt bs (fst (orFalse (replaces bs m) none)))))
+    trans (cong (substTerm o sz vs) (mkLocalsUnknown {vars} o bs (noneAt bs (fst (orFalse (replaces bs m) none)))))
           (cong (Meta mfc m k) (markersPutBackAll o sz bs vs apart args (snd (orFalse (replaces bs m) none))))
   markersPutBack o sz bs vs apart (Bind bfc x b sc) none =
     cong2 (Bind bfc x) (markersPutBackBinder o sz bs vs apart b (fst (orFalse (mentionsInBinder BoundOrUnknown bs b) none)))
@@ -1322,7 +1322,7 @@ mutual
   0 markersPutBackAll : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
                         namesApart bs = True -> (us : List (Term (outer ++ (ns ++ vars)))) ->
                         mentionsIn BoundOrUnknown bs us = False ->
-                        substTerms o sz vs (mkLocalsTerms o bs (substTerms o sz (markersOf {vars} fc bs) us))
+                        substTerms o sz vs (mkLocalsTerms {vars} o bs (substTerms o sz (markersOf {vars} fc bs) us))
                           = substTerms o sz vs us
   markersPutBackAll o sz bs vs apart [] _ = Refl
   markersPutBackAll o sz bs vs apart (u :: us) none =
@@ -1332,7 +1332,7 @@ mutual
   0 markersPutBackBinder : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
                            namesApart bs = True -> (b : Binder (Term (outer ++ (ns ++ vars)))) ->
                            mentionsInBinder BoundOrUnknown bs b = False ->
-                           substBinder o sz vs (mkLocalsBinder o bs (substBinder o sz (markersOf {vars} fc bs) b))
+                           substBinder o sz vs (mkLocalsBinder {vars} o bs (substBinder o sz (markersOf {vars} fc bs) b))
                              = substBinder o sz vs b
   markersPutBackBinder o sz bs vs apart (Lam lfc c p ty) none =
     cong2 (Lam lfc c) (markersPutBackPi o sz bs vs apart p (fst (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
@@ -1355,7 +1355,7 @@ mutual
   0 markersPutBackPi : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
                        namesApart bs = True -> (p : PiInfo (Term (outer ++ (ns ++ vars)))) ->
                        mentionsInPi BoundOrUnknown bs p = False ->
-                       substPi o sz vs (mkLocalsPi o bs (substPi o sz (markersOf {vars} fc bs) p)) = substPi o sz vs p
+                       substPi o sz vs (mkLocalsPi {vars} o bs (substPi o sz (markersOf {vars} fc bs) p)) = substPi o sz vs p
   markersPutBackPi o sz bs vs apart Implicit _ = Refl
   markersPutBackPi o sz bs vs apart Explicit _ = Refl
   markersPutBackPi o sz bs vs apart AutoImplicit _ = Refl
@@ -1372,8 +1372,8 @@ mutual
 export
 0 substitutesMarkers : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) -> (t : Term ns) ->
                        namesApart bs = True -> mentions BoundOrUnknown bs t = False ->
-                       substs (mkSizeOf ns) vs (refsToLocals bs (substs (mkSizeOf ns) (markersOf {vars} fc bs) (embed t)))
-                         = substs (mkSizeOf ns) vs (embed t)
+                       substs (mkSizeOf ns) vs (refsToLocals bs (substs (mkSizeOf ns) (markersOf {vars} fc bs) (embed {outer = vars} t)))
+                         = substs (mkSizeOf ns) vs (embed {outer = vars} t)
 substitutesMarkers None [] t _ _ = substNothing zero (mkSizeOf []) (substs (mkSizeOf []) [] (embed t))
 substitutesMarkers {ns} (Add new old rest) vs t apart none
     = markersPutBack zero (mkSizeOf ns) (Add new old rest) vs apart (embed t)
@@ -1415,7 +1415,7 @@ export
                 namesApart bs = True -> (w : Var ns) ->
                 putIn o sz bs vs (Ref fc Bound (replacedAt bs w)) = weakenNs o (Var.index vs w)
 putInMarker o sz (Add new old rest) vs apart w
-    = middleBack o sz vs w (mkLocalsMarker o (Add new old rest) w (firstAt (Add new old rest) apart w))
+    = middleBack o sz vs w (mkLocalsMarker {vars} o (Add new old rest) w (firstAt (Add new old rest) apart w))
 putInMarker o sz None vs apart (MkVar v) impossible
 
 ||| A bound reference to a name no bound replaces stays as it was.
@@ -1424,7 +1424,7 @@ export
                     replaces bs n = False -> putIn o sz bs vs (Ref fc Bound n) = Ref fc Bound n
 putInUnreplaced o sz None vs _ = Refl
 putInUnreplaced o sz (Add new old rest) vs none
-    = cong (substTerm o sz vs) (mkLocalsUnreplaced o (Add new old rest) (noneAt (Add new old rest) none))
+    = cong (substTerm o sz vs) (mkLocalsUnreplaced {vars} o (Add new old rest) (noneAt (Add new old rest) none))
 
 0 belowPut : (o : SizeOf outer) -> (sz : SizeOf ns) -> (vs : SubstEnv ns vars) -> Nat.LT i (size o) ->
              {t : Term (outer ++ (ns ++ vars))} -> LocalAt lfc r i t -> LocalAt lfc r i (substTerm o sz vs t)
@@ -1441,14 +1441,14 @@ export
                (0 p : IsVar nm i (outer ++ vars)) -> LocalAt lfc r i (putIn o sz bs vs (Local lfc r i p))
 putInLocal o sz None [] p = replace {p = LocalAt lfc r i} (sym (substNothing o sz (Local lfc r i p))) IsLocalAt
 putInLocal o sz (Add new old rest) vs p = case range (size o) Z i of
-  InFirst lt => belowPut o sz vs lt (mkLocalsBelow o (Add new old rest) p lt)
+  InFirst lt => belowPut o sz vs lt (mkLocalsBelow {vars} o (Add new old rest) p lt)
   InSecond _ _ lt => absurd lt
   PastBoth k eq =>
     replace {p = \x => LocalAt lfc r x (putIn o sz (Add new old rest) vs (Local lfc r i p))} (sym eq)
       (pastPut o sz vs k
          (replace {p = \x => LocalAt lfc r x (mkLocals o (Add new old rest) (Local lfc r i p))}
                   (trans (cong (\x => x + i) (sizesAgree (sizeOf (Add new old rest)) sz)) (cong (size sz +) eq))
-                  (mkLocalsPast o (Add new old rest) p (replace {p = Nat.LTE (size o)} (sym eq) (lteAddRight (size o))))))
+                  (mkLocalsPast {vars} o (Add new old rest) p (replace {p = Nat.LTE (size o)} (sym eq) (lteAddRight (size o))))))
 
 ------------------------------------------------------------------------------
 -- Maps of terms reduction is closed under
@@ -1797,7 +1797,7 @@ mutual
   -- Weakening moves every free variable of a term out past the variables it
   -- inserts.
   0 insertShifted : (o : SizeOf local) -> (s : SizeOf new) -> (v : Term (local ++ outer)) ->
-                    Shifted (size o) (size s) v (insertNames o s v)
+                    Shifted (size o) (size s) v (insertNames {outer} o s v)
   insertShifted {outer} o s (Local fc l i p) = case insertNVarNamesIdx {outer} o s (MkNVar p) of
     Left (lt, same) =>
       shiftedLocals IsLocalAt (localAtIdx (insertNVarNames {outer} o s (MkNVar p))) (BelowCut lt same)
@@ -1820,12 +1820,12 @@ mutual
   insertShifted o s (TType fc u) = ShType
 
   0 insertShiftedAll : (o : SizeOf local) -> (s : SizeOf new) -> (ts : List (Term (local ++ outer))) ->
-                       AllShifted (size o) (size s) ts (insertNamesTerms o s ts)
+                       AllShifted (size o) (size s) ts (insertNamesTerms {outer} o s ts)
   insertShiftedAll o s [] = ShNone
   insertShiftedAll o s (t :: ts) = ShEach (insertShifted o s t) (insertShiftedAll o s ts)
 
   0 insertShiftedBinder : (o : SizeOf local) -> (s : SizeOf new) -> (b : Binder (Term (local ++ outer))) ->
-                          BinderShifted (size o) (size s) b (insertNamesBinder o s b)
+                          BinderShifted (size o) (size s) b (insertNamesBinder {outer} o s b)
   insertShiftedBinder o s (Lam fc c p ty) = ShLam (insertShiftedPi o s p) (insertShifted o s ty)
   insertShiftedBinder o s (Let fc c v ty) = ShLet (insertShifted o s v) (insertShifted o s ty)
   insertShiftedBinder o s (Pi fc c p ty) = ShPi (insertShiftedPi o s p) (insertShifted o s ty)
@@ -1834,7 +1834,7 @@ mutual
   insertShiftedBinder o s (PVTy fc c ty) = ShPVTy (insertShifted o s ty)
 
   0 insertShiftedPi : (o : SizeOf local) -> (s : SizeOf new) -> (p : PiInfo (Term (local ++ outer))) ->
-                      PiShifted (size o) (size s) p (insertNamesPi o s p)
+                      PiShifted (size o) (size s) p (insertNamesPi {outer} o s p)
   insertShiftedPi o s Implicit = ShImplicit
   insertShiftedPi o s Explicit = ShExplicit
   insertShiftedPi o s AutoImplicit = ShAutoImplicit
@@ -1850,7 +1850,7 @@ mutual
   -- moved out past the inserted variables too.
   0 shiftedInsert : (c, e, m : Nat) -> (o : SizeOf local) -> (s : SizeOf new) ->
                     {0 v : Term vs} -> {0 w : Term (local ++ outer)} -> size o = c + e ->
-                    Shifted c (e + m) v w -> Shifted c (e + (size s + m)) v (insertNames o s w)
+                    Shifted c (e + m) v w -> Shifted c (e + (size s + m)) v (insertNames {outer} o s w)
   shiftedInsert c e m {outer} o s eq (ShLocal {j} {q} (BelowCut lt same)) =
     case insertNVarNamesIdx {outer} o s (MkNVar q) of
       Left (_, ix) =>
@@ -1884,13 +1884,13 @@ mutual
 
   0 shiftedInsertAll : (c, e, m : Nat) -> (o : SizeOf local) -> (s : SizeOf new) ->
                        {0 vs' : List (Term vs)} -> {0 ws : List (Term (local ++ outer))} -> size o = c + e ->
-                       AllShifted c (e + m) vs' ws -> AllShifted c (e + (size s + m)) vs' (insertNamesTerms o s ws)
+                       AllShifted c (e + m) vs' ws -> AllShifted c (e + (size s + m)) vs' (insertNamesTerms {outer} o s ws)
   shiftedInsertAll c e m o s eq ShNone = ShNone
   shiftedInsertAll c e m o s eq (ShEach t ts) = ShEach (shiftedInsert c e m o s eq t) (shiftedInsertAll c e m o s eq ts)
 
   0 shiftedInsertBinder : (c, e, m : Nat) -> (o : SizeOf local) -> (s : SizeOf new) ->
                           {0 b : Binder (Term vs)} -> {0 b' : Binder (Term (local ++ outer))} -> size o = c + e ->
-                          BinderShifted c (e + m) b b' -> BinderShifted c (e + (size s + m)) b (insertNamesBinder o s b')
+                          BinderShifted c (e + m) b b' -> BinderShifted c (e + (size s + m)) b (insertNamesBinder {outer} o s b')
   shiftedInsertBinder c e m o s eq (ShLam p ty) = ShLam (shiftedInsertPi c e m o s eq p) (shiftedInsert c e m o s eq ty)
   shiftedInsertBinder c e m o s eq (ShLet v ty) = ShLet (shiftedInsert c e m o s eq v) (shiftedInsert c e m o s eq ty)
   shiftedInsertBinder c e m o s eq (ShPi p ty) = ShPi (shiftedInsertPi c e m o s eq p) (shiftedInsert c e m o s eq ty)
@@ -1900,7 +1900,7 @@ mutual
 
   0 shiftedInsertPi : (c, e, m : Nat) -> (o : SizeOf local) -> (s : SizeOf new) ->
                       {0 p : PiInfo (Term vs)} -> {0 p' : PiInfo (Term (local ++ outer))} -> size o = c + e ->
-                      PiShifted c (e + m) p p' -> PiShifted c (e + (size s + m)) p (insertNamesPi o s p')
+                      PiShifted c (e + m) p p' -> PiShifted c (e + (size s + m)) p (insertNamesPi {outer} o s p')
   shiftedInsertPi c e m o s eq ShImplicit = ShImplicit
   shiftedInsertPi c e m o s eq ShExplicit = ShExplicit
   shiftedInsertPi c e m o s eq ShAutoImplicit = ShAutoImplicit
@@ -2001,7 +2001,7 @@ mutual
 0 insertLocal : (mv : LocalMove) -> (c : Nat) -> (o : SizeOf local) -> (s : SizeOf new) ->
                 (0 p : IsVar n i (local ++ out1)) -> (0 q : IsVar m j (local ++ out2)) ->
                 MovesLocal mv (size o + c) i j ->
-                Mapped mv bs vals (size o + (size s + c)) (insertNames o s (Local fc l i p)) (insertNames o s (Local fc l j q))
+                Mapped mv bs vals (size o + (size s + c)) (insertNames {outer = out1} o s (Local fc l i p)) (insertNames {outer = out2} o s (Local fc l j q))
 insertLocal KeepsLocals c {out1} {out2} o s p q Refl =
   mappedLocals KeepsLocals (size o + (size s + c))
     (localAtIdx (insertNVarNames {outer = out1} o s (MkNVar p)))
@@ -2022,7 +2022,7 @@ mutual
   0 mappedInsert : (c : Nat) -> (o : SizeOf local) -> (s : SizeOf new) ->
                    {0 src : Term (local ++ out1)} -> {0 img : Term (local ++ out2)} ->
                    Mapped mv bs vals (size o + c) src img ->
-                   Mapped mv bs vals (size o + (size s + c)) (insertNames o s src) (insertNames o s img)
+                   Mapped mv bs vals (size o + (size s + c)) (insertNames {outer = out1} o s src) (insertNames {outer = out2} o s img)
   mappedInsert {mv} c o s (MLocal {p} {q} moved) = insertLocal mv c o s p q moved
   mappedInsert c o s (MMarker at sh) = MMarker at (shiftedInsert Z (size o) c o s Refl sh)
   mappedInsert c o s (MRef kept) = MRef kept
@@ -2042,14 +2042,14 @@ mutual
   0 mappedInsertAll : (c : Nat) -> (o : SizeOf local) -> (s : SizeOf new) ->
                       {0 srcs : List (Term (local ++ out1))} -> {0 imgs : List (Term (local ++ out2))} ->
                       AllMapped mv bs vals (size o + c) srcs imgs ->
-                      AllMapped mv bs vals (size o + (size s + c)) (insertNamesTerms o s srcs) (insertNamesTerms o s imgs)
+                      AllMapped mv bs vals (size o + (size s + c)) (insertNamesTerms {outer = out1} o s srcs) (insertNamesTerms {outer = out2} o s imgs)
   mappedInsertAll c o s MNone = MNone
   mappedInsertAll c o s (MEach t ts) = MEach (mappedInsert c o s t) (mappedInsertAll c o s ts)
 
   0 mappedInsertBinder : (c : Nat) -> (o : SizeOf local) -> (s : SizeOf new) ->
                          {0 b : Binder (Term (local ++ out1))} -> {0 b' : Binder (Term (local ++ out2))} ->
                          BinderMapped mv bs vals (size o + c) b b' ->
-                         BinderMapped mv bs vals (size o + (size s + c)) (insertNamesBinder o s b) (insertNamesBinder o s b')
+                         BinderMapped mv bs vals (size o + (size s + c)) (insertNamesBinder {outer = out1} o s b) (insertNamesBinder {outer = out2} o s b')
   mappedInsertBinder c o s (MLam p ty) = MLam (mappedInsertPi c o s p) (mappedInsert c o s ty)
   mappedInsertBinder c o s (MLet v ty) = MLet (mappedInsert c o s v) (mappedInsert c o s ty)
   mappedInsertBinder c o s (MPi p ty) = MPi (mappedInsertPi c o s p) (mappedInsert c o s ty)
@@ -2060,7 +2060,7 @@ mutual
   0 mappedInsertPi : (c : Nat) -> (o : SizeOf local) -> (s : SizeOf new) ->
                      {0 p : PiInfo (Term (local ++ out1))} -> {0 p' : PiInfo (Term (local ++ out2))} ->
                      PiMapped mv bs vals (size o + c) p p' ->
-                     PiMapped mv bs vals (size o + (size s + c)) (insertNamesPi o s p) (insertNamesPi o s p')
+                     PiMapped mv bs vals (size o + (size s + c)) (insertNamesPi {outer = out1} o s p) (insertNamesPi {outer = out2} o s p')
   mappedInsertPi c o s MImplicit = MImplicit
   mappedInsertPi c o s MExplicit = MExplicit
   mappedInsertPi c o s MAutoImplicit = MAutoImplicit
@@ -2738,7 +2738,7 @@ noneNotReplaced (NotThis differs none) = rewrite differs in noneNotReplaced none
 -- variable is the value for that variable, weakened under the binders.
 0 putInFirst : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
                FirstAt bs w n -> putIn o sz bs vs (Ref fc Bound n) = weakenNs o (Var.index vs w)
-putInFirst {w} o sz (Add new old rest) vs at = middleBack o sz vs w (mkLocalsMarker o (Add new old rest) w at)
+putInFirst {w} o sz (Add new old rest) vs at = middleBack o sz vs w (mkLocalsMarker {vars} o (Add new old rest) w at)
 putInFirst o sz None vs (AtHere _) impossible
 putInFirst o sz None vs (AtLater _ _) impossible
 
@@ -2746,7 +2746,7 @@ putInFirst o sz None vs (AtLater _ _) impossible
 0 putInNone : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
               NoneAt bs n -> putIn o sz bs vs (Ref fc Bound n) = Ref fc Bound n
 putInNone o sz None vs _ = Refl
-putInNone o sz (Add new old rest) vs none = cong (substTerm o sz vs) (mkLocalsUnreplaced o (Add new old rest) none)
+putInNone o sz (Add new old rest) vs none = cong (substTerm o sz vs) (mkLocalsUnreplaced {vars} o (Add new old rest) none)
 
 mutual
   -- No bounds map every term to itself.
@@ -2835,7 +2835,7 @@ mutual
                         (vs : SubstEnv (x :: xs) vars) -> (ts : List (Term (outer ++ vars))) ->
                         mentionsIn UnknownOnly (Add x old rest) ts = False ->
                         AllMapped KeepsLocals (Add x old rest) vs (size o) ts
-                                  (substTerms o sz vs (mkLocalsTerms o (Add x old rest) ts))
+                                  (substTerms o sz vs (mkLocalsTerms {vars} o (Add x old rest) ts))
   putInMappedAddAll o sz rest vs [] _ = MNone
   putInMappedAddAll {x} {old} o sz rest vs (t :: ts) none =
     MEach (putInMappedAdd o sz rest vs t (fst (orFalse (mentions UnknownOnly (Add x old rest) t) none)))
@@ -2845,7 +2845,7 @@ mutual
                            (vs : SubstEnv (x :: xs) vars) -> (b : Binder (Term (outer ++ vars))) ->
                            mentionsInBinder UnknownOnly (Add x old rest) b = False ->
                            BinderMapped KeepsLocals (Add x old rest) vs (size o) b
-                                        (substBinder o sz vs (mkLocalsBinder o (Add x old rest) b))
+                                        (substBinder o sz vs (mkLocalsBinder {vars} o (Add x old rest) b))
   putInMappedAddBinder {x} {old} o sz rest vs (Lam fc r p ty) none =
     MLam (putInMappedAddPi o sz rest vs p (fst (orFalse (mentionsInPi UnknownOnly (Add x old rest) p) none)))
          (putInMappedAdd o sz rest vs ty (snd (orFalse (mentionsInPi UnknownOnly (Add x old rest) p) none)))
@@ -2867,7 +2867,7 @@ mutual
                        (vs : SubstEnv (x :: xs) vars) -> (p : PiInfo (Term (outer ++ vars))) ->
                        mentionsInPi UnknownOnly (Add x old rest) p = False ->
                        PiMapped KeepsLocals (Add x old rest) vs (size o) p
-                                (substPi o sz vs (mkLocalsPi o (Add x old rest) p))
+                                (substPi o sz vs (mkLocalsPi {vars} o (Add x old rest) p))
   putInMappedAddPi o sz rest vs Implicit _ = MImplicit
   putInMappedAddPi o sz rest vs Explicit _ = MExplicit
   putInMappedAddPi o sz rest vs AutoImplicit _ = MAutoImplicit
@@ -3309,7 +3309,7 @@ resolvedDefinedFullName (AtEntry r held) = entryFullName (atEntry resolvedItself
 -- entries hold: two definitions, one, or none.
 0 sameByFullName : {0 ctx : Frozen} -> {0 i, j : Int} -> (m, m' : Maybe GlobalDef) ->
                    IntMap.lookup i (entriesOf ctx) = m -> IntMap.lookup j (entriesOf ctx) = m' ->
-                   maybe (Resolved i) fullname m = maybe (Resolved j) fullname m' -> i = j
+                   maybe (Resolved i) Context.Context.fullname m = maybe (Resolved j) Context.Context.fullname m' -> i = j
 sameByFullName (Just d) (Just d') found found' same = oneEntryPerName {ctx} {i} {j} found found' same
 sameByFullName (Just d) Nothing found _ same = void (fullNameUnresolved {ctx} {i} found same)
 sameByFullName Nothing (Just d') _ found' same = void (fullNameUnresolved {ctx} {i = j} found' (sym same))

@@ -457,9 +457,9 @@ data ResolvedAt : Nat -> Maybe (Var vs) -> Type where
 resolvedAtIdx Refl r = r
 
 0 matchedHere : (p : SizeOf outer) -> (q : SizeOf done) -> (rest : Bounds xs) -> (b : Bool) -> b = True ->
-                ResolvedAt (size p + size q) (matchedIf {vars} {new} b p q rest fc n)
+                ResolvedAt (List.SizeOf.size p + SnocList.SizeOf.size q) (matchedIf {vars} {new} b p q rest fc n)
 matchedHere p q rest True Refl
-    = ResolvedHere (trans (weakenVarIdx p (mkVarChiply q)) (cong (size p +) (mkVarChiplyIdx q)))
+    = ResolvedHere (trans (weakenVarIdx p (mkVarChiply q)) (cong (List.SizeOf.size p +) (mkVarChiplyIdx q)))
 
 0 matchedPast : (p : SizeOf outer) -> (q : SizeOf done) -> (rest : Bounds xs) -> (b : Bool) -> b = False ->
                 ResolvedAt k (resolveRef {vars} p (q :< new) rest fc n) ->
@@ -474,13 +474,13 @@ matchedOff p q rest False Refl = Refl
 ||| variable, past `outer` and the bounds `done` before.
 export
 0 resolvesAt : (p : SizeOf outer) -> (q : SizeOf done) -> (bs : Bounds bound) -> (w : Var bound) ->
-               FirstAt bs w n -> ResolvedAt (size p + (size q + varIdx w)) (resolveRef {vars} p q bs fc n)
+               FirstAt bs w n -> ResolvedAt (List.SizeOf.size p + (SnocList.SizeOf.size q + varIdx w)) (resolveRef {vars} p q bs fc n)
 resolvesAt p q (Add new old rest) (MkVar First) (AtHere same)
-    = resolvedAtIdx (cong (size p +) (sym (plusZeroRightNeutral (size q))))
+    = resolvedAtIdx (cong (List.SizeOf.size p +) (sym (plusZeroRightNeutral (SnocList.SizeOf.size q))))
                     (matchedHere p q rest (n == old) same)
 resolvesAt p (MkSizeOf qn qh) (Add new old rest) (MkVar (Later v)) (AtLater differs first)
     = matchedPast p (MkSizeOf qn qh) rest (n == old) differs
-        (resolvedAtIdx (cong (size p +) (plusSuccRightSucc qn (varIdx (MkVar v))))
+        (resolvedAtIdx (cong (List.SizeOf.size p +) (plusSuccRightSucc qn (varIdx (MkVar v))))
                        (resolvesAt p (MkSizeOf qn qh :< new) rest (MkVar v) first))
 
 ||| A name no bound replaces resolves to nothing.
@@ -579,7 +579,7 @@ resolvedLocal (Just (MkVar q)) (ResolvedHere same)
 ||| the local of that bound, past the binders `mkLocals` is under.
 export
 0 mkLocalsMarker : (o : SizeOf outer) -> (bs : Bounds bound) -> (w : Var bound) -> FirstAt bs w n ->
-                   LocalAt fc Nothing (size o + varIdx w) (mkLocals {vars} o bs (Ref fc Bound n))
+                   LocalAt fc Nothing (List.SizeOf.size o + varIdx w) (mkLocals {vars} o bs (Ref fc Bound n))
 mkLocalsMarker o bs w first = resolvedLocal (resolveRef o [<] bs fc n) (resolvesAt o [<] bs w first)
 
 ||| A bound reference to a name no bound replaces stays as it was.
@@ -592,17 +592,17 @@ mkLocalsUnreplaced o bs none = cong (resolvedOr (Ref fc Bound n) fc) (resolveMis
 ||| turned in turn.
 export
 0 mkLocalsUnknown : (o : SizeOf outer) -> (bs : Bounds bound) -> NoneAt bs m ->
-                    mkLocals {vars} o bs (Meta fc m k args) = Meta fc m k (mkLocalsTerms o bs args)
+                    mkLocals {vars} o bs (Meta fc m k args) = Meta fc m k (mkLocalsTerms {vars} o bs args)
 mkLocalsUnknown o bs none
-    = cong (resolvedOr (Meta fc m k (mkLocalsTerms o bs args)) fc) (resolveMisses o [<] bs none)
+    = cong (resolvedOr (Meta fc m k (mkLocalsTerms {vars} o bs args)) fc) (resolveMisses o [<] bs none)
 
 ||| A local below the binders `mkLocals` is under is kept.
 export
 0 mkLocalsBelow : (o : SizeOf outer) -> (bs : Bounds bound) -> (0 p : IsVar nm i (outer ++ vars)) ->
-                  Nat.LT i (size o) -> LocalAt fc r i (mkLocals o bs (Local fc r i p))
+                  Nat.LT i (List.SizeOf.size o) -> LocalAt fc r i (mkLocals {vars} o bs (Local fc r i p))
 mkLocalsBelow o bs p lt = case insertNVarNamesIdx {outer = vars} o (sizeOf bs) (MkNVar p) of
   Left (_, same) =>
-    replace {p = \k => LocalAt fc r k (mkLocals o bs (Local fc r i p))} same
+    replace {p = \k => LocalAt fc r k (mkLocals {vars} o bs (Local fc r i p))} same
             (localAtIdx (addVars o bs (MkNVar p)))
   Right (atLeast, _) => void (LTEImpliesNotGT atLeast lt)
 
@@ -610,11 +610,11 @@ mkLocalsBelow o bs p lt = case insertNVarNamesIdx {outer = vars} o (sizeOf bs) (
 ||| it makes.
 export
 0 mkLocalsPast : (o : SizeOf outer) -> (bs : Bounds bound) -> (0 p : IsVar nm i (outer ++ vars)) ->
-                 Nat.LTE (size o) i -> LocalAt fc r (size (sizeOf bs) + i) (mkLocals o bs (Local fc r i p))
+                 Nat.LTE (List.SizeOf.size o) i -> LocalAt fc r (List.SizeOf.size (sizeOf bs) + i) (mkLocals {vars} o bs (Local fc r i p))
 mkLocalsPast o bs p atLeast = case insertNVarNamesIdx {outer = vars} o (sizeOf bs) (MkNVar p) of
   Left (lt, _) => void (LTEImpliesNotGT atLeast lt)
   Right (_, same) =>
-    replace {p = \k => LocalAt fc r k (mkLocals o bs (Local fc r i p))} same
+    replace {p = \k => LocalAt fc r k (mkLocals {vars} o bs (Local fc r i p))} same
             (localAtIdx (addVars o bs (MkNVar p)))
 
 %default covering

@@ -99,7 +99,7 @@ notBelowPlus {a = S a} (LTESucc lt) = notBelowPlus lt
 
 0 belowFound : (o : SizeOf outer) -> (s : SizeOf dropped) -> (env : SubstEnv dropped vars) ->
                (0 p : IsVar nm i (outer ++ (dropped ++ vars))) -> LT i (size o) ->
-               (e : Either (Var outer) (Var (dropped ++ vars))) -> VarLocated o (MkVar p) e ->
+               (e : Either (Var outer) (Var (dropped ++ vars))) -> VarLocated {outer = dropped ++ vars} o (MkVar p) e ->
                LocalAt fc r i (foundAt (localOf fc r) o s env e)
 belowFound o s env p lt (Left w) (LocatedIn same _)
     = replace {p = \k => LocalAt fc r k (localOf fc r (embed w))} (trans (embedVarIdx w) same)
@@ -112,11 +112,11 @@ export
 0 substBelow : (o : SizeOf outer) -> (s : SizeOf dropped) -> (env : SubstEnv dropped vars) ->
                (0 p : IsVar nm i (outer ++ (dropped ++ vars))) -> LT i (size o) ->
                LocalAt fc r i (substTerm o s env (Local fc r i p))
-substBelow o s env p lt = belowFound o s env p lt (locateVar o (MkVar p)) (locateVarLocated o (MkVar p))
+substBelow o s env p lt = belowFound o s env p lt (locateVar {outer = dropped ++ vars} o (MkVar p)) (locateVarLocated {outer = dropped ++ vars} o (MkVar p))
 
 0 middleDropped : (s : SizeOf dropped) -> (env : SubstEnv dropped vars) ->
                   (w1 : Var (dropped ++ vars)) -> (w : Var dropped) -> varIdx w1 = varIdx w ->
-                  (e : Either (Var dropped) (Var vars)) -> VarLocated s w1 e ->
+                  (e : Either (Var dropped) (Var vars)) -> VarLocated {outer = vars} s w1 e ->
                   droppedAt (localOf fc r) env e = index env w
 middleDropped s env w1 w same (Left w2) (LocatedIn same2 _) = cong (index env) (sameVar w2 w (trans same2 same))
 middleDropped s env w1 w same (Right w3) (LocatedPast same3)
@@ -124,14 +124,14 @@ middleDropped s env w1 w same (Right w3) (LocatedPast same3)
 
 0 middleFound : (o : SizeOf outer) -> (s : SizeOf dropped) -> (env : SubstEnv dropped vars) ->
                 (0 p : IsVar nm i (outer ++ (dropped ++ vars))) -> (w : Var dropped) -> i = size o + varIdx w ->
-                (e : Either (Var outer) (Var (dropped ++ vars))) -> VarLocated o (MkVar p) e ->
+                (e : Either (Var outer) (Var (dropped ++ vars))) -> VarLocated {outer = dropped ++ vars} o (MkVar p) e ->
                 foundAt (localOf fc r) o s env e = weakenNs o (index env w)
 middleFound o s env p w eq (Left w0) (LocatedIn _ lt)
     = void (notBelowPlus (replace {p = \k => LT k (size o)} eq lt))
 middleFound o s env p w eq (Right w1) (LocatedPast same)
     = cong (weakenNs o)
            (middleDropped s env w1 w (plusLeftCancel (size o) (varIdx w1) (varIdx w) (trans (sym same) eq))
-                          (locateVar s w1) (locateVarLocated s w1))
+                          (locateVar {outer = vars} s w1) (locateVarLocated {outer = vars} s w1))
 
 ||| A local among the variables a substitution puts values in for is the
 ||| value, weakened under the binders the substitution is under.
@@ -139,11 +139,11 @@ export
 0 substMiddle : (o : SizeOf outer) -> (s : SizeOf dropped) -> (env : SubstEnv dropped vars) ->
                 (0 p : IsVar nm i (outer ++ (dropped ++ vars))) -> (w : Var dropped) -> i = size o + varIdx w ->
                 substTerm o s env (Local fc r i p) = weakenNs o (index env w)
-substMiddle o s env p w eq = middleFound o s env p w eq (locateVar o (MkVar p)) (locateVarLocated o (MkVar p))
+substMiddle o s env p w eq = middleFound o s env p w eq (locateVar {outer = dropped ++ vars} o (MkVar p)) (locateVarLocated {outer = dropped ++ vars} o (MkVar p))
 
 0 pastDropped : (o : SizeOf outer) -> (s : SizeOf dropped) -> (env : SubstEnv dropped vars) ->
                 (w1 : Var (dropped ++ vars)) -> (k : Nat) -> varIdx w1 = size s + k ->
-                (e : Either (Var dropped) (Var vars)) -> VarLocated s w1 e ->
+                (e : Either (Var dropped) (Var vars)) -> VarLocated {outer = vars} s w1 e ->
                 LocalAt fc r (size o + k) (weakenNs o (droppedAt (localOf fc r) env e))
 pastDropped o s env w1 k eq (Left w2) (LocatedIn _ lt)
     = void (notBelowPlus (replace {p = \x => LT x (size s)} eq lt))
@@ -154,13 +154,13 @@ pastDropped o s env w1 k eq (Right (MkVar {varIdx = j} q)) (LocatedPast same)
 
 0 pastFound : (o : SizeOf outer) -> (s : SizeOf dropped) -> (env : SubstEnv dropped vars) ->
               (0 p : IsVar nm i (outer ++ (dropped ++ vars))) -> (k : Nat) -> i = size o + (size s + k) ->
-              (e : Either (Var outer) (Var (dropped ++ vars))) -> VarLocated o (MkVar p) e ->
+              (e : Either (Var outer) (Var (dropped ++ vars))) -> VarLocated {outer = dropped ++ vars} o (MkVar p) e ->
               LocalAt fc r (size o + k) (foundAt (localOf fc r) o s env e)
 pastFound o s env p k eq (Left w0) (LocatedIn _ lt)
     = void (notBelowPlus (replace {p = \x => LT x (size o)} eq lt))
 pastFound o s env p k eq (Right w1) (LocatedPast same)
     = pastDropped o s env w1 k (plusLeftCancel (size o) (varIdx w1) (size s + k) (trans (sym same) eq))
-                  (locateVar s w1) (locateVarLocated s w1)
+                  (locateVar {outer = vars} s w1) (locateVarLocated {outer = vars} s w1)
 
 ||| A local past the variables a substitution puts values in for is kept,
 ||| as many lower as there were of them.
@@ -168,4 +168,4 @@ export
 0 substPast : (o : SizeOf outer) -> (s : SizeOf dropped) -> (env : SubstEnv dropped vars) ->
               (0 p : IsVar nm i (outer ++ (dropped ++ vars))) -> (k : Nat) -> i = size o + (size s + k) ->
               LocalAt fc r (size o + k) (substTerm o s env (Local fc r i p))
-substPast o s env p k eq = pastFound o s env p k eq (locateVar o (MkVar p)) (locateVarLocated o (MkVar p))
+substPast o s env p k eq = pastFound o s env p k eq (locateVar {outer = dropped ++ vars} o (MkVar p)) (locateVarLocated {outer = dropped ++ vars} o (MkVar p))
