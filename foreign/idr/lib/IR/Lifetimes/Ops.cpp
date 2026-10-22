@@ -4,7 +4,8 @@
 // (its kind, the lifetime a scoped value lives in, where its memory comes
 // from), and the hooks of the lifetime's ops: the region that runs once,
 // which the openers, the loan and the unpack share, what a loan and an
-// unpack bind, and the pack that ends a per-level lifetime's region.
+// unpack bind, the pack that ends a per-level lifetime's region, and the
+// cell bumped into a lifetime.
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -169,6 +170,30 @@ std::optional<Packed> idr::lifetimes::packedOf(Value lifetime) {
   return std::nullopt;
 }
 
+// A stack's opener and a stack package's unpack name the cursor below.
+Value idr::lifetimes::baseOf(Value lifetime) {
+  auto arg = dyn_cast<BlockArgument>(lifetime);
+  if (!arg || arg.getArgNumber() != 0)
+    return nullptr;
+  Operation *binder = arg.getOwner()->getParentOp();
+  if (auto stack = dyn_cast<LifetimeStackOp>(binder))
+    return stack.getBase();
+  if (auto unpack = dyn_cast<LifetimeUnpackOp>(binder))
+    return unpack.getBase();
+  return nullptr;
+}
+
+// A cell's source takes the lifetime it is memory of as its one lifetime
+// operand: a cell its count frees comes from a source that takes none.
+Value idr::lifetimes::cellLifetime(Value cell) {
+  Operation *source = cell.getDefiningOp();
+  if (!source)
+    return nullptr;
+  auto lifetime = llvm::find_if(source->getOperands(),
+                                [](Value operand) { return isa<LifetimeType>(operand.getType()); });
+  return lifetime == source->getOperands().end() ? Value() : *lifetime;
+}
+
 //===----------------------------------------------------------------------===//
 // The region that runs once
 //===----------------------------------------------------------------------===//
@@ -178,13 +203,11 @@ namespace {
 // An op whose one region runs once, entered with no operand forwarded (its
 // arguments are its own: the lifetime first, then what a loan or a package
 // binds, each living in that lifetime), returning its yields as its
-// results after `own` results of its own (a loan's owner); a scoped result
-// lives in the lifetime its `outer` operand states.
+// results after `own` results of its own (a loan's owner); each scoped
+// result lives in the lifetime its own entry of `outers` states.
 template <typename Op>
-concept RunsOnceOp = requires(Op op) {
+concept RunsOnceOp = lifetimes::StatesOuters<Op> && requires(Op op) {
   { op.getBody() } -> std::convertible_to<Region &>;
-  { op.getOuter() } -> std::convertible_to<Value>;
-  op.getOuterMutable();
 };
 
 template <RunsOnceOp Op>
@@ -202,12 +225,12 @@ ValueRange inputs(Op op, RegionSuccessor successor, unsigned own) {
   return ValueRange();
 }
 
+// A result's lifetime is its entry of `outers`; an argument the region binds
+// after the lifetime lives in that lifetime.
 template <RunsOnceOp Op>
 Value stated(Op op, Value made, unsigned own) {
-  if (auto result = dyn_cast<OpResult>(made))
-    return result.getOwner() == op.getOperation() && result.getResultNumber() >= own
-               ? op.getOuter()
-               : nullptr;
+  if (isa<OpResult>(made))
+    return lifetimes::statedOuter(op, made, own);
   auto arg = cast<BlockArgument>(made);
   Block &entry = op.getBody().front();
   if (arg.getOwner() == &entry && arg.getArgNumber() > 0)
@@ -217,9 +240,7 @@ Value stated(Op op, Value made, unsigned own) {
 
 template <RunsOnceOp Op>
 void state(Op op, Value made, Value lifetime, unsigned own) {
-  if (auto result = dyn_cast<OpResult>(made);
-      result && result.getOwner() == op.getOperation() && result.getResultNumber() >= own)
-    op.getOuterMutable().assign(lifetime);
+  lifetimes::stateOuter(op, made, lifetime, own);
 }
 
 } // namespace
@@ -276,10 +297,16 @@ LogicalResult LendOp::verifyRegions() {
 // idr.lifetime.unpack
 //===----------------------------------------------------------------------===//
 
-// The region binds the reopened lifetime, a cursor, and the values the
-// package holds, restated in it, in the package's order.
+// A stack's mark goes back to the cursor whose stack it is, which the
+// unpack names exactly when its package is a stack's; the region binds the
+// reopened lifetime, a cursor, and the values the package holds, restated
+// in it, in the package's order.
 LogicalResult LifetimeUnpackOp::verifyRegions() {
   auto package = cast<LifetimePackageType>(getPackage().getType());
+  bool stack = package.getPacked() == Packed::FromStack;
+  if (stack != static_cast<bool>(getBase()))
+    return emitOpError(stack ? "reopens a stack's package but names no cursor its mark goes back to"
+                             : "names a base cursor for a chain's package, which has none");
   Block &entry = getBody().front();
   if (entry.getNumArguments() != package.getHeld().size() + 1 ||
       !isCursorLifetime(entry.getArgument(0).getType()) ||
@@ -298,6 +325,23 @@ Value LifetimeReserveOp::getPutLifetime() { return getLifetime(); }
 std::uint64_t LifetimeReserveOp::getPutBytes(const Layouts &) {
   return static_cast<std::uint64_t>(getBytes());
 }
+
+//===----------------------------------------------------------------------===//
+// idr.cell.arena
+//===----------------------------------------------------------------------===//
+
+Value CellArenaOp::getPutLifetime() { return getLifetime(); }
+
+// The cell's allocation size, its constructor's in its family's cells.
+std::uint64_t CellArenaOp::getPutBytes(const Layouts &layouts) {
+  auto cell = cast<CellType>(getCell().getType());
+  return layouts.cells(cell.getData()).cell(cell.getTag()).size;
+}
+
+// A cell of a lifetime is the lifetime's, lent to whatever holds it, as a
+// slot of the frame is: it is new to no one, so nothing is declared, and
+// the box its init makes is not fresh.
+void CellArenaOp::getFlowEdges(FlowEdges &) {}
 
 //===----------------------------------------------------------------------===//
 // idr.lifetime.pack

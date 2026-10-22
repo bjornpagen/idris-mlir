@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-lifetimes: the decide step that puts each cell it can prove in a
-// lifetime, born decided: every opener, kind and slot it writes is final.
+// idr-lifetimes: the decide step that puts each cell and each call it can
+// prove in a lifetime, born decided: every opener, kind, slot, copy by kind
+// and the copies' signatures it writes are final.
 #ifndef IDR_TRANSFORMS_LIFETIMES_H
 #define IDR_TRANSFORMS_LIFETIMES_H
 

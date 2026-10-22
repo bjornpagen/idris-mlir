@@ -28,6 +28,7 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
 #include <cstdint>
@@ -176,29 +177,107 @@ std::optional<Opener> openerOf(mlir::Value lifetime);
 // level, and a lifetime without memory has nothing to pack.
 std::optional<Packed> packedOf(mlir::Value lifetime);
 
+// The cursor whose stack a stack lifetime is on: the base its opener, or the
+// unpack that reopens it, names; null for any other lifetime.
+mlir::Value baseOf(mlir::Value lifetime);
+
+// The lifetime a cell is memory of: the one its source names (a slot of
+// the frame stated in it, a cell bumped into it); null for a cell its count
+// frees, whose source names none.
+mlir::Value cellLifetime(mlir::Value cell);
+
+// An op that states each scoped result's lifetime by its own operand of
+// `outers`, in result order, after the results it gives of its own: two
+// results of two lifetimes keep each its own span, and which entry is whose
+// is read off the results' types. The openers, the loan, the unpack, and
+// the control ops share this one definition.
+template <typename Op>
+concept StatesOuters = requires(Op op) {
+  op.getOuters();
+  op.getOutersMutable();
+};
+
+// How many of `op`'s results after the first `own` and before `end` are
+// scoped.
+template <StatesOuters Op>
+unsigned scopedResults(Op op, unsigned own, unsigned end) {
+  return static_cast<unsigned>(llvm::count_if(
+      op->getResults().drop_front(own).take_front(end - own),
+      [](mlir::Value result) { return freedBy(result.getType(), Release::Scoped); }));
+}
+
+// The position of result `made` among the scoped results after the first
+// `own`, which its entry of `outers` has; none for a value that is no such
+// result.
+template <StatesOuters Op>
+std::optional<unsigned> outerAt(Op op, mlir::Value made, unsigned own) {
+  auto result = llvm::dyn_cast<mlir::OpResult>(made);
+  if (!result || result.getOwner() != op.getOperation() || result.getResultNumber() < own)
+    return std::nullopt;
+  return scopedResults(op, own, result.getResultNumber());
+}
+
+template <StatesOuters Op>
+mlir::Value statedOuter(Op op, mlir::Value made, unsigned own) {
+  std::optional<unsigned> at = outerAt(op, made, own);
+  auto outers = op.getOuters();
+  if (!at || !freedBy(made.getType(), Release::Scoped) || *at >= outers.size())
+    return nullptr;
+  return outers[*at];
+}
+
+// States `lifetime` for result `made`: its entry restated, or made where the
+// result has just become scoped; and, for a null lifetime of a result no
+// longer scoped, its entry gone, so an op remade with fewer scoped results
+// keeps one entry for each.
+template <StatesOuters Op>
+void stateOuter(Op op, mlir::Value made, mlir::Value lifetime, unsigned own) {
+  std::optional<unsigned> at = outerAt(op, made, own);
+  if (!at)
+    return;
+  llvm::SmallVector<mlir::Value, 4> outers(op.getOuters());
+  unsigned scoped = scopedResults(op, own, op->getNumResults());
+  bool isScoped = freedBy(made.getType(), Release::Scoped);
+  if (lifetime && isScoped && outers.size() == scoped)
+    outers[*at] = lifetime;
+  else if (lifetime && isScoped && outers.size() + 1 == scoped)
+    outers.insert(outers.begin() + *at, lifetime);
+  else if (!lifetime && !isScoped && outers.size() == scoped + 1)
+    outers.erase(outers.begin() + *at);
+  else
+    return;
+  op.getOutersMutable().assign(outers);
+}
+
+// One entry of `outers` per scoped result after the first `own`.
+template <StatesOuters Op>
+mlir::LogicalResult verifyOuters(Op op, unsigned own) {
+  unsigned scoped = scopedResults(op, own, op->getNumResults());
+  if (op.getOuters().size() != scoped)
+    return op.emitOpError("states ") << op.getOuters().size() << " lifetimes for its " << scoped
+                                     << " scoped results, one each in their order";
+  return mlir::success();
+}
+
 } // namespace idr::lifetimes
 
 namespace idr {
 
 // An op whose one region runs once and gives back what it yields, after
 // the `Own` results it gives of its own (a loan's owner): the openers, the
-// loan and the unpack. A scoped result lives in the lifetime its `outer`
-// operand states, present exactly when one is scoped: an operand that
-// changes nothing an op does is no flag, and a scoped result with no
-// lifetime stated would be a value no check can place. An opener's region
-// binds the kind the opener opens, and nothing else, which no region
-// constraint of ODS can say.
+// loan and the unpack. Each scoped result lives in the lifetime its own
+// entry of `outers` states (StatesOuters): an entry for no scoped result
+// would change nothing an op does, and a scoped result with no lifetime
+// stated would be a value no check can place. An opener's region binds the
+// kind the opener opens, and nothing else, which no region constraint of
+// ODS can say.
 template <typename ConcreteType, template <typename> class Trait, unsigned Own>
 class RunsOnceAfter : public mlir::OpTrait::TraitBase<ConcreteType, Trait> {
 public:
   static mlir::LogicalResult verifyRegionTrait(mlir::Operation *op) {
     auto self = llvm::cast<ConcreteType>(op);
-    bool scoped = llvm::any_of(op->getResults().drop_front(Own), [](mlir::Value result) {
-      return freedBy(result.getType(), Release::Scoped);
-    });
-    if (scoped != static_cast<bool>(self.getOuter()))
-      return op->emitOpError(scoped ? "gives a scoped value but states no lifetime for it"
-                                    : "states a lifetime for results none of which is scoped");
+    if (failed(lifetimes::verifyOuters(self, Own)))
+      return mlir::failure();
     if constexpr (requires { LifetimeOpener<ConcreteType>::opener; }) {
       mlir::Block &entry = self.getBody().front();
       constexpr LifetimeKindCase opens =

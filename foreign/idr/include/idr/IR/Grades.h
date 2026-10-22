@@ -36,9 +36,10 @@
 // The dialect's ODS enums, `Uses` among them, since the graded type's
 // parameter is one; the generated file has no guard of its own, so this
 // header is where the dialect includes it. Then the rest of the axes
-// (Release, Unique), a field's Recursion, a cast's QuantityChange, the
-// seven holds (HoldCase) with their facts, and the product of uses,
-// printed from Spec.Grades.
+// (Release, Unique), how far a value's claim reaches into a field
+// (FieldReach), a cast's QuantityChange, the seven holds (HoldCase) with
+// their facts and what a field read from each gives, and the product of
+// uses, printed from Spec.Grades.
 #include "idr/IR/IdrEnums.h.inc"
 #include "idr/IR/Generated/Grades.h.inc"
 
@@ -83,11 +84,13 @@ public:
   // between: its claim forgotten down to the slot's, or static data standing
   // for a value of any release that claims nothing.
   constexpr bool fits(Hold slot) const { return (holdFitsMask[index()] >> slot.index()) & 1u; }
-  // The hold of a field read from a value at this hold: freed as the value
-  // is, claiming what a field of its kind may (never more than the value).
-  constexpr Hold read(Recursion recursion) const {
-    return Hold(recursion == Recursion::OwnFamily ? holdReadOwnFamily[index()]
-                                                  : holdReadOther[index()]);
+  // The hold of a field read from a value at this hold, at `uses`, the
+  // uses the read gives the field: freed as the value is, claiming what the
+  // value's claim reaches into the field (never more than the value), and
+  // nothing at many uses, since a value used many times may be duplicated.
+  constexpr Hold read(FieldReach reach, Uses uses) const {
+    return Hold((uses == Uses::Once ? holdReadsOnce : holdReadsMany)[index()]
+                                                                    [static_cast<unsigned>(reach)]);
   }
   // What exclusivity writes once it proves the value's sharing: the claim
   // set where something frees the value; static data has no sharing level
@@ -180,16 +183,23 @@ bool claims(mlir::Type type, Unique unique);
 mlir::Type shared(mlir::Type type);
 bool forgets(mlir::Type from, mlir::Type to);
 
+// How far a value's claim on its own cells reaches into a field whose
+// declared type is `declared`, read off the family's declaration once:
+// through a field of the value's own family (a `self[...]` field), and
+// through a field of an `in_place` family, whose own cells are among the
+// value's; not through any other field.
+FieldReach fieldReach(mlir::Type declared);
+
 // The type at which a match binds a field of its scrutinee, as Idris binds
 // a pattern variable: a declaration's field is its carrier and its own uses
 // (no hold: a field holds what the value it is read from holds); the field
 // is used as often as the scrutinee times its own uses, and, where its
 // carrier holds references, its hold is read from the scrutinee's
-// (Hold::read): a field of a record that is not unique deep is never unique
-// deep, whatever its quantity. `recursion` says whether the field is of the
-// scrutinee's own family (a recursive field), which a claim on the family's
-// own cells reaches. A field used once by its type takes no grade.
-mlir::Type fieldType(mlir::Type scrutinee, mlir::Type carrier, Uses uses, Recursion recursion);
+// (Hold::read) at the uses the read gives it: a field of a record that is
+// not unique deep is never unique deep, whatever its quantity, and one read
+// at many uses claims nothing. `reach` is fieldReach of the field's
+// declared type. A field used once by its type takes no grade.
+mlir::Type fieldType(mlir::Type scrutinee, mlir::Type carrier, Uses uses, FieldReach reach);
 
 // Whether a slot of `type` holds a closure, or a suspension, at any grade:
 // the value's carrier says, whatever linearity a rewrite keeps.
@@ -219,10 +229,12 @@ mlir::Value throughLinear(mlir::Value value);
 
 // What a value is made of, structurally: the same value as another (the
 // result of an op that keeps its operand's value, its identity and its
-// sharing, Idr_SameValue; an argument a match's region binds, its operand
-// refined; a loan's view and the owner it gives back), a field of a
-// constructor value (an idr.data.field, a memo cell's included), or made here
-// (anything else: an op's own result, a parameter, a region's argument).
+// sharing, Idr_SameValue; an argument a match's region binds, the operand
+// that enters it refined, a data match's scrutinee or what it forwards and
+// a literal match's scrutinee in its default; a loan's view and the owner
+// it gives back), a field of a constructor value (an idr.data.field, a memo
+// cell's included), or made here (anything else: an op's own result, a
+// parameter, a region's argument).
 // idr.count.share keeps its operand's value but forgets its sharing, so its
 // result is made here: following it would prove a shared cell exclusive.
 struct Made {};

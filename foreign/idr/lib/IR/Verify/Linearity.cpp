@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The one linearity rule, after every pass. A value used once, by its type
-// (a cell, a destination, a package) or by its grade's uses, is used at
-// most once on every path; once the program is counted, a value that holds
-// a reference of its own, a cell, a token and a package are given up
-// exactly once on every path that goes on. Both are one count: the uses
-// that count, on the worst path, the most over a match's alternatives, the
-// sum over regions that run one after another, twice for a region that
-// runs again. A path that ends the run (a crash, an exit) gives nothing up,
+// The one linearity rule, after every pass. A value used once by its grade's
+// uses is used at most once on every path. A value used once by its type (a
+// cell, a destination, a package) is used exactly once on every path that
+// goes on: its one use is what takes it (an init fills the cell, a write
+// fills the destination, an unpack reopens the package), so a path without
+// it leaves memory nothing fills or gives back. Once the program is
+// counted, a value that holds a reference of its own is given up exactly
+// once on every path that goes on. All three are one count: the uses that
+// count, on the worst path, the most over a match's alternatives, the sum
+// over regions that run one after another, twice for a region that runs
+// again. A path that ends the run (a crash, an exit) gives nothing up,
 // since nothing after it runs. A value with one use that counts, in the
 // block that defines it, is settled with no walk; only past one is a
 // region looked into.
@@ -42,9 +45,19 @@ bool idr::verify::alternatives(RegionBranchOpInterface branch) {
 
 namespace {
 
-// What a value is held to: at most one use on every path, or exactly one
-// giving up of its reference on every path that goes on.
-enum class Rule : std::uint8_t { AtMostOnce, ExactlyOnce };
+// What a value is held to: at most one use on every path (a value its grade
+// uses once); exactly one use on every path that goes on (a value its type
+// uses once); or exactly one giving up of its reference on every path that
+// goes on, the uses that do not consume it not counting (a counted value).
+enum class Rule : std::uint8_t { UsedAtMostOnce, UsedExactlyOnce, ConsumedExactlyOnce };
+
+// Whether every use of a value counts under `rule`, or only those that
+// consume its reference.
+constexpr bool everyUse(Rule rule) { return rule != Rule::ConsumedExactlyOnce; }
+
+// Whether `rule` asks for exactly one on every path that goes on, not at
+// most one.
+constexpr bool exactly(Rule rule) { return rule != Rule::UsedAtMostOnce; }
 
 // Whether a path through a region goes on to what follows it, or ends the
 // run first.
@@ -104,7 +117,7 @@ public:
   Count(Value value, Rule rule, Exclusivity &exclusivity)
       : value(value), rule(rule), exclusivity(exclusivity) {
     for (OpOperand &use : value.getUses())
-      if (rule == Rule::AtMostOnce || consumes(use))
+      if (everyUse(rule) || consumes(use))
         users.push_back(use.getOwner());
   }
 
@@ -118,11 +131,12 @@ public:
     FailureOr<Account> account = accountOf(home);
     if (failed(account))
       return failure();
-    if (rule == Rule::AtMostOnce || account->reach == Reach::EndsRun || account->uses == 1)
+    if (!exactly(rule) || account->reach == Reach::EndsRun || account->uses == 1)
       return success();
-    InFlightDiagnostic diag = emitError(value.getLoc())
-                              << "holds a reference that is never given up on a path that goes on";
-    return diag;
+    return emitError(value.getLoc())
+           << (rule == Rule::UsedExactlyOnce
+                   ? "is used once by its type and never used on a path that goes on"
+                   : "holds a reference that is never given up on a path that goes on");
   }
 
 private:
@@ -139,7 +153,7 @@ private:
   }
 
   LogicalResult tooMany(Operation &op) {
-    return op.emitOpError(rule == Rule::AtMostOnce
+    return op.emitOpError(everyUse(rule)
                               ? "uses a value used once that is already used on the same path"
                               : "gives up a reference already given up on the same path");
   }
@@ -195,20 +209,23 @@ private:
       });
       return Account{ends ? Reach::EndsRun : Reach::GoesOn, uses};
     }
-    // Alternatives: one runs. A value used once is used at most as often
-    // as the most any of them uses it; a reference is given up as often on
-    // every alternative that goes on.
+    // Alternatives: one runs. A value used at most once is used at most as
+    // often as the most any of them uses it; a value used or given up
+    // exactly once is used as often on every alternative that goes on.
     std::optional<unsigned> goesOn;
     unsigned most = 0;
     for (const Account &account : each) {
       most = std::max(most, account.uses);
       if (account.reach == Reach::EndsRun)
         continue;
-      if (rule == Rule::ExactlyOnce && goesOn && *goesOn != account.uses)
-        return op.emitOpError("gives up a reference on one alternative and not on another");
+      if (exactly(rule) && goesOn && *goesOn != account.uses)
+        return op.emitOpError(rule == Rule::UsedExactlyOnce
+                                  ? "uses a value used once by its type on one alternative and not "
+                                    "on another"
+                                  : "gives up a reference on one alternative and not on another");
       goesOn = account.uses;
     }
-    if (rule == Rule::AtMostOnce)
+    if (!exactly(rule))
       return Account{goesOn ? Reach::GoesOn : Reach::EndsRun, most};
     return Account{goesOn ? Reach::GoesOn : Reach::EndsRun, goesOn.value_or(0)};
   }
@@ -219,14 +236,6 @@ private:
   SmallVector<Operation *, 4> users;
 };
 
-// Whether, once the program is counted, a value of `type` is given up
-// exactly once: it holds a reference its count frees, or it is memory used
-// once by its type that one op takes over (a cell its init fills, a
-// package its unpack reopens).
-bool givenUpOnce(Type type) {
-  return freedBy(type, Release::Counted) || isa<CellType, LifetimePackageType>(type);
-}
-
 } // namespace
 
 LogicalResult idr::verify::linearity(FuncOp fn) {
@@ -234,19 +243,24 @@ LogicalResult idr::verify::linearity(FuncOp fn) {
   Exclusivity exclusivity;
   auto checkValue = [&](Value value) -> LogicalResult {
     Type type = value.getType();
+    if (counted && isa<idr::TokenType>(unrestricted(type)) && usesOf(type) == Uses::Many)
+      return emitError(value.getLoc()) << "holds a reuse token at many uses";
     // A constant holds nothing a use could take: a folder materializes one
     // wherever it is needed, merges equal ones and hoists them out of
     // loops, so its uses repeat however the program was written.
-    bool constant = matchPattern(value, m_Constant());
-    if (usesOf(type) == Uses::Once && !constant &&
-        failed(Count(value, Rule::AtMostOnce, exclusivity).check()))
+    if (matchPattern(value, m_Constant()))
+      return success();
+    // Used once by its type: the type alone says so at every stage, and no
+    // grade is written on it.
+    if (isLinearByType(type))
+      return Count(value, Rule::UsedExactlyOnce, exclusivity).check();
+    if (usesOf(type) == Uses::Once &&
+        failed(Count(value, Rule::UsedAtMostOnce, exclusivity).check()))
       return failure();
     if (!counted)
       return success();
-    if (isa<TokenType>(unrestricted(type)) && usesOf(type) == Uses::Many)
-      return emitError(value.getLoc()) << "holds a reuse token at many uses";
-    if (givenUpOnce(type) && !constant &&
-        failed(Count(value, Rule::ExactlyOnce, exclusivity).check()))
+    if (freedBy(type, Release::Counted) &&
+        failed(Count(value, Rule::ConsumedExactlyOnce, exclusivity).check()))
       return failure();
     return success();
   };

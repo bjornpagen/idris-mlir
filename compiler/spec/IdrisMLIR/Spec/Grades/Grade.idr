@@ -230,20 +230,29 @@ fits (Scoped u) Static = No (\case ScopedForgets _ impossible)
 -- What a field read gives, and what a pass may learn
 --------------------------------------------------------------------------------
 
-||| Whether a field is of its family's own recursive group (a `self[...]`
-||| field) or of another type.
+||| How far a value's claim on its own cells reaches into one of its fields,
+||| read off the field's declaration: through a field of the value's own
+||| family (a `self[...]` field), and through a field of an `in_place`
+||| family, whose own cells are among the value's own cells, so a linear
+||| record's claim covers the spine of the linear list it holds; not through
+||| any other field.
 public export
-data Recursion = OwnFamily | Other
+data FieldReach = OwnFamily | InPlaceFamily | Other
 
-||| What is known of a field's sharing, read from a value: everything it
-||| reaches is unshared if nothing the value reaches is; its family's own
-||| cells, for a field of that family, if the value's are; nothing else.
+||| What is known of a field's sharing, read from a value at `uses`, the
+||| uses the read gives the field: at many uses nothing, since a value used
+||| many times may be duplicated and so shared; at one use, everything it
+||| reaches is unshared if nothing the value reaches is, and its own cells,
+||| for a field the value's claim on its own cells reaches, if the value's
+||| are; nothing else.
 public export
-readUnique : Recursion -> Unique -> Unique
-readUnique _ Deep = Deep
-readUnique OwnFamily Self = Self
-readUnique Other Self = None
-readUnique _ None = None
+readUnique : FieldReach -> Uses -> Unique -> Unique
+readUnique _ Many _ = None
+readUnique _ Once None = None
+readUnique OwnFamily Once Self = Self
+readUnique InPlaceFamily Once Self = Self
+readUnique Other Once Self = None
+readUnique _ Once Deep = Deep
 
 ||| The hold of a field read from a value: freed as the value is (a field of
 ||| static data is static, a field of a scoped value lives in its lifetime),
@@ -251,24 +260,41 @@ readUnique _ None = None
 ||| the value claims: a field of a record that is not unique deep is never
 ||| unique deep, whatever its own quantity.
 public export
-readHold : Recursion -> Hold -> Hold
-readHold rec (Counted u) = Counted (readUnique rec u)
-readHold rec (Scoped u) = Scoped (readUnique rec u)
-readHold _ Static = Static
+readHold : FieldReach -> Uses -> Hold -> Hold
+readHold reach uses (Counted u) = Counted (readUnique reach uses u)
+readHold reach uses (Scoped u) = Scoped (readUnique reach uses u)
+readHold _ _ Static = Static
 
+||| Split on every argument, so each case reduces whatever order the
+||| definition splits in.
 export
-readClaimsNoMore : (rec : Recursion) -> (u : Unique) -> Claims u (readUnique rec u)
-readClaimsNoMore _ Deep = ClaimsDeep
-readClaimsNoMore OwnFamily Self = ClaimsSelf
-readClaimsNoMore Other Self = ClaimsNothing
-readClaimsNoMore _ None = ClaimsNothing
+readClaimsNoMore : (reach : FieldReach) -> (uses : Uses) -> (u : Unique) ->
+                   Claims u (readUnique reach uses u)
+readClaimsNoMore OwnFamily Many None = ClaimsNothing
+readClaimsNoMore OwnFamily Many Self = ClaimsNothing
+readClaimsNoMore OwnFamily Many Deep = ClaimsNothing
+readClaimsNoMore InPlaceFamily Many None = ClaimsNothing
+readClaimsNoMore InPlaceFamily Many Self = ClaimsNothing
+readClaimsNoMore InPlaceFamily Many Deep = ClaimsNothing
+readClaimsNoMore Other Many None = ClaimsNothing
+readClaimsNoMore Other Many Self = ClaimsNothing
+readClaimsNoMore Other Many Deep = ClaimsNothing
+readClaimsNoMore OwnFamily Once None = ClaimsNothing
+readClaimsNoMore OwnFamily Once Self = ClaimsSelf
+readClaimsNoMore OwnFamily Once Deep = ClaimsDeep
+readClaimsNoMore InPlaceFamily Once None = ClaimsNothing
+readClaimsNoMore InPlaceFamily Once Self = ClaimsSelf
+readClaimsNoMore InPlaceFamily Once Deep = ClaimsDeep
+readClaimsNoMore Other Once None = ClaimsNothing
+readClaimsNoMore Other Once Self = ClaimsNothing
+readClaimsNoMore Other Once Deep = ClaimsDeep
 
 ||| A value stands where its field's hold is asked of its parts.
 export
-readFits : (rec : Recursion) -> (h : Hold) -> Fits h (readHold rec h)
-readFits rec (Counted u) = CountedForgets (readClaimsNoMore rec u)
-readFits rec (Scoped u) = ScopedForgets (readClaimsNoMore rec u)
-readFits _ Static = StaticStays
+readFits : (reach : FieldReach) -> (uses : Uses) -> (h : Hold) -> Fits h (readHold reach uses h)
+readFits reach uses (Counted u) = CountedForgets (readClaimsNoMore reach uses u)
+readFits reach uses (Scoped u) = ScopedForgets (readClaimsNoMore reach uses u)
+readFits _ _ Static = StaticStays
 
 ||| What exclusivity writes once it proves a value's sharing: the claim set
 ||| to `v` where something frees the value; static data has no sharing
@@ -328,8 +354,9 @@ uses (OnReferences u _) = u
 ||| The grade of a field bound from a value, as a match binds it: the
 ||| value's uses times the field's own (a declaration's field carries its
 ||| uses alone, no hold), and, for a field that holds references, the hold
-||| read from the value's.
+||| read from the value's at those uses.
 public export
-fieldGrade : Recursion -> Grade References -> (field : Uses) -> (r : Refs) -> Grade r
+fieldGrade : FieldReach -> Grade References -> (field : Uses) -> (r : Refs) -> Grade r
 fieldGrade _ v u Words = OnWords (times (uses v) u)
-fieldGrade rec (OnReferences vu vh) u References = OnReferences (times vu u) (readHold rec vh)
+fieldGrade reach (OnReferences vu vh) u References =
+  OnReferences (times vu u) (readHold reach (times vu u) vh)

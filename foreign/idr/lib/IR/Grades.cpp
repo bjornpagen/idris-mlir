@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The grades: `!idr.graded`'s hooks (its spelling, its canonical form), a
-// type at a grade, what its grade says of how a value may be used and what
-// it holds, and the values seen through the positions their grades put them
-// in.
+// The grades: `!idr.graded`'s hooks (its spelling, its canonical form, what
+// a value of it holds), a type at a grade, what its grade says of how a
+// value may be used and what it holds, the values seen through the
+// positions their grades put them in, and the grade's one op, the cast of a
+// value into or out of a linear position.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Quantities.h"
+#include "idr/IR/Ranges.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/IR/DialectImplementation.h"
@@ -131,6 +133,13 @@ LogicalResult GradedType::verify(function_ref<InFlightDiagnostic()> emitError, U
   return success();
 }
 
+// What a value at a grade holds is its carrier's; the verifier refuses a
+// grade of a carrier used once by its type, so no graded type is one.
+bool GradedType::holdsReferences() const { return idr::holdsReferences(getCarrier()); }
+bool GradedType::isLinearByType() const { return false; }
+bool GradedType::isCounted() const { return idr::isCounted(getCarrier()); }
+bool GradedType::isCellPointer() const { return idr::isCellPointer(getCarrier()); }
+
 //===----------------------------------------------------------------------===//
 // A type at a grade
 //===----------------------------------------------------------------------===//
@@ -208,12 +217,23 @@ std::optional<Exclusive> idr::asExclusive(Value value) {
   return Exclusive(value);
 }
 
-Type idr::fieldType(Type scrutinee, Type carrier, Uses uses, Recursion recursion) {
+// The declaration says it: a field of a member of the family's own group,
+// or an application of a family whose data member promises in place.
+FieldReach idr::fieldReach(Type declared) {
+  Type field = unrestricted(declared);
+  if (isa<SelfType>(field))
+    return FieldReach::OwnFamily;
+  if (auto data = dyn_cast<DataType>(field); data && data.promise() == Promise::InPlace)
+    return FieldReach::InPlaceFamily;
+  return FieldReach::Other;
+}
+
+Type idr::fieldType(Type scrutinee, Type carrier, Uses uses, FieldReach reach) {
   Grade value = gradeOf(scrutinee);
   Grade read = bareGrade(carrier);
   read.uses = times(value.uses, uses);
   if (read.hold && value.hold)
-    read.hold = value.hold->read(recursion);
+    read.hold = value.hold->read(reach, read.uses);
   return graded(read, carrier);
 }
 
@@ -259,10 +279,11 @@ Value idr::throughLinear(Value value) { return linearPositions(value).back(); }
 
 // An op says it keeps its operand's value (Idr_SameValue); a field read
 // takes its operand refined to one constructor, which its type names; a
-// match enters each of its regions with its operands refined (the
-// scrutinee first, then what it forwards), each the same value at a type
-// that says more; a loan's view is the value it lends, and the owner it
-// gives back is that value.
+// match enters each of its regions with the operands that enter it refined
+// (a data match its scrutinee first, then what it forwards; a literal match
+// its scrutinee, in its default alone), each argument the same value as the
+// operand that enters it, at a type that says more; a loan's view is the
+// value it lends, and the owner it gives back is that value.
 Source idr::sourceOf(Value value) {
   if (auto result = dyn_cast<OpResult>(value)) {
     Operation *op = result.getOwner();
@@ -279,8 +300,11 @@ Source idr::sourceOf(Value value) {
   Operation *parent = arg.getOwner()->getParentOp();
   if (auto loan = dyn_cast<LendOp>(parent); loan && arg == loan.getView())
     return Same{loan.getOwner()};
-  if (auto match = dyn_cast<DataMatchOp>(parent); match && arg.getOwner()->isEntryBlock())
-    return Same{match->getOperand(arg.getArgNumber())};
+  if (isa<MatchOpInterface>(parent) && arg.getOwner()->isEntryBlock()) {
+    OperandRange entering = cast<RegionBranchOpInterface>(parent).getEntrySuccessorOperands(
+        RegionSuccessor(arg.getParentRegion()));
+    return Same{entering[arg.getArgNumber()]};
+  }
   return Made{};
 }
 
@@ -383,4 +407,40 @@ bool idr::isArray(Type type) {
 
 bool idr::isRank1Array(Type type) {
   return isArray(type) && cast<MemRefType>(type).getRank() == 1;
+}
+
+//===----------------------------------------------------------------------===//
+// idr.lin.cast
+//===----------------------------------------------------------------------===//
+
+// The cast is between types equal but for their uses: the same carrier at
+// the same hold, the other uses.
+LogicalResult LinCastOp::verify() {
+  Type from = getValue().getType();
+  Type to = getType();
+  if (unrestricted(from) != unrestricted(to) || holdOf(from) != holdOf(to) ||
+      usesOf(from) == usesOf(to))
+    return emitOpError("casts ") << from << " to " << to
+                                 << ", which differ in more than their uses or not in them";
+  return success();
+}
+
+QuantityChange LinCastOp::getDirection() {
+  return usesOf(getType()) == Uses::Once ? QuantityChange::Enter : QuantityChange::Leave;
+}
+
+// The QTT rule: a cast back of a cast whose result nothing else uses is the
+// value itself, nothing having run in the linear position; a value cast
+// into a linear position and used elsewhere too stays, since folding it
+// would use the value twice.
+OpFoldResult LinCastOp::fold(FoldAdaptor) {
+  auto inner = getValue().getDefiningOp<LinCastOp>();
+  if (!inner || inner.getValue().getType() != getType() || !inner->hasOneUse())
+    return {};
+  return inner.getValue();
+}
+
+void LinCastOp::inferResultRangesFromOptional(ArrayRef<IntegerValueRange> ranges,
+                                              SetIntLatticeFn setResultRange) {
+  ranges::carried(getResult(), ranges.front(), setResultRange);
 }

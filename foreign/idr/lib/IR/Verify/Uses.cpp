@@ -5,13 +5,13 @@
 // source (sourceOf) and upstream's buffer views: shared by the ownership
 // passes, so each has one meaning.
 
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -51,21 +51,21 @@ std::optional<Value> viewedFrom(Value value) {
 // the value of a memref.store, not the buffer it writes. The buffer then
 // holds the value, and the reference with it. A buffer the op reads (a
 // copy's source, a linalg op's input) is memory it reads, not a value it
-// stores: an operand any effect of the op names is never stored.
+// stores: an operand any effect of the op names is never stored. Asked of
+// the effect system's one classifier: an op that says nothing MLIR can read
+// touches both questions, and so stores nothing anyone can place.
 bool idr::ownership::storedBy(OpOperand &operand) {
   Operation *user = operand.getOwner();
-  auto memory = dyn_cast<MemoryEffectOpInterface>(user);
-  if (isa_and_nonnull<IdrDialect>(user->getDialect()) || !memory)
+  if (isa_and_nonnull<IdrDialect>(user->getDialect()))
     return false;
-  SmallVector<MemoryEffects::EffectInstance> effects;
-  memory.getEffects(effects);
-  auto writes = [](const MemoryEffects::EffectInstance &effect) {
-    return isa<MemoryEffects::Write>(effect.getEffect());
-  };
-  return llvm::any_of(effects, writes) &&
-         llvm::none_of(effects, [&](const MemoryEffects::EffectInstance &effect) {
-           return effect.getValue() == operand.get();
-         });
+  Value held = operand.get();
+  bool writes = effects::classify(user, [](const effects::Effect &each) {
+                  return each.kind == effects::Kind::Write;
+                }) == effects::Does::Touches;
+  bool names = effects::classify(user, [&](const effects::Effect &each) {
+                 return each.value == held;
+               }) == effects::Does::Touches;
+  return writes && !names;
 }
 
 // A field is read from its constructor value (sourceOf's Field: an

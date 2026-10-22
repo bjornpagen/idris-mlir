@@ -12,6 +12,7 @@
 ||| it, so one fact has one spelling and upstream's ops take it as it is.
 module IdrisMLIR.Spec.Grades.Declarations
 
+import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Grades.Grade
@@ -78,18 +79,20 @@ uniqueClosed = MkClosed
   }
 
 export
-recursionClosed : Closed Recursion
-recursionClosed = MkClosed
-  { name = ident "Recursion"
+fieldReachClosed : Closed FieldReach
+fieldReachClosed = MkClosed
+  { name = ident "FieldReach"
   , shape = OneOf
-  , every = OwnFamily ::: [Other]
+  , every = OwnFamily ::: [InPlaceFamily, Other]
   , complete = \case
       OwnFamily => Here
-      Other => There Here
+      InPlaceFamily => There Here
+      Other => There (There Here)
   , describe = \case
       OwnFamily => MkCase (ident "OwnFamily") (word "own_family" ::: []) (line "a field of its family's own recursive group")
-      Other => MkCase (ident "Other") (word "other" ::: []) (line "a field of another type")
-  , doc = brief (line "whether a field is of its value's own family")
+      InPlaceFamily => MkCase (ident "InPlaceFamily") (word "in_place_family" ::: []) (line "a field of an in_place family, whose own cells are the value's")
+      Other => MkCase (ident "Other") (word "other" ::: []) (line "a field of any other type")
+  , doc = brief (line "how far a value's claim on its own cells reaches into a field")
   }
 
 ||| The seven holds, as the C++ `HoldCase` the value class `::idr::Hold`
@@ -162,8 +165,16 @@ fitsMask h = go 0 (forget holdClosed.every)
         pow b Z = 1
         pow b (S k) = b * pow b k
 
-||| Each hold's axes, where it fits, and what a field read from a value at it
-||| holds.
+||| The hold of a field read from a value at a hold, `holdReadsOnce[hold][reach]`
+||| for a read at one use and `holdReadsMany[hold][reach]` for one at many, by
+||| how far the value's claim on its own cells reaches into the field.
+holdReads : Ident -> Uses -> CppDecl
+holdReads name uses = Array2 name (EnumColumn (enumDef holdClosed))
+  (map (\h => map (\r => CaseCell (caseRef holdClosed (readHold r uses h))) (forget fieldReachClosed.every))
+       (forget holdClosed.every))
+  "the hold of a field read from a value, by how far the value's claim reaches into it"
+
+||| Each hold's axes and where it fits.
 export
 holdTable : Table
 holdTable = table holdClosed
@@ -175,10 +186,6 @@ holdTable = table holdClosed
       (\h => CaseCell (caseRef uniqueClosed (claim h))) (line "what the hold claims of sharing")
   , MkColumn (ident "holdFitsMask") Unsigned8
       (\h => IntCell (fitsMask h)) (line "bit j: the hold fits where the jth hold is asked")
-  , MkColumn (ident "holdReadOwnFamily") (EnumColumn (enumDef holdClosed))
-      (\h => CaseCell (caseRef holdClosed (readHold OwnFamily h))) (line "a field of the value's own family read from it")
-  , MkColumn (ident "holdReadOther") (EnumColumn (enumDef holdClosed))
-      (\h => CaseCell (caseRef holdClosed (readHold Other h))) (line "a field of another type read from it")
   ]
 
 --------------------------------------------------------------------------------
@@ -198,22 +205,29 @@ holdDirective = MkDirective
 ||| says), its carrier. Its syntax is the hand printer's, which reads a hold
 ||| by its first word; its verifier holds the canonical form: never a grade
 ||| of a grade, none of a type used once by its type, a hold exactly on a
-||| carrier that holds references, never the carrier's bare grade.
+||| carrier that holds references, never the carrier's bare grade. What a
+||| value of it holds is its carrier's, so it answers the value facts by
+||| asking the carrier, which no constant answer could say.
 export
 graded : TypeDef 3
 graded = MkTypeDef
   { mnemonic = word "graded" ::: []
   , params =
-      [ MkParameter (ident "uses") (EnumValue (enumDef usesClosed)) AlwaysWritten
+      [ MkParameter (ident "uses")
+          (EnumValue (imported usesClosed
+            (MkSource ("IdrisMLIR" ::: ["Spec", "Grades", "Grade"]) "Uses"
+                      ("IdrisMLIR" ::: ["Spec", "Grades", "Declarations"]) "usesClosed")))
+          AlwaysWritten
           (line "how often the value may be used")
       , MkParameter (ident "hold") (HandValue (code "::std::optional<::idr::Hold>") holdDirective)
           AlwaysWritten (line "who frees what it holds and what is known of its sharing")
       , MkParameter (ident "carrier") TypeValue AlwaysWritten (line "the value itself") ]
   , syntax = HandSyntax
-  , interfaces = []
+  , interfaces = [Implements valueFactsInterface []]
   , verifier = VerifiesParameters
   , bytecode = Derived
   , members = []
+  , facts = NoValueFacts
   , doc = brief (line "a value at a grade: its uses and, on a carrier that holds references, its hold")
   }
 
@@ -237,7 +251,7 @@ linCast = MkOp
   , attrs = []
   , regions = []
   , traits = [OurTrait resultCarriesOperand, OurTrait sameValue]
-  , interfaces = [Declares InferIntRange ["inferResultRangesFromOptional"]]
+  , interfaces = [Declares InferIntRange ["inferResultRangesFromOptional"], Implements flowInterface ["getFlowEdges"]]
   , effects = Executes [OnValues Allocate Identity (Results FZ)] [] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -255,15 +269,16 @@ linCast = MkOp
   }
 
 ||| The header the grade's C++ includes (`Generated/Grades.h.inc`): the
-||| axes as enums, the holds and their facts, the product of uses. `Uses`
-||| is an ODS enum besides, since the type's parameter is one; its header
-||| reads it from there.
+||| axes as enums, the holds and their facts, what a field read gives, the
+||| product of uses. `Uses` is an ODS enum besides, since the type's
+||| parameter is one; its header reads it from there.
 gradesHeader : Header
 gradesHeader = MkHeader "Grades"
   [ ("idr" ::: [],
       [ EnumOf (enumDef releaseClosed), EnumOf (enumDef uniqueClosed)
-      , EnumOf (enumDef recursionClosed), EnumOf (enumDef quantityChangeClosed)
-      , TableOf holdTable, usesTimes ]) ]
+      , EnumOf (enumDef fieldReachClosed), EnumOf (enumDef quantityChangeClosed)
+      , TableOf holdTable, holdReads "holdReadsOnce" Once, holdReads "holdReadsMany" Many
+      , usesTimes ]) ]
   (brief "the grade's axes, its holds and their algebra")
 
 ||| The grade's area: its one op, its type, `Uses` (the type's enum

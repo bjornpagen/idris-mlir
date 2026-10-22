@@ -16,8 +16,9 @@
 ||| keeps every lifetime inside its region.
 module IdrisMLIR.Spec.Lifetimes.Declarations
 
+import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Core.Vocabulary
-import IdrisMLIR.Spec.Counting.Declarations
+import IdrisMLIR.Spec.Counting.Types
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Lifetimes.Kind
 
@@ -167,7 +168,7 @@ kindDirective = MkDirective
 
 ||| `!idr.lifetime<view | room | cursor | home k>`, C++ `LifetimeType`. Uses
 ||| many and no grade: a lifetime is never consumed, returned or threaded in
-||| the IR.
+||| the IR, and holds no reference a count accounts for.
 export
 lifetimeType : TypeDef 1
 lifetimeType = MkTypeDef
@@ -180,20 +181,27 @@ lifetimeType = MkTypeDef
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []
+  , facts = Answers (MkValueFacts HoldsNoReference UsedAsGraded Uncounted MayBeOtherWord)
   , doc = brief (line "a lifetime: what it is at run time is its kind; its opener says where its memory comes from")
   }
 
 ||| `!idr.lifetime.package<stack | chain, T…>`, C++ `LifetimePackageType`:
 ||| a per-level lifetime's memory and the values held in it, moved out of
 ||| its region by `idr.lifetime.pack` and reopened by `idr.lifetime.unpack`.
-||| Used once by its type, with no grade, so a second unpack is a second
-||| use.
+||| Used exactly once by its type, with no grade, so a second unpack is a
+||| second use and a package no unpack takes holds memory nothing gives
+||| back. Its held values live in its lifetime, so it holds no reference a
+||| count accounts for.
 export
 packageType : TypeDef 2
 packageType = MkTypeDef
   { mnemonic = word "lifetime" ::: [word "package"]
   , params =
-      [ MkParameter (ident "packed") (EnumValue (enumDef packedClosed)) AlwaysWritten
+      [ MkParameter (ident "packed")
+          (EnumValue (imported packedClosed
+            (MkSource ("IdrisMLIR" ::: ["Spec", "Lifetimes", "Kind"]) "Packed"
+                      ("IdrisMLIR" ::: ["Spec", "Lifetimes", "Declarations"]) "packedClosed")))
+          AlwaysWritten
           (line "what the package holds of the lifetime")
       , MkParameter (ident "held") (ListOf TypeValue) AlwaysWritten
           (line "the values held in the lifetime, in order") ]
@@ -202,6 +210,7 @@ packageType = MkTypeDef
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []
+  , facts = Answers (MkValueFacts HoldsNoReference UsedOnceByType Uncounted MayBeOtherWord)
   , doc = brief (line "a per-level lifetime packed around a framed call, with the values it holds")
   }
 
@@ -269,7 +278,7 @@ statesLifetime = MkInterfaceDef
       , MkMethod PerObject (code "void") (ident "setStatedLifetime")
           [param (code "::mlir::Value") (ident "made"), param (code "::mlir::Value") (ident "lifetime")]
           EveryImplementer
-          (line "states the lifetime for the value and every value this op states one lifetime for with it") ]
+          (line "states the lifetime for the value and every value this op states one lifetime for with it; a null lifetime states none, for an op left with no scoped value") ]
   , verifier = Unverified
   , doc = brief (line "the lifetime an op states for a scoped value it makes")
   }
@@ -284,7 +293,7 @@ opensLifetime = MkInterfaceDef
   , subject = OverOps
   , bases = []
   , methods =
-      [ MkMethod PerObject (code "::idr::Opener") (ident "getOpener") [] (Delegates (ident "openerOfOp"))
+      [ MkMethod PerObject (code "::idr::Opener") (ident "getOpener") [] (DelegatesByClass (ident "openerOfOp"))
           (line "where the memory of the lifetime this op binds comes from") ]
   , verifier = Unverified
   , doc = brief (line "where an opener's memory comes from")
@@ -311,9 +320,9 @@ putsIntoLifetime = MkInterfaceDef
   }
 
 ||| An op whose one region runs once and gives back what it yields: its
-||| `outer` is present exactly when a result is scoped, and an opener's
-||| region binds the kind it opens (`openerBinds`), which no region
-||| constraint of ODS can say.
+||| `outers` hold one lifetime per scoped result, in result order, each
+||| result's own, and an opener's region binds the kind it opens
+||| (`openerBinds`), which no region constraint of ODS can say.
 runsOnce : TraitDef
 runsOnce = MkTraitDef (ident "RunsOnce") (brief (line "one region, run once, giving back what it yields"))
 
@@ -356,17 +365,20 @@ roomOf = MkDirective (ident "RoomLifetime") [TypeArg] (brief (line "a room lifet
 -- The openers
 --------------------------------------------------------------------------------
 
-||| The end of a lifetime: its cells' owned fields are dropped (counts read
-||| and written); the memory it took comes back to the runtime, which no
-||| value names. Reporting only: nothing is ordered for the sake of memory.
+||| The end of a lifetime: the memory it took comes back to the runtime,
+||| which no value names. No cell of a lifetime holds a counted field, so
+||| its end touches no count. Reporting only: nothing is ordered for the
+||| sake of memory.
 closes : RuntimeMemory -> Declaration i o
-closes memory = Executes [OnState Read Count, OnState Write Count] [] Recursive memory
+closes memory = Executes [] [] Recursive memory
 
-||| The format of an opener without a base: `idr.lifetime in %outer -> (T…)
-||| { … }`.
+||| The format of an opener without a base: `idr.lifetime in %l, %m :
+||| !idr.lifetime<k>, !idr.lifetime<j> -> (T…) { … }`, the lifetimes of its
+||| scoped results. A lifetime's type is written where its value is, since
+||| its kind is a parameter no format can infer.
 plainFormat : Format 1 1 0 1
 plainFormat = Declared
-  [ OptionalGroup [Lit (line "in")] (ValueOf (OperandRef FZ)) []
+  [ OptionalGroup [Lit (line "in")] (ValueOf (OperandRef FZ)) [Lit (line ":"), TypeOf (OfGroup (OperandRef FZ))]
   , AttrDictWithKeyword
   , OptionalGroup [Lit (line "->")] (TypeOf (OfGroup (ResultRef FZ))) []
   , ValueOf (RegionRef FZ) ]
@@ -375,13 +387,14 @@ plainFormat = Declared
 ||| `LifetimeOp`, `LifetimeHomeOp`, `LifetimeBlockOp`, `LifetimeChainOp`):
 ||| one region of one block, whose entry argument is the lifetime, of the
 ||| kind the opener binds, fed by no operand; its results are what the
-||| region yields, a scoped one stated at `outer`. No jump leaves one, so no
-||| call in it is in tail position: its end follows its region.
+||| region yields, each scoped one stated by its own entry of `outers`, so
+||| two results of two lifetimes keep each its own span. No jump leaves one,
+||| so no call in it is in tail position: its end follows its region.
 plainOpener : Opener -> Op 1 1 0 1
 plainOpener o = MkOp
   { home = InIdr
   , mnemonic = mnemonicOf o
-  , ins = [optional (ident "outer") anyLifetime]
+  , ins = [variadic (ident "outers") anyLifetime]
   , outs = [results (ident "results") anyValue]
   , attrs = []
   , regions = [sized (ident "body") 1]
@@ -431,14 +444,14 @@ plainOpener o = MkOp
     summaryOf OnStack = "opens a lifetime on its base cursor's stack"
     summaryOf InChain = "opens a lifetime in its own chain of chunks"
 
-||| `idr.lifetime.stack on %base in %outer -> (T…) { … }`, C++
-||| `LifetimeStackOp`: a lifetime on the stack of the cursor `base`, its
-||| mark that cursor, its end resetting it.
+||| `idr.lifetime.stack on %base : !idr.lifetime<cursor> in %outers : … ->
+||| (T…) { … }`, C++ `LifetimeStackOp`: a lifetime on the stack of the
+||| cursor `base`, its mark that cursor, its end resetting it.
 stackOpener : Op 2 1 0 1
 stackOpener = MkOp
   { home = InIdr
   , mnemonic = MkMnemonic (word "lifetime" ::: [word "stack"])
-  , ins = [single (ident "base") cursorLifetime, optional (ident "outer") anyLifetime]
+  , ins = [single (ident "base") cursorLifetime, variadic (ident "outers") anyLifetime]
   , outs = [results (ident "results") anyValue]
   , attrs = []
   , regions = [sized (ident "body") 1]
@@ -450,8 +463,9 @@ stackOpener = MkOp
   , meaning = NoFold
   , verify = DeclarationOnly
   , format = Declared
-      [ Lit (line "on"), ValueOf (OperandRef FZ)
-      , OptionalGroup [Lit (line "in")] (ValueOf (OperandRef (FS FZ))) []
+      [ Lit (line "on"), ValueOf (OperandRef FZ), Lit (line ":"), TypeOf (OfGroup (OperandRef FZ))
+      , OptionalGroup [Lit (line "in")] (ValueOf (OperandRef (FS FZ)))
+          [Lit (line ":"), TypeOf (OfGroup (OperandRef (FS FZ)))]
       , AttrDictWithKeyword
       , OptionalGroup [Lit (line "->")] (TypeOf (OfGroup (ResultRef FZ))) []
       , ValueOf (RegionRef FZ) ]
@@ -498,7 +512,7 @@ activation = op "activation" [] [result "lifetime" viewLifetime] [] []
   (Declared [AttrDict, Custom viewOf [TypeOfGroup (ResultRef FZ)]]) []
   (brief "this activation's lifetime: a view, the extent of the rest of its region")
 
-||| `idr.lend %owner in %outer : T -> (U…) { ^(%l, %view): … }`, C++
+||| `idr.lend %owner : T in %outers : … -> (U…) { ^(%l, %view): … }`, C++
 ||| `LendOp`: a counted value lent for a region. The region binds the
 ||| loan's lifetime, a view, and the view of the owner, scoped to it at the
 ||| owner's claim; the owner comes back as the first result, the same value,
@@ -507,16 +521,15 @@ activation = op "activation" [] [result "lifetime" viewLifetime] [] []
 ||| goes into an `idr.lifetime` nested in its region, so a loan has one
 ||| meaning.
 lend : Op 2 2 0 1
-lend = op "lend" [single "owner" anyValue, optional "outer" anyLifetime]
+lend = op "lend" [single "owner" anyValue, variadic "outers" anyLifetime]
   [result "returned" anyValue, results "results" anyValue] [] [sized "body" 1]
   [SingleBlock, OurTrait runsOnceGivingBack]
   [Implements statesLifetime statedMethods, Declares RegionBranch onceMethods]
   (Executes [] [] Recursive Untouched) NotSpeculatable Always VerifiesRegions
   (Declared
-    [ ValueOf (OperandRef FZ)
-    , OptionalGroup [Lit "in"] (ValueOf (OperandRef (FS FZ))) []
-    , Lit ":", TypeOf (OfGroup (OperandRef FZ))
+    [ ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ))
     , Custom sameType [TypeOfGroup (ResultRef FZ), TypeAgain (OperandRef FZ)]
+    , OptionalGroup [Lit "in"] (ValueOf (OperandRef (FS FZ))) [Lit ":", TypeOf (OfGroup (OperandRef (FS FZ)))]
     , AttrDictWithKeyword
     , OptionalGroup [Lit "->"] (TypeOf (OfGroup (ResultRef (FS FZ)))) []
     , ValueOf (RegionRef FZ) ])
@@ -560,10 +573,12 @@ cell = OurType (SomeType cellType)
 ||| `idr.cell.stack in %l : !idr.lifetime<k> -> !idr.cell<…>`, C++
 ||| `CellStackOp`: a slot of its function's frame, an entry-block allocation
 ||| rewritten at each run of its lifetime, which is bound in this function
-||| (the function verifier holds it to that lifetime's own run). Uncounted:
-||| its lifetime's end drops its owned fields and frees nothing.
+||| (the function verifier holds it to that lifetime's own run). Uncounted,
+||| and its cell holds no counted field, so its lifetime's end frees
+||| nothing. Its cell is the lifetime's, new to no one: it declares no move.
 cellStack : Op 1 1 0 0
-cellStack = op "cell.stack" [single "lifetime" anyLifetime] [result "cell" cell] [] [] [] []
+cellStack = op "cell.stack" [single "lifetime" anyLifetime] [result "cell" cell] [] []
+  [] [Implements flowInterface ["getFlowEdges"]]
   (Executes [OnValues Allocate Frame (Results FZ)] [] Covered Untouched)
   NotSpeculatable (between Graded Owned) DeclarationOnly
   (Declared [Lit "in", ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ)), AttrDict,
@@ -573,11 +588,13 @@ cellStack = op "cell.stack" [single "lifetime" anyLifetime] [result "cell" cell]
 ||| `idr.cell.arena %l : !idr.lifetime<k> -> !idr.cell<…>`, C++
 ||| `CellArenaOp`: a cell bumped in a lifetime something may allocate into
 ||| (a room, a cursor, a home), so an allocation into a view cannot be
-||| written. Uncounted: its lifetime's end drops its owned fields and gives
-||| its memory back with the rest.
+||| written. Uncounted, and its cell holds no counted field, so its
+||| lifetime's end gives its memory back with the rest and drops nothing.
+||| Its cell is the lifetime's, new to no one, as a slot's is: it declares
+||| no move.
 cellArena : Op 1 1 0 0
 cellArena = op "cell.arena" [single "lifetime" putLifetime] [result "cell" cell] [] [] []
-  [Implements putsIntoLifetime putMethods]
+  [Implements putsIntoLifetime putMethods, Implements flowInterface ["getFlowEdges"]]
   (Executes [OnValues Allocate Heap (Results FZ)] [] Covered Untouched)
   NotSpeculatable (between Graded Owned) DeclarationOnly
   (Declared [ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ)), AttrDict,
@@ -607,19 +624,28 @@ pack = op "lifetime.pack" [single "lifetime" cursorLifetime, variadic "held" any
             , TypeOf (OfGroup (ResultRef FZ)) ]) []
   (brief "packs a per-level lifetime and the values it holds")
 
-||| `idr.lifetime.unpack %p in %outer : !idr.lifetime.package<…> -> (T…)
-||| { ^(%l, %held…): … }`, C++ `LifetimeUnpackOp`: the resume's reopening of
-||| a packed lifetime. It consumes the package and binds a fresh cursor
-||| lifetime and the held values, restated in it; its end closes the
-||| lifetime as its package's source does, unless it packs again.
-unpack : Op 2 1 0 1
-unpack = op "lifetime.unpack" [single "package" (OurType (SomeType packageType)), optional "outer" anyLifetime]
+||| `idr.lifetime.unpack %p : !idr.lifetime.package<…> on %base : … in
+||| %outers : … -> (T…) { ^(%l, %held…): … }`, C++ `LifetimeUnpackOp`: the
+||| resume's reopening of a packed lifetime. It consumes the package and
+||| binds a fresh cursor lifetime and the held values, restated in it; its
+||| end closes the lifetime as its package's source does, unless it packs
+||| again. A stack's package holds its mark, which its end gives back to the
+||| cursor whose stack it is, so a stack's unpack names that cursor `on
+||| %base`, as the stack's opener did, and a chain's names none: the
+||| package's type says which, so the operand is no flag.
+unpack : Op 3 1 0 1
+unpack = op "lifetime.unpack"
+  [ single "package" (OurType (SomeType packageType)), optional "base" cursorLifetime
+  , variadic "outers" anyLifetime ]
   [results "results" anyValue] [] [sized "body" 1]
-  [SingleBlock, OurTrait runsOnce] [Implements statesLifetime statedMethods, Declares RegionBranch onceMethods]
+  [SingleBlock, AttrSizedOperandSegments, OurTrait runsOnce]
+  [Implements statesLifetime statedMethods, Declares RegionBranch onceMethods]
   (closes Touched) NotSpeculatable (between Graded Owned) VerifiesRegions
-  (Declared [ ValueOf (OperandRef FZ)
-            , OptionalGroup [Lit "in"] (ValueOf (OperandRef (FS FZ))) []
-            , Lit ":", TypeOf (OfGroup (OperandRef FZ))
+  (Declared [ ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ))
+            , OptionalGroup [Lit "on"] (ValueOf (OperandRef (FS FZ)))
+                [Lit ":", TypeOf (OfGroup (OperandRef (FS FZ)))]
+            , OptionalGroup [Lit "in"] (ValueOf (OperandRef (FS (FS FZ))))
+                [Lit ":", TypeOf (OfGroup (OperandRef (FS (FS FZ))))]
             , AttrDictWithKeyword
             , OptionalGroup [Lit "->"] (TypeOf (OfGroup (ResultRef FZ))) []
             , ValueOf (RegionRef FZ) ]) []
