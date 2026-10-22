@@ -1,125 +1,25 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// `!idr.lifetime`'s kind, the questions every pass asks of a lifetime value
-// (its kind, the lifetime a scoped value lives in, where its memory comes
-// from), and the hooks of the lifetime's ops: the region that runs once,
-// which the openers, the loan and the unpack share, what a loan and an
-// unpack bind, the pack that ends a per-level lifetime's region, and the
-// cell bumped into a lifetime.
+// The questions every pass asks of a lifetime value (the lifetime a scoped
+// value lives in, where its memory comes from, the cursor a stack lies on),
+// and the hooks of the lifetime's ops: the region that runs once, which the
+// openers, the loan and the unpack share, what a loan and an unpack bind,
+// the pack that ends a per-level lifetime's region, and the cell bumped into
+// a lifetime. The kind itself is Kind.cpp's.
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
 
-#include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 using namespace idr;
 
 //===----------------------------------------------------------------------===//
-// The kind's spelling, and the directives that write a known type as nothing
-//===----------------------------------------------------------------------===//
-
-// A case's keyword from the specification's table; a home's site after it.
-ParseResult idr::parseLifetimeKind(AsmParser &parser, FailureOr<LifetimeKind> &kind) {
-  for (LifetimeKind candidate :
-       {LifetimeKind::view(), LifetimeKind::room(), LifetimeKind::cursor()})
-    if (succeeded(parser.parseOptionalKeyword(candidate.spelling()))) {
-      kind = candidate;
-      return success();
-    }
-  if (succeeded(parser.parseOptionalKeyword(LifetimeKind::home(0).spelling()))) {
-    std::uint32_t site;
-    if (parser.parseInteger(site))
-      return failure();
-    kind = LifetimeKind::home(site);
-    return success();
-  }
-  return parser.emitError(parser.getCurrentLocation(), "expected a lifetime's kind");
-}
-
-void idr::printLifetimeKind(AsmPrinter &printer, LifetimeKind kind) {
-  printer << kind.spelling();
-  kind.fold([] {}, [] {}, [] {}, [&](std::uint32_t site) { printer << ' ' << site; });
-}
-
-namespace idr {
-
-// A loan gives its owner back at the owner's own type, written once.
-ParseResult parseSameType(OpAsmParser &, Type &returned, Type owner) {
-  returned = owner;
-  return success();
-}
-void printSameType(OpAsmPrinter &, Operation *, Type, Type) {}
-
-// The one view lifetime type and the one room lifetime type, written as
-// nothing: activation's and forget's results are views, reserve's a room.
-ParseResult parseViewLifetime(OpAsmParser &parser, Type &view) {
-  view = LifetimeType::get(parser.getContext(), LifetimeKind::view());
-  return success();
-}
-void printViewLifetime(OpAsmPrinter &, Operation *, Type) {}
-
-ParseResult parseRoomLifetime(OpAsmParser &parser, Type &room) {
-  room = LifetimeType::get(parser.getContext(), LifetimeKind::room());
-  return success();
-}
-void printRoomLifetime(OpAsmPrinter &, Operation *, Type) {}
-
-} // namespace idr
-
-//===----------------------------------------------------------------------===//
 // Lifetime values
 //===----------------------------------------------------------------------===//
-
-namespace {
-
-std::optional<LifetimeKind> kindOfType(Type type) {
-  if (auto lifetime = dyn_cast<LifetimeType>(type))
-    return lifetime.getKind();
-  return std::nullopt;
-}
-
-template <typename Ask>
-bool kindIs(Type type, Ask ask) {
-  std::optional<LifetimeKind> kind = kindOfType(type);
-  return kind && ask(*kind);
-}
-
-} // namespace
-
-bool idr::admitsPuts(Type type) {
-  return kindIs(type, [](LifetimeKind k) { return k.admitsPuts(); });
-}
-bool idr::isCursorLifetime(Type type) {
-  return kindIs(type, [](LifetimeKind k) { return k.isCursor(); });
-}
-bool idr::isRoomLifetime(Type type) {
-  return kindIs(type, [](LifetimeKind k) { return k.isRoom(); });
-}
-bool idr::isViewLifetime(Type type) {
-  return kindIs(type, [](LifetimeKind k) { return k.isView(); });
-}
-bool idr::isLifetimeOfCase(Type type, LifetimeKindCase kase) {
-  return kindIs(type, [&](LifetimeKind k) { return k.kindCase() == kase; });
-}
-
-LifetimeKind idr::lifetimes::kindOf(Value lifetime) {
-  return cast<LifetimeType>(lifetime.getType()).getKind();
-}
-
-bool idr::lifetimes::passesAs(Type arg, Type param) {
-  std::optional<LifetimeKind> a = kindOfType(arg);
-  std::optional<LifetimeKind> p = kindOfType(param);
-  return a && p && a->passesAs(*p);
-}
-
-bool idr::lifetimes::sameCursors(FunctionType caller, FunctionType callee) {
-  return llvm::count_if(caller.getInputs(), isCursorLifetime) ==
-         llvm::count_if(callee.getInputs(), isCursorLifetime);
-}
 
 // The op that made a result states its lifetime; a block argument's is
 // stated by the op whose region binds it, a function stating its
@@ -303,20 +203,31 @@ LogicalResult LendOp::verifyRegions() {
 //===----------------------------------------------------------------------===//
 
 // A stack's mark goes back to the cursor whose stack it is, which the
-// unpack names exactly when its package is a stack's; the region binds the
-// reopened lifetime, a cursor, and the values the package holds, restated
-// in it, in the package's order.
+// unpack names exactly when its package is a stack's; what enters the level
+// lies in that cursor above the mark, so a chain's unpack, which names
+// none, takes nothing in. The region binds the reopened lifetime, a cursor,
+// the values the package holds in the package's order, then those that
+// enter in theirs, each restated in it.
 LogicalResult LifetimeUnpackOp::verifyRegions() {
   auto package = cast<LifetimePackageType>(getPackage().getType());
   bool stack = package.getPacked() == Packed::FromStack;
-  if (stack != static_cast<bool>(getBase()))
+  Value base = getBase();
+  if (stack != static_cast<bool>(base))
     return emitOpError(stack ? "reopens a stack's package but names no cursor its mark goes back to"
                              : "names a base cursor for a chain's package, which has none");
+  for (Value entered : getEntering())
+    if (!base || lifetimes::statedLifetime(entered) != base)
+      return emitOpError("takes into its level ")
+             << entered.getType() << ", which does not live in the cursor its mark goes back to";
   Block &entry = getBody().front();
-  if (entry.getNumArguments() != package.getHeld().size() + 1 ||
+  ArrayRef<Type> held = package.getHeld();
+  TypeRange bound = entry.getArgumentTypes();
+  if (bound.size() != 1 + held.size() + getEntering().size() ||
       !isCursorLifetime(entry.getArgument(0).getType()) ||
-      !llvm::equal(entry.getArgumentTypes().drop_front(), package.getHeld()))
-    return emitOpError("binds no cursor lifetime and the values ") << package << " holds";
+      !llvm::equal(bound.drop_front().take_front(held.size()), held) ||
+      !llvm::equal(bound.take_back(getEntering().size()), getEntering().getTypes()))
+    return emitOpError("binds no cursor lifetime, the values ")
+           << package << " holds and those that enter its level";
   return success();
 }
 

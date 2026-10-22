@@ -213,6 +213,14 @@ enum class BodyOpener : std::uint8_t { Allowed, Refused };
 // positions its copies may put into the lifetime parameter.
 enum class Reading : std::uint8_t { Counted, Put };
 
+// Whether a function's component of the call graph runs a call on a frame:
+// a member calls a member, not in tail position. A frame holds no
+// lifetime, so every function on such a component's stack takes the
+// component's lifetimes in one arrangement and passes them on: its members
+// reach one another only through the lifetime parameter their copies
+// share, never through a lifetime one of them opens.
+enum class Framing : std::uint8_t { Unframed, Framed };
+
 // Whether a slot can stand where an op is: every region from it up to its
 // function's body is the one block of a region branch whose runs never
 // overlap, so the slot is written once per run of the region around it.
@@ -228,7 +236,7 @@ class Planner {
 public:
   Planner(FuncOp fn, FunctionId self, const solver::ProgramGraph &graph,
           const IndexVector<FunctionId, std::optional<Copies>> &copies, Reading reading,
-          solver::Work &work);
+          Framing framing, solver::Work &work);
 
   Plan plan();
 
@@ -289,6 +297,7 @@ private:
   const solver::ProgramGraph &graph;
   const IndexVector<FunctionId, std::optional<Copies>> &copies;
   Reading reading;
+  Framing framing;
   solver::Work &work;
   OpOrder order;
   solver::Numbering<Values> numbering;
@@ -303,6 +312,7 @@ private:
   footprint::Vector<Site> sites;
   footprint::Vector<Call> calls;
   footprint::Vector<OpAt> framed;
+  footprint::Vector<OpAt> tails;
   // The boxes of the cells a lifetime may take, so an init reads whether
   // its cell is one in one load.
   BitSet<Node> boxes;

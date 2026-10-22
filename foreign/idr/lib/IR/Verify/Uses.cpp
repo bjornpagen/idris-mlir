@@ -17,7 +17,6 @@
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <cstddef>
 #include <optional>
 
 using namespace mlir;
@@ -42,36 +41,6 @@ std::optional<Value> linearPositionOf(Value value) {
 }
 
 } // namespace
-
-// A chain closes on itself only in an unreachable block, which MLIR admits,
-// so the case is essential. It is found with no set of the values passed:
-// each value is the step of the one before, so once a value comes back the
-// chain repeats with a fixed period. The value held at each power of two
-// steps comes back exactly one period later (Brent's method), and the chain
-// ends one period after the first value that comes back, each value in it
-// once.
-SmallVector<Value, 4> idr::definitionChain(Value start,
-                                           function_ref<std::optional<Value>(Value)> step) {
-  SmallVector<Value, 4> chain{start};
-  std::size_t held = 0;
-  std::size_t power = 1;
-  for (std::optional<Value> next = step(start); next; next = step(*next)) {
-    chain.push_back(*next);
-    std::size_t period = chain.size() - 1 - held;
-    if (*next == chain[held]) {
-      std::size_t first = 0;
-      while (chain[first] != chain[first + period])
-        ++first;
-      chain.truncate(first + period);
-      return chain;
-    }
-    if (period == power) {
-      held = chain.size() - 1;
-      power *= 2;
-    }
-  }
-  return chain;
-}
 
 SmallVector<Value, 4> idr::linearPositions(Value value) {
   return definitionChain(value, linearPositionOf);

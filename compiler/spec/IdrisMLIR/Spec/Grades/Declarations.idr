@@ -114,7 +114,8 @@ refsClosed = MkClosed
   }
 
 ||| The seven holds, as the C++ `HoldCase` the value class `::idr::Hold`
-||| wraps; each spelled as the type prints it.
+||| wraps; each spelled as the type prints it. The graded type's hold is one
+||| of them or none, written by the codec generated for both sides.
 export
 holdClosed : Closed Hold
 holdClosed = MkClosed
@@ -210,14 +211,6 @@ holdTable = table holdClosed
 -- The type
 --------------------------------------------------------------------------------
 
-||| The hold parameter, read and written within the type's own syntax.
-holdDirective : Directive
-holdDirective = MkDirective
-  { name = ident "Hold"
-  , args = []
-  , doc = brief (line "a hold, absent on a carrier that holds no reference")
-  }
-
 ||| `!idr.graded`, C++ `GradedType`: its uses, its hold (`::idr::Hold`,
 ||| present exactly when the carrier holds references, which the carrier
 ||| says), its carrier. Its syntax is the hand printer's, which reads a hold
@@ -237,7 +230,12 @@ graded = MkTypeDef
                       ("IdrisMLIR" ::: ["Spec", "Grades", "Declarations"]) "usesClosed")))
           AlwaysWritten
           (line "how often the value may be used")
-      , MkParameter (ident "hold") (HandValue (code "::std::optional<::idr::Hold>") holdDirective)
+      , MkParameter (ident "hold")
+          (OptionalCase
+            (imported holdClosed
+              (MkSource ("IdrisMLIR" ::: ["Spec", "Grades", "Hold"]) "Hold"
+                        ("IdrisMLIR" ::: ["Spec", "Grades", "Declarations"]) "holdClosed"))
+            (code "::idr::Hold"))
           AlwaysWritten (line "who frees what it holds and what is known of its sharing")
       , MkParameter (ident "carrier") TypeValue AlwaysWritten (line "the value itself") ]
   , syntax = HandSyntax
@@ -304,7 +302,8 @@ gradesHeader = MkHeader "Grades"
       [ EnumOf (enumDef releaseClosed), EnumOf (enumDef uniqueClosed)
       , EnumOf (enumDef refsClosed)
       , EnumOf (enumDef fieldReachClosed), EnumOf (enumDef quantityChangeClosed)
-      , TableOf holdTable, holdReads "holdReadsOnce" Once, holdReads "holdReadsMany" Many
+      , EnumOf (enumDef holdClosed), TableOf holdTable
+      , holdReads "holdReadsOnce" Once, holdReads "holdReadsMany" Many
       , usesTimes ]) ]
   (brief "the grade's axes, its holds and their algebra")
 
@@ -315,6 +314,5 @@ declarations : Declarations
 declarations = { ops := [SomeOp linCast]
                , types := [SomeType graded]
                , enums := [enumDef usesClosed]
-               , directives := [holdDirective]
                , headers := [gradesHeader]
                } nothing

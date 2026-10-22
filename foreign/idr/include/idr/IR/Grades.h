@@ -24,13 +24,14 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/Hashing.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <optional>
+#include <type_traits>
 #include <variant>
 
 // The dialect's ODS enums, `Uses` among them, since the graded type's
@@ -58,10 +59,13 @@ constexpr Uses times(Uses a, Uses b) {
 
 // What a value that holds references holds: one of the seven holds of the
 // specification (HoldCase), each fact of it a load from the specification's
-// table. Built only by its three constructors, so a claim on static data
-// cannot be written.
+// table. Built from a case of that set or by its three constructors, and the
+// set has no claim on static data, so none can be written.
 class Hold {
 public:
+  // The hold of a case: every case of the set is a hold, so one read back
+  // (the graded type's generated codec) is one.
+  static constexpr Hold fromCase(HoldCase kase) { return Hold(kase); }
   // Freed by its count, with what is known of its sharing.
   static constexpr Hold counted(Unique unique = Unique::None) {
     return Hold(countedCases[static_cast<unsigned>(unique)]);
@@ -74,9 +78,9 @@ public:
   static constexpr Hold staticData() { return Hold(HoldCase::Static); }
 
   constexpr HoldCase kase() const { return c; }
-  constexpr Release release() const { return holdRelease[index()]; }
+  constexpr Release release() const { return holdRelease[c]; }
   // What the hold claims of its sharing: static data claims nothing.
-  constexpr Unique claim() const { return holdClaim[index()]; }
+  constexpr Unique claim() const { return holdClaim[c]; }
   // Whether the hold claims at least `unique`.
   constexpr bool claims(Unique unique) const {
     return static_cast<unsigned>(claim()) >= static_cast<unsigned>(unique);
@@ -84,7 +88,7 @@ public:
   // Whether a value at this hold may stand where `slot` is asked, with no op
   // between: its claim forgotten down to the slot's, or static data standing
   // for a value of any release that claims nothing.
-  constexpr bool fits(Hold slot) const { return (holdFitsMask[index()] >> slot.index()) & 1u; }
+  constexpr bool fits(Hold slot) const { return (holdFitsMask[c] >> slot.index()) & 1u; }
   // The hold of a field read from a value at this hold, at `uses`, the
   // uses the read gives the field: freed as the value is, claiming what the
   // value's claim reaches into the field (never more than the value), and
@@ -102,7 +106,7 @@ public:
                                           : *this;
   }
   // The hold as the type prints it.
-  llvm::StringRef spelling() const { return holdSpelling[index()]; }
+  llvm::StringRef spelling() const { return holdSpelling[c]; }
 
   constexpr bool operator==(const Hold &) const = default;
   friend llvm::hash_code hash_value(Hold hold) { return llvm::hash_value(hold.index()); }
@@ -116,12 +120,6 @@ private:
   constexpr unsigned index() const { return static_cast<unsigned>(c); }
   HoldCase c;
 };
-
-// The `Hold` directive of the graded type's syntax: a hold read word by
-// word against the specification's spellings, or none when the next word
-// begins no hold (a carrier that holds no reference); and its printing.
-mlir::ParseResult parseHold(mlir::AsmParser &parser, mlir::FailureOr<std::optional<Hold>> &hold);
-void printHold(mlir::AsmPrinter &printer, std::optional<Hold> hold);
 
 // A value's grade, as its type says: its uses, and its hold exactly when its
 // carrier holds references. The absence is the carrier's fact, not the
@@ -207,14 +205,49 @@ mlir::Type fieldType(mlir::Type scrutinee, mlir::Type carrier, Uses uses, FieldR
 bool isClosureType(mlir::Type type);
 bool isLazyType(mlir::Type type);
 
+// A step up a chain of definitions: from a value to the one it continues
+// to, or nothing where the chain ends.
+template <typename Step>
+concept DefinitionStep =
+    std::invocable<Step &, mlir::Value> &&
+    std::same_as<std::invoke_result_t<Step &, mlir::Value>, std::optional<mlir::Value>>;
+
 // The values from `start` along `step` until it gives nothing, `start`
 // first, each passed once. A step goes to an operand of the op that
 // defines a value, which dominates it in a reachable block; in an
 // unreachable one an op may use its own result, so a chain may close on
 // itself, and it ends where it would come back. Every walk up a chain of
 // definitions is one of these.
-llvm::SmallVector<mlir::Value, 4>
-definitionChain(mlir::Value start, llvm::function_ref<std::optional<mlir::Value>(mlir::Value)> step);
+//
+// A chain closes on itself only in an unreachable block, which MLIR admits,
+// so the case is essential. It is found with no set of the values passed:
+// each value is the step of the one before, so once a value comes back the
+// chain repeats with a fixed period. The value held at each power of two
+// steps comes back exactly one period later (Brent's method), and the chain
+// ends one period after the first value that comes back, each value in it
+// once.
+template <DefinitionStep Step>
+llvm::SmallVector<mlir::Value, 4> definitionChain(mlir::Value start, Step &&step) {
+  llvm::SmallVector<mlir::Value, 4> chain{start};
+  std::size_t held = 0;
+  std::size_t power = 1;
+  for (std::optional<mlir::Value> next = step(start); next; next = step(*next)) {
+    chain.push_back(*next);
+    std::size_t period = chain.size() - 1 - held;
+    if (*next == chain[held]) {
+      std::size_t first = 0;
+      while (chain[first] != chain[first + period])
+        ++first;
+      chain.truncate(first + period);
+      return chain;
+    }
+    if (period == power) {
+      held = chain.size() - 1;
+      power *= 2;
+    }
+  }
+  return chain;
+}
 
 // The linear positions `value` passed, `value` first and the value it was
 // made from last: each step is an op that keeps its operand's value

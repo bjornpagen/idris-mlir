@@ -46,7 +46,6 @@ bool idr::verify::usedAfterEveryAllocation(Value root, Operation *last) {
   auto uses = [&](Operation *op) {
     return llvm::any_of(op->getOperands(), [&](Value operand) { return llvm::is_contained(same, operand); });
   };
-  auto acquires = [](Operation *op) { return effects::own(op).row().contains(effects::Atom::alloc); };
 
   struct Pending {
     Operation *from;
@@ -60,7 +59,7 @@ bool idr::verify::usedAfterEveryAllocation(Value root, Operation *last) {
         for (Block &block : region)
           if (!block.empty())
             pending.push_back({&block.back(), covered});
-      if (!covered && acquires(op))
+      if (!covered && effects::mayAcquire(effects::own(op)))
         return false;
       covered = covered || uses(op);
     }

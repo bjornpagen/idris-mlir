@@ -159,9 +159,10 @@ StatesLifetimeOpInterface idr::lifetimes::decide::statedBy(Value value) {
 
 Planner::Planner(FuncOp fn, FunctionId self, const solver::ProgramGraph &graph,
                  const IndexVector<FunctionId, std::optional<Copies>> &copies, Reading reading,
-                 solver::Work &work)
-    : fn(fn), self(self), graph(graph), copies(copies), reading(reading), work(work), order(fn),
-      numbering(fn), count(numbering.size()), flowEdges(count), linkedEdges(count), boxes(count) {
+                 Framing framing, solver::Work &work)
+    : fn(fn), self(self), graph(graph), copies(copies), reading(reading), framing(framing),
+      work(work), order(fn), numbering(fn), count(numbering.size()), flowEdges(count),
+      linkedEdges(count), boxes(count) {
   solver::inWalkOrder(fn, [&](Value value) { values.push_back(value); });
 }
 
@@ -233,6 +234,9 @@ void Planner::read(Operation *op, OpAt at, const Where &where) {
     if (call.getTailKind() == TailKind::nontail && graph.onCycle(self) &&
         graph.sccOf(callee) == graph.sccOf(self))
       framed.push_back(at);
+    // A call in tail position, which lowers to its caller's own return.
+    if (call.getTailKind() == TailKind::tail)
+      tails.push_back(at);
     const std::optional<Copies> &theirs = copies[callee];
     Call put{at, callee, {}, where.run};
     for (OpResult result : call->getResults()) {

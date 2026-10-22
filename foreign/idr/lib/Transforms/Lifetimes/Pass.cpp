@@ -46,6 +46,17 @@
 // would hold a call in tail position, or a jump out of it, keeps its cells
 // counted. What the lifetime holds is then graded `scoped`, and the op that
 // makes each such value states the lifetime.
+//
+// A lifetime is an optimization over counting, so none is placed where the
+// passes after this one cannot carry it; the values stay counted, as with
+// no lifetime. A frame holds no lifetime: on a component that runs calls on
+// frames, members call members only as a copy's puts, given the parameter
+// the copies share, so every function on the component's stack takes its
+// lifetimes in one arrangement; and a lifetime spanning a call on frames
+// opens directly around the call, never around a match or another op that
+// holds it, so frames split its region there. A tail call returns as its
+// caller does, cursors included, so a cursor's copy tail calls only its
+// puts, each given its cursor.
 #include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "idr/IR/Grades.h"
@@ -86,6 +97,16 @@ std::optional<Copies> mostOf(FuncOp fn) {
   return most.results.empty() ? std::nullopt : std::optional(most);
 }
 
+// Whether `component` runs a call on a frame: a member calls a member, not
+// in tail position.
+Framing framingOf(const solver::ProgramGraph &graph, solver::SccId component) {
+  for (FunctionId f : graph.members(component))
+    for (const solver::Call &call : graph.callees(f))
+      if (call.kind == TailKind::nontail && graph.sccOf(call.callee) == component)
+        return Framing::Framed;
+  return Framing::Unframed;
+}
+
 std::optional<Copies> copiesOf(const Plan &plan) {
   if (!plan.put)
     return std::nullopt;
@@ -107,13 +128,15 @@ struct IdrLifetimes : impl::IdrLifetimesBase<IdrLifetimes> {
     IndexVector<FunctionId, Plan> ownPlans = graph.table(Plan{});
     for (solver::SccId component : graph.sccCount().ids()) {
       auto members = graph.members(component);
+      Framing framing = framingOf(graph, component);
       for (FunctionId f : members)
         copies[f] = mostOf(graph.op(f));
       for (bool shrank = true; shrank;) {
         shrank = false;
         for (FunctionId f : members)
           if (copies[f])
-            copyPlans[f] = Planner(graph.op(f), f, graph, copies, Reading::Put, work).plan();
+            copyPlans[f] =
+                Planner(graph.op(f), f, graph, copies, Reading::Put, framing, work).plan();
         for (FunctionId f : members)
           if (copies[f]) {
             std::optional<Copies> now = copiesOf(copyPlans[f]);
@@ -124,7 +147,8 @@ struct IdrLifetimes : impl::IdrLifetimesBase<IdrLifetimes> {
           }
       }
       for (FunctionId f : members)
-        ownPlans[f] = Planner(graph.op(f), f, graph, copies, Reading::Counted, work).plan();
+        ownPlans[f] =
+            Planner(graph.op(f), f, graph, copies, Reading::Counted, framing, work).plan();
     }
 
     // The copies the program calls: those its functions' runs call, and

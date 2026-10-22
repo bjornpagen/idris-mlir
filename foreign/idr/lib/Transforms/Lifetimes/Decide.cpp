@@ -13,17 +13,39 @@
 
 #include "llvm/ADT/STLExtras.h"
 
+#include <cstdint>
+
 using namespace mlir;
 using namespace idr;
 using namespace idr::lifetimes::decide;
+
+namespace {
+
+// The calls continuing on a frame that a lifetime's extent holds: none;
+// each in the block of the lifetime's region, around which frames split
+// it; or one inside another op there (a match, a loop), around which they
+// cannot, so the run stays counted, as it would with no lifetime.
+enum class FramedCalls : std::uint8_t { None, InBlock, Nested };
+
+} // namespace
 
 Plan Planner::plan() {
   readAll();
   flow.emplace(std::move(flowEdges).finish());
   Csr<Values> linked = std::move(linkedEdges).finish();
   BitSet<Node> reachesReturn = marked<Backward>(*flow, returned);
+  // What a copy returns is its parameter's.
+  auto putHere = [&](Node n) { return reading == Reading::Put && reachesReturn.test(n); };
 
   footprint::Vector<Fate> siteFates(sites.size(), Fate::Open), callFates(calls.size(), Fate::Open);
+  // On a component that runs calls on frames, a member's call of a member
+  // is one of a copy's puts, given the parameter the copies share, or
+  // counted: a lifetime this function opens, given to a member, would be a
+  // second arrangement of lifetimes on the component's stack.
+  if (framing == Framing::Framed)
+    for (auto [at, call] : llvm::enumerate(calls))
+      if (graph.sccOf(call.callee) == graph.sccOf(self) && !putHere(call.results.front()))
+        callFates[at] = Fate::Counted;
   // Each round either makes a cell or a call counted for good or decides
   // every run: it ends after a round per cell and call at most, and in one
   // where nothing more is counted.
@@ -43,9 +65,7 @@ Plan Planner::plan() {
       if (llvm::any_of(call.results, [&](Node result) { return mustCount.test(result); }))
         callFates[at] = Fate::Counted;
 
-    // Each run's cells and calls that stay in this function; what a copy
-    // returns is its parameter's.
-    auto putHere = [&](Node n) { return reading == Reading::Put && reachesReturn.test(n); };
+    // Each run's cells and calls that stay in this function.
     footprint::Vector<Draft> drafts;
     auto draftOf = [&](const RunAt &run) -> Draft & {
       auto found = llvm::find_if(drafts, [&](const Draft &draft) { return draft.run == run; });
@@ -148,15 +168,19 @@ std::optional<Group> Planner::decide(const Draft &draft, BodyOpener opener,
       for (Operation *user : valueOf(n).getUsers())
         widen(user);
   auto [first, last] = order.positions(start, block, firstOp, lastOp);
-  bool framedHere =
-      llvm::any_of(framed, [&](OpAt call) { return order.within(call, first, last); });
+  FramedCalls framedCalls = FramedCalls::None;
+  for (OpAt call : framed)
+    if (order.within(call, first, last))
+      framedCalls = order.op(call)->getBlock() == &block && framedCalls != FramedCalls::Nested
+                        ? FramedCalls::InBlock
+                        : FramedCalls::Nested;
 
   Group group;
   group.run = draft.run;
   bool allRooms = llvm::all_of(draft.calls, [&](unsigned at) {
     return copies[calls[at].callee]->modes.contains(CopyMode::Room);
   });
-  if (framedHere) {
+  if (framedCalls != FramedCalls::None) {
     group.source = Opening::Cursor;
     group.cells = Cells::Bumped;
   } else if (draft.calls.empty()) {
@@ -168,7 +192,8 @@ std::optional<Group> Planner::decide(const Draft &draft, BodyOpener opener,
   }
   if (group.source != Opening::Activation) {
     group.extent = std::pair(first, last);
-    if ((body && opener == BodyOpener::Refused) || !spannable(block, first, last)) {
+    if ((body && opener == BodyOpener::Refused) || framedCalls == FramedCalls::Nested ||
+        !spannable(block, first, last)) {
       for (unsigned at : draft.sites)
         siteFates[at] = Fate::Counted;
       for (unsigned at : draft.calls)
@@ -246,11 +271,20 @@ std::optional<PutForm> Planner::putForm(const Draft &draft) {
                 return !reach.test(n) || !isa<OpResult>(value) ||
                        verify::takenIntoResult(value, lives, returnedHere);
               });
+  // A tail call lowers to its caller's own return, which gives back the
+  // caller's cursors: a cursor's copy gives its one cursor, as its first,
+  // to every function it tail calls, so each such call is one of its puts,
+  // to the copy that takes that cursor.
+  bool tailsPut = llvm::all_of(tails, [&](OpAt tail) {
+    return llvm::any_of(draft.calls, [&](unsigned at) { return calls[at].op == tail; });
+  });
   form.modes = copies[self]->modes;
   if (!bounded)
     form.modes = form.modes.without(CopyMode::Room);
   if (!kept)
     form.modes = form.modes.without(CopyMode::Cursor).without(CopyMode::Home);
+  if (!tailsPut)
+    form.modes = form.modes.without(CopyMode::Cursor);
   if (form.modes.empty())
     return std::nullopt;
 

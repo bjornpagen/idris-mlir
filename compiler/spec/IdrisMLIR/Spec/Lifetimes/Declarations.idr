@@ -157,8 +157,10 @@ openerTable = table openerClosed
 -- The types
 --------------------------------------------------------------------------------
 
-||| A lifetime's kind, read and written by hand: `view`, `room`, `cursor`,
-||| or `home k`.
+||| A lifetime's kind, the parameter's codec, by hand: `view`, `room`,
+||| `cursor`, or `home k`, and in bytecode its case then a home's site. A
+||| case beside a site is no case of a closed set alone, so no generated
+||| codec reads it.
 kindDirective : Directive
 kindDirective = MkDirective
   { name = ident "LifetimeKind"
@@ -176,7 +178,7 @@ lifetimeType = MkTypeDef
   , params =
       [ MkParameter (ident "kind") (HandValue (code "::idr::LifetimeKind") kindDirective)
           AlwaysWritten (line "what the lifetime is at run time") ]
-  , syntax = Declarative [Keyword (line "<"), CustomParams kindDirective [FZ], Keyword (line ">")]
+  , syntax = Declarative [Keyword (line "<"), ParamAt FZ, Keyword (line ">")]
   , interfaces = []
   , verifier = AnyParameters
   , bytecode = Derived
@@ -648,32 +650,39 @@ pack = op "lifetime.pack" [single "lifetime" cursorLifetime, variadic "held" any
             , TypeOf (OfGroup (ResultRef FZ)) ]) []
   (brief "packs a per-level lifetime and the values it holds")
 
-||| `idr.lifetime.unpack %p : !idr.lifetime.package<…> on %base : … in
-||| %outers : … -> (T…) { ^(%l, %held…): … }`, C++ `LifetimeUnpackOp`: the
-||| resume's reopening of a packed lifetime. It consumes the package and
-||| binds a fresh cursor lifetime and the held values, restated in it; its
-||| end closes the lifetime as its package's source does, unless it packs
-||| again. A stack's package holds its mark, which its end gives back to the
-||| cursor whose stack it is, so a stack's unpack names that cursor `on
-||| %base`, as the stack's opener did, and a chain's names none: the
-||| package's type says which, so the operand is no flag.
-unpack : Op 3 1 0 1
+||| `idr.lifetime.unpack %p : !idr.lifetime.package<…> on %base : …
+||| entering (%r : T…) in %outers : … -> (T…) { ^(%l, %held…, %entered…):
+||| … }`, C++ `LifetimeUnpackOp`: the resume's reopening of a packed
+||| lifetime. It consumes the package and binds a fresh cursor lifetime and
+||| the held values, restated in it; its end closes the lifetime as its
+||| package's source does, unless it packs again. A stack's package holds
+||| its mark, which its end gives back to the cursor whose stack it is, so a
+||| stack's unpack names that cursor `on %base`, as the stack's opener did,
+||| and a chain's names none: the package's type says which, so the operand
+||| is no flag. What the framed call put into that cursor while the level
+||| was packed lies above the mark, so the level's end frees it: each such
+||| value enters the reopened level (`entering`), bound after the held
+||| values and restated there, so none is stated in a lifetime that outlives
+||| its memory. A chain lies on no cursor, so nothing enters its level.
+unpack : Op 4 1 0 1
 unpack = op "lifetime.unpack"
   [ single "package" (OurType (SomeType packageType)), optional "base" cursorLifetime
-  , variadic "outers" anyLifetime ]
+  , variadic "entering" anyValue, variadic "outers" anyLifetime ]
   [results "results" anyValue] [] [sized "body" 1]
-  [SingleBlock, AttrSizedOperandSegments, OurTrait runsOnce]
+  [SingleBlock, OurTrait runsOnce]
   [Implements statesLifetime statedMethods, Implements statesOuters [], Declares RegionBranch onceMethods]
   (closes Touched) NotSpeculatable (between Graded Owned) VerifiesRegions
   (Declared [ ValueOf (OperandRef FZ), Lit ":", TypeOf (OfGroup (OperandRef FZ))
             , OptionalGroup [Lit "on"] (ValueOf (OperandRef (FS FZ)))
                 [Lit ":", TypeOf (OfGroup (OperandRef (FS FZ)))]
-            , OptionalGroup [Lit "in"] (ValueOf (OperandRef (FS (FS FZ))))
-                [Lit ":", TypeOf (OfGroup (OperandRef (FS (FS FZ))))]
+            , OptionalGroup [Lit "entering", Lit "("] (ValueOf (OperandRef (FS (FS FZ))))
+                [Lit ":", TypeOf (OfGroup (OperandRef (FS (FS FZ)))), Lit ")"]
+            , OptionalGroup [Lit "in"] (ValueOf (OperandRef (FS (FS (FS FZ)))))
+                [Lit ":", TypeOf (OfGroup (OperandRef (FS (FS (FS FZ)))))]
             , AttrDictWithKeyword
             , OptionalGroup [Lit "->"] (TypeOf (OfGroup (ResultRef FZ))) []
             , ValueOf (RegionRef FZ) ]) []
-  (brief "reopens a packed lifetime, binding it and the values it holds")
+  (brief "reopens a packed lifetime, binding it, what it holds and what entered its base since")
 
 --------------------------------------------------------------------------------
 -- The area
@@ -681,11 +690,14 @@ unpack = op "lifetime.unpack"
 
 ||| The header the lifetime's C++ includes (`Generated/Lifetimes.h.inc`):
 ||| what a lowered lifetime is, the kinds and their facts, the openers and
-||| the kind each binds. `Packed` is an ODS enum besides, since the
+||| the kind each binds. Its block is the dialect's namespace, where a
+||| table's enum is declared only where the block names it, so each is
+||| named before its table. `Packed` is an ODS enum besides, since the
 ||| package's parameter is one.
 lifetimesHeader : Header
 lifetimesHeader = MkHeader "Lifetimes"
-  [ ("idr" ::: [], [EnumOf (enumDef loweredClosed), TableOf kindTable, TableOf openerTable]) ]
+  [ ("idr" ::: [], [ EnumOf (enumDef loweredClosed), EnumOf (enumDef kindCaseClosed)
+                   , EnumOf (enumDef openerClosed), TableOf kindTable, TableOf openerTable ]) ]
   (brief "a lifetime's kinds and openers and their facts")
 
 export
@@ -697,7 +709,7 @@ declarations =
   , enums := [enumDef packedClosed]
   , interfaces := [statesLifetime, statesOuters, opensLifetime, putsIntoLifetime]
   , traits := [runsOnce, runsOnceGivingBack, givesLifetime]
-  , directives := [kindDirective, sameType, viewOf, roomOf]
+  , directives := [sameType, viewOf, roomOf]
   , predicates := [putsPredicate, cursorPredicate, roomPredicate, viewPredicate]
   , headers := [lifetimesHeader]
   } nothing

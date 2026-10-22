@@ -9,6 +9,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Quantities.h"
 #include "idr/IR/Symbols.h"
+#include "idr/Support/Enum.h"
 
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/StringExtras.h"
@@ -35,53 +36,43 @@ FailureOr<Uses> parseUses(AsmParser &parser) {
   return parser.emitError(loc, "expected how often a value is used, got `") << keyword << "`";
 }
 
-} // namespace
+// A hold's words, as the type prints it.
+SmallVector<StringRef, 3> wordsOf(HoldCase kase) {
+  SmallVector<StringRef, 3> words;
+  Hold::fromCase(kase).spelling().split(words, ' ');
+  return words;
+}
+
+// The next word of a hold whose spelling begins with `said`, if the next
+// keyword is one.
+std::optional<StringRef> parseNextWord(AsmParser &parser, ArrayRef<StringRef> said) {
+  for (HoldCase kase : allOf<HoldCase>()) {
+    SmallVector<StringRef, 3> words = wordsOf(kase);
+    if (words.size() > said.size() && llvm::equal(ArrayRef(words).take_front(said.size()), said) &&
+        succeeded(parser.parseOptionalKeyword(words[said.size()])))
+      return words[said.size()];
+  }
+  return std::nullopt;
+}
 
 // A hold, if one comes next, read word by word against the specification's
 // spellings: the words said so far narrow the holds still possible, and
 // each next word is one of theirs. A carrier never starts with a hold's
 // first word, so the hold is told from the carrier by its first word.
-ParseResult idr::parseHold(AsmParser &parser, FailureOr<std::optional<Hold>> &hold) {
-  constexpr Hold holds[] = {Hold::counted(),           Hold::counted(Unique::Self),
-                            Hold::counted(Unique::Deep), Hold::scoped(),
-                            Hold::scoped(Unique::Self),  Hold::scoped(Unique::Deep),
-                            Hold::staticData()};
+FailureOr<std::optional<Hold>> parseHold(AsmParser &parser) {
   SmallVector<StringRef, 3> said;
-  auto wordsOf = [](Hold h) {
-    SmallVector<StringRef, 3> words;
-    h.spelling().split(words, ' ');
-    return words;
-  };
-  for (bool more = true; more;) {
-    more = false;
-    for (Hold candidate : holds) {
-      SmallVector<StringRef, 3> words = wordsOf(candidate);
-      if (words.size() <= said.size() || !llvm::equal(ArrayRef(words).take_front(said.size()), said))
-        continue;
-      if (succeeded(parser.parseOptionalKeyword(words[said.size()]))) {
-        said.push_back(words[said.size()]);
-        more = true;
-        break;
-      }
-    }
-  }
-  if (said.empty()) {
-    hold = std::optional<Hold>();
-    return success();
-  }
-  for (Hold candidate : holds)
-    if (llvm::equal(wordsOf(candidate), said)) {
-      hold = std::optional<Hold>(candidate);
-      return success();
-    }
+  while (std::optional<StringRef> next = parseNextWord(parser, said))
+    said.push_back(*next);
+  if (said.empty())
+    return std::optional<Hold>();
+  for (HoldCase kase : allOf<HoldCase>())
+    if (llvm::equal(wordsOf(kase), said))
+      return std::optional<Hold>(Hold::fromCase(kase));
   return parser.emitError(parser.getCurrentLocation(), "expected a hold, got `")
          << llvm::join(said, " ") << "`";
 }
 
-void idr::printHold(AsmPrinter &printer, std::optional<Hold> hold) {
-  if (hold)
-    printer << hold->spelling();
-}
+} // namespace
 
 // `<uses, [hold,] carrier>`: `!idr.graded<once, counted unique deep, !L>`,
 // `!idr.graded<once, i64>`.
@@ -92,8 +83,8 @@ Type GradedType::parse(AsmParser &parser) {
   FailureOr<Uses> uses = parseUses(parser);
   if (failed(uses) || parser.parseComma())
     return {};
-  FailureOr<std::optional<Hold>> hold;
-  if (failed(parseHold(parser, hold)) || failed(hold) || (*hold && parser.parseComma()))
+  FailureOr<std::optional<Hold>> hold = parseHold(parser);
+  if (failed(hold) || (*hold && parser.parseComma()))
     return {};
   Type carrier;
   if (parser.parseType(carrier) || parser.parseGreater())
