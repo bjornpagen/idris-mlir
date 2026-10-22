@@ -1717,6 +1717,18 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   compiled programs link keeps its own profile, where a check is a fatal
   error and `NDEBUG` stays, so a program's speed does not pay for the
   compiler's debugging.
+- **C227** (2026-10-22; L16's growth passes; under D68, extends C221).
+  An eta-redex around a stuck call reads as both forms. A site's
+  `\x => F m x`, with `F` stuck on a marker, contracts to `F m`; at an
+  instance where `F` unfolds, the lambda stays around its unfolding, one
+  level taller, and no rule wrote that. The reading is the choice of the
+  contracted call and the walk under one lambda per argument the call
+  lacks, as a stuck call is already read beside its unfolding, so the
+  template covers what each instance reaches. A program this newly
+  refuses is one whose instance the old reading under-counted, which the
+  run-time re-check would have stopped; an instance that contracts a
+  lambda the site keeps gets its rule too. `believe_me` reads as the
+  argument it returns.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places
