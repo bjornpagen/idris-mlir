@@ -2101,6 +2101,23 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   operands); the identities record asks it where it named the three, and
   its calls, matches and constants keep their own dispatch, each already
   MLIR's (`CallOp`, `MatchOpInterface`, `m_Constant`).
+- **C248** (2026-10-22; L16bs's handoff, under C240, D75 and D30).
+  Three settlements. An IO action's tail call is a tail call: a call
+  whose result the function applies to its world in tail position is the
+  action's call saturated with the world, so C240's test reads it so,
+  and a local IO loop is a join like any other, since running an action
+  never grows the stack however its binds nest. `idr.array.tie_shape`
+  gives its array on with no run-time work, so it answers `Free` to
+  `CarriesOnOpInterface` (C244), the tail decider looks through it, and
+  C240's test reads tail position through the core term's tie, Emit
+  tying the join's result where the tie wrapped a jump. And the
+  frontend declares no copy of base's `All`: a clash of names is settled
+  by qualification or `hiding`, never by a second definition. Accepted
+  as written: a `let`-join's tail position measured from its `let`;
+  `case` and `with` blocks counted as local definitions, since Idris
+  lifts them so; one join op per function, a loop where a member calls
+  another; a lambda's or a delay's body joining nothing, each its own
+  function after lifting.
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
