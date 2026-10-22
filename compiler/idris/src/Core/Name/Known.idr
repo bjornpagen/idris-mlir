@@ -752,7 +752,6 @@ data Known
   | KProbeSize
   | KProbeVar
   | KProbeFormal
-  | KProbeHeld
   | KDot
   | KLazy
   | KInf
@@ -1513,7 +1512,6 @@ spelling KProbeAxisAt = "idris-mlir-axis-at"
 spelling KProbeSize = "idris-mlir-size"
 spelling KProbeVar = "idris-mlir-var"
 spelling KProbeFormal = "idris-mlir-formal"
-spelling KProbeHeld = "idris-mlir-held"
 spelling KDot = "."
 spelling KLazy = "Lazy"
 spelling KInf = "Inf"
@@ -2274,27 +2272,26 @@ ordinal KProbeAxisAt = 732
 ordinal KProbeSize = 733
 ordinal KProbeVar = 734
 ordinal KProbeFormal = 735
-ordinal KProbeHeld = 736
-ordinal KDot = 737
-ordinal KLazy = 738
-ordinal KInf = 739
-ordinal KDelay = 740
-ordinal KForce = 741
-ordinal KNatural = 742
-ordinal KElabReflection = 743
-ordinal Kas = 744
-ordinal Kdo = 745
-ordinal Kconstructor = 746
-ordinal Kexternal = 747
-ordinal KnoHints = 748
-ordinal KnoNewtype = 749
-ordinal KuniqueSearch = 750
-ordinal Kon = 751
-ordinal Koff = 752
-ordinal Kinfixl = 753
-ordinal Kinfixr = 754
-ordinal Kinfix = 755
-ordinal Kprefix = 756
+ordinal KDot = 736
+ordinal KLazy = 737
+ordinal KInf = 738
+ordinal KDelay = 739
+ordinal KForce = 740
+ordinal KNatural = 741
+ordinal KElabReflection = 742
+ordinal Kas = 743
+ordinal Kdo = 744
+ordinal Kconstructor = 745
+ordinal Kexternal = 746
+ordinal KnoHints = 747
+ordinal KnoNewtype = 748
+ordinal KuniqueSearch = 749
+ordinal Kon = 750
+ordinal Koff = 751
+ordinal Kinfixl = 752
+ordinal Kinfixr = 753
+ordinal Kinfix = 754
+ordinal Kprefix = 755
 
 ||| The known identifier at an id, if the id is one.
 public export
@@ -3035,30 +3032,29 @@ fromOrdinal 732 = Just KProbeAxisAt
 fromOrdinal 733 = Just KProbeSize
 fromOrdinal 734 = Just KProbeVar
 fromOrdinal 735 = Just KProbeFormal
-fromOrdinal 736 = Just KProbeHeld
-fromOrdinal 737 = Just KDot
-fromOrdinal 738 = Just KLazy
-fromOrdinal 739 = Just KInf
-fromOrdinal 740 = Just KDelay
-fromOrdinal 741 = Just KForce
-fromOrdinal 742 = Just KNatural
-fromOrdinal 743 = Just KElabReflection
-fromOrdinal 744 = Just Kas
-fromOrdinal 745 = Just Kdo
-fromOrdinal 746 = Just Kconstructor
-fromOrdinal 747 = Just Kexternal
-fromOrdinal 748 = Just KnoHints
-fromOrdinal 749 = Just KnoNewtype
-fromOrdinal 750 = Just KuniqueSearch
-fromOrdinal 751 = Just Kon
-fromOrdinal 752 = Just Koff
-fromOrdinal 753 = Just Kinfixl
-fromOrdinal 754 = Just Kinfixr
-fromOrdinal 755 = Just Kinfix
-fromOrdinal 756 = Just Kprefix
+fromOrdinal 736 = Just KDot
+fromOrdinal 737 = Just KLazy
+fromOrdinal 738 = Just KInf
+fromOrdinal 739 = Just KDelay
+fromOrdinal 740 = Just KForce
+fromOrdinal 741 = Just KNatural
+fromOrdinal 742 = Just KElabReflection
+fromOrdinal 743 = Just Kas
+fromOrdinal 744 = Just Kdo
+fromOrdinal 745 = Just Kconstructor
+fromOrdinal 746 = Just Kexternal
+fromOrdinal 747 = Just KnoHints
+fromOrdinal 748 = Just KnoNewtype
+fromOrdinal 749 = Just KuniqueSearch
+fromOrdinal 750 = Just Kon
+fromOrdinal 751 = Just Koff
+fromOrdinal 752 = Just Kinfixl
+fromOrdinal 753 = Just Kinfixr
+fromOrdinal 754 = Just Kinfix
+fromOrdinal 755 = Just Kprefix
 fromOrdinal _ = Nothing
 
 ||| The first id a text the vocabulary does not spell gets.
 public export
 knownCount : Int
-knownCount = 757
+knownCount = 756

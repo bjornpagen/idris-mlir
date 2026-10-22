@@ -806,7 +806,6 @@ probes =
   , ("KProbeSize", "idris-mlir-size")
   , ("KProbeVar", "idris-mlir-var")
   , ("KProbeFormal", "idris-mlir-formal")
-  , ("KProbeHeld", "idris-mlir-held")
   ]
 
 ||| The identifiers the parser reads as words of the language where they
