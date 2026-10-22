@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // How a value moves, as data: the vocabulary an op declares its edges in
-// through the flow interface (IdrFlow.td), and that interface itself, which
-// this header ends with. It is a part of the dialect's header, which
-// includes it after the types, which its anchors hold, and before the ops,
-// which hold its interface; include idr/IR/IdrDialect.h, never this one.
+// through the flow interface, which is generated with the dialect's other
+// interfaces. It is a part of the dialect's header, which includes it after
+// the types, which its anchors hold, and before the interfaces, whose flow
+// interface names it; include idr/IR/IdrDialect.h, never this one.
 // What a region branch forwards is upstream's to declare, and
 // idr::forwardedValues (Flow.h) reads it.
 //
@@ -382,7 +382,5 @@ namespace idr {
 mlir::LogicalResult verifyFlowEdges(mlir::Operation *op);
 
 } // namespace idr
-
-#include "idr/IR/IdrFlow.h.inc"
 
 #endif // IDR_IR_FLOWEDGES_H

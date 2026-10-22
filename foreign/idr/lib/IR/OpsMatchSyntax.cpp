@@ -2,11 +2,12 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The custom directives of the matches' assembly formats: the results'
 // types, the cases of each match and the default, read and written as
-// scf.index_switch's cases are. An idr.match case is a constructor of the
+// scf.index_switch's cases are. An idr.data.match case is a constructor of the
 // scrutinee's family, written by its label (CtorRef), whose region binds
-// the refined scrutinee and the forwarded values; an idr.match_lit key is a
+// the refined scrutinee and the forwarded values; an idr.lit.match key is a
 // literal of the scrutinee's type, which the type reads
-// (LiteralTypeInterface), and its region binds nothing.
+// (LiteralTypeInterface), and its region binds nothing. A default binds its
+// scrutinee, refined.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -106,15 +107,14 @@ void printLiteralCases(OpAsmPrinter &printer, Operation *, Type, ArrayAttr cases
   }
 }
 
-// `default(%d: !Refined, ...) {...}` for an idr.match whose default runs,
-// `default {...}` for an idr.match_lit, nothing for the empty default of an
-// exhaustive idr.match. A missing idr.match_lit default is its region
-// constraint's to refuse.
+// `default(%d: !Refined, ...) {...}` for a default that runs, nothing for the
+// empty default of an exhaustive idr.data.match. A missing idr.lit.match
+// default is its region constraint's to refuse.
 ParseResult parseDefaultCase(OpAsmParser &parser, Region &defaultRegion) {
   if (failed(parser.parseOptionalKeyword("default")))
     return success();
   SmallVector<OpAsmParser::Argument> bound;
-  return failure(parser.parseArgumentList(bound, OpAsmParser::Delimiter::OptionalParen,
+  return failure(parser.parseArgumentList(bound, OpAsmParser::Delimiter::Paren,
                                           /*allowType=*/true) ||
                  parser.parseRegion(defaultRegion, bound));
 }
@@ -124,10 +124,7 @@ void printDefaultCase(OpAsmPrinter &printer, Operation *, Region &defaultRegion)
     return;
   printer.printNewline();
   printer << "default";
-  if (defaultRegion.getNumArguments())
-    printArguments(printer, defaultRegion);
-  else
-    printer << ' ';
+  printArguments(printer, defaultRegion);
   printer.printRegion(defaultRegion, /*printEntryBlockArgs=*/false);
 }
 

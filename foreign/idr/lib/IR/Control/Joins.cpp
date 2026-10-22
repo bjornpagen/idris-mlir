@@ -28,8 +28,12 @@
 // (PropagateControlFlowBreak), and each such op forwards it to the target
 // in its own successors, so upstream's dataflow, dead code and liveness read
 // the edge from the jump to the join region with no reading of ours.
+//
+// A scoped value a member makes, a result or a join region's parameter,
+// lives in the lifetime its `outer` operand states (Control/Stated.h).
 
 #include "idr/IR/Control/Family.h"
+#include "idr/IR/Control/Stated.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinTypes.h"
@@ -115,7 +119,7 @@ LogicalResult verifyGroup(Group op) {
   }
   if (!parametersOf(op, op.getBody()).empty())
     return op.emitOpError("expects a body that binds its tokens alone");
-  return success();
+  return control::verifyStated(op);
 }
 
 // Entered at the body; from a yield, the op's results; from a jump to one
@@ -205,16 +209,25 @@ void printValues(OpAsmPrinter &printer, ValueRange values) {
   printer << ')';
 }
 
-// `idr.join tokens(%k0, ...) -> (T, ...) attr-dict {body} join(%p: A, ...) {region} ...`;
-// an idr.loop's join regions also print their own tokens:
+// `idr.join tokens(%k0, ...) in %l -> (T, ...) attr-dict {body} join(%p: A, ...) {region} ...`,
+// `in %l` the lifetime it states where it makes a scoped value; an
+// idr.loop's join regions also print their own tokens:
 // `join tokens(%a0, ...)(%p: A, ...) {region}`. The erased binders are a
 // property, printed in the attribute dictionary.
 template <JoinFamily Group>
 ParseResult parseGroup(OpAsmParser &parser, OperationState &state) {
   SmallVector<OpAsmParser::Argument> body;
   SmallVector<Type> results;
-  if (parser.parseKeyword("tokens") || parseTokens(parser, body) || parser.parseArrow() ||
-      parser.parseLParen())
+  if (parser.parseKeyword("tokens") || parseTokens(parser, body))
+    return failure();
+  if (succeeded(parser.parseOptionalKeyword("in"))) {
+    OpAsmParser::UnresolvedOperand outer;
+    Type lifetime;
+    if (parser.parseOperand(outer) || parser.parseColonType(lifetime) ||
+        parser.resolveOperand(outer, lifetime, state.operands))
+      return failure();
+  }
+  if (parser.parseArrow() || parser.parseLParen())
     return failure();
   if (failed(parser.parseOptionalRParen())) {
     if (parser.parseTypeList(results) || parser.parseRParen())
@@ -241,6 +254,8 @@ template <JoinFamily Group>
 void printGroup(Group op, OpAsmPrinter &printer) {
   printer << " tokens";
   printValues(printer, tokensOf(op, op.getBody()));
+  if (Value outer = op.getOuter())
+    printer << " in " << outer << " : " << outer.getType();
   printer << " -> (";
   llvm::interleaveComma(op->getResultTypes(), printer);
   printer << ')';
@@ -310,6 +325,12 @@ ArrayRef<families::Sort> JoinOp::getBoundSorts(Region &region) {
   return cast<IndexBindersAttr>(getBinders()[region.getRegionNumber() - 1]).getSorts();
 }
 
+Value JoinOp::getStatedLifetime(Value made) { return control::statedFor(*this, made); }
+
+void JoinOp::setStatedLifetime(Value made, Value lifetime) {
+  control::stateFor(*this, made, lifetime);
+}
+
 ParseResult JoinOp::parse(OpAsmParser &parser, OperationState &state) {
   return parseGroup<JoinOp>(parser, state);
 }
@@ -363,6 +384,12 @@ ArrayRef<families::Sort> LoopOp::getBoundSorts(Region &region) {
 // join regions, which repeat; the body runs once.
 SmallVector<Region *> LoopOp::getLoopRegions() {
   return llvm::map_to_vector(getJoinRegions(), [](Region &region) { return &region; });
+}
+
+Value LoopOp::getStatedLifetime(Value made) { return control::statedFor(*this, made); }
+
+void LoopOp::setStatedLifetime(Value made, Value lifetime) {
+  control::stateFor(*this, made, lifetime);
 }
 
 ParseResult LoopOp::parse(OpAsmParser &parser, OperationState &state) {

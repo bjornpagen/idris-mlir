@@ -3,22 +3,35 @@
 // The rewrites of the control-flow ops, which the specification declares as
 // skeleton rules of the e-graph pass (IdrisMLIR.Spec.Control.Rules): one-way,
 // since a match or a join point is an op of the skeleton, never a pure
-// value; case-of-case alone leaves a choice, per arm, to the extraction.
-// The specification holds which op each is rooted at; these classes
-// (idr/IR/Control/Control.h) rewrite, each checking the condition it needs
-// and failing, with nothing changed, where it does not hold.
+// value. Each `decide` reads the extracted e-graph and the root, and what it
+// chose (a region, the cases kept, the arms a dispatch goes into) rides in
+// its Rewrite; `rewrite` carries that out between the engine's two rounds,
+// on the root as it then is, checking that the shape it rewrites still
+// stands and leaving the root as it is where it does not.
 
 #include "idr/IR/Control/Control.h"
+#include "idr/IR/Func.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Symbols.h"
+#include "idr/IR/Ops/Rules.h"
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Joins.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVectorExtras.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+
+// What each stage implies (holdsAt among it), printed from the
+// specification.
+#include "idr/IR/Generated/StageFacts.h.inc"
 
 using namespace mlir;
 using namespace idr::egraph;
@@ -32,9 +45,23 @@ bool yields(Region &region) {
   return !region.empty() && isa<YieldOp>(region.front().getTerminator());
 }
 
+// `op` made again with results of `types`, its operands, properties and
+// regions moved over, at the rewriter's insertion point.
+Operation *withResults(RewriterBase &rewriter, Operation *op, TypeRange types) {
+  rewriter.setInsertionPoint(op);
+  OperationState state(op->getLoc(), op->getName(), op->getOperands(), types, op->getAttrs(),
+                       /*successors=*/{}, /*regions=*/{});
+  state.propertiesAttr = op->getPropertiesAsAttribute();
+  for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i)
+    state.addRegion();
+  Operation *fresh = rewriter.create(state);
+  for (auto [from, into] : llvm::zip_equal(op->getRegions(), fresh->getRegions()))
+    rewriter.inlineRegionBefore(from, into, into.end());
+  return fresh;
+}
+
 // Removes the results of `op` that `keep` leaves out, from the op and from
-// each of its regions' yields: a new op of the same name with the kept
-// results, the regions moved over.
+// each of its regions' yields.
 Operation *keepResults(RewriterBase &rewriter, Operation *op, const llvm::BitVector &keep) {
   for (Region &region : op->getRegions())
     if (yields(region)) {
@@ -47,27 +74,14 @@ Operation *keepResults(RewriterBase &rewriter, Operation *op, const llvm::BitVec
       rewriter.replaceOpWithNewOp<YieldOp>(yield, kept);
     }
   SmallVector<Type> types;
-  SmallVector<Value> survivors;
   for (OpResult result : op->getResults())
     if (keep.test(result.getResultNumber()))
       types.push_back(result.getType());
-  rewriter.setInsertionPoint(op);
-  OperationState state(op->getLoc(), op->getName(), op->getOperands(), types, op->getAttrs(),
-                       /*successors=*/{}, /*regions=*/{});
-  state.propertiesAttr = op->getPropertiesAsAttribute();
-  for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i)
-    state.addRegion();
-  Operation *fresh = rewriter.create(state);
-  for (auto [from, into] : llvm::zip_equal(op->getRegions(), fresh->getRegions()))
-    rewriter.inlineRegionBefore(from, into, into.end());
+  Operation *fresh = withResults(rewriter, op, types);
   unsigned next = 0;
-  SmallVector<Value> replacements;
   for (OpResult result : op->getResults())
-    replacements.push_back(keep.test(result.getResultNumber()) ? fresh->getResult(next++)
-                                                                : Value());
-  for (auto [result, replacement] : llvm::zip_equal(op->getResults(), replacements))
-    if (replacement)
-      rewriter.replaceAllUsesWith(result, replacement);
+    if (keep.test(result.getResultNumber()))
+      rewriter.replaceAllUsesWith(result, fresh->getResult(next++));
   rewriter.eraseOp(op);
   return fresh;
 }
@@ -95,21 +109,19 @@ void exits(RewriterBase &rewriter, Operation *op) {
 }
 
 // A result no op uses goes from the op and from every yield that gives it.
-LogicalResult unused(RewriterBase &rewriter, Operation *op) {
+void unused(RewriterBase &rewriter, Operation *op) {
   llvm::BitVector keep(op->getNumResults());
   for (OpResult result : op->getResults())
     if (!result.use_empty())
       keep.set(result.getResultNumber());
-  if (keep.all())
-    return failure();
-  keepResults(rewriter, op, keep);
-  return success();
+  if (!keep.all())
+    keepResults(rewriter, op, keep);
 }
 
 // A join region no jump reaches goes with its token and its binders; a
 // group left with none is its body, whose yield gives the results.
 template <typename Group>
-LogicalResult unreached(RewriterBase &rewriter, Group op) {
+void unreached(RewriterBase &rewriter, Group op) {
   unsigned targets = static_cast<unsigned>(op.getJoinRegions().size());
   llvm::BitVector dead(targets, true);
   for (Region &region : op->getRegions()) {
@@ -121,7 +133,7 @@ LogicalResult unreached(RewriterBase &rewriter, Group op) {
         dead.reset(i);
   }
   if (dead.none())
-    return failure();
+    return;
   if (dead.all()) {
     Block &body = op.getBody().front();
     auto yield = dyn_cast<YieldOp>(body.getTerminator());
@@ -130,12 +142,12 @@ LogicalResult unreached(RewriterBase &rewriter, Group op) {
     if (yield) {
       rewriter.replaceOp(op, yield.getResults());
       rewriter.eraseOp(yield);
-      return success();
+      return;
     }
     // The body jumps out or never ends: nothing reaches what follows.
     eraseAfter(rewriter, op);
     rewriter.eraseOp(op);
-    return success();
+    return;
   }
   SmallVector<Attribute> binders;
   for (unsigned i = 0; i < targets; ++i)
@@ -155,7 +167,7 @@ LogicalResult unreached(RewriterBase &rewriter, Group op) {
     if (dead.test(i) && !op.getJoinRegions()[i].empty())
       rewriter.eraseBlock(&op.getJoinRegions()[i].front());
   rewriter.setInsertionPoint(op);
-  OperationState state(op.getLoc(), op->getName().getStringRef(), ValueRange(),
+  OperationState state(op.getLoc(), op->getName().getStringRef(), op->getOperands(),
                        op->getResultTypes());
   state.template getOrAddProperties<typename Group::Properties>().binders =
       rewriter.getArrayAttr(binders);
@@ -172,14 +184,12 @@ LogicalResult unreached(RewriterBase &rewriter, Group op) {
       rewriter.inlineRegionBefore(op.getJoinRegions()[i], into, into.end());
     }
   rewriter.replaceOp(op, fresh->getResults());
-  return success();
 }
 
 // A parameter no op of its join region uses goes, with every jump's
 // argument for it.
 template <typename Group>
-LogicalResult unread(RewriterBase &rewriter, Group op) {
-  bool changed = false;
+void unread(RewriterBase &rewriter, Group op) {
   for (Region &region : op.getJoinRegions()) {
     Block::BlockArgListType parameters = op.getParameters(region);
     unsigned leading = static_cast<unsigned>(op.getTokens(region).size());
@@ -195,10 +205,40 @@ LogicalResult unread(RewriterBase &rewriter, Group op) {
           rewriter.modifyOpInPlace(user, [&] { cast<JumpOp>(user).getArgsMutable().erase(i); });
       }
       region.front().eraseArgument(leading + i);
-      changed = true;
     }
   }
-  return success(changed);
+}
+
+// The idr.data.con that made the chosen form of `value`, seen through a
+// cast that only changes its type (a yield gives a match's results at
+// their own types, so a constructor an arm built leaves it cast); a cast
+// of a cast is one, so one step suffices. Null where none did.
+DataConOp constructorOf(Value value, const OperandFacts &facts) {
+  Operation *origin = facts.origin(value);
+  if (auto cast = dyn_cast_or_null<DataReindexOp>(origin))
+    origin = facts.origin(cast.getValue());
+  return dyn_cast_or_null<DataConOp>(origin);
+}
+
+// Whether `value` has a known constructor in what the e-graph chose for
+// it: a constant constructor, or a value an idr.data.con made.
+bool knownConstructor(Value value, const OperandFacts &facts) {
+  return isa_and_nonnull<ConAttr>(facts.constant(value)) ||
+         static_cast<bool>(constructorOf(value, facts));
+}
+
+// The producer of `consumer`: the idr.data.match just before it whose one
+// result is the consumer's scrutinee and nothing else's, and which makes
+// none of the values the consumer forwards. Null where there is none.
+DataMatchOp producerOf(DataMatchOp consumer) {
+  auto producer = dyn_cast_or_null<DataMatchOp>(consumer->getPrevNode());
+  if (!producer || producer->getNumResults() != 1 ||
+      consumer.getScrutinee() != producer->getResult(0) ||
+      !producer->getResult(0).hasOneUse() ||
+      llvm::any_of(consumer.getForwarded(),
+                   [&](Value value) { return value.getDefiningOp() == producer.getOperation(); }))
+    return DataMatchOp();
+  return producer;
 }
 
 // The match on `scrutinee` whose cases all jump, one per region of
@@ -207,12 +247,15 @@ LogicalResult unread(RewriterBase &rewriter, Group op) {
 // binds its constructor's index variables at the copy's depth, so its
 // types are the consumer's renumbered there, and the jump passes them as
 // the terms of the join region's binders.
-void dispatch(RewriterBase &rewriter, MatchOp consumer, Value scrutinee,
-              const joins::Targets &targets) {
+void dispatch(RewriterBase &rewriter, DataMatchOp consumer, Value scrutinee,
+              const joins::Targets &targets, Value outer) {
   Location loc = consumer.getLoc();
   SmallVector<Tag> tags = llvm::map_to_vector(
       consumer.getCases(), [](int32_t tag) { return Tag{static_cast<uint32_t>(tag)}; });
-  auto copy = MatchOp::create(rewriter, loc, TypeRange(), scrutinee, consumer.getForwarded(), tags);
+  auto copy =
+      DataMatchOp::create(rewriter, loc, TypeRange(), scrutinee, consumer.getForwarded(), tags);
+  if (outer)
+    copy.getOuterMutable().assign(outer);
   unsigned from = joins::scopeDepth(consumer->getParentRegion());
   unsigned to = joins::scopeDepth(copy->getParentRegion());
   unsigned member = 0;
@@ -237,49 +280,12 @@ void dispatch(RewriterBase &rewriter, MatchOp consumer, Value scrutinee,
   ub::UnreachableOp::create(rewriter, loc);
 }
 
-// Whether `value`, yielded by an arm, has a known constructor there, so the
-// dispatch copied into the arm folds: a constant or an idr.con.
-bool known(Value value) {
-  if (value.getDefiningOp<ConOp>())
-    return true;
-  Attribute constant;
-  return matchPattern(value, m_Constant(&constant)) && isa<ConAttr>(constant);
-}
-
-// The arms of `consumer`'s producer, an idr.match just before it whose one
-// result is its scrutinee and nothing else, that yield a value of a known
-// constructor: where the copied dispatch folds and the consumer's case runs
-// with no test. The other arms share one dispatch after the producer.
-SmallVector<unsigned> foldingArms(MatchOp consumer) {
-  auto producer = dyn_cast_or_null<MatchOp>(consumer->getPrevNode());
-  if (!producer || producer->getNumResults() != 1 ||
-      consumer.getScrutinee() != producer->getResult(0) ||
-      !producer->getResult(0).hasOneUse() ||
-      llvm::any_of(consumer.getForwarded(),
-                   [&](Value value) { return value.getDefiningOp() == producer.getOperation(); }))
-    return {};
-  SmallVector<unsigned> arms;
-  for (Region &region : producer->getRegions())
-    if (yields(region) &&
-        known(cast<YieldOp>(region.front().getTerminator()).getResults().front()))
-      arms.push_back(region.getRegionNumber());
-  return arms;
-}
-
-} // namespace
-
-namespace {
-
 // The region of `op` a known scrutinee takes, from what the e-graph knows
-// of it (its constant, or the idr.con that made its chosen form) or from
-// its type's one constructor; none where it is not known, or where the
-// match keeps one region already.
-Region *takenByFacts(MatchOp op, Attribute constant, Operation *origin) {
-  unsigned running = static_cast<unsigned>(
-      llvm::count_if(op->getRegions(), [](Region &region) { return !region.empty(); }));
-  if (running == 1)
-    return nullptr;
-  if (auto con = dyn_cast_or_null<ConOp>(origin)) {
+// of it (its constant, or the idr.data.con that made its chosen form) or
+// from its type's one constructor; none where it is not known.
+Region *takenByFacts(DataMatchOp op, const OperandFacts &facts) {
+  Value scrutinee = op.getScrutinee();
+  if (DataConOp con = constructorOf(scrutinee, facts)) {
     for (unsigned i = 0, n = op.getNumCases(); i < n; ++i)
       if (op.getCaseTag(i) == con.getTag())
         return &op.getCaseRegion(i);
@@ -288,39 +294,19 @@ Region *takenByFacts(MatchOp op, Attribute constant, Operation *origin) {
   }
   SmallVector<RegionSuccessor> taken;
   SmallVector<Attribute> constants(op->getNumOperands(), Attribute());
-  constants.front() = constant;
+  constants.front() = facts.constant(scrutinee);
   op.getEntrySuccessorRegions(constants, taken);
   return taken.size() == 1 ? taken.front().getSuccessor() : nullptr;
 }
 
-// The region of `op` its scrutinee takes as the IR now holds it.
-Region *takenNow(MatchOp op) {
-  Attribute constant;
-  (void)matchPattern(op.getScrutinee(), m_Constant(&constant));
-  return takenByFacts(op, constant, op.getScrutinee().getDefiningOp());
-}
-
-// Keeps `kept` alone: the match's one case, or its default, the scope of
-// the refined value, which lowers with no test.
-void keepRegion(RewriterBase &rewriter, MatchOp op, Region &kept) {
-  bool fallback = &kept == &op.getDefaultRegion();
-  SmallVector<Tag> tags;
-  if (!fallback)
-    tags.push_back(op.getCaseTag(op.caseOf(kept)));
-  rewriter.setInsertionPoint(op);
-  auto fresh = MatchOp::create(rewriter, op.getLoc(), op->getResultTypes(), op.getScrutinee(),
-                               op.getForwarded(), tags);
-  Region &into = fallback ? fresh.getDefaultRegion() : fresh.getCaseRegion(0);
-  rewriter.inlineRegionBefore(kept, into, into.end());
-  rewriter.replaceOp(op, fresh->getResults());
-}
-
-// A literal match's region, which binds nothing, in the match's place;
-// what follows is dead where the region jumps or never ends.
-void inlineLiteral(RewriterBase &rewriter, MatchLitOp op, Region &kept) {
+// A literal match's region in the match's place, the scrutinee for what
+// the default binds; what follows is dead where the region jumps or never
+// ends.
+void inlineLiteral(RewriterBase &rewriter, LitMatchOp op, Region &kept) {
   Block &block = kept.front();
   Operation *terminator = block.getTerminator();
-  rewriter.inlineBlockBefore(&block, op);
+  rewriter.inlineBlockBefore(&block, op,
+                             op->getOperands().take_front(block.getNumArguments()));
   if (auto yield = dyn_cast<YieldOp>(terminator)) {
     rewriter.replaceOp(op, yield.getResults());
     rewriter.eraseOp(yield);
@@ -331,7 +317,7 @@ void inlineLiteral(RewriterBase &rewriter, MatchLitOp op, Region &kept) {
 }
 
 // The region a constant literal takes.
-Region *literalTaken(MatchLitOp op, Attribute value) {
+Region *literalTaken(LitMatchOp op, Attribute value) {
   if (!value)
     return nullptr;
   SmallVector<RegionSuccessor> taken;
@@ -346,7 +332,7 @@ bool inside(Region &region, OpOperand &use) {
 
 // Whether no case of the match leaves a constructor for its non-empty
 // default, the scrutinee's type agreeing with Idris's coverage.
-bool defaultDead(MatchOp op) {
+bool defaultDead(DataMatchOp op) {
   Region &fallback = op.getDefaultRegion();
   if (fallback.empty())
     return false;
@@ -404,60 +390,222 @@ std::optional<Edit> rewriteIf(bool holds) {
   return holds ? std::optional<Edit>(Rewrite{}) : std::nullopt;
 }
 
+//===----------------------------------------------------------------------===//
+// Identical regions
+//===----------------------------------------------------------------------===//
+
+// Whether a region reads none of its arguments.
+bool readsNothingBound(Region &region) {
+  return llvm::all_of(region.getArguments(), [](BlockArgument arg) { return arg.use_empty(); });
+}
+
+// Whether two regions that read none of their arguments do the same thing.
+bool sameBody(Region &a, Region &b) {
+  Block &x = a.front(), &y = b.front();
+  if (x.getOperations().size() != y.getOperations().size())
+    return false;
+  // Values each body makes, matched as the comparison meets them: a
+  // comparison's own scratch, gone when it returns.
+  llvm::DenseMap<Value, Value> same;
+  return llvm::all_of_zip(x, y, [&](Operation &l, Operation &r) {
+    return OperationEquivalence::isEquivalentTo(
+        &l, &r,
+        [&](Value lv, Value rv) { return success(lv == rv || same.lookup(lv) == rv); },
+        [&](Value lv, Value rv) { same[lv] = rv; }, OperationEquivalence::IgnoreLocations);
+  });
+}
+
+// The operations a region holds, hashed as sameBody compares them but for
+// their regions, so only regions of one shape are compared body to body;
+// equal shapes still are, since the hash can collide.
+llvm::hash_code shape(Region &region) {
+  return llvm::hash_combine_range(llvm::map_range(region.front(), [](Operation &op) {
+    return OperationEquivalence::computeHash(&op, OperationEquivalence::ignoreHashValue,
+                                             OperationEquivalence::ignoreHashValue,
+                                             OperationEquivalence::IgnoreLocations);
+  }));
+}
+
+// What the rule keeps of `op`: the region that is the default afterwards,
+// by its number, the default's own 0, so a case that takes the default's
+// place is written as the default is; then the index of each case kept.
+// None where no case goes.
+//
+// A case that does what a running default does, reading nothing it binds,
+// is left to the default. With no default, the first case some other case
+// repeats becomes it, the others like it going too, where it reads nothing
+// it binds, binds no index variable and assumes no equation, so its body
+// means the same in the scope around the match.
+std::optional<SmallVector<unsigned>> identicalRegions(MatchOpInterface op) {
+  Region &given = op.getDefaultRegion();
+  auto binders = dyn_cast<ErasedBinderOpInterface>(op.getOperation());
+  auto movable = [&](Region &region) {
+    return readsNothingBound(region) &&
+           (!binders || (binders.getBoundSorts(region).empty() && !binders.getRefinement(region)));
+  };
+  Region *fallback = nullptr;
+  if (!given.empty()) {
+    if (readsNothingBound(given))
+      fallback = &given;
+  } else {
+    llvm::DenseMap<llvm::hash_code, SmallVector<unsigned, 2>> buckets;
+    for (unsigned i = 0, n = op.getNumCases(); i < n; ++i)
+      if (movable(op.getCaseRegion(i)))
+        buckets[shape(op.getCaseRegion(i))].push_back(i);
+    std::optional<unsigned> first;
+    for (auto &bucket : buckets) {
+      ArrayRef<unsigned> ids = bucket.second;
+      for (unsigned a = 0; a < ids.size() && (!first || ids[a] < *first); ++a)
+        if (llvm::any_of(ids.drop_front(a + 1), [&](unsigned b) {
+              return sameBody(op.getCaseRegion(ids[a]), op.getCaseRegion(b));
+            })) {
+          first = ids[a];
+          break;
+        }
+    }
+    if (first)
+      fallback = &op.getCaseRegion(*first);
+  }
+  if (!fallback)
+    return std::nullopt;
+  SmallVector<unsigned> kept{fallback->getRegionNumber()};
+  for (unsigned i = 0, n = op.getNumCases(); i < n; ++i) {
+    Region &region = op.getCaseRegion(i);
+    if (&region != fallback && !(movable(region) && sameBody(region, *fallback)))
+      kept.push_back(i);
+  }
+  if (kept.size() == op.getNumCases() + 1)
+    return std::nullopt;
+  return kept;
+}
+
+//===----------------------------------------------------------------------===//
+// Yielded fields
+//===----------------------------------------------------------------------===//
+
+// The constructors the regions of `op` that yield give as `result`, when
+// the result is one to split: a data value read only through its fields,
+// so of a type refined to one constructor, which every region that yields
+// builds there of fields of one list of types, for the yield alone.
+std::optional<SmallVector<DataConOp>> yieldedConstructors(OpResult result) {
+  if (!isMatchable(result.getType()) || result.use_empty() ||
+      !llvm::all_of(result.getUsers(), llvm::IsaPred<DataFieldOp>))
+    return std::nullopt;
+  SmallVector<DataConOp> built;
+  for (Region &region : result.getOwner()->getRegions()) {
+    if (!yields(region))
+      continue;
+    auto yield = cast<YieldOp>(region.front().getTerminator());
+    Value given = yield->getOperand(result.getResultNumber());
+    auto con = given.getDefiningOp<DataConOp>();
+    if (!con || con->getBlock() != yield->getBlock() || !given.hasOneUse() ||
+        (!built.empty() &&
+         !llvm::equal(built.front().getFields().getTypes(), con.getFields().getTypes())))
+      return std::nullopt;
+    built.push_back(con);
+  }
+  if (built.empty())
+    return std::nullopt;
+  return built;
+}
+
+// Whether the holds of `op`'s function are still undecided: once they are,
+// each field's is fixed at its constructor's, and the constructor stays
+// where it was built.
+bool holdsUndecided(Operation *op) {
+  Stage stage = op->getParentOfType<FuncOp>().getProgram().getStage();
+  return holdsAt[static_cast<std::size_t>(stage)] == StageHolds::Undecided;
+}
+
+//===----------------------------------------------------------------------===//
+// Case-of-case
+//===----------------------------------------------------------------------===//
+
+// What a copy of the consumer's dispatch costs in an arm that yields
+// `value`: one jump where the e-graph knows its constructor, since the
+// copy folds there; otherwise the whole dispatch, its test and a jump per
+// region.
+Cost copyCost(Value value, unsigned regions, const OperandFacts &facts) {
+  return knownConstructor(value, facts) ? Cost::of(1) : Cost::of(1 + regions);
+}
+
+// Whether an arm shares the dispatch after the producer with other arms,
+// or would keep it alive for itself alone.
+enum class Sharing : std::uint8_t { WithOthers, Alone };
+
+// What sharing the dispatch after the producer costs an arm: its yield
+// into it and the test it runs; and, for an arm alone in sharing it, the
+// shared dispatch itself, which no arm needs once every arm has its copy.
+Cost shareCost(unsigned regions, Sharing sharing) {
+  Cost own = Cost::of(2);
+  return sharing == Sharing::Alone ? own.plus(Cost::of(1 + regions)) : own;
+}
+
 } // namespace
 
 //===----------------------------------------------------------------------===//
 // The matches
 //===----------------------------------------------------------------------===//
 
-// A match whose region a known scrutinee takes: where the scrutinee's type
-// leaves that constructor alone, the refined value is the scrutinee itself
-// and the region takes the match's place; otherwise the match keeps that
-// region alone, the scope of its refined value.
-std::optional<Edit> egraph::TakenCase::decide(MatchOp op, const OperandFacts &facts) {
-  Region *taken = takenByFacts(op, facts.constant(0), facts.origin(0));
+// A match whose region a known scrutinee takes. Where that region yields
+// and what enters it enters unrefined (the type leaves that constructor
+// alone), the region takes the match's place. Otherwise a case is kept
+// alone, the scope of its refined value; a default is kept as it is, since
+// alone it would run for constructors its refined value excludes.
+std::optional<Edit> egraph::TakenCase::decide(DataMatchOp op, const OperandFacts &facts) {
+  Region *taken = takenByFacts(op, facts);
   if (!taken)
     return std::nullopt;
-  if (TypeRange(taken->getArgumentTypes()) == TypeRange(op->getOperandTypes())) {
+  if (yields(*taken) &&
+      TypeRange(taken->getArgumentTypes()) == TypeRange(op.getEntering().getTypes())) {
     Take take{taken->getRegionNumber(), {}};
-    for (unsigned i = 0, e = op->getNumOperands(); i < e; ++i)
+    for (unsigned i = 0, e = taken->getNumArguments(); i < e; ++i)
       take.operandOfArgument.push_back(i);
     return Edit(take);
   }
-  return Edit(Rewrite{});
+  unsigned running = static_cast<unsigned>(
+      llvm::count_if(op->getRegions(), [](Region &region) { return !region.empty(); }));
+  if (running == 1 || taken == &op.getDefaultRegion())
+    return std::nullopt;
+  return Edit(Rewrite{{op.caseOf(*taken)}});
 }
 
-void egraph::TakenCase::rewrite(MatchOp op, RewriterBase &rewriter) {
-  if (Region *taken = takenNow(op))
-    keepRegion(rewriter, op, *taken);
+void egraph::TakenCase::rewrite(DataMatchOp op, const Rewrite &chosen, RewriterBase &rewriter) {
+  unsigned kept = chosen.chosen.front();
+  if (kept < op.getNumCases() && !op.getCaseRegion(kept).empty())
+    (void)op.keepCases(rewriter, {kept}, nullptr);
 }
 
 // A literal match on a constant runs the region its literal takes.
-std::optional<Edit> egraph::TakenLiteral::decide(MatchLitOp op, const OperandFacts &facts) {
-  Region *taken = literalTaken(op, facts.constant(0));
+std::optional<Edit> egraph::TakenLiteral::decide(LitMatchOp op, const OperandFacts &facts) {
+  Region *taken = literalTaken(op, facts.constant(op.getScrutinee()));
   if (!taken)
     return std::nullopt;
-  if (yields(*taken))
-    return Edit(Take{taken->getRegionNumber(), {}});
-  return Edit(Rewrite{});
+  if (yields(*taken)) {
+    Take take{taken->getRegionNumber(), {}};
+    if (taken->getNumArguments())
+      take.operandOfArgument.push_back(0);
+    return Edit(take);
+  }
+  return Edit(Rewrite{{taken->getRegionNumber()}});
 }
 
-void egraph::TakenLiteral::rewrite(MatchLitOp op, RewriterBase &rewriter) {
-  Attribute value;
-  if (matchPattern(op.getScrutinee(), m_Constant(&value)))
-    if (Region *taken = literalTaken(op, value))
-      inlineLiteral(rewriter, op, *taken);
+void egraph::TakenLiteral::rewrite(LitMatchOp op, const Rewrite &chosen,
+                                   RewriterBase &rewriter) {
+  unsigned region = chosen.chosen.front();
+  if (region < op->getNumRegions() && !op->getRegion(region).empty())
+    inlineLiteral(rewriter, op, op->getRegion(region));
 }
 
 // In case k of a literal match, the scrutinee is the literal k.
-std::optional<Edit> egraph::LiteralInCase::decide(MatchLitOp op, const OperandFacts &) {
+std::optional<Edit> egraph::LiteralInCase::decide(LitMatchOp op, const OperandFacts &) {
   Value scrutinee = op.getScrutinee();
   return rewriteIf(llvm::any_of(op.getCaseRegions(), [&](Region &region) {
     return llvm::any_of(scrutinee.getUses(), [&](OpOperand &use) { return inside(region, use); });
   }));
 }
 
-void egraph::LiteralInCase::rewrite(MatchLitOp op, RewriterBase &rewriter) {
+void egraph::LiteralInCase::rewrite(LitMatchOp op, const Rewrite &, RewriterBase &rewriter) {
   Value scrutinee = op.getScrutinee();
   for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions())) {
     if (llvm::none_of(scrutinee.getUses(), [&](OpOperand &use) { return inside(region, use); }))
@@ -469,14 +617,59 @@ void egraph::LiteralInCase::rewrite(MatchLitOp op, RewriterBase &rewriter) {
   }
 }
 
+// A string that is never empty never takes the case of the empty string,
+// whose index the rule carries.
+std::optional<Edit> egraph::EmptyStringCase::decide(LitMatchOp op, const OperandFacts &) {
+  if (!isa<StrType>(unrestricted(op.getScrutinee().getType())))
+    return std::nullopt;
+  auto cases = op.getCases();
+  const auto *empty = llvm::find_if(cases, [](Attribute key) {
+    auto text = dyn_cast<StringAttr>(key);
+    return text && text.getValue().empty();
+  });
+  if (empty == cases.end() || !neverEmpty(op.getScrutinee()))
+    return std::nullopt;
+  return Edit(Rewrite{{static_cast<unsigned>(empty - cases.begin())}});
+}
+
+void egraph::EmptyStringCase::rewrite(LitMatchOp op, const Rewrite &chosen,
+                                      RewriterBase &rewriter) {
+  unsigned dropped = chosen.chosen.front();
+  SmallVector<unsigned> kept;
+  for (unsigned i = 0, n = op.getNumCases(); i < n; ++i)
+    if (i != dropped)
+      kept.push_back(i);
+  (void)op.keepCases(rewriter, kept, &op.getDefaultRegion());
+}
+
 // A default the scrutinee's type leaves no constructor for never runs.
-std::optional<Edit> egraph::DeadDefault::decide(MatchOp op, const OperandFacts &) {
+std::optional<Edit> egraph::DeadDefault::decide(DataMatchOp op, const OperandFacts &) {
   return rewriteIf(defaultDead(op));
 }
 
-void egraph::DeadDefault::rewrite(MatchOp op, RewriterBase &rewriter) {
+void egraph::DeadDefault::rewrite(DataMatchOp op, const Rewrite &, RewriterBase &rewriter) {
   if (defaultDead(op))
     rewriter.eraseBlock(&op.getDefaultRegion().front());
+}
+
+// Identical regions merge into the default.
+std::optional<Edit> egraph::IdenticalRegions::decide(MatchOpInterface op, const OperandFacts &) {
+  std::optional<SmallVector<unsigned>> kept = identicalRegions(op);
+  if (!kept)
+    return std::nullopt;
+  return Edit(Rewrite{std::move(*kept)});
+}
+
+void egraph::IdenticalRegions::rewrite(MatchOpInterface op, const Rewrite &chosen,
+                                       RewriterBase &rewriter) {
+  // Recomputed on the root as it now is, since what it compares is the
+  // regions' bodies, which an earlier rewrite may have changed.
+  std::optional<SmallVector<unsigned>> kept = identicalRegions(op);
+  if (!kept || *kept != chosen.chosen)
+    return;
+  unsigned fallback = kept->front();
+  Region *region = fallback == 0 ? &op.getDefaultRegion() : &op.getCaseRegion(fallback - 1);
+  (void)op.keepCases(rewriter, ArrayRef<unsigned>(*kept).drop_front(), region);
 }
 
 // A match none of whose regions yields gives nothing.
@@ -484,7 +677,7 @@ std::optional<Edit> egraph::AllExits::decide(MatchOpInterface op, const OperandF
   return rewriteIf(exitsPending(op));
 }
 
-void egraph::AllExits::rewrite(MatchOpInterface op, RewriterBase &rewriter) {
+void egraph::AllExits::rewrite(MatchOpInterface op, const Rewrite &, RewriterBase &rewriter) {
   if (exitsPending(op))
     exits(rewriter, op.getOperation());
 }
@@ -494,26 +687,120 @@ std::optional<Edit> egraph::DeadResults::decide(MatchOpInterface op, const Opera
   return rewriteIf(someResultUnused(op));
 }
 
-void egraph::DeadResults::rewrite(MatchOpInterface op, RewriterBase &rewriter) {
-  (void)unused(rewriter, op);
+void egraph::DeadResults::rewrite(MatchOpInterface op, const Rewrite &, RewriterBase &rewriter) {
+  unused(rewriter, op.getOperation());
+}
+
+// A result that every region that yields builds as one constructor, and
+// that is only ever read through its fields, is yielded as the
+// constructor's fields, and the constructor is built once after the match,
+// where each read of a field folds to the field the regions gave. A field
+// is then the value its region built it of, a linear one the thread it
+// was, never a read of a value the match built: a linear array passed back
+// beside a value stays the one buffer each region wrote. Only while the
+// holds are undecided.
+std::optional<Edit> egraph::YieldedFields::decide(MatchOpInterface op, const OperandFacts &) {
+  if (!holdsUndecided(op))
+    return std::nullopt;
+  for (OpResult result : op->getResults())
+    if (yieldedConstructors(result))
+      return Edit(Rewrite{{result.getResultNumber()}});
+  return std::nullopt;
+}
+
+void egraph::YieldedFields::rewrite(MatchOpInterface op, const Rewrite &chosen,
+                                    RewriterBase &rewriter) {
+  unsigned index = chosen.chosen.front();
+  if (index >= op->getNumResults())
+    return;
+  OpResult result = op->getResult(index);
+  std::optional<SmallVector<DataConOp>> built = yieldedConstructors(result);
+  if (!built)
+    return;
+  TypeRange fieldTypes = built->front().getFields().getTypes();
+  SmallVector<Type> types;
+  for (auto [i, type] : llvm::enumerate(op->getResultTypes()))
+    if (i != index)
+      types.push_back(type);
+  unsigned kept = static_cast<unsigned>(types.size());
+  llvm::append_range(types, fieldTypes);
+  Type type = result.getType();
+  Location loc = result.getLoc();
+  // Each yield gives its constructor's fields in its place.
+  for (DataConOp con : *built) {
+    auto yield = cast<YieldOp>(con->getBlock()->getTerminator());
+    SmallVector<Value> given;
+    for (auto [i, value] : llvm::enumerate(yield.getResults()))
+      if (i != index)
+        given.push_back(value);
+    llvm::append_range(given, con.getFields());
+    rewriter.setInsertionPoint(yield);
+    rewriter.replaceOpWithNewOp<YieldOp>(yield, given);
+    rewriter.eraseOp(con);
+  }
+  Operation *fresh = withResults(rewriter, op, types);
+  rewriter.setInsertionPointAfter(fresh);
+  Value rebuilt =
+      DataConOp::create(rewriter, loc, type, fresh->getResults().drop_front(kept)).getResult();
+  SmallVector<Value> replacements(fresh->getResults().take_front(kept));
+  replacements.insert(replacements.begin() + index, rebuilt);
+  rewriter.replaceOp(op, replacements);
 }
 
 // Case-of-case: the consumer's regions become the join regions of one flat
-// idr.join in its place, and the producer moves into its body; each arm
-// whose yielded value has a known constructor ends in a copy of the
-// consumer's dispatch, which folds there, so that arm runs its case with no
-// test; the other arms still yield, and one dispatch after the producer
-// serves them. Each step moves a dispatch deeper, so case-of-case ends by
-// construction; the growth is one jump per case per arm.
-std::optional<Edit> egraph::CaseOfCase::decide(MatchOp consumer, const OperandFacts &) {
-  return rewriteIf(!foldingArms(consumer).empty());
+// idr.join in its place, and the producer moves into its body. Each arm
+// takes a copy of the consumer's dispatch where that costs less than
+// sharing the one after the producer: where the e-graph knows the arm's
+// constructor the copy folds to a jump, and the last arm left to share
+// would keep the shared dispatch alive for itself alone. The other arms
+// still yield, and one dispatch after the producer serves them. Each copy
+// moves a dispatch deeper, so case-of-case ends by construction; the
+// growth is one jump per case per arm.
+std::optional<Edit> egraph::CaseOfCase::decide(DataMatchOp consumer, const OperandFacts &facts) {
+  DataMatchOp producer = producerOf(consumer);
+  if (!producer)
+    return std::nullopt;
+  unsigned regions = static_cast<unsigned>(
+      llvm::count_if(consumer->getRegions(), [](Region &region) { return !region.empty(); }));
+  SmallVector<std::pair<unsigned, Value>> arms;
+  for (Region &region : producer->getRegions())
+    if (yields(region))
+      arms.emplace_back(region.getRegionNumber(),
+                        cast<YieldOp>(region.front().getTerminator()).getResults().front());
+  if (llvm::none_of(arms, [&](const auto &arm) { return knownConstructor(arm.second, facts); }))
+    return std::nullopt;
+  Rewrite chosen;
+  SmallVector<unsigned> sharing;
+  for (auto [region, value] : arms) {
+    if (copyCost(value, regions, facts) < shareCost(regions, Sharing::WithOthers))
+      chosen.chosen.push_back(region);
+    else
+      sharing.push_back(region);
+  }
+  if (sharing.size() == 1) {
+    Value value = llvm::find_if(arms, [&](const auto &arm) {
+                    return arm.first == sharing.front();
+                  })->second;
+    if (copyCost(value, regions, facts) < shareCost(regions, Sharing::Alone))
+      chosen.chosen.push_back(sharing.front());
+  }
+  llvm::sort(chosen.chosen);
+  return Edit(std::move(chosen));
 }
 
-void egraph::CaseOfCase::rewrite(MatchOp consumer, RewriterBase &rewriter) {
-  SmallVector<unsigned> chosen = foldingArms(consumer);
-  if (chosen.empty())
+void egraph::CaseOfCase::rewrite(DataMatchOp consumer, const Rewrite &chosen,
+                                 RewriterBase &rewriter) {
+  DataMatchOp producer = producerOf(consumer);
+  if (!producer)
     return;
-  auto producer = cast<MatchOp>(consumer->getPrevNode());
+  // The arms the decision chose that still yield, as the root now is.
+  SmallVector<unsigned> arms;
+  for (unsigned arm : chosen.chosen)
+    if (arm < producer->getNumRegions() && yields(producer->getRegion(arm)))
+      arms.push_back(arm);
+  if (arms.empty())
+    return;
+  Value outer = consumer.getOuter();
   unsigned depth = joins::scopeDepth(consumer->getParentRegion());
   SmallVector<joins::Member> members;
   for (Region &region : consumer->getRegions())
@@ -526,8 +813,8 @@ void egraph::CaseOfCase::rewrite(MatchOp consumer, RewriterBase &rewriter) {
   rewriter.setInsertionPoint(consumer);
   SmallVector<Tag> tags = llvm::map_to_vector(
       consumer.getCases(), [](int32_t tag) { return Tag{static_cast<uint32_t>(tag)}; });
-  auto shell = MatchOp::create(rewriter, consumer.getLoc(), TypeRange(), consumer.getScrutinee(),
-                               consumer.getForwarded(), tags);
+  auto shell = DataMatchOp::create(rewriter, consumer.getLoc(), TypeRange(),
+                                   consumer.getScrutinee(), consumer.getForwarded(), tags);
   for (auto [from, into] : llvm::zip_equal(consumer->getRegions(), shell->getRegions()))
     if (!from.empty())
       rewriter.createBlock(&into, {}, from.getArgumentTypes(),
@@ -535,19 +822,23 @@ void egraph::CaseOfCase::rewrite(MatchOp consumer, RewriterBase &rewriter) {
                                                [](Value arg) { return arg.getLoc(); }));
   rewriter.setInsertionPoint(consumer);
   joins::Group group = joins::build(rewriter, consumer.getLoc(), consumer->getResultTypes(),
-                                    members, {}, joins::Origin::Terminates);
+                                    members, {});
+  // The join regions bind what the consumer's regions bound, and give its
+  // results: they live where the consumer said.
+  if (outer)
+    cast<JoinOp>(group.outermost).getOuterMutable().assign(outer);
   rewriter.replaceAllUsesWith(consumer->getResults(), group.outermost->getResults());
   rewriter.moveOpBefore(producer, group.body, group.body->end());
-  for (unsigned arm : chosen) {
+  for (unsigned arm : arms) {
     auto yield = cast<YieldOp>(producer->getRegion(arm).front().getTerminator());
     Value value = yield.getResults().front();
     rewriter.eraseOp(yield);
     rewriter.setInsertionPointToEnd(&producer->getRegion(arm).front());
-    dispatch(rewriter, shell, value, group.targets);
+    dispatch(rewriter, shell, value, group.targets, outer);
   }
   rewriter.setInsertionPointToEnd(group.body);
   if (llvm::any_of(producer->getRegions(), yields))
-    dispatch(rewriter, shell, producer->getResult(0), group.targets);
+    dispatch(rewriter, shell, producer->getResult(0), group.targets, outer);
   else
     ub::UnreachableOp::create(rewriter, producer.getLoc());
   rewriter.eraseOp(shell);
@@ -564,12 +855,13 @@ std::optional<Edit> egraph::DeadJoinResults::decide(JoinPointsOpInterface op,
   return rewriteIf(someResultUnused(op));
 }
 
-void egraph::DeadJoinResults::rewrite(JoinPointsOpInterface op, RewriterBase &rewriter) {
-  (void)unused(rewriter, op);
+void egraph::DeadJoinResults::rewrite(JoinPointsOpInterface op, const Rewrite &,
+                                      RewriterBase &rewriter) {
+  unused(rewriter, op.getOperation());
 }
 
 // An idr.loop whose join regions never jump to its own op repeats nothing:
-// it is an idr.join, its join regions' tokens and loop markers dropped.
+// it is an idr.join, its join regions' tokens dropped.
 std::optional<Edit> egraph::LoopToJoin::decide(LoopOp op, const OperandFacts &) {
   return rewriteIf(llvm::none_of(op.getJoinRegions(), [&](Region &region) {
     return llvm::any_of(op.getTokens(region),
@@ -577,9 +869,9 @@ std::optional<Edit> egraph::LoopToJoin::decide(LoopOp op, const OperandFacts &) 
   }));
 }
 
-void egraph::LoopToJoin::rewrite(LoopOp op, RewriterBase &rewriter) {
+void egraph::LoopToJoin::rewrite(LoopOp op, const Rewrite &, RewriterBase &rewriter) {
   rewriter.setInsertionPoint(op);
-  OperationState state(op.getLoc(), JoinOp::getOperationName(), ValueRange(),
+  OperationState state(op.getLoc(), JoinOp::getOperationName(), op->getOperands(),
                        op->getResultTypes());
   state.getOrAddProperties<JoinOp::Properties>().binders = op.getBinders();
   for (unsigned i = 0, e = op->getNumRegions(); i < e; ++i)
@@ -588,12 +880,8 @@ void egraph::LoopToJoin::rewrite(LoopOp op, RewriterBase &rewriter) {
   for (auto [from, into] : llvm::zip_equal(op->getRegions(), join->getRegions()))
     rewriter.inlineRegionBefore(from, into, into.end());
   unsigned targets = static_cast<unsigned>(op.getJoinRegions().size());
-  for (Region &region : llvm::drop_begin(join->getRegions())) {
-    Block &entry = region.front();
-    entry.eraseArguments(0, targets);
-    if (auto marker = dyn_cast<MayLoopOp>(entry.front()))
-      rewriter.eraseOp(marker);
-  }
+  for (Region &region : llvm::drop_begin(join->getRegions()))
+    region.front().eraseArguments(0, targets);
   rewriter.replaceOp(op, join->getResults());
 }
 
@@ -603,16 +891,16 @@ std::optional<Edit> egraph::DeadJoinRegions::decide(JoinOp op, const OperandFact
   return rewriteIf(someRegionUnreached(op));
 }
 
-void egraph::DeadJoinRegions::rewrite(JoinOp op, RewriterBase &rewriter) {
-  (void)unreached(rewriter, op);
+void egraph::DeadJoinRegions::rewrite(JoinOp op, const Rewrite &, RewriterBase &rewriter) {
+  unreached(rewriter, op);
 }
 
 std::optional<Edit> egraph::DeadLoopRegions::decide(LoopOp op, const OperandFacts &) {
   return rewriteIf(someRegionUnreached(op));
 }
 
-void egraph::DeadLoopRegions::rewrite(LoopOp op, RewriterBase &rewriter) {
-  (void)unreached(rewriter, op);
+void egraph::DeadLoopRegions::rewrite(LoopOp op, const Rewrite &, RewriterBase &rewriter) {
+  unreached(rewriter, op);
 }
 
 // A join region of an idr.join reached by one jump, the body's own end,
@@ -622,7 +910,7 @@ std::optional<Edit> egraph::InlineSingleJump::decide(JoinOp op, const OperandFac
   return rewriteIf(static_cast<bool>(singleJump(op)));
 }
 
-void egraph::InlineSingleJump::rewrite(JoinOp op, RewriterBase &rewriter) {
+void egraph::InlineSingleJump::rewrite(JoinOp op, const Rewrite &, RewriterBase &rewriter) {
   JumpOp jump = singleJump(op);
   if (!jump)
     return;
@@ -631,7 +919,7 @@ void egraph::InlineSingleJump::rewrite(JoinOp op, RewriterBase &rewriter) {
   Block &from = target->front();
   rewriter.eraseOp(jump);
   rewriter.mergeBlocks(&from, &op.getBody().front(), args);
-  (void)unreached(rewriter, op);
+  unreached(rewriter, op);
 }
 
 // A parameter its join region never reads goes, with every jump's argument
@@ -640,16 +928,16 @@ std::optional<Edit> egraph::DeadJoinParameters::decide(JoinOp op, const OperandF
   return rewriteIf(someParameterUnread(op));
 }
 
-void egraph::DeadJoinParameters::rewrite(JoinOp op, RewriterBase &rewriter) {
-  (void)unread(rewriter, op);
+void egraph::DeadJoinParameters::rewrite(JoinOp op, const Rewrite &, RewriterBase &rewriter) {
+  unread(rewriter, op);
 }
 
 std::optional<Edit> egraph::DeadLoopParameters::decide(LoopOp op, const OperandFacts &) {
   return rewriteIf(someParameterUnread(op));
 }
 
-void egraph::DeadLoopParameters::rewrite(LoopOp op, RewriterBase &rewriter) {
-  (void)unread(rewriter, op);
+void egraph::DeadLoopParameters::rewrite(LoopOp op, const Rewrite &, RewriterBase &rewriter) {
+  unread(rewriter, op);
 }
 
 } // namespace idr

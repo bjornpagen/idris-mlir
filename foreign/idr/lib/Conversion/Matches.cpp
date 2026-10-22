@@ -61,7 +61,7 @@ SmallVector<Value> refinedArgs(RewriterBase &rewriter, Region &region, Block *in
 // The tag selects the case. An exhaustive match's empty default leaves its
 // last case as the switch's default, which is not tested for: a match may be
 // exhaustive, a switch may not; a match left with one region reads no tag.
-void lowerMatch(RewriterBase &rewriter, MatchOp op) {
+void lowerMatch(RewriterBase &rewriter, DataMatchOp op) {
   Location loc = op.getLoc();
   rewriter.setInsertionPoint(op);
   SmallVector<Region *> cases;
@@ -81,12 +81,12 @@ void lowerMatch(RewriterBase &rewriter, MatchOp op) {
   } else {
     Value scrutinee =
         heldAs(rewriter, loc, op.getScrutinee(), unrestricted(op.getScrutinee().getType()));
-    Value tag = TagOp::create(rewriter, loc, scrutinee);
+    Value tag = DataTagOp::create(rewriter, loc, scrutinee);
     index = arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(), tag);
   }
   auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, op.getResultTypes(), index, tags,
                                              static_cast<unsigned>(tags.size()));
-  ValueRange entering = op->getOperands();
+  ValueRange entering = op.getEntering();
   for (auto [region, to] : llvm::zip_equal(cases, switchOp.getCaseRegions())) {
     Block *into = rewriter.createBlock(&to);
     moveBody(rewriter, *region, into, refinedArgs(rewriter, *region, into, entering));
@@ -96,14 +96,14 @@ void lowerMatch(RewriterBase &rewriter, MatchOp op) {
   rewriter.replaceOp(op, switchOp.getResults());
 }
 
-// `case k0 {A} case k1 {B} default {C}` is `if s == k0 then A else (if s ==
-// k1 then B else C)`, each comparison made only where the one before
-// failed. The chain is built in the block of a scaffold made where the
+// `case k0 {A} case k1 {B} default(%d) {C}` is `if s == k0 then A else (if
+// s == k1 then B else C[%d := s])`, each comparison made only where the one
+// before failed. The chain is built in the block of a scaffold made where the
 // match is: every link is made at the end of the block it continues, which
 // yields the link's results, and the link's else block is the next block
 // continued. The default ends the last block continued. The scaffold's
 // block then takes the match's place.
-void lowerMatchLit(RewriterBase &rewriter, MatchLitOp op) {
+void lowerMatchLit(RewriterBase &rewriter, LitMatchOp op) {
   Location loc = op.getLoc();
   Value scrutinee = op.getScrutinee();
   TypeRange results = op.getResultTypes();
@@ -124,7 +124,7 @@ void lowerMatchLit(RewriterBase &rewriter, MatchLitOp op) {
     moveBody(rewriter, region, rewriter.createBlock(&link.getThenRegion()), ValueRange());
     continued = rewriter.createBlock(&link.getElseRegion());
   }
-  moveBody(rewriter, op.getDefaultRegion(), continued, ValueRange());
+  moveBody(rewriter, op.getDefaultRegion(), continued, scrutinee);
   Block *chain = &scaffold.getRegion().front();
   Operation *last = chain->getTerminator();
   rewriter.inlineBlockBefore(chain, op);
@@ -139,17 +139,17 @@ void lowerMatchLit(RewriterBase &rewriter, MatchLitOp op) {
   rewriter.eraseOp(scaffold);
 }
 
-struct LowerMatch : OpRewritePattern<MatchOp> {
+struct LowerMatch : OpRewritePattern<DataMatchOp> {
   using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(MatchOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(DataMatchOp op, PatternRewriter &rewriter) const override {
     lowerMatch(rewriter, op);
     return success();
   }
 };
 
-struct LowerMatchLit : OpRewritePattern<MatchLitOp> {
+struct LowerMatchLit : OpRewritePattern<LitMatchOp> {
   using OpRewritePattern::OpRewritePattern;
-  LogicalResult matchAndRewrite(MatchLitOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(LitMatchOp op, PatternRewriter &rewriter) const override {
     lowerMatchLit(rewriter, op);
     return success();
   }
@@ -167,7 +167,8 @@ SmallVector<Value> flatten(ArrayRef<ValueRange> values) {
 }
 
 // A join point's op with its results' and its regions' arguments converted,
-// one value to its components; its regions moved into the new op.
+// one value to its components; its regions moved into the new op, which
+// states no lifetime: what it makes is lowered, and no longer scoped.
 template <typename Group>
 struct ConvertGroupTypes : OpConversionPattern<Group> {
   using OpConversionPattern<Group>::OpConversionPattern;
@@ -302,8 +303,10 @@ void populateJoinTypeConversions(const TypeConverter &converter, RewritePatternS
                                  ConversionTarget &target) {
   patterns.add<ConvertGroupTypes<JoinOp>, ConvertGroupTypes<LoopOp>, ConvertJumpTypes,
                ConvertGroupYieldTypes>(converter, patterns.getContext());
+  // A join point's op is legal once its types are and it states no
+  // lifetime, its one operand.
   auto groupLegal = [&converter](Operation *op) {
-    return converter.isLegal(op->getResultTypes()) &&
+    return op->getNumOperands() == 0 && converter.isLegal(op->getResultTypes()) &&
            llvm::all_of(op->getRegions(), [&](Region &region) {
              return converter.isLegal(region.getArgumentTypes());
            });

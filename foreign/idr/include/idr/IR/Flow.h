@@ -6,8 +6,9 @@
 // for it; and the flow rule the verifier holds a function to while it may
 // hold closures and suspensions. The label solve, the key decision of
 // idr-defunctionalize, the escape analysis, exclusivity, `consumes` and the
-// owned walk read these edges, each those of the carrier it asks about. An
-// idr.func's body is one block, so no branch forwards a value in one.
+// lifetimes' decide step read these edges, each those of the carrier it asks
+// about. An idr.func's body is one block, so no branch forwards a value in
+// one.
 //
 // Every op of ours with an edge to declare holds the interface in its ODS,
 // whose verifier holds its edges to their rule (verifyFlowEdges);
@@ -38,6 +39,13 @@ namespace idr {
 void forwardedValues(mlir::Operation *op,
                      llvm::function_ref<void(mlir::OpOperand &operand, mlir::Value input)> each);
 
+// The edges of a value built of fields: each field given (`fields`, the
+// fields of constructor `tag` of `data` that are not `holes`, in order)
+// moves into its field of `value`, which takes it over. What a constructor,
+// a cell's init and a rebuild each declare.
+void builtEdges(mlir::Value value, DataType data, Tag tag, mlir::MutableOperandRange fields,
+                llvm::ArrayRef<int32_t> holes, FlowEdges &edges);
+
 // Whether upstream's interfaces or ours say every move `op` makes: it holds
 // the flow interface, it is a region branch or a terminator of one, or it
 // selects one of two values (SelectLikeOpInterface). Any other op is
@@ -51,14 +59,16 @@ bool declaresFlow(mlir::Operation *op);
 // it reads, to its result.
 void flowEdgesOf(mlir::Operation *op, FlowEdges &edges);
 
-// The flow rule of `fn`'s body for the ops that do not hold the flow
-// interface, while its program may hold closures and suspensions (stage
-// higher); at any later stage no label moves. An op with the interface is
-// held to its own edges by the interface's verifier, at every stage. Any
-// other op: every operand, result and block argument that holds labels is
-// forwarded, chosen by a select, or a successor input of a region branch.
-// Fails with an error at the op naming the value otherwise.
-mlir::LogicalResult verifyFlow(FuncOp fn);
+// The flow rule at one op of a function whose program may hold closures
+// and suspensions (stage higher): the function verifier's one walk runs it
+// at each op it meets, beside the row's derivation and the scope walk, and
+// at any later stage, where no label moves, does not run it. An op with the
+// interface is held to its own edges by the interface's verifier, at every
+// stage, and passes. Any other op: every operand, result and block argument
+// that holds labels is forwarded, chosen by a select, or a successor input
+// of a region branch. Fails with an error at the op naming the value
+// otherwise.
+mlir::LogicalResult verifyFlowOf(mlir::Operation *op);
 
 // Attaches the flow interface to the upstream ops that move a value into or
 // out of the elements of a tensor or a buffer or make one from nothing:

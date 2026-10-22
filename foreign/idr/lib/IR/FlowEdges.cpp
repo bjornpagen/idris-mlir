@@ -27,7 +27,7 @@ Carriers Carriers::of(Type type) {
   // A cell is the one type that is another value before it exists: the box
   // its init makes of it.
   if (auto cell = dyn_cast<CellType>(type))
-    return of(cell.getBox());
+    return of(cell.getValue());
   Carriers carriers;
   if (isClosureType(type))
     carriers = carriers | Carrier::Closure;
@@ -42,14 +42,14 @@ std::optional<Type> FlowAnchor::slot() const {
   return std::visit(
       llvm::makeVisitor(
           [](const Field &field) -> std::optional<Type> {
-            return unrestricted(field.data.getCtor(field.ctor).fields[field.index]);
+            return unrestricted(field.data.ctor(field.ctor).fields[field.index]);
           },
           [](const Elements &elements) -> std::optional<Type> { return elements.element; },
           [](const Forced &forced) -> std::optional<Type> {
             return unrestricted(forced.lazy.getValue());
           },
           [](const MemoState &state) -> std::optional<Type> {
-            return unrestricted(state.memo.getCtor(state.memo.getForcedTag()).fields.front());
+            return unrestricted(state.memo.ctor(state.memo.memo()->forced()).fields.front());
           },
           [](const Capture &) -> std::optional<Type> { return std::nullopt; },
           [](const Hole &hole) -> std::optional<Type> { return hole.dest.getValue(); }),

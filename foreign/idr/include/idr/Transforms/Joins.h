@@ -17,6 +17,9 @@
 // the place the group goes, which the finder established. The construction
 // reads nothing else and decides nothing else: it never fails, and a
 // precondition broken is a verifier error after the pass, an internal one.
+// Whether a loop it makes may run forever is its function's row's to say,
+// from Idris's proof, so nothing of the group marks it. A group states no
+// lifetime: a finder that moves scoped values into one states it after.
 //
 //===----------------------------------------------------------------------===//
 
@@ -29,15 +32,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <cstdint>
-
 namespace idr::joins {
-
-// Where the code a group comes from stands on termination: a loop made of
-// code Idris did not prove to terminate holds idr.may_loop at each join
-// region's entry, so that an unused loop that may run forever stays, as
-// eager evaluation keeps it; one of total code holds none and may go.
-enum class Origin : std::uint8_t { Terminates, MayDiverge };
 
 // One join point to make: the region whose one block becomes the join
 // region, moved in whole. Its entry block's arguments become the join
@@ -97,7 +92,7 @@ struct Group {
 // jump graph `edges`, its results of types `results`; the members' regions
 // are moved in, their terminators made the group's.
 Group build(mlir::RewriterBase &rewriter, mlir::Location loc, mlir::TypeRange results,
-            llvm::ArrayRef<Member> members, llvm::ArrayRef<Edge> edges, Origin origin);
+            llvm::ArrayRef<Member> members, llvm::ArrayRef<Edge> edges);
 
 // The index variables the scopes around `region` bind: each op that binds
 // them says how many in its region (ErasedBinderOpInterface). A member's
@@ -112,13 +107,12 @@ JumpOp jumpAt(mlir::RewriterBase &rewriter, const Site &site, mlir::Value token)
 // the body runs `place` and yields what it gives, and each site, in the
 // body or in a member, becomes a jump. Returns the outermost op.
 mlir::Operation *wrap(mlir::RewriterBase &rewriter, mlir::Operation *place,
-                      llvm::ArrayRef<Member> members, llvm::ArrayRef<Site> sites, Origin origin);
+                      llvm::ArrayRef<Member> members, llvm::ArrayRef<Site> sites);
 
 // `fn` with self tail calls `calls` as one idr.loop: the function's body
 // jumps into its one join region, which holds the old body, each self tail
 // call a jump back, passing the call's erased arguments as its terms.
-LoopOp loopSelf(mlir::RewriterBase &rewriter, FuncOp fn, llvm::ArrayRef<Site> calls,
-                Origin origin);
+LoopOp loopSelf(mlir::RewriterBase &rewriter, FuncOp fn, llvm::ArrayRef<Site> calls);
 
 } // namespace idr::joins
 

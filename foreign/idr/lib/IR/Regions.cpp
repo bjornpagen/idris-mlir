@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // How control leaves a region by idr.yield: to the results of the op whose
-// region it ends, a match or a join point's op. How it enters their regions
-// is each op's own (OpsMatch.cpp, Control/Joins.cpp); how it leaves by a
-// jump is idr.jump's.
+// region it ends, every one of which is a region branch (a match, a join
+// point's op, a region run once, the test of sharing, a trusted library's
+// IO action run for a value), so the parent says where control goes. How
+// it enters their regions is each op's own; how it leaves by a jump is
+// idr.jump's.
 
 #include "idr/IR/IdrDialect.h"
 

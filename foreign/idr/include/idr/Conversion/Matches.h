@@ -12,10 +12,12 @@
 
 namespace idr::conversion {
 
-// Phase 1, on idr types: idr.match becomes idr.tag and scf.index_switch,
-// each case taking the scrutinee and the forwarded values at their refined
-// types, which have no run-time form; a match left with one region tests
-// no tag. idr.match_lit becomes a chain of scf.if on the key's comparison.
+// Phase 1, on idr types: idr.data.match becomes idr.data.tag and
+// scf.index_switch, each case taking the scrutinee and the forwarded values
+// at their refined types, which have no run-time form; a match left with
+// one region tests no tag. idr.lit.match becomes a chain of scf.if on the
+// key's comparison. The lifetime a match states for what it makes has no
+// run-time form either, and goes with it.
 // A case that jumps to an enclosing join point or never ends keeps its
 // terminator, which upstream's scf.index_switch and scf.if hold. Applied
 // by the walk driver, which visits a region before its op: nested matches
@@ -26,7 +28,8 @@ void populateMatchPatterns(mlir::RewritePatternSet &patterns);
 // idr.yield that ends a join point's region take the converted types of
 // their results, parameters and arguments, one value becoming its
 // components, beside upstream's structural conversion of scf; each is
-// legal once its types are.
+// legal once its types are. A join point's op drops the lifetime it
+// states, which nothing lowered reads.
 void populateJoinTypeConversions(const mlir::TypeConverter &converter,
                                  mlir::RewritePatternSet &patterns,
                                  mlir::ConversionTarget &target);

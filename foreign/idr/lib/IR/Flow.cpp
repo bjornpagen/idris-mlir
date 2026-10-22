@@ -5,12 +5,11 @@
 // branch interface forwards, flowEdgesOf joins that to what each op
 // declares (lib/IR/FlowOps.cpp), so a region branch's edges are said once,
 // by upstream. The flow interface's verifier holds each op's own edges to
-// their rule, and the function's verifier refuses a closure or a suspension
-// that no declaration moves.
+// their rule, and the function verifier's one walk refuses, at each op, a
+// closure or a suspension that no declaration moves.
 
 #include "idr/IR/Flow.h"
 
-#include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
@@ -21,8 +20,6 @@
 
 #include <utility>
 #include <variant>
-
-#include "idr/IR/IdrFlow.cpp.inc"
 
 using namespace mlir;
 using namespace idr;
@@ -271,11 +268,12 @@ LogicalResult idr::verifyFlowEdges(Operation *op) {
   return success();
 }
 
-namespace {
-
-// The part of the rule of an op that does not hold the flow interface,
-// whose moves only upstream's interfaces say.
-LogicalResult verifyUndeclared(Operation *op) {
+// The rule of an op that does not hold the flow interface, whose moves only
+// upstream's interfaces say; an op that holds it is its interface
+// verifier's.
+LogicalResult idr::verifyFlowOf(Operation *op) {
+  if (isa<FlowOpInterface>(op))
+    return success();
   // A first-order op moves no label, and has nothing to declare.
   bool regions = llvm::any_of(op->getRegions(), [](Region &region) {
     return llvm::any_of(region.getArguments(), holdsLabels);
@@ -337,18 +335,3 @@ LogicalResult verifyUndeclared(Operation *op) {
   return success();
 }
 
-} // namespace
-
-LogicalResult idr::verifyFlow(FuncOp fn) {
-  // Past `higher` no closure or suspension is left, and no label moves.
-  if (!stageFacts(fn.getProgram().getStage()).closures())
-    return success();
-  // An op that holds the flow interface is its verifier's: the two kinds
-  // of op say their moves in two ways.
-  WalkResult walked = fn.getBody().walk([](Operation *op) {
-    if (isa<FlowOpInterface>(op))
-      return WalkResult::advance();
-    return failed(verifyUndeclared(op)) ? WalkResult::interrupt() : WalkResult::advance();
-  });
-  return failure(walked.wasInterrupted());
-}

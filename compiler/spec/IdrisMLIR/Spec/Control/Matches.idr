@@ -5,23 +5,34 @@
 ||| results, by jumping to an enclosing join point, which the match lets
 ||| through (upstream's early exit), or by never ending.
 |||
-||| A case of `idr.match` binds the scrutinee refined to its constructor,
-||| and the default binds it refined to the constructors no case holds, so a
-||| field is a total read of the refined value and a read of a constructor
-||| the value is not cannot be written. The values whose types mention an
-||| index the case refines are forwarded into it beside the scrutinee, the
-||| same values at their refined types. That each region binds those
-||| refinements is the function's scope walk's to check, which keeps every
-||| enclosing case's refinement on its stack, so no op walks its ancestors.
+||| A case of `idr.data.match` binds the scrutinee refined to its
+||| constructor, and the default binds it refined to the constructors no case
+||| holds, which the op's own verifier holds each region to, so a field is a
+||| total read of the refined value and a case that binds a constructor it
+||| does not test cannot be written. The values whose types mention an index
+||| the case refines are forwarded into it beside the scrutinee, the same
+||| values at their refined types. The equation a case assumes is the op's
+||| answer through the binder interface, which the function's scope walk
+||| reads as it enters the region and unifies with every enclosing one, so
+||| no op walks its ancestors.
 |||
-||| `idr.match_lit`'s scrutinee is a string, a big integer or a natural,
-||| read in place, so its regions bind nothing; an integer or a condition is
-||| matched by upstream's `scf.index_switch` or `scf.if`.
+||| `idr.lit.match`'s scrutinee is a string, a big integer or a natural,
+||| read in place: a case binds nothing, since in it the scrutinee is its
+||| literal, and the default binds the scrutinee refined to the complement of
+||| the keys, at the scrutinee's type, as a data match's default does; an
+||| integer or a condition is matched by upstream's `scf.index_switch` or
+||| `scf.if`.
+|||
+||| A scoped value a match makes (a result, a refined value it binds) lives
+||| in the lifetime its `outer` operand states, present exactly when one is
+||| scoped: one hop from the value, as every op that makes a scoped value
+||| states it.
 module IdrisMLIR.Spec.Control.Matches
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Dialect
+import IdrisMLIR.Spec.Lifetimes.Declarations
 
 import Data.Fin
 import Data.List1
@@ -33,7 +44,7 @@ import Data.Vect
 -- What the matches' operands are
 ------------------------------------------------------------------------------
 
-||| A value of a data type, at any grade: what `idr.match` takes apart.
+||| A value of a data type, at any grade: what `idr.data.match` takes apart.
 export
 matchable : Predicate
 matchable = MkPredicate "isMatchable" OnType
@@ -46,14 +57,19 @@ matchedLiteral : Predicate
 matchedLiteral = MkPredicate "isMatchedLiteral" OnType
   (brief "a value of a type with literals that is no integer, read in place")
 
+||| The lifetime a match states for the scoped values it makes.
+lifetime : TypeC
+lifetime = OurType (SomeType lifetimeType)
+
 ------------------------------------------------------------------------------
 -- Their shape, shared
 ------------------------------------------------------------------------------
 
 ||| `MatchOpInterface`: a match, its scrutinee, a region per case and a
 ||| default, read alike for both matches by the passes that take a match
-||| apart (placement, the tail passes, frames). The default is region 0, so
-||| a case's index is its region's number less one.
+||| apart (placement, the tail passes, frames) and by the rules that drop
+||| cases. The default is region 0, so a case's index is its region's number
+||| less one.
 export
 matchInterface : InterfaceDef
 matchInterface = MkInterfaceDef
@@ -68,9 +84,14 @@ matchInterface = MkInterfaceDef
       , MkMethod PerObject "::mlir::Region &" "getCaseRegion" [param "unsigned" "index"]
           EveryImplementer "the region of case `index`"
       , MkMethod PerObject "::mlir::Region &" "getDefaultRegion" [] EveryImplementer
-          "the default region: empty when an idr.match's cases are exhaustive"
+          "the default region: empty when an idr.data.match's cases are exhaustive"
       , MkMethod PerObject "unsigned" "caseOf" [param "::mlir::Region &" "region"]
-          EveryImplementer "the case `region` is, a case region of this match" ]
+          EveryImplementer "the case `region` is, a case region of this match"
+      , MkMethod PerObject "::mlir::Operation *" "keepCases"
+          [ param "::mlir::RewriterBase &" "rewriter", param "::llvm::ArrayRef<unsigned>" "kept"
+          , param "::mlir::Region *" "fallback" ]
+          EveryImplementer
+          "this match replaced by one of the cases `kept` alone, `fallback` its default (none: an exhaustive idr.data.match), a case region that reads none of its arguments binding the default's" ]
   , verifier = Unverified
   , doc = brief "a match: a region per case of its scrutinee, and a default"
   }
@@ -100,8 +121,8 @@ literalCases = MkDirective "LiteralCases"
   [RefTypeArg, AttrArg "::mlir::ArrayAttr", VariadicRegionArg]
   (brief "each case: its literal and its region")
 
-||| `default(%d: !Refined, ...) {...}`, `default {...}`, or nothing for an
-||| exhaustive match's empty default.
+||| `default(%d: !Refined, ...) {...}`, or nothing for an exhaustive data
+||| match's empty default.
 export
 defaultCase : Directive
 defaultCase = MkDirective "DefaultCase" [RegionArg]
@@ -119,26 +140,28 @@ branchMethods =
   [ "getSuccessorRegions", "getEntrySuccessorRegions", "getRegionInvocationBounds"
   , "getSuccessorInputs" ]
 
-||| `idr.match`: the scrutinee and the forwarded values enter every region
-||| refined, which upstream's interface reads as the region's entry
+||| `idr.data.match`: the scrutinee and the forwarded values enter every
+||| region refined, which upstream's interface reads as the region's entry
 ||| operands, so its dataflow sees each refined value equal to its source
 ||| and no flow declaration of ours is needed.
 export
-matchOp : Op 2 1 1 2
+matchOp : Op 3 1 1 2
 matchOp = MkOp
   { home = InIdr
-  , mnemonic = "match"
+  , mnemonic = "data.match"
   , ins = [ single "scrutinee" (SatisfiesType matchable)
-          , variadic "forwarded" (UpstreamType AnyTypeC) ]
+          , variadic "forwarded" (UpstreamType AnyTypeC)
+          , optional "outer" lifetime ]
   , outs = [results "results" (UpstreamType AnyTypeC)]
   , attrs = [attr "cases" (UpstreamAttr DenseI32ArrayAttrC)]
   , regions = [MkRegion "default_region" OneRegion (AtMost 1), sizedRegions "case_regions" 1]
-  , traits = [SingleBlock, PropagateControlFlowBreak]
+  , traits = [SingleBlock, PropagateControlFlowBreak, AttrSizedOperandSegments]
   , interfaces =
       [ Declares RegionBranch
           (branchMethods ++ ["getEntrySuccessorOperands", "areTypesCompatible"])
-      , Implements matchInterface ["getNumCases", "getCaseRegion", "caseOf"]
-      , Implements erasedBinderInterface ["getBoundSorts"] ]
+      , Implements matchInterface ["getNumCases", "getCaseRegion", "caseOf", "keepCases"]
+      , Implements erasedBinderInterface ["getBoundSorts", "getRefinement"]
+      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"] ]
   , effects = Executes [] [ReadsMemo 0] Recursive Untouched
   , speculation = RecursivelySpeculatable
   , stages = between Higher Owned
@@ -148,6 +171,7 @@ matchOp = MkOp
       [ ValueOf (OperandRef 0)
       , OptionalGroup [Lit "forward", Lit "("] (ValueOf (OperandRef 1))
           [Lit ":", TypeOf (OfGroup (OperandRef 1)), Lit ")"]
+      , OptionalGroup [Lit "in"] (ValueOf (OperandRef 2)) []
       , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->"
       , Custom resultTypes [TypeOfGroup (ResultRef 0)]
       , AttrDictWithKeyword, Lit "{"
@@ -162,7 +186,9 @@ matchOp = MkOp
   , members =
       [ MkMember OnObject "::mlir::BlockArgument" "getRefined" [param "::mlir::Region &" "region"]
       , MkMember OnObject "::idr::Tag" "getCaseTag" [param "unsigned" "index"]
-      , MkMember OnObject "::idr::DataType" "getDataType" [] ]
+      , MkMember OnObject "::idr::DataType" "getDataType" []
+      , MkMember OnObject "::mlir::OperandRange" "getEntering" []
+      , MkMember OnObject "::llvm::SmallVector<::mlir::Type>" "getDefaultTypes" [] ]
   , guards = []
   , specializations = []
   , laws = []
@@ -173,32 +199,38 @@ matchOp = MkOp
       value at its refined type. A case's fields are reads of its refined
       value. The default region is empty when the cases are exhaustive.
 
-      `%r = idr.match %v : !T -> (i64) { case @A(%a: !A) {...} default(%d: !D) {...} }`
+      `%r = idr.data.match %v : !T -> (i64) { case @A(%a: !A) {...} default(%d: !D) {...} }`
       """
   }
 
-||| `idr.match_lit`: a literal key per case and a default always, since no
-||| set of literals is exhaustive; nothing enters a region.
+||| `idr.lit.match`: a literal key per case and a default always, since no
+||| set of literals is exhaustive. The scrutinee enters the default, which
+||| binds it refined to the complement of the keys at its own type (a natural
+||| 0-versus-successor match computes `nat.pred` from it); a case binds
+||| nothing.
 export
-matchLitOp : Op 1 1 1 2
+matchLitOp : Op 2 1 1 2
 matchLitOp = MkOp
   { home = InIdr
-  , mnemonic = "match_lit"
-  , ins = [single "scrutinee" (SatisfiesType matchedLiteral)]
+  , mnemonic = "lit.match"
+  , ins = [single "scrutinee" (SatisfiesType matchedLiteral), optional "outer" lifetime]
   , outs = [results "results" (UpstreamType AnyTypeC)]
   , attrs = [attr "cases" (UpstreamAttr ArrayAttrC)]
   , regions = [sized "default_region" 1, sizedRegions "case_regions" 1]
   , traits = [SingleBlock, PropagateControlFlowBreak]
   , interfaces =
-      [ Declares RegionBranch branchMethods
-      , Implements matchInterface ["getNumCases", "getCaseRegion", "caseOf"] ]
+      [ Declares RegionBranch (branchMethods ++ ["getEntrySuccessorOperands"])
+      , Implements matchInterface ["getNumCases", "getCaseRegion", "caseOf", "keepCases"]
+      , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"] ]
   , effects = Executes [] [] Recursive Untouched
   , speculation = RecursivelySpeculatable
   , stages = between Higher Owned
   , meaning = NoFold
   , verify = VerifiesOp
   , format = Declared
-      [ ValueOf (OperandRef 0), Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->"
+      [ ValueOf (OperandRef 0)
+      , OptionalGroup [Lit "in"] (ValueOf (OperandRef 1)) []
+      , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->"
       , Custom resultTypes [TypeOfGroup (ResultRef 0)]
       , AttrDictWithKeyword, Lit "{"
       , Custom literalCases [TypeAgain (OperandRef 0), Group (AttrRef 0), Group (RegionRef 1)]
@@ -215,14 +247,19 @@ matchLitOp = MkOp
   , doc = MkDoc "branches on the value of a string, a big integer or a natural"
       """
       The scrutinee is read in place; each case is one literal of its type,
-      and in that case the scrutinee is that literal.
+      and in that case the scrutinee is that literal. The default binds the
+      scrutinee, which there is none of the keys.
+
+      `%r = idr.lit.match %s : !idr.str -> (i64) { case "" {...} default(%t: !idr.str) {...} }`
       """
   }
 
-||| `idr.yield`: ends a region of a match or of a join point's op with the
-||| op's results. It declares no effect: passing a value out of a region
-||| hands its ownership on, which is no consumption. A join point's yields
-||| stand until the last step of the lowering, after the program is lowered.
+||| `idr.yield`: ends a region of an op that rejoins at its results (a
+||| match, a join point's op, a region run once, the test of sharing, a
+||| trusted library's IO action run for a value) with the op's results. It
+||| declares no effect: passing a value out of a region hands its ownership
+||| on, which is no consumption. A join point's yields stand until the last
+||| step of the lowering, after the program is lowered.
 export
 yieldOp : Op 1 0 0 0
 yieldOp = MkOp
@@ -233,7 +270,10 @@ yieldOp = MkOp
   , attrs = []
   , regions = []
   , traits = [ Terminator, ReturnLike
-             , HasParent ("match" ::: ["match_lit", "join", "loop"]) ]
+             , HasParent ("data.match" ::: [ "lit.match", "join", "loop"
+                                           , "lifetime", "lifetime.home", "lifetime.block"
+                                           , "lifetime.stack", "lifetime.chain", "lifetime.unpack"
+                                           , "lend", "count.match_unique", "io.unsafe_run" ]) ]
   , interfaces =
       [Declares RegionBranchTerminator ["getMutableSuccessorOperands", "getSuccessorRegions"]]
   , effects = noEffects
@@ -250,5 +290,5 @@ yieldOp = MkOp
   , guards = []
   , specializations = []
   , laws = []
-  , doc = brief "ends a region of a match or a join point's op with the op's results"
+  , doc = brief "ends a region of an op that rejoins at its results, with those results"
   }

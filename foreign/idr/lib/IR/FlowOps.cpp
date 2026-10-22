@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The edges of each op of ours that holds the flow interface, and of the
-// upstream ops that move a value into or out of the elements of a tensor
-// or a buffer or make one from nothing, which hold it as an external model:
-// where what each holds, takes or gives moves, as data (FlowEdges.h). A
-// value is followed whole, or into and out of a part of another (a field,
-// the elements, the forced state, a capture, a hole). And ub.unreachable's
-// effects, none, which upstream leaves undeclared.
+// The edges of each op of ours that holds the flow interface and whose
+// area keeps no edges of its own (counting's are lib/IR/Counting/Flow.cpp),
+// and of the upstream ops that move a value into or out of the elements of
+// a tensor or a buffer or make one from nothing, which hold it as an
+// external model: where what each holds, takes or gives moves, as data
+// (FlowEdges.h). A value is followed whole, or into and out of a part of
+// another (a field, the elements, the forced state, a capture, a hole). And
+// ub.unreachable's effects, none, which upstream leaves undeclared.
 
 #include "idr/IR/Flow.h"
 
@@ -28,6 +29,19 @@ using namespace idr;
 // The edges of each op
 //===----------------------------------------------------------------------===//
 
+// Each field given moves into its field of the value built, which takes it
+// over: what a constructor, a cell's init and a rebuild declare alike.
+void idr::builtEdges(Value value, DataType data, Tag tag, MutableOperandRange fields,
+                     ArrayRef<int32_t> holes, FlowEdges &edges) {
+  unsigned given = 0;
+  for (unsigned i = 0, n = static_cast<unsigned>(data.ctor(tag).fields.size()); i < n; ++i) {
+    if (llvm::is_contained(holes, static_cast<int32_t>(i)))
+      continue;
+    edges.flow(FlowPoint::of(fields[given++]),
+               FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, i)));
+  }
+}
+
 namespace {
 
 FlowAnchor elementsOf(Type shaped) {
@@ -41,19 +55,6 @@ FlowAnchor forcedOf(Type lazy) {
   return FlowAnchor::forcedOf(cast<LazyType>(unrestricted(lazy)));
 }
 
-// A constructor built into `value`, its constructor `tag` of `data`: each
-// field given (`fields`, the fields that are not `holes`, in order) moves
-// into its field of the value, which takes it over.
-void builtEdges(Value value, DataType data, Tag tag, MutableOperandRange fields,
-                ArrayRef<int32_t> holes, FlowEdges &edges) {
-  unsigned given = 0;
-  for (unsigned i = 0, n = static_cast<unsigned>(data.getCtor(tag).fields.size()); i < n; ++i) {
-    if (llvm::is_contained(holes, static_cast<int32_t>(i)))
-      continue;
-    edges.flow(FlowPoint::of(fields[given++]),
-               FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, i)));
-  }
-}
 
 // A closure or a suspension is its label, a new cell that takes its
 // captures over. A capture's labels go to the label's parameter, where the
@@ -106,21 +107,21 @@ void idr::ConstantOp::getFlowEdges(FlowEdges &edges) { edges.constant(getValue()
 
 // A constructor value is new, built of the fields given; it has no hole,
 // which only a cell has.
-void idr::ConOp::getFlowEdges(FlowEdges &edges) {
+void idr::DataConOp::getFlowEdges(FlowEdges &edges) {
   Value value = getResult();
   builtEdges(value, getDataType(), getTag(), getFieldsMutable(), {}, edges);
   edges.fresh(value);
 }
 
 // A read of a field gives what the field holds; the value is only read.
-void idr::FieldOp::getFlowEdges(FlowEdges &edges) {
+void idr::DataFieldOp::getFlowEdges(FlowEdges &edges) {
   FlowAnchor field =
       FlowAnchor::fieldOf(getDataType(), getTag(), static_cast<unsigned>(getIndex()));
   edges.flow(FlowPoint::partOf(getValue(), field), FlowPoint::of(getResult()));
 }
 
 // The tag is read, and nothing moves.
-void idr::TagOp::getFlowEdges(FlowEdges &) {}
+void idr::DataTagOp::getFlowEdges(FlowEdges &) {}
 
 // The value moves into the hole the destination writes.
 void idr::DestWriteOp::getFlowEdges(FlowEdges &edges) {
@@ -129,11 +130,11 @@ void idr::DestWriteOp::getFlowEdges(FlowEdges &edges) {
              FlowPoint::partOf(dest, FlowAnchor::holeOf(dest.getType())));
 }
 
-void idr::ClosureOp::getFlowEdges(FlowEdges &edges) { labelEdges(*this, edges); }
+void idr::FnClosureOp::getFlowEdges(FlowEdges &edges) { labelEdges(*this, edges); }
 
 // A suspension's label returns into the forced state of its type, the one
 // slot every force of a cell of that type reads.
-void idr::SuspendOp::getFlowEdges(FlowEdges &edges) {
+void idr::LazySuspendOp::getFlowEdges(FlowEdges &edges) {
   labelEdges(*this, edges);
   edges.unify(FlowPoint::result(getCalleeAttr(), 0),
               FlowPoint::partOf(getResult(), forcedOf(getType())));
@@ -141,18 +142,18 @@ void idr::SuspendOp::getFlowEdges(FlowEdges &edges) {
 
 // An evaluated suspension holds its value in its forced state and runs no
 // label.
-void idr::DelayOp::getFlowEdges(FlowEdges &edges) {
+void idr::LazyDelayOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowPoint::of(getValueMutable()), FlowPoint::partOf(getResult(), forcedOf(getType())));
   edges.fresh(getResult());
 }
 
 // A force reads the forced state of its cell.
-void idr::ForceOp::getFlowEdges(FlowEdges &edges) {
+void idr::LazyForceOp::getFlowEdges(FlowEdges &edges) {
   Value cell = getSuspension();
   edges.flow(FlowPoint::partOf(cell, forcedOf(cell.getType())), FlowPoint::of(getResult()));
 }
 
-void idr::ApplyOp::getFlowEdges(FlowEdges &edges) { edges.dispatch(*this); }
+void idr::FnApplyOp::getFlowEdges(FlowEdges &edges) { edges.dispatch(*this); }
 
 // A guard that passes its operand on takes it over and gives it.
 void idr::CheckNonzeroOp::getFlowEdges(FlowEdges &edges) {
@@ -168,89 +169,14 @@ void idr::NatToBigOp::getFlowEdges(FlowEdges &edges) {
   handOn(getOperation()->getOpOperand(0), getOperation()->getResult(0), edges);
 }
 
-void idr::LinEnterOp::getFlowEdges(FlowEdges &edges) {
+// A cast into or out of a linear position: the value goes on.
+void idr::LinCastOp::getFlowEdges(FlowEdges &edges) {
   handOn(getValueMutable(), getResult(), edges);
 }
-
-void idr::LinUseOp::getFlowEdges(FlowEdges &edges) {
-  handOn(getLinearMutable(), getResult(), edges);
-}
-
-// A reference of its own to the value it reads, which keeps its own.
-void idr::DupOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowPoint::of(getValue()), FlowPoint::of(getResult()));
-}
-
-void idr::DropOp::getFlowEdges(FlowEdges &edges) { edges.release(getValueMutable()); }
-
-// A view: the value read, which keeps its reference.
-void idr::BorrowOp::getFlowEdges(FlowEdges &edges) {
-  edges.flow(FlowPoint::of(getValue()), FlowPoint::of(getResult()));
-}
-
-// The reference is given up here, and the result is a value no flow
-// explains: what the operand alone reached is forgotten.
-void idr::ShareOp::getFlowEdges(FlowEdges &edges) { edges.release(getValueMutable()); }
-
-// A new heap cell: no other value holds a reference to it.
-void idr::CellNewOp::getFlowEdges(FlowEdges &edges) { edges.fresh(getCell()); }
 
 // A cell in the frame is the frame's, lent to whatever holds it: it is new
 // to no one, so nothing is declared, and its box is not fresh.
 void idr::CellStackOp::getFlowEdges(FlowEdges &) {}
-
-// The token's cell is given up here, and the cell made of it, or a new one
-// for a token of no cell, is new.
-void idr::CellRecycleOp::getFlowEdges(FlowEdges &edges) {
-  edges.release(getTokenMutable());
-  edges.fresh(getCell());
-}
-
-// The box is its cell, so the init takes the cell over and the box is new
-// exactly when the cell was; each field given moves into its field of the
-// box.
-void idr::CellInitOp::getFlowEdges(FlowEdges &edges) {
-  Value box = getResult();
-  edges.flow(FlowPoint::of(getCellMutable()), FlowPoint::of(box));
-  builtEdges(box, getDataType(), getTag(), getFieldsMutable(), getHoles(), edges);
-}
-
-// The box is taken over: its cell becomes the token, and each field moves
-// out of it.
-void idr::TakeOp::getFlowEdges(FlowEdges &edges) {
-  OpOperand &value = getValueMutable();
-  DataType data = getDataType();
-  Tag tag = getTag();
-  edges.flow(FlowPoint::of(value), FlowPoint::of(getToken()));
-  for (auto [i, field] : llvm::enumerate(getFields()))
-    edges.flow(FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(i))),
-               FlowPoint::of(Value(field)));
-}
-
-// The value, which has no cell of its own, is taken over: each field moves
-// out of it. A constructor none of whose fields holds a reference (none at
-// all, or only words) moves no reference on, so its value is given up
-// whole: else the unpack would read as a borrow of it.
-void idr::UnpackOp::getFlowEdges(FlowEdges &edges) {
-  OpOperand &value = getValueMutable();
-  DataType data = getDataType();
-  Tag tag = getTag();
-  if (llvm::none_of(getFields(), [](Value field) { return holdsReferences(field.getType()); }))
-    edges.release(value);
-  for (auto [i, field] : llvm::enumerate(getFields()))
-    edges.flow(FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(i))),
-               FlowPoint::of(Value(field)));
-}
-
-// An allocation's buffer is plain: the reference the result takes is new.
-void idr::OwnAdoptOp::getFlowEdges(FlowEdges &edges) { edges.fresh(getResult()); }
-
-// The reference goes to the store that writes the result, which no edge
-// follows; the result is the value, read.
-void idr::OwnGiveOp::getFlowEdges(FlowEdges &edges) {
-  edges.release(getValueMutable());
-  edges.flow(FlowPoint::of(getValue()), FlowPoint::of(getResult()));
-}
 
 //===----------------------------------------------------------------------===//
 // Upstream's ops

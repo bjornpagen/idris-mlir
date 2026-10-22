@@ -7,6 +7,7 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 
+#include <cstdint>
 #include <optional>
 
 using namespace mlir;
@@ -133,7 +134,7 @@ unsigned scopeDepth(Region *region) {
 }
 
 Group build(RewriterBase &rewriter, Location loc, TypeRange results, ArrayRef<Member> members,
-            ArrayRef<Edge> edges, Origin origin) {
+            ArrayRef<Edge> edges) {
   unsigned count = static_cast<unsigned>(members.size());
   unsigned scope = scopeDepth(rewriter.getInsertionBlock()->getParent());
   std::optional<SmallVector<unsigned>> depths = depthsOf(count, edges);
@@ -168,10 +169,6 @@ Group build(RewriterBase &rewriter, Location loc, TypeRange results, ArrayRef<Me
       Builder::place(group.targets, m, op, static_cast<unsigned>(index));
       Region &into = op->getRegion(static_cast<unsigned>(index) + 1);
       moveMember(rewriter, members[m], into, depths ? 0 : tokens, scope);
-      if (!depths && origin == Origin::MayDiverge) {
-        rewriter.setInsertionPointToStart(&into.front());
-        MayLoopOp::create(rewriter, loc);
-      }
     }
     group.body = body;
     rewriter.setInsertionPointToEnd(body);
@@ -209,11 +206,11 @@ void jumpAll(RewriterBase &rewriter, const Targets &targets, ArrayRef<Site> site
 } // namespace
 
 Operation *wrap(RewriterBase &rewriter, Operation *place, ArrayRef<Member> members,
-                ArrayRef<Site> sites, Origin origin) {
+                ArrayRef<Site> sites) {
   OpBuilder::InsertionGuard guard(rewriter);
   SmallVector<Edge> edges = edgesOf(members, sites);
   rewriter.setInsertionPoint(place);
-  Group group = build(rewriter, place->getLoc(), place->getResultTypes(), members, edges, origin);
+  Group group = build(rewriter, place->getLoc(), place->getResultTypes(), members, edges);
   rewriter.replaceAllUsesWith(place->getResults(), group.outermost->getResults());
   rewriter.moveOpBefore(place, group.body, group.body->end());
   rewriter.setInsertionPointToEnd(group.body);
@@ -222,7 +219,7 @@ Operation *wrap(RewriterBase &rewriter, Operation *place, ArrayRef<Member> membe
   return group.outermost;
 }
 
-LoopOp loopSelf(RewriterBase &rewriter, FuncOp fn, ArrayRef<Site> calls, Origin origin) {
+LoopOp loopSelf(RewriterBase &rewriter, FuncOp fn, ArrayRef<Site> calls) {
   OpBuilder::InsertionGuard guard(rewriter);
   Region &body = fn.getBody();
   Block *old = &body.front();
@@ -240,8 +237,7 @@ LoopOp loopSelf(RewriterBase &rewriter, FuncOp fn, ArrayRef<Site> calls, Origin 
   SmallVector<Edge> edges(calls.size(), Edge{0, 0});
   Member member{&moved, binders, /*firstLevel=*/0};
   rewriter.setInsertionPointToEnd(entry);
-  Group group =
-      build(rewriter, fn.getLoc(), fn.getFunctionType().getResults(), member, edges, origin);
+  Group group = build(rewriter, fn.getLoc(), fn.getFunctionType().getResults(), member, edges);
   // The body enters with the parameters and the function's own index
   // variables.
   IndexArgsAttr levels =
