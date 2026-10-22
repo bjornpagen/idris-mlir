@@ -149,10 +149,11 @@ inline DataType familyOf(mlir::Type type) {
 }
 
 // What `data`'s in-place promise asks of a value it rebuilds, read off the
-// family's declaration (promisedClaim): its own cells unshared, or
-// everything it reaches where one of them holds a buffer, which only a
-// buffer nothing else holds lets bufferization write; nothing where the
-// family promises nothing, or for a value of no family.
+// family's declaration (promisedClaim): its own cells unshared, whatever
+// they hold. That reaches the storage of every buffer one of them holds
+// and never the buffer's elements, so bufferization writes the buffer in
+// place while what it holds may be shared; nothing where the family
+// promises nothing, or for a value of no family.
 inline std::optional<Asks> promisedAsks(DataType data) {
   return data ? asksFor(data.promisedClaim()) : std::nullopt;
 }

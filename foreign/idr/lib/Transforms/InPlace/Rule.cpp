@@ -122,10 +122,13 @@ bool handsOn(OpOperand &use) {
 }
 
 // What the boundary grades a parameter of `type` with, owed by every caller
-// whatever the body does with it: what its family's promise asks, where
-// the parameter is of quantity 1 and the family's values carry the promise
-// by construction (an own cell holds a buffer, which is written in place);
-// nothing for any other, whose promise binds where a cell is rebuilt.
+// whatever the body does with it: what its family's promise asks, its own
+// cells unshared, which reaches the storage of a buffer one of them holds
+// and never its elements. The held buffer says only when that is owed,
+// not how much: a parameter of quantity 1 whose family's own cells hold a
+// buffer carries the promise by construction, since bufferization writes
+// the buffer in place; any other is graded nothing here, its promise
+// binding where a cell is rebuilt.
 std::optional<Asks> boundaryAsks(Type type) {
   DataType data = ownership::familyOf(type);
   if (!data || usesOf(type) != Uses::Once ||
