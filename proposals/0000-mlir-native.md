@@ -4100,6 +4100,19 @@ C137.
   constants gets its constant from the built node's range at once, as
   the folds did before C191. The ops C198 never folds are a generated
   list the rewrite graph reads once, when it is built, and skips.
+- **C206** (2026-10-22; L04's finding on L18's seam). `data.reindex` is
+  one op: the same value at new indices. Whether it does work at run
+  time is a fact of its two types, since inline or in a cell is layout,
+  computed when a type is made and never the frontend's choice, and the
+  frontend, which writes the reindex, cannot know it. Where the two
+  layouts agree it is free; where they differ it re-packs, and a re-pack
+  into a cell acquires memory, an effect that follows from its types.
+  `DataType` answers "these two share a run-time layout" from its stored
+  layout facts. The tail decider looks through a free reindex and stops
+  at a re-pack, which is work after the call. The lowering re-packs
+  instead of failing to convert, since no representation limit refuses
+  a program. It is not `ResultCarriesOperand`, whose check and readers
+  mean a change of grade alone.
 
 ## 4. Open: the owner's decisions, in order
 
