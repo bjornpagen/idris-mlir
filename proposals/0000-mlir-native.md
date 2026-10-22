@@ -2147,6 +2147,14 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   refuse it; and a document's account of a deletion as done. A stale
   sentence that describes a deleted thing as present is a remaining
   reference and goes.
+- **C252** (2026-10-22; L13's handoff on INT-10). A constant closure,
+  `#idr.closure<@callee, [captures]>` (C++ `ClosureAttr`), is declared in
+  `Spec/Closures/Declarations.idr` beside the closure type, which no
+  specification declared after the TableGen cutover though four readers
+  name it. It holds the callee and its captures and no index terms: a
+  closure at terms stays `idr.fn.closure`, as its fold already says, so
+  a constant's check asks that the callee binds no index variables and
+  reads no terms.
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
