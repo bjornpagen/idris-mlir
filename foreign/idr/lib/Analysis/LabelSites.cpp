@@ -150,7 +150,7 @@ void Reading::add(Operation *op, const FlowEdges::Edge &edge) {
         out.statements.sources.push_back({out.points.of(move.to), out.points.labelOf(move.label)});
       },
       [](const FlowEdges::Fresh &) {}, [](const FlowEdges::Release &) {},
-      [](const FlowEdges::Overwrite &) {},
+      [](const FlowEdges::Overwrite &) {}, [](const FlowEdges::Fill &) {},
       [&](const FlowEdges::Constant &move) {
         expand(move.part, move.to, unrestricted(move.to.getType()));
       },
