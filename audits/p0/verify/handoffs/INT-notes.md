@@ -136,3 +136,17 @@ handoff lists its own wiring.
 - **Caps (L16az/L16bb).** `Growth/Caps.idr` must call `capTemplate`
   (L16bb, in flight); build the frontend only at a commit where it does,
   or capped shape parameters lose their caps.
+
+- **INT-5 (2026-10-22, 0ff91c65 → 384796f3).** The specification builds
+  end to end on stock Idris 0.8.0 (85 modules, 93-196 s, 361 MiB peak;
+  `Spec.idr` alone 113 s, the op-name distinctness proof); specgen
+  writes its 60 outputs and the manifest in 0.56 s, deterministically,
+  and they are committed (384796f3). knowngen builds and its check
+  passes; all four libraries install. The checker, frontend and harness
+  are paused while the checker's parser is rewritten (D119). Two
+  runaways were found and fixed: Atom's `kept` (986 s, 18.7 GiB) and
+  specgen's unary `decimal` (621 s, 20.8 GiB). Open for the owner's
+  machines: the bootstrap (it clears the Idris submodule's lag behind
+  its pin, 1c630e67c against 89ba32eb, which `make spec` refuses), and
+  `tools/dialects.sh generate` for the Linalg, Bufferization and SCF
+  modules, which needs the C++ idris-mlir-tblgen.
