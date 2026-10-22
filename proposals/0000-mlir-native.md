@@ -3855,6 +3855,19 @@ C137.
   that operand's lifetime or one it encloses, which the verifier checks
   locally; a constructor states one its scoped fields all outlive. The
   decide step sets them all.
+- **C182** (2026-10-21; L09's finding; completes C179 and C181). The
+  values an op makes include those its regions bind: a control op's
+  `outers` holds one lifetime per scoped value it makes, paired off the
+  types, in this order: its scoped results, in result order; for
+  `data.match`, each scoped entering position (the scrutinee, then each
+  forwarded value), one entry covering every region, since each region
+  binds position k at the same hold, refined only in its family; for
+  `lit.match`, the scrutinee's position its default binds; for `join`
+  and `loop`, each scoped parameter of each region, in region and
+  parameter order. The count is checked equal to the number of scoped
+  values. Deriving a bound value's lifetime from what entered it would
+  walk through nested matches, which C181 rules out, and one entry for
+  several values would narrow them, which C179 rules out.
 
 ## 4. Open: the owner's decisions, in order
 
