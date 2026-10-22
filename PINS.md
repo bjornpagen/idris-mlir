@@ -2223,3 +2223,36 @@ which the top-level CMake configure gate reads.
 - upstream: nothing is sent (**Idris**); no diff under `upstream/`
   records it, and a re-sync reads the change from its commit
   (`git show 31013e5a -- compiler/idris`)
+
+## parse-tree
+
+- symptom: at the pinned Idris, every rule of the parser builds the
+  syntax (`PTerm`, clauses, declarations) directly, and some rules read
+  back from the terms already built what the grammar decided (a hole
+  written as an argument, a `with` clause written `_`, the hole names, the
+  clauses a definition groups, whether a `let` in a `do` block binds a
+  variable). The fork inherited it
+- sites: compiler/idris/src/Idris/Syntax/Tree.idr (`Form`, `NodeOf`,
+  `Id`, `Builder`, `Build`, `make`, `ParseTree`, `frozenTree`, the
+  decoder), Idris/Parser.idr and Parser/Rule/Source.idr (every rule makes
+  nodes), Parser/Source.idr, Libraries/Text/Parser/Core.idr (`parseWith`
+  takes an initial state; `updateState` replaces `act`), Idris/Syntax.idr
+  (`Directive'`, over its `%start` expression), Idris/Parser/Let.idr
+- workaround: none; the fork's own code (499cbacf), the flat parse tree
+  of 0011's O5 (D44, C216): the parser makes a typed node for each form it
+  parses, in the parse's state, so a branch that fails drops its nodes;
+  children come before parents, each node holding its location, its
+  children's ids and how many nodes it unfolds to, and a subtree the
+  grammar writes twice is one node. Once the parse is done the nodes are
+  frozen into columns and decoded once into what Desugar reads; what
+  upstream read back from built terms is read from the tree
+- cost: the parser is no longer upstream's grammar with changes a
+  three-way merge carries forward: at each re-sync, about weekly as the
+  Idris pin moves (D25), upstream's grammar changes are re-expressed as
+  nodes and decoder cases, not merged. That is the cost D44 accepted in
+  taking 0011 whole into the fork. Its time and memory are unmeasured
+  (not built or run, D56)
+- retire: never; the fork's representation
+- upstream: nothing is sent (**Idris**); no diff under `upstream/`
+  records it, and a re-sync reads the change from its commit
+  (`git show 499cbacf -- compiler/idris`)
