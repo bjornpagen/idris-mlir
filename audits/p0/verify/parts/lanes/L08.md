@@ -4,7 +4,7 @@
 `foreign/idr/include/idr/Analysis/Ownership.h`,
 `foreign/idr/include/idr/Analysis/Ownership/`,
 `foreign/idr/lib/Transforms/Ownership/{Exclusive,Commit,Knots}.cpp`,
-`foreign/idr/lib/IR/Verify/Knots.cpp`,
+`foreign/idr/lib/IR/Verify/Local.cpp`,
 `foreign/idr/lib/Transforms/InPlace/`,
 `foreign/idr/include/idr/Transforms/InPlace.h`.
 

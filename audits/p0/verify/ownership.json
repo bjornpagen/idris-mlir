@@ -170,7 +170,6 @@
     "foreign/idr/lib/Transforms/Ownership/Exclusive.cpp",
     "foreign/idr/lib/Transforms/Ownership/Commit.cpp",
     "foreign/idr/lib/Transforms/Ownership/Knots.cpp",
-    "foreign/idr/lib/IR/Verify/Knots.cpp",
     "foreign/idr/lib/Transforms/InPlace/",
     "foreign/idr/include/idr/Transforms/InPlace.h",
     "foreign/idr/include/idr/Transforms/InPlace/",
