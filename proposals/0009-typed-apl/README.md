@@ -2,6 +2,13 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0009: a typed array language, MLIR first
 
+**Amended by P0 (2026-10-21, `../0000-mlir-native.md`).** The plain-Idris
+layer (stage 7) and the array cutover are absorbed into the cutover
+(D44, D42, D43): the generating set's ops mean upstream's tensor and
+linalg, shapes are index terms (D60), a linear array's read gives back
+the array (C150), and the libraries are reshaped by hard cutover where
+the use case calls for it (D101).
+
 **Status (2026-10-19, read at 77eaa5b1):** open. Stage 1 is built (the
 pipeline cutover c7aa7b62 and 5d5f3312, reshaped by the representation
 waves bfdcac70 and 2c042728; their last texts at 484d6403) and has run

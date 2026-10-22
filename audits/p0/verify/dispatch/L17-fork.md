@@ -12,6 +12,8 @@ Code: `compiler/idris/src/` (`Core/Termination/`, `TTImp/Elab/`, the
 automatic search, `Core/TTC.idr`, `Core/Context.idr`,
 `Libraries/Text/Bounded.idr`); `third_party/Idris2/` read only.
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C15, C55, C58, C122, C127.
+
 **Contract:** the fork is ours and Idris's compiler; it never imports
 `IdrisMLIR.*`; a trust the frontend takes in it is stated in it (D68);
 every count classified and none deciding acceptance (D53 to D55, C66,

@@ -2,6 +2,14 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0018: `Fin n` as a machine word where its bound is static
 
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** D1 changes
+(C22, D48): layout is not the frontend's. A family of numeral shape
+(`Fin`, `Elem`, `LNat`, a user's Peano type) has a number layout computed
+from its type, a fixed width at a closed bound and a natural otherwise,
+one function of the type; the frontend states only Idris's facts. The
+rest stands, read through P0's families (D48) and specialization by
+layout class (D58).
+
 **Status:** open, nothing built (2026-10-19). Every stage is
 **AFTER-SELF**: `make self` needs none of it. F0 is next, on the first
 stage-1 self run; F1 needs nothing else, since `Natness` is built
@@ -452,8 +460,9 @@ pays.
 
 ## 8. Decisions
 
-- D1. **(c):** the frontend decides the representation. There is no
-  dialect type and no seeded range (§6.1).
+- D1. **Amended by P0 (C22, D48):** a numeral family's number layout is
+  one function of its type, computed from the family, never the
+  frontend's choice; there is no dialect type and no seeded range.
 - D2. **Byte classes:** u8, u16, u32, u64, else a natural. No exact
   widths (§5).
 - D3. **F1's scope is the top of a position.** That means instance

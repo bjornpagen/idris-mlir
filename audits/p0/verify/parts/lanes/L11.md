@@ -6,12 +6,14 @@
 
 **Read deeply:** AGENTS.md's proper-tail-calls and frame-limited bullets
 (sizes, strict hosts, endings); in §2 D23, D33, D35 to D38, D64 to D66,
-D77, D78, D80, D81, D89, D91, D92, D108; in §3 C5, C15, C16, C98, C101.
+D77, D78, D80, D81, D89, D91, D92, D108; in §3 C5, C15, C16, C98, C100 (the heap as one span aligned to 4 GiB, address space only), C101.
 Your verification report `audits/p0/verify/L11-runtime.md` in full. The
 audits: 18 whole; 19 (how the harness reads endings); wave1 §5.11;
 proposal 0017; proposal 0007 §3, §4. Code: `runtime/` whole,
 `runtime/idris_rt.h`, snmalloc's `pal_posix.h`, `commitrange.h`,
 `pagemap.h`; `tests/heap-region/`; `lib/Driver/`.
+
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C40, C54, C60, C61, C102, C103, C104.
 
 **Contract:** every ending has its own exit status from one generated
 table (D37): 0 returned, `n` for `exit n` (outside 0 to 255 a crash at

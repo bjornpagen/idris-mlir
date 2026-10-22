@@ -2,6 +2,13 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0015: the relational core, `mlir-relational`
 
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** R1 and R2 are
+absorbed into the cutover in `libs/mlir-relational` (D44). R4's part in
+P0 is the union-find the elaborator's O7 consumes, kept in the fork
+(D107); the shared e-graph engine written once in Idris over a sparse
+tensor library (D85 to D87) was reversed by D107, and the optimizer's
+e-graph is a C++ pass over MLIR's ops (C153).
+
 ## 0. Status
 
 **Parked, AFTER-SELF; nothing is built** (*read* at 77eaa5b1,

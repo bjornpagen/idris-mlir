@@ -13,6 +13,8 @@ C114 and every decision naming the C++. Your verification report
 wave1 §5.5; 21; 13. Code: `include/idr/Support/`, `lib/Support/`,
 `unittests/`, the C++ standard and flags in the CMake files.
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C9, C15, C34, C41, C43, C52, C53, C54, C70, C76, C99, C110, C119, C120, C121.
+
 **Contract:** our C++ is concept-constrained templates, monomorphized;
 a type-erased callback only where an upstream API takes one; every fact
 knowable when the compiler is built a compile-time constant; a choice a

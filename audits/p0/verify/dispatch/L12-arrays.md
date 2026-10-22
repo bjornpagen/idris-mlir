@@ -17,6 +17,8 @@ wave1 §5.2. Code: `IdrArrayOps.td`, `Transforms/Bufferize/`,
 structure loops, `Nests.cpp`, array conversion, `libs/mlir-array/`;
 upstream bufferization at the pin; `upstream/27-*`.
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C26, C27, C28, C105, C106, C107, C108, C109.
+
 **Contract:** destination-style `tabulate` and the generating set as
 tensor values before bufferization, meaning upstream's tensor and linalg
 (D42, D43); shapes as index terms (D60); a linear array's read gives

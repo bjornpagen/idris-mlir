@@ -2,6 +2,11 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # Each fact once
 
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** Absorbed whole
+into the cutover (D44): its 62 items are placed on the cutover's lanes
+(C136, `audits/p0/verify/L16-frontend.md` §2.9) and written in it, not
+after self-hosting.
+
 **Status (2026-10-19):** queued after self-hosting (the owner, 2026-10-19:
 "the entire improvement and dedupe of rederiving stuff over and over
 again ... deferred to after self hosting"). It starts once `make self`

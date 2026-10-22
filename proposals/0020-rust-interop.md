@@ -2,6 +2,15 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # Proposal 0020: Rust as the one foreign world
 
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** Rust is its own
+foreign runtime, reached as IO, never optimized as Rust, and it never
+calls back into Idris (D92). So §8.8's callbacks and the cycle check they
+feed, and the Rust-specific counting (the run-time move test), are
+withdrawn; when a Rust object's destructor runs and whether a by-value
+move is decided at compile time are settled when this proposal is
+taken, not in P0. Where this file still speaks of callbacks or the
+world (§9, §11.2), D92 and D20 govern.
+
 **Status (2026-10-19, read at 77eaa5b1):** parked; nothing is built.
 The tree has no `foreign/rust/`, `libs/mlir-rust/`,
 `IDRIS_RT_KIND_FOREIGN`, `!idr.foreign` or `idr.rust.call`. Every stage
@@ -575,7 +584,7 @@ the forms are decided here:
 - **Neither is folded by the compiler**: the value is the shim's, and no
   primitive has an implementation in Idris (§14).
 
-### 8.8 Callbacks
+### 8.8 Callbacks (withdrawn by P0's D92: Rust never calls back into Idris)
 
 A parameter `impl Fn(A) -> B`, `impl FnMut`, `impl FnOnce`, `&dyn Fn`,
 `Box<dyn Fn>` or `F: Fn(A) -> B` takes an Idris function `A -> IO B`

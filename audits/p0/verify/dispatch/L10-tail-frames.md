@@ -16,6 +16,8 @@ whole; 13; 18 (the stack); 21; `design/match-and-counting.md` §8; wave1
 `runtime/Start/{Runner,Entry}.cpp`, `upstream/30-aarch64-sibcall-callee-pop/`;
 LLVM's `musttail` and `tailcc` rules.
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C20, C38, C43, C72, C99.
+
 **Contract:** a call in tail position never grows the stack; tail
 position is one fact on `idr.call` (C139), decided once, verified by
 `idr::tail::verify(CallOp)` which you declare in `include/idr/IR/Tail.h`

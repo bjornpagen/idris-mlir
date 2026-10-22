@@ -12,6 +12,8 @@ parser), `unknowns.md` U28; `audits/p0/design/idris-linear-check.md`;
 Code: `libs/mlir-array/`, `libs/mlir-linear/`
 (`Linear/String/Iterator.idr`).
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C14, C18, C21, C26, C29, C36, C72, C87, C92, C96.
+
 **Contract:** the libraries are reshaped by hard cutover wherever the use
 case calls for it (D101); a primitive of `libs/` means what `runtime/`
 says, or for the array library's generating set the dialect op the

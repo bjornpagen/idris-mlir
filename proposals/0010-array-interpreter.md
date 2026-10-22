@@ -2,6 +2,12 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0010: the array interpreter
 
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** A0's reader side
+(interned names, the term arena as columns, in the fork) is absorbed
+into the cutover (D44; P0 §7's F6). A1 onward stay as written,
+AFTER-SELF; static normalization (the closed call folded) is still not
+built.
+
 **Status (2026-10-19, read at 77eaa5b1):** open, nothing built: no term
 arena, hash-consing, wavefront machine or `repl` in `compiler/src`,
 `compiler/idris/src` or `foreign/idr`. Every stage is **AFTER-SELF**.

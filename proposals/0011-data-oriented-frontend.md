@@ -2,6 +2,14 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0011: a data-oriented, array-first frontend
 
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** Absorbed whole
+into the cutover with O6 and O7 (D44, D69), written by its lanes rather
+than after self-hosting; each stage's bar is still a ratio measured once
+`make self` holds. The rule that skips a stage under 5% of the
+frontend's wall goes (C142): "whole" means every stage. O7's
+meta-to-meta unification keeps its own union-find in the fork (D107),
+with no shared e-graph engine.
+
 **Status (2026-10-19, read at 77eaa5b1):** open; nothing of its own is
 built, and §0 lists what it now stands on. Every stage is
 **AFTER-SELF**. **First step: O0**, the record, taken from the
@@ -112,8 +120,7 @@ fork installs) is 0013's T0.
 frontend, on one commit with 0013's T0, on every target that runs
 `make self`, with the
 stage-0 run beside it as no target. Every threshold below is a ratio to
-O0. A stage whose phase is under 5% of the frontend's wall at O0 is not
-taken. Reasons: emission has changed since both records, so they measure
+O0. Every stage is taken (C142). Reasons: emission has changed since both records, so they measure
 a printer that is gone; and the stages change the self-hosted frontend,
 since on Chez a representation buys memory and little else (§6).
 
@@ -389,8 +396,8 @@ D3.
 
 ## 10. Decisions
 
-- D0. Measure first (O0), as §2 says; a phase under 5% of the frontend's
-  wall at O0 gets no stage.
+- D0. Measure first (O0), as §2 says; every stage is taken, its bar a
+  ratio to O0 (C142 struck the 5% skip).
 - D1. No bare ids: a frozen table's id is a `Fin` of its extent, read
   with no guard through base's primitive array read; a growing table's id
   is an opaque typed identity read by lookup; an `extra` slice is decoded

@@ -11,6 +11,8 @@ today; its two bugs). The audits: 15 whole; 16 whole; 17 (TTC); synthesis
 D whole; proposals 0003, 0010 (A0), 0011, 0015 (R1, R2). Code:
 `compiler/src/IdrisMLIR/` whole, the fork's TTC.
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C22, C50, C55, C56, C57, C74, C122, C123, C124, C136.
+
 **Contract:** Idris does types, MLIR does programs (D109): the frontend
 checks what the compiler accepts, monomorphises and decides
 representations; it reads checked TT and each fact once, at the boundary,

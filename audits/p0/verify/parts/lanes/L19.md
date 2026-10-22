@@ -12,6 +12,8 @@ The audits: 19 whole; 20 whole; synthesis E whole; 21 (fixtures). Code:
 the harness, `tests/` run scripts, `Transforms/Expect/`, `tests/Fuzz.idr`,
 `tests/spec/` and `tests/build` (untracked, stopping the runner).
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C12, C16, C41, C60, C78, C90, C135, C138.
+
 **Contract:** tests check behaviour (exit status, artifacts, the property
 a pass guarantees), never pass names, clone numbers, function order or
 SSA names (AGENTS.md); idr-expect generated from Idris records; the

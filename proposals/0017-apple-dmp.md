@@ -2,6 +2,15 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0017: the heap as Apple's data memory-dependent prefetcher reads it
 
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** D9 comes free
+(C104): a recursion's depth lives on D31's frame stacks, whose chunks
+come from the runtime's allocator, and the native stack is small and
+computed when the program is built (D32, D35), so D9's 64 GiB stack, its
+1 GiB budget and P1 go. The heap is one span aligned to 4 GiB, reserved
+as address space only, shrinking under `ulimit -v` (C100); only the
+alignment matters to the prefetcher. What stands here: the native
+measurement P0 (this proposal's own P0, not the cutover) and D10.
+
 **Status:** open (2026-10-19).
 - **Built:** the heap's first block is one 4 GiB region aligned to 4 GiB
   (efe0ad36; `HeapConfig` in `runtime/Alloc/Cells.cpp`), past which
@@ -375,35 +384,11 @@ Each of these is measured (§3) or read (§1):
   records that had one. *Decision.* Reason: the DMP is part of what an
   arm64 number means, and the bench's spread already reaches 15%
   (`bench/README.md`).
-- **D9. The stack's top lies in the heap's region,** answering the
-  audit's question (a).
-  - **The design.** The stack is one reservation of 64 GiB
-    (`runtime/Start/Runner.cpp`), far larger than the region, so the
-    region cannot hold it; its top can. The runner
-    (`idris_rt_run_on_stack`, which programs and the compiler's tools
-    share) makes one reservation of the alternate signal stack, the guard,
-    the stack and the heap's region, laid out so that the region is
-    4 GiB-aligned and the stack's top `budget` bytes lie at its bottom:
-    frames within `budget` of the top share the heap's region, and deeper
-    frames lie below it. Before `fn` runs, it gives the rest of the region
-    to `HeapConfig`, which takes it instead of reserving its own; a heap
-    whose first allocation came earlier keeps its own region, as today
-    (*conjecture*: none does, which P1's test checks).
-  - **The budget** (*decision*): 1 GiB, which leaves the heap 3 GiB of
-    the region. A recursion a million calls deep with frames of up to a
-    kilobyte stays inside it. Revisited if P1's census finds a bench
-    program whose live heap lies between 3 and 4 GiB.
-  - **Why.** §3: 1.20 to 1.28× on a deep recursion whose frames hold heap
-    references. The position control rules out any other cause: the same
-    data and code, with only the stack's region changed. Those are the
-    references a non-tail recursion over a structure keeps (the element
-    its caller conses or adds on the way back). `foldlM` over a million
-    numbers is one such recursion, a million calls deep
-    (`tests/foldlm-deep`).
-  - **The cost.** The heap's room in the region shrinks by the budget, so
-    a heap of 3 to 4 GiB grows out of the region a gibibyte sooner.
-  - **Target neutrality.** It is address-space layout, the same code on
-    every target. The stack cells inside frames need nothing further.
+- **D9. Withdrawn by the cutover (C104).** Frames that hold heap
+  references are D31's frame-stack chunks, allocated by the runtime in the
+  heap's span, and the native stack holds only the acyclic depth (D32), so
+  the stack-beside-the-heap layout, its 1 GiB budget and its 64 GiB
+  reservation have nothing left to place.
 - **D10. References from the heap to static data stay crossing,**
   answering the audit's question (b). *Decision.* Reasons:
   - **Room.** The executable's region cannot hold the heap. On arm64 macOS
@@ -485,7 +470,7 @@ serve every target (D3).
 | Stage | Needs | Content | Discriminator, and the test that shows it |
 |---|---|---|---|
 | P0 | nothing | §3's pairs rebuilt from its method (array, list, tree, stack) with GoFetch's activation test (one load per line, a 100 µs wait, a dependent chain through the targets), committed with their results as a record, `bench/records/<date>-dmp-darwin-arm64/`, since a directory of `bench/` is a benchmark. GoFetch and Augury snapshotted under `sources/papers/` (`chen-2024-gofetch`, `vicarte-2022-augury`), a download the owner approves when it is made. Run natively on the arm64 macOS build machine (M2 Max), on an M3 or later when one is at hand, and on x86_64 Linux once 0002's machine exists | **Native arm64:** raw, low tags and top byte within 5% of each other; the region-test failures ≥ 1.5× at work 64; the stack pair ≥ 1.1× at work 32; the activation test at L2 latency for raw, low tag and top byte and at DRAM latency for no reference, bit 48 and the next region. **x86:** every key within 5% of raw. **If native arm64 shows no effect,** every DMP claim in §3 and §5 is withdrawn and recorded so: D1 and D2 stand on their other reasons, D3 on its own measurement (it gains on every target), and D9 is dropped |
-| P1 | P0 native | D9 in the runtime: the runner's one reservation, the stack's top `budget` bytes in the heap's region, the rest of the region to `HeapConfig`. The census D10 and D2 read: live references at a program's end by the target's place (heap, stack, static), and every cell's placement against the 64-byte line, in a test build | `tests/heap-region` extended: frames within the budget and the first cells share bits 32 and up, and a frame deeper than the budget does not. The stack pair of P0 linked against the runtime (`idris_rt_run_on_stack`, cells from the runtime's allocator) reads as the mmap version did. The census run on the bench set, D10's and D2's rules applied, and the record committed |
+| P1 | — | withdrawn by the cutover (C104): D9 comes free from D31's frame stacks | — |
 | P2 **AFTER-SELF** | 0009's stages 3 and 4 (structured gathers) | D3: a prefetch of the element `d` ahead in a structured loop that follows references or indices | Benchmarks, each a `bench/` directory with its `main.c`: a map with work over an `Array` of boxes, a gather through an array of `Fin n` into a table, and a fold over a cons of boxes for the control. Each must run ≥ 1.3× faster on every target, and no bench program may run > 2% slower (0009 D35). An `idr-expect` property `prefetched=@f`, stated as a pass guarantee as `fused` is, shows the pass fired |
 | P3 **AFTER-SELF** | 0012's F2 to F4 | D4: 0012's gates read on every target with D8's calibration; id columns carry P2's prefetch | 0012's own fixtures and gates |
 | P4 **AFTER-SELF** | 0006's G1 | D8 in `bench/run.sh --record` on arm64 | the calibration line in each arm64 record; a record without the DMP is marked and not compared |

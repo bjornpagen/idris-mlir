@@ -92,9 +92,11 @@ P0 (the native DMP measurement on this machine) and P1, 0019's N1.
   rederivation chains, monomorphized C++26, our own solvers only where
   upstream cannot, in a layer of their own. The research (waves 1 and
   2, the syntheses, the designs) is in `audits/p0/`; the proposal is the
-  decision document, being settled with the owner. It absorbs 0003 and
-  0011 whole, 0010's A0, 0015's R1 and R2 (D44) and 0009's array
-  cutover (D43).
+  decision document, settled with the owner (rulings D1 to D109); its
+  cutover runs on `main` from `audits/p0/verify/`. It absorbs 0003 and
+  0011 whole, 0010's A0, 0015's R1 and R2 and R4's union-find (D44,
+  D107) and 0009's array cutover (D43), and amends 0017 (C104), 0018
+  (C22) and 0020 (D92).
 - [0001](0001-self-host.md): **self-hosting, `make self` finishes,** and
   nothing else. S1 and S2 are done, and S3's frontend half; S3's
   pipeline half is next (above, step 2), then S4 and S5.

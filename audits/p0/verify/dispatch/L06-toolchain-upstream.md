@@ -4,7 +4,7 @@
 `toolchain.lock.json`, `.gitmodules`.
 
 **Read deeply:** P0 §7 S0 and S3; in §2 D25, D56, D76, D91, D99 and every
-ruling naming a patch; in §3 C33, C35, C93, C149. AGENTS.md's "Upstream
+ruling naming a patch (D18, D25, D43, D82); in §3 C5, C10, C33, C35, C43, C93, C99 (the recursion families shown to scale with the input, the rest left for INT's stack painting; D33's owed patch for `upstream/10-recursive-attribute-parser`), C100 (two snmalloc patches), C108 (27 and 64, under D43), C114 (two patches), C120, C149; not C48's (superseded by D98) or C151's (only if measured). AGENTS.md's "Upstream
 and pins" and "The targets and the build" (the weekly fast-forward).
 Your verification report `audits/p0/verify/L06-dispositions.md`, and
 `L09-control-flow.md` and `L14-analyses.md` for PR #166688 and the
@@ -13,6 +13,8 @@ call-graph patch. `upstream/README.md`;
 `audits/p0/design/idris-linear-check.md`; `design/perf-sources.md` U8.
 Code: `tools/bootstrap.sh` whole, `tools/patches.sh`,
 `tools/verify-pins.sh`, `tools/upstream-idris/`, every `upstream/*/`.
+
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C11, C12, C22, C27, C53, C59.
 
 **Contract:** every dependency fast-forwarded to its latest (LLVM and
 MLIR, modular and Idris 2 at main; every other to its latest release),

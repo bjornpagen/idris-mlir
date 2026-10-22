@@ -17,6 +17,8 @@ audits: 07 whole; 08 §6; synthesis B (the markings), C; wave1 §5.10;
 `Transforms/Demand/Demand.cpp`, `compiler/src/IdrisMLIR/Registry/Entry.idr`
 (`InPlaceType`), `libs/mlir-linear/`, `Transforms/Ownership/Specialize.cpp`.
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C36, C39, C91.
+
 **Contract:** the in-place promise is a rule read off the program before
 counting (a function that takes apart a quantity-1 parameter of an
 `in_place` type and builds one from it rebuilds it), obliging

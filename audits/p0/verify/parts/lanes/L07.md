@@ -15,6 +15,8 @@ D88 to D90, D102; in §3 C1, C34, C144, C152. Your verification report
 §6, §7, §9. Code: `Transforms/Ownership/`, `Analysis/Ownership/`,
 `Conversion/Counting.cpp`, `runtime/Rc/`.
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C36, C37, C38, C39, C41, C87, C88, C89, C96, C107.
+
 **Contract:** counting runs on the grades already in types; reuse
 recycles a dead cell into a construction of its size; the in-place
 promise is decided before the optimizer and honoured here (D24, D70: the

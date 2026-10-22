@@ -23,6 +23,8 @@ synthesis A (ODS), D (builders). Code: every `.td` of ours,
 `include/idr/IR/CMakeLists.txt`, the `Makefile`'s targets,
 `compiler/src/IdrisMLIR/{Dialect,Syntax,Encoding,Registry}/`.
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C50, C51, C75, C76, C77, C78, C121, C137.
+
 **Contract:** the specification is the one source of the `idr` dialect:
 ops, types, attributes, effects, rules and tables, invariants proven by
 Idris's types; every `.td` of ours is its output, committed with its

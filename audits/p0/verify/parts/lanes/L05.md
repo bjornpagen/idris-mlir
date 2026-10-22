@@ -20,6 +20,8 @@ C140, C143 to C148. Your verification report
 `IR/Lifetimes.h`, `Analysis/Ownership.h`, `lib/IR/Verify/Owned*.cpp`,
 `Transforms/Stack/Stack.cpp`, `runtime/Alloc/Cells.cpp`.
 
+**Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C39, C41, C45, C79, C83, C85, C86, C90.
+
 **Contract:** the grade is `!idr.graded<uses, hold, T>` (D88, D90): uses
 on every type, hold only on types that hold references, `static` with no
 sharing field; a word used freely is the bare type (C143); no hold is
