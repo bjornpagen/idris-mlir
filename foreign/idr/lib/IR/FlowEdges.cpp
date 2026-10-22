@@ -176,6 +176,11 @@ void FlowEdges::overwrite(Value of, FlowAnchor anchor) {
     add({Overwrite{{of, anchor}}, Carriers::of(*type) & Carrier::Reference});
 }
 
+void FlowEdges::fill(Value of, FlowAnchor anchor) {
+  if (std::optional<Type> type = anchor.slot())
+    add({Fill{{of, anchor}}, Carriers::of(*type) & Carrier::Reference});
+}
+
 void FlowEdges::constant(Attribute part, Value to) {
   add({Constant{part, to}, Carriers::of(to.getType())});
 }

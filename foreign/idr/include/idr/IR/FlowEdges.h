@@ -290,9 +290,16 @@ public:
   // released as the op writes the place: a write of an element over the
   // one it replaces (idr.array.set, memref.store), which the lowering
   // releases. An op that writes memory that exists before it declares
-  // this, or is the exchange of that memory (an update, a memo cell's
-  // force), or writes a hole.
+  // this, or a fill where the place held nothing, or is the exchange of
+  // that memory (an update, a memo cell's force), or writes a hole.
   struct Overwrite {
+    FlowPlace::Part place;
+  };
+  // `place`, a part of a value that exists before the op, held nothing, and
+  // the op's write fills it: slots a take left (idr.array.place,
+  // idr.array.put_back), or a buffer no write reached yet. Nothing is
+  // released.
+  struct Fill {
     FlowPlace::Part place;
   };
   // `to` holds the constant `part`, each part where its carrier says: a
@@ -309,7 +316,7 @@ public:
   };
 
   struct Edge {
-    std::variant<Flow, Unify, Source, Fresh, Release, Overwrite, Constant, Dispatch> move;
+    std::variant<Flow, Unify, Source, Fresh, Release, Overwrite, Fill, Constant, Dispatch> move;
     Carriers carriers;
 
     bool carries(Carrier carrier) const { return carriers.contains(carrier); }
@@ -332,6 +339,8 @@ public:
   void release(mlir::OpOperand &use);
   // What `anchor` holds of `of` is released as the op writes it.
   void overwrite(mlir::Value of, FlowAnchor anchor);
+  // What `anchor` holds of `of` is nothing until the op writes it.
+  void fill(mlir::Value of, FlowAnchor anchor);
   // `to` holds the constant `part`.
   void constant(mlir::Attribute part, mlir::Value to);
   // `call` runs the labels its callee holds.

@@ -140,12 +140,13 @@ bool ownValue(Operation *op, Value value) {
 namespace {
 
 // A write of a reference into memory that exists before `op` says what the
-// place held: the write releases it (an Overwrite of the same value), or
-// `op` ends the region of the exchange of that memory (its parent moved
-// the contents out into the region and holds it as a yield target: an
-// update, a memo cell's force), or the memory is a hole, written once
-// through its linear destination. A cell's init writes the box it makes,
-// and a yield of a tabulation the arrays its parent makes: new memory.
+// place held: the write releases it (an Overwrite of the same value), or it
+// held nothing (a Fill of it), or `op` ends the region of the exchange of
+// that memory (its parent moved the contents out into the region and holds
+// it as a yield target: an update, a memo cell's force), or the memory is a
+// hole, written once through its linear destination. A cell's init writes
+// the box it makes, and a yield of a tabulation the arrays its parent
+// makes: new memory.
 LogicalResult writesPartKnown(Operation *op, Value place, const FlowEdges &edges) {
   Operation *parent = op->getParentOp();
   bool terminator = op->hasTrait<OpTrait::IsTerminator>();
@@ -158,10 +159,11 @@ LogicalResult writesPartKnown(Operation *op, Value place, const FlowEdges &edges
   auto exchange = dyn_cast_or_null<YieldTargetsOpInterface>(parent);
   if (terminator && exchange && llvm::is_contained(exchange.getYieldTargets(), place))
     return success();
-  bool released = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &other) {
+  bool said = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &other) {
     return idr::match(
         other.move,
         [&](const FlowEdges::Overwrite &over) { return over.place.of == place; },
+        [&](const FlowEdges::Fill &fill) { return fill.place.of == place; },
         [](const FlowEdges::Flow &) { return false; },
         [](const FlowEdges::Unify &) { return false; },
         [](const FlowEdges::Source &) { return false; },
@@ -170,10 +172,11 @@ LogicalResult writesPartKnown(Operation *op, Value place, const FlowEdges &edges
         [](const FlowEdges::Constant &) { return false; },
         [](const FlowEdges::Dispatch &) { return false; });
   });
-  if (released)
+  if (said)
     return success();
   return op->emitOpError("writes a reference into memory that exists before it, and declares "
-                         "neither what the place held (an overwrite) nor the exchange it ends");
+                         "neither what the place held (an overwrite, or a fill of a place that "
+                         "held nothing) nor the exchange it ends");
 }
 
 // A move of a reference into `to`: only a move into a part writes memory,
@@ -275,6 +278,9 @@ LogicalResult idr::verifyFlowEdges(Operation *op) {
         [&](const FlowEdges::Overwrite &move) -> LogicalResult {
           return toPart(move.place) ? success() : unnamed();
         },
+        [&](const FlowEdges::Fill &move) -> LogicalResult {
+          return toPart(move.place) ? success() : unnamed();
+        },
         [&](const FlowEdges::Constant &move) -> LogicalResult {
           return ownValue(op, move.to) ? success() : unnamed();
         },
@@ -341,7 +347,7 @@ LogicalResult idr::verifyFlowOf(Operation *op) {
         [&](const FlowEdges::Source &move) { covered.give(move.to); },
         [&](const FlowEdges::Fresh &move) { covered.give(move.to); },
         [&](const FlowEdges::Release &move) { covered.take(*move.use); },
-        [](const FlowEdges::Overwrite &) {},
+        [](const FlowEdges::Overwrite &) {}, [](const FlowEdges::Fill &) {},
         [&](const FlowEdges::Constant &move) { covered.give(move.to); },
         [](const FlowEdges::Dispatch &) {});
   for (OpOperand &use : op->getOpOperands())
