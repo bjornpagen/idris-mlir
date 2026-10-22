@@ -3675,6 +3675,17 @@ C137.
   the rest itself (L21). So patch 78 reaches nothing and goes, its report
   kept as a submission (AGENTS.md: a patch goes when nothing in the tree
   reaches the bug).
+- **C166** (2026-10-21; L14's seam between L16's Emit and L09's
+  specification; extends C19 and D105 to `idr.lit.match`). A literal
+  match's default region binds the scrutinee refined to the complement of
+  its keys, at the scrutinee's type; a literal case binds nothing, since
+  its value is its key, a constant. The refinement is read off the
+  binding's place (the op's keys), never held again. The natural `0`
+  versus successor match needs it: the predecessor is computed from the
+  value proved non-zero, so `nat.pred` is total and ranges see `≥ 1`
+  there; a default that binds nothing loses that fact, as an unrefined
+  case did before D105. L09's specification takes Emit's form; L05's
+  `sourceOf` maps the binding to its scrutinee.
 
 ## 4. Open: the owner's decisions, in order
 
