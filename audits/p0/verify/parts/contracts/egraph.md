@@ -107,3 +107,15 @@ replacement.
 names its range function, `table::rangeBy<&::idr::numeric::InlineArith<fn>::inferRanges>`
 for our ops with an inline meaning, and `std::nullopt` otherwise. A
 rule-built node's range is read from it, and no op is made (C191).
+
+## Constants and folding (C198, C205)
+
+- A node's integer constant is the single value of its range
+  (`Facts::integer()`, an `APInt`); `OperandFacts::constant` returns only
+  an attribute some op already holds. A built node over constants is its
+  integer at once. Its attribute is made only at write-back, as an
+  `arith.constant` word or splat.
+- The ops whose fold would ask the compiling machine's libm are one
+  generated list, `generated::NeverFolded` (`table::OpList<...>`, printed
+  into `Rewrites.h.inc` from each admitted record's `folding` field), read
+  into a TypeID set once per pass instance; the graph never folds them.

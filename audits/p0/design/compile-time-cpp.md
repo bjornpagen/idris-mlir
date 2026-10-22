@@ -18,7 +18,7 @@ typecheck host both have it (C9); sealing is restated on D48's families,
 whose identity is their content; and the grade's laws are on D88's axes
 (uses times hold, hold `static` or a release with a uniqueness), proven
 in the specification and reaching the C++ as its tables (C76). Line
-references below (for example `matchPin`) are to the tree this document
+references below are to the tree this document
 was written against, before the cutover.
 
 **The rulings this design answers to** (2026-10-21, quoted from
@@ -296,74 +296,11 @@ It is ours rather than upstream's for three reasons:
    - Our keys are dense enums, so the table we need is SearchableTables'
      simplest case.
 
-### 2.2 The generator itself, under the same rules
+### 2.2 The generator
 
-The generator runs at T0, but its own C++ follows §1.2:
-- **Parse once into a typed model** (14 TD1; Modular's
-  `driver-tblgen`, 5.4 F18).
-  - A `Model` is built from the `RecordKeeper` through the wrappers:
-    `Operator`, `EnumInfo`, `AttrOrTypeDef`, `SideEffect`, `Pass`.
-  - Every cross-record invariant is checked once, in `Model::validate`,
-    with a `PrintFatalError` that names the records involved.
-  - Each generator is a function of `(const Model &, raw_ostream &)`.
-    Today `read` runs once per generator (14 T39).
-- **Classify records by TableGen class, never by name or spelling.** It
-  reads traits through `Operator::getTraits()`, not a raw walk (14 T05),
-  and optionality through `isOptional()` (14 T32). These go:
-  - the C++ class-name strings `"::idr::NoReturn"` and
-    `"::idr::PerformsIO"` (14 T06);
-  - the storage-type spellings (14 T10, T33);
-  - `Idr_TagParameter` matched by name (14 T34);
-  - the `"predicate"` attribute rule (14 T15).
-- **No fact lives inside the generator.**
-  - The ABI kind rows are hand-written C++ today: `OperandKind` and
-    `ResultKind`, with their spellings and C patterns (*read*:
-    `idris-mlir-tblgen.cpp:716-780`). A string search maps a record's
-    `abiKind` string back to them (`:790`, `kindSpelled`).
-  - They become records (02 E72; 12 CV-54; 14 T12, T13). A misspelt
-    kind is then an undefined record, which TableGen itself refuses.
-- **The Idris output is a typed expression tree, printed once** (14 TD9,
-  T04). Neither `formatv` templates with `{0}` holes nor a `char` arity
-  (14 T11) survive; arity becomes `enum class Arity { Single, Optional,
-  Variadic }`.
-- **Templates and sums in place of erasure.**
-  - `std::function` (14 T49) becomes a template or a deducing-`this`
-    lambda.
-  - `get_if` validators over `Written<T>` (14 T31) become one `match`,
-    or `std::expected`.
-  - Parallel vectors become one struct (14 T21).
-- **Its errors are tested.** Each refusal gets a fixture: a bad record
-  that must fail with the error that names it (5.4 F18). That is a test
-  of behaviour (the build fails, and says why), not of output text.
-
-```cpp
-// tools/idris-mlir-tblgen/Model.h (sketch): the records, read once, typed.
-namespace idr::tblgen {
-enum class Arity : std::uint8_t { Single, Optional, Variadic };
-
-struct OpRecord {
-  const mlir::tblgen::Operator *op;   // the wrapper owns the reading
-  std::uint16_t index;                // dense, in record order: OpIndex's value
-  llvm::SmallVector<const llvm::Record *, 2> families;  // classified by isSubClassOf
-  EffectRow effects;                  // from SideEffect decorators and the effect records
-  StageSet stages;                    // from the family's `stages` field
-};
-
-struct Model {
-  std::vector<OpRecord> ops;               // OpIndex order
-  std::vector<EnumRecord> enums;           // dense-from-zero, checked in validate()
-  std::vector<ResourceRecord> resources;   // parents before children, checked
-  std::vector<StepRecord> pipeline;        // the stage chain, checked
-  static Model read(const llvm::RecordKeeper &);   // PrintFatalError on any bad record
-};
-
-// One emitter per view. Each reads the model; none reads a record.
-template <class View>
-concept Emitter = requires(const Model &m, llvm::raw_ostream &os) {
-  { View::emit(m, os) } -> std::same_as<void>;
-};
-}  // namespace idr::tblgen
-```
+The generator is the specification's, in Idris (D16, D51). Its C++
+model, written here for a hand TableGen backend, was deleted by C121:
+no TableGen backend of ours is written by hand.
 
 ### 2.3 The fact families
 
@@ -1228,19 +1165,6 @@ constexpr decltype(auto) match(V &&v, Fs &&...fs) {
       (void)((v.index() == I ? (r.emplace(cases(*std::get_if<I>(&v))), true) : false) || ...);
       return *std::move(r);
     }
-  }(std::make_index_sequence<std::variant_size_v<std::remove_cvref_t<V>>>{});
-}
-
-// pin-only: the enumerating expansion statement (P1306R5, Clang 23 partial: enumerating
-// and destructuring forms work, iterating does not; 5.5 F1). Drops the optional.
-// Not compiled: the host clang has no `template for`.
-template <class V, class... Fs>
-constexpr decltype(auto) matchPin(V &&v, Fs &&...fs) {
-  Cases<std::decay_t<Fs>...> cases{std::forward<Fs>(fs)...};
-  return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
-    template for (constexpr std::size_t i : {I...})
-      if (v.index() == i) return cases(*std::get_if<i>(&v));
-    std::unreachable();
   }(std::make_index_sequence<std::variant_size_v<std::remove_cvref_t<V>>>{});
 }
 }  // namespace idr
