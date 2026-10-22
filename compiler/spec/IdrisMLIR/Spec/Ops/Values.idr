@@ -134,6 +134,13 @@ comparisonClosed = MkClosed
   , doc = brief "a comparison of strings or bigs"
   }
 
+||| The comparison as the frontend writes it, typed, where the ops hold it.
+public export
+comparisonEnum : ImportedEnum
+comparisonEnum = imported comparisonClosed
+  (MkSource ("IdrisMLIR" ::: ["Spec", "Ops", "Values"]) "Comparison"
+            ("IdrisMLIR" ::: ["Spec", "Ops", "Values"]) "comparisonClosed")
+
 ------------------------------------------------------------------------------
 -- idr.constant
 ------------------------------------------------------------------------------

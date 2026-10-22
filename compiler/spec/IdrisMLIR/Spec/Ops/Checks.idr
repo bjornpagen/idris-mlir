@@ -62,7 +62,9 @@ siteAttr = MkAttrDef
   }
 
 causeSlot : Attr
-causeSlot = property "cause" (EnumProperty (enumDef causeClosed))
+causeSlot = property "cause" (EnumProperty (imported causeClosed
+  (MkSource ("IdrisMLIR" ::: ["Spec", "Runtime", "Endings"]) "Cause"
+            ("IdrisMLIR" ::: ["Spec", "Runtime", "Endings"]) "causeClosed")))
 
 siteSlot : Attr
 siteSlot = attr "site" (OurAttr (SomeAttr siteAttr))

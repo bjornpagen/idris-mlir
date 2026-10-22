@@ -236,7 +236,9 @@ handleFileTime = MkOp
   , mnemonic = "handle.file_time"
   , ins = [single "times" i64]
   , outs = made
-  , attrs = [property "kind" (EnumProperty (enumDef fileTimeFieldClosed))]
+  , attrs = [property "kind" (EnumProperty (imported fileTimeFieldClosed
+      (MkSource ("IdrisMLIR" ::: ["Spec", "Ops", "Platform"]) "FileTimeField"
+                ("IdrisMLIR" ::: ["Spec", "Ops", "Platform"]) "fileTimeFieldClosed")))]
   , regions = []
   , traits = []
   , interfaces = []
@@ -442,7 +444,9 @@ clock = MkOp
   , mnemonic = "io.clock"
   , ins = []
   , outs = made
-  , attrs = [property "kind" (EnumProperty (enumDef clockKindClosed))]
+  , attrs = [property "kind" (EnumProperty (imported clockKindClosed
+      (MkSource ("IdrisMLIR" ::: ["Spec", "Runtime", "Clocks"]) "ClockKind"
+                ("IdrisMLIR" ::: ["Spec", "Runtime", "Clocks"]) "clockKindClosed")))]
   , regions = []
   , traits = []
   , interfaces = []
