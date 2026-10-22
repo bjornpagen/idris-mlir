@@ -15,6 +15,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
 #include <variant>
 
 namespace idr::tail::trmc {
@@ -41,7 +42,7 @@ struct Outer {
 struct Part {
   ReadBack read;
 };
-using Making = std::variant<std::monostate, Hole, Outer, Part>;
+using Maker = std::variant<Hole, Outer, Part>;
 
 // A step of the rewrite still to take: the value operand `position` of
 // `terminator` gives at a tail, read off it when the step is taken, since
@@ -77,7 +78,8 @@ private:
   // One step of give: what it gives goes where it goes, the steps it
   // leads to pushed on `work`.
   mlir::LogicalResult take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &work);
-  Making makerOf(mlir::Value value) const;
+  // The step of a context that made `value`, if one did.
+  std::optional<Maker> makerOf(mlir::Value value) const;
   // Rebuilds the hole's cell with its field a hole: its destination.
   mlir::Value makeHole(const Into &hole);
   // The ops after `producer` in its block, its terminator aside, moved

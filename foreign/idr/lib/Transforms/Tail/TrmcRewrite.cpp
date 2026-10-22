@@ -75,25 +75,24 @@ Context mapped(const Context &context, const IRMapping &mapping) {
   return to;
 }
 
-Making Rewrite::makerOf(Value value) const {
+std::optional<Maker> Rewrite::makerOf(Value value) const {
+  using Found = std::optional<Maker>;
   for (const Context &context : contexts) {
     if (context.hole.built == value)
       return Hole{context.hole};
-    for (const Step &step : context.rest) {
-      Making found = idr::match(
-          step, [](const Carry &) -> Making { return std::monostate{}; },
-          [&](const Into &into) -> Making {
-            return into.built == value ? Making(Outer{into}) : Making(std::monostate{});
-          },
-          [&](const ReadBack &read) -> Making {
-            return read.part == value ? Making(Part{read}) : Making(std::monostate{});
-          },
-          [](const Forward &) -> Making { return std::monostate{}; });
-      if (found.index() != 0)
+    for (const Step &step : context.rest)
+      if (Found found = idr::match(
+              step, [](const Carry &) -> Found { return std::nullopt; },
+              [&](const Into &into) -> Found {
+                return into.built == value ? Found(Outer{into}) : std::nullopt;
+              },
+              [&](const ReadBack &read) -> Found {
+                return read.part == value ? Found(Part{read}) : std::nullopt;
+              },
+              [](const Forward &) -> Found { return std::nullopt; }))
         return found;
-    }
   }
-  return std::monostate{};
+  return std::nullopt;
 }
 
 Value Rewrite::makeHole(const Into &hole) {
@@ -247,30 +246,32 @@ LogicalResult Rewrite::take(const GiveAt &step, llvm::SmallVectorImpl<Pending> &
   // context to the hole: an outer cell or a part read back holds the inner
   // value, built with it; the first cell whose field a call or a rejoin
   // gives is the hole.
-  if (makerOf(source).index() != 0) {
-    Value inner = source;
+  if (std::optional<Maker> made = makerOf(source)) {
     std::optional<Into> hole;
     while (!hole) {
-      bool stuck = idr::match(
-          makerOf(inner), [](std::monostate) { return true; },
-          [&](const Hole &h) {
+      // The inner value the step holds, or none where it is the hole.
+      std::optional<Value> inner = idr::match(
+          *made,
+          [&](const Hole &h) -> std::optional<Value> {
             hole = h.into;
-            return false;
+            return std::nullopt;
           },
-          [&](const Outer &o) {
+          [&](const Outer &o) -> std::optional<Value> {
             Value next = throughCarries(o.into.op->getOperand(o.into.operand));
             Operation *maker = next.getDefiningOp();
-            if (maker && maker->hasTrait<OpTrait::PropagateControlFlowBreak>())
+            if (maker && maker->hasTrait<OpTrait::PropagateControlFlowBreak>()) {
               hole = o.into;
-            else
-              inner = next;
-            return false;
+              return std::nullopt;
+            }
+            return next;
           },
-          [&](const Part &p) {
-            inner = throughCarries(p.read.op->getOperand(0));
-            return false;
+          [&](const Part &p) -> std::optional<Value> {
+            return throughCarries(p.read.op->getOperand(0));
           });
-      if (stuck)
+      if (hole)
+        break;
+      made = makerOf(*inner);
+      if (!made)
         return terminator->emitOpError(
             "internal error: idr-trmc: a context whose cells end in no hole");
     }
