@@ -69,6 +69,11 @@ struct Weighed {
 };
 using Verdict = std::variant<Keep, Leaf, Weighed>;
 
+// The leaf rule, the one place it is written: a body that calls nothing,
+// of at most kLeafSize ops, is a leaf; none for any other. The verdict and
+// leaf inlining both ask it.
+std::optional<Leaf> leafOf(const Body &body);
+
 // The verdict of `callee` at a call from `caller`, read off the final
 // graph (its component, its call sites), its body and what kind of copy
 // it is (its `copy`).

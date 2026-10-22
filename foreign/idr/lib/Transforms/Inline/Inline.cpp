@@ -69,9 +69,15 @@ Verdict verdictOf(const solver::ProgramGraph &graph, solver::FunctionId caller,
     return Keep{Reason::Step};
   if (graph.sccOf(caller) == graph.sccOf(callee) && copy != CopyKind::Beta)
     return Keep{Reason::Cycle};
+  if (std::optional<Leaf> leaf = leafOf(body))
+    return *leaf;
+  return Weighed{body.size, graph.callSites(callee)};
+}
+
+std::optional<Leaf> leafOf(const Body &body) {
   if (body.calls == Calls::None && body.size <= kLeafSize)
     return Leaf{};
-  return Weighed{body.size, graph.callSites(callee)};
+  return std::nullopt;
 }
 
 Profitability::Profitability(const solver::ProgramGraph &graph)
@@ -133,8 +139,7 @@ struct InlineLeaves : impl::IdrInlineLeavesBase<InlineLeaves> {
       if (!known)
         continue;
       const Body &body = schedule.summaryOf(*callee)->body;
-      if (body.calls != Calls::None || body.size > kLeafSize ||
-          fitsCap(size, body.size) == Fit::Over)
+      if (!leafOf(body) || fitsCap(size, body.size) == Fit::Over)
         continue;
       FuncOp fn = known->fn;
       (void)support::perform<InlineAction>(call, [&] {
