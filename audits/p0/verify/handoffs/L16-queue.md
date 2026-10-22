@@ -37,3 +37,21 @@ them (2026-10-22). Each item names the type that would carry the fact.
   sites, so the run-time `unsound` goes (`Frontend/Finite.idr:172-194`).
 - D112: the internal errors left in `Growth/`, `Translate/Closed.idr` and
   `Frontend/Finite.idr`.
+
+## From L16cc (C228 and D112 in the term and Emit modules)
+
+- `Translate/Shapes.idr:375`: `witnessTerm` still builds the old extent
+  form; `AxisAt` carries its array's `ArrayType r` and the axis as a
+  `Fin r` (a compile break until done).
+- C228's remaining four Emit checks (`Bodies` about :692, :701, :729,
+  `Tensors` :214): a lambda's result type, an application's function
+  type and a force's operand type, which Idris's checker knows from
+  context but the translation does not keep where it builds the term. The
+  translation works against an expected type (checking mode), and
+  `etaExpand`/`applyMaker` carry a result type, so the core term's values
+  are typed by their scope.
+- Internal errors kept in `Terms.idr` (446, 1379, 1494: held implementation
+  values read twice; 1773, 1875 and `Choices.idr:88`: the family table;
+  1784: two readings of a constructor's fields) and `Choices.idr` (453,
+  468: a dispatch's choice and held positions), each needing a type the
+  growth and instance modules hold.
