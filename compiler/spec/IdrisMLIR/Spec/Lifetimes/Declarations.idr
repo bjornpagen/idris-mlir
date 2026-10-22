@@ -25,7 +25,8 @@ import IdrisMLIR.Spec.Lifetimes.Kind
 import Data.Fin
 import Data.List.Elem
 import Data.List1
-import Data.So
+-- `op`'s automatic proof is searched where it is written.
+import public Data.So
 import Data.Vect
 
 %default total

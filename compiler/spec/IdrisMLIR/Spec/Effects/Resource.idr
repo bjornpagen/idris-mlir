@@ -25,7 +25,8 @@ import Data.List
 -- An effect's admission proof is searched where its op is written.
 import public Data.List.Elem
 import Data.List1
-import Data.Nat
+-- `Under`'s automatic proof is searched where it is written.
+import public Data.Nat
 import Decidable.Equality
 
 %default total

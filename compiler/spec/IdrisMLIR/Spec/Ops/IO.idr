@@ -20,7 +20,8 @@ import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Checks
 
 import Data.List1
-import Data.So
+-- `ioOp`'s and `bufferOp`'s automatic proofs are searched where they are written.
+import public Data.So
 import Data.Vect
 
 %default total

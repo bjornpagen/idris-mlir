@@ -28,7 +28,8 @@ import IdrisMLIR.Spec.Ops.Bigs
 import IdrisMLIR.Spec.Ops.Strings
 
 import Data.List1
-import Data.So
+-- `simplify`'s automatic proofs are searched where it is written.
+import public Data.So
 import Data.Vect
 
 %default total

@@ -45,7 +45,8 @@ import IdrisMLIR.Spec.Ops.Bigs
 
 import Data.Fin
 import Data.List1
-import Data.So
+-- `countingOp`'s automatic proof is searched where it is written.
+import public Data.So
 import Data.Vect
 
 %default total

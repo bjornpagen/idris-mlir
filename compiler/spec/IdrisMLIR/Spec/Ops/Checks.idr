@@ -27,7 +27,8 @@ import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 
 import Data.List1
-import Data.So
+-- `guardOp`'s automatic proof is searched where it is written.
+import public Data.So
 import Data.Vect
 
 %default total

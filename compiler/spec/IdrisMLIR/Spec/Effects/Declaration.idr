@@ -27,7 +27,8 @@ import Control.Relation
 import Data.Fin
 import Data.List
 import Data.List.Elem
-import Data.List.Quantifiers
+-- `GivenOn`'s, `MkPairConsequence`'s and `ByPair`'s automatic proofs are searched where they are written.
+import public Data.List.Quantifiers
 import Data.List1
 import Data.Nat
 

@@ -31,6 +31,8 @@ import IdrisMLIR.Spec.Families.Dialect
 
 import Data.Fin
 import Data.List1
+-- `captureOp`'s automatic proof is searched where it is written.
+import public Data.So
 import Data.Vect
 
 %default total

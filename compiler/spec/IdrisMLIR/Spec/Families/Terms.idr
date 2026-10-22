@@ -15,7 +15,8 @@
 module IdrisMLIR.Spec.Families.Terms
 
 import Data.Fin
-import Data.Nat
+-- `TSucc`'s automatic proof is searched where it is written.
+import public Data.Nat
 import Data.Vect
 
 %default total
