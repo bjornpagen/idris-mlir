@@ -57,7 +57,8 @@ void inWalkOrder(mlir::Region &body, Visit &&visit) {
           visit(result);
         return;
       }
-      for (mlir::Block &block : op->getRegion(stage.getNextRegion()))
+      // A stage counts regions as MLIR's int; a region's index is unsigned.
+      for (mlir::Block &block : op->getRegion(static_cast<unsigned>(stage.getNextRegion())))
         for (mlir::BlockArgument arg : block.getArguments())
           visit(mlir::Value(arg));
     });

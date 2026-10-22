@@ -37,22 +37,6 @@ enum class Sink : unsigned {};
 // argument), an anchor, or a function's result.
 using PointKey = std::variant<mlir::Value, FlowAnchor, FlowSource::Result>;
 
-// An anchor as a key of the points' table: its own hash and equality, and
-// as the two keys a table reserves, the elements of the two types
-// DenseMap reserves, which no shaped value has.
-struct AnchorKeys {
-  static FlowAnchor getEmptyKey() {
-    return FlowAnchor::elementsOf(llvm::DenseMapInfo<mlir::Type>::getEmptyKey());
-  }
-  static FlowAnchor getTombstoneKey() {
-    return FlowAnchor::elementsOf(llvm::DenseMapInfo<mlir::Type>::getTombstoneKey());
-  }
-  static unsigned getHashValue(const FlowAnchor &anchor) {
-    return llvm::DenseMapInfo<FlowAnchor>::getHashValue(anchor);
-  }
-  static bool isEqual(const FlowAnchor &a, const FlowAnchor &b) { return a == b; }
-};
-
 // The program's points. Every function's parameters and results are laid
 // out by its label when the points are made, a parameter's node also its
 // entry argument's; a value or an anchor gets its node where the reading
@@ -108,7 +92,7 @@ private:
   footprint::Vector<Laid> laid;
   // The one place a value or an anchor becomes its node.
   footprint::DenseMap<mlir::Value, Node> values;
-  footprint::DenseMap<FlowAnchor, Node, AnchorKeys> anchors;
+  footprint::DenseMap<FlowAnchor, Node> anchors;
   std::uint32_t count = 0;
 };
 

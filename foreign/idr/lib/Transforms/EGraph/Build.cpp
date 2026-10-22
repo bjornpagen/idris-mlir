@@ -74,9 +74,13 @@ bool staysPut(Operation *op) {
 Function::Function(idr::FuncOp fn, const Kinds &kinds, const CalleeFacts *callees)
     : fn(fn), kinds(kinds), callees(callees), numbering(fn),
       classOf(numbering.size(), std::optional<ClassId>()) {
-  std::uint64_t ops = 0;
-  fn.getBody().walk([&](Operation *) { ++ops; });
+  std::uint64_t ops = 0, read = 0;
+  fn.getBody().walk([&](Operation *op) {
+    ++ops;
+    read += op->getNumOperands();
+  });
   budget = std::uint64_t(nodesPerOp()) * std::max<std::uint64_t>(ops, 1);
+  heldOperands = read + budget * widestSide();
   slots.resize(64);
 }
 
@@ -107,19 +111,22 @@ void Function::build() {
   auto classesOf = [&](Operation *op) {
     SmallVector<ClassId, 4> operands;
     for (Value operand : op->getOperands())
-      operands.push_back(find(*classOf[numbering.at(operand)]));
+      operands.push_back(forest.find(*classOf[numbering.at(operand)]));
     return operands;
   };
 
   for (Operation &top : fn.getBody().front())
     top.walk([&](Operation *op, const WalkStage &stage) {
       if (!stage.isAfterAllRegions()) {
-        if (stage.getNextRegion() > 0)
+        // A walk's stage counts regions as MLIR's int; an op's region is
+        // found by its unsigned index.
+        auto next = static_cast<unsigned>(stage.getNextRegion());
+        if (next > 0)
           open.pop_back();
-        Region &region = op->getRegion(stage.getNextRegion());
+        mlir::Region &region = op->getRegion(next);
         RegionId parent = open.back();
         RegionId id = newRegion({parent, at(parent).depth + 1, &region, {}});
-        if (stage.getNextRegion() == 0)
+        if (next == 0)
           firstRegions.push_back(id);
         open.push_back(id);
         perRegion.emplace_back();
@@ -129,10 +136,11 @@ void Function::build() {
             classOf[numbering.at(arg)] = leaf(arg, id);
         return;
       }
-      std::optional<RegionId> regions;
+      // A region op's first region, the walk's numbering of its regions.
+      std::optional<RegionId> inner;
       if (op->getNumRegions() != 0) {
         open.pop_back();
-        regions = firstRegions.back();
+        inner = firstRegions.back();
         firstRegions.pop_back();
       }
       RegionId region = open.back();
@@ -187,11 +195,11 @@ void Function::build() {
       if (merged) {
         for (auto [mine, theirs] : llvm::zip_equal(op->getResults(), merged->into->getResults()))
           classOf[numbering.at(mine)] = *classOf[numbering.at(theirs)];
-        list.push_back({op, *merged, regions});
+        list.push_back({op, *merged, inner});
       } else {
         for (Value result : op->getResults())
           classOf[numbering.at(result)] = leaf(result, region);
-        list.push_back({op, Kept{}, regions});
+        list.push_back({op, Kept{}, inner});
       }
     });
 
@@ -232,9 +240,9 @@ void Function::sweep(RewriterBase &rewriter) {
 
 // The skeleton rules, in the order the specification lists them, each
 // asked of every skeleton op its root is, once the e-graph is extracted;
-// the first that decides an edit has it. In the second round a Rewrite is
+// the first that decides an edit has it. In the second turn a Rewrite is
 // kept as it is.
-void Function::decide(Round round) {
+void Function::decide(Turn turn) {
   OperandFacts facts(*this);
   for (Skeletal &entry : skeleton) {
     // A repeated read stays the earlier op's, and a function decides once.
@@ -245,7 +253,7 @@ void Function::decide(Round round) {
     if (!decided)
       continue;
     bool stands = match(
-        decided->edit, [&](const Rewrite &) { return round == Round::First; },
+        decided->edit, [&](const Rewrite &) { return turn == Turn::First; },
         [](const Forward &) { return true; }, [](const Take &) { return true; });
     if (stands)
       entry.fate = std::move(*decided);

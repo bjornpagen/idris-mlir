@@ -35,6 +35,24 @@ std::uint32_t nodesPerOp() { return generated::nodesPerOp; }
 
 namespace {
 
+consteval std::uint32_t widestOf() {
+  std::uint32_t widest = 0;
+  for (const table::Rule &rule : generated::rules)
+    for (std::uint32_t at = rule.rhs; at < rule.rhs + rule.rhsSize; ++at)
+      if (generated::patterns[at].kind == table::PatternKind::Node)
+        widest = std::max<std::uint32_t>(widest, generated::patterns[at].arity);
+  return widest;
+}
+
+} // namespace
+
+std::uint32_t widestSide() {
+  static constexpr std::uint32_t widest = widestOf();
+  return widest;
+}
+
+namespace {
+
 template <class... Rs>
 constexpr bool everySkeletonRule(table::RuleList<Rs...>) {
   return (SkeletonRule<Rs> && ...);

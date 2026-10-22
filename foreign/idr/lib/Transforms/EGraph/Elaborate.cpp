@@ -104,17 +104,7 @@ void Function::extract() {
       break;
   }
   for (std::uint32_t c = 0; c < classes.size(); ++c)
-    assert((leader[c].index() != c || best[c]) && "every class has a member priced");
-}
-
-bool Function::visible(RegionId placed, RegionId scope) const {
-  std::optional<RegionId> at = scope;
-  while (at && this->at(*at).depth >= this->at(placed).depth) {
-    if (*at == placed)
-      return true;
-    at = this->at(*at).parent;
-  }
-  return false;
+    assert((!forest.isRoot(ClassId(c)) || best[c]) && "every class has a member priced");
 }
 
 void Function::elaborate(RewriterBase &rewriter) {
@@ -253,7 +243,7 @@ void Function::elaborate(RewriterBase &rewriter) {
                 rewriter.replaceOp(op, results);
               },
               [&](const Take &take) {
-                Region &region = op->getRegion(take.region);
+                mlir::Region &region = op->getRegion(take.region);
                 Block &block = region.front();
                 SmallVector<Value, 2> arguments;
                 for (auto [argument, operand] :
@@ -266,8 +256,8 @@ void Function::elaborate(RewriterBase &rewriter) {
                 rewriter.inlineBlockBefore(&block, op, arguments);
                 stack.push_back({at(moved).skeleton, 0, scope, op});
               },
-              // The last round decides no Rewrite: its rewrites ran between
-              // the rounds.
+              // The last turn decides no Rewrite: its rewrites ran between
+              // the turns.
               [&](const Rewrite &) { pushRegions(entry); });
         });
   }

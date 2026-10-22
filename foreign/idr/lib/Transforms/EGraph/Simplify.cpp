@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-simplify: one function's e-graph per run, in two rounds at most
+// idr-simplify: one function's e-graph per run, in two turns at most
 // (EGraph.h), each admitted by its arena, and what the optimizer reads of
 // it.
 #include "idr/Transforms/EGraph/Engine.h"
@@ -34,7 +34,7 @@ namespace idr::egraph {
 
 using detail::Function;
 using detail::Kinds;
-using detail::Round;
+using detail::Turn;
 
 void CalleeFacts::publish(solver::FunctionId f, identities::Facts given) {
   if (f.index() >= facts.size().value()) {
@@ -120,7 +120,7 @@ class Erasures;
 struct RootTag {
   using Minter = Erasures;
 };
-// A root of the rewrites between the two rounds, by the order they run in.
+// A root of the rewrites between the two turns, by the order they run in.
 using Root = idr::Id<RootTag>;
 
 // Which roots the rewrites before them erased, so that each is skipped:
@@ -159,7 +159,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     return success();
   }
 
-  // Each round's e-graph is admitted alone and gone before the next is
+  // Each turn's e-graph is admitted alone and gone before the next is
   // made, so a run holds one arena at a time.
   void runOnOperation() override {
     idr::FuncOp fn = getOperation();
@@ -170,7 +170,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
       Admitted admitted(first);
       first.build();
       first.extract();
-      first.decide(idr::egraph::Round::First);
+      first.decide(idr::egraph::Turn::First);
       rewrites = first.rewrites();
       if (rewrites.empty()) {
         IRRewriter rewriter(&getContext());
@@ -193,7 +193,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     Admitted admitted(second);
     second.build();
     second.extract();
-    second.decide(idr::egraph::Round::Second);
+    second.decide(idr::egraph::Turn::Second);
     IRRewriter writer(&getContext());
     second.elaborate(writer);
     numWork += second.work();

@@ -57,9 +57,9 @@ unsigned at(Node node) { return llvm::to_underlying(node); }
 // Every point is a node of its own class before any edge.
 Graph::Graph(Read reading, MLIRContext *context) : read(std::move(reading)), context(context) {
   std::uint32_t n = read.points.size();
-  parents.reserve(n);
+  forest.reserve(n);
   for (std::uint32_t node = 0; node < n; ++node)
-    parents.push_back(Node(node));
+    forest.add(Node(node));
   classes.resize(n);
   take(read.statements);
   read.statements = Statements();
@@ -72,18 +72,6 @@ void Graph::take(const Statements &statements) {
     sources.emplace_back(source.at, source.label);
   for (const Statements::Linked &linked : statements.links)
     link(linked.from, linked.to, linked.how);
-}
-
-Node Graph::find(Node node) {
-  Node root = node;
-  while (parents[at(root)] != root)
-    root = parents[at(root)];
-  while (parents[at(node)] != root) {
-    Node next = parents[at(node)];
-    parents[at(node)] = root;
-    node = next;
-  }
-  return root;
 }
 
 Link linkOf(Carriers carriers) {
@@ -100,8 +88,8 @@ void Graph::link(Node from, Node to, Link how) {
 
 // An edge added now owes its target its source's set at the next wave.
 void Graph::include(Node from, Node to) {
-  Node source = find(from);
-  if (source == find(to))
+  Node source = forest.find(from);
+  if (source == forest.find(to))
     return;
   classes[at(source)].successors.push_back(to);
   added.emplace_back(from, to);
@@ -114,7 +102,7 @@ void Graph::include(Node from, Node to) {
 Node Graph::merge(Node x, Node y) {
   if (classes[at(x)].successors.size() < classes[at(y)].successors.size())
     std::swap(x, y);
-  parents[at(y)] = x;
+  forest.link(y, x);
   Class from = std::exchange(classes[at(y)], Class());
   llvm::append_range(classes[at(x)].successors, from.successors);
   return x;
@@ -128,7 +116,7 @@ Node Graph::merge(Node x, Node y) {
 void Graph::seed() {
   footprint::Vector<std::pair<Node, Label>> starts;
   for (const auto &[node, label] : sources)
-    starts.emplace_back(find(node), label);
+    starts.emplace_back(forest.find(node), label);
   sources = {};
   llvm::sort(starts);
   starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
@@ -152,19 +140,19 @@ footprint::Vector<Firing> Graph::wave() {
   // class that includes one taken. A class is taken in this wave when its
   // stamp is this wave's.
   ++waves;
-  takenIn.resize(parents.size(), 0);
-  vertexIn.resize(parents.size(), 0);
+  takenIn.resize(forest.size(), 0);
+  vertexIn.resize(forest.size(), 0);
   footprint::Vector<Node> order;
   auto take = [&](Node node) {
     ++steps;
-    Node root = find(node);
+    Node root = forest.find(node);
     if (takenIn[at(root)] == waves)
       return;
     takenIn[at(root)] = waves;
     vertexIn[at(root)] = static_cast<unsigned>(order.size());
     order.push_back(root);
   };
-  auto vertexOf = [&](Node node) { return vertexIn[at(find(node))]; };
+  auto vertexOf = [&](Node node) { return vertexIn[at(forest.find(node))]; };
   for (Node node : dirty)
     take(node);
   dirty.clear();
@@ -199,7 +187,7 @@ footprint::Vector<Firing> Graph::wave() {
   // sets grow in this one.
   footprint::Vector<footprint::Vector<SetId>> owed(n);
   for (auto [from, to] : added)
-    owed[vertexOf(to)].push_back(classes[at(find(from))].labels);
+    owed[vertexOf(to)].push_back(classes[at(forest.find(from))].labels);
   steps += added.size();
   added.clear();
   footprint::Vector<SetId> before(n);
@@ -236,7 +224,7 @@ footprint::Vector<Firing> Graph::wave() {
   footprint::Vector<Firing> firings;
   for (auto [d, run] : llvm::enumerate(runs)) {
     ++steps;
-    SetId set = classes[at(find(run.callee))].labels;
+    SetId set = classes[at(forest.find(run.callee))].labels;
     if (set == run.ran)
       continue;
     footprint::Vector<Label> unrun;
@@ -269,10 +257,10 @@ Solution Graph::solve(solver::Work &work) && {
   // Each set's attribute, made the first time a node holds the set.
   ArrayAttr empty = ArrayAttr::get(context, {});
   footprint::Vector<ArrayAttr> attrs(sets.size());
-  auto n = static_cast<unsigned>(parents.size());
+  auto n = static_cast<unsigned>(forest.size());
   footprint::Vector<ArrayAttr> labels(n, empty);
   for (unsigned node = 0; node < n; ++node) {
-    SetId set = classes[at(find(Node(node)))].labels;
+    SetId set = classes[at(forest.find(Node(node)))].labels;
     if (set == SetId{})
       continue;
     ArrayAttr &attr = attrs[llvm::to_underlying(set)];
@@ -294,9 +282,12 @@ Solution Graph::solve(solver::Work &work) && {
 Solution::Solution(Points points, Sinks sinks, footprint::Vector<ArrayAttr> labels, ArrayAttr empty)
     : points(std::move(points)), sinks(std::move(sinks)), labels(std::move(labels)), empty(empty) {}
 
-// A point is found where the reading named it, and never made here.
+// A point is found where the reading named it, and never made here: the
+// points' own reading of a source, which the member that finds a value's
+// node would hide.
 ArrayAttr Solution::labelsOf(const FlowSource &point) const {
-  return labelsAt(nodeOf(points, point, [&](const auto &key) { return points.find(key); }));
+  return labelsAt(
+      labels::nodeOf(points, point, [&](const auto &key) { return points.find(key); }));
 }
 
 ArrayAttr Solution::labelsOf(const PointKey &key) const {

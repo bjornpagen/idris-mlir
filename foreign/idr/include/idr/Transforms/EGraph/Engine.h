@@ -83,6 +83,7 @@
 #define IDR_TRANSFORMS_EGRAPH_ENGINE_H
 
 #include "idr/Analysis/Solver/Extraction.h"
+#include "idr/Analysis/Solver/UnionFind.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Changed.h"
 #include "idr/Support/Footprint.h"
@@ -306,9 +307,9 @@ struct Bindings {
 // The pass's generated kinds, found once per pass instance (Rules.cpp).
 Kinds makeKinds(mlir::MLIRContext *context);
 
-// Which round of a function's two: in the first every skeleton rule's edit
+// Which turn of a function's two: in the first every skeleton rule's edit
 // stands; in the second a Rewrite is kept as it is (OperandFacts' header).
-enum class Round : std::uint8_t { First, Second };
+enum class Turn : std::uint8_t { First, Second };
 
 // A function's e-graph holds at most this many nodes per op of its body, a
 // constant of the specification, so the bytes its arena takes are known
@@ -318,6 +319,11 @@ enum class Round : std::uint8_t { First, Second };
 // compiles more slowly and never differently. Read from the generated
 // tables, which only Rules.cpp includes.
 std::uint32_t nodesPerOp();
+
+// The most operands any node a rule's right side builds has, read off the
+// generated tables when the compiler is built: with the operands of the
+// function's own ops, it bounds the operands the graph's keys hold.
+std::uint32_t widestSide();
 
 // The hash-cons's slot: a keyed node and the hash it was keyed under, kept
 // so the table grows and deletes without hashing a node again.
@@ -329,28 +335,32 @@ struct Slot {
 // What one node costs the arena, every table it enters counted, a class
 // counted with the node that made it, since each node is made with a class
 // of its own: the node; its class; the class's slot in the union-find; the
-// node's class and its next member; its place among the operands and the
-// use that puts it on its class's users; the hash-cons's two slots at half
+// node's class and its next member; the hash-cons's two slots at half
 // full; the union a class may owe the rebuild before it is paid, and its
 // place on the rebuild's two lists of classes to repair; and extraction's
 // chosen member and price.
 inline constexpr std::uint64_t bytesPerNode =
     sizeof(Node) + sizeof(Class) + sizeof(ClassId) + sizeof(ClassId) +
-    sizeof(std::optional<NodeId>) + sizeof(ClassId) + sizeof(Use) + 2 * sizeof(Slot) +
-    sizeof(Owed) + 2 * sizeof(ClassId) + sizeof(std::optional<NodeId>) + sizeof(Cost);
+    sizeof(std::optional<NodeId>) + 2 * sizeof(Slot) + sizeof(Owed) + 2 * sizeof(ClassId) +
+    sizeof(std::optional<NodeId>) + sizeof(Cost);
+
+// What one operand a node's key holds costs the arena: its class, and the
+// use that puts the node on that class's users.
+inline constexpr std::uint64_t bytesPerOperand = sizeof(ClassId) + sizeof(Use);
 
 class Function {
 public:
   Function(idr::FuncOp fn, const Kinds &kinds, const CalleeFacts *callees);
 
-  // The bytes its arena may take, its budget's nodes: known once it is
-  // made, from the function alone, before its search starts.
-  std::uint64_t arena() const { return budget * bytesPerNode; }
+  // The bytes its arena may take, its budget's nodes and the most operands
+  // their keys hold: known once it is made, from the function alone, before
+  // its search starts.
+  std::uint64_t arena() const { return budget * bytesPerNode + heldOperands * bytesPerOperand; }
 
   // The walk, then the rounds of the rules until saturation or the budget.
   void build();
   void extract();
-  void decide(Round round);
+  void decide(Turn turn);
   // The roots a rule decided a Rewrite of, with the rule and its choice,
   // region by region in walk order.
   struct Pending {
@@ -364,7 +374,8 @@ public:
 
   // What a skeleton rule reads (OperandFacts), once the graph is settled.
   const Class &classOfValue(mlir::Value value) const;
-  mlir::Operation *originOf(mlir::Value value) const;
+  template <class OpT>
+  OpT memberBuiltBy(mlir::Value value) const;
   Cost costOf(mlir::Value value) const;
 
   // What the function's e-graph did so far, the pass's work.
@@ -401,6 +412,8 @@ private:
                                 std::span<const ClassId> operands);
   // `operands`' roots as a new run of `children`.
   Run childrenFor(std::span<const ClassId> operands);
+  // The run last laid, for a node that is not made, given back.
+  void unlay(Run run);
   // The interval upstream's transfer function gives an op of the input over
   // its operands' classes.
   std::optional<mlir::ConstantIntRanges> intervalOf(mlir::Operation *op,
@@ -421,11 +434,9 @@ private:
   // does.
   std::optional<RegionId> outerOf(RegionId a, RegionId b) const;
 
-  // The union-find, and the rebuild that restores congruence.
-  ClassId find(ClassId c);
-  // The root, read with no path shortened, for a reader that may not write.
-  ClassId rootOf(ClassId c) const;
-  const Facts &factsOf(ClassId c) const { return at(rootOf(c)).facts; }
+  // The union-find's choice of root and its refusals, and the rebuild that
+  // restores congruence.
+  const Facts &factsOf(ClassId c) const { return at(forest.rootOf(c)).facts; }
   Changed unite(ClassId a, ClassId b);
   // The contents `owed` moves to its root; the root.
   ClassId pay(const Owed &owed);
@@ -469,6 +480,9 @@ private:
   const Kinds &kinds;
   const CalleeFacts *callees;
   std::uint64_t budget;
+  // The most operands the graph's keys hold: an op of the input holds its
+  // own, and a node a side builds at most the widest side's.
+  std::uint64_t heldOperands;
 
   solver::Numbering<ValueTag> numbering;
   IndexVector<ValueId, std::optional<ClassId>> classOf;
@@ -478,8 +492,8 @@ private:
   // By the operand's place in `children`.
   footprint::Vector<Use> uses;
   footprint::Vector<Class> classes;
-  // The union-find over `classes`: each class's parent, a root its own.
-  footprint::Vector<ClassId> leader;
+  // The union-find over `classes`, which `unite` links by its own rule.
+  solver::UnionFind<ClassId> forest;
   // By node: the class it was made with, which `find` takes to its root,
   // and the next member of the class it is in.
   footprint::Vector<ClassId> nodeClass;

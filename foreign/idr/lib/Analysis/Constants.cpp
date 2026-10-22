@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <vector>
 
-// The never-folded list, generated with the rewrite graph's tables.
+// The never-folded list, generated with the e-graph's tables.
 #include "idr/IR/Generated/Rewrites.h.inc"
 
 using namespace mlir;

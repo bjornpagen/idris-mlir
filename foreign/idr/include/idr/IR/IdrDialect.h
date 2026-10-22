@@ -230,7 +230,7 @@ std::optional<Rule> refusalRule(mlir::Diagnostic &diagnostic);
 // big, and at a natural where it is not negative; of the type's width at an
 // integer or an index where it fits. Nothing where `value` is no value of
 // the type. The one rule from an integer to a constant's value, which the
-// dialect's identities and the rewrite graph's literals both read.
+// dialect's identities and the e-graph's literals both read.
 std::optional<llvm::APInt> integerAt(mlir::Type type, std::int64_t value);
 
 namespace laws {

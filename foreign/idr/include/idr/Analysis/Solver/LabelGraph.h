@@ -9,6 +9,7 @@
 #define IDR_ANALYSIS_SOLVER_LABELGRAPH_H
 
 #include "idr/Analysis/Labels.h"
+#include "idr/Analysis/Solver/UnionFind.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
@@ -89,8 +90,6 @@ private:
   // link joins its nodes.
   void take(const Statements &statements);
 
-  // The union-find.
-  Node find(Node node);
   void seed();
 
   // Edges.
@@ -107,8 +106,8 @@ private:
   Read read;
   mlir::MLIRContext *context;
 
-  // The union-find, by node.
-  footprint::Vector<Node> parents;
+  // The union-find over the points, which merge links by its own rule.
+  solver::UnionFind<Node> forest;
   footprint::Vector<Class> classes;
   SetTable sets;
 

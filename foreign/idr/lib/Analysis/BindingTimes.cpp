@@ -107,10 +107,12 @@ Calls readCalls(const N &names, ArrayRef<solver::Member> component, std::uint64_
   Calls out;
   std::uint32_t slots = 0;
   for (auto [at, member] : llvm::enumerate(component)) {
-    out.slot.push_back(slots);
-    slots += member.fn.getNumArguments();
-    out.edgeStart.push_back(static_cast<std::uint32_t>(out.edges.size()));
+    // MLIR's op handles read nothing through a const handle, so each
+    // member's is copied: a handle, never the op.
     FuncOp fn = member.fn;
+    out.slot.push_back(slots);
+    slots += fn.getNumArguments();
+    out.edgeStart.push_back(static_cast<std::uint32_t>(out.edges.size()));
     fn.getBody().walk([&](CallOp call) {
       std::optional<std::uint32_t> callee = positionOf(names.id(call.getCalleeAttr()));
       if (!callee)
@@ -148,7 +150,8 @@ SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> 
                  [&](FromParameter from) { return at(edge.caller, from.param); },
                  [](FromAnything) { return Abstract{Kind::Anything, 0}; });
   };
-  for (std::uint32_t p = 0; p < component[root].fn.getNumArguments(); ++p)
+  FuncOp rootFn = component[root].fn;
+  for (std::uint32_t p = 0; p < rootFn.getNumArguments(); ++p)
     at(root, p) = {Kind::Same, p};
   visit[root] = Visit::Queued;
   work.push_back(root);
@@ -175,7 +178,7 @@ SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> 
     }
   }
 
-  SmallVector<BindingTime> times(component[root].fn.getNumArguments(), BindingTime::Fixed);
+  SmallVector<BindingTime> times(rootFn.getNumArguments(), BindingTime::Fixed);
   for (const Edge &edge : calls.edges) {
     ++steps;
     if (edge.callee != root || visit[edge.caller] == Visit::Unreached)

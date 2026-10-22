@@ -153,17 +153,17 @@ inline constexpr IntRangeFn rangeBy = &range::by<F>;
 // rule makes an op with an identity, and none reorders two ops one
 // resource orders.
 //
-// A function takes two rounds at most. In the first, every rule decides;
-// if any decided a Rewrite, the engine runs those rewrites on the function,
-// region by region in the order the walk met them (each `R::rewrite` with
-// the insertion point at its
-// root, a root an earlier rewrite erased skipped, so a rewrite checks that
-// its condition still holds of the root as it then is), builds the e-graph
-// again over what they made, and decides again, a Rewrite now kept as it
-// is. Then the Forward and Take edits of the last round are carried out as
-// the function is written back. So a rule may restructure its root's
-// regions, and the e-graph simplifies what it made, with no round beyond
-// the second.
+// A function takes two turns at most, each an e-graph of its own, saturated
+// in its rounds of the rules. In the first turn every skeleton rule
+// decides; if any decided a Rewrite, the engine runs those rewrites on the
+// function, region by region in the order the walk met them (each
+// `R::rewrite` with the insertion point at its root, a root an earlier
+// rewrite erased skipped, so a rewrite checks that its condition still
+// holds of the root as it then is), builds the e-graph again over what
+// they made, and decides again, a Rewrite now kept as it is. Then the
+// Forward and Take edits of the last turn are carried out as the function
+// is written back. So a rule may restructure its root's regions, and the
+// e-graph simplifies what it made, with no turn beyond the second.
 
 namespace detail {
 // One function's e-graph, the engine's own (idr/Transforms/EGraph/Engine.h).
@@ -191,21 +191,25 @@ private:
 
 // What the e-graph knows of any value of the function a rule is deciding
 // in: an operand of its root, or a value a region of a producer yields
-// (the choice per arm reads each arm's).
+// (the choice per arm reads each arm's). Each answer is the value's
+// class's, whatever member extraction chose: a fact any member gives holds
+// of the one value.
 class OperandFacts {
 public:
   explicit OperandFacts(const detail::Function &function) : function(function) {}
-  // The constant the value's class holds as an attribute, one an op holds;
-  // null where it holds none. An integer the graph computed is a value and
-  // no attribute: it is the one value of the value's range.
+  // The constant the value's class holds as an attribute, one an op of a
+  // member holds; null where it holds none. An integer the graph computed
+  // is a value and no attribute: it is the one value of the value's range.
   mlir::Attribute constant(mlir::Value value) const;
   // The interval of an integer value, where the interval analysis knows
   // one; an interval of one value is the integer the value is.
   std::optional<mlir::ConstantIntRanges> range(mlir::Value value) const;
-  // The op of the input that made the value's chosen form (a constructor a
-  // known-case rule reads); null for an argument, a skeleton op's result
-  // or a node a rule made.
-  mlir::Operation *origin(mlir::Value value) const;
+  // How the value is built, where a member of its class says so: the op of
+  // the input of class `OpT` a member is (a constructor a known-case rule
+  // reads), one computable wherever the class is used; null where none is.
+  // A rule asks for the op it reads by its class, so the answer is typed.
+  template <class OpT>
+  OpT builtBy(mlir::Value value) const;
   // What computing the value's chosen form costs, its operands included:
   // what a copy of a consumer into an arm weighs against a shared join.
   Cost cost(mlir::Value value) const;
@@ -230,7 +234,7 @@ struct Take {
   llvm::SmallVector<unsigned, 2> operandOfArgument;
 };
 // The rule's own rewrite of the root and its regions, run between the two
-// rounds, handed what the rule chose while it could read the e-graph (the
+// turns, handed what the rule chose while it could read the e-graph (the
 // arms a dispatch is copied into, by index).
 struct Rewrite {
   llvm::SmallVector<unsigned, 4> chosen;

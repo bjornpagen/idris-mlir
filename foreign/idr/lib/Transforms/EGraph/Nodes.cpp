@@ -75,7 +75,7 @@ NodeId Function::make(Node node, Facts facts) {
   nodes.push_back(std::move(node));
   classes.push_back(Class{type, std::move(facts), made, made, 1, std::nullopt, std::nullopt,
                           identity, *reach});
-  leader.push_back(cls);
+  forest.add(cls);
   nodeClass.push_back(cls);
   nextMember.push_back(std::nullopt);
   if (keyed(at(made)))
@@ -274,7 +274,7 @@ ClassId Function::constant(Attribute value, Type type, Dialect *dialect,
                            std::optional<ConstantIntRanges> interval) {
   Node node{node::Constant{value, dialect}, type, childrenFor({})};
   if (std::optional<NodeId> found = lookup(node))
-    return find(classOfNode(*found));
+    return forest.find(classOfNode(*found));
   ClassId cls = classOfNode(make(std::move(node), held(value, interval)));
   joinInteger(cls);
   return cls;
@@ -296,7 +296,7 @@ std::optional<ClassId> Function::integer(const APInt &value, Type type) {
     return std::nullopt;
   Node node{node::Integer{value, *form}, type, childrenFor({})};
   if (std::optional<NodeId> found = lookup(node))
-    return find(classOfNode(*found));
+    return forest.find(classOfNode(*found));
   if (nodes.size() >= budget)
     return std::nullopt;
   return classOfNode(make(std::move(node), {ConstantIntRanges::constant(value), Attribute()}));
@@ -365,40 +365,18 @@ Facts Function::saysOf(NodeId n) const {
 Run Function::childrenFor(std::span<const ClassId> operands) {
   Run run{static_cast<std::uint32_t>(children.size()), static_cast<std::uint32_t>(operands.size())};
   for (ClassId operand : operands)
-    children.push_back(find(operand));
+    children.push_back(forest.find(operand));
   return run;
 }
 
-// Regions a node's operands can be computed in each hold its own place, so
-// they nest wherever it was written or a rule built it, and it can be
-// computed in the innermost.
-std::optional<RegionId> Function::needs(const Node &node) const {
-  RegionId body(0);
-  RegionId inner = match(
-      node.what, [](const node::Leaf &leaf) { return leaf.home; },
-      [&](const OneOf<node::Input, node::Built, node::Constant, node::Integer> auto &) {
-        return body;
-      });
-  for (ClassId operand : childrenOf(node)) {
-    RegionId there = at(rootOf(operand)).reach;
-    if (!outerOf(inner, there))
-      return std::nullopt;
-    if (at(there).depth > at(inner).depth)
-      inner = there;
-  }
-  return inner;
-}
-
-std::optional<RegionId> Function::outerOf(RegionId a, RegionId b) const {
-  if (visible(a, b))
-    return a;
-  if (visible(b, a))
-    return b;
-  return std::nullopt;
+// Shrunk, never grown, so a class id needs no default to fill it.
+void Function::unlay(Run run) {
+  assert(run.first + run.count == children.size() && "only the last run laid is given back");
+  children.erase(children.begin() + static_cast<std::ptrdiff_t>(run.first), children.end());
 }
 
 void Function::joinInteger(ClassId c) {
-  ClassId root = find(c);
+  ClassId root = forest.find(c);
   if (std::optional<APInt> value = at(root).facts.integer())
     if (std::optional<ClassId> is = integer(*value, at(root).type))
       (void)unite(root, *is);
@@ -413,8 +391,8 @@ ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> ope
   Node node{op, type, childrenFor(operands)};
   if (op.identity == Identity::Shared)
     if (std::optional<NodeId> found = lookup(node)) {
-      children.resize(node.children.first);
-      return find(classOfNode(*found));
+      unlay(node.children);
+      return forest.find(classOfNode(*found));
     }
   // What the op computes is its interval alone. Its own fold is never
   // asked: a fold makes the attribute of what it computes, and the graph
@@ -437,25 +415,25 @@ std::optional<ClassId> Function::insert(node::Built op, Type type,
                                         std::span<const ClassId> operands) {
   Node node{op, type, childrenFor(operands)};
   if (std::optional<NodeId> found = lookup(node)) {
-    children.resize(node.children.first);
-    return find(classOfNode(*found));
+    unlay(node.children);
+    return forest.find(classOfNode(*found));
   }
   if (nodes.size() >= budget) {
-    children.resize(node.children.first);
+    unlay(node.children);
     return std::nullopt;
   }
   // A side whose operands share no region where each can be computed, as
   // one may whose match went through a member of an inner region in a class
   // of an outer reach, is computed nowhere: the rule does not apply.
   if (!needs(node)) {
-    children.resize(node.children.first);
+    unlay(node.children);
     return std::nullopt;
   }
   // One built over constants is its integer at once, as a fold made it,
   // and no node of its own: the budget, not yet spent, makes the integer.
   Facts facts = saysOf(op, type, childrenOf(node));
   if (std::optional<APInt> value = facts.integer(); value && wordOf(*value, type)) {
-    children.resize(node.children.first);
+    unlay(node.children);
     return integer(*value, type);
   }
   return classOfNode(make(std::move(node), std::move(facts)));
@@ -482,25 +460,6 @@ std::optional<ClassId> Function::giveBack(const node::Input &op,
 // The union-find
 //===----------------------------------------------------------------------===//
 
-// Its path shortened to the root, so the next find of it is one load.
-ClassId Function::find(ClassId c) {
-  ClassId root = c;
-  while (leader[root.index()] != root)
-    root = leader[root.index()];
-  while (leader[c.index()] != root) {
-    ClassId next = leader[c.index()];
-    leader[c.index()] = root;
-    c = next;
-  }
-  return root;
-}
-
-ClassId Function::rootOf(ClassId c) const {
-  while (leader[c.index()] != c)
-    c = leader[c.index()];
-  return c;
-}
-
 // The two classes as one, linked at once and paid by the rebuild, reaching
 // the outer of their reaches. The root is the class holding an identity,
 // so that class stays its own; else the larger, so paths stay short; else
@@ -509,7 +468,7 @@ ClassId Function::rootOf(ClassId c) const {
 // rule may show two cells' contents equal, never that two allocations are
 // one), or reaching regions neither of which holds the other.
 Changed Function::unite(ClassId a, ClassId b) {
-  ClassId x = find(a), y = find(b);
+  ClassId x = forest.find(a), y = forest.find(b);
   if (x == y)
     return Changed::No;
   assert(at(x).type == at(y).type && "only values of one type are one value");
@@ -528,7 +487,7 @@ Changed Function::unite(ClassId a, ClassId b) {
   };
   if (before(y, x))
     std::swap(x, y);
-  leader[y.index()] = x;
+  forest.link(y, x);
   at(x).size += at(y).size;
   at(x).reach = *reach;
   if (at(y).identity == Identity::Own)
@@ -571,7 +530,7 @@ void Function::rebuild() {
       break;
     footprint::Vector<ClassId> chunk = std::exchange(work, {});
     for (ClassId &c : chunk)
-      c = find(c);
+      c = forest.find(c);
     llvm::sort(chunk);
     chunk.erase(std::unique(chunk.begin(), chunk.end()), chunk.end());
     for (ClassId c : chunk)
@@ -595,7 +554,7 @@ void Function::repair(ClassId c) {
     Run run = at(user).children;
     auto toRoots = [&] {
       for (std::uint32_t place = run.first; place < run.first + run.count; ++place)
-        children[place] = find(children[place]);
+        children[place] = forest.find(children[place]);
     };
     // An op with an identity is keyed by nothing, so only its operands move.
     if (keyed(at(user))) {
@@ -607,7 +566,7 @@ void Function::repair(ClassId c) {
     } else {
       toRoots();
     }
-    ClassId holder = find(classOfNode(user));
+    ClassId holder = forest.find(classOfNode(user));
     if ((at(holder).facts.meet(saysOf(user)) | widen(holder, at(user))) == Changed::Yes)
       carried.push_back(holder);
   }
@@ -633,25 +592,23 @@ Changed Function::widen(ClassId holder, const Node &member) {
 void Function::settle() {
   footprint::Vector<ClassId> moved = std::exchange(carried, {});
   while (!moved.empty()) {
-    ClassId c = find(moved.back());
+    ClassId c = forest.find(moved.back());
     moved.pop_back();
     for (std::optional<UseId> use = at(c).firstUse; use; use = uses[use->index()].next) {
       ++steps;
       NodeId user = uses[use->index()].user;
-      ClassId holder = find(classOfNode(user));
+      ClassId holder = forest.find(classOfNode(user));
       if (widen(holder, at(user)) == Changed::Yes)
         moved.push_back(holder);
     }
   }
-  for (std::uint32_t c = 0; c < classes.size(); ++c)
-    (void)find(ClassId(c));
   for (ValueId value : numbering.size().ids())
     if (std::optional<ClassId> &cls = classOf[value])
-      cls = leader[cls->index()];
+      cls = forest.find(*cls);
   for (ClassId &cls : nodeClass)
-    cls = leader[cls.index()];
+    cls = forest.find(cls);
   for (ClassId operand : children)
-    assert(leader[operand.index()] == operand && "a rebuild leaves every operand at its root");
+    assert(forest.isRoot(operand) && "a rebuild leaves every operand at its root");
 }
 
 } // namespace idr::egraph::detail
