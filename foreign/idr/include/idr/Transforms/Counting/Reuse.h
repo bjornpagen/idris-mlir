@@ -5,9 +5,8 @@
 // rebuilds lowered, the fusions and the pass (Reuse.cpp); the backward walk
 // that measures the demand for each size (ReuseDemand.cpp); the forward
 // walk that assigns tokens to sinks, carries them across a rejoin and frees
-// the rest (ReuseAssign.cpp); and the frame bound measured on the function
-// as reuse leaves it (Bound.cpp). The two walks meet the same points in
-// reverse orders, so the demand passes from one to the other on one trail.
+// the rest (ReuseAssign.cpp). The two walks meet the same points in reverse
+// orders, so the demand passes from one to the other on one trail.
 #ifndef IDR_TRANSFORMS_COUNTING_REUSE_H
 #define IDR_TRANSFORMS_COUNTING_REUSE_H
 
@@ -29,16 +28,6 @@
 namespace idr {
 class Layouts;
 } // namespace idr
-
-namespace idr::counting {
-
-// The function's frame bound, as reuse leaves it: the most bytes it holds
-// dead at any point where memory may be acquired, the emptied cells of its
-// tokens and what each owner it lends and needs no more after the loan
-// reaches, each sized by its type on the target (Bound.cpp).
-std::uint64_t frameBound(FuncOp fn, const Layouts &layouts);
-
-} // namespace idr::counting
 
 namespace idr::counting::reuse {
 

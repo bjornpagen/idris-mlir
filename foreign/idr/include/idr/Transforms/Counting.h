@@ -23,7 +23,9 @@
 //     construction of its size, the token carried across a match's rejoin
 //     as a result, and lowers each rebuild the in-place rule decided; then
 //     the function keeps its frame bound (`frame_bound`), the most bytes
-//     its tokens hold where memory may be acquired;
+//     its tokens and the owners it lends past their last use hold where
+//     memory may be acquired, whose points the lowering tells the checked
+//     runtime (Counting/Bound.h);
 //   - idr-rc-expand: each take of a value whose grade claims no uniqueness
 //     becomes a match on uniqueness of two regions, the only test of
 //     sharing left to run, so the lowering decides nothing.

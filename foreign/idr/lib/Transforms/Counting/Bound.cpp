@@ -15,10 +15,16 @@
 //     type bounds.
 // So the bound is computed from types and never below what a run holds.
 //
-// One forward walk over the function as reuse leaves it, every token's span
-// decided; its blocks wait on a stack on the heap, so a nesting of any depth
-// costs no native stack.
-#include "idr/Transforms/Counting/Reuse.h"
+// One forward walk over the function, read two ways: the bound, the most
+// held at any op that may acquire, on the function as reuse leaves it; and
+// the points where what is held rises or falls, on the function as the
+// lowering finds it, which the checked runtime's account follows. A token
+// moved on unchanged changes nothing, so it has no point: the use that
+// forwards it and the value that receives it are the two sides of one
+// region-branch edge, or of an op that gives its operand back. The walk's
+// blocks wait on a stack on the heap, so a nesting of any depth costs no
+// native stack.
+#include "idr/Transforms/Counting/Bound.h"
 
 #include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Effects/Whole.h"
@@ -29,11 +35,13 @@
 
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <utility>
 #include <variant>
 
 using namespace mlir;
@@ -41,10 +49,19 @@ using namespace mlir;
 namespace idr::counting {
 namespace {
 
-// A value the call holds that it no longer needs, and the bytes it holds.
+// How far a held value's hold reaches: a token's follows it through every
+// op that moves it on unchanged, into the value that receives it, which
+// holds it again, and ends where it is consumed; a lent owner's ends at its
+// first use, each of which gives it up, one that moves it on included,
+// since nothing that receives it holds it again.
+enum class Span : std::uint8_t { ToConsumption, ToFirstUse };
+
+// A value the call holds that it no longer needs, the bytes it holds, and
+// how far it holds them.
 struct Held {
   Value value;
   std::uint64_t bytes;
+  Span span;
 };
 
 using Holding = llvm::SmallVector<Held, 4>;
@@ -86,8 +103,10 @@ bool givenBack(Value value) {
 // field. It ends it there (a drop, a store into memory no edge follows) or
 // takes it apart into its token and fields (a take, placement's where a
 // part outlives it, or reuse's where its cell is recycled, fused or not)
-// or into its fields (an unpack). A use that reads it, lends it again,
-// forwards it into a region or passes it on keeps it needed.
+// or into its fields (an unpack); the match on its uniqueness, the take's
+// expansion, takes it over and moves it into its shared region. A use that
+// reads it, lends it again, or moves it on without taking it over keeps it
+// needed.
 bool givesUp(OpOperand &use) {
   Operation *op = use.getOwner();
   if (!effects::consumes(use) || (use.getOperandNumber() == 0 && givesOperandBack(op)))
@@ -103,21 +122,72 @@ bool givesUp(OpOperand &use) {
   });
 }
 
-} // namespace
+// The operands `op` moves on unchanged: what a region branch forwards, as
+// upstream's interface says, and the first operand of an op that gives it
+// back, which its trait says it has.
+llvm::SmallBitVector forwardedOperands(Operation *op) {
+  llvm::SmallBitVector forwarded(op->getNumOperands());
+  forwardedValues(op, [&](OpOperand &use, Value) { forwarded.set(use.getOperandNumber()); });
+  if (givesOperandBack(op))
+    forwarded.set(0);
+  return forwarded;
+}
 
-std::uint64_t frameBound(FuncOp fn, const Layouts &layouts) {
+// Whether `value` receives unchanged what a forwarded operand held: a
+// region's argument or a result a region branch forwards into, or the
+// result an op gives its first operand back as. The other side of
+// forwardedOperands, read off the same interfaces.
+bool receivesForwarded(Value value) {
+  if (auto argument = dyn_cast<BlockArgument>(value)) {
+    Block *block = argument.getOwner();
+    auto branch = dyn_cast<RegionBranchOpInterface>(block->getParentOp());
+    return branch && block->isEntryBlock() &&
+           llvm::is_contained(branch.getSuccessorInputs(RegionSuccessor(block->getParent())),
+                              value);
+  }
+  auto result = cast<OpResult>(value);
+  Operation *op = result.getOwner();
+  if (result.getResultNumber() == 0 && givesOperandBack(op))
+    return true;
+  auto branch = dyn_cast<RegionBranchOpInterface>(op);
+  return branch && llvm::is_contained(branch.getSuccessorInputs(RegionSuccessor(op)), value);
+}
+
+// A reader of the walk states what it reads by what it can be told: each
+// point where what is held changes, or what is held at each op that may
+// acquire memory. The walk works out only what its reader reads.
+template <typename Reader>
+concept ReadsPoints = requires(Reader &reader, const HoldPoint &point) { reader.changes(point); };
+
+template <typename Reader>
+concept ReadsPeaks = requires(Reader &reader, std::uint64_t held) { reader.acquires(held); };
+
+template <typename Reader>
+concept ReadsHolding = ReadsPoints<Reader> || ReadsPeaks<Reader>;
+
+template <ReadsHolding Reader>
+void walkHolding(FuncOp fn, const Layouts &layouts, Reader &reader) {
+  auto changes = [&](Where where, Direction direction, std::uint64_t bytes) {
+    if constexpr (ReadsPoints<Reader>)
+      reader.changes(HoldPoint{where, direction, bytes});
+  };
   // Every source of a token is a cell of one size, which its recycle's
-  // verifier holds, so the first one sizes it.
-  auto holdToken = [&](Holding &held, Value value) {
+  // verifier holds, so the first one sizes it. A token that receives a
+  // forwarded one was held already.
+  auto holdToken = [&](Holding &held, Value value, Where where) {
     auto token = dyn_cast<TokenType>(unrestricted(value.getType()));
     if (!token)
       return;
     auto source = cast<DataType>(token.getSources().front());
-    held.push_back(Held{value, layouts.cells(source).cell(*source.singleTag()).size});
+    std::uint64_t bytes = layouts.cells(source).cell(*source.singleTag()).size;
+    held.push_back(Held{value, bytes, Span::ToConsumption});
+    if constexpr (ReadsPoints<Reader>)
+      if (!receivesForwarded(value))
+        changes(where, Direction::Rises, bytes);
   };
   // Each owner `loan` gives back that every later use only gives up (none
   // at all on a path that ends the process with nothing allocated after
-  // it), held from the loan on, its region included, until it is given up.
+  // it), held from the start of the loan's region on, until it is given up.
   auto holdOwners = [&](Holding &held, Operation &loan) {
     for (Value owner : loan.getResults()) {
       if (!givenBack(owner) || !llvm::all_of(owner.getUses(), givesUp))
@@ -126,35 +196,46 @@ std::uint64_t frameBound(FuncOp fn, const Layouts &layouts) {
       // bounds what it reaches, and passes any other owned; so an owner
       // whose type bounds nothing is needed after its loan, reachable from
       // what the program will use, and no frame holds it past its last use.
-      if (std::optional<std::uint64_t> bytes = layouts.reachedBytes(owner.getType()))
-        held.push_back(Held{owner, *bytes});
+      std::optional<std::uint64_t> bytes = layouts.reachedBytes(owner.getType());
+      if (!bytes)
+        continue;
+      held.push_back(Held{owner, *bytes, Span::ToFirstUse});
+      changes(Where::atStart(loan.getRegion(0).front()), Direction::Rises, *bytes);
     }
   };
-  auto release = [](Holding &held, Value value) {
-    auto at = llvm::find_if(held, [&](const Held &each) { return each.value == value; });
-    if (at != held.end())
+  // A use of a held value ends its hold there, unless the value is a token
+  // the op moves on unchanged into one that holds it again.
+  auto release = [&](Holding &held, Operation &op) {
+    llvm::SmallBitVector forwarded;
+    if constexpr (ReadsPoints<Reader>)
+      forwarded = forwardedOperands(&op);
+    for (OpOperand &use : op.getOpOperands()) {
+      auto at = llvm::find_if(held, [&](const Held &each) { return each.value == use.get(); });
+      if (at == held.end())
+        continue;
+      if constexpr (ReadsPoints<Reader>)
+        if (at->span == Span::ToFirstUse || !forwarded.test(use.getOperandNumber()))
+          changes(Where::before(&op), Direction::Falls, at->bytes);
       held.erase(at);
+    }
   };
-  std::uint64_t bound = 0;
   llvm::SmallVector<Pending, 8> pending;
   pending.push_back(Pending{&fn.getBody().front(), {}});
   while (!pending.empty()) {
     Pending at = pending.pop_back_val();
     Holding held = std::move(at.held);
     for (BlockArgument arg : at.block->getArguments())
-      holdToken(held, arg);
+      holdToken(held, arg, Where::atStart(*at.block));
     for (Operation &op : *at.block) {
-      // What the op takes it consumes, or forwards into a region that binds
-      // it again; a region op acquires on entry, with all of it held. The
-      // op's own effects alone: the walk meets the ops in its regions in
-      // turn.
+      // A region op acquires on entry, with all of it held. The op's own
+      // effects alone: the walk meets the ops in its regions in turn.
       std::uint64_t entering = total(held);
-      for (Value operand : op.getOperands())
-        release(held, operand);
+      release(held, op);
       if (op.hasTrait<RunsOnceGivingBack>())
         holdOwners(held, op);
-      if (effects::mayAcquire(effects::own(&op)))
-        bound = std::max(bound, op.getNumRegions() == 0 ? total(held) : entering);
+      if constexpr (ReadsPeaks<Reader>)
+        if (effects::mayAcquire(effects::own(&op)))
+          reader.acquires(op.getNumRegions() == 0 ? total(held) : entering);
       if (op.getNumRegions() != 0) {
         for (Region &region : op.getRegions())
           for (Block &block : region)
@@ -168,10 +249,35 @@ std::uint64_t frameBound(FuncOp fn, const Layouts &layouts) {
         });
       }
       for (Value result : op.getResults())
-        holdToken(held, result);
+        holdToken(held, result, Where::past(&op));
     }
   }
-  return bound;
+}
+
+// The bound reads the most held where memory may be acquired.
+struct Peak {
+  std::uint64_t bound = 0;
+  void acquires(std::uint64_t held) { bound = std::max(bound, held); }
+};
+
+// The account reads the points.
+struct Points {
+  llvm::SmallVector<HoldPoint> points;
+  void changes(const HoldPoint &point) { points.push_back(point); }
+};
+
+} // namespace
+
+std::uint64_t frameBound(FuncOp fn, const Layouts &layouts) {
+  Peak peak;
+  walkHolding(fn, layouts, peak);
+  return peak.bound;
+}
+
+llvm::SmallVector<HoldPoint> holdPoints(FuncOp fn, const Layouts &layouts) {
+  Points points;
+  walkHolding(fn, layouts, points);
+  return std::move(points.points);
 }
 
 } // namespace idr::counting

@@ -46,6 +46,7 @@
 #include "idr/IR/Layout.h"
 #include "idr/IR/Ownership.h"
 #include "idr/Transforms/Counting.h"
+#include "idr/Transforms/Counting/Bound.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -161,7 +162,7 @@ struct ReusePass : impl::IdrRcReuseBase<ReusePass> {
     numTokensFreed += reuse.freed;
     numFused += reuse.fused;
     numRebuilds += reuse.rebuilds;
-    largestTokenBytes.updateMax(bound);
+    frameBoundBytes.updateMax(bound);
   }
 };
 
