@@ -155,5 +155,5 @@ int idr::driver::prepare(const Prepare &invocation) {
   Diagnostics diagnostics(context, outcome);
   // A step that failed has said why: the verdict is the outcome.
   (void)prepareRuntime(invocation, context);
-  return statusOf(outcome.verdict());
+  return exitStatus[outcome.verdict()];
 }

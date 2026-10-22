@@ -92,9 +92,9 @@ int compile(llvm::StringRef frontendPath, Compile invocation);
 // the refusals a module written by the frontend holds, re-emitted; a
 // handoff module through the pipeline and LLVM; a module of the LLVM
 // dialect alone, the pipeline's output, through LLVM. `made` is the status
-// the frontend finished with, or ok for a module given as the input: a
-// frontend that failed must have written a refusal. The parse adds the
-// module's file to `sources`. Each pass and stage is timed under
+// the frontend finished with, or accepted's for a module given as the
+// input: a frontend that failed must have written a refusal. The parse adds
+// the module's file to `sources`. Each pass and stage is timed under
 // `rootTiming`, and every pass statistic is folded into `outcome`. Failure
 // once a step has said why.
 mlir::LogicalResult run(int made, const Compile &invocation, Artifacts &artifacts,

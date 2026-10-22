@@ -310,7 +310,7 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
     return mlir::failure();
   // A frontend that failed and found nothing of the program's to refuse is
   // the compiler's.
-  if (made != ok)
+  if (made != exitStatus[Verdict::Accepted])
     return mlir::emitError(mlir::UnknownLoc::get(&context))
            << "the frontend exited with status " << made << ", and its module holds no refusal";
   mlir::DialectRegistry handoff;

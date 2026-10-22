@@ -4,11 +4,11 @@
 // action holds the options it reads, and an option of the driver's given
 // to an action that does not read it is a usage error. The options are
 // Options.cpp's alone, defined in one unit so that they register, and
-// --help lists them, in the order they are written there. Also the exit
-// statuses and the triple compiled for. IDRIS_MLIR_RUNTIME, the runtime the
-// build prepared, IDRIS_MLIR_PINNED_CC, the clang that links programs,
-// IDRIS_MLIR_IDRIS_PREFIX, the Idris prefix the frontend reads, and the
-// target's triple and CPU are compile definitions of the driver.
+// --help lists them, in the order they are written there. Also a usage
+// error's exit status and the triple compiled for. IDRIS_MLIR_RUNTIME, the
+// runtime the build prepared, IDRIS_MLIR_PINNED_CC, the clang that links
+// programs, IDRIS_MLIR_IDRIS_PREFIX, the Idris prefix the frontend reads,
+// and the target's triple and CPU are compile definitions of the driver.
 #ifndef IDR_DRIVER_OPTIONS_H
 #define IDR_DRIVER_OPTIONS_H
 
@@ -26,10 +26,10 @@
 
 namespace idr::driver {
 
-// Exit statuses, the frontend's too: an internal error or a contract
-// violation is 1, a usage error 2, and any error of the program's 3: a
-// refusal, which names its rule.
-inline constexpr int ok = 0, failure = 1, usage = 2, rejected = 3;
+// The status of a command line no invocation reads, before anything runs:
+// any other ending is a compilation's verdict, whose status is its row's
+// (exitStatus, Verdict.h), the frontend's too.
+inline constexpr int usage = 2;
 
 // The runtime the build prepared (--prepare-runtime), which every
 // executable links and every compilation reads unless --runtime names

@@ -109,7 +109,7 @@ static void chain(llvm::StringRef frontendPath, const Compile &invocation, Artif
         mlir::TimingScope frontendTiming = rootTiming.nest("frontend");
         return frontend(frontendPath, idris, outcome);
       },
-      [](const FromModule &) { return mlir::FailureOr<int>(ok); });
+      [](const FromModule &) { return mlir::FailureOr<int>(exitStatus[Verdict::Accepted]); });
   if (mlir::failed(made) || mlir::failed(run(*made, invocation, artifacts, context,
                                              diagnostics.sources(), pool, rootTiming, outcome)))
     return;
@@ -190,5 +190,5 @@ int idr::driver::compile(llvm::StringRef frontendPath, Compile invocation) {
     writeReport(*artifacts.report, outcome, context);
   if (outcome.verdict() == Verdict::Accepted)
     artifacts.keep();
-  return statusOf(outcome.verdict());
+  return exitStatus[outcome.verdict()];
 }

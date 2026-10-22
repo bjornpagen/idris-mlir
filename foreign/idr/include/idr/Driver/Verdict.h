@@ -6,10 +6,17 @@
 #ifndef IDR_DRIVER_VERDICT_H
 #define IDR_DRIVER_VERDICT_H
 
-#include "idr/Driver/Options.h"
+// The verdicts, each worse than the one before, their names in a report
+// (EnumTraits<Verdict>::names) and the status each exits with
+// (exitStatus): the specification's closed set, which the harness reads
+// too. Every step that fails says why in the compilation's diagnostic
+// engine, so a failure is always an error, and the worst seen wins. A
+// refusal fails the step that makes it, so no step runs after it and no
+// error is its cascade: an internal error beside a refusal is from the same
+// step, the compiler's, which must be fixed before the refusal can be
+// believed.
+#include "idr/IR/Generated/Verdict.h.inc"
 
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
@@ -21,44 +28,6 @@
 #include <vector>
 
 namespace idr::driver {
-
-// What a compilation's errors make of it, each worse than the one before.
-// Refused: an error that names a rule, the program's. Environment: a tool
-// the compilation runs (the frontend beside the driver) could not run or
-// did not finish, which is the installation's, so the program was never
-// judged. Internal: any other error, the compiler's: every step that fails says why in the
-// compilation's diagnostic engine, so a failure is always an error. The
-// worst seen wins. A refusal fails the step that makes it, so no step runs
-// after it and no error is its cascade: an internal error beside a refusal
-// is from the same step, the compiler's, which must be fixed before the
-// refusal can be believed.
-enum class Verdict : std::uint8_t { Accepted, Refused, Environment, Internal };
-
-// What a verdict is outside the compiler: its name in a report and the
-// exit status it gives. The one table of both, which statusOf and nameOf
-// read.
-struct VerdictRow {
-  llvm::StringLiteral name;
-  int status;
-};
-
-inline VerdictRow rowOf(Verdict verdict) {
-  switch (verdict) {
-  case Verdict::Accepted:
-    return {"accepted", ok};
-  case Verdict::Refused:
-    return {"refused", rejected};
-  case Verdict::Environment:
-    return {"environment", failure};
-  case Verdict::Internal:
-    return {"internal", failure};
-  }
-  llvm_unreachable("every verdict has its row");
-}
-
-inline int statusOf(Verdict verdict) { return rowOf(verdict).status; }
-
-inline llvm::StringLiteral nameOf(Verdict verdict) { return rowOf(verdict).name; }
 
 // One compilation's outcome, which its diagnostics fold into
 // (foldDiagnostics, the one fold of the verdict) and the report is written
@@ -95,7 +64,7 @@ public:
   // their keys, one per line.
   void write(llvm::raw_ostream &os) const {
     std::lock_guard<std::mutex> lock(mutex);
-    os << "verdict: " << nameOf(worst) << '\n';
+    os << "verdict: " << EnumTraits<Verdict>::names[std::to_underlying(worst)] << '\n';
     for (const std::string &fields : diagnostics)
       os << "diagnostic: " << fields << '\n';
     for (const auto &[key, sum] : counts)

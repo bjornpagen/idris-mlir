@@ -10,6 +10,7 @@
 #include "idr/Driver/Report.h"
 #include "idr/Driver/Runtime.h"
 #include "idr/Driver/Tool.h"
+#include "idr/Driver/Verdict.h"
 #include "idr/Support/Match.h"
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
@@ -107,7 +108,7 @@ int idr::driver::main(int argc, char **argv) {
         [](const Prepare &preparing) { return prepare(preparing); },
         [](const Print &asked) {
           answer(asked.question);
-          return ok;
+          return int{exitStatus[Verdict::Accepted]};
         });
   });
 }
