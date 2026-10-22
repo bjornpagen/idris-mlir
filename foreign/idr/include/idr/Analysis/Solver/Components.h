@@ -9,31 +9,30 @@
 // The answer is a partition held as ranges of one permutation of the
 // nodes: component k's members are a contiguous run, and the runs come
 // bottom-up, each after every component it reaches. A component id only
-// means anything against the partition that minted it.
+// means anything against the partition that minted it. Its tables are the
+// footprint's, so a pass's footprint counts every partition it holds.
 #ifndef IDR_ANALYSIS_SOLVER_COMPONENTS_H
 #define IDR_ANALYSIS_SOLVER_COMPONENTS_H
 
 #include "idr/Analysis/Solver/Graph.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
-#include "llvm/ADT/BitVector.h"
-
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <utility>
-#include <vector>
 
 namespace idr {
 
 namespace detail {
 // The permutation of a graph's nodes, its components' starts (one past the
-// last component's end included), and whether each component is a cycle:
-// two members or more, or one with an edge to itself.
+// last component's end included), and each node's component.
 struct RawPartition {
-  std::vector<std::uint32_t> order;
-  std::vector<std::uint32_t> start;
-  std::vector<std::uint32_t> componentOf;
-  llvm::BitVector cyclic;
+  footprint::Vector<std::uint32_t> order;
+  footprint::Vector<std::uint32_t> start;
+  footprint::Vector<std::uint32_t> componentOf;
 };
 RawPartition componentsOf(Rows forward, std::uint32_t count);
 } // namespace detail
@@ -63,21 +62,35 @@ public:
                                      raw.start[c.index() + 1] - raw.start[c.index()]));
   }
   Component componentOf(Node n) const { return Component(raw.componentOf[n.index()]); }
-  bool cyclic(Component c) const { return raw.cyclic.test(c.index()); }
+  // Whether the component is a cycle: two members or more, or one with an
+  // edge to itself.
+  bool cyclic(Component c) const { return cycles.test(c); }
 
 private:
   template <class T>
   friend Partition<T> components(const Csr<T> &graph);
 
-  explicit Partition(detail::RawPartition raw) : raw(std::move(raw)) {}
+  // The partition the walk found, and its cycles read off its runs and the
+  // rows it was found in.
+  Partition(detail::RawPartition found, detail::Rows forward)
+      : raw(std::move(found)), cycles(size()) {
+    for (Component c : size().ids()) {
+      IdRange<Node> run = members(c);
+      std::span<const std::uint32_t> row = forward.row(run.front().index());
+      if (run.size() > 1 || std::ranges::find(row, run.front().index()) != row.end())
+        (void)cycles.raise(c);
+    }
+  }
   static std::uint32_t start(std::size_t n) { return static_cast<std::uint32_t>(n); }
 
   detail::RawPartition raw;
+  BitSet<Component> cycles;
 };
 
 template <class Tag>
 Partition<Tag> components(const Csr<Tag> &graph) {
-  return Partition<Tag>(detail::componentsOf(graph.rows(Forward{}), graph.size().value()));
+  detail::Rows forward = graph.rows(Forward{});
+  return Partition<Tag>(detail::componentsOf(forward, graph.size().value()), forward);
 }
 
 } // namespace idr

@@ -24,7 +24,8 @@
 //
 // A solve's work is the transfers the range analysis makes over the
 // function: each op, call and region entry it visits, each time it visits
-// one.
+// one. The summaries are rows of one footprint table per side, a range per
+// position; a function's solve is upstream's dataflow state, outside it.
 #ifndef IDR_ANALYSIS_RANGES_H
 #define IDR_ANALYSIS_RANGES_H
 
@@ -32,6 +33,7 @@
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Id.h"
 
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/IR/Operation.h"
@@ -39,15 +41,12 @@
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/TypeID.h"
-#include "llvm/ADT/SmallVector.h"
 
 #include <memory>
 #include <optional>
+#include <span>
 
 namespace idr {
-
-// A range per position, uninitialized where nothing reached it.
-using RangeSummary = llvm::SmallVector<mlir::IntegerValueRange, 2>;
 
 class Ranges : public solver::ReadsAnalyses<Ranges, solver::ProgramGraph> {
 public:
@@ -85,8 +84,9 @@ public:
   static std::optional<mlir::ConstantIntRanges> rangeOf(const mlir::DataFlowSolver &solver,
                                                         mlir::Value value);
 
-  // What a call of the function a call names returns, by result.
-  const RangeSummary &returnsOf(mlir::FlatSymbolRefAttr callee) const {
+  // What a call of the function a call names returns, by result,
+  // uninitialized where nothing reached it.
+  std::span<const mlir::IntegerValueRange> returnsOf(mlir::FlatSymbolRefAttr callee) const {
     return returns[graph.id(callee)];
   }
 
@@ -95,8 +95,10 @@ public:
 
 private:
   const solver::ProgramGraph &graph;
-  IndexVector<solver::FunctionId, RangeSummary> returns;
-  IndexVector<solver::FunctionId, RangeSummary> arguments;
+  // A range per result and per parameter of each function, uninitialized
+  // where nothing reached it.
+  Ragged<solver::FunctionId, mlir::IntegerValueRange> returns;
+  Ragged<solver::FunctionId, mlir::IntegerValueRange> arguments;
   solver::Work spent;
 };
 

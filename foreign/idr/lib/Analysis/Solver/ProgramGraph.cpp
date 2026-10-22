@@ -26,11 +26,11 @@ namespace {
 // A row in one order, each (callee, kind) once with its calls summed: what
 // every row of a frozen graph is, whoever wrote it, so equal rows are equal
 // bytes and nothing downstream depends on the order calls were met.
-void normalize(llvm::SmallVector<Call, 4> &row) {
+void normalize(footprint::Vector<Call> &row) {
   llvm::sort(row, [](const Call &a, const Call &b) {
     return std::tuple(a.callee.index(), a.kind) < std::tuple(b.callee.index(), b.kind);
   });
-  llvm::SmallVector<Call, 4> merged;
+  footprint::Vector<Call> merged;
   for (const Call &call : row) {
     if (!merged.empty() && merged.back().callee == call.callee && merged.back().kind == call.kind)
       merged.back().sites += call.sites;
@@ -44,8 +44,8 @@ void normalize(llvm::SmallVector<Call, 4> &row) {
 // for a callee that is no function yet: the one reading of a body's calls
 // into a row.
 template <class Resolve>
-llvm::SmallVector<Call, 4> rowFrom(FuncOp fn, const Resolve &resolve) {
-  llvm::SmallVector<Call, 4> row;
+footprint::Vector<Call> rowFrom(FuncOp fn, const Resolve &resolve) {
+  footprint::Vector<Call> row;
   fn.getBody().walk([&](CallOp call) {
     if (std::optional<FunctionId> callee = resolve(call.getCalleeAttr()))
       row.push_back({*callee, call.getTailKind(), 1});
@@ -77,7 +77,7 @@ ProgramGraph::ProgramGraph(Operation *program, AnalysisManager &am) {
 
   // Each function's calls, in parallel, each into its own slot; the slots
   // are read back in id order, so the rows do not depend on the schedule.
-  std::vector<llvm::SmallVector<Call, 4>> perFunction(ids);
+  footprint::Vector<footprint::Vector<Call>> perFunction(ids);
   parallelFor(program->getContext(), 0, live.size(), [&](std::size_t at) {
     std::uint32_t raw = live[at];
     perFunction[raw] = rowFrom(ops[detail::GraphIds::function(raw)],
@@ -110,23 +110,22 @@ FunctionId ProgramGraph::id(FlatSymbolRefAttr callee) const {
 
 FunctionId ProgramGraph::id(FuncOp fn) const { return byName.find(fn.getSymNameAttr())->second; }
 
-void ProgramGraph::lay(std::vector<llvm::SmallVector<Call, 4>> perFunction) {
+void ProgramGraph::lay(footprint::Vector<footprint::Vector<Call>> perFunction) {
   std::uint32_t ids = count.value();
   rowStart.assign(ids + 1, 0);
   rows.clear();
-  selfCalls.clear();
-  selfCalls.resize(ids);
+  selfCalls = BitSet<FunctionId>(count);
   sites.assign(ids, 0);
-  std::vector<std::pair<std::uint32_t, std::uint32_t>> callerEdges;
+  footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> callerEdges;
   for (std::uint32_t raw = 0; raw < ids; ++raw) {
-    llvm::SmallVector<Call, 4> &row = perFunction[raw];
+    footprint::Vector<Call> &row = perFunction[raw];
     normalize(row);
     std::uint32_t lastCallee = ids;
     for (const Call &call : row) {
       rows.push_back(call);
       sites[call.callee.index()] += call.sites;
       if (call.callee.index() == raw)
-        selfCalls.set(raw);
+        (void)selfCalls.raise(call.callee);
       // A callee met under two kinds is one caller.
       if (call.callee.index() != lastCallee)
         callerEdges.emplace_back(call.callee.index(), raw);
@@ -192,7 +191,7 @@ void Editor::erase(FunctionId f) {
   byName.erase(ops[f.index()].getSymNameAttr());
   ops[f.index()] = FuncOp();
   rows[f.index()].clear();
-  for (llvm::SmallVector<Call, 4> &row : rows)
+  for (footprint::Vector<Call> &row : rows)
     llvm::erase_if(row, [&](const Call &call) { return call.callee == f; });
 }
 
@@ -201,7 +200,7 @@ void Editor::setCallees(FunctionId f, ArrayRef<Call> row) {
 }
 
 void Editor::moveInto(FunctionId f, FunctionId caller) {
-  llvm::SmallVector<Call, 4> &into = rows[caller.index()];
+  footprint::Vector<Call> &into = rows[caller.index()];
   llvm::erase_if(into, [&](const Call &call) { return call.callee == f; });
   llvm::append_range(into, rows[f.index()]);
 }
@@ -217,7 +216,7 @@ std::optional<FunctionId> Editor::find(FlatSymbolRefAttr callee) const {
   return it->second;
 }
 
-llvm::SmallVector<Call, 4> rowOf(FuncOp fn, const Editor &editor) {
+footprint::Vector<Call> rowOf(FuncOp fn, const Editor &editor) {
   return rowFrom(fn, [&](FlatSymbolRefAttr callee) { return editor.find(callee); });
 }
 

@@ -23,11 +23,10 @@
 //   literal in a literal match's case of that literal.
 // The record is never written; a reading holds what it learns while it
 // answers.
-#include "Solver/IdentityRecords.h"
+#include "idr/Analysis/Solver/IdentityRecords.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
 
 #include <algorithm>
 #include <tuple>
@@ -93,8 +92,8 @@ public:
   std::uint32_t argumentOf(PartId part) const { return rows[raw(part)].argument; }
 
   // The steps from the argument down to `part`, outermost first.
-  llvm::SmallVector<Step, 4> stepsOf(PartId part) const {
-    llvm::SmallVector<Step, 4> down;
+  footprint::Vector<Step> stepsOf(PartId part) const {
+    footprint::Vector<Step> down;
     for (const Row *row = &rows[raw(part)]; row->below; row = &rows[row->below->parent])
       down.push_back(row->below->step);
     std::reverse(down.begin(), down.end());
@@ -125,7 +124,7 @@ private:
     // With no grade; null where only a callee's fact made the part.
     Type type;
   };
-  std::vector<Row> rows;
+  footprint::Vector<Row> rows;
   llvm::DenseMap<std::tuple<std::uint32_t, std::uint32_t, std::pair<std::uint32_t, std::uint32_t>>,
                  std::uint32_t>
       steps;
@@ -311,9 +310,9 @@ Facts everyFact(const Record &record, std::span<const std::span<const GivesBack>
   struct Item {
     Path path;
     Type type;
-    std::vector<Occurrence> occurrences;
+    footprint::Vector<Occurrence> occurrences;
   };
-  std::vector<Item> work;
+  footprint::Vector<Item> work;
   for (std::uint32_t result = 0; result < record.resultTypes.size(); ++result) {
     Item item{{result, {}}, record.resultTypes[result], {}};
     for (const Return &ret : record.returns)

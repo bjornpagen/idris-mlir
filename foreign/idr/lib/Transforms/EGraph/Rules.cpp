@@ -7,16 +7,13 @@
 // through one is bounded by the specification, never by the input.
 //
 // The skeleton rules are each area's hand classes, declared where the
-// specification names them: the control flow's, the guards' and output's,
-// the arrays', the closures'.
-#include "Engine.h"
+// specification names them; the generated tables include every header
+// that declares one, and the classes of the upstream ops they admit are
+// declared by those ops' dialects, included first.
+#include "idr/Transforms/EGraph/Engine.h"
 
-#include "idr/IR/Arrays.h"
-#include "idr/IR/Control/Control.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Ops/Rules.h"
-#include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -29,9 +26,7 @@
 #include <tuple>
 #include <utility>
 
-namespace idr::egraph::generated {
 #include "idr/IR/Generated/Rewrites.h.inc"
-} // namespace idr::egraph::generated
 
 using namespace mlir;
 
@@ -119,6 +114,17 @@ Attribute literalOf(Type type, std::int64_t value) {
 }
 
 } // namespace
+
+std::optional<std::uint16_t> Kinds::kindOf(Operation *op) const {
+  TypeID id = op->getName().getTypeID();
+  auto it = llvm::lower_bound(byTypeId, std::pair(id, std::uint16_t(0)),
+                              [](const auto &a, const auto &b) {
+                                return a.first.getAsOpaquePointer() < b.first.getAsOpaquePointer();
+                              });
+  if (it == byTypeId.end() || it->first != id)
+    return std::nullopt;
+  return it->second;
+}
 
 Kinds makeKinds(MLIRContext *context) {
   Kinds out;

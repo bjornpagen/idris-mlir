@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-simplify: one function's e-graph per run, in two rounds at most
 // (EGraph.h), and what a skeleton rule and the optimizer read of it.
-#include "Engine.h"
+#include "idr/Transforms/EGraph/Engine.h"
 
 #include "idr/Analysis/Solver/Trace.h"
 #include "idr/IR/IdrDialect.h"
@@ -98,7 +98,7 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
     first.build();
     first.extract();
     first.decide(idr::egraph::Round::First);
-    llvm::SmallVector<idr::egraph::Function::Pending> rewrites = first.rewrites();
+    idr::footprint::Vector<idr::egraph::Function::Pending> rewrites = first.rewrites();
     if (rewrites.empty()) {
       IRRewriter rewriter(&getContext());
       first.elaborate(rewriter);

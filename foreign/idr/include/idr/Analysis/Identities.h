@@ -26,15 +26,16 @@
 // of; the checks read the record and never walk the body again. The
 // solve's work is the values its readings visit: each member's once when
 // it is read, and again at each check and when its facts are published.
+// Its records, its queue and its facts are the footprint's.
 #ifndef IDR_ANALYSIS_IDENTITIES_H
 #define IDR_ANALYSIS_IDENTITIES_H
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
 #include <cstdint>
@@ -42,7 +43,6 @@
 #include <span>
 #include <utility>
 #include <variant>
-#include <vector>
 
 namespace idr::identities {
 
@@ -53,7 +53,7 @@ namespace idr::identities {
 // writes from these facts.
 struct Path {
   std::uint32_t index;
-  llvm::SmallVector<std::uint32_t, 2> fields;
+  footprint::Vector<std::uint32_t> fields;
   friend bool operator==(const Path &, const Path &) = default;
 };
 
@@ -64,7 +64,7 @@ struct GivesBack {
   Path argument;
   friend bool operator==(const GivesBack &, const GivesBack &) = default;
 };
-using Facts = llvm::SmallVector<GivesBack, 1>;
+using Facts = footprint::Vector<GivesBack>;
 
 // The frozen facts of a callee outside the component being solved.
 template <class O>
@@ -90,8 +90,8 @@ public:
   // The facts of every member, in the component's order, given the frozen
   // facts of each outside callee in outsideCallees' order; the values its
   // readings visited added to `work`.
-  std::vector<Facts> solve(std::span<const std::span<const GivesBack>> outside,
-                           solver::Work &work) &&;
+  footprint::Vector<Facts> solve(std::span<const std::span<const GivesBack>> outside,
+                                  solver::Work &work) &&;
 
   struct Records;
 
@@ -109,10 +109,10 @@ extern template Component Component::read<solver::Editor>(const solver::Editor &
 // each outside callee has are read once, before the solve, whose work is
 // added to `work`.
 template <solver::FunctionNames N, Outside O>
-std::vector<Facts> givesBackOf(const N &names, llvm::ArrayRef<solver::Member> component,
-                               const O &outside, solver::Work &work) {
+footprint::Vector<Facts> givesBackOf(const N &names, llvm::ArrayRef<solver::Member> component,
+                                     const O &outside, solver::Work &work) {
   Component bodies = Component::read(names, component);
-  std::vector<std::span<const GivesBack>> frozen;
+  footprint::Vector<std::span<const GivesBack>> frozen;
   for (solver::FunctionId callee : bodies.outsideCallees())
     frozen.push_back(outside(callee));
   return std::move(bodies).solve(frozen, work);

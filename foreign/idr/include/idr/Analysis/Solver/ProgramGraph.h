@@ -25,26 +25,28 @@
 // freezing writes the rows back and recomputes the callers and the
 // components from them, with no walk of the IR. The partition is never
 // patched in place.
+//
+// Its tables and its editor's rows are the footprint's, so the footprint of
+// the pass that builds or edits it counts them. The table of names is a
+// hashed map, which takes no allocator.
 #ifndef IDR_ANALYSIS_SOLVER_PROGRAMGRAPH_H
 #define IDR_ANALYSIS_SOLVER_PROGRAMGRAPH_H
 
 #include "idr/Analysis/Solver/Graph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/TypeID.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <vector>
 
 namespace idr::solver {
 
@@ -116,11 +118,11 @@ public:
   }
   // The distinct functions with a call of `f`.
   IdRange<FunctionId> callers(FunctionId f) const {
-    return IdRange<FunctionId>(detail::Rows{callerStart, callerRows}.row(f.index()));
+    return IdRange<FunctionId>(::idr::detail::Rows{callerStart, callerRows}.row(f.index()));
   }
   // How many idr.call ops name `f`.
   std::uint32_t callSites(FunctionId f) const { return sites[f.index()]; }
-  bool callsItself(FunctionId f) const { return selfCalls.test(f.index()); }
+  bool callsItself(FunctionId f) const { return selfCalls.test(f); }
 
   // Every component, callees first: a component's id is below the id of
   // every component that calls into it.
@@ -156,23 +158,23 @@ private:
   // Rows sorted and merged, then everything derived from them: callers,
   // sites, self calls, and, unless upstream's components are given, the
   // components of the rows.
-  void lay(std::vector<llvm::SmallVector<Call, 4>> perFunction);
+  void lay(footprint::Vector<footprint::Vector<Call>> perFunction);
   void partition();
 
   Count<FunctionId> count = detail::GraphIds::functions(0);
-  std::vector<std::uint32_t> live;
+  footprint::Vector<std::uint32_t> live;
   IndexVector<FunctionId, idr::FuncOp> ops{detail::GraphIds::functions(0)};
   llvm::DenseMap<mlir::StringAttr, FunctionId> byName;
 
-  std::vector<std::uint32_t> rowStart{0};
-  std::vector<Call> rows;
-  std::vector<std::uint32_t> callerStart{0}, callerRows;
-  std::vector<std::uint32_t> sites;
-  llvm::BitVector selfCalls;
+  footprint::Vector<std::uint32_t> rowStart{0};
+  footprint::Vector<Call> rows;
+  footprint::Vector<std::uint32_t> callerStart{0}, callerRows;
+  footprint::Vector<std::uint32_t> sites;
+  BitSet<FunctionId> selfCalls{detail::GraphIds::functions(0)};
 
-  std::vector<std::uint32_t> order;
-  std::vector<std::uint32_t> sccStart{0};
-  std::vector<std::uint32_t> scc;
+  footprint::Vector<std::uint32_t> order;
+  footprint::Vector<std::uint32_t> sccStart{0};
+  footprint::Vector<std::uint32_t> scc;
 };
 
 // The editable form, held by the one restructuring pass that thawed it.
@@ -213,8 +215,8 @@ private:
   explicit Editor(ProgramGraph &home) : home(&home) {}
 
   ProgramGraph *home;
-  std::vector<llvm::SmallVector<Call, 4>> rows;
-  std::vector<idr::FuncOp> ops;
+  footprint::Vector<footprint::Vector<Call>> rows;
+  footprint::Vector<idr::FuncOp> ops;
   llvm::DenseMap<mlir::StringAttr, FunctionId> byName;
 };
 
@@ -224,7 +226,7 @@ private:
 // order every row has, whoever writes it. A call of a copy the editor does
 // not hold yet is in no row until the copy is inserted and its caller's row
 // written again.
-llvm::SmallVector<Call, 4> rowOf(idr::FuncOp fn, const Editor &editor);
+footprint::Vector<Call> rowOf(idr::FuncOp fn, const Editor &editor);
 
 // What resolves a callee to its function: the frozen graph, or the editor
 // of the restructuring pass that holds it thawed.

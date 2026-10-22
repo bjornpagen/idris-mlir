@@ -10,7 +10,6 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
@@ -34,9 +33,11 @@ using Source = std::variant<FromParameter, FromAnything>;
 
 // What `value` is in `fn`: an entry argument is its parameter; what
 // idr::sourceOf finds the same value is what that value is; anything else
-// is anything. The chain is followed by a loop, never by recursion.
-Source sourceIn(Value value, FuncOp fn) {
+// is anything. The chain is followed by a loop, never by recursion, each
+// step counted in `steps`.
+Source sourceIn(Value value, FuncOp fn, std::uint64_t &steps) {
   for (;;) {
+    ++steps;
     if (auto arg = dyn_cast<BlockArgument>(value); arg && arg.getParentRegion() == &fn.getBody())
       return FromParameter{arg.getArgNumber()};
     idr::Source source = sourceOf(value);
@@ -73,17 +74,17 @@ Abstract join(Abstract a, Abstract b) {
 // What the component's bodies say, read once: each member's edges out, and
 // each member's parameters' slots in the node array.
 struct Calls {
-  std::vector<Edge> edges;
-  std::vector<std::uint32_t> edgeStart;
-  std::vector<Source> sources;
-  std::vector<std::uint32_t> slot;
+  footprint::Vector<Edge> edges;
+  footprint::Vector<std::uint32_t> edgeStart;
+  footprint::Vector<Source> sources;
+  footprint::Vector<std::uint32_t> slot;
 };
 
 template <solver::FunctionNames N>
-Calls readCalls(const N &names, ArrayRef<solver::Member> component) {
+Calls readCalls(const N &names, ArrayRef<solver::Member> component, std::uint64_t &steps) {
   // The members by id, to place a callee: a sorted list, searched, never a
   // map of the program's functions by name.
-  std::vector<std::pair<std::uint32_t, std::uint32_t>> byId;
+  footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> byId;
   for (auto [at, member] : llvm::enumerate(component))
     byId.emplace_back(member.id.index(), static_cast<std::uint32_t>(at));
   llvm::sort(byId);
@@ -109,7 +110,7 @@ Calls readCalls(const N &names, ArrayRef<solver::Member> component) {
         return;
       auto first = static_cast<std::uint32_t>(out.sources.size());
       for (Value operand : call.getArgs())
-        out.sources.push_back(sourceIn(operand, fn));
+        out.sources.push_back(sourceIn(operand, fn, steps));
       out.edges.push_back({static_cast<std::uint32_t>(at), *callee, first,
                            static_cast<std::uint32_t>(out.sources.size()) - first});
     });
@@ -119,15 +120,19 @@ Calls readCalls(const N &names, ArrayRef<solver::Member> component) {
   return out;
 }
 
+// Where a member stands in one root's solve: not reached; reached and on
+// the worklist; reached and off it. Only a reached member is ever queued.
+enum class Visit : std::uint8_t { Unreached, Queued, Settled };
+
 // The binding times of the root's parameters: the flat solve from the root,
 // each member pushed when it is first reached or one of its nodes rises,
-// then each call of the root read against its own position.
+// then each call of the root read against its own position. Each edge the
+// solve reads and each argument it joins or compares is counted in `steps`.
 SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> component,
-                                   std::uint32_t root) {
-  std::vector<Abstract> value(calls.slot.back());
-  auto members = static_cast<unsigned>(component.size());
-  llvm::BitVector reached(members), queued(members);
-  std::vector<std::uint32_t> work;
+                                   std::uint32_t root, std::uint64_t &steps) {
+  footprint::Vector<Abstract> value(calls.slot.back());
+  footprint::Vector<Visit> visit(component.size(), Visit::Unreached);
+  footprint::Vector<std::uint32_t> work;
   auto at = [&](std::uint32_t member, std::uint32_t param) -> Abstract & {
     return value[calls.slot[member] + param];
   };
@@ -138,17 +143,16 @@ SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> 
   };
   for (std::uint32_t p = 0; p < component[root].fn.getNumArguments(); ++p)
     at(root, p) = {Kind::Same, p};
-  reached.set(root);
-  queued.set(root);
+  visit[root] = Visit::Queued;
   work.push_back(root);
   while (!work.empty()) {
     std::uint32_t caller = work.back();
     work.pop_back();
-    queued.reset(caller);
+    visit[caller] = Visit::Settled;
     for (std::uint32_t e = calls.edgeStart[caller]; e < calls.edgeStart[caller + 1]; ++e) {
       const Edge &edge = calls.edges[e];
-      bool rose = !reached.test(edge.callee);
-      reached.set(edge.callee);
+      steps += 1 + edge.sources;
+      bool rose = visit[edge.callee] == Visit::Unreached;
       for (std::uint32_t arg = 0; arg < edge.sources; ++arg) {
         Abstract &into = at(edge.callee, arg);
         Abstract joined = join(into, passed(edge, arg));
@@ -157,8 +161,8 @@ SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> 
           rose = true;
         }
       }
-      if (rose && !queued.test(edge.callee)) {
-        queued.set(edge.callee);
+      if (rose && visit[edge.callee] != Visit::Queued) {
+        visit[edge.callee] = Visit::Queued;
         work.push_back(edge.callee);
       }
     }
@@ -166,8 +170,10 @@ SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> 
 
   SmallVector<BindingTime> times(component[root].fn.getNumArguments(), BindingTime::Fixed);
   for (const Edge &edge : calls.edges) {
-    if (edge.callee != root || !reached.test(edge.caller))
+    ++steps;
+    if (edge.callee != root || visit[edge.caller] == Visit::Unreached)
       continue;
+    steps += edge.sources;
     for (std::uint32_t arg = 0; arg < edge.sources; ++arg)
       if (passed(edge, arg) != Abstract{Kind::Same, arg})
         times[arg] = BindingTime::Varies;
@@ -178,19 +184,22 @@ SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> 
 } // namespace
 
 template <solver::FunctionNames N>
-std::vector<SmallVector<BindingTime>> bindingTimesOf(const N &names,
-                                                     ArrayRef<solver::Member> component) {
-  Calls calls = readCalls(names, component);
-  std::vector<SmallVector<BindingTime>> out;
+footprint::Vector<SmallVector<BindingTime>>
+bindingTimesOf(const N &names, ArrayRef<solver::Member> component, solver::Work &work) {
+  std::uint64_t steps = 0;
+  Calls calls = readCalls(names, component, steps);
+  footprint::Vector<SmallVector<BindingTime>> out;
   out.reserve(component.size());
   for (std::uint32_t root = 0; root < component.size(); ++root)
-    out.push_back(solveRoot(calls, component, root));
+    out.push_back(solveRoot(calls, component, root, steps));
+  work.add(steps);
   return out;
 }
 
-template std::vector<SmallVector<BindingTime>>
-bindingTimesOf<solver::ProgramGraph>(const solver::ProgramGraph &, ArrayRef<solver::Member>);
-template std::vector<SmallVector<BindingTime>>
-bindingTimesOf<solver::Editor>(const solver::Editor &, ArrayRef<solver::Member>);
+template footprint::Vector<SmallVector<BindingTime>>
+bindingTimesOf<solver::ProgramGraph>(const solver::ProgramGraph &, ArrayRef<solver::Member>,
+                                     solver::Work &);
+template footprint::Vector<SmallVector<BindingTime>>
+bindingTimesOf<solver::Editor>(const solver::Editor &, ArrayRef<solver::Member>, solver::Work &);
 
 } // namespace idr

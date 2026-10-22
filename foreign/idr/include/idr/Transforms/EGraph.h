@@ -24,6 +24,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
 #include <concepts>
@@ -122,7 +123,7 @@ struct Rule {
 // the second.
 
 namespace detail {
-// One function's e-graph, the engine's own (lib/Transforms/EGraph/).
+// One function's e-graph, the engine's own (idr/Transforms/EGraph/Engine.h).
 class Function;
 } // namespace detail
 

@@ -16,12 +16,14 @@
 // parameter for a borrow, an erased thing anywhere) cannot be written.
 //
 // The one map keyed by an IR handle is a Numbering's, while one function
-// is numbered; it is gone when the numbering finishes.
+// is numbered; it is gone when the numbering finishes. Every other table
+// here is the footprint's.
 #ifndef IDR_ANALYSIS_SOLVER_EXTRACTION_H
 #define IDR_ANALYSIS_SOLVER_EXTRACTION_H
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/MLIRContext.h"
@@ -35,7 +37,6 @@
 #include <cstdint>
 #include <optional>
 #include <utility>
-#include <vector>
 
 namespace idr::solver {
 
@@ -98,7 +99,7 @@ public:
 
 private:
   llvm::DenseMap<mlir::Value, std::uint32_t> index;
-  std::vector<mlir::Value> values;
+  footprint::Vector<mlir::Value> values;
 };
 
 // Where each function's nodes start in the program's arrays.

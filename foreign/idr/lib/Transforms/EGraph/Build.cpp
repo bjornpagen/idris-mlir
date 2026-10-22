@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Building one function's e-graph: the walk, the classification by declared
-// effects, the hash-cons, the analyses, the rules at insertion, the
-// skeleton and its rules.
-#include "Engine.h"
+// Building one function's e-graph: the classification by declared effects,
+// the walk that puts each op in a class or in its region's skeleton, the
+// sweep of what the write-back left unused, and what a skeleton rule reads.
+// The tables the walk fills are made in Nodes.cpp.
+#include "idr/Transforms/EGraph/Engine.h"
 
 #include "idr/IR/Effects/Query.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/CallInterfaces.h"
-#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
@@ -17,21 +17,6 @@
 using namespace mlir;
 
 namespace idr::egraph::detail {
-
-//===----------------------------------------------------------------------===//
-// Kinds
-//===----------------------------------------------------------------------===//
-
-std::optional<std::uint16_t> Kinds::kindOf(Operation *op) const {
-  TypeID id = op->getName().getTypeID();
-  auto it = llvm::lower_bound(byTypeId, std::pair(id, std::uint16_t(0)),
-                              [](const auto &a, const auto &b) {
-                                return a.first.getAsOpaquePointer() < b.first.getAsOpaquePointer();
-                              });
-  if (it == byTypeId.end() || it->first != id)
-    return std::nullopt;
-  return it->second;
-}
 
 //===----------------------------------------------------------------------===//
 // Classification
@@ -82,24 +67,8 @@ bool staysPut(Operation *op) {
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// Minting
+// The walk
 //===----------------------------------------------------------------------===//
-
-NodeId Function::newNode(Node node) {
-  ++steps;
-  nodes.push_back(std::move(node));
-  return NodeId(static_cast<std::uint32_t>(nodes.size() - 1));
-}
-
-ClassId Function::newClass(Class cls) {
-  classes.push_back(std::move(cls));
-  return ClassId(static_cast<std::uint32_t>(classes.size() - 1));
-}
-
-RegionId Function::newRegion(Region region) {
-  regions.push_back(region);
-  return RegionId(static_cast<std::uint32_t>(regions.size() - 1));
-}
 
 Function::Function(idr::FuncOp fn, const Kinds &kinds, const CalleeFacts *callees)
     : fn(fn), kinds(kinds), callees(callees), numbering(fn),
@@ -110,216 +79,6 @@ Function::Function(idr::FuncOp fn, const Kinds &kinds, const CalleeFacts *callee
   slots.resize(64);
 }
 
-//===----------------------------------------------------------------------===//
-// The hash-cons
-//===----------------------------------------------------------------------===//
-
-// A node's key: its op, its type, its properties and its operands' classes.
-// Two nodes of the input compare their properties through the op's own
-// comparison; a node a rule made has the op's default properties, and is
-// equal only to another such. A node with an identity has no key.
-bool Function::sameKey(const Node &a, std::span<const ClassId> ac, const Node &b,
-                       std::span<const ClassId> bc) {
-  if (a.type != b.type || !std::ranges::equal(ac, bc))
-    return false;
-  const auto *x = std::get_if<node::Op>(&a.what);
-  const auto *y = std::get_if<node::Op>(&b.what);
-  if (!x || !y || x->name != y->name || x->identity == Identity::Own ||
-      y->identity == Identity::Own)
-    return false;
-  if (!x->origin || !y->origin)
-    return !x->origin && !y->origin;
-  return x->origin->getRawDictionaryAttrs() == y->origin->getRawDictionaryAttrs() &&
-         x->name.compareOpProperties(x->origin->getPropertiesStorage(),
-                                     y->origin->getPropertiesStorage());
-}
-
-std::uint64_t Function::hashOf(const Node &node, std::span<const ClassId> operands) const {
-  const auto &op = std::get<node::Op>(node.what);
-  llvm::hash_code hash = llvm::hash_combine(op.name.getAsOpaquePointer(),
-                                            node.type.getAsOpaquePointer());
-  for (ClassId operand : operands)
-    hash = llvm::hash_combine(hash, operand.index());
-  if (op.origin)
-    hash = llvm::hash_combine(hash, op.origin->hashProperties());
-  return static_cast<std::uint64_t>(hash);
-}
-
-// The table is probed, never iterated for a result, so what an address
-// adds to a hash moves only where a key sits, never what is found.
-std::optional<ClassId> Function::lookup(const Node &node) const {
-  std::span<const ClassId> operands = childrenOf(node);
-  std::uint64_t mask = slots.size() - 1;
-  for (std::uint64_t at = hashOf(node, operands) & mask;; at = (at + 1) & mask) {
-    const Slot &slot = slots[at];
-    if (!slot.node)
-      return std::nullopt;
-    const Node &there = this->at(*slot.node);
-    if (sameKey(node, operands, there, childrenOf(there)))
-      return slot.cls;
-  }
-}
-
-void Function::remember(NodeId n, ClassId cls) {
-  if (2 * (filled + 1) > slots.size()) {
-    std::vector<Slot> old = std::move(slots);
-    slots.assign(old.size() * 2, Slot{});
-    filled = 0;
-    for (const Slot &slot : old)
-      if (slot.node)
-        remember(*slot.node, *slot.cls);
-  }
-  const Node &node = at(n);
-  std::uint64_t mask = slots.size() - 1;
-  std::uint64_t place = hashOf(node, childrenOf(node)) & mask;
-  while (slots[place].node)
-    place = (place + 1) & mask;
-  slots[place] = {n, cls};
-  ++filled;
-}
-
-//===----------------------------------------------------------------------===//
-// Nodes and classes
-//===----------------------------------------------------------------------===//
-
-ClassId Function::alone(Node node, ClassId into) {
-  members.push_back(newNode(std::move(node)));
-  Class &cls = at(into);
-  cls.members = {static_cast<std::uint32_t>(members.size() - 1), 1};
-  return into;
-}
-
-ClassId Function::leaf(Value value) {
-  ClassId cls = newClass({{}, value.getType(), Attribute(), std::nullopt});
-  alone({node::Leaf{value}, value.getType(), {}}, cls);
-  if (Attribute known; matchPattern(value, m_Constant(&known)))
-    at(cls).constant = known;
-  return cls;
-}
-
-ClassId Function::constant(Attribute value, Type type, Dialect *dialect) {
-  ClassId cls = newClass({{}, type, value, std::nullopt});
-  alone({node::Constant{value, dialect}, type, {}}, cls);
-  if (auto integer = dyn_cast<IntegerAttr>(value))
-    at(cls).range = ConstantIntRanges::constant(integer.getValue());
-  return cls;
-}
-
-// A class's analyses from its one node: the constant its op folds to when
-// every operand is a constant (the op of the input, folded with constant
-// operands only, so its fold cannot rewrite it), and the interval
-// upstream's transfer function gives its operands' intervals.
-void Function::analyse(Class &cls, const Node &node) {
-  const auto &op = std::get<node::Op>(node.what);
-  if (!op.origin)
-    return;
-  std::span<const ClassId> operands = childrenOf(node);
-  SmallVector<Attribute, 4> constants;
-  for (ClassId operand : operands)
-    constants.push_back(at(operand).constant);
-  if (llvm::all_of(constants, [](Attribute a) { return static_cast<bool>(a); })) {
-    SmallVector<OpFoldResult, 1> folded;
-    if (succeeded(op.origin->fold(constants, folded)) && folded.size() == 1)
-      if (auto attr = dyn_cast_if_present<Attribute>(folded.front()))
-        cls.constant = attr;
-  }
-  // A node of the input reads its operands as the op's own operands, so an
-  // operand with no known interval is its value's whole range.
-  if (auto ranges = dyn_cast<InferIntRangeInterface>(op.origin)) {
-    SmallVector<IntegerValueRange, 4> inputs;
-    for (auto [operand, value] : llvm::zip_equal(operands, op.origin->getOperands())) {
-      const Class &input = at(operand);
-      inputs.push_back(input.range ? IntegerValueRange(*input.range)
-                                   : IntegerValueRange::getMaxRange(value));
-    }
-    ranges.inferResultRangesFromOptional(inputs, [&](Value, const IntegerValueRange &result) {
-      if (!result.isUninitialized())
-        cls.range = result.getValue();
-    });
-  }
-}
-
-// The class of a floating op over `operands`: an equal node's class, found
-// in the hash-cons; or a new node, its analyses computed and the rules
-// rooted at its kind run on it, in the class those decide: a constant's
-// when it folds, an argument's when its callee gives that back, a right
-// side's when a Simplify rule matches, a new class of it and a right side
-// when an Equal rule does, else a class of its own. None once the
-// function's budget of nodes is spent, for a node a rule asked for: the
-// form is then kept as it was, less optimized.
-std::optional<ClassId> Function::insert(OperationName name, std::optional<std::uint16_t> kind,
-                                        Operation *origin, Identity identity, Type type,
-                                        std::span<const ClassId> operands, Rules rules) {
-  Run run{static_cast<std::uint32_t>(children.size()), static_cast<std::uint32_t>(operands.size())};
-  children.insert(children.end(), operands.begin(), operands.end());
-  Node node{node::Op{name, kind, origin, identity}, type, run};
-  if (identity == Identity::Shared)
-    if (std::optional<ClassId> found = lookup(node)) {
-      children.resize(run.first);
-      return found;
-    }
-  if (!origin && nodes.size() >= budget) {
-    children.resize(run.first);
-    return std::nullopt;
-  }
-  NodeId made = newNode(std::move(node));
-  Class analysed{{}, type, Attribute(), std::nullopt};
-  analyse(analysed, at(made));
-
-  auto decided = [&]() -> ClassId {
-    if (analysed.constant && origin)
-      return constant(analysed.constant, type, origin->getDialect());
-    if (std::optional<ClassId> given =
-            giveBack(std::get<node::Op>(at(made).what), operands, type))
-      return *given;
-    Rewritten rewritten = rules == Rules::Run ? rewrite(made, analysed) : Rewritten(NoRule{});
-    if (const auto *replace = std::get_if<Replace>(&rewritten))
-      return replace->by;
-    Run joined{static_cast<std::uint32_t>(members.size()), 1};
-    members.push_back(made);
-    // The joined class's members are copied from the array they are
-    // appended to, so by position, with room made first: an iterator into
-    // the array would not survive its growth.
-    if (const auto *join = std::get_if<Join>(&rewritten)) {
-      Run with = at(join->with).members;
-      members.reserve(members.size() + with.count);
-      for (std::uint32_t position = with.first; position < with.first + with.count; ++position) {
-        NodeId member = members[position];
-        members.push_back(member);
-      }
-      steps += with.count;
-      joined.count = static_cast<std::uint32_t>(members.size()) - joined.first;
-    }
-    analysed.members = joined;
-    return newClass(analysed);
-  };
-  ClassId cls = decided();
-  if (identity == Identity::Shared)
-    remember(made, cls);
-  return cls;
-}
-
-// A floating call of a function that gives back one of its arguments whole,
-// as the optimizer decided, is that argument: the call floats only where
-// its row carries neither crash nor divergence, so nothing is lost with it.
-std::optional<ClassId> Function::giveBack(const node::Op &op, std::span<const ClassId> operands,
-                                          Type type) {
-  if (!callees || !op.origin)
-    return std::nullopt;
-  auto call = dyn_cast<CallOp>(op.origin);
-  if (!call)
-    return std::nullopt;
-  for (const identities::GivesBack &fact : callees->of(call.getCalleeAttr()))
-    if (fact.result.index == 0 && fact.result.fields.empty() && fact.argument.fields.empty() &&
-        at(operands[fact.argument.index]).type == type)
-      return operands[fact.argument.index];
-  return std::nullopt;
-}
-
-//===----------------------------------------------------------------------===//
-// The walk
-//===----------------------------------------------------------------------===//
-
 void Function::build() {
   RegionId body = newRegion({std::nullopt, 0, &fn.getBody(), {}});
   for (BlockArgument arg : fn.getBody().getArguments())
@@ -327,7 +86,7 @@ void Function::build() {
 
   // Each region's skeleton is a run of `skeleton`, gathered in a list per
   // region as the walk meets its ops and laid out once the walk is done.
-  std::vector<std::vector<Skeletal>> perRegion(1);
+  footprint::Vector<footprint::Vector<Skeletal>> perRegion(1);
   // An op each region may still merge a later equal op into, a read or an
   // op of the region's parent, with where in the region's list the ops
   // after it start: none of them may change what a read reads, and nothing
@@ -336,11 +95,11 @@ void Function::build() {
     Operation *op;
     std::uint32_t since;
   };
-  std::vector<std::vector<Mergeable>> mergeable(1);
+  footprint::Vector<footprint::Vector<Mergeable>> mergeable(1);
   // The regions the walk is in, innermost last, and the first region of
   // each region op it is inside.
-  std::vector<RegionId> open{body};
-  std::vector<RegionId> firstRegions;
+  footprint::Vector<RegionId> open{body};
+  footprint::Vector<RegionId> firstRegions;
 
   auto classesOf = [&](Operation *op) {
     SmallVector<ClassId, 4> operands;
@@ -393,14 +152,14 @@ void Function::build() {
       // between that may change it is the first read: no op between, with
       // everything in its regions, conflicts with what the read does, which
       // changes nothing. A repeated op of the region's parent is the first.
-      std::vector<Skeletal> &list = perRegion[region.index()];
-      std::vector<Mergeable> &earlier = mergeable[region.index()];
+      footprint::Vector<Skeletal> &list = perRegion[region.index()];
+      footprint::Vector<Mergeable> &earlier = mergeable[region.index()];
       Fate fate = Kept{};
       if ((entry == Entry::Reads || entry == Entry::OfParent) && !staysPut(op)) {
         auto unchanged = [&](const Mergeable &first) {
           if (entry == Entry::OfParent)
             return true;
-          return llvm::none_of(llvm::ArrayRef(list).drop_front(first.since),
+          return llvm::none_of(llvm::ArrayRef<Skeletal>(list).drop_front(first.since),
                                [&](const Skeletal &between) {
                                  ++steps;
                                  return effects::whole(between.op).conflicts(does);
@@ -448,7 +207,7 @@ void Function::build() {
 // walk meets only ops still in the function, never one an edit erased with
 // its region.
 void Function::sweep(RewriterBase &rewriter) {
-  std::vector<Operation *> ops;
+  footprint::Vector<Operation *> ops;
   fn.getBody().walk([&](Operation *op) {
     Entry entry = entryOf(op, effects::own(op));
     if (!staysPut(op) &&
@@ -487,8 +246,8 @@ void Function::decide(Round round) {
   }
 }
 
-llvm::SmallVector<Function::Pending> Function::rewrites() const {
-  llvm::SmallVector<Pending> out;
+footprint::Vector<Function::Pending> Function::rewrites() const {
+  footprint::Vector<Pending> out;
   for (const Skeletal &entry : skeleton)
     if (const auto *decided = std::get_if<Decided>(&entry.fate))
       if (const auto *rewrite = std::get_if<Rewrite>(&decided->edit))

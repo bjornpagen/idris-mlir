@@ -31,11 +31,13 @@
 // function; no map holds per-node state by an IR handle but the value
 // numbering, which lives while the function is read; nothing recurses on
 // the input: the walks are MLIR's and the placement's stack is explicit.
-#ifndef IDR_LIB_TRANSFORMS_EGRAPH_ENGINE_H
-#define IDR_LIB_TRANSFORMS_EGRAPH_ENGINE_H
+// Every table and stack sized by the function is the footprint's.
+#ifndef IDR_TRANSFORMS_EGRAPH_ENGINE_H
+#define IDR_TRANSFORMS_EGRAPH_ENGINE_H
 
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 #include "idr/Transforms/EGraph.h"
 
@@ -187,7 +189,7 @@ public:
     std::uint32_t rule;
     Rewrite rewrite;
   };
-  llvm::SmallVector<Pending> rewrites() const;
+  footprint::Vector<Pending> rewrites() const;
   static void rewriteSkeleton(const Pending &pending, mlir::RewriterBase &rewriter);
   void elaborate(mlir::RewriterBase &rewriter);
 
@@ -270,12 +272,12 @@ private:
   solver::Numbering<ValueTag> numbering;
   IndexVector<ValueId, std::optional<ClassId>> classOf;
 
-  std::vector<Node> nodes;
-  std::vector<ClassId> children;
-  std::vector<Class> classes;
-  std::vector<NodeId> members;
-  std::vector<Region> regions;
-  std::vector<Skeletal> skeleton;
+  footprint::Vector<Node> nodes;
+  footprint::Vector<ClassId> children;
+  footprint::Vector<Class> classes;
+  footprint::Vector<NodeId> members;
+  footprint::Vector<Region> regions;
+  footprint::Vector<Skeletal> skeleton;
 
   // Open addressing over node keys: each slot a node and its class, empty
   // when no node; grown by doubling at half full.
@@ -283,12 +285,12 @@ private:
     std::optional<NodeId> node;
     std::optional<ClassId> cls;
   };
-  std::vector<Slot> slots;
+  footprint::Vector<Slot> slots;
   std::uint32_t filled = 0;
 
   // Extraction: each class's chosen member and its cost.
-  std::vector<std::optional<NodeId>> best;
-  std::vector<Cost> cost;
+  footprint::Vector<std::optional<NodeId>> best;
+  footprint::Vector<Cost> cost;
 
   // Each step of work, in the e-graph's own units: a node made, a member a
   // join copies, an earlier op a repeated read is compared with and an op
@@ -299,4 +301,4 @@ private:
 
 } // namespace idr::egraph::detail
 
-#endif // IDR_LIB_TRANSFORMS_EGRAPH_ENGINE_H
+#endif // IDR_TRANSFORMS_EGRAPH_ENGINE_H

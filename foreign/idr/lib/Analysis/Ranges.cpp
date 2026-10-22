@@ -20,6 +20,8 @@
 #include "mlir/Support/TypeID.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <ranges>
+
 MLIR_DEFINE_EXPLICIT_TYPE_ID(idr::Ranges)
 
 using namespace mlir;
@@ -31,8 +33,8 @@ class SummarizedRanges : public IntegerRangeAnalysis {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SummarizedRanges)
 
-  SummarizedRanges(DataFlowSolver &solver, idr::FuncOp fn, const idr::RangeSummary &arguments,
-                   const idr::Ranges &summaries)
+  SummarizedRanges(DataFlowSolver &solver, idr::FuncOp fn,
+                   std::span<const IntegerValueRange> arguments, const idr::Ranges &summaries)
       : IntegerRangeAnalysis(solver), fn(fn), arguments(arguments), summaries(summaries) {}
 
   // A value starts at the range its type proves, which for a natural is at
@@ -83,7 +85,7 @@ public:
                          ArrayRef<IntegerValueRangeLattice *> results) override {
     ++visits;
     auto direct = cast<idr::CallOp>(call.getOperation());
-    const idr::RangeSummary &returned = summaries.returnsOf(direct.getCalleeAttr());
+    std::span<const IntegerValueRange> returned = summaries.returnsOf(direct.getCalleeAttr());
     for (auto [lattice, value] : llvm::zip_equal(results, returned)) {
       if (value.isUninitialized()) {
         setToEntryState(lattice);
@@ -98,7 +100,7 @@ public:
 
 private:
   idr::FuncOp fn;
-  const idr::RangeSummary &arguments;
+  std::span<const IntegerValueRange> arguments;
   const idr::Ranges &summaries;
   std::uint64_t visits = 0;
 };
@@ -113,8 +115,14 @@ void joinInto(IntegerValueRange &into, const IntegerValueRange &range) {
 // no call was reached.
 struct Passed {
   idr::solver::FunctionId callee;
-  idr::RangeSummary arguments;
+  idr::footprint::Vector<IntegerValueRange> arguments;
 };
+
+// A row of `n` ranges that nothing has reached.
+auto unreached(unsigned n) {
+  return std::views::iota(0u, n) |
+         std::views::transform([](unsigned) { return IntegerValueRange(); });
+}
 
 } // namespace
 
@@ -148,11 +156,11 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
       returns(graph.size(),
               [&](solver::FunctionId f) {
                 FuncOp fn = graph.op(f);
-                return fn ? RangeSummary(fn.getNumResults()) : RangeSummary();
+                return unreached(fn ? fn.getNumResults() : 0);
               }),
       arguments(graph.size(), [&](solver::FunctionId f) {
         FuncOp fn = graph.op(f);
-        return fn ? RangeSummary(fn.getNumArguments()) : RangeSummary();
+        return unreached(fn ? fn.getNumArguments() : 0);
       }) {
   MLIRContext &context = *program->getContext();
   auto cyclic = [&](solver::SccId c) {
@@ -170,7 +178,7 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
       FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, spent);
       if (failed(solved))
         continue;
-      RangeSummary &out = returns[f];
+      std::span<IntegerValueRange> out = returns[f];
       fn.getBody().walk([&](Operation *op) {
         if (!op->hasTrait<OpTrait::ReturnLike>() || isa<RegionBranchTerminatorOpInterface>(op))
           return;
@@ -186,23 +194,24 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
   // id order. A component that feeds itself starts every member at its
   // type's range. Each member then keeps what it passes each callee of
   // another component, in callee order, for that callee's component.
-  IndexVector<solver::FunctionId, std::vector<Passed>> passed(graph.size());
+  IndexVector<solver::FunctionId, footprint::Vector<Passed>> passed(graph.size());
   solver::inSchedule<CallersFirst>(graph, context, [&](solver::SccId c) {
     bool feedsItself = cyclic(c);
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
+      std::span<IntegerValueRange> mine = arguments[f];
       if (feedsItself) {
-        for (auto [summary, arg] : llvm::zip_equal(arguments[f], fn.getArguments()))
+        for (auto [summary, arg] : llvm::zip_equal(mine, fn.getArguments()))
           summary = IntegerValueRange::getMaxRange(arg);
         continue;
       }
       for (solver::FunctionId caller : graph.callers(f)) {
-        const std::vector<Passed> &theirs = passed[caller];
+        const footprint::Vector<Passed> &theirs = passed[caller];
         auto it = llvm::partition_point(
             theirs, [&](const Passed &entry) { return entry.callee < f; });
         if (it == theirs.end() || it->callee != f)
           continue;
-        for (auto [into, range] : llvm::zip_equal(arguments[f], it->arguments))
+        for (auto [into, range] : llvm::zip_equal(mine, it->arguments))
           joinInto(into, range);
       }
     }
@@ -220,7 +229,7 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
           return IntegerValueRange(*range);
         return IntegerValueRange();
       };
-      std::vector<Passed> &mine = passed[f];
+      footprint::Vector<Passed> &mine = passed[f];
       fn.getBody().walk([&](CallOp call) {
         solver::FunctionId callee = graph.id(call.getCalleeAttr());
         if (graph.sccOf(callee) == c)
@@ -228,7 +237,8 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
         auto it = llvm::partition_point(
             mine, [&](const Passed &entry) { return entry.callee < callee; });
         if (it == mine.end() || it->callee != callee)
-          it = mine.insert(it, Passed{callee, RangeSummary(call.getArgs().size())});
+          it = mine.insert(
+              it, Passed{callee, footprint::Vector<IntegerValueRange>(call.getArgs().size())});
         for (auto [into, operand] : llvm::zip_equal(it->arguments, call.getArgs()))
           joinInto(into, passing(operand));
       });

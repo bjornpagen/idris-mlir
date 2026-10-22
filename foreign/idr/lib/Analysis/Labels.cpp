@@ -34,27 +34,10 @@
 
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 #include <utility>
 
 using namespace mlir;
-
-namespace idr {
-
-bool ClosureParts::holds(Attribute part) {
-  auto closure = dyn_cast<ClosureAttr>(part);
-  auto con = dyn_cast<ConAttr>(part);
-  if (!closure && !con)
-    return false;
-  if (auto it = known.find(part); it != known.end())
-    return it->second;
-  bool found = static_cast<bool>(closure);
-  if (con)
-    con.walkFields([&](Attribute field, unsigned) { found = holds(field) || found; });
-  known[part] = found;
-  return found;
-}
-
-} // namespace idr
 
 namespace idr::labels {
 
@@ -96,7 +79,7 @@ bool SetTable::within(SetId part, SetId whole) {
 
 // The union of two or more distinct sets is the largest of them when it
 // holds the others, and is made once per tuple of ids.
-SetId SetTable::unite(SmallVectorImpl<SetId> &inputs) {
+SetId SetTable::unite(footprint::Vector<SetId> &inputs) {
   llvm::erase(inputs, SetId{});
   llvm::sort(inputs);
   inputs.erase(std::unique(inputs.begin(), inputs.end()), inputs.end());
@@ -110,7 +93,7 @@ SetId SetTable::unite(SmallVectorImpl<SetId> &inputs) {
       inputs, [&](SetId a, SetId b) { return members(a).size() < members(b).size(); });
   SetId result = largest;
   if (!llvm::all_of(inputs, [&](SetId part) { return part == largest || within(part, largest); })) {
-    SmallVector<Label> all;
+    footprint::Vector<Label> all;
     for (SetId part : inputs)
       llvm::append_range(all, members(part));
     read += all.size();
@@ -180,7 +163,7 @@ Node Graph::merge(Node x, Node y) {
 
 // Each class holds the labels that start at its points.
 void Graph::seed() {
-  std::vector<std::pair<Node, Label>> starts;
+  footprint::Vector<std::pair<Node, Label>> starts;
   for (const auto &[node, label] : sources)
     starts.emplace_back(find(node), label);
   sources = {};
@@ -189,10 +172,10 @@ void Graph::seed() {
   for (auto first = starts.begin(); first != starts.end();) {
     Node root = first->first;
     auto last = std::find_if(first, starts.end(), [&](const auto &start) { return start.first != root; });
-    SmallVector<Label> own;
+    footprint::Vector<Label> own;
     for (auto it = first; it != last; ++it)
       own.push_back(it->second);
-    SmallVector<SetId, 2> both = {classes[at(root)].labels, sets.intern(own)};
+    footprint::Vector<SetId> both = {classes[at(root)].labels, sets.intern(own)};
     classes[at(root)].labels = sets.unite(both);
     first = last;
   }
@@ -201,14 +184,14 @@ void Graph::seed() {
 // One wave: the classes downstream of a node the last wave left owed, its
 // cycles collapsed, each set computed after the sets it includes; then
 // the firings the dispatches owe.
-SmallVector<Firing> Graph::wave() {
+footprint::Vector<Firing> Graph::wave() {
   // The classes the wave takes, as roots, each once: those owed, and every
   // class that includes one taken. A class is taken in this wave when its
   // stamp is this wave's.
   ++waves;
   takenIn.resize(parents.size(), 0);
   vertexIn.resize(parents.size(), 0);
-  SmallVector<Node> order;
+  footprint::Vector<Node> order;
   auto take = [&](Node node) {
     ++steps;
     Node root = find(node);
@@ -227,22 +210,21 @@ SmallVector<Firing> Graph::wave() {
       take(next);
 
   // Each class's successors as the wave's roots, each once, itself never:
-  // the wave's graph of inclusions over its vertices.
+  // the wave's graph of inclusions over its vertices, whose rows are each
+  // class's included classes in the order met.
   auto n = static_cast<unsigned>(order.size());
   Count<WaveVertex> vertices(n);
   auto vertex = [](unsigned v) { return WaveVertex(v); };
-  SmallVector<SmallVector<unsigned>> edges(n);
   CsrBuilder<WaveVertexTag> inclusions(vertices);
-  std::vector<unsigned> seen(n, n);
+  footprint::Vector<unsigned> seen(n, n);
   for (unsigned v = 0; v < n; ++v) {
-    SmallVector<Node, 2> kept;
+    footprint::Vector<Node> kept;
     for (Node next : classes[at(order[v])].successors) {
       ++steps;
       unsigned w = vertexOf(next);
       if (w == v || seen[w] == v)
         continue;
       seen[w] = v;
-      edges[v].push_back(w);
       inclusions.edge(vertex(v), vertex(w));
       kept.push_back(order[w]);
     }
@@ -252,12 +234,12 @@ SmallVector<Firing> Graph::wave() {
   // What each class is owed besides the sets it held: the sets of the
   // edges added since the last wave, and of the classes it includes whose
   // sets grow in this one.
-  std::vector<SmallVector<SetId, 1>> owed(n);
+  footprint::Vector<footprint::Vector<SetId>> owed(n);
   for (auto [from, to] : added)
     owed[vertexOf(to)].push_back(classes[at(find(from))].labels);
   steps += added.size();
   added.clear();
-  std::vector<SetId> before(n);
+  footprint::Vector<SetId> before(n);
   for (unsigned v = 0; v < n; ++v)
     before[v] = classes[at(order[v])].labels;
 
@@ -267,42 +249,34 @@ SmallVector<Firing> Graph::wave() {
   // whose set did not grow owes its successors nothing new.
   Csr<WaveVertexTag> graph = std::move(inclusions).finish();
   Partition<WaveVertexTag> parts = components(graph);
-  std::vector<unsigned> partOf(n);
-  for (unsigned v = 0; v < n; ++v)
-    partOf[v] = parts.componentOf(vertex(v)).index();
-  std::vector<Partition<WaveVertexTag>::Component> topDown;
-  for (auto c : parts.size().ids())
-    topDown.push_back(c);
-  for (auto c : llvm::reverse(topDown)) {
-    SmallVector<unsigned> part;
-    for (WaveVertex member : parts.members(c))
-      part.push_back(member.index());
-    SmallVector<SetId, 4> inputs;
-    for (unsigned v : part) {
-      inputs.push_back(before[v]);
-      llvm::append_range(inputs, owed[v]);
+  for (auto c : std::views::reverse(parts.size().ids())) {
+    IdRange<WaveVertex> part = parts.members(c);
+    footprint::Vector<SetId> inputs;
+    for (WaveVertex v : part) {
+      inputs.push_back(before[v.index()]);
+      llvm::append_range(inputs, owed[v.index()]);
     }
-    Node root = order[part.front()];
-    for (unsigned v : llvm::ArrayRef(part).drop_front())
-      root = merge(root, order[v]);
+    Node root = order[part.front().index()];
+    for (auto member = part.begin() + 1; member != part.end(); ++member)
+      root = merge(root, order[(*member).index()]);
     SetId set = sets.unite(inputs);
     classes[at(root)].labels = set;
-    for (unsigned v : part)
-      if (set != before[v])
-        for (unsigned w : edges[v])
-          if (partOf[w] != c.index())
-            owed[w].push_back(set);
+    for (WaveVertex v : part)
+      if (set != before[v.index()])
+        for (WaveVertex w : graph.successors(v))
+          if (parts.componentOf(w) != c)
+            owed[w.index()].push_back(set);
   }
 
   // Each dispatch runs the labels its callee holds that it has not run: it
   // has run a subset of them.
-  SmallVector<Firing> firings;
+  footprint::Vector<Firing> firings;
   for (auto [d, run] : llvm::enumerate(runs)) {
     ++steps;
     SetId set = classes[at(find(run.callee))].labels;
     if (set == run.ran)
       continue;
-    SmallVector<Label> unrun;
+    footprint::Vector<Label> unrun;
     ArrayRef<Label> now = sets.members(set), had = sets.members(run.ran);
     steps += now.size() + had.size();
     std::set_difference(now.begin(), now.end(), had.begin(), had.end(), std::back_inserter(unrun));
@@ -325,25 +299,26 @@ void Graph::fire(Firing firing) {
 // in the labels' order, their functions' order in the program.
 Solution Graph::solve(solver::Work &work) && {
   seed();
-  for (SmallVector<Firing> firings = wave(); !firings.empty(); firings = wave())
+  for (footprint::Vector<Firing> firings = wave(); !firings.empty(); firings = wave())
     for (Firing firing : firings)
       fire(firing);
   work.add(steps + sets.labelsRead());
-  llvm::DenseMap<SetId, ArrayAttr> attrs;
+  // Each set's attribute, made the first time a node holds the set.
+  footprint::Vector<ArrayAttr> attrs(sets.size());
   auto n = static_cast<unsigned>(parents.size());
   out.labels.assign(n, out.empty);
   for (unsigned node = 0; node < n; ++node) {
     SetId set = classes[at(find(Node(node)))].labels;
     if (set == SetId{})
       continue;
-    auto [it, made] = attrs.try_emplace(set);
-    if (made) {
-      SmallVector<Attribute> members;
+    ArrayAttr &attr = attrs[llvm::to_underlying(set)];
+    if (!attr) {
+      footprint::Vector<Attribute> members;
       for (Label label : sets.members(set))
         members.push_back(out.symbols[at(label)]);
-      it->second = ArrayAttr::get(out.empty.getContext(), members);
+      attr = ArrayAttr::get(out.empty.getContext(), members);
     }
-    out.labels[node] = it->second;
+    out.labels[node] = attr;
   }
   return std::move(out);
 }

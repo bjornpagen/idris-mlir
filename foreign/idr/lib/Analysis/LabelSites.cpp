@@ -8,7 +8,10 @@
 // is its entry block's argument, one key; a part of a value is its
 // anchor's key. A call in tail position, direct by its own fact or a
 // dispatch by the one definition of tail position, states its callee's
-// result points one set with its caller's.
+// result points one set with its caller's. A constant is looked into on an
+// explicit stack, so one of any depth takes no recursion; so is the
+// question of which of its parts hold a closure, which defunctionalization
+// asks too.
 
 #include "idr/Analysis/Labels.h"
 
@@ -18,10 +21,59 @@
 
 #include "mlir/IR/SymbolTable.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <utility>
+#include <variant>
+
 using namespace mlir;
+
+namespace idr {
+
+namespace {
+
+// Where a constructor stands on a walk of a constant: met, its fields not
+// yet pushed; or opened, its fields done before it is popped again.
+enum class Visit : std::uint8_t { Met, Opened };
+
+} // namespace
+
+bool ClosureParts::answer(Attribute part) const {
+  if (!isa<ClosureAttr>(part) && !isa<ConAttr>(part))
+    return false;
+  return known.find(part)->second;
+}
+
+bool ClosureParts::holds(Attribute part) {
+  footprint::Vector<std::pair<Attribute, Visit>> work{{part, Visit::Met}};
+  while (!work.empty()) {
+    auto [at, visit] = work.back();
+    auto con = dyn_cast<ConAttr>(at);
+    if ((!con && !isa<ClosureAttr>(at)) || known.contains(at)) {
+      work.pop_back();
+      continue;
+    }
+    if (!con) {
+      known[at] = true;
+      work.pop_back();
+      continue;
+    }
+    if (visit == Visit::Met) {
+      work.back().second = Visit::Opened;
+      con.walkFields([&](Attribute field, unsigned) { work.push_back({field, Visit::Met}); });
+      continue;
+    }
+    bool found = false;
+    con.walkFields([&](Attribute field, unsigned) { found = found || answer(field); });
+    known[at] = found;
+    work.pop_back();
+  }
+  return answer(part);
+}
+
+} // namespace idr
 
 namespace idr::labels {
 
@@ -46,6 +98,15 @@ void tailResults(const SymbolTable &table, FlatSymbolRefAttr callee, Operation *
     }
 }
 
+// A constant part to expand at a point, of a carrier; or the link a
+// suspension's label owes once its captures are expanded.
+struct Expansion {
+  Attribute part;
+  PointKey at;
+  Type carrier;
+};
+using Pending = std::variant<Expansion, Statements::Linked>;
+
 // One reading of a program: the sinks it gives, and the constants it has
 // expanded, each once.
 class Reading {
@@ -59,6 +120,7 @@ private:
   void flow(Operation *op, const FlowPoint &from, const FlowPoint &target, Link how);
   void sink(OpOperand &use, const FlowPoint &target);
   void expand(Attribute part, const PointKey &at, Type carrier);
+  void expandOne(const Expansion &next, footprint::Vector<Pending> &work);
 
   const SymbolTable &table;
   Statements &to;
@@ -132,35 +194,54 @@ void Reading::sink(OpOperand &use, const FlowPoint &target) {
 // constructor holds each field at its field's anchor, which is its type's
 // wherever the constructor is held, so only a closure needs the point
 // where it is. A shared closure at one point, and a shared constructor, is
-// expanded once.
+// expanded once. The parts are expanded in the order a walk of the
+// constant meets them, each part's statements before its parts'.
 void Reading::expand(Attribute part, const PointKey &at, Type carrier) {
-  if (!holding.holds(part))
+  footprint::Vector<Pending> work;
+  work.push_back(Expansion{part, at, carrier});
+  while (!work.empty()) {
+    Pending next = std::move(work.back());
+    work.pop_back();
+    std::visit(llvm::makeVisitor(
+                   [&](const Expansion &expansion) { expandOne(expansion, work); },
+                   [&](const Statements::Linked &linked) { to.links.push_back(linked); }),
+               next);
+  }
+}
+
+// One part's statements, its own parts pushed to come next, the first on
+// top, and a suspension's link beneath them, after its captures.
+void Reading::expandOne(const Expansion &next, footprint::Vector<Pending> &work) {
+  if (!holding.holds(next.part))
     return;
-  if (auto closure = dyn_cast<ClosureAttr>(part)) {
-    if (!expanded.insert({part, at}).second)
+  if (auto closure = dyn_cast<ClosureAttr>(next.part)) {
+    if (!expanded.insert({next.part, next.at}).second)
       return;
     FlatSymbolRefAttr label = closure.getCallee();
-    to.sources.push_back({at, label});
+    to.sources.push_back({next.at, label});
+    if (auto lazy = dyn_cast<LazyType>(next.carrier))
+      work.push_back(Statements::Linked{keyOf(table, FlowPoint::result(label, 0)),
+                                        FlowAnchor::forcedOf(lazy), Link::Unify});
     auto fn = table.lookup<FuncOp>(label.getAttr());
-    for (auto [i, capture] : llvm::enumerate(closure.getCaptures())) {
-      auto index = static_cast<unsigned>(i);
-      expand(capture, keyOf(table, FlowPoint::parameter(label, index)),
-             unrestricted(fn.getArgumentTypes()[index]));
-    }
-    if (auto lazy = dyn_cast<LazyType>(carrier))
-      to.links.push_back(
-          {keyOf(table, FlowPoint::result(label, 0)), FlowAnchor::forcedOf(lazy), Link::Unify});
+    ArrayAttr captures = closure.getCaptures();
+    for (auto index = static_cast<unsigned>(captures.size()); index-- > 0;)
+      work.push_back(Expansion{captures[index],
+                               keyOf(table, FlowPoint::parameter(label, index)),
+                               unrestricted(fn.getArgumentTypes()[index])});
     return;
   }
-  auto con = cast<ConAttr>(part);
+  auto con = cast<ConAttr>(next.part);
   if (!laid.insert(con).second)
     return;
   DataType data = con.getData();
   Tag tag = con.getTag();
   ArrayRef<Type> fields = data.ctor(tag).fields;
+  footprint::Vector<Expansion> parts;
   con.walkFields([&](Attribute field, unsigned i) {
-    expand(field, FlowAnchor::fieldOf(data, tag, i), unrestricted(fields[i]));
+    parts.push_back({field, FlowAnchor::fieldOf(data, tag, i), unrestricted(fields[i])});
   });
+  for (Expansion &part : llvm::reverse(parts))
+    work.push_back(std::move(part));
 }
 
 } // namespace

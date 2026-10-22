@@ -42,7 +42,9 @@
 //
 // The solve's work is what its waves read: each class taken, each edge,
 // each dispatch, and each label a union, an interning or a dispatch's new
-// labels read.
+// labels read. Its statements, its union-find, its waves' tables and the
+// solution's tables are the footprint's; the hashed maps of points, sinks
+// and sets, and the bump storage of the sets' members, take no allocator.
 #ifndef IDR_ANALYSIS_LABELS_H
 #define IDR_ANALYSIS_LABELS_H
 
@@ -51,6 +53,7 @@
 
 #include "idr/Analysis/Solver/Decision.h"
 #include "idr/Analysis/Solver/Work.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/SymbolTable.h"
@@ -59,14 +62,12 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfoVariant.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Allocator.h"
 
 #include <cstdint>
 #include <optional>
 #include <utility>
 #include <variant>
-#include <vector>
 
 namespace idr {
 
@@ -79,12 +80,17 @@ inline bool carriesLabels(mlir::Type type) {
 
 // Which parts of the program's constants hold a closure, each part answered
 // once: a closure does, a constructor does when one of its fields does, and
-// nothing else does.
+// nothing else does. A constructor is answered after its fields, on an
+// explicit stack, so a constant of any depth takes no recursion.
 class ClosureParts {
 public:
   bool holds(mlir::Attribute part);
 
 private:
+  // What an answered part holds; a part that is neither a closure nor a
+  // constructor holds nothing, and is never stored.
+  bool answer(mlir::Attribute part) const;
+
   llvm::DenseMap<mlir::Attribute, bool> known;
 };
 
@@ -154,9 +160,9 @@ struct Statements {
     mlir::CallOpInterface call;
     Standing standing;
   };
-  std::vector<Source> sources;
-  std::vector<Linked> links;
-  std::vector<Dispatched> dispatches;
+  footprint::Vector<Source> sources;
+  footprint::Vector<Linked> links;
+  footprint::Vector<Dispatched> dispatches;
 };
 
 // States every edge of `program` that carries a label, and the constants'
@@ -206,14 +212,14 @@ private:
   mlir::ArrayAttr empty;
   // The labels: each function's symbol by its label, and each function's
   // label by its name, the one place a symbol becomes a label.
-  std::vector<mlir::FlatSymbolRefAttr> symbols;
+  footprint::Vector<mlir::FlatSymbolRefAttr> symbols;
   llvm::DenseMap<mlir::StringAttr, Label> ranks;
   // The points that have nodes.
   llvm::DenseMap<PointKey, Node> nodes;
   // Each operand's one sink.
   llvm::DenseMap<mlir::OpOperand *, FlowPoint> sinks;
   // Each node's labels in the labels' order, one uniqued attribute per set.
-  std::vector<mlir::ArrayAttr> labels;
+  footprint::Vector<mlir::ArrayAttr> labels;
 };
 
 // The sets of one solve, each held once. A set is its members in rank
@@ -227,9 +233,11 @@ public:
   SetId intern(llvm::ArrayRef<Label> members);
   // The id of the union of `inputs`, which it may reorder. Where at most
   // one distinct set is not empty, that set's id, and no label is read.
-  SetId unite(llvm::SmallVectorImpl<SetId> &inputs);
+  SetId unite(footprint::Vector<SetId> &inputs);
   // The members of `set`, in rank order.
   llvm::ArrayRef<Label> members(SetId set) const;
+  // How many sets the table holds: every SetId it made is below this.
+  std::uint32_t size() const { return static_cast<std::uint32_t>(sets.size()); }
   // The labels the table has read to intern and unite.
   std::uint64_t labelsRead() const { return read; }
 
@@ -240,7 +248,7 @@ private:
   std::uint64_t read = 0;
   llvm::BumpPtrAllocator storage;
   // Each set's members, by id, in `storage`.
-  std::vector<llvm::ArrayRef<Label>> sets;
+  footprint::Vector<llvm::ArrayRef<Label>> sets;
   // Each set's id, by its members.
   llvm::DenseMap<llvm::ArrayRef<Label>, SetId> ids;
   // The union of each sorted tuple of two or more distinct ids met, the
@@ -268,7 +276,7 @@ private:
   // id of its set, and the nodes whose classes include it.
   struct Class {
     SetId labels{};
-    llvm::SmallVector<Node, 2> successors;
+    footprint::Vector<Node> successors;
   };
   // A dispatch: its call, where it stands, the node of its callee, and the
   // labels it has run, a subset of its callee's set that grows to it at
@@ -297,30 +305,30 @@ private:
   Node merge(Node x, Node y);
 
   // Solving.
-  llvm::SmallVector<Firing> wave();
+  footprint::Vector<Firing> wave();
   void fire(Firing firing);
 
   // The points as they are met, handed over by the solve.
   Solution out;
 
   // The union-find, by node.
-  std::vector<Node> parents;
-  std::vector<Class> classes;
+  footprint::Vector<Node> parents;
+  footprint::Vector<Class> classes;
   SetTable sets;
 
   // Where each label starts, until the first wave.
-  std::vector<std::pair<Node, Label>> sources;
-  std::vector<Run> runs;
+  footprint::Vector<std::pair<Node, Label>> sources;
+  footprint::Vector<Run> runs;
 
   // What the next wave owes: the targets of the edges added since the
   // last, and those edges, each owed its source's set.
-  std::vector<Node> dirty;
-  std::vector<std::pair<Node, Node>> added;
+  footprint::Vector<Node> dirty;
+  footprint::Vector<std::pair<Node, Node>> added;
 
   // The wave each node's class was last taken in, and its vertex there:
   // a wave reads only the classes it takes.
-  std::vector<std::uint32_t> takenIn;
-  std::vector<std::uint32_t> vertexIn;
+  footprint::Vector<std::uint32_t> takenIn;
+  footprint::Vector<std::uint32_t> vertexIn;
   std::uint32_t waves = 0;
 
   // The classes, edges, dispatches and new labels the waves read.

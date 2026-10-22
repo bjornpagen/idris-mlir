@@ -13,8 +13,9 @@
 // made there, its operands first, so a value is computed in each scope
 // that needs it and never above a match that does not. The skeleton's
 // edits are carried out as their ops are reached. Then every floating op
-// left unused is erased (sweep).
-#include "Engine.h"
+// left unused is erased (sweep). The placements and both stacks are the
+// footprint's.
+#include "idr/Transforms/EGraph/Engine.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "llvm/ADT/STLExtras.h"
@@ -64,7 +65,7 @@ bool Function::visible(RegionId placed, RegionId scope) const {
 
 void Function::elaborate(RewriterBase &rewriter) {
   // Where each class is placed so far: a scope and its value there.
-  std::vector<SmallVector<std::pair<RegionId, Value>, 1>> placed(classes.size());
+  footprint::Vector<footprint::Vector<std::pair<RegionId, Value>>> placed(classes.size());
   auto placedIn = [&](ClassId c, RegionId scope) -> std::optional<Value> {
     for (auto [region, value] : placed[c.index()]) {
       ++steps;
@@ -85,7 +86,7 @@ void Function::elaborate(RewriterBase &rewriter) {
       ClassId cls;
       bool expanded;
     };
-    SmallVector<Step, 8> work{{root, false}};
+    footprint::Vector<Step> work{{root, false}};
     while (!work.empty()) {
       Step step = work.back();
       if (placedIn(step.cls, scope)) {
@@ -146,7 +147,7 @@ void Function::elaborate(RewriterBase &rewriter) {
   };
   // The function's body is the first region the build numbered.
   RegionId body = RegionId(0);
-  SmallVector<Frame, 8> stack{{at(body).skeleton, 0, body, nullptr}};
+  footprint::Vector<Frame> stack{{at(body).skeleton, 0, body, nullptr}};
   auto regionAt = [&](const Skeletal &entry, unsigned index) {
     return RegionId(entry.regions->index() + index);
   };

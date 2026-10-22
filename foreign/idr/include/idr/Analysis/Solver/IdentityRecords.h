@@ -2,14 +2,16 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The records the gives-back solve reads (Identities.h): how one function
 // builds each of its values, as far as giving back reads it, numbered in
-// walk order. Private to IdentitiesRecord.cpp, which writes them,
-// IdentitiesRebuilds.cpp, which reads one under assumptions, and
-// Identities.cpp, the fixpoint over a component's.
-#ifndef IDR_LIB_ANALYSIS_SOLVER_IDENTITYRECORDS_H
-#define IDR_LIB_ANALYSIS_SOLVER_IDENTITYRECORDS_H
+// walk order. The one declaration three units share: IdentitiesRecord.cpp,
+// which writes them, IdentitiesRebuilds.cpp, which reads one under
+// assumptions, and Identities.cpp, the fixpoint over a component's. Every
+// table of a record is the footprint's.
+#ifndef IDR_ANALYSIS_SOLVER_IDENTITYRECORDS_H
+#define IDR_ANALYSIS_SOLVER_IDENTITYRECORDS_H
 
 #include "idr/Analysis/Identities.h"
 #include "idr/Analysis/Solver/Extraction.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/Attributes.h"
@@ -19,7 +21,6 @@
 #include <optional>
 #include <span>
 #include <variant>
-#include <vector>
 
 namespace idr::identities {
 
@@ -157,16 +158,16 @@ struct Record {
   solver::FunctionId id;
   Count<ValueId> values;
   IndexVector<ValueId, Build> builds;
-  std::vector<ValueId> operands;
-  std::vector<Frame> frames;
-  std::vector<CallSite> calls;
+  footprint::Vector<ValueId> operands;
+  footprint::Vector<Frame> frames;
+  footprint::Vector<CallSite> calls;
   // Each match's arms: `sides[s]` is a run of `arms`.
-  std::vector<Range> sides;
-  std::vector<Arm> arms;
-  std::vector<Return> returns;
+  footprint::Vector<Range> sides;
+  footprint::Vector<Arm> arms;
+  footprint::Vector<Return> returns;
   // Every argument's and result's type, with its grade stripped.
-  std::vector<mlir::Type> argumentTypes;
-  std::vector<mlir::Type> resultTypes;
+  footprint::Vector<mlir::Type> argumentTypes;
+  footprint::Vector<mlir::Type> resultTypes;
 
   std::span<const ValueId> run(Range range) const {
     return std::span<const ValueId>(operands).subspan(range.first, range.count);
@@ -198,9 +199,9 @@ enum class Represents : std::uint8_t { Differently, Alike };
 Represents representation(mlir::Type a, mlir::Type b);
 
 struct Component::Records {
-  std::vector<Record> members;
+  footprint::Vector<Record> members;
   // The distinct callees outside the component, in the order first met.
-  std::vector<solver::FunctionId> outside;
+  footprint::Vector<solver::FunctionId> outside;
   // Each member's call sites, each a member's position or an outside
   // callee's index.
   struct InComponent {
@@ -210,9 +211,9 @@ struct Component::Records {
     std::uint32_t outside;
   };
   using Callee = std::variant<InComponent, Elsewhere>;
-  std::vector<std::vector<Callee>> callees;
+  footprint::Vector<footprint::Vector<Callee>> callees;
 };
 
 } // namespace idr::identities
 
-#endif // IDR_LIB_ANALYSIS_SOLVER_IDENTITYRECORDS_H
+#endif // IDR_ANALYSIS_SOLVER_IDENTITYRECORDS_H

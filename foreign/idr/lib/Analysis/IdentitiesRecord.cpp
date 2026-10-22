@@ -11,7 +11,7 @@
 // region binds its scrutinee refined, to one constructor in a case and to
 // the ones left in its default; a literal match's case is its literal. The
 // read writes nothing outside the record and reads the body once.
-#include "Solver/IdentityRecords.h"
+#include "idr/Analysis/Solver/IdentityRecords.h"
 
 #include "idr/IR/Effects/Query.h"
 #include "idr/IR/Families/Families.h"

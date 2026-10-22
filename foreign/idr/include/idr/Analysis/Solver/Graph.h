@@ -14,12 +14,15 @@
 // with several entries come out of one walk with no synthetic node copied
 // in, and the root's own component, which nothing enters, comes out last.
 //
-// The rows are 4 bytes per edge and per node in each direction. A graph
-// that grows while it is solved (the label solve's) is not one of these:
-// it keeps append-only vectors, and freezes into a Csr for each sweep.
+// The rows are 4 bytes per edge and per node in each direction, held in
+// the footprint's vectors, so a pass's footprint counts every graph it
+// builds. A graph that grows while it is solved (the label solve's) is not
+// one of these: it keeps append-only vectors, and freezes into a Csr for
+// each sweep.
 #ifndef IDR_ANALYSIS_SOLVER_GRAPH_H
 #define IDR_ANALYSIS_SOLVER_GRAPH_H
 
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
 #include "llvm/ADT/GraphTraits.h"
@@ -30,7 +33,6 @@
 #include <iterator>
 #include <span>
 #include <utility>
-#include <vector>
 
 namespace idr {
 
@@ -93,7 +95,7 @@ private:
 
 namespace detail {
 // The rows of one direction, with the tag shed: what the loops compiled
-// once for every graph read (Mark.cpp, Components.cpp).
+// once for every graph read (Components.cpp).
 struct Rows {
   std::span<const std::uint32_t> start, to;
   std::span<const std::uint32_t> row(std::uint32_t node) const {
@@ -107,7 +109,8 @@ struct Rows {
 // the sentinel root's row of every node.
 enum class Root : std::uint8_t { Absent, Present };
 void layOut(std::uint32_t rows, std::span<const std::pair<std::uint32_t, std::uint32_t>> edges,
-            Root root, std::vector<std::uint32_t> &start, std::vector<std::uint32_t> &to);
+            Root root, footprint::Vector<std::uint32_t> &start,
+            footprint::Vector<std::uint32_t> &to);
 } // namespace detail
 
 // A frozen graph over the ids of `Tag`: successors and predecessors as
@@ -138,7 +141,7 @@ private:
   explicit Csr(Count<Node> count) : count(count) {}
 
   Count<Node> count;
-  std::vector<std::uint32_t> succStart, predStart, succ, pred;
+  footprint::Vector<std::uint32_t> succStart, predStart, succ, pred;
 };
 
 // Edges collected, then laid out. `finish` consumes the builder, so no
@@ -161,7 +164,7 @@ public:
 
 private:
   Count<Id<Tag>> count;
-  std::vector<std::pair<std::uint32_t, std::uint32_t>> edges;
+  footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> edges;
 };
 
 template <class G>
@@ -172,61 +175,59 @@ concept Graph = requires(const G &g, typename G::Node n) {
   { g.predecessors(n) } -> std::same_as<IdRange<typename G::Node>>;
 };
 
-namespace detail {
-// A gated graph's rows with the tag shed: plain edges as rows, guarded
-// edges by source, and the same guarded edges by guard.
-struct Guarded {
-  std::uint32_t to, guard;
-};
-struct Waiting {
-  std::uint32_t from, to;
-};
-struct GatedRows {
-  Rows plain;
-  std::span<const std::uint32_t> guardedStart;
-  std::span<const Guarded> guarded;
-  std::span<const std::uint32_t> waitingStart;
-  std::span<const Waiting> waiting;
-};
-} // namespace detail
-
 // Exclusivity's gates as data, not a callback. An edge either always
 // carries the marking, or carries it once its guard node is marked too:
 // Horn propagation, linear in nodes and edges, monotone because a guard is
 // a node of a set that only rises, so no schedule can change a verdict.
+//
+// The guarded edges are laid out twice, by source and by guard, each as
+// rows of two parallel columns, so each column reads back as typed ids.
 template <class Tag>
 class GatedCsr {
 public:
   using Node = Id<Tag>;
 
   Count<Node> size() const { return count; }
-  IdRange<Node> plain(Node from) const {
-    return IdRange<Node>(detail::Rows{plainStart, plainTo}.row(from.index()));
-  }
-
-  detail::GatedRows rows() const {
-    return {{plainStart, plainTo}, guardedStart, guardedTo, waitingStart, waitingOn};
-  }
+  IdRange<Node> plain(Node from) const { return row(plainStart, plainTo, from); }
+  // The guarded edges from `from`: their targets, and at the same place
+  // in the other row, their guards.
+  IdRange<Node> guardedTargets(Node from) const { return row(guardedStart, guardedTo, from); }
+  IdRange<Node> guards(Node from) const { return row(guardedStart, guardedBy, from); }
+  // The guarded edges `guard` guards: their sources, and at the same place
+  // in the other row, their targets.
+  IdRange<Node> waitingSources(Node guard) const { return row(waitingStart, waitingFrom, guard); }
+  IdRange<Node> waitingTargets(Node guard) const { return row(waitingStart, waitingTo, guard); }
 
 private:
   template <class>
   friend class GatedCsrBuilder;
   explicit GatedCsr(Count<Node> count) : count(count) {}
 
+  static IdRange<Node> row(const footprint::Vector<std::uint32_t> &start,
+                           const footprint::Vector<std::uint32_t> &column, Node n) {
+    return IdRange<Node>(detail::Rows{start, column}.row(n.index()));
+  }
+
   Count<Node> count;
-  std::vector<std::uint32_t> plainStart, plainTo;
-  std::vector<std::uint32_t> guardedStart;
-  std::vector<detail::Guarded> guardedTo;
-  std::vector<std::uint32_t> waitingStart;
-  std::vector<detail::Waiting> waitingOn;
+  footprint::Vector<std::uint32_t> plainStart, plainTo;
+  footprint::Vector<std::uint32_t> guardedStart, guardedTo, guardedBy;
+  footprint::Vector<std::uint32_t> waitingStart, waitingFrom, waitingTo;
 };
 
 namespace detail {
-// Lays out the guarded edges twice, by source and by guard (Graph.cpp).
-void layOutGuarded(std::uint32_t rows, std::span<const std::uint32_t> from,
-                   std::span<const Guarded> edges, std::vector<std::uint32_t> &byFromStart,
-                   std::vector<Guarded> &byFrom, std::vector<std::uint32_t> &byGuardStart,
-                   std::vector<Waiting> &byGuard);
+// A guarded edge as its builder collects it.
+struct GuardedEdge {
+  std::uint32_t from, to, guard;
+};
+// Lays out the guarded edges twice: by source, each row's targets and
+// guards; by guard, each row's sources and targets (Graph.cpp).
+void layOutGuarded(std::uint32_t rows, std::span<const GuardedEdge> edges,
+                   footprint::Vector<std::uint32_t> &byFromStart,
+                   footprint::Vector<std::uint32_t> &byFromTo,
+                   footprint::Vector<std::uint32_t> &byFromGuard,
+                   footprint::Vector<std::uint32_t> &byGuardStart,
+                   footprint::Vector<std::uint32_t> &byGuardFrom,
+                   footprint::Vector<std::uint32_t> &byGuardTo);
 } // namespace detail
 
 template <class Tag>
@@ -237,24 +238,23 @@ public:
   void plain(Id<Tag> from, Id<Tag> to) { plainEdges.emplace_back(from.index(), to.index()); }
   // An edge that carries the marking once `guard` is marked as well.
   void guarded(Id<Tag> from, Id<Tag> to, Id<Tag> guard) {
-    guardedFrom.push_back(from.index());
-    guardedEdges.push_back({to.index(), guard.index()});
+    guardedEdges.push_back({from.index(), to.index(), guard.index()});
   }
 
   GatedCsr<Tag> finish() && {
     GatedCsr<Tag> graph(count);
     detail::layOut(count.value(), plainEdges, detail::Root::Absent, graph.plainStart,
                    graph.plainTo);
-    detail::layOutGuarded(count.value(), guardedFrom, guardedEdges, graph.guardedStart,
-                          graph.guardedTo, graph.waitingStart, graph.waitingOn);
+    detail::layOutGuarded(count.value(), guardedEdges, graph.guardedStart, graph.guardedTo,
+                          graph.guardedBy, graph.waitingStart, graph.waitingFrom,
+                          graph.waitingTo);
     return graph;
   }
 
 private:
   Count<Id<Tag>> count;
-  std::vector<std::pair<std::uint32_t, std::uint32_t>> plainEdges;
-  std::vector<std::uint32_t> guardedFrom;
-  std::vector<detail::Guarded> guardedEdges;
+  footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> plainEdges;
+  footprint::Vector<detail::GuardedEdge> guardedEdges;
 };
 
 namespace detail {

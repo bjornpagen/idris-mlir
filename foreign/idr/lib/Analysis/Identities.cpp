@@ -4,9 +4,8 @@
 // greatest fixpoint over the reads, and every fact per result field path
 // once it holds. IdentitiesRecord.cpp reads a function; IdentitiesRebuilds.cpp
 // says what its returns rebuild under the assumptions left.
-#include "Solver/IdentityRecords.h"
+#include "idr/Analysis/Solver/IdentityRecords.h"
 
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
@@ -28,7 +27,7 @@ Component Component::read(const N &names, ArrayRef<solver::Member> component) {
 
   // The members by id, and the callees outside, each once in id order:
   // sorted lists searched, never a map of the program's functions.
-  std::vector<std::pair<std::uint32_t, std::uint32_t>> byId;
+  footprint::Vector<std::pair<std::uint32_t, std::uint32_t>> byId;
   for (auto [at, member] : llvm::enumerate(component))
     byId.emplace_back(member.id.index(), static_cast<std::uint32_t>(at));
   llvm::sort(byId);
@@ -46,7 +45,7 @@ Component Component::read(const N &names, ArrayRef<solver::Member> component) {
   out->outside.erase(std::unique(out->outside.begin(), out->outside.end()), out->outside.end());
 
   for (const Record &record : out->members) {
-    std::vector<Records::Callee> &callees = out->callees.emplace_back();
+    footprint::Vector<Records::Callee> &callees = out->callees.emplace_back();
     for (const CallSite &call : record.calls) {
       if (std::optional<std::uint32_t> member = memberOf(call.callee)) {
         callees.push_back(Records::InComponent{*member});
@@ -66,9 +65,16 @@ template Component Component::read<solver::Editor>(const solver::Editor &,
 
 std::span<const solver::FunctionId> Component::outsideCallees() const { return records->outside; }
 
-std::vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> outside,
-                                    solver::Work &work) && {
-  const std::vector<Record> &members = records->members;
+namespace {
+
+// Whether a member waits in the check queue: a choice, never a flag.
+enum class Queued : std::uint8_t { No, Yes };
+
+} // namespace
+
+footprint::Vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> outside,
+                                          solver::Work &work) && {
+  const footprint::Vector<Record> &members = records->members;
   auto count = static_cast<unsigned>(members.size());
   // Each reading of a member visits its every value: its record's, once
   // when it was read, and a reading's at each check and publication.
@@ -79,7 +85,7 @@ std::vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> 
 
   // Every member starts assumed to give back each argument of a result's
   // type, as a whole, at that result.
-  std::vector<Facts> assumed(count);
+  footprint::Vector<Facts> assumed(count);
   for (auto [at, record] : llvm::enumerate(members))
     for (auto [result, resultType] : llvm::enumerate(record.resultTypes))
       for (auto [argument, argumentType] : llvm::enumerate(record.argumentTypes))
@@ -89,12 +95,12 @@ std::vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> 
 
   // The members that call each member: who must be checked again when its
   // assumptions drop.
-  std::vector<std::vector<std::uint32_t>> callers(count);
+  footprint::Vector<footprint::Vector<std::uint32_t>> callers(count);
   for (auto [at, callees] : llvm::enumerate(records->callees))
     for (const Records::Callee &callee : callees)
       if (const auto *in = std::get_if<Records::InComponent>(&callee))
         callers[in->member].push_back(static_cast<std::uint32_t>(at));
-  for (std::vector<std::uint32_t> &list : callers) {
+  for (footprint::Vector<std::uint32_t> &list : callers) {
     llvm::sort(list);
     list.erase(std::unique(list.begin(), list.end()), list.end());
   }
@@ -102,7 +108,7 @@ std::vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> 
   // What each call site of `member` is assumed or known to give back, read
   // afresh for each check, since assumptions drop between checks.
   auto calleeFacts = [&](std::uint32_t member) {
-    std::vector<std::span<const GivesBack>> facts;
+    footprint::Vector<std::span<const GivesBack>> facts;
     for (const Records::Callee &callee : records->callees[member])
       facts.push_back(std::visit(
           llvm::makeVisitor(
@@ -115,28 +121,28 @@ std::vector<Facts> Component::solve(std::span<const std::span<const GivesBack>> 
   // A check can only drop assumptions, and a member is checked again only
   // after an assumption of a member it calls dropped: finitely many drops,
   // so the queue empties, at the greatest fixpoint.
-  std::deque<std::uint32_t> queue;
-  llvm::BitVector queued(count, true);
+  std::deque<std::uint32_t, footprint::Allocator<std::uint32_t>> queue;
+  footprint::Vector<Queued> queued(count, Queued::Yes);
   for (std::uint32_t member = 0; member < count; ++member)
     queue.push_back(member);
   while (!queue.empty()) {
     std::uint32_t member = queue.front();
     queue.pop_front();
-    queued.reset(member);
-    std::vector<std::span<const GivesBack>> facts = calleeFacts(member);
+    queued[member] = Queued::No;
+    footprint::Vector<std::span<const GivesBack>> facts = calleeFacts(member);
     Facts kept = wholeFactsAmong(members[member], facts, assumed[member]);
     visit(member);
     if (kept.size() == assumed[member].size())
       continue;
     assumed[member] = std::move(kept);
     for (std::uint32_t caller : callers[member])
-      if (!queued.test(caller)) {
-        queued.set(caller);
+      if (queued[caller] == Queued::No) {
+        queued[caller] = Queued::Yes;
         queue.push_back(caller);
       }
   }
 
-  std::vector<Facts> out;
+  footprint::Vector<Facts> out;
   out.reserve(count);
   for (std::uint32_t member = 0; member < count; ++member) {
     out.push_back(everyFact(members[member], calleeFacts(member)));
