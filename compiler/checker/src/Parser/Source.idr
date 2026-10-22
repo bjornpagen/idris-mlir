@@ -12,6 +12,7 @@ import Core.Name
 import Core.Metadata
 import Core.FC
 
+import Idris.Syntax.Pragmas
 import Idris.Syntax.Tree
 
 import System.File

@@ -824,15 +824,20 @@ data Arrangement : (now, after, todo : List Name) -> Type where
      InPlace : Arrangement now after todo -> Arrangement (n :: now) after (n :: todo)
      Postponed : Arrangement now after todo -> Arrangement now (n :: after) (n :: todo)
 
+-- What a clause does with its first column.
+firstUse : NamedPats (p :: ps) vars -> Use
+firstUse (p :: _) = use (source p) (pat p)
+
 -- Where the clauses put each column: one they only bind, and some bind to
--- what unification found, goes after the others.
+-- what unification found, goes after the others. Each row's first column
+-- is read where it stands and the rest arranged from the rows' tails, as
+-- the choice of the next column reads them.
 arrangement : {todo : _} -> List01 True (NamedPats todo vars) ->
               (now ** after ** Arrangement now after todo)
 arrangement {todo = []} rows = (_ ** _ ** NoColumns)
 arrangement {todo = _ :: _} rows
-    = let (column, rest) = splitColumn rows
-          (_ ** _ ** placed) = arrangement rest in
-          case foldr (\p, u => both (use (source p) (pat p)) u) Binds column of
+    = let (_ ** _ ** placed) = arrangement (map tail rows) in
+          case foldr (both . firstUse) Binds rows of
                Fixed => (_ ** _ ** Postponed placed)
                _ => (_ ** _ ** InPlace placed)
 

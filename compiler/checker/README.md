@@ -140,13 +140,21 @@ and restores it, harmlessly.
 
 ### Honest code
 
-This compiler compiles the checker, and refuses `believe_me`, `%unsafe`
-definitions and `%foreign` without a primitive, so the checker has none of
-them, and no `idris_crash`. Where upstream coerced, the checker does what
-the coercion claimed, with the same results (but for one upstream crash,
-below). `assert_total` and `assert_smaller` stay where nothing of the
-frontend's reaches them; where it does, the next section says what replaced
-them.
+This compiler compiles the checker, and refuses `%unsafe` definitions and
+`%foreign` without a primitive, so the checker has none of them, and no
+`idris_crash`. Where upstream coerced, the checker does what the coercion
+claimed, with the same results (but for one upstream crash, below). An
+`assert_total`, `assert_smaller`, `believe_me` or internal error of ours is
+a missing type or a missing proof, wherever it is and whatever reaches it,
+and the type or the proof replaces it; one stays only for a fact not known
+until the checker runs (the bytes of a TTC, a file read, what a user
+wrote), and says which fact. What the checker trusts beyond that is stated
+in one place, `Idris.Host` (below): the operations whose termination
+Idris's totality checker cannot follow, and the facts of the evaluator and
+of the hosts' primitives that no proof can reach (the primitives' in
+`Core.Primitives.Host`, which `Idris.Host` imports, so that
+`Core.Primitives` reaches them below it). Where the frontend calls the
+checker, the next section says what replaced upstream's assertions.
 
 - A scope coercion is a traversal that rebuilds every node from the same
   fields, an identity once scopes are erased: `FreelyEmbeddable` has no
@@ -234,7 +242,8 @@ so that every recursive call is on a part of its argument:
   written by functions of their own (`encodeTerm`, `encodeTree`), since a
   decoder that names an instance reaches its writer too; the bytes are
   upstream's. (An `Integer`'s writer, reached that way and never run by a
-  decoder, still splits it into limbs under upstream's `assert_total`.) A
+  decoder, splits it into limbs by a `covering` recursion, which ends by
+  the primitive shift's behaviour, a fact no type here states.) A
   decoded
   definition is resolved by `resolveGlobalDef`, which the instances'
   `resolved` are and which looks up no definition, and a name is looked up
@@ -265,8 +274,9 @@ so that every recursive call is on a part of its argument:
   implementation for every grammar; `terminalAt` is `Position` then
   `Terminal`; the location of `failLoc`, `fatalLoc` and
   `mustWorkBecause` is a `Maybe Bounds`, as a result's bounds are; and
-  `mapToken`, which nothing used, is gone. (`Idris.Parser` is `covering`,
-  as upstream's is.)
+  `mapToken`, which nothing used, is gone. (`Idris.Parser` is total by
+  its grammars' types; only `parseFile`, which reads a file, is
+  `covering`.)
 - `mkdirAll` (`Core.Directory`) is done at once when the directory exists,
   and otherwise creates the path's prefixes, outermost first, as a walk
   over its body, passing those that exist already;

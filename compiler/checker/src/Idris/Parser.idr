@@ -818,9 +818,13 @@ parameters {0 n : Nat} (again : Grammars True n)
              let vars = mapMaybe (\(fc, c) => MkPair fc <$> getRight c) (forget comps)
              infs <- build (traverse (\(fc, v) => (\i => (fc, v, i)) <$> make (TmInfer (virtualiseFC fc)))
                                      vars)
-             build (foldlM (\acc, (fc, v, i) => make (TmLam (virtualiseFC fc) top Explicit v i acc))
-                           pairs (reverse infs))
+             build (foldlM bindLeftOut pairs (reverse infs))
       where
+        -- The section's binder for one component it leaves out, around what
+        -- is built so far: the component's variable, at its inferred type.
+        bindLeftOut : Id FTerm -> (FC, Id FTerm, Id FTerm) -> Build (Id FTerm)
+        bindLeftOut acc (fc, v, i) = make (TmLam (virtualiseFC fc) top Explicit v i acc)
+
         -- The components after the first, each left out one numbered among
         -- those left out.
         numberedFrom : Int -> List (FC, Maybe (Id FTerm)) -> List (FC, Either (Id FTerm) Int)

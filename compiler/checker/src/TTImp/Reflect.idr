@@ -456,7 +456,7 @@ mutual
                     => do w' <- reify defs !(evalClosure defs w)
                           -- Base holds the nested namespace as its text.
                           nested <- the (Core (Maybe String)) (reify defs !(evalClosure defs x))
-                          x' <- traverse internNamespace nested
+                          x' <- traverseOpt internNamespace nested
                           y' <- reify defs !(evalClosure defs y)
                           z' <- reify defs !(evalClosure defs z)
                           u' <- reify defs !(evalClosure defs u)

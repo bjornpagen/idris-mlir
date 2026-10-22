@@ -362,7 +362,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
     -- inserted in the right place
     mkMethField : List (Name, a) ->
                   List (Name, List (Name, RigCount, PiInfo RawImp)) ->
-                  (Name, Name, List (String, String), RigCount, Maybe TotalReq, RawImp) -> RawImp
+                  (Name, Name, List (Ident, Ident), RigCount, Maybe TotalReq, RawImp) -> RawImp
     mkMethField methImps fldTys (topn, n, upds, c, treq, ty)
         = let argns = map applyUpdate (maybe [] id (lookup (dropNS topn) fldTys))
               imps = map fst methImps in
@@ -405,9 +405,9 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
     -- in later method types (specifically, putting implicits in)
     topMethType : List (Name, RawImp) ->
                   Name -> List (Name, RigCount, Maybe RawImp, RawImp) ->
-                  List String -> List Name -> List Name -> List Name ->
+                  List Ident -> List Name -> List Name -> List Name ->
                   Method ->
-                  Core ((Name, Name, List (String, String), RigCount, Maybe TotalReq, RawImp),
+                  Core ((Name, Name, List (Ident, Ident), RigCount, Maybe TotalReq, RawImp),
                            List (Name, RawImp))
     topMethType methupds impName methImps impsp imppnames pnames allmeths meth
         = do -- Get the specialised type by applying the method to the
@@ -464,17 +464,17 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
 
     topMethTypes : List (Name, RawImp) ->
                    Name -> List (Name, RigCount, Maybe RawImp, RawImp) ->
-                   List String ->
+                   List Ident ->
                    List Name -> List Name -> List Name ->
                    List Method ->
-                   Core (List (Name, Name, List (String, String), RigCount, Maybe TotalReq, RawImp))
+                   Core (List (Name, Name, List (Ident, Ident), RigCount, Maybe TotalReq, RawImp))
     topMethTypes upds impName methImps impsp imppnames pnames allmeths [] = pure []
     topMethTypes upds impName methImps impsp imppnames pnames allmeths (m :: ms)
         = do (m', newupds) <- topMethType upds impName methImps impsp imppnames pnames allmeths m
              ms' <- topMethTypes (newupds ++ upds) impName methImps impsp imppnames pnames allmeths ms
              pure (m' :: ms')
 
-    mkTopMethDecl : (Name, Name, List (String, String), RigCount, Maybe TotalReq, RawImp) -> ImpDecl
+    mkTopMethDecl : (Name, Name, List (Ident, Ident), RigCount, Maybe TotalReq, RawImp) -> ImpDecl
     mkTopMethDecl (mn, n, upds, c, treq, mty)
         = do let opts = if isJust $ findTotality opts_in
                           then opts_in

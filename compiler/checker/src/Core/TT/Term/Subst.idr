@@ -102,9 +102,12 @@ notBelowPlus {a = S a} (LTESucc lt) = notBelowPlus lt
                (0 p : IsVar nm i (outer ++ (dropped ++ vars))) -> LT i (size o) ->
                (e : Either (Var outer) (Var (dropped ++ vars))) -> VarLocated {outer = dropped ++ vars} o (MkVar p) e ->
                LocalAt fc r i (foundAt (localOf fc r) o s env e)
+-- A variable below the binders is embedded past `vars` alone: the
+-- substitution's result has no `dropped`.
 belowFound o s env p lt (Left w) (LocatedIn same _)
-    = replace {p = \k => LocalAt fc r k (localOf fc r (embed w))} (trans (embedVarIdx w) same)
-              (localOfIdx (embed w))
+    = replace {p = \k => LocalAt fc r k (localOf fc r (embed {outer = vars} w))}
+              (trans (embedVarIdx {outer = vars} w) same)
+              (localOfIdx (embed {outer = vars} w))
 belowFound o s env p lt (Right w) (LocatedPast same)
     = void (notBelowPlus (replace {p = \k => LT k (size o)} same lt))
 

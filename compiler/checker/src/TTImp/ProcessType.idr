@@ -177,8 +177,8 @@ processType {vars} eopts nest env fc rig vis opts ty_raw
 
          (erased, dterased) <- findErased fullty
          defs <- get Ctxt
-         empty <- clearDefs defs
-         infargs <- findInferrable empty !(nf defs Env.empty fullty)
+         cleared <- clearDefs defs
+         infargs <- findInferrable cleared !(nf defs Env.empty fullty)
 
          ignore $ addDef (Resolved idx)
                 ({ eraseArgs := erased,

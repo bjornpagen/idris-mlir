@@ -53,21 +53,6 @@ TTC Fixity where
              _ => corrupt "Fixity"
 
 export
-TTC Import where
-  toBuf (MkImport loc reexport path nameAs)
-    = do toBuf loc
-         toBuf reexport
-         toBuf path
-         toBuf nameAs
-
-  fromBuf
-    = do loc <- fromBuf
-         reexport <- fromBuf
-         path <- fromBuf
-         nameAs <- fromBuf
-         pure (MkImport loc reexport path nameAs)
-
-export
 TTC BindingModifier where
   toBuf NotBinding = tag 0
   toBuf Typebind = tag 1

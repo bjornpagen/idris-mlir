@@ -528,12 +528,13 @@ make : NodeOf Id -> Build (Id x)
 make nd = MkBuild (madeNode nd)
 
 -- The builder with the hole at `place` bracketed, where it is the node
--- made last.
+-- made last: a builder with a node made has made `S newest` of them, the
+-- last at `newest`.
 bracketedLast : (place : Nat) -> (1 b : Builder) -> Stepped Builder ()
-bracketedLast place (MkBuilder made (AddCell col (TmHole fc bracketed n)) sizes)
-    = MkStepped (if S place == made
-                    then MkBuilder made (AddCell col (TmHole fc True n)) sizes
-                    else MkBuilder made (AddCell col (TmHole fc bracketed n)) sizes) ()
+bracketedLast place (MkBuilder (S newest) (AddCell col (TmHole fc bracketed n)) sizes)
+    = MkStepped (if place == newest
+                    then MkBuilder (S newest) (AddCell col (TmHole fc True n)) sizes
+                    else MkBuilder (S newest) (AddCell col (TmHole fc bracketed n)) sizes) ()
 bracketedLast place (MkBuilder made built sizes) = MkStepped (MkBuilder made built sizes) ()
 
 ||| A hole written as an argument is bracketed. The argument is the node made
@@ -545,9 +546,9 @@ bracketHole i = MkBuild (bracketedLast i.place)
 -- Where `_` is written, if the node at `place` is the one made last and is
 -- `_`, the builder given back.
 implicitLast : (place : Nat) -> (1 b : Builder) -> Stepped Builder (Maybe FC)
-implicitLast place (MkBuilder made (AddCell col (TmImplicit fc)) sizes)
-    = MkStepped (MkBuilder made (AddCell col (TmImplicit fc)) sizes)
-                (if S place == made then Just fc else Nothing)
+implicitLast place (MkBuilder (S newest) (AddCell col (TmImplicit fc)) sizes)
+    = MkStepped (MkBuilder (S newest) (AddCell col (TmImplicit fc)) sizes)
+                (if place == newest then Just fc else Nothing)
 implicitLast place (MkBuilder made built sizes) = MkStepped (MkBuilder made built sizes) Nothing
 
 ||| Where `_` is written, if the node made last is the given one and is `_`.
