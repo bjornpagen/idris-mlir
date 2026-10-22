@@ -2,8 +2,12 @@
 -- Copyright (c) 2020 Edwin Brady
 module Parser.Support.Escaping
 
-import Libraries.Data.String.Extra
+import Control.WellFounded
 import Data.List
+import Data.Nat
+import Libraries.Data.String.Extra
+
+%default total
 
 export
 hex : Char -> Maybe Int
@@ -89,58 +93,103 @@ getEsc "SP" = Just '\SP'
 getEsc "DEL" = Just '\DEL'
 getEsc str = Nothing
 
-unescape' : List Char -> List Char -> Maybe (List Char)
-unescape' _ [] = pure []
-unescape' escapeChars (x::xs)
-    = assert_total $ if escapeChars `isPrefixOf` (x::xs)
-         then case drop (length escapeChars) (x::xs) of
-                   ('\\' :: xs) => pure $ '\\' :: !(unescape' escapeChars xs)
-                   ('\n' :: xs) => pure !(unescape' escapeChars xs)
-                   ('&' :: xs) => pure !(unescape' escapeChars xs)
-                   ('a' :: xs) => pure $ '\a' :: !(unescape' escapeChars xs)
-                   ('b' :: xs) => pure $ '\b' :: !(unescape' escapeChars xs)
-                   ('f' :: xs) => pure $ '\f' :: !(unescape' escapeChars xs)
-                   ('n' :: xs) => pure $ '\n' :: !(unescape' escapeChars xs)
-                   ('r' :: xs) => pure $ '\r' :: !(unescape' escapeChars xs)
-                   ('t' :: xs) => pure $ '\t' :: !(unescape' escapeChars xs)
-                   ('v' :: xs) => pure $ '\v' :: !(unescape' escapeChars xs)
-                   ('\'' :: xs) => pure $ '\'' :: !(unescape' escapeChars xs)
-                   ('"' :: xs) => pure $ '"' :: !(unescape' escapeChars xs)
-                   ('x' :: xs) => case span isHexDigit xs of
-                                       ([], rest) => unescape' escapeChars rest
-                                       (ds, rest) => pure $ cast !(toHex 1 (reverse ds)) ::
-                                                             !(unescape' escapeChars rest)
-                   ('o' :: xs) => case span isOctDigit xs of
-                                       ([], rest) => unescape' escapeChars rest
-                                       (ds, rest) => pure $ cast !(toOct 1 (reverse ds)) ::
-                                                             !(unescape' escapeChars rest)
-                   xs => case span isDigit xs of
-                              ([], (a :: b :: c :: rest)) =>
-                                case getEsc (fastPack [a, b, c]) of
-                                     Just v => Just (v :: !(unescape' escapeChars rest))
-                                     Nothing => case getEsc (fastPack [a, b]) of
-                                                     Just v => Just (v :: !(unescape' escapeChars (c :: rest)))
-                                                     Nothing => unescape' escapeChars xs
-                              ([], (a :: b :: [])) =>
-                                case getEsc (fastPack [a, b]) of
-                                     Just v => Just (v :: [])
-                                     Nothing => unescape' escapeChars xs
-                              ([], rest) => unescape' escapeChars rest
-                              (ds, rest) => Just $ cast (cast {to=Int} (fastPack ds)) ::
-                                              !(unescape' escapeChars rest)
-         else Just $ x :: !(unescape' escapeChars xs)
-  where
-    toHex : Int -> List Char -> Maybe Int
-    toHex _ [] = Just 0
-    toHex m (d :: ds)
-        = pure $ !(hex (toLower d)) * m + !(toHex (m*16) ds)
+-- What is left of a text once a part of it is read: no more characters
+-- than the text had, so a loop over the text that reads an escape recurses
+-- on less of it.
+record Remaining (text : List Char) where
+  constructor MkRemaining
+  rest : List Char
+  0 noLonger : Nat.LTE (length rest) (length text)
 
-    toOct : Int -> List Char -> Maybe Int
-    toOct _ [] = Just 0
-    toOct m (d :: ds)
-        = pure $ !(oct (toLower d)) * m + !(toOct (m*8) ds)
+-- What is left of a text with one more character in front.
+grown : Remaining text -> Remaining (c :: text)
+grown (MkRemaining rest le) = MkRemaining rest (lteSuccRight le)
+
+-- What follows a text's first character.
+past : (text : List Char) -> Remaining (c :: text)
+past text = MkRemaining text (lteSuccRight reflexive)
+
+-- The text after the characters given, if it begins with them.
+after : (hashes : List Char) -> (text : List Char) -> Maybe (Remaining text)
+after [] text = Just (MkRemaining text reflexive)
+after (h :: hs) [] = Nothing
+after (h :: hs) (c :: cs) = if h == c then grown <$> after hs cs else Nothing
+
+-- The longest start of the text of characters `p` holds of, and what
+-- follows it.
+spanning : (Char -> Bool) -> (text : List Char) -> (List Char, Remaining text)
+spanning p [] = ([], MkRemaining [] LTEZero)
+spanning p (c :: cs)
+    = if p c
+         then let (ds, more) = spanning p cs in (c :: ds, grown more)
+         else ([], MkRemaining (c :: cs) reflexive)
+
+toHex : Int -> List Char -> Maybe Int
+toHex _ [] = Just 0
+toHex m (d :: ds)
+    = pure $ !(hex (toLower d)) * m + !(toHex (m*16) ds)
+
+toOct : Int -> List Char -> Maybe Int
+toOct _ [] = Just 0
+toOct m (d :: ds)
+    = pure $ !(oct (toLower d)) * m + !(toOct (m*8) ds)
+
+-- The characters an escape stands for, given what follows its backslash and
+-- hashes, and what follows the escape.
+escapeAt : (text : List Char) -> Maybe (List Char, Remaining text)
+escapeAt ('\\' :: xs) = Just (['\\'], past xs)
+escapeAt ('\n' :: xs) = Just ([], past xs)
+escapeAt ('&' :: xs) = Just ([], past xs)
+escapeAt ('a' :: xs) = Just (['\a'], past xs)
+escapeAt ('b' :: xs) = Just (['\b'], past xs)
+escapeAt ('f' :: xs) = Just (['\f'], past xs)
+escapeAt ('n' :: xs) = Just (['\n'], past xs)
+escapeAt ('r' :: xs) = Just (['\r'], past xs)
+escapeAt ('t' :: xs) = Just (['\t'], past xs)
+escapeAt ('v' :: xs) = Just (['\v'], past xs)
+escapeAt ('\'' :: xs) = Just (['\''], past xs)
+escapeAt ('"' :: xs) = Just (['"'], past xs)
+escapeAt ('x' :: xs)
+    = case spanning isHexDigit xs of
+           ([], more) => Just ([], grown more)
+           (ds, more) => Just ([cast !(toHex 1 (reverse ds))], grown more)
+escapeAt ('o' :: xs)
+    = case spanning isOctDigit xs of
+           ([], more) => Just ([], grown more)
+           (ds, more) => Just ([cast !(toOct 1 (reverse ds))], grown more)
+escapeAt xs
+    = case spanning isDigit xs of
+           ([], MkRemaining (a :: b :: c :: rest) le) =>
+             case getEsc (fastPack [a, b, c]) of
+                  Just v => Just ([v], MkRemaining rest (lteSuccLeft (lteSuccLeft (lteSuccLeft le))))
+                  Nothing => case getEsc (fastPack [a, b]) of
+                                  Just v => Just ([v], MkRemaining (c :: rest) (lteSuccLeft (lteSuccLeft le)))
+                                  Nothing => Just ([], MkRemaining xs reflexive)
+           ([], MkRemaining (a :: b :: []) le) =>
+             case getEsc (fastPack [a, b]) of
+                  Just v => Just ([v], MkRemaining [] LTEZero)
+                  Nothing => Just ([], MkRemaining xs reflexive)
+           ([], more) => Just ([], more)
+           (ds, more) => Just ([cast (cast {to=Int} (fastPack ds))], more)
+
+-- The text unescaped from where it stands: each escape read leaves less of
+-- the text than there was, which `acc` bounds, so the loop ends.
+unescapeFrom : (hashes : List Char) -> (text : List Char) ->
+               (0 acc : Accessible Nat.LT (length text)) -> Maybe (List Char)
+unescapeFrom hashes [] _ = Just []
+unescapeFrom hashes (x :: xs) (Access rec)
+    = if x == '\\'
+         then case after hashes xs of
+                   Just (MkRemaining body le) =>
+                     case escapeAt body of
+                          Just (made, MkRemaining rest le') =>
+                            (made ++) <$> unescapeFrom hashes rest
+                                            (rec (length rest) (LTESucc (transitive le' le)))
+                          Nothing => Nothing
+                   Nothing => (x ::) <$> unescapeFrom hashes xs (rec (length xs) reflexive)
+         else (x ::) <$> unescapeFrom hashes xs (rec (length xs) reflexive)
 
 export
 unescape : Nat -> String -> Maybe String
-unescape hashtag x = let escapeChars = '\\' :: replicate hashtag '#' in
-                       fastPack <$> (unescape' escapeChars (unpack x))
+unescape hashtag x = let text = unpack x in
+                       fastPack <$> unescapeFrom (replicate hashtag '#') text (wellFounded (length text))

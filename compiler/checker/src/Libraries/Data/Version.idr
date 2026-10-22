@@ -79,10 +79,10 @@ lexVersion str = fst (lex versionTokens str)
 
 
 -- A number: its text, read as a natural.
-number : Grammar () VersionToken True Nat
+number : Grammar () VersionToken n r True Nat
 number = stringToNatOrZ <$> match VersionNum
 
-versionParser : Grammar () VersionToken True Version
+versionParser : Grammar () VersionToken n r True Version
 versionParser = do
   maj <- number
   ignore $ match VersionDot

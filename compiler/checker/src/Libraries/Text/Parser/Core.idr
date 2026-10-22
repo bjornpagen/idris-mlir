@@ -19,6 +19,15 @@
 ||| nothing of it is counted. An alternative keeps only where it began, a
 ||| number, and the state's mark; when a branch fails it goes back to them,
 ||| so a failed branch costs what it did, never a copy.
+|||
+||| A grammar's type bounds the tokens it may read, and says whether it runs
+||| only once a token has been read since the parse stood at the bound. A
+||| grammar that names another grammar, or itself, reaches it through a box:
+||| what a box holds is had only at a bound below the box's, which a grammar
+||| stands at once it has read a token, so every grammar a program names,
+||| through every recursion between grammars, ends. One fixpoint ties a
+||| grammar to the box of itself. The bound is erased, so it costs nothing at
+||| run time.
 module Libraries.Text.Parser.Core
 
 import Control.WellFounded
@@ -133,19 +142,24 @@ data Result : (state : Type) -> (tok : Type) -> (n : Nat) ->
            (errors : List1 ParsingError) -> Result state tok n c given ty
 
 ||| A grammar over tokens `tok`, keeping a state `state`, giving a `ty`.
-||| `consumes` is whether every success reads a token: a repetition of a
-||| grammar that does recurses on the tokens it leaves, which are fewer.
+||| `bound` bounds the tokens left wherever it runs, and `read` is whether
+||| it runs only once a token has been read since the parse stood at the
+||| bound, so below it. `consumes` is whether every success reads a token:
+||| a repetition of a grammar that does recurses on the tokens it leaves,
+||| which are fewer, and what follows it runs below the bound.
 export
-data Grammar : (state : Type) -> (tok : Type) -> (consumes : Bool) -> (ty : Type) -> Type where
+data Grammar : (state : Type) -> (tok : Type) -> (bound : Nat) -> (read : Bool) ->
+               (consumes : Bool) -> (ty : Type) -> Type where
   MkGrammar : (run : {0 n : Nat} -> (left : Nat) -> (0 fits : Nat.LTE left n) ->
+                     (0 under : Leaves read left bound) ->
                      (1 inp : Input state tok n) -> Result state tok n consumes left ty) ->
-              Grammar state tok consumes ty
+              Grammar state tok bound read consumes ty
 
 %inline
-run : Grammar state tok c ty ->
-      (left : Nat) -> (0 fits : Nat.LTE left n) ->
+run : Grammar state tok bound r c ty ->
+      (left : Nat) -> (0 fits : Nat.LTE left n) -> (0 under : Leaves r left bound) ->
       (1 inp : Input state tok n) -> Result state tok n c left ty
-run (MkGrammar f) left fits inp = f left fits inp
+run (MkGrammar f) left fits under inp = f left fits under inp
 
 -- What a grammar does from a place it was given.
 RunFrom : (state : Type) -> (tok : Type) -> (n : Nat) -> (consumes : Bool) -> (given : Nat) -> Type -> Type
@@ -256,70 +270,89 @@ sequenced c1 c2 first (Parsed l second inp v) = Parsed l (inSequence c1 c2 first
 sequenced c1 c2 first (Failed inp severity errs) = Failed inp severity errs
 
 -- The grammar a first one's value chooses, run from where the first
--- stopped.
-thenRun : (0 c1, c2 : Bool) -> (0 fits : Nat.LTE given n) ->
-          (a -> Grammar state tok c2 b) -> (1 res : Result state tok n c1 given a) ->
+-- stopped: below the bound if the first read a token there, or if the
+-- parse was below it already.
+thenRun : (0 r, c1, c2 : Bool) -> (0 fits : Nat.LTE given n) -> (0 under : Leaves r given bound) ->
+          (a -> Grammar state tok bound (c1 || r) c2 b) -> (1 res : Result state tok n c1 given a) ->
           Result state tok n (c1 || c2) given b
-thenRun c1 c2 fits next (Parsed l fewer inp x)
-    = sequenced c1 c2 fewer (run (next x) l (transitive (noMore c1 fewer) fits) inp)
-thenRun c1 c2 fits next (Failed inp severity errs) = Failed inp severity errs
+thenRun r c1 c2 fits under next (Parsed l fewer inp x)
+    = sequenced c1 c2 fewer
+        (run (next x) l (transitive (noMore c1 fewer) fits) (readSince r c1 under fewer) inp)
+thenRun r c1 c2 fits under next (Failed inp severity errs) = Failed inp severity errs
 
 mapResult : (a -> b) -> (1 res : Result state tok n c given a) -> Result state tok n c given b
 mapResult f (Parsed l fewer inp x) = Parsed l fewer inp (f x)
 mapResult f (Failed inp severity errs) = Failed inp severity errs
 
 ||| Sequence two grammars, the second chosen by the first's value. The
-||| sequence consumes if either does.
+||| sequence consumes if either does, and the second runs below the bound
+||| if the first consumes: there it may call a grammar through a box.
 export %inline
-(>>=) : {0 c1, c2 : Bool} ->
-        Grammar state tok c1 a -> (a -> Grammar state tok c2 b) ->
-        Grammar state tok (c1 || c2) b
-p >>= next = MkGrammar (\left, fits, inp => thenRun c1 c2 fits next (run p left fits inp))
+(>>=) : {0 r, c1, c2 : Bool} ->
+        Grammar state tok bound r c1 a -> (a -> Grammar state tok bound (c1 || r) c2 b) ->
+        Grammar state tok bound r (c1 || c2) b
+p >>= next = MkGrammar (\left, fits, under, inp => thenRun r c1 c2 fits under next (run p left fits under inp))
 
 ||| Sequence two grammars. The second is made only once the first has
-||| succeeded, so a grammar may name itself after a token it reads.
+||| succeeded.
 export %inline
-(>>) : {0 c1, c2 : Bool} ->
-       Grammar state tok c1 () -> Lazy (Grammar state tok c2 a) ->
-       Grammar state tok (c1 || c2) a
-p >> q = MkGrammar (\left, fits, inp => thenRun c1 c2 fits (\_ => q) (run p left fits inp))
+(>>) : {0 r, c1, c2 : Bool} ->
+       Grammar state tok bound r c1 () -> Lazy (Grammar state tok bound (c1 || r) c2 a) ->
+       Grammar state tok bound r (c1 || c2) a
+p >> q = MkGrammar (\left, fits, under, inp => thenRun r c1 c2 fits under (\_ => q) (run p left fits under inp))
 
-||| A grammar's value mapped. Whether it consumes is no part of its value,
-||| so the mapping is one for every grammar.
+||| A grammar's value mapped. Neither where it runs nor whether it consumes
+||| is part of its value, so the mapping is one for every grammar.
 export
-{0 c : _} ->
-Functor (Grammar state tok c) where
-  map f p = MkGrammar (\left, fits, inp => mapResult f (run p left fits inp))
+{0 bound : Nat} -> {0 r, c : Bool} ->
+Functor (Grammar state tok bound r c) where
+  map f p = MkGrammar (\left, fits, under, inp => mapResult f (run p left fits under inp))
 
 ||| The function the first grammar gives, applied to the value the second
 ||| gives. The sequence consumes if either does.
 export %inline
-(<*>) : {0 c1, c2 : Bool} ->
-        Grammar state tok c1 (a -> b) -> Grammar state tok c2 a ->
-        Grammar state tok (c1 || c2) b
-f <*> x = MkGrammar (\left, fits, inp => thenRun c1 c2 fits (\g => map g x) (run f left fits inp))
+(<*>) : {0 r, c1, c2 : Bool} ->
+        Grammar state tok bound r c1 (a -> b) -> Grammar state tok bound (c1 || r) c2 a ->
+        Grammar state tok bound r (c1 || c2) b
+f <*> x = MkGrammar (\left, fits, under, inp => thenRun r c1 c2 fits under (\g => map g x) (run f left fits under inp))
 
 ||| Two grammars in sequence, the first one's value kept.
 export %inline
-(<*) : {0 c1, c2 : Bool} ->
-       Grammar state tok c1 a -> Grammar state tok c2 b ->
-       Grammar state tok (c1 || c2) a
+(<*) : {0 r, c1, c2 : Bool} ->
+       Grammar state tok bound r c1 a -> Grammar state tok bound (c1 || r) c2 b ->
+       Grammar state tok bound r (c1 || c2) a
 x <* y = map const x <*> y
 
 ||| Two grammars in sequence, the second one's value kept.
 export %inline
-(*>) : {0 c1, c2 : Bool} ->
-       Grammar state tok c1 a -> Grammar state tok c2 b ->
-       Grammar state tok (c1 || c2) b
+(*>) : {0 r, c1, c2 : Bool} ->
+       Grammar state tok bound r c1 a -> Grammar state tok bound (c1 || r) c2 b ->
+       Grammar state tok bound r (c1 || c2) b
 x *> y = map (const id) x <*> y
 
 ||| Two alternative grammars: the first, or else the second, from the same
 ||| place. The choice consumes if both do.
 export %inline
-(<|>) : Backtrack mark state => {0 c1, c2 : Bool} ->
-        Grammar state tok c1 ty -> Lazy (Grammar state tok c2 ty) ->
-        Grammar state tok (c1 && c2) ty
-x <|> y = MkGrammar (\left, fits => alternative c1 c2 (run x left fits) (run y left fits))
+(<|>) : Backtrack mark state => {0 r, c1, c2 : Bool} ->
+        Grammar state tok bound r c1 ty -> Lazy (Grammar state tok bound r c2 ty) ->
+        Grammar state tok bound r (c1 && c2) ty
+x <|> y = MkGrammar (\left, fits, under => alternative c1 c2 (run x left fits under) (run y left fits under))
+
+------------------------------------------------------------------------------
+-- Where a grammar runs against its bound
+------------------------------------------------------------------------------
+
+||| The grammar, run where more is known to have been read since its bound,
+||| by `d`: it needs no more than it did. What follows a grammar that may
+||| consume runs so.
+export
+onward : {0 d, r : Bool} -> Grammar state tok bound r c ty -> Grammar state tok bound (d || r) c ty
+onward g = MkGrammar (\left, fits, under => run g left fits (earlier d r under))
+
+||| The grammar, run only once a token has been read since its bound.
+export
+later : Grammar state tok bound r c ty -> Grammar state tok bound True c ty
+later = onward {d = True}
 
 ------------------------------------------------------------------------------
 -- Single steps
@@ -327,8 +360,8 @@ x <|> y = MkGrammar (\left, fits => alternative c1 c2 (run x left fits) (run y l
 
 ||| Success, reading nothing.
 export
-pure : (val : ty) -> Grammar state tok False ty
-pure val = MkGrammar (\left, fits, inp => Parsed left reflexive inp val)
+pure : (val : ty) -> Grammar state tok bound r False ty
+pure val = MkGrammar (\left, fits, under, inp => Parsed left reflexive inp val)
 
 gave : (left : Nat) -> Columns tok n -> (1 step : Stepped state a) ->
        (1 warned : Trail (Maybe Bounds, String)) -> Commitment -> Result state tok n False left a
@@ -341,8 +374,8 @@ stepped left step (MkInput cols st warned com) = gave left cols (step st) warned
 ||| A step of the parse's state, giving a value. A branch that fails is
 ||| backtracked over its steps, as over its warnings.
 export
-updateState : ((1 st : state) -> Stepped state a) -> Grammar state tok False a
-updateState step = MkGrammar (\left, fits, inp => stepped left step inp)
+updateState : ((1 st : state) -> Stepped state a) -> Grammar state tok bound r False a
+updateState step = MkGrammar (\left, fits, under, inp => stepped left step inp)
 
 -- One token read by `f`, if one is left and `f` takes it.
 readToken : String -> (tok -> Maybe a) -> (left : Nat) -> (0 fits : Nat.LTE left n) ->
@@ -357,8 +390,8 @@ readToken err f (S l) fits (MkInput cols st warned com)
 ||| The value `f` makes of the next token, if it makes one; otherwise a
 ||| failure, with `err`.
 export
-terminal : String -> (tok -> Maybe a) -> Grammar state tok True a
-terminal err f = MkGrammar (\left, fits, inp => readToken err f left fits inp)
+terminal : String -> (tok -> Maybe a) -> Grammar state tok bound r True a
+terminal err f = MkGrammar (\left, fits, under, inp => readToken err f left fits inp)
 
 -- One token read by `f`, with where it was read.
 readTokenAt : String -> (tok -> Maybe a) -> (left : Nat) -> (0 fits : Nat.LTE left n) ->
@@ -372,8 +405,8 @@ readTokenAt err f (S l) fits (MkInput cols st warned com)
 
 ||| As `terminal`, with where the token was read, which a token always has.
 export
-terminalAt : String -> (tok -> Maybe a) -> Grammar state tok True (a, Bounds)
-terminalAt err f = MkGrammar (\left, fits, inp => readTokenAt err f left fits inp)
+terminalAt : String -> (tok -> Maybe a) -> Grammar state tok bound r True (a, Bounds)
+terminalAt err f = MkGrammar (\left, fits, under, inp => readTokenAt err f left fits inp)
 
 -- The next token, looked at and not read, where `f` holds of it.
 lookAt : String -> (tok -> Bool) -> (left : Nat) -> (0 fits : Nat.LTE left n) ->
@@ -388,12 +421,12 @@ lookAt err f (S l) fits (MkInput cols st warned com)
 
 ||| The next token, where `f` holds of it, read no further.
 export
-nextIs : String -> (tok -> Bool) -> Grammar state tok False tok
-nextIs err f = MkGrammar (\left, fits, inp => lookAt err f left fits inp)
+nextIs : String -> (tok -> Bool) -> Grammar state tok bound r False tok
+nextIs err f = MkGrammar (\left, fits, under, inp => lookAt err f left fits inp)
 
 ||| The next token, read no further.
 export
-peek : Grammar state tok False tok
+peek : Grammar state tok bound r False tok
 peek = nextIs "Unrecognised token" (const True)
 
 -- Success where no token is left.
@@ -406,8 +439,8 @@ atEnd (S l) fits (MkInput cols st warned com)
 
 ||| Success where no token is left.
 export
-eof : Grammar state tok False ()
-eof = MkGrammar (\left, fits, inp => atEnd left fits inp)
+eof : Grammar state tok bound r False ()
+eof = MkGrammar (\left, fits, under, inp => atEnd left fits inp)
 
 -- Where the next token was read, looked at and not read.
 nextPlace : (left : Nat) -> (0 fits : Nat.LTE left n) ->
@@ -418,8 +451,8 @@ nextPlace (S l) fits (MkInput cols st warned com)
 
 ||| Where the next token was read.
 export
-position : Grammar state tok False Bounds
-position = MkGrammar (\left, fits, inp => nextPlace left fits inp)
+position : Grammar state tok bound r False Bounds
+position = MkGrammar (\left, fits, under, inp => nextPlace left fits inp)
 
 -- A failure is where it says, or else at the next token, if one is left.
 placed : Maybe Bounds -> Columns tok n -> (left : Nat) -> (0 fits : Nat.LTE left n) -> Maybe Bounds
@@ -432,28 +465,28 @@ failedWith severity location msg left fits (MkInput cols st warned com)
     = Failed (MkInput cols st warned com) severity
              (Error msg (placed location cols left fits) ::: [])
 
-failWith : Severity -> Maybe Bounds -> String -> Grammar state tok c ty
-failWith severity location msg = MkGrammar (\left, fits, inp => failedWith severity location msg left fits inp)
+failWith : Severity -> Maybe Bounds -> String -> Grammar state tok bound r c ty
+failWith severity location msg = MkGrammar (\left, fits, under, inp => failedWith severity location msg left fits inp)
 
 ||| A failure, which an alternative recovers from by trying its next branch.
 export %inline
-fail : {0 c : Bool} -> String -> Grammar state tok c ty
+fail : {0 c : Bool} -> String -> Grammar state tok bound r c ty
 fail = failWith Recoverable Nothing
 
 ||| A failure at the bounds given, which an alternative recovers from.
 export %inline
-failLoc : {0 c : Bool} -> Maybe Bounds -> String -> Grammar state tok c ty
+failLoc : {0 c : Bool} -> Maybe Bounds -> String -> Grammar state tok bound r c ty
 failLoc = failWith Recoverable
 
 ||| A failure no alternative recovers from: the parse fails, unless `try`
 ||| catches it.
 export %inline
-fatalError : {0 c : Bool} -> String -> Grammar state tok c ty
+fatalError : {0 c : Bool} -> String -> Grammar state tok bound r c ty
 fatalError = failWith Fatal Nothing
 
 ||| A failure at the bounds given that no alternative recovers from.
 export %inline
-fatalLoc : {0 c : Bool} -> Maybe Bounds -> String -> Grammar state tok c ty
+fatalLoc : {0 c : Bool} -> Maybe Bounds -> String -> Grammar state tok bound r c ty
 fatalLoc = failWith Fatal
 
 committing : (1 inp : Input state tok n) -> Input state tok n
@@ -462,8 +495,8 @@ committing (MkInput cols st warned _) = MkInput cols st warned Committed
 ||| A commit point: once the branch an alternative is trying has passed it,
 ||| the alternative tries no other branch.
 export
-commit : Grammar state tok False ()
-commit = MkGrammar (\left, fits, inp => Parsed left reflexive (committing inp) ())
+commit : Grammar state tok bound r False ()
+commit = MkGrammar (\left, fits, under, inp => Parsed left reflexive (committing inp) ())
 
 recovering : (1 res : Result state tok n c given ty) -> Result state tok n c given ty
 recovering (Failed inp _ errs) = Failed inp Recoverable errs
@@ -472,8 +505,8 @@ recovering res = res
 ||| The grammar, its fatal failure made one an alternative recovers from.
 ||| Whether it passed a commit point stays as it was.
 export
-try : Grammar state tok c ty -> Grammar state tok c ty
-try g = MkGrammar (\left, fits, inp => recovering (run g left fits inp))
+try : Grammar state tok bound r c ty -> Grammar state tok bound r c ty
+try g = MkGrammar (\left, fits, under, inp => recovering (run g left fits under inp))
 
 fatally : (1 res : Result state tok n c given ty) -> Result state tok n c given ty
 fatally (Failed inp _ errs) = Failed inp Fatal errs
@@ -481,8 +514,8 @@ fatally res = res
 
 ||| The grammar, any failure of it made fatal.
 export
-mustWork : Grammar state tok c ty -> Grammar state tok c ty
-mustWork g = MkGrammar (\left, fits, inp => fatally (run g left fits inp))
+mustWork : Grammar state tok bound r c ty -> Grammar state tok bound r c ty
+mustWork g = MkGrammar (\left, fits, under, inp => fatally (run g left fits under inp))
 
 ------------------------------------------------------------------------------
 -- What a grammar read
@@ -541,8 +574,8 @@ located given fits (Failed inp severity errs) = Failed inp severity errs
 ||| The grammar's value, with the bounds of the tokens it read: from the
 ||| first to the last, and none if it read none.
 export
-bounds : Consumes c => Grammar state tok c ty -> Grammar state tok c (WithBounds ty)
-bounds p = MkGrammar (\left, fits, inp => located left fits (run p left fits inp))
+bounds : Consumes c => Grammar state tok bound r c ty -> Grammar state tok bound r c (WithBounds ty)
+bounds p = MkGrammar (\left, fits, under, inp => located left fits (run p left fits under inp))
 
 warnedAfter : Consumes c => String -> (given : Nat) -> (0 fits : Nat.LTE given n) ->
               (1 res : Result state tok n c given ty) -> Result state tok n c given ty
@@ -553,8 +586,8 @@ warnedAfter msg given fits (Failed inp severity errs) = Failed inp severity errs
 
 ||| The grammar, warning where it succeeds, at the bounds of what it read.
 export
-withWarning : Consumes c => String -> Grammar state tok c ty -> Grammar state tok c ty
-withWarning msg p = MkGrammar (\left, fits, inp => warnedAfter msg left fits (run p left fits inp))
+withWarning : Consumes c => String -> Grammar state tok bound r c ty -> Grammar state tok bound r c ty
+withWarning msg p = MkGrammar (\left, fits, under, inp => warnedAfter msg left fits (run p left fits under inp))
 
 ------------------------------------------------------------------------------
 -- Repetition
@@ -583,41 +616,46 @@ noRounds given inp = Parsed given reflexive inp []
 -- the rounds after it and no more rounds: so a round that fails before a
 -- commit point ends the repetition, and one past a commit point fails it
 -- as such an alternative fails. Each round reads a token, so the rounds
--- after it start from fewer tokens: the recursion is on them.
-manyAt : Backtrack mark state =>
-         Grammar state tok True a -> (given : Nat) -> (0 fits : Nat.LTE given n) ->
+-- after it start from fewer tokens: the recursion is on them. Each round
+-- stands against the bound as the first did, at least.
+manyAt : Backtrack mark state => {0 r : Bool} ->
+         Grammar state tok bound r True a -> (given : Nat) -> (0 fits : Nat.LTE given n) ->
+         (0 under : Leaves r given bound) ->
          (0 acc : Accessible Nat.LT given) -> RunFrom state tok n False given (List a)
-manyAt p given fits (Access rec)
+manyAt p given fits under (Access rec)
     = alternative True False
-        (\inp => round (run p given fits inp) id
-                       (\_, l, fewer, inp' => manyAt p l (transitive (noMore True fewer) fits) (rec l fewer) inp'))
+        (\inp => round (run p given fits under inp) id
+                       (\_, l, fewer, inp' => manyAt p l (transitive (noMore True fewer) fits)
+                                                (further r (noMore True fewer) under) (rec l fewer) inp'))
         (noRounds given)
 
 ||| `p` as many times as it succeeds, none at least. A round that fails
 ||| past a commit point fails the repetition.
 export
-many : Backtrack mark state => Grammar state tok True a -> Grammar state tok False (List a)
-many p = MkGrammar (\left, fits => manyAt p left fits (wellFounded left))
+many : Backtrack mark state => Grammar state tok bound r True a -> Grammar state tok bound r False (List a)
+many p = MkGrammar (\left, fits, under => manyAt p left fits under (wellFounded left))
 
 ||| `p` once, and then as many times as it succeeds.
 export
-some : Backtrack mark state => Grammar state tok True a -> Grammar state tok True (List1 a)
-some p = p >>= \x => map (x :::) (many p)
+some : Backtrack mark state => Grammar state tok bound r True a -> Grammar state tok bound r True (List1 a)
+some p = p >>= \x => map (x :::) (later (many p))
 
 -- The entries of a block from `given` tokens: none where `stop` succeeds;
 -- otherwise the entry the seed chooses, followed by the entries after it
 -- from the seed it gives, or none where it fails before a commit point.
-entriesAt : Backtrack mark state =>
-            (stop : Grammar state tok False ()) -> (entry : seed -> Grammar state tok True (a, seed)) ->
-            seed -> (given : Nat) -> (0 fits : Nat.LTE given n) ->
+entriesAt : Backtrack mark state => {0 r : Bool} ->
+            (stop : Grammar state tok bound r False ()) ->
+            (entry : seed -> Grammar state tok bound r True (a, seed)) ->
+            seed -> (given : Nat) -> (0 fits : Nat.LTE given n) -> (0 under : Leaves r given bound) ->
             (0 acc : Accessible Nat.LT given) -> RunFrom state tok n False given (List a)
-entriesAt stop entry s given fits (Access rec)
+entriesAt stop entry s given fits under (Access rec)
     = alternative False False
-        (\inp => mapResult (const []) (run stop given fits inp))
+        (\inp => mapResult (const []) (run stop given fits under inp))
         (alternative True False
-           (\inp => round (run (entry s) given fits inp) fst
+           (\inp => round (run (entry s) given fits under inp) fst
                           (\x, l, fewer, inp' => entriesAt stop entry (snd x) l
-                                                   (transitive (noMore True fewer) fits) (rec l fewer) inp'))
+                                                   (transitive (noMore True fewer) fits)
+                                                   (further r (noMore True fewer) under) (rec l fewer) inp'))
            (noRounds given))
 
 ||| A block's entries: each read by the grammar the seed chooses, each
@@ -625,9 +663,43 @@ entriesAt stop entry s given fits (Access rec)
 ||| before a commit point. An entry that fails past one fails the block.
 export
 entries : Backtrack mark state =>
-          (stop : Grammar state tok False ()) -> (entry : seed -> Grammar state tok True (a, seed)) ->
-          seed -> Grammar state tok False (List a)
-entries stop entry s = MkGrammar (\left, fits => entriesAt stop entry s left fits (wellFounded left))
+          (stop : Grammar state tok bound r False ()) ->
+          (entry : seed -> Grammar state tok bound r True (a, seed)) ->
+          seed -> Grammar state tok bound r False (List a)
+entries stop entry s = MkGrammar (\left, fits, under => entriesAt stop entry s left fits under (wellFounded left))
+
+------------------------------------------------------------------------------
+-- Recursion between grammars
+------------------------------------------------------------------------------
+
+||| What a grammar at bound `n` reaches another grammar through: the `p` at
+||| every bound below `n`. A grammar has what a box holds only once it has
+||| read a token, and only at the bound it then stands at, so a grammar that
+||| names itself through a box names a grammar at a smaller bound. What a
+||| box holds is suspended, as its bound and evidence are erased: it is made
+||| where a grammar opens the box, never where the box is.
+public export
+Box : (Nat -> Type) -> Nat -> Type
+Box p n = {0 m : Nat} -> (0 below : Nat.LT m n) -> Lazy (p m)
+
+||| A family of grammars at every bound, made at each bound of the box of
+||| itself: the one fixpoint that ties grammars to their names. It recurses
+||| on the bound, which is erased, so it costs nothing beyond making the
+||| family at the bound a box is opened at.
+export
+fixpoint : {0 p : Nat -> Type} -> {0 n : Nat} -> (step : {0 m : Nat} -> Box p m -> p m) -> p n
+fixpoint {p} {n} step = tied (wellFounded n)
+  where
+    tied : {0 k : Nat} -> (0 acc : Accessible Nat.LT k) -> p k
+    tied (Access rec) = step (\below => tied (rec _ below))
+
+||| The grammar `pick` takes of what the box holds where the parse stands.
+||| It runs only once a token has been read since the box's bound, so the
+||| parse stands below it, and what it calls is bounded by where it stands.
+export
+call : Box p bound -> (pick : {0 m : Nat} -> p m -> Grammar state tok m False c ty) ->
+       Grammar state tok bound True c ty
+call box pick = MkGrammar (\left, fits, under => run (pick {m = left} (box under)) left fits reflexive)
 
 ------------------------------------------------------------------------------
 -- Running
@@ -641,17 +713,19 @@ finished (Failed _ _ errs) = Left errs
 
 ||| Parse the tokens by the grammar, from the first, its state `initial` to
 ||| begin with: the state it ends with, its warnings in the order given,
-||| and its value; or its errors. A grammar that must read every token ends
-||| with `eof`.
+||| and its value; or its errors. The grammar is had at every bound, and runs
+||| at the number of tokens. A grammar that must read every token ends with
+||| `eof`.
 export
-parseWith : (initial : state) -> Grammar state tok c ty -> Tokens tok ->
+parseWith : (initial : state) -> (act : {0 n : Nat} -> Grammar state tok n False c ty) -> Tokens tok ->
             Either (List1 ParsingError) (state, ParsingWarnings, ty)
 parseWith initial act (MkTokens extent cols)
-    = finished (run act extent reflexive (MkInput cols initial blank Open))
+    = finished (run (act {n = extent}) extent reflexive reflexive (MkInput cols initial blank Open))
 
 ||| Parse the tokens by a grammar that keeps no state.
 export
-parse : Grammar () tok c ty -> Tokens tok -> Either (List1 ParsingError) (ParsingWarnings, ty)
+parse : (act : {0 n : Nat} -> Grammar () tok n False c ty) -> Tokens tok ->
+        Either (List1 ParsingError) (ParsingWarnings, ty)
 parse act toks = map dropState (parseWith () act toks)
   where
     dropState : ((), ParsingWarnings, ty) -> (ParsingWarnings, ty)

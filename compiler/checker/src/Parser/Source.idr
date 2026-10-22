@@ -42,7 +42,7 @@ internTokens toks
 -- The parse tree a grammar made is frozen and read here, once the parse is
 -- done, so the syntax a parse gives is made once, of what it kept.
 parseTokens : {0 e : Bool} -> (origin : OriginDesc) ->
-              Grammar ParsingState Token e (Read ty) ->
+              ({0 n : Nat} -> BRule n False e (Read ty)) ->
               List (Located ()) -> Tokens Token ->
               Either Error (List Warning, State, ty)
 parseTokens origin p cs toks
@@ -65,7 +65,7 @@ export
 runParserTo : {auto c : Ref Ctxt Defs} -> {0 e : Bool} ->
               (origin : OriginDesc) ->
               Maybe LiterateStyle -> Lexer ->
-              String -> Grammar ParsingState Token e (Read ty) ->
+              String -> ({0 n : Nat} -> BRule n False e (Read ty)) ->
               Core (Either Error (List Warning, State, ty))
 runParserTo origin lit reject str p
     = case lexSource origin lit reject str of
@@ -75,7 +75,7 @@ runParserTo origin lit reject str p
 export
 runParser : {auto c : Ref Ctxt Defs} -> {0 e : Bool} ->
             (origin : OriginDesc) -> Maybe LiterateStyle -> String ->
-            Grammar ParsingState Token e (Read ty) ->
+            ({0 n : Nat} -> BRule n False e (Read ty)) ->
             Core (Either Error (List Warning, State, ty))
 runParser origin lit = runParserTo origin lit (pred $ const False)
 
@@ -83,7 +83,7 @@ export covering
 parseFile : {auto c : Ref Ctxt Defs}
          -> (fname : String)
          -> (origin : OriginDesc)
-         -> Rule (Read ty)
+         -> ({0 n : Nat} -> Rule n False (Read ty))
          -> Core (Either Error (List Warning, State, ty))
 parseFile fname origin p
     = do Right str <- coreLift (readFile fname)

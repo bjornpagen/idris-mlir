@@ -15,7 +15,7 @@ import System.File
 %default total
 
 export
-runParser : (fname : String) -> (str : String) -> Rule ty -> Either Error ty
+runParser : (fname : String) -> (str : String) -> ({0 n : Nat} -> Rule n False ty) -> Either Error ty
 runParser fname str p
     = do toks   <- mapFst (fromLexError (PhysicalPkgSrc fname)) $ lex str
          (_, val) <- mapFst (fromParsingErrors (PhysicalPkgSrc fname)) $ parse p (columns toks)
@@ -23,7 +23,7 @@ runParser fname str p
 
 export
 covering
-parseFile : (fname : String) -> Rule ty -> IO (Either Error ty)
+parseFile : (fname : String) -> ({0 n : Nat} -> Rule n False ty) -> IO (Either Error ty)
 parseFile fname p
     = do Right str <- readFile fname
              | Left err => pure (Left (FileErr fname err))

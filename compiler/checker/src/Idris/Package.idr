@@ -74,7 +74,7 @@ data DescField  : Type where
   PPostclean    : FC -> String -> DescField
 
 total
-field : String -> Rule DescField
+field : String -> Rule n r DescField
 field fname
       = strField PAuthors "authors"
     <|> strField PMaintainers "maintainers"
@@ -102,7 +102,7 @@ field fname
              equals
              vs <- stringLit <||> sepBy1 dot' integerLit
              end <- location
-             the (EmptyRule _) $ case vs of
+             the (EmptyRule _ _ _) $ case vs of
                 Left v   => pure (PVersionDep (MkFC (PhysicalPkgSrc fname) start end) v)
                 Right vs => pure (PVersion (MkFC (PhysicalPkgSrc fname) start end)
                                     (MkPkgVersion (fromInteger <$> vs)))
@@ -147,7 +147,9 @@ field fname
   where
     data Bound = LT PkgVersion Bool | GT PkgVersion Bool
 
-    bound : Rule (List Bound)
+    -- Each bound, and the grammars made of bounds, read after a property's
+    -- name, so below the field's bound.
+    bound : Rule n True (List Bound)
     bound
         = do lte
              vs <- sepBy1 dot' integerLit
@@ -166,7 +168,7 @@ field fname
              pure [LT (MkPkgVersion (fromInteger <$> vs)) True,
                    GT (MkPkgVersion (fromInteger <$> vs)) True]
 
-    mkBound : List Bound -> PkgVersionBounds -> EmptyRule PkgVersionBounds
+    mkBound : List Bound -> PkgVersionBounds -> EmptyRule n True PkgVersionBounds
     mkBound (LT b i :: bs) pkgbs
         = maybe (mkBound bs ({ upperBound := Just b,
                                upperInclusive := i } pkgbs))
@@ -179,18 +181,18 @@ field fname
                 pkgbs.lowerBound
     mkBound [] pkgbs = pure pkgbs
 
-    langversions : EmptyRule PkgVersionBounds
+    langversions : EmptyRule n True PkgVersionBounds
     langversions
         = do bs <- sepBy andop bound
              mkBound (concat bs) anyBounds
 
-    depends : Rule Depends
+    depends : Rule n True Depends
     depends
         = do name <- packageName
              bs <- sepBy andop bound
              pure (MkDepends name !(mkBound (concat bs) anyBounds))
 
-    strField : (FC -> String -> DescField) -> String -> Rule DescField
+    strField : {0 rd : Bool} -> (FC -> String -> DescField) -> String -> Rule n rd DescField
     strField fieldConstructor fieldName
         = do start <- location
              ignore $ exactProperty fieldName
@@ -201,7 +203,7 @@ field fname
                pure $ fieldConstructor (MkFC (PhysicalPkgSrc fname) start end) str
 
 total
-parsePkgDesc : String -> Rule (String, List DescField)
+parsePkgDesc : String -> Rule n r (String, List DescField)
 parsePkgDesc fname
     = do ignore $ exactProperty "package"
          name <- packageName
@@ -313,7 +315,7 @@ parsePkgFile : {auto c : Ref Ctxt Defs} ->
                (setSrc : Bool) -> -- parse package file as a dependency
                String -> Core PkgDesc
 parsePkgFile setSrc file = do
-    Right (pname, fs) <- coreLift $ parseFile file $ parsePkgDesc file
+    Right (pname, fs) <- coreLift $ parseFile file (parsePkgDesc file)
         | Left err => do
               Right res <- coreLift (readFile file)
                 | _ => throw err

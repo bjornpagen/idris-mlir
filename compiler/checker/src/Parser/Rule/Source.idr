@@ -69,17 +69,21 @@ record State where
   holeNames : List Ident
   pragmaUses : List PragmaUse
 
+||| A grammar of a source, at bound `n`, run below it if `r`, consuming if
+||| `c`.
 public export
-BRule : Bool -> Type -> Type
+BRule : (n : Nat) -> (r : Bool) -> (c : Bool) -> Type -> Type
 BRule = Grammar ParsingState Token
 
+||| A grammar of a source that reads a token wherever it succeeds.
 public export
-Rule : Type -> Type
-Rule = BRule True
+Rule : (n : Nat) -> (r : Bool) -> Type -> Type
+Rule n r = BRule n r True
 
+||| A grammar of a source that may succeed reading nothing.
 public export
-EmptyRule : Type -> Type
-EmptyRule = BRule False
+EmptyRule : (n : Nat) -> (r : Bool) -> Type -> Type
+EmptyRule n r = BRule n r False
 
 -- The entries given, written after those before them, in order.
 writeAll : List a -> (1 trail : Trail a) -> Trail a
@@ -91,7 +95,7 @@ decorating : List ASemanticDecoration -> (1 st : ParsingState) -> Stepped Parsin
 decorating s (MkParsing ds ps t) = MkStepped (MkParsing (writeAll s ds) ps t) ()
 
 export
-actD : List ASemanticDecoration -> EmptyRule ()
+actD : List ASemanticDecoration -> EmptyRule n r ()
 actD s = updateState (decorating s)
 
 -- The state with its tree as a step of making it gave it back.
@@ -106,24 +110,24 @@ building b (MkParsing ds ps t) = withTree ds ps (runBuild b t)
 ||| A step of making the parse tree, taken in the parse's state, so that a
 ||| branch that fails drops the nodes it made.
 export
-build : Build a -> EmptyRule a
+build : Build a -> EmptyRule n r a
 build b = updateState (building b)
 
 ||| A node of the parse tree, of the form its rule gives, made of what the
 ||| rule parsed.
 export
-node : NodeOf Id -> EmptyRule (Id x)
-node n = build (make n)
+node : NodeOf Id -> EmptyRule n r (Id x)
+node nd = build (make nd)
 
 ||| A magic debug directive, with where it is written.
 export
-debugInfo : Rule (DebugInfo, Bounds)
+debugInfo : Rule n r (DebugInfo, Bounds)
 debugInfo = terminalAt "Expected a magic debug info directive" $ \case
   MagicDebugInfo di => Just di
   _ => Nothing
 
 export
-eoi : EmptyRule ()
+eoi : EmptyRule n r ()
 eoi = ignore $ nextIs "Expected end of input" isEOI
   where
     isEOI : Token -> Bool
@@ -131,7 +135,7 @@ eoi = ignore $ nextIs "Expected end of input" isEOI
     isEOI _ = False
 
 export
-constant : Rule Constant
+constant : Rule n r Constant
 constant
     = terminal "Expected constant" $ \case
         CharLit c    => Ch <$> getCharLit c
@@ -142,7 +146,7 @@ constant
                                    c         => Just $ PrT c
         _            => Nothing
 
-documentation' : Rule String
+documentation' : Rule n r String
 documentation' = terminal "Expected documentation comment" $
                           \case
                             DocComment d => Just d
@@ -156,18 +160,18 @@ decorationFromBounded fname decor bnds
           Just bs => [((fname, startBounds bs, endBounds bs), decor, Nothing)]
           Nothing => []
 
-documentation : OriginDesc -> Rule String
+documentation : OriginDesc -> Rule n r String
 documentation fname
   = do b <- bounds (some documentation')
        actD (decorationFromBounded fname Comment b)
        pure (unlines $ forget b.val)
 
 export
-optDocumentation : OriginDesc -> EmptyRule String
+optDocumentation : OriginDesc -> EmptyRule n r String
 optDocumentation fname = option "" (documentation fname)
 
 export
-intLit : Rule Integer
+intLit : Rule n r Integer
 intLit
     = terminal "Expected integer literal" $
                \case
@@ -175,7 +179,7 @@ intLit
                  _ => Nothing
 
 export
-onOffLit : Rule Bool
+onOffLit : Rule n r Bool
 onOffLit
     = terminal "Expected on or off" $
                \case
@@ -188,7 +192,7 @@ onOffLit
     onOff _ = Nothing
 
 export
-simpleStrLit : Rule String
+simpleStrLit : Rule n r String
 simpleStrLit
     = terminal "Expected string literal" $
                \case
@@ -197,7 +201,7 @@ simpleStrLit
 
 ||| String literal split by line wrap (not striped).
 export
-strLitLines : Rule (List1 String)
+strLitLines : Rule n r (List1 String)
 strLitLines
     = terminal "Expected string literal" $
                \case
@@ -213,62 +217,62 @@ strLitLines
   linesHelp acc (c :: xs) = linesHelp (c :: acc) xs
 
 export
-strBegin : Rule Nat
+strBegin : Rule n r Nat
 strBegin = terminal "Expected string begin" $
                     \case
                       StringBegin hashtag Single => Just hashtag
                       _ => Nothing
 
 export
-multilineBegin : Rule Nat
+multilineBegin : Rule n r Nat
 multilineBegin = terminal "Expected multiline string begin" $
                           \case
                             StringBegin hashtag Multi => Just hashtag
                             _ => Nothing
 
 export
-strEnd : Rule ()
+strEnd : Rule n r ()
 strEnd = terminal "Expected string end" $
                   \case
                     StringEnd => Just ()
                     _ => Nothing
 
 export
-interpBegin : Rule ()
+interpBegin : Rule n r ()
 interpBegin = terminal "Expected string interp begin" $
                        \case
                          InterpBegin => Just ()
                          _ => Nothing
 
 export
-interpEnd : Rule ()
+interpEnd : Rule n r ()
 interpEnd = terminal "Expected string interp end" $
                      \case
                        InterpEnd => Just ()
                        _ => Nothing
 
 export
-simpleStr : Rule String
+simpleStr : Rule n r String
 simpleStr = strBegin *> commit *> (option "" simpleStrLit) <* strEnd
 
 export
-simpleMultiStr : Rule String
+simpleMultiStr : Rule n r String
 simpleMultiStr = multilineBegin *> commit *> (option "" simpleStrLit) <* strEnd
 
 export
-aDotIdent : Rule Ident
+aDotIdent : Rule n r Ident
 aDotIdent = terminal "Expected dot+identifier" $
                      \case
                        DotIdent s => Just s
                        _ => Nothing
 
 export
-postfixProj : Rule Name
+postfixProj : Rule n r Name
 postfixProj = UN . Field <$> aDotIdent
 
 ||| The reserved symbol given.
 export
-symbol : Reserved -> Rule ()
+symbol : Reserved -> Rule n r ()
 symbol req
     = terminal ("Expected '" ++ reservedText req ++ "'") $
                \case
@@ -277,7 +281,7 @@ symbol req
 
 ||| The operator's symbol given, by its identifier.
 export
-exactSymbol : Known -> Rule ()
+exactSymbol : Known -> Rule n r ()
 exactSymbol req
     = terminal ("Expected '" ++ spelling req ++ "'") $
                \case
@@ -285,7 +289,7 @@ exactSymbol req
                  _ => Nothing
 
 export
-anyKeyword : Rule Keyword
+anyKeyword : Rule n r Keyword
 anyKeyword
   = terminal ("Expected a keyword") $
              \case
@@ -294,7 +298,7 @@ anyKeyword
 
 ||| The keyword given.
 export
-keyword : Keyword -> Rule ()
+keyword : Keyword -> Rule n r ()
 keyword req
     = terminal ("Expected '" ++ keywordText req ++ "'") $
                \case
@@ -303,7 +307,7 @@ keyword req
 
 ||| The identifier given, by its id.
 export
-exactIdent : Known -> Rule ()
+exactIdent : Known -> Rule n r ()
 exactIdent req
     = terminal ("Expected " ++ spelling req) $
                \case
@@ -316,7 +320,7 @@ usingPragma use (MkParsing ds ps t) = MkStepped (MkParsing ds (write use ps) t) 
 
 ||| The pragma given, its use recorded where it is written.
 export
-pragma : OriginDesc -> KwPragma -> Rule ()
+pragma : OriginDesc -> KwPragma -> Rule n r ()
 pragma fname kw
     = do (_, b) <- terminalAt ("Expected pragma " ++ spelling kw) $
                      \case
@@ -325,7 +329,7 @@ pragma fname kw
          updateState (usingPragma (MkPragmaUse kw (MkFC fname (startBounds b) (endBounds b))))
 
 export
-cgDirective : Rule String
+cgDirective : Rule n r String
 cgDirective =
   terminal "Expected CG directive" $
     \case
@@ -333,7 +337,7 @@ cgDirective =
       _ => Nothing
 
 export
-builtinType : Rule BuiltinType
+builtinType : Rule n r BuiltinType
 builtinType =
     BuiltinNatural <$ exactIdent KNatural
     <|> NaturalToInteger <$ exactIdent KNaturalToInteger
@@ -341,7 +345,7 @@ builtinType =
 
 -- An operator's name, or the reserved symbol written where one was
 -- expected, which names none.
-operatorCandidate : Rule (Either Reserved Name)
+operatorCandidate : Rule n r (Either Reserved Name)
 operatorCandidate
     = terminal "Expected operator" $
                \case
@@ -350,7 +354,7 @@ operatorCandidate
                  _ => Nothing
 
 export
-unqualifiedOperatorName : Rule Ident
+unqualifiedOperatorName : Rule n r Ident
 unqualifiedOperatorName
     = terminal "Expected operator" $
                \case
@@ -358,11 +362,11 @@ unqualifiedOperatorName
                  _ => Nothing
 
 export
-operator : Rule Name
+operator : Rule n r Name
 operator = UN . Basic <$> unqualifiedOperatorName
                -- ^ TODO: add an operator constructor?
 
-identPart : Rule Ident
+identPart : Rule n r Ident
 identPart
     = terminal "Expected name" $
                \case
@@ -370,7 +374,7 @@ identPart
                  _ => Nothing
 
 export
-namespacedIdent : Rule (Maybe Namespace, Ident)
+namespacedIdent : Rule n r (Maybe Namespace, Ident)
 namespacedIdent
     = terminal "Expected namespaced name" $
                \case
@@ -378,18 +382,18 @@ namespacedIdent
                  Ident i => Just (Nothing, i)
                  _ => Nothing
 
-isCapitalisedIdent : WithBounds Ident -> EmptyRule ()
+isCapitalisedIdent : WithBounds Ident -> EmptyRule n r ()
 isCapitalisedIdent str =
   let val = str.val.text
       loc = str.bounds
-      err : EmptyRule ()
+      err : EmptyRule n r ()
           = failLoc loc ("Expected a capitalised identifier, got: \{val}")
   in case strUncons val of
        Nothing => err
        Just (c, _) => if (isUpper c || c > chr 160) then pure () else err
 
 export
-namespaceId : Rule Namespace
+namespaceId : Rule n r Namespace
 namespaceId = do
   nsid <- bounds namespacedIdent
   isCapitalisedIdent (snd <$> nsid)
@@ -397,7 +401,7 @@ namespaceId = do
 
 ||| A bracket, or its namespaced form after a namespace.
 export
-namespacedSymbol : (plain, dotted : Reserved) -> Rule (Maybe Namespace)
+namespacedSymbol : (plain, dotted : Reserved) -> Rule n r (Maybe Namespace)
 namespacedSymbol plain dotted = do
   (symbol plain $> Nothing) <|> do
     ns <- namespaceId
@@ -405,19 +409,19 @@ namespacedSymbol plain dotted = do
     pure (Just ns)
 
 export
-moduleIdent : Rule ModuleIdent
+moduleIdent : Rule n r ModuleIdent
 moduleIdent = nsAsModuleIdent <$> namespaceId
 
 export
-unqualifiedName : Rule Ident
+unqualifiedName : Rule n r Ident
 unqualifiedName = identPart
 
 export
-userName : Rule Name
+userName : Rule n r Name
 userName = UN . Basic <$> unqualifiedName
 
 export
-holeName : Rule Ident
+holeName : Rule n r Ident
 holeName
     = terminal "Expected hole name" $
                \case
@@ -449,19 +453,19 @@ reservedName i = case knownOf i of
   _ => False
 
 export
-anyReservedIdent : Rule (WithBounds Ident)
+anyReservedIdent : Rule n r (WithBounds Ident)
 anyReservedIdent = do
     id <- bounds identPart
     unless (reservedName id.val) $ failLoc id.bounds "Expected reserved identifier"
     pure id
 
-isNotReservedName : WithBounds Ident -> EmptyRule ()
+isNotReservedName : WithBounds Ident -> EmptyRule n r ()
 isNotReservedName x
     = when (reservedName x.val) $
         failLoc x.bounds $ "Can't use reserved name \{x.val.text}"
 
 export
-opNonNS : Rule Name
+opNonNS : Rule n r Name
 opNonNS = do
   symbol SymParen
   commit
@@ -470,29 +474,29 @@ opNonNS = do
   symbol SymParenClose
   pure n
   where
-    operatorIn : WithBounds (Either Reserved Name) -> EmptyRule Name
+    operatorIn : WithBounds (Either Reserved Name) -> EmptyRule n True Name
     operatorIn x = case x.val of
       Left r => failLoc x.bounds $ "Can't use reserved symbol \{reservedText r}"
       Right n => pure n
 
 identWithCapital : (capitalised : Bool) -> WithBounds Ident ->
-                   EmptyRule ()
+                   EmptyRule n r ()
 identWithCapital b x = when b (isCapitalisedIdent x)
 
-nameWithCapital : (capitalised : Bool) -> Rule Name
+nameWithCapital : (capitalised : Bool) -> Rule n r Name
 nameWithCapital b = opNonNS <|> do
   nsx <- bounds namespacedIdent
   opNS nsx <|> nameNS nsx
  where
 
-  nameNS : WithBounds (Maybe Namespace, Ident) -> EmptyRule Name
+  nameNS : WithBounds (Maybe Namespace, Ident) -> EmptyRule n True Name
   nameNS nsx = do
     let id = snd <$> nsx
     identWithCapital b id
     isNotReservedName id
     pure $ uncurry mkNamespacedName (map Basic nsx.val)
 
-  opNS : WithBounds (Maybe Namespace, Ident) -> Rule Name
+  opNS : WithBounds (Maybe Namespace, Ident) -> Rule n True Name
   opNS nsx = do
     isCapitalisedIdent (snd <$> nsx)
     let ns = uncurry mkNestedNamespace nsx.val
@@ -502,7 +506,7 @@ nameWithCapital b = opNonNS <|> do
     pure (NS ns n)
 
 export
-fixityNS : Rule HidingDirective
+fixityNS : Rule n r HidingDirective
 fixityNS = do
   namespacePrefix <- bounds namespacedIdent
   let nsVal = namespacePrefix.val
@@ -512,7 +516,7 @@ fixityNS = do
   symbol SymParenClose
   pure (HideFixity fx (NS (uncurry mkNestedNamespace nsVal) $ UN $ Basic n))
   where
-    checkFixity : Maybe Known -> Maybe Bounds -> EmptyRule Fixity
+    checkFixity : Maybe Known -> Maybe Bounds -> EmptyRule n True Fixity
     checkFixity (Just Kinfixl) _ = pure InfixL
     checkFixity (Just Kinfixr) _ = pure InfixR
     checkFixity (Just Kinfix)  _ = pure Infix
@@ -520,15 +524,15 @@ fixityNS = do
     checkFixity _ loc =  failLoc loc ""
 
 export
-name : Rule Name
+name : Rule n r Name
 name = nameWithCapital False
 
 export
-capitalisedName : Rule Name
+capitalisedName : Rule n r Name
 capitalisedName = nameWithCapital True
 
 export
-capitalisedIdent : Rule Ident
+capitalisedIdent : Rule n r Ident
 capitalisedIdent = do
   id <- bounds identPart
   isCapitalisedIdent id
@@ -536,11 +540,11 @@ capitalisedIdent = do
   pure id.val
 
 export
-dataConstructorName : Rule Name
+dataConstructorName : Rule n r Name
 dataConstructorName = opNonNS <|> (UN . Basic) <$> capitalisedIdent
 
 export %inline
-dataTypeName : Rule Name
+dataTypeName : Rule n r Name
 dataTypeName = opNonNS <|> capitalisedName
 
 export
@@ -551,22 +555,22 @@ export
 init : IndentInfo
 init = 0
 
-continueF : EmptyRule () -> (indent : IndentInfo) -> EmptyRule ()
+continueF : EmptyRule n r () -> (indent : IndentInfo) -> EmptyRule n r ()
 continueF err indent
     = do eoi; err
-  <|> do keyword KwWhere; err
+  <|> do keyword KwWhere; later err
   <|> do col <- column
          when (col <= indent)
             err
 
 ||| Fail if this is the end of a block entry or end of file
 export
-continue : (indent : IndentInfo) -> EmptyRule ()
+continue : (indent : IndentInfo) -> EmptyRule n r ()
 continue = continueF (fail "Unexpected end of expression")
 
 ||| As 'continue' but failing is fatal (i.e. entire parse fails)
 export
-mustContinue : (indent : IndentInfo) -> Maybe String -> EmptyRule ()
+mustContinue : (indent : IndentInfo) -> Maybe String -> EmptyRule n r ()
 mustContinue indent Nothing
    = continueF (fatalError "Unexpected end of expression") indent
 mustContinue indent (Just req)
@@ -588,7 +592,7 @@ Show ValidIndent where
   show (AfterPos i) = "[after " ++ show i ++ "]"
   show EndOfBlock = "[EOB]"
 
-checkValid : ValidIndent -> Int -> EmptyRule ()
+checkValid : ValidIndent -> Int -> EmptyRule n r ()
 checkValid AnyIndent c = pure ()
 checkValid (AtPos x) c = unless (c == x) $ fail "Invalid indentation"
 checkValid (AfterPos x) c = unless (c >= x) $ fail "Invalid indentation"
@@ -621,7 +625,7 @@ isTerminator _ = False
 ||| It's the end if we have a terminating token, or the next token starts
 ||| in or before indent. Works by looking ahead but not consuming.
 export
-atEnd : (indent : IndentInfo) -> EmptyRule ()
+atEnd : (indent : IndentInfo) -> EmptyRule n r ()
 atEnd indent
     = eoi
   <|> do ignore $ nextIs "Expected end of block" isTerminator
@@ -631,7 +635,7 @@ atEnd indent
 
 -- Check we're at the end, but only by looking at indentation
 export
-atEndIndent : (indent : IndentInfo) -> EmptyRule ()
+atEndIndent : (indent : IndentInfo) -> EmptyRule n r ()
 atEndIndent indent
     = eoi
   <|> do col <- column
@@ -641,7 +645,7 @@ atEndIndent indent
 
 -- Parse a terminator, return where the next block entry
 -- must start, given where the current block entry started
-terminator : ValidIndent -> Int -> EmptyRule ValidIndent
+terminator : ValidIndent -> Int -> EmptyRule n r ValidIndent
 terminator valid laststart
     = do eoi
          pure EndOfBlock
@@ -663,7 +667,7 @@ terminator valid laststart
    -- Expected indentation for the next token can either be anything (if
    -- we're inside a brace delimited block) or in exactly the initial column
    -- (if we're inside an indentation delimited block)
-   afterDedent : ValidIndent -> Int -> EmptyRule ValidIndent
+   afterDedent : ValidIndent -> Int -> EmptyRule n r ValidIndent
    afterDedent AnyIndent col
        = if col <= laststart
             then pure AnyIndent
@@ -679,8 +683,8 @@ terminator valid laststart
    afterDedent EndOfBlock col = pure EndOfBlock
 
 -- Parse an entry in a block
-blockEntry : ValidIndent -> (IndentInfo -> Rule ty) ->
-             Rule (ty, ValidIndent)
+blockEntry : ValidIndent -> (IndentInfo -> Rule n r ty) ->
+             Rule n r (ty, ValidIndent)
 blockEntry valid rule
     = do col <- column
          checkValid valid col
@@ -690,16 +694,18 @@ blockEntry valid rule
 
 -- A block's entries from the first, each entry's indentation given by the
 -- one before it, until the end of input or an entry that is not there.
-blockEntries : ValidIndent -> (IndentInfo -> Rule ty) ->
-               EmptyRule (List ty)
+blockEntries : ValidIndent -> (IndentInfo -> Rule n r ty) ->
+               EmptyRule n r (List ty)
 blockEntries valid rule = entries eoi (\v => blockEntry v rule) valid
 
+||| A block of entries: in braces, its entries after the brace, so below
+||| the bound; else from the column the first is at, where the block is.
 export
-block : (IndentInfo -> Rule ty) -> EmptyRule (List ty)
+block : (IndentInfo -> Rule n r ty) -> EmptyRule n r (List ty)
 block item
     = do symbol SymBrace
          commit
-         ps <- blockEntries AnyIndent item
+         ps <- blockEntries AnyIndent (later . item)
          symbol SymBraceClose
          pure ps
   <|> do col <- column
@@ -711,11 +717,11 @@ block item
 ||| by curly braces). `rule` is a function of the actual indentation
 ||| level.
 export
-blockAfter : Int -> (IndentInfo -> Rule ty) -> EmptyRule (List ty)
+blockAfter : Int -> (IndentInfo -> Rule n r ty) -> EmptyRule n r (List ty)
 blockAfter mincol item
     = do symbol SymBrace
          commit
-         ps <- blockEntries AnyIndent item
+         ps <- blockEntries AnyIndent (later . item)
          symbol SymBraceClose
          pure ps
   <|> do col <- column
@@ -726,13 +732,13 @@ blockAfter mincol item
 export
 blockWithOptHeaderAfter :
    (column : Int) ->
-   (header : IndentInfo -> Rule hd) ->
-   (item : IndentInfo -> Rule ty) ->
-   EmptyRule (Maybe hd, List ty)
-blockWithOptHeaderAfter {ty} mincol header item
+   (header : IndentInfo -> Rule n r hd) ->
+   (item : IndentInfo -> Rule n r ty) ->
+   EmptyRule n r (Maybe hd, List ty)
+blockWithOptHeaderAfter {n} {ty} mincol header item
     = do symbol SymBrace
          commit
-         hidt <- optional $ blockEntry AnyIndent header
+         hidt <- optional $ blockEntry AnyIndent (later . header)
          restOfBlock hidt
   <|> do col <- column
          ifThenElse (col <= mincol)
@@ -741,26 +747,27 @@ blockWithOptHeaderAfter {ty} mincol header item
                  ps <- blockEntries (AtPos col) item
                  pure (map fst hidt, ps)
   where
-  restOfBlock : Maybe (hd, ValidIndent) -> Rule (Maybe hd, List ty)
-  restOfBlock (Just (h, idt)) = do ps <- blockEntries idt item
+  -- What follows the brace and the header, if there is one.
+  restOfBlock : Maybe (hd, ValidIndent) -> Rule n True (Maybe hd, List ty)
+  restOfBlock (Just (h, idt)) = do ps <- blockEntries idt (later . item)
                                    symbol SymBraceClose
                                    pure (Just h, ps)
-  restOfBlock Nothing = do ps <- blockEntries AnyIndent item
+  restOfBlock Nothing = do ps <- blockEntries AnyIndent (later . item)
                            symbol SymBraceClose
                            pure (Nothing, ps)
 
 export
-nonEmptyBlock : (IndentInfo -> Rule ty) -> Rule (List1 ty)
+nonEmptyBlock : (IndentInfo -> Rule n r ty) -> Rule n r (List1 ty)
 nonEmptyBlock item
     = do symbol SymBrace
          commit
-         res <- blockEntry AnyIndent item
-         ps <- blockEntries (snd res) item
+         res <- blockEntry AnyIndent (later . item)
+         ps <- blockEntries (snd res) (later . item)
          symbol SymBraceClose
          pure (fst res ::: ps)
   <|> do col <- column
          res <- blockEntry (AtPos col) item
-         ps <- blockEntries (snd res) item
+         ps <- blockEntries (snd res) (later . item)
          pure (fst res ::: ps)
 
 ||| `nonEmptyBlockAfter col rule` parses a non-empty `rule`-block indented
@@ -768,17 +775,17 @@ nonEmptyBlock item
 ||| by curly braces). `rule` is a function of the actual indentation
 ||| level.
 export
-nonEmptyBlockAfter : Int -> (IndentInfo -> Rule ty) -> Rule (List1 ty)
+nonEmptyBlockAfter : Int -> (IndentInfo -> Rule n r ty) -> Rule n r (List1 ty)
 nonEmptyBlockAfter mincol item
     = do symbol SymBrace
          commit
-         res <- blockEntry AnyIndent item
-         ps <- blockEntries (snd res) item
+         res <- blockEntry AnyIndent (later . item)
+         ps <- blockEntries (snd res) (later . item)
          symbol SymBraceClose
          pure (fst res ::: ps)
   <|> do col <- column
          let False = col <= mincol
             | True => fatalError "Expected an indented non-empty block"
          res <- blockEntry (AtPos col) item
-         ps <- blockEntries (snd res) item
+         ps <- blockEntries (snd res) (later . item)
          pure (fst res ::: ps)
