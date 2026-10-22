@@ -1894,6 +1894,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `isa` and its `optional` go. Our types are a closed set the
   specification fixes, and AGENTS.md takes a fold over a closed sum there.
   A type interface is MLIR's answer for an open set, which this is not.
+- **C238** (2026-10-22; the make-check fixes). Two settlements. The
+  solver layer's schedule runs in waves through MLIR's `parallelForEach`,
+  a component's wave one past the latest it reads, with no atomics, its
+  diagnostics in a fixed order and each component's work counted in its
+  own slot and summed once (L14); a wave waits for its slowest member,
+  the price of no shared counter. And the footprint ledger stays
+  per-thread, as C178 says (each pass's footprint counted per thread by
+  its one allocator): `tests/mlir-layout` admits that ledger beside the
+  three kinds of state it already allows, rather than every footprint
+  container carrying a ledger of its own.
   (C232's narrowing of this refusal is withdrawn with C232, by D116.)
   *Sharpened* (L16bk's finding): the admission is per instance, not per
   definition. A member at a use (`{0 t} -> (f : t) -> t`) and the growth
