@@ -45,11 +45,37 @@ meets the concept `idr::egraph::SkeletonRule`:
   are written back, with the insertion point at the root, before its
   regions.
 
-`OperandFacts` answers by operand position:
-- `constant(i)`: null if there is none;
-- `range(i)`: an optional `ConstantIntRanges`;
-- `origin(i)`: the input op that made the chosen form, for example an
-  `idr.con`; null otherwise.
+`OperandFacts` answers by `Value`, for any value of the function, not by
+operand position (L14, revised 2026-10-21):
+- `constant(Value)`;
+- `range(Value)`;
+- `origin(Value)`: the input op of the chosen form, for example an
+  `idr.data.con`;
+- `cost(Value) -> idr::egraph::Cost`: the extraction cost of the value's
+  chosen form, its operands included. `Cost` has `<=>` and `+`.
+
+`decide` reads the e-graph after extraction, so a rule chooses per arm
+(C157). `CaseOfCase::decide`, for example, reads each producer arm's
+yielded value through `origin`, `constant` and `cost`, and returns
+`Rewrite`. Root stays one op class or interface per rule; a rule over
+several ops uses an interface root, in the style of
+`DataMatchOpInterface`.
+
+**At most two rounds per function.**
+- Round 1 builds and extracts the e-graph; then every skeleton rule
+  decides.
+- If any rule decided `Rewrite`, the engine runs those
+  `R::rewrite(root, rewriter)` on the input, region by region in walk
+  order, with the insertion point at the root. A root that an earlier
+  rewrite erased is skipped, so `rewrite` re-checks its own condition on
+  the root as it now is.
+- Round 2 builds the e-graph again over the result. A `Rewrite`
+  decision is kept as is, and that round's `Forward` and `Take` edits
+  are written back.
+
+So a rule may restructure its root's regions freely, and the e-graph then
+simplifies what it made: a copied dispatch, for example, folds by
+`TakenRegion`'s `Take` in round 2.
 
 A rule header includes `idr/Transforms/EGraph.h`.
 
