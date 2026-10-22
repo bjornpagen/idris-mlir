@@ -4423,6 +4423,14 @@ C137.
   of the specification, and the dialect's signless types and family ops
   drop it. The op, its family, host dependence and guard still come
   from the specification's op.
+  *Shape* (2026-10-22; recheck 3's sweep, the harness finding a guard's
+  reading by its mnemonic): a guard names its check by a closed sum,
+  `GuardKind` (`NonZero`, `InBounds`, `NonEmpty`, `Finite`, `Range`,
+  `HoldsString`), declared with `Guard` in `Spec/Core/Op.idr`, whose
+  `given` has `S (guardOthers kind)` positions; `Spec/Ops/Checks.idr`
+  maps each kind to its op by one total function (`guardOpOf`), which
+  the generator reads where it read the op, and the harness reads each
+  kind's condition by a total match, with no lookup and no `Left`.
 - **C198** (2026-10-22; L13's seventh pass). No fold whose answer
   depends on the compiling machine. Upstream's folds of `math.exp`,
   `log`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan` and `powf` call the
