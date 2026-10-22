@@ -12,12 +12,11 @@
 
 #include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Families/Families.h"
-#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Ownership.h"
 #include "idr/IR/Traits.h"
-#include "idr/Support/Match.h"
 
 #include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -87,65 +86,22 @@ inline bool givesOperandBack(mlir::Operation *op) {
   return op->hasTrait<ResultCarriesOperand>() || op->hasTrait<RunsOnceGivingBack>();
 }
 
-// The buffer `value` is read out of as an element and left in, as the op
-// that reads it declares its moves: the element moves whole out of the
-// elements of memory the op only reads, and the op neither empties that
-// place (an overwrite: a take moves the element out with its reference)
-// nor makes the value fresh (a copy gives it a reference of its own). A
-// load and an array's read, upstream's and ours alike. None for any other
-// value. The slot keeps its reference while nothing overwrites it, so the
-// element holds one of its own only where counting gives it one.
+// The buffer `value` is read out of as an element and left in: a part read
+// with no reference of its own (ownership::ownerOfPart) whose owner is
+// memory, whose one anchor is its elements. A load and an array's read,
+// upstream's and ours alike. None for any other value, and none for a
+// region's argument bound to an element (a generating op's accumulator):
+// its op binds it afresh in each run of its region, which the reading of a
+// use within one block does not measure, so it stays the owned value
+// counting places. The slot keeps its reference while nothing overwrites
+// it, so the element holds one of its own only where counting gives it one.
 inline std::optional<mlir::Value> elementBufferOf(mlir::Value value) {
-  mlir::Operation *op = value.getDefiningOp();
-  if (!op || !holdsReferences(value.getType()))
+  if (!llvm::isa<mlir::OpResult>(value))
     return std::nullopt;
-  FlowEdges edges;
-  flowEdgesOf(op, edges);
-  std::optional<mlir::Value> buffer;
-  enum class Given : std::uint8_t { Borrowed, OwnReference } given = Given::Borrowed;
-  // The memory a move out of a part of a value the op only reads comes
-  // from, where the part is the elements of a buffer.
-  auto elementsRead = [](const FlowSource::Part &part) -> std::optional<mlir::Value> {
-    bool elements = match(
-        part.anchor.place, [](const FlowAnchor::Elements &) { return true; },
-        [](const OneOf<FlowAnchor::Field, FlowAnchor::Forced, FlowAnchor::MemoState,
-                       FlowAnchor::Capture, FlowAnchor::Hole> auto &) { return false; });
-    return match(
-        part.of, [](const FlowSource::Taken &) -> std::optional<mlir::Value> { return std::nullopt; },
-        [&](const FlowSource::Whole &read) -> std::optional<mlir::Value> {
-          if (!elements || !llvm::isa<mlir::BaseMemRefType>(unrestricted(read.value.getType())))
-            return std::nullopt;
-          return read.value;
-        });
-  };
-  for (const FlowEdges::Edge &edge : edges.edges())
-    match(
-        edge.move,
-        [&](const FlowEdges::Flow &flow) {
-          bool intoValue = match(
-              flow.to.at, [&](const FlowSource::Whole &to) { return to.value == value; },
-              [](const OneOf<FlowPlace::Part, FlowSource::Parameter, FlowSource::Result> auto &) {
-                return false;
-              });
-          std::optional<mlir::Value> from = match(
-              flow.from.at, elementsRead,
-              [](const OneOf<FlowSource::Taken, FlowSource::Whole, FlowSource::Parameter,
-                             FlowSource::Result> auto &) -> std::optional<mlir::Value> {
-                return std::nullopt;
-              });
-          if (intoValue && from)
-            buffer = from;
-        },
-        [&](const FlowEdges::Fresh &fresh) {
-          if (fresh.to == value)
-            given = Given::OwnReference;
-        },
-        [&](const FlowEdges::Overwrite &) { given = Given::OwnReference; },
-        [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release, FlowEdges::Constant,
-                       FlowEdges::Dispatch> auto &) {});
-  if (given == Given::OwnReference)
+  std::optional<mlir::Value> owner = ownership::ownerOfPart(value);
+  if (!owner || !llvm::isa<mlir::BaseMemRefType>(unrestricted(owner->getType())))
     return std::nullopt;
-  return buffer;
+  return owner;
 }
 
 // How a terminator leaves its region: out of the function (its body's
