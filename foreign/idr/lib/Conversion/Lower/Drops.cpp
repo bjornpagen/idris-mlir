@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // A drop. A value its type claims `unique self` has its own cells unshared:
-// its family's cells and, through every field of an in_place family, theirs.
-// Its drop frees each of them with no count read, and drops every field the
-// claim says nothing of by its counts. Any other value loses one reference
-// to each counted word, a cell freed at 0.
+// its family's cells and, through every field of an in_place family, theirs,
+// and the storage of every buffer they hold, though not that buffer's
+// elements. Its drop frees each of them with no count read, and drops every
+// field the claim says nothing of by its counts. Any other value loses one
+// reference to each counted word, a cell freed at 0.
 //
 // The walk runs in steps, each freeing one cell (the value's first, or
 // reading its words in place) and leaving the own cells it holds: the first
@@ -86,18 +87,26 @@ public:
       DataType data = unread.pop_back_val();
       for (Tag tag : data.possibleTags())
         for (const layout::SelfDrop &drop : layouts.ownCells(data).of(tag))
-          idr::match(drop, [](layout::ByCount) {}, [&](const layout::OwnCell &own) {
-            // An own field is a cell, which the loop frees, or in place,
-            // part of whatever holds it.
-            if (own.data.layout() == Layout::Cell) {
-              if (states.try_emplace(own.data, static_cast<int64_t>(order.size()) + 1).second) {
-                order.push_back(own.data);
-                unread.push_back(own.data);
-              }
-            } else if (spread.insert(own.data).second) {
-              unread.push_back(own.data);
-            }
-          });
+          idr::match(
+              drop,
+              // A field dropped by its counts, and a buffer's storage, freed
+              // where its holder's fields are read, are no cell the loop
+              // frees, so they give it no state.
+              [](const OneOf<layout::FreeStorage, layout::ReleaseStorage,
+                             layout::ByCount> auto &) {},
+              [&](const layout::OwnCell &own) {
+                // An own field is a cell, which the loop frees, or in place,
+                // part of whatever holds it.
+                if (own.data.layout() == Layout::Cell) {
+                  if (states.try_emplace(own.data, static_cast<int64_t>(order.size()) + 1)
+                          .second) {
+                    order.push_back(own.data);
+                    unread.push_back(own.data);
+                  }
+                } else if (spread.insert(own.data).second) {
+                  unread.push_back(own.data);
+                }
+              });
     }
   }
 
@@ -228,7 +237,12 @@ private:
   // meets next. A cell's are read out and the cell freed; an atom's cell is
   // static. A field the claim says nothing of is dropped by its counts, an
   // own cell left to the loop, and an own value in place read in turn, after
-  // the rest, so that splitting at its constructor copies the least.
+  // the rest, so that splitting at its constructor copies the least. A
+  // buffer whose storage the claim covers is freed here, by its cell, the
+  // first word of its descriptor, with its count never read: as a reuse
+  // token is where its elements hold no reference, and by the runtime's
+  // release of a dead cell, which drops each element by its count, where
+  // they hold references.
   void expand(ReadPart known, SmallVectorImpl<Part> &parts) const {
     ArrayRef<layout::SelfDrop> drops = layouts.ownCells(known.data).of(known.tag);
     SmallVector<SmallVector<layout::Component>> components;
@@ -260,6 +274,12 @@ private:
           drops[field],
           [&](layout::ByCount) {
             now.push_back(ByCountPart{std::move(components[field]), std::move(values[field])});
+          },
+          [&](layout::FreeStorage) {
+            runtime.call(b, loc, idr::runtime::helper::freeToken, values[field].front());
+          },
+          [&](layout::ReleaseStorage) {
+            runtime.call(b, loc, idr::runtime::helper::releaseDead, values[field].front());
           },
           [&](const layout::OwnCell &own) {
             if (own.data.layout() == Layout::Cell)
