@@ -268,14 +268,14 @@ public:
   unsigned numFamilies() const { return static_cast<unsigned>(families.size()); }
 
 private:
-  Decision(ProgramOp program, const Labels &labels);
+  Decision(ProgramOp program, const Labels &labels, solver::ProgramGraph &graph);
 
   // The keys (Decide.cpp).
   Slot keyWith(mlir::Type carrier, const FlowSource &source) const;
   Slot anchorKey(const FlowAnchor &anchor) const;
   Slot keyOf(mlir::Value value) const;
   Slot sinkOf(mlir::OpOperand &use) const;
-  const Signature &signature(mlir::StringAttr fn) const { return signatures.find(fn)->second; }
+  const Signature &signature(solver::FunctionId fn) const { return signatures[fn]; }
   KeyId idOf(const Key &key) const { return ids.find(key)->second; }
   const Family &familyOf(const Key &key) const { return family(idOf(key)); }
   void note(llvm::ArrayRef<Slot> slots, llvm::ArrayRef<mlir::Type> types);
@@ -285,13 +285,11 @@ private:
   // The program graph completed by the label solve's runs: each function
   // that runs labels holds each as a call of no tail kind yet, which the
   // atoms' join never reads (Decide.cpp).
-  void complete(solver::ProgramGraph &graph,
-                IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> &ran);
+  void complete(IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> &ran);
 
-  // The families (Declare.cpp); `atoms` is each function's row over
-  // `calls`, the completed graph.
-  mlir::LogicalResult declare(const solver::ProgramGraph &calls,
-                              const IndexVector<solver::FunctionId, effects::Row> &atoms);
+  // The families (Declare.cpp); `atoms` is each function's row over the
+  // completed graph.
+  mlir::LogicalResult declare(const IndexVector<solver::FunctionId, effects::Row> &atoms);
 
   // Types (Convert.cpp): every signature converted and set on its
   // function; the type of a slot whose type was `type`, its key's family at
@@ -316,6 +314,8 @@ private:
 
   ProgramOp program;
   const Labels &labels;
+  // The program's calls, whose ids number its functions.
+  solver::ProgramGraph &graph;
   mlir::MLIRContext *ctx;
 
   // Each point the label solve numbered, by its node: the labels of the one
@@ -325,7 +325,7 @@ private:
   // Every key, by its dense id in the order met.
   llvm::DenseMap<Key, KeyId> ids;
   footprint::Vector<Family> families;
-  llvm::DenseMap<mlir::StringAttr, Signature> signatures;
+  IndexVector<solver::FunctionId, Signature> signatures;
   // Every type the program names, remade where its parts hold a slot:
   // the program's data families whose fields hold closures, the shaped
   // types whose elements do.

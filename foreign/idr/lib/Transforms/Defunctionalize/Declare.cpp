@@ -97,8 +97,7 @@ using DeclarationId = Id<DeclarationTag>;
 
 } // namespace
 
-LogicalResult Decision::declare(const solver::ProgramGraph &calls,
-                                const IndexVector<solver::FunctionId, effects::Row> &atoms) {
+LogicalResult Decision::declare(const IndexVector<solver::FunctionId, effects::Row> &atoms) {
   // Every new declaration: each key's, then each member of each data group
   // a slot reaches, through the fields of the program's data types.
   footprint::Vector<Node> nodes;
@@ -153,7 +152,7 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
         [&](ForKey key) {
           const Key &k = families[static_cast<unsigned>(key.key)].key;
           for (auto label : k.labels.getAsRange<FlatSymbolRefAttr>()) {
-            const Signature &sig = signature(label.getAttr());
+            const Signature &sig = signature(graph.id(label));
             FuncOp fn = labels.function(label.getAttr());
             unsigned n = fn.getNumArguments() - arity(k.carrier);
             SmallVector<Field> captures;
@@ -281,7 +280,7 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
                 binders = bound.getSorts();
               families::LabelDecl decl{label.getAttr(), label, binders, terms, fields};
               if (carrierOf(k) == Carrier::Lazy)
-                memos.push_back({atoms[calls.id(label)].contains(effects::Atom::io)
+                memos.push_back({atoms[graph.id(label)].contains(effects::Atom::io)
                                      ? families::Mode::ByName
                                      : families::Mode::Memoized,
                                  decl});

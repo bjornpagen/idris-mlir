@@ -45,7 +45,7 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
       edits.retypes.push_back({value, type});
   };
   for (auto [arg, type] :
-       llvm::zip_equal(fn.getArguments(), signature(fn.getSymNameAttr()).converted.getInputs()))
+       llvm::zip_equal(fn.getArguments(), signature(graph.id(fn)).converted.getInputs()))
     retype(arg, type);
   // Each value's type and each move, in one walk: the regions an op holds
   // bind their arguments, which are retyped with it.
@@ -102,7 +102,7 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
     MatchId over = matchOver(typeOf(apply.getCallee().getType(), key), depth);
     Dispatch dispatch{apply, over, {}};
     for (auto [at, label] : llvm::enumerate(key.labels.getAsRange<FlatSymbolRefAttr>())) {
-      const Signature &run = signature(label.getAttr());
+      const Signature &run = signature(graph.id(label));
       // Read before a coercion adds a match.
       unsigned inner = depth + static_cast<unsigned>(match(over).cases[at].binders.getCount());
       auto captures = static_cast<unsigned>(match(over).cases[at].fields.size());

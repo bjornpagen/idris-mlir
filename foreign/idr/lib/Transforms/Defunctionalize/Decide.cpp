@@ -34,8 +34,9 @@ using namespace mlir;
 
 namespace idr::defunctionalize {
 
-Decision::Decision(ProgramOp top, const Labels &solve)
-    : program(top), labels(solve), ctx(top.getContext()), widened(solve.numPoints()) {}
+Decision::Decision(ProgramOp top, const Labels &solve, solver::ProgramGraph &calls)
+    : program(top), labels(solve), graph(calls), ctx(top.getContext()), widened(solve.numPoints()),
+      signatures(calls.size()) {}
 
 Slot Decision::keyWith(Type carrier, const FlowSource &source) const {
   if (!carriesLabels(carrier))
@@ -71,10 +72,10 @@ Slot Decision::sinkOf(OpOperand &use) const {
       sink->at, [&](FlowSource::Whole whole) { return keyOf(whole.value); },
       [&](const FlowPlace::Part &part) { return anchorKey(part.anchor); },
       [&](FlowSource::Parameter param) {
-        return signature(param.function.getAttr()).arguments[param.index];
+        return signature(graph.id(param.function)).arguments[param.index];
       },
       [&](FlowSource::Result result) {
-        return signature(result.function.getAttr()).results[result.index];
+        return signature(graph.id(result.function)).results[result.index];
       });
 }
 
@@ -172,8 +173,8 @@ void Decision::widen() {
 // stands as a call within, which the atoms' join never reads and the
 // rewrite's calls replace; the row stays in the graph's one order, a
 // (callee, kind) once, merged with a direct call of the same label.
-void Decision::complete(solver::ProgramGraph &graph,
-                        IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> &ran) {
+void Decision::complete(
+    IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> &ran) {
   Count<solver::FunctionId> space = ran.size();
   solver::Editor editor = graph.thaw();
   for (solver::FunctionId f : space.ids()) {
@@ -222,14 +223,14 @@ struct ByGraph {
 FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const Labels &labels,
                                                       solver::ProgramGraph &graph,
                                                       solver::Work &work) {
-  std::unique_ptr<Decision> decision(new Decision(program, labels));
+  std::unique_ptr<Decision> decision(new Decision(program, labels, graph));
   Decision &d = *decision;
   // Every signature first, which every other key of a parameter or a
   // result reads; then the widening, which reads the sinks; then every key
   // the program's values and types ask for, and the labels each run runs,
   // read in the same walk.
   for (FuncOp fn : program.getOps<FuncOp>()) {
-    Signature &sig = d.signatures[fn.getSymNameAttr()];
+    Signature &sig = d.signatures[graph.id(fn)];
     for (BlockArgument arg : fn.getArguments())
       sig.arguments.push_back(d.keyWith(arg.getType(), FlowSource::of(Value(arg))));
     auto name = FlatSymbolRefAttr::get(fn.getSymNameAttr());
@@ -239,9 +240,9 @@ FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const L
   d.widen();
   IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> ran(graph.size());
   for (FuncOp fn : program.getOps<FuncOp>()) {
-    const Signature &sig = d.signature(fn.getSymNameAttr());
-    FunctionType type = fn.getFunctionType();
     solver::FunctionId self = graph.id(fn);
+    const Signature &sig = d.signature(self);
+    FunctionType type = fn.getFunctionType();
     d.note(llvm::to_vector(llvm::concat<const Slot>(sig.arguments, sig.results)),
            llvm::to_vector(llvm::concat<const Type>(type.getInputs(), type.getResults())));
     fn.walk([&](Operation *op) {
@@ -260,10 +261,10 @@ FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const L
   }
   // Each label's row, before any type changes: every function's own atoms
   // joined over the graph its runs completed, callees first.
-  d.complete(graph, ran);
+  d.complete(ran);
   IndexVector<solver::FunctionId, effects::Row> atoms =
       rows::solveAtoms(graph, ByGraph{}, *d.ctx, work);
-  if (failed(d.declare(graph, atoms)))
+  if (failed(d.declare(atoms)))
     return failure();
   d.convertSignatures();
   // The functions the program had, whose edits the decision reads: each

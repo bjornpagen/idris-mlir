@@ -61,7 +61,7 @@ Tag Decision::tagOf(const Key &key, FlatSymbolRefAttr label) const {
 // calls read their callees' converted types.
 void Decision::convertSignatures() {
   for (FuncOp fn : program.getOps<FuncOp>()) {
-    Signature &sig = signatures[fn.getSymNameAttr()];
+    Signature &sig = signatures[graph.id(fn)];
     SmallVector<Type> inputs, results;
     for (auto [type, slot] : llvm::zip_equal(fn.getArgumentTypes(), sig.arguments))
       inputs.push_back(typeOf(type, slot));
@@ -96,7 +96,7 @@ Attribute Decision::constantOf(Attribute value, const Slot &slot) {
   auto fieldSlots = [&](Attribute part) {
     SmallVector<std::pair<Attribute, Slot>> out;
     if (auto closure = dyn_cast<ClosureAttr>(part)) {
-      const Signature &sig = signature(closure.getCallee().getAttr());
+      const Signature &sig = signature(graph.id(closure.getCallee()));
       for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
         out.push_back({capture, sig.arguments[i]});
     } else if (auto con = dyn_cast<ConAttr>(part)) {
@@ -219,7 +219,7 @@ MatchId Decision::matchOver(Type value, unsigned depth) {
     for (auto [label, taken] : llvm::zip_equal(closures->labels(), made.cases))
       made.callees.push_back(
           Callee{labels.function(label.fn.getAttr()), label.fn,
-                 families::substitute(signature(label.fn.getAttr()).converted, taken.given)});
+                 families::substitute(signature(graph.id(label.fn)).converted, taken.given)});
   matches.push_back(std::move(made));
   return found->second;
 }
