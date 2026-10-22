@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The runtime's C functions as idr-lower calls them, the crashes it reports
-// through them, counting by the kind of each word, and the constants that
-// are static data; the reads and writes of a cell are RuntimeCells.cpp's.
+// through them, counting by the kind of each word, and a constant array's
+// static cell; a constant's components are StaticData.cpp's, and the reads
+// and writes of a cell RuntimeCells.cpp's.
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
 #include "idr/Conversion/Runtime.h"
 #include "idr/Conversion/StaticData.h"
@@ -14,7 +14,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -231,34 +230,6 @@ void Runtime::dec(OpBuilder &b, Location loc, layout::Word word, Value value) co
 
 Value Runtime::isUnique(OpBuilder &b, Location loc, Value cell) const {
   return call(b, loc, idr::runtime::helper::isUnique, cell).getResult();
-}
-
-// The one ladder of constants a value may be: strings, bigs, scalars,
-// poison of a cell pointer, then constructors, in place or in a cell. Each
-// datum is idr-lower-statics', named by its content.
-SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value,
-                                     Type type) const {
-  type = unrestricted(type);
-  if (auto text = dyn_cast<StringAttr>(value))
-    return {staticAddress(b, loc, StaticNames::string(text.getValue()))};
-  if (auto number = dyn_cast<BigAttr>(value))
-    return {bigConstant(b, loc, number)};
-  if (isa<IntegerAttr, FloatAttr>(value))
-    return {LLVM::ConstantOp::create(b, loc, type, cast<TypedAttr>(value))};
-  // Poison stands for a cell pointer only: of any other value it is each
-  // component's (Cells.cpp).
-  if (isa<ub::PoisonAttr>(value))
-    return {staticAddress(b, loc, StaticNames::nothing())};
-  auto con = cast<ConAttr>(value);
-  DataType data = con.getData();
-  if (data.layout() == Layout::Cell)
-    return {staticAddress(b, loc, StaticNames::cell(con, 0))};
-  families::CtorView ctor = data.ctor(con.getTag());
-  SmallVector<SmallVector<Value>> held;
-  for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), ctor.fields))
-    held.push_back(constant(b, loc, field, fieldType));
-  SmallVector<ValueRange> fields(held.begin(), held.end());
-  return unboxedSum(b, loc, layouts.sum(data), con.getTag(), fields);
 }
 
 Value Runtime::constantArray(OpBuilder &b, Location loc, const ConstantArray &array) const {

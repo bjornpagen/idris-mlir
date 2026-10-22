@@ -34,8 +34,10 @@ void populateBigPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConv
                          const Layouts &layouts, Runtime &runtime);
 
 // The cells memrefs live in, allocated or constant, and the arrays of
-// mutable memory: their reads, writes and updates in place. `arrays` holds every
-// memref.global of the program by name, read as a constant array.
+// mutable memory: their reads, writes and updates in place; and the
+// movements a step of a generating op makes in its buffers (a take, a copy,
+// a place) and the copy placed in a buffer allocated for it. `arrays` holds
+// every memref.global of the program by name, read as a constant array.
 void populateArrayPatterns(mlir::RewritePatternSet &patterns,
                            const mlir::TypeConverter &converter, const Layouts &layouts,
                            Runtime &runtime,

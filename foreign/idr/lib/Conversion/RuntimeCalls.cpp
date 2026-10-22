@@ -9,7 +9,7 @@
 
 #include "idr/Conversion/Lower/Lower.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Declared.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"

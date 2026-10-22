@@ -165,10 +165,12 @@ struct LowerEntryBlock : OpConversionPattern<LLVM::LLVMFuncOp> {
 // a call in tail position musttail: LLVM makes it a jump or fails to
 // compile, never silently a call. Each cursor it passes goes in as the
 // cursor its slot holds and comes back as one more result, which the slot
-// then holds, or, from a tail call, which is its caller's return. A call
-// whose result fills a field of cells built before it is a loop by now,
-// idr-trmc's promise: one that reaches here is the internal error of a
-// promise missed.
+// then holds; a tail call's come back as its caller's own return, since a
+// tail call passes on its caller's cursors in its caller's order, so the
+// last bump along a chain of tail calls returns to the first call that is
+// no tail, a resume's included. A call whose result fills a field of cells
+// built before it is a loop by now, idr-trmc's promise: one that reaches
+// here is the internal error of a promise missed.
 struct LowerCall : IdrPattern<CallOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(CallOp op, OneToNOpAdaptor adaptor,

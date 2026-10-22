@@ -72,7 +72,8 @@ namespace {
 
 // An op whose result is its first operand at run time (a change of grade,
 // of linearity, or of what a word's type says), lowered to that operand's
-// components: one pattern for every op with the trait.
+// components, the lifetimes it states after it being no value: one pattern
+// for every op with the trait.
 template <template <typename> class Trait>
 struct LowerAsOperand : OpTraitConversionPattern<Trait> {
   using OpTraitConversionPattern<Trait>::OpTraitConversionPattern;

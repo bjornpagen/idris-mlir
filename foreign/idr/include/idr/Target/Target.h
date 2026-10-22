@@ -114,7 +114,11 @@ inline constexpr std::uint64_t binInstructions = std::uint64_t{1} << 15;
 // runtime as calls and changes nothing it computes. Code generation is
 // superlinear in a function's size (LLVM's live ranges), and a function
 // this large holds thousands of counting calls, whose inlined branches
-// made one program's code generation 2.8 s become 95.
+// made one program's code generation 2.8 s become 95. The bodies the
+// runtime marks always inline are outside the budget: a call of one costs
+// more than its body, and the frame-bound account's entries, empty in the
+// shipped runtime, must inline away from every shipped function however
+// large, which a call marked noinline would stop.
 inline constexpr std::uint64_t inlineCallerInstructions = std::uint64_t{1} << 12;
 
 // One bin: the name of its object, the hash of its members' names, and

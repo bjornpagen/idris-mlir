@@ -19,7 +19,6 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/STLExtras.h"
@@ -128,12 +127,17 @@ Expected<Partition> Partition::of(Module &module) {
       return internal("the optimized module holds the appending global " + variable.getName() +
                       ", which belongs to every object and so to no one bin");
   std::vector<GlobalValue *> at = positions(module);
+  // The numbering itself: LLVM's global values carry no number of ours, so
+  // a symbol named by address is turned into its place here, once, and
+  // every later step reads places.
   DenseMap<const GlobalValue *, unsigned> place;
   for (unsigned symbol = 0; symbol < at.size(); ++symbol)
     place[at[symbol]] = symbol;
-  DenseSet<const GlobalObject *> aliased;
+  // The objects an alias names, by place.
+  BitVector aliased(at.size());
   for (GlobalAlias &alias : module.aliases())
-    aliased.insert(alias.getAliaseeObject());
+    if (const GlobalObject *object = alias.getAliaseeObject())
+      aliased.set(place.lookup(object));
 
   // Roles: an available_externally body is the runtime's native half's,
   // which no bin defines, and none survives O3. Each symbol's role is
@@ -157,7 +161,7 @@ Expected<Partition> Partition::of(Module &module) {
     auto *variable = dyn_cast<GlobalVariable>(value);
     if (variable && variable->isConstant() && variable->hasLocalLinkage() &&
         variable->hasAtLeastLocalUnnamedAddr() && !variable->hasComdat() &&
-        !aliased.contains(variable)) {
+        !aliased.test(symbol)) {
       role[symbol] = Partition::Copied{};
       continue;
     }
@@ -225,6 +229,8 @@ Expected<Partition> Partition::of(Module &module) {
     if (other)
       joined.unionSets(node, *other);
   };
+  // LLVM's comdats have no number of ours, so the first node of each is
+  // kept by address, for this one partition.
   DenseMap<const Comdat *, unsigned> comdatNode;
   for (unsigned node = 0; node < nodes.size(); ++node) {
     auto *object = cast<GlobalObject>(at[nodes[node]]);

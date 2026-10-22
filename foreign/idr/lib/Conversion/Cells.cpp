@@ -6,7 +6,9 @@
 // no cell; the reads of tags and fields, each by the layout its type is (a
 // cell, or words in place); and what poison and select make of a value of
 // ours. A cell of a lexical lifetime is Lifetimes.cpp's, and a write through
-// a destination Destinations.cpp's.
+// a destination Destinations.cpp's. The lifetime an op here states of a
+// value it makes is read by no pattern: a value at run time is its words,
+// and an arena's handle is read by the source of the cell put into it.
 //
 // A frame of a frame stack is laid out as a cell and lives on its thread's
 // stack of frames, contiguous in chunks the runtime holds: a push
@@ -14,7 +16,10 @@
 // resume's match reads its tag; and taking it apart (count.unpack) reads
 // its values out and gives its bytes back, the runtime returning a chunk
 // it no longer needs and keeping one spare. Its memory is the next push's,
-// so nothing read of it stays.
+// so nothing read of it stays. It holds no lifetime: a cursor inside a
+// function is a slot of that function's frame, gone at the jump, so the
+// lifetimes of the functions on a cycle's stack go in as their parameters
+// and come back out as their results.
 
 #include "idr/Conversion/Lower/Lower.h"
 
@@ -177,7 +182,7 @@ struct LowerDataCon : IdrPattern<DataConOp> {
       MLIRContext *ctx = getContext();
       auto atom = ConAttr::get(ctx, data.refinedTo(tag, {}), ArrayAttr::get(ctx, {}));
       rewriter.replaceOpWithMultiple(
-          op, {runtime.constant(rewriter, loc, atom, op.getResult().getType())});
+          op, {constantComponents(rewriter, loc, layouts, atom, op.getResult().getType())});
       return success();
     }
     default:
@@ -318,7 +323,7 @@ struct LowerConstant : IdrPattern<ConstantOp> {
   LogicalResult matchAndRewrite(ConstantOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithMultiple(
-        op, {runtime.constant(rewriter, op.getLoc(), op.getValue(), op.getType())});
+        op, {constantComponents(rewriter, op.getLoc(), layouts, op.getValue(), op.getType())});
     return success();
   }
 };
@@ -337,8 +342,9 @@ struct LowerPoison : IdrPattern<ub::PoisonOp> {
     Location loc = op.getLoc();
     Type type = op.getType();
     if (isCellPointer(type)) {
-      rewriter.replaceOpWithMultiple(
-          op, {runtime.constant(rewriter, loc, ub::PoisonAttr::get(getContext()), type)});
+      Attribute poison = ub::PoisonAttr::get(getContext());
+      rewriter.replaceOpWithMultiple(op,
+                                     {constantComponents(rewriter, loc, layouts, poison, type)});
       return success();
     }
     SmallVector<Value> out;

@@ -196,13 +196,6 @@ public:
   // is 1 (idris_rt_is_unique); an i1.
   mlir::Value isUnique(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell) const;
 
-  // The components of the constant `value` of type `type`: scalars as LLVM
-  // constants, an unboxed sum as its words, and strings, bigs outside the
-  // small range, cells (memo cells among them) and poison of a cell pointer
-  // as the address of the static datum idr-lower-statics made for it.
-  llvm::SmallVector<mlir::Value> constant(mlir::OpBuilder &b, mlir::Location loc,
-                                          mlir::Attribute value, mlir::Type type) const;
-
   // The static cell of the constant array `array`.
   mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc,
                             const ConstantArray &array) const;

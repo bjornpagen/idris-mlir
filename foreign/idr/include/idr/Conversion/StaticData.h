@@ -89,6 +89,16 @@ mlir::Value staticAddress(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRe
 // global.
 mlir::Value bigConstant(mlir::OpBuilder &b, mlir::Location loc, BigAttr value);
 
+// The components of the constant `value` of type `type`, in code or in the
+// initializer of a global: a scalar's LLVM constant, an unboxed sum's words,
+// and the address of the static datum idr-lower-statics made for a string, a
+// big outside the small range, a cell (a memo cell among them) and poison of
+// a cell pointer. The one ladder of constants, which the lowering and a
+// static cell's fields both read.
+llvm::SmallVector<mlir::Value> constantComponents(mlir::OpBuilder &b, mlir::Location loc,
+                                                  const Layouts &layouts, mlir::Attribute value,
+                                                  mlir::Type type);
+
 // The maker of every static datum of one program, used once, by
 // idr-lower-statics, serially: each global is made at the start of the
 // program through its symbol table, the first time its name is asked, so a
@@ -99,7 +109,7 @@ public:
              unsigned headerBytes);
 
   // The datum of the constant `value` of type `type`, if it is one, and the
-  // data it holds, each made once.
+  // data it holds, each made once, from a list of what is left to make.
   void constant(mlir::Attribute value, mlir::Type type);
   // The static cell of `array`: its header, then its data.
   void constantArray(const ConstantArray &array);
@@ -112,14 +122,16 @@ public:
   void homes(unsigned sites);
 
 private:
-  // The components a field holding `value` of type `type` puts in a static
-  // cell, built with `b`: a scalar's constant, an unboxed sum's words, and a
-  // datum's address, the datum made first.
-  llvm::SmallVector<mlir::Value> components(mlir::OpBuilder &b, mlir::Attribute value,
-                                            mlir::Type type);
+  // A constant held by what is being made, at the type of its place: what
+  // is left to make.
+  struct Held {
+    mlir::Attribute value;
+    mlir::Type type;
+  };
   // The cells of the constant constructor `con`, the run of its spine from
-  // the last back to the first, each made once.
-  void cells(ConAttr con);
+  // the last back to the first, each made once; what their fields hold is
+  // pushed onto `left`, made after them.
+  void cells(ConAttr con, llvm::SmallVectorImpl<Held> &left);
   void string(llvm::StringRef bytes);
   void big(BigAttr value);
 

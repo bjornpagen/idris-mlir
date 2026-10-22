@@ -7,7 +7,8 @@
 // into it and comes back out. Where its memory comes from is the op that
 // opens it, one lowering each: a view's nothing, a block in the opener's
 // frame, the chain a cursor bumps, the stack of its base cursor, a home of
-// the thread.
+// the thread. What puts into a lifetime, opens one on it or packs it reads
+// its value; the lifetime an op states of a value it makes is read by none.
 //
 // Inside a function a cursor lives in a slot of the frame, since every put
 // moves it: its value is the slot's address, which a put reads and writes,

@@ -53,7 +53,7 @@
 #include "mlir/Parser/Parser.h"
 
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
 
 #include <algorithm>
@@ -281,8 +281,10 @@ idr::target::VectorizeLanesOp::apply(transform::TransformRewriter &rewriter,
                                      transform::TransformResults &results,
                                      transform::TransformState &state) {
   // Each function that now computes on lanes, once, in the order first
-  // met: what the script cleans.
-  llvm::SetVector<Operation *> vectorized;
+  // met: what the script cleans. The interpreter runs the script on one
+  // function at a time, so the list holds one function at most and a search
+  // of it is the whole of its dedup: no set of ops is kept.
+  SmallVector<Operation *> vectorized;
   SmallVector<Operation *> targets = llvm::to_vector(state.getPayloadOps(getTarget()));
   for (Operation *target : targets) {
     auto loop = dyn_cast<linalg::GenericOp>(target);
@@ -292,10 +294,10 @@ idr::target::VectorizeLanesOp::apply(transform::TransformRewriter &rewriter,
     FailureOr<bool> done = vectorizeLoop(rewriter, loop);
     if (failed(done))
       return DiagnosedSilenceableFailure::definiteFailure();
-    if (*done && function)
-      vectorized.insert(function.getOperation());
+    if (*done && function && !llvm::is_contained(vectorized, function.getOperation()))
+      vectorized.push_back(function.getOperation());
   }
-  results.set(cast<OpResult>(getVectorized()), vectorized.getArrayRef());
+  results.set(cast<OpResult>(getVectorized()), vectorized);
   return DiagnosedSilenceableFailure::success();
 }
 

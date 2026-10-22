@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The static data idr-lower-statics makes, each under the name of its
 // content (StaticNames.cpp): a constant's datum and the data it holds, and
-// the cells of a constructor, in place or in a cell. What holds no other
-// datum is StaticBytes.cpp's.
+// the cells of a constructor, in place or in a cell; and the components of
+// a constant, which the lowering and a static cell's fields both read. What
+// holds no other datum is StaticBytes.cpp's.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -42,52 +43,87 @@ Value StaticData::pack(OpBuilder &b, Type structType, ValueRange members) {
   return value;
 }
 
-// The one ladder of constants a field may hold: strings, bigs, scalars,
-// then constructors, held in place or in a cell. A constant whose value is
-// a datum is that datum's address, the datum made first.
-SmallVector<Value> StaticData::components(OpBuilder &b, Attribute value, Type type) {
-  type = unrestricted(type);
-  if (auto text = dyn_cast<StringAttr>(value)) {
-    string(text.getValue());
-    return {staticAddress(b, at, StaticNames::string(text.getValue()))};
+// The ladder's one step of nesting is a constructor held in place, not in
+// a cell, whose fields are its words; every other constant is one leaf. The
+// constructors are listed in preorder, each before its fields and its first
+// field next, and read back in reverse, so every field is made before what
+// holds it and a constructor's fields lie on top of what is made, the first
+// topmost: a constant nested to any depth takes none of the native stack.
+SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts &layouts,
+                                      Attribute value, Type type) {
+  auto inPlace = [](Attribute held) {
+    auto con = dyn_cast<ConAttr>(held);
+    return con && con.getData().layout() != Layout::Cell ? con : ConAttr();
+  };
+  // A datum's address, or a scalar's constant.
+  auto leaf = [&](Attribute held, Type heldType) -> Value {
+    if (auto text = dyn_cast<StringAttr>(held))
+      return staticAddress(b, loc, StaticNames::string(text.getValue()));
+    if (auto number = dyn_cast<BigAttr>(held))
+      return bigConstant(b, loc, number);
+    if (isa<IntegerAttr, FloatAttr>(held))
+      return LLVM::ConstantOp::create(b, loc, unrestricted(heldType), cast<TypedAttr>(held));
+    // Poison stands for a cell pointer only: of any other value it is each
+    // component's (Cells.cpp).
+    if (isa<ub::PoisonAttr>(held))
+      return staticAddress(b, loc, StaticNames::nothing());
+    return staticAddress(b, loc, StaticNames::cell(cast<ConAttr>(held), 0));
+  };
+  struct Held {
+    Attribute value;
+    Type type;
+  };
+  SmallVector<Held> order, left{{value, type}};
+  while (!left.empty()) {
+    Held held = left.pop_back_val();
+    order.push_back(held);
+    if (ConAttr con = inPlace(held.value)) {
+      ArrayAttr fields = con.getFields();
+      ArrayRef<Type> types = con.getData().ctor(con.getTag()).fields;
+      for (size_t field = fields.size(); field-- > 0;)
+        left.push_back({fields[field], types[field]});
+    }
   }
-  if (auto number = dyn_cast<BigAttr>(value)) {
-    big(number);
-    return {bigConstant(b, at, number)};
+  SmallVector<SmallVector<Value>> made;
+  for (const Held &held : llvm::reverse(order)) {
+    ConAttr con = inPlace(held.value);
+    if (!con) {
+      made.push_back({leaf(held.value, held.type)});
+      continue;
+    }
+    SmallVector<SmallVector<Value>> fields;
+    for (size_t field = 0, n = con.getFields().size(); field < n; ++field)
+      fields.push_back(made.pop_back_val());
+    SmallVector<ValueRange> words(fields.begin(), fields.end());
+    made.push_back(unboxedSum(b, loc, layouts.sum(con.getData()), con.getTag(), words));
   }
-  if (isa<IntegerAttr, FloatAttr>(value))
-    return {LLVM::ConstantOp::create(b, at, type, cast<TypedAttr>(value))};
-  auto con = cast<ConAttr>(value);
-  DataType data = con.getData();
-  if (data.layout() == Layout::Cell) {
-    cells(con);
-    return {staticAddress(b, at, StaticNames::cell(con, 0))};
-  }
-  // A sum held in place: its fields' components in its words.
-  families::CtorView ctor = data.ctor(con.getTag());
-  SmallVector<SmallVector<Value>> held;
-  for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), ctor.fields))
-    held.push_back(components(b, field, fieldType));
-  SmallVector<ValueRange> fields(held.begin(), held.end());
-  return unboxedSum(b, at, layouts.sum(data), con.getTag(), fields);
+  return made.pop_back_val();
 }
 
+// What a datum holds is pushed and made in turn, never by recursion, so a
+// constant nested to any depth takes none of the native stack: a cell's
+// initializer names the data its fields hold, which are made after it.
 void StaticData::constant(Attribute value, Type type) {
-  if (auto text = dyn_cast<StringAttr>(value))
-    return string(text.getValue());
-  if (auto number = dyn_cast<BigAttr>(value))
-    return big(number);
-  if (isa<ub::PoisonAttr>(value))
-    return isCellPointer(type) ? nothing() : void();
-  auto con = dyn_cast<ConAttr>(value);
-  if (!con)
-    return;
-  if (con.getData().layout() == Layout::Cell)
-    return cells(con);
-  // A sum held in place is its words, each field's datum made.
-  families::CtorView ctor = con.getData().ctor(con.getTag());
-  for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), ctor.fields))
-    constant(field, fieldType);
+  SmallVector<Held> left{{value, type}};
+  auto make = [&](Held held) {
+    if (auto text = dyn_cast<StringAttr>(held.value))
+      return string(text.getValue());
+    if (auto number = dyn_cast<BigAttr>(held.value))
+      return big(number);
+    if (isa<ub::PoisonAttr>(held.value))
+      return isCellPointer(held.type) ? nothing() : void();
+    auto con = dyn_cast<ConAttr>(held.value);
+    if (!con)
+      return;
+    if (con.getData().layout() == Layout::Cell)
+      return cells(con, left);
+    // A sum held in place is its words, each field's datum made.
+    families::CtorView ctor = con.getData().ctor(con.getTag());
+    for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), ctor.fields))
+      left.push_back({field, fieldType});
+  };
+  while (!left.empty())
+    make(left.pop_back_val());
 }
 
 // A constructor laid out in a cell as static data: its cells from the last
@@ -95,9 +131,9 @@ void StaticData::constant(Attribute value, Type type) {
 // address of the next at its spine, so the stack holds one cell however
 // long the run. Cell `k` holds at position `i` the field fieldOfCell(k, i);
 // a cell before the last holds no position for the spine field, which is
-// the next cell's address. A run met before is made already: its first
-// cell's name is the run's.
-void StaticData::cells(ConAttr con) {
+// the next cell's address. A run met before is made already, and so is what
+// it holds: its first cell's name is the run's.
+void StaticData::cells(ConAttr con, SmallVectorImpl<Held> &left) {
   if (symbols.lookup(StaticNames::cell(con, 0)))
     return;
   DataType data = con.getData();
@@ -149,13 +185,19 @@ void StaticData::cells(ConAttr con) {
   auto structType = LLVM::LLVMStructType::getLiteral(ctx, types, /*isPacked=*/true);
 
   for (unsigned index = runLength; index-- > 0;) {
+    // The fields this cell holds, each with its place in the constructor;
+    // the data they hold are left to make.
+    SmallVector<std::pair<unsigned, Attribute>> held;
+    for (auto [position, value] : llvm::enumerate(con.getCell(index).getValue())) {
+      unsigned field = con.fieldOfCell(index, static_cast<unsigned>(position));
+      held.emplace_back(field, value);
+      left.push_back({value, ctor.fields[field]});
+    }
     global(StaticNames::cell(con, index), structType, mutability, headerBytes,
            [&](OpBuilder &init) -> Value {
              SmallVector<SmallVector<Value>> fields(ctor.fields.size());
-             for (auto [position, value] : llvm::enumerate(con.getCell(index).getValue())) {
-               unsigned field = con.fieldOfCell(index, static_cast<unsigned>(position));
-               fields[field] = components(init, value, ctor.fields[field]);
-             }
+             for (auto [field, value] : held)
+               fields[field] = constantComponents(init, at, layouts, value, ctor.fields[field]);
              if (index + 1 < runLength)
                fields[con.getSpine()] = {
                    staticAddress(init, at, StaticNames::cell(con, index + 1))};

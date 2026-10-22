@@ -90,9 +90,10 @@ struct LowerLifetimePack : IdrPattern<LifetimePackOp> {
 // in a slot of the frame, its region run in place with the values it holds
 // restated, and its end its source's, unless it packs again. A chain is
 // the lifetime's alone, so it reopens past the record. A stack reopens on
-// the base it names, at the base's cursor, since what the framed call put
-// into the base lies past the record; its mark is the record's, which its
-// end gives back to the base.
+// the base it names, a lifetime the resume takes, at the cursor the calls
+// since the push gave back through it, since what the framed call put into
+// the base lies past the record; its mark is the record's, which its end
+// gives back to the base.
 struct LowerLifetimeUnpack : IdrPattern<LifetimeUnpackOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(LifetimeUnpackOp op, OneToNOpAdaptor adaptor,
