@@ -48,7 +48,9 @@ import Data.SortedSet
 -- split the node are the families, those the graph splits a callee by
 -- (`Sites`). An implementation that is a function (`() -> Eq a`) and a
 -- family that is a lambda have no root (`Unrooted`) and split nothing:
--- cases the problem has. A request's arguments hold no marker of the
+-- cases the problem has. A function that gives an implementation at each
+-- use (`Gives`) is given as written and matched where it is used, so it
+-- splits nothing either. A request's arguments hold no marker of the
 -- growth check, so no root is a `Parameter` here, and no choice, which
 -- keys nothing, so none is a choice's `Members`. An argument is read
 -- once, by its kind and as the request's link writes it, its identity
@@ -67,6 +69,7 @@ readings i (Just ((Element kind _, t), w) :: as) = do
       let r = MkStaticReading h (case root of
                              Rooted j => Just j
                              Members _ => Nothing
+                             Gives _ => Nothing
                              Unrooted => Nothing
                              Parameter _ _ => Nothing)
       updateState { readings $= insert (kind, w) r }
@@ -421,31 +424,32 @@ classifyAt fc owner level (S k) ty vals = do
         static key holes vals' =
           mapFst (DictParam key holes ::) <$> classifyAt fc owner level k !(normaliseClosed (subst key sc)) vals'
 
-        -- A choice of an implementation of the parameter's type, a value at
-        -- run time. Which implementation it is no type after it can read.
-        -- Essential: a function the running program chooses is a value of
-        -- a function type, not of an interface's: a closure, a runtime
-        -- value like any other, whose uses apply it. One that takes an
-        -- implementation takes a choice; its type says whether it can be
-        -- held at run time at all (`coreBinder`).
+        -- A choice of an implementation or a polymorphic function of the
+        -- parameter's type (`choiceType`), a value at run time, which the
+        -- call dispatches on. Which member it is no type after it can
+        -- read. Essential: a function on values that the running program
+        -- chooses, whose result is an implementation, is a value of a
+        -- function type that takes no type: a closure, a runtime value
+        -- like any other, whose uses apply it, each result a choice.
         chosen : Uses -> ClosedTerm -> ArgValues -> Front Classified
-        chosen q a'@(Bind {}) vals' = do
-          b <- coreBinder fc owner ValueType rig a'
-          mapFst (ValueParam b Nothing a' ::)
-            <$> classifyAt fc owner level k !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
         chosen q a' vals' = do
+          True <- choiceType a'
+            | False => do
+                b <- coreBinder fc owner ValueType rig a'
+                mapFst (ValueParam b Nothing a' ::)
+                  <$> classifyAt fc owner level k !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
           choice <- choiceFamily fc owner a'
           mapFst (ChoiceParam (MkBinder q (DataT choice.family [])) a' ::)
             <$> classifyAt fc owner level k !(normaliseClosed (subst (Erased bfc Placeholder) sc)) vals'
 
         -- A type or a form the call leaves out: the call's value is a
-        -- function that takes a type, held at run time, as a closure whose
-        -- type the next binder chooses where it is applied. Where the
-        -- program fixes such a function (an argument, a `let`, an applied
-        -- lambda), its form is taken and never translated, so no call of
-        -- it is classified there; what reaches here keeps it where runtime
-        -- values are kept (a field, a result), as the type of a closure
-        -- held there is refused (`coreType`).
+        -- function that takes a type, held at run time. Where the program
+        -- fixes such a function (an argument, a `let`, an applied lambda),
+        -- its form is taken and never translated, and where it is held at
+        -- run time it is a member of its type's choice (`Terms.member`), so
+        -- no call of it is classified there; what reaches here is one no
+        -- compile-time reduction fixes, which would be a closure whose type
+        -- the next binder chooses where it is applied.
         leftOut : String -> Front Classified
         leftOut what =
           reject fc owner ValueType ("a function given no " ++ what ++ ", held at run time: " ++ !(showTT ty))

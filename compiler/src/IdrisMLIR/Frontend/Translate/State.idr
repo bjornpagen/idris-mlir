@@ -300,11 +300,32 @@ record ChoiceMember where
   form : ClosedTerm
   con : MemberCon
 
-||| The closed sum of the implementations of one interface type that the
-||| program fixes as runtime values: its family, the interface type, and
-||| its members in the order the translation found them, each the next
-||| constructor. It only grows, and a dispatch on it is built once the
-||| translation has found every member (`Choices.dispatchers`).
+||| What a choice is a choice of, its identity: an interface type, by its
+||| link (the interface at the arguments a family of it would be keyed
+||| by); or a polymorphic function type, written out whole, since no
+||| definition is the type of a function.
+public export
+data ChoiceKey = OfInterface (Link Form) | OfFunction (Written Form)
+
+export
+Eq ChoiceKey where
+  OfInterface a == OfInterface b = a == b
+  OfFunction a == OfFunction b = a == b
+  _ == _ = False
+
+export
+Ord ChoiceKey where
+  compare (OfInterface a) (OfInterface b) = compare a b
+  compare (OfInterface _) (OfFunction _) = LT
+  compare (OfFunction _) (OfInterface _) = GT
+  compare (OfFunction a) (OfFunction b) = compare a b
+
+||| The closed sum of the implementations of one interface type, or of the
+||| polymorphic functions of one function type, that the program fixes as
+||| runtime values: its family, the type, and its members in the order the
+||| translation found them, each the next constructor. It only grows, and
+||| a dispatch on it is built once the translation has found every member
+||| (`Choices.dispatchers`).
 public export
 record Choice where
   constructor MkChoice
@@ -312,12 +333,24 @@ record Choice where
   type : ClosedTerm
   members : SnocList ChoiceMember
 
-||| A call given a choice (`ChoiceParam`), as one function: its identity,
-||| symbol and key, the callee and its kinds as the call classified them,
-||| the choice's family and the position of the parameter that takes it,
-||| where and in whose definition it was made, and for each member the
-||| instance of the callee at that member that its arm calls, by the
-||| member's position.
+||| Where a dispatch finds its choice in the parameter at its position: the
+||| parameter takes the choice (`Given`), and the kinds hold `rest` more
+||| choices after it, each arm a call of the callee with one fewer
+||| (`Choices.calleeAt`); or the parameter takes an implementation the
+||| program fixes and holds the values it closes over, the one at place
+||| `j` among them a choice the running program made (`Held j`): a field
+||| of the implementation, whose every member is an instance of the
+||| callee with that field fixed (`Choices.heldDispatch`).
+public export
+data Chosen = Given (rest : Nat) | Held (j : Nat)
+
+||| A call given a choice (`ChoiceParam`), or an instance given an
+||| implementation that holds one, as one function: its identity, symbol
+||| and key, the callee and its kinds as the call classified them, the
+||| choice's family, the position of the parameter it is found at and
+||| where in it (`Chosen`), where and in whose definition it was made, and
+||| for each member the instance of the callee at that member that its arm
+||| calls, by the member's position.
 public export
 record Dispatch where
   constructor MkDispatch
@@ -328,9 +361,7 @@ record Dispatch where
   kinds : List PKind
   family : FamilyId
   at : Nat
-  ||| How many choices the kinds hold after this one: each arm is a call
-  ||| of the callee with one fewer (`Choices.calleeAt`).
-  rest : Nat
+  chosen : Chosen
   site : FC
   owner : String
   arms : SortedMap Nat FnId
@@ -479,10 +510,10 @@ record TS where
   ||| own origin (`Keys`). A block's name depends only on the definitions,
   ||| so each is found once.
   blockNames : SortedMap Address String
-  ||| The choices registered, each by the link of its interface type (the
-  ||| interface at the arguments a family of it would be keyed by), its
-  ||| family minted once from `nextFamily`; and each by its family.
-  choiceIds : SortedMap (Link Form) FamilyId
+  ||| The choices registered, each by what it is a choice of
+  ||| (`ChoiceKey`), its family minted once from `nextFamily`; and each by
+  ||| its family.
+  choiceIds : SortedMap ChoiceKey FamilyId
   choices : SortedMap FamilyId Choice
   ||| The dispatches made, each by its identity, and the dispatches on each
   ||| choice, by its family, which a new member is joined with.

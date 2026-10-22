@@ -825,10 +825,12 @@ implementationType ty = case getFn ty of
 ||| an argument is a compile-time value, as an implementation is: which
 ||| function it is keys the instance of what it is given to, each use
 ||| applies it at the use's own types, and the runtime values it closes
-||| over are what its parameter holds. No polymorphic value exists at run
-||| time. A function on values whose result is an implementation
-||| (`{y : Nat} -> Show (Tag y)`) takes neither: its type is an
-||| implementation's already (`implementationType`).
+||| over are what its parameter holds. One held at run time (in a field,
+||| as a result, chosen by a runtime value) is a value of its type's
+||| choice (`choiceFamily`), which function it is, so no polymorphic value
+||| exists at run time either. A function on values whose result is an
+||| implementation (`{y : Nat} -> Show (Tag y)`) takes neither: its type
+||| is an implementation's already (`implementationType`).
 export
 polymorphicType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                   TT vars -> Front Bool
@@ -840,6 +842,17 @@ polymorphicType (Bind _ _ (Pi _ rig _ a) sc) =
         | True => pure True
       polymorphicType sc
 polymorphicType _ = pure False
+
+||| Is a value of this type (normalised), held at run time, a value of the
+||| type's choice (`choiceFamily`): a polymorphic function, or an
+||| implementation? A function on values whose result is an implementation
+||| (`{y : Nat} -> Show (Tag y)`) is a closure that gives a choice, no
+||| choice itself.
+export
+choiceType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             TT vars -> Front Bool
+choiceType ty@(Bind _ _ (Pi {}) _) = polymorphicType ty
+choiceType ty = implementationType ty
 
 ||| Does a binder of this quantity and (normalised) type bind a value the
 ||| program fixes at compile time wherever it fixes one: an implementation
@@ -857,36 +870,52 @@ compileTimeBinder rig ty = case use rig of
       | True => pure True
     polymorphicType ty
 
-||| The choice of an implementation type: the closed sum of the
-||| implementations of it that the program fixes as runtime values
-||| (`Choice`), one constructor each, which the translation adds as it finds
-||| them (`Choices.memberOf`). It is keyed as a family of the type
-||| constructor at its arguments would be, each argument whole, and
-||| registered once, with no constructor yet: a choice no value is ever
-||| made of is uninhabited. It is not the interface's record: which
-||| implementation a value is, not its methods, is what a dispatch on it
-||| reads.
+||| A choice registered by what it is a choice of, once, with no
+||| constructor yet: a choice no value is ever made of is uninhabited.
+registeredChoice : {auto s : Ref TState TS} -> ChoiceKey -> InstanceKey -> ClosedTerm -> Loc -> Front Choice
+registeredChoice k key ty loc = do
+  st <- getState
+  case lookup k st.choiceIds >>= \fam => lookup fam st.choices of
+    Just choice => pure choice
+    Nothing => do
+      let fam = MkFamilyId st.nextFamily
+      let choice = MkChoice fam ty [<]
+      updateState { choiceIds $= insert k fam, nextFamily $= S
+                  , choices $= insert fam choice
+                  , families $= insert fam (MkFamily fam key None [] [] loc)
+                  , familyOrder $= (:< fam) }
+      pure choice
+
+||| A function type with every binder explicit: which binders Idris fills
+||| in at an application is the source's business, and the functions one
+||| type holds are applied alike whatever its binders say.
+explicitBinders : TT vs -> TT vs
+explicitBinders (Bind fc x (Pi pfc rig _ a) sc) = Bind fc x (Pi pfc rig Explicit a) (explicitBinders sc)
+explicitBinders tm = tm
+
+||| The choice of a type (`choiceType`): the closed sum of the
+||| implementations of an interface type, or of the polymorphic functions
+||| of a function type, that the program fixes as runtime values
+||| (`Choice`), one constructor each, which the translation adds as it
+||| finds them (`Choices.memberBare`). An interface's is keyed as a family
+||| of the type constructor at its arguments would be, each argument
+||| whole; a function type's by the type itself, its binders explicit. It
+||| is not the interface's record: which implementation or function a
+||| value is, not its methods, is what a dispatch on it reads.
 export
 choiceFamily : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> String -> ClosedTerm -> Front Choice
+choiceFamily fc owner ty@(Bind {}) = do
+  let canonical = explicitBinders ty
+  (written, key) <- functionKey canonical
+  registeredChoice (OfFunction written) key canonical !(toLoc fc)
 choiceFamily fc owner ty = do
   let (Ref _ _ n, args) = getFnArgs ty
     | _ => internal fc ("a choice of no implementation type: " ++ !(showTT ty))
   def <- lookupDef fc owner n
   keyed <- traverse (\a => Just <$> argumentKey fc owner Keyed !(canonicalTypeArg a)) args
   found <- instanceKey fc owner (fullname def) id keyed
-  st <- getState
-  case lookup found.link st.choiceIds >>= \fam => lookup fam st.choices of
-    Just choice => pure choice
-    Nothing => do
-      let fam = MkFamilyId st.nextFamily
-      let choice = MkChoice fam ty [<]
-      loc <- toLoc (location def)
-      updateState { choiceIds $= insert found.link fam, nextFamily $= S
-                  , choices $= insert fam choice
-                  , families $= insert fam (MkFamily fam found.key None [] [] loc)
-                  , familyOrder $= (:< fam) }
-      pure choice
+  registeredChoice (OfInterface found.link) found.key ty !(toLoc (location def))
 
 ||| A value array of these dimensions of this element: an array of value
 ||| arrays is one, the element's dimensions after these. An array of
@@ -1081,7 +1110,13 @@ mutual
       prim CharP = CharT
       prim DoubleP = DoubleT
       prim WorldP = WorldT
-  coreTypeIn chain acc g fc owner rule (Bind bfc x (Pi _ rig _ a) sc) = do
+  coreTypeIn chain acc g fc owner rule tm@(Bind bfc x (Pi _ rig _ a) sc) = do
+    -- A polymorphic function in a runtime position is a value of its
+    -- type's choice: which of the functions the program puts there it is.
+    False <- polymorphicType tm
+      | True => do
+          choice <- choiceFamily fc owner !(normaliseClosed (close g tm))
+          pure (DataT choice.family [])
     let g' = give (Erased bfc Placeholder) g
     case use rig of
       Erased => coreTypeIn chain acc g' fc owner rule sc

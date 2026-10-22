@@ -40,7 +40,11 @@ import Data.Vect
 ||| Translates one function instance. Its runtime parameters are its Core
 ||| parameters, numbered in order; a type, an implementation and a parameter
 ||| of quantity 0 are compile-time values of the case tree's scope, which has
-||| one variable per parameter of the definition's type.
+||| one variable per parameter of the definition's type. An instance given
+||| an implementation that holds a choice the running program made is a
+||| dispatch on that choice (`Choices.heldDispatch`), each of its arms the
+||| instance with the choice fixed, so no tree takes apart a field the
+||| program does not fix.
 translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Front ()
 translateInstance p = do
   def <- lookupDef EmptyFC (show p.name) p.name
@@ -53,6 +57,8 @@ translateInstance p = do
   before <- getState
   False <- pure (maybe False (\a => contains a before.refused) address)
     | True => pure ()
+  Nothing <- heldChoice p.kinds
+    | Just (at, j, ty) => heldDispatch p at j ty
   let fc = location def
   PMDef _ args body <- pure (definition def)
     | _ => reject fc owner DefinitionShape "not a pattern-matching definition"

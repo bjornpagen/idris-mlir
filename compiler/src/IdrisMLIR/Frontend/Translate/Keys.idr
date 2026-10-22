@@ -56,27 +56,56 @@ import Data.Vect
 -- Names
 ------------------------------------------------------------------------------
 
-||| Idris's printed full name, except that a `DN`, which is how Idris names
-||| an implementation's method, prints its inner name: the display name
+||| Idris's full name, except that a `DN`, which is how Idris names an
+||| implementation's method, is its inner name: the display name
 ||| (`Prelude.Types.map`) is every implementation's in the module, the inner
 ||| one (`Prelude.Types.map_Functor_Maybe`) is this one's.
-plainOrigin : Name -> String
-plainOrigin (NS ns (DN _ n)) = show (NS ns n)
-plainOrigin (DN _ n) = show n
-plainOrigin n = show n
+plainName : Name -> Name
+plainName (NS ns (DN _ m)) = NS ns m
+plainName (DN _ m) = m
+plainName m = m
 
-||| The kind of block Idris made of a definition, by the name it takes
-||| under its parent: `case` for a case block and `with` for a with block,
-||| which Idris numbers with one counter for the whole build, and a nested
-||| (`where`) function's own name, which Idris numbers with its parent's
-||| place in the context. None of those numbers says where the block is,
-||| and a name says it only up to the blocks of one kind under one parent:
-||| each clause's `where` may define the same name again.
-blockOf : Name -> Maybe String
+||| A name as a key prints it (`plainName`).
+plainOrigin : Name -> String
+plainOrigin n = show (plainName n)
+
+||| The kind of block Idris made of a definition: a case block and a with
+||| block, which Idris numbers with one counter for the whole build, and a
+||| nested (`where`) function by its own name, as a key prints it
+||| (`plainName`), which Idris numbers with its parent's place in the
+||| context. None of those numbers says where the block is, and a name says
+||| it only up to the blocks of one kind under one parent: each clause's
+||| `where` may define the same name again.
+data BlockKind = OfCase | OfWith | OfNested Name
+
+Eq BlockKind where
+  OfCase == OfCase = True
+  OfWith == OfWith = True
+  OfNested a == OfNested b = a == b
+  _ == _ = False
+
+Ord BlockKind where
+  compare OfCase OfCase = EQ
+  compare OfCase _ = LT
+  compare OfWith OfCase = GT
+  compare OfWith OfWith = EQ
+  compare OfWith (OfNested _) = LT
+  compare (OfNested a) (OfNested b) = compare a b
+  compare (OfNested _) _ = GT
+
+||| A block's kind as its printed name spells it under its parent.
+kindText : BlockKind -> String
+kindText OfCase = "case"
+kindText OfWith = "with"
+kindText (OfNested inner) = show inner
+
+||| The kind of block a definition is, by its name; nothing for a
+||| definition that is no block.
+blockOf : Name -> Maybe BlockKind
 blockOf (NS _ n) = blockOf n
-blockOf (CaseBlock _ _) = Just "case"
-blockOf (WithBlock _ _) = Just "with"
-blockOf (Nested _ inner) = Just (plainOrigin inner)
+blockOf (CaseBlock _ _) = Just OfCase
+blockOf (WithBlock _ _) = Just OfWith
+blockOf (Nested _ inner) = Just (OfNested (plainName inner))
 blockOf _ = Nothing
 
 ------------------------------------------------------------------------------
@@ -161,7 +190,7 @@ referencesOf def = do
 ||| than where it was.
 record Reached (w : Walked) where
   constructor MkReached
-  counters : SortedMap String Nat
+  counters : SortedMap BlockKind Nat
   after : Walked
   0 noMore : NoMore after w
 
@@ -184,7 +213,7 @@ mutual
   ||| ends: `w0` is where this level of it began, and every definition it
   ||| enters leaves fewer than `w0` to enter.
   nameUnder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              String -> SortedMap String Nat -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
+              String -> SortedMap BlockKind Nat -> (w0 : Walked) -> (0 _ : SizeAccessible w0) ->
               (w : Walked) -> (0 _ : NoMore w w0) -> List Reference -> Front (Reached w)
   nameUnder origin ks w0 acc w p [] = pure (MkReached ks w (noMore w))
   nameUnder origin ks w0 acc@(Access rec) w p (AMeta m :: rest) = do
@@ -212,7 +241,7 @@ mutual
     let Just (Element w1 q) = enter placement w
       | Nothing => nameUnder origin ks w0 acc w p rest
     let k = fromMaybe 0 (lookup kind ks)
-    let name = origin ++ "." ++ kind ++ show k
+    let name = origin ++ "." ++ kindText kind ++ show k
     let ks' = insert kind (S k) ks
     updateState { blockNames $= insert key name }
     MkReached _ w2 q2 <- nameUnder name empty w1 (rec w1 (fewerThen q p)) w1 (noMore w1) !(referencesOf def)
@@ -962,15 +991,10 @@ mutual
 addressIdentity : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Front String
 addressIdentity a = nameIdentity !(fullNames (Resolved (addressIndex a)))
 
-||| An instance's identity as text that reads the same in every build, for
-||| the hash a symbol carries when its key's print drops part of the
-||| identity: the link, each name by its full name, each block by its
-||| place.
-linkText : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Link Form -> Front String
-linkText (MkLink d as) = do
-  dn <- addressIdentity d
-  args <- traverse argumentText' as
-  pure (dn ++ "|" ++ show (length as) ++ ";" ++ concat args)
+||| A written argument as text that reads the same in every build, each
+||| name by its full name.
+writtenText : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Written Form -> Front String
+writtenText w = ("+" ++) . concat <$> traverse symbolText w.symbols
   where
     symbolText : Token Form -> Front String
     symbolText (Node f m k) = do
@@ -978,9 +1002,15 @@ linkText (MkLink d as) = do
       pure ("N" ++ formText f ++ nm ++ ":" ++ show k ++ ";")
     symbolText (Number f m) = pure ("#" ++ formText f ++ ":" ++ show m ++ ";")
 
-    argumentText' : Maybe (Written Form) -> Front String
-    argumentText' Nothing = pure "-"
-    argumentText' (Just w) = ("+" ++) . concat <$> traverse symbolText w.symbols
+||| An instance's identity as text that reads the same in every build, for
+||| the hash a symbol carries when its key's print drops part of the
+||| identity: the link, each name by its full name, each block by its
+||| place.
+linkText : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Link Form -> Front String
+linkText (MkLink d as) = do
+  dn <- addressIdentity d
+  args <- traverse (maybe (pure "-") writtenText) as
+  pure (dn ++ "|" ++ show (length as) ++ ";" ++ concat args)
 
 ------------------------------------------------------------------------------
 -- Identities and keys
@@ -1074,3 +1104,23 @@ instanceKey fc owner n term given = do
         Nothing => pure ()
       updateState { named $= insert link (symbol, key), keyLinks $= insert key link }
       pure (MkInstance link key symbol arguments)
+
+||| A polymorphic function type as its choice is keyed (`ChoiceKey`): the
+||| type written out, which is its identity, and its key, the type printed
+||| as a function's choice prints, which labels the choice's family. No
+||| definition is a function type, so its key's origin names the kind of
+||| choice; a print that drops part of the type carries the hash of the
+||| whole, as an instance's symbol does.
+export
+functionKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+              ClosedTerm -> Front (Written Form, InstanceKey)
+functionKey ty = do
+  full <- fullNames ty
+  writer <- writerOf [full]
+  let written = writtenOf writer full
+  (printed, lost) <- keyed writer [Just full]
+  let origin = "function"
+  print <- if lost || length (utf8 (keyPrint origin printed)) > symbolBytes
+             then (\t => Lossy (xxh3_128 (utf8 t)).low) <$> writtenText written
+             else pure Whole
+  pure (written, MkInstanceKey origin printed print)

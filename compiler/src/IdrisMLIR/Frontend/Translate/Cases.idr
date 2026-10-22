@@ -606,15 +606,17 @@ mutual
           -- constructor (`Closed.fixing`); one the running program chooses
           -- is passed as a choice (`Instances.classify`) and translated as
           -- the computation it is (`Terms.memberHere`), so each member a
-          -- dispatch fixes reduces. What reaches here is a field of a fixed
-          -- implementation, computed when the program runs whatever it is
-          -- stuck on (a runtime value deep inside reads as the definition
-          -- the reduction could not unfold), matched again in the same
-          -- tree, whose match would dispatch the rest of the tree over the
-          -- members of its choice.
+          -- dispatch fixes reduces. A field of a fixed implementation that
+          -- the running program chooses is a value the parameter holds,
+          -- and an instance given one is split by the members of its choice
+          -- (`Choices.heldDispatch`), so its tree takes apart the member.
+          -- What reaches here is a field of a fixed implementation that no
+          -- compile-time reduction reaches and that needs no runtime value
+          -- (one a definition Idris does not prove ends computes), which
+          -- the implementation holds as written, not as a value.
           reject ctx.fc ctx.owner RuntimeClosure
-                 ("an implementation's field chosen when the program runs, matched where the implementation " ++
-                  "was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
+                 ("an implementation's field no compile-time reduction reaches, matched where the " ++
+                  "implementation was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
     cn <- fullNames cn
     taken <- argumentsOf !(lookupDef ctx.fc ctx.owner cn)
     pick cn (zipWith info taken cargs) alts
