@@ -184,17 +184,26 @@ axes i t with (shapeView t)
     (App EmptyFC (App EmptyFC (App EmptyFC snoc e) rest') (sourceRef (Axis i before)), S before)
   axes i t | _ = (t, 0)
 
-||| The sources of an array type's dimensions, outermost first, the
-||| element's after the shape's when it is an array too; `Nothing` for a
-||| dimension no size variable fixes (a literal, a computed size).
+||| The dimensions of an array type, outermost first, the element's after
+||| the shape's when it is an array too, as its tensor type has them, each
+||| extent read by `dim`; none for a type that is no value array. The one
+||| walk of an array type's dimensions, so the source a tie reads of an
+||| axis (`dimensionSources`) and the term a signature names it by
+||| (`Types.signatureExtents`) are of the same axis.
+export
+dimensionsOf : (ClosedTerm -> Front d) -> ClosedTerm -> Front (List d)
+dimensionsOf dim t with (arrayParts t)
+  dimensionsOf dim _ | ArrayOf n s a =
+    if !(valueArray n)
+      then (++) <$> traverse dim (maybe [] extents (readSpine s)) <*> dimensionsOf dim a
+      else pure []
+  dimensionsOf dim _ | NoArray = pure []
+
+||| The sources of an array type's dimensions (`dimensionsOf`); `Nothing`
+||| for a dimension no size variable fixes (a literal, a computed size).
 export
 dimensionSources : ClosedTerm -> Front (List (Maybe SizeVar))
-dimensionSources t with (arrayParts t)
-  dimensionSources _ | ArrayOf n s a =
-    if !(valueArray n)
-      then (map sourceOf (maybe [] extents (readSpine s)) ++) <$> dimensionSources a
-      else pure []
-  dimensionSources _ | NoArray = pure []
+dimensionSources = dimensionsOf (pure . sourceOf)
 
 ||| The dimensions a tie can state of a value of this type: a value array's.
 export

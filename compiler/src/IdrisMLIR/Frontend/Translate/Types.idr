@@ -99,41 +99,105 @@ paramLayout con params roles ty =
     given (RuntimeValue _) p = if roleAt p roles == Keyed then Just p else Nothing
     given _ p = Just p
 
-||| An extent's dimension: static where its normal form is a literal, a
-||| `Nat`-like chain of successors ending at zero (read from Idris's flags,
-||| never from names) or a non-negative integer; dynamic otherwise, since
-||| an erased extent is the value's own, never a constant it is assumed to
-||| be.
-extentDim : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front Dim
-extentDim = go 0
+||| What is known of an erased index, from its normal form: a constructor
+||| binder's stand-in (`marker`) is that binder's level; a chain of
+||| successors of `Nat` (Idris's `ZERO` and `SUCC` flags, never names) over
+||| zero or a stand-in is a number or a level plus one per successor; a
+||| non-negative integer literal is a number; anything else is outside the
+||| language, refining nothing. Read once, where a type is read, where a
+||| call gives an index parameter its argument, and for each extent of an
+||| array's type, which its term fixes or names (`extentOf`).
+export
+indexTerm : ClosedTerm -> Front ITerm
+indexTerm = go 0
   where
-    -- The role of the constructor a term is an application of.
     roleOf : ClosedTerm -> Front (Maybe NatRole)
     roleOf tm = case getFn tm of
       Ref _ (DataCon _ _) n => do
         found <- defined n
         pure (found >>= \con => natRole con.def)
       _ => pure Nothing
-    -- A successor's predecessor is its last argument.
-    go : Nat -> ClosedTerm -> Front Dim
-    go k tm@(App _ _ pred) = case !(roleOf tm) of
-      Just Zero => pure (Static k)
-      Just Succ => go (S k) pred
-      Nothing => pure Dynamic
-    go k tm@(Ref _ (DataCon _ _) _) = case !(roleOf tm) of
-      Just Zero => pure (Static k)
-      _ => pure Dynamic
-    go k (PrimVal _ c) = case constantLit c of
-      Just (LBig i) => pure (if i >= 0 then Static (k + integerToNat i) else Dynamic)
-      _ => pure Dynamic
-    go k _ = pure Dynamic
+    go : Nat -> ClosedTerm -> Front ITerm
+    go k tm = case binderOf tm of
+      Just level => pure (succ (IVar level) k)
+      Nothing => case tm of
+        App _ _ pred => case !(roleOf tm) of
+          Just Zero => pure (INat k)
+          Just Succ => go (S k) pred
+          Nothing => pure IOpaque
+        Ref _ (DataCon _ _) _ => case !(roleOf tm) of
+          Just Zero => pure (INat k)
+          _ => pure IOpaque
+        PrimVal _ c => case constantLit c of
+          Just (LBig i) => pure (if i >= 0 then INat (k + integerToNat i) else IOpaque)
+          _ => pure IOpaque
+        _ => pure IOpaque
+
+||| What an extent's index term says of its axis: a number fixes it; a
+||| level, or a level plus a number, names it by the index parameter at
+||| that level; anything else leaves it the value's own, never a constant
+||| it is assumed to be, and named by nothing.
+data ExtentTerm = FixedBy Nat | NamedBy ITerm | Unnamed
+
+||| The one reading of an extent's term. A term in normal form (`succ`)
+||| has no successor of a number or of a successor, so a term with a level
+||| in it is a level or a level plus a number.
+extentOf : ITerm -> ExtentTerm
+extentOf (INat k) = FixedBy k
+extentOf t@(IVar _) = NamedBy t
+extentOf t@(ISucc (IVar _) _) = NamedBy t
+extentOf _ = Unnamed
+
+||| The tensor dimension of an extent: static where a number fixes it, `?`
+||| otherwise, where the signature holds the term that names it, if one
+||| does (`signatureExtents`).
+dimOf : ExtentTerm -> Dim
+dimOf (FixedBy k) = Static k
+dimOf _ = Dynamic
 
 ||| The dimensions of a value array's shape at an instance, one per axis of
 ||| its form, outermost first (`spineOf`, which refuses a shape that has
-||| none).
-shapeDims : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-            FC -> String -> ClosedTerm -> Front (List Dim)
-shapeDims fc owner shape = traverse extentDim (extents !(spineOf fc owner !(normaliseClosed shape)))
+||| none), each its extent's term's (`extentOf`).
+shapeDims : {auto s : Ref TState TS} -> FC -> String -> ClosedTerm -> Front (List Dim)
+shapeDims fc owner shape =
+  traverse (\e => dimOf . extentOf <$> indexTerm e) (extents !(spineOf fc owner !(normaliseClosed shape)))
+
+||| The axes of an array type that a term over the function's index
+||| parameters names, each with that term, by axis, in the order its tensor
+||| type has them (`dimensionsOf`): each a `?` of the type. None for a type
+||| that is no value array.
+namedAxes : ClosedTerm -> Front (List (Nat, ITerm))
+namedAxes t = named 0 <$> dimensionsOf (\e => extentOf <$> indexTerm e) t
+  where
+    named : Nat -> List ExtentTerm -> List (Nat, ITerm)
+    named k [] = []
+    named k (NamedBy term :: es) = (k, term) :: named (S k) es
+    named k (_ :: es) = named (S k) es
+
+||| Which index term each `?` of an instance's signature is (`Extents`),
+||| read off its parameters' and its result's Idris types as its signature
+||| holds them: in its own scope, where each index parameter already stands
+||| as its level (`Instances.classifyAt`'s `marker`), so an extent's term
+||| (`indexTerm`) is over the function's index parameters with no second
+||| map from a parameter to its level. Only a runtime value is an array;
+||| an implementation's values and a choice name no axis.
+export
+signatureExtents : (kinds : List PKind) -> (result : ClosedTerm) -> Front (Extents (Runtimes kinds))
+signatureExtents kinds result = MkExtents <$> params kinds <*> namedAxes result
+  where
+    axesOf : PKind -> Front (List (Nat, ITerm))
+    axesOf (ValueParam _ _ idrisType) = namedAxes idrisType
+    axesOf _ = pure []
+
+    -- A parameter's axes at its place, when it is a parameter at run time.
+    placed : (m : Maybe Binder) -> List (Nat, ITerm) -> Vect n (List (Nat, ITerm)) ->
+             Vect (counted m n) (List (Nat, ITerm))
+    placed (Just _) axes rest = axes :: rest
+    placed Nothing _ rest = rest
+
+    params : (ks : List PKind) -> Front (Vect (Runtimes ks) (List (Nat, ITerm)))
+    params [] = pure []
+    params (k :: ks) = placed (boundAtRuntime k) <$> axesOf k <*> params ks
 
 ||| Does the rest of a function's type need an erased binder's form: is
 ||| the binder a shape that the rest, with `formProbe` for it, puts in a
@@ -503,39 +567,6 @@ boundsHold fc what t statics = do
   st <- getState
   for_ (mapMaybe (\(j, a) => (j,) <$> a) (zip (iterateN (length statics) S 0) statics)) $ \(j, r) =>
     heightWithin fc what st.bounds (MkNode t [], j) r.height
-
-||| What is known of an erased index, from its normal form: a constructor
-||| binder's stand-in (`marker`) is that binder's level; a chain of
-||| successors of `Nat` (Idris's `ZERO` and `SUCC` flags, never names) over
-||| zero or a stand-in is a number or a level plus one per successor; a
-||| non-negative integer literal is a number; anything else is outside the
-||| language, refining nothing. Read once, where a type is read, and where
-||| a call gives an index parameter its argument.
-export
-indexTerm : ClosedTerm -> Front ITerm
-indexTerm = go 0
-  where
-    roleOf : ClosedTerm -> Front (Maybe NatRole)
-    roleOf tm = case getFn tm of
-      Ref _ (DataCon _ _) n => do
-        found <- defined n
-        pure (found >>= \con => natRole con.def)
-      _ => pure Nothing
-    go : Nat -> ClosedTerm -> Front ITerm
-    go k tm = case binderOf tm of
-      Just level => pure (succ (IVar level) k)
-      Nothing => case tm of
-        App _ _ pred => case !(roleOf tm) of
-          Just Zero => pure (INat k)
-          Just Succ => go (S k) pred
-          Nothing => pure IOpaque
-        Ref _ (DataCon _ _) _ => case !(roleOf tm) of
-          Just Zero => pure (INat k)
-          _ => pure IOpaque
-        PrimVal _ c => case constantLit c of
-          Just (LBig i) => pure (if i >= 0 then INat (k + integerToNat i) else IOpaque)
-          _ => pure IOpaque
-        _ => pure IOpaque
 
 ||| Where an erased binder occurs in the rest of a function's type, given
 ||| as the binder's stand-in (`marker k`): nowhere a value is passed (in no

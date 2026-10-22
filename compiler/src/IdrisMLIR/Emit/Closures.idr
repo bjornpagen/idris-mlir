@@ -61,14 +61,18 @@ captures r = (walkRegion seen (MkSeen empty empty [<]) r).order <>> []
 ------------------------------------------------------------------------------
 
 ||| An `idr.func`: its symbol, its telescope (the sorts of its erased index
-||| parameters), its type, its body, and what Idris proved of its loops,
-||| written as the Idris component every loop through it stays in exactly
-||| when Idris's checker proved that component's calls decrease, and absent
-||| otherwise. Its row is the derivation's, written later from its ops.
+||| parameters), its extents (the entries naming the index term each `?`
+||| of its type's tensors is, in order of side, position and axis), its
+||| type, its body, and what Idris proved of its loops, written as the
+||| Idris component every loop through it stays in exactly when Idris's
+||| checker proved that component's calls decrease, and absent otherwise.
+||| Its row is the derivation's, written later from its ops.
 export
-functionOp : String -> List (SortOf MlirType MlirAttr) -> MlirType -> Region -> Term.Termination -> Op
-functionOp sym telescope type body termination =
-  Idr.funcOp {binders' = Just (IdrHand (BindersOf telescope)), terminates' = proof termination} (StringAttr sym) (TypeAttr type) body
+functionOp : String -> List (SortOf MlirType MlirAttr) -> List MlirAttr -> MlirType -> Region -> Term.Termination -> Op
+functionOp sym telescope extents type body termination =
+  Idr.funcOp {binders' = Just (IdrHand (BindersOf telescope)), extents' = Just (Idr (ExtentsAttr extents)),
+              terminates' = proof termination}
+             (StringAttr sym) (TypeAttr type) body
   where
     proof : Term.Termination -> Maybe MlirAttr
     proof (Terminates c) = Just (Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof c.index))))
@@ -91,7 +95,8 @@ liftedText LiftedDelay = "delay"
 ||| lambda's parameter, none for a delay), `body` its statements to its
 ||| end, `results` its result types, `l` where it is written. Its arguments
 ||| are its captures, at their types and at `l`, then `params`. What Idris
-||| proved of its loops is its owner's.
+||| proved of its loops is its owner's. Its signature is no Idris type's,
+||| so it names no extent by a term.
 export
 lift : Loc -> (kind : Lifted) -> (telescope : List (SortOf MlirType MlirAttr)) -> List Argument
     -> List Statement -> List MlirType -> E (String, List Value)
@@ -105,6 +110,6 @@ lift l kind telescope params body results = do
   st <- get
   let sym = st.ownerSymbol ++ "." ++ liftedText kind ++ show st.liftedCount
   put ({ liftedCount $= S,
-         lifted $= (:< (sym, MkStatement Nothing (functionOp sym telescope type region st.termination)
+         lifted $= (:< (sym, MkStatement Nothing (functionOp sym telescope [] type region st.termination)
                                          (Named st.definition l))) } st)
   pure (sym, caps)

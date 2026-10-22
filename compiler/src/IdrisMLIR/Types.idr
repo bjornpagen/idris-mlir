@@ -310,6 +310,26 @@ dynamicDims (FunT (MkBinder q a) r) = FunT (MkBinder q (dynamicDims a)) (dynamic
 dynamicDims (LazyT a) = LazyT (dynamicDims a)
 dynamicDims t = t
 
+%prefix_record_projections off
+
+||| Which index term each `?` of a function's signature is: for each
+||| parameter at run time, in order, and for the result, the axes of its
+||| tensor type that a term over the function's index parameters names,
+||| each with that term, by axis. A tensor type has no symbolic dimension,
+||| so the link from an array's extent to its index rides here, beside the
+||| signature, into the function's `extents`, where specialization
+||| substitutes a call's terms into it. An
+||| axis a number fixes is static in the type and is not here, nor is one
+||| no term names; a parameter's place is its position in the vector, so
+||| no entry names a parameter the function lacks.
+public export
+record Extents (arity : Nat) where
+  constructor MkExtents
+  params : Vect arity (List (Nat, ITerm))
+  result : List (Nat, ITerm)
+
+%prefix_record_projections on
+
 ------------------------------------------------------------------------------
 -- The array language
 ------------------------------------------------------------------------------
