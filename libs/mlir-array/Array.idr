@@ -14,6 +14,7 @@ import public Array.Core
 import public Data.Zippable
 import Data.Nat
 import Data.So
+import Linear.Notation
 
 %default total
 
@@ -183,3 +184,55 @@ namespace LArray
   traverse : (Index s -> a -> (1 _ : t) -> Res a (const t)) -> (1 _ : t) -> (1 _ : LArray s a) ->
              LPair t (LArray s a)
   traverse f st arr = traverseOver f st (LArray.shape arr)
+
+------------------------------------------------------------------------------
+-- Contraction and scattering
+------------------------------------------------------------------------------
+
+-- Each takes the combining functions it folds with as arguments, not an
+-- interface: the element type alone does not fix them (a size-change graph
+-- and a quantity each have their own sum and product, and a caller may
+-- fold one type two ways).
+
+||| The product of the row `i` of `x` and the column `j` of `y` at their
+||| position `k`.
+term : (a -> b -> c) -> Matrix m n a -> Matrix n p b -> Index [<m, p, n] -> c
+term mul x y [<i, j, k] = mul (x !! [<i, k]) (y !! [<k, j])
+
+contractOver : (c -> c -> c) -> c -> (a -> b -> c) -> Matrix m n a -> Matrix n p b ->
+               Extents [<m, n] -> Extents [<n, p] -> Matrix m p c
+contractOver add zero mul x y [<rows, inner] [<_, cols] =
+  foldLast add (fill [<rows, cols] zero) (tabulate [<rows, cols, inner] (term mul x y))
+
+||| The matrix product in a semiring given by its sum, its zero and its
+||| product: at `[<i, j]`, the left fold from `zero` by `add`, over every
+||| `k` in order, of `mul (x !! [<i, k]) (y !! [<k, j])`. Size-change
+||| graphs compose by it, the later graph on the left.
+export
+contract : (add : c -> c -> c) -> (zero : c) -> (mul : a -> b -> c) ->
+           Matrix m n a -> Matrix n p b -> Matrix m p c
+contract add zero mul x y = contractOver add zero mul x y (shape x) (shape y)
+
+-- Each step takes the read's result apart in a top-level clause of its
+-- own, for the reason the linear steps above do.
+
+||| The element combined into the slot it was read from.
+combineRead : (b -> a -> b) -> Index t -> a -> (1 _ : Res b (const (LArray t b))) -> LArray t b
+combineRead g o v (x # acc) = LArray.write acc o (g x v)
+
+||| The element of `values` at `i` combined into the slot of `acc` that
+||| `owners` holds at `i`.
+combineAt : (b -> a -> b) -> Array s (Index t) -> Array s a -> (1 _ : LArray t b) -> Index s -> LArray t b
+combineAt g owners values acc i =
+  let o = owners !! i in
+  combineRead g o (values !! i) (LArray.read acc o)
+
+||| At each index of `z`'s extents, the left fold from `z`'s element there,
+||| by `g`, over the elements of `values` at the positions where `owners`
+||| holds that index, in the row-major order of those positions: `values`
+||| scattered into `z`, each combined with what its index holds. Folding
+||| each binder's uses in a semiring, each use naming its binder, is one.
+export
+accumulate : (b -> a -> b) -> Array t b -> Array s (Index t) -> Array s a -> Array t b
+accumulate g z owners values =
+  unrestricted (thaw z (\acc => freeze (visit (shape values) (combineAt g owners values) acc)))

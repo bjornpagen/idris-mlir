@@ -9,15 +9,18 @@
 ||| An index holds a `Fin` per axis, so every index is inside its array by
 ||| type and a read checks nothing.
 |||
-||| The two array types have no constructors and the generating set has no
-||| bodies: each function is declared with its meaning, and idris-mlir
-||| writes every call of one as the tensor operation of that meaning. Its
-||| meaning is held there alone, so no Idris body can come to mean
-||| something else; no other backend runs these functions.
+||| idris-mlir writes every call of a function of the generating set as the
+||| tensor operation of its meaning. The functions the compiler's own code
+||| reaches have a body over base's primitive arrays: that body is their
+||| one meaning, which both hosts run, and the operation idris-mlir writes
+||| in its place computes the same. The rest have no body: only programs
+||| idris-mlir compiles reach them, and the operation is their meaning.
 module Array.Core
 
 import public Data.Fin
+import Data.IOArray.Prims
 import Data.Nat
+import Data.So
 import Linear.Notation
 
 %default total
@@ -76,27 +79,79 @@ volumeIsCount [<] = Refl
 volumeIsCount (e :< n) = cong (* n) (volumeIsCount e)
 
 ------------------------------------------------------------------------------
+-- Positions
+------------------------------------------------------------------------------
+
+||| A product of successors is one.
+0 bothOccupied : IsSucc a -> IsSucc b -> IsSucc (a * b)
+bothOccupied ItIsSucc ItIsSucc = ItIsSucc
+
+||| An axis that has a position has a length that is a successor.
+0 positioned : Fin n -> IsSucc n
+positioned FZ = ItIsSucc
+positioned (FS _) = ItIsSucc
+
+||| Extents that have an index have an element.
+0 occupied : (e : Extents s) -> Index s -> IsSucc (volume e)
+occupied [<] [<] = ItIsSucc
+occupied (e :< _) (p :< j) = bothOccupied (occupied e p) (positioned j)
+
+||| Where the elements of extents start: nowhere, since some axis has no
+||| position, or at the first index, every axis at its first position.
+data Start : Extents s -> Type where
+  Elementless : (0 empty : volume e = Z) -> Start e
+  From : Index s -> Start e
+
+||| Where the elements of extents start, read off their lengths.
+start : (e : Extents s) -> Start e
+start [<] = From [<]
+start (e :< Z) = Elementless (multZeroRightZero (volume e))
+start (e :< S m) = case start e of
+  Elementless empty => Elementless (cong (* S m) empty)
+  From i => From (i :< FZ)
+
+||| The index after `i` in row-major order, the last axis fastest; after the
+||| last index, the first.
+following : Extents s -> Index s -> Index s
+following [<] [<] = [<]
+following (e :< Z) (_ :< j) = absurd j
+following (e :< S m) (p :< j) = case choose (S (finToNat j) < S m) of
+  Left more => p :< natToFinLt (S (finToNat j)) @{more}
+  Right _ => following e p :< FZ
+
+||| The position of an index among the elements of extents, in row-major
+||| order.
+offset : Extents s -> Index s -> Int
+offset [<] [<] = 0
+offset (e :< n) (p :< j) = offset e p * cast n + cast (finToNat j)
+
+------------------------------------------------------------------------------
 -- The two array types
 ------------------------------------------------------------------------------
 
--- Both are external, as base's arrays of the runtime are: a type with no
--- constructor that no proof may call empty, whose every argument decides
--- an implementation search over it as a data type's do. A plain forward
--- declaration would let the search pick an implementation before the
--- shape is known, and guess the shape.
+-- Their constructors are this module's alone, so no other module can take
+-- an array apart or build one but through the generating set. An array of
+-- no element holds no slots: base's primitive array is made with an
+-- element to fill it, and an array with no index has none to give.
 
 ||| An array: its extents and an element at every index. Never written
-||| after it is built. It has no constructor, so no module can take one
-||| apart or build one but through the generating set.
+||| after it is built.
 export
-data Array : (0 s : Shape) -> Type -> Type where [external]
+data Array : (0 s : Shape) -> Type -> Type where
+  ||| No element: some axis has no position, so no index reads one.
+  Empty : (e : Extents s) -> (0 empty : volume e = Z) -> Array s a
+  ||| An element in each slot, the slots in row-major order.
+  Stored : (e : Extents s) -> (slots : ArrayData a) -> Array s a
 
 ||| A linear array: its extents and an element at every index, written in
 ||| place. One is only ever given at quantity 1, fresh, to a continuation
 ||| that returns an unrestricted value, so no two references to one exist,
-||| and no old version of it is read again; it leaves only by `freeze`.
+||| and no old version of it is read again; it leaves only by `freeze`. It
+||| holds an array whose slots no other reference reaches while it lives,
+||| which is what lets it write them.
 export
-data LArray : (0 s : Shape) -> Type -> Type where [external]
+data LArray : (0 s : Shape) -> Type -> Type where
+  Writing : (elements : Array s a) -> LArray s a
 
 ||| An array of no axes: one element.
 public export
@@ -117,26 +172,72 @@ Matrix m n = Array [<m, n]
 -- The generating set
 ------------------------------------------------------------------------------
 
+-- A body below runs each effect on base's primitive array inside the one
+-- action whose result it returns, so the value cannot be had without the
+-- effect: no effect sits in a binding or an argument whose value nothing
+-- uses, which the stock host's inliner would drop.
+
 ||| The extents the array was built with.
-export %extern
+export
 shape : Array s a -> Extents s
+shape (Empty e _) = e
+shape (Stored e _) = e
+
+||| `f` at each of the `left` indices after `i` in row-major order, put in
+||| the slots from `slot` on.
+storeAfter : ArrayData a -> Extents s -> (Index s -> a) -> Index s -> (slot : Int) -> (left : Nat) -> IO ()
+storeAfter slots e f i slot Z = pure ()
+storeAfter slots e f i slot (S left) = do
+  let next = following e i
+  primIO (prim__arraySet slots slot (f next))
+  storeAfter slots e f next (slot + 1) left
+
+||| `f` at every index in row-major order, in fresh slots: the first
+||| index's element fills them as they are made, and each later index's
+||| replaces its own.
+storeFrom : Extents s -> (Index s -> a) -> Index s -> IO (Array s a)
+storeFrom e f i = do
+  let n = volume e
+  slots <- primIO (prim__newArray (cast n) (f i))
+  storeAfter slots e f i 1 (pred n)
+  pure (Stored e slots)
+
+tabulateFrom : (e : Extents s) -> (Index s -> a) -> Start e -> Array s a
+tabulateFrom e f (Elementless empty) = Empty e empty
+tabulateFrom e f (From i) = unsafePerformIO (storeFrom e f i)
 
 ||| The array whose element at each index is `f` of the index: `f` is
 ||| applied once at each index, in row-major order (the last axis fastest),
 ||| and never when the shape has no element.
-export %extern
+export
 tabulate : Extents s -> (Index s -> a) -> Array s a
+tabulate e f = tabulateFrom e f (start e)
 
 ||| The element at an index. The index is inside the array by its type, so
-||| nothing is checked.
-export %extern
+||| nothing is checked, and an array with no element has no index.
+export
 (!!) : Array s a -> Index s -> a
+Empty e empty !! i = void (uninhabited (replace {p = IsSucc} empty (occupied e i)))
+Stored e slots !! i = unsafePerformIO (primIO (prim__arrayGet slots (offset e i)))
+
+||| The left fold from `acc` over the elements of `x` under `q` along the
+||| last axis, from position `done`, `left` of them still to come.
+foldAxis : (b -> a -> b) -> Array (f :< n) a -> Index f -> (done, left : Nat) -> (0 _ : done + left = n) -> b -> b
+foldAxis g x q done Z _ acc = acc
+foldAxis g x q done (S left) fits acc =
+  let 0 next = trans (plusSuccRightSucc done left) fits in
+  foldAxis g x q (S done) left next
+    (g acc (x !! (q :< natToFinLT done {prf = replace {p = LTE (S done)} next (lteAddRight (S done))})))
+
+foldFrame : (b -> a -> b) -> Array f b -> Array (f :< n) a -> Extents (f :< n) -> Array f b
+foldFrame g z x (fe :< len) = tabulate fe (\q => foldAxis g x q 0 len Refl (z !! q))
 
 ||| For each index `p` of the frame, in row-major order, the left fold over
 ||| the last axis from the frame's element of `z`:
 ||| `g (... (g (z !! p) (x !! (p :< 0))) ...) (x !! (p :< n - 1))`.
-export %extern
+export
 foldLast : (b -> a -> b) -> Array f b -> Array (f :< n) a -> Array f b
+foldLast g z x = foldFrame g z x (shape x)
 
 ||| At `p :< j`, the left fold from `z !! p` over `x !! (p :< 0)` to
 ||| `x !! (p :< j)`, inclusive.
@@ -155,9 +256,12 @@ export %extern
 merge : Extents c -> Array f (Array c a) -> Array (f ++ c) a
 
 ||| The same elements in the same row-major order, at other extents of the
-||| same count.
-export %extern
+||| same count: the same slots.
+export
 reshape : Extents t -> {auto 0 same : count s = count t} -> Array s a -> Array t a
+reshape et @{same} (Empty e empty) =
+  Empty et (trans (volumeIsCount et) (trans (sym same) (trans (sym (volumeIsCount e)) empty)))
+reshape et (Stored e slots) = Stored et slots
 
 ||| The last two axes swapped: at `p :< j :< i`, the element of `x` at
 ||| `p :< i :< j`. With `nest` and `merge` it moves any axis to the end,
@@ -192,6 +296,42 @@ update : Array s a -> Index s -> a -> Array s a
 -- Linear arrays
 ------------------------------------------------------------------------------
 
+||| The elements of the slots from `slot` on, `left` of them, copied into
+||| the same slots of `target`.
+copyAfter : (source, target : ArrayData a) -> (slot : Int) -> (left : Nat) -> IO ()
+copyAfter source target slot Z = pure ()
+copyAfter source target slot (S left) = do
+  x <- primIO (prim__arrayGet source slot)
+  primIO (prim__arraySet target slot x)
+  copyAfter source target (slot + 1) left
+
+||| The elements in fresh slots: the first fills them as they are made, and
+||| each later one replaces its own.
+copySlots : Extents s -> ArrayData a -> IO (Array s a)
+copySlots e slots = do
+  let n = volume e
+  leading <- primIO (prim__arrayGet slots 0)
+  fresh <- primIO (prim__newArray (cast n) leading)
+  copyAfter slots fresh 1 (pred n)
+  pure (Stored e fresh)
+
+||| The array's elements in slots of their own.
+copied : Array s a -> Array s a
+copied (Empty e empty) = Empty e empty
+copied (Stored e slots) = unsafePerformIO (copySlots e slots)
+
+||| `v` put in a slot, in place, and the array that holds it: the array is
+||| the write's result, so nothing reads it before the write.
+writeSlot : Extents s -> ArrayData a -> (slot : Int) -> a -> IO (Array s a)
+writeSlot e slots slot v = do
+  primIO (prim__arraySet slots slot v)
+  pure (Stored e slots)
+
+||| `v` put in the slot of `i`, in place.
+overwrite : Array s a -> Index s -> a -> Array s a
+overwrite (Empty e empty) i v = void (uninhabited (replace {p = IsSucc} empty (occupied e i)))
+overwrite (Stored e slots) i v = unsafePerformIO (writeSlot e slots (offset e i) v)
+
 -- A function on linear arrays whose name a function on arrays or on
 -- another type also has is told apart by this namespace, as Prelude tells
 -- a list's from a snoc list's.
@@ -207,23 +347,27 @@ namespace LArray
   withArray : Extents s -> a -> (1 _ : (1 _ : LArray s a) -> !* b) -> !* b
 
   ||| The element at an index, and the array given back unchanged.
-  export %extern
+  export
   read : (1 _ : LArray s a) -> Index s -> Res a (const (LArray s a))
+  read (Writing x) i = (x !! i) # Writing x
 
   ||| The array with `v` at `i`, written in place. No old version of the
   ||| array is read again, so writing in place is the value's meaning.
-  export %extern
+  export
   write : (1 _ : LArray s a) -> Index s -> a -> LArray s a
+  write (Writing x) i v = Writing (overwrite x i v)
 
   ||| The linear array's elements as an array, with no copy: the linear
   ||| array is consumed, so nothing writes them again.
-  export %extern
+  export
   freeze : (1 _ : LArray s a) -> !* (Array s a)
+  freeze (Writing x) = MkBang x
 
   ||| The result of `k`, given a fresh linear array with the array's
   ||| elements, as `withArray` gives one; the array is unchanged.
-  export %extern
+  export
   thaw : Array s a -> (1 _ : (1 _ : LArray s a) -> !* b) -> !* b
+  thaw x k = k (Writing (copied x))
 
   ||| The extents, and the array given back unchanged.
   export %extern

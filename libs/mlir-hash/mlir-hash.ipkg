@@ -1,0 +1,11 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
+package mlir-hash
+version = 0.1.0
+
+brief = "XXH3's 128-bit hash in plain Idris over base's Bits64, the one copy the frontend and the fork import"
+authors = "idris-mlir"
+
+depends = base
+
+modules = Hash.XXH3

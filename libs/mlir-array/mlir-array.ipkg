@@ -3,7 +3,7 @@
 package mlir-array
 version = 0.1.0
 
-brief = "Typed arrays for idris-mlir: shapes in the type, a generating set declared here whose one meaning is the compiler's, as MLIR's tensors; linear arrays and a growable vector written over it; and parsers over a quantity-1 handle to immutable bytes frozen from a linear array"
+brief = "Typed arrays for idris-mlir: shapes in the type, a generating set that means MLIR's tensors, with bodies over base's primitive arrays wherever the compiler's own code reaches it; the matrix product in a semiring and the scatter that folds what reaches each index; linear arrays and a growable vector written over it; and parsers over a quantity-1 handle to immutable bytes frozen from a linear array"
 authors = "idris-mlir"
 
 depends = base, mlir-linear
