@@ -26,7 +26,8 @@ import IdrisMLIR.Spec.Runtime.Endings
 import Data.Fin
 import Data.List
 import Data.List1
-import Data.So
+-- An op's automatic `So` proof of distinct names is searched where the op is written.
+import public Data.So
 import Data.Vect
 
 %default total

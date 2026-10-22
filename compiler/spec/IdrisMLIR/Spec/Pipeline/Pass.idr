@@ -15,7 +15,8 @@ import IdrisMLIR.Spec.Pipeline.Stage
 
 import Data.List
 import Data.List1
-import Data.Nat
+-- `moves`'s automatic `LT` proof is searched where the call is written.
+import public Data.Nat
 
 %default total
 

@@ -27,7 +27,8 @@ import IdrisMLIR.Spec.Pipeline.Pass
 import Data.List
 import Data.List.Elem
 import Data.List1
-import Data.So
+-- A placement's automatic `So` proofs are searched where it is written.
+import public Data.So
 
 %default total
 

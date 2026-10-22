@@ -16,7 +16,8 @@ import IdrisMLIR.Spec.Core.Enums
 
 import Data.List.Elem
 import Data.List1
-import Data.Nat
+-- `between`'s automatic `LTE` proof is searched where the call is written.
+import public Data.Nat
 
 %default total
 

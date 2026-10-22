@@ -17,7 +17,8 @@ import IdrisMLIR.Spec.Core.Op
 
 import Data.Fin
 import Data.List
-import Data.So
+-- A rule's automatic `So` proofs are searched where the rule is written.
+import public Data.So
 import Data.Vect
 
 %default total
