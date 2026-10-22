@@ -91,6 +91,8 @@ subst val tm = substs (suc zero) [val] tm
 -- binders, the same local; among the dropped variables, the value put in,
 -- weakened under the binders; past them, the same local, `dropped` lower.
 
+||| No sum is below its first part.
+export
 0 notBelowPlus : {a : Nat} -> LT (a + b) a -> Void
 notBelowPlus {a = Z} lt = absurd lt
 notBelowPlus {a = S a} (LTESucc lt) = notBelowPlus lt

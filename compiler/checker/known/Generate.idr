@@ -72,11 +72,20 @@ numbering to from type toDoc fromDoc es
       map (\(i, e) => from ++ " " ++ show i ++ " = Just " ++ fst e) (numbered es) ++
       [ from ++ " _ = Nothing" ]
 
+-- Whether a known identifier is one of a group's: true at each of the
+-- group's constructors, false at every other.
+membership : (name, doc : String) -> List Entry -> List String
+membership name doc es
+    = ["", "||| " ++ doc, "public export", name ++ " : Known -> Bool"]
+      ++ map (\e => name ++ " " ++ fst e ++ " = True") es
+      ++ [name ++ " _ = False"]
+
 -- `Core.Name.Known`: the identifiers, how each is spelled, the id each has
--- in every session's table, the identifier at an id, and the first id no
--- identifier has.
-knownModule : List Entry -> String
-knownModule es
+-- in every session's table, the identifier at an id, the first id no
+-- identifier has, and which identifiers the frontend's probes are named
+-- from.
+knownModule : (es, probes : List Entry) -> String
+knownModule es probes
     = unlines $
         banner ++
         [ "||| The identifiers the compiler's own code spells: the builtin names it"
@@ -102,7 +111,8 @@ knownModule es
         , "public export"
         , "knownCount : Int"
         , "knownCount = " ++ show (length es)
-        ]
+        ] ++
+        membership "isProbe" "Whether the frontend's probes are named from the identifier." probes
 
 -- An enumeration the lexer reads from text: the type, how the source
 -- writes each, the one a text spells, and their equality.
@@ -168,7 +178,7 @@ pragmaModule ps
 export
 outputs : List (String, String)
 outputs =
-  [ ("compiler/checker/src/Core/Name/Known.idr", knownModule known)
+  [ ("compiler/checker/src/Core/Name/Known.idr", knownModule known probes)
   , ("compiler/checker/src/Parser/Lexer/Reserved.idr", reservedModule keywords reservedSymbols)
   , ("compiler/checker/src/Parser/Lexer/Pragma.idr", pragmaModule pragmas)
   ]

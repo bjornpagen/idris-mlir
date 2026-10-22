@@ -19,6 +19,7 @@ import Libraries.Text.PrettyPrint.Prettyprinter
 
 import Idris.Syntax.Pragmas
 
+import Data.DPair
 import Data.Either
 import Data.List1
 import Data.String
@@ -555,13 +556,72 @@ storedHeadOf r
            Just h => pure h
            Nothing => throw (InternalError "A stored term is not a term of its arena")
 
+||| A definition's type, as `readTypeOf` reads it: the live type it holds,
+||| or the term its stored type decodes to.
+export
+data TypeOf : GlobalDef -> ClosedTerm -> Type where
+  LiveTypeOf : (0 _ : type d = LiveType ty) -> TypeOf d ty
+  StoredTypeOf : (0 _ : type d = StoredType r) -> (0 _ : Stored.decode SizeOf.zero r = Just ty) -> TypeOf d ty
+
+||| A pattern-matching definition's case tree, as `readTreeOf` reads it
+||| from the definition's body: the live tree it holds, or the tree its
+||| stored one decodes to.
+export
+data TreeOf : Body args -> CaseTree args -> Type where
+  LiveTreeOf : TreeOf (LiveBody tree pats clauses) tree
+  StoredTreeOf : (0 _ : traverseTree Stored.decode (mkSizeOf args) roots = Just tree) ->
+                 TreeOf (StoredBody roots pats clauses) tree
+
+0 justOnce : Just x = Just y -> x = y
+justOnce Refl = Refl
+
+0 liveOnce : LiveType t = LiveType t' -> t = t'
+liveOnce Refl = Refl
+
+0 storedOnce : StoredType r = StoredType r' -> r = r'
+storedOnce Refl = Refl
+
+0 liveNotStored : LiveType t = StoredType r -> Void
+liveNotStored Refl impossible
+
+0 decodedOnce : r = r' -> Stored.decode SizeOf.zero r = Just ty -> Stored.decode SizeOf.zero r' = Just ty' -> ty = ty'
+decodedOnce Refl decoded decoded' = justOnce (trans (sym decoded) decoded')
+
+||| A definition has one type: what it holds is one form, and decoding is a
+||| function.
+export
+0 typeOnce : TypeOf d ty -> TypeOf d ty' -> ty = ty'
+typeOnce (LiveTypeOf held) (LiveTypeOf held') = liveOnce (trans (sym held) held')
+typeOnce (LiveTypeOf held) (StoredTypeOf held' _) = void (liveNotStored (trans (sym held) held'))
+typeOnce (StoredTypeOf held _) (LiveTypeOf held') = void (liveNotStored (trans (sym held') held))
+typeOnce (StoredTypeOf held decoded) (StoredTypeOf held' decoded')
+    = decodedOnce (storedOnce (trans (sym held) held')) decoded decoded'
+
+||| A body has one case tree: what it holds is one form, and decoding is a
+||| function.
+export
+0 treeOnce : TreeOf body tree -> TreeOf body tree' -> tree = tree'
+treeOnce LiveTreeOf LiveTreeOf = Refl
+treeOnce (StoredTreeOf decoded) (StoredTreeOf decoded') = justOnce (trans (sym decoded) decoded')
+
+-- A stored root `freeze` made decodes; one that does not is the internal
+-- error `stored` raises, raised here as there.
+
+||| A definition's type, with what it was read from: every reader of a
+||| definition's type reads it here. Total, so that a total program reads
+||| it directly.
+export total
+readTypeOf : (d : GlobalDef) -> Core (Subset ClosedTerm (TypeOf d))
+readTypeOf d with (type d) proof held
+  readTypeOf d | LiveType ty = pure (Element ty (LiveTypeOf held))
+  readTypeOf d | StoredType r with (Stored.decode zero r) proof decoded
+    readTypeOf d | StoredType r | Just ty = pure (Element ty (StoredTypeOf held decoded))
+    readTypeOf d | StoredType r | Nothing = throw (InternalError "A stored term is not a term of its arena")
+
 ||| A definition's type.
 export
 typeOf : GlobalDef -> Core ClosedTerm
-typeOf gdef
-    = case type gdef of
-           LiveType ty => pure ty
-           StoredType r => stored zero r
+typeOf gdef = (.fst) <$> readTypeOf gdef
 
 ||| What a definition's type computes once its arguments are given, read
 ||| off the type as it is held: a stored type is not decoded to say it.
@@ -572,11 +632,20 @@ typeHead gdef
            LiveType ty => pure (resultHead ty)
            StoredType r => storedHeadOf r
 
+||| A pattern-matching definition's case tree, with what it was read from:
+||| every reader of a definition's case tree reads it here. Total, so that
+||| a total program reads it directly.
+export total
+readTreeOf : {args : Scope} -> (body : Body args) -> Core (Subset (CaseTree args) (TreeOf body))
+readTreeOf (LiveBody tree _ _) = pure (Element tree LiveTreeOf)
+readTreeOf (StoredBody roots _ _) with (traverseTree Stored.decode (mkSizeOf args) roots) proof decoded
+  readTreeOf (StoredBody roots _ _) | Just tree = pure (Element tree (StoredTreeOf decoded))
+  readTreeOf (StoredBody roots _ _) | Nothing = throw (InternalError "A stored term is not a term of its arena")
+
 ||| A pattern-matching definition's case tree.
 export
 treeOf : {args : _} -> Body args -> Core (CaseTree args)
-treeOf (LiveBody ct _ _) = pure ct
-treeOf (StoredBody ct _ _) = traverseTree @{Applicative.CORE} stored (mkSizeOf args) ct
+treeOf body = (.fst) <$> readTreeOf body
 
 ||| Each clause's arguments as the case builder read them, in the order of
 ||| the clauses.

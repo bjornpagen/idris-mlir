@@ -3058,3 +3058,22 @@ fromOrdinal _ = Nothing
 public export
 knownCount : Int
 knownCount = 756
+
+||| Whether the frontend's probes are named from the identifier.
+public export
+isProbe : Known -> Bool
+isProbe KProbeBinder = True
+isProbe KProbeHole = True
+isProbe KProbeHoleFound = True
+isProbe KProbeUnknown = True
+isProbe KProbeRuntime = True
+isProbe KProbeRuntimeAt = True
+isProbe KProbeField = True
+isProbe KProbePattern = True
+isProbe KProbeForm = True
+isProbe KProbeAxis = True
+isProbe KProbeAxisAt = True
+isProbe KProbeSize = True
+isProbe KProbeVar = True
+isProbe KProbeFormal = True
+isProbe _ = False

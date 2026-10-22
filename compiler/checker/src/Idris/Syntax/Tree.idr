@@ -31,11 +31,20 @@ import Data.Nat
 import Data.So
 
 import Libraries.Data.WithDefault
+import Libraries.Text.Parser.Core
 
 %default total
 
--- Core's own monad functions are hidden: every applicative and monadic step
--- here is an interface's, at the type the step is taken in.
+-- Core's and the grammars' own monad functions are hidden: every
+-- applicative and monadic step here is an interface's, at the type the step
+-- is taken in, and this module builds no grammar.
+%hide Libraries.Text.Parser.Core.(>>=)
+%hide Libraries.Text.Parser.Core.(>>)
+%hide Libraries.Text.Parser.Core.pure
+%hide Libraries.Text.Parser.Core.(<*>)
+%hide Libraries.Text.Parser.Core.(<*)
+%hide Libraries.Text.Parser.Core.(*>)
+%hide Libraries.Text.Parser.Core.(<|>)
 %hide Core.Core.(>>=)
 %hide Core.Core.(>>)
 %hide Core.Core.pure
@@ -211,7 +220,7 @@ data NodeOf : (Form -> Type) -> Type where
             NodeOf c
   FdField : FC -> (doc : String) -> RigCount -> List (WithFC Name) -> PiInfo (c FTerm) ->
             (type : c FTerm) -> NodeOf c
-  WpValue : RigCount -> (value : c FTerm) -> (proof : Maybe (RigCount, Name)) -> NodeOf c
+  WpValue : RigCount -> (value : c FTerm) -> (equality : Maybe (RigCount, Name)) -> NodeOf c
   -- Binders
   BnNames : RigCount -> List1 (WithFC Name) -> (type : c FTerm) -> NodeOf c
   BnPi : PiInfo (c FTerm) -> c FNames -> NodeOf c
@@ -438,62 +447,113 @@ export
 noNodes : Builder
 noNodes = MkBuilder Z NoCells NoCells
 
-||| A step of making the parse tree.
+-- The builder with every node made after the first `keep` dropped, the
+-- newest first, both columns together. A builder only grows between its
+-- mark and a cut, so `keep` is never more than it holds; were it more,
+-- every node would be kept, which is what keeping the first `keep` means.
+keepNodes : (keep : Nat) -> (made : Nat) -> Growing made (NodeOf Id) -> Growing made Nat -> Builder
+keepNodes keep Z NoCells NoCells = MkBuilder Z NoCells NoCells
+keepNodes keep (S k) (AddCell built nd) (AddCell sizes size)
+    = if keep < S k
+         then keepNodes keep k built sizes
+         else MkBuilder (S k) (AddCell built nd) (AddCell sizes size)
+
+||| A builder stands at the number of nodes it has made, and goes back by
+||| cutting both its columns back to that many: a branch that fails drops
+||| the nodes it made, at the cost of those nodes.
+export
+Backtrack Nat Builder where
+  here (MkBuilder made built sizes) = MkStepped (MkBuilder made built sizes) made
+  backTo keep (MkBuilder made built sizes) = keepNodes keep made built sizes
+
+||| A step of making the parse tree: the builder taken once and given back,
+||| so that a parse holding it once updates it in place.
 export
 record Build (a : Type) where
   constructor MkBuild
-  step : Builder -> (Builder, a)
+  step : (1 b : Builder) -> Stepped Builder a
 
 ||| A step of making the parse tree taken on the nodes made so far.
 export
-runBuild : Build a -> Builder -> (Builder, a)
-runBuild b = step b
+runBuild : Build a -> (1 b : Builder) -> Stepped Builder a
+runBuild m b = step m b
+
+-- Each of the instances' steps is a function of its own, so that the
+-- builder is bound once, by a pattern, where it is taken.
+
+mappedStep : (a -> c) -> (1 st : Stepped Builder a) -> Stepped Builder c
+mappedStep f (MkStepped b x) = MkStepped b (f x)
+
+mapBuild : (a -> c) -> Build a -> (1 b : Builder) -> Stepped Builder c
+mapBuild f m b = mappedStep f (step m b)
+
+pureBuild : a -> (1 b : Builder) -> Stepped Builder a
+pureBuild x b = MkStepped b x
+
+appliedStep : Build a -> (1 st : Stepped Builder (a -> c)) -> Stepped Builder c
+appliedStep m (MkStepped b h) = mappedStep h (step m b)
+
+applyBuild : Build (a -> c) -> Build a -> (1 b : Builder) -> Stepped Builder c
+applyBuild f m b = appliedStep m (step f b)
+
+boundStep : (a -> Build c) -> (1 st : Stepped Builder a) -> Stepped Builder c
+boundStep k (MkStepped b x) = step (k x) b
+
+bindBuild : Build a -> (a -> Build c) -> (1 b : Builder) -> Stepped Builder c
+bindBuild m k b = boundStep k (step m b)
 
 export
 Functor Build where
-  map f (MkBuild g) = MkBuild (\b => let (b', x) = g b in (b', f x))
+  map f m = MkBuild (mapBuild f m)
 
 export
 Applicative Build where
-  pure x = MkBuild (\b => (b, x))
-  MkBuild f <*> MkBuild g
-      = MkBuild (\b => let (b1, h) = f b
-                           (b2, x) = g b1 in
-                           (b2, h x))
+  pure x = MkBuild (pureBuild x)
+  f <*> m = MkBuild (applyBuild f m)
 
 export
 Monad Build where
-  MkBuild g >>= k = MkBuild (\b => let (b1, x) = g b in step (k x) b1)
+  m >>= k = MkBuild (bindBuild m k)
+
+-- The builder with a node made.
+madeNode : NodeOf Id -> (1 b : Builder) -> Stepped Builder (Id x)
+madeNode nd (MkBuilder made built sizes)
+    = let size = unfolding nd in
+          MkStepped (MkBuilder (S made) (AddCell built nd) (AddCell sizes size)) (MkId made size)
 
 ||| A node made of what its rule parsed, each child made before it: its id,
 ||| at the form its rule gives.
 export
 make : NodeOf Id -> Build (Id x)
-make nd
-    = MkBuild $ \(MkBuilder made built sizes) =>
-        let size = unfolding nd in
-        (MkBuilder (S made) (AddCell built nd) (AddCell sizes size), MkId made size)
+make nd = MkBuild (madeNode nd)
+
+-- The builder with the hole at `place` bracketed, where it is the node
+-- made last.
+bracketedLast : (place : Nat) -> (1 b : Builder) -> Stepped Builder ()
+bracketedLast place (MkBuilder made (AddCell col (TmHole fc bracketed n)) sizes)
+    = MkStepped (if S place == made
+                    then MkBuilder made (AddCell col (TmHole fc True n)) sizes
+                    else MkBuilder made (AddCell col (TmHole fc bracketed n)) sizes) ()
+bracketedLast place (MkBuilder made built sizes) = MkStepped (MkBuilder made built sizes) ()
 
 ||| A hole written as an argument is bracketed. The argument is the node made
 ||| last, so the hole's node is replaced where it is.
 export
 bracketHole : Id FTerm -> Build ()
-bracketHole i = MkBuild (\b => (bracketLast b, ()))
-  where
-    bracketLast : Builder -> Builder
-    bracketLast b@(MkBuilder made (AddCell col (TmHole fc _ n)) sizes)
-        = if S i.place == made then MkBuilder made (AddCell col (TmHole fc True n)) sizes else b
-    bracketLast b = b
+bracketHole i = MkBuild (bracketedLast i.place)
+
+-- Where `_` is written, if the node at `place` is the one made last and is
+-- `_`, the builder given back.
+implicitLast : (place : Nat) -> (1 b : Builder) -> Stepped Builder (Maybe FC)
+implicitLast place (MkBuilder made (AddCell col (TmImplicit fc)) sizes)
+    = MkStepped (MkBuilder made (AddCell col (TmImplicit fc)) sizes)
+                (if S place == made then Just fc else Nothing)
+implicitLast place (MkBuilder made built sizes) = MkStepped (MkBuilder made built sizes) Nothing
 
 ||| Where `_` is written, if the node made last is the given one and is `_`.
 export
 implicitAt : Id FTerm -> Build (Maybe FC)
-implicitAt i = MkBuild (\b => (b, lastImplicit b))
-  where
-    lastImplicit : Builder -> Maybe FC
-    lastImplicit (MkBuilder made (AddCell _ (TmImplicit fc)) _)
-        = if S i.place == made then Just fc else Nothing
-    lastImplicit _ = Nothing
+implicitAt i = MkBuild (implicitLast i.place)
 
 ||| The names of the holes a parse wrote, in the order it wrote them, read
 ||| from its hole nodes.

@@ -187,6 +187,30 @@ export
 Eq Namespace where
   (MkNS ms) == (MkNS ns) = ms == ns
 
+0 identsReflexive : ((i : Ident) -> (i == i) = True) -> (xs : List Ident) -> (xs == xs) = True
+identsReflexive reflexive [] = Refl
+identsReflexive reflexive (x :: xs) = rewrite reflexive x in identsReflexive reflexive xs
+
+0 identsSymmetric : ((i, j : Ident) -> (i == j) = False -> (j == i) = False) ->
+                    (xs, ys : List Ident) -> (xs == ys) = False -> (ys == xs) = False
+identsSymmetric symmetric [] [] same = same
+identsSymmetric symmetric [] (_ :: _) _ = Refl
+identsSymmetric symmetric (_ :: _) [] _ = Refl
+identsSymmetric symmetric (x :: xs) (y :: ys) same
+    = bothFalse (x == y) (xs == ys) (y == x) (ys == xs) (symmetric x y) (identsSymmetric symmetric xs ys) same
+
+||| Namespaces are compared by their identifiers, so their equality is
+||| reflexive where equality of identifiers is.
+export
+0 namespaceEqualityReflexive : ((i : Ident) -> (i == i) = True) -> (ns : Namespace) -> (ns == ns) = True
+namespaceEqualityReflexive reflexive (MkNS xs) = identsReflexive reflexive xs
+
+||| Equality of namespaces is symmetric where equality of identifiers is.
+export
+0 namespaceEqualitySymmetric : ((i, j : Ident) -> (i == j) = False -> (j == i) = False) ->
+                               (ms, ns : Namespace) -> (ms == ns) = False -> (ns == ms) = False
+namespaceEqualitySymmetric symmetric (MkNS xs) (MkNS ys) same = identsSymmetric symmetric xs ys same
+
 export
 Eq ModuleIdent where
   (MkMI ms) == (MkMI ns) = ms == ns

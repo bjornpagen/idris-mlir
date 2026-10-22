@@ -34,6 +34,35 @@ export
 Eq Ident where
   a == b = a.index == b.index
 
+-- Two identifiers are compared by their ids, so what is true of the
+-- runtime's comparison of integers is true of theirs; the facts of that
+-- comparison are premises, since only the hosts that run this compiler
+-- make them true.
+
+||| Equality of identifiers is reflexive where equality of integers is.
+export
+0 identEqualityReflexive : ((x : Int) -> (x == x) = True) -> (i : Ident) -> (i == i) = True
+identEqualityReflexive intReflexive i = intReflexive i.index
+
+||| Equality of identifiers is symmetric where equality of integers is.
+export
+0 identEqualitySymmetric : ((x, y : Int) -> (x == y) = False -> (y == x) = False) ->
+                           (i, j : Ident) -> (i == j) = False -> (j == i) = False
+identEqualitySymmetric intSymmetric i j = intSymmetric i.index j.index
+
+0 andFalse : (c : Bool) -> (c && False) = False
+andFalse True = Refl
+andFalse False = Refl
+
+||| Two comparisons joined are false only where one of them is, so what
+||| makes each of two false makes the join of the other two false: the step
+||| by which equality of a structure is symmetric where its parts' is.
+export
+0 bothFalse : (a, b, c, d : Bool) -> (a = False -> c = False) -> (b = False -> d = False) ->
+              (a && b) = False -> (c && d) = False
+bothFalse False b c d left right _ = rewrite left Refl in Refl
+bothFalse True b c d left right same = rewrite right same in andFalse c
+
 ||| Two identifiers in the order of their text. Anything written from a map
 ||| or a sort keyed by identifiers is then in an order of its content, the
 ||| same in every session, whichever identifier the session met first.

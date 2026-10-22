@@ -52,8 +52,9 @@ data Name : Type where
 
 %name Name n
 
-||| The name a known identifier spells, in no namespace.
-export
+||| The name a known identifier spells, in no namespace. Public, so that a
+||| proof reads off the name it is.
+public export
 knownUN : Known -> Name
 knownUN k = UN (Basic (known k))
 
@@ -332,14 +333,15 @@ mutual
     pretty (WithBlock outer _) = reflow "with block in" <++> pretty (snd (splitNS outer))
     pretty (Resolved x) = pretty "$resolved" <+> pretty (show x)
 
-export
+-- Public, so that a proof reads off what comparing two names compares.
+public export
 Eq UserName where
   (==) (Basic x) (Basic y) = x == y
   (==) (Field x) (Field y) = x == y
   (==) Underscore Underscore = True
   (==) _ _ = False
 
-export
+public export
 Eq Name where
     (==) (NS ns n) (NS ns' n') = n == n' && ns == ns'
     (==) (UN x) (UN y) = x == y

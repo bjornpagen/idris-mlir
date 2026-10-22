@@ -168,8 +168,11 @@ localOf fc r (MkVar p) = Local fc r _ p
 -- Weakening
 
 -- Each kind of node a term holds terms in is traversed by a function of
--- its own, so that every recursive call is on a part of its argument.
+-- its own, so that every recursive call is on a part of its argument; each
+-- public, so that a proof over a weakened term reads off what weakening
+-- makes of every node.
 mutual
+  public export
   insertNamesPi : {0 outer, ns, local : Scope} ->
                   SizeOf local -> SizeOf ns ->
                   PiInfo (Term (local ++ outer)) -> PiInfo (Term (local ++ (ns ++ outer)))
@@ -178,6 +181,7 @@ mutual
   insertNamesPi out ns AutoImplicit = AutoImplicit
   insertNamesPi out ns (DefImplicit t) = DefImplicit (insertNames out ns t)
 
+  public export
   insertNamesBinder : {0 outer, ns, local : Scope} ->
                       SizeOf local -> SizeOf ns ->
                       Binder (Term (local ++ outer)) -> Binder (Term (local ++ (ns ++ outer)))
@@ -193,13 +197,14 @@ mutual
       = PLet fc c (insertNames out ns val) (insertNames out ns ty)
   insertNamesBinder out ns (PVTy fc c ty) = PVTy fc c (insertNames out ns ty)
 
+  public export
   insertNamesTerms : {0 outer, ns, local : Scope} ->
                      SizeOf local -> SizeOf ns ->
                      List (Term (local ++ outer)) -> List (Term (local ++ (ns ++ outer)))
   insertNamesTerms out ns [] = []
   insertNamesTerms out ns (t :: ts) = insertNames out ns t :: insertNamesTerms out ns ts
 
-  export
+  public export
   insertNames : GenWeakenable Term
   insertNames out ns (Local fc r idx prf)
      = localAt fc r (insertNVarNames out ns (MkNVar prf))
@@ -404,11 +409,13 @@ mutual
   thinTerm (Erased fc (Dotted t)) th = Erased fc (Dotted (thinTerm t th))
   thinTerm (TType fc u) th = TType fc u
 
-export
+-- Public, as the traversal is, so that a proof reads off a weakening of a
+-- term what `insertNames` makes of it.
+public export
 GenWeaken Term where
   genWeakenNs = insertNames
 
-export
+public export
 %hint
 WeakenTerm : Weaken Term
 WeakenTerm = GenWeakenWeakens
@@ -475,7 +482,8 @@ weakenLocalAt s p = case insertNVarNamesIdx {outer = vars} zero s (MkNVar p) of
 ------------------------------------------------------------------------
 -- Smart constructors
 
-export
+-- Public, so that a proof reads off the applications it builds.
+public export
 apply : FC -> Term vars -> List (Term vars) -> Term vars
 apply loc fn [] = fn
 apply loc fn (a :: args) = apply loc (App loc fn a) args
