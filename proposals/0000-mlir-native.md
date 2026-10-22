@@ -4145,6 +4145,21 @@ C137.
   else a carried patch narrowed to those functions; `nobuiltin` only if
   neither exists, since it also blocks the vector library's mapping of
   the call.
+  The pin has upstream's switch, `-disable-fp-call-folding`, which the
+  tools pass after the user's arguments so none can unset it; it stops
+  every float call folding in LLVM, `sqrt`, `floor` and `ceil` among
+  them, a loss of speed the qualification measures (L06, 2026-10-22).
+- **C215** (2026-10-22; L06's finding; completes C198 on MLIR's side).
+  MLIR's own `math` folders call the compiling machine's libm, and
+  upstream drivers in the pipeline call them: `convert-to-llvm` folds
+  before its patterns, with no option to stop it, and sparse constant
+  propagation folds what it visits. So the never-folded math ops are
+  lowered in `idr-lower`'s own conversion, which never folds, before any
+  upstream driver meets them, and the constant analysis built on sparse
+  constant propagation skips them, reading the same generated list the
+  rewrite graph does. A vector math op with constant operands reaching
+  `VectorToLLVM`'s greedy pre-lowering is the one reader left; it is
+  patched only if the qualification finds a program that reaches it.
 - **C211** (2026-10-22; L09's finding; the mechanism under C166 and
   C204). `idr.lit.match` forwards its scrutinee into its default, as C166
   reads it (`sourceOf` maps the binding to its scrutinee), so upstream's
