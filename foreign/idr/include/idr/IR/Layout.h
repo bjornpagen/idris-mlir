@@ -22,7 +22,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -278,10 +277,6 @@ public:
   // layout describes, whose pointers are the runtime's words, as the
   // program's verifier holds.
   explicit Layouts(mlir::Operation *root);
-
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
-    return !pa.isPreserved<Layouts>();
-  }
 
   // The runtime components of a value type.
   llvm::SmallVector<layout::Component> components(mlir::Type type) const;

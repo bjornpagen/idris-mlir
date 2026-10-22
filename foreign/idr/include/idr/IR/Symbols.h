@@ -35,8 +35,8 @@ bool builtStateHolds(mlir::Value value, mlir::Operation *reader);
 // A constructor written by its label, `@Name`, in the family of `type` (a
 // data type at any grade), and read back into its tag, an i32 attribute:
 // the one place a constructor's label becomes its tag outside a type's own
-// syntax. An op's assembly format reads one as
-// `custom<CtorRef>(ref(type($x)), $tag)`, after the type that names it.
+// syntax. A match's cases are written with it, after the scrutinee's type
+// that names their family.
 mlir::ParseResult parseCtorRef(mlir::AsmParser &parser, mlir::Type type, mlir::IntegerAttr &tag);
 void printCtorRef(mlir::OpAsmPrinter &printer, mlir::Operation *op, mlir::Type type,
                   mlir::IntegerAttr tag);

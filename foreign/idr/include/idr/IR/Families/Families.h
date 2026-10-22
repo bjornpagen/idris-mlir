@@ -34,6 +34,7 @@
 
 // The kinds of word a runtime component is, which a type's words hold.
 #include "idr/IR/Generated/Words.h.inc"
+#include "idr/Support/Nest.h"
 
 #include "mlir/Bytecode/BytecodeImplementation.h"
 #include "mlir/IR/AsmState.h"
@@ -43,6 +44,7 @@
 #include "llvm/ADT/Sequence.h"
 
 #include <concepts>
+#include <utility>
 #include <variant>
 
 namespace idr {
@@ -176,41 +178,56 @@ enum class Narrowing : uint8_t { Allowed, Exact };
 // effects. Makes no type.
 LayoutMatch layoutMatch(mlir::Type from, mlir::Type to);
 
+// What re-packing a value of `from` as one of `to` decides by itself: it
+// builds nothing where the two are the same words, or between two numbers
+// (a numeral widened or narrowed), or where either is no data type and the
+// target no array; it builds into an array and into a value held as a
+// cell; into a value held in place, it builds where re-packing a field of
+// a constructor both leave possible does. Makes no type.
+enum class RepackStep : uint8_t { BuildsNothing, Builds, ByFields };
+RepackStep repackStep(mlir::Type from, mlir::Type to);
+
 // Whether re-packing a value of `from` as one of `to` builds a cell or an
 // array, so the result is a fresh value, counted and claimed unique, where
-// any other reindex's memory is its operand's: never where the two are the
-// same words, nor between two numbers (a numeral widened or narrowed);
-// always into an array and into a value held as a cell; into a value held
-// in place, where re-packing a field of a constructor both leave possible
-// does. `fieldTypes(type, tag)` gives the types the fields of `tag` are
-// laid out at: the layouts' stored ones on a lowering worker, which make no
-// type, or Layouts::fieldsAt where a type may be made. The one answer the
-// reindex's verifier and the lowering's re-pack read.
+// any other reindex's memory is its operand's (repackStep, down the fields
+// of values held in place). `fieldTypes(type, tag)` gives the types the
+// fields of `tag` are laid out at: the layouts' stored ones on a lowering
+// worker, which make no type, or Layouts::fieldsAt where a type may be
+// made. The one answer the reindex's verifier and the lowering's re-pack
+// read. In-place types nest as deep as the program writes them, so the
+// fields are walked on a stack that grows on the heap.
 template <class FieldTypes>
   requires std::invocable<FieldTypes &, DataType, Tag>
 bool builds(mlir::Type from, mlir::Type to, FieldTypes &&fieldTypes) {
-  mlir::Type fromValue = unrestricted(from);
-  mlir::Type toValue = unrestricted(to);
-  if (layoutMatch(fromValue, toValue) == LayoutMatch::SameLayout)
-    return false;
-  if (llvm::isa<mlir::MemRefType>(toValue))
-    return true;
-  auto source = llvm::dyn_cast<DataType>(fromValue);
-  auto target = llvm::dyn_cast<DataType>(toValue);
-  if (!source || !target || isNumber(source.layout()))
-    return false;
-  if (target.layout() != Layout::InPlace)
-    return true;
-  for (Tag tag : source.possibleTags()) {
-    if (!target.possibleTags().contains(tag))
-      continue;
-    auto sourceFields = fieldTypes(source, tag);
-    auto targetFields = fieldTypes(target, tag);
-    for (auto [a, z] : llvm::zip_equal(sourceFields, targetFields))
-      if (builds(a, z, fieldTypes))
-        return true;
-  }
-  return false;
+  using Pair = std::pair<mlir::Type, mlir::Type>;
+  bool built = false;
+  depthFirst(
+      Pair{unrestricted(from), unrestricted(to)},
+      [&](const Pair &pair) {
+        // Only a pair that decides by its fields is gone into: two data
+        // types, the target held in place.
+        auto source = llvm::cast<DataType>(pair.first);
+        auto target = llvm::cast<DataType>(pair.second);
+        llvm::SmallVector<Pair> fields;
+        for (Tag tag : source.possibleTags()) {
+          if (!target.possibleTags().contains(tag))
+            continue;
+          auto sourceFields = fieldTypes(source, tag);
+          auto targetFields = fieldTypes(target, tag);
+          for (auto [a, z] : llvm::zip_equal(sourceFields, targetFields))
+            fields.emplace_back(unrestricted(a), unrestricted(z));
+        }
+        return fields;
+      },
+      [&](const Pair &pair) {
+        if (built)
+          return Descend::Past;
+        RepackStep step = repackStep(pair.first, pair.second);
+        built = step == RepackStep::Builds;
+        return step == RepackStep::ByFields ? Descend::Into : Descend::Past;
+      },
+      [](const Pair &) {});
+  return built;
 }
 
 // The value of `numeral`, a constant of a family of numeral shape: the

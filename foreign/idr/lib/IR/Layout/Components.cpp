@@ -254,6 +254,20 @@ idr::LayoutMatch idr::families::layoutMatch(Type from, Type to) {
                                                                        : LayoutMatch::OtherLayout;
 }
 
+idr::families::RepackStep idr::families::repackStep(Type from, Type to) {
+  Type fromValue = unrestricted(from);
+  Type toValue = unrestricted(to);
+  if (layoutMatch(fromValue, toValue) == LayoutMatch::SameLayout)
+    return RepackStep::BuildsNothing;
+  if (isa<MemRefType>(toValue))
+    return RepackStep::Builds;
+  auto source = dyn_cast<DataType>(fromValue);
+  auto target = dyn_cast<DataType>(toValue);
+  if (!source || !target || isNumber(source.layout()))
+    return RepackStep::BuildsNothing;
+  return target.layout() == Layout::InPlace ? RepackStep::ByFields : RepackStep::Builds;
+}
+
 namespace idr {
 
 namespace {
