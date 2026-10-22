@@ -3,8 +3,8 @@
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Control/`,
 `foreign/idr/lib/IR/{Flow,FlowEdges,FlowOps,Regions,OpsMatch,OpsMatchSyntax}.cpp`,
 `foreign/idr/include/idr/IR/{Flow,FlowEdges}.h`,
-`foreign/idr/lib/Transforms/StructureLoops/`,
-`foreign/idr/include/idr/Transforms/StructureLoops.h`,
+`foreign/idr/lib/Transforms/Joins/`,
+`foreign/idr/include/idr/Transforms/Joins.h` (the one construction of join groups),
 `foreign/idr/lib/Conversion/Matches.cpp`,
 `foreign/idr/include/idr/Conversion/Matches.h`.
 

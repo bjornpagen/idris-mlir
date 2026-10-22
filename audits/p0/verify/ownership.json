@@ -99,7 +99,8 @@
   "foreign/idr/include/idr/IR/Symbols.h",
   "foreign/idr/include/idr/IR/Layout.h",
   "foreign/idr/include/idr/IR/TypeGraph.h",
-  "foreign/idr/include/idr/IR/Families/"
+  "foreign/idr/include/idr/IR/Families/",
+  "foreign/idr/lib/IR/Families/"
  ],
  "L05": [
   "compiler/spec/IdrisMLIR/Spec/Grades/",
@@ -175,10 +176,10 @@
   "foreign/idr/lib/IR/OpsMatchSyntax.cpp",
   "foreign/idr/include/idr/IR/Flow.h",
   "foreign/idr/include/idr/IR/FlowEdges.h",
-  "foreign/idr/lib/Transforms/StructureLoops/",
-  "foreign/idr/include/idr/Transforms/StructureLoops.h",
   "foreign/idr/lib/Conversion/Matches.cpp",
-  "foreign/idr/include/idr/Conversion/Matches.h"
+  "foreign/idr/include/idr/Conversion/Matches.h",
+  "foreign/idr/lib/Transforms/Joins/",
+  "foreign/idr/include/idr/Transforms/Joins.h"
  ],
  "L10": [
   "foreign/idr/lib/IR/Tail.cpp",
@@ -221,7 +222,9 @@
   "foreign/idr/lib/Conversion/Elements.cpp",
   "foreign/idr/lib/Conversion/Memrefs.cpp",
   "foreign/idr/include/idr/Conversion/Arrays.h",
-  "foreign/idr/include/idr/Conversion/Elements.h"
+  "foreign/idr/include/idr/Conversion/Elements.h",
+  "foreign/idr/lib/Transforms/StructureLoops/",
+  "foreign/idr/include/idr/Transforms/StructureLoops.h"
  ],
  "L13": [
   "compiler/spec/IdrisMLIR/Spec/Ops/",

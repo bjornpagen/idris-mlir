@@ -3,7 +3,8 @@
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Arrays/`,
 `foreign/idr/lib/IR/{OpsArrays,OpsGenerating,OpsTabulate}.cpp`,
 `foreign/idr/include/idr/IR/Arrays.h`,
-`foreign/idr/lib/Transforms/{Bufferize,Columns,Narrow}/`,
+`foreign/idr/lib/Transforms/{Bufferize,Columns,Narrow,StructureLoops}/`,
+`foreign/idr/include/idr/Transforms/StructureLoops.h`,
 `foreign/idr/include/idr/Transforms/{Bufferize,BufferizeModels,Columns,Narrow}.h`,
 `foreign/idr/lib/Conversion/{Arrays,Buffers,Descriptors,Elements,Memrefs}.cpp`,
 `foreign/idr/include/idr/Conversion/{Arrays,Elements}.h`.

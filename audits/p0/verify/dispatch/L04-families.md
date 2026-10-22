@@ -3,7 +3,7 @@
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Families/`,
 `foreign/idr/include/idr/IR/Families/`,
 `lib/IR/{ConAttr,DataBody,DataRemap,TypeGraph,TypeLiterals,Types,ContentNames,Symbols,OpsCon,OpsConReads}.cpp`,
-`lib/IR/Layout/`, `lib/IR/Verify/Program.cpp`,
+`lib/IR/Layout/`, `lib/IR/Families/`, `lib/IR/Verify/Program.cpp`,
 `include/idr/IR/{Symbols,Layout,TypeGraph}.h` (all under `foreign/idr/`).
 
 **Read deeply:** P0 §5.3 (types; its boundary); in §2 D18, D24, D43, D48,
