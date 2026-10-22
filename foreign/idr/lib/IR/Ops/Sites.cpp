@@ -17,7 +17,7 @@ using namespace mlir;
 // at no place, the empty file at line 0, column 0, as the frontend writes
 // one; and a location may hold no name, which names no function, met only
 // by a cause said by its site alone.
-SiteAttr idr::siteOf(Location loc) {
+idr::SiteAttr idr::siteOf(Location loc) {
   StringRef file;
   uint64_t line = 0;
   uint64_t column = 0;

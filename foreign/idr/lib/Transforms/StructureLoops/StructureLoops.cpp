@@ -35,9 +35,9 @@ namespace {
 // How many ops took each form, the statistics of the pass: an interchange
 // keeps its frame parallel, so it counts with the parallel forms.
 struct Counts {
-  Statistic &parallel;
-  Statistic &reductions;
-  Statistic &ordered;
+  Pass::Statistic &parallel;
+  Pass::Statistic &reductions;
+  Pass::Statistic &ordered;
 };
 
 // A tabulation is parallel or stays.

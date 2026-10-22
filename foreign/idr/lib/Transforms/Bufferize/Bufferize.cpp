@@ -71,6 +71,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
@@ -299,16 +300,15 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
       return idr::bufferize::cellType(type);
     };
     // A graded tensor's copy is a copy of its value at its grade; one with
-    // undefined contents, a new value of its shape at its grade.
+    // undefined contents, a new value of its shape at its grade, its
+    // dynamic sizes read off the value.
     options.tensorAllocationFn = [](OpBuilder &b, Location loc, Value value, bool copy,
                                     const BufferizationOptions &) -> FailureOr<Value> {
       auto tensor = cast<RankedTensorType>(idr::unrestricted(value.getType()));
       Value plain = idr::heldAs(b, loc, value, tensor);
       SmallVector<Value> sizes;
       if (!copy)
-        for (int64_t d = 0, e = tensor.getRank(); d < e; ++d)
-          if (tensor.isDynamicDim(d))
-            sizes.push_back(tensor::DimOp::create(b, loc, plain, d));
+        sizes = decomposeMixedValues(tensor::getMixedSizes(b, loc, plain)).second;
       auto made = AllocTensorOp::create(b, loc, tensor, sizes, copy ? plain : Value());
       return idr::heldAs(b, loc, made.getResult(), value.getType());
     };

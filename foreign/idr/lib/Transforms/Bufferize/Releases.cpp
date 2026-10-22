@@ -65,7 +65,7 @@ bool isRepetitive(Region *region, const BufferizationOptions &options) {
 }
 
 // The uses of `value`, taken before any of them changes.
-SmallVector<OpOperand *> usesOf(Value value) {
+SmallVector<OpOperand *> takeUses(Value value) {
   return llvm::map_to_vector(value.getUses(), [](OpOperand &use) { return &use; });
 }
 
@@ -264,7 +264,7 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
 
   program->walk([&](tensor::EmptyOp empty) {
     // The first use keeps the op; one nothing uses has no first.
-    SmallVector<OpOperand *> uses = usesOf(empty.getResult());
+    SmallVector<OpOperand *> uses = takeUses(empty.getResult());
     if (uses.empty())
       return;
     for (OpOperand *use : llvm::drop_begin(uses)) {
@@ -283,7 +283,7 @@ void idr::bufferize::prepare(Operation *program, const BufferizationOptions &opt
     for (Value sharer : aliases.sharers(release.value)) {
       if (!isa<RankedTensorType>(sharer.getType()))
         continue;
-      for (OpOperand *use : usesOf(sharer))
+      for (OpOperand *use : takeUses(sharer))
         if (state.bufferizesToMemoryWrite(*use) && !state.bufferizesToMemoryRead(*use) &&
             mayRunAfter(use->getOwner(), releaser, sharer, options))
           writeOwn(rewriter, *use);

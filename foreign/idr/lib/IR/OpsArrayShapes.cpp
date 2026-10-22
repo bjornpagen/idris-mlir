@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The sizes of arrays: a natural as the extent of an array to be made,
 // idr.nat.to_extent, with its fold and its range; and the tie of an array's
-// dimensions to sizes across calls, idr.array.tie_shape, with its fold and
-// what value bounds reads of the dimensions it ties.
+// dimensions to sizes across calls, idr.array.tie_shape, with its fold,
+// what value bounds reads of the dimensions it ties, and that it gives its
+// array on with no run-time work.
 
 #include "idr/IR/Arrays.h"
 #include "idr/IR/Ranges.h"
@@ -65,6 +66,10 @@ LogicalResult ArrayTieShapeOp::verify() {
 }
 
 Value ArrayTieShapeOp::getViewSource() { return getValue(); }
+
+// The same array, its words untouched: the sizes it ties are a fact for
+// the compiler, so a call whose result it takes is still the tail.
+Carry ArrayTieShapeOp::getCarry() { return Carry::Free; }
 
 // No dynamic dimension, nothing to say; the same sizes said twice, once.
 OpFoldResult ArrayTieShapeOp::fold(FoldAdaptor) {

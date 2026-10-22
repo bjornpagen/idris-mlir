@@ -95,8 +95,7 @@ LogicalResult ArrayTabulateOp::reifyResultShapes(OpBuilder &b,
 }
 
 void ArrayTabulateOp::populateBoundsForIndexValue(Value value, ValueBoundsConstraintSet &cstr) {
-  boundIndex(value, getBody()->getArguments(),
-             [&](unsigned dim) { return cstr.getExpr(extentOf(*this, dim)); }, cstr);
+  boundIndex(*this, value, getBody()->getArguments(), cstr);
 }
 
 // A result is shaped as its destination.

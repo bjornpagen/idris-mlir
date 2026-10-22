@@ -130,7 +130,7 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
   // read in place at any hold, so the comparison takes nothing of it.
   Value bound = ConstantOp::create(rewriter, loc, atHold(nat, Hold::staticData()),
                                    BigAttr::get(ctx, max));
-  Value small = BigCmpOp::create(rewriter, loc, CmpPredicate::lte, init, bound);
+  Value small = BigCmpOp::create(rewriter, loc, init, bound, CmpPredicate::lte);
   // The branch gives back the results something reads. A result nothing
   // reads is what the loop's condition forwards on the path not taken
   // (poison): left unread in each copy, it stays that, which the owned

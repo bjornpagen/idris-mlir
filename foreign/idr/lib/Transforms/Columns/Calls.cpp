@@ -9,6 +9,7 @@
 
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 
 using namespace mlir;
@@ -53,21 +54,28 @@ Expansion expansion(TypeRange types, ArrayRef<Type> converted, ArrayRef<unsigned
   Expansion out;
   SmallVector<unsigned> erased;
   ArrayRef<Type> rest = converted;
-  for (auto [at, type, count] : llvm::enumerate(types, counts)) {
+  // A function numbers its arguments and its results by unsigned, as its
+  // type counts them and its edits take them, before and after the edits.
+  const auto values = static_cast<unsigned>(types.size());
+  assert(counts.size() == values && "every value has its count");
+  unsigned inserted = 0;
+  for (unsigned position : llvm::seq(0u, values)) {
+    unsigned count = counts[position];
     ArrayRef<Type> into = rest.take_front(count);
     rest = rest.drop_front(count);
-    if (into.size() == 1 && into.front() == type)
+    if (into.size() == 1 && into.front() == types[position])
       continue;
-    unsigned position = static_cast<unsigned>(at);
     // What was inserted before it moved it on by as many.
-    erased.push_back(position + static_cast<unsigned>(out.types.size()));
+    erased.push_back(position + inserted);
     out.before.append(count, position + 1);
     out.types.append(into.begin(), into.end());
     out.from.append(count, position);
+    inserted += count;
     if (attrs)
       out.attrs.append(count, cast<DictionaryAttr>(attrs[position]));
   }
-  out.erased.resize(types.size() + out.types.size());
+  assert(inserted == out.types.size() && "every value inserted is counted");
+  out.erased.resize(values + inserted);
   for (unsigned position : erased)
     out.erased.set(position);
   return out;

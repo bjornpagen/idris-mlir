@@ -134,12 +134,13 @@ void NeverEmptyString::rewrite(CheckNonemptyOp, const Rewrite &, RewriterBase &)
 // Output
 //===----------------------------------------------------------------------===//
 
-// Each output rule reads the input op that made the chosen form of the
-// string written, and its rewrite reads the root's string again on the
-// input as it now is: a root an earlier rewrite changed is left as it is.
+// Each output rule asks for the input op of its class that builds the
+// string written, a member computable where the output is, and its rewrite
+// reads the root's string again on the input as it now is: a root an
+// earlier rewrite changed is left as it is.
 
 std::optional<Edit> OutputOfAppend::decide(IoPutStrOp output, const OperandFacts &facts) {
-  if (isa_and_present<StrAppendOp>(facts.origin(output.getStr())))
+  if (facts.builtBy<StrAppendOp>(output.getStr()))
     return Rewrite{};
   return std::nullopt;
 }
@@ -155,7 +156,7 @@ void OutputOfAppend::rewrite(IoPutStrOp output, const Rewrite &, RewriterBase &r
 }
 
 std::optional<Edit> OutputOfCons::decide(IoPutStrOp output, const OperandFacts &facts) {
-  if (isa_and_present<StrConsOp>(facts.origin(output.getStr())))
+  if (facts.builtBy<StrConsOp>(output.getStr()))
     return Rewrite{};
   return std::nullopt;
 }
@@ -171,7 +172,7 @@ void OutputOfCons::rewrite(IoPutStrOp output, const Rewrite &, RewriterBase &rew
 }
 
 std::optional<Edit> OutputOfChar::decide(IoPutStrOp output, const OperandFacts &facts) {
-  if (isa_and_present<StrFromCharOp>(facts.origin(output.getStr())))
+  if (facts.builtBy<StrFromCharOp>(output.getStr()))
     return Rewrite{};
   return std::nullopt;
 }

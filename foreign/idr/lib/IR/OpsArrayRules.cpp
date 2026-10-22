@@ -119,11 +119,21 @@ OpFoldResult sizeOf(OpBuilder &b, Location loc, Value array, unsigned dim) {
 // The last axis of a fold or a scan is its length, which a scan's
 // destination also has and a fold's has not; every other dimension of the
 // domain is the first destination's.
-ValueBoundsConstraintSet::Variable extentOf(DestinationStyleOpInterface op, unsigned dim) {
+DomainSize extentOf(DestinationStyleOpInterface op, unsigned dim) {
   if (auto fold = dyn_cast<LastAxisFoldOpInterface>(op.getOperation());
       fold && dim == fold.getFrameRank())
-    return fold.getLength();
+    return {fold.getLength(), std::nullopt};
   return {op.getDpsInits().front(), static_cast<int64_t>(dim)};
+}
+
+void boundIndex(DestinationStyleOpInterface op, Value value, Block::BlockArgListType indices,
+                ValueBoundsConstraintSet &cstr) {
+  auto index = dyn_cast<BlockArgument>(value);
+  if (!index || indices.empty() || index.getOwner() != indices.front().getOwner() ||
+      index.getArgNumber() >= indices.size())
+    return;
+  cstr.bound(value) >= 0;
+  cstr.bound(value) < extentOf(op, index.getArgNumber()).term(cstr);
 }
 
 SmallVector<Range> domainOf(OpBuilder &b, DestinationStyleOpInterface op, unsigned rank) {

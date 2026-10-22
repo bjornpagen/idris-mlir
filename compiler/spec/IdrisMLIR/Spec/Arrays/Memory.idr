@@ -23,6 +23,7 @@ import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Arrays.Generating
+import IdrisMLIR.Spec.Tail.Declarations
 
 import Data.Fin
 import Data.List1
@@ -414,7 +415,8 @@ tieShapeOp = MkOp
   , interfaces =
       [ Declares ViewLike ["getViewSource"]
       , Declares ReifyRankedShapedType ["reifyResultShapes"]
-      , Declares ValueBounds ["populateBoundsForShapedValueDim"] ]
+      , Declares ValueBounds ["populateBoundsForShapedValueDim"]
+      , Implements carriesOnInterface ["getCarry"] ]
   , effects = noEffects
   , speculation = AlwaysSpeculatable
   , stages = between Higher Owned

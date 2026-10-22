@@ -26,6 +26,8 @@
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 
+#include <cstdint>
+#include <optional>
 #include <type_traits>
 
 namespace idr::arrays {
@@ -97,31 +99,38 @@ mlir::LogicalResult verifyFresh(mlir::DestinationStyleOpInterface op);
 // does every buffer of elements that hold references, there and only there.
 mlir::memref::AllocOp allocationOf(mlir::Value buffer);
 
-// An index of the domain is at least 0 and below its dimension's size.
-// `Extent` gives the size of a dimension as a term of `cstr`.
-template <typename Extent>
-  requires std::is_invocable_r_v<mlir::AffineExpr, Extent, unsigned>
-void boundIndex(mlir::Value value, mlir::Block::BlockArgListType indices, Extent &&extent,
-                mlir::ValueBoundsConstraintSet &cstr) {
-  auto index = llvm::dyn_cast<mlir::BlockArgument>(value);
-  if (!index || indices.empty() || index.getOwner() != indices.front().getOwner() ||
-      index.getArgNumber() >= indices.size())
-    return;
-  cstr.bound(value) >= 0;
-  cstr.bound(value) < extent(index.getArgNumber());
-}
+// An index of the domain of `op`, a generating op, is at least 0 and below
+// its dimension's size (extentOf). `indices` are the indices its region
+// binds first, one per dimension of the domain.
+void boundIndex(mlir::DestinationStyleOpInterface op, mlir::Value value,
+                mlir::Block::BlockArgListType indices, mlir::ValueBoundsConstraintSet &cstr);
 
 // The size of dimension `dim` of `array`, a tensor or a buffer: its static
 // size, or its dimension read where the builder stands.
 mlir::OpFoldResult sizeOf(mlir::OpBuilder &b, mlir::Location loc, mlir::Value array,
                           unsigned dim);
 
-// The size of dimension `dim` of a generating op's domain as value bounds
-// names it, making nothing: the first destination's dimension, every
-// destination having the domain's dimensions first, but along a fold's
-// last axis, which no destination of a fold has, its length.
-mlir::ValueBoundsConstraintSet::Variable extentOf(mlir::DestinationStyleOpInterface op,
-                                                  unsigned dim);
+// The size of a dimension of a generating op's domain as value bounds
+// names it, making nothing: an index value, or a dimension of a shaped
+// value, `dim` set exactly then. Upstream's constraint set makes no term of
+// a variable, so the size is kept in the form it makes both from.
+struct DomainSize {
+  mlir::Value value;
+  std::optional<int64_t> dim;
+
+  mlir::ValueBoundsConstraintSet::Variable variable() const {
+    return {mlir::OpFoldResult(value), dim};
+  }
+  mlir::AffineExpr term(mlir::ValueBoundsConstraintSet &cstr) const {
+    return cstr.getExpr(value, dim);
+  }
+};
+
+// The size of dimension `dim` of a generating op's domain: the first
+// destination's dimension, every destination having the domain's
+// dimensions first, but along a fold's last axis, which no destination of
+// a fold has, its length.
+DomainSize extentOf(mlir::DestinationStyleOpInterface op, unsigned dim);
 
 // The domain of a generating op as upstream's tiling reads it: each of its
 // first `rank` dimensions from 0 to its size, in steps of 1.

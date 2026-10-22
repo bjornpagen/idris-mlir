@@ -267,8 +267,11 @@ Type NatType::parse(AsmParser &parser) {
   if (parser.parseLess() || families::parseTerms(parser, 1, index, nullptr) ||
       parser.parseGreater())
     return {};
+  // The term as the generated builder takes it, which checks it and keys
+  // the storage, rather than as the base's template would deduce it, which
+  // would need the storage here.
   return getChecked([&] { return parser.emitError(parser.getNameLoc()); }, parser.getContext(),
-                    index);
+                    ArrayRef<families::TermNode>(index));
 }
 
 void NatType::print(AsmPrinter &printer) const {

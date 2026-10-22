@@ -151,8 +151,7 @@ LogicalResult ArrayFoldLastOp::reifyResultShapes(OpBuilder &b,
 }
 
 void ArrayFoldLastOp::populateBoundsForIndexValue(Value value, ValueBoundsConstraintSet &cstr) {
-  boundIndex(value, getBody()->getArguments().take_front(getRank()),
-             [&](unsigned dim) { return cstr.getExpr(extentOf(*this, dim)); }, cstr);
+  boundIndex(*this, value, getBody()->getArguments().take_front(getRank()), cstr);
 }
 
 // A result is shaped as its destination.
@@ -287,8 +286,7 @@ LogicalResult ArrayScanLastOp::reifyResultShapes(OpBuilder &b,
 }
 
 void ArrayScanLastOp::populateBoundsForIndexValue(Value value, ValueBoundsConstraintSet &cstr) {
-  boundIndex(value, getBody()->getArguments().take_front(getRank()),
-             [&](unsigned dim) { return cstr.getExpr(extentOf(*this, dim)); }, cstr);
+  boundIndex(*this, value, getBody()->getArguments().take_front(getRank()), cstr);
 }
 
 void ArrayScanLastOp::populateBoundsForShapedValueDim(Value value, int64_t dim,

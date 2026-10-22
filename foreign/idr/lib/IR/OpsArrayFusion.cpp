@@ -18,6 +18,7 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <limits>
 #include <optional>
 
 // What each stage of a program implies: whether its references are counted.
@@ -146,22 +147,29 @@ std::optional<Fusion<Write>> fusionOf(Write write) {
                             write.getIndices()))
     return std::nullopt;
   // `between` holds the ops between, in the block's order, each numbered by
-  // its place there.
+  // its place there. A place indexes LLVM's bit vector, which marks the
+  // rebuilding; it holds every place, since the vector of ops keeps its
+  // length in no more bits.
+  using Place = llvm::BitVector::size_type;
+  static_assert(std::numeric_limits<llvm::SmallVectorSizeType<Operation *>>::max() <=
+                    std::numeric_limits<Place>::max(),
+                "every op between has a place");
   SmallVector<Operation *> between;
   for (Operation *op = read->getNextNode(); op != write.getOperation(); op = op->getNextNode())
     between.push_back(op);
+  const auto places = static_cast<Place>(between.size());
   Block *block = write->getBlock();
   // The place among `between` of `op`, an op of the block strictly between
   // the read and the write, found by the block's own order; none for any
   // other op.
-  auto placeOf = [&](Operation *op) -> std::optional<size_t> {
+  auto placeOf = [&](Operation *op) -> std::optional<Place> {
     if (!op || op->getBlock() != block || !read->isBeforeInBlock(op) ||
         !op->isBeforeInBlock(write))
       return std::nullopt;
     auto at = llvm::lower_bound(between, op, [](Operation *a, Operation *b) {
       return a->isBeforeInBlock(b);
     });
-    return static_cast<size_t>(at - between.begin());
+    return static_cast<Place>(at - between.begin());
   };
 
   // The rebuilding, in order: each op between that reads the element, or a
@@ -170,9 +178,9 @@ std::optional<Fusion<Write>> fusionOf(Write write) {
   // per place.
   Fusion<Write> fusion{read, {}, {}};
   Value element = Access::element(read);
-  llvm::BitVector rebuilds(between.size());
+  llvm::BitVector rebuilds(places);
   auto rebuilt = [&](Operation *op) {
-    std::optional<size_t> at = placeOf(op);
+    std::optional<Place> at = placeOf(op);
     return at && rebuilds.test(*at);
   };
   auto readsRebuilt = [&](Operation *op) {
@@ -185,7 +193,8 @@ std::optional<Fusion<Write>> fusionOf(Write write) {
         })
         .wasInterrupted();
   };
-  for (auto [at, op] : llvm::enumerate(between)) {
+  for (Place at = 0; at < places; ++at) {
+    Operation *op = between[at];
     if (!readsRebuilt(op))
       continue;
     if (touchesInPlace(op))
@@ -197,7 +206,7 @@ std::optional<Fusion<Write>> fusionOf(Write write) {
   // Each op of the rebuilding moves to the write past the ops between after
   // it that stay, which neither may tell: read from the write back.
   effects::EffectSet staying;
-  for (size_t at = between.size(); at-- > 0;) {
+  for (Place at = places; at-- > 0;) {
     effects::EffectSet does = effects::whole(between[at]);
     if (!rebuilds.test(at))
       staying = staying | does;
@@ -230,12 +239,12 @@ template <ElementWrite Write>
 void fuse(RewriterBase &rewriter, Write write, const Fusion<Write> &fusion) {
   using Access = ElementAccess<Write>;
   Value element = Access::element(fusion.read);
-  Location loc = rewriter.getFusedLoc({fusion.read.getLoc(), write.getLoc()});
+  Location loc = rewriter.getFusedLoc({fusion.read->getLoc(), write.getLoc()});
   rewriter.setInsertionPoint(write);
   auto update = ArrayUpdateOp::create(rewriter, loc, ValueRange(fusion.leaving).getTypes(),
                                       Access::array(write), write.getIndices());
   Block *body =
-      rewriter.createBlock(&update.getRegion(), {}, {element.getType()}, {fusion.read.getLoc()});
+      rewriter.createBlock(&update.getRegion(), {}, {element.getType()}, {fusion.read->getLoc()});
   for (Operation *op : fusion.rebuilding)
     rewriter.moveOpBefore(op, body, body->end());
   Value moving = body->getArgument(0);
