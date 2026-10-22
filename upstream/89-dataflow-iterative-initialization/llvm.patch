@@ -1,0 +1,483 @@
+Subject: [PATCH] [mlir][dataflow] Initialize the sparse and dense analyses from a worklist
+
+The sparse forward and backward analyses initialize through
+`initializeRecursively`, and the dense forward and backward analyses
+through `initialize` itself, each calling itself once for every
+operation of every block, so the native stack an analysis needs grows
+with the nesting depth of the IR: SCCP, the integer range analysis,
+liveness and every dense analysis overflow the stack of a thread with a
+small one on a deeply nested function.
+
+`DataFlowAnalysis::initializeNested` visits an operation and every
+operation and block nested in it in the order those recursions took (an
+operation before its regions, each block before its operations, and the
+operations of a block forward or, for a backward analysis, last first,
+each with everything nested in it before the next), keeping its position
+in an explicit worklist. The four initializations call it with what they
+did per operation and per block, so every state is created, subscribed
+and visited in the same order as before. A dense analysis's nested
+operations were initialized through the virtual `initialize`, so an
+override of it in a dense analysis was called on each of them; it is now
+called on the top operation alone, as it is for the sparse analyses. No
+analysis in the tree overrides it.
+
+A unit test runs dead-code analysis, constant propagation, liveness and
+a dense forward and a dense backward analysis over a chain of operations
+nested 10,000 deep on a thread whose stack a frame per level would
+overflow, and each of them reaches the innermost operation.
+---
+diff --git a/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h b/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h
+index df50d8d..00e1f68 100644
+--- a/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h
++++ b/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h
+@@ -258,9 +258,6 @@ protected:
+                          ArrayRef<AbstractSparseLattice *> argLattices);
+ 
+ private:
+-  /// Recursively initialize the analysis on nested operations and blocks.
+-  LogicalResult initializeRecursively(Operation *op);
+-
+   /// Visit an operation. If this is a call operation or an operation with
+   /// region control-flow, then its result lattices are set accordingly.
+   /// Otherwise, the operation transfer function is invoked.
+@@ -468,9 +465,6 @@ protected:
+                          ArrayRef<AbstractSparseLattice *> operandLattices);
+ 
+ private:
+-  /// Recursively initialize the analysis on nested operations and blocks.
+-  LogicalResult initializeRecursively(Operation *op);
+-
+   /// Visit an operation. If this is a call operation or an operation with
+   /// region control-flow, then its operand lattices are set accordingly.
+   /// Otherwise, the operation transfer function is invoked.
+diff --git a/mlir/include/mlir/Analysis/DataFlowFramework.h b/mlir/include/mlir/Analysis/DataFlowFramework.h
+index 9609053..0e13e10 100644
+--- a/mlir/include/mlir/Analysis/DataFlowFramework.h
++++ b/mlir/include/mlir/Analysis/DataFlowFramework.h
+@@ -760,6 +760,24 @@ protected:
+     return *solver.symbolTables;
+   }
+ 
++  /// The order in which `initializeNested` takes the operations of a block. A
++  /// backward analysis takes them last first, so that it propagates as much as
++  /// it can before the solver's worklist runs.
++  enum class OperationOrder { Forward, Backward };
++
++  /// Call `visitOp` on `top` and on every operation nested in it, and
++  /// `visitBlock` on every block nested in it, in the order a recursion over
++  /// the nesting takes: an operation before its regions, the regions of an
++  /// operation and the blocks of a region in order, each block before its
++  /// operations, and each operation of a block, in `order`, with everything
++  /// nested in it before the next. The traversal keeps its position in an
++  /// explicit worklist, so the nesting depth of the IR is not the depth of the
++  /// native stack. It stops at the first failure of `visitOp` and returns it.
++  LogicalResult
++  initializeNested(Operation *top, OperationOrder order,
++                   function_ref<LogicalResult(Operation *)> visitOp,
++                   function_ref<void(Block *)> visitBlock);
++
+ #if LLVM_ENABLE_ABI_BREAKING_CHECKS
+   /// When compiling with debugging, keep a name for the analyis.
+   StringRef debugName;
+diff --git a/mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp b/mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp
+index 361de22..c803ce9 100644
+--- a/mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp
++++ b/mlir/lib/Analysis/DataFlow/DenseAnalysis.cpp
+@@ -51,30 +51,22 @@ LogicalResult AbstractDenseForwardDataFlowAnalysis::initialize(Operation *top) {
+   LDBG() << "initialize (forward): "
+          << OpWithFlags(top, OpPrintingFlags().skipRegions());
+   // Visit every operation and block.
+-  if (failed(processOperation(top))) {
+-    LDBG() << "  Failed to process top-level operation";
+-    return failure();
+-  }
+-
+-  for (Region &region : top->getRegions()) {
+-    LDBG() << "  Processing region with " << region.getBlocks().size()
+-           << " blocks";
+-    for (Block &block : region) {
+-      LDBG() << "    Processing block with " << block.getOperations().size()
+-             << " operations";
+-      visitBlock(&block);
+-      for (Operation &op : block) {
+-        LDBG() << "      Initializing operation: "
+-               << OpWithFlags(&op, OpPrintingFlags().skipRegions());
+-        if (failed(initialize(&op))) {
+-          LDBG() << "      Failed to initialize operation";
++  return initializeNested(
++      top, OperationOrder::Forward,
++      [&](Operation *op) {
++        LDBG() << "  Initializing operation: "
++               << OpWithFlags(op, OpPrintingFlags().skipRegions());
++        if (failed(processOperation(op))) {
++          LDBG() << "  Failed to process operation";
+           return failure();
+         }
+-      }
+-    }
+-  }
+-  LDBG() << "  Forward initialization completed successfully";
+-  return success();
++        return success();
++      },
++      [&](Block *block) {
++        LDBG() << "  Processing block with " << block->getOperations().size()
++               << " operations";
++        visitBlock(block);
++      });
+ }
+ 
+ LogicalResult AbstractDenseForwardDataFlowAnalysis::visit(ProgramPoint *point) {
+@@ -378,30 +370,22 @@ AbstractDenseBackwardDataFlowAnalysis::initialize(Operation *top) {
+   LDBG() << "initialize (backward): "
+          << OpWithFlags(top, OpPrintingFlags().skipRegions());
+   // Visit every operation and block.
+-  if (failed(processOperation(top))) {
+-    LDBG() << "  Failed to process top-level operation";
+-    return failure();
+-  }
+-
+-  for (Region &region : top->getRegions()) {
+-    LDBG() << "  Processing region with " << region.getBlocks().size()
+-           << " blocks";
+-    for (Block &block : region) {
+-      LDBG() << "    Processing block with " << block.getOperations().size()
+-             << " operations";
+-      visitBlock(&block);
+-      for (Operation &op : llvm::reverse(block)) {
+-        LDBG() << "      Initializing operation (backward): "
+-               << OpWithFlags(&op, OpPrintingFlags().skipRegions());
+-        if (failed(initialize(&op))) {
+-          LDBG() << "      Failed to initialize operation";
++  return initializeNested(
++      top, OperationOrder::Backward,
++      [&](Operation *op) {
++        LDBG() << "  Initializing operation (backward): "
++               << OpWithFlags(op, OpPrintingFlags().skipRegions());
++        if (failed(processOperation(op))) {
++          LDBG() << "  Failed to process operation";
+           return failure();
+         }
+-      }
+-    }
+-  }
+-  LDBG() << "  Backward initialization completed successfully";
+-  return success();
++        return success();
++      },
++      [&](Block *block) {
++        LDBG() << "  Processing block with " << block->getOperations().size()
++               << " operations";
++        visitBlock(block);
++      });
+ }
+ 
+ LogicalResult
+diff --git a/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp b/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp
+index fba3a80..1a62296 100644
+--- a/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp
++++ b/mlir/lib/Analysis/DataFlow/SparseAnalysis.cpp
+@@ -62,46 +62,27 @@ AbstractSparseForwardDataFlowAnalysis::initialize(Operation *top) {
+       setToEntryState(getLatticeElement(argument));
+   }
+ 
+-  return initializeRecursively(top);
+-}
+-
+-LogicalResult
+-AbstractSparseForwardDataFlowAnalysis::initializeRecursively(Operation *op) {
+-  LDBG() << "Initializing recursively for operation: "
+-         << OpWithFlags(op, OpPrintingFlags().skipRegions());
+-
+   // Initialize the analysis by visiting every owner of an SSA value (all
+   // operations and blocks).
+-  if (failed(visitOperation(op))) {
+-    LDBG() << "Failed to visit operation: "
+-           << OpWithFlags(op, OpPrintingFlags().skipRegions());
+-    return failure();
+-  }
+-
+-  for (Region &region : op->getRegions()) {
+-    LDBG() << "Processing region with " << region.getBlocks().size()
+-           << " blocks";
+-    for (Block &block : region) {
+-      LDBG() << "Processing block with " << block.getNumArguments()
+-             << " arguments";
+-      getOrCreate<Executable>(getProgramPointBefore(&block))
+-          ->blockContentSubscribe(this);
+-      visitBlock(&block);
+-      for (Operation &op : block) {
+-        LDBG() << "Recursively initializing nested operation: "
+-               << OpWithFlags(&op, OpPrintingFlags().skipRegions());
+-        if (failed(initializeRecursively(&op))) {
+-          LDBG() << "Failed to initialize nested operation: "
+-                 << OpWithFlags(&op, OpPrintingFlags().skipRegions());
++  return initializeNested(
++      top, OperationOrder::Forward,
++      [&](Operation *op) {
++        LDBG() << "Initializing operation: "
++               << OpWithFlags(op, OpPrintingFlags().skipRegions());
++        if (failed(visitOperation(op))) {
++          LDBG() << "Failed to visit operation: "
++                 << OpWithFlags(op, OpPrintingFlags().skipRegions());
+           return failure();
+         }
+-      }
+-    }
+-  }
+-
+-  LDBG() << "Successfully completed recursive initialization for operation: "
+-         << OpWithFlags(op, OpPrintingFlags().skipRegions());
+-  return success();
++        return success();
++      },
++      [&](Block *block) {
++        LDBG() << "Processing block with " << block->getNumArguments()
++               << " arguments";
++        getOrCreate<Executable>(getProgramPointBefore(block))
++            ->blockContentSubscribe(this);
++        visitBlock(block);
++      });
+ }
+ 
+ LogicalResult
+@@ -387,27 +368,16 @@ AbstractSparseBackwardDataFlowAnalysis::AbstractSparseBackwardDataFlowAnalysis(
+ 
+ LogicalResult
+ AbstractSparseBackwardDataFlowAnalysis::initialize(Operation *top) {
+-  return initializeRecursively(top);
+-}
+-
+-LogicalResult
+-AbstractSparseBackwardDataFlowAnalysis::initializeRecursively(Operation *op) {
+-  if (failed(visitOperation(op)))
+-    return failure();
+-
+-  for (Region &region : op->getRegions()) {
+-    for (Block &block : region) {
+-      getOrCreate<Executable>(getProgramPointBefore(&block))
+-          ->blockContentSubscribe(this);
+-      // Initialize ops in reverse order, so we can do as much initial
+-      // propagation as possible without having to go through the
+-      // solver queue.
+-      for (auto it = block.rbegin(); it != block.rend(); it++)
+-        if (failed(initializeRecursively(&*it)))
+-          return failure();
+-    }
+-  }
+-  return success();
++  // Initialize ops in reverse order, so we can do as much initial
++  // propagation as possible without having to go through the
++  // solver queue.
++  return initializeNested(
++      top, OperationOrder::Backward,
++      [&](Operation *op) { return visitOperation(op); },
++      [&](Block *block) {
++        getOrCreate<Executable>(getProgramPointBefore(block))
++            ->blockContentSubscribe(this);
++      });
+ }
+ 
+ LogicalResult
+diff --git a/mlir/lib/Analysis/DataFlowFramework.cpp b/mlir/lib/Analysis/DataFlowFramework.cpp
+index a08630b..80764bb 100644
+--- a/mlir/lib/Analysis/DataFlowFramework.cpp
++++ b/mlir/lib/Analysis/DataFlowFramework.cpp
+@@ -11,7 +11,10 @@
+ #include "mlir/IR/Operation.h"
+ #include "mlir/IR/SymbolTable.h"
+ #include "mlir/IR/Value.h"
++#include "llvm/ADT/PointerUnion.h"
++#include "llvm/ADT/STLExtras.h"
+ #include "llvm/ADT/ScopeExit.h"
++#include "llvm/ADT/SmallVector.h"
+ #include "llvm/ADT/iterator.h"
+ #include "llvm/Config/abi-breaking.h"
+ #include "llvm/Support/Casting.h"
+@@ -190,3 +193,35 @@ void DataFlowAnalysis::propagateIfChanged(AnalysisState *state,
+                                           ChangeResult changed) {
+   solver.propagateIfChanged(state, changed);
+ }
++
++LogicalResult DataFlowAnalysis::initializeNested(
++    Operation *top, OperationOrder order,
++    function_ref<LogicalResult(Operation *)> visitOp,
++    function_ref<void(Block *)> visitBlock) {
++  // What is left to visit, the next last: the blocks of an operation and the
++  // operations of a block are pushed in the reverse of the order they are
++  // visited in, above what follows them.
++  SmallVector<PointerUnion<Operation *, Block *>> worklist;
++  worklist.push_back(top);
++  while (!worklist.empty()) {
++    PointerUnion<Operation *, Block *> next = worklist.pop_back_val();
++    if (auto *block = dyn_cast<Block *>(next)) {
++      visitBlock(block);
++      if (order == OperationOrder::Forward) {
++        for (Operation &op : llvm::reverse(*block))
++          worklist.push_back(&op);
++      } else {
++        for (Operation &op : *block)
++          worklist.push_back(&op);
++      }
++      continue;
++    }
++    Operation *op = cast<Operation *>(next);
++    if (failed(visitOp(op)))
++      return failure();
++    for (Region &region : llvm::reverse(op->getRegions()))
++      for (Block &block : llvm::reverse(region))
++        worklist.push_back(&block);
++  }
++  return success();
++}
+diff --git a/mlir/unittests/Analysis/CMakeLists.txt b/mlir/unittests/Analysis/CMakeLists.txt
+index a05d09f..27e633f 100644
+--- a/mlir/unittests/Analysis/CMakeLists.txt
++++ b/mlir/unittests/Analysis/CMakeLists.txt
+@@ -1 +1,9 @@
++add_mlir_unittest(MLIRAnalysisTests
++  DataFlowTest.cpp
++)
++mlir_target_link_libraries(MLIRAnalysisTests
++  PRIVATE
++  MLIRAnalysisDataFlow
++  MLIRIR)
++
+ add_subdirectory(Presburger)
+diff --git a/mlir/unittests/Analysis/DataFlowTest.cpp b/mlir/unittests/Analysis/DataFlowTest.cpp
+new file mode 100644
+index 0000000..4de0e64
+--- /dev/null
++++ b/mlir/unittests/Analysis/DataFlowTest.cpp
+@@ -0,0 +1,131 @@
++//===- DataFlowTest.cpp - Data-flow analyses of deeply nested IR ----------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
++#include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
++#include "mlir/Analysis/DataFlow/DenseAnalysis.h"
++#include "mlir/Analysis/DataFlow/LivenessAnalysis.h"
++#include "mlir/Analysis/DataFlowFramework.h"
++#include "mlir/IR/Builders.h"
++#include "mlir/IR/BuiltinOps.h"
++#include "mlir/IR/BuiltinTypes.h"
++#include "mlir/IR/MLIRContext.h"
++#include "mlir/IR/SymbolTable.h"
++#include "llvm/Support/thread.h"
++#include "gtest/gtest.h"
++
++using namespace mlir;
++using namespace mlir::dataflow;
++
++namespace {
++/// A dense lattice that holds nothing.
++class Reached : public AbstractDenseLattice {
++public:
++  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Reached)
++  using AbstractDenseLattice::AbstractDenseLattice;
++  void print(raw_ostream &os) const override { os << "reached"; }
++};
++
++/// A dense forward analysis that records whether it visited `leaf`.
++class ForwardReach : public DenseForwardDataFlowAnalysis<Reached> {
++public:
++  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ForwardReach)
++  ForwardReach(DataFlowSolver &solver, Operation *leaf)
++      : DenseForwardDataFlowAnalysis(solver), leaf(leaf) {}
++
++  LogicalResult visitOperation(Operation *op, const Reached &before,
++                               Reached *after) override {
++    visitedLeaf |= op == leaf;
++    return success();
++  }
++  void setToEntryState(Reached *lattice) override {}
++
++  Operation *leaf;
++  bool visitedLeaf = false;
++};
++
++/// A dense backward analysis that records whether it visited `leaf`.
++class BackwardReach : public DenseBackwardDataFlowAnalysis<Reached> {
++public:
++  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(BackwardReach)
++  BackwardReach(DataFlowSolver &solver, SymbolTableCollection &symbolTable,
++                Operation *leaf)
++      : DenseBackwardDataFlowAnalysis(solver, symbolTable), leaf(leaf) {}
++
++  LogicalResult visitOperation(Operation *op, const Reached &after,
++                               Reached *before) override {
++    visitedLeaf |= op == leaf;
++    return success();
++  }
++  void setToExitState(Reached *lattice) override {}
++
++  Operation *leaf;
++  bool visitedLeaf = false;
++};
++
++TEST(DataFlowTest, DeepNestingOnASmallStack) {
++  MLIRContext context;
++  context.allowUnregisteredDialects();
++  Location loc = UnknownLoc::get(&context);
++  Type i32 = IntegerType::get(&context, 32);
++
++  // A module holding a value and a chain of operations, each holding the next
++  // in the one block of its one region, the last using the value.
++  constexpr unsigned depth = 10000;
++  OwningOpRef<ModuleOp> module = ModuleOp::create(loc);
++  OpBuilder builder = OpBuilder::atBlockEnd(module->getBody());
++  OperationState sourceState(loc, "test.source");
++  sourceState.addTypes(i32);
++  Value source = builder.create(sourceState)->getResult(0);
++  SmallVector<Operation *> chain;
++  for (unsigned i = 0; i < depth; ++i) {
++    OperationState state(loc, "test.nest");
++    state.addRegion();
++    chain.push_back(builder.create(state));
++    builder.createBlock(&chain.back()->getRegion(0));
++  }
++  OperationState leafState(loc, "test.leaf");
++  leafState.addOperands(source);
++  leafState.addTypes(i32);
++  Operation *leaf = builder.create(leafState);
++  Value result = leaf->getResult(0);
++
++  // An initialization that took a native frame per level of nesting would
++  // overflow this thread's stack. Each kind of analysis reaches the leaf.
++  bool solved = false, forward = false, backward = false;
++  bool constant = false, live = false;
++  llvm::thread solving(/*StackSizeInBytes=*/256 * 1024, [&] {
++    SymbolTableCollection symbolTable;
++    DataFlowSolver solver;
++    solver.load<DeadCodeAnalysis>();
++    solver.load<SparseConstantPropagation>();
++    solver.load<LivenessAnalysis>(symbolTable);
++    auto *forwardReach = solver.load<ForwardReach>(leaf);
++    auto *backwardReach = solver.load<BackwardReach>(symbolTable, leaf);
++    solved = succeeded(solver.initializeAndRun(*module));
++    forward = forwardReach->visitedLeaf;
++    backward = backwardReach->visitedLeaf;
++    const auto *value = solver.lookupState<Lattice<ConstantValue>>(result);
++    constant = value && !value->getValue().isUninitialized();
++    const auto *liveness = solver.lookupState<Liveness>(source);
++    live = liveness && liveness->isLive;
++  });
++  solving.join();
++
++  EXPECT_TRUE(solved);
++  EXPECT_TRUE(forward);
++  EXPECT_TRUE(backward);
++  EXPECT_TRUE(constant);
++  EXPECT_TRUE(live);
++
++  // Innermost first, so that no destruction recurses on the depth either.
++  leaf->erase();
++  for (Operation *op : llvm::reverse(chain))
++    op->erase();
++}
++} // namespace

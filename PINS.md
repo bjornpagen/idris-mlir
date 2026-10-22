@@ -524,8 +524,10 @@ which the top-level CMake configure gate reads.
   textual parse, print and alias collection of nested builtin arrays and
   dictionaries (10), the walks (80), the attribute walker and replacer
   (81), clone (82), destruction (83), region DCE (84), slices (85),
-  dead-code initialization (92), call graph construction (93) and the
-  bytecode writer's numbering of nested attributes and types (97)
+  the symbol-table walk (88), the sparse and dense analyses'
+  initialization (89), dead-code initialization (92), call graph
+  construction (93) and the bytecode writer's numbering of nested
+  attributes and types (97)
 - left, for the stage-1 stack painting to measure (D33, S1), each
   recursing through code no explicit stack inside MLIR's own reaches: the
   op parser and printer, which reach a nested region through the op's own
@@ -1042,6 +1044,51 @@ which the top-level CMake configure gate reads.
   for MLIR's recursions on input size
 - status (2026-10-21): carried; not filed
 
+## symbol-table-walk-iterative
+
+- symptom: on llvm main at 416f328b, `SymbolTable::walkSymbolTables`
+  recurses once for every operation of every block it visits, so its
+  native depth is the IR's nesting depth whatever symbols it holds
+- sites: dead-code analysis's initialization (idr-optimize's constant
+  propagation, the ranges analysis, idr-narrow's copies), upstream's
+  inliner in idr-inline (its use lists) and the continuations check's
+  `SymbolUserMap` (foreign/idr/lib/Transforms/Expect/Continuations.cpp),
+  under the tools' one small stack (D33, C43, C99)
+- workaround: `upstream/88-symbol-table-walk-iterative/llvm.patch`,
+  applying after 80: a stage-aware walk with a stack of each open
+  operation's visibility, the same tables passed in the same post-order
+  with the same visibility; checked by
+  tests/upstream-symbol-table-walk-iterative
+- retire: when the pin walks symbol tables without recursion on depth
+- upstream: upstream/88-symbol-table-walk-iterative; one pull request
+  after the RFC for MLIR's recursions on input size and after 80's
+- status (2026-10-21): carried; not filed
+
+## dataflow-iterative-initialization
+
+- symptom: on llvm main at 416f328b, the sparse forward and backward
+  analyses (`initializeRecursively`) and the dense forward and backward
+  analyses (`initialize`) initialize by recursion, once per operation of
+  every block, so every analysis on upstream's framework needs a native
+  stack that grows with the IR's depth
+- sites: the sparse forward initialization of idr-optimize's constant
+  propagation and of the integer range solves (the ranges analysis,
+  idr-narrow's copies), under the tools' one small stack (D33, C43, C99);
+  nothing of ours runs a sparse backward or dense analysis, whose
+  initializations are the same traversal
+- workaround: `upstream/89-dataflow-iterative-initialization/llvm.patch`:
+  one traversal from an explicit worklist in the recursions' order
+  (`DataFlowAnalysis::initializeNested`), so every state is created and
+  visited as before; a dense analysis's `initialize` override is now
+  called on the top operation alone, and none overrides it; checked by
+  tests/upstream-dataflow-iterative-initialization
+- retire: when the pin initializes the sparse and dense analyses without
+  recursion on depth
+- upstream: upstream/89-dataflow-iterative-initialization; one pull
+  request after the RFC for MLIR's recursions on input size and after
+  80's, 88's and 92's
+- status (2026-10-21): carried; not filed
+
 ## dead-code-iterative-initialization
 
 - symptom: on llvm main at 416f328b, `DeadCodeAnalysis::initializeRecursively`
@@ -1387,6 +1434,13 @@ which the top-level CMake configure gate reads.
   deliberate (the REPL, IDE mode, every other code generator and the CExp
   pipeline are out of scope) except the five bug fixes, which upstream
   should take
+- stored terms: a stored definition's terms are frozen preorder columns,
+  their locations beside them, read purely, so the fork states no new
+  trust for them (C183; interned-identifiers). The fork's evaluator reads
+  those columns, not upstream's trees, so it is no longer upstream's
+  evaluator with changes that a three-way merge carries forward: a
+  re-sync re-implements upstream's changes to the evaluator against the
+  columns. That is D44's accepted cost of taking 0010's A0 whole
 - retire: never as a whole. Each bug fix goes when an Idris bump brings
   upstream's fix (the re-sync merge in compiler/idris/README.md shows it)
 - upstream: nothing is sent, since Idris takes no tool-written
@@ -1822,5 +1876,46 @@ which the top-level CMake configure gate reads.
 - workaround: none; the fork's own code (e5b39cb2): a package is recorded
   with its name and version as its directory names them, and each TTC the
   session reads with where the search found it
+- retire: never; the fork's representation
+- upstream: nothing is sent (**Idris**)
+
+## interned-identifiers
+
+- symptom: at the pinned Idris, a name's leaves (`Basic`, `Field`, `MN`,
+  `DN`, a namespace's parts) are strings, so every equality of names and
+  every lookup keyed by a name compares text character by character, and
+  a builtin name the compiler recognizes or makes is found by its
+  spelling. The fork inherited it
+- sites: compiler/idris/src/Core/Name/Ident.idr (`Ident`, `Idents`,
+  `internIn`), Core/Name/Known.idr (`Known`: the identifiers the
+  compiler's own code spells, each at its ordinal; `roundTrip` and
+  `below` checked when the compiler is built), Core/Name.idr and
+  Core/Name/Namespace.idr (the leaves), Core/Context/Context.idr
+  (`idents`: the session's one table, kept across resets and
+  backtracking), Core/Context.idr (`intern`), Parser/Lexer/Source.idr and
+  Parser/Source.idr (`RawToken` becomes `Token`: text becomes an
+  identifier between lexing and parsing), Core/Binary/Prims.idr
+  (`TTC Ident`)
+- workaround: none; the fork's own code, the interned names of 0010's A0
+  (D44): one table per session holds each text once, at its own id, so two
+  identifiers are equal exactly when their ids are; a known identifier is
+  a constant at its ordinal, never looked up; text becomes an identifier
+  only at the lexer, the TTC's reader and `intern`; identifiers order by
+  their text, so what is written from a map or a sort keyed by names is in
+  the same order in every session, and a TTC writes an identifier's text,
+  never its id
+- stored terms (C183, A0's other half, the term arena as columns): a term
+  being elaborated stays an unshared, located tree, as the elaborator's
+  reads of locations need; when a definition is stored, its terms become
+  columns in preorder, shared within the definition, with their locations
+  as one more preorder column. The columns are frozen with the definition
+  (an immutable array of `mlir-array`, on both hosts), so every read is a
+  pure read of an immutable value and the fork states no new trust.
+  Definitions refer to one another by interned name, never by a position
+  in an arena, so no table grows under a read. The cost: nothing is shared
+  across definitions, which one append-only arena would give only at the
+  price of that trust; and the evaluator that reads the columns is
+  re-implemented, not merged, at each re-sync (idris-fork), D44's
+  accepted cost
 - retire: never; the fork's representation
 - upstream: nothing is sent (**Idris**)

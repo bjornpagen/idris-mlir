@@ -152,6 +152,8 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 85 | slice-iterative | PR after the recursion RFC: backward and forward slices from explicit stacks | carried; not filed |
 | 86 | darwin-stack-clash | PR: the driver passes -fstack-clash-protection for Darwin | carried; not filed |
 | 87 | ub-unreachable-effects | PR: ub.unreachable declares NoMemoryEffect | carried; not filed |
+| 88 | symbol-table-walk-iterative | PR after the recursion RFC and 80's: the symbol tables walked by the iterative stage walk, the same tables in the same order with the same visibility | carried (2026-10-21); not filed |
+| 89 | dataflow-iterative-initialization | PR after the recursion RFC and 80's, 88's and 92's: the sparse and dense analyses initialized by one traversal from an explicit worklist, in the recursions' order | carried (2026-10-21); not filed |
 | 92 | dead-code-iterative-initialization | PR after the recursion RFC: dead-code analysis initialized from a worklist | carried; not filed |
 | 93 | call-graph-iterative-construction | PR after the recursion RFC: the call graph built from a worklist | carried; not filed |
 | 94 | snmalloc-pagemap-sanity-checks | PR to microsoft/snmalloc: a bounded pagemap's fast-path range tests under sanity_checks | carried; not filed; Microsoft CLA |
@@ -324,7 +326,7 @@ SHA-256; `tools/bootstrap.sh snmalloc` and `tools/bootstrap.sh simdutf`
 do the same for `upstream/*/snmalloc.patch` and `upstream/*/simdutf.patch`
 on exports of third_party/snmalloc and third_party/simdutf. Carried
 for LLVM: 03, 04, 05, 07, 09, 10, 19, 24, 27, 29, 30, 56, 57, 61, 62,
-64 to 77, 79 to 87, 92, 93 and 97, every one applying at 416f328b in that
+64 to 77, 79 to 89, 92, 93 and 97, every one applying at 416f328b in that
 order (`git apply`, the series in order, on the pinned files they touch,
 2026-10-21); for snmalloc: 49, 94 and 95; for simdutf: 98, applying at
 its gitlink (8d82299, 9.3.2); for Idris and Chez: none. No toolchain is built yet with them, on any

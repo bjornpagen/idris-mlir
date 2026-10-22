@@ -1,0 +1,154 @@
+Subject: [PATCH] [mlir] Walk symbol tables without recursion on nesting depth
+
+`SymbolTable::walkSymbolTables` calls itself once for every operation of
+every block of every region it visits, so its native depth is the
+nesting depth of the IR. Dead-code analysis, which every sparse forward
+analysis loads, the inliner's use lists and `SymbolUserMap` all walk the
+symbol tables, so each of them overflows the stack of a thread with a
+small one on a deeply nested module, whatever symbols it holds.
+
+The walk is now a stage-aware operation walk, with a stack of what is
+known of each operation whose walk has begun: whether it is a symbol
+table, and whether all uses of its nested symbols are visible. Each
+operation computes that as the recursion did, from its parent's, before
+its regions are walked, and a symbol table is passed to the callback
+after its regions, so the callback sees the same tables in the same
+order with the same visibility. With the walks themselves iterative, the
+native stack no longer grows with the depth of the IR.
+
+A unit test walks the symbol tables of a module holding a chain of
+operations nested 10,000 deep, on a thread whose stack a frame per level
+would overflow.
+---
+diff --git a/mlir/lib/IR/SymbolTable.cpp b/mlir/lib/IR/SymbolTable.cpp
+index 3183104..13f2903 100644
+--- a/mlir/lib/IR/SymbolTable.cpp
++++ b/mlir/lib/IR/SymbolTable.cpp
+@@ -336,25 +336,40 @@ Operation *SymbolTable::getNearestSymbolTable(Operation *from) {
+ void SymbolTable::walkSymbolTables(
+     Operation *op, bool allSymUsesVisible,
+     function_ref<void(Operation *, bool)> callback) {
+-  bool isSymbolTable = op->hasTrait<OpTrait::SymbolTable>();
+-  if (isSymbolTable) {
+-    SymbolOpInterface symbol = dyn_cast<SymbolOpInterface>(op);
+-    allSymUsesVisible |= !symbol || symbol.isPrivate();
+-  } else {
+-    // Otherwise if 'op' is not a symbol table, any nested symbols are
+-    // guaranteed to be hidden.
+-    allSymUsesVisible = true;
+-  }
+-
+-  for (Region &region : op->getRegions())
+-    for (Block &block : region)
+-      for (Operation &nestedOp : block)
+-        walkSymbolTables(&nestedOp, allSymUsesVisible, callback);
++  // What is known of each operation whose walk has begun and not ended, the
++  // innermost last: whether it is a symbol table, and whether all of the uses
++  // of the symbols nested within it are visible. The walk keeps its own
++  // position, so the nesting depth of the IR is not the depth of the native
++  // stack.
++  struct Scope {
++    bool isSymbolTable;
++    bool allSymUsesVisible;
++  };
++  SmallVector<Scope> scopes;
++  op->walk([&](Operation *nestedOp, const WalkStage &stage) {
++    if (stage.isBeforeAllRegions()) {
++      bool isSymbolTable = nestedOp->hasTrait<OpTrait::SymbolTable>();
++      bool visible =
++          scopes.empty() ? allSymUsesVisible : scopes.back().allSymUsesVisible;
++      if (isSymbolTable) {
++        SymbolOpInterface symbol = dyn_cast<SymbolOpInterface>(nestedOp);
++        visible |= !symbol || symbol.isPrivate();
++      } else {
++        // Otherwise if 'nestedOp' is not a symbol table, any nested symbols
++        // are guaranteed to be hidden.
++        visible = true;
++      }
++      scopes.push_back({isSymbolTable, visible});
++    }
++    if (!stage.isAfterAllRegions())
++      return;
+ 
+-  // If 'op' had the symbol table trait, visit it after any nested symbol
+-  // tables.
+-  if (isSymbolTable)
+-    callback(op, allSymUsesVisible);
++    // If 'nestedOp' had the symbol table trait, visit it after any nested
++    // symbol tables.
++    Scope scope = scopes.pop_back_val();
++    if (scope.isSymbolTable)
++      callback(nestedOp, scope.allSymUsesVisible);
++  });
+ }
+ 
+ /// Returns the operation registered with the given symbol name with the
+diff --git a/mlir/unittests/IR/SymbolTableTest.cpp b/mlir/unittests/IR/SymbolTableTest.cpp
+index 4b313c6..48f5962 100644
+--- a/mlir/unittests/IR/SymbolTableTest.cpp
++++ b/mlir/unittests/IR/SymbolTableTest.cpp
+@@ -6,11 +6,13 @@
+ //
+ //===----------------------------------------------------------------------===//
+ #include "mlir/IR/SymbolTable.h"
++#include "mlir/IR/Builders.h"
+ #include "mlir/IR/BuiltinOps.h"
+ #include "mlir/IR/Verifier.h"
+ #include "mlir/Interfaces/CallInterfaces.h"
+ #include "mlir/Interfaces/FunctionInterfaces.h"
+ #include "mlir/Parser/Parser.h"
++#include "llvm/Support/thread.h"
+ 
+ #include "gtest/gtest.h"
+ 
+@@ -272,4 +274,50 @@ TEST(SymbolUserMap, AllUsesVisible) {
+   EXPECT_TRUE(hiddenMap.areAllUsesVisible(hiddenPublic));
+ }
+ 
++TEST(SymbolTable, WalkSymbolTablesDeepNestingOnASmallStack) {
++  MLIRContext context;
++  context.allowUnregisteredDialects();
++  Location loc = UnknownLoc::get(&context);
++
++  // A module holding a chain of operations, each holding the next in the one
++  // block of its one region, the last a module.
++  constexpr unsigned depth = 10000;
++  OwningOpRef<ModuleOp> outer = ModuleOp::create(loc);
++  OpBuilder builder = OpBuilder::atBlockEnd(outer->getBody());
++  SmallVector<Operation *> chain;
++  for (unsigned i = 0; i < depth; ++i) {
++    OperationState state(loc, "test.nest");
++    state.addRegion();
++    chain.push_back(builder.create(state));
++    builder.createBlock(&chain.back()->getRegion(0));
++  }
++  ModuleOp inner = ModuleOp::create(loc);
++  builder.insert(inner);
++
++  // A walk that took a native frame per level of nesting would overflow this
++  // thread's stack.
++  SmallVector<std::pair<Operation *, bool>> visited;
++  llvm::thread walker(/*StackSizeInBytes=*/256 * 1024, [&] {
++    SymbolTable::walkSymbolTables(
++        *outer, /*allSymUsesVisible=*/false,
++        [&](Operation *symbolTable, bool allSymUsesVisible) {
++          visited.emplace_back(symbolTable, allSymUsesVisible);
++        });
++  });
++  walker.join();
++
++  // The nested table is visited before the one enclosing it, and the
++  // operations between them, which are no symbol tables, hide its symbols.
++  ASSERT_EQ(visited.size(), 2u);
++  EXPECT_EQ(visited[0].first, inner.getOperation());
++  EXPECT_TRUE(visited[0].second);
++  EXPECT_EQ(visited[1].first, outer->getOperation());
++  EXPECT_FALSE(visited[1].second);
++
++  // Innermost first, so that no destruction recurses on the depth either.
++  inner->erase();
++  for (Operation *op : llvm::reverse(chain))
++    op->erase();
++}
++
+ } // namespace
