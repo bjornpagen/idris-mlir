@@ -53,8 +53,10 @@
 #include <utility>
 #include <vector>
 
-namespace idr {
 #define GEN_PASS_DEF_IDRDEDUPLICATE
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

@@ -344,6 +344,7 @@ generate =
      , (generated "WrittenDialects.txt", writtenDialectsList)
      , (generated "EnumTraits.h.inc", render (odsEnumTraits declarations.enums))
      , (generated "Storages.h.inc", render (storagesHeader declarations.types declarations.attributes))
+     , (generated "PassDialects.h.inc", render (passDialectsHeader passes))
      , (generated "OpIndex.h.inc", render (opIndexHeader opKeys))
      , (generated "Guards.h.inc", render (guardsHeader ourOps))
      , (generated "InlineMeanings.h.inc", render (inlineMeaningsHeader ourOps))

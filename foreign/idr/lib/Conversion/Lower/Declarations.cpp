@@ -18,8 +18,10 @@
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
-namespace idr {
 #define GEN_PASS_DEF_IDRLOWERRUNTIME
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

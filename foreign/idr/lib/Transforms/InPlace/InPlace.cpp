@@ -24,8 +24,10 @@
 
 #include <array>
 
-namespace idr {
 #define GEN_PASS_DEF_IDRINPLACE
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

@@ -35,8 +35,10 @@
 
 #include "mlir/IR/Threading.h"
 
-namespace idr {
 #define GEN_PASS_DEF_IDRDEFUNCTIONALIZE
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

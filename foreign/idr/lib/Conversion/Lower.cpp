@@ -62,8 +62,10 @@
 
 #include <memory>
 
-namespace idr {
 #define GEN_PASS_DEF_IDRLOWER
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

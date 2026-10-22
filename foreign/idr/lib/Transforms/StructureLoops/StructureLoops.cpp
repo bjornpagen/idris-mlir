@@ -18,9 +18,11 @@
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
-namespace idr {
 #define GEN_PASS_DEF_IDRSTRUCTURELOOPS
 #define GEN_PASS_DEF_IDRORDEREDLOOPS
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

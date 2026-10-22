@@ -28,8 +28,10 @@
 #include "mlir/IR/Remarks.h"
 #include "llvm/ADT/Statistic.h"
 
-namespace idr {
 #define GEN_PASS_DEF_IDROPTIMIZE
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

@@ -229,6 +229,24 @@ areaHeader h =
                       (slashComment (lineText h.doc.summary :: proseLines h.doc.description) ++ [""]
                        ++ concatMap headerBlock h.blocks)) )
 
+||| The headers of the dialects each pass loads, under the macro that
+||| selects the pass's generated definition, `GEN_PASS_DEF_<PASS>`, whose
+||| `getDependentDialects` names their classes: a unit defines the macro and
+||| includes this at file scope, before it includes the definitions. No
+||| guard and no `#undef`, since the definitions read the macro after it.
+export
+passDialectsHeader : List Pass -> Lines
+passDialectsHeader ps = banner slashComment ++ concatMap section ps
+  where
+    section : Pass -> Lines
+    section p = case p.loads of
+      [] => []
+      ls =>
+        let macro = "GEN_PASS_DEF_" ++ pack (map toUpper (unpack (passRecord p)))
+        in ["", "#ifdef " ++ macro]
+           ++ map (\l => "#include " ++ quoted (loadsHeader l)) ls
+           ++ ["#endif // " ++ macro]
+
 ||| The hand storage classes, `::idr::detail::<Class>Storage`, declared
 ||| before the generated classes that name them as their storage: ODS
 ||| declares no class it does not define. And every type class, declared

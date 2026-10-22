@@ -19,8 +19,10 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
-namespace idr {
 #define GEN_PASS_DEF_IDRREDIRECT
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/InnerPasses.h.inc"
 } // namespace idr
 

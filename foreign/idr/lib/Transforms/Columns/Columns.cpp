@@ -19,8 +19,10 @@
 
 #include "llvm/ADT/STLExtras.h"
 
-namespace idr {
 #define GEN_PASS_DEF_IDRCOLUMNS
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

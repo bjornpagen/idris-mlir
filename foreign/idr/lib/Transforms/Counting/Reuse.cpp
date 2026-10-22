@@ -52,8 +52,10 @@
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
 
-namespace idr {
 #define GEN_PASS_DEF_IDRRCREUSE
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

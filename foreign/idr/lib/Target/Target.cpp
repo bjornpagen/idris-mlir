@@ -27,8 +27,10 @@
 
 using namespace mlir;
 
-namespace idr {
 #define GEN_PASS_DEF_IDRTARGET
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 } // namespace idr
 

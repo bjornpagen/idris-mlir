@@ -23,9 +23,11 @@
 
 #include "idr/IR/Generated/Pipeline.h.inc"
 
-namespace idr {
 #define GEN_PASS_DEF_IDRWIDENROWS
 #define GEN_PASS_DEF_IDRWRITEROWS
+#include "idr/IR/Generated/PassDialects.h.inc"
+
+namespace idr {
 #include "idr/Transforms/InnerPasses.h.inc"
 } // namespace idr
 

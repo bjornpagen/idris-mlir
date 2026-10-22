@@ -10,6 +10,7 @@
 module IdrisMLIR.Spec.Pipeline.Pass
 
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Spec.Effects.Atom
 import IdrisMLIR.Spec.Pipeline.Stage
 
@@ -131,6 +132,26 @@ loadsClass LoadsBufferization = "::mlir::bufferization::BufferizationDialect"
 loadsClass LoadsMemRef = "::mlir::memref::MemRefDialect"
 loadsClass LoadsAffine = "::mlir::affine::AffineDialect"
 loadsClass LoadsVector = "::mlir::vector::VectorDialect"
+
+||| The C++ header that declares a loaded dialect's class, which a pass's
+||| generated definition names; a dialect the specification admits ops of
+||| has it as its header.
+public export
+loadsHeader : Loads -> String
+loadsHeader LoadsIdr = cppHeader Idr
+loadsHeader LoadsArith = cppHeader Arith
+loadsHeader LoadsMath = cppHeader Math
+loadsHeader LoadsUB = cppHeader UB
+loadsHeader LoadsLLVM = "mlir/Dialect/LLVMIR/LLVMDialect.h"
+loadsHeader LoadsDLTI = "mlir/Dialect/DLTI/DLTI.h"
+loadsHeader LoadsSCF = cppHeader SCF
+loadsHeader LoadsCF = "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+loadsHeader LoadsTensor = cppHeader Tensor
+loadsHeader LoadsLinalg = cppHeader Linalg
+loadsHeader LoadsBufferization = cppHeader Bufferization
+loadsHeader LoadsMemRef = cppHeader MemRef
+loadsHeader LoadsAffine = "mlir/Dialect/Affine/IR/AffineOps.h"
+loadsHeader LoadsVector = "mlir/Dialect/Vector/IR/VectorOps.h"
 
 ||| A pass's options: none, or a test's list of properties to check, which
 ||| selects no behaviour of a compilation.
