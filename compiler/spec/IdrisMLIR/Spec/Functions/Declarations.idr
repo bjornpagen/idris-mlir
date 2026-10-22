@@ -345,5 +345,5 @@ declarations =
   , attributes :=
       [ SomeAttr terminatesAttr, SomeAttr putBoundsAttr, SomeAttr livesInAttr
       , SomeAttr givenBackEntryAttr, SomeAttr givenBackAttr ]
-  , enums := [enumDef tailKindClosed, enumDef copyKindClosed]
+  , enums := [enumDef tailKindClosed, enumDef copyKindClosed, enumDef proofKindClosed]
   } nothing

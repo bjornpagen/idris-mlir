@@ -15,6 +15,8 @@ module IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Spec.Core.Vocabulary
 
 import Data.Fin
+import Data.List.Elem
+import Data.List1
 import Data.Vect
 
 %default total
@@ -26,30 +28,70 @@ import Data.Vect
 public export
 data Termination = Unproved | InComponent Nat | Acyclic
 
-||| What the attribute holds: a proof, either case but `Unproved`. The
-||| attribute is written exactly when there is one, so a function without
-||| it is unproved, and none can claim an empty proof.
+||| Which proof the attribute holds: Idris's, in a component of its call
+||| graph, or a pass's, for a function it made with no loop of its own.
 public export
-data Proof = ProvedIn Nat | MadeAcyclic
+data ProofKind = ProvedInComponent | MadeAcyclic
 
-||| The attribute's one parameter, read and written by hand: `component 3`,
-||| `acyclic`.
+public export
+proofKindClosed : Closed ProofKind
+proofKindClosed = MkClosed
+  { name = "ProofKind"
+  , shape = OneOf
+  , every = ProvedInComponent ::: [MadeAcyclic]
+  , complete = \case
+      ProvedInComponent => Here
+      MadeAcyclic => There Here
+  , describe = \case
+      ProvedInComponent => MkCase "Component" ("component" ::: [])
+                             "Idris proved the loops end in a component of its call graph"
+      MadeAcyclic => MkCase "Acyclic" ("acyclic" ::: []) "a pass made the function with no loop of its own"
+  , doc = brief "which proof a function's termination attribute holds"
+  }
+
+||| Idris's proof: the component of its call graph, in 32 bits.
+public export
+componentProofWire : Composite
+componentProofWire = MkComposite "ComponentProof" "::idr::InComponent"
+  (Fields [MkWireField "component" (WireLeaf LeafWord32)])
+  (brief "Idris proved the loops end in this component of its call graph")
+
+||| A made function's acyclicity, which holds nothing more.
+public export
+acyclicProofWire : Composite
+acyclicProofWire = MkComposite "AcyclicProof" "::idr::Acyclic" (Fields [])
+  (brief "a pass made the function with no loop of its own")
+
+||| What the attribute holds: a proof, either case but `Unproved`, its kind
+||| then what the kind holds. The attribute is written exactly when there is
+||| one, so a function without it is unproved, and none can claim an empty
+||| proof.
+public export
+proofWire : Composite
+proofWire = MkComposite "TerminationProof" "::idr::TerminationProof"
+  (variant proofKindClosed (\case
+     ProvedInComponent => componentProofWire
+     MadeAcyclic => acyclicProofWire))
+  (brief "a termination proof: its kind, then what the kind holds")
+
+||| The proof's text, `component 3` or `acyclic`; its bytecode is the
+||| wire's.
 export
 proofDirective : Directive
 proofDirective = MkDirective
-  { name = "TerminationProof"
+  { name = "Proof"
   , args = []
   , doc = brief "a termination proof: `component <n>` or `acyclic`"
   }
 
 ||| `#idr.terminates<component 3>`, `#idr.terminates<acyclic>`, C++
-||| `TerminatesAttr`, its parameter the hand value `::idr::TerminationProof`.
+||| `TerminatesAttr`, its parameter a `::idr::TerminationProof`.
 export
 terminatesAttr : AttrDef 1
 terminatesAttr = MkAttrDef
   { mnemonic = "terminates"
   , params =
-      [ MkParameter "proof" (HandValue "::idr::TerminationProof" proofDirective)
+      [ MkParameter "proof" (WiredValue (WiredOf proofWire) proofDirective)
           AlwaysWritten "the component Idris proved it in, or a made function's acyclicity" ]
   , syntax = Declarative [Keyword "<", ParamAt FZ, Keyword ">"]
   , typed = Untyped

@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The values a function's attributes hold beside its row: Idris's
-// termination proof, in text and in bytecode, and the put bounds' text, by
-// the hooks the specification declares (the bounds' bytecode is printed
-// from their wire); and the view of a signature's parameters by the part
-// of the record each admits, which every position of the record is read
-// through.
+// The values a function's attributes hold beside its row: the text of
+// Idris's termination proof and of the put bounds, by the hooks the
+// specification declares (their bytecode is printed from their wires); and
+// the view of a signature's parameters by the part of the record each
+// admits, which every position of the record is read through.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
@@ -16,8 +15,6 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/STLExtras.h"
-
-#include <limits>
 
 using namespace mlir;
 using namespace idr;
@@ -32,8 +29,8 @@ llvm::hash_code idr::hash_value(const TerminationProof &proof) {
       [](Acyclic) { return llvm::hash_combine(1u); });
 }
 
-// The attribute's parameter: `component 3`, `acyclic`.
-FailureOr<TerminationProof> idr::parseTerminationProof(AsmParser &parser) {
+// The proof's text, `component 3` or `acyclic`; its bytecode is its wire's.
+FailureOr<TerminationProof> idr::parseProof(AsmParser &parser) {
   if (succeeded(parser.parseOptionalKeyword("acyclic")))
     return TerminationProof(Acyclic{});
   std::uint32_t component = 0;
@@ -42,31 +39,10 @@ FailureOr<TerminationProof> idr::parseTerminationProof(AsmParser &parser) {
   return TerminationProof(InComponent{component});
 }
 
-void idr::printTerminationProof(AsmPrinter &printer, TerminationProof proof) {
+void idr::printProof(AsmPrinter &printer, TerminationProof proof) {
   idr::match(
       proof, [&](InComponent in) { printer << "component " << in.component; },
       [&](Acyclic) { printer << "acyclic"; });
-}
-
-// In bytecode: zero for acyclic, else the component plus one.
-LogicalResult idr::readTerminationProof(DialectBytecodeReader &reader, TerminationProof &proof) {
-  std::uint64_t word = 0;
-  if (failed(reader.readVarInt(word)))
-    return failure();
-  if (word == 0) {
-    proof = Acyclic{};
-    return success();
-  }
-  if (word - 1 > std::numeric_limits<std::uint32_t>::max())
-    return reader.emitError() << "termination component " << (word - 1) << " out of range";
-  proof = InComponent{static_cast<std::uint32_t>(word - 1)};
-  return success();
-}
-
-void idr::writeTerminationProof(DialectBytecodeWriter &writer, TerminationProof proof) {
-  idr::match(
-      proof, [&](InComponent in) { writer.writeVarInt(std::uint64_t{in.component} + 1); },
-      [&](Acyclic) { writer.writeVarInt(0); });
 }
 
 Termination idr::FuncOp::getTermination() {
