@@ -3903,6 +3903,16 @@ C137.
   exclusive meets `unsupported (uniqueness)`, as D71 says. A buffer an
   upstream op makes enters our grades through `own.adopt`, so a cell
   holding it can claim `unique deep`.
+- **C186** (2026-10-21; L21's question on C177). The lowering emits the
+  frame-bound account's calls in every build, and which runtime the
+  program links decides what they do: the runtime's bitcode is linked
+  into the module before code generation (C44, `LinkRuntime`), and the
+  shipped runtime's entries are empty, so they inline away before any
+  instruction is chosen and a shipped program pays nothing. A second
+  lowering mode chosen by an option would be configuration the compiler
+  does not carry. The claim is checked, not assumed: a shipped program's
+  object references no account entry, a test of L19's beside
+  `check-archive`'s refusal of an account in a shipped archive.
 
 ## 4. Open: the owner's decisions, in order
 
