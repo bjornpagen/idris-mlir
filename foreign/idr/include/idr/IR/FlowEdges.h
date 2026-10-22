@@ -16,11 +16,12 @@
 //
 // An anchor, a point and an edge are each a sum: one alternative per kind,
 // holding what that kind has and nothing else, so no reader meets a field
-// that is not its kind's. A reader takes one apart with std::visit over
-// llvm::makeVisitor, one function per alternative, so the compiler holds
-// it to every kind.
+// that is not its kind's. A reader takes one apart with idr::match, one
+// case per alternative, so the compiler holds it to every kind.
 #ifndef IDR_IR_FLOWEDGES_H
 #define IDR_IR_FLOWEDGES_H
+
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpDefinition.h"
@@ -31,7 +32,6 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/Hashing.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -143,22 +143,21 @@ struct FlowAnchor {
 
 inline llvm::hash_code hash_value(const FlowAnchor &anchor) {
   size_t kind = anchor.place.index();
-  return std::visit(
-      llvm::makeVisitor(
-          [&](const FlowAnchor::Field &field) {
-            return llvm::hash_combine(kind, field.data, static_cast<std::uint32_t>(field.ctor),
-                                      field.index);
-          },
-          [&](const FlowAnchor::Elements &elements) {
-            return llvm::hash_combine(kind, elements.element);
-          },
-          [&](const FlowAnchor::Forced &forced) { return llvm::hash_combine(kind, forced.lazy); },
-          [&](const FlowAnchor::MemoState &state) { return llvm::hash_combine(kind, state.memo); },
-          [&](const FlowAnchor::Capture &capture) {
-            return llvm::hash_combine(kind, capture.carrier, capture.index);
-          },
-          [&](const FlowAnchor::Hole &hole) { return llvm::hash_combine(kind, hole.dest); }),
-      anchor.place);
+  return idr::match(
+      anchor.place,
+      [&](const FlowAnchor::Field &field) {
+        return llvm::hash_combine(kind, field.data, static_cast<std::uint32_t>(field.ctor),
+                                  field.index);
+      },
+      [&](const FlowAnchor::Elements &elements) {
+        return llvm::hash_combine(kind, elements.element);
+      },
+      [&](const FlowAnchor::Forced &forced) { return llvm::hash_combine(kind, forced.lazy); },
+      [&](const FlowAnchor::MemoState &state) { return llvm::hash_combine(kind, state.memo); },
+      [&](const FlowAnchor::Capture &capture) {
+        return llvm::hash_combine(kind, capture.carrier, capture.index);
+      },
+      [&](const FlowAnchor::Hole &hole) { return llvm::hash_combine(kind, hole.dest); });
 }
 
 // One end of an edge.
@@ -183,6 +182,21 @@ struct FlowPoint {
   struct Part {
     std::variant<Taken, Whole> of;
     FlowAnchor anchor;
+
+    // The value the part is of, taken or only read: a part always has one.
+    mlir::Value value() const {
+      return idr::match(
+          of, [](Taken taken) { return taken.use->get(); },
+          [](Whole whole) { return whole.value; });
+    }
+    // The use the op takes over where it takes the whole the part is of.
+    std::optional<mlir::OpOperand *> taken() const {
+      using Found = std::optional<mlir::OpOperand *>;
+      return idr::match(
+          of, [](Taken taken) -> Found { return taken.use; },
+          [](Whole) -> Found { return std::nullopt; });
+    }
+
     bool operator==(const Part &) const = default;
   };
   // A parameter of a function, by its name.
@@ -218,18 +232,13 @@ struct FlowPoint {
   // The SSA value at this point: a use's value, a value, or the value a
   // part is of; none at a parameter or a result.
   std::optional<mlir::Value> value() const {
-    auto ofEnd = [](const std::variant<Taken, Whole> &end) {
-      return std::visit(llvm::makeVisitor([](Taken taken) { return taken.use->get(); },
-                                          [](Whole whole) { return whole.value; }),
-                        end);
-    };
     using Found = std::optional<mlir::Value>;
-    return std::visit(llvm::makeVisitor([](Taken taken) -> Found { return taken.use->get(); },
-                                        [](Whole whole) -> Found { return whole.value; },
-                                        [&](const Part &part) -> Found { return ofEnd(part.of); },
-                                        [](Parameter) -> Found { return std::nullopt; },
-                                        [](Result) -> Found { return std::nullopt; }),
-                      at);
+    return idr::match(
+        at, [](Taken taken) -> Found { return taken.use->get(); },
+        [](Whole whole) -> Found { return whole.value; },
+        [](const Part &part) -> Found { return part.value(); },
+        [](Parameter) -> Found { return std::nullopt; },
+        [](Result) -> Found { return std::nullopt; });
   }
 
   // The type of what is held at this point, where the op alone says it: a
@@ -243,21 +252,13 @@ struct FlowPoint {
   // value a part is of when the op takes it; none where the op only reads,
   // makes or writes in place, or at a parameter or a result.
   std::optional<mlir::OpOperand *> taken() const {
-    auto ofEnd = [](const std::variant<Taken, Whole> &end) {
-      return std::visit(
-          llvm::makeVisitor(
-              [](Taken taken) -> std::optional<mlir::OpOperand *> { return taken.use; },
-              [](Whole) -> std::optional<mlir::OpOperand *> { return std::nullopt; }),
-          end);
-    };
-    return std::visit(
-        llvm::makeVisitor(
-            [](Taken taken) -> std::optional<mlir::OpOperand *> { return taken.use; },
-            [](Whole) -> std::optional<mlir::OpOperand *> { return std::nullopt; },
-            [&](const Part &part) { return ofEnd(part.of); },
-            [](Parameter) -> std::optional<mlir::OpOperand *> { return std::nullopt; },
-            [](Result) -> std::optional<mlir::OpOperand *> { return std::nullopt; }),
-        at);
+    using Found = std::optional<mlir::OpOperand *>;
+    return idr::match(
+        at, [](Taken taken) -> Found { return taken.use; },
+        [](Whole) -> Found { return std::nullopt; },
+        [](const Part &part) -> Found { return part.taken(); },
+        [](Parameter) -> Found { return std::nullopt; },
+        [](Result) -> Found { return std::nullopt; });
   }
 
   bool operator==(const FlowPoint &) const = default;

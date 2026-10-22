@@ -11,10 +11,9 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
-
-#include <variant>
 
 using namespace mlir;
 using namespace idr;
@@ -39,36 +38,28 @@ Carriers Carriers::of(Type type) {
 }
 
 std::optional<Type> FlowAnchor::slot() const {
-  return std::visit(
-      llvm::makeVisitor(
-          [](const Field &field) -> std::optional<Type> {
-            return unrestricted(field.data.ctor(field.ctor).fields[field.index]);
-          },
-          [](const Elements &elements) -> std::optional<Type> { return elements.element; },
-          [](const Forced &forced) -> std::optional<Type> {
-            return unrestricted(forced.lazy.getValue());
-          },
-          [](const MemoState &state) -> std::optional<Type> {
-            return unrestricted(state.memo.ctor(state.memo.memo()->forced()).fields.front());
-          },
-          [](const Capture &) -> std::optional<Type> { return std::nullopt; },
-          [](const Hole &hole) -> std::optional<Type> { return hole.dest.getValue(); }),
-      place);
+  using Slot = std::optional<Type>;
+  return idr::match(
+      place,
+      [](const Field &field) -> Slot {
+        return unrestricted(field.data.ctor(field.ctor).fields[field.index]);
+      },
+      [](const Elements &elements) -> Slot { return elements.element; },
+      [](const Forced &forced) -> Slot { return unrestricted(forced.lazy.getValue()); },
+      [](const MemoState &state) -> Slot {
+        return unrestricted(state.memo.ctor(state.memo.memo()->forced()).fields.front());
+      },
+      [](const Capture &) -> Slot { return std::nullopt; },
+      [](const Hole &hole) -> Slot { return hole.dest.getValue(); });
 }
 
 std::optional<Type> FlowPoint::type() const {
-  return std::visit(
-      llvm::makeVisitor(
-          [](FlowPoint::Taken taken) -> std::optional<Type> {
-            return unrestricted(taken.use->get().getType());
-          },
-          [](FlowPoint::Whole whole) -> std::optional<Type> {
-            return unrestricted(whole.value.getType());
-          },
-          [](const FlowPoint::Part &part) { return part.anchor.slot(); },
-          [](FlowPoint::Parameter) -> std::optional<Type> { return std::nullopt; },
-          [](FlowPoint::Result) -> std::optional<Type> { return std::nullopt; }),
-      at);
+  using Held = std::optional<Type>;
+  return idr::match(
+      at, [](Taken taken) -> Held { return unrestricted(taken.use->get().getType()); },
+      [](Whole whole) -> Held { return unrestricted(whole.value.getType()); },
+      [](const Part &part) -> Held { return part.anchor.slot(); },
+      [](Parameter) -> Held { return std::nullopt; }, [](Result) -> Held { return std::nullopt; });
 }
 
 namespace {
