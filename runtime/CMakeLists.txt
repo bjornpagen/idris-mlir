@@ -204,9 +204,10 @@ set(IDRIS_MLIR_SIMDUTF_INCLUDE_DIRECTORIES
 
 # What every unit of the runtime is told beyond its headers' definitions,
 # and so is a unit of it a test compiles (c-flags, below), but the page and
-# which runtime it joins: what code outside the program takes on its stack,
-# measured for the target (Start/Entry.cpp); the simdutf implementation the
-# runtime calls, its header and its class; and what simdutf itself is told.
+# which runtime it joins: what code outside the compiled code takes on a
+# stack, measured for the target, which the runner adds to a program's and a
+# tool's (Start/Runner.cpp); the simdutf implementation the runtime calls,
+# its header and its class; and what simdutf itself is told.
 set(IDRIS_RT_UNIT_DEFINITIONS
 	IDRIS_RT_OUTSIDE_STACK_BYTES=${IDRIS_MLIR_OUTSIDE_STACK_BYTES}
 	"IDRIS_RT_SIMDUTF_HEADER=\"simdutf/${IDRIS_MLIR_RUNTIME_SIMDUTF}/implementation.h\""

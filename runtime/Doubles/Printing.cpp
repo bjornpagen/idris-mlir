@@ -18,6 +18,7 @@
 // operation.
 // PIN(runtime-quarantine) — see PINS.md
 #include "Doubles/Doubles.h"
+#include "Io/Io.h"
 #include "Strings/Strings.h"
 #include "idris_rt.h"
 
@@ -125,4 +126,10 @@ extern "C" const idris_rt_str *idris_rt_str_show_f64(double value) {
   char text[rt::doubles::doubleTextMax];
   size_t n = rt::doubles::formatDouble(value, text);
   return rt::strings::asciiOf(text, n);
+}
+
+// The same text, written to standard output, with no string.
+extern "C" void idris_rt_io_put_f64(double value) {
+  char text[rt::doubles::doubleTextMax];
+  rt::io::putOutput(text, rt::doubles::formatDouble(value, text));
 }

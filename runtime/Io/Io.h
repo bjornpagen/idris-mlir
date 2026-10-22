@@ -114,6 +114,15 @@ void releaseHandles();
 // what every ending writes first.
 rt::platform::Wrote writePending();
 
+// Standard output's writes (Output.cpp): the n bytes at p after what is
+// pending, through the buffer, or at once when they are more than it holds;
+// and, for text formatted where it goes, room for n bytes, at most the
+// buffer's, after a flush when they would not fit, whose first n bytes
+// outputWritten then makes pending.
+void putOutput(const char *p, size_t n);
+char *outputRoom(size_t n);
+void outputWritten(size_t n);
+
 // Streams: what a handle that names one reads and writes, through the row
 // of its kind.
 

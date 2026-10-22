@@ -365,7 +365,8 @@ extern const idris_rt_built idris_rt_program_built;
 /* What a reserved stack is to hold, for the runner: the bytes of the deepest
  * path of calls the code run on it can make, its largest frame, which the
  * guard below it is at least, and the bytes the fault handler's path takes on
- * the signal stack. The runner adds what the host's own thread and signal
+ * the signal stack. The runner adds to both stacks what outside code takes
+ * (the target's one margin) and what the host's own thread and signal
  * delivery take, which it reads at start, and rounds each to pages. */
 typedef struct idris_rt_stack_plan {
   uint64_t stack_bytes;

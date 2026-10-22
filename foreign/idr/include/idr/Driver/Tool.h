@@ -39,7 +39,9 @@
 
 // The tools' stack and signal stack, measured per target (its entry in
 // CMakeLists.txt): their deepest path on the stage-1 module and the deep
-// nesting fixtures, and the fault handler's on the signal stack.
+// nesting fixtures, and the fault handler's on the signal stack. The runner
+// adds what outside code takes, the target's one margin, as it does to a
+// program's.
 #ifndef IDRIS_MLIR_TOOL_STACK_BYTES
 #error "the target entry gives the tools' stack (IDRIS_MLIR_TOOL_STACK_BYTES)"
 #endif
@@ -80,8 +82,8 @@ inline constexpr idris_rt_stack_plan toolStack{IDRIS_MLIR_TOOL_STACK_BYTES, 0,
                                                IDRIS_MLIR_TOOL_SIGNAL_BYTES};
 
 // LLVM sizes a thread's stack in an unsigned: the tools' small stack fits
-// it, with half its range left for the host's own part, a few pages, which
-// the runner adds.
+// it, with half its range left for what the runner adds, outside code's
+// margin and the host's own part.
 static_assert(IDRIS_MLIR_TOOL_STACK_BYTES <= std::numeric_limits<unsigned>::max() / 2,
               "the tools' stack fits a thread's stack size as LLVM takes it");
 

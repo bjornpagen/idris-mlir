@@ -15,15 +15,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// What code outside the program takes on its stack below any of the
-// program's frames, which the compiler cannot size: the C library's, GMP's
-// and compiler-rt's frames, measured for the target and kept in its entry
-// (CMakeLists.txt). The program's own frames, the runtime's among them, are
-// the driver's count (idris_rt_program_built).
-#ifndef IDRIS_RT_OUTSIDE_STACK_BYTES
-#error "the target entry gives the stack outside code takes (IDRIS_RT_OUTSIDE_STACK_BYTES)"
-#endif
-
 namespace {
 
 void runProgram(void *argument) { static_cast<const idris_rt_program *>(argument)->body(); }
@@ -48,8 +39,9 @@ idris_rt_start(const idris_rt_program *program, int32_t argc, char **argv) {
   rt::start::checkMachine(program->cpu_features);
   rt::start::keepArguments(argc, argv);
   rt::platform::ignoreBrokenPipes();
-  idris_rt_stack_plan plan{built.stack_bytes + IDRIS_RT_OUTSIDE_STACK_BYTES, built.frame_bytes,
-                           built.signal_bytes + IDRIS_RT_OUTSIDE_STACK_BYTES};
+  // The program's own frames, the runtime's among them, are the driver's
+  // count; the runner adds what outside code takes.
+  idris_rt_stack_plan plan{built.stack_bytes, built.frame_bytes, built.signal_bytes};
   // The runner hands its argument to runProgram untouched, which reads the
   // record as the constant it is.
   if (rt::start::run(runProgram, const_cast<idris_rt_program *>(program), plan,

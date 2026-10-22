@@ -13,7 +13,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// What code outside the compiled code takes on a stack below any of its
+// frames, which no compiler sizes: the C library's, GMP's and compiler-rt's
+// frames, measured for the target and kept in its entry (CMakeLists.txt).
+// One margin, which the runner adds to a program's plan and a tool's alike.
+#ifndef IDRIS_RT_OUTSIDE_STACK_BYTES
+#error "the target entry gives the stack outside code takes (IDRIS_RT_OUTSIDE_STACK_BYTES)"
+#endif
+
 namespace {
+
+constexpr size_t outsideBytes = IDRIS_RT_OUTSIDE_STACK_BYTES;
 
 // What the runner gave its thread, kept while fn runs, which a tool's other
 // threads take too: the guard, the stack, and the signal stack's need (the
@@ -94,12 +104,14 @@ idris_rt_ran rt::start::run(void (*fn)(void *), void *arg, const idris_rt_stack_
   pointGmp();
   // Each part a whole number of pages: the guard at least a page and at
   // least the largest frame, so no frame steps over it; the stack and the
-  // signal stack what the plan says, with what the host's thread and its
-  // signal delivery take on them.
-  size_t guard, stack, need, signal, region;
+  // signal stack what the plan says, with what outside code, the host's
+  // thread and its signal delivery take on them.
+  size_t guard, own, stack, need, signal, region;
   if (!pages(plan.frame_bytes > 0 ? plan.frame_bytes : 1, 0, guard) ||
-      !pages(plan.stack_bytes, rt::platform::threadStackMinimum(), stack) ||
-      __builtin_add_overflow(plan.signal_bytes, rt::platform::signalStackMinimum(), &need) ||
+      __builtin_add_overflow(plan.stack_bytes, outsideBytes, &own) ||
+      !pages(own, rt::platform::threadStackMinimum(), stack) ||
+      __builtin_add_overflow(plan.signal_bytes, outsideBytes, &need) ||
+      __builtin_add_overflow(need, rt::platform::signalStackMinimum(), &need) ||
       !pages(need, 0, signal) || __builtin_add_overflow(guard * 2, stack, &region) ||
       __builtin_add_overflow(region, signal, &region) || !rt::platform::guardsEnd(endWorker))
     return IDRIS_RT_REFUSED;

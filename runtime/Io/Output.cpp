@@ -58,18 +58,6 @@ void written(rt::platform::Wrote how) {
     rt::end::end(rt::end::Piped{});
 }
 
-// The n bytes at p, after what is pending: into the buffer, or, when they
-// are more than it holds, written at once after it.
-void putBytes(const char *p, size_t n) {
-  size_t at = roomFor(n);
-  if (n > bufferSize) {
-    written(rt::platform::writeAll(1, p, n));
-    return;
-  }
-  memcpy(output + at, p, n);
-  publish(at + n);
-}
-
 // Standard output and error are never read: a read fails as on a stream not
 // open for reading.
 size_t readNothing(const Stream &, char *, size_t) {
@@ -89,13 +77,27 @@ bool never(const Stream &) { return false; }
 
 namespace rt::io {
 
+void putOutput(const char *p, size_t n) {
+  size_t at = roomFor(n);
+  if (n > bufferSize) {
+    written(rt::platform::writeAll(1, p, n));
+    return;
+  }
+  memcpy(output + at, p, n);
+  publish(at + n);
+}
+
+char *outputRoom(size_t n) { return output + roomFor(n); }
+
+void outputWritten(size_t n) { publish(outputLength.load(std::memory_order_relaxed) + n); }
+
 // Standard output, the handle 1: written through the buffer, in order with
 // every other write to it; flushing it, and closing it, write what it has
 // pending, and it stays open.
 constexpr StreamOps outputStream{
     .write =
         [](const Stream &, const char *p, size_t n) {
-          putBytes(p, n);
+          putOutput(p, n);
           return Written{n, false};
         },
     .read = readNothing,
@@ -151,7 +153,7 @@ extern "C" void idris_rt_flush(void) { written(rt::io::writePending()); }
 
 // Writes a string's bytes.
 extern "C" void idris_rt_io_put_str(const idris_rt_str *s) {
-  putBytes(idris_rt_str_bytes(s), s->bytes);
+  rt::io::putOutput(idris_rt_str_bytes(s), s->bytes);
 }
 
 // Writes the UTF-8 encoding of a character: the Prelude's putChar, and what
