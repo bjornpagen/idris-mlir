@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What counting's ops share with the rest of the dialect: the rule for what
 // a field of a built value may hold, which a cell's init, a rebuild and a
-// constructor value all obey; and the size check of a recycle, which needs
+// constructor value all obey; the destination of a cell's hole, which
+// idr-trmc makes holes by; and the size check of a recycle, which needs
 // the target's layout and so runs where the program's verifier holds one.
 // The ops, their types, their predicates and their directives are the
 // specification's (Spec.Counting), declared by the generated headers
@@ -13,9 +14,11 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
+#include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include <cstdint>
 #include <optional>
 
 namespace idr {
@@ -31,6 +34,13 @@ class Layouts;
 // lifetime, whose cells may hold views of it. So a counted cell takes no
 // scoped field, and no view outlives the lifetime it lives in.
 bool fillsField(mlir::Type type, mlir::Type field, std::optional<Hold> built);
+
+// The destination of hole `hole` of `cell`'s constructor: written through,
+// once, with a value of the field's declared type at its grade. Failure,
+// after an error at `location` when there is one, for a field the
+// constructor does not have or one no destination takes.
+mlir::FailureOr<DestType> destOf(std::optional<mlir::Location> location, CellType cell,
+                                 std::int32_t hole);
 
 // Whether `recycle` gives a cell of the size of every cell its token may
 // hold, as `layouts` lays cells out on the target.

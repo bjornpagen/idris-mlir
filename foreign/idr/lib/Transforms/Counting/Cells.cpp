@@ -16,8 +16,6 @@
 // place a reference crosses into upstream's buffer ops is an op of its
 // own: a fresh buffer's reference is taken over by idr.own.adopt, and a
 // value stored into a buffer hands its reference over by idr.own.give.
-#include "Counting.h"
-
 #include "idr/IR/Effects/Query.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"

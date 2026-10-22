@@ -30,7 +30,9 @@
 ||| value that owns its count is a free of that count, a count is read and
 ||| written only where the type does not prove the value unshared, and a
 ||| value typed unique meets no count at all. Each op that exists while the
-||| ownership markings read the program states how its values move.
+||| ownership markings read the program states how its values move, and
+||| each that can make a scoped value (a share, an unpack, an init) states
+||| that value's lifetime, so it is read off the op in one step.
 module IdrisMLIR.Spec.Counting.Declarations
 
 import IdrisMLIR.Spec.Control.Flow
@@ -91,6 +93,16 @@ cell = OurType (SomeType cellType)
 
 token : TypeC
 token = SatisfiesType tokenValue
+
+||| The lifetimes an op states, one per scoped value it makes, in the order
+||| of its results: two results of two lifetimes keep each its own span.
+outers : Operand
+outers = variadic "outers" (OurType (SomeType lifetimeType))
+
+||| What each op that makes a scoped value defines of the lifetimes'
+||| interface: the lifetime it states for a value, and its restatement.
+statedMethods : List Ident
+statedMethods = ["getStatedLifetime", "setStatedLifetime"]
 
 --------------------------------------------------------------------------------
 -- The custom directives
@@ -167,22 +179,28 @@ drop = countingOp "count.drop" [single "value" (SatisfiesType countedValue)] [] 
   [] WithDefaults []
   (brief "gives up a counted reference, freeing the value with its last")
 
-||| `count.share %v : T`, C++ `CountShareOp`: the value given on with what
-||| its grade claimed of its sharing forgotten, where a slot claims less;
-||| static data given where a value that claims nothing is asked; or a token
-||| given where one that may hold more constructors' cells is asked, as a
-||| rejoin's paths give theirs. Nothing at
-||| run time; its result carries its operand, moved where the operand owns a
-||| count, so it is no identity of its operand's, and a value it follows is
-||| never proved unique through it.
-share : Op 1 1 0 0
-share = countingOp "count.share" [single "value" (SatisfiesType heldValue)] [result "result" anyValue] [] []
-  [OurTrait resultCarriesOperand] [Implements flowInterface ["getFlowEdges"]]
+||| `count.share %v : T in %l : L -> U`, C++ `CountShareOp`: the value given
+||| on with what its grade claimed of its sharing forgotten, where a slot
+||| claims less; static data given where a value that claims nothing is
+||| asked; or a token given where one that may hold more constructors' cells
+||| is asked, as a rejoin's paths give theirs. Nothing at run time; its
+||| result carries its operand, moved where the operand owns a count, so it
+||| is no identity of its operand's, and a value it follows is never proved
+||| unique through it. A scoped result lives in the lifetime it states
+||| (`in %l`), its operand's or one that lifetime encloses, so its lifetime
+||| is read off the share in one step; the builder that takes no lifetime
+||| states the operand's.
+share : Op 2 1 0 0
+share = countingOp "count.share"
+  [single "value" (SatisfiesType heldValue), outers] [result "result" anyValue] [] []
+  [OurTrait resultCarriesOperand]
+  [Implements flowInterface ["getFlowEdges"], Implements statesLifetime statedMethods]
   (Executes [] [Consumes 0, NewIdentity 0] Covered Untouched)
   explicit VerifiesOp
   (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
+            , OptionalGroup [Lit "in"] (ValueOf (OperandRef 1)) [Lit ":", TypeOf (OfGroup (OperandRef 1))]
             , Custom sharedDirective [TypeOfGroup (ResultRef 0), TypeAgain (OperandRef 0)] ])
-  [] WithDefaults []
+  [MkBuilder [param "::mlir::Type" "result", param "::mlir::Value" "value"]] WithDefaults []
   (brief "gives a value on with its claim of sharing forgotten")
 
 ||| `count.take %v : T`, C++ `CountTakeOp`: a value refined to a constructor
@@ -204,17 +222,25 @@ take = countingOp "count.take" [single "value" (SatisfiesType takeable)]
   , MkMember OnObject "::idr::Tag" "getTag" [] ]
   (brief "takes a value out of its cell, giving its token and its fields")
 
-||| `count.unpack %v : T`, C++ `CountUnpackOp`: a value refined to a
-||| constructor held in place taken apart, its fields inferred from it: it
-||| is its fields already, so no memory is read and no count changed.
-unpack : Op 1 1 0 0
-unpack = countingOp "count.unpack" [single "value" (SatisfiesType unpackable)]
+||| `count.unpack %v : T in %l, … : L, …`, C++ `CountUnpackOp`: a value
+||| refined to a constructor held in place taken apart, its fields inferred
+||| from it: it is its fields already, so no memory is read and no count
+||| changed. Each scoped field lives in the lifetime its own entry of
+||| `outers` states, in field order: the value's, or one that lifetime
+||| encloses, for a field read at the value's hold; whatever lifetime a
+||| frame kept a field in, for a frame's field at its whole grade. The
+||| builder that takes no lifetimes states the value's for each.
+unpack : Op 2 1 0 0
+unpack = countingOp "count.unpack" [single "value" (SatisfiesType unpackable), outers]
   [results "fields" anyValue] [] []
-  [] [Declares InferType ["inferReturnTypes"], Implements flowInterface ["getFlowEdges"]]
+  []
+  [ Declares InferType ["inferReturnTypes"], Implements flowInterface ["getFlowEdges"]
+  , Implements statesLifetime statedMethods ]
   (Executes [] [Consumes 0, NewIdentity 0] Covered Untouched)
-  explicit DeclarationOnly
-  (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
-  [] WithDefaults
+  explicit VerifiesOp
+  (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
+            , OptionalGroup [Lit "in"] (ValueOf (OperandRef 1)) [Lit ":", TypeOf (OfGroup (OperandRef 1))] ])
+  [MkBuilder [param "::mlir::Value" "value"]] WithDefaults
   [ MkMember OnObject "::idr::DataType" "getDataType" []
   , MkMember OnObject "::idr::Tag" "getTag" [] ]
   (brief "takes apart a value held in place, giving its fields")
@@ -276,28 +302,30 @@ cellNew = countingOp "cell.new" [] [result "cell" cell] [] []
   [] WithDefaults []
   (brief "a fresh cell its count frees, its header written")
 
-||| `cell.init %c : !idr.cell<T> (%x : A, dest) in %l -> T`, C++
+||| `cell.init %c : !idr.cell<T> (%x : A, dest) in %l : L -> T`, C++
 ||| `CellInitOp`: the fields of the cell's constructor written into it,
 ||| which it consumes, giving the value; a field given owned moves its
 ||| reference into the cell, and a hole is a field written later, once,
-||| through its destination (idr-trmc makes them). Its results follow from
-||| the cell's type, the fields and the holes. The cell is fresh, new or
-||| recycled, so nothing but its fields shares what the value reaches: the
-||| value is inferred as it is made, used once and counted, claiming what a
-||| constructor of those fields claims (`unique deep` where each leaves
-||| everything it reaches unshared), a hole claiming nothing, since what is
-||| written through it is not yet known. It is held at the grade it has,
-||| which may be written, or scoped in the lifetime the cell's source
-||| allocated it into, which it states (`in %l`), present exactly when the
-||| value is scoped. A counted cell takes no scoped field.
+||| through its destination (idr-trmc makes them), of the field's declared
+||| type at its grade. Its results follow from the cell's type, the fields
+||| and the holes. The cell is fresh, new or recycled, so nothing but its
+||| fields shares what the value reaches: the value is inferred as it is
+||| made, used once and counted, claiming what a constructor of those
+||| fields claims (`unique deep` where each leaves everything it reaches
+||| unshared), a hole at what its destination's write must meet, so a cell
+||| whose holes are written later keeps what they will hold. It is held at
+||| the grade it has, which may be written, or scoped in the lifetime the
+||| cell's source allocated it into, which its one entry of `outers` states
+||| (`in %l`) exactly when the value is scoped; the builder given a scoped
+||| grade states the cell's. A counted cell takes no scoped field.
 cellInit : Op 3 2 1 0
 cellInit = countingOp "cell.init"
-  [single "cell" cell, variadic "fields" anyValue, optional "lifetime" anyValue]
+  [single "cell" cell, variadic "fields" anyValue, outers]
   [result "result" anyValue, results "dests" anyValue]
   [MkAttr "holes" (AnAttribute (UpstreamAttr DenseI32ArrayAttrC) (DefaultValued "{}"))] []
   [AttrSizedOperandSegments]
   [ Declares InferType ["inferReturnTypes", "isCompatibleReturnTypes"]
-  , Implements statesLifetime ["getStatedLifetime", "setStatedLifetime"]
+  , Implements statesLifetime statedMethods
   , Implements flowInterface ["getFlowEdges"] ]
   (Executes [OnValues Write Contents (Operands 0)] [Consumes 1, NewIdentity 0] Covered Untouched)
   explicit VerifiesOp

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What counting's passes share, read once from the types, the effects and
-// upstream's control-flow interfaces: what a value's grade leaves to count,
-// what its type says of its constructor, which values are read out of
-// mutable memory, how a terminator leaves its region, and how often a
-// region op runs its regions. Each answer is a choice of an enum, so no
-// pass asks a second question to learn what the first one meant.
-#ifndef IDR_LIB_TRANSFORMS_COUNTING_COUNTING_H
-#define IDR_LIB_TRANSFORMS_COUNTING_COUNTING_H
+// What counting's passes share (lib/Transforms/Counting), read once from
+// the types, the effects and upstream's control-flow interfaces: what a
+// value's grade leaves to count, what its type says of its constructor,
+// which values are read out of mutable memory, how a terminator leaves its
+// region, and how often a region op runs its regions. Each answer is a
+// choice of an enum, so no pass asks a second question to learn what the
+// first one meant.
+#ifndef IDR_TRANSFORMS_COUNTING_FACTS_H
+#define IDR_TRANSFORMS_COUNTING_FACTS_H
 
 #include "idr/IR/Effects/Query.h"
 #include "idr/IR/Families/Declaration.h"
@@ -28,10 +29,6 @@
 
 #include <cstdint>
 #include <optional>
-
-namespace idr {
-class Layouts;
-} // namespace idr
 
 namespace idr::counting {
 
@@ -159,11 +156,6 @@ struct Where {
   bool operator==(const Where &) const = default;
 };
 
-// The function's frame bound, as reuse leaves it: the most bytes of
-// emptied cells its tokens hold at any point where memory may be acquired,
-// each token's cell sized by its type on the target (Bound.cpp).
-std::uint64_t frameBound(FuncOp fn, const Layouts &layouts);
-
 } // namespace idr::counting
 
-#endif // IDR_LIB_TRANSFORMS_COUNTING_COUNTING_H
+#endif // IDR_TRANSFORMS_COUNTING_FACTS_H

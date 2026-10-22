@@ -21,8 +21,6 @@
 // either is the inference's promise broken, an internal error; a view that
 // meets a slot the inference left counted fails the verifier where it
 // stands.
-#include "Counting.h"
-
 #include "idr/Analysis/Ownership.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
@@ -31,6 +29,7 @@
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Ownership.h"
 #include "idr/Transforms/Counting.h"
+#include "idr/Transforms/Counting/Facts.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/Builders.h"

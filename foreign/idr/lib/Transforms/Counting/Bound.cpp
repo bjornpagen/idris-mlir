@@ -13,7 +13,7 @@
 // One forward walk over the function as reuse leaves it, every token's span
 // decided; its blocks wait on a stack on the heap, so a nesting of any depth
 // costs no native stack.
-#include "Counting.h"
+#include "idr/Transforms/Counting/Reuse.h"
 
 #include "idr/IR/Effects/Query.h"
 #include "idr/IR/Grades.h"

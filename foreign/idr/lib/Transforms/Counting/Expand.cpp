@@ -23,11 +23,10 @@
 // region the null token, which the one recycle or free that consumes it
 // tests). The test is never built for a value its type answers, so a value
 // typed unique meets no test and no count.
-#include "Counting.h"
-
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Counting.h"
+#include "idr/Transforms/Counting/Facts.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/PatternMatch.h"

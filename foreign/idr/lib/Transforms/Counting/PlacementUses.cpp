@@ -1,0 +1,173 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
+// What idr-rc-place's walk (Placement.h) places at each use and each death
+// of a value: a consuming use of a counted value still needed later takes
+// a dup, a part used while its owner lives reads it, and a value no later
+// use needs dies, dropped where only a read used it last. A dying owner's
+// parts still needed take their references there, the owner taken apart
+// (drop specialization) or each part given a dup while the owner lives.
+#include "idr/Transforms/Counting/Placement.h"
+
+#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Grades.h"
+#include "idr/IR/IdrDialect.h"
+
+#include "llvm/ADT/STLExtras.h"
+
+#include <algorithm>
+
+using namespace mlir;
+
+namespace idr::counting::placement {
+
+namespace {
+
+// Whether `op`, with everything in it, may take memory: a cell or a value
+// it makes, memory its runtime function holds that no value names, or what
+// a call's callee acquires, all of which its row reports as `alloc`.
+bool mayAcquire(Operation *op) { return effects::rowOf(op).contains(effects::Atom::alloc); }
+
+} // namespace
+
+// The counted operands of `op` no later use needs: one it only reads dies
+// right after it (after the op as a whole, for a region op whose regions do
+// not need it); one it consumes, with parts of it still needed, gives them
+// dups before it. `inside`, for a region op, is what its regions need, and
+// `after` what is live after the op.
+void Placement::operandDeaths(Operation *op, const llvm::SmallBitVector &consumed, State &state,
+                              const llvm::BitVector *inside, const State *after) {
+  llvm::SmallVector<ValueId, 4> seen;
+  for (OpOperand &operand : op->getOpOperands()) {
+    ValueId id = idOf(operand.get());
+    if (roles[id] != Role::Owned || llvm::is_contained(seen, id))
+      continue;
+    seen.push_back(id);
+    const llvm::BitVector &later = after ? after->live : state.live;
+    if (later.test(id.index()) || (inside && inside->test(id.index())))
+      continue;
+    bool consumes = llvm::any_of(op->getOpOperands(), [&](OpOperand &other) {
+      return other.get() == operand.get() && consumed.test(other.getOperandNumber());
+    });
+    if (consumes) {
+      death(id, Where::before(op), Death::Consuming, state);
+      continue;
+    }
+    if (op->hasTrait<OpTrait::IsTerminator>()) {
+      fail(op, "a terminator reads a counted value nothing after it needs");
+      continue;
+    }
+    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() != TailKind::nontail) {
+      fail(op, "a call in tail position reads a counted value no later use needs, so its drop "
+               "would follow the call");
+      continue;
+    }
+    State dying = after ? *after : state;
+    death(id, Where::past(op), Death::Reading, dying);
+  }
+}
+
+// Each operand of `op`, against what is live after it: a consuming use of a
+// counted value still needed later takes a dup; a use of a part while its
+// owner lives reads it, and a consuming one takes a dup of it; a part used
+// after its owner died has taken a reference of its own, and is placed as a
+// counted value from then on. Last, a point before an op that may acquire
+// memory has an allocation ahead.
+void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVector &consumed,
+                            const llvm::BitVector *inside) {
+  bool tail = false;
+  if (auto call = dyn_cast<CallOp>(op))
+    tail = call.getTailKind() != TailKind::nontail;
+  llvm::SmallVector<ValueId, 4> used;
+  for (OpOperand &operand : op->getOpOperands()) {
+    ValueId id = idOf(operand.get());
+    unsigned index = operand.getOperandNumber();
+    bool consumes = consumed.test(index);
+    bool needed = state.live.test(id.index()) || llvm::is_contained(used, id) ||
+                  (inside && inside->test(id.index()) && consumes);
+    switch (roles[id]) {
+    case Role::Untouched:
+    case Role::Element:
+      break;
+    case Role::Scoped:
+      if (consumes)
+        fail(op, "a view its lifetime frees is taken over, though borrowing made it a view only "
+                 "where nothing takes it over");
+      break;
+    case Role::Owned:
+      if (consumes && needed)
+        dups.push_back({op, index});
+      used.push_back(id);
+      break;
+    case Role::Part: {
+      ValueId owner = *ownerOf[id];
+      if (state.live.test(id.index()) || llvm::is_contained(used, id)) {
+        // Owned from here on: placed as a counted value.
+        if (consumes && needed)
+          dups.push_back({op, index});
+        used.push_back(id);
+        break;
+      }
+      if (aliveAt(owner, op, state)) {
+        // A part of a living owner: a use that consumes it takes a dup.
+        if (consumes)
+          dups.push_back({op, index});
+        break;
+      }
+      // Its owner is dead here: it holds a reference of its own from here
+      // on, which this use consumes or which is dropped right after it.
+      if (!consumes && state.ahead == Ahead::Allocation) {
+        if (tail)
+          fail(op, "a call in tail position reads a part no later use needs");
+        drops.push_back({Where::past(op), id});
+      }
+      used.push_back(id);
+      break;
+    }
+    }
+  }
+  for (ValueId id : used)
+    state.live.set(id.index());
+  if (mayAcquire(op))
+    state.ahead = Ahead::Allocation;
+}
+
+// `owner` dies at `where`: the parts of it still needed take their
+// references (taken apart from it, or each a dup while it lives), and it is
+// dropped, unless only the end lies ahead or its death moved it on.
+void Placement::death(ValueId owner, Where where, Death kind, State &state) {
+  llvm::SmallVector<ValueId, 4> needed;
+  llvm::SmallVector<ValueId, 8> pending{owner};
+  while (!pending.empty()) {
+    ValueId at = pending.pop_back_val();
+    for (const auto &[index, part] : childrenOf(at)) {
+      if (pinned.test(part.index()))
+        continue;
+      if (state.live.test(part.index()))
+        needed.push_back(part);
+      else
+        pending.push_back(part);
+    }
+  }
+  Type type = valueOf(owner).getType();
+  if (needed.empty()) {
+    if (kind == Death::Reading && state.ahead == Ahead::Allocation)
+      drops.push_back({where, owner});
+    return;
+  }
+  for (ValueId part : needed)
+    state.live.reset(part.index());
+  bool takeable = kind == Death::Reading && knownConstructor(type) && !isMemo(type);
+  if (!takeable) {
+    // Each part takes a dup while its owner still lives; the owner is then
+    // dropped after them.
+    for (ValueId part : needed)
+      dupSupplies.push_back({where, part});
+    largestDupSupply = std::max(largestDupSupply, static_cast<unsigned>(needed.size()));
+    if (kind == Death::Reading && state.ahead == Ahead::Allocation)
+      drops.push_back({where, owner});
+    return;
+  }
+  takeSupplies.push_back({where, owner, std::move(needed), state.ahead});
+}
+
+} // namespace idr::counting::placement
