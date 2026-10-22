@@ -12,12 +12,14 @@
 ||| dispatch on it reads, program-wide, a dispatch on a choice of a head
 ||| also reading the members made where only an instance shows the head,
 ||| and one whose own head is unshown every choice's; or the values one of
-||| these places, where a dictionary is, holds as one, in its lists of one
-||| value or in its lists of several (`Heads.HeldValues`), which every place
-||| that gives it a list writes and every pair that holds a list of several
-||| reads, at most the held count of them, a constant derived from the
-||| program (`heldCount`); a dictionary held by another is one value of the
-||| other's list, written from its own place's held positions. The walk over
+||| these places, where a dictionary is, or the place in a writer's text
+||| where a dictionary that closes over values is bound, holds as one, in
+||| its lists of one value or in its lists of several (`Heads.HeldValues`),
+||| which every place that gives it a list writes, a binding the list of
+||| what it closes over, and every pair that holds a list of several reads,
+||| at most the held count of them, a constant derived from the program
+||| (`heldCount`); a dictionary held by another is one value of the other's
+||| list, written from its own place's held positions. The walk over
 ||| definitions reads what each reachable one writes (its sites), and the
 ||| walk over nodes follows those sites from main to the nodes they reach,
 ||| visiting a node once for each set of stuck paths the chains of held
@@ -52,6 +54,7 @@ import IdrisMLIR.Frontend.Finite
 import IdrisMLIR.Proof.Bound
 import IdrisMLIR.Proof.Describes
 import IdrisMLIR.Proof.Growth
+import IdrisMLIR.Proof.Held
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 import Libraries.Data.List.Finite
@@ -72,20 +75,47 @@ import Data.Vect
 
 %default total
 
+||| How the values a dictionary's place holds are written on: as they are,
+||| or as one of the chains of pairs a list of two up to `upTo + 1` values
+||| packs to (`Proof.Held.pairChainsUpTo`), with the evidence it is one of
+||| them. A writing of held values on writes the chain its packing names
+||| and nothing else (`packingTemplate`).
+public export
+data Packing : Type where
+  AsTheyAre : Packing
+  Chained : (pairAt : Address) -> (upTo : Nat) -> (chain : Template) ->
+            (0 listed : Elem chain (pairChainsUpTo pairAt upTo)) -> Packing
+
+||| The template a packing writes.
+public export
+packingTemplate : Packing -> Template
+packingTemplate AsTheyAre = Template.Var 0 0
+packingTemplate (Chained _ _ chain _) = chain
+
+||| The packings of a list of several held values, one for each length up
+||| to the held count, each with the evidence it is one of the chains.
+chainsUpTo : (pairAt : Address) -> (upTo : Nat) -> List Packing
+chainsUpTo a m = go (pairChainsUpTo a m) (\e => e)
+  where
+    go : (ts : List Template) -> (0 inside : {t : Template} -> Elem t ts -> Elem t (pairChainsUpTo a m)) -> List Packing
+    go [] _ = []
+    go (t :: ts) inside = Chained a m t (inside Here) :: go ts (\e => inside (There e))
+
 ||| What made an arc: the site and the argument whose template gave it, a
 ||| value of a list a dictionary argument holds among them; an
 ||| implementation's method field, which placed the implementation's
 ||| parameter, the arc's source, among the method function's (a leading
 ||| arc); an implementation's field k, whose template it is; or the values
-||| a dictionary's place holds, the arc's source, written on: into the
-||| pairs that hold a list of several, at most the held count of them
-||| (`heldPackings`), or into the list another place is given, as they
-||| are or as the one value a list of several packs to (`heldWritings`).
+||| a dictionary's place holds, the arc's source, written on as their
+||| packing says: into the pairs that hold a list of several, at most the
+||| held count of them (`heldPackings`), or into the list another place is
+||| given, as they are or as the one value a list of several packs to
+||| (`heldWritings`).
 public export
 data Wrote = FromArgument Sites.Site Argument
            | ThroughMethod
            | InField Address Nat Template
-           | PacksHeld Nat
+           | PacksHeld Packing
 
 ||| The graph, and what its numbers stand for: the position met at each
 ||| place, the places where a position was first met, what made each arc,
@@ -185,8 +215,8 @@ kindOf a d = case definition d.def of
 -- dispatch reaches the method functions of the implementations its
 -- dictionary can be, which the walk enters where each implementation is
 -- written, since its body applies them; an application at a use, and a
--- choice, are no definition; and a dictionary rebuilt is the writer's own,
--- entered already.
+-- choice, are no definition; a dictionary rebuilt is the writer's own,
+-- entered already; and a binding's place is the writer's.
 callee : Reach -> Maybe Address
 callee (Calls b) = Just b
 callee (Builds b) = Just b
@@ -194,6 +224,7 @@ callee (Dispatches _ _ _) = Nothing
 callee Applies = Nothing
 callee (Makes _) = Nothing
 callee (Repacks _ _) = Nothing
+callee (Keeps _ _) = Nothing
 
 -- A definition entered: its sites by its address, its families, its
 -- represented arguments as positions of its node with no heads, and its
@@ -454,17 +485,18 @@ mutual
   visit names ps b out x path nd inU acc found = case out x of
     Nothing => Left (Unheaded x)
     Just edges =>
-      under names ps b out x path nd inU acc (mapMaybe (\(_, e) => calleeVisit e.callee) edges)
+      under names ps b out x path nd inU acc (mapMaybe (\(_, e) => calleeVisit e) edges)
             ({ done $= (:< (x, edges)) } found)
     where
       -- The application at a use is no node, nor is a choice, nor a
-      -- rebuilt constructor's fields, and the walk enters nothing there:
-      -- what each holds, the sites into it bound.
-      calleeVisit : Callee -> Maybe Visit
-      calleeVisit (Entering c) = Just c
-      calleeVisit Applying = Nothing
-      calleeVisit (Making _) = Nothing
-      calleeVisit (Filling _) = Nothing
+      -- rebuilt constructor's fields, nor a binding's place, and the walk
+      -- enters nothing there: what each holds, the sites into it bound.
+      calleeVisit : Reached -> Maybe Visit
+      calleeVisit (MkReached (Entering c) _ _) = Just c
+      calleeVisit (MkReached Applying _ _) = Nothing
+      calleeVisit (MkReached (Making _) _ _) = Nothing
+      calleeVisit (MkReached (Filling _) _ _) = Nothing
+      calleeVisit (Kept _ _) = Nothing
 
   under : (0 names : Listed Address) -> (ps : List (List1 Nat)) -> (b : Nat) ->
           (out : Visit -> Maybe (List (Sites.Site, Reached))) -> (x : Visit) -> (path : List Visit) ->
@@ -548,7 +580,7 @@ joinLanding _ _ = Open
 landingOf : Argument -> Landing
 landingOf x = case x.root of
   Template.Chosen _ => Open
-  Gives _ => Open
+  Template.Gives _ => Open
   _ => case (beta x.template, selfBounded x.template, x.term) of
     (Computes, True, Just tm) => Evaluable [tm]
     (Computes, _, _) => Computed
@@ -557,9 +589,12 @@ landingOf x = case x.root of
 
 -- The walked edges' one traversal, which every reading of what they place
 -- shares: each argument placed, in the walk's order, with the node whose
--- site wrote it, the site, and what it reaches.
+-- site wrote it, the site, and what it reaches. A binding's place is
+-- given no argument.
 eachPlaced : (r -> Node -> Sites.Site -> Callee -> Placed -> r) -> r -> List (Node, List (Sites.Site, Reached)) -> r
-eachPlaced f = foldl (\acc, (w, edges) => foldl (\acc', (s, e) => foldl (\acc'', pl => f acc'' w s e.callee pl) acc' e.placed)
+eachPlaced f = foldl (\acc, (w, edges) => foldl (\acc', (s, e) => case e of
+                                                   MkReached callee placed _ => foldl (\acc'', pl => f acc'' w s callee pl) acc' placed
+                                                   Kept _ _ => acc')
                                                 acc edges)
 
 -- Each method function's node a dispatch reached through implementation
@@ -572,12 +607,11 @@ leadsOf : List (Node, List (Sites.Site, Reached)) -> Leads
 leadsOf walked = foldl (\m, (_, edges) => foldl lead m edges) empty walked
   where
     lead : Leads -> (Sites.Site, Reached) -> Leads
-    lead m (_, e) = case (e.callee, e.via) of
-      (Entering callee, Dispatched j k leading) => insert (visitNode callee, j, k) leading m
-      -- Essential: a call, a build and an application place no
-      -- implementation's parameters, and a dispatch reaches a method
-      -- function's node.
-      _ => m
+    lead m (_, MkReached (Entering callee) _ (Dispatched j k leading)) = insert (visitNode callee, j, k) leading m
+    -- Essential: a call, a build, an application and a binding place no
+    -- implementation's parameters, and a dispatch reaches a method
+    -- function's node.
+    lead m _ = m
 
 -- The positions of the method functions' nodes that leading placements
 -- fill.
@@ -796,10 +830,10 @@ fieldWritings fl families nodes ls fs =
 ------------------------------------------------------------------------------
 
 -- What the held count is read off, from every reading's sites, once: the
--- most values a place gives a dictionary, the most a member closes over,
--- and each distinct path at which a match finds a field of its writer's
--- dictionary stuck, which are also every path a chain of held dispatches
--- can hold (`Heads.Headed`).
+-- most values a place gives a dictionary or a binding keeps, the most a
+-- member closes over, and each distinct path at which a match finds a
+-- field of its writer's dictionary stuck, which are also every path a
+-- chain of held dispatches can hold (`Heads.Headed`).
 record Counted where
   constructor MkCounted
   packed : Nat
@@ -821,38 +855,30 @@ countedIn = foldl (foldl counted) (MkCounted 0 0 empty)
       Builds _ => { packed $= max (longest s.arguments) } c
       Dispatches _ _ _ => { packed $= max (longest s.arguments) } c
       Applies => { packed $= max (longest s.arguments) } c
+      Keeps _ items => { packed $= max (length (forget items)) } c
 
 ||| The most values one list of held values holds (`Closed.packedType`), a
 ||| constant of the graph derived from the program: the most a place that
-||| gives a dictionary a list gives, a dictionary of the writer's that
-||| holds values held as one value among them; and, for each distinct path
-||| at which a match finds a field of its writer's dictionary stuck, one
-||| more for the field, held after the list's values, and the most values a
-||| member closes over, which a dispatch on the field's choice puts in its
-||| place. A request that passes a dictionary on as it was given gives no
-||| new list. It rests on two facts of the translation: a chain of
-||| requests holds each path at most once, and every member a dispatch puts
-||| in reduces, so no match finds that path stuck again below it.
+||| gives a dictionary a list gives, or a binding keeps, a dictionary of
+||| the writer's that holds values held as one value among them; and, for
+||| each distinct path at which a match finds a field of its writer's
+||| dictionary stuck, one more for the field, held after the list's values,
+||| and the most values a member closes over, which a dispatch on the
+||| field's choice puts in its place. A request that passes a dictionary on
+||| as it was given gives no new list. It rests on two facts of the
+||| translation: a chain of requests holds each path at most once, and
+||| every member a dispatch puts in reduces, so no match finds that path
+||| stuck again below it.
 heldCount : Counted -> Nat
 heldCount found = foldl (\h, _ => h + S found.member) found.packed (SortedSet.toList found.paths)
 
--- A list of n + 1 values held as one, over the held position of their
--- values: n pairs, each but the last value in one with the rest after it.
-nestedHeld : Address -> Nat -> Template
-nestedHeld pairAt Z = Template.Var 0 0
-nestedHeld pairAt (S n) = Template.Head (Just pairAt) [Template.Var 0 0, nestedHeld pairAt n]
-
 -- The one value a dictionary's list of several values packs to, over the
 -- held position of those values, at each length the list can have: from
--- two values up to the held count, one pair fewer than values. With no
--- pair in the context, no list is in pairs.
-packedHeld : Maybe Pairing -> (count : Nat) -> List Template
+-- two values up to the held count, one pair fewer than values
+-- (`chainsUpTo`). With no pair in the context, no list is in pairs.
+packedHeld : Maybe Pairing -> (count : Nat) -> List Packing
 packedHeld Nothing _ = []
-packedHeld (Just pg) count = lengths (pred count)
-  where
-    lengths : Nat -> List Template
-    lengths Z = []
-    lengths (S n) = nestedHeld pg.pairAddress (S n) :: lengths n
+packedHeld (Just pg) count = chainsUpTo pg.pairAddress (pred count)
 
 ||| What every pair that holds a list of several values is given
 ||| (`Closed.packedType`, `Closed.unpacked`), written from each place's
@@ -870,38 +896,32 @@ heldPackings count (Just pg) places = case pred count of
     -- Essential: a list of fewer than two values is held as itself, in no
     -- pair.
     Z => []
-    S n => places >>= written (S n)
+    S n => places >>= written n
   where
-    -- The rests of lists of 2 up to m + 1 values.
-    rests : Nat -> List Template
-    rests Z = []
-    rests (S n) = nestedHeld pg.pairAddress n :: rests n
-
+    -- At the pair's first, one value; at its rest, one value or the rest
+    -- of a list of 3 up to n + 2 values, in pairs.
     written : Nat -> HeldBy -> List Writing
-    written m place =
-      [ MkWriting (const (OfHeld (MkHeldValues place InPairs))) t (const []) (OfParameter (OfNode (MkNode h [])) j)
-                  (PacksHeld count)
+    written n place =
+      [ MkWriting (const (OfHeld (MkHeldValues place InPairs))) (packingTemplate k) (const [])
+                  (OfParameter (OfNode (MkNode h [])) j) (PacksHeld k)
       | h <- [pg.pairAddress, pg.firstAddress, pg.secondAddress]
-      , (j, t) <- (0, Template.Var 0 0) :: map (1,) (rests m) ]
+      , (j, k) <- (0, AsTheyAre) :: map (1,) (AsTheyAre :: chainsUpTo pg.pairAddress n) ]
 
--- How many values one way of writing a value of a list stands for: one,
--- or two or more, the values a dictionary holds in pairs, each as itself.
-data Brings = OneValue | SeveralValues
-
--- Whether a value of a list is in every list it describes: a value of a
--- type the walk knows is; a dictionary that holds no values is no value
--- of the list, and gives none.
-data Presence = Always | Possibly
-
-presence : HeldItem -> Presence
-presence (OfType _) = Always
-presence (PackedBy _) = Possibly
-presence (EachOf _) = Possibly
-presence (MembersOf _) = Possibly
+-- What a value of a list is to its instances (`Proof.Held.ItemKind`): a
+-- value of a type the walk knows is one value in every list it describes;
+-- a dictionary's values packed as one are one value where it holds any;
+-- the values a dictionary or a member holds, each as itself, are as many
+-- as it holds.
+itemKind : HeldItem -> ItemKind
+itemKind (OfType _) = AlwaysOne
+itemKind (PackedBy _) = AtMostOne
+itemKind (EachOf _) = AnyNumber
+itemKind (MembersOf _) = AnyNumber
 
 -- One way a value of a list is written at a held position: where its
 -- template reads its variables, the template, the roots it gives its
--- dictionaries, how many values it brings, and what wrote it.
+-- dictionaries, how many values it brings (`Proof.Held.Brings`), and what
+-- wrote it.
 record Contribution where
   constructor MkContribution
   reads : Nat -> Spot
@@ -912,14 +932,20 @@ record Contribution where
 
 -- The held positions a way of writing a value lands at, where `firm`
 -- other values of its list are always there and `others` are there in
--- all: the position of the lists of one value where none other need be
--- and it brings one; that of the lists of several where it brings
--- several or another may be there.
+-- all, as the two decisions of where a held value is written say: the
+-- position of the lists of one value where it can be its list's one
+-- value (`canBeAlone`), and that of the lists of several where it can be
+-- one of two or more (`canBeAmong`).
 landing : (firm, others : Nat) -> Brings -> List Packed
-landing Z Z OneValue = [AsItself]
-landing Z (S _) OneValue = [AsItself, InPairs]
-landing (S _) _ OneValue = [InPairs]
-landing _ _ SeveralValues = [InPairs]
+landing firm others b = alone (canBeAlone firm others b) ++ among (canBeAmong firm others b)
+  where
+    alone : Decided (Alone firm others b) -> List Packed
+    alone (Proof.Growth.Yes _) = [AsItself]
+    alone (Proof.Growth.No _) = []
+
+    among : Decided (Among firm others b) -> List Packed
+    among (Proof.Growth.Yes _) = [InPairs]
+    among (Proof.Growth.No _) = []
 
 -- The choices given lists that a member of choice k is read from: its
 -- own, and the one whose head only an instance shows, which may be k; at
@@ -946,52 +972,62 @@ heldChoices walked = SortedSet.toList (eachPlaced (\acc, _, _, callee, pl => cas
 ||| value as it is, held as itself, and from its lists of several as the
 ||| pairs of each length hold them (`packedHeld`), the arcs whose gain a
 ||| recursion that wraps a dictionary deeper at each call adds up round
-||| its cycle. The values a dictionary parameter holds, each as itself,
-||| and those a member holds, come from their places' held positions as
-||| they are.
+||| its cycle; and so is a dictionary the writer binds, from its binding's
+||| place, which the list of what it closes over is written at, as a
+||| given list is. The values a dictionary parameter holds, each as
+||| itself, and those a member holds, come from their places' held
+||| positions as they are.
 heldWritings : Flow -> SortedMap Address (List Nat) -> SortedMap Spot Landing -> (count : Nat) -> Maybe Pairing ->
                List ChoiceHead -> List (Node, List (Sites.Site, Reached)) -> List Writing
-heldWritings fl families ls count pg choices =
+heldWritings fl families ls count pg choices walked =
   eachPlaced (\acc, w, s, callee, pl =>
-                (pl.argument.holds >>= \l => listAt w s (calleePlace callee pl.parameter) (forget l)) ++ acc) []
+                (pl.argument.holds >>= \l => listAt w s (calleePlace callee pl.parameter).fst (forget l)) ++ acc) [] walked
+    ++ (walked >>= \(w, edges) => edges >>= \(s, e) => kept w s e)
   where
-    fromHeld : HeldBy -> Packed -> Template -> Brings -> Contribution
-    fromHeld place p t b = MkContribution (const (OfHeld (MkHeldValues place p))) t (const []) b (PacksHeld count)
+    fromHeld : HeldBy -> Packed -> Packing -> Brings -> Contribution
+    fromHeld place p k b = MkContribution (const (OfHeld (MkHeldValues place p))) (packingTemplate k) (const []) b (PacksHeld k)
+
+    -- The place a dictionary of the writer's that holds values as one is
+    -- at, at the writer's node.
+    ownPlace : Node -> Sites.Site -> OwnHolder -> HeldBy
+    ownPlace w s (OwnParameter i) = (writerPlace w s.params i).fst
+    ownPlace w s (OwnBinding b) = ByBinding w b
 
     contributions : Node -> Sites.Site -> HeldItem -> List Contribution
     contributions w s (OfType xs) =
       [ MkContribution (spotAt w s.params) (withClosedFamilies (closedAt ls w s.params) x.template)
                        (roots fl (familiesOf families w) w s.params) OneValue (FromArgument s x)
       | x <- forget xs ]
-    contributions w s (PackedBy i) =
-      fromHeld (writerPlace w s.params i) AsItself (Template.Var 0 0) OneValue ::
-        map (\t => fromHeld (writerPlace w s.params i) InPairs t OneValue) (packedHeld pg count)
+    contributions w s (PackedBy h) =
+      fromHeld (ownPlace w s h) AsItself AsTheyAre OneValue ::
+        map (\k => fromHeld (ownPlace w s h) InPairs k OneValue) (packedHeld pg count)
     contributions w s (EachOf i) =
-      [ fromHeld (writerPlace w s.params i) AsItself (Template.Var 0 0) OneValue
-      , fromHeld (writerPlace w s.params i) InPairs (Template.Var 0 0) SeveralValues ]
+      [ fromHeld (writerPlace w s.params i).fst AsItself AsTheyAre OneValue
+      , fromHeld (writerPlace w s.params i).fst InPairs AsTheyAre SeveralValues ]
     contributions w s (MembersOf k) =
       choicePlaces choices k >>= \c =>
-        [ fromHeld (ByChoice c) AsItself (Template.Var 0 0) OneValue
-        , fromHeld (ByChoice c) InPairs (Template.Var 0 0) SeveralValues ]
+        [ fromHeld (ByChoice c) AsItself AsTheyAre OneValue
+        , fromHeld (ByChoice c) InPairs AsTheyAre SeveralValues ]
 
-    -- How many values of a list are always there.
-    firmIn : List HeldItem -> Nat
-    firmIn [] = 0
-    firmIn (e :: es) = case presence e of
-      Always => S (firmIn es)
-      Possibly => firmIn es
-
-    -- How many of those are other than one value of the list.
+    -- How many of the values a list is always given are other than one
+    -- value of it.
     besides : HeldItem -> Nat -> Nat
-    besides e n = case presence e of
-      Always => pred n
-      Possibly => n
+    besides e n = case itemKind e of
+      AlwaysOne => pred n
+      AtMostOne => n
+      AnyNumber => n
 
     listAt : Node -> Sites.Site -> HeldBy -> List HeldItem -> List Writing
     listAt w s place es =
       es >>= \e => contributions w s e >>= \c =>
         map (\p => MkWriting c.reads c.template c.roots (OfHeld (MkHeldValues place p)) c.wrote)
-            (landing (besides e (firmIn es)) (pred (length es)) c.brings)
+            (landing (besides e (alwaysIn (map itemKind es))) (pred (length es)) c.brings)
+
+    -- The list a dictionary the writer binds closes over, written at its
+    -- binding's place at the writer's node.
+    kept : Node -> Sites.Site -> Reached -> List Writing
+    kept w s (Kept b items) = listAt w s (ByBinding w b) (forget items)
+    kept w s (MkReached _ _ _) = []
 
 -- The places whose lists of several values some place writes: the pairs
 -- that hold those lists read their positions.
@@ -1186,8 +1222,9 @@ evaluable _ = Nothing
 ||| closed values is unmeasured. An argument that applies a family given
 ||| any other value, or whose evaluation is no closed template, stays as
 ||| written: the arc it draws is the one the check refuses. A value of a
-||| type an argument's lists hold is evaluated as an argument is, and the
-||| argument's every reading holds the lists so evaluated.
+||| type an argument's lists hold, or a binding's list, is evaluated as an
+||| argument is, and the argument's every reading holds the lists so
+||| evaluated.
 evaluated : {auto c : Ref Ctxt Defs} -> SortedMap Spot Landing ->
             List (Node, List (Sites.Site, Reached)) -> Front (List (Node, List (Sites.Site, Reached)))
 evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$> reachedAt w st e) edges)
@@ -1220,13 +1257,14 @@ evaluated ls = traverse (\(w, edges) => (w,) <$> traverse (\(st, e) => (st,) <$>
     heldAt w st item = pure item
 
     reachedAt : Node -> Sites.Site -> Reached -> Front Reached
-    reachedAt w st e = do
-      placed <- traverse (\pl => do
-                            holds <- traverse (traverse (heldAt w st)) pl.argument.holds
-                            reads <- evaluate w st pl.argument
-                            pure (map (\x => the Placed ({ argument := { holds := holds } x } pl)) reads))
-                         e.placed
-      pure ({ placed := concat placed } e)
+    reachedAt w st (MkReached callee placed via) = do
+      placed' <- traverse (\pl => do
+                             holds <- traverse (traverse (heldAt w st)) pl.argument.holds
+                             reads <- evaluate w st pl.argument
+                             pure (map (\x => the Placed ({ argument := { holds := holds } x } pl)) reads))
+                          placed
+      pure (MkReached callee (concat placed') via)
+    reachedAt w st (Kept b items) = Kept b <$> traverse (heldAt w st) items
 
 ||| The growth graph of the program from main: every static position its
 ||| reachable nodes have, numbered, with the arcs between them, the caps,

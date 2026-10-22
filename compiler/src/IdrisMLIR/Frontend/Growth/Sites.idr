@@ -71,6 +71,35 @@ parameterOf : Parameters -> Nat -> ParameterOf
 parameterOf OwnOnly i = WritersOwn i
 parameterOf (UseFrom from) i = if i < from then WritersOwn i else UsesPosition (minus i from)
 
+||| Where in its writer's text a dictionary a `let` or a lambda's argument
+||| binds is: the part the walk went into at each step down to the binder,
+||| the innermost first (`Pats.place`). No two binders of a writer's text
+||| are at one place, so each such dictionary that closes over values has a
+||| place of its own, which holds those values as one (`Heads.ByBinding`).
+public export
+record BoundPlace where
+  constructor MkBoundPlace
+  place : List Nat
+
+export
+Eq BoundPlace where
+  x == y = x.place == y.place
+
+export
+Ord BoundPlace where
+  compare x y = compare x.place y.place
+
+||| A dictionary of the writer's that holds values as one: its dictionary
+||| parameter i, or one its text binds (`BoundPlace`). What it holds is
+||| bounded at its place's held positions.
+public export
+data OwnHolder = OwnParameter Nat | OwnBinding BoundPlace
+
+Eq OwnHolder where
+  OwnParameter i == OwnParameter j = i == j
+  OwnBinding a == OwnBinding b = a == b
+  _ == _ = False
+
 ||| What a message shows an argument by (below).
 export
 data ArgumentText : Type
@@ -110,17 +139,17 @@ record Argument where
 ||| One value of a list a dictionary holds as one, as the place that gives
 ||| the list writes it: a value of a type the walk knows, read as a type
 ||| argument is, each reading of it an evaluation gives (`Graph.evaluated`);
-||| the one value a dictionary parameter of the writer holds, its values
-||| packed into one, as the translation holds a variable that holds values
-||| (`Terms.holed`); each value the writer's dictionary parameter holds, as
-||| itself, which a request that keeps the parameter as it was given passes
-||| on (`Cases.heldHere`); or each value a member of a choice holds, which
-||| a dispatch on a value of the choice puts in that value's place
-||| (`Choices.heldMember`). A value is no list: no list is held inside
-||| another but as the one value its type packs.
+||| the one value a dictionary of the writer's holds (its parameter, or one
+||| its text binds), its values packed into one, as the translation holds a
+||| variable that holds values (`Terms.holed`); each value the writer's
+||| dictionary parameter holds, as itself, which a request that keeps the
+||| parameter as it was given passes on (`Cases.heldHere`); or each value a
+||| member of a choice holds, which a dispatch on a value of the choice puts
+||| in that value's place (`Choices.heldMember`). A value is no list: no
+||| list is held inside another but as the one value its type packs.
 data HeldItem : Type where
   OfType : List1 Argument -> HeldItem
-  PackedBy : Nat -> HeldItem
+  PackedBy : OwnHolder -> HeldItem
   EachOf : Nat -> HeldItem
   MembersOf : ChoiceHead -> HeldItem
 
@@ -140,10 +169,14 @@ data HeldItem : Type where
 ||| (`Heads.reaches`); the site's arguments are the writer's other static
 ||| ones, each as it is, a dictionary with the values it was given. The
 ||| values a dictionary argument holds as one are the argument's own
-||| (`Argument.holds`), written where the argument lands.
+||| (`Argument.holds`), written where the argument lands. Or the place a
+||| `let` or a lambda's argument binds a dictionary that closes over values
+||| at, which keeps the list of them it holds as one (`Terms.letIn`): no
+||| callee is given it, and every use of the dictionary reads its values
+||| there (`PackedBy`).
 public export
 data Reach = Calls Address | Builds Address | Dispatches Template Root Nat | Applies | Makes ChoiceHead
-           | Repacks Argument (List1 Nat)
+           | Repacks Argument (List1 Nat) | Keeps BoundPlace (List1 HeldItem)
 
 ||| One site: who wrote it (whose parameters the templates' `Var`s are, as
 ||| `params` reads them), the definition whose text holds it, what it
@@ -163,14 +196,36 @@ record Site where
 -- What each variable stands for
 ------------------------------------------------------------------------------
 
+||| What a hole marker of a dictionary known as a term stands for, where
+||| the walk knows its type: a runtime value, of that type; or a dictionary
+||| another place binds, the one value that place holds, of the type the
+||| values the walk knows of it pack to, which a key's projections of it
+||| are built over.
+data Closing = ValueOf ClosedTerm | HolderOf BoundPlace ClosedTerm
+
+||| The type a key's projections of a marker are built over.
+closingType : Closing -> ClosedTerm
+closingType (ValueOf ty) = ty
+closingType (HolderOf _ packed) = packed
+
 ||| What a dictionary known as a term closes over, where the walk knows the
-||| type of each value: its form with a hole marker for each value
-||| (`holedAt`), and their types in the markers' order, which the
-||| translation holds as one value (`Closed.packedType`).
+||| type of each value its key's markers stand for: the place that binds
+||| it, which holds what it closes over as one; its form with a hole
+||| marker for each value (`holedAt`); what each marker stands for, in the
+||| markers' order; and the writer's dictionary parameters it mentions,
+||| each the one value it holds, which the translation holds among the
+||| dictionary's own values (`Terms.holed`).
 record ClosedOver where
   constructor MkClosedOver
+  binding : BoundPlace
   holedForm : ClosedTerm
-  valueTypes : List1 ClosedTerm
+  closings : List1 Closing
+  owners : List Nat
+
+||| The types its key's projections and its settled form are built over,
+||| one for each of its markers (`Closed.unpacked`, `Closed.packedType`).
+valueTypes : ClosedOver -> List1 ClosedTerm
+valueTypes co = map closingType co.closings
 
 ||| A dictionary a variable holds: the writer's dictionary parameter `i` at
 ||| match depth `d`, and the fields matched out of it, the first first; or
@@ -185,14 +240,17 @@ data Dict = Own Nat Nat (List Nat) | Known ClosedTerm (Maybe ClosedOver)
 ||| match reads off the scrutinee's type, an erased argument a lambda is
 ||| applied to); a dictionary; a runtime value whose shape keys the
 ||| instance, not matched yet (a stand-in), or matched (a constructor of
-||| stand-ins); a value of quantity 0; or any other runtime value. A shape
-||| not matched yet carries its stand-in, so that a match knows what it
-||| rebinds and how deep without looking it up.
+||| stand-ins); a value of quantity 0; the one value the place a dictionary
+||| is bound at holds, its values packed into one, which the dictionary is
+||| settled over (`settledAt`); or any other runtime value. A shape not
+||| matched yet carries its stand-in, so that a match knows what it rebinds
+||| and how deep without looking it up.
 data Stand = Fixed ClosedTerm
            | Holds Dict
            | Pattern StandIn
            | Shape ClosedTerm
            | Erased
+           | Packs BoundPlace
            | Runtime
 
 ||| What a stand is in a closed term: a runtime value as `closeWritten` has
@@ -205,6 +263,7 @@ termOf (Holds (Known t _)) = t
 termOf (Pattern p) = standInAt p
 termOf (Shape t) = t
 termOf Erased = Erased EmptyFC Placeholder
+termOf (Packs _) = Erased EmptyFC Impossible
 termOf Runtime = Erased EmptyFC Impossible
 
 ||| A variable as the walk knows it: what it stands for, the name a message
@@ -251,16 +310,27 @@ offerOf _ _ = AValue
 -- Pattern stand-ins
 ------------------------------------------------------------------------------
 
-||| The stand-ins made on the walk's path so far, and the next one's number.
+||| The stand-ins made on the walk's path so far, the next one's number, and
+||| where the walk is in the writer's text: the part it went into at each
+||| step, the innermost first. A term or a tree with more than one part the
+||| walk goes into sends it into each by its own number, and each walk of
+||| one part (as code, as a static value, at a use, as a computed field)
+||| into its own too, so that no two binders the walk meets are at one
+||| place (`BoundPlace`).
 public export
 record Pats where
   constructor MkPats
   next : Nat
   made : List StandIn
+  place : List Nat
+
+||| The walk gone into part k of where it is.
+inPart : Nat -> Pats -> Pats
+inPart k ps = { place $= (k ::) } ps
 
 ||| A fresh stand-in at parameter `i`, depth `d`.
 fresh : (i, d : Nat) -> Pats -> (Stand, Pats)
-fresh i d ps = let p = MkStandIn ps.next i d in (Pattern p, MkPats (S ps.next) (p :: ps.made))
+fresh i d ps = let p = MkStandIn ps.next i d in (Pattern p, { next := S ps.next, made $= (p ::) } ps)
 
 ||| A term with each of the names given replaced by its term, all at once.
 replacing : List (Name, ClosedTerm) -> ClosedTerm -> ClosedTerm
@@ -302,10 +372,12 @@ mutual
 
 ||| What a hole marker of a dictionary's key stands for (`holedAt`): a
 ||| runtime value or a shape of the scope, of the type the walk knows,
-||| where it knows one; or a dictionary known as a term that closes over
-||| values, the one value of the type that packs them, as the translation
-||| holds a variable that holds values (`Terms.headed`).
-data Marked = ARuntime (Maybe ClosedTerm) | AHolder ClosedTerm
+||| where it knows one; or the one value the place a dictionary is bound at
+||| holds, as the translation holds a variable that holds values
+||| (`Terms.headed`): a dictionary known as a term that closes over values,
+||| or what such a dictionary is settled over, of the type the values the
+||| walk knows of it pack to, where it knows one.
+data Marked = ARuntime (Maybe ClosedTerm) | AHolder BoundPlace (Maybe ClosedTerm)
 
 ||| A term closed as a dictionary's key holds it, its markers numbered by
 ||| first occurrence (`holedAt`): the key, each runtime value a hole marker
@@ -347,20 +419,23 @@ holedAt env t = do
     value p (Runtime, _, _) = runtimeAt p
     value p (Pattern _, _, _) = runtimeAt p
     value p (Shape _, _, _) = runtimeAt p
+    value p (Packs _, _, _) = runtimeAt p
     value p (Holds (Known _ (Just _)), _, _) = runtimeAt p
     value p (s, _, _) = (termOf s, Nothing)
 
     -- What stands at the place a name was made for: a runtime value as
     -- itself, of its type where the walk knows it; a dictionary known as
     -- a term as its form, its values the projections of the one value at
-    -- its marker, of the type that packs them.
+    -- its marker, which the place that binds it holds; what a dictionary
+    -- is settled over, as itself, the one value its place holds.
     markedAt : Name -> Front (Marked, Maybe (Name, ClosedTerm))
     markedAt n = case probeOf n of
       Just pr@(ProbeRuntimeAt p) => case getAt p (standings env) of
         Just (Holds (Known _ (Just co)), _, _) => do
-          values <- unpacked co.valueTypes (probeTerm pr)
-          packed <- packedType co.valueTypes
-          pure (AHolder packed, Just (n, fillHoles values co.holedForm))
+          values <- unpacked (valueTypes co) (probeTerm pr)
+          packed <- packedType (valueTypes co)
+          pure (AHolder co.binding (Just packed), Just (n, fillHoles values co.holedForm))
+        Just (Packs b, _, ty) => pure (AHolder b ty, Nothing)
         Just (_, _, ty) => pure (ARuntime ty, Nothing)
         Nothing => pure (ARuntime Nothing, Nothing)
       _ => pure (ARuntime Nothing, Nothing)
@@ -371,30 +446,16 @@ holed env t = do
   h <- holedAt env t
   pure h.key
 
-||| The types of the values a key's markers stand for (`holedAt`), where the
-||| walk knows each: what a lambda or a dictionary known as a term closes
-||| over, which the member or the variable it is holds as one value
+||| What a key's markers stand for (`holedAt`), where the walk knows each
+||| one's type: what a lambda or a dictionary known as a term closes over,
+||| which the member or the variable it is holds as one value
 ||| (`Closed.packedType`). Nothing when the walk knows one's type not.
-typesOf : List Marked -> Maybe (List ClosedTerm)
-typesOf = traverse typed
+closingsOf : List Marked -> Maybe (List Closing)
+closingsOf = traverse closing
   where
-    typed : Marked -> Maybe ClosedTerm
-    typed (ARuntime ty) = ty
-    typed (AHolder packed) = Just packed
-
-||| A dictionary known as a term, as the walk binds it (`Known`): closed as
-||| every term is, and, where it closes over values whose types the walk
-||| knows (runtime values, and dictionaries known as terms that close over
-||| values, each the one value it holds), its form with a hole marker for
-||| each and their types, which a settling of it holds as one variable, as
-||| the translation's does (`Terms.standingFor`).
-knownAt : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> TT vs -> Front Dict
-knownAt env t = do
-  closed <- solved (close env t)
-  h <- holedAt env t
-  case typesOf h.markers of
-    Just (ty :: tys) => (\f => Known closed (Just (MkClosedOver f (ty ::: tys)))) <$> solved h.key
-    _ => pure (Known closed Nothing)
+    closing : Marked -> Maybe Closing
+    closing (ARuntime ty) = ValueOf <$> ty
+    closing (AHolder b ty) = HolderOf b <$> ty
 
 ||| What a definition's leaves give at a node: a member of its result
 ||| type's choice, which a lambda there is, of that type; or a value.
@@ -693,14 +754,14 @@ oneLeaf d = case d.matched of
   Nothing => False
 
 ||| One value a dictionary's spine holds, as the packing finds it: a
-||| runtime value, by its type; or the one value a dictionary parameter of
-||| the writer holds, its values packed into one. Two closings of one spine
-||| are compared by these (`packings`).
-data InSpine = ValueOfType ClosedTerm | ValuesOfParameter Nat
+||| runtime value, by its type; or the one value a dictionary of the
+||| writer's holds (`OwnHolder`), its values packed into one. Two closings
+||| of one spine are compared by these (`packings`).
+data InSpine = ValueOfType ClosedTerm | ValuesOf OwnHolder
 
 Eq InSpine where
   ValueOfType a == ValueOfType b = a == b
-  ValuesOfParameter i == ValuesOfParameter j = i == j
+  ValuesOf a == ValuesOf b = a == b
   _ == _ = False
 
 ||| One argument of a dictionary's spine, as the packing reads it: as its
@@ -747,17 +808,27 @@ mentioningIn statics t =
 ||| What a reference given alone holds as one value: a dictionary parameter
 ||| of the writer, or a field matched out of one, its values packed into
 ||| one; a dictionary known as a term that closes over values, by the
-||| marker the key gives it (`Holed.marked`), the one value of the type
-||| that packs them (`Terms.headed`). A runtime value's marker is a value
-||| of its binder's type, which the spine reads there.
+||| marker the key gives it (`Holed.marked`), the one value the place that
+||| binds it holds (`Terms.headed`). A runtime value's marker is a value of
+||| its binder's type, which the spine reads there.
 heldAs : List (Maybe Static) -> (holders : List Marked) -> Name -> Maybe InSpine
 heldAs statics holders n = case dictionaryParameter statics n of
-  Just i => Just (ValuesOfParameter i)
+  Just i => Just (ValuesOf (OwnParameter i))
   Nothing => Closed.markerOf n >>= \r => getAt r holders >>= holder
   where
     holder : Marked -> Maybe InSpine
-    holder (AHolder packed) = Just (ValueOfType packed)
+    holder (AHolder b _) = Just (ValuesOf (OwnBinding b))
     holder (ARuntime _) = Nothing
+
+||| The dictionary parameters of the writer a term closed as a key holds it
+||| mentions (`Holed.marked`), or fields matched out of one, each once:
+||| written as they are, or in a dictionary known as a term that closes
+||| over no value whose type the walk knows, which the key holds as it is
+||| written. Each is the one value it holds, which the translation holds
+||| among what the term closes over (`Terms.holed`). A dictionary that
+||| closes over values is a marker of the key, and holds its own.
+ownersIn : List (Maybe Static) -> ClosedTerm -> List Nat
+ownersIn statics t = nub (mapMaybe (dictionaryParameter statics) (keys (getRefs (UN Underscore) t)))
 
 mutual
   ||| What a dictionary closes over, in the order the translation finds it
@@ -879,7 +950,7 @@ held at stands fc (v :: vs) = do
   where
     item : Nat -> InSpine -> Front HeldItem
     item j (ValueOfType u) = (\x => OfType (x ::: [])) <$> readArgument stands j AType Nothing u (TermText u)
-    item j (ValuesOfParameter i) = pure (PackedBy i)
+    item j (ValuesOf h) = pure (PackedBy h)
 
     items : Nat -> InSpine -> List InSpine -> Front (List1 HeldItem)
     items j u [] = (::: []) <$> item j u
@@ -887,7 +958,7 @@ held at stands fc (v :: vs) = do
 
     built : InSpine -> Front (List Site)
     built (ValueOfType u) = builds at stands fc u
-    built (ValuesOfParameter _) = pure []
+    built (ValuesOf _) = pure []
 
 ||| The lists of values a dictionary or a member closes over (`held`), one
 ||| written term closed two ways: each earlier argument a later binder's
@@ -910,16 +981,42 @@ packings at stands fc h shaped = do
     (ss, ssites) <- held at stands fc shapes
     pure (hs ++ ss, hsites ++ ssites)
 
+||| A dictionary known as a term, as the walk binds it (`Known`): closed as
+||| every term is, and, where it closes over values whose types the walk
+||| knows (runtime values, and dictionaries other places bind, each the one
+||| value it holds), its place in the writer's text, which holds what it
+||| closes over as one, its form with a hole marker for each value, what
+||| each marker stands for, and the writer's dictionary parameters it
+||| mentions; a settling of it holds them as one variable, as the
+||| translation's does (`Terms.standingFor`).
+knownAt : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> At -> Pats -> Env vs -> TT vs -> Front Dict
+knownAt at ps env t = do
+  closed <- solved (close env t)
+  h <- holedAt env t
+  case closingsOf h.markers of
+    Just (m :: ms) =>
+      (\f => Known closed (Just (MkClosedOver (MkBoundPlace ps.place) f (m ::: ms) (ownersIn at.statics h.marked))))
+        <$> solved h.key
+    _ => pure (Known closed Nothing)
+
+||| One value a dictionary known as a term closes over, as its list holds
+||| it: a runtime value by its type, or the one value a dictionary another
+||| place binds holds.
+closedItem : Closing -> InSpine
+closedItem (ValueOf ty) = ValueOfType ty
+closedItem (HolderOf b _) = ValuesOf (OwnBinding b)
+
+||| The list a dictionary known as a term holds as one, which the place
+||| that binds it keeps: what its markers stand for, and each dictionary
+||| parameter of the writer it mentions, the one value it holds.
+heldValues : ClosedOver -> List1 InSpine
+heldValues co = appendl (map closedItem co.closings) (map (ValuesOf . OwnParameter) co.owners)
+
 ||| The one value a dictionary known as a term holds, where it is given as
-||| it is: what it closes over, held as one, of the type that packs them,
-||| as the translation holds a variable that holds values
-||| (`Terms.holed`). Its pairs and the types its values build are written
-||| where it is bound (`heldBy`).
-knownHeld : {auto c : Ref Ctxt Defs} -> List StandIn -> ClosedOver -> Front (List (List1 HeldItem))
-knownHeld stands co = do
-  p <- packedType co.valueTypes
-  x <- readArgument stands 0 AType Nothing p (TermText p)
-  pure [OfType (x ::: []) ::: []]
+||| it is: what it closes over, held as one at the place that binds it, as
+||| the translation holds a variable that holds values (`Terms.holed`).
+knownHeld : ClosedOver -> List (List1 HeldItem)
+knownHeld co = [PackedBy (OwnBinding co.binding) ::: []]
 
 ||| A dictionary given as a variable that holds one known as a term that
 ||| closes over values, with what it closes over.
@@ -929,67 +1026,18 @@ knownGiven env (Local _ _ idx p) = case entryAt env idx p of
   _ => Nothing
 knownGiven _ _ = Nothing
 
-||| The dictionary parameters of the writer a term mentions, or fields
-||| matched out of one, each once, in the order a reading from the left
-||| first meets them, each the one value it holds, as a lambda holds them
-||| (`Terms.captured`). A dictionary known as a term that closes over
-||| values is a marker of the term's key, and held there (`holedAt`).
-ownHolders : {vs : Scope} -> Env vs -> TT vs -> List InSpine
-ownHolders env t =
-  let marked = zipWith mark [0 .. length (standings env)] (standings env)
-      c = closeWritten EmptyFC (map (\(v, _) => the (VarInfo ()) (TypeValue v)) marked) t
-      order = fst (occurring (SortedSet.fromList (mapMaybe snd marked)) c ([<], empty)) <>> [] in
-  mapMaybe placed order
-  where
-    -- What a variable that holds the writer's dictionary holds.
-    holding : Stand -> Maybe InSpine
-    holding (Holds (Own i _ _)) = Just (ValuesOfParameter i)
-    holding _ = Nothing
-
-    -- Each such variable as a name of its own, by its place in the scope.
-    mark : Nat -> Standing -> (ClosedTerm, Maybe Name)
-    mark p (s, _, _) = case holding s of
-      Just _ => (probeTerm (ProbeRuntimeAt p), Just (probeName (ProbeRuntimeAt p)))
-      Nothing => (termOf s, Nothing)
-
-    placed : Name -> Maybe InSpine
-    placed n = case probeOf n of
-      Just (ProbeRuntimeAt p) => getAt p (standings env) >>= \(s, _, _) => holding s
-      _ => Nothing
-
-||| The pairs that hold values of these types as one, where a dictionary
-||| known as a term is bound with them (`Terms.letIn`, `Choices.pack`) and
-||| taken apart where it is applied (`settledAt`), and every type each
-||| value's type builds: each pair at its first value's type and the type
-||| that packs the rest, built and projected. The list is the binding's
-||| own, given to no dictionary's parameter, so each pair is written at
-||| the types it holds.
-pairsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          At -> List StandIn -> FC -> List ClosedTerm -> Front (List Site)
-pairsOf at stands fc ts = do
-  inner <- traverse (builds at stands fc) ts
-  pairs <- maybe (pure []) (\pg => splits pg ts) !pairingOf
-  pure ((inner >>= id) ++ pairs)
-  where
-    splits : Pairing -> List ClosedTerm -> Front (List Site)
-    splits pg [] = pure []
-    splits pg [_] = pure []
-    splits pg (t :: u :: us) = do
-      rest <- packedType (u ::: us)
-      first <- readArgument stands 0 AType Nothing t (TermText t)
-      second <- readArgument stands 1 AType Nothing rest (TermText rest)
-      let args = [first, second]
-      later <- splits pg (u :: us)
-      pure ([ siteAt at fc (Builds pg.pairAddress) args, siteAt at fc (Calls pg.firstAddress) args
-            , siteAt at fc (Calls pg.secondAddress) args ] ++ later)
-
 ||| What a dictionary known as a term holds as one value where it is bound
-||| (`Terms.letIn`): the pairs of what it closes over (`pairsOf`). The
-||| writer's own dictionary is packed where its writer was given it, and
-||| one that closes over nothing whose type the walk knows holds nothing it
-||| knows.
+||| (`Terms.letIn`): its list, which its place keeps, with the types each
+||| runtime value's type builds and, for two values or more, the pair and
+||| its projections reached (`held`), whose arguments the place's held
+||| positions write (`Graph.heldPackings`). The writer's own dictionary is
+||| packed where its writer was given it, and one that closes over no value
+||| whose type the walk knows has no place of its own: where it is given,
+||| what it mentions is read as it is written.
 heldBy : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> List StandIn -> FC -> Dict -> Front (List Site)
-heldBy at stands fc (Known _ (Just co)) = pairsOf at stands fc (forget co.valueTypes)
+heldBy at stands fc (Known _ (Just co)) = do
+  (lists, sites) <- held at stands fc (forget (heldValues co))
+  pure (map (\l => siteAt at fc (Keeps co.binding l) []) lists ++ sites)
 heldBy at stands fc (Known _ Nothing) = pure []
 heldBy at stands fc (Own _ _ _) = pure []
 
@@ -1047,7 +1095,7 @@ argument at ps env fc g k = do
       d <- solved h.key
       shaped <- solved (close env g.offer.arg.written)
       pure (d, case knownGiven env g.offer.arg.written of
-                 Just co => (\lists => (lists, [])) <$> knownHeld ps.made co
+                 Just co => pure (knownHeld co, [])
                  Nothing => packings at ps.made fc h shaped)
   memberOf <- case k of
     ADictionary => Just <$> choiceAt g.binder
@@ -1089,8 +1137,9 @@ memberAt at ps env fc k d (lists, packed) written = do
 ||| type, whose head is the arrow, written at its choice's position
 ||| (`memberAt`), holding the runtime values of the scope it mentions and
 ||| each dictionary holding values it mentions: one known as a term at its
-||| key's marker (`holedAt`), and the writer's own (`ownHolders`). A lambda
-||| is a value, so the program fixes it.
+||| key's marker (`holedAt`), the one value its place holds, and the
+||| writer's own (`ownersIn`). A lambda is a value, so the program fixes
+||| it.
 lambdaAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
            At -> Pats -> Env vs -> FC -> TT vs -> Front (List Site)
 lambdaAt at ps env fc lam = do
@@ -1099,8 +1148,8 @@ lambdaAt at ps env fc lam = do
   -- A value the walk binds with no type (a case's field past the binders
   -- its constructor's type shows) is held with nothing it knows of the
   -- pair's halves, so the list is left out with it.
-  packed <- case typesOf h.markers of
-    Just types => held at ps.made fc (map ValueOfType types ++ ownHolders env lam)
+  packed <- case closingsOf h.markers of
+    Just closings => held at ps.made fc (map closedItem closings ++ map (ValuesOf . OwnParameter) (ownersIn at.statics h.marked))
     Nothing => pure ([], [])
   memberAt at ps env fc ArrowHead d packed lam
 
@@ -1644,6 +1693,7 @@ runtimeIn env t = mentioning runtime (closeWritten EmptyFC (map marking (standin
     marking (Runtime, _, _) = TypeValue (probeTerm ProbeRuntime)
     marking (Pattern _, _, _) = TypeValue (probeTerm ProbeRuntime)
     marking (Shape _, _, _) = TypeValue (probeTerm ProbeRuntime)
+    marking (Packs _, _, _) = TypeValue (probeTerm ProbeRuntime)
     marking (s, _, _) = TypeValue (termOf s)
 
     runtime : {0 ws : Scope} -> TT ws -> Mention
@@ -1664,6 +1714,7 @@ settledArgument env t@(Local _ _ idx p) = case entryAt env idx p of
   e@(Runtime, _, _) => StandsAs e
   e@(Pattern _, _, _) => StandsAs e
   e@(Shape _, _, _) => StandsAs e
+  e@(Packs _, _, _) => StandsAs e
   -- A type, a form, a dictionary or an erased value is a compile-time one.
   _ => GivenInPlace (close env t)
 settledArgument env t = case runtimeIn env t of
@@ -1704,12 +1755,12 @@ settledScope k (e :: es) env body =
 
 ||| A dictionary or a polymorphic function settled at its arguments, as the
 ||| translation settles it (`Terms.settle`): its form, a known one's values
-||| the projections of one variable that holds them, of the type that
-||| holds them (`Terms.standingFor`); its arguments as the evaluator is
-||| given them (`settledArguments`); its lambdas applied by Idris's
-||| evaluator that runs no definition; and each runtime value a variable
-||| of the settled term's scope (`settledScope`). With the arguments
-||| computed where they are given.
+||| the projections of one variable that holds them, the one value the
+||| place that binds it holds (`Packs`, `Terms.standingFor`); its arguments
+||| as the evaluator is given them (`settledArguments`); its lambdas
+||| applied by Idris's evaluator that runs no definition; and each runtime
+||| value a variable of the settled term's scope (`settledScope`). With the
+||| arguments computed where they are given.
 settledAt : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> Env vs -> FC -> Dict -> List (Arg vs) ->
             Front (List (Arg vs), (ws : Scope ** (Env ws, TT ws)))
 settledAt env fc d args = do
@@ -1720,9 +1771,9 @@ settledAt env fc d args = do
   where
     formOf : Dict -> Front (ClosedTerm, List Standing)
     formOf (Known _ (Just co)) = do
-      values <- unpacked co.valueTypes (probeTerm (ProbeRuntimeAt 0))
-      packed <- packedType co.valueTypes
-      pure (fillHoles values co.holedForm, [(Runtime, UN Underscore, Just packed)])
+      values <- unpacked (valueTypes co) (probeTerm (ProbeRuntimeAt 0))
+      packed <- packedType (valueTypes co)
+      pure (fillHoles values co.holedForm, [(Packs co.binding, UN Underscore, Just packed)])
     formOf other = pure (termOf (Holds other), [])
 
 ------------------------------------------------------------------------------
@@ -1762,16 +1813,17 @@ mutual
   term ph w acc at ps env tm@(App _ f a) = do
     Nothing <- closedRun tm
       | Just _ => pure []
-    spine ph w acc at ps env f [argOf ph w acc at ps env a]
+    spine ph w acc at ps env f [argOf ph w acc at (inPart 0 ps) env a]
   -- A lambda: its binders and body as code. Where it is a member, the
   -- place it stands says so (`atMember`, `resultMember`).
   term ph w acc at ps env (Bind fc x (Lam _ rig _ ty) sc) = lambdaBinder ph w acc at ps env x rig ty sc
   -- An erased `let` binds a compile-time value, and its value is no code.
   -- One that binds an implementation or a polymorphic function
   -- (`compileTimeBinder`) binds the value as written, as the translation
-  -- binds it, settled where it is applied; a polymorphic function so bound
-  -- may be applied at a use (`implementationAt`), so its use's walk is
-  -- made here, where it is a subterm (`useOf`).
+  -- binds it, settled where it is applied, what it closes over held as one
+  -- at the place it is bound at (`heldBy`); a polymorphic function so
+  -- bound may be applied at a use (`implementationAt`), so its use's walk
+  -- is made here, where it is a subterm (`useOf`).
   term ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) = case use rig of
     Erased => term ph w acc at ps ((Erased, x, Nothing) :: env) sc
     Used _ => do
@@ -1779,16 +1831,16 @@ mutual
       vty <- normaliseClosed typed
       if !(compileTimeBinder rig vty)
         then do
-          known <- knownAt env val
-          here <- static ph w acc at ps env val
-          used <- whereApplied !(choiceHeadOf vty) (useOf ph w acc at ps env vty val)
+          known <- knownAt at ps env val
+          here <- static ph w acc at (inPart 0 ps) env val
+          used <- whereApplied !(choiceHeadOf vty) (useOf ph w acc at (inPart 1 ps) env vty val)
           held <- heldBy at ps.made (getLoc val) known
-          body <- term ph w acc at ps ((Holds known, x, Just typed) :: env) sc
+          body <- term ph w acc at (inPart 2 ps) ((Holds known, x, Just typed) :: env) sc
           pure (here ++ used ++ held ++ body)
         else do
-          value <- term ph w acc at ps env val
-          here <- readType ph w acc at ps env ty
-          body <- term ph w acc at ps ((Runtime, x, Just typed) :: env) sc
+          value <- term ph w acc at (inPart 0 ps) env val
+          here <- readType ph w acc at (inPart 1 ps) env ty
+          body <- term ph w acc at (inPart 2 ps) ((Runtime, x, Just typed) :: env) sc
           pure (value ++ here ++ body)
   term ph w acc at ps env (Meta fc n i margs) = entered ph w acc at ps env fc n i margs []
   term ph w acc at ps env (As _ _ _ pat) = term ph w acc at ps env pat
@@ -1807,10 +1859,10 @@ mutual
                  (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                  At -> Pats -> Env vs -> (x : Name) -> RigCount -> TT vs -> TT (x :: vs) -> Front (List Site)
   lambdaBinder ph w acc at ps env x rig ty sc = case use rig of
-    Erased => lambdaScope ph w acc at ps ((Erased, x, Nothing) :: env) sc
+    Erased => lambdaScope ph w acc at (inPart 1 ps) ((Erased, x, Nothing) :: env) sc
     Used _ => do
-      here <- readType ph w acc at ps env ty
-      (here ++) <$> lambdaScope ph w acc at ps ((Runtime, x, Just (close env ty)) :: env) sc
+      here <- readType ph w acc at (inPart 0 ps) env ty
+      (here ++) <$> lambdaScope ph w acc at (inPart 1 ps) ((Runtime, x, Just (close env ty)) :: env) sc
 
   ||| A lambda's scope. A lambda directly under another is one value with
   ||| it, a member only as the whole is one, so its binder is walked as the
@@ -1831,22 +1883,23 @@ mutual
   static ph w acc at ps env tm@(App _ f a) = do
     Nothing <- closedRun tm
       | Just _ => pure []
-    staticSpine ph w acc at ps env f [argOf ph w acc at ps env a]
+    staticSpine ph w acc at ps env f [argOf ph w acc at (inPart 0 ps) env a]
   static ph w acc at ps env (Bind _ x (Lam _ rig _ ty) sc) = do
-    here <- static ph w acc at ps env ty
-    (here ++) <$> static ph w acc at ps ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
+    here <- static ph w acc at (inPart 0 ps) env ty
+    (here ++) <$> static ph w acc at (inPart 1 ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
   static ph w acc at ps env (Bind _ x (Pi _ rig _ ty) sc) = do
-    here <- static ph w acc at ps env ty
-    (here ++) <$> static ph w acc at ps ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
+    here <- static ph w acc at (inPart 0 ps) env ty
+    (here ++) <$> static ph w acc at (inPart 1 ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
   static ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) = do
-    value <- static ph w acc at ps env val
-    here <- static ph w acc at ps env ty
-    body <- static ph w acc at ps ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
+    value <- static ph w acc at (inPart 0 ps) env val
+    here <- static ph w acc at (inPart 1 ps) env ty
+    body <- static ph w acc at (inPart 2 ps) ((byQuantity (use rig), x, Just (close env ty)) :: env) sc
     pure (value ++ here ++ body)
   static ph w acc at ps env (Meta fc n i margs) = staticEntered ph w acc at ps env fc n i margs []
   static ph w acc at ps env (As _ _ _ pat) = static ph w acc at ps env pat
   static ph w acc at ps env (TDelayed _ _ t) = static ph w acc at ps env t
-  static ph w acc at ps env (TDelay _ _ t a) = (++) <$> static ph w acc at ps env t <*> static ph w acc at ps env a
+  static ph w acc at ps env (TDelay _ _ t a) =
+    (++) <$> static ph w acc at (inPart 0 ps) env t <*> static ph w acc at (inPart 1 ps) env a
   static ph w acc at ps env (TForce _ _ a) = static ph w acc at ps env a
   -- A variable, a pattern's binder, a constant or an erased value writes
   -- nothing.
@@ -1869,20 +1922,25 @@ mutual
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           At -> Pats -> Env vs -> TT vs -> Arg vs
   argOf ph w acc at ps env a =
-    MkArg a (term ph w acc at ps env a) (static ph w acc at ps env a) (\ty => useOf ph w acc at ps env ty a)
-          (computedField ph w acc at ps env a)
+    MkArg a (term ph w acc at (inPart 0 ps) env a) (static ph w acc at (inPart 1 ps) env a)
+          (\ty => useOf ph w acc at (inPart 2 ps) env ty a) (computedField ph w acc at (inPart 3 ps) env a)
 
   ||| A dictionary's field as a match that finds it stuck computes it where
   ||| the match reaches it (`Translate.Terms.computedAt`): written, settled
   ||| once as the term it is written as, its normal form code, every
   ||| runtime value it closes over a variable of the settled term
-  ||| (`implementationAt`); in a settled term, which settles nothing again,
-  ||| the normal form it already is, as code.
+  ||| (`implementationAt`), the values a dictionary known as a term closes
+  ||| over held as one at its place, as a bound one's are (`heldBy`); in a
+  ||| settled term, which settles nothing again, the normal form it already
+  ||| is, as code.
   computedField : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                   (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                   At -> Pats -> Env vs -> TT vs -> Front (List Site)
   computedField Settled w acc at ps env a = term Settled w acc at ps env a
-  computedField ph@(Written _) w acc at ps env a = implementationAt ph at ps env (getLoc a) Nothing !(knownAt env a) []
+  computedField ph@(Written _) w acc at ps env a = do
+    known <- knownAt at ps env a
+    held <- heldBy at ps.made (getLoc a) known
+    (held ++) <$> implementationAt ph at ps env (getLoc a) Nothing known []
 
   ||| A member of a polymorphic function's choice applied at a use of type
   ||| `ty` (`Translate.State.AtUse`), walked once, at the place that makes
@@ -1908,19 +1966,22 @@ mutual
   spine : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           At -> Pats -> Env vs -> TT vs -> List (Arg vs) -> Front (List Site)
-  spine ph w acc at ps env (App _ f a) args = spine ph w acc at ps env f (argOf ph w acc at ps env a :: args)
+  spine ph w acc at ps env (App _ f a) args =
+    spine ph w acc at ps env f (argOf ph w acc at (inPart (length args) ps) env a :: args)
   spine ph w acc at ps env (Ref fc _ n) args = applyRef at ps env fc n args
-  spine ph w acc at ps env tm args = applyHead ph w acc at ps env tm args
+  spine ph w acc at ps env tm args = applyHead ph w acc at (inPart (length args) ps) env tm args
 
   ||| An application's spine in a type or a static argument.
   staticSpine : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                 (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                 At -> Pats -> Env vs -> TT vs -> List (Arg vs) -> Front (List Site)
-  staticSpine ph w acc at ps env (App _ f a) args = staticSpine ph w acc at ps env f (argOf ph w acc at ps env a :: args)
+  staticSpine ph w acc at ps env (App _ f a) args =
+    staticSpine ph w acc at ps env f (argOf ph w acc at (inPart (length args) ps) env a :: args)
   staticSpine ph w acc at ps env (Ref fc _ n) args = staticRef at ps env fc n args
-  staticSpine ph w acc at ps env (Meta fc n i margs) args = staticEntered ph w acc at ps env fc n i margs args
+  staticSpine ph w acc at ps env (Meta fc n i margs) args =
+    staticEntered ph w acc at (inPart (length args) ps) env fc n i margs args
   staticSpine ph w acc at ps env tm args = do
-    here <- static ph w acc at ps env tm
+    here <- static ph w acc at (inPart (length args) ps) env tm
     (here ++) <$> statics args
 
   ||| A head that is no definition, applied as code: a variable; a lambda,
@@ -1947,15 +2008,15 @@ mutual
             bty <- normaliseClosed (close env ty)
             if !(compileTimeBinder rig bty)
               then do
-                known <- knownAt env a.written
+                known <- knownAt at ps env a.written
                 used <- whereApplied !(choiceHeadOf bty) (a.asUse bty)
                 held <- heldBy at ps.made (getLoc a.written) known
                 pure ((Holds known, x, Just (close env ty)), !(Force a.asStatic) ++ used ++ held)
               else do
                 value <- Force a.asCode
-                here <- readType ph w acc at ps env ty
+                here <- readType ph w acc at (inPart 0 ps) env ty
                 pure ((Runtime, x, Just (close env ty)), value ++ here)
-    (own ++) <$> spine ph w acc at ps (entry :: env) sc (map overBinder rest)
+    (own ++) <$> spine ph w acc at (inPart 1 ps) (entry :: env) sc (map overBinder rest)
   applyHead ph w acc at ps env (Meta fc n i margs) args = entered ph w acc at ps env fc n i margs args
   applyHead ph w acc at ps env (As _ _ _ pat) args = spine ph w acc at ps env pat args
   applyHead ph w acc at ps env tm args = do
@@ -1972,6 +2033,7 @@ mutual
     (Runtime, _, ty) => overType at ps env fc ty args
     (Pattern _, _, ty) => overType at ps env fc ty args
     (Shape _, _, ty) => overType at ps env fc ty args
+    (Packs _, _, ty) => overType at ps env fc ty args
     (Holds d, _, ty) => implementationAt ph at ps env fc ty d args
     -- Idris's quantity check keeps a compile-time variable out of every
     -- position that exists at runtime.
@@ -2008,11 +2070,11 @@ mutual
                   useAt at ps env fc nty form args)
     (computed, (ws ** (env', body))) <- settledAt env fc d args
     here <- traverse (\a => Force a.asCode) computed
-    ((used ++ (here >>= id)) ++) <$> term next start (sizeAccessible start) at ps env' body
+    ((used ++ (here >>= id)) ++) <$> term next start (sizeAccessible start) at (inPart 0 ps) env' body
   implementationAt (Written next) at ps env fc Nothing d args = do
     (computed, (ws ** (env', body))) <- settledAt env fc d args
     here <- traverse (\a => Force a.asCode) computed
-    ((here >>= id) ++) <$> term next start (sizeAccessible start) at ps env' body
+    ((here >>= id) ++) <$> term next start (sizeAccessible start) at (inPart 0 ps) env' body
 
   ||| A metavariable applied as code, as the solution the type checker gave
   ||| it, entered once on the path: met again, its solution is being walked.
@@ -2077,16 +2139,21 @@ readClosed at ps ty = readType asWritten start (sizeAccessible start) at ps [] t
 ||| another name for it) is now that constructor's shape.
 rebound : StandIn -> ClosedTerm -> Env vs -> Env vs
 rebound p con [] = []
-rebound p con ((s, x, ty) :: es) = (restand s, x, map (substName (standInName p.number) con) ty) :: rebound p con es
+rebound p con ((s, x, ty) :: es) = (restand s, x, map onto ty) :: rebound p con es
   where
+    onto : ClosedTerm -> ClosedTerm
+    onto = substName (standInName p.number) con
+
+    closing : Closing -> Closing
+    closing (ValueOf t) = ValueOf (onto t)
+    closing (HolderOf b t) = HolderOf b (onto t)
+
     restand : Stand -> Stand
     restand (Pattern q) = if q.number == p.number then Shape con else Pattern q
-    restand (Fixed t) = Fixed (substName (standInName p.number) con t)
+    restand (Fixed t) = Fixed (onto t)
     restand (Holds (Known t co)) =
-      Holds (Known (substName (standInName p.number) con t)
-                   (map (\c => MkClosedOver (substName (standInName p.number) con c.holedForm)
-                                            (map (substName (standInName p.number) con) c.valueTypes)) co))
-    restand (Shape t) = Shape (substName (standInName p.number) con t)
+      Holds (Known (onto t) (map (\c => { holedForm := onto c.holedForm, closings := map closing c.closings } c) co))
+    restand (Shape t) = Shape (onto t)
     restand s = s
 
 ||| The variables a constructor binds, in argument order, read off its
@@ -2196,7 +2263,8 @@ mutual
   ||| what the matches above it made of the scope.
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
          At -> Pats -> Env vs -> CaseTree vs -> Front (List Site)
-  tree at ps env (STerm _ tm) = (++) <$> resultMember at ps env tm <*> term asWritten start (sizeAccessible start) at ps env tm
+  tree at ps env (STerm _ tm) =
+    (++) <$> resultMember at (inPart 0 ps) env tm <*> term asWritten start (sizeAccessible start) at (inPart 1 ps) env tm
   tree at ps env (Unmatched _) = pure []
   tree at ps env Impossible = pure []
   -- The scrutinee's type is its variable's: a case tree loaded from a TTC
@@ -2216,6 +2284,9 @@ mutual
         (Ref _ (TyCon _) _, as) => as
         _ => []
 
+  ||| A match's alternatives, the first walked as the first part of where
+  ||| the walk is and the rest as the second, so that each is a part of its
+  ||| own.
   alternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
                  At -> Pats -> Env vs -> Standing -> List ClosedTerm -> Bool -> List (CaseAlt vs) ->
                  List (CaseAlt vs) -> Front (List Site)
@@ -2223,11 +2294,11 @@ mutual
   alternatives at ps env v r every alts (ConCase cn tag args rhs :: rest) = do
     here <- the (Front (List Site)) $ case !(definitionOf cn) of
       Just (_, cd) => do
-        (bound, con, ps') <- conStands ps (fst v) r cd (Ref EmptyFC (DataCon tag (length args)) cn) args
+        (bound, con, ps') <- conStands (inPart 0 ps) (fst v) r cd (Ref EmptyFC (DataCon tag (length args)) cn) args
         tree at ps' (append bound (matchedAs (fst v) con env)) rhs
       -- Idris's tree names only constructors the context holds.
       Nothing => pure []
-    (here ++) <$> alternatives at ps env v r every alts rest
+    (here ++) <$> alternatives at (inPart 1 ps) env v r every alts rest
     where
       -- A shape not matched yet is the constructor from now on; a dictionary
       -- keeps its marker, so that its root stays the writer's head.
@@ -2236,16 +2307,16 @@ mutual
       matchedAs _ _ env = env
   -- A default after a complete split stands for no value.
   alternatives at ps env v r every alts (DefaultCase rhs :: rest) = do
-    here <- if every then pure [] else defaulted at ps env v r alts rhs
-    (here ++) <$> alternatives at ps env v r every alts rest
+    here <- if every then pure [] else defaulted at (inPart 0 ps) env v r alts rhs
+    (here ++) <$> alternatives at (inPart 1 ps) env v r every alts rest
   alternatives at ps env v r every alts (ConstCase _ rhs :: rest) =
-    (++) <$> tree at ps env rhs <*> alternatives at ps env v r every alts rest
+    (++) <$> tree at (inPart 0 ps) env rhs <*> alternatives at (inPart 1 ps) env v r every alts rest
   -- A suspension has one form: its alternative binds the value's type,
   -- erased, and the value forced, which stands as the scrutinee does, at
   -- the type the suspension's is of.
   alternatives at ps env v r every alts (DelayCase ty arg rhs :: rest) =
-    (++) <$> tree at ps ((Erased, ty, Nothing) :: (fst v, arg, forced (snd (snd v))) :: env) rhs
-         <*> alternatives at ps env v r every alts rest
+    (++) <$> tree at (inPart 0 ps) ((Erased, ty, Nothing) :: (fst v, arg, forced (snd (snd v))) :: env) rhs
+         <*> alternatives at (inPart 1 ps) env v r every alts rest
     where
       forced : Maybe ClosedTerm -> Maybe ClosedTerm
       forced (Just (TDelayed _ _ t)) = Just t
@@ -2276,12 +2347,12 @@ mutual
     here <- the (Front (List Site)) $ case !(definitionOf cn) of
       Just (_, cd) => case definition cd.def of
         DCon tag arity _ => do
-          (_, con, ps') <- conStands ps (Pattern p) r cd (Ref EmptyFC (DataCon tag arity) cn) (piNames cd.type)
+          (_, con, ps') <- conStands (inPart 0 ps) (Pattern p) r cd (Ref EmptyFC (DataCon tag arity) cn) (piNames cd.type)
           tree at ps' (rebound p con env) rhs
         _ => pure []
       -- A type's constructors are constructors the context holds.
       Nothing => pure []
-    (here ++) <$> expand at ps env p r cns rhs
+    (here ++) <$> expand at (inPart 1 ps) env p r cns rhs
 
 ------------------------------------------------------------------------------
 -- A definition's sites
@@ -2355,13 +2426,14 @@ standFor Nothing rig _ v ps = (byQuantity (use rig), ps)
 ||| The definition's parameters, off its type, each standing as its kind
 ||| and its value at the node say, with the sites its runtime binders'
 ||| types and its result type write: the types the translation reads off a
-||| callee's signature.
+||| callee's signature. The signature is the first part of the definition,
+||| the type at binder i its part i; its tree is the second (`nodeSites`).
 signature : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             At -> List (Maybe Static, ClosedTerm) -> (i : Nat) -> ClosedTerm -> Pats -> Front (List Site, Pats, List Standing)
-signature at [] i ty ps = (, ps, []) <$> readClosed at ps ty
+signature at [] i ty ps = (, ps, []) <$> readClosed at (inPart i (inPart 0 ps)) ty
 signature at ((k, v) :: ks) i ty ps = do
   Bind _ x (Pi _ rig _ a) sc <- showingBinder ty
-    | ty' => (, ps, []) <$> readClosed at ps ty'
+    | ty' => (, ps, []) <$> readClosed at (inPart i (inPart 0 ps)) ty'
   parameter x rig a sc
   where
     runtime : Stand -> Bool
@@ -2372,7 +2444,7 @@ signature at ((k, v) :: ks) i ty ps = do
     parameter : Name -> RigCount -> ClosedTerm -> TT [x] -> Front (List Site, Pats, List Standing)
     parameter x rig a sc = do
       let (st, ps') = standFor k rig i v ps
-      here <- if runtime st then readClosed at ps a else pure []
+      here <- if runtime st then readClosed at (inPart i (inPart 0 ps)) a else pure []
       (rest, ps'', params) <- signature at ks (S i) (subst (termOf st) sc) ps'
       pure (here ++ rest, ps'', (st, x, Just a) :: params)
 
@@ -2415,7 +2487,7 @@ projectionSite at ps params p = do
     own (q, j, k, t) = do
       x <- readArgument ps.made q k Nothing t (ParameterText at.writerDef j)
       pure (case k of
-              ADictionary => { holds := [PackedBy j ::: []] } x
+              ADictionary => { holds := [PackedBy (OwnParameter j) ::: []] } x
               _ => x)
 
 ||| What each parameter stands for at a node: a family the node has a head
@@ -2489,7 +2561,7 @@ nodeSites writer within d (values, made) = do
       if contains at.writer st.refused || answersFor d.registered then pure [] else
         case dictionaryProjection kinds m.tree of
           Just p => (\site => [site]) <$> projectionSite at ps (zip kinds params) p
-          Nothing => tree at ps (envOf m.args params) m.tree
+          Nothing => tree at (inPart 1 ps) (envOf m.args params) m.tree
     Nothing => pure []
   pure (kinds, sig ++ body)
   where
@@ -2522,14 +2594,14 @@ atNode : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 atNode a heads = do
   Just d <- definitionRead a
     | Nothing => pure ([], [])
-  nodeSites a a d !(nodeValues (arityOf d) heads 0 d.type (MkPats 0 []))
+  nodeSites a a d !(nodeValues (arityOf d) heads 0 d.type (MkPats 0 [] []))
 
 ||| A definition as its node with no heads reads it, from the definition
 ||| the walk holds.
 export
 readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Defined -> Front Reading
 readingOf a d = do
-  (kinds, ss) <- nodeSites a a d !(nodeValues (arityOf d) [] 0 d.type (MkPats 0 []))
+  (kinds, ss) <- nodeSites a a d !(nodeValues (arityOf d) [] 0 d.type (MkPats 0 [] []))
   pure (MkReading ss (mapMaybe family (zip [0 .. length kinds] kinds)))
   where
     family : (Nat, Maybe Static) -> Maybe Nat
@@ -2551,4 +2623,4 @@ sitesIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 sitesIn writer within stands tm = do
   Just at <- writerAt writer within
     | Nothing => pure []
-  readClosed at (MkPats (length stands) stands) tm
+  readClosed at (MkPats (length stands) stands []) tm

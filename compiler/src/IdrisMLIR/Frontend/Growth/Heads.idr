@@ -63,6 +63,7 @@ import Libraries.Data.List.Finite
 
 import Control.Relation
 import Control.WellFounded
+import Data.DPair
 import Data.Fin
 import Data.List
 import Data.List.Elem
@@ -673,6 +674,9 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
       -- use of it applies each member at the use's own types.
       Makes ArrowHead => []
       Repacks x path => [Rebuilds s.writer s.params x.position path]
+      -- What a dictionary the writer binds closes over flows nowhere: it
+      -- is held at the binding's place alone.
+      Keeps _ _ => []
 
     numbered : Address -> Nat -> List Field -> List Equation
     numbered j k [] = []
@@ -975,18 +979,23 @@ Ord Holder where
 
 ||| A dictionary's place, whose values a held position bounds: a parameter
 ||| of what holds it, a field of an implementation or of a rebuilt
-||| constructor, or a choice, where its members are. Each holds the lists
-||| its givers give it (`Sites.HeldItem`). A field holds what its
-||| dictionary holds, which its dictionary's place bounds, so no list is
-||| given at one; it is where a rebuilt constructor's field lands.
+||| constructor, a choice, where its members are, or the place in a
+||| writer's text, at the writer's node, where a `let` or a lambda's
+||| argument binds a dictionary that closes over values
+||| (`Sites.BoundPlace`). Each holds the lists its givers give it
+||| (`Sites.HeldItem`), a binding the one list of what it closes over. A
+||| field holds what its dictionary holds, which its dictionary's place
+||| bounds, so no list is given at one; it is where a rebuilt constructor's
+||| field lands.
 public export
-data HeldBy = ByParameter Holder Nat | ByField Address Nat | ByChoice ChoiceHead
+data HeldBy = ByParameter Holder Nat | ByField Address Nat | ByChoice ChoiceHead | ByBinding Node BoundPlace
 
 export
 Eq HeldBy where
   ByParameter h i == ByParameter h' i' = h == h' && i == i'
   ByField j k == ByField j' k' = j == j' && k == k'
   ByChoice k == ByChoice k' = k == k'
+  ByBinding w b == ByBinding w' b' = w == w' && b == b'
   _ == _ = False
 
 export
@@ -998,6 +1007,9 @@ Ord HeldBy where
   compare (ByField _ _) _ = LT
   compare _ (ByField _ _) = GT
   compare (ByChoice k) (ByChoice k') = compare k k'
+  compare (ByChoice _) _ = LT
+  compare _ (ByChoice _) = GT
+  compare (ByBinding w b) (ByBinding w' b') = compare (w, b) (w', b')
 
 ||| How the values of one list a dictionary holds are held
 ||| (`Closed.packedType`): one value, held as itself, in no pair; or two or
@@ -1024,8 +1036,8 @@ Ord Packed where
 ||| in its lists of one value or in its lists of several. A held position
 ||| belongs to a dictionary's place, and no place is a held position, so
 ||| values held inside held values have no position of their own: a
-||| dictionary another holds is one value of the other's list, of the type
-||| its own values pack to.
+||| dictionary another holds, a bound one among them, is one value of the
+||| other's list, of the type its own values pack to.
 public export
 record HeldValues where
   constructor MkHeldValues
@@ -1072,26 +1084,39 @@ Ord Spot where
   compare (OfHeld _) (OfChoice _) = GT
   compare (OfHeld v) (OfHeld v') = compare v v'
 
+||| A dictionary's place that is a position of the graph itself, its held
+||| positions belonging to it: a parameter, a field or a choice. A
+||| dictionary a writer's text binds is no position: every use reads its
+||| form where it is written, and its place holds only what it closes over.
+public export
+data Positioned : HeldBy -> Type where
+  ParameterPlace : Positioned (ByParameter h i)
+  FieldPlace : Positioned (ByField j k)
+  ChoicePlace : Positioned (ByChoice k)
+
 ||| A dictionary's place as a position of the graph: the position its
 ||| held positions belong to.
 export
-valueSpot : HeldBy -> Spot
-valueSpot (ByParameter h i) = OfParameter h i
-valueSpot (ByField j k) = OfField j k
-valueSpot (ByChoice k) = OfChoice k
+valueSpot : (place : HeldBy) -> (0 _ : Positioned place) -> Spot
+valueSpot (ByParameter h i) _ = OfParameter h i
+valueSpot (ByField j k) _ = OfField j k
+valueSpot (ByChoice k) _ = OfChoice k
+valueSpot (ByBinding _ _) ParameterPlace impossible
+valueSpot (ByBinding _ _) FieldPlace impossible
+valueSpot (ByBinding _ _) ChoicePlace impossible
 
 ||| Where parameter i of a writer is, at its node, as `ps` reads it: the
 ||| node's own, or a position of the application.
 export
-writerPlace : Node -> Parameters -> Nat -> HeldBy
+writerPlace : Node -> Parameters -> Nat -> Subset HeldBy Positioned
 writerPlace w ps i = case parameterOf ps i of
-  WritersOwn j => ByParameter (OfNode w) j
-  UsesPosition j => ByParameter OfApplication j
+  WritersOwn j => Element (ByParameter (OfNode w) j) ParameterPlace
+  UsesPosition j => Element (ByParameter OfApplication j) ParameterPlace
 
 ||| The position of parameter i of a writer at its node (`writerPlace`).
 export
 spotAt : Node -> Parameters -> Nat -> Spot
-spotAt w ps i = valueSpot (writerPlace w ps i)
+spotAt w ps i = let Element place positioned = writerPlace w ps i in valueSpot place positioned
 
 ||| How a site reached its callee: called or built, its target the callee;
 ||| or dispatched through implementation J's method field k, whose leading
@@ -1104,7 +1129,8 @@ data Via : Type where
 ||| What a site reaches from a visit: a callee's visit, which the walk
 ||| enters; the application at a use; a choice it makes a member of; or the
 ||| fields of a constructor a dictionary is rebuilt with, which no
-||| definition's node holds, each a field's position.
+||| definition's node holds, each a field's position. A dictionary the
+||| writer binds is no callee (`Reached`).
 public export
 data Callee = Entering Visit | Applying | Making ChoiceHead | Filling Address
 
@@ -1113,25 +1139,26 @@ data Callee = Entering Visit | Applying | Making ChoiceHead | Filling Address
 ||| one place, where every member is whatever it is placed at; at a rebuilt
 ||| constructor, its field i. What a dictionary there holds is held there.
 export
-calleePlace : Callee -> Nat -> HeldBy
-calleePlace (Entering v) i = ByParameter (OfNode (visitNode v)) i
-calleePlace Applying i = ByParameter OfApplication i
-calleePlace (Making k) _ = ByChoice k
-calleePlace (Filling con) i = ByField con i
+calleePlace : Callee -> Nat -> Subset HeldBy Positioned
+calleePlace (Entering v) i = Element (ByParameter (OfNode (visitNode v)) i) ParameterPlace
+calleePlace Applying i = Element (ByParameter OfApplication i) ParameterPlace
+calleePlace (Making k) _ = Element (ByChoice k) ChoicePlace
+calleePlace (Filling con) i = Element (ByField con i) FieldPlace
 
 ||| Where an argument placed at a callee's parameter i lands (`calleePlace`).
 export
 landsAt : Callee -> Nat -> Spot
-landsAt c i = valueSpot (calleePlace c i)
+landsAt c i = let Element place positioned = calleePlace c i in valueSpot place positioned
 
-||| What a site reaches from a node, with each of the site's arguments
-||| placed at the parameter it lands at, and how it got there.
+||| What a site reaches from a node: a callee, with each of the site's
+||| arguments placed at the parameter it lands at, and how it got there;
+||| or, where the writer binds a dictionary that closes over values, the
+||| place it is bound at, which holds the list of them as one at the
+||| writer's node (`ByBinding`), and which no argument is placed at.
 public export
-record Reached where
-  constructor MkReached
-  callee : Callee
-  placed : List Placed
-  via : Via
+data Reached : Type where
+  MkReached : (callee : Callee) -> (placed : List Placed) -> (via : Via) -> Reached
+  Kept : BoundPlace -> List1 HeldItem -> Reached
 
 ||| Each callee a site reaches from the writer's visit. A callee is split by
 ||| the roots of its dictionary and family arguments, one visit for each
@@ -1242,6 +1269,8 @@ reaches fl v s = from s.reach
     -- bounded at its positions alone.
     from Applies = [MkReached Applying (atOwnPositions s.arguments) Called]
     from (Makes k) = [MkReached (Making k) (atOwnPositions s.arguments) Called]
+    -- A binding's list is held at its place, at the writer's node.
+    from (Keeps b items) = [Kept b items]
     -- Where a match finds a field of the dictionary stuck: one request for
     -- each chain to a field the running program may have chosen, none
     -- where every root holds that field fixed, as no translation then
