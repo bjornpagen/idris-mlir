@@ -485,7 +485,8 @@ entry = MkPass ("entry" ::: []) OnModule (At Lowered) Restructure Invalidates []
 public export
 narrowLanes : Pass
 narrowLanes = MkPass ("narrow" ::: ["lanes"]) OnLoweredFunction AnyStage Apply Keeps
-  [ stat "numNarrowed" "narrowed" "Vectorized loops given a 32-bit version" ]
+  [ stat "numNarrowed" "narrowed" "Vectorized loops given a 32-bit version"
+  , stat "numWide" "wide" "Vectorized loops on wide integer lanes left on 64 bits" ]
   [MkAction ("narrow" ::: ["lanes", "version"]) "a vectorized loop given its 32-bit version"] []
   NoOptions [LoadsArith, LoadsSCF, LoadsVector] Registered
   (MkDoc "Run the integer lanes of each vectorized loop in 32 bits under a bound on the sizes" "")

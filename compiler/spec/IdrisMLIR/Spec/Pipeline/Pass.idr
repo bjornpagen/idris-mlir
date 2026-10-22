@@ -153,6 +153,35 @@ loadsHeader LoadsMemRef = cppHeader MemRef
 loadsHeader LoadsAffine = "mlir/Dialect/Affine/IR/AffineOps.h"
 loadsHeader LoadsVector = "mlir/Dialect/Vector/IR/VectorOps.h"
 
+public export
+Eq Loads where
+  LoadsIdr == LoadsIdr = True
+  LoadsArith == LoadsArith = True
+  LoadsMath == LoadsMath = True
+  LoadsUB == LoadsUB = True
+  LoadsLLVM == LoadsLLVM = True
+  LoadsDLTI == LoadsDLTI = True
+  LoadsSCF == LoadsSCF = True
+  LoadsCF == LoadsCF = True
+  LoadsTensor == LoadsTensor = True
+  LoadsLinalg == LoadsLinalg = True
+  LoadsBufferization == LoadsBufferization = True
+  LoadsMemRef == LoadsMemRef = True
+  LoadsAffine == LoadsAffine = True
+  LoadsVector == LoadsVector = True
+  _ == _ = False
+
+||| The dialect whose op a pass runs on, as a dialect a pass names: its
+||| header declares the anchor's class, which the pass's generated
+||| definition names as the op it runs on. None for the module, which the
+||| pass framework's own header declares.
+public export
+anchorDialect : Anchor -> Maybe Loads
+anchorDialect OnModule = Nothing
+anchorDialect OnProgram = Just LoadsIdr
+anchorDialect OnFunction = Just LoadsIdr
+anchorDialect OnLoweredFunction = Just LoadsLLVM
+
 ||| A pass's options: none, or a test's list of properties to check, which
 ||| selects no behaviour of a compilation.
 public export
@@ -198,3 +227,12 @@ passArgument p = "idr-" ++ concat (intersperse "-" (map wordText (forget p.name)
 public export
 passRecord : Pass -> String
 passRecord p = "Idr" ++ concat (map camel (forget p.name))
+
+||| The dialects whose classes the pass's generated definition names, each
+||| once: the one it runs on, its anchor's, then those it loads, which its
+||| `getDependentDialects` names.
+public export
+definitionDialects : Pass -> List Loads
+definitionDialects p = case anchorDialect p.anchor of
+  Nothing => p.loads
+  Just d => d :: filter (/= d) p.loads

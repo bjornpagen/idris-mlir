@@ -108,10 +108,21 @@ decimal n = pack (digits n (wellFounded n) [])
       in digits (heldBelow k d) (rec (heldBelow k d) (heldIsBelow k d))
                 (digitChar (integerToNat (i `mod` 10)) :: out)
 
-||| An integer's decimal text, its sign first.
+||| The greatest value a C++ signed literal holds: a 64-bit word's.
+greatestSigned : Integer
+greatestSigned = 9223372036854775807
+
+||| An integer as C++ reads it, its sign first. C++ has no negative
+||| literal: `-n` negates the literal `n`, and the least 64-bit value's
+||| magnitude is one more than any signed literal holds, so that value is
+||| written as the one above it, less one. A value no 64-bit word holds is
+||| printed as the others are, and C++ refuses it where it stands.
 export
 integer : Integer -> String
-integer i = if i < 0 then "-" ++ decimal (fromInteger (negate i)) else decimal (fromInteger i)
+integer i =
+  if i >= 0 then decimal (fromInteger i)
+  else if negate i <= greatestSigned then "-" ++ decimal (fromInteger (negate i))
+  else "(-" ++ decimal (fromInteger (negate i - 1)) ++ " - 1)"
 
 ||| A hexadecimal digit's character.
 export

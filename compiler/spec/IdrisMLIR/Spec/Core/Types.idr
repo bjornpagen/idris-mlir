@@ -270,12 +270,18 @@ record ValueFacts where
   counting : Counting
   word : CellWord
 
-||| Whether a type answers the value facts: none, or its answers.
+||| Whether a type answers the value facts: none; its answers, the same for
+||| every value of it, which the generator prints as the methods' bodies; or
+||| answers computed from its parameters (a grade's are its carrier's, a data
+||| type's its family's), which a hand unit defines. A type that answers
+||| takes the interface through this field alone, its methods declared on its
+||| class by ODS, so no type lists the interface or restates its methods.
 public export
-data TypeFacts = NoValueFacts | Answers ValueFacts
+data TypeFacts = NoValueFacts | Answers ValueFacts | HandAnswers
 
-||| The interface every type that answers the value facts takes: what a
-||| value of it holds, read by counting, the lifetimes and the lowering.
+||| The interface every type that answers the value facts takes, through its
+||| facts: what a value of it holds, read by counting, the lifetimes and the
+||| lowering.
 public export
 valueFactsInterface : InterfaceDef
 valueFactsInterface = MkInterfaceDef

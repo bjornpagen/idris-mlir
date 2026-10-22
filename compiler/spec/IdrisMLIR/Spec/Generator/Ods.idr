@@ -205,7 +205,7 @@ export
 propertyC : PropertyC -> String
 propertyC (EnumProperty e) = "EnumProp<" ++ enumRecord e.enum ++ ">"
 propertyC (DefaultedEnumProperty e c) = "DefaultValuedProp<EnumProp<" ++ enumRecord e.enum ++ ">, " ++ quoted (codeText c) ++ ">"
-propertyC (CountProperty dflt) = "DefaultValuedProp<IntProp<\"uint64_t\">, " ++ quoted (decimal dflt) ++ ">"
+propertyC (CountProperty dflt) = "DefaultValuedProp<I64Prop, " ++ quoted (decimal dflt) ++ ">"
 propertyC (HandProperty c d dflt) =
   "Idr_HandProperty<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ", "
     ++ quoted (codeText dflt) ++ ", " ++ quoted (lineText d.doc.summary) ++ ">"
@@ -293,6 +293,7 @@ traitOds NoTerminator = "NoTerminator"
 traitOds NoRegionArguments = "NoRegionArguments"
 traitOds SymbolTable = "SymbolTable"
 traitOds SymbolOp = "Symbol"
+traitOds SymbolName = "SymbolName"
 traitOds AffineScope = "AffineScope"
 traitOds AutomaticAllocationScope = "AutomaticAllocationScope"
 traitOds ConstantLike = "ConstantLike"
@@ -727,15 +728,25 @@ factsDefinition f =
     cell AlwaysCell = True
     cell MayBeOtherWord = False
 
+||| The value facts' interface, its methods declared on the type's class by
+||| ODS: none of them has a default, and their definitions are printed with
+||| the type or written by hand.
+declaredFacts : String
+declaredFacts = declareMethods OverTypes ++ "<" ++ interfaceRecord valueFactsInterface ++ ">"
+
+||| The interface a type takes for its value facts: none, or the declared
+||| one, whoever defines the answers.
 export
 factsTraits : TypeFacts -> List String
 factsTraits NoValueFacts = []
-factsTraits (Answers _) = [interfaceRecord valueFactsInterface]
+factsTraits (Answers _) = [declaredFacts]
+factsTraits HandAnswers = [declaredFacts]
 
 export
 factsFields : TypeFacts -> Lines
 factsFields NoValueFacts = []
 factsFields (Answers f) = factsDefinition f
+factsFields HandAnswers = []
 
 export
 typeOds : TypeDef p -> Lines
@@ -872,9 +883,13 @@ baseClasses =
   , "  let mnemonic = typeMnemonic;"
   , "}"
   , ""
+  , "// A constant of one of our attributes is written as the attribute itself,"
+  , "// built in full, as an attribute's default is, which ODS fills in where"
+  , "// the op is built without it."
   , "class Idr_Attr<string name, string attrMnemonic, list<Trait> traits = []>"
   , "    : AttrDef<" ++ dialectRecord Idr ++ ", name, traits> {"
   , "  let mnemonic = attrMnemonic;"
+  , "  let constBuilderCall = \"$0\";"
   , "}"
   , ""
   , "// The traits the generator gives ops from their facts: a pure runtime op"

@@ -37,6 +37,14 @@ builderOf : Bytecode -> List String
 builderOf Derived = []
 builderOf (CheckedBy fn) = ["  let cBuilder = \"::idr::" ++ identText fn ++ "(reader, context, $_args)\";"]
 
+||| A record's C++ class, named in full: the reader and writer mlir-tblgen
+||| writes name it, in units where upstream's namespace is open too, and a
+||| class of ours may share its name with one of upstream's (builtin's
+||| `TokenType`), which the record's name alone would leave ambiguous.
+export
+classOf : String -> List String
+classOf name = ["  let cType = \"::idr::" ++ name ++ "\";"]
+
 export
 memberList : Vect p Parameter -> String
 memberList ps = joinWith ", " (map (\x => memberOf x.kind ++ ":$" ++ identText x.name) (toList ps))
@@ -45,13 +53,13 @@ export
 typeBytecode : AnyTypeDef -> (String, Lines)
 typeBytecode (SomeType t) =
   let name = typeClass t
-  in (name, ["def " ++ name ++ " : DialectType<(type " ++ memberList t.params ++ ")> {"] ++ builderOf t.bytecode ++ ["}"])
+  in (name, ["def " ++ name ++ " : DialectType<(type " ++ memberList t.params ++ ")> {"] ++ classOf name ++ builderOf t.bytecode ++ ["}"])
 
 export
 attrBytecode : AnyAttrDef -> (String, Lines)
 attrBytecode (SomeAttr a) =
   let name = attrClass a
-  in (name, ["def " ++ name ++ " : DialectAttribute<(attr " ++ memberList a.params ++ ")> {"] ++ builderOf a.bytecode ++ ["}"])
+  in (name, ["def " ++ name ++ " : DialectAttribute<(attr " ++ memberList a.params ++ ")> {"] ++ classOf name ++ builderOf a.bytecode ++ ["}"])
 
 ||| The dialect's bytecode records, every type and attribute, in declaration
 ||| order: a type's code is its position among the types.

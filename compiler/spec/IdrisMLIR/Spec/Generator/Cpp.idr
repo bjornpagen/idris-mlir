@@ -230,17 +230,18 @@ areaHeader h =
                       (slashComment (lineText h.doc.summary :: proseLines h.doc.description) ++ [""]
                        ++ concatMap headerBlock h.blocks)) )
 
-||| The headers of the dialects each pass loads, under the macro that
-||| selects the pass's generated definition, `GEN_PASS_DEF_<PASS>`, whose
-||| `getDependentDialects` names their classes: a unit defines the macro and
-||| includes this at file scope, before it includes the definitions. No
-||| guard and no `#undef`, since the definitions read the macro after it.
+||| The headers of the dialects each pass's generated definition names,
+||| under the macro that selects it, `GEN_PASS_DEF_<PASS>`: the anchor's,
+||| whose op its base runs on, and those its `getDependentDialects` loads.
+||| A unit defines the macro and includes this at file scope, before it
+||| includes the definitions. No guard and no `#undef`, since the
+||| definitions read the macro after it.
 export
 passDialectsHeader : List Pass -> Lines
 passDialectsHeader ps = banner slashComment ++ concatMap section ps
   where
     section : Pass -> Lines
-    section p = case p.loads of
+    section p = case definitionDialects p of
       [] => []
       ls =>
         let macro = "GEN_PASS_DEF_" ++ pack (map toUpper (unpack (passRecord p)))
@@ -354,11 +355,38 @@ constantMember _ (n, NoClass) = "using " ++ identText n ++ " = void;"
 constantMember _ (n, HelperConstant h) =
   "static constexpr const ::idr::runtime::Function &" ++ identText n ++ " = ::idr::runtime::helper::" ++ identText h.name ++ ";"
 
-||| Whether a constant names a runtime function, whose row the template's
-||| header then includes.
-namesHelper : Constant -> Bool
-namesHelper (HelperConstant _) = True
-namesHelper _ = False
+||| A declaration a template's constant names beyond the dialect's own
+||| classes and enums, which the template's includer declares first: an
+||| admitted op's class, a runtime function's row, or a fixed-width integer.
+data Named = AdmittedClass | RuntimeRow | FixedWidth
+
+Eq Named where
+  AdmittedClass == AdmittedClass = True
+  RuntimeRow == RuntimeRow = True
+  FixedWidth == FixedWidth = True
+  _ == _ = False
+
+||| What a constant names: an enum's case names one of the dialect's own
+||| enums, and no class names nothing.
+namedBy : Constant -> List Named
+namedBy (EnumConstant _) = []
+namedBy (IntConstant _) = [FixedWidth]
+namedBy (UpstreamClass _) = [AdmittedClass]
+namedBy NoClass = []
+namedBy (HelperConstant _) = [RuntimeRow]
+
+||| The header that declares what is named.
+namedHeader : Named -> String
+namedHeader AdmittedClass = "\"idr/IR/Generated/AdmittedClasses.h.inc\""
+namedHeader RuntimeRow = "\"idr/IR/Generated/RuntimeAbi.h.inc\""
+namedHeader FixedWidth = "<cstdint>"
+
+||| The headers a template's constants need, each once, ours before the
+||| standard library's, and none they do not.
+headersOf : List (Ident, Constant) -> List String
+headersOf cs =
+  let named = concatMap (namedBy . snd) cs
+  in map namedHeader (filter (\n => elem n named) [AdmittedClass, RuntimeRow, FixedWidth])
 
 ||| The members of one template: each op that specializes it, with its
 ||| constants.
@@ -382,12 +410,11 @@ specializationHeader : List Header -> Ident -> List AnyOp -> Lines
 specializationHeader hs t ops =
   let members = membersOf t ops
       macro = "GET_" ++ pack (map up (unpack (snakeOf (identText t)))) ++ "_LIST"
-      abi = if any (any (namesHelper . snd) . snd) members then ["\"idr/IR/Generated/RuntimeAbi.h.inc\""] else []
   in banner slashComment
      ++ ["#ifdef " ++ macro, "#undef " ++ macro, ""]
      ++ zipWith (++) (map fst members) (replicate (pred (length members)) "," ++ [""])
      ++ ["", "#else"]
-     ++ header (identText t) (["\"idr/IR/Generated/AdmittedClasses.h.inc\""] ++ abi ++ ["<cstdint>"])
+     ++ header (identText t) (headersOf (concatMap snd members))
           (inNamespace "idr"
              ( ["template <class OpT>", "struct " ++ identText t ++ ";", ""]
                ++ concatMap (\(cls, cs) => ["template <>", "struct " ++ identText t ++ "<" ++ cls ++ "> {"]

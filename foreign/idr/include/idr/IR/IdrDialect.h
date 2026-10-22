@@ -8,7 +8,8 @@
 // calls hold; then the generated enums, attributes, dialect and types, the
 // families' queries over them, the hand hooks the printed ODS names
 // (custom directives, predicates, codecs, property hooks), the interfaces
-// and the ops; then each partial op's guards and each op's declared
+// and the ops; then each partial op's guards, the constants the
+// interfaces' defaults read of an op's class, and each op's declared
 // effects; then the base the generated passes name. Nothing here restates
 // a fact of the specification: every list over ops, types or cases is
 // generated.
@@ -136,11 +137,17 @@ struct DialectTypes : TypeClasses<
 #define GET_OP_CLASSES
 #include "idr/IR/IdrOps.h.inc"
 
-// Each partial op's guards (Guarded<Op>), and each op's declared effects
+// Each partial op's guards (Guarded<Op>); how each big made of an integer
+// reads it (BigOfInteger<Op>) and where each opener's memory comes from
+// (LifetimeOpener<Op>), which the interfaces' defaults read, so every unit
+// that instantiates an op's interfaces sees them, and an opener's trait
+// never finds its constant missing; and each op's declared effects
 // (Declared<Op>) with the typed half of the one query API, which reads them
 // as constants and implements the generated `getEffects` from them, printed
 // from the specification after the classes they specialize.
 #include "idr/IR/Generated/Guards.h.inc"
+#include "idr/IR/Generated/BigOfInteger.h.inc"
+#include "idr/IR/Generated/LifetimeOpener.h.inc"
 #include "idr/IR/Effects/Declared.h"
 #include "idr/IR/Generated/Effects.h.inc"
 

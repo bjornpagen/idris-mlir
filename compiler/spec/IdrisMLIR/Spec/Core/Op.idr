@@ -97,7 +97,8 @@ segmentsOf as = case filter unfixed as of
     unfixed Variadic = True
 
 ||| How an attribute is present: always, possibly not, or with a default
-||| (its C++ expression) when not written.
+||| when not written: its C++ expression, which for one of our attributes
+||| is the attribute itself, built in full.
 public export
 data AttrPresence = Required | MayBeAbsent | DefaultValued Code
 
@@ -188,6 +189,9 @@ data Trait : (i, o : Nat) -> Type where
   NoRegionArguments : Trait i o
   SymbolTable : Trait i o
   SymbolOp : Trait i o
+  ||| A symbol whose name is its `sym_name` attribute: upstream's trait gives
+  ||| the name accessors the symbol interface asks for from it.
+  SymbolName : Trait i o
   AffineScope : Trait i o
   AutomaticAllocationScope : Trait i o
   ConstantLike : Trait i o

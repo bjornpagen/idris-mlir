@@ -40,9 +40,11 @@ data AttrC
 ||| case of an enum of the dialect's, or a set of its cases, with the case
 ||| or cases it is when the op is built without it, each with where the
 ||| Idris side finds its closed set, so the op's builder takes the value
-||| typed and encodes it as the property's storage does; a 64-bit count, with the
-||| count it is when the op is built without it, upstream's integer property
-||| (its conversions, hash and bytecode upstream's); or a value of a hand
+||| typed and encodes it as the property's storage does; a count, with the
+||| count it is when the op is built without it, upstream's 64-bit integer
+||| property (its conversions, hash and bytecode upstream's): a signed word,
+||| the one width upstream converts that holds every count of bytes a 64-bit
+||| address space has, and never negative; or a value of a hand
 ||| class (its spelling, the directive whose hooks convert it to and from
 ||| its attribute form, hash it and read and write it in bytecode, and what
 ||| it is when the op is built without it). A hand property is held as
