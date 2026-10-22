@@ -26,7 +26,6 @@ import IdrisMLIR.Proof.Held
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 
-import Data.DPair
 import Data.Nat
 import Data.So
 
@@ -241,17 +240,6 @@ modelOf : {n : Nat} -> (ps : Address -> List (Fin n)) -> (fps : Address -> Nat -
           (caps : Vect n (Maybe Nat)) -> (ss : List (Site n, tag)) ->
           Model (graphOf ps fps cps beyond caps ss)
 modelOf ps fps cps positionOf held beyond caps ss = MkModel (map fst ss) fps cps positionOf ps held
-
-||| The sites that land at uncapped positions, with the erased evidence of
-||| each, and those that land at capped ones: a capped position's cap is
-||| its bound, so no site into it is drawn.
-public export
-uncappedOnly : (caps : Vect n (Maybe Nat)) -> List (Site n, tag) ->
-               (Subset (List (Site n, tag)) (\ss => All (\x => index (fst x).target caps = Nothing) ss), List (Site n, tag))
-uncappedOnly caps [] = (Element [] [], [])
-uncappedOnly caps (x :: xs) with (index (fst x).target caps) proof here
-  _ | Nothing = let (Element kept evidence, capped) = uncappedOnly caps xs in (Element (x :: kept) (here :: evidence), capped)
-  _ | Just _ = let (kept, capped) = uncappedOnly caps xs in (kept, x :: capped)
 
 ------------------------------------------------------------------------------
 -- Lists

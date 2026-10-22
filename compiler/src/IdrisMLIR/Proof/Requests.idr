@@ -673,7 +673,10 @@ fibreComplete forms names (MkLink d as) = elemMap (MkLink d) (argumentsComplete 
 ||| hole token any template holds (`heaviest`); and the breadth, above
 ||| every link's length, constructor index and argument index of the
 ||| reachable program, without which a padded bound would admit a link of
-||| any length.
+||| any length. A literal a primitive computes at an instance can measure
+||| more than any template's, so a static argument's widest node and
+||| heaviest token are bounded by the tower of computations over these
+||| (`weightAt`), which only proofs read.
 public export
 record Bounds where
   constructor MkBounds
@@ -709,7 +712,7 @@ nodesWithin arity (S h) = 1 + arity * nodesWithin arity h
 ||| successors with its zero (`Keys.succeeding`), the heaviest symbols a
 ||| height bounds, weighs 2n + 1 at height n + 1; and any other literal or
 ||| hole weighs at most `heaviest`. Erased: the number is never computed
-||| (`fitsWithin` compares against it).
+||| (`fitsWithin` and `fitsTower` compare against it).
 public export
 0 sizeWithin : (arity, height, heaviest : Nat) -> Nat
 sizeWithin arity height heaviest = (2 * height + heaviest) * nodesWithin (S (pred arity)) height
@@ -756,10 +759,173 @@ fitsWithin size arity height heaviest =
           (plusZeroRightNeutral height)
           (climb size (2 * height + heaviest) (pred arity) height 0 0 Refl)
 
+------------------------------------------------------------------------------
+-- What computations make of a literal
+------------------------------------------------------------------------------
+
+||| The most a literal measures, a token's weight or a text's characters,
+||| once one primitive computes it from literals that measure at most x:
+||| chosen above every primitive's bound at x (`Idris.Host.boundOf`), whose
+||| largest are a cast to Integer's 2^(4x) and 2^1024, a shift's x * 2^x and
+||| a fixed width's 2^64, and above x, which `believe_me` gives back.
+public export
+grown : Nat -> Nat
+grown x = S (power 2 (4 * x) * (x + 2) + power 2 1024)
+
+||| What n computations, each over what the one before made, make of
+||| literals that measure at most x.
+public export
+steps : Nat -> Nat -> Nat
+steps Z x = x
+steps (S n) x = grown (steps n x)
+
+export
+0 timesMono : {a, b, c, d : Nat} -> LTE a b -> LTE c d -> LTE (a * c) (b * d)
+timesMono LTEZero _ = LTEZero
+timesMono (LTESucc ab) cd = plusLteMonotone cd (timesMono ab cd)
+
+export
+0 powerPositive : (e : Nat) -> LTE 1 (power 2 e)
+powerPositive Z = reflexive
+powerPositive (S e) = transitive (powerPositive e) (lteAddRight (power 2 e))
+
+export
+0 powerMono : {a, b : Nat} -> LTE a b -> LTE (power 2 a) (power 2 b)
+powerMono {b} LTEZero = powerPositive b
+powerMono (LTESucc le) = timesLte 2 (powerMono le)
+
+-- A product with a factor of at least one is no smaller than the other.
+0 timesAtLeastOne : (c : Nat) -> LTE 1 k -> LTE c (k * c)
+timesAtLeastOne c one = replace {p = \z => LTE z (k * c)} (multOneLeftNeutral c) (timesMono {a = 1} {c} {d = c} one reflexive)
+
+||| More computed from more: a computation grows with what it computes from.
+export
+0 grownMono : {x, y : Nat} -> LTE x y -> LTE (grown x) (grown y)
+grownMono le =
+  LTESucc (plusLteMonotoneRight (power 2 1024) _ _
+             (timesMono (powerMono (timesLte 4 le)) (plusLteMonotoneRight 2 x y le)))
+
+||| A computation is above what it computes from.
+export
+0 grownAbove : (x : Nat) -> LTE x (grown x)
+grownAbove x =
+  lteSuccRight (transitive {y = power 2 (4 * x) * (x + 2)}
+                  (transitive {y = x + 2} (lteAddRight x) (timesAtLeastOne (x + 2) (powerPositive (4 * x))))
+                  (lteAddRight (power 2 (4 * x) * (x + 2))))
+
+||| A computation is above 2^(4x), which `fitsTower` decides without it.
+export
+0 powerBelowGrown : (x : Nat) -> LTE (power 2 (4 * x)) (grown x)
+powerBelowGrown x =
+  lteSuccRight (transitive {y = power 2 (4 * x) * (x + 2)}
+                  (replace {p = LTE (power 2 (4 * x))} (multCommutative (x + 2) (power 2 (4 * x)))
+                           (timesAtLeastOne (power 2 (4 * x)) (rewrite plusCommutative x 2 in LTESucc LTEZero)))
+                  (lteAddRight (power 2 (4 * x) * (x + 2))))
+
+||| The tower is above its base.
+export
+0 stepsAbove : (n, x : Nat) -> LTE x (steps n x)
+stepsAbove Z x = reflexive
+stepsAbove (S n) x = transitive (stepsAbove n x) (grownAbove (steps n x))
+
+||| A taller tower is no lower.
+export
+0 stepsMore : {x : Nat} -> (n, r : Nat) -> LTE (steps n x) (steps (r + n) x)
+stepsMore n Z = reflexive
+stepsMore n (S r) = transitive (stepsMore n r) (grownAbove (steps (r + n) x))
+
+||| A tower no shorter is no lower.
+export
+0 stepsMono : {x, n, n' : Nat} -> LTE n n' -> LTE (steps n x) (steps n' x)
+stepsMono {n'} LTEZero = stepsAbove n' x
+stepsMono (LTESucc le) = grownMono (stepsMono le)
+
+||| A tower over a larger base is no lower.
+export
+0 stepsBase : {x, y : Nat} -> (n : Nat) -> LTE x y -> LTE (steps n x) (steps n y)
+stepsBase Z le = le
+stepsBase (S n) le = grownMono (stepsBase n le)
+
+||| The base of the tower a static argument's measures stay within: the
+||| widest node and the heaviest token any template holds, the breadth (an
+||| implementation's arguments, which a member given at a use holds), and
+||| one, a chain's node's one child.
+public export
+measureBase : Bounds -> Nat
+measureBase b = maximum 1 (maximum b.arity (maximum b.heaviest b.breadth))
+
+||| How much a static argument of a parameter as high as h may weigh: no
+||| higher than h, and no node with more children or token heavier than the
+||| tower of h computations over the base, a computed literal being as deep
+||| as the computations that made it are nested.
+public export
+0 weightAt : Bounds -> Nat -> Nat
+weightAt b h = sizeWithin (steps h (measureBase b)) h (steps h (measureBase b))
+
 ||| The sizes each of a head's `n` parameters stays within.
 public export
 0 sizesAt : Bounds -> Nat -> Head -> List Nat
-sizesAt b n d = map (\h => sizeWithin b.arity h b.heaviest) (padded n (b.heightAt d))
+sizesAt b n d = map (weightAt b) (padded n (b.heightAt d))
+
+-- From 2^j, r doublings left: whether the size is within 2^(r + j). It
+-- doubles only until a power reaches the size, so no number much past
+-- the size is built.
+powerClimb : (size, acc, r, j : Nat) -> (0 _ : acc = power 2 j) -> Decided (LTE size (power 2 (r + j)))
+powerClimb size acc r j eq = case choose (size <= acc) of
+  Left fits => Yes (transitive (lteSo fits) (rewrite eq in powerMono (rewrite plusCommutative r j in lteAddRight j)))
+  Right over => case r of
+    Z => No (\le => notLteSo over (rewrite eq in le))
+    S r' => replace {p = \t => Decided (LTE size (power 2 t))} (sym (plusSuccRightSucc r' j))
+              (powerClimb size (acc + acc) r' (S j)
+                          (rewrite eq in sym (cong (power 2 j +) (plusZeroRightNeutral (power 2 j)))))
+
+-- Whether the size is within 2^e.
+powerFits : (size, e : Nat) -> Decided (LTE size (power 2 e))
+powerFits size e = replace {p = \t => Decided (LTE size (power 2 t))} (plusZeroRightNeutral e) (powerClimb size 1 e 0 Refl)
+
+-- A tower climbed against a size: the size is within its top, or the top
+-- itself, computed, where the size is above it.
+data Towered : (size, top : Nat) -> Type where
+  Reached : (0 _ : LTE size top) -> Towered size top
+  Short : (top' : Nat) -> (0 _ : top' = top) -> Towered size top
+
+-- From x, k computations up the tower, r more to go. A step is computed
+-- only where the size is above 2^(4x), which `powerFits` decides by
+-- doubling up to the size, so every number built is below the size.
+towerClimb : (size, base, r, k, x : Nat) -> (0 _ : x = steps k base) -> Towered size (steps (r + k) base)
+towerClimb size base r k x eq = case choose (size <= x) of
+  Left fits => Reached (transitive (lteSo fits) (rewrite eq in stepsMore k r))
+  Right over => case r of
+    Z => Short x eq
+    S r' => case powerFits size (4 * x) of
+      Yes below => Reached (transitive below (transitive (powerBelowGrown x) (grownMono (rewrite eq in stepsMore k r'))))
+      No _ => replace {p = \t => Towered size (steps t base)} (sym (plusSuccRightSucc r' k))
+                (towerClimb size base r' (S k) (grown x) (cong grown eq))
+
+-- A tree at least one high may weigh at least its heaviest token.
+0 heaviestWithin : (a, h, e : Nat) -> LTE e (sizeWithin a (S h) e)
+heaviestWithin a h e =
+  transitive {y = 2 * S h + e} (rewrite plusCommutative (2 * S h) e in lteAddRight e)
+             (replace {p = LTE (2 * S h + e)} (multCommutative (nodesWithin (S (pred a)) (S h)) (2 * S h + e))
+                      (timesAtLeastOne (2 * S h + e) (LTESucc LTEZero)))
+
+-- A tree no higher than 0 weighs nothing.
+0 noneWithin : (a, e : Nat) -> sizeWithin a 0 e = 0
+noneWithin a e = multZeroRightZero e
+
+||| Whether a static argument of a size fits the universe at a height h:
+||| its size against `sizeWithin` at the tower of h computations over the
+||| base (`weightAt`). The tower is climbed only while the size is above
+||| it, so the h-th computation over the base is never computed past the
+||| size.
+export
+fitsTower : (size, h, base : Nat) -> Decided (LTE size (sizeWithin (steps h base) h (steps h base)))
+fitsTower Z Z base = Yes LTEZero
+fitsTower (S k) Z base = No (\le => succNotLTEzero (replace {p = LTE (S k)} (noneWithin base base) le))
+fitsTower size (S h) base =
+  case replace {p = \t => Towered size (steps t base)} (plusZeroRightNeutral (S h)) (towerClimb size base (S h) 0 base Refl) of
+    Reached within => Yes (transitive within (heaviestWithin (steps (S h) base) h (steps (S h) base)))
+    Short top same => replace {p = \x => Decided (LTE size (sizeWithin x (S h) x))} same (fitsWithin size top (S h) top)
 
 -- Every size vector pointwise at most a bound.
 vectorsBelow : List Nat -> List (List Nat)
@@ -824,8 +990,8 @@ restWithin (_ :: pw) = pw
 
 ||| Whether a link is within the bounds, by the machine's comparisons: its
 ||| number of arguments against the breadth, and each argument's size
-||| against `sizeWithin` of its parameter's height (`fitsWithin`), the
-||| heights padded with 0.
+||| against the universe's weight at its parameter's height (`weightAt`,
+||| decided by `fitsTower`), the heights padded with 0.
 export
 within : (0 forms : Listed form) -> (0 names : Listed Address) -> (b : Bounds) -> (l : Link form) ->
          Decided (InUniverse forms names b l)
@@ -837,8 +1003,8 @@ within forms names b l = case choose (length l.arguments <= b.breadth) of
   where
     -- One argument against its parameter's height, then the rest.
     next : (a : Maybe (Written form)) -> (h : Nat) -> Lazy (Decided (Pointwise ss hs)) ->
-           Decided (Pointwise (argumentSize a :: ss) (sizeWithin b.arity h b.heaviest :: hs))
-    next a h rest = case fitsWithin (argumentSize a) b.arity h b.heaviest of
+           Decided (Pointwise (argumentSize a :: ss) (weightAt b h :: hs))
+    next a h rest = case fitsTower (argumentSize a) h (measureBase b) of
       No over => No (\pw => over (firstWithin pw))
       Yes le => case rest of
         No more => No (\pw => more (restWithin pw))
@@ -847,7 +1013,7 @@ within forms names b l = case choose (length l.arguments <= b.breadth) of
     -- Down the arguments, the heights padded with 0 as they run out, as
     -- `padded` pads them: one height for each argument.
     allFit : (as : List (Maybe (Written form))) -> (hs : List Nat) ->
-             Decided (Pointwise (map Requests.argumentSize as) (map (\h => sizeWithin b.arity h b.heaviest) (padded (length as) hs)))
+             Decided (Pointwise (map Requests.argumentSize as) (map (weightAt b) (padded (length as) hs)))
     allFit [] _ = Yes []
     allFit (a :: as) [] = next a 0 (allFit as [])
     allFit (a :: as) (h :: hs) = next a h (allFit as hs)

@@ -85,6 +85,7 @@ import IdrisMLIR.Proof.Derivation
 import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Inversion
+import IdrisMLIR.Proof.Markers
 import IdrisMLIR.Proof.Reading
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Sizes
@@ -581,6 +582,223 @@ anotherEntry (DataHead t) tag = case decEq t tag of
   Yes same => Blocked same
   No other => Passed (TagDiffers other)
 
+------------------------------------------------------------------------------
+-- Literals, compared as the host compares them
+------------------------------------------------------------------------------
+
+-- A decision of base's, its evidence erased.
+decided : DecEq a => (x, y : a) -> Decided (x = y)
+decided x y = case decEq x y of
+  Yes same => Yes same
+  No other => No other
+
+0 leftAlike : the (Either a b) (Left x) = Left y -> x = y
+leftAlike Refl = Refl
+
+0 rightAlike : the (Either a b) (Right x) = Right y -> x = y
+rightAlike Refl = Refl
+
+0 justAlike : Just x = Just y -> x = y
+justAlike Refl = Refl
+
+0 justNotNothing : Just x = Nothing -> Void
+justNotNothing Refl impossible
+
+0 noneIsJust : Nothing = Just x -> Void
+noneIsJust Refl impossible
+
+-- A sum decided by each side's decision.
+sameEither : ((x, y : a) -> Decided (x = y)) -> ((x, y : b) -> Decided (x = y)) -> (e, e' : Either a b) -> Decided (e = e')
+sameEither l r (Left x) (Left y) = case l x y of
+  Yes same => Yes (cong Left same)
+  No other => No (\eq => other (leftAlike eq))
+sameEither l r (Right x) (Right y) = case r x y of
+  Yes same => Yes (cong Right same)
+  No other => No (\eq => other (rightAlike eq))
+sameEither l r (Left _) (Right _) = No (\case Refl impossible)
+sameEither l r (Right _) (Left _) = No (\case Refl impossible)
+
+sameUnit : (x, y : ()) -> Decided (x = y)
+sameUnit () () = Yes Refl
+
+-- A primitive type by its number, which tells two apart.
+primTypeCode : PrimType -> Nat
+primTypeCode IntType = 0
+primTypeCode Int8Type = 1
+primTypeCode Int16Type = 2
+primTypeCode Int32Type = 3
+primTypeCode Int64Type = 4
+primTypeCode IntegerType = 5
+primTypeCode Bits8Type = 6
+primTypeCode Bits16Type = 7
+primTypeCode Bits32Type = 8
+primTypeCode Bits64Type = 9
+primTypeCode StringType = 10
+primTypeCode CharType = 11
+primTypeCode DoubleType = 12
+primTypeCode WorldType = 13
+
+primTypeAt : Nat -> Maybe PrimType
+primTypeAt 0 = Just IntType
+primTypeAt 1 = Just Int8Type
+primTypeAt 2 = Just Int16Type
+primTypeAt 3 = Just Int32Type
+primTypeAt 4 = Just Int64Type
+primTypeAt 5 = Just IntegerType
+primTypeAt 6 = Just Bits8Type
+primTypeAt 7 = Just Bits16Type
+primTypeAt 8 = Just Bits32Type
+primTypeAt 9 = Just Bits64Type
+primTypeAt 10 = Just StringType
+primTypeAt 11 = Just CharType
+primTypeAt 12 = Just DoubleType
+primTypeAt 13 = Just WorldType
+primTypeAt _ = Nothing
+
+0 primTypeDecoded : (t : PrimType) -> primTypeAt (primTypeCode t) = Just t
+primTypeDecoded IntType = Refl
+primTypeDecoded Int8Type = Refl
+primTypeDecoded Int16Type = Refl
+primTypeDecoded Int32Type = Refl
+primTypeDecoded Int64Type = Refl
+primTypeDecoded IntegerType = Refl
+primTypeDecoded Bits8Type = Refl
+primTypeDecoded Bits16Type = Refl
+primTypeDecoded Bits32Type = Refl
+primTypeDecoded Bits64Type = Refl
+primTypeDecoded StringType = Refl
+primTypeDecoded CharType = Refl
+primTypeDecoded DoubleType = Refl
+primTypeDecoded WorldType = Refl
+
+-- Two primitive types, decided by their numbers.
+samePrimType : (a, b : PrimType) -> Decided (a = b)
+samePrimType a b = case sameNat (primTypeCode a) (primTypeCode b) of
+  Yes same => Yes (justAlike (trans (sym (primTypeDecoded a)) (trans (cong primTypeAt same) (primTypeDecoded b))))
+  No other => No (\eq => other (cong primTypeCode eq))
+
+-- A literal other than a double as the sum it is, of types whose
+-- equality base decides: an integer of each width, a string, a
+-- character, a primitive type, the world.
+LiteralSum : Type
+LiteralSum = Either Int (Either Int8 (Either Int16 (Either Int32 (Either Int64 (Either Integer (Either Bits8 (Either Bits16 (Either Bits32 (Either Bits64 (Either String (Either Char (Either PrimType ()))))))))))))
+
+fromLiteralSum : LiteralSum -> Constant
+fromLiteralSum (Left x) = I x
+fromLiteralSum (Right (Left x)) = I8 x
+fromLiteralSum (Right (Right (Left x))) = I16 x
+fromLiteralSum (Right (Right (Right (Left x)))) = I32 x
+fromLiteralSum (Right (Right (Right (Right (Left x))))) = I64 x
+fromLiteralSum (Right (Right (Right (Right (Right (Left x)))))) = BI x
+fromLiteralSum (Right (Right (Right (Right (Right (Right (Left x))))))) = B8 x
+fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Left x)))))))) = B16 x
+fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))) = B32 x
+fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))) = B64 x
+fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))) = Str x
+fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))) = Ch x
+fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left t))))))))))))) = PrT t
+fromLiteralSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right ()))))))))))))) = WorldVal
+
+toLiteralSum : Constant -> Maybe LiteralSum
+toLiteralSum (I x) = Just (Left x)
+toLiteralSum (I8 x) = Just (Right (Left x))
+toLiteralSum (I16 x) = Just (Right (Right (Left x)))
+toLiteralSum (I32 x) = Just (Right (Right (Right (Left x))))
+toLiteralSum (I64 x) = Just (Right (Right (Right (Right (Left x)))))
+toLiteralSum (BI x) = Just (Right (Right (Right (Right (Right (Left x))))))
+toLiteralSum (B8 x) = Just (Right (Right (Right (Right (Right (Right (Left x)))))))
+toLiteralSum (B16 x) = Just (Right (Right (Right (Right (Right (Right (Right (Left x))))))))
+toLiteralSum (B32 x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))
+toLiteralSum (B64 x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))
+toLiteralSum (Str x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))
+toLiteralSum (Ch x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))))
+toLiteralSum (PrT x) = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))))
+toLiteralSum WorldVal = Just (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right ())))))))))))))
+toLiteralSum (Db _) = Nothing
+
+0 sumReadBack : (s : LiteralSum) -> toLiteralSum (fromLiteralSum s) = Just s
+sumReadBack (Left _) = Refl
+sumReadBack (Right (Left _)) = Refl
+sumReadBack (Right (Right (Left _))) = Refl
+sumReadBack (Right (Right (Right (Left _)))) = Refl
+sumReadBack (Right (Right (Right (Right (Left _))))) = Refl
+sumReadBack (Right (Right (Right (Right (Right (Left _)))))) = Refl
+sumReadBack (Right (Right (Right (Right (Right (Right (Left _))))))) = Refl
+sumReadBack (Right (Right (Right (Right (Right (Right (Right (Left _)))))))) = Refl
+sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Left _))))))))) = Refl
+sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left _)))))))))) = Refl
+sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left _))))))))))) = Refl
+sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left _)))))))))))) = Refl
+sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left _))))))))))))) = Refl
+sumReadBack (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right ()))))))))))))) = Refl
+
+0 sumInjective : (s, s' : LiteralSum) -> fromLiteralSum s = fromLiteralSum s' -> s = s'
+sumInjective s s' same = justAlike (trans (sym (sumReadBack s)) (trans (cong toLiteralSum same) (sumReadBack s')))
+
+0 notDouble : (s : LiteralSum) -> Not (fromLiteralSum s = Db x)
+notDouble s same = justNotNothing (trans (sym (sumReadBack s)) (cong toLiteralSum same))
+
+sameLiteralSum : (s, s' : LiteralSum) -> Decided (s = s')
+sameLiteralSum =
+  sameEither decided (sameEither decided (sameEither decided (sameEither decided (sameEither decided
+    (sameEither decided (sameEither decided (sameEither decided (sameEither decided (sameEither decided
+    (sameEither decided (sameEither decided (sameEither samePrimType sameUnit))))))))))))
+
+-- A literal is a double, or one of the sum's, read back.
+data LiteralKind : Constant -> Type where
+  ADouble : (x : Double) -> LiteralKind (Db x)
+  InSum : (s : LiteralSum) -> LiteralKind (fromLiteralSum s)
+
+literalKind : (k : Constant) -> LiteralKind k
+literalKind (I x) = InSum (Left x)
+literalKind (I8 x) = InSum (Right (Left x))
+literalKind (I16 x) = InSum (Right (Right (Left x)))
+literalKind (I32 x) = InSum (Right (Right (Right (Left x))))
+literalKind (I64 x) = InSum (Right (Right (Right (Right (Left x)))))
+literalKind (BI x) = InSum (Right (Right (Right (Right (Right (Left x))))))
+literalKind (B8 x) = InSum (Right (Right (Right (Right (Right (Right (Left x)))))))
+literalKind (B16 x) = InSum (Right (Right (Right (Right (Right (Right (Right (Left x))))))))
+literalKind (B32 x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))
+literalKind (B64 x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))
+literalKind (Str x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))
+literalKind (Ch x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x))))))))))))
+literalKind (PrT x) = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Left x)))))))))))))
+literalKind WorldVal = InSum (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right (Right ())))))))))))))
+literalKind (Db x) = ADouble x
+
+||| How the host's step compares a constant alternative with the literal a
+||| match meets (`Idris.Host.ByConstant`, `Idris.Host.OtherConstant`): one
+||| constant, or two apart, decided on their parts; or two doubles, which
+||| the evaluator compares as doubles (`==`, so `0.0` meets `-0.0` and a
+||| NaN meets nothing), where no equality of the constants is decided.
+public export
+data LiteralsCompared : Constant -> Constant -> Type where
+  SameLiteral : (0 _ : k' = k) -> LiteralsCompared k' k
+  OtherLiteral : (0 _ : Not (k' = k)) -> LiteralsCompared k' k
+  TwoDoubles : (meets : Bool) -> (0 _ : (x' == x) = meets) -> LiteralsCompared (Db x') (Db x)
+
+compareLiterals : (k', k : Constant) -> LiteralsCompared k' k
+compareLiterals k' k with (literalKind k')
+  compareLiterals _ k | ADouble x' with (literalKind k)
+    compareLiterals _ _ | ADouble x' | ADouble x = TwoDoubles (x' == x) Refl
+    compareLiterals _ _ | ADouble x' | InSum s = OtherLiteral (\same => notDouble s (sym same))
+  compareLiterals _ k | InSum s' with (literalKind k)
+    compareLiterals _ _ | InSum s' | ADouble x = OtherLiteral (notDouble s')
+    compareLiterals _ _ | InSum s' | InSum s = case sameLiteralSum s' s of
+      Yes same => SameLiteral (cong fromLiteralSum same)
+      No other => OtherLiteral (\same => other (sumInjective s' s same))
+
+||| Whether an alternative of a primitive type that binds nothing names the
+||| literal a match meets, as the host's step decides it
+||| (`Idris.Host.ByPrimitiveType`, `Idris.Host.OtherPrimitiveType`): the
+||| type its name names, as a literal, is the literal.
+namesLiteral : (cn : Name) -> (k : Constant) -> Decided (map PrT (isConstantType (dropNS cn)) = Just k)
+namesLiteral cn k with (isConstantType (dropNS cn))
+  _ | Nothing = No noneIsJust
+  _ | Just t = case compareLiterals (PrT t) k of
+    SameLiteral same => Yes (cong Just same)
+    OtherLiteral other => No (\named => other (justAlike named))
+
 ||| What a match meets, parsed once: a data or type constructor applied, a
 ||| literal, a delay, one of the walk's markers, an argument of a family's
 ||| value, a runtime value (a part every reading takes as one node, or a
@@ -1062,34 +1280,48 @@ mutual
     MeetsConstant : TakenBy m self written env h c sargs (ConstCase k t :: alts) extras (Just written)
     NoneTaken : TakenBy m self written env h c sargs [] extras (Just written)
 
-  ||| The alternative a literal takes: the first of that constant, or a
-  ||| default; the definition as written where none is.
+  ||| The alternative a literal takes, as the host's step takes it
+  ||| (`Idris.Host.Picks`): the first of that constant, or of the primitive
+  ||| type the literal is, or a default, past every alternative the host
+  ||| misses (another constant, a primitive type the literal is not, an
+  ||| alternative that binds fields); the definition as written where the
+  ||| host's walk is stuck, at a delay's alternative, or where none is left.
+  ||| Two doubles compare as the evaluator compares them.
   export
   data TakesLiteral : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> Constant ->
                       List (CaseAlt vs) -> List ClosedTerm -> Maybe Template -> Type where
-    LiteralThis : (0 _ : (k' == k) = True) -> Unfolds m self written env t extras r ->
+    LiteralThis : (0 _ : k' = k) -> Unfolds m self written env t extras r ->
                   TakesLiteral m self written env k (ConstCase k' t :: alts) extras r
-    LiteralPasses : (0 _ : (k' == k) = False) -> TakesLiteral m self written env k alts extras r ->
+    LiteralPasses : (0 _ : Not (k' = k)) -> TakesLiteral m self written env k alts extras r ->
                     TakesLiteral m self written env k (ConstCase k' t :: alts) extras r
+    DoubleMeets : (0 _ : (x' == x) = True) -> Unfolds m self written env t extras r ->
+                  TakesLiteral m self written env (Db x) (ConstCase (Db x') t :: alts) extras r
+    DoublePasses : (0 _ : (x' == x) = False) -> TakesLiteral m self written env (Db x) alts extras r ->
+                   TakesLiteral m self written env (Db x) (ConstCase (Db x') t :: alts) extras r
+    LiteralNamesType : (0 _ : map PrT (isConstantType (dropNS cn)) = Just k) -> Unfolds m self written env t extras r ->
+                       TakesLiteral m self written env k (ConCase cn tag [] t :: alts) extras r
+    LiteralOtherType : (0 _ : Not (map PrT (isConstantType (dropNS cn)) = Just k)) ->
+                       TakesLiteral m self written env k alts extras r ->
+                       TakesLiteral m self written env k (ConCase cn tag [] t :: alts) extras r
+    LiteralFields : TakesLiteral m self written env k alts extras r ->
+                    TakesLiteral m self written env k (ConCase cn tag (f :: fs) t :: alts) extras r
     LiteralDefault : Unfolds m self written env t extras r -> TakesLiteral m self written env k (DefaultCase t :: alts) extras r
-    LiteralPassesConstructor : TakesLiteral m self written env k alts extras r ->
-                               TakesLiteral m self written env k (ConCase con tag cargs t :: alts) extras r
-    LiteralPassesDelay : TakesLiteral m self written env k alts extras r ->
-                         TakesLiteral m self written env k (DelayCase tyn argn t :: alts) extras r
+    LiteralMeetsDelay : TakesLiteral m self written env k (DelayCase tyn argn t :: alts) extras (Just written)
     NoLiteral : TakesLiteral m self written env k [] extras (Just written)
 
-  ||| The alternative a delay takes: the first delay's, its type and value
-  ||| bound, or a default; the definition as written where none is.
+  ||| The alternative a delay takes, as the host's step takes it: the first
+  ||| delay's, its type and value bound, or a default; the definition as
+  ||| written where the host's walk is stuck, at an alternative of a
+  ||| constructor or a constant, which a delay neither matches nor misses,
+  ||| or where none is left.
   export
   data TakesDelay : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> ClosedTerm -> ClosedTerm ->
                     List (CaseAlt vs) -> List ClosedTerm -> Maybe Template -> Type where
     DelayThis : Unfolds m self written (dty :: da :: env) t extras r ->
                 TakesDelay m self written env dty da (DelayCase tyn argn t :: alts) extras r
     DelayDefault : Unfolds m self written env t extras r -> TakesDelay m self written env dty da (DefaultCase t :: alts) extras r
-    DelayPassesConstructor : TakesDelay m self written env dty da alts extras r ->
-                             TakesDelay m self written env dty da (ConCase con tag cargs t :: alts) extras r
-    DelayPassesConstant : TakesDelay m self written env dty da alts extras r ->
-                          TakesDelay m self written env dty da (ConstCase k t :: alts) extras r
+    DelayMeetsConstructor : TakesDelay m self written env dty da (ConCase con tag cargs t :: alts) extras (Just written)
+    DelayMeetsConstant : TakesDelay m self written env dty da (ConstCase k t :: alts) extras (Just written)
     NoDelay : TakesDelay m self written env dty da [] extras (Just written)
 
   ||| Every alternative's leaves, each argument a constructor or a delay
@@ -1846,15 +2078,25 @@ mutual
             (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (k : Constant) ->
             (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
             Front (Subset (Maybe Template) (TakesLiteral m self written env k alts extras))
-  literal m w acc self written env k (ConstCase k' t :: alts) extras = case Element (k' == k) Refl of
-    Element True same => (\r => Element r.fst (LiteralThis same r.snd)) <$> walk m w acc self written env t extras
-    Element False other => (\r => Element r.fst (LiteralPasses other r.snd)) <$> literal m w acc self written env k alts extras
+  literal m w acc self written env k (ConstCase k' t :: alts) extras with (compareLiterals k' k)
+    literal m w acc self written env k (ConstCase k' t :: alts) extras | SameLiteral same =
+      (\r => Element r.fst (LiteralThis same r.snd)) <$> walk m w acc self written env t extras
+    literal m w acc self written env k (ConstCase k' t :: alts) extras | OtherLiteral other =
+      (\r => Element r.fst (LiteralPasses other r.snd)) <$> literal m w acc self written env k alts extras
+    literal m w acc self written env (Db x) (ConstCase (Db x') t :: alts) extras | TwoDoubles True meets =
+      (\r => Element r.fst (DoubleMeets meets r.snd)) <$> walk m w acc self written env t extras
+    literal m w acc self written env (Db x) (ConstCase (Db x') t :: alts) extras | TwoDoubles False misses =
+      (\r => Element r.fst (DoublePasses misses r.snd)) <$> literal m w acc self written env (Db x) alts extras
+  literal m w acc self written env k (ConCase cn tag [] t :: alts) extras = case namesLiteral cn k of
+    Yes named => (\r => Element r.fst (LiteralNamesType named r.snd)) <$> walk m w acc self written env t extras
+    No other => (\r => Element r.fst (LiteralOtherType other r.snd)) <$> literal m w acc self written env k alts extras
+  literal m w acc self written env k (ConCase cn tag (_ :: _) t :: alts) extras =
+    (\r => Element r.fst (LiteralFields r.snd)) <$> literal m w acc self written env k alts extras
   literal m w acc self written env k (DefaultCase t :: _) extras =
     (\r => Element r.fst (LiteralDefault r.snd)) <$> walk m w acc self written env t extras
-  literal m w acc self written env k (ConCase _ _ _ _ :: alts) extras =
-    (\r => Element r.fst (LiteralPassesConstructor r.snd)) <$> literal m w acc self written env k alts extras
-  literal m w acc self written env k (DelayCase _ _ _ :: alts) extras =
-    (\r => Element r.fst (LiteralPassesDelay r.snd)) <$> literal m w acc self written env k alts extras
+  -- Essential: a literal neither matches nor misses a delay's
+  -- alternative, and the host's walk is stuck there.
+  literal m w acc self written env k (DelayCase _ _ _ :: _) extras = pure (Element (Just written) LiteralMeetsDelay)
   literal m w acc self written env k [] extras = pure (Element (Just written) NoLiteral)
 
   delayed : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
@@ -1865,10 +2107,10 @@ mutual
     (\r => Element r.fst (DelayThis r.snd)) <$> walk m w acc self written (dty :: da :: env) t extras
   delayed m w acc self written env dty da (DefaultCase t :: _) extras =
     (\r => Element r.fst (DelayDefault r.snd)) <$> walk m w acc self written env t extras
-  delayed m w acc self written env dty da (ConCase _ _ _ _ :: alts) extras =
-    (\r => Element r.fst (DelayPassesConstructor r.snd)) <$> delayed m w acc self written env dty da alts extras
-  delayed m w acc self written env dty da (ConstCase _ _ :: alts) extras =
-    (\r => Element r.fst (DelayPassesConstant r.snd)) <$> delayed m w acc self written env dty da alts extras
+  -- Essential: a delay neither matches nor misses an alternative of a
+  -- constructor or a constant, and the host's walk is stuck there.
+  delayed m w acc self written env dty da (ConCase _ _ _ _ :: _) extras = pure (Element (Just written) DelayMeetsConstructor)
+  delayed m w acc self written env dty da (ConstCase _ _ :: _) extras = pure (Element (Just written) DelayMeetsConstant)
   delayed m w acc self written env dty da [] extras = pure (Element (Just written) NoDelay)
 
   ||| Every alternative's leaves, each argument a constructor or a delay
@@ -1954,7 +2196,7 @@ solvedIn : (ctx : Frozen) -> (t : ClosedTerm) -> Front (Subset ClosedTerm (Reduc
 solvedIn ctx t =
   if hasMeta t
      then (\r => Element r.value r.steps) <$> core (host.normaliseHoles ctx t)
-     else pure (Element t (reducesRefl t))
+     else pure (Element t (reducesToItself t))
 
 ||| A dictionary's form, as `classify` keys it: as written, or the
 ||| implementation it stands for where it depends on a runtime value.
@@ -3108,22 +3350,99 @@ export
 shapeForm c (FromNormalForm (ReducedThenContracted r k)) = rewrite chainContracted (chainReduces c r) k in chainReduces c r
 shapeForm c (FromWritten (ReducedThenContracted r k)) = rewrite chainContracted (chainReduces c r) k in chainReduces c r
 
-||| A capped request's argument, a chain's shape no taller than its
-||| position's cap, derived: its instance's reading reads a chain's shape
-||| (`shapeForm`, `chainReads`), so it is a value the capped position holds
-||| (`Proof.Bound.Capped`), and its key, whose nodes have one child at
-||| most and which holds no token, weighs what the universe lets a key of
-||| its reading's height weigh at any arity (`keyedWithin`,
-||| `Proof.Sizes.sizeWithinOneChild`). That the key is such a shape, and no
-||| taller than the cap, is what the translation's cut gives
-||| (`Caps.capFrom`).
-export
+||| What the cut of a capped parameter's argument gives the request that
+||| keys by it (`Instances.neededShape`, `Closed.cutShape`): the shape it
+||| keeps, a chain's shape in the frozen context, as high as `keptHeight`,
+||| no taller than the cap of the position the argument lands at. A cap
+||| applies where `Caps.capOf` gives one: a parameter keyed by its
+||| argument's shape, of a chain's type (`Natness.Chain`), whose callee's
+||| type inspects it to a depth one below the cap (`Caps.capFrom`); the cut
+||| keeps the shape to the least depth at which the type stops needing it,
+||| or whole where the type is stuck on a hole, which a chain's shape has
+||| only at its end.
+public export
+record CutWithin (ctx : Frozen) (cap : Nat) (t : ClosedTerm) where
+  constructor MkCutWithin
+  0 keptHeight : Nat
+  0 chain : ChainShape ctx t keptHeight
+  0 short : LTE keptHeight cap
+
+||| A capped request's argument, the shape its cut kept, derived: its
+||| instance's reading reads a chain's shape (`shapeForm`, `chainReads`), so
+||| it is a value the capped position holds (`Proof.Bound.Capped`), no
+||| taller than the cap, and its key weighs no more than its reading lets
+||| a key weigh (`keyedWithin`).
+public export
 0 cappedDerivation : {g : Graph} -> {m : Model g} -> (b : Bounds) -> (w : Writer) -> (p : Fin g.size) ->
-                     index p g.caps = Just c -> ChainShape ctx t h -> LTE h c -> (r : InstanceReading ctx AShape t) ->
+                     index p g.caps = Just c -> CutWithin ctx c t -> (r : InstanceReading ctx AShape t) ->
                      ArgumentDerivation m b (writtenOf w r.form).size
-cappedDerivation b w p cap shape short r =
-  let held = chainReads (shapeForm shape r.formFrom) r.describes in
-  MkArgumentDerivation p r.template (Capped cap (transitive held.high short) held.narrow held.light)
-    (transitive (keyedWithin w r {a = 1} {h = height r.template} {e = b.heaviest} held.narrow lteRefl
-                             (transitive held.light LTEZero))
-                (sizeWithinOneChild {a = b.arity} {h = height r.template} {e = b.heaviest}))
+cappedDerivation b w p cap cut r =
+  let held = chainReads (shapeForm cut.chain r.formFrom) r.describes in
+  MkArgumentDerivation p r.template (Capped cap (transitive held.high cut.short) held.narrow held.light)
+    (keyedWithin w r lteRefl lteRefl lteRefl)
+
+||| A capped request's argument placed in the universe at its parameter's
+||| height h, where its position's bound is within h, which every
+||| parameter's position is (`Growth.positionWithin`).
+export
+0 cappedPlaced : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> (b : Bounds) -> (w : Writer) -> (p : Fin g.size) ->
+                 index p g.caps = Just c -> CutWithin ctx c t -> (r : InstanceReading ctx AShape t) ->
+                 LTE (bound g pot p) h -> ArgumentWithin m pot b (Just (writtenOf w r.form)) h
+cappedPlaced b w p cap cut r under = Keyed (cappedDerivation b w p cap cut r) under
+
+||| A capped request's argument is no taller than its cap: its reading,
+||| whose key is never taller (`readWithin`), is a chain's shape as high as
+||| the cut kept.
+export
+0 cappedKeyHeight : (w : Writer) -> CutWithin ctx c t -> (r : InstanceReading ctx AShape t) ->
+                    LTE (keyHeight (keyTree w r.form)) c
+cappedKeyHeight w cut r =
+  transitive (readWithin w r.describes).high
+             (transitive (chainReads (shapeForm cut.chain r.formFrom) r.describes).high cut.short)
+
+------------------------------------------------------------------------------
+-- The reading lemma's statement
+------------------------------------------------------------------------------
+
+||| What an instance puts in for a site's markers, as the reading lemma
+||| takes it: for the marker each variable of the markers' scope stands for,
+||| read as the writer's `Var i d`, the value put in, read as an instance's
+||| term, is another reading (`Proof.Bound.Reread`) of a part d deep of a
+||| value of V at a position the site's writer reads parameter i at.
+public export
+0 MarkersHold : {g : Graph} -> Model g -> Bound.Site g.size -> Frozen -> List StandIn -> Bounds ns -> SubstEnv ns [] -> Type
+MarkersHold {g} m s ctx stands bs vs =
+  (x : Var ns) -> (i, d : Nat) -> walkMarker stands (replacedAt bs x) = Just (Template.Var i d) ->
+  (u : Template) -> ReadAs (InstanceMode ctx) [] (Var.index vs x) u ->
+  (p : Fin g.size ** v : Template ** u' : Template ** (Elem (i, p) s.writers, InV m p v, Sub d v u', Reread u' u))
+
+||| The reading lemma, as the growth proof states it: at markers fresh for
+||| the frozen context and apart (`Proof.Markers.Markers`), put in by values
+||| the site's writer holds (`MarkersHold`), every reading of the site's
+||| term with those values put in, as an instance's key reads it, is what
+||| the site's template writes (`Proof.Bound.Writes`). It is proved by
+||| induction on the site's reading, the host's reduction inverted at each
+||| head it keeps (`Proof.Inversion`), carried through putting the values
+||| in (`Idris.Host.Mapped`, `Idris.Host.mappedReduces`) and through
+||| contraction (`Proof.Reading`).
+public export
+0 ReadingCovers : {g : Graph} -> (m : Model g) -> Bound.Site g.size -> List StandIn -> (k : State.Static) -> (t : ClosedTerm) ->
+                  SiteReading k t -> Type
+ReadingCovers m s stands k t r =
+  {0 ns : Scope} -> (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
+  MarkersHold m s r.mode.inContext stands mk.bounds vs ->
+  (inst : InstanceReading r.mode.inContext k (putIn zero (mkSizeOf ns) mk.bounds vs t)) ->
+  Writes m s r.template inst.template
+
+||| What a site of the model writes at a request's argument, of any kind,
+||| from the reading lemma at the site the request read: the site's
+||| template is its reading's, and the lemma gives what it writes at the
+||| instance's reading of the argument.
+export
+0 siteWritesFrom : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> (s : SiteOf m p) -> (r : SiteReading k t) ->
+                   s.site.template = r.template -> ReadingCovers m s.site stands k t r ->
+                   (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
+                   MarkersHold m s.site r.mode.inContext stands mk.bounds vs ->
+                   (inst : InstanceReading r.mode.inContext k (putIn zero (mkSizeOf ns) mk.bounds vs t)) ->
+                   SiteWrites m p inst.template
+siteWritesFrom s r same covers mk vs held inst = siteWritten s (rewrite same in covers mk vs held inst)

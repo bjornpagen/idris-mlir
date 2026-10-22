@@ -10,7 +10,9 @@
 ||| each dictionary of it can be. What an instance writes where a template
 ||| reads (`Writes`) is said once per constructor of the template:
 ||| - a marker `Var i d` is a part, d deep, of a value a position of the
-|||   writer's parameter i received;
+|||   writer's parameter i received, read where the marker stands
+|||   (`Reread`: its lambdas' arguments numbered by the binders there, a
+|||   run read node by node or as its leaf);
 ||| - a head and a recursion stuck on closed arguments write themselves,
 |||   their children written in turn; a leaf, a token and an argument of a
 |||   family's value write themselves;
@@ -25,8 +27,8 @@
 |||   (`MemberOf`), each argument carried from where it was received;
 ||| - a family applied where only closed values no higher than k land is
 |||   read as k heads above its arguments (`raise k`), and writes beta, or a
-|||   member, of a value landed there, no higher than k (`Landed`,
-|||   `LandedMember`);
+|||   member, of a value landed there (`Lands`), no higher than k
+|||   (`Landed`, `LandedMember`);
 ||| - a recursion stuck on closed arguments writes the call as written, the
 |||   only thing an instance leaves there (`AtOpaque`); a head of one child
 |||   over what writes a run, or a constructor of none, writes the run one
@@ -47,8 +49,10 @@
 |||   within the held count (`AtHeldHole`);
 ||| - a builtin applied to the writer's markers, read beside the call as
 |||   written, writes the constant it computes from the values the instance
-|||   writes at its arguments, at an instance whose values are constants
-|||   (`AtComputed`);
+|||   writes at its arguments, at an instance whose values are constants,
+|||   measuring no more than one computation grows the most they measure
+|||   (`AtComputed`, `Proof.Requests.grown`), which Theorem 2 bounds
+|||   (`Proof.Weights`);
 ||| - a lambda the site keeps around a call, which an instance contracts,
 |||   writes what the lambda's body writes with its last argument gone
 |||   (`AtContracted`).
@@ -139,6 +143,7 @@ mutual
     Nil : AllUnmarked []
     (::) : Unmarked t -> AllUnmarked ts -> AllUnmarked (t :: ts)
 
+export
 Uninhabited (Unmarked (Var i d)) where
   uninhabited (UnmarkedHead _) impossible
   uninhabited (UnmarkedOpaque _) impossible
@@ -147,6 +152,7 @@ Uninhabited (Unmarked (Var i d)) where
   uninhabited UnmarkedFormal impossible
   uninhabited (UnmarkedChoice _) impossible
 
+export
 Uninhabited (Unmarked (Applied i d ts)) where
   uninhabited (UnmarkedHead _) impossible
   uninhabited (UnmarkedOpaque _) impossible
@@ -155,6 +161,7 @@ Uninhabited (Unmarked (Applied i d ts)) where
   uninhabited UnmarkedFormal impossible
   uninhabited (UnmarkedChoice _) impossible
 
+export
 Uninhabited (Unmarked (Field k r)) where
   uninhabited (UnmarkedHead _) impossible
   uninhabited (UnmarkedOpaque _) impossible
@@ -163,6 +170,7 @@ Uninhabited (Unmarked (Field k r)) where
   uninhabited UnmarkedFormal impossible
   uninhabited (UnmarkedChoice _) impossible
 
+export
 Uninhabited (Unmarked (Member k)) where
   uninhabited (UnmarkedHead _) impossible
   uninhabited (UnmarkedOpaque _) impossible
@@ -290,6 +298,53 @@ data DropsLast : Template -> Template -> Type where
   LastOfHead : DropsLast (Head a (ws ++ [x])) (Head a ws)
   OnlyApplied : DropsLast (Head Nothing [w, x]) w
 
+||| A run of successors read node by node: a constructor of none, one high,
+||| or a head of one child over a run one shorter. An instance reads a
+||| closed run as its leaf (`Template.closedRun`), and the same run, a part
+||| of a value put in, node by node where it is no closed run of its own
+||| key's, or the other way about.
+public export
+data RunRead : Nat -> Template -> Type where
+  RunReadZero : RunRead 1 (Head a [])
+  RunReadSucc : RunRead h t -> RunRead (S h) (Head a [t])
+
+mutual
+  ||| Two readings of one closed value: every node the same, but an argument
+  ||| of a family's value numbered by the binders around where the value is
+  ||| read, and a run read node by node or as its leaf. A value an instance
+  ||| puts in for a marker is read where the marker stands, under the
+  ||| binders the site's term has there; the value at its position was read
+  ||| alone.
+  public export
+  data Reread : Template -> Template -> Type where
+    RereadSame : Reread t t
+    RereadFormal : Reread (Formal j k) (Formal j' k')
+    RereadHead : AllReread ts us -> Reread (Head a ts) (Head a us)
+    RereadOpaque : AllReread ts us -> Reread (Opaque a ts) (Opaque a us)
+    RereadAsLeaf : RunRead h t -> Reread t (Leaf h)
+    RereadAsRun : RunRead h t -> Reread (Leaf h) t
+
+  public export
+  data AllReread : List Template -> List Template -> Type where
+    NoneReread : AllReread [] []
+    EachReread : Reread t u -> AllReread ts us -> AllReread (t :: ts) (u :: us)
+
+||| What a literal's template measures: a token its weight, a text (a node
+||| of a leaf per character) its characters; nothing else counts. A
+||| computed literal measures at most `grown` of the most its arguments
+||| measure.
+public export
+measureOf : Template -> Nat
+measureOf (Token k) = k
+measureOf (Head _ ts) = length ts
+measureOf _ = 0
+
+||| The most any of some templates measures; 0 for none.
+public export
+measuresOf : List Template -> Nat
+measuresOf [] = 0
+measuresOf (t :: ts) = maximum (measureOf t) (measuresOf ts)
+
 ------------------------------------------------------------------------------
 -- The sites and what an instance writes
 ------------------------------------------------------------------------------
@@ -328,6 +383,16 @@ record Model (g : Graph) where
   positionsOf : Address -> List (Fin g.size)
   heldCount : Nat
 
+||| Only closed values no higher than k land at a position: it is uncapped,
+||| and every site into it writes an unmarked template no higher than k.
+||| Where this holds of a family's position, its applied readings are
+||| `Landed` (`landed`).
+public export
+record Lands (g : Graph) (m : Model g) (p : Fin g.size) (k : Nat) where
+  constructor MkLands
+  uncapped : index p g.caps = Nothing
+  under : (s : Site g.size) -> Elem s m.sites -> s.target = p -> (Unmarked s.template, LTE (height s.template) k)
+
 mutual
   ||| V: the values each position can receive, the least family closed
   ||| under the sites.
@@ -342,7 +407,9 @@ mutual
   ||| What an instance writes where a site's template reads.
   public export
   data Writes : {g : Graph} -> (m : Model g) -> Site g.size -> Template -> Template -> Type where
-    AtVar : Elem (i, p) s.writers -> InV m p v -> Sub d v w -> Writes m s (Var i d) w
+    ||| A marker: a part, d deep, of a value its position received, read
+    ||| where the marker stands.
+    AtVar : Elem (i, p) s.writers -> InV m p v -> Sub d v u -> Reread u w -> Writes m s (Var i d) w
     AtHead : AllWrite m s ts ws -> Writes m s (Head a ts) (Head a ws)
     ||| A recursion stuck on what its arguments hold: the call as written,
     ||| which is all an instance leaves there; one that reduces at an
@@ -351,8 +418,10 @@ mutual
     AtLeaf : Writes m s (Leaf h) (Leaf h)
     ||| A builtin applied to the writer's markers, beside the call as
     ||| written: the constant it computes from what the instance writes at
-    ||| its arguments, at an instance whose values are constants.
-    AtComputed : AllWrite m s ts ws -> ConstantForm w -> Writes m s (Choice c [Head (Just a) ts, Leaf 2]) w
+    ||| its arguments, at an instance whose values are constants, measuring
+    ||| no more than one computation grows the most they measure.
+    AtComputed : AllWrite m s ts ws -> ConstantForm w -> LTE (measureOf w) (grown (measuresOf ws)) ->
+                 Writes m s (Choice c [Head (Just a) ts, Leaf 2]) w
     ||| A head of one child over what writes a run: the run one longer, as
     ||| an instance's closed run of successors reads.
     AtRun : Writes m s t v -> RunOf v h -> Writes m s (Head a [t]) (Leaf (S h))
@@ -377,9 +446,9 @@ mutual
                Writes m s (Applied i d ts) (Head (Just j) as)
     ||| A family whose position only closed values no higher than k land
     ||| at, applied: beta of a value landed there, a value of V.
-    Landed : InV m p v -> Sub d v f -> LTE (height f) k -> Within f body -> AllWrite m s ts ws ->
+    Landed : Lands g m p k -> InV m p v -> Sub d v f -> Within f body -> AllWrite m s ts ws ->
              Instantiates ws body w -> Writes m s (raise k (Head Nothing ts)) w
-    LandedMember : InV m p v -> Sub d v f -> LTE (height f) k -> Within f w -> Writes m s (raise k (Head Nothing ts)) w
+    LandedMember : Lands g m p k -> InV m p v -> Sub d v f -> Within f w -> Writes m s (raise k (Head Nothing ts)) w
     AtField : Elem j (s.roots r) -> Elem p (m.fieldPositions j k) -> InV m p w -> Writes m s (Field k r) w
     ||| A member of the choice, as a place that makes one made it, its holes
     ||| renumbered as the reader holds it.
@@ -458,16 +527,6 @@ public export
 Describes : {g : Graph} -> Model g -> Type
 Describes {g} m = All (Covers g m) m.sites
 
-||| Only closed values no higher than k land at a position: it is uncapped,
-||| and every site into it writes an unmarked template no higher than k.
-||| Where this holds of a family's position, its applied readings are
-||| `Landed` (`landed`).
-public export
-record Lands (g : Graph) (m : Model g) (p : Fin g.size) (k : Nat) where
-  constructor MkLands
-  uncapped : index p g.caps = Nothing
-  under : (s : Site g.size) -> Elem s m.sites -> s.target = p -> (Unmarked s.template, LTE (height s.template) k)
-
 ------------------------------------------------------------------------------
 -- The arithmetic
 ------------------------------------------------------------------------------
@@ -516,6 +575,7 @@ lteCancelRight c le = lteCancelLeft c (rewrite plusCommutative c a in rewrite pl
 -- is written; the arc weighs gain less loss, at least e less d; and the
 -- potential satisfies the arc, q + gain within p + loss. Then h + e is
 -- within k + p.
+export
 0 carry : {h, d, k, q, e, loss, gain, p : Nat} ->
           LTE (h + d) (k + q) -> LTE (e + loss) (d + gain) -> LTE (q + gain) (p + loss) ->
           LTE (h + e) (k + p)
@@ -530,12 +590,14 @@ carry hd el qg =
     plusLteMonotoneLeft k (q + gain) (p + loss) qg
 
 -- c heads above a template stand c above it.
+export
 0 raisedHeight : (c : Nat) -> (t : Template) -> height (raise c t) = c + height t
 raisedHeight Z t = Refl
 raisedHeight (S c) t = cong S (trans (maximumZeroNLeft _) (raisedHeight c t))
 
 -- An applied family's reading k heads above its arguments, e deep: its
 -- arguments k + 1 deeper.
+export
 0 raisedAt : (k : Nat) -> (ts : List Template) -> (e : Nat) ->
              height (raise k (Head Nothing ts)) + e = tallest ts + S (k + e)
 raisedAt k ts e =
@@ -564,10 +626,12 @@ appliedWithin reach high =
 -- Heights
 ------------------------------------------------------------------------------
 
+export
 0 tallestAbove : Elem t ts -> LTE (height t) (tallest ts)
 tallestAbove Here = maximumLeftUpperBound _ _
 tallestAbove (There el) = transitive (tallestAbove el) (maximumRightUpperBound _ _)
 
+export
 0 tallestIndex : (ws : List Template) -> (j : Fin (length ws)) -> LTE (height (index' ws j)) (tallest ws)
 tallestIndex [] j = absurd j
 tallestIndex (w :: ws) FZ = maximumLeftUpperBound _ _
@@ -583,6 +647,27 @@ export
 0 dropsLastHeight : DropsLast v w -> LTE (height w) (height v)
 dropsLastHeight (LastOfHead {ws}) = LTESucc (tallestSnoc ws)
 dropsLastHeight (OnlyApplied {w} {x}) = lteSuccRight (maximumLeftUpperBound (height w) (maximum (height x) 0))
+
+||| A run read node by node is as high as its leaf.
+export
+0 runReadHeight : RunRead h t -> height t = h
+runReadHeight RunReadZero = Refl
+runReadHeight (RunReadSucc {t} r) = cong S (trans (maximumZeroNLeft (height t)) (runReadHeight r))
+
+mutual
+  ||| Two readings of one value are as high.
+  export
+  0 rereadHeight : Reread v w -> height w = height v
+  rereadHeight RereadSame = Refl
+  rereadHeight RereadFormal = Refl
+  rereadHeight (RereadHead xs) = cong S (allRereadHeight xs)
+  rereadHeight (RereadOpaque xs) = cong S (allRereadHeight xs)
+  rereadHeight (RereadAsLeaf r) = sym (runReadHeight r)
+  rereadHeight (RereadAsRun r) = runReadHeight r
+
+  0 allRereadHeight : AllReread ts us -> tallest us = tallest ts
+  allRereadHeight NoneReread = Refl
+  allRereadHeight (EachReread x xs) = cong2 maximum (rereadHeight x) (allRereadHeight xs)
 
 ||| Lemma 1, the pattern's half: a part d levels down is at least d lower.
 export
@@ -625,6 +710,7 @@ mutual
 
 -- A builtin's call beside the constant it computes stands at least as high
 -- as any constant.
+export
 0 computedTall : {0 c : Template} -> {0 a : Maybe Address} -> (ts : List Template) ->
                  LTE 2 (height (Choice c [Head a ts, Leaf 2]))
 computedTall ts = transitive (maximumLeftUpperBound 2 0) (maximumRightUpperBound (S (tallest ts)) (maximum 2 0))
@@ -636,20 +722,25 @@ runAbove run le =
   LTESucc (replace {p = \z => LTE z (maximum (height t) 0)} (runOfHeight run)
                    (transitive le (maximumLeftUpperBound (height t) 0)))
 
+export
 0 unmarkedHead : Unmarked (Head a ts) -> AllUnmarked ts
 unmarkedHead (UnmarkedHead us) = us
 
+export
 0 unmarkedOpaque : Unmarked (Opaque a ts) -> AllUnmarked ts
 unmarkedOpaque (UnmarkedOpaque us) = us
 
+export
 0 unmarkedChoice : Unmarked (Choice c ls) -> AllUnmarked ls
 unmarkedChoice (UnmarkedChoice us) = us
 
+export
 0 unmarkedRaise : (k : Nat) -> Unmarked (raise k t) -> Unmarked t
 unmarkedRaise Z u = u
 unmarkedRaise (S k) u = case unmarkedHead u of
   (x :: _) => unmarkedRaise k x
 
+export
 0 unmarkedAt : Elem t ts -> AllUnmarked ts -> Unmarked t
 unmarkedAt Here (u :: _) = u
 unmarkedAt (There el) (_ :: us) = unmarkedAt el us
@@ -659,11 +750,11 @@ mutual
   ||| an applied family's reading there stands above what beta makes.
   export
   0 unmarkedWrites : Unmarked t -> Writes m s t w -> LTE (height w) (height t)
-  unmarkedWrites u (AtVar _ _ _) = absurd u
+  unmarkedWrites u (AtVar _ _ _ _) = absurd u
   unmarkedWrites u (AtHead xs) = LTESucc (unmarkedAll (unmarkedHead u) xs)
   unmarkedWrites u (AtOpaque xs) = LTESucc (unmarkedAll (unmarkedOpaque u) xs)
   unmarkedWrites u AtLeaf = reflexive
-  unmarkedWrites u (AtComputed {ts} _ form) = transitive (constantHeight form) (computedTall ts)
+  unmarkedWrites u (AtComputed {ts} _ form _) = transitive (constantHeight form) (computedTall ts)
   unmarkedWrites u (AtRun x run) = case unmarkedHead u of
     (ut :: _) => runAbove run (unmarkedWrites ut x)
   unmarkedWrites u (AtCut x one) = transitive one (unmarkedWrites u x)
@@ -677,21 +768,39 @@ mutual
   unmarkedWrites u (Beta _ _ _ _ _ _) = absurd u
   unmarkedWrites u (GivenPart _ _ _ _) = absurd u
   unmarkedWrites u (MemberOf _ _) = absurd u
-  unmarkedWrites u (Landed {k} {ts} {ws} _ _ hf wb xs inst) =
+  unmarkedWrites u (Landed {k} {ts} {ws} l iv sub wb xs inst) =
     lteR (sym (raisedHeight k (Head Nothing ts))) $
       transitive (instHeight inst)
-        (transitive (plusLteMonotone (transitive (withinHeight wb) hf)
+        (transitive (plusLteMonotone (transitive (withinHeight wb) (landedPart l iv sub))
                                      (unmarkedAll (unmarkedHead (unmarkedRaise k u)) xs))
                     (plusLteMonotoneLeft k (tallest ts) (S (tallest ts)) (lteSuccRight reflexive)))
-  unmarkedWrites u (LandedMember {k} {ts} _ _ hf wm) =
-    lteR (sym (raisedHeight k (Head Nothing ts))) (transitive (transitive (withinHeight wm) hf) (lteAddRight k))
+  unmarkedWrites u (LandedMember {k} {ts} l iv sub wm) =
+    lteR (sym (raisedHeight k (Head Nothing ts)))
+         (transitive (transitive (withinHeight wm) (landedPart l iv sub)) (lteAddRight k))
   unmarkedWrites u (AtField _ _ _) = absurd u
   unmarkedWrites u (AtMember _ _ _) = absurd u
   unmarkedWrites u (AtHeldHole _ _ _ _) = absurd u
 
+  export
   0 unmarkedAll : AllUnmarked ts -> AllWrite m s ts ws -> LTE (tallest ws) (tallest ts)
   unmarkedAll [] [] = LTEZero
   unmarkedAll (u :: us) (x :: xs) = maxMono (unmarkedWrites u x) (unmarkedAll us xs)
+
+  ||| What lands at a position where only closed values no higher than k
+  ||| land is no higher than k: where a family's value is read from such a
+  ||| position, its applied readings are `Landed`.
+  export
+  0 landed : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> {v : Template} ->
+             Lands g m p k -> InV m p v -> LTE (height v) k
+  landed l (Capped cap _ _ _) = absurd (trans (sym cap) l.uncapped)
+  landed l (Reduced s el wr) = case l.under s el Refl of
+    (u, le) => transitive (unmarkedWrites u wr) le
+
+  ||| A part of what lands there is no higher.
+  export
+  0 landedPart : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> {v : Template} ->
+                 Lands g m p k -> InV m p v -> Sub d v f -> LTE (height f) k
+  landedPart {f} l iv sub = transitive (transitive (lteAddRight (height f)) (subHeight sub)) (landed l iv)
 
 
 ------------------------------------------------------------------------------
@@ -715,6 +824,7 @@ minAbove la lc with (a < c)
   _ | True = la
   _ | False = lc
 
+export
 0 boundUncapped : {g : Graph} -> {pot : Vect g.size Nat} -> {p : Fin g.size} ->
                   index p g.caps = Nothing -> bound g pot p = g.constant + index p pot
 boundUncapped eq = rewrite eq in Refl
@@ -723,12 +833,14 @@ boundUncapped eq = rewrite eq in Refl
                 index p g.caps = Just c -> LTE h c -> LTE h (g.constant + index p pot) -> LTE h (bound g pot p)
 boundCapped eq lc lk = rewrite eq in minAbove lk lc
 
+export
 0 boundBelow : (g : Graph) -> (pot : Vect g.size Nat) -> (p : Fin g.size) ->
                LTE (bound g pot p) (g.constant + index p pot)
 boundBelow g pot p with (index p g.caps)
   _ | Nothing = reflexive
   _ | Just c = minBelow
 
+export
 0 arcHolds : Feasible g pot -> Elem (MkArc q p (Measured gain loss)) g.arcs ->
              LTE (index q pot + gain) (index p pot + loss)
 arcHolds (MkFeasible sat _) el = case indexAll el sat of MkSatisfies le => le
@@ -738,6 +850,7 @@ capHolds (MkFeasible _ caps) p cap = capAt caps p cap
 
 -- A value of V at p, with a part d deep of it: the part stands within the
 -- bound at p, uncapped, less d.
+export
 0 partBelow : {g : Graph} -> {pot : Vect g.size Nat} -> {p : Fin g.size} ->
               LTE (height v) (bound g pot p) -> Sub d v u -> LTE (height u + d) (g.constant + index p pot)
 partBelow {g} {pot} {p} bv sub = transitive (subHeight sub) (transitive bv (boundBelow g pot p))
@@ -746,38 +859,47 @@ partBelow {g} {pot} {p} bv sub = transitive (subHeight sub) (transitive bv (boun
 -- What the graph says, read back
 ------------------------------------------------------------------------------
 
+export
 0 coveredVar : CoveredAt m s e (Var i d) -> (p : Fin g.size) -> Elem (i, p) s.writers -> Carries g p d e s.target
 coveredVar (CVar c) = c
 
+export
 0 coveredHead : CoveredAt m s e (Head a ts) -> AllCovered m s (S e) ts
 coveredHead (CHead cs) = cs
 
+export
 0 coveredOpaque : CoveredAt m s e (Opaque a ts) -> AllCovered m s (S e) ts
 coveredOpaque (COpaque cs) = cs
 
+export
 0 coveredChoice : CoveredAt m s e (Choice c ls) -> AllCovered m s e ls
 coveredChoice (CChoice cs) = cs
 
+export
 0 coveredApplied : CoveredAt m s e (Applied i d ts) ->
                    ( (p : Fin g.size) -> Elem (i, p) s.writers -> (Carries g p d (e + tallest ts) s.target, AllUnmarked ts)
                    , (j : Address) -> Elem j (s.roots (Applied i d ts)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
                      Carries g p' 0 (S e) s.target )
 coveredApplied (CApplied c arcs) = (c, arcs)
 
+export
 0 coveredField : CoveredAt m s e (Field k r) ->
                  (j : Address) -> Elem j (s.roots r) -> (p : Fin g.size) -> Elem p (m.fieldPositions j k) ->
                  Carries g p 0 e s.target
 coveredField (CField arcs) = arcs
 
+export
 0 coveredMember : CoveredAt m s e (Member k) ->
                   (p : Fin g.size) -> Elem p (m.choicePositions k) -> Carries g p 0 e s.target
 coveredMember (CMember arcs) = arcs
 
+export
 0 coveredRaise : {e : Nat} -> (k : Nat) -> CoveredAt m s e (raise k t) -> CoveredAt m s (k + e) t
 coveredRaise Z c = c
 coveredRaise {e} (S k) c = case coveredHead c of
   (c' :: []) => rewrite plusSuccRightSucc k e in coveredRaise k c'
 
+export
 0 coveredIn : Elem x ls -> AllCovered m s e ls -> CoveredAt m s e x
 coveredIn Here (c :: _) = c
 coveredIn (There i) (_ :: cs) = coveredIn i cs
@@ -808,8 +930,8 @@ mutual
                 Describes m -> Feasible g pot -> Writes m s t w -> CoveredAt m s e t ->
                 LTE (height t + e) (g.constant + index s.target pot) ->
                 LTE (height w + e) (g.constant + index s.target pot)
-  writtenAt ds fe (AtVar {p} wa iv sub) cov hp = case coveredVar cov p wa of
-    MkCarries arc wt => carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc)
+  writtenAt ds fe (AtVar {p} wa iv sub again) cov hp = case coveredVar cov p wa of
+    MkCarries arc wt => rewrite rereadHeight again in carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc)
   writtenAt {e} ds fe (AtHead {ts} {ws} xs) cov hp =
     lteL (sym (plusSuccRightSucc (tallest ws) e)) $
       allWrittenAt ds fe xs (coveredHead cov) (lteL (plusSuccRightSucc (tallest ts) e) hp)
@@ -817,7 +939,7 @@ mutual
     lteL (sym (plusSuccRightSucc (tallest ws) e)) $
       allWrittenAt ds fe xs (coveredOpaque cov) (lteL (plusSuccRightSucc (tallest ts) e) hp)
   writtenAt ds fe AtLeaf cov hp = hp
-  writtenAt {e} ds fe (AtComputed {ts} _ form) cov hp =
+  writtenAt {e} ds fe (AtComputed {ts} _ form _) cov hp =
     transitive (plusLteMonotoneRight e _ _ (transitive (constantHeight form) (computedTall ts))) hp
   -- A run one longer than its child writes, carried as the head's child is.
   writtenAt {e} ds fe (AtRun {t} {v} {h} x run) cov hp = case coveredHead cov of
@@ -856,12 +978,13 @@ mutual
       lteL (sym (plusSuccRightSucc (tallest as) e)) $
         heldWithin ds fe args (arcs _ el)
           (transitive (LTESucc (plusLteMonotoneRight e 0 (tallest ts) LTEZero)) hp)
-  writtenAt {e} ds fe (Landed {k} {ts} {ws} _ _ hf wb xs inst) cov hp =
+  writtenAt {e} ds fe (Landed {k} {ts} {ws} l iv sub wb xs inst) cov hp =
     transitive (landedArith (transitive (instHeight inst)
-                                        (plusLteMonotoneRight (tallest ws) _ k (transitive (withinHeight wb) hf))))
+                                        (plusLteMonotoneRight (tallest ws) _ k
+                                           (transitive (withinHeight wb) (landedPart l iv sub)))))
                (allWrittenAt ds fe xs (coveredHead (coveredRaise k cov)) (lteL (raisedAt k ts e) hp))
-  writtenAt {e} ds fe (LandedMember {k} {ts} _ _ hf wm) cov hp =
-    transitive (landedArith (transitive (transitive (withinHeight wm) hf) (lteAddRight k)))
+  writtenAt {e} ds fe (LandedMember {k} {ts} l iv sub wm) cov hp =
+    transitive (landedArith (transitive (transitive (withinHeight wm) (landedPart l iv sub)) (lteAddRight k)))
                (lteL (raisedAt k ts e) hp)
   -- A field writes what its position received, carried from there as a
   -- part of it no deeper than itself.
@@ -879,6 +1002,7 @@ mutual
       transitive (plusLteMonotoneRight e 1 (height v) one) (carry (partBelow (bounded ds fe iv) Self) wt (arcHolds fe arc))
 
   -- A head's children, one deeper.
+  export
   0 allWrittenAt : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {s : Site g.size} -> {e : Nat} ->
                    Describes m -> Feasible g pot -> AllWrite m s ts ws -> AllCovered m s (S e) ts ->
                    LTE (tallest ts + S e) (g.constant + index s.target pot) ->
@@ -904,12 +1028,3 @@ mutual
                        wt (arcHolds fe arc))
             (heldWithin ds fe rest arcs one)
 
-||| What lands at a position where only closed values no higher than k
-||| land is no higher than k: where a family's value is read from such a
-||| position, its applied readings are `Landed`.
-export
-0 landed : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> {v : Template} ->
-           Lands g m p k -> InV m p v -> LTE (height v) k
-landed l (Capped cap _ _ _) = absurd (trans (sym cap) l.uncapped)
-landed l (Reduced s el wr) = case l.under s el Refl of
-  (u, le) => transitive (unmarkedWrites u wr) le

@@ -94,17 +94,9 @@ maxMono la lc = maxLub (transitive la (maximumLeftUpperBound _ _)) (transitive l
 -- Dropping a variable
 ------------------------------------------------------------------------------
 
-||| Index i of a scope, once the variable after its first o is dropped, is
-||| index j: past the dropped one, one less; below it, the same. The
-||| dropped one itself has no index there.
-public export
-data Dropped : (o, i, j : Nat) -> Type where
-  DropPast : Dropped Z (S i) i
-  DropBefore : Dropped (S o) Z Z
-  DropUnder : Dropped o i j -> Dropped (S o) (S i) (S j)
-
 ||| Where index i of a scope goes once the variable after its first o is
-||| dropped: it is that variable, or it has an index without it.
+||| dropped: it is that variable, or it has an index without it
+||| (`Idris.Host.Dropped`).
 public export
 data AfterDrop : (o, i : Nat) -> Type where
   IsTheDropped : (0 _ : i = o) -> AfterDrop o i
@@ -136,92 +128,43 @@ droppedVar (DropsUnder _) DropBefore First = First
 droppedVar (DropsUnder d) (DropUnder dropped) (Later p) = Later (droppedVar d dropped p)
 
 mutual
-  ||| A term over a scope read over that scope with its variable after the
-  ||| first o dropped: the same term, each index past the dropped variable
-  ||| one less, where the term does not mention that variable.
-  public export
-  data Strengthened : Nat -> Term vs -> Term ws -> Type where
-    StrLocal : {0 p : IsVar n i vs} -> {0 q : IsVar n j ws} -> Dropped o i j ->
-               Strengthened o (Local fc l i p) (Local fc l j q)
-    StrRef : Strengthened o (Ref fc nt nm) (Ref fc nt nm)
-    StrMeta : AllStrengthened o ts us -> Strengthened o (Meta fc m k ts) (Meta fc m k us)
-    StrBind : BinderStrengthened o b b' -> Strengthened (S o) sc sc' ->
-              Strengthened o (Bind fc y b sc) (Bind fc y b' sc')
-    StrApp : Strengthened o f f' -> Strengthened o a a' -> Strengthened o (App fc f a) (App fc f' a')
-    StrAs : Strengthened o a a' -> Strengthened o t t' -> Strengthened o (As fc s a t) (As fc s a' t')
-    StrDelayed : Strengthened o t t' -> Strengthened o (TDelayed fc r t) (TDelayed fc r t')
-    StrDelay : Strengthened o ty ty' -> Strengthened o a a' ->
-               Strengthened o (TDelay fc d ty a) (TDelay fc d ty' a')
-    StrForce : Strengthened o t t' -> Strengthened o (TForce fc r t) (TForce fc r t')
-    StrPrim : Strengthened o (PrimVal fc c) (PrimVal fc c)
-    StrPlaceholder : Strengthened o (Erased fc Placeholder) (Erased fc Placeholder)
-    StrImpossible : Strengthened o (Erased fc Impossible) (Erased fc Impossible)
-    StrDotted : Strengthened o t t' -> Strengthened o (Erased fc (Dotted t)) (Erased fc (Dotted t'))
-    StrType : Strengthened o (TType fc u) (TType fc u)
-
-  ||| Terms strengthened, each in turn.
-  public export
-  data AllStrengthened : Nat -> List (Term vs) -> List (Term ws) -> Type where
-    StrNil : AllStrengthened o [] []
-    StrCons : Strengthened o t u -> AllStrengthened o ts us -> AllStrengthened o (t :: ts) (u :: us)
-
-  ||| A binder strengthened: each of its parts.
-  public export
-  data BinderStrengthened : Nat -> Binder (Term vs) -> Binder (Term ws) -> Type where
-    StrLam : PiStrengthened o p p' -> Strengthened o ty ty' -> BinderStrengthened o (Lam fc c p ty) (Lam fc c p' ty')
-    StrLet : Strengthened o v v' -> Strengthened o ty ty' -> BinderStrengthened o (Let fc c v ty) (Let fc c v' ty')
-    StrPi : PiStrengthened o p p' -> Strengthened o ty ty' -> BinderStrengthened o (Pi fc c p ty) (Pi fc c p' ty')
-    StrPVar : PiStrengthened o p p' -> Strengthened o ty ty' ->
-              BinderStrengthened o (PVar fc c p ty) (PVar fc c p' ty')
-    StrPLet : Strengthened o v v' -> Strengthened o ty ty' ->
-              BinderStrengthened o (PLet fc c v ty) (PLet fc c v' ty')
-    StrPVTy : Strengthened o ty ty' -> BinderStrengthened o (PVTy fc c ty) (PVTy fc c ty')
-
-  ||| An implicitness strengthened: a default's term.
-  public export
-  data PiStrengthened : Nat -> PiInfo (Term vs) -> PiInfo (Term ws) -> Type where
-    StrImplicit : PiStrengthened o Implicit Implicit
-    StrExplicit : PiStrengthened o Explicit Explicit
-    StrAutoImplicit : PiStrengthened o AutoImplicit AutoImplicit
-    StrDefault : Strengthened o t u -> PiStrengthened o (DefImplicit t) (DefImplicit u)
-
-mutual
   ||| Strengthening keeps a term's height: every node is rebuilt from the
-  ||| same parts.
+  ||| same parts, and no bounds put a value in for a name.
   export
   0 strengthenedHeight : Strengthened o t u -> termHeight u = termHeight t
-  strengthenedHeight (StrLocal _) = Refl
-  strengthenedHeight StrRef = Refl
-  strengthenedHeight (StrMeta ts) = cong S (allStrengthenedHeight ts)
-  strengthenedHeight (StrBind b sc) = cong S (cong2 maximum (binderStrengthenedHeight b) (strengthenedHeight sc))
-  strengthenedHeight (StrApp f a) = cong S (cong2 maximum (strengthenedHeight f) (strengthenedHeight a))
-  strengthenedHeight (StrAs a t) = cong S (cong2 maximum (strengthenedHeight a) (strengthenedHeight t))
-  strengthenedHeight (StrDelayed t) = cong S (strengthenedHeight t)
-  strengthenedHeight (StrDelay ty a) = cong S (cong2 maximum (strengthenedHeight ty) (strengthenedHeight a))
-  strengthenedHeight (StrForce t) = cong S (strengthenedHeight t)
-  strengthenedHeight StrPrim = Refl
-  strengthenedHeight StrPlaceholder = Refl
-  strengthenedHeight StrImpossible = Refl
-  strengthenedHeight (StrDotted t) = cong S (strengthenedHeight t)
-  strengthenedHeight StrType = Refl
+  strengthenedHeight (MLocal _) = Refl
+  strengthenedHeight (MMarker first _) = void (noneReplaces first)
+  strengthenedHeight (MRef _) = Refl
+  strengthenedHeight (MMeta _ ts) = cong S (allStrengthenedHeight ts)
+  strengthenedHeight (MBind b sc) = cong S (cong2 maximum (binderStrengthenedHeight b) (strengthenedHeight sc))
+  strengthenedHeight (MApp f a) = cong S (cong2 maximum (strengthenedHeight f) (strengthenedHeight a))
+  strengthenedHeight (MAs a t) = cong S (cong2 maximum (strengthenedHeight a) (strengthenedHeight t))
+  strengthenedHeight (MDelayed t) = cong S (strengthenedHeight t)
+  strengthenedHeight (MDelay ty a) = cong S (cong2 maximum (strengthenedHeight ty) (strengthenedHeight a))
+  strengthenedHeight (MForce t) = cong S (strengthenedHeight t)
+  strengthenedHeight MPrim = Refl
+  strengthenedHeight MPlaceholder = Refl
+  strengthenedHeight MImpossible = Refl
+  strengthenedHeight (MDotted t) = cong S (strengthenedHeight t)
+  strengthenedHeight MType = Refl
 
-  0 allStrengthenedHeight : AllStrengthened o ts us -> termsHeight us = termsHeight ts
-  allStrengthenedHeight StrNil = Refl
-  allStrengthenedHeight (StrCons t ts) = cong2 maximum (strengthenedHeight t) (allStrengthenedHeight ts)
+  0 allStrengthenedHeight : AllMapped DropsOne None (the (SubstEnv [] []) []) o ts us -> termsHeight us = termsHeight ts
+  allStrengthenedHeight MNone = Refl
+  allStrengthenedHeight (MEach t ts) = cong2 maximum (strengthenedHeight t) (allStrengthenedHeight ts)
 
-  0 binderStrengthenedHeight : BinderStrengthened o b b' -> binderHeight b' = binderHeight b
-  binderStrengthenedHeight (StrLam p ty) = cong2 maximum (piStrengthenedHeight p) (strengthenedHeight ty)
-  binderStrengthenedHeight (StrLet v ty) = cong2 maximum (strengthenedHeight v) (strengthenedHeight ty)
-  binderStrengthenedHeight (StrPi p ty) = cong2 maximum (piStrengthenedHeight p) (strengthenedHeight ty)
-  binderStrengthenedHeight (StrPVar p ty) = cong2 maximum (piStrengthenedHeight p) (strengthenedHeight ty)
-  binderStrengthenedHeight (StrPLet v ty) = cong2 maximum (strengthenedHeight v) (strengthenedHeight ty)
-  binderStrengthenedHeight (StrPVTy ty) = strengthenedHeight ty
+  0 binderStrengthenedHeight : BinderMapped DropsOne None (the (SubstEnv [] []) []) o b b' -> binderHeight b' = binderHeight b
+  binderStrengthenedHeight (MLam p ty) = cong2 maximum (piStrengthenedHeight p) (strengthenedHeight ty)
+  binderStrengthenedHeight (MLet v ty) = cong2 maximum (strengthenedHeight v) (strengthenedHeight ty)
+  binderStrengthenedHeight (MPi p ty) = cong2 maximum (piStrengthenedHeight p) (strengthenedHeight ty)
+  binderStrengthenedHeight (MPVar p ty) = cong2 maximum (piStrengthenedHeight p) (strengthenedHeight ty)
+  binderStrengthenedHeight (MPLet v ty) = cong2 maximum (strengthenedHeight v) (strengthenedHeight ty)
+  binderStrengthenedHeight (MPVTy ty) = strengthenedHeight ty
 
-  0 piStrengthenedHeight : PiStrengthened o p p' -> piHeight p' = piHeight p
-  piStrengthenedHeight StrImplicit = Refl
-  piStrengthenedHeight StrExplicit = Refl
-  piStrengthenedHeight StrAutoImplicit = Refl
-  piStrengthenedHeight (StrDefault t) = strengthenedHeight t
+  0 piStrengthenedHeight : PiMapped DropsOne None (the (SubstEnv [] []) []) o p p' -> piHeight p' = piHeight p
+  piStrengthenedHeight MImplicit = Refl
+  piStrengthenedHeight MExplicit = Refl
+  piStrengthenedHeight MAutoImplicit = Refl
+  piStrengthenedHeight (MDefault t) = strengthenedHeight t
 
 ||| What dropping a variable from a part gives: the part over the scope
 ||| without it, with the evidence; or nothing, where the part mentions it.
@@ -232,101 +175,101 @@ data Strengthening : (r : Type) -> (r -> Type) -> Type where
 
 mutual
   ||| A term read over its scope with the variable after the first o
-  ||| dropped (`Strengthened`), or nothing where it mentions that
-  ||| variable: Idris's `shrink` at the thinning that drops it, with the
-  ||| evidence, which a contraction needs.
+  ||| dropped (`Idris.Host.Strengthened`), or nothing where it mentions
+  ||| that variable: Idris's `shrink` at the thinning that drops it, with
+  ||| the evidence, which a contraction needs.
   export
   dropVariable : (o : Nat) -> (0 _ : DropsAt o vs ws) -> (t : Term vs) ->
                  Strengthening (Term ws) (Strengthened o t)
   dropVariable o d (Local fc l idx p) = case dropIndex o idx of
     IsTheDropped _ => MentionsDropped
-    Reindexed j dropped => Strengthens (Local fc l j (droppedVar d dropped p)) (StrLocal dropped)
-  dropVariable o d (Ref fc nt nm) = Strengthens (Ref fc nt nm) StrRef
+    Reindexed j dropped => Strengthens (Local fc l j (droppedVar d dropped p)) (MLocal dropped)
+  dropVariable o d (Ref fc nt nm) = Strengthens (Ref fc nt nm) (MRef (keptByNone nt))
   dropVariable o d (Meta fc m k args) = case dropVariableAll o d args of
     MentionsDropped => MentionsDropped
-    Strengthens args' s => Strengthens (Meta fc m k args') (StrMeta s)
+    Strengthens args' s => Strengthens (Meta fc m k args') (MMeta NoneHere s)
   dropVariable o d (Bind fc y b sc) = case dropVariableBinder o d b of
     MentionsDropped => MentionsDropped
     Strengthens b' sb => case dropVariable (S o) (DropsUnder d) sc of
       MentionsDropped => MentionsDropped
-      Strengthens sc' ss => Strengthens (Bind fc y b' sc') (StrBind sb ss)
+      Strengthens sc' ss => Strengthens (Bind fc y b' sc') (MBind sb ss)
   dropVariable o d (App fc f a) = case dropVariable o d f of
     MentionsDropped => MentionsDropped
     Strengthens f' sf => case dropVariable o d a of
       MentionsDropped => MentionsDropped
-      Strengthens a' sa => Strengthens (App fc f' a') (StrApp sf sa)
+      Strengthens a' sa => Strengthens (App fc f' a') (MApp sf sa)
   dropVariable o d (As fc s a t) = case dropVariable o d a of
     MentionsDropped => MentionsDropped
     Strengthens a' sa => case dropVariable o d t of
       MentionsDropped => MentionsDropped
-      Strengthens t' st => Strengthens (As fc s a' t') (StrAs sa st)
+      Strengthens t' st => Strengthens (As fc s a' t') (MAs sa st)
   dropVariable o d (TDelayed fc r t) = case dropVariable o d t of
     MentionsDropped => MentionsDropped
-    Strengthens t' st => Strengthens (TDelayed fc r t') (StrDelayed st)
+    Strengthens t' st => Strengthens (TDelayed fc r t') (MDelayed st)
   dropVariable o d (TDelay fc r ty a) = case dropVariable o d ty of
     MentionsDropped => MentionsDropped
     Strengthens ty' sty => case dropVariable o d a of
       MentionsDropped => MentionsDropped
-      Strengthens a' sa => Strengthens (TDelay fc r ty' a') (StrDelay sty sa)
+      Strengthens a' sa => Strengthens (TDelay fc r ty' a') (MDelay sty sa)
   dropVariable o d (TForce fc r t) = case dropVariable o d t of
     MentionsDropped => MentionsDropped
-    Strengthens t' st => Strengthens (TForce fc r t') (StrForce st)
-  dropVariable o d (PrimVal fc c) = Strengthens (PrimVal fc c) StrPrim
-  dropVariable o d (Erased fc Placeholder) = Strengthens (Erased fc Placeholder) StrPlaceholder
-  dropVariable o d (Erased fc Impossible) = Strengthens (Erased fc Impossible) StrImpossible
+    Strengthens t' st => Strengthens (TForce fc r t') (MForce st)
+  dropVariable o d (PrimVal fc c) = Strengthens (PrimVal fc c) MPrim
+  dropVariable o d (Erased fc Placeholder) = Strengthens (Erased fc Placeholder) MPlaceholder
+  dropVariable o d (Erased fc Impossible) = Strengthens (Erased fc Impossible) MImpossible
   dropVariable o d (Erased fc (Dotted t)) = case dropVariable o d t of
     MentionsDropped => MentionsDropped
-    Strengthens t' st => Strengthens (Erased fc (Dotted t')) (StrDotted st)
-  dropVariable o d (TType fc u) = Strengthens (TType fc u) StrType
+    Strengthens t' st => Strengthens (Erased fc (Dotted t')) (MDotted st)
+  dropVariable o d (TType fc u) = Strengthens (TType fc u) MType
 
   dropVariableAll : (o : Nat) -> (0 _ : DropsAt o vs ws) -> (ts : List (Term vs)) ->
-                    Strengthening (List (Term ws)) (AllStrengthened o ts)
-  dropVariableAll o d [] = Strengthens [] StrNil
+                    Strengthening (List (Term ws)) (AllMapped DropsOne None (the (SubstEnv [] []) []) o ts)
+  dropVariableAll o d [] = Strengthens [] MNone
   dropVariableAll o d (t :: ts) = case dropVariable o d t of
     MentionsDropped => MentionsDropped
     Strengthens u s => case dropVariableAll o d ts of
       MentionsDropped => MentionsDropped
-      Strengthens us ss => Strengthens (u :: us) (StrCons s ss)
+      Strengthens us ss => Strengthens (u :: us) (MEach s ss)
 
   dropVariableBinder : (o : Nat) -> (0 _ : DropsAt o vs ws) -> (b : Binder (Term vs)) ->
-                       Strengthening (Binder (Term ws)) (BinderStrengthened o b)
+                       Strengthening (Binder (Term ws)) (BinderMapped DropsOne None (the (SubstEnv [] []) []) o b)
   dropVariableBinder o d (Lam fc c p ty) = case dropVariablePi o d p of
     MentionsDropped => MentionsDropped
     Strengthens p' sp => case dropVariable o d ty of
       MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (Lam fc c p' ty') (StrLam sp sty)
+      Strengthens ty' sty => Strengthens (Lam fc c p' ty') (MLam sp sty)
   dropVariableBinder o d (Let fc c v ty) = case dropVariable o d v of
     MentionsDropped => MentionsDropped
     Strengthens v' sv => case dropVariable o d ty of
       MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (Let fc c v' ty') (StrLet sv sty)
+      Strengthens ty' sty => Strengthens (Let fc c v' ty') (MLet sv sty)
   dropVariableBinder o d (Pi fc c p ty) = case dropVariablePi o d p of
     MentionsDropped => MentionsDropped
     Strengthens p' sp => case dropVariable o d ty of
       MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (Pi fc c p' ty') (StrPi sp sty)
+      Strengthens ty' sty => Strengthens (Pi fc c p' ty') (MPi sp sty)
   dropVariableBinder o d (PVar fc c p ty) = case dropVariablePi o d p of
     MentionsDropped => MentionsDropped
     Strengthens p' sp => case dropVariable o d ty of
       MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (PVar fc c p' ty') (StrPVar sp sty)
+      Strengthens ty' sty => Strengthens (PVar fc c p' ty') (MPVar sp sty)
   dropVariableBinder o d (PLet fc c v ty) = case dropVariable o d v of
     MentionsDropped => MentionsDropped
     Strengthens v' sv => case dropVariable o d ty of
       MentionsDropped => MentionsDropped
-      Strengthens ty' sty => Strengthens (PLet fc c v' ty') (StrPLet sv sty)
+      Strengthens ty' sty => Strengthens (PLet fc c v' ty') (MPLet sv sty)
   dropVariableBinder o d (PVTy fc c ty) = case dropVariable o d ty of
     MentionsDropped => MentionsDropped
-    Strengthens ty' sty => Strengthens (PVTy fc c ty') (StrPVTy sty)
+    Strengthens ty' sty => Strengthens (PVTy fc c ty') (MPVTy sty)
 
   dropVariablePi : (o : Nat) -> (0 _ : DropsAt o vs ws) -> (p : PiInfo (Term vs)) ->
-                   Strengthening (PiInfo (Term ws)) (PiStrengthened o p)
-  dropVariablePi o d Implicit = Strengthens Implicit StrImplicit
-  dropVariablePi o d Explicit = Strengthens Explicit StrExplicit
-  dropVariablePi o d AutoImplicit = Strengthens AutoImplicit StrAutoImplicit
+                   Strengthening (PiInfo (Term ws)) (PiMapped DropsOne None (the (SubstEnv [] []) []) o p)
+  dropVariablePi o d Implicit = Strengthens Implicit MImplicit
+  dropVariablePi o d Explicit = Strengthens Explicit MExplicit
+  dropVariablePi o d AutoImplicit = Strengthens AutoImplicit MAutoImplicit
   dropVariablePi o d (DefImplicit t) = case dropVariable o d t of
     MentionsDropped => MentionsDropped
-    Strengthens u s => Strengthens (DefImplicit u) (StrDefault s)
+    Strengthens u s => Strengthens (DefImplicit u) (MDefault s)
 
 ------------------------------------------------------------------------------
 -- Eta contraction
@@ -398,50 +341,6 @@ record Contraction {0 a : Type} (rel : a -> a -> Type) (x : a) where
   constructor MkContraction
   etaForm : a
   0 etaSteps : rel x etaForm
-
-------------------------------------------------------------------------------
--- No step
-------------------------------------------------------------------------------
-
-mutual
-  ||| Every term reduces to itself, under every evaluation: each node
-  ||| rebuilt from its parts by the congruence that steps under it, each
-  ||| part reduced to itself. A reading that takes a term as written (a
-  ||| dictionary, a shape a constructor heads) reads it off by no step.
-  export
-  0 reducesRefl : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (t : Term vs) -> Reduces ev ctx t t
-  reducesRefl (Local fc l idx p) = ALocal
-  reducesRefl (Ref fc nt n) = ARef
-  reducesRefl (Meta fc m i args) = AMeta (allReduceRefl args)
-  reducesRefl (Bind fc x b sc) = ABind (binderReducesRefl b) (reducesRefl sc)
-  reducesRefl (App fc f a) = AnApp (reducesRefl f) (reducesRefl a)
-  reducesRefl (As fc s n t) = AnAs (reducesRefl n) (reducesRefl t)
-  reducesRefl (TDelayed fc r t) = ADelayed (reducesRefl t)
-  reducesRefl (TDelay fc r ty a) = ADelay (reducesRefl ty) (reducesRefl a)
-  reducesRefl (TForce fc r t) = AForce (reducesRefl t)
-  reducesRefl (PrimVal fc c) = APrimVal
-  reducesRefl (Erased fc Placeholder) = AnErased APlaceholder
-  reducesRefl (Erased fc Impossible) = AnErased AnImpossible
-  reducesRefl (Erased fc (Dotted t)) = AnErased (ADotted (reducesRefl t))
-  reducesRefl (TType fc u) = AType
-
-  0 allReduceRefl : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (ts : List (Term vs)) -> AllReduce ev ctx ts ts
-  allReduceRefl [] = NoneLeft
-  allReduceRefl (t :: ts) = Each (reducesRefl t) (allReduceRefl ts)
-
-  0 binderReducesRefl : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (b : Binder (Term vs)) -> BinderReduces ev ctx b b
-  binderReducesRefl (Lam fc c p ty) = ALam (piReducesRefl p) (reducesRefl ty)
-  binderReducesRefl (Let fc c v ty) = ALet (reducesRefl v) (reducesRefl ty)
-  binderReducesRefl (Pi fc c p ty) = APi (piReducesRefl p) (reducesRefl ty)
-  binderReducesRefl (PVar fc c p ty) = APVar (piReducesRefl p) (reducesRefl ty)
-  binderReducesRefl (PLet fc c v ty) = APLet (reducesRefl v) (reducesRefl ty)
-  binderReducesRefl (PVTy fc c ty) = APVTy (reducesRefl ty)
-
-  0 piReducesRefl : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (p : PiInfo (Term vs)) -> PiReduces ev ctx p p
-  piReducesRefl Implicit = AnImplicit
-  piReducesRefl Explicit = AnExplicit
-  piReducesRefl AutoImplicit = AnAutoImplicit
-  piReducesRefl (DefImplicit t) = ADefImplicit (reducesRefl t)
 
 ------------------------------------------------------------------------------
 -- Readings

@@ -258,8 +258,9 @@ positionWithin placing el spotted = replace {p = PlacedIn placing.table (bound b
 
 ||| The universe the worklist descends in, read from the bounds alone: each
 ||| head's heights (`heightsOf`), with the graph's arity, heaviest token
-||| and breadth. No size is computed: the worklist decides each link's
-||| sizes against these heights (`Proof.Requests.within`).
+||| and breadth, the base of the tower its keys' measures stay within. No
+||| size is computed: the worklist decides each link's sizes against these
+||| heights (`Proof.Requests.within`).
 sizesOf : (b : Built) -> Placing b pot b.firsts -> Bounds
 sizesOf b placing = MkBounds (heightsIn placing.table) b.arity b.heaviest b.breadth
 

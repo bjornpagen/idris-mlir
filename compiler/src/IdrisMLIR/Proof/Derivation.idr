@@ -7,16 +7,19 @@
 ||| Its reading there is a value of V (`Proof.Bound.InV`) because a site of
 ||| the model into the position writes it (`SiteWrites`): what the instance
 ||| that requests writes where the site's template reads. Its written key
-||| weighs at most what `sizeWithin` lets a key as high as the reading
-||| weigh, at the universe's arity and heaviest token (`ArgumentDerivation`,
-||| which `Template.keyedWithin` gives from the argument's instance reading,
-||| whose template is never smaller than the key its link writes). Where the universe
-||| bounds the parameter at least as high as the position's bound
-||| (`ArgumentWithin`), Theorem 1 (`Proof.Bound.bounded`) and the growth of
-||| `sizeWithin` (`Proof.Sizes.sizeWithinMono`) place the argument within
-||| it, and a link all of whose arguments are placed, no longer than the
-||| breadth, is in the universe (`derivedInside`): the membership the
-||| worklist's test of each request gives it.
+||| weighs at most what `sizeWithin` lets a key of the reading's height,
+||| widest node and heaviest token weigh (`ArgumentDerivation`, which
+||| `Template.keyedWithin` gives from the argument's instance reading, whose
+||| template is never smaller than the key its link writes). Where the
+||| universe bounds the parameter at least as high as the position's bound
+||| (`ArgumentWithin`), Theorem 1 (`Proof.Bound.bounded`) bounds the
+||| reading's height, Theorem 2 (`Proof.Weights.measuredWithin`) its widest
+||| node and heaviest token by the tower of that many computations over the
+||| base, and the growth of `sizeWithin` (`Proof.Sizes.sizeWithinMono`)
+||| places the argument within the universe's weight at that height
+||| (`Proof.Requests.weightAt`); a link all of whose arguments are placed,
+||| no longer than the breadth, is in the universe (`derivedInside`): the
+||| membership the worklist's test of each request gives it.
 |||
 ||| Every way the translation requests an instance gives its arguments
 ||| through sites of the model (`sitePlaced`), each read where the
@@ -37,6 +40,7 @@ import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Sizes
 import IdrisMLIR.Proof.Template
+import IdrisMLIR.Proof.Weights
 
 import Control.Relation
 import Data.List.Elem
@@ -84,15 +88,15 @@ siteWritten s wr = (s.site ** (s.member, s.lands, wr))
 
 ||| One keyed argument of a request, derived: the position of the growth
 ||| graph it lands at, its reading there, a value of V, and its written key,
-||| weighing `keySize`, no heavier than `sizeWithin` lets a key as high as
-||| the reading weigh at the universe's arity and heaviest token.
+||| weighing `keySize`, no heavier than `sizeWithin` lets a key of the
+||| reading's height, widest node and heaviest token weigh.
 public export
 record ArgumentDerivation {g : Graph} (m : Model g) (b : Bounds) (keySize : Nat) where
   constructor MkArgumentDerivation
   0 position : Fin g.size
   0 reading : Template
   0 inV : InV m position reading
-  0 keyed : LTE keySize (sizeWithin b.arity (height reading) b.heaviest)
+  0 keyed : LTE keySize (sizeWithin (arity reading) (height reading) (heaviest reading))
 
 ||| An argument of a link placed within its parameter's height h in the
 ||| universe: one that keys nothing weighs nothing; a keyed one is derived,
@@ -126,8 +130,9 @@ data ArgumentsWithin : {0 form : Type} -> {g : Graph} -> Model g -> Vect g.size 
 
 ||| What a request carries for the worklist, none of it paid for: the growth
 ||| check's graph, its model and potential, that the potential is feasible
-||| and the graph describes the model, and the request's link no longer than
-||| the breadth, every argument of it placed within its height.
+||| and the graph describes the model, the base its values measure within
+||| and that the universe's base is no lower, and the request's link no
+||| longer than the breadth, every argument of it placed within its height.
 public export
 record RequestDerivation {0 form : Type} (b : Bounds) (l : Link form) where
   constructor MkRequestDerivation
@@ -136,6 +141,9 @@ record RequestDerivation {0 form : Type} (b : Bounds) (l : Link form) where
   0 potential : Vect graph.size Nat
   0 described : Describes model
   0 feasible : Feasible graph potential
+  0 base : Nat
+  0 measured : Based model base
+  0 based : LTE base (measureBase b)
   0 short : LTE (length l.arguments) b.breadth
   0 placed : ArgumentsWithin model potential b l.arguments (b.heightAt l.head)
 
@@ -143,29 +151,35 @@ record RequestDerivation {0 form : Type} (b : Bounds) (l : Link form) where
 -- The universe, derived
 ------------------------------------------------------------------------------
 
--- An argument placed within its parameter's height weighs within what
--- `sizeWithin` gives that height: its reading is within its position's
--- bound (Theorem 1), and that bound within the height.
+-- An argument placed within its parameter's height weighs within what the
+-- universe gives that height: its reading is within its position's bound
+-- (Theorem 1), its widest node and heaviest token within the tower of
+-- that many computations over the base (Theorem 2), and the bound within
+-- the height.
 0 argumentSized : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {b : Bounds} ->
-                  Describes m -> Feasible g pot -> ArgumentWithin m pot b a h ->
-                  LTE (argumentSize a) (sizeWithin b.arity h b.heaviest)
-argumentSized ds fe KeysNothing = LTEZero
-argumentSized ds fe (Keyed d under) =
+                  Based m w -> LTE w (measureBase b) -> Describes m -> Feasible g pot -> ArgumentWithin m pot b a h ->
+                  LTE (argumentSize a) (weightAt b h)
+argumentSized ms based ds fe KeysNothing = LTEZero
+argumentSized {h} ms based ds fe (Keyed d under) =
+  let tower = transitive (stepsMono under) (stepsBase h based) in
   transitive d.keyed
-    (sizeWithinMono {a = b.arity} {a' = b.arity} {h = height d.reading} {h' = h} {e = b.heaviest} {e' = b.heaviest}
-                    reflexive (transitive (bounded ds fe d.inV) under) reflexive)
+    (sizeWithinMono (transitive (fst (measuredWithin ms ds fe d.inV)) tower)
+                    (transitive (bounded ds fe d.inV) under)
+                    (transitive (snd (measuredWithin ms ds fe d.inV)) tower))
 
 -- Every argument of a link placed within its height weighs within what
 -- `sizeWithin` gives its height, the heights padded as the universe pads
 -- them.
 0 argumentsSized : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {b : Bounds} ->
-                   Describes m -> Feasible g pot -> (as : List (Maybe (Written form))) -> (hs : List Nat) ->
+                   Based m w -> LTE w (measureBase b) -> Describes m -> Feasible g pot ->
+                   (as : List (Maybe (Written form))) -> (hs : List Nat) ->
                    ArgumentsWithin m pot b as hs ->
-                   Pointwise (map argumentSize as)
-                             (map (\h => sizeWithin b.arity h b.heaviest) (padded (length as) hs))
-argumentsSized ds fe [] hs NoArguments = []
-argumentsSized ds fe (a :: as) (h :: hs) (AtHeight x rest) = argumentSized ds fe x :: argumentsSized ds fe as hs rest
-argumentsSized ds fe (a :: as) [] (PastHeights x rest) = argumentSized ds fe x :: argumentsSized ds fe as [] rest
+                   Pointwise (map argumentSize as) (map (weightAt b) (padded (length as) hs))
+argumentsSized ms based ds fe [] hs NoArguments = []
+argumentsSized ms based ds fe (a :: as) (h :: hs) (AtHeight x rest) =
+  argumentSized ms based ds fe x :: argumentsSized ms based ds fe as hs rest
+argumentsSized ms based ds fe (a :: as) [] (PastHeights x rest) =
+  argumentSized ms based ds fe x :: argumentsSized ms based ds fe as [] rest
 
 ||| A link all of whose arguments are placed within their heights, no
 ||| longer than the breadth, is in the universe: what the worklist's test of
@@ -173,17 +187,18 @@ argumentsSized ds fe (a :: as) [] (PastHeights x rest) = argumentSized ds fe x :
 export
 0 derivedInside : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} ->
                   (forms : Listed form) -> (names : Listed Address) -> (b : Bounds) -> (l : Link form) ->
-                  Describes m -> Feasible g pot -> LTE (length l.arguments) b.breadth ->
+                  Based m w -> LTE w (measureBase b) -> Describes m -> Feasible g pot ->
+                  LTE (length l.arguments) b.breadth ->
                   ArgumentsWithin m pot b l.arguments (b.heightAt l.head) -> InUniverse forms names b l
-derivedInside forms names b l ds fe short args =
-  let sized = argumentsSized ds fe l.arguments (b.heightAt l.head) args in
+derivedInside forms names b l ms based ds fe short args =
+  let sized = argumentsSized ms based ds fe l.arguments (b.heightAt l.head) args in
   MkIn short sized (inUniverse forms names b l short sized)
 
 ||| A derived request is in the universe.
 export
 0 requestInside : {0 form : Type} -> {b : Bounds} -> {l : Link form} ->
                   (forms : Listed form) -> (names : Listed Address) -> RequestDerivation b l -> InUniverse forms names b l
-requestInside forms names r = derivedInside forms names b l r.described r.feasible r.short r.placed
+requestInside forms names r = derivedInside forms names b l r.measured r.based r.described r.feasible r.short r.placed
 
 ------------------------------------------------------------------------------
 -- Placing an argument by its site
@@ -196,7 +211,7 @@ requestInside forms names r = derivedInside forms names b l r.described r.feasib
 export
 0 sitePlaced : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {b : Bounds} -> {0 w : Written form} ->
                (p : Fin g.size) -> (v : Template) -> SiteWrites m p v ->
-               LTE w.size (sizeWithin b.arity (height v) b.heaviest) -> LTE (bound g pot p) h ->
+               LTE w.size (sizeWithin (arity v) (height v) (heaviest v)) -> LTE (bound g pot p) h ->
                ArgumentWithin m pot b (Just w) h
 sitePlaced p v written keyed under = Keyed (MkArgumentDerivation p v (siteGives written) keyed) under
 
@@ -205,7 +220,7 @@ sitePlaced p v written keyed under = Keyed (MkArgumentDerivation p v (siteGives 
 export
 0 siteArgument : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {b : Bounds} -> {0 w : Written form} ->
                  (p : Fin g.size) -> (s : SiteOf m p) -> Writes m s.site s.site.template v ->
-                 LTE w.size (sizeWithin b.arity (height v) b.heaviest) -> LTE (bound g pot p) h ->
+                 LTE w.size (sizeWithin (arity v) (height v) (heaviest v)) -> LTE (bound g pot p) h ->
                  ArgumentWithin m pot b (Just w) h
 siteArgument p s wr keyed under = sitePlaced p _ (siteWritten s wr) keyed under
 
@@ -240,7 +255,7 @@ export
                   HeldArmWritten m k arm member argument ->
                   (made : Fin g.size) -> Elem made (m.choicePositions k) -> (made' : Template) -> InV m made made' ->
                   Renumbered m.heldCount made' member ->
-                  LTE w.size (sizeWithin b.arity (height argument) b.heaviest) -> LTE (bound g pot arm) h ->
+                  LTE w.size (sizeWithin (arity argument) (height argument) (heaviest argument)) -> LTE (bound g pot arm) h ->
                   ArgumentWithin m pot b (Just w) h
 heldArmPlaced k arm member argument held made madeAt made' memberIn again keyed under =
   sitePlaced arm argument (held made madeAt made' memberIn again) keyed under

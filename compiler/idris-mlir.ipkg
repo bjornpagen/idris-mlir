@@ -68,6 +68,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Proof.Requests
         , IdrisMLIR.Proof.Reading
         , IdrisMLIR.Proof.Sizes
+        , IdrisMLIR.Proof.Weights
         , IdrisMLIR.Proof.Derivation
         , IdrisMLIR.Proof.Held
         , IdrisMLIR.Proof.Markers

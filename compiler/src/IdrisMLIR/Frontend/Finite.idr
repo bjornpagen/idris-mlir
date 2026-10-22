@@ -193,8 +193,8 @@ sizedWithin fc what b l = case within forms addresses b l of
   Yes inside => pure (MkIn inside.short inside.sized inside.member)
   No _ => unsound fc what ("has " ++ show (length l.arguments) ++ " arguments weighing " ++ show (sizes l) ++
                               ", outside the heights " ++ show (b.heightAt l.head) ++ " of " ++ show l.head ++
-                              " (arity " ++ show b.arity ++
-                              ", heaviest " ++ show b.heaviest ++ ") and the breadth " ++ show b.breadth ++ " of its bounds")
+                              " (the tower of computations over the base " ++ show (measureBase b) ++
+                              ") and the breadth " ++ show b.breadth ++ " of its bounds")
 
 ||| The requests a step derived, judged against the chain of the instance
 ||| that made them: each static argument no higher than its position's

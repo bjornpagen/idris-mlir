@@ -225,10 +225,3 @@ export
 sizeWithinMono wide high heavy =
   transitive (timesLeft {n = nodesWithin (S (pred a)) h} (plusLteMonotone (timesRight 2 high) heavy))
              (timesRight (2 * h' + e') (nodesMono {m = pred a} {m' = pred a'} {h} {h'} (predMono wide) high))
-
-||| The universe counts a node of one child as one of none, so what it lets
-||| a key of nodes with one child at most weigh it lets one weigh at any
-||| arity: a chain's shape is within every universe's arity.
-export
-0 sizeWithinOneChild : {a, h, e : Nat} -> LTE (sizeWithin 1 h e) (sizeWithin a h e)
-sizeWithinOneChild = timesRight (2 * h + e) (nodesMono {m = 0} {m' = pred a} {h} {h' = h} LTEZero reflexive)
