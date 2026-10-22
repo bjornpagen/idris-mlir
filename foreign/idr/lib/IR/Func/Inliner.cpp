@@ -2,12 +2,20 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The inliner's rules for the dialect, as func's are for its own: every
 // call may be inlined, and every op and region may move into another
-// function. Which calls are worth it, no_inline among them, is idr-inline's
-// decision; a callee that ends in ub.unreachable is decided by the
-// inliner itself, as for func.func.
+// function. Which calls are worth it is the inlining pass's decision. A
+// callee's body is one block: it ends in idr.return, whose operands become
+// the call's results; or in an op with no successor (a crash, an exit),
+// after which nothing of the caller's runs, so the caller's rest goes into
+// a block nothing reaches, which each site that inlines erases.
+//
+// A lifetime of any kind may be passed where a view is asked, which upstream
+// meets as a type that differs at the call: the parameter becomes the
+// view of the lifetime given, `idr.lifetime.forget`, the one op whose result
+// is a lifetime, defined where the argument is in scope.
 
-#include "idr/IR/IdrDialect.h"
 #include "idr/IR/Func.h"
+#include "idr/IR/IdrDialect.h"
+#include "idr/IR/Lifetimes.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
@@ -22,24 +30,35 @@ namespace {
 struct IdrInlinerInterface : DialectInlinerInterface {
   using DialectInlinerInterface::DialectInlinerInterface;
 
-  // Every call may go anywhere. A callee's body is one block, its region's
-  // constraint, so it goes in as that block: on the fast path when it ends
-  // in idr.return; and, when it ends in ub.unreachable, which does not
-  // return, by the ub dialect's own hooks, as that block and the rest of
-  // the caller's block after it, which nothing reaches and which each site
-  // that inlines erases after its loop with upstream's
-  // eraseUnreachableBlocks, nested regions included, so every region is
-  // one block again.
   bool isLegalToInline(Operation *, Operation *, bool) const final { return true; }
   bool isLegalToInline(Region *, Region *, bool, IRMapping &) const final { return true; }
   bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final { return true; }
 
-  // The callee's one block: the call's results are what its return gives
-  // back, and the inliner erases the return.
+  // The body goes in as its block where it returns; where it ends in an op
+  // with no successor, upstream's own path splits the caller's block, so
+  // that op stays the last of its block.
+  bool allowSingleBlockOptimization(iterator_range<Region::iterator> inlined) const final {
+    return llvm::hasSingleElement(inlined) && isa<ReturnOp>(inlined.begin()->getTerminator());
+  }
+
+  // The callee's return: the call's results are what it gives back, and
+  // the inliner erases it.
   void handleTerminator(Operation *op, ValueRange valuesToRepl) const final {
     auto ret = cast<ReturnOp>(op);
     for (auto [replaced, value] : llvm::zip_equal(valuesToRepl, ret.getOperands()))
       replaced.replaceAllUsesWith(value);
+  }
+
+  // A body that ends with no successor goes on to nothing, so it branches to
+  // none of the caller's blocks.
+  void handleTerminator(Operation *, Block *) const final {}
+
+  // A lifetime passed where a view is asked: the view of it.
+  Operation *materializeCallConversion(OpBuilder &builder, Value input, Type resultType,
+                                       Location conversionLoc) const final {
+    if (!lifetimes::passesAs(input.getType(), resultType))
+      return nullptr;
+    return LifetimeForgetOp::create(builder, conversionLoc, resultType, input);
   }
 };
 

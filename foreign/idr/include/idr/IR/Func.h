@@ -1,130 +1,199 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the dialect registers for idr.func, idr.call and idr.return beyond
-// their ops, the inliner's rules, which mirror func's for its own; what a
-// function's body does, of itself and with its calls, and the one writer of
-// a function's effects and its calls'; how the dialect's effect bits are
-// MLIR's resource effects; what a program's stage implies; and what a
-// program's root is.
+// What idr.func and idr.call hold beyond their generated classes, declared
+// before them, since the attributes the specification gives them name
+// these classes: Idris's proof that a function's own loops end, the bound a
+// function puts into a lifetime parameter, and which part of a function's
+// per-parameter record each parameter's type admits. Each part exists only
+// where the parameter's type admits it: the record names a parameter by its
+// position among the parameters that admit that part, so a write part
+// cannot describe a lifetime, nor an amount a value. Then the dialect's
+// inliner rules.
+//
+// It reads types alone (Grades.h, Lifetimes.h) and no op, so the dialect's
+// header includes it before its generated classes; what a function's body
+// does and the one derivation of its row are Analysis/Effects.h's.
 #ifndef IDR_IR_FUNC_H
 #define IDR_IR_FUNC_H
 
-#include "idr/IR/IdrDialect.h"
+#include "idr/IR/Grades.h"
+#include "idr/IR/Lifetimes.h"
+#include "idr/Support/Match.h"
 
-#include "mlir/IR/SymbolTable.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/Types.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/ErrorHandling.h"
 
-#include <optional>
+#include <cstdint>
+#include <limits>
+#include <variant>
 
 namespace idr {
 
+class IdrDialect;
+
 // Every call, op and region of the dialect may be inlined; a return becomes
-// the values it gives back.
+// the values it gives back, and a lifetime given where a view is asked
+// passes as the view it is.
 void addInlinerInterface(IdrDialect &dialect);
 
-// What `fn`'s body does of itself, its calls aside: not return unless Idris
-// proved it total; perform IO where a parameter may hold a world or the
-// body forges one; crash where an op may crash; and anything where an op
-// runs a label (an apply, a force), whose function no symbol names. The one
-// rule: componentEffects and the program's verifier both read it. The ops'
-// memory effects are not it: a possible crash also writes the IO resource,
-// and an op may read that resource with no world.
-Effect bodyEffect(FuncOp fn);
+//===----------------------------------------------------------------------===//
+// Termination
+//===----------------------------------------------------------------------===//
 
-// What every member of `component`, a component of the call graph, may do:
-// each member's own part (bodyEffect), and the effects of each call in a
-// member's body of a function outside the component, which `symbols`, the
-// program's table, resolves. Every such callee is final when this is asked,
-// and its calls hold its effects (writeEffects); a call of a member adds
-// nothing, its body being in the sum. It reads the members' bodies alone, so
-// disjoint components may be asked from different workers.
-Effect componentEffects(llvm::ArrayRef<FuncOp> component, const mlir::SymbolTable &symbols);
-
-// Gives `fn` the effects `effects`, and every idr.call of it among `users`
-// (the symbol's users, upstream's map, built where no worker holds a caller)
-// the same, so a call never holds less than its callee, which its verifier
-// refuses. idr-optimize writes its calls as each caller's turn begins
-// instead (Analysis/Effects.h).
-void writeEffects(FuncOp fn, Effect effects, const mlir::SymbolUserMap &users);
-
-// The resource effects that the dialect's bits stand for, one table, each
-// row once per bit `effects` holds: io reads and writes the IO resource; a
-// crash writes the crash resource and the IO resource, as the end of the
-// program's output, so nothing is moved across output past a crash; not
-// returning writes the divergence resource. What a call declares to MLIR.
-void effectInstances(Effect effects,
-                     llvm::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &instances);
-
-// What a program's stage implies of its functions and data types, written
-// in stageFacts alone, whose switch has no default, so that a new stage
-// decides every fact in one place and no reader holds a stage boolean of
-// its own. No other code makes one.
-class StageFacts {
-public:
-  // Closures and suspensions remain, which idr-defunctionalize makes sums,
-  // and with them the types that contain themselves in place, which it
-  // boxes (layout::fit).
-  constexpr bool closures() const { return withClosures; }
-  // Every value of ours that holds a reference is graded own, excl or
-  // borrow, which idr-rc's grades step does: no plain one is left, and an
-  // own or excl grade and an adopted buffer are admitted.
-  constexpr bool grades() const { return withGrades; }
-  // References are counted exactly, which idr-rc's placement makes, building
-  // the program's cells: the count walk holds every function to it.
-  constexpr bool counted() const { return withCounts; }
-  // The program's functions are idr.func; a lowered program holds
-  // upstream's functions and globals in their place.
-  constexpr bool idrFunctions() const { return withIdrFunctions; }
-
-private:
-  constexpr StageFacts(bool closures, bool grades, bool counts, bool idrFunctions)
-      : withClosures(closures), withGrades(grades), withCounts(counts),
-        withIdrFunctions(idrFunctions) {}
-  friend constexpr StageFacts stageFacts(Stage stage);
-
-  bool withClosures;
-  bool withGrades;
-  bool withCounts;
-  bool withIdrFunctions;
+// Idris proved the function's own loops and recursion end, in the
+// component of its call graph with this number.
+struct InComponent {
+  std::uint32_t component;
+  bool operator==(const InComponent &) const = default;
+};
+// A pass made the function with no loop of its own: it ends wherever no
+// cycle of calls reaches it.
+struct Acyclic {
+  bool operator==(const Acyclic &) const = default;
+};
+// Idris did not prove the function's loops end.
+struct Unproved {
+  bool operator==(const Unproved &) const = default;
 };
 
-constexpr StageFacts stageFacts(Stage stage) {
-  switch (stage) {
-  case Stage::Higher:
-    return StageFacts(/*closures=*/true, /*grades=*/false, /*counts=*/false,
-                      /*idrFunctions=*/true);
-  case Stage::First:
-    return StageFacts(/*closures=*/false, /*grades=*/false, /*counts=*/false,
-                      /*idrFunctions=*/true);
-  case Stage::Graded:
-    return StageFacts(/*closures=*/false, /*grades=*/true, /*counts=*/false,
-                      /*idrFunctions=*/true);
-  case Stage::Owned:
-    return StageFacts(/*closures=*/false, /*grades=*/true, /*counts=*/true,
-                      /*idrFunctions=*/true);
-  case Stage::Lowered:
-    return StageFacts(/*closures=*/false, /*grades=*/true, /*counts=*/true,
-                      /*idrFunctions=*/false);
+// What `#idr.terminates` holds: a proof, so a function with the attribute
+// cannot claim an empty one; a function without it is unproved.
+using TerminationProof = std::variant<InComponent, Acyclic>;
+// What is known of a function's own loops, the attribute read: what its
+// row's divergence starts from.
+using Termination = std::variant<Unproved, InComponent, Acyclic>;
+
+llvm::hash_code hash_value(const TerminationProof &proof);
+
+// The attribute's parameter: `component 3`, `acyclic`.
+mlir::ParseResult parseTerminationProof(mlir::AsmParser &parser, TerminationProof &proof);
+void printTerminationProof(mlir::AsmPrinter &printer, const TerminationProof &proof);
+
+//===----------------------------------------------------------------------===//
+// Amounts put into a lifetime
+//===----------------------------------------------------------------------===//
+
+// How much a function puts into a lifetime parameter: a bound in bytes, or
+// none. Sums saturate at none, so no count can wrap.
+class Amount {
+public:
+  static constexpr Amount finite(std::uint64_t bytes) { return Amount(Finite{bytes}); }
+  static constexpr Amount unbounded() { return Amount(Unbounded{}); }
+
+  // Both amounts put, one after the other.
+  constexpr Amount plus(Amount other) const {
+    return idr::match(
+        amount,
+        [&](Finite mine) {
+          return idr::match(
+              other.amount,
+              [&](Finite theirs) {
+                return theirs.bytes > std::numeric_limits<std::uint64_t>::max() - mine.bytes
+                           ? unbounded()
+                           : finite(mine.bytes + theirs.bytes);
+              },
+              [](Unbounded) { return unbounded(); });
+        },
+        [](Unbounded) { return unbounded(); });
   }
-  llvm_unreachable("a stage of the program");
-}
+  // Whether this amount stays within `bound`.
+  constexpr bool within(Amount bound) const {
+    return idr::match(
+        bound.amount,
+        [&](Finite limit) {
+          return idr::match(
+              amount, [&](Finite mine) { return mine.bytes <= limit.bytes; },
+              [](Unbounded) { return false; });
+        },
+        [](Unbounded) { return true; });
+  }
+  // Nothing put at all: what a parameter starts the fold with, and what
+  // passing a lifetime to a view puts.
+  constexpr bool none() const {
+    return idr::match(
+        amount, [](Finite mine) { return mine.bytes == 0; }, [](Unbounded) { return false; });
+  }
 
-// What a program's root is: Status, whose result is the program's exit
-// status; IO, whose run is the program and whose results hold nothing the
-// program reports.
-enum class RootKind { Status, IO };
+  template <class OnFinite, class OnUnbounded>
+  constexpr decltype(auto) fold(OnFinite &&onFinite, OnUnbounded &&onUnbounded) const {
+    return idr::match(
+        amount, [&](Finite mine) { return onFinite(mine.bytes); },
+        [&](Unbounded) { return onUnbounded(); });
+  }
 
-// The kind of root a function of `type` is in a program at `stage`, the one
-// rule of the root, which the program's verifier holds and idr-entry trusts:
-// `() -> i64` is Status at every stage; before lowering (higher, first,
-// graded, owned: the stages of idr.func), a function of the world alone
-// whose every result holds no runtime component
-// (layout::holdsNoComponent: the world, a unit, the frontend's IO result of
-// a unit) is IO; lowered, `() -> ()` is IO. Any other type is no root.
-std::optional<RootKind> rootKind(mlir::FunctionType type, Stage stage);
+  constexpr bool operator==(const Amount &) const = default;
+
+private:
+  struct Finite {
+    std::uint64_t bytes;
+    constexpr bool operator==(const Finite &) const = default;
+  };
+  struct Unbounded {
+    constexpr bool operator==(const Unbounded &) const = default;
+  };
+  constexpr explicit Amount(std::variant<Finite, Unbounded> amount) : amount(amount) {}
+
+  std::variant<Finite, Unbounded> amount;
+};
+
+// One bound of `#idr.put_bounds`: the put parameter at `parameter` among
+// the function's put parameters, and its bound in bytes.
+struct PutBound {
+  std::uint32_t parameter;
+  std::uint64_t bytes;
+  bool operator==(const PutBound &) const = default;
+};
+
+llvm::hash_code hash_value(const PutBound &bound);
+
+// The attribute's element: `2: 64`.
+mlir::ParseResult parsePutBound(mlir::AsmParser &parser, PutBound &bound);
+void printPutBound(mlir::AsmPrinter &printer, const PutBound &bound);
+
+//===----------------------------------------------------------------------===//
+// The record's parts, by parameter
+//===----------------------------------------------------------------------===//
+
+// Whether a parameter of `type` admits a write part: a value freed by its
+// count whose holder alone reaches what a write in place touches, its own
+// family's cells or everything it reaches. Rebuilding in place writes only
+// the family's cells, which the spine's claim covers.
+bool admitsWrite(mlir::Type type);
+
+// Whether a parameter of `type` admits an amount: a lifetime something may
+// be put into (every kind but a view).
+bool admitsPut(mlir::Type type);
+
+// The part a parameter's type admits, with its position among the
+// parameters that admit that part.
+struct WritePart {
+  std::uint32_t position;
+};
+struct PutPart {
+  std::uint32_t position;
+};
+struct NoPart {};
+using RecordPart = std::variant<WritePart, PutPart, NoPart>;
+
+// A signature's parameters by the part each admits, read off their types
+// once: the coordinates of a function's record and of a call's copy of its
+// write part, which name a parameter by its position among its kind.
+class ParameterParts {
+public:
+  explicit ParameterParts(mlir::TypeRange parameters);
+
+  const RecordPart &operator[](unsigned parameter) const { return parts[parameter]; }
+  std::uint32_t writable() const { return writes; }
+  std::uint32_t puttable() const { return puts; }
+
+private:
+  llvm::SmallVector<RecordPart, 8> parts;
+  std::uint32_t writes = 0;
+  std::uint32_t puts = 0;
+};
 
 } // namespace idr
 

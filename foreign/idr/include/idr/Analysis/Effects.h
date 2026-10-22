@@ -1,64 +1,244 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What a run of each function may do besides computing its results: the
-// dialect's Effect bits, held as the `effects` property of each idr.func,
-// its entry (everything, idr::anyEffect, until a pass has found less), and
-// of each idr.call. A call carries its callee's effects, as an llvm.call
-// carries its memory effects, so that MLIR's own effects question has its
-// answer at the call. idr::writeEffects (Func.h) writes a function's
-// effects and every call's of it at once: one written without the other
-// would leave a call the verifier refuses. idr-optimize, whose callers
-// finish after their callees, writes a final component's members and the
-// calls among them, and each caller's calls when its turn begins, before
-// anything verifies it (Scheduler::writeCallEffects).
-// Once the program is first-order a function runs the callee of each
-// idr.call in its body and nothing else: a force is a call of its memo sum's
-// dispatch function, which calls the label. So the bits flow along
-// upstream's call graph alone, and the solve is one pass over its cycles
-// of calls (CallCycles), callees first.
+// What a run of a function may do, derived from its body's ops: the one
+// derivation of a function's row and per-parameter record, which the
+// function's verifier and the one writer of rows both instantiate, and the
+// questions a pass asks of a row.
 //
-// What one component may do is idr::componentEffects (Func.h), over one
-// component whose callees outside it are final: solveEffects asks it of
-// every component of a program, and idr-optimize's ready set of each
-// component when the component is final.
+// The derivation is one fold over the body, each op read by its
+// declaration through the effect system's one query API: its own effects
+// projected onto the row's atoms, the runtime memory its meaning reports,
+// and what it puts into a lifetime. A call is the one op whose effects are
+// another function's row, so it is read apart, by the reader the
+// instantiation is given: the verifier reads the call's own copy of its
+// callee's row; the writer records the call and joins its callee's row
+// over the program graph's components; the label solve reads a label's
+// run as calls of its labels. The seed is Idris's proof: a function whose
+// loops Idris did not prove end may run forever by itself.
 //
-// Before defunctionalization's conversion one question is asked of the
-// effects, and it is not about the bits: which labels run at every force.
-// That is a reach over the label solve's graph, which only the label solve
-// knows (observableRuns).
+// Two refinements keep a row to what a caller can see: an effect on memory
+// the function acquired itself (allocated on the heap or in its frame) is
+// its own; and a write through a parameter whose memory its holder alone
+// reaches is the record's write part for that parameter, which the caller
+// attributes to what it passed. Where a value's memory comes from is read
+// through views alone (upstream's ViewLikeOpInterface), a walk as long as
+// the chain of views, never a def-use search.
+//
+// The walk keeps its own stack, so no recursion follows the nesting.
 #ifndef IDR_ANALYSIS_EFFECTS_H
 #define IDR_ANALYSIS_EFFECTS_H
 
-#include "idr/Analysis/CallCycles.h"
+#include "idr/IR/Effects/Effects.h"
+#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
-#include "mlir/IR/SymbolTable.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 
-namespace idr {
+#include <concepts>
+#include <cstdint>
+#include <variant>
 
-// The driver over a whole first-order program: through the components of
-// its call graph, callees first, every member of a component gets the
-// component's componentEffects as its entry, and every call of it the
-// same, before any caller's component is solved.
-void solveEffects(idr::ProgramOp program, const CallCycles &cycles);
+namespace idr::rows {
 
-// Before the conversion: appends to `labels` the label functions `runner`
-// may run, those of the key of its label carrier. Called from worker
-// threads; it only reads.
-using LabelsRun = llvm::function_ref<void(idr::RunsLabelsOpInterface runner,
-                                          llvm::SmallVectorImpl<idr::FuncOp> &labels)>;
+//===----------------------------------------------------------------------===//
+// Questions of a row
+//===----------------------------------------------------------------------===//
 
-// Before the conversion: the functions whose run may perform an effect the
-// program's outside observes (an op of the ObservableIO class), in its body
-// or in what it runs, a call's callee or the labels an apply or a force
-// runs. A memo label among them runs at every force, so that its effect
-// happens where the value is demanded: it is `by_name`.
-llvm::DenseSet<idr::FuncOp> observableRuns(idr::ProgramOp program,
-                                           const mlir::SymbolTable &symbols, LabelsRun labelsRun);
+// Whether a row licenses deleting an unused call of it, or moving one
+// where eager evaluation would not have run it: a crash and a divergence
+// happen where evaluation reaches the call, so neither may be deleted or
+// moved off its path. Totality removes a divergence and never a crash. The
+// licence alone: the row's ordering atoms still order the call.
+constexpr bool licensesDropOrMove(effects::Row row) {
+  return !row.contains(effects::Atom::crash) && !row.contains(effects::Atom::divergence);
+}
 
-} // namespace idr
+// Whether a call with this row may run where it would not have: it returns
+// to its caller wherever it runs, and the outside cannot hold it.
+constexpr bool speculatable(effects::Row row) { return (row & effects::mayNotReturn).empty(); }
+
+// A call takes its callee's row and write part together: what its symbol
+// uses' verifier holds equal, and what upstream reads off the call.
+void copyRow(CallOp call, FuncOp callee);
+
+// Each operand of `call` its callee writes through: every operand that
+// admits a write part and is not listed untouched. The order is the
+// operands', and the untouched positions increase, so one pass meets both.
+template <std::invocable<mlir::OpOperand &> Visit>
+void forEachWritten(CallOp call, Visit &&visit) {
+  llvm::ArrayRef<std::int32_t> untouched;
+  if (mlir::DenseI32ArrayAttr listed = call.getUntouchedAttr())
+    untouched = listed.asArrayRef();
+  std::int32_t position = 0;
+  for (mlir::OpOperand &operand : call.getArgsMutable()) {
+    if (!admitsWrite(operand.get().getType()))
+      continue;
+    if (!untouched.empty() && untouched.front() == position)
+      untouched = untouched.drop_front();
+    else
+      visit(operand);
+    ++position;
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// The derivation
+//===----------------------------------------------------------------------===//
+
+// Whether a region may run more than once for each run of its function: a
+// put inside one has no bound.
+enum class Runs : std::uint8_t { Once, Repeatedly };
+
+// Where an effect on a value lands, for the row of the function it is in:
+// in memory the function acquired itself, which no caller sees; through a
+// parameter that admits a write part, at that position among them; or
+// anywhere else.
+struct Local {};
+struct Through {
+  std::uint32_t position;
+};
+struct Elsewhere {};
+using Lands = std::variant<Local, Through, Elsewhere>;
+
+// What a body does: the atoms of its row, the write-admitting parameters
+// it writes through, and what it puts into each put parameter.
+struct Derived {
+  effects::Row atoms;
+  llvm::SmallBitVector written;
+  llvm::SmallVector<Amount, 2> puts;
+};
+
+// Whether an op's declaration bounds what it does: an op of another
+// dialect that declares nothing and is not recursive may do anything,
+// so its regions are not read.
+enum class Declares : std::uint8_t { Bounded, Anything };
+
+// The fold's state for one function: what each op contributes, read
+// through the one query API and the function's parameters.
+class Fold {
+public:
+  explicit Fold(FuncOp fn);
+
+  // An op's own effects as it declares them, its runtime memory and what
+  // it puts into a lifetime. A call is read by its reader, never here.
+  Declares declared(mlir::Operation *op, Runs runs);
+  // One effect of an op, attributed by where it lands.
+  void effect(const effects::Effect &effect);
+  // A write through `value`: a call's operand its callee writes through.
+  void writeThrough(mlir::Value value);
+  // `amount` put into `lifetime`, from a region that runs as `runs` says.
+  // Only a put parameter's is the record's: a lifetime the function opened
+  // is its opener's to size.
+  void put(mlir::Value lifetime, Amount amount, Runs runs);
+  void join(effects::Row atoms) { derived.atoms = derived.atoms | atoms; }
+
+  // Where an effect on the memory `value` is, or is a view of, lands.
+  Lands landing(mlir::Value value) const;
+  // The part `value` is of this function's record: its parameter's, or
+  // none for any other value.
+  RecordPart partOf(mlir::Value value) const;
+
+  const ParameterParts &parameters() const { return parts; }
+  const Derived &sofar() const { return derived; }
+  Derived take() && { return std::move(derived); }
+
+private:
+  // What an op that may do anything does: every atom, a write through
+  // every write-admitting parameter, no bound on any put parameter.
+  void anything();
+
+  FuncOp fn;
+  ParameterParts parts;
+  Derived derived;
+};
+
+// What an op the reader reads is, to the fold: read by its declaration, or
+// read already by the reader (a label's run read as calls of its labels).
+enum class Read : std::uint8_t { ByDeclaration, ByReader };
+
+// How the derivation reads what runs other functions. `call` reads each
+// idr.call: the calls' copies of their callees' rows, a record of the call
+// for a solve, or a label solve's own table. `other` may take any other op
+// before its declaration is read; `after` sees the fold once each op is
+// read, for a reader that names the op a fact came from.
+template <class R>
+concept CallReader = requires(R &reader, CallOp call, mlir::Operation *op, Fold &fold, Runs runs) {
+  { reader.call(call, fold, runs) } -> std::same_as<void>;
+  { reader.other(op, fold, runs) } -> std::same_as<Read>;
+  { reader.after(op, fold) } -> std::same_as<void>;
+};
+
+namespace detail {
+// Whether `index`'s region of `op` may run more than once per run of `op`:
+// as upstream's region branch interface says, and so for any other op with
+// regions, whose regions no interface bounds.
+Runs regionRuns(mlir::Operation *op, unsigned index);
+} // namespace detail
+
+// The one derivation of `fn`'s row and record, every op of its body read
+// once, in order, each region's ops after the op that holds it.
+template <CallReader R>
+Derived derive(FuncOp fn, R &reader) {
+  Fold fold(fn);
+  struct Level {
+    mlir::Block::iterator at, end;
+    Runs runs;
+  };
+  llvm::SmallVector<Level, 8> stack;
+  for (mlir::Block &block : llvm::reverse(fn.getBody()))
+    stack.push_back({block.begin(), block.end(), Runs::Once});
+  while (!stack.empty()) {
+    Level &level = stack.back();
+    if (level.at == level.end) {
+      stack.pop_back();
+      continue;
+    }
+    mlir::Operation *op = &*level.at++;
+    Runs runs = level.runs;
+    if (auto call = llvm::dyn_cast<CallOp>(op)) {
+      reader.call(call, fold, runs);
+      reader.after(op, fold);
+      continue;
+    }
+    if (reader.other(op, fold, runs) == Read::ByDeclaration &&
+        fold.declared(op, runs) == Declares::Anything) {
+      reader.after(op, fold);
+      continue;
+    }
+    reader.after(op, fold);
+    // Pushed last region first, so the first is read first.
+    for (unsigned index = op->getNumRegions(); index-- > 0;) {
+      Runs inner = runs == Runs::Repeatedly ? Runs::Repeatedly : detail::regionRuns(op, index);
+      for (mlir::Block &block : llvm::reverse(op->getRegion(index)))
+        stack.push_back({block.begin(), block.end(), inner});
+    }
+  }
+  return std::move(fold).take();
+}
+
+// The verifier's reader: a call contributes its own copy of its callee's
+// row, and a write through each operand its callee writes through. Its
+// puts are checked at the call, which sees its callee.
+struct CallCopies {
+  void call(CallOp call, Fold &fold, Runs runs);
+  Read other(mlir::Operation *, Fold &, Runs) { return Read::ByDeclaration; }
+  void after(mlir::Operation *, Fold &) {}
+};
+
+extern template Derived derive<CallCopies>(FuncOp fn, CallCopies &reader);
+
+// `fn`'s row and record cover what its body does, and its record names
+// only parameters that admit a part: the function's region verifier. A
+// failure names the function, what it lacks and the op that needs it; it
+// is the error of the pass that broke it, never a refusal of the program.
+mlir::LogicalResult verify(FuncOp fn);
+
+} // namespace idr::rows
 
 #endif // IDR_ANALYSIS_EFFECTS_H
