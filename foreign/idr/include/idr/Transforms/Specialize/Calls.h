@@ -4,8 +4,8 @@
 // arguments have, what it fixes and wants of its callee, the consumer a
 // raise takes in, and the call of a node that replaces it. Only the
 // specializer's own units read it.
-#ifndef IDR_LIB_TRANSFORMS_SPECIALIZE_CALLS_H
-#define IDR_LIB_TRANSFORMS_SPECIALIZE_CALLS_H
+#ifndef IDR_TRANSFORMS_SPECIALIZE_CALLS_H
+#define IDR_TRANSFORMS_SPECIALIZE_CALLS_H
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -93,4 +93,4 @@ CallOp redirect(mlir::RewriterBase &rewriter, CallOp call, mlir::FlatSymbolRefAt
 } // namespace detail
 } // namespace idr::specialize
 
-#endif // IDR_LIB_TRANSFORMS_SPECIALIZE_CALLS_H
+#endif // IDR_TRANSFORMS_SPECIALIZE_CALLS_H

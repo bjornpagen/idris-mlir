@@ -17,7 +17,7 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "Calls.h"
+#include "idr/Transforms/Specialize/Calls.h"
 
 #include "llvm/ADT/STLExtras.h"
 

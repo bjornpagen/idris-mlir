@@ -15,7 +15,7 @@
 // It runs on the pass thread, once, when no turn runs: it changes types
 // every function may hold.
 
-#include "Captures.h"
+#include "idr/Transforms/Optimize/Captures.h"
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
@@ -114,7 +114,9 @@ void drop(Schedule &schedule, const Unread &unread) {
     for (unsigned p : llvm::reverse(positions))
       con->eraseOperand(p);
   }
-  // Each label's function takes its dropped captures no more.
+  // Each label's function takes its dropped captures no more, with what
+  // its signature states of them; then each of its calls takes its
+  // statements again.
   for (auto [l, label] : llvm::enumerate(unread.labels)) {
     if (unread.dropped[l].none())
       continue;
@@ -122,9 +124,10 @@ void drop(Schedule &schedule, const Unread &unread) {
     llvm::BitVector arguments(fn.getNumArguments());
     for (unsigned p : unread.dropped[l].set_bits())
       arguments.set(p);
-    renumberGivenBack(fn, arguments, llvm::BitVector());
     (void)fn.eraseArguments(arguments);
   }
+  for (CallOp call : calls)
+    call.copyCallee(schedule.function(graph.id(call.getCalleeAttr())));
 
   // Each group a narrowed constructor is declared in, declared anew; then
   // every type, attribute and constant of the program through the new

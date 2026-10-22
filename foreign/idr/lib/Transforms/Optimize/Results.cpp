@@ -26,7 +26,6 @@
 
 #include "idr/IR/Control/Control.h"
 #include "idr/IR/Flow.h"
-#include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
@@ -123,31 +122,6 @@ void releaseRejoins(RewriterBase &rewriter, ArrayRef<Value> released) {
 }
 
 } // namespace
-
-void renumberGivenBack(FuncOp fn, const llvm::BitVector &arguments, const llvm::BitVector &results) {
-  GivenBackAttr given = fn.getGivenBackAttr();
-  if (!given)
-    return;
-  // Each old position's new one, or none for a position dropped.
-  auto renumbered = [](const llvm::BitVector &dropped, std::uint32_t at) -> std::optional<std::uint32_t> {
-    std::uint32_t below = 0;
-    for (std::uint32_t i = 0; i < at && i < dropped.size(); ++i)
-      below += dropped.test(i) ? 1 : 0;
-    if (at < dropped.size() && dropped.test(at))
-      return std::nullopt;
-    return at - below;
-  };
-  SmallVector<GivenBackEntry> kept;
-  for (GivenBackEntryAttr attr : given.getEntries()) {
-    GivenBackEntry entry = attr.entry();
-    std::optional<std::uint32_t> result = renumbered(results, entry.result.index);
-    std::optional<std::uint32_t> argument = renumbered(arguments, entry.argument.index);
-    if (result && argument)
-      kept.push_back(GivenBackEntry{GivenBackPath{*result, entry.result.fields},
-                                    GivenBackPath{*argument, entry.argument.fields}});
-  }
-  fn.setGivenBackAttr(kept.empty() ? GivenBackAttr() : GivenBackAttr::get(fn.getContext(), kept));
-}
 
 void dropDeadResults(Schedule &schedule) {
   const solver::Editor &graph = schedule.graph;
@@ -251,6 +225,7 @@ void dropDeadResults(Schedule &schedule) {
   }
   // Then every call of a function that lost a result, made again without
   // it.
+  SmallVector<CallOp> remade;
   for (FunctionId self : graph.size().ids()) {
     FuncOp fn = fns[self.index()];
     if (!fn)
@@ -276,6 +251,7 @@ void dropDeadResults(Schedule &schedule) {
                            call->getDiscardableAttrDictionary().getValue());
       state.getOrAddProperties<CallOp::Properties>() = call.getProperties();
       auto fresh = cast<CallOp>(rewriter.create(state));
+      remade.push_back(fresh);
       if (resAttrs)
         fresh.setResAttrsAttr(rewriter.getArrayAttr(keptAttrs));
       unsigned next = 0;
@@ -291,14 +267,16 @@ void dropDeadResults(Schedule &schedule) {
       rewriter.eraseOp(call);
     }
   }
-  // The signatures, and what each gives back.
+  // The signatures, each erased result taking what the signature states of
+  // it; then each call made again takes its callee's statements again.
   for (FunctionId self : graph.size().ids()) {
     FuncOp fn = fns[self.index()];
     if (!fn || dead[self.index()].none())
       continue;
-    renumberGivenBack(fn, llvm::BitVector(), dead[self.index()]);
     (void)fn.eraseResults(dead[self.index()]);
   }
+  for (CallOp call : remade)
+    call.copyCallee(fns[calleeOf(call).index()]);
 }
 
 } // namespace idr::optimize

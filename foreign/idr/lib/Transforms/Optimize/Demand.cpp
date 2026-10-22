@@ -105,6 +105,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
   // parameter goes: an unread parameter's last uses are operands at the
   // dropped positions of its component's calls.
   SmallVector<llvm::BitVector> unread;
+  SmallVector<SmallVector<CallOp>> narrowed(fns.size());
   for (auto [at, fn] : llvm::enumerate(fns)) {
     llvm::BitVector bits = read[at];
     bits.flip();
@@ -112,7 +113,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
     if (bits.none())
       continue;
     StringAttr name = fn.getSymNameAttr();
-    auto narrow = [&](FuncOp caller) {
+    auto narrow = [&, at = at](FuncOp caller) {
       caller.getBody().walk([&](CallOp call) {
         if (call.getCalleeAttr().getAttr() != name)
           return;
@@ -120,6 +121,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
         for (unsigned p : bits.set_bits())
           operands.set(call.getArgs().getBeginOperandIndex() + p);
         call->eraseOperands(operands);
+        narrowed[at].push_back(call);
       });
     };
     for (FuncOp member : fns)
@@ -128,11 +130,15 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
       if (!llvm::is_contained(ids, caller))
         narrow(schedule.function(caller));
   }
-  // The parameters go, and the binding times the turn solved for them.
-  for (auto [id, fn, bits] : llvm::zip_equal(ids, fns, unread)) {
+  // The parameters go, with what the signature states of them, then each
+  // call takes its callee's statements again; and the binding times the
+  // turn solved for them go.
+  for (auto [id, fn, bits, calls] : llvm::zip_equal(ids, fns, unread, narrowed)) {
     if (bits.none())
       continue;
     (void)fn.eraseArguments(bits);
+    for (CallOp call : calls)
+      call.copyCallee(fn);
     idr::match(
         schedule.members[id.index()].phase,
         [&](Done &done) {

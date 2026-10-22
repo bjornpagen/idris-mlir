@@ -356,8 +356,10 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
   // the replacer reads for the decision's life, so it holds its own tables.
   for (unsigned at = 0; at < families.size(); ++at) {
     families[at].type = made[at];
+    SmallVector<families::TermNode> args;
     for (std::uint64_t level : equate(families[at].key.carrier, families[at].key.carrier).levels)
-      families[at].args.push_back(families::TermNode{families::TermKind::Level, 0, 0, level, Attribute()});
+      args.push_back(families::TermNode{families::TermKind::Level, 0, 0, level, Attribute()});
+    families[at].at = DataType::get(ctx, made[at].getGroup(), made[at].getMember(), args);
   }
   replacer.addReplacement([this, firsts = std::move(firstOf),
                            remade = std::move(made)](DataType data) -> std::optional<Type> {

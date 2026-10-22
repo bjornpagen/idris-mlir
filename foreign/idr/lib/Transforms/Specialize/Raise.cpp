@@ -18,10 +18,11 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Remake.h"
-#include "Calls.h"
+#include "idr/Transforms/Specialize/Calls.h"
 
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -78,7 +79,9 @@ FuncOp buildRaise(FuncOp callee, const RaiseKey &key, StringAttr name, const For
   auto clone = cast<FuncOp>(callee->clone());
   clone.setSymName(name.getValue());
 
-  // The consumer's free values keep their types, quantities included.
+  // The consumer's free values keep their types, quantities included. The
+  // copy returns what the consumer returns: the callee's results go, with
+  // what its signature states of them, and the consumer's take their place.
   ArrayRef<Type> inputs = consumer.getArgumentTypes();
   unsigned arity = clone.getNumArguments();
   SmallVector<unsigned> positions(inputs.size() - 1, arity);
@@ -86,7 +89,10 @@ FuncOp buildRaise(FuncOp callee, const RaiseKey &key, StringAttr name, const For
   SmallVector<DictionaryAttr> attrs(positions.size(), DictionaryAttr());
   SmallVector<Location> locs(positions.size(), clone.getLoc());
   (void)clone.insertArguments(positions, types, attrs, locs);
-  clone.setFunctionType(FunctionType::get(ctx, clone.getArgumentTypes(), consumer.getResultTypes()));
+  (void)clone.eraseResults(llvm::BitVector(clone.getNumResults(), true));
+  TypeRange returned = consumer.getResultTypes();
+  (void)clone.insertResults(SmallVector<unsigned>(returned.size(), 0), returned,
+                            SmallVector<DictionaryAttr>(returned.size(), DictionaryAttr()));
   ValueRange extra = clone.getArguments().drop_front(arity);
 
   // The callee returns: its raise was asked for only then (decide).

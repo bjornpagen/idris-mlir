@@ -32,17 +32,16 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/IR/OwningOpRef.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Allocator.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/xxhash.h"
 
@@ -209,10 +208,10 @@ private:
   llvm::ArrayRef<const Pattern *> copy(llvm::ArrayRef<const Pattern *> list);
 
   std::mutex mutex;
-  llvm::BumpPtrAllocator storage;
+  footprint::BumpPtrAllocator storage;
   // Each pattern and key once, by its content: a constructor by its tag and
   // its fields' identities, a constant by its uniqued attribute.
-  llvm::DenseMap<std::pair<unsigned, llvm::hash_code>, llvm::SmallVector<const void *, 1>> byHash;
+  footprint::DenseMap<std::pair<unsigned, llvm::hash_code>, llvm::SmallVector<const void *, 1>> byHash;
 };
 
 // What a node is made from.

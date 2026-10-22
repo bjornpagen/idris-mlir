@@ -144,7 +144,8 @@ LogicalResult MemoRunOp::verify() {
     return emitOpError("binds ") << body.getNumArguments() << " captures where its label "
                                  << label.fn << " has " << label.fields.size();
   for (auto [arg, field] : llvm::zip_equal(body.getArguments(), label.fields))
-    if (arg.getType() != fieldType(getCell().getType(), field))
+    if (arg.getType() !=
+        fieldType(getCell().getType(), unrestricted(field), usesOf(field), fieldReach(field)))
       return emitOpError("binds a capture of type ")
              << arg.getType() << " where its label " << label.fn << " holds " << field;
   return success();

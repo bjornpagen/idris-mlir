@@ -25,7 +25,6 @@
 
 #include "idr/Analysis/BindingTimes.h"
 #include "idr/Analysis/Identities.h"
-#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Profile.h"
 #include "idr/Transforms/EGraph.h"

@@ -15,11 +15,12 @@
 // run its effect at the first demand only. A crash, an exit or a loop
 // happens once whoever demands it, so only the outside decides.
 //
-// Then the decision is made whole, serially, and each function rewritten
-// on its own, in parallel, reading it. The program is first-order after it:
-// every run is a call of its own, so the graph takes the dispatch functions
-// and the rows of the functions that ran labels again from their calls,
-// and every row is derived over it.
+// Then the decision is made whole, serially, every type and attribute the
+// edits build with it, and each function makes its edits on its own, in
+// parallel, reading it. The program is first-order after it: every run is
+// a call of its own, so the graph takes the dispatch functions and the rows
+// of the functions that ran labels again from their calls, and every row
+// is derived over it.
 
 #include "idr/Analysis/Labels.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
@@ -46,19 +47,16 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
     const idr::Labels &labels = getAnalysis<idr::Labels>();
     idr::solver::ProgramGraph &graph = getAnalysis<idr::solver::ProgramGraph>();
     idr::solver::Work spent;
-    // The functions the program had: the decision adds a dispatch function
-    // per memo family, born rewritten.
-    auto held = program.getOps<idr::FuncOp>();
-    idr::footprint::Vector<idr::FuncOp> functions(held.begin(), held.end());
     FailureOr<std::unique_ptr<idr::defunctionalize::Decision>> decision =
         idr::defunctionalize::Decision::decide(program, labels, graph, spent);
     if (failed(decision))
       return signalPassFailure();
     const idr::defunctionalize::Decision &decided = **decision;
-    if (failed(failableParallelForEach(&getContext(), functions, [&](idr::FuncOp fn) {
-          return idr::defunctionalize::rewrite(fn, decided);
-        })))
-      return signalPassFailure();
+    // The functions the program had, each with its edits; the dispatch
+    // functions the decision added are born rewritten.
+    parallelForEach(&getContext(), decided.edits(), [&](const idr::defunctionalize::Edits &edits) {
+      idr::defunctionalize::rewrite(edits, decided);
+    });
     numFamilies += decided.numFamilies();
     // Every run is a call now, of its label or of its family's dispatch
     // function, with its own tail fact: each dispatch function joins the

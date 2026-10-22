@@ -16,6 +16,7 @@
 
 #include "idr/Analysis/Effects.h"
 #include "idr/Analysis/Labels.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -92,7 +93,7 @@ void Decision::note(ArrayRef<Slot> slots, ArrayRef<Type> types) {
     Slot slot = pending.pop_back_val();
     if (!slot || !ids.try_emplace(*slot, static_cast<KeyId>(families.size())).second)
       continue;
-    families.push_back(Family{*slot, DataType(), FlatSymbolRefAttr(), {}});
+    families.push_back(Family{*slot, DataType(), DataType(), Dispatcher{}});
     if (carrierOf(*slot) == Carrier::Lazy) {
       auto lazy = cast<LazyType>(slot->carrier);
       push({anchorKey(FlowAnchor::forcedOf(lazy))}, {lazy.getValue()});
@@ -155,10 +156,13 @@ void Decision::widen() {
 }
 
 // Each function's calls, and in its row beside them each label it runs,
-// with how many of its runs run it. A run has no tail kind until the
-// rewrite makes it a call, and the atoms' join reads none, so it stands as
-// a call within; the row stays in the graph's one order, a (callee, kind)
-// once, merged with a direct call of the same label.
+// with how many of its runs run it. A run is no call yet: the call an
+// apply's case makes takes its tail fact from the one definition where it
+// stands, once the rewrite has made it, and a force becomes a call of its
+// dispatch function, not of the label. A row holds only calls, so a run
+// stands as a call within, which the atoms' join never reads and the
+// rewrite's calls replace; the row stays in the graph's one order, a
+// (callee, kind) once, merged with a direct call of the same label.
 void Decision::complete(solver::ProgramGraph &graph,
                         IndexVector<solver::FunctionId, footprint::Vector<solver::FunctionId>> &ran) {
   Count<solver::FunctionId> space = ran.size();
@@ -253,15 +257,32 @@ FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const L
   if (failed(d.declare(graph, atoms)))
     return failure();
   d.convertSignatures();
-  // Each memo family's dispatch function, born rewritten.
+  // The functions the program had, whose edits the decision reads: each
+  // dispatch function it adds is born rewritten.
+  auto held = program.getOps<FuncOp>();
+  footprint::Vector<FuncOp> functions(held.begin(), held.end());
+  // Each memo family's dispatch function, and how a force calls it: at the
+  // cell's indices, which are the family's own variables in every slot.
   for (Family &family : d.families) {
     if (carrierOf(family.key) != Carrier::Lazy)
       continue;
     FailureOr<FuncOp> force = d.defineForce(family);
     if (failed(force))
       return failure();
-    family.force = FlatSymbolRefAttr::get(force->getSymNameAttr());
+    auto indices = IndexArgsAttr::get(d.ctx, family.at.getIndices());
+    FunctionType at = families::substitute(force->getFunctionType(), indices);
+    family.force = Dispatcher{*force, FlatSymbolRefAttr::get(force->getSymNameAttr()), indices,
+                              at.getInput(0), at.getResult(0)};
     d.made.push_back(*force);
+  }
+  // Each function's edits, in the program's order, every type and
+  // attribute they build made here.
+  d.poisoned = ub::PoisonAttr::get(d.ctx);
+  for (FuncOp fn : functions) {
+    FailureOr<Edits> edits = d.plan(fn);
+    if (failed(edits))
+      return failure();
+    d.planned.push_back(std::move(*edits));
   }
   return decision;
 }

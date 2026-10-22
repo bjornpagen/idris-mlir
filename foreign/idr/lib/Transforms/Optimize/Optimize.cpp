@@ -16,7 +16,6 @@
 // the inner pipeline's simplification is the e-graph's.
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
-#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Memory.h"
 #include "idr/Transforms/EGraph.h"

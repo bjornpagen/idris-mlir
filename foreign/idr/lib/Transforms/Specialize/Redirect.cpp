@@ -10,10 +10,10 @@
 // is what the call and the consumer did, which its function contained
 // already; the writer derives the copy's own when its component is final.
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
-#include "Calls.h"
+#include "idr/Transforms/Specialize/Calls.h"
 
 #include "llvm/ADT/STLExtras.h"
 

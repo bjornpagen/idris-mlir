@@ -19,7 +19,7 @@
 // and where a constant holds the constructor as a run of cells, whose
 // spine a dropped field would move.
 
-#include "Captures.h"
+#include "idr/Transforms/Optimize/Captures.h"
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"

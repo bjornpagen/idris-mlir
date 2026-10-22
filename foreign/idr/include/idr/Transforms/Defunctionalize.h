@@ -8,12 +8,13 @@
 // Types first: a decision, made whole and serially, writes the label
 // solve's answer into types (each slot's key, each key's family, every
 // signature, every memo family's dispatch function, every constant), and
-// then one walk per function, in parallel, gives each value its type in
-// place and replaces each closure op by what it means, reading the
-// decision and nothing else. No conversion driver and no pattern set:
-// every family and signature the walk needs is made in the decision, and
-// what a worker remakes of another type or a constant goes through the
-// decision's replacer, under its lock.
+// reads each function's edits off the solve: each value whose type
+// changes, each move between two keys, each closure op and what replaces
+// it, with every type and attribute those edits build made then, in the
+// program's order. Then one walk per function, in parallel, makes its
+// edits from the decision alone, through a const reference: no worker
+// makes a type or an attribute, reads the solve, or looks a symbol up. No
+// conversion driver and no pattern set.
 //
 // A key is a slot's carrier at no grade and the labels the solve found for
 // it. A closure key becomes a closure family, one label per function of
@@ -36,16 +37,17 @@
 #include "idr/Support/Id.h"
 #include "idr/Transforms/EGraph.h"
 
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <memory>
-#include <mutex>
 #include <optional>
+#include <tuple>
+#include <variant>
 
 namespace idr {
 
@@ -75,6 +77,9 @@ using Slot = std::optional<Key>;
 // A key's place in the decision: dense, in the order the keys were met,
 // which is the order every walk over them takes.
 enum class KeyId : std::uint32_t {};
+// A match and a coercion the edits build, by their places in the decision.
+enum class MatchId : std::uint32_t {};
+enum class CoercionId : std::uint32_t {};
 
 } // namespace idr::defunctionalize
 
@@ -94,15 +99,25 @@ template <> struct llvm::DenseMapInfo<idr::defunctionalize::Key> {
 
 namespace idr::defunctionalize {
 
-// What the decision holds for one key: its family's type, and for a lazy
-// key its dispatch function; and the key's own index variables, in the
-// order its carrier first names them, at which every slot of the key holds
-// the family.
+// How a force calls its memo family's dispatch function: the function and
+// its name, the cell's indices it passes, and what the function takes and
+// gives at them.
+struct Dispatcher {
+  FuncOp fn;
+  mlir::FlatSymbolRefAttr name;
+  IndexArgsAttr indices;
+  mlir::Type takes, gives;
+};
+
+// What the decision holds for one key: its family's declaration; the
+// family applied to the key's own index variables, in the order its
+// carrier first names them, which every slot of the key holds; and for a
+// lazy key, how a force calls its dispatch function.
 struct Family {
   Key key;
   DataType type;
-  mlir::FlatSymbolRefAttr force;
-  llvm::SmallVector<families::TermNode> args;
+  DataType at;
+  Dispatcher force;
 };
 
 // A function's signature as its slots have it.
@@ -119,43 +134,134 @@ struct Runner {
   FuncOp fn;
 };
 
+// What a match over a family binds for one label, at the depth it is built
+// at: the constructor's binders as the next levels, the value refined to
+// it at the value's grade, and each field as a read gives it.
+struct Case {
+  IndexArgsAttr binders;
+  mlir::Type refined;
+  llvm::SmallVector<mlir::Type> fields;
+};
+// A label's function, as a case calls it: its name, and its converted
+// signature at the case's binders, which the call passes as its indices.
+struct Callee {
+  FuncOp fn;
+  mlir::FlatSymbolRefAttr name;
+  mlir::FunctionType bound;
+};
+// A match over the family of a value of one type, built at one depth: its
+// cases, one per label in tag order, and the labels' functions as each case
+// calls them.
+struct Match {
+  mlir::DenseI32ArrayAttr tags;
+  llvm::SmallVector<Case> cases;
+  llvm::SmallVector<Callee> callees;
+};
+
+// A constructor: its type, refined to it at the grade it is built at, and
+// each field as it holds it.
+struct Built {
+  mlir::Type type;
+  llvm::SmallVector<mlir::Type> fields;
+};
+// A move between two keys: a match over the value's family whose cases
+// rebuild each label's constructor in the sink's, one per case, at the
+// sink's type; or, where no label reaches one of the two, a move that
+// never runs, the program's poison.
+struct Rebuild {
+  MatchId over;
+  mlir::Type sink;
+  llvm::SmallVector<Built> into;
+};
+struct NeverRuns {
+  mlir::Type sink;
+};
+using Coercion = std::variant<Rebuild, NeverRuns>;
+
+// One function's edits, in the order the walk makes them.
+//
+// A value whose type changes, and its new type.
+struct Retype {
+  mlir::Value value;
+  mlir::Type type;
+};
+// An operand whose value moves between two keys.
+struct Move {
+  mlir::OpOperand *use;
+  CoercionId coercion;
+};
+// A closure, a suspension or an evaluated suspension: its constructor,
+// whose fields are the op's operands.
+struct Construct {
+  mlir::Operation *op;
+  Built built;
+};
+// An apply: a match over its callee's family whose cases call the labels,
+// in each case the argument and result moves where the apply's keys and the
+// label's differ; or, where no label reaches its callee, values the program
+// never has.
+struct CaseMoves {
+  llvm::SmallVector<std::optional<CoercionId>> arguments, results;
+};
+struct Dispatch {
+  FnApplyOp op;
+  MatchId match;
+  llvm::SmallVector<CaseMoves> cases;
+};
+struct Unreached {
+  FnApplyOp op;
+};
+using Apply = std::variant<Dispatch, Unreached>;
+// A force: a call of its cell's dispatch function, the value moved out of
+// the forced state's slot into the force's where the two differ.
+struct Force {
+  LazyForceOp op;
+  KeyId memo;
+  std::optional<CoercionId> moved;
+};
+// A constant holding a closure, converted to its slot.
+struct Constant {
+  ConstantOp op;
+  mlir::Attribute value;
+};
+struct Edits {
+  FuncOp fn;
+  footprint::Vector<Retype> retypes;
+  footprint::Vector<Move> moves;
+  footprint::Vector<Construct> constructs;
+  footprint::Vector<Apply> applies;
+  footprint::Vector<Force> forces;
+  footprint::Vector<Constant> constants;
+};
+
 // The decision. It exists only whole: `decide`, its one maker, returns it
-// once every part is made, so no reader meets a key without its family or
-// a signature not yet converted. It is read only afterwards, from any
-// thread.
+// once every part is made, so no reader meets a key without its family, a
+// signature not yet converted, or an edit without its types. It is read
+// only afterwards, from any thread, through const references.
 class Decision {
 public:
   // Every key the program asks for, each key's family, every signature,
-  // each memo family's dispatch function added to the program, every
-  // constant converted. Before any type changes, `graph`, the program's
-  // calls, takes the label solve's runs as calls, and every function's
-  // atoms are joined over it, the join's work added to `work`: a label
-  // whose row reads or writes the outside runs by name. Failure, after an
-  // internal error, only where the compiler broke its own invariant.
+  // each memo family's dispatch function added to the program, and each
+  // function's edits with every type and attribute they build. Before any
+  // type changes, `graph`, the program's calls, takes the label solve's runs
+  // as calls, and every function's atoms are joined over it, the join's
+  // work added to `work`: a label whose row reads or writes the outside
+  // runs by name. Failure, after an internal error, only where the
+  // compiler broke its own invariant.
   static mlir::FailureOr<std::unique_ptr<Decision>>
   decide(ProgramOp program, const Labels &labels, solver::ProgramGraph &graph, solver::Work &work);
 
-  // Keys of the slots the walk meets.
-  Slot keyOf(mlir::Value value) const;
-  Slot sinkOf(mlir::OpOperand &use) const;
-  const Signature &signature(mlir::StringAttr fn) const { return signatures.find(fn)->second; }
-
-  // The type of a slot whose type was `type`: its key's family at `type`'s
-  // grade, or `type` itself, its composites remade for their own slots.
-  mlir::Type typeOf(mlir::Type type, const Slot &slot) const;
-  const Family &familyOf(const Key &key) const { return families[static_cast<unsigned>(ids.find(key)->second)]; }
-  // The tag of `label`'s constructor in `key`'s family: a key's labels, in
-  // the order of their functions in the program, are its family's tags in
-  // order.
-  Tag tagOf(const Key &key, mlir::FlatSymbolRefAttr label) const;
-  // A constant of the program converted to its slots, or the constant
-  // itself where it holds no closure.
-  mlir::Attribute constantOf(mlir::Attribute value, const Slot &slot) const;
-  // The slot of what `family`'s dispatch function gives: its forced
-  // state's value, which the lazy key's anchor keys.
-  Slot forcedOf(const Family &family) const {
-    return anchorKey(FlowAnchor::forcedOf(llvm::cast<LazyType>(family.key.carrier)));
+  // Each function the program had, with its edits, in the program's order.
+  llvm::ArrayRef<Edits> edits() const { return planned; }
+  const Family &family(KeyId id) const { return families[static_cast<unsigned>(id)]; }
+  const Match &match(MatchId id) const { return matches[static_cast<unsigned>(id)]; }
+  const Coercion &coercion(CoercionId id) const {
+    return coercions[static_cast<unsigned>(id)];
   }
+  // The index a read of field `index` names.
+  mlir::IntegerAttr fieldIndex(unsigned index) const { return fieldIndices[index]; }
+  mlir::ub::PoisonAttr poison() const { return poisoned; }
+
   // Every force function the decision defined.
   llvm::ArrayRef<FuncOp> forces() const { return made; }
   // Every function whose row the decision gave the labels it runs.
@@ -169,6 +275,11 @@ private:
   // The keys (Decide.cpp).
   Slot keyWith(mlir::Type carrier, const FlowPoint &point) const;
   Slot anchorKey(const FlowAnchor &anchor) const;
+  Slot keyOf(mlir::Value value) const;
+  Slot sinkOf(mlir::OpOperand &use) const;
+  const Signature &signature(mlir::StringAttr fn) const { return signatures.find(fn)->second; }
+  KeyId idOf(const Key &key) const { return ids.find(key)->second; }
+  const Family &familyOf(const Key &key) const { return family(idOf(key)); }
   void note(llvm::ArrayRef<Slot> slots, llvm::ArrayRef<mlir::Type> types);
   void slotsIn(mlir::Type type, llvm::SmallVectorImpl<Slot> &out) const;
   void widen();
@@ -183,12 +294,27 @@ private:
   // `calls`, the completed graph.
   mlir::LogicalResult declare(const solver::ProgramGraph &calls,
                               const IndexVector<solver::FunctionId, effects::Row> &atoms);
-  // Every signature converted and set on its function (Convert.cpp).
+
+  // Types (Convert.cpp): every signature converted and set on its
+  // function; the type of a slot whose type was `type`, its key's family at
+  // `type`'s grade or `type` itself, its composites remade for their own
+  // slots; a constant converted to its slot; the tag of `label`'s
+  // constructor in `key`'s family; and the constructors, matches and
+  // coercions the edits build, each match and coercion made once.
   void convertSignatures();
-  void convertConstants();
+  mlir::Type typeOf(mlir::Type type, const Slot &slot);
+  mlir::Attribute constantOf(mlir::Attribute value, const Slot &slot);
+  Tag tagOf(const Key &key, mlir::FlatSymbolRefAttr label) const;
+  Built constructorOf(DataType family, Tag tag, Grade grade,
+                      llvm::ArrayRef<families::TermNode> binders);
+  MatchId matchOver(mlir::Type value, unsigned depth, mlir::ArrayAttr set);
+  CoercionId coercionOf(mlir::Type value, const Key &from, const Key &to, unsigned depth);
 
   // The dispatch functions (Forces.cpp).
   mlir::FailureOr<FuncOp> defineForce(const Family &family);
+
+  // Each function's edits (Edits.cpp).
+  mlir::FailureOr<Edits> plan(FuncOp fn);
 
   ProgramOp program;
   const Labels &labels;
@@ -206,26 +332,36 @@ private:
   // types whose elements do.
   mlir::AttrTypeReplacer replacer;
   // Each part of the program's constants converted in its slot.
-  mutable llvm::DenseMap<std::pair<mlir::Attribute, mlir::Attribute>, mlir::Attribute> converted;
-  // Held while the walks' workers read the replacer, `converted` or
-  // `holding`, each of which keeps what it made (Convert.cpp).
-  mutable std::mutex replacing;
+  llvm::DenseMap<std::pair<mlir::Attribute, mlir::Attribute>, mlir::Attribute> converted;
+  ClosureParts holding;
+  // The matches and coercions the edits build, each once: a match by the
+  // type of the value it matches and its depth, a coercion by that, the
+  // key it moves into and its depth.
+  footprint::Vector<Match> matches;
+  footprint::Vector<Coercion> coercions;
+  llvm::DenseMap<std::pair<mlir::Type, unsigned>, MatchId> matchIds;
+  llvm::DenseMap<std::tuple<mlir::Type, unsigned, unsigned>, CoercionId> coercionIds;
+  footprint::Vector<mlir::IntegerAttr> fieldIndices;
+  mlir::ub::PoisonAttr poisoned;
+  footprint::Vector<Edits> planned;
   footprint::Vector<FuncOp> made;
   footprint::Vector<Runner> running;
-  ClosureParts holding;
 };
 
-// One function, from the decision alone: each value of a closure or a
-// suspension its family's type, every other value its type remade, each
-// move between two keys a coercion, each closure op what it means. The
-// ops it replaces are erased once the walk ends, so no value the solve
-// names is freed while the walk reads the solve.
-mlir::LogicalResult rewrite(FuncOp fn, const Decision &decision);
+// One function's edits, from the decision alone: each value its new type,
+// each move between two keys a coercion, each closure op what it means.
+// The ops it replaces are erased once the walk ends; each call it made then
+// takes its tail fact where it stands.
+void rewrite(const Edits &edits, const Decision &decision);
 
-// `value`, of key `from`'s family, as a value of `to`'s, whose labels hold
-// `from`'s: a match rebuilding each of `from`'s constructors in `to`'s.
-mlir::Value coerce(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, const Key &from,
-                   const Key &to, const Decision &decision);
+// `value` given where `type` is asked: where only their uses differ, a
+// grade cast; where their indices or refinements differ, a reindex, never
+// a cast that forgets how the two are related. The refinements around it
+// check the reindex: a case's equation makes a label's type at the case's
+// binders its family's at the enclosing scope's, and a constructor refined
+// to one tag stands for its family with no equation. The two never differ
+// in both: a label's carrier is its key's up to its variables.
+mlir::Value givenAs(mlir::OpBuilder &b, mlir::Location loc, mlir::Value value, mlir::Type type);
 
 } // namespace idr::defunctionalize
 

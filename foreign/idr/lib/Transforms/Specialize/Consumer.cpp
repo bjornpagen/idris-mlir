@@ -13,13 +13,13 @@
 // row carries neither io nor crash, and where it may diverge the consumer
 // performs no io. Moving a call is licensed by its row alone.
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/Transforms/Deduplicate.h"
-#include "Calls.h"
+#include "idr/Transforms/Specialize/Calls.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"

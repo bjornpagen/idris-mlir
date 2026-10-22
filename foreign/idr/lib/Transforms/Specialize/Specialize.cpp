@@ -22,7 +22,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Optimize.h"
-#include "Calls.h"
+#include "idr/Transforms/Specialize/Calls.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"

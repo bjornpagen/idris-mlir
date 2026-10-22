@@ -5,8 +5,8 @@
 // drops them from the program (CaptureDrops.cpp). Both run on the pass
 // thread, once, when no turn runs: the rewrite changes types every
 // function may hold.
-#ifndef IDR_LIB_TRANSFORMS_OPTIMIZE_CAPTURES_H
-#define IDR_LIB_TRANSFORMS_OPTIMIZE_CAPTURES_H
+#ifndef IDR_TRANSFORMS_OPTIMIZE_CAPTURES_H
+#define IDR_TRANSFORMS_OPTIMIZE_CAPTURES_H
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
@@ -60,4 +60,4 @@ void drop(Schedule &schedule, const Unread &unread);
 
 } // namespace idr::optimize::captures
 
-#endif // IDR_LIB_TRANSFORMS_OPTIMIZE_CAPTURES_H
+#endif // IDR_TRANSFORMS_OPTIMIZE_CAPTURES_H

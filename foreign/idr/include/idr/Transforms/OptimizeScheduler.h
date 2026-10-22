@@ -18,7 +18,6 @@
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <atomic>
@@ -153,11 +152,6 @@ void dropUnread(Schedule &schedule, llvm::ArrayRef<FunctionId> members);
 // reads (Captures.cpp), each dropped from the whole program.
 void dropDeadResults(Schedule &schedule);
 void narrowCaptures(Schedule &schedule);
-
-// What `fn` gives back once the arguments and results `arguments` and
-// `results` hold are dropped: the entries that name one go, and the
-// others count the positions left before theirs.
-void renumberGivenBack(FuncOp fn, const llvm::BitVector &arguments, const llvm::BitVector &results);
 
 } // namespace idr::optimize
 
