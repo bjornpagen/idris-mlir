@@ -84,8 +84,6 @@ struct Condition {
   std::int64_t lo, hi;
 };
 
-enum class VarUses : std::uint8_t { UsedOnce, UsedMany };
-
 // One rule, one way: its variables, its left side rooted at an op (a run of
 // patterns whose first node is the root), its right side (a run of
 // patterns), which replaces the left side's class where it matches, and its
