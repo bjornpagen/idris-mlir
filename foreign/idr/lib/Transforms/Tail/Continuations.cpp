@@ -4,11 +4,11 @@
 // frame must end its block in a tail of its function, so every region op
 // around it whose results something after it reads gives its continuation
 // to a function of its own (a lifted continuation), which each region of
-// the op tail-calls; an op of the generating set around it becomes its
-// loops of join points (joinCycles), and a join point around it becomes
-// functions too (Dissolve.cpp); a lifetime's region around it splits
-// (Split.cpp); and
-// the rest of the call's block becomes a function its call runs into,
+// the op tail-calls; an op of the generating set or an array update
+// around it becomes its loops of join points (joinCycles), and a join
+// point around it becomes functions too (Dissolve.cpp); a lifetime's
+// region around it splits (Split.cpp); and the rest of the call's block
+// becomes a function its call runs into,
 // tail-calling it with what the rest reads (Outline.cpp). Each step moves
 // code, never copies it, and makes a function of the component, read in
 // turn, so it ends: the code it moves only shrinks.
@@ -161,9 +161,10 @@ void Component::normalize(Block *root) {
 }
 
 LogicalResult Component::restructure(FuncOp fn, unsigned row) {
-  // An op of the generating set whose region calls into the cycle is no
-  // region frames split: it becomes its loops, join points, first, which
-  // they do. Its region's calls are decided again where they then stand.
+  // An op of the generating set or an array update whose region calls
+  // into the cycle is no region frames split: it becomes its loops, join
+  // points, first, which they do. Its region's calls are decided again
+  // where they then stand.
   if (failed(structure::joinCycles(rewriter, fn, [&](CallOp call) { return frames(call); })))
     return failure();
   for (;;) {
