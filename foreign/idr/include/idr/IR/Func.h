@@ -4,7 +4,8 @@
 // the specification's attributes and properties name, so it comes before
 // them: Idris's proof that a function's own loops end, the bound a
 // function puts into a lifetime parameter, where each scoped parameter and
-// result lives, what a function gives back, and which part of a
+// result lives, what a function gives back, the index term each unknown
+// axis of its signature's shapes is, and which part of a
 // function's per-parameter record each parameter's type admits. Each part
 // exists only where the parameter's type admits it: the record names a
 // parameter by its position among the parameters that admit that part, so
@@ -22,6 +23,7 @@
 #ifndef IDR_IR_FUNC_H
 #define IDR_IR_FUNC_H
 
+#include "idr/IR/Families/Terms.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/Support/Match.h"
@@ -32,8 +34,10 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <algorithm>
+#include <compare>
 #include <concepts>
 #include <cstdint>
 #include <limits>
@@ -208,6 +212,42 @@ struct GivenBackEntry {
   GivenBackPath argument;
   bool operator==(const GivenBackEntry &) const = default;
 };
+
+//===----------------------------------------------------------------------===//
+// The index term each unknown axis is
+//===----------------------------------------------------------------------===//
+
+// An axis of a signature: axis `axis` of the shape of the argument or
+// result at `position` on `side`. Entries are listed in this order, inputs
+// first, so a reader comparing two functions' lists walks both once.
+struct ExtentAt {
+  ExtentSide side;
+  std::uint32_t position;
+  std::uint32_t axis;
+  auto operator<=>(const ExtentAt &) const = default;
+};
+
+// An axis the signature's type leaves `?`, and the index term over the
+// function's binders its size is. A view: the attribute owns the term's
+// nodes, and whoever builds one owns them until the attribute copies them.
+struct Extent {
+  ExtentAt at;
+  families::Term term;
+  bool operator==(const Extent &) const = default;
+};
+
+// Of a pair of a signature's inputs and results, the one on `side`: the
+// one place a side picks its values, so a side added is a case here alone.
+template <class Values>
+Values onSide(ExtentSide side, Values inputs, Values results) {
+  switch (side) {
+  case ExtentSide::Input:
+    return inputs;
+  case ExtentSide::Result:
+    return results;
+  }
+  llvm_unreachable("a value of a signature is an input or a result");
+}
 
 //===----------------------------------------------------------------------===//
 // The record's parts, by parameter

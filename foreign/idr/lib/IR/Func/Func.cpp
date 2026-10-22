@@ -64,10 +64,10 @@ namespace {
 SmallVector<StringRef> writtenElsewhere(OperationName name) {
   return {FuncOp::getSymNameAttrName(name), FuncOp::getFunctionTypeAttrName(name),
           FuncOp::getArgAttrsAttrName(name),  FuncOp::getResAttrsAttrName(name),
-          FuncOp::getBindersAttrName(name),   FuncOp::getUntouchedAttrName(name),
-          FuncOp::getBoundedAttrName(name),   FuncOp::getTerminatesAttrName(name),
-          FuncOp::getLivesInAttrName(name),   FuncOp::getGivenBackAttrName(name),
-          FuncOp::getCopyAttrName(name)};
+          FuncOp::getBindersAttrName(name),   FuncOp::getExtentsAttrName(name),
+          FuncOp::getUntouchedAttrName(name), FuncOp::getBoundedAttrName(name),
+          FuncOp::getTerminatesAttrName(name), FuncOp::getLivesInAttrName(name),
+          FuncOp::getGivenBackAttrName(name), FuncOp::getCopyAttrName(name)};
 }
 
 } // namespace

@@ -4,15 +4,16 @@
 // signature, and their one rule. Upstream's edits keep the type, the
 // parameters' and results' attributes and the entry block's arguments.
 // What the signature states by position beyond those (where each scoped
-// value lives and the bounds between lifetimes, what it gives back, its
-// untouched and bounded parameters) is the function's own, so a caller
-// reaches these through the op or through the interface alike, and the
-// single forms through them. Each edit says where every old parameter and
-// result goes, and what is stated moves there, computed before the
-// signature changes, since the parameters' parts are read off their old
-// types. Each builds its new type from the function's own function type,
-// which always has the clone it asks for, so the type it sets is never
-// null and no edit has a failure of its type to answer.
+// value lives and the bounds between lifetimes, what it gives back, the
+// index term each unknown axis is, its untouched and bounded parameters)
+// is the function's own, so a caller reaches these through the op or
+// through the interface alike, and the single forms through them. Each
+// edit says where every old parameter and result goes, and what is stated
+// moves there, computed before the signature changes, since the
+// parameters' parts are read off their old types. Each builds its new
+// type from the function's own function type, which always has the clone
+// it asks for, so the type it sets is never null and no edit has a failure
+// of its type to answer.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -131,6 +132,7 @@ PutBoundsAttr moved(MLIRContext *context, PutBoundsAttr bounded,
 struct Stated {
   LivesInAttr lives;
   GivenBackAttr given;
+  ExtentsAttr extents;
   DenseI32ArrayAttr untouched;
   PutBoundsAttr bounded;
 };
@@ -152,6 +154,8 @@ LogicalResult editSignature(FuncOp fn, FunctionType type, ArrayRef<std::optional
   }
   if (GivenBackAttr given = fn.getGivenBackAttr())
     stated.given = given.renumber(parameters, results);
+  if (ExtentsAttr extents = fn.getExtentsAttr())
+    stated.extents = extents.renumber(parameters, results);
   PartMoves parts =
       amongThose(ParameterParts(fn.getArgumentTypes()), parameters, ParameterParts(type.getInputs()));
   stated.untouched = moved(context, fn.getUntouchedAttr(), parts.writes);
@@ -159,6 +163,7 @@ LogicalResult editSignature(FuncOp fn, FunctionType type, ArrayRef<std::optional
   change();
   fn.setLivesInAttr(stated.lives);
   fn.setGivenBackAttr(stated.given);
+  fn.setExtentsAttr(stated.extents);
   fn.setUntouchedAttr(stated.untouched);
   fn.setBoundedAttr(stated.bounded);
   return success();

@@ -17,7 +17,8 @@
 ||| call claims every atom and every write, which says too much and never
 ||| too little.
 |||
-||| A function also carries its signature: grades, index binders, lifetime
+||| A function also carries its signature: grades, index binders, the index
+||| term each unknown axis of its arrays' shapes is (`extents`), lifetime
 ||| parameters, whose kind says whether the function puts into them, and
 ||| the lifetime each scoped parameter and result lives in (`lives_in`); and
 ||| what it gives back of its arguments (`given_back`), which the optimizer
@@ -40,6 +41,7 @@ import IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Spec.Functions.Copy
 import IdrisMLIR.Spec.Functions.Parameters
 import IdrisMLIR.Spec.Functions.GivenBack
+import IdrisMLIR.Spec.Functions.Extents
 import IdrisMLIR.Spec.Functions.LivesIn
 
 import Data.Fin
@@ -66,6 +68,15 @@ rowDirective = MkDirective
 ||| an op built before any derivation says too much and never too little.
 rowSlot : AttrKind
 rowSlot = AProperty (HandProperty "::idr::effects::Row" rowDirective "::idr::effects::Row::top()")
+
+||| The index term each unknown axis of the signature's shapes is. Empty when
+||| the op is built without it, as a function whose signature names no axis
+||| by a term is, so every reader meets a list and never an absence. The
+||| default names its empty array's type, since `get` is also made from
+||| the entries' views.
+extentsSlot : AttrKind
+extentsSlot = AnAttribute (OurAttr (SomeAttr extentsAttr))
+  (DefaultValued "::idr::ExtentsAttr::get($_builder.getContext(), ::llvm::ArrayRef<::idr::ExtentAttr>())")
 
 ||| Where the scoped parameters and results live. Absent, none is scoped.
 livesInSlot : AttrKind
@@ -159,9 +170,10 @@ programOp = MkOp
 ||| A function of the program and what is known of a run of it. Its
 ||| visibility is no fact of its own: it is public exactly when it is its
 ||| program's root. Its body is one block. Its verifier checks that its
-||| record, its `lives_in` and its `given_back` name only what its signature
-||| has; its region verifier, that its row and record cover what its body
-||| does, and where its calls stand. It states its parameters' lifetimes.
+||| record, its `lives_in`, its `given_back` and its `extents` name only
+||| what its signature and its binders have; its region verifier, that its
+||| row and record cover what its body does, and where its calls stand. It
+||| states its parameters' lifetimes.
 ||| Inserting and erasing parameters and results are its own implementations
 ||| of the function interface's methods, so whoever edits its signature,
 ||| through the op or the interface, one item or many, moves what it states
@@ -169,7 +181,7 @@ programOp = MkOp
 ||| attribute's constraint, so the interface's own clone of it, and each edit
 ||| of its signature, builds the new type from it and never meets a null.
 public export
-funcOp : Op 0 0 13 1
+funcOp : Op 0 0 14 1
 funcOp = MkOp
   { home = InIdr
   , mnemonic = "func"
@@ -181,6 +193,7 @@ funcOp = MkOp
       , MkAttr "arg_attrs" (AnAttribute (UpstreamAttr ArrayAttrC) MayBeAbsent)
       , MkAttr "res_attrs" (AnAttribute (UpstreamAttr ArrayAttrC) MayBeAbsent)
       , MkAttr "binders" indexBinders
+      , MkAttr "extents" extentsSlot
       , MkAttr "row" rowSlot
       , MkAttr "untouched" untouchedSlot
       , MkAttr "bounded" boundedSlot
@@ -221,12 +234,13 @@ funcOp = MkOp
   , laws = []
   , doc = MkDoc "a function of the program, with what is known of a run of it"
       """
-      Its row, its record per parameter, its termination proof, where its
-      scoped values live, what it gives back, what kind of copy it is and
-      its frame bound are inherent: no pass drops one without changing the
-      op. Only the one writer of rows and a clone copying its source write
-      the row and the record; only the optimizer writes what it gives back
-      and what copy it is.
+      Its row, its record per parameter, its termination proof, the index
+      term each unknown axis of its signature is, where its scoped values
+      live, what it gives back, what kind of copy it is and its frame bound
+      are inherent: no pass drops one without changing the op. Only the one
+      writer of rows and a clone copying its source write the row and the
+      record; only the optimizer writes what it gives back and what copy it
+      is.
       """
   }
 
@@ -350,6 +364,9 @@ declarations =
   { ops := [SomeOp programOp, SomeOp funcOp, SomeOp callOp, SomeOp returnOp]
   , attributes :=
       [ SomeAttr terminatesAttr, SomeAttr putBoundsAttr, SomeAttr livesInAttr
-      , SomeAttr givenBackEntryAttr, SomeAttr givenBackAttr ]
-  , enums := [enumDef tailKindClosed, enumDef copyKindClosed, enumDef proofKindClosed]
+      , SomeAttr givenBackEntryAttr, SomeAttr givenBackAttr
+      , SomeAttr extentAttr, SomeAttr extentsAttr ]
+  , enums :=
+      [ enumDef tailKindClosed, enumDef copyKindClosed, enumDef proofKindClosed
+      , enumDef extentSideClosed ]
   } nothing

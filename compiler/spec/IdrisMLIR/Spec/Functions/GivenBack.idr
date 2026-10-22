@@ -21,14 +21,14 @@ import Data.Vect
 
 %default total
 
-||| A result's or an argument's position, `1`, in 32 bits; its text is
-||| printed in its path.
+||| A result's or an argument's position, `1`, in 32 bits, or an axis of
+||| its shape; its text is printed in its path or its extent.
 export
 positionDirective : Directive
 positionDirective = MkDirective
   { name = "Position"
   , args = []
-  , doc = brief "a position in a signature: `1`"
+  , doc = brief "a position in a signature, or an axis of a shape: `1`"
   }
 
 ||| The fields down to a component, `[0, 2]`, or nothing for the whole
@@ -51,7 +51,9 @@ givenBackEntriesDirective = MkDirective
   , doc = brief "result components and the argument components they are: `[0 <- 2, 1[0] <- 0[1]]`"
   }
 
-||| A position in a signature.
+||| A position in a signature, or an axis: one codec for every 32-bit
+||| place a function's attributes name.
+export
 positionKind : ParamKind
 positionKind = WiredValue (WiredOne LeafWord32) positionDirective
 

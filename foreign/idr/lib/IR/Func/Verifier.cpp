@@ -2,11 +2,12 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr.func's two verifiers. Its op verifier holds what its signature
 // states beyond its types (its record, where each scoped value lives and
-// the bounds between lifetimes, what it gives back) to that signature: a
-// local fact of the op, checked before its body. Its region verifier runs
-// the rules of one function, after the ops of its body are verified and in
-// parallel with every other function's: its stage's and its row's in its
-// one walk, then its tail calls'.
+// the bounds between lifetimes, what it gives back, the index term each
+// unknown axis is) to that signature and its binders: a local fact of the
+// op, checked before its body. Its region verifier runs the rules of one
+// function, after the ops of its body are verified and in parallel with
+// every other function's: its stage's and its row's in its one walk, then
+// its tail calls'.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -16,6 +17,7 @@
 #include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstddef>
@@ -113,16 +115,50 @@ LogicalResult givenBackFits(FuncOp fn) {
   return success();
 }
 
+// Each extent names an axis its signature's type leaves `?`, by a term over
+// the function's own binders. The attributes hold the rest themselves: the
+// entries' order, and each term whole and naming a binder. The value's
+// shape is a ranked tensor, or the buffer bufferization makes of it with
+// the same axes, which upstream's function bufferization sets as the
+// signature's type with no edit of it: the entry names the same axis of
+// either.
+LogicalResult extentsFit(FuncOp fn) {
+  ExtentsAttr extents = fn.getExtentsAttr();
+  if (!extents)
+    return success();
+  std::size_t binders = fn.getBoundSorts(fn.getBody()).size();
+  for (ExtentAttr attr : extents.getEntries()) {
+    Extent entry = attr.extent();
+    ArrayRef<Type> values = onSide(entry.at.side, fn.getArgumentTypes(), fn.getResultTypes());
+    StringRef side = stringifyExtentSide(entry.at.side);
+    if (entry.at.position >= values.size())
+      return fn.emitOpError("names an axis of ")
+             << side << " " << entry.at.position << ", which its signature does not have";
+    auto shape = dyn_cast<ShapedType>(unrestricted(values[entry.at.position]));
+    if (!shape || !shape.hasRank() || entry.at.axis >= shape.getRank() ||
+        !shape.isDynamicDim(entry.at.axis))
+      return fn.emitOpError("names axis ")
+             << entry.at.axis << " of " << side << " " << entry.at.position
+             << ", which is no unknown axis of a ranked shape";
+    if (entry.term.freeLevels() > binders)
+      return fn.emitOpError("names axis ")
+             << entry.at.axis << " of " << side << " " << entry.at.position << " by binder v"
+             << entry.term.freeLevels() - 1 << ", though it binds " << binders;
+  }
+  return success();
+}
+
 } // namespace
 
 // What the function's attributes say of its signature names what the
-// signature has: a local fact of the op, checked before its body, so the
-// derivation reads the record by position with no bound to test.
+// signature has, and its extents' terms what it binds: a local fact of the
+// op, checked before its body, so the derivation reads the record by
+// position with no bound to test.
 LogicalResult idr::FuncOp::verify() {
   if (failed(recordFits(*this, ParameterParts(getArgumentTypes()))) ||
-      failed(signatureFits(*this)))
+      failed(signatureFits(*this)) || failed(givenBackFits(*this)))
     return failure();
-  return givenBackFits(*this);
+  return extentsFit(*this);
 }
 
 // The interface's own body check has matched the entry block to the type,
