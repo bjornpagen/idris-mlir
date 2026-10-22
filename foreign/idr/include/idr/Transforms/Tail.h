@@ -95,11 +95,12 @@ struct FrameKind {
 // One family per component, indexed by the row a frame awaits, so a frame
 // of the wrong type cannot be on top where a value of a row is given: its
 // first constructors are the base frames, one per row, each holding the
-// destinations of a wrapper's answer; then one constructor per kind,
+// destination of a wrapper's answer slot; then one constructor per kind,
 // holding its values and the stack below it. Laid out as a frame stack
-// (linear, uncounted, contiguous). Its other members are the answers, one
-// per row, a cell of one constructor holding the row's values, which a
-// wrapper keeps on its own frame.
+// (linear, uncounted, contiguous). Beside it, a group of the answers, one
+// per row: a constructor holding the row's values, laid out in place, so a
+// row of any width is one value a slot holds, with the components of the
+// values it holds and no cell.
 struct FramesFamily {
   FamilyAttr group;
   // The stack awaiting each row, and each row's answer.

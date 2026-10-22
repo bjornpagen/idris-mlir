@@ -39,8 +39,9 @@ namespace idr::tail {
 // a control-flow break may cross (PropagateControlFlowBreak: the matches,
 // the join points) and forwards them to that op's results, which give what
 // the function gives in turn. An op that does something when its region
-// ends (a lifetime's opener frees its memory there) lets no break cross
-// it, so nothing inside it is in tail position. The one definition of
+// ends (a lifetime's opener frees its memory there, an answer slot reads
+// its result there) lets no break cross it, so nothing inside it is in
+// tail position. The one definition of
 // tail position. It reads up the regions above `op`; a verifier asks
 // verify(FuncOp) instead, which reads each region once.
 bool inTailPosition(mlir::Operation *op);

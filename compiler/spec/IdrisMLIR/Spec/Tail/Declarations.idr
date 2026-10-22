@@ -4,8 +4,8 @@
 ||| context becomes a tail call because the cells its result goes into are
 ||| built first, its field a hole, and the call is handed the hole's
 ||| destination; a framed run, which returns nothing, gives its answer to
-||| the base frame's destinations, each a place on the frame of the call
-||| that started it.
+||| the base frame's destination, the answer slot of the call that started
+||| it.
 |||
 ||| A destination is used exactly once by its type, so it takes no grade,
 ||| and the one rule of linearity holds every value of it to one use on
@@ -15,11 +15,11 @@
 ||| it unused; neither can be written.
 |||
 ||| Its type says only what is written through it. Where the place is (a
-||| hole of a cell an init built, a slot on a frame) is the op's that made
-||| it, so one destination type serves every hole of one type, whichever
-||| constructor and field it is: an insertion into a tree hands on the hole
-||| of a node's left field on one path and of its right on the other, and
-||| one clone takes either.
+||| hole of a cell an init built, the slot of `dest.answer`) is the op's
+||| that made it, so one destination type serves every hole of one type,
+||| whichever constructor and field it is: an insertion into a tree hands on
+||| the hole of a node's left field on one path and of its right on the
+||| other, and one clone takes either.
 module IdrisMLIR.Spec.Tail.Declarations
 
 import IdrisMLIR.Spec.Control.Flow
@@ -104,11 +104,54 @@ destWrite = MkOp
   , doc = brief "writes the place a destination stands for, consuming the destination"
   }
 
+||| `%v = idr.dest.answer -> T { ^bb0(%d : !idr.dest<T>): … idr.yield }`,
+||| C++ `DestAnswerOp`: where a function waits for an answer written through
+||| a destination, the slot it is written into. Its region, run once, binds
+||| the slot's destination and nothing else; the destination is used once
+||| on every path by its type and cannot leave the region, so the slot is
+||| written exactly once wherever the write is (in a framed run, in the
+||| resume that pops the base frame). The result is the value written, read
+||| out when the region ends; the region's end gives the op nothing, so no
+||| jump leaves the region and no call in it is in tail position, since the
+||| read comes after it. `T` is what a destination takes, which its verifier
+||| asks of the destination's type.
+|||
+||| The slot is frame memory, a place of the function's own: made once in
+||| its entry, one slot per runtime component of `T`, which the
+||| destination's addresses name and the result loads.
+export
+destAnswer : Op 0 1 0 1
+destAnswer = MkOp
+  { home = InIdr
+  , mnemonic = "dest.answer"
+  , ins = []
+  , outs = [result "result" (UpstreamType AnyTypeC)]
+  , attrs = []
+  , regions = [sized "body" 1]
+  , traits = [SingleBlock]
+  , interfaces = [ Declares RegionBranch ["getSuccessorRegions", "getSuccessorInputs", "getRegionInvocationBounds"]
+                 , Implements flowInterface ["getFlowEdges"] ]
+  , effects = Executes [OnValues Allocate Frame (Results 0)] [] Recursive Untouched
+  , speculation = NotSpeculatable
+  , stages = between Owned Owned
+  , meaning = NoFold
+  , verify = VerifiesRegions
+  , format = Declared [AttrDictWithKeyword, Lit "->", TypeOf (OfGroup (ResultRef 0)), ValueOf (RegionRef 0)]
+  , builders = []
+  , defaultBuilders = WithDefaults
+  , members = []
+  , guards = []
+  , specializations = []
+  , laws = []
+  , doc = brief "the slot a function's answer is written into through the destination its region binds"
+  }
+
 --------------------------------------------------------------------------------
 -- The area
 --------------------------------------------------------------------------------
 
-||| The tail area's declarations: the destination and its one write.
+||| The tail area's declarations: the destination, its one write, and the
+||| answer slot.
 export
 declarations : Declarations
-declarations = { ops := [SomeOp destWrite], types := [SomeType destType] } nothing
+declarations = { ops := [SomeOp destWrite, SomeOp destAnswer], types := [SomeType destType] } nothing

@@ -40,10 +40,10 @@
 //    tail call of a function of the component passes the stack on; a tail
 //    that gives a value gives it to its row's resume, which pops a frame
 //    and runs its rest, or, at the base, writes the value into the answer
-//    of the call that started on the empty stack. Each function of the
-//    program keeps its name and signature as the wrapper that starts it:
-//    an answer cell on its own frame, the base frame holding its
-//    destinations, a call of the run, the answer read back.
+//    slot of the call that started on the empty stack. Each function of
+//    the program keeps its name and signature as the wrapper that starts
+//    it: an answer slot (`dest.answer`) whose destination the base frame
+//    holds, the run called inside it, the answer taken apart when it ends.
 //
 // Every call made is in tail position, so the native stack never grows on
 // the cycle, which the native stack's bound checks on the final module. A
@@ -459,8 +459,11 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
 // A call to frame directly in the region of a per-level lifetime (a stack
 // or a chain): the region ends before the call by packing its lifetime
 // and the values living in it, the call runs after it, and its rest
-// reopens the lifetime from the package and runs the rest of the region,
-// then what followed the opener.
+// reopens the lifetime from the package (a stack's on the cursor its stack
+// lies on) and runs the rest of the region, then what followed the opener.
+// No lifetime of the region leaves it: the call, which runs after the
+// region, is given that cursor wherever it took the lifetime, and the rest
+// reads the reopened lifetime in its place.
 LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operation *opener) {
   MLIRContext *ctx = owner.getContext();
   Block *inside = site->getBlock();
@@ -469,17 +472,45 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   if (!packed)
     return site.emitOpError("internal error: idr-frames: a call on its function's cycle in "
                             "the region of a lifetime that cannot be per level");
+  // A value of the region's lifetime: the lifetime itself, or a view or a
+  // room of it made in the region.
+  auto ofLifetime = [&](Value value) {
+    return isa<LifetimeType>(value.getType()) && lifetimes::extentOf(value) == lifetime;
+  };
+  // The cursor a stack's region lies on, which the call takes in the
+  // lifetime's place, as its own level opens on it in turn; a chain lies on
+  // none, so a call given a chain's lifetime has nothing outside the region
+  // to take, and nor has one given a room carved from either.
+  Value base = lifetimes::baseOf(lifetime);
+  for (OpOperand &operand : site->getOpOperands()) {
+    if (!ofLifetime(operand.get()))
+      continue;
+    if (!base || !lifetimes::passesAs(base.getType(), operand.get().getType()))
+      return site.emitOpError("internal error: idr-frames: a call on its function's cycle takes ")
+             << operand.get().getType()
+             << " of the lifetime split around it, which nothing outside the region stands for";
+    rewriter.modifyOpInPlace(site, [&] { operand.set(base); });
+  }
   // What the rest of the region reads that the region made before the
   // call: what lives in the lifetime goes into the package, the rest out
   // of the region beside it; the call's operands go out too.
   Operation *afterSite = site->getNextNode();
   llvm::SetVector<Value> restReads = liveIns(afterSite);
-  llvm::SmallVector<Value> scoped, plain, outside;
+  llvm::SmallVector<Value> scoped, plain, outside, reopenedAs;
   for (Value value : restReads) {
-    // The call's results are the rest's first parameters; the lifetime is
-    // reopened fresh.
-    if (value == lifetime || llvm::is_contained(site->getResults(), value))
+    // The call's results are the rest's first parameters.
+    if (llvm::is_contained(site->getResults(), value))
       continue;
+    // The lifetime, and a view of it, is the reopened lifetime in the rest;
+    // a room carved before the call is memory the rest cannot name.
+    if (ofLifetime(value)) {
+      if (!lifetimes::passesAs(lifetime.getType(), value.getType()))
+        return site.emitOpError("internal error: idr-frames: the rest of a region split around a "
+                                "call on its function's cycle reads ")
+               << value.getType() << " carved from its lifetime before the call";
+      reopenedAs.push_back(value);
+      continue;
+    }
     bool fromRegion = value.getParentRegion() == inside->getParent();
     if (!fromRegion)
       outside.push_back(value);
@@ -536,9 +567,11 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   for (Value result : opener->getResults())
     if (Value stated = lifetimes::statedLifetime(result); stated && !outerLifetime)
       outerLifetime = stated;
-  if (outerLifetime && !llvm::is_contained(outside, outerLifetime) &&
-      !llvm::is_contained(passedOuter, outerLifetime))
-    outside.push_back(outerLifetime);
+  // It and the cursor a stack's package goes back to, which the unpack
+  // names, reach the rest's function as what it reads from outside.
+  for (Value named : {outerLifetime, base})
+    if (named && !llvm::is_contained(outside, named) && !llvm::is_contained(passedOuter, named))
+      outside.push_back(named);
   llvm::SmallVector<Type> inputs(site.getResultTypes());
   inputs.push_back(package);
   for (Value value : carried)
@@ -563,9 +596,10 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   auto outsideArgs = argsOf(outside.size());
   auto outerArgs = argsOf(passedOuter.size());
 
-  // The unpack, the region's rest inside it.
+  // The unpack, the region's rest inside it. The values from outside it
+  // names become the function's own below, with every other.
   rewriter.setInsertionPointToEnd(entry);
-  auto unpack = LifetimeUnpackOp::create(rewriter, loc, opener->getResultTypes(), pkgArg,
+  auto unpack = LifetimeUnpackOp::create(rewriter, loc, opener->getResultTypes(), pkgArg, base,
                                          outerLifetime);
   Block *reopened = rewriter.createBlock(&unpack.getBody());
   BlockArgument fresh = reopened->addArgument(lifetime.getType(), loc);
@@ -593,7 +627,8 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
   auto within = [&](OpOperand &use) { return fn->isProperAncestor(use.getOwner()); };
   for (auto [value, arg] : llvm::zip_equal(site.getResults(), results))
     rewriter.replaceUsesWithIf(value, arg, within);
-  rewriter.replaceUsesWithIf(lifetime, fresh, within);
+  for (Value value : reopenedAs)
+    rewriter.replaceUsesWithIf(value, fresh, within);
   for (auto [value, arg] : llvm::zip_equal(scoped, restated))
     rewriter.replaceUsesWithIf(value, arg, within);
   for (auto [value, arg] : llvm::zip_equal(carried, carriedArgs))
@@ -604,11 +639,6 @@ LogicalResult Component::split(FuncOp owner, unsigned row, CallOp site, Operatio
     rewriter.replaceUsesWithIf(value, arg, within);
   for (auto [value, arg] : llvm::zip_equal(opener->getResults(), unpack.getResults()))
     rewriter.replaceUsesWithIf(value, arg, within);
-  if (outerLifetime)
-    rewriter.replaceUsesWithIf(
-        outerLifetime,
-        outsideArgs[static_cast<unsigned>(llvm::find(outside, outerLifetime) - outside.begin())],
-        within);
 
   // In the function the call stays in: the region ends at the pack, the
   // opener gives what it yields, then the call and the tail call of its
@@ -902,9 +932,10 @@ struct Rest {
 };
 
 // The resume of row `row`: the value and the stack awaiting it; its match
-// has a case for the base frame, which writes the value into the answer,
-// and one for each kind of frame awaiting the row, which runs its rest on
-// the value, what it holds and the stack below.
+// has a case for the base frame, which writes the row's values, as its
+// answer, through the destination of the slot the base frame holds, and
+// one for each kind of frame awaiting the row, which runs its rest on the
+// value, what it holds and the stack below.
 void fillResume(RewriterBase &rewriter, FuncOp resume, unsigned row, const FramesFamily &family,
                 llvm::ArrayRef<FrameKind> kinds, llvm::ArrayRef<Rest> rests) {
   Block *entry = &resume.getBody().front();
@@ -923,8 +954,8 @@ void fillResume(RewriterBase &rewriter, FuncOp resume, unsigned row, const Frame
     Block *block = rewriter.createBlock(&region, region.end(), {refined}, {loc});
     auto parts = CountUnpackOp::create(rewriter, loc, block->getArgument(0)).getFields();
     if (tag == family.base(row)) {
-      for (auto [dest, value] : llvm::zip_equal(parts, values))
-        DestWriteOp::create(rewriter, loc, dest, value);
+      Value answer = DataConOp::create(rewriter, loc, family.answers[row], values).getResult();
+      DestWriteOp::create(rewriter, loc, parts.front(), answer);
     } else {
       const Rest &rest = rests[static_cast<unsigned>(tag) - family.rows];
       llvm::SmallVector<Value> args(values);
@@ -938,10 +969,11 @@ void fillResume(RewriterBase &rewriter, FuncOp resume, unsigned row, const Frame
 }
 
 // The function of the program, as it is called from outside the
-// component: an answer cell on its own frame, the base frame holding the
-// destinations of its fields, its run on that stack, the answer read back.
-void fillWrapper(RewriterBase &rewriter, FuncOp wrapper, FuncOp run, unsigned row,
-                 const FramesFamily &family) {
+// component: its answer slot, whose destination the base frame holds, the
+// run called on that stack inside it, and the answer, the row's values in
+// place, taken apart into the results when the slot's region ends.
+LogicalResult fillWrapper(RewriterBase &rewriter, FuncOp wrapper, FuncOp run, unsigned row,
+                          const FramesFamily &family) {
   MLIRContext *ctx = wrapper.getContext();
   Location loc = wrapper.getLoc();
   Block *entry = new Block();
@@ -949,34 +981,35 @@ void fillWrapper(RewriterBase &rewriter, FuncOp wrapper, FuncOp run, unsigned ro
   for (Type input : wrapper.getArgumentTypes())
     entry->addArgument(input, loc);
   rewriter.setInsertionPointToEnd(entry);
-  unsigned count = static_cast<unsigned>(wrapper.getNumResults());
-  Value box;
-  llvm::SmallVector<Value> dests;
-  if (count > 0) {
-    Value activation = ActivationOp::create(rewriter, loc).getResult();
-    Value cell =
-        CellStackOp::create(rewriter, loc, CellType::get(ctx, family.answers[row]), activation)
-            .getResult();
-    llvm::SmallVector<int32_t> holes;
-    for (unsigned field = 0; field < count; ++field)
-      holes.push_back(static_cast<int32_t>(field));
-    auto init = CellInitOp::create(rewriter, loc, cell, ValueRange(), holes);
-    box = init.getResult();
-    for (unsigned field = 0; field < count; ++field)
-      dests.push_back(init.getDest(field));
-  }
+  DataType answers = family.answers[row];
+  auto slot = DestAnswerOp::create(rewriter, loc, answers);
+  Block *body = rewriter.createBlock(&slot.getBody(), slot.getBody().end(),
+                                     {DestType::get(ctx, answers)}, {loc});
   DataType base = family.stacks[row].refined({family.base(row)});
-  Value stack = DataConOp::create(rewriter, loc, base, dests).getResult();
+  Value stack = DataConOp::create(rewriter, loc, base, body->getArgument(0)).getResult();
   llvm::SmallVector<Value> args(entry->getArguments());
   args.push_back(stack);
   auto binder = cast<ErasedBinderOpInterface>(wrapper.getOperation());
   auto own = static_cast<uint32_t>(binder.getBoundSorts(wrapper.getBody()).size());
   CallOp::create(rewriter, loc, run, families::levelArgs(ctx, 0, own), TypeRange(), args,
                  TailKind::nontail);
-  llvm::SmallVector<Value> answer;
-  for (unsigned field = 0; field < count; ++field)
-    answer.push_back(DataFieldOp::create(rewriter, loc, box, field).getResult());
-  ReturnOp::create(rewriter, loc, answer);
+  YieldOp::create(rewriter, loc, ValueRange());
+
+  // The slot keeps what a destination keeps: the carrier, used freely. A
+  // result declared used once takes it into that position; a claim of its
+  // sharing the slot cannot give back.
+  rewriter.setInsertionPointAfter(slot);
+  auto fields = CountUnpackOp::create(rewriter, loc, slot.getResult()).getFields();
+  llvm::SmallVector<Value> results;
+  for (auto [field, declared] : llvm::zip_equal(fields, wrapper.getResultTypes())) {
+    if (atUses(field.getType(), usesOf(declared)) != declared)
+      return wrapper.emitOpError("internal error: idr-frames: the answer slot gives ")
+             << field.getType() << " where the function gives " << declared
+             << ", whose claim of its sharing a destination does not keep";
+    results.push_back(heldAs(rewriter, loc, field, declared));
+  }
+  ReturnOp::create(rewriter, loc, results);
+  return success();
 }
 
 // A function beside `like` with its facts, named `name`, of type `type`,
@@ -1096,7 +1129,8 @@ struct Frames : impl::IdrFramesBase<Frames> {
       for (unsigned row = 0; row < family.rows; ++row)
         fillResume(rewriter, resumes[row], row, family, kinds, rests);
       for (unsigned m = 0; m < component.members; ++m)
-        fillWrapper(rewriter, wrappers[m], runs[m], component.functions[m].row, family);
+        if (failed(fillWrapper(rewriter, wrappers[m], runs[m], component.functions[m].row, family)))
+          return signalPassFailure();
 
       llvm::append_range(made, runs);
       llvm::append_range(made, resumes);
