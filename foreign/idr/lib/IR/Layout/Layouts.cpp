@@ -242,10 +242,13 @@ layout::CellLayout Layouts::cellsOf(DataType type, const FieldTypes &fields) con
 }
 
 // Each field a `unique self` claim reaches (fieldReach of its declared
-// type), where its type at this application has cells or slots of its
-// family, is walked as that type; a number's word, a frame stack and every
-// field the claim does not reach are dropped by their counts. A
-// constructor the type is not laid out over has no value to drop.
+// type) is freed with no count read, since the claim already says it is
+// unshared: a field of the value's group or of an in_place family, where
+// its type at this application has cells or slots of its family, walked as
+// that type; a buffer, where its elements hold no reference, its storage
+// freed. A number's word, a frame stack and every field the claim does not
+// reach are dropped by their counts. A constructor the type is not laid
+// out over has no value to drop.
 layout::OwnCells Layouts::ownCellsOf(DataType type, const FieldTypes &fields) const {
   layout::OwnCells out;
   out.fields.resize(type.declaredCount());
@@ -253,18 +256,39 @@ layout::OwnCells Layouts::ownCellsOf(DataType type, const FieldTypes &fields) co
     auto t = static_cast<uint32_t>(tag);
     SmallVector<layout::SelfDrop> &drops = out.fields[t];
     for (auto [declared, field] : llvm::zip_equal(type.ctor(tag).fields, fields[t])) {
-      if (fieldReach(declared) == FieldReach::Other) {
-        drops.push_back(layout::ByCount{});
-        continue;
+      switch (fieldReach(declared)) {
+      case FieldReach::OwnFamily:
+      case FieldReach::InPlaceFamily: {
+        // Of the value's own group, which its type at the application
+        // makes a data type, or of an in_place family: a data type either
+        // way.
+        auto data = cast<DataType>(unrestricted(field));
+        if (data.layout() == Layout::Cell || data.layout() == Layout::InPlace)
+          drops.push_back(layout::OwnCell{data});
+        else
+          drops.push_back(layout::ByCount{});
+        break;
       }
-      // A field the claim reaches is of the value's own group, which its
-      // type at the application makes a data type, or of an in_place
-      // family: a data type either way.
-      auto data = cast<DataType>(unrestricted(field));
-      if (data.layout() == Layout::Cell || data.layout() == Layout::InPlace)
-        drops.push_back(layout::OwnCell{data});
-      else
+      case FieldReach::HeldBuffer: {
+        // The claim covers the buffer's storage and never its elements,
+        // which keep their counts. Where an element holds no reference
+        // (its layout has no object slot) the storage is all there is to
+        // free. Where one does, the release that drops the elements by
+        // their counts and frees the storage reading none of its own is
+        // the runtime's alone, with no entry the lowering can call, so the
+        // buffer is dropped by its count.
+        Type held = cast<MemRefType>(unrestricted(field)).getElementType();
+        if (llvm::any_of(element(held).slots,
+                         [](const layout::Slot &slot) { return slot.counted(); }))
+          drops.push_back(layout::ByCount{});
+        else
+          drops.push_back(layout::OwnStorage{});
+        break;
+      }
+      case FieldReach::Other:
         drops.push_back(layout::ByCount{});
+        break;
+      }
     }
   }
   return out;

@@ -48,9 +48,12 @@ data Reach = Bounded | Unbounded
 
 ||| Whether the cells a member's `unique self` claim covers (its own, and
 ||| those of every member a field of its group or of an `in_place` family
-||| names) hold a buffer, read off the declaration: a type rebuilt in place
-||| whose own cells hold one claims everything it reaches unshared by its
-||| promise, since only a buffer no one else holds is written in place.
+||| names) hold a buffer, read off the declaration. The promise asks the
+||| same of every type rebuilt in place, its own cells unshared, which
+||| covers a held buffer's storage; what a buffer changes is where it binds: a
+||| buffer is written in place wherever its value is, not only where a cell
+||| is rebuilt, so a value whose own cells hold one carries the promise by
+||| construction, and a parameter of quantity 1 is owed it at the boundary.
 public export
 data Buffers = NoBuffer | HoldsBuffer
 

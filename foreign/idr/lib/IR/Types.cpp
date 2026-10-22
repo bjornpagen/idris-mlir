@@ -215,14 +215,13 @@ std::optional<ListShape> DataType::listShape() const {
 Promise DataType::promise() const { return getGroup().promise(getImpl()->member); }
 
 // What a value of a type rebuilt in place claims by its promise: its own
-// cells unshared, and everything it reaches where one of them holds a
-// buffer, since only a buffer no one else holds is written in place. A type
-// with no promise claims nothing by it.
+// cells unshared, whatever they hold. A claim on its own cells reaches the
+// storage of every buffer one of them holds (fieldReach) and never the
+// buffer's elements, so it is all a buffer written in place needs: a
+// linear array of shared values keeps its promise, which a claim on what
+// it reaches would refuse. A type with no promise claims nothing by it.
 Unique DataType::promisedClaim() const {
-  if (promise() != Promise::InPlace)
-    return Unique::None;
-  return getGroup().ownBuffers(getImpl()->member) == Buffers::HoldsBuffer ? Unique::Deep
-                                                                          : Unique::Self;
+  return promise() == Promise::InPlace ? Unique::Self : Unique::None;
 }
 
 FlatSymbolRefAttr DataType::labelFunction(Tag tag) const {

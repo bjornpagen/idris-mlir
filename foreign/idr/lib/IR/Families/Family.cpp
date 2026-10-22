@@ -277,14 +277,16 @@ idr::detail::FamilyAttrStorage::construct(AttributeStorageAllocator &allocator, 
     f.refsAtUnknown = holds ? Refs::References : Refs::Words;
     f.reachAtUnknown = reach;
   }
-  // The members whose cells a `unique self` claim covers: the member, then
-  // through every field the claim reaches (fieldReach: a field of this
-  // group, named by position, or of an in_place family of another group,
-  // which exists already) each member it names, through this group's
-  // members here and through another group's own answer, which its storage
-  // computed when it was made.
+  // The members whose cells a `unique self` claim covers, and whether one
+  // of those cells holds a buffer, in one walk over the fields the claim
+  // reaches (fieldReach): the member, then each member a field names, a
+  // field of this group by position, or of an in_place family of another
+  // group, which exists already and answers both for its own cells, as its
+  // storage computed when it was made. A buffer is no member's cell, so it
+  // adds none; the claim covers its storage alone.
   for (auto [index, member] : llvm::enumerate(storage->members)) {
     SmallVector<MemberRef> covered{{Attribute(), static_cast<uint32_t>(index)}};
+    Buffers buffers = Buffers::NoBuffer;
     for (size_t at = 0; at < covered.size(); ++at) {
       if (covered[at].group)
         continue;
@@ -302,8 +304,13 @@ idr::detail::FamilyAttrStorage::construct(AttributeStorageAllocator &allocator, 
             for (MemberRef other : data.selfCells())
               reached.push_back(
                   {other.group ? other.group : Attribute(data.getGroup()), other.member});
+            if (data.getGroup().ownBuffers(data.getMember()) == Buffers::HoldsBuffer)
+              buffers = Buffers::HoldsBuffer;
             break;
           }
+          case FieldReach::HeldBuffer:
+            buffers = Buffers::HoldsBuffer;
+            break;
           case FieldReach::Other:
             break;
           }
@@ -313,22 +320,8 @@ idr::detail::FamilyAttrStorage::construct(AttributeStorageAllocator &allocator, 
         }
     }
     facts[index].selfCells = allocator.copyInto(ArrayRef<MemberRef>(covered));
+    facts[index].buffers = buffers;
   }
-  // Whether an own cell holds a buffer: a field of a member of this group
-  // the claim covers is one, or a member of another group it covers says
-  // its own cells hold one, as that group's storage computed.
-  for (MemberFacts &f : facts)
-    for (MemberRef covered : f.selfCells) {
-      if (covered.group) {
-        if (cast<FamilyAttr>(covered.group).ownBuffers(covered.member) == Buffers::HoldsBuffer)
-          f.buffers = Buffers::HoldsBuffer;
-        continue;
-      }
-      for (const CtorView &ctor :
-           ctorsOf(storage->members[covered.member], facts[covered.member].states))
-        if (llvm::any_of(ctor.fields, [](Type field) { return isa<MemRefType>(valueOf(field)); }))
-          f.buffers = Buffers::HoldsBuffer;
-    }
   // Whether a value of the group can reach a closure or a suspension: a
   // field of any member's constructor or state names one, itself or through
   // a family of another group, which answered when it was made.

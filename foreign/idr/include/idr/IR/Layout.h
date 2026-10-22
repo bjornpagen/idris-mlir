@@ -196,13 +196,17 @@ struct SumLayout {
 // field whose own cells the claim covers (a field of the value's own group,
 // or of an in_place family) and that has cells or slots of its family is
 // freed with no count read, walked as its data type, whose own fields the
-// drop reads next; any other field holds data the claim says nothing of,
-// dropped by its counts.
+// drop reads next. A buffer the value holds, whose storage the claim covers,
+// is freed with no count read where its elements hold no reference: its
+// cell, the first word of its descriptor, is freed as a reuse token is,
+// and nothing in it is released. Any other field, a buffer whose elements
+// hold references among them, is dropped by its counts.
 struct OwnCell {
   DataType data;
 };
+struct OwnStorage {};
 struct ByCount {};
-using SelfDrop = std::variant<OwnCell, ByCount>;
+using SelfDrop = std::variant<OwnCell, OwnStorage, ByCount>;
 
 // For each declared constructor, by tag, how a drop of a `unique self`
 // value frees each of its fields.

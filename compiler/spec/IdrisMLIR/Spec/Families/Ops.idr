@@ -81,8 +81,12 @@ statedIn k =
 ||| cell) is a fresh identity, never merged. Its cell is new, so its value
 ||| is shared only through what its fields hold: `freshClaim` is the most a
 ||| constructor of those fields claims, `unique deep` where each field leaves
-||| everything it reaches unshared, and the builder from a carrier gives the
-||| result that claim.
+||| everything it reaches unshared, `unique self` where each field its claim
+||| on its own cells reaches (a field of its group or of an `in_place`
+||| family, and a buffer it holds, whose storage that claim covers) claims
+||| its own cells unshared, so a cell holding a shared buffer claims neither;
+||| each is read off the grade's table of field reads, not restated here.
+||| The builder from a carrier gives the result that claim.
 |||
 ||| It takes over each field that owns its count, so moving it where it
 ||| would not have run would give that field up on a path that keeps it: it
