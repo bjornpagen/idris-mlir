@@ -50,8 +50,7 @@
 // The solve's work is what its waves read: each class taken, each edge,
 // each dispatch, and each label a union, an interning or a dispatch's new
 // labels read. Its points, sinks, statements, sets, union-find, waves'
-// tables and the solution's tables are the footprint's; the reading's two
-// sets of the constants it has expanded take no allocator.
+// tables and the solution's tables are the footprint's.
 #ifndef IDR_ANALYSIS_LABELS_H
 #define IDR_ANALYSIS_LABELS_H
 
