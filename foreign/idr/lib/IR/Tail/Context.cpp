@@ -106,7 +106,8 @@ std::variant<std::monostate, Moved, Read> movesOf(OpOperand &use) {
     idr::match(edge.move, readFlow, [](const FlowEdges::Unify &) {},
                [](const FlowEdges::Source &) {}, [](const FlowEdges::Fresh &) {},
                [](const FlowEdges::Release &) {}, [](const FlowEdges::Overwrite &) {},
-               [](const FlowEdges::Constant &) {}, [](const FlowEdges::Dispatch &) {});
+               [](const FlowEdges::Fill &) {}, [](const FlowEdges::Constant &) {},
+               [](const FlowEdges::Dispatch &) {});
   if (moved)
     return *moved;
   if (read)
