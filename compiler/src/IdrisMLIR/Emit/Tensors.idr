@@ -112,12 +112,21 @@ atAxis a xs = case splitAt a xs of
   (_, []) => Nothing
 
 ||| An operation's own axis of an array, with its dimensions before and
-||| after it, each with its axis: the one place an operation's axis is
-||| looked up, an axis past the rank the frontend's error.
+||| after it, each with its axis: the one place an extent's or a
+||| reduction's axis is looked up, an axis past the rank the frontend's
+||| error.
 ownAxis : String -> Nat -> List Dim -> E (List (Nat, Dim), (Nat, Dim), List (Nat, Dim))
 ownAxis what a ds = case atAxis a (withAxes ds) of
   Just split => pure split
   Nothing => internal (what ++ " along axis " ++ show a ++ " of an array of rank " ++ show (length ds))
+
+||| A transpose's axis of an array and the one after it, which it swaps,
+||| with the dimensions before and after the two, each with its axis: one
+||| lookup for both, an axis past the last but one the frontend's error.
+swappedAxes : Nat -> List Dim -> E (List (Nat, Dim), (Nat, Dim), (Nat, Dim), List (Nat, Dim))
+swappedAxes a ds = case splitAt a (withAxes ds) of
+  (before, x :: y :: after) => pure (before, x, y, after)
+  _ => internal ("a transpose of axis " ++ show a ++ " of an array of rank " ++ show (length ds))
 
 ||| An operation's own axis of its array and of its result, of one rank:
 ||| the array's dimensions before and after it, each with its axis, the
@@ -232,9 +241,13 @@ region l args body = do
   pure (MkRegion (map (\a => MkArgument a (At l)) args)
                  (ops ++ maybe [] (\vs => [MkStatement Nothing (Idr.arrayYieldOp vs) (At l)]) yielded))
 
+||| A fresh `index` value: the coordinate a region binds along one axis.
+freshIndex : E Value
+freshIndex = (\n => MkValue (Bound n 0) IndexType) <$> fresh
+
 ||| Fresh `index` values, one per axis: the coordinates a region binds.
 indices : (k : Nat) -> E (Vect k Value)
-indices k = traverse (\_ => (\n => MkValue (Bound n 0) IndexType) <$> fresh) (replicate k ())
+indices k = traverse (\_ => freshIndex) (replicate k ())
 
 ||| The sizes of the leading dimensions `ds` that are dynamic, from the
 ||| extents given, each guarded as an allocation's: a static one is the
@@ -389,11 +402,13 @@ tensorOp ix l binder rt (Concat a x y) = do
     -- extent.
     HoldsReferences => do
       m <- sizeValue l !(sizeAt l xv xown)
-      ivs <- indices (length rds)
-      reg <- region l (toList ivs) $ do
-        let cs = toList ivs
-        let Just iv = getAt a cs
-          | Nothing => internal ("a join along axis " ++ show a ++ " of an array of rank " ++ show (length cs))
+      -- The result's coordinates, split at the axis as its dimensions
+      -- are, so the coordinate along the axis is at hand.
+      lead <- indices (length before)
+      iv <- freshIndex
+      trail <- indices (length after)
+      let cs = toList lead ++ iv :: toList trail
+      reg <- region l cs $ do
         below <- mlirValue l (IntegerType 1) (Arith.cmpiOp CmpIPredicate.Ult iv m)
         -- Each arm reads in its own region, and only there. The choice is
         -- a condition, upstream's `scf.if`: no Idris value is matched.
@@ -402,7 +417,7 @@ tensorOp ix l binder rt (Concat a x y) = do
           given ix l el e
         (fromY, yops) <- collect $ do
           j <- mlirValue l IndexType (Arith.subiOp {overflowFlags = noWrap} iv m)
-          e <- readAt ix l Nothing el y (replaceAt a j cs)
+          e <- readAt ix l Nothing el y (toList lead ++ j :: toList trail)
           given ix l el e
         r <- mlirValue l (mlirType ix el) (\t => SCF.ifOp below
                (MkRegion [] (xops ++ [MkStatement Nothing (SCF.yieldOp [fromX]) (At l)]))
@@ -410,11 +425,6 @@ tensorOp ix l binder rt (Concat a x y) = do
         pure (Just [r])
       dest <- mlirValue l (mlirType ix joined) (Tensor.emptyOp (fst (mixed sizes)))
       fitted {binder} ix l (Just rt) joined (\t => Idr.arrayTabulateOp dest reg [t])
-  where
-    replaceAt : Nat -> Value -> List Value -> List Value
-    replaceAt Z v (_ :: cs) = v :: cs
-    replaceAt (S k) v (c :: cs) = c :: replaceAt k v cs
-    replaceAt _ _ [] = []
 -- A transpose of words is upstream's `linalg.transpose` into a fresh
 -- destination, its permutation given once; of elements that hold
 -- references it is a tabulation reading at the swapped coordinates, since
@@ -422,10 +432,7 @@ tensorOp ix l binder rt (Concat a x y) = do
 tensorOp ix l binder rt (Transpose a x) = do
   xv <- plainOperand ix l x
   ds <- dimsOf x
-  (before, (_, da), after) <- ownAxis "a transpose" a ds
-  ((_, db), rest) <- the (E ((Nat, Dim), List (Nat, Dim))) $ case after of
-    next :: rest => pure (next, rest)
-    [] => internal ("a transpose of axis " ++ show a ++ " of an array of rank " ++ show (length ds))
+  (before, (_, da), (_, db), rest) <- swappedAxes a ds
   let perm = map fst before ++ S a :: a :: map fst rest
       swappedDims = map snd before ++ db :: da :: map snd rest
       swapped = TensorT swappedDims (elementOf x.type)
@@ -435,19 +442,17 @@ tensorOp ix l binder rt (Transpose a x) = do
       dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
       fitted {binder} ix l (Just rt) swapped (\t => Linalg.transposeOp xv dest (map cast perm) [t])
     HoldsReferences => do
-      ivs <- indices (length perm)
-      reg <- region l (toList ivs) $ do
-        e <- readAt ix l Nothing (elementOf x.type) x (swapAt a (toList ivs))
+      -- The result's coordinates, split at the two axes the transpose
+      -- swaps; `x` is read at them swapped back.
+      lead <- indices (length before)
+      ia <- freshIndex
+      ib <- freshIndex
+      trail <- indices (length rest)
+      reg <- region l (toList lead ++ ia :: ib :: toList trail) $ do
+        e <- readAt ix l Nothing (elementOf x.type) x (toList lead ++ ib :: ia :: toList trail)
         pure (Just [!(given ix l (elementOf x.type) e)])
       dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
       fitted {binder} ix l (Just rt) swapped (\t => Idr.arrayTabulateOp dest reg [t])
-  where
-    -- The coordinates of `x` a result's coordinates read: the transpose
-    -- swaps axis `j` with the one after it, and so does reading back.
-    swapAt : Nat -> List Value -> List Value
-    swapAt Z (c :: d :: cs) = d :: c :: cs
-    swapAt (S j) (c :: cs) = c :: swapAt j cs
-    swapAt _ cs = cs
 tensorOp ix l binder rt (Reshape x extents) = do
   xv <- plainOperand ix l x
   ds <- dimsOf x

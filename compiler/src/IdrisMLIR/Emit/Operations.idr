@@ -150,21 +150,27 @@ specOp op vs ts = specGuarded op.guards vs (\ws => MkOp (specName op) (toList ws
 -- Writing ops
 ------------------------------------------------------------------------------
 
-||| A total op where it stands, at `at`, and its statement's number, which
-||| its results are bound at (`Bound`); an op of no results binds none.
+||| A total op that gives no values, where it stands, at `at`: it binds
+||| none.
 export
-placed : Location -> Op -> E (Maybe Nat)
-placed at o = case o.results of
-  [] => Nothing <$ append (MkStatement Nothing o at)
-  _ :: _ => do
-    r <- fresh
-    append (MkStatement (Just r) o at)
-    pure (Just r)
+placed : Location -> Op -> E ()
+placed at o = append (MkStatement Nothing o at)
 
-||| The op of a guarded builder where it stands, after its guards, and its
-||| statement's number.
+||| A total op that gives values, where it stands, at `at`, and its
+||| statement's number, which its results are bound at (`Bound`). Whether
+||| an op gives values is its builder's, from the specification, so the
+||| caller that names the op chooses this or `placed` and nothing asks.
 export
-place : Loc -> Guarded -> E (Maybe Nat)
+numbered : Location -> Op -> E Nat
+numbered at o = do
+  r <- fresh
+  append (MkStatement (Just r) o at)
+  pure r
+
+||| The op of a guarded builder that gives no values, where it stands,
+||| after its guards.
+export
+place : Loc -> Guarded -> E ()
 place l g = placed (At l) !(checked l g)
 
 ||| A total op with one result, of type `t`, at `at`.
@@ -214,7 +220,7 @@ guardedValue ix l t build = do
 ||| A total op without results.
 export
 statement : Loc -> Op -> E ()
-statement l o = ignore (placed (At l) o)
+statement l o = placed (At l) o
 
 ||| A value where the module expects it used as `use`, the variable
 ||| `binder` bound to it: a value used once where one used many times is
@@ -516,8 +522,7 @@ effect binder ix l a gives vs res = do
     written : Gives n -> (List MlirType -> Guarded) -> E (Maybe (Acted n))
     written GivesNone build = Just ActedNone <$ place l (build [])
     written GivesOne build = do
-      Just r <- place l (build [givenType])
-        | Nothing => internal "an IO op that gives a value wrote none"
+      r <- numbered (At l) !(checked l (build [givenType]))
       pure (Just (ActedOne (Bound r 0)))
 
     -- A value an action gives, made by a total op.

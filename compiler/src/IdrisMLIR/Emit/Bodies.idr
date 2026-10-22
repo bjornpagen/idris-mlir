@@ -206,7 +206,7 @@ match ix l w build cases fallback =
     -- nothing after it runs: its region ends in `ub.unreachable`.
     never : E (Maybe Val)
     never = do
-      ignore (placed (At l) (build cases (maybe NoBlocks (\a => MkRegion a.arguments a.statements) fallback) []))
+      placed (At l) (build cases (maybe NoBlocks (\a => MkRegion a.arguments a.statements) fallback) [])
       statement l UB.unreachableOp
       pure Nothing
 
@@ -450,12 +450,13 @@ alg ix (CallF l fn stands is as) sc w = do
       args = map (operand ix) (present vs)
       indexArgs = Just (IdrHand (ArgsOf (map (termNodes ix) is)))
       callee = SymbolRefAttr (MkSymbolRef f.symbol [])
-  case resultTypes ix rt of
-    [] => do
-      ignore (placed (madeAtPlace Nothing (placeOf stands l) Many) (Idr.callOp {index_args' = indexArgs} callee NonTail args []))
+  -- A call gives what its result type is: Idris's world, which is no value
+  -- of the module, or one value.
+  case rt of
+    WorldT => do
+      placed (madeAtPlace Nothing (placeOf stands l) Many) (Idr.callOp {index_args' = indexArgs} callee NonTail args [])
       pure (Just worldVal)
-    [r] => Just <$> fitted {binder = w.binder} {stands} ix l w.type rt (\t => Idr.callOp {index_args' = indexArgs} callee NonTail args [t])
-    _ => internal ("a call of " ++ f.symbol ++ " giving more than one value")
+    _ => Just <$> fitted {binder = w.binder} {stands} ix l w.type rt (\t => Idr.callOp {index_args' = indexArgs} callee NonTail args [t])
 -- A constructor's fields are checked at their types with its binders
 -- given.
 alg ix (ConAppF l c bs as) sc w = do
@@ -492,12 +493,12 @@ alg ix (LetF l name b v body) sc w = case b of
 -- value the region binds.
 alg ix (CaseF l x arms) sc w = do
   let scrut = standing (sc.vars x)
-  DataT _ _ <- pure scrut.type
+  DataT f _ <- pure scrut.type
     | t => internal ("a match on a value of type " ++ show t)
   (cases, fallback) <- the (E (List Case, Maybe Arm)) $ case arms of
     Defaulted alts d => do
       cs <- traverse (alternative scrut) alts
-      pure (cs, Just !(defaultArm scrut (map (.tag) cs) d))
+      pure (cs, Just !(defaultArm scrut f (map (.tag) cs) d))
     Exhaustive alts => do
       cs <- traverse (alternative scrut) (forget alts)
       pure (cs, Nothing)
@@ -524,13 +525,12 @@ alg ix (CaseF l x arms) sc w = do
         vals <- caseFields ix l r (\i => names i 1 body.term) bs
         plain ix l (body.result (bind vals inner) ({ binder := Nothing } w))
       pure (MkCase c.tag (MkArm [arg] res ops))
-    -- The default binds the scrutinee refined to the constructors no case
-    -- takes; none is left only when Idris proved the cases cover it, which
-    -- is `Exhaustive`, so a default here has at least one.
-    defaultArm : Val -> List Nat -> Sub Em nv -> E Arm
-    defaultArm scrut taken d = do
-      DataT f _ <- pure scrut.type
-        | t => internal ("a match on a value of type " ++ show t)
+    -- The default binds the scrutinee refined to the constructors of its
+    -- family `f` no case takes; none is left only when Idris proved the
+    -- cases cover it, which is `Exhaustive`, so a default here has at
+    -- least one.
+    defaultArm : Val -> FamilyId -> List Nat -> Sub Em nv -> E Arm
+    defaultArm scrut f taken d = do
       (back, arg) <- case untaken ix f taken of
         t :: ts => refinedArg scrut (t ::: ts)
         [] => do
@@ -740,8 +740,7 @@ alg ix (ReadBackF l e x cs body) sc w = do
   Just coords <- operands ix l sc (unslotted cs)
     | Nothing => pure Nothing
   ixs <- traverse (coordinate ix l) coords
-  Just n <- placed (At l) (Idr.arrayReadOp (operand ix xv) ixs)
-    | Nothing => internal "a linear array's read gives nothing"
+  n <- numbered (At l) (Idr.arrayReadOp (operand ix xv) ixs)
   body.result (bind [Whole (val (Bound n 0) e Many made), Whole ({ name := Bound n 1 } xv)] sc) w
 -- Each extent of the array a linear array's cell holds gives the array
 -- back as a new value, threaded from one read to the next; the body binds
@@ -755,8 +754,7 @@ alg ix (ExtentsBackF {k} l x body) sc w = do
     readExtents : (j : Nat) -> Nat -> Val -> E (Vect j InScope, Val)
     readExtents Z a arr = pure ([], arr)
     readExtents (S j) a arr = do
-      Just n <- placed (At l) (Idr.arrayExtentOp (IntegerAttr (natToInteger a) (IntegerType 64)) (operand ix arr)
-                                 (gradedType ix Many made (NatT IOpaque)) (operand ix arr).type)
-        | Nothing => internal "a linear array's extent gives nothing"
+      n <- numbered (At l) (Idr.arrayExtentOp (IntegerAttr (natToInteger a) (IntegerType 64)) (operand ix arr)
+                              (gradedType ix Many made (NatT IOpaque)) (operand ix arr).type)
       (rest, final) <- readExtents j (S a) ({ name := Bound n 1 } arr)
       pure (Whole (val (Bound n 0) (NatT IOpaque) Many made) :: rest, final)
