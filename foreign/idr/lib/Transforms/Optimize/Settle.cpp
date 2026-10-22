@@ -85,14 +85,9 @@ template <> struct llvm::GraphTraits<const idr::optimize::WaitGraph *> {
   static ChildIteratorType child_end(NodeRef n) {
     return {n.graph->edges[n.node].end(), idr::optimize::ToWaitNode{n.graph}};
   }
-};
-
-template <> struct llvm::DenseMapInfo<idr::optimize::WaitNode> {
-  using NodeRef = idr::optimize::WaitNode;
-  static NodeRef getEmptyKey() { return {nullptr, ~0u}; }
-  static NodeRef getTombstoneKey() { return {nullptr, ~0u - 1}; }
-  static unsigned getHashValue(const NodeRef &n) { return n.node; }
-  static bool isEqual(const NodeRef &a, const NodeRef &b) { return a.node == b.node; }
+  // A node is already its index, so the patched scc_iterator keeps its
+  // visit numbers in a vector indexed by it and no map is keyed by a node.
+  static unsigned getNumber(NodeRef n) { return n.node; }
 };
 
 namespace idr::optimize {

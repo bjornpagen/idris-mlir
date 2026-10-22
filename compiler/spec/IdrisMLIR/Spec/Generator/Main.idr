@@ -180,7 +180,7 @@ main = do
           case stale of
             [] => pure ()
             ps => do
-              report (map (\p => "specgen: differs from the specification: " ++ p) ps)
+              report (map differsLine ps)
               exitWith (ExitFailure 1)
         _ => do
           putStrLn "specgen: write <root> | check <root>"

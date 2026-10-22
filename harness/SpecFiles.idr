@@ -75,18 +75,25 @@ specTree e root dest = do
       [ bounded e ["mkdir", "-p", dirName (dest ++ "/" ++ path)] ToCaller (Apart ToCaller)
       , bounded e ["cp", root ++ "/" ++ path, dest ++ "/" ++ path] ToCaller (Apart ToCaller) ]
 
+||| A path as named from ROOT: one under it without ROOT's lead, any other
+||| whole, so a path outside ROOT is still seen.
+fromRoot : (root, path : String) -> String
+fromRoot root path =
+  let lead = root ++ "/" in
+  if isPrefixOf lead path then pack (drop (length lead) (unpack path)) else path
+
 ||| `spec_check SPECGEN ROOT`: `SPECGEN check ROOT`, which writes nothing;
 ||| its status, and the paths it names as differing from the
 ||| specification, from ROOT, one a line, in the work directory's
-||| spec-named. Anything else it says is in spec-check.out.
+||| spec-named. The generator reads its own lines back, so no wording of
+||| specgen's is restated here. Anything else it says is in spec-check.out.
 export
 specCheck : Env -> (specgen, root : String) -> IO Status
 specCheck e specgen root = do
   let out = inWork e "spec-check.out"
   status <- bounded e [specgen, "check", root] (ToFile out) WithOutput
   said <- lines . fromMaybe "" <$> readIfThere out
-  let differing = "specgen: differs from the specification: " ++ root ++ "/"
-  let named = mapMaybe (\l => if isPrefixOf differing l then Just (pack (drop (length differing) (unpack l))) else Nothing) said
+  let named = map (fromRoot root) (mapMaybe differsNamed said)
   ignore (writeFile (inWork e "spec-named") (concatMap (++ "\n") named))
   pure status
 
@@ -137,8 +144,7 @@ specWritten e specgen root = do
              same <- sameBytes e (root ++ "/" ++ p) (tree ++ "/" ++ p)
              pure (if same then [] else ["  not the committed bytes: " ++ p]))
          written <- filesUnder tree
-         let lead = tree ++ "/"
-         let relative = map (\f => if isPrefixOf lead f then pack (drop (length lead) (unpack f)) else f) written
+         let relative = map (fromRoot tree) written
          let unnamed = [ "  written, and named by no committed manifest: " ++ p
                        | p <- relative, not (isPrefixOf "compiler/spec/" p), p /= specManifest, not (elem p outputs) ]
          case faults ++ unnamed of

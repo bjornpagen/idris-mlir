@@ -43,3 +43,26 @@ manifest spec gen outs =
 export
 manifestPath : Path
 manifestPath = "foreign" ::: ["idr", "generated.manifest"]
+
+-- A check's verdict on a file is a line a person reads and a test of the
+-- check reads back, so its wording is said here once: the test reads a
+-- path with `differsNamed`, never by restating the words.
+differsLead : String
+differsLead = "specgen: differs from the specification: "
+
+||| What a check says of a file whose committed text differs from what would
+||| be written: one line naming its path.
+export
+differsLine : (path : String) -> String
+differsLine path = differsLead ++ path
+
+||| The path a check's line names as differing: `differsLine`'s inverse, and
+||| nothing for any other line the check says.
+export
+differsNamed : String -> Maybe String
+differsNamed line = pack <$> after (unpack differsLead) (unpack line)
+  where
+    after : List Char -> List Char -> Maybe (List Char)
+    after [] rest = Just rest
+    after (_ :: _) [] = Nothing
+    after (c :: cs) (d :: ds) = if c == d then after cs ds else Nothing
