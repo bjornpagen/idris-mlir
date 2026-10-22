@@ -116,7 +116,10 @@ programOp = MkOp
   , attrs =
       [ MkAttr "sym_name" (AnAttribute (UpstreamAttr SymbolNameAttrC) Required)
       , MkAttr "root" (AnAttribute (UpstreamAttr FlatSymbolRefAttrC) Required)
-      , MkAttr "stage" (AProperty (EnumProperty (enumDef stageClosed)))
+      , MkAttr "stage"
+          (AProperty (EnumProperty (imported stageClosed
+             (MkSource ("IdrisMLIR" ::: ["Spec", "Pipeline", "Stage"]) "Stage"
+                       ("IdrisMLIR" ::: ["Spec", "Pipeline", "Stage"]) "stageClosed"))))
       ]
   , regions = [MkRegion "body" OneRegion (Sized 1)]
   , traits = [SymbolTable, IsolatedFromAbove, SingleBlock, NoTerminator, SymbolOp]
@@ -252,7 +255,10 @@ callOp = MkOp
   , attrs =
       [ MkAttr "callee" (AnAttribute (UpstreamAttr FlatSymbolRefAttrC) Required)
       , MkAttr "index_args" indexArgs
-      , MkAttr "tail_kind" (AProperty (EnumProperty (enumDef tailKindClosed)))
+      , MkAttr "tail_kind"
+          (AProperty (EnumProperty (imported tailKindClosed
+             (MkSource ("IdrisMLIR" ::: ["Spec", "Functions", "Tail"]) "TailKind"
+                       ("IdrisMLIR" ::: ["Spec", "Functions", "Tail"]) "tailKindClosed"))))
       , MkAttr "row" rowSlot
       , MkAttr "untouched" untouchedSlot
       , MkAttr "lives_in" livesInSlot
