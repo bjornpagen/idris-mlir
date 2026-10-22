@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What counting's passes share, read once from the types and from
-// upstream's control-flow interfaces: what a value's grade leaves to
-// count, what its type says of its constructor, how a terminator leaves its
-// region, and how often a region op runs its regions. Each answer is a
-// choice of an enum, so no pass asks a second question to learn what the
-// first one meant.
+// What counting's passes share, read once from the types, the effects and
+// upstream's control-flow interfaces: what a value's grade leaves to count,
+// what its type says of its constructor, which values are read out of
+// mutable memory, how a terminator leaves its region, and how often a
+// region op runs its regions. Each answer is a choice of an enum, so no
+// pass asks a second question to learn what the first one meant.
 #ifndef IDR_LIB_TRANSFORMS_COUNTING_COUNTING_H
 #define IDR_LIB_TRANSFORMS_COUNTING_COUNTING_H
 
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
@@ -17,15 +18,20 @@
 #include "idr/IR/Traits.h"
 
 #include "mlir/IR/Block.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
-#include "mlir/Interfaces/ViewLikeInterface.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 
 #include <cstdint>
 #include <optional>
+
+namespace idr {
+class Layouts;
+} // namespace idr
 
 namespace idr::counting {
 
@@ -82,15 +88,22 @@ inline bool givesOperandBack(mlir::Operation *op) {
   return op->hasTrait<ResultCarriesOperand>() || op->hasTrait<RunsOnceGivingBack>();
 }
 
-// The value a part is read from: the operand of a field read, or the source
-// of a view of a buffer, the two ways a value is read in part without being
-// consumed; none for any other op.
-inline std::optional<mlir::Value> readFrom(mlir::Operation *def) {
-  if (auto read = llvm::dyn_cast_if_present<DataFieldOp>(def))
-    return read.getValue();
-  if (auto view = llvm::dyn_cast_if_present<mlir::ViewLikeOpInterface>(def))
-    return view.getViewSource();
-  return std::nullopt;
+// Whether `value` is read out of mutable memory by an op of upstream's (an
+// element loaded from a buffer). It is read from its buffer
+// (ownership::readFrom), but the memory may be written while it lives, so
+// it is no part or view of the buffer: it takes a reference of its own
+// where it is read. An op of the dialect states what it reads in its
+// grades.
+inline bool readOutOfMemory(mlir::Value value) {
+  mlir::Operation *def = value.getDefiningOp();
+  if (!def || llvm::isa_and_nonnull<IdrDialect>(def->getDialect()))
+    return false;
+  return llvm::any_of(def->getOperands(), [&](mlir::Value operand) {
+    return llvm::isa<mlir::BaseMemRefType>(operand.getType()) &&
+           effects::classify(def, [&](const effects::Effect &each) {
+             return each.kind == effects::Kind::Read && each.value == operand;
+           }) == effects::Does::Touches;
+  });
 }
 
 // How a terminator leaves its region: out of the function (its body's
@@ -145,6 +158,11 @@ struct Where {
   }
   bool operator==(const Where &) const = default;
 };
+
+// The function's frame bound, as reuse leaves it: the most bytes of
+// emptied cells its tokens hold at any point where memory may be acquired,
+// each token's cell sized by its type on the target (Bound.cpp).
+std::uint64_t frameBound(FuncOp fn, const Layouts &layouts);
 
 } // namespace idr::counting
 

@@ -39,6 +39,7 @@ import public IdrisMLIR.Spec.Counting.Types
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Lifetimes.Declarations
+import IdrisMLIR.Spec.Ops.Bigs
 
 import Data.Fin
 import Data.List1
@@ -101,11 +102,12 @@ sharedDirective : Directive
 sharedDirective = MkDirective "Shared" [TypeArg, RefTypeArg]
   (brief "a share's result, the value with its claim forgotten unless written")
 
-||| A cell's init's result: the value the cell holds at its bare grade,
-||| unless another grade is written, `-> T`.
+||| A cell's init's result: what the init infers from the cell, the fields
+||| and the holes, unless another grade is written, `-> T`.
 cellResultDirective : Directive
-cellResultDirective = MkDirective "CellResult" [TypeArg, RefTypeArg]
-  (brief "an init's result, the cell's value unless written")
+cellResultDirective = MkDirective "CellResult"
+  [TypeArg, RefTypeArg, RefVariadicTypeArg, RefAttrArg "::mlir::DenseI32ArrayAttr"]
+  (brief "an init's result, what it infers unless written")
 
 ||| A cell's init's destinations, one per hole, written as nothing: their
 ||| types follow from the cell's and the holes.
@@ -279,8 +281,13 @@ cellNew = countingOp "cell.new" [] [result "cell" cell] [] []
 ||| which it consumes, giving the value; a field given owned moves its
 ||| reference into the cell, and a hole is a field written later, once,
 ||| through its destination (idr-trmc makes them). Its results follow from
-||| the cell's type and the holes; the value is held at the grade it has,
-||| counted unless written, or scoped in the lifetime the cell's source
+||| the cell's type, the fields and the holes. The cell is fresh, new or
+||| recycled, so nothing but its fields shares what the value reaches: the
+||| value is inferred as it is made, used once and counted, claiming what a
+||| constructor of those fields claims (`unique deep` where each leaves
+||| everything it reaches unshared), a hole claiming nothing, since what is
+||| written through it is not yet known. It is held at the grade it has,
+||| which may be written, or scoped in the lifetime the cell's source
 ||| allocated it into, which it states (`in %l`), present exactly when the
 ||| value is scoped. A counted cell takes no scoped field.
 cellInit : Op 3 2 1 0
@@ -298,7 +305,8 @@ cellInit = countingOp "cell.init"
             , Custom fieldsWithHolesDirective [Group (OperandRef 1), TypeOfGroup (OperandRef 1), Group (AttrRef 0)]
             , OptionalGroup [Lit "in"] (ValueOf (OperandRef 2)) [Lit ":", TypeOf (OfGroup (OperandRef 2))]
             , AttrDict
-            , Custom cellResultDirective [TypeOfGroup (ResultRef 0), TypeAgain (OperandRef 0)]
+            , Custom cellResultDirective
+                [TypeOfGroup (ResultRef 0), TypeAgain (OperandRef 0), TypeAgain (OperandRef 1), Again (AttrRef 0)]
             , Custom cellDestsDirective [TypeOfGroup (ResultRef 1), TypeAgain (OperandRef 0), Again (AttrRef 0)] ])
   [ MkBuilder [ param "::mlir::Value" "cell", param "::mlir::ValueRange" "fields"
               , param "::llvm::ArrayRef<int32_t>" "holes" ]
@@ -314,12 +322,13 @@ cellInit = countingOp "cell.init"
 ||| `cell.recycle %t : !idr.token<…> -> !idr.cell<T>`, C++ `CellRecycleOp`:
 ||| the token's cell given up and a cell for `T` given, its header written:
 ||| the same memory where the token holds its cell, new memory where it is
-||| null. Of one size, which the program's verifier reads off the two types
-||| and the target's layout, the one place that layout is at hand.
+||| null. The token, used once, is consumed here. Of one size, which the
+||| program's verifier reads off the two types and the target's layout, the
+||| one place that layout is at hand.
 cellRecycle : Op 1 1 0 0
 cellRecycle = countingOp "cell.recycle" [single "token" token] [result "cell" cell] [] []
   [] [Implements flowInterface ["getFlowEdges"]]
-  (Executes [] [Recycles 0] Covered Untouched)
+  (Executes [] [Consumes 0, Recycles 0] Covered Untouched)
   explicit DeclarationOnly
   (Declared [ ValueOf (OperandRef 0), Lit ":", TypeOf (OfGroup (OperandRef 0)), AttrDict
             , Lit "->", QualifiedTypeOf (OfGroup (ResultRef 0)) ])
@@ -354,13 +363,14 @@ tokenNull = countingOp "token.null" [] [result "token" token] [] []
 ||| `TokenRebuildOp`: a value of an in-place type rebuilt in the cell its
 ||| token holds, which the in-place check decided on the program as written
 ||| and counting lowers into the recycle of the cell and the init of the
-||| fields. Its token holds its cell: the promise binds where the program
-||| rebuilds, never where an optimization did.
+||| fields. Its token holds its cell, and is consumed here as the fields
+||| are: the promise binds where the program rebuilds, never where an
+||| optimization did.
 tokenRebuild : Op 2 1 0 0
 tokenRebuild = countingOp "token.rebuild" [single "token" token, variadic "fields" anyValue]
   [result "result" anyValue] [] []
   [] [Implements flowInterface ["getFlowEdges"]]
-  (Executes [] [Recycles 0, Consumes 1] Covered Untouched)
+  (Executes [] [Consumes 0, Recycles 0, Consumes 1] Covered Untouched)
   explicit VerifiesOp
   (Declared [ ValueOf (OperandRef 0)
             , Custom fieldsDirective [Group (OperandRef 1), TypeOfGroup (OperandRef 1)]
@@ -370,11 +380,12 @@ tokenRebuild = countingOp "token.rebuild" [single "token" token, variadic "field
 
 ||| `own.adopt %b : T`, C++ `OwnAdoptOp`: a buffer an op of upstream's made,
 ||| taken over by counting right after it, so from here on its reference is
-||| a counted value's, freed by its count. A fresh identity.
+||| a counted value's, freed by its count. A fresh identity, and nothing at
+||| run time: the result is the buffer's own words.
 adopt : Op 1 1 0 0
 adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnrankedMemRefC)]
   [result "result" anyValue] [] []
-  [SameOperandsAndResultType] [Implements flowInterface ["getFlowEdges"]]
+  [SameOperandsAndResultType, OurTrait noRuntimeForm] [Implements flowInterface ["getFlowEdges"]]
   (Executes [] [NewIdentity 0] Covered Untouched)
   explicit DeclarationOnly
   (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
@@ -384,11 +395,11 @@ adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnranked
 ||| `own.give %v : T -> C`, C++ `OwnGiveOp`: a value an op of upstream's
 ||| stores into a buffer hands its reference to the memory, which holds it
 ||| from then on; the result is the value at its plain carrier, which the
-||| store takes. A value used once is never given, so the store never loses
-||| its quantity.
+||| store takes, and nothing at run time: the value's own words. A value
+||| used once is never given, so the store never loses its quantity.
 give : Op 1 1 0 0
 give = countingOp "own.give" [single "value" (SatisfiesType countedValue)] [result "result" anyValue] [] []
-  [] [Implements flowInterface ["getFlowEdges"]]
+  [OurTrait noRuntimeForm] [Implements flowInterface ["getFlowEdges"]]
   (Executes [] [Consumes 0] Covered Untouched)
   explicit VerifiesOp
   (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))

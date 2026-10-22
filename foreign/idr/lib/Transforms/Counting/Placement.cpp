@@ -51,7 +51,6 @@
 #include "idr/Transforms/Counting.h"
 #include "idr/Transforms/Pipeline.h"
 
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
@@ -253,20 +252,25 @@ private:
 //===----------------------------------------------------------------------===//
 
 // A field read of a counted value, or of a part of one, gives a part; a
-// view of a buffer that is counted, or a part of one, gives a part too.
+// view of a buffer that is counted, or a part of one, gives a part too. An
+// element read out of a buffer is read from it as well, but the memory may
+// be written while the element lives, so it is an element, decided first.
 // The parts of a value are its rows, built in one pass in id order.
 void Placement::classify() {
-  IdrDialect *dialect = fn->getContext()->getLoadedDialect<IdrDialect>();
   std::vector<std::pair<std::uint32_t, ValueId>> pairs;
   solver::inWalkOrder(fn, [&](Value value) {
     ValueId id = idOf(value);
     Type type = value.getType();
     Operation *def = value.getDefiningOp();
+    if (countsOf(type) == Counts::Counted && readOutOfMemory(value)) {
+      roles[id] = Role::Element;
+      return;
+    }
     std::optional<ValueId> from;
     std::optional<unsigned> field;
-    if (std::optional<Value> source = readFrom(def)) {
-      from = idOf(*source);
-      if (auto read = dyn_cast<DataFieldOp>(def))
+    if (Value source = ownership::readFrom(value)) {
+      from = idOf(source);
+      if (auto read = dyn_cast_if_present<DataFieldOp>(def))
         field = static_cast<unsigned>(read.getIndex());
     }
     if (from && holdsReferences(type)) {
@@ -292,18 +296,6 @@ void Placement::classify() {
       return;
     case Counts::Counted:
       break;
-    }
-    // Read out of mutable memory by an op of upstream's: the memory may be
-    // written while the element lives, so it takes a reference where read.
-    if (def && def->getDialect() != dialect &&
-        llvm::any_of(def->getOperands(), [&](Value operand) {
-          return isa<BaseMemRefType>(operand.getType()) &&
-                 effects::classify(def, [&](const effects::Effect &each) {
-                   return each.kind == effects::Kind::Read && each.value == operand;
-                 }) == effects::Does::Touches;
-        })) {
-      roles[id] = Role::Element;
-      return;
     }
     roles[id] = Role::Owned;
   });

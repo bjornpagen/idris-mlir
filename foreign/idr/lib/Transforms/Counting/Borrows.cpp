@@ -29,6 +29,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Ownership.h"
 #include "idr/Transforms/Counting.h"
 #include "idr/Transforms/Pipeline.h"
 
@@ -197,8 +198,10 @@ void Writer::spread() {
       unsigned number = use.getOperandNumber();
       if (number == 0 && user->hasTrait<ResultCarriesOperand>())
         reach(user->getResult(0));
-      if (std::optional<Value> source = readFrom(user); source && *source == view)
-        for (Value result : user->getResults())
+      // An element read out of the view's buffer is read from it too, but
+      // takes a reference of its own where it is read, so it stays counted.
+      for (Value result : user->getResults())
+        if (ownership::readFrom(result) == view && !readOutOfMemory(result))
           reach(result);
       if (auto branch = dyn_cast<RegionBranchOpInterface>(user)) {
         SmallVector<RegionSuccessor> entries;

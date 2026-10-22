@@ -33,6 +33,10 @@
 // token the in-place check made, consumed by token.rebuild, which this walk
 // lowers into the recycle of that token and the init of its fields. The
 // walk never pairs a promised cell; the promise is the program's.
+//
+// Every token's span is decided here, so the function's frame bound, the
+// most bytes its tokens hold where memory may be acquired, is measured here
+// on the function as reuse leaves it (Bound.cpp) and kept on the function.
 #include "Counting.h"
 
 #include "idr/IR/Grades.h"
@@ -90,9 +94,6 @@ public:
   unsigned freed = 0;
   unsigned fused = 0;
   unsigned rebuilds = 0;
-  // The most bytes the walk held in tokens at one point: what a frame holds
-  // of dead cells, for the frame bound's record.
-  unsigned largestHeld = 0;
 
 private:
   unsigned cellBytes(Type value) const;
@@ -443,10 +444,6 @@ void Reuse::assign() {
     }
     Operation *op = path.next;
     path.next = op->getNextNode();
-    unsigned bytes = 0;
-    for (const Held &h : path.held)
-      bytes += h.size;
-    largestHeld = std::max(largestHeld, bytes);
     if (op->hasTrait<OpTrait::IsTerminator>()) {
       switch (leavesOf(op)) {
       case Leaves::Frame:
@@ -599,13 +596,17 @@ void Reuse::run() {
 
 struct ReusePass : impl::IdrRcReuseBase<ReusePass> {
   void runOnProgram(ProgramOp) {
-    Reuse reuse(getOperation(), getAnalysis<Layouts>());
+    FuncOp fn = getOperation();
+    const Layouts &layouts = getAnalysis<Layouts>();
+    Reuse reuse(fn, layouts);
     reuse.run();
+    std::uint64_t bound = frameBound(fn, layouts);
+    fn.setFrameBound(bound);
     numReuses += reuse.reuses;
     numTokensFreed += reuse.freed;
     numFused += reuse.fused;
     numRebuilds += reuse.rebuilds;
-    largestTokenBytes.updateMax(reuse.largestHeld);
+    largestTokenBytes.updateMax(bound);
   }
 };
 

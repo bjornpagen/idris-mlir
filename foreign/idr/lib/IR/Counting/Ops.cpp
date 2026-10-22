@@ -99,9 +99,52 @@ LogicalResult idr::verifyRecycle(CellRecycleOp recycle, const Layouts &layouts) 
 
 namespace {
 
+// The type each field of `cell`'s constructor is filled with: the next
+// field given, or, for a hole, the field's own carrier, which claims
+// nothing, since what is written through the hole is not yet known.
+// Failure, after an error at `location` when there is one, where the fields
+// and holes do not fill the constructor's fields once each. The op may not
+// have been verified yet, so the holes are read as given.
+FailureOr<SmallVector<Type>> filledFields(std::optional<Location> location, CellType cell,
+                                          TypeRange given, ArrayRef<int32_t> holes) {
+  DataType data = cell.getData();
+  std::optional<SmallVector<Type>> fields = data.determinedFields(cell.getTag());
+  if (!fields)
+    return emitOptionalError(location, "writes a cell of ", data,
+                             ", whose constructor's binders it does not determine");
+  SmallVector<Type> filled;
+  auto next = given.begin();
+  for (auto [index, field] : llvm::enumerate(*fields)) {
+    if (llvm::is_contained(holes, static_cast<int32_t>(index)))
+      filled.push_back(unrestricted(field));
+    else if (next != given.end())
+      filled.push_back(*next++);
+    else
+      return emitOptionalError(location, "is given fewer fields than its constructor has");
+  }
+  if (next != given.end() || given.size() + holes.size() != filled.size())
+    return emitOptionalError(location, "is given more fields or holes than its constructor has");
+  return filled;
+}
+
 // The value a cell's init gives, at the grade it has unless another is
-// written: counted, claiming nothing.
-Type initResult(CellType cell) { return graded(Grade{Uses::Many, Hold::counted()}, cell.getData()); }
+// written: the value as it is made, used once and counted, claiming what a
+// constructor of the same fields claims (the constructor's own rule), since
+// the cell is fresh, new or recycled, and nothing but its fields shares
+// what the value reaches. A claim holds only at a linear position, where
+// nothing duplicates the value; one used many times is written so.
+FailureOr<Type> initResult(std::optional<Location> location, CellType cell, TypeRange given,
+                           ArrayRef<int32_t> holes) {
+  FailureOr<SmallVector<Type>> filled = filledFields(location, cell, given, holes);
+  if (failed(filled))
+    return failure();
+  DataType data = cell.getData();
+  return graded(Grade{Uses::Once, Hold::counted(DataConOp::freshClaim(data, *filled))}, data);
+}
+
+ArrayRef<int32_t> holesOf(DenseI32ArrayAttr holes) {
+  return holes ? holes.asArrayRef() : ArrayRef<int32_t>();
+}
 
 // The destination of hole `hole` of `cell`'s constructor: written through,
 // once, with a value of the field's carrier. What a hole may hold is the
@@ -143,20 +186,29 @@ void printShared(OpAsmPrinter &printer, Operation *, Type result, Type value) {
     printer << " -> " << result;
 }
 
-// An init's result: the cell's value, counted, unless another grade is
-// written, `-> T`.
-ParseResult parseCellResult(OpAsmParser &parser, Type &result, Type cell) {
+// An init's result: what the init infers from its cell, fields and holes,
+// unless another grade is written, `-> T`.
+ParseResult parseCellResult(OpAsmParser &parser, Type &result, Type cell, TypeRange fields,
+                            DenseI32ArrayAttr holes) {
   auto cellType = dyn_cast<CellType>(cell);
   if (!cellType)
     return parser.emitError(parser.getCurrentLocation(), "expected a cell, not ") << cell;
   if (succeeded(parser.parseOptionalArrow()))
     return parser.parseType(result);
-  result = initResult(cellType);
+  FailureOr<Type> inferred = initResult(parser.getEncodedSourceLoc(parser.getCurrentLocation()),
+                                        cellType, fields, holesOf(holes));
+  if (failed(inferred))
+    return failure();
+  result = *inferred;
   return success();
 }
 
-void printCellResult(OpAsmPrinter &printer, Operation *, Type result, Type cell) {
-  if (result != initResult(cast<CellType>(cell)))
+// An init that does not fill its constructor infers nothing, so its result
+// is written.
+void printCellResult(OpAsmPrinter &printer, Operation *, Type result, Type cell, TypeRange fields,
+                     DenseI32ArrayAttr holes) {
+  FailureOr<Type> inferred = initResult(std::nullopt, cast<CellType>(cell), fields, holesOf(holes));
+  if (failed(inferred) || result != *inferred)
     printer << " -> " << result;
 }
 
@@ -168,7 +220,7 @@ ParseResult parseCellDests(OpAsmParser &parser, SmallVectorImpl<Type> &dests, Ty
   if (!cellType)
     return parser.emitError(parser.getCurrentLocation(), "expected a cell, not ") << cell;
   Location location = parser.getEncodedSourceLoc(parser.getCurrentLocation());
-  for (int32_t hole : holes ? holes.asArrayRef() : ArrayRef<int32_t>()) {
+  for (int32_t hole : holesOf(holes)) {
     FailureOr<DestType> dest = destOf(location, cellType, hole);
     if (failed(dest))
       return failure();
@@ -249,7 +301,12 @@ Type tokenOf(Type type) {
 }
 
 // The fields of a value of `type` taken apart, each at the type a read of
-// it gives, so a field moved out and a field read are one value's type.
+// it gives (fieldReadType), so a field moved out and a field read are one
+// value's type, and placement may put the one where the other was: a
+// constructor's field claims what the value's claim reaches into it, so a
+// part of a `unique deep` value taken at a linear position is `unique
+// deep`, and one taken at many uses claims nothing, as it may be
+// duplicated; a frame's field is the whole grade the frame keeps it at.
 LogicalResult fieldsOf(std::optional<Location> location, Type type,
                        SmallVectorImpl<Type> &fields) {
   DataType data = refinedData(type);
@@ -383,14 +440,18 @@ Tag CellInitOp::getTag() { return getCell().getType().getTag(); }
 Value CellInitOp::getField(unsigned index) { return givenField(getFields(), getHoles(), index); }
 Value CellInitOp::getDest(unsigned index) { return holeDest(getDests(), getHoles(), index); }
 
-// The value its cell holds, counted, then the destination of each hole.
+// The value its cell holds, fresh, then the destination of each hole.
 LogicalResult CellInitOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
                                            Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
   auto cell = dyn_cast<CellType>(adaptor.getCell().getType());
   if (!cell)
     return emitOptionalError(location, "writes the fields of ", adaptor.getCell().getType(),
                              ", which is no cell");
-  inferred.push_back(initResult(cell));
+  FailureOr<Type> value =
+      initResult(location, cell, adaptor.getFields().getTypes(), adaptor.getHoles());
+  if (failed(value))
+    return failure();
+  inferred.push_back(*value);
   for (int32_t hole : adaptor.getHoles()) {
     FailureOr<DestType> dest = destOf(location, cell, hole);
     if (failed(dest))
@@ -433,9 +494,10 @@ Value CellInitOp::getStatedLifetime(Value made) {
   return made == getResult() ? getLifetime() : Value();
 }
 
+// A null lifetime states none, for a value no longer scoped.
 void CellInitOp::setStatedLifetime(Value made, Value lifetime) {
   if (made == getResult())
-    getLifetimeMutable().assign(lifetime);
+    getLifetimeMutable().assign(lifetime ? ValueRange(lifetime) : ValueRange());
 }
 
 // The constructor's fields in order, each a hole or the next field given,
