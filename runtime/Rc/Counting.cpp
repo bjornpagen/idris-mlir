@@ -3,7 +3,8 @@
 // The C ABI's reference counting, over rt::rc's inline counting: one
 // increment and one decrement per kind of word, of one word or of a run of
 // slots, each testing exactly what its kind leaves open; the test of
-// exclusivity; and the two frees of a reuse token, which read no count. A
+// exclusivity; the two frees of a reuse token and the release of a cell
+// proved dead, which read no count of the cell they are given. A
 // saturated count is not counted, so an increment reaches UINT32_MAX at most
 // and stays there.
 // PIN(runtime-quarantine) — see PINS.md
@@ -121,4 +122,15 @@ extern "C" void idris_rt_free_maybe_token(idris_rt_header *cell) {
     return;
   rt::rc::touch(cell);
   rt::alloc::freeCell(cell);
+}
+
+// Releases a cell the compiler proved dead, and every cell that dies in
+// turn, and frees them: a held buffer whose storage its owner's claim
+// covers dies with the owner, so its count says nothing the compiler does
+// not know and is never read. Its elements may be shared, so each loses a
+// reference as a dying cell's slots do. The checked runtime confirms the
+// cell is live first, as for a token, which costs the shipped one nothing.
+extern "C" void idris_rt_release_dead(idris_rt_header *cell) {
+  rt::rc::touch(cell);
+  rt::rc::release(cell);
 }

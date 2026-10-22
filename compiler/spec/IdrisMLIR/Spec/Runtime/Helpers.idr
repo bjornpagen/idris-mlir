@@ -3,9 +3,10 @@
 ||| The runtime's C functions the lowering calls by itself, which no op
 ||| names as its meaning: a cell and the two array cells, the counted copy,
 ||| the counting of each kind of word, the two frees of a reuse token, the
-||| string being built, the crashes at a site and running out of memory,
-||| the lifetimes allocated into by a bump, the frame stack, the account of
-||| what a call holds that it no longer needs, and the program's entry.
+||| release of a cell proved dead, the string being built, the crashes at a
+||| site and running out of memory, the lifetimes allocated into by a bump,
+||| the frame stack, the account of what a call holds that it no longer
+||| needs, and the program's entry.
 ||| Each is its prototype and nothing more: its meaning is documented beside
 ||| its definition, in runtime/. Every pointer names the C type it points
 ||| to. The generator prints them into the runtime's declarations, which
@@ -156,6 +157,9 @@ helpers =
   , MkRuntimeHelper (ident "freeMaybeToken") (symbol "free_maybe_token")
       [(cell, ident "cell")] HelperNothing
       (line "frees the memory of a reuse token that may be null, whose fields were moved out")
+  , MkRuntimeHelper (ident "releaseDead") (symbol "release_dead")
+      [(cell, ident "cell")] HelperNothing
+      (line "releases the references of a cell proved dead, whose own count nothing reads, and every cell that dies in turn, and frees them")
   , MkRuntimeHelper (ident "handleHoldsString") (symbol "handle_holds_string")
       [(TakesInt64, ident "handle")] (HelperReturns GivesBool)
       (line "whether a handle holds a string, the program's or the runtime's: what check.holds_string asks")
