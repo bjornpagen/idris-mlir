@@ -2932,7 +2932,7 @@ improvements (`audits/p0/verify/`), each citing its lane and section.
   unique region and a value `scoped` to this call's lifetime
   (`idr.activation`) to the shared one; an unfolded one lowers to
   `scf.if` on "count is 1", for `counted` values only. A reuse token is
-  `!idr.token<{#F[i] @C, ...}>`, a non-empty set of one layout, linear,
+  `!idr.reuse_token<{#F[i] @C, ...}>` (C253), a non-empty set of one layout, linear,
   `counted unique deep` or `counted`, with no lifetime parameter; `idr.token.null`, written only past the copy budget, is the
   one source of a null token, `idr.token.free` frees one (an exclusive one
   with no test, a maybe-null one testing null only), and `idr.take_into`
@@ -5276,7 +5276,7 @@ is settled:
   possible constructors, class and layout computed when it is made
   (C81), a run-time natural linked to its index term (D59); a token names
   the family applications and constructors whose cell it may be,
-  `!idr.token<{#F[i] @C, ...}>`, linear, either `counted unique deep`
+  `!idr.reuse_token<{#F[i] @C, ...}>` (C253), linear, either `counted unique deep`
   and never null or `counted` with no claim (C39);
   `!idr.dest` typed by a family application whose layout is a cell
   (C38); every type and attribute, the family attributes included, native
