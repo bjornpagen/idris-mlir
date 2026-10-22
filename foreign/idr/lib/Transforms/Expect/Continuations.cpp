@@ -30,7 +30,7 @@ LogicalResult contified(const Request<Nothing> &request) {
   auto program = dyn_cast<ProgramOp>(programOf(request.module));
   if (!program || closuresAt[program.getStage()] != StageClosures::FirstOrder ||
       functionsAt[program.getStage()] != StageFunctions::Ours)
-    return fail(request.module.getLoc(), request.property)
+    return fail(request.module->getLoc(), request.property)
            << "is stated of a first-order program before its lowering, which the module does "
               "not hold";
   const solver::ProgramGraph &graph =

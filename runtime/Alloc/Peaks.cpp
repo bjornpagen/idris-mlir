@@ -31,6 +31,17 @@ struct PeakAccount {
   uint64_t bound;
   uint64_t held;
   uint64_t since;
+
+  // What the account holds now was held while a cell was made, so it must
+  // be within the bound. Checked when it changes and when the call ends:
+  // what a call holds does not change while a callee runs, so every cell
+  // made while it held some amount is made before the next of these. A
+  // member of the account, as the account is the checked runtime's alone:
+  // the runtime that keeps none never reads it, and emits nothing of it.
+  void settle() const {
+    if (since != cellsMade && held > bound)
+      rt::end::end(rt::end::FrameBoundExceeded{function, held, bound});
+  }
 };
 
 // The accounts of the active calls that keep one, innermost last, in a
@@ -40,19 +51,6 @@ inline size_t peakOpen = 0;
 inline size_t peakRoom = 0;
 
 } // namespace rt::alloc
-
-namespace {
-
-// What the innermost account holds now was held while a cell was made, so
-// it must be within the bound. Checked when it changes and when the call
-// ends: what a call holds does not change while a callee runs, so every
-// cell made while it held some amount is made before the next of these.
-void settle(const rt::alloc::PeakAccount &account) {
-  if (account.since != rt::alloc::cellsMade && account.held > account.bound)
-    rt::end::end(rt::end::FrameBoundExceeded{account.function, account.held, account.bound});
-}
-
-} // namespace
 
 // An activation of `function` begins, which may hold up to `bound` bytes it
 // no longer needs at any cell the program makes while it is active.
@@ -77,7 +75,7 @@ extern "C" [[gnu::always_inline]] void idris_rt_peak_held(int64_t change) {
   if constexpr (rt::alloc::checked) {
     using namespace rt::alloc;
     PeakAccount &account = peakAccounts[peakOpen - 1];
-    settle(account);
+    account.settle();
     account.held += static_cast<uint64_t>(change);
     account.since = cellsMade;
   }
@@ -87,6 +85,6 @@ extern "C" [[gnu::always_inline]] void idris_rt_peak_held(int64_t change) {
 extern "C" [[gnu::always_inline]] void idris_rt_peak_leave(void) {
   if constexpr (rt::alloc::checked) {
     using namespace rt::alloc;
-    settle(peakAccounts[--peakOpen]);
+    peakAccounts[--peakOpen].settle();
   }
 }

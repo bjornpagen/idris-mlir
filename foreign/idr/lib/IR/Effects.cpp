@@ -18,39 +18,52 @@
 #include "mlir/IR/Visitors.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <array>
+#include <cstddef>
+#include <utility>
+
 using namespace mlir;
 
 namespace idr::effects {
 
 namespace {
 
+// Each case's upstream class, by the case's number, as the function that
+// names the class: each case's class is fixed when the compiler is built,
+// but a TypeID is an address fixed only when the program loads.
+template <class Enum>
+using ClassNames = std::array<TypeID (*)(), EnumTraits<Enum>::count>;
+
+// The case whose class `id` names, or `otherwise`: a compare of the class
+// with each case's, the one dynamic step, forced by MLIR's open sets of
+// effects and resources.
+template <class Enum>
+Enum caseNamed(const ClassNames<Enum> &names, TypeID id, Enum otherwise) {
+  for (std::size_t at = 0; at < names.size(); ++at)
+    if (names[at]() == id)
+      return static_cast<Enum>(at);
+  return otherwise;
+}
+
 // Which of upstream's four kinds an effect is. A kind of another dialect's,
 // which MLIR's open set of effects allows, is taken as a write: it keeps
 // the op and orders it with everything it may touch.
 Kind kindOf(const MemoryEffects::Effect *instance) {
-  return [&]<std::size_t... I>(std::index_sequence<I...>) {
-    Kind found = Kind::Write;
-    ((instance->getEffectID() == EffectOf<static_cast<Kind>(I)>::type::getEffectID()
-          ? (found = static_cast<Kind>(I), true)
-          : false) ||
-     ...);
-    return found;
+  static constexpr auto names = []<std::size_t... I>(std::index_sequence<I...>) {
+    return ClassNames<Kind>{&EffectOf<static_cast<Kind>(I)>::type::getEffectID...};
   }(std::make_index_sequence<EnumTraits<Kind>::count>{});
+  return caseNamed(names, instance->getEffectID(), Kind::Write);
 }
 
 // Which state an effect of MLIR's names: the one dynamic fact of the tree,
-// forced by MLIR's open set of resources, a compare of the resource's class
-// with each state's. A resource that is none of ours nor upstream's root or
-// frame (another dialect's) is the root: it may be anything.
+// forced by MLIR's open set of resources. A resource that is none of ours
+// nor upstream's root or frame (another dialect's) is the root: it may be
+// anything.
 ResourceId stateOf(const SideEffects::Resource *named) {
-  return [&]<std::size_t... I>(std::index_sequence<I...>) {
-    ResourceId found = ResourceId::Root;
-    ((named->getResourceID() == ClassOf<static_cast<ResourceId>(I)>::type::getResourceID()
-          ? (found = static_cast<ResourceId>(I), true)
-          : false) ||
-     ...);
-    return found;
+  static constexpr auto names = []<std::size_t... I>(std::index_sequence<I...>) {
+    return ClassNames<ResourceId>{&ClassOf<static_cast<ResourceId>(I)>::type::getResourceID...};
   }(std::make_index_sequence<EnumTraits<ResourceId>::count>{});
+  return caseNamed(names, named->getResourceID(), ResourceId::Root);
 }
 
 // Whether `value` is a result of `op`, the one value an allocation of

@@ -140,15 +140,17 @@ LogicalResult prepareLifetimes(FuncOp fn, const solver::ProgramGraph &graph,
   });
   if (failed(laid))
     return failure();
-  for (const Room &room : rooms) {
+  // Rewriting the opener's block and its binder's uses mutates the IR the
+  // room names, which MLIR's op and value handles allow only when non-const.
+  for (Room &room : rooms) {
     if (!room.opener)
       continue;
     Location at = room.opener.getLoc();
     uint64_t size = std::max<uint64_t>(room.next, 1);
     Value one = LLVM::ConstantOp::create(b, at, b.getI64Type(), 1);
-    Value block = LLVM::AllocaOp::create(
-        b, at, ptr, LLVM::LLVMArrayType::get(b.getI8Type(), static_cast<unsigned>(size)), one,
-        cellAlignment());
+    Value block =
+        LLVM::AllocaOp::create(b, at, ptr, LLVM::LLVMArrayType::get(b.getI8Type(), size), one,
+                               cellAlignment());
     Value lifetime =
         UnrealizedConversionCastOp::create(b, at, room.binder.getType(), block).getResult(0);
     room.binder.replaceAllUsesWith(lifetime);

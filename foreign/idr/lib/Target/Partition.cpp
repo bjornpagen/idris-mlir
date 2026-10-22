@@ -32,7 +32,9 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 
+#include <cassert>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -129,12 +131,18 @@ Expected<Partition> Partition::of(Module &module) {
   std::vector<GlobalValue *> at = positions(module);
   // The numbering itself: LLVM's global values carry no number of ours, so
   // a symbol named by address is turned into its place here, once, and
-  // every later step reads places.
+  // every later step reads places. A place is `unsigned`, as LLVM numbers a
+  // module's values when it writes the bitcode each bin is read back from,
+  // and as its BitVector counts; so the count is taken in that type once,
+  // here, where the range is LLVM's own.
+  assert(at.size() <= std::numeric_limits<unsigned>::max() &&
+         "LLVM numbers a module's values as unsigned");
+  auto numSymbols = static_cast<unsigned>(at.size());
   DenseMap<const GlobalValue *, unsigned> place;
-  for (unsigned symbol = 0; symbol < at.size(); ++symbol)
+  for (unsigned symbol = 0; symbol < numSymbols; ++symbol)
     place[at[symbol]] = symbol;
   // The objects an alias names, by place.
-  BitVector aliased(at.size());
+  BitVector aliased(numSymbols);
   for (GlobalAlias &alias : module.aliases())
     if (const GlobalObject *object = alias.getAliaseeObject())
       aliased.set(place.lookup(object));
@@ -143,11 +151,11 @@ Expected<Partition> Partition::of(Module &module) {
   // which no bin defines, and none survives O3. Each symbol's role is
   // written once, here.
   Partition partition;
-  partition.symbols.resize(at.size());
+  partition.symbols.resize(numSymbols);
   using SymbolRole = std::variant<Partition::Declared, Partition::Copied, Node, Alias>;
-  std::vector<SymbolRole> role(at.size(), Partition::Declared{});
+  std::vector<SymbolRole> role(numSymbols, Partition::Declared{});
   std::vector<unsigned> nodes;
-  for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
+  for (unsigned symbol = 0; symbol < numSymbols; ++symbol) {
     GlobalValue *value = at[symbol];
     for (const GlobalValue *named : referencesOf(*value))
       partition.symbols[symbol].refs.push_back(place.lookup(named));
@@ -187,7 +195,7 @@ Expected<Partition> Partition::of(Module &module) {
   // Each symbol `from` names, a copied constant standing for what it names.
   // Each symbol enters once.
   auto reach = [&](unsigned from, auto &&visit) {
-    BitVector met(at.size());
+    BitVector met(numSymbols);
     std::vector<unsigned> work;
     auto push = [&](unsigned named) {
       if (!met.test(named)) {
@@ -278,7 +286,7 @@ Expected<Partition> Partition::of(Module &module) {
   // Each symbol's home, derived once from its role: a node lives in its
   // bin, an alias in its base's, with that bin's own symbols, and an alias
   // of nothing a bin defines is declared only.
-  for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
+  for (unsigned symbol = 0; symbol < numSymbols; ++symbol) {
     std::optional<unsigned> base = baseOf(symbol);
     partition.symbols[symbol].home = idr::match(
         role[symbol], [](Partition::Declared) -> Home { return Partition::Declared{}; },
@@ -294,7 +302,7 @@ Expected<Partition> Partition::of(Module &module) {
 
   // The linkage every bin reads: a local symbol another bin names, directly
   // or through a copy it holds, is defined once and named across objects.
-  std::vector<bool> crosses(at.size(), false);
+  std::vector<bool> crosses(numSymbols, false);
   for (unsigned bin = 0; bin < partition.members.size(); ++bin)
     for (unsigned symbol : partition.members[bin])
       reach(symbol, [&](unsigned other) {
@@ -306,7 +314,7 @@ Expected<Partition> Partition::of(Module &module) {
             },
             [](const idr::OneOf<Partition::Declared, Partition::Copied> auto &) {});
       });
-  for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
+  for (unsigned symbol = 0; symbol < numSymbols; ++symbol) {
     if (!crosses[symbol])
       continue;
     GlobalValue *value = at[symbol];

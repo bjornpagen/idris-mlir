@@ -20,6 +20,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cassert>
 #include <variant>
 
 using namespace mlir;
@@ -118,8 +119,10 @@ SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts 
     held.value = atPlace(held.value, held.type);
     order.push_back(held);
     if (ConAttr con = inPlace(held.value)) {
-      ArrayAttr fields = con.getFields();
+      // A field and its type are read at one position of two arrays alike.
+      ArrayRef<Attribute> fields = con.getFields().getValue();
       ArrayRef<Type> types = layouts.fieldTypes(con.getData(), con.getTag());
+      assert(fields.size() == types.size() && "a constructor's fields and their types pair up");
       for (size_t field = fields.size(); field-- > 0;)
         left.push_back({fields[field], types[field]});
     }

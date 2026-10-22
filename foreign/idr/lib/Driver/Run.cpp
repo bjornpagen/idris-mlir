@@ -68,8 +68,11 @@ namespace {
 // and then LLVM; or the pipeline's output, the LLVM dialect alone, which
 // goes to LLVM as it is, compiled for the target it names, which a module
 // of it must name: the build's, the one target idris-mlir compiles for.
-struct Handoff {};
-struct Lowered {};
+// Named as kinds of module, since the driver's code sits inside `idr`,
+// whose `Lowered` is what a lowered lifetime is.
+struct HandoffModule {};
+struct LoweredModule {};
+using ModuleKind = std::variant<HandoffModule, LoweredModule>;
 
 // Every op of the module is one a module of its kind holds (`holds`), or
 // an error at the first that is not, naming it (idris-mlir prints no op on
@@ -93,7 +96,7 @@ mlir::LogicalResult holdsOnly(mlir::ModuleOp module, Holds holds, llvm::StringLi
 // module that names no such target: a module half lowered (an arith op in
 // an llvm.func) is neither kind, and LLVM's translation would fail on it
 // with no word of why.
-mlir::FailureOr<std::variant<Handoff, Lowered>>
+mlir::FailureOr<ModuleKind>
 moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
   if (!module.getOps<idr::ProgramOp>().empty()) {
     if (mlir::failed(holdsOnly(
@@ -104,7 +107,7 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
             },
             "is of no dialect the frontend writes, in a module that holds an idr.program")))
       return mlir::failure();
-    return std::variant<Handoff, Lowered>(Handoff{});
+    return ModuleKind(HandoffModule{});
   }
   if (mlir::failed(holdsOnly(
           module,
@@ -125,7 +128,7 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
   if (target != built)
     return module.emitError() << "is compiled for " << target << ", and idris-mlir for "
                               << built;
-  return std::variant<Handoff, Lowered>(Lowered{});
+  return ModuleKind(LoweredModule{});
 }
 
 // The pipeline, idr-target first, in one manager, so that what a pass
@@ -292,7 +295,7 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
            << "the frontend exited with status " << made << ", and its module holds no refusal";
   mlir::DialectRegistry handoff;
   registerHandoff(handoff);
-  mlir::FailureOr<std::variant<Handoff, Lowered>> kind = moduleKindOf(*module, handoff);
+  mlir::FailureOr<ModuleKind> kind = moduleKindOf(*module, handoff);
   if (mlir::failed(kind))
     return mlir::failure();
 
@@ -311,8 +314,8 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
   // idr-target, writes the build's target on it; a lowered module names it
   // already.
   mlir::LogicalResult lowered = idr::match(
-      *kind, [&](Handoff) { return runPipeline(*module, invocation, outcome, rootTiming); },
-      [](Lowered) { return mlir::success(); });
+      *kind, [&](HandoffModule) { return runPipeline(*module, invocation, outcome, rootTiming); },
+      [](LoweredModule) { return mlir::success(); });
   if (mlir::failed(lowered))
     return mlir::failure();
   return toObjects(*module, invocation.runtime, artifacts, **target, triple, pool, rootTiming);

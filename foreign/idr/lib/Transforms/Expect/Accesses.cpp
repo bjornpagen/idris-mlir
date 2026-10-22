@@ -48,7 +48,7 @@ LogicalResult uncounted(const Request<Roots> &request) {
   auto program = dyn_cast<ProgramOp>(programOf(request.module));
   if (program && countingAt[program.getStage()] == StageCounting::Uncounted)
     return success();
-  return fail(program ? program.getLoc() : request.module.getLoc(), request.property)
+  return fail(program ? program.getLoc() : request.module->getLoc(), request.property)
          << "is stated of a program whose references are not yet counted, which the module "
             "does not hold";
 }
