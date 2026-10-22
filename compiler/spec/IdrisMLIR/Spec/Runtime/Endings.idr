@@ -3,11 +3,12 @@
 ||| How a compiled program ends, once: every ending, the status a parent
 ||| reads of it, and the closed sets its messages name. The runtime is
 ||| printed its tables (the causes' and internal errors' phrases, the fixed
-||| statuses) and ends a process by them alone; the frontend writes a cause
-||| on each crash site and guard; the harness reads a case's expected
-||| ending as an `Ending`, never as text parsed back. A parent sees an exit
-||| status of eight bits or a signal, so an `exit` of any other status is a
-||| crash at the exit's site, and an `Exited` holds a status by its type.
+||| statuses, each ending's way out and what it writes first) and ends a
+||| process by them alone; the frontend writes a cause on each crash site
+||| and guard; the harness reads a case's expected ending as an `Ending`,
+||| never as text parsed back. A parent sees an exit status of eight bits
+||| or a signal, so an `exit` of any other status is a crash at the exit's
+||| site, and an `Exited` holds a status by its type.
 module IdrisMLIR.Spec.Runtime.Endings
 
 import IdrisMLIR.Spec.Core.Cpp
@@ -257,27 +258,97 @@ data Signal = Abort | BrokenPipe
 public export
 data Status = Code (Fin 256) | Raised Signal
 
+||| What an ending writes before it says anything. Everything the program
+||| wrote: standard output's pending bytes, then its files, closed; a crash
+||| too, as its order with output says. Standard output's pending bytes
+||| alone, for an internal error, which may be met in a signal handler: the
+||| runtime's own output buffer is kept safe to write there, and no stream
+||| of the C library may be touched. Nothing, for a machine that cannot run
+||| the program: it has written nothing, and only code compiled for the
+||| target's baseline may run, which the code that writes is not.
+public export
+data Writes = WritesEverything | WritesOutput | WritesNothing
+
+||| The endings that leave by a status no program chooses: one case per way
+||| the runtime ends so, the detail it holds at run time (a cause, a site, a
+||| text) dropped.
+public export
+data FixedEnding
+  = EndsReturned
+  | EndsFailed
+  | EndsSaid
+  | EndsUnreportable
+  | EndsOutOfMemory
+  | EndsUnrunnable Unrunnable
+
+||| The ending whose status the program chose: base's `exit`.
+public export
+data ChosenEnding = EndsExited
+
+||| The endings that leave by a signal: a reader of an output gone, or a bug
+||| of the compiler's or the runtime's.
+public export
+data SignalEnding = EndsPiped | EndsInternal Internal
+
+||| How an ending leaves the process: by a status no program chooses, by the
+||| status the program chose, or by a signal. Each way's endings are a closed
+||| set of their own, so the runtime's ending names its case in its way's
+||| set, and a fact of one way (its fixed status, its signal) is a column of
+||| that set alone, never a column every ending carries and only some read.
+public export
+data Way = ByFixed FixedEnding | ByChoice ChosenEnding (Fin 256) | BySignal SignalEnding
+
+public export
+way : Ending -> Way
+way Returned = ByFixed EndsReturned
+way (Exited n) = ByChoice EndsExited n
+way (Crashed (Failed _)) = ByFixed EndsFailed
+way (Crashed Said) = ByFixed EndsSaid
+way (Crashed Unreportable) = ByFixed EndsUnreportable
+way OutOfMemory = ByFixed EndsOutOfMemory
+way (CannotRun u) = ByFixed (EndsUnrunnable u)
+way Piped = BySignal EndsPiped
+way (InternalError i) = BySignal (EndsInternal i)
+
+public export
+fixedStatus : FixedEnding -> Fixed
+fixedStatus EndsReturned = ReturnedStatus
+fixedStatus EndsFailed = CrashedStatus
+fixedStatus EndsSaid = CrashedStatus
+fixedStatus EndsUnreportable = CrashedStatus
+fixedStatus EndsOutOfMemory = OutOfMemoryStatus
+fixedStatus (EndsUnrunnable _) = CannotRunStatus
+
+public export
+signalOf : SignalEnding -> Signal
+signalOf EndsPiped = BrokenPipe
+signalOf (EndsInternal _) = Abort
+
+||| What a parent sees of an ending, read off its way.
 public export
 status : Ending -> Status
-status Returned = Code (code ReturnedStatus)
-status (Exited n) = Code n
-status (Crashed _) = Code (code CrashedStatus)
-status OutOfMemory = Code (code OutOfMemoryStatus)
-status (CannotRun _) = Code (code CannotRunStatus)
-status Piped = Raised BrokenPipe
-status (InternalError _) = Raised Abort
-
-||| Whether the ending writes the program's files first: every ending but an
-||| internal error, which may be met in a signal handler, where no file of
-||| the C library may be touched; a crash writes what the program wrote
-||| before it, as its order with output says.
-public export
-data Writes = WritesFiles | WritesNothing
+status e = case way e of
+  ByFixed f => Code (code (fixedStatus f))
+  ByChoice _ n => Code n
+  BySignal s => Raised (signalOf s)
 
 public export
-writes : Ending -> Writes
-writes (InternalError _) = WritesNothing
-writes _ = WritesFiles
+fixedWrites : FixedEnding -> Writes
+fixedWrites EndsReturned = WritesEverything
+fixedWrites EndsFailed = WritesEverything
+fixedWrites EndsSaid = WritesEverything
+fixedWrites EndsUnreportable = WritesEverything
+fixedWrites EndsOutOfMemory = WritesEverything
+fixedWrites (EndsUnrunnable _) = WritesNothing
+
+public export
+chosenWrites : ChosenEnding -> Writes
+chosenWrites EndsExited = WritesEverything
+
+public export
+signalWrites : SignalEnding -> Writes
+signalWrites EndsPiped = WritesEverything
+signalWrites (EndsInternal _) = WritesOutput
 
 public export
 fixedClosed : Closed Fixed
@@ -321,9 +392,112 @@ signalClosed = MkClosed
   , doc = brief (line "the signals an ending raises")
   }
 
+public export
+writesClosed : Closed Writes
+writesClosed = MkClosed
+  { name = ident "Writes"
+  , shape = OneOf
+  , every = WritesEverything ::: [WritesOutput, WritesNothing]
+  , complete = \case
+      WritesEverything => Here
+      WritesOutput => There Here
+      WritesNothing => There (There Here)
+  , describe = \case
+      WritesEverything => MkCase (ident "Everything") (word "everything" ::: []) (line "standard output's pending bytes, then the program's files, closed")
+      WritesOutput => MkCase (ident "OutputOnly") (word "output_only" ::: []) (line "standard output's pending bytes alone, as a signal handler may write them")
+      WritesNothing => MkCase (ident "Nothing") (word "nothing" ::: []) (line "nothing: a machine that cannot run the program, which has written nothing")
+  , doc = brief (line "what an ending writes before it says anything")
+  }
+
+public export
+fixedEndingClosed : Closed FixedEnding
+fixedEndingClosed = MkClosed
+  { name = ident "FixedEnding"
+  , shape = OneOf
+  , every =
+      EndsReturned :::
+      ([EndsFailed, EndsSaid, EndsUnreportable, EndsOutOfMemory]
+       ++ map EndsUnrunnable (forget unrunnableClosed.every))
+  , complete = \case
+      EndsReturned => Here
+      EndsFailed => There Here
+      EndsSaid => There (There Here)
+      EndsUnreportable => There (There (There Here))
+      EndsOutOfMemory => There (There (There (There Here)))
+      EndsUnrunnable u => There (There (There (There (There (elemMap EndsUnrunnable (unrunnableClosed.complete u))))))
+  , describe = \case
+      EndsReturned => MkCase (ident "Returned") (word "returned" ::: []) (line "the program returned from main")
+      EndsFailed => MkCase (ident "Failed") (word "failed" ::: []) (line "a crash of a cause of the closed set, at its site")
+      EndsSaid => MkCase (ident "Said") (word "said" ::: []) (line "a crash of the text a trusted library gave idris_crash, at its site")
+      EndsUnreportable => MkCase (ident "Unreportable") (word "unreportable" ::: []) (line "a crash at an exit whose status no parent could read")
+      EndsOutOfMemory => MkCase (ident "OutOfMemory") (word "out_of_memory" ::: []) (line "the machine ran out of memory")
+      EndsUnrunnable u => unrunnableClosed.describe u
+  , doc = brief (line "the endings that leave by a status no program chooses")
+  }
+
+public export
+chosenEndingClosed : Closed ChosenEnding
+chosenEndingClosed = MkClosed
+  { name = ident "ChosenEnding"
+  , shape = OneOf
+  , every = EndsExited ::: []
+  , complete = \case
+      EndsExited => Here
+  , describe = \case
+      EndsExited => MkCase (ident "Exited") (word "exited" ::: []) (line "the program ended itself with a status a parent reads")
+  , doc = brief (line "the ending whose status the program chose")
+  }
+
+public export
+signalEndingClosed : Closed SignalEnding
+signalEndingClosed = MkClosed
+  { name = ident "SignalEnding"
+  , shape = OneOf
+  , every = EndsPiped ::: map EndsInternal (forget internalClosed.every)
+  , complete = \case
+      EndsPiped => Here
+      EndsInternal i => There (elemMap EndsInternal (internalClosed.complete i))
+  , describe = \case
+      EndsPiped => MkCase (ident "Piped") (word "piped" ::: []) (line "a reader of one of the program's outputs went away")
+      EndsInternal i => internalClosed.describe i
+  , doc = brief (line "the endings that leave by a signal")
+  }
+
+||| The endings that leave by a fixed status, as the runtime reads them: the
+||| status, and what each writes first.
+public export
+fixedEndingTable : Table
+fixedEndingTable = table fixedEndingClosed
+  [ MkColumn (ident "fixedStatus") (EnumColumn (enumDef fixedClosed))
+      (\f => CaseCell (caseRef fixedClosed (fixedStatus f))) (line "the status a parent reads")
+  , MkColumn (ident "fixedWrites") (EnumColumn (enumDef writesClosed))
+      (\f => CaseCell (caseRef writesClosed (fixedWrites f))) (line "what the ending writes before it says anything")
+  ]
+
+||| The ending whose status the program chose, as the runtime reads it: what
+||| it writes first; its status is its own.
+public export
+chosenEndingTable : Table
+chosenEndingTable = table chosenEndingClosed
+  [ MkColumn (ident "chosenWrites") (EnumColumn (enumDef writesClosed))
+      (\c => CaseCell (caseRef writesClosed (chosenWrites c))) (line "what the ending writes before it says anything")
+  ]
+
+||| The endings that leave by a signal, as the runtime reads them: the
+||| signal, and what each writes first.
+public export
+signalEndingTable : Table
+signalEndingTable = table signalEndingClosed
+  [ MkColumn (ident "signalOf") (EnumColumn (enumDef signalClosed))
+      (\s => CaseCell (caseRef signalClosed (signalOf s))) (line "the signal the ending raises")
+  , MkColumn (ident "signalWrites") (EnumColumn (enumDef writesClosed))
+      (\s => CaseCell (caseRef writesClosed (signalWrites s))) (line "what the ending writes before it says anything")
+  ]
+
 ||| What the runtime is printed: the causes, the internal errors, the fixed
-||| statuses, why a machine cannot run a program, and the signals, each with
-||| what the runtime reads of it. In a namespace of their own, apart from
+||| statuses, why a machine cannot run a program, the signals, what an ending
+||| writes first, and the endings of each way out, each with what the
+||| runtime reads of it. In a namespace of their own, apart from
 ||| the dialect's enum of causes, which an op's site holds: both are printed
 ||| from the one closed set, so their cases are one list.
 public export
@@ -336,6 +510,10 @@ endingsHeader = MkHeader (ident "Endings")
       , TableOf statusTable
       , EnumOf (enumDef unrunnableClosed)
       , EnumOf (enumDef signalClosed)
+      , EnumOf (enumDef writesClosed)
+      , TableOf fixedEndingTable
+      , TableOf chosenEndingTable
+      , TableOf signalEndingTable
       ])
   ]
   (brief (line "how a compiled program ends, as the runtime reads it"))

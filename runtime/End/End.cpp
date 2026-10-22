@@ -17,6 +17,7 @@
 
 #include <__verbose_abort>
 #include <string_view>
+#include <type_traits>
 
 namespace {
 
@@ -111,23 +112,6 @@ private:
   size_t numbers = 0;
 };
 
-IDRIS_RT_BASELINE uint8_t fixed(idr::endings::FixedStatus status) noexcept {
-  return idr::endings::statusCode[status];
-}
-
-uint8_t statusOf(const Returned &) noexcept { return fixed(idr::endings::FixedStatus::Returned); }
-uint8_t statusOf(const Exited &ending) noexcept { return ending.status; }
-uint8_t statusOf(const Failed &) noexcept { return fixed(idr::endings::FixedStatus::Crashed); }
-uint8_t statusOf(const Said &) noexcept { return fixed(idr::endings::FixedStatus::Crashed); }
-uint8_t statusOf(const Unreportable &) noexcept { return fixed(idr::endings::FixedStatus::Crashed); }
-uint8_t statusOf(const OutOfMemory &) noexcept { return fixed(idr::endings::FixedStatus::OutOfMemory); }
-IDRIS_RT_BASELINE uint8_t statusOf(const MissingFeatures &) noexcept {
-  return fixed(idr::endings::FixedStatus::CannotRun);
-}
-IDRIS_RT_BASELINE uint8_t statusOf(const WrongPage &) noexcept {
-  return fixed(idr::endings::FixedStatus::CannotRun);
-}
-
 // The cause's phrase from the table, after its site's place; a missing
 // clause's names the function its site lies in.
 void say(Message &m, const Failed &ending) noexcept {
@@ -217,27 +201,26 @@ void say(Message &m, const LibraryFailed &ending) noexcept {
   m.addTerminated(ending.text);
 }
 
-// Each concept below follows the overloads it asks for. A call in a concept
-// finds by ordinary lookup only what is declared before the concept, and by
-// argument-dependent lookup only what lives beside its arguments' types:
-// statusOf takes only an ending, which lives in rt::end, while its
-// overloads are this file's, so above them Exits found none and every
-// ending read as leaving by neither way.
+// What an ending writes first, from the table of its way out: each way's
+// endings are a closed set of the specification's, so the type of an
+// ending's kind picks the table.
+consteval idr::endings::Writes writesOf(idr::endings::FixedEnding kind) {
+  return idr::endings::fixedWrites[kind];
+}
+consteval idr::endings::Writes writesOf(idr::endings::ChosenEnding kind) {
+  return idr::endings::chosenWrites[kind];
+}
+consteval idr::endings::Writes writesOf(idr::endings::SignalEnding kind) {
+  return idr::endings::signalWrites[kind];
+}
 
-// An ending that leaves by an exit status: from the table, or its own.
-template <class E>
-concept Exits = requires(const E &ending) {
-  { statusOf(ending) } -> std::same_as<uint8_t>;
-};
-
-// An ending that leaves by a signal, once its message is written.
-template <class E>
-concept Raises = requires {
-  { E::signal } -> std::convertible_to<idr::endings::EndingSignal>;
-};
+// An ending whose kind is a case of the closed set of the way out `Way`.
+template <class E, class Way>
+concept LeavesBy = std::same_as<std::remove_cv_t<decltype(E::kind)>, Way>;
 
 // What an ending says: a silent one (a return, an exit, a reader gone)
-// says nothing.
+// says nothing. Declared after the say overloads, since a call in a concept
+// finds by ordinary lookup only what precedes the concept.
 template <class E>
 concept Says = requires(const E &ending, Message &message) { say(message, ending); };
 
@@ -252,22 +235,27 @@ IDRIS_RT_BASELINE void name(const char *bytes, size_t length) noexcept {
 
 template <class E>
 [[noreturn]] IDRIS_RT_BASELINE void end(const E &ending) noexcept {
-  static_assert(Exits<E> != Raises<E>, "an ending leaves by a status or by a signal");
   // What the program wrote before its end, in the order it wrote it:
   // standard output's pending bytes, then its files, closed.
-  if constexpr (E::cleans != Cleans::Nothing)
+  constexpr idr::endings::Writes writes = writesOf(E::kind);
+  if constexpr (writes != idr::endings::Writes::Nothing)
     (void)rt::io::writePending();
-  if constexpr (E::cleans == Cleans::Everything)
+  if constexpr (writes == idr::endings::Writes::Everything)
     rt::io::releaseHandles();
   if constexpr (Says<E>) {
     Message message;
     say(message, ending);
     message.write();
   }
-  if constexpr (Raises<E>)
-    rt::platform::raiseSignal(E::signal);
+  // By a signal, by the status the program chose, or else by a fixed
+  // status, which fixedStatus reads for its own set's cases alone, so a kind
+  // of no way's set does not compile.
+  if constexpr (LeavesBy<E, idr::endings::SignalEnding>)
+    rt::platform::raiseSignal(idr::endings::signalOf[E::kind]);
+  else if constexpr (LeavesBy<E, idr::endings::ChosenEnding>)
+    rt::platform::exitProcess(ending.status);
   else
-    rt::platform::exitProcess(statusOf(ending));
+    rt::platform::exitProcess(idr::endings::statusCode[idr::endings::fixedStatus[E::kind]]);
 }
 
 template void end(const Returned &) noexcept;
