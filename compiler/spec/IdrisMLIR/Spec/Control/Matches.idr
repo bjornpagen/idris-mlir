@@ -255,11 +255,13 @@ matchLitOp = MkOp
   }
 
 ||| `idr.yield`: ends a region of an op that rejoins at its results (a
-||| match, a join point's op, a region run once, the test of sharing, a
-||| trusted library's IO action run for a value) with the op's results. It
-||| declares no effect: passing a value out of a region hands its ownership
-||| on, which is no consumption. A join point's yields stand until the last
-||| step of the lowering, after the program is lowered.
+||| match, a join point's op, a region run once, a region in which an erased
+||| equality holds, the test of sharing, a trusted library's IO action run
+||| for a value) with the op's results; and the region of an answer's slot
+||| with nothing, since that op's result is what the region wrote through
+||| its destination. It declares no effect: passing a value out of a region
+||| hands its ownership on, which is no consumption. A join point's yields
+||| stand until the last step of the lowering, after the program is lowered.
 export
 yieldOp : Op 1 0 0 0
 yieldOp = MkOp
@@ -273,7 +275,8 @@ yieldOp = MkOp
              , HasParent ("data.match" ::: [ "lit.match", "join", "loop"
                                            , "lifetime", "lifetime.home", "lifetime.block"
                                            , "lifetime.stack", "lifetime.chain", "lifetime.unpack"
-                                           , "lend", "count.match_unique", "io.unsafe_run" ]) ]
+                                           , "lend", "index.assume", "count.match_unique"
+                                           , "io.unsafe_run", "dest.answer" ]) ]
   , interfaces =
       [Declares RegionBranchTerminator ["getMutableSuccessorOperands", "getSuccessorRegions"]]
   , effects = noEffects
@@ -290,5 +293,5 @@ yieldOp = MkOp
   , guards = []
   , specializations = []
   , laws = []
-  , doc = brief "ends a region of an op that rejoins at its results, with those results"
+  , doc = brief "ends a region of an op that rejoins after it, with what the region gives its results"
   }

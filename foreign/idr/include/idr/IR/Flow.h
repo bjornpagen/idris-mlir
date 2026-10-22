@@ -16,7 +16,7 @@
 // tensor or a buffer, or make one from nothing, hold it as an external
 // model, attached by registerFlowInterfaceExternalModels. What an op does
 // besides moving values is the effect system's one query API to say
-// (idr/IR/Effects/), never this header's.
+// (idr/IR/Effects/Query.h), never this header's.
 #ifndef IDR_IR_FLOW_H
 #define IDR_IR_FLOW_H
 
@@ -73,12 +73,9 @@ mlir::LogicalResult verifyFlowOf(mlir::Operation *op);
 // Attaches the flow interface to the upstream ops that move a value into or
 // out of the elements of a tensor or a buffer or make one from nothing:
 // tensor.insert, tensor.extract, tensor.from_elements, tensor.splat,
-// tensor.yield, memref.load, memref.store, ub.poison; and to
-// ub.unreachable the memory effects interface, with none, which upstream
-// does not declare. Every
-// registry a module is read with takes it. No interface verifier reaches an
-// external model; a unit test holds each to the rule of
-// verifyFlowEdges.
+// tensor.yield, memref.load, memref.store, ub.poison. Every registry a
+// module is read with takes it. No interface verifier reaches an external
+// model; a unit test holds each to the rule of verifyFlowEdges.
 void registerFlowInterfaceExternalModels(mlir::DialectRegistry &registry);
 
 } // namespace idr

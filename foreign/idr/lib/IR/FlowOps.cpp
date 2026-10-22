@@ -6,8 +6,7 @@
 // a tensor or a buffer or make one from nothing, which hold it as an
 // external model: where what each holds, takes or gives moves, as data
 // (FlowEdges.h). A value is followed whole, or into and out of a part of
-// another (a field, the elements, the forced state, a capture, a hole). And
-// ub.unreachable's effects, none, which upstream leaves undeclared.
+// another (a field, the elements, the forced state, a capture, a hole).
 
 #include "idr/IR/Flow.h"
 
@@ -130,6 +129,16 @@ void idr::DestWriteOp::getFlowEdges(FlowEdges &edges) {
              FlowPoint::partOf(dest, FlowAnchor::holeOf(dest.getType())));
 }
 
+// The answer is what the region wrote through the destination it receives,
+// read out of the hole when the region ends. The destination holds no
+// reference, so that it is new to the region declares no edge: the place is
+// this op's alone, and that it is written once is its type's.
+void idr::DestAnswerOp::getFlowEdges(FlowEdges &edges) {
+  Value dest = getBody().getArgument(0);
+  edges.flow(FlowPoint::partOf(dest, FlowAnchor::holeOf(cast<DestType>(dest.getType()))),
+             FlowPoint::of(getResult()));
+}
+
 void idr::FnClosureOp::getFlowEdges(FlowEdges &edges) { labelEdges(*this, edges); }
 
 // A suspension's label returns into the forced state of its type, the one
@@ -246,13 +255,6 @@ void yieldEdges(tensor::YieldOp yield, FlowEdges &edges) {
 // holds no label.
 void poisonEdges(ub::PoisonOp poison, FlowEdges &edges) { edges.fresh(poison.getResult()); }
 
-// Code past ub.unreachable never runs, so it has no effect a caller could
-// observe; upstream declares none at all, which a reader of effects would
-// take for any.
-struct NeverRuns : MemoryEffectOpInterface::ExternalModel<NeverRuns, ub::UnreachableOp> {
-  void getEffects(Operation *, SmallVectorImpl<MemoryEffects::EffectInstance> &) const {}
-};
-
 } // namespace
 
 void idr::registerFlowInterfaceExternalModels(DialectRegistry &registry) {
@@ -270,6 +272,5 @@ void idr::registerFlowInterfaceExternalModels(DialectRegistry &registry) {
   });
   registry.addExtension(+[](MLIRContext *context, ub::UBDialect *) {
     ub::PoisonOp::attachInterface<Model<ub::PoisonOp, poisonEdges>>(*context);
-    ub::UnreachableOp::attachInterface<NeverRuns>(*context);
   });
 }

@@ -172,7 +172,8 @@ LogicalResult idr::verifyFlowEdges(Operation *op) {
   };
   using End = std::variant<FlowPoint::Taken, FlowPoint::Whole>;
   // A `from` names a use of the op, an operand's value or a part of either,
-  // a part of one of its results, or a parameter or a result.
+  // a part of one of its results or region arguments, or a parameter or a
+  // result.
   auto fromEnd = [&](const End &end) {
     return std::visit(
         llvm::makeVisitor([&](FlowPoint::Taken taken) { return taken.use->getOwner() == op; },
@@ -180,12 +181,13 @@ LogicalResult idr::verifyFlowEdges(Operation *op) {
         end);
   };
   // A region reads back what an earlier step wrote into the op's result (a
-  // fold's next accumulator): a part of a result of its own, never the
-  // whole, which the op has not made yet.
+  // fold's next accumulator), and the op reads out what its region wrote
+  // through a place it gave the region (an answer's slot): a part of a
+  // value of its own, never the whole, which as a result the op has not
+  // made yet and as a region's argument is the region's.
   auto ownPart = [&](const End &end) {
     const auto *whole = std::get_if<FlowPoint::Whole>(&end);
-    auto result = whole ? dyn_cast<OpResult>(whole->value) : OpResult();
-    return result && result.getOwner() == op;
+    return whole && ownValue(op, whole->value);
   };
   auto from = [&](const FlowPoint &point) {
     return std::visit(

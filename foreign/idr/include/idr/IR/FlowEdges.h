@@ -373,8 +373,9 @@ namespace idr {
 // The rule every op that holds the flow interface keeps, which the
 // interface's verifier holds it to at every stage: each edge its model
 // declares names only ends the op may name, a `from` a use of its own, an
-// operand's value or a part of either, or a part of a result of its own
-// (what a region reads back from an earlier step), a `to` a value it makes,
+// operand's value or a part of either, or a part of a result or a region
+// argument of its own (what a region reads back from an earlier step, what
+// the op reads out of a place its region wrote), a `to` a value it makes,
 // a part of one or of a value it or its parent holds, and either a
 // parameter or a result; and an edge that carries labels joins two places of one carrier
 // type. Fails with an error at the op otherwise (lib/IR/Flow.cpp).
