@@ -3890,6 +3890,19 @@ C137.
   `Transforms/Counting/` to L07, `Transforms/ExpectProperties.inc` to
   L19). The rule stands as written: a declaration two units share has
   one home.
+- **C185** (2026-10-21; L08's question on D71; reads D71 with D70 and
+  D110). An `in_place` type whose own cells hold a buffer (`LArray`,
+  `Linear.Vec`) obliges `unique deep`, not D70's `unique self`: D71 gives
+  their values "the exclusive linear grade by construction", and only
+  exclusivity of the buffer lets bufferization write it in place; for
+  every other `in_place` type, D70 and D110's `unique self` stand. Which
+  types those are is read off the family declaration (an own cell holds
+  a buffer), never listed. A quantity-1 parameter of such a type is
+  graded `unique deep` from its type and quantity at the boundary, and
+  the exclusivity check holds every call to it: a call it cannot prove
+  exclusive meets `unsupported (uniqueness)`, as D71 says. A buffer an
+  upstream op makes enters our grades through `own.adopt`, so a cell
+  holding it can claim `unique deep`.
 
 ## 4. Open: the owner's decisions, in order
 
