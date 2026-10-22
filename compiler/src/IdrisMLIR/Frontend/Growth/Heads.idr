@@ -234,10 +234,20 @@ headsIn hs = mapMaybe headed (Prelude.toList hs)
     headed Headless = Nothing
     headed Unsettled = Nothing
 
--- Whether a dictionary the running program chooses, held as it is, can
--- reach a slot: what makes a match there stuck.
-unsettledAt : View -> Slot -> Bool
-unsettledAt v s = contains Unsettled (at v s)
+-- What reaches a slot a match takes apart: a dictionary the running
+-- program chose, held as it is, which makes the match stuck there; or
+-- only dictionaries the program fixes. The view a walk down a dictionary
+-- matches on.
+data Reaching = ChosenReaches | FixedOnly
+
+-- What reaches a slot, read off its set: the set's own membership test,
+-- once, as the view.
+reachingAt : View -> Slot -> Reaching
+reachingAt v s = asReaching (contains Unsettled (at v s))
+  where
+    asReaching : Bool -> Reaching
+    asReaching True = ChosenReaches
+    asReaching False = FixedOnly
 
 -- Every choice's members: what reaches the slots of kind 2.
 everyMember : View -> SortedSet Heading
@@ -416,7 +426,7 @@ dictionariesOf fs = MkDictionaries fs (foldl (\m, (j, f) => numbered j 0 f.inOrd
     numbered : Address -> Nat -> List Field -> SortedMap Address (Address, Nat) -> SortedMap Address (Address, Nat)
     numbered j k [] m = m
     numbered j k (Method fn _ _ _ :: rest) m = numbered j (S k) rest (insert fn (j, k) m)
-    numbered j k (Dictionary _ _ _ :: rest) m = numbered j (S k) rest m
+    numbered j k (Dictionary _ _ _ _ :: rest) m = numbered j (S k) rest m
     numbered j k (Plain _ _ :: rest) m = numbered j (S k) rest m
 
 -- The method function an implementation's field k is, with where the
@@ -446,25 +456,28 @@ runs ds v j k = case fieldAt ds.holding j k of
 ------------------------------------------------------------------------------
 
 -- One level of a path of fields taken down a dictionary: what the part
--- there is rooted at, what that holds, the field the path takes, and the
--- head of the choice that field's type is, a dictionary's.
+-- there is rooted at, what that holds, the field the path takes, the head
+-- of the choice that field's type is, a dictionary's, and that type over
+-- the constructor's arguments, which a match that finds the field stuck
+-- holds it at.
 record Level where
   constructor MkLevel
   rootedAt : Address
   holds : Fields
   taken : Nat
   choiceOf : ChoiceHead
+  heldType : Template
 
--- The head of the choice field k is, where it is a dictionary, the one
--- kind of field a match takes apart.
-heldDictionary : Fields -> Nat -> Maybe ChoiceHead
+-- The head of the choice field k is, and its type, where it is a
+-- dictionary, the one kind of field a match takes apart.
+heldDictionary : Fields -> Nat -> Maybe (ChoiceHead, Template)
 heldDictionary f k = case head' (drop k f.inOrder) of
-  Just (Dictionary _ _ h) => Just h
+  Just (Dictionary _ _ h ty) => Just (h, ty)
   _ => Nothing
 
 -- One way a path of fields can be taken down a dictionary, from its root,
 -- to a field the running program may have chosen, so that a match there
--- is stuck (`unsettledAt`): a level for each field of the path, the
+-- is stuck (`reachingAt`): a level for each field of the path, the
 -- dictionary's first. Each level's root is one of those its part can be,
 -- given the roots the dictionary can be at the first.
 Chain : Type
@@ -475,7 +488,9 @@ chains ds v [] k rest = []
 chains ds v (j :: js) k rest = here ++ chains ds v js k rest
   where
     down : Level -> List Nat -> List Chain
-    down l [] = if unsettledAt v (fieldSlot j k) then [l ::: []] else []
+    down l [] = case reachingAt v (fieldSlot j k) of
+      ChosenReaches => [l ::: []]
+      FixedOnly => []
     down l (k' :: ks) = map (\c => l ::: forget c) (chains ds v (headsIn (at v (fieldSlot j k))) k' ks)
 
     -- A root that holds no dictionary at the field is no way down: a
@@ -483,7 +498,7 @@ chains ds v (j :: js) k rest = here ++ chains ds v js k rest
     here : List Chain
     here = case lookup j ds.holding of
       Nothing => []
-      Just f => maybe [] (\h => down (MkLevel j f k h) rest) (heldDictionary f k)
+      Just f => maybe [] (\(h, ty) => down (MkLevel j f k h ty) rest) (heldDictionary f k)
 
 -- A dictionary rebuilt down a chain, as an arm of the dispatch
 -- `Translate.Cases.heldHere` requests holds it
@@ -528,6 +543,39 @@ mutual
   deeper : Template -> Level -> List Level -> Maybe Rebuilt
   deeper part l [] = Nothing
   deeper part l (n :: ns) = Just (rebuilt (Template.Field l.taken part) n ns)
+
+-- The last level of a chain and the part it takes apart: the dictionary
+-- itself at the first, and below it the field each level above takes, as
+-- the rebuilt dictionary reads it (`deeper`).
+lastOf : Template -> Level -> List Level -> (Template, Level)
+lastOf part l [] = (part, l)
+lastOf part l (n :: ns) = lastOf (Template.Field l.taken part) n ns
+
+-- A constructor's field type over its arguments (`Var c 0` its argument
+-- c), read over the part a level takes apart: each argument the part's
+-- field, as the rebuilt dictionary's other fields are read (`cellsFrom`).
+-- Nothing where the type applies an argument as a family, since a
+-- template applies only its writer's own family (`Applied`), never a
+-- field's value; nor where it recurses on one as nothing bounds, whose
+-- arc from the field no potential meets, though each instance holds one
+-- closed type there.
+mutual
+  overPart : Template -> Template -> Maybe Template
+  overPart part (Template.Var c _) = Just (Template.Field c part)
+  overPart part (Template.Head a ts) = Template.Head a <$> overParts part ts
+  overPart part (Template.Opaque _ _) = Nothing
+  overPart part (Template.Choice m ls) = Template.Choice <$> overPart part m <*> overParts part ls
+  overPart part (Template.Field k r) = Template.Field k <$> overPart part r
+  overPart part (Template.Leaf h) = Just (Template.Leaf h)
+  overPart part (Template.Token k) = Just (Template.Token k)
+  overPart part (Template.Formal j a) = Just (Template.Formal j a)
+  overPart part (Template.Member k) = Just (Template.Member k)
+  overPart part (Template.Applied _ _ _) = Nothing
+  overPart part (Template.Computing _ _ _) = Nothing
+
+  overParts : Template -> List Template -> Maybe (List Template)
+  overParts part [] = Just []
+  overParts part (t :: ts) = (::) <$> overPart part t <*> overParts part ts
 
 -- What each rebuilt constructor's fields hold in the flow: what the
 -- level's root holds there, and where the path goes on, the constructor
@@ -625,6 +673,8 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
       -- use of it applies each member at the use's own types.
       Makes ArrowHead => []
       Repacks x path => [Rebuilds s.writer s.params x.position path]
+      -- The types of values held as one key no callee.
+      Packs _ => []
 
     numbered : Address -> Nat -> List Field -> List Equation
     numbered j k [] = []
@@ -846,16 +896,20 @@ Ord Holder where
 ||| A static position of the graph: a parameter of what holds it; field k
 ||| of an implementation, which the field's template over the
 ||| implementation's parameters writes, and a field read takes its value
-||| from; or a choice, by its head, which every place that makes a member
-||| of it writes, and every dispatch on it reads (`Model.choicePositions`).
+||| from; a choice, by its head, which every place that makes a member of
+||| it writes, and every dispatch on it reads (`Model.choicePositions`); or
+||| the held types', where every place that holds values as one writes
+||| their types, program-wide, and every pair that holds a list of them
+||| reads (`Graph.heldPackings`).
 public export
-data Spot = OfParameter Holder Nat | OfField Address Nat | OfChoice ChoiceHead
+data Spot = OfParameter Holder Nat | OfField Address Nat | OfChoice ChoiceHead | OfHeld
 
 export
 Eq Spot where
   OfParameter h i == OfParameter h' i' = h == h' && i == i'
   OfField j k == OfField j' k' = j == j' && k == k'
   OfChoice k == OfChoice k' = k == k'
+  OfHeld == OfHeld = True
   _ == _ = False
 
 export
@@ -864,9 +918,12 @@ Ord Spot where
   compare (OfParameter _ _) _ = LT
   compare _ (OfParameter _ _) = GT
   compare (OfField j k) (OfField j' k') = compare (j, k) (j', k')
-  compare (OfField _ _) (OfChoice _) = LT
-  compare (OfChoice _) (OfField _ _) = GT
+  compare (OfField _ _) _ = LT
+  compare _ (OfField _ _) = GT
   compare (OfChoice k) (OfChoice k') = compare k k'
+  compare (OfChoice _) OfHeld = LT
+  compare OfHeld (OfChoice _) = GT
+  compare OfHeld OfHeld = EQ
 
 ||| Where parameter i of a writer is, at its node, as `ps` reads it: the
 ||| node's own, or a position of the application.
@@ -885,22 +942,24 @@ data Via : Type where
   Dispatched : (j : Address) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
 
 ||| What a site reaches from a node: a callee node, which the walk enters;
-||| the application at a use; a choice it makes a member of; or the fields
-||| of a constructor a dictionary is rebuilt with, which no definition's
-||| node holds, each a field's position.
+||| the application at a use; a choice it makes a member of; the fields of
+||| a constructor a dictionary is rebuilt with, which no definition's node
+||| holds, each a field's position; or the types of values held as one.
 public export
-data Callee = Entering Node | Applying | Making ChoiceHead | Filling Address
+data Callee = Entering Node | Applying | Making ChoiceHead | Filling Address | Packing
 
 ||| Where an argument placed at a callee's parameter i lands: that
 ||| parameter of the node or of the application; at a choice, its one
 ||| position, where every member lands whatever it is placed at; at a
-||| rebuilt constructor, its field i.
+||| rebuilt constructor, its field i; a type held, at the held types' one
+||| position, whatever its place in its list.
 export
 landsAt : Callee -> Nat -> Spot
 landsAt (Entering n) i = OfParameter (OfNode n) i
 landsAt Applying i = OfParameter OfApplication i
 landsAt (Making k) _ = OfChoice k
 landsAt (Filling con) i = OfField con i
+landsAt Packing _ = OfHeld
 
 ||| What a site reaches from a node, with each of the site's arguments
 ||| placed at the parameter it lands at, and how it got there.
@@ -963,7 +1022,22 @@ reaches fl w s = from s.reach
       let r = rebuilt (Template.Var x.position 0) l ls
           dictionary = MkPlaced ({ template := r.template, root := Unrooted, term := Nothing } x) x.position
           target = MkNode w.definition (headedAt x.position l.holds.builtBy w.heads) in
-      MkReached (Entering target) (atOwnPositions s.arguments ++ [dictionary]) Called :: map (filling x) r.fillings
+      MkReached (Entering target) (atOwnPositions s.arguments ++ [dictionary]) Called ::
+        map (filling x) r.fillings ++ heldField x (lastOf (Template.Var x.position 0) l ls)
+
+    -- The field the last level takes, held after the values the
+    -- dictionary held until a dispatch puts a member in its place: its
+    -- type over that level's part (`overPart`), at the held types'
+    -- position. A type that applies an argument as a family reads off no
+    -- field.
+    heldField : Argument -> (Template, Level) -> List Reached
+    heldField x (part, l) = case overPart part l.heldType of
+      Just ty =>
+        [MkReached Packing
+                   [MkPlaced ({ position := 0, kind := AType, template := ty, root := Unrooted, term := Nothing
+                              , memberOf := Nothing } x) 0]
+                   Called]
+      Nothing => []
 
     from : Reach -> List Reached
     from (Calls t) = let placed = atOwnPositions s.arguments in
@@ -976,6 +1050,7 @@ reaches fl w s = from s.reach
     -- bounded at its positions alone.
     from Applies = [MkReached Applying (atOwnPositions s.arguments) Called]
     from (Makes k) = [MkReached (Making k) (atOwnPositions s.arguments) Called]
+    from (Packs _) = [MkReached Packing (atOwnPositions s.arguments) Called]
     -- Where a match finds a field of the dictionary stuck: one request for
     -- each chain to a field the running program may have chosen, none
     -- where every root holds that field fixed, as no translation then

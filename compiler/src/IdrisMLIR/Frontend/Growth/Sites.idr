@@ -99,6 +99,14 @@ record Argument where
   memberOf : Maybe ChoiceHead
   shown : ArgumentText
 
+||| Whose values a place holds as one: those a dictionary closes over where
+||| it is written or bound, which a callee is given as the list it starts
+||| with; or those a member of a choice closes over where it is made, which
+||| a dispatch on a field held after that list puts in the field's place.
+||| The held count reads the two apart (`Graph.heldCount`).
+public export
+data Packed = DictionaryValues | MemberValues
+
 ||| What a site reaches: a definition it calls (a function, an
 ||| implementation, a projection, a constructor holding dictionaries), a type
 ||| constructor it builds, method `k` of a dictionary, which the template
@@ -113,10 +121,12 @@ record Argument where
 ||| there in turn (`Translate.Choices.heldDispatch`). The parameter's own
 ||| argument is held apart, since the node it is read at rebuilds it
 ||| (`Heads.reaches`); the site's arguments are the writer's other static
-||| ones, each as it is.
+||| ones, each as it is. Or the types of the values a place holds as one
+||| (`Closed.packedType`), each at the held types' position, its arguments
+||| as many as the values (`Packed` says whose).
 public export
 data Reach = Calls Address | Builds Address | Dispatches Template Root Nat | Applies | Makes ChoiceHead
-           | Repacks Argument (List1 Nat)
+           | Repacks Argument (List1 Nat) | Packs Packed
 
 ||| One site: who wrote it (whose parameters the templates' `Var`s are, as
 ||| `params` reads them), the definition whose text holds it, what it
@@ -524,23 +534,25 @@ builds at stands fc t = buildsIn at fc !(eraseIn !(templateOf stands AType !(can
 ------------------------------------------------------------------------------
 
 ||| An argument of an application, made where it is a subterm: as written,
-||| and its walks as code, as a static value, and as a member applied at a
-||| use of a type (`useOf`), each suspended there.
+||| and its walks as code, as a static value, as a member applied at a use
+||| of a type (`useOf`), and as the computation a match that finds it stuck
+||| computes (`computedField`), each suspended there.
 record Arg (vs : Scope) where
   constructor MkArg
   written : TT vs
   asCode : Lazy (Front (List Site))
   asStatic : Lazy (Front (List Site))
   asUse : ClosedTerm -> Front (List Site)
+  asComputed : Lazy (Front (List Site))
 
 ||| An argument under a binder the walk binds.
 overBinder : Arg vs -> Arg (x :: vs)
-overBinder a = MkArg (weaken a.written) a.asCode a.asStatic a.asUse
+overBinder a = MkArg (weaken a.written) a.asCode a.asStatic a.asUse a.asComputed
 
 ||| A closed value as an argument, a compile-time value or a marker, whose
 ||| walks write nothing: it holds no application of the program's.
 closedArg : ClosedTerm -> Arg vs
-closedArg t = MkArg (embedClosed t) (pure []) (pure []) (\_ => pure [])
+closedArg t = MkArg (embedClosed t) (pure []) (pure []) (\_ => pure []) (pure [])
 
 ||| Arguments each walked as a static value.
 statics : List (Arg vs) -> Front (List Site)
@@ -682,47 +694,86 @@ readArgument : {auto c : Ref Ctxt Defs} -> List StandIn -> Nat -> Static -> (mem
 readArgument stands j k memberOf t shown =
   (\(tm, root) => MkArgument j k (asGiven memberOf (tm, root)) root (Just t) stands memberOf shown) <$> rooted stands k t
 
-||| What the callee of a dictionary that closes over runtime values does
-||| with them: it holds them as one value, the first and a pair of the rest
-||| (`Closed.packedType`), and takes them apart with the pair's projections
-||| (`Closed.unpacked`). So each split is a `Calls` of each projection at
-||| the first's type and the rest's, and a build of that pair.
-packing : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> List StandIn -> FC -> List ClosedTerm -> Front (List Site)
-packing at stands fc [] = pure []
-packing at stands fc [_] = pure []
-packing at stands fc (t :: ts@(u :: us)) = do
-  rest <- packedType (u ::: us)
-  (pair, first, second) <- pairNames
-  halves <- sequence [readArgument stands 0 AType Nothing t (TermText t), readArgument stands 1 AType Nothing rest (TermText rest)]
-  here <- traverse (split halves) [first, second]
-  p <- refTo EmptyFC pair
-  built <- builds at stands fc (App EmptyFC (App EmptyFC p t) rest)
-  later <- packing at stands fc ts
-  pure (catMaybes here ++ built ++ later)
-  where
-    split : List Argument -> Name -> Front (Maybe Site)
-    split halves n = do
-      Just (a, _) <- definitionOf n
-        | Nothing => pure Nothing
-      pure (Just (siteAt at fc (Calls a) halves))
+||| The pair Idris's `%pair` names, which holds a value and the rest of a
+||| list as one, and its two projections, each by its definition's address.
+public export
+record Pairing where
+  constructor MkPairing
+  pairAddress : Address
+  firstAddress : Address
+  secondAddress : Address
 
-||| The packings of the values a dictionary closes over (`packing`), one
-||| written term closed two ways: each earlier argument a later binder's
-||| type depends on put in as its key holds it (`keyed`), a hole marker
-||| where it is a runtime value; or as the site knows it (`shaped`), a
-||| shape it matched as that shape. An instance that holds such an
-||| argument's whole shape puts the shape in, a compile-time value, so a
-||| value's type there can be taller than any part of the one with holes,
-||| which the shape's stand-ins bound; one that does not puts a hole in,
-||| whose token the keyed packing weighs. Where both read alike, there is
-||| one packing.
+||| The pairing, read off the context: nothing where it holds no definition
+||| of one of the pair's names.
+export
+pairingOf : Front (Maybe Pairing)
+pairingOf = do
+  (pair, first, second) <- pairNames
+  Just (p, _) <- definitionOf pair
+    | Nothing => pure Nothing
+  Just (f, _) <- definitionOf first
+    | Nothing => pure Nothing
+  Just (s, _) <- definitionOf second
+    | Nothing => pure Nothing
+  pure (Just (MkPairing p f s))
+
+||| What holding values as one reaches: the pair that holds the first and
+||| the rest, and its projections, which the holder takes them apart with
+||| (`Closed.unpacked`). What each is given is a list of held types, which
+||| no writer's site knows (a match that finds a field stuck holds it after
+||| the values its writer was given, and a dispatch on it puts a member's
+||| values in its place), so it is written once for the program, from the
+||| held types' position (`Graph.heldPackings`), and these sites write
+||| nothing.
+pairReached : At -> FC -> Front (List Site)
+pairReached at fc = maybe [] reached <$> pairingOf
+  where
+    reached : Pairing -> List Site
+    reached pg = [ siteAt at fc (Builds pg.pairAddress) [], siteAt at fc (Calls pg.firstAddress) []
+                 , siteAt at fc (Calls pg.secondAddress) [] ]
+
+||| What a place that holds values as one writes (`Closed.packedType`):
+||| each value's type at the held types' position, the first at 0, so that
+||| the site has as many arguments as the list has values, with the sites
+||| of the types each builds; and, for two or more, the pair and its
+||| projections, reached (`pairReached`). One value is held as itself.
+packing : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+          At -> List StandIn -> FC -> Packed -> List ClosedTerm -> Front (List Site)
+packing at stands fc what [] = pure []
+packing at stands fc what ts@(_ :: rest) = do
+  held <- traverse (\(j, u) => readArgument stands j AType Nothing u (TermText u)) (zip [0 .. length rest] ts)
+  inner <- traverse (builds at stands fc) ts
+  paired <- case rest of
+              [] => pure []
+              _ :: _ => pairReached at fc
+  pure (siteAt at fc (Packs what) held :: (inner >>= id) ++ paired)
+
+||| The packings of the values a dictionary or a member closes over
+||| (`packing`), one written term closed two ways: each earlier argument a
+||| later binder's type depends on put in as its key holds it (`keyed`), a
+||| hole marker where it is a runtime value; or as the site knows it
+||| (`shaped`), a shape it matched as that shape. An instance that holds
+||| such an argument's whole shape puts the shape in, a compile-time value,
+||| so a value's type there can be taller than any part of the one with
+||| holes, which the shape's stand-ins bound; one that does not puts a hole
+||| in, whose token the keyed packing weighs. Where both read alike, there
+||| is one packing.
 packings : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           At -> List StandIn -> FC -> (keyed, shaped : ClosedTerm) -> Front (List Site)
-packings at stands fc keyed shaped = do
+           At -> List StandIn -> FC -> Packed -> (keyed, shaped : ClosedTerm) -> Front (List Site)
+packings at stands fc what keyed shaped = do
   holes <- heldIn keyed keyed
   shapes <- heldIn keyed shaped
-  if shapes == holes then packing at stands fc holes
-    else (++) <$> packing at stands fc holes <*> packing at stands fc shapes
+  if shapes == holes then packing at stands fc what holes
+    else (++) <$> packing at stands fc what holes <*> packing at stands fc what shapes
+
+||| What a dictionary known as a term holds as one value where it is bound
+||| (`Terms.letIn`): the packing of what it closes over. The writer's own
+||| dictionary is packed where its writer was given it, and one that closes
+||| over nothing whose type the walk knows holds nothing it knows.
+heldBy : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> List StandIn -> FC -> Dict -> Front (List Site)
+heldBy at stands fc (Known _ (Just co)) = packing at stands fc DictionaryValues (forget co.valueTypes)
+heldBy at stands fc (Known _ Nothing) = pure []
+heldBy at stands fc (Own _ _ _) = pure []
 
 ||| The type a suspension holds, of a suspension's type; any other as it is:
 ||| a lambda given delayed where a delayed one is held is the member of the
@@ -774,7 +825,7 @@ argument at ps env fc g k = do
     ADictionary => do
       d <- solved (holed env g.offer.arg.written)
       shaped <- solved (close env g.offer.arg.written)
-      pure (d, packings at ps.made fc d shaped)
+      pure (d, packings at ps.made fc DictionaryValues d shaped)
   memberOf <- case k of
     ADictionary => Just <$> choiceAt g.binder
     _ => pure Nothing
@@ -822,7 +873,7 @@ lambdaAt at ps env fc lam = do
   -- A value the walk binds with no type (a case's field past the binders
   -- its constructor's type shows) is packed with nothing it knows of the
   -- pair's halves, so the packing is left out with it.
-  packed <- packing at ps.made fc (maybe [] id (closedOverTypes env places))
+  packed <- packing at ps.made fc MemberValues (maybe [] id (closedOverTypes env places))
   memberAt at ps env fc ArrowHead d packed lam
 
 ||| What a value of a type in normal form, over the writer's markers, is:
@@ -934,7 +985,7 @@ definitionMember at ps env fc d after args = case givesAfter (length args) (memb
       FixedNow <- fixing ty form
         | ChosenAtRunTime _ => pure []
       shaped <- solved (close env written)
-      memberAt at ps env fc k form !(packings at ps.made fc form shaped) written
+      memberAt at ps env fc k form !(packings at ps.made fc MemberValues form shaped) written
 
 ||| What a definition's leaves give at its node, from what the member table
 ||| says it gives after its parameters; where the instance decides, the
@@ -1125,21 +1176,32 @@ arityOf d = case definition d.def of
   ExternDef arity => arity
   _ => length (piNames d.type)
 
-||| A data constructor applied, what it takes at each binder `positions`:
-||| `Calls` of it at its dictionary arguments, so that the flow sees what a
-||| match on them reads, when it has any; and the sites of its result type
-||| after its arguments. With the arguments given, for their walk, and that
-||| type.
+||| A data constructor applied, as the walk reads it: `Calls` of it at its
+||| dictionary arguments, so that the flow sees what a match on them reads,
+||| when it has any, and the sites of its result type after its arguments;
+||| the arguments given, for their walk; each dictionary among them with
+||| what the call read of it; and that result type.
+record Constructed (vs : Scope) where
+  constructor MkConstructed
+  sites : List Site
+  given : List (Given vs)
+  dictionaries : List (Given vs, Argument)
+  result : ClosedTerm
+
+||| A data constructor applied, what it takes at each binder `positions`
+||| (`Constructed`).
 constructed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
               At -> Pats -> Env vs -> FC -> Address -> Defined -> (positions : List ArgumentAt) -> List (Arg vs) ->
-              Front (List Site, List (Given vs), ClosedTerm)
+              Front (Constructed vs)
 constructed at ps env fc a d positions args = do
   (gs, rest) <- taken at ps env d.type positions args
-  calls <- case filter holdsDictionary gs of
-    [] => pure []
-    dictionaries => callSite at ps env fc (Calls a) dictionaries
+  read <- traverse (\g => (\(x, beside) => ((g, x), beside)) <$> argument at ps env fc g ADictionary)
+                   (filter holdsDictionary gs)
+  let calls = case read of
+                [] => []
+                _ :: _ => siteAt at fc (Calls a) (map (snd . fst) read) :: (read >>= snd)
   result <- builds at ps.made fc rest
-  pure (calls ++ result, gs, rest)
+  pure (MkConstructed (calls ++ result) gs (map fst read) rest)
   where
     holdsDictionary : Given vs -> Bool
     holdsDictionary g = case g.taking of
@@ -1265,16 +1327,35 @@ applyRef at ps env fc n args = do
     -- function holds the member its site fixes (`Translate.Terms.constructor`),
     -- as the member table says of its binder.
     DCon _ arity _ => do
-      (sites, gs, rest) <- constructed at ps env fc a d d.taken (take arity args)
-      now <- walkedAt at ps env fc AConstructor (\j => givenAt j (memberPlaces d)) gs
-      later <- overType at ps env fc (Just rest) (drop arity args)
-      pure (sites ++ now ++ later)
+      dcon <- constructed at ps env fc a d d.taken (take arity args)
+      now <- walkedAt at ps env fc AConstructor (\j => givenAt j (memberPlaces d)) dcon.given
+      later <- overType at ps env fc (Just dcon.result) (drop arity args)
+      pure (dcon.sites ++ now ++ later)
     PMDef {} => call at ps env fc a d args
     Builtin {} => call at ps env fc a d args
     ForeignDef {} => call at ps env fc a d args
     ExternDef {} => call at ps env fc a d args
     -- A type where code is, or a hole: the translation refuses both.
     _ => pure []
+
+||| The dictionaries a dictionary built with its constructor holds that the
+||| running program may choose (their root, as this writer reads them, is
+||| `Chosen`), each as the computation a match that takes the dictionary
+||| apart there computes where it reaches it (`Translate.Cases.heldHere`,
+||| `computedField`): the key holds the field as written here, with this
+||| writer's values, so the requests its computation makes are this
+||| writer's sites. A field the program fixes is never stuck, and is never
+||| computed so.
+computedFields : List (Given vs, Argument) -> Front (List Site)
+computedFields [] = pure []
+computedFields ((g, x) :: rest) = (++) <$> one x.root <*> computedFields rest
+  where
+    one : Root -> Front (List Site)
+    one (Chosen _) = Force g.offer.arg.asComputed
+    one (Rooted _) = pure []
+    one (Gives _) = pure []
+    one (Parameter _ _) = pure []
+    one Unrooted = pure []
 
 ||| A definition applied in a type or a static argument: a constructor as
 ||| anywhere, an implementation as `Calls` of its function; any other
@@ -1283,7 +1364,8 @@ applyRef at ps env fc n args = do
 ||| its own lambdas, which the translation runs in place of a dispatch on
 ||| it (`Terms.resolveMethod` takes the field and settles it), so they are
 ||| code wherever the dictionary is written; its other arguments are
-||| static.
+||| static, and each dictionary among them is also what a match that finds
+||| it stuck computes (`computedFields`).
 staticRef : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
             At -> Pats -> Env vs -> FC -> Name -> List (Arg vs) -> Front (List Site)
 staticRef at ps env fc n args = do
@@ -1291,9 +1373,10 @@ staticRef at ps env fc n args = do
     | Nothing => statics args
   case definition d.def of
     DCon _ arity _ => do
-      (sites, gs, _) <- constructed at ps env fc a d d.taken (take arity args)
-      fields <- if !(implementationType d.type) then walked gs else statics (take arity args)
-      (\later => sites ++ fields ++ later) <$> statics (drop arity args)
+      dcon <- constructed at ps env fc a d d.taken (take arity args)
+      fields <- if !(implementationType d.type) then (++) <$> walked dcon.given <*> computedFields dcon.dictionaries
+                  else statics (take arity args)
+      (\later => dcon.sites ++ fields ++ later) <$> statics (drop arity args)
     _ => do
       own <- if not !(implementationType d.type) then pure [] else do
         (gs, _) <- taken at ps env d.type d.taken (take (arityOf d) args)
@@ -1451,8 +1534,9 @@ mutual
           known <- knownAt env val
           here <- static ph w acc at ps env val
           used <- whereApplied !(choiceHeadOf vty) (useOf ph w acc at ps env vty val)
+          held <- heldBy at ps.made (getLoc val) known
           body <- term ph w acc at ps ((Holds known, x, Just typed) :: env) sc
-          pure (here ++ used ++ body)
+          pure (here ++ used ++ held ++ body)
         else do
           value <- term ph w acc at ps env val
           here <- readType ph w acc at ps env ty
@@ -1538,6 +1622,19 @@ mutual
           At -> Pats -> Env vs -> TT vs -> Arg vs
   argOf ph w acc at ps env a =
     MkArg a (term ph w acc at ps env a) (static ph w acc at ps env a) (\ty => useOf ph w acc at ps env ty a)
+          (computedField ph w acc at ps env a)
+
+  ||| A dictionary's field as a match that finds it stuck computes it where
+  ||| the match reaches it (`Translate.Terms.computedAt`): written, settled
+  ||| once as the term it is written as, its normal form code, every
+  ||| runtime value it closes over a variable of the settled term
+  ||| (`implementationAt`); in a settled term, which settles nothing again,
+  ||| the normal form it already is, as code.
+  computedField : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+                  (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                  At -> Pats -> Env vs -> TT vs -> Front (List Site)
+  computedField Settled w acc at ps env a = term Settled w acc at ps env a
+  computedField ph@(Written _) w acc at ps env a = implementationAt ph at ps env (getLoc a) Nothing !(knownAt env a) []
 
   ||| A member of a polymorphic function's choice applied at a use of type
   ||| `ty` (`Translate.State.AtUse`), walked once, at the place that makes
@@ -1602,8 +1699,10 @@ mutual
             bty <- normaliseClosed (close env ty)
             if !(compileTimeBinder rig bty)
               then do
+                known <- knownAt env a.written
                 used <- whereApplied !(choiceHeadOf bty) (a.asUse bty)
-                pure ((Holds !(knownAt env a.written), x, Just (close env ty)), !(Force a.asStatic) ++ used)
+                held <- heldBy at ps.made (getLoc a.written) known
+                pure ((Holds known, x, Just (close env ty)), !(Force a.asStatic) ++ used ++ held)
               else do
                 value <- Force a.asCode
                 here <- readType ph w acc at ps env ty
@@ -1819,12 +1918,15 @@ conName _ = Nothing
 ||| at each of its static parameters as it is, the dictionary rebuilt at
 ||| the node it is read at (`Heads.reaches`), which knows what the field
 ||| can be. A match on the dictionary itself is never stuck, since the
-||| program fixes it, and one on anything else is no field of it.
+||| program fixes it, and one on anything else is no field of it. The
+||| rebuilt dictionary holds the field after the values its writer was
+||| given, as one, so the pair that holds them is reached (`pairReached`).
 repacked : {auto c : Ref Ctxt Defs} -> At -> Stand -> Front (List Site)
 repacked at (Holds (Own i _ (k :: ks))) = do
   dictionary <- own (i, ADictionary)
   others <- traverse own (mapMaybe static (zip [0 .. length at.statics] at.statics))
-  pure [siteAt at at.loc (Repacks dictionary (k ::: ks)) others]
+  paired <- pairReached at at.loc
+  pure (siteAt at at.loc (Repacks dictionary (k ::: ks)) others :: paired)
   where
     -- Each static parameter but the dictionary's.
     static : (Nat, Maybe Static) -> Maybe (Nat, Static)

@@ -43,10 +43,11 @@ data Field : Type where
   -- own: for each of the method's own arguments (the field's lambdas, in order), its parameter index in m;
   -- leading: for each implementation parameter p, its index in m. Its root is m, by construction.
   Method : (m : Address) -> Template -> (own : List Nat) -> (leading : List (Nat, Nat)) -> Field
-  -- a dictionary held as a field (a superclass, a constructor's dictionary argument), with its dictionaryRoot and the
-  -- head of the choice its type is: a match takes it apart, and finds a member of that choice where the running
-  -- program chose it.
-  Dictionary : Template -> Root -> ChoiceHead -> Field
+  -- a dictionary held as a field (a superclass, a constructor's dictionary argument), with its dictionaryRoot, the
+  -- head of the choice its type is, and that type over the constructor's arguments (`Var c 0` its argument c): a
+  -- match takes it apart, and finds a member of that choice where the running program chose it, holding it at that
+  -- type until then.
+  Dictionary : Template -> Root -> ChoiceHead -> (type : Template) -> Field
   -- any other field: a type, a hand-built dictionary's lambda, with its dictionaryRoot
   Plain : Template -> Root -> Field
 
@@ -72,7 +73,7 @@ fieldAt fs j k = lookup j fs >>= head' . drop k . (.inOrder)
 export
 fieldRead : Field -> (Template, Root)
 fieldRead (Method m t _ _) = (t, Rooted m)
-fieldRead (Dictionary t r _) = (t, r)
+fieldRead (Dictionary t r _ _) = (t, r)
 fieldRead (Plain t r) = (t, r)
 
 ||| What a constructor's argument is to the dictionary it builds, by its
@@ -187,19 +188,28 @@ methodField owner field = do
     value (Own _) = Erased EmptyFC Placeholder
     value (Fixed t) = t
 
+||| The type of a constructor's binder, under the binders before it, over
+||| the constructor's arguments: each earlier binder its argument's marker
+||| (`Var c 0`), so that a field read of the dictionary the constructor
+||| builds reads each (`Heads.overPart`).
+typeOverArguments : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> TT vs -> Front Template
+typeOverArguments ty =
+  templateOf [] AType (closeWritten EmptyFC (map (\i => the (VarInfo ()) (TypeValue (markerAt i 0)))
+                                                  (reverse (iterateN (length vs) S 0))) ty)
+
 ||| One field, by the binding of the binder that holds it, of type `ty`: a
 ||| static argument as its key holds it, with the root of the dictionary it
 ||| is, and a dictionary as a field read is given it: one the running
 ||| program chooses, a field computed at run time, is a member of the
 ||| choice of its type (`asGiven`); a method's field by the function it
 ||| applies.
-fieldOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+fieldOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
           (owner : String) -> Binding -> (ty : TT vs) -> ClosedTerm -> Front Field
 fieldOf owner (Reads ADictionary) ty a = do
   t <- templateOf [] ADictionary a
   r <- dictionaryRoot a
   head <- choiceHeadOf ty
-  pure (Dictionary (asGiven (Just head) (t, r)) r head)
+  Dictionary (asGiven (Just head) (t, r)) r head <$> typeOverArguments ty
 fieldOf owner (Reads k) ty a = do
   t <- templateOf [] k a
   r <- dictionaryRoot a
@@ -208,7 +218,7 @@ fieldOf owner Wrapped ty a = methodField owner a
 
 ||| The fields of a constructor applied to its arguments, each argument
 ||| read by the binder of the constructor's type that binds it.
-fieldsAlong : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+fieldsAlong : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
               (owner : String) -> TT vs -> List ClosedTerm -> Front (List Field)
 fieldsAlong owner (Bind _ _ (Pi _ rig _ a) sc) (x :: xs) = do
   field <- fieldOf owner !(bindingOf rig a) a x
@@ -259,11 +269,11 @@ fieldsOf d = case (definition d.def, d.matched) of
     -- A constructor's arguments, each its parameter: a dictionary, by the
     -- head of the choice its binder's type is, and anything else as it is,
     -- as is each past the binders a type shows even normalised.
-    arguments : Nat -> (j : Nat) -> TT vs -> Front (List Field)
+    arguments : {vs : Scope} -> Nat -> (j : Nat) -> TT vs -> Front (List Field)
     arguments Z j _ = pure []
     arguments (S n) j (Bind _ _ (Pi _ rig _ a) sc) = do
       here <- case !(bindingOf rig a) of
-        Reads ADictionary => Dictionary (Var j 0) (Parameter j 0) <$> choiceHeadOf a
+        Reads ADictionary => Dictionary (Var j 0) (Parameter j 0) <$> choiceHeadOf a <*> typeOverArguments a
         _ => pure (Plain (Var j 0) (Parameter j 0))
       (here ::) <$> arguments n (S j) sc
     arguments (S n) j _ = pure (map (\q => Plain (Var q 0) (Parameter q 0)) (iterateN (S n) S j))
