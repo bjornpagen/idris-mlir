@@ -2118,6 +2118,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   lifts them so; one join op per function, a loop where a member calls
   another; a lambda's or a delay's body joining nothing, each its own
   function after lifting.
+- **C249** (2026-10-22; L16bu's handoff, under C242 and C234). The
+  readings an instance is keyed by live below the state that caches
+  them: `InstanceReading` and the relations it is built of (`FormFrom`,
+  `ReadAs`, `Mode`, `Root`, `Keys.Run`) move out of `Growth/Template.idr`
+  into a module both `Translate/State.idr` and `Template.idr` import, so
+  the readings cache and a request hold `0 reading : InstanceReading ctx
+  k t` beside the key, and `ArgumentFrom` is whole. A request's kinds
+  are a `Vect` of its callee's applied arity, so a request keying an
+  instance by more arguments than it has parameters is unrepresentable.
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
