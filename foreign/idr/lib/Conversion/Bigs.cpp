@@ -62,6 +62,8 @@ bool fitsSmall(Type number) {
          static_cast<uint64_t>(IDRIS_RT_SMALL_MAX);
 }
 
+} // namespace
+
 // A numeral's value as a natural. A numeral whose bound is open is held as
 // its natural already. One held in a number of a fixed width is below the
 // width's top, as Idris proved: where every number of the width is in the
@@ -71,32 +73,18 @@ bool fitsSmall(Type number) {
 // runtime's of an unsigned word, big.from_uint's function, whose small case
 // the runtime keeps inline. Essential: the three are the ways a numeral's
 // bound can be held.
-struct LowerNumeralToNat : IdrPattern<NumeralToNatOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(NumeralToNatOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value numeral = adaptor.getValue();
-    layout::Component held = layouts.components(op.getValue().getType()).front();
-    if (held.word == layout::Word::Big) {
-      rewriter.replaceOp(op, numeral);
-      return success();
-    }
-    if (!fitsSmall(held.type)) {
-      rewriter.replaceOp(
-          op, runtime.call(rewriter, loc, idr::runtime::Abi<BigFromUintOp>::entry, numeral)
-                  .getResult());
-      return success();
-    }
-    Value wide = arith::ExtUIOp::create(rewriter, loc, rewriter.getI64Type(), numeral);
-    Value one = arith::ConstantIntOp::create(rewriter, loc, 1, 64);
-    Value twice = arith::ShLIOp::create(
-        rewriter, loc, wide, one,
-        arith::IntegerOverflowFlags::nsw | arith::IntegerOverflowFlags::nuw);
-    rewriter.replaceOpWithNewOp<arith::OrIOp>(op, twice, one);
-    return success();
-  }
-};
+Value naturalOf(OpBuilder &b, Location loc, const Runtime &runtime, layout::Component held,
+                Value numeral) {
+  if (held.word == layout::Word::Big)
+    return numeral;
+  if (!fitsSmall(held.type))
+    return runtime.call(b, loc, idr::runtime::Abi<BigFromUintOp>::entry, numeral).getResult();
+  Value wide = arith::ExtUIOp::create(b, loc, b.getI64Type(), numeral);
+  Value one = arith::ConstantIntOp::create(b, loc, 1, 64);
+  Value twice = arith::ShLIOp::create(
+      b, loc, wide, one, arith::IntegerOverflowFlags::nsw | arith::IntegerOverflowFlags::nuw);
+  return arith::OrIOp::create(b, loc, twice, one);
+}
 
 // A natural as a numeral of the bound Idris proved it below, with no test.
 // A numeral whose bound is open is held as the natural. Held in a number of
@@ -105,27 +93,37 @@ struct LowerNumeralToNat : IdrPattern<NumeralToNatOp> {
 // value is the word shifted right as idris_rt_small_value reads it, which
 // the width holds; where a number of the width may lie past it, the value
 // is the runtime's word of a big, big.to_int's function.
+Value numeralOf(OpBuilder &b, Location loc, const Runtime &runtime, layout::Component held,
+                Value natural) {
+  if (held.word == layout::Word::Big)
+    return natural;
+  if (!fitsSmall(held.type))
+    return runtime.call(b, loc, idr::runtime::Abi<BigToIntOp>::entry, natural).getResult();
+  Value one = arith::ConstantIntOp::create(b, loc, 1, 64);
+  Value value = arith::ShRUIOp::create(b, loc, natural, one);
+  return arith::TruncIOp::create(b, loc, held.type, value, arith::IntegerOverflowFlags::nuw);
+}
+
+namespace {
+
+// numeral.to_nat at the way its operand's bound is held.
+struct LowerNumeralToNat : IdrPattern<NumeralToNatOp> {
+  using IdrPattern::IdrPattern;
+  LogicalResult matchAndRewrite(NumeralToNatOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    layout::Component held = layouts.components(op.getValue().getType()).front();
+    rewriter.replaceOp(op, naturalOf(rewriter, op.getLoc(), runtime, held, adaptor.getValue()));
+    return success();
+  }
+};
+
+// numeral.of_nat at the way its result's bound is held.
 struct LowerNumeralOfNat : IdrPattern<NumeralOfNatOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(NumeralOfNatOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value natural = adaptor.getValue();
     layout::Component held = layouts.components(op.getResult().getType()).front();
-    if (held.word == layout::Word::Big) {
-      rewriter.replaceOp(op, natural);
-      return success();
-    }
-    if (!fitsSmall(held.type)) {
-      rewriter.replaceOp(
-          op,
-          runtime.call(rewriter, loc, idr::runtime::Abi<BigToIntOp>::entry, natural).getResult());
-      return success();
-    }
-    Value one = arith::ConstantIntOp::create(rewriter, loc, 1, 64);
-    Value value = arith::ShRUIOp::create(rewriter, loc, natural, one);
-    rewriter.replaceOpWithNewOp<arith::TruncIOp>(op, held.type, value,
-                                                 arith::IntegerOverflowFlags::nuw);
+    rewriter.replaceOp(op, numeralOf(rewriter, op.getLoc(), runtime, held, adaptor.getValue()));
     return success();
   }
 };
