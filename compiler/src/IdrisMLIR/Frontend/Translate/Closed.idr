@@ -1216,98 +1216,133 @@ export
 computesType : Defined -> Front Bool
 computesType d = isTypeLike <$> normaliseClosed d.type
 
+||| Which eta-redexes a contraction contracts: every one, as a key, a
+||| compared type argument and an instance's reading take a term; or every
+||| one but a redex around a call of a definition the context holds, which
+||| a site's type keeps. An instance may unfold such a call under the
+||| lambda, and the lambda then stays around the unfolding, one level
+||| taller than the contracted call; a site keeps the lambda so that its
+||| reading reads both forms (`Template.SEta`).
+public export
+data Contracting = EveryRedex | CallsKept Context
+
+||| Whether a contraction keeps the redex whose contracted term is given: a
+||| site's keeps one around a call of a definition the context holds, and
+||| contracts every other.
+public export
+data RedexKept = KeptAround | ContractedAway
+
+||| Whether a contraction keeps the redex that contracts to a term
+||| (`RedexKept`), decided once for the contraction and the reading that reads
+||| what it kept.
+export
+keptAround : Contracting -> TT vs -> RedexKept
+keptAround EveryRedex _ = ContractedAway
+keptAround (CallsKept ctx) g = case getFn g of
+  Ref _ Func n => maybe ContractedAway (const KeptAround) (definitionAddress ctx n)
+  _ => ContractedAway
+
 ||| A lambda over its type and body, each contracted: where the body
 ||| applies a term that does not mention the lambda's variable to that
 ||| variable, that term, read without the variable (`dropVariable`, which
-||| gives the evidence `shrink` would not); otherwise the lambda over them.
-lambdaContracted : (fc : FC) -> (x : Name) -> (lfc : FC) -> (rig : RigCount) -> (info : PiInfo (TT vs)) ->
+||| gives the evidence `shrink` would not), unless the contraction keeps
+||| that redex (`keptAround`); otherwise the lambda over them.
+lambdaContracted : Contracting -> (fc : FC) -> (x : Name) -> (lfc : FC) -> (rig : RigCount) -> (info : PiInfo (TT vs)) ->
                    {0 ty : TT vs} -> Contraction EtaContracts ty ->
                    {0 sc : TT (x :: vs)} -> (body : TT (x :: vs)) -> (0 _ : EtaContracts sc body) ->
                    Contraction EtaContracts (Bind fc x (Lam lfc rig info ty) sc)
-lambdaContracted fc x lfc rig info ty' app@(App _ f (Local _ _ Z _)) steps = case dropVariable Z DropsHere f of
-  Strengthens g dropped => MkContraction g (EtaRedex steps dropped)
+lambdaContracted how fc x lfc rig info ty' app@(App _ f (Local _ _ Z _)) steps = case dropVariable Z DropsHere f of
+  Strengthens g dropped => case keptAround how g of
+    ContractedAway => MkContraction g (EtaRedex steps dropped)
+    KeptAround => MkContraction (Bind fc x (Lam lfc rig info ty'.etaForm) app) (EtaBind (EtaLam ty'.etaSteps) steps)
   MentionsDropped => MkContraction (Bind fc x (Lam lfc rig info ty'.etaForm) app) (EtaBind (EtaLam ty'.etaSteps) steps)
-lambdaContracted fc x lfc rig info ty' body steps =
+lambdaContracted how fc x lfc rig info ty' body steps =
   MkContraction (Bind fc x (Lam lfc rig info ty'.etaForm) body) (EtaBind (EtaLam ty'.etaSteps) steps)
 
 mutual
-  ||| A term with every eta-redex in it contracted, the innermost first:
-  ||| `\y => f y`, where `f` does not mention `y`, is `f`, and so `\x, y =>
-  ||| g x y` is `g`; with the contraction that gives it
-  ||| (`Proof.Reading.EtaContracts`), at quantity 0. A normal form keeps
-  ||| them: Idris passes a method's argument of a type that binds implicits
-  ||| so (`fork`'s thread, `\{e'}, {c} => thread e' c`), and a family as a
-  ||| lambda that applies it (`\x => g x`: an implementation's superclass
-  ||| over `f . g`, a recursion over `Cells p`, the predicate of `(c ** as
-  ||| ** Positive g c as)`). A type argument is compared contracted
-  ||| (`canonicalTypeArg`), and every reading of the growth check takes a
-  ||| term contracted, a site's and a request's alike, so that a family is
-  ||| read as itself whatever stands for it: a marker, or the type
-  ||| constructor at its head.
+  ||| A term with its eta-redexes contracted, the innermost first, as a
+  ||| contraction contracts them (`Contracting`): `\y => f y`, where `f`
+  ||| does not mention `y`, is `f`, and so `\x, y => g x y` is `g`; with
+  ||| the contraction that gives it (`Proof.Reading.EtaContracts`), at
+  ||| quantity 0. A normal form keeps them: Idris passes a method's
+  ||| argument of a type that binds implicits so (`fork`'s thread, `\{e'},
+  ||| {c} => thread e' c`), and a family as a lambda that applies it (`\x =>
+  ||| g x`: an implementation's superclass over `f . g`, a recursion over
+  ||| `Cells p`, the predicate of `(c ** as ** Positive g c as)`).
   export
-  contracted : (t : TT vs) -> Contraction EtaContracts t
-  contracted (Bind fc x (Lam lfc rig info ty) sc) =
-    let body = contracted sc in
-    lambdaContracted fc x lfc rig info (contracted ty) body.etaForm body.etaSteps
-  contracted (Bind fc x b sc) =
-    let b' = binderContracted b
-        sc' = contracted sc in
+  contractedBy : Contracting -> (t : TT vs) -> Contraction EtaContracts t
+  contractedBy how (Bind fc x (Lam lfc rig info ty) sc) =
+    let body = contractedBy how sc in
+    lambdaContracted how fc x lfc rig info (contractedBy how ty) body.etaForm body.etaSteps
+  contractedBy how (Bind fc x b sc) =
+    let b' = binderContracted how b
+        sc' = contractedBy how sc in
     MkContraction (Bind fc x b'.etaForm sc'.etaForm) (EtaBind b'.etaSteps sc'.etaSteps)
-  contracted (App fc f a) =
-    let f' = contracted f
-        a' = contracted a in
+  contractedBy how (App fc f a) =
+    let f' = contractedBy how f
+        a' = contractedBy how a in
     MkContraction (App fc f'.etaForm a'.etaForm) (EtaApp f'.etaSteps a'.etaSteps)
-  contracted (As fc side a p) =
-    let a' = contracted a
-        p' = contracted p in
+  contractedBy how (As fc side a p) =
+    let a' = contractedBy how a
+        p' = contractedBy how p in
     MkContraction (As fc side a'.etaForm p'.etaForm) (EtaAs a'.etaSteps p'.etaSteps)
-  contracted (TDelayed fc r t) =
-    let t' = contracted t in
+  contractedBy how (TDelayed fc r t) =
+    let t' = contractedBy how t in
     MkContraction (TDelayed fc r t'.etaForm) (EtaDelayed t'.etaSteps)
-  contracted (TDelay fc r t a) =
-    let t' = contracted t
-        a' = contracted a in
+  contractedBy how (TDelay fc r t a) =
+    let t' = contractedBy how t
+        a' = contractedBy how a in
     MkContraction (TDelay fc r t'.etaForm a'.etaForm) (EtaDelay t'.etaSteps a'.etaSteps)
-  contracted (TForce fc r t) =
-    let t' = contracted t in
+  contractedBy how (TForce fc r t) =
+    let t' = contractedBy how t in
     MkContraction (TForce fc r t'.etaForm) (EtaForce t'.etaSteps)
-  contracted (Erased fc (Dotted t)) =
-    let t' = contracted t in
+  contractedBy how (Erased fc (Dotted t)) =
+    let t' = contractedBy how t in
     MkContraction (Erased fc (Dotted t'.etaForm)) (EtaDotted t'.etaSteps)
-  contracted t = MkContraction t EtaSame
+  contractedBy how t = MkContraction t EtaSame
 
   -- A binder's type, and a `let`'s value. What a binder's implicitness
   -- holds is no part any reading takes.
-  binderContracted : (b : TTBinder (TT vs)) -> Contraction BinderContracts b
-  binderContracted (Lam fc rig info ty) =
-    let ty' = contracted ty in MkContraction (Lam fc rig info ty'.etaForm) (EtaLam ty'.etaSteps)
-  binderContracted (Let fc rig v ty) =
-    let v' = contracted v
-        ty' = contracted ty in
+  binderContracted : Contracting -> (b : TTBinder (TT vs)) -> Contraction BinderContracts b
+  binderContracted how (Lam fc rig info ty) =
+    let ty' = contractedBy how ty in MkContraction (Lam fc rig info ty'.etaForm) (EtaLam ty'.etaSteps)
+  binderContracted how (Let fc rig v ty) =
+    let v' = contractedBy how v
+        ty' = contractedBy how ty in
     MkContraction (Let fc rig v'.etaForm ty'.etaForm) (EtaLet v'.etaSteps ty'.etaSteps)
-  binderContracted (Pi fc rig info ty) =
-    let ty' = contracted ty in MkContraction (Pi fc rig info ty'.etaForm) (EtaPi ty'.etaSteps)
-  binderContracted (PVar fc rig info ty) =
-    let ty' = contracted ty in MkContraction (PVar fc rig info ty'.etaForm) (EtaPVar ty'.etaSteps)
-  binderContracted (PLet fc rig v ty) =
-    let v' = contracted v
-        ty' = contracted ty in
+  binderContracted how (Pi fc rig info ty) =
+    let ty' = contractedBy how ty in MkContraction (Pi fc rig info ty'.etaForm) (EtaPi ty'.etaSteps)
+  binderContracted how (PVar fc rig info ty) =
+    let ty' = contractedBy how ty in MkContraction (PVar fc rig info ty'.etaForm) (EtaPVar ty'.etaSteps)
+  binderContracted how (PLet fc rig v ty) =
+    let v' = contractedBy how v
+        ty' = contractedBy how ty in
     MkContraction (PLet fc rig v'.etaForm ty'.etaForm) (EtaPLet v'.etaSteps ty'.etaSteps)
-  binderContracted (PVTy fc rig ty) =
-    let ty' = contracted ty in MkContraction (PVTy fc rig ty'.etaForm) (EtaPVTy ty'.etaSteps)
+  binderContracted how (PVTy fc rig ty) =
+    let ty' = contractedBy how ty in MkContraction (PVTy fc rig ty'.etaForm) (EtaPVTy ty'.etaSteps)
 
-||| A closed term as every reading of the growth check takes it: the host's
-||| normal form of it (`normaliseClosed`'s) in the frozen context the
-||| reading reads, eta-contracted, so that a family is read as itself
-||| whatever stands for it; with the host's steps and the contraction it was
-||| read by, at quantity 0 (`Proof.Reading.NormalReading`), which is what
-||| the growth proof covers. The reading passes its context, so every
-||| normal form it states is over that one context.
+||| A term with every eta-redex in it contracted (`contractedBy`). A type
+||| argument is compared so (`canonicalTypeArg`), and a key and an
+||| instance's reading take a term so, so that a family is read as itself
+||| whatever stands for it: a marker, or the type constructor at its head.
 export
-readNormal : (ctx : Frozen) -> (t : ClosedTerm) -> Front (NormalReading OfNormaliseTypes ctx t)
-readNormal ctx t = do
+contracted : (t : TT vs) -> Contraction EtaContracts t
+contracted = contractedBy EveryRedex
+
+||| A closed term as a reading of the growth check takes it: the host's
+||| normal form of it (`normaliseClosed`'s) in the frozen context the
+||| reading reads, eta-contracted as the reading contracts (`Contracting`:
+||| every redex for an instance, all but those around calls for a site's
+||| type), so that a family is read as itself whatever stands for it; with
+||| the host's steps and the contraction it was read by, at quantity 0
+||| (`Proof.Reading.NormalReading`), which is what the growth proof covers.
+||| The reading passes its context, so every normal form it states is over
+||| that one context.
+export
+readNormal : Contracting -> (ctx : Frozen) -> (t : ClosedTerm) -> Front (NormalReading OfNormaliseTypes ctx t)
+readNormal how ctx t = do
   r <- core (host.normaliseTypes ctx t)
-  let c = contracted r.value
+  let c = contractedBy how r.value
   pure (MkNormalReading c.etaForm r c.etaSteps)
 
 ||| A type argument as data instances compare them: up to eta, and with

@@ -32,7 +32,12 @@
 ||| its unfolding, since an instance may leave it stuck, and the unfolding
 ||| comes with the trace of the definition's case tree it read
 ||| (`Reducing`, `Unfolds`), what the reading's soundness against the
-||| host's steps is stated over. A request's
+||| host's steps is stated over. A lambda chain around such a call, which a
+||| key contracts to the call, a site's type keeps and reads as both forms
+||| (`SEta`): the call as written, and its unfolding under the lambdas,
+||| which an instance that unfolds the call keeps around what it unfolds
+||| to. `believe_me` is read beside the value it gives back
+||| (`SBelieved`). A request's
 ||| argument is an instance's term, read by the same reader with every call
 ||| as written (`readInstance`), and its link writes the form that reading
 ||| reads, so its key is never larger than its reading (`keyedWithin`).
@@ -706,6 +711,26 @@ public export
 0 AddressedAs : Mode -> Name -> Maybe Address -> Type
 AddressedAs m n a = definitionAddress (gamma (defsOf m.inContext)) n = a
 
+||| Which eta-redexes a reading's normal forms are contracted at: a site's
+||| type, read beside the unfoldings of its calls, keeps a redex around a
+||| call (`Closed.CallsKept`), which it reads as both its forms (`SEta`);
+||| every other reading takes them all contracted, as a key does.
+public export
+contractingFor : Mode -> Contracting
+contractingFor (MkMode (OfSite _) EveryNode UnfoldsBeside ctx) = CallsKept (gamma (defsOf ctx))
+contractingFor _ = EveryRedex
+
+||| A lambda chain a site keeps around a call, as its reading reads it
+||| (`SEta`): the call it contracts to, as written, which every instance
+||| that leaves the call stuck contracts to, since nothing the instance puts
+||| in mentions the lambdas' variables; and beside it, where an instance
+||| unfolds the call, the unfolding under one lambda per argument the call
+||| lacks, which such an instance keeps around what the call unfolds to.
+public export
+keptChain : Address -> List Template -> Maybe Template -> Template
+keptChain a ts Nothing = Head (Just a) ts
+keptChain a ts (Just t) = Choice (Leaf 1) [Head (Just a) ts, t]
+
 mutual
   ||| What a reading says of a term over a scope, each variable by its
   ||| substitute: the template describes the term as its key writes it, one
@@ -752,6 +777,14 @@ mutual
               SpineAs m env (Bind fc x (Lam lfc rig info ty) sc) as (nodeOf m.keeping (Head Nothing ((ps ++ [t, s]) ++ ts)))
     SBinder : BinderAs m env b ps -> ReadAs m (Placeholding :: env) sc s -> AllReadAs m env as ts ->
               SpineAs m env (Bind fc x b sc) as (nodeOf m.keeping (Head Nothing ((ps ++ [s]) ++ ts)))
+    ||| A lambda chain a site's type keeps around a call
+    ||| (`Closed.CallsKept`), alone: both its forms (`keptChain`), the call
+    ||| it contracts to and, where an instance unfolds the call, the
+    ||| unfolding under one lambda per argument the call lacks.
+    SEta : (0 _ : EtaContracts (Bind fc x (Lam lfc rig info ty) sc) g) ->
+           EtaChain (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) env (Bind fc x (Lam lfc rig info ty) sc) a ts r ->
+           SpineAs (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) env (Bind fc x (Lam lfc rig info ty) sc) []
+                   (keptChain a ts r)
     SDelayed : ReadAs m env u t -> AllReadAs m env as ts ->
                SpineAs m env (TDelayed fc r u) as (nodeOf m.keeping (Head Nothing (t :: ts)))
     SDelay : ReadAs m env ty t -> ReadAs m env a v -> AllReadAs m env as ts ->
@@ -789,8 +822,17 @@ mutual
     ||| the definition at the call's arguments as written (`Reducing`).
     SBeside : (0 _ : AddressedAs (MkMode (OfSite stands) kp cl ctx) n (Just a)) ->
               AllReadAs (MkMode (OfSite stands) kp cl ctx) env as ts ->
-              Reducing (MkMode (OfSite stands) kp cl ctx) a n (map (closeBy substituted env) as) (nodeOf kp (Head (Just a) ts)) t ->
+              Reducing (MkMode (OfSite stands) kp cl ctx) a n (map (closeBy Template.substituted env) as) (nodeOf kp (Head (Just a) ts)) t ->
               SpineAs (MkMode (OfSite stands) kp cl ctx) env (Ref fc Func n) as (Choice (Leaf 1) [nodeOf kp (Head (Just a) ts), t])
+    ||| `believe_me` applied to its two types and a value, in a site's type:
+    ||| as written, which an instance leaves where the value it is given is
+    ||| none the evaluator gives back unchanged, beside that value, which it
+    ||| gives back unchanged everywhere else (`Idris.Host.BelievedMe`).
+    SBelieved : (0 _ : AddressedAs (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n (Just a)) ->
+                (0 _ : Defines ctx n def) -> (0 _ : definition def = Builtin BelieveMe) ->
+                AllReadAs (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) env [ta, tb, tv] [ra, rb, rv] ->
+                SpineAs (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) env (Ref fc Func n) [ta, tb, tv]
+                        (Choice (Leaf 1) [Head (Just a) [ra, rb, rv], rv])
     ||| A projection, in a site's type, of a record no constructor builds
     ||| yet: as written, which a dictionary's key keeps while the record
     ||| stays no constructor, or the record's field once it is one, applied
@@ -808,7 +850,7 @@ mutual
     ||| A call's unfolding alone, read for where a type matches.
     SWalked : (0 _ : AddressedAs (MkMode (OfSite stands) kp WalksAlone ctx) n (Just a)) ->
               AllReadAs (MkMode (OfSite stands) kp WalksAlone ctx) env as ts ->
-              Reducing (MkMode (OfSite stands) kp WalksAlone ctx) a n (map (closeBy substituted env) as) (nodeOf kp (Head (Just a) ts)) t ->
+              Reducing (MkMode (OfSite stands) kp WalksAlone ctx) a n (map (closeBy Template.substituted env) as) (nodeOf kp (Head (Just a) ts)) t ->
               SpineAs (MkMode (OfSite stands) kp WalksAlone ctx) env (Ref fc Func n) as t
 
   ||| What a binder's implicitness holds: a default, which the key writes.
@@ -828,6 +870,39 @@ mutual
     BPVar : PassingAs m env info ps -> ReadAs m env ty t -> BinderAs m env (PVar fc rig info ty) (ps ++ [t])
     BPLet : ReadAs m env v tv -> ReadAs m env ty t -> BinderAs m env (PLet fc rig v ty) [tv, t]
     BPVTy : ReadAs m env ty t -> BinderAs m env (PVTy fc rig ty) [t]
+
+  ||| A lambda chain a site keeps around a call (`Closed.CallsKept`), read
+  ||| down to the call: under each lambda, its implicitness and its type,
+  ||| its variable an argument of the value (`Formal`), as a lambda is read;
+  ||| at the call, its own arguments, and what an instance that unfolds it
+  ||| makes of it (`CallUnfolds`), under the lambdas; nothing where no
+  ||| instance unfolds it.
+  public export
+  data EtaChain : Mode -> Values Substitute vs -> TT vs -> Address -> List Template -> Maybe Template -> Type where
+    ChainLambda : {0 vs : Scope} -> {0 env : Values Substitute vs} ->
+                  PassingAs m env info ps -> ReadAs m env ty t ->
+                  EtaChain m (FormalArgument (length vs) k :: env) sc a ts r ->
+                  EtaChain m env (Bind fc x (Lam lfc rig info ty) sc) a ts
+                           (map (\s => nodeOf m.keeping (Head Nothing (ps ++ [t, s]))) r)
+    ChainCall : CallUnfolds m env u [] a ts r -> EtaChain m env u a ts r
+
+  ||| The call at the bottom of a kept lambda chain, read down its spine:
+  ||| its own arguments, then the chain's variables it is applied to; and
+  ||| what an instance that unfolds it makes of it, read as a site's call
+  ||| beside its unfolding is (`Reducing`); a recursion met again on its own
+  ||| unfolding, which nothing bounds; or nothing, where no instance
+  ||| unfolds it.
+  public export
+  data CallUnfolds : Mode -> Values Substitute vs -> TT vs -> List (TT vs) -> Address -> List Template ->
+                     Maybe Template -> Type where
+    UnfoldsApplied : CallUnfolds m env f (a :: as) d ts r -> CallUnfolds m env (App fc f a) as d ts r
+    CallWalked : (0 _ : AddressedAs m n (Just d)) -> AllReadAs m env own ts -> AllReadAs m env vars fs ->
+                 Reducing m d n (map (closeBy Template.substituted env) (own ++ vars)) (nodeOf m.keeping (Head (Just d) (ts ++ fs))) t ->
+                 CallUnfolds m env (Ref fc Func n) (own ++ vars) d ts (Just t)
+    CallAgain : (0 _ : AddressedAs m n (Just d)) -> AllReadAs m env own ts -> AllReadAs m env vars fs ->
+                CallUnfolds m env (Ref fc Func n) (own ++ vars) d ts (Just (Opaque d (ts ++ fs)))
+    CallStays : (0 _ : AddressedAs m n (Just d)) -> AllReadAs m env own ts ->
+                CallUnfolds m env (Ref fc Func n) (own ++ vars) d ts Nothing
 
   ||| What an instance that reduces a call of a site's makes of it, as the
   ||| reading reads it beside the call as written (`written`), off the
@@ -862,9 +937,9 @@ mutual
   export
   data GivenUnfolds : Mode -> Address -> (written : Template) -> List ClosedTerm -> (pargs : Scope) -> CaseTree pargs ->
                       Template -> Type where
-    GivenWalked : (0 _ : bindParams pargs (terms ++ map substituted lacking) = Just (env, extras)) ->
+    GivenWalked : (0 _ : bindParams pargs (terms ++ map Template.substituted lacking) = Just (env, extras)) ->
                   Unfolds m a written env tree extras (Just t) -> GivenUnfolds m a written terms pargs tree t
-    GivenAgain : GivenUnfolds m a written terms pargs tree (Opaque a (map substituteTemplate lacking))
+    GivenAgain : GivenUnfolds m a written terms pargs tree (Opaque a (map Template.substituteTemplate lacking))
 
   ||| A recursion structural on the writer's marker `Var j e`, a Nat-like
   ||| argument every recursive call takes the predecessor of: its other
@@ -926,6 +1001,13 @@ mutual
                 TakenBy m self written env c sargs (ConCase con tag cargs t :: alts) extras r
     PassesThis : (0 _ : (fullNameIn m.inContext con /= c) = True) -> TakenBy m self written env c sargs alts extras r ->
                  TakenBy m self written env c sargs (ConCase con tag cargs t :: alts) extras r
+    ||| The constructor of the alternative's name applied to other than as
+    ||| many arguments as the alternative binds: the evaluator neither
+    ||| matches the alternative nor misses it (`Idris.Host.Picks`), so its
+    ||| walk of the tree is stuck there and every instance leaves the
+    ||| definition as written.
+    ArityDiffers : (0 _ : (fullNameIn m.inContext con /= c) = False) -> (0 _ : bindEach cargs sargs = Nothing) ->
+                   TakenBy m self written env c sargs (ConCase con tag cargs t :: alts) extras (Just written)
     TakesDefault : Unfolds m self written env t extras r -> TakenBy m self written env c sargs (DefaultCase t :: alts) extras r
     PassesDelay : TakenBy m self written env c sargs alts extras r ->
                   TakenBy m self written env c sargs (DelayCase tyn argn t :: alts) extras r
@@ -1007,7 +1089,7 @@ record Arg {0 vs : Scope} (m : Mode) (stand : Values Substitute vs) where
   constructor MkArg
   term : TT vs
   value : Lazy ClosedTerm
-  0 closedAs : Force value = closeBy substituted stand term
+  0 closedAs : Force value = closeBy Template.substituted stand term
   reading : Lazy (Front (Subset Template (ReadAs m stand term)))
 
 ||| The terms of some arguments.
@@ -1017,7 +1099,7 @@ termsOf (a :: as) = a.term :: termsOf as
 
 -- The closed terms a call's unfolding walks are its arguments as written,
 -- each variable by its substitute.
-0 closedTerms : (args : List (Arg m stand)) -> map (\x => Force x.value) args = map (closeBy substituted stand) (termsOf args)
+0 closedTerms : (args : List (Arg m stand)) -> map (\x => Force x.value) args = map (closeBy Template.substituted stand) (termsOf args)
 closedTerms [] = Refl
 closedTerms (a :: as) = cong2 (::) a.closedAs (closedTerms as)
 
@@ -1131,7 +1213,7 @@ besides : {0 vs : Scope} -> {0 stand : Values Substitute vs} -> {0 as : List (TT
           {0 ctx : Frozen} -> (stands : List StandIn) -> (kp : Keeping) -> (cl : Calling) -> (a : Address) ->
           (0 _ : AddressedAs (MkMode (OfSite stands) kp cl ctx) n (Just a)) -> (ts : List Template) ->
           (0 _ : AllReadAs (MkMode (OfSite stands) kp cl ctx) stand as ts) -> (unfolded : Template) ->
-          (0 _ : Reducing (MkMode (OfSite stands) kp cl ctx) a n (map (closeBy substituted stand) as)
+          (0 _ : Reducing (MkMode (OfSite stands) kp cl ctx) a n (map (closeBy Template.substituted stand) as)
                           (nodeOf kp (Head (Just a) ts)) unfolded) ->
           Subset Template (SpineAs (MkMode (OfSite stands) kp cl ctx) stand (Ref fc Func n) as)
 besides stands kp WalksAlone a at ts rs t r = Element t (SWalked at rs r)
@@ -1145,6 +1227,67 @@ data CallRead : Mode -> Address -> Name -> List ClosedTerm -> Template -> Type w
   AsWritten : CallRead m a n terms written
   Recurs : CallRead m a n terms written
   Unfolded : (t : Template) -> (0 _ : Reducing m a n terms written t) -> CallRead m a n terms written
+
+||| A kept lambda chain read (`EtaChain`): its call's address, the
+||| templates of the call's own arguments, and what an instance that
+||| unfolds the call makes of it under the lambdas.
+record ChainRead {0 vs : Scope} (m : Mode) (stand : Values Substitute vs) (t : TT vs) where
+  constructor MkChainRead
+  address : Address
+  own : List Template
+  unfolded : Maybe Template
+  0 chain : EtaChain m stand t address own unfolded
+
+||| The call at the bottom of a kept lambda chain read (`CallUnfolds`), at
+||| the arguments its spine has met.
+record UnfoldsRead {0 vs : Scope} (m : Mode) (stand : Values Substitute vs) (t : TT vs) (as : List (TT vs)) where
+  constructor MkUnfoldsRead
+  address : Address
+  own : List Template
+  unfolded : Maybe Template
+  0 call : CallUnfolds m stand t as address own unfolded
+
+||| A list cut before its last elements, the parts making it up.
+record Parted {0 a : Type} (xs : List a) where
+  constructor MkParted
+  front : List a
+  back : List a
+  0 joined : front ++ back = xs
+
+||| A list cut before its last `k` elements: the arguments a call has of
+||| its own and the variables of the lambdas a chain keeps around it.
+partedBefore : (k : Nat) -> (xs : List a) -> Parted xs
+partedBefore k xs = cutAt (minus (length xs) k) xs
+  where
+    cutAt : Nat -> (ys : List a) -> Parted ys
+    cutAt Z ys = MkParted [] ys Refl
+    cutAt (S j) [] = MkParted [] [] Refl
+    cutAt (S j) (y :: ys) = let MkParted f b p = cutAt j ys in MkParted (y :: f) b (cong (y ::) p)
+
+0 termsJoined : (xs, ys : List (Arg m stand)) -> termsOf (xs ++ ys) = termsOf xs ++ termsOf ys
+termsJoined [] ys = Refl
+termsJoined (x :: xs) ys = cong (x.term ::) (termsJoined xs ys)
+
+-- The terms of a cut list are the terms of its parts.
+0 partedTerms : (p : Parted args) -> termsOf args = termsOf p.front ++ termsOf p.back
+partedTerms (MkParted f b joined) = rewrite sym joined in termsJoined f b
+
+||| `believe_me` applied to its two types and a value in a site's type, its
+||| arguments read, where they mention the walk's markers: the value beside
+||| the call as written (`SBelieved`), since the evaluator gives the value
+||| back unchanged at an instance whose value is one it can give another
+||| type (`Idris.Host.Coercible`). Any other call, and a `believe_me` given
+||| more or fewer arguments, is no reading of this one's.
+believed : {0 vs : Scope} -> (m : Mode) -> {0 stand : Values Substitute vs} -> (fc : FC) -> (n : Name) -> (a : Address) ->
+           (0 _ : AddressedAs m n (Just a)) -> (def : GlobalDef) -> (0 _ : Defines m.inContext n def) ->
+           (args : List (Arg m stand)) -> Subset (List Template) (AllReadAs m stand (termsOf args)) ->
+           Maybe (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
+believed (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) fc n a at def defines [x1, x2, x3] (Element [ra, rb, rv] read) =
+  case (Element (definition def) Refl, mentionedAmong [Force x1.value, Force x2.value, Force x3.value]) of
+    (Element (Builtin BelieveMe) belief, Mentioned) =>
+      Just (Element (Choice (Leaf 1) [Head (Just a) [ra, rb, rv], rv]) (SBelieved at defines belief read))
+    _ => Nothing
+believed _ _ _ _ _ _ _ _ _ = Nothing
 
 mutual
   ||| A term read as its key writes it, each variable by its substitute (a
@@ -1204,21 +1347,9 @@ mutual
   spine m w acc stand (PrimVal _ k) args = do
     rs <- readings args
     pure (Element (nodeOf m.keeping (appliedConstant k rs.fst)) (SConstant rs.snd))
-  -- A lambda is a family's value (or a function's), whose variable is
-  -- what beta substitutes: an argument (`Formal`), so that a definition
-  -- stuck on it is read for what it computes from each argument as well
-  -- as as written. Any other binder is a head above its parts and its
-  -- scope, in which its variable is a placeholder. A term is read
-  -- contracted (`contracted`), so no lambda here only applies something
-  -- to its own variables.
-  spine {vs} m w acc stand (Bind _ x (Lam _ _ info ty) sc) args = do
-    ps <- passing m w acc stand info
-    t <- read m w acc stand ty
-    k <- arityOf (closeBy substituted stand ty)
-    s <- read m w acc (FormalArgument (length vs) k :: stand) sc
-    rs <- readings args
-    pure (Element (nodeOf m.keeping (Head Nothing ((ps.fst ++ [t.fst, s.fst]) ++ rs.fst)))
-                  (SLambda ps.snd t.snd s.snd rs.snd))
+  spine m w acc stand (Bind fc x (Lam lfc rig info ty) sc) args = lambdaSpine m w acc stand fc x lfc rig info ty sc args
+  -- Any other binder is a head above its parts and its scope, in which
+  -- its variable is a placeholder.
   spine m w acc stand (Bind _ x b sc) args = do
     ps <- binder m w acc stand b
     s <- read m w acc (Placeholding :: stand) sc
@@ -1242,6 +1373,115 @@ mutual
     v <- read m w acc stand p
     rs <- readings args
     pure (Element (nodeOf m.keeping (Head Nothing (t.fst :: v.fst :: rs.fst))) (SAs t.snd v.snd rs.snd))
+
+  ||| A lambda applied to arguments. A lambda chain a site's type keeps
+  ||| around a call (`Closed.CallsKept`), alone, is read as both its forms
+  ||| (`SEta`): the call as written, which an instance that leaves the call
+  ||| stuck contracts to, and the call's unfolding under the lambdas, which
+  ||| an instance that unfolds it keeps. Any other lambda is a family's
+  ||| value (or a function's), whose variable is what beta substitutes: an
+  ||| argument (`Formal`), so that a definition stuck on it is read for what
+  ||| it computes from each argument as well as as written. Every other
+  ||| reading takes its term contracted, so no lambda there only applies
+  ||| something to its own variables.
+  lambdaSpine : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                (stand : Values Substitute vs) -> (fc : FC) -> (x : Name) -> (lfc : FC) -> (rig : RigCount) ->
+                (info : PiInfo (TT vs)) -> (ty : TT vs) -> (sc : TT (x :: vs)) -> (args : List (Arg m stand)) ->
+                Front (Subset Template (SpineAs m stand (Bind fc x (Lam lfc rig info ty) sc) (termsOf args)))
+  lambdaSpine m@(MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) w acc stand fc x lfc rig info ty sc [] =
+    case contracted (Bind fc x (Lam lfc rig info ty) sc) of
+      MkContraction g steps => case keptAround (contractingFor m) g of
+        ContractedAway => plainLambda m w acc stand fc x lfc rig info ty sc []
+        KeptAround => do
+          Just r <- chainLambda m w acc stand 0 fc x lfc rig info ty sc
+            | Nothing => plainLambda m w acc stand fc x lfc rig info ty sc []
+          pure (Element (keptChain r.address r.own r.unfolded) (SEta steps r.chain))
+  lambdaSpine m w acc stand fc x lfc rig info ty sc args = plainLambda m w acc stand fc x lfc rig info ty sc args
+
+  ||| A lambda applied to arguments, read as a lambda: a head above its
+  ||| implicitness, its type, its scope and the arguments.
+  plainLambda : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                (stand : Values Substitute vs) -> (fc : FC) -> (x : Name) -> (lfc : FC) -> (rig : RigCount) ->
+                (info : PiInfo (TT vs)) -> (ty : TT vs) -> (sc : TT (x :: vs)) -> (args : List (Arg m stand)) ->
+                Front (Subset Template (SpineAs m stand (Bind fc x (Lam lfc rig info ty) sc) (termsOf args)))
+  plainLambda {vs} m w acc stand fc x lfc rig info ty sc args = do
+    ps <- passing m w acc stand info
+    t <- read m w acc stand ty
+    k <- arityOf (closeBy substituted stand ty)
+    s <- read m w acc (FormalArgument (length vs) k :: stand) sc
+    rs <- readings args
+    pure (Element (nodeOf m.keeping (Head Nothing ((ps.fst ++ [t.fst, s.fst]) ++ rs.fst)))
+                  (SLambda ps.snd t.snd s.snd rs.snd))
+
+  ||| A lambda of a chain a site keeps around a call, `peeled` lambdas
+  ||| below the chain's outermost: its implicitness and its type, then
+  ||| below it (`chainBelow`), its variable an argument of the value.
+  chainLambda : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                (stand : Values Substitute vs) -> (peeled : Nat) -> (fc : FC) -> (x : Name) -> (lfc : FC) -> (rig : RigCount) ->
+                (info : PiInfo (TT vs)) -> (ty : TT vs) -> (sc : TT (x :: vs)) ->
+                Front (Maybe (ChainRead m stand (Bind fc x (Lam lfc rig info ty) sc)))
+  chainLambda {vs} m w acc stand peeled fc x lfc rig info ty sc = do
+    ps <- passing m w acc stand info
+    t <- read m w acc stand ty
+    k <- arityOf (closeBy substituted stand ty)
+    Just r <- chainBelow m w acc (FormalArgument (length vs) k :: stand) (S peeled) sc
+      | Nothing => pure Nothing
+    pure (Just (MkChainRead r.address r.own (map (\s => nodeOf m.keeping (Head Nothing (ps.fst ++ [t.fst, s]))) r.unfolded)
+                            (ChainLambda ps.snd t.snd r.chain)))
+
+  ||| Below a lambda of a kept chain: a further lambda of it, or the call at
+  ||| its bottom, the last `peeled` of whose arguments are the chain's
+  ||| variables; nothing where the bottom is no call of a definition the
+  ||| context holds.
+  chainBelow : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+               (stand : Values Substitute vs) -> (peeled : Nat) -> (t : TT vs) -> Front (Maybe (ChainRead m stand t))
+  chainBelow m w acc stand peeled (Bind fc x (Lam lfc rig info ty) sc) = chainLambda m w acc stand peeled fc x lfc rig info ty sc
+  chainBelow m w acc stand peeled t =
+    map (\r => MkChainRead r.address r.own r.unfolded (ChainCall r.call)) <$> callUnfolds m w acc stand peeled t []
+
+  ||| The call at the bottom of a kept chain, read down its spine with the
+  ||| arguments met so far (`CallUnfolds`).
+  callUnfolds : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+                (stand : Values Substitute vs) -> (peeled : Nat) -> (t : TT vs) -> (args : List (Arg m stand)) ->
+                Front (Maybe (UnfoldsRead m stand t (termsOf args)))
+  callUnfolds m w acc stand peeled (App _ f a) args =
+    map (\r => MkUnfoldsRead r.address r.own r.unfolded (UnfoldsApplied r.call))
+      <$> callUnfolds m w acc stand peeled f (MkArg a (closeBy substituted stand a) Refl (read m w acc stand a) :: args)
+  callUnfolds m w acc stand peeled (Ref fc Func n) args with (definitionAddress (gamma (defsOf m.inContext)) n) proof found
+    _ | Just d = Just <$> calledWith m w acc stand peeled fc n d found args
+    _ | Nothing = pure Nothing
+  callUnfolds m w acc stand peeled t args = pure Nothing
+
+  ||| A call at the bottom of a kept chain: its own arguments and the
+  ||| chain's variables, read, and what an instance that unfolds it makes
+  ||| of it, as a site's call beside its unfolding is read (`callRead`).
+  calledWith : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+               (stand : Values Substitute vs) -> (peeled : Nat) -> (fc : FC) -> (n : Name) -> (d : Address) ->
+               (0 _ : AddressedAs m n (Just d)) -> (args : List (Arg m stand)) ->
+               Front (UnfoldsRead m stand (Ref fc Func n) (termsOf args))
+  calledWith m w acc stand peeled fc n d at args = do
+    let parts = partedBefore peeled args
+    rs <- readings parts.front
+    fs <- readings parts.back
+    let stays = MkUnfoldsRead d rs.fst Nothing
+                  (replace {p = \zs => CallUnfolds m stand (Ref fc Func n) zs d rs.fst Nothing} (sym (partedTerms parts))
+                           (CallStays {vars = termsOf parts.back} at rs.snd))
+    let Just (MkInFrozen placement def defines) = inFrozen m.inContext n
+      | Nothing => pure stays
+    let written = nodeOf m.keeping (Head (Just d) (rs.fst ++ fs.fst))
+    outcome <- callRead m w acc d n placement def defines (map (\x => Force x.value) args) written
+    pure (case outcome of
+            AsWritten => stays
+            Recurs =>
+              MkUnfoldsRead d rs.fst (Just (Opaque d (rs.fst ++ fs.fst)))
+                (replace {p = \zs => CallUnfolds m stand (Ref fc Func n) zs d rs.fst (Just (Opaque d (rs.fst ++ fs.fst)))}
+                         (sym (partedTerms parts)) (CallAgain at rs.snd fs.snd))
+            Unfolded t r =>
+              MkUnfoldsRead d rs.fst (Just t)
+                (replace {p = \zs => CallUnfolds m stand (Ref fc Func n) zs d rs.fst (Just t)} (sym (partedTerms parts))
+                         (CallWalked at rs.snd fs.snd
+                            (replace {p = \ts => Reducing m d n ts written t}
+                                     (trans (closedTerms args) (cong (map (closeBy substituted stand)) (partedTerms parts))) r))))
 
   ||| What a binder's implicitness holds: a default, which the key writes.
   passing : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
@@ -1361,6 +1601,8 @@ mutual
                      (Element written (SKept at rs.snd))
     let Just (MkInFrozen placement def defines) = inFrozen ctx n
       | Nothing => pure folded
+    let Nothing = believed (MkMode (OfSite stands) kp cl ctx) fc n a at def defines args rs
+      | Just belief => pure belief
     outcome <- callRead (MkMode (OfSite stands) kp cl ctx) w acc a n placement def defines (map (\x => Force x.value) args) written
     pure (case outcome of
             AsWritten => folded
@@ -1375,8 +1617,11 @@ mutual
   ||| which the normaliser would have unfolded had it matched nothing and
   ||| so stays as written, one met again on this path, one structural on a
   ||| Nat-like argument (`structural`), any other walked (`walk`); and a
-  ||| builtin applied to the writer's markers, where every node is read and
-  ||| calls are unfolded beside.
+  ||| builtin that computes a constant applied to the writer's markers,
+  ||| where every node is read and calls are unfolded beside. `believe_me`
+  ||| computes no constant: it gives back the value it is given, which
+  ||| `applied` reads beside it where it is given its three arguments
+  ||| (`believed`), and given any other count it is as written.
   callRead : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
              (a : Address) -> (n : Name) -> Placement -> (def : GlobalDef) -> (0 _ : Defines m.inContext n def) ->
              (terms : List ClosedTerm) -> (written : Template) -> Front (CallRead m a n terms written)
@@ -1398,6 +1643,7 @@ mutual
               Element (Just t) walked <- walk m w' (rec w' less) a written env tr extras
                 | Element Nothing _ => pure AsWritten
               pure (Unfolded t (ByWalk defines isDef inTree bound walked))
+    Element (Builtin BelieveMe) _ => pure AsWritten
     Element (Builtin _) isBuiltin => case (m, mentionedAmong terms) of
       (MkMode _ EveryNode UnfoldsBeside _, Mentioned) => pure (Unfolded (Leaf 2) (ByBuiltin defines isBuiltin))
       _ => pure AsWritten
@@ -1460,8 +1706,8 @@ mutual
             pure (Just (Element _ (Raised marked shaped leaves.snd children.snd)))
     where
       normalisedArm : Arm -> Front Arm
-      normalisedArm (Step t) = Step . (.readForm) <$> readNormal m.inContext (applyTo t extras)
-      normalisedArm (Base t) = Base . (.readForm) <$> readNormal m.inContext (applyTo t extras)
+      normalisedArm (Step t) = Step . (.readForm) <$> readNormal EveryRedex m.inContext (applyTo t extras)
+      normalisedArm (Base t) = Base . (.readForm) <$> readNormal EveryRedex m.inContext (applyTo t extras)
   structural _ _ _ _ _ _ _ _ = pure Nothing
 
   ||| A case tree walked over what its variables stand for, the leaves it
@@ -1479,7 +1725,7 @@ mutual
          (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (tree : CaseTree vs) ->
          (extras : List ClosedTerm) -> Front (Subset (Maybe Template) (Unfolds m self written env tree extras))
   walk m w acc self written env (STerm _ rhs) extras = do
-    r <- readNormal m.inContext (applyTo (close env rhs) extras)
+    r <- readNormal (contractingFor (unfolding m)) m.inContext (applyTo (close env rhs) extras)
     t <- read (unfolding m) w acc [] r.readForm
     pure (Element (Just t.fst) (ULeaf r t.snd))
   -- A partial definition stops where it does not match, at every instance.
@@ -1523,7 +1769,10 @@ mutual
       Element False same => case Element (bindEach cargs sargs) Refl of
         Element (Just bound) binds =>
           (\r => Element r.fst (TakesThis same binds r.snd)) <$> walk m w acc self written (extend bound env) t extras
-        Element Nothing _ => internal EmptyFC ("constructor " ++ show c ++ " binds an unexpected number of arguments")
+        -- Essential: the evaluator's walk of the tree is stuck where a
+        -- constructor meets an alternative of its name binding other than
+        -- its arguments, so every instance leaves the definition there.
+        Element Nothing differs => pure (Element (Just written) (ArityDiffers same differs))
   chosen m w acc self written env c sargs (DefaultCase t :: _) extras =
     (\r => Element r.fst (TakesDefault r.snd)) <$> walk m w acc self written env t extras
   chosen m w acc self written env c sargs (DelayCase _ _ _ :: alts) extras =
@@ -1680,7 +1929,7 @@ record SiteReading (t : ClosedTerm) where
 ||| A term of a site's read off its normal form, in the mode's context.
 normalSite : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (t : ClosedTerm) -> Front (SiteReading t)
 normalSite m t = do
-  n <- readNormal m.inContext t
+  n <- readNormal (contractingFor m) m.inContext t
   r <- readFromStart m n.readForm
   pure (MkSiteReading m n.readForm (FromNormalForm (readingReadOff n)) r.fst r.snd r.fst AsRead)
 
@@ -1707,7 +1956,7 @@ siteReading stands AFamily t = do
   normalSite (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) t
 siteReading stands AForm t = do
   ctx <- frozenContext
-  n <- readNormal ctx t
+  n <- readNormal (contractingFor (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx)) ctx t
   r <- readFromStart (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.readForm
   f <- formedReading r.fst
   pure (MkSiteReading (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.readForm (FromNormalForm (readingReadOff n))
@@ -2291,7 +2540,7 @@ typeRoot form = do
 normalInstance : {auto c : Ref Ctxt Defs} -> (ClosedTerm -> Front Root) -> (t : ClosedTerm) -> Front (InstanceReading t)
 normalInstance rootOfForm t = do
   ctx <- frozenContext
-  n <- readNormal ctx t
+  n <- readNormal EveryRedex ctx t
   r <- readFromStart (InstanceMode ctx) n.readForm
   root <- rootOfForm n.readForm
   pure (MkInstanceReading ctx n.readForm (FromNormalForm (readingReadOff n)) r.fst r.snd root)
@@ -2646,6 +2895,8 @@ mutual
   spineWithin w (SProjected _ _ _ _) impossible
   spineWithin w (SRecurs _ _) impossible
   spineWithin w (SWalked _ _ _) impossible
+  spineWithin w (SEta _ _) impossible
+  spineWithin w (SBelieved _ _ _ _) impossible
 
   0 passingWithin : (w : Writer) -> PassingAs (InstanceMode ctx) env info ps -> Own (passingTrees w info) ps
   passingWithin w PImplicit = MkOwn [] LTEZero

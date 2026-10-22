@@ -316,8 +316,9 @@ earliest best@(_, m, _) (x@(_, l, _) :: xs) =
 ||| A dictionary's place, as a message names it: a parameter of what holds
 ||| it, by the parameter's name and the holder's, or argument i of the
 ||| application at a use; an implementation's field, by the
-||| implementation's name; or a choice, by its interface's name, as the
-||| polymorphic functions', or as one whose type only an instance shows.
+||| implementation's name; a choice, by its interface's name, as the
+||| polymorphic functions', or as one whose type only an instance shows; or
+||| a dictionary a definition's text binds, by the definition's name.
 placeText : {auto c : Ref Ctxt Defs} -> FC -> HeldBy -> Front String
 placeText fc (ByParameter (OfNode node) i) = do
   (def, name) <- graphDefinition fc node.definition
@@ -330,6 +331,7 @@ placeText fc (ByChoice (InterfaceHead j)) =
 placeText fc (ByChoice ArrowHead) = pure "the polymorphic functions the running program chooses"
 placeText fc (ByChoice UnshownHead) =
   pure "the members the running program chooses of a choice whose type only an instance shows"
+placeText fc (ByBinding node _) = (\name => "a dictionary bound in " ++ name) . snd <$> graphDefinition fc node.definition
 
 ||| What holds a position, as a message names it: a node's definition, by
 ||| its name; the application at a use, which no name is; an

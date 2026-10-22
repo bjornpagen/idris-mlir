@@ -9,7 +9,9 @@
 ||| mention `x`): Idris passes a family as a lambda that applies it, and a
 ||| method's argument of a type that binds implicits so. Every reading of
 ||| the growth check takes its term contracted, so that a family is read as
-||| itself whatever stands for it, and one family is one key. The host's
+||| itself whatever stands for it, and one family is one key; a site's type
+||| keeps a redex around a call, which an instance may unfold under the
+||| lambda, and reads it as both its forms. The host's
 ||| relation has no eta step and gains none: its trusted claim that every
 ||| reduct of a term goes on to the normaliser's result
 ||| (`Idris.Host.reachesNormalForm`) would then be false, since a

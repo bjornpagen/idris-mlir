@@ -22,6 +22,7 @@ module IdrisMLIR.Proof.Describes
 
 import IdrisMLIR.Proof.Bound
 import IdrisMLIR.Proof.Growth
+import IdrisMLIR.Proof.Held
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
 
@@ -30,6 +31,10 @@ import Data.Nat
 import Data.So
 
 %default total
+
+-- A chain of held dispatches' answers are Proof.Held's; what a site's
+-- part answers for is this module's own.
+%hide IdrisMLIR.Proof.Held.Answered
 
 ------------------------------------------------------------------------------
 -- Where a part is read
@@ -578,6 +583,130 @@ covering {m} fe s own projected =
           (\i, w, el => case weightsCover s.template el of
              (v ** (inW, dom)) => (v ** (dom, \p, wa, lab, leq => own _ (varArcsHas inW wa leq))))
           (MkPart (\x, el => el) (\x, el => el) (\x, el => el))
+
+------------------------------------------------------------------------------
+-- Sites that draw measured arcs only
+------------------------------------------------------------------------------
+
+||| A template that draws measured arcs only, wherever it is written: every
+||| weight of its parameters is measured, and it carries no field, member
+||| of a choice or applied family, whose arcs its roots and the positions
+||| would draw.
+public export
+record DrawsMeasured (t : Template) where
+  constructor MkDrawsMeasured
+  0 weighed : All (\x => MeasuredWeight (snd x)) (weights t)
+  0 noFields : (rts : Template -> List Address) -> (at : Depth) -> (carriedAt rts at t).fields = []
+  0 noHeld : (rts : Template -> List Address) -> (at : Depth) -> (carriedAt rts at t).held = []
+  0 noChoices : (rts : Template -> List Address) -> (at : Depth) -> (carriedAt rts at t).choices = []
+
+-- An arc into a target at a label has that label.
+0 intoLabel : {l : Maybe Label} -> {ps : List (Fin n)} -> Elem a (arcsInto t l ps) -> l = Just a.label
+intoLabel {l = Nothing} el = absurd el
+intoLabel {l = Just lab} {ps = []} el = absurd el
+intoLabel {l = Just lab} {ps = p :: rest} Here = Refl
+intoLabel {l = Just lab} {ps = p :: rest} (There el) = intoLabel el
+
+-- An arc of a parameter has the label of that parameter's weight.
+0 varArcsLabel : {vs : List (Nat, Weight)} -> Elem a (varArcs t ws vs) ->
+                 (iw : (Nat, Weight) ** (Elem iw vs, labelOf (snd iw) = Just a.label))
+varArcsLabel {vs = []} el = absurd el
+varArcsLabel {vs = (i, w) :: rest} el = case appendElem (arcsInto t (labelOf w) (writersOf i ws)) el of
+  Left here => ((i, w) ** (Here, intoLabel here))
+  Right there => let (iw ** (inner, lab)) = varArcsLabel there in (iw ** (There inner, lab))
+
+0 justSame : Just x = Just y -> x = y
+justSame Refl = Refl
+
+-- A site's own arc, where every weight of its template is measured, is
+-- finite.
+0 ownMeasured : (s : Site n) -> DrawsMeasured s.template -> Elem a (ownArcs s) -> IsFinite a.label
+ownMeasured s m el = case varArcsLabel el of
+  (iw ** (inW, lab)) => case measuredArc (indexAll inW m.weighed) of
+    (l ** (drawnAs, finite)) => rewrite sym (justSame (trans (sym drawnAs) lab)) in finite
+
+-- A site whose template carries nothing projects no arc.
+0 noneProjected : (s : Site n) -> DrawsMeasured s.template -> Elem a (projectedArcs ps fps cps s) -> Void
+noneProjected s m el =
+  let held = m.noHeld s.roots atTop
+      fields = m.noFields s.roots atTop
+      choices = m.noChoices s.roots atTop in
+  case appendElem (heldArcs s.target ps (carriedAt s.roots atTop s.template).held) el of
+    Left inHeld => absurd (replace {p = \hs => Elem a (heldArcs s.target ps hs)} held inHeld)
+    Right rest => case appendElem (fieldArcs s.target fps (carriedAt s.roots atTop s.template).fields) rest of
+      Left inFields => absurd (replace {p = \fs => Elem a (fieldArcs s.target fps fs)} fields inFields)
+      Right inChoices => absurd (replace {p = \cs => Elem a (choiceArcs s.target cps cs)} choices inChoices)
+
+-- A tagged arc is one tagging a list of arcs: its arc is one of them, and
+-- its tag the list's.
+0 untagged : {bs : List (Arc n)} -> Elem (a, x) (map (\c => (c, y)) bs) -> (x = y, Elem a bs)
+untagged {bs = []} el = absurd el
+untagged {bs = c :: cs} Here = (Refl, Here)
+untagged {bs = c :: cs} (There el) = let (same, inner) = untagged el in (same, There inner)
+
+-- An arc of every site's list comes from one of the sites.
+0 fromSome : (f : (Site n, tag) -> List (Arc n, tag)) -> (ss : List (Site n, tag)) -> Elem e (allOf f ss) ->
+             (y : (Site n, tag) ** (Elem y ss, Elem e (f y)))
+fromSome f [] el = absurd el
+fromSome f (y :: ys) el = case appendElem (f y) el of
+  Left here => (y ** (Here, here))
+  Right there => let (z ** (inZ, at)) = fromSome f ys there in (z ** (There inZ, at))
+
+||| An arc drawn from sites, with its tag, where every site whose tag
+||| satisfies a property has a template that draws measured arcs only: an
+||| arc whose tag satisfies it is finite. A site draws its own arcs and
+||| what its carried parts project, each tagged as the site is, and such a
+||| site projects none.
+export
+0 measuredDrawn : {ps : Address -> List (Fin n)} -> {fps : Address -> Nat -> List (Fin n)} ->
+                  {cps : ChoiceHead -> List (Fin n)} -> {ss : List (Site n, tag)} -> (p : tag -> Type) ->
+                  ((s : Site n) -> (x : tag) -> Elem (s, x) ss -> p x -> DrawsMeasured s.template) ->
+                  Elem (a, x) (drawn ps fps cps ss) -> p x -> IsFinite a.label
+measuredDrawn p measured el px = case appendElem (allOf ownTagged ss) el of
+  Left own => case fromSome ownTagged ss own of
+    ((s, y) ** (inSs, tagged)) => case untagged tagged of
+      (Refl, inOwn) => ownMeasured s (measured s x inSs px) inOwn
+  Right projected => case fromSome (projectedTagged ps fps cps) ss projected of
+    ((s, y) ** (inSs, tagged)) => case untagged tagged of
+      (Refl, inProjected) => void (noneProjected s (measured s x inSs px) inProjected)
+
+||| A marker alone draws measured arcs only: a held value written as
+||| itself, a leading arc's parameter passed on unchanged.
+export
+0 markerMeasured : (i, d : Nat) -> DrawsMeasured (Var i d)
+markerMeasured i d = MkDrawsMeasured [MeasuredBy] (\_, _ => Refl) (\_, _ => Refl) (\_, _ => Refl)
+
+-- A chain of pairs carries nothing: pairs and a marker under them.
+0 chainCarriesNothing : (pa : Address) -> (n : Nat) -> (rts : Template -> List Address) -> (at : Depth) ->
+                        ( (carriedAt rts at (pairChain pa n)).fields = []
+                        , (carriedAt rts at (pairChain pa n)).held = []
+                        , (carriedAt rts at (pairChain pa n)).choices = [] )
+chainCarriesNothing pa Z rts at = (Refl, Refl, Refl)
+chainCarriesNothing pa (S n) rts at =
+  let (f, h, c) = chainCarriesNothing pa n rts (underHead at) in
+  (cong (\l => l ++ []) f, cong (\l => l ++ []) h, cong (\l => l ++ []) c)
+
+||| A chain of pairs that packs held values draws measured arcs only
+||| (`Proof.Held.chainMeasured`).
+export
+0 chainDrawsMeasured : (pa : Address) -> (n : Nat) -> DrawsMeasured (pairChain pa n)
+chainDrawsMeasured pa n =
+  MkDrawsMeasured (chainMeasured pa n)
+             (\rts, at => fst (chainCarriesNothing pa n rts at))
+             (\rts, at => fst (snd (chainCarriesNothing pa n rts at)))
+             (\rts, at => snd (snd (chainCarriesNothing pa n rts at)))
+
+0 listedChain : (pa : Address) -> (m : Nat) -> Elem t (pairChainsUpTo pa m) -> (n : Nat ** t = pairChain pa n)
+listedChain pa Z el = absurd el
+listedChain pa (S m) Here = (S m ** Refl)
+listedChain pa (S m) (There el) = listedChain pa m el
+
+||| Every chain a holder's pairs are given draws measured arcs only: what
+||| a writing of held values in pairs writes (`Graph.packingTemplate`).
+export
+0 listedMeasured : (pa : Address) -> (m : Nat) -> Elem t (pairChainsUpTo pa m) -> DrawsMeasured t
+listedMeasured pa m el = case listedChain pa m el of
+  (n ** Refl) => chainDrawsMeasured pa n
 
 ||| A graph drawn from a model's sites describes the model under any
 ||| feasible potential: every site lands at an uncapped position, K stands

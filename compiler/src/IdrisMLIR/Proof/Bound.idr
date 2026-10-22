@@ -48,7 +48,10 @@
 ||| - a builtin applied to the writer's markers, read beside the call as
 |||   written, writes the constant it computes from the values the instance
 |||   writes at its arguments, at an instance whose values are constants
-|||   (`AtComputed`).
+|||   (`AtComputed`);
+||| - a lambda the site keeps around a call, which an instance contracts,
+|||   writes what the lambda's body writes with its last argument gone
+|||   (`AtContracted`).
 ||| A family that computes from what it is given (`Computing`) writes
 ||| nothing any rule states: its arcs are unmeasured, so in an admitted
 ||| graph no position of the writer's reads one.
@@ -277,6 +280,16 @@ export
 runOfHeight RunLeaf = Refl
 runOfHeight RunZero = Refl
 
+||| What a term an instance reads is, once the last argument it applies
+||| goes: a node of the same head over its other children, or, where the
+||| node is a part applied to the one argument, the part alone. An instance
+||| that contracts a lambda the site keeps (`\x => g x`) reads `g`, which is
+||| what it would read of the lambda's body with `x` gone.
+public export
+data DropsLast : Template -> Template -> Type where
+  LastOfHead : DropsLast (Head a (ws ++ [x])) (Head a ws)
+  OnlyApplied : DropsLast (Head Nothing [w, x]) w
+
 ------------------------------------------------------------------------------
 -- The sites and what an instance writes
 ------------------------------------------------------------------------------
@@ -347,8 +360,16 @@ mutual
     ||| wrote a part at least that high.
     AtCut : Writes m s t v -> LTE 1 (height v) -> Writes m s t (Leaf 1)
     AtToken : Writes m s (Token k) (Token k)
-    AtFormal : Writes m s (Formal j k) (Formal j k)
+    ||| An argument of a family's value: one leaf of height 1, whatever
+    ||| place and arity the instance numbers it by, since an instance's
+    ||| lambdas number their variables by the binders around them and by
+    ||| the types the instance's values give them.
+    AtFormal : Writes m s (Formal j k) (Formal j' k')
     Chosen : Elem x ls -> Writes m s x w -> Writes m s (Choice c ls) w
+    ||| A lambda the site keeps, which the instance contracts: what the
+    ||| instance's reading of the lambda's body would be, its last argument
+    ||| gone (`DropsLast`), where the body writes that reading.
+    AtContracted : Elem body ts -> Writes m s body v -> DropsLast v w -> Writes m s (Head Nothing ts) w
     Beta : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f body -> AllWrite m s ts ws ->
            Instantiates ws body w -> Writes m s (Applied i d ts) w
     GivenPart : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f w -> Writes m s (Applied i d ts) w
@@ -552,6 +573,17 @@ tallestIndex [] j = absurd j
 tallestIndex (w :: ws) FZ = maximumLeftUpperBound _ _
 tallestIndex (w :: ws) (FS j) = transitive (tallestIndex ws j) (maximumRightUpperBound _ _)
 
+-- One more child is no lower a tallest.
+0 tallestSnoc : (ws : List Template) -> LTE (tallest ws) (tallest (ws ++ [x]))
+tallestSnoc [] = LTEZero
+tallestSnoc (w :: ws) = maxMono reflexive (tallestSnoc ws)
+
+||| Dropping the last argument lowers no template.
+export
+0 dropsLastHeight : DropsLast v w -> LTE (height w) (height v)
+dropsLastHeight (LastOfHead {ws}) = LTESucc (tallestSnoc ws)
+dropsLastHeight (OnlyApplied {w} {x}) = lteSuccRight (maximumLeftUpperBound (height w) (maximum (height x) 0))
+
 ||| Lemma 1, the pattern's half: a part d levels down is at least d lower.
 export
 0 subHeight : Sub d v u -> LTE (height u + d) (height v)
@@ -637,6 +669,9 @@ mutual
   unmarkedWrites u (AtCut x one) = transitive one (unmarkedWrites u x)
   unmarkedWrites u AtToken = reflexive
   unmarkedWrites u AtFormal = reflexive
+  unmarkedWrites u (AtContracted el x dropped) =
+    transitive (dropsLastHeight dropped)
+      (transitive (unmarkedWrites (unmarkedAt el (unmarkedHead u)) x) (lteSuccRight (tallestAbove el)))
   unmarkedWrites u (Chosen el x) =
     transitive (unmarkedWrites (unmarkedAt el (unmarkedChoice u)) x) (tallestAbove el)
   unmarkedWrites u (Beta _ _ _ _ _ _) = absurd u
@@ -798,6 +833,14 @@ mutual
   writtenAt ds fe AtFormal cov hp = hp
   writtenAt ds fe (Chosen el x) cov hp =
     writtenAt ds fe x (coveredIn el (coveredChoice cov)) (transitive (plusLteMonotoneRight _ _ _ (tallestAbove el)) hp)
+  -- A lambda's contraction is no higher than what its body writes, one
+  -- deeper.
+  writtenAt {e} ds fe (AtContracted {ts} {v} {w} el x dropped) cov hp =
+    let child = writtenAt ds fe x (coveredIn el (coveredHead cov))
+                  (transitive (plusLteMonotoneRight (S e) _ _ (tallestAbove el))
+                              (lteL (plusSuccRightSucc (tallest ts) e) hp)) in
+    transitive (plusLteMonotoneRight e (height w) (height v) (dropsLastHeight dropped))
+               (transitive (plusLteMonotoneLeft (height v) e (S e) (lteSuccRight reflexive)) child)
   writtenAt {e} ds fe (Beta {p} {f} {ts} {ws} wa iv sub wb xs inst) cov hp = case coveredApplied cov of
     (writes, _) => case writes p wa of
       (MkCarries arc wt, us) =>

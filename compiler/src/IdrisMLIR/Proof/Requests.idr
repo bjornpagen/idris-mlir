@@ -815,6 +815,13 @@ record InUniverse (0 forms : Listed form) (0 names : Listed Address) (b : Bounds
   0 sized : Pointwise (sizes l) (sizesAt b (length l.arguments) l.head)
   0 member : Elem l (Universe forms names b)
 
+-- A pointwise comparison's first comparison, and the rest of it.
+0 firstWithin : Pointwise (b :: bs) (a :: as) -> LTE b a
+firstWithin (le :: _) = le
+
+0 restWithin : Pointwise (b :: bs) (a :: as) -> Pointwise bs as
+restWithin (_ :: pw) = pw
+
 ||| Whether a link is within the bounds, by the machine's comparisons: its
 ||| number of arguments against the breadth, and each argument's size
 ||| against `sizeWithin` of its parameter's height (`fitsWithin`), the
@@ -832,9 +839,9 @@ within forms names b l = case choose (length l.arguments <= b.breadth) of
     next : (a : Maybe (Written form)) -> (h : Nat) -> Lazy (Decided (Pointwise ss hs)) ->
            Decided (Pointwise (argumentSize a :: ss) (sizeWithin b.arity h b.heaviest :: hs))
     next a h rest = case fitsWithin (argumentSize a) b.arity h b.heaviest of
-      No over => No (\(le :: _) => over le)
+      No over => No (\pw => over (firstWithin pw))
       Yes le => case rest of
-        No more => No (\(_ :: pw) => more pw)
+        No more => No (\pw => more (restWithin pw))
         Yes pw => Yes (le :: pw)
 
     -- Down the arguments, the heights padded with 0 as they run out, as
