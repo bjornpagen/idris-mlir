@@ -113,6 +113,44 @@ mutual
   arity (Held _ _) = 0
   arity (Formal _ _) = 0
 
+||| How deep templates hold their markers where what they write takes them
+||| in: nowhere, or at most g below where they were matched, less l.
+public export
+data Reach = Nowhere | Deepest Nat Nat
+
+||| The deeper of two reaches, compared by cross-addition.
+public export
+deeper : Reach -> Reach -> Reach
+deeper Nowhere r = r
+deeper r Nowhere = r
+deeper (Deepest g l) (Deepest g' l') = if g + l' <= g' + l then Deepest g' l' else Deepest g l
+
+mutual
+  ||| How deep a template read e levels down holds its markers: a marker
+  ||| matched d deep reaches e less d, a head's and a recursion's children
+  ||| are a level down, a choice's leaves at its own level, and nothing
+  ||| else takes a marker in.
+  public export
+  reachAt : Nat -> Template -> Reach
+  reachAt e (Var _ d) = Deepest e d
+  reachAt e (Head _ ts) = reachAll (S e) ts
+  reachAt e (Opaque _ ts) = reachAll (S e) ts
+  reachAt e (Choice _ ts) = reachAll e ts
+  reachAt e (Leaf _) = Nowhere
+  reachAt e (Token _) = Nowhere
+  reachAt e (Formal _ _) = Nowhere
+  reachAt e (Applied _ _ _) = Nowhere
+  reachAt e (Computing _ _ _) = Nowhere
+  reachAt e (Field _ _) = Nowhere
+  reachAt e (Held _ _) = Nowhere
+
+  ||| The deepest of templates read at one level: a node's children, a
+  ||| choice's leaves, the field templates of a record's roots.
+  public export
+  reachAll : Nat -> List Template -> Reach
+  reachAll e [] = Nowhere
+  reachAll e (t :: ts) = deeper (reachAt e t) (reachAll e ts)
+
 mutual
   heaviestOf : List Template -> Nat
   heaviestOf [] = 0

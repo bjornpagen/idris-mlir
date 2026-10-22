@@ -511,7 +511,9 @@ mutual
   ||| the translation finds them (`Terms.holed`): each argument a definition
   ||| that gives a dictionary takes at a runtime parameter that is no
   ||| dictionary, where the argument mentions a runtime value (a hole
-  ||| marker), at that parameter's type; a dictionary there is looked into.
+  ||| marker), at that parameter's type; a compile-time value there (an
+  ||| implementation, a polymorphic function: `compileTimeBinder`) is
+  ||| looked into.
   ||| A value two parameters share is listed at each: the translation holds
   ||| it once, so the packing below is never shorter than its.
   heldIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Front (List ClosedTerm)
@@ -545,7 +547,7 @@ mutual
     here <- case argumentAt def j rig of
               RuntimeValue _ => if not (mentionsHole a) then pure [] else do
                 aty' <- normaliseClosed aty
-                if !(implementationType aty') then Force inner else pure [aty']
+                if !(compileTimeBinder rig aty') then Force inner else pure [aty']
               _ => pure []
     (here ++) <$> heldOver def (S j) (subst a sc) rest
 
@@ -984,8 +986,9 @@ mutual
               At -> Pats -> Env vs -> TT vs -> List (Arg vs) -> Front (List Site)
   applyHead ph w acc at ps env (Local fc _ idx p) args = applyVariable ph w acc at ps env fc idx p args
   -- The argument stands as what it is: a compile-time value at an erased
-  -- binder; the variable it is; at a dictionary binder, the dictionary as
-  -- written, a static value; anything else, a runtime value, which is code.
+  -- binder; the variable it is; at a binder of an implementation or a
+  -- polymorphic function (`compileTimeBinder`), its form as written, a
+  -- static value; anything else, a runtime value, which is code.
   applyHead ph w acc at ps env (Bind _ x (Lam _ rig _ ty) sc) (a :: rest) = do
     (entry, own) <- the (Front (Standing, List Site)) $
       case use rig of
@@ -993,7 +996,7 @@ mutual
         Used _ => case a.written of
           Local _ _ idx p => pure (let (s, _, t) = entryAt env idx p in ((s, x, t), []))
           _ =>
-            if !(implementationType !(normaliseClosed (close env ty)))
+            if !(compileTimeBinder rig !(normaliseClosed (close env ty)))
               then pure ((Holds (Known !(solved (close env a.written))), x, Nothing), !(Force a.asStatic))
               else do
                 value <- Force a.asCode
@@ -1090,8 +1093,9 @@ rebound p con ((s, x, ty) :: es) = (restand s, x, map (substName (standIn p.numb
 ||| out (`paramLayout`), and the constructor applied to them. `r` is the
 ||| scrutinee's type's arguments. An argument at a parameter is that
 ||| argument, a type; of a dictionary, a field of it, which keeps its path;
-||| any other erased one nothing; a dictionary field what the constructor
-||| holds there; a runtime field of a shape a shape one constructor deeper,
+||| any other erased one nothing; a field of an implementation or a
+||| polymorphic function (`compileTimeBinder`) what the constructor holds
+||| there; a runtime field of a shape a shape one constructor deeper,
 ||| and any other a runtime value.
 conStands : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
             Pats -> Stand -> List ClosedTerm -> Address -> GlobalDef -> ClosedTerm -> (args : List Name) ->
@@ -1134,7 +1138,7 @@ conStands ps v r ca cdef con args = do
       Holds (Own i d path) => pure (Holds (Own i d (path ++ [b])), ps)
       _ => case argumentAt cdef b rig of
         RuntimeValue _ =>
-          if !(implementationType !(normaliseClosed a)) then pure (Holds (Known (heldAt ca b)), ps) else
+          if !(compileTimeBinder rig !(normaliseClosed a)) then pure (Holds (Known (heldAt ca b)), ps) else
             pure (field ps)
         _ => pure (Erased, ps)
 

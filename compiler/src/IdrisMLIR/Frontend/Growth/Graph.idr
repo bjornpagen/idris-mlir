@@ -466,12 +466,43 @@ record Raw where
   arity : Nat
   heaviest : Nat
 
--- What a field adds to K: a Finite field's gain, its depth plus one. A
--- Stuck one's arcs are causes of their own, and bound nothing.
-gain : Weight -> Maybe Nat
-gain (Finite g _) = Just g
-gain Absent = Nothing
-gain Stuck = Nothing
+-- Where a part of an argument's template is read: what an arc from one of
+-- the writer's variables there carries (`Stuck` under a recursion or an
+-- applied family, whose result nothing bounds), and how deep the bound
+-- measures the part, `depth` levels down less `lift` (a field's record
+-- sits above the field by as much as the field holds its arguments deep).
+record Depth where
+  constructor MkDepth
+  arcWeight : Weight
+  depth : Nat
+  lift : Nat
+
+-- A head's child.
+underHead : Depth -> Depth
+underHead at = MkDepth (plus at.arcWeight (Finite 1 0)) (S at.depth) at.lift
+
+-- A child of a recursion or of an applied family: a level down, and what
+-- an arc carries there unbounded.
+underComputation : Depth -> Depth
+underComputation at = MkDepth Growth.Stuck (S at.depth) at.lift
+
+-- How high K stands for a part h high to stay within it at a depth.
+above : Depth -> Nat -> Nat
+above at h = minus (h + at.depth) at.lift
+
+-- Where a field's record sits, from where the field is read: a level below
+-- for the record's head, and above that by as much as the field templates
+-- of its roots hold its arguments deep, their reach; what an arc from one
+-- of the record's variables carries there, by `deep`. A reach of nowhere
+-- needs nothing of the record: it is placed as if held at its own depth.
+recordAt : Depth -> (deep : Weight) -> Reach -> Depth
+recordAt at deep Nowhere = MkDepth (plus at.arcWeight (plus deep (Finite 0 1))) (S at.depth) (at.lift + 2)
+recordAt at deep (Deepest dg dl) = MkDepth (plus at.arcWeight (plus deep (Finite 0 1))) (at.depth + S dg) (at.lift + (dl + 2))
+
+-- A reach as the weight of an arc: nowhere is no arc.
+reachWeight : Reach -> Weight
+reachWeight Nowhere = Absent
+reachWeight (Deepest g l) = Finite g l
 
 -- What a template's fields carry once their records are built (a key
 -- holds a projection reduced when its record is a constructor, as
@@ -501,45 +532,52 @@ holding : Template -> Weight
 holding t = foldr join Absent (map snd (weights t))
 
 mutual
-  -- A field's value, field k of the record s at the depth weight d (one
-  -- more than the heads above it): the field's
-  -- template over the record's arguments, so a parameter of the record's
-  -- root that the field holds D deep lies D - 1 below where the record's
-  -- own parts lie, under the record's head (one below a constructor's
-  -- field, which is a part of it). So each variable of s is carried D - 1
-  -- deeper than s writes it, its fields likewise, and K covers the
-  -- field's closed parts. A record no implementation or constructor roots
-  -- has no field to reduce to: the key keeps the projection as written.
-  fieldValue : SortedMap Address Fields -> Flow -> Node -> (d : Weight) -> (k : Nat) -> Template -> Carried
-  fieldValue fs fl w d k s =
+  -- A field's value, field k of the record s: the field's template over
+  -- the record's arguments, so a parameter of the record's root that the
+  -- field holds D deep lies D - 1 below where the record's own parts lie,
+  -- under the record's head (one below a constructor's field, which is a
+  -- part of it). So the record is placed as deep as the field templates
+  -- hold its arguments (`recordAt`), each variable of s carried that much
+  -- deeper than s writes it, its fields and held dictionaries likewise,
+  -- and K stands above the record there and above the field templates'
+  -- closed parts where the field is read. The record's arcs weigh the reach
+  -- the bound reads, and what `holding` weighs besides (an applied family,
+  -- a recursion), which no reach of an argument takes in. Where the field
+  -- templates reach nowhere, what the field writes is no higher than they
+  -- are, whatever the record. A record no implementation or constructor
+  -- roots has no field to reduce to: the key keeps the projection as
+  -- written.
+  fieldValue : SortedMap Address Fields -> Flow -> Node -> Depth -> (k : Nat) -> Template -> Carried
+  fieldValue fs fl w at k s =
     let ts = mapMaybe (fieldTemplate fs k) (roots fl w s)
-        deep = foldr join Absent (map holding ts)
-        here = plus d (plus deep (Finite 0 2))
-        own = MkCarried (map (\(i, wt) => (i, plus here wt)) (weights s)) [] 0
-        closed = maybe 0 (\e => minus e 1 + foldl max 0 (map height ts)) (gain d) in
-    both own (both ({ constant $= max closed } none) (carriedAt fs fl w (plus d (plus deep (Finite 0 1))) s))
+        reach = reachAll 0 ts
+        deep = join (reachWeight reach) (foldr join Absent (map holding ts))
+        atRecord = recordAt at deep reach
+        own = MkCarried (map (\(i, wt) => (i, plus (plus at.arcWeight (plus deep (Finite 0 2))) wt)) (weights s)) []
+                        (above atRecord (height s))
+        closed = foldl max 0 (map (\t => above at (height t)) ts) in
+    both own (both ({ constant $= max closed } none) (carriedAt fs fl w atRecord s))
 
-  -- Every field's and held dictionary's value in a template, at the depth
-  -- weight its root's position gives a field: Finite e+1 at e heads deep,
-  -- Stuck under an Opaque or an applied family. A field of a field is
-  -- reached through the outer one's record.
-  carriedAt : SortedMap Address Fields -> Flow -> Node -> Weight -> Template -> Carried
-  carriedAt fs fl w d (Template.Field k s) = fieldValue fs fl w d k s
-  carriedAt fs fl w d t@(Held _ _) =
-    MkCarried [] (map (, d) (roots fl w t)) (fromMaybe 0 (gain d))
-  carriedAt fs fl w d (Head _ ts) = carriedAll fs fl w (plus d (Finite 1 0)) ts
-  carriedAt fs fl w d (Opaque _ ts) = carriedAll fs fl w Growth.Stuck ts
-  carriedAt fs fl w d (Applied _ _ ts) = carriedAll fs fl w Growth.Stuck ts
-  carriedAt fs fl w d (Computing _ _ ts) = carriedAll fs fl w Growth.Stuck ts
-  carriedAt fs fl w d (Choice _ ts) = carriedAll fs fl w d ts
-  carriedAt fs fl w d (Var _ _) = none
-  carriedAt fs fl w d (Leaf _) = none
-  carriedAt fs fl w d (Template.Token _) = none
-  carriedAt fs fl w d (Formal _ _) = none
+  -- Every field's and held dictionary's value in a template read at a
+  -- depth: a held dictionary is a head over its implementation's
+  -- arguments, a level down. A field of a field is reached through the
+  -- outer one's record.
+  carriedAt : SortedMap Address Fields -> Flow -> Node -> Depth -> Template -> Carried
+  carriedAt fs fl w at (Template.Field k s) = fieldValue fs fl w at k s
+  carriedAt fs fl w at t@(Held _ _) = MkCarried [] (map (, at.arcWeight) (roots fl w t)) (above at 1)
+  carriedAt fs fl w at (Head _ ts) = carriedAll fs fl w (underHead at) ts
+  carriedAt fs fl w at (Opaque _ ts) = carriedAll fs fl w (underComputation at) ts
+  carriedAt fs fl w at (Applied _ _ ts) = carriedAll fs fl w (underComputation at) ts
+  carriedAt fs fl w at (Computing _ _ ts) = carriedAll fs fl w (underComputation at) ts
+  carriedAt fs fl w at (Choice _ ts) = carriedAll fs fl w at ts
+  carriedAt fs fl w at (Var _ _) = none
+  carriedAt fs fl w at (Leaf _) = none
+  carriedAt fs fl w at (Template.Token _) = none
+  carriedAt fs fl w at (Formal _ _) = none
 
-  carriedAll : SortedMap Address Fields -> Flow -> Node -> Weight -> List Template -> Carried
-  carriedAll fs fl w d [] = none
-  carriedAll fs fl w d (t :: ts) = both (carriedAt fs fl w d t) (carriedAll fs fl w d ts)
+  carriedAll : SortedMap Address Fields -> Flow -> Node -> Depth -> List Template -> Carried
+  carriedAll fs fl w at [] = none
+  carriedAll fs fl w at (t :: ts) = both (carriedAt fs fl w at t) (carriedAll fs fl w at ts)
 
 -- What lands at one position twice: a value that computes, closed values
 -- no higher than the taller height, closed values some of which compute,
@@ -555,14 +593,16 @@ landed (Closed a) (Closed b) = Closed (max a b)
 landed _ _ = Open
 
 -- What an argument is, landing: a choice of implementation made at run
--- time (a rank-2 dictionary, a computed one), which an application of it
--- does not beta-reduce but gives one of its members of, so it lands as a
--- value no closed reading bounds; a closed value that computes (`beta`),
--- which is its term; any other that computes; a closed one no higher than
--- its height; or one whose height an arc carries.
+-- time, or a function that gives one at each use (a rank-2 dictionary),
+-- which an application of it does not beta-reduce but gives one of its
+-- members of, so it lands as a value no closed reading bounds; a closed
+-- value that computes (`beta`), which is its term; any other that
+-- computes; a closed one no higher than its height; or one whose height
+-- an arc carries.
 landingOf : Argument -> Landing
 landingOf x = case x.root of
   Members _ => Open
+  Gives _ => Open
   _ => case (beta x.template, selfBounded x.template, x.term) of
     (Computes, True, Just tm) => Evaluable [tm]
     (Computes, _, _) => Computed
@@ -730,7 +770,7 @@ closedAt ls w i = fromMaybe Open (lookup (w, i) ls)
 argument : SortedMap Address Fields -> Flow -> SortedMap Position Landing -> Node -> Site -> Position -> Argument -> Raw -> Raw
 argument fs fl ls w s at arg r =
   let t = withClosedFamilies (closedAt ls w) arg.template
-      c = carriedAt fs fl w (Finite 1 0) t in
+      c = carriedAt fs fl w (MkDepth (Finite 1 0) 0 0) t in
   { drawn $= (mapMaybe (\(i, wt) => place (w, i) at s arg wt) (weights t) ++
               mapMaybe (\(i, wt) => place (w, i) at s arg wt) c.arcs ++)
   , projections $= (map (\(root, wt) => MkProjection root at wt s arg) c.held ++)

@@ -26,7 +26,11 @@
 |||
 ||| The flow and the split read a dictionary the same way, through one
 ||| function, and differ only in how the writer's own parameter reads: the
-||| flow's set at its slot, or the node's head there.
+||| flow's set at its slot, or the node's head there. A dictionary parameter
+||| with no head holds a function that gives an implementation at each use
+||| (a rank-2 dictionary, `Gives`): a callee given it is given it as
+||| written and keyed by nothing, and a dispatch through it reads the
+||| flow's set, so it reaches every member's method.
 |||
 ||| A family (a type parameter whose kind is a function into a universe:
 ||| `tm : Scope -> Type`, a functor's `f`) splits its definition the same
@@ -182,11 +186,12 @@ mutual
   byLeaves v own (t :: ts) = union (byTemplate v own t) (byLeaves v own ts)
 
 -- A dictionary with the root Core gave it. A parameter matched deeper, or
--- no root (a lambda's result), says nothing of its own, and the template
--- decides.
+-- no root (a projection of what no constructor builds), says nothing of
+-- its own, and the template decides.
 byRoot : View -> Own -> Root -> Template -> SortedSet Address
 byRoot v own (Rooted j) _ = singleton j
 byRoot v own (Members js) _ = fromList (forget js)
+byRoot v own (Gives js) _ = fromList (forget js)
 byRoot v own (Parameter i Z) _ = own i
 byRoot v own (Parameter _ (S _)) t = byTemplate v own t
 byRoot v own Unrooted t = byTemplate v own t
@@ -196,6 +201,7 @@ byRoot v own Unrooted t = byTemplate v own t
 byFamily : Own -> Root -> SortedSet Address
 byFamily own (Rooted j) = singleton j
 byFamily own (Members _) = empty
+byFamily own (Gives _) = empty
 byFamily own (Parameter i Z) = own i
 byFamily own (Parameter _ (S _)) = empty
 byFamily own Unrooted = empty
@@ -217,6 +223,15 @@ splitting AShape = Nothing
 byArgument : View -> Own -> Splitting -> Argument -> SortedSet Address
 byArgument v own ByImplementation x = byRoot v own x.root x.template
 byArgument v own ByTypeConstructor x = byFamily own x.root
+
+-- What an argument keys its callee by, at the call: what it can be, but
+-- nothing for a function that gives an implementation at each use
+-- (`Gives`), which the callee is given as written, one instance of it
+-- taking every member.
+keyedBy : View -> Own -> Splitting -> Argument -> SortedSet Address
+keyedBy v own how x = case (how, x.root) of
+  (ByImplementation, Gives _) => empty
+  _ => byArgument v own how x
 
 -- The arguments a site passes that split their callee, each with how.
 splitters : Site -> List (Splitting, Argument)
@@ -391,18 +406,28 @@ reaching fl a j = Prelude.toList (at fl.solution (parameterSlot a j))
 -- The split
 ------------------------------------------------------------------------------
 
--- The writer's own dictionary or family parameter i is its node's head
--- there. A parameter with no head held no rooted dictionary, and no family
--- a type constructor heads, in any request of the node, so it has no
--- root, never the flow's set: that would invent heads no request has.
+-- What keys a callee given the writer's own dictionary or family
+-- parameter i: its node's head there. A parameter with no head held no
+-- rooted dictionary, and no family a type constructor heads, in any
+-- request of the node, and is passed on as it was given, so it keys
+-- nothing: the flow's set would invent heads no request has.
 headAt : Node -> Own
 headAt w i = maybe empty singleton (lookup i w.heads)
+
+-- What a use of the writer's own dictionary parameter i can be: its node's
+-- head there. One with no head holds a function that gives an
+-- implementation at each use (a rank-2 dictionary), whose members are the
+-- implementations the flow found reach the parameter: every use of it
+-- matches on it and runs the member's method, so a dispatch through it
+-- reaches each of them.
+dictionaryAt : Flow -> Node -> Own
+dictionaryAt fl w i = maybe (at fl.solution (parameterSlot w.definition i)) singleton (lookup i w.heads)
 
 ||| The implementations a template alone can be, written in the writer's
 ||| node, where Core gave no root. Sorted and without duplicates.
 export
 roots : Flow -> (writer : Node) -> Template -> List Address
-roots fl w t = Prelude.toList (byTemplate fl.solution (headAt w) t)
+roots fl w t = Prelude.toList (byTemplate fl.solution (dictionaryAt fl w) t)
 
 -- A callee's dictionary parameters with roots, by index, so ascending.
 Choices : Type
@@ -410,8 +435,9 @@ Choices = SortedMap Nat (SortedSet Address)
 
 -- A dictionary with no root is no choice: the request that reaches the
 -- callee holds no head at that parameter. The case is the program's (a
--- lambda's result is a dictionary no implementation roots), not the
--- representation's.
+-- function that gives an implementation at each use keys nothing, and a
+-- projection of a value no constructor builds is rooted by no
+-- implementation), not the representation's.
 choice : Nat -> SortedSet Address -> Choices -> Choices
 choice i js cs = if null js then cs else insert i js cs
 
@@ -451,7 +477,7 @@ reaches : Flow -> (writer : Node) -> Site -> List Reached
 reaches fl w s = from s.reach
   where
     rootsAt : Root -> Template -> SortedSet Address
-    rootsAt = byRoot fl.solution (headAt w)
+    rootsAt = byRoot fl.solution (dictionaryAt fl w)
 
     -- The dictionaries and families among the placed arguments, at their
     -- parameters.
@@ -460,7 +486,7 @@ reaches fl w s = from s.reach
       where
         add : Choices -> Placed -> Choices
         add acc (MkPlaced x p) = case splitting x.kind of
-          Just how => choice p (byArgument fl.solution (headAt w) how x) acc
+          Just how => choice p (keyedBy fl.solution (headAt w) how x) acc
           Nothing => acc
 
     -- J's method function k. The parameters J's land at take what every

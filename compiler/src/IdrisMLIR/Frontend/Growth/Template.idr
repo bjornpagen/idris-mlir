@@ -76,15 +76,19 @@ import Data.Vect
 ||| What a dictionary or a family is at its root: the definition there (an
 ||| implementation or an interface constructor a dictionary is, the type
 ||| constructor a family's value applies); the implementations a dictionary
-||| a definition Idris does not prove ends computes can be, the ones its
+||| the running program chooses can be (`Closed.fixing`), the ones its
 ||| leaves give, each a member of the closed sum the translation makes of
-||| it and calls a callee at, and so are those a function that computes an
-||| implementation from its argument gives (a rank-2 dictionary); the
-||| writer's own parameter there (a marker `Var i d`); or neither (a
-||| lambda's result, `\_ => __Impl_Eq_Int`; a family that is a lambda).
+||| it, the callee called at each one where it is given; the
+||| implementations a function the program fixes gives at each use (a
+||| rank-2 dictionary, `\{y} => if y == 0 then loud else quiet`), which the
+||| callee is given as written and every use of matches on, so they split
+||| nothing; the writer's own parameter there (a marker `Var i d`); or
+||| neither (a family that is a lambda; a projection of what no constructor
+||| builds, which the template's field says).
 public export
 data Root = Rooted Address
           | Members (List1 Address)
+          | Gives (List1 Address)
           | Parameter Nat Nat
           | Unrooted
 
@@ -1165,10 +1169,36 @@ record Piece where
   built : Lazy (Front (Maybe (Name, List Piece)))
   root : Lazy (Front Root)
 
-||| The implementations a choice can be, as its root: none roots nothing.
+||| The implementations a choice made at run time can be, as its root:
+||| none roots nothing.
 membersOf : List Address -> Root
 membersOf [] = Unrooted
 membersOf (m :: ms) = Members (m ::: ms)
+
+||| The implementations a function gives at its uses, as its root: none
+||| roots nothing.
+givesOf : List Address -> Root
+givesOf [] = Unrooted
+givesOf (m :: ms) = Gives (m ::: ms)
+
+||| The implementations a root can be: none for the writer's own parameter,
+||| whose head is the node's, and none for what roots nothing.
+addresses : Root -> List Address
+addresses (Rooted j) = [j]
+addresses (Members ms) = forget ms
+addresses (Gives ms) = forget ms
+addresses (Parameter _ _) = []
+addresses Unrooted = []
+
+||| The type of a definition applied to arguments, normalised as a type is
+||| read: each argument put in for the binder that takes it, and past the
+||| binders the type shows, what it shows.
+appliedType : {auto c : Ref Ctxt Defs} -> ClosedTerm -> List ClosedTerm -> Front ClosedTerm
+appliedType ty [] = normaliseClosed ty
+appliedType ty (a :: as) = do
+  Bind _ _ (Pi {}) sc <- showingBinder ty
+    | shown => normaliseClosed shown
+  appliedType (subst a sc) as
 
 -- A dictionary is taken apart the way the growth graph reads one
 -- (`Implementations.fieldsOf`, `Heads`) and the translation projects one
@@ -1255,7 +1285,7 @@ mutual
       DataConstructor a => pure (maybe Unrooted Rooted a)
       Defined a => do
         Just pr <- projection n
-          | Nothing => definitionRoot w acc (Ref EmptyFC nt n) n a args
+          | Nothing => definitionRoot w acc (Ref EmptyFC nt n) n a (map (\p => Force p.written) args)
         Just (field, []) <- projectedPiece pr args
           | _ => pure Unrooted
         Force field.root
@@ -1271,32 +1301,57 @@ mutual
   rootOf w acc (TDelay _ _ _ t) args = rootOf w acc t args
   rootOf w acc (TForce _ _ t) args = rootOf w acc t args
   -- A function that computes an implementation from what it is given (a
-  -- rank-2 dictionary, `\{y} => if y == 0 then loud else quiet`): its
-  -- body applies a definition to its variable, so at run time it gives
-  -- one of the implementations that definition's leaves give, the
-  -- members of the closed sum the translation makes of it. A body that
-  -- does not use its variable chooses nothing: a lambda's result, which
-  -- roots nothing.
+  -- rank-2 dictionary, `\{y} => if y == 0 then loud else quiet`), a value
+  -- the program fixes (`Closed.fixing`), given to its callee as written:
+  -- where its body applies a definition to its variable, each use gives
+  -- one of the implementations that definition's leaves give, the members
+  -- of the closed sum the use matches on; where it does not use its
+  -- variable, each use gives the one dictionary its body is
+  -- (`\_ => __Impl_Eq_Int`). A body applied at its head to anything else
+  -- (a projection, the writer's own parameter) gives nothing it names.
   rootOf w acc (Bind _ _ (Lam {}) sc) [] = case getFnArgs (subst unknownPart sc) of
-    (Ref _ Func n, as@(_ :: _)) =>
-      if any mentionsUnknown as then membersOf <$> leafRoots w acc n (map (pieceOf w acc) as) else pure Unrooted
+    (Ref _ Func n, as) =>
+      if any mentionsUnknown as then givesOf <$> leafRoots w acc n as else do
+        defs <- getDefs
+        let Just a = definitionAddress (gamma defs) n
+          | Nothing => pure Unrooted
+        Nothing <- projection n
+          | Just _ => pure Unrooted
+        givesOf . addresses <$> definitionRoot w acc (Ref EmptyFC Func n) n a as
     _ => pure Unrooted
   rootOf w acc _ _ = pure Unrooted
 
-  ||| A definition applied that is no projection, at its root: itself, an
-  ||| implementation; or, where a definition Idris does not prove ends
-  ||| computes it, as the translation decides (`Instances.staticOrChosen`),
-  ||| a choice the translation computes at run time, whose members are the
-  ||| implementations its leaves give. The translation's dispatch calls a
-  ||| callee at each member, so the graph splits the callee by each, and
-  ||| each arm has its own bound at its own node. A choice none of whose
-  ||| leaves is rooted splits nothing, as a lambda's result does.
+  ||| A definition applied that is no projection, at its root, as the
+  ||| translation decides what it is. Of a function type, it gives at each
+  ||| use one of the implementations its leaves give, whether the program
+  ||| fixes it or the running program chooses it, a closure: its callee is
+  ||| given it as it is, and every use matches on it, so it splits nothing;
+  ||| a definition given fewer arguments than it takes is walked over
+  ||| unknown values for the rest. Of an interface's type, it is itself, an
+  ||| implementation, where the program fixes it now (`Closed.fixing`);
+  ||| otherwise the running program chooses it, a choice whose members are
+  ||| the implementations its leaves give, and the translation's dispatch
+  ||| calls a callee at each member, so the graph splits the callee by each,
+  ||| and each arm has its own bound at its own node. A choice none of whose
+  ||| leaves is rooted splits nothing.
   definitionRoot : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                   (head : ClosedTerm) -> Name -> Address -> List Piece -> Front Root
+                   (head : ClosedTerm) -> Name -> Address -> List ClosedTerm -> Front Root
   definitionRoot w acc head n a args = do
-    Stuck (OnPartial _) <- whnf (applyTo head (map (\p => Force p.written) args))
-      | _ => pure (Rooted a)
-    membersOf <$> leafRoots w acc n args
+    Just (_, def) <- core (resolve n)
+      | Nothing => pure (Rooted a)
+    ty <- appliedType !(typeOfDefinition def) args
+    case ty of
+      -- Essential: a value of a function type gives an implementation at
+      -- each use; a value of an interface's type is one.
+      Bind _ _ (Pi {}) _ => givesOf <$> leafRoots w acc n (args ++ replicate (lacking def) unknownPart)
+      _ => case !(fixing ty (applyTo head args)) of
+        FixedNow => pure (Rooted a)
+        ChosenAtRunTime _ => membersOf <$> leafRoots w acc n args
+    where
+      lacking : GlobalDef -> Nat
+      lacking def = case definition def of
+        PMDef _ pargs _ => minus (length pargs) (length args)
+        _ => 0
 
   ||| The implementations a definition applied gives at the leaves of its
   ||| case tree: every alternative's, since what it matches on is known
@@ -1304,13 +1359,13 @@ mutual
   ||| in turn giving its members. A definition met again on its own
   ||| unfolding gives nothing more.
   leafRoots : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-              Name -> List Piece -> Front (List Address)
+              Name -> List ClosedTerm -> Front (List Address)
   leafRoots w acc@(Access rec) n args = do
     Just (placement, def) <- core (resolve n)
       | Nothing => pure []
     let PMDef _ pargs body = definition def
       | _ => pure []
-    case (bindParams pargs (map (\p => Force p.written) args), enter placement w) of
+    case (bindParams pargs args, enter placement w) of
       (Just (env, extras), Just (Element w' less)) => leaves w' (rec w' less) env !(treeOfBody body) extras
       _ => pure []
 
@@ -1320,12 +1375,7 @@ mutual
   leaves : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
            Values ClosedTerm vs -> CaseTree vs -> List ClosedTerm -> Front (List Address)
   leaves w acc env (STerm _ rhs) extras = do
-    root <- rootOf w acc (applyTo (close env rhs) extras) []
-    pure (case root of
-            Rooted j => [j]
-            Members ms => forget ms
-            Parameter _ _ => []
-            Unrooted => [])
+    addresses <$> rootOf w acc (applyTo (close env rhs) extras) []
   leaves w acc env (Case idx p _ alts) extras = leavesOfAlts w acc env (valueAt env idx p) alts extras
   leaves w acc env (Unmatched _) extras = pure []
   leaves w acc env Impossible extras = pure []

@@ -85,8 +85,9 @@ bindings rs ret = argumentsFrom 0 (snd (getFnArgs ret))
 -- each binder given what the return type binds it to. A binder no
 -- represented position binds is `Erased`, as the translation reads a
 -- constructor. A binder of quantity 0 is no field, and an implementation
--- is a dictionary the constructor holds, never data the type writes:
--- both are the problem's cases, not the reading's.
+-- or a polymorphic function (`compileTimeBinder`) is a member of a closed
+-- sum the constructor holds, never data the type writes: both are the
+-- problem's cases, not the reading's.
 fieldTypes : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              Given vs -> Nat -> List (Nat, ClosedTerm) -> TT vs -> Front (List ClosedTerm)
 fieldTypes g k bound (Bind bfc _ (Pi _ rig _ a) sc) = do
@@ -95,7 +96,7 @@ fieldTypes g k bound (Bind bfc _ (Pi _ rig _ a) sc) = do
     Erased => pure rest
     Used _ => do
       a' <- normaliseClosed (close g a)
-      if !(implementationType a') then pure rest else pure (a' :: rest)
+      if !(compileTimeBinder rig a') then pure rest else pure (a' :: rest)
 fieldTypes _ _ _ _ = pure []
 
 ||| The sites a type constructor's fields write: each runtime field of each

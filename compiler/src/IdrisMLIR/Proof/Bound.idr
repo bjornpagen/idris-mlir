@@ -43,12 +43,13 @@
 ||| The graph covers a site (`CoveredAt`) as `Graph` draws it: an arc from
 ||| each marker's position weighing at least how much deeper the marker
 ||| sits in what is written than in its value; for an applied family, an
-||| arc as heavy as its arguments are high; for a field, its record placed
-||| as deep as the field template holds the record's arguments, K above the
-||| record there and above the template's closed parts; for a held
-||| dictionary, an arc from every position of every implementation it can
-||| be. K is at least each template's own height. If the potential is also
-||| feasible, every value of V at p is within `bound`.
+||| arc as heavy as its arguments are high; for a field, K above the field
+||| templates' closed parts, and its record placed as deep as they hold the
+||| record's arguments (their `reach`), with K above the record there, or
+||| nothing of the record where they hold none; for a held dictionary, an
+||| arc from every position of every implementation it can be. K is at
+||| least each template's own height. If the potential is also feasible,
+||| every value of V at p is within `bound`.
 |||
 ||| What this does not reach is whether a value a request is given is one
 ||| of V: that is the readers', which read what Idris's evaluator returns
@@ -69,6 +70,7 @@ import Data.List
 import Data.List.Elem
 import Data.List.Quantifiers
 import Data.Nat
+import Data.So
 import Data.Vect
 
 %default total
@@ -284,6 +286,13 @@ record FieldWithin (g : Graph) (dg, dl : Nat) (depth : (Nat, Nat)) (ft : Templat
   closed : LTE (height ft + fst depth) (g.constant + snd depth)
   deep : (q, dq, eq : Nat) -> OccursAt (Var q dq) eq ft -> LTE (eq + dl) (dq + dg)
 
+||| A field template that holds no argument of its record where what it
+||| writes takes one in: no marker occurs in it. What it writes is no higher
+||| than it, whatever the record is, so the record needs no arc.
+public export
+0 Unread : Template -> Type
+Unread ft = (q, dq, eq : Nat) -> Not (OccursAt (Var q dq) eq ft)
+
 mutual
   ||| What the graph says of a part of a site's template at depth e less l.
   public export
@@ -305,6 +314,9 @@ mutual
              CoveredAt m s (e + S dg, l + (dl + 2)) r ->
              LTE (height r + (e + S dg)) (g.constant + (l + (dl + 2))) ->
              CoveredAt m s (e, l) (Field k r)
+    CClosedField : ((j : Address) -> Elem j (s.roots r) -> (ft : Template) -> m.fields j k = Just ft ->
+                    (Unread ft, LTE (height ft + e) (g.constant + l))) ->
+                   CoveredAt m s (e, l) (Field k r)
     CHeld : ((j : Address) -> Elem j (s.roots (Held c p)) -> (p' : Fin g.size) -> fst (m.positionOf p') = j ->
              Carries g p' 0 (S e, l) s.target) ->
             LTE (S e) (g.constant + l) ->
@@ -383,6 +395,22 @@ lteCancelLeft (S c) (LTESucc le) = lteCancelLeft c le
 
 0 lteCancelRight : {a, b : Nat} -> (c : Nat) -> LTE (a + c) (b + c) -> LTE a b
 lteCancelRight c le = lteCancelLeft c (rewrite plusCommutative c a in rewrite plusCommutative c b in le)
+
+0 swapLast : (p, q, r : Nat) -> (p + q) + r = (p + r) + q
+swapLast p q r =
+  rewrite sym (plusAssociative p q r) in
+  rewrite plusCommutative q r in
+  plusAssociative p r q
+
+-- Two differences in a row, each written as a sum on both sides: a - b
+-- within c - d, and c - d within x - y, give a - b within x - y.
+0 crossTrans : {a, b, c, d, x, y : Nat} -> LTE (a + d) (c + b) -> LTE (c + y) (x + d) -> LTE (a + y) (x + b)
+crossTrans h1 h2 =
+  lteCancelRight d $
+    lteL (swapLast a d y) $
+    lteR (swapLast x d b) $
+    transitive (plusLteMonotoneRight y (a + d) (c + b) h1)
+               (lteL (swapLast c y b) (plusLteMonotoneRight b (c + y) (x + d) h2))
 
 0 swap4 : (a, b, c, d : Nat) -> (a + b) + (c + d) = (a + c) + (b + d)
 swap4 a b c d =
@@ -653,11 +681,14 @@ coveredChoice (CChoice cs) = cs
 coveredApplied (CApplied c us arcs) = (c, us, arcs)
 
 0 coveredField : CoveredAt m s (e, l) (Field k r) ->
-                 (dg : Nat ** dl : Nat **
-                  ( (j : Address) -> Elem j (s.roots r) -> (ft : Template) -> m.fields j k = Just ft -> FieldWithin g dg dl (e, l) ft
-                  , CoveredAt m s (e + S dg, l + (dl + 2)) r
-                  , LTE (height r + (e + S dg)) (g.constant + (l + (dl + 2))) ))
-coveredField (CField dg dl roots c h) = (dg ** dl ** (roots, c, h))
+                 Either ((j : Address) -> Elem j (s.roots r) -> (ft : Template) -> m.fields j k = Just ft ->
+                         (Unread ft, LTE (height ft + e) (g.constant + l)))
+                        (dg : Nat ** dl : Nat **
+                         ( (j : Address) -> Elem j (s.roots r) -> (ft : Template) -> m.fields j k = Just ft -> FieldWithin g dg dl (e, l) ft
+                         , CoveredAt m s (e + S dg, l + (dl + 2)) r
+                         , LTE (height r + (e + S dg)) (g.constant + (l + (dl + 2))) ))
+coveredField (CClosedField fts) = Left fts
+coveredField (CField dg dl roots c h) = Right (dg ** dl ** (roots, c, h))
 
 0 coveredHeld : CoveredAt m s (e, l) (Held c p) ->
                 ( (j : Address) -> Elem j (s.roots (Held c p)) -> (p' : Fin g.size) -> fst (m.positionOf p') = j ->
@@ -723,6 +754,69 @@ mutual
                           (\x', el => occ x' (There el)))
 
 ------------------------------------------------------------------------------
+-- Where the graph places a field's record
+------------------------------------------------------------------------------
+
+||| A reach at least g - l: what a marker eq deep and matched dq deep asks
+||| of the reach of the templates it occurs in, g = eq and l = dq.
+public export
+data Reaches : (g, l : Nat) -> Reach -> Type where
+  ReachedBy : LTE (g + l') (g' + l) -> Reaches g l (Deepest g' l')
+
+Uninhabited (Reaches g l Nowhere) where
+  uninhabited (ReachedBy _) impossible
+
+0 deeperLeft : {g, l : Nat} -> {a, b : Reach} -> Reaches g l a -> Reaches g l (deeper a b)
+deeperLeft {a = Deepest g1 l1} {b = Nowhere} (ReachedBy le) = ReachedBy le
+deeperLeft {g} {l} {a = Deepest g1 l1} {b = Deepest g2 l2} (ReachedBy le) with (g1 + l2 <= g2 + l1) proof eq
+  _ | True = ReachedBy (crossTrans {a = g} {b = l} {c = g1} {d = l1} {x = g2} {y = l2} le
+                          (lteSo (the (So (g1 + l2 <= g2 + l1)) (rewrite eq in Oh))))
+  _ | False = ReachedBy le
+deeperLeft {a = Nowhere} r = absurd r
+
+0 deeperRight : {g, l : Nat} -> {a, b : Reach} -> Reaches g l b -> Reaches g l (deeper a b)
+deeperRight {a = Nowhere} r = r
+deeperRight {g} {l} {a = Deepest g1 l1} {b = Deepest g2 l2} (ReachedBy le) with (g1 + l2 <= g2 + l1) proof eq
+  _ | True = ReachedBy le
+  _ | False =
+    ReachedBy (crossTrans {a = g} {b = l} {c = g2} {d = l2} {x = g1} {y = l1} le
+                 (lteSuccLeft (notLTEImpliesGT (notLteSo (the (So (not (g1 + l2 <= g2 + l1))) (rewrite eq in Oh))))))
+deeperRight {a = Deepest _ _} {b = Nowhere} r = absurd r
+
+-- A template among others read at one level reaches no deeper than they.
+0 reachedIn : {g, l, e : Nat} -> {t : Template} -> {ts : List Template} ->
+              Elem t ts -> Reaches g l (reachAt e t) -> Reaches g l (reachAll e ts)
+reachedIn {e} {t} {ts = _ :: rest} Here r = deeperLeft {a = reachAt e t} {b = reachAll e rest} r
+reachedIn {e} {ts = x :: rest} (There el) r = deeperRight {a = reachAt e x} {b = reachAll e rest} (reachedIn el r)
+
+||| Every marker a template holds where what it writes takes it in is
+||| within the template's reach.
+export
+0 occursReached : {e, eq : Nat} -> {t : Template} -> OccursAt (Var q dq) eq t -> Reaches (eq + e) dq (reachAt e t)
+occursReached Top = ReachedBy reflexive
+occursReached {e} (BelowHead {e = eq'} el o) =
+  rewrite plusSuccRightSucc eq' e in reachedIn el (occursReached {e = S e} o)
+occursReached {e} (BelowOpaque {e = eq'} el o) =
+  rewrite plusSuccRightSucc eq' e in reachedIn el (occursReached {e = S e} o)
+occursReached {e} (InLeafOf el o) = reachedIn el (occursReached {e} o)
+
+||| The graph places a field's record by the reach of the field templates of
+||| its roots (`Graph.fieldValue`): a marker one of them holds eq deep,
+||| matched dq deep, is no deeper than the reach less dq, as `FieldWithin`
+||| asks.
+export
+0 reachHolds : {fts : List Template} -> Elem ft fts -> OccursAt (Var q dq) eq ft ->
+               reachAll 0 fts = Deepest dg dl -> LTE (eq + dl) (dq + dg)
+reachHolds {eq} {dq} {dg} {dl} el occ same = case replace {p = Reaches (eq + 0) dq} same (reachedIn el (occursReached occ)) of
+  ReachedBy le => lteR (plusCommutative dg dq) (lteL (cong (+ dl) (plusZeroRightNeutral eq)) le)
+
+||| Where the field templates of a record's roots reach nowhere, none of
+||| them holds an argument of the record, as `CClosedField` asks.
+export
+0 reachNowhere : {fts : List Template} -> Elem ft fts -> reachAll 0 fts = Nowhere -> Unread ft
+reachNowhere el same = \q, dq, eq, occ => absurd (replace {p = Reaches (eq + 0) dq} same (reachedIn el (occursReached occ)))
+
+------------------------------------------------------------------------------
 -- Theorem 1
 ------------------------------------------------------------------------------
 
@@ -783,8 +877,14 @@ mutual
   writtenAt {e} ds fe (LandedMember {k} {ts} hf wm) cov hp =
     transitive (landedArith (transitive (transitive (withinHeight wm) hf) (lteAddRight k)))
                (lteL (raisedAt k ts e) hp)
+  -- A field template that holds no argument writes no higher than itself,
+  -- whatever the record is; one that holds some writes them as deep as the
+  -- record is placed.
   writtenAt {e} {l} ds fe (AtField {as} {j} {ft} wr el found wf) cov hp = case coveredField cov of
-    (dg ** dl ** (templates, covR, hR)) =>
+    Left fts => case fts j el ft found of
+      (unread, closed) =>
+        argumentsWritten wf (belowBound closed) (\q, dq, eq, u, occ, sub => void (unread (finToNat q) dq eq occ))
+    Right (dg ** dl ** (templates, covR, hR)) =>
       let fw = templates j el ft found
           0 atRecord = writtenAt ds fe wr covR (belowBound hR) in
       argumentsWritten wf (belowBound fw.closed)
