@@ -63,7 +63,7 @@ firstColumn x j ((c, y) :: rest) = if sameVar y x then c else firstColumn x j re
 
 ||| For each column, the first column that binds its variable.
 representatives : {k : Nat} -> Vect k (Fin v) -> Vect k (Fin k)
-representatives vars = map (\j => firstColumn (index j vars) j (zip (allFins k) vars)) (allFins k)
+representatives vars = map (\j => firstColumn (index j vars) j (zip (Vect.allFins k) vars)) (Vect.allFins k)
 
 ||| Each variable once, with the first column that binds it, ascending by
 ||| variable.
@@ -71,13 +71,13 @@ distinct : {k : Nat} -> Vect k (Fin k) -> Vect k (Fin v) -> List (Fin v, Fin k)
 distinct reps vars =
   sortBy (\a, b => compare (finToNat (fst a)) (finToNat (fst b)))
     (map (\cv => (snd cv, fst cv)) (filter (\cv => finToNat (index (fst cv) reps) == finToNat (fst cv))
-                                           (toList (zip (allFins k) vars))))
+                                           (toList (zip (Vect.allFins k) vars))))
 
 ||| A tuple in the order of the atom's distinct variables, if the columns
 ||| one variable binds agree.
 reorder : {k : Nat} -> Vect k (Fin k) -> Vect d (Fin v, Fin k) -> Tuple k u -> Maybe (Tuple d u)
 reorder reps ws t =
-  if all (\j => (index j t).value == (index (index j reps) t).value) (allFins k)
+  if all (\j => (index j t).value == (index (index j reps) t).value) (Vect.allFins k)
     then Just (map (\w => index (snd w) t) ws)
     else Nothing
 
@@ -165,7 +165,7 @@ answer q env =
 ||| The query's answer.
 export
 run : {v, u, h : Nat} -> Query v u h -> Relation h u
-run q = relation (mapMaybe (answer q) (walk (allFins v) [] Refl (map cursor q.atoms) [<] <>> []))
+run q = relation (mapMaybe (answer q) (walk (Vect.allFins v) [] Refl (map cursor q.atoms) [<] <>> []))
 
 ------------------------------------------------------------------------------
 -- Aggregates
