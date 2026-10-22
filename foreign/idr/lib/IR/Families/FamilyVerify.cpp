@@ -22,12 +22,17 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <concepts>
+
 using namespace mlir;
 using namespace idr;
 using namespace idr::families;
 
 namespace {
 
+// The diagnostic callback upstream's verify hook hands the family, passed
+// down in upstream's form; one these checks build themselves (a term's
+// prefix) is a template parameter.
 using EmitError = function_ref<InFlightDiagnostic()>;
 
 // The index sorts of member `member` of the group a sort or a term names,
@@ -50,8 +55,9 @@ std::optional<ArrayRef<Sort>> sortsOfMember(Attribute payload, uint32_t member,
 // that family member; any other, a binder of the same sort.
 bool sortFits(const Sort &binder, const Sort &position) { return binder == position; }
 
-LogicalResult verifyTerm(EmitError emitError, Term term, const Sort &sort,
-                         ArrayRef<Sort> binders, ArrayRef<Member> own) {
+template <std::invocable<> Emit>
+LogicalResult verifyTerm(Emit &&emitError, Term term, const Sort &sort, ArrayRef<Sort> binders,
+                         ArrayRef<Member> own) {
   const TermNode &head = term.head();
   switch (head.kind) {
   case TermKind::Opaque:
@@ -109,13 +115,13 @@ LogicalResult verifyEquation(EmitError emitError, StringRef label, ArrayRef<Term
 // The levels a field type names, through the index terms of the types it
 // holds, and its own group's members it names, each checked.
 // What a field may hold: a field type; and in a frame also what a frame
-// keeps of its call, a lifetime and what is used once by its type (a
-// package, a reuse token, a destination).
+// keeps of its call that is used once by its type (a package, a reuse
+// token, a destination). Never a lifetime: every function on a cycle's
+// stack takes the cycle's lifetimes as parameters, so no frame holds one.
 enum class Holder : uint8_t { Constructor, Frame };
 
 bool holds(Holder holder, Type value) {
-  return isFieldType(value) ||
-         (holder == Holder::Frame && (isLinearByType(value) || isa<LifetimeType>(value)));
+  return isFieldType(value) || (holder == Holder::Frame && isLinearByType(value));
 }
 
 LogicalResult verifyField(EmitError emitError, StringRef label, Type field,

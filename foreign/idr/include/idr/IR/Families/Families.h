@@ -17,6 +17,13 @@
 // indices exclude are dropped, a refinement to every constructor the
 // indices allow is none, and binders the indices determine are not kept, so
 // one value set has one type.
+
+// This header is the part of the dialect's header that follows the
+// generated classes, which its declarations and ConAttr's walk name. A unit
+// that includes it first is handed the dialect's header, which includes
+// this one in its place; so the include stands outside the guard.
+#include "idr/IR/IdrDialect.h"
+
 #ifndef IDR_IR_FAMILIES_FAMILIES_H
 #define IDR_IR_FAMILIES_FAMILIES_H
 
@@ -28,12 +35,12 @@
 #include "mlir/Bytecode/BytecodeImplementation.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/OpImplementation.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Sequence.h"
 
-namespace idr {
+#include <concepts>
 
-class FamilyAttr;
-class DataType;
+namespace idr {
 
 namespace families {
 
@@ -147,6 +154,17 @@ bool instanceOf(mlir::Type instance, mlir::Type pattern);
 // `index`. Every op that reads a field (idr.data.field, a cell's take and
 // unpack) infers its result with it.
 std::optional<mlir::Type> fieldReadType(mlir::Type value, unsigned index);
+
+// Each field of a constructor constant with its position in the
+// constructor, cell by cell along the run, each cell's fields read where
+// the cell holds them. The step is a template parameter, so each walk's is
+// inlined where it is written.
+template <::std::invocable<::mlir::Attribute, unsigned> Each>
+void ConAttr::walkFields(Each &&each) const {
+  for (auto [cell, fields] : llvm::enumerate(getCells()))
+    for (auto [position, field] : llvm::enumerate(mlir::cast<mlir::ArrayAttr>(fields)))
+      each(field, fieldOfCell(static_cast<unsigned>(cell), static_cast<unsigned>(position)));
+}
 
 // The builders the dialect's bytecode reader calls once it has read a
 // type's or an attribute's parameters: each checks what was read, as the

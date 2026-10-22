@@ -141,7 +141,9 @@ LogicalResult DataType::verify(function_ref<InFlightDiagnostic()> emitError, Fam
 }
 
 // The parser's and bytecode's builder: what it reads is checked, then made
-// in normal form, so a type has one spelling however it was written.
+// in normal form, so a type has one spelling however it was written. It
+// takes its diagnostic callback in the form upstream's getChecked and
+// verify do, since it runs the check `verify` runs.
 DataType DataType::getNormalized(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group,
                                  uint32_t member, ArrayRef<TermNode> indices,
                                  DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {

@@ -104,12 +104,13 @@ struct MemoMember {
 // A frame stack: the continuations a recursion on a call cycle pushes, one
 // stack per awaited result. Its one index is a natural (each constructor's
 // equation `nat j`), its constructors ordinary ones whose fields hold what
-// a frame keeps (any field type, lifetimes, packages, reuse tokens and
-// destinations among them), each at the whole grade the value has, given
-// back so at the pop; a constructor's field of its own member is the
-// frame below, and one with none is a base frame, which takes a fresh
-// chunk. A frame is pushed once and popped by one resume, so the stack is
-// linear by its type and never counted.
+// a frame keeps (any field type, and packages, reuse tokens and
+// destinations, each used once by its type; never a lifetime, which every
+// function on the cycle takes as a parameter instead), each at the whole
+// grade the value has, given back so at the pop; a constructor's field of
+// its own member is the frame below, and one with none is a base frame,
+// which takes a fresh chunk. A frame is pushed once and popped by one
+// resume, so the stack is linear by its type and never counted.
 struct FramesMember {
   mlir::StringAttr label;
   llvm::ArrayRef<CtorDecl> ctors;

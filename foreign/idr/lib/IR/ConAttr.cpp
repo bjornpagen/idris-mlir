@@ -209,12 +209,6 @@ unsigned ConAttr::fieldOfCell(unsigned cell, unsigned position) const {
   return cell + 1 == getRunLength() || position < getSpine() ? position : position + 1;
 }
 
-void ConAttr::walkFields(function_ref<void(Attribute, unsigned)> each) const {
-  for (auto [cell, fields] : llvm::enumerate(getCells()))
-    for (auto [position, field] : llvm::enumerate(cast<ArrayAttr>(fields)))
-      each(field, fieldOfCell(static_cast<unsigned>(cell), static_cast<unsigned>(position)));
-}
-
 Attribute ConAttr::getField(unsigned index) const {
   auto spine = static_cast<unsigned>(getSpine());
   if (getRunLength() == 1)
@@ -259,6 +253,8 @@ LogicalResult ConAttr::verify(function_ref<InFlightDiagnostic()> emitError, Data
 
 // The parser's and bytecode's builder: cells of the right shape, made into
 // the one attribute `get` gives for the same value however they were linked.
+// It takes its diagnostic callback in the form upstream's getChecked and
+// verify do, since it runs the check `verify` runs.
 ConAttr ConAttr::getNormalized(function_ref<InFlightDiagnostic()> emitError,
                                MLIRContext *context, DataType data, ArrayRef<Attribute> written,
                                uint64_t spine) {

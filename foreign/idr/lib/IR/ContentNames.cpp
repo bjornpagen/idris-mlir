@@ -37,6 +37,9 @@ struct Entry {
   const void *impl;
 };
 
+// Essential, a table by address: a uniqued attribute or type has no number
+// of its own, and a part several holders share is digested once. It is one
+// digest's scratch, gone when the digest returns.
 using Digests = llvm::DenseMap<const void *, llvm::XXH128_hash_t>;
 
 // What precedes each part in the stream, so no two different contents

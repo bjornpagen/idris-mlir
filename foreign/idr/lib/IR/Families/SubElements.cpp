@@ -124,6 +124,9 @@ SmallVector<Member> traverse(FamilyAttr family, Scratch &scratch, Visit &&visit)
   return members;
 }
 
+// The two steps stay `function_ref`s: upstream's sub-element walk hands
+// them so and keeps this function as its WalkImmediateSubElementsFn, a
+// `function_ref` too. Below them the traversal is a template.
 void walkFamily(Attribute attr, function_ref<void(Attribute)> walkAttrs,
                 function_ref<void(Type)> walkTypes) {
   Scratch scratch;

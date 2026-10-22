@@ -481,7 +481,8 @@ conAttr = MkAttrDef
       , MkMember OnObjectConst "unsigned" "getRunLength" []
       , MkMember OnObjectConst "::mlir::ArrayAttr" "getCell" [param "unsigned" "cell"]
       , MkMember OnObjectConst "unsigned" "fieldOfCell" [param "unsigned" "cell", param "unsigned" "position"]
-      , MkMember OnObjectConst "void" "walkFields" [param "::llvm::function_ref<void(::mlir::Attribute, unsigned)>" "each"]
+      , MkTemplateMember (MkTypeParam "::std::invocable<::mlir::Attribute, unsigned>" "Each" ::: [])
+          OnObjectConst "void" "walkFields" [param "Each &&" "each"]
       , MkMember OnObjectConst "::mlir::Attribute" "getField" [param "unsigned" "index"]
       , MkMember OnObjectConst "::mlir::ArrayAttr" "getFields" [] ]
   , doc = brief "a constant constructor value, a run of its cells"
