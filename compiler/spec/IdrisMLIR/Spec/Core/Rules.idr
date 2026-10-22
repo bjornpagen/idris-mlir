@@ -35,7 +35,6 @@ data Rule : Category -> Type where
   ||| A type in a run-time position, chosen by a run-time value.
   ValueType : Rule Megamorphic
   DependentField : Rule Megamorphic
-  StaticArgument : Rule Megamorphic
   ||| A recursion that builds its type or dictionary deeper at each call.
   Polymorphism : Rule Megamorphic
   ||| A closure whose label set no analysis bounds.
@@ -93,7 +92,6 @@ public export
 phrase : Rule c -> List1 Word
 phrase ValueType = word "type" ::: []
 phrase DependentField = word "dependent" ::: [word "field"]
-phrase StaticArgument = word "static" ::: [word "argument"]
 phrase Polymorphism = word "polymorphism" ::: []
 phrase RuntimeClosure = word "runtime" ::: [word "closure"]
 phrase ProgramShape = word "program" ::: []
@@ -128,7 +126,6 @@ public export
 ruleName : Rule c -> Ident
 ruleName ValueType = ident "ValueType"
 ruleName DependentField = ident "DependentField"
-ruleName StaticArgument = ident "StaticArgument"
 ruleName Polymorphism = ident "Polymorphism"
 ruleName RuntimeClosure = ident "RuntimeClosure"
 ruleName ProgramShape = ident "ProgramShape"
@@ -190,7 +187,7 @@ public export
 everyRule : List1 SomeRule
 everyRule =
   Refusal ValueType :::
-  [ Refusal DependentField, Refusal StaticArgument, Refusal Polymorphism
+  [ Refusal DependentField, Refusal Polymorphism
   , Refusal RuntimeClosure, Refusal ProgramShape
   , Refusal TrustedLibrary, Refusal DataType, Refusal DefinitionShape
   , Refusal Match, Refusal Primitive, Refusal StringPrimitive
@@ -205,30 +202,29 @@ public export
 ruleIn : (r : SomeRule) -> Elem r (forget everyRule)
 ruleIn (Refusal ValueType) = Here
 ruleIn (Refusal DependentField) = There Here
-ruleIn (Refusal StaticArgument) = There (There Here)
-ruleIn (Refusal Polymorphism) = There (There (There Here))
-ruleIn (Refusal RuntimeClosure) = There (There (There (There Here)))
-ruleIn (Refusal ProgramShape) = There (There (There (There (There Here))))
-ruleIn (Refusal TrustedLibrary) = There (There (There (There (There (There Here)))))
-ruleIn (Refusal DataType) = There (There (There (There (There (There (There Here))))))
-ruleIn (Refusal DefinitionShape) = There (There (There (There (There (There (There (There Here)))))))
-ruleIn (Refusal Match) = There (There (There (There (There (There (There (There (There Here))))))))
-ruleIn (Refusal Primitive) = There (There (There (There (There (There (There (There (There (There Here)))))))))
-ruleIn (Refusal StringPrimitive) = There (There (There (There (There (There (There (There (There (There (There Here))))))))))
-ruleIn (Refusal EscapeHatch) = There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))
-ruleIn (Refusal UserPragma) = There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))
-ruleIn (Refusal Threads) = There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))
-ruleIn (Refusal Finalizer) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))
-ruleIn (Refusal RawPointer) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))
-ruleIn (Refusal Signal) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))
-ruleIn (Refusal Process) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))
-ruleIn (Refusal CompiledModule) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))
-ruleIn (Refusal HookShape) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))))
-ruleIn (Refusal Deprecated) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))))
-ruleIn (Refusal Uniqueness) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))))))
-ruleIn (Refusal Cycle) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))))))
-ruleIn (Refusal Runtime) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))))))))
-ruleIn (Refusal Elaboration) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))))))))
+ruleIn (Refusal Polymorphism) = There (There Here)
+ruleIn (Refusal RuntimeClosure) = There (There (There Here))
+ruleIn (Refusal ProgramShape) = There (There (There (There Here)))
+ruleIn (Refusal TrustedLibrary) = There (There (There (There (There Here))))
+ruleIn (Refusal DataType) = There (There (There (There (There (There Here)))))
+ruleIn (Refusal DefinitionShape) = There (There (There (There (There (There (There Here))))))
+ruleIn (Refusal Match) = There (There (There (There (There (There (There (There Here)))))))
+ruleIn (Refusal Primitive) = There (There (There (There (There (There (There (There (There Here))))))))
+ruleIn (Refusal StringPrimitive) = There (There (There (There (There (There (There (There (There (There Here)))))))))
+ruleIn (Refusal EscapeHatch) = There (There (There (There (There (There (There (There (There (There (There Here))))))))))
+ruleIn (Refusal UserPragma) = There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))
+ruleIn (Refusal Threads) = There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))
+ruleIn (Refusal Finalizer) = There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))
+ruleIn (Refusal RawPointer) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))
+ruleIn (Refusal Signal) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))
+ruleIn (Refusal Process) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))
+ruleIn (Refusal CompiledModule) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))
+ruleIn (Refusal HookShape) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))
+ruleIn (Refusal Deprecated) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))))
+ruleIn (Refusal Uniqueness) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))))
+ruleIn (Refusal Cycle) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))))))
+ruleIn (Refusal Runtime) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here))))))))))))))))))))))
+ruleIn (Refusal Elaboration) = There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))))))))))))))
 
 public export
 ruleClosed : Closed SomeRule
