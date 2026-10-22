@@ -118,4 +118,6 @@ rule-built node's range is read from it, and no op is made (C191).
 - The ops whose fold would ask the compiling machine's libm are one
   generated list, `generated::NeverFolded` (`table::OpList<...>`, printed
   into `Rewrites.h.inc` from each admitted record's `folding` field), read
-  into a TypeID set once per pass instance; the graph never folds them.
+  into a TypeID set once per process through `idr::foldingOf(op)`
+  (`Analysis/Constants.h`), which the rewrite graph and the constant
+  analysis both ask; neither folds them (C215).
