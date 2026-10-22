@@ -20,7 +20,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
 
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <span>
@@ -122,8 +121,8 @@ private:
   Read &out;
   // The closure constants already expanded at a point, and the constructor
   // constants already laid out at their anchors.
-  llvm::DenseSet<std::pair<Attribute, Node>> expanded;
-  llvm::DenseSet<Attribute> laid;
+  footprint::DenseSet<std::pair<Attribute, Node>> expanded;
+  footprint::DenseSet<Attribute> laid;
   ClosureParts holding;
 };
 
