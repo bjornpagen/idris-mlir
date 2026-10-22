@@ -29,15 +29,16 @@ bool idr::builtStateHolds(Value value, Operation *reader) {
 
 ParseResult idr::parseCtorRef(AsmParser &parser, Type type, IntegerAttr &tag) {
   SMLoc at = parser.getCurrentLocation();
-  std::string label;
+  StringAttr label;
   if (parser.parseSymbolName(label))
     return failure();
   DataType data = dataTypeOf(type);
   if (!data)
     return parser.emitError(at, "names a constructor of ") << type << ", which is no data type";
-  std::optional<Tag> found = data.getGroup().tagOf(data.getMember(), label);
+  std::optional<Tag> found = data.getGroup().tagOf(data.getMember(), label.getValue());
   if (!found)
-    return parser.emitError(at, "expects a constructor of ") << type << ", got @" << label;
+    return parser.emitError(at, "expects a constructor of ")
+           << type << ", got @" << label.getValue();
   tag = parser.getBuilder().getI32IntegerAttr(static_cast<int32_t>(*found));
   return success();
 }

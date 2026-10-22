@@ -63,10 +63,7 @@ void DataFieldOp::build(OpBuilder &builder, OperationState &state, Value value, 
 // grade wherever a pass changes it, and the interface's verifier holds the
 // result to it.
 LogicalResult DataFieldOp::inferReturnTypes(MLIRContext *, std::optional<Location> location,
-                                            ValueRange operands, DictionaryAttr attributes,
-                                            OpaqueProperties properties, RegionRange regions,
-                                            SmallVectorImpl<Type> &inferred) {
-  Adaptor adaptor(operands, attributes, properties, regions);
+                                            Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
   Type value = adaptor.getValue().getType();
   std::optional<Type> read = fieldReadType(value, static_cast<unsigned>(adaptor.getIndex()));
   if (!read)

@@ -21,6 +21,9 @@
 #define IDR_IR_FAMILIES_FAMILIES_H
 
 #include "idr/IR/Families/Declaration.h"
+// Whether a value holds references (Refs), the grade's fact of a carrier,
+// which a type's facts below hold.
+#include "idr/IR/Grades.h"
 
 #include "mlir/Bytecode/BytecodeImplementation.h"
 #include "mlir/IR/AsmState.h"

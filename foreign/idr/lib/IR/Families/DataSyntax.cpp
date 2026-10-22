@@ -70,13 +70,13 @@ Type DataType::parse(AsmParser &parser) {
                     parser.parseRSquare()))
     return {};
   auto labelTag = [&](Tag &tag) -> ParseResult {
-    std::string label;
+    StringAttr label;
     SMLoc at = parser.getCurrentLocation();
     if (parser.parseSymbolName(label))
       return failure();
-    std::optional<Tag> found = group.tagOf(member, label);
+    std::optional<Tag> found = group.tagOf(member, label.getValue());
     if (!found)
-      return parser.emitError(at, "expects a constructor of the family, got @") << label;
+      return parser.emitError(at, "expects a constructor of the family, got @") << label.getValue();
     tag = *found;
     return success();
   };

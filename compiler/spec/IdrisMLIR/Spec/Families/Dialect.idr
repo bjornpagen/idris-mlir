@@ -20,7 +20,6 @@ import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Terms
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Families.Layout
-import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Lifetimes.Declarations
 
 import Data.Fin
@@ -184,23 +183,6 @@ reachClosed = MkClosed
   , doc = brief "whether a value's type bounds everything it reaches"
   }
 
-||| Whether a value holds references, the grade's fact of a carrier, which a
-||| data type computes when it is made and a family at an unknown index.
-export
-refsClosed : Closed Refs
-refsClosed = MkClosed
-  { name = "Refs"
-  , shape = OneOf
-  , every = Words ::: [References]
-  , complete = \case
-      Words => Here
-      References => There Here
-  , describe = \case
-      Words => MkCase "Words" ("words" ::: []) "words alone, no reference a count accounts for"
-      References => MkCase "References" ("references" ::: []) "a reference a count accounts for"
-  , doc = brief "whether a value holds references"
-  }
-
 export
 buffersClosed : Closed Buffers
 buffersClosed = MkClosed
@@ -225,7 +207,7 @@ familiesHeader = MkHeader "Families"
     , [ EnumOf (enumDef termKindClosed), EnumOf (enumDef sortKindClosed)
       , EnumOf (enumDef promiseClosed), EnumOf (enumDef modeClosed)
       , EnumOf (enumDef memberKindClosed), EnumOf (enumDef layoutClosed)
-      , EnumOf (enumDef classClosed), EnumOf (enumDef reachClosed), EnumOf (enumDef refsClosed)
+      , EnumOf (enumDef classClosed), EnumOf (enumDef reachClosed)
       , EnumOf (enumDef buffersClosed)
       , Scalar "shapeBudget" Unsigned32 (IntCell (natToInteger shapeBudget))
           "the most components a closed application unfolds to in place" ] ) ]
@@ -645,7 +627,7 @@ conOp = MkOp
   , outs = [result "result" (SatisfiesType refinedValue)]
   , attrs = []
   , regions = []
-  , traits = [AttrSizedOperandSegments]
+  , traits = []
   , interfaces =
       [ Implements flowInterface ["getFlowEdges"], Implements statesLifetime lifetimeMethods
       , Implements statesOuters [] ]

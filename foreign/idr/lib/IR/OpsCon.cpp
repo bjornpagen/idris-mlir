@@ -9,6 +9,7 @@
 
 #include "idr/Analysis/Ownership/Local.h"
 #include "idr/IR/Counting/Counting.h"
+#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"

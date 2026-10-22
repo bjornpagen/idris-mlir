@@ -32,9 +32,20 @@ public:
   // pattern's levels free, the instance's fixed, an opaque index of the
   // instance open. A data type at the top may narrow; one inside another
   // type may not.
-  bool match(Type pattern, Type instance, Depth depth);
+  bool match(Type pattern, Type instance);
 
 private:
+  // A pattern and its instance still to match, and where they are met.
+  struct Pair {
+    Type pattern;
+    Type instance;
+    Depth depth;
+  };
+
+  // Whether the pair's own parts match, each pair of types inside them
+  // pushed on `pending`, so a type nests as deep as the program writes it
+  // and the matcher's depth is none of it.
+  bool step(const Pair &pair, SmallVectorImpl<Pair> &pending);
   bool terms(ArrayRef<TermNode> pattern, ArrayRef<TermNode> instance, size_t count);
 
   Narrowing narrowing;
@@ -45,7 +56,16 @@ bool Matcher::terms(ArrayRef<TermNode> pattern, ArrayRef<TermNode> instance, siz
   return unifyAll(subst, instance, pattern, count) == Unified::Consistent;
 }
 
-bool Matcher::match(Type pattern, Type instance, Depth depth) {
+bool Matcher::match(Type pattern, Type instance) {
+  SmallVector<Pair> pending{{pattern, instance, Depth::Top}};
+  while (!pending.empty())
+    if (!step(pending.pop_back_val(), pending))
+      return false;
+  return true;
+}
+
+bool Matcher::step(const Pair &pair, SmallVectorImpl<Pair> &pending) {
+  auto [pattern, instance, depth] = pair;
   if (pattern == instance)
     return true;
   if (pattern.getTypeID() != instance.getTypeID())
@@ -63,8 +83,10 @@ bool Matcher::match(Type pattern, Type instance, Depth depth) {
     return terms(p.getIndex(), cast<NatType>(instance).getIndex(), 1);
   if (auto p = dyn_cast<GradedType>(pattern)) {
     auto i = cast<GradedType>(instance);
-    return p.getUses() == i.getUses() && p.getHold() == i.getHold() &&
-           match(p.getCarrier(), i.getCarrier(), depth);
+    if (p.getUses() != i.getUses() || p.getHold() != i.getHold())
+      return false;
+    pending.push_back({p.getCarrier(), i.getCarrier(), depth});
+    return true;
   }
   if (auto p = dyn_cast<ShapedType>(pattern))
     if (p.getShape() != cast<ShapedType>(instance).getShape())
@@ -79,9 +101,9 @@ bool Matcher::match(Type pattern, Type instance, Depth depth) {
                                     [&](Type t) { it.push_back(t); });
   if (pt.size() != it.size() || pa != ia)
     return false;
-  for (auto [p, i] : llvm::zip_equal(pt, it))
-    if (!match(p, i, Depth::Inner))
-      return false;
+  // Pushed last first, so the parts are met left to right.
+  for (auto [p, i] : llvm::reverse(llvm::zip_equal(pt, it)))
+    pending.push_back({p, i, Depth::Inner});
   return true;
 }
 
@@ -98,11 +120,11 @@ bool TagSet::includes(const TagSet &other) const {
 }
 
 bool refines(Type sub, Type super) {
-  return Matcher(Narrowing::Allowed).match(super, sub, Depth::Top);
+  return Matcher(Narrowing::Allowed).match(super, sub);
 }
 
 bool instanceOf(Type instance, Type pattern) {
-  return Matcher(Narrowing::Exact).match(pattern, instance, Depth::Top);
+  return Matcher(Narrowing::Exact).match(pattern, instance);
 }
 
 } // namespace idr::families
