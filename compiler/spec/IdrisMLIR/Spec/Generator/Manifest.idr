@@ -29,7 +29,7 @@ fnv h (b :: bs) = fnv (xor h (cast b) * 0x100000001b3) bs
 ||| and both hosts read files as UTF-8.
 export
 fingerprint : String -> String
-fingerprint s = hex64 (integerToNat (cast {to = Integer} (fnv 0xcbf29ce484222325 (utf8 s))))
+fingerprint s = hex64 (fnv 0xcbf29ce484222325 (utf8 s))
 
 ||| The manifest's text: the specification's and the generator's
 ||| fingerprints, then each output's, in the outputs' order.

@@ -9,10 +9,10 @@ module IdrisMLIR.Spec.Generator.Render
 
 import IdrisMLIR.Spec.Core.Text
 
+import Control.WellFounded
 import Data.List
 import Data.List1
 import Data.Nat
-import Data.Nat.Views
 
 %default total
 
@@ -67,36 +67,46 @@ digitChar 7 = '7'
 digitChar 8 = '8'
 digitChar _ = '9'
 
-||| Little-endian decimal digits doubled, with a carry in.
-export
-doubleDigits : Nat -> List Nat -> List Nat
-doubleDigits c [] = if c == 0 then [] else [c]
-doubleDigits c (d :: ds) =
-  let x = d + d + c
-  in if x >= 10 then minus x 10 :: doubleDigits 1 ds else x :: doubleDigits 0 ds
+||| A natural is at least itself.
+0 atLeastItself : (n : Nat) -> LTE n n
+atLeastItself Z = LTEZero
+atLeastItself (S k) = LTESucc (atLeastItself k)
 
-||| Little-endian decimal digits plus one.
-export
-incrementDigits : List Nat -> List Nat
-incrementDigits [] = [1]
-incrementDigits (d :: ds) = if d == 9 then 0 :: incrementDigits ds else S d :: ds
+||| Taking from a natural leaves at most the natural.
+0 minusAtMost : (a, b : Nat) -> LTE (minus a b) a
+minusAtMost Z _ = LTEZero
+minusAtMost (S j) Z = atLeastItself (S j)
+minusAtMost (S j) (S b) = lteSuccRight (minusAtMost j b)
 
-||| A natural's decimal digits, least significant first, by its binary
-||| view: halving is the recursion, so it is structural and costs the
-||| number's bits, never its value.
-export
-decimalDigits : (n : Nat) -> List Nat
-decimalDigits n with (halfRec n)
-  decimalDigits 0 | HalfRecZ = []
-  decimalDigits (k + k) | HalfRecEven k rec = doubleDigits 0 (decimalDigits k | rec)
-  decimalDigits (S (k + k)) | HalfRecOdd k rec = incrementDigits (doubleDigits 0 (decimalDigits k | rec))
+||| `q` held below `S k`: `k - (k - q)`, which is `q` itself wherever
+||| `q <= k`, and below `S k` whatever `q` is. A quotient computed on
+||| `Integer`, which the type checker cannot see into, is held so, which
+||| leaves it unchanged and puts the descent of a recursion on it in its
+||| type.
+heldBelow : (k, q : Nat) -> Nat
+heldBelow k q = minus k (minus k q)
 
-||| A natural's decimal text.
+||| What a held value is held to.
+0 heldIsBelow : (k, q : Nat) -> LT (heldBelow k q) (S k)
+heldIsBelow k q = LTESucc (minusAtMost k (minus k q))
+
+||| A natural's decimal text, most significant digit first. Each digit is
+||| one division by ten on `Integer`, which both hosts compute in constant
+||| time, where `Nat`'s division and its views count in unary: a digit
+||| costs a step, never the number's value. The quotient of `S k` by ten is
+||| at most `k`, so holding it below `S k` leaves it as it is.
 export
 decimal : Nat -> String
-decimal n = case reverse (decimalDigits n) of
-  [] => "0"
-  ds => pack (map digitChar ds)
+decimal Z = "0"
+decimal n = pack (digits n (wellFounded n) [])
+  where
+    digits : (m : Nat) -> (0 _ : Accessible LT m) -> List Char -> List Char
+    digits Z _ out = out
+    digits m@(S k) (Access rec) out =
+      let i = natToInteger m
+          d = integerToNat (i `div` 10)
+      in digits (heldBelow k d) (rec (heldBelow k d) (heldIsBelow k d))
+                (digitChar (integerToNat (i `mod` 10)) :: out)
 
 ||| An integer's decimal text, its sign first.
 export
@@ -115,14 +125,15 @@ hexChar n = case n of
   15 => 'f'
   _ => digitChar n
 
-||| A natural below 2^64 as sixteen hexadecimal digits.
+||| A 64-bit word as sixteen hexadecimal digits, most significant first,
+||| each a division by sixteen on the word itself.
 export
-hex64 : Nat -> String
-hex64 n = pack (go (the Nat 16) n [])
+hex64 : Bits64 -> String
+hex64 w = pack (go (the Nat 16) w [])
   where
-    go : Nat -> Nat -> List Char -> List Char
+    go : Nat -> Bits64 -> List Char -> List Char
     go Z _ acc = acc
-    go (S k) m acc = go k (divNatNZ m 16 SIsNonZero) (hexChar (modNatNZ m 16 SIsNonZero) :: acc)
+    go (S k) m acc = go k (m `div` 16) (hexChar (integerToNat (cast (m `mod` 16))) :: acc)
 
 ||| A string as a double-quoted literal in C++, TableGen and Idris alike:
 ||| the specification's text is printable ASCII, so a quote and a backslash
