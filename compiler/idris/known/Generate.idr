@@ -184,14 +184,18 @@ repeated ((_, t) :: es) = if any (\e => snd e == t) es then Just t else repeated
 -- Writing
 ------------------------------------------------------------------------------
 
-data Mode = Write | Check
+-- What knowngen was asked to do with the modules: write each that differs,
+-- or only name each that differs.
+data Command = WriteModules | CheckModules
 
-modeOf : String -> Maybe Mode
-modeOf "write" = Just Write
-modeOf "check" = Just Check
-modeOf _ = Nothing
+commandOf : String -> Maybe Command
+commandOf "write" = Just WriteModules
+commandOf "check" = Just CheckModules
+commandOf _ = Nothing
 
--- The text of a file, or nothing where there is none.
+-- The text of a file, or nothing where there is none. Covering, not total:
+-- a read runs to the file's end, which a file that never ends never reaches.
+covering
 readText : String -> IO (Maybe String)
 readText path = do
   got <- readFile path
@@ -201,6 +205,7 @@ readText path = do
 
 -- Writes each module whose file differs from it; the paths it could not
 -- write.
+covering
 writeAll : List (String, String) -> IO (List String)
 writeAll [] = pure []
 writeAll ((path, text) :: rest) = do
@@ -215,6 +220,7 @@ writeAll ((path, text) :: rest) = do
         Left _ => pure (path :: more)
 
 -- The paths whose file differs from what would be written.
+covering
 differing : List (String, String) -> IO (List String)
 differing [] = pure []
 differing ((path, text) :: rest) = do
@@ -234,28 +240,29 @@ usage = do
   exitWith (ExitFailure 2)
 
 export
+covering
 main : IO ()
 main = do
   args <- getArgs
   case args of
     [_, m, root] =>
-      case modeOf m of
+      case commandOf m of
         Nothing => usage
-        Just mode =>
+        Just command =>
           case mapMaybe repeated [known, keywords, reservedSymbols, pragmas] of
             (t :: _) => do
               putStrLn ("knowngen: a vocabulary spells " ++ literal t ++ " twice")
               exitWith (ExitFailure 1)
             [] => do
               let files = map (\(p, t) => (root ++ "/" ++ p, t)) outputs
-              failed <- case mode of
-                          Write => writeAll files
-                          Check => differing files
+              failed <- case command of
+                          WriteModules => writeAll files
+                          CheckModules => differing files
               case failed of
                 [] => pure ()
                 ps => do
-                  report (case mode of
-                            Write => "cannot write "
-                            Check => "differs from the vocabulary: ") ps
+                  report (case command of
+                            WriteModules => "cannot write "
+                            CheckModules => "differs from the vocabulary: ") ps
                   exitWith (ExitFailure 1)
     _ => usage
