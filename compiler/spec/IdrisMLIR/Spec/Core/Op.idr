@@ -1,0 +1,322 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
+||| An op of the dialect, as one value: indexed by its operand, result,
+||| attribute and region group counts, so every reference inside it (its
+||| format, its effects, its guards, its runtime call, its grade rule) is a
+||| position it has, and no name is looked up. A family of ops is a function
+||| of the family's constants; each member is that function applied, so a
+||| member cannot lose its family's facts. Its C++ class is ODS's default
+||| from its mnemonic: `idr.str.length` is `StrLengthOp`.
+module IdrisMLIR.Spec.Core.Op
+
+import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Core.Hooks
+import IdrisMLIR.Spec.Core.Enums
+import IdrisMLIR.Spec.Core.Upstream
+import IdrisMLIR.Spec.Core.Interfaces
+import IdrisMLIR.Spec.Core.Constraints
+import IdrisMLIR.Spec.Core.Format
+import IdrisMLIR.Spec.Core.Ods
+import IdrisMLIR.Spec.Core.Admitted
+import IdrisMLIR.Spec.Pipeline.Stage
+import IdrisMLIR.Spec.Effects.Declaration
+
+import Data.Fin
+import Data.List
+import Data.List1
+import Data.So
+import Data.Vect
+
+%default total
+
+------------------------------------------------------------------------------
+-- Groups
+------------------------------------------------------------------------------
+
+||| How many values a group holds: one, one or none, or any number.
+public export
+data Arity = Single | Optional | Variadic
+
+public export
+record Operand where
+  constructor MkOperand
+  name : Ident
+  arity : Arity
+  type : TypeC
+
+public export
+record Result where
+  constructor MkResult
+  name : Ident
+  arity : Arity
+  type : TypeC
+
+||| One operand, one result.
+public export
+single : Ident -> TypeC -> Operand
+single n t = MkOperand n Single t
+
+||| One operand or none.
+public export
+optional : Ident -> TypeC -> Operand
+optional n t = MkOperand n Optional t
+
+||| Any number of operands.
+public export
+variadic : Ident -> TypeC -> Operand
+variadic n t = MkOperand n Variadic t
+
+public export
+result : Ident -> TypeC -> Result
+result n t = MkResult n Single t
+
+public export
+results : Ident -> TypeC -> Result
+results n t = MkResult n Variadic t
+
+||| How an attribute is present: always, possibly not, or with a default
+||| (its C++ expression) when not written.
+public export
+data AttrPresence = Required | MayBeAbsent | DefaultValued Code
+
+||| An inherent attribute, or a property: an op's configuration is one of
+||| these, never a discardable attribute, which a pass could drop.
+public export
+data AttrKind = AnAttribute AttrC AttrPresence | AProperty PropertyC
+
+public export
+record Attr where
+  constructor MkAttr
+  name : Ident
+  kind : AttrKind
+
+public export
+attr : Ident -> AttrC -> Attr
+attr n c = MkAttr n (AnAttribute c Required)
+
+public export
+property : Ident -> PropertyC -> Attr
+property n c = MkAttr n (AProperty c)
+
+||| How many regions a group holds.
+public export
+data RegionArity = OneRegion | AnyRegions
+
+||| How many blocks each region of a group may have: any number, a fixed
+||| number (one, for a scope), or at most a number.
+public export
+data Blocks = AnyBlocks | Sized Nat | AtMost Nat
+
+public export
+record Region where
+  constructor MkRegion
+  name : Ident
+  arity : RegionArity
+  blocks : Blocks
+
+||| A region of `n` blocks.
+public export
+sized : Ident -> Nat -> Region
+sized n k = MkRegion n OneRegion (Sized k)
+
+||| Any number of regions of `n` blocks each.
+public export
+sizedRegions : Ident -> Nat -> Region
+sizedRegions n k = MkRegion n AnyRegions (Sized k)
+
+------------------------------------------------------------------------------
+-- What an op is besides its groups
+------------------------------------------------------------------------------
+
+||| Where an op of ours is defined: in the dialect, or in upstream's
+||| transform dialect as an extension, its class named there (its record's
+||| name is its class, as upstream's extensions write it).
+public export
+data Home = InIdr | InTransform CppName
+
+||| Another op of the dialect named by an op's trait: by its mnemonic,
+||| whose class is ODS's default. A name, since two ops may name each other
+||| (a match and its yield), which values cannot.
+public export
+OpRef : Type
+OpRef = Mnemonic
+
+||| An op's class from a reference.
+public export
+opRefClass : OpRef -> String
+opRefClass m = camelMnemonic m ++ "Op"
+
+||| A trait: upstream's, ours, one that names other ops, or the grade's rule
+||| over the op's groups. Commutativity and its kin are laws (below), from
+||| which their traits are printed; speculation and memory effects have
+||| their own fields.
+public export
+data Trait : (i, o : Nat) -> Type where
+  Terminator : Trait i o
+  ReturnLike : Trait i o
+  IsolatedFromAbove : Trait i o
+  SingleBlock : Trait i o
+  NoTerminator : Trait i o
+  NoRegionArguments : Trait i o
+  SymbolTable : Trait i o
+  SymbolOp : Trait i o
+  AffineScope : Trait i o
+  AutomaticAllocationScope : Trait i o
+  ConstantLike : Trait i o
+  SameOperandsAndResultType : Trait i o
+  SameTypeOperands : Trait i o
+  AttrSizedOperandSegments : Trait i o
+  AttrSizedResultSegments : Trait i o
+  PropagateControlFlowBreak : Trait i o
+  ReportTrackingListenerFailures : Trait i o
+  ||| An op whose results or region arguments may be upstream's `token`.
+  TokenProducer : Trait i o
+  ||| An op whose nested regions end only in the named terminators.
+  HasNestedTerminator : List1 OpRef -> Trait i o
+  OurTrait : TraitDef -> Trait i o
+  HasParent : List1 OpRef -> Trait i o
+  ||| A parent outside the dialect, by its class: `::mlir::ModuleOp`.
+  HasUpstreamParent : CppName -> Trait i o
+  ImplicitTerminator : OpRef -> Trait i o
+  ||| The result is used once exactly when one of the operands is (a
+  ||| closure over a linear capture is linear): the grade's own rule over
+  ||| the op's groups, printed to the C++ check and to the frontend's
+  ||| builder, which computes the result's grade from it.
+  ResultUsesMaxOf : (res : Fin o) -> (from : List (Fin i)) -> Trait i o
+
+||| Whether an op may be moved where it would not have run: never, always,
+||| when its regions are, or as a hand method decides from its operands.
+public export
+data Speculation = NotSpeculatable | AlwaysSpeculatable | RecursivelySpeculatable | Conditionally
+
+||| What an op's hand verifier checks: nothing beyond its declaration, the
+||| op alone, its regions once verified, or both.
+public export
+data Verify = DeclarationOnly | VerifiesOp | VerifiesRegions | VerifiesOpAndRegions
+
+||| The meaning of an op, one sum (one meaning, held once): a runtime
+||| function with effects, never folded; one such function per case of an
+||| enum the op's variant is (an `io.clock <kind>`: each case's symbol is the
+||| call's stem and the case's spelling, the runtime's entries one template
+||| instantiated per case); a pure runtime function, which the folder
+||| computes by calling it; an inline operation whose one meaning is a C++
+||| template generic over a numeric domain (the hand function object `fn`
+||| of `Numeric/Inline.h`); a hand folder; or no fold.
+public export
+data Meaning : (i, o : Nat) -> Type where
+  CallsRuntime : RuntimeCall i o -> Meaning i o
+  CallsRuntimeByCase : EnumDef -> RuntimeCall i o -> Meaning i o
+  ComputedByRuntime : RuntimeCall i o -> Meaning i o
+  Inline : (fn : Ident) -> Meaning i o
+  HandFolder : Meaning i o
+  NoFold : Meaning i o
+
+||| A guard a partial op takes, built before it by the frontend: the guard
+||| op, the operands it is given (the one it guards first), and the cause
+||| its crash names.
+public export
+record Guard (i : Nat) where
+  constructor MkGuard
+  check : OpRef
+  given : List1 (Fin i)
+  cause : CaseRef
+
+||| A constant of an op's member of a C++ class template the generator
+||| specializes per op (its family's constants, its word op): a case of an
+||| enum of the dialect's, an integer, an admitted upstream op's class, or
+||| no class, where the member names none (a big op whose word is the
+||| value itself).
+public export
+data Constant = EnumConstant CaseRef | IntConstant Integer | UpstreamClass Admitted | NoClass
+
+||| A class template of hand C++ in `::idr`, specialized for each op that
+||| is a member, its members the op's constants: the one carrier of a
+||| family's facts, and of membership itself.
+public export
+record Specialized where
+  constructor MkSpecialized
+  template : Ident
+  constants : List (Ident, Constant)
+
+||| A law of an op, from which the e-graph's rules are generated; the
+||| traits upstream has for them are printed from them too.
+public export
+data Law = Associative | Commutative | Idempotent | Involution | Identity Integer | Annihilator Integer
+
+||| Whether ODS writes an op's default builders, besides its declared ones.
+public export
+data DefaultBuilders = WithDefaults | DeclaredOnly
+
+||| A builder the op's class declares and a hand unit defines.
+public export
+record Builder where
+  constructor MkBuilder
+  params : List Param
+
+------------------------------------------------------------------------------
+-- The op
+------------------------------------------------------------------------------
+
+||| The group names of an op, every one.
+public export
+groupNames : Vect i Operand -> Vect o Result -> Vect a Attr -> Vect r Region -> List Ident
+groupNames ins outs as rs =
+  map (.name) (toList ins) ++ map (.name) (toList outs) ++ map (.name) (toList as) ++ map (.name) (toList rs)
+
+||| Whether no identifier occurs twice.
+public export
+distinct : List Ident -> Bool
+distinct [] = True
+distinct (x :: xs) = not (elem x xs) && distinct xs
+
+public export
+record Op (i, o, a, r : Nat) where
+  constructor MkOp
+  home : Home
+  mnemonic : Mnemonic
+  ins : Vect i Operand
+  outs : Vect o Result
+  attrs : Vect a Attr
+  regions : Vect r Region
+  traits : List (Trait i o)
+  interfaces : List InterfaceUse
+  effects : Declaration i o
+  speculation : Speculation
+  stages : Legal
+  meaning : Meaning i o
+  verify : Verify
+  format : Format i o a r
+  builders : List Builder
+  defaultBuilders : DefaultBuilders
+  members : List Member
+  guards : List (Guard i)
+  specializations : List Specialized
+  laws : List Law
+  doc : Doc
+  {auto 0 named : So (distinct (groupNames ins outs attrs regions))}
+
+||| An op of any counts, as a list of the dialect's holds them.
+public export
+data AnyOp : Type where
+  SomeOp : {0 i, o, a, r : Nat} -> Op i o a r -> AnyOp
+
+||| The op's C++ class, within its namespace.
+public export
+opClass : Op i o a r -> String
+opClass op = case op.home of
+  InIdr => camelMnemonic op.mnemonic ++ "Op"
+  InTransform cls => identText (cppLeaf cls)
+
+||| The op's class from the global namespace.
+public export
+opQualifiedClass : Op i o a r -> String
+opQualifiedClass op = case op.home of
+  InIdr => "::idr::" ++ camelMnemonic op.mnemonic ++ "Op"
+  InTransform cls => cppText cls
+
+||| The op's name in the IR, its dialect's namespace first.
+public export
+opName : Op i o a r -> String
+opName op = case op.home of
+  InIdr => "idr." ++ mnemonicText op.mnemonic
+  InTransform _ => "transform." ++ mnemonicText op.mnemonic

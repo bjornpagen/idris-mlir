@@ -1,63 +1,31 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idris-mlir-tblgen: mlir-tblgen with the generators of what the dialect's
-// ODS says to the rest of the tree, so that each fact about an op is said
-// once, beside the op, and every other reader of it is generated:
+// idris-mlir-tblgen: the one generator of ours not written in Idris, a
+// TableGen backend reading upstream's records, which stay upstream's. The
+// dialect's specification (compiler/spec/) states every fact of ours and
+// prints which upstream ops it admits, one record per op naming upstream's
+// own def (Generated/IdrAdmitted<D>.td); this reads, through mlir::tblgen,
+// upstream's records for those alone:
 //
-// - -gen-idris-syntax, a dialect's syntax for the Idris side: the enums its
-//   ops, types and attributes take, and its types and attributes, each a
-//   constructor of the dialect's sum of types or of attributes, with the
-//   printer that writes it in the syntax ODS declares for it. IdrisMLIR.MLIR's
-//   types and attributes hold these sums (compiler/src/IdrisMLIR/Syntax/).
-// - -gen-idris-dialect, a dialect's ops for the Idris side: a builder of each
-//   op, over its operands, inherent attributes and properties, regions and
-//   results, which for a partial op gives the op with the guards it takes,
-//   stated over the builder's own arguments; its discardable attributes; and
-//   its primitives, the ops Idris names, each a constructor the Idris side
-//   builds it from (compiler/src/IdrisMLIR/Dialect/).
-// - -gen-idris-bytecode, a dialect's bytecode entries for the Idris side,
-//   from the records in upstream's DSL (mlir/IR/BytecodeBase.td) that
-//   mlir-tblgen -gen-bytecode reads for the C++ reader: each record's code,
-//   and the parts of each record whose members it knows, so that the writer
-//   and the reader lay an entry out by one record
+// - -gen-idris-syntax, an upstream dialect's syntax for the Idris side: the
+//   enums its admitted ops, types and attributes take, and its types and
+//   attributes with the printers of the syntax ODS declares for them
+//   (compiler/src/IdrisMLIR/Syntax/).
+// - -gen-idris-dialect, a builder of each admitted op the frontend writes
+//   (compiler/src/IdrisMLIR/Dialect/).
+// - -gen-idris-bytecode, an upstream dialect's bytecode entries for the
+//   Idris writer, from its records in upstream's bytecode DSL
 //   (compiler/src/IdrisMLIR/Encoding/).
-// - -gen-runtime-abi-decls and -gen-runtime-abi-defs, the runtime's C
-//   functions idr-lower calls, an op's (Idr_Runtime) and the lowering's own
-//   (Idr_RuntimeFunction): their C prototypes, which the runtime's header
-//   includes, so that a definition that does not match its record fails to
-//   compile; and the table the lowering and the folders read.
-// - -gen-guards, the guards of each op with Idr_GuardedOp, as the C++
-//   specialization ::idr::Guarded<Op> its folder and its speculation read.
-// - -gen-big-to-word, the word op each big op names (Idr_WordOp).
-// - -gen-rule-list, the rules a refusal of a program names, each with its
-//   category, one per line, for the tests to read; -gen-rule-categories,
-//   the same categories as the C++ side's `categoryOf`.
-// - -gen-pass-roles and -gen-pass-stages, the role and the stages of each
-//   pass (IdrPass), one pass per line, for the tests to read.
+// - -gen-admitted-classes, the C++ class of every admitted op by its
+//   record's name, so no C++ restates an upstream class.
 //
-// Emit writes MLIR only through the Idris modules, so what an op, a type or
-// an attribute is, and how each of its parts is spelled, is said once: in
-// ODS. Emit hands ops over in MLIR's generic form, which ODS says alone for
-// every op (the name, the operands, the inherent attributes and properties,
-// the regions, the discardable attributes and the types), so an op needs no
-// printer on the Idris side.
-//
-// It is a TableGen backend rather than a program over a dump of the records
-// because it then reads ODS through mlir::tblgen (Operator, Attribute,
-// AttrOrTypeDef, EnumInfo), the reading the dialects' own C++ is generated
-// from, so the two sides cannot take one op differently; and the pinned
-// toolchain installs those libraries and mlir-tblgen, not llvm-tblgen.
-//
-// A type or an attribute has no generic form, so it is written in the
-// syntax ODS declares for it, which the generated C++ parser reads; one
-// whose syntax ODS does not declare is left out, with the reason, at the end
-// of the syntax module. The syntax of a type the generator knows by itself
-// is an identified type's (a TypeDef with MutableType), which no declarative
-// syntax can say: its name alone. Its body is the module's, written once in
-// the module's table of data types, whose records the syntax module holds
-// and the bytecode writer writes.
-
-#include "idr/Support/Worklist.h"
+// It is a backend rather than a program over a dump of the records because
+// it reads ODS through mlir::tblgen (Operator, Attribute, AttrOrTypeDef,
+// EnumInfo), the reading upstream's own C++ is generated from, so the two
+// sides cannot take one op differently. The declarative format of an
+// attribute (arith's flags, ub's poison) is re-read by a subset parser
+// below, since upstream's format parser lives in the mlir-tblgen executable,
+// not a library.
 
 #include "mlir/TableGen/AttrOrTypeDef.h"
 #include "mlir/TableGen/Attribute.h"
@@ -380,14 +348,23 @@ EnumCase namedCase(const EnumCase &c, StringRef field) {
 // records', so the walk ends. A name is the map's own key, which stays
 // where it is as the map grows.
 void addCaseFields(Enums &enums, const EnumsOfCases &owners) {
-  idr::OnceWorklist<StringRef> work;
-  for (const auto &[name, used] : enums)
-    work.push(name);
-  while (std::optional<StringRef> name = work.pop()) {
-    Enum &taken = enums.find(name->str())->second;
-    taken.caseFields = caseFieldsOf(EnumInfo(taken.def), owners);
-    for (const CaseField &f : taken.caseFields)
-      work.push(enums.try_emplace(enumName(EnumInfo(f.values)), Enum{f.values}).first->first);
+  std::vector<std::string> work;
+  std::set<std::string> taken;
+  for (const auto &[name, used] : enums) {
+    work.push_back(name);
+    taken.insert(name);
+  }
+  while (!work.empty()) {
+    std::string name = std::move(work.back());
+    work.pop_back();
+    Enum &each = enums.find(name)->second;
+    each.caseFields = caseFieldsOf(EnumInfo(each.def), owners);
+    for (const CaseField &f : each.caseFields) {
+      std::string next = enumName(EnumInfo(f.values));
+      enums.try_emplace(next, Enum{f.values});
+      if (taken.insert(next).second)
+        work.push_back(next);
+    }
   }
 }
 
@@ -704,594 +681,13 @@ std::string valuesType(StringRef single, char arity) {
 }
 
 //===----------------------------------------------------------------------===//
-// How the C ABI holds a value of each type
-//===----------------------------------------------------------------------===//
-
-// How a runtime function takes an operand of its op, or a parameter, and
-// how it gives a result: two sets, so that neither position holds a case
-// only the other has. The world is an operand's kind, the one kind with no C
-// value, which no parameter declares; not returning is a result's kind.
-// Pointer and Bool are the kinds of the functions the lowering calls by
-// itself (IdrRuntime.td), which spell their own C types.
-enum class OperandKind { World, Int32, Int64, Double, Signed, Unsigned, Str, Big, Buffer, Pointer, Bool };
-enum class ResultKind { Void, NoReturn, Int32, Int64, Double, Wrapped, Order, Str, Big, Pointer, Bool };
-
-// A kind as the generated table spells it, the C type an op's function
-// declares a value of it as (a declarator with `{0}` where the name goes;
-// the world's is empty, since no parameter declares it), and its line of
-// documentation.
-template <typename KindT>
-struct KindRow {
-  KindT kind;
-  StringRef spelling;
-  StringRef pattern;
-  StringRef doc;
-};
-
-constexpr KindRow<OperandKind> operandRows[] = {
-    {OperandKind::World, "World", "", "The world: no C value, so no parameter"},
-    {OperandKind::Int32, "Int32", "int32_t {0}",
-     "A 32-bit integer (int32_t, uint32_t, int): a character, a byte, a cell's info"},
-    {OperandKind::Int64, "Int64", "int64_t {0}",
-     "A 64-bit integer (int64_t, uint64_t, size_t): an Int, a count, a size, a handle, a clock"},
-    {OperandKind::Double, "Double", "double {0}", "double"},
-    {OperandKind::Signed, "Signed", "int64_t {0}",
-     "int64_t: an integer of the op's width, sign-extended"},
-    {OperandKind::Unsigned, "Unsigned", "uint64_t {0}",
-     "uint64_t: an integer of the op's width, zero-extended"},
-    {OperandKind::Str, "Str", "const idris_rt_str *{0}", "const idris_rt_str *"},
-    {OperandKind::Big, "Big", "idris_rt_big {0}", "idris_rt_big"},
-    {OperandKind::Buffer, "Buffer", "idris_rt_array *{0}", "idris_rt_array *: a buffer's cell"},
-    {OperandKind::Pointer, "Pointer", "void *{0}",
-     "A pointer the lowering made, as its function's C type spells it: a cell, its header, a "
-     "string being built, a memref, bytes, a function"},
-    {OperandKind::Bool, "Bool", "bool {0}", "bool, which the C ABI extends with zeros"},
-};
-
-constexpr KindRow<ResultKind> resultRows[] = {
-    {ResultKind::Void, "Void", "void {0}", "No result"},
-    {ResultKind::NoReturn, "NoReturn", "IDRIS_RT_NORETURN void {0}",
-     "No result: the function does not return"},
-    {ResultKind::Int32, "Int32", "int32_t {0}", "A 32-bit integer (int32_t, int)"},
-    {ResultKind::Int64, "Int64", "int64_t {0}",
-     "A 64-bit integer (int64_t): an Int, a count, a handle, a clock"},
-    {ResultKind::Double, "Double", "double {0}", "double"},
-    {ResultKind::Wrapped, "Wrapped", "int64_t {0}",
-     "int64_t: a result modulo 2^64, which the op wraps to its width"},
-    {ResultKind::Order, "Order", "int32_t {0}",
-     "int32_t: negative, zero or positive, which the op compares with 0 by its predicate"},
-    {ResultKind::Str, "Str", "const idris_rt_str *{0}", "const idris_rt_str *"},
-    {ResultKind::Big, "Big", "idris_rt_big {0}", "idris_rt_big"},
-    {ResultKind::Pointer, "Pointer", "void *{0}",
-     "A pointer, as its function's C type spells it: a new cell, an array, a string being built"},
-    {ResultKind::Bool, "Bool", "bool {0}", "bool, which the C ABI extends with zeros"},
-};
-
-// Each table lists its enum's cases once, in the enum's order, up to its
-// last case, so that a kind's row is at the kind's value.
-template <typename KindT, size_t N>
-constexpr bool inKindOrder(const KindRow<KindT> (&rows)[N], KindT last) {
-  for (size_t index = 0; index < N; ++index)
-    if (rows[index].kind != static_cast<KindT>(index))
-      return false;
-  return N == static_cast<size_t>(last) + 1;
-}
-static_assert(inKindOrder(operandRows, OperandKind::Bool));
-static_assert(inKindOrder(resultRows, ResultKind::Bool));
-
-const KindRow<OperandKind> &rowOf(OperandKind kind) {
-  return operandRows[static_cast<size_t>(kind)];
-}
-const KindRow<ResultKind> &rowOf(ResultKind kind) { return resultRows[static_cast<size_t>(kind)]; }
-
-// The kind a record spells in `field` (an Idr_CType's `abiKind`), one of
-// `rows`; any other spelling is a fault of the record.
-template <typename KindT, size_t N>
-KindT kindSpelled(const KindRow<KindT> (&rows)[N], const llvm::Record &record, StringRef field,
-                  StringRef what) {
-  StringRef spelling = record.getValueAsString(field);
-  for (const KindRow<KindT> &row : rows)
-    if (row.spelling == spelling)
-      return row.kind;
-  llvm::PrintFatalError(&record, "`" + spelling + "` is no " + what);
-}
-
-// The words a dialect's type constraint may say the C ABI holds a value of
-// it as (Idr_AbiWord's `abiWord`): those no builtin type is by its width.
-constexpr OperandKind constraintWords[] = {OperandKind::World,  OperandKind::Str,
-                                           OperandKind::Big,    OperandKind::Buffer,
-                                           OperandKind::Signed, OperandKind::Unsigned};
-
-// Whether ODS says how the C ABI holds a value of the constraint `type`: a
-// dialect's constraint the runtime takes mixes Idr_AbiWord in, where it is
-// defined; a builtin type is its own word, by its width.
-bool hasAbiWord(const llvm::Record &type) { return type.isSubClassOf("Idr_AbiWord"); }
-
-// The word of a constraint with Idr_AbiWord; any other spelling is a fault
-// of the constraint.
-OperandKind abiWordOf(const llvm::Record &type) {
-  StringRef spelling = type.getValueAsString("abiWord");
-  for (OperandKind kind : constraintWords)
-    if (rowOf(kind).spelling == spelling)
-      return kind;
-  llvm::PrintFatalError(&type, "its ABI word `" + spelling +
-                                   "` is none of World, Str, Big, Buffer, Signed and Unsigned");
-}
-
-// Whether a value of `type` is the world, which is no C value.
-bool isWorld(const llvm::Record &type) {
-  return hasAbiWord(type) && abiWordOf(type) == OperandKind::World;
-}
-
-// Whether `type` is the builtin integer of `width` bits, or the double.
-bool isInteger(const llvm::Record &type, int64_t width) {
-  return type.isSubClassOf("I") && type.getValueAsInt("bitwidth") == width;
-}
-bool isDouble(const llvm::Record &type) {
-  return type.isSubClassOf("F") && type.getValueAsInt("bitwidth") == 64;
-}
-
-// The types a constraint of several types allows; none for any other.
-std::vector<const llvm::Record *> allowedTypes(const llvm::Record &type) {
-  if (!type.getValue("allowedTypes"))
-    return {};
-  return type.getValueAsListOfDefs("allowedTypes");
-}
-
-// Whether the types a constraint allows are integers of several widths.
-bool isAnyWidthInteger(const std::vector<const llvm::Record *> &types) {
-  return types.size() > 1 &&
-         llvm::all_of(types, [](const llvm::Record *t) { return t->isSubClassOf("I"); });
-}
-
-// Whether `type` allows only machine words, integers and floats, whose size
-// in bytes is their type's.
-bool isWord(const llvm::Record &type) {
-  std::vector<const llvm::Record *> types = allowedTypes(type);
-  return !types.empty() && llvm::all_of(types, [](const llvm::Record *t) {
-    return t->isSubClassOf("I") || t->isSubClassOf("F");
-  });
-}
-
-// The kinds a value of the ODS type constraint `type` may be passed as: its
-// ABI word; a builtin integer of 32 or 64 bits or a double, by its width;
-// or the kinds of the types it allows, which the caller refuses when they
-// are more than one: one C function takes one kind. An integer of any width
-// is passed as its constraint's word says, sign- or zero-extended, so one
-// without a word is no operand a C function takes.
-std::vector<OperandKind> operandKinds(const llvm::Record &type, const Operator &op,
-                                      const llvm::Twine &what) {
-  if (hasAbiWord(type))
-    return {abiWordOf(type)};
-  if (isInteger(type, 32))
-    return {OperandKind::Int32};
-  if (isInteger(type, 64))
-    return {OperandKind::Int64};
-  if (isDouble(type))
-    return {OperandKind::Double};
-  std::vector<const llvm::Record *> members = allowedTypes(type);
-  if (isAnyWidthInteger(members))
-    llvm::PrintFatalError(op.getLoc(), op.getOperationName() + "'s " + what +
-                                           " is an integer of any width, and its constraint `" +
-                                           type.getName() +
-                                           "` names no extension (Idr_AbiWord's Signed or "
-                                           "Unsigned)");
-  if (members.empty())
-    llvm::PrintFatalError(op.getLoc(), op.getOperationName() + "'s " + what + " is `" +
-                                           type.getName() + "`, which no C function takes");
-  std::vector<OperandKind> kinds;
-  for (const llvm::Record *member : members)
-    for (OperandKind kind : operandKinds(*member, op, what))
-      if (!llvm::is_contained(kinds, kind))
-        kinds.push_back(kind);
-  return kinds;
-}
-
-// How a C function gives an op's one value, of the constraint `type`: an
-// integer of any width as its 64 bits, which the op wraps to its width
-// (Wrapped); an i1 as a three-way order, which the op's `predicate`
-// compares with 0 (Order); a string, a big, an integer of 32 or 64 bits or
-// a double as itself.
-ResultKind resultKindOf(const llvm::Record &type, const Operator &op, const llvm::Twine &what,
-                        bool hasPredicate) {
-  std::string operation = op.getOperationName();
-  if (hasAbiWord(type)) {
-    OperandKind word = abiWordOf(type);
-    if (word == OperandKind::Str)
-      return ResultKind::Str;
-    if (word == OperandKind::Big)
-      return ResultKind::Big;
-    llvm::PrintFatalError(op.getLoc(), operation + "'s " + what + " is a " +
-                                           rowOf(word).spelling +
-                                           ", which no C function gives");
-  }
-  if (isInteger(type, 32))
-    return ResultKind::Int32;
-  if (isInteger(type, 64))
-    return ResultKind::Int64;
-  if (isDouble(type))
-    return ResultKind::Double;
-  if (isInteger(type, 1)) {
-    if (!hasPredicate)
-      llvm::PrintFatalError(op.getLoc(), operation + " gives an i1 and has no `predicate` to "
-                                                     "compare its C function's order by");
-    return ResultKind::Order;
-  }
-  std::vector<const llvm::Record *> members = allowedTypes(type);
-  if (isAnyWidthInteger(members))
-    return ResultKind::Wrapped;
-  if (members.empty())
-    llvm::PrintFatalError(op.getLoc(), operation + "'s " + what + " is `" + type.getName() +
-                                           "`, which no C function gives");
-  std::vector<ResultKind> kinds;
-  for (const llvm::Record *member : members) {
-    ResultKind kind = resultKindOf(*member, op, what, hasPredicate);
-    if (!llvm::is_contained(kinds, kind))
-      kinds.push_back(kind);
-  }
-  if (kinds.size() != 1)
-    llvm::PrintFatalError(op.getLoc(), operation + "'s " + what +
-                                           " admits more than one kind, and one C function "
-                                           "gives one");
-  return kinds.front();
-}
-
-// How an op's C function gives its results, decided once, the boundary on
-// ODS: the world is no C value, and of the other results an op has none,
-// which is Void, or NoReturn for an op with Idr_NoReturn, or one. Two
-// values, a value of an op that does not return and an i1 without a
-// predicate are faults of the op.
-ResultKind resultKind(const Operator &op) {
-  std::string operation = op.getOperationName();
-  std::vector<int> values;
-  for (int index = 0, e = op.getNumResults(); index < e; ++index)
-    if (!isWorld(op.getResult(index).constraint.getDef()))
-      values.push_back(index);
-  bool noreturn = op.getTrait("::idr::NoReturn") != nullptr;
-  if (values.empty())
-    return noreturn ? ResultKind::NoReturn : ResultKind::Void;
-  if (values.size() > 1)
-    llvm::PrintFatalError(op.getLoc(),
-                          operation + " gives more than one value, and a C function gives one");
-  if (noreturn)
-    llvm::PrintFatalError(op.getLoc(), operation + " does not return, and gives a value");
-  bool hasPredicate = llvm::any_of(
-      op.getAttributes(), [](const NamedAttribute &attr) { return attr.name == "predicate"; });
-  int value = values.front();
-  return resultKindOf(op.getResult(value).constraint.getDef(), op,
-                      "result `" + op.getResultName(value) + "`", hasPredicate);
-}
-
-//===----------------------------------------------------------------------===//
-// Guards
-//===----------------------------------------------------------------------===//
-
-// A partial op is a guard and a total op, and its ODS says each guard
-// (Idr_Guarded): the kind of check (a case of the enum CheckKind, as its
-// record), the names of the op's values the guard op takes, in its order,
-// the operand it guards first, and the cause its crash reports. The guard op
-// of a kind is the one whose `checkKind` is that case's record, and what it
-// takes beside the operand it guards is an operand of the partial op, as it
-// is, or, for an i64 operand of the guard op, a count of bytes the partial
-// op gives from one of its values: an i64 operand itself, the size of a
-// word the op loads (its result) or stores (its operand), or the count the
-// value's ABI word names (Idr_AbiWord's `abiCount`), a string's bytes or an
-// array's length. The Idris side states each partial op's guards over its
-// builder's own arguments; the C++ side reads them as ::idr::Guarded<Op>.
-
-// The enum of the kinds of check, CheckKind in the dialect's namespace,
-// whose cases the Idris side's Check lists.
-const llvm::Record *checkKinds(const llvm::RecordKeeper &records, StringRef cppNamespace) {
-  for (const llvm::Record *def : records.getAllDerivedDefinitionsIfDefined("EnumInfo")) {
-    EnumInfo info(def);
-    if (info.getEnumClassName() == "CheckKind" && info.getCppNamespace() == cppNamespace)
-      return def;
-  }
-  llvm::PrintFatalError("a partial op names a guard, and " + cppNamespace +
-                        " has no enum CheckKind");
-}
-
-// The kinds of check of a dialect, and the guard op of each, by the case's
-// record, which a mark holds too: every case has one.
-struct GuardOps {
-  EnumInfo kinds;
-  std::map<const llvm::Record *, const llvm::Record *> byKind;
-};
-
-GuardOps guardOpsOf(const llvm::RecordKeeper &records, StringRef cppNamespace) {
-  GuardOps guards{EnumInfo(checkKinds(records, cppNamespace)), {}};
-  for (const llvm::Record *def : records.getAllDerivedDefinitions("Op")) {
-    const llvm::RecordVal *kind = def->getValue("checkKind");
-    if (!kind || !llvm::isa<llvm::DefInit>(kind->getValue()))
-      continue;
-    const llvm::Record *checked = def->getValueAsDef("checkKind");
-    if (!guards.byKind.emplace(checked, def).second)
-      llvm::PrintFatalError(def, "two guard ops check " + checked->getName());
-  }
-  for (const EnumCase &c : guards.kinds.getAllCases())
-    if (!guards.byKind.count(&c.getDef()))
-      llvm::PrintFatalError(&guards.kinds.getDef(), "no guard op checks " + c.getSymbol());
-  return guards;
-}
-
-// Whether a guard op's operand beside the one it guards is a count of
-// bytes, an i64, which the partial op gives from one of its values, rather
-// than an operand of the partial op as it is.
-bool isCount(const NamedTypeConstraint &operand) {
-  return isInteger(operand.constraint.getDef(), 64);
-}
-
-// What a guard op takes beside the operand it guards, as the partial op
-// gives it, by its operand group or its result: an operand as it is; or a
-// count of bytes, which is an i64 operand itself, the size of the word the
-// op loads (its result) or stores (its operand), a string's bytes or an
-// array's length.
-struct AsIs {
-  int group;
-};
-struct CountOf {
-  int group;
-};
-struct WordLoaded {
-  int result;
-};
-struct WordStored {
-  int group;
-};
-struct BytesOf {
-  int group;
-};
-struct LengthOf {
-  int group;
-};
-using GuardArgument = std::variant<AsIs, CountOf, WordLoaded, WordStored, BytesOf, LengthOf>;
-
-// One guard of a partial op, read once from its mark: the guard op, the
-// Idris constructor of the case of CheckKind it checks, the operand group it
-// guards (each value of a group that varies in length alike), what else the
-// guard op takes, in its order, and the cause its crash reports.
-struct Guard {
-  const llvm::Record *guardOp;
-  std::string check;
-  int guarded;
-  std::vector<GuardArgument> arguments;
-  std::string cause;
-};
-
-// How a guard has a count of bytes from a value of the constraint `type`:
-// as its ABI word's count says (Idr_AbiWord's `abiCount`, one of the
-// Idr_AbiCount records), or none for a type without a word.
-enum class ByteCount { None, Bytes, Length };
-
-ByteCount byteCountOf(const llvm::Record &type) {
-  if (!hasAbiWord(type))
-    return ByteCount::None;
-  const llvm::Record *count = type.getValueAsDef("abiCount");
-  static const std::pair<StringRef, ByteCount> counts[] = {{"Idr_NoCount", ByteCount::None},
-                                                           {"Idr_BytesOf", ByteCount::Bytes},
-                                                           {"Idr_LengthOf", ByteCount::Length}};
-  for (const auto &[name, byteCount] : counts)
-    if (count->getName() == name)
-      return byteCount;
-  llvm::PrintFatalError(&type, "its count `" + count->getName() +
-                                   "` is none of Idr_NoCount, Idr_BytesOf and Idr_LengthOf");
-}
-
-Guard guardOf(const Operator &op, const llvm::Record &mark, const GuardOps &guards) {
-  std::string operationName = op.getOperationName();
-  const llvm::Record *kind = mark.getValueAsDef("kind");
-  auto found = guards.byKind.find(kind);
-  // The mark's field takes any enum's case, and only CheckKind's have a
-  // guard op.
-  if (found == guards.byKind.end())
-    llvm::PrintFatalError(&mark, operationName + " names the guard " + kind->getName() +
-                                     ", which no guard op checks");
-  Operator guard(found->second);
-  std::vector<StringRef> names = mark.getValueAsListOfStrings("operands");
-  if (names.size() != static_cast<size_t>(guard.getNumOperands()))
-    llvm::PrintFatalError(&mark, llvm::formatv("{0}'s guard {1} names {2} values, and {3} takes "
-                                               "{4}: the operand it guards, then each other",
-                                               operationName, kind->getName(), names.size(),
-                                               guard.getOperationName(), guard.getNumOperands())
-                                     .str());
-  auto group = [&](StringRef name) {
-    std::optional<int> index = operandNamed(op, name);
-    if (!index)
-      llvm::PrintFatalError(&mark, operationName + " has no operand `" + name + "`");
-    return *index;
-  };
-  auto single = [&](StringRef name) {
-    int read = group(name);
-    if (arity(op.getOperand(read)) != '1')
-      llvm::PrintFatalError(&mark, operationName + "'s guard reads `" + name +
-                                       "`, which is no single operand");
-    return read;
-  };
-  auto count = [&](StringRef name) -> GuardArgument {
-    if (std::optional<int> result = resultNamed(op, name)) {
-      const NamedTypeConstraint &loaded = op.getResult(*result);
-      if (arity(loaded) != '1' || !isWord(loaded.constraint.getDef()))
-        llvm::PrintFatalError(&mark, operationName + "'s result `" + name + "` is no word");
-      return WordLoaded{*result};
-    }
-    int read = single(name);
-    const llvm::Record &type = op.getOperand(read).constraint.getDef();
-    if (isWord(type))
-      return WordStored{read};
-    if (isInteger(type, 64))
-      return CountOf{read};
-    switch (byteCountOf(type)) {
-    case ByteCount::Bytes:
-      return BytesOf{read};
-    case ByteCount::Length:
-      return LengthOf{read};
-    case ByteCount::None:
-      break;
-    }
-    llvm::PrintFatalError(&mark, operationName + "'s `" + name + "` counts no bytes");
-  };
-  Guard parsed{found->second, caseName(guards.kinds, EnumCase(kind)), group(names.front()), {},
-               mark.getValueAsString("cause").str()};
-  for (int index = 1, e = guard.getNumOperands(); index < e; ++index) {
-    StringRef name = names[static_cast<size_t>(index)];
-    if (isCount(guard.getOperand(index)))
-      parsed.arguments.push_back(count(name));
-    else
-      parsed.arguments.push_back(AsIs{single(name)});
-  }
-  return parsed;
-}
-
-// The guards of an op, one per mark in the order its ODS lists them: none
-// for a total op.
-std::vector<Guard> readGuards(const Operator &op, const GuardOps &guards) {
-  std::vector<Guard> read;
-  for (const llvm::Record *mark : traitsOfClass(op, "Idr_Guarded"))
-    read.push_back(guardOf(op, *mark, guards));
-  return read;
-}
-
-// The types the guards are stated in, before the ops whose builders give
-// them, and the record of an op with its guards, which every partial op's
-// builder and every primitive's op gives.
-std::string guardTypes(const GuardOps &guards) {
-  std::string out;
-  llvm::raw_string_ostream os(out);
-  os << "||| How a guard has a count of bytes it checks: an operand of the op, the\n"
-     << "||| size of a word of the type given, the bytes of a string, or the length\n"
-     << "||| of an array.\n"
-     << "public export\ndata Count = CountOf Value | WordOf MlirType | BytesOf Value | "
-        "LengthOf Value\n\n"
-     << "||| What a guard checks of the operand it guards (CheckKind), with what else\n"
-     << "||| its guard op takes: an operand of the op as it is, and each count.\n"
-     << "public export\ndata Check = ";
-  llvm::interleave(
-      guards.kinds.getAllCases(),
-      [&](const EnumCase &c) {
-        os << caseName(guards.kinds, c);
-        Operator guard(guards.byKind.at(&c.getDef()));
-        for (int index = 1, e = guard.getNumOperands(); index < e; ++index)
-          os << (isCount(guard.getOperand(index)) ? " Count" : " Value");
-      },
-      [&] { os << " | "; });
-  os << "\n\n"
-     << "||| A guard an op takes, an op `" << dialectName << ".check.*`: the position of\n"
-     << "||| the operand it guards, whose value the guard's result stands for in the\n"
-     << "||| op, what it checks, and the cause its crash reports.\n"
-     << "public export\nrecord Guard where\n  constructor MkGuard\n  operand : Nat\n"
-     << "  check : Check\n  cause : String\n\n"
-     << "||| An op and the guards it takes, which are placed before it: what a\n"
-     << "||| partial op's builder gives, so that no partial op is placed without its\n"
-     << "||| guards.\n"
-     << "public export\nrecord Guarded where\n  constructor MkGuarded\n  op : Op\n"
-     << "  guards : List Guard\n\n";
-  return out;
-}
-
-// What a builder or a clause binds of an op's values, which its guards'
-// text reads: each operand group's name (a single operand's Value) and each
-// result's (its MlirType), where it binds one, and where each group starts
-// among the op's operands and how many values it has, as Nat expressions.
-// A builder binds every one; a primitive's clause over a list of operands
-// cannot bind those after a group that varies in length, nor a result it
-// does not match.
-struct Bound {
-  std::vector<std::optional<std::string>> operands;
-  std::vector<std::optional<std::string>> results;
-  std::vector<std::string> starts;
-  std::vector<std::string> lengths;
-};
-
-// The Idris expression of the guards of `op` over what `bound` binds, as
-// an argument: a List Guard, one guard for a single operand and one for
-// each value of a group that varies in length, each at its place from the
-// group's start.
-std::string guardsText(const Operator &op, const std::vector<Guard> &guards, const Bound &bound) {
-  std::string operationName = op.getOperationName();
-  auto named = [&](const std::optional<std::string> &name, StringRef what) {
-    if (!name)
-      llvm::PrintFatalError(op.getLoc(), operationName + "'s guard reads " + what +
-                                             ", which a primitive's clause cannot name");
-    return *name;
-  };
-  auto value = [&](int group) {
-    return named(bound.operands[static_cast<size_t>(group)],
-                 "`" + op.getOperand(group).name.str() + "`");
-  };
-  std::vector<std::pair<std::string, bool>> lists;
-  for (const Guard &g : guards) {
-    std::string check = g.check;
-    for (const GuardArgument &argument : g.arguments)
-      check += " " + std::visit(llvm::makeVisitor(
-                                    [&](const AsIs &a) { return value(a.group); },
-                                    [&](const CountOf &a) { return "(CountOf " + value(a.group) + ")"; },
-                                    [&](const WordLoaded &a) {
-                                      return "(WordOf " +
-                                             named(bound.results[static_cast<size_t>(a.result)],
-                                                   "its result") +
-                                             ")";
-                                    },
-                                    [&](const WordStored &a) {
-                                      return "(WordOf " + value(a.group) + ".type)";
-                                    },
-                                    [&](const BytesOf &a) { return "(BytesOf " + value(a.group) + ")"; },
-                                    [&](const LengthOf &a) {
-                                      return "(LengthOf " + value(a.group) + ")";
-                                    }),
-                                argument);
-    if (!g.arguments.empty())
-      check = "(" + check + ")";
-    std::string cause = literal(g.cause);
-    size_t guarded = static_cast<size_t>(g.guarded);
-    if (arity(op.getOperand(g.guarded)) == '1') {
-      lists.emplace_back(
-          llvm::formatv("MkGuard {0} {1} {2}", bound.starts[guarded], check, cause).str(), true);
-      continue;
-    }
-    // Each value of the group is guarded alike.
-    lists.emplace_back(llvm::formatv("(map (\\v => MkGuard v {0} {1}) (iterateN {2} S {3}))",
-                                     check, cause, bound.lengths[guarded], bound.starts[guarded])
-                           .str(),
-                       false);
-  }
-  return joined(lists);
-}
-
-// What a builder binds: every operand group and result, as its parameters.
-Bound builderBound(const std::vector<std::pair<std::string, char>> &operands,
-                   const std::vector<std::pair<std::string, char>> &results) {
-  Bound bound;
-  int singles = 0;
-  std::vector<std::string> varying;
-  for (const auto &[name, groupArity] : operands) {
-    std::vector<std::string> terms = varying;
-    if (singles != 0 || terms.empty())
-      terms.push_back(std::to_string(singles));
-    bound.starts.push_back(terms.size() == 1 ? terms.front() : "(" + llvm::join(terms, " + ") + ")");
-    bound.operands.push_back(name);
-    if (groupArity == '1') {
-      ++singles;
-      bound.lengths.push_back("1");
-      continue;
-    }
-    std::string length =
-        groupArity == '?' ? "(length (toList " + name + "))" : "(length " + name + ")";
-    bound.lengths.push_back(length);
-    varying.push_back(length);
-  }
-  for (const auto &result : results)
-    bound.results.push_back(result.first);
-  return bound;
-}
-
-//===----------------------------------------------------------------------===//
 // Builders
 //===----------------------------------------------------------------------===//
 
-// The builder of an op: an Op, or, for a partial op, the op and its guards,
-// stated over the builder's own arguments.
-void emitOp(Enums &enums, const Operator &op, const std::vector<Guard> &guards,
-            llvm::raw_ostream &os) {
+// The builder of an upstream op the frontend writes: one argument per
+// inherent attribute, operand group, region and result group, and the op.
+// No upstream op is partial on the Idris side: a guard is an op of ours.
+void emitOp(Enums &enums, const Operator &op, llvm::raw_ostream &os) {
   if (op.getNumSuccessors() != 0)
     llvm::PrintFatalError(op.getLoc(), "the Idris side writes no op with successors");
   // getOperationName returns a std::string by value: keep it alive while the
@@ -1374,308 +770,10 @@ void emitOp(Enums &enums, const Operator &op, const std::vector<Guard> &guards,
     os << binder(p) << " -> ";
   for (const Parameter &p : explicits)
     os << binder(p) << " -> ";
-  // A total op is its op; a partial op is its op and its guards: two kinds
-  // of op, which the frontend places differently.
-  os << (guards.empty() ? "Op" : "Guarded") << "\n" << name;
+  os << "Op\n" << name;
   for (const Parameter &p : explicits)
     os << ' ' << p.name;
-  if (guards.empty())
-    os << " =\n  " << made << "\n\n";
-  else
-    os << " =\n  MkGuarded (" << made << ")\n    "
-       << guardsText(op, guards, builderBound(operands, results)) << "\n\n";
-}
-
-//===----------------------------------------------------------------------===//
-// Primitives
-//===----------------------------------------------------------------------===//
-
-// An op Idris names as a primitive (Idr_Primitive): one constructor of the
-// sum of its kind, named after its C++ class without `Op`. The Idris side
-// builds the op from that constructor and its operands alone, so a
-// primitive has no inherent attribute: no constructor could give one its
-// value. A primitive with a body is a region primitive; any other is an IO
-// primitive (Idr_PerformsIO), which takes the world and gives the next
-// with what its IOResult says, or a pure one, whose operands are as many as
-// its op's ODS declares.
-enum class IOResult { WorldOnly, ValueThenWorld };
-
-// A primitive's constructor and its op.
-struct PrimitiveOp {
-  std::string constructor;
-  const llvm::Record *def;
-};
-struct PurePrimitive {
-  PrimitiveOp op;
-  int arity;
-};
-struct IOPrimitive {
-  PrimitiveOp op;
-  IOResult result;
-};
-struct RegionPrimitive {
-  PrimitiveOp op;
-  int64_t bodyArguments;
-};
-using Primitive = std::variant<PurePrimitive, IOPrimitive, RegionPrimitive>;
-
-// What of `op` its constructor could not give: an inherent attribute, a
-// property without a default, or the segment sizes of its operands or
-// results; or nothing. A property with a default is a pass's own claim,
-// which the constructor leaves at its default, as emitOp does.
-std::optional<std::string> inherent(const Operator &op) {
-  for (int index = 0, e = op.getNumArgs(); index < e; ++index) {
-    mlir::tblgen::Argument arg = op.getArg(index);
-    if (const auto *attribute = llvm::dyn_cast_if_present<NamedAttribute *>(arg)) {
-      if (!attribute->attr.isDerivedAttr())
-        return llvm::formatv("the attribute `{0}`", attribute->name).str();
-    } else if (const auto *property = llvm::dyn_cast_if_present<NamedProperty *>(arg)) {
-      if (!property->prop.hasDefaultValue())
-        return llvm::formatv("the property `{0}`", property->name).str();
-    }
-  }
-  if (op.getTrait("::mlir::OpTrait::AttrSizedOperandSegments") ||
-      op.getTrait("::mlir::OpTrait::AttrSizedResultSegments"))
-    return std::string("segment sizes");
-  return std::nullopt;
-}
-
-// What an IO primitive gives besides the world: none of its results, or
-// one, its first, with the world after it.
-IOResult ioResultOf(const Operator &op) {
-  std::vector<int> values;
-  for (int index = 0, e = op.getNumResults(); index < e; ++index)
-    if (!isWorld(op.getResult(index).constraint.getDef()))
-      values.push_back(index);
-  if (values.empty())
-    return IOResult::WorldOnly;
-  if (values.size() > 1 || values.front() != 0)
-    llvm::PrintFatalError(op.getLoc(), "the IO primitive " + op.getOperationName() +
-                                           " gives more than one value besides the world, or "
-                                           "its value after the world");
-  return IOResult::ValueThenWorld;
-}
-
-// The primitive `op` is, which Idris names one.
-Primitive primitiveOf(const Operator &op) {
-  std::string operationName = op.getOperationName();
-  if (std::optional<std::string> what = inherent(op))
-    llvm::PrintFatalError(op.getLoc(), "the primitive " + operationName + " has " + *what +
-                                           ", which no constructor of a primitive can give");
-  StringRef constructor = op.getCppClassName();
-  constructor.consume_back("Op");
-  PrimitiveOp named{constructorName(constructor.str(), "the primitive " + operationName),
-                    &op.getDef()};
-  if (op.getNumRegions() != 0) {
-    if (op.getNumRegions() != 1 || op.getRegion(0).isVariadic())
-      llvm::PrintFatalError(op.getLoc(), "the region primitive " + operationName +
-                                             " has more than its one body");
-    // The count is the region constraint's (Idr_BodyRegion), which checks
-    // it, as SizedRegion's `blocks` is the count of blocks it checks.
-    const llvm::Record &body = op.getRegion(0).constraint.getDef();
-    if (!body.getValue("arguments"))
-      llvm::PrintFatalError(op.getLoc(), "the body of the region primitive " + operationName +
-                                             " does not say how many arguments it takes");
-    return RegionPrimitive{named, body.getValueAsInt("arguments")};
-  }
-  if (op.getTrait("::idr::PerformsIO"))
-    return IOPrimitive{named, ioResultOf(op)};
-  // A pure primitive's constructor fixes how many operands it takes
-  // (primArity), so each group of them is one value.
-  for (int index = 0, e = op.getNumOperands(); index < e; ++index)
-    if (arity(op.getOperand(index)) != '1')
-      llvm::PrintFatalError(op.getLoc(), "the pure primitive " + operationName +
-                                             " has a group of operands that varies in length, "
-                                             "and its constructor takes a fixed number");
-  return PurePrimitive{named, op.getNumOperands()};
-}
-
-// The clause of `function` for a primitive: its op on the operands `os` and
-// the result types `rs`, with the guards it takes, none for a total one.
-// A partial primitive's clause names what its guards read by patterns: of
-// `os`, a Vect of a pure primitive's arity, which matches whole, or a list
-// of an IO primitive's operands, whose single operands before its one group
-// that varies in length it names; and of `rs`, the list of results, where a
-// guard reads a result's type. A list of another length matches the clause
-// after it, which writes the op without guards: MLIR refuses an op of the
-// wrong arity where it reads the module, so no op runs unguarded.
-void emitClause(StringRef function, const PrimitiveOp &p, const std::vector<Guard> &guards,
-                bool vect, llvm::raw_ostream &os) {
-  Operator op(p.def);
-  std::string head = (function + " " + p.constructor).str();
-  std::string made = "MkOp " + literal(op.getOperationName()) + (vect ? " (toList os)" : " os") +
-                     " [] [] [] rs";
-  if (guards.empty()) {
-    os << head << " os rs = MkGuarded (" << made << ") []\n";
-    return;
-  }
-  int groups = op.getNumOperands();
-  std::vector<std::string> names;
-  std::optional<int> varying;
-  for (int index = 0; index < groups; ++index) {
-    names.push_back(parameter(op.getOperand(index).name, "operand" + llvm::Twine(index)));
-    if (arity(op.getOperand(index)) == '1')
-      continue;
-    if (varying)
-      llvm::PrintFatalError(op.getLoc(), op.getOperationName() +
-                                             " has a guard and more than one group of operands "
-                                             "that varies in length");
-    varying = index;
-  }
-  Bound bound{std::vector<std::optional<std::string>>(static_cast<size_t>(groups)),
-              std::vector<std::optional<std::string>>(static_cast<size_t>(op.getNumResults())),
-              {},
-              {}};
-  std::string operandsPattern;
-  bool refutable = false;
-  if (!varying) {
-    for (size_t index = 0; index < names.size(); ++index) {
-      bound.operands[index] = names[index];
-      bound.starts.push_back(std::to_string(index));
-      bound.lengths.push_back("1");
-    }
-    operandsPattern = "os@[" + llvm::join(names, ", ") + "]";
-    refutable = !vect;
-  } else {
-    // The singles before the group are its start; those after it, the end
-    // of `rest`, which a pattern does not name.
-    int start = *varying, after = groups - start - 1;
-    std::string tail = start == 0 ? "os" : "rest";
-    std::string length = after == 0
-                             ? "(length " + tail + ")"
-                             : llvm::formatv("(minus (length {0}) {1})", tail, after).str();
-    for (int index = 0; index < groups; ++index) {
-      if (index < start) {
-        bound.operands[static_cast<size_t>(index)] = names[static_cast<size_t>(index)];
-        bound.starts.push_back(std::to_string(index));
-      } else if (index == start) {
-        bound.starts.push_back(std::to_string(index));
-      } else {
-        bound.starts.push_back(llvm::formatv("({0} + {1})", index - 1, length).str());
-      }
-      bound.lengths.push_back(index == start ? length : "1");
-    }
-    std::vector<std::string> before(names.begin(), names.begin() + start);
-    operandsPattern = start == 0 ? "os" : "os@(" + llvm::join(before, " :: ") + " :: rest)";
-    refutable = start != 0;
-  }
-  std::string resultsPattern = "rs";
-  bool readsResult = llvm::any_of(guards, [](const Guard &g) {
-    return llvm::any_of(g.arguments, [](const GuardArgument &a) {
-      return std::holds_alternative<WordLoaded>(a);
-    });
-  });
-  if (readsResult) {
-    std::vector<std::string> resultNames;
-    for (int index = 0, e = op.getNumResults(); index < e; ++index) {
-      resultNames.push_back(parameter(op.getResultName(index), "result" + llvm::Twine(index)));
-      bound.results[static_cast<size_t>(index)] = resultNames.back();
-    }
-    resultsPattern = "rs@[" + llvm::join(resultNames, ", ") + "]";
-    refutable = true;
-  }
-  os << head << " " << operandsPattern << " " << resultsPattern << " =\n  MkGuarded (" << made
-     << ")\n    " << guardsText(op, guards, bound) << "\n";
-  if (refutable)
-    os << head << " os rs = MkGuarded (" << made << ") []\n";
-}
-
-// The primitives of the dialect's ops, in the order ODS declares them: the
-// sums of their constructors, what the Idris side reads of each (a pure
-// primitive's arity, what an IO primitive gives, a region primitive's
-// body's arity), and the op of each with the guards it takes.
-void emitPrimitives(std::vector<const llvm::Record *> defs,
-                    const std::map<const llvm::Record *, std::vector<Guard>> &guards,
-                    llvm::raw_ostream &os) {
-  llvm::sort(defs, llvm::LessRecordByID());
-  std::vector<PurePrimitive> pure;
-  std::vector<IOPrimitive> io;
-  std::vector<RegionPrimitive> regions;
-  for (const llvm::Record *def : defs) {
-    Operator op(def);
-    if (!op.getTrait("::idr::Primitive"))
-      continue;
-    std::visit(llvm::makeVisitor([&](const PurePrimitive &p) { pure.push_back(p); },
-                                 [&](const IOPrimitive &p) { io.push_back(p); },
-                                 [&](const RegionPrimitive &p) { regions.push_back(p); }),
-               primitiveOf(op));
-  }
-  auto constructors = [&](const auto &primitives) {
-    for (auto [index, primitive] : llvm::enumerate(primitives))
-      os << (index == 0 ? "  = " : "  | ") << primitive.op.constructor << "\n";
-    os << "\n";
-  };
-  // The op's name of each primitive of a sum, so that the Idris side spells
-  // no op's name itself.
-  auto opNames = [&](StringRef function, StringRef sum, const auto &primitives) {
-    os << "\n||| The name of the op of each " << sum << ".\n"
-       << "public export\n" << function << " : " << sum << " -> String\n";
-    for (const auto &primitive : primitives)
-      os << function << " " << primitive.op.constructor << " = "
-         << literal(Operator(primitive.op.def).getOperationName()) << "\n";
-  };
-  if (!pure.empty()) {
-    os << "||| The dialect's pure primitives (ops with Idr_Primitive, no region and no\n"
-       << "||| Idr_PerformsIO), one constructor each, named after the op's C++ class\n"
-       << "||| without `Op`.\n"
-       << "public export\ndata PurePrim\n";
-    constructors(pure);
-    os << "||| How many operands a pure primitive takes: its op's, one value each.\n"
-       << "public export\nprimArity : PurePrim -> Nat\n";
-    for (const PurePrimitive &primitive : pure)
-      os << "primArity " << primitive.op.constructor << " = " << primitive.arity << "\n";
-    opNames("pureName", "PurePrim", pure);
-    os << "\n||| The op of a pure primitive on its operands, with its result types (a\n"
-       << "||| primitive has no inherent attribute), and the guards it takes.\n"
-       << "export\npureOp : (p : PurePrim) -> Vect (primArity p) Value -> List MlirType -> "
-          "Guarded\n";
-    for (const PurePrimitive &primitive : pure)
-      emitClause("pureOp", primitive.op, guards.at(primitive.op.def), true, os);
-    os << "\n";
-  }
-  if (!io.empty()) {
-    os << "||| What an IO primitive gives besides the next world: nothing, or a value\n"
-       << "||| first and the world after it.\n"
-       << "public export\ndata IOResult = WorldOnly | ValueThenWorld\n\n"
-       << "||| The dialect's IO primitives (ops with Idr_Primitive and Idr_PerformsIO),\n"
-       << "||| one constructor each, named after the op's C++ class without `Op`. Such a\n"
-       << "||| primitive takes the world as its last operand and gives the next as its\n"
-       << "||| last result, except one without operands, which makes a world: it takes\n"
-       << "||| none and gives one.\n"
-       << "public export\ndata IOPrim\n";
-    constructors(io);
-    os << "||| What each IO primitive gives besides the world.\n"
-       << "public export\nioResult : IOPrim -> IOResult\n";
-    for (const IOPrimitive &primitive : io)
-      os << "ioResult " << primitive.op.constructor << " = "
-         << (primitive.result == IOResult::WorldOnly ? "WorldOnly" : "ValueThenWorld") << "\n";
-    opNames("ioName", "IOPrim", io);
-    os << "\n||| The op of an IO primitive on its operands, the world last, with its\n"
-       << "||| result types and the guards it takes. A list of operands of a length the\n"
-       << "||| op does not take gives the op without guards, which MLIR refuses where\n"
-       << "||| it reads the module.\n"
-       << "export\nioOp : IOPrim -> List Value -> List MlirType -> Guarded\n";
-    for (const IOPrimitive &primitive : io)
-      emitClause("ioOp", primitive.op, guards.at(primitive.op.def), false, os);
-    os << "\n";
-  }
-  if (!regions.empty()) {
-    os << "||| The dialect's region primitives.\npublic export\ndata IdrRegionPrim\n";
-    constructors(regions);
-    os << "||| The block arguments a region primitive's body takes.\n"
-       << "public export\nregionArity : IdrRegionPrim -> Nat\n";
-    for (const RegionPrimitive &primitive : regions)
-      os << "regionArity " << primitive.op.constructor << " = " << primitive.bodyArguments
-         << "\n";
-    os << "\n||| The operation of a region primitive on operands and its body, with\n"
-       << "||| its result types.\n"
-       << "export\nregionOp : IdrRegionPrim -> List Value -> Region -> List MlirType -> Op\n";
-    for (const RegionPrimitive &primitive : regions)
-      os << "regionOp " << primitive.op.constructor << " operands body results = MkOp "
-         << literal(Operator(primitive.op.def).getOperationName())
-         << " operands [] [body] [] results\n";
-    os << "\n";
-  }
+  os << " =\n  " << made << "\n\n";
 }
 
 //===----------------------------------------------------------------------===//
@@ -1769,21 +867,6 @@ std::variant<Kind, NotEnum, Omitted> enumKind(Enums &enums, const AttrOrTypePara
   return Kind{"List " + name, lower + "Spellings {0}"};
 }
 
-// The Idris kind of a parameter the dialect defines once for every
-// attribute that holds one, keyed on that definition: a constructor's tag
-// (Idr_TagParameter), which the Idris side holds as the number it writes,
-// and a list written in brackets (Idr_SquareListParameter).
-std::optional<Kind> definedKind(const AttrOrTypeParameter &param) {
-  const auto *def = llvm::dyn_cast<llvm::DefInit>(param.getDef());
-  if (def && def->getDef()->getName() == "Idr_TagParameter")
-    return Kind{"Nat", "show {0}"};
-  // A list its parameter writes in brackets (Idr_SquareListParameter).
-  if (def && def->getDef()->isSubClassOf("Idr_SquareListParameter"))
-    if (std::optional<Kind> list = valueKind(param.getCppType()))
-      return Kind{list->type, "fastConcat [\"[\", " + list->text + ", \"]\"]"};
-  return std::nullopt;
-}
-
 // The field of a parameter of the kind `kind`, an optional one without a
 // default of its own defaulting to nothing.
 Field fieldWith(const AttrOrTypeParameter &param, size_t index, const Kind &kind) {
@@ -1806,9 +889,7 @@ Written<Field> fieldOf(Enums &enums, const AttrOrTypeParameter &param, size_t in
       llvm::makeVisitor(
           [&](const Kind &kind) -> Written<Field> { return fieldWith(param, index, kind); },
           [&](NotEnum) -> Written<Field> {
-            std::optional<Kind> kind = definedKind(param);
-            if (!kind)
-              kind = valueKind(param.getCppType());
+            std::optional<Kind> kind = valueKind(param.getCppType());
             if (!kind)
               return Omitted{llvm::formatv("its parameter `{0}` is the C++ `{1}`",
                                            param.getName(), param.getCppType())
@@ -2096,150 +1177,32 @@ StringRef lastName(StringRef module) {
   return dot == StringRef::npos ? module : module.drop_front(dot + 1);
 }
 
-// Whether `record` is an identified type: a TypeDef with MutableType, a
-// name whose body is set once.
-bool isIdentified(const llvm::Record &record) {
-  return llvm::any_of(record.getValueAsListOfDefs("traits"),
-                      [](const llvm::Record *trait) { return trait->getName() == "MutableType"; });
-}
-
-// An identified type, as the Idris side writes it: by its name alone,
-// `<"name">`, which only a content key reads. Its body is written once, in
-// the module's table of data types, and `preamble`, before the sum of types,
-// holds the table's records: a body's kind (the enum its ODS names as
-// `bodyKinds`), its constructors in tag order and its instance, and each
-// constructor's name, fields and role (the enum its ODS names as
-// `ctorRoles`). The frontend's table never holds a label, the one role with
-// a payload (its function, and whether every force of it runs it), so a
-// constructor of the table holds none. No type holds a body.
-void identifiedOf(Enums &enums, const AttrOrTypeDef &def, StringRef sum, Def &out,
-                  std::string &preamble) {
-  const llvm::Record *kinds = def.getDef()->getValueAsDef("bodyKinds");
-  useEnum(enums, kinds);
-  std::string kind = enumName(EnumInfo(kinds));
-  const llvm::Record *roles = def.getDef()->getValueAsDef("ctorRoles");
-  useEnum(enums, roles);
-  std::string role = enumName(EnumInfo(roles));
-  std::string dialect = def.getDialect().getName().str();
-  std::string module = lastName(moduleName).str();
-  std::string ctor = module + "Ctor", body = module + "Sum";
-  std::string mnemonic = def.getMnemonic() ? def.getMnemonic()->str() : std::string();
-  std::string spelling = "!" + dialect + "." + mnemonic;
-  llvm::raw_string_ostream pre(preamble);
-  pre << "||| One constructor of a data type's body, as the program's table of data\n"
-      << "||| types holds it: its name, its fields' types, and the part it plays in\n"
-      << "||| its sum, never a label's, which the frontend writes none of.\n"
-      << "public export\nrecord " << ctor << " ty where\n  constructor Mk" << ctor << "\n"
-      << "  name : String\n  fields : List ty\n  role : " << role << "\n\n"
-      << "||| A data type's body, as the program's table of data types holds it:\n"
-      << "||| what sum it is, its constructors in tag order, and the Idris instance\n"
-      << "||| it is of, an `#idr.instance` attribute, when it is of one.\n"
-      << "public export\nrecord " << body << " ty at where\n  constructor Mk" << body << "\n"
-      << "  kind : " << kind << "\n  ctors : List (" << ctor << " ty)\n"
-      << "  instanceOf : Maybe at\n\n";
-  std::string constructor =
-      constructorName(def.getCppClassName().str(), "the type " + def.getCppClassName());
-  llvm::raw_string_ostream decl(out.constructor);
-  decl << "  ||| `" << spelling << "`" << summary(def.getSummary())
-       << "; written by its name, its body in the module's table of data types\n  "
-       << constructor << " : (name : String) -> " << sum << " ty\n";
-  out.mnemonicName = mnemonic;
-  out.mnemonic = llvm::formatv("({0} _) = {1}", constructor, literal(mnemonic)).str();
-  out.text = llvm::formatv("({0} name) = fastConcat [{1}, utf8 name, \">\"]", constructor,
-                           literal(spelling + "<"))
-                 .str();
-}
-
-// The program's table of data types, as the Idris side writes it (the
-// attribute marked `holdsBodies`): each member its name and its body, the
-// records identifiedOf declares, in the dialect's own syntax
-// (lib/IR/DataBody.cpp), which the samples' round trip reads back through
-// the C++ parser. `preamble` gets the printers of a constructor, a body and
-// the table, after the records; `ctorRole` is the roles' enum, whose plain
-// case writes nothing. The frontend writes no label, so a constructor's
-// role is its case alone.
-void tableOf(const AttrOrTypeDef &def, StringRef sum, StringRef ctorRole, Def &out,
-             std::string &preamble) {
-  std::string module = lastName(moduleName).str();
-  std::string ctor = module + "Ctor", body = module + "Sum";
-  std::string lower = camel(module, false);
-  std::string spelling = "#" + def.getDialect().getName().str() + "." + def.getMnemonic()->str();
-  llvm::raw_string_ostream pre(preamble);
-  pre << "||| A constructor of a body as the program's table writes it: its name, its\n"
-      << "||| fields' types and, but for a plain one, its role.\n"
-      << "export\n" << lower << "CtorText : (t : ty -> String) -> " << ctor << " ty -> String\n"
-      << lower << "CtorText t (Mk" << ctor << " name fields role) =\n"
-      << "  fastConcat [symbol name, \"(\", commaSeparated (map t fields), \")\", roleText role]\n"
-      << "  where\n    roleText : " << ctorRole << " -> String\n"
-      << "    roleText " << ctorRole << ".Plain = \"\"\n"
-      << "    roleText r = \" \" ++ show r\n\n"
-      << "||| A body as the program's table writes it: its kind of sum, its\n"
-      << "||| constructors and its instance.\n"
-      << "export\n" << lower << "SumText : (t : ty -> String) -> (a : at -> String) -> " << body
-      << " ty at -> String\n"
-      << lower << "SumText t a (Mk" << body << " kind ctors instanceOf) =\n"
-      << "  fastConcat [show kind, \" [\", commaSeparated (map (" << lower
-      << "CtorText t) ctors), \"]\",\n"
-      << "              maybe \"\" (\\i => \" instance \" ++ a i) instanceOf]\n\n"
-      << "||| The program's table of data types, `" << spelling << "`: each member its\n"
-      << "||| name and its body, one to a line.\n"
-      << "export\n" << lower << "TableText : (t : ty -> String) -> (a : at -> String) -> List (String, "
-      << body << " ty at) -> String\n"
-      << lower << "TableText t a [] = \"" << spelling << "<>\"\n"
-      << lower << "TableText t a members =\n"
-      << "  fastConcat [\"" << spelling << "<\\n  \", separated \",\\n  \" (map (\\(name, s) => "
-      << "fastConcat [utf8 name, \" = \", " << lower << "SumText t a s]) members), \"\\n>\"]\n\n";
-  std::string constructor =
-      constructorName(def.getCppClassName().str(), "the attribute " + def.getCppClassName());
-  llvm::raw_string_ostream decl(out.constructor);
-  decl << "  ||| `" << spelling << "`" << summary(def.getSummary()) << "\n  " << constructor
-       << " : (members : List (String, " << body << " ty at)) -> " << sum << " ty at\n";
-  out.mnemonicName = def.getMnemonic()->str();
-  out.mnemonic = llvm::formatv("({0} _) = {1}", constructor, literal(out.mnemonicName)).str();
-  out.text = llvm::formatv("({0} members) = {1}TableText t a members", constructor, lower).str();
-}
-
-//===----------------------------------------------------------------------===//
-// Discardable attributes
-//===----------------------------------------------------------------------===//
-
-void emitDiscardable(const mlir::tblgen::Dialect &dialect, llvm::raw_ostream &os) {
-  const llvm::DagInit *attrs = dialect.getDiscardableAttributes();
-  if (!attrs)
-    return;
-  for (unsigned i = 0, e = attrs->getNumArgs(); i < e; ++i) {
-    StringRef odsName = attrs->getArgNameStr(i);
-    std::string type = attrs->getArg(i)->getAsUnquotedString();
-    std::string name = camel(odsName, false) + "Discardable";
-    std::string key = literal((dialect.getName() + "." + odsName).str());
-    os << "||| The discardable attribute `" << dialect.getName() << "." << odsName << "`.\n";
-    os << "export\n" << name;
-    if (type == "::mlir::UnitAttr")
-      os << " : NamedAttr\n" << name << " = (" << key << ", UnitAttr)\n\n";
-    else if (type == "::mlir::StringAttr")
-      os << " : String -> NamedAttr\n" << name << " s = (" << key << ", StringAttr s)\n\n";
-    else
-      os << " : MlirAttr -> NamedAttr\n" << name << " a = (" << key << ", a)\n\n";
-  }
-}
-
 //===----------------------------------------------------------------------===//
 // The Idris modules
 //===----------------------------------------------------------------------===//
 
-// What both modules of a dialect are written from, read once: its types and
-// attributes, its ops' builders, primitives and the types its guards are
-// stated in, and, found on the way, the enums all of them take.
+// What both modules of an upstream dialect are written from, read once:
+// its types and attributes, the builders of the ops the specification
+// admits and the frontend writes, and, found on the way, the enums all of
+// them take.
 struct Vocabulary {
   std::optional<mlir::tblgen::Dialect> dialect;
   std::vector<Def> types, attrs;
   std::vector<std::string> omitted;
-  // What goes before the sum of types: the records of the table that holds
-  // an identified type's body.
-  std::string typesPreamble;
-  std::string ops, primitives, guards;
+  std::string ops;
   Enums enums;
 };
+
+// The upstream ops the specification admits, each by upstream's own record
+// (Generated/IdrAdmitted<D>.td's IdrAdmitted records), in their order: the
+// set is the specification's, the ops' facts upstream's, so nothing of
+// upstream is restated and a wrong name is TableGen's own error.
+std::vector<const llvm::Record *> admittedOps(const llvm::RecordKeeper &records) {
+  std::vector<const llvm::Record *> ops;
+  for (const llvm::Record *admitted : records.getAllDerivedDefinitionsIfDefined("IdrAdmitted"))
+    ops.push_back(admitted);
+  return ops;
+}
 
 Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
   if (dialectName.empty() || moduleName.empty())
@@ -2251,9 +1214,6 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
   if (!v.dialect)
     llvm::PrintFatalError("no dialect " + dialectName + " in the records");
   StringRef module = lastName(moduleName);
-  // The roles' enum of the identified type, which the table's printer names
-  // (the types come first).
-  std::string ctorRole;
   for (StringRef kind : {"TypeDef", "AttrDef"})
     for (const llvm::Record *record : records.getAllDerivedDefinitionsIfDefined(kind)) {
       AttrOrTypeDef def(record);
@@ -2261,62 +1221,17 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
         continue;
       bool isType = kind == "TypeDef";
       std::string what = (isType ? "type " : "attribute ") + def.getCppClassName().str();
-      // A def that says the Idris side has none of it (`bit idris = 0`, as
-      // the specializer's keys, which no op holds) is the passes' alone.
-      if (record->getValue("idris") && !record->getValueAsBit("idris")) {
-        v.omitted.push_back(what + ": the passes' alone (idris = 0)");
-        continue;
-      }
-      if (isType && isIdentified(*record)) {
-        Def written;
-        identifiedOf(v.enums, def, (module + "Type").str(), written, v.typesPreamble);
-        v.types.push_back(std::move(written));
-        ctorRole = enumName(EnumInfo(record->getValueAsDef("ctorRoles")));
-        continue;
-      }
-      if (!isType && record->getValue("holdsBodies")) {
-        Def written;
-        tableOf(def, (module + "Attr").str(), ctorRole, written, v.typesPreamble);
-        v.attrs.push_back(std::move(written));
-        continue;
-      }
       std::visit(llvm::makeVisitor(
                      [&](Def written) { (isType ? v.types : v.attrs).push_back(std::move(written)); },
                      [&](const Omitted &omitted) { v.omitted.push_back(what + ": " + omitted.why); }),
                  defOf(v.enums, def, isType, (module + (isType ? "Type" : "Attr")).str()));
     }
-  std::vector<const llvm::Record *> dialectOps;
-  std::vector<std::pair<std::string, const llvm::Record *>> byName;
-  for (const llvm::Record *def : records.getAllDerivedDefinitions("Op")) {
-    Operator op(def);
-    if (op.getDialectName() != dialectName)
+  llvm::raw_string_ostream opsOs(v.ops);
+  for (const llvm::Record *admitted : admittedOps(records)) {
+    Operator op(admitted->getValueAsDef("op"));
+    if (op.getDialectName() != dialectName || admitted->getValueAsInt("frontendWrites") == 0)
       continue;
-    dialectOps.push_back(def);
-    byName.emplace_back(op.getOperationName(), def);
-  }
-  llvm::sort(byName);
-  // Each op's guards, read once from its marks, which its builder and, for
-  // a primitive, its clause state; the guard ops the marks name are the
-  // dialect's, which a dialect with a partial op or a primitive has, and
-  // the types the guards are stated in are written before the builders.
-  std::map<const llvm::Record *, std::vector<Guard>> guards;
-  for (const llvm::Record *def : dialectOps)
-    guards[def];
-  bool guarded = llvm::any_of(dialectOps, [](const llvm::Record *def) {
-    Operator op(def);
-    return op.getTrait("::idr::Primitive") || !traitsOfClass(op, "Idr_Guarded").empty();
-  });
-  if (guarded) {
-    GuardOps guardOps = guardOpsOf(records, v.dialect->getCppNamespace());
-    for (const llvm::Record *def : dialectOps)
-      guards[def] = readGuards(Operator(def), guardOps);
-    v.guards = guardTypes(guardOps);
-  }
-  {
-    llvm::raw_string_ostream opsOs(v.ops), primitivesOs(v.primitives);
-    for (const auto &[name, def] : byName)
-      emitOp(v.enums, Operator(def), guards.at(def), opsOs);
-    emitPrimitives(dialectOps, guards, primitivesOs);
+    emitOp(v.enums, op, opsOs);
   }
   addCaseFields(v.enums, enumsOfCases(records));
   return v;
@@ -2371,7 +1286,6 @@ bool emitIdrisSyntax(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
     emitEnum(used, enumsOs);
   for (const auto &[name, used] : v.enums)
     emitCaseFields(used, enumsOs);
-  typesOs << v.typesPreamble;
   emitSum(v.types, true, typesOs);
   emitSum(v.attrs, false, attrsOs);
 
@@ -2397,20 +1311,13 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
   if (syntaxModuleName.empty())
     llvm::PrintFatalError("-gen-idris-dialect needs -idris-syntax-module");
   Vocabulary v = read(records, "gen-idris-dialect");
-  std::string discardables;
-  llvm::raw_string_ostream discardablesOs(discardables);
-  emitDiscardable(*v.dialect, discardablesOs);
-
   writeLicense(os);
-  os << "||| The " << dialectName << " dialect, as the Idris side writes it. Generated by\n"
-     << "||| idris-mlir-tblgen -gen-idris-dialect from the dialect's ODS; `make build`\n"
-     << "||| writes it (tools/dialects.sh). Do not edit.\n"
+  os << "||| The " << dialectName << " dialect's ops the frontend writes, as the Idris side\n"
+     << "||| builds them: one builder per op the specification admits. Generated by\n"
+     << "||| idris-mlir-tblgen -gen-idris-dialect from upstream's ODS. Do not edit.\n"
      << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR\nimport " << syntaxModuleName
-     << "\n\nimport Data.List\nimport Data.Vect\n\n%default total\n\n";
-  section(os, "Discardable attributes", discardables);
-  section(os, "Guards", v.guards);
+     << "\n\nimport Data.List\n\n%default total\n\n";
   section(os, "Ops", v.ops);
-  section(os, "Primitives", v.primitives);
   return false;
 }
 
@@ -2443,7 +1350,7 @@ struct Atom {
 // The atoms, by the parser template each is read by. A dialect's attribute
 // or type as a member (a builtin StringAttr in a NamedAttribute) is read as
 // any attribute or type is. An attribute is its entry's number, and an
-// optional one that or none (Idr_OptionalAttr). A type is the parts the
+// optional one that or none. A type is the parts the
 // writer gives for it: the number of its entry, or a field of what holds
 // it.
 std::optional<Atom> atomOf(StringRef parser) {
@@ -2474,7 +1381,7 @@ struct Member {
 };
 
 // The member `def` declares, or why it cannot be read. An enum is a member
-// that names its enum (Idr_Enum's `enumName`): the syntax module's, whose
+// that names its enum (an `enumName` field): the syntax module's, whose
 // value of a case is what the reader reads.
 Written<Member> memberOf(const llvm::Record *def, StringRef name) {
   if (def->getValue("enumName")) {
@@ -2747,474 +1654,24 @@ bool emitIdrisBytecode(const llvm::RecordKeeper &records, llvm::raw_ostream &os)
 }
 
 //===----------------------------------------------------------------------===//
-// The runtime's C functions
+// The admitted upstream ops' classes
 //===----------------------------------------------------------------------===//
 
-// Every C function of the runtime idr-lower calls is declared in ODS: an
-// op's by its mark (Idr_Runtime), and each the lowering calls by itself
-// (the cell, array, count, string-building, crash and start entries) by a
-// record of IdrRuntime.td (Idr_RuntimeFunction). An op's function takes the
-// op's operands in order and gives its result, each as the C ABI holds a
-// value of its type: the world is no C value at all, a buffer its cell. An
-// integer operand of any width is extended to 64 bits as its constraint's
-// word says (Signed, Unsigned). An integer result of any width is the C
-// function's 64 bits, which the op wraps to its width; a comparison's (an i1
-// with a `predicate`) is the C function's three-way order, which the op
-// compares with 0. The op's Idr_NoReturn says the function does not return.
-// A record of IdrRuntime.td spells each C type and its kind itself.
-
-// A parameter of a C function: its kind, its name, and its C type, a
-// declarator with `{0}` where the name goes.
-struct CParameter {
-  OperandKind kind;
-  std::string name;
-  std::string pattern;
-};
-
-// A C function of the runtime: its symbol, its parameters, its result's
-// kind and C type, and what idris_rt_ops.h says of it.
-struct RuntimeFunction {
-  std::string symbol;
-  std::vector<CParameter> params;
-  ResultKind result;
-  std::string resultPattern;
-  std::string comment;
-};
-
-// The function an op names, in the table under the op's C++ class.
-struct OpFunction {
-  RuntimeFunction function;
-  std::string opClass;
-};
-
-// A function the lowering calls by itself, in the table as
-// `helper::<name>`: its symbol without `idris_rt_`, camel-cased.
-struct Helper {
-  RuntimeFunction function;
-  std::string name;
-};
-
-// The C function `op` names in its mark. An op gives the function nothing
-// but its operands: an attribute but the `predicate` its order is compared
-// by, or a property, is a fault of the op. An op has one function, so each
-// operand admits one kind: a type, the op, fixes the function.
-OpFunction opFunctionOf(const Operator &op, const llvm::Record &mark) {
-  std::string operation = op.getOperationName();
-  auto fail = [&](const llvm::Twine &why) { llvm::PrintFatalError(op.getLoc(), operation + why); };
-  for (int index = 0, e = op.getNumArgs(); index < e; ++index) {
-    mlir::tblgen::Argument arg = op.getArg(index);
-    if (llvm::isa<NamedTypeConstraint *>(arg))
-      continue;
-    if (const auto *property = llvm::dyn_cast_if_present<NamedProperty *>(arg))
-      fail(" has the property `" + property->name + "`, which its C function cannot take");
-    const auto *attribute = llvm::cast<NamedAttribute *>(arg);
-    if (attribute->attr.isDerivedAttr() || attribute->name == "predicate")
-      continue;
-    fail(" has the attribute `" + attribute->name + "`, which its C function cannot take");
+// The C++ class of every upstream op the specification admits, by the name
+// of its record: `::idr::admitted::Arith_AddIOp` is `::mlir::arith::AddIOp`.
+// Stage legality, the e-graph's kinds and every per-op table name an
+// upstream op through this, so its class is read from its def and the
+// specification never restates one.
+bool emitAdmittedClasses(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
+  os << "// The classes of the upstream ops the dialect admits, by their records'\n"
+     << "// names: generated by idris-mlir-tblgen -gen-admitted-classes from\n"
+     << "// upstream's ODS and the specification's admitted records. Do not edit.\n\n"
+     << "namespace idr::admitted {\n";
+  for (const llvm::Record *admitted : admittedOps(records)) {
+    const llvm::Record *def = admitted->getValueAsDef("op");
+    os << "using " << def->getName() << " = " << Operator(def).getQualCppClassName() << ";\n";
   }
-  std::vector<CParameter> params;
-  for (int index = 0, e = op.getNumOperands(); index < e; ++index) {
-    const NamedTypeConstraint &operand = op.getOperand(index);
-    std::string name =
-        operand.name.empty() ? "operand" + std::to_string(index) : operand.name.str();
-    if (arity(operand) != '1')
-      fail("'s operand `" + name + "` varies in length, and a C function's parameters do not");
-    std::vector<OperandKind> kinds =
-        operandKinds(operand.constraint.getDef(), op, "operand `" + name + "`");
-    if (kinds.size() != 1)
-      fail("'s operand `" + name + "` admits more than one kind, and one C function takes one");
-    params.push_back({kinds.front(), name, rowOf(kinds.front()).pattern.str()});
-  }
-  ResultKind result = resultKind(op);
-  std::string about = doc(op.getSummary());
-  return {{mark.getValueAsString("symbol").str(), std::move(params), result,
-           rowOf(result).pattern.str(), operation + (about.empty() ? "" : ": " + about)},
-          op.getQualCppClassName()};
-}
-
-// A function the lowering calls by itself, from its record: each parameter
-// and the result spelled by its C type (Idr_CType), whose kind is a case of
-// its position's enum.
-Helper helperOf(const llvm::Record &def) {
-  StringRef symbol = def.getValueAsString("symbol");
-  StringRef name = symbol;
-  if (!name.consume_front("idris_rt_"))
-    llvm::PrintFatalError(&def, symbol + " is no name of the runtime's, which begin `idris_rt_`");
-  std::vector<CParameter> params;
-  const llvm::DagInit *dag = def.getValueAsDag("params");
-  for (unsigned i = 0, e = dag->getNumArgs(); i < e; ++i) {
-    const auto *type = llvm::dyn_cast<llvm::DefInit>(dag->getArg(i));
-    if (!type || !type->getDef()->isSubClassOf("Idr_CType"))
-      llvm::PrintFatalError(&def, "its parameter `" + dag->getArgNameStr(i) + "` is no Idr_CType");
-    params.push_back({kindSpelled(operandRows, *type->getDef(), "abiKind", "kind of a parameter"),
-                      dag->getArgNameStr(i).str(),
-                      type->getDef()->getValueAsString("cType").str()});
-  }
-  const llvm::Record &result = *def.getValueAsDef("result");
-  return {{symbol.str(), std::move(params),
-           kindSpelled(resultRows, result, "abiKind", "kind of a result"),
-           result.getValueAsString("cType").str(), doc(def.getValueAsString("summary"))},
-          camel(name, false)};
-}
-
-// Every C function idr-lower calls, read from IdrRuntime.td, which includes
-// the ops: each op's and each of the lowering's own, ops by their class and
-// the others by their name. A symbol two of them declare is a fault.
-struct RuntimeAbi {
-  std::vector<OpFunction> ops;
-  std::vector<Helper> helpers;
-};
-
-RuntimeAbi runtimeAbi(const llvm::RecordKeeper &records) {
-  RuntimeAbi abi;
-  std::map<std::string, std::string> declaredBy;
-  auto declare = [&](const RuntimeFunction &f, const std::string &by) {
-    auto [known, inserted] = declaredBy.emplace(f.symbol, by);
-    if (!inserted)
-      llvm::PrintFatalError("both " + known->second + " and " + by + " declare " + f.symbol);
-  };
-  for (const llvm::Record *def : records.getAllDerivedDefinitions("Op")) {
-    Operator op(def);
-    if (const llvm::Record *mark = markOf(op, "Idr_Runtime")) {
-      abi.ops.push_back(opFunctionOf(op, *mark));
-      declare(abi.ops.back().function, op.getOperationName());
-    }
-  }
-  for (const llvm::Record *def : records.getAllDerivedDefinitions("Idr_RuntimeFunction")) {
-    abi.helpers.push_back(helperOf(*def));
-    declare(abi.helpers.back().function, def->getName().str());
-  }
-  llvm::sort(abi.ops,
-             [](const OpFunction &a, const OpFunction &b) { return a.opClass < b.opClass; });
-  llvm::sort(abi.helpers, [](const Helper &a, const Helper &b) { return a.name < b.name; });
-  return abi;
-}
-
-// The C declaration of a function: its result's C type around the symbol
-// and the parameters, by one rule.
-std::string cDeclaration(const RuntimeFunction &f) {
-  std::vector<std::string> params;
-  for (const CParameter &p : f.params)
-    // The world, the one kind with no C value, has no parameter.
-    if (p.kind != OperandKind::World)
-      params.push_back(llvm::formatv(p.pattern.c_str(), p.name).str());
-  // C reads an empty list as parameters not said, so none is `void`.
-  std::string declarator =
-      f.symbol + "(" + (params.empty() ? std::string("void") : llvm::join(params, ", ")) + ")";
-  return llvm::formatv(f.resultPattern.c_str(), declarator).str() + ";";
-}
-
-bool emitRuntimeAbiDecls(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  RuntimeAbi abi = runtimeAbi(records);
-  std::vector<const RuntimeFunction *> functions;
-  for (const OpFunction &f : abi.ops)
-    functions.push_back(&f.function);
-  for (const Helper &h : abi.helpers)
-    functions.push_back(&h.function);
-  llvm::sort(functions, [](const RuntimeFunction *a, const RuntimeFunction *b) {
-    return a->symbol < b->symbol;
-  });
-  os << "/* The runtime's functions idr-lower calls, the ops' (Idr_Runtime) and its\n"
-     << " * own (IdrRuntime.td), as C declares them: generated by idris-mlir-tblgen\n"
-     << " * -gen-runtime-abi-decls from the ODS, so that a definition that does not\n"
-     << " * match its record fails to compile. idris_rt.h includes it, inside its C\n"
-     << " * linkage and after the types it names; each function's meaning is its\n"
-     << " * definition's in runtime/, documented beside it. Do not edit. */\n"
-     << "#ifndef IDRIS_RT_OPS_H\n#define IDRIS_RT_OPS_H\n\n";
-  for (const RuntimeFunction *f : functions)
-    os << "/* " << f->comment << " */\n" << cDeclaration(*f) << "\n";
-  os << "\n#endif /* IDRIS_RT_OPS_H */\n";
-  return false;
-}
-
-// The kinds of a function's parameters, as the table's initializer.
-std::string kindList(const RuntimeFunction &f) {
-  std::vector<std::string> kinds;
-  for (const CParameter &p : f.params)
-    kinds.push_back("OperandKind::" + rowOf(p.kind).spelling.str());
-  return llvm::join(kinds, ", ");
-}
-
-// A function's entry of the table, after its parameters' kinds: a C++
-// array of none is no array, so a function without parameters has an empty
-// span.
-std::string entryOf(const RuntimeFunction &f, StringRef operands) {
-  return llvm::formatv("{{\"{0}\", {1}, ResultKind::{2}}", f.symbol,
-                       f.params.empty() ? StringRef("{}") : operands,
-                       rowOf(f.result).spelling)
-      .str();
-}
-
-bool emitRuntimeAbiDefs(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  RuntimeAbi abi = runtimeAbi(records);
-  os << "// The runtime's functions idr-lower calls, as the lowering and the folders\n"
-     << "// read them: generated by idris-mlir-tblgen -gen-runtime-abi-defs from the\n"
-     << "// ODS. Each function is its symbol, how it takes each of its op's operands\n"
-     << "// or each parameter, and how it gives its result; an op's is its Abi<Op>,\n"
-     << "// with the C function itself, typed as idris_rt_ops.h declares it, and each\n"
-     << "// function the lowering calls by itself is a constant of `helper`. Do not\n"
-     << "// edit.\n\n"
-     << "#ifndef IDR_IR_IDRRUNTIMEABI_INC\n#define IDR_IR_IDRRUNTIMEABI_INC\n\n"
-     << "#include \"idr/IR/IdrDialect.h\"\n\n#include \"idris_rt.h\"\n\n"
-     << "#include <span>\n#include <string_view>\n\n"
-     << "namespace idr::runtime {\n\n";
-  auto enumeration = [&](StringRef name, StringRef what, const auto &rows) {
-    os << "// " << what << "\nenum class " << name << " : unsigned char {\n";
-    for (const auto &row : rows)
-      os << "  // " << row.doc << ".\n  " << row.spelling << ",\n";
-    os << "};\n\n";
-  };
-  enumeration("OperandKind", "How a runtime function takes an operand of its op, or a parameter.",
-              operandRows);
-  enumeration("ResultKind", "How a runtime function gives its result.", resultRows);
-  os << "// One C function of the runtime: its symbol, how it takes each operand of\n"
-     << "// its op or each parameter, in order, and how it gives its result.\n"
-     << "struct Function {\n  std::string_view symbol;\n  std::span<const OperandKind> operands;\n"
-     << "  ResultKind result;\n};\n\n"
-     << "// The C function an op calls, `entry`, and the function itself, typed as\n"
-     << "// idris_rt_ops.h declares it. Not defined for an op that calls none.\n"
-     << "template <typename OpT>\nstruct Abi;\n\n";
-  for (const OpFunction &f : abi.ops) {
-    os << "template <>\nstruct Abi<" << f.opClass << "> {\n";
-    if (!f.function.params.empty())
-      os << "  static constexpr OperandKind operands[] = {" << kindList(f.function) << "};\n";
-    os << "  static constexpr Function entry" << entryOf(f.function, "operands") << ";\n"
-       << "  static constexpr auto *function = &" << f.function.symbol << ";\n};\n\n";
-  }
-  os << "// The functions the lowering calls by itself (IdrRuntime.td).\nnamespace helper {\n\n";
-  for (const Helper &h : abi.helpers) {
-    std::string operands = h.name + "Operands";
-    os << "// " << h.function.comment << ".\n";
-    if (!h.function.params.empty())
-      os << "inline constexpr OperandKind " << operands << "[] = {" << kindList(h.function)
-         << "};\n";
-    os << "inline constexpr Function " << h.name << entryOf(h.function, operands) << ";\n\n";
-  }
-  os << "} // namespace helper\n\n"
-     << "} // namespace idr::runtime\n\n#endif // IDR_IR_IDRRUNTIMEABI_INC\n";
-  return false;
-}
-
-//===----------------------------------------------------------------------===//
-// The guards of the C++ side
-//===----------------------------------------------------------------------===//
-
-// The guards of each op that lists Idr_GuardedOp, as ::idr::Guarded<Op>:
-// one Guard per mark, in ODS order, of the guard op and the op's operand
-// indices it reads, the guarded one first, which the trait ::idr::GuardedOp
-// expands at compile time for the op's folder and its speculation. The
-// indices are the op's operands', so such an op has one value per operand
-// group, and its guards read only its own operands as they are (an i64
-// count included): a count of bytes had from a value, which the Idris side
-// computes, is no operand index, and an op with one does not list the trait.
-bool emitGuards(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  std::vector<std::pair<std::string, const llvm::Record *>> guarded;
-  for (const llvm::Record *def : records.getAllDerivedDefinitions("Op")) {
-    Operator op(def);
-    if (op.getTrait("::idr::GuardedOp"))
-      guarded.emplace_back(op.getQualCppClassName(), def);
-  }
-  llvm::sort(guarded, [](const auto &a, const auto &b) { return a.first < b.first; });
-  os << "// The guards of each op that lists Idr_GuardedOp: one Guard per mark\n"
-     << "// (Idr_Guarded), in ODS order, of the guard op and the op's operand indices\n"
-     << "// it reads, the guarded one first. Generated by idris-mlir-tblgen\n"
-     << "// -gen-guards from the ODS; IdrDialect.h includes it after the op classes,\n"
-     << "// and the trait GuardedOp reads it. Do not edit.\n\n"
-     << "#ifndef IDR_IR_IDRGUARDS_INC\n#define IDR_IR_IDRGUARDS_INC\n\n#include <tuple>\n\n"
-     << "namespace idr {\n\n";
-  std::optional<GuardOps> guardOps;
-  for (const auto &[opClass, def] : guarded) {
-    Operator op(def);
-    std::string operationName = op.getOperationName();
-    for (int index = 0, e = op.getNumOperands(); index < e; ++index)
-      if (arity(op.getOperand(index)) != '1')
-        llvm::PrintFatalError(op.getLoc(), operationName +
-                                               " lists Idr_GuardedOp and has a group of operands "
-                                               "that varies in length: a guard names operands "
-                                               "by index");
-    if (!guardOps)
-      guardOps.emplace(guardOpsOf(records, op.getDialect().getCppNamespace()));
-    std::vector<std::string> entries;
-    for (const Guard &g : readGuards(op, *guardOps)) {
-      std::vector<std::string> indices{std::to_string(g.guarded)};
-      for (const GuardArgument &argument : g.arguments)
-        indices.push_back(std::to_string(std::visit(
-            llvm::makeVisitor([](const AsIs &a) { return a.group; },
-                              [](const CountOf &a) { return a.group; },
-                              [&](const auto &) -> int {
-                                llvm::PrintFatalError(
-                                    op.getLoc(), operationName +
-                                                     " lists Idr_GuardedOp and has a guard on a "
-                                                     "count of bytes had from a value, which is "
-                                                     "no operand");
-                              }),
-            argument)));
-      entries.push_back("Guard<" + Operator(g.guardOp).getQualCppClassName() + ", " +
-                        llvm::join(indices, ", ") + ">");
-    }
-    os << "template <>\nstruct Guarded<" << opClass << "> {\n  using Guards = std::tuple<"
-       << llvm::join(entries, ", ") << ">;\n};\n\n";
-  }
-  os << "} // namespace idr\n\n#endif // IDR_IR_IDRGUARDS_INC\n";
-  return false;
-}
-
-//===----------------------------------------------------------------------===//
-// Big ops and their word ops
-//===----------------------------------------------------------------------===//
-
-// A big op whose value, where every big it takes and gives fits a word, is
-// a word op's names it (Idr_WordOp, its record's own class): the word op's
-// C++ class, applied to the words of the op's operands and, for a unary op,
-// to a constant as its second operand; or none, where the word is the value
-// itself.
-bool emitBigToWord(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  std::vector<std::pair<std::string, const llvm::Record *>> marked;
-  for (const llvm::Record *def : records.getAllDerivedDefinitions("Op"))
-    if (def->isSubClassOf("Idr_WordOp"))
-      marked.emplace_back(Operator(def).getQualCppClassName(), def);
-  llvm::sort(marked, [](const auto &a, const auto &b) { return a.first < b.first; });
-  os << "// The word op each big op names (Idr_WordOp): generated by\n"
-     << "// idris-mlir-tblgen -gen-big-to-word from the ODS. With GET_BIG_TO_WORD_LIST\n"
-     << "// defined, the big ops alone, separated by commas, for a template or an isa\n"
-     << "// over all of them; else the table. Do not edit.\n\n"
-     << "#ifdef GET_BIG_TO_WORD_LIST\n#undef GET_BIG_TO_WORD_LIST\n\n";
-  llvm::interleave(
-      marked, [&](const auto &entry) { os << entry.first; }, [&] { os << ",\n"; });
-  os << "\n\n#else\n#ifndef IDR_IR_IDRBIGTOWORD_INC\n#define IDR_IR_IDRBIGTOWORD_INC\n\n"
-     << "#include <cstdint>\n\nnamespace idr {\n\n"
-     << "// The word op of a big op: `Op`, applied to the words of the big op's\n"
-     << "// operands and, where `constant` is given, to that constant as its second\n"
-     << "// operand; `Op` is void where the word is the value itself. Not defined for\n"
-     << "// an op that names none.\ntemplate <typename BigOpT>\nstruct BigToWord;\n\n";
-  for (const auto &[opClass, def] : marked) {
-    StringRef word = def->getValueAsString("wordOp");
-    StringRef constant = def->getValueAsString("wordConstant");
-    int64_t value = 0;
-    if (!constant.empty() && constant.getAsInteger(10, value))
-      llvm::PrintFatalError(def, opClass + "'s word constant `" + constant + "` is no integer");
-    if (word.empty() && !constant.empty())
-      llvm::PrintFatalError(def, opClass + " names a constant and no word op to apply it to");
-    os << "template <>\nstruct BigToWord<" << opClass << "> {\n"
-       << "  using Op = " << (word.empty() ? StringRef("void") : word) << ";\n";
-    if (!constant.empty())
-      os << "  static constexpr int64_t constant = " << value << ";\n";
-    os << "};\n\n";
-  }
-  os << "} // namespace idr\n\n#endif // IDR_IR_IDRBIGTOWORD_INC\n#endif\n";
-  return false;
-}
-
-//===----------------------------------------------------------------------===//
-// The rules a refusal names
-//===----------------------------------------------------------------------===//
-
-// The enum Rule, and the field in which each of its cases names its
-// category, a case of another enum.
-struct Rules {
-  EnumInfo info;
-  CaseField category;
-};
-
-Rules rulesOf(const llvm::RecordKeeper &records) {
-  const llvm::Record *rules = nullptr;
-  for (const llvm::Record *def : records.getAllDerivedDefinitionsIfDefined("EnumInfo"))
-    if (EnumInfo(def).getEnumClassName() == "Rule") {
-      if (rules)
-        llvm::PrintFatalError("two enums named Rule");
-      rules = def;
-    }
-  if (!rules)
-    llvm::PrintFatalError("no enum Rule in the records");
-  EnumInfo info(rules);
-  std::vector<CaseField> fields = caseFieldsOf(info, enumsOfCases(records));
-  if (fields.size() != 1)
-    llvm::PrintFatalError(rules, "a rule's case names its category, and no other enum's case");
-  return {info, fields.front()};
-}
-
-// The rules of the enum Rule, one per line: the phrase a refusal names it
-// by, `unsupported (<phrase>)`, then a tab and its category's phrase, as the
-// tests read them.
-bool emitRuleList(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  Rules rules = rulesOf(records);
-  for (const EnumCase &c : rules.info.getAllCases())
-    os << c.getStr() << "\t" << namedCase(c, rules.category.field).getStr() << "\n";
-  return false;
-}
-
-// The category of each rule as the C++ side reads it, `categoryOf`: one
-// case per case of Rule, from its category field, and no default, so that
-// the switch names every rule. A case of Rule without the field is the
-// generator's error, which caseFieldsOf reports.
-bool emitRuleCategories(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  Rules rules = rulesOf(records);
-  EnumInfo categories(rules.category.values);
-  std::string rule = (rules.info.getCppNamespace() + "::" + rules.info.getEnumClassName()).str();
-  std::string category =
-      (categories.getCppNamespace() + "::" + categories.getEnumClassName()).str();
-  // The function is the enum's, in its namespace.
-  StringRef space = rules.info.getCppNamespace();
-  space.consume_front("::");
-  os << "// The category of each rule a refusal names: generated by idris-mlir-tblgen\n"
-     << "// -gen-rule-categories from each case of the enum Rule, which names its\n"
-     << "// category in its field `" << rules.category.field << "`. Do not edit.\n\n"
-     << "#ifndef IDR_IR_IDRRULECATEGORIES_INC\n#define IDR_IR_IDRRULECATEGORIES_INC\n\n"
-     << "namespace " << space << " {\n\n"
-     << "// The kind of program a refusal by `rule` names.\n"
-     << "inline constexpr " << category << " categoryOf(" << rule << " rule) {\n"
-     << "  switch (rule) {\n";
-  for (const EnumCase &c : rules.info.getAllCases())
-    os << "  case " << rule << "::" << c.getSymbol() << ":\n    return " << category
-       << "::" << namedCase(c, rules.category.field).getSymbol() << ";\n";
-  os << "  }\n}\n\n} // namespace " << space << "\n\n#endif // IDR_IR_IDRRULECATEGORIES_INC\n";
-  return false;
-}
-
-//===----------------------------------------------------------------------===//
-// The role and the stages of each pass
-//===----------------------------------------------------------------------===//
-
-// Every pass of the records, one per line: what it states, a space and its
-// argument, sorted by argument, as the tests read them. A pass is an
-// IdrPass, whose role and stages are records Passes.td defines (IdrPassRole,
-// IdrStage, each with its `name`): TableGen refuses any other, and a pass
-// declared on upstream's Pass alone is a fact only this generator sees.
-// Upstream's pass generators write a pass's C++, its base class among it
-// (which checks and sets the stage), and its documentation, and none writes
-// a field of a pass's record for a reader outside C++, so the role and the
-// stages are written here, beside the rule list the tests read the same way.
-void emitPassLines(const llvm::RecordKeeper &records, llvm::raw_ostream &os,
-                   llvm::function_ref<std::string(const llvm::Record &)> stated) {
-  std::vector<std::pair<std::string, std::string>> lines;
-  for (const llvm::Record *def : records.getAllDerivedDefinitions("PassBase")) {
-    if (!def->isSubClassOf("IdrPass"))
-      llvm::PrintFatalError(def, llvm::Twine(def->getName()) +
-                                     " is no IdrPass: every pass states its role and its stages");
-    lines.emplace_back(def->getValueAsString("argument").str(), stated(*def));
-  }
-  llvm::sort(lines);
-  for (const auto &[argument, line] : lines)
-    os << line << " " << argument << "\n";
-}
-
-// The role of each pass.
-bool emitPassRoles(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  emitPassLines(records, os, [](const llvm::Record &pass) {
-    return pass.getValueAsDef("role")->getValueAsString("name").str();
-  });
-  return false;
-}
-
-// The stage each pass requires and the stage it leaves, `<requires> <sets>`,
-// for the spec that checks the pipeline's order: each pass's `requires` is
-// the stage the pass before it `sets`.
-bool emitPassStages(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
-  emitPassLines(records, os, [](const llvm::Record &pass) {
-    return (pass.getValueAsDef("requires")->getValueAsString("name") + " " +
-            pass.getValueAsDef("sets")->getValueAsString("name"))
-        .str();
-  });
+  os << "} // namespace idr::admitted\n";
   return false;
 }
 
@@ -3227,28 +1684,9 @@ const mlir::GenRegistration genIdrisDialect("gen-idris-dialect",
 const mlir::GenRegistration genIdrisBytecode("gen-idris-bytecode",
                                              "The Idris side's bytecode entries of a dialect",
                                              emitIdrisBytecode);
-const mlir::GenRegistration
-    genRuntimeAbiDecls("gen-runtime-abi-decls",
-                       "The C declarations of the runtime functions idr-lower calls",
-                       emitRuntimeAbiDecls);
-const mlir::GenRegistration genRuntimeAbiDefs("gen-runtime-abi-defs",
-                                              "The table of the runtime functions idr-lower calls",
-                                              emitRuntimeAbiDefs);
-const mlir::GenRegistration genGuards("gen-guards", "The guards of each op with Idr_GuardedOp",
-                                      emitGuards);
-const mlir::GenRegistration genBigToWord("gen-big-to-word", "The word op each big op names",
-                                         emitBigToWord);
-const mlir::GenRegistration genRuleList("gen-rule-list",
-                                        "The rules a refusal names, with their categories",
-                                        emitRuleList);
-const mlir::GenRegistration genRuleCategories("gen-rule-categories",
-                                              "The category of each rule, for the C++ side",
-                                              emitRuleCategories);
-const mlir::GenRegistration genPassRoles("gen-pass-roles", "The role of each pass, for the tests",
-                                         emitPassRoles);
-const mlir::GenRegistration genPassStages("gen-pass-stages",
-                                          "The stages of each pass, for the tests",
-                                          emitPassStages);
+const mlir::GenRegistration genAdmittedClasses("gen-admitted-classes",
+                                              "The C++ classes of the admitted upstream ops",
+                                              emitAdmittedClasses);
 
 } // namespace
 

@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The idr dialect: what TableGen generates from IdrOps.td, with what the
-// generated code needs declared around it, in the order it needs it: the
-// grades, the traits and the guards' vocabulary (Traits.h), the resources
-// and a data type's constructors before the generated attributes, types
-// and interfaces, the flow vocabulary and its interface before the ops,
-// and what reads the ops after them.
+// The idr dialect: what mlir-tblgen generates from the specification's
+// printed ODS (idr/IR/Generated/*.td), with what the generated code needs
+// declared before it, in the order it needs it: the grades and the
+// lifetimes, the quantity handles builders take, the traits the ops are
+// built on, the effect tree's resources the ops' effects name, and the hand
+// hooks the printed ODS names (custom directives, predicates, codecs); then
+// the generated enums, attributes, dialect, interfaces, types and ops; then
+// each partial op's guards. Nothing here restates a fact of the
+// specification: every list over ops, types or cases is generated.
 #ifndef IDR_IR_IDRDIALECT_H
 #define IDR_IR_IDRDIALECT_H
 
@@ -18,254 +21,85 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/RegionKindInterface.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/TilingInterface.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
-#include "llvm/ADT/BitmaskEnum.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Sequence.h"
 
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <functional>
+#include <cstdint>
 #include <optional>
 #include <string>
-#include <tuple>
-#include <utility>
-#include <variant>
 
-// The enums, then the grades over them: the generated type builders name
-// ::idr::Grade.
+// The grades and the lifetimes, which the generated types' builders and
+// constraints name.
 #include "idr/IR/Grades.h"
+#include "idr/IR/Lifetimes.h"
+// The quantity handles, which builders of counting's ops take.
+#include "idr/IR/Quantities.h"
 // The traits the generated ops are built on.
 #include "idr/IR/Traits.h"
+// The effect system's words and sets, the tree's states among them, which
+// the ops' printed effects and the effect interface name.
+#include "idr/IR/Effects/Set.h"
 
-namespace idr {
-
-// What a function may do when nothing says less: perform IO, crash and not
-// return. It is idr.func's `effects` by default, so a function no pass has
-// solved says so through its own accessor.
-inline constexpr Effect anyEffect = Effect::io | Effect::crash | Effect::diverge;
-
-// The resource that a possible crash writes to.
-struct CrashResource : mlir::SideEffects::Resource::Base<CrashResource> {
-  llvm::StringRef getName() const final { return "idr.crash"; }
-};
-
-// The resource that every IO op reads and writes, and that a crash and a
-// possibly endless loop also write, so that no pass reorders either with
-// output.
-struct IOResource : mlir::SideEffects::Resource::Base<IOResource> {
-  llvm::StringRef getName() const final { return "idr.io"; }
-};
-
-// The resource that idr.may_loop writes, so that a loop that may not end is
-// never removed as dead.
-struct DivergenceResource : mlir::SideEffects::Resource::Base<DivergenceResource> {
-  llvm::StringRef getName() const final { return "idr.divergence"; }
-};
-
-// The resource that idr.lin.enter and idr.lin.use allocate their results
-// on: no heap, only a new value that no pass may merge with another.
-struct LinResource : mlir::SideEffects::Resource::Base<LinResource> {
-  llvm::StringRef getName() const final { return "idr.lin"; }
-};
-
-// The state of a memo cell: its label and captures, or its forced value.
-// idr.memo.run writes it, and every read of a memo sum's value (its tag, a
-// match on it, a field of it) reads it, so that no pass merges or moves a
-// read across a force. A read of any other sum reads nothing: a cell never
-// changes while a reference to it is live.
-struct MemoStateResource : mlir::SideEffects::Resource::Base<MemoStateResource> {
-  llvm::StringRef getName() const final { return "idr.memo_state"; }
-};
-
-// The effects of an op reading `value`, a sum's or a box's value: a read of
-// the memo state when it is a memo sum's, and none otherwise.
-void readsMemoState(mlir::OpOperand &value,
-                    llvm::SmallVectorImpl<mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>> &effects);
-
-// The resource a consumed reference is freed from.
-struct ReferenceResource : mlir::SideEffects::Resource::Base<ReferenceResource> {
-  llvm::StringRef getName() const final { return "idr.reference"; }
-};
-
-// Whether `operand`'s position takes over the reference its value holds,
-// as the edges of its op's flow say (lib/IR/Effects.cpp): a use the op
-// moves on or ends, a forwarded value, or an argument whose parameter owns
-// it, which the program's stage says how to read. Given `callees`, the
-// program's symbol table, a call's parameter is read from its callee's
-// signature, as placement asks before the operands take their parameters'
-// grades; without, from the operand's grade.
-bool consumes(mlir::OpOperand &operand, const mlir::SymbolTable *callees = nullptr);
-
-// A string that cannot be empty beyond what a constant shows: a non-empty
-// constant, a string its builder says is never empty (one built with a
-// character or a number in it), or an append of one.
-bool knownNonEmpty(mlir::Value value);
-
-namespace detail {
-struct DataTypeStorage;
-} // namespace detail
-
-// A data type, which a constant constructor names before the types are
-// declared (IdrTypes.td).
-class DataType;
-
-// What a value of a data type holds, the facts ValueFactsTypeInterface asks
-// of the type that its body decides: a reference held in place, a world
-// anywhere a value reaches. The type computes them once and keeps them
-// beside its body (lib/IR/ValueFacts.cpp).
-enum class Held : uint8_t {
-  Nothing = 0,
-  References = 1,
-  World = 2,
-  LLVM_MARK_AS_BITMASK_ENUM(World)
-};
-LLVM_ENABLE_BITMASK_ENUMS_IN_NAMESPACE();
-
-// A constructor's tag: its position in its data type's body, the number a
-// cell's header and a match's case hold. A type of its own, so that no
-// field's index, case's position or count stands in for a tag, nor a tag
-// for them: `Tag{n}` makes one where a position is read as a tag (a body's
-// order, a parser, a stored attribute), and a cast reads the number back
-// where it is stored or emitted.
-enum class Tag : uint32_t {};
-
-inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os, Tag tag) {
-  return os << static_cast<uint32_t>(tag);
-}
-
-// The part a constructor plays in its sum, by role and never by position,
-// each role holding what only it has: a label names the function it runs
-// and, in a memo sum, whether every force runs it (`byName`: the function
-// reaches an observable effect, so the cell is never written). In
-// CtorRole's order, the case the syntax, the bytecode and KindRule name.
-namespace role {
-struct Plain { bool operator==(const Plain &) const = default; };
-struct ListNil { bool operator==(const ListNil &) const = default; };
-struct ListCons { bool operator==(const ListCons &) const = default; };
-struct Label {
-  mlir::FlatSymbolRefAttr fn;
-  bool byName = false;
-  bool operator==(const Label &) const = default;
-};
-struct Running { bool operator==(const Running &) const = default; };
-struct Forced { bool operator==(const Forced &) const = default; };
-} // namespace role
-using Role = std::variant<role::Plain, role::ListNil, role::ListCons, role::Label,
-                          role::Running, role::Forced>;
-static_assert(std::variant_size_v<Role> == getMaxEnumValForCtorRole() + 1,
-              "a role per CtorRole case, in its order");
-inline CtorRole kindOf(const Role &role) { return static_cast<CtorRole>(role.index()); }
-// The role of case `kind` with nothing of its own yet: each alternative
-// made empty, in CtorRole's order, so no case is written out. A reader
-// that finds a label reads its payload after its case.
-inline Role emptyRole(CtorRole kind) {
-  static const auto empty = []<std::size_t... Case>(std::index_sequence<Case...>) {
-    return std::array<Role, sizeof...(Case)>{Role(std::in_place_index<Case>)...};
-  }(std::make_index_sequence<std::variant_size_v<Role>>());
-  return empty[static_cast<std::size_t>(kind)];
-}
-struct Ctor {
-  mlir::StringAttr name;
-  llvm::ArrayRef<mlir::Type> fields;
-  Role role;
-  bool operator==(const Ctor &) const = default;
-};
-
-class DataType;
-struct DataDefinition;
-class Declarations;
-class ProgramOp;
-
-// A program's table of data types as bytecode carries it (IdrBytecode.td's
-// TableCtor and TableMember), one row per data type: its body spelled out
-// as records the generated reader and writer go through member by
-// member, each named by the getter that gives it. A constructor's fields
-// are owned here, where a Ctor's view storage that outlives it; a label's
-// function and whether it is by name stand beside the role's case, empty
-// for every other role, as the format has no case with members of its
-// own.
-struct TableCtor {
-  llvm::StringRef name;
-  CtorRole role;
-  mlir::Attribute label;
-  uint64_t byName;
-  llvm::SmallVector<mlir::Type> fields;
-  llvm::StringRef getName() const { return name; }
-  CtorRole getRole() const { return role; }
-  mlir::Attribute getLabel() const { return label; }
-  uint64_t getByName() const { return byName; }
-  llvm::ArrayRef<mlir::Type> getFields() const { return fields; }
-};
-struct TableMember {
-  llvm::StringRef name;
-  SumKind kind;
-  llvm::SmallVector<TableCtor> ctors;
-  mlir::Attribute instance;
-  llvm::StringRef getName() const { return name; }
-  SumKind getKind() const { return kind; }
-  llvm::ArrayRef<TableCtor> getCtors() const { return ctors; }
-  mlir::Attribute getInstance() const { return instance; }
-};
-
-} // namespace idr
-
-// The attributes come first: the dialect's helpers for its discardable
-// attributes and the types' parameters name them.
+// The dialect's enums (which Grades.h includes, the graded type's parameter
+// being one) and their counts, then its attributes: the dialect's helpers
+// and the types' parameters name them. mlir-tblgen writes what it generates
+// from the printed ODS beside this header; the specification's own C++
+// tables are under Generated/.
+#include "idr/IR/Generated/EnumTraits.h.inc"
+#include "idr/IR/IdrAttrInterfaces.h.inc"
 #define GET_ATTRDEF_CLASSES
 #include "idr/IR/IdrAttrs.h.inc"
 
 #include "idr/IR/IdrDialect.h.inc"
 
-#include "idr/IR/IdrInterfaces.h.inc"
 #include "idr/IR/IdrTypeInterfaces.h.inc"
-
 #define GET_TYPEDEF_CLASSES
 #include "idr/IR/IdrTypes.h.inc"
 
-namespace idr {
-// A data type with its body: a member of a group sealed at once
-// (DataType::seal).
-struct DataDefinition {
-  DataType type;
-  DataType::Body body;
-};
-} // namespace idr
+// The hand hooks the printed ODS names (custom directives, predicates,
+// parameter codecs), after the types and attributes their signatures name;
+// their definitions are hand C++, a missing one a link error.
+#include "idr/IR/Generated/Hooks.h.inc"
 
-// How a value moves, and the flow interface every op that moves one holds,
-// which the ops name: after the types, which its anchors hold.
+// What idr.func and idr.call hold beyond their generated classes, which
+// their attributes name: it reads types alone.
+#include "idr/IR/Func.h"
+
+// How a value moves and the control-flow vocabulary the ops name, after the
+// types its anchors hold; then the op interfaces, the flow interface among
+// them.
 #include "idr/IR/FlowEdges.h"
+#include "idr/IR/Control/Control.h"
+#include "idr/IR/IdrInterfaces.h.inc"
+
+// The traits the ops' meanings give them: the one runtime fold, inline
+// arithmetic, and the ops' own.
+#include "idr/IR/Fold.h"
+#include "idr/IR/Numeric/Trait.h"
+#include "idr/IR/Ops/Traits.h"
 
 #define GET_OP_CLASSES
 #include "idr/IR/IdrOps.h.inc"
 
-// Each guarded op's guards (Guarded), generated from its marks.
-#include "idr/IR/IdrGuards.inc"
+// Each partial op's guards (Guarded<Op>), and each op's declared effects
+// (Declared<Op>) with the one query API that reads them, printed from the
+// specification after the classes they specialize.
+#include "idr/IR/Generated/Guards.h.inc"
+#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Generated/Effects.h.inc"
 
 namespace idr {
-
-// The names a memo sum gives its two states, which their roles
-// (CtorRole::Running, CtorRole::Forced) identify; a reader finds them by
-// role, never by name.
-inline constexpr llvm::StringLiteral memoRunning = "running";
-inline constexpr llvm::StringLiteral memoForced = "forced";
-
-// The most static data a folded constant may take: a folded op whose result
-// can outgrow its operands (a big shifted left). A larger one would make the
-// executable larger than computing it at runtime does, and the compilation
-// slower, so it stays, to run at runtime. The value is never at stake, only
-// the size and the speed.
-inline constexpr uint64_t constantBytes = uint64_t{1} << 20;
 
 // The words a refusal by `rule` begins with, its separator included:
 // `unsupported (<phrase>): ` for a construct this compiler does not compile,
@@ -281,51 +115,17 @@ mlir::InFlightDiagnostic refuse(mlir::Location loc, Rule rule);
 mlir::InFlightDiagnostic refuse(mlir::Operation *op, Rule rule);
 
 // The rule a diagnostic refuses the program by; nothing for any other
-// diagnostic.
+// diagnostic: a diagnostic that is no refusal is the one case the metadata
+// lacks a rule, which the problem has.
 std::optional<Rule> refusalRule(mlir::Diagnostic &diagnostic);
 
-// The custom directives of the matches' assembly formats (IdrMatchOps.td),
-// defined in lib/IR/OpsMatchSyntax.cpp, which the generated parsers and
-// printers call by name.
-mlir::ParseResult parseResultTypes(mlir::OpAsmParser &parser,
-                                   llvm::SmallVectorImpl<mlir::Type> &types);
-void printResultTypes(mlir::OpAsmPrinter &printer, mlir::Operation *op, mlir::TypeRange types);
-mlir::ParseResult
-parseMatchCases(mlir::OpAsmParser &parser, mlir::Type scrutineeType,
-                mlir::DenseI32ArrayAttr &cases,
-                llvm::SmallVectorImpl<std::unique_ptr<mlir::Region>> &caseRegions);
-void printMatchCases(mlir::OpAsmPrinter &printer, mlir::Operation *op, mlir::Type scrutineeType,
-                     mlir::DenseI32ArrayAttr cases,
-                     llvm::MutableArrayRef<mlir::Region> caseRegions);
-mlir::ParseResult
-parseLiteralCases(mlir::OpAsmParser &parser, mlir::Type scrutineeType, mlir::ArrayAttr &cases,
-                  llvm::SmallVectorImpl<std::unique_ptr<mlir::Region>> &caseRegions);
-void printLiteralCases(mlir::OpAsmPrinter &printer, mlir::Operation *op, mlir::Type scrutineeType,
-                       mlir::ArrayAttr cases, llvm::MutableArrayRef<mlir::Region> caseRegions);
-mlir::ParseResult parseDefaultCase(mlir::OpAsmParser &parser, mlir::Region &defaultRegion);
-void printDefaultCase(mlir::OpAsmPrinter &printer, mlir::Operation *op,
-                      mlir::Region &defaultRegion);
-
 namespace detail {
-// Adds the dialect's asm interface: the aliases of its data types and of
-// its large constants.
+// Adds the dialect's asm interface: the aliases of its families.
 void addAsmInterface(IdrDialect &dialect);
 
-// Adds the dialect's bytecode interface: its types written by the records
-// of IdrBytecode.td, and the module's table of data types read.
+// Adds the dialect's bytecode interface: every type and attribute written
+// by its generated record.
 void addBytecodeInterface(IdrDialect &dialect);
-
-// What the ops that hold a constructor's tag share (lib/IR/OpsCon.cpp): the
-// constructor `tag` of the data type of a value of `type`, or failure after
-// an error at `op`.
-mlir::FailureOr<std::reference_wrapper<const Ctor>> ctorAt(mlir::Operation *op, mlir::Type type,
-                                                           Tag tag);
-
-// Whether the fields `op` writes are its cell's constructor's, in order,
-// the holes aside, each at the field's type or owned: idr.cell.init's
-// declared constraint, which its generated verifier calls
-// (lib/IR/OpsCon.cpp).
-bool fillsCell(CellInitOp op);
 } // namespace detail
 
 } // namespace idr

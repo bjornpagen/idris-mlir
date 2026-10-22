@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The dialect's passes and idris-mlir's pipelines: the base every pass
-// with a stage derives from, every idr pass's constructor and their
-// registration, from the one .td, and the pipelines built from those
-// constructors.
+// The dialect's passes and idris-mlir's pipeline: the base every pass with
+// a stage derives from, every pass's constructor and their registration,
+// all printed from the specification's one list (Spec.Pipeline), and the
+// pipeline built from that list, whole or between two stages.
 #ifndef IDR_TRANSFORMS_PIPELINE_H
 #define IDR_TRANSFORMS_PIPELINE_H
 
 #include "idr/IR/IdrDialect.h"
 
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -18,19 +19,21 @@
 
 namespace idr {
 
-// The base of every pass whose record (Passes.td) names the stage it
-// requires, `Requires`, and the one it leaves, `Sets`: PassBase's
-// baseClass, from which upstream's generator derives the pass's own base,
-// so that the pass checks its stage in every tool that runs it. It finds
-// the program the pass runs on (the anchor, the program around it, or the
-// one program of a module), refuses a program at another stage, runs the
-// pass on it (runOnProgram, handed the program it found), and leaves the
-// program at `Sets` unless the pass failed. A pass that runs at any stage
-// derives from upstream's base instead.
-template <typename OpT, Stage Requires, Stage Sets>
+// The base of every pass whose record names the stage it requires,
+// `Requires`, and the one it leaves, `Sets`: the record's printed
+// baseClass, inside which upstream's generator names the pass `DerivedT`,
+// so the base calls the pass's own body with no virtual. It finds the
+// program the pass runs on (the anchor, the program around it, or the one
+// program of a module), refuses a program at another stage, runs the pass
+// on it (DerivedT::runOnProgram, handed the program it found), and leaves
+// the program at `Sets` unless the pass failed. A pass that runs at any
+// stage derives from upstream's base instead.
+template <typename DerivedT, typename OpT, Stage Requires, Stage Sets>
 class StagedPass : public mlir::OperationPass<OpT> {
   // A function pass runs beside its siblings, which read the program's
-  // stage; only a pass on the program or on the module may change it.
+  // stage; only a pass on the program or on the module may change it. The
+  // specification's pipeline type refuses the case before any C++ exists;
+  // this states the same of the class.
   static_assert(Requires == Sets || std::is_same_v<OpT, ProgramOp> ||
                     std::is_same_v<OpT, mlir::ModuleOp>,
                 "a pass on a function leaves the stage it found");
@@ -38,10 +41,6 @@ class StagedPass : public mlir::OperationPass<OpT> {
 protected:
   explicit StagedPass(mlir::TypeID passID) : mlir::OperationPass<OpT>(passID) {}
   StagedPass(const StagedPass &) = default;
-
-  // The pass's body, on `program`, at `Requires`: the anchor, the program
-  // around it, or the module's one program.
-  virtual void runOnProgram(ProgramOp program) = 0;
 
 private:
   void runOnOperation() final {
@@ -51,7 +50,7 @@ private:
       program = anchor;
     } else if constexpr (std::is_same_v<OpT, mlir::ModuleOp>) {
       // A module may hold any number of programs, as MLIR sees it; the
-      // pass runs on one.
+      // pass runs on its one.
       auto programs = anchor.template getOps<ProgramOp>();
       if (!llvm::hasSingleElement(programs)) {
         anchor.emitError("internal error: ")
@@ -69,7 +68,7 @@ private:
           << ", not " << stringifyStage(program.getStage());
       return this->signalPassFailure();
     }
-    runOnProgram(program);
+    static_cast<DerivedT &>(*this).runOnProgram(program);
     if constexpr (Requires != Sets)
       if (!this->getPassState().irAndPassFailed.getInt())
         program.setStage(Sets);
@@ -84,17 +83,17 @@ private:
 #include "idr/Target/Target.h"
 #include "idr/Transforms/Bufferize.h"
 #include "idr/Transforms/Columns.h"
+#include "idr/Transforms/Counting.h"
 #include "idr/Transforms/Deduplicate.h"
 #include "idr/Transforms/Defunctionalize.h"
-#include "idr/Transforms/Demand.h"
-#include "idr/Transforms/Effects.h"
+#include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Expect.h"
-#include "idr/Transforms/Identity.h"
+#include "idr/Transforms/InPlace.h"
+#include "idr/Transforms/Inline.h"
+#include "idr/Transforms/Lifetimes.h"
 #include "idr/Transforms/Narrow.h"
 #include "idr/Transforms/Optimize.h"
 #include "idr/Transforms/Ownership.h"
-#include "idr/Transforms/Specialize.h"
-#include "idr/Transforms/Stack.h"
 #include "idr/Transforms/StructureLoops.h"
 #include "idr/Transforms/Tail.h"
 
@@ -103,16 +102,20 @@ namespace idr {
 #define GEN_PASS_REGISTRATION
 #include "idr/Transforms/Passes.h.inc"
 
-// idris-mlir's pipeline, idr-deduplicate to idr-tail-calls, into `pm`, a
-// manager on the builtin.module that holds the program: the program's
-// passes nested on its idr.program, the rest on the module once idr-entry
-// has taken the program apart. Never idr-target: the driver runs it first,
-// and idris-mlir-opt runs it by name.
-void buildPipeline(mlir::OpPassManager &pm);
+// idris-mlir's pipeline into `pm`, a manager on the builtin.module that
+// holds the program: every step whose stages lie between `from` and `to`,
+// in the specification's order, the whole pipeline from `higher` to
+// `lowered`. Never idr-target: the driver runs it first.
+void buildPipeline(mlir::OpPassManager &pm, Stage from = Stage::Higher,
+                   Stage to = Stage::Lowered);
 
-// Registers the pipelines with the pass registry: --idr-pipeline, and
-// --idr-rc, the steps that make every reference explicit.
+// Registers the pipeline with the pass registry: --idr-pipeline, its
+// options the stages it runs between.
 void registerIdrPipeline();
+
+// The schedule's interpreter, given the library's entry point: the one
+// upstream pass the pipeline configures.
+std::unique_ptr<mlir::Pass> scheduleInterpreter();
 
 } // namespace idr
 

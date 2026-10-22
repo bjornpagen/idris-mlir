@@ -1,33 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The check of the dialect's attributes beyond their syntax: a big has one
-// width. And refusals: the one place their words are written, with the rule
-// carried as data in the diagnostic.
+// Refusals: the one place their words are written, with the rule carried as
+// data in the diagnostic. A rule's category is read from its printed table
+// (Generated/Rules.h.inc), never restated.
 
 #include "idr/IR/IdrDialect.h"
 
-// categoryOf: the kind of program each rule refuses, written from the
-// category each case of Idr_Rule names in its ODS (idris-mlir-tblgen
-// -gen-rule-categories).
-#include "idr/IR/IdrRuleCategories.inc"
+#include "idr/IR/Generated/Rules.h.inc"
 
 using namespace mlir;
 using namespace idr;
-
-// One width per integer, its fewest signed bits, so that equal bigs are
-// equal attributes.
-LogicalResult BigAttr::verify(function_ref<InFlightDiagnostic()> emitError, APInt value) {
-  if (value.getBitWidth() != value.getSignificantBits())
-    return emitError() << "expects a big at its fewest signed bits, "
-                       << value.getSignificantBits() << ", got " << value.getBitWidth();
-  return success();
-}
 
 // The two kinds of words a refusal begins with are the problem's: a
 // construct this compiler does not compile is named by its rule, and a
 // program Idris rejects is refused in Idris's own words alone.
 std::string idr::refusalHead(Rule rule) {
-  if (categoryOf(rule) == RuleCategory::UserError)
+  if (categoryOf[rule] == RuleCategory::UserError)
     return "";
   return ("unsupported (" + stringifyRule(rule) + "): ").str();
 }
