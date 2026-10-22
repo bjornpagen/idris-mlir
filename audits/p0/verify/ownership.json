@@ -396,6 +396,7 @@
     "foreign/idr/include/idr/Target/Target.h",
     "foreign/idr/lib/Conversion/Lower/",
     "foreign/idr/lib/Conversion/Counting.cpp",
-    "foreign/idr/include/idr/Conversion/Lower/"
+    "foreign/idr/include/idr/Conversion/Lower/",
+    "foreign/idr/lib/Target/Bins.cpp"
   ]
 }
