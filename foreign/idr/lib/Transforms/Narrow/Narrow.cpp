@@ -27,6 +27,7 @@
 #include "idr/IR/Layout.h"
 #include "idr/IR/Tail.h"
 #include "idr/IR/Generated/Actions.h.inc"
+#include "idr/IR/Generated/ApplyGroups.h.inc"
 #include "idr/Support/Actions.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Match.h"
@@ -223,9 +224,11 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
     }
 
     // The functions read the program's summaries from this pass's analysis
-    // manager, which holds them through the nested run.
+    // manager, which holds them through the nested run. Which passes run
+    // there is the pipeline's to say: its list pairs this decide step with
+    // its apply group.
     OpPassManager nested(ProgramOp::getOperationName());
-    nested.nest<FuncOp>().addPass(createIdrNarrowWords());
+    ::idr::pipeline::applyGroupOfIdrNarrow(nested);
     if (failed(runPipeline(nested, program)))
       return signalPassFailure();
     numVersioned += versioned;

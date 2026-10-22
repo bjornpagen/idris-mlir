@@ -6,8 +6,9 @@
 ||| for it, the extent of an array to be made and the tie of its dimensions;
 ||| the memory space of mutable memory; the two interfaces the generating
 ||| set and the update share; the two hand predicates their operands are
-||| checked by; and the skeleton rule that makes a read and a write of one
-||| element its update.
+||| checked by; and the skeleton rules on two accesses of one element of
+||| mutable memory: a read and a write its update, a read of a write the
+||| value written, a write overwritten unread gone.
 module IdrisMLIR.Spec.Arrays.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary

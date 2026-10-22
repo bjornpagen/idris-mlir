@@ -434,24 +434,46 @@ tieShapeOp = MkOp
   }
 
 ------------------------------------------------------------------------------
--- The skeleton rule
+-- The skeleton rules
 ------------------------------------------------------------------------------
 
-||| A read of an element of mutable memory whose next access to memory of
-||| its array is a write of the same element is that element's update: the
-||| element moves out of its place with the reference the place held, the
-||| ops between that rebuild it from it run in the update's region, and the
-||| value written moves back in. A value read only to be rebuilt and written
-||| back (an IORef's modify, a state record's update) then holds the one
-||| reference to its cell while it is rebuilt, and counting rebuilds it in
-||| that cell. The read and the write are ordered by their effects, so the
-||| rule is a skeleton rule, hand C++ (`::idr::egraph::MoveOut`) declared
-||| in the arrays' header, rooted at the write.
+||| The arrays' header, which declares the rules on mutable memory.
+arraysHeader : Path
+arraysHeader = "idr" ::: ["IR", "Arrays.h"]
+
+||| The rules on two accesses of one element of mutable memory, each the
+||| two made one. Accesses of mutable memory are ordered by their effects on
+||| its contents, so each rule is a skeleton rule, hand C++ declared in the
+||| arrays' header, and each moves nothing past another access of the
+||| array: it reads the order the effects give and only removes an access.
+|||
+||| A read of an element whose next access to memory of its array is a
+||| write of the same element is that element's update (`MoveOut`, rooted
+||| at the write): the element moves out of its place with the reference
+||| the place held, the ops between that rebuild it from it run in the
+||| update's region, and the value written moves back in. A value read only
+||| to be rebuilt and written back (an IORef's modify, a state record's
+||| update) then holds the one reference to its cell while it is rebuilt,
+||| and counting rebuilds it in that cell.
+|||
+||| A read of an element whose last write to memory of its array wrote the
+||| same element is the value written (`ForwardWritten`, rooted at the
+||| read): reads between change nothing. A write whose last access to
+||| memory of its array was a write of the same element overwrites what
+||| nothing read, so that write goes (`DeleteOverwritten`, rooted at the
+||| later write); a crash between ends the run before anything could read
+||| it. The read borrows and the write moves its value in, so each rule
+||| holds only while no reference is counted, and neither changes how often
+||| a value used once is used.
 export
 memorySkeleton : List SkeletonRule
 memorySkeleton =
-  [ MkSkeletonRule "MoveOut" ("idr" ::: ["IR", "Arrays.h"]) "array.set"
-      "a write of the element a read gave, with nothing between touching the array, is its update" ]
+  [ MkSkeletonRule "MoveOut" arraysHeader "array.set"
+      "a write of the element a read gave, with nothing between touching the array, is its update"
+  , MkSkeletonRule "ForwardWritten" arraysHeader "array.get"
+      "a read of the element a write wrote, with nothing between changing the array, is the value written"
+  , MkSkeletonRule "DeleteOverwritten" arraysHeader "array.set"
+      "a write of the element a write wrote, with nothing between touching the array, makes the first write go" ]
 
 ------------------------------------------------------------------------------
 -- The area's part

@@ -5,9 +5,11 @@
 // touch, what a region of the generating set must end in and bind, and the
 // bounds of the indices it binds (lib/IR/OpsArrayRules.cpp defines them);
 // how a step of a generating op on buffers moves what it reads and gives
-// (lib/IR/OpsArrayMovements.cpp); and a read and a write of one element made
-// its update, the skeleton rule on mutable memory and the step on a value
-// array's buffers (lib/IR/OpsArrayFusion.cpp).
+// (lib/IR/OpsArrayMovements.cpp); and two accesses of one element made one:
+// a read and a write made its update, the skeleton rule on mutable memory
+// and the step on a value array's buffers, and, on mutable memory, a read
+// of a write the value written and a write overwritten gone
+// (lib/IR/OpsArrayFusion.cpp).
 #ifndef IDR_IR_ARRAYS_H
 #define IDR_IR_ARRAYS_H
 
@@ -226,6 +228,25 @@ namespace idr::egraph {
 // before it, in the e-graph's skeleton, where both are ordered by their
 // effects.
 struct MoveOut {
+  using Root = ArraySetOp;
+  static std::optional<Edit> decide(Root write, const OperandFacts &facts);
+  static void rewrite(Root write, const Rewrite &choice, mlir::RewriterBase &rewriter);
+};
+
+// A read of an element of mutable memory whose last write before it, in
+// its block, to memory of its array wrote the same element reads the value
+// written: the read is that value, and goes. Reads of the array between
+// the two change nothing, and nothing between writes it.
+struct ForwardWritten {
+  using Root = ArrayGetOp;
+  static std::optional<Edit> decide(Root read, const OperandFacts &facts);
+  static void rewrite(Root read, const Rewrite &choice, mlir::RewriterBase &rewriter);
+};
+
+// A write of an element of mutable memory whose last access before it, in
+// its block, to memory of its array was a write of the same element
+// overwrites what nothing read: the earlier write goes.
+struct DeleteOverwritten {
   using Root = ArraySetOp;
   static std::optional<Edit> decide(Root write, const OperandFacts &facts);
   static void rewrite(Root write, const Rewrite &choice, mlir::RewriterBase &rewriter);

@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// A read and a write of one element made its update (idr/IR/Arrays.h): on a
-// value array's buffer, One-Shot's write and the read before it; on mutable
-// memory, the skeleton rule MoveOut. What it asks is effects alone.
+// Two accesses of one element made one (idr/IR/Arrays.h): a read and a
+// write made its update, on a value array's buffer One-Shot's write and the
+// read before it, on mutable memory the skeleton rule MoveOut; and, on
+// mutable memory, the skeleton rules ForwardWritten, a read of a write the
+// value written, and DeleteOverwritten, a write that the next write of its
+// element overwrites unread gone. What each asks is effects alone.
 
 #include "idr/IR/Arrays.h"
 #include "idr/IR/Effects/Classify.h"
@@ -15,7 +18,6 @@
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <algorithm>
 #include <optional>
 
 // What each stage of a program implies: whether its references are counted.
@@ -76,6 +78,51 @@ Value unguarded(Value index) {
 // whichever guard checked it.
 bool sameIndex(Value a, Value b) { return isEqualConstantIntOrValue(unguarded(a), unguarded(b)); }
 
+// Whether two accesses reach one element: the same array, through whatever
+// view of it each was given, at the same indices.
+bool sameElement(Value array, ValueRange indices, Value other, ValueRange otherIndices) {
+  return arrayRoot(array) == arrayRoot(other) && llvm::equal(indices, otherIndices, sameIndex);
+}
+
+// Whether an effect may reach memory of an array: a buffer of its element
+// in its memory space, whatever its shape, layout or grade, as a view of it
+// is. An effect that names no value is on a state as a whole, which holds
+// every buffer.
+struct OnMemoryOf {
+  MemRefType array;
+  bool operator()(const effects::Effect &each) const {
+    if (!onContents(each))
+      return false;
+    if (!each.value)
+      return true;
+    auto buffer = dyn_cast<BaseMemRefType>(unrestricted(each.value.getType()));
+    return buffer && buffer.getElementType() == array.getElementType() &&
+           buffer.getMemorySpace() == array.getMemorySpace();
+  }
+};
+
+// What an effect on memory of an array may change of it: anything but a
+// read, which leaves what each element holds as it was.
+struct ChangesMemoryOf {
+  OnMemoryOf memory;
+  bool operator()(const effects::Effect &each) const {
+    return each.kind != effects::Kind::Read && memory(each);
+  }
+};
+
+// The last op before `op` in its block that does what `touches` asks about;
+// null where none does.
+template <effects::Question Q>
+Operation *lastBefore(Operation *op, const Q &touches) {
+  Operation *last = op->getPrevNode();
+  while (last && effects::classify(last, touches) != effects::Does::Touches)
+    last = last->getPrevNode();
+  return last;
+}
+
+// The array an access of mutable memory reaches, its grade aside.
+MemRefType memoryOf(Value array) { return cast<MemRefType>(unrestricted(array.getType())); }
+
 // Whether the program `op` stands in counts no reference yet, as its stage
 // says. The stage is the program's, which a pass at any stage meets only as
 // it runs.
@@ -88,34 +135,21 @@ bool uncounted(Operation *op) {
 template <ElementWrite Write>
 std::optional<Fusion<Write>> fusionOf(Write write) {
   using Access = ElementAccess<Write>;
-  auto array = cast<MemRefType>(unrestricted(Access::array(write).getType()));
+  MemRefType array = memoryOf(Access::array(write));
   // An element that holds no reference has none to give up.
   if (!holdsReferences(array.getElementType()) || !uncounted(write))
     return std::nullopt;
-  // Memory of the array is a buffer of its element in its memory space,
-  // whatever its shape, layout or grade, as a view of it is.
-  auto touchesArray = [array](const effects::Effect &each) {
-    if (!onContents(each))
-      return false;
-    if (!each.value)
-      return true;
-    auto buffer = dyn_cast<BaseMemRefType>(unrestricted(each.value.getType()));
-    return buffer && buffer.getElementType() == array.getElementType() &&
-           buffer.getMemorySpace() == array.getMemorySpace();
-  };
   // The read is the last op before the write that may touch memory of the
-  // array, so nothing between does; `between` holds the ops between, in the
-  // block's order, each numbered by its place there.
-  SmallVector<Operation *> between;
-  Operation *last = write->getPrevNode();
-  for (; last && effects::classify(last, touchesArray) != effects::Does::Touches;
-       last = last->getPrevNode())
-    between.push_back(last);
-  std::reverse(between.begin(), between.end());
-  auto read = dyn_cast_or_null<typename Access::Read>(last);
-  if (!read || arrayRoot(Access::array(read)) != arrayRoot(Access::array(write)) ||
-      !llvm::equal(read.getIndices(), write.getIndices(), sameIndex))
+  // array, so nothing between does.
+  auto read = dyn_cast_or_null<typename Access::Read>(lastBefore(write, OnMemoryOf{array}));
+  if (!read || !sameElement(Access::array(read), read.getIndices(), Access::array(write),
+                            write.getIndices()))
     return std::nullopt;
+  // `between` holds the ops between, in the block's order, each numbered by
+  // its place there.
+  SmallVector<Operation *> between;
+  for (Operation *op = read->getNextNode(); op != write.getOperation(); op = op->getNextNode())
+    between.push_back(op);
   Block *block = write->getBlock();
   // The place among `between` of `op`, an op of the block strictly between
   // the read and the write, found by the block's own order; none for any
@@ -220,6 +254,47 @@ void fuse(RewriterBase &rewriter, Write write, const Fusion<Write> &fusion) {
   rewriter.eraseOp(fusion.read);
 }
 
+// The write whose value `read` reads: the last op before it that may
+// change memory of its array, where that op is a write of the same element,
+// or nothing. The read borrows the element and the write moved it in, so
+// the value written read again is the read only while no reference is
+// counted: a counted program has moved that value's reference into the
+// array. The value gains a use where the read's were, so it is forwarded
+// only where it may be used again and stands at the read's grade.
+std::optional<ArraySetOp> writeRead(ArrayGetOp read) {
+  if (!uncounted(read))
+    return std::nullopt;
+  auto write = dyn_cast_or_null<ArraySetOp>(
+      lastBefore(read, ChangesMemoryOf{OnMemoryOf{memoryOf(read.getArray())}}));
+  if (!write ||
+      !sameElement(write.getArray(), write.getIndices(), read.getArray(), read.getIndices()))
+    return std::nullopt;
+  Type written = write.getValue().getType();
+  if (isLinear(written) || !forgets(written, read.getValue().getType()))
+    return std::nullopt;
+  return write;
+}
+
+// The write `write` overwrites unread: the last op before it that may touch
+// memory of its array, where that op is a write of the same element, or
+// nothing. What that write moved in this one releases, and nothing read it
+// between, so the earlier write does nothing the program can see; a crash
+// between ends the run before anything could. Its value, moved in no
+// longer, is released at its last use, which counting places only where no
+// reference is counted yet. A value used once by its grade has that write
+// as its one use, which cannot go.
+std::optional<ArraySetOp> overwritten(ArraySetOp write) {
+  if (!uncounted(write))
+    return std::nullopt;
+  auto earlier =
+      dyn_cast_or_null<ArraySetOp>(lastBefore(write, OnMemoryOf{memoryOf(write.getArray())}));
+  if (!earlier ||
+      !sameElement(earlier.getArray(), earlier.getIndices(), write.getArray(), write.getIndices()) ||
+      isLinear(earlier.getValue().getType()))
+    return std::nullopt;
+  return earlier;
+}
+
 } // namespace
 
 void idr::arrays::moveOut(RewriterBase &rewriter, memref::StoreOp write) {
@@ -242,6 +317,35 @@ std::optional<Edit> MoveOut::decide(ArraySetOp write, const OperandFacts &) {
 void MoveOut::rewrite(ArraySetOp write, const Rewrite &, RewriterBase &rewriter) {
   if (std::optional<Fusion<ArraySetOp>> fusion = fusionOf(write))
     fuse(rewriter, write, *fusion);
+}
+
+// The write is the IR's, read off effects, and the value it gives is no
+// operand of the read, which a Forward could name: the rule's own rewrite
+// replaces the read.
+std::optional<Edit> ForwardWritten::decide(ArrayGetOp read, const OperandFacts &) {
+  if (!writeRead(read))
+    return std::nullopt;
+  return Rewrite{};
+}
+
+// The write found again on the input as it now is, since an earlier rewrite
+// may have changed what stands before the read.
+void ForwardWritten::rewrite(ArrayGetOp read, const Rewrite &, RewriterBase &rewriter) {
+  if (std::optional<ArraySetOp> write = writeRead(read))
+    rewriter.replaceOp(read, write->getValue());
+}
+
+std::optional<Edit> DeleteOverwritten::decide(ArraySetOp write, const OperandFacts &) {
+  if (!overwritten(write))
+    return std::nullopt;
+  return Rewrite{};
+}
+
+// The earlier write found again on the input as it now is, since an earlier
+// rewrite may have changed what stands before this one.
+void DeleteOverwritten::rewrite(ArraySetOp write, const Rewrite &, RewriterBase &rewriter) {
+  if (std::optional<ArraySetOp> earlier = overwritten(write))
+    rewriter.eraseOp(*earlier);
 }
 
 } // namespace idr::egraph
