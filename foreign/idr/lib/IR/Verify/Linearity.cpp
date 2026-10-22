@@ -23,6 +23,7 @@
 #include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Ownership.h"
 #include "idr/IR/Verify.h"
 #include "idr/Support/Match.h"
 
@@ -39,17 +40,6 @@
 
 using namespace mlir;
 using namespace idr;
-
-// Each region returns straight to the op: the regions of a match or of an
-// scf.if, not those of a loop or of a join point's regions, which run one
-// after another.
-bool idr::verify::alternatives(RegionBranchOpInterface branch) {
-  return llvm::all_of(branch->getRegions(), [&](Region &region) {
-    SmallVector<RegionSuccessor> next;
-    branch.getSuccessorRegions(region, next);
-    return llvm::all_of(next, [](RegionSuccessor &successor) { return successor.isOperation(); });
-  });
-}
 
 namespace {
 
@@ -97,7 +87,14 @@ public:
     for (const auto &[name, answer] : asked)
       if (name == op->getName())
         return answer;
-    Regions answer = verify::alternatives(branch) ? Regions::OneOf : Regions::InTurn;
+    // Alternatives each return straight to the op, never to another region.
+    Regions answer = Regions::OneOf;
+    for (Region &region : branch->getRegions()) {
+      SmallVector<RegionSuccessor> next;
+      branch.getSuccessorRegions(region, next);
+      if (!llvm::all_of(next, [](RegionSuccessor &successor) { return successor.isOperation(); }))
+        answer = Regions::InTurn;
+    }
     asked.emplace_back(op->getName(), answer);
     return answer;
   }
@@ -374,14 +371,19 @@ LogicalResult idr::verify::linearity(FuncOp fn) {
       return Count(value, Rule::UsedExactlyOnce, exclusivity, anyUse).check();
     if (usesOf(type) == Uses::Once && failed(usedAtMostOnceEachField(value, exclusivity)))
       return failure();
-    if (!counted)
+    if (!counted || !freedBy(type, Release::Counted))
       return success();
-    if (freedBy(type, Release::Counted) &&
-        failed(Count(value, Rule::ConsumedExactlyOnce, exclusivity,
-                     [](OpOperand &use) { return effects::consumes(use); })
-                   .check()))
-      return failure();
-    return success();
+    // A part read with no reference of its own is given up with its owner,
+    // whose one consumption counts for it: a use giving it up is a second.
+    if (ownership::ownerOfPart(value)) {
+      for (OpOperand &use : value.getUses())
+        if (effects::consumes(use))
+          return use.getOwner()->emitOpError("gives up a part that its owner gives up");
+      return success();
+    }
+    return Count(value, Rule::ConsumedExactlyOnce, exclusivity,
+                 [](OpOperand &use) { return effects::consumes(use); })
+        .check();
   };
   WalkResult walked = fn->walk<WalkOrder::PreOrder>([&](Operation *op) {
     for (Value result : op->getResults())

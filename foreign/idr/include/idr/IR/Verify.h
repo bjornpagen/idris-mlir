@@ -61,11 +61,12 @@ mlir::LogicalResult function(FuncOp fn);
 // ends the run. A value its type uses once (a cell, a destination, a
 // package) is used exactly once on every path that goes on, at every
 // stage. Once its program is counted, a value that holds a reference of its
-// own (counted) is given up exactly once on every path that goes on, and a
-// reuse token is never used many times. Uses are counted on the worst
-// path: the most over a match's alternatives, the sum over regions that run
-// one after another, twice for a region that runs again; a path that ends
-// the run gives nothing up.
+// own (counted) is given up exactly once on every path that goes on, a part
+// read from an owner with none of its own (ownership::ownerOfPart) is given
+// up with its owner and never by a use, and a reuse token is never used
+// many times. Uses are counted on the worst path: the most over a match's
+// alternatives, the sum over regions that run one after another, twice for
+// a region that runs again; a path that ends the run gives nothing up.
 mlir::LogicalResult linearity(FuncOp fn);
 
 // The lifetimes' rules of one function, a rule of its one walk
@@ -159,10 +160,6 @@ bool takenIntoResult(mlir::Value made, Lives &&lives, Returned &&returned) {
 // inside a region covers only what comes before it in that region's block,
 // since another path may not run it.
 bool usedAfterEveryAllocation(mlir::Value root, mlir::Operation *last);
-
-// Whether at most one region of `branch` runs: each returns straight to
-// the op, as a match's or an scf.if's do, and none to another region.
-bool alternatives(mlir::RegionBranchOpInterface branch);
 
 } // namespace verify
 } // namespace idr

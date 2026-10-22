@@ -8,6 +8,7 @@
 
 #include "idr/IR/Effects/Classify.h"
 #include "idr/IR/Effects/Consumption.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
@@ -18,6 +19,7 @@
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cstdint>
 #include <optional>
 
 using namespace mlir;
@@ -217,3 +219,48 @@ std::optional<Value> idr::ownership::readThrough(Value value) {
 // the values each step is, to the value as it was made: it stops at a
 // share, whose result holds a reference of its own.
 Value idr::ownership::viewRoot(Value value) { return definitionChain(value, viewedFrom).back(); }
+
+// A result is made by its op, and an argument of a region by the region's
+// op, which declares what moves into it.
+std::optional<Value> idr::ownership::ownerOfPart(Value value) {
+  Operation *op = isa<OpResult>(value) ? value.getDefiningOp()
+                                       : cast<BlockArgument>(value).getOwner()->getParentOp();
+  if (!op || !holdsReferences(value.getType()))
+    return std::nullopt;
+  FlowEdges edges;
+  flowEdgesOf(op, edges);
+  using Read = std::optional<Value>;
+  Read owner;
+  enum class Given : std::uint8_t { Borrowed, OwnReference } given = Given::Borrowed;
+  auto partRead = [](const FlowSource::Part &part) {
+    return match(
+        part.of, [](const FlowSource::Taken &) -> Read { return std::nullopt; },
+        [](const FlowSource::Whole &whole) -> Read { return whole.value; });
+  };
+  for (const FlowEdges::Edge &edge : edges.edges())
+    match(
+        edge.move,
+        [&](const FlowEdges::Flow &flow) {
+          bool intoValue = match(
+              flow.to.at, [&](const FlowSource::Whole &to) { return to.value == value; },
+              [](const OneOf<FlowPlace::Part, FlowSource::Parameter, FlowSource::Result> auto &) {
+                return false;
+              });
+          Read from = match(
+              flow.from.at, partRead,
+              [](const OneOf<FlowSource::Taken, FlowSource::Whole, FlowSource::Parameter,
+                             FlowSource::Result> auto &) -> Read { return std::nullopt; });
+          if (intoValue && from)
+            owner = from;
+        },
+        [&](const FlowEdges::Fresh &fresh) {
+          if (fresh.to == value)
+            given = Given::OwnReference;
+        },
+        [&](const FlowEdges::Overwrite &) { given = Given::OwnReference; },
+        [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Release, FlowEdges::Constant,
+                       FlowEdges::Dispatch> auto &) {});
+  if (given == Given::OwnReference)
+    return std::nullopt;
+  return owner;
+}

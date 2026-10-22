@@ -63,6 +63,15 @@ std::optional<mlir::Value> readThrough(mlir::Value value);
 // Same, a loan's view among them), never through idr.count.share.
 mlir::Value viewRoot(mlir::Value value);
 
+// The owner `value` is a part of, read with no reference of its own (a
+// field read, an element view, a lent element), as the op that makes it
+// declares its moves: it moves whole out of a part of a value the op only
+// reads, and the op neither empties a place (a take moves what it holds
+// out with its reference) nor makes the value fresh (a copy gives it one
+// of its own). None for any other value. Such a part is given up with its
+// owner, never on its own.
+std::optional<mlir::Value> ownerOfPart(mlir::Value value);
+
 } // namespace idr::ownership
 
 #endif // IDR_IR_OWNERSHIP_H
