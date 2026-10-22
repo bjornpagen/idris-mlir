@@ -120,7 +120,7 @@ bool keepsReference(const FlowEdges::Edge &edge, OpOperand &use) {
         return fromUse && kept;
       },
       [](const OneOf<FlowEdges::Unify, FlowEdges::Source, FlowEdges::Fresh, FlowEdges::Release,
-                     FlowEdges::Overwrite, FlowEdges::Constant, FlowEdges::Dispatch> auto &) {
+                     FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Constant, FlowEdges::Dispatch> auto &) {
         return false;
       });
 }
