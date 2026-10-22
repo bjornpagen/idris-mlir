@@ -4297,6 +4297,21 @@ C137.
   the site's membership at quantity 0, and the request's derivation is
   built from that site's reading. A request with no site is then
   unrepresentable rather than an error the run-time re-check reports.
+- **C223** (2026-10-22; L16's growth passes; under D68). The held count
+  is a constant of the graph. A held dispatch re-packs the dictionary
+  parameter with one more held value, nested in a pair whose height is
+  the count plus its types' heights, a sum no arc's gain expresses, and
+  any term that names n types grows with n, so the count needs a bound
+  whatever packs it. The graph computes that bound from the program:
+  the longest held list a writing site packs, plus, for each distinct
+  stuck path the program's dictionaries have, the most values a member
+  closes over plus one. Each held type's position bounds its pair at
+  that count plus the types' heights. It rests on two facts of the
+  translation, which the proof states and carries rather than assumes: a
+  chain holds each stuck path at most once, and every member a dispatch
+  inserts reduces. It is derived from the program, never a round
+  constant, and refuses nothing the translation makes finitely; a
+  program on which either fact fails is reported as a counterexample.
 
 ## 4. Open: the owner's decisions, in order
 
