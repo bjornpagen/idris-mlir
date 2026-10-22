@@ -2048,6 +2048,37 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `InstanceReading` it computed with the key it caches, rather than
   reading it again. The emitted code may change where an argument held an
   eta-redex; its meaning does not, since Idris's conversion is up to eta.
+- **C243** (2026-10-22; recheck 3's sweep, §5.2). `IdrSupport` names
+  nothing of the dialect, over MLIR's core (IR and Pass), and §5.2's "naming no MLIR" is
+  corrected to that: every library that links it links MLIR
+  (measured: its eleven link sites in the CMake files), so an MLIR-free
+  `IdrSupport` would buy no link it enables, and its MLIR headers
+  (`Actions.h`, `Match.h`'s fold over `mlir::Type`, `Profile.h`,
+  `Remake.h`) are the support every pass shares. What must name no LLVM
+  or MLIR stays D41's numeric header alone, which the runtime includes.
+- **C244** (2026-10-22; recheck 3, L10's seam on C206). Whether an op
+  gives its operand on with no run-time work is one op interface,
+  `CarriesOnOpInterface`, declared in `Spec/Tail/Declarations.idr`, its
+  one method answering with an enum (`Carry`: `Free`, `Works`), as
+  upstream's speculatability answers. `ResultCarriesOperand`'s class
+  derives from the interface's trait, so every op with the trait answers
+  `Free` from one place; `data.reindex` implements it from its types
+  (`isFree`), as C206 says. The tail decider and its three other readers
+  (`Tail/Context.cpp`, `TrmcRewrite.cpp`, `AccumulatorPlan.cpp`) ask the
+  interface, and the `dyn_cast<DataReindexOp>` goes.
+- **C245** (2026-10-22; recheck 3's sweep, under C229). Two lines of
+  Python in the tools stay, each a host primitive POSIX shell lacks and
+  the bootstrap's host provides (LLVM's build needs Python): the
+  bootstrap's advisory lock (`flock`, which macOS's shell has no command
+  for) and a child's peak memory (`wait4`'s rusage, where hosts' `time`
+  differ or are absent). They hold no logic of ours; any that grows past
+  a primitive is ported.
+- **C246** (2026-10-22; recheck 3's sweep, under C229 and AGENTS.md's
+  "anything of ours above the C++ is Idris"). The harness's shell and
+  awk (3,768 lines: `harness/lib/*.sh` and `tests/runtime-effects/*.awk`,
+  measured) are programs, not glue, and are ported into the harness's
+  Idris, which both hosts compile; what stays shell is the glue that
+  starts a tool with its arguments.
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
@@ -5101,7 +5132,7 @@ is settled:
 - **Every surviving runtime dispatch is listed and justified** in the
   design document (L15 §2.10 adds five).
 - **Its boundary** (L15 §2): four libraries layered by link dependency,
-  `IdrSupport` naming no MLIR, D41's header naming no LLVM or MLIR (in
+  `IdrSupport` naming nothing of the dialect (C243), D41's header naming no LLVM or MLIR (in
   `include/idr/IR/Numeric/`, which the runtime includes, C110), `IdrIR`
   holding the one place an IR-handle map lives (freed when its numbering
   is finished); ids minted only by their owner. *Corrected* (recheck 3,
