@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/103-sparse-region-successors-protected: a sparse forward
+# analysis may override visitRegionSuccessors and hand the successors it
+# leaves to the base. An integer range analysis that counts its calls and
+# hands each to the base runs, and the scf.if's result has the range
+# [1, 2]: built against the toolchain's MLIR, statically, the program
+# prints "ok". At the pin the base is private and it does not build.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "an override of visitRegionSuccessors runs and hands each successor to the base" \
+  "$root/upstream/103-sparse-region-successors-protected/override.cpp"

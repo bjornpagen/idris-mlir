@@ -129,18 +129,56 @@ fi
 # Idris, checked against SOURCE, a checkout of that pin. A bug's README
 # names its project in its title, and a record of the fork's is titled for
 # Idris2; what the stock Idris lacks and nothing it builds reaches is
-# titled for Idris and laid out against Idris's main, not the pin.
+# titled for Idris and laid out against Idris's main, not the pin. A record
+# laid out on another's change says so in its README, a line `After:
+# upstream/<bug>`, so it is checked as a re-sync would apply it: its chain
+# of records, the earliest first, applied in order to a copy of the files
+# they touch. A record whose chain fails before it is not checked again
+# here: the record that fails is, on its own chain.
 fork_records() {
   : > "$work/fork.failed"
   for readme in "$root"/upstream/*/README.md; do
-    record=${readme%/README.md}/pull-request.diff
-    [ -f "$record" ] || continue
+    dir=${readme%/README.md}
+    [ -f "$dir/pull-request.diff" ] || continue
     case $(grep -m 1 '^# ' "$readme") in
       '# [Idris2]'*) ;;
       *) continue ;;
     esac
-    git -C "$1" apply --check "$record" > "$work/fork.out" 2>&1 ||
-      { say "${record#"$root"/} does not apply to the pinned Idris:"; show "$work/fork.out"; } >> "$work/fork.failed"
+    # The chain, the earliest record first and this one last.
+    chain=$dir
+    at=$dir
+    while before=$(sed -n 's|^After: upstream/\([^ /]*\)$|\1|p' "$at/README.md" 2> /dev/null | head -n 1) &&
+          [ -n "$before" ]; do
+      at=$root/upstream/$before
+      case " $chain " in
+        *" $at "*) say "${dir#"$root"/}/README.md: its records are laid out after one another in a circle" >> "$work/fork.failed"
+                   continue 2 ;;
+      esac
+      if [ ! -f "$at/pull-request.diff" ]; then
+        say "${dir#"$root"/}/README.md: laid out after upstream/$before, which records no change" >> "$work/fork.failed"
+        continue 2
+      fi
+      chain="$at $chain"
+    done
+    copy=$work/fork-copy
+    rm -rf "$copy" && mkdir -p "$copy" && git -C "$copy" init -q
+    for link in $chain; do
+      git -C "$1" apply --numstat "$link/pull-request.diff" 2> /dev/null | cut -f3
+    done | sort -u | while IFS= read -r path; do
+      if git -C "$1" cat-file -e "HEAD:$path" 2> /dev/null; then
+        mkdir -p "$copy/$(dirname "$path")"
+        git -C "$1" show "HEAD:$path" > "$copy/$path"
+      fi
+    done
+    for link in $chain; do
+      if ! git -C "$copy" apply "$link/pull-request.diff" > "$work/fork.out" 2>&1; then
+        if [ "$link" = "$dir" ]; then
+          { say "${dir#"$root"/}/pull-request.diff does not apply to the pinned Idris after the records before it:"
+            show "$work/fork.out"; } >> "$work/fork.failed"
+        fi
+        break
+      fi
+    done
   done
   if [ -s "$work/fork.failed" ]; then
     cat "$work/fork.failed"

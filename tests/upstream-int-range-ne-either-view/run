@@ -1,0 +1,35 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/102-int-range-ne-either-view: integer range optimization decides
+# `ne` by either view of a range, so a value whose unsigned bounds exclude
+# 0, though its signed ones do not (-5 or 5), compares unequal to 0. The
+# toolchain's mlir-opt --int-range-optimizations on the record's function
+# leaves no comparison, and the function gives back the constants true,
+# for `ne`, and false, for `eq`, in that order. At the pin both
+# comparisons stay. When the pin decides it so, the patch goes, and with it
+# the PINS.md entry, the report and this test (upstream/README.md).
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+bounded "$llvm_bin/mlir-opt" "$root/upstream/102-int-range-ne-either-view/ne-either-view.mlir" \
+  --int-range-optimizations > "$work/out.mlir" 2> "$work/err"
+status=$?
+if [ "$status" -ne 0 ]; then
+  say "ne-either-view: refused (exit $status)"
+  show "$work/err"
+# The values the function gives back, by what defines them: each operand of
+# its return is the result of a constant whose value is true, then false.
+elif ! grep -q 'arith.cmpi' "$work/out.mlir" &&
+     awk '
+       /= arith.constant true/ { value[$1] = "true" }
+       /= arith.constant false/ { value[$1] = "false" }
+       /return / {
+         line = $0; sub(/.*return /, "", line); sub(/ :.*/, "", line)
+         n = split(line, operands, /, */)
+         given = n == 2 && value[operands[1]] == "true" && value[operands[2]] == "false"
+       }
+       END { exit !given }' "$work/out.mlir"; then
+  say "ne-either-view: both comparisons fold, ne to true and eq to false"
+else
+  say "ne-either-view: a comparison stays, as at the unpatched pin"
+  show "$work/out.mlir"
+fi
