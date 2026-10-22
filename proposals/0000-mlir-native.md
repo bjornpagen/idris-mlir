@@ -3969,6 +3969,14 @@ C137.
   op's record names its range function in the specification. §3.2's
   line ("a rule-made node is never folded through an `Operation`")
   stands, and L14's detached-op route goes.
+- **C192** (2026-10-22; L16's seam with L07 and L12; refines C185's
+  adoption). A buffer enters our grades by `own.adopt` where it is
+  allocated, and only there: bufferization places it at each
+  `memref.alloc` it makes for elements that hold references, since only
+  it knows which buffer is an allocation. The frontend writes none: the
+  buffer behind a tensor it stores may be a slice, a parameter's or one
+  read back out of a cell, and adopting it there would count one memory
+  twice.
 
 ## 4. Open: the owner's decisions, in order
 
