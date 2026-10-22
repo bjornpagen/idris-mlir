@@ -299,9 +299,9 @@ Solution solve(const solver::ProgramGraph &graph, MLIRContext &context, solver::
       for (Type type : fn.getResultTypes())
         out.results[f].push_back(raisable(type) ? Unique::Deep : ownership::claimOf(type));
     }
-    // A function alone that does not call itself reads no result of its own,
-    // so one solve settles it.
-    bool alone = members.size() == 1 && !graph.callsItself(members.front());
+    // A component off every cycle reads no result of its own, so one solve
+    // settles it; only a cyclic one solves again when a result rises.
+    bool cyclic = graph.onCycle(component);
     std::uint64_t steps = 0;
     for (bool fell = true; fell;) {
       fell = false;
@@ -317,7 +317,7 @@ Solution solve(const solver::ProgramGraph &graph, MLIRContext &context, solver::
               ownership::greater(ownership::claimOf(type), body.claims[body.returned[index]]);
           if (given != out.results[f][index]) {
             out.results[f][index] = given;
-            fell = !alone;
+            fell = cyclic;
           }
         }
       }
