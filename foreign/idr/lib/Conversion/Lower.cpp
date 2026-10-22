@@ -15,10 +15,12 @@
 // then every function's name mangled and the function made an llvm.func
 // (phase 0). Then each function on its own, in parallel: its exchanges of
 // memo cells as their steps, its matches as scf and its views of memrefs
-// as offsets, sizes and strides, still on idr types (phase 1); every op and type of ours converted into the layouts
-// of Layouts, and every memref op by upstream's patterns or, where the
-// memory is a cell of ours, our own (phase 2); and every region made the
-// blocks upstream's scf patterns make (phase 3). The program is lowered.
+// as offsets, sizes and strides, still on idr types (phase 1); every op
+// and type of ours converted into the layouts of Layouts, every memref op
+// by upstream's patterns or, where the memory is a cell of ours, our own,
+// and every math op whose fold would compute on the compiling machine by
+// upstream's intrinsic (phase 2); and every region made the blocks
+// upstream's scf patterns make (phase 3). The program is lowered.
 
 #include "idr/Conversion/Lower/Lower.h"
 
@@ -26,6 +28,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Traits.h"
+#include "idr/Analysis/Constants.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/Conversion/Arrays.h"
@@ -39,6 +42,7 @@
 
 #include "mlir/Analysis/DataLayoutAnalysis.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
+#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -123,9 +127,14 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
   addMemrefConversions(converter, descriptors, layouts);
 
   target.addIllegalDialect<IdrDialect, memref::MemRefDialect>();
-  target.addLegalDialect<arith::ArithDialect, math::MathDialect, LLVM::LLVMDialect,
-                         cf::ControlFlowDialect, scf::SCFDialect, ub::UBDialect,
-                         affine::AffineDialect>();
+  target.addLegalDialect<arith::ArithDialect, LLVM::LLVMDialect, cf::ControlFlowDialect,
+                         scf::SCFDialect, ub::UBDialect, affine::AffineDialect>();
+  // A math op whose fold would compute on the compiling machine's libm (the
+  // generated never-folded list) is lowered here, where nothing folds, to
+  // upstream's intrinsic, so no upstream driver after this pass meets it to
+  // fold; every other math op stays for upstream's lowering.
+  target.addDynamicallyLegalDialect<math::MathDialect>(
+      [](Operation *op) { return foldingOf(op) == Folding::Folds; });
   target.addLegalOp<UnrealizedConversionCastOp>();
   target.addDynamicallyLegalOp<memref::LoadOp>(
       [](memref::LoadOp op) { return leftToUpstream(op.getMemRefType()); });
@@ -174,6 +183,10 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
   populateRuntimeCallPatterns(set, converter, layouts, runtime);
   populateCheckPatterns(set, converter, layouts, runtime);
   populateMemoPatterns(set, converter, layouts, runtime);
+  // Upstream's own lowering of each math op to its LLVM intrinsic, with no
+  // `nobuiltin` and no `strictfp`; only the ops the target leaves illegal,
+  // the never-folded ones, meet it.
+  populateMathToLLVMConversionPatterns(descriptors, set);
   // Upstream's memref patterns, but for a constant's: a constant array is a
   // cell of ours, static data with its header, where upstream would make a
   // global of its own. The options make no allocation pattern: an

@@ -7,6 +7,7 @@
 // holds no other datum is StaticBytes.cpp's.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Symbols.h"
@@ -43,6 +44,29 @@ Value StaticData::pack(OpBuilder &b, Type structType, ValueRange members) {
   return value;
 }
 
+namespace {
+
+// A constant at the type of the place that holds it (a constant op's
+// result, or a field's slot). A constructor whose own type lays out apart
+// from its place's, a closed one held in place where the place holds its
+// member at an unknown index, is the same constructor at the place's type,
+// so its datum and its words are the place's; a numeral is its value at
+// any width, so it stays as it is.
+Attribute atPlace(Attribute value, Type type) {
+  auto con = dyn_cast<ConAttr>(value);
+  auto place = dyn_cast<DataType>(unrestricted(type));
+  if (!con || !place || families::isNumber(place.layout()) ||
+      families::layoutMatch(con.getData(), place) == LayoutMatch::SameLayout)
+    return value;
+  return ConAttr::get(value.getContext(), place.refinedTo(con.getTag(), {}), con.getFields());
+}
+
+// Whether a constant is a numeral's value: a constructor of a family held
+// as a number.
+bool isNumeral(ConAttr con) { return families::isNumber(con.getData().layout()); }
+
+} // namespace
+
 // The ladder's one step of nesting is a constructor held in place, not in
 // a cell, whose fields are its words, each at the type its slot is laid out
 // at, which for a closed constant is its own unfolding; every other
@@ -55,16 +79,29 @@ SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts 
                                       Attribute value, Type type) {
   auto inPlace = [](Attribute held) {
     auto con = dyn_cast<ConAttr>(held);
-    return con && con.getData().layout() != Layout::Cell ? con : ConAttr();
+    return con && con.getData().layout() == Layout::InPlace ? con : ConAttr();
   };
-  // A datum's address, or a scalar's constant.
+  // A datum's address, or a scalar's constant. A numeral is its value at
+  // its place's width, or as a natural where its place is one; an integer
+  // or a Double is its own type's literal.
   auto leaf = [&](Attribute held, Type heldType) -> Value {
     if (auto text = dyn_cast<StringAttr>(held))
       return staticAddress(b, loc, StaticNames::string(text.getValue()));
     if (auto number = dyn_cast<BigAttr>(held))
       return bigConstant(b, loc, number);
-    if (isa<IntegerAttr, FloatAttr>(held))
-      return LLVM::ConstantOp::create(b, loc, unrestricted(heldType), cast<TypedAttr>(held));
+    if (auto con = dyn_cast<ConAttr>(held); con && isNumeral(con)) {
+      auto place = cast<DataType>(unrestricted(heldType));
+      uint64_t value = families::numeralValue(con);
+      if (place.layout() == Layout::Natural)
+        return bigConstant(b, loc, BigAttr::get(b.getContext(), APInt(64, value)));
+      Type word = layouts.components(place).front().type;
+      return LLVM::ConstantOp::create(b, loc, word,
+                                      IntegerAttr::get(word, static_cast<int64_t>(value)));
+    }
+    if (isa<IntegerAttr, FloatAttr>(held)) {
+      auto literal = cast<TypedAttr>(held);
+      return LLVM::ConstantOp::create(b, loc, literal.getType(), literal);
+    }
     // Poison stands for a cell pointer only: of any other value it is each
     // component's (Cells.cpp).
     if (isa<ub::PoisonAttr>(held))
@@ -78,6 +115,7 @@ SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts 
   SmallVector<Held> order, left{{value, type}};
   while (!left.empty()) {
     Held held = left.pop_back_val();
+    held.value = atPlace(held.value, held.type);
     order.push_back(held);
     if (ConAttr con = inPlace(held.value)) {
       ArrayAttr fields = con.getFields();
@@ -108,6 +146,7 @@ SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts 
 void StaticData::constant(Attribute value, Type type) {
   SmallVector<Held> left{{value, type}};
   auto make = [&](Held held) {
+    held.value = atPlace(held.value, held.type);
     if (auto text = dyn_cast<StringAttr>(held.value))
       return string(text.getValue());
     if (auto number = dyn_cast<BigAttr>(held.value))
@@ -117,6 +156,12 @@ void StaticData::constant(Attribute value, Type type) {
     auto con = dyn_cast<ConAttr>(held.value);
     if (!con)
       return;
+    // A numeral held as a natural past the small range is a big's datum.
+    if (isNumeral(con)) {
+      if (cast<DataType>(unrestricted(held.type)).layout() == Layout::Natural)
+        big(BigAttr::get(at.getContext(), APInt(64, families::numeralValue(con))));
+      return;
+    }
     if (con.getData().layout() == Layout::Cell)
       return cells(con, left);
     // A sum held in place is its words, each field's datum made at the
@@ -141,7 +186,7 @@ void StaticData::cells(ConAttr con, SmallVectorImpl<Held> &left) {
     return;
   DataType data = con.getData();
   Tag tag = con.getTag();
-  families::CtorView ctor = data.ctor(tag);
+  ArrayRef<Type> slots = layouts.fieldTypes(data, tag);
   unsigned runLength = con.getRunLength();
   const layout::Cell &cell = layouts.cells(data).cell(tag);
   // A memo cell, whose kind says a force writes it, is the one static cell
@@ -194,13 +239,13 @@ void StaticData::cells(ConAttr con, SmallVectorImpl<Held> &left) {
     for (auto [position, value] : llvm::enumerate(con.getCell(index).getValue())) {
       unsigned field = con.fieldOfCell(index, static_cast<unsigned>(position));
       held.emplace_back(field, value);
-      left.push_back({value, ctor.fields[field]});
+      left.push_back({value, slots[field]});
     }
     global(StaticNames::cell(con, index), structType, mutability, headerBytes,
            [&](OpBuilder &init) -> Value {
-             SmallVector<SmallVector<Value>> fields(ctor.fields.size());
+             SmallVector<SmallVector<Value>> fields(slots.size());
              for (auto [field, value] : held)
-               fields[field] = constantComponents(init, at, layouts, value, ctor.fields[field]);
+               fields[field] = constantComponents(init, at, layouts, value, slots[field]);
              if (index + 1 < runLength)
                fields[con.getSpine()] = {
                    staticAddress(init, at, StaticNames::cell(con, index + 1))};

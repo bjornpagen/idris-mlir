@@ -73,27 +73,6 @@ struct Repacker {
                                [](const layout::Component &c) { return c.type; });
   }
 
-  // Whether a value of `from` is a value of `to` word for word: one type;
-  // two data types the layouts lay out alike, as their stored facts say;
-  // two arrays of one shape and layout whose elements are alike; or any
-  // other two types of the same components, a natural at any index.
-  bool alike(Type from, Type to) const {
-    if (from == to)
-      return true;
-    auto source = dyn_cast<DataType>(from);
-    auto target = dyn_cast<DataType>(to);
-    if (source && target)
-      return source.layoutMatch(target) == LayoutMatch::SameLayout;
-    auto x = dyn_cast<MemRefType>(from);
-    auto y = dyn_cast<MemRefType>(to);
-    if (x && y && !alike(unrestricted(x.getElementType()), unrestricted(y.getElementType())))
-      return false;
-    return llvm::equal(layouts.components(from), layouts.components(to),
-                       [](const layout::Component &a, const layout::Component &z) {
-                         return a.type == z.type && a.word == z.word;
-                       });
-  }
-
   // The constructors a value may hold at both types.
   static SmallVector<Tag> commonTags(DataType source, DataType target) {
     SmallVector<Tag> tags;
@@ -103,31 +82,11 @@ struct Repacker {
     return tags;
   }
 
-  // Whether re-packing a value of `from` as one of `to` builds a cell or an
-  // array, so that the result is a fresh value.
-  bool builds(Type from, Type to) const {
-    if (alike(from, to))
-      return false;
-    if (isa<MemRefType>(from))
-      return true;
-    auto source = cast<DataType>(from);
-    auto target = cast<DataType>(to);
-    if (families::isNumber(source.layout()))
-      return false;
-    if (target.layout() != Layout::InPlace)
-      return true;
-    for (Tag tag : commonTags(source, target))
-      for (auto [a, z] :
-           llvm::zip_equal(layouts.fieldTypes(source, tag), layouts.fieldTypes(target, tag)))
-        if (builds(unrestricted(a), unrestricted(z)))
-          return true;
-    return false;
-  }
-
-  // Only data types and arrays lay out apart under one family: a natural
-  // is one word at any index.
+  // The same words where the two types are, as the reindex's verifier
+  // reads them. Only data types and arrays lay out apart under one family:
+  // a natural is one word at any index.
   SmallVector<Value> of(Type from, Type to, ValueRange values, Takes takes) const {
-    if (alike(from, to))
+    if (families::layoutMatch(from, to) == LayoutMatch::SameLayout)
       return SmallVector<Value>(values);
     if (auto source = dyn_cast<MemRefType>(from))
       return array(source, cast<MemRefType>(to), values, takes);
@@ -316,7 +275,11 @@ SmallVector<Value> repack(OpBuilder &b, Location loc, const Layouts &layouts, Ru
   Repacker repacker{b, loc, layouts, runtime};
   Type source = unrestricted(from);
   Type target = unrestricted(to);
-  if (takes.own == Taken::Borrowed && repacker.builds(source, target)) {
+  // Whether it builds is the one answer the reindex's verifier reads too,
+  // over the field types the layouts made.
+  if (takes.own == Taken::Borrowed &&
+      families::builds(source, target,
+                       [&](DataType type, Tag tag) { return layouts.fieldTypes(type, tag); })) {
     runtime.inc(b, loc, layouts.components(source), values);
     takes = {Taken::Shared, Taken::Shared};
   }
