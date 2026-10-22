@@ -61,10 +61,10 @@ big = Idr BigType
 
 ||| A natural no index term is known of, and the natural three.
 nat : MlirType
-nat = IdrHand (NatOf [OpaqueNode])
+nat = Idr (NatType [TermNodeOpaque])
 
 nat3 : MlirType
-nat3 = IdrHand (NatOf [NatNode 3])
+nat3 = Idr (NatType [TermNodeNatural 3])
 
 i64 : MlirType
 i64 = IntegerType 64
@@ -73,21 +73,21 @@ i64 = IntegerType 64
 ||| the group's one member by `self`, at its binder's level.
 natLists : MlirAttr
 natLists = IdrHand (FamilyOf
-  [ MkDataMember "List[Nat]" Promise.None (LocAttr (At noLoc)) [SortNat]
-      [ MkCtorDecl "Nil" [] [NatNode 0] []
-      , MkCtorDecl "Cons" [SortNat] [SuccNode 1, LevelNode 0]
-          [nat, IdrHand (SelfOf 0 [LevelNode 0])] ] ])
+  [ MkDataMember "List[Nat]" Promise.None (LocAttr (At noLoc)) [SortOfNatSort]
+      [ MkCtorDecl "Nil" [] [TermNodeNatural 0] []
+      , MkCtorDecl "Cons" [SortOfNatSort] [TermNodeSuccessor 1, TermNodeLevel 0]
+          [nat, IdrHand (SelfOf 0 [TermNodeLevel 0])] ] ])
 
 ||| A vector of naturals of three, and of any length.
 vec3 : MlirType
-vec3 = IdrHand (DataOf natLists 0 [NatNode 3] Nothing)
+vec3 = IdrHand (DataOf natLists 0 [TermNodeNatural 3] Nothing)
 
 vecAny : MlirType
-vecAny = IdrHand (DataOf natLists 0 [OpaqueNode] Nothing)
+vecAny = IdrHand (DataOf natLists 0 [TermNodeOpaque] Nothing)
 
 ||| A vector known to be a cons.
 consCell : MlirType
-consCell = IdrHand (DataOf natLists 0 [OpaqueNode] (Just (DenseI32ArrayAttr [1])))
+consCell = IdrHand (DataOf natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [1])))
 
 types : List MlirType
 types =
@@ -137,8 +137,8 @@ attrs =
   , Idr MutableAttr
   , IdrHand (TerminatesOf (ProvedIn 2))
   , IdrHand (TerminatesOf MadeAcyclic)
-  , IdrHand (BindersOf [SortNat, SortType, SortOpaque])
-  , IdrHand (ArgsOf [NatNode 3, LevelNode 0, SuccNode 2, LevelNode 0, OpaqueNode])
+  , IdrHand (BindersOf [SortOfNatSort, SortOfTypeSort, SortOfOpaqueSort])
+  , IdrHand (ArgsOf [[TermNodeNatural 3], [TermNodeLevel 0], [TermNodeSuccessor 2, TermNodeLevel 0], [TermNodeOpaque]])
   , UnitAttr
   , BoolAttr True
   , FloatAttr 0.1 F64Type
@@ -220,28 +220,28 @@ sample =
       i = MkValue "%i" IndexType
       c4 = MkValue "%c4" IndexType
       cons = MkValue "%cons" consCell
-  in stmt (Idr.funcOp {binders = Just (IdrHand (BindersOf [SortNat]))} "sample"
+  in stmt (Idr.funcOp {binders = Just (IdrHand (BindersOf [SortOfNatSort]))} "sample"
             (FunctionType (MkSignature [vecAny, nat, i64, str] [i64]))
             (block [v, n, x, s]
                [ -- A constructor, its value refined to it, then reindexed.
-                 binding "%nil" (Idr.dataConOp [] [] (IdrHand (DataOf natLists 0 [NatNode 0] (Just (DenseI32ArrayAttr [0])))))
-               , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (IdrHand (DataOf natLists 0 [NatNode 0] (Just (DenseI32ArrayAttr [0]))))) [] vecAny)
+                 binding "%nil" (Idr.dataConOp [] [] (IdrHand (DataOf natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])))))
+               , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (IdrHand (DataOf natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0]))))) [] vecAny)
                , binding "%lin" (Idr.linCastOp x [] (Idr (GradedType Once Nothing i64)))
                , binding "%used" (Idr.linCastOp (MkValue "%lin" (Idr (GradedType Once Nothing i64))) [] i64)
                , binding "%checked" (Idr.checkNonzeroOp (IntegerAttr (natToInteger (position causeClosed DivisionByZero)) (IntegerType 32)) (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x i64)
                  -- A closure and a suspension of functions, with the
                  -- scope's levels.
-               , binding "%f" (Idr.fnClosureOp {indexArgs = Just (IdrHand (ArgsOf [LevelNode 0]))} "callee" [] fn)
-               , binding "%lazy" (Idr.lazySuspendOp {indexArgs = Just (IdrHand (ArgsOf [LevelNode 0]))} "thunk" [x] lazy)
+               , binding "%f" (Idr.fnClosureOp {indexArgs = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} "callee" [] fn)
+               , binding "%lazy" (Idr.lazySuspendOp {indexArgs = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} "thunk" [x] lazy)
                , binding "%applied" (Idr.fnApplyOp (MkValue "%f" fn) [x] [i64])
                  -- A match whose case binds its scrutinee refined to the
                  -- constructor and its binder, its fields reads of it.
                , binding "%m" (Idr.dataMatchOp (DenseI32ArrayAttr [0, 1]) v [] [] NoBlocks
-                                 [ block [MkValue "%none" (IdrHand (DataOf natLists 0 [OpaqueNode] (Just (DenseI32ArrayAttr [0]))))]
+                                 [ block [MkValue "%none" (IdrHand (DataOf natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [0]))))]
                                      [stmt (Idr.yieldOp [MkValue "%checked" i64])]
                                  , block [cons]
                                      [ binding "%hd" (Idr.dataFieldOp (IntegerAttr 0 (IntegerType 64)) cons [] nat)
-                                     , binding "%tl" (Idr.dataFieldOp (IntegerAttr 1 (IntegerType 64)) cons [] (IdrHand (DataOf natLists 0 [LevelNode 1] Nothing)))
+                                     , binding "%tl" (Idr.dataFieldOp (IntegerAttr 1 (IntegerType 64)) cons [] (IdrHand (DataOf natLists 0 [TermNodeLevel 1] Nothing)))
                                      , stmt (Idr.yieldOp [x]) ] ]
                                  [i64])
                , binding "%c4" (Arith.constantOp (IntegerAttr 4 IndexType) IndexType)
@@ -264,7 +264,7 @@ sample =
                , binding "%chosen" (SCF.ifOp (MkValue "%cond" (IntegerType 1))
                                       (block [] [stmt (SCF.yieldOp [x])])
                                       (block [] [stmt (SCF.yieldOp [MkValue "%checked" i64])]) [i64])
-               , binding "%r" (Idr.callOp {indexArgs = Just (IdrHand (ArgsOf [OpaqueNode]))} "callee" NonTail [x] [i64])
+               , binding "%r" (Idr.callOp {indexArgs = Just (IdrHand (ArgsOf [[TermNodeOpaque]]))} "callee" NonTail [x] [i64])
                , stmt (Idr.returnOp [MkValue "%r" i64])
                ]))
   where

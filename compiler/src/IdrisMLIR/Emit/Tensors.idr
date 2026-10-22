@@ -208,10 +208,10 @@ fit ix l slot v = case fitting slot v.type v.refinement of
 ||| takes it (`fit`), the variable `binder` bound to what the slot takes:
 ||| the op's value, or the cast of it.
 export
-fitted : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Maybe Ty -> Ty -> (MlirType -> Op) -> E Val
+fitted : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown} -> Index -> Loc -> Maybe Ty -> Ty -> (MlirType -> Op) -> E Val
 fitted ix l slot made build = case fitting slot made AnyConstructor of
-  AsIs => value {binder} ix l made build
-  _ => fit {binder} ix l slot !(value ix l made build)
+  AsIs => value {binder} {stands} ix l made build
+  _ => fit {binder} ix l slot !(value {stands} ix l made build)
 
 ||| What a region gives where its op takes it: the value at the slot's
 ||| type, plain.

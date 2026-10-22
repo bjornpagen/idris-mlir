@@ -264,7 +264,7 @@ mutual
   names from k (Var _ x) = namesVar from k x
   names from k (Literal _ _) = False
   names from k (PrimApp _ _ _ as) = anyNames from k (toList as)
-  names from k (Effect _ _ _ as _) = anyNames from k as
+  names from k (Effect _ _ _ as world _) = anyNames from k (toList as) || names from k world
   names from k (Call _ _ _ _ as) = anyNames from k as
   names from k (ConApp _ _ _ as) = anyNames from k (toList as)
   names from k (Let _ _ _ v b) = names from k v || names (S from) k b
@@ -276,6 +276,7 @@ mutual
   names from k (Suspend _ body) = names from k body
   names from k (Resume _ e) = names from k e
   names from k (Unreachable _) = False
+  names from k (Assume _ _ _ body) = names from k body
   names from k (Crash _ _) = False
   names from k (CrashWith _ m) = names from k m
   names from k (NewWorld _) = False
@@ -422,21 +423,27 @@ export
 alg : {0 nv : Nat} -> Index -> TermF (Sub Em) nv -> Em nv
 alg ix (VarF l x) sc w = pure (Just (standing (sc.vars x)))
 alg ix (LiteralF l x) sc w = Just <$> literal {binder = w.binder} ix l x
-alg ix (PrimAppF l p _ as) sc w = do
+-- The op a primitive makes names the library definition the registry
+-- lowered to it, where it lowered one, as a function's names its own.
+alg ix (PrimAppF l p stands as) sc w = do
   Just vs <- operands ix l sc (zip (map (map (MkBinder Many)) (slots p)) as)
     | Nothing => pure Nothing
-  Just <$> prim w.binder ix l p vs
--- An IO primitive takes its operands at their own types, the world aside.
-alg ix (EffectF l p gives as res) sc w = do
+  Just <$> prim w.binder stands ix l p vs
+-- An IO primitive takes its operands at their own types, then the world,
+-- which is no value of the module.
+alg ix (EffectF l p gives as world res) sc w = do
   Just vs <- operands ix l sc (unslotted as)
     | Nothing => pure Nothing
-  effect w.binder ix l p gives (present vs) res
+  Just _ <- world.result sc (expecting (Just WorldT))
+    | Nothing => pure Nothing
+  effect w.binder ix l p gives vs res
 -- A call passes its callee's index parameters their terms here and its
 -- arguments at the callee's binders with those terms substituted, so its
 -- operand and result types are the callee's signature at the call. Where
 -- it stands in its function is decided once, by the one definition of tail
 -- position, when the program is first order: the frontend writes every
 -- call `nontail`, which promises nothing, and the source states no other.
+-- A call the registry lowered a library definition's call to names it.
 alg ix (CallF l fn stands is as) sc w = do
   Just f <- pure (lookup fn ix.fns)
     | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
@@ -446,11 +453,12 @@ alg ix (CallF l fn stands is as) sc w = do
     | Nothing => pure Nothing
   let rt = substTy is f.result
       args = map (operand ix) (present vs)
+      indexArgs = Just (IdrHand (ArgsOf (map (termNodes ix) is)))
   case resultTypes ix rt of
     [] => do
-      statement l (Idr.callOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix is)))} f.symbol NonTail args [])
+      ignore (placed (madeAtPlace Nothing (placeOf stands l) Many) (Idr.callOp {indexArgs} f.symbol NonTail args []))
       pure (Just worldVal)
-    [r] => Just <$> fitted {binder = w.binder} ix l w.type rt (\t => Idr.callOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix is)))} f.symbol NonTail args [t])
+    [r] => Just <$> fitted {binder = w.binder} {stands} ix l w.type rt (\t => Idr.callOp {indexArgs} f.symbol NonTail args [t])
     _ => internal ("a call of " ++ f.symbol ++ " giving more than one value")
 -- A constructor's fields are checked at their types with its binders
 -- given.
@@ -603,13 +611,13 @@ alg ix (LamF l name b body) sc w = do
           >>= traverse (fit ix l result)
       st <- get
       put ({ nextBinder $= S } st)
-      pure ([MkArgument arg (Binder name l st.ownerSymbol st.nextBinder)], r, ops)
+      pure ([MkArgument arg (Binder name (Spanned l) st.ownerSymbol st.nextBinder)], r, ops)
   Just t <- pure (result <|> map (.type) r)
     | Nothing => internal "the result type of a lambda whose body never returns"
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedLambda (map (sortOf ix) sc.telescope) args ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) t) captures
-                   (Idr.fnClosureOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix (levels sc.telescope))))} sym captures)
+                   (Idr.fnClosureOp {indexArgs = Just (IdrHand (ArgsOf (map (termNodes ix) (levels sc.telescope))))} sym captures)
 alg ix (AppF l f x) sc w = do
   Just fv <- plain ix l (f.result sc (expecting Nothing))
     | Nothing => pure Nothing
@@ -637,7 +645,7 @@ alg ix (SuspendF l body) sc w = do
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedDelay (map (sortOf ix) sc.telescope) [] ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (LazyT t) captures
-                   (Idr.lazySuspendOp {indexArgs = Just (IdrHand (ArgsOf (termNodes ix (levels sc.telescope))))} sym captures)
+                   (Idr.lazySuspendOp {indexArgs = Just (IdrHand (ArgsOf (map (termNodes ix) (levels sc.telescope))))} sym captures)
 alg ix (ResumeF l e) sc w = do
   Just ev <- plain ix l (e.result sc (expecting Nothing))
     | Nothing => pure Nothing
@@ -707,6 +715,14 @@ alg ix (TabulateIOF {k} l rt es w body step done) sc wanted = do
 alg ix (UnreachableF l) sc _ = do
   statement l UB.unreachableOp
   pure Nothing
+-- An erased equality Idris proved holds in a region, its sides index terms
+-- of the scope, and nothing forwarded into it: the region gives the body's
+-- value at the type the context expects, cast to it inside, where the
+-- equation makes the two types one.
+alg ix (AssumeF l lhs rhs body) sc w = do
+  (res, ops) <- collect (plain ix l (body.result sc ({ binder := Nothing } w)))
+  let equation = IdrHand (EquationOf (termNodes ix lhs) (termNodes ix rhs))
+  match ix l w (\_, d, ts => Idr.indexAssumeOp equation [] d ts) [] (Just (MkArm [] res ops))
 -- A crash ends its region: its cause, its site and the definition it is
 -- in are data the op holds; a trusted library's crash of a string reports
 -- that string.

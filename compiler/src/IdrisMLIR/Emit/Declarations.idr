@@ -33,7 +33,7 @@ parameter : Index -> Loc -> String -> (Nat, (Shown, Binder)) -> E (InScope, Mayb
 parameter ix l sym (i, (name, MkBinder _ WorldT)) = pure (World, Nothing)
 parameter ix l sym (i, (name, b)) = do
   (v, o) <- freshVal ix b.type b.quantity
-  pure (Whole v, Just (MkArgument o (Binder name l sym i)))
+  pure (Whole v, Just (MkArgument o (Binder name (Spanned l) sym i)))
 
 ||| A function, located by its Idris name, each parameter by the name Idris
 ||| gave it, its erased index parameters its telescope, then the functions

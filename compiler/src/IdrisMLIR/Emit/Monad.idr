@@ -152,16 +152,35 @@ export
 expecting : Maybe Ty -> Wanted
 expecting t = MkWanted t Nothing
 
-||| Where an op that makes a value bound to `binder` stands: at the name of
-||| the variable, when the variable holds it as it is made, so that MLIR
-||| names the SSA value after the Idris variable (an op's result has the
-||| op's location, the one place MLIR keeps a result's name); else at `l`.
-||| A value made at other uses than its variable's is cast into it by an op
-||| of its own, which stands at the name.
+||| An op at a place no variable names.
+unbound : Place -> Location
+unbound (Spanned l) = At l
+unbound (Lowered d l) = Named d l
+
+||| Where an op that makes a value bound to `binder` stands, at the place
+||| `p`: at the name of the variable, when the variable holds it as it is
+||| made, so that MLIR names the SSA value after the Idris variable (an
+||| op's result has the op's location, the one place MLIR keeps a result's
+||| name); else at the place, a span, or the library definition the
+||| registry lowered there. A value made at other uses than its variable's
+||| is cast into it by an op of its own, which stands at the name.
+export
+madeAtPlace : Maybe Binding -> Place -> Uses -> Location
+madeAtPlace (Just b) p u = case (b.held, u) of
+  (Once, Once) => Binder b.name p b.definition b.number
+  (Many, Many) => Binder b.name p b.definition b.number
+  _ => unbound p
+madeAtPlace Nothing p u = unbound p
+
+||| Where an op that makes a value bound to `binder` stands at the span
+||| `l`, as `madeAtPlace` says.
 export
 madeAt : Maybe Binding -> Loc -> Uses -> Location
-madeAt (Just b) l u = case (b.held, u) of
-  (Once, Once) => Binder b.name l b.definition b.number
-  (Many, Many) => Binder b.name l b.definition b.number
-  _ => At l
-madeAt Nothing l u = At l
+madeAt binder l = madeAtPlace binder (Spanned l)
+
+||| The place of an op at `l`: where the registry lowered the library
+||| definition `stands` names, if it lowered one there.
+export
+placeOf : Maybe Shown -> Loc -> Place
+placeOf Nothing l = Spanned l
+placeOf (Just d) l = Lowered d l

@@ -44,6 +44,7 @@ import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Families.Terms
+import IdrisMLIR.Spec.Functions.Termination
 
 import Control.Monad.Error.Either
 import Data.Buffer
@@ -441,17 +442,21 @@ library w l inner =
     then attrEntry w BuiltinDialect (encodeFusedLocWithMetadata [inner] !(stringAttrNumber w "library"))
     else pure inner
 
+||| A name at a span (`NameLoc`), or at another name.
+nameNumber : Writer -> Shown -> AttrRef -> W AttrRef
+nameNumber w n child = attrEntry w BuiltinDialect (encodeNameLoc !(stringAttrNumber w (show n)) child)
+
 ||| A location, builtin's records: a span, or a name at one (`NameLoc`);
 ||| a binder's is its name fused with its identity, `#idr.binder<@def, i>`,
-||| the definition by its symbol.
+||| the definition by its symbol, its name at the definition the registry
+||| lowered where the binder's op stands.
 locationNumber : Writer -> Location -> W AttrRef
 locationNumber w (At l) = library w l !(placeNumber w l.located)
-locationNumber w (Named n l) = do
-  name <- stringAttrNumber w (show n)
-  child <- placeNumber w l.located
-  library w l !(attrEntry w BuiltinDialect (encodeNameLoc name child))
-locationNumber w (Binder n l def k) = do
-  named <- locationNumber w (Named n l)
+locationNumber w (Named n l) = library w l !(nameNumber w n !(placeNumber w l.located))
+locationNumber w (Binder n p def k) = do
+  named <- case p of
+    Spanned l => locationNumber w (Named n l)
+    Lowered d l => library w l !(nameNumber w n !(nameNumber w d !(placeNumber w l.located)))
   definition <- attrTextEntry w (SymbolRefAttr (MkSymbolRef def []))
   identity <- attrEntry w IdrDialect (encodeBinderAttr definition k)
   attrEntry w BuiltinDialect (encodeFusedLocWithMetadata [named] identity)
@@ -523,8 +528,24 @@ doubleBits d =
         then (e + 1023) * 0x10000000000000 + cast {to = Integer} ((m - 1.0) * twoTo 52)
         else cast {to = Integer} (x * twoTo 1074)
 
+||| An array of values a wire lays out, as the dialect's C++ reads one: its
+||| count, then each value's parts. The families' parameters still take
+||| their parts laid out, so the writer lays out the array the wire's codec
+||| reads.
+arrayParts : (a -> List Part) -> List a -> List Part
+arrayParts parts xs = VarInt (length xs) :: concatMap parts xs
+
+||| A termination proof, as the dialect's hand codec reads it: zero for a
+||| made function's acyclicity, else one more than the component Idris
+||| proved it in.
+proofParts : Proof -> List Part
+proofParts MadeAcyclic = [VarInt 0]
+proofParts (ProvedIn c) = [VarInt (S c)]
+
 -- Every recursion is on a part of the type or attribute written, through
--- mutual helpers for lists, so that totality holds.
+-- mutual helpers for lists and for each value a wire lays out, so that
+-- totality holds: the wire's generated traversals take the numbering as a
+-- function, through which no host can see the recursion end.
 mutual
   ||| The one switch over the kinds of type: how `t` is written.
   native : Writer -> MlirType -> W Native
@@ -563,24 +584,24 @@ mutual
   idrType w (DestType v) = encodeDestType <$> typeNumber w v
   idrType w StrType = pure encodeStrType
   idrType w BigType = pure encodeBigType
-  idrType w (NatType i) = pure (encodeNatType i)
+  idrType w (NatType i) = encodeNatType <$> nodesNumbered w i
   idrType w (FnType ins outs) = encodeFnType <$> typeNumbers w ins <*> typeNumbers w outs
   idrType w (LazyType v) = encodeLazyType <$> typeNumber w v
   idrType w (DataType g m is r bs) = pure (encodeDataType g m is r bs)
   idrType w (SelfType m is) = pure (encodeSelfType m is)
 
   ||| A hand-coded `idr` type: what it holds numbered, then its parts laid
-  ||| out as the dialect's C++ reads them (`MLIR.HandEncoding`). A data type's
-  ||| one constructor's undetermined binders are never the frontend's to
-  ||| state: a case binds them as index variables of its region.
+  ||| out as the wire's codecs read them (IdrisMLIR.Encoding.Wire): a family
+  ||| and a refinement as the attribute or none, terms as their array. A data
+  ||| type's one constructor's undetermined binders are never the frontend's
+  ||| to state: a case binds them as index variables of its region.
   handType : Writer -> HandType MlirType MlirAttr -> W (List Part)
   handType w (DataOf g m is r) = do
     g' <- attrNumber w g
     is' <- nodesNumbered w is
     r' <- maybeAttrNumber w r
-    pure (encodeDataType (groupParts g') m (termsParts is') (refinementParts r') (termsParts (the (List (TermNode TypeRef AttrRef)) [])))
-  handType w (SelfOf m is) = encodeSelfType m . termsParts <$> nodesNumbered w is
-  handType w (NatOf i) = encodeNatType . termsParts <$> nodesNumbered w i
+    pure (encodeDataType [AttrAt g'] m (arrayParts partsTermNode is') [OptionalAttrAt r'] (arrayParts partsTermNode []))
+  handType w (SelfOf m is) = encodeSelfType m . arrayParts partsTermNode <$> nodesNumbered w is
 
   ||| A type's entry.
   export
@@ -616,24 +637,29 @@ mutual
   nodesNumbered w (n :: ns) = (::) <$> node n <*> nodesNumbered w ns
     where
       node : TermNode MlirType MlirAttr -> W (TermNode TypeRef AttrRef)
-      node (NatNode k) = pure (NatNode k)
-      node (LevelNode k) = pure (LevelNode k)
-      node (SuccNode k) = pure (SuccNode k)
-      node (LitNode a) = LitNode <$> attrNumber w a
-      node (ConNode g m t k) = (\g' => ConNode g' m t k) <$> maybeAttrNumber w g
-      node OpaqueNode = pure OpaqueNode
+      node (TermNodeNatural k) = pure (TermNodeNatural k)
+      node (TermNodeLevel k) = pure (TermNodeLevel k)
+      node (TermNodeSuccessor k) = pure (TermNodeSuccessor k)
+      node (TermNodeLiteral a) = TermNodeLiteral <$> attrNumber w a
+      node (TermNodeConstructor g m t k) = (\g' => TermNodeConstructor g' m t k) <$> maybeAttrNumber w g
+      node TermNodeOpaque = pure TermNodeOpaque
 
-  ||| Sorts, each scalar's type and member's group by its entry.
+  ||| Index terms, each its nodes numbered.
+  termsNumbered : Writer -> List (List (TermNode MlirType MlirAttr)) -> W (List (List (TermNode TypeRef AttrRef)))
+  termsNumbered w [] = pure []
+  termsNumbered w (t :: ts) = (::) <$> nodesNumbered w t <*> termsNumbered w ts
+
+  ||| Sorts, each scalar's type attribute and member's group by its entry.
   sortsNumbered : Writer -> List (SortOf MlirType MlirAttr) -> W (List (SortOf TypeRef AttrRef))
   sortsNumbered w [] = pure []
   sortsNumbered w (x :: xs) = (::) <$> sort x <*> sortsNumbered w xs
     where
       sort : SortOf MlirType MlirAttr -> W (SortOf TypeRef AttrRef)
-      sort SortNat = pure SortNat
-      sort SortType = pure SortType
-      sort SortOpaque = pure SortOpaque
-      sort (SortScalar t) = SortScalar <$> typeNumber w t
-      sort (SortFamily g m) = (\g' => SortFamily g' m) <$> maybeAttrNumber w g
+      sort SortOfNatSort = pure SortOfNatSort
+      sort SortOfTypeSort = pure SortOfTypeSort
+      sort SortOfOpaqueSort = pure SortOfOpaqueSort
+      sort (SortOfScalarSort a) = SortOfScalarSort <$> attrNumber w a
+      sort (SortOfFamilySort g m) = (\g' => SortOfFamilySort g' m) <$> maybeAttrNumber w g
 
   ||| Constructors, what each holds by its entry.
   ctorsNumbered : Writer -> List (CtorDecl MlirType MlirAttr) -> W (List (CtorDecl TypeRef AttrRef))
@@ -680,10 +706,16 @@ mutual
   idrAttr : Writer -> IdrAttr MlirType MlirAttr -> W (List Part)
   idrAttr w (BinderAttr d i) = (\d' => encodeBinderAttr d' i) <$> attrNumber w d
   idrAttr w MutableAttr = pure encodeMutableAttr
-  idrAttr w (PutBoundsAttr bs) = pure (encodePutBoundsAttr bs)
+  -- A put bound, a scoped value's lifetime and a bound between lifetimes
+  -- hold numbers alone, the same values at any types and attributes.
+  idrAttr w (PutBoundsAttr bs) = pure (encodePutBoundsAttr (map (\(MkPutBound p n) => MkPutBound p n) bs))
   idrAttr w (GivenBackEntryAttr r rfs a afs) = pure (encodeGivenBackEntryAttr r rfs a afs)
-  idrAttr w (GivenBackAttr es) = pure (encodeGivenBackAttr es)
-  idrAttr w (LivesInAttr ps rs bs) = pure (encodeLivesInAttr ps rs bs)
+  idrAttr w (GivenBackAttr es) = encodeGivenBackAttr <$> attrNumbers w es
+  idrAttr w (LivesInAttr ps rs bs) =
+    pure (encodeLivesInAttr (map livesIn ps) (map livesIn rs) (map (\(MkOutlives a b) => MkOutlives a b) bs))
+    where
+      livesIn : LivesIn MlirType MlirAttr -> LivesIn TypeRef AttrRef
+      livesIn (MkLivesIn v l) = MkLivesIn v l
   idrAttr w (TerminatesAttr p) = pure (encodeTerminatesAttr p)
   idrAttr w (SiteAttr file line column function) = pure (encodeSiteAttr file line column function)
   idrAttr w (FamilyAttr ms) = pure (encodeFamilyAttr ms)
@@ -694,11 +726,17 @@ mutual
   idrAttr w (BigAttr n) = pure (encodeBigAttr n)
 
   ||| A hand-coded `idr` attribute: what it holds numbered, then its parts
-  ||| laid out as the dialect's C++ reads them (`MLIR.HandEncoding`).
+  ||| laid out as the wire's codecs read them (IdrisMLIR.Encoding.Wire): a
+  ||| group's members as an array of members, each a data member; the terms
+  ||| a call gives, their nodes in order, and how many terms they are.
   handAttr : Writer -> HandAttr MlirType MlirAttr -> W (List Part)
-  handAttr w (FamilyOf ms) = encodeFamilyAttr . membersParts <$> membersNumbered w ms
-  handAttr w (BindersOf ss) = encodeIndexBindersAttr . sortsParts <$> sortsNumbered w ss
-  handAttr w (ArgsOf ts) = (\ts' => encodeIndexArgsAttr (termsParts ts') (countTerms ts')) <$> nodesNumbered w ts
+  handAttr w (FamilyOf ms) = encodeFamilyAttr . arrayParts (partsMemberOf . MemberOfData) <$> membersNumbered w ms
+  handAttr w (BindersOf ss) = encodeIndexBindersAttr . arrayParts partsSortOf <$> sortsNumbered w ss
+  handAttr w (ArgsOf ts) =
+    (\ns => encodeIndexArgsAttr (arrayParts partsTermNode (concat ns)) (length ts)) <$> termsNumbered w ts
+  handAttr w (EquationOf lhs rhs) =
+    (\l, r => encodeEquationAttr (arrayParts partsTermNode l) (arrayParts partsTermNode r))
+      <$> nodesNumbered w lhs <*> nodesNumbered w rhs
   handAttr w (TerminatesOf p) = pure (encodeTerminatesAttr (proofParts p))
 
   attrNumbers : Writer -> List MlirAttr -> W (List AttrRef)

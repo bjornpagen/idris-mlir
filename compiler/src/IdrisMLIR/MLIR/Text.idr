@@ -139,15 +139,22 @@ twos w n = let m = pow w
 -- Locations
 ------------------------------------------------------------------------------
 
+||| Where a binder's op stands: at a span; or at a span where the registry
+||| lowered a library definition's call to the op, which names the
+||| definition there, so the module names every definition its program
+||| uses.
+public export
+data Place = Spanned Loc | Lowered Shown Loc
+
 ||| An operation's location: a source span; an Idris name at one, MLIR's
-||| `NameLoc`; or a binder of a definition's, its name at its span fused
+||| `NameLoc`; or a binder of a definition's, its name at its place fused
 ||| with its identity (`#idr.binder`: the definition's symbol and the
 ||| binder's number in it), the one key a check of a binder's quantity
 ||| reads. Names reach MLIR only this way: as debug information, which
 ||| passes keep and diagnostics print, and never as data a pass could
 ||| compare.
 public export
-data Location = At Loc | Named Shown Loc | Binder Shown Loc String Nat
+data Location = At Loc | Named Shown Loc | Binder Shown Place String Nat
 
 ||| A span of a file as MLIR writes a `FileLineColRange`, 1-based at both
 ||| ends: one point, a range on one line, or a range across lines.
@@ -182,4 +189,6 @@ export
 location : Location -> String
 location (At l) = wrapped l (fromMaybe "unknown" (placeText l.located))
 location (Named n l) = wrapped l (quoted (show n) ++ maybe "" (\p => "(" ++ p ++ ")") (placeText l.located))
-location (Binder n l _ _) = location (Named n l)
+location (Binder n (Spanned l) _ _) = location (Named n l)
+location (Binder n (Lowered d l) _ _) =
+  wrapped l (quoted (show n) ++ "(" ++ quoted (show d) ++ maybe "" (\p => "(" ++ p ++ ")") (placeText l.located) ++ ")")

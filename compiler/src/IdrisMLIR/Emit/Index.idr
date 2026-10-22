@@ -109,7 +109,7 @@ mutual
   typeIn a DoubleT = F64Type
   typeIn a StrT = Idr StrType
   typeIn a BigT = Idr BigType
-  typeIn a (NatT t) = IdrHand (NatOf (nodeIn a t))
+  typeIn a (NatT t) = Idr (NatType (nodeIn a t))
   typeIn a WorldT = NoneType
   typeIn a (DataT f ts) = case lookup f a.members of
     Just m => IdrHand (SelfOf m (nodesIn a ts))
@@ -159,17 +159,17 @@ mutual
   nodesIn a (t :: ts) = nodeIn a t ++ nodesIn a ts
 
   nodeIn : Among -> ITerm -> List (TermNode MlirType MlirAttr)
-  nodeIn a (INat n) = [NatNode (cast n)]
-  nodeIn a (IVar k) = [LevelNode k]
-  nodeIn a (ISucc t k) = SuccNode k :: nodeIn a t
-  nodeIn a (ILit l) = [LitNode (litAttr l)]
-  nodeIn a (IType t) = [LitNode (TypeAttr (typeIn a t))]
+  nodeIn a (INat n) = [TermNodeNatural (cast n)]
+  nodeIn a (IVar k) = [TermNodeLevel k]
+  nodeIn a (ISucc t k) = TermNodeSuccessor k :: nodeIn a t
+  nodeIn a (ILit l) = [TermNodeLiteral (litAttr l)]
+  nodeIn a (IType t) = [TermNodeLiteral (TypeAttr (typeIn a t))]
   nodeIn a (ICon f c args) = case lookup f a.members of
-    Just m => ConNode Nothing m c (length args) :: nodesIn a args
+    Just m => TermNodeConstructor Nothing m c (length args) :: nodesIn a args
     Nothing => case lookup f a.declared of
-      Just e => ConNode (Just e.group) e.member c (length args) :: nodesIn a args
-      Nothing => [OpaqueNode]
-  nodeIn a IOpaque = [OpaqueNode]
+      Just e => TermNodeConstructor (Just e.group) e.member c (length args) :: nodesIn a args
+      Nothing => [TermNodeOpaque]
+  nodeIn a IOpaque = [TermNodeOpaque]
 
 ||| What the specification's grade says of a hold the frontend writes:
 ||| freed by its count with no claim of its sharing, or with all it reaches
@@ -214,24 +214,25 @@ untaken ix f taken = case lookup f ix.families of
   Just e => filter (\t => not (elem t taken)) (take (length e.family.cons) [0 .. length e.family.cons])
   Nothing => []
 
-||| The module's index terms of Core's, among the program's families.
+||| The module's index term of a Core one, among the program's families:
+||| its nodes, in preorder.
 export
-termNodes : Index -> List ITerm -> List (TermNode MlirType MlirAttr)
-termNodes ix = nodesIn (MkAmong ix.families empty)
+termNodes : Index -> ITerm -> List (TermNode MlirType MlirAttr)
+termNodes ix = nodeIn (MkAmong ix.families empty)
 
 ||| The module's sort of a Core sort, among the families given: a member of
 ||| the group being declared names no group, one of an earlier group its
 ||| group's attribute.
 sortIn : Among -> Sort -> SortOf MlirType MlirAttr
-sortIn a SNat = SortNat
-sortIn a SType = SortType
-sortIn a SOpaque = SortOpaque
-sortIn a (SScalar t) = SortScalar (typeIn a t)
+sortIn a SNat = SortOfNatSort
+sortIn a SType = SortOfTypeSort
+sortIn a SOpaque = SortOfOpaqueSort
+sortIn a (SScalar t) = SortOfScalarSort (TypeAttr (typeIn a t))
 sortIn a (SFamily f) = case lookup f a.members of
-  Just m => SortFamily Nothing m
+  Just m => SortOfFamilySort Nothing m
   Nothing => case lookup f a.declared of
-    Just e => SortFamily (Just e.group) e.member
-    Nothing => SortOpaque
+    Just e => SortOfFamilySort (Just e.group) e.member
+    Nothing => SortOfOpaqueSort
 
 ||| The module's sort of a Core sort, among the program's families.
 export

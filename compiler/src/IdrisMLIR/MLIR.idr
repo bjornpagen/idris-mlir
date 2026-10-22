@@ -22,8 +22,9 @@ module IdrisMLIR.MLIR
 
 import public IdrisMLIR.MLIR.Text
 import public IdrisMLIR.Encoding.Idr
-import public IdrisMLIR.MLIR.HandEncoding
+import public IdrisMLIR.Encoding.Wire
 import IdrisMLIR.Spec.Core.Dialect
+import IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Syntax.Linalg
 import IdrisMLIR.Syntax.UB
@@ -49,6 +50,40 @@ Eq Dim where
   Static a == Static b = a == b
   Dynamic == Dynamic = True
   _ == _ = False
+
+------------------------------------------------------------------------------
+-- What the families' C++ reads whole
+------------------------------------------------------------------------------
+
+-- The values the families' types and attributes hold are the wire's
+-- (IdrisMLIR.Encoding.Wire), printed from the specification for both
+-- readers. These types and attributes take them laid out, so the frontend
+-- holds them typed here until the writer has numbered what they hold.
+
+||| The hand-coded `idr` types: `!idr.data`, a member of a family's group
+||| applied to one term per index, the nodes of every term in order, refined
+||| to the tags a dense array of `i32` holds (none unrefined, empty
+||| uninhabited); and `!idr.self`, a member of the group being declared, in
+||| a field of that group.
+public export
+data HandType : (ty, at : Type) -> Type where
+  DataOf : (group : at) -> (member : Nat) -> (indices : List (TermNode ty at)) -> (refinement : Maybe at) -> HandType ty at
+  SelfOf : (member : Nat) -> (indices : List (TermNode ty at)) -> HandType ty at
+
+||| The hand-coded `idr` attributes: `#idr.family`, a group's data members,
+||| the only members the frontend declares; `#idr.index_binders`, the sorts
+||| of a function's index parameters or a region's binders;
+||| `#idr.index_args`, the terms a call or a lifted function's maker gives
+||| them, each its nodes, so their count is the list's; `#idr.equation`, an
+||| erased equality's two terms; and `#idr.terminates`, what Idris proved
+||| of a function's loops.
+public export
+data HandAttr : (ty, at : Type) -> Type where
+  FamilyOf : List (DataMember ty at) -> HandAttr ty at
+  BindersOf : List (SortOf ty at) -> HandAttr ty at
+  ArgsOf : List (List (TermNode ty at)) -> HandAttr ty at
+  EquationOf : (lhs, rhs : List (TermNode ty at)) -> HandAttr ty at
+  TerminatesOf : Proof -> HandAttr ty at
 
 ||| The text a dialect's syntax gives one of its attributes, for the
 ||| dialects whose attributes cross as text. It is made with the value it
