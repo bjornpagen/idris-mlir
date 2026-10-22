@@ -443,7 +443,13 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
 - No assertions (2026-10-21): the toolchain's LLVM and MLIR are built
   without them, in the one toolchain the tests run and the compiler
   ships with, and our C++ has no `assert`; an invariant one would
-  re-test is a type, a verifier rule, or nothing.
+  re-test is a type, a verifier rule, or nothing. Nor does our code check its
+  own invariants at run time in any other spelling: "we should strive to
+  prove things rather than assert them, or refactor the represnetations
+  such that invalid states are unrepresentable" (2026-10-22). An
+  `internal` error, `llvm_unreachable`, `assert_total`, `assert_smaller`
+  or `believe_me` of ours is a missing type or a missing proof; one stays
+  only for a fact not known until run time, and says so.
 - A choice is a type or an enum case, never a `bool`. Nothing static is
   built per function; no attribute or type is made on a worker's hot path;
   no pointer-keyed map holds per-node state; a fact that can be numbered
@@ -611,6 +617,15 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   second source: a C++ build never waits on Idris, and a reviewer sees
   what a specification change produces. Upstream's own `.td` files
   (MLIR's `OpBase.td` and kin) stay upstream's.
+- Code is never kept worse to spare the compiler: "we should undo the
+  damage from rewriting our parser in a simpler form taht our compiler
+  can handle, our codebase should be great as fuck. our compiler is
+  better now and we should be doing the maximally good thing for our
+  code" (2026-10-22). Where idris-mlir does not compile the best form of
+  our own code and the program fixes the construct's runtime choices,
+  the compiler gains the construct; only a megamorphic one stays
+  rewritten. Never: the fork's parser rewritten from upstream's deep
+  embedding into a shallow one with five `assert_total`s (360db182).
 - The Idris side is refactored wherever the representation calls for it:
   "if we need to heavily refactor our idris code, representation first, so
   be it" (2026-10-21); type-driven (indices, views, erased proofs, evidence

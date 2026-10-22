@@ -1653,6 +1653,33 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   and routes each error to its lane overnight; the toolchain's bootstrap
   and the C++ build on the four targets run on the owner's machines, and
   their failures are routed the same way.
+- **D112** (2026-10-22; the owner, on the assertions). "why are we doing
+  so many assertions? can we fix a lot of the assertions pls? especially
+  for our own compiler. we should strive to prove things rather than
+  assert them, or refactor the represnetations such that invalid states
+  are unrepresentable." Every check our code makes of its own invariant
+  at run time (an `internal` error in the frontend, an internal error or
+  `llvm_unreachable` in the C++, an `assert_total`, `assert_smaller` or
+  `believe_me` in the fork) is removed by changing the representation so
+  the state it rules out cannot be built, or by carrying the proof. One
+  stays only where the fact is not known until run time (the program's
+  input, the machine, which registered op an `Operation *` is), and the
+  code that keeps it says so. The host's declared trusts are reviewed by
+  the same rule: each one Idris can prove is proved.
+- **D113** (2026-10-22; the owner, on the code rewritten for the
+  compiler). "we should undo the damage from rewriting our parser in a
+  simpler form taht our compiler can handle, our codebase should be great
+  as fuck. our compiler is better now and we should be doing the
+  maximally good thing for our code." Code of ours that was rewritten
+  into a worse form so that an earlier compiler could compile it is
+  rewritten back into its best form: the fork's parser returns to
+  upstream's deep embedding, and every rewrite the fork's README lists
+  under "Rewritten so that this compiler can compile it" returns to
+  upstream's form or a better one. Where the compiler does not yet
+  compile the restored form and the program fixes the set of its runtime
+  choices, the compiler gains the construct; the code is never kept worse
+  to spare the compiler. Only a megamorphic construct, which the
+  language's rule refuses, stays rewritten, with its reason.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places
@@ -4347,6 +4374,9 @@ C137.
   their count, and every assertion goes. `covering` would meet the rule
   too, but it spreads to every caller and proves nothing; the evidence
   costs nothing at run time.
+  *Superseded* by D113 the same day: the parser returns to upstream's
+  deep embedding, which the totality checker sees as guarded with no
+  assertion, and the compiler gains what it needs to compile it.
 
 ## 4. Open: the owner's decisions, in order
 
