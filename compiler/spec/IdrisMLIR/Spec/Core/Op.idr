@@ -333,6 +333,14 @@ distinct : List Ident -> Bool
 distinct [] = True
 distinct (x :: xs) = not (elem x xs) && distinct xs
 
+||| Where the frontend finds the crash causes a guard names, as its printed
+||| builders write one.
+public export
+causeEnum : ImportedEnum
+causeEnum = imported causeClosed
+  (MkSource ("IdrisMLIR" ::: ["Spec", "Runtime", "Endings"]) "Cause"
+            ("IdrisMLIR" ::: ["Spec", "Runtime", "Endings"]) "causeClosed")
+
 -- An op's guards are ops of ours, an admitted op takes guards too, and a
 -- constant of an op's names an admitted op: the four refer to each other,
 -- so they are declared together.

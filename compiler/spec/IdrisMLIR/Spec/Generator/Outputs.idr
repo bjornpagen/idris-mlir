@@ -135,12 +135,16 @@ admittedBaseTd =
     [ "// A guard an admitted op takes, which its Idris builder gives with it:"
     , "// the guard op's dialect, as the specification names it, and its name"
     , "// there; the positions among upstream's operand groups of those it is"
-    , "// given (the one it guards first); and the number of the cause its"
-    , "// crash names."
-    , "class IdrAdmittedGuard<string dialect, string check, list<int> given, int cause> {"
+    , "// given (the one it guards first); and the cause its crash names, by"
+    , "// its position in the closed set of causes, which the module and name"
+    , "// give, so the builder writes the cause typed."
+    , "class IdrAdmittedGuard<string dialect, string check, list<int> given,"
+    , "                       string causeHome, string causeSet, int cause> {"
     , "  string guardDialect = dialect;"
     , "  string guardName = check;"
     , "  list<int> operandGroups = given;"
+    , "  string causeModule = causeHome;"
+    , "  string causeSetName = causeSet;"
     , "  int causeNumber = cause;"
     , "}"
     , ""
@@ -160,13 +164,15 @@ admittedBaseTd =
     , "" ]
 
 ||| A guard of an admitted op, as its record's argument: its op by the
-||| dialect it is defined in and its name there, its groups, and its
-||| cause's position.
+||| dialect it is defined in and its name there, its groups, and its cause
+||| by the closed set's module and name and its position there.
 admittedGuard : Guard Nat -> String
 admittedGuard g =
   "IdrAdmittedGuard<" ++ quoted (identText (dialectName (homeDialect g.check.home))) ++ ", "
     ++ quoted (mnemonicText g.check.mnemonic) ++ ", ["
-    ++ joinWith ", " (map decimal (toList g.given)) ++ "], " ++ decimal (position causeClosed g.cause) ++ ">"
+    ++ joinWith ", " (map decimal (toList g.given)) ++ "], "
+    ++ quoted (moduleName causeEnum.source.setHome) ++ ", " ++ quoted (identText causeEnum.source.setName) ++ ", "
+    ++ decimal (position causeClosed g.cause) ++ ">"
 
 export
 admittedRow : Admitted -> String

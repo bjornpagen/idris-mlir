@@ -104,11 +104,23 @@ export
 enumType : ImportedEnum -> String
 enumType e = moduleName e.source.typeHome ++ "." ++ identText e.source.typeName
 
+||| A closed set, by its full name, so no import can make it ambiguous.
+export
+enumSet : ImportedEnum -> String
+enumSet e = moduleName e.source.setHome ++ "." ++ identText e.source.setName
+
 ||| A value's position among its closed set's cases, the wire form, as an
 ||| expression over its binder: the closed set's own order computes it.
 export
 enumPosition : ImportedEnum -> String -> String
-enumPosition e v = "position " ++ moduleName e.source.setHome ++ "." ++ identText e.source.setName ++ " " ++ v
+enumPosition e v = "position " ++ enumSet e ++ " " ++ v
+
+||| The case at a position of a closed set, as a printed module writes a
+||| value the specification holds: by the position, which the module's type
+||| check holds to be one of the set's.
+export
+caseValue : ImportedEnum -> Nat -> String
+caseValue e k = "(caseAt " ++ enumSet e ++ " " ++ decimal k ++ ")"
 
 ||| What a builder takes for an attribute: the attribute, as made; or, for
 ||| an enum property, its case, typed, which the builder encodes as the
@@ -122,16 +134,15 @@ attrValueOf x = case x.kind of
   _ => AsAttribute
 
 ||| The attribute a value of `v` makes, as an expression over its binder: an
-||| enum's case at its position, at the width the enum is stored at.
+||| enum's case as the module's `enumAttr` encodes one.
 madeFrom : AttrValue -> String -> String
 madeFrom AsAttribute v = v
-madeFrom (AsCase e) v =
-  "IntegerAttr (natToInteger (" ++ enumPosition e v ++ ")) (IntegerType " ++ decimal enumBits ++ ")"
+madeFrom (AsCase e) v = "enumAttr " ++ enumSet e ++ " " ++ v
 
 ||| The same, as a function.
 maker : AttrValue -> String
 maker AsAttribute = "id"
-maker (AsCase e) = "(\\v' => " ++ madeFrom (AsCase e) "v'" ++ ")"
+maker (AsCase e) = "(enumAttr " ++ enumSet e ++ ")"
 
 valueType : AttrValue -> String
 valueType AsAttribute = "MlirAttr"
@@ -213,7 +224,7 @@ guardedLines depth ins (g :: gs) made =
   let checked = index (Vect.head g.given) ins
       others = argument (concatList (map (\k => operandList (index k ins)) (toList (Vect.tail g.given))))
       check = opNameOf g.check
-      cause = decimal (position causeClosed g.cause)
+      cause = caseValue causeEnum (position causeClosed g.cause)
       binder = primed checked.name
       opening = case checked.arity of
                   Single => "Checking " ++ check ++ " " ++ cause ++ " " ++ binder
@@ -286,14 +297,20 @@ export
 written : AnyOp -> Bool
 written (SomeOp op) = legalAt op.stages Higher
 
-||| The modules an op's enum properties' closed sets live in, as its
-||| builder names their types and computes their positions.
+||| The modules an op's enum properties' closed sets live in, and its
+||| guards' causes', as its builder names their types and values.
 propertyHomes : AnyOp -> List String
-propertyHomes (SomeOp op) = concatMap homes (toList op.attrs)
+propertyHomes (SomeOp op) =
+  concatMap homes (toList op.attrs)
+  ++ (case op.guards of
+        [] => []
+        _ => homesOf causeEnum)
   where
+    homesOf : ImportedEnum -> List String
+    homesOf e = [moduleName e.source.typeHome, moduleName e.source.setHome]
     homes : Attr -> List String
     homes x = case attrValueOf x of
-      AsCase e => [moduleName e.source.typeHome, moduleName e.source.setHome]
+      AsCase e => homesOf e
       AsAttribute => []
 
 ||| The builders of every op the frontend writes, as one module. A partial
@@ -313,6 +330,12 @@ buildersModule ops =
      ++ [ ""
         , "import Data.Fin", "import Data.List", ""
         , "%default total", "" ]
+     ++ barComment [ "A case of a closed set as an enum property holds it, and as a guard's"
+                   , "check names its cause: its position, at the width every enum of the"
+                   , "dialect is stored at. Every builder encodes a case by it, and so does"
+                   , "the writer of a guard's check." ]
+     ++ [ "export", "enumAttr : Closed a -> a -> MlirAttr"
+        , "enumAttr set x = IntegerAttr (natToInteger (position set x)) (IntegerType " ++ decimal enumBits ++ ")", "" ]
      ++ concatMap (\(SomeOp op) => builder op) writtenOps
   where
     once : List String -> List String -> List String

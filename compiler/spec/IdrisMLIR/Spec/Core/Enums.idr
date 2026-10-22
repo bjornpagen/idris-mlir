@@ -12,6 +12,7 @@ module IdrisMLIR.Spec.Core.Enums
 
 import IdrisMLIR.Spec.Core.Text
 
+import Data.Fin
 import Data.List
 import Data.List.Elem
 import Data.List1
@@ -79,6 +80,13 @@ record CaseRef where
 public export
 caseRef : Closed b -> b -> CaseRef
 caseRef c x = MkCaseRef (enumDef c) (c.describe x).name
+
+||| The case at a position of a closed set: how a printed module writes a
+||| value of the set, by the position the generator computed of it, which
+||| the module's type check holds to be one of the set's.
+public export
+caseAt : (c : Closed a) -> Fin (length (forget c.every)) -> a
+caseAt c k = index' (forget c.every) k
 
 ||| The position of a value among its set's cases: its number in C++ and in
 ||| bytecode. Total: `complete` says it is there.

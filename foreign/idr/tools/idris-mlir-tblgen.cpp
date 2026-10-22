@@ -100,18 +100,22 @@ bool isReserved(StringRef word) {
   return llvm::is_contained(words, word);
 }
 
-// `str.append`, `put_str` as `strAppend`, `putStr`; with `upper`, the first
-// letter raised too, as a constructor's must be.
-std::string camel(StringRef name, bool upper) {
+// The first letter of a name in camel case: lowered, as a function's or a
+// parameter's is; or raised, as a constructor's must be.
+enum class Initial { Lowered, Raised };
+
+// `str.append`, `put_str` as `strAppend`, `putStr`, or with the initial
+// raised `StrAppend`, `PutStr`.
+std::string camel(StringRef name, Initial initial) {
   std::string out;
-  bool raise = upper;
+  bool raise = initial == Initial::Raised;
   for (char c : name) {
     if (c == '.' || c == '_') {
-      raise = !out.empty() || upper;
+      raise = !out.empty() || initial == Initial::Raised;
       continue;
     }
     if (out.empty())
-      out += upper ? llvm::toUpper(c) : llvm::toLower(c);
+      out += initial == Initial::Raised ? llvm::toUpper(c) : llvm::toLower(c);
     else
       out += raise ? llvm::toUpper(c) : c;
     raise = false;
@@ -153,7 +157,7 @@ std::string constructorName(const std::string &name, const llvm::Twine &what) {
 // A parameter named after its ODS name, or after its kind and position
 // when ODS gives it none.
 std::string parameter(StringRef odsName, const llvm::Twine &unnamed) {
-  std::string name = camel(odsName, false);
+  std::string name = camel(odsName, Initial::Lowered);
   if (name.empty())
     name = unnamed.str();
   if (isReserved(name) || isUsedInBodies(name))
@@ -427,7 +431,7 @@ std::optional<EnumCase> noBits(const EnumInfo &info) {
 // A case of an enum as the Idris side names it, and qualified: a case may
 // share its name with an interface (Eq) or a case of another enum.
 std::string caseName(const EnumInfo &info, const EnumCase &c) {
-  return constructorName(camel(c.getSymbol(), true),
+  return constructorName(camel(c.getSymbol(), Initial::Raised),
                          "the case " + c.getSymbol() + " of " + info.getEnumClassName());
 }
 
@@ -460,7 +464,7 @@ void emitEnum(const Enum &used, llvm::raw_ostream &os) {
   // its value: an op's integer attribute, a bytecode entry. The Idris side
   // holds it as a Nat, as a bytecode entry writes it (a VarInt); a negative
   // value would be another value there, so it is refused here.
-  std::string lower = camel(name, false);
+  std::string lower = camel(name, Initial::Lowered);
   os << "||| The value of each " << name << ".\nexport\n"
      << lower << "Value : " << name << " -> Nat\n";
   for (const EnumCase &c : cases) {
@@ -498,7 +502,7 @@ void emitCaseFields(const Enum &used, llvm::raw_ostream &os) {
   std::string name = enumName(info);
   for (const CaseField &f : used.caseFields) {
     EnumInfo values(f.values);
-    std::string function = camel(name, false) + camel(f.field, true);
+    std::string function = camel(name, Initial::Lowered) + camel(f.field, Initial::Raised);
     os << "||| The " << f.field << " of each " << name << ".\n"
        << "export\n" << function << " : " << name << " -> " << enumName(values) << "\n";
     for (const EnumCase &c : info.getAllCases())
@@ -532,7 +536,7 @@ Kind enumValue(Enums &enums, const llvm::Record *def, int64_t width) {
   std::string name = enumName(info);
   useEnum(enums, def);
   return Kind{name, llvm::formatv("IntegerAttr (natToInteger ({0}Value {{0})) (IntegerType {1})",
-                                  camel(name, false), width)
+                                  camel(name, Initial::Lowered), width)
                         .str()};
 }
 
@@ -610,19 +614,23 @@ std::string binder(const Parameter &p) {
   return llvm::formatv("({0} : {1})", p.name, p.type).str();
 }
 
+// What an expression of a generated list's pieces is: one item, which a
+// run of them writes as one list literal; or a list, written as it is.
+enum class ItemOrList { Item, List };
+
 // Lists joined, as an expression: each run of single values one list,
 // joined to the next by `++`, whose operands' types (a List, never a Vect)
 // fix which `++` it is. A `concat` of the lists would leave its container
 // open, which a list literal then fills ambiguously beside Data.Vect's.
-std::string joined(const std::vector<std::pair<std::string, bool>> &pieces) {
+std::string joined(const std::vector<std::pair<std::string, ItemOrList>> &pieces) {
   std::vector<std::string> lists, run;
   auto close = [&] {
     if (!run.empty())
       lists.push_back("[" + llvm::join(run, ", ") + "]");
     run.clear();
   };
-  for (const auto &[text, single] : pieces) {
-    if (single) {
+  for (const auto &[text, form] : pieces) {
+    if (form == ItemOrList::Item) {
       run.push_back(text);
       continue;
     }
@@ -638,20 +646,25 @@ std::string joined(const std::vector<std::pair<std::string, bool>> &pieces) {
 // The operand, region or result list of an op, as an expression: single
 // ones in a list, variadic ones as given, optional ones as their list.
 std::string listOf(const std::vector<std::pair<std::string, char>> &parts) {
-  std::vector<std::pair<std::string, bool>> pieces;
+  std::vector<std::pair<std::string, ItemOrList>> pieces;
   for (const auto &[name, partArity] : parts)
-    pieces.emplace_back(partArity == '?' ? "(toList " + name + ")" : name, partArity == '1');
+    pieces.emplace_back(partArity == '?' ? "(toList " + name + ")" : name,
+                        partArity == '1' ? ItemOrList::Item : ItemOrList::List);
   return joined(pieces);
 }
+
+// Whether an op's attribute is always there, its entry written as itself;
+// or there only when given, written as the expression that has it or not.
+enum class EntryPresence { Always, WhenGiven };
 
 // A list of attributes, as an expression: the entries always there in
 // lists, each joined to the next by `++`, and those there only when given
 // as the expression that has them or not.
-std::string dictionaryOf(const std::vector<std::pair<std::string, bool>> &parts) {
+std::string dictionaryOf(const std::vector<std::pair<std::string, EntryPresence>> &parts) {
   std::vector<std::string> pieces;
   std::string run;
-  for (const auto &[text, always] : parts) {
-    if (always) {
+  for (const auto &[text, presence] : parts) {
+    if (presence == EntryPresence::Always) {
       run += (run.empty() ? "" : ", ") + text;
       continue;
     }
@@ -737,7 +750,12 @@ std::string guardedBody(const Operator &op,
                                              "its record's");
     std::string check = "(MkOpName Dialect." + guard->getValueAsString("guardDialect").str() +
                         ' ' + literal(guard->getValueAsString("guardName")) + ")";
-    std::string cause = std::to_string(guard->getValueAsInt("causeNumber"));
+    // The cause typed, as the case at its position in the closed set of
+    // causes the specification names, which the module's type check holds
+    // to be one of the set's.
+    std::string cause = "(caseAt " + guard->getValueAsString("causeModule").str() + "." +
+                        guard->getValueAsString("causeSetName").str() + " " +
+                        std::to_string(guard->getValueAsInt("causeNumber")) + ")";
     std::vector<std::pair<std::string, char>> others;
     for (std::int64_t group : llvm::ArrayRef(given).drop_front())
       others.push_back(operands[static_cast<std::size_t>(group)]);
@@ -768,11 +786,11 @@ void emitOp(Enums &enums, const Operator &op, const llvm::Record &admitted,
   // temporary would dangle).
   std::string operationName = op.getOperationName();
   StringRef mnemonic = StringRef(operationName).drop_front(op.getDialectName().size() + 1);
-  std::string name = camel(mnemonic, false) + "Op";
+  std::string name = camel(mnemonic, Initial::Lowered) + "Op";
 
   std::vector<Parameter> implicits, explicits;
   std::vector<std::pair<std::string, char>> operands, results, regions;
-  std::vector<std::pair<std::string, bool>> properties;
+  std::vector<std::pair<std::string, EntryPresence>> properties;
   for (int index = 0, e = op.getNumArgs(); index < e; ++index) {
     mlir::tblgen::Argument arg = op.getArg(index);
     if (const auto *operand = llvm::dyn_cast_if_present<NamedTypeConstraint *>(arg)) {
@@ -803,19 +821,21 @@ void emitOp(Enums &enums, const Operator &op, const llvm::Record &admitted,
     std::string key = literal(attribute->name);
     if (attribute->attr.getBaseAttr().getStorageType().trim() == "::mlir::UnitAttr") {
       implicits.push_back({param, "Bool", std::string("False")});
-      properties.emplace_back(llvm::formatv("unitIf {0} {1}", key, param).str(), false);
+      properties.emplace_back(llvm::formatv("unitIf {0} {1}", key, param).str(),
+                              EntryPresence::WhenGiven);
       continue;
     }
     Kind kind = attributeKind(enums, attribute->attr);
     if (attribute->attr.isOptional() || attribute->attr.hasDefaultValue()) {
       implicits.push_back({param, "Maybe " + parenthesized(kind.type), std::string("Nothing")});
       properties.emplace_back(
-          llvm::formatv("attrIf {0} {1} {2}", key, maker(kind.text), param).str(), false);
+          llvm::formatv("attrIf {0} {1} {2}", key, maker(kind.text), param).str(),
+          EntryPresence::WhenGiven);
     } else {
       explicits.push_back({param, kind.type, std::nullopt});
       properties.emplace_back(
           llvm::formatv("({0}, {1})", key, llvm::formatv(kind.text.c_str(), param).str()).str(),
-          true);
+          EntryPresence::Always);
     }
   }
   for (auto [index, region] : llvm::enumerate(op.getRegions())) {
@@ -830,10 +850,12 @@ void emitOp(Enums &enums, const Operator &op, const llvm::Record &admitted,
   }
   if (op.getTrait("::mlir::OpTrait::AttrSizedOperandSegments"))
     properties.emplace_back(
-        llvm::formatv("(\"operandSegmentSizes\", {0})", segments(operands)).str(), true);
+        llvm::formatv("(\"operandSegmentSizes\", {0})", segments(operands)).str(),
+        EntryPresence::Always);
   if (op.getTrait("::mlir::OpTrait::AttrSizedResultSegments"))
     properties.emplace_back(
-        llvm::formatv("(\"resultSegmentSizes\", {0})", segments(results)).str(), true);
+        llvm::formatv("(\"resultSegmentSizes\", {0})", segments(results)).str(),
+        EntryPresence::Always);
 
   std::string made = "MkOp (MkOpName " + dialectConstructor() + ' ' + literal(mnemonic) + ") " +
                      listOf(operands) + ' ' + dictionaryOf(properties) + ' ' + listOf(regions) +
@@ -948,7 +970,7 @@ std::variant<Kind, NotEnum, Omitted> enumKind(Enums &enums, const AttrOrTypePara
   const llvm::Record *record = def->getDef()->getValueAsDef("enum");
   EnumInfo info(record);
   std::string name = enumName(info);
-  std::string lower = camel(name, false);
+  std::string lower = camel(name, Initial::Lowered);
   if (!info.isBitEnum()) {
     useEnum(enums, record).spellings = true;
     return Kind{name, lower + "Spelling {0}"};
@@ -1087,14 +1109,19 @@ std::string spaced(StringRef text) {
   return text.str();
 }
 
-// One piece of a printer's text: a literal, or an expression.
+// What a piece of a printer's text is: literal text, which the printer
+// quotes and a run of which is one piece; or an expression of the text.
+enum class PieceForm { Literal, Expression };
+
+// One piece of a printer's text.
 struct Piece {
-  bool isLiteral;
+  PieceForm form;
   std::string text;
 };
 
 void append(std::vector<Piece> &pieces, Piece piece) {
-  if (piece.isLiteral && !pieces.empty() && pieces.back().isLiteral)
+  if (piece.form == PieceForm::Literal && !pieces.empty() &&
+      pieces.back().form == PieceForm::Literal)
     pieces.back().text += piece.text;
   else
     pieces.push_back(std::move(piece));
@@ -1104,7 +1131,7 @@ void append(std::vector<Piece> &pieces, Piece piece) {
 std::string expression(const std::vector<Piece> &pieces) {
   std::vector<std::string> texts;
   for (const Piece &piece : pieces)
-    texts.push_back(piece.isLiteral ? literal(piece.text) : piece.text);
+    texts.push_back(piece.form == PieceForm::Literal ? literal(piece.text) : piece.text);
   if (texts.size() == 1)
     return texts.front();
   return "fastConcat [" + llvm::join(texts, ", ") + "]";
@@ -1161,14 +1188,16 @@ Written<Pieces> piecesOf(const std::vector<Element> &elements,
       llvm::append_range(out.written, done.out.written);
       switch (f.presence) {
       case Presence::IfJust:
-        append(out.pieces, {false, llvm::formatv("maybe \"\" (\\{0} => {1}) {0}", f.name,
-                                                 expression(done.out.pieces))
-                                       .str()});
+        append(out.pieces,
+               {PieceForm::Expression, llvm::formatv("maybe \"\" (\\{0} => {1}) {0}", f.name,
+                                                     expression(done.out.pieces))
+                                           .str()});
         break;
       case Presence::IfNonEmpty:
-        append(out.pieces, {false, llvm::formatv("(if null {0} then \"\" else {1})", f.name,
-                                                 expression(done.out.pieces))
-                                       .str()});
+        append(out.pieces,
+               {PieceForm::Expression, llvm::formatv("(if null {0} then \"\" else {1})", f.name,
+                                                     expression(done.out.pieces))
+                                           .str()});
         break;
       case Presence::Always:
         for (const Piece &piece : done.out.pieces)
@@ -1180,7 +1209,7 @@ Written<Pieces> piecesOf(const std::vector<Element> &elements,
     const Element &e = top.rest.front();
     top.rest = top.rest.drop_front();
     if (e.form == Element::Literal) {
-      append(top.out.pieces, {true, spaced(e.text)});
+      append(top.out.pieces, {PieceForm::Literal, spaced(e.text)});
       continue;
     }
     if (e.form == Element::Parameter) {
@@ -1190,7 +1219,7 @@ Written<Pieces> piecesOf(const std::vector<Element> &elements,
       const Field &f = field->second;
       top.out.written.push_back(e.text);
       std::string text = llvm::formatv(f.text.c_str(), f.name).str();
-      append(top.out.pieces, {false, f.presence == Presence::IfJust
+      append(top.out.pieces, {PieceForm::Expression, f.presence == Presence::IfJust
                                          ? llvm::formatv("maybe \"\" (\\{0} => {1}) {0}", f.name, text).str()
                                          : "(" + text + ")"});
       continue;
@@ -1227,9 +1256,13 @@ struct Fields {
   std::map<std::string, Field> byName;
 };
 
+// Which of a dialect's sums a def belongs to: its types, or its attributes,
+// which hold types and attributes both.
+enum class DefKind { Type, Attribute };
+
 // The fields of a def's parameters; or why one is left out, and with it the
 // def.
-Written<Fields> fieldsOf(Enums &enums, const AttrOrTypeDef &def, bool isType) {
+Written<Fields> fieldsOf(Enums &enums, const AttrOrTypeDef &def, DefKind kind) {
   Written<Fields> read = Fields{};
   for (const AttrOrTypeParameter &param : def.getParameters()) {
     // The type of an attribute's value is the op's that holds it.
@@ -1239,7 +1272,7 @@ Written<Fields> fieldsOf(Enums &enums, const AttrOrTypeDef &def, bool isType) {
       return andThen(fieldOf(enums, param, fields.inOrder.size()),
                      [&](Field field) -> Written<Fields> {
                        // A type holds types: the sum of types has no attribute to give.
-                       if (isType && mentions(field.type, "at"))
+                       if (kind == DefKind::Type && mentions(field.type, "at"))
                          return Omitted{llvm::formatv(
                                             "its parameter `{0}` is an attribute, which no type holds",
                                             param.getName())
@@ -1273,18 +1306,18 @@ Written<std::vector<Element>> syntaxOf(const AttrOrTypeDef &def, const Fields &f
 // The constructor of a type or an attribute and its text, from its fields
 // and the pieces that write its syntax; or, when its syntax leaves out a
 // parameter, why it is not generated.
-Written<Def> defWith(const AttrOrTypeDef &def, bool isType, StringRef sum, StringRef mnemonic,
+Written<Def> defWith(const AttrOrTypeDef &def, DefKind kind, StringRef sum, StringRef mnemonic,
                      const std::vector<Field> &fields, const std::map<std::string, Field> &byName,
                      const Pieces &text) {
-  std::string spelling = ((isType ? "!" : "#") + def.getDialect().getName() + "." + mnemonic).str();
-  std::vector<Piece> pieces{{true, spelling}};
+  std::string spelling = ((kind == DefKind::Type ? "!" : "#") + def.getDialect().getName() + "." + mnemonic).str();
+  std::vector<Piece> pieces{{PieceForm::Literal, spelling}};
   for (const Piece &piece : text.pieces)
     append(pieces, piece);
   for (const auto &[name, field] : byName)
     if (!llvm::is_contained(text.written, name))
       return Omitted{llvm::formatv("its syntax leaves out `{0}`", name).str()};
   std::string constructor = constructorName(def.getCppClassName().str(),
-                                            "the " + llvm::Twine(isType ? "type " : "attribute ") +
+                                            "the " + llvm::Twine(kind == DefKind::Type ? "type " : "attribute ") +
                                                 def.getCppClassName());
   std::string pattern = constructor;
   std::string wildcard = constructor;
@@ -1297,7 +1330,7 @@ Written<Def> defWith(const AttrOrTypeDef &def, bool isType, StringRef sum, Strin
     pattern += " " + f.name;
     wildcard += " _";
   }
-  decl << sum << (isType ? " ty" : " ty at") << "\n";
+  decl << sum << (kind == DefKind::Type ? " ty" : " ty at") << "\n";
   if (!fields.empty()) {
     pattern = "(" + pattern + ")";
     wildcard = "(" + wildcard + ")";
@@ -1310,16 +1343,16 @@ Written<Def> defWith(const AttrOrTypeDef &def, bool isType, StringRef sum, Strin
 
 // The constructor of a type or an attribute and its text; or, when it is not
 // generated, why.
-Written<Def> defOf(Enums &enums, const AttrOrTypeDef &def, bool isType, StringRef sum) {
+Written<Def> defOf(Enums &enums, const AttrOrTypeDef &def, DefKind kind, StringRef sum) {
   std::optional<StringRef> mnemonic = def.getMnemonic();
   if (!mnemonic)
     return Omitted{"it has no mnemonic"};
   if (def.hasCustomAssemblyFormat())
     return Omitted{"its syntax is C++"};
-  return andThen(fieldsOf(enums, def, isType), [&](Fields read) {
+  return andThen(fieldsOf(enums, def, kind), [&](Fields read) {
     return andThen(syntaxOf(def, read), [&](std::vector<Element> syntax) {
       return andThen(piecesOf(syntax, read.byName), [&](Pieces text) -> Written<Def> {
-        return defWith(def, isType, sum, *mnemonic, read.inOrder, read.byName, text);
+        return defWith(def, kind, sum, *mnemonic, read.inOrder, read.byName, text);
       });
     });
   });
@@ -1339,6 +1372,8 @@ struct Vocabulary {
   std::vector<std::string> omitted;
   std::string ops;
   Enums enums;
+  // The modules the builders' guards name their causes from, each once.
+  std::vector<std::string> causeModules;
 };
 
 // The upstream ops the specification admits, each by upstream's own record
@@ -1362,16 +1397,22 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
   if (!v.dialect)
     llvm::PrintFatalError("no dialect " + dialectName + " in the records");
   StringRef module = lastName(moduleName);
-  for (StringRef kind : {"TypeDef", "AttrDef"})
-    for (const llvm::Record *record : records.getAllDerivedDefinitionsIfDefined(kind)) {
+  // Each sum by the ODS class its defs derive from, which TableGen finds
+  // them by.
+  static constexpr std::pair<StringRef, DefKind> sums[] = {{"TypeDef", DefKind::Type},
+                                                           {"AttrDef", DefKind::Attribute}};
+  for (const auto &[odsClass, kind] : sums)
+    for (const llvm::Record *record : records.getAllDerivedDefinitionsIfDefined(odsClass)) {
       AttrOrTypeDef def(record);
       if (def.getDialect().getName() != dialectName)
         continue;
-      bool isType = kind == "TypeDef";
-      std::string what = (isType ? "type " : "attribute ") + def.getCppClassName().str();
+      std::string what =
+          (kind == DefKind::Type ? "type " : "attribute ") + def.getCppClassName().str();
       idr::match(
-          defOf(v.enums, def, isType, (module + (isType ? "Type" : "Attr")).str()),
-          [&](Def written) { (isType ? v.types : v.attrs).push_back(std::move(written)); },
+          defOf(v.enums, def, kind, (module + (kind == DefKind::Type ? "Type" : "Attr")).str()),
+          [&](Def written) {
+            (kind == DefKind::Type ? v.types : v.attrs).push_back(std::move(written));
+          },
           [&](const Omitted &omitted) { v.omitted.push_back(what + ": " + omitted.why); });
     }
   llvm::raw_string_ostream opsOs(v.ops);
@@ -1379,6 +1420,11 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
     Operator op(admitted->getValueAsDef("op"));
     if (op.getDialectName() != dialectName || admitted->getValueAsInt("frontendWrites") == 0)
       continue;
+    for (const llvm::Record *guard : admitted->getValueAsListOfDefs("guards")) {
+      std::string module = guard->getValueAsString("causeModule").str();
+      if (!llvm::is_contained(v.causeModules, module))
+        v.causeModules.push_back(std::move(module));
+    }
     emitOp(v.enums, op, *admitted, opsOs);
   }
   addCaseFields(v.enums, enumsOfCases(records));
@@ -1386,12 +1432,13 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
 }
 
 // A dialect's sum of types or of attributes, its mnemonics and its printer.
-void emitSum(const std::vector<Def> &defs, bool isType, llvm::raw_ostream &os) {
+void emitSum(const std::vector<Def> &defs, DefKind kind, llvm::raw_ostream &os) {
+  bool isType = kind == DefKind::Type;
   if (defs.empty())
     return;
   std::string what = isType ? "type" : "attribute";
   std::string sum = (lastName(moduleName) + (isType ? "Type" : "Attr")).str();
-  std::string lower = camel(dialectName, false) + (isType ? "Type" : "Attr");
+  std::string lower = camel(dialectName, Initial::Lowered) + (isType ? "Type" : "Attr");
   std::string params = isType ? " ty" : " ty at";
   os << "||| The " << dialectName << " dialect's " << what << "s, one constructor each, named\n"
      << "||| after its C++ class; `ty` is the type of the types they hold"
@@ -1434,8 +1481,8 @@ bool emitIdrisSyntax(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
     emitEnum(used, enumsOs);
   for (const auto &[name, used] : v.enums)
     emitCaseFields(used, enumsOs);
-  emitSum(v.types, true, typesOs);
-  emitSum(v.attrs, false, attrsOs);
+  emitSum(v.types, DefKind::Type, typesOs);
+  emitSum(v.attrs, DefKind::Attribute, attrsOs);
 
   writeLicense(os);
   os << "||| The " << dialectName << " dialect's syntax, as the Idris side writes it: the enums\n"
@@ -1462,7 +1509,7 @@ bool emitIdrisSyntax(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
 std::string spelledAttributes(const Vocabulary &v) {
   if (v.attrs.empty())
     return "";
-  std::string lower = camel(dialectName, false);
+  std::string lower = camel(dialectName, Initial::Lowered);
   std::string sum = (lastName(moduleName) + "Attr").str();
   return llvm::formatv("||| An attribute of the {0} dialect, spelled as its syntax writes it.\n"
                        "export\n"
@@ -1484,7 +1531,14 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
      << "||| Do not edit.\n"
      << "module " << moduleName
      << "\n\nimport IdrisMLIR.MLIR\nimport IdrisMLIR.Spec.Core.Dialect\nimport "
-     << syntaxModuleName << "\n\nimport Data.List\n\n%default total\n\n";
+     << syntaxModuleName << "\n";
+  // A guarded builder writes its cause as a case of the specification's
+  // closed set of causes, by `caseAt`.
+  if (!v.causeModules.empty())
+    os << "import IdrisMLIR.Spec.Core.Enums\n";
+  for (const std::string &module : v.causeModules)
+    os << "import " << module << "\n";
+  os << "\nimport Data.List\n\n%default total\n\n";
   section(os, "Attributes", spelledAttributes(v));
   section(os, "Ops", v.ops);
   return false;
@@ -1509,11 +1563,11 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
 
 // How an encoder takes a member read by one of the reader's own methods, or
 // an enum, and writes it: its Idris type, and the expression of its parts
-// from a value `{0}` of it, one Part or, with `one` false, a List Part.
+// from a value `{0}` of it, one Part (an item) or a List Part.
 struct Atom {
   std::string type;
   std::string parts;
-  bool one;
+  ItemOrList form;
 };
 
 // The atoms, by the parser template each is read by. A dialect's attribute
@@ -1524,15 +1578,15 @@ struct Atom {
 // it.
 std::optional<Atom> atomOf(StringRef parser) {
   static const std::pair<StringRef, Atom> atoms[] = {
-      {"succeeded($_reader.readVarInt($_var))", {"Nat", "VarInt {0}", true}},
-      {"succeeded($_reader.readSignedVarInt($_var))", {"Integer", "SignedVarInt {0}", true}},
-      {"succeeded($_reader.readBool($_var))", {"Bool", "Flag {0}", true}},
-      {"succeeded($_reader.readString($_var))", {"String", "Str {0}", true}},
-      {"succeeded($_reader.readAttribute($_var))", {"AttrRef", "AttrAt {0}", true}},
-      {"succeeded($_reader.readAttribute<$_resultType>($_var))", {"AttrRef", "AttrAt {0}", true}},
-      {"succeeded($_reader.readOptionalAttribute($_var))", {"Maybe AttrRef", "OptionalAttrAt {0}", true}},
-      {"succeeded($_reader.readType($_var))", {"List Part", "{0}", false}},
-      {"succeeded($_reader.readType<$_resultType>($_var))", {"List Part", "{0}", false}}};
+      {"succeeded($_reader.readVarInt($_var))", {"Nat", "VarInt {0}", ItemOrList::Item}},
+      {"succeeded($_reader.readSignedVarInt($_var))", {"Integer", "SignedVarInt {0}", ItemOrList::Item}},
+      {"succeeded($_reader.readBool($_var))", {"Bool", "Flag {0}", ItemOrList::Item}},
+      {"succeeded($_reader.readString($_var))", {"String", "Str {0}", ItemOrList::Item}},
+      {"succeeded($_reader.readAttribute($_var))", {"AttrRef", "AttrAt {0}", ItemOrList::Item}},
+      {"succeeded($_reader.readAttribute<$_resultType>($_var))", {"AttrRef", "AttrAt {0}", ItemOrList::Item}},
+      {"succeeded($_reader.readOptionalAttribute($_var))", {"Maybe AttrRef", "OptionalAttrAt {0}", ItemOrList::Item}},
+      {"succeeded($_reader.readType($_var))", {"List Part", "{0}", ItemOrList::List}},
+      {"succeeded($_reader.readType<$_resultType>($_var))", {"List Part", "{0}", ItemOrList::List}}};
   for (const auto &[template_, atom] : atoms)
     if (template_ == parser)
       return atom;
@@ -1574,7 +1628,7 @@ Written<Member> memberOf(const llvm::Record *def, StringRef name) {
     if (next.def->getValue("enumName")) {
       std::string e = next.def->getValueAsString("enumName").str();
       member.push_back({MemberNode::Atomic,
-                        {e, "VarInt (" + camel(e, false) + "Value {0})", true},
+                        {e, "VarInt (" + camel(e, Initial::Lowered) + "Value {0})", ItemOrList::Item},
                         0,
                         std::move(next.bound)});
       continue;
@@ -1607,11 +1661,14 @@ Written<Member> memberOf(const llvm::Record *def, StringRef name) {
   return member;
 }
 
-// The Idris type of a member: one word or a tuple, which an argument writes
-// as it is, or a type applied, which it parenthesizes.
+// How an argument writes an Idris type: as it is, for one word or a tuple;
+// or in parentheses, for a type applied.
+enum class TypeForm { Closed, Applied };
+
+// The Idris type of a member, and how an argument writes it.
 struct IdrisType {
   std::string text;
-  bool closed;
+  TypeForm form;
 };
 
 // Each node's type is made from its members', which follow it: read
@@ -1622,12 +1679,14 @@ IdrisType typeOf(const Member &member) {
   for (const MemberNode &node : llvm::reverse(member)) {
     switch (node.form) {
     case MemberNode::Atomic:
-      types.push_back({node.atom.type, !StringRef(node.atom.type).contains(' ')});
+      types.push_back({node.atom.type, StringRef(node.atom.type).contains(' ') ? TypeForm::Applied
+                                                                               : TypeForm::Closed});
       break;
     case MemberNode::Array: {
       IdrisType element = types.pop_back_val();
       types.push_back(
-          {"List " + (element.closed ? element.text : "(" + element.text + ")"), false});
+          {"List " + (element.form == TypeForm::Closed ? element.text : "(" + element.text + ")"),
+           TypeForm::Applied});
       break;
     }
     case MemberNode::Composite: {
@@ -1636,7 +1695,7 @@ IdrisType typeOf(const Member &member) {
       std::vector<std::string> texts;
       for (unsigned i = 0; i < node.arity; ++i)
         texts.push_back(types.pop_back_val().text);
-      types.push_back({"(" + llvm::join(texts, ", ") + ")", true});
+      types.push_back({"(" + llvm::join(texts, ", ") + ")", TypeForm::Closed});
       break;
     }
     }
@@ -1653,16 +1712,16 @@ bool isUsedInEncoders(StringRef name) {
 // A name for a member's value after its DSL name, hiding nothing the body
 // uses and no name bound around it.
 std::string fresh(StringRef dslName, std::set<std::string> &scope) {
-  std::string name = camel(dslName, false);
+  std::string name = camel(dslName, Initial::Lowered);
   while (isReserved(name) || isUsedInEncoders(name) || scope.count(name))
     name += '\'';
   scope.insert(name);
   return name;
 }
 
-// One piece of an encoder's parts: one Part, or a List Part.
+// One piece of an encoder's parts: one Part (an item), or a List Part.
 struct PartsPiece {
-  bool one;
+  ItemOrList form;
   std::string text;
 };
 
@@ -1676,7 +1735,7 @@ std::string partsExpression(const std::vector<PartsPiece> &pieces) {
     run.clear();
   };
   for (const PartsPiece &piece : pieces) {
-    if (piece.one) {
+    if (piece.form == ItemOrList::Item) {
       run.push_back(piece.text);
       continue;
     }
@@ -1753,25 +1812,25 @@ void bindMember(const Member &member, std::set<std::string> &scope,
     switch (node.form) {
     case MemberNode::Atomic:
       bound.push_back(
-          Bound{names[i], {{node.atom.one, llvm::formatv(node.atom.parts.c_str(), names[i]).str()}}});
+          Bound{names[i], {{node.atom.form, llvm::formatv(node.atom.parts.c_str(), names[i]).str()}}});
       break;
     case MemberNode::Array: {
       Bound element = bound.pop_back_val();
       const std::string &values = names[i];
       const std::string &pattern = element.pattern;
-      Bound array{values, {{true, "VarInt (length " + values + ")"}}};
-      if (element.pieces.size() == 1 && !element.pieces.front().one &&
+      Bound array{values, {{ItemOrList::Item, "VarInt (length " + values + ")"}}};
+      if (element.pieces.size() == 1 && element.pieces.front().form == ItemOrList::List &&
           element.pieces.front().text == pattern) {
-        array.pieces.push_back({false, "concat " + values});
-      } else if (element.pieces.size() == 1 && element.pieces.front().one) {
+        array.pieces.push_back({ItemOrList::List, "concat " + values});
+      } else if (element.pieces.size() == 1 && element.pieces.front().form == ItemOrList::Item) {
         StringRef text = element.pieces.front().text;
         bool eta = text.ends_with(" " + pattern) &&
                    !text.drop_back(pattern.size() + 1).contains(' ');
         array.pieces.push_back(
-            {false, eta ? ("map " + text.drop_back(pattern.size() + 1) + " " + values).str()
+            {ItemOrList::List, eta ? ("map " + text.drop_back(pattern.size() + 1) + " " + values).str()
                         : "map (\\" + pattern + " => " + text.str() + ") " + values});
       } else {
-        array.pieces.push_back({false, "concatMap (\\" + pattern + " => " +
+        array.pieces.push_back({ItemOrList::List, "concatMap (\\" + pattern + " => " +
                                            partsExpression(element.pieces) + ") " + values});
       }
       bound.push_back(std::move(array));
@@ -1817,7 +1876,7 @@ Written<Members> membersOf(const llvm::Record *def) {
 
 // A record's code: its place among `among`.
 void emitCode(const llvm::Record *def, size_t code, StringRef among, llvm::raw_ostream &os) {
-  std::string codeName = camel(def->getName(), false) + "Code";
+  std::string codeName = camel(def->getName(), Initial::Lowered) + "Code";
   os << "||| The code of `" << def->getName() << "`, its place among " << among
      << ".\nexport\n" << codeName << " : Nat\n" << codeName << " = " << code << "\n\n";
 }
@@ -1848,11 +1907,11 @@ void emitEncoder(const llvm::Record *def, const Members &read, std::vector<Parts
 void emitRecord(const llvm::Record *def, size_t code, StringRef what, llvm::raw_ostream &os,
                 std::vector<std::string> &omitted) {
   emitCode(def, code, ("the dialect's " + what + "s").str(), os);
-  std::string codeName = camel(def->getName(), false) + "Code";
+  std::string codeName = camel(def->getName(), Initial::Lowered) + "Code";
   idr::match(
       membersOf(def),
       [&](const Members &read) {
-        emitEncoder(def, read, {{true, "VarInt " + codeName}}, {"its code"}, os);
+        emitEncoder(def, read, {{ItemOrList::Item, "VarInt " + codeName}}, {"its code"}, os);
       },
       [&](const Omitted &o) {
         omitted.push_back(llvm::formatv("{0} {1}: {2}", what, def->getName(), o.why).str());
