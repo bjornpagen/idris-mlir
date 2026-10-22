@@ -234,6 +234,12 @@ report what (p :: ps) = do
   putStrLn ("knowngen: " ++ what ++ p)
   report what ps
 
+-- Does what the command asks with each module; the paths it reports.
+covering
+run : Command -> List (String, String) -> IO (List String)
+run WriteModules = writeAll
+run CheckModules = differing
+
 usage : IO ()
 usage = do
   putStrLn "knowngen: write <root> | check <root>"
@@ -255,9 +261,7 @@ main = do
               exitWith (ExitFailure 1)
             [] => do
               let files = map (\(p, t) => (root ++ "/" ++ p, t)) outputs
-              failed <- case command of
-                          WriteModules => writeAll files
-                          CheckModules => differing files
+              failed <- run command files
               case failed of
                 [] => pure ()
                 ps => do
