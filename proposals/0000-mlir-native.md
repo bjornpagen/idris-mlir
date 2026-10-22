@@ -1778,6 +1778,30 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   as `value type`, where the program's types are first read; the growth
   check's reading (`staticsOver`) and the instance table's take a type
   already admitted, so neither aborts nor refuses on its own.
+  *Narrowed* by C232 the same day: the refusal covers only a type whose
+  runtime choices no analysis bounds; one the program fixes compiles.
+- **C232** (2026-10-22; under D113, extends C230). What the frontend
+  gains so the fork's code compiles in upstream's form (L17r, L17s). Each
+  is a construct whose runtime choices the whole program fixes, so it
+  compiles by specialization or as a closed sum, and only the unbounded
+  case is refused, naming its site:
+  - a `Type` passed or held at run time (a record's field list
+    `{fs : _}`, `KeyVal.type`, `TokenKind`'s `TokType`): specialized at
+    each site where it is static, and a closed sum of the types the
+    program uses where it is chosen at run time;
+  - a type computed from such a value (`LabelledValue.value : kv.type`,
+    `tokValue`'s result, `ActType argdescs`): computed per
+    specialization or per alternative of that sum;
+  - a constructor field whose type the constructor hides (`Compose`,
+    `SeqEat`): C230;
+  - dictionaries held in an `All` over such a list, and mutually
+    recursive instances: dictionaries of the closed sum C174 makes;
+  - a match on an erased proof whose constructor a runtime index fixes
+    (0014's first feature, the forced index): the index's runtime value
+    selects the alternative;
+  - a polymorphic function in a recursive group used at types the program
+    fixes: the growth graph's bound (D68).
+  0014's features 1, 3, 4 and 5 come into the cutover with these.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places
