@@ -198,6 +198,17 @@ inline constexpr Row mayNotReturn = [] {
   return atoms;
 }();
 
+// The atoms a call holding them declares no effect for: memory acquired or
+// given back, which nothing is ordered with. A call's set keeps them as
+// what it reports, so its row survives the set whole.
+inline constexpr Row reportsOnly = [] {
+  Row atoms;
+  for (Atom atom : allOf<Atom>())
+    if (atomCallKinds[atom].empty())
+      atoms = atoms | Row{atom};
+  return atoms;
+}();
+
 //===----------------------------------------------------------------------===//
 // An op's declaration, as Generated/Effects.h.inc writes it
 //===----------------------------------------------------------------------===//

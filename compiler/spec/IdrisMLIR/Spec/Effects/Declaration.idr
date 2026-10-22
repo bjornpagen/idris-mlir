@@ -561,7 +561,7 @@ resources = concatMap ours (forget (every resourceClosed))
       Ours => [resourceDef r]
 
 public export
-odsState : Resource.Resource -> Ods.Resource
+odsState : Resource.Resource -> OdsResource
 odsState Root = UpstreamRoot
 odsState Frame = UpstreamFrame
 odsState r = OurResource (resourceDef r)

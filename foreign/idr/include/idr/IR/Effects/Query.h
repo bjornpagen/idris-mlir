@@ -17,7 +17,7 @@
 
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
 #include <functional>
@@ -60,8 +60,6 @@ void eachResult(OpT op, unsigned group, Visit &&visit) {
 
 template <class Where>
 struct Group;
-template <>
-struct Group<OnOp> {};
 template <unsigned G>
 struct Group<OnOperand<G>> {
   template <class OpT, class Visit>
@@ -185,6 +183,9 @@ concept CarriesRow = requires(CallOpT call) {
   call.forEachWritten([](mlir::OpOperand &) {});
 };
 
+// A call's set: each ordering atom's call effects on its state, the atoms
+// that only report kept as reported, and a write in place for an operand
+// its callee writes through. Its row comes back out of the set whole.
 template <CarriesRow OpT>
 EffectSet rowSet(OpT op) {
   EffectSet set;
@@ -194,6 +195,7 @@ EffectSet rowSet(OpT op) {
       for (Kind kind : allOf<Kind>())
         if (atomCallKinds[atom].contains(kind))
           set.add(kind, atomState[atom]);
+  set.reported = row & reportsOnly;
   op.forEachWritten([&](mlir::OpOperand &) { set.add(Kind::Write, ResourceId::Contents); });
   return set;
 }
@@ -209,13 +211,15 @@ void emitRow(OpT op, Instances &effects) {
   });
 }
 
-// Every ordering atom's call effects: the most a call may declare.
+// Every atom's call effects and every atom that only reports: the most a
+// call may declare.
 inline constexpr EffectSet anyRow = [] {
   EffectSet set;
   for (Atom atom : allOf<Atom>())
     for (Kind kind : allOf<Kind>())
       if (atomCallKinds[atom].contains(kind))
         set.add(kind, atomState[atom]);
+  set.reported = reportsOnly;
   set.add(Kind::Write, ResourceId::Contents);
   return set;
 }();
@@ -253,7 +257,7 @@ struct RuleOf<HoldsRuntimeMemory<Where>> {
   static EffectSet own(OpT) { return bound(); }
   static constexpr EffectSet bound() {
     EffectSet set;
-    set.memory = RuntimeMemory::Touched;
+    set.reported = runtimeMemoryAtoms[RuntimeMemory::Touched];
     return set;
   }
   static constexpr bool decidedByClass = true;
@@ -347,6 +351,11 @@ EffectSet own(mlir::Operation *op);
 // (MLIR's recursive memory effects), folded in one walk.
 EffectSet whole(mlir::Operation *op);
 
+// What `op`, with everything in it, adds to its function's row: its
+// effects summarized, a call's row whole among them. Where in memory an
+// effect lands, which the function's own derivation refines, is not read.
+inline Row rowOf(mlir::Operation *op) { return whole(op).row(); }
+
 // One effect with the value it names, for the questions about one value.
 struct Effect {
   Kind kind;
@@ -365,55 +374,79 @@ Effect effectOf(const mlir::MemoryEffects::EffectInstance &instance);
 constexpr Row project(const Effect &each) { return project(each.kind, each.resource); }
 
 // What an op reports in its function's row beyond its MLIR effects: the
-// memory its runtime function holds that no value names.
+// memory its runtime function, or a call's callee, acquires or gives back
+// that no value names.
 Row reportedBy(mlir::Operation *op);
 
-// What an op, with everything in it, does as one asker sees it, ordered:
-// only computes its results; has an effect the asker does not ask about;
-// touches what it asks about, or does what MLIR cannot say.
-enum class Does : std::uint8_t { Computes, Effects, Touches };
+// What an op, with everything in it, does toward one asker's question:
+// nothing it asks about; or something it asks about, or what MLIR cannot
+// say.
+enum class Does : std::uint8_t { Avoids, Touches };
 
 // A question about single effects.
 template <class Q>
 concept Question = std::predicate<const Q &, const Effect &>;
 
 namespace detail {
+
+// Whether an op's regions' effects are its own.
+inline bool recursive(mlir::Operation *op) {
+  return op->hasTrait<mlir::OpTrait::HasRecursiveMemoryEffects>();
+}
+
 // How a walk over effects ended: every effect visited, or stopped, by its
 // visitor or at an op that says nothing MLIR can read, which may do
 // anything.
 enum class Walked : std::uint8_t { All, Stopped };
+
+template <class Visit>
+concept EffectVisitor = requires(Visit &visit, const Effect &each) {
+  { visit(each) } -> std::same_as<Walked>;
+};
+
 // Each effect of `op` and of everything in its regions whose effects are
-// its own, with the op that declares it and its value, while `visit` asks
-// for more.
-Walked eachEffect(mlir::Operation *op, llvm::function_ref<Walked(mlir::Operation *, const Effect &)> visit);
-// Whether `value` is a result of `op`, the one value an allocation of
-// `op`'s may name.
-bool ownResult(mlir::Operation *op, mlir::Value value);
+// its own, while `visit` asks for more.
+template <EffectVisitor Visit>
+Walked eachEffect(mlir::Operation *op, Visit &&visit) {
+  Walked walked = Walked::All;
+  op->walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *nested) {
+    auto memory = llvm::dyn_cast<mlir::MemoryEffectOpInterface>(nested);
+    if (!memory && !recursive(nested)) {
+      walked = Walked::Stopped;
+      return mlir::WalkResult::interrupt();
+    }
+    if (memory) {
+      llvm::SmallVector<mlir::MemoryEffects::EffectInstance, 4> instances;
+      memory.getEffects(instances);
+      for (const mlir::MemoryEffects::EffectInstance &instance : instances)
+        if (visit(effectOf(instance)) == Walked::Stopped) {
+          walked = Walked::Stopped;
+          return mlir::WalkResult::interrupt();
+        }
+    }
+    return recursive(nested) ? mlir::WalkResult::advance() : mlir::WalkResult::skip();
+  });
+  return walked;
+}
+
 } // namespace detail
 
 // The one classifier: what `op` does toward the question `touches`.
 template <Question Q>
 Does classify(mlir::Operation *op, const Q &touches) {
-  Does does = Does::Computes;
-  detail::Walked walked = detail::eachEffect(op, [&](mlir::Operation *at, const Effect &each) {
-    if (std::invoke(touches, each))
-      return detail::Walked::Stopped;
-    if (!(each.kind == Kind::Allocate && detail::ownResult(at, each.value)))
-      does = Does::Effects;
-    return detail::Walked::All;
+  detail::Walked walked = detail::eachEffect(op, [&](const Effect &each) {
+    return std::invoke(touches, each) ? detail::Walked::Stopped : detail::Walked::All;
   });
-  return walked == detail::Walked::All ? does : Does::Touches;
+  return walked == detail::Walked::All ? Does::Avoids : Does::Touches;
 }
 
 // Whether `operand`'s op takes over the reference its value holds: it frees
-// the count of that operand.
+// the count of that operand. Read off the op's own declaration, a call's
+// included, never its callee's.
 bool consumes(mlir::OpOperand &operand);
 
 // Whether `op` allocates `value`, a fresh value of its own.
 bool allocates(mlir::Operation *op, mlir::Value value);
-
-// Whether `op` writes or gives back `value`'s state.
-bool changes(mlir::Operation *op, mlir::Value value);
 
 // Whether `moved`, with everything in it, may run on the other side of
 // `across`, with everything in it: neither may tell.
@@ -425,8 +458,6 @@ inline bool mayMoveAcross(mlir::Operation *moved, mlir::Operation *across) {
 
 namespace idr {
 
-// The default of DeclaredEffectsOpInterface's method: an op's own effects
-// from its class's declaration.
 template <class OpT>
 effects::EffectSet declaredEffects(OpT op) {
   return effects::own(op);

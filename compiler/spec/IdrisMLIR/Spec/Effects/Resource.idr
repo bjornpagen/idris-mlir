@@ -343,7 +343,8 @@ origin Divergence = Ours
 
 ||| The tree as the C++ reads it, one array per fact indexed by the state's
 ||| place: its parent (the root its own, the sentinel a walk up stops at),
-||| its reach, the kinds an op of ours may declare on it.
+||| its reach, its printed name. The kinds a state takes are checked here,
+||| by every declaration's type, and the C++ never asks.
 public export
 resourceTable : Table
 resourceTable = table resourceClosed
@@ -351,8 +352,6 @@ resourceTable = table resourceClosed
       (\r => CaseCell (caseRef resourceClosed (above r))) (line "the state above; the root's is itself")
   , MkColumn (ident "resourceReach") (EnumColumn (enumDef reachClosed))
       (\r => CaseCell (caseRef reachClosed (reach r))) (line "whether an effect on it may name a value")
-  , MkColumn (ident "resourceKinds") (SetColumn (enumDef kindClosed))
-      (\r => setCell kindClosed (admittedKinds r)) (line "the kinds an op of ours may declare on it")
   , MkColumn (ident "resourcePrinted") TextColumn
       (\r => TextCell (lineText (printedName r))) (line "how MLIR prints the state")
   ]
