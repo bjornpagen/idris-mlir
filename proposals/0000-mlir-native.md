@@ -3640,6 +3640,12 @@ C137.
   class held as `!idr.graded`'s parameters, with no attribute of its own
   beside the type, so it lives in one place (D90's printed form). Reason:
   one fact, one representation.
+- **C163** (2026-10-21; amends C149, L06's finding). The FuncToLLVM patch
+  attaches `noalias` and the other pointer attributes to a memref
+  descriptor's aligned pointer only, never to its allocated pointer: a
+  function may free through the allocated pointer, and `noalias` there
+  would let LLVM move a read past the free. Every access goes through the
+  aligned pointer, so nothing the attribute buys is lost.
 
 ## 4. Open: the owner's decisions, in order
 
