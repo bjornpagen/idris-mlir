@@ -11,7 +11,6 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/CodeGen/TargetFrameLowering.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/Constants.h"
@@ -94,14 +93,19 @@ std::uint64_t recordedOne(const llvm::Module &module, llvm::StringRef name) {
 
 } // namespace
 
-void Frames::join(const Frames &other) {
-  for (const auto &entry : other.bytes_)
-    bytes_[entry.getKey()] = entry.getValue();
+// A name new to the frames takes its key from the arena: the text equal to
+// the reported one, so the bucket its hash chose stays its own.
+void Frames::add(llvm::StringRef function, std::uint64_t bytes) {
+  auto [entry, made] = bytes_.try_emplace(function, bytes);
+  if (made)
+    entry->first = function.copy(names);
+  else
+    entry->second = bytes;
 }
 
-std::uint64_t Frames::of(llvm::StringRef function) const {
-  auto found = bytes_.find(function);
-  return found == bytes_.end() ? 0 : found->getValue();
+void Frames::join(const Frames &other) {
+  for (const auto &entry : other.bytes_)
+    add(entry.getFirst(), entry.getSecond());
 }
 
 void idr::driver::stack::ask(llvm::Module &module) {
@@ -116,7 +120,9 @@ std::unique_ptr<llvm::DiagnosticHandler> idr::driver::stack::gather(Frames &fram
 
 mlir::FailureOr<Graph> Graph::of(const llvm::Module &module, mlir::MLIRContext &context) {
   mlir::Location at = mlir::UnknownLoc::get(&context);
-  llvm::StringMap<std::uint64_t> outside;
+  // The recorded paths, keyed by each recorded name's own text, which the
+  // module holds for as long as the map lives.
+  idr::footprint::DenseMap<llvm::StringRef, std::uint64_t> outside;
   if (const llvm::NamedMDNode *paths = module.getNamedMetadata(recordedPaths))
     for (const llvm::MDNode *path : paths->operands())
       if (auto *name = llvm::dyn_cast<llvm::MDString>(path->getOperand(0)))
@@ -125,8 +131,8 @@ mlir::FailureOr<Graph> Graph::of(const llvm::Module &module, mlir::MLIRContext &
 
   // Every compiled function, numbered once in the module's order. LLVM
   // numbers no function, so a callee is found by its id through one map,
-  // made here, where the module is read: a hashed map, which takes no
-  // allocator.
+  // made here, where the module is read: a hashed map, whose table is the
+  // footprint's.
   idr::footprint::Vector<const llvm::Function *> compiledFunctions;
   for (const llvm::Function &function : module)
     if (compiled(function))
@@ -137,7 +143,7 @@ mlir::FailureOr<Graph> Graph::of(const llvm::Module &module, mlir::MLIRContext &
     return Node{function, function->hasFnAttribute(handlerMark) ? Runs::OnSignalStack
                                                                 : Runs::OnStack};
   });
-  llvm::DenseMap<const llvm::Function *, FunctionId> idOf;
+  idr::footprint::DenseMap<const llvm::Function *, FunctionId> idOf;
   idr::footprint::Vector<FunctionId> addressed;
   for (FunctionId f : count.ids()) {
     idOf.try_emplace(nodes[f].function, f);

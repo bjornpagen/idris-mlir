@@ -124,7 +124,8 @@ std::string besideObject(llvm::StringRef object);
 // the rest, which the link line resolves in the native half, where every
 // piece of runtime state has its one definition; the archive's bodies are
 // definitions, which compile with the program; a program function past
-// the inlining budget calls them (idr::target::inlineCallerInstructions).
+// the inlining budget calls them (idr::target::inlineCallerInstructions),
+// all but the bodies the runtime marks always inline.
 // No program symbol can be a runtime symbol: every one the lowering names
 // carries the program's prefix, which no C identifier has. Every failure is
 // an error.

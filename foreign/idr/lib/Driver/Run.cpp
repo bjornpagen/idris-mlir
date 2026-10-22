@@ -55,6 +55,7 @@
 #include "llvm/TargetParser/Triple.h"
 #include "llvm/Transforms/IPO/Internalize.h"
 
+#include <concepts>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -72,45 +73,47 @@ namespace {
 struct Handoff {};
 struct Lowered {};
 
+// Every op of the module is one a module of its kind holds (`holds`), or
+// an error at the first that is not, naming it (idris-mlir prints no op on
+// a diagnostic) and saying what it is (`otherwise`).
+template <std::predicate<mlir::Operation *> Holds>
+mlir::LogicalResult holdsOnly(mlir::ModuleOp module, Holds holds, llvm::StringLiteral otherwise) {
+  mlir::WalkResult walked =
+      module.getBody()->walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *op) {
+        if (holds(op))
+          return mlir::WalkResult::advance();
+        op->emitOpError(otherwise);
+        return mlir::WalkResult::interrupt();
+      });
+  return mlir::failure(walked.wasInterrupted());
+}
+
 // The module's kind: an idr.program among its ops makes it a handoff
 // module, whose every op must be of a dialect the frontend writes;
 // otherwise every op must be the LLVM dialect's, and the module must name
-// the build's target. An error at the first op that is not,
-// naming it (idris-mlir prints no op on a diagnostic), or at the module
-// that names no such target: a module half lowered (an arith op in an
-// llvm.func) is neither kind, and LLVM's translation would fail on it with
-// no word of why.
+// the build's target. An error at the first op that is not, or at the
+// module that names no such target: a module half lowered (an arith op in
+// an llvm.func) is neither kind, and LLVM's translation would fail on it
+// with no word of why.
 mlir::FailureOr<std::variant<Handoff, Lowered>>
 moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
-  auto written = [&](mlir::Operation *op) {
-    return static_cast<bool>(handoff.getDialectAllocator(op->getName().getDialectNamespace()));
-  };
-  auto lowered = [](mlir::Operation *op) {
-    return mlir::isa<mlir::LLVM::LLVMDialect>(op->getDialect());
-  };
-  // The ops a module of its kind holds, and what an op it may not hold is
-  // said to be.
-  struct Holds {
-    llvm::function_ref<bool(mlir::Operation *)> op;
-    llvm::StringLiteral otherwise;
-  };
-  bool handsOff = !module.getOps<idr::ProgramOp>().empty();
-  const Holds holds =
-      handsOff ? Holds{written, "is of no dialect the frontend writes, in a module that holds an "
-                                "idr.program"}
-               : Holds{lowered, "is no op of the LLVM dialect, in a module that holds no "
-                                "idr.program: such a module is the pipeline's output"};
-  mlir::WalkResult walked =
-      module.getBody()->walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *op) {
-        if (holds.op(op))
-          return mlir::WalkResult::advance();
-        op->emitOpError(holds.otherwise);
-        return mlir::WalkResult::interrupt();
-      });
-  if (walked.wasInterrupted())
-    return mlir::failure();
-  if (handsOff)
+  if (!module.getOps<idr::ProgramOp>().empty()) {
+    if (mlir::failed(holdsOnly(
+            module,
+            [&](mlir::Operation *op) {
+              return static_cast<bool>(
+                  handoff.getDialectAllocator(op->getName().getDialectNamespace()));
+            },
+            "is of no dialect the frontend writes, in a module that holds an idr.program")))
+      return mlir::failure();
     return std::variant<Handoff, Lowered>(Handoff{});
+  }
+  if (mlir::failed(holdsOnly(
+          module,
+          [](mlir::Operation *op) { return mlir::isa<mlir::LLVM::LLVMDialect>(op->getDialect()); },
+          "is no op of the LLVM dialect, in a module that holds no idr.program: such a module "
+          "is the pipeline's output")))
+    return mlir::failure();
   auto target = module->getAttrOfType<mlir::LLVM::TargetAttr>(
       mlir::LLVM::LLVMDialect::getTargetAttrName());
   if (!target)

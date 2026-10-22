@@ -17,6 +17,7 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/IR/Attributes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/InstIterator.h"
@@ -88,7 +89,11 @@ mlir::LogicalResult idr::driver::linkRuntime(llvm::Module &program, mlir::Module
   if (llvm::Linker::linkModules(program, std::move(runtime), llvm::Linker::LinkOnlyNeeded))
     return mlir::emitError(at) << "linking the runtime into the program failed";
   // A program function past the budget calls the runtime
-  // (idr::target::inlineCallerInstructions).
+  // (idr::target::inlineCallerInstructions), all but the bodies the runtime
+  // marks always inline, whose call would cost more than they do: among
+  // them the frame-bound account's entries, empty in the shipped runtime,
+  // which no shipped program may name. A call's own noinline outranks its
+  // callee's alwaysinline, so such a call is never marked.
   for (llvm::Function &function : program) {
     if (function.isDeclaration() || runtimeFunctions.contains(function.getName()) ||
         function.getInstructionCount() <= idr::target::inlineCallerInstructions)
@@ -96,7 +101,8 @@ mlir::LogicalResult idr::driver::linkRuntime(llvm::Module &program, mlir::Module
     for (llvm::Instruction &instruction : llvm::instructions(function))
       if (auto *call = llvm::dyn_cast<llvm::CallBase>(&instruction))
         if (const llvm::Function *callee = call->getCalledFunction();
-            callee && runtimeFunctions.contains(callee->getName()))
+            callee && runtimeFunctions.contains(callee->getName()) &&
+            !callee->hasFnAttribute(llvm::Attribute::AlwaysInline))
           call->setIsNoInline();
   }
   return mlir::success();

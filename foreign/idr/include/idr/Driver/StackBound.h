@@ -15,12 +15,12 @@
 
 #include "idr/Analysis/Solver/Components.h"
 #include "idr/Analysis/Solver/Graph.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
 
-#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/DiagnosticHandler.h"
 
@@ -39,18 +39,21 @@ namespace idr::driver::stack {
 // stack-size diagnostic it reports of every function asked (`ask`). Each
 // context code is generated in gathers its own, and the driver joins them:
 // a bin's functions are its own context's, so a name is the one identity
-// they share with the final module's. A hashed map, which takes no
-// allocator.
+// they share with the final module's. The context that reports a name ends
+// before the name is read, so each is copied once into the frames' own
+// arena; the arena and the map's table are the footprint's, both sized by
+// the program's functions.
 class Frames {
 public:
-  void add(llvm::StringRef function, std::uint64_t bytes) { bytes_[function] = bytes; }
+  void add(llvm::StringRef function, std::uint64_t bytes);
   void join(const Frames &other);
   // The bytes code generation reported, 0 for a function that reported
   // none: one whose frame is empty.
-  std::uint64_t of(llvm::StringRef function) const;
+  std::uint64_t of(llvm::StringRef function) const { return bytes_.lookup(function); }
 
 private:
-  llvm::StringMap<std::uint64_t> bytes_;
+  footprint::BumpPtrAllocator names;
+  footprint::DenseMap<llvm::StringRef, std::uint64_t> bytes_;
 };
 
 // Asks code generation for every defined function's frame: each reports
