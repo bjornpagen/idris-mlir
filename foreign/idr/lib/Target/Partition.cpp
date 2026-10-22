@@ -173,14 +173,16 @@ Expected<Partition> Partition::of(Module &module) {
     auto nodeOf = [](const SymbolRole &of) {
       return idr::match(
           of, [](Node node) -> std::optional<unsigned> { return node.index; },
-          [](const auto &) -> std::optional<unsigned> { return std::nullopt; });
+          [](const idr::OneOf<Partition::Declared, Partition::Copied, Alias> auto &)
+              -> std::optional<unsigned> { return std::nullopt; });
     };
     return idr::match(
         role[symbol], [](Node node) -> std::optional<unsigned> { return node.index; },
         [&](Alias alias) -> std::optional<unsigned> {
           return alias.base ? nodeOf(role[*alias.base]) : std::nullopt;
         },
-        [](const auto &) -> std::optional<unsigned> { return std::nullopt; });
+        [](const idr::OneOf<Partition::Declared, Partition::Copied> auto &)
+            -> std::optional<unsigned> { return std::nullopt; });
   };
   // Each symbol `from` names, a copied constant standing for what it names.
   // Each symbol enters once.
@@ -204,7 +206,7 @@ Expected<Partition> Partition::of(Module &module) {
             for (unsigned next : partition.symbols[named].refs)
               push(next);
           },
-          [&](const auto &) { visit(named); });
+          [&](const idr::OneOf<Partition::Declared, Node, Alias> auto &) { visit(named); });
     }
   };
 
@@ -302,7 +304,7 @@ Expected<Partition> Partition::of(Module &module) {
               if (home.bin != bin && at[other]->hasLocalLinkage())
                 crosses[other] = true;
             },
-            [](const auto &) {});
+            [](const idr::OneOf<Partition::Declared, Partition::Copied> auto &) {});
       });
   for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
     if (!crosses[symbol])

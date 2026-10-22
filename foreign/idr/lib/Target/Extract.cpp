@@ -50,7 +50,7 @@ Error Partition::extract(unsigned bin, Module &module) const {
         continue;
       role[named] = idr::match(
           symbols[named].home, [](Copied) { return Role::Hold; },
-          [](const auto &) { return Role::Declare; });
+          [](const idr::OneOf<Declared, Defined> auto &) { return Role::Declare; });
       if (role[named] == Role::Hold)
         work.push_back(named);
     }
