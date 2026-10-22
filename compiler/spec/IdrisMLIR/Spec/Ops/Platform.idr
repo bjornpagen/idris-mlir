@@ -38,7 +38,8 @@ import Data.Vect
 ------------------------------------------------------------------------------
 
 ||| A primitive of base's platform: the runtime function `io_<name>` of its
-||| operands, its effects as that function has them.
+||| operands, its effects as that function has them, its results' types
+||| the ones their constraints fix.
 platformOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (outs : Vect o Result)
           -> Declaration i o -> RuntimeCall i o -> Doc
           -> {auto 0 named : So (distinct (groupNames ins outs [] []))}
@@ -65,6 +66,7 @@ platformOp m ins outs eff call d = MkOp
   , specializations = []
   , laws = []
   , doc = d
+  , typing = fixedTypes outs
   }
 
 ||| An op of a handle, giving an Int: `fileSize`, `fflush` and their kin.
@@ -253,6 +255,7 @@ handleFileTime = MkOp
   , specializations = []
   , laws = []
   , doc = says "a field of the times a file-time handle holds"
+  , typing = InferredTypes [FixedType BuiltI64]
   }
 
 ------------------------------------------------------------------------------
@@ -453,6 +456,7 @@ clock = MkOp
   , specializations = []
   , laws = []
   , doc = says "a reading of a clock, or -1 where it cannot be read"
+  , typing = InferredTypes [FixedType BuiltI64]
   }
 
 ------------------------------------------------------------------------------

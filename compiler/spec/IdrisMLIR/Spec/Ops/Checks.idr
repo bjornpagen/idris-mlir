@@ -206,20 +206,23 @@ guardMeaning : GuardMeaning -> Meaning i o
 guardMeaning (OfTemplate c) = InlineCondition (conditionName c)
 guardMeaning OwnCode = HandFolder
 
-||| A guard over its operands, its result the first of them, with its own
-||| cause and site, its condition, and the effects its condition has: a
-||| crash where it fails, which every guard's declaration writes, and what
-||| the condition reads besides its operands.
-guardOp : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (checked : TypeC)
-       -> GuardMeaning -> (eff : Declaration i 1) -> List (Trait i 1) -> List InterfaceUse -> Doc
+||| A guard over its operands, its result the first of them, at that
+||| operand's own type, which its rule infers, so its type is stated once,
+||| as the operand's constraint; with its own cause and site, its
+||| condition, and the effects its condition has: a crash where it fails,
+||| which every guard's declaration writes, and what the condition reads
+||| besides its operands.
+guardOp : {others : Nat} -> (m : Mnemonic) -> (ins : Vect (S others) Operand)
+       -> GuardMeaning -> (eff : Declaration (S others) 1) -> List (Trait (S others) 1)
+       -> List InterfaceUse -> Doc
        -> {auto 0 fails : Found (anyOf crashes (effectsOf eff))}
-       -> {auto 0 named : So (distinct (groupNames ins [result "checked" checked] [causeSlot, siteSlot] []))}
-       -> Op i 1 2 0
-guardOp m ins checked tested eff traits ifaces d = MkOp
+       -> {auto 0 named : So (distinct (groupNames ins [result "checked" (head ins).type] [causeSlot, siteSlot] []))}
+       -> Op (S others) 1 2 0
+guardOp m ins tested eff traits ifaces d = MkOp
   { home = InIdr
   , mnemonic = m
   , ins = ins
-  , outs = [result "checked" checked]
+  , outs = [result "checked" (head ins).type]
   , attrs = [causeSlot, siteSlot]
   , regions = []
   , traits = traits
@@ -230,7 +233,7 @@ guardOp m ins checked tested eff traits ifaces d = MkOp
   , meaning = guardMeaning tested
   , verify = DeclarationOnly
   , format = Declared
-      (operandItems i ++ [Lit ",", ValueOf (AttrRef 0), Lit "at", ValueOf (AttrRef 1), AttrDict, Lit ":", FunctionalType OfOperands OfResults])
+      (operandItems (S others) ++ [Lit ",", ValueOf (AttrRef 0), Lit "at", ValueOf (AttrRef 1), AttrDict, Lit ":", FunctionalType OfOperands OfResults])
   , builders = []
   , defaultBuilders = WithDefaults
   , members = [holds, decideMember]
@@ -238,6 +241,7 @@ guardOp m ins checked tested eff traits ifaces d = MkOp
   , specializations = []
   , laws = []
   , doc = d
+  , typing = InferredTypes [OperandType FZ]
   }
 
 ||| A divisor, which must not be zero: an integer or an Integer. Its result
@@ -246,8 +250,7 @@ public export
 nonzeroOp : Op 1 1 2 0
 nonzeroOp = guardOp "check.nonzero"
   [single "value" (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer")]
-  (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer") (OfTemplate DivisorNonzero) endsByCrash
-  [SameOperandsAndResultType]
+  (OfTemplate DivisorNonzero) endsByCrash []
   [Implements flowInterface ["getFlowEdges"], Declares InferIntRange ["inferResultRanges"]]
   (says "the value, which must not be zero, else the program crashes")
 
@@ -259,35 +262,34 @@ indexCarrier = AnyOfTypes (i64 ::: [UpstreamType IndexC]) "an i64 or an index"
 ||| An index of a string or of an array of one dimension, below its length:
 ||| the guard takes what is indexed, so the index is checked against the
 ||| very value the op reads. Its result is the index, at the index's own
-||| type, which it infers.
+||| type.
 public export
 inBoundsOp : Op 2 1 2 0
 inBoundsOp = guardOp "check.in_bounds"
   [ single "index" indexCarrier
   , single "indexed" (AnyOfTypes (strRead ::: [SatisfiesType rank1ArrayP]) "a string or an array of one dimension") ]
-  indexCarrier (OfTemplate IndexInBounds) endsByCrash []
-  [Declares InferIntRange ["inferResultRangesFromOptional"], Declares InferType ["inferReturnTypes"]]
+  (OfTemplate IndexInBounds) endsByCrash []
+  [Declares InferIntRange ["inferResultRangesFromOptional"]]
   (says "the index, which must be at least 0 and below the length of what it indexes, else the program crashes")
 
 ||| A string, which must have a byte at least. Its result is its operand,
 ||| whose reference it hands on.
 public export
 nonemptyOp : Op 1 1 2 0
-nonemptyOp = guardOp "check.nonempty" [single "str" strValue] strValue OwnCode endsByCrash
-  [SameOperandsAndResultType]
+nonemptyOp = guardOp "check.nonempty" [single "str" strValue] OwnCode endsByCrash []
   [Implements flowInterface ["getFlowEdges"]]
   (says "the string, which must have at least one byte, else the program crashes")
 
 public export
 finiteOp : Op 1 1 2 0
-finiteOp = guardOp "check.finite" [single "value" f64] f64 OwnCode endsByCrash [SameOperandsAndResultType] []
+finiteOp = guardOp "check.finite" [single "value" f64] OwnCode endsByCrash [] []
   (says "the value, which must be neither NaN nor infinite, else the program crashes")
 
 ||| The bytes [offset, offset + count) of something of `size` bytes: both
 ||| at least 0, and the end, computed without overflow, at most the size.
 public export
 rangeOp : Op 3 1 2 0
-rangeOp = guardOp "check.range" [single "offset" i64, single "count" i64, single "size" i64] i64 (OfTemplate BytesInRange) endsByCrash
+rangeOp = guardOp "check.range" [single "offset" i64, single "count" i64, single "size" i64] (OfTemplate BytesInRange) endsByCrash
   []
   [Declares InferIntRange ["inferResultRanges"]]
   (says "the offset, whose range of `count` bytes must lie in `size`, else the program crashes")
@@ -299,8 +301,8 @@ rangeOp = guardOp "check.range" [single "offset" i64, single "count" i64, single
 ||| standard streams, and every string handle is one the runtime gave.
 public export
 holdsStringOp : Op 1 1 2 0
-holdsStringOp = guardOp "check.holds_string" [single "handle" i64] i64 OwnCode readsTableOrCrashes
-  [SameOperandsAndResultType] []
+holdsStringOp = guardOp "check.holds_string" [single "handle" i64] OwnCode readsTableOrCrashes
+  [] []
   (says "the handle, which must hold a string, else the program crashes")
 
 ||| Every guard: the ops the e-graph's guard rules are rooted at, each rule

@@ -228,13 +228,6 @@ void CheckNonzeroOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                                          : range.smax()));
 }
 
-// The index, at its own type: an i64 or an index alike.
-LogicalResult CheckInBoundsOp::inferReturnTypes(MLIRContext *, std::optional<Location>,
-                                                Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
-  inferred.push_back(adaptor.getIndex().getType());
-  return success();
-}
-
 // At least 0, and below the length of what it indexes, which no range
 // states: a length is at most the largest i64. An index's range is at 64
 // bits too, the width upstream stores an index's interval at.

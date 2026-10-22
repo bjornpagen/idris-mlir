@@ -178,6 +178,7 @@ toChar sign = MkOp
   , specializations = []
   , laws = []
   , doc = toCharDoc sign
+  , typing = InferredTypes [FixedType BuiltI32]
   }
 
 public export
@@ -227,6 +228,7 @@ intHead sign = MkOp
   , specializations = []
   , laws = []
   , doc = says "the first character of an integer's decimal text"
+  , typing = InferredTypes [FixedType BuiltI32]
   }
 
 public export
@@ -291,6 +293,7 @@ f64Head = MkOp
   , specializations = []
   , laws = []
   , doc = says "the first character of a Double's text"
+  , typing = InferredTypes [FixedType BuiltI32]
   }
 
 public export

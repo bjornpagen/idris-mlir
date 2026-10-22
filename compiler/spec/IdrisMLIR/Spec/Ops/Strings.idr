@@ -225,7 +225,8 @@ strConcat = listBuilder "str.concat" (SatisfiesType strListP) (says "the concate
 -- What a string gives
 ------------------------------------------------------------------------------
 
-||| A runtime function of a string that gives no new string.
+||| A runtime function of a string that gives no new string, its result's
+||| type the one its constraint fixes.
 reader : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (res : Result) -> RuntimeCall i 1
       -> List InterfaceUse -> Doc
       -> {auto 0 named : So (distinct (groupNames ins [res] [] []))}
@@ -252,6 +253,7 @@ reader m ins res call ifaces d = MkOp
   , specializations = []
   , laws = []
   , doc = d
+  , typing = fixedTypes [res]
   }
 
 ranges : InterfaceUse
@@ -330,6 +332,7 @@ strCmp = MkOp
   , specializations = []
   , laws = []
   , doc = says "compares two strings"
+  , typing = InferredTypes [FixedType BuiltI1]
   }
 
 ||| One op for IntN and BitsN: the runtime's reading of a string has no

@@ -12,6 +12,7 @@ import IdrisMLIR.Spec.Effects.Declaration
 import Data.Fin
 import Data.List
 import Data.List1
+import Data.Vect
 
 %default total
 
@@ -437,6 +438,32 @@ outsideBuilding r memory =
 public export
 readsRuntimeState : Declaration i o
 readsRuntimeState = Executes [OnState Read RuntimeState] [] Covered Untouched
+
+------------------------------------------------------------------------------
+-- Result types
+------------------------------------------------------------------------------
+
+||| The type a result's constraint fixes, where it is one type upstream
+||| builds; none where it admits more than one, so the type is given when
+||| the op is built.
+fixedBy : TypeC -> Maybe Buildable
+fixedBy (UpstreamType I1C) = Just BuiltI1
+fixedBy (UpstreamType I8C) = Just BuiltI8
+fixedBy (UpstreamType I16C) = Just BuiltI16
+fixedBy (UpstreamType I32C) = Just BuiltI32
+fixedBy (UpstreamType I64C) = Just BuiltI64
+fixedBy (UpstreamType IndexC) = Just BuiltIndex
+fixedBy (UpstreamType F64C) = Just BuiltF64
+fixedBy (UpstreamType NoneTypeC) = Just BuiltNone
+fixedBy _ = Nothing
+
+||| The results' types, each the one its constraint fixes, where every
+||| constraint fixes one: so a fixed type is stated once, as the result's
+||| constraint, and neither the C++ nor the frontend's builder is given it.
+||| Given when the op is built where any result's constraint admits more.
+public export
+fixedTypes : Vect o Result -> ResultTyping i o
+fixedTypes outs = maybe StatedTypes InferredTypes (traverse (\r => FixedType <$> fixedBy r.type) outs)
 
 ------------------------------------------------------------------------------
 -- Syntax

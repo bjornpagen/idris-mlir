@@ -311,6 +311,7 @@ bigCmp = MkOp
   , specializations = [bigToWord (OnWords cmpI)]
   , laws = []
   , doc = says "compares two bigs or two naturals"
+  , typing = InferredTypes [FixedType BuiltI1]
   }
 
 ------------------------------------------------------------------------------
@@ -531,6 +532,7 @@ bigToDouble = MkOp
   , specializations = []
   , laws = []
   , doc = says "a big as the nearest Double"
+  , typing = InferredTypes [FixedType BuiltF64]
   }
 
 showBig : RuntimeCall 1 1

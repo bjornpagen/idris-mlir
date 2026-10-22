@@ -29,7 +29,8 @@ import Data.Vect
 -- Output and input
 ------------------------------------------------------------------------------
 
-||| An IO op of the runtime's function `io_<name>`.
+||| An IO op of the runtime's function `io_<name>`, its results' types the
+||| ones their constraints fix.
 ioOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (outs : Vect o Result)
     -> Declaration i o -> RuntimeCall i o -> Doc
     -> {auto 0 named : So (distinct (groupNames ins outs [] []))}
@@ -56,6 +57,7 @@ ioOp m ins outs eff call d = MkOp
   , specializations = []
   , laws = []
   , doc = d
+  , typing = fixedTypes outs
   }
 
 ||| A string's UTF-8 to standard output, through the output buffer, in
