@@ -1866,6 +1866,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   specification fixes, and AGENTS.md takes a fold over a closed sum there.
   A type interface is MLIR's answer for an open set, which this is not.
   (C232's narrowing of this refusal is withdrawn with C232, by D116.)
+  *Sharpened* (L16bk's finding): the admission is per instance, not per
+  definition. A member at a use (`{0 t} -> (f : t) -> t`) and the growth
+  walk's readings meet types whose binders only the static arguments
+  show, which no definition-level walk with free markers can admit. So a
+  type is admitted where it is first instantiated, at the request, with
+  its static arguments put in: every binder then shows or the program is
+  refused as `value type`, naming the request. `staticsOver` and
+  `classifyAt` take the instance's admitted telescope and have no
+  missing-binder branch.
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
