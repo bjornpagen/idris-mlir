@@ -101,8 +101,8 @@ for, so the branch disappears into MLIR rather than into our C++:
   `memref.realloc` are), and the op that consumes them has one meaning.
 - **Shared shape is an interface**, as `LoopLikeOpInterface`,
   `RegionBranchOpInterface`, `CallOpInterface`, `DestinationStyleOpInterface`
-  and `InferTypeOpInterface` are; never an `isa<A, B>` ladder or a C++
-  concept.
+  and `InferTypeOpInterface` are; never an `isa<A, B>` ladder, and never a
+  concept that lists ops.
 - **Declare, don't write.** Effects (`MemoryEffects`, `Arg<..., [MemRead]>`),
   operand and attribute constraints, result types, assembly formats,
   properties, folders and simple rewrites (DRR/PDLL) live in ODS; a hand

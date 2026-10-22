@@ -1,0 +1,186 @@
+# Lane L03 (one-source): the Idris specification, its generator, the pipeline
+
+**Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Core/`,
+`compiler/spec/IdrisMLIR/Spec/Generator/`,
+`compiler/spec/IdrisMLIR/Spec/Pipeline/`,
+`compiler/spec/IdrisMLIR/Spec.idr`, `compiler/spec/spec.ipkg`, every
+hand `.td` of ours under `foreign/idr/include/idr/` (to delete),
+`include/idr/IR/IdrDialect.h`, `Traits.h`, `include/idr/InitIdr.h`,
+`include/idr/Transforms/{Passes.td,InnerPasses.td,Pipeline.h}`,
+`include/idr/Target/ScheduleOps.td`, `lib/Transforms/Pipeline.cpp`,
+`lib/IR/{Asm,Attrs,Bytecode,Dialect}.cpp`, `lib/IR/Verify/Attributes.cpp`,
+`foreign/idr/tools/idris-mlir-tblgen.cpp`.
+
+**Read deeply:** P0 §5.2 (decided when the specification is built) and
+§5.3 (ops printed flat; simplification); in §2 D7, D15, D16, D47, D49 to
+D52, D67, D98, D100, D106, D107, D109; in §3 C6, C7, C28, C47 and C48
+(superseded), C113, C153, C157. Your verification report
+`audits/p0/verify/L03-one-source.md` in full. The audits: 14 whole;
+`design/one-source.md` whole; `design/compile-time-cpp.md` §2;
+`design/egraph-full/mlir-form.md` §3.3; wave1 §5.2, §5.6, §5.8;
+synthesis A (ODS), D (builders). Code: every `.td` of ours,
+`tools/idris-mlir-tblgen.cpp`, `tools/dialects.sh`,
+`include/idr/IR/CMakeLists.txt`, the `Makefile`'s targets,
+`compiler/src/IdrisMLIR/{Dialect,Syntax,Encoding,Registry}/`.
+
+**Contract:** the specification is the one source of the `idr` dialect:
+ops, types, attributes, effects, rules and tables, invariants proven by
+Idris's types; every `.td` of ours is its output, committed with its
+fingerprints in one manifest (D67), none written by hand. Generated
+names follow ODS's defaults: op `idr.a.b` is C++ class `ABOp`, type
+`!idr.graded` is `GradedType`, `!idr.lifetime` `LifetimeType`, `!idr.data`
+`DataType`, attribute `#idr.family` `FamilyAttr`, all in namespace `idr`;
+outputs land under `include/idr/IR/Generated/`, which INT writes by
+running your generator. The e-graph pass is `idr-simplify`
+(`createIdrSimplify()`, L14).
+
+**End state:** `Spec.Core` holds the declaration types (op, type,
+attribute, effect form from L01, stage data, rule as data per D109 and
+C157); `Spec.Generator` prints TableGen, the generated C++ tables, the
+Idris modules the frontend imports (D50), the e-graph's rule tables, and
+the manifest; `Spec.Pipeline` holds the pipeline as one list (C28): the
+e-graph at every point that holds our ops and as the inliner's
+simplification (D98), nothing after lowering (D100). Dialect
+registration, printing and bytecode read generated code.
+
+**Recipe:**
+- Write `Spec.Core` and `Spec.Generator` as `design/one-source.md` and
+  your report §5 draft them, as amended by D67 (committed outputs and
+  manifest), D98 (no canonicalization patterns), D109.
+- Write `Spec.Pipeline` and make `Pipeline.cpp` read its generated list;
+  remove every `canonicalize` and `cse` point (D98, D100).
+- Delete every hand `.td` and the hand registration they fed; slim or
+  delete `idris-mlir-tblgen.cpp` as D51 says.
+- Write the `make check` regeneration check as a generator mode; INT
+  wires the target.
+
+**Delete:** every hand `.td`, the hand dialect list, string roots, the
+second canonicalizer configuration, `kNoLimit`.
+
+**QTT:** quantities and grades are declared as types in the specification
+and printed into ODS constraints, never as discardable attributes.
+
+**NOT TO DO:** any area's op declarations (each lane's `Spec/<Area>/`);
+running the generator (INT, D56); CMake or Makefile edits (INT).
+
+**Acceptance:** INT's generator run reproduces every committed output
+byte for byte, `make check` fails on any difference, and no `.td` of ours
+is written by hand.
+
+**Stop and return:** when the core, the generator, the pipeline list and
+the deletions are written and your handoff is sent.
+
+## Common obligations (every lane)
+
+**What this swarm is.** The P0 cutover itself: the implementation of
+`proposals/0000-mlir-native.md`, written whole by twenty-one owned lanes
+at once and an integration lane, in place, on `main`.
+It is one change (D56: "we will only build when this entire cutover is
+fully done"): no lane builds, typechecks or runs its part; the
+integration lane (INT) builds, runs and qualifies the whole on the four
+targets and routes every failure back to the lane that owns it. It is a
+hard cutover (D6, AGENTS.md): the new form replaces the old in the same
+change, with no shim, alias, re-export, dual path, fallback, flag or
+"remove later", and the dead code, tests and comments it leaves are
+deleted.
+
+**Read first, in full, before any edit:**
+1. `.claude/skills/representation-first/SKILL.md` (the lens every change
+   is judged by), and `.claude/skills/testing-by-search/SKILL.md` before
+   touching a test.
+2. `AGENTS.md` (the rules; the owner's dated rulings are quoted there).
+3. `proposals/0000-mlir-native.md`, the whole document: §2 holds the
+   owner's rulings D1 to D109, which bind you; §3 the coordinator's
+   decisions C1 to C157, which bind you unless you show the coordinator a
+   contradiction; §5 the target by area, the canonical contract every
+   lane writes against; §6 what goes; §7 the order.
+4. Your verification report, `audits/p0/verify/LNN-*.md` (named in your
+   lane): its §2 (boundaries, provenance, seams) and §5 (work units) are
+   the drafted recipe for your area, written before the rulings after
+   it; where a later ruling or decision differs, the later one governs.
+5. The design documents your lane names, then the code you own and the
+   code that consumes it.
+
+**The engagement contract.**
+- Checkout `/Users/bjorn/Documents/idris-mlir`, branch `main` (the owner, 2026-10-21: "we should do everything on main").
+  Record `git rev-parse --short HEAD` when you start and when you finish.
+- Write only inside your **exclusive write** paths (`ownership.json`); a
+  new file goes only inside a directory you own. Every other path is
+  another writer's: the other lanes, INT, and the coordinator
+  (`proposals/`, `AGENTS.md`, `audits/`, `.claude/`). Never edit
+  `third_party/` or `sources/`.
+- No build, no typecheck, no test run, no generator run, no `make` target
+  of any kind, and never `make bootstrap`, `tools/bootstrap.sh`,
+  `make build`, `make test*`, `make self` or `make compile` (D56; this
+  machine does not build LLVM). Reading, `grep`, `find`, `wc`, `git log`,
+  `git show` and `git diff` are fine. No git write: the coordinator
+  commits.
+- Four first-class targets (AGENTS.md): nothing per-target outside the
+  target's entry.
+
+**Shared contracts.** P0 §5 fixes every shared declaration by name and
+shape: the specification's ops, types and attributes, the grade
+(`!idr.graded<uses, hold, T>`, D88 to D90), the lifetime
+(`!idr.lifetime<view | room | cursor | home k>` and its openers, D93),
+families (`!idr.data<#Family[...]>`, D48), the effect tree and its one
+query API (D9, D27 to D29), the solver layer's shared types (C114), the
+tail fact on `idr.call` (D30, C139), the runtime's one ending table
+(D37, D64, D81) and the pipeline as one generated list (C28). Write
+against those names and shapes as P0 states them, whoever owns the file
+that declares them; never declare your own copy, and never wait for the
+owner's file to land. Where you need a declaration P0 does not fix,
+report the exact seam to the coordinator and continue with everything
+else.
+
+**Hub files.** Every `CMakeLists.txt` outside a directory you own, the root `Makefile` and
+`CMakeLists.txt`, and the generated outputs (`include/idr/IR/Generated/`,
+`generated.manifest`) are INT's. Do not edit them: list in your handoff
+each file you added, moved or deleted, per directory, and INT wires
+them.
+
+**How the code is written.**
+- C++: concept-constrained templates, monomorphized; dispatch over ops
+  only through MLIR (an interface, a trait, a rooted pattern), never an
+  `isa<A, B>` ladder or a concept that lists ops; a choice is a type or
+  an enum case, never a `bool`; no `assert` (D91): an invariant is a
+  type, a verifier rule, or nothing; no pointer-keyed map holding
+  per-node state; nothing static built per function.
+- Idris: in the subset both hosts compile, type-driven (indices, views,
+  erased proofs, evidence over `Bool`, C154: evidence at quantity 0 in
+  bodies the stock host runs). On the stock host, avoid until fixed:
+  constructors named `Nil`, `::` or `#` matched inside pattern lambdas,
+  nested linear `LPair`s (`audits/p0/design/idris-linear-check.md`), and
+  an effectful `let` whose value the body ignores
+  (`audits/p0/design/idris-identity-bug.md`).
+- Comments explain why the code is the way it is; they cite no document
+  or rule number. Names are churned until correct (D90's vocabulary).
+
+**Verification you may do.** Read-only checks only: every symbol you
+delete has no remaining reference inside your paths (`grep`), and each
+reference outside them is listed in your handoff as a seam for its
+owner. INT runs the checks AGENTS.md names (`make check`, `make build`,
+`make test`, `make test-idr`, `make test-unit`, `make test-mlir-tools`)
+on the whole.
+
+**Handoff.** When your obligations are done, reply in under 400 words:
+the paths you changed, per obligation; per obligation, the state made
+unrepresentable, the check moved to a boundary or the branch deleted,
+or why the case is essential (AGENTS.md); the files added, moved or
+deleted per directory, for INT; every unresolved seam, with its owner;
+HEAD at start and at finish.
+
+**The owner's word over the coordinator's.** The owner, 2026-10-21: "my
+human word always takes precedence over automated decisions." The
+rulings bind you; a coordinator decision that the evidence shows wrong
+is reported to the coordinator, never changed by you. Escalate
+conflicting evidence with the contract change you propose, and keep
+working on every obligation it does not block.
+
+## The six binding rules (verbatim)
+
+1. Do exactly the assigned obligations and the necessary consumer adaptations within the exclusive write set. Every changed hunk, new file, dependency or abstraction must map to a named obligation. If the contract cannot be completed within those writes, report the exact missing seam; do not silently widen scope.
+2. Add no unsolicited features, frameworks, generic helpers, configuration knobs, retries, telemetry, documentation, dependencies, formatting sweeps or neighboring cleanup. Elegance means completing the selected representation and deleting its named predecessor, not opening another project.
+3. Do not be afraid to duplicate reading, investigation, reasoning or small, packet-local, non-authoritative glue. Do not wait for a sibling just to avoid that duplication, and do not introduce a shared helper that creates a false dependency. Reuse repairs that have already landed; duplicated investigation does not mean rebuilding working mechanisms.
+4. Authoritative schemas, vocabularies, identities and business facts still have exactly one owner. Never duplicate them, create competing implementations or write concurrently to another owner's file. Duplicate effort is allowed; duplicate authority and overlapping writes are not.
+5. Finish the bounded deliverable, report changed paths against obligations, the checks actually run and any unresolved seams, then return control. Do not roam into another packet, manufacture work to keep up the headcount, or build a reporting or coordination platform.
+6. User steering goes through the coordinator, into the affected packet only. The coordinator corrects an architectural contradiction in the canonical contract and re-dispatches the affected lane. No lane stops for it.

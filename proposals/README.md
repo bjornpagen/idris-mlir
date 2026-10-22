@@ -27,10 +27,15 @@ never by its old number, which the queue reuses. A proposal can start
 before a later one it partly needs; the stages that wait are named
 here.
 
-## Where the work stands (2026-10-20)
+## Where the work stands (2026-10-21)
 
-The goal is self-hosting: `make self`, stage 2 = stage 3, on the four
-targets (0001). Everything else waits for it unless it says otherwise.
+P0 comes before everything else (the owner, 2026-10-21): the
+MLIR-native, modern-C++ cutover (0000), researched and planned in full
+before any of it is built. Its first wave of research is written.
+
+After P0, the goal is self-hosting: `make self`, stage 2 = stage 3, on
+the four targets (0001). Everything else waits for it unless it says
+otherwise.
 
 - **Built and running on arm64 macOS:** the total wave, the sound wave and
   the representation wave (their last texts at 77eaa5b1; the code is
@@ -82,6 +87,14 @@ P0 (the native DMP measurement on this machine) and P1, 0019's N1.
 
 ## The queue
 
+- [0000](0000-mlir-native.md): **P0, the cutover before everything:**
+  upstream MLIR first, every `.td` definition and effect redeclared, no
+  rederivation chains, monomorphized C++26, our own solvers only where
+  upstream cannot, in a layer of their own. The research (waves 1 and
+  2, the syntheses, the designs) is in `audits/p0/`; the proposal is the
+  decision document, being settled with the owner. It absorbs 0003 and
+  0011 whole, 0010's A0, 0015's R1 and R2 (D44) and 0009's array
+  cutover (D43).
 - [0001](0001-self-host.md): **self-hosting, `make self` finishes,** and
   nothing else. S1 and S2 are done, and S3's frontend half; S3's
   pipeline half is next (above, step 2), then S4 and S5.
