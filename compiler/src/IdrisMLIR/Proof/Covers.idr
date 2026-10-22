@@ -37,35 +37,58 @@
 |||   at a closed run the site reads as its leaf (`runCovers`), and at a
 |||   data constructor, read node by node or as a closed run's leaf by the
 |||   instance (`dataCovers`); the host's reduction of a lone lambda or
-|||   function type keeps the binder (`lambdaReduces`, `piReduces`).
+|||   function type keeps the binder (`lambdaReduces`, `piReduces`);
+||| - at a head the host rewrites by its shape, where the site's form takes
+|||   no such step, as a form read off the host's normal form takes none
+|||   anywhere (`Proof.Reading.readNoShapeStep`): a type constructor of no
+|||   arguments whose name names no type, which the host's steps only move,
+|||   at whatever location (`unnamedTypeReduces`, `atNamedType`); a head
+|||   that drops what it is applied to, met alone (`dropsAlone`); and no
+|||   `let` where the evaluation runs everything (`noLetWhereRun`).
 |||
 ||| The induction is not yet whole, so the run-time re-check stays. What it
 ||| lacks, each a fact no proof here states yet:
+||| - from the site's term to its form: `coversAtRoot` asks `NodeCovers` of
+|||   the site's term, whose instance the values are put into, while the
+|||   site's reading is of its form, the host's normal form of the term
+|||   contracted. Relating them needs the instance's normal form reached
+|||   from the site's normal form with the values put in (the host's
+|||   `substitutes` carries the site's steps through putting the values in,
+|||   and `reachesNormalForm` the rest), and then contraction carried
+|||   through putting values in, which no relation here states; and the
+|||   site's normality (`readNoShapeStep`) as a premise of `NodeCovers` at
+|||   each node, which the lemmas above take;
 ||| - under a binder: `NodeCovers` states closed terms only; a lambda's or
 |||   a function type's body is read in a scope the instance's values are
 |||   put in under (`putIn` at an outer scope) with its variable read as an
 |||   argument of the value, so the induction needs that statement, and,
 |||   where the instance contracts a lambda the site keeps, a reading of
-|||   `g x` from a reading of `g` (`DropsLast`); a `let` is a redex where
-|||   the evaluation runs everything, so the site's form has none only
-|||   where its normality is carried into the induction, which
-|||   `ReadingCovers` does not state;
+|||   `g x` from a reading of `g` (`DropsLast`);
 ||| - a call the site reads beside its unfolding (`SBeside`, `Reducing`,
 |||   `Unfolds`): the instance's evaluation of the call with the values put
 |||   in either takes no `Unfold` step, leaving the call as written, or
 |||   takes the one whose `Chooses` walks the same alternatives the trace
 |||   took, which needs the frontend's `scrutineeOf` related to the host's
-|||   `Scrutinised`, `Picks` and `Misses` through `putIn`, and the
+|||   `Scrutinised`, `Picks` and `Misses` through `putIn` (each alternative
+|||   the trace passes by `TakenBy`'s `PassesThis`, `TagShared` or
+|||   `LiteralPasses` a `Misses`, each it takes a `Matches`), and the
 |||   instance's normal form of the leaf related to the site's reading of
 |||   it (`Idris.Host.reachesNormalForm` with putting values in commuting
 |||   with the normaliser's steps);
-||| - a head the host may rewrite alone: a type constructor of no
-|||   arguments (`TypeName`, `ConstantTypeName`), a name with an address
-|||   but no definition (`SNoDefinition` speaks of the address,
-|||   `undefinedReduces` of the definition), and a constant applied to
-|||   arguments, which `DropApplied` drops though the site reads them;
-||| - a dictionary and a shape a constructor heads, read as written: no
-|||   normal form relates their instance form to the site's.
+||| - a name the context gives no address (`SNoDefinition`): that it has no
+|||   definition (`undefinedReduces`'s premise) needs `Idris.Host` to state
+|||   that a name it resolves (`Resolves`, whose evidence is the host's own)
+|||   resolves to a non-negative entry, where `Walk.placementIn` places it;
+||| - a dictionary and a shape a constructor heads, read as written: their
+|||   form keeps the host's steps (`Proof.Reading.ReadOff`) but not their
+|||   normality, and where the term has no unknown it is the term itself
+|||   (`Template.solvedIn`), which the holes evaluation may still step (a
+|||   definition that always reduces, a lambda applied), so neither
+|||   `reachesNormalForm`, which needs a `Reduct`, nor one normal form per
+|||   term relates the instance's form to the site's with the values put
+|||   in; and a dictionary over runtime values is the implementation the
+|||   frontend's own reduction finds (`FromImplementation`), which no
+|||   relation of the host's states.
 |||
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Covers
@@ -76,6 +99,7 @@ import Idris.Host
 import Libraries.Data.List.SizeOf
 
 import IdrisMLIR.Frontend.Growth.Graph
+import IdrisMLIR.Frontend.Growth.Heads
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Keys
@@ -662,16 +686,24 @@ mutual
 |||   other than closed, and the roots it is read with are read off its
 |||   head, whatever its arguments (`appliedRoots`): `Heads.roots` reads an
 |||   applied marker by its index alone, and roots it only where it lands
-|||   open;
+|||   open (`Heads.appliedRootsOf`);
 ||| - the roots a field's record gives are kept by the rewrite
-|||   (`recordRoots`), which holds wherever the rewrite keeps applied every
-|||   family the record's head roots by. A family applied in a record where
-|||   values not all closed land, whose arguments compute, is read as
-|||   computing, which roots nothing: there the record gives roots the
-|||   rewritten record does not, and only the run-time re-check stands.
-||| The graph's builder gives the first two of a built graph's sites; the
-||| others hold of its code (`Graph.Built.landedSites`, `Heads.roots`) but no
-||| evidence of them is kept, so each stays a premise.
+|||   (`recordRoots`), which `Heads.recordRootsOf` proves wherever the
+|||   reading drops no root (`Heads.DropsReach`). A use of the writer's
+|||   dictionary parameter applied in a record where values not all closed
+|||   land, whose arguments compute, is read as computing, which roots
+|||   nothing: there the record gives roots the rewritten record does not,
+|||   the graph draws no arc for the field read, and only the run-time
+|||   re-check stands.
+||| The graph's builder gives a built graph's sites their own arcs
+||| (`Graph.Built.ownDrawn`), their writers (`Graph.Built.writersListed`)
+||| and, at a node, their roots' word on an applied use
+||| (`Graph.SiteLanding`); the checker's success gives the feasibility.
+||| `closedLands` holds of the builder's code (`Graph.landedAt`,
+||| `Graph.closedAt`, the numbering `Graph.meet`) but rests on what base's
+||| `SortedMap` holds after an insert, which base states nowhere a proof can
+||| read, so it stays a premise, and `recordRoots` stays one for the case
+||| above.
 ||| A family read as computing is then never reached where an instance
 ||| writes (`computingUnreached`): it weighs its parameter Stuck, the arc
 ||| from the position the writer reads it at is Unmeasured, and no feasible
@@ -684,25 +716,25 @@ record LandingsWrite {g : Graph} (m : Model g) (s : Bound.Site g.size) (c : Nat 
   0 ownDrawn : (a : Arc g.size) -> Elem a (ownArcs s) -> Elem a g.arcs
   0 writersListed : WritersListed s
   0 closedLands : (i, k : Nat) -> c i = Closed k -> (p : Fin g.size) -> Elem (i, p) s.writers -> Lands g m p k
-  0 appliedRoots : (i, d : Nat) -> (ts : List Template) -> (j : Address) -> Elem j (s.roots (Applied i d ts)) ->
-                   ((k : Nat) -> Not (c i = Closed k), (ts' : List Template) -> Elem j (s.roots (Applied i d ts')))
+  0 appliedRoots : AppliedRoots c s.roots
   0 recordRoots : (r : Template) -> (j : Address) -> Elem j (s.roots r) -> Elem j (s.roots (withClosedFamilies c r))
 
 ||| What a built graph gives the rewrite of one of its sites read at a
-||| node: its writers list every parameter its template weighs with an arc
-||| (`Built.writersListed`); the graph's feasibility, its own arcs and the
-||| landings' three facts are the premises still to be kept.
+||| node: its own arcs (`Built.ownDrawn`), its writers listing every
+||| parameter its template weighs with an arc (`Built.writersListed`), and,
+||| where the site was read at a node whose families land as `c` says, its
+||| roots' word on an applied use (`Graph.SiteLanding`'s `LandedAtNode`);
+||| the graph's feasibility, which the check's success gives, and the
+||| landings' other two facts are the premises still to be kept.
 export
-0 builtLandings : (b : Built) -> {s : Bound.Site b.graph.size} -> Elem s b.model.sites -> {c : Nat -> Landing} ->
+0 builtLandings : (b : Built) -> {s : Bound.Site b.graph.size} -> Elem s b.model.sites ->
+                  (c : Nat -> Landing) -> AppliedRoots c s.roots ->
                   (pot : Vect b.graph.size Nat) -> Feasible b.graph pot ->
-                  ((a : Arc b.graph.size) -> Elem a (ownArcs s) -> Elem a b.graph.arcs) ->
                   ((i, k : Nat) -> c i = Closed k -> (p : Fin b.graph.size) -> Elem (i, p) s.writers -> Lands b.graph b.model p k) ->
-                  ((i, d : Nat) -> (ts : List Template) -> (j : Address) -> Elem j (s.roots (Applied i d ts)) ->
-                   ((k : Nat) -> Not (c i = Closed k), (ts' : List Template) -> Elem j (s.roots (Applied i d ts')))) ->
                   ((r : Template) -> (j : Address) -> Elem j (s.roots r) -> Elem j (s.roots (withClosedFamilies c r))) ->
                   LandingsWrite b.model s c
-builtLandings b {s} inModel pot fe own lands applied record =
-  MkLandingsWrite pot fe own (b.writersListed s inModel) lands applied record
+builtLandings b {s} inModel c applied pot fe lands record =
+  MkLandingsWrite pot fe (b.ownDrawn s inModel) (b.writersListed s inModel) lands applied record
 
 ||| A family read as computing is reached nowhere an instance writes in a
 ||| site's template: reached, it weighs its parameter Stuck
@@ -1516,6 +1548,88 @@ export
 runCovers {ns} {bs} {vs} {w} {v} run steps normal contracted maximal r read =
   let reduced = runReduces run (replace {p = \x => Reduces ev ctx x w} (putInRun SizeOf.zero (mkSizeOf ns) bs vs run) steps) in
   AtRunRead (runRead (replace {p = \x => Run x k} (sym (runContracted reduced contracted)) reduced) read)
+
+------------------------------------------------------------------------------
+-- Heads the host rewrites by their shape
+------------------------------------------------------------------------------
+
+0 tyConNotFunc : the (Term vs) (Ref fc (TyCon k) n) = Ref fc' Func n' -> Void
+tyConNotFunc Refl impossible
+
+||| A step at a type constructor of no arguments is the one its name takes
+||| where it names a type, wherever the node is: the host's steps are blind
+||| to locations, and a function or an unknown heads no such node.
+export
+0 namedTypeStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Contracts ev ctx (Ref fc (TyCon Z) n) v -> NamedType n
+namedTypeStep (TypeName root) = NamesUniverse root
+namedTypeStep (ConstantTypeName named) = NamesPrimitive named
+namedTypeStep (Unfold s _ _ _ _ _ _ _) = void (tyConNotFunc (fst (refSpines Host.Head s)))
+namedTypeStep (Solve s _ _ _ _ _ _ _ _) = void (refNotMeta Host.Head s)
+namedTypeStep (Primitive s _ _ _ _ _) = void (tyConNotFunc (fst (refSpines Host.Head s)))
+
+||| What a type constructor of no arguments whose name names no type
+||| reduces to: itself, at some location, since a step there, at whatever
+||| location the node has moved to, is one its name takes (`namedTypeStep`).
+export
+0 unnamedTypeReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Not (NamedType n) ->
+                       Reduces ev ctx (Ref fc (TyCon Z) n) w -> (fc' : FC ** w = Ref fc' (TyCon Z) n)
+unnamedTypeReduces none (Then r r') = case unnamedTypeReduces none r of
+  (_ ** Refl) => unnamedTypeReduces none r'
+unnamedTypeReduces none (Contract st) = void (none (namedTypeStep st))
+unnamedTypeReduces none ARef = (_ ** Refl)
+
+||| The induction at a type constructor of no arguments, where the site's
+||| form takes no step a node's shape decides there, as a form read off
+||| the host's normal form takes none anywhere
+||| (`Proof.Reading.readNoShapeStep`): its name names no type, putting
+||| values in keeps it, the host's steps only move it
+||| (`unnamedTypeReduces`), contraction keeps it, and the instance reads it
+||| as the site does, by the address the context gives it.
+export
+0 atNamedType : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
+                {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
+                Not (ShapeRedex ev (Ref fc (TyCon Z) n)) -> (0 at : AddressedAs (InstanceMode ctx) n a) ->
+                {0 w, v : ClosedTerm} ->
+                Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs (Ref fc (TyCon Z) n)) w -> Irreducible ev ctx w ->
+                EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
+                Writes m s (Head a []) r
+atNamedType {ns} {bs} {vs} {w} normalHere at steps normal contracted maximal r read =
+  case unnamedTypeReduces (\named => normalHere (ShapeAtName named))
+         (replace {p = \x => Reduces ev ctx x w} (putInHead SizeOf.zero (mkSizeOf ns) bs vs KeptFamily) steps) of
+    (_ ** Refl) => case refKept contracted of
+      Refl => case familyRead Host.Head read of
+        (a' ** [] ** (Refl, at', [])) => case trans (sym at') at of
+          Refl => AtHead []
+
+||| A head applied to its spine's arguments, where its application is a
+||| step a node's shape decides: the head alone, or a term that takes that
+||| step at the innermost application.
+export
+0 appliedShape : Spine u h args -> AppliedHead h -> Either (u = h) (ShapeRedex ev u)
+appliedShape Host.Head _ = Left Refl
+appliedShape {ev} (Host.Applied s) h = case appliedShape {ev} s h of
+  Left Refl => Right (ShapeAtApplied h)
+  Right r => Right (ShapeInFunction r)
+
+||| A head that drops what it is applied to heads a node of a form that
+||| takes no step a node's shape decides alone: a constant, a universe, a
+||| placeholder, what is impossible and a delay are each met by the
+||| induction applied to nothing (`atConstant`, `atUniverse`, `atErased`),
+||| never applied, which the host would drop (`DropApplied`) though the
+||| site reads every argument.
+export
+0 dropsAlone : Spine u f args -> DropsArguments f -> Not (ShapeRedex ev u) -> u = f
+dropsAlone {ev} s dropped normalHere = case appliedShape {ev} s (DropsApplied dropped) of
+  Left same => same
+  Right r => void (normalHere r)
+
+||| A `let` is no node of a form, read off the host's normal form, of an
+||| evaluation that runs everything: it would take a step there (`Zeta`),
+||| so the induction never meets one where the instance's evaluation would
+||| run it.
+export
+0 noLetWhereRun : (0 _ : ev.running = RunsAll) -> Not (ShapeRedex ev (Bind fc x (Let lfc c val ty) sc)) -> Void
+noLetWhereRun runs normalHere = normalHere (ShapeAtLet runs)
 
 ||| The induction's hypothesis at each argument of a node: each writes
 ||| what the site's reading reads it as (`NodeCovers`).

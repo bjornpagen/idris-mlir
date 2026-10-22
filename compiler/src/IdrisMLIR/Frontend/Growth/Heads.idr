@@ -235,6 +235,32 @@ headsIn hs = mapMaybe headed (Prelude.toList hs)
     headed Headless = Nothing
     headed Unsettled = Nothing
 
+-- What a template's reading reaches: no heading of its own, which a part
+-- no root is read off of a dictionary the running program chooses gives,
+-- and a use of the writer's parameter applied that only a family, closed
+-- values or a computing one reach; or the headings a set holds. No heading
+-- is its own case, never an empty set, so that a reading that reaches
+-- nothing is known by its shape, which the growth proof reads
+-- (`appliedRootsOf`, `recordRootsOf`): a set's contents are base's to
+-- know, and base states nothing of them a proof could read.
+data Headings = NoHeading | ReachedBy (SortedSet Heading)
+
+-- What two readings reach together.
+joined : Headings -> Headings -> Headings
+joined NoHeading h = h
+joined (ReachedBy hs) NoHeading = ReachedBy hs
+joined (ReachedBy hs) (ReachedBy hs') = ReachedBy (union hs hs')
+
+-- What a reading reaches, as the set a reader that asks a set reads.
+asSet : Headings -> SortedSet Heading
+asSet NoHeading = empty
+asSet (ReachedBy hs) = hs
+
+-- The implementations a reading reaches, ascending.
+headsOf : Headings -> List Address
+headsOf NoHeading = []
+headsOf (ReachedBy hs) = headsIn hs
+
 -- What reaches a slot a match takes apart: a dictionary the running
 -- program chose, held as it is, which makes the match stuck there; or
 -- only dictionaries the program fixes. The view a walk down a dictionary
@@ -278,12 +304,12 @@ membersAt v k = union (at v (choiceSlot k)) (at v (choiceSlot UnshownHead))
 record Own where
   constructor MkOwn
   ofMarker : Nat -> SortedSet Heading
-  ofApplied : Nat -> SortedSet Heading
+  ofApplied : Nat -> Headings
 
 -- A reading whose applied markers give nothing: where Core's root answers
 -- for every applied marker.
 markersOnly : (Nat -> SortedSet Heading) -> Own
-markersOnly reading = MkOwn reading (const empty)
+markersOnly reading = MkOwn reading (const NoHeading)
 
 -- Whose template a part no root is read off belongs to, which decides
 -- what it keys a callee by: a dictionary the running program chooses,
@@ -294,9 +320,15 @@ markersOnly reading = MkOwn reading (const empty)
 data Unread = OfChosen | OfRootless
 
 -- What a part no root is read off keys a callee by.
-unread : Unread -> SortedSet Heading
-unread OfChosen = empty
-unread OfRootless = singleton Headless
+unread : Unread -> Headings
+unread OfChosen = NoHeading
+unread OfRootless = ReachedBy (singleton Headless)
+
+-- Field k of each implementation a dictionary reaches: no heading where
+-- the dictionary reaches none.
+fieldsReached : View -> Nat -> Headings -> Headings
+fieldsReached v k NoHeading = NoHeading
+fieldsReached v k (ReachedBy hs) = ReachedBy (foldl (\acc, j => union acc (at v (fieldSlot j k))) empty (headsIn hs))
 
 mutual
   -- The roots a template's structure gives, where Core named none. A head
@@ -312,11 +344,10 @@ mutual
   -- fields of its own: the implementations its leaves give, which reach
   -- beside it, hold them. Any other part has no root read off it
   -- (`Unread`).
-  byTemplate : View -> Own -> Unread -> Template -> SortedSet Heading
-  byTemplate v own u (Var i Z) = own.ofMarker i
-  byTemplate v own u (Field k s) =
-    foldl (\acc, j => union acc (at v (fieldSlot j k))) empty (headsIn (byTemplate v own OfChosen s))
-  byTemplate v own u (Member k) = membersAt v k
+  byTemplate : View -> Own -> Unread -> Template -> Headings
+  byTemplate v own u (Var i Z) = ReachedBy (own.ofMarker i)
+  byTemplate v own u (Field k s) = fieldsReached v k (byTemplate v own OfChosen s)
+  byTemplate v own u (Member k) = ReachedBy (membersAt v k)
   byTemplate v own u (Choice _ leaves) = byLeaves v own u leaves
   byTemplate v own u (Applied i Z _) = own.ofApplied i
   byTemplate v own u (Head _ _) = unread u
@@ -332,9 +363,9 @@ mutual
   -- template read at a node (`withClosedFamilies`).
   byTemplate v own u (Computing _ _ _) = unread u
 
-  byLeaves : View -> Own -> Unread -> List Template -> SortedSet Heading
-  byLeaves v own u [] = empty
-  byLeaves v own u (t :: ts) = union (byTemplate v own u t) (byLeaves v own u ts)
+  byLeaves : View -> Own -> Unread -> List Template -> Headings
+  byLeaves v own u [] = NoHeading
+  byLeaves v own u (t :: ts) = joined (byTemplate v own u t) (byLeaves v own u ts)
 
 -- What an instance that fixes a dictionary its site leaves to the running
 -- program keys a callee by: the definition its one right-hand side builds
@@ -363,11 +394,11 @@ byRoot v own (Rooted j) _ = singleton (HeadedBy j)
 -- What the running program chooses, its template says: its choice, which
 -- the reader put in (`asGiven`); what an instance that fixes it after all
 -- makes of it; and, at every other instance, itself, held as it is.
-byRoot v own (Chosen s) t = insert Unsettled (union (byTemplate v own OfChosen t) (fixedReach s))
+byRoot v own (Chosen s) t = insert Unsettled (union (asSet (byTemplate v own OfChosen t)) (fixedReach s))
 byRoot v own (Gives js) _ = insert Headless (fromList (map HeadedBy (forget js)))
 byRoot v own (Parameter i Z) _ = own.ofMarker i
-byRoot v own (Parameter _ (S _)) t = byTemplate v own OfRootless t
-byRoot v own Unrooted t = byTemplate v own OfRootless t
+byRoot v own (Parameter _ (S _)) t = asSet (byTemplate v own OfRootless t)
+byRoot v own Unrooted t = asSet (byTemplate v own OfRootless t)
 
 -- A family by its type root: the type constructor there, or the writer's
 -- own family there. A family no type constructor heads (a lambda, a value
@@ -406,7 +437,7 @@ byArgument v own ByTypeConstructor x = byFamily own x.root
 keyedBy : View -> Own -> Splitting -> Argument -> SortedSet Heading
 keyedBy v own how x = case (how, x.root) of
   (ByImplementation, Gives _) => singleton Headless
-  (ByImplementation, Chosen s) => union (byTemplate v own OfChosen x.template) (fixedKey s)
+  (ByImplementation, Chosen s) => union (asSet (byTemplate v own OfChosen x.template)) (fixedKey s)
   _ => byArgument v own how x
 
 -- The arguments a site passes that split their callee, each with how.
@@ -821,6 +852,31 @@ dictionaryAt fl w ps i = case parameterOf ps i of
   WritersOwn j => maybe (at fl.solution (parameterSlot w.definition j)) (singleton . HeadedBy) (lookup j w.heads)
   UsesPosition j => at fl.solution (applicationSlot j)
 
+-- What a use of a function that gives an implementation reaches, by what
+-- lands at its parameter. Essential: such a use is a member the flow found
+-- only where the graph can read the use applied. Where only closed values
+-- land, the graph reads it as heads above its arguments, beta of a value
+-- landed there, a part of that value and no member; where a value that
+-- computes lands, as computing, which nothing an instance writes reaches.
+appliedWhere : Landing -> Lazy (SortedSet Heading) -> Headings
+appliedWhere Open hs = ReachedBy hs
+appliedWhere (Closed _) _ = NoHeading
+appliedWhere Computed _ = NoHeading
+appliedWhere (Evaluable _) _ = NoHeading
+
+-- What a use of the writer's parameter i, applied, reaches at a node: a
+-- family applied, nothing, since beta applies it and no implementation
+-- is; a dictionary, what it can be where the graph reads the use applied.
+usedApplied : Flow -> (families : List Nat) -> Node -> Parameters -> (landing : Nat -> Landing) -> Nat -> Headings
+usedApplied fl families w ps landing i =
+  if elem i families then NoHeading else appliedWhere (landing i) (dictionaryAt fl w ps i)
+
+-- How the growth theorem's model reads the writer's own parameters at a
+-- node: a dictionary parameter by what it can be, and one applied as its
+-- landing says.
+ownAt : Flow -> (families : List Nat) -> Node -> Parameters -> (landing : Nat -> Landing) -> Own
+ownAt fl families w ps landing = MkOwn (dictionaryAt fl w ps) (usedApplied fl families w ps landing)
+
 ||| The implementations a template alone can be, written in the writer's
 ||| node as `ps` reads its parameters, where Core gave no root, the
 ||| writer's families by index and what lands at each parameter: a
@@ -832,22 +888,142 @@ dictionaryAt fl w ps i = case parameterOf ps i of
 export
 roots : Flow -> (families : List Nat) -> (writer : Node) -> Parameters -> (landing : Nat -> Landing) -> Template ->
         List Address
-roots fl families w ps landing t = headsIn (byTemplate fl.solution (MkOwn (dictionaryAt fl w ps) dictionaryApplied) OfChosen t)
-  where
-    -- Essential: a use of a function that gives an implementation is a
-    -- member the flow found only where the graph can read the use
-    -- applied. Where only closed values land, the graph reads it as heads
-    -- above its arguments, beta of a value landed there, a part of that
-    -- value and no member; where a value that computes lands, as
-    -- computing, which nothing an instance writes reaches.
-    appliedWhere : Nat -> Landing -> SortedSet Heading
-    appliedWhere i Open = dictionaryAt fl w ps i
-    appliedWhere i (Closed _) = empty
-    appliedWhere i Computed = empty
-    appliedWhere i (Evaluable _) = empty
+roots fl families w ps landing t = headsOf (byTemplate fl.solution (ownAt fl families w ps landing) OfChosen t)
 
-    dictionaryApplied : Nat -> SortedSet Heading
-    dictionaryApplied i = if elem i families then empty else appliedWhere i (landing i)
+------------------------------------------------------------------------------
+-- What the roots say, for the growth proof
+------------------------------------------------------------------------------
+
+||| What the roots a site reads off a template say of a use of the writer's
+||| parameter i applied, at a node where `c` says what lands at each
+||| parameter: where a root reaches it, values not all closed land at i,
+||| and the root is read off i alone, whatever i is applied to.
+public export
+0 AppliedRoots : (Nat -> Landing) -> (Template -> List Address) -> Type
+AppliedRoots c rs = (i, d : Nat) -> (ts : List Template) -> (j : Address) -> Elem j (rs (Applied i d ts)) ->
+                    ((k : Nat) -> Not (c i = Closed k), (ts' : List Template) -> Elem j (rs (Applied i d ts')))
+
+-- A reading that reaches nothing either way reaches nothing.
+0 eitherNothing : (b : Bool) -> {0 h : Headings} -> h = NoHeading -> (if b then NoHeading else h) = NoHeading
+eitherNothing True _ = Refl
+eitherNothing False none = none
+
+-- A reading that reaches nothing where its test holds reaches nothing.
+0 thenNothing : (b : Bool) -> {0 h : Headings} -> b = True -> (if b then NoHeading else h) = NoHeading
+thenNothing True _ = Refl
+thenNothing False held = absurd held
+
+-- A test, with what it is.
+0 decided : (b : Bool) -> Either (b = True) (b = False)
+decided True = Left Refl
+decided False = Right Refl
+
+-- A use of the writer's parameter where no value that can be a member
+-- lands reaches nothing.
+0 nothingAt : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
+              (i : Nat) -> (l : Landing) -> c i = l -> appliedWhere l (dictionaryAt fl w ps i) = NoHeading ->
+              usedApplied fl families w ps c i = NoHeading
+nothingAt fl families w ps c i l landed none =
+  trans (cong (\x => if elem i families then NoHeading else appliedWhere x (dictionaryAt fl w ps i)) landed)
+        (eitherNothing (elem i families) none)
+
+||| The roots of a use of the writer's parameter applied, as `roots` reads
+||| them at a node: where only closed values land, the use reads as no
+||| member, so a root reaching it rules a closed landing out; and a use
+||| is read off the parameter alone, whatever it is applied to.
+export
+0 appliedRootsOf : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
+                   AppliedRoots c (roots fl families w ps c)
+appliedRootsOf fl families w ps c i Z ts j el =
+  (\k, closed => absurd (replace {p = \h => Elem j (headsOf h)} (nothingAt fl families w ps c i (Closed k) closed Refl) el),
+   \ts' => el)
+appliedRootsOf fl families w ps c i (S d) ts j el = absurd el
+
+||| Where reading a template at a node (`withClosedFamilies`) drops roots
+||| the template as written reaches: a use of the writer's parameter i, no
+||| family, applied with nothing matched out of it where values not all
+||| closed land, to arguments beta computes, which the reading reads as
+||| computing (`Computing`) and so as reaching nothing, though the use as
+||| written reaches what the parameter can be; at a place the roots are
+||| read off, a choice's leaf or a field's record.
+public export
+data DropsReach : (Nat -> Landing) -> (families : List Nat) -> Template -> Type where
+  DroppedAtUse : (0 _ : elem i families = False) -> (0 _ : c i = Open) ->
+                 (0 _ : argumentsBeta c (allWithClosed c ts) = Computes) -> DropsReach c families (Applied i Z ts)
+  DroppedInLeaf : Elem t ls -> DropsReach c families t -> DropsReach c families (Choice s ls)
+  DroppedInRecord : DropsReach c families r -> DropsReach c families (Field k r)
+
+-- k heads above a head reach what the head does.
+0 raisedReaches : (k : Nat) -> byTemplate v own u (raise k (Head a ts)) = unread u
+raisedReaches Z = Refl
+raisedReaches (S k) = Refl
+
+mutual
+  -- Reading a template at a node keeps what it reaches, where it drops
+  -- no root (`DropsReach`).
+  0 readReaches : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
+                  (t : Template) -> Not (DropsReach c families t) ->
+                  byTemplate fl.solution (ownAt fl families w ps c) OfChosen (withClosedFamilies c t) =
+                  byTemplate fl.solution (ownAt fl families w ps c) OfChosen t
+  readReaches fl families w ps c (Var i d) _ = Refl
+  readReaches fl families w ps c (Leaf h) _ = Refl
+  readReaches fl families w ps c (Token k) _ = Refl
+  readReaches fl families w ps c (Formal j k) _ = Refl
+  readReaches fl families w ps c (Member k) _ = Refl
+  readReaches fl families w ps c (Head a ts) _ = Refl
+  readReaches fl families w ps c (Opaque a ts) _ = Refl
+  readReaches fl families w ps c (Computing i d ts) _ = Refl
+  readReaches fl families w ps c (Field k r) no =
+    cong (fieldsReached fl.solution k) (readReaches fl families w ps c r (\dropped => no (DroppedInRecord dropped)))
+  readReaches fl families w ps c (Choice s ls) no =
+    leavesReach fl families w ps c ls (\el, dropped => no (DroppedInLeaf el dropped))
+  readReaches fl families w ps c (Applied i d ts) no =
+    appliedReaches fl families w ps c i d ts (c i) Refl (argumentsBeta c (allWithClosed c ts)) Refl no
+
+  0 leavesReach : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
+                  (ls : List Template) -> ({t : Template} -> Elem t ls -> Not (DropsReach c families t)) ->
+                  byLeaves fl.solution (ownAt fl families w ps c) OfChosen (allWithClosed c ls) =
+                  byLeaves fl.solution (ownAt fl families w ps c) OfChosen ls
+  leavesReach fl families w ps c [] _ = Refl
+  leavesReach fl families w ps c (t :: ts) no =
+    cong2 joined (readReaches fl families w ps c t (no Here)) (leavesReach fl families w ps c ts (\el => no (There el)))
+
+  -- A use of the writer's parameter applied, read as what lands at its
+  -- position and what beta makes of its arguments say.
+  0 appliedReaches : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
+                     (i, d : Nat) -> (ts : List Template) -> (l : Landing) -> c i = l ->
+                     (b : Beta) -> argumentsBeta c (allWithClosed c ts) = b -> Not (DropsReach c families (Applied i d ts)) ->
+                     byTemplate fl.solution (ownAt fl families w ps c) OfChosen (landedAs l b i d (allWithClosed c ts)).template =
+                     byTemplate fl.solution (ownAt fl families w ps c) OfChosen (Applied i d ts)
+  appliedReaches fl families w ps c i (S d) ts Computed _ b _ _ = Refl
+  appliedReaches fl families w ps c i (S d) ts (Evaluable _) _ b _ _ = Refl
+  appliedReaches fl families w ps c i (S d) ts (Closed k) _ Computes _ _ = Refl
+  appliedReaches fl families w ps c i (S d) ts Open _ Computes _ _ = Refl
+  appliedReaches fl families w ps c i (S d) ts (Closed k) _ Inert _ _ = raisedReaches k
+  appliedReaches fl families w ps c i (S d) ts Open _ Inert _ _ = Refl
+  appliedReaches fl families w ps c i Z ts Open _ Inert _ _ = Refl
+  appliedReaches fl families w ps c i Z ts (Closed k) landed Inert _ _ =
+    trans (raisedReaches k) (sym (nothingAt fl families w ps c i (Closed k) landed Refl))
+  appliedReaches fl families w ps c i Z ts (Closed k) landed Computes _ _ =
+    sym (nothingAt fl families w ps c i (Closed k) landed Refl)
+  appliedReaches fl families w ps c i Z ts Computed landed b _ _ =
+    sym (nothingAt fl families w ps c i Computed landed Refl)
+  appliedReaches fl families w ps c i Z ts (Evaluable es) landed b _ _ =
+    sym (nothingAt fl families w ps c i (Evaluable es) landed Refl)
+  appliedReaches fl families w ps c i Z ts Open landed Computes computes no = case decided (elem i families) of
+    Left family => sym (trans (cong (\x => if elem i families then NoHeading else appliedWhere x (dictionaryAt fl w ps i)) landed)
+                              (thenNothing (elem i families) family))
+    Right other => void (no (DroppedAtUse other landed computes))
+
+||| The roots a field's record reaches, as `roots` reads them at a node,
+||| are kept by reading the record there (`withClosedFamilies`), wherever
+||| the reading drops none (`DropsReach`).
+export
+0 recordRootsOf : (fl : Flow) -> (families : List Nat) -> (w : Node) -> (ps : Parameters) -> (c : Nat -> Landing) ->
+                  (r : Template) -> Not (DropsReach c families r) -> (j : Address) ->
+                  Elem j (roots fl families w ps c r) -> Elem j (roots fl families w ps c (withClosedFamilies c r))
+recordRootsOf fl families w ps c r no j el =
+  replace {p = \h => Elem j (headsOf h)} (sym (readReaches fl families w ps c r no)) el
 
 ------------------------------------------------------------------------------
 -- Visits

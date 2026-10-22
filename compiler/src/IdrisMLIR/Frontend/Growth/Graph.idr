@@ -156,13 +156,16 @@ WritersListed {n} s = (i : Nat) -> (w : Weight) -> Elem (i, w) (weights s.templa
 ||| (`withClosedFamilies` at `c`, what lands at each of the writer's
 ||| parameters), its writers listing every family that reading landed
 ||| closed, which the template no longer names, with the position its
-||| writer reads it at; or, at a held position, a packing's chain as
-||| written, which applies no family.
+||| writer reads it at, and its roots read there, which root a use of the
+||| writer's parameter applied only where values not all closed land and
+||| whatever the use is applied to (`Heads.appliedRootsOf`); or, at a held
+||| position, a packing's chain as written, which applies no family.
 public export
 data SiteLanding : {n : Nat} -> Bound.Site n -> Type where
   LandedAtNode : {0 s : Bound.Site n} -> (c : Nat -> Landing) -> (written : Template) ->
                  s.template = withClosedFamilies c written ->
                  ((i : Nat) -> Elem i (readLanded c written).landed -> (p : Fin n ** Elem (i, p) s.writers)) ->
+                 AppliedRoots c s.roots ->
                  SiteLanding s
   HeldAsWritten : SiteLanding s
 
@@ -203,12 +206,16 @@ record Built where
   ||| a marker.
   0 packingsMeasured : (a : Fin (length graph.arcs)) -> (p : Packing) -> Vect.index a wrote = PacksHeld p ->
                        IsFinite (arc graph a).label
+  ||| Each site's own arcs, from the positions its writer reads its
+  ||| parameters at, are the graph's: the graph is drawn from the sites.
+  0 ownDrawn : (s : Bound.Site graph.size) -> Elem s model.sites -> (a : Arc graph.size) -> Elem a (ownArcs s) ->
+               Elem a graph.arcs
   ||| Each site's writers list every parameter its template weighs with an
   ||| arc, with the position its writer reads it at.
   0 writersListed : (s : Bound.Site graph.size) -> Elem s model.sites -> WritersListed s
   ||| How each site was read off what its writer wrote: where its node's
   ||| families land, every family the reading landed closed among its
-  ||| writers.
+  ||| writers, and its roots read at the same landing.
   0 landedSites : (s : Bound.Site graph.size) -> Elem s model.sites -> SiteLanding s
 
 ------------------------------------------------------------------------------
@@ -851,13 +858,14 @@ targetsOf : List Written -> List Spot
 targetsOf xs = SortedSet.toList (foldl (\acc, x => insert x.target acc) empty xs)
 
 -- Where a writing's template was read, with the families that reading
--- landed closed: at a walked node, the template written there read where
--- the node's families land (`readLanded`); or, at a held position, a
--- packing's chain as written, which lands none.
-data ReadAt : Template -> List Nat -> Type where
-  ReadAtNode : (c : Nat -> Landing) -> (written : Template) ->
-               ReadAt (readLanded c written).template (readLanded c written).landed
-  ReadAsHeld : ReadAt t []
+-- landed closed and the roots read with it: at a walked node, the
+-- template written there read where the node's families land
+-- (`readLanded`), its roots read at the same landing (`Heads.roots`); or,
+-- at a held position, a packing's chain as written, which lands none.
+data ReadAt : Template -> List Nat -> (Template -> List Address) -> Type where
+  ReadAtNode : (c : Nat -> Landing) -> (written : Template) -> AppliedRoots c rts ->
+               ReadAt (readLanded c written).template (readLanded c written).landed rts
+  ReadAsHeld : ReadAt t [] rts
 
 -- What the graph draws for one template, read where its writer is
 -- (`readAtWriter`): where its writer reads each of its parameters (a walked
@@ -876,7 +884,7 @@ record Writing where
   wrote : Wrote
   0 draws : DrawnBy wrote template
   landed : List Nat
-  0 readAt : ReadAt template landed
+  0 readAt : ReadAt template landed roots
 
 -- A pair's chain applies no family, so reading it where a node's
 -- families land leaves it as it is.
@@ -910,12 +918,13 @@ familiesOf families w = fromMaybe [] (lookup w.definition families)
 
 -- A writing at a node, its template read once where the node's families
 -- land (`readLanded`): the template the graph draws and the families that
--- reading landed closed are the one reading's.
-landedWriting : (Nat -> Spot) -> (Template -> List Address) -> Spot -> (wr : Wrote) -> (c : Nat -> Landing) ->
-                (t : Template) -> (0 _ : DrawnBy wr t) -> Writing
-landedWriting rs rts tgt wr c t made = fromReading (readLanded c t) (ReadAtNode c t) (drawnRead c made)
+-- reading landed closed are the one reading's, and its roots are read at
+-- the same landing.
+landedWriting : (Nat -> Spot) -> (rts : Template -> List Address) -> Spot -> (wr : Wrote) -> (c : Nat -> Landing) ->
+                (0 _ : AppliedRoots c rts) -> (t : Template) -> (0 _ : DrawnBy wr t) -> Writing
+landedWriting rs rts tgt wr c applied t made = fromReading (readLanded c t) (ReadAtNode c t applied) (drawnRead c made)
   where
-    fromReading : (r : LandedReading) -> (0 _ : ReadAt r.template r.landed) -> (0 _ : DrawnBy wr r.template) -> Writing
+    fromReading : (r : LandedReading) -> (0 _ : ReadAt r.template r.landed rts) -> (0 _ : DrawnBy wr r.template) -> Writing
     fromReading r at drawn = MkWriting rs r.template rts tgt wr drawn r.landed at
 
 -- A writing read where its writer is: at a node, its template read where
@@ -925,7 +934,7 @@ landedWriting rs rts tgt wr c t made = fromReading (readLanded c t) (ReadAtNode 
 readAtWriter : Flow -> SortedMap Address (List Nat) -> SortedMap Spot Landing -> Written -> Writing
 readAtWriter fl families ls (MkWritten rs t (AtNode w ps) tgt wr made) =
   let c = closedAt ls w ps in
-  landedWriting rs (roots fl (familiesOf families w) w ps c) tgt wr c t made
+  landedWriting rs (roots fl (familiesOf families w) w ps c) tgt wr c (appliedRootsOf fl (familiesOf families w) w ps c) t made
 readAtWriter fl families ls (MkWritten rs t AtHeld tgt wr made) = MkWriting rs t (const []) tgt wr made [] ReadAsHeld
 
 -- Every walked edge's arguments, each at the callee parameter `reaches`
@@ -1347,10 +1356,11 @@ SiteDrawn x = DrawnBy (snd x) (fst x).template
 SiteMet {n} x = (SiteDrawn x, WritersListed {n} (fst x), SiteLanding {n} (fst x))
 
 -- How a site met from a writing was read: as the writing's template was,
--- each family its reading landed closed listed among the site's writers.
-0 siteLanded : {0 n : Nat} -> {s : Bound.Site n} -> (t : Template) -> s.template = t -> ReadAt t landed ->
+-- each family its reading landed closed listed among the site's writers,
+-- its roots the writing's.
+0 siteLanded : {0 n : Nat} -> {s : Bound.Site n} -> (t : Template) -> s.template = t -> ReadAt t landed s.roots ->
                ((i : Nat) -> Elem i landed -> (p : Fin n ** Elem (i, p) s.writers)) -> SiteLanding s
-siteLanded _ same (ReadAtNode c written) listed = LandedAtNode c written same listed
+siteLanded _ same (ReadAtNode c written applied) listed = LandedAtNode c written same listed applied
 siteLanded _ same ReadAsHeld _ = HeldAsWritten
 
 -- A writing as a site of the model, its positions met at its places: where
@@ -1725,5 +1735,7 @@ build main = do
                                     (\st, x, el, same => packedMeasured (replace {p = \w => DrawnBy w st.template} same
                                                                                   (fst (indexAll el (snd keptEvidence)))))
                                     (taggedAt arcs a) packs)
+                (\st, el => ownDrawnOf {ps = positionsOf} {fps = fieldPositionsOf} {cps = choicePositionsOf} {positionOf}
+                                       {held = count} {beyond} {caps} {ss = kept} el)
                 (\st, el => listedAmong (snd keptEvidence) el)
                 (\st, el => landedAmong (snd keptEvidence) el))

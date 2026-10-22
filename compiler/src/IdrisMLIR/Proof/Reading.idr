@@ -22,7 +22,12 @@
 ||| (`Closed.contractedBy`) gives its result with that evidence and with
 ||| the evidence that no redex it contracts is left. What contraction gives
 ||| is never taller than what it was given (`contractionHeight`), so
-||| whatever bounds the normal form bounds what the readers read.
+||| whatever bounds the normal form bounds what the readers read; and it
+||| makes no step a node's shape decides (a type by its name, a head that
+||| drops its arguments or a lambda, applied, a `let` or an as pattern the
+||| evaluation runs: `ShapeRedex`) that the normal form lacks
+||| (`contractedShape`), so what a reader reads off a normal form takes
+||| none (`readNoShapeStep`).
 module IdrisMLIR.Proof.Reading
 
 import Core.TT
@@ -231,6 +236,252 @@ mutual
   binderContractionHeight (EtaPVTy ty) = contractionHeight ty
 
 ------------------------------------------------------------------------------
+-- Steps a node's shape decides
+------------------------------------------------------------------------------
+
+||| A type constructor of no arguments that names a type the evaluator
+||| rewrites it to, wherever it is: the universe (`TypeName`) or a
+||| primitive type (`ConstantTypeName`).
+public export
+data NamedType : Name -> Type where
+  NamesUniverse : (0 _ : knownRoot n = Just KType) -> NamedType n
+  NamesPrimitive : (0 _ : isConstantType n = Just pt) -> NamedType n
+
+||| A head the evaluator rewrites the application of, whatever it is
+||| applied to: one that drops what it is applied to (`DropApplied`), or a
+||| lambda (`Beta`).
+public export
+data AppliedHead : Term vs -> Type where
+  DropsApplied : DropsArguments f -> AppliedHead f
+  LambdaApplied : AppliedHead (Bind bfc x (Lam lfc c p ty) sc)
+
+mutual
+  ||| A step of an evaluation that a node's shape decides, with what the
+  ||| evaluation runs and keeps, in any context, somewhere in a term: at a
+  ||| type constructor that names a type (`NamedType`), at an application
+  ||| of a head the evaluator rewrites (`AppliedHead`), at a `let` where the
+  ||| evaluation runs everything (`Zeta`), at an as pattern where it removes
+  ||| them (`RemoveAs`), or under a node `Idris.Host.Redex` steps under,
+  ||| under a delay as the delayed evaluation.
+  public export
+  data ShapeRedex : Evaluation -> Term vs -> Type where
+    ShapeAtName : NamedType n -> ShapeRedex ev (Ref fc (TyCon Z) n)
+    ShapeAtApplied : AppliedHead f -> ShapeRedex ev (App fc f a)
+    ShapeAtLet : (0 _ : ev.running = RunsAll) -> ShapeRedex ev (Bind fc x (Let lfc c val ty) sc)
+    ShapeAtAs : (0 _ : ev.asPatterns = RemovesAs) -> ShapeRedex ev (As fc s n t)
+    ShapeInMeta : SomeShapeRedex ev scope -> ShapeRedex ev (Meta fc m i scope)
+    ShapeInBinder : BinderShapeRedex ev b -> ShapeRedex ev (Bind fc x b sc)
+    ShapeInBody : ShapeRedex ev sc -> ShapeRedex ev (Bind fc x b sc)
+    ShapeInFunction : ShapeRedex ev f -> ShapeRedex ev (App fc f a)
+    ShapeInArgument : ShapeRedex ev a -> ShapeRedex ev (App fc f a)
+    ShapeInAsName : ShapeRedex ev n -> ShapeRedex ev (As fc s n t)
+    ShapeInAsPattern : ShapeRedex ev t -> ShapeRedex ev (As fc s n t)
+    ShapeInDelayed : ShapeRedex ev t -> ShapeRedex ev (TDelayed fc r t)
+    ShapeInDelayType : ShapeRedex (delayed ev) ty -> ShapeRedex ev (TDelay fc d ty a)
+    ShapeInDelayValue : ShapeRedex (delayed ev) a -> ShapeRedex ev (TDelay fc d ty a)
+    ShapeInForce : ShapeRedex ev t -> ShapeRedex ev (TForce fc r t)
+    ShapeInDot : ShapeRedex ev t -> ShapeRedex ev (Erased fc (Dotted t))
+
+  public export
+  data SomeShapeRedex : Evaluation -> List (Term vs) -> Type where
+    ShapeInFirst : ShapeRedex ev t -> SomeShapeRedex ev (t :: ts)
+    ShapeInRest : SomeShapeRedex ev ts -> SomeShapeRedex ev (t :: ts)
+
+  public export
+  data BinderShapeRedex : Evaluation -> Binder (Term vs) -> Type where
+    ShapeInLamImplicit : PiShapeRedex ev p -> BinderShapeRedex ev (Lam fc c p ty)
+    ShapeInLamType : ShapeRedex ev ty -> BinderShapeRedex ev (Lam fc c p ty)
+    ShapeInLetValue : ShapeRedex ev val -> BinderShapeRedex ev (Let fc c val ty)
+    ShapeInLetType : ShapeRedex ev ty -> BinderShapeRedex ev (Let fc c val ty)
+    ShapeInPiImplicit : PiShapeRedex ev p -> BinderShapeRedex ev (Pi fc c p ty)
+    ShapeInPiType : ShapeRedex ev ty -> BinderShapeRedex ev (Pi fc c p ty)
+    ShapeInPVarImplicit : PiShapeRedex ev p -> BinderShapeRedex ev (PVar fc c p ty)
+    ShapeInPVarType : ShapeRedex ev ty -> BinderShapeRedex ev (PVar fc c p ty)
+    ShapeInPLetValue : ShapeRedex ev val -> BinderShapeRedex ev (PLet fc c val ty)
+    ShapeInPLetType : ShapeRedex ev ty -> BinderShapeRedex ev (PLet fc c val ty)
+    ShapeInPVTyType : ShapeRedex ev ty -> BinderShapeRedex ev (PVTy fc c ty)
+
+  public export
+  data PiShapeRedex : Evaluation -> PiInfo (Term vs) -> Type where
+    ShapeInDefault : ShapeRedex ev t -> PiShapeRedex ev (DefImplicit t)
+
+-- The step a head the evaluator rewrites the application of takes there.
+0 appliedHeadStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> AppliedHead f -> Redex ev ctx (App fc f a)
+appliedHeadStep (DropsApplied dropped) = AtRoot (DropApplied dropped)
+appliedHeadStep LambdaApplied = AtRoot Beta
+
+-- The step a type constructor that names a type takes.
+0 namedStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> NamedType n -> Redex ev ctx (Ref fc (TyCon Z) n)
+namedStep (NamesUniverse root) = AtRoot (TypeName root)
+namedStep (NamesPrimitive named) = AtRoot (ConstantTypeName named)
+
+mutual
+  ||| A step a node's shape decides is a step of the evaluation in every
+  ||| context, where it is.
+  export
+  0 shapeRedex : {0 ev : Evaluation} -> {0 ctx : Frozen} -> ShapeRedex ev t -> Redex ev ctx t
+  shapeRedex (ShapeAtName named) = namedStep named
+  shapeRedex (ShapeAtApplied h) = appliedHeadStep h
+  shapeRedex (ShapeAtLet runs) = AtRoot (Zeta runs)
+  shapeRedex (ShapeAtAs removes) = AtRoot (RemoveAs removes)
+  shapeRedex (ShapeInMeta r) = InMeta (someShapeRedex r)
+  shapeRedex (ShapeInBinder r) = InBinder (binderShapeRedex r)
+  shapeRedex (ShapeInBody r) = InBody (shapeRedex r)
+  shapeRedex (ShapeInFunction r) = InFunction (shapeRedex r)
+  shapeRedex (ShapeInArgument r) = InArgument (shapeRedex r)
+  shapeRedex (ShapeInAsName r) = InAsName (shapeRedex r)
+  shapeRedex (ShapeInAsPattern r) = InAsPattern (shapeRedex r)
+  shapeRedex (ShapeInDelayed r) = InDelayed (shapeRedex r)
+  shapeRedex (ShapeInDelayType r) = InDelayType (shapeRedex r)
+  shapeRedex (ShapeInDelayValue r) = InDelayValue (shapeRedex r)
+  shapeRedex (ShapeInForce r) = InForce (shapeRedex r)
+  shapeRedex (ShapeInDot r) = InDot (shapeRedex r)
+
+  0 someShapeRedex : {0 ev : Evaluation} -> {0 ctx : Frozen} -> SomeShapeRedex ev ts -> SomeRedex ev ctx ts
+  someShapeRedex (ShapeInFirst r) = InFirst (shapeRedex r)
+  someShapeRedex (ShapeInRest r) = InRest (someShapeRedex r)
+
+  0 binderShapeRedex : {0 ev : Evaluation} -> {0 ctx : Frozen} -> BinderShapeRedex ev b -> BinderRedex ev ctx b
+  binderShapeRedex (ShapeInLamImplicit r) = InLamImplicit (piShapeRedex r)
+  binderShapeRedex (ShapeInLamType r) = InLamType (shapeRedex r)
+  binderShapeRedex (ShapeInLetValue r) = InLetValue (shapeRedex r)
+  binderShapeRedex (ShapeInLetType r) = InLetType (shapeRedex r)
+  binderShapeRedex (ShapeInPiImplicit r) = InPiImplicit (piShapeRedex r)
+  binderShapeRedex (ShapeInPiType r) = InPiType (shapeRedex r)
+  binderShapeRedex (ShapeInPVarImplicit r) = InPVarImplicit (piShapeRedex r)
+  binderShapeRedex (ShapeInPVarType r) = InPVarType (shapeRedex r)
+  binderShapeRedex (ShapeInPLetValue r) = InPLetValue (shapeRedex r)
+  binderShapeRedex (ShapeInPLetType r) = InPLetType (shapeRedex r)
+  binderShapeRedex (ShapeInPVTyType r) = InPVTyType (shapeRedex r)
+
+  0 piShapeRedex : {0 ev : Evaluation} -> {0 ctx : Frozen} -> PiShapeRedex ev p -> PiRedex ev ctx p
+  piShapeRedex (ShapeInDefault r) = InDefault (shapeRedex r)
+
+-- A head a strengthening gives that drops what it is applied to was one:
+-- a strengthening rebuilds each such node as it was.
+0 strengthenedDrops : DropsArguments g -> Strengthened o f g -> DropsArguments f
+strengthenedDrops _ (MMarker first _) = void (noneReplaces first)
+strengthenedDrops DropsAtPlaceholder MPlaceholder = DropsAtPlaceholder
+strengthenedDrops DropsAtImpossible MImpossible = DropsAtImpossible
+strengthenedDrops DropsAtConstant MPrim = DropsAtConstant
+strengthenedDrops DropsAtUniverse MType = DropsAtUniverse
+strengthenedDrops DropsAtDelay (MDelay _ _) = DropsAtDelay
+
+-- A head a strengthening gives whose application the evaluator rewrites
+-- was one.
+0 strengthenedHead : AppliedHead g -> Strengthened o f g -> AppliedHead f
+strengthenedHead (DropsApplied dropped) m = DropsApplied (strengthenedDrops dropped m)
+strengthenedHead LambdaApplied (MMarker first _) = void (noneReplaces first)
+strengthenedHead LambdaApplied (MBind (MLam _ _) _) = LambdaApplied
+
+mutual
+  ||| A strengthening makes no step a node's shape decides: it rebuilds
+  ||| every node it is given from its parts, and puts no value in for a
+  ||| name (`Idris.Host.Strengthened`), so each such step of what it gives
+  ||| was one of what it was given, at the same node.
+  export
+  0 strengthenedShape : ShapeRedex ev g -> Strengthened o f g -> ShapeRedex ev f
+  strengthenedShape _ (MMarker first _) = void (noneReplaces first)
+  strengthenedShape (ShapeAtName named) (MRef _) = ShapeAtName named
+  strengthenedShape (ShapeAtApplied h) (MApp mf _) = ShapeAtApplied (strengthenedHead h mf)
+  strengthenedShape (ShapeAtLet runs) (MBind (MLet _ _) _) = ShapeAtLet runs
+  strengthenedShape (ShapeAtAs removes) (MAs _ _) = ShapeAtAs removes
+  strengthenedShape (ShapeInMeta r) (MMeta _ ms) = ShapeInMeta (someStrengthenedShape r ms)
+  strengthenedShape (ShapeInBinder r) (MBind mb _) = ShapeInBinder (binderStrengthenedShape r mb)
+  strengthenedShape (ShapeInBody r) (MBind _ msc) = ShapeInBody (strengthenedShape r msc)
+  strengthenedShape (ShapeInFunction r) (MApp mf _) = ShapeInFunction (strengthenedShape r mf)
+  strengthenedShape (ShapeInArgument r) (MApp _ ma) = ShapeInArgument (strengthenedShape r ma)
+  strengthenedShape (ShapeInAsName r) (MAs ma _) = ShapeInAsName (strengthenedShape r ma)
+  strengthenedShape (ShapeInAsPattern r) (MAs _ mt) = ShapeInAsPattern (strengthenedShape r mt)
+  strengthenedShape (ShapeInDelayed r) (MDelayed mt) = ShapeInDelayed (strengthenedShape r mt)
+  strengthenedShape (ShapeInDelayType r) (MDelay mty _) = ShapeInDelayType (strengthenedShape r mty)
+  strengthenedShape (ShapeInDelayValue r) (MDelay _ ma) = ShapeInDelayValue (strengthenedShape r ma)
+  strengthenedShape (ShapeInForce r) (MForce mt) = ShapeInForce (strengthenedShape r mt)
+  strengthenedShape (ShapeInDot r) (MDotted mt) = ShapeInDot (strengthenedShape r mt)
+
+  0 someStrengthenedShape : SomeShapeRedex ev us -> AllMapped DropsOne None (the (SubstEnv [] []) []) o ts us ->
+                            SomeShapeRedex ev ts
+  someStrengthenedShape (ShapeInFirst r) (MEach m _) = ShapeInFirst (strengthenedShape r m)
+  someStrengthenedShape (ShapeInRest r) (MEach _ ms) = ShapeInRest (someStrengthenedShape r ms)
+
+  0 binderStrengthenedShape : BinderShapeRedex ev b' -> BinderMapped DropsOne None (the (SubstEnv [] []) []) o b b' ->
+                              BinderShapeRedex ev b
+  binderStrengthenedShape (ShapeInLamImplicit r) (MLam mp _) = ShapeInLamImplicit (piStrengthenedShape r mp)
+  binderStrengthenedShape (ShapeInLamType r) (MLam _ mty) = ShapeInLamType (strengthenedShape r mty)
+  binderStrengthenedShape (ShapeInLetValue r) (MLet mv _) = ShapeInLetValue (strengthenedShape r mv)
+  binderStrengthenedShape (ShapeInLetType r) (MLet _ mty) = ShapeInLetType (strengthenedShape r mty)
+  binderStrengthenedShape (ShapeInPiImplicit r) (MPi mp _) = ShapeInPiImplicit (piStrengthenedShape r mp)
+  binderStrengthenedShape (ShapeInPiType r) (MPi _ mty) = ShapeInPiType (strengthenedShape r mty)
+  binderStrengthenedShape (ShapeInPVarImplicit r) (MPVar mp _) = ShapeInPVarImplicit (piStrengthenedShape r mp)
+  binderStrengthenedShape (ShapeInPVarType r) (MPVar _ mty) = ShapeInPVarType (strengthenedShape r mty)
+  binderStrengthenedShape (ShapeInPLetValue r) (MPLet mv _) = ShapeInPLetValue (strengthenedShape r mv)
+  binderStrengthenedShape (ShapeInPLetType r) (MPLet _ mty) = ShapeInPLetType (strengthenedShape r mty)
+  binderStrengthenedShape (ShapeInPVTyType r) (MPVTy mty) = ShapeInPVTyType (strengthenedShape r mty)
+
+  0 piStrengthenedShape : PiShapeRedex ev p' -> PiMapped DropsOne None (the (SubstEnv [] []) []) o p p' -> PiShapeRedex ev p
+  piStrengthenedShape (ShapeInDefault r) (MDefault m) = ShapeInDefault (strengthenedShape r m)
+
+-- What a head contracted to one that drops what it is applied to was: that
+-- head, or a delay contracted, which drops it too; or a lambda, an
+-- eta-redex, whose application beta reduces.
+0 droppedFrom : DropsArguments f' -> EtaContracts f f' -> AppliedHead f
+droppedFrom dropped EtaSame = DropsApplied dropped
+droppedFrom _ (EtaRedex _ _) = LambdaApplied
+droppedFrom DropsAtDelay (EtaDelay _ _) = DropsApplied DropsAtDelay
+droppedFrom DropsAtPlaceholder (EtaDotted _) impossible
+droppedFrom DropsAtImpossible (EtaDotted _) impossible
+
+-- What a head contracted to a lambda was: a lambda.
+0 lambdaFrom : EtaContracts f (Bind bfc x (Lam lfc c p ty) sc) -> AppliedHead f
+lambdaFrom EtaSame = LambdaApplied
+lambdaFrom (EtaRedex _ _) = LambdaApplied
+lambdaFrom (EtaBind (EtaLam _) _) = LambdaApplied
+
+-- What a head contracted to one whose application the evaluator rewrites
+-- was: one too.
+0 appliedFrom : AppliedHead f' -> EtaContracts f f' -> AppliedHead f
+appliedFrom (DropsApplied dropped) cf = droppedFrom dropped cf
+appliedFrom LambdaApplied cf = lambdaFrom cf
+
+mutual
+  ||| Contraction makes no step a node's shape decides that the term it
+  ||| contracts lacks: a node it keeps is rebuilt from its parts
+  ||| contracted, a redex it contracts is a part of the lambda's body
+  ||| strengthened (`strengthenedShape`), and a head it contracts to one
+  ||| whose application the evaluator rewrites was one (`appliedFrom`).
+  export
+  0 contractedShape : ShapeRedex ev v -> EtaContracts w v -> ShapeRedex ev w
+  contractedShape r EtaSame = r
+  contractedShape r (EtaRedex body dropped) = ShapeInBody (contractedShape (ShapeInFunction (strengthenedShape r dropped)) body)
+  contractedShape (ShapeAtApplied h) (EtaApp cf _) = ShapeAtApplied (appliedFrom h cf)
+  contractedShape (ShapeAtLet runs) (EtaBind (EtaLet _ _) _) = ShapeAtLet runs
+  contractedShape (ShapeAtAs removes) (EtaAs _ _) = ShapeAtAs removes
+  contractedShape (ShapeInBinder r) (EtaBind cb _) = ShapeInBinder (binderContractedShape r cb)
+  contractedShape (ShapeInBody r) (EtaBind _ csc) = ShapeInBody (contractedShape r csc)
+  contractedShape (ShapeInFunction r) (EtaApp cf _) = ShapeInFunction (contractedShape r cf)
+  contractedShape (ShapeInArgument r) (EtaApp _ ca) = ShapeInArgument (contractedShape r ca)
+  contractedShape (ShapeInAsName r) (EtaAs ca _) = ShapeInAsName (contractedShape r ca)
+  contractedShape (ShapeInAsPattern r) (EtaAs _ ct) = ShapeInAsPattern (contractedShape r ct)
+  contractedShape (ShapeInDelayed r) (EtaDelayed ct) = ShapeInDelayed (contractedShape r ct)
+  contractedShape (ShapeInDelayType r) (EtaDelay cty _) = ShapeInDelayType (contractedShape r cty)
+  contractedShape (ShapeInDelayValue r) (EtaDelay _ ca) = ShapeInDelayValue (contractedShape r ca)
+  contractedShape (ShapeInForce r) (EtaForce ct) = ShapeInForce (contractedShape r ct)
+  contractedShape (ShapeInDot r) (EtaDotted ct) = ShapeInDot (contractedShape r ct)
+
+  0 binderContractedShape : BinderShapeRedex ev b' -> BinderContracts b b' -> BinderShapeRedex ev b
+  binderContractedShape (ShapeInLamImplicit r) (EtaLam _) = ShapeInLamImplicit r
+  binderContractedShape (ShapeInLamType r) (EtaLam cty) = ShapeInLamType (contractedShape r cty)
+  binderContractedShape (ShapeInLetValue r) (EtaLet cv _) = ShapeInLetValue (contractedShape r cv)
+  binderContractedShape (ShapeInLetType r) (EtaLet _ cty) = ShapeInLetType (contractedShape r cty)
+  binderContractedShape (ShapeInPiImplicit r) (EtaPi _) = ShapeInPiImplicit r
+  binderContractedShape (ShapeInPiType r) (EtaPi cty) = ShapeInPiType (contractedShape r cty)
+  binderContractedShape (ShapeInPVarImplicit r) (EtaPVar _) = ShapeInPVarImplicit r
+  binderContractedShape (ShapeInPVarType r) (EtaPVar cty) = ShapeInPVarType (contractedShape r cty)
+  binderContractedShape (ShapeInPLetValue r) (EtaPLet cv _) = ShapeInPLetValue (contractedShape r cv)
+  binderContractedShape (ShapeInPLetType r) (EtaPLet _ cty) = ShapeInPLetType (contractedShape r cty)
+  binderContractedShape (ShapeInPVTyType r) (EtaPVTy cty) = ShapeInPVTyType (contractedShape r cty)
+
+------------------------------------------------------------------------------
 -- Readings
 ------------------------------------------------------------------------------
 
@@ -258,3 +509,10 @@ record NormalReading (form : NormalForm) (ctx : Frozen) (t : ClosedTerm) where
 export
 0 readNoTaller : (r : NormalReading form ctx t) -> LTE (termHeight r.readForm) (termHeight r.reduct.value)
 readNoTaller r = contractionHeight r.contraction
+
+||| What the readers read off the host's normal form takes no step a node's
+||| shape decides anywhere in it: contraction makes none the normal form
+||| lacks (`contractedShape`), and the normal form takes no step at all.
+export
+0 readNoShapeStep : (r : NormalReading form ctx t) -> ShapeRedex (evaluationOf form) r.readForm -> Void
+readNoShapeStep r shape = r.reduct.normal (shapeRedex (contractedShape shape r.contraction))
