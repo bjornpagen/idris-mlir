@@ -101,11 +101,18 @@ nothingIsJust Refl impossible
 ||| one context. Only `host` makes one, once the program and everything it
 ||| imports are loaded; nothing changes the context after, so what the
 ||| evaluator reads from the record is what the map holds.
+|||
+||| The normalisers run on this value alone, so a program that holds it
+||| never holds the live context. Idris's evaluator unfolds what the record
+||| it is given defines, and reads only its session's options (what it
+||| logs) through a reference to a context; that reference is made here,
+||| once, holding the record, and nothing the normalisers run writes it.
 export
 record Frozen where
   constructor MkFrozen
   defs : Defs
   entries : IntMap GlobalDef
+  reference : Ref Ctxt Defs
 
 ||| The definitions record a frozen context was made from, which the
 ||| normalisers run on.
@@ -865,14 +872,15 @@ export
                               (substs (mkSizeOf ns) vs (refsToLocals bs r.value)) s.value
 normalisesThrough bs vs r s = reachesNormalForm s (substitutes bs vs r.steps)
 
--- A normaliser's normal form of a closed term, on the frozen context's
--- definitions record, with the steps that reach it and the evidence that
--- it is normal: what the evaluator gives, which is the trust.
-reduct : {auto c : Ref Ctxt Defs} ->
-         (Defs -> Env Term [] -> ClosedTerm -> Core ClosedTerm) ->
+-- A normaliser's normal form of a closed term, on the frozen context
+-- alone: its definitions record, and its own reference as the context the
+-- evaluator reads its options through. With the steps that reach it and
+-- the evidence that it is normal: what the evaluator gives, which is the
+-- trust.
+reduct : ({auto c : Ref Ctxt Defs} -> Defs -> Env Term [] -> ClosedTerm -> Core ClosedTerm) ->
          (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct form ctx t)
 reduct normaliser ctx t
-    = do v <- normaliser (defsOf ctx) Env.empty t
+    = do v <- normaliser {c = ctx.reference} (defsOf ctx) Env.empty t
          pure (MkReduct v trusted trusted)
 
 ------------------------------------------------------------------------------
@@ -952,13 +960,16 @@ entriesFrom gam (S left) i acc
            | Nothing => entriesFrom gam left (i + 1) acc
          entriesFrom gam left (i + 1) (IntMap.insert i d acc)
 
--- The context as it is, frozen: every entry it has made.
+-- The context as it is, frozen: every entry it has made, and the
+-- reference the normalisers run the evaluator with, the live context read
+-- here once and never again.
 covering
 frozenContext : {auto c : Ref Ctxt Defs} -> Core Frozen
 frozenContext
     = do defs <- get Ctxt
          let gam = gamma defs
-         MkFrozen defs <$> entriesFrom gam (integerToNat (cast (nextEntry gam))) 0 IntMap.empty
+         entries <- entriesFrom gam (integerToNat (cast (nextEntry gam))) 0 IntMap.empty
+         MkFrozen defs entries <$> newRef Ctxt defs
 
 ||| The operations of Idris's compiler whose termination a program over it
 ||| takes on trust, each named as this compiler names it.
@@ -976,22 +987,19 @@ record Host where
   -- The evaluator: Idris's theory is not strongly normalizing, so a
   -- normal form is trusted to exist; every caller first proves that each
   -- definition its term refers to ends, which is what that trust rests on.
-  -- Each gives a closed term's normal form in the frozen context, with
-  -- the steps that reach it and the evidence that it is normal.
+  -- Each gives a closed term's normal form in the frozen context, and runs
+  -- on it alone, with the steps that reach it and the evidence that it is
+  -- normal.
 
   ||| `Core.Normalise.normalise`.
-  normalise : {auto c : Ref Ctxt Defs} ->
-              (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct OfNormalise ctx t)
+  normalise : (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct OfNormalise ctx t)
   ||| `Core.Normalise.normaliseTypes`.
-  normaliseTypes : {auto c : Ref Ctxt Defs} ->
-                   (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct OfNormaliseTypes ctx t)
+  normaliseTypes : (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct OfNormaliseTypes ctx t)
   ||| `Core.Normalise.normaliseHoles`.
-  normaliseHoles : {auto c : Ref Ctxt Defs} ->
-                   (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct OfNormaliseHoles ctx t)
+  normaliseHoles : (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct OfNormaliseHoles ctx t)
   ||| `Core.Normalise.normaliseAll`, every definition unfolded whatever its
   ||| visibility.
-  normaliseAll : {auto c : Ref Ctxt Defs} ->
-                 (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct OfNormaliseAll ctx t)
+  normaliseAll : (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct OfNormaliseAll ctx t)
 
   -- A definition's terms, through the context's accessors, each here
   -- until the accessor is total.
