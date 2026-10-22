@@ -508,7 +508,7 @@ mutual
              IField' KindedName -> Core (PField' KindedName)
   toPField field
       = do bind' <- traverse (toPTerm startPrec) field.val
-           pure (Mk [field.fc , "", field.rig, [field.name]] bind')
+           pure (MkWithFCDocRigNames field.fc "" field.rig [field.name] bind')
 
   toPFnOpt : {auto c : Ref Ctxt Defs} ->
              {auto s : Ref Syn SyntaxInfo} ->
@@ -521,9 +521,9 @@ mutual
   toPDecl : {auto c : Ref Ctxt Defs} ->
             {auto s : Ref Syn SyntaxInfo} ->
             ImpDecl' KindedName -> Core (Maybe (PDecl' KindedName))
-  toPDecl (IClaim (MkWithData fc $ MkIClaimData rig vis opts ty))
+  toPDecl (IClaim (MkFCVal fc $ MkIClaimData rig vis opts ty))
       = do opts' <- traverse toPFnOpt opts
-           pure (Just (MkWithData fc $ PClaim (MkPClaim rig vis opts' !(toPTypeDecl ty))))
+           pure (Just (MkFCVal fc $ PClaim (MkPClaim rig vis opts' !(toPTypeDecl ty))))
   toPDecl (IData fc vis mbtot d)
       = pure (Just (MkFCVal fc $ PData "" vis mbtot !(toPData d)))
   toPDecl (IDef fc n cs)
@@ -536,11 +536,11 @@ mutual
                     type' <- toPTerm startPrec binder.val.boundType
                     pure (MkFullBinder info' binder.rig binder.name type')) ps
            pure (Just (MkFCVal fc (PParameters (Right args) (catMaybes ds'))))
-  toPDecl (IRecord fc _ vis mbtot (MkWithData _ $ MkImpRecord header body))
+  toPDecl (IRecord fc _ vis mbtot (MkFCVal _ $ MkImpRecord header body))
       = do ps' <- traverse (traverse (traverse (toPTerm startPrec))) header.val
            fs' <- traverse toPField body.val
            pure (Just (MkFCVal fc $ PRecord "" vis mbtot
-                          (MkPRecord header.name.val (map toBinder ps') body.opts (Just (AddDef body.name)) fs')))
+                          (MkPRecord header.name.val (map toBinder ps') body.opts (Just (undocumented body.name)) fs')))
            where
              toBinder : ImpParameter' (PTerm' KindedName) -> PBinder' KindedName
              toBinder binder

@@ -53,26 +53,6 @@ data Form
   = FTerm | FClause | FDecl | FDo | FStr | FUpdate | FOpt | FData | FRecord
   | FTyDecl | FField | FWith | FNames | FBinder | FPlain | FImplicit
 
-||| What a node of each form decodes to.
-public export
-Decoded : Form -> Type
-Decoded FTerm = PTerm
-Decoded FClause = PClause
-Decoded FDecl = PDecl
-Decoded FDo = PDo
-Decoded FStr = PStr
-Decoded FUpdate = PFieldUpdate
-Decoded FOpt = PFnOpt
-Decoded FData = PDataDecl
-Decoded FRecord = PRecordDecl' Name
-Decoded FTyDecl = PTypeDecl
-Decoded FField = PField
-Decoded FWith = PWithProblem
-Decoded FNames = BasicMultiBinder
-Decoded FBinder = PBinder
-Decoded FPlain = PlainBinder
-Decoded FImplicit = AddFC (ImpParameter' PTerm)
-
 ||| A node a parse has made, of the form its rule gives: its place among
 ||| the nodes made, and how many nodes it unfolds to, which is what its
 ||| parent's count adds up.
@@ -105,7 +85,7 @@ data DeclOf : (Form -> Type) -> Type where
   DcInterface : WithDefault Visibility Private ->
                 (constraints : List (Maybe Name, c FTerm)) -> Name -> (doc : String) ->
                 (params : List (c FNames)) -> (det : Maybe (List1 Name)) ->
-                (conName : Maybe (WithDoc $ AddFC Name)) -> List (c FDecl) -> DeclOf c
+                (conName : Maybe (WithDocFC Name)) -> List (c FDecl) -> DeclOf c
   DcImplementation : Visibility -> List (c FOpt) -> Pass ->
                      (implicits : List (c FImplicit)) ->
                      (constraints : List (Maybe Name, c FTerm)) -> Name ->
@@ -224,7 +204,7 @@ data NodeOf : (Form -> Type) -> Type where
            (datacons : List (c FTyDecl)) -> NodeOf c
   DtLater : FC -> (tyname : Name) -> (tycon : c FTerm) -> NodeOf c
   RcBody : (tyname : Name) -> (params : List (c FBinder)) -> (opts : List DataOpt) ->
-           (conName : Maybe (WithDoc $ AddFC Name)) -> (decls : List (c FField)) -> NodeOf c
+           (conName : Maybe (WithDocFC Name)) -> (decls : List (c FField)) -> NodeOf c
   RcLater : (tyname : Name) -> (params : List (c FBinder)) -> NodeOf c
   -- Type declarations, a record's fields and a `with` clause's problems
   TyClaim : FC -> List1 (String, WithFC Name) -> (doc : String) -> (type : c FTerm) ->
@@ -326,8 +306,8 @@ traverseNode g (TmAs fc nfc n e) = TmAs fc nfc n <$> g e
 traverseNode g (TmDotted fc e) = TmDotted fc <$> g e
 traverseNode g (TmImplicit fc) = pure (TmImplicit fc)
 traverseNode g (TmInfer fc) = pure (TmInfer fc)
-traverseNode g (TmOp fc (MkWithData lfc l) op r)
-    = (\l', r' => TmOp fc (MkWithData lfc l') op r') <$> traverseLHS g l <*> g r
+traverseNode g (TmOp fc (MkFCVal lfc l) op r)
+    = (\l', r' => TmOp fc (MkFCVal lfc l') op r') <$> traverseLHS g l <*> g r
 traverseNode g (TmPrefixOp fc op e) = TmPrefixOp fc op <$> g e
 traverseNode g (TmSectionL fc op e) = TmSectionL fc op <$> g e
 traverseNode g (TmSectionR fc e op) = (\e' => TmSectionR fc e' op) <$> g e
@@ -568,7 +548,7 @@ sizeAt t i = t.sizes !! [<i]
 -- because we haven't resolved operator precedences yet.
 collectDefs : List PDecl -> List PDecl
 collectDefs [] = []
-collectDefs (def@(MkWithData _ (PDef cs)) :: ds)
+collectDefs (def@(MkFCVal _ (PDef cs)) :: ds)
     = let (csWithFC, rest) = spanBy isPDef ds
           cs' = cs ++ concat (map (.val) csWithFC)
           annot' = foldr {t=List}
@@ -577,10 +557,10 @@ collectDefs (def@(MkWithData _ (PDef cs)) :: ds)
                    (map (.fc) csWithFC)
       in
           MkFCVal annot' (PDef cs') :: assert_total (collectDefs rest)
-collectDefs (MkWithData annot (PNamespace ns nds) :: ds)
-    = MkWithData annot (PNamespace ns (collectDefs nds)) :: collectDefs ds
-collectDefs (MkWithData fc (PMutual nds) :: ds)
-    = MkWithData fc (PMutual (collectDefs nds)) :: collectDefs ds
+collectDefs (MkFCVal annot (PNamespace ns nds) :: ds)
+    = MkFCVal annot (PNamespace ns (collectDefs nds)) :: collectDefs ds
+collectDefs (MkFCVal fc (PMutual nds) :: ds)
+    = MkFCVal fc (PMutual (collectDefs nds)) :: collectDefs ds
 collectDefs (d :: ds)
     = d :: collectDefs ds
 
@@ -594,94 +574,159 @@ letBound fc rig (PRef fc' (UN un)) ty val []
 letBound fc rig (PImplicit fc') ty val [] = DoLet fc fc' (UN Underscore) rig ty val
 letBound fc rig pat ty val alts = DoLetPat fc pat ty val alts
 
+-- A child's measure, when it unfolds to fewer nodes than its parent's `m`.
+fewer : (t : ParseTree) -> (m : Nat) -> Fin (nodeCount t) -> Maybe (Subset Nat (\mc => LT mc m))
+fewer t m c
+    = let mc = sizeAt t c in
+      case choose (mc < m) of
+           Left lt => Just (Element mc (ltOpReflectsLT mc m lt))
+           Right _ => Nothing
+
 -- Decoding is a recursion over how many nodes the node being decoded
 -- unfolds to. Each child unfolds to fewer than its parent, which is decided
--- as the child is reached (`child`), so the recursion descends a measure. A
+-- as the child is reached (`fewer`), so the recursion descends a measure. A
 -- tree the parser made breaks neither that nor the forms of its children; a
--- tree that does is no syntax, and decodes to nothing.
+-- tree that does is no syntax, and decodes to nothing. Each form's child is
+-- read by a decoder of its own, at the type of the syntax that form is, so
+-- the form a child has fixes what it decodes to before decoding runs.
 mutual
-  child : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) -> (x : Form) ->
-        Within (nodeCount t) x -> Maybe (Decoded x)
-  child t m (Access rec) x (At c)
-      = let mc = sizeAt t c in
-        case choose (mc < m) of
-             Left lt => decodeAs t mc (rec mc (ltOpReflectsLT mc m lt)) x (nodeAt t c)
-             Right _ => Nothing
+  childTerm : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+              Within (nodeCount t) FTerm -> Maybe PTerm
+  childTerm t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeTerm t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
 
-  decodeAs : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) -> (x : Form) ->
-             Node (nodeCount t) -> Maybe (Decoded x)
-  decodeAs t m acc FTerm nd = decodeTerm t m acc nd
-  decodeAs t m acc FClause nd = decodeClause t m acc nd
-  decodeAs t m acc FDecl nd = decodeDecl t m acc nd
-  decodeAs t m acc FDo nd = decodeStatement t m acc nd
-  decodeAs t m acc FStr nd = decodePiece t m acc nd
-  decodeAs t m acc FUpdate nd = decodeUpdate t m acc nd
-  decodeAs t m acc FOpt nd = decodeOpt t m acc nd
-  decodeAs t m acc FData nd = decodeData t m acc nd
-  decodeAs t m acc FRecord nd = decodeRecord t m acc nd
-  decodeAs t m acc FTyDecl nd = decodeTyClaim t m acc nd
-  decodeAs t m acc FField nd = decodeField t m acc nd
-  decodeAs t m acc FWith nd = decodeWith t m acc nd
-  decodeAs t m acc FNames nd = decodeNames t m acc nd
-  decodeAs t m acc FBinder nd = decodeBinder t m acc nd
-  decodeAs t m acc FPlain nd = decodePlain t m acc nd
-  decodeAs t m acc FImplicit nd = decodeImplicit t m acc nd
+  childClause : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+                Within (nodeCount t) FClause -> Maybe PClause
+  childClause t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeClause t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
 
-  children : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) -> (x : Form) ->
-         List (Within (nodeCount t) x) -> Maybe (List (Decoded x))
-  children t m acc x [] = Just []
-  children t m acc x (c :: cs) = (::) <$> child t m acc x c <*> children t m acc x cs
+  childDecl : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+              Within (nodeCount t) FDecl -> Maybe PDecl
+  childDecl t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeDecl t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
 
-  children1 : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) -> (x : Form) ->
-          List1 (Within (nodeCount t) x) -> Maybe (List1 (Decoded x))
-  children1 t m acc x (c ::: cs) = (:::) <$> child t m acc x c <*> children t m acc x cs
+  childDo : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+            Within (nodeCount t) FDo -> Maybe PDo
+  childDo t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeStatement t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
 
-  optChild : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) -> (x : Form) ->
-           Maybe (Within (nodeCount t) x) -> Maybe (Maybe (Decoded x))
-  optChild t m acc x Nothing = Just Nothing
-  optChild t m acc x (Just c) = Just <$> child t m acc x c
+  childStr : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+             Within (nodeCount t) FStr -> Maybe PStr
+  childStr t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodePiece t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childUpdate : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+                Within (nodeCount t) FUpdate -> Maybe PFieldUpdate
+  childUpdate t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeUpdate t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childOpt : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+             Within (nodeCount t) FOpt -> Maybe PFnOpt
+  childOpt t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeOpt t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childData : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+              Within (nodeCount t) FData -> Maybe PDataDecl
+  childData t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeData t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childRecord : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+                Within (nodeCount t) FRecord -> Maybe (PRecordDecl' Name)
+  childRecord t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeRecord t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childTyDecl : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+                Within (nodeCount t) FTyDecl -> Maybe PTypeDecl
+  childTyDecl t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeTyClaim t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childField : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+               Within (nodeCount t) FField -> Maybe PField
+  childField t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeField t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childWith : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+              Within (nodeCount t) FWith -> Maybe PWithProblem
+  childWith t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeWith t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childNames : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+               Within (nodeCount t) FNames -> Maybe BasicMultiBinder
+  childNames t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeNames t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childBinder : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+                Within (nodeCount t) FBinder -> Maybe PBinder
+  childBinder t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeBinder t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childPlain : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+               Within (nodeCount t) FPlain -> Maybe PlainBinder
+  childPlain t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodePlain t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
+
+  childImplicit : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+                  Within (nodeCount t) FImplicit -> Maybe (WithFCRigName (PiBindData PTerm))
+  childImplicit t m (Access rec) (At c) = case fewer t m c of
+      Just (Element mc lt) => decodeImplicit t mc (rec mc lt) (nodeAt t c)
+      Nothing => Nothing
 
   locatedChildren : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
             List (FC, Within (nodeCount t) FTerm) -> Maybe (List (FC, PTerm))
   locatedChildren t m acc [] = Just []
   locatedChildren t m acc ((fc, c) :: cs)
-      = (\e, es => (fc, e) :: es) <$> child t m acc FTerm c <*> locatedChildren t m acc cs
+      = (\e, es => (fc, e) :: es) <$> childTerm t m acc c <*> locatedChildren t m acc cs
 
   snocChildren : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
                 SnocList (FC, Within (nodeCount t) FTerm) -> Maybe (SnocList (FC, PTerm))
   snocChildren t m acc [<] = Just [<]
   snocChildren t m acc (cs :< (fc, c))
-      = (\es, e => es :< (fc, e)) <$> snocChildren t m acc cs <*> child t m acc FTerm c
+      = (\es, e => es :< (fc, e)) <$> snocChildren t m acc cs <*> childTerm t m acc c
 
   namedChildren : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
           List (Maybe Name, Within (nodeCount t) FTerm) -> Maybe (List (Maybe Name, PTerm))
   namedChildren t m acc [] = Just []
   namedChildren t m acc ((n, c) :: cs)
-      = (\e, es => (n, e) :: es) <$> child t m acc FTerm c <*> namedChildren t m acc cs
+      = (\e, es => (n, e) :: es) <$> childTerm t m acc c <*> namedChildren t m acc cs
 
   piChild : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
            PiInfo (Within (nodeCount t) FTerm) -> Maybe (PiInfo PTerm)
   piChild t m acc Implicit = Just Implicit
   piChild t m acc Explicit = Just Explicit
   piChild t m acc AutoImplicit = Just AutoImplicit
-  piChild t m acc (DefImplicit c) = DefImplicit <$> child t m acc FTerm c
+  piChild t m acc (DefImplicit c) = DefImplicit <$> childTerm t m acc c
 
   lhsChild : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
             OperatorLHSInfo (Within (nodeCount t) FTerm) -> Maybe (OperatorLHSInfo PTerm)
-  lhsChild t m acc (NoBinder l) = NoBinder <$> child t m acc FTerm l
+  lhsChild t m acc (NoBinder l) = NoBinder <$> childTerm t m acc l
   lhsChild t m acc (BindType n ty)
-      = BindType <$> child t m acc FTerm n <*> child t m acc FTerm ty
+      = BindType <$> childTerm t m acc n <*> childTerm t m acc ty
   lhsChild t m acc (BindExpr n e)
-      = BindExpr <$> child t m acc FTerm n <*> child t m acc FTerm e
+      = BindExpr <$> childTerm t m acc n <*> childTerm t m acc e
   lhsChild t m acc (BindExplicitType n ty e)
-      = BindExplicitType <$> child t m acc FTerm n <*> child t m acc FTerm ty
-                         <*> child t m acc FTerm e
+      = BindExplicitType <$> childTerm t m acc n <*> childTerm t m acc ty
+                         <*> childTerm t m acc e
 
   -- A block of declarations, each run of neighbouring clauses one
   -- definition.
   declBlock : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
               List (Within (nodeCount t) FDecl) -> Maybe (List PDecl)
-  declBlock t m acc ds = collectDefs <$> children t m acc FDecl ds
+  declBlock t m acc ds = collectDefs <$> traverse (childDecl t m acc) ds
 
   -- A `let`'s local declarations: its blocks in turn, each collected on its
   -- own.
@@ -693,11 +738,11 @@ mutual
   stringLines : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
              List (List (Within (nodeCount t) FStr)) -> Maybe (List (List PStr))
   stringLines t m acc [] = Just []
-  stringLines t m acc (l :: ls) = (::) <$> children t m acc FStr l <*> stringLines t m acc ls
+  stringLines t m acc (l :: ls) = (::) <$> traverse (childStr t m acc) l <*> stringLines t m acc ls
 
   directiveOf : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
               Directive' (Within (nodeCount t) FTerm) -> Maybe Directive
-  directiveOf t m acc (StartExpr e) = StartExpr <$> child t m acc FTerm e
+  directiveOf t m acc (StartExpr e) = StartExpr <$> childTerm t m acc e
   -- Every other directive holds no term, so traversing it decodes nothing.
   directiveOf t m acc d = traverseDirective (const Nothing) d
 
@@ -706,94 +751,94 @@ mutual
   decodeTerm t m acc (TmRef fc n) = Just (PRef fc n)
   decodeTerm t m acc (TmNewPi fc b sc)
       = (\b', sc' => NewPi (MkFCVal fc (MkPBinderScope b' sc')))
-          <$> child t m acc FBinder b <*> child t m acc FTerm sc
+          <$> childBinder t m acc b <*> childTerm t m acc sc
   decodeTerm t m acc (TmForall fc ns sc)
-      = (\sc' => Forall (MkFCVal fc (ns, sc'))) <$> child t m acc FTerm sc
+      = (\sc' => Forall (MkFCVal fc (ns, sc'))) <$> childTerm t m acc sc
   decodeTerm t m acc (TmPi fc rig p n a r)
       = (\p', a', r' => PPi fc rig p' n a' r')
-          <$> piChild t m acc p <*> child t m acc FTerm a <*> child t m acc FTerm r
+          <$> piChild t m acc p <*> childTerm t m acc a <*> childTerm t m acc r
   decodeTerm t m acc (TmLam fc rig p pat a sc)
-      = PLam fc rig <$> piChild t m acc p <*> child t m acc FTerm pat
-                    <*> child t m acc FTerm a <*> child t m acc FTerm sc
+      = PLam fc rig <$> piChild t m acc p <*> childTerm t m acc pat
+                    <*> childTerm t m acc a <*> childTerm t m acc sc
   decodeTerm t m acc (TmLet fc rig pat ty val sc alts)
-      = PLet fc rig <$> child t m acc FTerm pat <*> child t m acc FTerm ty
-                    <*> child t m acc FTerm val <*> child t m acc FTerm sc
-                    <*> children t m acc FClause alts
+      = PLet fc rig <$> childTerm t m acc pat <*> childTerm t m acc ty
+                    <*> childTerm t m acc val <*> childTerm t m acc sc
+                    <*> traverse (childClause t m acc) alts
   decodeTerm t m acc (TmCase fc opts scr alts)
-      = PCase fc <$> children t m acc FOpt opts <*> child t m acc FTerm scr
-                 <*> children t m acc FClause alts
+      = PCase fc <$> traverse (childOpt t m acc) opts <*> childTerm t m acc scr
+                 <*> traverse (childClause t m acc) alts
   decodeTerm t m acc (TmLocal fc dss sc)
-      = PLocal fc <$> declBlocks t m acc dss <*> child t m acc FTerm sc
-  decodeTerm t m acc (TmUpdate fc us) = PUpdate fc <$> children t m acc FUpdate us
-  decodeTerm t m acc (TmApp fc f a) = PApp fc <$> child t m acc FTerm f <*> child t m acc FTerm a
+      = PLocal fc <$> declBlocks t m acc dss <*> childTerm t m acc sc
+  decodeTerm t m acc (TmUpdate fc us) = PUpdate fc <$> traverse (childUpdate t m acc) us
+  decodeTerm t m acc (TmApp fc f a) = PApp fc <$> childTerm t m acc f <*> childTerm t m acc a
   decodeTerm t m acc (TmWithApp fc f a)
-      = PWithApp fc <$> child t m acc FTerm f <*> child t m acc FTerm a
+      = PWithApp fc <$> childTerm t m acc f <*> childTerm t m acc a
   decodeTerm t m acc (TmNamedApp fc f n a)
-      = (\f', a' => PNamedApp fc f' n a') <$> child t m acc FTerm f <*> child t m acc FTerm a
+      = (\f', a' => PNamedApp fc f' n a') <$> childTerm t m acc f <*> childTerm t m acc a
   decodeTerm t m acc (TmAutoApp fc f a)
-      = PAutoApp fc <$> child t m acc FTerm f <*> child t m acc FTerm a
-  decodeTerm t m acc (TmDelayed fc r e) = PDelayed fc r <$> child t m acc FTerm e
-  decodeTerm t m acc (TmDelay fc e) = PDelay fc <$> child t m acc FTerm e
-  decodeTerm t m acc (TmForce fc e) = PForce fc <$> child t m acc FTerm e
+      = PAutoApp fc <$> childTerm t m acc f <*> childTerm t m acc a
+  decodeTerm t m acc (TmDelayed fc r e) = PDelayed fc r <$> childTerm t m acc e
+  decodeTerm t m acc (TmDelay fc e) = PDelay fc <$> childTerm t m acc e
+  decodeTerm t m acc (TmForce fc e) = PForce fc <$> childTerm t m acc e
   decodeTerm t m acc (TmSearch fc) = Just (PSearch fc)
   decodeTerm t m acc (TmPrimVal fc k) = Just (PPrimVal fc k)
-  decodeTerm t m acc (TmQuote fc e) = PQuote fc <$> child t m acc FTerm e
+  decodeTerm t m acc (TmQuote fc e) = PQuote fc <$> childTerm t m acc e
   decodeTerm t m acc (TmQuoteName fc n) = Just (PQuoteName fc n)
   decodeTerm t m acc (TmQuoteDecl fc ds) = PQuoteDecl fc <$> declBlock t m acc ds
-  decodeTerm t m acc (TmUnquote fc e) = PUnquote fc <$> child t m acc FTerm e
-  decodeTerm t m acc (TmRunElab fc e) = PRunElab fc <$> child t m acc FTerm e
+  decodeTerm t m acc (TmUnquote fc e) = PUnquote fc <$> childTerm t m acc e
+  decodeTerm t m acc (TmRunElab fc e) = PRunElab fc <$> childTerm t m acc e
   decodeTerm t m acc (TmHole fc b n) = Just (PHole fc b n)
   decodeTerm t m acc (TmType fc) = Just (PType fc)
-  decodeTerm t m acc (TmAs fc nfc n e) = PAs fc nfc n <$> child t m acc FTerm e
-  decodeTerm t m acc (TmDotted fc e) = PDotted fc <$> child t m acc FTerm e
+  decodeTerm t m acc (TmAs fc nfc n e) = PAs fc nfc n <$> childTerm t m acc e
+  decodeTerm t m acc (TmDotted fc e) = PDotted fc <$> childTerm t m acc e
   decodeTerm t m acc (TmImplicit fc) = Just (PImplicit fc)
   decodeTerm t m acc (TmInfer fc) = Just (PInfer fc)
-  decodeTerm t m acc (TmOp fc (MkWithData lfc l) op r)
-      = (\l', r' => POp fc (MkWithData lfc l') op r')
-          <$> lhsChild t m acc l <*> child t m acc FTerm r
-  decodeTerm t m acc (TmPrefixOp fc op e) = PPrefixOp fc op <$> child t m acc FTerm e
-  decodeTerm t m acc (TmSectionL fc op e) = PSectionL fc op <$> child t m acc FTerm e
-  decodeTerm t m acc (TmSectionR fc e op) = (\e' => PSectionR fc e' op) <$> child t m acc FTerm e
-  decodeTerm t m acc (TmBracketed fc e) = PBracketed fc <$> child t m acc FTerm e
-  decodeTerm t m acc (TmString fc h ps) = PString fc h <$> children t m acc FStr ps
+  decodeTerm t m acc (TmOp fc (MkFCVal lfc l) op r)
+      = (\l', r' => POp fc (MkFCVal lfc l') op r')
+          <$> lhsChild t m acc l <*> childTerm t m acc r
+  decodeTerm t m acc (TmPrefixOp fc op e) = PPrefixOp fc op <$> childTerm t m acc e
+  decodeTerm t m acc (TmSectionL fc op e) = PSectionL fc op <$> childTerm t m acc e
+  decodeTerm t m acc (TmSectionR fc e op) = (\e' => PSectionR fc e' op) <$> childTerm t m acc e
+  decodeTerm t m acc (TmBracketed fc e) = PBracketed fc <$> childTerm t m acc e
+  decodeTerm t m acc (TmString fc h ps) = PString fc h <$> traverse (childStr t m acc) ps
   decodeTerm t m acc (TmMultiline fc h i ls) = PMultiline fc h i <$> stringLines t m acc ls
-  decodeTerm t m acc (TmDoBlock fc ns ss) = PDoBlock fc ns <$> children t m acc FDo ss
-  decodeTerm t m acc (TmBang fc e) = PBang fc <$> child t m acc FTerm e
-  decodeTerm t m acc (TmIdiom fc ns e) = PIdiom fc ns <$> child t m acc FTerm e
+  decodeTerm t m acc (TmDoBlock fc ns ss) = PDoBlock fc ns <$> traverse (childDo t m acc) ss
+  decodeTerm t m acc (TmBang fc e) = PBang fc <$> childTerm t m acc e
+  decodeTerm t m acc (TmIdiom fc ns e) = PIdiom fc ns <$> childTerm t m acc e
   decodeTerm t m acc (TmList fc nfc xs) = PList fc nfc <$> locatedChildren t m acc xs
   decodeTerm t m acc (TmSnocList fc nfc xs) = PSnocList fc nfc <$> snocChildren t m acc xs
-  decodeTerm t m acc (TmPair fc l r) = PPair fc <$> child t m acc FTerm l <*> child t m acc FTerm r
+  decodeTerm t m acc (TmPair fc l r) = PPair fc <$> childTerm t m acc l <*> childTerm t m acc r
   decodeTerm t m acc (TmDPair fc opfc l ty r)
-      = PDPair fc opfc <$> child t m acc FTerm l <*> child t m acc FTerm ty
-                       <*> child t m acc FTerm r
+      = PDPair fc opfc <$> childTerm t m acc l <*> childTerm t m acc ty
+                       <*> childTerm t m acc r
   decodeTerm t m acc (TmUnit fc) = Just (PUnit fc)
   decodeTerm t m acc (TmIfThenElse fc c th el)
-      = PIfThenElse fc <$> child t m acc FTerm c <*> child t m acc FTerm th
-                       <*> child t m acc FTerm el
+      = PIfThenElse fc <$> childTerm t m acc c <*> childTerm t m acc th
+                       <*> childTerm t m acc el
   decodeTerm t m acc (TmComprehension fc e ss)
-      = PComprehension fc <$> child t m acc FTerm e <*> children t m acc FDo ss
+      = PComprehension fc <$> childTerm t m acc e <*> traverse (childDo t m acc) ss
   decodeTerm t m acc (TmRewrite fc r e)
-      = PRewrite fc <$> child t m acc FTerm r <*> child t m acc FTerm e
+      = PRewrite fc <$> childTerm t m acc r <*> childTerm t m acc e
   decodeTerm t m acc (TmRange fc x y z)
-      = PRange fc <$> child t m acc FTerm x <*> optChild t m acc FTerm y <*> child t m acc FTerm z
+      = PRange fc <$> childTerm t m acc x <*> traverse (childTerm t m acc) y <*> childTerm t m acc z
   decodeTerm t m acc (TmRangeStream fc x y)
-      = PRangeStream fc <$> child t m acc FTerm x <*> optChild t m acc FTerm y
-  decodeTerm t m acc (TmPostfixApp fc e ps) = (\e' => PPostfixApp fc e' ps) <$> child t m acc FTerm e
+      = PRangeStream fc <$> childTerm t m acc x <*> traverse (childTerm t m acc) y
+  decodeTerm t m acc (TmPostfixApp fc e ps) = (\e' => PPostfixApp fc e' ps) <$> childTerm t m acc e
   decodeTerm t m acc (TmPostfixAppPartial fc ps) = Just (PPostfixAppPartial fc ps)
-  decodeTerm t m acc (TmUnifyLog fc lvl e) = PUnifyLog fc lvl <$> child t m acc FTerm e
-  decodeTerm t m acc (TmWithNames fc ns e) = PWithUnambigNames fc ns <$> child t m acc FTerm e
-  decodeTerm t m acc (TmRelocated fc e) = substFC fc <$> child t m acc FTerm e
+  decodeTerm t m acc (TmUnifyLog fc lvl e) = PUnifyLog fc lvl <$> childTerm t m acc e
+  decodeTerm t m acc (TmWithNames fc ns e) = PWithUnambigNames fc ns <$> childTerm t m acc e
+  decodeTerm t m acc (TmRelocated fc e) = substFC fc <$> childTerm t m acc e
   decodeTerm t m acc _ = Nothing
 
   decodeClause : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
            Node (nodeCount t) -> Maybe PClause
   decodeClause t m acc (ClPattern fc l r ws)
-      = MkPatClause fc <$> child t m acc FTerm l <*> child t m acc FTerm r
+      = MkPatClause fc <$> childTerm t m acc l <*> childTerm t m acc r
                        <*> declBlock t m acc ws
   decodeClause t m acc (ClWith fc l wps flags cs)
       = (\l', wps', cs' => MkWithClause fc l' wps' flags cs')
-          <$> child t m acc FTerm l <*> children1 t m acc FWith wps <*> children t m acc FClause cs
-  decodeClause t m acc (ClImpossible fc l) = MkImpossible fc <$> child t m acc FTerm l
+          <$> childTerm t m acc l <*> traverse (childWith t m acc) wps <*> traverse (childClause t m acc) cs
+  decodeClause t m acc (ClImpossible fc l) = MkImpossible fc <$> childTerm t m acc l
   decodeClause t m acc _ = Nothing
 
   decodeDecl : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
@@ -805,129 +850,129 @@ mutual
            DeclOf (Within (nodeCount t)) -> Maybe PDeclNoFC
   decodeDeclOf t m acc (DcClaim rig vis opts ty)
       = (\opts', ty' => PClaim (MkPClaim rig vis opts' ty'))
-          <$> children t m acc FOpt opts <*> child t m acc FTyDecl ty
-  decodeDeclOf t m acc (DcDef cs) = PDef <$> children t m acc FClause cs
-  decodeDeclOf t m acc (DcData doc vis tot d) = PData doc vis tot <$> child t m acc FData d
+          <$> traverse (childOpt t m acc) opts <*> childTyDecl t m acc ty
+  decodeDeclOf t m acc (DcDef cs) = PDef <$> traverse (childClause t m acc) cs
+  decodeDeclOf t m acc (DcData doc vis tot d) = PData doc vis tot <$> childData t m acc d
   decodeDeclOf t m acc (DcParameters (Left ps) ds)
       = (\ps', ds' => PParameters (Left ps') ds')
-          <$> children1 t m acc FPlain ps <*> declBlock t m acc ds
+          <$> traverse (childPlain t m acc) ps <*> declBlock t m acc ds
   decodeDeclOf t m acc (DcParameters (Right ps) ds)
       = (\ps', ds' => PParameters (Right ps') ds')
-          <$> children1 t m acc FBinder ps <*> declBlock t m acc ds
+          <$> traverse (childBinder t m acc) ps <*> declBlock t m acc ds
   decodeDeclOf t m acc (DcUsing us ds) = PUsing <$> namedChildren t m acc us <*> declBlock t m acc ds
   decodeDeclOf t m acc (DcInterface vis cons n doc ps det con ds)
       = (\cons', ps', ds' => PInterface vis cons' n doc ps' det con ds')
-          <$> namedChildren t m acc cons <*> children t m acc FNames ps <*> declBlock t m acc ds
+          <$> namedChildren t m acc cons <*> traverse (childNames t m acc) ps <*> declBlock t m acc ds
   decodeDeclOf t m acc (DcImplementation vis opts pass imps cons n ps iname nusing Nothing)
       = (\opts', imps', cons', ps' =>
             PImplementation vis opts' pass imps' cons' n ps' iname nusing Nothing)
-          <$> children t m acc FOpt opts <*> children t m acc FImplicit imps
-          <*> namedChildren t m acc cons <*> children t m acc FTerm ps
+          <$> traverse (childOpt t m acc) opts <*> traverse (childImplicit t m acc) imps
+          <*> namedChildren t m acc cons <*> traverse (childTerm t m acc) ps
   decodeDeclOf t m acc (DcImplementation vis opts pass imps cons n ps iname nusing (Just ds))
       = (\opts', imps', cons', ps', ds' =>
             PImplementation vis opts' pass imps' cons' n ps' iname nusing (Just ds'))
-          <$> children t m acc FOpt opts <*> children t m acc FImplicit imps
-          <*> namedChildren t m acc cons <*> children t m acc FTerm ps <*> declBlock t m acc ds
-  decodeDeclOf t m acc (DcRecord doc vis tot r) = PRecord doc vis tot <$> child t m acc FRecord r
+          <$> traverse (childOpt t m acc) opts <*> traverse (childImplicit t m acc) imps
+          <*> namedChildren t m acc cons <*> traverse (childTerm t m acc) ps <*> declBlock t m acc ds
+  decodeDeclOf t m acc (DcRecord doc vis tot r) = PRecord doc vis tot <$> childRecord t m acc r
   decodeDeclOf t m acc (DcFail msg ds) = PFail msg <$> declBlock t m acc ds
   decodeDeclOf t m acc (DcMutual ds) = PMutual <$> declBlock t m acc ds
   decodeDeclOf t m acc (DcFixity fx) = Just (PFixity fx)
   decodeDeclOf t m acc (DcNamespace ns ds) = PNamespace ns <$> declBlock t m acc ds
   decodeDeclOf t m acc (DcTransform n l r)
-      = PTransform n <$> child t m acc FTerm l <*> child t m acc FTerm r
-  decodeDeclOf t m acc (DcRunElab e) = PRunElabDecl <$> child t m acc FTerm e
+      = PTransform n <$> childTerm t m acc l <*> childTerm t m acc r
+  decodeDeclOf t m acc (DcRunElab e) = PRunElabDecl <$> childTerm t m acc e
   decodeDeclOf t m acc (DcDirective d) = PDirective <$> directiveOf t m acc d
   decodeDeclOf t m acc (DcBuiltin ty n) = Just (PBuiltin ty n)
 
   decodeStatement : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
               Node (nodeCount t) -> Maybe PDo
-  decodeStatement t m acc (StExp fc e) = DoExp fc <$> child t m acc FTerm e
+  decodeStatement t m acc (StExp fc e) = DoExp fc <$> childTerm t m acc e
   decodeStatement t m acc (StBind fc nfc n rig ty v)
-      = DoBind fc nfc n rig <$> optChild t m acc FTerm ty <*> child t m acc FTerm v
+      = DoBind fc nfc n rig <$> traverse (childTerm t m acc) ty <*> childTerm t m acc v
   decodeStatement t m acc (StBindPat fc p ty v alts)
-      = DoBindPat fc <$> child t m acc FTerm p <*> optChild t m acc FTerm ty
-                     <*> child t m acc FTerm v <*> children t m acc FClause alts
+      = DoBindPat fc <$> childTerm t m acc p <*> traverse (childTerm t m acc) ty
+                     <*> childTerm t m acc v <*> traverse (childClause t m acc) alts
   decodeStatement t m acc (StLet fc rig p ty v alts)
-      = letBound fc rig <$> child t m acc FTerm p <*> child t m acc FTerm ty
-                        <*> child t m acc FTerm v <*> children t m acc FClause alts
+      = letBound fc rig <$> childTerm t m acc p <*> childTerm t m acc ty
+                        <*> childTerm t m acc v <*> traverse (childClause t m acc) alts
   decodeStatement t m acc (StLetLocal fc dss) = DoLetLocal fc <$> declBlocks t m acc dss
-  decodeStatement t m acc (StRewrite fc e) = DoRewrite fc <$> child t m acc FTerm e
+  decodeStatement t m acc (StRewrite fc e) = DoRewrite fc <$> childTerm t m acc e
   decodeStatement t m acc _ = Nothing
 
   decodePiece : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
           Node (nodeCount t) -> Maybe PStr
   decodePiece t m acc (PcLiteral fc s) = Just (StrLiteral fc s)
-  decodePiece t m acc (PcInterp fc e) = StrInterp fc <$> child t m acc FTerm e
+  decodePiece t m acc (PcInterp fc e) = StrInterp fc <$> childTerm t m acc e
   decodePiece t m acc _ = Nothing
 
   decodeUpdate : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
                 Node (nodeCount t) -> Maybe PFieldUpdate
-  decodeUpdate t m acc (UpSet path e) = PSetField path <$> child t m acc FTerm e
-  decodeUpdate t m acc (UpApply path e) = PSetFieldApp path <$> child t m acc FTerm e
+  decodeUpdate t m acc (UpSet path e) = PSetField path <$> childTerm t m acc e
+  decodeUpdate t m acc (UpApply path e) = PSetFieldApp path <$> childTerm t m acc e
   decodeUpdate t m acc _ = Nothing
 
   decodeOpt : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
           Node (nodeCount t) -> Maybe PFnOpt
   decodeOpt t m acc (OpFn o) = Just (IFnOpt o)
-  decodeOpt t m acc (OpForeign es) = PForeign <$> children t m acc FTerm es
-  decodeOpt t m acc (OpForeignExport es) = PForeignExport <$> children t m acc FTerm es
+  decodeOpt t m acc (OpForeign es) = PForeign <$> traverse (childTerm t m acc) es
+  decodeOpt t m acc (OpForeignExport es) = PForeignExport <$> traverse (childTerm t m acc) es
   decodeOpt t m acc _ = Nothing
 
   decodeData : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
              Node (nodeCount t) -> Maybe PDataDecl
   decodeData t m acc (DtBody fc n ty opts cons)
       = (\ty', cons' => MkPData fc n ty' opts cons')
-          <$> optChild t m acc FTerm ty <*> children t m acc FTyDecl cons
-  decodeData t m acc (DtLater fc n ty) = MkPLater fc n <$> child t m acc FTerm ty
+          <$> traverse (childTerm t m acc) ty <*> traverse (childTyDecl t m acc) cons
+  decodeData t m acc (DtLater fc n ty) = MkPLater fc n <$> childTerm t m acc ty
   decodeData t m acc _ = Nothing
 
   decodeRecord : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
                Node (nodeCount t) -> Maybe (PRecordDecl' Name)
   decodeRecord t m acc (RcBody n ps opts con fs)
       = (\ps', fs' => MkPRecord n ps' opts con fs')
-          <$> children t m acc FBinder ps <*> children t m acc FField fs
-  decodeRecord t m acc (RcLater n ps) = MkPRecordLater n <$> children t m acc FBinder ps
+          <$> traverse (childBinder t m acc) ps <*> traverse (childField t m acc) fs
+  decodeRecord t m acc (RcLater n ps) = MkPRecordLater n <$> traverse (childBinder t m acc) ps
   decodeRecord t m acc _ = Nothing
 
   decodeTyClaim : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
             Node (nodeCount t) -> Maybe PTypeDecl
   decodeTyClaim t m acc (TyClaim fc ns doc ty)
-      = (\ty' => MkFCVal fc (MkPTy ns doc ty')) <$> child t m acc FTerm ty
+      = (\ty' => MkFCVal fc (MkPTy ns doc ty')) <$> childTerm t m acc ty
   decodeTyClaim t m acc _ = Nothing
 
   decodeField : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
           Node (nodeCount t) -> Maybe PField
   decodeField t m acc (FdField fc doc rig ns p ty)
-      = (\p', ty' => the PField (Mk [fc, doc, rig, ns] (MkPiBindData p' ty')))
-          <$> piChild t m acc p <*> child t m acc FTerm ty
+      = (\p', ty' => MkWithFCDocRigNames fc doc rig ns (MkPiBindData p' ty'))
+          <$> piChild t m acc p <*> childTerm t m acc ty
   decodeField t m acc _ = Nothing
 
   decodeWith : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
                 Node (nodeCount t) -> Maybe PWithProblem
   decodeWith t m acc (WpValue rig v prf)
-      = (\v' => MkPWithProblem rig v' prf) <$> child t m acc FTerm v
+      = (\v' => MkPWithProblem rig v' prf) <$> childTerm t m acc v
   decodeWith t m acc _ = Nothing
 
   decodeNames : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
           Node (nodeCount t) -> Maybe BasicMultiBinder
-  decodeNames t m acc (BnNames rig ns ty) = MkBasicMultiBinder rig ns <$> child t m acc FTerm ty
+  decodeNames t m acc (BnNames rig ns ty) = MkBasicMultiBinder rig ns <$> childTerm t m acc ty
   decodeNames t m acc _ = Nothing
 
   decodeBinder : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
            Node (nodeCount t) -> Maybe PBinder
-  decodeBinder t m acc (BnPi p b) = MkPBinder <$> piChild t m acc p <*> child t m acc FNames b
+  decodeBinder t m acc (BnPi p b) = MkPBinder <$> piChild t m acc p <*> childNames t m acc b
   decodeBinder t m acc _ = Nothing
 
   decodePlain : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
           Node (nodeCount t) -> Maybe PlainBinder
-  decodePlain t m acc (BnPlain n ty) = (\ty' => the PlainBinder (Mk [n] ty')) <$> child t m acc FTerm ty
+  decodePlain t m acc (BnPlain n ty) = MkWithName n <$> childTerm t m acc ty
   decodePlain t m acc _ = Nothing
 
   decodeImplicit : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
-                   Node (nodeCount t) -> Maybe (AddFC (ImpParameter' PTerm))
+                   Node (nodeCount t) -> Maybe (WithFCRigName (PiBindData PTerm))
   decodeImplicit t m acc (BnImplicit fc rig n p ty)
-      = (\p', ty' => the (AddFC (ImpParameter' PTerm)) (Mk [fc, rig, n] (MkPiBindData p' ty')))
-          <$> piChild t m acc p <*> child t m acc FTerm ty
+      = (\p', ty' => MkWithFCRigName fc rig n (MkPiBindData p' ty'))
+          <$> piChild t m acc p <*> childTerm t m acc ty
   decodeImplicit t m acc _ = Nothing
 
 ||| The declarations a parse gave, read off its tree, each run of

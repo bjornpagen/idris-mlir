@@ -190,9 +190,9 @@ mutual
   export
   Pretty IdrisSyntax IPTerm where
     prettyPrec d (PRef _ nm) = annotateM (kindAnn nm) $ cast $ prettyOp False nm.rawName
-    prettyPrec d (NewPi (MkWithData fc (MkPBinderScope binder scope))) =
+    prettyPrec d (NewPi (MkFCVal fc (MkPBinderScope binder scope))) =
       prettyPrec d binder <++> arrow <++> prettyPrec d scope
-    prettyPrec d (Forall (MkWithData fc (names, scope))) =
+    prettyPrec d (Forall (MkFCVal fc (names, scope))) =
       parenthesise (d > startPrec) $ group $
         forall_ <++> commaSep (map (prettyBinder . val) (forget names)) <++> dot <++> pretty scope
     prettyPrec d (PPi _ rig Explicit Nothing arg ret) =
@@ -355,19 +355,19 @@ mutual
     prettyPrec d (PDotted _ p) = dot <+> prettyPrec d p
     prettyPrec d (PImplicit _) = "_"
     prettyPrec d (PInfer _) = annotate Hole $ "?"
-    prettyPrec d (POp _ (MkWithData _ $ BindType nm left) op right) =
+    prettyPrec d (POp _ (MkFCVal _ $ BindType nm left) op right) =
         group $ parens (prettyPrec d nm <++> ":" <++> pretty left)
            <++> prettyOp op.val.toName
            <++> pretty right
-    prettyPrec d (POp _ (MkWithData _ $ BindExpr nm left) op right) =
+    prettyPrec d (POp _ (MkFCVal _ $ BindExpr nm left) op right) =
         group $ parens (prettyPrec d nm <++> "<-" <++> pretty left)
            <++> prettyOp op.val.toName
            <++> pretty right
-    prettyPrec d (POp _ (MkWithData _ $ BindExplicitType nm ty left) op right) =
+    prettyPrec d (POp _ (MkFCVal _ $ BindExplicitType nm ty left) op right) =
         group $ parens (prettyPrec d nm <++> ":" <++> pretty ty <++> "<-" <++> pretty left)
            <++> prettyOp op.val.toName
            <++> pretty right
-    prettyPrec d (POp _ (MkWithData _ $ NoBinder x) op y) =
+    prettyPrec d (POp _ (MkFCVal _ $ NoBinder x) op y) =
       parenthesise (d >= App) $
         group $ pretty x
            <++> prettyOp op.val.toName

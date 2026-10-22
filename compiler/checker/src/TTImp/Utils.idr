@@ -31,13 +31,13 @@ genUniqueIdent xs x
 -- Used in findBindableNames{,Quot}
 rawImpFromDecl : ImpDecl -> List RawImp
 rawImpFromDecl decl = case decl of
-    IClaim (MkWithData fc1 $ MkIClaimData y z ys ty) => [ty.val]
+    IClaim (MkFCVal fc1 $ MkIClaimData y z ys ty) => [ty.val]
     IData fc1 y _ (MkImpData fc2 n tycon opts datacons)
         => maybe id (::) tycon $ map val datacons
     IData fc1 y _ (MkImpLater fc2 n tycon) => [tycon]
     IDef fc1 y ys => getFromClause !ys
     IParameters fc1 ys zs => rawImpFromDecl !zs ++ map getParamTy (forget ys)
-    IRecord fc1 y z _ (MkWithData _ (MkImpRecord header body)) => do
+    IRecord fc1 y z _ (MkFCVal _ (MkImpRecord header body)) => do
         binder <- header.val
         field <- body.val
         getFromPiInfo binder.val.info ++ [binder.val.boundType] ++ getFromIField field
@@ -519,13 +519,13 @@ mutual
   substLocData : FC -> ImpData -> ImpData
   substLocData fc' (MkImpData fc n con opts dcons)
       = MkImpData fc' n (map (substLoc fc') con) opts
-                        (map (map (substLoc fc') . set "fc" fc') dcons)
+                        (map (map (substLoc fc') . { fc := fc' }) dcons)
   substLocData fc' (MkImpLater fc n con)
       = MkImpLater fc' n (substLoc fc' con)
 
   substLocDecl : FC -> ImpDecl -> ImpDecl
-  substLocDecl fc' (IClaim (MkWithData _ $ MkIClaimData r vis opts td))
-      = IClaim (MkFCVal fc' $ MkIClaimData r vis opts (map (substLoc fc') (set "fc" fc' td)))
+  substLocDecl fc' (IClaim (MkFCVal _ $ MkIClaimData r vis opts td))
+      = IClaim (MkFCVal fc' $ MkIClaimData r vis opts (map (substLoc fc') ({ fc := fc' } td)))
   substLocDecl fc' (IDef fc n cs)
       = IDef fc' n (map (substLocClause fc') cs)
   substLocDecl fc' (IData fc vis mbtot d)

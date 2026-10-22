@@ -16,7 +16,6 @@ import Libraries.Data.IMaybe
 import Libraries.Text.PrettyPrint.Prettyprinter
 import Libraries.Text.PrettyPrint.Prettyprinter.Util
 import Libraries.Data.Tap
-import Libraries.Data.WithData
 
 import public Data.IORef
 import System.File
@@ -924,10 +923,43 @@ namespace SnocList
   traverse_ : (a -> Core b) -> SnocList a -> Core ()
   traverse_ f xs = traverse_' f (reverse xs)
 
-namespace WithData
+-- The payload of a combination of metadata, traversed; the metadata stays.
+-- Each combination has a `traverse` of its own, so that the name resolves
+-- by the type it is applied to, as it does for a list.
+namespace WithFC
   %inline export
-  traverse : (ty -> Core sy) -> WithData fs ty -> Core (WithData fs sy)
-  traverse f (MkWithData extra val) = MkWithData extra <$> f val
+  traverse : (ty -> Core sy) -> WithFC ty -> Core (WithFC sy)
+  traverse f (MkFCVal fc x) = MkFCVal fc <$> f x
+
+namespace WithName
+  %inline export
+  traverse : (ty -> Core sy) -> WithName ty -> Core (WithName sy)
+  traverse f (MkWithName n x) = MkWithName n <$> f x
+
+namespace WithFCTyName
+  %inline export
+  traverse : (ty -> Core sy) -> WithFCTyName ty -> Core (WithFCTyName sy)
+  traverse f (MkWithFCTyName fc n x) = MkWithFCTyName fc n <$> f x
+
+namespace WithRigName
+  %inline export
+  traverse : (ty -> Core sy) -> WithRigName ty -> Core (WithRigName sy)
+  traverse f (MkWithRigName r n x) = MkWithRigName r n <$> f x
+
+namespace WithFCRigName
+  %inline export
+  traverse : (ty -> Core sy) -> WithFCRigName ty -> Core (WithFCRigName sy)
+  traverse f (MkWithFCRigName fc r n x) = MkWithFCRigName fc r n <$> f x
+
+namespace WithNameOpts
+  %inline export
+  traverse : (ty -> Core sy) -> WithNameOpts ty -> Core (WithNameOpts sy)
+  traverse f (MkWithNameOpts n o x) = MkWithNameOpts n o <$> f x
+
+namespace WithFCDocRigNames
+  %inline export
+  traverse : (ty -> Core sy) -> WithFCDocRigNames ty -> Core (WithFCDocRigNames sy)
+  traverse f (MkWithFCDocRigNames fc d r ns x) = MkWithFCDocRigNames fc d r ns <$> f x
 
 namespace PiInfo
   export

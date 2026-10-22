@@ -352,13 +352,37 @@ so that it only renames is its definition. A frontend that proves its
 readings sound against `Reduces` keeps no check, when it runs, that the
 evaluator agreed with it.
 
-### Changed from upstream's form, and kept
+### Changed from upstream's form
 
-Each of these was first rewritten so that an earlier frontend could compile
-it, and stays changed because the change says more than upstream's form
-did, for the reason given; every other such rewrite went back to upstream's
-form, which the frontend compiles.
+Each of these differs from upstream's form because ours states more, for
+the reason given. Where upstream passes types around, ours states the
+types it means: no type is held when the checker runs, no constructor
+holds a field whose type it hides, and no type is computed from a value
+known only when the checker runs.
 
+- `Core.WithData`: a payload with metadata is a record of its own for each
+  combination of metadata used (`WithFC`, `WithName`, `WithFCTyName`,
+  `WithFCNameArity`, `WithRigName`, `WithFCRigName`, `WithNameOpts`,
+  `WithRigMName`, `WithFCRigMName`, `WithDocFC`, `WithFCDocRigNames`,
+  `WithNameRigTot`), each field at a fixed type, so a projection is the
+  record's own (`.fc`, `.name`, `.rig`, `.val`) and an update is record
+  syntax. Upstream's was one extensible record over a list of labels and
+  types, which held the list at run time, computed each field's type from
+  it, found a field by its label's text and passed a dictionary per field
+  to write or compare one. `WithFC`'s constructor is `MkFCVal`, the
+  reflected `WithFC`'s. Each combination is functorial in its payload, has
+  a `traverse` in `Core` where one is traversed (`Core.Core`), and has a
+  `TTC` where one is written: its fields in order, each after a 1, then a
+  0, then the payload (`Core.TTC`, and `TTImp.TTImp.TTC` for
+  `WithNameOpts`), the bytes upstream's record wrote.
+- `Idris.CommandLine`: an option's argument is a case of `OptArg` that
+  names the type its action is given (`Required` a `String`, `RequiredNat`
+  a `Nat`, `AutoNat` a `Maybe Nat`, ...); every option takes at most one.
+  Upstream's option held a list of argument descriptions and an action
+  whose type that list computed (`ActType`).
+- `Libraries.Data.Version` reads a token's text and converts it where it
+  reads a number (`number`); upstream's token kind computed the type of a
+  token's value from the kind (`TokenKind`'s `TokType`).
 - `Idris.Syntax`: a directive (`Directive' tm`) is over what its `%start`
   expression holds: the parse tree's node while parsing (`Directive' (Id
   FTerm)`, in `Idris.Syntax.Tree`) and a `PTerm' Name` once decoded
@@ -386,9 +410,6 @@ form, which the frontend compiles.
   `public export %tcinline` so that the totality checker sees the
   recursion of `rawTokens` and `stringTokens` (`Parser.Lexer.Source`)
   through it guarded by the constructor.
-- `Libraries.Data.WithData` re-exports `Data.List.Quantifiers`, whose `All`
-  a metadata record is, but not `Data.List` and `Data.Maybe`, which its
-  own definitions do not use; a module imports those where it uses them.
 
 ### Ours
 
@@ -446,7 +467,13 @@ form, which the frontend compiles.
   `_` relocates its parent's left side in a node, the hole names are those
   of the hole nodes, and decoding groups neighbouring clauses into
   definitions (`collectDefs`) and decides whether a `let` in a `do` block
-  binds a variable.
+  binds a variable. Each form's child is decoded by a decoder of its own
+  (`childTerm`, `childClause`, ...), at the type of the syntax that form
+  is, so what a child decodes to is fixed by its form's type, never
+  computed from a form passed as a value; a list of children is decoded
+  with `traverse`, and the measure each descent rests on, that a child
+  unfolds to fewer nodes than its parent, is decided in one place
+  (`fewer`).
 - A package the build adds is recorded with its name and version, as its
   directory names them (`PackageDir`, `addPkgDir`), and each TTC the
   session reads with where the search found it (`Loaded`, `Found`: the

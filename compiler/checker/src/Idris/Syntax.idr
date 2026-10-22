@@ -382,7 +382,7 @@ mutual
        MkPRecord : (tyname : Name) ->
                    (params : List (PBinder' nm)) ->
                    (opts : List DataOpt) ->
-                   (conName : Maybe (WithDoc $ AddFC Name)) ->
+                   (conName : Maybe (WithDocFC Name)) ->
                    (decls : List (PField' nm)) ->
                    PRecordDecl' nm
        MkPRecordLater : (tyname : Name) ->
@@ -456,16 +456,12 @@ mutual
   Directive = Directive' (PTerm' Name)
 
   public export
-  RecordField' : Type -> Type
-  RecordField' nm = WithDoc $ WithRig $ WithNames $ PiBindData (PTerm' nm)
-
-  public export
   PField : Type
   PField = PField' Name
 
   public export
   PField' : Type -> Type
-  PField' nm = AddFC (RecordField' nm)
+  PField' nm = WithFCDocRigNames $ PiBindData (PTerm' nm)
 
   public export
   0 PRecordDeclLet : Type
@@ -528,11 +524,11 @@ mutual
                     (doc : String) ->
                     (params : List (BasicMultiBinder' nm)) ->
                     (det : Maybe (List1 Name)) ->
-                    (conName : Maybe (WithDoc $ AddFC Name)) ->
+                    (conName : Maybe (WithDocFC Name)) ->
                     List (PDecl' nm) ->
                     PDeclNoFC' nm
        PImplementation : Visibility -> List PFnOpt -> Pass ->
-                         (implicits : List (AddFC (ImpParameter' (PTerm' nm)))) ->
+                         (implicits : List (WithFCRigName (PiBindData (PTerm' nm)))) ->
                          (constraints : List (Maybe Name, PTerm' nm)) ->
                          Name ->
                          (params : List (PTerm' nm)) ->
@@ -584,7 +580,7 @@ isStrLiteral (StrLiteral fc str) = Just (fc, str)
 
 export
 isPDef : PDecl -> Maybe (WithFC (List PClause))
-isPDef (MkWithData fc (PDef cs)) = Just (MkWithData fc cs)
+isPDef (MkFCVal fc (PDef cs)) = Just (MkFCVal fc cs)
 isPDef _ = Nothing
 
 ||| A directive with its `%start` expression changed by `g`, the one term a
@@ -717,9 +713,9 @@ parameters {0 nm : Type} (toName : nm -> Name)
   showPBinder d (MkPBinder (DefImplicit x) bind) = "{default \{showPTerm x} \{ showBasicMultiBinder bind}}"
 
   showPTermPrec d (PRef _ n) = showPrec d (toName n)
-  showPTermPrec d (Forall (MkWithData _ (names, scope)))
+  showPTermPrec d (Forall (MkFCVal _ (names, scope)))
         = "forall " ++ concat (intersperse ", " (map (show . val) (forget names))) ++ " . " ++ showPTermPrec d scope
-  showPTermPrec d (NewPi (MkWithData _ (MkPBinderScope binder scope)))
+  showPTermPrec d (NewPi (MkFCVal _ (MkPBinderScope binder scope)))
         = showPBinder d binder ++ " -> "  ++ showPTermPrec d scope
   showPTermPrec d (PPi _ rig Explicit Nothing arg ret)
         = showPTermPrec d arg ++ " -> " ++ showPTermPrec d ret
@@ -800,13 +796,13 @@ parameters {0 nm : Type} (toName : nm -> Name)
   showPTermPrec d (PDotted _ p) = "." ++ showPTermPrec d p
   showPTermPrec _ (PImplicit _) = "_"
   showPTermPrec _ (PInfer _) = "?"
-  showPTermPrec d (POp _ (MkWithData _ $ NoBinder left) op right)
+  showPTermPrec d (POp _ (MkFCVal _ $ NoBinder left) op right)
         = showPTermPrec d left ++ " " ++ showOpPrec d op.val ++ " " ++ showPTermPrec d right
-  showPTermPrec d (POp _ (MkWithData _ $ BindType nm left) op right)
+  showPTermPrec d (POp _ (MkFCVal _ $ BindType nm left) op right)
         = "(" ++ showPTermPrec d nm ++ " : " ++ showPTermPrec d left ++ " " ++ showOpPrec d op.val ++ " " ++ showPTermPrec d right ++ ")"
-  showPTermPrec d (POp _ (MkWithData _ $ BindExpr nm left) op right)
+  showPTermPrec d (POp _ (MkFCVal _ $ BindExpr nm left) op right)
         = "(" ++ showPTermPrec d nm ++ " := " ++ showPTermPrec d left ++ " " ++ showOpPrec d op.val ++ " " ++ showPTermPrec d right ++ ")"
-  showPTermPrec d (POp _ (MkWithData _ $ BindExplicitType nm ty left) op right)
+  showPTermPrec d (POp _ (MkFCVal _ $ BindExplicitType nm ty left) op right)
         = "(" ++ showPTermPrec d nm ++ " : " ++ showPTermPrec d ty ++ ":=" ++ showPTermPrec d left ++ " " ++ showOpPrec d op.val ++ " " ++ showPTermPrec d right ++ ")"
   showPTermPrec d (PPrefixOp _ op x) = showOpPrec d op.val ++ showPTermPrec d x
   showPTermPrec d (PSectionL _ op x) = "(" ++ showOpPrec d op.val ++ " " ++ showPTermPrec d x ++ ")"
@@ -877,7 +873,7 @@ Show IPTerm where
 
 public export 0
 Method : Type
-Method = WithName $ WithRig $ AddMetadata Tot' $ RawImp
+Method = WithNameRigTot RawImp
 
 public export
 record IFaceInfo where

@@ -73,8 +73,9 @@ Eq t => Eq (PiInfo t) where
 -- A bound value
 
 ||| A bound value along with its `PiInfo`.
-||| We cannot use `PiInfo` as metadata for `WithData` because the record is functorial in both
-||| `t` and `PiInfo`.
+||| The `PiInfo` is not metadata beside the payload, as a location or a name
+||| is (`Core.WithData`): a default implicit holds a value of the payload's
+||| type, so a map over the payload maps the `PiInfo` too.
 public export
 record PiBindData (t : Type) where
   constructor MkPiBindData
