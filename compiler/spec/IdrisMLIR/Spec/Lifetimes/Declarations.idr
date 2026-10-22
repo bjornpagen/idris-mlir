@@ -191,7 +191,7 @@ kindDirective = MkDirective
 export
 lifetimeType : TypeDef 1
 lifetimeType = MkTypeDef
-  { mnemonic = word "lifetime" ::: []
+  { mnemonic = "lifetime"
   , params =
       [ MkParameter (ident "kind") (WiredValue (WiredOf kindWire) kindDirective)
           AlwaysWritten (line "what the lifetime is at run time") ]
@@ -214,7 +214,7 @@ lifetimeType = MkTypeDef
 export
 packageType : TypeDef 2
 packageType = MkTypeDef
-  { mnemonic = word "lifetime" ::: [word "package"]
+  { mnemonic = "lifetime.package"
   , params =
       [ MkParameter (ident "packed")
           (EnumValue (imported packedClosed
@@ -434,7 +434,7 @@ plainFormat = Declared
 plainOpener : Opener -> Op 1 1 0 1
 plainOpener o = MkOp
   { home = InIdr
-  , mnemonic = mnemonicOf o
+  , mnemonic = openerMnemonic o
   , ins = [variadic (ident "outers") anyLifetime]
   , outs = [results (ident "results") anyValue]
   , attrs = []
@@ -457,12 +457,12 @@ plainOpener o = MkOp
   , doc = brief (summaryOf o)
   }
   where
-    mnemonicOf : Opener -> Mnemonic
-    mnemonicOf NoMemory = "lifetime"
-    mnemonicOf AtHome = "lifetime.home"
-    mnemonicOf InBlock = "lifetime.block"
-    mnemonicOf OnStack = "lifetime.stack"
-    mnemonicOf InChain = "lifetime.chain"
+    openerMnemonic : Opener -> Mnemonic
+    openerMnemonic NoMemory = "lifetime"
+    openerMnemonic AtHome = "lifetime.home"
+    openerMnemonic InBlock = "lifetime.block"
+    openerMnemonic OnStack = "lifetime.stack"
+    openerMnemonic InChain = "lifetime.chain"
 
     -- The memory a lifetime's end gives back to the runtime, which no
     -- value names: none for a lifetime without memory or a block in the
@@ -492,7 +492,7 @@ plainOpener o = MkOp
 stackOpener : Op 2 1 0 1
 stackOpener = MkOp
   { home = InIdr
-  , mnemonic = MkMnemonic (word "lifetime" ::: [word "stack"])
+  , mnemonic = "lifetime.stack"
   , ins = [single (ident "base") cursorLifetime, variadic (ident "outers") anyLifetime]
   , outs = [results (ident "results") anyValue]
   , attrs = []

@@ -223,7 +223,7 @@ holdTable = table holdClosed
 export
 graded : TypeDef 3
 graded = MkTypeDef
-  { mnemonic = word "graded" ::: []
+  { mnemonic = "graded"
   , params =
       [ MkParameter (ident "uses")
           (EnumValue (imported usesClosed
