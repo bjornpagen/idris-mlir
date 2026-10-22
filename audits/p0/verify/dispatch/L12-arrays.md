@@ -1,7 +1,7 @@
 # Lane L12 (arrays): arrays, bufferization, columns, lanes
 
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Arrays/`,
-`foreign/idr/lib/IR/{OpsArrays,OpsGenerating,OpsTabulate}.cpp`,
+`foreign/idr/lib/IR/{OpsArrays,OpsGenerating,OpsTabulate,OpsFolds}.cpp` (OpsFolds.cpp holds `fold_last` and `scan_last`, to move into OpsGenerating.cpp and delete),
 `foreign/idr/include/idr/IR/Arrays.h`,
 `foreign/idr/lib/Transforms/{Bufferize,Columns,Narrow,StructureLoops}/`,
 `foreign/idr/include/idr/Transforms/StructureLoops.h`,

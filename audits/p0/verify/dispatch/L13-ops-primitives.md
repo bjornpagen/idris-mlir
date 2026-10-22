@@ -2,7 +2,7 @@
 
 **Exclusive write:** `foreign/idr/lib/IR/Ops/` (new, for new code), `compiler/spec/IdrisMLIR/Spec/Ops/`,
 `foreign/idr/include/idr/IR/Numeric/`,
-`foreign/idr/lib/IR/{Constants,Crashes,Ops,OpsBigs,OpsChecks,OpsFolds,OpsPlatform,OpsScalars,OpsStrings,Ranges,ValueFacts}.cpp`,
+`foreign/idr/lib/IR/{Constants,Crashes,Ops,OpsBigs,OpsChecks,OpsPlatform,OpsScalars,OpsStrings,Ranges,ValueFacts}.cpp`,
 `foreign/idr/lib/IR/{Canon,Fold}/`, `foreign/idr/include/idr/IR/{Canon,Fold,Ranges}.h`,
 `foreign/idr/lib/Conversion/{Scalars,Bigs,Strings,Words,Checks}.cpp`,
 `foreign/idr/include/idr/Conversion/Words.h`.
