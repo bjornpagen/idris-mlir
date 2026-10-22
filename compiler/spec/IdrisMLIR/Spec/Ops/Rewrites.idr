@@ -37,12 +37,12 @@ import Data.Vect
 -- How a rule is made
 ------------------------------------------------------------------------------
 
-||| A one-way rule: its right side replaces its left, which is never kept.
+||| A rule with no side condition: its right side replaces its left.
 simplify : {n : Nat} -> (vars : Vect n VarUses) -> (lhs : Root n) -> (rhs : Pat n) -> Line
         -> {auto 0 bound : So (covers lhs rhs)}
         -> {auto 0 linear : So (linearIn vars rhs)}
         -> AnyRewrite
-simplify vars lhs rhs doc = SomeRewrite (MkRewrite vars lhs rhs [] Simplify doc)
+simplify vars lhs rhs doc = SomeRewrite (MkRewrite vars lhs rhs [] doc)
 
 ||| 2^k.
 power : Nat -> Integer
