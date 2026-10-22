@@ -34,16 +34,18 @@ A skeleton rule (L09's in `IR/Control/Control.h`, L13's in their headers)
 meets the concept `idr::egraph::SkeletonRule`:
 - `using Root = <op class or interface>;`
 - `static std::optional<idr::egraph::Edit> decide(Root, const idr::egraph::OperandFacts &);`
-- `static void rewrite(Root, mlir::RewriterBase &);`
+- `static void rewrite(Root, const idr::egraph::Rewrite &, mlir::RewriterBase &);`
 
 `Edit` is a closed sum:
 - **`Forward{operandOfResult}`**: each result becomes an operand.
 - **`Take{region, operandOfArgument}`**: a region op becomes one of its
   regions, with the block arguments bound to operands and the yields as
   the results. The engine writes the region's ops back in place.
-- **`Rewrite`**: the engine calls `R::rewrite` once the root's operands
-  are written back, with the insertion point at the root, before its
-  regions.
+- **`Rewrite{chosen}`**: `struct Rewrite { llvm::SmallVector<unsigned, 4> chosen; };`
+  carries the choice the rule made while it could read the e-graph (for
+  example, the arm indices), so `rewrite` need not recompute it. The
+  engine calls `R::rewrite(root, rewrite, rewriter)` between the two
+  rounds.
 
 `OperandFacts` answers by `Value`, for any value of the function, not by
 operand position (L14, revised 2026-10-21):
@@ -65,7 +67,7 @@ several ops uses an interface root, in the style of
 - Round 1 builds and extracts the e-graph; then every skeleton rule
   decides.
 - If any rule decided `Rewrite`, the engine runs those
-  `R::rewrite(root, rewriter)` on the input, region by region in walk
+  `R::rewrite(root, rewrite, rewriter)` on the input, region by region in walk
   order, with the insertion point at the root. A root that an earlier
   rewrite erased is skipped, so `rewrite` re-checks its own condition on
   the root as it now is.
