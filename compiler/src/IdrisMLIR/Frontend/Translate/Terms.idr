@@ -1510,8 +1510,8 @@ mutual
         let ty = callee.type
         let arity = length m.args
         let vals = argValues (take arity xs)
-        kinds <- classifyKeys fc ctx.owner (show n) arity ty vals
-        Nothing <- resolveMethod ph fc n kinds xs
+        kinds <- classifyKeys fc ctx.owner (show n) (length m.args) ty vals
+        Nothing <- resolveMethod ph fc n (toList kinds) xs
           | Just resolved => pure resolved
         sig <- calleeAt (choicesIn kinds) fc ctx.owner (OfDefinition n m) kinds
         called <- atCall fc ctx.owner vals sig
@@ -1664,7 +1664,7 @@ mutual
           | Nothing => reject fc (show lib.named) HookShape "the registry names a library function that is not a definition"
         let arity = length m.args
         let vals = the ArgValues (replicate arity Nothing)
-        kinds <- classifyKeys fc ctx.owner (show lib.named) arity target.type vals
+        kinds <- classifyKeys fc ctx.owner (show lib.named) (length m.args) target.type vals
         let True = all valueOnly kinds
           | False => reject fc (show lib.named) HookShape "the registry names a library function with compile-time arguments"
         sig <- request fc ctx.owner (OfDefinition (fullname def) m) kinds

@@ -328,9 +328,10 @@ data Hook : Kind -> Type where
   ||| `ArrayPrim` names, in their sequential meaning; its body is not
   ||| translated. Handler: `Frontend.Translate.Terms.application`.
   Generating : {auto 0 lowers : Lowers kd} -> ArrayPrim -> Hook kd
-  ||| Base's list, a sum whose nil (its constructor of no field) and cons
-  ||| (its constructor of two) the string builders take apart (`Term.DataShape`'s
-  ||| `BaseListSum`). Handler: `Frontend.Translate.Types.dataInstance`.
+  ||| Base's list. Its nil (its constructor of no field) and cons (its
+  ||| constructor of two), which the string builders take apart, are read
+  ||| off its family's declaration by the dialect (`ListShape`), never from
+  ||| this entry, which no handler reads.
   ListType : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A data type whose cells every program is checked to rebuild in place
   ||| and hold exclusive, which only a type with exactly one constructor

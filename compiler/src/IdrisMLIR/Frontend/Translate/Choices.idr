@@ -182,17 +182,16 @@ withMember fam m st =
     Just f => derive { families $= insert fam ({ cons $= (++ [conOf m.con]) } f) } st'
     Nothing => st'
 
-||| The first choice among a call's kinds: the kinds before it, its
-||| parameter's binder and the type it is a choice of, and the kinds after
-||| it.
-firstChoice : List PKind -> Maybe (List PKind, Binder, ChoiceType, List PKind)
+||| The first choice among a call's kinds: the kinds split at its
+||| parameter, which holds its binder and the type it is a choice of.
+firstChoice : Vect n PKind -> Maybe (SplitKinds n (Binder, ChoiceType))
 firstChoice [] = Nothing
-firstChoice (ChoiceParam b t :: ks) = Just ([], b, t, ks)
-firstChoice (k :: ks) = (\(before, b, t, after) => (k :: before, b, t, after)) <$> firstChoice ks
+firstChoice (ChoiceParam b t :: ks) = Just (MkSplitKinds [] (b, t) ks Refl)
+firstChoice (k :: ks) = afterKind k <$> firstChoice ks
 
 ||| How many choices a call's kinds hold.
 export
-choicesIn : List PKind -> Nat
+choicesIn : Vect n PKind -> Nat
 choicesIn [] = 0
 choicesIn (ChoiceParam _ _ :: ks) = S (choicesIn ks)
 choicesIn (_ :: ks) = choicesIn ks
@@ -249,30 +248,32 @@ mutual
   ||| member the choice it dispatches on.
   export
   calleeAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (choices : Nat) -> FC -> String -> Instantiates -> List PKind -> Front InstanceSig
+             (choices : Nat) -> FC -> String -> (what : Instantiates) -> Vect (appliedArity what) PKind -> Front InstanceSig
   calleeAt Z fc owner what kinds = request fc owner what kinds
   calleeAt (S k) fc owner what kinds = case firstChoice kinds of
     Nothing => request fc owner what kinds
-    Just (before, b, ty, after) => dispatchOn k fc owner what before b ty after
+    Just parts => dispatchOn k fc owner what parts
 
-  ||| The dispatch of a call on the choice in the parameter after `before`,
-  ||| made once, its signature read then, as an instance's is: its identity
-  ||| is the callee's link at the call's static arguments, which hold
-  ||| nothing where the choice is, as no instance of the callee's does. It
-  ||| is joined with every member its choice has so far.
+  ||| The dispatch of a call on the choice in the parameter its kinds are
+  ||| split at, made once, its signature read then, as an instance's is:
+  ||| its identity is the callee's link at the call's static arguments,
+  ||| which hold nothing where the choice is, as no instance of the
+  ||| callee's does. It is joined with every member its choice has so far.
   dispatchOn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               (rest : Nat) -> FC -> String -> Instantiates -> (before : List PKind) -> Binder -> ChoiceType ->
-               (after : List PKind) -> Front InstanceSig
-  dispatchOn rest fc owner what before b ty after = do
+               (rest : Nat) -> FC -> String -> (what : Instantiates) ->
+               SplitKinds (appliedArity what) (Binder, ChoiceType) -> Front InstanceSig
+  dispatchOn rest fc owner what parts = do
+    let (b, ty) = parts.here
     choice <- choiceFamily fc owner ty
-    let kinds = before ++ ChoiceParam b ty :: after
-    found <- instanceFor fc owner what kinds
+    found <- instanceFor fc owner what
+               (replace {p = \n => Vect n PKind} parts.spans (parts.kindsBefore ++ ChoiceParam b ty :: parts.kindsAfter))
     let inst = InstanceOf found.link
     Nothing <- pure (requestedBefore inst !getState)
       | Just sig => pure sig
-    (sig ** _) <- instanceSig fc owner what kinds inst found.symbol
+    (sig ** _) <- instanceSig fc owner what found
     st <- getState
-    let d = MkDispatch inst found.key sig what before (Given rest b ty) after choice.family fc owner
+    let d = MkDispatch inst found.key sig what parts.kindsBefore (Given rest b ty) parts.kindsAfter parts.spans
+                       choice.family fc owner
     updateState (derive { instances $= insert inst sig, fnOrder $= (:< inst)
                         , dispatchesOn $= insert choice.family
                                             (d :: fromMaybe [] (lookupFact (.dispatchesOn) choice.family st)) })
@@ -309,32 +310,28 @@ mutual
 
 ||| The first value an implementation given at a parameter closes over that
 ||| is itself a choice (`choiceType`): a field of the implementation the
-||| running program chose, which the program fixes the members of. The
-||| kinds before its parameter, the parameter as it holds the choice
-||| (`Held`, its place among the values the parameter holds), the kinds
-||| after it, and the type it is a choice of, as `choiceType` read it.
+||| running program chose, which the program fixes the members of: the
+||| kinds split at its parameter, which holds the parameter as it holds
+||| the choice (`Held`, its place among the values the parameter holds)
+||| and the type it is a choice of, as `choiceType` read it.
 export
-heldChoice : {auto s : Ref TState TS} ->
-             List PKind -> Front (Maybe (List PKind, Chosen, List PKind, ChoiceType))
-heldChoice = go [<]
+heldChoice : {auto s : Ref TState TS} -> Vect n PKind -> Front (Maybe (SplitKinds n (Chosen, ChoiceType)))
+heldChoice [] = pure Nothing
+heldChoice (DictParam form (Just hs) :: ks) = do
+  Just (j, t) <- among 0 (forget hs.types)
+    | Nothing => map (afterKind (DictParam form (Just hs))) <$> heldChoice ks
+  pure (Just (MkSplitKinds [] (Held j form hs, t) ks Refl))
   where
     among : Nat -> List ClosedTerm -> Front (Maybe (Nat, ChoiceType))
     among j [] = pure Nothing
     among j (t :: ts) = case !(choiceType t) of
       Just ct => pure (Just (j, ct))
       Nothing => among (S j) ts
-
-    go : SnocList PKind -> List PKind -> Front (Maybe (List PKind, Chosen, List PKind, ChoiceType))
-    go before [] = pure Nothing
-    go before (DictParam form (Just hs) :: ks) = do
-      Just (j, t) <- among 0 (forget hs.types)
-        | Nothing => go (before :< DictParam form (Just hs)) ks
-      pure (Just (before <>> [], Held j form hs, ks, t))
-    go before (k :: ks) = go (before :< k) ks
+heldChoice (k :: ks) = map (afterKind k) <$> heldChoice ks
 
 ||| An instance given an implementation that holds a choice the running
-||| program made, in the parameter after `before` (`Held`, at its place
-||| among the values): a dispatch on that choice, whose arm for each member
+||| program made, in the parameter its kinds are split at (`Held`, at its
+||| place among the values): a dispatch on that choice, whose arm for each member
 ||| is the callee's instance with the field fixed to the member
 ||| (`heldMember`), so that the callee's tree takes the field apart as it
 ||| takes any implementation the program fixes. The instance is the
@@ -344,11 +341,13 @@ heldChoice = go [<]
 ||| member its choice has so far.
 export
 heldDispatch : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               Request -> (before : List PKind) -> Chosen -> (after : List PKind) -> ChoiceType -> Front ()
-heldDispatch r before chosen after ty = do
+               (r : Request) -> SplitKinds (appliedArity r.instantiates) (Chosen, ChoiceType) -> Front ()
+heldDispatch r parts = do
   let owner = show r.owner
+  let (chosen, ty) = parts.here
   choice <- choiceFamily r.site owner ty
-  let d = MkDispatch r.inst r.key r.signature r.instantiates before chosen after choice.family r.site owner
+  let d = MkDispatch r.inst r.key r.signature r.instantiates parts.kindsBefore chosen parts.kindsAfter parts.spans
+                     choice.family r.site owner
   st <- getState
   -- A request is one instance, of one choice, so its dispatch is made at
   -- most once, among that choice's.

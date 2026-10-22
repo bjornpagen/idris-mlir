@@ -30,6 +30,7 @@ import IdrisMLIR.Types
 import Control.Monad.State
 import Data.Fin
 import Data.List
+import Data.List.Quantifiers
 import Data.List1
 import Data.Maybe
 import Data.SnocList
@@ -66,7 +67,7 @@ record Scope (js : List Nat) (nv : Nat) where
   constructor MkScope
   vars : Fin nv -> InScope
   telescope : List Sort
-  targets : Each Reach js
+  targets : All Reach js
 
 ||| What the fold makes of a term in scope `nv`: given its scope and what
 ||| its context wants, it appends the term's operations and returns its
@@ -310,7 +311,7 @@ mutual
   natArmsName from k (OnlySucc _ s) = names (S from) k s
   natArmsName from k (Both z _ s) = names from k z || names (S from) k s
 
-  targetsName : (from, k : Nat) -> Each (Target s n) ts -> Bool
+  targetsName : (from, k : Nat) -> All (Target s n) ts -> Bool
   targetsName from k [] = False
   targetsName from k (MkTarget {k = j} _ _ _ _ _ body :: rest) = names (j + from) k body || targetsName from k rest
 
@@ -412,7 +413,7 @@ holding ix l binder t captures build =
 
 ||| The tokens of a join op, one per join point, each a region's argument,
 ||| and what a jump to each needs, its op's telescope `depth` deep.
-reaching : Loc -> Nat -> Each (TargetF f s nv) ts -> E (Each Reach ts, List Argument)
+reaching : Loc -> Nat -> All (TargetF f s nv) ts -> E (All Reach ts, List Argument)
 reaching l depth [] = pure ([], [])
 reaching l depth (MkTargetF _ _ _ _ params _ :: rest) = do
   n <- fresh
@@ -459,14 +460,15 @@ sortsOf (MkTargetF _ _ sorts _ _ _) = sorts
 ||| a match's cases do.
 joined : {0 js, s, ts : List Nat} -> {0 nv : Nat} ->
          Index -> Loc -> Scope js nv -> Wanted -> (MlirAttr -> MLIR.Region -> List MLIR.Region -> List MlirType -> Op)
-      -> (regionTokens : E (Each Reach s, List Argument))
-      -> Each (TargetF (Sub Em) s nv) ts -> Sub Em (js ++ ts) nv -> E (Maybe Val)
+      -> (regionTokens : E (All Reach s, List Argument))
+      -> All (TargetF (Sub Em) s nv) ts -> Sub Em (js ++ ts) nv -> E (Maybe Val)
 joined ix l sc w member regionTokens targets body = do
   (own, tokens) <- reaching l (length sc.telescope) targets
-  (res, ops) <- collect (plain ix l (body.result (MkScope sc.vars sc.telescope (aroundThen sc.targets own))
+  (res, ops) <- collect (plain ix l (body.result (MkScope sc.vars sc.telescope (sc.targets ++ own))
                                                 ({ binder := Nothing } w)))
   regions <- regionsOf targets
-  let binders = ArrayAttr (eachList (\t => Idr (IndexBindersAttr (map (sortOf ix) (sortsOf t)))) targets)
+  let binders = ArrayAttr (forget (mapProperty {q = const MlirAttr} (\t => Idr (IndexBindersAttr (map (sortOf ix) (sortsOf t))))
+                                               targets))
   match ix l w (\cs, d, rs => member binders d (caseRegions cs) rs) regions (Just (MkArm tokens res ops))
   where
     region : TargetF (Sub Em) s nv k -> E Case
@@ -477,7 +479,7 @@ joined ix l sc w member regionTokens targets body = do
         plain ix tl (rbody.result (bind vals (MkScope sc.vars (sc.telescope ++ sorts) reach)) ({ binder := Nothing } w))
       pure (MkCase 0 (MkArm (tokens ++ args) res ops))
 
-    regionsOf : Each (TargetF (Sub Em) s nv) ts' -> E (List Case)
+    regionsOf : All (TargetF (Sub Em) s nv) ts' -> E (List Case)
     regionsOf [] = pure []
     regionsOf (t :: rest) = (::) <$> region t <*> regionsOf rest
 
@@ -844,13 +846,13 @@ alg ix (JoinF l InBody targets body) sc w =
   joined ix l sc w (\bs, d, rs, results => Idr.joinOp bs [] d rs results) (pure (sc.targets, [])) targets body
 alg ix (JoinF l InEveryRegion targets body) sc w =
   joined ix l sc w (\bs, d, rs, results => Idr.loopOp bs [] d rs results)
-         (mapFst (aroundThen sc.targets) <$> reaching l (length sc.telescope) targets) targets body
+         (mapFst (\own => sc.targets ++ own) <$> reaching l (length sc.telescope) targets) targets body
 -- A jump passes its join point's parameters their arguments, at the types
 -- its region binds them at with its erased binders given the jump's
 -- terms, and ends its region: control goes on in the region its token
 -- designates.
 alg ix (JumpF l e terms as) sc w = do
-  let reach = eachAt e sc.targets
+  let reach = indexAll e sc.targets
       instantiated = levelsBelow reach.depth ++ terms
       slots = map (\b => Just (MkBinder b.quantity (substTy instantiated b.type))) reach.params
   Just vs <- operands ix l (offTail sc) (zip slots as)

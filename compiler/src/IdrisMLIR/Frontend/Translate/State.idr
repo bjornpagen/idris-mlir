@@ -533,6 +533,12 @@ public export
 (.inst) : Request -> FnId
 (.inst) r = InstanceOf r.link
 
+||| A request's signature's kinds, one per parameter its instance applies,
+||| as many as its signature classifies (`classifiesAll`).
+export
+kindsOf : (r : Request) -> Vect (appliedArity r.instantiates) PKind
+kindsOf r = replace {p = \n => Vect n PKind} r.classifiesAll (Data.Vect.fromList r.signature.kinds)
+
 ||| One argument of a constructor, as a data instance has it. Idris does not
 ||| put the data type's parameters first (`(::) : {0 len} -> {0 elem} ->
 ||| ...`), so every argument says what it is: a parameter, whose value the
@@ -640,15 +646,37 @@ chosenKind : Chosen -> PKind
 chosenKind (Given _ b t) = ChoiceParam b t
 chosenKind (Held _ form hs) = DictParam form (Just hs)
 
+%prefix_record_projections off
+
+||| A call's kinds split at one of its parameters, `n` in all: the kinds
+||| before it, what the parameter is (`here`), and the kinds after it. Its
+||| projections, as a dispatch's, are postfix only: a prefix `after` would
+||| be `State.after` too.
+public export
+record SplitKinds (n : Nat) (a : Type) where
+  constructor MkSplitKinds
+  {0 before : Nat}
+  {0 after : Nat}
+  kindsBefore : Vect before PKind
+  here : a
+  kindsAfter : Vect after PKind
+  0 spans : before + S after = n
+
+||| The split of a call's kinds after one more kind before them.
+export
+afterKind : PKind -> SplitKinds n a -> SplitKinds (S n) a
+afterKind k parts = MkSplitKinds (k :: parts.kindsBefore) parts.here parts.kindsAfter (cong S parts.spans)
+
 ||| A call given a choice (`ChoiceParam`), or an instance given an
 ||| implementation that holds one, as one function: its identity and key,
 ||| its signature, read once where it was made (`InstanceSig`), the callee
 ||| (a definition, or a member at a use, whose choice the use dispatches
-||| on), its kinds as the call classified them, split at the parameter its
-||| choice is found in (`Chosen`), so that the parameter and its kind are
-||| one, the choice's family, and where and in whose definition it was
-||| made. None of it changes once made; its arms, which grow with its
-||| choice, are its own table's (`Facts.dispatchArms`).
+||| on), its kinds as the call classified them, one per parameter the
+||| callee applies, split at the parameter its choice is found in
+||| (`Chosen`), so that the parameter and its kind are one, the choice's
+||| family, and where and in whose definition it was made. None of it
+||| changes once made; its arms, which grow with its choice, are its own
+||| table's (`Facts.dispatchArms`).
 public export
 record Dispatch where
   constructor MkDispatch
@@ -656,14 +684,15 @@ record Dispatch where
   key : InstanceKey
   signature : InstanceSig
   callee : Instantiates
-  kindsBefore : List PKind
+  {0 before : Nat}
+  {0 after : Nat}
+  kindsBefore : Vect before PKind
   chosen : Chosen
-  kindsAfter : List PKind
+  kindsAfter : Vect after PKind
+  0 spans : before + S after = appliedArity callee
   family : FamilyId
   site : FC
   owner : String
-
-%prefix_record_projections off
 
 ||| A dispatch's arm for one member of its choice, made when the later of
 ||| the two is: the member, and the signature of the callee's instance at
@@ -677,16 +706,12 @@ record DispatchArm where
 
 %prefix_record_projections on
 
-||| A dispatch's kinds, as its call classified them.
-export
-(.kinds) : Dispatch -> List PKind
-(.kinds) d = d.kindsBefore ++ chosenKind d.chosen :: d.kindsAfter
-
 ||| A dispatch's kinds with the parameter its choice is found in given
-||| another kind: what an arm's callee is given.
+||| another kind: what an arm's callee is given, one kind per parameter the
+||| callee applies.
 export
-givenInstead : PKind -> Dispatch -> List PKind
-givenInstead k d = d.kindsBefore ++ k :: d.kindsAfter
+givenInstead : PKind -> (d : Dispatch) -> Vect (appliedArity d.callee) PKind
+givenInstead k d = replace {p = \n => Vect n PKind} d.spans (d.kindsBefore ++ k :: d.kindsAfter)
 
 export
 data TState : Type where

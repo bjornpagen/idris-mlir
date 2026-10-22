@@ -167,13 +167,13 @@ record Requesting where
   symbol : String
 
 ||| The instance of what is instantiated at the static arguments a call's
-||| kinds give it (`Keys`), each written as its reading's form, with what
-||| it supplies each parameter with.
+||| kinds give it (`Keys`), one kind per parameter it applies, each written
+||| as its reading's form, with what it supplies each parameter with.
 export
 instanceFor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              FC -> String -> Instantiates -> List PKind -> Front Requesting
+              FC -> String -> (what : Instantiates) -> Vect (appliedArity what) PKind -> Front Requesting
 instanceFor fc owner what kinds = do
-  supplied <- traverse supplying kinds
+  supplied <- traverse supplying (toList kinds)
   found <- keyed what (map (map snd . keyOf) supplied)
   pure (MkRequesting supplied found.link found.key found.symbol)
   where
@@ -747,11 +747,11 @@ classifyCall fc owner request arity ty vals = do
 ||| signature the call then reads (`atCall`).
 export
 classifyKeys : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               FC -> String -> (request : String) -> (arity : Nat) -> ClosedTerm -> ArgValues -> Front (List PKind)
+               FC -> String -> (request : String) -> (arity : Nat) -> ClosedTerm -> ArgValues -> Front (Vect arity PKind)
 classifyKeys fc owner request arity ty vals = do
   admittedType <- admitted fc owner request arity ty
   classified <- classifyAt fc owner request 0 arity admittedType (map FromCall vals)
-  pure (vectList classified.kinds)
+  pure classified.kinds
 
 ||| A requested instance's signature as a call reads it, in the call's
 ||| scope (`inCaller`).
@@ -801,7 +801,7 @@ instanceSig fc owner what requesting = do
 ||| at the type constructor it is. The link stays its identity.
 export
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> (owner : String) -> Instantiates -> List PKind -> Front InstanceSig
+          FC -> (owner : String) -> (what : Instantiates) -> Vect (appliedArity what) PKind -> Front InstanceSig
 request fc owner what kinds = do
   requesting <- instanceFor fc owner what kinds
   let inst = InstanceOf requesting.link

@@ -34,6 +34,7 @@ import IdrisMLIR.Types
 import Control.WellFounded
 import Data.Fin
 import Data.List
+import Data.List.Quantifiers
 import Data.Nat
 import Data.SnocList
 import Data.SortedMap
@@ -122,8 +123,8 @@ translateDefinition p sig n m counted = do
   before <- getState
   False <- pure (contains address before.refused)
     | True => pure ()
-  Nothing <- heldChoice sig.kinds
-    | Just (before, chosen, after, ty) => heldDispatch p before chosen after ty
+  Nothing <- heldChoice (kindsOf p)
+    | Just parts => heldDispatch p parts
   let fc = location def
   let ty = d.type
   -- A missing case crashes.
@@ -139,15 +140,25 @@ translateDefinition p sig n m counted = do
   ties <- if any (isJust . valueDims . (.type)) sig.callee.params
             then (entryTies . fst) <$> sizedTelescope ty sig.kinds
             else pure []
-  let body = tied loc (allFins (Runtimes sig.kinds)) ties tree'
-  -- What Idris proved of its loops, read with the program (`Recursion`).
-  termination <- (\r => terminationOf r d) <$> reading
-  extents <- signatureExtents sig.kinds sig.result
   -- Where the definition stands, read once from its Idris name: a case,
   -- with or nested block is local to the function Idris lifted it out of.
   let standing = case blockOf (fullname def) of
                    Just _ => LocalDefinition
                    Nothing => OwnFunction
+  -- A local definition, which a join point may make its region, states
+  -- what its signature fixes of its result's dynamic dimensions, over its
+  -- parameters, where its body gives its value (`tiedExits`): each call of
+  -- it states the same of the value, and one that becomes a jump leaves
+  -- the statement to the region.
+  exits <- case (standing, valueDims sig.callee.result) of
+             (LocalDefinition, Just _) => do
+               (tel, res) <- sizedTelescope ty sig.kinds
+               map (\(k, w) => (k, witnessTerm loc (allFins (Runtimes sig.kinds)) w)) <$> resultTies tel res sig.callee.result
+             _ => pure []
+  let body = tied loc (allFins (Runtimes sig.kinds)) ties (tiedExits loc exits tree')
+  -- What Idris proved of its loops, read with the program (`Recursion`).
+  termination <- (\r => terminationOf r d) <$> reading
+  extents <- signatureExtents sig.kinds sig.result
   updateState (derive { fns $= insert p.inst (MkTFn p.key standing (telescopeOf sig.kinds) (Runtimes sig.kinds) sig.callee
                                                       extents names body loc termination) })
   where
@@ -206,8 +217,8 @@ translateInstance p = translated p.instantiates p.classifiesAll
     translated : (what : Instantiates) -> (0 _ : length p.signature.kinds = appliedArity what) -> Front ()
     translated (OfDefinition n m) counted = translateDefinition p p.signature n m counted
     translated (AtUse uses) counted = do
-      Nothing <- heldChoice p.signature.kinds
-        | Just (before, chosen, after, ty) => heldDispatch p before chosen after ty
+      Nothing <- heldChoice (kindsOf p)
+        | Just parts => heldDispatch p parts
       translateApplication p p.signature uses counted
 
 ||| One step of the translation's worklist: the instance of a request, the
@@ -233,7 +244,10 @@ mainInstance fc main = do
   d <- lookupDef fc (show main) main
   let Just m = d.matched
     | Nothing => reject (location d.def) (show (fullname d.def)) DefinitionShape "not a pattern-matching definition"
-  request fc (show main) (OfDefinition main m) []
+  -- The root's call gives `main` no argument: each of its parameters is
+  -- classified as a call that gives it none classifies it.
+  kinds <- classifyKeys fc (show main) (show main) (length m.args) d.type (replicate (length m.args) Nothing)
+  request fc (show main) (OfDefinition main m) kinds
 
 ||| The root's request, as a step derives it (`step`): the instance of
 ||| `main` the root calls, requested, and what requesting it derived.
@@ -303,81 +317,86 @@ groupsOf fs =
 
 %prefix_record_projections off
 
-||| A member taken out of those not reached yet, by its identity, and the
-||| members left, one fewer.
-record Taken (ms : List TFn) where
+||| A local join taken out of those not reached yet, by its identity, and
+||| those left, one fewer.
+record Taken (ms : List LocalJoin) where
   constructor MkTaken
-  member : TFn
-  rest : List TFn
+  member : LocalJoin
+  rest : List LocalJoin
   0 fewer : LT (length rest) (length ms)
 
 %prefix_record_projections on
 
-||| The member of `ms` with the identity `f`, taken out.
-taken : FnId -> (ms : List TFn) -> Maybe (Taken ms)
+||| A local join's identity: its definition's.
+joinId : LocalJoin -> FnId
+joinId m = m.definition.callee.fn
+
+||| The local join of `ms` with the identity `f`, taken out.
+taken : FnId -> (ms : List LocalJoin) -> Maybe (Taken ms)
 taken f [] = Nothing
 taken f (m :: ms) =
-  if m.callee.fn == f
+  if joinId m == f
      then Just (MkTaken m ms reflexive)
      else (\t => MkTaken t.member (m :: t.rest) (LTESucc t.fewer)) <$> taken f ms
 
-||| The members a function reaches, each once, in the order first reached:
-||| through its calls and those of each member it reaches, every one a tail
-||| call. Each member reached is taken out of those left, so the walk ends.
-reached : SortedMap FnId (List FnId) -> (left : List TFn) -> (0 _ : Accessible LT (length left)) ->
-          List FnId -> SnocList TFn -> List TFn
+||| The local joins a function reaches, each once, in the order first
+||| reached: through its calls and those of each one it reaches, every one
+||| a tail call. Each one reached is taken out of those left, so the walk
+||| ends.
+reached : SortedMap FnId (List FnId) -> (left : List LocalJoin) -> (0 _ : Accessible LT (length left)) ->
+          List FnId -> SnocList LocalJoin -> List LocalJoin
 reached calls left acc [] found = found <>> []
 reached calls left acc@(Access rec) (f :: fs) found = case taken f left of
   Nothing => reached calls left acc fs found
-  Just t => reached calls t.rest (rec (length t.rest) t.fewer) (fromMaybe [] (lookup t.member.callee.fn calls) ++ fs)
+  Just t => reached calls t.rest (rec (length t.rest) t.fewer) (fromMaybe [] (lookup (joinId t.member) calls) ++ fs)
                     (found :< t.member)
 
-||| Where the join op of a group of members puts their tokens: in its body
-||| alone when no member calls one, an `idr.join`; at the head of every
+||| Where the join op of a group of local joins puts their tokens: in its
+||| body alone when none calls one, an `idr.join`; at the head of every
 ||| region when one does, an `idr.loop`, whose regions jump among
 ||| themselves.
-tokenScope : SortedMap FnId (List FnId) -> List TFn -> TokenScope
+tokenScope : SortedMap FnId (List FnId) -> List LocalJoin -> TokenScope
 tokenScope calls group =
-  let ids = the (SortedSet FnId) (fromList (map (\m => m.callee.fn) group))
-      callsOne = \m => any (\c => contains c ids) (fromMaybe [] (lookup m.callee.fn calls)) in
+  let ids = the (SortedSet FnId) (fromList (map joinId group))
+      callsOne = \m => any (\c => contains c ids) (fromMaybe [] (lookup (joinId m) calls)) in
   if any callsOne group then InEveryRegion else InBody
 
-||| The join points in scope once each of the members `ms` has one, in
+||| The join points in scope once each of the local joins `ms` has one, in
 ||| order, each outside those before it.
-stacked : List TFn -> List Nat -> List Nat
+stacked : List LocalJoin -> List Nat -> List Nat
 stacked [] js = js
-stacked (m :: ms) js = stacked ms (m.arity :: js)
+stacked (m :: ms) js = stacked ms (pointArity m :: js)
 
-0 stackedNonEmpty : (ms : List TFn) -> Data.List.NonEmpty (stacked ms (k :: js))
+0 stackedNonEmpty : (ms : List LocalJoin) -> Data.List.NonEmpty (stacked ms (k :: js))
 stackedNonEmpty [] = Data.List.IsNonEmpty
 stackedNonEmpty (m :: ms) = stackedNonEmpty ms
 
-||| A term with every call of each member of `ms` a jump to its join point.
-||| Every call of a member is a tail call wherever it is written
+||| A term with every call of each local join of `ms` a jump to its join
+||| point. Every call of one is a tail call wherever it is written
 ||| (`joinLocals` found it so), so none fails: one that did would be a
 ||| local definition that passed the test written as anything but a join
 ||| point.
-throughAll : FC -> (ms : List TFn) -> TermAt js n -> Front (TermAt (stacked ms js) n)
+throughAll : FC -> (ms : List LocalJoin) -> TermAt js n -> Front (TermAt (stacked ms js) n)
 throughAll fc [] t = pure t
-throughAll fc (m :: ms) t = case jumpsTo (Calling m.callee) t of
+throughAll fc (m :: ms) t = case jumpsTo (continuationOf m) t of
   Just t' => throughAll fc ms t'
-  Nothing => internal fc ("the local definition " ++ m.callee.symbol ++
+  Nothing => internal fc ("the local definition " ++ m.definition.callee.symbol ++
                           ", every call of which is a tail call, called where it returns")
 
-||| The members' join regions, each made of what `bodyOf` makes of its
-||| body, in the order `stacked` gives their join points, in a function
-||| whose telescope is `q` deep.
-regionsIn : (q : Nat) -> ((m : TFn) -> Front (TermAt s m.arity)) -> (ms : List TFn) -> Each (Target s r) js ->
-            Front (Each (Target s r) (stacked ms js))
+||| The local joins' regions, each made of what `bodyOf` makes of its
+||| region's body, in the order `stacked` gives their join points, in a
+||| function whose telescope is `q` deep.
+regionsIn : (q : Nat) -> ((m : LocalJoin) -> Front (TermAt s (pointArity m))) -> (ms : List LocalJoin) ->
+            All (Target s r) js -> Front (All (Target s r) (stacked ms js))
 regionsIn q bodyOf [] acc = pure acc
 regionsIn q bodyOf (m :: ms) acc = do
   b <- bodyOf m
-  regionsIn q bodyOf ms (regionOf q m b :: acc)
+  regionsIn q bodyOf ms (regionAt q m b :: acc)
 
-||| A function with the members it reaches as the join points of one op
+||| A function with the local joins it reaches as the join points of one op
 ||| around its body, every call of one a jump to it, and what Idris proved
 ||| of their loops part of what it proved of the function's.
-joined : FC -> SortedMap FnId (List FnId) -> List TFn -> TFn -> Front TFn
+joined : FC -> SortedMap FnId (List FnId) -> List LocalJoin -> TFn -> Front TFn
 joined fc calls members f =
   case reached calls members (wellFounded (length members)) (fromMaybe [] (lookup f.callee.fn calls)) [<] of
     [] => pure f
@@ -386,28 +405,37 @@ joined fc calls members f =
       let q = length f.telescope
       withJoins <- the (Front (Term f.arity)) $ case tokenScope calls group of
         InBody => do
-          targets <- regionsIn q (\g => pure g.body) group []
-          pure (Join {nonEmpty = stackedNonEmpty {k = m.arity} {js = []} ms} f.loc InBody targets body)
+          targets <- regionsIn q (\g => pure (regionBody g)) group []
+          pure (Join {nonEmpty = stackedNonEmpty {k = pointArity m} {js = []} ms} f.loc InBody targets body)
         InEveryRegion => do
-          targets <- regionsIn q (\g => throughAll fc group g.body) group []
-          pure (Join {nonEmpty = stackedNonEmpty {k = m.arity} {js = []} ms} f.loc InEveryRegion targets body)
+          targets <- regionsIn q (\g => throughAll fc group (regionBody g)) group []
+          pure (Join {nonEmpty = stackedNonEmpty {k = pointArity m} {js = []} ms} f.loc InEveryRegion targets body)
       pure (MkTFn f.key f.standing f.telescope f.arity f.callee f.extents f.paramNames withJoins f.loc
-                  (withRegions f.termination group))
+                  (withRegions f.termination (map (.definition) group)))
+
+||| The local joins among `ms` whose calls run their actions.
+runsOf : List LocalJoin -> List LocalJoin
+runsOf [] = []
+runsOf (m@(MkLocalJoin _ (ByRun _)) :: ms) = m :: runsOf ms
+runsOf (_ :: ms) = runsOf ms
 
 ||| The program's functions with the join points its local definitions
 ||| make: a local definition (a `case`, `with`, `where` or `let` block Idris
 ||| lifted out of a function) every call of which, in every function, is
 ||| the head of a saturated application in a tail position (`jumpsTo` finds
 ||| a join point there) is no function of the program but a join region of
-||| each function that reaches it. A local definition only inlining would
-||| make one is left to the passes that inline.
+||| each function that reaches it. Its calls are tail calls with its
+||| parameters, or, its result an action, tail calls applied to the world
+||| (`JumpsBy`). A local definition only inlining would make one is left to
+||| the passes that inline.
 joinLocals : FC -> TFn -> List TFn -> Front (TFn, List TFn)
 joinLocals fc root fns = do
   let calling = map (\f => (f, calleesOf f.body)) (root :: fns)
       calls = the (SortedMap FnId (List FnId)) (fromList (map (\(f, cs) => (f.callee.fn, cs)) calling))
       callers = foldl addCaller empty calling
-      members = filter (joinsEverywhere callers) fns
-      ids = the (SortedSet FnId) (fromList (map (\m => m.callee.fn) members))
+      found = mapMaybe (jumpedBy callers) fns
+      members = filter (fitsRuns (runsOf found)) found
+      ids = the (SortedSet FnId) (fromList (map joinId members))
   root' <- joined fc calls members root
   others <- traverse (joined fc calls members) (filter (\f => not (contains f.callee.fn ids)) fns)
   pure (root', others)
@@ -418,12 +446,36 @@ joinLocals fc root fns = do
       foldl (\acc, c => insert c (f :: fromMaybe [] (lookup c acc)) acc) m
             (SortedSet.toList (the (SortedSet FnId) (fromList cs)))
 
-    -- A local definition every caller of which reaches it by tail calls
-    -- alone.
-    joinsEverywhere : SortedMap FnId (List TFn) -> TFn -> Bool
-    joinsEverywhere callers f = case f.standing of
-      OwnFunction => False
-      LocalDefinition => all (\h => isJust (jumpsTo (Calling f.callee) h.body)) (fromMaybe [] (lookup f.callee.fn callers))
+    -- How a local definition's calls jump to it, each caller read as it
+    -- is written: every one a tail call with its parameters; else, its
+    -- result an action, every one a tail call applied to the world, its own
+    -- calls read in its region, its action run on the world. A caller that
+    -- runs another's action is never read as running its own, so no
+    -- decision here rests on another's.
+    jumpedBy : SortedMap FnId (List TFn) -> TFn -> Maybe LocalJoin
+    jumpedBy callers f = case f.standing of
+      OwnFunction => Nothing
+      LocalDefinition =>
+        let hs = fromMaybe [] (lookup f.callee.fn callers) in
+        if all (\h => isJust (jumpsTo (Calling f.callee) h.body)) hs
+          then Just (MkLocalJoin f ByCall)
+          else case actionType f.callee.result of
+            Nothing => Nothing
+            Just a =>
+              let m = MkLocalJoin f (ByRun a) in
+              if all (\h => if h.callee.fn == f.callee.fn
+                               then isJust (jumpsTo (continuationOf m) (regionBody m))
+                               else isJust (jumpsTo (continuationOf m) h.body)) hs
+                then Just m
+                else Nothing
+
+    -- A local join whose calls are tail calls with its parameters, read
+    -- again in the region of each whose calls run its action, which applies
+    -- each of its tails to the world: a call of it at such a tail is no
+    -- longer a tail call with its parameters alone.
+    fitsRuns : List LocalJoin -> LocalJoin -> Bool
+    fitsRuns runs m@(MkLocalJoin _ ByCall) = all (\r => isJust (jumpsTo (continuationOf m) (regionBody r))) runs
+    fitsRuns runs (MkLocalJoin _ (ByRun _)) = True
 
 ||| The program: its families as groups, and its function instances in the
 ||| order they were requested, as the instance table holds them once every
