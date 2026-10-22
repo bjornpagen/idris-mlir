@@ -1744,6 +1744,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   checks nothing. An operand nothing in scope defines and a family the
   table lacks become unrepresentable the same way, by scoped values and
   a family identity that indexes its table.
+- **C229** (2026-10-22; recheck 3). Two rules the tree left unapplied.
+  The upstream dialects' Idris modules that `idris-mlir-tblgen` writes
+  (D51, through `tools/dialects.sh`) are generated files like the
+  specification's: committed, no stamp in any file, and regenerated and
+  compared by `make test-mlir-tools`, where the C++ generator is built;
+  they take no entry in `generated.manifest`, which keeps one writer
+  (C199 amended). And `tools/check-units.py`, a Python program of ours,
+  goes: anything of ours above the C++ is Idris, and shell only as
+  glue, so the typecheck build's per-unit syntax check is written in
+  Idris or done by the build's own compile of each unit.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places
@@ -2008,6 +2018,10 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
 - **C7** (2026-10-21; one-source §4.1). The specification lives in
   `compiler/spec/`, package `idris-mlir-spec`, modules `IdrisMLIR.Spec.*`,
   depending on `base` alone; the generator in `compiler/specgen/`.
+  *Corrected* (recheck 3): the generator is the package's own
+  executable, `specgen`, its modules `IdrisMLIR.Spec.Generator.*`
+  beside the specification's, as the tree builds it and `ownership.json`
+  gives L03; no `compiler/specgen/` exists.
   *Amended* (2026-10-21; L03 §1.10, §2.2). Base suffices (`Vect`,
   `Fin`, `So`, `Elem`, `List1`, `Decidable.Equality`). The pinned Idris
   builds it into `HOST_PREFIX` for the frontend, the runner, specgen and
@@ -3303,7 +3317,9 @@ C137.
   over `select`; partial operations take evidence only the domain makes
   (`SafeDivisor<D>`, `BelowWidth<D>`), so no instance builds `arith.divsi`
   at MIN / -1 or a shift by the width. Domains: a `constexpr` fixed-width
-  word (no `APInt`) in a freestanding header under `runtime/`, intervals
+  word (no `APInt`) in a freestanding header (*corrected*, recheck 3: it
+  lives in `foreign/idr/include/idr/IR/Numeric/`, which the runtime
+  includes, one template shared by both), intervals
   over upstream's `intrange`, the `arith` expansion; the 8-bit law is
   checked exhaustively per row; the runtime's small path reads a `wraps`
   fact. Deletes `IR/Ops.cpp:205-294`, `Conversion/Scalars.cpp:57-190`,
@@ -4357,9 +4373,11 @@ C137.
   carrying its captures and its own constraints' choices. Each use in
   the callee matches on it and calls that member monomorphized at the
   use's own types, so no polymorphic value exists at run time. The
-  frontend refuses with `runtime closure` or `static argument` only where
-  that set or the set of use types is one no analysis bounds; a program
-  whose choices the program fixes compiles.
+  frontend refuses with `runtime closure` only where that set or the
+  set of use types is one no analysis bounds; a program whose choices
+  the program fixes compiles. *Corrected* (recheck 3): the text named a
+  `static argument` refusal too, which 52ec023e removed from the
+  specification because nothing refused with it.
 - **C214** (2026-10-22; L21's re-pack under C206). Three consequences of
   one re-pack. A `dest.write` converts the written value to its slot's
   layout with the same re-pack, so `!idr.dest<T>` keeps the field's type
@@ -4538,6 +4556,24 @@ alone (recommended by L17); (C) the join covers only the binders the
 syntax shows, carried into Desugar on new fields, which holds the set in
 two places. Meanwhile the parse tree and decoder land (C216), common to
 all three.
+
+**Fifth, after those four** (recheck 3's finding, 2026-10-22; to be
+raised alone in turn). D98 and AGENTS.md say an op's fold is its
+meaning, which the e-graph reads. C205 and C218 narrowed that without
+the owner: the e-graph asks no fold (`lib/Transforms/EGraph/Nodes.cpp`,
+`Engine.h`, `Rules.cpp`), because a fold returns an attribute and
+AGENTS.md also says no attribute is made on a worker's hot path; it
+reads inline arithmetic through the one numeric template, and knows a
+string, a `Double`, a big integer or a data constant only where an input
+op already holds one. The choice: (A) keep C218, D98 amended to say the
+e-graph reads a fold's meaning through the numeric template and never
+calls a fold, so string, `Double`, big and data constants fold only
+outside it, by the passes around it (recommended: no attribute on the
+hot path, one meaning); (B) the e-graph calls folds, making those
+constants' attributes as it rewrites, which D98's text asks and the
+hot-path rule forbids; (C) the e-graph gains its own constant domains
+for strings, `Double`s and bigs, computed through `runtime/`'s one
+meaning, with no attribute until the write-back.
 
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
