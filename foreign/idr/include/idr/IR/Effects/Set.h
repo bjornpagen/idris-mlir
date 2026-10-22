@@ -111,9 +111,8 @@ namespace idr {
 // The default of DeclaredEffectsOpInterface's method, an op's own effects
 // read off its class's declaration (Query.h defines it). Declared here,
 // before the generated interface, whose default names it by its qualified
-// name and so binds to what is declared where the interface is: this
-// template, which takes the op's class, and not the hook taking an
-// `Operation *`, which would have lost it.
+// name and so binds to what is declared where the interface is. A
+// template, so the default keeps the class it is instantiated for.
 template <class OpT>
 effects::EffectSet declaredEffects(OpT op);
 

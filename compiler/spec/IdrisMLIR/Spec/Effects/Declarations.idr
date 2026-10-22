@@ -25,7 +25,7 @@ declaredEffectsInterface = MkInterfaceDef
   , bases = []
   , methods =
       [ MkMethod PerObject (code "::idr::effects::EffectSet") (ident "getDeclaredEffects") []
-          (Delegates (ident "declaredEffects")) (line "the op's own effects, without its regions'") ]
+          (DelegatesByClass (ident "declaredEffects")) (line "the op's own effects, without its regions'") ]
   , verifier = Unverified
   , doc = brief (line "an op's own effects, as one set")
   }

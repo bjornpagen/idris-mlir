@@ -14,6 +14,7 @@
 #define IDR_IR_EFFECTS_QUERY_H
 
 #include "idr/IR/Effects/Set.h"
+#include "idr/IR/Func.h"
 
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
@@ -174,13 +175,11 @@ struct Expand<R, On<G>> {
   }
 };
 
-// A call: the row it carries, and the operands its callee writes through,
-// each the write part of a parameter whose memory its holder alone
-// reaches, which the call declares on the operand it passes.
+// A call: the row it carries, and its copy of its callee's write part, a
+// write in place it declares on each operand its callee writes through.
 template <class CallOpT>
-concept CarriesRow = requires(CallOpT call) {
+concept CarriesRow = HoldsWritePart<CallOpT> && requires(CallOpT call) {
   { call.getRow() } -> std::convertible_to<Row>;
-  call.forEachWritten([](mlir::OpOperand &) {});
 };
 
 // A call's set: each ordering atom's call effects on its state, the atoms
@@ -196,7 +195,7 @@ EffectSet rowSet(OpT op) {
         if (atomCallKinds[atom].contains(kind))
           set.add(kind, atomState[atom]);
   set.reported = row & reportsOnly;
-  op.forEachWritten([&](mlir::OpOperand &) { set.add(Kind::Write, ResourceId::Contents); });
+  ::idr::forEachWritten(op, [&](mlir::OpOperand &) { set.add(Kind::Write, ResourceId::Contents); });
   return set;
 }
 
@@ -206,7 +205,7 @@ void emitRow(OpT op, Instances &effects) {
   for (Atom atom : allOf<Atom>())
     if (row.contains(atom))
       emitKinds(effects, atomCallKinds[atom], atomState[atom], nullptr);
-  op.forEachWritten([&](mlir::OpOperand &operand) {
+  ::idr::forEachWritten(op, [&](mlir::OpOperand &operand) {
     effects.emplace_back(effect<Kind::Write>(), &operand, resource<ResourceId::Contents>());
   });
 }
