@@ -49,17 +49,26 @@ Operation *IdrDialect::materializeConstant(OpBuilder &builder, Attribute value, 
   return nullptr;
 }
 
+namespace {
+
+// The width of a word type, an integer's or an index's; none for a type of
+// no fixed width (a big, a natural) or no integer at all.
+std::optional<unsigned> wordWidth(Type plain) {
+  if (!plain.isIntOrIndex())
+    return std::nullopt;
+  return plain.isIndex() ? IndexType::kInternalStorageBitWidth : plain.getIntOrFloatBitWidth();
+}
+
+} // namespace
+
 std::optional<APInt> idr::integerAt(Type type, std::int64_t value) {
   Type plain = unrestricted(type);
   if (isa<BigType>(plain) || (isa<NatType>(plain) && value >= 0))
     return APInt(64, static_cast<std::uint64_t>(value), /*isSigned=*/true);
-  if (!plain.isIntOrIndex())
+  std::optional<unsigned> width = wordWidth(plain);
+  if (!width || !llvm::isIntN(*width, value))
     return std::nullopt;
-  unsigned width =
-      plain.isIndex() ? IndexType::kInternalStorageBitWidth : plain.getIntOrFloatBitWidth();
-  if (!llvm::isIntN(width, value))
-    return std::nullopt;
-  return APInt(width, static_cast<std::uint64_t>(value), /*isSigned=*/true);
+  return APInt(*width, static_cast<std::uint64_t>(value), /*isSigned=*/true);
 }
 
 namespace {
@@ -77,6 +86,18 @@ std::optional<Attribute> literalAt(Type type, std::int64_t value) {
   return IntegerAttr::get(plain, *integer);
 }
 
+// The least or greatest signed value of `type`'s width, as an integer
+// attribute of the plain type; none at a type of no fixed width.
+std::optional<Attribute> literalAt(Type type, laws::WidthBound bound) {
+  Type plain = unrestricted(type);
+  std::optional<unsigned> width = wordWidth(plain);
+  if (!width)
+    return std::nullopt;
+  return IntegerAttr::get(plain, bound == laws::WidthBound::SignedLeast
+                                     ? APInt::getSignedMinValue(*width)
+                                     : APInt::getSignedMaxValue(*width));
+}
+
 // The string `value` as a constant of `type`: a string's literal at a
 // string. None at any other type.
 std::optional<Attribute> literalAt(Type type, std::string_view value) {
@@ -89,7 +110,8 @@ std::optional<Attribute> literalAt(Type type, std::string_view value) {
 
 // One dispatch on the op's registered class, which only the open op set
 // leaves to run time: a fold over the generated units, each a class and its
-// identity, an integer or a string, made the constant of its kind.
+// identity, an integer, a string or a bound of the op's width, made the
+// constant of its kind.
 std::optional<Attribute> laws::identityOf(Operation *op) {
   if (op->getNumResults() != 1)
     return std::nullopt;

@@ -907,7 +907,11 @@ admittedLawRules a = concatMap rulesOf a.laws
   where
     rulesOf : UpLaw -> List FlatRule
     rulesOf UpAssociative = associativeRules (kindOfAdmitted a)
-    rulesOf (UpIdentity k) = [identityRule (kindOfAdmitted a) k]
+    rulesOf (UpIdentity (UpExactly k)) = [identityRule (kindOfAdmitted a) k]
+    -- A width's signed bound is no one literal, which a rule's pattern
+    -- matches, so it gives the accumulator its start and no rule.
+    rulesOf (UpIdentity UpSignedLeast) = []
+    rulesOf (UpIdentity UpSignedGreatest) = []
 
 ||| The kinds a node of the rules names, each once, in first use's order:
 ||| a kind's number is its position.
@@ -1050,13 +1054,21 @@ rewritesHeader rws ops admitted skeleton =
 -- Laws
 ------------------------------------------------------------------------------
 
+||| An operation's unit as the C++ names it: an integer identity's, or a
+||| string identity's, the string a template argument.
+unitText : (String, LawConstant) -> String
+unitText (c, IntegerConstant k) = "Unit<" ++ c ++ ", " ++ integer k ++ ">"
+unitText (c, StringConstant t) = "StringUnit<" ++ c ++ ", " ++ quoted t ++ ">"
+
 ||| An op the specification calls exactly associative with an identity, by
 ||| its class, with that identity: of ours by its laws, admitted by its
-||| upstream laws. Associativity alone or an identity alone is not enough:
+||| upstream laws, as the C++ names its unit; an upstream identity relative
+||| to the op's width a unit of its bound, which the C++ computes at the
+||| width it is asked at. Associativity alone or an identity alone is not enough:
 ||| an accumulator combines on the way down what the call combined on the
 ||| way back, which needs both.
 export
-unitsOf : List AnyOp -> List Admitted -> List (String, LawConstant)
+unitsOf : List AnyOp -> List Admitted -> List String
 unitsOf ops admitted = concatMap ours ops ++ concatMap upstream admitted
   where
     identityIn : List Law -> Maybe LawConstant
@@ -1068,11 +1080,11 @@ unitsOf ops admitted = concatMap ours ops ++ concatMap upstream admitted
     isAssociative _ = False
     associative : List Law -> Bool
     associative = any isAssociative
-    ours : AnyOp -> List (String, LawConstant)
+    ours : AnyOp -> List String
     ours (SomeOp op) = case (associative op.laws, identityIn op.laws) of
-      (True, Just k) => [(opQualifiedClass op, k)]
+      (True, Just k) => [unitText (opQualifiedClass op, k)]
       _ => []
-    upIdentity : List UpLaw -> Maybe Integer
+    upIdentity : List UpLaw -> Maybe UpIdentityValue
     upIdentity [] = Nothing
     upIdentity (UpIdentity k :: _) = Just k
     upIdentity (_ :: ls) = upIdentity ls
@@ -1081,16 +1093,14 @@ unitsOf ops admitted = concatMap ours ops ++ concatMap upstream admitted
     isUpAssociative _ = False
     upAssociative : List UpLaw -> Bool
     upAssociative = any isUpAssociative
-    upstream : Admitted -> List (String, LawConstant)
+    upstreamUnit : String -> UpIdentityValue -> String
+    upstreamUnit c (UpExactly k) = unitText (c, IntegerConstant k)
+    upstreamUnit c UpSignedLeast = "WidthUnit<" ++ c ++ ", WidthBound::SignedLeast>"
+    upstreamUnit c UpSignedGreatest = "WidthUnit<" ++ c ++ ", WidthBound::SignedGreatest>"
+    upstream : Admitted -> List String
     upstream a = case (upAssociative a.laws, upIdentity a.laws) of
-      (True, Just k) => [(admittedAlias a, IntegerConstant k)]
+      (True, Just k) => [upstreamUnit (admittedAlias a) k]
       _ => []
-
-||| An operation's unit as the C++ names it: an integer identity's, or a
-||| string identity's, the string a template argument.
-unitText : (String, LawConstant) -> String
-unitText (c, IntegerConstant k) = "Unit<" ++ c ++ ", " ++ integer k ++ ">"
-unitText (c, StringConstant t) = "StringUnit<" ++ c ++ ", " ++ quoted t ++ ">"
 
 ||| The operations an accumulator may combine on the way down, as a list of
 ||| types the hand `laws::identityOf` folds over: each a class and its
@@ -1119,8 +1129,16 @@ lawsHeader ops admitted =
            , "  using Op = OpT;"
            , "  static constexpr std::string_view identity = Identity.view();"
            , "};", "" ]
+        ++ slashComment ["The least or greatest signed value of a width: an identity no one integer is."]
+        ++ [ "enum class WidthBound { SignedLeast, SignedGreatest };", "" ]
+        ++ slashComment ["An operation the specification calls exactly associative, and its identity, a bound of its width."]
+        ++ [ "template <class OpT, WidthBound Identity>"
+           , "struct WidthUnit {"
+           , "  using Op = OpT;"
+           , "  static constexpr WidthBound identity = Identity;"
+           , "};", "" ]
         ++ slashComment ["Every such operation, ours first, then the admitted upstream ones."]
-        ++ ["using Units = std::tuple<" ++ joinWith ", " (map unitText (unitsOf ops admitted)) ++ ">;"] ))
+        ++ ["using Units = std::tuple<" ++ joinWith ", " (unitsOf ops admitted) ++ ">;"] ))
 
 ------------------------------------------------------------------------------
 -- Hooks

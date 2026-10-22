@@ -21,12 +21,29 @@ import IdrisMLIR.Spec.Core.Text
 public export
 data Writer = FrontendWrites | PassesOnly
 
+||| An upstream op's identity, as a value of the op's own width: an integer,
+||| its bits the same pattern at every width (`-1` every bit set); or the
+||| least or greatest signed value of the width, which no one integer is
+||| (`arith.maxsi`'s and `arith.minsi`'s). A literal is an integer's.
+public export
+data UpIdentityValue = UpExactly Integer | UpSignedLeast | UpSignedGreatest
+
+namespace UpIdentityValue
+  public export
+  fromInteger : Integer -> UpIdentityValue
+  fromInteger = UpExactly
+
+  ||| A negative integer literal's value, its magnitude an integer.
+  public export
+  negate : Integer -> UpIdentityValue
+  negate i = UpExactly (negate i)
+
 ||| A law of an upstream op that upstream has no trait for, so the e-graph
 ||| and the accumulator read it here: associativity, and the identity an
 ||| operand of which leaves the other as it is (commutativity and the rest
 ||| are upstream's traits).
 public export
-data UpLaw = UpAssociative | UpIdentity Integer
+data UpLaw = UpAssociative | UpIdentity UpIdentityValue
 
 ||| Whether the e-graph and every other reader of folds may fold an
 ||| admitted op by upstream's fold: where upstream's fold computes on the
