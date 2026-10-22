@@ -47,19 +47,40 @@ public export
 TTBinder : Type -> Type
 TTBinder = Core.TT.Binder.Binder
 
-||| What a TT variable stands for: a Core variable (with its Core type, when a
-||| match may need it, its closed Idris type where it is known, which says
-||| which arguments a function-typed value takes at runtime, and the shape
-||| of its value when that is known), a compile-time value, or an
-||| implementation's value. Types and implementations are compile-time
-||| values, closed TT terms, and so is a variable of quantity 0, which is
-||| `TypeValue` of `Erased`: none is a Core variable. An implementation is
-||| used by translating it where it is needed. An implementation that
-||| closes over runtime values holds markers for them (`holeMarker`), with
-||| the variable that holds them and what it holds (`Holes`).
+||| What is known of a runtime variable's type: its Core type and its
+||| closed Idris type, which says which arguments a function-typed value
+||| takes at runtime; its Core type alone (a suspension's value, whose
+||| Idris type the match on it does not show); or neither (a value a
+||| settled term computes, which no type of the scope gives).
+public export
+data KnownTypes = BothTypes Ty ClosedTerm | CoreTypeOnly Ty | Untyped
+
+||| The Core type of a runtime variable, where it is known (`KnownTypes`).
+export
+coreOf : KnownTypes -> Maybe Ty
+coreOf (BothTypes t _) = Just t
+coreOf (CoreTypeOnly t) = Just t
+coreOf Untyped = Nothing
+
+||| The closed Idris type of a runtime variable, where it is known
+||| (`KnownTypes`).
+export
+idrisOf : KnownTypes -> Maybe ClosedTerm
+idrisOf (BothTypes _ i) = Just i
+idrisOf _ = Nothing
+
+||| What a TT variable stands for: a Core variable (with what is known of
+||| its type, `KnownTypes`, and the shape of its value when that is known),
+||| a compile-time value, or an implementation's value. Types and
+||| implementations are compile-time values, closed TT terms, and so is a
+||| variable of quantity 0, which is `TypeValue` of `Erased`: none is a
+||| Core variable. An implementation is used by translating it where it is
+||| needed. An implementation that closes over runtime values holds
+||| markers for them (`holeMarker`), with the variable that holds them and
+||| what it holds (`Holes`).
 public export
 data VarInfo : Type -> Type where
-  Runtime : a -> Maybe Ty -> Maybe ClosedTerm -> VarInfo a
+  Runtime : a -> KnownTypes -> VarInfo a
   ||| A runtime value whose shape is known: the constructors every call of
   ||| the instance built its argument with (`Instances.classify`), or a
   ||| constructor's field of such a value. The shape stands for the value
@@ -71,7 +92,7 @@ data VarInfo : Type -> Type where
 
 export
 Functor VarInfo where
-  map f (Runtime x t i) = Runtime (f x) t i
+  map f (Runtime x t) = Runtime (f x) t
   map f (Shaped x t i s) = Shaped (f x) t i s
   map f (TypeValue t) = TypeValue t
   map f (Static t h) = Static t (map (\(x, hs) => (f x, hs)) h)
@@ -1073,7 +1094,7 @@ skeleton _ = Nothing
 ||| A runtime value of a type with what its shape says, if anything.
 export
 shaped : a -> Ty -> ClosedTerm -> ClosedTerm -> VarInfo a
-shaped x t ity s = if isJust (shapeHead s) then Shaped x t ity s else Runtime x (Just t) (Just ity)
+shaped x t ity s = if isJust (shapeHead s) then Shaped x t ity s else Runtime x (BothTypes t ity)
 
 ||| How many constructors deep a shape says what the value was built with.
 export

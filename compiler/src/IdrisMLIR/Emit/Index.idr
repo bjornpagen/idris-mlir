@@ -1,9 +1,9 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| The program's declarations as the emitters look them up: each function
-||| by its identity, and each family as the member of its group, the
-||| `#idr.family` attribute that declares the group whole; and Core's
-||| types as the module's. A data type is its family's group and member
+||| The program's declarations as the emitters look them up: each family
+||| as the member of its group, the `#idr.family` attribute that declares
+||| the group whole; and Core's types as the module's. A call holds what it
+||| reads of its callee, so no function is looked up. A data type is its family's group and member
 ||| applied to index terms: its identity is that content, so the module has
 ||| no table of data types and nothing is looked up by name.
 module IdrisMLIR.Emit.Index
@@ -43,7 +43,6 @@ record FamilyEntry where
 public export
 record Index where
   constructor MkIndex
-  fns : SortedMap FnId TFn
   families : SortedMap FamilyId FamilyEntry
 
 ||| The families a type is read among: those declared in earlier groups,
@@ -320,5 +319,4 @@ declare = foldl group empty
 ||| The index of a program.
 export
 index : Source -> Index
-index src =
-  MkIndex (fromList (map (\f => (f.id, f)) (src.root :: src.others))) (declare src.groups)
+index src = MkIndex (declare src.groups)

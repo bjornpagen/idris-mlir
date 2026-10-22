@@ -45,13 +45,14 @@ export
 function : Index -> TFn -> E (List (String, Statement))
 function ix f = do
   ((args, res), ops) <- inFunction $ do
-    bound <- traverse (\(i, p) => parameter ix f.loc f.symbol (finToNat i, p)) (zip (range {len = f.arity}) f.params)
+    bound <- traverse (\(i, p) => parameter ix f.loc f.callee.symbol (finToNat i, p))
+                      (zip (range {len = f.arity}) (zip f.paramNames f.callee.params))
     let sc = MkScope (\i => fst (index i bound)) f.telescope
-    res <- plain ix f.loc (para (alg ix) f.body sc (expecting (Just f.result)))
-    res' <- traverse (fit ix f.loc (Just f.result)) res
+    res <- plain ix f.loc (para (alg ix) f.body sc (expecting (Just f.callee.result)))
+    res' <- traverse (fit ix f.loc (Just f.callee.result)) res
     pure (mapMaybe snd (toList bound), res')
   body <- epilogue ix f.loc res ops
-  let type = FunctionType (MkSignature (map (\a => a.value.type) args) (resultTypes ix f.result))
-      fn = functionOp f.symbol (map (sortOf ix) f.telescope) type (MkRegion args body) f.termination
+  let type = FunctionType (MkSignature (map (\a => a.value.type) args) (resultTypes ix f.callee.result))
+      fn = functionOp f.callee.symbol (map (sortOf ix) f.telescope) type (MkRegion args body) f.termination
   lifted <- gets (.lifted)
-  pure ((f.symbol, MkStatement Nothing fn (Named (shown f.key.origin) f.loc)) :: (lifted <>> []))
+  pure ((f.callee.symbol, MkStatement Nothing fn (Named (shown f.key.origin) f.loc)) :: (lifted <>> []))

@@ -75,11 +75,10 @@ applicationType = (\r => r.application.type) <$> reading
 ||| definition's arity, as the call that met it as a function read it, and
 ||| its type; a member at a use's, as `applicationType` applies it to the
 ||| use's arguments.
-export
-signatureOf : {auto s : Ref TState TS} ->
+appliedType : {auto s : Ref TState TS} ->
               FC -> String -> Instantiates -> Front (Nat, ClosedTerm)
-signatureOf fc owner (OfDefinition n arity) = (\d => (arity, d.type)) <$> lookupDef fc owner n
-signatureOf fc owner (AtUse uses) = (2 + uses,) <$> applicationType
+appliedType fc owner (OfDefinition n arity) = (\d => (arity, d.type)) <$> lookupDef fc owner n
+appliedType fc owner (AtUse uses) = (2 + uses,) <$> applicationType
 
 ||| The instance of what is instantiated at the static arguments a call's
 ||| kinds give it (`Keys`), each written as its reading's form.
@@ -89,40 +88,6 @@ instanceFor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 instanceFor fc owner (OfDefinition n _) kinds =
   snd <$> instanceKey fc owner n (.form) !(readArguments (map staticKindOf kinds))
 instanceFor fc owner (AtUse uses) kinds = applicationKey fc uses (.form) !(readArguments (map staticKindOf kinds))
-
-||| Requests a function instance, for parameters classified as the call
-||| gives them, and returns its identity. A new instance is recorded with
-||| what it is an instance of, the site that requested it, the definition
-||| whose translation did, and the positions at which the worklist checks
-||| its static arguments against the growth check's bounds (`Finite`): a
-||| definition's node, split by the heads of the implementations and
-||| families it is given, so that a method's projection is checked at the
-||| implementation that runs, and a definition over a family at the type
-||| constructor it is. A member at a use is no node of the graph, and the
-||| growth check bounds its link alone. The link stays its identity.
-export
-request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> (owner : String) -> Instantiates -> List PKind -> Front FnId
-request fc owner what kinds = do
-  (found, positionsOf) <- keyed what
-  let inst = InstanceOf found.link
-  if requestedBefore inst !(getState) then pure inst else do
-    updateState (derive { instances $= insert inst })
-    positions <- positionsOf
-    updateState (derive { fnOrder $= (:< inst) })
-    updateState { derived->requested $= (:< MkRequest what kinds found.key fc (shown owner) found.link positions) }
-    pure inst
-  where
-    -- The instance, and, for a new one, where the growth check bounds its
-    -- static arguments: a definition's at its node; a member at a use's at
-    -- its link alone.
-    keyed : Instantiates -> Front (Instance StaticReading, Front (List (Position, Nat)))
-    keyed (OfDefinition n _) = do
-      (address, found) <- instanceKey fc owner n (.form) !(readArguments (map staticKindOf kinds))
-      let read = heightsOf 0 found.arguments
-      let node = MkNode address (mapMaybe (\(i, r) => (i,) <$> r.head) read)
-      pure (found, pure (map (\(i, r) => ((node, i), r.height)) read))
-    keyed (AtUse uses) = (, pure []) <$> applicationKey fc uses (.form) !(readArguments (map staticKindOf kinds))
 
 ||| What a call knows of an argument it gives: an implementation known at
 ||| compile time, whatever binds it (Idris passes an enclosing function's
@@ -161,9 +126,8 @@ public export
 ArgValues : Type
 ArgValues = List (Maybe ArgValue)
 
-||| The arguments an instance is translated at, from the kinds its call
-||| gave its parameters.
-export
+||| The arguments an instance is classified at where it is first requested,
+||| from the kinds its call gave its parameters.
 givenArgs : List PKind -> ArgValues
 givenArgs = map given
   where
@@ -518,41 +482,127 @@ binderTerms bs vals = traverse term bs
       Just v => indexTerm !(v.scoped)
       Nothing => pure IOpaque
 
-||| A callee's classified signature read in the scope of a call: each of
-||| its levels given the argument the call passes it, erased where it
-||| passes none, in its runtime parameters' types and its result, so that
-||| no level of the callee's reads as one of the caller's.
+||| A callee's kinds and result as a call reads them, in the call's scope
+||| (`inCaller`): every kind binds at run time where the callee's does, so
+||| the call's runtime arguments are as many as the callee's parameters, by
+||| type.
+public export
+record AtCall (signed : List PKind) where
+  constructor MkAtCall
+  kinds : List PKind
+  0 sameCount : Runtimes kinds = Runtimes signed
+  result : ClosedTerm
+
+||| A callee's classified parameters and result read in the scope of a
+||| call: each of its levels given the argument the call passes it, erased
+||| where it passes none, in its runtime parameters' types and its result,
+||| so that no level of the callee's reads as one of the caller's. Only a
+||| runtime value's types change, so every kind binds at run time where it
+||| did.
 inCaller : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           FC -> String -> ArgValues -> Classified arity -> Front (Classified arity)
-inCaller fc owner vals (kinds, res) = case telescopeOf (toList kinds) of
-  [] => pure (kinds, res)
+           FC -> String -> ArgValues -> (kinds : List PKind) -> ClosedTerm -> Front (AtCall kinds)
+inCaller fc owner vals kinds res = case telescopeOf kinds of
+  [] => pure (MkAtCall kinds Refl res)
   _ => do
-    forms <- indexForms (toList kinds) vals
-    kinds' <- traverse (kindAt forms) kinds
+    forms <- indexForms kinds vals
+    (kinds' ** same) <- retyped forms kinds
     res' <- normaliseClosed (atLevels forms res)
-    pure (kinds', res')
+    pure (MkAtCall kinds' same res')
   where
-    kindAt : List (Maybe ClosedTerm) -> PKind -> Front PKind
-    kindAt forms (ValueParam b shape idrisType) = do
+    retyped : List (Maybe ClosedTerm) -> (ks : List PKind) -> Front (ks' : List PKind ** Runtimes ks' = Runtimes ks)
+    retyped forms [] = pure ([] ** Refl)
+    retyped forms (ValueParam b shape idrisType :: ks) = do
       here <- normaliseClosed (atLevels forms idrisType)
       t <- coreType fc owner ValueType here
-      pure (ValueParam ({ type := t } b) shape here)
-    kindAt forms k = pure k
+      (ks' ** same) <- retyped forms ks
+      pure (ValueParam ({ type := t } b) shape here :: ks' ** cong S same)
+    retyped forms (k :: ks) = do
+      (ks' ** same) <- retyped forms ks
+      pure (k :: ks' ** cong (counted (boundAtRuntime k)) same)
 
 ||| A callee's parameters classified at a call (`classifyAt`), read in the
-||| caller's scope (`inCaller`): what every call of a function and every
-||| use of a primitive's or a library function's signature reads.
+||| caller's scope (`inCaller`): what every use of a primitive's or a
+||| library function's signature reads, which no instance is requested
+||| at.
 export
 classifyCall : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> String -> (arity : Nat) -> ClosedTerm -> ArgValues ->
-               Front (Classified arity)
-classifyCall fc owner arity ty vals = inCaller fc owner vals !(classifyAt fc owner 0 arity ty vals)
+               Front (List PKind, ClosedTerm)
+classifyCall fc owner arity ty vals = do
+  (found, res) <- classifyAt fc owner 0 arity ty vals
+  inScope <- inCaller fc owner vals (toList found) res
+  pure (inScope.kinds, inScope.result)
 
-||| An instance's own signature, classified on the static arguments it was
-||| requested with: its index parameters its own levels, which its body's
-||| scope binds first.
+||| A callee's parameters classified at a call's arguments, in the
+||| callee's scope: what keys the instance the call requests, whose
+||| signature the call then reads (`atCall`).
 export
-classifyInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                   FC -> String -> (arity : Nat) -> ClosedTerm -> ArgValues ->
-                   Front (Classified arity)
-classifyInstance fc owner arity ty vals = classifyAt fc owner 0 arity ty vals
+classifyKeys : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+               FC -> String -> (arity : Nat) -> ClosedTerm -> ArgValues -> Front (List PKind)
+classifyKeys fc owner arity ty vals = (toList . fst) <$> classifyAt fc owner 0 arity ty vals
+
+||| A requested instance's signature as a call reads it, in the call's
+||| scope (`inCaller`).
+export
+atCall : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+         FC -> String -> ArgValues -> (sig : InstanceSig) -> Front (AtCall sig.kinds)
+atCall fc owner vals sig = inCaller fc owner vals sig.kinds sig.result
+
+||| An instance's signature (`InstanceSig`), read where it is first
+||| requested, or where a dispatch is made (`Choices.dispatchOn`): what it
+||| applies classified over the static arguments the request gives, its
+||| index parameters its own levels, which its body's scope binds first;
+||| its result normalised and its Core type read; and what a call holds of
+||| it, its identity and symbol as given.
+export
+instanceSig : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+              FC -> String -> Instantiates -> List PKind -> FnId -> String -> Front InstanceSig
+instanceSig fc owner what kinds inst symbol = do
+  (arity, ty) <- appliedType fc owner what
+  (found, resTy) <- classifyAt fc owner 0 arity ty (givenArgs kinds)
+  resTy' <- normaliseClosed resTy
+  result <- coreType fc owner ValueType resTy'
+  let own = toList found
+  pure (MkInstanceSig own resTy' (MkCallee inst symbol (runtimeBinders own) result))
+
+||| Requests a function instance, for parameters classified as the call
+||| gives them, and returns its signature (`InstanceSig`), which holds its
+||| identity. A new instance's signature is read here, once: what it
+||| applies classified over the static arguments the call gives
+||| (`givenArgs`), its result's Core type read, so that a result type the
+||| frontend refuses is refused at the request that first meets it, which
+||| the refusal names; its own step and every call of it read that one
+||| value. A new instance is recorded with it, what it is an instance of,
+||| the site that requested it, the definition whose translation did, and
+||| the positions at which the worklist checks its static arguments against
+||| the growth check's bounds (`Finite`): a definition's node, split by the
+||| heads of the implementations and families it is given, so that a
+||| method's projection is checked at the implementation that runs, and a
+||| definition over a family at the type constructor it is. A member at a
+||| use is no node of the graph, and the growth check bounds its link
+||| alone. The link stays its identity.
+export
+request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+          FC -> (owner : String) -> Instantiates -> List PKind -> Front InstanceSig
+request fc owner what kinds = do
+  (found, positionsOf) <- keyed what
+  let inst = InstanceOf found.link
+  Nothing <- pure (requestedBefore inst !(getState))
+    | Just sig => pure sig
+  sig <- instanceSig fc owner what kinds inst found.symbol
+  updateState (derive { instances $= insert inst sig })
+  positions <- positionsOf
+  updateState (derive { fnOrder $= (:< inst) })
+  updateState { derived->requested $= (:< MkRequest what sig found.key fc (shown owner) found.link positions) }
+  pure sig
+  where
+    -- The instance, and, for a new one, where the growth check bounds its
+    -- static arguments: a definition's at its node; a member at a use's at
+    -- its link alone.
+    keyed : Instantiates -> Front (Instance StaticReading, Front (List (Position, Nat)))
+    keyed (OfDefinition n _) = do
+      (address, found) <- instanceKey fc owner n (.form) !(readArguments (map staticKindOf kinds))
+      let read = heightsOf 0 found.arguments
+      let node = MkNode address (mapMaybe (\(i, r) => (i,) <$> r.head) read)
+      pure (found, pure (map (\(i, r) => ((node, i), r.height)) read))
+    keyed (AtUse uses) = (, pure []) <$> applicationKey fc uses (.form) !(readArguments (map staticKindOf kinds))

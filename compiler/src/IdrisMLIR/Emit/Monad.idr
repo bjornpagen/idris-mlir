@@ -45,7 +45,7 @@ record ES where
 ||| The state before the function `f` of the program is written.
 export
 initial : TFn -> ES
-initial f = MkES 0 [<] f.id f.symbol (shown f.key.origin) f.termination [<] 0 f.arity
+initial f = MkES 0 [<] f.callee.fn f.callee.symbol (shown f.key.origin) f.termination [<] 0 f.arity
 
 public export
 E : Type -> Type

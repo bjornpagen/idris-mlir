@@ -106,6 +106,20 @@ record Con (k : Nat) where
   fields : Vect k Binder
   loc : Loc
 
+||| What a call holds of its callee, read once where the callee was
+||| requested (`Instances.request`), the same value the callee's own
+||| function is made with: its identity, its symbol (its key printed,
+||| `keyText`, once), its runtime parameters' binders and its result, in
+||| the callee's scope, whose levels are its index parameters. A call's
+||| runtime arguments are as many as the binders, by type.
+public export
+record Callee (arity : Nat) where
+  constructor MkCallee
+  fn : FnId
+  symbol : String
+  params : Vect arity Binder
+  result : Ty
+
 ||| A constructor's tag: Idris's, its identity's position (`id.index`).
 public export
 (.tag) : Con k -> Nat
@@ -192,12 +206,14 @@ mutual
     ||| world.
     Effect : {i, o : Nat} -> Loc -> IOAction i o -> IOGives o -> Vect i (Term n) -> (world : Term n) -> (res : Con 2) ->
              Term n
-    ||| A saturated call, and the library definition it stands for when the
+    ||| A saturated call of the callee it holds, one argument per runtime
+    ||| parameter, and the library definition it stands for when the
     ||| registry lowered that definition's call to it, as for a primitive.
     ||| `indices` are the terms its callee's erased index parameters are
     ||| given, in the caller's scope, one per parameter of the callee's
     ||| telescope (`TFn.telescope`).
-    Call : Loc -> FnId -> (standsFor : Maybe Shown) -> (indices : List ITerm) -> List (Term n) -> Term n
+    Call : {arity : Nat} -> Loc -> Callee arity -> (standsFor : Maybe Shown) -> (indices : List ITerm) ->
+           Vect arity (Term n) -> Term n
     ||| A saturated constructor application; parameters are not fields.
     ||| `binders` are the terms the constructor's first erased binders are
     ||| given, in the scope it is written in, each the term of the argument
@@ -316,7 +332,7 @@ mutual
   rename f (Literal l x) = Literal l x
   rename f (PrimApp l p stands as) = PrimApp l p stands (renameVect f as)
   rename f (Effect l p gives as w res) = Effect l p gives (renameVect f as) (rename f w) res
-  rename f (Call l fn stands is as) = Call l fn stands is (renameAll f as)
+  rename f (Call l c stands is as) = Call l c stands is (renameVect f as)
   rename f (ConApp l c bs as) = ConApp l c bs (renameVect f as)
   rename f (Let l x b v body) = Let l x b (rename f v) (rename (liftRen {k = 1} f) body)
   rename f (Case l fam x arms) = Case l fam (f x) (renameArms f arms)
@@ -413,7 +429,7 @@ mutual
     LiteralF : Loc -> Lit -> TermF f n
     PrimAppF : {k : Nat} -> Loc -> Prim k -> Maybe Shown -> Vect k (f n) -> TermF f n
     EffectF : {i, o : Nat} -> Loc -> IOAction i o -> IOGives o -> Vect i (f n) -> f n -> Con 2 -> TermF f n
-    CallF : Loc -> FnId -> Maybe Shown -> List ITerm -> List (f n) -> TermF f n
+    CallF : {arity : Nat} -> Loc -> Callee arity -> Maybe Shown -> List ITerm -> Vect arity (f n) -> TermF f n
     ConAppF : {k : Nat} -> Loc -> Con k -> List ITerm -> Vect k (f n) -> TermF f n
     LetF : Loc -> Shown -> LetBinder -> f n -> f (Under 1 n) -> TermF f n
     CaseF : Loc -> FamilyId -> Fin n -> CaseArmsOf (AltF f n) (f n) -> TermF f n
@@ -454,7 +470,7 @@ hmap h (VarF l x) = VarF l x
 hmap h (LiteralF l x) = LiteralF l x
 hmap h (PrimAppF l p stands as) = PrimAppF l p stands (map h as)
 hmap h (EffectF l p gives as w res) = EffectF l p gives (map h as) (h w) res
-hmap h (CallF l fn stands is as) = CallF l fn stands is (map h as)
+hmap h (CallF l c stands is as) = CallF l c stands is (map h as)
 hmap h (ConAppF l c bs as) = ConAppF l c bs (map h as)
 hmap h (LetF l x b v body) = LetF l x b (h v) (h body)
 hmap h (CaseF l fam x arms) = CaseF l fam x (armsMap arms)
@@ -507,7 +523,7 @@ mutual
   para alg (Literal l x) = alg (LiteralF l x)
   para alg (PrimApp l p stands as) = alg (PrimAppF l p stands (paraVect alg as))
   para alg (Effect l p gives as w res) = alg (EffectF l p gives (paraVect alg as) (sub alg w) res)
-  para alg (Call l fn stands is as) = alg (CallF l fn stands is (paraAll alg as))
+  para alg (Call l c stands is as) = alg (CallF l c stands is (paraVect alg as))
   para alg (ConApp l c bs as) = alg (ConAppF l c bs (paraVect alg as))
   para alg (Let l x b v body) = alg (LetF l x b (sub alg v) (sub alg body))
   para alg (Case l fam x arms) = alg (CaseF l fam x (paraArms alg arms))
@@ -619,22 +635,21 @@ cata alg = para (\layer => alg (hmap (.result) layer))
 public export
 data Termination = Terminates ComponentId | Acyclic | MayDiverge (List1 Shown)
 
-||| A function instance of full Core: its identity, its symbol (its key
-||| printed, `keyText`, once), its key; its telescope, the sorts of its
-||| erased index parameters (the levels `0 .. p-1` of its body's scope);
-||| its runtime parameters, each with the name Idris gave it and its
-||| binder, a parameter Idris erased being none; its result; its body; and
-||| what Idris proved of its loops.
+||| A function instance of full Core: its key; its telescope, the sorts of
+||| its erased index parameters (the levels `0 .. p-1` of its body's
+||| scope); what a call of it holds (`Callee`: its identity, its symbol,
+||| its runtime parameters' binders, a parameter Idris erased being none,
+||| and its result), the one value every call of it holds too; the name
+||| Idris gave each runtime parameter; its body; and what Idris proved of
+||| its loops.
 public export
 record TFn where
   constructor MkTFn
-  id : FnId
-  symbol : String
   key : InstanceKey
   telescope : List Sort
   arity : Nat
-  params : Vect arity (Shown, Binder)
-  result : Ty
+  callee : Callee arity
+  paramNames : Vect arity Shown
   body : Term arity
   loc : Loc
   termination : Termination

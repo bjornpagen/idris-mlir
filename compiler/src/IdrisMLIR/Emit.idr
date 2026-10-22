@@ -82,7 +82,7 @@ emit h src = do
                 Right ss => each ss (\(_, s) => writeTopLevel w s))
     | Left e => pure (Left e)
   finish w h [ (At src.root.loc, \body => Builtin.moduleOp body)
-             , (At src.root.loc, Idr.programOp (StringAttr src.root.symbol) (SymbolRefAttr (MkSymbolRef src.root.symbol [])) Higher) ]
+             , (At src.root.loc, Idr.programOp (StringAttr src.root.callee.symbol) (SymbolRefAttr (MkSymbolRef src.root.callee.symbol [])) Higher) ]
 
 ||| A refusal of a program, as its module carries it: the rule refused
 ||| under, where, and what it says.

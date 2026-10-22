@@ -222,7 +222,7 @@ mutual
   names from k (Literal _ _) = False
   names from k (PrimApp _ _ _ as) = anyNames from k (toList as)
   names from k (Effect _ _ _ as world _) = anyNames from k (toList as) || names from k world
-  names from k (Call _ _ _ _ as) = anyNames from k as
+  names from k (Call _ _ _ _ as) = anyNames from k (toList as)
   names from k (ConApp _ _ _ as) = anyNames from k (toList as)
   names from k (Let _ _ _ v b) = names from k v || names (S from) k b
   names from k (Case _ _ x arms) = namesVar from k x || armsName from k arms
@@ -372,13 +372,6 @@ holding ix l binder t captures build =
       Idr (GradedType Once _ _) => True
       _ => False
 
-||| A call passes as many values as its callee takes. A count that differs
-||| is a position the translator did not drop; nothing is written for it.
-saturated : Loc -> String -> (given, taken : Nat) -> E ()
-saturated l what given taken =
-  unless (given == taken) $
-    internal (fastConcat [show l, ": ", what, " passes ", show given, " values; it takes ", show taken])
-
 ||| The algebra: one layer of `Term` to its emitter. A layer whose value is
 ||| a subterm's (a `let`'s body, a match's arms) passes what its context
 ||| wants on to it; every other subterm is an operand or a region's, bound
@@ -401,22 +394,20 @@ alg ix (EffectF l p gives as world res) sc w = do
   Just _ <- world.result sc (expecting (Just WorldT))
     | Nothing => pure Nothing
   effect w.binder ix l p gives vs res
--- A call passes its callee's index parameters their terms here and its
--- arguments at the callee's binders with those terms substituted, so its
--- operand and result types are the callee's signature at the call. Where
--- it stands in its function is decided once, by the one definition of tail
--- position, when the program is first order: the frontend writes every
--- call `nontail`, which promises nothing, and the source states no other.
--- A call the registry lowered a library definition's call to names it.
-alg ix (CallF l fn stands is as) sc w = do
-  Just f <- pure (lookup fn ix.fns)
-    | Nothing => internal ("a call of " ++ show fn ++ ", which is not in the program")
-  saturated l ("a call of " ++ f.symbol) (length as) f.arity
-  let slots = map (\(_, b) => Just (MkBinder b.quantity (substTy is b.type))) (toList f.params)
+-- A call holds its callee's signature, one argument per binder: it passes
+-- its callee's index parameters their terms here and its arguments at the
+-- callee's binders with those terms substituted, so its operand and result
+-- types are the callee's signature at the call. Where it stands in its
+-- function is decided once, by the one definition of tail position, when
+-- the program is first order: the frontend writes every call `nontail`,
+-- which promises nothing, and the source states no other. A call the
+-- registry lowered a library definition's call to names it.
+alg ix (CallF l f stands is as) sc w = do
+  let slots = map (\b => Just (MkBinder b.quantity (substTy is b.type))) f.params
   Just vs <- operands ix l sc (zip slots as)
     | Nothing => pure Nothing
   let rt = substTy is f.result
-      args = map (operand ix) (present vs)
+      args = map (operand ix) (present (toList vs))
       indexArgs = Just (IdrHand (ArgsOf (map (termNodes ix) is)))
       callee = SymbolRefAttr (MkSymbolRef f.symbol [])
   -- A call gives what its result type is: Idris's world, which is no value

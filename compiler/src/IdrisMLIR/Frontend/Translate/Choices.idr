@@ -162,10 +162,11 @@ newCon fc fam at form fields = do
              _ => pure ("member." ++ show at)
   pure (MkCon (MkConId fam (last {n = at})) label [] [] fields loc)
 
-||| A dispatch with its arm for the member at position `i`, as the step
-||| being run derives it: the dispatch as the step reads it
-||| (`lookupFact`), with the arm, superseding the table's.
-withArm : FnId -> Nat -> FnId -> TS -> TS
+||| A dispatch with its arm for the member at position `i`, the signature
+||| of the instance it calls, as the step being run derives it: the
+||| dispatch as the step reads it (`lookupFact`), with the arm, superseding
+||| the table's.
+withArm : FnId -> Nat -> InstanceSig -> TS -> TS
 withArm inst i arm st = case lookupFact (.dispatches) inst st of
   Just d => derive { dispatches $= insert inst ({ arms $= insert i arm } d) } st
   Nothing => st
@@ -242,39 +243,43 @@ heldMember fc owner j form hs m = do
       pure (DictParam form' (Just (MkHoles (t ::: ts) (MkBinder Many held))))
 
 mutual
-  ||| The instance a call reaches at kinds that hold `choices` choices: the
-  ||| callee's own when they hold none, requested; else a dispatch on the
-  ||| first, each of whose arms holds one fewer. The callee is a definition,
-  ||| or a member at a use (`AtUse`), the member the choice it dispatches on.
+  ||| The function a call reaches at kinds that hold `choices` choices, by
+  ||| its signature: the callee's own instance when they hold none,
+  ||| requested; else a dispatch on the first, each of whose arms holds one
+  ||| fewer. The callee is a definition, or a member at a use (`AtUse`), the
+  ||| member the choice it dispatches on.
   export
   calleeAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (choices : Nat) -> FC -> String -> Instantiates -> List PKind -> Front FnId
+             (choices : Nat) -> FC -> String -> Instantiates -> List PKind -> Front InstanceSig
   calleeAt Z fc owner what kinds = request fc owner what kinds
   calleeAt (S k) fc owner what kinds = case firstChoice kinds of
     Nothing => request fc owner what kinds
     Just (before, b, ty, after) => dispatchOn k fc owner what before b ty after
 
   ||| The dispatch of a call on the choice in the parameter after `before`,
-  ||| made once: its identity is the callee's link at the call's static
-  ||| arguments, which hold nothing where the choice is, as no instance of
-  ||| the callee's does. It is joined with every member its choice has so
-  ||| far.
+  ||| made once, its signature read then, as an instance's is: its identity
+  ||| is the callee's link at the call's static arguments, which hold
+  ||| nothing where the choice is, as no instance of the callee's does. It
+  ||| is joined with every member its choice has so far.
   dispatchOn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                (rest : Nat) -> FC -> String -> Instantiates -> (before : List PKind) -> Binder -> ClosedTerm ->
-               (after : List PKind) -> Front FnId
+               (after : List PKind) -> Front InstanceSig
   dispatchOn rest fc owner what before b ty after = do
     choice <- choiceFamily fc owner ty
-    found <- instanceFor fc owner what (before ++ ChoiceParam b ty :: after)
+    let kinds = before ++ ChoiceParam b ty :: after
+    found <- instanceFor fc owner what kinds
     let inst = InstanceOf found.link
+    Nothing <- pure (requestedBefore inst !getState)
+      | Just sig => pure sig
+    sig <- instanceSig fc owner what kinds inst found.symbol
     st <- getState
-    if requestedBefore inst st then pure inst else do
-      let d = MkDispatch inst found.symbol found.key what before (Given rest b ty) after choice.family fc owner empty
-      updateState (derive { instances $= insert inst, fnOrder $= (:< inst)
-                          , dispatches $= insert inst d
-                          , dispatchesOn $= insert choice.family
-                                              (inst :: fromMaybe [] (lookupFact (.dispatchesOn) choice.family st)) })
-      armsFor d 0 (choice.members <>> [])
-      pure inst
+    let d = MkDispatch inst found.key sig what before (Given rest b ty) after choice.family fc owner empty
+    updateState (derive { instances $= insert inst sig, fnOrder $= (:< inst)
+                        , dispatches $= insert inst d
+                        , dispatchesOn $= insert choice.family
+                                            (inst :: fromMaybe [] (lookupFact (.dispatchesOn) choice.family st)) })
+    armsFor d 0 (choice.members <>> [])
+    pure sig
 
   ||| The arms of a dispatch for the members given, the first at position
   ||| `i`.
@@ -285,11 +290,11 @@ mutual
     armAt d i m
     armsFor d (S i) ms
 
-  ||| The arm of a dispatch for its choice's member at position `i`: for a
-  ||| choice its parameter takes, the callee at that member, requested, or
-  ||| dispatched on its next choice; for one an implementation it is given
-  ||| holds, the callee with that field fixed to the member, requested
-  ||| (`heldMember`).
+  ||| The arm of a dispatch for its choice's member at position `i`, by the
+  ||| signature of what it calls: for a choice its parameter takes, the
+  ||| callee at that member, requested, or dispatched on its next choice;
+  ||| for one an implementation it is given holds, the callee with that
+  ||| field fixed to the member, requested (`heldMember`).
   armAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           Dispatch -> (i : Nat) -> ChoiceMember -> Front ()
   armAt d i m = do
@@ -333,9 +338,9 @@ heldChoice = go [<]
 ||| is the callee's instance with the field fixed to the member
 ||| (`heldMember`), so that the callee's tree takes the field apart as it
 ||| takes any implementation the program fixes. The instance is the
-||| dispatch: its identity, symbol and key are the request's, its kinds the
-||| request's split at that parameter (`heldChoice`), and the dispatch is
-||| written with every other (`dispatchers`). It is joined with every
+||| dispatch: its identity, key and signature are the request's, its kinds
+||| the request's split at that parameter (`heldChoice`), and the dispatch
+||| is written with every other (`dispatchers`). It is joined with every
 ||| member its choice has so far.
 export
 heldDispatch : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
@@ -343,7 +348,7 @@ heldDispatch : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 heldDispatch r before chosen after ty = do
   let owner = show r.owner
   choice <- choiceFamily r.site owner ty
-  let d = MkDispatch r.inst (keyText r.key) r.key r.instantiates before chosen after choice.family r.site owner empty
+  let d = MkDispatch r.inst r.key r.signature r.instantiates before chosen after choice.family r.site owner empty
   st <- getState
   let Nothing = lookupFact (.dispatches) r.inst st
     | Just _ => pure ()
@@ -436,16 +441,13 @@ passed loc choice field (x :: xs) =
 ||| of its own: what its arms do is theirs.
 dispatcher : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Dispatch -> Front ()
 dispatcher d = do
-  (arity, ty) <- signatureOf d.site d.owner d.callee
-  (found, resTy) <- classifyInstance d.site d.owner arity ty (givenArgs d.kinds)
-  let kinds = toList found
-  result <- coreType d.site d.owner ValueType !(normaliseClosed resTy)
+  let kinds = d.signature.kinds
   loc <- toLoc d.site
   st <- getState
   let members = maybe [] (\ch => ch.members <>> []) (lookupFact (.choices) d.family st)
   -- The choice's parameter is one at run time in the dispatch's kinds;
-  -- these are the instance's own signature classified again at them, a
-  -- second reading that nothing ties to the first.
+  -- its signature is those kinds classified over their static arguments,
+  -- a second reading that nothing ties to the first.
   let Just choice = natToFin (Runtimes (take (length d.kindsBefore) kinds)) (Runtimes kinds)
     | Nothing => internal d.site "a dispatch whose choice is no parameter at run time"
   let indices = ownLevels (length (telescopeOf kinds))
@@ -466,9 +468,8 @@ dispatcher d = do
           | Nothing => internal d.site "a choice held past the values an implementation holds"
         arms <- traverse (heldArm loc indices choice params ren (without j typed)) numbered
         pure (matching loc chosen arms)
-  updateState (derive { fns $= insert d.inst (MkTFn d.inst d.symbol d.key (telescopeOf kinds) (Runtimes kinds)
-                                                    (map (\b => (shown "x", b)) (runtimeBinders kinds))
-                                                    result body loc Acyclic) })
+  updateState (derive { fns $= insert d.inst (MkTFn d.key (telescopeOf kinds) (Runtimes kinds) d.signature.callee
+                                                    (map (const (shown "x")) d.signature.callee.params) body loc Acyclic) })
   where
     matching : {0 p : Nat} -> Loc -> Fin p -> List (Alt p) -> Term p
     matching loc x [] = Unreachable loc
@@ -477,29 +478,35 @@ dispatcher d = do
     -- Each member is joined with the dispatch when the later of the two
     -- is made, its arm written by its place in a map the members do not
     -- index.
-    armOf : Nat -> Front FnId
+    armOf : Nat -> Front InstanceSig
     armOf i = case lookup i d.arms of
-      Just inst => pure inst
+      Just target => pure target
       Nothing => internal d.site "a member joined with a dispatch and given no arm"
+
+    -- What an arm calls, given the dispatch's parameters in order, as many
+    -- as its signature takes: its index parameters are the dispatch's
+    -- levels, so its binders read in the dispatch's scope.
+    calling : {0 q : Nat} -> Loc -> InstanceSig -> List ITerm -> List (Term q) -> Term q
+    calling loc target indices = applyMaker loc (MkMaker (\ys => Call loc target.callee Nothing indices ys)) target.callee.params
 
     arm : Loc -> List ITerm -> Fin n -> List (Fin n) -> (Nat, ChoiceMember) -> Front (Alt n)
     arm loc indices choice params (i, m) = do
       inst <- armOf i
       case m.con of
-        Bare con => pure (MkAlt con [] (Call loc inst Nothing indices (passed {k = 0} loc choice Nothing params)))
+        Bare con => pure (MkAlt con [] (calling loc inst indices (passed {k = 0} loc choice Nothing params)))
         Capturing _ con =>
-          pure (MkAlt con [shown "held"] (Call loc inst Nothing indices (passed {k = 1} loc choice (Just (Bound FZ)) params)))
+          pure (MkAlt con [shown "held"] (calling loc inst indices (passed {k = 1} loc choice (Just (Bound FZ)) params)))
 
     -- The callee's instance at a member, given the dispatch's parameters,
     -- the implementation's parameter the values given, held as one, or
     -- nothing where none is left.
-    called : {0 q : Nat} -> Loc -> FnId -> List ITerm -> Fin n -> List (Fin n) -> (Fin n -> Fin q) ->
+    called : {0 q : Nat} -> Loc -> InstanceSig -> List ITerm -> Fin n -> List (Fin n) -> (Fin n -> Fin q) ->
              List (ClosedTerm, Fin q) -> Front (Term q)
     called loc inst indices held params ren values = do
       packed <- case values of
                   [] => pure []
                   (v :: vs) => (:: []) <$> pack d.site d.owner loc (map (\(ty, y) => (ty, Var loc y)) (v ::: vs))
-      pure (Call loc inst Nothing indices (concatMap (\y => if y == held then packed else [Var loc (ren y)]) params))
+      pure (calling loc inst indices (concatMap (\y => if y == held then packed else [Var loc (ren y)]) params))
 
     -- The arm for a member of a choice an implementation holds: the values
     -- left, then the member's own, taken apart from its field.

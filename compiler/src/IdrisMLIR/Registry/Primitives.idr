@@ -15,6 +15,7 @@ import IdrisMLIR.Spec.Core.Op as Spec
 import IdrisMLIR.Spec.Ops.IO
 import IdrisMLIR.Spec.Ops.Platform
 import IdrisMLIR.Spec.Runtime.Clocks
+import IdrisMLIR.Spec.Runtime.Handles
 import IdrisMLIR.Spec.Ops.Strings
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Registry.Entry
@@ -239,9 +240,9 @@ wordLoad spec name w = bufferPrimitive spec name (loaded (wordShape w)) (Moves (
 ||| name picks the entry.
 files : List AnyEntry
 files =
-  [ cPrimitive "idris2_stdin" fileVirtual "prim__stdin" anyPtr (Handle (LInt UInt64 0))
-  , cPrimitive "idris2_stdout" fileVirtual "prim__stdout" anyPtr (Handle (LInt UInt64 1))
-  , cPrimitive "idris2_stderr" fileVirtual "prim__stderr" anyPtr (Handle (LInt UInt64 2))
+  [ cPrimitive "idris2_stdin" fileVirtual "prim__stdin" anyPtr (Handle (LInt UInt64 (standardHandle StandardInput)))
+  , cPrimitive "idris2_stdout" fileVirtual "prim__stdout" anyPtr (Handle (LInt UInt64 (standardHandle StandardOutput)))
+  , cPrimitive "idris2_stderr" fileVirtual "prim__stderr" anyPtr (Handle (LInt UInt64 (standardHandle StandardError)))
   , cCall "idris2_writeBufferData" fileBuffer "prim__writeBufferData"
           (Pi Mw anyPtr (Pi Mw buffer (Pi Mw int (Pi Mw int (Pi M1 world (ioRes int)))))) (Moves WriteBytes)
   , cCall "idris2_readBufferData" fileBuffer "prim__readBufferData"
@@ -371,10 +372,10 @@ handles =
   , entry (Def (MkQName ["PrimIO"] "Ptr")) (External (Pi Mw TypeOfTypes TypeOfTypes)) WordType
   , entry (Foreign (MkSpec "C" "idris2_isNull"))
             (Declared (MkQName ["PrimIO"] "prim__nullAnyPtr") (Pi Mw anyPtr int))
-            (PrimCall (Compare Values.Eq (SIntegral (SInt UInt64))) [LInt UInt64 18446744073709551615])
+            (PrimCall (Compare Values.Eq (SIntegral (SInt UInt64))) [LInt UInt64 nullWord])
   , entry (Foreign (MkSpec "C" "idris2_getNull"))
             (Declared (MkQName ["PrimIO"] "prim__getNullAnyPtr") anyPtr)
-            (Handle (LInt UInt64 18446744073709551615))
+            (Handle (LInt UInt64 nullWord))
   , entry (Foreign (MkSpec "C" "idris2_getString"))
             (Declared (MkQName ["Prelude", "IO"] "prim__getString") (Pi Mw strPtr str))
             (PureCall handleString [])

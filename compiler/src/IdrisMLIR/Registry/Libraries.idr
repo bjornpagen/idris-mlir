@@ -15,9 +15,8 @@ import Data.SortedSet
 ||| The libraries the compiler knows: `Builtin` and `PrimIO`, the rest of
 ||| the prelude, base, the packages this compiler ships itself (`libs/`:
 ||| `mlir-linear` and `mlir-array`), which it implements in full, and
-||| `Compiler`, its own
-||| fork of Idris's compiler (`compiler/idris`, the package
-||| `idris-compiler`), which the frontend is written over, so that the
+||| `Compiler`, its own type checker (`compiler/checker`, the package
+||| `idris-mlir-checker`), which the frontend is written over, so that the
 ||| frontend compiles as a program. The compiler implements Idris 2 for
 ||| programs over the upstream prelude and base; the other packages
 ||| shipped with Idris (contrib, linear, network, test) are no commitment,
@@ -87,8 +86,8 @@ covers _ _ = False
 ||| Every module of the prelude package is trusted: `Builtin` and `PrimIO`
 ||| keep the rows that admit them differently, and the rest of that package
 ||| is the Prelude. Every module of base is base. Every module of a package
-||| this compiler ships is its own, and every module of its fork of Idris's
-||| compiler is the fork's: the frontend's own modules (`IdrisMLIR.*`) are
+||| this compiler ships is its own, and every module of its type checker
+||| is the checker's: the frontend's own modules (`IdrisMLIR.*`) are
 ||| the project's, user code like any program's. A module of any other
 ||| installed package is untrusted, whatever it is named.
 export
@@ -102,7 +101,7 @@ moduleOrigin (Installed "mlir-linear") _ = Library InHouse
 moduleOrigin (Installed "mlir-array") _ = Library InHouse
 moduleOrigin (Installed "mlir-relational") _ = Library InHouse
 moduleOrigin (Installed "mlir-hash") _ = Library InHouse
-moduleOrigin (Installed "idris-compiler") _ = Library Compiler
+moduleOrigin (Installed "idris-mlir-checker") _ = Library Compiler
 moduleOrigin _ _ = Untrusted
 
 ||| The packages every program sees, whether it asks for them or not, as

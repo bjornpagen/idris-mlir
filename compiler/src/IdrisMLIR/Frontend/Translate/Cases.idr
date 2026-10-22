@@ -224,12 +224,12 @@ argsBound field (a :: as) ss =
 ||| What a runtime variable's binder says of it: its Core type, its Idris
 ||| type, the shape of its value, and the variable.
 coreTyOf : VarInfo a -> Maybe Ty
-coreTyOf (Runtime _ t _) = t
+coreTyOf (Runtime _ t) = coreOf t
 coreTyOf (Shaped _ t _ _) = Just t
 coreTyOf _ = Nothing
 
 idrisTypeOf : VarInfo a -> Maybe ClosedTerm
-idrisTypeOf (Runtime _ _ t) = t
+idrisTypeOf (Runtime _ t) = idrisOf t
 idrisTypeOf (Shaped _ _ t _) = Just t
 idrisTypeOf _ = Nothing
 
@@ -238,7 +238,7 @@ shapeOf (Shaped _ _ _ s) = Just s
 shapeOf _ = Nothing
 
 variableOf : VarInfo a -> Maybe a
-variableOf (Runtime x _ _) = Just x
+variableOf (Runtime x _) = Just x
 variableOf (Shaped x _ _ _) = Just x
 variableOf _ = Nothing
 
@@ -409,18 +409,19 @@ mutual
   tree ctx env cls (Case {name} idx p scTy alts) = do
     loc <- toLoc ctx.fc
     case getAt idx env of
-      -- The world has one value, which Idris's tree matches as that
-      -- constant alone, in the module the compiler reads when it runs.
-      Just (Runtime i (Just WorldT) _) => case alts of
-        [ConstCase WorldVal rhs] => tree ctx env cls rhs
-        _ => internal ctx.fc "an unexpected match on the world"
       -- A match on a quantity-0 value (a proof, an index) is in the
       -- compile-time tree only when its type forces the alternative, as
       -- Idris's erasure check guarantees; its fields are erased too.
       Just (TypeValue (Erased _ _)) => forced alts
       -- A match on an implementation selects its alternative now.
       Just (Static t hole) => staticCase ctx env cls scrutinee t hole alts
-      Just v@(Runtime i _ _) => runtime loc v i
+      Just v@(Runtime i t) => case coreOf t of
+        -- The world has one value, which Idris's tree matches as that
+        -- constant alone, in the module the compiler reads when it runs.
+        Just WorldT => case alts of
+          [ConstCase WorldVal rhs] => tree ctx env cls rhs
+          _ => internal ctx.fc "an unexpected match on the world"
+        _ => runtime loc v i
       Just v@(Shaped i _ _ _) => runtime loc v i
       -- A type, a form or an index level: Idris's tree matches no value
       -- the instance holds at compile time but one its type forces, by
@@ -529,9 +530,9 @@ mutual
           delayed : List (CaseAlt vars) -> Front (Term nv)
           delayed (DelayCase _ arg rhs :: _) = do
             let value = case (coreTyOf v, idrisTypeOf v) of
-                          (Just (LazyT t), Just (TDelayed _ _ ity)) => Runtime FZ (Just t) (Just ity)
-                          (Just (LazyT t), _) => Runtime FZ (Just t) Nothing
-                          _ => Runtime FZ Nothing Nothing
+                          (Just (LazyT t), Just (TDelayed _ _ ity)) => Runtime FZ (BothTypes t ity)
+                          (Just (LazyT t), _) => Runtime FZ (CoreTypeOnly t)
+                          _ => Runtime FZ Untyped
             body <- tree ctx (under {k = 1} [TypeValue (Erased ctx.fc Placeholder), value] env)
                          (afterDelay scrutinee cls) rhs
             pure (Let loc (binderName arg) (OfValue Many) (Resume loc (Var loc i)) body)
@@ -629,8 +630,9 @@ mutual
                            ("the successor " ++ show cn ++ " binds another number of arguments than it takes")
         let predInfo : VarInfo (Fin (Under 1 nv))
             predInfo = case (predecessor (shapeArgs shape) taken, ity) of
-                         (Just p, Just t) => shaped FZ NatT t p
-                         _ => Runtime FZ (Just (NatT IOpaque)) ity
+                         (Just p, Just t) => shaped FZ (NatT IOpaque) t p
+                         (_, Just t) => Runtime FZ (BothTypes (NatT IOpaque) t)
+                         (_, Nothing) => Runtime FZ (CoreTypeOnly (NatT IOpaque))
         let infos = map (\a => case a of
                                   RuntimeValue _ => predInfo
                                   _ => TypeValue (Erased ctx.fc Placeholder)) taken
@@ -776,23 +778,21 @@ mutual
           valueOf (Static _ (Just (x, _))) = Just x
           valueOf v = variableOf v
 
-      -- The instance's runtime arguments, in its parameters' order, each
-      -- parameter's own value but at parameter `p`, which is `given`;
-      -- `ren` takes the scope's variables into the one they are read in.
-      passedOn : {0 q : Nat} -> Loc -> (Fin nv -> Fin q) -> (p : Nat) -> Term q -> List PKind -> Front (List (Term q))
-      passedOn loc ren p given kinds = go 0 kinds
+      -- An instance's runtime arguments, one per parameter of its kinds
+      -- that exists at run time, in order, each this instance's parameter
+      -- at that position but at parameter `p`, which is `given`; `ren`
+      -- takes the scope's variables into the one they are read in.
+      passedOn : {0 q : Nat} -> Loc -> (Fin nv -> Fin q) -> (p : Nat) -> Term q -> (ks : List PKind) ->
+                 Front (Vect (Runtimes ks) (Term q))
+      passedOn loc ren p given = eachRuntime value
         where
-          go : Nat -> List PKind -> Front (List (Term q))
-          go i [] = pure []
-          go i (k :: ks) = case boundAtRuntime k of
-            Nothing => go (S i) ks
-            Just _ => do
-              -- Every parameter's root place is in the tree's scope; the
-              -- environment beside it is a list the scope does not index.
-              here <- if i == p then pure given else case parameterValue i of
-                        Just x => pure (Var loc (ren x))
-                        Nothing => internal ctx.fc ("the value of parameter " ++ show i ++ " out of the tree's scope")
-              (here ::) <$> go (S i) ks
+          value : Nat -> PKind -> Front (Term q)
+          value i _ =
+            -- Every parameter's root place is in the tree's scope; the
+            -- environment beside it is a list the scope does not index.
+            if i == p then pure given else case parameterValue i of
+              Just x => pure (Var loc (ren x))
+              Nothing => internal ctx.fc ("the value of parameter " ++ show i ++ " out of the tree's scope")
 
       -- A field no compile-time reduction reaches is computed here, where
       -- the tree reaches it, eagerly, its divergence its computation's:
@@ -807,10 +807,11 @@ mutual
       heldHere on = do
         let place = placeOf scrutinee
         let r = ctx.request
+        let own = r.signature.kinds
         -- What binds an implementation at the root is a parameter given
         -- one, and every part taken apart is at that parameter's place;
         -- the environment's entry does not carry the kind it came from.
-        let Just (DictParam form held) = getAt place.parameter r.kinds
+        let Just (DictParam form held) = getAt place.parameter own
           | _ => internal ctx.fc "an implementation's field matched under a parameter given no implementation"
         let count = maybe 0 (length . forget . (.types)) held
         (form', fieldType) <- holding count form (place.steps <>> [])
@@ -820,13 +821,13 @@ mutual
                              "implementation was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
         let types = maybe (fieldType ::: []) (\hs => appendl hs.types [fieldType]) held
         packed <- coreType ctx.fc ctx.owner ValueType !(normaliseClosed !(packedType types))
-        let kinds = replaceAt place.parameter (DictParam form' (Just (MkHoles types (MkBinder Many packed)))) r.kinds
-        inst <- request ctx.fc ctx.owner r.instantiates kinds
+        let kinds = replaceAt place.parameter (DictParam form' (Just (MkHoles types (MkBinder Many packed)))) own
+        sig <- request ctx.fc ctx.owner r.instantiates kinds
         loc <- toLoc ctx.fc
         value <- computedAt ctx env ctx.fc t hole
-        let levels = ownLevels (length (telescopeOf r.kinds))
+        let levels = ownLevels (length (telescopeOf own))
         body <- case held of
-          Nothing => Call loc inst Nothing levels <$> passedOn loc FS place.parameter (Var loc FZ) r.kinds
+          Nothing => Call loc sig.callee Nothing levels <$> passedOn loc FS place.parameter (Var loc FZ) sig.kinds
           Just hs => do
             -- As `passedOn`: a parameter's root place is in the tree's
             -- scope, beside an environment the scope does not index.
@@ -836,7 +837,7 @@ mutual
             takenApart ctx.fc ctx.owner loc h hts (FS x) $ \ren, vs => do
               given <- pack ctx.fc ctx.owner loc
                          (ending (zip (forget hs.types) (map (Var loc) vs)) (fieldType, Var loc (ren FZ)))
-              Call loc inst Nothing levels <$> passedOn loc (ren . FS) place.parameter given r.kinds
+              Call loc sig.callee Nothing levels <$> passedOn loc (ren . FS) place.parameter given sig.kinds
         pure (Let loc (shown "field") (OfValue Many) value body)
         where
           replaceAt : Nat -> a -> List a -> List a
@@ -904,7 +905,7 @@ mutual
       fieldAt k i b ity s = case natToFin i k of
         Just f => case s of
           Just s' => shaped (Bound {n = nv} f) b.type ity s'
-          Nothing => Runtime (Bound {n = nv} f) (Just b.type) (Just ity)
+          Nothing => Runtime (Bound {n = nv} f) (BothTypes b.type ity)
         Nothing => TypeValue (Erased EmptyFC Placeholder)
   conAlternatives ctx env cls scrutinee shape every built inst (DefaultCase rhs :: _) =
     if every then pure (empty, [], Absent)

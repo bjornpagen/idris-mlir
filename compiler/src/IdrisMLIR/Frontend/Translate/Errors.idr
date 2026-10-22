@@ -44,7 +44,7 @@ isEmptyFC _ = False
 ||| the definitions read from it once), whose errors are Idris's, giving
 ||| either the value or the program's refusal. A refusal is a value of the
 ||| computation, never an error beside it: Idris's `Error` cannot carry
-||| one, and the fork, which owns it, imports nothing of the frontend's.
+||| one, and the checker, which owns it, imports nothing of the frontend's.
 public export
 record Front a where
   constructor MkFront

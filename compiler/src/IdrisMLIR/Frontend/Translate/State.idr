@@ -23,10 +23,12 @@ import IdrisMLIR.Types
 
 import Data.DPair
 import Data.Fin
+import Data.List
 import Data.List1
 import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
+import Data.Vect
 
 %default total
 
@@ -137,6 +139,142 @@ telescopeOf : List PKind -> List Sort
 telescopeOf [] = []
 telescopeOf (IndexParam s :: ks) = s :: telescopeOf ks
 telescopeOf (_ :: ks) = telescopeOf ks
+
+||| What a parameter binds at run time, if it is a parameter at run time:
+||| a value, the values an implementation closes over, held as one, or a
+||| choice of an implementation.
+public export
+boundAtRuntime : PKind -> Maybe Binder
+boundAtRuntime (ValueParam b _ _) = Just b
+boundAtRuntime (DictParam _ (Just h)) = Just h.binder
+boundAtRuntime (ChoiceParam b _) = Just b
+boundAtRuntime _ = Nothing
+
+||| One more for what exists at run time.
+public export
+counted : Maybe a -> Nat -> Nat
+counted (Just _) n = S n
+counted Nothing n = n
+
+||| How many of a call's parameters exist at run time.
+public export
+Runtimes : List PKind -> Nat
+Runtimes [] = Z
+Runtimes (k :: ks) = counted (boundAtRuntime k) (Runtimes ks)
+
+||| A position among the parameters after one that exists at run time or
+||| not: one further, or the same.
+export
+after : (m : Maybe a) -> Fin n -> Fin (counted m n)
+after (Just _) i = FS i
+after Nothing i = i
+
+||| The binders of a call's parameters that exist at run time, in order.
+export
+runtimeBinders : (kinds : List PKind) -> Vect (Runtimes kinds) Binder
+runtimeBinders [] = []
+runtimeBinders (k :: ks) = before (boundAtRuntime k) (runtimeBinders ks)
+  where
+    before : (m : Maybe Binder) -> Vect n Binder -> Vect (counted m n) Binder
+    before (Just b) bs = b :: bs
+    before Nothing bs = bs
+
+||| The parameters at run time of a call's first `m` kinds and of the rest
+||| are all of its parameters at run time: what a call gives and what its
+||| closures take are as many as its callee has.
+export
+runtimesSplit : (m : Nat) -> (ks : List PKind) -> Runtimes (take m ks) + Runtimes (drop m ks) = Runtimes ks
+runtimesSplit Z [] = Refl
+runtimesSplit Z (k :: ks) = Refl
+runtimesSplit (S m) [] = Refl
+runtimesSplit (S m) (k :: ks) =
+  step {a = Runtimes (take m ks)} {c = Runtimes (drop m ks)} {d = Runtimes ks} (boundAtRuntime k) (runtimesSplit m ks)
+  where
+    step : {0 a, c, d : Nat} -> (b : Maybe Binder) -> a + c = d -> counted b a + c = counted b d
+    step (Just _) prf = cong S prf
+    step Nothing prf = prf
+
+||| What a parameter is given put before what the parameters after it are:
+||| the term `x` makes where the parameter exists at run time, nothing
+||| where it does not, so `x` runs only for a parameter at run time.
+export
+consAt : Applicative m => (b : Maybe Binder) -> m t -> m (Vect n t) -> m (Vect (counted b n) t)
+consAt (Just _) x rest = (::) <$> x <*> rest
+consAt Nothing x rest = rest
+
+||| One term per parameter that exists at run time, in order, each made
+||| from the parameter's position and kind; the count is the kinds', by
+||| type.
+export
+eachRuntime : Monad m => (Nat -> PKind -> m t) -> (ks : List PKind) -> m (Vect (Runtimes ks) t)
+eachRuntime f = go 0
+  where
+    go : Nat -> (ks : List PKind) -> m (Vect (Runtimes ks) t)
+    go i [] = pure []
+    go i (k :: ks) = consAt (boundAtRuntime k) (f i k) (go (S i) ks)
+
+||| The binder of a closure's parameter: one closure type serves every
+||| extent its values are made at, so every tensor dimension in it is
+||| dynamic, as the closure's own type has it (`coreType`).
+export
+closureBinder : Binder -> Binder
+closureBinder b = { type $= dynamicDims } b
+
+||| A call's value made from its runtime arguments, as many as it has
+||| parameters that exist at runtime.
+public export
+record Maker (r : Nat) where
+  constructor MkMaker
+  make : {0 m : Nat} -> Vect r (IdrisMLIR.Term.Term m) -> IdrisMLIR.Term.Term m
+
+||| A value made from its runtime arguments in order, whatever their number.
+export
+listed : ({0 m : Nat} -> List (IdrisMLIR.Term.Term m) -> IdrisMLIR.Term.Term m) -> Maker r
+listed f = MkMaker (\ys => f (toList ys))
+
+||| A maker over a count shown equal to its own.
+export
+recount : (0 _ : a = b) -> Maker b -> Maker a
+recount Refl mk = mk
+
+||| Eta-expands a known head applied to too few arguments over its missing
+||| runtime parameters, one closure each, as the curried type of the
+||| result requires: `\x => .. => head(args ++ xs)`.
+export
+etaExpand : {0 nv : Nat} -> {0 g : Nat} -> Loc -> Vect k Binder -> Maker (g + k) -> Vect g (IdrisMLIR.Term.Term nv) -> IdrisMLIR.Term.Term nv
+etaExpand loc [] mk given = (recount (sym (plusZeroRightNeutral g)) mk).make given
+etaExpand loc {k = S k'} (b :: rest) mk given =
+  IdrisMLIR.Term.Lam loc (shown "x") (closureBinder b)
+      (etaExpand loc rest (recount (plusSuccRightSucc g k') mk)
+                 (snoc (map (weakenUnder 1) given) (IdrisMLIR.Term.Var loc FZ)))
+
+||| A call's value made from the runtime arguments given, in order, by
+||| what the function applied is: as many as its maker takes saturate it,
+||| and the rest apply its value; with fewer, one closure per missing
+||| parameter completes it (`etaExpand`), as a call below its arity is.
+||| The binders are its parameters', in the scope the value is made in.
+export
+applyMaker : {0 nv : Nat} -> Loc -> Maker r -> Vect r Binder -> List (IdrisMLIR.Term.Term nv) -> IdrisMLIR.Term.Term nv
+applyMaker loc mk bs ns = go [] bs mk ns
+  where
+    go : {0 g : Nat} -> Vect g (IdrisMLIR.Term.Term nv) -> Vect k Binder -> Maker (g + k) -> List (IdrisMLIR.Term.Term nv) -> IdrisMLIR.Term.Term nv
+    go given [] mk' rest = foldl (IdrisMLIR.Term.App loc) ((recount (sym (plusZeroRightNeutral g)) mk').make given) rest
+    go given bs'@(_ :: _) mk' [] = etaExpand loc bs' mk' given
+    go given {k = S k'} (_ :: bs') mk' (n :: rest) = go (snoc given n) bs' (recount (plusSuccRightSucc g k') mk') rest
+
+||| An instance's signature, read once where the instance is first
+||| requested (`Instances.request`), which the instance's own step and
+||| every call of it read: each parameter of its definition's type as the
+||| instance classifies it over the static arguments it is requested with,
+||| its index parameters its own levels; the Idris type of its result,
+||| normalised, in that scope; and what a call holds of it (`Callee`), one
+||| binder per parameter that exists at run time, by type.
+public export
+record InstanceSig where
+  constructor MkInstanceSig
+  kinds : List PKind
+  result : ClosedTerm
+  callee : Callee (Runtimes kinds)
 
 ||| A full name, printed so that different names print differently: Idris's
 ||| `show` prints only the display part of a `DN` and leaves out the index of
@@ -249,8 +387,9 @@ public export
 data Instantiates = OfDefinition Name Nat | AtUse Nat
 
 ||| A function instance requested: what it is an instance of, its
-||| parameters as the call that requested it classified them, so that it is
-||| translated at the same values, its key, the call that requested it,
+||| signature, read once where it was first requested (`InstanceSig`), so
+||| that it is translated at what every call of it holds, its key, the call
+||| that requested it,
 ||| where and in whose definition, for a message to print, its link, which
 ||| is its identity, and the height of each static argument at the position
 ||| of the growth check's graph it is bounded at, which the worklist checks
@@ -265,7 +404,7 @@ public export
 record Request where
   constructor MkRequest
   instantiates : Instantiates
-  kinds : List PKind
+  signature : InstanceSig
   key : InstanceKey
   site : FC
   owner : Shown
@@ -375,19 +514,20 @@ chosenKind (Given _ b t) = ChoiceParam b t
 chosenKind (Held _ form hs) = DictParam form (Just hs)
 
 ||| A call given a choice (`ChoiceParam`), or an instance given an
-||| implementation that holds one, as one function: its identity, symbol
-||| and key, the callee (a definition, or a member at a use, whose choice
-||| the use dispatches on), its kinds as the call classified them, split
-||| at the parameter its choice is found in (`Chosen`), so that the
-||| parameter and its kind are one, the choice's family, where and in
-||| whose definition it was made, and for each member the instance of the
-||| callee at that member that its arm calls, by the member's position.
+||| implementation that holds one, as one function: its identity and key,
+||| its signature, read once where it was made (`InstanceSig`), the callee
+||| (a definition, or a member at a use, whose choice the use dispatches
+||| on), its kinds as the call classified them, split at the parameter its
+||| choice is found in (`Chosen`), so that the parameter and its kind are
+||| one, the choice's family, where and in whose definition it was made,
+||| and for each member the signature of the callee's instance at that
+||| member, which its arm calls, by the member's position.
 public export
 record Dispatch where
   constructor MkDispatch
   inst : FnId
-  symbol : String
   key : InstanceKey
+  signature : InstanceSig
   callee : Instantiates
   kindsBefore : List PKind
   chosen : Chosen
@@ -395,7 +535,7 @@ record Dispatch where
   family : FamilyId
   site : FC
   owner : String
-  arms : SortedMap Nat FnId
+  arms : SortedMap Nat InstanceSig
 
 ||| A dispatch's kinds, as its call classified them.
 export
@@ -692,8 +832,9 @@ definedIn r n = case readOf r n of
 ||| once (the next number `nextFamily`), each by its identity, and in the
 ||| order registered; their constructors; the function instances
 ||| requested, each by its identity, which is its content (requesting one
-||| derives it, and nothing mints it), in the order first requested, and
-||| the functions made of them; the keys made, each identity's symbol and
+||| derives it, and nothing mints it), with its signature, read once where
+||| it was first requested, in the order first requested, and the
+||| functions made of them; the keys made, each identity's symbol and
 ||| key, and each key's identity, so that two identities on one key are
 ||| found (a print that drops what it claims to keep, or a collision of the
 ||| hash bits a lossy key carries); the choices, each by what it is a
@@ -716,7 +857,7 @@ record Facts where
   families : SortedMap FamilyId Family
   familyOrder : SnocList FamilyId
   cons : SortedMap ConId ConLayout
-  instances : SortedSet FnId
+  instances : SortedMap FnId InstanceSig
   fnOrder : SnocList FnId
   fns : SortedMap FnId TFn
   named : SortedMap (Link Form) (String, InstanceKey)
@@ -759,7 +900,7 @@ merged : Facts -> Derived -> Facts
 merged t d =
   let f = d.facts in
   MkFacts (over f.familyIds t.familyIds) f.nextFamily (over f.families t.families) (t.familyOrder ++ f.familyOrder)
-          (over f.cons t.cons) (foldl (\set, x => insert x set) t.instances (SortedSet.toList f.instances))
+          (over f.cons t.cons) (over f.instances t.instances)
           (t.fnOrder ++ f.fnOrder) (over f.fns t.fns) (over f.named t.named) (over f.keyLinks t.keyLinks)
           (over f.choiceIds t.choiceIds) (over f.choices t.choices) (over f.dispatches t.dispatches)
           (over f.dispatchesOn t.dispatchesOn) (over f.readings t.readings)
@@ -831,10 +972,11 @@ export
 lookupFact : (Facts -> SortedMap k v) -> k -> TS -> Maybe v
 lookupFact field key st = lookup key (field st.derived.facts) <|> lookup key (field st.table)
 
-||| Has the instance been requested, by the step being run or before it?
+||| The signature of an instance requested by the step being run or before
+||| it (`lookupFact`); nothing for one not yet requested.
 export
-requestedBefore : FnId -> TS -> Bool
-requestedBefore inst st = contains inst st.derived.facts.instances || contains inst st.table.instances
+requestedBefore : FnId -> TS -> Maybe InstanceSig
+requestedBefore = lookupFact (.instances)
 
 ||| A family registered, by its identity, as the step being run reads it
 ||| (`lookupFact`).

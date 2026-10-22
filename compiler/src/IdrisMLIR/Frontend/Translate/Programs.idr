@@ -35,6 +35,7 @@ import Data.SnocList
 import Data.SortedMap
 import Data.SortedSet
 import Data.Vect
+import Decidable.Equality
 
 %default total
 
@@ -44,14 +45,14 @@ parameterName : List Name -> (Shown, List Name)
 parameterName [] = (shown "x", [])
 parameterName (x :: xs) = (binderName x, xs)
 
-||| An instance's runtime parameters, named as the type it is classified
+||| An instance's runtime parameters' names, as the type it is classified
 ||| over names them, and what each variable of its body's scope stands for,
 ||| one per parameter: a type, an implementation or a parameter of
 ||| quantity 0 a compile-time value, an index parameter its level (the next
 ||| one `level`), which its body's types read, and a runtime parameter the
 ||| next Core parameter.
 runtimeParams : (level : Nat) -> List Name -> (kinds : List PKind) ->
-                (Vect (Runtimes kinds) (Shown, Binder), List (VarInfo (Fin (Runtimes kinds))))
+                (Vect (Runtimes kinds) Shown, List (VarInfo (Fin (Runtimes kinds))))
 runtimeParams level xs [] = ([], [])
 runtimeParams level xs (TypeParam t :: ks) =
   let (ps, env) = runtimeParams level (snd (parameterName xs)) ks in (ps, TypeValue t :: env)
@@ -66,16 +67,16 @@ runtimeParams level xs (FormParam f :: ks) =
 runtimeParams level xs (DictParam t (Just h) :: ks) =
   let (x, xs') = parameterName xs
       (ps, env) = runtimeParams level xs' ks in
-  ((x, h.binder) :: ps, Static t (Just (FZ, h)) :: map (map FS) env)
+  (x :: ps, Static t (Just (FZ, h)) :: map (map FS) env)
 runtimeParams level xs (ChoiceParam b known :: ks) =
   let (x, xs') = parameterName xs
       (ps, env) = runtimeParams level xs' ks in
-  ((x, b) :: ps, Runtime FZ (Just b.type) (Just known) :: map (map FS) env)
+  (x :: ps, Runtime FZ (BothTypes b.type known) :: map (map FS) env)
 runtimeParams level xs (ValueParam b shape known :: ks) =
   let (x, xs') = parameterName xs
       (ps, env) = runtimeParams level xs' ks in
-  ((x, b) :: ps, maybe (Runtime FZ (Just b.type) (Just known)) (shaped FZ b.type known) shape
-                   :: map (map FS) env)
+  (x :: ps, maybe (Runtime FZ (BothTypes b.type known)) (shaped FZ b.type known) shape
+              :: map (map FS) env)
 
 ||| The names a type gives its parameters.
 parameterNames : TT vs -> List Name
@@ -88,10 +89,12 @@ variablesOf : (vs : Scope) -> Vect (length vs) (TT vs)
 variablesOf [] = []
 variablesOf (v :: vs) = Local EmptyFC Nothing 0 First :: map weaken (variablesOf vs)
 
-||| Translates an instance of a definition. Its runtime parameters are its
-||| Core parameters, numbered in order; a type, an implementation and a
-||| parameter of quantity 0 are compile-time values of the case tree's
-||| scope, which has one variable per parameter of the definition's type.
+||| Translates an instance of a definition at its signature, which its
+||| request read once (`InstanceSig`) and every call of it holds. Its
+||| runtime parameters are its Core parameters, numbered in order; a type,
+||| an implementation and a parameter of quantity 0 are compile-time
+||| values of the case tree's scope, which has one variable per parameter
+||| of the definition's type.
 translateDefinition : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Name -> Front ()
 translateDefinition p n = do
   d <- lookupDef EmptyFC (show n) n
@@ -103,7 +106,8 @@ translateDefinition p n = do
   before <- getState
   False <- pure (contains address before.refused)
     | True => pure ()
-  Nothing <- heldChoice p.kinds
+  let sig = p.signature
+  Nothing <- heldChoice sig.kinds
     | Just (before, chosen, after, ty) => heldDispatch p before chosen after ty
   let fc = location def
   Just m <- pure d.matched
@@ -113,27 +117,23 @@ translateDefinition p n = do
   let complete = case isCovering (totality def) of
                    MissingCases _ => False
                    _ => True
-  (found, resTy) <- classifyInstance fc owner (length m.args) ty (givenArgs p.kinds)
-  let kinds = toList found
-  resTy' <- normaliseClosed resTy
-  result <- coreType fc owner ValueType resTy'
-  (params, env) <- pure (runtimeParams 0 (parameterNames ty) kinds)
-  tree' <- tree (MkCtx owner fc complete resTy' (givesAfter (length m.args) (memberPlaces d)) p) env (clauses m.args m.pats) m.tree
+  let (names, env) = runtimeParams 0 (parameterNames ty) sig.kinds
+  tree' <- tree (MkCtx owner fc complete sig.result (givesAfter (length m.args) (memberPlaces d)) p) env (clauses m.args m.pats) m.tree
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
   -- instance with no array parameter has none to state.
-  ties <- if any (isJust . valueDims . (.type)) (runtimeBinders kinds)
-            then (entryTies . fst) <$> sizedTelescope ty kinds
+  ties <- if any (isJust . valueDims . (.type)) sig.callee.params
+            then (entryTies . fst) <$> sizedTelescope ty sig.kinds
             else pure []
-  let body = tied loc (allFins (Runtimes kinds)) ties tree'
+  let body = tied loc (allFins (Runtimes sig.kinds)) ties tree'
   -- What Idris proved of its loops, read with the program for every
   -- definition read (`Recursion`), in a table its addresses key, whose
   -- type does not say every definition read has an entry.
   let Just termination = lookup address (!reading).loops
     | Nothing => internal fc (owner ++ " has no component of Idris's call graph read")
-  updateState (derive { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params
-                                                      result body loc termination) })
+  updateState (derive { fns $= insert p.inst (MkTFn p.key (telescopeOf sig.kinds) (Runtimes sig.kinds) sig.callee names
+                                                      body loc termination) })
   where
     -- The body under one `let` per parameter with a tied dimension, in
     -- parameter order: the parameter as its dimensions are stated, which
@@ -156,27 +156,25 @@ appliedScope app uses = app.formType :: app.form :: replicate uses (UN (Basic (k
 ||| form, its second parameter, applied to the use's arguments, its
 ||| parameters after it, as the form is applied wherever a scope binds it
 ||| (`Terms.implementationAt`), on a path of its own, at the type the use
-||| gives. Its parameters are classified over `Instances.applicationType`,
-||| the form's type keying it first, in the scope `appliedScope` names. It
-||| has no loop of its own: what its form calls is the callee's.
+||| gives. Its signature, read once where it was requested, is
+||| `Instances.applicationType` classified, the form's type keying it
+||| first, in the scope `appliedScope` names. It has no loop of its own:
+||| what its form calls is the callee's.
 translateApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Nat -> Front ()
 translateApplication p uses = do
   let owner = show p.owner
   let fc = p.site
+  let sig = p.signature
   app <- (.application) <$> reading
-  (found, resTy) <- classifyInstance fc owner (2 + uses) app.type (givenArgs p.kinds)
-  let kinds = toList found
-  resTy' <- normaliseClosed resTy
-  result <- coreType fc owner ValueType resTy'
-  (params, env) <- pure (runtimeParams 0 (appliedScope app uses) kinds)
+  let (names, env) = runtimeParams 0 (appliedScope app uses) sig.kinds
   let (_ :: form :: arguments) = variablesOf (appliedScope app uses)
   -- No definition is translated, so what its result is the instance
   -- decides.
-  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True resTy' ByInstance p) env resTy'
+  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True sig.result ByInstance p) env sig.result
                  (foldl (App fc) form arguments)
   loc <- toLoc fc
-  updateState (derive { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params
-                                                      result body loc Acyclic) })
+  updateState (derive { fns $= insert p.inst (MkTFn p.key (telescopeOf sig.kinds) (Runtimes sig.kinds) sig.callee names
+                                                      body loc Acyclic) })
 
 ||| Translates one function instance, of a definition or of a member at a
 ||| use. An instance given an implementation that holds a choice the
@@ -187,7 +185,7 @@ translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Requ
 translateInstance p = case p.instantiates of
   OfDefinition n _ => translateDefinition p n
   AtUse uses => do
-    Nothing <- heldChoice p.kinds
+    Nothing <- heldChoice p.signature.kinds
       | Just (before, chosen, after, ty) => heldDispatch p before chosen after ty
     translateApplication p uses
 
@@ -207,17 +205,23 @@ step found r = do
   translateInstance r
   (.derived) <$> getState
 
+||| The instance of `main` the root calls, requested: what it instantiates,
+||| `main` at the arity its definition has, and its signature.
+mainInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> FC -> Name -> Front InstanceSig
+mainInstance fc main = do
+  d <- lookupDef fc (show main) main
+  let PMDef _ params _ = definition d.def
+    | _ => reject (location d.def) (show (fullname d.def)) DefinitionShape "not a pattern-matching definition"
+  request fc (show main) (OfDefinition main (length params)) []
+
 ||| The root's request, as a step derives it (`step`): the instance of
 ||| `main` the root calls, requested, and what requesting it derived.
 export
 mainRequest : {auto c : Ref Ctxt Defs} -> FC -> Name -> (found : TS) -> Front (FnId, Derived)
 mainRequest fc main found = do
   s <- core (newRef TState ({ derived := startingFrom found.table } found))
-  d <- lookupDef fc (show main) main
-  let PMDef _ params _ = definition d.def
-    | _ => reject (location d.def) (show (fullname d.def)) DefinitionShape "not a pattern-matching definition"
-  inst <- request fc (show main) (OfDefinition main (length params)) []
-  pure (inst, (!getState).derived)
+  sig <- mainInstance fc main
+  pure (sig.callee.fn, (!getState).derived)
 
 ||| Every dispatch written as the function it is (`dispatchers`), as a step
 ||| derives it (`step`).
@@ -294,7 +298,7 @@ export
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Front (Maybe Source)
 translateIOProgram fc main = do
-  Just inst <- core (translateFrom (mainRequest fc main) step)
+  Just _ <- core (translateFrom (mainRequest fc main) step)
     | Nothing => pure Nothing
   let [<] = (!(getState)).rejected
     | _ => pure Nothing
@@ -303,30 +307,31 @@ translateIOProgram fc main = do
   -- merged into the instance table with what every step derived.
   written <- dispatched !getState
   updateState { table $= \t => merged t written }
-  st <- getState
   let owner = show main
   let notIO = reject fc owner ProgramShape "main must have type IO ()"
-  -- The worklist translates every instance requested, main's first, and
-  -- writes each one's function in the table this reads, by an identity
-  -- the table's type does not tie to a function.
-  let Just mainFn = lookup inst st.table.fns
-    | Nothing => internal fc "main was not translated"
-  let FunT (MkBinder _ WorldT) res@(DataT _ _) = mainFn.result
+  -- Main was requested first, so requesting it again reads the signature
+  -- every call of it holds.
+  sig <- mainInstance fc main
+  let FunT (MkBinder _ WorldT) res@(DataT _ _) = sig.callee.result
     | _ => notIO
+  -- An action takes no argument but the world, which its value is applied
+  -- to; a `main` that takes one is no `IO ()`.
+  let Yes noArgument = decEq (Runtimes sig.kinds) 0
+    | No _ => notIO
+  st <- getState
   -- The root is code of no module, at the generated location: the world is
   -- its parameter, and main's value its action. A binder is known by its
   -- name over its own span, and this one has none, so it is no Idris
   -- binder's whatever it is called.
   let loc = noLoc
   let body : Term 1
-      body = App loc (Call loc inst Nothing [] []) (Var loc FZ)
+      body = App loc (Call loc sig.callee Nothing [] (rewrite noArgument in [])) (Var loc FZ)
   -- The root is the one function of no definition, so no instance is it;
   -- its symbol is its key printed, as every symbol is.
-  let rootId = RootFn
   let rootKey = MkInstanceKey "$idris-mlir.root" NoArguments Whole
   -- The root is the `ProgramRoot` hook's code, `unsafePerformIO main`. It
   -- has no loop of its own; what main does is main's, which the passes find
   -- through the call.
-  let root = MkTFn rootId (keyText rootKey) rootKey [] 1 [(shown "world", MkBinder Once WorldT)]
-                   res body loc Acyclic
+  let root = MkTFn rootKey [] 1 (MkCallee RootFn (keyText rootKey) [MkBinder Once WorldT] res) [shown "world"]
+                   body loc Acyclic
   pure (Just (assemble st.table root))
