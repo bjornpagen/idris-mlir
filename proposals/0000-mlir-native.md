@@ -1717,20 +1717,32 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   compiled programs link keeps its own profile, where a check is a fatal
   error and `NDEBUG` stays, so a program's speed does not pay for the
   compiler's debugging.
-- **D116** (2026-10-22; the owner; binding, and the guard on D113). "to
-  be crystal clear, i only care that upstrmea compiles our idris-mlir,
-  and i don't care about idris-mlir compiling upsteram." "please lock
-  this in so you never make this mistake again. you were about to
-  reverse one of our most important decisions." Stock Idris on Chez
-  compiles all of our Idris: the frontend, the fork, the specification,
-  the libraries and the test machinery. That is the one host our code
-  must build on. idris-mlir compiling upstream's code, the fork (which is
-  Idris's compiler) above all, is no goal and never a reason for
-  anything. The language idris-mlir accepts stays the strict subset
-  AGENTS.md states: monomorphic by the whole program, megamorphic
-  constructs refused. It is never widened so that it can compile our own
-  code or upstream's. C230 and C232, which would have widened it for the
-  fork's restored code, are withdrawn, and C231 stands as first written.
+- **D116** (2026-10-22; the owner; binding). "to be crystal clear, i
+  only care that upstrmea compiles our idris-mlir, and i don't care about
+  idris-mlir compiling upsteram." Then, the same hour: "idris-mlir must
+  self host idris-mlir, that is obviously a goal. it must be compisable
+  BOTH from upstream idris and our idris-mlir." Our code (the frontend,
+  the specification, the libraries, the test machinery and whatever
+  checks types for us) compiles under both: stock upstream Idris on Chez,
+  the bootstrap, and idris-mlir itself, which self-hosts. idris-mlir
+  compiling upstream's own code is no goal. The language idris-mlir
+  accepts stays the strict subset AGENTS.md defines, and is never widened
+  past that definition. *Corrected* the same hour: the first text of this
+  ruling made upstream the only host and so dropped self-hosting, which
+  reversed the two-hosts decision; the owner's second message restores
+  it. C230 and C232 stay withdrawn pending D117.
+- **D117** (2026-10-22; the owner; the fork). "why do we maintain an
+  upstrema fork? lol. we should purge the fork entirely. there should be
+  only raw upstream, and idris-mlir. if upstream idris miscompiles it for
+  some reason, we should PATCH upstream, not maintain a fork."; "why the
+  fuck are we maintaining a fork of the upstrteam idris compiler? i don't
+  care about upstream at all. our code is gonna be way better. edwin
+  brady's code is just a slop bootstrap." There is no fork of Idris's
+  compiler: `compiler/idris` goes. Raw upstream Idris, pinned and
+  unmodified, is the bootstrap host only, and a bug in it that our code
+  meets is patched in upstream (`upstream/<bug>/`), never forked. What
+  checks the types of the programs idris-mlir compiles, once the fork is
+  gone, is §4's open question (raised 2026-10-22).
 - **C227** (2026-10-22; L16's growth passes; under D68, extends C221).
   An eta-redex around a stuck call reads as both forms. A site's
   `\x => F m x`, with `F` stuck on a marker, contracts to `F m`; at an

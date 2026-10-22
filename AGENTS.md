@@ -581,21 +581,20 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   `foreign/idr/`, an in-tree MLIR dialect in upstream's layout and
   conventions; `PINS.md` records every deliberate deviation from it and
   every pinned workaround.
-- Upstream compiles our Idris; idris-mlir compiling upstream is no goal:
-  "to be crystal clear, i only care that upstrmea compiles our
-  idris-mlir, and i don't care about idris-mlir compiling upsteram"; "you
-  were about to reverse one of our most important decisions"
-  (2026-10-22). Stock Idris on Chez, which may compile it however it
-  chooses, must compile and run all of our Idris: the frontend, the fork,
-  the specification, `libs/` and the Idris test machinery. That is the
-  host our code is written for. The language idris-mlir accepts is the
-  strict subset above, and it is never widened so that idris-mlir can
-  compile our code or upstream's: a construct our best code uses that the
-  subset refuses stays refused. Never: C230 and C232 (2026-10-22), which
-  read "the code is never kept worse to spare the compiler" as "the
-  compiler gains whatever the code uses", and would have pulled types at
-  run time, hidden-type fields and forced indices into the language so
-  that idris-mlir could compile the fork. Linearity is a
+- Two hosts, always, and no fork: "idris-mlir must self host idris-mlir,
+  that is obviously a goal. it must be compisable BOTH from upstream idris
+  and our idris-mlir"; "i don't care about idris-mlir compiling
+  upsteram"; "we should purge the fork entirely. there should be only raw
+  upstream, and idris-mlir" (2026-10-22). Our Idris compiles under stock
+  upstream Idris on Chez, the bootstrap, and under idris-mlir itself, so
+  all of it is written in the strict subset above and uses nothing only
+  one host has. Raw upstream Idris, pinned and unmodified, is the
+  bootstrap host and nothing more; a bug in it is patched upstream, never
+  worked around in a fork. idris-mlir compiling upstream's code is no
+  goal, and the subset is never widened past its definition for any
+  code. Never: a fork of Idris's compiler kept beside upstream
+  (`compiler/idris`, until D117). Never: a ruling recorded as dropping
+  self-hosting (D116's first text, corrected the same hour). Linearity is a
   performance property, never a correctness one: a linear program means
   the same under both hosts, and idris-mlir's optimizations of it (update
   in place, no counting) only make it faster. A primitive of `libs/` (an
