@@ -14,6 +14,7 @@
 // performs no io. Moving a call is licensed by its row alone.
 
 #include "idr/IR/Effects/Whole.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -148,19 +149,59 @@ bool isStatic(Type type) { return freedBy(type, Release::Static); }
 // holding type freed by its count.
 bool counts(Type type) { return freedBy(type, Release::Counted); }
 
+// The callee's extents whose sizes may key a copy at `site`. From outside
+// the callee's call cycle, every one. From inside it, each whose index
+// variables the call gives no closed term but one its caller's body holds
+// as its own: a recursive call that changes a term (`go (S n)`, which the
+// copy at 0 calls at 1) reaches its copy with that axis `?`, as an axis
+// the callee names no extent for. So every size a cycle's copies are keyed
+// at entered the cycle by one of the finitely many calls into it, and
+// specialization on sizes ends with no budget. A term over the caller's
+// own binders is no size, and keys nothing wherever it stands. A layout
+// class keys a copy whatever the site, the shape budget bounding its
+// alphabet; where one keeps an index variable for a data type, the axes
+// that variable names are static with it.
+ExtentsAttr keyedBy(ExtentsAttr extents, IndexArgsAttr args, const CallSite &site) {
+  return idr::match(
+      site, [&](OutsideCycle) { return extents; },
+      [&](const InsideCycle &inside) {
+        // An entry names a binder of the callee, so a callee with one binds
+        // one, and the call gives each a term.
+        if (!extents || extents.getEntries().empty())
+          return extents;
+        SmallVector<families::Term> terms = families::termsOf(args.getTerms(), args.getCount());
+        auto callersOwn = [&](const families::TermNode &node) {
+          if (node.kind != families::TermKind::Level)
+            return true;
+          assert(node.value < terms.size() && "an extent's term names a binder of its function");
+          families::Term term = terms[node.value];
+          return !term.isClosed() || llvm::is_contained(inside.own, term);
+        };
+        SmallVector<ExtentAttr> kept;
+        for (ExtentAttr attr : extents.getEntries())
+          if (llvm::all_of(attr.extent().term.nodes(), callersOwn))
+            kept.push_back(attr);
+        if (kept.size() == extents.getEntries().size())
+          return extents;
+        return ExtentsAttr::get(extents.getContext(), ArrayRef<ExtentAttr>(kept));
+      });
+}
+
 // The signature copy `call` asks of `callee`: its index arguments' layout
 // class where the callee's layout changes under them or a bare tensor
-// argument's extent the callee names becomes a constant, and each parameter
-// that counts made static where the call passes static data, which that
-// copy then counts nothing of. None where neither changes the callee. The
-// copy's signature is the callee's at those index arguments, read through
-// the callee's extents by the one substitution its copy is made by, so
-// each such extent is static in it, and the call casts its operand there.
+// argument's extent the callee names becomes a constant that `site` lets
+// key it, and each parameter that counts made static where the call passes
+// static data, which that copy then counts nothing of. None where neither
+// changes the callee. The copy's signature is the callee's at those index
+// arguments, read through all the callee's extents by the one substitution
+// its copy is made by, so each extent whose term is fixed there is static
+// in it, and the call casts its operand there.
 std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp callee,
-                                         FunctionId calleeId) {
+                                         FunctionId calleeId, const CallSite &site) {
   ExtentsAttr extents = callee.getExtentsAttr();
+  ExtentsAttr keying = keyedBy(extents, call.getIndexArgsAttr(), site);
   std::optional<IndexArgsAttr> classes =
-      families::classesUnder(callee.getFunctionType(), extents, call.getIndexArgsAttr());
+      families::classesUnder(callee.getFunctionType(), keying, call.getIndexArgsAttr());
   FunctionType type = callee.getFunctionType();
   SmallVector<Type> inputs(type.getInputs());
   for (auto [input, arg] : llvm::zip_equal(inputs, call.getArgs()))
@@ -179,11 +220,12 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
 
 FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
                                       const Node *requester, FuncOp callee, FunctionId calleeId,
-                                      const Node *calleeNode, ArrayRef<BindingTime> seen) {
+                                      const Node *calleeNode, ArrayRef<BindingTime> seen,
+                                      const CallSite &site) {
   // A signature copy first: the layout a call's indices fix and the hold
-  // it passes are facts of the call alone, and every later key is composed
-  // over the copy's own parameters.
-  if (std::optional<SignatureWant> copy = signatureOf(arena, call, callee, calleeId))
+  // it passes are facts of the call and where it stands, and every later
+  // key is composed over the copy's own parameters.
+  if (std::optional<SignatureWant> copy = signatureOf(arena, call, callee, calleeId, site))
     return std::optional<Want>(*copy);
 
   // A pattern copy raises nothing; a raise copy only with its own

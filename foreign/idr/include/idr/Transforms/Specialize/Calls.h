@@ -72,14 +72,28 @@ mlir::OwningOpRef<FuncOp> consumerFunction(CallOp call, const Elimination &consu
                                            llvm::SmallVectorImpl<mlir::Value> &free);
 FuncOp buildRaise(FuncOp callee, const RaiseKey &key, mlir::StringAttr name, const Forms &forms);
 
+// Where a call stands to its callee's call cycle, read once from the
+// schedule's components: outside it, or inside it with the closed index
+// terms its caller's body holds as its own (Node's `own`; none for a
+// function the program held). Inside, a size keys a copy only by those
+// terms, so a recursive call that changes a term reaches its copy with
+// that axis `?`.
+struct OutsideCycle {};
+struct InsideCycle {
+  llvm::ArrayRef<families::Term> own;
+};
+using CallSite = std::variant<OutsideCycle, InsideCycle>;
+
 // What a call wants, by kind: its signature copy where its index arguments
 // fix a layout class the callee's layout changes under or a bare tensor
-// argument's extent the callee names, or it passes static data where the
-// callee would count; else its raise; else its pattern key.
+// argument's extent the callee names, as `site` lets a size key it, or it
+// passes static data where the callee would count; else its raise; else
+// its pattern key.
 mlir::FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
                                             const Node *requester, FuncOp callee,
                                             FunctionId calleeId, const Node *calleeNode,
-                                            llvm::ArrayRef<BindingTime> seen);
+                                            llvm::ArrayRef<BindingTime> seen,
+                                            const CallSite &site);
 
 // Calling a node.
 llvm::SmallVector<mlir::Value> operandsOf(mlir::RewriterBase &rewriter, CallOp call,

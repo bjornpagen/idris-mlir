@@ -42,7 +42,8 @@ namespace {
 
 // The signature of the function a closure or a suspension names, at the
 // terms its index variables take there, one per binder, as a call's index
-// arguments give them; failure, reported, where none fits.
+// arguments give them, read through the function's extents as a call reads
+// its callee; failure, reported, where none fits.
 FailureOr<FunctionType> calleeAt(Operation *op, FlatSymbolRefAttr callee, IndexArgsAttr args,
                                  SymbolTableCollection &symbols) {
   auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(op, callee);
@@ -56,7 +57,7 @@ FailureOr<FunctionType> calleeAt(Operation *op, FlatSymbolRefAttr callee, IndexA
                               << ", which binds " << binding;
     return failure();
   }
-  return families::substitute(fn.getFunctionType(), args);
+  return families::substitute(fn.getFunctionType(), fn.getExtentsAttr(), args);
 }
 
 // The cell is in the state of a label that memoizes: a label run by name

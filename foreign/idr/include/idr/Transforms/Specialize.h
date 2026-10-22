@@ -8,10 +8,19 @@
 // of the arguments (a constructor, a closure's label with what it
 // captures, a constant), compared by a well-quasi-order and lifted where
 // two keys of one shape differ, so a recursion keeps finitely many copies.
-// The other alphabets are finite: the layout class of a call's index
-// arguments, the hold of a static argument where the callee would count,
-// a lifetime's mode, a grade copy of counting's. Their keys are compared by
-// equality and never lifted; their number is bounded by the alphabet. Every
+// The other keys are compared by equality and never lifted, and are
+// finitely many by construction. The layout class of a call's index
+// arguments, the hold of a static argument where the callee would count, a
+// lifetime's mode and a grade copy of counting's are each drawn from a
+// finite alphabet. A size an axis becomes is not: the naturals are
+// unbounded. A size keys a copy only from a call outside its callee's call
+// cycle, or from one inside it whose terms for that axis are terms its
+// caller's body holds as its own; a recursive call that changes the term
+// (`go (S n)` called at 0) reaches the copy with that axis `?`. So every
+// size the copies of a cycle are keyed at entered it by one of the
+// finitely many calls into it, and specialization on sizes ends with no
+// budget and no number; an axis is static besides only where a layout
+// class fixes its index variable, which the class alphabet bounds. Every
 // copy starts as a clone of its owner, so every parameter keeps the grade
 // the owner gave it unless the key itself changes it.
 //
@@ -181,8 +190,9 @@ struct RaiseKey {
 // where the index term naming it becomes a constant, a parameter's hold
 // made static where the caller passes static data, a lifetime parameter's
 // kind fixed, a grade copy's grades. The target signature and the index
-// terms substituted are the key; the alphabet is finite (the class set,
-// the holds, the kinds, the grades are), so no order and no lift is needed.
+// terms substituted are the key. The classes, holds, kinds and grades are
+// finite alphabets, and the sizes are those that entered each call cycle
+// from outside it, so no order and no lift is needed.
 struct SignatureKey {
   FunctionId owner;
   mlir::FunctionType signature;
@@ -261,7 +271,8 @@ const PatternKey *liftOver(Arena &arena, const PatternKey &key,
 //===----------------------------------------------------------------------===//
 
 // How the keys of an alphabet are compared: by a well-quasi-order with a
-// lift (the patterns), or by equality alone (a finite alphabet).
+// lift (the patterns), or by equality alone (keys finitely many by how
+// they are asked).
 struct Embedding {};
 struct Equality {};
 

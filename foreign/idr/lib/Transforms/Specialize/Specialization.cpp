@@ -16,6 +16,7 @@
 // carries into its body, and a static hold makes counting count nothing of
 // what the parameter holds.
 
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Specialize/Calls.h"

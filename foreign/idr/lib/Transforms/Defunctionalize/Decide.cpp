@@ -282,7 +282,8 @@ FailureOr<std::unique_ptr<Decision>> Decision::decide(ProgramOp program, const L
       return failure();
     auto indices = IndexArgsAttr::get(d.ctx, family.at.getIndices(),
                                       family.at.getGroup().indices(family.at.getMember()).size());
-    FunctionType at = families::substitute(force->getFunctionType(), indices);
+    FunctionType at =
+        families::substitute(force->getFunctionType(), force->getExtentsAttr(), indices);
     family.force = Dispatcher{*force, FlatSymbolRefAttr::get(force->getSymNameAttr()), indices,
                               at.getInput(0), at.getResult(0)};
     d.made.push_back(*force);

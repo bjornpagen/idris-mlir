@@ -107,9 +107,15 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
     // given before the call, so where the family's indices solve the
     // label's binders the label's value is the family's with nothing after
     // the call; else the case's refinement checks the reindex of its value.
-    // The decision converted the function's type before this body.
+    // The decision converted the function's type before this body. The
+    // captures are given at the label function's own parameter types at
+    // those terms, its type read with no extents: the call is of that
+    // function, never a copy, and extents only make a bare tensor input's
+    // axis static where a term is a size, a type only a copy takes, while
+    // the cell's fields keep `?` there as the function does, and a call
+    // meets its callee's view by shape compatibility.
     IndexArgsAttr given = givenBinders(own, tag, depth);
-    FunctionType bound = families::substitute(target.getFunctionType(), given);
+    FunctionType bound = families::substitute(target.getFunctionType(), ExtentsAttr(), given);
     auto call = [&](ValueRange captures) {
       SmallVector<Value> args;
       for (auto [capture, param] : llvm::zip_equal(captures, bound.getInputs()))

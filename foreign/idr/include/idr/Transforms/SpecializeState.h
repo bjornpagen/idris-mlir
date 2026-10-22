@@ -9,6 +9,7 @@
 #ifndef IDR_TRANSFORMS_SPECIALIZESTATE_H
 #define IDR_TRANSFORMS_SPECIALIZESTATE_H
 
+#include "idr/IR/Families/Terms.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Specialize.h"
 
@@ -69,6 +70,16 @@ struct Node {
   // keys on a request chain are read as a set, and its order is never.
   llvm::SmallVector<const Node *> parents;
   Phase phase = Requested{};
+  // What its body holds, which decides what a call in it may key a size by.
+  // `own`: each closed index term its body holds where the code it came
+  // from named an index variable, a set; a function the program held has
+  // none, its own terms being its binders. `cycles`: the origins whose call
+  // cycles the code it holds is from, a set. A copy holds its owner's body,
+  // with the terms its signature key fixed put in, and a raise copy the
+  // consumer of each function that asked for it too, whose calls are that
+  // function's and stand in its cycles wherever the copy's origin is.
+  llvm::SmallVector<families::Term> own;
+  llvm::SmallVector<FunctionId, 1> cycles;
 };
 
 // The consumer forms raising has met: each a detached function, interned
@@ -96,13 +107,15 @@ private:
 // What a turn asked for at one call, kept by its requester until the wave
 // settles, when it joins the table: the key, the name its copy takes (the
 // key's digest, so the call names the copy before the copy exists), what
-// the copy is to its origin's recursion, the origin, the node whose copy
-// asked (none for a function the program held), and where it was asked.
+// the copy is to its origin's recursion, the origin, the function that
+// asked and its node (none for a function the program held), and where it
+// was asked.
 struct Asked {
   Key key;
   mlir::FlatSymbolRefAttr name;
   std::optional<CopyKind> copy;
   FunctionId origin;
+  FunctionId asker;
   const Node *parent;
   mlir::Location at;
 };

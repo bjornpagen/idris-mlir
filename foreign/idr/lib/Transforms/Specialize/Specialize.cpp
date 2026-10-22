@@ -18,8 +18,13 @@
 // pairwise distinct shapes, none growing one given before it, and the
 // embedding being a well-quasi-order, they are finitely many. A raise key
 // grows nothing and is never lifted: its forms are finitely many, each a
-// consumer of code the program holds. A signature key's alphabet is
-// finite.
+// consumer of code the program holds. A signature key is finitely many
+// classes, holds, kinds and grades, and sizes: a size keys a copy only from
+// a call outside its callee's call cycle, or from one inside it whose
+// terms for that axis are terms its caller's body holds as its own (Node's
+// `own` and `cycles`, made here as each node joins the table), so every
+// size a cycle's copies are keyed at entered it by one of the finitely many
+// calls into it.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Optimize.h"
@@ -153,6 +158,56 @@ StringAttr nameFor(const Key &key, StringAttr owner, const Forms &forms) {
       });
 }
 
+// Each of `from` that `into` lacks: both are sets.
+template <class T>
+void addNew(SmallVectorImpl<T> &into, ArrayRef<T> from) {
+  for (const T &each : from)
+    if (!llvm::is_contained(into, each))
+      into.push_back(each);
+}
+
+// What a node's copy holds of its owner, whose node is `owner` (none for a
+// function the program held): the owner's body, with its terms and in its
+// cycles, and its origin's cycle; and, of a signature key, each closed term
+// it put where the owner named the binder it fixes.
+void holdOwned(Node &node, const Node *owner) {
+  node.cycles.push_back(node.origin);
+  if (owner) {
+    addNew<families::Term>(node.own, owner->own);
+    addNew<FunctionId>(node.cycles, owner->cycles);
+  }
+  idr::match(
+      node.key,
+      [&](const SignatureKey *key) {
+        SmallVector<families::Term> fixed;
+        for (families::Term term :
+             families::termsOf(key->indices.getTerms(), key->indices.getCount()))
+          if (term.isClosed())
+            fixed.push_back(term);
+        addNew<families::Term>(node.own, fixed);
+      },
+      [](OneOf<const PatternKey *, const RaiseKey *> auto) {});
+}
+
+// A raise copy holds the consumer of a function that asked for it: that
+// function's code, with the terms its body holds and in its cycles, read
+// off its node `asker`; a function the program held, with none, holds no
+// term and is its own cycle's origin, `origin`. Essential, two kinds: only
+// a raise takes in code its owner did not hold.
+void holdConsumer(Node &node, const Node *asker, FunctionId origin) {
+  idr::match(
+      node.key,
+      [&](const RaiseKey *) {
+        if (!asker) {
+          addNew<FunctionId>(node.cycles, ArrayRef<FunctionId>(origin));
+          return;
+        }
+        addNew<families::Term>(node.own, asker->own);
+        addNew<FunctionId>(node.cycles, asker->cycles);
+      },
+      [](OneOf<const PatternKey *, const SignatureKey *> auto) {});
+}
+
 } // namespace
 
 FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requester &asking,
@@ -215,7 +270,9 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
   };
 
   // A pattern key as judged (refused, as asked, or lifted); the others as
-  // asked, since their alphabets are finite.
+  // asked, since their keys are finitely many by how they are asked: a
+  // raise's forms by the code the program holds, a signature's sizes by the
+  // calls into each cycle, which the call's decision read.
   std::optional<Key> judged = idr::match(
       want,
       [&](const PatternWant &pattern) -> std::optional<Key> {
@@ -266,7 +323,7 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
         holder && identityOf(holder->key) != identityOf(key))
       return emitError(at->getLoc())
              << "internal error: idr-optimize: two keys name the copy @" << name.getValue();
-  Asked asked{key, named, copy, origin, mine, at->getLoc()};
+  Asked asked{key, named, copy, origin, requester, mine, at->getLoc()};
   // Its own key, asked by a copy of its own recursion, is the copy's own
   // call already, and waits on nothing.
   if (!mine || identityOf(mine->key) != identityOf(key))
@@ -293,7 +350,8 @@ FailureOr<SmallVector<Node *>> Nodes::admit(SmallVector<Asked> asked) {
       return twoKeys(each);
     previous = &each;
     Node *&slot = s.byKey[identityOf(each.key)];
-    if (!slot) {
+    bool fresh = !slot;
+    if (fresh) {
       // A name the program holds is a node placed by an earlier wave, which
       // another key took, or a function the program held when the run
       // began, the copy an earlier run made of this key.
@@ -302,6 +360,8 @@ FailureOr<SmallVector<Node *>> Nodes::admit(SmallVector<Asked> asked) {
         return twoKeys(each);
       Node &node =
           s.nodes.emplace_back(Node{each.key, each.copy, each.origin, each.name, {}, Requested{}});
+      // Its owner is the callee its asker read, placed before any turn ran.
+      holdOwned(node, s.placedAt(ownerOf(each.key)));
       if (earlier) {
         node.phase = Placed{*earlier};
         s.placeAt(*earlier, node);
@@ -319,6 +379,11 @@ FailureOr<SmallVector<Node *>> Nodes::admit(SmallVector<Asked> asked) {
     if (waiting && each.parent && each.parent != &node &&
         !llvm::is_contained(node.parents, each.parent))
       node.parents.push_back(each.parent);
+    // Every ask of a wave is admitted before its nodes are built and their
+    // turns run, so a raise copy holds each consumer its wave asked with,
+    // whatever order the asks came in.
+    if (fresh || waiting)
+      holdConsumer(node, each.parent, s.schedule.originOf(each.asker));
   }
   return made;
 }

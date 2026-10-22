@@ -34,14 +34,33 @@ using namespace detail;
 
 namespace {
 
-// The binding times of a callee's parameters as a call in `requester`
-// sees them: within the recursion of the component both stand for, the
-// callee's own; entering that component from outside, each is fixed.
-SmallVector<BindingTime> seenBy(const optimize::Schedule &schedule, FunctionId requester,
-                                FunctionId callee, const optimize::Readable &read) {
-  if (schedule.sameComponent(schedule.originOf(requester), schedule.originOf(callee)))
-    return SmallVector<BindingTime>(read.times);
-  return SmallVector<BindingTime>(read.fn.getNumArguments(), BindingTime::Fixed);
+// Where a call in `self`, whose node is `node` (none for a function the
+// program held), stands to the call cycle of `callee`: inside it where the
+// callee's origin is of one component of the schedule with a cycle whose
+// code `self` holds (its own origin's, or for a raise copy a consumer's
+// too), and outside it otherwise. The one reading of the program graph's
+// components, as waits joined them, for both what a call's arguments vary
+// by and what sizes it may key.
+CallSite siteOf(const optimize::Schedule &schedule, FunctionId self, const Node *node,
+                FunctionId callee) {
+  FunctionId theirs = schedule.originOf(callee);
+  auto inside = [&](FunctionId cycle) { return schedule.sameComponent(cycle, theirs); };
+  if (!node)
+    return inside(schedule.originOf(self)) ? CallSite(InsideCycle{}) : CallSite(OutsideCycle{});
+  if (llvm::any_of(node->cycles, inside))
+    return InsideCycle{node->own};
+  return OutsideCycle{};
+}
+
+// The binding times of a callee's parameters as a call sees them: within
+// the recursion of the cycle both stand in, the callee's own; entering it
+// from outside, each is fixed.
+SmallVector<BindingTime> seenBy(const CallSite &site, const optimize::Readable &read) {
+  return idr::match(
+      site, [&](const InsideCycle &) { return SmallVector<BindingTime>(read.times); },
+      [&](OutsideCycle) {
+        return SmallVector<BindingTime>(read.fn.getNumArguments(), BindingTime::Fixed);
+      });
 }
 
 // The type of the copy a grant names, known from the key before the copy
@@ -117,8 +136,9 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
       continue;
     FailureOr<std::optional<Want>> want = std::optional<Want>();
     if (std::optional<optimize::Readable> known = schedule.final(*callee)) {
+      CallSite site = siteOf(schedule, self, requester, *callee);
       want = decide(nodes.arena(), nodes.forms(), call, requester, known->fn, *callee,
-                    nodes.find(*callee), seenBy(schedule, self, *callee, *known));
+                    nodes.find(*callee), seenBy(site, *known), site);
     } else if (schedule.sameComponent(self, *callee)) {
       // The beta step: closures built for this call alone, applied to a
       // member of the component, keyed by those closures, so their cells

@@ -232,12 +232,20 @@ MatchId Decision::matchOver(Type value, unsigned depth) {
   }
   // Essential, two families: a closure family's cases call its labels; a
   // memo family's labels run in its dispatch function, and its cases call
-  // none.
+  // none. A case calls its label's own function, never a copy, so its
+  // operands are given at that function's parameter types at the case's
+  // terms, which the converted signature read with no extents is: extents
+  // only make a bare tensor input's axis static where a term is a size, a
+  // type only a copy takes, while a closure's carrier and its family's
+  // fields keep `?` there as the function does, and a call meets its
+  // callee's view by shape compatibility. Its results are the function's
+  // either way.
   if (std::optional<families::ClosuresView> closures = family.closures())
-    for (auto [label, taken] : llvm::zip_equal(closures->labels(), made.cases))
-      made.callees.push_back(
-          Callee{labels.function(label.fn.getAttr()), label.fn,
-                 families::substitute(signature(graph.id(label.fn)).converted, taken.given)});
+    for (auto [label, taken] : llvm::zip_equal(closures->labels(), made.cases)) {
+      FunctionType bound = families::substitute(signature(graph.id(label.fn)).converted,
+                                                ExtentsAttr(), taken.given);
+      made.callees.push_back(Callee{labels.function(label.fn.getAttr()), label.fn, bound});
+    }
   matches.push_back(std::move(made));
   return found->second;
 }
