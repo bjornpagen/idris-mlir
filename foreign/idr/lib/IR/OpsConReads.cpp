@@ -21,6 +21,27 @@
 using namespace mlir;
 using namespace idr;
 
+namespace {
+
+// Whether the read of field `index` of constructor `tag` of `data`, whose
+// type there is `field`, re-packs its slot by building.
+bool readBuilds(DataType data, Tag tag, unsigned index, Type field) {
+  auto laidOut = [](DataType type, Tag at) { return Layouts::fieldsAt(type, at); };
+  Type slot = Layouts::fieldsAt(data.unrefined(), tag)[index];
+  return families::builds(slot, field, laidOut);
+}
+
+} // namespace
+
+bool idr::families::fieldReadBuilds(Type container, unsigned index) {
+  auto data = dyn_cast<DataType>(unrestricted(container));
+  if (!data || !data.singleTag())
+    return false;
+  Tag tag = *data.singleTag();
+  std::optional<SmallVector<Type>> fields = data.determinedFields(tag);
+  return fields && index < fields->size() && readBuilds(data, tag, index, (*fields)[index]);
+}
+
 std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
   auto data = dyn_cast<DataType>(unrestricted(value));
   if (!data || !data.singleTag())
@@ -40,14 +61,10 @@ std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
     return field;
   Type read = fieldType(value, unrestricted(field), usesOf(field),
                         fieldReach(data.ctor(tag).fields[index]));
-  // A read whose slot is laid out apart from the field's type re-packs it,
-  // and one whose re-pack builds a cell or an array gives a fresh value,
-  // counted and claimed unique whatever the container's hold, so counting
-  // frees it as any fresh value. The slot is laid out at the unrefined
-  // application's field, as the layouts lay it out.
-  auto laidOut = [](DataType type, Tag at) { return Layouts::fieldsAt(type, at); };
-  Type slot = Layouts::fieldsAt(data.unrefined(), tag)[index];
-  if (families::builds(slot, field, laidOut))
+  // A read whose slot's re-pack builds a cell or an array gives a fresh
+  // value, counted and claimed unique whatever the container's hold, so
+  // counting frees it as any fresh value (fieldReadBuilds).
+  if (readBuilds(data, tag, index, field))
     return atHold(read, Hold::counted(Unique::Self));
   return read;
 }

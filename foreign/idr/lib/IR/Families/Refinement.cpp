@@ -219,21 +219,21 @@ LogicalResult NumeralOfNatOp::verify() {
   return success();
 }
 
-// A constant numeral's value is the number of its successor's layers, read
-// off its run of cells, however long.
+// The number of a constant numeral's successor layers, read off its run of
+// cells, however long: each run's last cell holds the next constant of the
+// numeral, a field of the numeral's own type, until a cell of its zero.
+uint64_t idr::families::numeralValue(ConAttr numeral) {
+  uint64_t layers = 0;
+  for (ConAttr at = numeral; at && !at.getData().ctor(at.getTag()).fields.empty();
+       at = dyn_cast<ConAttr>(at.getCell(at.getRunLength() - 1)[0]))
+    layers += at.getRunLength();
+  return layers;
+}
+
+// A constant numeral's value is its successor layers.
 OpFoldResult NumeralToNatOp::fold(FoldAdaptor adaptor) {
   auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
   if (!con)
     return {};
-  DataType numeral = numeralOf(getValue().getType());
-  uint64_t layers = 0;
-  for (ConAttr at = con;;) {
-    if (at.getData().ctor(at.getTag()).fields.empty())
-      break;
-    layers += at.getRunLength();
-    at = dyn_cast<ConAttr>(at.getCell(at.getRunLength() - 1)[0]);
-    if (!at || at.getData().getGroup() != numeral.getGroup())
-      return {};
-  }
-  return BigAttr::get(getContext(), APInt(64, layers));
+  return BigAttr::get(getContext(), APInt(64, families::numeralValue(con)));
 }

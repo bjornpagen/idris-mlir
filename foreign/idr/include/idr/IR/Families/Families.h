@@ -213,6 +213,18 @@ bool builds(mlir::Type from, mlir::Type to, FieldTypes &&fieldTypes) {
   return false;
 }
 
+// The value of `numeral`, a constant of a family of numeral shape: the
+// number of its successor's layers, read off its run of cells.
+uint64_t numeralValue(ConAttr numeral);
+
+// Whether reading field `index` of a value of `container`, refined to one
+// constructor, re-packs its slot (the field as the unrefined application's
+// layout lays it out) into the field's type by building a cell or an array
+// (builds), so the read gives a fresh value; false where the container
+// gives no such read. Made where a verifier or a builder asks, since it may
+// make types.
+bool fieldReadBuilds(mlir::Type container, unsigned index);
+
 // Whether a value of `type` can reach a closure or a suspension: one the
 // type names itself, or one a data type it names reaches, which that type's
 // family computed when it was made (FamilyAttr::closureReach), so nothing
