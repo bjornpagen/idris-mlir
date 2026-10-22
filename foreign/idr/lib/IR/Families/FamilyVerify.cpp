@@ -6,7 +6,8 @@
 // equation of one term per index, each term naming only its binders and of
 // its position's sort, every binder occurring somewhere (one that occurs
 // nowhere is an erased proof, which is not declared), and fields that are
-// field types, graded by their uses alone. An array field is its buffer,
+// field types, graded by their uses alone, but a frame's, which keep their
+// values' whole grades. An array field is its buffer,
 // never a tensor. Whether a level's binder is of the sort its position
 // asks is read here too, since a declaration is its own scope; what a
 // value's type may name is the function's scope walk's.
@@ -120,9 +121,13 @@ bool holds(Holder holder, Type value) {
 LogicalResult verifyField(EmitError emitError, StringRef label, Type field,
                           ArrayRef<Sort> binders, ArrayRef<Member> own,
                           llvm::SmallDenseSet<uint64_t> &named, Holder holder) {
+  // Essential, two holders: a constructor's field holds what the value it
+  // is read from holds, so it is graded by its uses alone; a frame, pushed
+  // once and popped once and freeing nothing, keeps each value at its whole
+  // grade, its quantity and its claim, and gives it back so.
   Type value = field;
   if (auto graded = dyn_cast<GradedType>(field)) {
-    if (graded.getUses() != Uses::Once || graded.getHold())
+    if (holder == Holder::Constructor && (graded.getUses() != Uses::Once || graded.getHold()))
       return emitError() << "@" << label << " has the field " << field
                          << ", graded but by its uses alone, and only to say it is used once";
     value = graded.getCarrier();

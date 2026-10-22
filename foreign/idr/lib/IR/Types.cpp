@@ -303,9 +303,6 @@ Layout DataType::layout() const { return getImpl()->facts.layout; }
 Class DataType::cls() const { return getImpl()->facts.cls; }
 uint32_t DataType::components() const { return getImpl()->facts.components; }
 bool DataType::boundsReach() const { return getImpl()->facts.reach == Reach::Bounded; }
-ArrayRef<FieldRef> DataType::inPlaceFields() const {
-  return getGroup().inPlaceFields(getMember());
-}
 ArrayRef<MemberRef> DataType::selfCells() const { return getGroup().selfCells(getMember()); }
 uint32_t DataType::freeLevels() const { return getImpl()->freeLevels; }
 

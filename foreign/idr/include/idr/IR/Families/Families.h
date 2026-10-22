@@ -12,7 +12,7 @@
 // `!idr.data<#T {@A, @B}>`, or, where a constructor binds an index variable
 // its family's indices do not determine, to that constructor with its
 // binders' terms, `!idr.data<#Ex @MkEx<v3>>`. What a case of a match binds,
-// what idr.con builds and what idr.field reads is such a refined value. The
+// what idr.data.con builds and what idr.data.field reads is such a refined value. The
 // refinement is normalized when the type is made: the constructors the
 // indices exclude are dropped, a refinement to every constructor the
 // indices allow is none, and binders the indices determine are not kept, so
@@ -138,7 +138,8 @@ bool instanceOf(mlir::Type instance, mlir::Type pattern);
 
 // The type at which field `index` of a value of type `value` is read: its
 // carrier, at the value's uses times the field's, its hold read from the
-// value's, as a case binds a pattern variable. None where the type fixes no
+// value's, as a case binds a pattern variable; a frame's field at the whole
+// grade its declaration keeps the value at. None where the type fixes no
 // constructor whose binders it determines, or that constructor has no field
 // `index`. Every op that reads a field (idr.data.field, a cell's take and
 // unpack) infers its result with it.

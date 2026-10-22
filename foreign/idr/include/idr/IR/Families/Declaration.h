@@ -105,7 +105,8 @@ struct MemoMember {
 // stack per awaited result. Its one index is a natural (each constructor's
 // equation `nat j`), its constructors ordinary ones whose fields hold what
 // a frame keeps (any field type, lifetimes, packages, reuse tokens and
-// destinations among them); a constructor's field of its own member is the
+// destinations among them), each at the whole grade the value has, given
+// back so at the pop; a constructor's field of its own member is the
 // frame below, and one with none is a base frame, which takes a fresh
 // chunk. A frame is pushed once and popped by one resume, so the stack is
 // linear by its type and never counted.
@@ -114,14 +115,6 @@ struct FramesMember {
   llvm::ArrayRef<CtorDecl> ctors;
 
   bool operator==(const FramesMember &) const = default;
-};
-
-// A constructor's field: its tag and its position.
-struct FieldRef {
-  Tag tag;
-  uint32_t field;
-
-  bool operator==(const FieldRef &) const = default;
 };
 
 // A member of a family as a claim names it: its group, null for the group

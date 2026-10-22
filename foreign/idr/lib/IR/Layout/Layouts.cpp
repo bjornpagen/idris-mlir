@@ -7,6 +7,8 @@
 // for an array's header each have a representation, so no count refuses a
 // program.
 
+#include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 
@@ -44,30 +46,23 @@ DataType heldData(Type field) {
   return dyn_cast<DataType>(value);
 }
 
+// The field types of constructor `tag` at this application: at the binders
+// its indices determine, or at the constructor's own binders where they
+// leave one open. Either way a member of the group named by position is
+// its data type, laid out as a value of that type is, by its class.
+SmallVector<Type> fieldsAt(DataType type, Tag tag) {
+  if (std::optional<SmallVector<Type>> fields = type.determinedFields(tag))
+    return std::move(*fields);
+  return families::instantiateFields(type.getGroup(), type.ctor(tag).fields, {});
+}
+
 } // namespace
 
-// The components of each field of constructor `tag` at this application:
-// its fields instantiated where the indices determine its binders; at an
-// unknown index, the declared fields, a member of the group itself taking
-// the layout every unknown application of it has (a frame below, or the
-// group's cell).
+// The components of each field of constructor `tag` at this application.
 SmallVector<SmallVector<layout::Component>> Layouts::fieldsOf(DataType type, Tag tag) const {
   SmallVector<SmallVector<layout::Component>> out;
-  if (std::optional<SmallVector<Type>> fields = type.determinedFields(tag)) {
-    for (Type field : *fields)
-      out.push_back(components(field));
-    return out;
-  }
-  Type pointer = LLVM::LLVMPointerType::get(type.getContext());
-  for (Type field : type.ctor(tag).fields) {
-    auto self = dyn_cast<SelfType>(unrestricted(field));
-    if (!self) {
-      out.push_back(components(field));
-      continue;
-    }
-    bool frame = type.getGroup().memberKind(self.getMember()) == MemberKind::Frames;
-    out.push_back({{pointer, frame ? layout::Word::Uncounted : layout::Word::Cell}});
-  }
+  for (Type field : fieldsAt(type, tag))
+    out.push_back(components(field));
   return out;
 }
 
@@ -108,17 +103,18 @@ Layouts::Layouts(Operation *op) : root(op) {
   // walk ends. A cell needs nothing of the cells its fields point to.
   auto heldBy = [](DataType type) {
     SmallVector<DataType> held;
-    for (Tag tag : type.unrefined().possibleTags()) {
-      std::optional<SmallVector<Type>> fields = type.determinedFields(tag);
-      for (Type field : fields ? ArrayRef<Type>(*fields) : type.ctor(tag).fields)
+    for (Tag tag : type.unrefined().possibleTags())
+      for (Type field : fieldsAt(type, tag))
         if (DataType data = heldData(field))
           held.push_back(data.unrefined());
-    }
     return held;
   };
+  // A number has neither slots nor cells: its value is its word. A frame
+  // stack's frames are laid out as cells.
   auto computed = [&](DataType type) {
     return sums.contains(type) || cellLayouts.contains(type) ||
-           (type.layout() != Layout::InPlace && type.layout() != Layout::Cell);
+           (type.layout() != Layout::InPlace && type.layout() != Layout::Cell &&
+            type.layout() != Layout::FrameStack);
   };
   for (size_t at = 0; at < found.size(); ++at) {
     SmallVector<std::pair<DataType, bool>> stack{{found[at].unrefined(), false}};
@@ -140,6 +136,7 @@ Layouts::Layouts(Operation *op) : root(op) {
         sums.try_emplace(type, std::make_unique<layout::SumLayout>(sumOf(type)));
       else
         cellLayouts.try_emplace(type, cellsOf(type));
+      owned.try_emplace(type, ownCellsOf(type));
     }
   }
   for (auto &[type, sum] : sums)
@@ -171,6 +168,13 @@ const layout::CellLayout &Layouts::cells(DataType type) const {
                                  "module held when its layouts were computed");
 }
 
+const layout::OwnCells &Layouts::ownCells(DataType type) const {
+  if (auto it = owned.find(type.unrefined()); it != owned.end())
+    return it->second;
+  llvm::reportFatalInternalError("no own cells of a data type that no value of the module held "
+                                 "when its layouts were computed");
+}
+
 unsigned Layouts::sizeOf(Type component) const {
   if (auto it = measures.find(component); it != measures.end())
     return it->second.first;
@@ -200,6 +204,32 @@ layout::CellLayout Layouts::cellsOf(DataType type) const {
       cell.size = size;
   if (grouped)
     out.group = out.cells.front().words.back().offset;
+  return out;
+}
+
+// Each field a `unique self` claim reaches (fieldReach of its declared
+// type), where its type at this application has cells or slots of its
+// family, is walked as that type; a number's word, a frame stack and every
+// field the claim does not reach are dropped by their counts.
+layout::OwnCells Layouts::ownCellsOf(DataType type) const {
+  layout::OwnCells out;
+  for (uint32_t t = 0, n = type.declaredCount(); t < n; ++t) {
+    SmallVector<layout::SelfDrop> &fields = out.fields.emplace_back();
+    for (auto [declared, field] : llvm::zip_equal(type.ctor(Tag{t}).fields, fieldsAt(type, Tag{t}))) {
+      if (fieldReach(declared) == FieldReach::Other) {
+        fields.push_back(layout::ByCount{});
+        continue;
+      }
+      // A field the claim reaches is of the value's own group, which its
+      // type at the application makes a data type, or of an in_place
+      // family: a data type either way.
+      auto data = cast<DataType>(unrestricted(field));
+      if (data.layout() == Layout::Cell || data.layout() == Layout::InPlace)
+        fields.push_back(layout::OwnCell{data});
+      else
+        fields.push_back(layout::ByCount{});
+    }
+  }
   return out;
 }
 

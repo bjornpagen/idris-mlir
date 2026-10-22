@@ -89,10 +89,18 @@ void IndexAssumeOp::getSuccessorRegions(RegionBranchPoint point,
     successors.emplace_back(&getBody());
     return;
   }
-  successors.emplace_back(getOperation(), getResults());
+  successors.emplace_back(getOperation());
 }
 
 OperandRange IndexAssumeOp::getEntrySuccessorOperands(RegionSuccessor) { return getForwarded(); }
+
+// The body binds each value forwarded; the op's results take what the body
+// yields.
+ValueRange IndexAssumeOp::getSuccessorInputs(RegionSuccessor successor) {
+  if (successor.isOperation())
+    return getResults();
+  return successor.getSuccessor()->getArguments();
+}
 
 // A value enters refined and leaves cast back: the scope walk checks each
 // against the equation, which no context-free comparison sees.

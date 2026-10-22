@@ -192,6 +192,26 @@ struct SumLayout {
   }
 };
 
+// How a drop of a value claimed `unique self` frees one of its fields. A
+// field whose own cells the claim covers (a field of the value's own group,
+// or of an in_place family) and that has cells or slots of its family is
+// freed with no count read, walked as its data type, whose own fields the
+// drop reads next; any other field holds data the claim says nothing of,
+// dropped by its counts.
+struct OwnCell {
+  DataType data;
+};
+struct ByCount {};
+using SelfDrop = std::variant<OwnCell, ByCount>;
+
+// For each declared constructor, by tag, how a drop of a `unique self`
+// value frees each of its fields.
+struct OwnCells {
+  llvm::SmallVector<llvm::SmallVector<SelfDrop>> fields;
+
+  llvm::ArrayRef<SelfDrop> of(Tag ctor) const { return fields[static_cast<uint32_t>(ctor)]; }
+};
+
 // A field of a memref's descriptor (offset, size or stride): a number its
 // type fixes, or carried by the value as a component of its own.
 struct Fixed {
@@ -214,7 +234,10 @@ struct DescriptorFields {
 // How many runtime components a value of `type` takes: a data type's, as its
 // layout says (none for a value in place no constructor of which holds
 // any); an array's cell and the fields of its descriptor its type does not
-// fix; one for every other value.
+// fix; a destination's, one per component of what it takes; a lifetime's,
+// one where its kind is a value at run time and none where it is erased;
+// one for every other value. Made of no type, so a data type asks it of its
+// fields while it is being made.
 uint32_t componentCount(mlir::Type type);
 
 // Whether everything a value of `type` reaches is bounded by its type: a
@@ -257,8 +280,13 @@ public:
   llvm::SmallVector<layout::Component> components(mlir::Type type) const;
   // The slots of `type`, a data type held in place.
   const layout::SumLayout &sum(DataType type) const;
-  // The cells of `type`, a data type held in a cell.
+  // The cells of `type`, a data type held in a cell, or a frame stack's
+  // frames.
   const layout::CellLayout &cells(DataType type) const;
+  // How a drop of a value of `type`, held in a cell or in place, claimed
+  // `unique self` frees its fields: its field types are made here, since
+  // no lowering worker makes a type.
+  const layout::OwnCells &ownCells(DataType type) const;
   // The bytes a component of type `component` takes, as the target lays it
   // out.
   unsigned sizeOf(mlir::Type component) const;
@@ -272,15 +300,18 @@ private:
   layout::Cell cellOf(llvm::ArrayRef<llvm::SmallVector<layout::Component>> fields, Tag tag,
                       bool grouped, MemberKind kind) const;
   // The components of each field of constructor `tag` of `type`, at its
-  // application where its indices determine its binders, at an unknown
-  // index otherwise.
+  // application where its indices determine its binders, at the
+  // constructor's own binders otherwise, a member of the group named by
+  // position its data type.
   llvm::SmallVector<llvm::SmallVector<layout::Component>> fieldsOf(DataType type, Tag tag) const;
   layout::SumLayout sumOf(DataType type) const;
   layout::CellLayout cellsOf(DataType type) const;
+  layout::OwnCells ownCellsOf(DataType type) const;
 
   mlir::Operation *root;
   llvm::DenseMap<DataType, std::unique_ptr<layout::SumLayout>> sums;
   llvm::DenseMap<DataType, layout::CellLayout> cellLayouts;
+  llvm::DenseMap<DataType, layout::OwnCells> owned;
   llvm::DenseMap<mlir::Type, std::pair<unsigned, unsigned>> measures;
 };
 

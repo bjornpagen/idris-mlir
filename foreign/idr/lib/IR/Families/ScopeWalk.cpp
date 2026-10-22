@@ -113,6 +113,9 @@ private:
   };
   Named levelsOf(Type type);
   LogicalResult checkValue(Operation *op, Value value);
+  // The binders `input`'s type gains over `operand`'s as it enters
+  // `region`: none, or the region's own levels.
+  LogicalResult ownBinders(Operation *op, Region &region, Type operand, Type input);
   // `a` and `b` equal under the refinement here, `a` perhaps a data type
   // refined further.
   bool sameHere(Type a, Type b, Narrowing narrowing);
@@ -156,6 +159,31 @@ LogicalResult Walk::checkValue(Operation *op, Value value) {
            << value.getType() << ", which names level " << levels - 1 << " where "
            << stack.back().depth << " index variables are in scope";
   return success();
+}
+
+// A value refined to one constructor as it enters a region (a case's
+// scrutinee) gains that constructor's binders where its indices leave one
+// open: they are the index variables the region binds, its own levels in
+// order, so a field read from it is typed over them. Any other term would
+// say the binder is something the constructor never fixed. A value carried
+// in with its binders keeps them, as the refinement already checked.
+LogicalResult Walk::ownBinders(Operation *op, Region &region, Type operand, Type input) {
+  auto entered = dyn_cast<DataType>(unrestricted(input));
+  if (!entered || entered.getBinders().empty())
+    return success();
+  auto from = dyn_cast<DataType>(unrestricted(operand));
+  if (from && from.getBinders() == entered.getBinders())
+    return success();
+  const Frame &here = stack.back();
+  SmallVector<TermNode> own;
+  TermWriter write(own);
+  for (uint32_t level = here.depthAtOwner; level < here.depth; ++level)
+    write.level(level);
+  if (entered.getBinders() == ArrayRef<TermNode>(own))
+    return success();
+  return op->emitOpError("region #")
+         << region.getRegionNumber() << " binds " << input << ", whose constructor's binders "
+         << "are not the " << here.depth - here.depthAtOwner << " index variables it binds";
 }
 
 bool Walk::sameHere(Type a, Type b, Narrowing narrowing) {
@@ -205,6 +233,8 @@ LogicalResult Walk::enter(Operation *op, Region &region) {
       return op->emitOpError("region #")
              << region.getRegionNumber() << " binds " << input.getType() << " for "
              << operand.getType() << ", which its refinement does not make it";
+    if (index == 0 && failed(ownBinders(op, region, operand.getType(), input.getType())))
+      return failure();
   }
   return success();
 }

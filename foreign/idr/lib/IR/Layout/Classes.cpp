@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The class rule: inline or in a cell is a function of a data type, computed
 // once, when the type is made. A frame stack is a frame stack; a memo sum
-// and a frame stack's answer are cells; a numeral is a number, of a fixed
-// width where its bound is closed and fits one, a natural otherwise. At an
+// is a cell; a numeral is a number, of a fixed width where its bound is
+// closed and fits one, a natural otherwise. At an
 // index that names a level or holds anything opaque (class Unknown), a
 // member of a group that holds itself is a cell and any other is in place
 // over its constructors. At closed indices (class Closed) the application
@@ -123,12 +123,9 @@ uint64_t heightOf(FamilyAttr group, uint32_t member, const Descent &descent,
 }
 
 // The layout a member's kind or shape fixes whatever its constructors hold:
-// a frame stack; a memo sum's cell; a frame stack's answer, written through
-// its base frame's destination into a cell its activation holds; a number.
-// None for a member laid out by its constructors. A frame stack grows with
-// the recursion and a memo cell's force writes it, so neither bounds what
-// it reaches; a frame stack's answer is taken as unbounded, as what it
-// holds is the program's.
+// a frame stack; a memo sum's cell; a number. None for a member laid out by
+// its constructors. A frame stack grows with the recursion and a memo
+// cell's force writes it, so neither bounds what it reaches.
 std::optional<LayoutFacts> fixedLayout(FamilyAttr group, uint32_t member,
                                        ArrayRef<TermNode> indices, Class cls) {
   switch (group.memberKind(member)) {
@@ -137,9 +134,6 @@ std::optional<LayoutFacts> fixedLayout(FamilyAttr group, uint32_t member,
   case MemberKind::Memo:
     return LayoutFacts{cls, Layout::Cell, Refs::References, Reach::Unbounded, 1};
   case MemberKind::Data:
-    if (group.holdsFrames())
-      return LayoutFacts{cls, Layout::Cell, Refs::References, Reach::Unbounded, 1};
-    break;
   case MemberKind::Closures:
     break;
   }

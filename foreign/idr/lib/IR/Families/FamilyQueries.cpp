@@ -25,14 +25,6 @@ ArrayRef<Sort> FamilyAttr::indices(uint32_t member) const {
   return getImpl()->facts[member].indices;
 }
 
-// Whether a member is a frame stack: the group's data members are then the
-// answers its frames await, each a cell its activation holds.
-bool FamilyAttr::holdsFrames() const {
-  return llvm::any_of(getMembers(), [](const Member &member) {
-    return memberKindOf(member) == MemberKind::Frames;
-  });
-}
-
 StringAttr FamilyAttr::label(uint32_t member) const {
   return match(getMembers()[member], [](const auto &m) { return m.label; });
 }
@@ -111,10 +103,6 @@ Refs FamilyAttr::refsAtUnknown(uint32_t member) const {
 
 Reach FamilyAttr::reachAtUnknown(uint32_t member) const {
   return getImpl()->facts[member].reachAtUnknown;
-}
-
-ArrayRef<FieldRef> FamilyAttr::inPlaceFields(uint32_t member) const {
-  return getImpl()->facts[member].inPlaceFields;
 }
 
 ArrayRef<MemberRef> FamilyAttr::selfCells(uint32_t member) const {

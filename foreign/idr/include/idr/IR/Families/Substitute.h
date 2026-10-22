@@ -52,7 +52,7 @@ private:
 mlir::Type mapLevels(mlir::Type type, const LevelMap &map, FamilyAttr own = FamilyAttr());
 
 // The fields of a constructor declared in `group` at the binders' terms
-// `binders`: what a case binds and idr.field reads.
+// `binders`: what a case binds and idr.data.field reads.
 llvm::SmallVector<mlir::Type> instantiateFields(FamilyAttr group, llvm::ArrayRef<mlir::Type> fields,
                                                 llvm::ArrayRef<Term> binders);
 

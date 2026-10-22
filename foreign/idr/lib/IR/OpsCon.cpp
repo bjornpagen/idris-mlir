@@ -13,6 +13,8 @@
 
 #include "llvm/ADT/STLExtras.h"
 
+#include <algorithm>
+
 using namespace mlir;
 using namespace idr;
 
@@ -32,6 +34,36 @@ DataType builtData(Type type) {
 DataType DataConOp::getDataType() { return builtData(getResult().getType()); }
 Tag DataConOp::getTag() { return *getDataType().singleTag(); }
 
+// The cell is new, so nothing but its fields shares what the value
+// reaches: everything stays unshared where every field leaves what it
+// reaches unshared (a field that holds no reference leaves nothing), and
+// the value's own cells stay unshared where every field the claim on them
+// reaches (fieldReach) claims as much; a field it does not reach leaves them
+// unshared whatever it holds.
+Unique DataConOp::freshClaim(DataType carrier, TypeRange fields) {
+  Unique claim = Unique::Deep;
+  for (auto [declared, field] : llvm::zip_equal(carrier.ctor(*carrier.singleTag()).fields, fields)) {
+    std::optional<Hold> hold = holdOf(field);
+    if (!hold)
+      continue;
+    Unique given = hold->claim();
+    if (fieldReach(declared) == FieldReach::Other && given != Unique::Deep)
+      given = Unique::Self;
+    claim = std::min(claim, given);
+  }
+  return claim;
+}
+
+// A fresh value: the carrier at `uses`, counted where it holds references,
+// claiming what its fields leave unshared.
+void DataConOp::build(OpBuilder &builder, OperationState &state, DataType carrier, Uses uses,
+                      ValueRange fields) {
+  std::optional<Hold> hold;
+  if (holdsReferences(carrier))
+    hold = Hold::counted(freshClaim(carrier, fields.getTypes()));
+  build(builder, state, graded(Grade{uses, hold}, carrier), fields);
+}
+
 // The result is refined to one constructor, which its type determines the
 // binders of; the fields given are that constructor's at that application,
 // each filling its field.
@@ -45,9 +77,18 @@ LogicalResult DataConOp::verify() {
   if (getFields().size() != fields.size())
     return emitOpError("expects ") << fields.size() << " fields";
   std::optional<Hold> built = holdOf(getResult().getType());
-  for (auto [value, expected] : llvm::zip_equal(getFields(), fields))
+  for (auto [value, expected] : llvm::zip_equal(getFields(), fields)) {
     if (!fillsField(value.getType(), expected, built))
       return emitOpError("field has type ") << value.getType() << ", expected " << expected;
+    // A frame gives each value back at the hold its field declares, so the
+    // value pushed stands where that hold is asked, or the pop would claim
+    // what the push never had.
+    std::optional<Hold> kept = holdOf(expected);
+    std::optional<Hold> given = holdOf(value.getType());
+    if (data.kind() == MemberKind::Frames && kept && !(given && given->fits(*kept)))
+      return emitOpError("pushes ") << value.getType() << " into a frame that keeps it as "
+                                    << expected;
+  }
   return success();
 }
 

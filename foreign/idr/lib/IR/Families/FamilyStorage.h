@@ -57,10 +57,9 @@ struct MemberFacts {
   std::optional<ListShape> list;
   Refs refsAtUnknown = Refs::Words;
   Reach reachAtUnknown = Reach::Bounded;
-  // The fields whose type is a member of an in_place family, in tag order.
-  ArrayRef<families::FieldRef> inPlaceFields;
   // The members whose cells a `unique self` claim on this one covers: this
-  // one first, then every member an in_place field reaches, recursively.
+  // one first, then every member a field the claim reaches names,
+  // recursively.
   ArrayRef<families::MemberRef> selfCells;
   // The member's index sorts: a frame stack's one natural, every other
   // member's declared.

@@ -351,52 +351,40 @@ idr::detail::FamilyAttrStorage::construct(AttributeStorageAllocator &allocator, 
     f.refsAtUnknown = holds ? Refs::References : Refs::Words;
     f.reachAtUnknown = reach;
   }
-  // A field rebuilt in place with its holder: a member of an in_place
-  // family, of this group (named by position) or of another, which exists
-  // already. What a `unique self` claim covers follows those fields from the
-  // member, through this group's members here and through another group's
-  // own answer, which its storage computed when it was made.
-  auto promiseOf = [&](uint32_t member) {
-    return match(
-        storage->members[member], [](const DataMember &data) { return data.promise; },
-        [](const auto &) { return Promise::None; });
-  };
-  for (auto [index, member] : llvm::enumerate(storage->members)) {
-    SmallVector<FieldRef> inPlace;
-    for (auto [tag, ctor] : llvm::enumerate(ctorsOf(member, facts[index].states)))
-      for (auto [position, field] : llvm::enumerate(ctor.fields)) {
-        Type value = valueOf(field);
-        bool rebuilt = false;
-        if (auto self = dyn_cast<SelfType>(value))
-          rebuilt = promiseOf(static_cast<uint32_t>(self.getMember())) == Promise::InPlace;
-        else if (auto data = dyn_cast<DataType>(value))
-          rebuilt = data.kind() == MemberKind::Data && data.promise() == Promise::InPlace;
-        if (rebuilt)
-          inPlace.push_back({Tag{static_cast<uint32_t>(tag)}, static_cast<uint32_t>(position)});
-      }
-    facts[index].inPlaceFields = allocator.copyInto(ArrayRef<FieldRef>(inPlace));
-  }
+  // The members whose cells a `unique self` claim covers: the member, then
+  // through every field the claim reaches (fieldReach: a field of this
+  // group, named by position, or of an in_place family of another group,
+  // which exists already) each member it names, through this group's
+  // members here and through another group's own answer, which its storage
+  // computed when it was made.
   for (auto [index, member] : llvm::enumerate(storage->members)) {
     SmallVector<MemberRef> covered{{Attribute(), static_cast<uint32_t>(index)}};
     for (size_t at = 0; at < covered.size(); ++at) {
       if (covered[at].group)
         continue;
       uint32_t own = covered[at].member;
-      SmallVector<CtorView> ctors = ctorsOf(storage->members[own], facts[own].states);
-      for (FieldRef ref : facts[own].inPlaceFields) {
-        Type value = valueOf(ctors[static_cast<uint32_t>(ref.tag)].fields[ref.field]);
-        SmallVector<MemberRef> reached;
-        if (auto self = dyn_cast<SelfType>(value)) {
-          reached.push_back({Attribute(), static_cast<uint32_t>(self.getMember())});
-        } else {
-          auto data = cast<DataType>(value);
-          for (MemberRef other : data.selfCells())
-            reached.push_back({other.group ? other.group : Attribute(data.getGroup()), other.member});
+      for (const CtorView &ctor : ctorsOf(storage->members[own], facts[own].states))
+        for (Type field : ctor.fields) {
+          SmallVector<MemberRef> reached;
+          switch (fieldReach(field)) {
+          case FieldReach::OwnFamily:
+            reached.push_back(
+                {Attribute(), static_cast<uint32_t>(cast<SelfType>(valueOf(field)).getMember())});
+            break;
+          case FieldReach::InPlaceFamily: {
+            auto data = cast<DataType>(valueOf(field));
+            for (MemberRef other : data.selfCells())
+              reached.push_back(
+                  {other.group ? other.group : Attribute(data.getGroup()), other.member});
+            break;
+          }
+          case FieldReach::Other:
+            break;
+          }
+          for (MemberRef next : reached)
+            if (!llvm::is_contained(covered, next))
+              covered.push_back(next);
         }
-        for (MemberRef next : reached)
-          if (!llvm::is_contained(covered, next))
-            covered.push_back(next);
-      }
     }
     facts[index].selfCells = allocator.copyInto(ArrayRef<MemberRef>(covered));
   }

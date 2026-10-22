@@ -26,11 +26,17 @@ std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
   std::optional<SmallVector<Type>> fields = data.determinedFields(tag);
   if (!fields || index >= fields->size())
     return std::nullopt;
-  Type declared = data.ctor(tag).fields[index];
-  Recursion recursion =
-      isa<SelfType>(unrestricted(declared)) ? Recursion::OwnFamily : Recursion::Other;
+  // Essential, two holders. A frame keeps each value at its whole grade,
+  // which its field declares, and gives it back so. A constructor's field
+  // holds what the value it is read from holds: how far that value's claim
+  // on its own cells reaches into the field is the field's declaration's
+  // (a field of its own group, or of an in_place family, keeps a `unique
+  // self` claim).
   Type field = (*fields)[index];
-  return fieldType(value, unrestricted(field), usesOf(field), recursion);
+  if (data.kind() == MemberKind::Frames)
+    return field;
+  return fieldType(value, unrestricted(field), usesOf(field),
+                   fieldReach(data.ctor(tag).fields[index]));
 }
 
 //===----------------------------------------------------------------------===//

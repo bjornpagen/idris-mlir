@@ -56,7 +56,8 @@ RegionRefinement caseRefinement(DataType scrutinee, Tag tag);
 // no member of a group by position; every region a refinement leads to that
 // clashes is dead (its body unreachable); every value entering a region is
 // the operand it comes from at the region's refinement, a case's scrutinee
-// perhaps refined to fewer constructors; every idr.data.reindex casts
+// perhaps refined to fewer constructors, the binders of its constructor it
+// gains there the region's own levels; every idr.data.reindex casts
 // between types its enclosing refinements make equal; and every jump passes
 // its target's parameters at its terms.
 class ScopeWalk {

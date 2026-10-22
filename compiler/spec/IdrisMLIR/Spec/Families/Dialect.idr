@@ -14,6 +14,7 @@
 ||| type when it is made.
 module IdrisMLIR.Spec.Families.Dialect
 
+import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Terms
@@ -267,11 +268,9 @@ familyAttr = MkAttrDef
       , MkMember OnObjectConst "::std::optional<::idr::families::ClosuresView>" "closures" [param "uint32_t" "member"]
       , MkMember OnObjectConst "::idr::Refs" "refsAtUnknown" [param "uint32_t" "member"]
       , MkMember OnObjectConst "::idr::Reach" "reachAtUnknown" [param "uint32_t" "member"]
-      , MkMember OnObjectConst "::llvm::ArrayRef<::idr::families::FieldRef>" "inPlaceFields" [param "uint32_t" "member"]
       , MkMember OnObjectConst "::llvm::ArrayRef<::idr::families::MemberRef>" "selfCells" [param "uint32_t" "member"]
       , MkMember OnObjectConst "::mlir::FlatSymbolRefAttr" "labelFunction" [param "uint32_t" "member", param "::idr::Tag" "tag"]
       , MkMember OnObjectConst "::std::optional<::idr::Mode>" "labelMode" [param "uint32_t" "member", param "::idr::Tag" "tag"]
-      , MkMember OnObjectConst "bool" "holdsFrames" []
       , MkMember OnObjectConst "bool" "namesLabels" []
       , MkMember OnObjectConst "::std::string" "aliasName" []
       , MkMember OnClass "::mlir::AbstractAttribute::WalkImmediateSubElementsFn" "getWalkImmediateSubElementsFn" []
@@ -289,7 +288,9 @@ familyAttr = MkAttrDef
 ||| `!idr.data<#F[ts]>`, C++ `DataType`: a member applied to index terms,
 ||| perhaps refined to fewer constructors. Its storage is hand C++: its
 ||| possible constructors, class, layout and references are computed when it
-||| is made and kept beside its key.
+||| is made and kept beside its key. What a value of it holds depends on that
+||| layout, so it answers the value facts through its own members, read from
+||| what was computed, and declares no constant answers.
 export
 dataType : TypeDef 5
 dataType = MkTypeDef
@@ -301,7 +302,7 @@ dataType = MkTypeDef
       , MkParameter "refinement" (HandValue "::mlir::DenseI32ArrayAttr" refinementParam) (DefaultsTo "{}") "the tags of the constructors it is refined to, ascending; none unrefined, empty uninhabited"
       , MkParameter "binders" (HandValue termsCode termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders" ]
   , syntax = HandSyntax
-  , interfaces = [Declares MemRefElementType []]
+  , interfaces = [Declares MemRefElementType [], Implements valueFactsInterface []]
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readDataType"
   , members =
@@ -326,7 +327,6 @@ dataType = MkTypeDef
       , MkMember OnObjectConst "::idr::Class" "cls" []
       , MkMember OnObjectConst "uint32_t" "components" []
       , MkMember OnObjectConst "bool" "boundsReach" []
-      , MkMember OnObjectConst "::llvm::ArrayRef<::idr::families::FieldRef>" "inPlaceFields" []
       , MkMember OnObjectConst "::llvm::ArrayRef<::idr::families::MemberRef>" "selfCells" []
       , MkMember OnObjectConst "uint32_t" "freeLevels" []
       , MkMember OnObjectConst "::std::optional<::llvm::SmallVector<::idr::families::TermNode>>" "bindersOf" [param "::idr::Tag" "tag"]
@@ -335,6 +335,7 @@ dataType = MkTypeDef
       , MkMember OnObjectConst "bool" "isLinearByType" []
       , MkMember OnObjectConst "bool" "isCounted" []
       , MkMember OnObjectConst "bool" "isCellPointer" [] ]
+  , facts = NoValueFacts
   , doc = MkDoc "a data type: a member of a family applied to index terms"
       """
       Written `!idr.data<#Vect[v0]>`, `!idr.data<#Tree at 1 [v0]>`, refined
@@ -347,7 +348,8 @@ dataType = MkTypeDef
 
 ||| `!idr.self at m [ts]`, C++ `SelfType`: a member of the group a field is
 ||| declared in, by position, legal only inside a declaration; a field read
-||| of it gives the member's data type.
+||| of it gives the member's data type. No value has it, so it answers no
+||| value facts.
 export
 selfType : TypeDef 2
 selfType = MkTypeDef
@@ -360,6 +362,7 @@ selfType = MkTypeDef
   , verifier = AnyParameters
   , bytecode = CheckedBy "readSelf"
   , members = []
+  , facts = NoValueFacts
   , doc = brief "a member of the group a field is declared in, by position"
   }
 
@@ -554,7 +557,11 @@ countedResultDirective = MkDirective "CountedResult" [TypeArg, RefTypeArg]
 ||| the type. Building an immutable value acquires nothing before counting,
 ||| so two equal ones are one and an unused one goes; a result whose identity
 ||| is read (used once, of a family rebuilt in place, or an unforced memo
-||| cell) is a fresh identity, never merged.
+||| cell) is a fresh identity, never merged. Its cell is new, so its value
+||| is shared only through what its fields hold: `freshClaim` is the most a
+||| constructor of those fields claims, `unique deep` where each field leaves
+||| everything it reaches unshared, and the builder from a carrier gives the
+||| result that claim.
 export
 conOp : Op 1 1 0 0
 conOp = MkOp
@@ -565,7 +572,7 @@ conOp = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = []
+  , interfaces = [Implements flowInterface ["getFlowEdges"]]
   , effects = Executes [] [NewIdentity 0] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -574,11 +581,13 @@ conOp = MkOp
   , format = Declared
       [ Custom fieldsDirective [Group (OperandRef 0), TypeOfGroup (OperandRef 0)]
       , AttrDict, Lit ":", TypeOf (OfGroup (ResultRef 0)) ]
-  , builders = []
+  , builders =
+      [MkBuilder [param "::idr::DataType" "carrier", param "::idr::Uses" "uses", param "::mlir::ValueRange" "fields"]]
   , defaultBuilders = WithDefaults
   , members =
       [ MkMember OnObject "::idr::DataType" "getDataType" []
-      , MkMember OnObject "::idr::Tag" "getTag" [] ]
+      , MkMember OnObject "::idr::Tag" "getTag" []
+      , MkMember OnClass "::idr::Unique" "freshClaim" [param "::idr::DataType" "carrier", param "::mlir::TypeRange" "fields"] ]
   , guards = []
   , specializations = []
   , laws = []
@@ -603,7 +612,7 @@ fieldOp = MkOp
   , attrs = [attr "index" (UpstreamAttr I64AttrC)]
   , regions = []
   , traits = []
-  , interfaces = []
+  , interfaces = [Implements flowInterface ["getFlowEdges"]]
   , effects = Executes [] [ReadsMemo 0] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -635,7 +644,7 @@ tagOp = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"], Implements flowInterface ["getFlowEdges"]]
   , effects = Executes [] [ReadsMemo 0] Covered Untouched
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -701,7 +710,7 @@ assumeOp = MkOp
   , regions = [sized "body" 1]
   , traits = [SingleBlock, PropagateControlFlowBreak]
   , interfaces =
-      [ Declares RegionBranch ["getSuccessorRegions", "getEntrySuccessorOperands", "areTypesCompatible"]
+      [ Declares RegionBranch ["getSuccessorRegions", "getEntrySuccessorOperands", "getSuccessorInputs", "areTypesCompatible"]
       , Implements erasedBinderInterface ["getBoundSorts", "getRefinement"] ]
   , effects = Executes [] [] Recursive Untouched
   , speculation = RecursivelySpeculatable
@@ -719,7 +728,11 @@ assumeOp = MkOp
   }
 
 ||| `idr.numeral.to_nat`: a numeral's value as a natural: the identity at a
-||| natural's layout, a widening at a fixed width.
+||| natural's layout, a widening at a fixed width. At a width whose numbers
+||| may pass a natural's small range, the natural is a big the runtime
+||| builds, big.from_uint's function, so the op builds a value as that op
+||| does: new memory once counting makes the result own its count. Which
+||| width a numeral has is its type's layout, one op for every width.
 export
 numeralToNatOp : Op 1 1 0 0
 numeralToNatOp = MkOp
@@ -731,7 +744,7 @@ numeralToNatOp = MkOp
   , regions = []
   , traits = []
   , interfaces = []
-  , effects = noEffects
+  , effects = Executes [] [Acquires 0] Covered Touched
   , speculation = AlwaysSpeculatable
   , stages = Always
   , meaning = HandFolder
