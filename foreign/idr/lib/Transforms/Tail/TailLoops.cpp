@@ -24,6 +24,7 @@
 
 #include "idr/Transforms/Tail.h"
 
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Joins.h"
@@ -45,7 +46,7 @@ namespace {
 // the function.
 struct TailLoopAction : support::TaggedAction<TailLoopAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-tail-loops-loop";
+  static constexpr std::string_view tag = ::idr::actions::tailLoopsLoop;
 };
 
 struct TailLoops : impl::IdrTailLoopsBase<TailLoops> {

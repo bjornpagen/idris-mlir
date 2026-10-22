@@ -25,9 +25,11 @@
 #include "idr/Transforms/Tail.h"
 
 #include "idr/IR/Families/Substitute.h"
+#include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Footprint.h"
 #include "idr/Support/Match.h"
 
 #include "mlir/IR/IRMapping.h"
@@ -49,7 +51,7 @@ namespace {
 // function.
 struct AccumulateAction : support::TaggedAction<AccumulateAction> {
   using TaggedAction::TaggedAction;
-  static constexpr llvm::StringLiteral tag = "idr-accumulate";
+  static constexpr std::string_view tag = ::idr::actions::accumulate;
 };
 
 // `a ⊕ b`, the plan's operation on two values: a copy of its op, which
@@ -73,8 +75,8 @@ Value withCarried(RewriterBase &rewriter, const Accumulator &plan, Value value, 
 CallOp callClone(RewriterBase &rewriter, CallOp old, FuncOp clone, Value carried) {
   llvm::SmallVector<Value> args(old.getArgs());
   args.push_back(carried);
-  return CallOp::create(rewriter, old.getLoc(), clone, old.getIndexArgsAttr(),
-                        clone.getResultTypes(), args, TailKind::tail);
+  return CallOp::create(rewriter, old.getLoc(), clone, old.getIndexArgsAttr(), args,
+                        TailKind::tail);
 }
 
 // The clone of `fn` that carries the combination, entered right after it;
@@ -139,15 +141,15 @@ void seed(RewriterBase &rewriter, SymbolTable &symbols, FuncOp fn, const Accumul
   args.push_back(identity);
   unsigned own = static_cast<unsigned>(
       cast<ErasedBinderOpInterface>(fn.getOperation()).getBoundSorts(fn.getBody()).size());
-  auto call = CallOp::create(rewriter, fn.getLoc(), clone, families::levelArgs(ctx, 0, own),
-                             clone.getResultTypes(), args, TailKind::tail);
+  auto call = CallOp::create(rewriter, fn.getLoc(), clone, families::levelArgs(ctx, 0, own), args,
+                             TailKind::tail);
   ReturnOp::create(rewriter, fn.getLoc(), call.getResults());
 }
 
 struct Accumulate : impl::IdrAccumulateBase<Accumulate> {
   void runOnProgram(ProgramOp program) {
     SymbolTable &symbols = getAnalysis<SymbolTable>();
-    llvm::SmallVector<std::pair<FuncOp, Accumulator>> plans;
+    footprint::Vector<std::pair<FuncOp, Accumulator>> plans;
     for (FuncOp fn : program.getOps<FuncOp>())
       if (std::optional<Accumulator> plan = accumulatorOf(fn))
         plans.emplace_back(fn, std::move(*plan));

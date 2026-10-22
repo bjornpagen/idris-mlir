@@ -40,7 +40,7 @@ namespace idr::tail {
 // the join points) and forwards them to that op's results, which give what
 // the function gives in turn. An op that does something when its region
 // ends (a lifetime's opener frees its memory there, an answer slot reads
-// its result there) lets no break cross it, so nothing inside it is in
+// its results there) lets no break cross it, so nothing inside it is in
 // tail position. The one definition of
 // tail position. It reads up the regions above `op`; a verifier asks
 // verify(FuncOp) instead, which reads each region once.
@@ -55,6 +55,13 @@ llvm::SmallVector<mlir::Block *> tailEnds(FuncOp fn);
 // The op whose results `block`'s terminator gives on unchanged, if one op
 // gives them all.
 mlir::Operation *tailSource(mlir::Block &block);
+
+// The op whose results `terminator` gives its operands to, one for one: the
+// op whose region it ends, when a break may cross that op (nothing runs at
+// its rejoin) and the terminator's one successor is the op's results. Null
+// otherwise: for a jump into a join region, whose code goes on, for a
+// terminator that never ends, and for the function's return.
+mlir::Operation *rejoinOf(mlir::Operation *terminator);
 
 // The steps of the path from a self call's result to the value its
 // function returns. Each names the op that takes the path's value and the

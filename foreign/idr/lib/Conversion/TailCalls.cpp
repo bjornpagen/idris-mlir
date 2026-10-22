@@ -32,6 +32,7 @@
 #include "idr/Conversion/PassThroughMemory.h"
 #include "idr/Conversion/Passes.h"
 #include "idr/Conversion/ReturnRegisters.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -117,11 +118,11 @@ struct TailCalls : idr::impl::IdrTailCallsBase<TailCalls> {
     FailureOr<ReturnRegisters> registers = ReturnRegisters::of(module);
     if (failed(registers))
       return signalPassFailure();
-    SmallVector<LLVM::LLVMFuncOp> functions;
+    footprint::Vector<LLVM::LLVMFuncOp> functions;
     for (auto fn : module.getOps<LLVM::LLVMFuncOp>())
       if (!fn.isExternal())
         functions.push_back(fn);
-    SmallVector<SmallVector<LLVM::CallOp>> tailCalls(functions.size());
+    footprint::Vector<SmallVector<LLVM::CallOp>> tailCalls(functions.size());
     parallelFor(&getContext(), 0, functions.size(),
                 [&](size_t at) { tailCalls[at] = endAtTailCalls(functions[at]); });
     for (auto [fn, calls] : llvm::zip_equal(functions, tailCalls))

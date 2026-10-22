@@ -24,6 +24,7 @@
 #define IDR_TRANSFORMS_TAIL_H
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
@@ -67,11 +68,13 @@ using Site = std::variant<CallOp, Combined>;
 // What becomes of a function whose every self call is a site and one at
 // least is combined, every combination by one operation on one side (or
 // by one that commutes): its sites, the operation (the first site's op,
-// which the clone copies to combine), its identity, and the side.
+// which the clone copies to combine), its identity (the attribute the
+// dialect materializes at the combination's type, untyped for a big), and
+// the side.
 struct Accumulator {
   llvm::SmallVector<Site> sites;
   mlir::Operation *combine;
-  mlir::TypedAttr identity;
+  mlir::Attribute identity;
   Side side;
 };
 
@@ -94,18 +97,15 @@ struct FrameKind {
 
 // One family per component, indexed by the row a frame awaits, so a frame
 // of the wrong type cannot be on top where a value of a row is given: its
-// first constructors are the base frames, one per row, each holding the
-// destination of a wrapper's answer slot; then one constructor per kind,
+// first constructors are the base frames, one per row, each holding one
+// destination per result of the row, at the result's whole type, the slots
+// of the wrapper that started the run; then one constructor per kind,
 // holding its values and the stack below it. Laid out as a frame stack
-// (linear, uncounted, contiguous). Beside it, a group of the answers, one
-// per row: a constructor holding the row's values, laid out in place, so a
-// row of any width is one value a slot holds, with the components of the
-// values it holds and no cell.
+// (linear, uncounted, contiguous).
 struct FramesFamily {
   FamilyAttr group;
-  // The stack awaiting each row, and each row's answer.
-  llvm::SmallVector<DataType> stacks;
-  llvm::SmallVector<DataType> answers;
+  // The stack awaiting each row.
+  footprint::Vector<DataType> stacks;
   unsigned rows;
 
   Tag base(unsigned row) const { return Tag{row}; }
@@ -115,6 +115,16 @@ struct FramesFamily {
 FramesFamily declareFrames(mlir::MLIRContext *ctx, mlir::StringAttr label, mlir::Location loc,
                            llvm::ArrayRef<llvm::SmallVector<mlir::Type, 1>> rows,
                            llvm::ArrayRef<FrameKind> kinds);
+
+//===----------------------------------------------------------------------===//
+// Functions the passes make
+//===----------------------------------------------------------------------===//
+
+// `fn` made to return nothing: every result erased, and what its signature
+// stated of them with it (what it gave back, where they lived), its
+// lifetimes kept only while a parameter is scoped. A run, a resume and a
+// destination-passing clone each return nothing.
+void returnNothing(FuncOp fn);
 
 } // namespace idr::tail
 
