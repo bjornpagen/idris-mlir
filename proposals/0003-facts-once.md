@@ -3,35 +3,33 @@
 # Each fact once
 
 **Amended by P0 (2026-10-21, `0000-mlir-native.md`).** Absorbed whole
-into the cutover (D44): its 62 items are placed on the cutover's lanes
-(C136, `audits/p0/verify/L16-frontend.md` §2.9) and written in it, not
-after self-hosting.
+into the cutover (D44), which reverses the owner's 2026-10-19 deferral
+of this proposal to after self-hosting: its 62 items are placed on the
+cutover's lanes (C136, `audits/p0/verify/L16-frontend.md` §2.9), written
+by them beside P0's stages, and built only with the whole cutover, never
+one by one (D56). Where P0 decided an item, the item below states P0's
+form and names the ruling.
 
-**Status (2026-10-19):** queued after self-hosting (the owner, 2026-10-19:
-"the entire improvement and dedupe of rederiving stuff over and over
-again ... deferred to after self hosting"). It starts once `make self`
-holds on arm64 macOS (0001's S4), in parallel with the Linux work, by the
-lanes of `tools/lanes/README.md`, each taking its section. Nothing here is
-needed for self-hosting; a self-hosting stage that trips over one of
-these items fixes that item then, as a bug of `audits/bugs.md`. Built so
-far: the term locations a TTC keeps (374e0e77); the force dispatch's
-and an apply's cases placed at their labels (8e2fbec7); and the dialect's
-binary format no longer read by hand: a data type's text is its name and
-the program's table holds every body once, one ODS record read and
-written by both sides' generated code, which self-hosting's S3 forced
-(the owner, 2026-10-19: "we cannot have the binary format be read by
-hand").
+**Status (2026-10-22):** written in P0, nothing of it built on its own.
+Built before P0: the term locations a TTC keeps (374e0e77); the force
+dispatch's and an apply's cases placed at their labels (8e2fbec7); and
+the dialect's binary format no longer read by hand, one ODS record read
+and written by both sides' generated code, which self-hosting's S3
+forced (the owner, 2026-10-19: "we cannot have the binary format be read
+by hand"). The program's table of data type bodies that record held
+goes with P0's families: a data type is a family attribute holding its
+declaration (D48), native in bytecode (C50).
 
 The compiler knew a fact at some point, threw it away, and derives it
 again later, or guesses it. Where it comes from: five read-only sweeps
-over 374e0e77's parent (the fork, the frontend and Emit, the dialect, the
-passes and the driver, the runtime and the harness), the leftovers of the
-representation wave (its packet's last text is at 77eaa5b1, with the MLIR
-audits that went with it), and the ownership lane's static lifetime. Each
-item gives where the fact is known, where it is lost, where it is derived
-again, and the fix. The sweeps read code and ran nothing, so the lane that
-takes an item confirms it first, and deletes it here (or says why it is
-not one) when it lands.
+over 374e0e77's parent (the checker, the frontend and Emit, the dialect,
+the passes and the driver, the runtime and the harness), the leftovers
+of the representation wave (its packet's last text is at 77eaa5b1, with
+the MLIR audits that went with it), and the ownership lane's static
+lifetime. Each item gives where the fact is known, where it is lost,
+where it is derived again, and the fix. The sweeps read code and ran
+nothing, so the lane that takes an item confirms it first, and deletes
+it here (or says why it is not one) when it lands.
 
 ## 1. Keep, or derive from a tighter representation
 
@@ -60,22 +58,23 @@ written beside it:
    loops, frames, deduplicated bodies, driver errors, `idr.crash_str`,
    the report's column, and line tables. Each is below in its lane's
    section.
-2. **The fork's TTC**, by the rules of `compiler/idris/README.md`, "What
-   a TTC keeps": a let's type (C1, which refuses valid programs today), a
-   match's scrutinee type (C2), a leaf's clause number, a block's parent
-   (B1), imports' locations (B3).
+2. **The checker's TTC**, by the rules of `compiler/checker/README.md`,
+   "What a TTC keeps": a let's type (C1, which refuses valid programs
+   today), a match's scrutinee type (C2), a leaf's clause number, a
+   block's parent (B1), imports' locations (B3).
 3. **The rest**, by lane, in the order of each section.
 
-## The fork's TTC and the frontend (arrays lane)
+## The checker's TTC and the frontend (arrays lane)
 
-The root cause of most of the frontend's guessing: the fork's TTC is
+The root cause of most of the frontend's guessing: the checker's TTC is
 lossy, and every definition the frontend reads, main's included
 (`ModTree.idr` `buildDeps`: `clearCtxt`, then `readAsMain`), comes back
-through it. The fork is ours; each loss is fixed in its encoder, with
-`ttcVersion` bumped, and the frontend's reconstruction deleted.
+through it. The checker is ours (P0's D118, C233); each loss is fixed in
+its encoder, with `ttcVersion` bumped, and the frontend's reconstruction
+deleted.
 
-How far the fork's TTC stops matching upstream's, and the care each kept
-fact takes, is `compiler/idris/README.md`, "What a TTC keeps".
+How far the checker's TTC stops matching upstream's, and the care each
+kept fact takes, is `compiler/checker/README.md`, "What a TTC keeps".
 
 - **The frontend's rebuilt terms.** The TTC keeps every node's location
   (374e0e77), but the terms the frontend rebuilds take `EmptyFC` instead
@@ -185,11 +184,14 @@ fact takes, is `compiler/idris/README.md`, "What a TTC keeps".
   `ReusesEveryCell.cpp` each walk back to the `idr.take`. A token reaching
   its recycle through a block argument is refused by the verifier (a
   representation limit acting as a refusal), and `Fields` silently stores
-  every field again. Make it `!idr.token<!idr.box<T>, @C>`, inferred by
-  `TakeOp`, as `CellType` is; delete the four walks and all of `Fields`'
-  pairing (the reuse pairing `reuseAt` decided is then in the type).
-- **Static, searched for along the definition chain:** below, "The
-  static lifetime in the grade".
+  every field again. P0's token names the family applications and
+  constructors whose cell it may be, `!idr.token<{#F[i] @C, ...}>`, a
+  non-empty set of one layout, linear, either `counted unique deep` and
+  never null or `counted` with no claim (C39), `!idr.box` being no longer
+  a type (D48); the four walks go, and C39 deletes the `Fields` table
+  (the reuse pairing `reuseAt` decided is then in the type).
+- **Static, searched for along the definition chain:** below, "Static in
+  the grade".
 - **A `dup` of atoms-only data exempted by its producer**
   (`Verify/OwnedOps.cpp`): the `dup` gives `excl` when its operand
   reaches only atoms.
@@ -202,7 +204,7 @@ fact takes, is `compiler/idris/README.md`, "What a TTC keeps".
   pass that stamps one location on many binders weakens the contract.
   Key by the binder.
 
-### The static lifetime in the grade
+### Static in the grade
 
 **The bug it removes.** Whether a value is static is searched for, not
 known: `ownership::isStatic` (`IR/Verify/Uses.cpp`) walks the value's
@@ -228,34 +230,45 @@ uses' syntax did not parse. c4d38e9b restored 902076f4's `isStatic`,
 keeping `rebindDefaults` (a match's default binding is its scrutinee to
 counting) and `Captures::keepMadeIn`.
 
-**Owed.** `static` beside heap and frame in `Idr_Lifetime`
-(`IR/IdrBase.td`), ordered static ≤ heap ≤ frame:
-- a value is static when everything it reaches is persistent: it is
-  made by an op that allocates nothing and reads no reference, or read
-  from a static value. A constructor or closure built at run time is
-  heap, whatever its fields hold;
-- the grade is written once, at the op that makes the value (idr-rc's
-  grading), and every pass that moves the value keeps it; a join meets
-  at the larger lifetime through `idr.share`;
-- static is a view's lifetime: consuming a static value takes an
-  `idr.dup`, which lowers to nothing; at an owned grade (poison, a small
-  big) it stands for a value and holds no reference;
-- every lifetime a constant can carry prints and parses (the dialect's
-  syntax, on the Idris side too, regenerated by `tools/dialects.sh`).
+**Owed, as P0 decides it** (D39: "0003's owed static lifetime is
+this"). `static` is a hold of the grade, not a lifetime: a value's grade
+is `!idr.graded<uses, hold, T>`, its hold `static` (never freed, shared
+by definition, so with no sharing level) or `counted` or `scoped` with
+what is known of its sharing (D88, D90, C21). A lifetime is no part of
+the grade: it is an SSA value of type `!idr.lifetime<…>` (D63, D93).
+The hand enum `Idr_Lifetime` (`IR/IdrBase.td`) with its `heap < frame`
+order goes (C21); `heap` names the resource, and the hold freed by its
+count is `counted` (D90).
+- static is graded from what a value holds, never from where it came
+  (D39): `static` comes from a constant's type, the frontend's literal
+  types and the field-read rule, never from purity (C86). A constructor
+  or closure built at run time is not static, whatever its fields hold;
+- no hold is ever undecided: before counting, a value that holds
+  references is `counted` with no sharing claim, or `static` for a
+  constant, and later passes only strengthen it, each a verified
+  refinement (C144);
+- a `dup` or `drop` of a static value cannot be written (C40). Static
+  data reaching code that counts meets a copy specialized by hold, which
+  counts nothing; only a function that receives both, past the
+  specialization budget, keeps the runtime's count-0 marker test (D89);
+- the Idris side imports the grade's parts from the specification
+  (D50), so every grade a constant carries prints and parses on both
+  sides.
 
-Deleted in the same change: `isStatic` and its callers' static branches,
-`Class::Phantom`, `Class::Constant` and `Class::StaticRead` with
-Placement's plans for them; `madeStatic` stays only where a value has no
-grade (an upstream buffer). (`StaticData::isStatic` in `Conversion/` is the
-lowering's question of a global's component, not this one.)
+Deleted in the same change (C86): `madeStatic` and `isStatic` with
+their nine callers, counting's `Class::Phantom`, `Class::Constant` and
+`Class::StaticRead` with Placement's plans for them, `persistHeld` and
+`idris_rt_persist_held`. A buffer an upstream op makes enters the
+grades through `own.adopt` (C185). (`StaticData::isStatic` in
+`Conversion/` is the lowering's question of a global's component, not
+this one.)
 
-**Acceptance.** `git grep 'ownership::isStatic'` finds nothing; make
-check, make test, make test-idr and make test-unit match the counts before
-the change test for test; IdrRcGrades on every-interfaces-export stays
-near 3.5 s (Debug); nat-parity, escape-hatch-hole-at-runtime,
-lower-static-thunk, lower-value-buffers, verify-sources and
-effects-memo-state pass. **Waits on** a full `make test` on main
-(proposals/README.md, step 1).
+**Acceptance**, in the cutover's qualification: it is built with the
+whole cutover, never on its own (P0's D56). `git grep` finds neither
+`ownership::isStatic` nor `madeStatic`; IdrRcGrades on
+every-interfaces-export stays near 3.5 s (Debug); nat-parity,
+escape-hatch-hole-at-runtime, lower-static-thunk, lower-value-buffers,
+verify-sources and effects-memo-state pass.
 
 ## The dialect: matches and locations (control lane)
 
@@ -269,8 +282,13 @@ effects-memo-state pass. **Waits on** a full `make test` on main
 - **What an enclosing match says about a value, three ways**
   (`OpsMatch.cpp` `takenFromEnclosing`, `Canon/Eta.cpp` `knownFromMatch`,
   `OpsConReads.cpp` `FieldOp::canonicalize`), with different identity
-  rules; `TagOp::fold` never asks. One `knownConstructor(Value, at)` in
-  `Canon.h`.
+  rules; `TagOp::fold` never asks. P0 puts the fact in the IR instead of
+  a query: each case of a match binds the scrutinee refined to that
+  case's constructor, its family at the refined index, and the fields
+  are reads of that refined value, total since its type fixes the
+  constructor (D105, D48). No walk asks what the match said, and
+  `FieldOp::canonicalize` goes with every canonicalization pattern on
+  our ops (D98).
 - **Two upward walks without `definitionChain`'s cycle guard**
   (`Fold/Bigs.cpp` `BigToIntOp::fold`, `Conversion/Fields.cpp` `moved`):
   a named step in `Grades.h` on `definitionChain`.
@@ -291,9 +309,11 @@ effects-memo-state pass. **Waits on** a full `make test` on main
   the lockstep equivalence.
 - **Data types carry no location.** `Declarations::define` errors at
   `UnknownLoc`, and the knot refusal guesses one (first array, first
-  located con, else the program). The body holds the declaration's
-  location, written by the frontend and carried by DataRemap; `define`
-  takes the caller's.
+  located con, else the program). Under P0 there is no body, table or
+  `DataRemap`, and `Declarations` goes (D48): the family attribute
+  carries its declaration's location, written by the frontend from the
+  location the TTC keeps for the type constructor (placed by C136 at
+  `audits/p0/verify/L16-frontend.md` §2.9, F8).
 
 ## Defunctionalization and the optimizer (defunc lane)
 
@@ -342,8 +362,12 @@ effects-memo-state pass. **Waits on** a full `make test` on main
   The report drops the column and later locations of a `FusedLoc`;
   `harness/lib/profile.sh` drops the file; driver errors sit at
   `UnknownLoc` though the path is known.
-- **No stack probes against the 1 MiB guard:** set
-  `"probe-stack"="inline-asm"` on program functions.
+- **No stack probes against the 1 MiB guard.** Compiled code takes
+  none (P0's D77): every compiled function's frame size is known, so
+  the build proves that none exceeds the guard, and the native stack's
+  size is computed from the call graph when the program is built (D32).
+  Only the runtime's own C++ and what it links, whose frames may be
+  sized at run time, take stack-clash protection.
 - **The user address width** is a recorded minimum used as a maximum in
   `static_assert`s: record the maximum or check at startup.
 - **The ending lost:** the harness infers return, exit and crash from the
@@ -376,14 +400,15 @@ What the wave's packet left unbuilt, checked against the code at
   table of legal role and kind pairs (`lib/IR/DataBody.cpp`) check the
   pairs; there is no `DataType::memo()`, so the force dispatch keeps a
   catch-all internal error (`Defunctionalize/Forces.cpp`) and
-  `Fold/Values.cpp` walks a list of roles. Owed: `Body` as one
-  alternative per kind (plain or in-place constructors; a list's nil and
-  cons; closure labels each with its function; a memo's labels, running
-  and forced), `DataType::memo()` its typed view, the generated `IdrSum`
-  and the bytecode `TableBody` following it; `KindRule`, `ruleOf` and the
-  role checks deleted. Acceptance: a body whose roles do not fit its kind
-  does not compile; the catch-all arm is gone; the frontend's module is
-  byte-identical.
+  `Fold/Values.cpp` walks a list of roles. P0 replaces the body: a data
+  type is a family attribute holding its declaration, with no table of
+  bodies (D48), and a group's member kinds are a closed sum (data,
+  closure, memo), list and numeral derived shapes and `in_place` a
+  `Promise { None, InPlace }` on the data member (C80). Deleted:
+  `Idr_SumKind`, `Idr_CtorRole`, `KindRule`, `RoleOnce`, `ruleOf`,
+  `roleTags` (C80) and the `#idr.types` table with `DataBody.cpp` (D48).
+  Acceptance: a role that does not fit its kind cannot be written; the
+  catch-all arm is gone.
 - **The owned stage reads upstream's buffer ops by name** (ownership
   lane). The verifier special-cases `memref::AllocOp`
   (`Verify/Program.cpp`) and `memref::LoadOp` (`Verify/Uses.cpp`), and

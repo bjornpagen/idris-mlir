@@ -2,22 +2,25 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0010: the array interpreter
 
-**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** A0's reader side
-(interned names, the term arena as columns, in the fork) is absorbed
-into the cutover (D44; P0 §7's F6). A1 onward stay as written,
+**Amended by P0 (2026-10-21, `0000-mlir-native.md`).** A0 (interned
+names, the term arena as columns) is absorbed into the cutover (D44):
+the arena in the checker, in the form C183 gives it (§3), and its reader
+side in the frontend (P0 §7's F6). A1 onward stay as written,
 AFTER-SELF; static normalization (the closed call folded) is still not
-built.
+built, and which side it runs on is open (below, "Under P0").
 
-**Status (2026-10-19, read at 77eaa5b1):** open, nothing built: no term
-arena, hash-consing, wavefront machine or `repl` in `compiler/src`,
-`compiler/idris/src` or `foreign/idr`. Every stage is **AFTER-SELF**.
-**First step: A0**, taken once `make self` is green and 0013's T0 is
-recorded on the same commit, since its bars are ratios to T0. After A0:
-A1 needs A0, A2 A1, A3 A2, A4 A3 and 0009's stage 7 (§13, question 3),
-A5 0009's stage 7, A6 0007's P4, A7 A0. Nothing up to A3 needs
-sharding; its place after sharding is the queue's order, not a
-dependency. All of it is Idris in the fork and the frontend, so it
-builds and runs under the stock Idris on Chez and under idris-mlir,
+**Status (2026-10-22):** open, nothing built: no term arena,
+hash-consing, wavefront machine or `repl` in `compiler/src`,
+`compiler/checker/src` or `foreign/idr`. **A0 is P0's** (D44), written
+by its lanes and built only with the whole cutover (D56); its bars stay
+ratios to 0013's T0, measured natively once `make self` holds (C136).
+Every later stage is **AFTER-SELF**. After A0: A1 needs A0, A2 A1, A3
+A2, A4 A3 and 0009's stage 7 (§13, question 3), A5 0009's stage 7, A6
+0007's P4, A7 A0. Nothing up to A3 needs sharding; its place after
+sharding is the queue's order, not a dependency. As planned here, all
+of it is Idris in the checker and the frontend (A3's side is open:
+"Under P0"), so it builds and runs under the stock Idris on Chez and
+under idris-mlir,
 always (AGENTS.md's two hosts, as 0009 D45 applies them): the arena and
 the machine are plain Idris over base and, for array operations, over
 0009 D45's plain-Idris layer, which idris-mlir lowers through the
@@ -36,11 +39,29 @@ type checker already normalizes total code, because deciding whether two
 types are equal requires it. Compile-time evaluation, constant folding and
 monomorphisation are one operation: **normalize the static part of the
 program**, on the type checker's own evaluator. That evaluator is an array
-program: terms are columns of one hash-consed arena, machine states are
-rows, and each step runs one kernel per kind of term over all the rows at
-that kind, so interpretive overhead is paid per kind and per step, not per
-element. No JIT, no WebAssembly, no forked child, no bytecode, no second
-compiler inside the first.
+program: terms are columns, hash-consed within each stored definition
+(P0's C183, §3), machine states are rows, and each step runs one kernel
+per kind of term over all the rows at that kind, so interpretive
+overhead is paid per kind and per step, not per element. No JIT, no
+WebAssembly, no forked child, no bytecode, no second compiler inside
+the first.
+
+**Under P0** (read, 2026-10-22). AGENTS.md: "Idris does types; MLIR
+does programs": every optimization runs in C++ over MLIR, and the Idris
+side checks what the compiler accepts, monomorphises and decides
+representations; "a closed call runs at run time. Static normalization
+(proposal 0010) is what would fold one, and it is not built." P0's D109
+puts "the e-graph and every pass that makes code faster or smaller" in
+C++ over MLIR, "within reason. don't take that too literally", and
+keeps on the Idris side the frontend's checking, elaboration and
+representation decisions; its D68 keeps one evaluator, the checker's
+("No second evaluator (0010 D3: one evaluator)"). The checker's own
+evaluation (A0 to A2) is checking, the Idris side's. A3 does two things
+those texts place differently: it folds a closed total call to a
+constant, which makes code faster, and it hands the value to the
+frontend's instance decisions, which are representation. Whether A3
+runs in Idris on the checker's evaluator, as this proposal has it,
+neither D109 nor AGENTS.md settles: it is open.
 
 ## 1. Where it starts from
 
@@ -54,21 +75,21 @@ compiler inside the first.
   of a partial function stays a call. A constant table computed from
   constants is computed by the program, every run.
 - The frontend normalizes only compile-time values (types and
-  implementations), on the fork's normaliser behind `host`
-  (`compiler/idris/src/Idris/Host.idr`): `normaliseClosed` and
+  implementations), on the checker's normaliser behind `host`
+  (`compiler/checker/src/Idris/Host.idr`): `normaliseClosed` and
   `normalisedBy` in
   `compiler/src/IdrisMLIR/Frontend/Translate/Closed.idr`, read by
   `classify` in `Translate/Instances.idr`. A choice computed by a
   recursive closed call over values is not known when instances are
   decided, so monomorphisation cannot use it.
-- The fork's evaluator is call by name with no update: a closure is
+- The checker's evaluator is call by name with no update: a closure is
   evaluated again at each use (`evalClosure`,
-  `compiler/idris/src/Core/Normalise/Eval.idr`); a `Glued` pair rebuilds
-  its normal form at each `getNF` (`gnf` stores a function, not a result);
-  `Convert Term` (`Core/Normalise/Convert.idr`) normalizes both sides
-  before comparing heads; nothing is cached. Idris 2 was the slowest
-  system on smalltt's elaboration benchmarks, stlc10k in 129.6 s against
-  smalltt's 0.306 s (*measured* there in 2021,
+  `compiler/checker/src/Core/Normalise/Eval.idr`); a `Glued` pair
+  rebuilds its normal form at each `getNF` (`gnf` stores a function,
+  not a result); `Convert Term` (`Core/Normalise/Convert.idr`)
+  normalizes both sides before comparing heads; nothing is cached.
+  Idris 2 was the slowest system on smalltt's elaboration benchmarks,
+  stlc10k in 129.6 s against smalltt's 0.306 s (*measured* there in 2021,
   `sources/notes/type-checking/elaborators.md` §10). It applies a
   primitive through base's (`Core/Primitives.idr`) for conversion only:
   since upstream/18 no such result reaches a checked term.
@@ -120,30 +141,42 @@ What happens to a call, by how much of it is static (*decision*):
   interpreter gives no meaning (§13, questions 2 and 3), or a failing
   primitive (a division by zero). The call runs at run time, where it
   fails as the program would. The totality checker keeps most failing
-  primitives out already: one that can fail is not covering, so the fork
-  refuses `prim__div_Double` in a definition not marked `partial`
+  primitives out already: one that can fail is not covering, so the
+  checker refuses `prim__div_Double` in a definition not marked `partial`
   (`upstream/18-elaboration-primitive-folding/README.md`).
 
-## 3. The representation: one arena, as columns
+## 3. The representation: the arena, as columns per definition
 
-*Decision* (D7). The fork's terms, the frontend's TT and the interpreter's
-code are one table, owned here and read by 0011's frontend and 0013's
-checker; no pass copies it into a second form. It is plain Idris over
-base (the fork's tables are base's `Data.IOArray` today,
-`compiler/idris/src/Libraries/Data/Table.idr`), linear where that helps.
+*Decision* (D7, as P0's C183 shapes it). The checker's terms, the
+frontend's TT and the interpreter's code are one representation, read
+by 0011's frontend and 0013's checker; no pass copies it into a second
+form. It is not one global arena (C183): a term being elaborated stays
+an unshared, located tree, as the elaborator's 59 location reads need;
+when a definition is stored, its terms become columns in preorder,
+shared within the definition, with their locations as one more preorder
+column. The stored columns are frozen with the definition (an immutable
+array of `mlir-array`, both hosts), so every read is a pure read of an
+immutable value and the checker states no new trust; definitions refer
+to one another by interned name, never by arena position, so no table
+grows under a read. Its cost is no sharing across definitions, which a
+global append-only arena would give at the price of that trust. It is
+plain Idris over base (the checker's tables are base's `Data.IOArray`
+today, `compiler/checker/src/Libraries/Data/Table.idr`), linear where
+that helps.
 
 | Table | Columns | Notes |
 | --- | --- | --- |
 | names | `id → (offset, len)` into one byte buffer; namespaces are ids | interned once; equality is an id compare |
-| terms | `kind : u8`, `a : u32`, `b : u32`, `extra : u32` (a slice of an extra column for variable arity, decoded by `kind`); cached `hash`, loose-bound-variable range, `has_metas` | hash-consed: one id per distinct subterm, de Bruijn indices, no source spans |
+| terms | `kind : u8`, `a : u32`, `b : u32`, `extra : u32` (a slice of an extra column for variable arity, decoded by `kind`); cached `hash`, loose-bound-variable range, `has_metas` | a stored definition's, in preorder: one id per distinct subterm within the definition, none shared across definitions (C183); de Bruijn indices; no source spans, the locations a preorder column beside them |
 | values | `kind`, `head`, `env` (a slice of an environment column), `spine` (a slice of a spine column), `unfolded` (a value id or none) | levels, not indices; glued: head and spine the cheap form, `unfolded` the unfolded one; never hash-consed |
 | caches | `closed term → whnf`, `closed term → normal form`, `(term, term) → convertible` as success and failure sets, and a transient set for terms with metas | indexed by id; a hit costs a gather |
 
 - **Typed ids** (0011 D1): every id is a type indexed by its table, erased
   to a word, so a `TermId` cannot index the value table, and a read
   through one is an `index` with no guard (0009 D4, §3.2).
-- **The hash-cons table** is open addressing over the stored `hash`
-  column, so a resize never rehashes (Filliâtre and Conchon,
+- **The hash-cons table**, which shares a definition's terms as it is
+  stored (C183), is open addressing over the stored `hash` column, so a
+  resize never rehashes (Filliâtre and Conchon,
   `sources/code/ocaml-hashcons/hashcons.ml`, read through
   `sources/notes/flattened-data/columnar.md` §6); the cached hash, flags
   and range per node are Lean 4's kernel's
@@ -154,27 +187,31 @@ base (the fork's tables are base's `Data.IOArray` today,
   `compiler/src/IdrisMLIR/Ids.idr`), a Merkle hash of a node's kind,
   payload and children's hashes, so a generated name carries its low 64
   bits (0008 §4.5). The table probes with the low 64 bits, and a hit
-  compares the node's columns, never the hash alone (0008 §11). The fork
-  never imports `IdrisMLIR.*` and `IdrisMLIR.Ids` may not import the fork
-  (AGENTS.md), so A0 moves the one definition into a `libs/` package both
-  import, plain Idris with bodies; a copy in the fork would be a second
-  copy (*decision*, 2026-10-15). Its cost, 16 bytes a node, is a
+  compares the node's columns, never the hash alone (0008 §11). The
+  checker and the frontend both import the one definition, plain Idris
+  with bodies, and a copy in the checker would be a second copy
+  (*decision*, 2026-10-15). The reason A0 was to move it into a `libs/`
+  package, an import rule fencing the checker from `IdrisMLIR.*`, is
+  gone: no import rule fences the checker (P0's D118, C233). Where the
+  one definition lives, P0 does not say. Its cost, 16 bytes a node, is a
   *conjecture* that T0 and A0's record show.
 - **Values follow smalltt:** indices in terms, levels in values, closures
   for binders, no substitution (`sources/code/smalltt/src/CoreTypes.hs`,
   `Evaluation.hs`).
-- **Only terms are hash-consed** (D10). It pays where terms are compared
-  or memoized: a λ-calculus quicksort ran 91.5 s without it and 195 s
-  with it, and 54 s against 5.06 s once memoized (*read*, `columnar.md`
-  §6, Filliâtre §3.1). Closures in values share beta-reductions.
+- **Only terms are hash-consed** (D10), each within its definition
+  (C183). It pays where terms are compared or memoized: a λ-calculus
+  quicksort ran 91.5 s without it and 195 s with it, and 54 s against
+  5.06 s once memoized (*read*, `columnar.md` §6, Filliâtre §3.1).
+  Closures in values share beta-reductions.
 - **No spans in terms; locations beside them** (D10): a hash-consed node
-  has no one position. Since 374e0e77 the fork's TTC keeps each node's
-  location and reads it back (`compiler/idris/src/Core/TTC.idr`, PINS.md
-  `ttc-term-locations`), and every op the frontend emits names the term
-  it comes from (`bestFC`, `Frontend/Translate/Terms.idr`), which the
-  reject tests' lines hold. A0 keeps that fact: a location is a column
-  of the occurrence (a TT node as Translate reads it), never of the
-  hash-consed term, and never enters the `hash` column (as 0008 D17
+  has no one position. Since 374e0e77 the checker's TTC keeps each node's
+  location and reads it back (`compiler/checker/src/Core/TTC.idr`;
+  `compiler/checker/README.md`, "What a TTC keeps"), and every op the
+  frontend emits names the term it comes from (`bestFC`,
+  `Frontend/Translate/Terms.idr`), which the reject tests' lines hold.
+  A0 keeps that fact: a location is a column of the occurrence (a TT
+  node as Translate reads it; C183's preorder location column), never of
+  the hash-consed term, and never enters the `hash` column (as 0008 D17
   keeps locations out of keys). *Decision*: dropping it would erase a
   fact before the pass that uses it (AGENTS.md).
 - **The loose-bound-variable range is a `Bits64`** beside 32-bit indices,
@@ -189,14 +226,12 @@ base (the fork's tables are base's `Data.IOArray` today,
   content; a TTC keeps its tree format, and a format that writes each
   distinct subterm once is taken only if T0 shows TTC loading above 5% of
   elaboration (0011 D0's rule).
-- **Two lifetimes, in the id's type** (D15): a persistent part (checked
-  definitions, what TTCs hold) and a temporary part per check or
-  normalization, dropped when it ends, as nanoda checks each declaration
-  with a fresh DAG (`util.rs`). A temporary id cannot be written into a
-  persistent row; a result that outlives its check is interned into the
-  persistent part, one walk of what is new, its hash unchanged. Reason:
-  the frontend peaked at 9.1 GB on Chez compiling itself (*measured*
-  2026-10-10, 0011 §2).
+- **A tree while elaborated, columns once stored** (P0's C183, replacing
+  D15's two lifetimes in the id's type): a term being elaborated is an
+  unshared, located tree, and a stored definition's terms are its frozen
+  columns. No global arena holds both parts, so no id carries a
+  lifetime and no temporary id can reach a stored row. What a
+  normalization's own temporary terms are, from A1 on, P0 does not say.
 - **Caches hold only what their key decides** (D12, from Lean's kernel
   and elaborator): a closed meta-free term by id; conversion as success
   and failure sets, never a transitive closure, since conversion with
@@ -204,9 +239,10 @@ base (the fork's tables are base's `Data.IOArray` today,
   a term with metas in a transient set, dropped when the check postpones
   a constraint (`sources/code/lean4/src/Lean/Meta/ExprDefEq.lean`).
 
-Syntactic equality is then an integer compare, conversion normalizes only
-when ids differ, a normal form is computed once per id, and memory is a
-few large arrays, each one counted cell (0012 D4).
+Syntactic equality within a definition is then an integer compare,
+conversion normalizes only when ids differ, a normal form is computed
+once per id, and a stored definition's terms are a few frozen arrays,
+each one counted cell (0012 D4).
 
 ## 4. The machine: wavefront evaluation
 
@@ -246,9 +282,10 @@ and shard count. **Parallel by construction:** each kernel is
 data-parallel over its segment.
 
 **Two drivers over one step** (D13). The checker's evaluation runs to its
-end with no budget, behind the fork's `host`, since conversion decides
-acceptance and no count may (AGENTS.md); static normalization runs under
-the budget, which is also what makes its loop structurally total. The
+end with no budget, behind the checker's `host`, since conversion
+decides acceptance and no count may (AGENTS.md); static normalization
+runs under the budget, which is also what makes its loop structurally
+total. The
 problem has these two cases; the step and its kernels are shared.
 
 ## 5. Arrays in interpreted code
@@ -330,7 +367,7 @@ never a library loaded at run time (AGENTS.md).
 - README.md: the frontend "normalizes the static part"; no JIT.
 - `harness/README.md`: D5's twin tests.
 
-## 10. Staged plan (every stage AFTER-SELF)
+## 10. Staged plan (A0 in P0, every later stage AFTER-SELF)
 
 Each stage passes AGENTS.md's checks on every target and records compile
 times against the stage before, old binary against new binary from a
@@ -342,7 +379,7 @@ self-compile slower is reworked, never kept beside the form it replaces.
 
 | Stage | Needs | Content | Proof |
 | --- | --- | --- | --- |
-| A0 | `make self`, 0013's T0 | interned names and the hash-consed arena in the fork: typed ids, two lifetimes, the `hash` column with the one XXH3 moved to `libs/`; the fork's evaluator (`Eval.idr`, `Quote.idr`, `Convert.idr`) reads terms from it, its strategy unchanged; the frontend reads TT from it; TTCs keep their tree format | identical TTCs and corpus; elaboration of base and the frontend ≥ 1.5× faster than T0; peak resident memory no higher than T0's |
+| A0 | nothing outside P0, which writes it (P0's D44) and builds it only with the whole cutover (P0's D56); its bars, ratios to 0013's T0, are measured once `make self` holds (P0's C136) | interned names and the term arena in the checker as C183 shapes it: typed ids, terms an unshared located tree while elaborated and frozen per-definition columns once stored, shared within the definition, the `hash` column with the one XXH3; the checker's evaluator (`Eval.idr`, `Quote.idr`, `Convert.idr`) reads terms from it, its strategy unchanged; the frontend reads TT from it (P0 §7's F6); TTCs keep their tree format | identical TTCs and corpus; elaboration of base and the frontend ≥ 1.5× faster than T0; peak resident memory no higher than T0's |
 | A1 | A0 | the wavefront machine replaces A0's evaluator in one change (D14): weak head normal form and the read-back the checker needs | **the gate,** best of five, A1's binary against A0's on the checker's own normalizations (base, the frontend, smalltt's set): at most 2% slower where one row is live, more than 2% faster where many are (a `tabulate`-shaped corpus); 2% is the cutover's §10 runtime margin (0009 D35 on why not the run-to-run spread); a miss is reworked before it lands |
 | A2 | A1 | glued values, §3's caches, approximate conversion | smalltt's set within 1.5× of smalltt; ≥ 2× over A0 on conversion-heavy files |
 | A3 | A2 | static normalization in the frontend: closed total calls to values, the frontend's share of control-steering specialization, the budget, first-demand constants beyond it; §9's rules; D19 | `tests/closed-calls`, `tests/e2e-eval` and the corpus unchanged in output; D5's twin tests; byte-identical across thread counts; `make self` green, and the current frontend built and run under the stock host; no bench program's runtime or peak resident memory worse by more than 2% |
@@ -409,8 +446,9 @@ arena exists to cut memory as well as time (§3) (*decision*).
   without it, needs the switch the cutover's D2 rules out).
 - D6. The interpreter is the wavefront machine (§4); A1's gate is a
   condition it meets, not a fallback.
-- D7. One arena, owned here, plain Idris over base; every reader reads it
-  and none copies it (§3).
+- D7. One representation of terms, plain Idris over base, in the form
+  P0's C183 gives it: no global arena, a stored definition's terms its
+  frozen columns; every reader reads it and none copies it (§3).
 - D8. The budget counts steps and bytes; nothing the machine decides
   depends on time, threads or shards (§4).
 - D9. One specializer per kind of argument: the frontend's on what
@@ -423,14 +461,16 @@ arena exists to cut memory as well as time (§3) (*decision*).
 - D12. Caches hold only what their key decides (§3).
 - D13. The budget is static normalization's alone, a named constant in
   `tools/policies.txt`, and never rejects a program (the cutover's D17);
-  the checker's evaluation has none and stays behind the fork's `host`
-  (§4).
+  the checker's evaluation has none and stays behind the checker's
+  `host` (§4).
 - D14. A0's evaluator is replaced at A1 in one change, measured binary
   against binary; no second evaluator is kept (the cutover's D2, §10).
-- D15. Two lifetimes in each id's type; caches across checks key on
-  persistent ids (§3).
+- D15. Replaced by P0's C183: a term is an unshared tree while
+  elaborated and its definition's frozen columns once stored, so no id
+  carries a lifetime; caches across checks key on stored definitions'
+  terms (§3).
 - D16. The `hash` column is the one XXH3-128 (0008 D16), one definition
-  the fork and the frontend both import, never trusted alone (§3).
+  the checker and the frontend both import, never trusted alone (§3).
 - D17. The interactive loop is A7, after A0 (§8).
 - D18. A closed array result of words or floats is a dense constant, an
   immortal `memref.global` (0009 §12, D23), whose lowering landed with
@@ -456,8 +496,9 @@ Each was left to the owner; each is decided here by the rule given
    reaches a primitive is stuck (§2): A3 computes over constructors,
    matches and closures (the choices of §1), and arithmetic stays at run
    time. The checker's driver keeps applying primitives through base's,
-   as the fork does, since its results never reach output; the driver,
-   never a test per row, picks the primitive kernel. Rejected: folding
+   as the checker's evaluator does today, since its results never reach
+   output; the driver, never a test per row, picks the primitive
+   kernel. Rejected: folding
    through base's primitives, which would put Chez's meaning in a
    stock-hosted frontend's output and needs AGENTS.md amended.
 3. **A body the interpreter can run for each generating op** is 0009

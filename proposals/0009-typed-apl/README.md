@@ -2,23 +2,27 @@
 <!-- Copyright (c) 2026 Bjorn Pagen -->
 # 0009: a typed array language, MLIR first
 
-**Amended by P0 (2026-10-21, `../0000-mlir-native.md`).** The plain-Idris
-layer (stage 7) and the array cutover are absorbed into the cutover
-(D44, D42, D43): the generating set's ops mean upstream's tensor and
-linalg, shapes are index terms (D60), a linear array's read gives back
-the array (C150), and the libraries are reshaped by hard cutover where
-the use case calls for it (D101).
+**Amended by P0 (2026-10-21, `../0000-mlir-native.md`).** The array
+cutover is absorbed whole (D43), the generating set's ops meaning
+upstream's tensor and linalg (D42); stage 7's plain-Idris layer comes
+in with 0011's O6, which uses it (D69, extending D44). Shapes are index
+terms (D60), a linear array's read gives back the array (C150), and the
+libraries are reshaped by hard cutover where the use case calls for it
+(D101).
 
-**Status (2026-10-19, read at 77eaa5b1):** open. Stage 1 is built (the
-pipeline cutover c7aa7b62 and 5d5f3312, reshaped by the representation
-waves bfdcac70 and 2c042728; their last texts at 484d6403) and has run
-in every suite on arm64 macOS since 2026-10-18. Its open failures are
-audits/bugs.md's arrays lane, not this file's. What remains: two walls
-recorded at `make self` (SELF-HOST, no gate), stage 1's bench margins
-with 0006's G1, and stages 2 to 8, all **AFTER-SELF**, queued after
-sharding (0007's P1, P2 and P4, with 0008's S-stages); stage 8 also
-needs 0007's P4. **First step: stage 2** (unmasked vectors on static
-extents, and dependent rewrites), taken when the queue reaches it; its
+**Status (2026-10-19, read at 77eaa5b1; amended 2026-10-22 for P0):**
+open. Stage 1 is built (the pipeline cutover c7aa7b62 and 5d5f3312,
+reshaped by the representation waves bfdcac70 and 2c042728; their last
+texts at 484d6403) and has run in every suite on arm64 macOS since
+2026-10-18. Its open failures are audits/bugs.md's arrays lane, not
+this file's. What remains: two walls recorded at `make self`
+(SELF-HOST, no gate), stage 1's bench margins with 0006's G1, stage 7's
+plain-Idris layer, written in P0 with 0011's O6 and built only with the
+whole cutover (D69, D56), and the rest of stages 2 to 8, all
+**AFTER-SELF**, queued after sharding (0007's P1, P2 and P4, with
+0008's S-stages); stage 8 also needs 0007's P4. **First step: stage 2**
+(unmasked vectors on static extents, and dependent rewrites), taken
+when the queue reaches it; its
 static extents and buffers in data-type bodies became P0's (its D60 and
 D43), and it waits on them. A stage is done only when it passes on every
 target. Where the
@@ -45,10 +49,10 @@ An op, type or pass of ours exists only where upstream has none, and
 each names the gap it fills (§19). The array style is the compiler's
 organizing principle, but the compiler's own Idris also runs on the stock
 host, so it never reaches the `%extern` generating set. The frontend's
-and the fork's kernels (0010's, 0011's O6) use the library's plain-Idris
-layer (D45), and 0011's tables and 0015's joins are plain Idris over
-base. Only programs, 0012's layouts among them, compile through the ops
-directly.
+and the checker's kernels (0010's, 0011's O6) use the library's
+plain-Idris layer (D45), and 0011's tables and 0015's joins are plain
+Idris over base. Only programs, 0012's layouts among them, compile
+through the ops directly.
 
 ## What remains
 
@@ -61,7 +65,8 @@ directly.
 | Stage 4: order | stage 3 | AFTER-SELF |
 | Stage 5: index sets, data-dependent shapes, shape arithmetic, D12 | stage 1 | AFTER-SELF |
 | Stage 6: sparse | stage 3, U2 | AFTER-SELF |
-| Stage 7: relations, the compiler's consumers, and the plain-Idris layer they use (D45) | stage 6; 0011's typed ids; 0015's boundary | AFTER-SELF |
+| Stage 7's plain-Idris layer (D45) and O6's two kernels, the multiplicity check and size-change composition (§11) | 0011's O6, which P0 brings in with it | in P0 (P0's D69), built only with the whole cutover (P0's D56) |
+| Stage 7's relations (§10) | stage 6; 0011's typed ids; 0015's boundary | AFTER-SELF |
 | Stage 8: multicore | stage 3; 0007's P4 | AFTER-SELF |
 
 ## 1. Stage 1, built
@@ -73,7 +78,7 @@ directly.
 `idr-columns`, `idr-bufferize` through patch 24, immortal constants,
 memrefs of mutable memory (§13), the vectorization schedule and `idr-narrow-lanes`
 (`foreign/idr/lib/Transforms/` and `lib/Conversion/Arrays.cpp`); the
-fork's `Table` on base's `Data.IOArray` (D38); the properties
+checker's `Table` on base's `Data.IOArray` (D38); the properties
 `structured-loops`, `typed-reads`, `in-place` and `fused`
 (`lib/Transforms/Expect/`). Stage 1's release model held on the suites
 (k-nucleotide's table written in place, cd40ab41); P0's D43 replaces it
@@ -95,7 +100,7 @@ section works out one or more rows.
 | two arrays indexed by one size variable | dimensions tied by `idr.tie_shape` at the function's entry | `ValueBoundsConstraintSet::areEqual` across calls (§4.3) |
 | `n + m`, `n * m` in a shape | `arith` with `nsw nuw` on `index`, or `affine.apply`; `n * m` kept as two dimensions where the type has two | value bounds; never the `index` dialect, which it does not model |
 | `Index s` | an `index` per axis at the access; `linalg.index` inside a structured op | no guard; transfers `in_bounds = [true]` |
-| a bare `Fin n` with no array | a natural | `idr-narrow` |
+| a bare `Fin n` with no array | a numeral family's number layout: a fixed width at a closed bound (`Fin 256` a byte through calls), a natural otherwise (P0's C22, D58) | the layout computed from the type (P0's C81); `idr.numeral.to_nat` and `of_nat`, with no range check (P0's C22) |
 | `x !! i`, `update x i v` | `tensor.extract`, `tensor.insert` | One-Shot's in-place analysis |
 | a linear thread (`LArray s a` at quantity 1) | `!idr.graded<once, …, tensor<...>>`, a destination-passing chain | One-Shot, the graded tensor tensor-like per instance (§8) |
 | an array field of a constructor | its buffer, crossing by `to_buffer` and `to_tensor restrict` | One-Shot's release; the family's verifier (§8) |
@@ -253,7 +258,7 @@ Most shape facts are concatenation, which reduces. The rest:
 3. **Views** cover arithmetic patterns, for example `MkSplit : (q, r :
    Nat) -> Split d (q * d + r)`.
 
-Idris's equality is unchanged (D11). The fork's conversion does no
+Idris's equality is unchanged (D11). The checker's conversion does no
 normalization of shape arithmetic, and there is no solver beside the
 toolchain. Carrying a `rewrite`'s equality into MLIR starts at stage 2
 (§16); its data-dependent part comes here.
@@ -267,18 +272,19 @@ an `LArray` is born fresh (`withArray`, or `thaw`, which copies unless
 its argument is dead) and leaves only by `freeze`. `Linear.Vec n a` is
 an `LArray [<cap] a` with its size `n`, `LTE n cap`, and
 doubling growth (D19). `LArray`'s operations are bodiless `%extern`s
-(D37, superseded by the representation wave's D5). The fork's table is
-an `IOArray` (D38).
+(D37, superseded by the representation wave's D5). The checker's table
+is an `IOArray` (D38).
 
 ### 3.9 Errors
 
 Shape errors are Idris type errors at the user's line, and the library
 names its evidence for the rule (`Agree`, `LTE`, `count`). What remains
 is **D12**, with stage 5 (AFTER-SELF): Idris reports a mismatch of two
-literal sizes as their unary forms. The fix goes in the fork's unifier
-error as the fork's own code, recorded in `PINS.md`, with the diff in
-`upstream/<bug>/pull-request.diff`. It is never sent upstream. Nothing
-in the tree yet (`upstream/fork-*` has no such entry).
+literal sizes as their unary forms. The fix goes in the checker's
+unifier error (`compiler/checker`), fixed in place like any of our code,
+with no `upstream/` record and no `PINS.md` entry: the checker is ours
+and tracks no upstream (P0's D118, C233). It is never sent upstream.
+Not yet written.
 
 ## 4. The generating set, as upstream ops
 
@@ -424,8 +430,8 @@ only three cases:
 1. **The combiner is one associative and commutative integer op**,
    without `nsw` or `nuw`. This case is built (`Forms.cpp`,
    `reassociates`).
-2. **The combiner is a finite semiring's whose laws the fork proves**
-   (`compiler/idris/src/Algebra/`, exhaustively with `Refl`). The fact
+2. **The combiner is a finite semiring's whose laws the checker proves**
+   (`compiler/checker/src/Algebra/`, exhaustively with `Refl`). The fact
    lives in Idris, so the frontend states it (**D32**). D32's first
    image, an `scf.parallel` with an `scf.reduce`, was superseded by the
    representation wave's D6: the frontend writes no `scf`. Its image is
@@ -642,7 +648,7 @@ offers a second route for a plan that fits.
 
 ## 11. The compiler's own consumers (stage 7)
 
-The frontend and the fork run on both hosts, so each kernel below is a
+The frontend and the checker run on both hosts, so each kernel below is a
 D45 plain-Idris definition, and the array op is idris-mlir's faster
 lowering of it:
 
@@ -650,7 +656,7 @@ lowering of it:
   occurrences grouped by binder, a CSR level. Its op is
   `sparse_tensor.reduce` over `i8` (§6's case 2).
 - **Size-change composition** is a semiring product over DCSR. The
-  fork's `Libraries/Data/SparseMatrix.idr` is already DCSR in lists and
+  checker's `Libraries/Data/SparseMatrix.idr` is already DCSR in lists and
   is the layer's starting point. The closure `loopsTerminate` keeps only
   the weakest graphs per function, so it is a relational fixpoint with
   subsumption, which is 0015's (its D9). The elaborator's
@@ -660,9 +666,9 @@ lowering of it:
   (§4.4), with no whole-array runtime primitive. They extend the layer
   with what they use, in 0010's stage.
 
-0011's tables are plain Idris over base (0011 §1), as the fork's `Table`
-is (D38). **0012's layouts** serve programs: arrays of records and of
-sums are columns by representation (0012 D3, D6, D12).
+0011's tables are plain Idris over base (0011 §1), as the checker's
+`Table` is (D38). **0012's layouts** serve programs: arrays of records
+and of sums are columns by representation (0012 D3, D6, D12).
 
 ## 12. Constants and static normalization (record)
 
@@ -693,7 +699,7 @@ With `idr-in-bounds` gone, base's `IOArray` checks an index and the
 primitive checks it again. Two measurements remain:
 
 - **SELF-HOST, recorded:** the self-compile's wall at `make self` prices
-  the double check on the fork's context table.
+  the double check on the checker's context table.
 - **AFTER-SELF, with G1:** fannkuch-redux and the `Buffer` programs
   within D35's 2% of the 2026-10-13 record. If they miss it, the fix is
   a local pattern relating `newArray`'s size to `memref.dim` for value
@@ -756,7 +762,8 @@ exists yet:
 - `histogram` (10^8 bytes into 256 bins);
 - `spmv` (CSR, a SuiteSparse matrix vendored under `sources/`).
 
-The stages, each AFTER-SELF:
+The stages, each AFTER-SELF but stage 7's plain-Idris layer, which is
+P0's (P0's D69):
 
 2. **Unmasked vectors on static extents, and dependent rewrites** (§4.3,
    §4.4). The two designs this stage first held are P0's: static extents
@@ -800,15 +807,21 @@ The stages, each AFTER-SELF:
    - the dense benchmarks unchanged;
    - the semiring laws as type-level tests;
    - a type-error fixture for a `String` element.
-7. **Relations and consumers** (§10, §11, D45). The plain-Idris layer
-   for the operations O6 uses, with their `Faster` hooks; the
-   multiplicity check and size-change composition run behind the fork's
-   existing results; `calcTerminating`'s triple closure is deleted.
-   Proof:
+7. **Relations and consumers** (§10, §11, D45). Its first half is P0's,
+   written with 0011's O6, which uses it (P0's D69), and built only with
+   the whole cutover (P0's D56), with no wait on stages 2 to 6: the
+   plain-Idris layer for the operations O6 uses; the multiplicity check
+   and size-change composition run behind the checker's existing
+   results; `calcTerminating`'s triple closure is deleted. Its proof:
    - identical verdicts and messages on base and the corpus, under both
      hosts;
-   - the same results with the hooks removed;
-   - D22 applied to the first relational consumer.
+   - the same results with the hooks removed.
+
+   The layer's `Faster` hooks lower onto ops of stages 4 and 6 (§11:
+   the multiplicity check's op is `sparse_tensor.reduce`); whether the
+   hooks come into P0 before those stages, P0 does not say. The second
+   half stays here, AFTER-SELF, after stage 6: §10's relations, proved
+   by D22 applied to the first relational consumer.
 8. **Multicore** (§14), after 0007's P4. Proof: 0007's rules; `heat` and
    `matmul` give identical output on one shard and on all.
 
@@ -874,7 +887,7 @@ the call's cast type as a key (§4.3).
 - **D11.** Idris's equality is unchanged; shape arithmetic is the
   library's tactic (§3.7, stage 5).
 - **D12.** Literal size mismatches are reported as the literals, by a
-  fork fix (§3.9, stage 5).
+  fix in the checker (§3.9, stage 5).
 - **D15.** Reductions mean their left fold; `linalg` reductions only in
   §6's three cases. Case 1 is built; the rest come at stage 4.
 - **D16.** `idr.scan` and `idr.scatter` until upstream has them, made by
@@ -894,11 +907,11 @@ the call's cast type as a key (§4.3).
   stated by the frontend. Its image is decided at stage 4; the default
   is in §6.
 - **D35, D36.** Measurement and parity (§16).
-- **D45 (AFTER-SELF, stage 7).** Code the stock host runs (the
-  frontend, the fork, the runner, Gen) reaches no `%extern` of
-  `mlir-array`.
+- **D45 (stage 7's first half, in P0 with 0011's O6: P0's D69).** Code
+  the stock host runs (the frontend, the checker, the runner, Gen)
+  reaches no `%extern` of `mlir-array`.
   - **Declared once** (ruled 2026-10-15, representation first). An
-    operation the frontend or the fork uses is a definition with a body
+    operation the frontend or the checker uses is a definition with a body
     over base's primitives (`Data.IOArray`, `Data.Buffer`), which both
     hosts implement. That body is its one meaning, and it has no
     `%extern` twin.
@@ -910,9 +923,9 @@ the call's cast type as a key (§4.3).
     bodiless `%extern` of the generating set. When the frontend comes to
     use one, its `%extern` becomes a definition with a body in the same
     change.
-  - **Who builds it.** Stage 7 builds the definitions its first
-    consumer uses (0011's O6, §11). Each later frontend consumer
-    (0010's kernels) adds what it uses, in its own stage.
+  - **Who builds it.** P0 writes the definitions the first consumer,
+    0011's O6 (§11), uses, with O6 (P0's D69). Each later frontend
+    consumer (0010's kernels) adds what it uses, in its own stage.
 
   Reason: the two-host rule. A body is the meaning both hosts can run,
   and a hook over it is speed, not a second meaning.
@@ -991,8 +1004,11 @@ built unless it says so.
 - `PartialReductionOpInterface` on `fold_last` for "any association"
   (D32's case, §6). Its iterator types are already upstream's, read off
   its region, and `Idr_Iteration` is gone (P0's D43, C107).
-- One counting protocol per element access: idr-rc lowers `array.get` to
-  `memref.load` and `idr.dup`, and `array.set` to `idr.own.give` and
-  `memref.store`; `LowerArrayGet` and `LowerArraySet` stop counting
-  (`Conversion/Arrays.cpp`). `array.get` already carries
+- One counting protocol per element access: counting lowers `array.get`
+  to `memref.load`, the element a view where the effects show no write
+  to the array, so no `idr.dup` is made for it there (P0's D39 deletes
+  the dup of every counted element read where no write intervenes), and
+  `array.set` to `idr.own.give` and `memref.store`; `LowerArrayGet` and
+  `LowerArraySet` stop counting (`Conversion/Arrays.cpp`), the lowering
+  lowering primitive ops only (P0's C39). `array.get` already carries
   `Idr_TakesReference`, so the owned verifier sees it.
