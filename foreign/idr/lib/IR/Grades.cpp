@@ -112,7 +112,7 @@ LogicalResult GradedType::verify(function_ref<InFlightDiagnostic()> emitError, U
   if (idr::isLinearByType(carrier) || isa<LifetimeType>(carrier))
     return emitError() << "expects no grade of " << carrier
                        << ", which is used exactly once by its type or is a lifetime";
-  if (hold.has_value() != holdsReferences(carrier))
+  if (hold.has_value() != idr::holdsReferences(carrier))
     return emitError() << (hold ? "expects no hold of " : "expects a hold of ") << carrier
                        << (hold ? ", which holds no reference" : ", which holds references");
   if (Grade{uses, hold} == bareGrade(carrier))

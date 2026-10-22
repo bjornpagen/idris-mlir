@@ -21,6 +21,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Counting.Types
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Lifetimes.Kind
+import IdrisMLIR.Spec.Ops.Bigs
 
 import Data.Fin
 import Data.List.Elem
@@ -620,19 +621,23 @@ lend = op "lend" [single "owner" anyValue, variadic "outers" anyLifetime]
 ||| reference of no one's; `%v` outlives `%l`. A loan reads only its
 ||| lifetime's extent and nothing of it at run time, so `%l` is a view, of
 ||| any lifetime's extent (`idr.lifetime.forget`), and a loan never puts
-||| into a cursor. A scoped value is projected under its own lifetime, a
-||| counted one under a view opened around the reads, as the op that makes
-||| a value takes its lifetime. A bare alias names no
-||| lifetime, so the function verifier follows every alias of the result
-||| through upstream's alias interfaces, and refuses one that leaves the
-||| region defining `%l` or returns from the function, is the value a write
-||| stores, or is adopted by an op of ours. No effect: it is ordered by its
-||| operands, and kept inside `%l`'s scope by dominance.
+||| into a cursor. A grade is nothing at run time and a view lifetime is
+||| nothing either, so a loan has no run-time form: the lowering gives it
+||| `%v`'s words by the one pattern of every op that has none. A scoped
+||| value is projected under its own lifetime, a counted one under a view
+||| opened around the reads, as the op that makes a value takes its
+||| lifetime. A bare alias names no lifetime, so the function verifier
+||| follows every alias of the result through upstream's alias interfaces,
+||| and refuses one that leaves the region defining `%l` or returns from the
+||| function, is the value a write stores, or is adopted by an op of ours.
+||| No effect: it is ordered by its operands, and kept inside `%l`'s scope
+||| by dominance.
 public export
 carrier : Op 2 1 0 0
 carrier = op "carrier" [single "value" lendable, single "lifetime" viewLifetime]
   [result "result" bareCarrier] [] []
-  [] [InfersTypes InferredOnly, Declares ViewLike ["getViewSource"], Implements flowInterface ["getFlowEdges"]]
+  [OurTrait noRuntimeForm]
+  [InfersTypes InferredOnly, Declares ViewLike ["getViewSource"], Implements flowInterface ["getFlowEdges"]]
   noEffects AlwaysSpeculatable (between First Owned) DeclarationOnly
   (Declared [ ValueOf (OperandRef FZ), Lit "in", ValueOf (OperandRef (FS FZ)), AttrDict, Lit ":"
             , TypeOf (OfGroup (OperandRef FZ)), Lit ",", TypeOf (OfGroup (OperandRef (FS FZ))) ]) []

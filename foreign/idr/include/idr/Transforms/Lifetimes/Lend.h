@@ -33,22 +33,35 @@ bool readByUpstream(mlir::OpOperand &use);
 struct Lending {
   unsigned opened = 0;
   unsigned rewritten = 0;
+
+  // Two lendings' changes, one after the other: what a pass that lends
+  // many functions, or one holder by parts, reports.
+  Lending &operator+=(const Lending &more) {
+    opened += more.opened;
+    rewritten += more.rewritten;
+    return *this;
+  }
 };
 
 // Each of `holders`, values of `fn` (function `self` of `graph`) that ops
-// of upstream's read, given to those ops by who frees it. A scoped holder
-// is projected under its own lifetime, a static one under this activation's
-// (static data outlives every lifetime), by a carrier at each read, under
-// the lifetime's view where it is of another kind. A counted one is lent under a view lifetime opened around its
-// reads and every use of their aliases: one for all its reads where one
-// region can hold them, else one per read. Where no region can hold a
-// read (its aliases cross a call in tail position, a call that continues on
-// a frame, or a jump out, go out of the function, into memory, into an op
-// of ours, or on through a region branch), the holder is shared into that
-// read instead, as it would be with no lifetime: a share's result is a
-// value no flow explains, which no pass grades. A tensor an op of
-// upstream's writes is taken over by that op, its result the tensor's next
-// version, so a holder at a grade past its bare one is shared into it.
+// of upstream's read, given to those ops by who frees it, by a carrier
+// under a lifetime's view (the lifetime itself, or its view where it is of
+// another kind). A scoped holder is projected under its own lifetime and
+// a static one under this activation's (static data outlives every
+// lifetime), a carrier at each read. A scoped holder's carrier stands on
+// its read's span, the stretch holding the read and every use of its
+// aliases, none going out of it and no call in it that continues on a
+// frame, so no alias of it leaves its lifetime or is held by a frame. A
+// counted one is lent under a view lifetime opened at the span of its
+// reads: one for all its reads where one region can hold them, else one
+// per read. Where no region can hold a read (its aliases cross a call in
+// tail position, a call that continues on a frame, or a jump out, go out
+// of the function, into memory, into an op of ours, or on through a region
+// branch), the holder is shared into that read instead, as it would be
+// with no lifetime: a share's result is a value no flow explains, which no
+// pass grades. A tensor an op of upstream's writes is taken over by that
+// op, its result the tensor's next version, so a holder at a grade past
+// its bare one is shared into it.
 Lending lend(FuncOp fn, solver::FunctionId self, const solver::ProgramGraph &graph,
              llvm::ArrayRef<mlir::Value> holders);
 

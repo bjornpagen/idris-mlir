@@ -61,14 +61,17 @@
 // Then every tensor or buffer an op of upstream's reads is lent to it
 // (Lend.h): the op takes only the bare carrier, and the passes after this
 // one write grades into what it reads, so each read is made a read of a
-// loan (idr.carrier), which no one counts or grades. A scoped value is
-// projected under its own lifetime, static data under this activation's,
-// and a counted value under a view lifetime opened at the smallest region
-// that holds its reads and every use of their aliases: in the innermost
-// block that holds them all, from the first of them there to the last,
-// the aliases found as the verifier's rule of loans finds them. Where no
-// region can hold them, the value is shared into the read, as with no
-// lifetime.
+// loan (idr.carrier), which no one counts or grades. A loan of a value a
+// lifetime or a count frees stands on a span: in the innermost block that
+// holds its reads and every use of their aliases, from the first of them
+// there to the last, the aliases found as the verifier's rule of loans
+// finds them, with no call that continues on a frame in it. A scoped
+// value is projected under its own lifetime at each read, on that read's
+// span, which is the read alone, since a value an op of upstream's reads
+// into a value holding references is counted; a counted value is lent
+// under a view lifetime opened at its reads' span, and where no region can
+// hold them, shared into the read, as with no lifetime. Static data is
+// projected under this activation's lifetime.
 #include "idr/Transforms/Lifetimes/Lend.h"
 #include "idr/Transforms/Lifetimes/Plan.h"
 
@@ -254,22 +257,18 @@ struct IdrLifetimes : idr::impl::IdrLifetimesBase<IdrLifetimes> {
     // a holder an op of upstream's takes: the decide step's regions are
     // written first, and a loan's region nests among them.
     lifetimes::Lending lent;
-    for (FunctionId f : graph.functions()) {
-      lifetimes::Lending made =
-          lifetimes::lendReads(graph.op(f), f, graph, lifetimes::Holders::Every);
-      lent.opened += made.opened;
-      lent.rewritten += made.rewritten;
-    }
+    for (FunctionId f : graph.functions())
+      lent += lifetimes::lendReads(graph.op(f), f, graph, lifetimes::Holders::Every);
     numLifetimes += lent.opened;
     if (!wrote && lent.rewritten == 0) {
-      numWork = work.steps();
+      numWork += work.steps();
       return markAllAnalysesPreserved();
     }
 
     // The one writer of rows, since a slot is no heap memory, a copy's row
     // is its own, and a share a loan could not stand in place of frees.
     rows::write(program, graph, work);
-    numWork = work.steps();
+    numWork += work.steps();
     markAnalysesPreserved<SymbolTable, solver::ProgramGraph>();
   }
 };
