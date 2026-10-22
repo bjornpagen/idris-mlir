@@ -37,9 +37,9 @@
 namespace idr::tail {
 
 // Whether `op` gives its operand's value on with no run-time work, so that
-// a call whose result it takes may still be the tail: a change of grade
-// (ResultCarriesOperand), or a reindex whose two types share a run-time
-// layout. A reindex that re-packs is work after the call.
+// a call whose result it takes may still be the tail: what `op` answers
+// through the carrying interface (CarriesOnOpInterface). One that works
+// does so after the call; one without the interface gives nothing on.
 bool carriesOn(mlir::Operation *op);
 
 // Whether what `op` gives is what its function gives: the ops after it in
@@ -76,9 +76,8 @@ mlir::Operation *rejoinOf(mlir::Operation *terminator);
 // function returns. Each names the op that takes the path's value and the
 // value it gives on.
 //
-// The value given on with no run-time work (carriesOn): a change of
-// grade, or a reindex whose two types share a run-time layout.
-struct Carry {
+// Through an op that gives the value on with no run-time work (carriesOn).
+struct Through {
   mlir::Operation *op;
 };
 // Into field `field` of a value `op` builds for it, fresh: a cell, a
@@ -100,10 +99,10 @@ struct Forward {
   mlir::Operation *terminator;
   unsigned position;
 };
-using Step = std::variant<Carry, Into, ReadBack, Forward>;
-// Before the hole, only a carry or a rejoin can take the call's result: a
-// value laid out inline holds no hole.
-using Approach = std::variant<Carry, Forward>;
+using Step = std::variant<Through, Into, ReadBack, Forward>;
+// Before the hole, only an op the value passes through or a rejoin can
+// take the call's result: a value laid out inline holds no hole.
+using Approach = std::variant<Through, Forward>;
 
 // A self call modulo a context, as its rule reads it: the steps from its
 // result to the cell field it fills (the hole, a cell laid out in memory,

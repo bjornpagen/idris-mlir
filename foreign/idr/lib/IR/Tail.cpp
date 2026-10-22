@@ -26,7 +26,7 @@ namespace idr::tail {
 // follow a call are every op there is, an open set.
 bool carriesOn(Operation *op) {
   auto carry = dyn_cast<CarriesOnOpInterface>(op);
-  return carry && carry.getCarry() == ::idr::Carry::Free;
+  return carry && carry.getCarry() == Carry::Free;
 }
 
 namespace {

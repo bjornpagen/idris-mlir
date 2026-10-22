@@ -188,7 +188,7 @@ std::optional<Context> contextOf(CallOp call) {
       return std::nullopt;
     Operation *user = use->getOwner();
     if (carriesOn(user) && use->getOperandNumber() == 0) {
-      context.approach.push_back(Carry{user});
+      context.approach.push_back(Through{user});
       at = user->getResult(0);
       continue;
     }
@@ -258,7 +258,7 @@ std::optional<Context> contextOf(CallOp call) {
     Operation *user = onward->getOwner();
     unsigned number = onward->getOperandNumber();
     if (carriesOn(user) && number == 0) {
-      context.rest.push_back(Carry{user});
+      context.rest.push_back(Through{user});
       at = user->getResult(0);
       continue;
     }
@@ -306,12 +306,12 @@ std::optional<Context> contextOf(CallOp call) {
       return true;
     for (const Approach &step : context.approach)
       if (idr::match(
-              step, [&](const Carry &carry) { return carry.op == op; },
+              step, [&](const Through &through) { return through.op == op; },
               [](const Forward &) { return false; }))
         return true;
     for (const Step &step : context.rest)
       if (idr::match(
-              step, [&](const Carry &carry) { return carry.op == op; },
+              step, [&](const Through &through) { return through.op == op; },
               [&](const Into &into) { return into.op == op; },
               [&](const ReadBack &read) { return read.op == op; },
               [](const Forward &) { return false; }))

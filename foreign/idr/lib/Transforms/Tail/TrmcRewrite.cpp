@@ -64,11 +64,11 @@ Context mapped(const Context &context, const IRMapping &mapping) {
   Context to{cast<CallOp>(op(context.call)), {}, into(context.hole), {}};
   for (const Approach &step : context.approach)
     to.approach.push_back(idr::match(
-        step, [&](const Carry &c) -> Approach { return Carry{op(c.op)}; },
+        step, [&](const Through &t) -> Approach { return Through{op(t.op)}; },
         [&](const Forward &f) -> Approach { return Forward{op(f.terminator), f.position}; }));
   for (const Step &step : context.rest)
     to.rest.push_back(idr::match(
-        step, [&](const Carry &c) -> Step { return Carry{op(c.op)}; },
+        step, [&](const Through &t) -> Step { return Through{op(t.op)}; },
         [&](const Into &i) -> Step { return into(i); },
         [&](const ReadBack &r) -> Step { return ReadBack{op(r.op), value(r.part)}; },
         [&](const Forward &f) -> Step { return Forward{op(f.terminator), f.position}; }));
@@ -82,7 +82,7 @@ std::optional<Maker> Rewrite::makerOf(Value value) const {
       return Hole{context.hole};
     for (const Step &step : context.rest)
       if (Found found = idr::match(
-              step, [](const Carry &) -> Found { return std::nullopt; },
+              step, [](const Through &) -> Found { return std::nullopt; },
               [&](const Into &into) -> Found {
                 return into.built == value ? Found(Outer{into}) : std::nullopt;
               },
