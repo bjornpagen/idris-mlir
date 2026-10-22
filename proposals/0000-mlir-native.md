@@ -4193,8 +4193,9 @@ C137.
   types is re-packed element by element, and `layoutMatch` says
   `OtherLayout` for it. A re-pack that builds a cell gives a fresh
   counted value, claimed unique, whatever the operand's hold, so
-  counting frees it as any fresh cell; only a free reindex keeps its
-  operand's hold.
+  counting frees it as any fresh cell. A reindex that builds nothing,
+  free or not (a cell taken apart in place, a numeral re-widened), keeps
+  its operand's hold, since its result's memory is the operand's.
 
 ## 4. Open: the owner's decisions, in order
 
