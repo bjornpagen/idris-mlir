@@ -43,14 +43,13 @@
 ||| context: that it makes one entry for each full name and records no
 ||| resolved name as one, so that two resolved names name one entry exactly
 ||| when their full names agree (`fullNameSameEntry`), and that none of its
-||| definitions names one of the frontend's probes (`probesFresh`); and
-||| facts of the hosts that run this compiler: that the runtime's equality
-||| of integers holds of an integer and itself and only of it, from which
-||| it is proved symmetric and Idris's equality of names reflexive and
-||| symmetric; that its equality of characters and of strings holds only of
-||| a value and itself; and that what the evaluator's table of primitives
-||| computes stays within a bound that grows with its arguments' sizes
-||| (`computedWithin`).
+||| definitions names one of the frontend's probes (`probesFresh`); and that
+||| what the evaluator's table of primitives computes stays within a bound
+||| that grows with its arguments' sizes (`computedWithin`). What the hosts
+||| that run this compiler give their primitives is trusted in
+||| `Core.Primitives.Host`, below the evaluator, which applies them: from its
+||| facts of the runtime's equality of integers, Idris's equality of names
+||| is proved reflexive and symmetric here.
 module Idris.Host
 
 import Core.Case.CaseTree
@@ -59,6 +58,7 @@ import Core.Core
 import Core.Env
 import Core.Normalise
 import Core.Primitives
+import Core.Primitives.Host
 import Core.Termination
 import Core.TT
 import Core.TT.Stored
@@ -92,10 +92,8 @@ import Libraries.Data.WithDefault
 -- and to a term's reducts and its normal form (`reachesNormalForm`); of
 -- the context, which `Core` actions build, to the full names its entries
 -- hold (`oneEntryPerName`, `fullNameUnresolved`) and to the names its
--- definitions hold (`probesFresh`); and of the hosts' runtime, to its
--- comparisons of integers (`intEqualityReflexive`, `intEqualitySound`),
--- characters (`charEqualitySound`) and strings (`stringEqualitySound`)
--- and to what the table of primitives computes (`computedWithin`).
+-- definitions hold (`probesFresh`); and to what the table of primitives
+-- computes (`computedWithin`).
 0 trusted : a
 trusted = believe_me ()
 
@@ -336,6 +334,15 @@ data Visible : Frozen -> GlobalDef -> Type where
                                  (fullname d) (collapseDefault (visibility d)) = True) ->
            Visible ctx d
 
+||| The flags of a type constructor's definition, and none of any other's.
+||| A statement about a family's flags reads them here rather than binding
+||| every field of its definition: the fields it does not need would each
+||| be an implicit whose type must be named where the statement is made.
+public export
+0 typeFlagsOf : Def -> Maybe TypeFlags
+typeFlagsOf (TCon _ _ _ flags _ _ _) = Just flags
+typeFlagsOf _ = Nothing
+
 ||| An implementation: a definition whose type, past its arguments, is an
 ||| interface's, the record type declared with a unique search.
 public export
@@ -343,7 +350,7 @@ data Implementation : Frozen -> GlobalDef -> Type where
   IsImplementation : (0 _ : TypeOf d ty) ->
                      (0 _ : resultHead ty = HeadFamily tn) ->
                      (0 _ : Defines ctx tn td) ->
-                     (0 _ : definition td = TCon tarity tps tds tflags tms tcs tdet) ->
+                     (0 _ : typeFlagsOf (definition td) = Just tflags) ->
                      (0 _ : uniqueAuto tflags = True) ->
                      Implementation ctx d
 
@@ -961,50 +968,18 @@ markerName (Add _ old rest) (MkVar First) = Refl
 markerName (Add _ _ rest) (MkVar (Later v)) = markerName rest (MkVar v)
 markerName None (MkVar v) impossible
 
--- Idris's equality of names compares an identifier's index, a machine
--- name's number, a resolved name's index and the like as the runtime's
--- integers, by `prim__eq_Int`, which a proof cannot evaluate at a
--- variable. That it is true of an integer and itself, and only of an
--- integer and itself, are facts of each host that runs this compiler and
--- of no definition: Chez compares two exact integers by `=`, and
--- idris-mlir two 64-bit words by `arith.cmpi eq`, each true exactly when
--- the two are one integer. Its symmetry follows from the two. Every
--- instance that lifts them to names is public and structural, so from them
--- equality of names is proved reflexive and symmetric.
-0 intEqualityReflexive : (x : Int) -> (x == x) = True
-intEqualityReflexive _ = trusted
-
-export
-0 intEqualitySound : (x, y : Int) -> (x == y) = True -> x = y
-intEqualitySound _ _ _ = trusted
-
 0 falseWhereNotTrue : (b : Bool) -> Not (b = True) -> b = False
 falseWhereNotTrue False _ = Refl
 falseWhereNotTrue True no = absurd (no Refl)
 
+-- The runtime's equality of integers is trusted to hold of an integer and
+-- itself and only of it (`Core.Primitives.Host`); its symmetry follows.
+-- Every instance that lifts it to names is public and structural, so from
+-- it equality of names is proved reflexive and symmetric.
 0 intEqualitySymmetric : (x, y : Int) -> (x == y) = False -> (y == x) = False
 intEqualitySymmetric x y apart = falseWhereNotTrue (y == x) $ \same =>
     uninhabited (trans (sym (replace {p = \z => (x == z) = False} (intEqualitySound y x same) apart))
                        (intEqualityReflexive x))
-
--- A character is compared by `prim__eq_Char`: Chez's `char=?`, and
--- idris-mlir's `arith.cmpi eq` of the two code points, each true exactly
--- when the two are one character. It is trusted itself rather than through
--- `ord` and the comparison of integers, which would trust two facts of the
--- runtime in its place: that `prim__eq_Char` agrees with `prim__eq_Int` on
--- code points, and that `prim__cast_CharInt` gives two characters two code
--- points.
-export
-0 charEqualitySound : (x, y : Char) -> (x == y) = True -> x = y
-charEqualitySound _ _ _ = trusted
-
--- A string is compared by `prim__eq_String`: Chez's `string=?`, character
--- by character, and idris-mlir's runtime, which compares the two UTF-8
--- encodings byte by byte and their lengths, each true exactly when the two
--- are one string.
-export
-0 stringEqualitySound : (x, y : String) -> (x == y) = True -> x = y
-stringEqualitySound _ _ _ = trusted
 
 0 natEqualityReflexive : (k : Nat) -> (k == k) = True
 natEqualityReflexive Z = Refl
@@ -1179,7 +1154,9 @@ firstAt None _ (MkVar v) impossible
 
 0 weakenMarker : (o : SizeOf outer) -> (bs : Bounds ns) -> (w : Var ns) ->
                  weakenNs o (Var.index (markersOf {vars} fc bs) w) = Ref fc Bound (replacedAt bs w)
-weakenMarker o bs w = trans (cong (weakenNs o) (markerName bs w)) weakenRef
+-- `weakenRef` is given the size it weakens past: weakening a reference
+-- computes to the reference whatever the size, so nothing else fixes it.
+weakenMarker o bs w = trans (cong (weakenNs o) (markerName bs w)) (weakenRef {s = o})
 
 mutual
   -- Values put in for no variables leave a term as it is, at any depth.
@@ -1697,8 +1674,10 @@ droppedPeel (S a) c k (DropUnder d) = case droppedPeel a c k d of
 
 -- An index below the dropped one is kept.
 0 droppedBelowCut : (a, x : Nat) -> Nat.LT i a -> Dropped (a + x) i j -> j = i
+droppedBelowCut Z _ lt _ = absurd lt
 droppedBelowCut (S a) x (LTESucc _) DropBefore = Refl
 droppedBelowCut (S a) x (LTESucc lt) (DropUnder d) = cong S (droppedBelowCut a x lt d)
+droppedBelowCut (S _) _ _ DropPast impossible
 
 0 droppedOnce : Dropped o i j -> Dropped o i j' -> j = j'
 droppedOnce DropPast DropPast = Refl
@@ -1788,6 +1767,13 @@ shiftedLocals IsLocalAt IsLocalAt at = ShLocal at
 
 0 localsAt : {0 q : IsVar n j ys} -> {0 q' : IsVar n' j' ys} -> j = j' -> Local {vars = ys} fc l j q = Local fc l j' q'
 localsAt Refl = localAtSame IsLocalAt IsLocalAt
+
+-- Equal terms under a dot are equal dotted terms. A lemma, not a `cong`
+-- through a lambda: its location is solved where it is applied, where the
+-- patterns that bind the location are in scope, and a hole in a lambda's
+-- body is not given them.
+0 dottedSame : {0 fc : FC} -> {0 a, b : Term vs} -> a = b -> Erased fc (Dotted a) = Erased fc (Dotted b)
+dottedSame Refl = Refl
 
 ------------------------------------------------------------------------------
 -- No step
@@ -1888,6 +1874,14 @@ mutual
 0 shiftedWeaken : (s : SizeOf new) -> (v : Term vars) -> Shifted Z (size s) v (weakenNs s v)
 shiftedWeaken s v = insertShifted zero s v
 
+-- A binder more is one more in the count. The shifts below take it as an
+-- equation rather than matching the size at their binder alone: a size
+-- matched in one clause and bound in the others leaves the coverage check
+-- a tree for that clause's split and another for the rest, and the second
+-- splits the local cases again without what the first had already taken.
+0 sizeSuc : (o : SizeOf xs) -> size (suc {a} o) = S (size o)
+sizeSuc (MkSizeOf _ _) = Refl
+
 mutual
   -- A value moved out past a cut, then weakened at a depth past the cut, is
   -- moved out past the inserted variables too.
@@ -1912,8 +1906,8 @@ mutual
           (PastCut k past (trans ix (trans (cong (size s +) same) (insertedPast c e m k (size s)))))
   shiftedInsert c e m o s eq ShRef = ShRef
   shiftedInsert c e m o s eq (ShMeta ts) = ShMeta (shiftedInsertAll c e m o s eq ts)
-  shiftedInsert c e m o@(MkSizeOf _ _) s eq (ShBind b sc) =
-    ShBind (shiftedInsertBinder c e m o s eq b) (shiftedInsert (S c) e m (suc o) s (cong S eq) sc)
+  shiftedInsert c e m o s eq (ShBind b sc) =
+    ShBind (shiftedInsertBinder c e m o s eq b) (shiftedInsert (S c) e m (suc o) s (trans (sizeSuc o) (cong S eq)) sc)
   shiftedInsert c e m o s eq (ShApp f a) = ShApp (shiftedInsert c e m o s eq f) (shiftedInsert c e m o s eq a)
   shiftedInsert c e m o s eq (ShAs n t) = ShAs (shiftedInsert c e m o s eq n) (shiftedInsert c e m o s eq t)
   shiftedInsert c e m o s eq (ShDelayed t) = ShDelayed (shiftedInsert c e m o s eq t)
@@ -1965,8 +1959,8 @@ mutual
                   (PastCut k past (keptPast c e m k eq))
   shiftedSubst c e m o s env eq ShRef = ShRef
   shiftedSubst c e m o s env eq (ShMeta ts) = ShMeta (shiftedSubstAll c e m o s env eq ts)
-  shiftedSubst c e m o@(MkSizeOf _ _) s env eq (ShBind b sc) =
-    ShBind (shiftedSubstBinder c e m o s env eq b) (shiftedSubst (S c) e m (suc o) s env (cong S eq) sc)
+  shiftedSubst c e m o s env eq (ShBind b sc) =
+    ShBind (shiftedSubstBinder c e m o s env eq b) (shiftedSubst (S c) e m (suc o) s env (trans (sizeSuc o) (cong S eq)) sc)
   shiftedSubst c e m o s env eq (ShApp f a) = ShApp (shiftedSubst c e m o s env eq f) (shiftedSubst c e m o s env eq a)
   shiftedSubst c e m o s env eq (ShAs n t) = ShAs (shiftedSubst c e m o s env eq n) (shiftedSubst c e m o s env eq t)
   shiftedSubst c e m o s env eq (ShDelayed t) = ShDelayed (shiftedSubst c e m o s env eq t)
@@ -2016,7 +2010,7 @@ mutual
   shiftedOnce ShPrim ShPrim = Refl
   shiftedOnce ShPlaceholder ShPlaceholder = Refl
   shiftedOnce ShImpossible ShImpossible = Refl
-  shiftedOnce (ShDotted t) (ShDotted t') = cong (\x => Erased _ (Dotted x)) (shiftedOnce t t')
+  shiftedOnce (ShDotted t) (ShDotted t') = dottedSame (shiftedOnce t t')
   shiftedOnce ShType ShType = Refl
 
   0 allShiftedOnce : {0 ws, ws' : List (Term ys)} -> AllShifted c d vs' ws -> AllShifted c d vs' ws' -> ws = ws'
@@ -2320,7 +2314,7 @@ mutual
   mappedOnce MPrim MPrim = Refl
   mappedOnce MPlaceholder MPlaceholder = Refl
   mappedOnce MImpossible MImpossible = Refl
-  mappedOnce (MDotted x) (MDotted x') = cong (\y => Erased _ (Dotted y)) (mappedOnce x x')
+  mappedOnce (MDotted x) (MDotted x') = dottedSame (mappedOnce x x')
   mappedOnce MType MType = Refl
 
   0 allMappedOnce : {0 us, us' : List (Term ys)} -> AllMapped mv bs vals c ts us -> AllMapped mv bs vals c ts us' -> us = us'
@@ -2369,6 +2363,9 @@ allMappedAppend (MEach m ms) ms' = MEach m (allMappedAppend ms ms')
 allMappedSplit {us} [] post Refl ms = ([] ** (us ** (Refl, MNone, ms)))
 allMappedSplit (t :: pre) post Refl (MEach {u} m ms) = case allMappedSplit pre post Refl ms of
   (us1 ** (us2 ** (same, ms1, ms2))) => (u :: us1 ** (us2 ** (cong (u ::) same, MEach m ms1, ms2)))
+-- A first run that holds a term maps no empty list: stated, since the
+-- coverage check does not refute it from the equation's two sides.
+allMappedSplit (_ :: _) _ Refl MNone impossible
 
 0 mappedArguments : AllMapped mv bs vals c args args' -> (names : Scope) ->
                     (same : length args = length names) -> (same' : length args' = length names) ->
@@ -2421,13 +2418,15 @@ familyImage (MRef _) = Refl
               (us : List (Term ys) ** (h' = Meta fc m k us, AllMapped mv bs vals c ts us, NoneAt bs m))
 metaImage (MMeta none ms) = (_ ** (Refl, ms, none))
 
-0 consKept : (m, m' : Maybe (Vect k Constant)) -> ((xs : Vect k Constant) -> m = Just xs -> m' = Just xs) ->
+0 consKept : {0 k : Nat} -> {0 c : Constant} -> {0 cs : Vect (S k) Constant} ->
+             (m, m' : Maybe (Vect k Constant)) -> ((xs : Vect k Constant) -> m = Just xs -> m' = Just xs) ->
              map (c ::) m = Just cs -> map (c ::) m' = Just cs
 consKept (Just cs') m' keep same = rewrite keep cs' Refl in same
 consKept Nothing m' keep same = void (nothingIsJust same)
 
 -- A map keeps every constant, so the constants of a primitive's arguments.
-0 mappedConstants : {n : Nat} -> AllMapped mv bs vals c ts us -> constantsOf n ts = Just cs -> constantsOf n us = Just cs
+0 mappedConstants : {n : Nat} -> {0 cs : Vect n Constant} ->
+                    AllMapped mv bs vals c ts us -> constantsOf n ts = Just cs -> constantsOf n us = Just cs
 mappedConstants {n = Z} MNone same = same
 mappedConstants {n = Z} (MEach _ _) same = void (nothingIsJust same)
 mappedConstants {n = S k} MNone same = void (nothingIsJust same)
@@ -2694,11 +2693,19 @@ mutual
 -- Reduction is closed under strengthening
 ------------------------------------------------------------------------------
 
+-- No bounds count a name, whatever the naming. The naming is split here, so
+-- that `mentionsNone` splits its term alone: clauses that split the naming
+-- before others that bind it leave the coverage check a second tree, under
+-- the first's default, that splits the reference's kind again and misses
+-- the kind the first tree took.
+0 boundCountsNone : (k : Naming) -> boundCounts k None n = False
+boundCountsNone BoundOrUnknown = Refl
+boundCountsNone UnknownOnly = Refl
+
 mutual
   0 mentionsNone : (k : Naming) -> (t : Term vs) -> mentions k None t = False
   mentionsNone k (Local fc l i p) = Refl
-  mentionsNone BoundOrUnknown (Ref fc Bound n) = Refl
-  mentionsNone UnknownOnly (Ref fc Bound n) = Refl
+  mentionsNone k (Ref fc Bound n) = boundCountsNone k
   mentionsNone k (Ref fc Func n) = Refl
   mentionsNone k (Ref fc (DataCon tag arity) n) = Refl
   mentionsNone k (Ref fc (TyCon arity) n) = Refl
@@ -2980,7 +2987,7 @@ mutual
 ||| reduction is closed under that map (`mappedReduces`), and a map gives
 ||| one image (`mappedOnce`).
 export
-0 substitutes : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+0 substitutes : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) -> {0 t, u : Term vars} ->
                 FreshIn ctx bs -> mentions UnknownOnly bs t = False ->
                 Reduces ev ctx t u ->
                 Reduces ev ctx (substs (mkSizeOf ns) vs (refsToLocals bs t))
@@ -3361,10 +3368,12 @@ export
 resolvedDefinedFullName (AtEntry r held) = entryFullName (atEntry resolvedItself r held)
 
 -- Two resolved names whose full names agree, read through what their
--- entries hold: two definitions, one, or none.
+-- entries hold: two definitions, one, or none. The projection is named as
+-- Idris names it, in its record's namespace: unqualified, in argument
+-- position of a type, it would be bound as a fresh implicit.
 0 sameByFullName : {0 ctx : Frozen} -> {0 i, j : Int} -> (m, m' : Maybe GlobalDef) ->
                    IntMap.lookup i (entriesOf ctx) = m -> IntMap.lookup j (entriesOf ctx) = m' ->
-                   maybe (Resolved i) Context.Context.fullname m = maybe (Resolved j) Context.Context.fullname m' -> i = j
+                   maybe (Resolved i) GlobalDef.fullname m = maybe (Resolved j) GlobalDef.fullname m' -> i = j
 sameByFullName (Just d) (Just d') found found' same = oneEntryPerName {ctx} {i} {j} found found' same
 sameByFullName (Just d) Nothing found _ same = void (fullNameUnresolved {ctx} {i} found same)
 sameByFullName Nothing (Just d') _ found' same = void (fullNameUnresolved {ctx} {i = j} found' (sym same))

@@ -490,10 +490,13 @@ TTC Nat where
      = do val <- fromBuf
           pure (fromInteger val)
 
+-- A set is written as its words, each of which has no sign, so whatever
+-- bytes are read give a set; written as an integer, a set could be read
+-- back negative.
 export
 TTC NatSet where
-  toBuf ns = toBuf (cast {to=Integer} ns)
-  fromBuf = cast {from=Integer} <$> fromBuf
+  toBuf ns = toBuf (NatSet.toWords ns)
+  fromBuf = NatSet.fromWords <$> fromBuf
 
 ||| Get a file's modified time. If it doesn't exist, return 0 (UNIX Epoch)
 export

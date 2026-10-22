@@ -9,7 +9,6 @@ import Core.Unify
 import Data.Maybe
 import Data.SortedMap
 import Data.String
-import Data.These
 
 import Parser.Package
 import System
@@ -674,30 +673,6 @@ check pkg opts =
        | errs => pure errs
      pure []
 
--- Data.These.bitraverse hand specialised for Core
-bitraverseC : (a -> Core c) -> (b -> Core d) -> These a b -> Core (These c d)
-bitraverseC f g (This a)   = [| This (f a) |]
-bitraverseC f g (That b)   = [| That (g b) |]
-bitraverseC f g (Both a b) = [| Both (f a) (g b) |]
-
--- Data.StringTrie.foldWithKeysM hand specialised for Core
-foldWithKeysC : Monoid b => (List String -> Core b) -> (List String -> a -> Core b) -> StringTrie a -> Core b
-foldWithKeysC {a} {b} fk fv = go []
-  where
-  go : List String -> StringTrie a -> Core b
-  go ks (MkStringTrie nd) =
-    map bifold $ bitraverseC
-                   (fv ks)
-                   (\sm => foldlC
-                             (\x, (k, vs) =>
-                               do let ks' = ks++[k]
-                                  y <- assert_total $ go ks' vs
-                                  z <- fk ks'
-                                  pure $ x <+> y <+> z)
-                             neutral
-                             (StringMap.toList sm))
-                   nd
-
 clean : {auto c : Ref Ctxt Defs} ->
         PkgDesc ->
         List CLOpt ->
@@ -721,7 +696,7 @@ clean pkg opts -- `opts` is not used but might be in the future
                                     v = Builtin.snd ksv
                                   in
                                 insertWith (reverse ks) (maybe [v] (v::)) trie) empty toClean
-         foldWithKeysC (deleteFolder builddir)
+         foldWithKeysM @{Monad.CORE} (deleteFolder builddir)
                        (\ks => map concat . traverse (deleteBin builddir ks))
                        pkgTrie
          deleteFolder builddir []

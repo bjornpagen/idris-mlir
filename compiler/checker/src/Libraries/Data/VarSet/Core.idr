@@ -2,8 +2,6 @@
 -- Copyright (c) 2020 Edwin Brady
 module Libraries.Data.VarSet.Core
 
-import Data.Bits
-
 import Libraries.Data.NatSet
 
 import Core.Name.Scoped
@@ -74,4 +72,4 @@ varSetFreelyEmbeddable = MkFreelyEmbeddable id
 
 export %hint
 varSetWeaken : Weaken VarSet
-varSetWeaken = MkWeaken NatSet.addZ (\ inn, vs => cast (cast {to = Integer} vs `shiftL` inn.size))
+varSetWeaken = MkWeaken NatSet.addZ (\ inn, vs => NatSet.addNs inn.size vs)

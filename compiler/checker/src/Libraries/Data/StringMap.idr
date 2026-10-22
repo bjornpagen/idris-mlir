@@ -11,11 +11,15 @@ Key = String
 
 -- TODO: write split
 
-private
+-- The tree and the map are public so that a structure holding maps of
+-- itself (a trie's children) can recurse through them structurally: a fold
+-- that hid them would hand each child to a function, where Idris no longer
+-- sees that it is smaller than the structure holding it.
+public export
 data Tree : Nat -> Type -> Type where
-  Leaf : Key -> v -> Tree Z v
-  Branch2 : Tree n v -> Key -> Tree n v -> Tree (S n) v
-  Branch3 : Tree n v -> Key -> Tree n v -> Key -> Tree n v -> Tree (S n) v
+  Leaf : String -> v -> Tree Z v
+  Branch2 : Tree n v -> String -> Tree n v -> Tree (S n) v
+  Branch3 : Tree n v -> String -> Tree n v -> String -> Tree n v -> Tree (S n) v
 
 branch4 :
   Tree n v -> Key ->
@@ -201,7 +205,7 @@ treeToList = treeToList' (:: [])
     treeToList' cont (Branch2 t1 _ t2) = treeToList' (:: treeToList' cont t2) t1
     treeToList' cont (Branch3 t1 _ t2 _ t3) = treeToList' (:: treeToList' (:: treeToList' cont t3) t2) t1
 
-export
+public export
 data StringMap : Type -> Type where
   Empty : StringMap v
   M : (n : Nat) -> Tree n v -> StringMap v

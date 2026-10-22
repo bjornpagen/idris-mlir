@@ -50,6 +50,7 @@ modules =
     Core.Options,
     Core.Options.Log,
     Core.Primitives,
+    Core.Primitives.Host,
     Core.Reflect,
     Core.TT,
     Core.TT.Binder,

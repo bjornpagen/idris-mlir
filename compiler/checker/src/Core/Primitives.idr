@@ -2,6 +2,7 @@
 -- Copyright (c) 2020 Edwin Brady
 module Core.Primitives
 
+import Core.Primitives.Host
 import Core.TT
 import Core.Value
 
@@ -214,30 +215,18 @@ strLength : Vect 1 (NF vars) -> Maybe (NF vars)
 strLength [NPrimVal fc (Str s)] = Just (NPrimVal fc (I (prim__strLength s)))
 strLength _ = Nothing
 
--- The host declares the head, the tail and an index of a string partial
--- outside the string alone: an empty string has no head or tail, and an
--- index names a character only within it. The clause before each call
--- tests that of the string the program being checked holds, known only
--- when the compiler runs; that the primitive then returns is the host's
--- fact, trusted at each call, since the host gives these primitives no
--- type that could carry the test's evidence.
+-- A partial primitive is applied through the host's trusted form of it
+-- (`Core.Primitives.Host`), which stays unapplied where the primitive fails.
 strHead : Vect 1 (NF vars) -> Maybe (NF vars)
-strHead [NPrimVal fc (Str "")] = Nothing
-strHead [NPrimVal fc (Str str)]
-    = Just (NPrimVal fc (Ch (assert_total (prim__strHead str))))
+strHead [NPrimVal fc (Str str)] = NPrimVal fc . Ch <$> stringHead str
 strHead _ = Nothing
 
 strTail : Vect 1 (NF vars) -> Maybe (NF vars)
-strTail [NPrimVal fc (Str "")] = Nothing
-strTail [NPrimVal fc (Str str)]
-    = Just (NPrimVal fc (Str (assert_total (prim__strTail str))))
+strTail [NPrimVal fc (Str str)] = NPrimVal fc . Str <$> stringTail str
 strTail _ = Nothing
 
 strIndex : Vect 2 (NF vars) -> Maybe (NF vars)
-strIndex [NPrimVal fc (Str str), NPrimVal _ (I i)]
-    = if i >= 0 && integerToNat (cast i) < length str
-         then Just (NPrimVal fc (Ch (assert_total (prim__strIndex str i))))
-         else Nothing
+strIndex [NPrimVal fc (Str str), NPrimVal _ (I i)] = NPrimVal fc . Ch <$> stringIndex str i
 strIndex _ = Nothing
 
 strCons : Vect 2 (NF vars) -> Maybe (NF vars)
@@ -303,61 +292,36 @@ mul (I64 x) (I64 y) = pure $ I64 (prim__mul_Int64 x y)
 mul (Db x) (Db y) = pure $ Db (prim__mul_Double x y)
 mul _ _ = Nothing
 
--- The host declares its integer division and remainder partial, for a
--- zero divisor alone. The clause before each call tests the divisor, a
--- constant of the program being checked and so known only when the
--- compiler runs, against zero; that the primitive returns on any other is
--- the host's fact, trusted at each call, since the host gives these
--- primitives no type that could carry the test's evidence.
+-- Through the host's trusted division and remainder, which stay unapplied
+-- at a zero divisor.
 div : Constant -> Constant -> Maybe Constant
-div (BI x) (BI 0) = Nothing
-div (BI x) (BI y) = pure $ BI (assert_total (prim__div_Integer x y))
-div (I x) (I 0) = Nothing
-div (I x) (I y) = pure $ I (assert_total (prim__div_Int x y))
-div (I8 x) (I8 0) = Nothing
-div (I8 x) (I8 y) = pure $ I8 (assert_total (prim__div_Int8 x y))
-div (I16 x) (I16 0) = Nothing
-div (I16 x) (I16 y) = pure $ I16 (assert_total (prim__div_Int16 x y))
-div (I32 x) (I32 0) = Nothing
-div (I32 x) (I32 y) = pure $ I32 (assert_total (prim__div_Int32 x y))
-div (I64 x) (I64 0) = Nothing
-div (I64 x) (I64 y) = pure $ I64 (assert_total (prim__div_Int64 x y))
-div (B8 x) (B8 0) = Nothing
-div (B8 x) (B8 y) = pure $ B8 (assert_total (prim__div_Bits8 x y))
-div (B16 x) (B16 0) = Nothing
-div (B16 x) (B16 y) = pure $ B16 (assert_total (prim__div_Bits16 x y))
-div (B32 x) (B32 0) = Nothing
-div (B32 x) (B32 y) = pure $ B32 (assert_total (prim__div_Bits32 x y))
-div (B64 x) (B64 0) = Nothing
-div (B64 x) (B64 y) = pure $ B64 (assert_total (prim__div_Bits64 x y))
+div (BI x) (BI y) = BI <$> divInteger x y
+div (I x) (I y) = I <$> divInt x y
+div (I8 x) (I8 y) = I8 <$> divInt8 x y
+div (I16 x) (I16 y) = I16 <$> divInt16 x y
+div (I32 x) (I32 y) = I32 <$> divInt32 x y
+div (I64 x) (I64 y) = I64 <$> divInt64 x y
+div (B8 x) (B8 y) = B8 <$> divBits8 x y
+div (B16 x) (B16 y) = B16 <$> divBits16 x y
+div (B32 x) (B32 y) = B32 <$> divBits32 x y
+div (B64 x) (B64 y) = B64 <$> divBits64 x y
 -- A double's division never fails, but its primitive is registered partial
 -- with the integers' divisions, so it is reached through `/`, which is that
 -- primitive for `Double`.
 div (Db x) (Db y) = pure $ Db (x / y)
 div _ _ = Nothing
 
--- Trusted as division is, behind the same test of the divisor.
 mod : Constant -> Constant -> Maybe Constant
-mod (BI x) (BI 0) = Nothing
-mod (BI x) (BI y) = pure $ BI (assert_total (prim__mod_Integer x y))
-mod (I x) (I 0) = Nothing
-mod (I x) (I y) = pure $ I (assert_total (prim__mod_Int x y))
-mod (I8 x) (I8 0) = Nothing
-mod (I8 x) (I8 y) = pure $ I8 (assert_total (prim__mod_Int8 x y))
-mod (I16 x) (I16 0) = Nothing
-mod (I16 x) (I16 y) = pure $ I16 (assert_total (prim__mod_Int16 x y))
-mod (I32 x) (I32 0) = Nothing
-mod (I32 x) (I32 y) = pure $ I32 (assert_total (prim__mod_Int32 x y))
-mod (I64 x) (I64 0) = Nothing
-mod (I64 x) (I64 y) = pure $ I64 (assert_total (prim__mod_Int64 x y))
-mod (B8 x) (B8 0) = Nothing
-mod (B8 x) (B8 y) = pure $ B8 (assert_total (prim__mod_Bits8 x y))
-mod (B16 x) (B16 0) = Nothing
-mod (B16 x) (B16 y) = pure $ B16 (assert_total (prim__mod_Bits16 x y))
-mod (B32 x) (B32 0) = Nothing
-mod (B32 x) (B32 y) = pure $ B32 (assert_total (prim__mod_Bits32 x y))
-mod (B64 x) (B64 0) = Nothing
-mod (B64 x) (B64 y) = pure $ B64 (assert_total (prim__mod_Bits64 x y))
+mod (BI x) (BI y) = BI <$> modInteger x y
+mod (I x) (I y) = I <$> modInt x y
+mod (I8 x) (I8 y) = I8 <$> modInt8 x y
+mod (I16 x) (I16 y) = I16 <$> modInt16 x y
+mod (I32 x) (I32 y) = I32 <$> modInt32 x y
+mod (I64 x) (I64 y) = I64 <$> modInt64 x y
+mod (B8 x) (B8 y) = B8 <$> modBits8 x y
+mod (B16 x) (B16 y) = B16 <$> modBits16 x y
+mod (B32 x) (B32 y) = B32 <$> modBits32 x y
+mod (B64 x) (B64 y) = B64 <$> modBits64 x y
 mod _ _ = Nothing
 
 shiftl : Constant -> Constant -> Maybe Constant
