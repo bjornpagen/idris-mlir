@@ -3790,6 +3790,29 @@ C137.
   `idr.dest.answer` a control op making a scoped value, which states its
   lifetime by C170's `outer` operand, checked to enclose the op. Still
   excluded: a `T` linear by its type, and a lifetime.
+- **C177** (2026-10-21; L11's route for C138; amends C138's record).
+  The checked runtime holds each active call to the bound the compiler
+  computed for its function, instead of recording peaks for the harness
+  to compare: the compiled program tells it where a call begins, what it
+  holds dead and where it ends, and an allocation made while a call holds
+  more dead bytes than its bound ends the run with its own ending,
+  `FrameBoundExceeded`, an internal error from the one ending table. The
+  harness compares the ending as data, as it does for every ending, and
+  parses no text; a planted program whose only possible internal error
+  is the bound shows the check catches it. The shipped runtime's entries
+  are empty, and `check-archive` refuses an account in a shipped
+  archive. Enforcing the bound at the allocation where it would break is
+  the stronger statement of D26, and it needs no file or channel of its
+  own.
+- **C178** (2026-10-21; L15's measure for C133's scale relations). A
+  pass's footprint is the peak, less the start, of the bytes held in the
+  compiler's shared containers (`IndexVector`, `BitSet`, `Ragged`, and
+  every solver's program-sized state, moved into them), counted per
+  thread by their one allocator and reported per pass run. It gives the
+  same number on every target, at any thread count and on every run,
+  which a scale relation at N and 2N needs; a process's resident size
+  differs by target, allocator and page size, and stays the qualification
+  measurement of peak memory, not the scale relation's.
 
 ## 4. Open: the owner's decisions, in order
 
