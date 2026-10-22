@@ -8,6 +8,7 @@
 
 #include "idr/Driver/Runtime.h"
 #include "idr/Driver/StackBound.h"
+#include "idr/Support/Match.h"
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
 
@@ -61,14 +62,13 @@ Plan::Plan(std::string base, Source source, Product product, std::optional<std::
 std::optional<Plan> Plan::of(llvm::StringRef input, Product product,
                              std::optional<std::string> report,
                              std::optional<std::string> emitted, FrontendArgs frontend) {
-  std::string base = std::visit(llvm::makeVisitor(
-                                    [](const Executable &executable) { return executable.path; },
-                                    [](const Archive &archive) {
-                                      llvm::SmallString<256> path(archive.path);
-                                      llvm::sys::path::replace_extension(path, "");
-                                      return path.str().str();
-                                    }),
-                                product);
+  std::string base = idr::match(
+      product, [](const Executable &executable) { return executable.path; },
+      [](const Archive &archive) {
+        llvm::SmallString<256> path(archive.path);
+        llvm::sys::path::replace_extension(path, "");
+        return path.str().str();
+      });
   llvm::StringRef extension = llvm::sys::path::extension(input);
   Source source = extension == ".mlir" || extension == ".mlirbc"
                       ? Source(FromModule{input.str()})
@@ -85,33 +85,40 @@ std::optional<Plan> Plan::of(llvm::StringRef input, Product product,
 
 std::vector<std::string> Plan::outputs() const {
   std::vector<std::string> paths;
-  if (const auto *idris = std::get_if<FromIdris>(&source);
-      idris && idris->kept == ModuleKept::WithProduct)
-    paths = {idris->modulePath};
-  paths.push_back(std::visit([](const auto &made) { return made.path; }, product));
+  idr::match(
+      source, [](const FromModule &) {},
+      [&](const FromIdris &idris) {
+        if (idris.kept == ModuleKept::WithProduct)
+          paths.push_back(idris.modulePath);
+      });
+  paths.push_back(idr::match(
+      product, [](const idr::OneOf<Executable, Archive> auto &made) { return made.path; }));
   return paths;
 }
 
 std::optional<std::string> Plan::objectsDirectory() const {
-  return std::visit(llvm::makeVisitor(
-                        [&](const Executable &) { return std::optional(base + ".objects"); },
-                        [](const Archive &) { return std::optional<std::string>(); }),
-                    product);
+  return idr::match(
+      product, [&](const Executable &) { return std::optional(base + ".objects"); },
+      [](const Archive &) { return std::optional<std::string>(); });
 }
 
 std::vector<std::string> Plan::written() const {
   std::vector<std::string> paths = outputs();
   if (report)
     paths.push_back(*report);
-  if (const auto *idris = std::get_if<FromIdris>(&source);
-      idris && idris->kept == ModuleKept::Always)
-    paths.push_back(idris->modulePath);
+  idr::match(
+      source, [](const FromModule &) {},
+      [&](const FromIdris &idris) {
+        if (idris.kept == ModuleKept::Always)
+          paths.push_back(idris.modulePath);
+      });
   return paths;
 }
 
 const std::string &Plan::modulePath() const {
-  return std::visit([](const auto &from) -> const std::string & { return from.modulePath; },
-                    source);
+  return idr::match(source, [](const idr::OneOf<FromIdris, FromModule> auto &from) -> auto & {
+    return from.modulePath;
+  });
 }
 
 mlir::LogicalResult Plan::makeDirectories(mlir::MLIRContext &context) const {
@@ -379,18 +386,15 @@ mlir::LogicalResult idr::driver::writeObjects(llvm::Module &optimized, const llv
   // there is one for every name.
   idr::footprint::Vector<Object> objects;
   for (Compiled &one : compiled)
-    std::visit(llvm::makeVisitor(
-                   [&](Object &object) { objects.push_back(std::move(object)); },
-                   [&](const Failed &failed) { mlir::emitError(unknown) << failed.why; }),
-               one);
+    idr::match(
+        one, [&](Object &object) { objects.push_back(std::move(object)); },
+        [&](const Failed &failed) { mlir::emitError(unknown) << failed.why; });
   if (objects.size() != names.size())
     return mlir::failure();
-  return std::visit(llvm::makeVisitor(
-                        [&](const Executable &) {
-                          return writeEach(names, objects, artifacts, context);
-                        },
-                        [&](const Archive &archive) {
-                          return writeAsArchive(names, objects, triple, archive, context);
-                        }),
-                    artifacts.product);
+  return idr::match(
+      artifacts.product,
+      [&](const Executable &) { return writeEach(names, objects, artifacts, context); },
+      [&](const Archive &archive) {
+        return writeAsArchive(names, objects, triple, archive, context);
+      });
 }

@@ -21,6 +21,8 @@
 #include "mlir/Reducer/ReductionPatternInterface.h"
 #include "mlir/Tools/mlir-reduce/MlirReduceMain.h"
 #include "llvm/ADT/SmallVectorExtras.h"
+#include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/Threading.h"
 
 namespace {
 
@@ -76,7 +78,13 @@ int reduceMain(int argc, char **argv) {
   registry.addExtension(+[](mlir::MLIRContext *, idr::IdrDialect *dialect) {
     dialect->addInterfaces<IdrReductionPatterns>();
   });
-  mlir::MLIRContext context(registry);
+  // The pool the passes run on, every CPU, each worker on the tools' stack
+  // as this thread is; declared before the context so it outlives it. The
+  // context is made without threading so the pool can be set, which
+  // enables it.
+  llvm::StdThreadPool pool(idr::driver::onToolStack(llvm::hardware_concurrency()));
+  mlir::MLIRContext context(registry, mlir::MLIRContext::Threading::DISABLED);
+  context.setThreadPool(pool);
   return mlir::failed(mlir::mlirReduceMain(argc, argv, context));
 }
 

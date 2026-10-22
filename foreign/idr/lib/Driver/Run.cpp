@@ -13,6 +13,7 @@
 #include "idr/Driver/Runtime.h"
 #include "idr/Driver/Verdict.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
 #include "idr/Transforms/Contracts.h"
@@ -39,7 +40,6 @@
 #include "mlir/Support/Timing.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
@@ -334,11 +334,9 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
   // A handoff module goes through the pipeline, whose first pass,
   // idr-target, writes the build's target on it; a lowered module names it
   // already.
-  mlir::LogicalResult lowered = std::visit(
-      llvm::makeVisitor(
-          [&](Handoff) { return runPipeline(*module, invocation, outcome, rootTiming); },
-          [](Lowered) { return mlir::success(); }),
-      *kind);
+  mlir::LogicalResult lowered = idr::match(
+      *kind, [&](Handoff) { return runPipeline(*module, invocation, outcome, rootTiming); },
+      [](Lowered) { return mlir::success(); });
   if (mlir::failed(lowered))
     return mlir::failure();
   return toObjects(*module, invocation.runtime, artifacts, **target, triple, pool, rootTiming);

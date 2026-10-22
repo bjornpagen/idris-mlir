@@ -9,6 +9,7 @@
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Runtime.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 #include "idr/Target/Target.h"
 
 #include "mlir/IR/Diagnostics.h"
@@ -338,6 +339,8 @@ idr::driver::readRuntime(llvm::StringRef path, llvm::LLVMContext &llvmContext,
           : readPrepared(path, llvmContext, at);
   if (mlir::failed(runtime))
     return mlir::failure();
-  std::visit([](auto &read) { llvm::StripDebugInfo(*read.module); }, *runtime);
+  idr::match(*runtime, [](idr::OneOf<Archived, Prepared> auto &read) {
+    llvm::StripDebugInfo(*read.module);
+  });
   return runtime;
 }

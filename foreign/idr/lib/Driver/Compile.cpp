@@ -10,7 +10,9 @@
 #include "idr/Driver/Artifacts.h"
 #include "idr/Driver/Options.h"
 #include "idr/Driver/Report.h"
+#include "idr/Driver/Tool.h"
 #include "idr/Driver/Verdict.h"
+#include "idr/Support/Match.h"
 #include "idr/Support/Profile.h"
 
 #include "mlir/IR/Diagnostics.h"
@@ -19,7 +21,6 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/Timing.h"
 
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileSystem.h"
@@ -34,7 +35,6 @@
 #include <string>
 #include <system_error>
 #include <utility>
-#include <variant>
 #include <vector>
 
 using namespace idr::driver;
@@ -102,23 +102,26 @@ static void chain(llvm::StringRef frontendPath, const Compile &invocation, Artif
     return;
   // What made the module: the frontend, as it finished, or the input itself,
   // which no frontend failed to make.
-  mlir::FailureOr<int> made =
-      std::visit(llvm::makeVisitor(
-                     [&](const FromIdris &idris) {
-                       IDR_ZONE_IN("frontend", Driver);
-                       mlir::TimingScope frontendTiming = rootTiming.nest("frontend");
-                       return frontend(frontendPath, idris, outcome);
-                     },
-                     [](const FromModule &) { return mlir::FailureOr<int>(ok); }),
-                 artifacts.source);
+  mlir::FailureOr<int> made = idr::match(
+      artifacts.source,
+      [&](const FromIdris &idris) {
+        IDR_ZONE_IN("frontend", Driver);
+        mlir::TimingScope frontendTiming = rootTiming.nest("frontend");
+        return frontend(frontendPath, idris, outcome);
+      },
+      [](const FromModule &) { return mlir::FailureOr<int>(ok); });
   if (mlir::failed(made) || mlir::failed(run(*made, invocation, artifacts, context,
                                              diagnostics.sources(), pool, rootTiming, outcome)))
     return;
-  if (const auto *executable = std::get_if<Executable>(&artifacts.product)) {
-    IDR_ZONE_IN("link", Link);
-    mlir::TimingScope linkTiming = rootTiming.nest("link");
-    link(artifacts, *executable, invocation.runtime, context);
-  }
+  // An executable is linked; an archive is the bins' objects, unlinked.
+  idr::match(
+      artifacts.product,
+      [&](const Executable &executable) {
+        IDR_ZONE_IN("link", Link);
+        mlir::TimingScope linkTiming = rootTiming.nest("link");
+        link(artifacts, executable, invocation.runtime, context);
+      },
+      [](const Archive &) {});
 }
 
 // The report at `path`, kept only once it is written whole; the compiler's
@@ -160,12 +163,13 @@ int idr::driver::compile(llvm::StringRef frontendPath, Compile invocation) {
   Outcome outcome;
   // The one pool of the compilation, which the function passes and the
   // bins' code generation run on, sized by --num-threads (every CPU by
-  // default); declared before the context so it outlives it, as upstream's
-  // tools declare theirs. --mlir-disable-threading still wins for the
-  // passes, the context then ignoring it.
+  // default), each worker on the tools' stack as this thread is; declared
+  // before the context so it outlives it, as upstream's tools declare
+  // theirs. --mlir-disable-threading still wins for the passes, the context
+  // then ignoring it.
   llvm::ThreadPoolStrategy strategy;
   strategy.ThreadsRequested = invocation.threads;
-  llvm::StdThreadPool pool(strategy);
+  llvm::StdThreadPool pool(onToolStack(strategy));
   // Every dialect a compilation meets, so a module of any other fails to
   // parse. The context runs the function groups over the functions in
   // parallel unless --mlir-disable-threading; two compiles of one module

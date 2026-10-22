@@ -10,13 +10,13 @@
 #include "idr/Driver/Runtime.h"
 #include "idr/Driver/StackBound.h"
 #include "idr/Driver/Verdict.h"
+#include "idr/Support/Match.h"
 #include "idr/Target/Target.h"
 
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/GlobalObject.h"
 #include "llvm/IR/GlobalValue.h"
@@ -135,16 +135,15 @@ static mlir::LogicalResult prepareRuntime(const Prepare &invocation, mlir::MLIRC
   if (mlir::failed(runtime))
     return mlir::failure();
   // Only the archive is prepared.
-  return std::visit(llvm::makeVisitor(
-                        [&](Archived &archived) {
-                          return prepareArchive(archived, machine, invocation.output, context);
-                        },
-                        [&](const Prepared &) -> mlir::LogicalResult {
-                          return mlir::emitError(at) << "runtime " << invocation.archive
-                                                     << " is prepared already; "
-                                                        "--prepare-runtime reads the archive";
-                        }),
-                    *runtime);
+  return idr::match(
+      *runtime,
+      [&](Archived &archived) {
+        return prepareArchive(archived, machine, invocation.output, context);
+      },
+      [&](const Prepared &) -> mlir::LogicalResult {
+        return mlir::emitError(at) << "runtime " << invocation.archive
+                                   << " is prepared already; --prepare-runtime reads the archive";
+      });
 }
 
 int idr::driver::prepare(const Prepare &invocation) {

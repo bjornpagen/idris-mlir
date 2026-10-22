@@ -15,10 +15,12 @@
 
 namespace {
 
-// The stack's guard, which the fault handler reads. One runner runs at a
-// time in a process: the program's or a tool's.
+// The stack's guard, which the fault handler reads, and the stack's size,
+// which a tool's other threads take. One runner runs at a time in a
+// process: the program's or a tool's.
 uintptr_t guardLow = 0;
 uintptr_t guardHigh = 0;
+size_t threadStack = 0;
 
 // A fault on the stack's guard: the compiler sized the stack from every
 // frame the code on it can stack, so reaching the guard is its bug, or the
@@ -86,10 +88,12 @@ idris_rt_ran rt::start::run(void (*fn)(void *), void *arg, const idris_rt_stack_
   }
   guardLow = reinterpret_cast<uintptr_t>(base);
   guardHigh = guardLow + guard;
+  threadStack = stack;
   rt::platform::catchFaults(onFault);
   Task task{fn, arg, signalLow, signal};
   bool ran = rt::platform::runThread(runTask, &task, stackLow, stack);
   guardLow = guardHigh = 0;
+  threadStack = 0;
   rt::platform::release(base, region);
   return ran ? IDRIS_RT_RAN : IDRIS_RT_REFUSED;
 }
@@ -108,6 +112,10 @@ extern "C" idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg,
   rt::start::checkMachine(cpu_features);
   return rt::start::run(fn, arg, *plan, SIZE_MAX);
 }
+
+// The size the runner gave its thread, kept: a tool's other threads take
+// it, and never read the host's part again.
+extern "C" uint64_t idris_rt_thread_stack_bytes(void) { return threadStack; }
 
 // The memory a tool may plan for: the system's physical memory, no more
 // than the process may map (its address-space limit) or still commit

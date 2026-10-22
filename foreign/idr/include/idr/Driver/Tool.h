@@ -21,17 +21,19 @@
 // The target entry's description: the program CPU's features.
 #include "idr/TargetEntry.h"
 
-// The runtime's C ABI: the runner and the out-of-memory ending; and the
-// target entry's list of processor features.
+// The runtime's C ABI: the runner, the stack it gives its thread and the
+// out-of-memory ending; and the target entry's list of processor features.
 #include "cpu_features.h"
 #include "idris_rt.h"
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Threading.h"
 
 #include <concepts>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <type_traits>
 
 // The tools' stack and signal stack, measured per target (its entry in
@@ -75,6 +77,22 @@ void enterTool(void *argument) {
 // over a page; and their signal stack.
 inline constexpr idris_rt_stack_plan toolStack{IDRIS_MLIR_TOOL_STACK_BYTES, 0,
                                                IDRIS_MLIR_TOOL_SIGNAL_BYTES};
+
+// LLVM sizes a thread's stack in an unsigned: the tools' small stack fits
+// it, with half its range left for the host's own part, a few pages, which
+// the runner adds.
+static_assert(IDRIS_MLIR_TOOL_STACK_BYTES <= std::numeric_limits<unsigned>::max() / 2,
+              "the tools' stack fits a thread's stack size as LLVM takes it");
+
+// A pool's strategy as a tool gives it: `strategy`, each worker on as large
+// a stack as the runner gave the tool's own thread, so a pass or a bin's
+// code generation on a worker has the main thread's depth and no thread of
+// the tool runs on the host's default. Asked inside runTool's body, once
+// the runner has sized that stack.
+inline llvm::ThreadPoolStrategy onToolStack(llvm::ThreadPoolStrategy strategy) {
+  strategy.StackSizeInBytes = static_cast<unsigned>(idris_rt_thread_stack_bytes());
+  return strategy;
+}
 
 // The processor features the tools' code may use, as the startup check's
 // bits: the program CPU's, a constant of the build.

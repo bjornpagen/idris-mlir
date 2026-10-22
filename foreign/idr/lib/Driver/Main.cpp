@@ -10,6 +10,7 @@
 #include "idr/Driver/Report.h"
 #include "idr/Driver/Runtime.h"
 #include "idr/Driver/Tool.h"
+#include "idr/Support/Match.h"
 #include "idr/Support/Profile.h"
 #include "idr/Target/Target.h"
 
@@ -20,7 +21,6 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/Timing.h"
 
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
@@ -29,7 +29,6 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <utility>
-#include <variant>
 #include <vector>
 
 using namespace idr::driver;
@@ -102,15 +101,13 @@ int idr::driver::main(int argc, char **argv) {
   // whichever way out the invocation took.
   idr::profile::Trace trace(toolName);
   return runTool([&] {
-    return std::visit(llvm::makeVisitor(
-                          [&](Compile &compiling) {
-                            return compile(frontendBeside(argv[0]), std::move(compiling));
-                          },
-                          [](const Prepare &preparing) { return prepare(preparing); },
-                          [](const Print &asked) {
-                            answer(asked.question);
-                            return ok;
-                          }),
-                      *invocation);
+    return idr::match(
+        *invocation,
+        [&](Compile &compiling) { return compile(frontendBeside(argv[0]), std::move(compiling)); },
+        [](const Prepare &preparing) { return prepare(preparing); },
+        [](const Print &asked) {
+          answer(asked.question);
+          return ok;
+        });
   });
 }

@@ -8,6 +8,7 @@
 #include "idr/Driver/Options.h"
 
 #include "idr/Driver/Artifacts.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/Debug/CLOptionsSetup.h"
 #include "mlir/IR/Diagnostics.h"
@@ -276,7 +277,9 @@ llvm::Expected<Invocation> compileInvocation() {
     return llvm::createStringError("-o, --report and --emitted name outputs that collide with "
                                    "each other or with the input");
   // A module has no frontend to give them to (FromModule holds none).
-  if (std::holds_alternative<FromModule>(plan->source) && llvm::any_of(frontendOnly, given))
+  if (idr::match(
+          plan->source, [](const FromIdris &) { return false; },
+          [](const FromModule &) { return llvm::any_of(frontendOnly, given); }))
     return llvm::createStringError("-p, --package-path, --prefix, --no-prelude and --emitted "
                                    "are the frontend's, for Idris source, not for a module");
   if (llvm::Error error = checkMlirOptions())

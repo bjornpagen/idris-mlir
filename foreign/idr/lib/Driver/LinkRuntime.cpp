@@ -5,6 +5,7 @@
 
 #include "idr/Driver/Runtime.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 #include "idr/Target/Target.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -70,11 +71,13 @@ mlir::LogicalResult idr::driver::linkRuntime(llvm::Module &program, mlir::Module
       readRuntime(path, program.getContext(), machine, *source.getContext());
   if (mlir::failed(read))
     return mlir::failure();
-  if (mlir::failed(
-          isBuilt(std::visit([](const auto &kind) { return kind.identity; }, *read), path, at)))
+  // Either kind is one module and its identity.
+  Identity identity = idr::match(
+      *read, [](const idr::OneOf<Archived, Prepared> auto &kind) { return kind.identity; });
+  if (mlir::failed(isBuilt(identity, path, at)))
     return mlir::failure();
-  std::unique_ptr<llvm::Module> runtime =
-      std::visit([](auto &kind) { return std::move(kind.module); }, *read);
+  std::unique_ptr<llvm::Module> runtime = idr::match(
+      *read, [](idr::OneOf<Archived, Prepared> auto &kind) { return std::move(kind.module); });
   // A body the program joins becomes program code, whose frames code
   // generation sizes and the build checks against the guard: it takes no
   // stack probe, and it would give one to every program function it

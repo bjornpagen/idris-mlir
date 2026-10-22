@@ -389,6 +389,9 @@ typedef enum idris_rt_ran { IDRIS_RT_RAN, IDRIS_RT_REFUSED } idris_rt_ran;
  * idris_rt_out_of_memory, as lowered code does. */
 idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg, const idris_rt_stack_plan *plan,
                                    const char *name, size_t name_bytes, uint64_t cpu_features);
+/* The bytes of the stack the runner gave fn's thread, the plan's with the
+ * host's own part, in pages: a tool gives each of its threads as many. */
+uint64_t idris_rt_thread_stack_bytes(void);
 /* The memory a tool may plan for: physical memory, capped by the process's
  * address-space limit and by what its cgroup lets it still commit. */
 uint64_t idris_rt_host_memory(void);
