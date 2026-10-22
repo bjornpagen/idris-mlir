@@ -4,7 +4,7 @@
 # All C++ (.cpp, .h, .hpp, .cc, .cppm, .td, .inc) is in a zone of the
 # list below, each a path pattern with the extensions it keeps: foreign/idr
 # in MLIR's layout (.cpp under lib and tools, headers under include) and its
-# googletest programs, one level under unittests; every .td and generated
+# unit tests, one level under unittests; every .td and generated
 # table of ours in the one directory the dialect's specification writes
 # (spec-current holds each to it, so ODS no one generated has no zone), and
 # idr-expect's table of properties, which the runner prints from its
@@ -21,7 +21,7 @@
 #
 # The rule is `zones ROOT`, run on the repository and on the planted trees
 # (lib/planted.sh): witness/ holds C++ in no zone (each extension the list
-# does not keep, a .cpp under include, a googletest program two levels
+# does not keep, a .cpp under include, a unit test two levels
 # down, a source of tools/, ODS and a table outside the generated
 # directory) and units that declare and import a module; near-miss/ holds
 # a file of every zone, MLIR text in a string, a call whose name starts

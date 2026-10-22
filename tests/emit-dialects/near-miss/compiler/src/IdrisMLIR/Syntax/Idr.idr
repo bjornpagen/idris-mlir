@@ -3,5 +3,5 @@
 module IdrisMLIR.Syntax.Idr
 
 export
-boxType : String
-boxType = "!idr.box"
+dataType : String
+dataType = "!idr.data"

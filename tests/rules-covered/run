@@ -5,8 +5,9 @@
 # whose Main.idr's first line, `-- expect: <rule>, line <n>`, names it, or
 # has a line of tests/rules-covered/without-fixture saying why it has none
 # (no source program reaches it, another test reaches it, or its fixture is
-# owed); never both, so the file only shrinks. The rules are the build's
-# list (harness/lib/rules.sh), so a rule the dialect gains is asked for at
+# owed); never both, so the file only shrinks. The rules are the
+# specification's table, as the runner prints it (`runtests --rules`,
+# harness/lib/rules.sh), so a rule the specification gains is asked for at
 # once.
 #
 # What a tree can break on its own, a header or a line that names no rule,
@@ -15,15 +16,16 @@
 # trees (lib/planted.sh): witness/ breaks it once per way; near-miss/ holds
 # a fixture and a line of each kind, each naming its own rule, and a
 # program whose first line is no header. That every rule is stated is the
-# repository's alone, as a planted tree would restate the build's list.
+# repository's alone, as a planted tree would restate the specification's
+# table.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 listed=tests/rules-covered/without-fixture
 rule_phrases | LC_ALL=C sort -u > "$work/rule-set"
 if [ ! -s "$work/rule-set" ]; then
-  say "rules: no list of the rules (IdrRules.txt, which the build writes)"
+  say "rules: none printed by the runner (runtests --rules)"
   exit 0
 fi
-say "rules: read from the build's list"
+say "rules: read from the specification's table"
 
 # stated ROOT: each refused program's rule in the tree at ROOT, `rule TAB
 # path`; and listed ROOT: each line of its list, `rule TAB kind TAB reason

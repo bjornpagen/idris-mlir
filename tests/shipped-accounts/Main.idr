@@ -5,10 +5,13 @@ module Main
 -- token, while the tree is made: a tree's cell is not a list cell's size,
 -- so the token waits for the list cell. Its frame bound is a list cell's
 -- bytes, not zero. graft recurses, so it stays a function of its own.
+-- Grown, which the run prints from Grow.idr, holds Tree and grown, which
+-- does the same around a tree of some two thousand cells: a function of
+-- such a bound past the size at which it calls the runtime instead of
+-- inlining it.
 
 import Prelude
-
-data Tree = Leaf | Node Tree Int Tree
+import Grown
 
 graft : List Tree -> List Tree
 graft [] = []
@@ -24,4 +27,6 @@ weigh (Node (Node _ v _) _ _ :: ts) acc = weigh ts (acc + v)
 weigh (_ :: ts) acc = weigh ts acc
 
 main : IO ()
-main = printLn (weigh (graft (plant 100 [])) 0)
+main = do
+  printLn (weigh (graft (plant 100 [])) 0)
+  printLn (weigh (grown (plant 100 [])) 0)

@@ -40,6 +40,9 @@
 |||     runtests --case-status <case>   how a case's run ends (Case.idr)
 |||     runtests --reject <test> <report> <output>
 |||                                     a refused program held to its header (Reject.idr)
+|||     runtests --refused-by <report> <rule> [<file>]
+|||                                     a compilation refused by that rule alone,
+|||                                     at places in the file when one is named
 |||     runtests --rules                every rule's phrase and its category's (Facts.idr)
 |||     runtests --trace-totals <trace> | --trace-units <trace>...
 |||                                     time traces summed (Trace.idr)
@@ -85,7 +88,6 @@ import Data.String
 import System
 import System.Directory
 import System.File
-import System.Path
 
 import Case
 import Facts
@@ -305,14 +307,16 @@ pools tests suite =
   in (map poolOf [Program, Reject, Fixture, Script],
       filter (not . isHere . (.placement)) inSuite >>= \t => runsOf t.name)
 
-||| The repository root: IDRIS_MLIR_ROOT, or the parent of `tests/`.
+||| The repository root, IDRIS_MLIR_ROOT, which the Makefile exports to
+||| every test command, as it does the host's names; without it the runner
+||| refuses to start.
 root : IO String
 root = do
-  Nothing <- getEnv "IDRIS_MLIR_ROOT"
-    | Just r => pure r
-  Just here <- currentDir
-    | Nothing => die "the current directory is unknown"
-  pure (fromMaybe here (parent here))
+  Just r <- getEnv "IDRIS_MLIR_ROOT"
+    | Nothing => do
+        putStrLn "tests: IDRIS_MLIR_ROOT is unset; run the tests through make"
+        exitWith (ExitFailure 2)
+  pure r
 
 usage : String
 usage = unlines
@@ -320,7 +324,7 @@ usage = unlines
   , "                [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]"
   , "       runtests --tally <results>"
   , "       runtests --case-status <case>"
-  , "       runtests --reject <test> <report> <output> | --rules"
+  , "       runtests --reject <test> <report> <output> | --refused-by <report> <rule> [<file>] | --rules"
   , "       runtests --trace-totals <trace> | --trace-units <trace>..."
   , "       runtests --sem-program written|stdin <name> | --sem-stdin <name> | --sem-expected <name> | --lock"
   , "       runtests --linear-program <seed> <case> linear|twin|stdin|verdict | --linear-program checks"
@@ -339,8 +343,6 @@ plan : (results : String) -> List String -> IO ()
 plan results args = do
   let Right opts = optionsOf args
     | Left why => die (why ++ "\n" ++ usage)
-  r <- root
-  ignore $ setEnv "IDRIS_MLIR_ROOT" r True
   Right tests <- discover
     | Left bad => die ("tests/ holds what is no test:\n" ++ unlines (map ("  " ++) bad))
   -- Run anywhere but tests/, nothing is found; that must not pass.
@@ -375,6 +377,8 @@ main = do
     ["--tally", results] => tally results
     ["--case-status", dir] => caseStatus dir
     ["--reject", test, report, output] => reject test report output
+    ["--refused-by", report, rule] => refusedBy report rule Anywhere
+    ["--refused-by", report, rule, file] => refusedBy report rule (InFile file)
     ["--trace-totals", trace] => traceTotals trace
     ("--trace-units" :: traces@(_ :: _)) => traceUnits traces
     ["--sem-program", given, name] =>

@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/91-buffer-type-iterative: getBufferType computes buffer types
+# from an explicit stack, so its native depth does not grow with the length
+# of a chain of values whose buffer types depend on each other, and the
+# bufferization of arrays keeps a small stack. An scf.for carrying an
+# allocated tensor through 5,000 pairs of tensor.cast, on a thread whose
+# stack is 256 KiB: its result, its iter_arg and the value it yields each
+# have the allocation's buffer type, memref<4xf32>, as the recursion gave
+# them (buffer-type.cpp). The chain is flat, so it is the computation alone
+# that a frame per value would overflow.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "buffer type: a loop carrying a tensor through 10,000 casts on a 256 KiB stack, its result, iter_arg and yielded value each the allocation's memref<4xf32>" \
+  "$here/buffer-type.cpp" 5000

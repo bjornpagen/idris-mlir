@@ -5,7 +5,7 @@ module IdrisMLIR.Emit
 -- "arith.addi" is written by IdrisMLIR.Dialect.Arith, not here
 export
 names : List String
-names = ["arith", "llvm.func", "func.call", "arithmetic.addi", "scf.for", "idr"]
+names = ["arith", "llvm.func", "func.call", "arithmetic.addi", "cf.br", "idr"]
 
 note : String
 note = "x != y, #1 and a.b are no names"

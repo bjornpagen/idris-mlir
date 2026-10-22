@@ -224,8 +224,9 @@ interface_constructors() {
 # spellings and the world operations its registry forbids, the primitives
 # of believe_me and idris_crash), so it is asked: a program whose main only
 # names NAME (partial, as NAME may be) is refused. Who refuses is read off
-# the compilation's report, never its wording: the verdict `refused`, and
-# every error a rule of the two, `escape hatch` or `world`, at a line of
+# the compilation's report by the runner (`runtests --refused-by`,
+# Reject.idr), never its wording: refused, and every error by the rule
+# `escape hatch`, which a use of the world is refused by too, at a line of
 # the probe, whose only code names NAME. `%foreign`, and `%extern` as a C
 # export, are outside the language: not an escape hatch, and not a
 # primitive left to implement. A buffer operation is a runtime primitive;
@@ -238,13 +239,11 @@ escape_hatch() {
   printf 'module Main\n\nimport Prelude\nimport %s\n\npartial\nmain : IO ()\nmain = let 0 probe : (%s) = %s in pure ()\n' \
     "$1" "$3" "$2" > "$eh_dir/Main.idr"
   bounded "$compile_sh" "--report=$eh_dir/report" "$eh_dir/Main.idr" probe > "$eh_dir/out" 2>&1
-  if [ -f "$eh_dir/report" ] && grep -qx 'verdict: refused' "$eh_dir/report" &&
-     awk '/^diagnostic: error / { n++; if (($3 != "escape-hatch" && $3 != "world") || $4 !~ /^Main\.idr:[0-9]+$/) bad = 1 }
-          END { exit !(n > 0 && !bad) }' "$eh_dir/report"; then
+  if "$runtests" --refused-by "$eh_dir/report" 'escape hatch' Main.idr; then
     return 0
   fi
   {
-    say "$2: no escape-hatch or world refusal; the probe's report and output:"
+    say "$2: no escape-hatch refusal; the probe's report and output:"
     show "$eh_dir/report" "$eh_dir/out"
   } >> "$work/escape-hatch.evidence"
   return 1

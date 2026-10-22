@@ -444,7 +444,7 @@ disagreements Accepted status report =
   ++ (if null report.errors then [] else ["predicted accepted, but the report holds " ++ show (length report.errors) ++ " errors"])
 disagreements (Refused ls) status report =
   let wanted = forget ls
-      reported = nub (sort (mapMaybe (.line) report.errors))
+      reported = nub (sort (mapMaybe (\r => map (.line) r.place) report.errors))
   in (if status == 0 then ["predicted " ++ verdictText (Refused ls) ++ ", but the compilation exited 0"] else [])
      ++ (if report.verdict == "internal" then ["predicted a refusal, but the compiler ended in an internal error"] else [])
      ++ (if all byUniqueness report.errors && not (null report.errors) then []

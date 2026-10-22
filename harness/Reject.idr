@@ -10,7 +10,12 @@
 |||
 ||| prints a line for the rule, the line and, when the header has one, the
 ||| message (found anywhere in <output>, what the compilation printed), and
-||| exits 1 when any of them is not what the header says.
+||| exits 1 when any of them is not what the header says. A script that
+||| expects a refusal by a rule without a header to hold it (the registry's
+||| broken entries, lib/profile.sh; the prelude's escape hatches,
+||| lib/prelude.sh) asks the same reader:
+|||
+|||     runtests --refused-by <report> <rule> [<file>]
 module Reject
 
 import Data.List
@@ -74,13 +79,21 @@ headerOf text =
 -- The report
 ------------------------------------------------------------------------------
 
-||| An error of the report: the rule it refuses by, if any, and the line
-||| of its first file location, if any.
+||| Where in the source an error is: the file and the line of its first
+||| file location.
+public export
+record Place where
+  constructor MkPlace
+  file : String
+  line : Nat
+
+||| An error of the report: the rule it refuses by, if any, and its place,
+||| if it names one.
 public export
 record Refusal where
   constructor MkRefusal
   rule : Maybe SomeRule
-  line : Maybe Nat
+  place : Maybe Place
 
 ||| The report idris-mlir writes under --report: `verdict: <name>`, a
 ||| `diagnostic: <severity> <rule> <file:line>` line per diagnostic (a field
@@ -91,14 +104,17 @@ record Report where
   verdict : String
   errors : List Refusal
 
-lineOfLocation : String -> Maybe Nat
-lineOfLocation "-" = Nothing
-lineOfLocation loc = parsePositive (pack (reverse (takeWhile (/= ':') (reverse (unpack loc)))))
+||| A location `<file>:<line>`, split at its last colon; a field the
+||| diagnostic lacks (`-`) has no colon, and so no place.
+placeOf : String -> Maybe Place
+placeOf loc = case break (== ':') (reverse (unpack loc)) of
+  (digits, ':' :: file) => MkPlace (pack (reverse file)) <$> parsePositive (pack (reverse digits))
+  _ => Nothing
 
 refusalOf : String -> Maybe Refusal
 refusalOf text = case words text of
   ["diagnostic:", "error", rule, loc] =>
-    Just (MkRefusal (if rule == "-" then Nothing else ruleOfField rule) (lineOfLocation loc))
+    Just (MkRefusal (if rule == "-" then Nothing else ruleOfField rule) (placeOf loc))
   _ => Nothing
 
 ||| A report's text, read once into its record: the one reader of the
@@ -142,7 +158,7 @@ compareWith h report output =
                     else (unexpected, False)
           _ => (unexpected, False)
       reportedLine : Maybe Nat
-      reportedLine = head' report.errors >>= (.line)
+      reportedLine = map (.line) (head' report.errors >>= (.place))
       lineLine : (String, Bool)
       lineLine = if reportedLine == Just h.line then ("line: as the header says", True)
                  else ("line: " ++ maybe "none" show reportedLine ++ " reported, the header says " ++ show h.line, False)
@@ -166,3 +182,29 @@ reject test reportPath outputPath = do
   let (shown, holds) = compareWith header report output
   traverse_ putStrLn shown
   if holds then exitSuccess else exitFailure
+
+||| Where a refusal's errors must be: anywhere, or at places in one file
+||| (the probe's own module, so the refusal is of its use and not of
+||| something it reaches).
+public export
+data Within = Anywhere | InFile String
+
+within : Within -> Refusal -> Bool
+within Anywhere _ = True
+within (InFile f) r = map (.file) r.place == Just f
+
+||| `--refused-by <report> <rule> [<file>]`: the compilation was refused,
+||| with at least one error, and every error is by the rule (named by its
+||| phrase, read into the specification's rule once) and within the file
+||| when one is named; the status is 1 when not. A phrase that is no rule's
+||| fails the check and is named on stderr, which a failing test shows, so
+||| a stale phrase is found rather than read as a refusal not made.
+export
+refusedBy : (report : String) -> (phrase : String) -> Within -> IO ()
+refusedBy reportPath phrase area = do
+  let Just rule = ruleNamed phrase
+    | Nothing => die (phrase ++ " is no rule's phrase")
+  report <- reportOf <$> fromMaybe "" <$> readIfThere reportPath
+  if report.verdict == "refused" && not (null report.errors)
+       && all (\r => byRule rule r && within area r) report.errors
+     then exitSuccess else exitFailure

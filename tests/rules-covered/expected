@@ -1,4 +1,4 @@
-rules: read from the build's list
+rules: read from the specification's table
 reject fixtures: found
 every rule has a reject fixture or a line of tests/rules-covered/without-fixture
 no rule has both a fixture and a line, and every line names a rule, once, with a kind and a reason

@@ -68,9 +68,9 @@ profile_reject() {
 # that names a definition and fixes no shape.
 # The validation reads only the loaded context, so the fixture's own module
 # is what it meets. Compiled with OPTION..., the program must stop at the
-# entry: refused by the hook rule alone, as its report says, with a
-# message that names the entry, what it expects and what was found, and
-# leave no artifact.
+# entry: refused by the hook rule alone, as its report says (read by the
+# runner, `runtests --refused-by`, Reject.idr), with a message that names
+# the entry, what it expects and what was found, and leave no artifact.
 registry_shadowed() {
   rs_key=$1
   rs_case=$2
@@ -106,9 +106,7 @@ registry_shadowed() {
   esac || { say "$rs_key broken: $rs_name not found in $3"; return; }
   compile_program "$@" "--report=$work/$rs_case.report" "$work/$rs_case/Main.idr" prog
   say "$rs_key broken: exit $compiled"
-  if grep -qx 'verdict: refused' "$work/$rs_case.report" 2> /dev/null &&
-     awk '/^diagnostic: error / { n++; if ($3 != "hook") bad = 1 } END { exit !(n > 0 && !bad) }' \
-       "$work/$rs_case.report" &&
+  if "$runtests" --refused-by "$work/$rs_case.report" hook &&
      grep -qF "the registry's entry $rs_key (" "$work/compile.out" "$work/compile.err" &&
      grep -q "expects .*, but found " "$work/compile.out" "$work/compile.err"; then
     say "$rs_key broken: the error shows the entry, what it expects and what was found"

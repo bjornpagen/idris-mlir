@@ -39,9 +39,9 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
   run, which says `cases: each as expected` whatever the number of cases.
 - a `Main.idr` whose first line is `-- expect: <rule>, line <n>`: a
   program refused by that one rule at that line (`kinds/reject`,
-  `profile_reject`), optionally with `-- message: <text>` next; its name
-  starts with the rule. It may hold its nearest accepted neighbour in
-  `near/` (below).
+  `profile_reject`), optionally with `-- message: <text>` next; the
+  header holds the rule, so its name is free. It may hold its nearest
+  accepted neighbour in `near/` (below).
 - one `.mlir` file, `<name>.mlir`, and nothing else: a dialect fixture
   (`kinds/fixture`, `lit_fixture` in `lib/lit.sh`), for an IR shape a
   pass must handle that no program reaches. Its `// RUN:` lines run in

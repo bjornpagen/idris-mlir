@@ -3,5 +3,5 @@
 module IdrisMLIR.Types
 
 export
-boxType : String
-boxType = "!idr.box"
+listType : String
+listType = "!idr.data<#List>"

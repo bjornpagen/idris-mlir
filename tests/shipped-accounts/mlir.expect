@@ -1,3 +1,4 @@
-# graft's frame bound is not zero (Main.idr), so its lowered form opens
-# the account of what it holds.
-lowered: calls=@Main.graft:@idris_rt_peak_enter
+# graft's frame bound is not zero (Main.idr), and nor is grown's
+# (Grow.idr), so the lowered form of each opens the account of what it
+# holds.
+lowered: calls=@Main.graft:@idris_rt_peak_enter calls=@Grown.grown:@idris_rt_peak_enter

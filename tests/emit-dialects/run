@@ -3,9 +3,9 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Emit writes ops of the contract's dialects only, each through the builder
 # generated for the op (IdrisMLIR.Dialect.*: idr's from the specification,
-# the admitted upstream ops' from upstream's records):
-# idris-mlir parses with a registry of exactly idr, arith, math, ub,
-# memref, tensor and builtin. So
+# the admitted upstream ops' from upstream's records). The contract's
+# dialects are idr and the upstream dialects the specification lists as the
+# ones the frontend writes, in its output WrittenDialects.txt. So
 #   - each generated module builds ops of one dialect of the contract, and
 #     the contract's dialects each have one;
 #   - no string literal of Emit.idr, Emit/*.idr, MLIR.idr or MLIR/Text.idr,
@@ -26,7 +26,12 @@
 # outside the contract or with no dot.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 cd "$root" || exit 1
-contract='idr arith math ub memref tensor builtin'
+written=foreign/idr/include/idr/IR/Generated/WrittenDialects.txt
+if [ ! -f "$written" ]; then
+  say "contract: no $written, which the specification writes"
+  exit 0
+fi
+contract=idr$(awk '/^#/ || NF == 0 { next } { printf " %s", $1 }' "$written")
 src=compiler/src/IdrisMLIR
 
 : > "$work/built"

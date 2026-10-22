@@ -1,0 +1,18 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/99-function-interface-edits: FunctionOpInterface's four edits of
+# a signature are interface methods, so an operation that keeps facts by
+# the positions of its parameters and results, as idr.func does, moves them
+# however the edit reaches it: through a FunctionOpInterface handle, as
+# upstream's passes and ours edit functions, and from the single-item
+# forms, through the handle or the operation. A function of the check's
+# own that keeps a tag per argument and result is edited each way, and the
+# tags move with the signature (edits.cpp). The patch's lit test needs
+# MLIR's test dialect and test passes, which the pinned tools are built
+# without, so the operation is defined in the check itself.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "function edits: each of the four, through the interface or from a single-item form, reaches the operation's own, its tags moved with the signature" \
+  "$here/edits.cpp"

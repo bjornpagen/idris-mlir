@@ -4,15 +4,25 @@
 # A program built with the runtime it ships with keeps no account of what
 # its calls hold: the lowering opens one in every function whose frame
 # bound is not zero, in every build, and the shipped runtime's entries are
-# empty, so once its bitcode joins the program they inline to nothing and
-# no object the build leaves references one. Main.idr's graft has such a
-# bound, which the compilation states by its lowered form opening the
-# account (mlir.expect); the program runs, and each of its objects is read
-# for the entries. Their names, as this target's object format spells a
-# reference, are read by the same reader from calls.c's object, which calls
-# each of the three and nothing else, so the reader is shown to find a
-# reference where there is one. check-archive refuses an account in the
-# shipped archive; this holds a program built with it to the same.
+# empty and always inline, so once its bitcode joins the program they
+# inline to nothing and no object the build leaves references one, even
+# from a function past the inlining budget, whose other calls of the
+# runtime stay calls. Main.idr's graft has such a bound, and so does
+# grown, of the module Grown that Grow.idr prints, which is past the
+# budget; the compilation states the bounds by their lowered forms opening
+# the account (mlir.expect). The program runs, and each of its objects is
+# read for the entries. Their names, as this target's object format spells
+# a reference, are read by the same reader from calls.c's object, which
+# calls each of the three and nothing else, so the reader is shown to find
+# a reference where there is one. That grown is past the budget is read
+# from the objects too: an increment is a few instructions, which the
+# optimizer inlines into every function within the budget, so an object
+# that calls one holds a function past it. check-archive refuses an
+# account in the shipped archive; this holds a program built with it to the
+# same.
+# Compiling grown, one function of some two thousand cells, takes longer
+# than a step of most tests; every step is still bounded.
+step_limit=120
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
 # references OBJECT: the names OBJECT's native code references and does
@@ -35,8 +45,24 @@ else
   exit 0
 fi
 
-mkdir "$work/shipped"
+mkdir "$work/grow" "$work/shipped"
+cp "$here/Grow.idr" "$work/grow/Main.idr"
+compile_program "$work/grow/Main.idr" grow
+if [ "$compiled" -ne 0 ]; then
+  say "Grown: its printer does not compile (exit $compiled)"
+  show "$work/compile.out" "$work/compile.err"
+  exit 0
+fi
+run_program grow "$work/grow/build/exec/grow" /dev/null
+if [ "$ran" -ne 0 ] || [ ! -s "$work/grow.out" ]; then
+  say "Grown: not printed (exit $ran)"
+  show "$work/grow.err"
+  exit 0
+fi
+say "Grown: printed"
+
 cp "$here/Main.idr" "$work/shipped/"
+cp "$work/grow.out" "$work/shipped/Grown.idr"
 # shellcheck disable=SC2046 # one option per line, none with a space
 compile_program $(stage_options "$here") "$work/shipped/Main.idr" shipped
 say "compile: exit $compiled"
@@ -54,9 +80,17 @@ if [ ! -s "$work/objects" ]; then
   say "objects: none left by the build"
   exit 0
 fi
+# Each object and a name it references, one pair per line.
 while IFS= read -r object; do
-  references "$object" | grep -Fx -f "$work/entries" | sed "s|^|${object##*/}: references |"
-done < "$work/objects" > "$work/found"
+  references "$object" | sed "s|^|${object##*/} |"
+done < "$work/objects" > "$work/referenced"
+if awk '{ print $2 }' "$work/referenced" | grep -qF 'idris_rt_inc_'; then
+  say "budget: an object calls an increment of the runtime, so a function is past it"
+else
+  say "budget: no object calls an increment of the runtime, so no function is past it"
+fi
+awk 'NR == FNR { entry[$0] = 1; next } $2 in entry { print $1 ": references " $2 }' \
+  "$work/entries" "$work/referenced" > "$work/found"
 if [ -s "$work/found" ]; then
   say "objects: an account entry referenced:"
   sed 's/^/  /' "$work/found"

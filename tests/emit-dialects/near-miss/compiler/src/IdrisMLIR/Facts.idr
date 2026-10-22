@@ -2,7 +2,7 @@
 -- Copyright (c) 2026 Bjorn Pagen
 module IdrisMLIR.Facts
 
--- "!idr.box" in a comment
+-- "!idr.data<#List>" in a comment
 export
 label : String
-label = "! idr.box and # idr. are text"
+label = "! idr.data and # idr. are text"

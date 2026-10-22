@@ -3,5 +3,5 @@
 module IdrisMLIR.Facts
 
 export
-unitAttr : String
-unitAttr = "#builtin.unit"
+familyAttr : String
+familyAttr = "#idr.family"

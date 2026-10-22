@@ -1,0 +1,1 @@
+operation equivalence: chains nested 10,000 deep on a 256 KiB stack, alike by both entry points with each value marked once in order, and one differing innermost not

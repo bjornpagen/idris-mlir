@@ -1,0 +1,1 @@
+buffer type: a loop carrying a tensor through 10,000 casts on a 256 KiB stack, its result, iter_arg and yielded value each the allocation's memref<4xf32>

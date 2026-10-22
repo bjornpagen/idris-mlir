@@ -1,6 +1,9 @@
 the reader: the three entries an object calls, each found
+Grown: printed
 compile: exit 0
 run: exit 0
 5050
+200
 stderr: empty
+budget: an object calls an increment of the runtime, so a function is past it
 objects: none references an account entry
