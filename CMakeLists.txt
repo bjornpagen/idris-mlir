@@ -37,8 +37,12 @@ endif()
 # cache's settings (tools/bootstrap.sh) hash no build directory, which is
 # right because no object holds it (-ffile-prefix-map, below), and
 # tests/ccache-shared checks the hit. CMake copies the launcher onto
-# each target created after it. No target uses a precompiled header, which
-# ccache cannot cache. The launcher changes nothing a compile produces.
+# each target created after it. The one precompiled header (the dialect's,
+# foreign/idr/lib/IR) is cached as any compile is: the cache's settings
+# take a header's defines and time macros as they are, and the header holds
+# no timestamp (-fno-pch-timestamp, below), so the compile that makes it and
+# every compile that reads it hit. The launcher changes nothing a compile
+# produces.
 find_program(IDRIS_MLIR_CCACHE ccache HINTS /opt/local/bin REQUIRED)
 set(IDRIS_MLIR_CCACHE_LAUNCHER "${CMAKE_COMMAND}" -E env
 	"CCACHE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/.toolchain/ccache"
@@ -107,16 +111,16 @@ endif()
 #   IDRIS_MLIR_RUNTIME_CPU_FEATURES     the features that test names, each
 #                                       as the test spells it and as LLVM
 #                                       does (a runtime/ header)
+#   IDRIS_MLIR_RUNTIME_OS               the runtime's unit for what the host
+#                                       decides by its operating system
+#                                       (runtime/Platform/)
+#   IDRIS_MLIR_RUNTIME_SIMDUTF          the one simdutf implementation the
+#                                       runtime calls, whose kernels use
+#                                       only the program CPU's features
 #   IDRIS_MLIR_RUNTIME_BITCODE_FLAGS    the flags that make each member of
 #                                       the runtime's archive carry its
 #                                       bitcode with its native code, which
 #                                       joins every program's module
-#   IDRIS_MLIR_RUNTIME_BITCODE_HOME     where the prepared runtime keeps its
-#                                       bitcode: InObject, in the object's
-#                                       .llvm.lto section, which every link
-#                                       leaves out (ELF); or BesideObject, a
-#                                       .bc file beside the object (Mach-O,
-#                                       which has no such section)
 #   IDRIS_MLIR_RUNTIME_SECTIONS         the flags that put each function and
 #                                       datum in its own section, for the
 #                                       linker to drop the unused ones, or
@@ -141,10 +145,13 @@ endif()
 #                                       for the target calls, the only calls
 #                                       a program's object may make that its
 #                                       source does not
-#   IDRIS_MLIR_USER_ADDRESS_BITS        the bits of the highest address user
-#                                       space reaches, which bound a stack
-#                                       cell's address and the program's
-#                                       stack (runtime/Platform/Address.h)
+#   IDRIS_MLIR_RED_ZONE_BYTES           the bytes below the stack pointer a
+#                                       leaf may use without moving it,
+#                                       which code generation leaves out of
+#                                       the frame it reports
+#   IDRIS_MLIR_TOOL_STACK_BYTES,        the tools' stack, signal stack and
+#   IDRIS_MLIR_TOOL_SIGNAL_BYTES,       the outside code's margin, each
+#   IDRIS_MLIR_OUTSIDE_STACK_BYTES      measured on the target (below)
 #   IDRIS_MLIR_TOOL_COMPILE_FLAGS       the hardening our tools are compiled
 #                                       with beyond the language profile's,
 #                                       that the target has live
@@ -167,15 +174,58 @@ endif()
 get_filename_component(IDRIS_MLIR_CLANG_BIN "${CMAKE_C_COMPILER}" DIRECTORY)
 get_filename_component(IDRIS_MLIR_TOOLCHAIN_ROOT "${IDRIS_MLIR_CLANG_BIN}/../.." ABSOLUTE)
 set(IDRIS_MLIR_GMP "${IDRIS_MLIR_TOOLCHAIN_ROOT}/sysroot/usr/lib/libgmp.a")
+# The tools' stacks are measured on each target, never chosen. A tool's
+# threads run on IDRIS_MLIR_TOOL_STACK_BYTES plus
+# IDRIS_MLIR_OUTSIDE_STACK_BYTES, and their signal stacks on
+# IDRIS_MLIR_TOOL_SIGNAL_BYTES plus the same margin: the runner adds the
+# margin to a tool's plan as it does to a program's, whose own stack the
+# compiler computes (runtime/Start/Runner.cpp). No target has measured them
+# yet, so each entry declares them with this: each a cache variable with no
+# default, and configuring refuses until all three are given. Once a
+# target's are measured, its entry sets each to its number in place of the
+# call, beside the build and the input it was measured on. What is
+# measured, on the target's own machine, with the release preset's tools:
+#   IDRIS_MLIR_TOOL_STACK_BYTES     the deepest byte written on any thread of
+#                                   idris-mlir, idris-mlir-opt and
+#                                   idris-mlir-reduce (the main thread and
+#                                   every pool worker), each stack painted
+#                                   before it runs, on the stage-1 module
+#                                   (tools/self.sh 1) and on
+#                                   tests/scale-nesting and
+#                                   tests/scale-nesting-source at their full
+#                                   depth; at most half of UINT_MAX, as LLVM
+#                                   sizes a thread's stack in an unsigned
+#   IDRIS_MLIR_TOOL_SIGNAL_BYTES    the deepest byte written on a painted
+#                                   signal stack, the main thread's and a
+#                                   worker's, while the runtime's fault
+#                                   handler and LLVM's crash report run on
+#                                   it: the same tools, each made to reach
+#                                   its stack's guard
+#   IDRIS_MLIR_OUTSIDE_STACK_BYTES  the deepest stack an entry of the C
+#                                   library, GMP or compiler-rt takes from
+#                                   its call, painted, over every such entry
+#                                   the runtime and the tools call, on the
+#                                   same runs and on the program suite
+#                                   (make test); the margin programs take
+#                                   too
+# The build that measures is configured with sizes it knows cover its runs
+# (-D<name>=<bytes>); those are the instrument's, and are never recorded.
+function(idris_mlir_unmeasured_stacks)
+	foreach(size IDRIS_MLIR_TOOL_STACK_BYTES IDRIS_MLIR_TOOL_SIGNAL_BYTES IDRIS_MLIR_OUTSIDE_STACK_BYTES)
+		set(${size} "" CACHE STRING "Bytes, measured on the target as CMakeLists.txt says above its target entries")
+		if(NOT "${${size}}" MATCHES "^[1-9][0-9]*$")
+			message(FATAL_ERROR "${size} is not measured for ${CMAKE_CXX_COMPILER_TARGET} with ${IDRIS_MLIR_PAGE_SIZE}-byte pages: measure it as CMakeLists.txt says above its target entries, and record it in the entry")
+		endif()
+	endforeach()
+endfunction()
 if(CMAKE_CXX_COMPILER_TARGET MATCHES "-linux-gnu$")
 	# Linux: ELF executables linked against glibc, the system's C library,
 	# dynamically, and against everything else statically, by the pinned
 	# lld. snmalloc takes its entropy and its waits from the kernel's
 	# headers, which the system's C library ships beside its own.
-	# ELF: fat LTO objects, and one object whose .llvm.lto section, as a fat
-	# LTO object's, is excluded from every link.
+	set(IDRIS_MLIR_RUNTIME_OS Platform/Linux/Host.cpp)
+	# ELF: fat LTO objects.
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -flto=full -ffat-lto-objects)
-	set(IDRIS_MLIR_RUNTIME_BITCODE_HOME InObject)
 	set(IDRIS_MLIR_RUNTIME_SECTIONS -ffunction-sections -fdata-sections)
 	# A PIE against glibc, the driver's default.
 	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld)
@@ -201,8 +251,12 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-gnu$" AND IDRIS_MLIR_P
 	set(IDRIS_MLIR_BASELINE_CPU -march=x86-64 -mcx16)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/X86_64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_x86_64.h)
-	# 4-level paging: user space ends below 2^47.
-	set(IDRIS_MLIR_USER_ADDRESS_BITS 47)
+	# Haswell's kernels use AVX2 and BMI2, which x86-64-v3 has.
+	set(IDRIS_MLIR_RUNTIME_SIMDUTF haswell)
+	# The System V ABI keeps the 128 bytes below the stack pointer for a
+	# leaf, and LLVM's code uses them.
+	set(IDRIS_MLIR_RED_ZONE_BYTES 128)
+	idris_mlir_unmeasured_stacks()
 	# Our tools: PIE code with CET and stack-clash probes.
 	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -fcf-protection=full -fstack-clash-protection
 		${IDRIS_MLIR_TOOL_FORTIFY})
@@ -216,10 +270,11 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_M
 	set(IDRIS_MLIR_BASELINE_CPU -march=armv8-a)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
-	# The fewest bits a kernel of the target gives user space: Raspberry
-	# Pi's kernels configure 39 with 4 KiB pages, where 48 is common
-	# (recalled; read from each machine's kernel when it first runs).
-	set(IDRIS_MLIR_USER_ADDRESS_BITS 39)
+	set(IDRIS_MLIR_RUNTIME_SIMDUTF arm64)
+	# The procedure call standard keeps nothing below the stack pointer, and
+	# LLVM's code uses nothing there.
+	set(IDRIS_MLIR_RED_ZONE_BYTES 0)
+	idris_mlir_unmeasured_stacks()
 	# Our tools: PIE code with branch protection (PAC and BTI, live on Linux
 	# where the CPU has them and NOPs where it does not) and stack-clash
 	# probes.
@@ -235,10 +290,11 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^aarch64-[^-]+-linux-gnu$" AND IDRIS_M
 	set(IDRIS_MLIR_BASELINE_CPU -mcpu=cortex-a76)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
-	# 16 KiB pages give user space 47 bits with three levels of tables and
-	# 48 with four (recalled; read from each machine's kernel when it first
-	# runs): the fewer.
-	set(IDRIS_MLIR_USER_ADDRESS_BITS 47)
+	set(IDRIS_MLIR_RUNTIME_SIMDUTF arm64)
+	# The procedure call standard keeps nothing below the stack pointer, and
+	# LLVM's code uses nothing there.
+	set(IDRIS_MLIR_RED_ZONE_BYTES 0)
+	idris_mlir_unmeasured_stacks()
 	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS -fPIE -mbranch-protection=standard -fstack-clash-protection
 		${IDRIS_MLIR_TOOL_FORTIFY})
 elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PAGE_SIZE EQUAL 16384)
@@ -250,16 +306,15 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PA
 	set(IDRIS_MLIR_BASELINE_CPU -mcpu=apple-m1)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/Aarch64/Cpu.cpp)
 	set(IDRIS_MLIR_RUNTIME_CPU_FEATURES cpu_aarch64.h)
+	set(IDRIS_MLIR_RUNTIME_SIMDUTF arm64)
 	# snmalloc chooses its Apple platform itself (mach_vm, arc4random); the
 	# Linux headers its defines name do not exist here.
+	set(IDRIS_MLIR_RUNTIME_OS Platform/Darwin/Host.cpp)
 	# Mach-O: each member carries its bitcode embedded (IRObjectFile reads
-	# it), and the prepared runtime keeps the joined bitcode in a .bc file
-	# beside its object, Mach-O having no section every link leaves out.
-	# -fembed-bitcode rejects -ffunction-sections/-fdata-sections, and
+	# it). -fembed-bitcode rejects -ffunction-sections/-fdata-sections, and
 	# Apple's default subsections_via_symbols already gives -dead_strip its
 	# granularity, so the runtime's sections are left to the object format.
 	set(IDRIS_MLIR_RUNTIME_BITCODE_FLAGS -fembed-bitcode=all)
-	set(IDRIS_MLIR_RUNTIME_BITCODE_HOME BesideObject)
 	set(IDRIS_MLIR_RUNTIME_SECTIONS "")
 	# A dynamic PIE against libSystem, linked by the pinned ld64.lld.
 	set(IDRIS_MLIR_EXECUTABLE_FLAGS -fuse-ld=lld)
@@ -269,8 +324,11 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PA
 	set(IDRIS_MLIR_SYMBOL_PREFIX "_")
 	set(IDRIS_MLIR_CONSTRUCTOR_SECTIONS __mod_init_func __mod_term_func __init_offsets)
 	set(IDRIS_MLIR_CODEGEN_LIBRARY_CALLS bzero memset_pattern16 __sincos_stret __sincosf_stret __exp10 __exp10f)
-	# MACH_VM_MAX_ADDRESS (mach/arm/vm_param.h) is 2^47 - 32 MiB.
-	set(IDRIS_MLIR_USER_ADDRESS_BITS 47)
+	# Apple's ABI keeps the 128 bytes below the stack pointer for a leaf,
+	# though LLVM's code for arm64 uses none of them: the bound takes what
+	# the ABI allows.
+	set(IDRIS_MLIR_RED_ZONE_BYTES 128)
+	idris_mlir_unmeasured_stacks()
 	# Our tools: Darwin's PIE executables need nothing beyond the profile.
 	# PIN(darwin-inert-mitigations): branch protection executes as NOP in a
 	# plain arm64 Darwin process — see PINS.md.
@@ -362,12 +420,15 @@ target_compile_options(idris_mlir_warnings INTERFACE
 
 # The language profile of our tools. No FP contraction anywhere. The Release
 # build of our code is full LTO, linked with LLVM's and MLIR's libraries as
-# the native code stage 2 built them.
+# the native code stage 2 built them. The precompiled header our libraries
+# share (foreign/idr/lib/IR) holds no timestamp, so the compile cache takes
+# it, and every compile that reads it, by content.
 add_library(idris_mlir_language_profile INTERFACE)
 target_link_libraries(idris_mlir_language_profile INTERFACE idris_mlir_warnings)
 
 target_compile_options(idris_mlir_language_profile INTERFACE
 	-ffp-contract=off
+	"$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Xclang -fno-pch-timestamp>"
 	"$<$<CONFIG:Release>:-ffunction-sections;-fdata-sections;-flto=full>"
 )
 target_link_options(idris_mlir_language_profile INTERFACE

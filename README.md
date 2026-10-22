@@ -22,9 +22,10 @@ nothing falls back to a slow path.
 Idris does types; MLIR does programs. Idris checks the program,
 monomorphises it and decides each value's representation. The `idr`
 dialect, an in-tree MLIR dialect in upstream's layout, does everything
-else. Its types carry what Idris proved, `!idr.lin` for a linear value
-and `!idr.own` for an owned one, and MLIR's verifier checks them after
-every pass.
+else. Its types carry what Idris proved: each value's grade,
+`!idr.graded<uses, hold, T>`, says whether it is used once or many times
+and, for a value that holds references, who frees it and what is known of
+its sharing. MLIR's verifier checks them after every pass.
 
 ```text
 Idris 2 frontend: check, monomorphise, choose representations
@@ -147,7 +148,7 @@ make self              # the compiler compiling itself
 
 The C++ builds through `CMakePresets.json`: `dev`, `release` (full LTO),
 `lint` and `typecheck`. A profile is a run, not a
-build: `--time-trace` on the tools, taken by `tools/profile.sh`. `make build PRESET=<name>` picks one.
+build: `--time-trace` on the tools. `make build PRESET=<name>` picks one.
 
 Each target compiles programs for the CPU its entry in `CMakeLists.txt`
 names, and nothing configures another: a program refuses to start on a

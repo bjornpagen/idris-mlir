@@ -1,56 +1,45 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# What the ODS says beside its ops for the rest of the tree, written by
-# idris-mlir-tblgen: the runtime's C functions the ops and the lowering call,
-# as C declares them (idris_rt_ops.h, which runtime/idris_rt.h includes) and
-# as the lowering and the folders read them (IdrRuntimeAbi.inc), from the
-# ops' marks and the records beside them (IdrRuntime.td); the word op of
-# each big op (IdrBigToWord.inc); the rules a refusal names, with their
-# categories, for the tests (IdrRules.txt) and for refusalHead
-# (IdrRuleCategories.inc); each guarded op's guards (IdrGuards.inc); the
-# role and the stage of each pass, for the tests (IdrPassRoles.txt,
-# IdrPassStages.txt). They come first, so that the ops' headers' target,
-# made after them, depends on them, and everything that waits on the ops'
-# headers waits on these too.
-set(TABLEGEN_OUTPUT "")
+# The dialect's declarations and definitions, which IdrDialect.h includes,
+# read from the ODS the specification's generator writes into Generated/
+# (committed, never edited, held to the specification by make check):
+# enums, attributes, the dialect, the op, type and attribute interfaces,
+# types and ops, and the bytecode (IdrOpsIncGen). IdrOps.td includes the
+# dialect's base, interfaces and types. The interface generator writes only
+# the interfaces of the file it is given, so it reads IdrInterfaces.td,
+# which defines every interface of the dialect. Every other header the
+# specification decides it writes itself into Generated/.
+#
+# The one generator of ours that runs here reads upstream's records: each
+# upstream op the dialect admits is named in C++ by the alias the
+# specification gives it, and idris-mlir-tblgen reads upstream's record of
+# each op one admitted record file names, a run per file, since a record's
+# name is unique only within its dialect's ODS
+# (IdrAdmitted<Dialect>Classes.h.inc, which Generated/AdmittedClasses.h.inc
+# includes). The files are the specification's outputs, so the list is
+# theirs; the base file holds the records' classes and admits nothing.
+file(GLOB IDR_ADMITTED_RECORDS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Generated/IdrAdmitted*.td")
+list(REMOVE_ITEM IDR_ADMITTED_RECORDS "${CMAKE_CURRENT_SOURCE_DIR}/Generated/IdrAdmittedBase.td")
 set(IDR_TABLEGEN_EXE idris-mlir-tblgen)
 set(IDR_TABLEGEN_TARGET idris-mlir-tblgen)
-set(LLVM_TARGET_DEFINITIONS IdrRuntime.td)
-tablegen(IDR idris_rt_ops.h -gen-runtime-abi-decls)
-tablegen(IDR IdrRuntimeAbi.inc -gen-runtime-abi-defs)
-set(LLVM_TARGET_DEFINITIONS IdrOps.td)
-tablegen(IDR IdrBigToWord.inc -gen-big-to-word)
-tablegen(IDR IdrRules.txt -gen-rule-list)
-tablegen(IDR IdrRuleCategories.inc -gen-rule-categories)
-tablegen(IDR IdrGuards.inc -gen-guards)
-set(LLVM_TARGET_DEFINITIONS ${CMAKE_CURRENT_SOURCE_DIR}/../Transforms/Passes.td)
-tablegen(IDR IdrPassRoles.txt -gen-pass-roles)
-tablegen(IDR IdrPassStages.txt -gen-pass-stages)
-add_public_tablegen_target(IdrRuntimeAbiIncGen)
-set(TABLEGEN_OUTPUT "")
+foreach(records IN LISTS IDR_ADMITTED_RECORDS)
+	get_filename_component(admitted "${records}" NAME_WE)
+	set(LLVM_TARGET_DEFINITIONS "${records}")
+	tablegen(IDR ${admitted}Classes.h.inc -gen-admitted-classes)
+endforeach()
 
-# The dialect's declarations and definitions, generated from the ODS into
-# include/idr/IR, which IdrDialect.h includes: enums, attributes, the
-# dialect, the op interfaces, types and ops (IdrOpsIncGen). IdrOps.td
-# includes every other part of the ODS. The interface generator writes only
-# the interfaces of the file it is given, so it reads IdrInterfaces.td, which
-# defines every op and type interface of the dialect but one: the flow
-# interface, which our ops declare in their ODS and whose edge vocabulary
-# idr/IR/FlowEdges.h holds, generated from IdrFlow.td and included there.
-set(LLVM_TARGET_DEFINITIONS IdrInterfaces.td)
+set(LLVM_TARGET_DEFINITIONS Generated/IdrInterfaces.td)
 mlir_tablegen(IdrInterfaces.h.inc -gen-op-interface-decls)
 mlir_tablegen(IdrInterfaces.cpp.inc -gen-op-interface-defs)
 mlir_tablegen(IdrTypeInterfaces.h.inc -gen-type-interface-decls)
 mlir_tablegen(IdrTypeInterfaces.cpp.inc -gen-type-interface-defs)
-set(LLVM_TARGET_DEFINITIONS IdrFlow.td)
-mlir_tablegen(IdrFlow.h.inc -gen-op-interface-decls)
-mlir_tablegen(IdrFlow.cpp.inc -gen-op-interface-defs)
+mlir_tablegen(IdrAttrInterfaces.h.inc -gen-attr-interface-decls)
+mlir_tablegen(IdrAttrInterfaces.cpp.inc -gen-attr-interface-defs)
 # The dialect's bytecode: each record of IdrBytecode.td read by upstream's
-# generated reader (lib/IR/Bytecode.cpp holds what the records cannot say:
-# the module's one table of data types).
-set(LLVM_TARGET_DEFINITIONS IdrBytecode.td)
+# generated reader.
+set(LLVM_TARGET_DEFINITIONS Generated/IdrBytecode.td)
 mlir_tablegen(IdrBytecode.cpp.inc -gen-bytecode -bytecode-dialect="Idr")
-set(LLVM_TARGET_DEFINITIONS IdrOps.td)
+set(LLVM_TARGET_DEFINITIONS Generated/IdrOps.td)
 mlir_tablegen(IdrEnums.h.inc -gen-enum-decls)
 mlir_tablegen(IdrEnums.cpp.inc -gen-enum-defs)
 mlir_tablegen(IdrAttrs.h.inc -gen-attrdef-decls -attrdefs-dialect=idr)

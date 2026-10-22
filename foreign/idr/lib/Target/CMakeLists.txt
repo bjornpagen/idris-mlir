@@ -2,15 +2,17 @@
 # Copyright (c) 2026 Bjorn Pagen
 # The target, decided once: idr-target and what passes read of it (the
 # width of its vectors), the schedule library that vectorizes by it, what
-# LLVM says of it (its machine and the optimization pipeline) and the
-# partition of the program into the objects code is generated for. The
-# triple and CPUs are the target entry's (idr/TargetEntry.h).
+# LLVM says of it (its machine and the optimization pipeline), the
+# partition of the program into the objects code is generated for, and the
+# bins those objects are, named as the lowering mangles them. The triple
+# and CPUs are the target entry's (idr/TargetEntry.h).
 add_mlir_library(IdrTarget
-	Target.cpp
-	Optimize.cpp
-	Schedules.cpp
-	Partition.cpp
+	Bins.cpp
 	Extract.cpp
+	Optimize.cpp
+	Partition.cpp
+	Schedules.cpp
+	Target.cpp
 
 	EXCLUDE_FROM_LIBMLIR
 	DISABLE_INSTALL
@@ -21,17 +23,26 @@ add_mlir_library(IdrTarget
 	IdrScheduleOpsIncGen
 
 	LINK_LIBS PUBLIC
+	IdrConversion
 	IdrIR
+	IdrSolver
 	IdrSupport
 	MLIRIR
 	MLIRPass
 	MLIRParser
 	MLIRTransformDialect
 	MLIRTransformDialectInterfaces
+	MLIRAffineDialect
+	MLIRArithDialect
+	MLIRDialectUtils
+	MLIRFunctionInterfaces
 	MLIRLinalgDialect
 	MLIRLinalgTransforms
+	MLIRLinalgUtils
+	MLIRMemRefDialect
 	MLIRSCFDialect
 	MLIRSCFTransforms
+	MLIRSideEffectInterfaces
 	MLIRVectorDialect
 	MLIRTilingInterface
 	MLIRDataLayoutInterfaces

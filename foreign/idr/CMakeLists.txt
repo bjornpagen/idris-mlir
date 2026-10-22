@@ -42,11 +42,14 @@ llvm_map_components_to_libnames(IDR_LLVM_CODEGEN_LIBS nativecodegen ${LLVM_NATIV
 # are compiled for, which the runtime is built for; the program's CPU, as
 # its flags and as LLVM's name and features, which idr-target writes on
 # every module; the baseline CPU's name and features, which the runtime's
-# own code is compiled for; and, as X-macros, what links a program after
-# its object, the runtime and -o (--target with the triple, the executable
+# own code is compiled for; the tools' stack and signal stack, as the entry
+# measured them, to which the runner adds the outside code's margin
+# (idr/Driver/Tool.h); and, as X-macros, what links a program after its
+# object, the runtime and -o (--target with the triple, the executable
 # flags, the program link flags, GMP), which idris-mlir links with and
 # --print-link-flags prints, and the program CPU's flags, which
-# --print-cpu-flags prints.
+# --print-cpu-flags prints. The margin itself reaches the runtime's runner
+# alone (runtime/CMakeLists.txt).
 if(NOT CMAKE_CXX_COMPILER_TARGET)
 	message(FATAL_ERROR "CMAKE_CXX_COMPILER_TARGET names the target programs are compiled for; use a preset")
 endif()
@@ -71,23 +74,28 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/include/idr/TargetEntry.h" CO
 #define IDRIS_MLIR_PROGRAM_CPU_FEATURES "@IDRIS_MLIR_PROGRAM_CPU_FEATURES@"
 #define IDRIS_MLIR_BASELINE_CPU_NAME "@IDRIS_MLIR_BASELINE_CPU_NAME@"
 #define IDRIS_MLIR_BASELINE_CPU_FEATURES "@IDRIS_MLIR_BASELINE_CPU_FEATURES@"
+#define IDRIS_MLIR_TOOL_STACK_BYTES @IDRIS_MLIR_TOOL_STACK_BYTES@
+#define IDRIS_MLIR_TOOL_SIGNAL_BYTES @IDRIS_MLIR_TOOL_SIGNAL_BYTES@
 #define IDRIS_MLIR_PROGRAM_CPU_FLAGS(X)@IDR_PROGRAM_CPU_FLAGS@
 #define IDRIS_MLIR_LINK_FLAGS(X)@IDR_LINK_FLAGS@
 ]=] @ONLY)
 
 # The runtime every program links: the archive, checked before idris-mlir
 # is built, then prepared once by idris-mlir itself (--prepare-runtime)
-# into one object, native code for every executable's link line with the
-# same functions as bitcode for inlining, kept as the target entry's
-# container says (CMakeLists.txt), which is the runtime the driver links by
-# default (--runtime names another the build made: the archive itself, or
-# the checked runtime; --print-runtime tells the link line where it is). The driver's options
+# into one object, native code for every executable's link line, with the
+# same functions as bitcode for inlining in a .bc file beside it on every
+# target, which is the runtime the driver links by default (--runtime names
+# another the build made: the archive itself, or the checked runtime;
+# --print-runtime tells the link line where it is). The driver's options
 # read where it is. So do the two other things idris-mlir runs or reads
 # besides its frontend (which is beside it, wherever it is): the pinned
 # clang, which links every program and is the C compiler of this build (the
 # preset's toolchain file names it), and the Idris prefix the frontend reads
 # its packages from, which make build gives: the prefix it builds
-# (tools/toolchain.sh's checkout_prefix). IdrDriver (lib/CMakeLists.txt) is compiled with these.
+# (tools/toolchain.sh's checkout_prefix). IdrDriver (lib/CMakeLists.txt) is
+# compiled with these, with the target entry's red zone, which the stack
+# bound adds below a program's deepest leaf (Driver/StackBound.cpp), and
+# with its executable's name, which only idris-mlir links it under.
 set(IDRIS_MLIR_IDRIS_PREFIX "" CACHE PATH "The Idris prefix idris-mlir's frontend reads its packages from")
 if(IDRIS_MLIR_IDRIS_PREFIX STREQUAL "")
 	message(FATAL_ERROR "IDRIS_MLIR_IDRIS_PREFIX names the Idris prefix the frontend reads, tools/toolchain.sh's checkout_prefix; make build passes it")
@@ -95,9 +103,10 @@ endif()
 set(IDRIS_MLIR_RUNTIME_PREPARED "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.o")
 set(IDR_DRIVER_DEFINITIONS
 	"IDRIS_MLIR_RUNTIME=\"${IDRIS_MLIR_RUNTIME_PREPARED}\""
-	"IDRIS_MLIR_RUNTIME_BITCODE_HOME=${IDRIS_MLIR_RUNTIME_BITCODE_HOME}"
 	"IDRIS_MLIR_PINNED_CC=\"${CMAKE_C_COMPILER}\""
 	"IDRIS_MLIR_IDRIS_PREFIX=\"${IDRIS_MLIR_IDRIS_PREFIX}\""
+	"IDRIS_MLIR_RED_ZONE_BYTES=${IDRIS_MLIR_RED_ZONE_BYTES}"
+	"IDR_TOOL_NAME=\"idris-mlir\""
 )
 
 # Every target below is compiled and linked with the language profile.
@@ -111,11 +120,16 @@ add_subdirectory(unittests)
 
 # The tools, each tools/<tool>.cpp, and what each links: idris-mlir, the
 # driver; idris-mlir-opt; idris-mlir-reduce, which shrinks a module that
-# makes a pass fail.
+# makes a pass fail. Each tool's unit is told its own executable's name,
+# which every message it writes begins with (idr/Driver/Report.h).
 set(IDR_TOOLS idris-mlir idris-mlir-opt idris-mlir-reduce)
+foreach(tool IN LISTS IDR_TOOLS)
+	set_source_files_properties(tools/${tool}.cpp PROPERTIES COMPILE_DEFINITIONS "IDR_TOOL_NAME=\"${tool}\"")
+endforeach()
 set(IDR_TOOL_LINKS_idris-mlir IdrDriver)
 set(IDR_TOOL_LINKS_idris-mlir-opt
 	IdrContracts
+	IdrExpect
 	IdrPipeline
 	IdrTarget
 	IdrIR
@@ -144,7 +158,10 @@ set(IDR_TOOL_LINKS_idris-mlir-reduce
 
 # The typecheck build compiles the tools' units without linking them, into
 # a library that carries what each tool links for its usage requirements,
-# and prepares no runtime, which needs idris-mlir.
+# and prepares no runtime, which needs idris-mlir. Either way each tool's
+# unit reads the dialect's precompiled header (lib/IR/CMakeLists.txt): the
+# library by linking the dialect, as every library of ours does, and each
+# executable by reusing it.
 if(IDRIS_MLIR_TYPECHECK)
 	set(IDR_TOOL_SOURCES "")
 	set(IDR_TOOL_LINKS "")
@@ -166,6 +183,7 @@ else()
 	foreach(tool IN LISTS IDR_TOOLS)
 		add_executable(${tool} tools/${tool}.cpp)
 		target_link_libraries(${tool} PRIVATE ${IDR_TOOL_LINKS_${tool}})
+		target_precompile_headers(${tool} REUSE_FROM IdrIR)
 	endforeach()
 	add_dependencies(idris-mlir idris_rt_check)
 	# The runtime archives the build made, by their digests: the runtime,
@@ -187,13 +205,8 @@ else()
 	target_sources(idris-mlir PRIVATE "${IDR_RUNTIME_DIGEST}")
 	set_source_files_properties("${IDR_RUNTIME_DIGEST}" PROPERTIES SKIP_LINTING ON)
 
-	set(IDRIS_MLIR_RUNTIME_PREPARED_FILES "${IDRIS_MLIR_RUNTIME_PREPARED}")
-	if(IDRIS_MLIR_RUNTIME_BITCODE_HOME STREQUAL "BesideObject")
-		# The bitcode, beside the object.
-		list(APPEND IDRIS_MLIR_RUNTIME_PREPARED_FILES "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.bc")
-	endif()
 	add_custom_command(
-		OUTPUT ${IDRIS_MLIR_RUNTIME_PREPARED_FILES}
+		OUTPUT "${IDRIS_MLIR_RUNTIME_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/idris_rt.bc"
 		COMMAND idris-mlir --prepare-runtime "--runtime=${IDRIS_MLIR_RUNTIME_ARCHIVE}"
 			-o "${IDRIS_MLIR_RUNTIME_PREPARED}"
 		DEPENDS idris-mlir idris_rt idris_rt_check
@@ -206,13 +219,8 @@ else()
 	# beside it, for the test that compiles programs with it
 	# (--runtime=idris_rt_checked.o).
 	set(IDRIS_MLIR_CHECKED_RUNTIME_PREPARED "${CMAKE_CURRENT_BINARY_DIR}/idris_rt_checked.o")
-	set(IDRIS_MLIR_CHECKED_RUNTIME_PREPARED_FILES "${IDRIS_MLIR_CHECKED_RUNTIME_PREPARED}")
-	if(IDRIS_MLIR_RUNTIME_BITCODE_HOME STREQUAL "BesideObject")
-		list(APPEND IDRIS_MLIR_CHECKED_RUNTIME_PREPARED_FILES
-			"${CMAKE_CURRENT_BINARY_DIR}/idris_rt_checked.bc")
-	endif()
 	add_custom_command(
-		OUTPUT ${IDRIS_MLIR_CHECKED_RUNTIME_PREPARED_FILES}
+		OUTPUT "${IDRIS_MLIR_CHECKED_RUNTIME_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/idris_rt_checked.bc"
 		COMMAND idris-mlir --prepare-runtime "--runtime=${IDRIS_MLIR_CHECKED_RUNTIME_ARCHIVE}"
 			-o "${IDRIS_MLIR_CHECKED_RUNTIME_PREPARED}"
 		DEPENDS idris-mlir idris_rt_checked
@@ -224,8 +232,11 @@ else()
 endif()
 
 # mlir-tblgen with the generator of the Idris side's vocabulary of each
-# dialect Emit writes (tools/dialects.sh, which make build runs). It reads
-# ODS records only, so it links TableGen and nothing of the dialect.
+# dialect Emit writes (tools/dialects.sh, which make build runs) and of the
+# C++ class of each upstream op the dialect admits, which the dialect's
+# headers include (include/idr/IR). It reads ODS records only, so it links
+# TableGen and nothing of the dialect, and it reads no precompiled header:
+# the dialect's waits on what it writes.
 add_executable(idris-mlir-tblgen tools/idris-mlir-tblgen.cpp)
 target_link_libraries(idris-mlir-tblgen PRIVATE
 	MLIRTblgenLib
@@ -256,5 +267,5 @@ if(IDRIS_MLIR_TYPECHECK)
 	endfunction()
 	idr_libraries(IDR_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}")
 	add_custom_target(idr-typecheck ALL)
-	add_dependencies(idr-typecheck ${IDR_LIBRARIES} idris-mlir-tblgen IdrRuntimeAbiIncGen)
+	add_dependencies(idr-typecheck ${IDR_LIBRARIES} idris-mlir-tblgen)
 endif()
