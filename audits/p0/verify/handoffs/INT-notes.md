@@ -36,3 +36,11 @@ handoff lists its own wiring.
   `tools/dialects.sh generate`, which now reads each dialect's
   `Generated/IdrAdmitted<Name>.td`; the Idris dialect modules then hold
   only admitted ops' builders.
+- **Stale generation in CMake (L11, 2026-10-22):**
+  `foreign/idr/include/idr/IR/CMakeLists.txt` lines 9-12 and 23-28
+  still run tblgen backends that no longer exist (`IdrRules.txt`,
+  `IdrRuleCategories.inc`, `IdrPassRoles.txt`, `IdrPassStages.txt`).
+  `idris-mlir-tblgen` registers only `gen-idris-syntax`,
+  `gen-idris-dialect`, `gen-idris-bytecode` and `gen-admitted-classes`.
+  Delete those lines. The `lib/` CMakeLists also name about 91 deleted
+  sources (the C2 audit's count); rewire every list from the handoffs.
