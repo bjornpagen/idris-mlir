@@ -18,6 +18,7 @@
 #include "idr/Transforms/Effects.h"
 
 #include "idr/Analysis/Constants.h"
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
@@ -27,7 +28,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Matchers.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/FoldUtils.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -100,8 +100,9 @@ struct Rewritten {
 // The rewrite of the solve over a body, each block before the regions its
 // ops hold, so that a constant met first is the one the folder hands out
 // for its value. An op every result of which became a constant goes when
-// nothing else keeps it, its regions with it. The walk recurses on the
-// regions, each smaller than the block that holds it.
+// the effect system says it, with everything in it, only computes them: a
+// crash or a divergence it may reach stays where evaluation reaches it. The
+// walk recurses on the regions, each smaller than the block that holds it.
 class Rewrite {
 public:
   Rewrite(DataFlowSolver &solver, MLIRContext *context)
@@ -143,7 +144,7 @@ private:
       for (Value result : op.getResults())
         out.replaced += replaceWithConstant(solver, folder, builder, result);
       if (op.getNumResults() != 0 && out.replaced - before == op.getNumResults() &&
-          wouldOpBeTriviallyDead(&op) &&
+          op.use_empty() && idr::effects::whole(&op).onlyComputes() &&
           idr::support::perform<ConstantsEraseAction>(&op, [&] { op.erase(); }))
         continue;
       if (op.getNumRegions() != 0)

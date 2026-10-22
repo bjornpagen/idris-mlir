@@ -21,7 +21,8 @@
 ||| parameters, whose kind says whether the function puts into them, and
 ||| the lifetime each scoped parameter and result lives in (`lives_in`); and
 ||| what it gives back of its arguments (`given_back`), which the optimizer
-||| alone proves. A call carries its index arguments, its lifetime operands,
+||| alone proves; and, for a specialized copy, what it is to its origin's
+||| recursion (`copy`), which the specializer decides. A call carries its index arguments, its lifetime operands,
 ||| its copy of its callee's `lives_in`, and where it stands in its function
 ||| (`tail_kind`), written with no default by whoever makes the call.
 module IdrisMLIR.Spec.Functions.Declarations
@@ -33,6 +34,7 @@ import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Lifetimes.Declarations
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Functions.Termination
+import IdrisMLIR.Spec.Functions.Copy
 import IdrisMLIR.Spec.Functions.Parameters
 import IdrisMLIR.Spec.Functions.GivenBack
 import IdrisMLIR.Spec.Functions.LivesIn
@@ -146,7 +148,7 @@ programOp = MkOp
 ||| has; its region verifier, that its row and record cover what its body
 ||| does, and where its calls stand. It states its parameters' lifetimes.
 export
-funcOp : Op 0 0 11 1
+funcOp : Op 0 0 12 1
 funcOp = MkOp
   { home = InIdr
   , mnemonic = "func"
@@ -164,6 +166,7 @@ funcOp = MkOp
       , MkAttr "terminates" terminatesSlot
       , MkAttr "lives_in" livesInSlot
       , MkAttr "given_back" (AnAttribute (OurAttr (SomeAttr givenBackAttr)) MayBeAbsent)
+      , MkAttr "copy" (AnAttribute (EnumAttrOf (enumDef copyKindClosed)) MayBeAbsent)
       ]
   , regions = [MkRegion "body" OneRegion (Sized 1)]
   , traits = [AffineScope, IsolatedFromAbove, HasParent ("program" ::: [])]
@@ -199,10 +202,11 @@ funcOp = MkOp
   , doc = MkDoc "a function of the program, with what is known of a run of it"
       """
       Its row, its record per parameter, its termination proof, where its
-      scoped values live and what it gives back are inherent: no pass drops
-      one without changing the op. Only the one writer of rows and a clone
-      copying its source write the row and the record; only the optimizer
-      writes what it gives back.
+      scoped values live, what it gives back and what kind of copy it is are
+      inherent: no pass drops one without changing the op. Only the one
+      writer of rows and a clone copying its source write the row and the
+      record; only the optimizer writes what it gives back and what copy it
+      is.
       """
   }
 
@@ -325,5 +329,5 @@ declarations =
   , attributes :=
       [ SomeAttr terminatesAttr, SomeAttr putBoundsAttr, SomeAttr livesInAttr
       , SomeAttr givenBackEntryAttr, SomeAttr givenBackAttr ]
-  , enums := [enumDef tailKindClosed]
+  , enums := [enumDef tailKindClosed, enumDef copyKindClosed]
   } nothing

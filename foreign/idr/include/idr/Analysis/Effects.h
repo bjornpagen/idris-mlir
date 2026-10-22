@@ -24,12 +24,16 @@
 // through views alone (upstream's ViewLikeOpInterface), a walk as long as
 // the chain of views, never a def-use search.
 //
-// The walk keeps its own stack, so no recursion follows the nesting.
+// The derivation is a rule of the function's one walk (walkFunction), so
+// the verifier reads each op once for every rule of the function, the
+// scopes' and the stage's beside the row's, and a solve walks a body with
+// the same walk alone.
 #ifndef IDR_ANALYSIS_EFFECTS_H
 #define IDR_ANALYSIS_EFFECTS_H
 
 #include "idr/IR/Effects/LLVM.h"
 #include "idr/IR/Effects/Query.h"
+#include "idr/IR/Families/Scope.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -98,11 +102,6 @@ struct Derived {
   llvm::SmallVector<Amount, 2> puts;
 };
 
-// Whether an op's declaration bounds what it does: an op of another
-// dialect that declares nothing and is not recursive may do anything,
-// so its regions are not read.
-enum class Declares : std::uint8_t { Bounded, Anything };
-
 // The fold's state for one function: what each op contributes, read
 // through the one query API and the function's parameters.
 class Fold {
@@ -111,7 +110,7 @@ public:
 
   // An op's own effects as it declares them, its runtime memory and what
   // it puts into a lifetime. A call is read by its reader, never here.
-  Declares declared(mlir::Operation *op, Runs runs);
+  void declared(mlir::Operation *op, Runs runs);
   // One effect of an op, attributed by where it lands.
   void effect(const effects::Effect &effect);
   // A write through `value`: a call's operand its callee writes through.
@@ -154,13 +153,11 @@ enum class Read : std::uint8_t { ByDeclaration, ByReader };
 // How the derivation reads what runs other functions. `call` reads each
 // idr.call: the calls' copies of their callees' rows, a record of the call
 // for a solve, or a label solve's own table. `other` may take any other op
-// before its declaration is read; `after` sees the fold once each op is
-// read, for a reader that names the op a fact came from.
+// before its declaration is read.
 template <class R>
 concept CallReader = requires(R &reader, CallOp call, mlir::Operation *op, Fold &fold, Runs runs) {
   { reader.call(call, fold, runs) } -> std::same_as<void>;
   { reader.other(op, fold, runs) } -> std::same_as<Read>;
-  { reader.after(op, fold) } -> std::same_as<void>;
 };
 
 namespace detail {
@@ -170,45 +167,55 @@ namespace detail {
 Runs regionRuns(mlir::Operation *op, unsigned index);
 } // namespace detail
 
-// The one derivation of `fn`'s row and record, every op of its body read
-// once, in order, each region's ops after the op that holds it.
+// The derivation of `fn`'s row and record as a rule of the function's one
+// walk: each op read as the walk meets it, each region entered with how
+// often it runs per run of the function, which the walk's stack keeps, so
+// no op asks its ancestors. It never fails: a body that does anything is
+// a row that holds everything. An op that may do anything holds every
+// atom already, so what the walk reads inside its regions adds nothing.
+template <CallReader R>
+class Derivation {
+public:
+  Derivation(FuncOp fn, R &reader) : fold(fn), reader(reader) {}
+
+  // The function's body, the walk's first region, runs once per run of it;
+  // any other region as its op says, and never less often than the region
+  // around it.
+  mlir::LogicalResult enter(mlir::Operation *op, mlir::Region &region) {
+    if (runs.empty())
+      runs.push_back(Runs::Once);
+    else if (runs.back() == Runs::Repeatedly)
+      runs.push_back(Runs::Repeatedly);
+    else
+      runs.push_back(detail::regionRuns(op, region.getRegionNumber()));
+    return mlir::success();
+  }
+  mlir::LogicalResult check(mlir::Operation *op) {
+    if (auto call = llvm::dyn_cast<CallOp>(op))
+      reader.call(call, fold, runs.back());
+    else if (reader.other(op, fold, runs.back()) == Read::ByDeclaration)
+      fold.declared(op, runs.back());
+    return mlir::success();
+  }
+  void leave() { runs.pop_back(); }
+
+  const Fold &state() const { return fold; }
+  Derived take() && { return std::move(fold).take(); }
+
+private:
+  Fold fold;
+  R &reader;
+  llvm::SmallVector<Runs, 8> runs;
+};
+
+// The one derivation of `fn`'s row and record, alone on the function's
+// walk: what a solve reads of each body.
 template <CallReader R>
 Derived derive(FuncOp fn, R &reader) {
-  Fold fold(fn);
-  struct Level {
-    mlir::Block::iterator at, end;
-    Runs runs;
-  };
-  llvm::SmallVector<Level, 8> stack;
-  for (mlir::Block &block : llvm::reverse(fn.getBody()))
-    stack.push_back({block.begin(), block.end(), Runs::Once});
-  while (!stack.empty()) {
-    Level &level = stack.back();
-    if (level.at == level.end) {
-      stack.pop_back();
-      continue;
-    }
-    mlir::Operation *op = &*level.at++;
-    Runs runs = level.runs;
-    if (auto call = llvm::dyn_cast<CallOp>(op)) {
-      reader.call(call, fold, runs);
-      reader.after(op, fold);
-      continue;
-    }
-    if (reader.other(op, fold, runs) == Read::ByDeclaration &&
-        fold.declared(op, runs) == Declares::Anything) {
-      reader.after(op, fold);
-      continue;
-    }
-    reader.after(op, fold);
-    // Pushed last region first, so the first is read first.
-    for (unsigned index = op->getNumRegions(); index-- > 0;) {
-      Runs inner = runs == Runs::Repeatedly ? Runs::Repeatedly : detail::regionRuns(op, index);
-      for (mlir::Block &block : llvm::reverse(op->getRegion(index)))
-        stack.push_back({block.begin(), block.end(), inner});
-    }
-  }
-  return std::move(fold).take();
+  Derivation<R> derivation(fn, reader);
+  // The derivation never fails, so neither does a walk of it alone.
+  (void)families::walkFunction(fn.getOperation(), derivation);
+  return std::move(derivation).take();
 }
 
 // The verifier's reader: a call contributes its own copy of its callee's
@@ -217,16 +224,41 @@ Derived derive(FuncOp fn, R &reader) {
 struct CallCopies {
   void call(CallOp call, Fold &fold, Runs runs);
   Read other(mlir::Operation *, Fold &, Runs) { return Read::ByDeclaration; }
-  void after(mlir::Operation *, Fold &) {}
 };
 
-extern template Derived derive<CallCopies>(FuncOp fn, CallCopies &reader);
+extern template class Derivation<CallCopies>;
 
-// `fn`'s row and record cover what its body does: the function's region
-// verifier, after its own verifier has held the record to the signature.
-// A failure names the function, what it lacks and the op that needs it; it
-// is the error of the pass that broke it, never a refusal of the program.
-mlir::LogicalResult verify(FuncOp fn);
+// The row's rule in the verifier's walk of a function, after its own
+// verifier has held the record to the signature: the derivation reading
+// each call from its own copy, held after each op to the function's row,
+// its untouched parameters and its put bounds, so a failure names the
+// first op that breaks one, and the function's walk is read once for all
+// its rules. Containment, not equality: a pass that deletes an effectful op
+// leaves a row that says too much, which is sound, and no pass of another's
+// can rewrite every caller's copy on the spot. A failure is the error of
+// the pass that broke it, never a refusal of the program.
+class Check {
+public:
+  explicit Check(FuncOp fn);
+
+  mlir::LogicalResult enter(mlir::Operation *op, mlir::Region &region);
+  mlir::LogicalResult check(mlir::Operation *op);
+  void leave() { derivation.leave(); }
+
+private:
+  // Whether what the body did up to and with `by` stays within what the
+  // function says.
+  mlir::LogicalResult covered(mlir::Operation &by);
+
+  FuncOp fn;
+  CallCopies copies;
+  Derivation<CallCopies> derivation;
+  effects::Row row;
+  llvm::ArrayRef<std::int32_t> untouched;
+  llvm::SmallVector<Amount, 2> bounds;
+};
+
+static_assert(families::FunctionRule<Check>);
 
 } // namespace idr::rows
 

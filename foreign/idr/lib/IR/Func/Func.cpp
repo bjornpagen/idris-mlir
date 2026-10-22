@@ -7,9 +7,9 @@
 // its types, held to that signature by its own verifier; the lifetimes it
 // states for its parameters; and the rules of one function, which run
 // after the ops of its body are verified and in parallel with every other
-// function's: its stage's, its row's and its tail calls'.
+// function's: its stage's and its row's in its one walk, then its tail
+// calls'.
 
-#include "idr/Analysis/Effects.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -140,7 +140,8 @@ SmallVector<StringRef> writtenElsewhere(OperationName name) {
           FuncOp::getArgAttrsAttrName(name),  FuncOp::getResAttrsAttrName(name),
           FuncOp::getBindersAttrName(name),   FuncOp::getUntouchedAttrName(name),
           FuncOp::getBoundedAttrName(name),   FuncOp::getTerminatesAttrName(name),
-          FuncOp::getLivesInAttrName(name),   FuncOp::getGivenBackAttrName(name)};
+          FuncOp::getLivesInAttrName(name),   FuncOp::getGivenBackAttrName(name),
+          FuncOp::getCopyAttrName(name)};
 }
 
 } // namespace
@@ -277,10 +278,11 @@ LogicalResult idr::FuncOp::verify() {
 
 // The interface's own body check has matched the entry block to the type,
 // and the ops' verifiers have run: a match's regions and yields are well
-// formed. Then the function's rules at its program's stage, its row, which
-// covers what its body does, and its tail calls, each where it stands.
+// formed. Then the function's rules at its program's stage, read in its
+// one walk, its row's among them, and its tail calls, each where it
+// stands.
 LogicalResult idr::FuncOp::verifyRegions() {
-  if (failed(verify::function(*this)) || failed(rows::verify(*this)))
+  if (failed(verify::function(*this)))
     return failure();
   return tail::verify(*this);
 }

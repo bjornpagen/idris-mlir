@@ -94,7 +94,6 @@ struct Calls {
     sites.push_back(siteOf(call, callee, graph.op(callee), fold, runs));
   }
   Read other(Operation *, Fold &, Runs) { return Read::ByDeclaration; }
-  void after(Operation *, Fold &) {}
 };
 
 //===----------------------------------------------------------------------===//
@@ -387,7 +386,6 @@ struct ComponentCalls {
         fold.put(operand, Amount::unbounded(), runs);
   }
   Read other(Operation *, Fold &, Runs) { return Read::ByDeclaration; }
-  void after(Operation *, Fold &) {}
 };
 
 } // namespace

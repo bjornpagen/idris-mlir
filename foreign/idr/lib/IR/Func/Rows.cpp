@@ -282,7 +282,7 @@ const Layouts &rows::Fold::layouts() {
   return *laidOut;
 }
 
-rows::Declares rows::Fold::declared(Operation *op, Runs runs) {
+void rows::Fold::declared(Operation *op, Runs runs) {
   join(effects::reportedBy(op));
   // Only a put into a put parameter is the record's, and one in a region
   // that runs again has no bound whatever its size: the bytes are read
@@ -299,16 +299,14 @@ rows::Declares rows::Fold::declared(Operation *op, Runs runs) {
   if (!declaring) {
     // An op of another dialect is bounded by its regions alone where it
     // says so; with neither a declaration nor that, it may do anything.
-    if (op->hasTrait<OpTrait::HasRecursiveMemoryEffects>())
-      return Declares::Bounded;
-    anything();
-    return Declares::Anything;
+    if (!op->hasTrait<OpTrait::HasRecursiveMemoryEffects>())
+      anything();
+    return;
   }
   SmallVector<MemoryEffects::EffectInstance, 4> instances;
   declaring.getEffects(instances);
   for (const MemoryEffects::EffectInstance &instance : instances)
     effect(effects::effectOf(instance));
-  return Declares::Bounded;
 }
 
 // An acquisition is the function's own business only through what it
@@ -400,7 +398,7 @@ void rows::CallCopies::call(CallOp call, Fold &fold, Runs) {
   call.forEachWritten([&](OpOperand &operand) { fold.writeThrough(operand.get()); });
 }
 
-template rows::Derived rows::derive<rows::CallCopies>(FuncOp fn, rows::CallCopies &reader);
+template class rows::Derivation<rows::CallCopies>;
 
 //===----------------------------------------------------------------------===//
 // The function's check
@@ -416,26 +414,11 @@ std::string spell(effects::Row row) {
   return text;
 }
 
-// The first op whose own part of the row holds one of `missing`.
-struct Blame {
-  effects::Row missing;
-  Operation *culprit = nullptr;
-
-  void call(CallOp call, rows::Fold &fold, rows::Runs runs) {
-    rows::CallCopies copies;
-    copies.call(call, fold, runs);
-  }
-  rows::Read other(Operation *, rows::Fold &, rows::Runs) { return rows::Read::ByDeclaration; }
-  void after(Operation *op, rows::Fold &fold) {
-    if (!culprit && !(fold.sofar().atoms & missing).empty())
-      culprit = op;
-  }
-};
-
 // What the function says it puts into each put parameter: its bound, or
 // none.
-llvm::SmallVector<Amount, 2> declaredPuts(FuncOp fn, std::uint32_t puttable) {
-  llvm::SmallVector<Amount, 2> declared(puttable, Amount::unbounded());
+llvm::SmallVector<Amount, 2> declaredPuts(FuncOp fn) {
+  llvm::SmallVector<Amount, 2> declared(ParameterParts(fn.getArgumentTypes()).puttable(),
+                                        Amount::unbounded());
   if (PutBoundsAttr bounded = fn.getBoundedAttr())
     for (const PutBound &bound : bounded.getBounds())
       declared[bound.parameter] = Amount::finite(bound.bytes);
@@ -444,47 +427,49 @@ llvm::SmallVector<Amount, 2> declaredPuts(FuncOp fn, std::uint32_t puttable) {
 
 } // namespace
 
-// Containment after every pass, equality only right after the writer: a
-// pass that deletes an effectful op (a known case folded, a dead read
-// erased) leaves a row that says too much, which is sound, and no pass of
-// another's can rewrite every caller's copy on the spot.
-LogicalResult rows::verify(FuncOp fn) {
-  CallCopies copies;
-  Derived derived = derive(fn, copies);
+rows::Check::Check(FuncOp fn)
+    : fn(fn), derivation(fn, copies), row(fn.getRow()), bounds(declaredPuts(fn)) {
+  if (DenseI32ArrayAttr listed = fn.getUntouchedAttr())
+    untouched = listed.asArrayRef();
+}
 
-  effects::Row row = fn.getRow();
-  if (effects::Row missing = derived.atoms - row; !missing.empty()) {
-    effects::Row seeded =
-        idr::match(
-            fn.getTermination(),
-            [](Unproved) { return effects::Row{effects::Atom::divergence}; },
-            [](InComponent) { return effects::Row{}; }, [](Acyclic) { return effects::Row{}; }) &
-        missing;
-    if (!seeded.empty())
-      return fn.emitOpError("holds effects<")
-             << spell(row) << ">, which lack " << spell(seeded)
-             << ": Idris did not prove its loops end";
-    Blame blame{missing};
-    (void)derive(fn, blame);
-    InFlightDiagnostic diag = fn.emitOpError("holds effects<")
-                              << spell(row) << ">, which lack " << spell(missing);
-    if (blame.culprit)
-      diag.attachNote(blame.culprit->getLoc())
-          << "'" << blame.culprit->getName() << "' needs them";
+// Idris's proof is read before the body: the row of a function it did not
+// prove holds divergence before any op adds to it.
+LogicalResult rows::Check::enter(Operation *op, Region &region) {
+  (void)derivation.enter(op, region);
+  if (op != fn.getOperation())
+    return success();
+  if (effects::Row missing = derivation.state().sofar().atoms - row; !missing.empty())
+    return fn.emitOpError("holds effects<")
+           << spell(row) << ">, which lack " << spell(missing)
+           << ": Idris did not prove its loops end";
+  return success();
+}
+
+LogicalResult rows::Check::check(Operation *op) {
+  (void)derivation.check(op);
+  return covered(*op);
+}
+
+// The atoms, writes and amounts only grow as the walk goes on, so the
+// first op after which one exceeds what the function says is the op that
+// needs it.
+LogicalResult rows::Check::covered(Operation &by) {
+  const Derived &sofar = derivation.state().sofar();
+  auto blame = [&](InFlightDiagnostic diag) -> LogicalResult {
+    diag.attachNote(by.getLoc()) << "'" << by.getName() << "' needs it";
     return diag;
-  }
-
-  if (DenseI32ArrayAttr untouched = fn.getUntouchedAttr())
-    for (std::int32_t position : untouched.asArrayRef())
-      if (derived.written.test(static_cast<unsigned>(position)))
-        return fn.emitOpError("lists its write-admitting parameter ")
-               << position << " untouched, which its body writes through";
-
-  llvm::SmallVector<Amount, 2> declared =
-      declaredPuts(fn, static_cast<std::uint32_t>(derived.puts.size()));
-  for (auto [position, put] : llvm::enumerate(derived.puts))
-    if (!put.within(declared[position]))
-      return fn.emitOpError("bounds what it puts into its put parameter ")
-             << position << ", which its body exceeds";
+  };
+  if (effects::Row missing = sofar.atoms - row; !missing.empty())
+    return blame(fn.emitOpError("holds effects<") << spell(row) << ">, which lack "
+                                                  << spell(missing));
+  for (std::int32_t position : untouched)
+    if (sofar.written.test(static_cast<unsigned>(position)))
+      return blame(fn.emitOpError("lists its write-admitting parameter ")
+                   << position << " untouched, which its body writes through");
+  for (auto [position, put] : llvm::enumerate(sofar.puts))
+    if (!put.within(bounds[position]))
+      return blame(fn.emitOpError("bounds what it puts into its put parameter ")
+                   << position << ", which its body exceeds");
   return success();
 }
