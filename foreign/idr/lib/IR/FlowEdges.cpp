@@ -50,7 +50,8 @@ std::optional<Type> FlowAnchor::slot() const {
       [](const Elements &elements) -> Slot { return elements.element; },
       [](const Forced &forced) -> Slot { return unrestricted(forced.lazy.getValue()); },
       [](const MemoState &state) -> Slot {
-        return unrestricted(state.memo.ctor(state.memo.memo()->forced()).fields.front());
+        Tag forced = state.group.memo(state.member)->forced();
+        return unrestricted(state.group.ctor(state.member, forced).fields.front());
       },
       [](const Capture &) -> Slot { return std::nullopt; },
       [](const Hole &hole) -> Slot { return hole.dest.getValue(); });
@@ -68,7 +69,9 @@ llvm::hash_code idr::hash_value(const FlowAnchor &anchor) {
         return llvm::hash_combine(kind, elements.element);
       },
       [&](const FlowAnchor::Forced &forced) { return llvm::hash_combine(kind, forced.lazy); },
-      [&](const FlowAnchor::MemoState &state) { return llvm::hash_combine(kind, state.memo); },
+      [&](const FlowAnchor::MemoState &state) {
+        return llvm::hash_combine(kind, state.group, state.member);
+      },
       [&](const FlowAnchor::Capture &capture) {
         return llvm::hash_combine(kind, capture.carrier, capture.index);
       },

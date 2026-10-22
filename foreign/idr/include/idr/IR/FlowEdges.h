@@ -105,9 +105,12 @@ struct FlowAnchor {
     bool operator==(const Forced &) const = default;
   };
   // The forced state of every cell of a memo sum, what idr-defunctionalize
-  // made of a lazy type: its forced constructor's one field.
+  // made of a lazy type: its forced constructor's one field, by the memo
+  // member's declaration alone, at whatever index terms the program meets
+  // it, as a field is.
   struct MemoState {
-    DataType memo;
+    FamilyAttr group;
+    std::uint32_t member;
     bool operator==(const MemoState &) const = default;
   };
   // A capture of every closure or suspension of a type, ungraded.
@@ -129,7 +132,9 @@ struct FlowAnchor {
   }
   static FlowAnchor elementsOf(mlir::Type element) { return {Elements{element}}; }
   static FlowAnchor forcedOf(LazyType lazy) { return {Forced{lazy}}; }
-  static FlowAnchor memoStateOf(DataType memo) { return {MemoState{memo}}; }
+  static FlowAnchor memoStateOf(DataType memo) {
+    return {MemoState{memo.getGroup(), memo.getMember()}};
+  }
   static FlowAnchor captureOf(mlir::Type carrier, unsigned index) {
     return {Capture{carrier, index}};
   }
