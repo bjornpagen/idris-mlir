@@ -228,9 +228,12 @@ TEST(ControlFlow, EveryReadingIsWhatTheBuilderMeant) {
 }
 
 // Whether a jump crosses an op on its way to `target`: its own op is not
-// the target's.
-bool crosses(mlir::Operation *jump, mlir::Region *target) {
-  return jump->getParentOp() != target->getParentOp();
+// the op whose region, or whose results, the target is.
+bool crosses(mlir::Operation *jump, Place target) {
+  mlir::Operation *owner = idr::match(
+      target, [](mlir::Region *region) { return region->getParentOp(); },
+      [](mlir::Operation *op) { return op; });
+  return jump->getParentOp() != owner;
 }
 
 // A loop's tokens taken for its join region's first parameters.
@@ -248,15 +251,15 @@ void tokensAsParameters(Facts &facts) {
 void crossingsKept(Facts &facts) {
   std::erase_if(facts.edges, [](const Edge &edge) {
     return llvm::isa<idr::JumpOp>(edge.from) &&
-           crosses(edge.from, llvm::cast<mlir::Region *>(edge.to));
+           crosses(edge.from, edge.to);
   });
   std::erase_if(facts.moves, [](const Move &move) {
     mlir::Operation *owner = move.use->getOwner();
-    return llvm::isa<idr::JumpOp>(owner) && crosses(owner, move.input.getParentRegion());
+    return llvm::isa<idr::JumpOp>(owner) && crosses(owner, Place(move.input.getParentRegion()));
   });
   std::erase_if(facts.arrivals, [](const Arrival &arrival) {
     return llvm::isa<idr::JumpOp>(arrival.from) &&
-           crosses(arrival.from, llvm::cast<mlir::Region *>(arrival.at));
+           crosses(arrival.from, arrival.at);
   });
 }
 
