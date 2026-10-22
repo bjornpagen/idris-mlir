@@ -13,15 +13,19 @@
 ||| seconds << 30 | nanoseconds, or -1 where the clock cannot be read: its
 ||| queries and the null test are arith over those encodings, which the
 ||| frontend writes, and a collector's clock, which no program has, is the
-||| constant -1. A clock reading is one op over the clocks that exist; a
-||| file's times are one op with seven results, as the one OS call is.
+||| constant -1. A clock reading is one op over the clocks that exist. A
+||| file's times are read at once, as the one OS call gives them, into a
+||| file-time handle, base's FileTimePtr; base reads it field by field, one
+||| op over the fields, and frees it.
 module IdrisMLIR.Spec.Ops.Platform
 
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Clocks
+import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Ops.Shapes
 
+import Data.List.Elem
 import Data.List1
 import Data.So
 import Data.Vect
@@ -34,7 +38,7 @@ import Data.Vect
 
 ||| A primitive of base's platform: the runtime function `io_<name>` of its
 ||| operands, its effects as that function has them.
-platformOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> Vect i Operand -> Vect o Result
+platformOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (outs : Vect o Result)
           -> Declaration i o -> RuntimeCall i o -> Doc
           -> {auto 0 named : So (distinct (groupNames ins outs [] []))}
           -> Op i o 0 0
@@ -152,25 +156,103 @@ public export
 fileIsTty : Op 1 1 0 0
 fileIsTty = handleQuery "io.file_is_tty" "io_file_is_tty" Untouched (says "whether a file is a terminal")
 
-||| A file's three times, read at once, as the one OS call gives them: a
-||| status, 0 on success, then the access, modification and status change
-||| times, each its seconds and nanoseconds. The runtime writes the six
-||| through pointers its caller passes.
-public export
-fileTime : Op 1 7 0 0
-fileTime = platformOp "io.file_time" [single "file" i64]
-  [ result "status" i64, result "atime_sec" i64, result "atime_nsec" i64, result "mtime_sec" i64
-  , result "mtime_nsec" i64, result "ctime_sec" i64, result "ctime_nsec" i64 ]
-  (outside Untouched)
-  (MkRuntimeCall "io_file_time" [TakesInt64]
-    (ThroughPointers [GivesInt64, GivesInt64, GivesInt64, GivesInt64, GivesInt64, GivesInt64, GivesInt64]))
-  (says "the access, modification and status change times of a file, read at once")
-
 public export
 fileChmod : Op 2 1 0 0
 fileChmod = platformOp "io.file_chmod" [single "path" strRead, single "mode" i64] [result "result" i64]
   (outside Touched) (MkRuntimeCall "io_file_chmod" [TakesStr, TakesInt64] (Returns GivesInt64))
   (says "sets the mode of the file at a path")
+
+------------------------------------------------------------------------------
+-- A file's times
+------------------------------------------------------------------------------
+
+||| What base reads of a file's times, one at a time: the access,
+||| modification and status change times, each its seconds or its
+||| nanoseconds since the epoch, as fstat gives them.
+public export
+data FileTimeField
+  = AccessSeconds | AccessNanoseconds
+  | ModifiedSeconds | ModifiedNanoseconds
+  | StatusSeconds | StatusNanoseconds
+
+public export
+fileTimeFieldClosed : Closed FileTimeField
+fileTimeFieldClosed = MkClosed
+  { name = ident "FileTimeField"
+  , shape = OneOf
+  , every =
+      AccessSeconds ::: [AccessNanoseconds, ModifiedSeconds, ModifiedNanoseconds, StatusSeconds, StatusNanoseconds]
+  , complete = \case
+      AccessSeconds => Here
+      AccessNanoseconds => There Here
+      ModifiedSeconds => There (There Here)
+      ModifiedNanoseconds => There (There (There Here))
+      StatusSeconds => There (There (There (There Here)))
+      StatusNanoseconds => There (There (There (There (There Here))))
+  , describe = \case
+      AccessSeconds => MkCase (ident "AccessSeconds") (word "atime_sec" ::: []) (line "the seconds of the last access")
+      AccessNanoseconds => MkCase (ident "AccessNanoseconds") (word "atime_nsec" ::: []) (line "the nanoseconds of the last access")
+      ModifiedSeconds => MkCase (ident "ModifiedSeconds") (word "mtime_sec" ::: []) (line "the seconds of the last modification")
+      ModifiedNanoseconds => MkCase (ident "ModifiedNanoseconds") (word "mtime_nsec" ::: []) (line "the nanoseconds of the last modification")
+      StatusSeconds => MkCase (ident "StatusSeconds") (word "ctime_sec" ::: []) (line "the seconds of the last status change")
+      StatusNanoseconds => MkCase (ident "StatusNanoseconds") (word "ctime_nsec" ::: []) (line "the nanoseconds of the last status change")
+  , doc = brief (line "a field of a file's times")
+  }
+
+||| What the runtime's file-time entries are printed: the fields, in the
+||| order a file-time handle holds them, which its entries, one template
+||| instantiated per field, read.
+public export
+fileTimesHeader : Header
+fileTimesHeader = MkHeader (ident "FileTimes")
+  [ (ident "idr" ::: [ident "files"], [EnumOf (enumDef fileTimeFieldClosed)]) ]
+  (brief (line "the fields of a file's times, in the order a file-time handle holds them"))
+
+||| Base's prim__fileTime: a file's times, read at once as the one OS call
+||| gives them, into a new file-time handle, which base reads field by field
+||| and frees with idr.io.handle_free. Where they cannot be read, every field
+||| is -1 and the saved errno says why: base takes an access time that is
+||| not positive for a failure and reads it.
+public export
+fileTime : Op 1 1 0 0
+fileTime = platformOp "io.file_time" [single "file" i64] [result "times" i64] (outside Touched)
+  (MkRuntimeCall "io_file_time" [TakesInt64] (Returns GivesInt64))
+  (says "a file's times, read at once into a new file-time handle")
+
+||| Base's six readers of a file time, which differ only in the field they
+||| read, the property `kind`: a read of the runtime's handle table and
+||| nothing else. The runtime's entries are one template instantiated per
+||| field, `idris_rt_handle_file_time_<field>`, and the lowering calls the
+||| one the op's kind names, so no field is passed or tested at run time. A
+||| handle that holds no file's times reads as -1; base, whose only
+||| file-time handles are its own fileTime's, never asks one.
+public export
+handleFileTime : Op 1 1 1 0
+handleFileTime = MkOp
+  { home = InIdr
+  , mnemonic = "handle.file_time"
+  , ins = [single "times" i64]
+  , outs = [result "value" i64]
+  , attrs = [property "kind" (EnumProperty (enumDef fileTimeFieldClosed))]
+  , regions = []
+  , traits = []
+  , interfaces = []
+  , effects = readsRuntimeState
+  , speculation = NotSpeculatable
+  , stages = Always
+  , meaning =
+      CallsRuntimeByCase (enumDef fileTimeFieldClosed)
+        (MkRuntimeCall "handle_file_time" [TakesInt64] (Returns GivesInt64))
+  , verify = DeclarationOnly
+  , format = attrFirst 1 0
+  , builders = []
+  , defaultBuilders = WithDefaults
+  , members = []
+  , guards = []
+  , specializations = []
+  , laws = []
+  , doc = says "a field of the times a file-time handle holds"
+  }
 
 ------------------------------------------------------------------------------
 -- Directories
@@ -377,8 +459,9 @@ clock = MkOp
 ------------------------------------------------------------------------------
 
 ||| Base's getString: the string a string handle holds, with a reference of
-||| its own. It reads the handle table, and a handle that holds no string is
-||| a crash; the result's count is written, nothing acquired.
+||| its own. It reads the handle table, below the guard that the handle
+||| holds a string, which crashes where it does not; the result's count is
+||| written, nothing acquired.
 public export
 handleString : Op 1 1 0 0
 handleString = MkOp
@@ -390,9 +473,7 @@ handleString = MkOp
   , regions = []
   , traits = []
   , interfaces = []
-  , effects =
-      Executes [OnState Read RuntimeState, OnState Write Crash, OnValues Write Count (Results 0)] []
-        Covered Untouched
+  , effects = Executes [OnState Read RuntimeState, OnValues Write Count (Results 0)] [] Covered Untouched
   , speculation = NotSpeculatable
   , stages = Always
   , meaning = CallsRuntime (MkRuntimeCall "handle_string" [TakesInt64] (Returns GivesStr))
@@ -401,7 +482,7 @@ handleString = MkOp
   , builders = []
   , defaultBuilders = WithDefaults
   , members = []
-  , guards = []
+  , guards = [MkGuard "check.holds_string" (0 ::: []) (caseRef causeClosed NotAString)]
   , specializations = []
   , laws = []
   , doc = says "the string a string handle holds, with a reference of its own"
@@ -420,8 +501,8 @@ platformOps =
   [ SomeOp fileOpen, SomeOp fileClose, SomeOp fileError, SomeOp fileErrno, SomeOp fileReadLine
   , SomeOp fileReadChars, SomeOp fileReadChar, SomeOp fileWriteLine, SomeOp fileFlush
   , SomeOp fileSeekLine, SomeOp fileRemove, SomeOp fileSize, SomeOp filePoll, SomeOp fileIsTty
-  , SomeOp fileTime, SomeOp fileChmod, SomeOp dirCurrent, SomeOp dirChange, SomeOp dirCreate
-  , SomeOp dirRemove, SomeOp dirOpen, SomeOp dirClose, SomeOp dirEntry, SomeOp argCount
+  , SomeOp fileTime, SomeOp handleFileTime, SomeOp fileChmod, SomeOp dirCurrent, SomeOp dirChange
+  , SomeOp dirCreate, SomeOp dirRemove, SomeOp dirOpen, SomeOp dirClose, SomeOp dirEntry, SomeOp argCount
   , SomeOp arg, SomeOp envGet, SomeOp envPair, SomeOp envSet, SomeOp envUnset, SomeOp sleep
   , SomeOp usleep, SomeOp time, SomeOp pid, SomeOp termRaw, SomeOp termReset, SomeOp termCols
   , SomeOp termLines, SomeOp errno, SomeOp errorText, SomeOp clock, SomeOp handleString

@@ -23,6 +23,29 @@ import Data.Vect
 %default total
 
 ------------------------------------------------------------------------------
+-- The literal
+------------------------------------------------------------------------------
+
+||| `#idr.big<-12>`, C++ `BigAttr`: an Integer or a natural as a literal,
+||| an integer of any size. Its hand storage (`idr/IR/Ops/BigStorage.h`)
+||| keys it at its fewest signed bits whatever width it is given at, so
+||| equal integers are one attribute and no reader compares widths.
+public export
+bigAttr : AttrDef 1
+bigAttr = MkAttrDef
+  { mnemonic = "big"
+  , params = [MkParameter "value" IntegerValue AlwaysWritten "the integer, at its fewest signed bits"]
+  , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ">"]
+  , typed = Untyped
+  , interfaces = []
+  , verifier = AnyParameters
+  , bytecode = Derived
+  , storage = HandStorage
+  , members = []
+  , doc = says "an integer of any size"
+  }
+
+------------------------------------------------------------------------------
 -- What the ops share
 ------------------------------------------------------------------------------
 
@@ -115,7 +138,7 @@ naturalBinary m s word ls d = MkOp
 
 public export
 bigAdd : Op 2 1 0 0
-bigAdd = naturalBinary "big.add" "big_add" addI [Identity 0] (says "the sum of two bigs or two naturals")
+bigAdd = naturalBinary "big.add" "big_add" addI [Associative, Identity 0] (says "the sum of two bigs or two naturals")
 
 public export
 bigMul : Op 2 1 0 0
@@ -142,8 +165,8 @@ bigXor = binary "big.xor" "big_xor" [] (says "the bitwise xor of two bigs")
 
 ||| Integer's shifts: every amount has a value, the runtime's; one too large
 ||| to hold is memory exhausted, as for a product. A shift away from zero
-||| folds only where the constant it makes is within the compiler's size for
-||| a constant (`foldable`).
+||| folds only where the constant it makes is a small, held in the big's own
+||| word, so a fold makes no static datum (`foldable`).
 public export
 bigShl : Op 2 1 0 0
 bigShl = binary "big.shl" "big_shl" [foldable] (says "a big shifted left, Integer's shiftL")

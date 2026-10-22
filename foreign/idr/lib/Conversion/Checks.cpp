@@ -6,7 +6,8 @@
 // nothing, so a guard a proof removed leaves no test behind. Three
 // conditions are inline arithmetic, each the meaning its fold and its
 // interval decision instantiate too (Numeric/Inline.h), here over arith; a
-// string's emptiness and a Double's finiteness are no integer arithmetic.
+// string's emptiness and a Double's finiteness are no integer arithmetic,
+// and what a handle holds is the runtime's handle table's.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
@@ -80,6 +81,17 @@ Value fails(CheckFiniteOp, Converted<CheckFiniteOp> in, OpBuilder &b, Location l
   Value finite = math::IsFiniteOp::create(b, loc, in.getValue().front());
   Value yes = arith::ConstantOp::create(b, loc, b.getBoolAttr(true));
   return arith::XOrIOp::create(b, loc, finite, yes);
+}
+
+// A handle whose slot holds no string, as the runtime's table says: the
+// one test of it, made where the run reaches the guard.
+Value fails(CheckHoldsStringOp, Converted<CheckHoldsStringOp> in, OpBuilder &b, Location loc,
+            Runtime &runtime) {
+  Value holds =
+      runtime.call(b, loc, idr::runtime::helper::handleHoldsString, in.getHandle().front())
+          .getResult();
+  Value yes = arith::ConstantOp::create(b, loc, b.getBoolAttr(true));
+  return arith::XOrIOp::create(b, loc, holds, yes);
 }
 
 Value fails(CheckRangeOp, Converted<CheckRangeOp> in, OpBuilder &b, Location loc, Runtime &) {

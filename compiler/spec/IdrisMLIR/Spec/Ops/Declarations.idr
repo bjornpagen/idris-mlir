@@ -3,8 +3,10 @@
 ||| The ops area of the dialect: the runtime's values and the ops on
 ||| integers, Doubles, Integers, naturals and strings, the crashes and the
 ||| guards, IO and the platform; the types and attributes they name, the
-||| interfaces and traits their C++ reads, the rules of the e-graph on them,
-||| and the header of constants the inline arithmetic includes.
+||| interfaces and traits their C++ reads, the upstream ops the frontend
+||| writes beside them, the rules of the e-graph on them, the header of
+||| constants the inline arithmetic includes, and the fields of a file's
+||| times the runtime's entries read.
 module IdrisMLIR.Spec.Ops.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -27,13 +29,13 @@ declarations =
   { ops := [SomeOp constantOp, SomeOp platformOsOp]
            ++ scalarOps ++ bigOps ++ stringOps ++ checkOps ++ ioOps ++ platformOps
   , types := [SomeType strType, SomeType bigType, SomeType natType]
-  , attributes := [SomeAttr siteAttr]
-  , enums := [enumDef comparisonClosed]
+  , attributes := [SomeAttr siteAttr, SomeAttr bigAttr]
+  , enums := [enumDef comparisonClosed, enumDef fileTimeFieldClosed]
   , interfaces := [literalType, guardInterface]
   , traits := [neverEmpty, noRuntimeForm]
   , predicates := opPredicates
   , admitted := opAdmitted
   , rewrites := opRewrites
   , skeleton := skeletonRules
-  , headers := [numericHeader]
+  , headers := [numericHeader, fileTimesHeader]
   } nothing

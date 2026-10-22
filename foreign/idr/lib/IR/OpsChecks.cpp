@@ -9,7 +9,8 @@
 // over words and over intervals, as the lowering's test is the same meaning
 // over arith (Conversion/Checks.cpp): one condition, written once. A
 // string's emptiness and a Double's finiteness are no integer arithmetic,
-// and say so.
+// and say so; what a handle holds is the run's own state, which only the
+// run knows.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
@@ -72,6 +73,11 @@ bool CheckFiniteOp::holds(FoldAdaptor adaptor) {
   return value && value.getValue().isFinite();
 }
 
+// Never of a constant: a program's constant handles are null and the
+// standard streams, and every handle that holds a string is one the runtime
+// gave at run time.
+bool CheckHoldsStringOp::holds(FoldAdaptor) { return false; }
+
 bool CheckRangeOp::holds(FoldAdaptor adaptor) {
   auto offset = dyn_cast_or_null<IntegerAttr>(adaptor.getOffset());
   auto count = dyn_cast_or_null<IntegerAttr>(adaptor.getCount());
@@ -113,6 +119,11 @@ numeric::Known CheckRangeOp::decide(ArrayRef<ConstantIntRanges> ranges) {
   return numeric::inRange(numeric::Intervals{}, ranges[0], ranges[1], ranges[2]).known;
 }
 
+// A handle's interval says nothing of what its slot holds.
+numeric::Known CheckHoldsStringOp::decide(ArrayRef<ConstantIntRanges>) {
+  return numeric::Known::Unknown;
+}
+
 //===----------------------------------------------------------------------===//
 // Folding
 //===----------------------------------------------------------------------===//
@@ -135,6 +146,8 @@ OpFoldResult CheckFiniteOp::fold(FoldAdaptor adaptor) {
 OpFoldResult CheckRangeOp::fold(FoldAdaptor adaptor) {
   return holds(adaptor) ? OpFoldResult(getOffset()) : OpFoldResult();
 }
+// Never folds: no constant holds a string (holds).
+OpFoldResult CheckHoldsStringOp::fold(FoldAdaptor) { return {}; }
 
 //===----------------------------------------------------------------------===//
 // Ranges

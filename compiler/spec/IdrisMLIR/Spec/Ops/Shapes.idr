@@ -154,42 +154,147 @@ byteBuffer = SatisfiesType byteBufferP
 -- The upstream ops this area admits
 ------------------------------------------------------------------------------
 
-||| An op of arith the frontend writes: the inline arithmetic of words, which
-||| the rules build and the big ops name as what they compute on words.
-arithOp : Ident -> Admitted
-arithOp r = MkAdmitted Arith r Always FrontendWrites []
+||| An op of arith the frontend writes, legal at every stage: the words and
+||| Doubles of a program from its first form to its lowering. Upstream's
+||| record holds its meaning and its effects, which the specification never
+||| restates: none has a memory effect, so only its uses order it. Its laws
+||| are the ones upstream has no trait for, which the e-graph and the
+||| accumulator read.
+arithOp : Ident -> List UpLaw -> Admitted
+arithOp r laws = MkAdmitted Arith r Always FrontendWrites laws
+
+||| A word or a Double as its literal; folding materializes one too.
+public export
+arithConstant : Admitted
+arithConstant = arithOp "Arith_ConstantOp" []
+
+-- The wrapping arithmetic and the bitwise ops of signless words, which the
+-- rules build and the big ops name as what they compute on words.
 
 public export
 addI : Admitted
-addI = arithOp "Arith_AddIOp"
+addI = arithOp "Arith_AddIOp" [UpAssociative, UpIdentity 0]
 
 public export
 subI : Admitted
-subI = arithOp "Arith_SubIOp"
+subI = arithOp "Arith_SubIOp" []
 
 public export
 mulI : Admitted
-mulI = arithOp "Arith_MulIOp"
+mulI = arithOp "Arith_MulIOp" [UpAssociative, UpIdentity 1]
 
 public export
 andI : Admitted
-andI = arithOp "Arith_AndIOp"
+andI = arithOp "Arith_AndIOp" [UpAssociative, UpIdentity (-1)]
+
+public export
+orI : Admitted
+orI = arithOp "Arith_OrIOp" [UpAssociative, UpIdentity 0]
+
+public export
+xorI : Admitted
+xorI = arithOp "Arith_XOrIOp" [UpAssociative, UpIdentity 0]
+
+||| A clock reading's seconds, by the constant bits of its nanoseconds: an
+||| amount below the width, the only shift of arith's the frontend writes.
+||| Idris's own shifts are the dialect's total ones.
+public export
+shrUI : Admitted
+shrUI = arithOp "Arith_ShRUIOp" []
 
 public export
 cmpI : Admitted
-cmpI = arithOp "Arith_CmpIOp"
+cmpI = arithOp "Arith_CmpIOp" []
 
 public export
 maxSI : Admitted
-maxSI = arithOp "Arith_MaxSIOp"
+maxSI = arithOp "Arith_MaxSIOp" []
+
+public export
+arithSelect : Admitted
+arithSelect = arithOp "SelectOp" []
+
+-- Conversions between words of two widths, a word and an index, and a word
+-- and a Double: the sign on the op where the computation differs.
 
 public export
 truncI : Admitted
-truncI = arithOp "Arith_TruncIOp"
+truncI = arithOp "Arith_TruncIOp" []
 
 public export
+extUI : Admitted
+extUI = arithOp "Arith_ExtUIOp" []
+
+public export
+extSI : Admitted
+extSI = arithOp "Arith_ExtSIOp" []
+
+public export
+indexCast : Admitted
+indexCast = arithOp "Arith_IndexCastOp" []
+
+public export
+indexCastUI : Admitted
+indexCastUI = arithOp "Arith_IndexCastUIOp" []
+
+public export
+uiToFP : Admitted
+uiToFP = arithOp "Arith_UIToFPOp" []
+
+public export
+siToFP : Admitted
+siToFP = arithOp "Arith_SIToFPOp" []
+
+-- A Double's arithmetic is IEEE 754's binary64 as upstream's arith means
+-- it: rounded to nearest, ties to even, and written with no fast-math flag,
+-- so no rewrite assumes an algebra IEEE does not have. The runtime's
+-- Doubles are the same arithmetic, built without contraction on every
+-- target.
+
+public export
+addF : Admitted
+addF = arithOp "Arith_AddFOp" []
+
+public export
+subF : Admitted
+subF = arithOp "Arith_SubFOp" []
+
+public export
+mulF : Admitted
+mulF = arithOp "Arith_MulFOp" []
+
+public export
+divF : Admitted
+divF = arithOp "Arith_DivFOp" []
+
+public export
+negF : Admitted
+negF = arithOp "Arith_NegFOp" []
+
+public export
+cmpF : Admitted
+cmpF = arithOp "Arith_CmpFOp" []
+
+-- An unsigned quotient and remainder, upstream's meaning: their divisor is
+-- the result of idr.check.nonzero, so each stands below its guard by data
+-- dependence, as every total op does, and upstream speculates neither
+-- unless its divisor is a constant other than zero.
+
+public export
+divUI : Admitted
+divUI = arithOp "Arith_DivUIOp" []
+
+public export
+remUI : Admitted
+remUI = arithOp "Arith_RemUIOp" []
+
+||| Every upstream op the dialect admits, once.
+public export
 opAdmitted : List Admitted
-opAdmitted = [addI, subI, mulI, andI, cmpI, maxSI, truncI]
+opAdmitted =
+  [ arithConstant, addI, subI, mulI, andI, orI, xorI, shrUI, cmpI, maxSI, arithSelect, truncI
+  , extUI, extSI, indexCast, indexCastUI, uiToFP, siToFP, addF, subF, mulF, divF, negF, cmpF
+  , divUI, remUI ]
 
 ------------------------------------------------------------------------------
 -- Effects, as each runtime function has them
@@ -199,11 +304,6 @@ opAdmitted = [addI, subI, mulI, andI, cmpI, maxSI, truncI]
 public export
 computes : Declaration i o
 computes = noEffects
-
-||| A guard: the run ends by a crash where its condition fails.
-public export
-mayCrash : Declaration i o
-mayCrash = Executes [OnState Write Crash] [] Covered Untouched
 
 ||| Builds a new immutable value: nothing before counting, so two equal
 ||| builds are one and an unused one goes; new memory once counting makes

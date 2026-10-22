@@ -17,6 +17,7 @@
 #include "mlir/Interfaces/Utils/InferIntRangeCommon.h"
 
 #include <algorithm>
+#include <limits>
 
 using namespace mlir;
 using namespace idr;
@@ -170,12 +171,13 @@ void BigToIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 namespace {
 
 // Whether shifting the constant `value` by `amount`, left when `Left`, the
-// other way when the amount is negative, makes a constant within
-// constantBytes, the size policy of a constant a fold makes: the runtime
-// computes the fold in the compiler, so a result past it is never made, and
-// the shift stays an op. A shift toward zero, or of 0, shrinks or keeps its
-// operand; one away from zero has at most the operand's bits plus the
-// amount. An amount past 2^64 is past any such size.
+// other way when the amount is negative, makes a constant no larger than
+// the program already holds. A shift toward zero, or of 0, shrinks or keeps
+// its operand. One away from zero folds only to a small, which the big's
+// encoding holds in its word, so the fold makes no static datum; a larger
+// result stays the op, whose runtime makes it where evaluation reaches it,
+// and the compiler never computes a constant of a size the program's text
+// does not bound.
 template <numeric::Direction Dir>
 bool smallEnough(ArrayRef<Attribute> constants) {
   auto value = dyn_cast_or_null<BigAttr>(constants[0]);
@@ -186,9 +188,16 @@ bool smallEnough(ArrayRef<Attribute> constants) {
   bool awayFromZero = (Dir == numeric::Direction::Left) != places.isNegative();
   if (!awayFromZero || value.getValue().isZero())
     return true;
-  constexpr uint64_t bits = 8 * constantBytes;
+  // A nonzero integer shifted past an i64's digits is no i64, so no small.
   std::optional<uint64_t> count = places.abs().tryZExtValue();
-  return count && *count <= bits && value.getValue().getSignificantBits() <= bits - *count;
+  if (!count || *count > std::numeric_limits<int64_t>::digits)
+    return false;
+  const APInt &operand = value.getValue();
+  std::optional<int64_t> shifted =
+      operand.sext(operand.getBitWidth() + static_cast<unsigned>(*count))
+          .shl(static_cast<unsigned>(*count))
+          .trySExtValue();
+  return shifted && idr::ranges::bounded(*shifted, *shifted).fits();
 }
 
 } // namespace

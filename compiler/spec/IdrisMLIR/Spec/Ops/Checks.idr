@@ -182,13 +182,21 @@ decideMember : Member
 decideMember = MkMember OnClass "::idr::numeric::Known" "decide"
   [param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"]
 
+||| A condition read off the run's own state too, the runtime's handle
+||| table, where the run ends by a crash if it fails.
+readsTableOrCrashes : Declaration i o
+readsTableOrCrashes = Executes [OnState Read RuntimeState, OnState Write Crash] [] Covered Untouched
+
 ||| A guard over its operands, its result the first of them, with its own
-||| cause and site.
-guardOp : {i : Nat} -> (m : Mnemonic) -> Vect i Operand -> TypeC -> List (Trait i 1) -> List InterfaceUse
-       -> Doc
+||| cause and site, and the effects its condition has: a crash where it
+||| fails, which every guard's declaration writes, and what the condition
+||| reads besides its operands.
+guardOp : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (checked : TypeC)
+       -> (eff : Declaration i 1) -> List (Trait i 1) -> List InterfaceUse -> Doc
+       -> {auto 0 fails : Found (anyOf crashes (effectsOf eff))}
        -> {auto 0 named : So (distinct (groupNames ins [result "checked" checked] [causeSlot, siteSlot] []))}
        -> Op i 1 2 0
-guardOp m ins checked traits ifaces d = MkOp
+guardOp m ins checked eff traits ifaces d = MkOp
   { home = InIdr
   , mnemonic = m
   , ins = ins
@@ -197,7 +205,7 @@ guardOp m ins checked traits ifaces d = MkOp
   , regions = []
   , traits = traits
   , interfaces = Implements guardInterface [] :: ifaces
-  , effects = endsByCrash
+  , effects = eff
   , speculation = NotSpeculatable
   , stages = Always
   , meaning = HandFolder
@@ -219,7 +227,7 @@ public export
 nonzeroOp : Op 1 1 2 0
 nonzeroOp = guardOp "check.nonzero"
   [single "value" (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer")]
-  (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer")
+  (AnyOfTypes (int ::: [bigValue]) "an integer or an Integer") endsByCrash
   [SameOperandsAndResultType]
   [Implements flowInterface ["getFlowEdges"], Declares InferIntRange ["inferResultRanges"]]
   (says "the value, which must not be zero, else the program crashes")
@@ -232,7 +240,7 @@ inBoundsOp : Op 2 1 2 0
 inBoundsOp = guardOp "check.in_bounds"
   [ single "index" i64
   , single "indexed" (AnyOfTypes (strRead ::: [SatisfiesType rank1ArrayP]) "a string or an array of one dimension") ]
-  i64 []
+  i64 endsByCrash []
   [Declares InferIntRange ["inferResultRangesFromOptional"]]
   (says "the index, which must be at least 0 and below the length of what it indexes, else the program crashes")
 
@@ -240,25 +248,38 @@ inBoundsOp = guardOp "check.in_bounds"
 ||| whose reference it hands on.
 public export
 nonemptyOp : Op 1 1 2 0
-nonemptyOp = guardOp "check.nonempty" [single "str" strValue] strValue [SameOperandsAndResultType]
+nonemptyOp = guardOp "check.nonempty" [single "str" strValue] strValue endsByCrash
+  [SameOperandsAndResultType]
   [Implements flowInterface ["getFlowEdges"]]
   (says "the string, which must have at least one byte, else the program crashes")
 
 public export
 finiteOp : Op 1 1 2 0
-finiteOp = guardOp "check.finite" [single "value" f64] f64 [SameOperandsAndResultType] []
+finiteOp = guardOp "check.finite" [single "value" f64] f64 endsByCrash [SameOperandsAndResultType] []
   (says "the value, which must be neither NaN nor infinite, else the program crashes")
 
 ||| The bytes [offset, offset + count) of something of `size` bytes: both
 ||| at least 0, and the end, computed without overflow, at most the size.
 public export
 rangeOp : Op 3 1 2 0
-rangeOp = guardOp "check.range" [single "offset" i64, single "count" i64, single "size" i64] i64 []
+rangeOp = guardOp "check.range" [single "offset" i64, single "count" i64, single "size" i64] i64 endsByCrash
+  []
   [Declares InferIntRange ["inferResultRanges"]]
   (says "the offset, whose range of `count` bytes must lie in `size`, else the program crashes")
+
+||| A handle, which must hold a string, the program's or the runtime's:
+||| what base's getString reads. The handle table says at run time
+||| (`idris_rt_handle_holds_string`), so the condition reads it. No constant
+||| handle holds one: the program's constant handles are null and the
+||| standard streams, and every string handle is one the runtime gave.
+public export
+holdsStringOp : Op 1 1 2 0
+holdsStringOp = guardOp "check.holds_string" [single "handle" i64] i64 readsTableOrCrashes
+  [SameOperandsAndResultType] []
+  (says "the handle, which must hold a string, else the program crashes")
 
 public export
 checkOps : List AnyOp
 checkOps =
   [ SomeOp crashOp, SomeOp crashMessageOp, SomeOp nonzeroOp
-  , SomeOp inBoundsOp, SomeOp nonemptyOp, SomeOp finiteOp, SomeOp rangeOp ]
+  , SomeOp inBoundsOp, SomeOp nonemptyOp, SomeOp finiteOp, SomeOp rangeOp, SomeOp holdsStringOp ]

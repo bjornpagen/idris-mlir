@@ -155,19 +155,32 @@ opRewrites = concatMap rulesOf (forget lawClosed.every) ++ roundTrips ++ heads
 -- Skeleton rules
 ------------------------------------------------------------------------------
 
+||| The header that declares this area's skeleton rules, under the include
+||| root.
+rulesHeader : Path
+rulesHeader = "idr" ::: ["IR", "Ops", "Rules.h"]
+
 ||| One rule rooted at each op it rewrites.
 rooted : Ident -> List OpRef -> Line -> List SkeletonRule
-rooted name roots doc = map (\root => MkSkeletonRule name root doc) roots
+rooted name roots doc = map (\root => MkSkeletonRule name rulesHeader root doc) roots
 
+||| The guards whose condition is of their operands alone, so a value one of
+||| them gave holds it wherever it is used.
+operandGuards : List OpRef
+operandGuards = ["check.nonzero", "check.in_bounds", "check.nonempty", "check.finite", "check.range"]
+
+||| Every guard. A handle's string is the handle table's, which a free
+||| between two guards of one handle changes, so its guard is decided but
+||| never taken as repeated.
 guardRoots : List OpRef
-guardRoots = ["check.nonzero", "check.in_bounds", "check.nonempty", "check.finite", "check.range"]
+guardRoots = operandGuards ++ ["check.holds_string"]
 
 public export
 skeletonRules : List SkeletonRule
 skeletonRules = concat
   [ rooted "GuardDecided" guardRoots
       "a guard whose condition holds on its operands' constants or intervals goes; one whose condition fails is a crash of its cause at its site"
-  , rooted "GuardRepeated" guardRoots
+  , rooted "GuardRepeated" operandGuards
       "a guard of a value an identical guard gave goes: the first checked it"
   , rooted "NeverEmptyString" ["check.nonempty"]
       "a guard of a string a builder makes never empty, or an append of one, goes"

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The patterns of the crashes (of a cause, of the program's own text), of a
-// trusted library's IO run for a pure value, of a clock's reading, and of
-// every op of inline arithmetic, whose arith is its meaning over an IR
-// builder (Numeric/Trait.h): one pattern for all of them, so no division,
-// shift or char conversion is spelt here.
+// trusted library's IO run for a pure value, of every op whose meaning is
+// one runtime function per case of its kind (a clock's reading, a file
+// time's field), and of every op of inline arithmetic, whose arith is its
+// meaning over an IR builder (Numeric/Trait.h): one pattern for each kind
+// of meaning, so no clock, division, shift or char conversion is spelt
+// here.
 
 #include "Lower/Lower.h"
 
@@ -67,25 +69,30 @@ struct LowerUnsafeRun : IdrPattern<IoUnsafeRunOp> {
   }
 };
 
-// A clock's reading: the call of the runtime's function of the op's kind,
-// one entry per kind in the kinds' order (AbiByCase), so the kind is
-// chosen as the op is lowered and never passed or tested at run time. What
-// the call does is the op's declaration's, which its class decides, made
-// once with the pattern.
-struct LowerClock : IdrPattern<IoClockOp> {
-  static_assert(effects::DecidedByClass<IoClockOp>);
-  LowerClock(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
-             Runtime &runtime)
-      : IdrPattern(converter, ctx, layouts, runtime),
-        facts(callFacts(ctx, effects::bound<IoClockOp>().row())) {}
+// An op the table gives one function per case of its kind.
+template <typename OpT>
+concept CallsRuntimeByCase = requires { idr::runtime::AbiByCase<OpT>::entries; };
+
+// The call of the runtime's function of the op's kind, its `kind` property,
+// one entry per case in the cases' order (AbiByCase), so the case is
+// chosen as the op is lowered and never passed or tested at run time; its
+// operands passed as the function takes them. What the call does is the
+// op's declaration's, which its class decides, made once with the pattern.
+template <CallsRuntimeByCase OpT>
+struct LowerByCase : IdrPattern<OpT> {
+  static_assert(effects::DecidedByClass<OpT>);
+  LowerByCase(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
+              Runtime &runtime)
+      : IdrPattern<OpT>(converter, ctx, layouts, runtime),
+        facts(callFacts(ctx, effects::bound<OpT>().row())) {}
 
   CallFacts facts;
 
-  LogicalResult matchAndRewrite(IoClockOp op, OpAdaptor,
+  LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     const idr::runtime::Function &function =
-        idr::runtime::AbiByCase<IoClockOp>::entries[static_cast<size_t>(op.getKind())];
-    LLVM::CallOp call = runtime.call(rewriter, op.getLoc(), function, ValueRange());
+        idr::runtime::AbiByCase<OpT>::entries[static_cast<size_t>(op.getKind())];
+    LLVM::CallOp call = this->runtime.call(rewriter, op, function, adaptor.getOperands());
     tellCall(call, facts);
     rewriter.replaceOp(op, call.getResult());
     return success();
@@ -103,12 +110,15 @@ struct LowerInline : IdrPattern<OpT> {
   }
 };
 
-// Every op whose meaning is inline arithmetic, by its trait: an op the
-// specification gives such a meaning cannot lack its expansion.
+// Every op whose meaning is one function per case, by the table, and every
+// op whose meaning is inline arithmetic, by its trait: an op the
+// specification gives either meaning cannot lack its lowering.
 template <typename... Ops>
-void addInline(RewritePatternSet &patterns, const TypeConverter &converter,
-               const Layouts &layouts, Runtime &runtime) {
+void addByMeaning(RewritePatternSet &patterns, const TypeConverter &converter,
+                  const Layouts &layouts, Runtime &runtime) {
   auto add = [&]<typename OpT>() {
+    if constexpr (CallsRuntimeByCase<OpT>)
+      patterns.add<LowerByCase<OpT>>(converter, patterns.getContext(), layouts, runtime);
     if constexpr (numeric::InlineOp<OpT>)
       patterns.add<LowerInline<OpT>>(converter, patterns.getContext(), layouts, runtime);
   };
@@ -119,9 +129,9 @@ void addInline(RewritePatternSet &patterns, const TypeConverter &converter,
 
 void populateScalarPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                             const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerCrash, LowerCrashMessage, LowerUnsafeRun, LowerClock>(
-      converter, patterns.getContext(), layouts, runtime);
-  addInline<
+  patterns.add<LowerCrash, LowerCrashMessage, LowerUnsafeRun>(converter, patterns.getContext(),
+                                                              layouts, runtime);
+  addByMeaning<
 #define GET_OP_LIST
 #include "idr/IR/IdrOps.cpp.inc"
       >(patterns, converter, layouts, runtime);

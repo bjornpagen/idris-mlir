@@ -29,7 +29,8 @@ neverEmpty = MkTraitDef "NeverEmpty" (says "the string it builds has a character
 
 ||| A builder of a new string by the runtime's function `stem`, its operands
 ||| as the function takes them.
-builder : {i : Nat} -> (m : Mnemonic) -> Vect i Operand -> RuntimeCall i 1 -> List (Trait i 1) -> Doc
+builder : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> RuntimeCall i 1 -> List (Trait i 1)
+       -> Doc
        -> {auto 0 named : So (distinct (groupNames ins [result "result" strValue] [] []))}
        -> Op i 1 0 0
 builder m ins call traits d = MkOp
@@ -166,7 +167,8 @@ strConcat = listBuilder "str.concat" (SatisfiesType strListP) (says "the concate
 ------------------------------------------------------------------------------
 
 ||| A runtime function of a string that gives no new string.
-reader : {i : Nat} -> (m : Mnemonic) -> Vect i Operand -> Result -> RuntimeCall i 1 -> List InterfaceUse -> Doc
+reader : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (res : Result) -> RuntimeCall i 1
+      -> List InterfaceUse -> Doc
       -> {auto 0 named : So (distinct (groupNames ins [res] [] []))}
       -> Op i 1 0 0
 reader m ins res call ifaces d = MkOp
