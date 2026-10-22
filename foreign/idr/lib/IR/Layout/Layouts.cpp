@@ -245,10 +245,11 @@ layout::CellLayout Layouts::cellsOf(DataType type, const FieldTypes &fields) con
 // type) is freed with no count read, since the claim already says it is
 // unshared: a field of the value's group or of an in_place family, where
 // its type at this application has cells or slots of its family, walked as
-// that type; a buffer, where its elements hold no reference, its storage
-// freed. A number's word, a frame stack and every field the claim does not
-// reach are dropped by their counts. A constructor the type is not laid
-// out over has no value to drop.
+// that type; a buffer's storage, freed alone where its elements hold no
+// reference and with each element released by its counts where they do. A
+// number's word, a frame stack and every field the claim does not reach
+// are dropped by their counts. A constructor the type is not laid out over
+// has no value to drop.
 layout::OwnCells Layouts::ownCellsOf(DataType type, const FieldTypes &fields) const {
   layout::OwnCells out;
   out.fields.resize(type.declaredCount());
@@ -271,18 +272,22 @@ layout::OwnCells Layouts::ownCellsOf(DataType type, const FieldTypes &fields) co
       }
       case FieldReach::HeldBuffer: {
         // The claim covers the buffer's storage and never its elements,
-        // which keep their counts. Where an element holds no reference
-        // (its layout has no object slot) the storage is all there is to
-        // free. Where one does, the release that drops the elements by
-        // their counts and frees the storage reading none of its own is
-        // the runtime's alone, with no entry the lowering can call, so the
-        // buffer is dropped by its count.
+        // which keep their counts. The storage dies with the value, so its
+        // own count says nothing the claim does not and is never read,
+        // whatever the elements are: dropping it by that count would pay
+        // at run time for a fact the claim states. Whether an element
+        // holds a reference is its layout's (an object slot, a boxed
+        // element's pointer among them), known here for every element
+        // alike, so the drop is chosen once and nothing is tested when the
+        // program runs. With no reference in an element, the storage is
+        // all there is to free; with one, each element is released by its
+        // counts as the storage is freed.
         Type held = cast<MemRefType>(unrestricted(field)).getElementType();
         if (llvm::any_of(element(held).slots,
                          [](const layout::Slot &slot) { return slot.counted(); }))
-          drops.push_back(layout::ByCount{});
+          drops.push_back(layout::ReleaseStorage{});
         else
-          drops.push_back(layout::OwnStorage{});
+          drops.push_back(layout::FreeStorage{});
         break;
       }
       case FieldReach::Other:

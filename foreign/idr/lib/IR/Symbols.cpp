@@ -73,16 +73,15 @@ std::optional<idr::Elimination> idr::eliminationAt(OpOperand &use) {
     e.use = linear;
     user = next(value = linear.getResult());
   }
-  auto eliminates = [&](Operation *op) {
-    if (auto match = dyn_cast_or_null<DataMatchOp>(op))
-      return match.getScrutinee() == value && isClosures(value);
-    if (auto field = dyn_cast_or_null<DataFieldOp>(op))
-      return field.getValue() == value && isClosures(value);
-    if (auto output = dyn_cast_or_null<IoPutStrOp>(op))
-      return output.getStr() == value;
-    return false;
-  };
-  if (!eliminates(user))
+  // The dispatch takes the value apart and does nothing else with it, which
+  // its op declares (EliminatesOperand: a match, a field read, a string's
+  // output), so no op is named here. What raising dispatches on is what a
+  // tail builds, a closure sum or a string; a match or a field read is
+  // declared over every family, and a value of any other family is never
+  // dispatched on (a field of one is a step, read above).
+  DataType data = dataTypeOf(value.getType());
+  if (!user || !user->hasTrait<EliminatesOperand>() || user->getOperand(0) != value ||
+      (data && !data.closures()))
     return std::nullopt;
   e.dispatch = user;
   return e;

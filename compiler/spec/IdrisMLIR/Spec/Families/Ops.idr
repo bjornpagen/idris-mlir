@@ -139,7 +139,8 @@ conOp = MkOp
 ||| is inferred from the value's (`fieldReadType`), so a read follows its
 ||| value's grade wherever a pass changes it. A field of a scoped value is
 ||| scoped, and `outers` states its lifetime: the value's, or one that
-||| lifetime encloses.
+||| lifetime encloses. Projecting the value is all it does with it, so a
+||| chain of single uses ends at it, as at a match.
 public export
 fieldOp : Op 2 1 1 0
 fieldOp = MkOp
@@ -149,7 +150,7 @@ fieldOp = MkOp
   , outs = [result "result" (UpstreamType AnyTypeC)]
   , attrs = [attr "index" (UpstreamAttr I64AttrC)]
   , regions = []
-  , traits = []
+  , traits = [OurTrait eliminatesOperand]
   , interfaces =
       [ InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]
       , Implements statesLifetime lifetimeMethods, Implements statesOuters [] ]
