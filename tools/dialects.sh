@@ -29,8 +29,9 @@
 #
 # With `typecheck` after either, the generator is make typecheck's
 # idris-mlir-tblgen, and MLIR's ODS is that of the patched tree its
-# bootstrap step reads (tools/bootstrap.sh typecheck), where stage 2 is
-# not built. The records are the same, so are the modules.
+# bootstrap step reads (tools/bootstrap.sh typecheck), with the ODS that
+# step's build generates, where stage 2 is not built. The records are the
+# same, so are the modules.
 #
 # The modules are committed, so that the Idris build needs no other step
 # and a change of upstream's ODS, or of what the specification admits,
@@ -54,23 +55,29 @@ usage() {
 }
 [ $# -eq 1 ] || [ $# -eq 2 ] || usage
 case $1 in generate | check) ;; *) usage ;; esac
-# The include directories of MLIR's ODS (mlir_include) and of LLVM's
-# (llvm_include): one installed tree in stage 2's prefix, the source
-# tree's two in the typecheck build's.
+# The include directories of MLIR's ODS (mlir_include), of LLVM's
+# (llvm_include) and of the ODS MLIR's build generates (generated_include:
+# Linalg's named ops, written from their YAML): one installed tree in
+# stage 2's prefix, which holds all three; in the typecheck build's, the
+# source tree's two and that build's own, since the source tree has no
+# generated file.
 case ${2-} in
   '')
     mlir_include=${llvm_bin%/bin}/include
     llvm_include=$mlir_include
+    generated_include=$mlir_include
     step='make build'
     ;;
   typecheck)
     typecheck_tree=$(stamp_field "$typecheck_toolchain" tree)
-    if [ -z "$typecheck_tree" ]; then
+    typecheck_build=$(stamp_field "$typecheck_toolchain" llvm_build)
+    if [ -z "$typecheck_tree" ] || [ -z "$typecheck_build" ]; then
       echo "tools/dialects.sh: no typecheck build; run: tools/bootstrap.sh typecheck" >&2
       exit 1
     fi
     mlir_include=$typecheck_tree/mlir/include
     llvm_include=$typecheck_tree/llvm/include
+    generated_include=$typecheck_build/tools/mlir/include
     idris_mlir_tblgen=$typecheck_tblgen
     step='make typecheck-tblgen'
     ;;
@@ -128,7 +135,7 @@ while read -r generator directory name module source; do
   "$idris_mlir_tblgen" "-gen-idris-$generator" "-idris-dialect=$name" \
     "-idris-module=IdrisMLIR.$directory.$module" \
     "-idris-syntax-module=IdrisMLIR.Syntax.$module" -I "$mlir_include" -I "$llvm_include" \
-    -I "$idr_include" "$source" -o "$out" || exit 1
+    -I "$generated_include" -I "$idr_include" "$source" -o "$out" || exit 1
   if cmp -s "$out" "$path"; then
     [ "$1" = check ] && echo "IdrisMLIR.$directory.$module: current"
   elif [ "$1" = generate ]; then
