@@ -3936,6 +3936,20 @@ C137.
   prove calls, writes the boundary grade, reading the promise off the
   type, and refuses a call it cannot prove with `unsupported
   (uniqueness)` (D71).
+- **C189** (2026-10-21; L10's findings; reads AGENTS.md's "a lifetime is
+  an optimization over counting, never a replacement"). Frames carry no
+  lifetime: every function a call cycle runs on its stack takes the
+  cycle's lifetimes as parameters, in one arrangement, and passes them
+  on at every tail (L10, 6905a004). No lifetime or loan is ever placed
+  in a shape frames cannot split: where a cycle's functions do not share
+  their lifetimes in one arrangement, where a loan would wrap a call on
+  its own cycle, or where a framed call sits inside a match inside a
+  per-level region, the decide step and borrows leave those values
+  counted, as they would with no lifetime at all. Copies per arrangement
+  of lifetimes are an optimization the decide step may make within its
+  budget; a spent budget leaves the values counted and refuses nothing.
+  Frames' internal error then marks only a broken invariant, never a
+  program it was handed by the passes before it.
 
 ## 4. Open: the owner's decisions, in order
 
