@@ -20,9 +20,9 @@
 |||   a part of the value, with each of its arguments given (`Beta`); a
 |||   function the writer was given that computes an implementation, applied
 |||   (a rank-2 dictionary), writes one of the implementations it gives: a
-|||   part of its value (`Member`), or one its definition's leaves give,
+|||   part of its value (`GivenPart`), or one its definition's leaves give,
 |||   which the flow found, applied to values its own positions received
-|||   (`MemberOf`), carried as a held dictionary is;
+|||   (`MemberOf`), each argument carried from where it was received;
 ||| - a family applied where only closed values no higher than k land is
 |||   read as k heads above its arguments (`raise k`), and writes beta, or a
 |||   member, of a value no higher than k (`Landed`, `LandedMember`);
@@ -30,8 +30,9 @@
 |||   an implementation the dictionary can be received (`AtField`): each
 |||   implementation's field is a position, which the field's template,
 |||   over the implementation's own parameters, writes as any site does;
-|||   and a dictionary held in a value is an implementation the flow found,
-|||   applied to values its own positions received (`AtHeld`).
+|||   and a member of a choice the running program makes writes a value the
+|||   choice's position received (`AtMember`): every place that makes a
+|||   member of it writes the member's form there, as any site does.
 ||| A family that computes from what it is given (`Computing`) writes
 ||| nothing any rule states: its arcs are unmeasured, so in an admitted
 ||| graph no position of the writer's reads one.
@@ -46,8 +47,8 @@
 ||| sits in what is written than in its value; for an applied family, an
 ||| arc as heavy as its arguments are high; for a field, an arc from that
 ||| field's position of every implementation its record can be, as heavy
-||| as the field sits deep; for a held dictionary, an arc from every
-||| position of every implementation it can be. K is at least each
+||| as the field sits deep; for a member of a choice, an arc from the
+||| choice's position, as heavy as the member sits deep. K is at least each
 ||| template's own height. If the potential is also feasible, every value
 ||| of V at p is within `bound`.
 |||
@@ -100,8 +101,8 @@ data Within : Template -> Template -> Type where
   InChild : Elem c cs -> Within c u -> Within (Head a cs) u
   InChoice : Elem c cs -> Within c u -> Within (Choice s cs) u
 
-||| A template that holds no marker of its writer: no variable, field, held
-||| dictionary or applied family. What every instance writes there is no
+||| A template that holds no marker of its writer: no variable, field,
+||| member of a choice or applied family. What every instance writes there is no
 ||| higher than it (`unmarkedWrites`).
 mutual
   public export
@@ -142,7 +143,7 @@ Uninhabited (Unmarked (Field k r)) where
   uninhabited UnmarkedFormal impossible
   uninhabited (UnmarkedChoice _) impossible
 
-Uninhabited (Unmarked (Held c p)) where
+Uninhabited (Unmarked (Member k)) where
   uninhabited (UnmarkedHead _) impossible
   uninhabited (UnmarkedOpaque _) impossible
   uninhabited UnmarkedLeaf impossible
@@ -196,15 +197,17 @@ record Site (n : Nat) where
 ||| What the theorem reads of the program besides its graph: the sites;
 ||| the position of each implementation's field k (none, or one), which a
 ||| site writes the field's template at, over the implementation's own
-||| parameters (a constructor's field k is its argument k); what each other
-||| position is a parameter of (a definition, or the application at a use)
-||| and which, nothing for a field's; and the positions of each
-||| definition's nodes.
+||| parameters (a constructor's field k is its argument k); the position
+||| of each choice (none, or one), which every place that makes a member of
+||| it writes the member at; what each other position is a parameter of (a
+||| definition, or the application at a use) and which, nothing for a
+||| field's or a choice's; and the positions of each definition's nodes.
 public export
 record Model (g : Graph) where
   constructor MkModel
   sites : List (Site g.size)
   fieldPositions : Address -> Nat -> List (Fin g.size)
+  choicePositions : ChoiceHead -> List (Fin g.size)
   positionOf : Fin g.size -> Maybe (Head, Nat)
   positionsOf : Address -> List (Fin g.size)
 
@@ -230,14 +233,14 @@ mutual
     Chosen : Elem x ls -> Writes m s x w -> Writes m s (Choice c ls) w
     Beta : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f body -> AllWrite m s ts ws ->
            Instantiates ws body w -> Writes m s (Applied i d ts) w
-    Member : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f w -> Writes m s (Applied i d ts) w
+    GivenPart : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f w -> Writes m s (Applied i d ts) w
     MemberOf : Elem j (s.roots (Applied i d ts)) -> Arguments m j 0 as ->
                Writes m s (Applied i d ts) (Head (Just j) as)
     Landed : LTE (height f) k -> Within f body -> AllWrite m s ts ws ->
              Instantiates ws body w -> Writes m s (raise k (Head Nothing ts)) w
     LandedMember : LTE (height f) k -> Within f w -> Writes m s (raise k (Head Nothing ts)) w
     AtField : Elem j (s.roots r) -> Elem p (m.fieldPositions j k) -> InV m p w -> Writes m s (Field k r) w
-    AtHeld : Elem j (s.roots (Held c p)) -> Arguments m j 0 as -> Writes m s (Held c p) (Head (Just j) as)
+    AtMember : Elem p (m.choicePositions k) -> InV m p w -> Writes m s (Member k) w
 
   public export
   data AllWrite : {g : Graph} -> (m : Model g) -> Site g.size -> List Template -> List Template -> Type where
@@ -284,10 +287,8 @@ mutual
     CField : ((j : Address) -> Elem j (s.roots r) -> (p : Fin g.size) -> Elem p (m.fieldPositions j k) ->
               Carries g p 0 e s.target) ->
              CoveredAt m s e (Field k r)
-    CHeld : ((j : Address) -> Elem j (s.roots (Held c p)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
-             Carries g p' 0 (S e) s.target) ->
-            LTE (S e) g.constant ->
-            CoveredAt m s e (Held c p)
+    CMember : ((p : Fin g.size) -> Elem p (m.choicePositions k) -> Carries g p 0 e s.target) ->
+              CoveredAt m s e (Member k)
 
   public export
   data AllCovered : {g : Graph} -> (m : Model g) -> Site g.size -> Nat -> List Template -> Type where
@@ -496,7 +497,7 @@ mutual
   unmarkedWrites u (Chosen el x) =
     transitive (unmarkedWrites (unmarkedAt el (unmarkedChoice u)) x) (tallestAbove el)
   unmarkedWrites u (Beta _ _ _ _ _ _) = absurd u
-  unmarkedWrites u (Member _ _ _ _) = absurd u
+  unmarkedWrites u (GivenPart _ _ _ _) = absurd u
   unmarkedWrites u (MemberOf _ _) = absurd u
   unmarkedWrites u (Landed {k} {ts} {ws} hf wb xs inst) =
     lteR (sym (raisedHeight k (Head Nothing ts))) $
@@ -507,7 +508,7 @@ mutual
   unmarkedWrites u (LandedMember {k} {ts} hf wm) =
     lteR (sym (raisedHeight k (Head Nothing ts))) (transitive (transitive (withinHeight wm) hf) (lteAddRight k))
   unmarkedWrites u (AtField _ _ _) = absurd u
-  unmarkedWrites u (AtHeld _ _) = absurd u
+  unmarkedWrites u (AtMember _ _) = absurd u
 
   0 unmarkedAll : AllUnmarked ts -> AllWrite m s ts ws -> LTE (tallest ws) (tallest ts)
   unmarkedAll [] [] = LTEZero
@@ -556,10 +557,6 @@ arcHolds (MkFeasible sat _) el = case indexAll el sat of MkSatisfies le => le
 0 capHolds : Feasible g pot -> (p : Fin g.size) -> index p g.caps = Just c -> LTE c (g.constant + index p pot)
 capHolds (MkFeasible _ caps) p cap = capAt caps p cap
 
--- K is no higher than K above a potential.
-0 belowBound : {k, q : Nat} -> LTE x k -> LTE x (k + q)
-belowBound le = transitive le (lteAddRight k)
-
 -- A value of V at p, with a part d deep of it: the part stands within the
 -- bound at p, uncapped, less d.
 0 partBelow : {g : Graph} -> {pot : Vect g.size Nat} -> {p : Fin g.size} ->
@@ -593,11 +590,9 @@ coveredApplied (CApplied c arcs) = (c, arcs)
                  Carries g p 0 e s.target
 coveredField (CField arcs) = arcs
 
-0 coveredHeld : CoveredAt m s e (Held c p) ->
-                ( (j : Address) -> Elem j (s.roots (Held c p)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
-                  Carries g p' 0 (S e) s.target
-                , LTE (S e) g.constant )
-coveredHeld (CHeld arcs one) = (arcs, one)
+0 coveredMember : CoveredAt m s e (Member k) ->
+                  (p : Fin g.size) -> Elem p (m.choicePositions k) -> Carries g p 0 e s.target
+coveredMember (CMember arcs) = arcs
 
 0 coveredRaise : {e : Nat} -> (k : Nat) -> CoveredAt m s e (raise k t) -> CoveredAt m s (k + e) t
 coveredRaise Z c = c
@@ -652,7 +647,7 @@ mutual
       (MkCarries arc wt, us) =>
         appliedWithin (carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc))
           (transitive (instHeight inst) (plusLteMonotone (withinHeight wb) (unmarkedAll us xs)))
-  writtenAt {e} ds fe (Member {p} {f} {ts} wa iv sub wm) cov hp = case coveredApplied cov of
+  writtenAt {e} ds fe (GivenPart {p} {f} {ts} wa iv sub wm) cov hp = case coveredApplied cov of
     (writes, _) => case writes p wa of
       (MkCarries arc wt, _) =>
         appliedWithin (carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc))
@@ -673,10 +668,10 @@ mutual
   -- part of it no deeper than itself.
   writtenAt ds fe (AtField {p} el inField iv) cov hp = case coveredField cov _ el p inField of
     MkCarries arc wt => carry (partBelow (bounded ds fe iv) Self) wt (arcHolds fe arc)
-  writtenAt {e} ds fe (AtHeld {as} el args) cov hp = case coveredHeld cov of
-    (arcs, one) =>
-      lteL (sym (plusSuccRightSucc (tallest as) e)) $
-        heldWithin ds fe args (arcs _ el) (belowBound one)
+  -- A member of a choice writes what the choice's position received,
+  -- carried from there as a field's value is.
+  writtenAt ds fe (AtMember {p} inChoice iv) cov hp = case coveredMember cov p inChoice of
+    MkCarries arc wt => carry (partBelow (bounded ds fe iv) Self) wt (arcHolds fe arc)
 
   -- A head's children, one deeper.
   0 allWrittenAt : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {s : Site g.size} -> {e : Nat} ->
@@ -688,8 +683,9 @@ mutual
     maxPlus (writtenAt ds fe x c (transitive (plusLteMonotoneRight (S e) _ _ (maximumLeftUpperBound _ _)) hp))
             (allWrittenAt ds fe xs cs (transitive (plusLteMonotoneRight (S e) _ _ (maximumRightUpperBound _ _)) hp))
 
-  -- A held dictionary's arguments, one deeper than it, each carried from
-  -- the position of the implementation that received it.
+  -- The arguments of an implementation an applied function gives, one
+  -- deeper than it, each carried from the position of the implementation
+  -- that received it.
   0 heldWithin : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {s : Site g.size} -> {e : Nat} ->
                  Describes m -> Feasible g pot -> Arguments m j q as ->
                  ((p' : Fin g.size) -> Elem p' (m.positionsOf j) -> Carries g p' 0 (S e) s.target) ->

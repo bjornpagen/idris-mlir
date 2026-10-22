@@ -8,8 +8,10 @@
 ||| closed term over markers for the writer's own static parameters. Its
 ||| template is a tree of heads (constructors, implementations, binders)
 ||| whose leaves are the markers (`Var`), the closed parts (`Leaf`,
-||| `Token`), a field of a dictionary that is no constructor yet (`Field`,
-||| `Held`), and what a type computes from a marker: a definition's case
+||| `Token`), a field of a dictionary that is no constructor yet (`Field`),
+||| a member of a choice the running program makes (`Member`, which a
+||| reader of a site puts in where its root says so: `asGiven`), and what a
+||| type computes from a marker: a definition's case
 ||| tree unfolded behind what it matched on (`Choice`), a recursion nothing
 ||| bounds (`Opaque`), or a family the writer was given, applied, which
 ||| every instance beta-reduces (`Applied`; `Computing` once the graph
@@ -128,19 +130,21 @@ definitionRead a = do
 
 ||| What a dictionary or a family is at its root: the definition there (an
 ||| implementation or an interface constructor a dictionary is, the type
-||| constructor a family's value applies); the implementations a dictionary
-||| the running program chooses can be (`Closed.fixing`), the ones its
-||| leaves give, each a member of the closed sum the translation makes of
-||| it, the callee called at each one where it is given; the
-||| implementations a function the program fixes gives at each use (a
-||| rank-2 dictionary, `\{y} => if y == 0 then loud else quiet`), which the
-||| callee is given as written and every use of matches on, so they split
+||| constructor a family's value applies); a dictionary the running program
+||| chooses (`Closed.fixing`): a runtime value, or a definition no
+||| compile-time reduction fixes, a member of its type's choice, which the
+||| translation dispatches on wherever it is given, so a reader of it puts
+||| in the choice (`asGiven`); the implementations a definition's leaves
+||| give, where the program fixes the dictionary but no site names which: a
+||| function that gives one at each use (a rank-2 dictionary, `\{y} => if
+||| y == 0 then loud else quiet`), or a definition that computes one by
+||| matching, applied, which the callee is given as written, so they split
 ||| nothing; the writer's own parameter there (a marker `Var i d`); or
 ||| neither (a family that is a lambda; a projection of what no constructor
 ||| builds, which the template's field says).
 public export
 data Root = Rooted Address
-          | Members (List1 Address)
+          | Chosen
           | Gives (List1 Address)
           | Parameter Nat Nat
           | Unrooted
@@ -184,13 +188,6 @@ export
 fieldAt : (i, d : Nat) -> (path : List Nat) -> ClosedTerm
 fieldAt i d [] = markerAt i d
 fieldAt i d (k :: ks) = probeTerm (ProbeFieldPath i d (k ::: ks))
-
-||| What a site binds the dictionary a data constructor holds at field p
-||| to, when a match takes it out of a value: the constructor's address, its
-||| own eight bytes, and the field.
-export
-heldAt : Address -> Nat -> ClosedTerm
-heldAt a p = probeTerm (ProbeHeld a p)
 
 ------------------------------------------------------------------------------
 -- A site's stand-ins
@@ -340,7 +337,6 @@ referenceOf ctx stands nt n = case probeOf n of
   Just (ProbeFormal j a) => FormalMarker j a
   Just (ProbeVar i d) => WalkMarker (Var i d)
   Just (ProbeFieldPath i d path) => WalkMarker (foldl (\t, k => Field k t) (Var i d) path)
-  Just (ProbeHeld a p) => WalkMarker (Held a p)
   Just (ProbePattern k) => case standInNumbered stands k of
     Just p => WalkMarker (Var p.param p.depth)
     -- Essential while a term's names are untyped: a stand-in the site
@@ -1073,7 +1069,7 @@ mutual
   beta (Var _ _) = Inert
   beta (Leaf _) = Inert
   beta (Token _) = Inert
-  beta (Held _ _) = Inert
+  beta (Member _) = Inert
   beta (Formal _ Z) = Inert
 
   betaAll : List Template -> Beta
@@ -1173,7 +1169,7 @@ mutual
   withClosedFamilies c t@(Var _ _) = t
   withClosedFamilies c t@(Leaf _) = t
   withClosedFamilies c t@(Token _) = t
-  withClosedFamilies c t@(Held _ _) = t
+  withClosedFamilies c t@(Member _) = t
   withClosedFamilies c t@(Formal _ _) = t
 
   allWithClosed : (landing : Nat -> Landing) -> List Template -> List Template
@@ -1194,23 +1190,18 @@ record Piece where
   built : Lazy (Front (Maybe (Name, List Piece)))
   root : Lazy (Front Root)
 
-||| The implementations a choice made at run time can be, as its root:
-||| none roots nothing.
-membersOf : List Address -> Root
-membersOf [] = Unrooted
-membersOf (m :: ms) = Members (m ::: ms)
-
-||| The implementations a function gives at its uses, as its root: none
-||| roots nothing.
+||| The implementations a definition's leaves give, as its root: none roots
+||| nothing.
 givesOf : List Address -> Root
 givesOf [] = Unrooted
 givesOf (m :: ms) = Gives (m ::: ms)
 
 ||| The implementations a root can be: none for the writer's own parameter,
-||| whose head is the node's, and none for what roots nothing.
+||| whose head is the node's, none for one the running program chooses,
+||| whose members its choice holds, and none for what roots nothing.
 addresses : Root -> List Address
 addresses (Rooted j) = [j]
-addresses (Members ms) = forget ms
+addresses Chosen = []
 addresses (Gives ms) = forget ms
 addresses (Parameter _ _) = []
 addresses Unrooted = []
@@ -1300,16 +1291,19 @@ mutual
   ||| implementation), is itself; a projection is its field's root when its
   ||| record is built with a constructor, and has none when it is not (its
   ||| record a marker, a runtime part, a definition that matches): what it
-  ||| is then, the template's field says (`Heads`). A field applied to
-  ||| further arguments is a function, and roots nothing.
+  ||| is then, the template's field says (`Heads`). A runtime value (a hole,
+  ||| a runtime part, a value closed as unknown) is one the running program
+  ||| chooses. A field applied to further arguments is a function, and roots
+  ||| nothing.
   rootOf : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
            ClosedTerm -> List Piece -> Front Root
   rootOf w acc (App _ f a) args = rootOf w acc f (pieceOf w acc a :: args)
   rootOf w acc (Ref _ nt n) args = do
     ctx <- frozenContext
     -- A stand-in is a part of a runtime value, never a dictionary: read as
-    -- a runtime part, it roots nothing, as its marker matched deeper would
-    -- root nothing of its own, so a root reads no site's stand-ins.
+    -- a runtime part, it names no implementation, as its marker matched
+    -- deeper would name none of its own, so a root reads no site's
+    -- stand-ins.
     case referenceOf (gamma (defsOf ctx)) [] nt n of
       WalkMarker (Var i d) => pure (Parameter i d)
       DataConstructor a => pure (maybe Unrooted Rooted a)
@@ -1322,9 +1316,9 @@ mutual
       -- A field of a dictionary, which the template's field says, and
       -- what is no dictionary.
       WalkMarker _ => pure Unrooted
-      HoleMarker _ => pure Unrooted
+      HoleMarker _ => pure Chosen
       FormalMarker _ _ => pure Unrooted
-      RuntimePart => pure Unrooted
+      RuntimePart => pure Chosen
       TypeConstructor _ => pure Unrooted
   -- A dictionary delayed, or forced, is that dictionary: a choice's leaves
   -- hold their alternatives lazily.
@@ -1349,6 +1343,7 @@ mutual
           | Just _ => pure Unrooted
         givesOf . addresses <$> definitionRoot w acc (Ref EmptyFC Func n) n a as
     _ => pure Unrooted
+  rootOf w acc (Erased _ Impossible) _ = pure Chosen
   rootOf w acc _ _ = pure Unrooted
 
   ||| A definition applied that is no projection, at its root, as the
@@ -1357,13 +1352,13 @@ mutual
   ||| fixes it or the running program chooses it, a closure: its callee is
   ||| given it as it is, and every use matches on it, so it splits nothing;
   ||| a definition given fewer arguments than it takes is walked over
-  ||| unknown values for the rest. Of an interface's type, it is itself, an
-  ||| implementation, where the program fixes it now (`Closed.fixing`);
-  ||| otherwise the running program chooses it, a choice whose members are
-  ||| the implementations its leaves give, and the translation's dispatch
-  ||| calls a callee at each member, so the graph splits the callee by each,
-  ||| and each arm has its own bound at its own node. A choice none of whose
-  ||| leaves is rooted splits nothing.
+  ||| unknown values for the rest. Of an interface's type, where the program
+  ||| fixes it now (`Closed.fixing`), it is itself where its one right-hand
+  ||| side builds it, an implementation, whose fields a match reads; one
+  ||| that computes it, by matching or by applying another, is one of the
+  ||| implementations its leaves give, which a match reads through each.
+  ||| Otherwise the running program chooses it, a member of its type's
+  ||| choice, which every dispatch on it reads whole.
   definitionRoot : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                    (head : ClosedTerm) -> Name -> Address -> List ClosedTerm -> Front Root
   definitionRoot w acc head n a args = do
@@ -1376,8 +1371,15 @@ mutual
       -- each use; a value of an interface's type is one.
       Bind _ _ (Pi {}) _ => givesOf <$> leafRoots w acc n (args ++ replicate (lacking def) unknownPart)
       _ => case !(fixing ty (applyTo head args)) of
-        FixedNow => pure (Rooted a)
-        ChosenAtRunTime _ => membersOf <$> leafRoots w acc n args
+        ChosenAtRunTime _ => pure Chosen
+        FixedNow => case definition def of
+          PMDef _ pargs body => do
+            Just rhs <- leafOfBody {args = pargs} body
+              | Nothing => givesOf <$> leafRoots w acc n args
+            case getFn rhs of
+              Ref _ (DataCon _ _) _ => pure (Rooted a)
+              _ => givesOf <$> leafRoots w acc n args
+          _ => pure (Rooted a)
     where
       lacking : GlobalDef -> Nat
       lacking def = case definition def of
@@ -1474,6 +1476,31 @@ rooted stands AFamily t = typeReading stands t
 rooted stands AForm t = (, Unrooted) <$> templateOf stands AForm t
 rooted stands AShape t = (, Unrooted) <$> templateOf stands AShape t
 rooted stands ADictionary t = (,) <$> templateOf stands ADictionary t <*> dictionaryRoot t
+
+||| The head of a choice's type (`ChoiceHead`), its normal form: the arrow
+||| of a function type, the type constructor any other applies. Nothing for
+||| a type headed by neither, a variable or a stuck definition, which only
+||| an instance can show to be a choice's.
+export
+choiceHeadOf : TT vs -> Front (Maybe ChoiceHead)
+choiceHeadOf (Bind _ _ (Pi {}) _) = pure (Just ArrowHead)
+choiceHeadOf ty = case getFn ty of
+  Ref _ (TyCon _) n => do
+    ctx <- frozenContext
+    pure (InterfaceHead <$> definitionAddress (gamma (defsOf ctx)) n)
+  _ => pure Nothing
+
+||| A dictionary read as a callee is given it (`rooted`), of a type whose
+||| choice has head `k`: where its root says the running program chooses
+||| it, a member of that choice, which every dispatch the translation makes
+||| on it reads whole, or, where an instance fixes it after all, what is
+||| written; any other as it is written. Where the type shows no head, the
+||| member has no choice to be read from: that is a choice only an instance
+||| shows, which the run-time check of each request still catches.
+export
+asGiven : Maybe ChoiceHead -> (Template, Root) -> Template
+asGiven (Just k) (t, Chosen) = Choice (Leaf 1) [t, Member k]
+asGiven _ (t, _) = t
 
 ||| A request's argument read as its key (`rooted`): its height and its
 ||| root. A request's argument is an instance's value, which holds no

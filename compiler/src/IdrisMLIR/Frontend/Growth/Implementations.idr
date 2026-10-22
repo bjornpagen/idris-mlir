@@ -176,23 +176,31 @@ methodField owner field = do
     value (Own _) = Erased EmptyFC Placeholder
     value (Fixed t) = t
 
-||| One field, by the binding of the binder that holds it: a static argument
-||| as its key holds it, with the root of the dictionary it is; a method's
-||| field by the function it applies.
+||| One field, by the binding of the binder that holds it, of type `ty`: a
+||| static argument as its key holds it, with the root of the dictionary it
+||| is, and a dictionary as a field read is given it: one the running
+||| program chooses, a field computed at run time, is a member of the
+||| choice of its type (`asGiven`); a method's field by the function it
+||| applies.
 fieldOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          (owner : String) -> Binding -> ClosedTerm -> Front Field
-fieldOf owner (Reads k) a = do
+          (owner : String) -> Binding -> (ty : TT vs) -> ClosedTerm -> Front Field
+fieldOf owner (Reads ADictionary) ty a = do
+  t <- templateOf [] ADictionary a
+  r <- dictionaryRoot a
+  head <- choiceHeadOf ty
+  pure (Plain (asGiven head (t, r)) r)
+fieldOf owner (Reads k) ty a = do
   t <- templateOf [] k a
   r <- dictionaryRoot a
   pure (Plain t r)
-fieldOf owner Wrapped a = methodField owner a
+fieldOf owner Wrapped ty a = methodField owner a
 
 ||| The fields of a constructor applied to its arguments, each argument
 ||| read by the binder of the constructor's type that binds it.
 fieldsAlong : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (owner : String) -> TT vs -> List ClosedTerm -> Front (List Field)
 fieldsAlong owner (Bind _ _ (Pi _ rig _ a) sc) (x :: xs) = do
-  field <- fieldOf owner !(bindingOf rig a) x
+  field <- fieldOf owner !(bindingOf rig a) a x
   (field ::) <$> fieldsAlong owner sc xs
 fieldsAlong _ _ _ = pure []
 

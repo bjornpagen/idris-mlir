@@ -19,9 +19,10 @@
 ||| cannot root here is the writer's own dictionary parameter, whose root is
 ||| whatever its caller passed. In the split, that is the head of the
 ||| writer's node: so the merge above cannot be represented. One fact still
-||| needs the whole program, what a dictionary held in a field or matched
-||| out of a value can be, and the flow answers it: the least sets of
-||| implementations reaching each parameter and field, over the unsplit
+||| needs the whole program, what a dictionary held in a field, chosen when
+||| the program runs, or given at a use can be, and the flow answers it:
+||| the least sets of implementations reaching each parameter, field,
+||| choice and position of the application at a use, over the unsplit
 ||| definitions.
 |||
 ||| The flow and the split read a dictionary the same way, through one
@@ -77,14 +78,17 @@ import Decidable.Equality
 ------------------------------------------------------------------------------
 
 -- Where a dictionary can flow: parameter j of a definition or constructor
--- (kind 0), or field k of an implementation or constructor (kind 1). The
--- index is written as an address too, so that a slot is a triple of finite
--- types and every pair of the solution lies in one finite type, whose
--- listing the fork supplies. There is no numbering pass, so no lookup of a
--- slot can miss. An index is a parameter or field count's, far below 2^63,
--- so distinct indices are distinct addresses.
+-- (kind 0), field k of an implementation or constructor (kind 1), the
+-- choice of a head (kind 2: an interface's by its address, the arrow's at
+-- no address and index 1), or position j of the application at a use
+-- (kind 3, which no definition is, at no address). The index is written
+-- as an address too, so that a slot is a triple of finite types and every
+-- pair of the solution lies in one finite type, whose listing the fork
+-- supplies. There is no numbering pass, so no lookup of a slot can miss.
+-- An index is a parameter or field count's, far below 2^63, so distinct
+-- indices are distinct addresses.
 Slot : Type
-Slot = (Fin 2, Address, Address)
+Slot = (Fin 4, Address, Address)
 
 -- One fact of the solution: this implementation reaches this slot.
 Entry : Type
@@ -96,6 +100,21 @@ parameterSlot a j = (0, a, bytes 8 (cast j))
 fieldSlot : Address -> Nat -> Slot
 fieldSlot a k = (1, a, bytes 8 (cast k))
 
+choiceSlot : ChoiceHead -> Slot
+choiceSlot (InterfaceHead a) = (2, a, bytes 8 0)
+choiceSlot ArrowHead = (2, bytes 8 0, bytes 8 1)
+
+applicationSlot : Nat -> Slot
+applicationSlot j = (3, bytes 8 0, bytes 8 (cast j))
+
+-- Where a writer whose parameters a site reads as `ps` takes parameter i
+-- from: its own slot, or, in the walk of a member's application, the
+-- application's position the use gives there.
+ownSlot : Address -> Parameters -> Nat -> Slot
+ownSlot w ps i = case parameterOf ps i of
+  WritersOwn j => parameterSlot w j
+  UsesPosition j => applicationSlot j
+
 -- Novelty compares an address by its bytes' numbers (`decideAddress`), a
 -- step per byte. Equality decided by matching `Fin` constructors walks
 -- each byte's whole value.
@@ -104,11 +123,8 @@ sameBytes a b = case decideAddress a b of
   Proof.Growth.Yes Refl => Yes Refl
   Proof.Growth.No ne => No (\eq => void (ne eq))
 
-sameKind : (i, j : Fin 2) -> Dec (i = j)
-sameKind FZ FZ = Yes Refl
-sameKind (FS FZ) (FS FZ) = Yes Refl
-sameKind FZ (FS _) = No absurd
-sameKind (FS _) FZ = No absurd
+sameKind : (i, j : Fin 4) -> Dec (i = j)
+sameKind = decEq
 
 -- Any order decides. The definition comes first: the self compile's flow
 -- holds 1,723 entries over 661 slots (measured on the prototype), so two
@@ -184,7 +200,7 @@ mutual
   byTemplate v own (Var _ (S _)) = empty
   byTemplate v own (Field k s) =
     foldl (\acc, j => union acc (at v (fieldSlot j k))) empty (Prelude.toList (byTemplate v own s))
-  byTemplate v own (Held c p) = at v (parameterSlot c p)
+  byTemplate v own (Member k) = at v (choiceSlot k)
   byTemplate v own (Choice _ leaves) = byLeaves v own leaves
   byTemplate v own (Head _ _) = empty
   byTemplate v own (Leaf _) = empty
@@ -208,7 +224,9 @@ mutual
 -- its own, and the template decides.
 byRoot : View -> Own -> Root -> Template -> SortedSet Address
 byRoot v own (Rooted j) _ = singleton j
-byRoot v own (Members js) _ = fromList (forget js)
+-- What the running program chooses, its template says: its choice, which
+-- the reader put in (`asGiven`).
+byRoot v own Chosen t = byTemplate v own t
 byRoot v own (Gives js) _ = fromList (forget js)
 byRoot v own (Parameter i Z) _ = own.ofMarker i
 byRoot v own (Parameter _ (S _)) t = byTemplate v own t
@@ -218,7 +236,7 @@ byRoot v own Unrooted t = byTemplate v own t
 -- own family there. A family no type constructor heads splits nothing.
 byFamily : Own -> Root -> SortedSet Address
 byFamily own (Rooted j) = singleton j
-byFamily own (Members _) = empty
+byFamily own Chosen = empty
 byFamily own (Gives _) = empty
 byFamily own (Parameter i Z) = own.ofMarker i
 byFamily own (Parameter _ (S _)) = empty
@@ -290,16 +308,21 @@ placedBy own xs = xs >>= \x => map (MkPlaced x) (placedAt own x)
 -- The flow
 ------------------------------------------------------------------------------
 
--- What the flow asks of each site and field, read once. `Into` says the
--- slot holds every root of this dictionary, written in this definition:
--- an implementation's field, at the field. `Passes` says the callee's
--- parameter holds what this argument can be, written in this definition:
--- a call's dictionary or family. `Through` says the function of method k
--- of this dictionary, written in this definition, holds what these
--- arguments give, at the parameters the method's field places them at.
-data Equation = Into Slot Address Root Template
-              | Passes Slot Address Splitting Argument
-              | Through Address Root Template Nat (List (Splitting, Argument))
+-- What the flow asks of each site and field, read once, each with the
+-- writer whose text holds it and how it reads its parameters. `Into` says
+-- the slot holds every root of this dictionary: an implementation's field,
+-- at the field. `Keys` says a choice's slot holds the implementation a
+-- member a site makes of it is, where the member names one, as the
+-- instance of a callee a dispatch calls at the member is keyed. `Passes`
+-- says the callee's parameter holds what this argument can be: a call's
+-- dictionary or family, and a use's, at the application's position.
+-- `Through` says the function of method k of this dictionary holds what
+-- these arguments give, at the parameters the method's field places them
+-- at.
+data Equation = Into Slot Address Parameters Root Template
+              | Keys Slot Address Parameters Argument
+              | Passes Slot Address Parameters Splitting Argument
+              | Through Address Parameters Root Template Nat (List (Splitting, Argument))
 
 -- Writing `J u` reaches J's parameters through the call of J, and J's
 -- method functions' leading parameters through J's own calls of them,
@@ -307,21 +330,24 @@ data Equation = Into Slot Address Root Template
 equations : SortedMap Address Fields -> List Site -> List Equation
 equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
   where
-    argument : Address -> Address -> (Splitting, Argument) -> Equation
-    argument t w (how, x) = Passes (parameterSlot t x.position) w how x
+    passes : (Nat -> Slot) -> Site -> (Splitting, Argument) -> Equation
+    passes slot s (how, x) = Passes (slot x.position) s.writer s.params how x
 
     fromSite : Site -> List Equation
     fromSite s = case s.reach of
-      Calls t => map (argument t s.writer) (splitters s)
+      Calls t => map (passes (parameterSlot t) s) (splitters s)
       Builds _ => []
-      Dispatches t r k => [Through s.writer r t k (splitters s)]
-      -- The application keys no definition's slot: what it applies is its
-      -- own.
-      Applies => []
+      Dispatches t r k => [Through s.writer s.params r t k (splitters s)]
+      Applies => map (passes applicationSlot s) (splitters s)
+      Makes k@(InterfaceHead _) => map (Keys (choiceSlot k) s.writer s.params) s.arguments
+      -- A polymorphic function is given as it is, keying nothing, and a
+      -- use of it applies each member at the use's own types.
+      Makes ArrowHead => []
 
     numbered : Address -> Nat -> List Field -> List Equation
     numbered j k [] = []
-    numbered j k (field :: rest) = let (t, r) = fieldRead field in Into (fieldSlot j k) j r t :: numbered j (S k) rest
+    numbered j k (field :: rest) =
+      let (t, r) = fieldRead field in Into (fieldSlot j k) j OwnOnly r t :: numbered j (S k) rest
 
     fromFields : (Address, Fields) -> List Equation
     fromFields (j, fields) = numbered j 0 fields
@@ -333,23 +359,24 @@ equations fs ss = (ss >>= fromSite) ++ (Data.SortedMap.toList fs >>= fromFields)
 candidates : SortedMap Address Fields -> View -> List Equation -> SortedSet Entry
 candidates fs v eqs = fromList (eqs >>= yield)
   where
-    own : Address -> Own
-    own w = markersOnly (\i => at v (parameterSlot w i))
+    own : Address -> Parameters -> Own
+    own w ps = markersOnly (\i => at v (ownSlot w ps i))
 
     into : Slot -> SortedSet Address -> List Entry
     into s js = map (s,) (Prelude.toList js)
 
     yield : Equation -> List Entry
-    yield (Into s w r t) = into s (byRoot v (own w) r t)
-    yield (Passes s w how x) = into s (byArgument v (own w) how x)
-    yield (Through w r t k xs) = do
-      j <- Prelude.toList (byRoot v (own w) r t)
+    yield (Into s w ps r t) = into s (byRoot v (own w ps) r t)
+    yield (Keys s w ps x) = into s (keyedBy v (own w ps) ByImplementation x)
+    yield (Passes s w ps how x) = into s (byArgument v (own w ps) how x)
+    yield (Through w ps r t k xs) = do
+      j <- Prelude.toList (byRoot v (own w ps) r t)
       case methodAt fs j k of
         Nothing => []
         Just (m, own', _) => do
           (how, x) <- xs
           p <- placedAt own' x
-          into (parameterSlot m p) (byArgument v (own w) how x)
+          into (parameterSlot m p) (byArgument v (own w ps) how x)
 
 -- Whether a round grew the seen list: if it did, the room left in the
 -- listing is below the round's start, and otherwise it is the start.
@@ -397,7 +424,7 @@ round complete fs eqs seen nd (Access rec) =
     MkDrained seen' _ (Kept _) => seen'
 
 -- The listing is a variable here: written out, the checker would reduce
--- it, and it holds 2 * 256^24 entries.
+-- it, and it holds 4 * 256^24 entries.
 solve : {0 u : List Entry} -> (0 complete : (x : Entry) -> Elem x u) ->
         SortedMap Address Fields -> List Equation -> List Entry
 solve complete fs eqs = round complete fs eqs [] [] (wellFounded _)
@@ -427,34 +454,42 @@ reaching fl a j = Prelude.toList (at fl.solution (parameterSlot a j))
 -- The split
 ------------------------------------------------------------------------------
 
--- What keys a callee given the writer's own dictionary or family
--- parameter i: its node's head there. A parameter with no head held no
--- rooted dictionary, and no family a type constructor heads, in any
--- request of the node, and is passed on as it was given, so it keys
--- nothing: the flow's set would invent heads no request has.
-headAt : Node -> Own
-headAt w = markersOnly (\i => maybe empty singleton (lookup i w.heads))
+-- What keys a callee given the writer's parameter i: its node's head
+-- there. A parameter with no head held no rooted dictionary, and no family
+-- a type constructor heads, in any request of the node, and is passed on
+-- as it was given, so it keys nothing: the flow's set would invent heads
+-- no request has. A position of the application that the walk of a
+-- member's application reads is no node's, and splits nothing: every
+-- instance of the application at a use is keyed by what that use gives
+-- there, so it keys a callee by everything the flow found reaches it.
+headAt : Flow -> Node -> Parameters -> Own
+headAt fl w ps = markersOnly (\i => case parameterOf ps i of
+  WritersOwn j => maybe empty singleton (lookup j w.heads)
+  UsesPosition j => at fl.solution (applicationSlot j))
 
--- What a use of the writer's own dictionary parameter i can be: its node's
+-- What a use of the writer's dictionary parameter i can be: its node's
 -- head there. One with no head holds a function that gives an
 -- implementation at each use (a rank-2 dictionary), whose members are the
 -- implementations the flow found reach the parameter: every use of it
 -- matches on it and runs the member's method, so a dispatch through it
--- reaches each of them.
-dictionaryAt : Flow -> Node -> Nat -> SortedSet Address
-dictionaryAt fl w i = maybe (at fl.solution (parameterSlot w.definition i)) singleton (lookup i w.heads)
+-- reaches each of them. A position of the application is what the flow
+-- found reaches it.
+dictionaryAt : Flow -> Node -> Parameters -> Nat -> SortedSet Address
+dictionaryAt fl w ps i = case parameterOf ps i of
+  WritersOwn j => maybe (at fl.solution (parameterSlot w.definition j)) singleton (lookup j w.heads)
+  UsesPosition j => at fl.solution (applicationSlot j)
 
 ||| The implementations a template alone can be, written in the writer's
-||| node, where Core gave no root, the writer's families by index: a
-||| dictionary parameter, and one applied, by what it can be
-||| (`dictionaryAt`); a family applied, nothing. Sorted and without
-||| duplicates.
+||| node as `ps` reads its parameters, where Core gave no root, the
+||| writer's families by index: a dictionary parameter, and one applied, by
+||| what it can be (`dictionaryAt`); a family applied, nothing. Sorted and
+||| without duplicates.
 export
-roots : Flow -> (families : List Nat) -> (writer : Node) -> Template -> List Address
-roots fl families w t = Prelude.toList (byTemplate fl.solution (MkOwn (dictionaryAt fl w) dictionaryApplied) t)
+roots : Flow -> (families : List Nat) -> (writer : Node) -> Parameters -> Template -> List Address
+roots fl families w ps t = Prelude.toList (byTemplate fl.solution (MkOwn (dictionaryAt fl w ps) dictionaryApplied) t)
   where
     dictionaryApplied : Nat -> SortedSet Address
-    dictionaryApplied i = if elem i families then empty else dictionaryAt fl w i
+    dictionaryApplied i = if elem i families then empty else dictionaryAt fl w ps i
 
 -- A callee's dictionary parameters with roots, by index, so ascending.
 Choices : Type
@@ -498,25 +533,38 @@ Ord Holder where
   compare OfApplication (OfNode _) = LT
   compare (OfNode _) OfApplication = GT
 
-||| A static position of the graph: a parameter of what holds it, or field
-||| k of an implementation, which the field's template over the
+||| A static position of the graph: a parameter of what holds it; field k
+||| of an implementation, which the field's template over the
 ||| implementation's parameters writes, and a field read takes its value
-||| from.
+||| from; or a choice, by its head, which every place that makes a member
+||| of it writes, and every dispatch on it reads.
 public export
-data Spot = OfParameter Holder Nat | OfField Address Nat
+data Spot = OfParameter Holder Nat | OfField Address Nat | OfChoice ChoiceHead
 
 export
 Eq Spot where
   OfParameter h i == OfParameter h' i' = h == h' && i == i'
   OfField j k == OfField j' k' = j == j' && k == k'
+  OfChoice k == OfChoice k' = k == k'
   _ == _ = False
 
 export
 Ord Spot where
   compare (OfParameter h i) (OfParameter h' i') = compare (h, i) (h', i')
-  compare (OfParameter _ _) (OfField _ _) = LT
-  compare (OfField _ _) (OfParameter _ _) = GT
+  compare (OfParameter _ _) _ = LT
+  compare _ (OfParameter _ _) = GT
   compare (OfField j k) (OfField j' k') = compare (j, k) (j', k')
+  compare (OfField _ _) (OfChoice _) = LT
+  compare (OfChoice _) (OfField _ _) = GT
+  compare (OfChoice k) (OfChoice k') = compare k k'
+
+||| Where parameter i of a writer is, at its node, as `ps` reads it: the
+||| node's own, or a position of the application.
+export
+spotAt : Node -> Parameters -> Nat -> Spot
+spotAt w ps i = case parameterOf ps i of
+  WritersOwn j => OfParameter (OfNode w) j
+  UsesPosition j => OfParameter OfApplication j
 
 ||| How a site reached its callee: called or built, its target the callee;
 ||| or dispatched through implementation J's method field k, whose leading
@@ -526,25 +574,38 @@ data Via : Type where
   Called : Via
   Dispatched : (j : Address) -> (k : Nat) -> (leading : List (Nat, Nat)) -> Via
 
-||| What a site reaches from a node: a callee node, or the application at
-||| a use, with each of the site's arguments placed at the parameter it
-||| lands at, and how it got there.
+||| What a site reaches from a node: a callee node, which the walk enters;
+||| the application at a use; or a choice it makes a member of.
+public export
+data Callee = Entering Node | Applying | Making ChoiceHead
+
+||| Where an argument placed at a callee's parameter i lands: that
+||| parameter of the node or of the application; at a choice, its one
+||| position, where every member lands whatever it is placed at.
+export
+landsAt : Callee -> Nat -> Spot
+landsAt (Entering n) i = OfParameter (OfNode n) i
+landsAt Applying i = OfParameter OfApplication i
+landsAt (Making k) _ = OfChoice k
+
+||| What a site reaches from a node, with each of the site's arguments
+||| placed at the parameter it lands at, and how it got there.
 public export
 record Reached where
   constructor MkReached
-  callee : Holder
+  callee : Callee
   placed : List Placed
   via : Via
 
-||| Each callee node a site reaches from the writer's node. A callee is split
-||| by the roots of its dictionary and family arguments, one node for each
+||| Each callee a site reaches from the writer's node. A callee is split by
+||| the roots of its dictionary and family arguments, one node for each
 ||| combination.
 export
 reaches : Flow -> (writer : Node) -> Site -> List Reached
 reaches fl w s = from s.reach
   where
     rootsAt : Root -> Template -> SortedSet Address
-    rootsAt = byRoot fl.solution (markersOnly (dictionaryAt fl w))
+    rootsAt = byRoot fl.solution (markersOnly (dictionaryAt fl w s.params))
 
     -- The dictionaries and families among the placed arguments, at their
     -- parameters.
@@ -553,7 +614,7 @@ reaches fl w s = from s.reach
       where
         add : Choices -> Placed -> Choices
         add acc (MkPlaced x p) = case splitting x.kind of
-          Just how => choice p (keyedBy fl.solution (headAt w) how x) acc
+          Just how => choice p (keyedBy fl.solution (headAt fl w s.params) how x) acc
           Nothing => acc
 
     -- J's method function k. The parameters J's land at take what every
@@ -566,13 +627,14 @@ reaches fl w s = from s.reach
       Just (m, own, leading) =>
         let fromJ = foldl (\acc, (_, q) => choice q (at fl.solution (parameterSlot m q)) acc) (the Choices empty) leading
             placed = placedBy own s.arguments in
-        map (\hs => MkReached (OfNode (MkNode m hs)) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
+        map (\hs => MkReached (Entering (MkNode m hs)) placed (Dispatched j k leading)) (combinations (passed placed fromJ))
 
     from : Reach -> List Reached
     from (Calls t) = let placed = atOwnPositions s.arguments in
-                     map (\hs => MkReached (OfNode (MkNode t hs)) placed Called) (combinations (passed placed empty))
-    from (Builds t) = [MkReached (OfNode (MkNode t [])) (atOwnPositions s.arguments) Called]
+                     map (\hs => MkReached (Entering (MkNode t hs)) placed Called) (combinations (passed placed empty))
+    from (Builds t) = [MkReached (Entering (MkNode t [])) (atOwnPositions s.arguments) Called]
     from (Dispatches t r k) = Prelude.toList (rootsAt r t) >>= through k
     -- Every use's application is one, split by nothing: what it applies is
     -- bounded at its positions alone.
-    from Applies = [MkReached OfApplication (atOwnPositions s.arguments) Called]
+    from Applies = [MkReached Applying (atOwnPositions s.arguments) Called]
+    from (Makes k) = [MkReached (Making k) (atOwnPositions s.arguments) Called]

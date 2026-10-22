@@ -10,12 +10,13 @@
 ||| position its writer reads a parameter at, as heavy as the most that
 ||| parameter's occurrences carry (`weights`); a field of a dictionary an
 ||| arc from that field's position of every implementation its record can
-||| be (`fieldRoots`); and a held dictionary, or an applied family that
-||| gives one, an arc from every position of every implementation it can be
-||| (`heldRoots`). A part under a computation draws Stuck arcs, which no
-||| feasible potential satisfies (`measuredOnly`), so it needs no other
-||| covering. The order of the arcs is the order the check reads them in:
-||| each site's own, then each site's from held dictionaries and fields.
+||| be (`fieldRoots`); a member of a choice an arc from the choice's
+||| position; and an applied family that gives an implementation, an arc
+||| from every position of every implementation it can be (`heldRoots`). A
+||| part under a computation draws Stuck arcs, which no feasible potential
+||| satisfies (`measuredOnly`), so it needs no other covering. The order of
+||| the arcs is the order the check reads them in: each site's own, then
+||| each site's from what applied families give, fields and choices.
 module IdrisMLIR.Proof.Describes
 
 import IdrisMLIR.Proof.Bound
@@ -33,9 +34,9 @@ import Data.So
 -- Where a part is read
 ------------------------------------------------------------------------------
 
-||| Where a part of a site's template is read: what an arc from a held
-||| dictionary's implementation into the site weighs there, and how many
-||| levels down the part is.
+||| Where a part of a site's template is read: what an arc from an
+||| implementation an applied family gives into the site weighs there, and
+||| how many levels down the part is.
 public export
 record Depth where
   constructor MkDepth
@@ -58,32 +59,29 @@ public export
 underComputation : Depth -> Depth
 underComputation at = MkDepth Stuck (S at.depth)
 
-||| How high K stands for a part h high to stay within it here.
-public export
-above : Depth -> Nat -> Nat
-above at h = h + at.depth
-
-||| What an arc from a field's position into the site weighs where the field
-||| is read: the field's value sits where the field does, a level above the
-||| arguments of a held dictionary read there.
+||| What an arc from a field's position, or a choice's, into the site
+||| weighs where the field or the member is read: the value sits where it
+||| is read, a level above the arguments of an implementation an applied
+||| family gives there.
 public export
 fieldWeight : Depth -> Weight
 fieldWeight at = plus at.arcWeight (Finite 0 1)
 
 ------------------------------------------------------------------------------
--- What a template's fields and held dictionaries carry
+-- What a template's fields, members and applied families carry
 ------------------------------------------------------------------------------
 
-||| What a template's fields and held dictionaries carry: each field's
-||| position, an implementation's field k, with the weight of its arc; each
-||| implementation a held dictionary or an applied family can be, with the
-||| weight of the arcs from its positions; and what K must stand above.
+||| What a template's fields, choices and applied families carry: each
+||| field's position, an implementation's field k, with the weight of its
+||| arc; each implementation an applied family can give, with the weight of
+||| the arcs from its positions; each choice a member is read from, with the
+||| weight of the arc from its position.
 public export
 record Carried where
   constructor MkCarried
   fields : List ((Address, Nat), Weight)
   held : List (Address, Weight)
-  needs : List Nat
+  choices : List (ChoiceHead, Weight)
 
 public export
 noneCarried : Carried
@@ -91,7 +89,7 @@ noneCarried = MkCarried [] [] []
 
 public export
 alsoCarried : Carried -> Carried -> Carried
-alsoCarried x y = MkCarried (x.fields ++ y.fields) (x.held ++ y.held) (x.needs ++ y.needs)
+alsoCarried x y = MkCarried (x.fields ++ y.fields) (x.held ++ y.held) (x.choices ++ y.choices)
 
 ||| Each implementation a template can be, with the weight of the arcs from
 ||| its positions here.
@@ -106,14 +104,15 @@ fieldRoots : (Template -> List Address) -> Depth -> Nat -> Template -> List ((Ad
 fieldRoots rts at k rec = map (\j => ((j, k), fieldWeight at)) (rts rec)
 
 mutual
-  ||| Every field's and held dictionary's value in a template read here: a
-  ||| held dictionary is a head over its implementation's arguments, a
-  ||| level down, and so is what an applied family gives; a field is what
-  ||| its position holds, whatever its record writes.
+  ||| Every field's, member's and applied family's value in a template read
+  ||| here: what an applied family gives is a head over its
+  ||| implementation's arguments, a level down; a field is what its
+  ||| position holds, whatever its record writes; a member is what its
+  ||| choice's position holds.
   public export
   carriedAt : (Template -> List Address) -> Depth -> Template -> Carried
   carriedAt rts at (Field k rec) = MkCarried (fieldRoots rts at k rec) [] []
-  carriedAt rts at t@(Held _ _) = MkCarried [] (heldRoots rts at t) [above at 1]
+  carriedAt rts at (Member k) = MkCarried [] [] [(k, fieldWeight at)]
   carriedAt rts at t@(Applied _ _ ts) =
     alsoCarried (MkCarried [] (heldRoots rts at t) []) (carriedAll rts (underComputation at) ts)
   carriedAt rts at (Head _ ts) = carriedAll rts (underHead at) ts
@@ -167,24 +166,26 @@ fieldArcs : Fin n -> (Address -> Nat -> List (Fin n)) -> List ((Address, Nat), W
 fieldArcs t fps [] = []
 fieldArcs t fps (((j, k), w) :: rest) = arcsInto t (labelOf w) (fps j k) ++ fieldArcs t fps rest
 
+||| The arcs of choices with their weights, each from its position.
+public export
+choiceArcs : Fin n -> (ChoiceHead -> List (Fin n)) -> List (ChoiceHead, Weight) -> List (Arc n)
+choiceArcs t cps [] = []
+choiceArcs t cps ((k, w) :: rest) = arcsInto t (labelOf w) (cps k) ++ choiceArcs t cps rest
+
 ||| A site's own arcs, from its parameters.
 public export
 ownArcs : Site n -> List (Arc n)
 ownArcs s = varArcs s.target s.writers (weights s.template)
 
-||| A site's arcs from what its held dictionaries can be, then from its
-||| fields' positions.
+||| A site's arcs from what its applied families can give, then from its
+||| fields' positions, then from its choices'.
 public export
-projectedArcs : (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> Site n -> List (Arc n)
-projectedArcs ps fps s =
+projectedArcs : (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> (ChoiceHead -> List (Fin n)) ->
+                Site n -> List (Arc n)
+projectedArcs ps fps cps s =
   heldArcs s.target ps (carriedAt s.roots atTop s.template).held ++
-  fieldArcs s.target fps (carriedAt s.roots atTop s.template).fields
-
-||| What K stands above for a template: its own height, and what its held
-||| dictionaries need.
-public export
-needsOf : (Template -> List Address) -> Template -> List Nat
-needsOf rts t = height t :: (carriedAt rts atTop t).needs
+  fieldArcs s.target fps (carriedAt s.roots atTop s.template).fields ++
+  choiceArcs s.target cps (carriedAt s.roots atTop s.template).choices
 
 ||| A list for each element, joined.
 public export
@@ -203,33 +204,37 @@ ownTagged : (Site n, tag) -> List (Arc n, tag)
 ownTagged (s, x) = map (\a => (a, x)) (ownArcs s)
 
 public export
-projectedTagged : (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> (Site n, tag) -> List (Arc n, tag)
-projectedTagged ps fps (s, x) = map (\a => (a, x)) (projectedArcs ps fps s)
+projectedTagged : (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> (ChoiceHead -> List (Fin n)) ->
+                  (Site n, tag) -> List (Arc n, tag)
+projectedTagged ps fps cps (s, x) = map (\a => (a, x)) (projectedArcs ps fps cps s)
 
+||| What K stands above for a site: its template's own height.
 public export
 siteNeeds : (Site n, tag) -> List Nat
-siteNeeds (s, x) = needsOf s.roots s.template
+siteNeeds (s, x) = [height s.template]
 
 ||| Every site's arcs, each with what tags it: each site's own, then each
-||| site's from held dictionaries and fields.
+||| site's from what applied families give, fields and choices.
 public export
-drawn : (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> List (Site n, tag) -> List (Arc n, tag)
-drawn ps fps ss = allOf ownTagged ss ++ allOf (projectedTagged ps fps) ss
+drawn : (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> (ChoiceHead -> List (Fin n)) ->
+        List (Site n, tag) -> List (Arc n, tag)
+drawn ps fps cps ss = allOf ownTagged ss ++ allOf (projectedTagged ps fps cps) ss
 
 ||| The graph drawn from some sites over n positions with their caps: K
-||| above what every site needs and above `beyond`, what the templates
-||| written at capped positions need, which no site of the model holds.
+||| above every site's template and above `beyond`, the templates written
+||| at capped positions, which no site of the model holds.
 public export
-graphOf : {n : Nat} -> (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> (beyond : Nat) ->
-          Vect n (Maybe Nat) -> List (Site n, tag) -> Graph
-graphOf ps fps beyond caps ss = MkGraph n (map fst (drawn ps fps ss)) (topOf beyond (allOf siteNeeds ss)) caps
+graphOf : {n : Nat} -> (Address -> List (Fin n)) -> (Address -> Nat -> List (Fin n)) -> (ChoiceHead -> List (Fin n)) ->
+          (beyond : Nat) -> Vect n (Maybe Nat) -> List (Site n, tag) -> Graph
+graphOf ps fps cps beyond caps ss = MkGraph n (map fst (drawn ps fps cps ss)) (topOf beyond (allOf siteNeeds ss)) caps
 
 ||| The model the graph is drawn from.
 public export
 modelOf : {n : Nat} -> (ps : Address -> List (Fin n)) -> (fps : Address -> Nat -> List (Fin n)) ->
-          (Fin n -> Maybe (Head, Nat)) -> (beyond : Nat) -> (caps : Vect n (Maybe Nat)) -> (ss : List (Site n, tag)) ->
-          Model (graphOf ps fps beyond caps ss)
-modelOf ps fps positionOf beyond caps ss = MkModel (map fst ss) fps positionOf ps
+          (cps : ChoiceHead -> List (Fin n)) -> (Fin n -> Maybe (Head, Nat)) -> (beyond : Nat) ->
+          (caps : Vect n (Maybe Nat)) -> (ss : List (Site n, tag)) ->
+          Model (graphOf ps fps cps beyond caps ss)
+modelOf ps fps cps positionOf beyond caps ss = MkModel (map fst ss) fps cps positionOf ps
 
 ||| The sites that land at uncapped positions, with the erased evidence of
 ||| each, and those that land at capped ones: a capped position's cap is
@@ -289,6 +294,12 @@ fieldArcsHas Here inF eq = elemAppendLeft (rewrite eq in elemMap (\q => MkArc q 
 fieldArcsHas {fs = ((j', k'), v) :: rest} (There el) inF eq =
   elemAppendRight (arcsInto t (labelOf v) (fps j' k')) (fieldArcsHas el inF eq)
 
+0 choiceArcsHas : {t : Fin n} -> {cps : ChoiceHead -> List (Fin n)} -> {cs : List (ChoiceHead, Weight)} ->
+                  Elem (k, w) cs -> Elem p (cps k) -> labelOf w = Just lab -> Elem (MkArc p t lab) (choiceArcs t cps cs)
+choiceArcsHas Here inC eq = elemAppendLeft (rewrite eq in elemMap (\q => MkArc q t lab) inC)
+choiceArcsHas {cs = (k', v) :: rest} (There el) inC eq =
+  elemAppendRight (arcsInto t (labelOf v) (cps k')) (choiceArcsHas el inC eq)
+
 0 aboveAll : (b : Nat) -> (ks : List Nat) -> Elem k ks -> LTE k (topOf b ks)
 aboveAll b (j :: js) Here = maximumLeftUpperBound j (topOf b js)
 aboveAll b (j :: js) (There el) = transitive (aboveAll b js el) (maximumRightUpperBound j (topOf b js))
@@ -304,7 +315,7 @@ bothTrue False _ eq = absurd eq
 
 mutual
   -- A template whose every instance writes no higher than itself holds no
-  -- marker, field or held dictionary, and no family applied.
+  -- marker, field or member of a choice, and no family applied.
   0 selfBoundedIs : (t : Template) -> selfBounded t = True -> Unmarked t
   selfBoundedIs (Head a ts) eq = UnmarkedHead (allSelfBoundedAre ts eq)
   selfBoundedIs (Opaque a ts) eq = UnmarkedOpaque (allSelfBoundedAre ts eq)
@@ -316,7 +327,7 @@ mutual
   selfBoundedIs (Applied _ _ _) eq = absurd eq
   selfBoundedIs (Computing _ _ _) eq = absurd eq
   selfBoundedIs (Field _ _) eq = absurd eq
-  selfBoundedIs (Held _ _) eq = absurd eq
+  selfBoundedIs (Member _) eq = absurd eq
 
   0 allSelfBoundedAre : (ts : List Template) -> allSelfBounded ts = True -> AllUnmarked ts
   allSelfBoundedAre [] _ = []
@@ -338,7 +349,7 @@ mutual
   stuckOnly (Computing _ _ ts) (There el) = stuckOnlyIn ts el
   stuckOnly (Leaf _) el = absurd el
   stuckOnly (Token _) el = absurd el
-  stuckOnly (Held _ _) el = absurd el
+  stuckOnly (Member _) el = absurd el
   stuckOnly (Formal _ _) el = absurd el
 
   0 stuckOnlyIn : (ts : List Template) -> Elem (i, w) (stuckIn ts) -> w = Stuck
@@ -357,7 +368,7 @@ overStuck OverAll = Refl
 0 headOver : {d : Nat} -> Dominates w (Finite (S d) 0) -> Dominates (plus w (Finite 1 0)) (Finite (S (S d)) 0)
 headOver dom = overAs (cong S (plusCommutative d 1)) Refl (plusOver dom (dominatesSelf (Finite 1 0)))
 
--- A field's arc, a level above a held dictionary's arguments.
+-- A field's or a member's arc, a level above an implementation's arguments.
 0 fieldOver : {d : Nat} -> Dominates w (Finite (S d) 0) -> Dominates (plus w (Finite 0 1)) (Finite d 0)
 fieldOver dom = overPred (overAs (plusZeroRightNeutral (S d)) Refl (plusOver dom (dominatesSelf (Finite 0 1))))
 
@@ -386,7 +397,7 @@ drawnCarries fe (w ** (dom, arcs)) wa = case dom of
 stuckRefuted fe (w ** (dom, arcs)) wa = case overStuck dom of
   Refl => measuredOnly fe (arcs _ wa Unmeasured Refl)
 
--- An arc from what a held dictionary, an applied family or a field can
+-- An arc from what an applied family, a field or a member can
 -- be, as heavy as the part sits deep less the depth of what it carries.
 0 rootCarries : {g : Graph} -> {pot : Vect g.size Nat} -> Feasible g pot -> Dominates w (Finite e 0) ->
                 ((lab : Label) -> labelOf w = Just lab -> Elem (MkArc p t lab) g.arcs) -> Carries g p 0 e t
@@ -407,14 +418,14 @@ record Drawing (g : Graph) (m : Model g) (s : Site g.size) (whole : Carried) whe
   constructor MkDrawing
   0 projections : (a : Arc g.size) -> Elem a (heldArcs s.target m.positionsOf whole.held) -> Elem a g.arcs
   0 fielded : (a : Arc g.size) -> Elem a (fieldArcs s.target m.fieldPositions whole.fields) -> Elem a g.arcs
-  0 needed : (k : Nat) -> Elem k whole.needs -> LTE k g.constant
+  0 chosen : (a : Arc g.size) -> Elem a (choiceArcs s.target m.choicePositions whole.choices) -> Elem a g.arcs
 
 -- What a part carries is among what the whole site carries.
 record Part (c : Carried) (whole : Carried) where
   constructor MkPart
   0 partFields : (x : ((Address, Nat), Weight)) -> Elem x c.fields -> Elem x whole.fields
   0 partHeld : (x : (Address, Weight)) -> Elem x c.held -> Elem x whole.held
-  0 partNeeds : (k : Nat) -> Elem k c.needs -> Elem k whole.needs
+  0 partChoices : (x : (ChoiceHead, Weight)) -> Elem x c.choices -> Elem x whole.choices
 
 -- A list's first template carries a part of what the list does.
 0 firstPart : (rts : Template -> List Address) -> (at : Depth) -> (t : Template) -> (ts : List Template) ->
@@ -422,7 +433,7 @@ record Part (c : Carried) (whole : Carried) where
 firstPart rts at t ts p =
   MkPart (\a, el => p.partFields a (elemAppendLeft el))
          (\a, el => p.partHeld a (elemAppendLeft el))
-         (\k, el => p.partNeeds k (elemAppendLeft el))
+         (\a, el => p.partChoices a (elemAppendLeft el))
 
 -- And the rest of the list.
 0 restPart : (rts : Template -> List Address) -> (at : Depth) -> (t : Template) -> (ts : List Template) ->
@@ -430,9 +441,9 @@ firstPart rts at t ts p =
 restPart rts at t ts p =
   MkPart (\a, el => p.partFields a (elemAppendRight (carriedAt rts at t).fields el))
          (\a, el => p.partHeld a (elemAppendRight (carriedAt rts at t).held el))
-         (\k, el => p.partNeeds k (elemAppendRight (carriedAt rts at t).needs el))
+         (\a, el => p.partChoices a (elemAppendRight (carriedAt rts at t).choices el))
 
--- The arcs from what a held dictionary or an applied family can be.
+-- The arcs from what an applied family can give.
 0 rootsCarried : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot ->
                  {s : Site g.size} -> {whole : Carried} -> Drawing g m s whole ->
                  (at : Depth) -> Dominates at.arcWeight (Finite (S at.depth) 0) -> (t : Template) ->
@@ -453,6 +464,15 @@ rootsCarried fe dr at aw t held j el p' inJ =
 fieldsCarried fe dr at aw k rec fields j el p inField =
   rootCarries fe (fieldOver aw)
     (\lab, eq => dr.fielded _ (fieldArcsHas (fields _ (elemMap (\x => ((x, k), fieldWeight at)) el)) inField eq))
+
+-- The arcs from the position of the choice a member is read from.
+0 choicesCarried : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot ->
+                   {s : Site g.size} -> {whole : Carried} -> Drawing g m s whole ->
+                   (at : Depth) -> Dominates at.arcWeight (Finite (S at.depth) 0) -> (k : ChoiceHead) ->
+                   ((x : (ChoiceHead, Weight)) -> Elem x [(k, fieldWeight at)] -> Elem x whole.choices) ->
+                   (p : Fin g.size) -> Elem p (m.choicePositions k) -> Carries g p 0 at.depth s.target
+choicesCarried fe dr at aw k chosen p inChoice =
+  rootCarries fe (fieldOver aw) (\lab, eq => dr.chosen _ (choiceArcsHas (chosen _ Here) inChoice eq))
 
 ------------------------------------------------------------------------------
 -- Covering a site
@@ -524,9 +544,8 @@ mutual
     CComputing (\p, wa => stuckRefuted fe (ans j Stuck Here) wa)
   coverAt fe dr UnderComputation at aw (Computing j d ts) ans part =
     CComputing (\p, wa => stuckRefuted fe (ans j Stuck Here) wa)
-  coverAt fe dr r at aw (Held c q) ans part =
-    CHeld (rootsCarried fe dr at aw (Held c q) (\x, el => part.partHeld x el))
-          (dr.needed _ (part.partNeeds _ Here))
+  coverAt fe dr r at aw (Member k) ans part =
+    CMember (choicesCarried fe dr at aw k (\x, el => part.partChoices x el))
   coverAt fe dr r at aw (Field k rec) ans part =
     CField (fieldsCarried fe dr at aw k rec (\x, el => part.partFields x el))
 
@@ -540,21 +559,24 @@ mutual
     coverAt fe dr r at aw t (firstAnswered r ans) (firstPart s.roots at t ts part) ::
     coverAll fe dr r at aw ts (restAnswered r ans) (restPart s.roots at t ts part)
 
--- The graph covers a site whose arcs and needs it holds.
+-- The graph covers a site whose arcs it holds.
 0 covering : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot -> (s : Site g.size) ->
              ((a : Arc g.size) -> Elem a (ownArcs s) -> Elem a g.arcs) ->
-             ((a : Arc g.size) -> Elem a (projectedArcs m.positionsOf m.fieldPositions s) -> Elem a g.arcs) ->
-             ((k : Nat) -> Elem k (needsOf s.roots s.template) -> LTE k g.constant) ->
+             ((a : Arc g.size) -> Elem a (projectedArcs m.positionsOf m.fieldPositions m.choicePositions s) -> Elem a g.arcs) ->
              CoveredAt m s 0 s.template
-covering {m} fe s own projected need =
+covering {m} fe s own projected =
   coverAt {whole = carriedAt s.roots atTop s.template} fe
           (MkDrawing (\a, el => projected a (elemAppendLeft el))
-                     (\a, el => projected a (elemAppendRight (heldArcs s.target m.positionsOf (carriedAt s.roots atTop s.template).held) el))
-                     (\k, el => need k (There el)))
+                     (\a, el => projected a (elemAppendRight (heldArcs s.target m.positionsOf (carriedAt s.roots atTop s.template).held)
+                                                              (elemAppendLeft el)))
+                     (\a, el => projected a (elemAppendRight (heldArcs s.target m.positionsOf (carriedAt s.roots atTop s.template).held)
+                                                              (elemAppendRight (fieldArcs s.target m.fieldPositions
+                                                                                          (carriedAt s.roots atTop s.template).fields)
+                                                                               el))))
           AtDepth atTop (dominatesSelf (Finite 1 0)) s.template
           (\i, w, el => case weightsCover s.template el of
              (v ** (inW, dom)) => (v ** (dom, \p, wa, lab, leq => own _ (varArcsHas inW wa leq))))
-          (MkPart (\x, el => el) (\x, el => el) (\k, el => el))
+          (MkPart (\x, el => el) (\x, el => el) (\x, el => el))
 
 ||| A graph drawn from a model's sites describes the model under any
 ||| feasible potential: every site lands at an uncapped position, K stands
@@ -562,26 +584,26 @@ covering {m} fe s own projected need =
 ||| arc being one no feasible potential satisfies.
 export
 0 describes : {n : Nat} -> (ps : Address -> List (Fin n)) -> (fps : Address -> Nat -> List (Fin n)) ->
-              (positionOf : Fin n -> Maybe (Head, Nat)) -> (beyond : Nat) -> (caps : Vect n (Maybe Nat)) ->
+              (cps : ChoiceHead -> List (Fin n)) -> (positionOf : Fin n -> Maybe (Head, Nat)) -> (beyond : Nat) ->
+              (caps : Vect n (Maybe Nat)) ->
               (ss : List (Site n, tag)) -> All (\x => index (fst x).target caps = Nothing) ss ->
-              {pot : Vect n Nat} -> Feasible (graphOf ps fps beyond caps ss) pot ->
-              Describes (modelOf ps fps positionOf beyond caps ss)
-describes ps fps positionOf beyond caps ss uncapped fe = sitesCovered ss uncapped (\y, el => el)
+              {pot : Vect n Nat} -> Feasible (graphOf ps fps cps beyond caps ss) pot ->
+              Describes (modelOf ps fps cps positionOf beyond caps ss)
+describes ps fps cps positionOf beyond caps ss uncapped fe = sitesCovered ss uncapped (\y, el => el)
   where
-    -- What a site of the graph needs, K stands above.
-    0 needed : (s : Site n) -> (x : tag) -> Elem (s, x) ss -> (k : Nat) -> Elem k (needsOf s.roots s.template) ->
-               LTE k (topOf beyond (allOf siteNeeds ss))
-    needed s x here k el = aboveAll beyond (allOf siteNeeds ss) (allOfHas siteNeeds here el)
+    -- K stands above every site's template.
+    0 needed : (s : Site n) -> (x : tag) -> Elem (s, x) ss ->
+               LTE (height s.template) (topOf beyond (allOf siteNeeds ss))
+    needed s x here = aboveAll beyond (allOf siteNeeds ss) (allOfHas siteNeeds here Here)
 
     0 sitesCovered : (rest : List (Site n, tag)) -> All (\x => index (fst x).target caps = Nothing) rest ->
                      ((y : (Site n, tag)) -> Elem y rest -> Elem y ss) ->
-                     All (Covers (graphOf ps fps beyond caps ss) (modelOf ps fps positionOf beyond caps ss)) (map fst rest)
+                     All (Covers (graphOf ps fps cps beyond caps ss) (modelOf ps fps cps positionOf beyond caps ss)) (map fst rest)
     sitesCovered [] [] _ = []
     sitesCovered ((s, x) :: rest) (u :: us) sub =
-      MkCovers u (needed s x (sub (s, x) Here) (height s.template) Here)
+      MkCovers u (needed s x (sub (s, x) Here))
                (covering fe s
                   (\a, el => elemMap fst (elemAppendLeft (allOfHas ownTagged (sub (s, x) Here) (elemMap (\a' => (a', x)) el))))
                   (\a, el => elemMap fst (elemAppendRight (allOf ownTagged ss)
-                                           (allOfHas (projectedTagged ps fps) (sub (s, x) Here) (elemMap (\a' => (a', x)) el))))
-                  (needed s x (sub (s, x) Here)))
+                                           (allOfHas (projectedTagged ps fps cps) (sub (s, x) Here) (elemMap (\a' => (a', x)) el)))))
       :: sitesCovered rest us (\y, el => sub y (There el))

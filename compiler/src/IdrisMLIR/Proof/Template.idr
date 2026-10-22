@@ -18,6 +18,31 @@ import Data.So
 
 %default total
 
+||| A choice as the growth graph holds it, program-wide: by the head of the
+||| type it is a choice of, an implementation's type by the type
+||| constructor it applies (an interface, or the pair that holds two), a
+||| polymorphic function's by the arrow. The translation keys a choice by
+||| the whole type; a site writes that type over its writer's markers, which
+||| each instance puts values in for, and the head is the one part of it no
+||| value put in changes. So every member the translation adds to a choice
+||| lands at the position of that choice's head, and every dispatch on it
+||| reads there.
+public export
+data ChoiceHead = InterfaceHead Address | ArrowHead
+
+public export
+Eq ChoiceHead where
+  InterfaceHead a == InterfaceHead b = a == b
+  ArrowHead == ArrowHead = True
+  _ == _ = False
+
+public export
+Ord ChoiceHead where
+  compare (InterfaceHead a) (InterfaceHead b) = compare a b
+  compare (InterfaceHead _) ArrowHead = LT
+  compare ArrowHead (InterfaceHead _) = GT
+  compare ArrowHead ArrowHead = EQ
+
 public export
 data Template
   = ||| The writer's parameter i, bound by its pattern at depth d (0:
@@ -58,9 +83,10 @@ data Template
   | ||| Field k (a method or a superclass) of a dictionary not yet a
     ||| constructor.
     Field Nat Template
-  | ||| The dictionary data constructor C holds at field p, matched out of a
-    ||| value (`SortedDMap`'s `Ord`).
-    Held Address Nat
+  | ||| A member of the choice of that head, which the running program
+    ||| chooses: whatever a place that makes a member of it wrote at the
+    ||| choice's position.
+    Member ChoiceHead
 
 mutual
   ||| The tallest of some templates; 0 for none.
@@ -69,7 +95,7 @@ mutual
   tallest [] = 0
   tallest (t :: ts) = maximum (height t) (tallest ts)
 
-  ||| A template's height: a marker, a field and a held dictionary are 0
+  ||| A template's height: a marker, a field and a member of a choice are 0
   ||| (what they stand for is weighed by their arcs), a leaf its own, a
   ||| token and an argument of a family's value 1 (the key's bound
   ||| variable), a head, a recursion and an applied family one above their
@@ -78,7 +104,7 @@ mutual
   height : Template -> Nat
   height (Var _ _) = 0
   height (Field _ _) = 0
-  height (Held _ _) = 0
+  height (Member _) = 0
   height (Leaf h) = h
   height (Token _) = 1
   height (Formal _ _) = 1
@@ -112,7 +138,7 @@ mutual
   arity (Var _ _) = 0
   arity (Leaf _) = 0
   arity (Token _) = 0
-  arity (Held _ _) = 0
+  arity (Member _) = 0
   arity (Formal _ _) = 0
 
 mutual
@@ -133,7 +159,7 @@ mutual
   heaviest (Field _ s) = heaviest s
   heaviest (Var _ _) = 0
   heaviest (Leaf _) = 0
-  heaviest (Held _ _) = 0
+  heaviest (Member _) = 0
   heaviest (Formal _ _) = 0
 
 ------------------------------------------------------------------------------
@@ -142,8 +168,8 @@ mutual
 
 mutual
   ||| Is what every instance writes at a template no higher than the
-  ||| template: it holds no marker, field or held dictionary, whose values
-  ||| are their arcs', and no family applied? A choice's value is one of its
+  ||| template: it holds no marker, field or member of a choice, whose
+  ||| values are their arcs', and no family applied? A choice's value is one of its
   ||| leaves, and an argument of a family's value is the writer's to no
   ||| instance: what beta makes of it, the reading's `beta` says.
   public export
@@ -157,7 +183,7 @@ mutual
   selfBounded (Applied _ _ _) = False
   selfBounded (Computing _ _ _) = False
   selfBounded (Field _ _) = False
-  selfBounded (Held _ _) = False
+  selfBounded (Member _) = False
   selfBounded (Formal _ _) = True
 
   public export
@@ -181,9 +207,9 @@ mutual
   ||| marker, its closed arguments' height above that; every marker under a
   ||| recursion or an applied family's argument, and a computing family's
   ||| own, Stuck. A field writes what its position holds, which an arc from
-  ||| there carries, whatever its record is, and a choice's scrutinee is
-  ||| carried by its caps, so neither is a part the template's height
-  ||| carries.
+  ||| there carries, whatever its record is, and so does a member of a
+  ||| choice; a choice's scrutinee is carried by its caps; so none of them
+  ||| is a part the template's height carries.
   public export
   occurrences : (e : Nat) -> Template -> List (Nat, Weight)
   occurrences e (Var j d) = [(j, Finite e d)]
@@ -195,7 +221,7 @@ mutual
   occurrences e (Field _ _) = []
   occurrences e (Leaf _) = []
   occurrences e (Token _) = []
-  occurrences e (Held _ _) = []
+  occurrences e (Member _) = []
   occurrences e (Formal _ _) = []
 
   public export
@@ -216,7 +242,7 @@ mutual
   stuck (Choice _ ts) = stuckIn ts
   stuck (Leaf _) = []
   stuck (Token _) = []
-  stuck (Held _ _) = []
+  stuck (Member _) = []
   stuck (Formal _ _) = []
 
   public export

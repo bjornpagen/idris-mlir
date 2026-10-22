@@ -136,7 +136,7 @@ extensionsEnd u keyOf path nd inside (Access more) = Access next
 Fresh b = Extends (Bounded b) requestLink
 
 ||| A pending instance: its request, and the chain of requests that led to
-||| it, its requester first, which its translation reads (`TS.chain`).
+||| it, its requester first.
 record Item where
   constructor MkItem
   request : Request
@@ -196,16 +196,12 @@ sizedWithin fc what b l = case within forms addresses b l of
                               " (arity " ++ show b.arity ++
                               ", heaviest " ++ show b.heaviest ++ ") and the breadth " ++ show b.breadth ++ " of its bounds")
 
-||| The requests made since the worklist last took them, judged against the
-||| chain of the instance that made them: each static argument no higher
-||| than its position's bound, the link within the bounds' sizes, and new
-||| to the chain. The state keeps none of them after.
-requestedUnder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                 (b : Bounds) -> SortedMap Position Nat -> (earlier : List Request) -> Core (Judged b earlier)
-requestedUnder b bounds earlier = do
-  st <- get TState
-  put TState ({ requested := [<] } st)
-  judge (st.requested <>> [])
+||| The requests a step derived, judged against the chain of the instance
+||| that made them: each static argument no higher than its position's
+||| bound, the link within the bounds' sizes, and new to the chain.
+requestedUnder : (b : Bounds) -> SortedMap Position Nat -> (earlier : List Request) -> List Request ->
+                 Core (Judged b earlier)
+requestedUnder b bounds earlier = judge
   where
     judge : List Request -> Core (Judged b earlier)
     judge [] = pure []
@@ -219,12 +215,12 @@ requestedUnder b bounds earlier = do
       traverse_ (\(p, h) => heightWithin r.site what bounds p h) r.positions
       inside <- sizedWithin r.site what b r.link
       case elemLink r.link (links earlier) of
-        -- A broken invariant: a request is recorded only for an instance not
-        -- yet seen (`Instances.request`), one link is one instance (`named`,
-        -- `Keys.instanceKey`), and every instance on a chain was seen when it
-        -- was requested and stays seen (a rejected instance
-        -- restores the state from before it), so a recorded request is new
-        -- to its chain.
+        -- A broken invariant: a request is recorded only for an instance
+        -- neither the table nor the step holds (`Instances.request`), one
+        -- link is one instance (`named`, `Keys.instanceKey`), and every
+        -- instance on a chain was in the table when its step ran and stays
+        -- there (a rejected step's derivation is never merged), so a
+        -- recorded request is new to its chain.
         Yes _ => internal r.site ("an instance requested again as new on its own chain: " ++ keyText r.key)
         No new => do
           rest <- judge rs
@@ -310,26 +306,28 @@ rooted b (Element it under :: roots) = Element it (alone b under) :: rooted b ro
 ||| end, the items of it still to take, each with the erased evidence that
 ||| its chain is in it, and the next generation so far, newest first, each
 ||| with the erased evidence that its chain extends a chain of the
-||| generation by a request new to it. An instance its translation rejects
-||| is recorded and leaves the state as it was before it, the instances it
-||| requested included, but for the rejections and what they refused, and
-||| what it found of definitions: what it would have reached is reported
-||| once it is fixed, and every rejection the translation reports is
-||| independent.
+||| generation by a request new to it. Each item is one step (`translate`),
+||| run on the state as it stands, which gives back what it derived; its
+||| derivation is merged into the instance table once its requests are
+||| judged. A step its translation rejects is recorded and derives
+||| nothing, the instances it requested included: what it would have
+||| reached is reported once it is fixed, and every rejection the
+||| translation reports is independent. One step runs at a time, so a
+||| step numbers what it makes after the table's count.
 worklist : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-           (translate : Request -> Front ()) -> (b : Bounds) -> SortedMap Position Nat ->
+           (translate : TS -> Request -> Front Derived) -> (b : Bounds) -> SortedMap Position Nat ->
            (0 gen : List (List Request)) -> (0 acc : Accessible (Follows (Fresh b)) gen) ->
            (todo : List (Subset Item (Member gen))) -> (next : List (Subset Item (Below b gen))) -> Core ()
 worklist translate b bounds gen acc@(Access _) (Element it here :: todo) next = do
-  update TState { chain := chainOf it }
-  before <- get TState
-  result <- noting (do translate it.request; core (requestedUnder b bounds (chainOf it)))
-  after <- get TState
+  st <- get TState
+  result <- noting (do d <- translate st it.request
+                       new <- core (requestedUnder b bounds (chainOf it) (d.requested <>> []))
+                       pure (d, new))
   case result of
-    Just new => worklist translate b bounds gen acc todo (pushBelow here new next)
-    Nothing => do
-      put TState (keepFound after before)
-      worklist translate b bounds gen acc todo next
+    Just (d, new) => do
+      update TState { table $= \t => merged t d }
+      worklist translate b bounds gen acc todo (pushBelow here new next)
+    Nothing => worklist translate b bounds gen acc todo next
 worklist translate b bounds gen (Access more) [] [] = pure ()
 worklist translate b bounds gen (Access more) [] next@(Element _ below :: _) =
   let items := reverse next in
@@ -337,18 +335,19 @@ worklist translate b bounds gen (Access more) [] next@(Element _ below :: _) =
            (placed (chains items) items Whole) []
 
 ||| The program's instances from its root: the root is requested (`root`),
-||| and each instance requested is translated in turn (`translate`), its
-||| chain the state's while it is, a generation at a time, until a
-||| generation derives no instance the table lacks.
+||| what requesting it derived merged into the instance table, and each
+||| instance requested is translated in turn (`translate`), a generation at
+||| a time, until a generation derives no instance the table lacks.
 export
 translateFrom : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                (root : Core (Maybe FnId)) -> (translate : Request -> Front ()) -> Core (Maybe FnId)
+                (root : TS -> Front (FnId, Derived)) -> (translate : TS -> Request -> Front Derived) -> Core (Maybe FnId)
 translateFrom root translate = do
   update TState translating
   start <- get TState
-  Just inst <- root
+  Just (inst, d) <- noting (root start)
     | Nothing => pure Nothing
-  roots <- requestedUnder start.sizes start.bounds []
+  roots <- requestedUnder start.sizes start.bounds [] (d.requested <>> [])
+  update TState { table $= \t => merged t d }
   let items = rooted start.sizes roots
   worklist translate start.sizes start.bounds (chains items) (generations (chains items) (resumable items))
            (placed (chains items) items Whole) []

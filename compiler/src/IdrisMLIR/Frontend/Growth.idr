@@ -55,8 +55,9 @@ record Limits where
 
 ||| Each position's bound under the potential the check found (`bound`), in
 ||| one pass over the places positions were first met at, each position
-||| once. A field's position bounds what field reads write, never a
-||| request, so no request's position is one.
+||| once. A field's position bounds what field reads write, and a choice's
+||| what its dispatches read, never a request, so no request's position is
+||| either.
 boundsOf : (b : Built) -> Vect b.graph.size Nat -> Limits
 boundsOf b pot = foldl at (MkLimits empty empty) b.firsts
   where
@@ -67,6 +68,7 @@ boundsOf b pot = foldl at (MkLimits empty empty) b.firsts
         OfParameter (OfNode node) i => { atNodes $= insert (node, i) h } acc
         OfParameter OfApplication i => { atApplication $= insert i h } acc
         OfField _ _ => acc
+        OfChoice _ => acc
 
 ||| Heights by parameter from `next` on, from the height of each parameter
 ||| that has one, ascending: a parameter with none is 0, which keys nothing.
@@ -148,21 +150,26 @@ earliest best@(_, m, _) (x@(_, l, _) :: xs) =
     place l = (locFile l, (.startLine) <$> locSpan l)
 
 ||| What holds a position, as a message names it: a node's definition, by
-||| its name; the application at a use, which no name is; or an
-||| implementation's field, by the implementation's name.
+||| its name; the application at a use, which no name is; an
+||| implementation's field, by the implementation's name; or a choice, by
+||| its interface's name, or as the polymorphic functions'.
 holderText : {auto c : Ref Ctxt Defs} -> FC -> Spot -> Front String
 holderText fc (OfParameter (OfNode node) _) = snd <$> graphDefinition fc node.definition
 holderText fc (OfParameter OfApplication _) = pure "the application of a polymorphic function at its use"
 holderText fc (OfField j k) = (\name => "field " ++ show k ++ " of " ++ name) . snd <$> graphDefinition fc j
+holderText fc (OfChoice (InterfaceHead j)) =
+  (\name => "the implementations of " ++ name ++ " the running program chooses") . snd <$> graphDefinition fc j
+holderText fc (OfChoice ArrowHead) = pure "the polymorphic functions the running program chooses"
 
 ||| The definition of the program's own source that holds a position, with
 ||| where it is: nothing for a library's or a generated one, or for the
-||| application at a use, which no definition is.
+||| application at a use, or a choice, which no definition is.
 userHolder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              FC -> Spot -> Front (Maybe (Loc, GlobalDef))
 userHolder fc (OfParameter (OfNode node) _) = userDefinition fc node.definition
 userHolder fc (OfParameter OfApplication _) = pure Nothing
 userHolder fc (OfField j _) = userDefinition fc j
+userHolder fc (OfChoice _) = pure Nothing
 
 ||| The first user definition among a node's reachers on the walk from
 ||| main, nearest first; nothing when main is reached with none.
@@ -190,8 +197,8 @@ located fc main b first candidates = do
       above <- reacher fc (reachersOf first)
       pure (fst (head candidates), maybe (MkPlace fc (show main)) placeOf above)
   where
-    -- The application at a use, and a field, are reached through no node
-    -- of their own.
+    -- The application at a use, a field and a choice are reached through
+    -- no node of their own.
     reachersOf : Spot -> List Node
     reachersOf (OfParameter (OfNode node) _) = fromMaybe [] (lookup node b.reachers)
     reachersOf _ = []
@@ -200,20 +207,33 @@ located fc main b first candidates = do
 -- The causes
 ------------------------------------------------------------------------------
 
-||| An arc's source position as its writer reads it: a parameter of the
-||| writer, which the writer's text binds; a position of anything else,
-||| which the writer's text does not bind: of the implementation that built
-||| a dictionary the site takes out of a value (the projection rule); or an
-||| implementation's field, which a field read takes its value from.
-data Source = Binds | Projects | ReadsField
+||| An arc's source position as its writer reads it: parameter i of the
+||| writer, which the writer's text binds; position i of anything else,
+||| which the writer's text does not bind: of an implementation an applied
+||| family gives (the projection rule); an implementation's field k, which
+||| a field read takes its value from; or a choice, which a member read
+||| takes its value from.
+data Source = Binds Nat | Projects Nat | ReadsField Nat | ReadsChoice ChoiceHead
+
+||| A position as what holds it reads it, its own.
+ownSource : Spot -> Source
+ownSource (OfParameter _ i) = Binds i
+ownSource (OfField _ k) = ReadsField k
+ownSource (OfChoice k) = ReadsChoice k
 
 sourceFor : (writer : Address) -> Spot -> Source
-sourceFor writer (OfParameter (OfNode node) _) = if sameAddress node.definition writer then Binds else Projects
-sourceFor writer (OfParameter OfApplication _) = Projects
-sourceFor writer (OfField _ _) = ReadsField
+sourceFor writer (OfParameter (OfNode node) i) = if sameAddress node.definition writer then Binds i else Projects i
+sourceFor writer (OfParameter OfApplication i) = Projects i
+sourceFor writer spot = ownSource spot
 
+||| An arc's source as a site's writer reads it: in the walk of a member's
+||| application, a position of the application the use gives is the
+||| writer's parameter past its own (`Sites.Parameters`).
 sourceOf : Site -> Spot -> Source
-sourceOf site = sourceFor site.writer
+sourceOf site spot@(OfParameter OfApplication i) = case site.params of
+  UseFrom from => Binds (from + i)
+  OwnOnly => sourceFor site.writer spot
+sourceOf site spot = sourceFor site.writer spot
 
 ||| Parameter i of what holds a position, as a message names it: the
 ||| writer's binder; the implementation's binder and the implementation; or
@@ -222,12 +242,13 @@ subjectAt : {auto c : Ref Ctxt Defs} -> FC -> Source -> Spot -> Front String
 subjectAt fc source (OfParameter (OfNode node) i) = do
   (def, name) <- graphDefinition fc node.definition
   case source of
-    Binds => parameter i def
+    Binds _ => parameter i def
     -- A node's parameter its writer does not bind is projected.
     _ => (++ " of " ++ name) <$> parameter i def
 subjectAt fc _ (OfParameter OfApplication i) =
   pure ("argument " ++ show (S i) ++ " of the application of a polymorphic function at its use")
 subjectAt fc _ spot@(OfField _ _) = holderText fc spot
+subjectAt fc _ spot@(OfChoice _) = holderText fc spot
 
 ||| Does a position belong to a data type, which grows through its fields
 ||| where a function grows through its calls?
@@ -239,15 +260,16 @@ ofDataType fc (OfParameter (OfNode node) _) = do
           _ => False)
 ofDataType fc _ = pure False
 
-||| The parts of a template that carry an arc's source, parameter i or
-||| field i, into it: its variable when the writer binds it, a held
-||| dictionary when it is projected, a read of that field when it is a
-||| field's position.
-carries : Source -> Nat -> Template -> Bool
-carries Binds i (Template.Var j _) = i == j
-carries Projects _ (Template.Held _ _) = True
-carries ReadsField k (Template.Field k' _) = k == k'
-carries _ _ _ = False
+||| The parts of a template that carry an arc's source into it: its
+||| variable when the writer binds it, an applied family that gives an
+||| implementation when it is projected, a read of that field when it is a
+||| field's position, a member of that choice when it is a choice's.
+carries : Source -> Template -> Bool
+carries (Binds i) (Template.Var j _) = i == j
+carries (Projects _) (Template.Applied _ _ _) = True
+carries (ReadsField k) (Template.Field k' _) = k == k'
+carries (ReadsChoice k) (Template.Member k') = k == k'
+carries _ _ = False
 
 mutual
   ||| Every part of a template, itself first, in preorder (a `Choice` visits
@@ -335,12 +357,12 @@ refuseCycle fc main b ring growth = do
     -- source, places it in the method function its field holds, the arc's
     -- target.
     ThroughMethod => do
-      x <- subjectAt fc Binds spot
+      x <- subjectAt fc (ownSource spot) spot
       pure (sourceName ++ " passes " ++ x ++ " to its method " ++ target ++ grows)
     -- An implementation's field: its template places the implementation's
     -- parameter, the arc's source, in the field's value, the arc's target.
     InField _ k _ => do
-      x <- subjectAt fc Binds spot
+      x <- subjectAt fc (ownSource spot) spot
       pure (sourceName ++ " places " ++ x ++ " in its field " ++ show k ++ grows)
   reject place.at place.owner Polymorphism text
   where
@@ -366,7 +388,7 @@ refuseOpaque fc main b a = do
       InField j _ t => pure (j, j, t, sourceFor j spot)
       ThroughMethod => internal fc "an arc no argument wrote as a type-level recursion"
   ((), place) <- located fc main b spot (((), spot) ::: [((), target)])
-  let Just computation = computationThrough (carries source (parameterOf spot)) written
+  let Just computation = computationThrough (carries source) written
     | Nothing => internal fc "an opaque arc whose template holds no type-level computation"
   through <- case computation of
     Recursion r => ("the type-level recursion " ++) . snd <$> graphDefinition fc r
@@ -379,12 +401,6 @@ refuseOpaque fc main b a = do
   reject place.at place.owner Polymorphism
          (homeName ++ " passes " ++ x ++ " through " ++ through ++ " to " ++ targetName ++
           ", and nothing bounds what it computes")
-  where
-    -- What an arc's source is to its writer's template: the parameter it
-    -- reads, or the field it takes its value from.
-    parameterOf : Spot -> Nat
-    parameterOf (OfParameter _ i) = i
-    parameterOf (OfField _ k) = k
 
 ||| A cause of growth, refused once as rule `polymorphism`. A cycle's growth
 ||| a round is what its certificate sums: every arc on it is finite, and its

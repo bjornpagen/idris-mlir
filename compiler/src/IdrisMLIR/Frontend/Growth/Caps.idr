@@ -76,7 +76,7 @@ mutual
   deepest j (Leaf _) = Just 0
   deepest j (Token _) = Just 0
   deepest j (Formal _ _) = Just 0
-  deepest j (Held _ _) = Just 0
+  deepest j (Member _) = Just 0
 
   deepestIn : (j : Nat) -> List Template -> Maybe Nat
   deepestIn j [] = Just 0
