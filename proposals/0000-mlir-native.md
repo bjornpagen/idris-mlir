@@ -1726,6 +1726,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   which builds no LLVM, checks the C++ against the toolchain it already
   holds. The builds that link, ship and run the tests (dev, release)
   still refuse an LLVM built without assertions (D115).
+- **D121** (2026-10-22; the owner; on upstream bugs). "remember, if
+  upstream ever miscompiles sometihng, we patch."; "yes, never dance
+  around upstream again. we fix upstream and save the patches." Where a
+  pinned upstream (stock Idris above all, the bootstrap host, and LLVM,
+  MLIR, Chez) gets correct code of ours wrong, it is patched, the patch
+  saved as `upstream/<bug>/<project>.patch` with its report, reproducer,
+  check and PINS entry and applied by the bootstrap, and our code is not
+  bent around it. The stock-host hazards the lanes were told to avoid
+  are bugs to patch.
 - **D116** (2026-10-22; the owner; binding). "to be crystal clear, i
   only care that upstrmea compiles our idris-mlir, and i don't care about
   idris-mlir compiling upsteram." Then, the same hour: "idris-mlir must

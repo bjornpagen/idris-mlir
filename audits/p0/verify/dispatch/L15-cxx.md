@@ -136,11 +136,12 @@ them.
   spare the compiler (D113).
 - Idris: in the subset both hosts compile, type-driven (indices, views,
   erased proofs, evidence over `Bool`, C154: evidence at quantity 0 in
-  bodies the stock host runs). On the stock host, avoid until fixed:
-  constructors named `Nil`, `::` or `#` matched inside pattern lambdas,
-  nested linear `LPair`s (`audits/p0/design/idris-linear-check.md`), and
-  an effectful `let` whose value the body ignores
-  (`audits/p0/design/idris-identity-bug.md`).
+  bodies the stock host runs). Where the stock host gets correct Idris
+  wrong (a parse its grammar allows, a crash, a miscompile), the code is
+  not bent around it: the bug is reported to the coordinator, and L06
+  patches stock Idris (`upstream/<bug>/Idris2.patch`, D121). A slip of
+  ours against the language's rules (a lowercase global in a type, which
+  Idris binds as a fresh implicit; a missing import) is ours to fix.
 - Comments explain why the code is the way it is; they cite no document
   or rule number. Names are churned until correct (D90's vocabulary).
 

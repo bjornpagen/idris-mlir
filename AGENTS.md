@@ -675,7 +675,10 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   applies to the copy the bootstrap builds, never to the checkout.
 - A bug in a pinned upstream (LLVM, MLIR, clang, lld, Chez Scheme, Idris)
   is fixed in that upstream, by a patch to its source, not worked around
-  in ours: a workaround hides the bug from upstream, drifts from it, and
+  in ours: "never dance around upstream again. we fix upstream and save
+  the patches" (2026-10-22). Never: stock-Idris bugs listed for our code
+  to "avoid until fixed" (pattern lambdas on `Nil`/`::`/`#`, nested linear
+  pairs, an effectful `let` the body ignores) instead of patched; a workaround hides the bug from upstream, drifts from it, and
   every pass written after it has to know it. Reduce it to upstream
   dialects and tools first; if it does not reproduce there, the bug is
   ours: fix it. Prefer upstream's own fix, backported, to one of ours. A
