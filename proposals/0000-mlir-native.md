@@ -2039,6 +2039,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   hold reaching a return or a yield takes no cast, the use accepting a
   value whose hold fits its own (`holdFits`). The callers of the
   two-argument `substitute` (L02, L13, L18) pass the callee's extents.
+  *Sharpened* (L02y's handoff, the same day): shape compatibility holds
+  only at an axis the callee's extents name, where its declared type is
+  `?` and a term says which size; everywhere else, a copy's static axis
+  among them, a call's operand equals its view exactly. So a call
+  retargeted to a copy carries its `tensor.cast` by construction, and a
+  missing one is the verifier's error, never the lowering's. One
+  function, beside `staticSizeAt` in `Func.h`, holds the rule, and closure
+  constants read it too. The one substitution's walk refines no graded
+  type's shape, keeping a graded result's old shape wherever the op
+  accepts it, since no cast keeps a grade.
 - **C242** (2026-10-22; L16bq's handoff, under D68 and C234). An
   instance is classified and translated at its key's forms (normal, then
   eta-contracted), the forms that name it, never at the normalised
