@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Bjorn Pagen
 # The dialect tests run without lit or Python. Their RUN lines find the
 # FileCheck, not and count of the pinned LLVM first on PATH (`lit`, in
-# harness/lib/lit.sh), shown here with stand-ins for them, and with other
+# harness/Lit.idr), shown here with stand-ins for them, and with other
 # tools of those names already first on the caller's PATH, which lit must
 # put after the pinned ones.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"

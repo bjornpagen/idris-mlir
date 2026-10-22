@@ -17,7 +17,7 @@
 #
 # The rule is `registry_only ROOT`, its list ROOT/tests/registry-only/
 # allowlist, run on the repository and on the planted trees
-# (lib/planted.sh): witness/ names a definition by a qualified literal, a
+# (Planted.idr): witness/ names a definition by a qualified literal, a
 # namespace alone and a name built from a literal, in the Idris, in the
 # specification and in the dialect's C++ and ODS, and its list has an entry
 # without its reason; near-miss/ holds what is allowed: the registry's own

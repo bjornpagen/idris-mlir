@@ -9,7 +9,7 @@
 # the header, so a command is added in one place.
 #
 # The rule of the files is `commands ROOT`, run on the repository and on
-# the planted trees (lib/planted.sh): witness/ holds a Makefile that
+# the planted trees (Planted.idr): witness/ holds a Makefile that
 # documents a command it has no target for, an AGENTS.md naming a command
 # the Makefile does not document, and a bootstrap that cannot run;
 # near-miss/ holds what is allowed: documented commands with their

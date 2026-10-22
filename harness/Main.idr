@@ -23,6 +23,7 @@
 |||
 |||     runtests --plan <results> <idris-mlir> [--suite check|test|test-idr|test-mlir-tools]
 |||              [--list] [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]
+|||     runtests --verdict <results> <test> <directory> <kind> <output> <stderr>
 |||     runtests --tally <results>
 |||
 ||| `--list` prints the names of the runs the options select, and plans
@@ -48,12 +49,18 @@
 |||       determinism FIXTURE [INPUT]... | determinism-threads FIXTURE   (Determinism.idr)
 |||       fuzz SEED | fuzz-lazy SEED   (FuzzRun.idr)
 |||       lit FILE | lit-fixture | lit-differential FILE BEFORE AFTER   (Lit.idr)
+|||       planted CHECK | planted-frontend MODULE FILE   (Planted.idr)
+|||       scale-compile FIXTURE FACTOR [OPTION]... | scale-relation FIXTURE   (ScaleRun.idr)
+|||       bench-smoke DIR   (Bench.idr)
+|||       spec-sources|spec-tree ROOT DEST | spec-check|spec-written SPECGEN ROOT   (SpecFiles.idr)
 |||
 ||| and those that read files alone run by themselves:
 |||
 |||     runtests --show FILE... | --empty NAME FILE | --first-word FILE | --package-options DIR
 |||     runtests --artifact-files|--artifact-file DIR NAME KIND | --artifacts DIR NAME | --no-artifacts DIR
 |||     runtests --stage-options FIXTURE | --timing-rows REPORT | --idris-lex code|strings FILE
+|||     runtests --cpp-lex FILE... | --spec-manifest | --spec-outputs ROOT
+|||     runtests --spec-named <work> <status> WHAT EXPECTED...
 |||     runtests --artifact-kinds | --runtime-fact <dev-prefix> NAME
 |||     runtests --lit-fails any|N STATUS STDERR CMD...
 |||                                     how a RUN line's command that is to fail failed
@@ -96,6 +103,7 @@ import System
 import System.Directory
 import System.File
 
+import Bench
 import Covers
 import Determinism
 import Facts
@@ -108,16 +116,20 @@ import Lex
 import Linear
 import Lit
 import Lock
+import Planted
 import Programs
 import Properties
 import Reject
 import Runner
 import RuntimeEffects
 import Scale
+import ScaleRun
 import Sem
 import Serve
+import SpecFiles
 import Trace
 import Universal
+import Verdict
 
 %default covering
 
@@ -330,7 +342,7 @@ usage : String
 usage = unlines
   [ "usage: runtests --plan <results> <idris-mlir> [--suite " ++ joinBy "|" (map fst suites) ++ "] [--list]"
   , "                [--threads N] [--only NAMES] [--except NAMES] [--only-file PATH]"
-  , "       runtests --tally <results>"
+  , "       runtests --verdict <results> <test> <directory> <kind> <output> <stderr> | --tally <results>"
   , "       runtests --serve <dir> compile-program|compile-checked [OPTION]... SOURCE OUTPUT"
   , "       runtests --serve <dir> link-program ARG... | mlir-check WHAT SOURCE ARG... | copy-fixture FIXTURE DEST"
   , "       runtests --serve <dir> e2e-io FIXTURE | sem-case NAME | near-neighbour FIXTURE"
@@ -338,11 +350,15 @@ usage = unlines
   , "       runtests --serve <dir> determinism FIXTURE [INPUT]... | determinism-threads FIXTURE"
   , "       runtests --serve <dir> fuzz SEED | fuzz-lazy SEED"
   , "       runtests --serve <dir> lit FILE | lit-fixture | lit-differential FILE BEFORE AFTER"
+  , "       runtests --serve <dir> planted CHECK | planted-frontend MODULE FILE | bench-smoke DIR"
+  , "       runtests --serve <dir> scale-compile FIXTURE FACTOR [OPTION]... | scale-relation FIXTURE"
+  , "       runtests --serve <dir> spec-sources|spec-tree ROOT DEST | spec-check|spec-written SPECGEN ROOT"
   , "       runtests --show FILE... | --empty NAME FILE | --first-word FILE | --package-options DIR"
   , "       runtests --artifact-files|--artifact-file DIR NAME module|objects|executable"
   , "       runtests --artifacts DIR NAME | --no-artifacts DIR | --stage-options FIXTURE | --timing-rows REPORT"
   , "       runtests --idris-lex code|strings FILE | --lit-fails any|N STATUS STDERR CMD..."
   , "       runtests --artifact-kinds | --runtime-fact <dev-prefix> NAME"
+  , "       runtests --cpp-lex FILE... | --spec-manifest | --spec-outputs ROOT | --spec-named <work> <status> WHAT EXPECTED..."
   , "       runtests --reject <test> <report> <output>"
   , "       runtests --rules | --rule-phrases [CATEGORY] | --rule-category PHRASE"
   , "       runtests --trace-totals <trace> | --trace-units <trace>... | --lock"
@@ -419,6 +435,15 @@ serve e ["fuzz-lazy", seed] = fuzzLazy e seed
 serve e ["lit", file] = litLines e file >>= traverse_ (tell e)
 serve e ["lit-fixture"] = litFixture e
 serve e ("lit-differential" :: file :: modules) = litDifferential e file modules >>= exitAs
+serve e ["planted", check] = planted e check
+serve e ["planted-frontend", module', file] = plantedFrontend e module' file >>= exitAs
+serve e ("scale-compile" :: fixture :: factor :: options) = scaleCompile e fixture factor options >>= exitWith'
+serve e ["scale-relation", fixture] = scaleRelation e fixture
+serve e ["bench-smoke", dir] = benchSmoke e dir
+serve e ["spec-sources", root, dest] = specSources e root dest >>= exitWith'
+serve e ["spec-tree", root, dest] = specTree e root dest >>= exitWith'
+serve e ["spec-check", specgen, root] = specCheck e specgen root >>= exitWith'
+serve e ["spec-written", specgen, root] = specWritten e specgen root
 serve _ _ = die usage
 
 ||| `--lit-fails <want> <status> <stderr> <command>...`: the line of how the
@@ -436,6 +461,7 @@ main = do
   case drop 1 args of
     ("--plan" :: results :: _ :: rest) => plan results rest
     ["--tally", results] => tally results
+    ["--verdict", results, test, directory, kind, output, stderr] => verdict results test directory kind output stderr
     ("--serve" :: dir :: check) => withSession dir $ \s => do
       tools <- toolsOf
       serve (MkEnv tools s "") check
@@ -456,6 +482,10 @@ main = do
     ["--timing-rows", report] => readOrDie report >>= putStr . unlines . timingRows
     ["--idris-lex", mode, file] =>
       maybe (die usage) (\m => readOrDie file >>= putStr . unlines . lexed m) (lexedNamed mode)
+    ("--cpp-lex" :: files) => for_ files $ \f => readOrDie f >>= putStr . unlines . cppLexed f
+    ["--spec-manifest"] => putStrLn specManifest
+    ["--spec-outputs", root] => specOutputs root >>= putStr . unlines
+    ("--spec-named" :: work :: status :: what :: expected) => specNamed work status what expected
     ("--lit-fails" :: want :: status :: stderr :: command) => litFailsCheck want status stderr command
     ["--reject", test, report, output] => reject test report output
     ["--trace-totals", trace] => traceTotals trace

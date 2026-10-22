@@ -43,6 +43,7 @@ record Tools where
   idrisMlirOpt : String
   idris2 : String
   idrisPrefix : String
+  hostPrefix : String
   compileSh : String
   checkedRuntime : String
   devPrefix : String
@@ -65,7 +66,7 @@ toolsOf = do
     | Nothing => die "runtests: no current directory"
   [| MkTools (given "root") (given "work") (pure here) (given "llvm_prefix") (given "llvm_bin")
              (given "pinned_cc") (given "idris_mlir") (given "idris_mlir_opt") (given "idris2")
-             (given "idris_prefix") (given "compile_sh") (given "checked_runtime") (given "dev_prefix")
+             (given "idris_prefix") (given "host_prefix") (given "compile_sh") (given "checked_runtime") (given "dev_prefix")
              (given "runtests") (fromMaybe "" <$> getEnv "parameter") |]
 
 ||| A check's place to run: the tools, the session with the glue that
@@ -292,19 +293,33 @@ packageOptions dir = do
 ||| run script runs in, reading nothing.
 export
 bounded : Env -> List String -> (out : Output) -> (err : ErrorOutput) -> IO Status
-bounded e ws out err = run e.session (MkCommand Bounded ws e.tools.here NoInput out err)
+bounded e ws out err = run e.session (MkCommand Bounded ws e.tools.here NoInput out err [])
 
 ||| A tool with its words, bounded, reading its standard input from a file.
 export
 boundedOn : Env -> List String -> Input -> (out : Output) -> (err : ErrorOutput) -> IO Status
-boundedOn e ws input out err = run e.session (MkCommand Bounded ws e.tools.here input out err)
+boundedOn e ws input out err = run e.session (MkCommand Bounded ws e.tools.here input out err [])
+
+||| A tool with its words, bounded, in a directory, with variables set in
+||| its environment.
+export
+boundedWith : Env -> (environment : List (String, String)) -> (cwd : String) -> List String
+           -> (out : Output) -> (err : ErrorOutput) -> IO Status
+boundedWith e environment cwd ws out err = run e.session (MkCommand Bounded ws cwd NoInput out err environment)
 
 ||| The pinned Idris with its words, bounded, on its own prefix, whose
 ||| prelude and base it checked (the glue's pinned_idris), run in the work
 ||| directory.
 export
 pinnedIdris : Env -> List String -> Input -> (out : Output) -> (err : ErrorOutput) -> IO Status
-pinnedIdris e ws input out err = run e.session (MkCommand PinnedIdris ws e.tools.work input out err)
+pinnedIdris e ws input out err = run e.session (MkCommand PinnedIdris ws e.tools.work input out err [])
+
+||| The pinned Idris with its words, in a directory, with variables set in
+||| its environment beside its prefix.
+export
+pinnedIdrisIn : Env -> (environment : List (String, String)) -> (cwd : String) -> List String
+             -> (out : Output) -> (err : ErrorOutput) -> IO Status
+pinnedIdrisIn e environment cwd ws out err = run e.session (MkCommand PinnedIdris ws cwd NoInput out err environment)
 
 ||| A tool's standard output, its words bounded and its standard error
 ||| left to the file named: its status, and what it printed.

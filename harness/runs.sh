@@ -27,7 +27,7 @@ threads=$(cat "$results/threads")
 n=1
 while [ -f "$results/pool.$n.runs" ]; do
   cat "$results/pool.$n.banner"
-  xargs -P "$threads" -n 2 sh "$IDRIS_MLIR_ROOT/harness/one.sh" "$results" "$compiler" < "$results/pool.$n.runs"
+  xargs -P "$threads" -n 2 sh "$IDRIS_MLIR_ROOT/harness/one.sh" "$runner" "$results" "$compiler" < "$results/pool.$n.runs"
   n=$((n + 1))
 done
 "$runner" --tally "$results"

@@ -23,7 +23,7 @@
 step_limit=900
 test_limit=1800
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-. "$root/harness/lib/spec.sh"
+spec_manifest=$("$runtests" --spec-manifest)
 
 # specgen, by the pinned Idris, in a copy of the specification's sources,
 # so that its build is the test's and never the checkout's.

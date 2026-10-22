@@ -12,7 +12,7 @@
 # fixture is there a check line (prefix CHECK, or any prefix with a
 # FileCheck suffix) whose prefix no RUN line of its file checks. The rule
 # is `dialect_text ROOT`, run on the repository and on the planted trees
-# (lib/planted.sh): witness/ holds a fixture for each tool whose module text
+# (Planted.idr): witness/ holds a fixture for each tool whose module text
 # a pipe hands FileCheck, one that reads a module file, and one with an
 # orphan check line; near-miss/ holds what is allowed: diagnostics piped
 # with 2>&1, the fixtures of printed syntax and lower-llvm-facts, a prefix
@@ -21,7 +21,7 @@
 cd "$root" || exit 1
 
 # module_text FILE...: `FILE: RUN n` for each joined RUN line, numbered as
-# lib/lit.sh numbers them, in which FileCheck reads module text.
+# Lit.idr numbers them, in which FileCheck reads module text.
 module_text() {
   for module_text_file in "$@"; do
     sed -n 's/^[[:space:]]*\/\/[[:space:]]*RUN:[[:space:]]*//p' "$module_text_file" |

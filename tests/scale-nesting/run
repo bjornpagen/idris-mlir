@@ -8,5 +8,4 @@
 # depth of ten thousand, and no count of the work grows faster.
 step_limit=120
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-. "$root/harness/lib/scale.sh"
 scale_relation nesting

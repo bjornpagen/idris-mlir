@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The planted form of a repository rule (lib/planted.sh) fails a check that
+# The planted form of a repository rule (Planted.idr) fails a check that
 # finds too little or too much, so a rule test that uses it cannot pass by
 # finding nothing. The rule here is a toy, no .txt under docs/ says the word
 # FORBIDDEN, and its witness/ breaks it twice, mid-line and at a line's

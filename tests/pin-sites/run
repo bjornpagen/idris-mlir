@@ -8,7 +8,7 @@
 # and the worktrees of work in progress under .claude.
 #
 # The rule is `pin_sites ROOT`, run on the repository and on the planted
-# trees (lib/planted.sh): witness/ holds sites naming no entry, in C++ and
+# trees (Planted.idr): witness/ holds sites naming no entry, in C++ and
 # in a script; near-miss/ holds what is allowed: sites naming an entry of its PINS.md
 # and an upstream bug, and sites in a document and a patch.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"

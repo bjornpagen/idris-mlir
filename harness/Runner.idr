@@ -10,8 +10,9 @@
 ||| The plan's directory holds `threads`, `selected` (every run the options
 ||| select, one per line), `elsewhere` (those whose targets file names no
 ||| name of this host), and per pool `pool.<n>.banner` and `pool.<n>.runs`
-||| (`<kind> <run>` per line), n from 1 in the order the pools run. one.sh
-||| appends each run's name to `passed` or `failed` there.
+||| (`<kind> <run>` per line), n from 1 in the order the pools run. Each
+||| run's verdict (Verdict.idr) appends its name to `passed` or `failed`
+||| there.
 module Runner
 
 import Data.List

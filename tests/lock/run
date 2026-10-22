@@ -7,7 +7,7 @@
 # dot, as the gate matches it, so 1.1 does not hold 1.13.2.
 #
 # The check is `lock_check ROOT`, run on the repository's lock and on the
-# planted trees (lib/planted.sh), each lock of them in a directory of its
+# planted trees (Planted.idr), each lock of them in a directory of its
 # own: witness/ holds a lock for each way of breaking the rule; near-miss/
 # holds locks of what it allows (a tag, a describe, a series equal to the
 # version's own and a wider one, no series, fields the check does not

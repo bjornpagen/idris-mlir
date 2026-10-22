@@ -5,7 +5,7 @@
 # CMake, and never invokes Ninja or the compiler directly; it builds the
 # compiler with the pinned Idris. The rule is `build_preset ROOT`, read off
 # what `make -n build` would run in the tree at ROOT, and run on the
-# repository and on the planted trees (lib/planted.sh): witness/ holds a
+# repository and on the planted trees (Planted.idr): witness/ holds a
 # Makefile whose build calls Ninja and the compilers directly, after a
 # separator too, and no preset; near-miss/ holds one that builds through
 # the presets and the pinned Idris and only says the tools' names.

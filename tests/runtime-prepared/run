@@ -13,7 +13,7 @@
 # (IDRIS_MLIR_HOST_NAMES), as the runner names an expected.NAME; and no
 # allowlist allows the dynamic loader or the C++ runtime. A program's
 # object needs nothing beyond the runtime's symbols and these
-# (harness/lib/heap.sh checks each e2e program for that).
+# (harness/Universal.idr checks each e2e program for that).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 runtime=$("$idris_mlir" --print-runtime)
 archive=$dev_prefix/runtime/libidris_rt.a

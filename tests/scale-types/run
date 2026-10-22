@@ -9,5 +9,4 @@
 # the compiler's work grows faster than the program.
 step_limit=120
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-. "$root/harness/lib/scale.sh"
 scale_relation types

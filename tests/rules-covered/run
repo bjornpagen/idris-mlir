@@ -7,13 +7,13 @@
 # (no source program reaches it, another test reaches it, or its fixture is
 # owed); never both, so the file only shrinks. The rules are the
 # specification's table, as the runner prints it (`runtests --rules`,
-# harness/lib/rules.sh), so a rule the specification gains is asked for at
+# harness/Facts.idr), so a rule the specification gains is asked for at
 # once.
 #
 # What a tree can break on its own, a header or a line that names no rule,
 # a rule stated by both, a line that is not a rule, a kind and a reason,
 # once, is `rules_covered ROOT`, run on the repository and on the planted
-# trees (lib/planted.sh): witness/ breaks it once per way; near-miss/ holds
+# trees (Planted.idr): witness/ breaks it once per way; near-miss/ holds
 # a fixture and a line of each kind, each naming its own rule, and a
 # program whose first line is no header. That every rule is stated is the
 # repository's alone, as a planted tree would restate the specification's

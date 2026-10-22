@@ -8,7 +8,7 @@
 # MLIR's registerAll* (idris-mlir-opt and idris-mlir-reduce, which are
 # tools over every dialect, do). Searched with comments left in, as each
 # rule is a fact of the code, not of its prose. The rule is `driver_shape
-# ROOT`, run on the repository and on the planted trees (lib/planted.sh):
+# ROOT`, run on the repository and on the planted trees (Planted.idr):
 # witness/ declares an option outside Options.cpp, of each kind, and calls
 # registerAll*; near-miss/ declares its options in Options.cpp and reads
 # them, and registers each dialect it uses by name, outside the driver too.

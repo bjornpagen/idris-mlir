@@ -9,7 +9,7 @@
 # checker's: a proof's `Lifted` relation is no lambda-lifted term.
 #
 # The rule is `erased_inputs ROOT`, run on the repository and on the
-# planted trees (lib/planted.sh): witness/ names an erased form as a type,
+# planted trees (Planted.idr): witness/ names an erased form as a type,
 # as a field and as a call, and imports a module that defines one, publicly
 # too; near-miss/ holds what is allowed: the names in comments and strings
 # and as parts of longer names, a `Lifted` the tree defines itself, and

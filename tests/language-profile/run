@@ -10,7 +10,7 @@
 #
 # The rule is `profiled COMMANDS`, a compile_commands.json, run on the dev
 # build's and, through `profiled_tree ROOT`, on the planted trees
-# (lib/planted.sh), each list of commands in a directory of its own:
+# (Planted.idr), each list of commands in a directory of its own:
 # witness/ holds a unit compiled against the profile once per way (an
 # older standard, exceptions, RTTI, a flag that only begins like a
 # profile's, warnings as errors only for one warning, reflection);

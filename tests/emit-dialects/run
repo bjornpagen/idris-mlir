@@ -26,7 +26,7 @@
 #     whose module the round trip reads back, samples each through the
 #     sum's list of mnemonics.
 # The literal rules are `literals ROOT`, run on the repository and on the
-# planted trees (lib/planted.sh): witness/ spells an op, a dialect's
+# planted trees (Planted.idr): witness/ spells an op, a dialect's
 # prefix, a type and an attribute by hand, each where it may not; near-miss/
 # spells them in a comment, in a syntax module, and names of dialects
 # outside the contract or with no dot.

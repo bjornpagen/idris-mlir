@@ -1,7 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# tests/shapes, compiled by each of determinism_runs (lib/determinism.sh),
+# tests/shapes, compiled by each of the determinism check's compilations
+# (Determinism.idr),
 # each executable run on its one case, which reads nothing.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 determinism "$root/tests/shapes"

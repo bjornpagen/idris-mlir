@@ -58,10 +58,11 @@ say() {
 # serve MODE ARG...: the runner's MODE (harness/Serve.idr), with the tools
 # and places this script holds now, each passed under its name here. The
 # runner creates no process, so it asks for each command on a channel:
-# its words in the session's argv file, one a line, and on `ask` the
-# directory it runs in, its input and its two outputs; serve_command
-# starts it, and the answer is its status and, for a process a signal
-# ended, the signal's name. The status is the runner's.
+# its words in the session's argv file, one a line, the variables it runs
+# with in its env file, and on `ask` the directory it runs in, its input
+# and its two outputs; serve_command starts it, and the answer is its
+# status and, for a process a signal ended, the signal's name. The status
+# is the runner's.
 serve() {
   # A runner that is not there would never open the channel, and the test
   # would wait for its deadline.
@@ -70,11 +71,12 @@ serve() {
   mkfifo "$serve_dir/ask" "$serve_dir/answer" || return 1
   root=$root work=$work llvm_prefix=$llvm_prefix llvm_bin=$llvm_bin pinned_cc=$pinned_cc \
     idris_mlir=$idris_mlir idris_mlir_opt=$idris_mlir_opt idris2=$idris2 idris_prefix=$idris_prefix \
+    host_prefix=$host_prefix \
     compile_sh=$compile_sh checked_runtime=$checked_runtime dev_prefix=$dev_prefix \
     runtests=$runtests parameter=$parameter "$runtests" --serve "$serve_dir" "$@" &
   serve_runner=$!
   while IFS='	' read -r serve_cwd serve_in serve_out serve_err; do
-    serve_command "$serve_dir/argv" "$serve_cwd" "$serve_in" "$serve_out" "$serve_err"
+    serve_command "$serve_dir" "$serve_cwd" "$serve_in" "$serve_out" "$serve_err"
     serve_status=$?
     if [ "$serve_status" -gt 128 ]; then
       printf '%s %s\n' "$serve_status" "$(kill -l "$((serve_status - 128))")"
@@ -88,15 +90,18 @@ serve() {
   return "$serve_status"
 }
 
-# serve_command ARGV CWD INPUT OUTPUT ERROR: the command whose words ARGV
-# holds, one a line, run in CWD with its standard input from INPUT and
-# its outputs to OUTPUT and ERROR: a path, `-` for serve's caller's
-# stream, and for ERROR `&` to join OUTPUT. Its first word is a function
-# here that bounds what it starts: bounded, pinned_idris or lit_line.
+# serve_command DIR CWD INPUT OUTPUT ERROR: the command whose words DIR/argv
+# holds, one a line, with the variables DIR/env assigns exported, run in
+# CWD with its standard input from INPUT and its outputs to OUTPUT and
+# ERROR: a path, `-` for serve's caller's stream, and for ERROR `&` to
+# join OUTPUT. Its first word is a function here that bounds what it
+# starts (bounded, pinned_idris, lit_line), or a rule's check the run
+# script defines.
 serve_command() (
-  sc_argv=$1 sc_cwd=$2 sc_in=$3 sc_out=$4 sc_err=$5
+  sc_dir=$1 sc_cwd=$2 sc_in=$3 sc_out=$4 sc_err=$5
+  while IFS= read -r sc_assignment; do export "$sc_assignment"; done < "$sc_dir/env"
   set --
-  while IFS= read -r sc_arg; do set -- "$@" "$sc_arg"; done < "$sc_argv"
+  while IFS= read -r sc_arg; do set -- "$@" "$sc_arg"; done < "$sc_dir/argv"
   case $sc_out in
     -) exec 6>&5 ;;
     *) exec 6> "$sc_out" ;;
@@ -140,10 +145,13 @@ run_program() {
 
 # The runner's checks, by the names the run scripts call them (Main.idr
 # says what each computes). Those that start a tool run through serve;
-# compile_program and compile_checked leave the compiler's status in
-# $compiled, and its output in $work/compile.out and $work/compile.err;
+# compile_program, compile_checked and scale_compile leave the compiler's
+# status in $compiled, and its output in $work/compile.out and
+# $work/compile.err; spec_check leaves specgen's status in $spec_status;
 # runtime_fact leaves the fact's text in $runtime_fact_value, or says
-# that the build wrote none and fails.
+# that the build wrote none and fails; planted_frontend leaves the
+# planted frontend in $planted_front and the idris-mlir beside it in
+# $planted_compiler.
 show() { "$runtests" --show "$@"; }
 empty() { "$runtests" --empty "$1" "$2"; }
 first_word() { "$runtests" --first-word "$1"; }
@@ -174,12 +182,24 @@ fuzz_lazy() { serve fuzz-lazy "$@"; }
 lit() { serve lit "$@"; }
 lit_fixture() { serve lit-fixture; }
 idris_lex() { "$runtests" --idris-lex "$1" "$2"; }
+cpp_lex() { "$runtests" --cpp-lex "$@"; }
 runtime_fact() {
   runtime_fact_value=$("$runtests" --runtime-fact "$dev_prefix" "$1") || { say "$runtime_fact_value"; return 1; }
 }
-# The kinds of artifact a build leaves (Harness.idr, ArtifactKind), as
-# words, for the run scripts that walk every kind.
-artifact_kinds='module objects executable'
+planted() { serve planted "$1"; }
+planted_frontend() {
+  serve planted-frontend "$@" || return 1
+  { IFS= read -r planted_front; IFS= read -r planted_compiler; } < "$work/planted-frontend"
+}
+scale_compile() { serve scale-compile "$@"; compiled=$?; }
+scale_relation() { serve scale-relation "$@"; }
+bench_smoke() { serve bench-smoke "$@"; }
+spec_outputs() { "$runtests" --spec-outputs "$1"; }
+spec_sources() { serve spec-sources "$@"; }
+spec_tree() { serve spec-tree "$@"; }
+spec_check() { serve spec-check "$@"; spec_status=$?; }
+spec_named() { "$runtests" --spec-named "$work" "$spec_status" "$@"; }
+spec_written() { serve spec-written "$@"; }
 
 # A RUN line of a dialect test (Lit.idr), as lit's internal shell ran it,
 # with no lit and no Python: the runner rewrites the line, and lit_line

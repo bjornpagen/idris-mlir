@@ -104,3 +104,86 @@ lexed mode text = go Z 1 (lines text)
             CodeLines => if any (\c => c /= ' ' && c /= '\t') line.code then [show n ++ ":" ++ pack line.code] else []
             StringLiterals => map (\s => show n ++ ":" ++ s) line.strings
       in shown ++ go line.depth (S n) ls
+
+------------------------------------------------------------------------------
+-- C and C++ source
+------------------------------------------------------------------------------
+
+||| Where a C or C++ line starts: in code, inside a block comment, or inside
+||| a raw string that ends at the delimiter given (`)delim"`).
+data CppState = InCode | InBlock | InRaw (List Char)
+
+||| The characters before a raw string's quote end with `R`, after `u8`,
+||| `u`, `U`, `L` or nothing, which no identifier character comes before.
+rawPrefix : SnocList Char -> Bool
+rawPrefix (before :< 'R') = starts before || prefixed before
+  where
+    starts : SnocList Char -> Bool
+    starts [<] = True
+    starts (_ :< c) = not (identifier c)
+
+    prefixed : SnocList Char -> Bool
+    prefixed (b :< 'u' :< '8') = starts b
+    prefixed (b :< 'u') = starts b
+    prefixed (b :< 'U') = starts b
+    prefixed (b :< 'L') = starts b
+    prefixed _ = False
+rawPrefix _ = False
+
+||| What follows the first occurrence of a text, if it occurs.
+after : List Char -> List Char -> Maybe (List Char)
+after needle [] = if null needle then Just [] else Nothing
+after needle cs@(_ :: rest) = if isPrefixOf needle cs then Just (drop (length needle) cs) else after needle rest
+
+||| A literal's characters after its opening quote, `\` escaping one, up to
+||| and past its closing quote, or to the line's end.
+pastLiteral : Char -> List Char -> List Char
+pastLiteral _ [] = []
+pastLiteral q ('\\' :: _ :: rest) = pastLiteral q rest
+pastLiteral q ['\\'] = []
+pastLiteral q (c :: rest) = if c == q then rest else pastLiteral q rest
+
+||| One line of C or C++ lexed from the state the lines before left: its
+||| code, with comments removed (`//` to the end of the line, `/* */`
+||| across lines), every string literal replaced by "" (a raw string across
+||| lines included) and every character literal by ''. A quote after a
+||| letter or a digit is a digit separator, not a character.
+cppLine : CppState -> List Char -> (List Char, CppState)
+cppLine state cs = go state [<] cs [<]
+  where
+    go : CppState -> SnocList Char -> List Char -> SnocList Char -> (List Char, CppState)
+    go InBlock before rest out = case after (unpack "*/") rest of
+      Nothing => (out <>> [], InBlock)
+      Just more => go InCode before more (out :< ' ')
+    go (InRaw delimiter) before rest out = case after delimiter rest of
+      Nothing => (out <>> [], InRaw delimiter)
+      Just more => go InCode before more (out :< '"' :< '"')
+    go InCode before [] out = (out <>> [], InCode)
+    go InCode before ('/' :: '/' :: _) out = (out <>> [], InCode)
+    go InCode before ('/' :: '*' :: rest) out = go InBlock (before :< '/' :< '*') rest out
+    go InCode before ('"' :: rest) out =
+      if rawPrefix before
+         then let (delimiter, open) = break (== '(') rest in
+              case open of
+                ('(' :: more) => go (InRaw (')' :: delimiter ++ ['"'])) (before :< '"') more out
+                _ => go (InRaw [')', '"']) (before :< '"') rest out
+         else go InCode (before :< '"') (pastLiteral '"' rest) (out :< '"' :< '"')
+    go InCode before ('\'' :: rest) out =
+      case before of
+        (_ :< c) => if identifier c then go InCode (before :< '\'') rest (out :< '\'')
+                    else go InCode (before :< '\'') (pastLiteral '\'' rest) (out :< '\'' :< '\'')
+        [<] => go InCode (before :< '\'') (pastLiteral '\'' rest) (out :< '\'' :< '\'')
+    go InCode before (c :: rest) out = go InCode (before :< c) rest (out :< c)
+
+||| `runtests --cpp-lex FILE...`: each line of each file, numbered as
+||| `<file>:<n>:<code>`, its code lexed (cppLine), the state starting over
+||| with each file.
+export
+cppLexed : (file : String) -> (text : String) -> List String
+cppLexed file text = go InCode 1 (lines text)
+  where
+    go : CppState -> Nat -> List String -> List String
+    go _ _ [] = []
+    go state n (l :: ls) =
+      let (code, state') = cppLine state (unpack l) in
+      (file ++ ":" ++ show n ++ ":" ++ pack code) :: go state' (S n) ls

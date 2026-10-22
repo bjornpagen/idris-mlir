@@ -104,7 +104,7 @@ each prefixed `near: `.
 **Planted witnesses.** A repository rule (a `check` script) writes its
 check as a shell function of a tree's root that prints one finding per
 line, `path:line: what` with the path from that root, and runs `planted
-CHECK` (`lib/planted.sh`) beside its run over `$root`. The test holds
+CHECK` (Planted.idr) beside its run over `$root`. The test holds
 `witness/`, files laid out as in the repository that break the rule, one
 per way of breaking it, each of which a finding must name; and
 `near-miss/`, files as close as the rule allows, which must give none.
@@ -134,7 +134,9 @@ clone numbers, function order or SSA names.
   command builds, under either host: it depends on base and the dialect's
   specification alone and creates no process. `runs.sh` makes the runs
   between the runner's plan and its tally; `one.sh` runs one test in a
-  process of its own and writes its output to `build/output/<name>`.
+  process of its own and writes its output to `build/output/<name>`, which
+  the runner holds to its expectation (`Verdict.idr`, its difference
+  written as `diff -u` writes one).
 - `Serve.idr`: the runner's one way of running a tool. A check that needs
   one runs as a session with the glue (`serve`, `lib/harness.sh`): the
   runner names each command on a channel, the glue starts it bounded by
@@ -150,17 +152,19 @@ clone numbers, function order or SSA names.
   names. `Lit.idr`: the dialect tests' RUN lines and `%differential`.
   `Determinism.idr`: compilations at several thread counts held alike.
   `FuzzRun.idr`: the fuzzers run, shrunk where a case fails. `Lex.idr`:
-  Idris source, code told from comments and literals.
+  Idris and C++ source, code told from comments and literals.
+  `Planted.idr`: a repository rule on its planted witness and near miss,
+  and a frontend built with a planted module. `ScaleRun.idr`: a scale
+  fixture compiled at two sizes and held to its relation. `SpecFiles.idr`:
+  the specification's generated files as the spec tests read them.
+  `Bench.idr`: the benchmarks, built and run on small inputs.
 - `Facts.idr`: what the harness reads of the specification (endings,
   rules); `Reject.idr`: a refused program's header, read once into its
   record; `Trace.idr`: time traces summed; `Json.idr`, `Files.idr`: what
   they read.
-- `testutils.sh` and `lib/`: what the scripts share. `lib/harness.sh` is
-  the glue: the work directory, a command bounded, a RUN line's commands,
-  and the runner's checks by the names the scripts call them; the rest,
-  one file per concern: `lib/planted.sh`,
-  `lib/cpp-lex.sh`, `lib/bench.sh`, and `lib/spec.sh` and `lib/scale.sh`,
-  sourced by their tests alone.
+- `testutils.sh` and `lib/harness.sh`: what the scripts share, the glue:
+  the work directory, a command bounded, a RUN line's commands, and the
+  runner's checks by the names the scripts call them.
 - `kinds/`: the script of each kind of test that has no `run` of its own.
 - `prop/`: the headers and the build of the runtime's property programs,
   and the program a runtime C test runs as, through the runtime's start.

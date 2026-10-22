@@ -3,7 +3,7 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Every module of the stock prelude has a program that uses each of its
 # run-time exports: a program of tests/ marked `covers MODULE`
-# (harness/lib/prelude.sh), whose check, in make test, reads the module's
+# (harness/Covers.idr), whose check, in make test, reads the module's
 # exports from the pinned Idris and the program's use of them from its Core,
 # and whose expected files fix its output. The modules are the pinned
 # prelude's own list (its prelude.ipkg), so a module the pin adds is asked
@@ -15,7 +15,7 @@
 # removes its line.
 #
 # The rule is `prelude_coverage ROOT`, run on the repository and on the
-# planted trees (lib/planted.sh), each with its own prelude package, tests
+# planted trees (Planted.idr), each with its own prelude package, tests
 # and list: witness/ holds a module with no program that is not listed,
 # and one listed that a program covers (a finding at the list and at the
 # program); near-miss/ holds a covered module and a listed one.

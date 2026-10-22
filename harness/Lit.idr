@@ -350,7 +350,7 @@ litLines e given = do
           let out = inWork e "lit.out"
           ignore (writeFile failed "")
           status <- run e.session (MkCommand LitLine [file, rewritten file runtime (inWork e "t") line]
-                                             e.tools.work NoInput (ToFile out) WithOutput)
+                                             e.tools.work NoInput (ToFile out) WithOutput [])
           broken <- nonEmpty failed
           if succeeded status && not broken
              then (("RUN " ++ show n ++ ": ok") ::) <$> go file runtime (S n) Nothing rest

@@ -591,6 +591,28 @@ printed Types = types
 printed Nesting = nesting
 printed NestingSource = nestingSource
 
+||| What a fixture is printed as: Idris source for the frontend, or a module
+||| of the dialect.
+data Printed = IdrisSource | DialectModule
+
+printedAs : Fixture -> Printed
+printedAs WideMatch = DialectModule
+printedAs Labels = DialectModule
+printedAs Functions = DialectModule
+printedAs Component = DialectModule
+printedAs LongFunction = DialectModule
+printedAs Types = DialectModule
+printedAs Nesting = DialectModule
+printedAs NestingSource = IdrisSource
+
+||| The file a fixture is printed into, by what it is printed as; none for
+||| a name that is no fixture's.
+export
+sourceFileOf : (name : String) -> Maybe String
+sourceFileOf name = ( => case printedAs f of
+                             IdrisSource => "Main.idr"
+                             DialectModule => "scale.mlir") <$> lookup name fixtures
+
 ||| `--scale-print <fixture> <factor>`: the fixture at its size times the
 ||| factor, or nothing for a name or factor that is none.
 export

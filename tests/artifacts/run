@@ -7,9 +7,9 @@
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
 # listed: the artifacts of the build Main left, of every kind
-# (lib/compile.sh), on one line.
+# (Harness.idr), on one line.
 listed() {
-  for listed_kind in $artifact_kinds; do
+  for listed_kind in $("$runtests" --artifact-kinds); do
     artifact_files "$work" Main "$listed_kind"
   done | sed "s|^$work/||" | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'
 }

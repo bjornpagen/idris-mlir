@@ -15,7 +15,7 @@
 #
 # The rule is `primitive_calls ROOT`, its list ROOT/tests/no-primitive-
 # semantics/allowlist, run on the repository and on the planted trees
-# (lib/planted.sh): witness/ calls a primitive, plainly and qualified, and
+# (Planted.idr): witness/ calls a primitive, plainly and qualified, and
 # its list has an entry that allows no call and one without its reason;
 # near-miss/ holds what is allowed: the name in a comment and a string, as
 # the tail of a longer name, and a listed serialization.

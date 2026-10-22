@@ -26,16 +26,9 @@
 #     mlir.expect     the properties the program's stages hold
 #
 # What the scripts share is the runner's (harness/*.idr, which Main.idr
-# lists), called by its shell name from harness/lib/harness.sh, the glue
-# that starts each tool a check needs; the rest of harness/lib, one file
-# per concern, is sourced below after the limits, each after what it uses:
-#
-#     harness.sh       the work directory, a command bounded, the runner's
-#                      checks by name, and a RUN line's commands
-#     planted.sh       a repository rule on its planted witness and near
-#                      miss; a frontend built with a planted module
-#     cpp-lex.sh       C and C++ source, code told from comments and literals
-#     bench.sh         the benchmarks, built and run on small inputs
+# lists), called by its shell name from harness/lib/harness.sh, sourced
+# below after the limits: the glue that starts each tool a check needs,
+# with the work directory, a command bounded, and a RUN line's commands.
 
 root=${IDRIS_MLIR_ROOT:?IDRIS_MLIR_ROOT must name the repository}
 
@@ -70,7 +63,4 @@ if [ -z "${IDRIS_MLIR_TEST_DEADLINE-}" ]; then
   exit "$deadline_status"
 fi
 
-for lib_file in harness planted cpp-lex bench; do
-  . "$root/harness/lib/$lib_file.sh"
-done
-unset lib_file
+. "$root/harness/lib/harness.sh"

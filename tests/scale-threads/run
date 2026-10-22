@@ -8,7 +8,6 @@
 # where the pool splits the work many ways.
 step_limit=120
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-. "$root/harness/lib/scale.sh"
 for threads in one pool; do
   case $threads in
     one) scale_compile functions 1 --num-threads=1 ;;
@@ -22,8 +21,7 @@ for threads in one pool; do
   mkdir -p "$work/$threads.tree"
   mv "$work/functions.1/build" "$work/$threads.tree/build"
 done
-for kind in $artifact_kinds; do
-  [ "$kind" = core ] && continue
+for kind in $("$runtests" --artifact-kinds); do
   one=$(artifact_files "$work/one.tree" scale "$kind")
   pool=$(artifact_files "$work/pool.tree" scale "$kind")
   if [ -z "$one" ] || [ "$(printf '%s\n' "$one" | sed "s|$work/one.tree||")" != "$(printf '%s\n' "$pool" | sed "s|$work/pool.tree||")" ]; then

@@ -22,7 +22,7 @@
 #
 # The rule is `local_headers ROOT`, its list ROOT/tests/no-local-headers/
 # allowed, run on the repository and on the planted trees
-# (lib/planted.sh): witness/ holds a header beside a .cpp, a unit of
+# (Planted.idr): witness/ holds a header beside a .cpp, a unit of
 # foreign/idr and one of the runtime that include a header beside them,
 # a unit of foreign/idr and a test header other than runtime.h that
 # include a runtime header unlisted, and a list with a line that is gone

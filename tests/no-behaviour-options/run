@@ -16,7 +16,7 @@
 # searched.
 #
 # The rule is `behaviour_options ROOT`, run on the repository and on the
-# planted trees (lib/planted.sh): witness/ declares a flag that selects
+# planted trees (Planted.idr): witness/ declares a flag that selects
 # how a program compiles, in the driver and in a tool, on one line and
 # across lines, a pass option, and a debug counter; near-miss/ holds what
 # is allowed: the kept flags, a positional input, idr-expect's holds, the

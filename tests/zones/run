@@ -20,7 +20,7 @@
 # upstream tools, built by its check and never by the build.
 #
 # The rule is `zones ROOT`, run on the repository and on the planted trees
-# (lib/planted.sh): witness/ holds C++ in no zone (each extension the list
+# (Planted.idr): witness/ holds C++ in no zone (each extension the list
 # does not keep, a .cpp under include, a unit test two levels
 # down, a source of tools/, ODS and a table outside the generated
 # directory) and units that declare and import a module; near-miss/ holds

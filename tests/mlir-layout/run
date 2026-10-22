@@ -17,7 +17,7 @@
 # commands.
 #
 # The rule is `mlir_layout ROOT`, run on the repository and on the planted
-# trees (lib/planted.sh): witness/ breaks it once per way (presets that
+# trees (Planted.idr): witness/ breaks it once per way (presets that
 # lint with another clang-tidy, a plain add_library, the dialect as a plain
 # add_mlir_library, a static mutable, a std::atomic, a thread_local, and a
 # thread_local beside the ledger in the ledger's own header);

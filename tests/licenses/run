@@ -10,7 +10,7 @@
 # tree gains shows here (the ports are PINS.md's list).
 #
 # The check is run on the repository and, through `licenses_tree ROOT`, on
-# the planted trees (lib/planted.sh): each made a repository of its own,
+# the planted trees (Planted.idr): each made a repository of its own,
 # with the check, the licence texts and PINS.md. A checker file's holder is
 # read from its own copyright line, so no tree needs the Idris pin.
 # witness/ breaks the rule once per way (no line, a wrong holder, our

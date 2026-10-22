@@ -13,7 +13,7 @@
 # unit removes its line.
 #
 # The rule is `file_size ROOT`, its list ROOT/tests/file-size/allowed, run
-# on the repository and on the planted trees (lib/planted.sh): witness/
+# on the repository and on the planted trees (Planted.idr): witness/
 # holds a .cpp and a .h of 401 lines, of foreign/idr and of the runtime,
 # and a list naming a unit that is gone and one that is 400 lines;
 # near-miss/ holds what is allowed: a unit of exactly 400 lines,

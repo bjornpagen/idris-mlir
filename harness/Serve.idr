@@ -11,15 +11,16 @@
 ||| command, the runner writes its words into <dir>/argv, one a line, and on
 ||| `ask` a line naming the directory it runs in, its standard input and
 ||| its two outputs, each a path or `-` for the stream the glue's caller
-||| gave it (and `&` for a standard error that joins the standard output);
+||| gave it (and `&` for a standard error that joins the standard output),
+||| and into <dir>/env the variables it runs with, `NAME=VALUE` a line;
 ||| the glue starts it and answers on `answer` with its status
 ||| and, for a process a signal ended, the signal's name as the host names
-||| it. A command's first word is a function of the glue: `bounded`, for a
-||| tool, which ends it and everything it starts at the test's step limit,
-||| so a hang is a failure and never a wait; or `lit_line`, for a RUN
-||| line, whose stages bound each tool they start. Commands run one at a time,
-||| each answered before the next is asked, so one argv file serves them
-||| all.
+||| it. A command's first word is a function of the glue (`Glue`): `bounded`,
+||| for a tool, which ends it and everything it starts at the test's step
+||| limit, so a hang is a failure and never a wait; or one that bounds each
+||| tool it starts itself. Commands run one at a time,
+||| each answered before the next is asked, so one argv file and one env
+||| file serve them all.
 module Serve
 
 import Data.List
@@ -46,19 +47,22 @@ data ErrorOutput = Apart Output | WithOutput
 
 ||| The function of the glue that starts what a command runs: `bounded`,
 ||| for a tool; `pinned_idris`, for the pinned Idris on its own prefix,
-||| bounded; or `lit_line`, for a RUN line of a dialect test, a line of
-||| shell run where the glue's functions are its commands, whose stages
-||| bound each tool they start.
+||| bounded; `lit_line`, for a RUN line of a dialect test, a line of shell
+||| run where the glue's functions are its commands, whose stages bound
+||| each tool they start; or a repository rule's check, a function of the
+||| run script that called the glue, by the name it was given.
 public export
-data Glue = Bounded | PinnedIdris | LitLine
+data Glue = Bounded | PinnedIdris | LitLine | RuleCheck String
 
 glueWord : Glue -> String
 glueWord Bounded = "bounded"
 glueWord PinnedIdris = "pinned_idris"
 glueWord LitLine = "lit_line"
+glueWord (RuleCheck name) = name
 
 ||| A command: the glue that starts it and its words, the directory it runs
-||| in, its input and its two outputs.
+||| in, its input, its two outputs, and the variables its environment
+||| holds beside the glue's.
 public export
 record Command where
   constructor MkCommand
@@ -68,6 +72,7 @@ record Command where
   input : Input
   out : Output
   err : ErrorOutput
+  environment : List (String, String)
 
 ||| How a command ended, as the shell reports it: its exit code, or the
 ||| signal that ended it, named as the host names it, with the status the
@@ -144,10 +149,13 @@ run : Session -> Command -> IO Status
 run s c = do
   let fields = [c.cwd, inputPath c.input, outputPath c.out, errorPath c.err]
   let argv = glueWord c.glue :: c.arguments
-  when (not (all carriedWord argv && all carriedField fields)) $
+  let assignments = map (\(name, value) => name ++ "=" ++ value) c.environment
+  when (not (all carriedWord (argv ++ assignments) && all carriedField fields)) $
     die ("serve: a command the channel cannot carry: " ++ unwords argv)
   Right () <- writeFile (s.dir ++ "/argv") (unlines argv)
     | Left err => die ("serve: " ++ s.dir ++ "/argv: " ++ show err)
+  Right () <- writeFile (s.dir ++ "/env") (unlines assignments)
+    | Left err => die ("serve: " ++ s.dir ++ "/env: " ++ show err)
   -- What the runner printed goes before what the command prints, when both
   -- write to the caller's stream.
   fflush stdout

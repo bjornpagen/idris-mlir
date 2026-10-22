@@ -31,7 +31,7 @@
 # its file, so that whoever removes one removes its line.
 #
 # The rule is `no_fuel ROOT`, run on the repository and on the planted
-# trees (lib/planted.sh): witness/ breaks it once per way (each limit and
+# trees (Planted.idr): witness/ breaks it once per way (each limit and
 # loop form, each way a module or definition is covering, each assertion, a
 # policy no longer in its file, a policy line without its reason), and
 # near-miss/ holds what it allows: the words in comments, strings and

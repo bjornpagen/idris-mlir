@@ -21,7 +21,7 @@
 # around them quote upstream's source, which this repository does not run.
 #
 # The rule is `verifier_off ROOT`, run on the repository and on the
-# planted trees (lib/planted.sh): witness/ turns the verifier off once per
+# planted trees (Planted.idr): witness/ turns the verifier off once per
 # way (in C++ through either call, in a RUN line, in a script, on parsing,
 # and in a line a patch adds); near-miss/ holds what is allowed: both calls
 # given true or nothing, -verify-each set on, the flags in a document, and
