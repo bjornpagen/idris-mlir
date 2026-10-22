@@ -26,9 +26,11 @@ import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 
 import Data.DPair
+import Data.Fin
 import Data.List
 import Data.Maybe
 import Data.String
+import Decidable.Equality
 
 %default total
 
@@ -231,7 +233,9 @@ namedHooks (BySpecs hs _) = hs
 
 ||| What a call of a definition is translated by (`Registered`): its
 ||| name's hooks, or a `%foreign` definition's specs' hooks or why it has
-||| none.
+||| none. Those that lower its calls to an operation on its operands the
+||| boundary reads once against its type (`rowOf`), and a call reads them
+||| as that read them.
 export
 callHooks : Registered -> Either ForeignMiss (Hooks LibraryFunction)
 callHooks (ByName hs) = Right hs
@@ -381,3 +385,165 @@ validate frozen sites fallback = check sites
             (TCon _ _ _ _ _ (Just (_ :: _)) _, Just found) =>
               pure (Just (wrong (location def) q (mismatch e (Found found))))
             _ => pure (Just (wrong (location def) q (mismatch e Unbodied)))
+
+------------------------------------------------------------------------------
+-- A hook read against the definition it lowers
+------------------------------------------------------------------------------
+
+||| A definition's parameters, up to the arity its calls are translated
+||| at, as a hook that lowers them takes them: each an operand, a value
+||| the call gives at run time, or no operand, a binder of quantity 0.
+||| `count` is how many operands there are, so a hook indexed by its own
+||| operand count takes exactly these.
+public export
+data Operands : (arity : Nat) -> (count : Nat) -> Type where
+  NoParameter : Operands 0 0
+  Operand : Operands n k -> Operands (S n) (S k)
+  NoOperand : Operands n k -> Operands (S n) k
+
+||| The position of the last operand among the parameters, of a row that
+||| has one.
+export
+lastOperand : Operands n (S k) -> Fin n
+lastOperand (Operand ops) = maybe FZ FS (lastIn ops)
+  where
+    lastIn : Operands m j -> Maybe (Fin m)
+    lastIn NoParameter = Nothing
+    lastIn (Operand rest) = Just (maybe FZ FS (lastIn rest))
+    lastIn (NoOperand rest) = FS <$> lastIn rest
+lastOperand (NoOperand ops) = FS (lastOperand ops)
+
+||| What a hook lowers a call to, on as many operands as its index, the
+||| registry's row checked against the definition's type once: a function
+||| on naturals as primitives on their representation (`NatMeaning`);
+||| a string built from the one list it takes (`Builds`); a function of
+||| the array language, as many as its operation takes; the identity on
+||| the last of its operands; a pure primitive on the operands and the
+||| literals the call does not supply; an IO primitive on those and then
+||| the world; an array access at the rank its count of operands gives,
+||| then the world; and a foreign definition's primitive on the operands
+||| and its literals.
+public export
+data Lowering : (lib : Type) -> (count : Nat) -> Type where
+  NatPrimitive : Prim k -> Lowering lib k
+  NatClamped : Prim k -> Lowering lib k
+  ||| The comparison of the two operands, as the library function that
+  ||| makes a `Bool` of an `Int` gives it.
+  NatTested : Prim 2 -> lib -> Lowering lib 2
+  NatOnIntegers : lib -> Lowering lib k
+  Builder : (p : PureOp) -> (0 fits : p.arity = k) -> Lowering lib k
+  ArrayOperation : (g : ArrayPrim) -> Lowering lib (generatedOperands g)
+  IdentityOnLast : Lowering lib (S k)
+  PureOperation : (p : PureOp) -> (lits : List Lit) -> (0 fits : k + length lits = p.arity) -> Lowering lib k
+  IOOperation : {o : Nat} -> (lits : List Lit) -> IOAction (k + length lits) o -> Lowering lib (S k)
+  AccessOperation : (access : ArrayAccess) -> (rank : Nat) -> Lowering lib (S (accessOperands access rank))
+  PrimOperation : (lits : List Lit) -> Prim (k + length lits) -> Lowering lib k
+
+%prefix_record_projections off
+
+||| A hook that lowers a definition's calls, read against the definition's
+||| type once, where the boundary reads it: the arity its calls are
+||| translated at, its operands among those parameters, and the lowering,
+||| indexed by as many operands as the type gives. A call reads its
+||| operands by position, so no call can give a hook another number.
+public export
+record Lowered (lib : Type) where
+  constructor MkLowered
+  {arity : Nat}
+  {count : Nat}
+  operands : Operands arity count
+  lowering : Lowering lib count
+
+%prefix_record_projections on
+
+||| The operands among the first `arity` binders of a type in normal form:
+||| one at each binder of nonzero quantity. Nothing for a type that shows
+||| fewer binders.
+operandsUpTo : (arity : Nat) -> Term vs -> Maybe (k ** Operands arity k)
+operandsUpTo Z _ = Just (0 ** NoParameter)
+operandsUpTo (S n) (Bind _ _ (Pi _ rig _ _) sc) = do
+  (k ** ops) <- operandsUpTo n sc
+  pure (case use rig of
+          Erased => (k ** NoOperand ops)
+          Used _ => (S k ** Operand ops))
+operandsUpTo (S n) _ = Nothing
+
+||| The row of a definition whose calls a hook lowers, read off its type in
+||| normal form (`normal`), at the arity its calls are translated at: its
+||| own (`own`, a case tree's parameters or a bodiless declaration's), or,
+||| for a function of the array language and an identity, the binders its
+||| type shows (`shown`), which say what it takes. The hooks are taken in
+||| the order a call of it tries them. What the row and the type disagree
+||| on is the message of the refusal: the boundary refuses it once, where
+||| it reads the definition, and nothing after can meet it.
+export
+rowOf : (own, shown : Nat) -> (normal : Term vs) -> Hooks lib -> Either String (Maybe (Lowered lib))
+rowOf own shown normal hs = traverse id $
+      map (\m => at own >>= natural m) hs.natOperation
+  <|> map (\p => at own >>= builder p) hs.builds
+  <|> map (\g => at shown >>= generated g) hs.generating
+  <|> (if hs.identityOnLast then Just (at shown >>= identity) else Nothing)
+  <|> map (\(p, lits) => at own >>= pureOp p lits) hs.pureCall
+  <|> map (\(a, lits) => at own >>= action a lits) hs.ioCall
+  <|> map (\a => at own >>= access a) hs.arrayCall
+  <|> map (\(p, lits) => at own >>= primOp p lits) hs.primCall
+  where
+    at : (arity : Nat) -> Either String (k ** Operands arity k)
+    at arity = maybe (Left ("its calls take " ++ show arity ++ " arguments, which its type does not show")) Right
+                     (operandsUpTo arity normal)
+
+    takes : Nat -> String
+    takes k = ", and the definition takes " ++ show k ++ " values at run time"
+
+    natural : NatMeaning lib -> (k ** Operands n k) -> Either String (Lowered lib)
+    natural (Primitive {k = pk} p) (k ** ops) = case decEq k pk of
+      Yes Refl => Right (MkLowered ops (NatPrimitive p))
+      No _ => Left ("the registry's natural operation of " ++ show pk ++ " operands" ++ takes k)
+    natural (Clamped {k = pk} p) (k ** ops) = case decEq k pk of
+      Yes Refl => Right (MkLowered ops (NatClamped p))
+      No _ => Left ("the registry's natural operation of " ++ show pk ++ " operands" ++ takes k)
+    natural (Tested c toBool) (k ** ops) = case decEq k 2 of
+      Yes Refl => Right (MkLowered ops (NatTested (NatCompare c) toBool))
+      No _ => Left ("the registry's comparison of two naturals" ++ takes k)
+    natural (OnIntegers onIntegers) (k ** ops) = Right (MkLowered ops (NatOnIntegers onIntegers))
+
+    builder : PureOp -> (k ** Operands n k) -> Either String (Lowered lib)
+    builder p (k ** ops) = case decEq p.arity k of
+      Yes fits => Right (MkLowered ops (Builder p fits))
+      No _ => Left ("the registry's string builder of " ++ show p.arity ++ " operands" ++ takes k)
+
+    generated : ArrayPrim -> (k ** Operands n k) -> Either String (Lowered lib)
+    generated g (k ** ops) = case decEq k (generatedOperands g) of
+      Yes Refl => Right (MkLowered ops (ArrayOperation g))
+      No _ => Left ("the array language's operation of " ++ show (generatedOperands g) ++ " operands" ++ takes k)
+
+    identity : (k ** Operands n k) -> Either String (Lowered lib)
+    identity (S j ** ops) = Right (MkLowered ops IdentityOnLast)
+    identity (Z ** _) = Left "the registry names an identity on its last runtime parameter, and it has none"
+
+    pureOp : PureOp -> List Lit -> (k ** Operands n k) -> Either String (Lowered lib)
+    pureOp p lits (k ** ops) = case decEq (k + length lits) p.arity of
+      Yes fits => Right (MkLowered ops (PureOperation p lits fits))
+      No _ => Left ("the registry's primitive of " ++ show p.arity ++ " operands, " ++ show (length lits) ++
+                    " of them literals" ++ takes k)
+
+    -- The world is an IO primitive's last value.
+    action : SomeAction -> List Lit -> (k ** Operands n k) -> Either String (Lowered lib)
+    action (MkSomeAction {operands} a) lits (S j ** ops) = case decEq (j + length lits) operands of
+      Yes Refl => Right (MkLowered ops (IOOperation lits a))
+      No _ => Left ("the registry's IO primitive of " ++ show operands ++ " operands and the world, " ++
+                    show (length lits) ++ " of them literals" ++ takes (S j))
+    action (MkSomeAction {operands} a) lits (Z ** _) =
+      Left ("the registry's IO primitive of " ++ show operands ++ " operands and the world" ++ takes Z)
+
+    access : ArrayAccess -> (k ** Operands n k) -> Either String (Lowered lib)
+    access acc (S j ** ops) = case accessRank acc j of
+      Just (rank ** Refl) => Right (MkLowered ops (AccessOperation acc rank))
+      Nothing => Left ("the registry's array access, which no rank of an array takes" ++ takes (S j))
+    access acc (Z ** _) = Left ("the registry's array access, which takes the world" ++ takes Z)
+
+    primOp : (k ** Prim k) -> List Lit -> (k ** Operands n k) -> Either String (Lowered lib)
+    primOp (pk ** p) lits (k ** ops) = case decEq (k + length lits) pk of
+      Yes Refl => Right (MkLowered ops (PrimOperation lits p))
+      No _ => Left ("the registry's primitive of " ++ show pk ++ " operands, " ++ show (length lits) ++
+                    " of them literals" ++ takes k)

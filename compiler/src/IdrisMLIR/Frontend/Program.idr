@@ -113,17 +113,6 @@ reportTimes Nothing _ = pure ()
 reportTimes (Just path) times =
   write path (concatMap (\(name, ns) => name ++ "\t" ++ show (ns `div` 1000000) ++ "\n") times)
 
-||| The registry's entries against the frozen context, once, before the
-||| checks and the translation rely on them, each definition an entry names
-||| as it was interned where the program was read (`Read.sites`); a broken
-||| entry is a refusal, at the module when the entry has no location.
-validated : {auto s : Ref TState TS} -> Front ()
-validated = do
-  r <- reading
-  case !(core (validate r.frozen r.sites (!getState).moduleFC)) of
-    Nothing => pure ()
-    Just refusal => rejectWith refusal
-
 isUser : Origin -> Bool
 isUser User = True
 isUser _ = False
@@ -184,13 +173,13 @@ program loaded mainFile timing mlirPath = do
   -- Idris has loaded the program and everything it imports. Once the entry
   -- is found, every definition the phases after it can meet from it is
   -- read, once, and the context frozen (`readProgram`): they read nothing
-  -- else of it. A refusal is at main from then on.
-  r <- readProgram interfaces (fullname mainDef)
-  s <- newRef TState (initState r loaded (fromMaybe fileSite (isNonEmptyFC (location mainDef))))
-  -- The registry's entries are found good against the loaded context
-  -- before any phase uses them.
-  Just () <- noting validated
-    | Nothing => rejections
+  -- else of it. A refusal is at main from then on. The registry's entries
+  -- are found good against the loaded context, and the rows of the
+  -- definitions read against their types, before any phase uses them.
+  let atMain = fromMaybe fileSite (isNonEmptyFC (location mainDef))
+  Right r <- readProgram interfaces (fullname mainDef) atMain
+    | Left refusal => pure [Refused refusal]
+  s <- newRef TState (initState r loaded atMain)
   noted (compiled t0 mainDef)
   rejections
   where

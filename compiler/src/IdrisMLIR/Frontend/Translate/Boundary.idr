@@ -42,6 +42,7 @@ import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.TypeConstructors
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Registry
+import IdrisMLIR.Spec.Core.Rules
 
 import Control.WellFounded
 import Data.DPair
@@ -627,19 +628,45 @@ applicationOf = do
   u <- intern "u"
   pure (applicationOver (UN (Basic t)) (UN (Basic f)) (UN (Basic u)))
 
+||| The number of binders a type shows as written.
+shownBinders : TT vars -> Nat
+shownBinders (Bind _ _ (Pi {}) sc) = S (shownBinders sc)
+shownBinders _ = Z
+
+||| What a definition read before the freeze has its calls lowered to,
+||| read off its type in normal form (`Resolve.rowOf`): the hook of its
+||| calls checked against the arity its calls are translated at, a case
+||| tree's parameters or a bodiless declaration's; nothing where no hook
+||| lowers its calls, or where its calls are no function's (a constructor's,
+||| a type's, a builtin's), which no hook lowers. A `%foreign` definition
+||| the registry gives no hooks is refused where it is called.
+loweredOf : Unfrozen -> ClosedTerm -> Either String (Maybe (Lowered LibraryFunction))
+loweredOf u normal = case callHooks u.registered of
+  Left _ => Right Nothing
+  Right hs => case (u.matched, definition u.def) of
+    (Just m, _) => rowOf (length m.args) (shownBinders u.type) normal hs
+    (Nothing, ForeignDef arity _) => rowOf arity (shownBinders u.type) normal hs
+    (Nothing, ExternDef arity) => rowOf arity (shownBinders u.type) normal hs
+    _ => Right Nothing
+
 ||| What the translation reads of a program whose entry is the definition
 ||| named `entry`, and whose loaded interfaces are `interfaces`: every
 ||| definition it can meet from the entry and from the pair `%pair` names,
 ||| read from the loaded context, every verdict the reading writes in it
 ||| and every registry name the validation resolves interned before it is
-||| frozen; then the context frozen, where each definition's values are
-||| members of a choice and what it takes at each binder read off its type
-||| in normal form, and what follows from the definitions alone found once:
-||| each type constructor's facts, each definition's loops, and each
-||| block's name.
+||| frozen; then the context frozen, the registry's entries validated
+||| against it, and each definition's values that are members of a choice,
+||| what it takes at each binder and the hook that lowers its calls read off
+||| its type in normal form; and what follows from the definitions alone
+||| found once: each type constructor's facts, each definition's loops,
+||| and each block's name. A registry entry or row the loaded definitions
+||| contradict is refused here, once, at its definition or else at
+||| `fallback`, and nothing after reads the registry's rows but as this
+||| read them.
 export
-readProgram : {auto c : Ref Ctxt Defs} -> (interfaces : SortedSet Name) -> (entry : Name) -> Core Read
-readProgram ifs entry = do
+readProgram : {auto c : Ref Ctxt Defs} -> (interfaces : SortedSet Name) -> (entry : Name) ->
+              (fallback : NonEmptyFC) -> Core (Either Refusal Read)
+readProgram ifs entry fallback = do
   defs <- get Ctxt
   let pair = maybe [] (\ns => [pairType ns, fstName ns, sndName ns]) (pairnames (options defs))
   found <- readFrom start (sizeAccessible start) empty (entry :: pair)
@@ -649,21 +676,38 @@ readProgram ifs entry = do
   -- The context changes no more: frozen here, every normaliser reads it as
   -- frozen.
   fz <- host.freezeContext
-  definitions <- traverse (frozenAs fz) found
+  Nothing <- validate fz sites fallback
+    | Just refusal => pure (Left refusal)
+  Right definitions <- frozenAll fz empty (SortedMap.toList found)
+    | Left refusal => pure (Left refusal)
   application <- applicationOf
   -- What follows from the definitions alone is found from them: none of
   -- the three readings reads what the others find.
-  let fromDefinitions = MkRead fz definitions application ifs empty empty empty sites
+  let fromDefinitions = MkRead fz definitions application ifs empty empty empty
   facts <- typeConstructorsOf fromDefinitions
   proved <- loopsOf fromDefinitions
   blocks <- blockNamesOf fromDefinitions entry
-  pure ({ tyCons := facts, loops := proved, blockNames := blocks } fromDefinitions)
+  pure (Right ({ tyCons := facts, loops := proved, blockNames := blocks } fromDefinitions))
   where
     -- A definition read before the freeze, with what is read off its type
     -- in normal form once the context is frozen: where its values are
-    -- members of a choice, and what it takes at each binder.
-    frozenAs : Frozen -> Unfrozen -> Core Defined
+    -- members of a choice, what it takes at each binder, and the hook that
+    -- lowers its calls, or the refusal of the registry's row its type
+    -- contradicts.
+    frozenAs : Frozen -> Unfrozen -> Core (Either Refusal Defined)
     frozenAs fz u = do
       normal <- (.value) <$> host.normaliseTypes fz u.type
-      pure (MkDefined u.placement u.def u.type u.matched u.ends u.registered (placesOf fz ifs normal)
-                      (argumentsOfNormal u.def normal))
+      pure $ case loweredOf u normal of
+        Left msg => Left (MkRefusal (Refusal HookShape) (fromMaybe fallback (isNonEmptyFC (location u.def)))
+                                    (show (fullname u.def) ++ ": " ++ msg))
+        Right lowered => Right (MkDefined u.placement u.def u.type u.matched u.ends u.registered lowered
+                                          (placesOf fz ifs normal) (argumentsOfNormal u.def normal))
+
+    -- Every definition read, frozen in order, by its entry; the first
+    -- refusal stops the reading.
+    frozenAll : Frozen -> SortedMap Int Defined -> List (Int, Unfrozen) -> Core (Either Refusal (SortedMap Int Defined))
+    frozenAll fz done [] = pure (Right done)
+    frozenAll fz done ((i, u) :: rest) = do
+      Right d <- frozenAs fz u
+        | Left refusal => pure (Left refusal)
+      frozenAll fz (insert i d done) rest

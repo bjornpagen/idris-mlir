@@ -248,6 +248,39 @@ etaExpand loc {k = S k'} (b :: rest) mk given =
       (etaExpand loc rest (recount (plusSuccRightSucc g k') mk)
                  (snoc (map (weakenUnder 1) given) (IdrisMLIR.Term.Var loc FZ)))
 
+%prefix_record_projections off
+
+||| What a call gives a function of `k` runtime parameters, by position:
+||| the values of the first `g` of them, and the binders of the `m` it
+||| leaves to the closures that complete it (`etaExpand`), together as
+||| many as the function takes.
+public export
+record Supplied (k : Nat) (nv : Nat) where
+  constructor MkSupplied
+  {g : Nat}
+  {m : Nat}
+  values : Vect g (IdrisMLIR.Term.Term nv)
+  missing : Vect m Binder
+  0 together : g + m = k
+
+%prefix_record_projections on
+
+||| A call's arguments against an arity: as many as it or more, the first
+||| that many and the rest; or fewer.
+public export
+data Saturation : Nat -> Type -> Type where
+  Saturated : Vect n a -> List a -> Saturation n a
+  Short : Saturation n a
+
+||| A call's arguments against an arity (`Saturation`).
+export
+saturation : (n : Nat) -> List a -> Saturation n a
+saturation Z xs = Saturated [] xs
+saturation (S n) [] = Short
+saturation (S n) (x :: xs) = case saturation n xs of
+  Saturated now rest => Saturated (x :: now) rest
+  Short => Short
+
 ||| A call's value made from the runtime arguments given, in order, by
 ||| what the function applied is: as many as its maker takes saturate it,
 ||| and the rest apply its value; with fewer, one closure per missing
@@ -737,7 +770,8 @@ givesAfter k ps = fromMaybe (beyond ps) (getAt k (forget ps.gives))
 ||| part read once (`Boundary`): its place, the definition, its type as the
 ||| context's accessor reads it, its body when it matches (`Matched`),
 ||| whether Idris proved it ends (`Ends`), what the registry makes of it
-||| (`Registered`), where its values are members of a choice
+||| (`Registered`), the hook that lowers its calls, read against its type
+||| (`Resolve.Lowered`), where its values are members of a choice
 ||| (`MemberPlaces`), and what it takes at each binder of its type in
 ||| normal form (`Closed.argumentAt`), read off the normal form the member
 ||| table is read off.
@@ -750,6 +784,7 @@ record Defined where
   matched : Maybe Matched
   ends : Ends
   registered : Registered
+  loweredBy : Maybe (Lowered LibraryFunction)
   places : MemberPlaces
   taken : List ArgumentAt
 
@@ -797,9 +832,7 @@ applicationOver t f u =
 ||| (`TypeConstructors`), what Idris proved of each definition's loops by
 ||| the component of its call graph (`Recursion`), and what each case, with
 ||| and nested block is called, `<parent>.case<k>` (`Boundary`), each by
-||| its address; and every entry of the registry the validation resolves,
-||| its definition's name interned (`Resolve.validate`). Nothing the
-||| translation does changes it.
+||| its address. Nothing the translation does changes it.
 public export
 record Read where
   constructor MkRead
@@ -810,7 +843,6 @@ record Read where
   tyCons : SortedMap Address TyConFacts
   loops : SortedMap Address Termination
   blockNames : SortedMap Address String
-  sites : List RegistrySite
 
 ||| What was read of a name: the definition at the entry the frozen context
 ||| resolves it to; no definition, for a name the context defines as

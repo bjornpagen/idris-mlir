@@ -466,14 +466,6 @@ export
 argumentsIn : ClosedTerm -> Front (List ArgumentAt)
 argumentsIn ty = argumentsWith (const byQuantity) <$> normaliseClosed ty
 
-||| The last of the arguments given at a definition's positions that it
-||| takes at run time, an index or a proof after it read nowhere.
-export
-lastValue : List ArgumentAt -> List a -> Maybe a
-lastValue (RuntimeValue _ :: ps) (x :: xs) = lastValue ps xs <|> Just x
-lastValue (_ :: ps) (_ :: xs) = lastValue ps xs
-lastValue _ _ = Nothing
-
 ||| What `runtimeDependent` has read of an application, its head and
 ||| arguments from the left: a type, whose arguments are types; a part that
 ||| stands for a runtime value where one exists, after which nothing else

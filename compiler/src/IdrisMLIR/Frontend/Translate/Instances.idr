@@ -502,6 +502,16 @@ record AtCall (signed : List PKind) where
   0 sameCount : Runtimes kinds = Runtimes signed
   result : ClosedTerm
 
+||| A runtime parameter's binder and Idris type read in the scope of a
+||| call, each of the callee's levels given what the call passes it
+||| (`forms`).
+valueInCaller : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                FC -> String -> List (Maybe ClosedTerm) -> Binder -> ClosedTerm -> Front (Binder, ClosedTerm)
+valueInCaller fc owner forms b idrisType = do
+  here <- normaliseClosed (atLevels forms idrisType)
+  t <- coreType fc owner ValueType here
+  pure ({ type := t } b, here)
+
 ||| A callee's classified parameters and result read in the scope of a
 ||| call: each of its levels given the argument the call passes it, erased
 ||| where it passes none, in its runtime parameters' types and its result,
@@ -521,26 +531,37 @@ inCaller fc owner vals kinds res = case telescopeOf kinds of
     retyped : List (Maybe ClosedTerm) -> (ks : List PKind) -> Front (ks' : List PKind ** Runtimes ks' = Runtimes ks)
     retyped forms [] = pure ([] ** Refl)
     retyped forms (ValueParam b shape idrisType :: ks) = do
-      here <- normaliseClosed (atLevels forms idrisType)
-      t <- coreType fc owner ValueType here
+      (b', here) <- valueInCaller fc owner forms b idrisType
       (ks' ** same) <- retyped forms ks
-      pure (ValueParam ({ type := t } b) shape here :: ks' ** cong S same)
+      pure (ValueParam b' shape here :: ks' ** cong S same)
     retyped forms (k :: ks) = do
       (ks' ** same) <- retyped forms ks
       pure (k :: ks' ** cong (counted (boundAtRuntime k)) same)
 
 ||| A callee's parameters classified at a call (`classifyAt`), read in the
-||| caller's scope (`inCaller`): what every use of a primitive's or a
-||| library function's signature reads, which no instance is requested
-||| at.
+||| caller's scope as `inCaller` reads them, one kind per parameter of the
+||| arity it is classified at: what every use of a primitive's, a lowered
+||| definition's or a library function's signature reads, which no
+||| instance is requested at.
 export
 classifyCall : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> String -> (arity : Nat) -> ClosedTerm -> ArgValues ->
-               Front (List PKind, ClosedTerm)
+               Front (Classified arity)
 classifyCall fc owner arity ty vals = do
   (found, res) <- classifyAt fc owner 0 arity ty vals
-  inScope <- inCaller fc owner vals (toList found) res
-  pure (inScope.kinds, inScope.result)
+  case telescopeOf (toList found) of
+    [] => pure (found, res)
+    _ => do
+      forms <- indexForms (toList found) vals
+      kinds <- traverse (inScope forms) found
+      res' <- normaliseClosed (atLevels forms res)
+      pure (kinds, res')
+  where
+    inScope : List (Maybe ClosedTerm) -> PKind -> Front PKind
+    inScope forms (ValueParam b shape idrisType) = do
+      (b', here) <- valueInCaller fc owner forms b idrisType
+      pure (ValueParam b' shape here)
+    inScope forms k = pure k
 
 ||| A callee's parameters classified at a call's arguments, in the
 ||| callee's scope: what keys the instance the call requests, whose

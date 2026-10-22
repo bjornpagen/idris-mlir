@@ -645,12 +645,13 @@ accessOperands GetElement rank = S rank
 accessOperands SetElement rank = S (S rank)
 
 ||| The rank of the array an access is on, from how many operands it takes
-||| besides the world; none for a count no rank gives.
+||| besides the world, with the evidence that it takes that many at that
+||| rank; none for a count no rank gives.
 public export
-accessRank : ArrayAccess -> (operands : Nat) -> Maybe Nat
-accessRank NewArray (S rank) = Just rank
-accessRank GetElement (S rank) = Just rank
-accessRank SetElement (S (S rank)) = Just rank
+accessRank : (a : ArrayAccess) -> (operands : Nat) -> Maybe (rank : Nat ** accessOperands a rank = operands)
+accessRank NewArray (S rank) = Just (rank ** Refl)
+accessRank GetElement (S rank) = Just (rank ** Refl)
+accessRank SetElement (S (S rank)) = Just (rank ** Refl)
 accessRank _ _ = Nothing
 
 ||| A machine word a buffer holds: a fixed-width integer of its type, or a

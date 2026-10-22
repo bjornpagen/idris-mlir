@@ -212,6 +212,32 @@ data ArrayPrim
   | AReshape | ATranspose | ATake | ADrop | AConcat | APad | AMerge
   | AWithArray | ARead | AWrite | AThaw | ALShape | AGrow | ATabulateIO
 
+||| How many values a function of the array language takes at run time:
+||| its operation's operands, which its definition's type must give as
+||| many of (`Frontend.Resolve.rowOf`).
+public export
+generatedOperands : ArrayPrim -> Nat
+generatedOperands AShape = 1
+generatedOperands ATabulate = 2
+generatedOperands AIndex = 2
+generatedOperands AUpdate = 3
+generatedOperands AFoldLast = 3
+generatedOperands AScanLast = 3
+generatedOperands AReshape = 2
+generatedOperands ATranspose = 1
+generatedOperands ATake = 2
+generatedOperands ADrop = 2
+generatedOperands AConcat = 2
+generatedOperands APad = 4
+generatedOperands AMerge = 2
+generatedOperands AWithArray = 3
+generatedOperands ARead = 2
+generatedOperands AWrite = 3
+generatedOperands AThaw = 2
+generatedOperands ALShape = 1
+generatedOperands AGrow = 3
+generatedOperands ATabulateIO = 2
+
 ||| A string `System.Info` substitutes from the compiler. `TargetOs` is the
 ||| operating system the target triple names. `BackendName` is the name this
 ||| backend is registered under.
