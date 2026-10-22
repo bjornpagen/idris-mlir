@@ -7,6 +7,7 @@
 ||| as the runtime's C reads it).
 module IdrisMLIR.Spec.Runtime.Declarations
 
+import IdrisMLIR.Spec.Core.Cpp
 import IdrisMLIR.Spec.Core.Declarations
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Runtime.Clocks
