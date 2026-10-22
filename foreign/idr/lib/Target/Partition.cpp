@@ -12,11 +12,16 @@
 #include "idr/Target/Target.h"
 
 #include "idr/IR/Symbols.h"
-#include "idr/Support/Scc.h"
-#include "idr/Support/Worklist.h"
+#include "idr/Analysis/Solver/Components.h"
+#include "idr/Analysis/Solver/Graph.h"
+#include "idr/Conversion/Mangle.h"
+#include "idr/Support/Id.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
@@ -64,10 +69,13 @@ Error internal(const Twine &what) { return createStringError(what); }
 // through every constant expression and aggregate it holds. Each constant
 // enters once.
 SmallVector<const GlobalValue *> referencesOf(const GlobalValue &value) {
-  idr::OnceWorklist<const Constant *> constants;
+  // LLVM's constants have no number of ours, so the walk keeps the ones it
+  // met by address, for the one walk.
+  SmallPtrSet<const Constant *, 16> met;
+  std::vector<const Constant *> constants;
   auto collect = [&](const Value *operand) {
-    if (auto *constant = dyn_cast<Constant>(operand))
-      constants.push(constant);
+    if (auto *constant = dyn_cast<Constant>(operand); constant && met.insert(constant).second)
+      constants.push_back(constant);
   };
   if (auto *function = dyn_cast<Function>(&value)) {
     for (const Use &operand : function->operands())
@@ -83,23 +91,39 @@ SmallVector<const GlobalValue *> referencesOf(const GlobalValue &value) {
     collect(ifunc->getResolver());
   }
   SmallVector<const GlobalValue *> found;
-  while (std::optional<const Constant *> constant = constants.pop()) {
-    if (auto *global = dyn_cast<GlobalValue>(*constant)) {
+  while (!constants.empty()) {
+    const Constant *constant = constants.back();
+    constants.pop_back();
+    if (auto *global = dyn_cast<GlobalValue>(constant)) {
       found.push_back(global);
       continue;
     }
-    for (const Use &operand : (*constant)->operands())
+    for (const Use &operand : constant->operands())
       collect(operand.get());
   }
   return found;
 }
 
-// The top-level namespace a name keeps: what precedes its first dot, and
-// one group, the empty one, for every name without a dot.
+// The top-level namespace a name keeps: what precedes its first dot after
+// the program's prefix, which every program symbol has, and one group, the
+// empty one, for every name without a dot.
 StringRef namespaceOf(StringRef name) {
   StringRef plain = GlobalValue::dropLLVMManglingEscape(name);
+  plain.consume_front(idr::conversion::programPrefix);
   return plain.contains('.') ? plain.take_front(plain.find('.')) : StringRef();
 }
+
+// The nodes of the reference graph, numbered once by the partition, the
+// one minter of their ids.
+struct NodeMinter;
+struct NodeTag {
+  using Minter = NodeMinter;
+};
+using NodeId = idr::Id<NodeTag>;
+struct NodeMinter {
+  static idr::Count<NodeId> count(unsigned nodes) { return idr::Count<NodeId>(nodes); }
+  static NodeId id(unsigned node) { return NodeId(node); }
+};
 
 // The hash of a set of names, sorted, one per line: XXH3's 64 bits, which
 // decide a part's cut and, spelled in hex, name a bin.
@@ -192,48 +216,61 @@ Expected<Partition> Partition::of(Module &module) {
   }
   // The node a symbol is, or an alias stands for; none for any other.
   auto baseOf = [&](unsigned symbol) -> std::optional<unsigned> {
-    return std::visit(makeVisitor([](Node node) -> std::optional<unsigned> { return node.index; },
-                                  [&](Alias alias) -> std::optional<unsigned> {
-                                    if (!alias.base)
-                                      return std::nullopt;
-                                    if (const auto *node = std::get_if<Node>(&role[*alias.base]))
-                                      return node->index;
-                                    return std::nullopt;
-                                  },
-                                  [](const auto &) -> std::optional<unsigned> {
-                                    return std::nullopt;
-                                  }),
-                      role[symbol]);
+    auto nodeOf = [](const SymbolRole &of) {
+      return idr::match(
+          of, [](Node node) -> std::optional<unsigned> { return node.index; },
+          [](const auto &) -> std::optional<unsigned> { return std::nullopt; });
+    };
+    return idr::match(
+        role[symbol], [](Node node) -> std::optional<unsigned> { return node.index; },
+        [&](Alias alias) -> std::optional<unsigned> {
+          return alias.base ? nodeOf(role[*alias.base]) : std::nullopt;
+        },
+        [](const auto &) -> std::optional<unsigned> { return std::nullopt; });
   };
   // Each symbol `from` names, a copied constant standing for what it names.
   // Each symbol enters once.
-  auto reach = [&](unsigned from, function_ref<void(unsigned)> visit) {
-    idr::OnceWorklist<unsigned> work;
+  auto reach = [&](unsigned from, auto &&visit) {
+    BitVector met(at.size());
+    std::vector<unsigned> work;
+    auto push = [&](unsigned named) {
+      if (!met.test(named)) {
+        met.set(named);
+        work.push_back(named);
+      }
+    };
     for (unsigned named : partition.symbols[from].refs)
-      work.push(named);
-    while (std::optional<unsigned> named = work.pop())
-      std::visit(makeVisitor(
-                     [&](Partition::Copied) {
-                       for (unsigned next : partition.symbols[*named].refs)
-                         work.push(next);
-                     },
-                     [&](const auto &) { visit(*named); }),
-                 role[*named]);
+      push(named);
+    while (!work.empty()) {
+      unsigned named = work.back();
+      work.pop_back();
+      idr::match(
+          role[named],
+          [&](Partition::Copied) {
+            for (unsigned next : partition.symbols[named].refs)
+              push(next);
+          },
+          [&](const auto &) { visit(named); });
+    }
   };
 
   // Components of the reference graph, then joined.
-  SmallVector<SmallVector<unsigned>> successors(nodes.size());
-  for (unsigned node = 0; node < nodes.size(); ++node)
+  auto count = static_cast<unsigned>(nodes.size());
+  idr::CsrBuilder<NodeTag> edges(NodeMinter::count(count));
+  for (unsigned node = 0; node < count; ++node)
     reach(nodes[node], [&](unsigned named) {
       if (std::optional<unsigned> base = baseOf(named))
-        successors[node].push_back(*base);
+        edges.edge(NodeMinter::id(node), NodeMinter::id(*base));
     });
+  idr::Partition<NodeTag> components = idr::components(std::move(edges).finish());
   EquivalenceClasses<unsigned> joined;
-  for (unsigned node = 0; node < nodes.size(); ++node)
+  for (unsigned node = 0; node < count; ++node)
     joined.insert(node);
-  for (const SmallVector<unsigned> &component : idr::components(successors))
-    for (unsigned node : component)
-      joined.unionSets(component.front(), node);
+  for (auto component : components.size().ids()) {
+    auto members = components.members(component);
+    for (NodeId node : members)
+      joined.unionSets(members.front().index(), node.index());
+  }
   auto join = [&](unsigned node, std::optional<unsigned> other) {
     if (other)
       joined.unionSets(node, *other);
@@ -327,17 +364,16 @@ Expected<Partition> Partition::of(Module &module) {
   // of nothing a bin defines is declared only.
   for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
     std::optional<unsigned> base = baseOf(symbol);
-    partition.symbols[symbol].home = std::visit(
-        makeVisitor([](Partition::Declared) -> Home { return Partition::Declared{}; },
-                    [](Partition::Copied) -> Home { return Partition::Copied{}; },
-                    [&](Node node) -> Home { return Partition::Defined{binOfNode[node.index]}; },
-                    [&](Alias) -> Home {
-                      if (!base)
-                        return Partition::Declared{};
-                      partition.members[binOfNode[*base]].push_back(symbol);
-                      return Partition::Defined{binOfNode[*base]};
-                    }),
-        role[symbol]);
+    partition.symbols[symbol].home = idr::match(
+        role[symbol], [](Partition::Declared) -> Home { return Partition::Declared{}; },
+        [](Partition::Copied) -> Home { return Partition::Copied{}; },
+        [&](Node node) -> Home { return Partition::Defined{binOfNode[node.index]}; },
+        [&](Alias) -> Home {
+          if (!base)
+            return Partition::Declared{};
+          partition.members[binOfNode[*base]].push_back(symbol);
+          return Partition::Defined{binOfNode[*base]};
+        });
   }
 
   // The linkage every bin reads: a local symbol another bin names, directly
@@ -346,9 +382,13 @@ Expected<Partition> Partition::of(Module &module) {
   for (unsigned bin = 0; bin < partition.members.size(); ++bin)
     for (unsigned symbol : partition.members[bin])
       reach(symbol, [&](unsigned other) {
-        const auto *home = std::get_if<Partition::Defined>(&partition.symbols[other].home);
-        crosses[other] =
-            crosses[other] || (home && home->bin != bin && at[other]->hasLocalLinkage());
+        idr::match(
+            partition.symbols[other].home,
+            [&](Partition::Defined home) {
+              if (home.bin != bin && at[other]->hasLocalLinkage())
+                crosses[other] = true;
+            },
+            [](const auto &) {});
       });
   for (unsigned symbol = 0; symbol < at.size(); ++symbol) {
     if (!crosses[symbol])

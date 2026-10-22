@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The functions on a tail call whose result does not fit the return
-// registers write it through a pointer instead, each rewritten on its own
-// from the plan.
+// The functions whose result does not fit the return registers write it
+// through a pointer instead, each rewritten on its own, a fact of its
+// result's type alone.
 
 #ifndef IDR_CONVERSION_PASSTHROUGHMEMORY_H
 #define IDR_CONVERSION_PASSTHROUGHMEMORY_H

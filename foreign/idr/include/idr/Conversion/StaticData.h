@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The constants idr-lower writes as globals: strings, bigs outside the
-// small range, boxes, among them the memo cells of constant thunks, the
-// messages of crashes, the cells of constant arrays, and `nothing`, the
-// cell poison of a cell pointer is. Each is named from its content,
-// `__idr$<kind>$<hash>` (reservedName), so a name says what the global
-// holds and never when it was written: two functions lowered on two threads
-// that write the same constant write the same global, and the program keeps
-// one. A content is digested from its bytes, or from the canonical text of
-// its attributes and types, which no printing flag reaches.
+// The constants the program holds as globals: strings, bigs outside the
+// small range, cells of data and memo cells of constant suspensions, the
+// cells of constant arrays, `nothing` (the cell poison of a cell pointer
+// is), and the texts a crash site names (its function and its file).
+// idr-lower-statics makes each once, before any function is lowered; the
+// lowering names it. Each is named from its content, `__idr$<kind>$<hash>`
+// (reservedName), so both sides reach one global by the one function of
+// the content, `StaticNames`, and the name says what the global holds,
+// never when it was made.
 
 #ifndef IDR_CONVERSION_STATICDATA_H
 #define IDR_CONVERSION_STATICDATA_H
@@ -20,18 +20,13 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/OwningOpRef.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/StringSet.h"
 
-#include <optional>
+#include <concepts>
 #include <string>
-#include <utility>
 
 namespace idr::conversion {
 
@@ -47,119 +42,109 @@ public:
 
   mlir::MemRefType type() const { return arrayType; }
   mlir::ElementsAttr elements() const { return values; }
+  // The name of its static cell (StaticNames::array), read once, here.
+  llvm::StringRef name() const { return cellName; }
 
 private:
-  ConstantArray(mlir::MemRefType type, mlir::ElementsAttr elements)
-      : arrayType(type), values(elements) {}
+  ConstantArray(mlir::MemRefType type, mlir::ElementsAttr elements, std::string name)
+      : arrayType(type), values(elements), cellName(std::move(name)) {}
 
   mlir::MemRefType arrayType;
   mlir::ElementsAttr values;
+  std::string cellName;
 };
 
+// Whether a global may be written: a memo cell, whose first force writes
+// its state and value, is the one static datum that is.
+enum class Mutability : std::uint8_t { Constant, Written };
+
+// The name of each static datum, a function of its content alone: what
+// idr-lower-statics names a global and what the lowering's address of it
+// reads. A content is digested from its value, an attribute the context
+// uniques, so equal contents are one name; a cell after the first of a
+// spine run is its constant's name and its place in the run.
+class StaticNames {
+public:
+  static std::string string(llvm::StringRef bytes);
+  static std::string big(BigAttr value);
+  // The cell of the constant constructor `con`, the `k`th of its spine run.
+  static std::string cell(ConAttr con, unsigned k);
+  static std::string array(mlir::memref::GlobalOp global);
+  static std::string nothing();
+  // A text of a crash site: a function's name, or a source file's.
+  static std::string text(llvm::StringRef bytes);
+  // The per-thread cursors of the program's homes, one slot per home site.
+  static std::string homes();
+};
+
+// The address of the static datum `name`, made by idr-lower-statics: what
+// the lowering writes for every constant that is static data.
+mlir::Value staticAddress(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef name);
+
+// The word of the big literal `value`, as the runtime reads its text: a
+// small value's tagged word, or the address of the static bignum
+// idr-lower-statics made for it. Usable in code and in the initializer of a
+// global.
+mlir::Value bigConstant(mlir::OpBuilder &b, mlir::Location loc, BigAttr value);
+
+// The maker of every static datum of one program, used once, by
+// idr-lower-statics, serially: each global is made at the start of the
+// program through its symbol table, the first time its name is asked, so a
+// datum named twice is made once.
 class StaticData {
 public:
-  // The globals are built in a module of their own, never in the program,
-  // so that one function's lowering touches nothing outside it;
-  // Runtime::merge moves them into the program once every function is
-  // lowered. Each is at `location`, the program's: no function's.
-  StaticData(mlir::Location location, const Layouts &layouts);
+  StaticData(mlir::Operation *program, mlir::SymbolTable &symbols, const Layouts &layouts,
+             unsigned headerBytes);
 
-  // Whether a lowered component is static data, which holds no count: the
-  // address of a global, or a constant word.
-  static bool isStatic(mlir::Value component);
-
-  // The address of the bytes of `text`.
-  mlir::Value message(mlir::OpBuilder &b, mlir::Location loc, llvm::StringRef text);
-
-  // The components of the constant `value` of type `type`: scalars as LLVM
-  // constants, strings, bigs outside the small range and boxes as static
-  // data, and poison of a cell pointer as `nothing`. Usable in code and in
-  // the initializer of a global.
-  llvm::SmallVector<mlir::Value> constant(mlir::OpBuilder &b, mlir::Location loc,
-                                          mlir::Attribute value, mlir::Type type);
-
+  // The datum of the constant `value` of type `type`, if it is one, and the
+  // data it holds, each made once.
+  void constant(mlir::Attribute value, mlir::Type type);
   // The static cell of `array`: its header, then its data.
-  mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc, const ConstantArray &array);
-
-  // What Runtime::merge reads: the globals written, by name, each with the
-  // digest of the content its name was made from.
-  struct Written {
-    mlir::LLVM::GlobalOp global;
-    Digest key;
-  };
-  const llvm::StringMap<Written> &written() const { return globals; }
-
-  // Whether two contents met under one name, which was reported at the op.
-  bool collided() const { return collision; }
+  void constantArray(const ConstantArray &array);
+  // The cell poison of a cell pointer is.
+  void nothing();
+  // A text of a crash site.
+  void text(llvm::StringRef bytes);
+  // The per-thread cursor of each of `sites` homes, each null until its
+  // first put: the memory of a shard is its thread's.
+  void homes(unsigned sites);
 
 private:
-  // A constant as static data: its components, and what it contributes to
-  // the content, and so to the name, of a datum that holds it: a scalar its
-  // canonical digest, an unboxed sum its constructor and its fields' keys,
-  // a reference the name of what it points at. A datum's key follows from
-  // its fields' keys, so one walk writes a datum and names it.
-  struct Datum {
-    std::string key;
-    llvm::SmallVector<mlir::Value> components;
-  };
-  // A datum's name and the digest of the content it is made from.
-  struct Named {
-    std::string name;
-    Digest key;
-  };
+  // The components a field holding `value` of type `type` puts in a static
+  // cell, built with `b`: a scalar's constant, an unboxed sum's words, and a
+  // datum's address, the datum made first.
+  llvm::SmallVector<mlir::Value> components(mlir::OpBuilder &b, mlir::Attribute value,
+                                            mlir::Type type);
+  // The cells of the constant constructor `con`, the run of its spine from
+  // the last back to the first, each made once.
+  void cells(ConAttr con);
+  void string(llvm::StringRef bytes);
+  void big(BigAttr value);
 
-  // The datum of the constant `value` of type `type`, its components built
-  // with `b` at `loc`.
-  Datum datum(mlir::OpBuilder &b, mlir::Location loc, mlir::Attribute value, mlir::Type type);
-  // The global of the box `con` of type `type`, written once however many
-  // constants hold it.
-  mlir::LLVM::GlobalOp box(mlir::Location loc, ConAttr con, mlir::Type type);
-  // The static cell of the constructor `tag` of `data`, of type `type`,
-  // each field's datum given by `fields` with the initializer's builder:
-  // the global written under the name of its content, or the one already
-  // written under it.
-  mlir::LLVM::GlobalOp
-  staticCell(mlir::Location loc, DataType data, Tag tag, mlir::Type type,
-             llvm::function_ref<llvm::SmallVector<Datum>(mlir::OpBuilder &)> fields);
-  // The global of the bytes of `bytes` as a string.
-  mlir::LLVM::GlobalOp string(mlir::Location loc, llvm::StringRef bytes);
-  // The word of the big `value`, whose canonical digest is `key`.
-  mlir::Value big(mlir::OpBuilder &b, mlir::Location loc, BigAttr value, Digest key);
-  // The cell `nothing`: a header with no object slot, count 0.
-  mlir::LLVM::GlobalOp nothing(mlir::Location loc);
+  // The global `name`, made with its initializer by `init` the first time.
+  template <std::invocable<mlir::OpBuilder &> Init>
+  void global(llvm::StringRef name, mlir::Type type, Mutability mutability, unsigned alignment,
+              Init &&init) {
+    if (symbols.lookup(name))
+      return;
+    mlir::OpBuilder b = mlir::OpBuilder::atBlockBegin(&program->getRegion(0).front());
+    auto made = mlir::LLVM::GlobalOp::create(b, at, type, mutability == Mutability::Constant,
+                                             mlir::LLVM::Linkage::Private, name,
+                                             mlir::Attribute(), alignment);
+    b.createBlock(&made.getInitializerRegion());
+    mlir::LLVM::ReturnOp::create(b, at, mlir::Value(init(b)));
+    symbols.insert(made);
+  }
+  // A static cell's header, the first two members of its struct: count 0,
+  // the runtime's mark of a cell no count frees, and the info word.
+  llvm::SmallVector<mlir::Value> header(mlir::OpBuilder &b, layout::CellInfo info);
+  mlir::Value pack(mlir::OpBuilder &b, mlir::Type structType, mlir::ValueRange members);
 
-  // The name of a datum of `kind` whose content is `key`, interned: a name
-  // already given to another content is reported at `loc`.
-  Named intern(mlir::Location loc, llvm::StringRef kind, Digest key);
-  // A cell's content: its type, its constructor and its fields' keys.
-  Digest cellKey(mlir::Type type, const Ctor &ctor, llvm::ArrayRef<std::string> fields);
-  // "caf" for a static memo cell, "box" for any other.
-  static llvm::StringRef kindOf(DataType data);
-  // A static cell's header, the first two members of its struct: its
-  // types, and its words for a cell of `info`.
-  static llvm::SmallVector<mlir::Type> headerTypes(mlir::MLIRContext *ctx);
-  static llvm::SmallVector<mlir::Value> header(mlir::OpBuilder &b, mlir::Location loc,
-                                               layout::CellInfo info);
-
-  // The global `name`, or none when it is not yet written.
-  std::optional<mlir::LLVM::GlobalOp> find(llvm::StringRef name) const;
-  mlir::LLVM::GlobalOp global(llvm::StringRef name, Digest key, mlir::Type type, bool isConstant,
-                              unsigned alignment,
-                              llvm::function_ref<mlir::Value(mlir::OpBuilder &)> init);
-  mlir::Value pack(mlir::OpBuilder &b, mlir::Location loc, mlir::Type structType,
-                   mlir::ValueRange members);
-
-  mlir::Location at;
+  mlir::Operation *program;
+  mlir::SymbolTable &symbols;
   const Layouts &layouts;
-  // Where the globals are built until the merge.
-  mlir::OwningOpRef<mlir::ModuleOp> scratch;
-  // Each name given, with the content it was made from.
-  ContentNames names;
-  // The boxes already written, since a box's global reaches every datum
-  // that holds it.
-  llvm::DenseMap<std::pair<mlir::Attribute, mlir::Type>, mlir::LLVM::GlobalOp> boxes;
-  llvm::StringMap<Written> globals;
-  bool collision = false;
+  unsigned headerBytes;
+  mlir::Location at;
 };
 
 } // namespace idr::conversion

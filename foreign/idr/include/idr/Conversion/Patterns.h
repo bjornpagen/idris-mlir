@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Phase 2 of idr-lower: the conversion patterns of each idr op and type,
-// with the layouts and the runtime they lower with.
+// with the layouts and the runtime they lower with. A runtime holds no
+// state, so one serves every function lowered at once.
 
 #ifndef IDR_CONVERSION_PATTERNS_H
 #define IDR_CONVERSION_PATTERNS_H
 
 #include "idr/IR/Layout.h"
-#include "idr/Conversion/Fields.h"
 #include "idr/Conversion/Runtime.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -18,8 +18,9 @@
 
 namespace idr::conversion {
 
-// The ops that count references, and the take of a cell: calls of the
-// runtime, which LTO inlines.
+// The counting ops: a count by the entry of each word's kind, a take of a
+// value its type proves unshared with no test, the one test of sharing
+// where its type proves nothing, and the frees of tokens.
 void populateCountingPatterns(mlir::RewritePatternSet &patterns,
                               const mlir::TypeConverter &converter, const Layouts &layouts,
                               Runtime &runtime);
@@ -29,8 +30,8 @@ void populateCountingPatterns(mlir::RewritePatternSet &patterns,
 void populateBigPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
                          const Layouts &layouts, Runtime &runtime);
 
-// The cells memrefs live in, allocated or constant, and the arrays a world
-// orders: their reads, writes and updates in place. `arrays` holds every
+// The cells memrefs live in, allocated or constant, and the arrays of
+// mutable memory: their reads, writes and updates in place. `arrays` holds every
 // memref.global of the program by name, read as a constant array.
 void populateArrayPatterns(mlir::RewritePatternSet &patterns,
                            const mlir::TypeConverter &converter, const Layouts &layouts,
@@ -53,14 +54,13 @@ void populateStringPatterns(mlir::RewritePatternSet &patterns,
                             const mlir::TypeConverter &converter, const Layouts &layouts,
                             Runtime &runtime);
 
-// The cells, each made by its producer and written by its init, and the
-// sums held in place, built and unpacked; `fields` says which fields a
-// recycled cell holds already.
+// The counted cells, each made by its source and written by its init, and
+// the data values, built, read and taken apart by their layouts.
 void populateCellPatterns(mlir::RewritePatternSet &patterns, const mlir::TypeConverter &converter,
-                          const Layouts &layouts, Runtime &runtime, const Fields &fields);
+                          const Layouts &layouts, Runtime &runtime);
 
-// Crashes, forged worlds, loops that need not end, and the scalar
-// operations whose meaning is more than arith's.
+// The ends of a run, the IO a trusted library runs for a value, and the
+// ops of inline arithmetic.
 void populateScalarPatterns(mlir::RewritePatternSet &patterns,
                             const mlir::TypeConverter &converter, const Layouts &layouts,
                             Runtime &runtime);

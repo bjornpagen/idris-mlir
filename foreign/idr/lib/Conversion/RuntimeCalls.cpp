@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The patterns of the ops that call the runtime: each op the table
-// generated from the ops' marks pairs with its C function
-// (IdrRuntimeAbi.inc, Abi<Op>::entry), which says how the function takes
-// the op's operands and gives its result.
+// The patterns of the ops that call the runtime: each op the generated ABI
+// table pairs with its C function (Abi<Op>::entry), which says how the
+// function takes the op's operands and gives its results. The call says
+// what the op's declaration says it does, as LLVM's attributes, since
+// linking the runtime replaces a declaration's attributes by the
+// definition's.
 
+#include "Lower/Lower.h"
+
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
@@ -16,6 +21,8 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -28,6 +35,7 @@ namespace idr::conversion {
 
 namespace {
 
+using idr::runtime::Gives;
 using idr::runtime::ResultKind;
 
 // The range an op states for its value whatever its operands are: the
@@ -56,8 +64,8 @@ std::optional<ConstantIntRanges> statedRange(Operation *op) {
 // range is half-open, so a range up to the type's largest value is one it
 // cannot state, and says nothing worth stating. Any other result states no
 // range: a pointer, a bool and a string are no number the op ranges, a
-// double is no integer, a wrapped integer and an order are read through the
-// op's width and predicate, and no result is none.
+// double is no integer, and a wrapped integer and an order are read
+// through the op's width and predicate.
 std::optional<LLVM::ConstantRangeAttr> givenRange(MLIRContext *ctx, ResultKind kind,
                                                   const ConstantIntRanges &stated) {
   using enum ResultKind;
@@ -77,8 +85,6 @@ std::optional<LLVM::ConstantRangeAttr> givenRange(MLIRContext *ctx, ResultKind k
     uint64_t upper = static_cast<uint64_t>(idris_rt_small_word(*bounds.hi)) + 1;
     return LLVM::ConstantRangeAttr::get(ctx, APInt(64, lower), APInt(64, upper));
   }
-  case Void:
-  case NoReturn:
   case Double:
   case Wrapped:
   case Order:
@@ -89,68 +95,152 @@ std::optional<LLVM::ConstantRangeAttr> givenRange(MLIRContext *ctx, ResultKind k
   }
 }
 
-// The op's value from what its function gives, as the function's result
-// kind, a constant of the table, says: a wrapped integer is the function's
-// 64 bits, which the op wraps to its width; an order is the function's
-// three-way comparison, which the op compares with 0 by its predicate (the
-// generator gives an i1 the Order kind only beside a predicate, so only an
-// op with one reads it); any other is the value itself, in the range the op
-// states.
+// One value of the op from what its function gives of the kind `kind`: a
+// wrapped integer is the function's 64 bits, which the op wraps to its
+// width; an order is the function's three-way comparison, which the op
+// compares with 0 by its predicate (the specification gives an i1 the
+// Order kind only beside a predicate, so only an op with one reads it);
+// any other is the value itself.
 template <typename OpT>
-Value resultOf(OpT op, LLVM::CallOp call, Type result, ConversionPatternRewriter &rewriter) {
-  constexpr ResultKind kind = idr::runtime::Abi<OpT>::entry.result;
+Value resultOf(OpT op, ResultKind kind, Value given, Type result,
+               ConversionPatternRewriter &rewriter) {
   Location loc = op.getLoc();
-  Value given = call.getResult();
-  if constexpr (kind == ResultKind::Wrapped) {
+  if (kind == ResultKind::Wrapped)
     return given.getType() == result ? given
                                      : Value(arith::TruncIOp::create(rewriter, loc, result, given));
-  } else if constexpr (kind == ResultKind::Order) {
-    Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 32);
-    return arith::CmpIOp::create(rewriter, loc, layout::signedPredicate(op.getPredicate()), given,
-                                 zero);
-  } else {
-    if (std::optional<ConstantIntRanges> stated = statedRange(op))
-      if (std::optional<LLVM::ConstantRangeAttr> range =
-              givenRange(rewriter.getContext(), kind, *stated))
-        call.setResAttrsAttr(rewriter.getArrayAttr(rewriter.getDictionaryAttr(
-            rewriter.getNamedAttr(LLVM::LLVMDialect::getRangeAttrName(), *range))));
-    return given;
-  }
+  if constexpr (requires { op.getPredicate(); })
+    if (kind == ResultKind::Order) {
+      Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 32);
+      return arith::CmpIOp::create(rewriter, loc, layout::signedPredicate(op.getPredicate()),
+                                   given, zero);
+    }
+  return given;
 }
 
-// An op's precondition (a divisor that is not zero, an index within the
-// string) is its guard's, tested before the op: the call is all the op
-// lowers to. The op's results are the world, which converts to no value,
-// and at most one value, the function's: the table gives the op a function
-// of no result exactly when it has no other.
+// What one op does, as its row would hold it: its declaration's effects,
+// or every effect for an op that declares none.
+template <typename OpT>
+effects::Row rowOf(OpT op) {
+  if constexpr (effects::HasDeclaration<OpT>)
+    return effects::own(op).row();
+  else
+    return effects::EffectSet::everything().row();
+}
+
+// An op whose function is its meaning: the call is all it lowers to, its
+// precondition its guard's, tested before it. Its results are what the
+// function gives: none, the one it returns, or each through a slot of this
+// frame the call is passed. What the call does is the op's declaration's,
+// a constant of its class where its class decides it, made once with the
+// pattern.
 template <typename OpT>
 struct LowerRuntimeCall : IdrPattern<OpT> {
-  using IdrPattern<OpT>::IdrPattern;
+  LowerRuntimeCall(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
+                   Runtime &runtime)
+      : IdrPattern<OpT>(converter, ctx, layouts, runtime) {
+    if constexpr (effects::DecidedByClass<OpT>)
+      classFacts = callFacts(ctx, effects::bound<OpT>().row());
+  }
+
+  // What every call of an op of the class does, where its class decides it:
+  // made once, here, so no attribute is made where a function is lowered.
+  std::optional<CallFacts> classFacts;
+
   LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    LLVM::CallOp call =
-        this->runtime.call(rewriter, op, idr::runtime::Abi<OpT>::entry, adaptor.getOperands());
-    SmallVector<SmallVector<Value>> out;
-    for (Type type : op->getResultTypes()) {
-      SmallVector<Type> converted;
+    constexpr const idr::runtime::Function &function = idr::runtime::Abi<OpT>::entry;
+    Location loc = op.getLoc();
+    MLIRContext *ctx = rewriter.getContext();
+    SmallVector<Type> converted;
+    for (Type type : op->getResultTypes())
       if (failed(this->getTypeConverter()->convertType(type, converted)))
         return rewriter.notifyMatchFailure(op, "a result's type does not convert");
-      // The world converts to nothing; the value, to the one C value.
-      if (converted.empty())
-        out.emplace_back();
-      else
-        out.push_back({resultOf(op, call, converted.front(), rewriter)});
+    SmallVector<Value> slots;
+    if (function.gives == Gives::ThroughPointers)
+      for (Type type : converted) {
+        OpBuilder::InsertionGuard guard(rewriter);
+        Operation *scope = op->template getParentWithTrait<mlir::OpTrait::AutomaticAllocationScope>();
+        rewriter.setInsertionPointToStart(&scope->getRegion(0).front());
+        Value one = LLVM::ConstantOp::create(rewriter, loc, rewriter.getI64Type(), 1);
+        slots.push_back(LLVM::AllocaOp::create(rewriter, loc, ptrType(ctx), type, one, 0));
+      }
+    LLVM::CallOp call =
+        this->runtime.call(rewriter, op, function, adaptor.getOperands(), slots);
+    // An op whose types decide what it does says so of itself.
+    tellCall(call, classFacts ? *classFacts : callFacts(ctx, rowOf(op)));
+    SmallVector<Value> values;
+    switch (function.gives) {
+    case Gives::Nothing:
+    case Gives::NeverReturns:
+      break;
+    case Gives::Returns: {
+      ResultKind kind = function.results.front();
+      if (std::optional<ConstantIntRanges> stated = statedRange(op))
+        if (std::optional<LLVM::ConstantRangeAttr> range = givenRange(ctx, kind, *stated))
+          call.setResAttrsAttr(rewriter.getArrayAttr(rewriter.getDictionaryAttr(
+              rewriter.getNamedAttr(LLVM::LLVMDialect::getRangeAttrName(), *range))));
+      values.push_back(resultOf(op, kind, call.getResult(), converted.front(), rewriter));
+      break;
     }
-    rewriter.replaceOpWithMultiple(op, std::move(out));
+    case Gives::ThroughPointers:
+      for (auto [slot, type, kind] : llvm::zip_equal(slots, converted, function.results))
+        values.push_back(resultOf(op, kind, LLVM::LoadOp::create(rewriter, loc, type, slot),
+                                  type, rewriter));
+      break;
+    }
+    // A terminator whose function never returns ends its block where the
+    // call does.
+    if (op->template hasTrait<mlir::OpTrait::IsTerminator>()) {
+      rewriter.replaceOpWithNewOp<ub::UnreachableOp>(op);
+      return success();
+    }
+    SmallVector<SmallVector<Value>> results;
+    for (Value value : values)
+      results.push_back({value});
+    rewriter.replaceOpWithMultiple(op, std::move(results));
     return success();
   }
 };
+
+// An exit with a status no parent can read, outside 0 to 255, is a crash at
+// the exit's site, which only the site knows to name: the test is there,
+// the one test of a status, and a constant status folds it. Every other
+// status ends the run by the exit's own function.
+struct LowerExit : IdrPattern<IoExitOp> {
+  LowerExit(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
+            Runtime &runtime)
+      : IdrPattern(converter, ctx, layouts, runtime, ownLowering) {}
+
+  LogicalResult matchAndRewrite(IoExitOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value status = adaptor.getStatus().front();
+    Value unreportable =
+        arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ugt, status,
+                              arith::ConstantIntOp::create(rewriter, loc, 255, 64));
+    auto check = scf::IfOp::create(rewriter, loc, unreportable, /*withElseRegion=*/false);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(check.thenBlock());
+      SmallVector<Value> args{status};
+      llvm::append_range(args, runtime.siteOperands(rewriter, loc, op.getSite()));
+      runtime.call(rewriter, loc, idr::runtime::helper::unreportableAt, args).setCold(true);
+    }
+    runtime.call(rewriter, loc, idr::runtime::Abi<IoExitOp>::entry, status);
+    rewriter.replaceOpWithNewOp<ub::UnreachableOp>(op);
+    return success();
+  }
+};
+
+// An op the table gives a function of its own.
+template <typename OpT>
+concept CallsRuntime = requires { idr::runtime::Abi<OpT>::entry; };
 
 template <typename... Ops>
 void addRuntimeCalls(RewritePatternSet &patterns, const TypeConverter &converter,
                      const Layouts &layouts, Runtime &runtime) {
   auto add = [&]<typename OpT>() {
-    if constexpr (requires { idr::runtime::Abi<OpT>::entry; })
+    if constexpr (CallsRuntime<OpT>)
       patterns.add<LowerRuntimeCall<OpT>>(converter, patterns.getContext(), layouts, runtime);
   };
   (add.template operator()<Ops>(), ...);
@@ -167,6 +257,7 @@ void populateRuntimeCallPatterns(RewritePatternSet &patterns, const TypeConverte
 #define GET_OP_LIST
 #include "idr/IR/IdrOps.cpp.inc"
       >(patterns, converter, layouts, runtime);
+  patterns.add<LowerExit>(converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

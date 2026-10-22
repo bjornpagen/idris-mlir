@@ -5,6 +5,7 @@
 #include "idr/Conversion/Mangle.h"
 
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/ConvertUTF.h"
 
 namespace idr::conversion {
@@ -35,6 +36,10 @@ std::string mangle(llvm::StringRef name) {
     out += '$';
   }
   return out;
+}
+
+std::string mangleProgramSymbol(llvm::StringRef name) {
+  return (llvm::Twine(programPrefix) + mangle(name)).str();
 }
 
 } // namespace idr::conversion

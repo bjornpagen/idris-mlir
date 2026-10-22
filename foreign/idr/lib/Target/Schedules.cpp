@@ -84,8 +84,7 @@ constexpr unsigned cleanupRounds = 10;
 // minor-identity one and a transpose or broadcast), which ends with no
 // budget, since each rewrite removes a mask region or a permutation and
 // none makes one, and must, since an op left would not lower; then the
-// cleanup, a spent budget suppressed. Canonicalization is the pipeline's,
-// after the group.
+// cleanup, a spent budget suppressed.
 constexpr llvm::StringLiteral libraryHead = R"mlir(
 module attributes {transform.with_named_sequence} {
   transform.named_sequence @)mlir";

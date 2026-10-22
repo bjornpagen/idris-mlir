@@ -1,31 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime's C functions as idr-lower calls them, the crashes it
-// reports through them, counting, and the merge of what the workers wrote;
-// the reads and writes of a cell are RuntimeCells.cpp's.
+// The runtime's C functions as idr-lower calls them, the crashes it reports
+// through them, counting by the kind of each word, and the constants that
+// are static data; the reads and writes of a cell are RuntimeCells.cpp's.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
-#include "idr/IR/Symbols.h"
 #include "idr/Conversion/Runtime.h"
 #include "idr/Conversion/StaticData.h"
 #include "idr/Conversion/Words.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/Location.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/StringSet.h"
-#include "llvm/ADT/Twine.h"
-#include "llvm/Support/raw_ostream.h"
-
-// The runtime's C ABI: the size of its words and the stack mark of a cell's
-// info are macros.
-#include "idris_rt.h"
-
-#include <string>
 
 using namespace mlir;
 
@@ -33,59 +23,36 @@ namespace idr::conversion {
 
 namespace {
 
+using idr::runtime::Gives;
 using idr::runtime::OperandKind;
 using idr::runtime::ResultKind;
 
-// The message of a crash, as the runtime prints it after its own prefix:
-// its cause and, where the location names a place in the Idris source, the
-// start of that place.
-std::string crashMessage(Location loc, StringRef cause) {
-  auto place = loc->findInstanceOf<FileLineColRange>();
-  // A location may name no place at all: an op the lowering made from none.
-  if (!place)
-    return cause.str();
-  return (cause + " at " + place.getFilename().getValue() + ":" + Twine(place.getStartLine()) +
-          ":" + Twine(place.getStartColumn()))
-      .str();
-}
-
-// The LLVM type of a parameter of the kind `kind`, appended to `params`:
-// none for the world, which is no C value.
-void appendParameter(SmallVectorImpl<Type> &params, MLIRContext *ctx, OperandKind kind) {
+// The LLVM type of a value of the kind `kind`. Each kind is one C type, so
+// a parameter and a result of one kind are one LLVM type.
+Type llvmType(MLIRContext *ctx, OperandKind kind) {
   using enum OperandKind;
   switch (kind) {
-  case World:
-    return;
   case Int32:
-    params.push_back(IntegerType::get(ctx, 32));
-    return;
+    return IntegerType::get(ctx, 32);
   case Bool:
-    params.push_back(IntegerType::get(ctx, 1));
-    return;
+    return IntegerType::get(ctx, 1);
   case Int64:
   case Signed:
   case Unsigned:
   case Big:
-    params.push_back(IntegerType::get(ctx, 64));
-    return;
+    return IntegerType::get(ctx, 64);
   case Double:
-    params.push_back(Float64Type::get(ctx));
-    return;
+    return Float64Type::get(ctx);
   case Str:
   case Buffer:
   case Pointer:
-    params.push_back(LLVM::LLVMPointerType::get(ctx));
-    return;
+    return LLVM::LLVMPointerType::get(ctx);
   }
 }
 
-// The LLVM type of a result of the kind `kind`: void for none.
-Type resultType(MLIRContext *ctx, ResultKind kind) {
+Type llvmType(MLIRContext *ctx, ResultKind kind) {
   using enum ResultKind;
   switch (kind) {
-  case Void:
-  case NoReturn:
-    return LLVM::LLVMVoidType::get(ctx);
   case Int32:
   case Order:
     return IntegerType::get(ctx, 32);
@@ -103,197 +70,210 @@ Type resultType(MLIRContext *ctx, ResultKind kind) {
   }
 }
 
-// The type of a runtime function, from its kinds alone: every call and its
-// one declaration have it.
-LLVM::LLVMFunctionType functionType(MLIRContext *ctx, const idr::runtime::Function &function) {
-  SmallVector<Type> params;
-  for (OperandKind kind : function.operands)
-    appendParameter(params, ctx, kind);
-  return LLVM::LLVMFunctionType::get(resultType(ctx, function.result), params);
+// The entry of `count` for a word of kind `word`: the kinds form a lattice
+// (a cell below a maybe-cell and a big, their join any), and each entry
+// tests exactly what its kind leaves open. An uncounted word has none.
+const idr::runtime::Function &incOf(layout::Word word) {
+  using enum layout::Word;
+  switch (word) {
+  case Cell:
+    return idr::runtime::helper::incCell;
+  case MaybeCell:
+    return idr::runtime::helper::incMaybeCell;
+  case Big:
+    return idr::runtime::helper::incBig;
+  case Any:
+  case Uncounted:
+    break;
+  }
+  return idr::runtime::helper::incAny;
+}
+
+const idr::runtime::Function &decOf(layout::Word word) {
+  using enum layout::Word;
+  switch (word) {
+  case Cell:
+    return idr::runtime::helper::decCell;
+  case MaybeCell:
+    return idr::runtime::helper::decMaybeCell;
+  case Big:
+    return idr::runtime::helper::decBig;
+  case Any:
+  case Uncounted:
+    break;
+  }
+  return idr::runtime::helper::decAny;
 }
 
 } // namespace
 
-// Detached: no worker declares a function, since two would declare it
-// twice, and a declaration made while functions are converted would land
-// in the order they are; merge and idr-entry insert it.
+LLVM::LLVMFunctionType runtimeFunctionType(MLIRContext *ctx,
+                                           const idr::runtime::Function &function) {
+  SmallVector<Type> params;
+  for (OperandKind kind : function.operands)
+    params.push_back(llvmType(ctx, kind));
+  Type result = LLVM::LLVMVoidType::get(ctx);
+  switch (function.gives) {
+  case Gives::Nothing:
+  case Gives::NeverReturns:
+    break;
+  case Gives::Returns:
+    result = llvmType(ctx, function.results.front());
+    break;
+  case Gives::ThroughPointers:
+    // One pointer for each result, after the operands.
+    params.append(function.results.size(), LLVM::LLVMPointerType::get(ctx));
+    break;
+  }
+  return LLVM::LLVMFunctionType::get(result, params);
+}
+
+// Detached: idr-lower-runtime inserts it, once per function of the table.
 LLVM::LLVMFuncOp runtimeDeclaration(Location loc, const idr::runtime::Function &function) {
   OpBuilder b(loc.getContext());
   auto callee = LLVM::LLVMFuncOp::create(b, loc, StringRef(function.symbol),
-                                         functionType(loc.getContext(), function));
+                                         runtimeFunctionType(loc.getContext(), function));
   for (auto [index, kind] : llvm::enumerate(function.operands))
     if (kind == OperandKind::Bool)
       callee.setArgAttr(static_cast<unsigned>(index), LLVM::LLVMDialect::getZExtAttrName(),
                         b.getUnitAttr());
-  if (function.result == ResultKind::Bool)
+  if (function.gives == Gives::Returns && function.results.front() == ResultKind::Bool)
     callee.setResultAttr(0, LLVM::LLVMDialect::getZExtAttrName(), b.getUnitAttr());
-  if (function.result == ResultKind::NoReturn)
+  if (function.gives == Gives::NeverReturns)
     callee.setNoreturn(true);
   return callee;
 }
 
-// The converter reads no data layout of its own: the options carry what
-// it needs, and a worker's queries would fill the shared layout's caches.
-Runtime::Runtime(Location at, const Layouts &l, const LowerToLLVMOptions &options)
-    : llvmTypes(at.getContext(), options, /*analysis=*/nullptr), statics(at, l) {}
+HeaderLayout HeaderLayout::of(const Layouts &layouts, MLIRContext *ctx) {
+  unsigned word = layouts.sizeOf(IntegerType::get(ctx, 32));
+  return {/*countAt=*/0, /*infoAt=*/word, /*bytes=*/2 * word};
+}
 
-// A function that does not return says so at each call too, since linking
-// the runtime replaces the declaration's attributes by the definition's.
+// The converter reads no data layout of its own: the options carry what it
+// needs, and a query of the shared layout would fill its caches.
+Runtime::Runtime(MLIRContext *ctx, const Layouts &l, const LowerToLLVMOptions &options)
+    : layouts(l), llvmTypes(ctx, options, /*analysis=*/nullptr),
+      headerLayout(HeaderLayout::of(l, ctx)) {}
+
 LLVM::CallOp Runtime::call(OpBuilder &b, Location loc, const idr::runtime::Function &function,
-                           ValueRange args) {
-  called.insert(&function);
-  auto made = LLVM::CallOp::create(b, loc, functionType(b.getContext(), function),
+                           ValueRange args) const {
+  auto made = LLVM::CallOp::create(b, loc, runtimeFunctionType(b.getContext(), function),
                                    StringRef(function.symbol), args);
-  if (function.result == ResultKind::NoReturn)
+  if (function.gives == Gives::NeverReturns)
     made.setNoreturn(true);
   return made;
 }
 
 LLVM::CallOp Runtime::call(OpBuilder &b, Operation *op, const idr::runtime::Function &function,
-                           ArrayRef<ValueRange> operands) {
+                           ArrayRef<ValueRange> operands, ArrayRef<Value> resultSlots) const {
   Location loc = op->getLoc();
   Type i64 = b.getI64Type();
   SmallVector<Value> args;
   for (auto [kind, components] : llvm::zip_equal(function.operands, operands)) {
-    using enum OperandKind;
-    switch (kind) {
-    case World:
-      break;
-    case Signed:
-    case Unsigned: {
-      // An integer of the op's width, which is 64 bits already or is
-      // extended to them.
-      Value integer = components.front();
-      if (integer.getType() != i64)
-        integer = kind == Signed
-                      ? Value(arith::ExtSIOp::create(b, loc, i64, integer))
-                      : Value(arith::ExtUIOp::create(b, loc, i64, integer));
-      args.push_back(integer);
-      break;
-    }
-    case Int32:
-    case Int64:
-    case Double:
-    case Str:
-    case Big:
-    case Buffer:
-    case Pointer:
-    case Bool:
-      args.push_back(components.front());
-      break;
-    }
+    Value value = components.front();
+    // An integer of the op's width, which is 64 bits already or is
+    // extended to them by its signedness.
+    if ((kind == OperandKind::Signed || kind == OperandKind::Unsigned) && value.getType() != i64)
+      value = kind == OperandKind::Signed ? Value(arith::ExtSIOp::create(b, loc, i64, value))
+                                          : Value(arith::ExtUIOp::create(b, loc, i64, value));
+    args.push_back(value);
   }
+  llvm::append_range(args, resultSlots);
   return call(b, loc, function, args);
 }
 
-void Runtime::crash(OpBuilder &b, Location loc, StringRef cause) {
-  std::string text = crashMessage(loc, cause);
-  Value ptr = statics.message(b, loc, text);
-  Value len = i64Constant(b, loc, static_cast<int64_t>(text.size()));
-  // The call is cold, and what leads only to it: LLVM lays the crash
-  // checks out of the way of the paths that run.
-  call(b, loc, idr::runtime::helper::crash, ValueRange{ptr, len}).setCold(true);
+SmallVector<Value, 4> Runtime::siteOperands(OpBuilder &b, Location loc, SiteAttr site) const {
+  return {staticAddress(b, loc, StaticNames::text(StringRef(site.getFunction()))),
+          staticAddress(b, loc, StaticNames::text(StringRef(site.getFile()))),
+          i32Constant(b, loc, static_cast<int64_t>(site.getLine())),
+          i32Constant(b, loc, static_cast<int64_t>(site.getColumn()))};
 }
 
-void Runtime::crashIf(OpBuilder &b, Location loc, Value condition, StringRef cause) {
+// The call is cold, and so what leads only to it: LLVM lays the crash
+// checks out of the way of the paths that run.
+void Runtime::crash(OpBuilder &b, Location loc, CrashCause cause, SiteAttr site) const {
+  SmallVector<Value> args{i32Constant(b, loc, static_cast<int64_t>(cause))};
+  llvm::append_range(args, siteOperands(b, loc, site));
+  call(b, loc, idr::runtime::helper::crashAt, args).setCold(true);
+}
+
+void Runtime::crashWith(OpBuilder &b, Location loc, Value message, SiteAttr site) const {
+  SmallVector<Value> args{message};
+  llvm::append_range(args, siteOperands(b, loc, site));
+  call(b, loc, idr::runtime::helper::crashMessageAt, args).setCold(true);
+}
+
+void Runtime::crashIf(OpBuilder &b, Location loc, Value condition, CrashCause cause,
+                      SiteAttr site) const {
   auto check = scf::IfOp::create(b, loc, condition, /*withElseRegion=*/false);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(check.thenBlock());
-  crash(b, loc, cause);
+  crash(b, loc, cause, site);
 }
 
-// llvm.sideeffect is the effect LLVM keeps in place and emits as no
-// instruction, so the body of a loop that may not end never empties. A
-// fence would not do: LLVM hoists it out of the loop.
-void Runtime::mayLoop(OpBuilder &b, Location loc) {
-  LLVM::CallIntrinsicOp::create(b, loc, b.getStringAttr("llvm.sideeffect"), ValueRange{});
+void Runtime::outOfMemoryIf(OpBuilder &b, Location loc, Value condition) const {
+  auto check = scf::IfOp::create(b, loc, condition, /*withElseRegion=*/false);
+  OpBuilder::InsertionGuard guard(b);
+  b.setInsertionPointToStart(check.thenBlock());
+  call(b, loc, idr::runtime::helper::outOfMemory, ValueRange{}).setCold(true);
 }
 
-void Runtime::inc(OpBuilder &b, Location loc, ValueRange references) {
-  countEach(b, loc, idr::runtime::helper::inc, references);
+void Runtime::inc(OpBuilder &b, Location loc, ArrayRef<layout::Component> components,
+                  ValueRange values) const {
+  for (auto [component, value] : llvm::zip_equal(components, values))
+    if (component.word != layout::Word::Uncounted)
+      inc(b, loc, component.word, value);
 }
 
-void Runtime::dec(OpBuilder &b, Location loc, ValueRange references) {
-  countEach(b, loc, idr::runtime::helper::dec, references);
+void Runtime::dec(OpBuilder &b, Location loc, ArrayRef<layout::Component> components,
+                  ValueRange values) const {
+  for (auto [component, value] : llvm::zip_equal(components, values))
+    if (component.word != layout::Word::Uncounted)
+      dec(b, loc, component.word, value);
 }
 
-SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value, Type type) {
-  return statics.constant(b, loc, value, type);
+void Runtime::inc(OpBuilder &b, Location loc, layout::Word word, Value value) const {
+  call(b, loc, incOf(word), value);
 }
 
-Value Runtime::constantArray(OpBuilder &b, Location loc, const ConstantArray &array) {
-  return statics.constantArray(b, loc, array);
+void Runtime::dec(OpBuilder &b, Location loc, layout::Word word, Value value) const {
+  call(b, loc, decOf(word), value);
 }
 
-LogicalResult Runtime::merge(Operation *program, SymbolTable &symbols,
-                             ArrayRef<Runtime *> workers) {
-  Location loc = program->getLoc();
-  bool merged = true;
-  llvm::SmallPtrSet<const idr::runtime::Function *, 16> functions;
-  // Equal names are equal contents, by how names are made: one global of
-  // each name is kept, the others go with their worker.
-  llvm::StringMap<StaticData::Written> data;
-  for (Runtime *worker : workers) {
-    merged = merged && !worker->statics.collided();
-    functions.insert(worker->called.begin(), worker->called.end());
-    for (const auto &entry : worker->statics.written()) {
-      auto [it, inserted] = data.try_emplace(entry.getKey(), entry.getValue());
-      if (!inserted && it->second.key != entry.getValue().key) {
-        std::string keys;
-        llvm::raw_string_ostream(keys) << it->second.key << " and " << entry.getValue().key;
-        emitError(loc) << "internal error: two keys name " << entry.getKey() << ": " << keys;
-        merged = false;
-      }
-    }
-  }
-  // Each before the program's first op, so in the order inserted. A C name
-  // is its own mangling, so a program symbol could be one, and
-  // SymbolTable::insert would rename the declaration silently: such a
-  // program is refused here. Static data and the release function have
-  // reserved names (idr::reservedName), which no program symbol is.
-  Block *body = &program->getRegion(0).front();
-  Block::iterator first = body->begin();
-  SmallVector<const idr::runtime::Function *> declared(functions.begin(), functions.end());
-  llvm::sort(declared, [](const idr::runtime::Function *a, const idr::runtime::Function *c) {
-    return a->symbol < c->symbol;
-  });
-  for (const idr::runtime::Function *function : declared) {
-    StringRef name(function->symbol);
-    if (symbols.lookup(name)) {
-      emitError(loc) << "internal error: idr-lower: @" << name
-                     << ", a function of the runtime, names a symbol of the program";
-      merged = false;
-      continue;
-    }
-    symbols.insert(runtimeDeclaration(loc, *function), first);
-  }
-  SmallVector<StringRef> names;
-  for (const auto &entry : data)
-    names.push_back(entry.getKey());
-  llvm::sort(names);
-  for (StringRef name : names) {
-    LLVM::GlobalOp global = data.lookup(name).global;
-    global->remove();
-    symbols.insert(global, first);
-  }
-  if (!merged)
-    return failure();
-
-  return success();
+Value Runtime::isUnique(OpBuilder &b, Location loc, Value cell) const {
+  return call(b, loc, idr::runtime::helper::isUnique, cell).getResult();
 }
 
-void Runtime::countEach(OpBuilder &b, Location loc, const idr::runtime::Function &function,
-                        ValueRange references) {
-  for (Value reference : references) {
-    if (StaticData::isStatic(reference))
-      continue;
-    // A counted word that is no pointer (a big's) is passed as the address
-    // it holds.
-    Value pointer = reference;
-    if (!isa<LLVM::LLVMPointerType>(pointer.getType()))
-      pointer = LLVM::IntToPtrOp::create(b, loc, ptrType(b.getContext()), pointer);
-    call(b, loc, function, pointer);
-  }
+// The one ladder of constants a value may be: strings, bigs, scalars,
+// poison of a cell pointer, then constructors, in place or in a cell. Each
+// datum is idr-lower-statics', named by its content.
+SmallVector<Value> Runtime::constant(OpBuilder &b, Location loc, Attribute value,
+                                     Type type) const {
+  type = unrestricted(type);
+  if (auto text = dyn_cast<StringAttr>(value))
+    return {staticAddress(b, loc, StaticNames::string(text.getValue()))};
+  if (auto number = dyn_cast<BigAttr>(value))
+    return {bigConstant(b, loc, number)};
+  if (isa<IntegerAttr, FloatAttr>(value))
+    return {LLVM::ConstantOp::create(b, loc, type, cast<TypedAttr>(value))};
+  // Poison stands for a cell pointer only: of any other value it is each
+  // component's (Cells.cpp).
+  if (isa<ub::PoisonAttr>(value))
+    return {staticAddress(b, loc, StaticNames::nothing())};
+  auto con = cast<ConAttr>(value);
+  DataType data = con.getData();
+  if (data.layout() == Layout::Cell)
+    return {staticAddress(b, loc, StaticNames::cell(con, 0))};
+  families::CtorView ctor = data.ctor(con.getTag());
+  SmallVector<SmallVector<Value>> held;
+  for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), ctor.fields))
+    held.push_back(constant(b, loc, field, fieldType));
+  SmallVector<ValueRange> fields(held.begin(), held.end());
+  return unboxedSum(b, loc, layouts.sum(data), con.getTag(), fields);
+}
+
+Value Runtime::constantArray(OpBuilder &b, Location loc, const ConstantArray &array) const {
+  return staticAddress(b, loc, array.name());
 }
 
 } // namespace idr::conversion
