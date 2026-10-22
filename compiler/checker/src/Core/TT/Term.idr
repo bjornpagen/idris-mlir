@@ -151,6 +151,20 @@ ClosedTerm : Type
 ClosedTerm = Term []
 
 ------------------------------------------------------------------------
+-- Locals
+
+||| The local at a named variable's index, as weakening and putting
+||| variables in for names rebuild one.
+public export
+localAt : FC -> Maybe Bool -> NVar nm vars -> Term vars
+localAt fc r (MkNVar p) = Local fc r _ p
+
+||| The local at a variable's index, as substitution rebuilds one.
+public export
+localOf : FC -> Maybe Bool -> Var vars -> Term vars
+localOf fc r (MkVar p) = Local fc r _ p
+
+------------------------------------------------------------------------
 -- Weakening
 
 -- Each kind of node a term holds terms in is traversed by a function of
@@ -188,8 +202,7 @@ mutual
   export
   insertNames : GenWeakenable Term
   insertNames out ns (Local fc r idx prf)
-     = let MkNVar prf' = insertNVarNames out ns (MkNVar prf) in
-       Local fc r _ prf'
+     = localAt fc r (insertNVarNames out ns (MkNVar prf))
   insertNames out ns (Ref fc nt name) = Ref fc nt name
   insertNames out ns (Meta fc name idx args)
       = Meta fc name idx (insertNamesTerms out ns args)
@@ -212,14 +225,17 @@ mutual
 
 -- Embedding a term in a larger scope adds the new variables at the far
 -- end, where no de Bruijn index reaches, so every node is rebuilt from the
--- same fields: once the scope proofs are erased, an identity.
+-- same fields: once the scope proofs are erased, an identity. Public, so
+-- that a proof over an embedded term reads off that it is rebuilt.
 mutual
+  public export
   embedPi : PiInfo (Term vars) -> PiInfo (Term (vars ++ outer))
   embedPi Implicit = Implicit
   embedPi Explicit = Explicit
   embedPi AutoImplicit = AutoImplicit
   embedPi (DefImplicit t) = DefImplicit (embedTerm t)
 
+  public export
   embedBinder : Binder (Term vars) -> Binder (Term (vars ++ outer))
   embedBinder (Lam fc c p ty) = Lam fc c (embedPi p) (embedTerm ty)
   embedBinder (Let fc c val ty) = Let fc c (embedTerm val) (embedTerm ty)
@@ -228,10 +244,12 @@ mutual
   embedBinder (PLet fc c val ty) = PLet fc c (embedTerm val) (embedTerm ty)
   embedBinder (PVTy fc c ty) = PVTy fc c (embedTerm ty)
 
+  public export
   embedTerms : List (Term vars) -> List (Term (vars ++ outer))
   embedTerms [] = []
   embedTerms (t :: ts) = embedTerm t :: embedTerms ts
 
+  public export
   embedTerm : Term vars -> Term (vars ++ outer)
   embedTerm (Local fc r idx p) = Local fc r idx (embedIsVar p)
   embedTerm (Ref fc nt name) = Ref fc nt name
@@ -395,7 +413,7 @@ export
 WeakenTerm : Weaken Term
 WeakenTerm = GenWeakenWeakens
 
-export
+public export
 FreelyEmbeddable Term where
   embed = embedTerm
 
@@ -404,6 +422,55 @@ IsScoped Term where
   shrink = shrinkTerm
   thin = thinTerm
   compatNs prf = compatTerm prf
+
+------------------------------------------------------------------------
+-- A local by its index
+
+-- A local is its location, its `let` hint and its index: the name and the
+-- proof are erased, and two proofs that a name is at an index are one. So
+-- a proof over terms reads off an operation which local it makes, by
+-- index, and two locals it reads so are one term.
+
+||| A term that is the local at index `i`, whatever its proof.
+public export
+data LocalAt : FC -> Maybe Bool -> Nat -> Term vars -> Type where
+  IsLocalAt : {0 p : IsVar nm i vars} -> LocalAt fc r i (Local fc r i p)
+
+0 localSameName : (0 p : IsVar n i vars) -> (0 q : IsVar m i vars) -> n = m ->
+                  Local fc r i p = Local fc r i q
+localSameName p q Refl = cong (\x => Local fc r i x) (isVarUnique p q)
+
+||| Two terms that are the local at one index, at one location with one
+||| hint, are one term.
+export
+0 localAtSame : LocalAt fc r i t -> LocalAt fc r i u -> t = u
+localAtSame (IsLocalAt {p}) (IsLocalAt {p = q}) = localSameName p q (isVarName p q)
+
+||| The local at a named variable's index is the local at that index.
+export
+0 localAtIdx : (w : NVar nm vars) -> LocalAt fc r (nvarIdx w) (localAt fc r w)
+localAtIdx (MkNVar p) = IsLocalAt
+
+||| The local at a variable's index is the local at that index.
+export
+0 localOfIdx : (w : Var vars) -> LocalAt fc r (varIdx w) (localOf fc r w)
+localOfIdx (MkVar p) = IsLocalAt
+
+||| Weakening a reference leaves it as it is.
+export
+0 weakenRef : {0 vars : Scope} -> {0 s : SizeOf ns} ->
+              weakenNs s (Ref {vars} fc nt n) = Ref {vars = ns ++ vars} fc nt n
+weakenRef = Refl
+
+||| Weakening a local past `ns` adds their count to its index.
+export
+0 weakenLocalAt : (s : SizeOf ns) -> (0 p : IsVar nm idx vars) ->
+                  LocalAt fc r (size s + idx) (weakenNs s (Local fc r idx p))
+weakenLocalAt s p = case insertNVarNamesIdx {outer = vars} zero s (MkNVar p) of
+  Left (lt, _) => absurd lt
+  Right (_, same) =>
+    replace {p = \k => LocalAt fc r k (weakenNs s (Local fc r idx p))} same
+            (localAtIdx (insertNVarNames {outer = vars} zero s (MkNVar p)))
 
 ------------------------------------------------------------------------
 -- Smart constructors

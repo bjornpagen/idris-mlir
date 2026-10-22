@@ -39,6 +39,16 @@ export
 mkSizeOf : (xs : List a) -> SizeOf xs
 mkSizeOf xs = MkSizeOf (length xs) (hasLength xs)
 
+||| Two sizes of one list are one number: a list has one length.
+export
+0 sizesAgree : (p, q : SizeOf xs) -> size p = size q
+sizesAgree (MkSizeOf _ hp) (MkSizeOf _ hq) = hasLengthUnique hp hq
+
+||| The size of two lists put together is the sum of theirs.
+export
+0 sizeAppend : (p : SizeOf xs) -> (q : SizeOf ys) -> size (p + q) = size p + size q
+sizeAppend (MkSizeOf _ _) (MkSizeOf _ _) = Refl
+
 export
 reverse : SizeOf xs -> SizeOf (reverse xs)
 reverse (MkSizeOf n p) = MkSizeOf n (hasLengthReverse p)

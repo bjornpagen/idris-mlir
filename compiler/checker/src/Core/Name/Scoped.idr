@@ -222,7 +222,8 @@ export
 MaybeFreelyEmbeddable : FreelyEmbeddable tm => FreelyEmbeddable (Maybe . tm)
 MaybeFreelyEmbeddable = FunctorFreelyEmbeddable
 
-export
+-- Public, so that a proof reads off a weakening what the general one does.
+public export
 GenWeakenWeakens : GenWeaken tm => Weaken tm
 GenWeakenWeakens = MkWeaken (genWeakenNs zero (suc zero)) (genWeakenNs zero)
 

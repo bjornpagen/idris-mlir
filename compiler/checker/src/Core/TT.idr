@@ -7,6 +7,7 @@ import public Core.Name
 import public Core.Name.Scoped
 
 import Data.Maybe
+import Data.Nat
 
 import Libraries.Data.NameMap
 import Libraries.Text.PrettyPrint.Prettyprinter
@@ -411,20 +412,100 @@ addVars : SizeOf outer -> Bounds bound ->
           NVar name (outer ++ (bound ++ vars))
 addVars p = insertNVarNames p . sizeOf
 
+-- The variable a name stands for, by the first bound that replaces it,
+-- and after comparing it with one bound's name, its variable or the
+-- search past that bound: a function of the comparison, so that a proof
+-- follows it. Public, so that a proof reads off which variable a name
+-- becomes.
+mutual
+  public export
+  resolveRef : SizeOf outer ->
+               SizeOf done ->
+               Bounds bound -> FC -> Name ->
+               Maybe (Var (outer ++ (done <>> (bound ++ vars))))
+  resolveRef _ _ None _ _ = Nothing
+  resolveRef {vars} p q (Add new old bs) fc n = matchedIf {new} {vars} (n == old) p q bs fc n
+
+  public export
+  matchedIf : {0 new : Name} -> Bool -> SizeOf outer -> SizeOf done -> Bounds xs -> FC -> Name ->
+              Maybe (Var (outer ++ (done <>> (new :: (xs ++ vars)))))
+  matchedIf True p q bs fc n = Just (weakenNs p (mkVarChiply q))
+  matchedIf {vars} False p q bs fc n = resolveRef {vars} p (q :< new) bs fc n
+
+%default total
+
+||| A name at a bound, and at none before it: the first bound that
+||| replaces it, as `resolveRef` searches by Idris's equality of names.
+public export
+data FirstAt : Bounds bound -> Var bound -> Name -> Type where
+  AtHere : (0 _ : (n == old) = True) -> FirstAt (Add new old bs) (MkVar First) n
+  AtLater : (0 _ : (n == old) = False) -> FirstAt bs (MkVar v) n ->
+            FirstAt (Add new old bs) (MkVar (Later v)) n
+
+||| A name no bound replaces, by Idris's equality of names.
+public export
+data NoneAt : Bounds bound -> Name -> Type where
+  NoneHere : NoneAt None n
+  NotThis : (0 _ : (n == old) = False) -> NoneAt bs n -> NoneAt (Add new old bs) n
+
+||| What `resolveRef` gives, at an index.
+public export
+data ResolvedAt : Nat -> Maybe (Var vs) -> Type where
+  ResolvedHere : (0 _ : varIdx v = k) -> ResolvedAt k (Just v)
+
+0 resolvedAtIdx : k = k' -> ResolvedAt k m -> ResolvedAt k' m
+resolvedAtIdx Refl r = r
+
+0 matchedHere : (p : SizeOf outer) -> (q : SizeOf done) -> (rest : Bounds xs) -> (b : Bool) -> b = True ->
+                ResolvedAt (size p + size q) (matchedIf {vars} {new} b p q rest fc n)
+matchedHere p q rest True Refl
+    = ResolvedHere (trans (weakenVarIdx p (mkVarChiply q)) (cong (size p +) (mkVarChiplyIdx q)))
+
+0 matchedPast : (p : SizeOf outer) -> (q : SizeOf done) -> (rest : Bounds xs) -> (b : Bool) -> b = False ->
+                ResolvedAt k (resolveRef {vars} p (q :< new) rest fc n) ->
+                ResolvedAt k (matchedIf {vars} {new} b p q rest fc n)
+matchedPast p q rest False Refl r = r
+
+0 matchedOff : (p : SizeOf outer) -> (q : SizeOf done) -> (rest : Bounds xs) -> (b : Bool) -> b = False ->
+               matchedIf {vars} {new} b p q rest fc n = resolveRef {vars} p (q :< new) rest fc n
+matchedOff p q rest False Refl = Refl
+
+||| A name at the first bound that replaces it resolves to that bound's
+||| variable, past `outer` and the bounds `done` before.
 export
-resolveRef : SizeOf outer ->
-             SizeOf done ->
-             Bounds bound -> FC -> Name ->
-             Maybe (Var (outer ++ (done <>> bound ++ vars)))
-resolveRef _ _ None _ _ = Nothing
-resolveRef {outer} {vars} {done} p q (Add {xs} new old bs) fc n
-    = if n == old
-         then Just (weakenNs p (mkVarChiply q))
-         else resolveRef p (q :< new) bs fc n
+0 resolvesAt : (p : SizeOf outer) -> (q : SizeOf done) -> (bs : Bounds bound) -> (w : Var bound) ->
+               FirstAt bs w n -> ResolvedAt (size p + (size q + varIdx w)) (resolveRef {vars} p q bs fc n)
+resolvesAt p q (Add new old rest) (MkVar First) (AtHere same)
+    = resolvedAtIdx (cong (size p +) (sym (plusZeroRightNeutral (size q))))
+                    (matchedHere p q rest (n == old) same)
+resolvesAt p (MkSizeOf qn qh) (Add new old rest) (MkVar (Later v)) (AtLater differs first)
+    = matchedPast p (MkSizeOf qn qh) rest (n == old) differs
+        (resolvedAtIdx (cong (size p +) (plusSuccRightSucc qn (varIdx (MkVar v))))
+                       (resolvesAt p (MkSizeOf qn qh :< new) rest (MkVar v) first))
+
+||| A name no bound replaces resolves to nothing.
+export
+0 resolveMisses : (p : SizeOf outer) -> (q : SizeOf done) -> (bs : Bounds bound) -> NoneAt bs n ->
+                  resolveRef {vars} p q bs fc n = Nothing
+resolveMisses p q None NoneHere = Refl
+resolveMisses p q (Add new old rest) (NotThis differs none)
+    = trans (matchedOff p q rest (n == old) differs) (resolveMisses p (q :< new) rest none)
+
+%default covering
+
+||| A name that resolves to a variable is the local at it; one that
+||| resolves to none stays as it was.
+public export
+resolvedOr : Lazy (Term vars) -> FC -> Maybe (Var vars) -> Term vars
+resolvedOr t fc Nothing = t
+resolvedOr t fc (Just (MkVar p)) = Local fc Nothing _ p
 
 -- Each kind of node that holds terms is traversed by a function of its
--- own, so that every recursive call is on a part of its argument.
+-- own, so that every recursive call is on a part of its argument; each
+-- public, so that a proof over a term whose names are turned into
+-- variables reads off what each node becomes.
 mutual
+  public export
   mkLocalsPi : SizeOf outer -> Bounds bound ->
                PiInfo (Term (outer ++ vars)) -> PiInfo (Term (outer ++ (bound ++ vars)))
   mkLocalsPi outer bs Implicit = Implicit
@@ -432,6 +513,7 @@ mutual
   mkLocalsPi outer bs AutoImplicit = AutoImplicit
   mkLocalsPi outer bs (DefImplicit t) = DefImplicit (mkLocals outer bs t)
 
+  public export
   mkLocalsBinder : SizeOf outer -> Bounds bound ->
                    Binder (Term (outer ++ vars)) -> Binder (Term (outer ++ (bound ++ vars)))
   mkLocalsBinder outer bs (Lam fc c p ty)
@@ -446,25 +528,23 @@ mutual
       = PLet fc c (mkLocals outer bs val) (mkLocals outer bs ty)
   mkLocalsBinder outer bs (PVTy fc c ty) = PVTy fc c (mkLocals outer bs ty)
 
+  public export
   mkLocalsTerms : SizeOf outer -> Bounds bound ->
                   List (Term (outer ++ vars)) -> List (Term (outer ++ (bound ++ vars)))
   mkLocalsTerms outer bs [] = []
   mkLocalsTerms outer bs (t :: ts) = mkLocals outer bs t :: mkLocalsTerms outer bs ts
 
+  public export
   mkLocals : SizeOf outer -> Bounds bound ->
              Term (outer ++ vars) -> Term (outer ++ (bound ++ vars))
   mkLocals outer bs (Local fc r idx p)
-      = let MkNVar p' = addVars outer bs (MkNVar p) in Local fc r _ p'
+      = localAt fc r (addVars outer bs (MkNVar p))
   mkLocals outer bs (Ref fc Bound name)
-      = fromMaybe (Ref fc Bound name) $ do
-          MkVar p <- resolveRef outer [<] bs fc name
-          pure (Local fc Nothing _ p)
+      = resolvedOr (Ref fc Bound name) fc (resolveRef outer [<] bs fc name)
   mkLocals outer bs (Ref fc nt name)
       = Ref fc nt name
   mkLocals outer bs (Meta fc name y xs)
-      = fromMaybe (Meta fc name y (mkLocalsTerms outer bs xs)) $ do
-          MkVar p <- resolveRef outer [<] bs fc name
-          pure (Local fc Nothing _ p)
+      = resolvedOr (Meta fc name y (mkLocalsTerms outer bs xs)) fc (resolveRef outer [<] bs fc name)
   mkLocals outer bs (Bind fc x b scope)
       = Bind fc x (mkLocalsBinder outer bs b)
              (mkLocals (suc outer) bs scope)
@@ -484,10 +564,60 @@ mutual
   mkLocals outer bs (Erased fc (Dotted t)) = Erased fc (Dotted (mkLocals outer bs t))
   mkLocals outer bs (TType fc u) = TType fc u
 
-export total
+public export total
 refsToLocals : Bounds bound -> Term vars -> Term (bound ++ vars)
 refsToLocals None y = y
 refsToLocals bs y = mkLocals zero  bs y
+
+%default total
+
+0 resolvedLocal : (m : Maybe (Var vs)) -> ResolvedAt k m -> LocalAt fc Nothing k (resolvedOr t fc m)
+resolvedLocal (Just (MkVar q)) (ResolvedHere same)
+    = replace {p = \x => LocalAt fc Nothing x (Local fc Nothing _ q)} same IsLocalAt
+
+||| A bound reference to a name at the first bound that replaces it becomes
+||| the local of that bound, past the binders `mkLocals` is under.
+export
+0 mkLocalsMarker : (o : SizeOf outer) -> (bs : Bounds bound) -> (w : Var bound) -> FirstAt bs w n ->
+                   LocalAt fc Nothing (size o + varIdx w) (mkLocals {vars} o bs (Ref fc Bound n))
+mkLocalsMarker o bs w first = resolvedLocal (resolveRef o [<] bs fc n) (resolvesAt o [<] bs w first)
+
+||| A bound reference to a name no bound replaces stays as it was.
+export
+0 mkLocalsUnreplaced : (o : SizeOf outer) -> (bs : Bounds bound) -> NoneAt bs n ->
+                       mkLocals {vars} o bs (Ref fc Bound n) = Ref fc Bound n
+mkLocalsUnreplaced o bs none = cong (resolvedOr (Ref fc Bound n) fc) (resolveMisses o [<] bs none)
+
+||| An unknown of a name no bound replaces stays an unknown, its arguments
+||| turned in turn.
+export
+0 mkLocalsUnknown : (o : SizeOf outer) -> (bs : Bounds bound) -> NoneAt bs m ->
+                    mkLocals {vars} o bs (Meta fc m k args) = Meta fc m k (mkLocalsTerms o bs args)
+mkLocalsUnknown o bs none
+    = cong (resolvedOr (Meta fc m k (mkLocalsTerms o bs args)) fc) (resolveMisses o [<] bs none)
+
+||| A local below the binders `mkLocals` is under is kept.
+export
+0 mkLocalsBelow : (o : SizeOf outer) -> (bs : Bounds bound) -> (0 p : IsVar nm i (outer ++ vars)) ->
+                  Nat.LT i (size o) -> LocalAt fc r i (mkLocals o bs (Local fc r i p))
+mkLocalsBelow o bs p lt = case insertNVarNamesIdx {outer = vars} o (sizeOf bs) (MkNVar p) of
+  Left (_, same) =>
+    replace {p = \k => LocalAt fc r k (mkLocals o bs (Local fc r i p))} same
+            (localAtIdx (addVars o bs (MkNVar p)))
+  Right (atLeast, _) => void (LTEImpliesNotGT atLeast lt)
+
+||| A local past the binders `mkLocals` is under moves past the variables
+||| it makes.
+export
+0 mkLocalsPast : (o : SizeOf outer) -> (bs : Bounds bound) -> (0 p : IsVar nm i (outer ++ vars)) ->
+                 Nat.LTE (size o) i -> LocalAt fc r (size (sizeOf bs) + i) (mkLocals o bs (Local fc r i p))
+mkLocalsPast o bs p atLeast = case insertNVarNamesIdx {outer = vars} o (sizeOf bs) (MkNVar p) of
+  Left (lt, _) => void (LTEImpliesNotGT atLeast lt)
+  Right (_, same) =>
+    replace {p = \k => LocalAt fc r k (mkLocals o bs (Local fc r i p))} same
+            (localAtIdx (addVars o bs (MkNVar p)))
+
+%default covering
 
 -- Replace any reference to 'x' with a locally bound name 'new'
 export

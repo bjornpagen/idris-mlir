@@ -27,23 +27,27 @@
 ||| its name resolves to, so that two readings of a name read one
 ||| definition, which is proved here (`definedOnce`). What a normaliser
 ||| gives is a reduct of the term it was given by the steps `Reduces`
-||| declares for that normaliser, and normal for them (`Reduct`); a
-||| definition's type and case tree, read through the context's
-||| accessors, are the ones the evaluator reads, one of each (`typeOnce`,
-||| `treeOnce`); every term a term reduces to reduces on to the term's
-||| normal form (`reachesNormalForm`); the steps that reduce a term reduce
-||| it with values put in for its bound names (`substitutes`); and values
-||| put in for names that stand for a scope's variables are put in for the
-||| variables (`substitutesMarkers`). That is the trust
-||| Idris's own type checker rests on, which decides conversion by
-||| comparing normal forms, and a program that proves its readings of terms
-||| sound against `Reduces` needs no check, when it runs, that the
-||| evaluator agreed with it. Beside it stand a fact of the context, that it
-||| makes one entry for each full name and records no resolved name as one,
-||| so that two resolved names name one entry exactly when their full names
-||| agree (`fullNameSameEntry`); and a fact of the hosts that run this
-||| compiler, that what the evaluator's table of primitives computes stays
-||| within a bound that grows with its arguments' sizes (`computedWithin`).
+||| declares for that normaliser, and normal for them (`Reduct`); and every
+||| term a term reduces to reduces on to the term's normal form
+||| (`reachesNormalForm`). That is the trust Idris's own type checker rests
+||| on, which decides conversion by comparing normal forms, and a program
+||| that proves its readings of terms sound against `Reduces` needs no
+||| check, when it runs, that the evaluator agreed with it. The steps that
+||| reduce a term reduce it with values put in for fresh names
+||| (`substitutes`), which the relation's definitions make true and which
+||| is trusted until its proof is written. Proved from the definitions: a
+||| definition's type and case tree are read once each (`typeOnce`,
+||| `treeOnce`); values put in for names that stand for a scope's variables
+||| are put in for the variables (`substitutesMarkers`), and node by node
+||| (`putIn`); and a name made full is the full name of the definition it
+||| names (`definedFullName`). Beside them stand a fact of the context,
+||| that it makes one entry for each full name and records no resolved name
+||| as one, so that two resolved names name one entry exactly when their
+||| full names agree (`fullNameSameEntry`); and facts of the hosts that run
+||| this compiler: that Idris's equality of names is reflexive and
+||| symmetric, as the runtime's comparison of integers is; and that what
+||| the evaluator's table of primitives computes stays within a bound that
+||| grows with its arguments' sizes (`computedWithin`).
 module Idris.Host
 
 import Core.Case.CaseTree
@@ -81,15 +85,15 @@ import Libraries.Data.WithDefault
 ------------------------------------------------------------------------------
 
 -- The trust, at quantity 0, so it costs nothing when a program runs. It is
--- applied only where a statement is a fact of Idris's compiler that no
--- proof follows: of the evaluator, which runs in `Core`, to what the
--- normalisers give (`reduct`), to a term's reducts and its normal form
--- (`reachesNormalForm`) and to reduction with values put in
--- (`substitutes`); of the accessors it reads definitions through, to the
--- terms they read (`typeOnce`, `treeOnce`); of the substitution no proof
--- reaches, to putting values in for names (`substitutesMarkers`); of the
--- context, to the full names its entries hold (`oneEntryPerName`,
--- `fullNameUnresolved`); and of the hosts' primitives, to what the table
+-- applied only where a statement is a fact no proof here follows: of the
+-- evaluator, which runs in `Core`, to what the normalisers give (`reduct`)
+-- and to a term's reducts and its normal form (`reachesNormalForm`); of
+-- the relation the evaluator's steps are declared as, to reduction with
+-- values put in (`substitutes`), until its proof is written; of the
+-- context, which `Core` actions build, to the full names its entries hold
+-- (`oneEntryPerName`, `fullNameUnresolved`); and of the hosts' runtime, to
+-- its comparison of integers under Idris's equality of names
+-- (`nameEqualityReflexive`, `nameEqualitySymmetric`) and to what the table
 -- of primitives computes (`computedWithin`).
 0 trusted : a
 trusted = believe_me ()
@@ -263,33 +267,67 @@ compareEntries ctx m n = case resolveIn ctx m of
 -- A definition's terms, as the accessors read them
 ------------------------------------------------------------------------------
 
-||| A definition's type, as the context's accessor reads it, live or
-||| stored alike. Only `host` makes one, by reading the type (`typeOf`).
+||| A definition's type, as the context's accessor reads it: the live type
+||| it holds, or the term its stored type decodes to.
 export
 data TypeOf : GlobalDef -> ClosedTerm -> Type where
-  ReadType : TypeOf d ty
+  LiveTypeOf : (0 _ : type d = LiveType ty) -> TypeOf d ty
+  StoredTypeOf : (0 _ : type d = StoredType r) -> (0 _ : Stored.decode zero r = Just ty) -> TypeOf d ty
 
 ||| A pattern-matching definition's case tree, as the context's accessor
-||| reads it from the definition's body, live or stored alike. Only `host`
-||| makes one, by reading the tree (`treeOf`).
+||| reads it from the definition's body: the live tree it holds, or the
+||| tree its stored one decodes to.
 export
 data TreeOf : Body args -> CaseTree args -> Type where
-  ReadTree : TreeOf body tree
+  LiveTreeOf : TreeOf (LiveBody tree pats clauses) tree
+  StoredTreeOf : (0 _ : traverseTree Stored.decode (mkSizeOf args) stored = Just tree) ->
+                 TreeOf (StoredBody stored pats clauses) tree
 
--- The accessors run in `Core`, so no proof follows them to the terms they
--- give; they read a definition's terms as the evaluator reads them, a
--- stored term decoded from the definition's frozen arena, so each reads
--- one term of a definition.
+0 liveSame : LiveType t = LiveType t' -> t = t'
+liveSame Refl = Refl
 
-||| A definition has one type.
+0 storedSame : StoredType r = StoredType r' -> r = r'
+storedSame Refl = Refl
+
+0 liveNotStored : LiveType t = StoredType r -> Void
+liveNotStored Refl impossible
+
+0 storedTypesOnce : r = r' -> Stored.decode zero r = Just ty -> Stored.decode zero r' = Just ty' -> ty = ty'
+storedTypesOnce Refl decoded decoded' = justSame (trans (sym decoded) decoded')
+
+||| A definition has one type: what it holds is one form, and decoding is a
+||| function.
 export
 0 typeOnce : TypeOf d ty -> TypeOf d ty' -> ty = ty'
-typeOnce _ _ = trusted
+typeOnce (LiveTypeOf held) (LiveTypeOf held') = liveSame (trans (sym held) held')
+typeOnce (LiveTypeOf held) (StoredTypeOf held' _) = void (liveNotStored (trans (sym held) held'))
+typeOnce (StoredTypeOf held _) (LiveTypeOf held') = void (liveNotStored (trans (sym held') held))
+typeOnce (StoredTypeOf held decoded) (StoredTypeOf held' decoded')
+    = storedTypesOnce (storedSame (trans (sym held) held')) decoded decoded'
 
-||| A body has one case tree.
+||| A body has one case tree: what it holds is one form, and decoding is a
+||| function.
 export
 0 treeOnce : TreeOf body tree -> TreeOf body tree' -> tree = tree'
-treeOnce _ _ = trusted
+treeOnce LiveTreeOf LiveTreeOf = Refl
+treeOnce (StoredTreeOf decoded) (StoredTreeOf decoded') = justSame (trans (sym decoded) decoded')
+
+-- A definition's type, read as `Core.Context.typeOf` reads it, with what
+-- was read; and a body's case tree, as `Core.Context.treeOf` reads it. A
+-- stored root `freeze` made decodes, and one that does not is the
+-- accessor's internal error, raised here as there.
+readTypeOf : (d : GlobalDef) -> Core (Subset ClosedTerm (TypeOf d))
+readTypeOf d with (type d) proof held
+  readTypeOf d | LiveType ty = pure (Element ty (LiveTypeOf held))
+  readTypeOf d | StoredType r with (Stored.decode zero r) proof decoded
+    readTypeOf d | StoredType r | Just ty = pure (Element ty (StoredTypeOf held decoded))
+    readTypeOf d | StoredType r | Nothing = throw (InternalError "A stored term is not a term of its arena")
+
+readTreeOf : {args : Scope} -> (body : Body args) -> Core (Subset (CaseTree args) (TreeOf body))
+readTreeOf (LiveBody tree _ _) = pure (Element tree LiveTreeOf)
+readTreeOf (StoredBody stored _ _) with (traverseTree Stored.decode (mkSizeOf args) stored) proof decoded
+  readTreeOf (StoredBody stored _ _) | Just tree = pure (Element tree (StoredTreeOf decoded))
+  readTreeOf (StoredBody stored _ _) | Nothing = throw (InternalError "A stored term is not a term of its arena")
 
 ------------------------------------------------------------------------------
 -- What each normaliser evaluates
@@ -849,44 +887,14 @@ record Reduct (form : NormalForm) (ctx : Frozen) (t : ClosedTerm) where
 ||| evaluation of the terms its type checker accepts, in the form the type
 ||| checker rests on when it decides conversion by comparing normal forms:
 ||| a term and a term it reduces to are convertible, so they reach one
-||| normal form. No proof of this module's reaches it.
+||| normal form. It is trusted because it holds of the terms and contexts
+||| Idris's checker accepts, which no definition here singles out: on a
+||| term whose constructor's tag and name disagree, a case can both take
+||| and miss an alternative, and two reducts need meet nowhere.
 export
 0 reachesNormalForm : (r : Reduct form ctx t) -> Reduces (evaluationOf form) ctx t u ->
                       Reduces (evaluationOf form) ctx u r.value
 reachesNormalForm _ _ = trusted
-
-||| Reduction is closed under putting values in for bound names. No step
-||| reads a reference to a bound name: each reads a function, a constructor
-||| or a family through its kind and the entry it resolves to, or a form.
-||| So the steps that take `t` to `u` take `t`, with the values put in for
-||| those names, to `u` with them put in. That is the substitution lemma
-||| of Idris's evaluation, which its type checker rests on whenever it
-||| checks a definition used at its arguments. It is stated over this
-||| compiler's `refsToLocals` and `substs`, whose definitions no proof of a
-||| program over this compiler reaches.
-export
-0 substitutes : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-                Reduces ev ctx t u ->
-                Reduces ev ctx (substs (mkSizeOf ns) vs (refsToLocals bs t))
-                               (substs (mkSizeOf ns) vs (refsToLocals bs u))
-substitutes _ _ _ = trusted
-
-||| Normalising commutes with putting closed values in for bound names:
-||| the normal form of a term with the values put in is the normal form of
-||| its normal form with them put in. The steps to the term's normal form,
-||| with the values put in, lead from the term with them put in to that
-||| normal form with them put in, a reduct of the term with the values put
-||| in, which so reduces on to its normal form (`reachesNormalForm`). With
-||| that normal form's evidence that it is normal, the steps are a reduct
-||| of the normal form with the values put in, which no normaliser runs to
-||| give: `MkReduct s.value (normalisesThrough bs vs r s) s.normal`.
-export
-0 normalisesThrough : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
-                      (r : Reduct form ctx t) ->
-                      (s : Reduct form ctx (substs (mkSizeOf ns) vs (refsToLocals bs t))) ->
-                      Reduces (evaluationOf form) ctx
-                              (substs (mkSizeOf ns) vs (refsToLocals bs r.value)) s.value
-normalisesThrough bs vs r s = reachesNormalForm s (substitutes bs vs r.steps)
 
 ||| Whether a set of bounds puts a local in for a name: whether the name is
 ||| equal to one it replaces, by Idris's equality of names, as
@@ -904,45 +912,128 @@ namesApart : Bounds ns -> Bool
 namesApart None = True
 namesApart (Add _ old bs) = not (replaces bs old) && namesApart bs
 
+||| Which names of a set of bounds a term is searched for: those of bound
+||| references and of unknowns, both of which `refsToLocals` turns into
+||| variables; or those of unknowns alone, which a step of the evaluator
+||| reads (`Solve`).
+public export
+data Naming = BoundOrUnknown | UnknownOnly
+
+-- Whether a bound reference's name counts for a naming.
+public export
+boundCounts : Naming -> Bounds ns -> Name -> Bool
+boundCounts BoundOrUnknown bs n = replaces bs n
+boundCounts UnknownOnly bs n = False
+
 mutual
-  ||| Whether a term names one of the names a set of bounds replaces where
-  ||| `refsToLocals` would put a local in for it: in a bound reference or an
-  ||| unknown.
+  ||| Whether a term names one of the names a set of bounds replaces, where
+  ||| the naming counts it: in a bound reference or an unknown, where
+  ||| `refsToLocals` puts a local in for it.
   public export
-  namesAny : Bounds ns -> Term vars -> Bool
-  namesAny bs (Local fc l idx p) = False
-  namesAny bs (Ref fc Bound n) = replaces bs n
-  namesAny bs (Ref fc nt n) = False
-  namesAny bs (Meta fc m i args) = replaces bs m || namesAnyIn bs args
-  namesAny bs (Bind fc x b sc) = namesAnyInBinder bs b || namesAny bs sc
-  namesAny bs (App fc f a) = namesAny bs f || namesAny bs a
-  namesAny bs (As fc s n t) = namesAny bs n || namesAny bs t
-  namesAny bs (TDelayed fc r t) = namesAny bs t
-  namesAny bs (TDelay fc d ty a) = namesAny bs ty || namesAny bs a
-  namesAny bs (TForce fc r t) = namesAny bs t
-  namesAny bs (PrimVal fc c) = False
-  namesAny bs (Erased fc (Dotted t)) = namesAny bs t
-  namesAny bs (Erased fc _) = False
-  namesAny bs (TType fc u) = False
+  mentions : Naming -> Bounds ns -> Term vars -> Bool
+  mentions k bs (Local fc l idx p) = False
+  mentions k bs (Ref fc Bound n) = boundCounts k bs n
+  mentions k bs (Ref fc nt n) = False
+  mentions k bs (Meta fc m i args) = replaces bs m || mentionsIn k bs args
+  mentions k bs (Bind fc x b sc) = mentionsInBinder k bs b || mentions k bs sc
+  mentions k bs (App fc f a) = mentions k bs f || mentions k bs a
+  mentions k bs (As fc s n t) = mentions k bs n || mentions k bs t
+  mentions k bs (TDelayed fc r t) = mentions k bs t
+  mentions k bs (TDelay fc d ty a) = mentions k bs ty || mentions k bs a
+  mentions k bs (TForce fc r t) = mentions k bs t
+  mentions k bs (PrimVal fc c) = False
+  mentions k bs (Erased fc (Dotted t)) = mentions k bs t
+  mentions k bs (Erased fc _) = False
+  mentions k bs (TType fc u) = False
 
   public export
-  namesAnyIn : Bounds ns -> List (Term vars) -> Bool
-  namesAnyIn bs [] = False
-  namesAnyIn bs (t :: ts) = namesAny bs t || namesAnyIn bs ts
+  mentionsIn : Naming -> Bounds ns -> List (Term vars) -> Bool
+  mentionsIn k bs [] = False
+  mentionsIn k bs (t :: ts) = mentions k bs t || mentionsIn k bs ts
 
   public export
-  namesAnyInBinder : Bounds ns -> Binder (Term vars) -> Bool
-  namesAnyInBinder bs (Lam fc c p ty) = namesAnyInPi bs p || namesAny bs ty
-  namesAnyInBinder bs (Let fc c val ty) = namesAny bs val || namesAny bs ty
-  namesAnyInBinder bs (Pi fc c p ty) = namesAnyInPi bs p || namesAny bs ty
-  namesAnyInBinder bs (PVar fc c p ty) = namesAnyInPi bs p || namesAny bs ty
-  namesAnyInBinder bs (PLet fc c val ty) = namesAny bs val || namesAny bs ty
-  namesAnyInBinder bs (PVTy fc c ty) = namesAny bs ty
+  mentionsInBinder : Naming -> Bounds ns -> Binder (Term vars) -> Bool
+  mentionsInBinder k bs (Lam fc c p ty) = mentionsInPi k bs p || mentions k bs ty
+  mentionsInBinder k bs (Let fc c val ty) = mentions k bs val || mentions k bs ty
+  mentionsInBinder k bs (Pi fc c p ty) = mentionsInPi k bs p || mentions k bs ty
+  mentionsInBinder k bs (PVar fc c p ty) = mentionsInPi k bs p || mentions k bs ty
+  mentionsInBinder k bs (PLet fc c val ty) = mentions k bs val || mentions k bs ty
+  mentionsInBinder k bs (PVTy fc c ty) = mentions k bs ty
 
   public export
-  namesAnyInPi : Bounds ns -> PiInfo (Term vars) -> Bool
-  namesAnyInPi bs (DefImplicit t) = namesAny bs t
-  namesAnyInPi bs _ = False
+  mentionsInPi : Naming -> Bounds ns -> PiInfo (Term vars) -> Bool
+  mentionsInPi k bs (DefImplicit t) = mentions k bs t
+  mentionsInPi k bs _ = False
+
+mutual
+  ||| Whether a case tree's leaves name one of the names a set of bounds
+  ||| replaces, as a bound reference or an unknown.
+  public export
+  treeMentions : Bounds ns -> CaseTree args -> Bool
+  treeMentions bs (Case idx p ty alts) = altsMention bs alts
+  treeMentions bs (STerm i rhs) = mentions BoundOrUnknown bs rhs
+  treeMentions bs (Unmatched msg) = False
+  treeMentions bs Impossible = False
+
+  public export
+  altsMention : Bounds ns -> List (CaseAlt args) -> Bool
+  altsMention bs [] = False
+  altsMention bs (alt :: alts) = altMentions bs alt || altsMention bs alts
+
+  public export
+  altMentions : Bounds ns -> CaseAlt args -> Bool
+  altMentions bs (ConCase n tag cargs sc) = treeMentions bs sc
+  altMentions bs (DelayCase ty arg sc) = treeMentions bs sc
+  altMentions bs (ConstCase c sc) = treeMentions bs sc
+  altMentions bs (DefaultCase sc) = treeMentions bs sc
+
+||| Names fresh for a frozen context: no leaf of the case tree any of its
+||| definitions is read to names one, as a bound reference or an unknown.
+public export
+0 FreshIn : Frozen -> Bounds ns -> Type
+FreshIn ctx bs = {0 n : Name} -> {0 d : GlobalDef} -> {0 info : PMDefInfo} -> {0 args : Scope} ->
+                 {0 body : Body args} -> {0 tree : CaseTree args} ->
+                 Defines ctx n d -> definition d = PMDef info args body -> TreeOf body tree ->
+                 treeMentions bs tree = False
+
+||| Reduction is closed under putting values in for the names a set of
+||| bounds replaces, where the names are fresh for the context (`FreshIn`)
+||| and the term names no unknown by them. No step reads a bound
+||| reference: each reads a function, a constructor or a family through
+||| its kind and the entry it resolves to, or a form. `refsToLocals` turns
+||| an unknown of one of the names into a variable too, and a step that
+||| solves an unknown reads it, so the term names no unknown so; and a step
+||| that unfolds a definition puts in its leaf as it is, so no leaf names
+||| one at all. So the steps that take `t` to `u` take `t`, with the values
+||| put in, to `u` with them put in. It is the substitution lemma of this
+||| relation, true of its definitions, and trusted only because its proof,
+||| by induction on the steps carrying the values through each step's own
+||| substitution (`subst`, `weaken`, a leaf's), is not written yet.
+export
+0 substitutes : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+                FreshIn ctx bs -> mentions UnknownOnly bs t = False ->
+                Reduces ev ctx t u ->
+                Reduces ev ctx (substs (mkSizeOf ns) vs (refsToLocals bs t))
+                               (substs (mkSizeOf ns) vs (refsToLocals bs u))
+substitutes _ _ _ _ _ = trusted
+
+||| Normalising commutes with putting closed values in for fresh names:
+||| the normal form of a term with the values put in is the normal form of
+||| its normal form with them put in. The steps to the term's normal form,
+||| with the values put in, lead from the term with them put in to that
+||| normal form with them put in, a reduct of the term with the values put
+||| in, which so reduces on to its normal form (`reachesNormalForm`). With
+||| that normal form's evidence that it is normal, the steps are a reduct
+||| of the normal form with the values put in, which no normaliser runs to
+||| give: `MkReduct s.value (normalisesThrough bs vs fresh none r s) s.normal`.
+export
+0 normalisesThrough : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
+                      FreshIn ctx bs -> mentions UnknownOnly bs t = False ->
+                      (r : Reduct form ctx t) ->
+                      (s : Reduct form ctx (substs (mkSizeOf ns) vs (refsToLocals bs t))) ->
+                      Reduces (evaluationOf form) ctx
+                              (substs (mkSizeOf ns) vs (refsToLocals bs r.value)) s.value
+normalisesThrough bs vs fresh none r s = reachesNormalForm s (substitutes bs vs fresh none r.steps)
 
 ||| A bound reference to each name a set of bounds replaces, the first
 ||| first: what stands for each variable of a scope, by the name of its
@@ -952,26 +1043,372 @@ markersOf : FC -> Bounds ns -> SubstEnv ns vars
 markersOf fc None = []
 markersOf fc (Add _ old bs) = Ref fc Bound old :: markersOf fc bs
 
+||| The name a set of bounds replaces at a variable of its scope.
+public export
+0 replacedAt : Bounds ns -> Var ns -> Name
+replacedAt (Add _ old _) (MkVar First) = old
+replacedAt (Add _ _ rest) (MkVar (Later v)) = replacedAt rest (MkVar v)
+replacedAt None (MkVar v) impossible
+
+0 markerName : (bs : Bounds ns) -> (w : Var ns) ->
+               Var.index (markersOf {vars} fc bs) w = Ref fc Bound (replacedAt bs w)
+markerName (Add _ old rest) (MkVar First) = Refl
+markerName (Add _ _ rest) (MkVar (Later v)) = markerName rest (MkVar v)
+markerName None (MkVar v) impossible
+
+-- Idris's equality of names compares an identifier's index, a machine
+-- name's number, a resolved name's index and the like as the runtime's
+-- integers, by `prim__eq_Int`, which a proof cannot evaluate at a
+-- variable. That it is reflexive and symmetric is a fact of that
+-- comparison; the instances that lift it to names are structural, but
+-- exported without their definitions, so no proof here reads them.
+0 nameEqualityReflexive : (n : Name) -> (n == n) = True
+nameEqualityReflexive _ = trusted
+
+0 nameEqualitySymmetric : (m, n : Name) -> (m == n) = False -> (n == m) = False
+nameEqualitySymmetric _ _ _ = trusted
+
+0 orFalse : (a : Bool) -> (a || b) = False -> (a = False, b = False)
+orFalse False prf = (Refl, prf)
+orFalse True prf = absurd prf
+
+0 andTrue : (a : Bool) -> (a && b) = True -> (a = True, b = True)
+andTrue True prf = (Refl, prf)
+andTrue False prf = absurd prf
+
+0 notTrue : (a : Bool) -> not a = True -> a = False
+notTrue False _ = Refl
+notTrue True prf = absurd prf
+
+-- A name a set of bounds does not replace is at none of them.
+0 noneAt : (bs : Bounds ns) -> replaces bs n = False -> NoneAt bs n
+noneAt None _ = NoneHere
+noneAt (Add _ old rest) none = NotThis (fst (orFalse (n == old) none)) (noneAt rest (snd (orFalse (n == old) none)))
+
+-- A name a set of bounds does not replace is unequal to each it does.
+0 replacesAt : (bs : Bounds ns) -> replaces bs n = False -> (w : Var ns) -> (n == replacedAt bs w) = False
+replacesAt (Add _ old rest) none (MkVar First) = fst (orFalse (n == old) none)
+replacesAt (Add _ old rest) none (MkVar (Later v)) = replacesAt rest (snd (orFalse (n == old) none)) (MkVar v)
+replacesAt None _ (MkVar v) impossible
+
+-- Where the names are apart, each is at the first bound that replaces it:
+-- equal to its own, and unequal to each before it.
+0 firstAt : (bs : Bounds ns) -> namesApart bs = True -> (w : Var ns) -> FirstAt bs w (replacedAt bs w)
+firstAt (Add _ old rest) apart (MkVar First) = AtHere (nameEqualityReflexive old)
+firstAt (Add _ old rest) apart (MkVar (Later v))
+    = AtLater (nameEqualitySymmetric old (replacedAt rest (MkVar v))
+                 (replacesAt rest (notTrue (replaces rest old) (fst (andTrue (not (replaces rest old)) apart))) (MkVar v)))
+              (firstAt rest (snd (andTrue (not (replaces rest old)) apart)) (MkVar v))
+firstAt None _ (MkVar v) impossible
+
+0 weakenMarker : (o : SizeOf outer) -> (bs : Bounds ns) -> (w : Var ns) ->
+                 weakenNs o (Var.index (markersOf {vars} fc bs) w) = Ref fc Bound (replacedAt bs w)
+weakenMarker o bs w = trans (cong (weakenNs o) (markerName bs w)) weakenRef
+
+mutual
+  -- Values put in for no variables leave a term as it is, at any depth.
+  0 substNothing : (o : SizeOf outer) -> (sz : SizeOf []) -> (u : Term (outer ++ vars)) -> substTerm o sz [] u = u
+  substNothing o sz (Local fc r i p) = case range (size o) (size sz) i of
+    InFirst lt => localAtSame (substBelow o sz [] p lt) IsLocalAt
+    InSecond j _ lt => absurd (replace {p = Nat.LT j} (sizesAgree sz zero) lt)
+    PastBoth k eq =>
+      localAtSame (replace {p = \x => LocalAt fc r x (substTerm o sz [] (Local fc r i p))}
+                           (sym (trans eq (cong (\x => size o + (x + k)) (sizesAgree sz zero))))
+                           (substPast o sz [] p k eq))
+                  IsLocalAt
+  substNothing o sz (Ref fc nt n) = Refl
+  substNothing o sz (Meta fc m k args) = cong (Meta fc m k) (substNothingAll o sz args)
+  substNothing o sz (Bind fc x b sc) = cong2 (Bind fc x) (substNothingBinder o sz b) (substNothing (suc o) sz sc)
+  substNothing o sz (App fc f a) = cong2 (App fc) (substNothing o sz f) (substNothing o sz a)
+  substNothing o sz (As fc s n t) = cong2 (As fc s) (substNothing o sz n) (substNothing o sz t)
+  substNothing o sz (TDelayed fc r t) = cong (TDelayed fc r) (substNothing o sz t)
+  substNothing o sz (TDelay fc d ty a) = cong2 (TDelay fc d) (substNothing o sz ty) (substNothing o sz a)
+  substNothing o sz (TForce fc r t) = cong (TForce fc r) (substNothing o sz t)
+  substNothing o sz (PrimVal fc c) = Refl
+  substNothing o sz (Erased fc Placeholder) = Refl
+  substNothing o sz (Erased fc Impossible) = Refl
+  substNothing o sz (Erased fc (Dotted t)) = cong (\x => Erased fc (Dotted x)) (substNothing o sz t)
+  substNothing o sz (TType fc u) = Refl
+
+  0 substNothingAll : (o : SizeOf outer) -> (sz : SizeOf []) -> (us : List (Term (outer ++ vars))) ->
+                      substTerms o sz [] us = us
+  substNothingAll o sz [] = Refl
+  substNothingAll o sz (u :: us) = cong2 (::) (substNothing o sz u) (substNothingAll o sz us)
+
+  0 substNothingBinder : (o : SizeOf outer) -> (sz : SizeOf []) -> (b : Binder (Term (outer ++ vars))) ->
+                         substBinder o sz [] b = b
+  substNothingBinder o sz (Lam fc c p ty) = cong2 (Lam fc c) (substNothingPi o sz p) (substNothing o sz ty)
+  substNothingBinder o sz (Let fc c v ty) = cong2 (Let fc c) (substNothing o sz v) (substNothing o sz ty)
+  substNothingBinder o sz (Pi fc c p ty) = cong2 (Pi fc c) (substNothingPi o sz p) (substNothing o sz ty)
+  substNothingBinder o sz (PVar fc c p ty) = cong2 (PVar fc c) (substNothingPi o sz p) (substNothing o sz ty)
+  substNothingBinder o sz (PLet fc c v ty) = cong2 (PLet fc c) (substNothing o sz v) (substNothing o sz ty)
+  substNothingBinder o sz (PVTy fc c ty) = cong (PVTy fc c) (substNothing o sz ty)
+
+  0 substNothingPi : (o : SizeOf outer) -> (sz : SizeOf []) -> (p : PiInfo (Term (outer ++ vars))) ->
+                     substPi o sz [] p = p
+  substNothingPi o sz Implicit = Refl
+  substNothingPi o sz Explicit = Refl
+  substNothingPi o sz AutoImplicit = Refl
+  substNothingPi o sz (DefImplicit t) = cong DefImplicit (substNothing o sz t)
+
+mutual
+  -- Embedding a term names what it named.
+  0 mentionsEmbed : (k : Naming) -> (bs : Bounds ns) -> (t : Term vs) -> mentions k bs (embed {outer} t) = mentions k bs t
+  mentionsEmbed k bs (Local fc r i p) = Refl
+  mentionsEmbed k bs (Ref fc nt n) = Refl
+  mentionsEmbed k bs (Meta fc m i args) = cong (\x => replaces bs m || x) (mentionsEmbedAll k bs args)
+  mentionsEmbed k bs (Bind fc x b sc) = cong2 (\y, z => y || z) (mentionsEmbedBinder k bs b) (mentionsEmbed k bs sc)
+  mentionsEmbed k bs (App fc f a) = cong2 (\y, z => y || z) (mentionsEmbed k bs f) (mentionsEmbed k bs a)
+  mentionsEmbed k bs (As fc s n t) = cong2 (\y, z => y || z) (mentionsEmbed k bs n) (mentionsEmbed k bs t)
+  mentionsEmbed k bs (TDelayed fc r t) = mentionsEmbed k bs t
+  mentionsEmbed k bs (TDelay fc d ty a) = cong2 (\y, z => y || z) (mentionsEmbed k bs ty) (mentionsEmbed k bs a)
+  mentionsEmbed k bs (TForce fc r t) = mentionsEmbed k bs t
+  mentionsEmbed k bs (PrimVal fc c) = Refl
+  mentionsEmbed k bs (Erased fc Placeholder) = Refl
+  mentionsEmbed k bs (Erased fc Impossible) = Refl
+  mentionsEmbed k bs (Erased fc (Dotted t)) = mentionsEmbed k bs t
+  mentionsEmbed k bs (TType fc u) = Refl
+
+  0 mentionsEmbedAll : (k : Naming) -> (bs : Bounds ns) -> (ts : List (Term vs)) ->
+                       mentionsIn k bs (embedTerms {outer} ts) = mentionsIn k bs ts
+  mentionsEmbedAll k bs [] = Refl
+  mentionsEmbedAll k bs (t :: ts) = cong2 (\y, z => y || z) (mentionsEmbed k bs t) (mentionsEmbedAll k bs ts)
+
+  0 mentionsEmbedBinder : (k : Naming) -> (bs : Bounds ns) -> (b : Binder (Term vs)) ->
+                          mentionsInBinder k bs (embedBinder {outer} b) = mentionsInBinder k bs b
+  mentionsEmbedBinder k bs (Lam fc c p ty) = cong2 (\y, z => y || z) (mentionsEmbedPi k bs p) (mentionsEmbed k bs ty)
+  mentionsEmbedBinder k bs (Let fc c v ty) = cong2 (\y, z => y || z) (mentionsEmbed k bs v) (mentionsEmbed k bs ty)
+  mentionsEmbedBinder k bs (Pi fc c p ty) = cong2 (\y, z => y || z) (mentionsEmbedPi k bs p) (mentionsEmbed k bs ty)
+  mentionsEmbedBinder k bs (PVar fc c p ty) = cong2 (\y, z => y || z) (mentionsEmbedPi k bs p) (mentionsEmbed k bs ty)
+  mentionsEmbedBinder k bs (PLet fc c v ty) = cong2 (\y, z => y || z) (mentionsEmbed k bs v) (mentionsEmbed k bs ty)
+  mentionsEmbedBinder k bs (PVTy fc c ty) = mentionsEmbed k bs ty
+
+  0 mentionsEmbedPi : (k : Naming) -> (bs : Bounds ns) -> (p : PiInfo (Term vs)) ->
+                      mentionsInPi k bs (embedPi {outer} p) = mentionsInPi k bs p
+  mentionsEmbedPi k bs Implicit = Refl
+  mentionsEmbedPi k bs Explicit = Refl
+  mentionsEmbedPi k bs AutoImplicit = Refl
+  mentionsEmbedPi k bs (DefImplicit t) = mentionsEmbed k bs t
+
+-- A local a substitution left below the binders it is under, turned back
+-- by `mkLocals` and substituted again, is the local substituted once.
+0 belowBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+              (0 p : IsVar nm i (outer ++ (ns ++ vars))) -> Nat.LT i (size o) ->
+              {t : Term (outer ++ vars)} -> LocalAt lfc r i t ->
+              substTerm o sz vs (mkLocals o bs t) = substTerm o sz vs (Local lfc r i p)
+belowBack o sz bs vs p lt (IsLocalAt {p = q}) =
+  cong (substTerm o sz vs) (localAtSame (mkLocalsBelow o bs q lt) (IsLocalAt {p}))
+
+-- A local among the variables values are put in for, at any location, is
+-- the value.
+0 middleBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (vs : SubstEnv ns vars) -> (w : Var ns) ->
+               {t : Term (outer ++ (ns ++ vars))} -> LocalAt mfc r (size o + varIdx w) t ->
+               substTerm o sz vs t = weakenNs o (Var.index vs w)
+middleBack o sz vs w (IsLocalAt {p = q}) = substMiddle o sz vs q w Refl
+
+-- A local a substitution moved down past the variables it put values in
+-- for, moved back up by `mkLocals` and substituted again, is the local
+-- substituted once.
+0 pastBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+             (0 p : IsVar nm i (outer ++ (ns ++ vars))) -> (k : Nat) -> i = size o + (size sz + k) ->
+             {t : Term (outer ++ vars)} -> LocalAt lfc r (size o + k) t ->
+             substTerm o sz vs (mkLocals o bs t) = substTerm o sz vs (Local lfc r i p)
+pastBack o sz bs vs p k eq (IsLocalAt {p = q}) =
+  cong (substTerm o sz vs)
+       (localAtSame (replace {p = \x => LocalAt lfc r x (mkLocals o bs (Local lfc r (size o + k) q))}
+                             (trans (cong (\x => x + (size o + k)) (sizesAgree (sizeOf bs) sz))
+                                    (trans (swapPlus (size o) (size sz) k) (sym eq)))
+                             (mkLocalsPast o bs q (lteAddRight (size o))))
+                    (IsLocalAt {p}))
+
+-- A local, closed with a marker in for it where it is one of the scope's
+-- variables, turned back and substituted, is the local substituted: by
+-- where its index is, below the binders, among the scope's variables, or
+-- past them.
+0 localPutBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+                 namesApart bs = True -> (0 p : IsVar nm i (outer ++ (ns ++ vars))) ->
+                 substTerm o sz vs (mkLocals o bs (substTerm o sz (markersOf {vars} fc bs) (Local lfc r i p)))
+                   = substTerm o sz vs (Local lfc r i p)
+localPutBack o sz bs vs apart p = case range (size o) (size sz) i of
+  InFirst lt => belowBack o sz bs vs p lt (substBelow o sz (markersOf fc bs) p lt)
+  InSecond j eq lt =>
+    let (w ** wj) = varAt sz j lt
+        atW = trans eq (cong (size o +) (sym wj)) in
+    trans (cong (\t => substTerm o sz vs (mkLocals o bs t)) (substMiddle o sz (markersOf fc bs) p w atW))
+      (trans (cong (\t => substTerm o sz vs (mkLocals o bs t)) (weakenMarker o bs w))
+        (trans (middleBack o sz vs w (mkLocalsMarker o bs w (firstAt bs apart w)))
+               (sym (substMiddle o sz vs p w atW))))
+  PastBoth k eq => pastBack o sz bs vs p k eq (substPast o sz (markersOf fc bs) p k eq)
+
+mutual
+  -- A term over a scope, with markers in for the scope's variables, the
+  -- markers turned back into the variables and values put in for those, is
+  -- the term with the values put in, at any depth, where the names are
+  -- apart and the term names none of them.
+  0 markersPutBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+                     namesApart bs = True -> (u : Term (outer ++ (ns ++ vars))) ->
+                     mentions BoundOrUnknown bs u = False ->
+                     substTerm o sz vs (mkLocals o bs (substTerm o sz (markersOf {vars} fc bs) u)) = substTerm o sz vs u
+  markersPutBack o sz bs vs apart (Local lfc r i p) _ = localPutBack o sz bs vs apart p
+  markersPutBack o sz bs vs apart (Ref rfc Bound n) none =
+    cong (substTerm o sz vs) (mkLocalsUnreplaced o bs (noneAt bs none))
+  markersPutBack o sz bs vs apart (Ref rfc Func n) _ = Refl
+  markersPutBack o sz bs vs apart (Ref rfc (DataCon tag arity) n) _ = Refl
+  markersPutBack o sz bs vs apart (Ref rfc (TyCon arity) n) _ = Refl
+  markersPutBack o sz bs vs apart (Meta mfc m k args) none =
+    trans (cong (substTerm o sz vs) (mkLocalsUnknown o bs (noneAt bs (fst (orFalse (replaces bs m) none)))))
+          (cong (Meta mfc m k) (markersPutBackAll o sz bs vs apart args (snd (orFalse (replaces bs m) none))))
+  markersPutBack o sz bs vs apart (Bind bfc x b sc) none =
+    cong2 (Bind bfc x) (markersPutBackBinder o sz bs vs apart b (fst (orFalse (mentionsInBinder BoundOrUnknown bs b) none)))
+                       (markersPutBack (suc o) sz bs vs apart sc (snd (orFalse (mentionsInBinder BoundOrUnknown bs b) none)))
+  markersPutBack o sz bs vs apart (App afc f a) none =
+    cong2 (App afc) (markersPutBack o sz bs vs apart f (fst (orFalse (mentions BoundOrUnknown bs f) none)))
+                    (markersPutBack o sz bs vs apart a (snd (orFalse (mentions BoundOrUnknown bs f) none)))
+  markersPutBack o sz bs vs apart (As afc side n t) none =
+    cong2 (As afc side) (markersPutBack o sz bs vs apart n (fst (orFalse (mentions BoundOrUnknown bs n) none)))
+                        (markersPutBack o sz bs vs apart t (snd (orFalse (mentions BoundOrUnknown bs n) none)))
+  markersPutBack o sz bs vs apart (TDelayed dfc r t) none = cong (TDelayed dfc r) (markersPutBack o sz bs vs apart t none)
+  markersPutBack o sz bs vs apart (TDelay dfc d ty a) none =
+    cong2 (TDelay dfc d) (markersPutBack o sz bs vs apart ty (fst (orFalse (mentions BoundOrUnknown bs ty) none)))
+                         (markersPutBack o sz bs vs apart a (snd (orFalse (mentions BoundOrUnknown bs ty) none)))
+  markersPutBack o sz bs vs apart (TForce ffc r t) none = cong (TForce ffc r) (markersPutBack o sz bs vs apart t none)
+  markersPutBack o sz bs vs apart (PrimVal pfc c) _ = Refl
+  markersPutBack o sz bs vs apart (Erased efc Placeholder) _ = Refl
+  markersPutBack o sz bs vs apart (Erased efc Impossible) _ = Refl
+  markersPutBack o sz bs vs apart (Erased efc (Dotted t)) none =
+    cong (\x => Erased efc (Dotted x)) (markersPutBack o sz bs vs apart t none)
+  markersPutBack o sz bs vs apart (TType tfc u) _ = Refl
+
+  0 markersPutBackAll : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+                        namesApart bs = True -> (us : List (Term (outer ++ (ns ++ vars)))) ->
+                        mentionsIn BoundOrUnknown bs us = False ->
+                        substTerms o sz vs (mkLocalsTerms o bs (substTerms o sz (markersOf {vars} fc bs) us))
+                          = substTerms o sz vs us
+  markersPutBackAll o sz bs vs apart [] _ = Refl
+  markersPutBackAll o sz bs vs apart (u :: us) none =
+    cong2 (::) (markersPutBack o sz bs vs apart u (fst (orFalse (mentions BoundOrUnknown bs u) none)))
+               (markersPutBackAll o sz bs vs apart us (snd (orFalse (mentions BoundOrUnknown bs u) none)))
+
+  0 markersPutBackBinder : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+                           namesApart bs = True -> (b : Binder (Term (outer ++ (ns ++ vars)))) ->
+                           mentionsInBinder BoundOrUnknown bs b = False ->
+                           substBinder o sz vs (mkLocalsBinder o bs (substBinder o sz (markersOf {vars} fc bs) b))
+                             = substBinder o sz vs b
+  markersPutBackBinder o sz bs vs apart (Lam lfc c p ty) none =
+    cong2 (Lam lfc c) (markersPutBackPi o sz bs vs apart p (fst (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
+                      (markersPutBack o sz bs vs apart ty (snd (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
+  markersPutBackBinder o sz bs vs apart (Let lfc c v ty) none =
+    cong2 (Let lfc c) (markersPutBack o sz bs vs apart v (fst (orFalse (mentions BoundOrUnknown bs v) none)))
+                      (markersPutBack o sz bs vs apart ty (snd (orFalse (mentions BoundOrUnknown bs v) none)))
+  markersPutBackBinder o sz bs vs apart (Pi lfc c p ty) none =
+    cong2 (Pi lfc c) (markersPutBackPi o sz bs vs apart p (fst (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
+                     (markersPutBack o sz bs vs apart ty (snd (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
+  markersPutBackBinder o sz bs vs apart (PVar lfc c p ty) none =
+    cong2 (PVar lfc c) (markersPutBackPi o sz bs vs apart p (fst (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
+                       (markersPutBack o sz bs vs apart ty (snd (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
+  markersPutBackBinder o sz bs vs apart (PLet lfc c v ty) none =
+    cong2 (PLet lfc c) (markersPutBack o sz bs vs apart v (fst (orFalse (mentions BoundOrUnknown bs v) none)))
+                       (markersPutBack o sz bs vs apart ty (snd (orFalse (mentions BoundOrUnknown bs v) none)))
+  markersPutBackBinder o sz bs vs apart (PVTy lfc c ty) none =
+    cong (PVTy lfc c) (markersPutBack o sz bs vs apart ty none)
+
+  0 markersPutBackPi : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+                       namesApart bs = True -> (p : PiInfo (Term (outer ++ (ns ++ vars)))) ->
+                       mentionsInPi BoundOrUnknown bs p = False ->
+                       substPi o sz vs (mkLocalsPi o bs (substPi o sz (markersOf {vars} fc bs) p)) = substPi o sz vs p
+  markersPutBackPi o sz bs vs apart Implicit _ = Refl
+  markersPutBackPi o sz bs vs apart Explicit _ = Refl
+  markersPutBackPi o sz bs vs apart AutoImplicit _ = Refl
+  markersPutBackPi o sz bs vs apart (DefImplicit t) none = cong DefImplicit (markersPutBack o sz bs vs apart t none)
+
 ||| Putting values in for names that stand for a scope's variables is
 ||| putting them in for the variables. A term over the scope, closed with a
 ||| reference to each name in for its variables (`markersOf`), those
 ||| references turned back into the variables (`refsToLocals`) and the
 ||| values put in for them, is the term with the values put in for its
 ||| variables, where the names are apart (`namesApart`) and the term names
-||| none of them (`namesAny`): each reference finds its own name first,
-||| since Idris's equality of names is reflexive and symmetric, and every
-||| reference and unknown the term held stays as it was. That is the
-||| substitution lemma of Idris's terms, which its type checker rests on
-||| whenever it checks a definition used at its arguments, stated over this
-||| compiler's `substs` and `refsToLocals`, whose definitions no proof of a
-||| program over this compiler reaches.
+||| none of them (`mentions`): each reference finds its own name first, and
+||| every reference and unknown the term held stays as it was.
 export
 0 substitutesMarkers : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) -> (t : Term ns) ->
-                       namesApart bs = True -> namesAny bs t = False ->
-                       substs (mkSizeOf ns) vs
-                              (refsToLocals bs (substs (mkSizeOf ns) (markersOf {vars} fc bs) (embed t)))
+                       namesApart bs = True -> mentions BoundOrUnknown bs t = False ->
+                       substs (mkSizeOf ns) vs (refsToLocals bs (substs (mkSizeOf ns) (markersOf {vars} fc bs) (embed t)))
                          = substs (mkSizeOf ns) vs (embed t)
-substitutesMarkers _ _ _ _ _ = trusted
+substitutesMarkers None [] t _ _ = substNothing zero (mkSizeOf []) (substs (mkSizeOf []) [] (embed t))
+substitutesMarkers {ns} (Add new old rest) vs t apart none
+    = markersPutBack zero (mkSizeOf ns) (Add new old rest) vs apart (embed t)
+                     (trans (mentionsEmbed BoundOrUnknown (Add new old rest) t) none)
+
+------------------------------------------------------------------------------
+-- Putting values in, node by node
+------------------------------------------------------------------------------
+
+||| Values put in for the names a set of bounds replaces, under `outer`
+||| binders: each name turned into the variable it stands for (`mkLocals`)
+||| and the value put in for that variable (`substTerm`); with no bounds,
+||| the second step alone, as `refsToLocals` skips the first. At no binder
+||| it is `substs` after `refsToLocals` (`putInAtTop`). At every node but a
+||| bound reference and a local it is that node rebuilt from its parts with
+||| the values put in, a binder's scope one binder deeper, and an unknown
+||| of no replaced name the same unknown over its arguments put in
+||| (`mkLocalsUnknown`): `substTerm` and `mkLocals` are public, so each of
+||| those is their definitions unfolded. A bound reference is the value
+||| for its name's variable (`putInMarker`) or itself (`putInUnreplaced`),
+||| and a local is kept (`putInLocal`).
+public export
+0 putIn : SizeOf outer -> SizeOf ns -> Bounds ns -> SubstEnv ns vars -> Term (outer ++ vars) -> Term (outer ++ vars)
+putIn o sz None vs t = substTerm o sz vs t
+putIn o sz (Add new old rest) vs t = substTerm o sz vs (mkLocals o (Add new old rest) t)
+
+||| At no binder, putting values in is `substs` after `refsToLocals`.
+export
+0 putInAtTop : (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) -> (t : Term vars) ->
+               substs sz vs (refsToLocals bs t) = putIn zero sz bs vs t
+putInAtTop sz None vs t = Refl
+putInAtTop sz (Add new old rest) vs t = Refl
+
+||| A bound reference to the name a set of bounds replaces at a variable,
+||| where the names are apart, is the value for that variable, weakened
+||| under the binders.
+export
+0 putInMarker : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+                namesApart bs = True -> (w : Var ns) ->
+                putIn o sz bs vs (Ref fc Bound (replacedAt bs w)) = weakenNs o (Var.index vs w)
+putInMarker o sz (Add new old rest) vs apart w
+    = middleBack o sz vs w (mkLocalsMarker o (Add new old rest) w (firstAt (Add new old rest) apart w))
+putInMarker o sz None vs apart (MkVar v) impossible
+
+||| A bound reference to a name no bound replaces stays as it was.
+export
+0 putInUnreplaced : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+                    replaces bs n = False -> putIn o sz bs vs (Ref fc Bound n) = Ref fc Bound n
+putInUnreplaced o sz None vs _ = Refl
+putInUnreplaced o sz (Add new old rest) vs none
+    = cong (substTerm o sz vs) (mkLocalsUnreplaced o (Add new old rest) (noneAt (Add new old rest) none))
+
+0 belowPut : (o : SizeOf outer) -> (sz : SizeOf ns) -> (vs : SubstEnv ns vars) -> Nat.LT i (size o) ->
+             {t : Term (outer ++ (ns ++ vars))} -> LocalAt lfc r i t -> LocalAt lfc r i (substTerm o sz vs t)
+belowPut o sz vs lt (IsLocalAt {p = q}) = substBelow o sz vs q lt
+
+0 pastPut : (o : SizeOf outer) -> (sz : SizeOf ns) -> (vs : SubstEnv ns vars) -> (k : Nat) ->
+            {t : Term (outer ++ (ns ++ vars))} -> LocalAt lfc r (size sz + (size o + k)) t ->
+            LocalAt lfc r (size o + k) (substTerm o sz vs t)
+pastPut o sz vs k (IsLocalAt {p = q}) = substPast o sz vs q k (swapPlus (size o) (size sz) k)
+
+||| A local of the term values are put into is kept.
+export
+0 putInLocal : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
+               (0 p : IsVar nm i (outer ++ vars)) -> LocalAt lfc r i (putIn o sz bs vs (Local lfc r i p))
+putInLocal o sz None [] p = replace {p = LocalAt lfc r i} (sym (substNothing o sz (Local lfc r i p))) IsLocalAt
+putInLocal o sz (Add new old rest) vs p = case range (size o) Z i of
+  InFirst lt => belowPut o sz vs lt (mkLocalsBelow o (Add new old rest) p lt)
+  InSecond _ _ lt => absurd lt
+  PastBoth k eq =>
+    replace {p = \x => LocalAt lfc r x (putIn o sz (Add new old rest) vs (Local lfc r i p))} (sym eq)
+      (pastPut o sz vs k
+         (replace {p = \x => LocalAt lfc r x (mkLocals o (Add new old rest) (Local lfc r i p))}
+                  (trans (cong (\x => x + i) (sizesAgree (sizeOf (Add new old rest)) sz)) (cong (size sz +) eq))
+                  (mkLocalsPast o (Add new old rest) p (replace {p = Nat.LTE (size o)} (sym eq) (lteAddRight (size o))))))
 
 -- A normaliser's normal form of a closed term, on the frozen context
 -- alone: its definitions record, and its own reference as the context the
@@ -1250,7 +1687,10 @@ mutual
 -- `addBuiltin`) and gives a name one entry, the one made for it first
 -- (`getPosition`), and a definition decoded from a TTC keeps the full name
 -- it was saved under: so two entries hold definitions of two full names,
--- and no definition records a resolved name as its full name.
+-- and no definition records a resolved name as its full name. These are
+-- invariants the `Core` actions that build the context keep, over its
+-- mutable table and its map of names, and no definition states them, so
+-- they are trusted.
 0 oneEntryPerName : {0 ctx : Frozen} -> {0 i, j : Int} ->
                     IntMap.lookup i (entriesOf ctx) = Just d -> IntMap.lookup j (entriesOf ctx) = Just d' ->
                     fullname d = fullname d' -> i = j
@@ -1262,6 +1702,26 @@ fullNameUnresolved _ _ = trusted
 
 0 resolvedInjective : Resolved i = Resolved j -> i = j
 resolvedInjective Refl = Refl
+
+||| A resolved name made full is the full name of the definition at its
+||| entry: `fullNameIn` reads that definition's.
+export
+0 entryFullName : {0 ctx : Frozen} -> {0 i : Int} ->
+                  IntMap.lookup i (entriesOf ctx) = Just d -> fullNameIn ctx (Resolved i) = fullname d
+entryFullName held = cong (maybe (Resolved i) fullname) held
+
+||| The entry a name resolves to, made full, is the full name of the
+||| definition the context gives the name, whatever spelling the name has:
+||| the definition is the one at that entry.
+export
+0 definedFullName : Defines ctx n d -> (i : Int ** (Resolves ctx n i, fullNameIn ctx (Resolved i) = fullname d))
+definedFullName (AtEntry {i} r held) = (i ** (r, entryFullName held))
+
+||| A resolved name the context defines, made full, is the full name of its
+||| definition: it resolves to its own entry, where the definition is.
+export
+0 resolvedDefinedFullName : Defines ctx (Resolved j) d -> fullNameIn ctx (Resolved j) = fullname d
+resolvedDefinedFullName (AtEntry r held) = entryFullName (atEntry resolvedItself r held)
 
 -- Two resolved names whose full names agree, read through what their
 -- entries hold: two definitions, one, or none.
@@ -1348,14 +1808,14 @@ record Host where
   ||| visibility.
   normaliseAll : (ctx : Frozen) -> (t : ClosedTerm) -> Core (Reduct OfNormaliseAll ctx t)
 
-  -- A definition's terms, through the context's accessors, each here
-  -- until the accessor is total.
+  -- A definition's terms, read with what they were read from. Each is
+  -- total, so it leaves `host` once its callers call it directly.
 
-  ||| `Core.Context.typeOf`, with the evidence a step that reads the type
-  ||| holds.
+  ||| A definition's type, read as `Core.Context.typeOf` reads it, with
+  ||| what it was read from.
   typeOf : (d : GlobalDef) -> Core (Subset ClosedTerm (TypeOf d))
-  ||| `Core.Context.treeOf`, with the evidence a step that walks the tree
-  ||| holds.
+  ||| A body's case tree, read as `Core.Context.treeOf` reads it, with what
+  ||| it was read from.
   treeOf : {args : Scope} -> (body : Body args) -> Core (Subset (CaseTree args) (TreeOf body))
 
   -- Termination.
@@ -1393,8 +1853,8 @@ host = assert_total (MkHost
   , normaliseTypes = reduct normaliseTypes
   , normaliseHoles = reduct normaliseHoles
   , normaliseAll = reduct normaliseAll
-  , typeOf = \d => (\ty => Element ty ReadType) <$> typeOf d
-  , treeOf = \body => (\tree => Element tree ReadTree) <$> treeOf body
+  , typeOf = readTypeOf
+  , treeOf = readTreeOf
   , checkTerminating
   , buildMain
   , processPackageOpts
