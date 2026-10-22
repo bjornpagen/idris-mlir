@@ -5,8 +5,8 @@
 // one set) or, for an op of another dialect, upstream's, whose instances
 // are folded once into a set. Every question about an op's effects that
 // names no value asks here: what it does, alone or with everything in its
-// regions, what it adds to its function's row, and whether two ops may
-// trade places.
+// regions, what it adds to its function's row, whether memory may be taken
+// while it runs, and whether two ops may trade places.
 #ifndef IDR_IR_EFFECTS_WHOLE_H
 #define IDR_IR_EFFECTS_WHOLE_H
 
@@ -30,6 +30,44 @@ EffectSet whole(mlir::Operation *op);
 // effects summarized, a call's row whole among them. Where in memory an
 // effect lands, which the function's own derivation refines, is not read.
 inline Row rowOf(mlir::Operation *op) { return whole(op).row(); }
+
+namespace detail {
+
+// Per kind, the states an effect on which summarizes as `alloc` in a row,
+// read off the projection when the compiler is built, so asking whether
+// memory may be taken tests a few bits and projects no set.
+inline constexpr EnumArray<Kind, Resources> takesMemoryOn = [] {
+  EnumArray<Kind, Resources> on{};
+  for (Kind kind : allOf<Kind>())
+    for (ResourceId state : allOf<ResourceId>())
+      if (project(kind, state).contains(Atom::alloc))
+        on[kind] = on[kind] | Resources{state};
+  return on;
+}();
+
+} // namespace detail
+
+// Whether memory may be taken while what `set` holds runs: whatever its row
+// reports as `alloc`, so a heap cell it allocates, memory its runtime
+// function holds that no value names, and what a call's callee acquires,
+// which the call's row carries. Wider than `acquires`, which reads only an
+// op's own allocations and so never a callee's or the runtime's, and reads
+// an op that declares nothing as acquiring nothing, where this reads it as
+// acquiring anything. Narrower in one place: a frame cell, which `acquires`
+// counts, is its function's own and no row reports it. Asked of `own(op)`
+// by a walk that meets the ops in each region in turn, and of the whole op
+// by one that steps over it.
+constexpr bool mayAcquire(const EffectSet &set) {
+  if (set.reported.contains(Atom::alloc))
+    return true;
+  for (Kind kind : allOf<Kind>())
+    if (!(set.byKind[kind] & detail::takesMemoryOn[kind]).empty())
+      return true;
+  return false;
+}
+
+// Whether memory may be taken while `op` runs, with everything in it.
+inline bool mayAcquire(mlir::Operation *op) { return mayAcquire(whole(op)); }
 
 // What an op reports in its function's row beyond its MLIR effects: the
 // memory its runtime function, or a call's callee, acquires or gives back
