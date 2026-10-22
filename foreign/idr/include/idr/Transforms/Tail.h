@@ -23,7 +23,6 @@
 #ifndef IDR_TRANSFORMS_TAIL_H
 #define IDR_TRANSFORMS_TAIL_H
 
-#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -45,29 +44,6 @@ namespace idr {
 } // namespace idr
 
 namespace idr::tail {
-
-//===----------------------------------------------------------------------===//
-// The program graph
-//===----------------------------------------------------------------------===//
-
-// `fn`'s row of the program graph as its calls now are: each distinct
-// callee and tail kind, with how many calls have it. What idr-trmc and
-// idr-frames give the editor for each function they make or change.
-template <solver::FunctionNames N>
-llvm::SmallVector<solver::Call> callRow(FuncOp fn, const N &names) {
-  llvm::SmallVector<solver::Call> row;
-  fn.walk([&](CallOp call) {
-    solver::FunctionId callee = names.id(call.getCalleeAttr());
-    auto *same = llvm::find_if(row, [&](const solver::Call &c) {
-      return c.callee == callee && c.kind == call.getTailKind();
-    });
-    if (same != row.end())
-      ++same->sites;
-    else
-      row.push_back({callee, call.getTailKind(), 1});
-  });
-  return row;
-}
 
 //===----------------------------------------------------------------------===//
 // Accumulators

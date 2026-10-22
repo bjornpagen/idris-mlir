@@ -12,9 +12,10 @@
 // self tail call left a call is `musttail` at the lowering and grows no
 // stack either. So the loop is an action a debug counter may skip.
 //
-// Code Idris did not prove to terminate keeps its loop's divergence (the
-// loop is made of code that may diverge), so that an unused loop that may
-// run forever stays, as eager evaluation keeps it.
+// Whether the loop may run forever is its function's derived row, which
+// the loop leaves as it was: an unused loop of code Idris did not prove to
+// end stays, as eager evaluation keeps it, by the row and no mark of its
+// own.
 //
 // The pass reads its own function and nothing else, and changes nothing
 // outside it.
@@ -23,10 +24,8 @@
 
 #include "idr/Transforms/Tail.h"
 
-#include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Actions.h"
-#include "idr/Support/Match.h"
 #include "idr/Transforms/Joins.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -62,13 +61,9 @@ struct TailLoops : impl::IdrTailLoopsBase<TailLoops> {
     });
     if (calls.empty())
       return markAllAnalysesPreserved();
-    joins::Origin origin = idr::match(
-        fn.getTermination(), [](Unproved) { return joins::Origin::MayDiverge; },
-        [](InComponent) { return joins::Origin::Terminates; },
-        [](Acyclic) { return joins::Origin::Terminates; });
     IRRewriter rewriter(fn.getContext());
     if (!support::perform<TailLoopAction>(fn, [&] {
-          joins::loopSelf(rewriter, fn, calls, origin);
+          joins::loopSelf(rewriter, fn, calls);
           ++numLoops;
         }))
       return markAllAnalysesPreserved();

@@ -1113,7 +1113,7 @@ struct Frames : impl::IdrFramesBase<Frames> {
         (void)editor.insert(fn);
       for (FuncOp fn : touched)
         editor.setCallees(editor.id(FlatSymbolRefAttr::get(fn.getSymNameAttr())),
-                          callRow(fn, editor));
+                          solver::rowOf(fn, editor));
       std::move(editor).freeze();
     }
     rows::write(program, graph);

@@ -437,9 +437,9 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
         (void)editor.insert(pair.second);
       for (auto [fn, clone] : made) {
         editor.setCallees(editor.id(FlatSymbolRefAttr::get(fn.getSymNameAttr())),
-                          callRow(fn, editor));
+                          solver::rowOf(fn, editor));
         editor.setCallees(editor.id(FlatSymbolRefAttr::get(clone.getSymNameAttr())),
-                          callRow(clone, editor));
+                          solver::rowOf(clone, editor));
       }
       std::move(editor).freeze();
     }
