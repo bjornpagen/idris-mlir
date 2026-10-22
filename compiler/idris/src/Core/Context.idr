@@ -576,14 +576,14 @@ typeHead gdef
 export
 treeOf : {args : _} -> Body args -> Core (CaseTree args)
 treeOf (LiveBody ct _ _) = pure ct
-treeOf (StoredBody ct _ _) = traverseTree stored (mkSizeOf args) ct
+treeOf (StoredBody ct _ _) = traverseTree @{Applicative.CORE} stored (mkSizeOf args) ct
 
 ||| Each clause's arguments as the case builder read them, in the order of
 ||| the clauses.
 export
 clausePatsOf : Body args -> Core (List (List Pat))
 clausePatsOf (LiveBody _ ps _) = pure ps
-clausePatsOf (StoredBody _ ps _) = traverse (traversePats (stored zero)) ps
+clausePatsOf (StoredBody _ ps _) = traverse (traversePats @{Applicative.CORE} (stored zero)) ps
 
 -- The size of a scope a variable is bound beyond.
 tailSize : SizeOf (x :: vs) -> SizeOf vs
@@ -609,7 +609,7 @@ clausesOf (StoredBody _ _ cs) = traverse decodeClause cs
                    Core (vs : Scope ** (Env Term vs, Term vs, Term vs))
     decodeClause (vs ** (env, lhs, rhs))
         = do let s = mkSizeOf vs
-             env' <- traverseEnv stored s env
+             env' <- traverseEnv @{Applicative.CORE} stored s env
              lhs' <- stored s lhs
              rhs' <- stored s rhs
              pure (vs ** (env', lhs', rhs'))
@@ -1793,7 +1793,7 @@ lookupTyName : Name -> Context -> Core (List (Name, Int, ClosedTerm))
 lookupTyName n gam
   = do gdefs <- lookupCtxtName n gam
        traverse (\ (n, i, gd) => do ty <- typeOf gd
-                                     pure (n, i, ty)) gdefs
+                                    pure (n, i, ty)) gdefs
 
 export
 lookupDefTyExact : Name -> Context -> Core (Maybe (Def, ClosedTerm))
