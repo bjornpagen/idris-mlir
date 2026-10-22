@@ -1,169 +1,148 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the two units of exclusivity's solve share, and no other unit reads:
-// lib/Analysis/Ownership/Exclusivity.cpp, which runs the solve and keeps
-// its answers, and ExclusivityAnalyses.cpp beside it, the solve itself.
-// How each call goes, and the captures of each memoizing label, are fixed
-// before the solve, which reads them as it marks the program's values.
+// What the units of exclusivity's solve share, and no other unit reads:
+// ExclusivityGraph.cpp reads each body once into a Body, ExclusivityAnalyses.cpp
+// solves the program by context over those bodies, and Exclusivity.cpp keeps
+// the answer. A body's values are its followed values in the walk's order
+// (exclusivity::forEachFollowed), so every number here is a position, and
+// no table is keyed by an IR pointer.
+//
+// The solve marks "shared": a value is exclusive until a path shares it,
+// optimistic as SCCP is and sound by induction on the run. What shares a
+// value: a reference taken from it or from a view of it (a copy of a value
+// read, which a dup is), a parameter its context does not take exclusive,
+// a value no declared flow explains, a constant, and whatever a shared
+// value moves into or out of. In a context every followed parameter the
+// context takes exclusive is exclusive, so no edge runs from an argument
+// to a parameter: a call goes to the context of the parameters it passes
+// exclusive values at, and only a callee's returns flow back.
 #ifndef IDR_ANALYSIS_OWNERSHIP_EXCLUSIVITYDETAIL_H
 #define IDR_ANALYSIS_OWNERSHIP_EXCLUSIVITYDETAIL_H
 
 #include "idr/Analysis/Ownership.h"
+#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Id.h"
 
-#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <variant>
+#include <cstdint>
+#include <tuple>
 #include <vector>
 
 namespace idr::detail::exclusivity {
 
-using Sharing = Exclusivity::Sharing;
+using solver::FunctionId;
 
-// How calls go, fixed before the solve. Each function of the program is
-// called by its name alone, or, a key of grade specialization and its copy,
-// by either name: such a call runs the copy when every value it passes at a
-// followed parameter is exclusive, and the original otherwise. A verified
-// call names a function of the program, so every name a call holds is
-// here. What each function returns from is the idr.return ending its body,
-// none when the body ends in ub.unreachable.
-class Calls {
+// A followed value of one body, by its position in the walk.
+using Local = std::uint32_t;
+inline constexpr Local noLocal = ~Local{0};
+
+// shared(from) gives shared(to), within one body.
+struct Edge {
+  Local from;
+  Local to;
+};
+
+// Where a view a body passes on was lent from: a followed value of the
+// body, or the body's own parameter `index`, itself a view.
+struct ViewRoot {
+  enum class Kind : std::uint8_t { Value, Parameter } kind;
+  std::uint32_t index;
+};
+
+// A field of a memo label, the one place every cell of the label holds that
+// capture: an init moves a value into it and a force moves it out, through
+// whatever the cell passed between. Numbered across the program.
+using Anchor = std::uint32_t;
+
+struct Call {
+  FunctionId callee;
+  // The local of each argument, by the callee's parameter position;
+  // noLocal where the parameter is not followed.
+  llvm::SmallVector<Local, 4> args;
+  // The local of each result; noLocal where it is not followed.
+  llvm::SmallVector<Local, 2> results;
+  // Each view argument's root, by parameter position, for the views a
+  // callee takes a reference of.
+  llvm::SmallVector<std::pair<unsigned, ViewRoot>, 2> views;
+};
+
+// One function's body, read once.
+struct Body {
+  FuncOp fn;
+  std::uint32_t values = 0;
+  // The local of each parameter, by position; noLocal where it is not
+  // followed.
+  llvm::SmallVector<Local, 4> params;
+  // The local of each operand of the body's return, by result position;
+  // noLocal where it is not followed. `exclusiveResults` holds the results
+  // whose operand is exclusive by its grade. `returns` is false for a body
+  // that never returns.
+  llvm::SmallVector<Local, 2> results;
+  llvm::SmallBitVector exclusiveResults;
+  bool returns = false;
+  std::vector<Edge> edges;
+  // Values shared in every context: copies, constants, values no flow
+  // explains, inputs no predecessor forwards, region arguments no
+  // interface says.
+  std::vector<Local> seeds;
+  // Views a reference is taken of here, by root.
+  std::vector<ViewRoot> viewsCopied;
+  std::vector<Call> calls;
+  // Moves into and out of memo labels' fields.
+  std::vector<std::pair<Local, Anchor>> intoAnchors;
+  std::vector<std::pair<Anchor, Local>> outOfAnchors;
+};
+
+// The memo labels' fields of a program and the ones static data or a read
+// that keeps a second reference shares whatever an init moves in.
+class Anchors {
 public:
-  struct Pair {
-    FuncOp original;
-    FuncOp copy;
-  };
-  using Callee = std::variant<FuncOp, Pair>;
-
-  Calls(ProgramOp program, const ownership::Copies &copies);
-
-  // What a call of `call`'s callee runs.
-  const Callee &calleeOf(CallOp call) const;
-  // The functions whose calls may run `fn`.
-  llvm::SmallVector<FuncOp, 2> namesOf(FuncOp fn) const;
-  // The function `call` runs, `isExclusive` saying which of the values it
-  // passes are.
-  FuncOp target(CallOp call, llvm::function_ref<bool(mlir::Value)> isExclusive) const;
-  // The returns of `fn`, a function of the program.
-  llvm::ArrayRef<ReturnOp> returns(FuncOp fn) const { return returnsOf.at(fn); }
-  // Whether the program shows every call of `fn`: of every function but
-  // its root, which is called from outside. A program is whole and closed:
-  // once closures and suspensions are sums, each function runs only where
-  // an idr.call names it, and a label's name in a sum's body is a name, no
-  // address any op could call through.
-  static bool showsEveryCall(FuncOp fn) { return !fn.isRoot(); }
+  Anchor of(DataType memo, Tag tag, unsigned index);
+  void share(Anchor anchor) { sharedAnchors.push_back(anchor); }
+  std::uint32_t size() const { return static_cast<std::uint32_t>(keys.size()); }
+  llvm::ArrayRef<Anchor> shared() const { return sharedAnchors; }
 
 private:
-  llvm::DenseMap<mlir::StringAttr, Callee> callees;
-  llvm::DenseMap<FuncOp, llvm::SmallVector<ReturnOp>> returnsOf;
+  // A field by its label's identity: the family application, uniqued by
+  // content, and positions; no IR node is a key.
+  using Key = std::tuple<mlir::Type, std::uint32_t, std::uint32_t>;
+  llvm::DenseMap<Key, Anchor> keys;
+  std::vector<Anchor> sharedAnchors;
 };
 
-// The captures of each memoizing label: the memory a cell of a memo sum
-// holds a label's fields in, which idr.cell.init writes once, when the
-// cell is made, and idr.memo.run moves out at the force, with the cell's
-// reference. A capture moved out is exclusive when every value any init
-// moved into that field was, and nothing else reaches it while the cell
-// holds it: no static memo cell holds the label (static data is no one's
-// to take apart), and no read of the field as a view (a match's case
-// binding, an idr.field) is used, which is how a second reference to it
-// would be taken. Fixed before the solve, which joins the inits into the
-// region arguments of the program's memo.run ops of each label. A label is
-// made where an op that makes a cell of it runs, as the solve's own
-// liveness says (keepMadeIn): a label made only in code that never runs
-// is made by nothing, and its captures are shared.
-class Captures {
-public:
-  explicit Captures(ProgramOp program);
+// Reads `fn`'s body, the functions it calls resolved through `graph`, its
+// memo fields numbered in `anchors`; fails, with an internal error at the
+// op, on a terminator with block successors, which no body holds before
+// the lowering.
+mlir::FailureOr<Body> readBody(FuncOp fn, const solver::ProgramGraph &graph, Anchors &anchors);
 
-  // The forces of the label `tag` of the memo sum `memo`.
-  llvm::ArrayRef<MemoRunOp> forcesOf(DataType memo, Tag tag) const;
-  // Whether field `index` of that label is shared whatever the inits move
-  // into it.
-  bool shared(DataType memo, Tag tag, unsigned index) const;
-  // Whether a cell of that label is made where the program runs: an init,
-  // or static data.
-  bool made(DataType memo, Tag tag) const { return makers.contains({memo, tag}); }
-  // Keeps as made only the labels an op in a block of `live` makes;
-  // whether any label stopped being made.
-  bool keepMadeIn(const llvm::DenseSet<mlir::Block *> &live);
+// The static data of `program` that holds a memo label: its fields are
+// static, and shared whatever an init moves in.
+void shareStaticAnchors(ProgramOp program, Anchors &anchors);
 
-private:
-  using Label = std::pair<DataType, Tag>;
-  llvm::DenseMap<Label, llvm::SmallVector<MemoRunOp>> forces;
-  llvm::DenseSet<std::pair<Label, unsigned>> sharedFields;
-  // The ops that make a cell of each label.
-  llvm::DenseMap<Label, llvm::SmallVector<mlir::Operation *>> makers;
+// The parameters of each body a reference is taken of through a view
+// rooted at them, here or in a callee: one bit per parameter position.
+IndexVector<FunctionId, llvm::SmallBitVector>
+copiedViews(const IndexVector<FunctionId, Body> &bodies,
+            const solver::ProgramGraph &graph);
+
+// The answer of the solve: the versions of each function.
+struct Solution {
+  IndexVector<FunctionId, llvm::SmallVector<Exclusivity::Version, 1>> versions;
+  unsigned contexts = 0;
+  unsigned copies = 0;
+  unsigned rounds = 0;
 };
 
-// One solve of `program`, whose calls go as `calls` says and whose memo
-// captures are as `captures` says: what it found of each value it reached,
-// a value absent here being one it never reached (unknown). The solve is
-// optimistic: a value is exclusive until a path shares it, and only ever
-// shares more, so the marking ends.
-llvm::DenseMap<mlir::Value, Sharing> solveOnce(ProgramOp program, const Calls &calls,
-                                               const Captures &captures);
-
-// The blocks of `fn` that may run when `fn` runs: those control reaches
-// from its entry, every region of a reached op being one it may enter.
-// Reachability alone: which region a branch takes on a constant is the
-// canonicalizer's to fold, not the solve's to leave ungraded.
-void liveBlocksOf(FuncOp fn, llvm::DenseSet<mlir::Block *> &live);
-
-// One writer of values in the solve's graph: an op's results from its
-// reference edges, a call's results and its callee's parameters, a region
-// successor's inputs (an op's results, or a region's arguments) from its
-// predecessors' operands, a block's arguments from its predecessors, or
-// the arguments of a region no branch forwards to, which are shared. An
-// item reads the values it is a dependent of and runs again when one
-// rises or when its function starts to run; it writes nothing from a
-// block that may not run.
-struct Item {
-  enum class Kind : uint8_t { Op, Call, Successor, BlockArgs, EntryArgs };
-  Kind kind;
-  mlir::Operation *op; // Successor: the branch; BlockArgs: null, block is the item's own
-  mlir::Block *block;  // the block that must run for the item to write
-  FuncOp fn;           // the function the item is in
-  mlir::Region *region; // Successor: the successor region, null for the op successor
-  unsigned source;     // Successor: its entry in Graph::successorSources
-};
-
-// Where one region successor's inputs come from, read off the branch op
-// once: its inputs and the values no predecessor forwards to, each
-// predecessor that may go to it as the block control leaves from and the
-// operands it forwards, and the blocks control leaves a region from by a
-// terminator no interface says the operands of, which prove nothing.
-struct SuccessorSources {
-  mlir::ValueRange inputs;
-  llvm::SmallVector<mlir::Value> unforwarded;
-  llvm::SmallVector<std::pair<mlir::Block *, mlir::OperandRange>, 2> from;
-  llvm::SmallVector<mlir::Block *, 1> unknownFrom;
-};
-
-// The solve's graph of a program, built once: every item, where each
-// region successor's inputs come from, the items each value is read by,
-// and each function's items. Nothing in it changes as the marking runs.
-class Graph {
-public:
-  Graph(ProgramOp program, const Calls &calls);
-
-  std::vector<Item> items;
-  std::vector<SuccessorSources> successorSources;
-  llvm::DenseMap<mlir::Value, llvm::SmallVector<unsigned, 2>> dependents;
-  llvm::DenseMap<FuncOp, llvm::SmallVector<unsigned>> itemsOf;
-
-private:
-  unsigned addItem(Item item);
-  void reads(unsigned id, mlir::Value value);
-  void readsAll(unsigned id, mlir::ValueRange values);
-  void readsReturns(unsigned id, FuncOp callee, const Calls &calls);
-  void scan(mlir::Region &region, FuncOp fn, const Calls &calls);
-  void scanOp(mlir::Operation *op, FuncOp fn, const Calls &calls);
-  void scanBranch(mlir::RegionBranchOpInterface branch, mlir::Block *block, FuncOp fn);
-};
+// The solve by context over the program's bodies, its copied views and its
+// anchors.
+Solution solve(const IndexVector<FunctionId, Body> &bodies,
+               const IndexVector<FunctionId, llvm::SmallBitVector> &copied,
+               const Anchors &anchors, const solver::ProgramGraph &graph);
 
 } // namespace idr::detail::exclusivity
 

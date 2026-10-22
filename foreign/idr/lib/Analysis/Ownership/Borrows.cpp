@@ -1,314 +1,392 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Borrow inference: a parameter the function never needs a reference of
-// its own for is borrowed, and its callers keep the reference, which saves
-// an idr.dup and an idr.drop per call.
+// Borrow inference: which parameters, of functions and of join points, are
+// views of their caller's value, counted nothing, and which are counted,
+// under the frame-limited rule: a call holds a borrowed argument only where
+// some active call still needs it after the call, or its type bounds all it
+// reaches.
 //
-// Every parameter starts borrowed and becomes owned when it or a field read
-// from it
-//   - is taken apart (its cell is reused only if it is owned);
-//   - is passed to an owned parameter of a call;
-//   - is itself stored in a constructor, or written into a buffer;
-//   - is returned, or forwarded on (a match's yield, the value a loop
-//     carries round), which owns what it holds;
-// and when an owned value is passed to it by a tail call from the same
-// cycle of calls, which would otherwise have to drop its reference after
-// the call, so that the call would no longer be a tail call. A self call
-// whose result a tail position puts in a constructor counts as one:
-// idr-trmc makes it a tail call that writes the field, unless a drop sits
-// between the call and the constructor. An element read from a buffer
-// takes a reference of its own where it is read: it is owned, and owning
-// it asks nothing of the buffer.
-// The program's root keeps its parameters owned: it is the program's one
-// public function, whose caller is not a call this analysis sees. A
-// parameter of quantity 1 is owned too: Idris proved the function uses it
-// once, so it moves to that use and is never counted. A memo cell is never
-// owned: a force writes it while its caller still reads it, so the
-// dispatch that forces it reads a view.
+// A parameter is counted when the callee consumes it (a value it is moves
+// whole into a cell, is released, or is taken apart, a rebuild site among
+// those), or passes it to a counted parameter; and when some call or jump
+// gives it an argument it may not borrow: one bound at quantity 1 in the
+// caller, or one dead after the call that is neither static, nor a view
+// (a scoped value, or the caller's own parameter or a part read from one
+// while that parameter is itself borrowed), nor of a type that bounds all
+// it reaches at a call that is not a tail transfer. Every other parameter
+// that holds a counted reference is a view.
 //
-// The inference is one analysis on MLIR's solver. Each parameter, and each
-// value read from another, holds a state, which only ever goes from
-// borrowed to owned. What a body needs on its own is owned when the
-// analysis starts. What waits on another state reads it at the point after
-// a call, which subscribes the call to it: a call's argument needs a
-// reference of its own once its callee's parameter is owned, and a tail
-// call within a cycle of calls owns its callee's parameter once the value
-// it passes holds a reference of its own, which a parameter comes to when
-// it is owned, and a field read from one when it needs a reference of its
-// own. The solver visits a call again when a state it read changed, so
-// the work is what changed; the states are finite and each changes once,
-// so the solve ends, with the least set of owned parameters the rules
-// close over, which does not depend on the order.
-//
-// The takes of reset/reuse are its decisions, not ops yet: each one owns
-// its box.
+// One backward marking of the program's parameters, from the parameters a
+// body forces counted, along "counted here makes counted there": a callee's
+// counted parameter to the caller's parameter passed to it, and a caller's
+// counted parameter to the callee's parameter it lends a view of. A
+// parameter rises once and walks its row once. The root's parameters are
+// counted (its caller is outside) and a memo cell's are views (a force
+// writes it while its caller reads it): fixed, they have no node.
 #include "idr/Analysis/Ownership.h"
 
-#include "idr/Analysis/CallCycles.h"
-#include "idr/IR/Tail.h"
+#include "idr/Analysis/Ownership/Facts.h"
+#include "idr/Analysis/Ownership/Walks.h"
+#include "idr/Analysis/Solver/Graph.h"
+#include "idr/Analysis/Solver/Mark.h"
 #include "idr/IR/Flow.h"
-#include "idr/IR/Grades.h"
-#include "idr/IR/IdrDialect.h"
-#include "idr/IR/Ownership.h"
 
-#include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "idr/Support/Match.h"
 
-#include <cassert>
-#include <variant>
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
+
+#include <utility>
+#include <vector>
 
 using namespace mlir;
-using idr::ownership::readThrough;
-using idr::ownership::tracked;
+
+namespace idr::borrows {
+
+bool isJoinParameter(BlockArgument arg) {
+  Region *region = arg.getOwner()->getParent();
+  auto branch = dyn_cast_or_null<RegionBranchOpInterface>(region->getParentOp());
+  if (!branch || arg.getOwner() != &region->front())
+    return false;
+  SmallVector<RegionSuccessor> entries;
+  branch.getSuccessorRegions(RegionBranchPoint::parent(), entries);
+  return llvm::none_of(entries, [&](RegionSuccessor &entry) { return entry.getSuccessor() == region; });
+}
+
+} // namespace idr::borrows
 
 namespace idr {
 
 namespace {
 
-// What inference holds of a parameter: nothing to hold, as it holds no
-// references; owned whatever the function does with it (the root's, which
-// its caller outside passes owned; one of quantity 1, which moves to its
-// one use); a view whatever it does (a memo cell's); or borrowed until a
-// use needs a reference of its own, and then owned. A value read from
-// another is borrowed until it needs one, and then owned.
-enum class Holding : uint8_t { Untracked, Fixed, View, Borrowed, Owned };
+using solver::FunctionId;
 
-// What a parameter starts as, by its function and its type.
-Holding startOf(FuncOp fn, Type type) {
-  if (!holdsReferences(type))
-    return Holding::Untracked;
-  if (fn.isPublic())
-    return Holding::Fixed;
-  if (ownership::isMemoCell(type))
-    return Holding::View;
-  if (quantityOf(type) == Quantity::One)
-    return Holding::Fixed;
-  return Holding::Borrowed;
-}
-
-Borrows::Param paramOf(Holding held) {
-  switch (held) {
-  case Holding::Untracked:
-    return Borrows::Param::Untracked;
-  case Holding::Fixed:
-  case Holding::Owned:
-    return Borrows::Param::Owned;
-  case Holding::View:
-  case Holding::Borrowed:
-    return Borrows::Param::Borrowed;
-  }
-  llvm_unreachable("a holding");
-}
-
-// Whether a parameter of that holding has a reference of its own.
-bool ownsItself(Holding held) { return held == Holding::Fixed || held == Holding::Owned; }
-
-// The holding of a parameter (its function's entry argument) or of a value
-// read from another.
-class HoldingState : public AnalysisState {
-public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(HoldingState)
-  using AnalysisState::AnalysisState;
-
-  Holding holding() const { return held; }
-
-  // A parameter's holding by its function and type, set when the analysis
-  // starts, before anything reads it.
-  ChangeResult start(Holding at) {
-    if (held == at)
-      return ChangeResult::NoChange;
-    held = at;
-    return ChangeResult::Change;
-  }
-
-  // A borrowed value needs a reference of its own; any other holding stays.
-  ChangeResult own() {
-    if (held != Holding::Borrowed)
-      return ChangeResult::NoChange;
-    held = Holding::Owned;
-    return ChangeResult::Change;
-  }
-
-  void print(raw_ostream &os) const override {
-    switch (held) {
-    case Holding::Untracked:
-      os << "untracked";
-      return;
-    case Holding::Fixed:
-      os << "fixed";
-      return;
-    case Holding::View:
-      os << "view";
-      return;
-    case Holding::Borrowed:
-      os << "borrowed";
-      return;
-    case Holding::Owned:
-      os << "owned";
-      return;
-    }
-  }
-
-private:
-  Holding held = Holding::Borrowed;
+struct ParameterNodes;
+struct ParameterTag {
+  using Minter = ParameterNodes;
+};
+using ParameterNode = Id<ParameterTag>;
+struct ParameterNodes {
+  static ParameterNode at(std::uint32_t n) { return ParameterNode(n); }
+  static Count<ParameterNode> count(std::uint32_t n) { return Count<ParameterNode>(n); }
 };
 
-// Whether `value` is a parameter: an argument of its function's body.
-bool isParameter(Value value) {
-  auto arg = dyn_cast<BlockArgument>(value);
-  return arg && isa<FuncOp>(arg.getOwner()->getParentOp());
+// A parameter whose convention no program changes, or one the marking
+// decides.
+enum class Fixed : std::uint8_t { Open, Counted, Viewed };
+
+// What a parameter is to the marking: a node, or fixed.
+struct Convention {
+  Fixed fixed;
+  std::uint32_t node;
+};
+
+// A view an edge reads out of a part of a value, with that value: a move
+// from a part read (not taken) into a value whole.
+std::optional<std::pair<Value, Value>> partRead(const FlowEdges::Edge &edge) {
+  using Read = std::optional<std::pair<Value, Value>>;
+  auto none = [](const auto &) -> Read { return std::nullopt; };
+  return match(
+      edge.move,
+      [](const FlowEdges::Flow &flow) -> Read {
+        auto whole = [&](const FlowPoint::Part &part) -> Read {
+          std::optional<Value> to = flow.to.value();
+          bool intoWhole = match(
+              flow.to.at, [](const FlowPoint::Whole &) { return true; },
+              [](const auto &) { return false; });
+          if (ownership::reachOf(part) == ownership::Reach::Read && to && intoWhole)
+            return std::pair(*to, *flow.from.value());
+          return std::nullopt;
+        };
+        return match(flow.from.at, whole, [](const auto &) -> Read { return std::nullopt; });
+      },
+      none);
 }
 
-class Inference : public DataFlowAnalysis {
+// Whether `value` is used, other than by `call`, where the call may run
+// before it.
+bool usedAfter(Value value, Operation *call) {
+  return llvm::any_of(value.getUses(), [&](OpOperand &use) {
+    return use.getOwner() != call && ownership::runsAfter(use.getOwner(), call);
+  });
+}
+
+class Inference {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(Inference)
+  explicit Inference(const solver::ProgramGraph &graph)
+      : graph(graph), params(graph.table<llvm::SmallVector<Convention, 4>>()),
+        joins(graph.table<llvm::SmallVector<Convention, 4>>()) {}
 
-  Inference(DataFlowSolver &solver, const Reuses &reuses, const CallCycles &cycles,
-            const SymbolTable &symbols)
-      : DataFlowAnalysis(solver), reuses(reuses), cycles(cycles), symbols(symbols) {}
-
-  // Every parameter starts, all before any is owned; then what each body
-  // needs on its own is owned, and each call reads what it waits on.
-  LogicalResult initialize(Operation *top) override {
-    auto functions = cast<ProgramOp>(top).getOps<FuncOp>();
-    for (FuncOp fn : functions)
-      for (BlockArgument param : fn.getArguments()) {
-        HoldingState *state = getOrCreate<HoldingState>(Value(param));
-        propagateIfChanged(state, state->start(startOf(fn, param.getType())));
-      }
-    for (FuncOp fn : functions) {
-      for (const Reuses::Site &site : reuses.sites(fn))
-        if (const Value *box = std::get_if<Value>(&site.box))
-          own(*box);
-      fn.walk([&](Operation *op) { visitOp(op); });
-    }
-    return success();
+  // Numbers every open parameter, reads every body, marks.
+  void run() {
+    for (FunctionId fn : graph.functions())
+      number(fn);
+    edges.emplace(ParameterNodes::count(nodes));
+    for (FunctionId fn : graph.functions())
+      readBody(fn);
+    Csr<ParameterTag> marking = std::move(*edges).finish();
+    counted.emplace(mark(marking, std::span<const ParameterNode>(seeds), Forward{}));
   }
 
-  // The point after a call, the only point a state is read at.
-  LogicalResult visit(ProgramPoint *point) override {
-    visitCall(cast<CallOp>(point->getPrevOp()));
-    return success();
+  bool viewed(const Convention &convention) const {
+    return convention.fixed == Fixed::Viewed ||
+           (convention.fixed == Fixed::Open &&
+            !counted->test(ParameterNodes::at(convention.node)));
   }
+
+  const solver::ProgramGraph &graph;
+  IndexVector<FunctionId, llvm::SmallVector<Convention, 4>> params;
+  IndexVector<FunctionId, llvm::SmallVector<Convention, 4>> joins;
 
 private:
-  void visitOp(Operation *op) {
-    if (auto call = dyn_cast<CallOp>(op))
-      return visitCall(call);
-    // A constructor stores its fields: an unboxed sum's or an atom's in
-    // idr.con, a box's in its cell by idr.cell.init.
-    if (auto con = dyn_cast<ConOp>(op))
-      return ownParameters(con.getFields());
-    if (auto init = dyn_cast<CellInitOp>(op))
-      return ownParameters(init.getFields());
-    // An op of upstream's that writes a value into memory stores it too,
-    // and so does idr.own.give, which hands its operand's reference to the
-    // store that consumes its result, upstream's store then writing the
-    // give's plain result: either way the value moves into memory.
-    if (auto give = dyn_cast<OwnGiveOp>(op))
-      return ownParameters(give->getOperands());
-    for (OpOperand &operand : op->getOpOperands())
-      if (holdsReferences(operand.get().getType()) && ownership::storedBy(operand))
-        ownParameters(operand.get());
-    // Borrowed, a returned or forwarded parameter would need a reference
-    // of its own to move on with, and the caller's value would be shared
-    // from then on.
-    if (isa<ReturnOp>(op))
-      for (Value operand : op->getOperands())
-        own(operand);
-    forwardedValues(op, [&](OpOperand &operand, Value) { own(operand.get()); });
+  Convention conventionOf(FuncOp fn, Type type) {
+    std::optional<Hold> hold = holdOf(type);
+    if (hold && hold->release() == Release::Scoped)
+      return {Fixed::Viewed, 0};
+    if (!ownership::counted(type))
+      return {Fixed::Counted, 0};
+    if (fn.isRoot())
+      return {Fixed::Counted, 0};
+    if (ownership::isMemo(ownership::familyOf(type)))
+      return {Fixed::Viewed, 0};
+    return {Fixed::Open, nodes++};
   }
 
-  void ownParameters(ValueRange fields) {
-    for (Value field : fields)
-      if (isParameter(field))
-        own(field);
+  void number(FunctionId id) {
+    FuncOp fn = graph.op(id);
+    for (BlockArgument param : fn.getBody().front().getArguments())
+      params[id].push_back(conventionOf(fn, param.getType()));
+    borrows::forEachJoinParameter(fn, [&](BlockArgument arg, std::uint32_t) {
+      joins[id].push_back(conventionOf(fn, arg.getType()));
+    });
   }
 
-  // An argument passed to a parameter that owns itself needs a reference
-  // of its own; a tail call within the cycle owns its callee's parameter
-  // once the argument holds one. A call's callee is a function of the
-  // program, with a parameter for each argument, as the call's verifier
-  // holds.
-  void visitCall(CallOp call) {
-    ProgramPoint *after = getProgramPointAfter(call);
-    auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
-    auto fn = call->getParentOfType<FuncOp>();
-    bool tail = cycles.together(callee, fn) &&
-                (tail::inTailPosition(call) || tail::inTailPositionModuloContext(call));
-    for (auto [arg, param] : llvm::zip_equal(call.getArgOperands(), callee.getArguments())) {
-      if (ownsItself(getOrCreateFor<HoldingState>(after, Value(param))->holding()))
-        own(arg);
-      if (tail && holds(arg, after)) {
-        HoldingState *state = getOrCreate<HoldingState>(Value(param));
-        propagateIfChanged(state, state->own());
+  // The parameter `value` is, seen through the positions that hand a value
+  // on as itself and the region entries that bind it again (a case's
+  // refined scrutinee): a parameter of the function or one of its join
+  // points. None for a value the body makes.
+  std::optional<Convention> parameterOf(Value value) const {
+    for (Value at = value;;) {
+      if (auto arg = dyn_cast<BlockArgument>(at)) {
+        if (arg.getOwner() == &fn.getBody().front())
+          return params[*current][arg.getArgNumber()];
+        if (auto join = joinIndex.find(arg); join != joinIndex.end())
+          return joins[*current][join->second];
+        auto entry = enteredFrom.find(arg);
+        if (entry == enteredFrom.end())
+          return std::nullopt;
+        at = entry->second;
+        continue;
       }
+      if (std::optional<Value> same = ownership::sameValueSource(at)) {
+        at = *same;
+        continue;
+      }
+      return std::nullopt;
     }
   }
 
-  // Whether `value` holds a reference of its own, read at `after`: an
-  // element or a value no read gives always does, one that holds no
-  // reference never does, and otherwise the parameter it is or a value on
-  // its way up to one does once its state says so. The way up is the
-  // chain of what each was read from.
-  bool holds(Value value, ProgramPoint *after) {
-    for (Value at : definitionChain(value, readThrough)) {
-      if (!tracked(at))
-        return false;
-      if (isParameter(at))
-        return ownsItself(getOrCreateFor<HoldingState>(after, at)->holding());
-      if (ownership::isCountedElement(at) || !readThrough(at))
-        return true;
-      if (getOrCreateFor<HoldingState>(after, at)->holding() == Holding::Owned)
-        return true;
-    }
-    // A chain that closes on itself, in an unreachable block, reaches no
-    // parameter and no value made outright.
-    return false;
+  // The parameter a part read of `value` is a view of, when it is one.
+  std::optional<Convention> partOfParameter(Value value) const {
+    auto whole = partOf.find(value);
+    return whole == partOf.end() ? std::nullopt : parameterOf(whole->second);
   }
 
-  // `value` needs a reference of its own. An element has one already; a
-  // field takes one, and so does what it was read from. Each step is to the
-  // value read from, defined before it.
-  void own(Value value) {
-    if (!tracked(value) || ownership::isCountedElement(value))
-      return;
-    if (isParameter(value)) {
-      HoldingState *state = getOrCreate<HoldingState>(value);
-      propagateIfChanged(state, state->own());
-      return;
-    }
-    std::optional<Value> from = readThrough(value);
-    if (!from)
-      return;
-    HoldingState *state = getOrCreate<HoldingState>(value);
-    ChangeResult changed = state->own();
-    propagateIfChanged(state, changed);
-    if (changed == ChangeResult::Change)
-      own(*from);
+  void force(const Convention &convention) {
+    if (convention.fixed == Fixed::Open)
+      seeds.push_back(ParameterNodes::at(convention.node));
   }
 
-  const Reuses &reuses;
-  const CallCycles &cycles;
-  const SymbolTable &symbols;
+  // Counted at `from` makes counted at `to`.
+  void follows(const Convention &from, const Convention &to) {
+    if (to.fixed != Fixed::Open)
+      return;
+    if (from.fixed == Fixed::Counted)
+      force(to);
+    else if (from.fixed == Fixed::Open)
+      edges->edge(ParameterNodes::at(from.node), ParameterNodes::at(to.node));
+  }
+
+  void readBody(FunctionId id) {
+    current = id;
+    fn = graph.op(id);
+    joinIndex.clear();
+    enteredFrom.clear();
+    partOf.clear();
+    borrows::forEachJoinParameter(fn, [&](BlockArgument arg, std::uint32_t at) {
+      joinIndex.try_emplace(arg, at);
+    });
+    // What each region entry binds again, and what each view reads a part
+    // of, read before any use is judged.
+    fn.walk([&](Operation *op) {
+      forwardedValues(op, [&](OpOperand &operand, Value input) {
+        auto arg = dyn_cast<BlockArgument>(input);
+        if (arg && arg.getOwner()->getParentOp() == op && !joinIndex.contains(arg))
+          enteredFrom.try_emplace(arg, operand.get());
+      });
+      auto declared = dyn_cast<FlowOpInterface>(op);
+      if (!declared || isa<CallOpInterface>(op))
+        return;
+      FlowEdges flows;
+      declared.getFlowEdges(flows);
+      for (const FlowEdges::Edge &edge : flows.edges())
+        if (edge.carries(Carrier::Reference))
+          if (std::optional<std::pair<Value, Value>> read = partRead(edge))
+            partOf.try_emplace(read->first, read->second);
+    });
+    fn.walk([&](Operation *op) {
+      if (auto call = dyn_cast<CallOp>(op))
+        return readCall(call);
+      readUses(op);
+    });
+  }
+
+  // What the op does with each use of a parameter: consumes it (it moves
+  // whole into a cell, is released, is taken apart, or is forwarded into a
+  // region's result), or hands it to a join point, which is a call of it.
+  void readUses(Operation *op) {
+    // A position that hands a value on as itself is that value.
+    if (op->hasTrait<SameValue>())
+      return;
+    forwardedValues(op, [&](OpOperand &operand, Value input) {
+      std::optional<Convention> param = parameterOf(operand.get());
+      if (!param)
+        return;
+      auto arg = dyn_cast<BlockArgument>(input);
+      if (arg && joinIndex.contains(arg))
+        return readArgument(operand, joins[*current][joinIndex.lookup(arg)], op, Transfer::Jump);
+      if (arg && arg.getOwner()->getParentOp() == op)
+        return; // the entry of a region binds the value again: it is that value
+      force(*param);
+    });
+    // The op's own moves, as it declares them; what it forwards was read
+    // above.
+    auto declared = dyn_cast<FlowOpInterface>(op);
+    if (!declared)
+      return;
+    FlowEdges flows;
+    declared.getFlowEdges(flows);
+    for (const FlowEdges::Edge &edge : flows.edges()) {
+      if (!edge.carries(Carrier::Reference))
+        continue;
+      using Taken = std::optional<OpOperand *>;
+      Taken taken = match(
+          edge.move, [](const FlowEdges::Flow &flow) -> Taken { return flow.from.taken(); },
+          [](const FlowEdges::Release &release) -> Taken { return release.use; },
+          [](const FlowEdges::Unify &) -> Taken { return std::nullopt; },
+          [](const FlowEdges::Source &) -> Taken { return std::nullopt; },
+          [](const FlowEdges::Fresh &) -> Taken { return std::nullopt; },
+          [](const FlowEdges::Overwrite &) -> Taken { return std::nullopt; },
+          [](const FlowEdges::Constant &) -> Taken { return std::nullopt; },
+          [](const FlowEdges::Dispatch &) -> Taken { return std::nullopt; });
+      if (taken)
+        if (std::optional<Convention> param = parameterOf((*taken)->get()))
+          force(*param);
+    }
+  }
+
+  // How control reaches the callee: a call that may return to the caller,
+  // a tail call (or one modulo context, whose context cells the caller has
+  // built before it), or a jump to a join point, a tail transfer by
+  // construction.
+  enum class Transfer : std::uint8_t { Returns, Tail, Jump };
+
+  void readCall(CallOp call) {
+    FunctionId callee = graph.id(call.getCalleeAttr());
+    Transfer transfer =
+        call.getTailKind() == TailKind::NonTail ? Transfer::Returns : Transfer::Tail;
+    for (auto [index, operand] : llvm::enumerate(call->getOpOperands()))
+      readArgument(operand, params[callee][index], call, transfer);
+  }
+
+  // `operand`, passed to the parameter `to` by `transfer`, at `site`.
+  void readArgument(OpOperand &operand, const Convention &to, Operation *site,
+                    Transfer transfer) {
+    if (to.fixed != Fixed::Open)
+      return readConsumed(operand, to);
+    Value arg = operand.get();
+    // A value bound at quantity 1 moves to its one use: the callee counts.
+    if (usesOf(arg.getType()) == Uses::Once)
+      return force(to);
+    std::optional<Hold> hold = holdOf(arg.getType());
+    bool lent = hold && hold->release() != Release::Counted;
+    // After a jump, the join point's region runs and the join op's results
+    // follow it: what is used after the join op is used after the jump.
+    Operation *after = transfer == Transfer::Jump ? joinOpOf(operand) : site;
+    if (lent || usedAfter(arg, after)) {
+      readConsumed(operand, to);
+      return;
+    }
+    bool bounded = transfer == Transfer::Returns && ownership::boundsWhatItReaches(arg.getType());
+    if (std::optional<Convention> mine = parameterOf(arg)) {
+      // The caller's parameter lent on: a view while it is itself borrowed.
+      follows(*mine, to);
+      follows(to, *mine);
+      return;
+    }
+    if (std::optional<Convention> whole = partOfParameter(arg)) {
+      if (!bounded)
+        follows(*whole, to);
+      return;
+    }
+    if (!bounded)
+      force(to);
+  }
+
+  // A counted parameter passed the caller's own parameter consumes it.
+  void readConsumed(OpOperand &operand, const Convention &to) {
+    if (std::optional<Convention> mine = parameterOf(operand.get()))
+      follows(to, *mine);
+  }
+
+  // The join op whose region the jump's `operand` enters, read off the
+  // input it becomes.
+  Operation *joinOpOf(OpOperand &operand) {
+    Operation *owner = operand.getOwner();
+    Operation *join = owner;
+    forwardedValues(owner, [&](OpOperand &forwarded, Value input) {
+      if (&forwarded == &operand)
+        if (auto arg = dyn_cast<BlockArgument>(input))
+          join = arg.getOwner()->getParentOp();
+    });
+    return join;
+  }
+
+  std::uint32_t nodes = 0;
+  std::optional<CsrBuilder<ParameterTag>> edges;
+  std::vector<ParameterNode> seeds;
+  std::optional<BitSet<ParameterNode>> counted;
+  // The body being read, and its one-body maps, the numbering's, which go
+  // with it.
+  std::optional<FunctionId> current;
+  FuncOp fn;
+  llvm::DenseMap<BlockArgument, std::uint32_t> joinIndex;
+  llvm::DenseMap<BlockArgument, Value> enteredFrom;
+  llvm::DenseMap<Value, Value> partOf;
 };
 
 } // namespace
 
-Borrows::Borrows(Operation *program, AnalysisManager &am) {
-  DataFlowSolver solver;
-  solver.load<Inference>(am.getAnalysis<Reuses>(), am.getAnalysis<CallCycles>(),
-                         am.getAnalysis<SymbolTable>());
-  // MLIR's solver fails only where an analysis's visit does, and every
-  // visit of the inference succeeds.
-  [[maybe_unused]] LogicalResult ran = solver.initializeAndRun(program);
-  assert(succeeded(ran) && "every visit of borrow inference succeeds");
-  for (FuncOp fn : cast<ProgramOp>(program).getOps<FuncOp>()) {
-    SmallVector<Param> &params = paramsOf[fn];
-    for (BlockArgument param : fn.getArguments()) {
-      Param each = paramOf(solver.lookupState<HoldingState>(Value(param))->holding());
-      params.push_back(each);
-      numBorrowed += each == Param::Borrowed ? 1 : 0;
-    }
+Borrows::Borrows(Operation *, AnalysisManager &am)
+    : viewed(am.getAnalysis<solver::ProgramGraph>().table<llvm::SmallBitVector>()),
+      joinViewed(am.getAnalysis<solver::ProgramGraph>().table<llvm::BitVector>()) {
+  const solver::ProgramGraph &graph = am.getAnalysis<solver::ProgramGraph>();
+  Inference inference(graph);
+  inference.run();
+  for (FunctionId fn : graph.functions()) {
+    viewed[fn].resize(static_cast<unsigned>(inference.params[fn].size()));
+    for (auto [index, convention] : llvm::enumerate(inference.params[fn]))
+      if (inference.viewed(convention) && holdsReferences(graph.op(fn).getArgumentTypes()[index])) {
+        viewed[fn].set(static_cast<unsigned>(index));
+        ++numViews;
+      }
+    joinViewed[fn].resize(static_cast<unsigned>(inference.joins[fn].size()));
+    for (auto [index, convention] : llvm::enumerate(inference.joins[fn]))
+      if (inference.viewed(convention)) {
+        joinViewed[fn].set(static_cast<unsigned>(index));
+        ++numViews;
+      }
   }
 }
 

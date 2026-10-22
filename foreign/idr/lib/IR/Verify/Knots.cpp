@@ -8,22 +8,23 @@
 // rank (an IORef is one of rank 0), and a memo cell, whose force writes its
 // value. A memo cell closes no knot of counted cells. A counted one's value
 // is computed from its captures, which exist before it, and from globals:
-// arrays, refused here, and constant applicative forms, whose memo cells
-// are static data and make what they hold persistent when forced
-// (idris_rt_persist_held), so no counted cell reaches one. So a knot of
-// counted cells needs an array whose element type can reach the array
-// again, and whether one can is a question of types, answered once for the
-// program by its type graph. A knot is outside the
-// language this compiler implements, as a collector finalizer is: no count
-// frees it. So the rule `cycle` is of the category OutsideLanguage, not a
-// megamorphic construct; its refusal rests on the type graph's cycles, a
-// total analysis, and no count bounds it. It refuses the user's program, so
-// a pass runs it (idr-knots), not the verifier: a module with a knot still
+// arrays, refused here, and constant applicative forms, whose memo labels'
+// functions put their forced values into static data, never freed, so no
+// counted cell is reached from one that a count would have to free. So a
+// knot of counted cells needs an array whose element type can reach the
+// array again, and whether one can is a question of types, answered once
+// for the program by its type graph, over the families defunctionalization
+// declared for every closure and memo sum. A knot is outside the language
+// this compiler implements, as a collector finalizer is: no count frees
+// it. So the rule `cycle` is of the category OutsideLanguage, generated
+// with its phrase from the specification's rules, not a megamorphic
+// construct; its refusal rests on the type graph's cycles, a total
+// analysis, and no count bounds it. It refuses the user's program, so a
+// pass runs it (idr-knots), not the verifier: a module with a knot still
 // reads into every tool.
 
-#include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
-#include "idr/IR/Symbols.h"
+#include "idr/IR/IdrDialect.h"
 #include "idr/IR/TypeGraph.h"
 #include "idr/IR/Verify.h"
 
@@ -46,17 +47,29 @@ namespace {
 // diagnostic there would point nowhere the user can look.
 bool inSource(Location loc) { return static_cast<bool>(loc->findInstanceOf<FileLineColRange>()); }
 
-// A type as the message names it: a data type by its name, an array by
-// what it holds, an array of rank 0 as the IORef it is.
+// A family as the message and the knot's lookup name it: its group and
+// member, whatever its index terms and refinement; its label is for the
+// reader.
+using Family = std::pair<Attribute, uint32_t>;
+std::optional<Family> familyOf(Type type) {
+  if (auto data = dyn_cast<DataType>(unrestricted(type)))
+    return Family(data.getGroup(), data.getMember());
+  return std::nullopt;
+}
+
+// A type as the message names it: a data type by its family's label, an
+// array by what it holds, an array of rank 0 as the IORef it is. Arrays
+// nest only as deep as the program wrote them, so the element is named by
+// a loop, not a recursion.
 void describe(InFlightDiagnostic &out, Type type) {
-  if (auto array = dyn_cast<MemRefType>(type)) {
+  while (auto array = dyn_cast<MemRefType>(type)) {
     out << (array.getRank() == 0 ? "IORef of " : "array of ");
-    describe(out, array.getElementType());
-  } else if (DataType data = dataTypeOf(type)) {
-    out << data.getName();
-  } else {
-    out << type;
+    type = array.getElementType();
   }
+  if (auto data = dyn_cast<DataType>(unrestricted(type)))
+    out << data.getGroup().label(data.getMember()).getValue();
+  else
+    out << type;
 }
 
 // One cycle of the program's type graph, as it is reported: its members,
@@ -94,14 +107,16 @@ LogicalResult idr::verify::knots(ProgramOp program, const TypeGraph &graph) {
   if (knots.empty())
     return success();
 
+  // The types on each knot, by their content's identity, for the cold
+  // path that finds where the source shows the knot.
   llvm::DenseMap<Type, ArrayIn> arrays;
-  llvm::DenseMap<DataType, Knot *> datas;
+  llvm::DenseMap<Family, Knot *> datas;
   for (Knot &knot : knots)
     for (unsigned at : knot.members) {
       if (graph.isArray(at))
         arrays[graph.type(at)] = {&knot, at};
-      if (auto data = dyn_cast<DataType>(graph.type(at)))
-        datas[data] = &knot;
+      if (std::optional<Family> family = familyOf(graph.type(at)))
+        datas[*family] = &knot;
     }
   program.walk([&](ArrayNewOp array) {
     if (!inSource(array.getLoc()))
@@ -112,10 +127,11 @@ LogicalResult idr::verify::knots(ProgramOp program, const TypeGraph &graph) {
     found->second.knot->at = array.getLoc();
     found->second.knot->named = found->second.member;
   });
-  program.walk([&](ConOp con) {
-    if (!inSource(con.getLoc()))
+  program.walk([&](DataConOp con) {
+    std::optional<Family> family = familyOf(con.getResult().getType());
+    if (!inSource(con.getLoc()) || !family)
       return;
-    auto found = datas.find(con.getDataType());
+    auto found = datas.find(*family);
     if (found != datas.end() && !found->second->at)
       found->second->at = con.getLoc();
   });

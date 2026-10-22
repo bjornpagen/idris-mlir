@@ -8,7 +8,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/TypeGraph.h"
 #include "idr/IR/Verify.h"
-#include "idr/Transforms/Ownership.h"
 #include "idr/Transforms/Pipeline.h"
 
 namespace idr {

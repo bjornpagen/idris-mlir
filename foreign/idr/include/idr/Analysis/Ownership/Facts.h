@@ -1,0 +1,211 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
+// The facts of a value's type and of the IR that the ownership markings
+// read (exclusivity, borrows, the in-place check), each answered by the
+// declaration that holds it: the grade's axes by the grade (Grades.h), a
+// family's promise, constructors and recursive fields by the data type
+// (Families/), how a value moves by the flow interface and upstream's
+// region interfaces. Nothing here decides: each line reads one fact its
+// owner keeps, so no marking holds a second copy of a type's facts.
+#ifndef IDR_ANALYSIS_OWNERSHIP_FACTS_H
+#define IDR_ANALYSIS_OWNERSHIP_FACTS_H
+
+#include "idr/IR/Flow.h"
+#include "idr/IR/Grades.h"
+#include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
+
+#include "mlir/IR/Block.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Region.h"
+#include "mlir/IR/Value.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "mlir/Interfaces/LoopLikeInterface.h"
+
+#include <cstdint>
+#include <optional>
+
+namespace idr::ownership {
+
+// What a requirement on a value asks of its cells, on the grade's sharing
+// axis: its own family's cells unshared, through every recursive field of
+// the family (`unique self`), or nothing it reaches shared (`unique deep`).
+// Deep asks all that Self does, so the two are ordered as their claims.
+enum class Asks : std::uint8_t { Self, Deep };
+
+constexpr Unique claimFor(Asks asks) { return asks == Asks::Self ? Unique::Self : Unique::Deep; }
+
+// What a value of `type` claims of its sharing: its hold's, none for a type
+// that holds no reference or for static data.
+inline Unique claimOf(mlir::Type type) {
+  std::optional<Hold> hold = holdOf(type);
+  return hold ? hold->claim() : Unique::None;
+}
+
+// Whether a value of `type` holds a reference whose sharing is still open
+// below `asked`: it holds references, its count frees it (static data is
+// shared by definition, and a scoped value is a view or a lifetime's cell,
+// which no count tests), and its grade claims less. A value whose type
+// answers has no node in any marking.
+inline bool leavesOpen(mlir::Type type, Unique asked) {
+  std::optional<Hold> hold = holdOf(type);
+  return holdsReferences(type) && hold && hold->release() == Release::Counted &&
+         !hold->claims(asked);
+}
+
+// Whether a value of `type` is counted at all, whatever it claims.
+inline bool counted(mlir::Type type) {
+  std::optional<Hold> hold = holdOf(type);
+  return holdsReferences(type) && hold && hold->release() == Release::Counted;
+}
+
+// `type` with its claim raised to `unique`: a verified refinement on the
+// grade's sharing axis, its uses and release kept.
+inline mlir::Type claiming(mlir::Type type, Unique unique) {
+  return atHold(type, holdOf(type)->refined(unique));
+}
+
+// The data type a value of `type` is an application of, seen through its
+// grade; null for any other type.
+inline DataType familyOf(mlir::Type type) {
+  return llvm::dyn_cast<DataType>(unrestricted(type));
+}
+
+// Whether `data`'s family promises in place (the registry's in_place kind,
+// carried on the family's data member).
+inline bool promisesInPlace(DataType data) {
+  using namespace idr::families;
+  return data && data.promise() == Promise::InPlace;
+}
+
+// Whether two family applications are of one family, whatever their index
+// terms and refinements: a rebuild may change an index (a cons onto a vector
+// of length n is one of length n + 1), never the family.
+inline bool sameFamily(DataType a, DataType b) {
+  return a && b && a.getGroup() == b.getGroup() && a.getMember() == b.getMember();
+}
+
+// Whether a value of a memo family: its cells change while references to
+// them live, so what a field holds is the label's, not the cell value's.
+inline bool isMemo(DataType data) {
+  using namespace idr::families;
+  return data && data.kind() == MemberKind::Memo;
+}
+
+// Whether field `index` of constructor `tag` of `data` is the family's own
+// storage, which `unique self` speaks for: a recursive field (a member of
+// the group naming its own member), or the buffer of an array the family
+// holds in place.
+inline bool ownStorage(DataType data, Tag tag, unsigned index) {
+  mlir::Type field = unrestricted(data.ctor(tag).fields[index]);
+  if (auto self = llvm::dyn_cast<SelfType>(field))
+    return self.getMember() == data.getMember();
+  return llvm::isa<mlir::TensorType, mlir::BaseMemRefType>(field);
+}
+
+// The constructor a value of `type` is refined to, when one: what a case
+// region binds, and what a construction builds.
+inline std::optional<Tag> refinedTag(mlir::Type type) {
+  DataType data = familyOf(type);
+  return data ? data.singleTag() : std::nullopt;
+}
+
+// Whether a value of `type`, refined to one constructor, is a cell: its
+// layout is one pointer to a cell, which a take hands out and a rebuild
+// fills again.
+inline bool isCell(mlir::Type type) {
+  DataType data = familyOf(type);
+  return data && data.isCellPointer();
+}
+
+// Whether a value of `type` bounds everything it reaches: no cycle of
+// containment and no dynamically sized cell, the layout fact a data type
+// computes when it is made. A borrowed argument whose type bounds what it
+// reaches holds a fixed number of bytes past its last use, which the
+// frame-limited rule allows.
+inline bool boundsWhatItReaches(mlir::Type type) {
+  DataType data = familyOf(type);
+  return data && data.boundsReach();
+}
+
+// The value a position hands on as itself, when `value` is the result of
+// one: an op that keeps its operand's value at another grade (the
+// SameValue trait, the linear cast among them). The flow of a region branch
+// is read separately (forwardedValues).
+inline std::optional<mlir::Value> sameValueSource(mlir::Value value) {
+  mlir::Operation *op = value.getDefiningOp();
+  if (op && op->hasTrait<SameValue>())
+    return op->getOperand(0);
+  return std::nullopt;
+}
+
+// The field of a data type `anchor` names, when it names one.
+inline std::optional<FlowAnchor::Field> fieldOf(const FlowAnchor &anchor) {
+  using Found = std::optional<FlowAnchor::Field>;
+  return match(
+      anchor.place, [](const FlowAnchor::Field &field) -> Found { return field; },
+      [](const FlowAnchor::Elements &) -> Found { return std::nullopt; },
+      [](const FlowAnchor::Forced &) -> Found { return std::nullopt; },
+      [](const FlowAnchor::MemoState &) -> Found { return std::nullopt; },
+      [](const FlowAnchor::Capture &) -> Found { return std::nullopt; },
+      [](const FlowAnchor::Hole &) -> Found { return std::nullopt; });
+}
+
+// How a part is reached: out of a use the op takes over, or read from a
+// value the op leaves its reference.
+enum class Reach : std::uint8_t { Taken, Read };
+inline Reach reachOf(const FlowPoint::Part &part) {
+  return match(
+      part.of, [](const FlowPoint::Taken &) { return Reach::Taken; },
+      [](const FlowPoint::Whole &) { return Reach::Read; });
+}
+
+// Whether `op` may run one of its regions any number of times (a loop, a
+// recursive join group): a value from outside used in one is used once per
+// run.
+inline bool repeats(mlir::Operation *op) { return llvm::isa<mlir::LoopLikeOpInterface>(op); }
+
+// Whether `use`, an op, may run after `call` on some path: later in a block
+// that holds the call, anywhere in a region that runs again around it, or
+// in a region of a branch that is not an alternative to the call's.
+inline bool runsAfter(mlir::Operation *use, mlir::Operation *call) {
+  for (mlir::Operation *at = call; at && !llvm::isa<FuncOp>(at); at = at->getParentOp()) {
+    if (mlir::Operation *holder = at->getBlock()->findAncestorOpInBlock(*use)) {
+      if (holder != at)
+        return at->isBeforeInBlock(holder);
+      return !mlir::insideMutuallyExclusiveRegions(use, call);
+    }
+    mlir::Operation *parent = at->getParentOp();
+    if (parent && repeats(parent) && parent->isAncestor(use))
+      return true;
+  }
+  return false;
+}
+
+// Whether `use` reads a part of its value and takes none of it over: a
+// field read, a view of a part, which the op declares as a move out of a
+// part of the value it leaves its reference.
+inline bool readsPart(mlir::OpOperand &use) {
+  auto declared = llvm::dyn_cast<FlowOpInterface>(use.getOwner());
+  if (!declared)
+    return false;
+  FlowEdges edges;
+  declared.getFlowEdges(edges);
+  return llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
+    return match(
+        edge.move,
+        [&](const FlowEdges::Flow &flow) {
+          return match(
+              flow.from.at,
+              [&](const FlowPoint::Part &part) {
+                return reachOf(part) == Reach::Read && flow.from.value() == use.get();
+              },
+              [](const auto &) { return false; });
+        },
+        [](const auto &) { return false; });
+  });
+}
+
+} // namespace idr::ownership
+
+#endif // IDR_ANALYSIS_OWNERSHIP_FACTS_H

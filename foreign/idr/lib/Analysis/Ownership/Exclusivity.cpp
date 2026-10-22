@@ -1,197 +1,58 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Exclusivity: which owned values hold the only reference to every cell
-// of their cell graph that a take could hand out, so that taking them
-// apart needs no count test, and building in their cells no null test.
-// Those are the cells with fields; static data built only of atoms has
-// none to hand out (an atom has no fields to take, an unboxed sum no
-// cell), no count reaches it and nothing frees or writes it, so it is in
-// every exclusive tree however many hold it (reachesOnlyAtoms).
+// Exclusivity: which counted values hold the only reference to every cell
+// they reach, so that taking them apart reads no count and building in
+// their cells tests nothing. In the owned stage a reference is copied only
+// where an op takes one of a value it reads, so exclusivity is provenance:
+// a value is exclusive when what moves into it is (a fresh value, a use
+// moved whole or out of a part of an exclusive one, the field of an
+// exclusive memo label, the result of a callee every return of which is),
+// and is shared once a reference is taken of it or of a view of it, here or
+// in a callee that takes one of the view it is passed. Static data is shared
+// by definition and a scoped value is a view or a lifetime's cell, which no
+// count tests: only a counted value whose grade leaves its sharing open
+// is followed, and what QTT and freshness settle is already in the grade.
 //
-// In the owned stage a reference is duplicated only by idr.dup, so
-// exclusivity is provenance, read from the reference edges of each op
-// (idr/IR/Flow.h): a value is exclusive when its op makes it new and every
-// cell moved into a part of it is exclusive (an unboxed constructor of
-// exclusive fields), when a use of an exclusive value moves into it whole
-// or out of one of its parts (a change of quantity; a field an exclusive
-// value was taken apart into, and the token of that take; the box
-// idr.cell.init writes into its cell, of exclusive fields), when it is a
-// call's result that every return makes exclusive or a parameter every
-// caller passes exclusive, a memo cell's capture that its force moved out
-// of a field every init moved an exclusive value into (Captures), or when
-// it is a copy of static data built only of atoms. A cell is new when idr.cell.new makes it or idr.cell.recycle
-// gives it the token's. So the pair of empty lists that span and splitAt
-// give at the end of their input joins the pair they build around an
-// exclusive one, and the join stays exclusive. Any other copy, a constant,
-// a cell of the frame (idr.cell.stack: the frame's, so not new to anyone,
-// and so neither is the box built in it), a value no flow explains (a
-// share's, which forgets what its operand alone reached) and a value from
-// a caller the program does not show are shared, and so is every result of
-// an op that declares no flow. The solve is a marking of the program's
-// graph, optimistic as SCCP is: a value is exclusive until a path
-// shares it, which is sound by induction on the run. It reads the dups
-// placement made, so it runs after placement; what it proves idr-rc writes
-// into the types (`!idr.excl<T>`), which every later pass keeps and the
-// owned stage's verifier checks.
-//
-// It is context-sensitive where grade specialization made a context: a
-// call of a key or of its copy runs, within the solve, the copy when every
-// value it passes at a followed parameter is exclusive and the original
-// otherwise, and only the functions some call that runs goes to run
-// (ExclusivityAnalyses.cpp). The solve is that of the program after each
-// call went where the solve found it goes, and may be less precise than
-// one solved afresh, never unsound.
-//
-// The solve's graph and marking are gone when it returns; this unit
-// copies its answers into tables the passes after it read.
-#include "idr/Analysis/Ownership/ExclusivityDetail.h"
-
+// The answer is solved by context (ExclusivityAnalyses.cpp), over each body
+// read once (ExclusivityGraph.cpp), and kept here as versions of each
+// function: the general one, which the original symbol keeps, and a grade
+// copy for each context that proves more. It refuses nothing: the in-place
+// promise is decided before the optimizer (idr-in-place), and a value this
+// solve leaves shared is tested where a take meets it. The step that reads
+// the answer (idr-rc-exclusive) writes it into the types, and nothing else
+// reads it.
 #include "idr/Analysis/Ownership.h"
-#include "idr/IR/Flow.h"
-#include "idr/IR/Grades.h"
-#include "idr/IR/IdrDialect.h"
-#include "idr/Support/Worklist.h"
 
-#include "llvm/ADT/STLExtras.h"
-
-#include <variant>
+#include "idr/Analysis/Ownership/ExclusivityDetail.h"
 
 using namespace mlir;
 
 namespace idr {
 
 namespace exclusivity = detail::exclusivity;
-using Sharing = Exclusivity::Sharing;
 
-Exclusivity Exclusivity::solve(ProgramOp program, const ownership::Copies &copies) {
-  exclusivity::Calls calls(program, copies);
-  exclusivity::Captures captures(program);
-  // A label is made only where an op that makes it runs, which the solve
-  // decides, and the solve reads which labels are made: each solve keeps
-  // the labels the one before found made, until one finds made every label
-  // it read as made. Labels only ever go, so it ends.
-  bool settled = false;
-  while (!settled) {
-    DenseMap<Value, Sharing> solved = exclusivity::solveOnce(program, calls, captures);
-
-    Exclusivity out;
-    auto record = [&](Value value) {
-      auto it = solved.find(value);
-      if (it != solved.end())
-        out.sharing[value] = it->second;
-    };
-    // A value the solve never reached is unknown, which counts as exclusive.
-    auto passesExclusive = [&](Value arg) {
-      auto it = solved.find(arg);
-      return it == solved.end() || it->second != Sharing::Shared;
-    };
-    // The functions that run once each call goes where the solve finally sent
-    // it: those whose callers the program does not all show, and each a live
-    // call of one goes to, each function once. A copy a call went to before
-    // an argument of it was found shared, and none went to after, the solve
-    // ran (a function only ever starts to run) but the program never does:
-    // nothing of it is live, and none of its calls is any function's caller.
-    OnceWorklist<FuncOp> reached;
-    for (FuncOp fn : program.getOps<FuncOp>()) {
-      out.returnsOf.try_emplace(fn);
-      if (!exclusivity::Calls::showsEveryCall(fn))
-        (void)reached.push(fn);
+Exclusivity::Exclusivity(Operation *program, AnalysisManager &am)
+    : versionsOf(am.getAnalysis<solver::ProgramGraph>().table<llvm::SmallVector<Version, 1>>()) {
+  const solver::ProgramGraph &graph = am.getAnalysis<solver::ProgramGraph>();
+  exclusivity::Anchors anchors;
+  exclusivity::shareStaticAnchors(cast<ProgramOp>(program), anchors);
+  IndexVector<FunctionId, exclusivity::Body> bodies = graph.table<exclusivity::Body>();
+  for (FunctionId fn : graph.functions()) {
+    FailureOr<exclusivity::Body> body = exclusivity::readBody(graph.op(fn), graph, anchors);
+    // A body that broke the representation's invariant was reported where
+    // it broke; the pass that asked fails with it.
+    if (failed(body)) {
+      read = failure();
+      return;
     }
-    // The calls that run, by the function each runs.
-    DenseMap<FuncOp, SmallVector<CallOp>> runsFrom;
-    while (std::optional<FuncOp> fn = reached.pop()) {
-      DenseSet<Block *> liveBlocks;
-      exclusivity::liveBlocksOf(*fn, liveBlocks);
-      fn->walk([&](Block *block) {
-        if (!liveBlocks.contains(block))
-          return;
-        out.liveBlocks.insert(block);
-        for (CallOp call : block->getOps<CallOp>()) {
-          FuncOp target = calls.target(call, passesExclusive);
-          if (std::holds_alternative<exclusivity::Calls::Pair>(calls.calleeOf(call)))
-            out.targets.try_emplace(call, target);
-          runsFrom[target].push_back(call);
-          (void)reached.push(target);
-        }
-      });
-    }
-    // A label made only where the program never runs is made by nothing:
-    // the solve read it as made, so it runs again without it.
-    settled = !captures.keepMadeIn(out.liveBlocks);
-    if (!settled)
-      continue;
-    // What the solve proved of the values the program runs: a function no
-    // call that runs goes to proves nothing, and the solve never reached it.
-    program.walk([&](Block *block) {
-      if (!out.liveBlocks.contains(block))
-        return;
-      for (BlockArgument arg : block->getArguments())
-        record(arg);
-      for (Operation &inner : *block)
-        for (Value result : inner.getResults())
-          record(result);
-    });
-    for (FuncOp fn : program.getOps<FuncOp>()) {
-      auto from = runsFrom.find(fn);
-      if (llvm::all_of(calls.namesOf(fn), exclusivity::Calls::showsEveryCall))
-        out.callersOf[fn] = from == runsFrom.end() ? SmallVector<CallOp>() : from->second;
-      if (from == runsFrom.end())
-        continue;
-      SmallVector<ReturnOp> &returns = out.returnsOf[fn];
-      for (ReturnOp ret : calls.returns(fn))
-        if (out.liveBlocks.contains(ret->getBlock()))
-          returns.push_back(ret);
-    }
-    return out;
+    bodies[fn] = std::move(*body);
   }
-  llvm_unreachable("a settled solve returns");
-}
-
-Sharing Exclusivity::of(Value value) const {
-  auto it = sharing.find(value);
-  return it == sharing.end() ? Sharing::Unknown : it->second;
-}
-
-// A value its op moves one of its uses into whole, at the use's carrier
-// (a change of quantity), is that use's value, and is proved as that is,
-// solved or made after the solve. A share's value is reached whole by
-// nothing, so the solve found it shared. Only an owned value takes the
-// grade: a cell is followed but has none, and a value of the frame takes
-// none either, whose cells the frame lends: its lifetime already says
-// nothing outside the frame holds it, and excl at that lifetime is no
-// grade, which QType::verify refuses.
-bool Exclusivity::proves(Value value) const {
-  if (!isOwned(value.getType()) || lifetimeOf(value.getType()) == Lifetime::Frame ||
-      !ownership::followed(value))
-    return false;
-  if (auto flow = dyn_cast_or_null<FlowOpInterface>(value.getDefiningOp())) {
-    FlowEdges edges;
-    flow.getFlowEdges(edges);
-    for (const FlowEdges::Edge &edge : edges.edges()) {
-      const auto *move = std::get_if<FlowEdges::Flow>(&edge.move);
-      if (!move || !edge.carries(Carrier::Reference))
-        continue;
-      const auto *use = std::get_if<FlowPoint::Taken>(&move->from.at);
-      if (use && move->to == FlowPoint::of(value) &&
-          unrestricted(use->use->get().getType()) == unrestricted(value.getType()))
-        return proves(use->use->get());
-    }
-  }
-  return of(value) == Sharing::Exclusive;
-}
-
-std::optional<FuncOp> Exclusivity::target(CallOp call) const {
-  auto it = targets.find(call);
-  if (it == targets.end())
-    return std::nullopt;
-  return it->second;
-}
-
-std::optional<ArrayRef<CallOp>> Exclusivity::callers(FuncOp fn) const {
-  auto it = callersOf.find(fn);
-  if (it == callersOf.end())
-    return std::nullopt;
-  return ArrayRef<CallOp>(it->second);
+  IndexVector<FunctionId, llvm::SmallBitVector> copied = exclusivity::copiedViews(bodies, graph);
+  exclusivity::Solution solution = exclusivity::solve(bodies, copied, anchors, graph);
+  versionsOf = std::move(solution.versions);
+  numContexts = solution.contexts;
+  numCopies = solution.copies;
+  numRounds = solution.rounds;
 }
 
 } // namespace idr

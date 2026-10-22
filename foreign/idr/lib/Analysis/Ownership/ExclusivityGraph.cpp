@@ -1,226 +1,401 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What exclusivity's solve reads of a program before it marks anything
-// (ExclusivityDetail.h): how each call goes, which blocks of a function
-// may run, and the graph of writers and the values each reads. The
-// questions the solve asks are reachability and joins over a lattice of
-// height two, so the representation is the graph itself, built once;
-// ExclusivityAnalyses.cpp marks it. Reachability is unconditional
-// beyond control flow: every region an op may enter can run, which
-// region a constant would skip being the canonicalizer's to fold.
+// What exclusivity's solve reads of a body, once, before any context is
+// solved (ExclusivityDetail.h): its followed values numbered by the walk,
+// the edges along which sharing moves between them, the values shared in
+// every context, its calls and its return, the views it takes a reference
+// of, and its moves into and out of memo labels' fields. Every edge is read
+// off the flow interface and upstream's region interfaces, each op's edges
+// enumerated once.
+//
+// A block that ends where control never leaves back to its parent (a
+// crash, an exit, ub.unreachable) forwards nothing, so it gives the
+// region's successors nothing: a match with a crash case yields what its
+// other cases yield. Every terminator is one of that, a region branch
+// terminator, a return or a jump, which forward through forwardedValues; a
+// terminator with block successors cannot stand in a function before the
+// lowering, and meeting one is an internal error naming it.
 #include "idr/Analysis/Ownership/ExclusivityDetail.h"
 
-#include "idr/Analysis/Ownership.h"
+#include "idr/Analysis/Ownership/Facts.h"
+#include "idr/Analysis/Ownership/Walks.h"
+#include "idr/Analysis/Solver/Graph.h"
+#include "idr/Analysis/Solver/Mark.h"
+#include "idr/IR/Flow.h"
+#include "idr/IR/Grades.h"
+#include "idr/Support/Match.h"
 
-#include "mlir/Interfaces/CallInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
-
-#include <variant>
 
 using namespace mlir;
 
 namespace idr::detail::exclusivity {
 
-Calls::Calls(ProgramOp program, const ownership::Copies &copies) {
-  for (FuncOp fn : program.getOps<FuncOp>()) {
-    callees.try_emplace(fn.getSymNameAttr(), fn);
-    // The body's one block ends in its return, or in ub.unreachable when
-    // the function never returns.
-    SmallVector<ReturnOp> &returns = returnsOf[fn];
-    if (auto ret = dyn_cast<ReturnOp>(fn.getBody().front().getTerminator()))
-      returns.push_back(ret);
+namespace {
+
+// Whether `type` is a memo family's: its cells change while references to
+// them live, so what a field holds is the label's, not the cell value's.
+bool memoFamily(Type type) { return ownership::isMemo(ownership::familyOf(type)); }
+
+// The parameters of the program, one node each, numbered by copiedViews.
+struct ParameterNodes;
+struct ParameterTag {
+  using Minter = ParameterNodes;
+};
+using ParameterNode = Id<ParameterTag>;
+struct ParameterNodes {
+  static ParameterNode at(std::uint32_t n) { return ParameterNode(n); }
+  static Count<ParameterNode> count(std::uint32_t n) { return Count<ParameterNode>(n); }
+};
+
+// The reading of one body. Its one map, from a followed value to its
+// number, is the numbering's: it lives while the body is read and goes with
+// it, and no answer is kept against a pointer.
+class Reader {
+public:
+  Reader(FuncOp fn, const solver::ProgramGraph &graph, Anchors &anchors)
+      : fn(fn), graph(graph), anchors(anchors) {}
+
+  FailureOr<Body> read() {
+    body.fn = fn;
+    idr::exclusivity::forEachFollowed(fn, [&](Value value, std::uint32_t at) {
+      local.try_emplace(value, at);
+    });
+    body.values = static_cast<std::uint32_t>(local.size());
+    explained.resize(body.values);
+    for (BlockArgument param : fn.getBody().front().getArguments()) {
+      body.params.push_back(localOf(param));
+      explain(param);
+    }
+    // Each region argument's sources, read once: what forwardedValues says
+    // every op of the body forwards into it.
+    fn.walk([&](Operation *op) {
+      forwardedValues(op, [&](OpOperand &operand, Value input) {
+        if (auto arg = dyn_cast<BlockArgument>(input))
+          forwardedInto[arg].push_back(&operand);
+      });
+    });
+    WalkResult walked = fn.walk([&](Operation *op) {
+      if (op->hasTrait<OpTrait::IsTerminator>() && op->getNumSuccessors() != 0) {
+        op->emitOpError("internal error: exclusivity meets a terminator with block "
+                        "successors before the lowering");
+        return WalkResult::interrupt();
+      }
+      readOp(op);
+      return WalkResult::advance();
+    });
+    if (walked.wasInterrupted())
+      return failure();
+    ownership::forEachCall(fn, [&](CallOp call) { readCall(call); });
+    readReturn();
+    // Roots are read once every part read of the body is known.
+    for (Value value : copiedValues)
+      if (std::optional<ViewRoot> root = rootOf(value)) {
+        if (root->kind == ViewRoot::Kind::Value)
+          body.seeds.push_back(root->index);
+        else
+          body.viewsCopied.push_back(*root);
+      }
+    // A value no declared flow explains is shared: a result of an op that
+    // declares none, an input no predecessor forwards, an argument of a
+    // region no interface says.
+    for (std::uint32_t at = 0; at != body.values; ++at)
+      if (!explained.test(at))
+        body.seeds.push_back(at);
+    return std::move(body);
   }
-  for (auto [original, copy] : copies.of) {
-    callees[original.getSymNameAttr()] = Pair{original, copy};
-    callees[copy.getSymNameAttr()] = Pair{original, copy};
+
+private:
+  Local localOf(Value value) const {
+    auto it = local.find(value);
+    return it == local.end() ? noLocal : it->second;
   }
-}
 
-const Calls::Callee &Calls::calleeOf(CallOp call) const {
-  return callees.at(call.getCalleeAttr().getAttr());
-}
+  void explain(Value value) {
+    if (Local at = localOf(value); at != noLocal)
+      explained.set(at);
+  }
 
-SmallVector<FuncOp, 2> Calls::namesOf(FuncOp fn) const {
-  return std::visit(
-      llvm::makeVisitor([](FuncOp alone) { return SmallVector<FuncOp, 2>{alone}; },
-                        [](Pair pair) { return SmallVector<FuncOp, 2>{pair.original, pair.copy}; }),
-      callees.at(fn.getSymNameAttr()));
-}
+  void edge(Local from, Local to) {
+    if (from != noLocal && to != noLocal)
+      body.edges.push_back({from, to});
+  }
 
-FuncOp Calls::target(CallOp call, function_ref<bool(Value)> isExclusive) const {
-  return std::visit(
-      llvm::makeVisitor([](FuncOp alone) { return alone; },
-                        [&](Pair pair) {
-                          for (auto [param, arg] : llvm::zip_equal(pair.original.getArguments(),
-                                                                   call.getArgOperands()))
-                            if (ownership::followed(param) && !isExclusive(arg))
-                              return pair.original;
-                          return pair.copy;
-                        }),
-      calleeOf(call));
-}
+  void seed(Value value) {
+    if (Local at = localOf(value); at != noLocal)
+      body.seeds.push_back(at);
+  }
 
-void liveBlocksOf(FuncOp fn, DenseSet<Block *> &live) {
-  SmallVector<Block *> work{&fn.getBody().front()};
-  auto regionEntries = [&](Operation *op, RegionBranchPoint point) {
-    auto branch = dyn_cast<RegionBranchOpInterface>(op);
-    if (!branch) {
-      if (point.isParent())
-        for (Region &region : op->getRegions())
-          if (!region.empty())
-            work.push_back(&region.front());
+  // Whether a value exclusivity does not follow still keeps its cells
+  // unshared: it reaches no cell (an atom, a word), or its grade claims
+  // `unique deep`. Static data is shared by definition, and a view is not
+  // its own.
+  static bool exclusiveByType(Value value) {
+    return !holdsReferences(value.getType()) || claims(value.getType(), Unique::Deep);
+  }
+
+  // `from` moves into `to`: sharing follows it, and a value whose type
+  // answers gives what its type says.
+  void move(Value from, Value to) {
+    if (Local at = localOf(from); at != noLocal)
+      edge(at, localOf(to));
+    else if (!exclusiveByType(from))
+      seed(to);
+  }
+
+  // A reference is taken of `value` without its own given up (a copy of a
+  // value read): the cell it is, or the owner it views, is shared from then
+  // on, and so is the copy. Its root is read once the body is.
+  void copied(Value value) { copiedValues.push_back(value); }
+
+  // Where a value was lent from: up through the positions that hand a value
+  // on as itself, the parts it was read from and the region entries that
+  // forward it, to a followed value of the body or to one of the body's
+  // parameters. None for static data or a value no view of which is a
+  // reference counted here.
+  std::optional<ViewRoot> rootOf(Value value) const {
+    for (Value at = value;;) {
+      if (Local here = localOf(at); here != noLocal)
+        return ViewRoot{ViewRoot::Kind::Value, here};
+      if (auto arg = dyn_cast<BlockArgument>(at)) {
+        if (arg.getOwner() == &fn.getBody().front())
+          return ViewRoot{ViewRoot::Kind::Parameter, arg.getArgNumber()};
+        auto sources = forwardedInto.find(arg);
+        if (sources == forwardedInto.end() || sources->second.empty())
+          return std::nullopt;
+        at = sources->second.front()->get();
+        continue;
+      }
+      if (std::optional<Value> same = ownership::sameValueSource(at)) {
+        at = *same;
+        continue;
+      }
+      if (auto whole = partOf.find(at); whole != partOf.end()) {
+        at = whole->second;
+        continue;
+      }
+      return std::nullopt;
+    }
+  }
+
+  void readOp(Operation *op) {
+    // A call's moves are its callee's parameters and results, read with
+    // the callee's context (readCall).
+    if (isa<CallOpInterface>(op))
+      return;
+    // An op that keeps its operand's value is that value: what shares
+    // either shares both, so their grades stay one.
+    if (op->hasTrait<SameValue>()) {
+      Value operand = op->getOperand(0);
+      for (Value result : op->getResults()) {
+        move(operand, result);
+        edge(localOf(result), localOf(operand));
+        explain(result);
+      }
       return;
     }
-    SmallVector<RegionSuccessor> successors;
-    branch.getSuccessorRegions(point, successors);
-    for (RegionSuccessor successor : successors)
-      if (Region *region = successor.getSuccessor(); region && !region->empty())
-        work.push_back(&region->front());
-  };
-  while (!work.empty()) {
-    Block *block = work.pop_back_val();
-    if (!live.insert(block).second)
-      continue;
-    for (Operation &op : *block)
-      if (op.getNumRegions())
-        regionEntries(&op, RegionBranchPoint::parent());
-    Operation *terminator = block->getTerminator();
-    if (!terminator)
-      continue;
-    for (Block *successor : block->getSuccessors())
-      work.push_back(successor);
-    if (auto end = dyn_cast<RegionBranchTerminatorOpInterface>(terminator))
-      if (Operation *parent = block->getParentOp())
-        regionEntries(parent, RegionBranchPoint(end));
+    if (!declaresFlow(op))
+      return;
+    FlowEdges edges;
+    flowEdgesOf(op, edges);
+    for (const FlowEdges::Edge &edge : edges.edges())
+      if (edge.carries(Carrier::Reference))
+        match(
+            edge.move, [&](const FlowEdges::Flow &flow) { readFlow(flow); },
+            [&](const FlowEdges::Fresh &fresh) { explain(fresh.to); },
+            [&](const FlowEdges::Constant &constant) {
+              explain(constant.to);
+              seed(constant.to);
+            },
+            [](const FlowEdges::Unify &) {}, [](const FlowEdges::Source &) {},
+            [](const FlowEdges::Release &) {}, [](const FlowEdges::Overwrite &) {},
+            [](const FlowEdges::Dispatch &) {});
   }
-}
 
-Graph::Graph(ProgramOp program, const Calls &calls) {
-  for (FuncOp fn : program.getOps<FuncOp>())
-    scan(fn.getBody(), fn, calls);
-}
+  void readFlow(const FlowEdges::Flow &flow) {
+    std::optional<Value> to = flow.to.value();
+    match(
+        flow.to.at,
+        // Into a value whole, which that explains.
+        [&](const FlowPoint::Whole &) {
+          explain(*to);
+          readInto(flow.from, *to);
+        },
+        // Into a part of a value: the value holds what moves in, a memo
+        // label's field the label.
+        [&](const FlowPoint::Part &part) {
+          std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
+          if (field && memoFamily(to->getType()))
+            return intoAnchor(flow.from, anchors.of(field->data, field->ctor, field->index));
+          readInto(flow.from, *to);
+        },
+        // A parameter or a result: the call's and the return's own reading.
+        [](const FlowPoint::Taken &) {}, [](const FlowPoint::Parameter &) {},
+        [](const FlowPoint::Result &) {});
+  }
 
-unsigned Graph::addItem(Item item) {
-  unsigned id = static_cast<unsigned>(items.size());
-  items.push_back(item);
-  itemsOf[item.fn].push_back(id);
-  return id;
-}
+  // What `from` brings `to`: a use taken over moves its sharing; a value
+  // read and not given up is copied, which shares both; a part taken out of
+  // a value moves that value's sharing, or a memo label field's; a part
+  // read is a view, a reference of its own only when the op takes one.
+  void readInto(const FlowPoint &from, Value to) {
+    match(
+        from.at, [&](const FlowPoint::Taken &taken) { move(taken.use->get(), to); },
+        [&](const FlowPoint::Whole &read) {
+          if (!holdsReferences(read.value.getType()))
+            return;
+          copied(read.value);
+          seed(to);
+        },
+        [&](const FlowPoint::Part &part) {
+          Value of = *from.value();
+          std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
+          if (field && memoFamily(of.getType()))
+            return outOfAnchor(part, anchors.of(field->data, field->ctor, field->index), to);
+          if (ownership::reachOf(part) == ownership::Reach::Taken)
+            return move(of, to);
+          partOf.try_emplace(to, of);
+          if (localOf(to) != noLocal) {
+            copied(of);
+            seed(to);
+          }
+        },
+        [&](const FlowPoint::Parameter &) { seed(to); },
+        [&](const FlowPoint::Result &) { seed(to); });
+  }
 
-void Graph::reads(unsigned id, Value value) { dependents[value].push_back(id); }
+  void intoAnchor(const FlowPoint &from, Anchor anchor) {
+    std::optional<OpOperand *> taken = from.taken();
+    Value value = *from.value();
+    if (taken && localOf(value) != noLocal)
+      body.intoAnchors.push_back({localOf(value), anchor});
+    else if (!exclusiveByType(value))
+      anchors.share(anchor);
+  }
 
-void Graph::readsAll(unsigned id, ValueRange values) {
-  for (Value value : values)
-    reads(id, value);
-}
-
-void Graph::readsReturns(unsigned id, FuncOp callee, const Calls &calls) {
-  for (ReturnOp ret : calls.returns(callee))
-    readsAll(id, ret.getOperands());
-}
-
-void Graph::scan(Region &region, FuncOp fn, const Calls &calls) {
-  for (Block &block : region) {
-    if (&block != &region.front() && block.getNumArguments()) {
-      unsigned id = addItem({Item::Kind::BlockArgs, nullptr, &block, fn, nullptr, 0});
-      for (Block *pred : block.getPredecessors())
-        if (auto branch = dyn_cast<BranchOpInterface>(pred->getTerminator()))
-          for (unsigned i = 0, e = pred->getNumSuccessors(); i != e; ++i)
-            if (pred->getSuccessor(i) == &block)
-              for (Value operand : branch.getSuccessorOperands(i).getForwardedOperands())
-                reads(id, operand);
+  // A capture moved out of a memo label's field holds what the field holds;
+  // read without being moved, and used, a second reference to it may be
+  // taken there, so the field is shared.
+  void outOfAnchor(const FlowPoint::Part &part, Anchor anchor, Value to) {
+    if (ownership::reachOf(part) == ownership::Reach::Taken) {
+      explain(to);
+      if (Local at = localOf(to); at != noLocal)
+        body.outOfAnchors.push_back({anchor, at});
+      return;
     }
-    for (Operation &op : block) {
-      scanOp(&op, fn, calls);
-      for (Region &inner : op.getRegions())
-        scan(inner, fn, calls);
+    if (!to.use_empty())
+      anchors.share(anchor);
+  }
+
+  void readCall(CallOp call) {
+    Call out;
+    out.callee = graph.id(call.getCalleeAttr());
+    for (auto [index, arg] : llvm::enumerate(call.getArgOperands())) {
+      out.args.push_back(localOf(arg));
+      // A view passed on: if the callee takes a reference of it, its owner
+      // here is shared.
+      if (localOf(arg) == noLocal && holdsReferences(arg.getType()) && !exclusiveByType(arg))
+        if (std::optional<ViewRoot> root = rootOf(arg))
+          out.views.push_back({static_cast<unsigned>(index), *root});
+    }
+    for (Value result : call->getResults()) {
+      out.results.push_back(localOf(result));
+      explain(result);
+    }
+    body.calls.push_back(std::move(out));
+  }
+
+  void readReturn() {
+    Operation *end = fn.getBody().front().getTerminator();
+    auto ret = dyn_cast_or_null<ReturnOp>(end);
+    body.returns = static_cast<bool>(ret);
+    body.exclusiveResults.resize(fn.getNumResults());
+    if (!ret)
+      return;
+    for (auto [index, operand] : llvm::enumerate(ret.getOperands())) {
+      body.results.push_back(localOf(operand));
+      if (localOf(operand) == noLocal && exclusiveByType(operand))
+        body.exclusiveResults.set(index);
     }
   }
+
+  FuncOp fn;
+  const solver::ProgramGraph &graph;
+  Anchors &anchors;
+  Body body;
+  llvm::DenseMap<Value, Local> local;
+  llvm::DenseMap<BlockArgument, SmallVector<OpOperand *, 2>> forwardedInto;
+  // Each view read out of a part, with the value it is a part of.
+  llvm::DenseMap<Value, Value> partOf;
+  SmallVector<Value> copiedValues;
+  llvm::BitVector explained;
+};
+
+} // namespace
+
+Anchor Anchors::of(DataType memo, Tag tag, unsigned index) {
+  auto [it, fresh] = keys.try_emplace(
+      Key{memo, static_cast<std::uint32_t>(tag), static_cast<std::uint32_t>(index)},
+      static_cast<Anchor>(keys.size()));
+  return it->second;
 }
 
-void Graph::scanOp(Operation *op, FuncOp fn, const Calls &calls) {
-  Block *block = op->getBlock();
-  if (auto branch = dyn_cast<RegionBranchOpInterface>(op)) {
-    scanBranch(branch, block, fn);
-  } else if (auto call = dyn_cast<CallOp>(op)) {
-    unsigned id = addItem({Item::Kind::Call, op, block, fn, nullptr, 0});
-    readsAll(id, op->getOperands());
-    std::visit(llvm::makeVisitor(
-                   [&](FuncOp alone) { readsReturns(id, alone, calls); },
-                   [&](Calls::Pair pair) {
-                     readsReturns(id, pair.original, calls);
-                     readsReturns(id, pair.copy, calls);
-                   }),
-               calls.calleeOf(call));
-  } else if (op->getNumResults()) {
-    unsigned id = addItem({Item::Kind::Op, op, block, fn, nullptr, 0});
-    readsAll(id, op->getOperands());
-  }
-  if (op->getNumRegions() && !isa<RegionBranchOpInterface, CallableOpInterface>(op) &&
-      llvm::any_of(op->getRegions(), [](Region &region) {
-        return !region.empty() && region.front().getNumArguments();
-      }))
-    addItem({Item::Kind::EntryArgs, op, block, fn, nullptr, 0});
+FailureOr<Body> readBody(FuncOp fn, const solver::ProgramGraph &graph, Anchors &anchors) {
+  return Reader(fn, graph, anchors).read();
 }
 
-// One item per successor of `branch` (its results first, then each
-// region's arguments), and where each successor's inputs come from:
-// every point control may leave from is read once, for the successors it
-// goes to, however many regions the branch has.
-void Graph::scanBranch(RegionBranchOpInterface branch, Block *block, FuncOp fn) {
-  Operation *op = branch.getOperation();
-  struct Succ {
-    Region *region;
-    unsigned item;
-    unsigned source;
-  };
-  SmallVector<Succ> succs;
-  DenseMap<Region *, unsigned> byRegion;
-  auto addSucc = [&](Region *region) {
-    unsigned source = static_cast<unsigned>(successorSources.size());
-    successorSources.emplace_back();
-    unsigned item = addItem({Item::Kind::Successor, op, block, fn, region, source});
-    if (region)
-      byRegion[region] = static_cast<unsigned>(succs.size());
-    succs.push_back({region, item, source});
-  };
-  addSucc(nullptr);
-  for (Region &region : op->getRegions())
-    if (!region.empty())
-      addSucc(&region);
-  auto addFrom = [&](RegionBranchPoint point, Block *pointBlock) {
-    SmallVector<RegionSuccessor> targets;
-    branch.getSuccessorRegions(point, targets);
-    for (RegionSuccessor target : targets) {
-      unsigned at = 0;
-      if (!target.isOperation()) {
-        auto it = byRegion.find(target.getSuccessor());
-        if (it == byRegion.end())
-          continue;
-        at = it->second;
-      }
-      OperandRange operands = branch.getSuccessorOperands(point, target);
-      successorSources[succs[at].source].from.push_back({pointBlock, operands});
-      readsAll(succs[at].item, operands);
-    }
-  };
-  addFrom(RegionBranchPoint::parent(), block);
-  SmallVector<Block *> unknownFrom;
-  for (Region &inner : op->getRegions())
-    for (Block &innerBlock : inner) {
-      Operation *terminator = innerBlock.getTerminator();
-      if (auto end = dyn_cast<RegionBranchTerminatorOpInterface>(terminator))
-        addFrom(RegionBranchPoint(end), &innerBlock);
-      else if (terminator)
-        unknownFrom.push_back(&innerBlock);
-    }
-  for (Succ succ : succs) {
-    SuccessorSources &sources = successorSources[succ.source];
-    RegionSuccessor successor = succ.region ? RegionSuccessor(succ.region) : RegionSuccessor(op);
-    sources.inputs = branch.getSuccessorInputs(successor);
-    sources.unforwarded = branch.getNonSuccessorInputs(successor);
-    llvm::append_range(sources.unknownFrom, unknownFrom);
+// Static data is no one's to take apart, so a label static data holds a
+// cell of has static captures, shared whatever an init moves in.
+void shareStaticAnchors(ProgramOp program, Anchors &anchors) {
+  program.walk([&](ConstantOp constant) {
+    constant.getValue().walk([&](ConAttr con) {
+      DataType data = con.getData();
+      if (!ownership::isMemo(data) || !data.labelMode(con.getTag()))
+        return;
+      for (unsigned index = 0, e = static_cast<unsigned>(con.getFields().size()); index != e;
+           ++index)
+        anchors.share(anchors.of(data, con.getTag(), index));
+    });
+  });
+}
+
+// A parameter is copied through a view when a reference is taken of a view
+// rooted at it in its own body, or when it is passed on as a view to a
+// callee's parameter that is: the marking of the program's parameters,
+// from the bodies that copy one, back along each call.
+IndexVector<FunctionId, llvm::SmallBitVector>
+copiedViews(const IndexVector<FunctionId, Body> &bodies, const solver::ProgramGraph &graph) {
+  // One node per parameter, each function's after the one before.
+  IndexVector<FunctionId, std::uint32_t> base = graph.table<std::uint32_t>();
+  std::uint32_t nodes = 0;
+  for (FunctionId fn : graph.functions()) {
+    base[fn] = nodes;
+    nodes += static_cast<std::uint32_t>(bodies[fn].params.size());
   }
+  CsrBuilder<ParameterTag> edges(ParameterNodes::count(nodes));
+  std::vector<ParameterNode> seeds;
+  for (FunctionId fn : graph.functions()) {
+    const Body &body = bodies[fn];
+    for (const ViewRoot &root : body.viewsCopied)
+      seeds.push_back(ParameterNodes::at(base[fn] + root.index));
+    for (const Call &call : body.calls)
+      for (const auto &[param, root] : call.views)
+        if (root.kind == ViewRoot::Kind::Parameter)
+          edges.edge(ParameterNodes::at(base[call.callee] + param),
+                     ParameterNodes::at(base[fn] + root.index));
+  }
+  Csr<ParameterTag> graphOfParameters = std::move(edges).finish();
+  BitSet<ParameterNode> marked =
+      mark(graphOfParameters, std::span<const ParameterNode>(seeds), Forward{});
+  IndexVector<FunctionId, llvm::SmallBitVector> copied = graph.table<llvm::SmallBitVector>();
+  for (FunctionId fn : graph.functions()) {
+    std::uint32_t count = static_cast<std::uint32_t>(bodies[fn].params.size());
+    copied[fn].resize(count);
+    for (std::uint32_t index = 0; index != count; ++index)
+      if (marked.test(ParameterNodes::at(base[fn] + index)))
+        copied[fn].set(index);
+  }
+  return copied;
 }
 
 } // namespace idr::detail::exclusivity
