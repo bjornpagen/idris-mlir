@@ -13,7 +13,6 @@
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Layout.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -128,20 +127,14 @@ void idr::DataConOp::getFlowEdges(FlowEdges &edges) {
 }
 
 // A read of a field gives what the field holds; the value is only read. A
-// read whose slot is laid out apart from the field's type at its
-// application re-packs it, and one whose re-pack builds a cell or an array
-// gives a new value, no part of the one read: fresh, as the read's type
-// says, which asks the same of the same two types (fieldReadType).
+// read whose re-pack of its slot builds a cell or an array gives a new
+// value, no part of the one read: fresh, by the one test the read's type
+// asks too.
 void idr::DataFieldOp::getFlowEdges(FlowEdges &edges) {
-  DataType data = getDataType();
-  Tag tag = getTag();
   auto index = static_cast<unsigned>(getIndex());
-  edges.flow(FlowSource::partOf(getValue(), FlowAnchor::fieldOf(data, tag, index)),
+  edges.flow(FlowSource::partOf(getValue(), FlowAnchor::fieldOf(getDataType(), getTag(), index)),
              FlowPlace::of(getResult()));
-  std::optional<SmallVector<Type>> fields = data.determinedFields(tag);
-  auto laidOut = [](DataType type, Tag at) { return Layouts::fieldsAt(type, at); };
-  Type slot = Layouts::fieldsAt(data.unrefined(), tag)[index];
-  if (fields && families::builds(slot, (*fields)[index], laidOut))
+  if (families::fieldReadBuilds(getValue().getType(), index))
     edges.fresh(getResult());
 }
 
