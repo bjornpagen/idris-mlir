@@ -12,6 +12,7 @@
 
 #include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
@@ -102,6 +103,17 @@ inline std::optional<mlir::Value> elementBufferOf(mlir::Value value) {
   if (!owner || !llvm::isa<mlir::BaseMemRefType>(unrestricted(owner->getType())))
     return std::nullopt;
   return owner;
+}
+
+// Whether `value`, which ownership::readFrom reads out of another (always
+// an op's result), is read with no reference of its own: the op that reads
+// it declares it a part (ownership::ownerOfPart), or declares no moves at
+// all (a view upstream's op makes, its source's own words). A field read
+// whose slot is laid out apart from its type and whose re-pack builds a
+// fresh cell or array declares its result fresh, and that result holds
+// what it holds on its own, as any value made fresh does.
+inline bool readWithoutReference(mlir::Value value) {
+  return !declaresFlow(value.getDefiningOp()) || ownership::ownerOfPart(value).has_value();
 }
 
 // How a terminator leaves its region: out of the function (its body's

@@ -190,8 +190,10 @@ void Placement::findElements() {
 // A field read of a counted value, or of a part of one, gives a part; a
 // view of a buffer that is counted, or a part of one, gives a part too, and
 // so does an element read out of it where nothing may overwrite it while it
-// is in use. A part of a lent value is lent. The parts of a value are its
-// rows, built in one pass in id order.
+// is in use. A part of a lent value is lent. A read its op makes fresh (a
+// field re-packed into a fresh cell or array) is no part: its type says who
+// frees it, as any value's. The parts of a value are its rows, built in one
+// pass in id order.
 void Placement::classify() {
   findElements();
   takesWhereRead.resize(count.value());
@@ -228,7 +230,8 @@ void Placement::classify() {
       }
       return;
     }
-    if (Value source = ownership::readFrom(value); source && holdsReferences(type)) {
+    if (Value source = ownership::readFrom(value);
+        source && holdsReferences(type) && readWithoutReference(value)) {
       ValueId from = idOf(source);
       std::optional<unsigned> field;
       if (auto read = dyn_cast_if_present<DataFieldOp>(def))
