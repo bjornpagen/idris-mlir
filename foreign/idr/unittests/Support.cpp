@@ -252,6 +252,38 @@ TEST(Match, EachAlternativeReachesItsOneCase) {
   EXPECT_EQ(handleCase(Handle(&d)), 1);
 }
 
+// A sum with members of its own derives from its variant, and is matched
+// as that variant however it is passed: each alternative reaches its one
+// case, a case of a sum given away takes its alternative, and a case of a
+// sum held writes into it.
+struct Derived : Sum {
+  using Sum::Sum;
+};
+
+TEST(Match, ASumDerivingFromItsVariantIsThatVariant) {
+  const char *names[] = {"int", "string", "double"};
+  const Derived sums[] = {Derived(std::in_place_index<0>, 1),
+                          Derived(std::in_place_index<1>, "one"),
+                          Derived(std::in_place_index<2>, 1.0)};
+  for (const Derived &sum : sums)
+    EXPECT_EQ(idr::match(
+                  sum, [](int) { return std::string("int"); },
+                  [](const std::string &) { return std::string("string"); },
+                  [](double) { return std::string("double"); }),
+              names[sum.index()]);
+  Derived text(std::in_place_index<1>, std::string(64, 'x'));
+  std::string taken = idr::match(
+      std::move(text), [](int &&) { return std::string(); },
+      [](std::string &&s) { return std::move(s); }, [](double &&) { return std::string(); });
+  EXPECT_EQ(taken, std::string(64, 'x'));
+  Derived number(std::in_place_index<0>, 41);
+  idr::match(number, [](int &i) { ++i; }, [](std::string &) {}, [](double &) {});
+  EXPECT_EQ(idr::match(
+                number, [](int i) { return i; }, [](const std::string &) { return -1; },
+                [](double) { return -1; }),
+            42);
+}
+
 // The fold reads the sum no more once a case has run: a case may replace
 // the sum it was handed, by any alternative, and only that case runs, with
 // a result or without.

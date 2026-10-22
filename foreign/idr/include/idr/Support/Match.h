@@ -2,8 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The one fold over a closed sum of ours: `match(sum, case...)` hands the
 // alternative the sum holds to the one case that takes it. A sum of our own
-// data is a std::variant; a sum of pointer-sized handles is an
-// llvm::PointerUnion, read by the same fold.
+// data is a std::variant, or a class with members of its own that derives
+// from one publicly, which the fold reads as that variant, as std::visit
+// does; a sum of pointer-sized handles is an llvm::PointerUnion, read by
+// the same fold.
 //
 // Every alternative must have a case and every case must give one type, or
 // the match does not compile, and says which: a sum that gains an
@@ -60,10 +62,24 @@ namespace detail {
 // takes.
 struct Unheld {};
 
-template <class V>
-inline constexpr bool isVariant = false;
+// The variant a sum is or derives from, as the sum was passed: found by
+// deducing the base, so a class deriving from two variants is no sum.
 template <class... Ts>
-inline constexpr bool isVariant<std::variant<Ts...>> = true;
+constexpr std::variant<Ts...> &asVariant(std::variant<Ts...> &sum) {
+  return sum;
+}
+template <class... Ts>
+constexpr const std::variant<Ts...> &asVariant(const std::variant<Ts...> &sum) {
+  return sum;
+}
+template <class... Ts>
+constexpr std::variant<Ts...> &&asVariant(std::variant<Ts...> &&sum) {
+  return std::move(sum);
+}
+template <class... Ts>
+constexpr const std::variant<Ts...> &&asVariant(const std::variant<Ts...> &&sum) {
+  return std::move(sum);
+}
 
 // `A` as the sum `V` was passed: a case of a const sum sees a const
 // alternative, a case of a sum given away may take its alternative.
@@ -144,13 +160,15 @@ R foldHandles(C &cases, llvm::PointerUnion<PTs...> handle) {
 
 } // namespace detail
 
-template <class V>
-concept ClosedSum = detail::isVariant<std::remove_cvref_t<V>>;
+template <class S>
+concept ClosedSum = requires(S &&sum) { detail::asVariant(std::forward<S>(sum)); };
 
-// The probe is passed as the sum's alternatives are, so a case is refused
-// exactly when it would take an alternative the sum does not yet hold.
-template <ClosedSum V, class... Fs>
-constexpr decltype(auto) match(V &&sum, Fs &&...fs) {
+// The fold runs on the sum's variant, `V` as the sum was passed. The probe
+// is passed as the sum's alternatives are, so a case is refused exactly
+// when it would take an alternative the sum does not yet hold.
+template <ClosedSum S, class... Fs>
+constexpr decltype(auto) match(S &&sum, Fs &&...fs) {
+  using V = decltype(detail::asVariant(std::declval<S>()));
   using C = Cases<std::remove_cvref_t<Fs>...>;
   using Order = std::make_index_sequence<std::variant_size_v<std::remove_cvref_t<V>>>;
   constexpr bool named = !std::invocable<C &, detail::Like<V, detail::Unheld>>;
@@ -162,7 +180,7 @@ constexpr decltype(auto) match(V &&sum, Fs &&...fs) {
       static_assert(detail::givesOne<C, V, R>(Order{}), "every case of a match gives one type");
       if constexpr (detail::givesOne<C, V, R>(Order{})) {
         C cases{std::forward<Fs>(fs)...};
-        return detail::fold<R>(cases, std::forward<V>(sum), Order{});
+        return detail::fold<R>(cases, detail::asVariant(std::forward<S>(sum)), Order{});
       }
     }
   }
