@@ -45,7 +45,10 @@ struct FunctionRecord {
 };
 
 // The record of every function before one run of a pass, by symbol, and
-// the pass the run is of.
+// the pass the run is of. Across a pass a function's identity is its
+// symbol, MLIR's own, which follows a function the pass rebuilt as a new
+// op; the key is the uniqued StringAttr, hashed and compared by pointer,
+// never by its text.
 struct Snapshot {
   mlir::Pass *pass = nullptr;
   llvm::SmallVector<FunctionRecord> functions;
