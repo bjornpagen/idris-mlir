@@ -333,19 +333,23 @@ overwrite : Array s a -> Index s -> a -> Array s a
 overwrite (Empty e empty) i v = void (uninhabited (replace {p = IsSucc} empty (occupied e i)))
 overwrite (Stored e slots) i v = unsafePerformIO (writeSlot e slots (offset e i) v)
 
-namespace Frozen
-  ||| A linear array's elements frozen in place, behind a handle used once
-  ||| in the region `r`: nothing writes them while the handle lives, so a
-  ||| read through it is a value of the handle and the index, and when the
-  ||| handle is given back they are the linear array's again, in the same
-  ||| slots. Only `LArray.withFrozen` makes one, for a region fresh to its
-  ||| continuation, and only it ends one, so neither the handle nor the
-  ||| array it holds outlives that continuation; what leaves it is
-  ||| elements.
-  export
-  data Frozen : (0 r : Type) -> (0 s : Shape) -> Type -> Type where
-    Held : (elements : Array s a) -> Frozen r s a
+-- Declared outside its namespace, as `LArray` is, so that its constructor
+-- stays this module's alone yet both `Frozen.read` and `LArray.withFrozen`
+-- reach it.
 
+||| A linear array's elements frozen in place, behind a handle used once
+||| in the region `r`: nothing writes them while the handle lives, so a
+||| read through it is a value of the handle and the index, and when the
+||| handle is given back they are the linear array's again, in the same
+||| slots. Only `LArray.withFrozen` makes one, for a region fresh to its
+||| continuation, and only it ends one, so neither the handle nor the
+||| array it holds outlives that continuation; what leaves it is
+||| elements.
+export
+data Frozen : (0 r : Type) -> (0 s : Shape) -> Type -> Type where
+  Held : (elements : Array s a) -> Frozen r s a
+
+namespace Frozen
   ||| The element at an index, and the handle given back.
   export
   read : (1 _ : Frozen r s a) -> Index s -> Res a (const (Frozen r s a))
