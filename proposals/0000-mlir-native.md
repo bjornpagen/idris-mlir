@@ -1680,6 +1680,29 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   choices, the compiler gains the construct; the code is never kept worse
   to spare the compiler. Only a megamorphic construct, which the
   language's rule refuses, stays rewritten, with its reason.
+- **D114** (2026-10-22; the owner, on the C++; amends D91 and D112).
+  "c++ assertions are totally fine! the more the merrier! c++ has a
+  totally different policy from the idris. in fact, we should probably be
+  using c++26 contracts too for correctness!" D112 binds the Idris side
+  alone. Our C++ checks its own invariants at run time freely, and more
+  of them is better: an internal error stays and new ones are welcome.
+  D91's toolchain half stands (LLVM and MLIR built without their
+  assertions, one toolchain the tests run and the compiler ships with);
+  its "our C++ has no `assert`" is reversed. C++26 contracts (`pre`,
+  `post`, `contract_assert`) are the form once the pinned clang has
+  them; see C226.
+- **C226** (2026-10-22; under D114). How our C++ asserts until clang has
+  contracts. An invariant check is always on: it reports a fatal
+  internal error, the ending table's `SIGABRT`, never `<cassert>`'s
+  `assert`, which `NDEBUG` removes in the one build we ship, and which,
+  if `NDEBUG` were dropped for our sources, would also switch on LLVM's
+  and MLIR's own header checks against a toolchain built without them.
+  Contracts are not in mainline clang (read 2026-10-22: three separate
+  implementations and a design document, llvm-project #229978; the
+  pinned tree has none, and WG21's P4334 still contests the feature), so
+  there is no upstream form to carry yet. When mainline has one, the
+  weekly toolchain bump brings it and the checks become `pre`, `post` and
+  `contract_assert`, the contract semantic chosen to enforce.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places

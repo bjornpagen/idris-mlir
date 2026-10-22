@@ -440,16 +440,21 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   records). Runtime dispatch, runtime-built tables, string compares and
   hash lookups of static facts survive only where MLIR's open op set
   forces them, each one listed and justified in its design.
-- No assertions (2026-10-21): the toolchain's LLVM and MLIR are built
-  without them, in the one toolchain the tests run and the compiler
-  ships with, and our C++ has no `assert`; an invariant one would
-  re-test is a type, a verifier rule, or nothing. Nor does our code check its
-  own invariants at run time in any other spelling: "we should strive to
-  prove things rather than assert them, or refactor the represnetations
-  such that invalid states are unrepresentable" (2026-10-22). An
-  `internal` error, `llvm_unreachable`, `assert_total`, `assert_smaller`
-  or `believe_me` of ours is a missing type or a missing proof; one stays
-  only for a fact not known until run time, and says so.
+- Assertions (2026-10-21, amended 2026-10-22): the toolchain's LLVM and
+  MLIR are built without theirs, in the one toolchain the tests run and
+  the compiler ships with. That last part is reversed for
+  the C++: "c++ assertions are totally fine! the more the merrier! c++ has
+  a totally different policy from the idris. in fact, we should probably
+  be using c++26 contracts too for correctness!" (2026-10-22). Our C++
+  checks its invariants freely, always on, as a fatal internal error
+  (never `<cassert>`, which `NDEBUG` removes), and moves to C++26
+  contracts once the pinned clang has them. The Idris side is the
+  opposite: "we should strive to prove things rather than assert them,
+  or refactor the represnetations such that invalid states are
+  unrepresentable" (2026-10-22). An `internal` error, `assert_total`,
+  `assert_smaller` or `believe_me` of ours in Idris is a missing type or
+  a missing proof; one stays only for a fact not known until run time,
+  and says so.
 - A choice is a type or an enum case, never a `bool`. Nothing static is
   built per function; no attribute or type is made on a worker's hot path;
   no pointer-keyed map holds per-node state; a fact that can be numbered
