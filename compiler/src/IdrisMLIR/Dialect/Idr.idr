@@ -75,9 +75,9 @@ dataFieldOp index' value' outers' result' =
 
 ||| `idr.data.tag`: the constructor tag of a data value
 export
-dataTagOp : Value -> MlirType -> Op
-dataTagOp value' result' =
-  MkOp (MkOpName Dialect.Idr "data.tag") ([value']) ([]) ([]) [] ([result'])
+dataTagOp : Value -> Op
+dataTagOp value' =
+  MkOp (MkOpName Dialect.Idr "data.tag") ([value']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.data.reindex`: a value at a type its enclosing refinements make equal to its own
 export
@@ -239,9 +239,9 @@ arrayExtentOp axis' array' extent' after' =
 
 ||| `idr.nat.to_extent`: a natural as the extent of an array to be made
 export
-natToExtentOp : Value -> MlirType -> Op
-natToExtentOp natural' extent' =
-  MkOp (MkOpName Dialect.Idr "nat.to_extent") ([natural']) ([]) ([]) [] ([extent'])
+natToExtentOp : Value -> Op
+natToExtentOp natural' =
+  MkOp (MkOpName Dialect.Idr "nat.to_extent") ([natural']) ([]) ([]) [] ([IndexType])
 
 ||| `idr.array.tie_shape`: an array whose dynamic dimensions are the given sizes
 export
@@ -301,27 +301,27 @@ intShrUOp lhs' rhs' result' =
 
 ||| `idr.int.to_char_s`: a signed integer as a Char: itself if a scalar value, else 0
 export
-intToCharSOp : Value -> MlirType -> Op
-intToCharSOp value' result' =
-  MkOp (MkOpName Dialect.Idr "int.to_char_s") ([value']) ([]) ([]) [] ([result'])
+intToCharSOp : Value -> Op
+intToCharSOp value' =
+  MkOp (MkOpName Dialect.Idr "int.to_char_s") ([value']) ([]) ([]) [] ([IntegerType 32])
 
 ||| `idr.int.to_char_u`: an unsigned integer as a Char: itself if a scalar value, else 0
 export
-intToCharUOp : Value -> MlirType -> Op
-intToCharUOp value' result' =
-  MkOp (MkOpName Dialect.Idr "int.to_char_u") ([value']) ([]) ([]) [] ([result'])
+intToCharUOp : Value -> Op
+intToCharUOp value' =
+  MkOp (MkOpName Dialect.Idr "int.to_char_u") ([value']) ([]) ([]) [] ([IntegerType 32])
 
 ||| `idr.int.head_s`: the first character of an integer's decimal text
 export
-intHeadSOp : Value -> MlirType -> Op
-intHeadSOp value' result' =
-  MkOp (MkOpName Dialect.Idr "int.head_s") ([value']) ([]) ([]) [] ([result'])
+intHeadSOp : Value -> Op
+intHeadSOp value' =
+  MkOp (MkOpName Dialect.Idr "int.head_s") ([value']) ([]) ([]) [] ([IntegerType 32])
 
 ||| `idr.int.head_u`: the first character of an integer's decimal text
 export
-intHeadUOp : Value -> MlirType -> Op
-intHeadUOp value' result' =
-  MkOp (MkOpName Dialect.Idr "int.head_u") ([value']) ([]) ([]) [] ([result'])
+intHeadUOp : Value -> Op
+intHeadUOp value' =
+  MkOp (MkOpName Dialect.Idr "int.head_u") ([value']) ([]) ([]) [] ([IntegerType 32])
 
 ||| `idr.f64.to_int`: a finite Double as an integer, truncated and wrapped
 export
@@ -332,9 +332,9 @@ f64ToIntOp value' result' =
 
 ||| `idr.f64.head`: the first character of a Double's text
 export
-f64HeadOp : Value -> MlirType -> Op
-f64HeadOp value' result' =
-  MkOp (MkOpName Dialect.Idr "f64.head") ([value']) ([]) ([]) [] ([result'])
+f64HeadOp : Value -> Op
+f64HeadOp value' =
+  MkOp (MkOpName Dialect.Idr "f64.head") ([value']) ([]) ([]) [] ([IntegerType 32])
 
 ||| `idr.big.add`: the sum of two bigs or two naturals
 export
@@ -412,9 +412,9 @@ natPredOp value' result' =
 
 ||| `idr.big.cmp`: compares two bigs or two naturals
 export
-bigCmpOp : IdrisMLIR.Spec.Ops.Values.Comparison -> Value -> Value -> MlirType -> Op
-bigCmpOp predicate' lhs' rhs' result' =
-  MkOp (MkOpName Dialect.Idr "big.cmp") ([lhs'] ++ [rhs']) ([("predicate", enumAttr IdrisMLIR.Spec.Ops.Values.comparisonClosed predicate')]) ([]) [] ([result'])
+bigCmpOp : IdrisMLIR.Spec.Ops.Values.Comparison -> Value -> Value -> Op
+bigCmpOp predicate' lhs' rhs' =
+  MkOp (MkOpName Dialect.Idr "big.cmp") ([lhs'] ++ [rhs']) ([("predicate", enumAttr IdrisMLIR.Spec.Ops.Values.comparisonClosed predicate')]) ([]) [] ([IntegerType 1])
 
 ||| `idr.nat.to_big`: a natural as an Integer
 export
@@ -461,9 +461,9 @@ bigFromDoubleOp value' result' =
 
 ||| `idr.big.to_double`: a big as the nearest Double
 export
-bigToDoubleOp : Value -> MlirType -> Op
-bigToDoubleOp value' result' =
-  MkOp (MkOpName Dialect.Idr "big.to_double") ([value']) ([]) ([]) [] ([result'])
+bigToDoubleOp : Value -> Op
+bigToDoubleOp value' =
+  MkOp (MkOpName Dialect.Idr "big.to_double") ([value']) ([]) ([]) [] ([F64Type])
 
 ||| `idr.big.show`: the decimal text of a big
 export
@@ -552,47 +552,47 @@ strConcatOp list' result' =
 
 ||| `idr.str.length`: the number of characters of a string
 export
-strLengthOp : Value -> MlirType -> Op
-strLengthOp str' result' =
-  MkOp (MkOpName Dialect.Idr "str.length") ([str']) ([]) ([]) [] ([result'])
+strLengthOp : Value -> Op
+strLengthOp str' =
+  MkOp (MkOpName Dialect.Idr "str.length") ([str']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.str.bytes_length`: the number of bytes of a string
 export
-strBytesLengthOp : Value -> MlirType -> Op
-strBytesLengthOp str' result' =
-  MkOp (MkOpName Dialect.Idr "str.bytes_length") ([str']) ([]) ([]) [] ([result'])
+strBytesLengthOp : Value -> Op
+strBytesLengthOp str' =
+  MkOp (MkOpName Dialect.Idr "str.bytes_length") ([str']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.str.scalar_at`: the character that starts at a byte offset, 0 at the end
 export
-strScalarAtOp : Value -> Value -> MlirType -> Op
-strScalarAtOp str' offset' result' =
-  MkOp (MkOpName Dialect.Idr "str.scalar_at") ([str'] ++ [offset']) ([]) ([]) [] ([result'])
+strScalarAtOp : Value -> Value -> Op
+strScalarAtOp str' offset' =
+  MkOp (MkOpName Dialect.Idr "str.scalar_at") ([str'] ++ [offset']) ([]) ([]) [] ([IntegerType 32])
 
 ||| `idr.str.scalar_bytes`: the number of bytes of a character's UTF-8
 export
-strScalarBytesOp : Value -> MlirType -> Op
-strScalarBytesOp value' result' =
-  MkOp (MkOpName Dialect.Idr "str.scalar_bytes") ([value']) ([]) ([]) [] ([result'])
+strScalarBytesOp : Value -> Op
+strScalarBytesOp value' =
+  MkOp (MkOpName Dialect.Idr "str.scalar_bytes") ([value']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.str.index`: the character at an index within the string
 export
-strIndexOp : Value -> Value -> MlirType -> Guarded
-strIndexOp str' index' result' =
+strIndexOp : Value -> Value -> Guarded
+strIndexOp str' index' =
   Checking (MkOpName Dialect.Idr "check.in_bounds") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 2) index' [str'] (\index' =>
-    Unguarded (MkOp (MkOpName Dialect.Idr "str.index") ([str'] ++ [index']) ([]) ([]) [] ([result'])))
+    Unguarded (MkOp (MkOpName Dialect.Idr "str.index") ([str'] ++ [index']) ([]) ([]) [] ([IntegerType 32])))
 
 ||| `idr.str.head`: the first character of a string that is not empty
 export
-strHeadOp : Value -> MlirType -> Guarded
-strHeadOp str' result' =
+strHeadOp : Value -> Guarded
+strHeadOp str' =
   Checking (MkOpName Dialect.Idr "check.nonempty") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 3) str' [] (\str' =>
-    Unguarded (MkOp (MkOpName Dialect.Idr "str.head") ([str']) ([]) ([]) [] ([result'])))
+    Unguarded (MkOp (MkOpName Dialect.Idr "str.head") ([str']) ([]) ([]) [] ([IntegerType 32])))
 
 ||| `idr.str.cmp`: compares two strings
 export
-strCmpOp : IdrisMLIR.Spec.Ops.Values.Comparison -> Value -> Value -> MlirType -> Op
-strCmpOp predicate' lhs' rhs' result' =
-  MkOp (MkOpName Dialect.Idr "str.cmp") ([lhs'] ++ [rhs']) ([("predicate", enumAttr IdrisMLIR.Spec.Ops.Values.comparisonClosed predicate')]) ([]) [] ([result'])
+strCmpOp : IdrisMLIR.Spec.Ops.Values.Comparison -> Value -> Value -> Op
+strCmpOp predicate' lhs' rhs' =
+  MkOp (MkOpName Dialect.Idr "str.cmp") ([lhs'] ++ [rhs']) ([("predicate", enumAttr IdrisMLIR.Spec.Ops.Values.comparisonClosed predicate')]) ([]) [] ([IntegerType 1])
 
 ||| `idr.str.to_int`: a string as an integer, as prim__cast_StringT reads it
 export
@@ -602,9 +602,9 @@ strToIntOp str' result' =
 
 ||| `idr.str.to_double`: a string as a Double, as prim__cast_StringDouble reads it
 export
-strToDoubleOp : Value -> MlirType -> Op
-strToDoubleOp str' result' =
-  MkOp (MkOpName Dialect.Idr "str.to_double") ([str']) ([]) ([]) [] ([result'])
+strToDoubleOp : Value -> Op
+strToDoubleOp str' =
+  MkOp (MkOpName Dialect.Idr "str.to_double") ([str']) ([]) ([]) [] ([F64Type])
 
 ||| `idr.crash.cause`: ends the program with a crash of a cause at a site
 export
@@ -620,39 +620,39 @@ crashMessageOp site' message' =
 
 ||| `idr.check.nonzero`: the value, which must not be zero, else the program crashes
 export
-checkNonzeroOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> MlirType -> Op
-checkNonzeroOp cause' site' value' checked' =
-  MkOp (MkOpName Dialect.Idr "check.nonzero") ([value']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([checked'])
+checkNonzeroOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> Op
+checkNonzeroOp cause' site' value' =
+  MkOp (MkOpName Dialect.Idr "check.nonzero") ([value']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([value'.type])
 
 ||| `idr.check.in_bounds`: the index, which must be at least 0 and below the length of what it indexes, else the program crashes
 export
-checkInBoundsOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> Value -> MlirType -> Op
-checkInBoundsOp cause' site' index' indexed' checked' =
-  MkOp (MkOpName Dialect.Idr "check.in_bounds") ([index'] ++ [indexed']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([checked'])
+checkInBoundsOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> Value -> Op
+checkInBoundsOp cause' site' index' indexed' =
+  MkOp (MkOpName Dialect.Idr "check.in_bounds") ([index'] ++ [indexed']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([index'.type])
 
 ||| `idr.check.nonempty`: the string, which must have at least one byte, else the program crashes
 export
-checkNonemptyOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> MlirType -> Op
-checkNonemptyOp cause' site' str' checked' =
-  MkOp (MkOpName Dialect.Idr "check.nonempty") ([str']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([checked'])
+checkNonemptyOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> Op
+checkNonemptyOp cause' site' str' =
+  MkOp (MkOpName Dialect.Idr "check.nonempty") ([str']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([str'.type])
 
 ||| `idr.check.finite`: the value, which must be neither NaN nor infinite, else the program crashes
 export
-checkFiniteOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> MlirType -> Op
-checkFiniteOp cause' site' value' checked' =
-  MkOp (MkOpName Dialect.Idr "check.finite") ([value']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([checked'])
+checkFiniteOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> Op
+checkFiniteOp cause' site' value' =
+  MkOp (MkOpName Dialect.Idr "check.finite") ([value']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([value'.type])
 
 ||| `idr.check.range`: the offset, whose range of `count` bytes must lie in `size`, else the program crashes
 export
-checkRangeOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> Value -> Value -> MlirType -> Op
-checkRangeOp cause' site' offset' count' size' checked' =
-  MkOp (MkOpName Dialect.Idr "check.range") ([offset'] ++ [count'] ++ [size']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([checked'])
+checkRangeOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> Value -> Value -> Op
+checkRangeOp cause' site' offset' count' size' =
+  MkOp (MkOpName Dialect.Idr "check.range") ([offset'] ++ [count'] ++ [size']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([offset'.type])
 
 ||| `idr.check.holds_string`: the handle, which must hold a string, else the program crashes
 export
-checkHoldsStringOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> MlirType -> Op
-checkHoldsStringOp cause' site' handle' checked' =
-  MkOp (MkOpName Dialect.Idr "check.holds_string") ([handle']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([checked'])
+checkHoldsStringOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Value -> Op
+checkHoldsStringOp cause' site' handle' =
+  MkOp (MkOpName Dialect.Idr "check.holds_string") ([handle']) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([handle'.type])
 
 ||| `idr.io.put_str`: writes a string to standard output
 export
@@ -668,9 +668,9 @@ ioPutCharOp ch' =
 
 ||| `idr.io.get_byte`: reads a byte of standard input
 export
-ioGetByteOp : MlirType -> Op
-ioGetByteOp ch' =
-  MkOp (MkOpName Dialect.Idr "io.get_byte") ([]) ([]) ([]) [] ([ch'])
+ioGetByteOp : Op
+ioGetByteOp =
+  MkOp (MkOpName Dialect.Idr "io.get_byte") ([]) ([]) ([]) [] ([IntegerType 32])
 
 ||| `idr.io.get_line`: reads a line of standard input
 export
@@ -680,27 +680,27 @@ ioGetLineOp str' =
 
 ||| `idr.io.write_bytes`: writes bytes of a buffer to a handle
 export
-ioWriteBytesOp : Value -> Value -> Value -> Value -> MlirType -> Op
-ioWriteBytesOp handle' buffer' offset' count' moved' =
-  MkOp (MkOpName Dialect.Idr "io.write_bytes") ([handle'] ++ [buffer'] ++ [offset'] ++ [count']) ([]) ([]) [] ([moved'])
+ioWriteBytesOp : Value -> Value -> Value -> Value -> Op
+ioWriteBytesOp handle' buffer' offset' count' =
+  MkOp (MkOpName Dialect.Idr "io.write_bytes") ([handle'] ++ [buffer'] ++ [offset'] ++ [count']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.read_bytes`: reads bytes from a handle into a buffer
 export
-ioReadBytesOp : Value -> Value -> Value -> Value -> MlirType -> Op
-ioReadBytesOp handle' buffer' offset' count' moved' =
-  MkOp (MkOpName Dialect.Idr "io.read_bytes") ([handle'] ++ [buffer'] ++ [offset'] ++ [count']) ([]) ([]) [] ([moved'])
+ioReadBytesOp : Value -> Value -> Value -> Value -> Op
+ioReadBytesOp handle' buffer' offset' count' =
+  MkOp (MkOpName Dialect.Idr "io.read_bytes") ([handle'] ++ [buffer'] ++ [offset'] ++ [count']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.eof`: whether a read on a handle met the end of its input
 export
-ioEofOp : Value -> MlirType -> Op
-ioEofOp handle' ended' =
-  MkOp (MkOpName Dialect.Idr "io.eof") ([handle']) ([]) ([]) [] ([ended'])
+ioEofOp : Value -> Op
+ioEofOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.eof") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.n_processors`: how many processors are online
 export
-ioNProcessorsOp : MlirType -> Op
-ioNProcessorsOp count' =
-  MkOp (MkOpName Dialect.Idr "io.n_processors") ([]) ([]) ([]) [] ([count'])
+ioNProcessorsOp : Op
+ioNProcessorsOp =
+  MkOp (MkOpName Dialect.Idr "io.n_processors") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.exit`: writes pending output and ends the process with a status; does not return
 export
@@ -746,9 +746,9 @@ bufferGetStringOp buffer' offset' len' str' =
 
 ||| `idr.io.file_open`: opens the file at a path in a mode, as fopen does: a file handle, or null
 export
-ioFileOpenOp : Value -> Value -> MlirType -> Op
-ioFileOpenOp path' mode' file' =
-  MkOp (MkOpName Dialect.Idr "io.file_open") ([path'] ++ [mode']) ([]) ([]) [] ([file'])
+ioFileOpenOp : Value -> Value -> Op
+ioFileOpenOp path' mode' =
+  MkOp (MkOpName Dialect.Idr "io.file_open") ([path'] ++ [mode']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_close`: closes a file and frees its handle
 export
@@ -758,111 +758,111 @@ ioFileCloseOp file' =
 
 ||| `idr.io.file_error`: whether a file's stream has an error, as ferror says
 export
-ioFileErrorOp : Value -> MlirType -> Op
-ioFileErrorOp handle' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_error") ([handle']) ([]) ([]) [] ([result'])
+ioFileErrorOp : Value -> Op
+ioFileErrorOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.file_error") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_errno`: the saved errno of the last failing file operation
 export
-ioFileErrnoOp : MlirType -> Op
-ioFileErrnoOp result' =
-  MkOp (MkOpName Dialect.Idr "io.file_errno") ([]) ([]) ([]) [] ([result'])
+ioFileErrnoOp : Op
+ioFileErrnoOp =
+  MkOp (MkOpName Dialect.Idr "io.file_errno") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_read_line`: the next line of a file, as a string handle, or null
 export
-ioFileReadLineOp : Value -> MlirType -> Op
-ioFileReadLineOp handle' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_read_line") ([handle']) ([]) ([]) [] ([result'])
+ioFileReadLineOp : Value -> Op
+ioFileReadLineOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.file_read_line") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_read_chars`: at most `max` characters of a file, as a string handle, or null
 export
-ioFileReadCharsOp : Value -> Value -> MlirType -> Op
-ioFileReadCharsOp max' file' chars' =
-  MkOp (MkOpName Dialect.Idr "io.file_read_chars") ([max'] ++ [file']) ([]) ([]) [] ([chars'])
+ioFileReadCharsOp : Value -> Value -> Op
+ioFileReadCharsOp max' file' =
+  MkOp (MkOpName Dialect.Idr "io.file_read_chars") ([max'] ++ [file']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_read_char`: the next character of a file
 export
-ioFileReadCharOp : Value -> MlirType -> Op
-ioFileReadCharOp handle' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_read_char") ([handle']) ([]) ([]) [] ([result'])
+ioFileReadCharOp : Value -> Op
+ioFileReadCharOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.file_read_char") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_write_line`: writes a string to a file
 export
-ioFileWriteLineOp : Value -> Value -> MlirType -> Op
-ioFileWriteLineOp file' line' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_write_line") ([file'] ++ [line']) ([]) ([]) [] ([result'])
+ioFileWriteLineOp : Value -> Value -> Op
+ioFileWriteLineOp file' line' =
+  MkOp (MkOpName Dialect.Idr "io.file_write_line") ([file'] ++ [line']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_flush`: writes what is pending of a file, as fflush does
 export
-ioFileFlushOp : Value -> MlirType -> Op
-ioFileFlushOp handle' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_flush") ([handle']) ([]) ([]) [] ([result'])
+ioFileFlushOp : Value -> Op
+ioFileFlushOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.file_flush") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_seek_line`: skips a file past its next line
 export
-ioFileSeekLineOp : Value -> MlirType -> Op
-ioFileSeekLineOp handle' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_seek_line") ([handle']) ([]) ([]) [] ([result'])
+ioFileSeekLineOp : Value -> Op
+ioFileSeekLineOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.file_seek_line") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_remove`: removes the file at a path
 export
-ioFileRemoveOp : Value -> MlirType -> Op
-ioFileRemoveOp path' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_remove") ([path']) ([]) ([]) [] ([result'])
+ioFileRemoveOp : Value -> Op
+ioFileRemoveOp path' =
+  MkOp (MkOpName Dialect.Idr "io.file_remove") ([path']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_size`: the size of a file in bytes
 export
-ioFileSizeOp : Value -> MlirType -> Op
-ioFileSizeOp handle' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_size") ([handle']) ([]) ([]) [] ([result'])
+ioFileSizeOp : Value -> Op
+ioFileSizeOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.file_size") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_poll`: whether a file has input ready to read
 export
-ioFilePollOp : Value -> MlirType -> Op
-ioFilePollOp handle' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_poll") ([handle']) ([]) ([]) [] ([result'])
+ioFilePollOp : Value -> Op
+ioFilePollOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.file_poll") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_is_tty`: whether a file is a terminal
 export
-ioFileIsTtyOp : Value -> MlirType -> Op
-ioFileIsTtyOp handle' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_is_tty") ([handle']) ([]) ([]) [] ([result'])
+ioFileIsTtyOp : Value -> Op
+ioFileIsTtyOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.file_is_tty") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_time`: a file's times, read at once into a new file-time handle
 export
-ioFileTimeOp : Value -> MlirType -> Op
-ioFileTimeOp file' times' =
-  MkOp (MkOpName Dialect.Idr "io.file_time") ([file']) ([]) ([]) [] ([times'])
+ioFileTimeOp : Value -> Op
+ioFileTimeOp file' =
+  MkOp (MkOpName Dialect.Idr "io.file_time") ([file']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.handle.file_time`: a field of the times a file-time handle holds
 export
-handleFileTimeOp : IdrisMLIR.Spec.Ops.Platform.FileTimeField -> Value -> MlirType -> Op
-handleFileTimeOp kind' times' value' =
-  MkOp (MkOpName Dialect.Idr "handle.file_time") ([times']) ([("kind", enumAttr IdrisMLIR.Spec.Ops.Platform.fileTimeFieldClosed kind')]) ([]) [] ([value'])
+handleFileTimeOp : IdrisMLIR.Spec.Ops.Platform.FileTimeField -> Value -> Op
+handleFileTimeOp kind' times' =
+  MkOp (MkOpName Dialect.Idr "handle.file_time") ([times']) ([("kind", enumAttr IdrisMLIR.Spec.Ops.Platform.fileTimeFieldClosed kind')]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.file_chmod`: sets the mode of the file at a path
 export
-ioFileChmodOp : Value -> Value -> MlirType -> Op
-ioFileChmodOp path' mode' result' =
-  MkOp (MkOpName Dialect.Idr "io.file_chmod") ([path'] ++ [mode']) ([]) ([]) [] ([result'])
+ioFileChmodOp : Value -> Value -> Op
+ioFileChmodOp path' mode' =
+  MkOp (MkOpName Dialect.Idr "io.file_chmod") ([path'] ++ [mode']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.dir_current`: the current directory's path, as a string handle, or null
 export
-ioDirCurrentOp : MlirType -> Op
-ioDirCurrentOp result' =
-  MkOp (MkOpName Dialect.Idr "io.dir_current") ([]) ([]) ([]) [] ([result'])
+ioDirCurrentOp : Op
+ioDirCurrentOp =
+  MkOp (MkOpName Dialect.Idr "io.dir_current") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.dir_change`: makes a path the current directory
 export
-ioDirChangeOp : Value -> MlirType -> Op
-ioDirChangeOp path' result' =
-  MkOp (MkOpName Dialect.Idr "io.dir_change") ([path']) ([]) ([]) [] ([result'])
+ioDirChangeOp : Value -> Op
+ioDirChangeOp path' =
+  MkOp (MkOpName Dialect.Idr "io.dir_change") ([path']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.dir_create`: creates a directory at a path
 export
-ioDirCreateOp : Value -> MlirType -> Op
-ioDirCreateOp path' result' =
-  MkOp (MkOpName Dialect.Idr "io.dir_create") ([path']) ([]) ([]) [] ([result'])
+ioDirCreateOp : Value -> Op
+ioDirCreateOp path' =
+  MkOp (MkOpName Dialect.Idr "io.dir_create") ([path']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.dir_remove`: removes the directory at a path
 export
@@ -872,9 +872,9 @@ ioDirRemoveOp path' =
 
 ||| `idr.io.dir_open`: opens the directory at a path: a directory handle, or null
 export
-ioDirOpenOp : Value -> MlirType -> Op
-ioDirOpenOp path' dir' =
-  MkOp (MkOpName Dialect.Idr "io.dir_open") ([path']) ([]) ([]) [] ([dir'])
+ioDirOpenOp : Value -> Op
+ioDirOpenOp path' =
+  MkOp (MkOpName Dialect.Idr "io.dir_open") ([path']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.dir_close`: closes a directory, its handle and the entry it last gave
 export
@@ -884,15 +884,15 @@ ioDirCloseOp dir' =
 
 ||| `idr.io.dir_entry`: the name of a directory's next entry, as a string handle, or null at its end
 export
-ioDirEntryOp : Value -> MlirType -> Op
-ioDirEntryOp handle' result' =
-  MkOp (MkOpName Dialect.Idr "io.dir_entry") ([handle']) ([]) ([]) [] ([result'])
+ioDirEntryOp : Value -> Op
+ioDirEntryOp handle' =
+  MkOp (MkOpName Dialect.Idr "io.dir_entry") ([handle']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.arg_count`: the number of the program's arguments, its name included
 export
-ioArgCountOp : MlirType -> Op
-ioArgCountOp result' =
-  MkOp (MkOpName Dialect.Idr "io.arg_count") ([]) ([]) ([]) [] ([result'])
+ioArgCountOp : Op
+ioArgCountOp =
+  MkOp (MkOpName Dialect.Idr "io.arg_count") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.arg`: the program's argument at an index, a new string
 export
@@ -902,27 +902,27 @@ ioArgOp index' str' =
 
 ||| `idr.io.env_get`: the value of an environment variable, as a string handle, or null
 export
-ioEnvGetOp : Value -> MlirType -> Op
-ioEnvGetOp name' value' =
-  MkOp (MkOpName Dialect.Idr "io.env_get") ([name']) ([]) ([]) [] ([value'])
+ioEnvGetOp : Value -> Op
+ioEnvGetOp name' =
+  MkOp (MkOpName Dialect.Idr "io.env_get") ([name']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.env_pair`: the environment's `name=value` at an index, as a string handle, or null past its end
 export
-ioEnvPairOp : Value -> MlirType -> Op
-ioEnvPairOp index' pair' =
-  MkOp (MkOpName Dialect.Idr "io.env_pair") ([index']) ([]) ([]) [] ([pair'])
+ioEnvPairOp : Value -> Op
+ioEnvPairOp index' =
+  MkOp (MkOpName Dialect.Idr "io.env_pair") ([index']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.env_set`: sets an environment variable, unless it is set and `overwrite` is 0
 export
-ioEnvSetOp : Value -> Value -> Value -> MlirType -> Op
-ioEnvSetOp name' value' overwrite' result' =
-  MkOp (MkOpName Dialect.Idr "io.env_set") ([name'] ++ [value'] ++ [overwrite']) ([]) ([]) [] ([result'])
+ioEnvSetOp : Value -> Value -> Value -> Op
+ioEnvSetOp name' value' overwrite' =
+  MkOp (MkOpName Dialect.Idr "io.env_set") ([name'] ++ [value'] ++ [overwrite']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.env_unset`: removes an environment variable
 export
-ioEnvUnsetOp : Value -> MlirType -> Op
-ioEnvUnsetOp name' result' =
-  MkOp (MkOpName Dialect.Idr "io.env_unset") ([name']) ([]) ([]) [] ([result'])
+ioEnvUnsetOp : Value -> Op
+ioEnvUnsetOp name' =
+  MkOp (MkOpName Dialect.Idr "io.env_unset") ([name']) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.sleep`: waits a number of seconds
 export
@@ -938,21 +938,21 @@ ioUsleepOp microseconds' =
 
 ||| `idr.io.time`: the seconds since the epoch
 export
-ioTimeOp : MlirType -> Op
-ioTimeOp result' =
-  MkOp (MkOpName Dialect.Idr "io.time") ([]) ([]) ([]) [] ([result'])
+ioTimeOp : Op
+ioTimeOp =
+  MkOp (MkOpName Dialect.Idr "io.time") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.pid`: the process's id
 export
-ioPidOp : MlirType -> Op
-ioPidOp result' =
-  MkOp (MkOpName Dialect.Idr "io.pid") ([]) ([]) ([]) [] ([result'])
+ioPidOp : Op
+ioPidOp =
+  MkOp (MkOpName Dialect.Idr "io.pid") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.term_raw`: puts the terminal in raw mode: 0 on success
 export
-ioTermRawOp : MlirType -> Op
-ioTermRawOp result' =
-  MkOp (MkOpName Dialect.Idr "io.term_raw") ([]) ([]) ([]) [] ([result'])
+ioTermRawOp : Op
+ioTermRawOp =
+  MkOp (MkOpName Dialect.Idr "io.term_raw") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.term_reset`: puts the terminal back in the mode it had before raw mode
 export
@@ -962,21 +962,21 @@ ioTermResetOp =
 
 ||| `idr.io.term_cols`: the terminal's number of columns
 export
-ioTermColsOp : MlirType -> Op
-ioTermColsOp result' =
-  MkOp (MkOpName Dialect.Idr "io.term_cols") ([]) ([]) ([]) [] ([result'])
+ioTermColsOp : Op
+ioTermColsOp =
+  MkOp (MkOpName Dialect.Idr "io.term_cols") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.term_lines`: the terminal's number of lines
 export
-ioTermLinesOp : MlirType -> Op
-ioTermLinesOp result' =
-  MkOp (MkOpName Dialect.Idr "io.term_lines") ([]) ([]) ([]) [] ([result'])
+ioTermLinesOp : Op
+ioTermLinesOp =
+  MkOp (MkOpName Dialect.Idr "io.term_lines") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.io.errno`: the saved errno of the last failing call
 export
-ioErrnoOp : MlirType -> Op
-ioErrnoOp result' =
-  MkOp (MkOpName Dialect.Idr "io.errno") ([]) ([]) ([]) [] ([result'])
+ioErrnoOp : Op
+ioErrnoOp =
+  MkOp (MkOpName Dialect.Idr "io.errno") ([]) ([]) ([]) [] ([IntegerType 64])
 
 ||| `idr.str.of_errno`: the text of an error number, a new string
 export
@@ -986,9 +986,9 @@ strOfErrnoOp code' str' =
 
 ||| `idr.io.clock`: a reading of a clock, or -1 where it cannot be read
 export
-ioClockOp : IdrisMLIR.Spec.Runtime.Clocks.ClockKind -> MlirType -> Op
-ioClockOp kind' reading' =
-  MkOp (MkOpName Dialect.Idr "io.clock") ([]) ([("kind", enumAttr IdrisMLIR.Spec.Runtime.Clocks.clockKindClosed kind')]) ([]) [] ([reading'])
+ioClockOp : IdrisMLIR.Spec.Runtime.Clocks.ClockKind -> Op
+ioClockOp kind' =
+  MkOp (MkOpName Dialect.Idr "io.clock") ([]) ([("kind", enumAttr IdrisMLIR.Spec.Runtime.Clocks.clockKindClosed kind')]) ([]) [] ([IntegerType 64])
 
 ||| `idr.handle.string`: the string a string handle holds, with a reference of its own
 export
@@ -1002,12 +1002,6 @@ export
 ioHandleFreeOp : Value -> Op
 ioHandleFreeOp handle' =
   MkOp (MkOpName Dialect.Idr "io.handle_free") ([handle']) ([]) ([]) [] ([])
-
-||| `idr.own.adopt`: a buffer upstream made, taken over by counting
-export
-ownAdoptOp : Value -> MlirType -> Op
-ownAdoptOp value' result' =
-  MkOp (MkOpName Dialect.Idr "own.adopt") ([value']) ([]) ([]) [] ([result'])
 
 ||| `idr.fn.closure`: a closure of a function: its leading parameters are the captures
 export

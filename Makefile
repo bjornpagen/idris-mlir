@@ -232,13 +232,19 @@ $(CHECKER_STAMP): $(CHECKER_SOURCES) $(HOST_LIBS_STAMP) $(wildcard $(IDRIS_PREFI
 # the frontend, syntax-samples and the tests' runner import it. Again
 # whenever a file of it changes, its package removed first, so that no
 # module it has dropped stays installed. Only this file reads its stamp.
+# Installing builds the package's executable too, specgen
+# (compiler/spec/build/exec), and HOST_PREFIX holds packages alone: the
+# Chez backend's support code and library are the pinned prefix's, named
+# here as its data and libraries, so specgen is built and runs.
 SPEC_SOURCES := $(ROOT)/compiler/spec/spec.ipkg $(shell find '$(ROOT)/compiler/spec' -name build -prune -o -name '*.idr' -print 2> /dev/null)
 SPEC_STAMP := $(HOST_PREFIX)/.spec-installed
 spec: $(SPEC_STAMP)
 $(SPEC_STAMP): $(SPEC_SOURCES) $(wildcard $(IDRIS_PREFIX)/provenance.json)
 	@$(PINS) idris
 	@mkdir -p '$(HOST_PREFIX)' && packages="$(call libdir,$(HOST_PREFIX))" && rm -rf "$$packages"/idris-mlir-spec-*
-	cd $(ROOT)/compiler/spec && export IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$(call libdir,$(IDRIS_PREFIX))" && \
+	cd $(ROOT)/compiler/spec && pinned="$(call libdir,$(IDRIS_PREFIX))" && \
+	  export IDRIS2_PREFIX='$(HOST_PREFIX)' IDRIS2_PACKAGE_PATH="$$pinned" \
+	    IDRIS2_DATA="$$pinned/support" IDRIS2_LIBS="$$pinned/lib" && \
 	  $(IDRIS2) --install spec.ipkg
 	@touch $@
 

@@ -24,14 +24,6 @@ enum class StageClosures : std::uint8_t {
   FirstOrder,
 };
 
-// whether every hold is decided
-enum class StageHolds : std::uint8_t {
-  // a hold may still be strengthened before counting
-  Undecided,
-  // every hold decided, lifetimes and borrows among them
-  Decided,
-};
-
 // whether references are counted
 enum class StageCounting : std::uint8_t {
   // references are not yet counted
@@ -68,12 +60,6 @@ struct EnumTraits<::idr::StageClosures> {
 };
 
 template <>
-struct EnumTraits<::idr::StageHolds> {
-  static constexpr std::size_t count = 2;
-  static constexpr std::array<std::string_view, 2> names{{"undecided", "decided"}};
-};
-
-template <>
 struct EnumTraits<::idr::StageCounting> {
   static constexpr std::size_t count = 2;
   static constexpr std::array<std::string_view, 2> names{{"uncounted", "counted"}};
@@ -103,15 +89,6 @@ inline constexpr ::idr::EnumArray<::idr::Stage, ::idr::StageClosures> closuresAt
     ::idr::StageClosures::FirstOrder,
     ::idr::StageClosures::FirstOrder,
     ::idr::StageClosures::FirstOrder,
-}};
-
-// whether every hold is decided
-inline constexpr ::idr::EnumArray<::idr::Stage, ::idr::StageHolds> holdsAt{{
-    ::idr::StageHolds::Undecided,
-    ::idr::StageHolds::Undecided,
-    ::idr::StageHolds::Decided,
-    ::idr::StageHolds::Decided,
-    ::idr::StageHolds::Decided,
 }};
 
 // whether references are counted

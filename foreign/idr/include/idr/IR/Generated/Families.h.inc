@@ -126,6 +126,14 @@ enum class ClosureReach : std::uint8_t {
   ReachesClosure,
 };
 
+// whether two data types are the same words at run time
+enum class LayoutMatch : std::uint8_t {
+  // the two are the same words at run time
+  SameLayout,
+  // a value of one is re-packed to be a value of the other
+  OtherLayout,
+};
+
 
 } // namespace idr
 
@@ -189,6 +197,12 @@ template <>
 struct EnumTraits<::idr::ClosureReach> {
   static constexpr std::size_t count = 2;
   static constexpr std::array<std::string_view, 2> names{{"no_closure", "reaches_closure"}};
+};
+
+template <>
+struct EnumTraits<::idr::LayoutMatch> {
+  static constexpr std::size_t count = 2;
+  static constexpr std::array<std::string_view, 2> names{{"same_layout", "other_layout"}};
 };
 
 
