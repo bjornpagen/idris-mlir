@@ -193,17 +193,6 @@ LogicalResult ArrayReadOp::verify() {
   return success();
 }
 
-// The element is of the array's element type exactly as the array holds
-// it, its grade the one the value has, and the array given back is of the
-// array's type: one fact each, read off the array.
-LogicalResult ArrayReadOp::inferReturnTypes(MLIRContext *, std::optional<Location>,
-                                            Adaptor adaptor, SmallVectorImpl<Type> &inferred) {
-  auto type = cast<RankedTensorType>(adaptor.getArray().getType());
-  inferred.push_back(type.getElementType());
-  inferred.push_back(type);
-  return success();
-}
-
 // The array given back is the array; the element is borrowed from it, the
 // reference a reader keeps being counting's to take.
 void ArrayReadOp::getFlowEdges(FlowEdges &edges) {

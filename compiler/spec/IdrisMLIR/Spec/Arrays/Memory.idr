@@ -259,7 +259,7 @@ arrayReadOp = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Declares InferType ["inferReturnTypes"], Implements flowInterface ["getFlowEdges"]]
+  , interfaces = [Implements flowInterface ["getFlowEdges"]]
   , effects = noEffects
   , speculation = AlwaysSpeculatable
   , stages = between Higher First
@@ -276,6 +276,7 @@ arrayReadOp = MkOp
   , specializations = []
   , laws = []
   , doc = brief "the element of a value array at an index, and the array given back"
+  , typing = InferredTypes [ElementTypeOf 0, OperandType 0]
   }
 
 ||| `idr.array.extent`: the extent of a value array along one axis, as a
@@ -393,6 +394,7 @@ natToExtentOp = MkOp
   , specializations = []
   , laws = []
   , doc = brief "a natural as the extent of an array to be made"
+  , typing = InferredTypes [FixedType BuiltIndex]
   }
 
 ||| `idr.array.tie_shape`: an array whose dynamic dimensions are the given
