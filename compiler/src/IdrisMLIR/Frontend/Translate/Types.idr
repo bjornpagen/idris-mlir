@@ -139,24 +139,23 @@ conBinders con g i t = ([], close g t)
 
 ||| The constructors of a type constructor, each read once
 ||| (`Constructor`). Nothing when Idris does not know the constructors (a
-||| type declared without them) or the context lacks one. What the
+||| type declared without them) or one names no definition. What the
 ||| translation reads of a type constructor is read from these
 ||| (`tyConFacts`).
-constructorsOf : {auto c : Ref Ctxt Defs} -> GlobalDef -> Front (Maybe (List Constructor))
-constructorsOf def = case definition def of
+constructorsOf : {auto c : Ref Ctxt Defs} -> Defined -> Front (Maybe (List Constructor))
+constructorsOf tc = case definition tc.def of
   TCon _ _ _ _ _ (Just cons) _ => do
-    defs <- getDefs
-    found <- traverse (\n => lookupExact n (gamma defs)) cons
-    case the (Maybe (List GlobalDef)) (sequence found) of
+    found <- traverse defined cons
+    case the (Maybe (List Defined)) (sequence found) of
       Just cs => Just <$> traverse read cs
       Nothing => pure Nothing
   _ => pure Nothing
   where
-    read : GlobalDef -> Front Constructor
-    read d = do
-      ty <- normaliseClosed !(typeOfDefinition d) >>= fullNames
-      let (bs, ret) = conBinders d none 0 ty
-      pure (MkConstructor d ty bs ret)
+    read : Defined -> Front Constructor
+    read con = do
+      ty <- normaliseClosed con.type >>= fullTerm
+      let (bs, ret) = conBinders con.def none 0 ty
+      pure (MkConstructor con.def ty bs ret)
 
 ||| The parameters of a type constructor: Idris's, and those its own
 ||| reading of the constructors' types misses because a type hides its
@@ -258,14 +257,14 @@ kinds _ = []
 ||| abstraction over it, `{0 s : Type} -> ST s Int`, is a value of that one
 ||| instance once applied to whatever type. Given its parameters and its
 ||| constructors' types (`constructorsOf`).
-keyedOf : {auto c : Ref Ctxt Defs} -> GlobalDef -> List Nat -> Maybe (List Constructor) -> Front (List Nat)
-keyedOf def params conTys = case definition def of
+keyedOf : {auto c : Ref Ctxt Defs} -> Defined -> List Nat -> Maybe (List Constructor) -> Front (List Nat)
+keyedOf tc params conTys = case definition tc.def of
   TCon arity _ _ _ _ _ _ => do
     -- A record's parameter kinds may be solved metavariables, and a type
     -- may be declared through a definition of its kind (`data CaseTree :
     -- Scoped`, where `Scoped = Scope -> Type`): its binders are those of
     -- the normal form.
-    ty <- normaliseClosed !(typeOfDefinition def)
+    ty <- normaliseClosed tc.type
     let values = kinds ty
     let types = filter (\i => elem i params && not (fromMaybe False (getAt i values))) (iterateN arity S 0)
     -- Without its constructors, every type parameter counts.
@@ -300,10 +299,10 @@ shorter a b Refl = rewrite sym (plusSuccRightSucc a b) in LTESucc (lteAddRight a
 ||| does not. Such an index is checked by the growth phase, never a key.
 ||| Given the type constructor's parameters, its `Keyed` positions and its
 ||| constructors' types (`constructorsOf`).
-heldOf : {auto c : Ref Ctxt Defs} -> GlobalDef -> (params, keys : List Nat) -> List Constructor -> Front (List Nat)
-heldOf def ps keys conTys = case definition def of
+heldOf : {auto c : Ref Ctxt Defs} -> Defined -> (params, keys : List Nat) -> List Constructor -> Front (List Nat)
+heldOf tc ps keys conTys = case definition tc.def of
   TCon arity _ _ _ _ _ _ => do
-    ty <- normaliseClosed !(typeOfDefinition def)
+    ty <- normaliseClosed tc.type
     let values = kinds ty
     -- Every argument position: `[0 .. minus arity 1]` would be `[0]` at
     -- arity 0.
@@ -316,11 +315,10 @@ heldOf def ps keys conTys = case definition def of
     -- The `Keyed` positions of another type constructor.
     keysOf : Name -> Front (List Nat)
     keysOf d = do
-      defs <- getDefs
-      Just ddef <- lookupExact d (gamma defs)
+      Just other <- defined d
         | Nothing => pure []
-      conTys <- constructorsOf ddef
-      keyedOf ddef (dataParams ddef conTys) conTys
+      conTys <- constructorsOf other
+      keyedOf other (dataParams other.def conTys) conTys
 
     mutual
       -- Does a type reach the stand-in for binder `k`, at the positions
@@ -335,7 +333,7 @@ heldOf def ps keys conTys = case definition def of
       reaches own k (TDelayed _ _ t) = reaches own k t
       reaches own k tm = case getFnArgs tm of
         (Ref _ (TyCon _) d, args) => do
-          ks <- if d == fullname def then pure own else keysOf d
+          ks <- if d == fullname tc.def then pure own else keysOf d
           spine ks own k (length args) tm
         _ => pure False
 
@@ -407,8 +405,8 @@ extentDim = go 0
     roleOf : ClosedTerm -> Front (Maybe NatRole)
     roleOf tm = case getFn tm of
       Ref _ (DataCon _ _) n => do
-        defs <- getDefs
-        pure (natRole =<< !(lookupExact n (gamma defs)))
+        found <- defined n
+        pure (found >>= \con => natRole con.def)
       _ => pure Nothing
     -- A successor's predecessor is its last argument.
     go : Nat -> ClosedTerm -> Front Dim
@@ -482,7 +480,7 @@ mutual
              (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed ->
              (kind : ClosedTerm) -> ({0 vs : Scope} -> TT vs -> Bool) -> List ClosedTerm -> Front Bool
   formRead w acc assumed kind p ts =
-    if isShapeType (shapeOf !(fullNames kind))
+    if isShapeType (shapeOf !(fullTerm kind))
        then inForm w acc assumed (ts >>= picked p)
        else pure False
 
@@ -505,12 +503,12 @@ mutual
   formedAt w (Access rec) assumed n = case lookup n assumed of
     Just fs => pure fs
     Nothing => do
-      Just (placement, def) <- core (resolve n)
+      Just tc <- defined n
         | Nothing => pure []
-      case lookup (addressOf placement) (!(getState)).tyCons of
+      case lookup (addressOf tc.placement) (!(getState)).tyCons of
         Just known => pure (positionsOf (== Formed) known.roles)
-        Nothing => case enter placement w of
-          Just (Element w' less) => formedIn w' (rec w' less) assumed def
+        Nothing => case enter tc.placement w of
+          Just (Element w' less) => formedIn w' (rec w' less) assumed tc
           Nothing => pure []
 
   ||| The `Formed` positions of a type constructor: a value array's shape
@@ -527,12 +525,12 @@ mutual
   ||| constructor holds a `Grid s`; a phantom shape, which no field puts in
   ||| an array, has not.
   formedIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> GlobalDef -> Front (List Nat)
-  formedIn w acc assumed def =
-    if (hooksOf (fullname def)).valueArray then pure (positionsOf (== Formed) valueArrayRoles) else do
-      Just cons <- constructorsOf def
+             (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Defined -> Front (List Nat)
+  formedIn w acc assumed tc =
+    if (hooksOf (fullname tc.def)).valueArray then pure (positionsOf (== Formed) valueArrayRoles) else do
+      Just cons <- constructorsOf tc
         | Nothing => pure []
-      rounds w acc assumed (fullname def) cons [] (dataParams def (Just cons)) (wellFounded _)
+      rounds w acc assumed (fullname tc.def) cons [] (dataParams tc.def (Just cons)) (wellFounded _)
 
   rounds : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            (w : Walked) -> (0 _ : SizeAccessible w) -> Assumed -> Name -> List Constructor ->
@@ -575,7 +573,7 @@ export
 formNeeded : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              (kind : ClosedTerm) -> (ClosedTerm -> ClosedTerm) -> Front Bool
 formNeeded kind rest =
-  formRead start (sizeAccessible start) [] kind isFormProbe [!(fullNames !(normaliseClosed (rest formProbe)))]
+  formRead start (sizeAccessible start) [] kind isFormProbe [!(fullTerm !(normaliseClosed (rest formProbe)))]
 
 ||| What the translation reads of a type constructor's definition, from its
 ||| constructors read once (`constructorsOf`): its parameters
@@ -584,12 +582,9 @@ formNeeded kind rest =
 ||| `Nat`-like (`natnessOf`), found once per type constructor (`tyCons`).
 export
 tyConFacts : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             GlobalDef -> Front TyConFacts
-tyConFacts def = do
-  defs <- getDefs
-  -- A name the context does not hold has no address to keep its facts by.
-  let Just key = definitionAddress (gamma defs) (fullname def)
-    | Nothing => facts
+             Defined -> Front TyConFacts
+tyConFacts tc = do
+  let key = addressOf tc.placement
   case lookup key (!(getState)).tyCons of
     Just known => pure known
     Nothing => do
@@ -606,17 +601,16 @@ tyConFacts def = do
 
     facts : Front TyConFacts
     facts = do
-      conTys <- constructorsOf def
-      let ps = dataParams def conTys
-      roles <- if (hooksOf (fullname def)).valueArray then pure valueArrayRoles else do
-                 let TCon arity _ _ _ _ _ _ = definition def
+      conTys <- constructorsOf tc
+      let ps = dataParams tc.def conTys
+      roles <- if (hooksOf (fullname tc.def)).valueArray then pure valueArrayRoles else do
+                 let TCon arity _ _ _ _ _ _ = definition tc.def
                    | _ => pure []
-                 keys <- keyedOf def ps conTys
+                 keys <- keyedOf tc ps conTys
                  -- The walk starts at this type constructor, entered.
-                 forms <- case !(core (resolve (fullname def))) of
-                            Just (placement, _) => let w = startAt placement in formedIn w (sizeAccessible w) [] def
-                            Nothing => formedIn start (sizeAccessible start) [] def
-                 held <- heldOf def ps keys (fromMaybe [] conTys)
+                 let w = startAt tc.placement
+                 forms <- formedIn w (sizeAccessible w) [] tc
+                 held <- heldOf tc ps keys (fromMaybe [] conTys)
                  pure (map (roleOf keys forms held) (iterateN arity S 0))
       pure (MkTyConFacts ps roles (natnessOf conTys))
 
@@ -624,17 +618,17 @@ tyConFacts def = do
 ||| watches (`watched`), read once per type constructor with its other
 ||| facts (`tyConFacts`).
 export
-represented : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> GlobalDef -> Front (List Nat)
-represented def = positionsOf watched . (.roles) <$> tyConFacts def
+represented : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Defined -> Front (List Nat)
+represented tc = positionsOf watched . (.roles) <$> tyConFacts tc
 
 ||| The roles of a type constructor's arguments; nothing for a name that
 ||| is no type constructor.
 rolesOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           String -> Name -> Front (Maybe (List Role))
 rolesOf owner n = do
-  def <- lookupDef EmptyFC owner n
-  case definition def of
-    TCon {} => pure (Just (!(tyConFacts def)).roles)
+  tc <- lookupDef EmptyFC owner n
+  case definition tc.def of
+    TCon {} => pure (Just (!(tyConFacts tc)).roles)
     _ => pure Nothing
 
 ||| Does a type mention what the test picks other than as an index of an
@@ -760,19 +754,18 @@ shortName n = show n
 ||| definition is no constructor, its type's constructors are not known,
 ||| or its tag is past them.
 export
-conIdOf : {auto c : Ref Ctxt Defs} -> FamilyId -> GlobalDef -> Front (Maybe ConId)
-conIdOf inst def = do
-  let DCon tag _ _ = definition def
+conIdOf : {auto c : Ref Ctxt Defs} -> FamilyId -> Defined -> Front (Maybe ConId)
+conIdOf inst con = do
+  let DCon tag _ _ = definition con.def
     | _ => pure Nothing
   -- The type as written may hide its binders behind a definition (`a -@ b`
   -- is `(1 _ : a) -> b`), so the type constructor is read off its normal
   -- form, as `constructor` reads the layout.
-  Just tn <- built <$> normaliseClosed !(typeOfDefinition def)
+  Just tn <- built <$> normaliseClosed con.type
     | Nothing => pure Nothing
-  defs <- getDefs
-  Just tdef <- lookupExact tn (gamma defs)
+  Just tc <- defined tn
     | Nothing => pure Nothing
-  let TCon _ _ _ _ _ (Just cons) _ = definition tdef
+  let TCon _ _ _ _ _ (Just cons) _ = definition tc.def
     | _ => pure Nothing
   pure (MkConId inst <$> integerToFin (cast tag) (length cons))
   where
@@ -804,14 +797,13 @@ implementationType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 implementationType (Bind _ _ (Pi {}) sc) = implementationType sc
 implementationType ty = case getFn ty of
   Ref _ (TyCon _) n => do
-    defs <- getDefs
-    Just def <- lookupExact n (gamma defs)
+    Just tc <- defined n
       | Nothing => pure False
     st <- getState
-    if contains (fullname def) st.interfaces then pure True else
+    if contains (fullname tc.def) st.interfaces then pure True else
       case ty of
         App _ (App _ (Ref _ _ _) a) b => do
-          False <- core (isPairType (fullname def))
+          False <- pairTyped (fullname tc.def)
             | True => do
                 first <- implementationType a
                 if first then implementationType b else pure False
@@ -912,10 +904,10 @@ choiceFamily fc owner ty@(Bind {}) = do
 choiceFamily fc owner ty = do
   let (Ref _ _ n, args) = getFnArgs ty
     | _ => internal fc ("a choice of no implementation type: " ++ !(showTT ty))
-  def <- lookupDef fc owner n
+  iface <- lookupDef fc owner n
   keyed <- traverse (\a => Just <$> argumentKey fc owner Keyed !(canonicalTypeArg a)) args
-  (_, found) <- instanceKey fc owner (fullname def) id keyed
-  registeredChoice (OfInterface found.link) found.key ty !(toLoc (location def))
+  (_, found) <- instanceKey fc owner (fullname iface.def) id keyed
+  registeredChoice (OfInterface found.link) found.key ty !(toLoc (location iface.def))
 
 ||| A value array of these dimensions of this element: an array of value
 ||| arrays is one, the element's dimensions after these. An array of
@@ -977,8 +969,8 @@ indexTerm = go 0
     roleOf : ClosedTerm -> Front (Maybe NatRole)
     roleOf tm = case getFn tm of
       Ref _ (DataCon _ _) n => do
-        defs <- getDefs
-        pure (natRole =<< !(lookupExact n (gamma defs)))
+        found <- defined n
+        pure (found >>= \con => natRole con.def)
       _ => pure Nothing
     go : Nat -> ClosedTerm -> Front ITerm
     go k tm = case markerOf tm of
@@ -1026,10 +1018,9 @@ sortOfType : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm 
 sortOfType (TType _ _) = pure SType
 sortOfType tm = case getFn tm of
   Ref _ (TyCon _) n => do
-    defs <- getDefs
-    Just def <- lookupExact n (gamma defs)
+    Just tc <- defined n
       | Nothing => pure SOpaque
-    case (!(tyConFacts def)).natness of
+    case (!(tyConFacts tc)).natness of
       Chain => pure SNat
       _ => pure SOpaque
   _ => pure SOpaque
@@ -1144,15 +1135,15 @@ mutual
                {cat : Category} -> Given vars -> FC -> String -> Rule cat -> TT vars -> Front Ty
   dataTypeIn chain acc g fc owner rule tm = case getFnArgs tm of
     (Ref rfc (TyCon _) n, args) => do
-      def <- lookupDef fc owner n
+      tc <- lookupDef fc owner n
       -- A word type is a machine word whatever its arguments: what a
       -- `Ptr t` points to names what its handle holds, not its
       -- representation.
-      let hs = hooksOf (fullname def)
+      let hs = hooksOf (fullname tc.def)
       -- Idris's `Nat`, a chain of successors, is a natural. A family of
       -- the same shape whose constructors take an erased index (`Fin`,
       -- `Elem`) is a family: the dialect lays it out as a number.
-      case (!(tyConFacts def)).natness of
+      case (!(tyConFacts tc)).natness of
        Chain => pure (NatT IOpaque)
        _ => if hs.wordType
          then pure (IntT UInt64)
@@ -1198,9 +1189,10 @@ mutual
              (chain : Registering) -> (0 _ : Descending chain) ->
              FC -> String -> Name -> List ClosedTerm -> Front (FamilyId, Ty)
   familyIn chain (Access rec) fc owner tcon args0 = do
-    def <- lookupDef fc owner tcon
+    tc <- lookupDef fc owner tcon
+    let def = tc.def
     let tname = show (fullname def)
-    facts <- tyConFacts def
+    facts <- tyConFacts tc
     let params = facts.params
     let roles = facts.roles
     let positions = [0 .. length args0]
@@ -1229,7 +1221,7 @@ mutual
           let Just datacons = datacons
             | Nothing => reject fc owner DataType (tname ++ " has no known constructors")
           loc <- toLoc (location def)
-          sorts <- indexSorts def (filter (\i => not (inKey (roleAt i roles))) (take arity [0 .. arity]))
+          sorts <- indexSorts tc (filter (\i => not (inKey (roleAt i roles))) (take arity [0 .. arity]))
           conList <- traverse (constructor (MkRegistering chain.sizes (found.link :: chain.links))
                                            (rec (found.link :: chain.links)
                                                 (Extend (\e => fresh (replace {p = Elem found.link} (keyedBySelf chain.links) e))
@@ -1258,8 +1250,8 @@ mutual
       promised _ _ _ = pure None
 
       -- The sorts of a type constructor's index positions, from its type.
-      indexSorts : GlobalDef -> List Nat -> Front (List Sort)
-      indexSorts d ps = go none 0 !(normaliseClosed !(typeOfDefinition d))
+      indexSorts : Defined -> List Nat -> Front (List Sort)
+      indexSorts d ps = go none 0 !(normaliseClosed d.type)
         where
           go : Given vs -> Nat -> TT vs -> Front (List Sort)
           go g i (Bind bfc _ (Pi _ _ _ a) sc) = do
@@ -1279,17 +1271,18 @@ mutual
                 FC -> String -> FamilyId -> Link Form -> List ClosedTerm -> List Nat -> List Role -> Name ->
                 Front ((k ** Con k), List ArgKind)
   constructor chain acc fc owner fam link targs ps roles dcon = do
-    def <- lookupDef fc owner dcon
+    dc <- lookupDef fc owner dcon
+    let def = dc.def
     let cname = show (fullname def)
     DCon _ arity _ <- pure (definition def)
       | _ => reject fc owner CompiledModule (cname ++ " is not a constructor")
-    Just cid <- conIdOf fam def
+    Just cid <- conIdOf fam dc
       | Nothing => reject fc owner CompiledModule (cname ++ " is not a constructor")
     loc <- toLoc (location def)
     -- The type as written may hide its binders behind a definition
     -- (`a -@ b` is `(1 _ : a) -> b`); its normal form shows each one,
     -- with the quantity that makes a field linear.
-    ty <- normaliseClosed !(typeOfDefinition def)
+    ty <- normaliseClosed dc.type
     let layout = paramLayout def ps roles ty
     -- Every match binds `arity` arguments: a layout of another length
     -- would misplace every field after the first difference.
@@ -1357,9 +1350,9 @@ mutual
              Given vars -> FC -> String -> TT vars -> Front (Maybe (FamilyId, Ty))
   dataOfIn chain acc g fc owner tm = case getFnArgs tm of
     (Ref _ (TyCon _) n, args) => do
-      def <- lookupDef fc owner n
-      let hs = hooksOf (fullname def)
-      case (!(tyConFacts def)).natness of
+      tc <- lookupDef fc owner n
+      let hs = hooksOf (fullname tc.def)
+      case (!(tyConFacts tc)).natness of
         Chain => pure Nothing
         _ => if hs.wordType || isJust hs.orderedArray || hs.valueArray then pure Nothing else do
                args' <- traverse (normaliseClosed . close g) args

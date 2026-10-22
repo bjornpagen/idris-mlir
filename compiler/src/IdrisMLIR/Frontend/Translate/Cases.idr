@@ -289,9 +289,9 @@ natArms loc x _ _ = Unreachable loc
 ||| for this constructor? A value built with another constructor never
 ||| takes it, and the alternative's code, typed at the other constructor,
 ||| need not fit the instance.
-excludedBy : {auto c : Ref Ctxt Defs} -> Maybe ClosedTerm -> Name -> Front Bool
+excludedBy : Maybe ClosedTerm -> Name -> Front Bool
 excludedBy shape cn = case maybe Nothing shapeHead shape of
-  Just (built, _) => (/=) <$> fullNames built <*> fullNames cn
+  Just (built, _) => (/=) <$> fullName built <*> fullName cn
   Nothing => pure False
 
 ||| The shapes of a constructor's arguments, from the shape of the value.
@@ -304,18 +304,17 @@ conName _ = Nothing
 
 ||| Every constructor of the type a match's constructors build.
 export
-siblings : {auto c : Ref Ctxt Defs} -> List (CaseAlt vars) -> Front (List Name)
+siblings : List (CaseAlt vars) -> Front (List Name)
 siblings alts = case mapMaybe conName alts of
   [] => pure []
   (cn :: _) => do
-    defs <- getDefs
-    Just def <- lookupExact cn (gamma defs)
+    Just d <- defined cn
       | Nothing => pure []
-    let Just tn = built !(typeOfDefinition def)
+    let Just tn = built d.type
       | Nothing => pure []
-    Just tdef <- lookupExact tn (gamma defs)
+    Just td <- defined tn
       | Nothing => pure []
-    case definition tdef of
+    case definition td.def of
       TCon _ _ _ _ _ (Just cons) _ => pure cons
       _ => pure []
   where
@@ -329,21 +328,21 @@ siblings alts = case mapMaybe conName alts of
 ||| Idris's tree keeps for the clauses after a complete split, stands for
 ||| no value: it is not translated, and the match has none.
 export
-coversAll : {auto c : Ref Ctxt Defs} -> List (CaseAlt vars) -> Front Bool
+coversAll : List (CaseAlt vars) -> Front Bool
 coversAll alts = do
-  named <- SortedSet.fromList <$> traverse fullNames (mapMaybe conName alts)
-  every <- traverse fullNames !(siblings alts)
+  named <- SortedSet.fromList <$> traverse fullName (mapMaybe conName alts)
+  every <- traverse fullName !(siblings alts)
   pure (not (null every) && all (\c => contains c named) every)
 
 ||| Does a match name the constructor the value's shape, if known, says it
 ||| was built with? Then its default stands for no value the match sees, and
 ||| its code, which may call for instances no value needs (one a constructor
 ||| deeper, where a shape keys the instance), is not translated.
-builtNamed : {auto c : Ref Ctxt Defs} -> Maybe ClosedTerm -> List (CaseAlt vars) -> Front Bool
+builtNamed : Maybe ClosedTerm -> List (CaseAlt vars) -> Front Bool
 builtNamed shape alts = case the (Maybe (Name, List ClosedTerm)) (shape >>= shapeHead) of
   Just (cn, _) => do
-    named <- traverse fullNames (mapMaybe conName alts)
-    pure (elem !(fullNames cn) named)
+    named <- traverse fullName (mapMaybe conName alts)
+    pure (elem !(fullName cn) named)
   Nothing => pure False
 
 mutual
@@ -398,13 +397,13 @@ mutual
       -- type. The Core type names it when it is a declaration the
       -- constructor belongs to; a value of a type with one runtime field
       -- has its field's type, so the Idris type names it then.
-      instanceOf : VarInfo (Fin nv) -> GlobalDef -> Front FamilyId
-      instanceOf v def = do
+      instanceOf : VarInfo (Fin nv) -> Defined -> Front FamilyId
+      instanceOf v con = do
         st <- getState
-        let cn = fullname def
+        let cn = fullname con.def
         fromCore <- case coreTyOf v of
                       Just (DataT d _) => do
-                        Just cid <- conIdOf d def
+                        Just cid <- conIdOf d con
                           | Nothing => pure Nothing
                         pure (case lookup cid st.cons of
                                 Just layout => if layout.name == cn then Just d else Nothing
@@ -433,16 +432,16 @@ mutual
         case mapMaybe conName alts of
           [] => literals loc i
           (cn :: _) => do
-            def <- lookupDef ctx.fc ctx.owner cn
+            con <- lookupDef ctx.fc ctx.owner cn
             let shape = shapeOf v
-            case (natRole def, coreTyOf v) of
+            case (natRole con.def, coreTyOf v) of
               -- A value of Idris's `Nat` is a natural: a match on its
               -- constructors is a match on zero. A family of the same shape
               -- (`Fin`, `Elem`) is a family like any other, laid out as a
               -- number by the dialect.
               (Just _, Just (NatT _)) => natCase ctx env cls scrutinee shape loc i (idrisTypeOf v) alts
               _ => do
-                inst <- instanceOf v def
+                inst <- instanceOf v con
                 every <- coversAll alts
                 built <- builtNamed shape alts
                 (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst alts
@@ -494,7 +493,7 @@ mutual
                 "choose an alternative; match on the runtime value that determines it instead")
         where
           altName : CaseAlt vars -> Front String
-          altName (ConCase cn _ _ _) = show <$> fullNames cn
+          altName (ConCase cn _ _ _) = show <$> fullName cn
           altName (ConstCase c _) = pure (show c)
           altName (DelayCase {}) = pure "Delay"
           altName (DefaultCase _) = pure "the default"
@@ -509,7 +508,7 @@ mutual
         ty <- normaliseClosed (closeWritten ctx.fc env scTy)
         let (Ref _ (TyCon _) tn, [_, _, l, r]) = getFnArgs ty
           | _ => pure body
-        let Just IsEquality = (hooksOf !(fullNames tn)).sumShape
+        let Just IsEquality = (hooksOf !(fullName tn)).sumShape
           | _ => pure body
         case (!(indexTerm l), !(indexTerm r)) of
           (IOpaque, _) => pure body
@@ -550,11 +549,11 @@ mutual
                     Front (Arm (Term nv), Arm (Shown, Term (Under 1 nv)), Arm (Term nv))
   natAlternatives ctx env cls scrutinee shape ity deadDefault loc x [] = pure (Absent, Absent, Absent)
   natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (ConCase cn _ args rhs :: rest) = do
-    def <- lookupDef ctx.fc ctx.owner cn
-    taken <- argumentsOf def
-    dead <- excludedBy shape (fullname def)
+    con <- lookupDef ctx.fc ctx.owner cn
+    taken <- argumentsOf con
+    dead <- excludedBy shape (fullname con.def)
     let cls' = afterCon args scrutinee cls
-    case natRole def of
+    case natRole con.def of
       Just Zero => do
         z <- if dead then pure Dead
              else Present <$> tree ctx (map (const (TypeValue (Erased ctx.fc Placeholder))) args ++ env) cls' rhs
@@ -618,7 +617,7 @@ mutual
     -- the values the implementation closes over.
     Built cn cargs <- whnf t
       | Stuck on => heldHere on
-    cn <- fullNames cn
+    cn <- fullName cn
     taken <- argumentsOf !(lookupDef ctx.fc ctx.owner cn)
     pick cn (zipWith info taken cargs) alts
     where
@@ -627,7 +626,7 @@ mutual
       info _ v = TypeValue v
       pick : Name -> List (VarInfo (Fin nv)) -> List (CaseAlt vars) -> Front (Term nv)
       pick cn infos (ConCase con _ args rhs :: rest) = do
-        full <- fullNames con
+        full <- fullName con
         if full /= cn then pick cn infos rest else do
           when (length args /= length infos) $
             internal ctx.fc ("constructor " ++ show cn ++ " binds an unexpected number of arguments")
@@ -638,7 +637,7 @@ mutual
 
       -- The type of argument `j` of a constructor applied to `args`.
       argumentType : Name -> List ClosedTerm -> Nat -> Front ClosedTerm
-      argumentType cn args j = go !(typeOfDefinition !(lookupDef ctx.fc ctx.owner cn)) (take j args)
+      argumentType cn args j = go (!(lookupDef ctx.fc ctx.owner cn)).type (take j args)
         where
           go : ClosedTerm -> List ClosedTerm -> Front ClosedTerm
           go ty as = do
@@ -669,7 +668,7 @@ mutual
       holding m form (Argument j _ :: rest) = do
         Built cn args <- whnf form
           | Stuck _ => internal ctx.fc ("an implementation taken apart on the way to a field, stuck: " ++ !(showTT form))
-        cn <- fullNames cn
+        cn <- fullName cn
         case rest of
           [] => (,) <$> rebuilt cn j (holeMarker m) args <*> argumentType cn args j
           _ => do
@@ -779,8 +778,9 @@ mutual
                     List (CaseAlt vars) -> Front (SortedSet ConId, List (Alt nv), Arm (Term nv))
   conAlternatives ctx env cls scrutinee shape every built inst [] = pure (empty, [], Absent)
   conAlternatives ctx env cls scrutinee shape every built inst (ConCase cn _ args rhs :: rest) = do
-    def <- lookupDef ctx.fc ctx.owner cn
-    Just cid <- conIdOf inst def
+    found <- lookupDef ctx.fc ctx.owner cn
+    let def = found.def
+    Just cid <- conIdOf inst found
       | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
     st <- getState
     let Just info = lookup cid st.cons

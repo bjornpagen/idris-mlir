@@ -4,6 +4,7 @@
 ||| far, and the function instances waiting to be translated.
 module IdrisMLIR.Frontend.Translate.State
 
+import Core.Case.CaseTree
 import Core.Context
 import Core.Core
 import Core.TT
@@ -482,12 +483,86 @@ public export
 Modules : Type
 Modules = SortedMap ModuleIdent LoadedModule
 
+-- The records of what is read once are read by their fields as `.tree`,
+-- `.type` and kin: a field named as a function of the translation's own
+-- (`Cases.tree`) or as one of Idris's (`GlobalDef`'s type) is no prefix
+-- function beside it.
+%prefix_record_projections off
+
+||| What a pattern-matching definition's body is to the translation, read
+||| once through the context's accessors (`Boundary`): its case tree, each
+||| clause's patterns as the case builder read them, and the right-hand
+||| side of its clause, in that clause's scope, when it has exactly one,
+||| which is all of its clauses the translation reads.
+public export
+record Matched where
+  constructor MkMatched
+  args : Scope
+  tree : CaseTree args
+  pats : List (List Pat)
+  onlyClause : Maybe (vs : Scope ** Core.TT.Term.Term vs)
+
+||| The right-hand side of a body whose case tree is one leaf; nothing for
+||| one that matches.
+export
+leafOf : (m : Matched) -> Maybe (Core.TT.Term.Term m.args)
+leafOf m = case m.tree of
+  STerm _ rhs => Just rhs
+  _ => Nothing
+
+||| A definition of the frozen context as the translation reads it, each
+||| part read once (`Boundary`): its place, the definition, its type as the
+||| context's accessor reads it, its body when it matches (`Matched`), and
+||| the name of the library function the registry has a call of it stand
+||| for (a natural's test or its operation on integers, an alias), interned
+||| once, when its hooks name one.
+public export
+record Defined where
+  constructor MkDefined
+  placement : Placement
+  def : GlobalDef
+  type : ClosedTerm
+  matched : Maybe Matched
+  library : Maybe Name
+
+||| What the translation reads of the program: the context frozen once the
+||| program and everything it imports are loaded, which every normaliser
+||| reads; every definition the translation can meet from the program's
+||| entry, each read once and kept by its entry in the context
+||| (`Boundary.readProgram`); and the type a member at a use is applied as
+||| by (`Instances.applicationType`), whose binders' names are interned
+||| once. Nothing the translation does changes it.
+public export
+record Read where
+  constructor MkRead
+  frozen : Frozen
+  definitions : SortedMap Int Defined
+  application : ClosedTerm
+
+||| What was read of a name: the definition at the entry the frozen context
+||| resolves it to; no definition, for a name the context defines as
+||| nothing (a probe's, a binder's); or an entry the reading missed, which
+||| only the compiler's error leaves, since every definition the
+||| translation can meet is read.
+public export
+data ReadOf = ReadAs Defined | NoDefinition | Missed
+
+||| What was read of a name (`ReadOf`).
+export
+readOf : Read -> Name -> ReadOf
+readOf r n = case definitionIn r.frozen n of
+  NotDefined _ => NoDefinition
+  DefinedAs i _ _ _ => maybe Missed ReadAs (lookup i r.definitions)
+
+%prefix_record_projections on
+
 public export
 record TS where
   constructor MkTS
-  ||| The context as the normalisers read it, frozen once the session had
-  ||| loaded the program and everything it imports (`Errors.frozenContext`).
-  frozen : Frozen
+  ||| What the translation reads of the program (`Read`), its definitions
+  ||| read once the entry is found, before every phase that reads them;
+  ||| each computation of the frontend's reads it (`Errors.reading`).
+  reads : Read
   ||| The family instances registered, each by its link, its identity
   ||| minted once, the next one `nextFamily`; each family by its identity;
   ||| and the families in the order they were registered.
@@ -590,9 +665,9 @@ record TS where
   sizes : Bounds
 
 export
-initState : Frozen -> Modules -> SortedSet Name -> NonEmptyFC -> TS
-initState frozen loaded ifaces fc = MkTS
-  { frozen = frozen
+initState : Read -> Modules -> SortedSet Name -> NonEmptyFC -> TS
+initState r loaded ifaces fc = MkTS
+  { reads = r
   , familyIds = empty, nextFamily = 0, families = empty, familyOrder = [<]
   , cons = empty, fns = empty, fnOrder = [<], instances = empty, requested = [<], moduleFC = fc
   , nextComponent = 0
@@ -625,9 +700,10 @@ keepFound from = { rejected := from.rejected, refused := from.refused
                  , blockNames := from.blockNames }
 
 ||| The state the translation starts from: nothing of the phases before it
-||| but the frozen context, the modules, the interfaces, what they found
-||| that outlives them (`keepFound`), and the growth check's bounds.
+||| but what it reads of the program, the modules, the interfaces, what
+||| they found that outlives them (`keepFound`), and the growth check's
+||| bounds.
 export
 translating : TS -> TS
 translating st = keepFound st ({ bounds := st.bounds, sizes := st.sizes }
-                                 (initState st.frozen st.modules st.interfaces st.moduleFC))
+                                 (initState st.reads st.modules st.interfaces st.moduleFC))

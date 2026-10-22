@@ -152,7 +152,7 @@ newCon : {auto c : Ref Ctxt Defs} -> FC -> FamilyId -> (at : Nat) -> ClosedTerm 
 newCon fc fam at form fields = do
   loc <- toLoc fc
   label <- case getFn form of
-             Ref _ _ n => (\full => shortName full ++ "." ++ show at) <$> fullNames n
+             Ref _ _ n => (\full => shortName full ++ "." ++ show at) <$> fullName n
              _ => pure ("member." ++ show at)
   pure (MkCon (MkConId fam (last {n = at})) label [] [] fields loc)
 

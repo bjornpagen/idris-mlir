@@ -80,16 +80,11 @@ readings i (Just ((Element kind _, t), w) :: as) = do
 ||| (f : t) -> t`, the form's type, then the form, giving a value of the
 ||| form's type, which the use's arguments are applied to as that type
 ||| takes them. So the type keys the instance as a type does, the form as
-||| an implementation does, and each argument as the form's type says.
+||| an implementation does, and each argument as the form's type says. It
+||| is made once, with what the translation reads (`Read.application`).
 export
-applicationType : {auto c : Ref Ctxt Defs} -> Front ClosedTerm
-applicationType = do
-  t <- core (intern "t")
-  f <- core (intern "f")
-  u <- core (intern "u")
-  pure (Bind EmptyFC (UN (Basic t)) (Pi EmptyFC erased Implicit (TType EmptyFC (UN (Basic u))))
-          (Bind EmptyFC (UN (Basic f)) (Pi EmptyFC top Explicit (Local EmptyFC Nothing 0 First))
-                (Local EmptyFC Nothing 1 (Later First))))
+applicationType : Front ClosedTerm
+applicationType = (.application) <$> reading
 
 ||| What an instance applies, as its parameters are classified over: a
 ||| definition's arity and type; a member at a use's, as `applicationType`
@@ -98,10 +93,10 @@ export
 signatureOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               FC -> String -> Instantiates -> Front (Nat, ClosedTerm)
 signatureOf fc owner (OfDefinition n) = do
-  def <- lookupDef fc owner n
-  let PMDef _ params _ = definition def
-    | _ => internal fc ("an instance of " ++ show (fullname def) ++ ", which is no function")
-  pure (length params, !(typeOfDefinition def))
+  d <- lookupDef fc owner n
+  let PMDef _ params _ = definition d.def
+    | _ => internal fc ("an instance of " ++ show (fullname d.def) ++ ", which is no function")
+  pure (length params, d.type)
 signatureOf fc owner (AtUse uses) = (2 + uses,) <$> applicationType
 
 ||| The instance of what is instantiated at the static arguments a call's

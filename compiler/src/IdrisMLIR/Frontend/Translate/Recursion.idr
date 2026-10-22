@@ -15,6 +15,7 @@ import Core.Context
 import Core.Core
 import Core.TT
 import Core.Termination.SizeChange
+import Idris.Host
 import Libraries.Data.SparseMatrix
 
 import IdrisMLIR.Frontend.Walk
@@ -57,13 +58,12 @@ record Search where
   onStack : SortedSet Address
   found : List (List Member)
 
-||| A definition resolved as a node, with its calls to definitions that
-||| exist.
-memberOf : {auto c : Ref Ctxt Defs} -> Placement -> GlobalDef -> Core Member
-memberOf placement def = do
-  full <- toFullNames (fullname def)
-  calls <- traverse (\call => pure ({ fnCall := !(toFullNames call.fnCall) } call)) (sizeChange def)
-  pure (MkMember full (addressOf placement) calls)
+||| A definition read as a node (`Defined`), with its calls, every name
+||| full as the frozen context names it.
+memberOf : Frozen -> Defined -> Member
+memberOf fz d =
+  MkMember (fullNameIn fz (fullname d.def)) (addressOf d.placement)
+           (map (\call => { fnCall := fullNameIn fz call.fnCall } call) (sizeChange d.def))
 
 mutual
   ||| Visits a definition the walk has just entered: its component is found
@@ -71,13 +71,13 @@ mutual
   ||| it entered the definition, and every definition it enters below
   ||| leaves fewer than `w0` to enter (`Walk`), which is why the search
   ||| ends.
-  visit : {auto c : Ref Ctxt Defs} -> SortedMap Address Termination -> Member ->
+  visit : Read -> SortedMap Address Termination -> Member ->
           (w0 : Walked) -> (0 _ : SizeAccessible w0) -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w0))
-  visit done v w0 acc s0 = do
+  visit r done v w0 acc s0 = do
     let key = v.address
     let s1 = { next $= S, number $= insert key s0.next, low $= insert key s0.next
              , stack $= (v ::), onStack $= insert key } s0
-    (s2, reached) <- successors done key w0 acc w0 (noMore w0) (map (.fnCall) v.calls) s1
+    (s2, reached) <- successors r done key w0 acc w0 (noMore w0) (map (.fnCall) v.calls) s1
     if lookup key s2.low /= lookup key s2.number then pure (s2, reached) else do
       let (members, rest) = break (\m => m.address == key) s2.stack
       pure ({ stack := drop 1 rest
@@ -86,26 +86,28 @@ mutual
 
   ||| The calls of the definition at `key`, in order: a callee the walk has
   ||| not entered is visited, and one on the stack lowers the definition's
-  ||| link.
-  successors : {auto c : Ref Ctxt Defs} -> SortedMap Address Termination -> Address ->
+  ||| link. A callee is read as the translation reads it (`readOf`); a name
+  ||| no definition has is no callee, and one the reading missed is the
+  ||| compiler's error.
+  successors : Read -> SortedMap Address Termination -> Address ->
                (w0 : Walked) -> (0 _ : SizeAccessible w0) -> (w : Walked) -> (0 _ : NoMore w w0) ->
                List Name -> Search -> Core (Search, Subset Walked (\w' => NoMore w' w))
-  successors done key w0 acc w p [] s = pure (s, Element w (noMore w))
-  successors done key w0 acc@(Access rec) w p (x :: xs) s = do
-    Just (placement, def) <- resolve x
-      | Nothing => successors done key w0 acc w p xs s
-    let xkey = addressOf placement
-    let False = isJust (lookup xkey done)
-      | True => successors done key w0 acc w p xs s
-    -- Entered already: met before in this search.
-    let Just (Element w1 q) = enter placement w
-      | Nothing => successors done key w0 acc w p xs (maybe s (\n => if contains xkey s.onStack then lower key n s else s)
-                                                           (lookup xkey s.number))
-    xn <- memberOf placement def
-    (after, Element w2 q2) <- visit done xn w1 (rec w1 (fewerThen q p)) s
-    let s' = maybe after (\n => lower key n after) (lookup xkey after.low)
-    (s'', Element w3 q3) <- successors done key w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) xs s'
-    pure (s'', Element w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
+  successors r done key w0 acc w p [] s = pure (s, Element w (noMore w))
+  successors r done key w0 acc@(Access rec) w p (x :: xs) s = case readOf r x of
+    NoDefinition => successors r done key w0 acc w p xs s
+    Missed => throw (InternalError ("the definitions read for the translation miss the callee " ++ show x))
+    ReadAs d => do
+      let xkey = addressOf d.placement
+      let False = isJust (lookup xkey done)
+        | True => successors r done key w0 acc w p xs s
+      -- Entered already: met before in this search.
+      let Just (Element w1 q) = enter d.placement w
+        | Nothing => successors r done key w0 acc w p xs (maybe s (\n => if contains xkey s.onStack then lower key n s else s)
+                                                             (lookup xkey s.number))
+      (after, Element w2 q2) <- visit r done (memberOf r.frozen d) w1 (rec w1 (fewerThen q p)) s
+      let s' = maybe after (\n => lower key n after) (lookup xkey after.low)
+      (s'', Element w3 q3) <- successors r done key w0 acc w2 (thenNoMore q2 (thenNoMore (fewer q) p)) xs s'
+      pure (s'', Element w3 (thenNoMore q3 (thenNoMore q2 (fewer q))))
     where
       lower : Address -> Nat -> Search -> Search
       lower k n st = { low $= \m => insert k (min n (fromMaybe n (lookup k m))) m } st
@@ -115,33 +117,34 @@ mutual
 ||| diverge, by its own name. Whether its recursion asks for ever more
 ||| instances is the growth check's to say (`Growth`), on the program's
 ||| static positions.
-checkComponent : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> List Member -> Core ()
+checkComponent : {auto s : Ref TState TS} -> List Member -> Core ()
 checkComponent members = do
-  defs <- get Ctxt
+  st <- get TState
+  let names = gamma (defsOf st.reads.frozen)
   let inside = the (SortedSet Address) (fromList (map (.address) members))
-  let within = \n => maybe False (\a => contains a inside) (definitionAddress (gamma defs) n)
+  let within = \n => maybe False (\a => contains a inside) (definitionAddress names n)
   let calls = [ (caller.name, call) | caller <- members, call <- caller.calls, within call.fnCall ]
   let verdicts = loopsTerminate calls (map (.name) members)
-  st <- get TState
   let component = MkComponentId st.nextComponent
       termination : Name -> Loops -> Termination
       termination n Decreasing = Terminates component
       termination n (Endless _) = MayDiverge (shown (show n) ::: [])
   put TState ({ nextComponent $= S
               , loops $= \m => foldl (\m', (n, v) => maybe m' (\a => insert a (termination n v) m')
-                                                            (definitionAddress (gamma defs) n))
+                                                            (definitionAddress names n))
                                       m verdicts } st)
 
 ||| Checks the component of a definition, and of every definition it
 ||| reaches, once each.
 export
-checkRecursion : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Name -> Core ()
+checkRecursion : {auto s : Ref TState TS} -> Name -> Core ()
 checkRecursion n = do
   st <- get TState
-  Just (placement, def) <- resolve !(toFullNames n)
-    | Nothing => pure ()
-  unless (isJust (lookup (addressOf placement) st.loops)) $ do
-    let w = startAt placement
-    member <- memberOf placement def
-    (result, _) <- visit st.loops member w (sizeAccessible w) (MkSearch 0 empty empty [] empty [])
-    for_ result.found checkComponent
+  let r = st.reads
+  case readOf r (fullNameIn r.frozen n) of
+    NoDefinition => pure ()
+    Missed => throw (InternalError ("the definitions read for the translation miss " ++ show n))
+    ReadAs d => unless (isJust (lookup (addressOf d.placement) st.loops)) $ do
+      let w = startAt d.placement
+      (result, _) <- visit r st.loops (memberOf r.frozen d) w (sizeAccessible w) (MkSearch 0 empty empty [] empty [])
+      for_ result.found checkComponent

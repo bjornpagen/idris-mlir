@@ -90,7 +90,7 @@ spineOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} -
           FC -> String -> TT vs -> Front (Spine vs)
 spineOf fc owner t = case readSpine t of
   Just sp => pure sp
-  Nothing => reject fc owner Polymorphism ("a shape whose rank no analysis fixes: " ++ show !(fullNames t))
+  Nothing => reject fc owner Polymorphism ("a shape whose rank no analysis fixes: " ++ show !(fullTerm t))
 
 ||| A spine's extents, outermost first.
 export
@@ -104,8 +104,8 @@ formOf : Spine vs -> TT vs
 formOf sp = foldl (\r, (snoc, _) => App EmptyFC (App EmptyFC snoc r) (Erased EmptyFC Placeholder)) sp.base sp.axes
 
 ||| Whether a type constructor is a value array's.
-valueArray : {auto c : Ref Ctxt Defs} -> Name -> Front Bool
-valueArray n = (\full => (hooksOf full).valueArray) <$> fullNames n
+valueArray : Name -> Front Bool
+valueArray n = (\full => (hooksOf full).valueArray) <$> fullName n
 
 ||| A type constructor applied to two arguments, as a value array's type is
 ||| to its shape and element (`Array s a`), or anything else.

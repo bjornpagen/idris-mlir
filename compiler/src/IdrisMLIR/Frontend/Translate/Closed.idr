@@ -277,19 +277,14 @@ solved tm = if hasMeta tm then lambdasApplied tm else pure tm
 ||| made in, the arguments, and `let`s for that scope's `let`s; both are
 ||| substituted. `Nothing` for a metavariable without a solution, a hole.
 export
-solution : {auto c : Ref Ctxt Defs} -> {vars : Scope} ->
-           FC -> Name -> List (TT vars) -> Front (Maybe (TT vars))
+solution : {vars : Scope} -> FC -> Name -> List (TT vars) -> Front (Maybe (TT vars))
 solution fc n args = do
-  defs <- getDefs
-  Just def <- lookupExact n (gamma defs)
+  Just d <- defined n
     | Nothing => internal fc ("the metavariable " ++ show n ++ " is not in the context")
-  case definition def of
-    PMDef _ [] body => do
-      Just tm <- leafOfBody body
-        | Nothing => internal fc ("the solution of " ++ show n ++ " is not a term")
-      pure (Just (apply (embedClosed tm) args zero Subst.empty))
-    PMDef {} => internal fc ("the solution of " ++ show n ++ " is not a term")
-    _ => pure Nothing
+  case d.matched of
+    Just (MkMatched [] (STerm _ tm) _ _) => pure (Just (apply (embedClosed tm) args zero Subst.empty))
+    Just _ => internal fc ("the solution of " ++ show n ++ " is not a term")
+    Nothing => pure Nothing
   where
     apply : {drop, vs : Scope} -> TT (drop ++ vs) -> List (TT vs) -> SizeOf drop -> SubstEnv drop vs -> TT vs
     apply (Bind _ _ (Lam {}) sc) (a :: as) drop env = apply sc as (suc drop) (a :: env)
@@ -351,22 +346,15 @@ argumentsIn ty = argumentsWith (const byQuantity) <$> normaliseClosed ty
 ||| (`argumentsOfNormal`), read once per definition and kept by its
 ||| address (`TS.argumentsTaken`), since its type is normalised to read it.
 export
-argumentsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> GlobalDef -> Front (List ArgumentAt)
-argumentsOf def = do
-  defs <- getDefs
-  -- A name the context does not hold has no address to keep its reading
-  -- by, as for a type constructor's facts (`Types.tyConFacts`).
-  let Just key = definitionAddress (gamma defs) (fullname def)
-    | Nothing => read
+argumentsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Defined -> Front (List ArgumentAt)
+argumentsOf d = do
+  let key = addressOf d.placement
   case lookup key (!(getState)).argumentsTaken of
     Just known => pure known
     Nothing => do
-      found <- read
+      found <- argumentsOfNormal d.def <$> normaliseClosed d.type
       updateState { argumentsTaken $= insert key found }
       pure found
-  where
-    read : Front (List ArgumentAt)
-    read = argumentsOfNormal def <$> normaliseClosed !(typeOfDefinition def)
 
 ||| The last of the arguments given at a definition's positions that it
 ||| takes at run time, an index or a proof after it read nowhere.
@@ -438,10 +426,9 @@ runtimeDependent = go
       applied (App _ f a) = appliedTo f a
       applied (Ref _ (TyCon _) _) = pure OfType
       applied (Ref _ _ n) = do
-        defs <- getDefs
-        Just def <- lookupExact n (gamma defs)
+        Just d <- defined n
           | Nothing => pure Unsaid
-        pure (Taking def 0)
+        pure (Taking d.def 0)
       applied f = pure (if !(go f) then Depends else Unsaid)
 
 ||| A type with its first binder showing: itself when it shows one, and its
@@ -478,28 +465,29 @@ record Projection where
   con : Name
   field : Nat
 
-||| The projection a definition is, if it is one: its case tree read as
-||| far as its root's one alternative, whose one leaf alone is decoded.
-projectionOf : GlobalDef -> Front (Maybe Projection)
-projectionOf def = case definition def of
-  PMDef _ pargs body => core (walkTree body (projected pargs))
-  _ => pure Nothing
+||| The projection a definition is, if it is one: its case tree's root,
+||| one alternative whose leaf is one of the constructor's arguments.
+projectionOf : Defined -> Maybe Projection
+projectionOf d = case d.matched of
+  Just m => projected m.args m.tree
+  Nothing => Nothing
   where
-    projected : (pargs : Scope) -> {0 t : Scoped} -> Leaves t -> CaseTree' t pargs -> Core (Maybe Projection)
-    projected pargs leaves (Case idx v _ [ConCase cn _ cargs (STerm _ r)]) = do
-      Local _ _ k _ <- leaves.leafTerm {outer = []} r
-        | _ => pure Nothing
-      pure (if k < length cargs then Just (MkProjection pargs idx _ v cn k) else Nothing)
-    projected _ _ _ = pure Nothing
+    projected : (pargs : Scope) -> CaseTree pargs -> Maybe Projection
+    projected pargs (Case idx v _ [ConCase cn _ cargs (STerm _ (Local _ _ k _))]) =
+      if k < length cargs then Just (MkProjection pargs idx _ v cn k) else Nothing
+    projected _ _ = Nothing
 
 ||| The projection a definition is, if it is one.
 export
-projection : {auto c : Ref Ctxt Defs} -> Name -> Front (Maybe Projection)
-projection n = do
-  defs <- getDefs
-  Just def <- lookupExact n (gamma defs)
-    | Nothing => pure Nothing
-  projectionOf def
+projection : Name -> Front (Maybe Projection)
+projection n = (>>= projectionOf) <$> defined n
+
+||| The parameters and right-hand side of a definition whose case tree is
+||| one leaf; nothing for one that matches, or that has no case tree.
+oneLeaf : Defined -> Maybe (vs : Scope ** TT vs)
+oneLeaf d = case d.matched of
+  Just m => (\rhs => (m.args ** rhs)) <$> leafOf m
+  Nothing => Nothing
 
 ||| The definition a case, with or nested block belongs to, through every
 ||| block between: a case or with block's parent is its full name, which
@@ -509,7 +497,7 @@ projection n = do
 ||| back to a name passed already: the walk enters each parent once
 ||| (`Walk`), and stops at a name whose parent it has entered.
 export
-rootOf : {auto c : Ref Ctxt Defs} -> Name -> Front Name
+rootOf : Name -> Front Name
 rootOf n = climb start (sizeAccessible start) n
   where
     -- The accessibility proof is erased, and every clause matches its one
@@ -524,15 +512,15 @@ rootOf n = climb start (sizeAccessible start) n
       -- Entered already: the parents led back to it.
       case enter placement w of
         Nothing => pure m
-        Just (Element w' less) => climb w' (rec w' less) !(fullNames (Resolved outer))
+        Just (Element w' less) => climb w' (rec w' less) !(fullName (Resolved outer))
     climb w (Access _) m = pure m
 
     -- A block's parent, entered once, as a nested function's is.
     parent : (w : Walked) -> (0 rec : (w' : Walked) -> Smaller w' w -> SizeAccessible w') -> Name -> Name -> Front Name
     parent w rec m outer = do
-      Just (placement, _) <- core (resolve outer)
+      Just d <- defined outer
         | Nothing => pure m
-      case enter placement w of
+      case enter d.placement w of
         Nothing => pure m
         Just (Element w' less) => climb w' (rec w' less) outer
 
@@ -543,11 +531,13 @@ rootOf n = climb start (sizeAccessible start) n
 ||| the block's are, so a block ends when that definition does too.
 terminates : {auto c : Ref Ctxt Defs} -> Name -> Front Bool
 terminates n = do
-  root <- rootOf !(fullNames n)
-  defs <- getDefs
-  owner <- lookupExact root (gamma defs)
+  root <- rootOf !(fullName n)
+  owner <- defined root
   if not !(ends n) then pure False else maybe (pure True) (const (ends root)) owner
   where
+    -- Idris decides a covering definition's termination only when asked,
+    -- and keeps the verdict in its context: its checker is asked of the
+    -- definitions a reduction meets.
     ends : Name -> Front Bool
     ends m = do
       verdict <- core (host.checkTerminating EmptyFC m)
@@ -600,10 +590,9 @@ partialIn tm = firstOf (functionsIn tm)
     firstOf : List Name -> Front (Maybe Name)
     firstOf [] = pure Nothing
     firstOf (n :: ns) = do
-      defs <- getDefs
-      Just def <- lookupExact n (gamma defs)
+      Just d <- defined n
         | Nothing => firstOf ns
-      if !(terminates n) then firstOf ns else pure (Just (fullname def))
+      if !(terminates n) then firstOf ns else pure (Just (fullname d.def))
 
 ||| A closed term as written, its metavariables filled in, normalised by
 ||| one of Idris's normalisers: when the term refers to a definition Idris
@@ -738,7 +727,7 @@ params (_ :: _) [] = Nothing
 ||| A projection applied to parts, when it applies to all of them: the
 ||| field it takes from the constructor its record reduces to, and the
 ||| parts past the projection's own.
-project : {auto c : Ref Ctxt Defs} -> Projection -> List Part -> Front (Maybe (Part, List Part))
+project : Projection -> List Part -> Front (Maybe (Part, List Part))
 project pr args = case params pr.params args of
   Nothing => pure Nothing
   Just (env, extras) => do
@@ -746,7 +735,7 @@ project pr args = case params pr.params args of
       | Stuck _ => pure Nothing
     let Just field = getAt pr.field fields
       | Nothing => pure Nothing
-    if !(fullNames built) /= !(fullNames pr.con)
+    if !(fullName built) /= !(fullName pr.con)
        then pure Nothing
        else pure (Just (field, extras))
 
@@ -777,8 +766,8 @@ normalHead ctxt tm = spine tm []
 ||| only where a match recurses.
 again : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Head Part)
 again tm = do
-  defs <- getDefs
-  either (Stuck . OnPartial) (normalHead (gamma defs)) <$> normalisedBy host.normaliseAll tm
+  fz <- frozenContext
+  either (Stuck . OnPartial) (normalHead (gamma (defsOf fz))) <$> normalisedBy host.normaliseAll tm
 
 mutual
   ||| A term, with what each of its variables stands for, applied to parts,
@@ -834,20 +823,16 @@ mutual
   unfolded : {auto c : Ref Ctxt Defs} -> Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
              Name -> Lazy ClosedTerm -> List Part -> Front (Head Part)
   unfolded ph w acc@(Access rec) n tm args = do
-    Just (placement, def) <- core (resolve n)
+    Just d <- defined n
       | Nothing => pure (Stuck (OnRuntime tm))
-    -- A definition of one right-hand side, read without decoding the
-    -- tree of one that matches.
-    leaf <- the (Front (Maybe (vs : Scope ** TT vs))) $ case definition def of
-              PMDef _ pargs body => map (\rhs => (pargs ** rhs)) <$> leafOfBody body
-              _ => pure Nothing
-    case leaf of
+    -- A definition of one right-hand side.
+    case oneLeaf d of
       Just (pargs ** body) => case params pargs args of
         Nothing => pure (Stuck (OnValue tm))
-        Just (env, rest) => case enter placement w of
+        Just (env, rest) => case enter d.placement w of
           Nothing => again tm
           Just (Element w' less) => reduce asWritten w' (rec w' less) env body rest
-      Nothing => projectionOf def >>= \found => case found of
+      Nothing => case projectionOf d of
         Nothing => normalised ph w acc tm
         -- A projection: the field it takes from the constructor its record
         -- reduces to here, its arguments as written, so that an
@@ -1006,10 +991,9 @@ fixing type form = do
     aValue (Bind _ _ (Lam {}) _) = pure True
     aValue v = case getFnArgs v of
       (Ref _ Func n, args) => do
-        defs <- getDefs
-        Just def <- lookupExact n (gamma defs)
+        Just d <- defined n
           | Nothing => pure False
-        pure (case definition def of
+        pure (case definition d.def of
                 PMDef _ params _ => length args < length params
                 _ => False)
       _ => pure False
@@ -1042,15 +1026,15 @@ implementationOf tm = implementing asWritten start (sizeAccessible start) [] tm 
 ||| resolved to its place in the context prints as `$resolved359`, which
 ||| says nothing to the reader.
 export
-showTT : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front String
-showTT tm = show <$> fullNames tm
+showTT : ClosedTerm -> Front String
+showTT tm = show <$> fullTerm tm
 
 ||| What a message says a reduction is stuck on: the value or the
 ||| definition it names.
 export
-stuckText : {auto c : Ref Ctxt Defs} -> StuckOn -> Front String
+stuckText : StuckOn -> Front String
 stuckText (OnRuntime tm) = ("the runtime value " ++) <$> showTT tm
-stuckText (OnPartial n) = pure (show !(fullNames n) ++ ", which Idris does not prove ends")
+stuckText (OnPartial n) = pure (show !(fullName n) ++ ", which Idris does not prove ends")
 stuckText (OnValue tm) = ("the value " ++) <$> showTT tm
 
 ||| What a shape says a value was built with: a constructor, with the
@@ -1124,12 +1108,11 @@ fillHoles values tm = foldl fill tm (zip [0 .. length values] values)
 
 ||| A reference to a definition, as Idris writes one: with its kind.
 export
-refTo : {auto c : Ref Ctxt Defs} -> FC -> Name -> Front ClosedTerm
+refTo : FC -> Name -> Front ClosedTerm
 refTo fc n = do
-  defs <- getDefs
-  Just def <- lookupExact n (gamma defs)
+  Just d <- defined n
     | Nothing => throw (InternalError ("no definition of " ++ show n))
-  pure (Ref fc (kind (definition def)) (fullname def))
+  pure (Ref fc (kind (definition d.def)) (fullname d.def))
   where
     kind : Def -> NameType
     kind (DCon tag arity _) = DataCon tag arity
@@ -1138,17 +1121,17 @@ refTo fc n = do
 
 ||| The pair Idris's `%pair` names: its type, its projections.
 export
-pairNames : {auto c : Ref Ctxt Defs} -> Front (Name, Name, Name)
+pairNames : Front (Name, Name, Name)
 pairNames = do
-  defs <- getDefs
-  let Just ns = pairnames (options defs)
+  fz <- frozenContext
+  let Just ns = pairnames (options (defsOf fz))
     | Nothing => throw (InternalError "no pair type")
   pure (pairType ns, fstName ns, sndName ns)
 
 ||| The type of the one value that holds the values an implementation closes
 ||| over: the one type, or a pair of the first and the rest.
 export
-packedType : {auto c : Ref Ctxt Defs} -> List1 ClosedTerm -> Front ClosedTerm
+packedType : List1 ClosedTerm -> Front ClosedTerm
 packedType (t ::: ts) = packed t ts
   where
     packed : ClosedTerm -> List ClosedTerm -> Front ClosedTerm
@@ -1160,7 +1143,7 @@ packedType (t ::: ts) = packed t ts
 
 ||| The values the one value holds (`packedType`), as projections of it.
 export
-unpacked : {auto c : Ref Ctxt Defs} -> List1 ClosedTerm -> ClosedTerm -> Front (List ClosedTerm)
+unpacked : List1 ClosedTerm -> ClosedTerm -> Front (List ClosedTerm)
 unpacked (t ::: ts) v = projections t ts v
   where
     projections : ClosedTerm -> List ClosedTerm -> ClosedTerm -> Front (List ClosedTerm)
@@ -1205,21 +1188,21 @@ isTypeLike (Bind _ _ (Pi _ _ _ _) sc) = typeLikeScope sc
     typeLikeScope _ = False
 isTypeLike _ = False
 
+||| The definition a name names, as it was read (`Errors.defined`): a name
+||| no definition has is a module compiled without it, and refused.
 export
-lookupDef : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-            FC -> String -> Name -> Front GlobalDef
+lookupDef : {auto s : Ref TState TS} -> FC -> String -> Name -> Front Defined
 lookupDef fc owner n = do
-  defs <- getDefs
-  Just def <- lookupExact n (gamma defs)
+  Just d <- defined n
     | Nothing => reject fc owner CompiledModule ("missing definition " ++ show n)
-  pure def
+  pure d
 
 ||| Does a definition compute a type: is its type, normalised, a universe
 ||| after its arguments? Normalised, since a type may be written with a
 ||| name for one: `VarSet : Scoped` is `Scope -> Type`.
 export
-computesType : {auto c : Ref Ctxt Defs} -> GlobalDef -> Front Bool
-computesType def = isTypeLike <$> normaliseClosed !(typeOfDefinition def)
+computesType : {auto c : Ref Ctxt Defs} -> Defined -> Front Bool
+computesType d = isTypeLike <$> normaliseClosed d.type
 
 mutual
   ||| A term with every eta-redex in it contracted, the innermost first:
@@ -1312,23 +1295,19 @@ canonicalTypeArg tm = contracted <$> walk False (contracted tm)
     -- the name is not such a function.
     clause : FC -> Name -> Front (Maybe ClosedTerm)
     clause fc n = do
-      defs <- getDefs
-      Just gdef <- lookupExact n (gamma defs)
+      Just d <- defined n
         | Nothing => pure Nothing
       -- The type as written is enough for `Nat -> Type`. A name for one
       -- (`VarSet : Scoped`) needs the normalised type, and that lookup is
       -- the uncommon case.
-      yes <- if isTypeLike !(typeOfDefinition gdef) then pure True else computesType gdef
-      if yes then case definition gdef of
-             PMDef _ _ body => do
-               clauses <- core (clausesOf body)
-               case clauses of
-                 [(_ ** (_, _, rhs))] => normaliseClause fc rhs
-                 _ => do
-                   Just rhs <- leafOfBody body
-                     | Nothing => pure Nothing
-                   normaliseClause fc rhs
-             _ => pure Nothing
+      yes <- if isTypeLike d.type then pure True else computesType d
+      if yes then case d.matched of
+             Just m => case m.onlyClause of
+               Just (_ ** rhs) => normaliseClause fc rhs
+               Nothing => case leafOf m of
+                 Just rhs => normaliseClause fc rhs
+                 Nothing => pure Nothing
+             Nothing => pure Nothing
         else pure Nothing
 
     -- `head` is the function of an application: that name is left to
@@ -1491,21 +1470,20 @@ mutual
 
 ||| A function that does not match on its arguments: its parameters, the
 ||| first first, its body, and its placement in the context.
-plain : {auto c : Ref Ctxt Defs} -> Name -> Front (Maybe (vs ** (TT vs, Placement)))
+plain : Name -> Front (Maybe (vs ** (TT vs, Placement)))
 plain n = do
-  Just (placement, def) <- core (resolve n)
+  Just d <- defined n
     | Nothing => pure Nothing
-  case definition def of
-    PMDef _ pargs body => map (\rhs => (pargs ** (rhs, placement))) <$> leafOfBody body
-    _ => pure Nothing
+  pure (case oneLeaf d of
+          Just (pargs ** rhs) => Just (pargs ** (rhs, d.placement))
+          Nothing => Nothing)
 
 ||| Does a definition compute a type?
 typeFunction : {auto c : Ref Ctxt Defs} -> Name -> Front Bool
 typeFunction n = do
-  defs <- getDefs
-  Just def <- lookupExact n (gamma defs)
+  Just d <- defined n
     | Nothing => pure False
-  computesType def
+  computesType d
 
 ||| Whether a term with this head is cut by cutting its arguments, keeping
 ||| the head, so that it is cut applied to more arguments as its cut

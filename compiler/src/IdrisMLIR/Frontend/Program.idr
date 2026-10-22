@@ -23,6 +23,7 @@ import IdrisMLIR.Frontend.Growth
 import IdrisMLIR.Frontend.Profile
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate
+import IdrisMLIR.Frontend.Translate.Boundary
 import IdrisMLIR.Registry.Libraries
 import IdrisMLIR.Registry.Primitives
 
@@ -174,8 +175,15 @@ program loaded mainFile timing mlirPath = do
   -- Idris has loaded the program and everything it imports: the context
   -- changes no more, and every normaliser reads it as frozen here.
   frozen <- host.freezeContext
-  s <- newRef TState (initState frozen loaded interfaces fileSite)
-  noted (compiled t0 fileSite)
+  application <- applicationOf
+  s <- newRef TState (initState (MkRead frozen SortedMap.empty application) loaded interfaces fileSite)
+  Just mainDef <- noting (entered fileSite)
+    | Nothing => rejections
+  -- Once the entry is found, every definition the phases after it can meet
+  -- from it is read, once, and they read nothing else of the context.
+  r <- readProgram (!(get TState)).reads (fullname mainDef)
+  update TState { reads := r }
+  noted (compiled t0 mainDef)
   rejections
   where
    -- The project's modules among the checked ones, each once, in the order
@@ -190,14 +198,20 @@ program loaded mainFile timing mlirPath = do
          Just l => if isUser l.origin then (m, checked, l.source) :: after else after
          Nothing => after
 
-   covering
-   compiled : {auto s : Ref TState TS} -> Integer -> NonEmptyFC -> Front ()
-   compiled t0 fileSite = do
+   -- The program's entry, where a refusal is located from then on, once
+   -- the registry's entries are found good against the loaded context.
+   entered : {auto s : Ref TState TS} -> NonEmptyFC -> Front GlobalDef
+   entered fileSite = do
     mainDef <- entryPoint
+    updateState { moduleFC := fromMaybe fileSite (isNonEmptyFC (location mainDef)) }
+    validated
+    pure mainDef
+
+   covering
+   compiled : {auto s : Ref TState TS} -> Integer -> GlobalDef -> Front ()
+   compiled t0 mainDef = do
     let main = fullname mainDef
     let fc = location mainDef
-    updateState { moduleFC := fromMaybe fileSite (isNonEmptyFC fc) }
-    validated
     -- Every module of the project's is one with a checked module and a
     -- source: the main file's, named as its path names it, which is where
     -- its terms are located, and every one the session loaded, among them

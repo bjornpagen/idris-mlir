@@ -9,6 +9,7 @@ import Core.Context
 import Core.Core
 import Core.Directory
 import Core.FC
+import Core.Options
 import Core.TT
 import Idris.Host
 
@@ -37,16 +38,17 @@ isEmptyFC _ = False
 -- The frontend's computations
 ------------------------------------------------------------------------------
 
-||| What the frontend computes: Idris's own computation over the context
-||| frozen once the program and everything it imports were loaded, which
-||| every normaliser reads, whose errors are Idris's, giving either the
-||| value or the program's refusal. A refusal is a value of the
+||| What the frontend computes: Idris's own computation over what it reads
+||| of the program (`Read`: the context frozen once the program and
+||| everything it imports were loaded, which every normaliser reads, and
+||| the definitions read from it once), whose errors are Idris's, giving
+||| either the value or the program's refusal. A refusal is a value of the
 ||| computation, never an error beside it: Idris's `Error` cannot carry
 ||| one, and the fork, which owns it, imports nothing of the frontend's.
 public export
 record Front a where
   constructor MkFront
-  runFront : Frozen -> Core (Either Refusal a)
+  runFront : Read -> Core (Either Refusal a)
 
 export
 Functor Front where
@@ -76,11 +78,16 @@ Catchable Front Error where
     Right (Left r) => Core.pure (Left r)
     Right (Right x) => Core.pure (Right (Right x))
 
+||| What the frontend reads of the program, which nothing it does changes.
+export
+reading : Front Read
+reading = MkFront (\r => Core.pure (Right r))
+
 ||| The context the normalisers read: frozen once, when the program and
 ||| everything it imports were loaded, and never changed after.
 export
 frozenContext : Front Frozen
-frozenContext = MkFront (\fz => Core.pure (Right fz))
+frozenContext = (.frozen) <$> reading
 
 ||| A computation that runs Idris's own: Idris's `Core`, as it is, and the
 ||| frontend's, which refuses nothing there. Helpers that never refuse are
@@ -204,6 +211,41 @@ export
 internal : RunsCore m => FC -> String -> m a
 internal fc msg = core (throw (InternalError (show fc ++ ": internal error: " ++ msg)))
 
+||| The definition the frozen context gives a name, as it was read once
+||| (`Defined`); nothing for a name the context defines as nothing, a
+||| probe's among them. Every definition the translation can meet was read
+||| from its entry (`Boundary.readProgram`), so one the context defines and
+||| the reading missed is the compiler's error.
+export
+defined : Name -> Front (Maybe Defined)
+defined n = do
+  r <- reading
+  case readOf r n of
+    ReadAs d => pure (Just d)
+    NoDefinition => pure Nothing
+    Missed => internal EmptyFC ("the definitions read for the translation miss " ++ show (fullNameIn r.frozen n))
+
+||| A name with every part full, as the frozen context names it: a
+||| resolved name is the full name of the definition at its entry.
+export
+fullName : Name -> Front Name
+fullName n = (\r => fullNameIn r.frozen n) <$> reading
+
+||| A term with every name in it full (`fullName`).
+export
+fullTerm : Core.TT.Term.Term vs -> Front (Core.TT.Term.Term vs)
+fullTerm tm = (\r => fullNamesIn r.frozen tm) <$> reading
+
+||| Whether a name is the type of Idris's `%pair`, as the frozen context's
+||| options name it, both names full.
+export
+pairTyped : Name -> Front Bool
+pairTyped n = do
+  r <- reading
+  pure (case pairnames (options (defsOf r.frozen)) of
+          Nothing => False
+          Just ns => fullNameIn r.frozen n == fullNameIn r.frozen (pairType ns))
+
 ||| Runs one check, or translates one part, of the program so that its
 ||| refusal does not stop the others: the part's refusal, recorded once
 ||| however many parts find it, or else the error Idris raised, and the part
@@ -212,8 +254,8 @@ internal fc msg = core (throw (InternalError (show fc ++ ": internal error: " ++
 export
 noting : {auto s : Ref TState TS} -> Front a -> Core (Maybe a)
 noting part = do
-  frozen <- Core.map (.frozen) (get TState)
-  outcome <- catch (Core.map Right (runFront part frozen)) $ \err => case err of
+  r <- Core.map (.reads) (get TState)
+  outcome <- catch (Core.map Right (runFront part r)) $ \err => case err of
                InternalError _ => throw err
                _ => Core.pure (Left err)
   case outcome of
