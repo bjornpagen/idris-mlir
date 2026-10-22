@@ -73,14 +73,17 @@ normaliseLHS defs env (Bind fc n b sc)
 normaliseLHS defs env tm
     = quote defs env !(nfOpts onLHS defs env tm)
 
+||| The normal form, its stuck applications followed at most `limit` deep,
+||| or `TooDeep`, where the caller keeps the term another way: the limit
+||| decides only a stored term's form.
 export
 tryNormaliseSizeLimit : {auto c : Ref Ctxt Defs} ->
                      {free : _} ->
                      Defs -> Nat ->
-                     Env Term free -> Term free -> Core (Term free)
+                     Env Term free -> Term free -> Core (Quoted free)
 tryNormaliseSizeLimit defs limit env tm
     = do tm' <- nf defs env tm
-         quoteOpts (MkQuoteOpts False False (Just limit)) defs env tm'
+         quoteWithin limit defs env tm'
 
 -- The size limit here is the depth of stuck applications. If it gets past
 -- that size, return the original
@@ -90,9 +93,9 @@ normaliseSizeLimit : {auto c : Ref Ctxt Defs} ->
                      Defs -> Nat ->
                      Env Term free -> Term free -> Core (Term free)
 normaliseSizeLimit defs limit env tm
-    = catch (do tm' <- nf defs env tm
-                quoteOpts (MkQuoteOpts False False (Just limit)) defs env tm')
-            (\err => pure tm)
+    = case !(tryNormaliseSizeLimit defs limit env tm) of
+           Quoted tm' => pure tm'
+           TooDeep => pure tm
 
 export
 normaliseArgHoles : {auto c : Ref Ctxt Defs} ->

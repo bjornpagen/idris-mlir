@@ -122,16 +122,11 @@ data CLOpt
   IgnoreMissingIPKG |
   FindIPKG |
   Timing (Maybe Nat) |
-  DebugElabCheck |
   AltErrorCount Nat |
    ||| Treat warnings as errors
   WarningsAsErrors |
    ||| Do not print shadowing warnings
   IgnoreShadowingWarnings |
-   ||| Apply experimental heuristics to case tree generation that
-   ||| sometimes improves performance and reduces compiled code
-   ||| size.
-  CaseTreeHeuristics |
    ||| Turn on %default total globally
   Total
 
@@ -197,10 +192,6 @@ options = [MkOpt ["--check", "-c"] (NoArg [CheckOnly])
               (Just "Treat warnings as errors"),
            MkOpt ["-Wno-shadowing"] (NoArg [IgnoreShadowingWarnings])
               (Just "Do not print shadowing warnings"),
-
-           optSeparator,
-           MkOpt ["-Xcase-tree-opt"] (NoArg [CaseTreeHeuristics])
-              (Just "Apply experimental optimizations to case tree generation"),
 
            optSeparator,
            MkOpt ["--prefix"] (NoArg [Directory Prefix])
@@ -270,8 +261,6 @@ options = [MkOpt ["--check", "-c"] (NoArg [CheckOnly])
               (Just "Display help text"),
 
            -- Internal debugging options
-           MkOpt ["--debug-elab-check"] (NoArg [DebugElabCheck])
-              Nothing, -- do more elaborator checks (currently conversion in LinearCheck)
            MkOpt ["--alt-error-count"] (RequiredNat "alternative count" (\c => [AltErrorCount c]))
               (Just "Outputs errors for the given number of alternative parsing attempts.")
            ]

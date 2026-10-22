@@ -42,8 +42,13 @@ data Name : Type where
      PV : Name -> Int -> Name -- pattern variable name; int is the resolved function id
      DN : String -> Name -> Name -- a name and how to display it
      Nested : (Int, Int) -> Name -> Name -- nested function name
-     CaseBlock : String -> Int -> Name -- case block nested in (resolved) name
-     WithBlock : String -> Int -> Name -- with block nested in (resolved) name
+     -- A case or with block: the full name of the definition it is in,
+     -- and its ordinal among that definition's blocks. Upstream kept the
+     -- parent as the text its message prints, and the session's
+     -- machine-name counter, so a reader had to parse a name back from
+     -- the text and search the context for it.
+     CaseBlock : (parent : Name) -> (ordinal : Nat) -> Name
+     WithBlock : (parent : Name) -> (ordinal : Nat) -> Name
      Resolved : Int -> Name -- resolved, index into context
 
 %name Name n
@@ -180,8 +185,8 @@ nameRoot (MN n _) = n
 nameRoot (PV n _) = nameRoot n
 nameRoot (DN _ n) = nameRoot n
 nameRoot (Nested _ inner) = nameRoot inner
-nameRoot (CaseBlock n _) = "$" ++ show n
-nameRoot (WithBlock n _) = "$" ++ show n
+nameRoot (CaseBlock n _) = "$" ++ show (nameRoot n)
+nameRoot (WithBlock n _) = "$" ++ show (nameRoot n)
 nameRoot (Resolved i) = "$" ++ show i
 
 export
@@ -192,8 +197,8 @@ displayName (MN n _) = (Nothing, n)
 displayName (PV n _) = displayName n
 displayName (DN n _) = (Nothing, n)
 displayName (Nested _ n) = displayName n
-displayName (CaseBlock outer _) = (Nothing, "case block in " ++ show outer)
-displayName (WithBlock outer _) = (Nothing, "with block in " ++ show outer)
+displayName (CaseBlock outer _) = (Nothing, "case block in " ++ show (nameRoot outer))
+displayName (WithBlock outer _) = (Nothing, "with block in " ++ show (nameRoot outer))
 displayName (Resolved i) = (Nothing, "$resolved" ++ show i)
 
 export
@@ -250,8 +255,8 @@ Show Name where
   show (DN str n) = str
   show (Nested (outer, idx) inner)
       = show outer ++ ":" ++ show idx ++ ":" ++ show inner
-  show (CaseBlock outer i) = "case block in " ++ outer
-  show (WithBlock outer i) = "with block in " ++ outer
+  show (CaseBlock outer i) = "case block in " ++ show (snd (splitNS outer))
+  show (WithBlock outer i) = "with block in " ++ show (snd (splitNS outer))
   show (Resolved x) = "$resolved" ++ show x
 
 export
@@ -269,8 +274,8 @@ covering
   showPrec d (PV n i) = showCon d "PV" $ showArg n ++ showArg i
   showPrec d (DN str n) = showCon d "DN" $ showArg str ++ showArg n
   showPrec d (Nested ij n) = showCon d "Nested" $ showArg ij ++ showArg n
-  showPrec d (CaseBlock str i) = showCon d "CaseBlock" $ showArg str ++ showArg i
-  showPrec d (WithBlock str i) = showCon d "WithBlock" $ showArg str ++ showArg i
+  showPrec d (CaseBlock outer i) = showCon d "CaseBlock" $ showArg outer ++ showArg i
+  showPrec d (WithBlock outer i) = showCon d "WithBlock" $ showArg outer ++ showArg i
   showPrec d (Resolved i) = showCon d "Resolved" $ showArg i
 
 export
@@ -305,8 +310,8 @@ mutual
     pretty (DN str _) = pretty str
     pretty (Nested (outer, idx) inner)
       = byShow outer <+> colon <+> byShow idx <+> colon <+> pretty inner
-    pretty (CaseBlock outer _) = reflow "case block in" <++> pretty outer
-    pretty (WithBlock outer _) = reflow "with block in" <++> pretty outer
+    pretty (CaseBlock outer _) = reflow "case block in" <++> pretty (snd (splitNS outer))
+    pretty (WithBlock outer _) = reflow "with block in" <++> pretty (snd (splitNS outer))
     pretty (Resolved x) = pretty "$resolved" <+> pretty (show x)
 
 export

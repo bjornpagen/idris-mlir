@@ -45,59 +45,91 @@ Eq Bounds where
    && el == el'
    && ec == ec'
 
+-- A token's and a parsed value's `val` and `bounds` are kept apart by
+-- namespace, and found by type.
+namespace Located
+  ||| A token as a lexer gives it: always where it was read.
+  public export
+  record Located ty where
+    constructor MkLocated
+    val : ty
+    bounds : Bounds
+
+export
+Eq ty => Eq (Located ty) where
+  (MkLocated val bd) == (MkLocated val' bd') = val == val' && bd == bd'
+
+export
+Show ty => Show (Located ty) where
+  showPrec d (MkLocated val bd) = showCon d "MkLocated" (concat [showArg val, showArg bd])
+
+export
+Functor Located where
+  map f (MkLocated val bd) = MkLocated (f val) bd
+
+||| A value a parser gives, with the bounds of the input it was parsed from.
+||| A value parsed from no input (`pure`, a token only looked at) has none:
+||| upstream kept a flag beside bounds that were junk when it was set, and
+||| mapping a value, or sequencing it after `pure`, then changed its bounds,
+||| so the functor and monad identities failed.
 public export
-record WithBounds ty where
-  constructor MkBounded
-  val : ty
-  isIrrelevant : Bool
-  bounds : Bounds
+data WithBounds : Type -> Type where
+  Irrelevant : ty -> WithBounds ty
+  Relevant : ty -> Bounds -> WithBounds ty
 
-export
-start : WithBounds ty -> (Int, Int)
-start = startBounds . bounds
+namespace WithBounds
+  export
+  val : WithBounds ty -> ty
+  val (Irrelevant v) = v
+  val (Relevant v _) = v
 
+  export
+  (.val) : WithBounds ty -> ty
+  (.val) = val
+
+  ||| Where the value was parsed from, unless it was parsed from no input.
+  export
+  (.bounds) : WithBounds ty -> Maybe Bounds
+  (.bounds) (Irrelevant _) = Nothing
+  (.bounds) (Relevant _ bd) = Just bd
+
+||| A token as a value parsed from it.
 export
-end : WithBounds ty -> (Int, Int)
-end = endBounds . bounds
+fromLocated : Located ty -> WithBounds ty
+fromLocated (MkLocated v bd) = Relevant v bd
 
 export
 Eq ty => Eq (WithBounds ty) where
-  (MkBounded val ir bd) == (MkBounded val' ir' bd') =
-    val == val' && ir == ir' && bd == bd'
+  (Irrelevant v) == (Irrelevant v') = v == v'
+  (Relevant v bd) == (Relevant v' bd') = v == v' && bd == bd'
+  _ == _ = False
 
 export
 Show ty => Show (WithBounds ty) where
-  showPrec d (MkBounded val ir bd) =
-    showCon d "MkBounded" (concat [showArg ir, showArg val, showArg bd])
+  showPrec d (Irrelevant v) = showCon d "Irrelevant" (showArg v)
+  showPrec d (Relevant v bd) = showCon d "Relevant" (concat [showArg v, showArg bd])
 
 export
 Functor WithBounds where
-  map f (MkBounded val ir bd) = MkBounded (f val) ir bd
+  map f (Irrelevant v) = Irrelevant (f v)
+  map f (Relevant v bd) = Relevant (f v) bd
 
 export
 Foldable WithBounds where
-  foldr c n b = c b.val n
+  foldr c n b = c (val b) n
 
 export
 Traversable WithBounds where
-  traverse f (MkBounded v a bd) = (\ v => MkBounded v a bd) <$> f v
+  traverse f (Irrelevant v) = Irrelevant <$> f v
+  traverse f (Relevant v bd) = (\ v => Relevant v bd) <$> f v
 
-export
-irrelevantBounds : ty -> WithBounds ty
-irrelevantBounds x = MkBounded x True (MkBounds (-1) (-1) (-1) (-1))
-
-export
-removeIrrelevance : WithBounds ty -> WithBounds ty
-removeIrrelevance (MkBounded val ir bd) = MkBounded val True bd
-
+||| The value of the second, at the bounds both together cover.
 export
 mergeBounds : WithBounds ty -> WithBounds ty' -> WithBounds ty'
-mergeBounds (MkBounded _ True _) (MkBounded val True _) = irrelevantBounds val
-mergeBounds (MkBounded _ True _) b2 = b2
-mergeBounds b1 (MkBounded val True _) = const val <$> b1
-mergeBounds b1 b2 =
-      MkBounded b2.val False (union (bounds b1) (bounds b2))
+mergeBounds (Irrelevant _) b2 = b2
+mergeBounds (Relevant _ bd) (Irrelevant v) = Relevant v bd
+mergeBounds (Relevant _ bd1) (Relevant v bd2) = Relevant v (union bd1 bd2)
 
 export
 joinBounds : WithBounds (WithBounds ty) -> WithBounds ty
-joinBounds b = mergeBounds b b.val
+joinBounds b = mergeBounds b (val b)

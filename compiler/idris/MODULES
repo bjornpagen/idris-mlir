@@ -51,7 +51,6 @@ Core/Termination/CallGraph.idr
 Core/Termination/Positivity.idr
 Core/Termination/References.idr
 Core/Termination/SizeChange.idr
-Core/Transform.idr
 Core/Unify.idr
 Core/UnifyState.idr
 Core/Value.idr
@@ -177,8 +176,6 @@ TTImp/Elab/RunElab.idr
 TTImp/Elab/Term.idr
 TTImp/Elab/Utils.idr
 TTImp/Impossible.idr
-TTImp/Parser.idr
-TTImp/PartialEval.idr
 TTImp/ProcessBuiltin.idr
 TTImp/ProcessData.idr
 TTImp/ProcessDecls.idr

@@ -67,6 +67,34 @@ the same profile as any other.
   file with an external `sha256sum` through `popen`; it shipped with that
   disabled. The fork decides by modification time only, and a TTC no longer
   carries a source hash.
+- **The run-time case tree.** Upstream built, for every definition, a second
+  tree for its back ends, with erasure, `%transform`s and `%spec`
+  specialisation applied (`mkRunTime`, `compileRunTime`, `Core.Transform`'s
+  use in elaboration, `TTImp.PartialEval`, the case builder's `RunTime`
+  phase and its `-Xcase-tree-opt` heuristics), and the TTC dropped it. The
+  frontend translates the compile-time tree, so none is built: a `PMDef`
+  holds that tree and, per clause, the patterns the case builder read, and
+  references are what that tree refers to (`refersTo`). The `%transform`
+  and `%spec` pragmas are still read, as hints this compiler need not
+  apply; a case block is no longer marked for inlining by the run-time
+  tree's shape.
+- **Counts, state and options nothing needs.** The search timer, never
+  started and checked at every unfolding, with `%search_timeout`;
+  `%foreign_impl`, stored and read by nothing; `--debug-elab-check`, a
+  second conversion check behind a flag; the elaborator's `delayDepth`,
+  counted and read by nothing; `processTTImpFile` with the raw TTImp parser
+  (`TTImp.Parser`), which nothing called; and the counts that decided
+  whether a program elaborates, `%ambiguity_depth` and
+  `%auto_implicit_depth` with every depth of the automatic search (below).
+  The parser no longer knows a removed pragma, so a module that writes one
+  is refused where it writes it.
+- **Windows's path grammar.** `Libraries.Utils.Path` read every path with
+  Windows's grammar on every platform and asked the host's operating
+  system at run time where it differed (`isWindows`): a backslash
+  separated, a leading `x:` was a disk volume and the names ended at the
+  first `:` or `?`. A path is now an optional root and the names after it,
+  split at `/` alone; `Volume`, `dirSeparator`, `pathSeparator` and
+  `pathLookup` are gone.
 - **Shell scripts and executables in packages.** A package's `prebuild`,
   `postbuild`, `preinstall`, `postinstall`, `preclean` or `postclean` runs a
   shell command; the fork refuses such a package with an error naming the
@@ -99,7 +127,7 @@ and restores it, harmlessly.
   which `Idris.Doc.Display` uses (`Idris.Error` → `Idris.Doc.String` →
   `Idris.Doc.Display`).
 - `Protocol.Hex`: hexadecimal digits, which the lexer
-  (`Parser.Lexer.Source`) and `TTImp.PartialEval` use.
+  (`Parser.Lexer.Source`) uses.
 
 ### Honest code
 
@@ -149,9 +177,7 @@ them.
   retyped a term, the term is built at the type it needs: `isVar` finds a
   variable by `==` (`isNVar`, whose one use forgot the name, is gone);
   `IsDefined` hides the name of the variable it found; `extendEnv` renames the type's top variable to the
-  pattern's, which has the same name (`compat`); the compile-time tree of
-  a definition is renamed into the runtime tree's scope, whose names are
-  the same (`compatCaseTree`, over `renamedVarAt`); and the case builder
+  pattern's, which has the same name (`compat`); and the case builder
   groups clauses by comparing constructor names and tags, and constants
   as upstream's semi-decision did (never two doubles, and primitive types
   as `primTypeEq` relates them). `substName` compares.
@@ -271,8 +297,8 @@ merge; each says what changed in its interface.
   `WithFCDocRigNames`, `Method` is `WithNameRigTot`); `Mk [x, y] v`
   becomes the record's constructor applied to `x y v`; `get "doc"`,
   `set "fc"` and `update "name"` become a projection or a record update;
-  and `TTImp.Impossible` names `WithFC.val`, where fourteen records'
-  `.val` exceed the elaborator's ambiguity depth. A TTC holds these
+  and `TTImp.Impossible` names `WithFC.val`, one of fourteen records'
+  `.val`, so its elaboration tries no other. A TTC holds these
   records as upstream's extensible record wrote them (each metadata field
   after a 1, in order, then a 0, then the payload), so its bytes are
   unchanged; `Core.TTC` (and `TTImp.TTImp.TTC` for `WithNameOpts`, whose
@@ -518,6 +544,41 @@ merge; each says what changed in its interface.
   `buildDeps`. A driver that only builds a program, as the frontend's,
   never holds the session's state, which holds the evaluator's values
   (upstream/fork-build-main).
+- The automatic search ends by construction, with no count. Before it takes
+  up a goal that is a type constructor's application, it compares the goal
+  with each earlier goal of its path of the same type constructor,
+  argument by argument, by homeomorphic embedding (unknowns one symbol,
+  the search's own locals one symbol, universes one symbol, an integer by
+  its magnitude, a string as a subsequence, any other constant by
+  equality): a goal convertible with one before it fails that step, as
+  upstream's cycle check did; one that embeds an earlier goal through
+  unknowns waits for a later round, and at the last chance, as one that
+  embeds it with everything known, refuses the program (`SearchGrows`),
+  never caught as a failed branch. Kruskal's tree theorem makes every
+  endless path meet such a pair. A program the stock Idris elaborates with
+  a large enough `%auto_implicit_depth` is elaborated the same, but where
+  its answer was the depth running out (upstream/fork-search-depth).
+- Overloaded names are resolved with no count: every candidate elaborates
+  smaller parts of the source, so resolution ends, and `%ambiguity_depth`
+  only refused programs (`printLn (1, 2, 3, 4, 5, 6)`) or let a candidate
+  win because another ran out (upstream/fork-ambiguity-depth).
+- A quote that follows stuck applications only so deep (`quoteWithin`)
+  returns the term or `TooDeep`, and its callers choose another quote by
+  matching, where upstream threw an internal error that each caller caught
+  with every other error. The depths, `%nf_metavar_threshold` among them,
+  decide only a stored term's form, never whether a program is accepted.
+- A parser's result is `Irrelevant` (parsed from no input) or `Relevant`
+  with its bounds, and a lexer's token is `Located`, always with its
+  bounds: upstream kept a flag beside bounds that were junk when it was set,
+  so mapping a result or sequencing it after `pure` changed its bounds.
+- A case or with block's name holds its parent's full name and its ordinal
+  among the parent's blocks (`CaseBlock`, `WithBlock`), where upstream
+  held the parent's printed text and the session's machine-name counter;
+  messages print the parent as upstream's did.
+- A type's parameters are read off its constructors' types in normal form,
+  so a constructor whose binders come through a definition
+  (`a -@ LList a -@ LList a`) has them (upstream/fork-param-pos).
+- `ZeroOneOmega` is public, so a reader matches on a quantity.
 - No count bounds a recursion of the fork's own: the evaluator's `fuel`
   and per-name `reduceLimit` options, which nothing set, are gone; the
   size-change decision collects a loop graph's powers until one repeats and
@@ -560,6 +621,11 @@ representations):
   proposal "Each fact once".
 
 Kept so far:
+- A `let`'s, a `PLet`'s and a `PVTy`'s binder type; why a term is erased
+  (`WhyErased`: a placeholder, impossible, or the term a dotted position
+  equals); a case tree's scrutinee type and each leaf's clause index; per
+  definition, each clause's patterns as the case builder read them; a
+  block's typed parent (upstream/fork-ttc-facts).
 - A term in a TTC keeps each node's location (`Core.TTC`), written after
   the node's tag against the location of the node it is part of, a few
   bytes each, where upstream's writes none and reads every node back at
@@ -625,5 +691,9 @@ fork-linear-ambiguous-let
 (an ambiguous name in a linear `let`'s value), fork-totality-depth (no count
 decides whether a recursion is total; `%totality_depth` is refused),
 fork-interface-body (a declaration an interface body cannot hold is
-refused, not dropped) and fork-with-application-scope (a with application
-in a local definition or a record update).
+refused, not dropped), fork-with-application-scope (a with application
+in a local definition or a record update), fork-search-depth,
+fork-ambiguity-depth, fork-posix-paths, fork-no-runtime-tree,
+fork-ttc-facts, fork-block-parent, fork-param-pos, fork-erase-args (a
+definition's erased positions are found again once its clauses are checked,
+when its type reaches its whole spine) and fork-parser-bounds.

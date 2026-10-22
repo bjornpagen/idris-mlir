@@ -7,7 +7,9 @@ import Algebra.Preorder
 
 %default total
 
-export
+-- Public, so a reader matches on a quantity rather than asking a chain of
+-- tests of it.
+public export
 data ZeroOneOmega = Rig0 | Rig1 | RigW
 
 %name ZeroOneOmega rig

@@ -163,7 +163,7 @@ search : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
          {auto u : Ref UST UState} ->
          FC -> RigCount ->
-         (defaults : Bool) -> (depth : Nat) ->
+         (defaults : Bool) ->
          (defining : Name) -> (topTy : Term vars) -> Env Term vars ->
          Core (Term vars)
 
@@ -458,7 +458,7 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
                                      (not (isUserName mname) && isSimple rhs)
                                      False
          let newdef = { definition :=
-                          PMDef simpleDef Scope.empty (STerm 0 rhs) (STerm 0 rhs) []
+                          PMDef simpleDef Scope.empty (STerm 0 rhs) [] []
                       } mdef
          ignore $ addDef (Resolved mref) newdef
          removeHole mref
@@ -473,6 +473,9 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
     -- A solution is deemed simple enough to inline if either:
     --   * It is smaller than some threshold and has no metavariables in it
     --   * It's just a metavariable itself
+    -- The thresholds (6 and 3 below) decide only whether the solved hole is
+    -- unfolded where it is used, so the form of the checked term the TTC
+    -- stores, never whether the program is accepted.
     noMeta : Term vs -> Nat -> Bool
     noMeta (App _ f a) (S k) = noMeta f k && noMeta a k
     noMeta (Bind _ _ b sc) (S k) = noMeta (binderType b) k && noMeta sc k
@@ -867,10 +870,10 @@ mutual
                          | _ => postponeS swap loc mode "Delayed hole" env
                                           (NApp loc (NMeta mname mref margs) $ map (EmptyFC,) margs')
                                           tmnf
-                     let qopts = MkQuoteOpts False False
-                                             (Just defs.options.elabDirectives.nfThreshold)
-                     tm <- catch (quoteOpts qopts empty env tmnf)
-                                 (\err => quote defs env tmnf)
+                     tm <- case !(quoteWithin defs.options.elabDirectives.nfThreshold
+                                              empty env tmnf) of
+                                Quoted tm => pure tm
+                                TooDeep => quote defs env tmnf
                      Just tm <- occursCheck loc env mode mname tm
                          | _ => postponeS swap loc mode "Occurs check failed" env
                                           (NApp loc (NMeta mname mref margs) $ map (EmptyFC,) margs')
@@ -1417,6 +1420,7 @@ forceMeta r envb tm = TForce (getLoc tm) r tm
 -- Check whether it's worth trying a search again, based on what went wrong
 recoverable : Error -> Bool
 recoverable (UndefinedName {}) = False
+recoverable (SearchGrows {}) = False
 recoverable (InType _ _ err) = recoverable err
 recoverable (InCon _ err) = recoverable err
 recoverable (InLHS _ _ err) = recoverable err
@@ -1436,11 +1440,11 @@ retryGuess mode smode (hid, (loc, hname))
            Nothing => pure False
            Just def =>
              case definition def of
-               BySearch rig depth defining =>
+               BySearch rig defining =>
                   handleUnify
-                     (do tm <- search loc rig (smode == Defaults) depth defining
+                     (do tm <- search loc rig (smode == Defaults) defining
                                       (type def) Env.empty
-                         let gdef = { definition := PMDef defaultPI Scope.empty (STerm 0 tm) (STerm 0 tm) [] } def
+                         let gdef = { definition := PMDef defaultPI Scope.empty (STerm 0 tm) [] [] } def
                          logTermNF "unify.retry" 5 ("Solved " ++ show hname) Env.empty tm
                          ignore $ addDef (Resolved hid) gdef
                          removeGuess hid
@@ -1452,6 +1456,17 @@ retryGuess mode smode (hid, (loc, hname))
                                     (type def)
                             setInvertible loc (Resolved i)
                             pure False -- progress not made yet!
+                       -- A search that grows through unknowns may end once
+                       -- a later round fixes them, so it waits as a
+                       -- determining argument's does; at the last chance,
+                       -- the end of the declaration's elaboration, nothing
+                       -- more will be fixed, and the program is refused.
+                       err@(SearchGrows _ _ ThroughUnknowns _ _ _) =>
+                         case smode of
+                              LastChance => throw err
+                              _ => pure False
+                       -- With every part known, no later round changes it.
+                       err@(SearchGrows {}) => throw err
                        err =>
                          do logTermNF "unify.retry" 5
                                       ("Search failed at " ++ show rig ++ " for " ++ show hname)
@@ -1476,7 +1491,7 @@ retryGuess mode smode (hid, (loc, hname))
                                                  logTerm "unify.retry" 5 "Retry Delay" tm
                                                  pure $ delayMeta r envb !(getTerm ty) tm
                                   let gdef = { definition := PMDef (MkPMDefInfo NotHole True False)
-                                                                   Scope.empty (STerm 0 tm') (STerm 0 tm') [] } def
+                                                                   Scope.empty (STerm 0 tm') [] [] } def
                                   logTerm "unify.retry" 5 ("Resolved " ++ show hname) tm'
                                   ignore $ addDef (Resolved hid) gdef
                                   removeGuess hid
@@ -1502,7 +1517,7 @@ retryGuess mode smode (hid, (loc, hname))
                          -- proper definition and remove it from the
                          -- hole list
                          [] => do let gdef = { definition := PMDef (MkPMDefInfo NotHole True False)
-                                                                   Scope.empty (STerm 0 tm) (STerm 0 tm) [] } def
+                                                                   Scope.empty (STerm 0 tm) [] [] } def
                                   logTerm "unify.retry" 5 ("Resolved " ++ show hname) tm
                                   ignore $ addDef (Resolved hid) gdef
                                   removeGuess hid

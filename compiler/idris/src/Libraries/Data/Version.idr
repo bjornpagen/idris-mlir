@@ -74,7 +74,7 @@ versionTokenMap = toTokenMap $
   , (some alphaNum, VersionText)
   ]
 
-lexVersion : String -> List (WithBounds VersionToken)
+lexVersion : String -> List (Located VersionToken)
 lexVersion str =
   let
     (tokens, _, _, _) = lex versionTokenMap str

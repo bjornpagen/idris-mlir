@@ -161,8 +161,8 @@ getCols x c
 
 tokenise : (a -> Bool) ->
            (line : Int) -> (col : Int) ->
-           SnocList (WithBounds a) -> TokenMap a ->
-           List Char -> (List (WithBounds a), (Int, Int, List Char))
+           SnocList (Located a) -> TokenMap a ->
+           List Char -> (List (Located a), (Int, Int, List Char))
 tokenise pred line col acc tmap str
     = case getFirstToken tmap str of
            Just (tok, line', col', rest) =>
@@ -174,20 +174,20 @@ tokenise pred line col acc tmap str
   where
 
     getFirstToken : TokenMap a -> List Char ->
-                    Maybe (WithBounds a, Int, Int, List Char)
+                    Maybe (Located a, Int, Int, List Char)
     getFirstToken [] str = Nothing
     getFirstToken ((lex, fn) :: ts) str
         = case scan lex [<] str of
                Just (tok, rest) =>
                  let line' = line + cast (countNLs tok)
                      col' = getCols tok col in
-                     Just (MkBounded (fn (fastPack (tok <>> []))) False (MkBounds line col line' col'),
+                     Just (MkLocated (fn (fastPack (tok <>> []))) (MkBounds line col line' col'),
                            line', col', rest)
                Nothing => getFirstToken ts str
 
 export
 lexTo : (a -> Bool) ->
-        TokenMap a -> String -> (List (WithBounds a), (Int, Int, String))
+        TokenMap a -> String -> (List (Located a), (Int, Int, String))
 lexTo pred tmap str
     = let (ts, (l, c, str')) = tokenise pred 0 0 [<] tmap (fastUnpack str) in
           (ts, (l, c, fastPack str'))
@@ -197,5 +197,5 @@ lexTo pred tmap str
 ||| and the line, column, and remainder of the input at the first point in the
 ||| string where there are no recognised tokens.
 export %inline
-lex : TokenMap a -> String -> (List (WithBounds a), (Int, Int, String))
+lex : TokenMap a -> String -> (List (Located a), (Int, Int, String))
 lex = lexTo (const False)

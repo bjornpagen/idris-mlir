@@ -153,7 +153,7 @@ getArgMatch ploc mode True warg ms (Just (AutoImplicit, nm))
     = case lookup nm ms of
         Just tm => tm
         Nothing =>
-          let arg = ISearch ploc 500 in
+          let arg = ISearch ploc in
           if isJust (isLHS mode)
             then IAs ploc ploc UseLeft nm arg
              else arg

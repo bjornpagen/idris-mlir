@@ -167,7 +167,7 @@ findBindableNamesQuot env used (IUnquote fc x)
 findBindableNamesQuot env used (IWithUnambigNames fc xs x)
     = findBindableNamesQuot env used x
 findBindableNamesQuot env used (IVar fc x) = []
-findBindableNamesQuot env used (ISearch fc depth) = []
+findBindableNamesQuot env used (ISearch fc) = []
 findBindableNamesQuot env used (IAlternative fc x xs) = []
 findBindableNamesQuot env used (IBindVar fc x) = []
 findBindableNamesQuot env used (IPrimVal fc c) = []

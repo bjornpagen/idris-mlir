@@ -71,9 +71,9 @@ Pretty Void StopReason where
 
 tokenise : Lexer ->
            Tokenizer a ->
-           (line, col : Int) -> SnocList (WithBounds a) ->
+           (line, col : Int) -> SnocList (Located a) ->
            List Char ->
-           (SnocList (WithBounds a), (StopReason, Int, Int, List Char))
+           (SnocList (Located a), (StopReason, Int, Int, List Char))
 tokenise reject tokenizer line col acc [] = (acc, EndInput, (line, col, []))
 tokenise reject tokenizer line col acc str
     = case scan reject [<] str of
@@ -98,19 +98,19 @@ tokenise reject tokenizer line col acc str
           tokenStr = fastPack $ token <>> []
        in pure (tokenStr, line', col', rest)
 
-    getFirstMatch : Tokenizer a -> SnocList (WithBounds a) -> List Char ->
-                    Either StopReason (SnocList (WithBounds a), Int, Int, List Char)
+    getFirstMatch : Tokenizer a -> SnocList (Located a) -> List Char ->
+                    Either StopReason (SnocList (Located a), Int, Int, List Char)
     getFirstMatch (Match lex fn) acc str
         = let Just (tok, line', col', rest) = getNext lex line col str
                 | _ => Left NoRuleApply
-              tok' = MkBounded (fn tok) False (MkBounds line col line' col')
+              tok' = MkLocated (fn tok) (MkBounds line col line' col')
            in Right (acc :< tok', line', col', rest)
     getFirstMatch (Compose begin mapBegin middleFn endFn mapEnd) acc str
         = let Just (beginTok', line', col' , rest) = getNext begin line col str
                 | Nothing => Left NoRuleApply
               middle = middleFn beginTok'
               end = endFn beginTok'
-              beginTok'' = MkBounded (mapBegin beginTok') False (MkBounds line col line' col')
+              beginTok'' = MkLocated (mapBegin beginTok') (MkBounds line col line' col')
               (acc', (reason, line'', col'', rest'')) =
                     assert_total $ tokenise end middle line' col' (acc :< beginTok'') rest
            in case reason of
@@ -118,7 +118,7 @@ tokenise reject tokenizer line col acc str
                    _ => let Just (endTok', lineEnd, colEnd, restEnd) =
                                 getNext end line'' col'' rest''
                               | _ => Left $ ComposeNotClosing (line, col) (line', col')
-                            endTok'' = MkBounded (mapEnd endTok') False (MkBounds line'' col'' lineEnd colEnd)
+                            endTok'' = MkLocated (mapEnd endTok') (MkBounds line'' col'' lineEnd colEnd)
                          in Right (acc' :< endTok'', lineEnd, colEnd, restEnd)
     getFirstMatch (Alt t1 t2) acc str
         = case getFirstMatch t1 acc str of
@@ -130,7 +130,7 @@ export
 lexTo : Lexer ->
         Tokenizer a ->
         String ->
-        (List (WithBounds a), (StopReason, Int, Int, String))
+        (List (Located a), (StopReason, Int, Int, String))
 lexTo reject tokenizer str
     = let (ts, reason, (l, c, str')) =
               tokenise reject tokenizer 0 0 [<] (fastUnpack str) in
@@ -140,5 +140,5 @@ lexTo reject tokenizer str
 ||| and the line, column, and remainder of the input at the first point in the string
 ||| where there are no recognised tokens.
 export
-lex : Tokenizer a -> String -> (List (WithBounds a), (StopReason, Int, Int, String))
+lex : Tokenizer a -> String -> (List (Located a), (StopReason, Int, Int, String))
 lex tokenizer str = lexTo (pred $ const False) tokenizer str

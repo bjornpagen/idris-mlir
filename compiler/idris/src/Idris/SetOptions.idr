@@ -328,9 +328,6 @@ preOptions (ListPackages :: opts)
 preOptions (Timing tm :: opts)
     = do setLogTimings (fromMaybe 10 tm)
          preOptions opts
-preOptions (DebugElabCheck :: opts)
-    = do setDebugElabCheck True
-         preOptions opts
 preOptions (AltErrorCount c :: opts)
     = do setSession ({ logErrorCount := c } !getSession)
          preOptions opts
@@ -364,9 +361,6 @@ preOptions (WarningsAsErrors :: opts)
          preOptions opts
 preOptions (IgnoreShadowingWarnings :: opts)
     = do updateSession ({ showShadowingWarning := False })
-         preOptions opts
-preOptions (CaseTreeHeuristics :: opts)
-    = do updateSession ({ caseTreeHeuristics := True })
          preOptions opts
 preOptions (Total :: opts)
     = do updateSession ({ totalReq := Total })

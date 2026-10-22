@@ -88,6 +88,18 @@ data Warning : Type where
 %name Warning wrn
 
 -- All possible errors, carrying a location
+||| How an automatic search's goals grow along one of its paths: through
+||| unknowns a later round of elaboration may fix, or with every part of both
+||| goals known, when no later round can change the search.
+public export
+data Growth = ThroughUnknowns | Settled
+
+export
+Eq Growth where
+  ThroughUnknowns == ThroughUnknowns = True
+  Settled == Settled = True
+  _ == _ = False
+
 public export
 data Error : Type where
      Fatal : Error -> Error -- flag as unrecoverable (so don't postpone awaiting further info)
@@ -125,7 +137,6 @@ data Error : Type where
                      FC -> Env Term vars -> List (Context, Term vars) -> Error
      AmbiguousSearch : {vars : _} ->
                        FC -> Env Term vars -> Term vars -> List (Term vars) -> Error
-     AmbiguityTooDeep : FC -> Name -> List Name -> Error
      AllFailed : List (Maybe Name, Error) -> Error
      RecordTypeNeeded : {vars : _} ->
                         FC -> Env Term vars -> Error
@@ -144,6 +155,13 @@ data Error : Type where
                      Maybe Error -> Error
      DeterminingArg : {vars : _} ->
                       FC -> Name -> Int -> Env Term vars -> Term vars -> Error
+     ||| An automatic search whose later goal embeds an earlier goal of its
+     ||| own path, of the same type constructor: a search that never ends
+     ||| repeats such a pair, so it stops here, by construction, with no
+     ||| count. The goals are closed over their environments; the names are
+     ||| the hints between them, in the order the search applied them.
+     SearchGrows : FC -> Context -> Growth ->
+                   (earlier, later : ClosedTerm) -> (hints : List Name) -> Error
      UnsolvedHoles : List (FC, Name) -> Error
      CantInferArgType : {vars : _} ->
                         FC -> Env Term vars -> Name -> Name -> Term vars -> Error
@@ -191,11 +209,13 @@ data Error : Type where
      CyclicImports : List ModuleIdent -> Error
      ForceNeeded : Error
      InternalError : String -> Error
+     ||| A quote within a depth went deeper; caught by `quoteWithin`
+     ||| alone, and never reported.
+     QuoteTooDeep : Error
      UserError : String -> Error
      ||| Contains list of specifiers for which foreign call cannot be resolved
      NoForeignCC : FC -> List String -> Error
      BadMultiline : FC -> String -> Error
-     Timeout : String -> Error
      FailingDidNotFail : FC -> Error
      FailingWrongError : FC -> String -> List1 Error -> Error
 
@@ -317,8 +337,6 @@ mutual
   showError (AmbiguousName fc ns) = show fc ++ ":Ambiguous name " ++ show ns
   showError (AmbiguousElab fc env ts) = show fc ++ ":Ambiguous elaboration " ++ show (map snd ts)
   showError (AmbiguousSearch fc env tgt ts) = show fc ++ ":Ambiguous search " ++ show ts
-  showError (AmbiguityTooDeep fc n ns)
-      = show fc ++ ":Ambiguity too deep in " ++ show n ++ " " ++ show ns
   showError (AllFailed ts) = "No successful elaboration: " ++ showListOf (showAlts ts)
   showError (RecordTypeNeeded fc env)
       = show fc ++ ":Can't infer type of record to update"
@@ -346,6 +364,9 @@ mutual
   showError (DeterminingArg fc n i env g)
       = show fc ++ ":Can't solve goal " ++ show g ++
                 " since argument " ++ show n ++ " can't be inferred"
+  showError (SearchGrows fc gam _ earlier later hints)
+      = show fc ++ ":Search grows from " ++ show earlier ++ " to " ++ show later ++
+                " through " ++ show hints
   showError (UnsolvedHoles hs) = "Unsolved holes " ++ show hs
   showError (CantInferArgType fc env n h ty)
       = show fc ++ ":Can't infer type for " ++ show n ++
@@ -399,11 +420,11 @@ mutual
       = "Module imports form a cycle: " ++ showSep " -> " (map show ns)
   showError ForceNeeded = "Internal error when resolving implicit laziness"
   showError (InternalError str) = "INTERNAL ERROR: " ++ str
+  showError QuoteTooDeep = "Quote too deep"
   showError (UserError str) = "Error: " ++ str
   showError (NoForeignCC fc specs) = show fc ++
        ":The given specifier " ++ show specs ++ " was not accepted by any available backend."
   showError (BadMultiline fc str) = "Invalid multiline string: " ++ str
-  showError (Timeout str) = "Timeout in " ++ str
 
   showError (FailingDidNotFail _) = "Failing block did not fail"
   showError (FailingWrongError fc msg (err ::: errs))
@@ -474,7 +495,6 @@ getErrorLoc (BorrowPartialType loc _ _) = Just loc
 getErrorLoc (AmbiguousName loc _) = Just loc
 getErrorLoc (AmbiguousElab loc _ _) = Just loc
 getErrorLoc (AmbiguousSearch loc _ _ _) = Just loc
-getErrorLoc (AmbiguityTooDeep loc _ _) = Just loc
 getErrorLoc (AllFailed ((_, x) :: _)) = getErrorLoc x
 getErrorLoc (AllFailed []) = Nothing
 getErrorLoc (RecordTypeNeeded loc _) = Just loc
@@ -487,6 +507,7 @@ getErrorLoc (TryWithImplicits loc _ _) = Just loc
 getErrorLoc (BadUnboundImplicit loc _ _ _) = Just loc
 getErrorLoc (CantSolveGoal loc _ _ _ _) = Just loc
 getErrorLoc (DeterminingArg loc _ _ _ _) = Just loc
+getErrorLoc (SearchGrows loc _ _ _ _ _) = Just loc
 getErrorLoc (UnsolvedHoles ((loc, _) :: _)) = Just loc
 getErrorLoc (UnsolvedHoles []) = Nothing
 getErrorLoc (CantInferArgType loc _ _ _ _) = Just loc
@@ -519,10 +540,10 @@ getErrorLoc (ModuleNotFound loc _) = Just loc
 getErrorLoc (CyclicImports _) = Nothing
 getErrorLoc ForceNeeded = Nothing
 getErrorLoc (InternalError _) = Nothing
+getErrorLoc QuoteTooDeep = Nothing
 getErrorLoc (UserError _) = Nothing
 getErrorLoc (NoForeignCC loc _) = Just loc
 getErrorLoc (BadMultiline loc _) = Just loc
-getErrorLoc (Timeout _) = Nothing
 getErrorLoc (InType _ _ err) = getErrorLoc err
 getErrorLoc (InCon _ err) = getErrorLoc err
 getErrorLoc (FailingDidNotFail loc) = Just loc
@@ -567,7 +588,6 @@ killErrorLoc (BorrowPartialType fc x y) = BorrowPartialType emptyFC x y
 killErrorLoc (AmbiguousName fc xs) = AmbiguousName emptyFC xs
 killErrorLoc (AmbiguousElab fc x xs) = AmbiguousElab emptyFC x xs
 killErrorLoc (AmbiguousSearch fc x y xs) = AmbiguousSearch emptyFC x y xs
-killErrorLoc (AmbiguityTooDeep fc x xs) = AmbiguityTooDeep emptyFC x xs
 killErrorLoc (AllFailed xs) = AllFailed (map (map killErrorLoc) xs)
 killErrorLoc (RecordTypeNeeded fc x) = RecordTypeNeeded emptyFC x
 killErrorLoc (DuplicatedRecordUpdatePath fc xs) = DuplicatedRecordUpdatePath emptyFC xs
@@ -579,6 +599,7 @@ killErrorLoc (TryWithImplicits fc x xs) = TryWithImplicits emptyFC x xs
 killErrorLoc (BadUnboundImplicit fc x y z) = BadUnboundImplicit emptyFC x y z
 killErrorLoc (CantSolveGoal fc x y z w) = CantSolveGoal emptyFC x y z w
 killErrorLoc (DeterminingArg fc x y z w) = DeterminingArg emptyFC x y z w
+killErrorLoc (SearchGrows fc gam g e l hs) = SearchGrows emptyFC gam g e l hs
 killErrorLoc (UnsolvedHoles xs) = UnsolvedHoles xs
 killErrorLoc (CantInferArgType fc x y z w) = CantInferArgType emptyFC x y z w
 killErrorLoc (SolvedNamedHole fc x y z) = SolvedNamedHole emptyFC x y z
@@ -610,10 +631,10 @@ killErrorLoc (ModuleNotFound fc x) = ModuleNotFound emptyFC x
 killErrorLoc (CyclicImports xs) = CyclicImports xs
 killErrorLoc ForceNeeded = ForceNeeded
 killErrorLoc (InternalError x) = InternalError x
+killErrorLoc QuoteTooDeep = QuoteTooDeep
 killErrorLoc (UserError x) = UserError x
 killErrorLoc (NoForeignCC fc xs) = NoForeignCC emptyFC xs
 killErrorLoc (BadMultiline fc x) = BadMultiline emptyFC x
-killErrorLoc (Timeout x) = Timeout x
 killErrorLoc (FailingDidNotFail fc) = FailingDidNotFail emptyFC
 killErrorLoc (FailingWrongError fc x errs) = FailingWrongError emptyFC x (map killErrorLoc errs)
 killErrorLoc (InType fc x err) = InType emptyFC x (killErrorLoc err)

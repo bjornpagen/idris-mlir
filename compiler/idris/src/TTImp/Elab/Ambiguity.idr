@@ -323,29 +323,12 @@ pruneByType env target alts
             then pure alts -- if none of them work, better to show all the errors
             else pure res
 
-checkAmbigDepth : {auto c : Ref Ctxt Defs} ->
-                  {auto e : Ref EST (EState vars)} ->
-                  FC -> ElabInfo -> Core ()
-checkAmbigDepth fc info
-    = do max <- getAmbigLimit
-         let ambs = ambigTries info
-         when (length ambs > max) $
-           do est <- get EST
-              throw (AmbiguityTooDeep fc (Resolved (defining est)) ambs)
-
 getName : RawImp -> Maybe Name
 getName (IVar _ n) = Just n
 getName (IApp _ f _) = getName f
 getName (INamedApp _ f _ _) = getName f
 getName (IAutoApp _ f _) = getName f
 getName _ = Nothing
-
-export
-addAmbig : List alts -> Maybe Name -> ElabInfo -> ElabInfo
-addAmbig _ Nothing = id
-addAmbig [] _ = id
-addAmbig [_] _ = id
-addAmbig _ (Just n) = { ambigTries $= (n ::) }
 
 -- The elaborators of an ambiguous application, with a default and without,
 -- given the cell of delayed elaborators and the expected type, which a
@@ -383,16 +366,16 @@ checkDefaultDelayed rig elabinfo nest env fc def alts solvemode delayed expected
                    (exactlyOne' False fc env
                        (map (\t =>
                           (getName t,
-                           checkImp rig (addAmbig alts' (getName t) elabinfo)
+                           checkImp rig elabinfo
                                     nest env t
                                     (Just expected))) alts'))
                    (do log "elab.ambiguous" 5 "All failed, running default"
-                       checkImp rig (addAmbig alts' (getName def) elabinfo)
+                       checkImp rig elabinfo
                                     nest env def (Just expected))
             else exactlyOne' True fc env
                   (map (\t =>
                     (getName t,
-                     checkImp rig (addAmbig alts' (getName t) elabinfo)
+                     checkImp rig elabinfo
                               nest env t (Just expected)))
                      alts')
 
@@ -426,7 +409,7 @@ checkAlternativeDelayed rig elabinfo nest env fc uniq alts solvemode delayed exp
                            _ => exactlyOne' (not delayed) fc env
          tryall (map (\t =>
              (getName t,
-              do res <- checkImp rig (addAmbig alts' (getName t) elabinfo)
+              do res <- checkImp rig elabinfo
                                  nest env t (Just expected)
                  -- Do it twice for interface resolution;
                  -- first pass gets the determining argument
@@ -452,8 +435,7 @@ checkAlternative : {vars : _} ->
                    FC -> AltType -> List RawImp -> Maybe (Glued vars) ->
                    Core (Term vars, Glued vars)
 checkAlternative rig elabinfo nest env fc (UniqueDefault def) alts mexpected
-    = do checkAmbigDepth fc elabinfo
-         expected <- maybe (do nm <- genName "altTy"
+    = do expected <- maybe (do nm <- genName "altTy"
                                u <- uniVar fc
                                ty <- metaVar fc erased env nm (TType fc u)
                                pure (gnf env ty))
@@ -465,8 +447,7 @@ checkAlternative rig elabinfo nest env fc (UniqueDefault def) alts mexpected
              \dl, delayed, exp =>
                checkDefaultDelayed {dl} rig elabinfo nest env fc def alts solvemode delayed exp
 checkAlternative rig elabinfo nest env fc uniq alts mexpected
-    = do checkAmbigDepth fc elabinfo
-         alts' <- maybe (Core.pure [])
+    = do alts' <- maybe (Core.pure [])
                         (\exp => pruneByType env !(getNF exp) alts) mexpected
          case alts' of
            [alt] => checkImp rig elabinfo nest env alt mexpected

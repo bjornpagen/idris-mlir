@@ -102,8 +102,6 @@ record ElabDirectives where
   lazyActive : Bool
   unboundImplicits : Bool
   totality : TotalReq
-  ambigLimit : Nat
-  autoImplicitLimit : Nat
   nfThreshold : Nat
   --
   -- produce traditional (prefix) record projections,
@@ -137,8 +135,6 @@ record Session where
   nobanner : Bool
   findipkg : Bool
   directives : List String
-  searchTimeout : Integer -- maximum number of milliseconds to run
-                          -- expression/program search
   ignoreMissingPkg : Bool -- fail silently on missing packages. This is because
           -- while we're bootstrapping, we find modules by a different route
           -- but we still want to have the dependencies listed properly
@@ -148,16 +144,12 @@ record Session where
                     -- any logging is enabled.
   logLevel : LogLevels
   logTimings : Maybe Nat -- log level, higher means more details
-  debugElabCheck : Bool -- do conversion check to verify results of elaborator
   logErrorCount : Nat -- when parsing alternatives fails, how many errors
                       -- should be shown.
 
   -- Warnings
   warningsAsErrors : Bool
   showShadowingWarning : Bool
-
-  -- Experimental
-  caseTreeHeuristics : Bool -- apply heuristics to pick matches for case tree building
 
 public export
 record PPrinter where
@@ -179,8 +171,6 @@ record Options where
   primnames : PrimNames
   extensions : List LangExt
   additionalCGs : List (String, CG)
-  -- fullName and definition for %foreign_impl
-  foreignImpl : List (Name, String)
 
 export
 availableCGs : Options -> List (String, CG)
@@ -213,20 +203,19 @@ docsPPrint = MkPPOpts
 
 export
 defaultSession : Session
-defaultSession = MkSessionOpts False CoveringOnly False False [] 1000 False False
-                               defaultLogLevel Nothing False 1 False True
-                               False
+defaultSession = MkSessionOpts False CoveringOnly False False [] False False
+                               defaultLogLevel Nothing 1 False True
 
 export
 defaultElab : ElabDirectives
-defaultElab = MkElabDirectives True True CoveringOnly 3 50 25 True
+defaultElab = MkElabDirectives True True CoveringOnly 25 True
 
 export
 defaults : Core Options
 defaults
     = pure $ MkOptions
         defaultDirs defaultPPrint defaultSession defaultElab Nothing Nothing
-        (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing) [] [] []
+        (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing) [] []
 
 -- Reset the options which are set by source files
 export
@@ -234,13 +223,8 @@ clearNames : Options -> Options
 clearNames = { pairnames := Nothing,
                rewritenames := Nothing,
                primnames := MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing,
-               foreignImpl := [],
                extensions := []
              }
-
-export
-addForeignImpl : (fullName : Name) -> (def : String) -> Options -> Options
-addForeignImpl fullName def = { foreignImpl $= ((fullName, def) ::) }
 
 export
 setPair : (pairType : Name) -> (fstn : Name) -> (sndn : Name) ->

@@ -66,16 +66,17 @@ EmptyRule : Type -> Type
 EmptyRule = BRule False
 
 export
-actD : ASemanticDecoration -> EmptyRule ()
-actD s = act (MkState [<s] [])
+actD : List ASemanticDecoration -> EmptyRule ()
+actD s = act (MkState (cast s) [])
 
 export
 actH : String -> EmptyRule ()
 actH s = act (MkState [<] [s])
 
+||| A magic debug directive, with where it is written.
 export
-debugInfo : Rule DebugInfo
-debugInfo = terminal "Expected a magic debug info directive" $ \case
+debugInfo : Rule (DebugInfo, Bounds)
+debugInfo = terminalAt "Expected a magic debug info directive" $ \case
   MagicDebugInfo di => Just di
   _ => Nothing
 
@@ -105,10 +106,13 @@ documentation' = terminal "Expected documentation comment" $
                             DocComment d => Just d
                             _ => Nothing
 
+-- A value parsed from no input decorates nothing.
 export
-decorationFromBounded : {0 a : Type} -> OriginDesc -> Decoration -> WithBounds a -> ASemanticDecoration
+decorationFromBounded : {0 a : Type} -> OriginDesc -> Decoration -> WithBounds a -> List ASemanticDecoration
 decorationFromBounded fname decor bnds
-   = ((fname, start bnds, end bnds), decor, Nothing)
+   = case bnds.bounds of
+          Just bs => [((fname, startBounds bs, endBounds bs), decor, Nothing)]
+          Nothing => []
 
 documentation : OriginDesc -> Rule String
 documentation fname
@@ -431,7 +435,7 @@ fixityNS = do
   symbol ")"
   pure (HideFixity fx (NS (uncurry mkNestedNamespace nsVal) $ UN $ Basic n))
   where
-    checkFixity : String -> Bounds -> EmptyRule Fixity
+    checkFixity : String -> Maybe Bounds -> EmptyRule Fixity
     checkFixity "infixl" _ = pure InfixL
     checkFixity "infixr" _ = pure InfixR
     checkFixity "infix"  _ = pure Infix

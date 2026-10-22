@@ -152,9 +152,13 @@ endCol = snd . endPos
 ------------------------------------------------------------------------
 -- Smart constructors
 
+-- A value parsed from no input is nowhere.
 export
 boundToFC : OriginDesc -> WithBounds t -> FC
-boundToFC mbModIdent b = MkFC mbModIdent (start b) (end b)
+boundToFC mbModIdent b
+    = case b.bounds of
+           Just bs => MkFC mbModIdent (startBounds bs) (endBounds bs)
+           Nothing => EmptyFC
 
 export
 (.toFC) : (o : OriginDesc) => WithBounds t -> FC

@@ -299,9 +299,6 @@ parameters (defs : Defs) (topopts : EvalOpts)
              folded <- if evalTypes topopts && not (evalAll topopts) && (redok1 || redok2)
                           then implementationDef res else pure False
              let redok = (redok1 || redok2) && not folded
-             checkTimer -- If we're going to time out anywhere, it'll be
-                        -- when evaluating something recursive, so this is a
-                        -- good place to check
              unless redok2 $ logC "eval.stuck" 5 $ do n' <- toFullNames n
                                                       pure $ "Stuck function: \{show n'}"
              if redok

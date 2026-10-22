@@ -110,10 +110,10 @@ decodeName n (Access rec)
              6 => do x <- fromBuf
                      y <- decodeName m (rec m lt)
                      pure (Nested x y)
-             7 => do x <- fromBuf
+             7 => do x <- decodeName m (rec m lt)
                      y <- fromBuf
                      pure (CaseBlock x y)
-             8 => do x <- fromBuf
+             8 => do x <- decodeName m (rec m lt)
                      y <- fromBuf
                      pure (WithBlock x y)
              9 => pure (UN Underscore)
@@ -479,7 +479,8 @@ mutual
                         pure (Lam fc c x ty)
                 1 => do c <- fromBuf
                         x <- decodeTerm inner m (rec m lt)
-                        pure (Let fc c x (Erased emptyFC Placeholder))
+                        ty <- decodeTerm inner m (rec m lt)
+                        pure (Let fc c x ty)
                 2 => do c <- fromBuf
                         x <- decodePi inner m (rec m lt)
                         y <- decodeTerm inner m (rec m lt)
@@ -490,9 +491,11 @@ mutual
                         pure (PVar fc c p ty)
                 4 => do c <- fromBuf
                         x <- decodeTerm inner m (rec m lt)
-                        pure (PLet fc c x (Erased emptyFC Placeholder))
+                        ty <- decodeTerm inner m (rec m lt)
+                        pure (PLet fc c x ty)
                 5 => do c <- fromBuf
-                        pure (PVTy fc c (Erased emptyFC Placeholder))
+                        ty <- decodeTerm inner m (rec m lt)
+                        pure (PVTy fc c ty)
                 _ => corrupt "Binder"
 
   -- A list of terms as the list instance writes it: its length, then each
@@ -580,7 +583,13 @@ mutual
                         pure (TForce fc lr tm)
                 9 => do c <- fromBuf
                         pure (PrimVal fc c)
-                10 => pure (Erased fc Placeholder)
+                10 => do why <- getTag
+                         case why of
+                              0 => pure (Erased fc Placeholder)
+                              1 => pure (Erased fc Impossible)
+                              2 => do t <- decodeTerm inner m (rec m lt)
+                                      pure (Erased fc (Dotted t))
+                              _ => corrupt "WhyErased"
                 11 => do u <- fromBuf; pure (TType fc u)
                 12 => do fn <- decodeTerm at m (rec m lt)
                          decodeArgs at fn m (rec m lt)
@@ -609,15 +618,17 @@ mutual
   encodeBinder at (Lam fc c x ty)
       = do tag 0; encodeFC at fc; toBuf c; encodePi (within at fc) x; encodeTerm (within at fc) ty
   encodeBinder at (Let fc c val ty)
-      = do tag 1; encodeFC at fc; toBuf c; encodeTerm (within at fc) val -- ; toBuf ty
+      = do tag 1; encodeFC at fc; toBuf c; encodeTerm (within at fc) val
+           encodeTerm (within at fc) ty
   encodeBinder at (Pi fc c x ty)
       = do tag 2; encodeFC at fc; toBuf c; encodePi (within at fc) x; encodeTerm (within at fc) ty
   encodeBinder at (PVar fc c p ty)
       = do tag 3; encodeFC at fc; toBuf c; encodePi (within at fc) p; encodeTerm (within at fc) ty
   encodeBinder at (PLet fc c val ty)
-      = do tag 4; encodeFC at fc; toBuf c; encodeTerm (within at fc) val -- ; toBuf ty
+      = do tag 4; encodeFC at fc; toBuf c; encodeTerm (within at fc) val
+           encodeTerm (within at fc) ty
   encodeBinder at (PVTy fc c ty)
-      = do tag 5; encodeFC at fc; toBuf c -- ; toBuf ty
+      = do tag 5; encodeFC at fc; toBuf c; encodeTerm (within at fc) ty
 
   -- As the list instance writes a list: its length, then each.
   total
@@ -691,8 +702,12 @@ mutual
   encodeTerm at (PrimVal fc c)
       = do tag 9; encodeFC at fc
            toBuf c
-  encodeTerm at (Erased fc _)
+  encodeTerm at (Erased fc why)
       = do tag 10; encodeFC at fc
+           case why of
+                Placeholder => tag 0
+                Impossible => tag 1
+                Dotted t => do tag 2; encodeTerm (within at fc) t
   encodeTerm at (TType fc u)
       = do tag 11; encodeFC at fc; toBuf u
 
@@ -710,51 +725,95 @@ mutual
 
     fromBuf = do n <- remaining; decodeTerm EmptyFC n (wellFounded n)
 
-export
-TTC Pat where
-  toBuf (PAs fc x y)
-      = do tag 0; toBuf fc; toBuf x; toBuf y
-  toBuf (PCon fc x t arity xs)
-      = do tag 1; toBuf fc; toBuf x; toBuf t; toBuf arity; toBuf xs
-  toBuf (PTyCon fc x arity xs)
-      = do tag 2; toBuf fc; toBuf x; toBuf arity; toBuf xs
-  toBuf (PConst fc c)
+-- A pattern and its parts, decoded within the bytes left to read, as a
+-- term is: a definition keeps its clauses' patterns, and decoding a
+-- definition is total.
+mutual
+  total
+  decodePat : {auto b : Ref Bin Binary} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core Pat
+  decodePat n (Access rec)
+      = do t <- getTag
+           Element m lt <- fewer n
+           case t of
+                0 => do fc <- fromBuf; x <- fromBuf
+                        y <- decodePat m (rec m lt)
+                        pure (PAs fc x y)
+                1 => do fc <- fromBuf; x <- fromBuf
+                        t <- fromBuf; arity <- fromBuf
+                        xs <- decodePats m (rec m lt)
+                        pure (PCon fc x t arity xs)
+                2 => do fc <- fromBuf; x <- fromBuf
+                        arity <- fromBuf
+                        xs <- decodePats m (rec m lt)
+                        pure (PTyCon fc x arity xs)
+                3 => do fc <- fromBuf; c <- fromBuf
+                        pure (PConst fc c)
+                4 => do fc <- fromBuf; x <- fromBuf
+                        s <- decodePat m (rec m lt)
+                        t <- decodePat m (rec m lt)
+                        pure (PArrow fc x s t)
+                5 => do fc <- fromBuf; x <- fromBuf
+                        t <- decodePat m (rec m lt)
+                        y <- decodePat m (rec m lt)
+                        pure (PDelay fc x t y)
+                6 => do fc <- fromBuf; x <- fromBuf
+                        pure (PLoc fc x)
+                7 => do fc <- fromBuf; x <- fromBuf
+                        pure (PUnmatchable fc x)
+                _ => corrupt "Pat"
+
+  -- A list of patterns as the list instance writes it: its length, then
+  -- each, all within the bytes left after the length.
+  total
+  decodePats : {auto b : Ref Bin Binary} -> (n : Nat) -> (0 _ : Accessible LT n) -> Core (List Pat)
+  decodePats n (Access rec)
+      = do len <- fromBuf {a = Int}
+           Element m lt <- fewer n
+           decodePatList [] (integerToNat (cast len)) m (rec m lt)
+
+  total
+  decodePatList : {auto b : Ref Bin Binary} -> List Pat -> (count : Nat) ->
+                  (n : Nat) -> (0 _ : Accessible LT n) -> Core (List Pat)
+  decodePatList ps Z n acc = pure (reverse ps)
+  decodePatList ps (S k) n acc
+      = do p <- decodePat n acc
+           decodePatList (p :: ps) k n acc
+
+-- A pattern and its parts written as the list instance and upstream's
+-- instance wrote them.
+mutual
+  total
+  encodePat : {auto b : Ref Bin Binary} -> Pat -> Core ()
+  encodePat (PAs fc x y)
+      = do tag 0; toBuf fc; toBuf x; encodePat y
+  encodePat (PCon fc x t arity xs)
+      = do tag 1; toBuf fc; toBuf x; toBuf t; toBuf arity; encodePats xs
+  encodePat (PTyCon fc x arity xs)
+      = do tag 2; toBuf fc; toBuf x; toBuf arity; encodePats xs
+  encodePat (PConst fc c)
       = do tag 3; toBuf fc; toBuf c
-  toBuf (PArrow fc x s t)
-      = do tag 4; toBuf fc; toBuf x; toBuf s; toBuf t
-  toBuf (PDelay fc x t y)
-      = do tag 5; toBuf fc; toBuf x; toBuf t; toBuf y
-  toBuf (PLoc fc x)
+  encodePat (PArrow fc x s t)
+      = do tag 4; toBuf fc; toBuf x; encodePat s; encodePat t
+  encodePat (PDelay fc x t y)
+      = do tag 5; toBuf fc; toBuf x; encodePat t; encodePat y
+  encodePat (PLoc fc x)
       = do tag 6; toBuf fc; toBuf x
-  toBuf (PUnmatchable fc x)
+  encodePat (PUnmatchable fc x)
       = do tag 7; toBuf fc; toBuf x
 
-  fromBuf
-      = case !getTag of
-             0 => do fc <- fromBuf; x <- fromBuf;
-                     y <- fromBuf
-                     pure (PAs fc x y)
-             1 => do fc <- fromBuf; x <- fromBuf
-                     t <- fromBuf; arity <- fromBuf
-                     xs <- fromBuf
-                     pure (PCon fc x t arity xs)
-             2 => do fc <- fromBuf; x <- fromBuf
-                     arity <- fromBuf
-                     xs <- fromBuf
-                     pure (PTyCon fc x arity xs)
-             3 => do fc <- fromBuf; c <- fromBuf
-                     pure (PConst fc c)
-             4 => do fc <- fromBuf; x <- fromBuf
-                     s <- fromBuf; t <- fromBuf
-                     pure (PArrow fc x s t)
-             5 => do fc <- fromBuf; x <- fromBuf;
-                     t <- fromBuf; y <- fromBuf
-                     pure (PDelay fc x t y)
-             6 => do fc <- fromBuf; x <- fromBuf
-                     pure (PLoc fc x)
-             7 => do fc <- fromBuf; x <- fromBuf
-                     pure (PUnmatchable fc x)
-             _ => corrupt "Pat"
+  total
+  encodePats : {auto b : Ref Bin Binary} -> List Pat -> Core ()
+  encodePats ps = do toBuf (the Int (cast (length ps))); encodeEachPat ps
+
+  total
+  encodeEachPat : {auto b : Ref Bin Binary} -> List Pat -> Core ()
+  encodeEachPat [] = pure ()
+  encodeEachPat (p :: ps) = do encodePat p; encodeEachPat ps
+
+export
+TTC Pat where
+  toBuf = encodePat
+  fromBuf = do n <- remaining; decodePat n (wellFounded n)
 
 -- A case tree and its alternatives, each as its instance below writes it.
 mutual
@@ -766,15 +825,17 @@ mutual
            Element m lt <- fewer n
            case t of
                 0 => do name <- fromBuf; idx <- fromBuf
+                        scTy <- decodeTerm EmptyFC m (rec m lt)
                         xs <- decodeAlts m (rec m lt)
                         -- the name stored is the scope's at that index
                         let Just (Element name' p) = isVarAt idx vars
                             | Nothing => corrupt "CaseTree"
                         let True = name == name'
                             | False => corrupt "CaseTree"
-                        pure (Case {name = name'} idx p (Erased emptyFC Placeholder) xs)
-                1 => do x <- decodeTerm EmptyFC m (rec m lt)
-                        pure (STerm 0 x)
+                        pure (Case {name = name'} idx p scTy xs)
+                1 => do i <- fromBuf
+                        x <- decodeTerm EmptyFC m (rec m lt)
+                        pure (STerm i x)
                 2 => do msg <- fromBuf
                         pure (Unmatched msg)
                 3 => pure Impossible
@@ -828,9 +889,9 @@ mutual
   total
   encodeTree : {auto b : Ref Bin Binary} -> CaseTree vars -> Core ()
   encodeTree (Case {name} idx x scTy xs)
-      = do tag 0; toBuf name; toBuf idx; encodeAlts xs
-  encodeTree (STerm _ x)
-      = do tag 1; encodeTerm EmptyFC x
+      = do tag 0; toBuf name; toBuf idx; encodeTerm EmptyFC scTy; encodeAlts xs
+  encodeTree (STerm i x)
+      = do tag 1; toBuf i; encodeTerm EmptyFC x
   encodeTree (Unmatched msg)
       = do tag 2; toBuf msg
   encodeTree Impossible = tag 3
@@ -1174,8 +1235,8 @@ TTC TypeFlags where
 export
 TTC Def where
   toBuf None = tag 0
-  toBuf (PMDef pi args ct rt pats)
-      = do tag 1; toBuf pi; toBuf args; toBuf ct; toBuf pats
+  toBuf (PMDef pi args ct cps pats)
+      = do tag 1; toBuf pi; toBuf args; toBuf ct; toBuf cps; toBuf pats
   toBuf (ExternDef a)
       = do tag 2; toBuf a
   toBuf (ForeignDef a cs)
@@ -1189,8 +1250,8 @@ TTC Def where
            toBuf dets
   toBuf (Hole locs p)
       = do tag 6; toBuf locs; toBuf (implbind p)
-  toBuf (BySearch c depth def)
-      = do tag 7; toBuf c; toBuf depth; toBuf def
+  toBuf (BySearch c def)
+      = do tag 7; toBuf c; toBuf def
   toBuf (Guess guess envb constraints)
       = do tag 8; toBuf guess; toBuf envb; toBuf constraints
   toBuf ImpBind = tag 9
@@ -1203,8 +1264,9 @@ TTC Def where
              1 => do pi <- fromBuf
                      args <- fromBuf
                      ct <- fromBuf
+                     cps <- fromBuf
                      pats <- fromBuf
-                     pure (PMDef pi args ct (Unmatched "") pats)
+                     pure (PMDef pi args ct cps pats)
              2 => do a <- fromBuf
                      pure (ExternDef a)
              3 => do a <- fromBuf
@@ -1221,9 +1283,9 @@ TTC Def where
              6 => do l <- fromBuf
                      p <- fromBuf
                      pure (Hole l (holeInit p))
-             7 => do c <- fromBuf; depth <- fromBuf
+             7 => do c <- fromBuf
                      def <- fromBuf
-                     pure (BySearch c depth def)
+                     pure (BySearch c def)
              8 => do g <- fromBuf; envb <- fromBuf; cs <- fromBuf
                      pure (Guess g envb cs)
              9 => pure ImpBind
@@ -1266,7 +1328,6 @@ TTC DefFlag where
   toBuf (SetTotal x) = do tag 6; toBuf x
   toBuf BlockedHint = tag 7
   toBuf Macro = tag 8
-  toBuf (PartialEval x) = tag 9 -- names not useful any more
   toBuf AllGuarded = tag 10
   toBuf (ConType ci) = do tag 11; toBuf ci
   toBuf (Identity x) = do tag 12; toBuf x
@@ -1280,7 +1341,6 @@ TTC DefFlag where
              6 => do x <- fromBuf; pure (SetTotal x)
              7 => pure BlockedHint
              8 => pure Macro
-             9 => pure (PartialEval [])
              10 => pure AllGuarded
              11 => do ci <- fromBuf; pure (ConType ci)
              12 => do x <- fromBuf; pure (Identity x)
@@ -1315,8 +1375,7 @@ TTC GlobalDef where
   toBuf gdef
       = -- Only write full details for user specified names. The others will
         -- be holes where all we will ever need after loading is the definition
-        do toBuf (map NameMap.toList (refersToRuntimeM gdef))
-           toBuf (location gdef)
+        do toBuf (location gdef)
            toBuf (multiplicity gdef)
            toBuf (fullname gdef)
            toBuf (map NameMap.toList (refersToM gdef))
@@ -1337,9 +1396,7 @@ TTC GlobalDef where
                  toBuf (sizeChange gdef)
 
   fromBuf
-      = do refsRList <- fromBuf
-           let refsR = map fromList refsRList
-           loc <- fromBuf
+      = do loc <- fromBuf
            mul <- fromBuf
            name <- fromBuf
            refsList <- fromBuf
@@ -1358,9 +1415,9 @@ TTC GlobalDef where
                       sc <- fromBuf
                       pure (MkGlobalDef loc name ty eargs seargs specargs iargs
                                         mul vars vis
-                                        tot hatch fl refs refsR inv c True def sc)
+                                        tot hatch fl refs inv c True def sc)
               else pure (MkGlobalDef loc name (Erased loc Placeholder) NatSet.empty NatSet.empty NatSet.empty NatSet.empty
-                                     mul Scope.empty (specified Public) unchecked False [] refs refsR
+                                     mul Scope.empty (specified Public) unchecked False [] refs
                                      False False True def [])
 
 export

@@ -219,9 +219,9 @@ mutual
                 Name -> Name ->
                 List (Closure vars) -> List (Closure vars) -> Core Bool
   chkSameDefs q i defs env n n' nargs nargs'
-     = do Just (PMDef _ args ct rt _) <- lookupDefExact n (gamma defs)
+     = do Just (PMDef _ args ct _ _) <- lookupDefExact n (gamma defs)
                | _ => pure False
-          Just (PMDef _ args' ct' rt' _) <- lookupDefExact n' (gamma defs)
+          Just (PMDef _ args' ct' _ _) <- lookupDefExact n' (gamma defs)
                | _ => pure False
 
           -- If the two case blocks match in structure, get which variables

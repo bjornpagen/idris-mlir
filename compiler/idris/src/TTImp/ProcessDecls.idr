@@ -16,7 +16,6 @@ import Parser.Source
 
 import TTImp.BindImplicits
 import TTImp.Elab.Check
-import TTImp.Parser
 import TTImp.ProcessBuiltin
 import TTImp.ProcessData
 import TTImp.ProcessDef
@@ -194,29 +193,3 @@ processTTImpDecls {vars} nest env decls
         = do d' <- bindDataNames d
              pure (IData fc vis mbtot d')
     bindNames d = pure d
-
-export
-processTTImpFile : {auto c : Ref Ctxt Defs} ->
-                   {auto m : Ref MD Metadata} ->
-                   {auto u : Ref UST UState} ->
-                   {auto dl : Ref DLY DelayedElabs} ->
-                   {auto s : Ref Syn SyntaxInfo} ->
-                   {auto o : Ref ROpts REPLOpts} ->
-                   String -> Core Bool
-processTTImpFile fname
-    = do modIdent <- ctxtPathToNS fname
-         Right (ws, decor, tti) <- logTime 0 "Parsing" $
-                            coreLift $ parseFile fname (PhysicalIdrSrc modIdent)
-                            (do decls <- prog (PhysicalIdrSrc modIdent)
-                                eoi
-                                pure decls)
-               | Left err => do coreLift (putStrLn (show err))
-                                pure False
-         traverse_ recordWarning ws
-         logTime 0 "Elaboration" $
-            catch (do processTTImpDecls (MkNested []) Env.empty tti
-                      Nothing <- checkDelayedHoles
-                          | Just err => throw err
-                      pure True)
-                  (\err => do coreLift_ (printLn err)
-                              pure False)

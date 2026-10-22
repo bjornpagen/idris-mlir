@@ -227,7 +227,7 @@ mutual
            let mkn = nameRoot n
            def <- lookupDefExact (Resolved i) (gamma defs)
            let term = case def of
-                              (Just (BySearch _ d _)) => ISearch fc d
+                              (Just (BySearch {})) => ISearch fc
                               _ => IHole fc mkn
            Just ty <- lookupTyExact (Resolved i) (gamma defs)
                | Nothing => case umode of

@@ -94,7 +94,7 @@ mutual
        INamedApp : FC -> RawImp' nm -> Name -> RawImp' nm -> RawImp' nm
        IWithApp : FC -> RawImp' nm -> RawImp' nm -> RawImp' nm
 
-       ISearch : FC -> (depth : Nat) -> RawImp' nm
+       ISearch : FC -> RawImp' nm
        IAlternative : FC -> AltType' nm -> List (RawImp' nm) -> RawImp' nm
        IRewrite : FC -> RawImp' nm -> RawImp' nm -> RawImp' nm
        ICoerced : FC -> RawImp' nm -> RawImp' nm
@@ -188,7 +188,7 @@ mutual
          = "(" ++ show f ++ " [" ++ show a ++ "])"
       show (IWithApp fc f a)
          = "(" ++ show f ++ " | " ++ show a ++ ")"
-      show (ISearch fc d)
+      show (ISearch fc)
          = "%search"
       show (IAlternative fc ty alts)
          = "(|" ++ showSep "," (map show alts) ++ "|)"
@@ -506,18 +506,13 @@ mutual
                               (implName : Name) ->
                               (nusing : List Name) ->
                               Maybe (List ImpDecl) -> Pragma
-       -- The foreign calls, desugared
-       ForeignImplPragma : Name -> List RawImp -> Pragma
        HideNamePragma : Name -> Pragma
        HideFixityPragma : Fixity -> Name -> Pragma
        UnhidePragma : Name -> Pragma
        LazyPragma : Bool -> Pragma
        UnboundImplicitsPragma : Bool -> Pragma
        PrefixRecordProjectionsPragma : Bool -> Pragma
-       AmbigDepthPragma : Nat -> Pragma
-       AutoImplicitDepthPragma : Nat -> Pragma
        NFMetavarThresholdPragma : Nat -> Pragma
-       SearchTimeoutPragma : Integer -> Pragma
        PairNamesPragma : Name -> Name -> Name -> Pragma
        RewriteNamePragma : Name -> Name -> Pragma
        PrimIntegerPragma : Name -> Pragma
@@ -941,7 +936,7 @@ getFC (IApp x _ _) = x
 getFC (INamedApp x _ _ _) = x
 getFC (IAutoApp x _ _) = x
 getFC (IWithApp x _ _) = x
-getFC (ISearch x _) = x
+getFC (ISearch x) = x
 getFC (IAlternative x _ _) = x
 getFC (IRewrite x _ _) = x
 getFC (ICoerced x _) = x

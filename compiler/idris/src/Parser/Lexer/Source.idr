@@ -369,14 +369,14 @@ export
 lexTo : Lexer ->
         String ->
         Either (StopReason, Int, Int, String)
-               ( List (WithBounds ())     -- bounds of comments
-               , List (WithBounds Token)) -- tokens
+               ( List (Located ())     -- bounds of comments
+               , List (Located Token)) -- tokens
 lexTo reject str
     = case lexTo reject rawTokens str of
            (toks, (EndInput, l, c, _)) =>
              -- Add the EndInput token so that we'll have a line and column
              -- number to read when storing spans in the file
-             let end = [MkBounded EndInput False (MkBounds l c l c)] in
+             let end = [MkLocated EndInput (MkBounds l c l c)] in
              Right $ map (++ end)
                    $ partitionEithers
                    $ map spotComment
@@ -384,13 +384,13 @@ lexTo reject str
            (_, fail) => Left fail
     where
 
-      isNotSpace : WithBounds Token -> Bool
+      isNotSpace : Located Token -> Bool
       isNotSpace t = case t.val of
         Space => False
         _ => True
 
-      spotComment : WithBounds Token ->
-                    Either (WithBounds ()) (WithBounds Token)
+      spotComment : Located Token ->
+                    Either (Located ()) (Located Token)
       spotComment t = case t.val of
         Comment => Left (() <$ t)
         _ => Right t
@@ -398,6 +398,6 @@ lexTo reject str
 export
 lex : String ->
       Either (StopReason, Int, Int, String)
-             ( List (WithBounds ())     -- bounds of comments
-             , List (WithBounds Token)) -- tokens
+             ( List (Located ())     -- bounds of comments
+             , List (Located Token)) -- tokens
 lex = lexTo (pred $ const False)

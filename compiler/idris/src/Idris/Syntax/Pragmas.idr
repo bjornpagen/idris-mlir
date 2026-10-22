@@ -14,7 +14,6 @@ data KwPragma
   | KwLogging
   | KwAutoLazy
   | KwUnboundImplicits
-  | KwAmbiguityDepth
   | KwPair
   | KwRewrite
   | KwIntegerLit
@@ -27,9 +26,7 @@ data KwPragma
   | KwLanguage
   | KwDefault
   | KwPrefixRecordProjections
-  | KwAutoImplicitDepth
   | KwNfMetavarThreshold
-  | KwSearchTimeOut
 
 public export
 data LangExt
@@ -81,7 +78,6 @@ pragmaArgs KwUnhide = [AName "nm"]
 pragmaArgs KwLogging = [AnOptionalLoggingTopic, ANat]
 pragmaArgs KwAutoLazy = [AnOnOff]
 pragmaArgs KwUnboundImplicits = [AnOnOff]
-pragmaArgs KwAmbiguityDepth = [ANat]
 pragmaArgs KwPair = [APairArg]
 pragmaArgs KwRewrite = [ARewriteArg]
 pragmaArgs KwIntegerLit = [AName "nm"]
@@ -94,9 +90,7 @@ pragmaArgs KwAllowOverloads = [AName "nm"]
 pragmaArgs KwLanguage = [ALangExt]
 pragmaArgs KwDefault = [ATotalityLevel]
 pragmaArgs KwPrefixRecordProjections = [AnOnOff]
-pragmaArgs KwAutoImplicitDepth = [ANat]
 pragmaArgs KwNfMetavarThreshold = [ANat]
-pragmaArgs KwSearchTimeOut = [ANat]
 
 export
 Show KwPragma where
@@ -107,7 +101,6 @@ Show KwPragma where
     KwLogging => "%logging"
     KwAutoLazy => "%auto_lazy"
     KwUnboundImplicits => "%unbound_implicits"
-    KwAmbiguityDepth => "%ambiguity_depth"
     KwPair => "%pair"
     KwRewrite => "%rewrite"
     KwIntegerLit => "%integerLit"
@@ -120,9 +113,7 @@ Show KwPragma where
     KwLanguage => "%language"
     KwDefault => "%default"
     KwPrefixRecordProjections => "%prefix_record_projections"
-    KwAutoImplicitDepth => "%auto_implicit_depth"
     KwNfMetavarThreshold => "%nf_metavar_threshold"
-    KwSearchTimeOut => "%search_timeout"
 
 export
 allPragmas : List KwPragma
@@ -133,7 +124,6 @@ allPragmas =
   , KwLogging
   , KwAutoLazy
   , KwUnboundImplicits
-  , KwAmbiguityDepth
   , KwPair
   , KwRewrite
   , KwIntegerLit
@@ -146,9 +136,7 @@ allPragmas =
   , KwLanguage
   , KwDefault
   , KwPrefixRecordProjections
-  , KwAutoImplicitDepth
   , KwNfMetavarThreshold
-  , KwSearchTimeOut
   ]
 
 export

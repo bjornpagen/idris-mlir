@@ -2,8 +2,6 @@
 -- Copyright (c) 2020 Edwin Brady
 module Libraries.Utils.Path
 
-import Idris.Env
-
 import Data.List
 import Data.List1
 import Data.Maybe
@@ -13,39 +11,19 @@ import Libraries.Utils.String
 
 import Libraries.Data.String.Extra
 
-import System.Info
-import System.File
-
 %default total
 
 export infixl 5 </>, />
 export infixr 7 <.>
 export infixr 7 <..>
 
-
-||| The character that separates directories in the path.
-export
-dirSeparator : Char
-dirSeparator = if isWindows then '\\' else '/'
-
-||| The character that separates multiple paths.
-export
-pathSeparator : Char
-pathSeparator = if isWindows then ';' else ':'
-
-||| Windows path prefix.
-public export
-data Volume
-  =
-  ||| Windows Uniform Naming Convention, consisting of server name and share
-  ||| directory.
-  |||
-  ||| Example: `\\localhost\share`
-  UNC String String |
-  ||| The drive.
-  |||
-  ||| Example: `C:`
-  Disk Char
+-- Every target this compiler runs on and builds for reads a path with one
+-- grammar: a name is any bytes but '/' and NUL, and '/' alone separates.
+-- Upstream read every path with Windows's grammar too, on every platform,
+-- asking the host's operating system at run time where it differed: a
+-- backslash separated, a leading `x:` was a disk and a ':' or '?' ended the
+-- path, so `/tmp/a:b` was read as `/tmp/a`. Here ':', '?' and '\\' are
+-- ordinary characters of a name.
 
 ||| A single body in path.
 public export
@@ -58,7 +36,7 @@ data Body
   ||| Directory or file.
   Normal String
 
-||| A parsed cross-platform file system path.
+||| A parsed file system path: an optional root and the names after it.
 |||
 ||| Use the function `parse` to constructs a Path from String, and use the
 ||| function `show` to convert in reverse.
@@ -68,20 +46,12 @@ data Body
 public export
 record Path where
     constructor MkPath
-    ||| Windows path prefix (only for Windows).
-    volume : Maybe Volume
     ||| Whether the path contains root.
     hasRoot : Bool
     ||| Path bodies.
     body : List Body
     ||| Whether the path terminates with a separator.
     hasTrailSep : Bool
-
-export
-Eq Volume where
-  (==) (UNC l1 l2) (UNC r1 r2) = l1 == r1 && r1 == r2
-  (==) (Disk l) (Disk r) = l == r
-  (==) _ _ = False
 
 export
 Eq Body where
@@ -92,13 +62,13 @@ Eq Body where
 
 export
 Eq Path where
-  (==) (MkPath l1 l2 l3 _) (MkPath r1 r2 r3 _) =
-    l1 == r1 && l2 == r2 && l3 == r3
+  (==) (MkPath l1 l2 _) (MkPath r1 r2 _) =
+    l1 == r1 && l2 == r2
 
 ||| An empty path, which represents "".
 public export
 emptyPath : Path
-emptyPath = MkPath Nothing False [] False
+emptyPath = MkPath False [] False
 
 --------------------------------------------------------------------------------
 -- Show
@@ -110,23 +80,16 @@ Show Body where
   show ParentDir = ".."
   show (Normal normal) = normal
 
-export
-Show Volume where
-  show (UNC server share) = "\\\\" ++ server ++ "\\" ++ share
-  show (Disk disk) = String.singleton disk ++ ":"
-
-||| Displays the path in the format of this platform.
+||| Displays the path, its names separated by '/'.
 export
 Show Path where
   show path =
     let
-      sep = String.singleton dirSeparator
-      showVol = maybe "" show path.volume
-      showRoot = if path.hasRoot then sep else ""
-      showBody = join sep $ map show path.body
-      showTrail = if path.hasTrailSep then sep else ""
+      showRoot = if path.hasRoot then "/" else ""
+      showBody = join "/" $ map show path.body
+      showTrail = if path.hasTrailSep then "/" else ""
     in
-      showVol ++ showRoot ++ showBody ++ showTrail
+      showRoot ++ showBody ++ showTrail
 
 --------------------------------------------------------------------------------
 -- Parser
@@ -136,9 +99,8 @@ Show Path where
 -- for a module's TTC parses some fifty, so a lexer and a grammar built from
 -- combinators, which upstream used, were a tenth of elaboration.
 
--- A path's tokens: each of the characters '/', '\\', ':' and '?' alone, and
--- each run of the others.
-data PathToken = Punct Char | Text String
+-- A path's tokens: each '/' alone, and each run of the other characters.
+data PathToken = Separator | Text String
 
 lexPath : String -> List PathToken
 lexPath str = lexFrom [] [] (unpack str)
@@ -152,59 +114,40 @@ lexPath str = lexFrom [] [] (unpack str)
     lexFrom : List PathToken -> List Char -> List Char -> List PathToken
     lexFrom acc run [] = reverse (ended run acc)
     lexFrom acc run (c :: cs)
-        = if c == '/' || c == '\\' || c == ':' || c == '?'
-             then lexFrom (Punct c :: ended run acc) [] cs
+        = if c == '/'
+             then lexFrom (Separator :: ended run acc) [] cs
              else lexFrom acc (c :: run) cs
-
--- Both '/' and '\\' separate, regardless of the platform.
-isSeparator : PathToken -> Bool
-isSeparator (Punct c) = c == '/' || c == '\\'
-isSeparator (Text _) = False
-
--- A volume is a disk: a text, whose first character names it, and a colon.
--- Example: C:
--- A UNC share (`\\server\share`) or a verbatim prefix (`\\?\`) is not one,
--- but separators and names, as Idris has always read them: upstream's
--- grammar for them asked for `count (exactly 2)` backslashes, which never
--- succeeds.
-parseVolume : List PathToken -> (Maybe Volume, List PathToken)
-parseVolume (Text text :: Punct ':' :: rest)
-    = case strUncons text of
-           Just (disk, _) => (Just (Disk (toUpper disk)), rest)
-           Nothing => (Nothing, Text text :: Punct ':' :: rest)
-parseVolume ts = (Nothing, ts)
 
 parseBody : String -> Body
 parseBody ".." = ParentDir
 parseBody "." = CurDir
 parseBody normal = Normal normal
 
--- The names that follow the root, up to the first ':' or '?', where the
--- path ends (what follows is ignored); each run of separators between two
--- names is one separator. With whether separators follow the last name.
+-- The names that follow the root, each run of separators between two names
+-- one separator. With whether separators follow the last name.
 parseBodies : List PathToken -> (List Body, Bool)
 parseBodies = bodiesFrom [] False
   where
     bodiesFrom : List Body -> (trailSep : Bool) -> List PathToken -> (List Body, Bool)
     bodiesFrom acc trailSep (Text text :: ts) = bodiesFrom (parseBody text :: acc) False ts
-    bodiesFrom acc trailSep (t :: ts)
-        = if isSeparator t
-             then bodiesFrom acc True ts
-             else (reverse acc, trailSep)
+    bodiesFrom acc trailSep (Separator :: ts) = bodiesFrom acc True ts
     bodiesFrom acc trailSep [] = (reverse acc, trailSep)
+
+-- Whether the path starts at the root, and the tokens after its leading
+-- separators.
+parseRoot : List PathToken -> (Bool, List PathToken)
+parseRoot (Separator :: ts) = (True, dropSeparators ts)
+  where
+    dropSeparators : List PathToken -> List PathToken
+    dropSeparators (Separator :: rest) = dropSeparators rest
+    dropSeparators rest = rest
+parseRoot ts = (False, ts)
 
 ||| Parses a String into Path.
 |||
-||| The string is parsed as much as possible from left to right, and the invalid
-||| parts on the right is ignored.
-|||
-||| Some kind of invalid paths are accepted. The relax rules:
-|||
-||| - Both slash('/') and backslash('\\') are parsed as valid directory separator,
-|||   regardless of the platform;
-||| - Any characters in the body in allowed, e.g., glob like "/root/*";
-||| - A UNC share (`\\server\share`) or a verbatim prefix (`\\?\`) is not a
-|||   volume: its backslashes are a root, and the names after it its body.
+||| - Only '/' separates; every other character, ':', '?' and '\\' among
+|||   them, is part of a name, and any characters in a name are allowed,
+|||   e.g., glob like "/root/*";
 ||| - Repeated separators are ignored, therefore, "a/b" and "a//b" both have "a"
 |||   and "b" as bodies.
 ||| - "." in the body are removed, unless they are at the beginning of the path.
@@ -212,63 +155,41 @@ parseBodies = bodiesFrom [] False
 |||   bodies, and "./a/b" will starts with `CurDir`.
 |||
 ||| ```idris example
-||| parse "C:\\Windows/System32"
 ||| parse "/usr/local/etc/*"
 ||| ```
 export
 parse : String -> Path
 parse str =
-  let (vol, ts) = parseVolume (lexPath str)
-      root = case ts of
-               (t :: _) => isSeparator t
-               [] => False
-      -- after the root, the names: separators cannot come first
-      (body, trailSep) = parseBodies (dropWhile isSeparator ts)
+  let (root, ts) = parseRoot (lexPath str)
+      (body, trailSep) = parseBodies ts
       body = filter (\case Normal s => trimStart s /= ""; _ => True) body
       body = case body of
                [] => []
                (x::xs) => x :: delete CurDir xs
-  in MkPath vol root body trailSep
+  in MkPath root body trailSep
 
 --------------------------------------------------------------------------------
 -- Utils
 --------------------------------------------------------------------------------
 
-isAbsolute' : Path -> Bool
-isAbsolute' path =
-  if isWindows then
-    case path.volume of
-      Just (UNC {})  => True
-      Just (Disk {}) => path.hasRoot
-      Nothing => False
-  else
-    path.hasRoot
-
 append' : (left : Path) -> (right : Path) -> Path
 append' left right =
-  if isAbsolute' right || isJust right.volume then
+  if right.hasRoot then
     right
-  else if hasRoot right then
-    { volume := left.volume } right
   else
     { body := left.body ++ right.body, hasTrailSep := right.hasTrailSep } left
 
 splitPath' : Path -> List Path
 splitPath' path =
-  case splitRoot path of
-    (Just root, other) => root :: iterateBody (path.body) (path.hasTrailSep)
-    (Nothing, other) => iterateBody (path.body) (path.hasTrailSep)
+  if path.hasRoot
+     then MkPath True [] False :: iterateBody (path.body) (path.hasTrailSep)
+     else iterateBody (path.body) (path.hasTrailSep)
   where
-    splitRoot : Path -> (Maybe Path, Path)
-    splitRoot path@(MkPath Nothing False _ _) = (Nothing, path)
-    splitRoot (MkPath vol root xs trailSep) =
-      (Just $ MkPath vol root [] False, MkPath Nothing False xs trailSep)
-
     iterateBody : List Body -> (trailSep : Bool) -> List Path
     iterateBody [] _ = []
-    iterateBody [x] trailSep = [MkPath Nothing False [x] trailSep]
+    iterateBody [x] trailSep = [MkPath False [x] trailSep]
     iterateBody (x::y::xs) trailSep =
-      (MkPath Nothing False [x] False) :: iterateBody (y::xs) trailSep
+      (MkPath False [x] False) :: iterateBody (y::xs) trailSep
 
 splitParent' : Path -> Maybe (Path, Path)
 splitParent' path =
@@ -277,7 +198,7 @@ splitParent' path =
     (x::xs) =>
       let
         parent = { body := init (x::xs), hasTrailSep := False } path
-        child = MkPath Nothing False [last (x::xs)] path.hasTrailSep
+        child = MkPath False [last (x::xs)] path.hasTrailSep
       in
         Just (parent, child)
 
@@ -326,17 +247,10 @@ splitExtensions name = case map pack $ split (== '.') (unpack name) of
 -- Methods
 --------------------------------------------------------------------------------
 
-||| Returns true if the path is absolute.
-|||
-||| - On Unix, a path is absolute if it starts with the root, so `isAbsolute` and
-|||   `hasRoot` are equivalent.
-|||
-||| - On Windows, a path is absolute if it starts with a disk and has root or
-|||   starts with UNC. For example, `c:\\windows` is absolute, while `c:temp`
-|||   and `\temp` are not.
+||| Returns true if the path is absolute: it starts with the root.
 export
 isAbsolute : String -> Bool
-isAbsolute = isAbsolute' . parse
+isAbsolute = hasRoot . parse
 
 ||| Returns true if the path is relative.
 export
@@ -346,12 +260,6 @@ isRelative = not . isAbsolute
 ||| Appends the right path to the left path.
 |||
 ||| If the path on the right is absolute, it replaces the left path.
-|||
-||| On Windows:
-|||
-||| - If the right path has a root but no volume (e.g., `\windows`), it replaces
-|||   everything except for the volume (if any) of left.
-||| - If the right path has a volume but no root, it replaces left.
 |||
 ||| ```idris example
 ||| parse "/usr" /> "local/etc" == "/usr/local/etc"
@@ -363,12 +271,6 @@ export
 ||| Appends the right path to the left path.
 |||
 ||| If the path on the right is absolute, it replaces the left path.
-|||
-||| On Windows:
-|||
-||| - If the right path has a root but no volume (e.g., `\windows`), it replaces
-|||   everything except for the volume (if any) of left.
-||| - If the right path has a volume but no root, it replaces left.
 |||
 ||| ```idris example
 ||| "/usr" </> "local/etc" == "/usr/local/etc"
@@ -411,7 +313,7 @@ splitParent path =
 
 ||| Returns the path without its final component, if there is one.
 |||
-||| Returns Nothing if the path terminates by a root or volume.
+||| Returns Nothing if the path terminates by a root.
 export
 parent : String -> Maybe String
 parent = map show . parent' . parse
@@ -437,11 +339,10 @@ export
 isBaseOf : (base : String) -> (target : String) -> Bool
 isBaseOf base target =
   let
-    MkPath baseVol baseRoot baseBody _ = parse base
-    MkPath targetVol targetRoot targetBody _ = parse target
+    MkPath baseRoot baseBody _ = parse base
+    MkPath targetRoot targetBody _ = parse target
   in
-       baseVol == targetVol
-    && baseRoot == targetRoot
+       baseRoot == targetRoot
     && (baseBody `isPrefixOf` targetBody)
 
 ||| Returns a path that, when appended to base, yields target.
@@ -451,11 +352,11 @@ export
 dropBase : (base : String) -> (target : String) -> Maybe String
 dropBase base target =
   do
-    let MkPath baseVol baseRoot baseBody _ = parse base
-    let MkPath targetVol targetRoot targetBody targetTrialSep = parse target
-    if baseVol == targetVol && baseRoot == targetRoot then Just () else Nothing
+    let MkPath baseRoot baseBody _ = parse base
+    let MkPath targetRoot targetBody targetTrialSep = parse target
+    if baseRoot == targetRoot then Just () else Nothing
     body <- dropBody baseBody targetBody
-    pure $ show $ MkPath Nothing False body targetTrialSep
+    pure $ show $ MkPath False body targetTrialSep
   where
     dropBody : (base : List Body) -> (target : List Body) -> Maybe (List Body)
     dropBody [] ys = Just ys
@@ -576,15 +477,3 @@ dropExtension path = path <.> ""
 export
 dropExtensions : String -> String
 dropExtensions path = path <..> ""
-
-||| Looks up an executable from a list of candidate names in the PATH
-export
-pathLookup : List String -> IO (Maybe String)
-pathLookup candidates
-    = do path <- idrisGetEnv "PATH"
-         let extensions = if isWindows then [".exe", ".cmd", ".bat", ""] else [""]
-         let pathList = forget $ String.split (== pathSeparator) $ fromMaybe "/usr/bin:/usr/local/bin" path
-         let candidates = [p ++ "/" ++ x ++ y | p <- pathList,
-                                                x <- candidates,
-                                                y <- extensions ]
-         firstExists candidates

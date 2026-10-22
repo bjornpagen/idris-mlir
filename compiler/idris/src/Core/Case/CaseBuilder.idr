@@ -38,13 +38,15 @@ export
 arrowConName : Name
 arrowConName = UN (Basic "->")
 
+-- The tree built is the compile-time tree of a definition of this
+-- multiplicity: the one the frontend translates, and Idris's checks read.
+-- Upstream built a second, for run time, with erasure and its rewrites
+-- applied, for back ends this compiler does not have.
 public export
-data Phase = CompileTime RigCount | RunTime
+data Phase = CompileTime RigCount
 
 Eq Phase where
   CompileTime r == CompileTime r' = r == r'
-  RunTime == RunTime = True
-  _ == _ = False
 
 data ArgType : Scoped where
      Known : RigCount -> (ty : Term vars) -> ArgType vars -- arg has type 'ty'
@@ -381,8 +383,6 @@ namesFrom _ = []
 clauseType : Phase -> (p : PatClause (a :: as) vars) -> ClauseType p
 -- If it's irrelevant, a constructor, and there's no names we haven't seen yet
 -- and don't see later, treat it as a variable
--- Or, if we're compiling for runtime we won't be able to split on it, so
--- also treat it as a variable
 -- Or, if it's an under-applied constructor then do NOT attempt to split on it!
 clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
     = maybe VarClause (\isCon => ConClause @{isCon}) $ getClauseType phase arg ty
@@ -394,7 +394,7 @@ clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
     -- `[] {a}`) is the only one the argument's type allows.
     matchesErased : Phase -> Source -> Bool
     matchesErased (CompileTime cr) Written = isErased cr
-    matchesErased _ _ = False
+    matchesErased (CompileTime cr) _ = False
 
     -- used when we are tempted to split on a constructor: is
     -- this actually a fully applied one?
@@ -717,126 +717,6 @@ getFirstPat (p :: _) = pat p
 getFirstArgType : NamedPats (p :: ps) ns -> ArgType ns
 getFirstArgType (p :: _) = argType p
 
-||| Store scores alongside rows of named patterns. These scores are used to determine
-||| which column of patterns to switch on first. One score per column.
-data ScoredPats : List Name -> Scoped where
-     Scored : List01 True (NamedPats (p :: ps) ns) -> Vect (length (p :: ps)) Int -> ScoredPats (p :: ps) ns
-
-{ps : _} -> Show (ScoredPats ps ns) where
-  show (Scored xs ys) = (show ps) ++ "//" ++ (show ys)
-
-zeroedScore : {ps : _} -> List01 True (NamedPats (p :: ps) ns) -> ScoredPats (p :: ps) ns
-zeroedScore nps = Scored nps (replicate (S $ length ps) 0)
-
-||| Helper to find a single highest scoring name (or none at all) while
-||| retaining the context of all names processed.
-highScore : {prev : List Name} ->
-            (names : Scope) ->
-            (scores : Vect (length names) Int) ->
-            (highVal : Int) ->
-            (highIdx : (n ** NVar n (prev ++ names))) -> -- TODO should be `names <>< prev`
-            (duped : Bool) ->
-            Maybe (n ** NVar n (prev ++ names))
-highScore [] [] high idx True = Nothing
-highScore [] [] high idx False = Just idx
-highScore (x :: xs) (y :: ys) high idx duped =
-  let next = highScore {prev = prev `snoc` x} xs ys
-      prf = appendAssociative prev [x] xs
-  in  rewrite prf in
-        case compare y high of
-             LT => next high (rewrite sym $ prf in idx) duped
-             EQ => next high (rewrite sym $ prf in idx) True
-             GT => next y (x ** rewrite sym $ prf in weakenNVar (mkSizeOf prev) (MkNVar First)) False
-
-||| Get the index of the highest scoring column if there is one.
-||| If no column has a higher score than all other columns then
-||| the result is Nothing indicating we need to apply more scoring
-||| to break the tie.
-||| Suggested heuristic application order: f, b, a.
-highScoreIdx : {p : _} -> {ps : _} -> ScoredPats (p :: ps) ns -> Maybe (n ** NVar n (p :: ps))
-highScoreIdx (Scored xs (y :: ys)) = highScore {prev = []} (p :: ps) (y :: ys) (y - 1) (p ** MkNVar First) False
-
-||| Apply the penalty function to the head constructor's
-||| arity. Produces 0 for all non-head-constructors.
-headConsPenalty : (penality : Nat -> Int) -> Pat -> Int
-headConsPenalty p (PAs _ _ w)             = headConsPenalty p w
-headConsPenalty p (PCon _ n _ arity pats) = p arity
-headConsPenalty p (PTyCon _ _ arity _)    = p arity
-headConsPenalty _ (PConst {})             = 0
-headConsPenalty _ (PArrow {})             = 0
-headConsPenalty p (PDelay _ _ _ w)        = headConsPenalty p w
-headConsPenalty _ (PLoc {})               = 0
-headConsPenalty _ (PUnmatchable {})       = 0
-
-splitColumn : (nps : List01 True (NamedPats (p :: ps) ns)) -> (Vect (length nps) (PatInfo p ns), List01 True (NamedPats ps ns))
-splitColumn [(w :: ws)] = ([w], [ws])
-splitColumn ((w :: ws) :: nps@(_ :: _)) = bimap (w ::) (ws ::) $ splitColumn nps
-
-||| Apply the given function that scores a pattern to all patterns and then
-||| sum up the column scores and add to the ScoredPats passed in.
-consScoreHeuristic : {ps : _} -> (scorePat : Pat -> Int) -> ScoredPats ps ns -> ScoredPats ps ns
-consScoreHeuristic scorePat (Scored xs ys) =
-  let columnScores = scoreColumns xs
-      ys' = zipWith (+) ys columnScores
-  in  Scored xs ys'
-  where
-    scoreColumns : {ps' : _} -> (nps : List01 True (NamedPats ps' ns)) -> Vect (length ps') Int
-    scoreColumns {ps' = []} nps = []
-    scoreColumns {ps' = w :: ws} nps =
-      let (col, nps') = splitColumn nps
-       in sum (scorePat . pat <$> col) :: scoreColumns nps'
-
-||| Add 1 to each non-default pat in the first row.
-||| This favors constructive matching first and reduces tree depth on average.
-heuristicF : {ps : _} -> ScoredPats (p :: ps) ns -> ScoredPats (p :: ps) ns
-heuristicF (Scored (x :: xs) ys) =
-  let columnScores = scores x
-      ys' = zipWith (+) ys columnScores
-  in  Scored (x :: xs) ys'
-  where
-    isBlank : Pat -> Bool
-    isBlank (PLoc {}) = True
-    isBlank _ = False
-
-    scores : NamedPats ps' ns' -> Vect (length ps') Int
-    scores [] = []
-    scores (y :: ys) = let score : Int = if isBlank (pat y) then 0 else 1
-                       in  score :: scores ys
-
-||| Subtract 1 from each column for each pat that represents a head constructor.
-||| This favors pats that produce less branching.
-heuristicB : {ps : _} -> ScoredPats ps ns -> ScoredPats ps ns
-heuristicB = consScoreHeuristic (headConsPenalty (\arity => if arity == 0 then 0 else -1))
-
-||| Subtract the sum of the arities of constructors in each column.
-heuristicA : {ps : _} -> ScoredPats ps ns -> ScoredPats ps ns
-heuristicA = consScoreHeuristic (headConsPenalty (negate . cast))
-
-applyHeuristics : {p : _} ->
-                  {ps : _} ->
-                  ScoredPats (p :: ps) ns ->
-                  List (ScoredPats (p :: ps) ns -> ScoredPats (p :: ps) ns) ->
-                  Maybe (n ** NVar n (p :: ps))
-applyHeuristics x [] = highScoreIdx x
-applyHeuristics x (f :: fs) = highScoreIdx x <|> applyHeuristics (f x) fs
-
-||| Based only on the heuristic-score of columns, get the index of
-||| the column that should be processed next.
-|||
-||| The scoring is inspired by results from the paper:
-||| http://moscova.inria.fr/~maranget/papers/ml05e-maranget.pdf
-nextIdxByScore : {p : _} ->
-                 {ps : _} ->
-                 (useHeuristics : Bool) ->
-                 Phase ->
-                 List01 True (NamedPats (p :: ps) ns) ->
-                 (n ** NVar n (p :: ps))
-nextIdxByScore False _ _            = (_ ** (MkNVar First))
-nextIdxByScore _ (CompileTime _) _  = (_ ** (MkNVar First))
-nextIdxByScore True RunTime xs      =
-  fromMaybe (_ ** (MkNVar First)) $
-    applyHeuristics (zeroedScore xs) [heuristicF, heuristicB, heuristicA]
-
 -- Check whether all the initial patterns have the same concrete, known
 -- and matchable type, which is multiplicity > 0.
 -- If so, it's okay to match on it
@@ -862,11 +742,8 @@ sameType {ns} fc phase fn env (p :: xs)
     headEq (NTCon _ n _ _) (NTCon _ n' _ _) _ = n == n'
     headEq (NPrimVal _ c) (NPrimVal _ c') _ = c == c'
     headEq (NType {}) (NType {}) _ = True
-    headEq (NApp _ (NRef _ n) _) (NApp _ (NRef _ n') _) RunTime = n == n'
     headEq (NErased _ (Dotted x)) y ph = headEq x y ph
     headEq x (NErased _ (Dotted y)) ph = headEq x y ph
-    headEq (NErased {}) _ RunTime = True
-    headEq _ (NErased {}) RunTime = True
     headEq _ _ _ = False
 
     sameTypeAs : forall ne. Phase -> NF ns -> List01 ne (ArgType ns) -> Core ()
@@ -1038,12 +915,9 @@ mutual
   -- inspect next has a concrete type that is the same in all cases, and
   -- has the most distinct constructors (via pickNextViable)
   step {todo = _ :: _} fc fn phase clauses err
-      = do let nps = getNPs <$> clauses
-           let (_ ** (MkNVar next)) = nextIdxByScore (caseTreeHeuristics !getSession) phase nps
-           let prioritizedClauses = shuffleVars next <$> clauses
-           (n ** MkNVar next') <- pickNextViable fc phase fn (getNPs <$> prioritizedClauses)
+      = do (n ** MkNVar next) <- pickNextViable fc phase fn (getNPs <$> clauses)
            log "compile.casetree.pick" 25 $ "Picked " ++ show n ++ " as the next split"
-           let clauses' = shuffleVars next' <$> prioritizedClauses
+           let clauses' = shuffleVars next <$> clauses
            log "compile.casetree.clauses" 25 $
              unlines ("Using clauses:" :: map (("  " ++) . show) (forget clauses'))
            let ps = partition phase clauses'
@@ -1290,7 +1164,7 @@ export
 simpleCase : {auto c : Ref Ctxt Defs} ->
              FC -> Phase -> Name -> ClosedTerm ->
              (clauses : List01 True (List Name, ClosedTerm, ClosedTerm)) ->
-             Core (args ** CaseTree args)
+             Core (args ** (CaseTree args, List (List Pat)))
 simpleCase fc phase fn ty clauses
     = do logC "compile.casetree" 5 $
                 do cs <- traverse (\ (_,c,d) => [| MkPair (toFullNames c) (toFullNames d) |]) (forget clauses)
@@ -1298,7 +1172,11 @@ simpleCase fc phase fn ty clauses
                      indent 2 $ vcat $ flip map cs $ \ lrhs =>
                        byShow (fst lrhs) <++> pretty "=" <++> byShow (snd lrhs))
          ps <- traverseList01 (toPatClause fc fn) clauses
-         patCompile fc fn phase ty ps
+         (_ ** t) <- patCompile fc fn phase ty ps
+         pure (_ ** (t, map clausePats (forget ps)))
+  where
+    clausePats : (List Name, List Pat, ClosedTerm) -> List Pat
+    clausePats (_, ps, _) = ps
 
 mutual
   findReachedAlts : CaseAlt ns' -> List Int
@@ -1389,14 +1267,14 @@ findExtraDefaults fc defs ctree = pure []
 export
 getPMDef : {auto c : Ref Ctxt Defs} ->
            FC -> Phase -> Name -> ClosedTerm -> List Clause ->
-           Core (args ** (CaseTree args, List Clause))
+           Core (args ** (CaseTree args, List (List Pat), List Clause))
 -- If there's no clauses, make a definition with the right number of arguments
 -- for the type, which we can use in coverage checking to ensure that one of
 -- the arguments has an empty type
 getPMDef fc phase fn ty []
     = do log "compile.casetree.getpmdef" 20 "getPMDef: No clauses!"
          defs <- get Ctxt
-         pure (!(getArgs 0 !(nf defs Env.empty ty)) ** (Unmatched "No clauses in \{show fn}", []))
+         pure (!(getArgs 0 !(nf defs Env.empty ty)) ** (Unmatched "No clauses in \{show fn}", [], []))
   where
     getArgs : Int -> ClosedNF -> Core (List Name)
     getArgs i (NBind fc x (Pi {}) sc)
@@ -1407,7 +1285,7 @@ getPMDef fc phase fn ty []
 getPMDef fc phase fn ty clauses@(_ :: _)
     = do defs <- get Ctxt
          let cs = map (toClosed defs) (labelPat 0 $ fromList clauses)
-         (_ ** t) <- simpleCase fc phase fn ty cs
+         (_ ** (t, pats)) <- simpleCase fc phase fn ty cs
          logC "compile.casetree.getpmdef" 20 $
            pure $ "Compiled to: " ++ show !(toFullNames t)
          let reached = findReached t
@@ -1415,7 +1293,7 @@ getPMDef fc phase fn ty clauses@(_ :: _)
            "Reached clauses: " ++ (show reached)
          extraDefaults <- findExtraDefaults fc defs t
          let unreachable = getUnreachable 0 (reached \\ extraDefaults) clauses
-         pure (_ ** (t, unreachable))
+         pure (_ ** (t, pats, unreachable))
   where
     getUnreachable : Int -> List Int -> List Clause -> List Clause
     getUnreachable i is [] = []

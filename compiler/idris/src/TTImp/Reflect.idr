@@ -158,10 +158,10 @@ mutual
                           f' <- reify defs !(evalClosure defs f)
                           a' <- reify defs !(evalClosure defs a)
                           pure (IWithApp fc' f' a')
+               -- A search here has no depth: a script's is dropped.
                (UN (Basic "ISearch"), [fc, d])
                     => do fc' <- reify defs !(evalClosure defs fc)
-                          d' <- reify defs !(evalClosure defs d)
-                          pure (ISearch fc' d')
+                          pure (ISearch fc')
                (UN (Basic "IAlternative"), [fc, t, as])
                     => do fc' <- reify defs !(evalClosure defs fc)
                           t' <- reify defs !(evalClosure defs t)
@@ -553,10 +553,10 @@ mutual
              f' <- reflect fc defs lhs env f
              a' <- reflect fc defs lhs env a
              appCon fc defs (reflectionttimp "IWithApp") [fc', f', a']
-    reflect fc defs lhs env (ISearch tfc d)
-        = do fc' <- reflect fc defs lhs env tfc
-             d' <- reflect fc defs lhs env d
-             appCon fc defs (reflectionttimp "ISearch") [fc', d']
+    -- The reflected form holds a depth this compiler's search does not
+    -- have, and any number would be invented, so the script is refused.
+    reflect fc defs lhs env (ISearch tfc)
+        = throw (GenericMsg tfc "A search has no depth to give a script")
     reflect fc defs lhs env (IAlternative tfc t as)
         = do fc' <- reflect fc defs lhs env tfc
              t' <- reflect fc defs lhs env t

@@ -100,6 +100,7 @@ record UState where
                       -- successfully to check an LHS is polymorphic enough
   dotConstraints : List (Name, DotReason, Constraint) -- dot pattern constraints
   nextName : Int
+  blockOrdinals : NameMap Nat -- per definition, the blocks named in it
   nextConstraint : Int
   logging : Bool
 
@@ -115,6 +116,7 @@ initUState = MkUState
   , polyConstraints = []
   , dotConstraints = []
   , nextName = 0
+  , blockOrdinals = empty
   , nextConstraint = 0
   , logging = False
   }
@@ -189,24 +191,31 @@ genVarName str
          put UST ({ nextName $= (+1) } ust)
          pure (MN str (nextName ust))
 
--- Again, for case names
+-- A case or with block in a definition is named by that definition's full
+-- name and the block's ordinal among the definition's blocks, the next one
+-- of a count kept per definition: what a reader of the block needs, with no
+-- text to parse.
+nextBlockOrdinal : {auto u : Ref UST UState} -> Name -> Core Nat
+nextBlockOrdinal parent
+    = do ust <- get UST
+         -- a definition's first block has none before it
+         let k = fromMaybe 0 (lookup parent (blockOrdinals ust))
+         put UST ({ blockOrdinals $= insert parent (S k) } ust)
+         pure k
+
 export
 genCaseName : {auto c : Ref Ctxt Defs} ->
               {auto u : Ref UST UState} ->
-              String -> Core Name
-genCaseName root
-    = do ust <- get UST
-         put UST ({ nextName $= (+1) } ust)
-         inCurrentNS (CaseBlock root (nextName ust))
+              (parent : Name) -> Core Name
+genCaseName parent
+    = inCurrentNS (CaseBlock parent !(nextBlockOrdinal parent))
 
 export
 genWithName : {auto c : Ref Ctxt Defs} ->
               {auto u : Ref UST UState} ->
-              String -> Core Name
-genWithName root
-    = do ust <- get UST
-         put UST ({ nextName $= (+1) } ust)
-         inCurrentNS (WithBlock root (nextName ust))
+              (parent : Name) -> Core Name
+genWithName parent
+    = inCurrentNS (WithBlock parent !(nextBlockOrdinal parent))
 
 addHoleName : {auto u : Ref UST UState} ->
               FC -> Name -> Int -> Core ()
@@ -495,11 +504,11 @@ export
 newSearch : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
             {auto u : Ref UST UState} ->
-            FC -> RigCount -> Nat -> Name ->
+            FC -> RigCount -> Name ->
             Env Term vars -> Name -> Term vars -> Core (Int, Term vars)
-newSearch {vars} fc rig depth def env n ty
+newSearch {vars} fc rig def env n ty
     = do let hty = abstractEnvType fc env ty
-         let hole = newDef fc n rig Scope.empty hty (specified Public) (BySearch rig depth def)
+         let hole = newDef fc n rig Scope.empty hty (specified Public) (BySearch rig def)
          log "unify.search" 10 $ "Adding new search " ++ show fc ++ " " ++ show n
          logTermNF "unify.search" 10 "New search type" Env.empty hty
          idx <- addDef n hole
@@ -710,7 +719,7 @@ dumpHole s n hole
                         ++ show !(normaliseHoles defs Env.empty ty)
                         ++ if implbind p then " (ImplBind)" else ""
                         ++ if invertible gdef then " (Invertible)" else ""
-             (BySearch _ _ _, ty) =>
+             (BySearch _ _, ty) =>
                   logString s.topic n $
                      "Search " ++ show hole ++ " : " ++
                      show !(toFullNames !(normaliseHoles defs Env.empty ty))

@@ -21,6 +21,15 @@ record QuoteOpts where
                   -- local
   sizeLimit : Maybe Nat
 
+||| A quote that follows stuck applications only so deep: the term, or the
+||| news that it is deeper, where the caller then quotes another way. The
+||| depth decides only how much work a stored term's form costs, never
+||| whether a program is accepted.
+public export
+data Quoted : Scoped where
+  Quoted : Term vars -> Quoted vars
+  TooDeep : Quoted vars
+
 public export
 interface Quote tm where
     quote : {auto c : Ref Ctxt Defs} ->
@@ -29,9 +38,10 @@ interface Quote tm where
     quoteLHS : {auto c : Ref Ctxt Defs} ->
                {vars : Scope} ->
                Defs -> Env Term vars -> tm vars -> Core (Term vars)
-    quoteOpts : {auto c : Ref Ctxt Defs} ->
-                {vars : Scope} ->
-                QuoteOpts -> Defs -> Env Term vars -> tm vars -> Core (Term vars)
+    ||| Quoting with stuck applications followed at most `depth` deep.
+    quoteWithin : {auto c : Ref Ctxt Defs} ->
+                  {vars : Scope} ->
+                  (depth : Nat) -> Defs -> Env Term vars -> tm vars -> Core (Quoted vars)
 
     quoteGen : {auto c : Ref Ctxt Defs} ->
                {vars : _} ->
@@ -46,9 +56,14 @@ interface Quote tm where
         = do q <- newRef QVar 0
              quoteGen q (MkQuoteOpts True True Nothing) defs env tm
 
-    quoteOpts opts defs env tm
+    -- The quoter signals the depth reached by its own error, which only
+    -- this catches, and no other error is taken for it.
+    quoteWithin depth defs env tm
         = do q <- newRef QVar 0
-             quoteGen q opts defs env tm
+             catch (Quoted <$> quoteGen q (MkQuoteOpts False False (Just depth)) defs env tm)
+                   (\case
+                       QuoteTooDeep => pure TooDeep
+                       err => throw err)
 
 export
 genName : {auto q : Ref QVar Int} -> String -> Core Name
@@ -182,7 +197,7 @@ mutual
       = do f' <- quoteHead q opts defs fc bound env f
            opts' <- case sizeLimit opts of
                          Nothing => pure opts
-                         Just Z => throw (InternalError "Size limit exceeded")
+                         Just Z => throw QuoteTooDeep
                          Just (S k) => pure ({ sizeLimit := Just k } opts)
            args' <- if patterns opts && not (topLevel opts) && isRef f
                        then do empty <- clearDefs defs

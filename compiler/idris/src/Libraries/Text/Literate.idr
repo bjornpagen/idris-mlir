@@ -67,15 +67,15 @@ rawTokens delims ls =
        ++ [(notCodeLine, Any)]
 
 ||| Merge the tokens into a single source file.
-reduce : List (WithBounds LitToken) -> List String -> String
+reduce : List (Located LitToken) -> List String -> String
 reduce [] acc = fastConcat (reverse acc)
-reduce (MkBounded (Any x) _ _ :: rest) acc =
+reduce (MkLocated (Any x) _ :: rest) acc =
   -- newline will always be tokenized as a single token
   if x == "\n"
   then reduce rest ("\n"::acc)
   else reduce rest acc
 
-reduce (MkBounded (CodeLine m src) _ _ :: rest) acc =
+reduce (MkLocated (CodeLine m src) _ :: rest) acc =
     if m == trimSpace src
     then reduce rest ("\n"::acc)
     else reduce rest ((substr (length m + 1) -- remove space to right of marker.
@@ -83,11 +83,11 @@ reduce (MkBounded (CodeLine m src) _ _ :: rest) acc =
                               src
                       )::acc)
 
-reduce (MkBounded (CodeBlock l r src) _ _ :: rest) acc with (lines src) -- Strip the deliminators surrounding the block.
-  reduce (MkBounded (CodeBlock l r src) _ _ :: rest) acc | [] = reduce rest acc -- 1
-  reduce (MkBounded (CodeBlock l r src) _ _ :: rest) acc | (s :: ys) with (snocList ys)
-    reduce (MkBounded (CodeBlock l r src) _ _ :: rest) acc | (s :: []) | Empty = reduce rest acc -- 2
-    reduce (MkBounded (CodeBlock l r src) _ _ :: rest) acc | (s :: (srcs ++ [f])) | (Snoc f srcs rec) =
+reduce (MkLocated (CodeBlock l r src) _ :: rest) acc with (lines src) -- Strip the deliminators surrounding the block.
+  reduce (MkLocated (CodeBlock l r src) _ :: rest) acc | [] = reduce rest acc -- 1
+  reduce (MkLocated (CodeBlock l r src) _ :: rest) acc | (s :: ys) with (snocList ys)
+    reduce (MkLocated (CodeBlock l r src) _ :: rest) acc | (s :: []) | Empty = reduce rest acc -- 2
+    reduce (MkLocated (CodeBlock l r src) _ :: rest) acc | (s :: (srcs ++ [f])) | (Snoc f srcs rec) =
         -- the "\n" counts for the open deliminator; the closing deliminator should always be followed by a (Any "\n"), so we don't add a newline
         reduce rest ((unlines srcs) :: "\n" :: acc)
 
@@ -169,7 +169,7 @@ record LiterateStyle where
 export
 lexLiterate : (specification : LiterateStyle)
            -> (litStr        : String)
-           -> Either LiterateError (List (WithBounds LitToken))
+           -> Either LiterateError (List (Located LitToken))
 lexLiterate (MkLitStyle delims markers exts) str =
       case lex (rawTokens delims markers) str of
         (toks, (_,_,"")) => Right toks
@@ -207,7 +207,7 @@ isLiterateLine : (specification : LiterateStyle)
               -> (str : String)
               -> Pair (Maybe String) String
 isLiterateLine (MkLitStyle delims markers _) str with (lex (rawTokens delims markers) str)
-  isLiterateLine (MkLitStyle delims markers _) str | ([MkBounded (CodeLine m str') _ _], (_,_, "")) = (Just m, str')
+  isLiterateLine (MkLitStyle delims markers _) str | ([MkLocated (CodeLine m str') _], (_,_, "")) = (Just m, str')
   isLiterateLine (MkLitStyle delims markers _) str | (_, _) = (Nothing, str)
 
 ||| Given a 'literate specification' embed the given code using the

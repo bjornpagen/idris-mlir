@@ -162,19 +162,19 @@ checkTerm rig elabinfo nest env (IWithApp fc fn arg) exp
     = throw (GenericMsg fc "with application not implemented yet")
 checkTerm rig elabinfo nest env (INamedApp fc fn nm arg) exp
     = checkApp rig elabinfo nest env fc fn [] [] [(nm, arg)] exp
-checkTerm rig elabinfo nest env (ISearch fc depth) (Just gexpty)
+checkTerm rig elabinfo nest env (ISearch fc) (Just gexpty)
     = do est <- get EST
          nm <- genName "search"
          expty <- getTerm gexpty
-         sval <- searchVar fc rig depth (Resolved (defining est)) env nest nm expty
+         sval <- searchVar fc rig (Resolved (defining est)) env nest nm expty
          pure (sval, gexpty)
-checkTerm rig elabinfo nest env (ISearch fc depth) Nothing
+checkTerm rig elabinfo nest env (ISearch fc) Nothing
     = do est <- get EST
          nmty <- genName "searchTy"
          u <- uniVar fc
          ty <- metaVar fc erased env nmty (TType fc u)
          nm <- genName "search"
-         sval <- searchVar fc rig depth (Resolved (defining est)) env nest nm ty
+         sval <- searchVar fc rig (Resolved (defining est)) env nest nm ty
          pure (sval, gnf env ty)
 checkTerm rig elabinfo nest env (IAlternative fc uniq alts) exp
     = checkAlternative rig elabinfo nest env fc uniq alts exp

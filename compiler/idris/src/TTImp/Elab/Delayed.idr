@@ -39,17 +39,6 @@ mkClosedElab {vars = x :: vars} fc (b :: env) elab
     newBinder b@(Let {}) = b
     newBinder b = Lam (binderLoc b) (multiplicity b) Explicit (binderType b)
 
-deeper : {auto e : Ref EST (EState vars)} ->
-         Core a -> Core a
-deeper elab
-    = do est <- get EST
-         let d = delayDepth est
-         put EST ({ delayDepth := 1 + d } est)
-         res <- elab
-         est <- get EST
-         put EST ({ delayDepth := d } est)
-         pure res
-
 -- Run an elaborator with the holes it must not solve set to the given ones,
 -- and the unification state's own restored after. It is a function of its
 -- own, not code in the closure delayOnFailure and delayElab store: a record
@@ -109,7 +98,7 @@ delayOnFailure fc rig env expected pred pri elab
                                  ((pri, ci, localHints defs,
                                    MkDelayedElab $ \dl =>
                                    mkClosedElab fc env
-                                      (deeper (withNoSolve nos (elab dl True (gnf env ty))))) :: )
+                                      (withNoSolve nos (elab dl True (gnf env ty)))) :: )
                          pure (dtm, expected)
                     else throw err)
 
@@ -158,7 +147,6 @@ export
 ambiguous : Error -> Bool
 ambiguous (AmbiguousElab {}) = True
 ambiguous (AmbiguousName {}) = True
-ambiguous (AmbiguityTooDeep {}) = True
 ambiguous (InType _ _ err) = ambiguous err
 ambiguous (InCon _ err) = ambiguous err
 ambiguous (InLHS _ _ err) = ambiguous err
@@ -241,6 +229,7 @@ recoverable (CantSolveEq _ gam env l r)
         pure $ not !(contra defs !(nf defs env l) !(nf defs env r))
 recoverable (UndefinedName {}) = pure False
 recoverable (LinearMisuse {}) = pure False
+recoverable (SearchGrows {}) = pure False
 recoverable (InType _ _ err) = recoverable err
 recoverable (InCon _ err) = recoverable err
 recoverable (InLHS _ _ err) = recoverable err
@@ -276,8 +265,7 @@ retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
          Just Delayed <- lookupDefExact (Resolved i) (gamma defs)
               | _ => retryDelayed' errmode p acc ds
          handle
-           (do est <- get EST
-               logC "elab.retry" 5 $ do pure $ show (delayDepth est) ++ ": Retrying delayed hole " ++ show !(getFullName (Resolved i))
+           (do logC "elab.retry" 5 $ do pure $ "Retrying delayed hole " ++ show !(getFullName (Resolved i))
                -- elab itself might have delays internally, so keep track of them
                put DLY (the DelayedElabs [])
                update Ctxt { localHints := hints }
@@ -288,7 +276,7 @@ retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
 
                updateDef (Resolved i) (const (Just
                     (PMDef (MkPMDefInfo NotHole True False)
-                           Scope.empty (STerm 0 tm) (STerm 0 tm) [])))
+                           Scope.empty (STerm 0 tm) [] [])))
                logTerm "elab.update" 5 ("Resolved delayed hole " ++ show i) tm
                logTermNF "elab.update" 5 ("Resolved delayed hole NF " ++ show i) Env.empty tm
                removeHole i

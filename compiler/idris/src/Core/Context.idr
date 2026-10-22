@@ -305,7 +305,6 @@ newDef fc n rig vars ty vis def
         , isEscapeHatch = False
         , flags = []
         , refersToM = Nothing
-        , refersToRuntimeM = Nothing
         , invertible = False
         , noCycles = False
         , linearChecked = False
@@ -527,12 +526,39 @@ resolveEnv gam [] = pure Env.empty
 resolveEnv gam (b :: bs)
     = pure $ !(onNamesBinder (resolvedNames gam) b) :: !(resolveEnv gam bs)
 
+-- The names in each clause's patterns, and the terms a pattern cannot
+-- match, given what becomes of each: one traversal, structural, for making
+-- them full and for resolving them.
+mutual
+  onPatNames : (Name -> Core Name) -> (ClosedTerm -> Core ClosedTerm) -> Pat -> Core Pat
+  onPatNames f g (PAs fc n p) = PAs fc <$> f n <*> onPatNames f g p
+  onPatNames f g (PCon fc n t a ps) = PCon fc <$> f n <*> pure t <*> pure a <*> onPatsNames f g ps
+  onPatNames f g (PTyCon fc n a ps) = PTyCon fc <$> f n <*> pure a <*> onPatsNames f g ps
+  onPatNames f g (PConst fc c) = pure (PConst fc c)
+  onPatNames f g (PArrow fc x s t) = PArrow fc x <$> onPatNames f g s <*> onPatNames f g t
+  onPatNames f g (PDelay fc r t p) = PDelay fc r <$> onPatNames f g t <*> onPatNames f g p
+  onPatNames f g (PLoc fc n) = pure (PLoc fc n)
+  onPatNames f g (PUnmatchable fc tm) = PUnmatchable fc <$> g tm
+
+  onPatsNames : (Name -> Core Name) -> (ClosedTerm -> Core ClosedTerm) -> List Pat -> Core (List Pat)
+  onPatsNames f g [] = pure []
+  onPatsNames f g (p :: ps) = [| onPatNames f g p :: onPatsNames f g ps |]
+
+onClausePatNames : (Name -> Core Name) -> (ClosedTerm -> Core ClosedTerm) ->
+                   List (List Pat) -> Core (List (List Pat))
+onClausePatNames f g [] = pure []
+onClausePatNames f g (c :: cs) = [| onPatsNames f g c :: onClausePatNames f g cs |]
+
 resolveDef : Context -> Def -> Core Def
-resolveDef gam (PMDef r args ct rt pats)
+resolveDef gam (PMDef r args ct cps pats)
     = pure $ PMDef r args !(onNamesTree (resolvedNames gam) ct)
-                          !(onNamesTree (resolvedNames gam) rt)
+                          !(traverseClauses cps)
                           !(traverse resolvePat pats)
   where
+    traverseClauses : List (List Pat) -> Core (List (List Pat))
+    traverseClauses
+        = onClausePatNames (pure . indexedName gam) (onNamesTerm (resolvedNames gam))
+
     resolvePat : (vs ** (Env Term vs, Term vs, Term vs)) ->
                  Core (vs ** (Env Term vs, Term vs, Term vs))
     resolvePat (_ ** (env, lhs, rhs))
@@ -543,7 +569,7 @@ resolveDef gam (PMDef r args ct rt pats)
 -- holds them: resolving leaves them as they are.
 resolveDef gam (TCon a ps ds u ms mcs det)
     = pure $ TCon a ps ds u (map (indexedName gam) ms) mcs det
-resolveDef gam (BySearch c d def) = pure $ BySearch c d (indexedName gam def)
+resolveDef gam (BySearch c def) = pure $ BySearch c (indexedName gam def)
 resolveDef gam (Guess tm b cs)
     = pure $ Guess !(onNamesTerm (resolvedNames gam) tm) b cs
 resolveDef gam t = pure t
@@ -587,7 +613,6 @@ resolveGlobalDef gam def
                definition := !(resolveDef gam (definition def)),
                totality := !(resolveTotality gam (totality def)),
                refersToM := map (resolveNameMap gam) (refersToM def),
-               refersToRuntimeM := map (resolveNameMap gam) (refersToRuntimeM def),
                sizeChange := map (resolveSCCall gam) (sizeChange def)
              } def
 
@@ -610,10 +635,13 @@ HasNames Clause where
 
 export
 HasNames Def where
-  full gam (PMDef r args ct rt pats)
-      = pure $ PMDef r args !(full gam ct) !(full gam rt)
+  full gam (PMDef r args ct cps pats)
+      = pure $ PMDef r args !(full gam ct) !(fullClauses cps)
                      !(traverse fullNamesPat pats)
     where
+      fullClauses : List (List Pat) -> Core (List (List Pat))
+      fullClauses = onClausePatNames (full gam) (full gam)
+
       fullNamesPat : (vs ** (Env Term vs, Term vs, Term vs)) ->
                      Core (vs ** (Env Term vs, Term vs, Term vs))
       fullNamesPat (_ ** (env, lhs, rhs))
@@ -622,8 +650,8 @@ HasNames Def where
   full gam (TCon a ps ds u ms mcs det)
       = pure $ TCon a ps ds u !(traverse (full gam) ms)
                                 !(traverseOpt (traverse (full gam)) mcs) det
-  full gam (BySearch c d def)
-      = pure $ BySearch c d !(full gam def)
+  full gam (BySearch c def)
+      = pure $ BySearch c !(full gam def)
   full gam (Guess tm b cs)
       = pure $ Guess !(full gam tm) b cs
   full gam t = pure t
@@ -632,8 +660,8 @@ HasNames Def where
 
 export
 StripNamespace Def where
-  trimNS ns (PMDef i args ct rt pats)
-      = PMDef i args (trimNS ns ct) rt (map trimNSpat pats)
+  trimNS ns (PMDef i args ct cps pats)
+      = PMDef i args (trimNS ns ct) cps (map trimNSpat pats)
     where
       trimNSpat : (vs ** (Env Term vs, Term vs, Term vs)) ->
                   (vs ** (Env Term vs, Term vs, Term vs))
@@ -641,8 +669,8 @@ StripNamespace Def where
           = (vs ** (env, trimNS ns lhs, trimNS ns rhs))
   trimNS ns d = d
 
-  restoreNS ns (PMDef i args ct rt pats)
-      = PMDef i args (restoreNS ns ct) rt (map restoreNSpat pats)
+  restoreNS ns (PMDef i args ct cps pats)
+      = PMDef i args (restoreNS ns ct) cps (map restoreNSpat pats)
     where
       restoreNSpat : (vs ** (Env Term vs, Term vs, Term vs)) ->
                   (vs ** (Env Term vs, Term vs, Term vs))
@@ -766,7 +794,6 @@ HasNames Error where
     = AmbiguousElab fc <$> full gam rho <*> traverse (\ (gam, t) => (gam,) <$> full gam t) xs
   full gam (AmbiguousSearch fc rho s xs)
     = AmbiguousSearch fc <$> full gam rho <*> full gam s <*> traverse (full gam) xs
-  full gam (AmbiguityTooDeep fc n xs) = AmbiguityTooDeep fc <$> full gam n <*> traverse (full gam) xs
   full gam (AllFailed xs)
      = map AllFailed $ for xs $ \ (mn, err) =>
          (,) <$> traverseOpt (full gam) mn <*> full gam err
@@ -784,6 +811,8 @@ HasNames Error where
     = CantSolveGoal fc gam <$> full gam rho <*> full gam s <*> traverseOpt (full gam) merr
   full gam (DeterminingArg fc n x rho s)
     = DeterminingArg fc <$> full gam n <*> pure x <*> full gam rho <*> full gam s
+  full _ (SearchGrows fc gam g e l hs)
+    = SearchGrows fc gam g <$> full gam e <*> full gam l <*> traverse (full gam) hs
   full gam (UnsolvedHoles xs) = UnsolvedHoles <$> traverse (traversePair (full gam)) xs
   full gam (CantInferArgType fc rho n n1 s)
     = CantInferArgType fc <$> full gam rho <*> full gam n <*> full gam n1 <*> full gam s
@@ -817,10 +846,10 @@ HasNames Error where
   full gam (CyclicImports xs) = pure (CyclicImports xs)
   full gam ForceNeeded = pure ForceNeeded
   full gam (InternalError x) = pure (InternalError x)
+  full gam QuoteTooDeep = pure QuoteTooDeep
   full gam (UserError x) = pure (UserError x)
   full gam (NoForeignCC fc xs) = pure (NoForeignCC fc xs)
   full gam (BadMultiline fc x) = pure (BadMultiline fc x)
-  full gam (Timeout x) = pure (Timeout x)
   full gam (FailingDidNotFail fc) = pure (FailingDidNotFail fc)
   full gam (FailingWrongError fc x err) = FailingWrongError fc x <$> traverseList1 (full gam) err
   full gam (InType fc n err) = InType fc <$> full gam n <*> full gam err
@@ -865,7 +894,6 @@ HasNames Error where
     = AmbiguousElab fc <$> resolved gam rho <*> traverse (\ (gam, t) => (gam,) <$> resolved gam t) xs
   resolved gam (AmbiguousSearch fc rho s xs)
     = AmbiguousSearch fc <$> resolved gam rho <*> resolved gam s <*> traverse (resolved gam) xs
-  resolved gam (AmbiguityTooDeep fc n xs) = AmbiguityTooDeep fc <$> resolved gam n <*> traverse (resolved gam) xs
   resolved gam (AllFailed xs)
      = map AllFailed $ for xs $ \ (mn, err) =>
          (,) <$> traverseOpt (resolved gam) mn <*> resolved gam err
@@ -883,6 +911,8 @@ HasNames Error where
     = CantSolveGoal fc gam <$> resolved gam rho <*> resolved gam s <*> traverseOpt (resolved gam) merr
   resolved gam (DeterminingArg fc n x rho s)
     = DeterminingArg fc <$> resolved gam n <*> pure x <*> resolved gam rho <*> resolved gam s
+  resolved _ (SearchGrows fc gam g e l hs)
+    = SearchGrows fc gam g <$> resolved gam e <*> resolved gam l <*> traverse (resolved gam) hs
   resolved gam (UnsolvedHoles xs) = UnsolvedHoles <$> traverse (traversePair (resolved gam)) xs
   resolved gam (CantInferArgType fc rho n n1 s)
     = CantInferArgType fc <$> resolved gam rho <*> resolved gam n <*> resolved gam n1 <*> resolved gam s
@@ -916,10 +946,10 @@ HasNames Error where
   resolved gam (CyclicImports xs) = pure (CyclicImports xs)
   resolved gam ForceNeeded = pure ForceNeeded
   resolved gam (InternalError x) = pure (InternalError x)
+  resolved gam QuoteTooDeep = pure QuoteTooDeep
   resolved gam (UserError x) = pure (UserError x)
   resolved gam (NoForeignCC fc xs) = pure (NoForeignCC fc xs)
   resolved gam (BadMultiline fc x) = pure (BadMultiline fc x)
-  resolved gam (Timeout x) = pure (Timeout x)
   resolved gam (FailingDidNotFail fc) = pure (FailingDidNotFail fc)
   resolved gam (FailingWrongError fc x err) = FailingWrongError fc x <$> traverseList1 (resolved gam) err
   resolved gam (InType fc n err) = InType fc <$> resolved gam n <*> resolved gam err
@@ -964,7 +994,6 @@ HasNames GlobalDef where
                     definition := !(full gam (definition def)),
                     totality := !(full gam (totality def)),
                     refersToM := !(full gam (refersToM def)),
-                    refersToRuntimeM := !(full gam (refersToRuntimeM def)),
                     sizeChange := !(traverse (full gam) (sizeChange def))
                   } def
   resolved = resolveGlobalDef
@@ -1047,20 +1076,12 @@ record Defs where
   cgdirectives : List (CG, String)
      -- ^ Code generator directives, which are free form text and thus to
      -- be interpreted however the specific code generator requires
-  toCompileCase : List Name
-     -- ^ Names which need to be compiled to run time case trees
   userHoles : NameMap Bool
      -- ^ Metavariables the user still has to fill in. In practice, that's
      -- everything with a user accessible name and a definition of Hole.
      -- The Bool says whether it was introduced in another module.
-  peFailures : NameMap ()
-     -- ^ Partial evaluation names which have failed, so don't bother trying
-     -- again
   timings : StringMap (Bool, Integer)
      -- ^ record of timings from logTimeRecord
-  timer : Maybe (Integer, String)
-     -- ^ for timing and checking timeouts; the maximum time after which a
-     -- timeout should be thrown
   warnings : List Warning
      -- ^ as yet unreported warnings
   schemeEvalLoaded : Bool
@@ -1106,11 +1127,8 @@ initDefs
            , imported = []
            , allImported = []
            , cgdirectives = []
-           , toCompileCase = []
            , userHoles = empty
-           , peFailures = empty
            , timings = empty
-           , timer = Nothing
            , warnings = []
            , schemeEvalLoaded = False
            , foreignExports = empty
@@ -1366,8 +1384,7 @@ addBuiltin n ty tot op
          , isEscapeHatch = False
          , flags = [Inline]
          , refersToM = Nothing
-         , refersToRuntimeM = Nothing
-         , invertible = False
+          , invertible = False
          , noCycles = False
          , linearChecked = True
          , definition = Builtin op
@@ -1557,9 +1574,9 @@ prettyName (Nested (i, _) n)
          pure (!(prettyName i') ++ "," ++
                !(prettyName n))
 prettyName (CaseBlock outer idx)
-    = pure ("case block in " ++ outer)
+    = pure ("case block in " ++ !(prettyName outer))
 prettyName (WithBlock outer idx)
-    = pure ("with block in " ++ outer)
+    = pure ("with block in " ++ !(prettyName outer))
 prettyName (NS ns n) = prettyName n
 prettyName n = pure (show n)
 
@@ -2243,24 +2260,9 @@ setDefaultTotalityOption : {auto c : Ref Ctxt Defs} ->
 setDefaultTotalityOption tot = update Ctxt { options->elabDirectives->totality := tot }
 
 export
-setAmbigLimit : {auto c : Ref Ctxt Defs} ->
-                Nat -> Core ()
-setAmbigLimit max = update Ctxt { options->elabDirectives->ambigLimit := max }
-
-export
-setAutoImplicitLimit : {auto c : Ref Ctxt Defs} ->
-                       Nat -> Core ()
-setAutoImplicitLimit max = update Ctxt { options->elabDirectives->autoImplicitLimit := max }
-
-export
 setNFThreshold : {auto c : Ref Ctxt Defs} ->
                  Nat -> Core ()
 setNFThreshold max = update Ctxt { options->elabDirectives->nfThreshold := max }
-
-export
-setSearchTimeout : {auto c : Ref Ctxt Defs} ->
-                   Integer -> Core ()
-setSearchTimeout t = update Ctxt { options->session->searchTimeout := t }
 
 export
 isLazyActive : {auto c : Ref Ctxt Defs} ->
@@ -2287,27 +2289,6 @@ getDefaultTotalityOption : {auto c : Ref Ctxt Defs} ->
 getDefaultTotalityOption
     = do defs <- get Ctxt
          pure (totality (elabDirectives (options defs)))
-
-export
-getAmbigLimit : {auto c : Ref Ctxt Defs} ->
-                Core Nat
-getAmbigLimit
-    = do defs <- get Ctxt
-         pure (ambigLimit (elabDirectives (options defs)))
-
-export
-getAutoImplicitLimit : {auto c : Ref Ctxt Defs} ->
-                       Core Nat
-getAutoImplicitLimit
-    = do defs <- get Ctxt
-         pure (autoImplicitLimit (elabDirectives (options defs)))
-
-export
-addForeignImpl : {auto c : Ref Ctxt Defs} ->
-          FC -> (fullName : Name) -> (def : String) -> Core ()
-addForeignImpl fc name def
-   = do name <- toFullNames name
-        update Ctxt { options $= addForeignImpl name def }
 
 export
 setPair : {auto c : Ref Ctxt Defs} ->
@@ -2517,10 +2498,6 @@ setLogTimings : {auto c : Ref Ctxt Defs} -> Nat -> Core ()
 setLogTimings n = update Ctxt { options->session->logTimings := Just n }
 
 export
-setDebugElabCheck : {auto c : Ref Ctxt Defs} -> Bool -> Core ()
-setDebugElabCheck b = update Ctxt { options->session->debugElabCheck := b }
-
-export
 getSession : {auto c : Ref Ctxt Defs} ->
              Core Session
 getSession
@@ -2549,39 +2526,6 @@ getTime
   where
     nano : Integer
     nano = 1000000000
-
--- A simple timeout mechanism. We can start a timer, clear it, or check
--- whether too much time has passed and throw an exception if so
-
-||| Initialise the timer, setting the time in milliseconds after which a
-||| timeout should be thrown.
-||| Note: It's important to clear the timer when the operation that might
-||| timeout is complete, otherwise something else might throw a timeout
-||| error!
-export
-startTimer : {auto c : Ref Ctxt Defs} ->
-             Integer -> String -> Core ()
-startTimer tmax action
-    = do t <- getTime
-         update Ctxt { timer := Just (t + tmax * 1000000, action) }
-
-||| Clear the timer
-export
-clearTimer : {auto c : Ref Ctxt Defs} -> Core ()
-clearTimer = update Ctxt { timer := Nothing }
-
-||| If the timer was started more than t milliseconds ago, throw an exception
-export
-checkTimer : {auto c : Ref Ctxt Defs} ->
-             Core ()
-checkTimer
-    = do defs <- get Ctxt
-         let Just (max, action) = timer defs
-                | Nothing => pure ()
-         t <- getTime
-         if (t > max)
-            then throw (Timeout action)
-            else pure ()
 
 -- Set a name as Private that was previously visible (and, if 'everywhere' is
 -- set, hide in any modules imported by this one)

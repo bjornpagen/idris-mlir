@@ -46,7 +46,7 @@ decoratedKeyword fname kwd = decorate fname Keyword (keyword kwd)
 
 decorateKeywords : {0 a : Type} -> OriginDesc -> List (WithBounds a) -> EmptyRule ()
 decorateKeywords fname xs
-  = act $ MkState (cast (map (decorationFromBounded fname Keyword) xs)) []
+  = act $ MkState (cast (concatMap (decorationFromBounded fname Keyword) xs)) []
 
 decoratedPragma : OriginDesc -> String -> Rule ()
 decoratedPragma fname prg = decorate fname Keyword (pragma prg)
@@ -144,7 +144,7 @@ atom fname
   <|> do x <- bounds $ decorate fname Typ  $ pragma "World"
          pure (PPrimVal (boundToFC fname x) $ PrT WorldType)
   <|> do x <- bounds $ decoratedPragma fname "search"
-         pure (PSearch (boundToFC fname x) 50)
+         pure (PSearch (boundToFC fname x))
 
 whereBlock : OriginDesc -> Int -> Rule (List PDecl)
 whereBlock fname col
@@ -194,10 +194,10 @@ argTerm (WithArg t) = t
 export
 debugString : OriginDesc -> Rule PTerm
 debugString fname = do
-  di <- bounds debugInfo
-  pure $ PPrimVal (boundToFC fname di) $ Str $ case di.val of
+  di <- debugInfo
+  pure $ PPrimVal (boundToFC' fname (snd di)) $ Str $ case fst di of
     DebugLoc =>
-      let bnds = di.bounds in
+      let bnds = snd di in
       joinBy ", "
       [ "File \{show fname}"
       , "line \{show (startLine bnds)}"
@@ -208,8 +208,8 @@ debugString fname = do
         }"
       ]
     DebugFile => "\{show fname}"
-    DebugLine => "\{show (startLine di.bounds)}"
-    DebugCol => "\{show (startCol di.bounds)}"
+    DebugLine => "\{show (startLine (snd di))}"
+    DebugCol => "\{show (startCol (snd di))}"
 
 totalityOpt : OriginDesc -> Rule TotalReq
 totalityOpt fname
@@ -424,13 +424,13 @@ mutual
                            continueWithDecorated fname indents ")"
                            pure (op, e))
            (op, e) <- pure b.val
-           actD (toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)
+           actD [(toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)]
            let fc = boundToFC fname (mergeBounds s b)
            pure (PSectionL fc op e)
     <|> do  -- (.y.z)  -- section of projection (chain)
            b <- bounds $ forget <$> some (bounds postfixProj)
            decoratedSymbol fname ")"
-           actD (toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)
+           actD [(toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)]
            let projs = map (\ proj => (boundToFC fname proj, proj.val)) b.val
            pure $ PPostfixAppPartial (boundToFC fname b) projs
       -- unit type/value
@@ -450,7 +450,7 @@ mutual
                             rest.val)) <|>
              -- right sections
              ((do op <- bounds (fcBounds iOperator <* decoratedSymbol fname ")")
-                  actD (toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)
+                  actD [(toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)]
                   let fc = boundToFC fname (mergeBounds s op)
                   pure (PSectionR fc e.val op.val)
                <|>
@@ -563,7 +563,7 @@ mutual
   tuple fname s indents e
      =   nonEmptyTuple fname s indents e
      <|> do end <- bounds (continueWithDecorated fname indents ")")
-            actD (toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)
+            actD [(toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)]
             pure (PBracketed (boundToFC fname (mergeBounds s end)) e)
 
   simpleExpr : OriginDesc -> IndentInfo -> Rule PTerm
@@ -1467,11 +1467,6 @@ directive
          n <- name
          atEnd indents
          pure (Unhide n)
-  <|> do decoratedPragma fname "foreign_impl"
-         n <- name
-         cs <- block (expr pdef fname)
-         atEnd indents
-         pure (ForeignImpl n cs)
 --   <|> do pragma "hide_export"
 --          n <- name
 --          atEnd indents
@@ -1492,22 +1487,10 @@ directive
          b <- onoff
          atEnd indents
          pure (PrefixRecordProjections b)
-  <|> do decoratedPragma fname "ambiguity_depth"
-         lvl <- decorate fname Keyword $ intLit
-         atEnd indents
-         pure (AmbigDepth (fromInteger lvl))
-  <|> do decoratedPragma fname "auto_implicit_depth"
-         dpt <- decorate fname Keyword $ intLit
-         atEnd indents
-         pure (AutoImplicitDepth (fromInteger dpt))
   <|> do decoratedPragma fname "nf_metavar_threshold"
          dpt <- decorate fname Keyword $ intLit
          atEnd indents
          pure (NFMetavarThreshold (fromInteger dpt))
-  <|> do decoratedPragma fname "search_timeout"
-         t <- decorate fname Keyword $ intLit
-         atEnd indents
-         pure (SearchTimeout t)
   <|> do decoratedPragma fname "pair"
          ty <- name
          f <- name

@@ -23,6 +23,7 @@ tryUnifyUnambig' : {auto c : Ref Ctxt Defs} ->
                    Core a -> (Error -> Core a) -> Core a
 tryUnifyUnambig' left right = handleUnify left $ \case
   e@(AmbiguousSearch {}) => throw e
+  e@(SearchGrows {})     => throw e
   e                      => if preferLeftError
                               then tryUnify (right e) (throw e)
                               else right e
@@ -41,12 +42,189 @@ tryNoDefaultsFirst f = tryUnifyUnambig {preferLeftError=True} (f False) (f True)
 SearchEnv : Scoped
 SearchEnv vars = List (NF vars, Closure vars)
 
+-- The path rule. A search that never ends meets, on one of its paths, a
+-- goal into which an earlier goal of the same type constructor embeds
+-- (Kruskal's tree theorem, over finitely many labels), so the search stops
+-- at the first such pair, by construction and with no count: the later goal
+-- repeats the earlier (convertible: that step fails, as upstream's cycle
+-- check does), or grows from it through unknowns a later round may fix (the
+-- search waits), or grows with everything known (the program is refused).
+-- What the stock Idris answers with a large enough depth is answered the
+-- same, but where its answer was its depth running out.
+
+-- A goal's argument as the rule compares it. The labels are finitely many:
+-- unknowns are one symbol, and so are the locals the search binds itself
+-- (its Π goals add them without bound) and the goal's own binders' locals,
+-- and a universe, whose level is a fresh name each time, is one symbol too.
+-- A constant keeps its value, under an order with no infinite descent and no
+-- infinite antichain: an integer by its magnitude, a string as a
+-- subsequence, any other constant (of a finite type) by equality. A numeral
+-- of a unary type is its constructors' tree already.
+data Label
+  = Named Name
+  | RootLocal Nat
+  | SearchLocal
+  | Unsolved
+  | Universe
+  | Literal Constant
+  | Binds Nat
+  | LazyType
+  | LazyValue
+  | Forced
+  | ErasedPart
+
+-- Whether the earlier label is below the later one.
+labelBelow : Label -> Label -> Bool
+labelBelow (Named m) (Named n) = m == n
+labelBelow (RootLocal i) (RootLocal j) = i == j
+labelBelow SearchLocal SearchLocal = True
+labelBelow Unsolved Unsolved = True
+labelBelow Universe Universe = True
+labelBelow (Literal c) (Literal d) = constantBelow c d
+  where
+    subsequence : List Char -> List Char -> Bool
+    subsequence [] _ = True
+    subsequence (_ :: _) [] = False
+    subsequence (x :: xs) (y :: ys)
+        = if x == y then subsequence xs ys else subsequence (x :: xs) ys
+
+    constantBelow : Constant -> Constant -> Bool
+    constantBelow (BI x) (BI y) = abs x <= abs y
+    constantBelow (Str x) (Str y) = subsequence (unpack x) (unpack y)
+    constantBelow x y = x == y
+labelBelow (Binds i) (Binds j) = i == j
+labelBelow LazyType LazyType = True
+labelBelow LazyValue LazyValue = True
+labelBelow Forced Forced = True
+labelBelow ErasedPart ErasedPart = True
+labelBelow _ _ = False
+
+data Shape = Shaped Label (List Shape)
+
+bindingKind : Binder (Term vs) -> Nat
+bindingKind (Lam {}) = 0
+bindingKind (Let {}) = 1
+bindingKind (Pi {}) = 2
+bindingKind (PVar {}) = 3
+bindingKind (PLet {}) = 4
+bindingKind (PVTy {}) = 5
+
+mutual
+  -- A goal's argument's shape, given how many of the innermost locals of
+  -- its environment the search bound itself (`k`) and how many binders of
+  -- the term itself are around it (`inner`).
+  shapeIn : (k, inner : Nat) -> Term vs -> Shape
+  shapeIn k inner (Local _ _ idx _)
+      = if idx < inner + k
+           then Shaped SearchLocal []
+           else Shaped (RootLocal (minus idx (inner + k))) []
+  shapeIn k inner (Ref _ _ n) = Shaped (Named n) []
+  shapeIn k inner (Meta {}) = Shaped Unsolved []
+  shapeIn k inner (Bind _ _ b sc)
+      = Shaped (Binds (bindingKind b)) [shapeIn k inner (binderType b), shapeIn k (S inner) sc]
+  shapeIn k inner (App _ f a) = applied k inner f [shapeIn k inner a]
+  shapeIn k inner (As _ _ _ p) = shapeIn k inner p
+  shapeIn k inner (TDelayed _ _ t) = Shaped LazyType [shapeIn k inner t]
+  shapeIn k inner (TDelay _ _ t a) = Shaped LazyValue [shapeIn k inner t, shapeIn k inner a]
+  shapeIn k inner (TForce _ _ t) = Shaped Forced [shapeIn k inner t]
+  shapeIn k inner (PrimVal _ c) = Shaped (Literal c) []
+  shapeIn k inner (Erased {}) = Shaped ErasedPart []
+  shapeIn k inner (TType {}) = Shaped Universe []
+
+  -- An application's head takes its arguments as children; an unknown
+  -- applied is an unknown.
+  applied : (k, inner : Nat) -> Term vs -> List Shape -> Shape
+  applied k inner (App _ f a) args = applied k inner f (shapeIn k inner a :: args)
+  applied k inner (Meta {}) args = Shaped Unsolved []
+  applied k inner f args
+      = case shapeIn k inner f of
+             Shaped l cs => Shaped l (cs ++ args)
+
+mutual
+  -- Homeomorphic embedding: the earlier shape is in a child of the later
+  -- one, or the roots agree and the children embed, in order, into a
+  -- subsequence of the later's (the leftmost match never loses one).
+  embeds : Shape -> Shape -> Bool
+  embeds s t@(Shaped _ ts) = couples s t || embedsChild s ts
+
+  embedsChild : Shape -> List Shape -> Bool
+  embedsChild s [] = False
+  embedsChild s (t :: ts) = embeds s t || embedsChild s ts
+
+  couples : Shape -> Shape -> Bool
+  couples (Shaped l ss) (Shaped l' ts) = labelBelow l l' && embedsAll ss ts
+
+  embedsAll : List Shape -> List Shape -> Bool
+  embedsAll [] _ = True
+  embedsAll (_ :: _) [] = False
+  embedsAll (s :: ss) (t :: ts)
+      = if embeds s t then embedsAll ss ts else embedsAll (s :: ss) ts
+
+hasUnknown : Shape -> Bool
+hasUnknown (Shaped Unsolved _) = True
+hasUnknown (Shaped _ cs) = anyUnknown cs
+  where
+    anyUnknown : List Shape -> Bool
+    anyUnknown [] = False
+    anyUnknown (c :: cs) = hasUnknown c || anyUnknown cs
+
+-- Two argument lists of one type constructor, compared argument by
+-- argument: tuples of a fixed arity, whose order is again a
+-- well-quasi-order.
+pointwise : List Shape -> List Shape -> Bool
+pointwise [] [] = True
+pointwise (s :: ss) (t :: ts) = embeds s t && pointwise ss ts
+pointwise _ _ = False
+
+-- How the search came to a goal.
+data Via = AtTop | ByHint Name | ByLocal
+
+viaHints : Via -> List Name
+viaHints (ByHint n) = [n]
+viaHints _ = []
+
+-- A goal the search took up, as the path rule reads it.
+record Visited where
+  constructor MkVisited
+  family : Name
+  arguments : List Shape
+  goal : ClosedTerm
+  reachedBy : Via
+
+-- What the search knows of the path that led to the goal it is given: how
+-- many of the innermost locals it bound itself, how it came to the goal, and
+-- the goals before it, the latest first. Upstream's path (`trying`) starts
+-- again under a Π goal; this one is kept whole.
+record Track where
+  constructor MkTrack
+  bound : Nat
+  via : Via
+  visited : List Visited
+
+-- The earliest goal of the path, scanning back, that embeds in a goal of
+-- the given type constructor and arguments, with the hints between them.
+grownFrom : Name -> List Shape -> Track -> Maybe (Visited, List Name)
+grownFrom fam shapes track = scan (viaHints track.via) track.visited
+  where
+    scan : List Name -> List Visited -> Maybe (Visited, List Name)
+    scan hints [] = Nothing
+    scan hints (v :: vs)
+        = if v.family == fam && pointwise v.arguments shapes
+             then Just (v, hints)
+             else scan (viaHints v.reachedBy ++ hints) vs
+
+-- A growth is the search's answer, never a failed branch: every combinator
+-- that tries alternatives passes it up rather than trying the next.
+isGrowth : Error -> Bool
+isGrowth (SearchGrows {}) = True
+isGrowth _ = False
+
 searchType : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
              FC -> RigCount ->
              (defaults : Bool) -> (trying : List (Term vars)) ->
-             (depth : Nat) ->
+             (track : Track) ->
              (defining : Name) ->
              (checkDets : Bool) -> (topTy : ClosedTerm) ->
              Env Term vars -> (target : Term vars) -> Core (Term vars)
@@ -96,13 +274,11 @@ searchIfHole : {vars : _} ->
                {auto u : Ref UST UState} ->
                FC ->
                (defaults : Bool) -> List (Term vars) ->
-               (ispair : Bool) -> (depth : Nat) ->
+               (ispair : Bool) -> (track : Track) ->
                (defining : Name) -> (topTy : ClosedTerm) -> Env Term vars ->
                (arg : ArgInfo vars) ->
                Core ()
-searchIfHole fc defaults trying ispair Z def top env arg
-    = throw (CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing) -- possibly should say depth limit hit?
-searchIfHole fc defaults trying ispair (S depth) def top env arg
+searchIfHole fc defaults trying ispair track def top env arg
     = do let hole = holeID arg
          let rig = argRig arg
 
@@ -115,7 +291,7 @@ searchIfHole fc defaults trying ispair (S depth) def top env arg
                     then normaliseScope defs Env.empty (type gdef)
                     else pure top
 
-         argdef <- searchType fc rig defaults trying depth def False top' env
+         argdef <- searchType fc rig defaults trying track def False top' env
                               !(normaliseScope defs env (argType arg))
          logTermNF "auto" 5 "Solved arg" env argdef
          logTermNF "auto" 5 "Arg meta" env (metaApp arg)
@@ -149,6 +325,7 @@ successful (elab :: elabs)
                    pure (Right (res, defs', ust') :: elabs'))
                (\err => do put UST ust
                            put Ctxt defs
+                           when (isGrowth err) $ throw err
                            elabs' <- successful elabs
                            pure (Left err :: elabs'))
 
@@ -163,9 +340,11 @@ anyOne fc env top [elab]
          \case
            err@(CantSolveGoal {})   => throw err
            err@(AmbiguousSearch {}) => throw err
+           err@(SearchGrows {})     => throw err
            _ => throw $ CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing
 anyOne fc env top (elab :: elabs)
-    = tryUnify elab (anyOne fc env top elabs)
+    = handleUnify elab $ \err =>
+        if isGrowth err then throw err else anyOne fc env top elabs
 
 exactlyOne : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
@@ -177,6 +356,7 @@ exactlyOne fc env top target [elab]
     = catch elab $
          \case
            err@(CantSolveGoal {}) => throw err
+           err@(SearchGrows {})   => throw err
            _ => throw $ CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing
 exactlyOne {vars} fc env top target all
     = do elabs <- successful all
@@ -262,11 +442,11 @@ searchLocalWith : {vars : _} ->
                   {auto u : Ref UST UState} ->
                   FC -> RigCount ->
                   (defaults : Bool) -> List (Term vars) ->
-                  (depth : Nat) ->
+                  (track : Track) ->
                   (defining : Name) -> (topTy : ClosedTerm) ->
                   Env Term vars -> (Term vars, Term vars) ->
                   (target : NF vars) -> Core (Term vars)
-searchLocalWith {vars} fc rigc defaults trying depth def top env (prf, ty) target
+searchLocalWith {vars} fc rigc defaults trying track def top env (prf, ty) target
     = do defs <- get Ctxt
          nty <- nf defs env ty
          findPos defs pure nty target
@@ -306,7 +486,8 @@ searchLocalWith {vars} fc rigc defaults trying depth def top env (prf, ty) targe
                    let env' = clearEnv prf env
                    -- Work right to left, because later arguments may solve
                    -- earlier ones by unification
-                   traverse_ (searchIfHole fc defaults trying False depth def top env')
+                   traverse_ (searchIfHole fc defaults trying False
+                                  ({ via := ByLocal } track) def top env')
                             (impLast args)
                    pure candidate
                 else do logNF "auto" 10 "Can't use " env ty
@@ -353,12 +534,12 @@ searchLocalVars : {vars : _} ->
                   {auto u : Ref UST UState} ->
                   FC -> RigCount ->
                   (defaults : Bool) -> List (Term vars) ->
-                  (depth : Nat) ->
+                  (track : Track) ->
                   (defining : Name) -> (topTy : ClosedTerm) ->
                   Env Term vars ->
                   (target : NF vars) -> Core (Term vars)
-searchLocalVars fc rig defaults trying depth def top env target
-    = do let elabs = map (\t => searchLocalWith fc rig defaults trying depth def
+searchLocalVars fc rig defaults trying track def top env target
+    = do let elabs = map (\t => searchLocalWith fc rig defaults trying track def
                                               top env t target)
                          (getUsableEnv fc rig zero env)
          exactlyOne fc env top target elabs
@@ -376,12 +557,12 @@ searchName : {vars : _} ->
              {auto u : Ref UST UState} ->
              FC -> RigCount ->
              (defaults : Bool) -> List (Term vars) ->
-             (depth : Nat) ->
+             (track : Track) ->
              (defining : Name) -> (topTy : ClosedTerm) ->
              Env Term vars -> (target : NF vars) ->
              (Name, GlobalDef) ->
              Core (Term vars)
-searchName fc rigc defaults trying depth def top env target (n, ndef)
+searchName fc rigc defaults trying track def top env target (n, ndef)
     = do defs <- get Ctxt
          when (not (visibleInAny (!getNS :: !getNestedNS)
                                  (fullname ndef) (collapseDefault $ visibility ndef))) $
@@ -404,7 +585,8 @@ searchName fc rigc defaults trying depth def top env target (n, ndef)
          logTermNF "auto" 10 "Candidate " env candidate
          -- Work right to left, because later arguments may solve earlier
          -- dependencies by unification
-         traverse_ (searchIfHole fc defaults trying ispair depth def top env)
+         traverse_ (searchIfHole fc defaults trying ispair
+                                 ({ via := ByHint n } track) def top env)
                   (impLast args)
          pure candidate
 
@@ -413,17 +595,17 @@ searchNames : {vars : _} ->
               {auto u : Ref UST UState} ->
               FC -> RigCount ->
               (defaults : Bool) -> List (Term vars) ->
-              (depth : Nat) ->
+              (track : Track) ->
               (defining : Name) -> (topTy : ClosedTerm) ->
               Env Term vars -> Bool -> List Name ->
               (target : NF vars) -> Core (Term vars)
-searchNames fc rigc defaults trying depth defining topty env ambig [] target
+searchNames fc rigc defaults trying track defining topty env ambig [] target
     = throw (CantSolveGoal fc (gamma !(get Ctxt)) Env.empty topty Nothing)
-searchNames fc rigc defaults trying depth defining topty env ambig (n :: ns) target
+searchNames fc rigc defaults trying track defining topty env ambig (n :: ns) target
     = do defs <- get Ctxt
          visnsm <- traverse (visible (gamma defs) (currentNS defs :: nestedNS defs)) (n :: ns)
          let visns = mapMaybe id visnsm
-         let elabs = map (searchName fc rigc defaults trying depth defining topty env target) visns
+         let elabs = map (searchName fc rigc defaults trying track defining topty env target) visns
          if ambig
             then anyOne fc env topty elabs
             else exactlyOne fc env topty target elabs
@@ -505,56 +687,77 @@ checkConcreteDets fc defaults env top (NTCon tfc tyn a args)
 checkConcreteDets fc defaults env top _
     = pure ()
 
+-- A goal convertible with one before it on its path repeats it: that step
+-- fails, as an ordinary failure, and the search tries what else it has.
 abandonIfCycle : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
+                 FC -> ClosedTerm ->
                  Env Term vars -> Term vars -> List (Term vars) ->
                  Core ()
-abandonIfCycle env tm [] = pure ()
-abandonIfCycle env tm (ty :: tys)
+abandonIfCycle fc top env tm [] = pure ()
+abandonIfCycle fc top env tm (ty :: tys)
     = do defs <- get Ctxt
          if !(convert defs env tm ty)
-            then throw (InternalError "Cycle in search")
-            else abandonIfCycle env tm tys
+            then throw (CantSolveGoal fc (gamma defs) Env.empty top Nothing)
+            else abandonIfCycle fc top env tm tys
 
 -- Declared at the top
-searchType fc rigc defaults trying depth def checkdets top env (Bind nfc x b@(Pi fc' c p ty) sc)
+searchType fc rigc defaults trying track def checkdets top env (Bind nfc x b@(Pi fc' c p ty) sc)
     = pure (Bind nfc x (Lam fc' c p ty)
-             !(searchType fc rigc defaults [] depth def checkdets top
+             !(searchType fc rigc defaults [] ({ bound $= S } track) def checkdets top
                           (b :: env) sc))
-searchType fc rigc defaults trying depth def checkdets top env (Bind nfc x b@(Let fc' c val ty) sc)
+searchType fc rigc defaults trying track def checkdets top env (Bind nfc x b@(Let fc' c val ty) sc)
     = pure (Bind nfc x b
-             !(searchType fc rigc defaults [] depth def checkdets top
+             !(searchType fc rigc defaults [] ({ bound $= S } track) def checkdets top
                           (b :: env) sc))
-searchType {vars} fc rigc defaults trying depth def checkdets top env target
+searchType {vars} fc rigc defaults trying track def checkdets top env target
     = do defs <- get Ctxt
-         abandonIfCycle env target trying
+         abandonIfCycle fc top env target trying
          let trying' = target :: trying
          nty <- nf defs env target
          case nty of
               NTCon tfc tyn a args =>
                   if a == length args
                      then do logNF "auto" 10 "Next target" env nty
+                             track' <- visit tyn (map snd args)
                              sd <- getSearchData fc defaults tyn
                              -- Check determining arguments are okay for 'args'
                              when checkdets $
                                  checkConcreteDets fc defaults env top
                                                    (NTCon tfc tyn a args)
                              if defaults && checkdets
-                                then tryGroups Nothing nty (hintGroups sd)
+                                then tryGroups track' Nothing nty (hintGroups sd)
                                 else tryUnifyUnambig
-                                       (searchLocalVars fc rigc defaults trying' depth def top env nty)
-                                       (tryGroups Nothing nty (hintGroups sd))
+                                       (searchLocalVars fc rigc defaults trying' track' def top env nty)
+                                       (tryGroups track' Nothing nty (hintGroups sd))
                      else throw (CantSolveGoal fc (gamma defs) Env.empty top Nothing)
               _ => do logNF "auto" 10 "Next target: " env nty
-                      searchLocalVars fc rigc defaults trying' depth def top env nty
+                      searchLocalVars fc rigc defaults trying' track def top env nty
   where
+    -- The path rule, before the goal is taken up: an earlier goal of the
+    -- same type constructor that embeds in this one stops the search (the
+    -- convertible ones were caught above); else the goal joins the path.
+    visit : Name -> List (Closure vars) -> Core Track
+    visit tyn args
+        = do defs <- get Ctxt
+             tms <- traverse (quote defs env) args
+             let shapes = map (shapeIn track.bound 0) tms
+             let goal = abstractEnvType fc env target
+             case grownFrom tyn shapes track of
+                  Nothing => pure ({ visited $= (MkVisited tyn shapes goal track.via ::) } track)
+                  Just (earlier, hints) =>
+                     let growth = if any hasUnknown earlier.arguments || any hasUnknown shapes
+                                     then ThroughUnknowns
+                                     else Settled in
+                         throw (SearchGrows fc (gamma defs) growth earlier.goal goal hints)
+
     -- Take the earliest error message (that's when we look inside pairs,
     -- typically, and it's best to be more precise)
-    tryGroups : Maybe Error ->
+    tryGroups : Track -> Maybe Error ->
                 NF vars -> List (Bool, List Name) -> Core (Term vars)
-    tryGroups (Just err) nty [] = throw err
-    tryGroups Nothing nty [] = throw (CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing)
-    tryGroups merr nty ((ambigok, g) :: gs)
+    tryGroups track' (Just err) nty [] = throw err
+    tryGroups track' Nothing nty [] = throw (CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing)
+    tryGroups track' merr nty ((ambigok, g) :: gs)
         = tryUnifyUnambig'
              (do logC "auto" 5
                         (do gn <- traverse getFullName g
@@ -562,21 +765,21 @@ searchType {vars} fc rigc defaults trying depth def checkdets top env target
                                            " names " ++ show gn))
                  logNF "auto" 5 "For target" env nty
                  tryNoDefaultsFirst $ \d =>
-                   searchNames fc rigc d (target :: trying) depth def top env ambigok g nty)
-             (\err => tryGroups (Just $ fromMaybe err merr) nty gs)
+                   searchNames fc rigc d (target :: trying) track' def top env ambigok g nty)
+             (\err => tryGroups track' (Just $ fromMaybe err merr) nty gs)
 
 -- Declared in Core.Unify as:
 -- search : {vars : _} ->
 --          {auto c : Ref Ctxt Defs} ->
 --          {auto u : Ref UST UState} ->
 --          FC -> RigCount ->
---          (defaults : Bool) -> (depth : Nat) ->
+--          (defaults : Bool) ->
 --          (defining : Name) -> (topTy : Term vars) -> Env Term vars ->
 --          Core (Term vars)
-Core.Unify.search fc rigc defaults depth def top env
+Core.Unify.search fc rigc defaults def top env
     = do logTermNF "auto" 3 "Initial target: " env top
          log "auto" 3 $ "Running search with defaults " ++ show defaults
-         tm <- searchType fc rigc defaults [] depth def
+         tm <- searchType fc rigc defaults [] (MkTrack 0 AtTop []) def
                           True (abstractEnvType fc env top) env
                           top
          logTermNF "auto" 3 "Result" env tm

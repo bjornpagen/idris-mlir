@@ -438,14 +438,13 @@ Reify Name where
                  => do ix' <- reify defs !(evalClosure defs ix)
                        n' <- reify defs !(evalClosure defs n)
                        pure (Nested ix' n')
-             (UN (Basic "CaseBlock"), [(_, outer), (_, i)])
-                 => do outer' <- reify defs !(evalClosure defs outer)
-                       i' <- reify defs !(evalClosure defs i)
-                       pure (CaseBlock outer' i')
-             (UN (Basic "WithBlock"), [(_, outer), (_, i)])
-                 => do outer' <- reify defs !(evalClosure defs outer)
-                       i' <- reify defs !(evalClosure defs i)
-                       pure (WithBlock outer' i')
+             -- A block is named by its definition and its ordinal, which
+             -- the reflected form, a printed parent, does not hold; and a
+             -- script cannot name a block before the block exists.
+             (UN (Basic "CaseBlock"), _)
+                 => cantReify val "Name, a case block is not named by a script"
+             (UN (Basic "WithBlock"), _)
+                 => cantReify val "Name, a with block is not named by a script"
              (NS _ (UN _), _)
                  => cantReify val "Name, reifying it is unimplemented or intentionally internal"
              _ => cantReify val "Name, the name was not found in context"
@@ -472,13 +471,15 @@ Reflect Name where
       = do ix' <- reflect fc defs lhs env ix
            n'  <- reflect fc defs lhs env n
            appCon fc defs (reflectiontt "Nested") [ix',n']
+  -- Reflected as base's form: the parent printed (without its namespace,
+  -- as a block's message prints it), the ordinal an `Int`.
   reflect fc defs lhs env (CaseBlock outer i)
-      = do outer' <- reflect fc defs lhs env outer
-           i' <- reflect fc defs lhs env i
+      = do outer' <- reflect fc defs lhs env (show (snd (splitNS outer)))
+           i' <- reflect fc defs lhs env (the Int (cast i))
            appCon fc defs (reflectiontt "CaseBlock") [outer',i']
   reflect fc defs lhs env (WithBlock outer i)
-      = do outer' <- reflect fc defs lhs env outer
-           i' <- reflect fc defs lhs env i
+      = do outer' <- reflect fc defs lhs env (show (snd (splitNS outer)))
+           i' <- reflect fc defs lhs env (the Int (cast i))
            appCon fc defs (reflectiontt "WithBlock") [outer',i']
   reflect fc defs lhs env (Resolved i)
       = case !(full (gamma defs) (Resolved i)) of

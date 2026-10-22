@@ -265,12 +265,11 @@ mutual
                    -- We have to get the normal form eventually anyway, but
                    -- it might be too early to do it now if something is
                    -- blocking it and we're not yet ready to search.
-                   metaty <- catch (quoteOpts (MkQuoteOpts False False (Just 10))
-                                              defs env aty)
-                                   (\err => quote empty env aty)
+                   metaty <- case !(quoteWithin 10 defs env aty) of
+                                  Quoted metaty => pure metaty
+                                  TooDeep => quote empty env aty
                    est <- get EST
-                   lim <- getAutoImplicitLimit
-                   metaval <- searchVar fc argRig lim (Resolved (defining est))
+                   metaval <- searchVar fc argRig (Resolved (defining est))
                                         env nest nm metaty
                    let fntm = App fc tm metaval
                    fnty <- sc defs (toClosure defaultOpts env metaval)
@@ -564,8 +563,8 @@ mutual
              -- Mark for reduction when we finish elaborating
              updateDef (Resolved idx)
                   (\def => case def of
-                        (PMDef pminfo args treeCT treeRT pats) =>
-                           Just (PMDef ({alwaysReduce := True} pminfo) args treeCT treeRT pats)
+                        (PMDef pminfo args treeCT clausePats pats) =>
+                           Just (PMDef ({alwaysReduce := True} pminfo) args treeCT clausePats pats)
                         _ => Nothing
                         )
              removeHole idx

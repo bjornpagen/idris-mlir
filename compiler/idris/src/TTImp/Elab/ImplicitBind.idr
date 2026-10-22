@@ -111,9 +111,10 @@ normaliseType : {auto c : Ref Ctxt Defs} ->
                 {free : _} ->
                 Defs -> Env Term free -> Term free -> Core (Term free)
 normaliseType defs env tm
-    = catch (do tm' <- nfOpts withHoles defs env tm
-                quoteOpts (MkQuoteOpts False False (Just 5)) defs env tm')
-            (\err => normalise defs env tm)
+    = do tm' <- nfOpts withHoles defs env tm
+         case !(quoteWithin 5 defs env tm') of
+              Quoted ntm => pure ntm
+              TooDeep => normalise defs env tm
 
 -- For any of the 'bindIfUnsolved' - these were added as holes during
 -- elaboration, but are as yet unsolved, so create a pattern variable for

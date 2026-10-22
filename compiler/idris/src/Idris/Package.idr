@@ -803,8 +803,6 @@ partitionOpts opts = foldr pOptUpdate (MkPFR [] [] False) opts
     optType Verbose                = POpt
     optType (Timing l)             = POpt
     optType (Logging l)            = POpt
-    optType CaseTreeHeuristics     = POpt
-    optType DebugElabCheck         = POpt
     optType (SetCG f)              = POpt
     optType (Directive d)          = POpt
     optType (BuildDir f)           = POpt
@@ -830,7 +828,6 @@ errorMsg = unlines
   , "    --verbose"
   , "    --timing"
   , "    --log <log level>"
-  , "    --debug-elab-check"
   , "    --codegen <cg>"
   , "    --directive <directive>"
   , "    --build-dir <dir>"

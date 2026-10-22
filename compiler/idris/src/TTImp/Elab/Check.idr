@@ -46,14 +46,12 @@ public export
 data ElabOpt
   = HolesOkay
   | InCase
-  | InPartialEval
   | InTrans
 
 public export
 Eq ElabOpt where
   HolesOkay == HolesOkay = True
   InCase == InCase = True
-  InPartialEval == InPartialEval = True
   InTrans == InTrans = True
   _ == _ = False
 
@@ -145,7 +143,6 @@ record EState (vars : Scope) where
                   -- Metavars which need to be a polymorphic type at the end
                   -- of elaboration. If they aren't, it means we're trying to
                   -- pattern match on a type that we don't have available.
-  delayDepth : Nat -- if it gets too deep, it gets slow, so fail quicker
   linearUsed : VarSet vars
   saveHoles : NameMap () -- things we'll need to save to TTC, even if solved
   marks : List Name
@@ -173,7 +170,6 @@ initEStateSub n env sub = MkEState
     , lhsPatVars = []
     , allPatVars = []
     , polyMetavars = []
-    , delayDepth = Z
     , linearUsed = VarSet.empty
     , saveHoles = empty
     , unambiguousNames = empty
@@ -419,14 +415,14 @@ export
 searchVar : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
             {auto u : Ref UST UState} ->
-            FC -> RigCount -> Nat -> Name ->
+            FC -> RigCount -> Name ->
             Env Term vars -> NestedNames vars -> Name -> Term vars -> Core (Term vars)
-searchVar fc rig depth def env nest n ty
+searchVar fc rig def env nest n ty
     = do defs <- get Ctxt
          (vars' ** (bind, env')) <- envHints (keys (localHints defs)) env
          -- Initial the search with an environment which binds the applied
          -- local hints
-         (_, tm) <- newSearch fc rig depth def env' n
+         (_, tm) <- newSearch fc rig def env' n
                               (weakenNs (mkSizeOf vars') ty)
          pure (bind tm)
   where
@@ -481,11 +477,10 @@ record ElabInfo where
   bindingVars : Bool
   preciseInf : Bool -- are types inferred precisely (True) or do we generalise
                     -- pi bindings to RigW (False, default)
-  ambigTries : List Name
 
 export
 initElabInfo : ElabMode -> ElabInfo
-initElabInfo m = MkElabInfo m NONE False True False []
+initElabInfo m = MkElabInfo m NONE False True False
 
 export
 tryError : {vars : _} ->
@@ -604,6 +599,7 @@ successful allowCons ((tm, elab) :: elabs)
     -- something serious has gone wrong, so just give up immediately.
     abandon : Error -> Bool
     abandon (UndefinedName {}) = True
+    abandon (SearchGrows {}) = True
     abandon (InType _ _ err) = abandon err
     abandon (InCon _ err) = abandon err
     abandon (InLHS _ _ err) = abandon err
@@ -646,24 +642,12 @@ exactlyOne' {vars} allowCons fc env all
     getRes : ((Term vars, Glued vars), Defs, st) -> (Context, Term vars)
     getRes ((tm, _), defs, thisst) = (gamma defs, tm)
 
-    getDepthError : Error -> Maybe Error
-    getDepthError e@(AmbiguityTooDeep {}) = Just e
-    getDepthError _ = Nothing
-
-    depthError : List (Maybe Name, Error) -> Maybe Error
-    depthError [] = Nothing
-    depthError ((_, e) :: es)
-        = maybe (depthError es) Just (getDepthError e)
-
     -- If they've all failed, collect all the errors
     -- If more than one succeeded, report the ambiguity
     altError : List (Maybe Name, Error) ->
                List ((Term vars, Glued vars), Defs, st) ->
                Error
-    altError ls []
-        = case depthError ls of
-               Nothing => AllFailed ls
-               Just err => err
+    altError ls [] = AllFailed ls
     altError ls rs = AmbiguousElab fc env (map getRes rs)
 
 export

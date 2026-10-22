@@ -100,7 +100,7 @@ parameters (f : RawImp' nm -> RawImp' nm)
   mapTTImp (IAutoApp fc t u) = f $ IAutoApp fc (mapTTImp t) (mapTTImp u)
   mapTTImp (INamedApp fc t n u) = f $ INamedApp fc (mapTTImp t) n (mapTTImp u)
   mapTTImp (IWithApp fc t u) = f $ IWithApp fc (mapTTImp t) (mapTTImp u)
-  mapTTImp (ISearch fc depth) = f $ ISearch fc depth
+  mapTTImp (ISearch fc) = f $ ISearch fc
   mapTTImp (IAlternative fc alt ts) = f $ IAlternative fc (mapAltType alt) (assert_total map mapTTImp ts)
   mapTTImp (IRewrite fc t u) = f $ IRewrite fc (mapTTImp t) (mapTTImp u)
   mapTTImp (ICoerced fc t) = f $ ICoerced fc (mapTTImp t)

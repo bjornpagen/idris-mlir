@@ -25,7 +25,6 @@ import Idris.Desugar.Mutual
 import Parser.Support.Escaping
 
 import TTImp.BindImplicits
-import TTImp.Parser
 import TTImp.ProcessDecls
 import TTImp.ProcessType
 import TTImp.TTImp
@@ -56,6 +55,34 @@ import Data.String
 -- * Idiom brackets
 
 %default covering
+
+-- The clauses of one definition are desugared one at a time, each a
+-- definition of its own; neighbouring ones of the same name become one.
+-- Upstream kept this in its parser of raw TTImp files, which nothing here
+-- reads.
+collectDefs : List ImpDecl -> List ImpDecl
+collectDefs [] = []
+collectDefs (IDef loc fn cs :: ds)
+    = let (cs', rest) = spanMap (isClause fn) ds in
+          IDef loc fn (cs ++ cs') :: assert_total (collectDefs rest)
+  where
+    spanMap : (a -> Maybe (List b)) -> List a -> (List b, List a)
+    spanMap f [] = ([], [])
+    spanMap f (x :: xs) = case f x of
+                               Nothing => ([], x :: xs)
+                               Just y => case spanMap f xs of
+                                              (ys, zs) => (y ++ ys, zs)
+
+    isClause : Name -> ImpDecl -> Maybe (List ImpClause)
+    isClause n (IDef _ n' cs)
+        = if n == n' then Just cs else Nothing
+    isClause n _ = Nothing
+collectDefs (INamespace loc ns nds :: ds)
+    = INamespace loc ns (collectDefs nds) :: collectDefs ds
+collectDefs (IFail loc msg nds :: ds)
+    = IFail loc msg (collectDefs nds) :: collectDefs ds
+collectDefs (d :: ds)
+    = d :: collectDefs ds
 
 public export
 data Side = LHS | AnyExpr
@@ -432,7 +459,7 @@ mutual
       = desugarB side ps
           (PLam fc top Explicit (PRef fc (MN "arg" 0)) (PImplicit fc)
               (POp fc (MkFCVal op.fc $ NoBinder arg) op (PRef fc (MN "arg" 0))))
-  desugarB side ps (PSearch fc depth) = pure $ ISearch fc depth
+  desugarB side ps (PSearch fc) = pure $ ISearch fc
   desugarB side ps (PPrimVal fc (BI x))
       = case !fromIntegerName of
              Nothing =>
@@ -1383,10 +1410,7 @@ mutual
                pure [IPragma fc [] (UnboundImplicitsPragma a)]
              PrefixRecordProjections b => do
                pure [IPragma fc [] (PrefixRecordProjectionsPragma b)]
-             AmbigDepth n => pure [IPragma fc [] (AmbigDepthPragma n)]
-             AutoImplicitDepth n => pure [IPragma fc [] (AutoImplicitDepthPragma n)]
              NFMetavarThreshold n => pure [IPragma fc [] (NFMetavarThresholdPragma n)]
-             SearchTimeout n => pure [IPragma fc [] (SearchTimeoutPragma n)]
              PairNames ty f s => pure [IPragma fc [] (PairNamesPragma ty f s)]
              RewriteName eq rw => pure [IPragma fc [] (RewriteNamePragma eq rw)]
              PrimInteger n => pure [IPragma fc [] (PrimIntegerPragma n)]
@@ -1402,9 +1426,6 @@ mutual
              Overloadable n => pure [IPragma fc [] (OverloadablePragma n)]
              Extension e => pure [IPragma fc [] (ExtensionPragma e)]
              DefaultTotality tot => pure [IPragma fc [] (DefaultTotalityPragma tot)]
-             ForeignImpl n cs => do
-               cs' <- traverse (desugar AnyExpr ps) cs
-               pure [IPragma fc [] (ForeignImplPragma n cs')]
   desugarDecl ps bt@(MkWithData _ $ PBuiltin type name) = pure [IBuiltin bt.fc type name]
 
   export
@@ -1445,26 +1466,13 @@ interpretPragma fc nest env (InterfacePragma vis consb tn paramsb det conname bo
 interpretPragma fc nest env (ImplementationPragma vis opts pass isb consb tn paramsb named impname nusing body)
     = elabImplementation {dl} fc vis opts pass env nest isb consb
                          tn paramsb named impname nusing body
-interpretPragma fc _ _ (ForeignImplPragma n cs)
-    = do defs <- get Ctxt
-         calls <- traverse (getFnString {dl}) cs
-         [(n',_,gdef)] <- lookupCtxtName n (gamma defs)
-           | [] => throw (UndefinedName fc n)
-           | xs => throw (AmbiguousName fc (map fst xs))
-         let ForeignDef arity xs = gdef.definition
-           | _ => throw (GenericMsg fc "\{show n} is not a foreign definition")
-
-         update Ctxt { options->foreignImpl $= (map (n',) calls ++) }
 interpretPragma fc _ _ (HideNamePragma n) = hide fc n
 interpretPragma fc _ _ (HideFixityPragma fx n) = removeFixity fc fx n
 interpretPragma fc _ _ (UnhidePragma n) = unhide fc n
 interpretPragma _ _ _ (LazyPragma a) = lazyActive a
 interpretPragma _ _ _ (UnboundImplicitsPragma a) = setUnboundImplicits a
 interpretPragma _ _ _ (PrefixRecordProjectionsPragma b) = setPrefixRecordProjections b
-interpretPragma _ _ _ (AmbigDepthPragma n) = setAmbigLimit n
-interpretPragma _ _ _ (AutoImplicitDepthPragma n) = setAutoImplicitLimit n
 interpretPragma _ _ _ (NFMetavarThresholdPragma n) = setNFThreshold n
-interpretPragma _ _ _ (SearchTimeoutPragma n) = setSearchTimeout n
 interpretPragma fc _ _ (PairNamesPragma ty fstn sndn) = setPair fc ty fstn sndn
 interpretPragma fc _ _ (RewriteNamePragma eq rw) = setRewrite fc eq rw
 interpretPragma _ _ _ (PrimIntegerPragma n) = setFromInteger n

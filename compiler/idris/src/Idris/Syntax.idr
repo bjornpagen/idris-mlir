@@ -111,7 +111,7 @@ mutual
        PDelay : FC -> PTerm' nm -> PTerm' nm
        PForce : FC -> PTerm' nm -> PTerm' nm
 
-       PSearch : FC -> (depth : Nat) -> PTerm' nm
+       PSearch : FC -> PTerm' nm
        PPrimVal : FC -> Constant -> PTerm' nm
        PQuote : FC -> PTerm' nm -> PTerm' nm
        PQuoteName : FC -> Name -> PTerm' nm
@@ -184,7 +184,7 @@ mutual
   getPTermLoc (PDelayed fc _ _) = fc
   getPTermLoc (PDelay fc _) = fc
   getPTermLoc (PForce fc _) = fc
-  getPTermLoc (PSearch fc _) = fc
+  getPTermLoc (PSearch fc) = fc
   getPTermLoc (PPrimVal fc _) = fc
   getPTermLoc (PQuote fc _) = fc
   getPTermLoc (PQuoteName fc _) = fc
@@ -431,7 +431,6 @@ mutual
        Logging : Maybe LogLevel -> Directive
        LazyOn : Bool -> Directive
        UnboundImplicits : Bool -> Directive
-       AmbigDepth : Nat -> Directive
        PairNames : Name -> Name -> Name -> Directive
        RewriteName : Name -> Name -> Directive
        PrimInteger : Name -> Directive
@@ -448,11 +447,7 @@ mutual
        Extension : LangExt -> Directive
        DefaultTotality : TotalReq -> Directive
        PrefixRecordProjections : Bool -> Directive
-       AutoImplicitDepth : Nat -> Directive
        NFMetavarThreshold : Nat -> Directive
-       SearchTimeout : Integer -> Directive
-       -- There is no nm on Directive
-       ForeignImpl : Name -> List PTerm -> Directive
 
   public export
   RecordField' : Type -> Type

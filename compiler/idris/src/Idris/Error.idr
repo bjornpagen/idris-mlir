@@ -75,7 +75,6 @@ Eq Error where
   AmbiguousName fc1 xs1 == AmbiguousName fc2 xs2 = fc1 == fc2 && xs1 == xs2
   AmbiguousElab fc1 rho1 xs1 == AmbiguousElab fc2 rho2 xs2 = fc1 == fc2
   AmbiguousSearch fc1 rho1 s1 xs1 == AmbiguousSearch fc2 rho2 s2 xs2 = fc1 == fc2
-  AmbiguityTooDeep fc1 n1 xs1 == AmbiguityTooDeep fc2 n2 xs2 = fc1 == fc2 && n1 == n2 && xs1 == xs2
   AllFailed xs1 == AllFailed xs2 = assert_total (xs1 == xs2)
   RecordTypeNeeded fc1 rho1 == RecordTypeNeeded fc2 rho2 = fc1 == fc2
   DuplicatedRecordUpdatePath fc1 xs1 == DuplicatedRecordUpdatePath fc2 xs2 = fc1 == fc2 && xs1 == xs2
@@ -87,6 +86,7 @@ Eq Error where
   BadUnboundImplicit fc1 rho1 n1 s1 == BadUnboundImplicit fc2 rho2 n2 s2 = fc1 == fc2 && n1 == n2
   CantSolveGoal fc1 gam1 rho1 s1 x1 == CantSolveGoal fc2 gam2 rho2 s2 x2 = fc1 == fc2
   DeterminingArg fc1 n1 x1 rho1 s1 == DeterminingArg fc2 n2 x2 rho2 s2 = fc1 == fc2 && n1 == n2 && x1 == x2
+  SearchGrows fc1 _ g1 _ _ hs1 == SearchGrows fc2 _ g2 _ _ hs2 = fc1 == fc2 && g1 == g2 && hs1 == hs2
   UnsolvedHoles xs1 == UnsolvedHoles xs2 = xs1 == xs2
   CantInferArgType fc1 rho1 n1 m1 s1 == CantInferArgType fc2 rho2 n2 m2 s2 = fc1 == fc2 && n1 == n2 && m1 == m2
   SolvedNamedHole fc1 rho1 n1 s1 == SolvedNamedHole fc2 rho2 n2 s2 = fc1 == fc2 && n1 == n2
@@ -117,10 +117,10 @@ Eq Error where
   CyclicImports xs1 == CyclicImports xs2 = xs1 == xs2
   ForceNeeded == ForceNeeded = True
   InternalError x1 == InternalError x2 = x1 == x2
+  QuoteTooDeep == QuoteTooDeep = True
   UserError x1 == UserError x2 = x1 == x2
   NoForeignCC fc1 xs1 == NoForeignCC fc2 xs2 = fc1 == fc2 && xs1 == xs2
   BadMultiline fc1 x1 == BadMultiline fc2 x2 = fc1 == fc2 && x1 == x2
-  Timeout x1 == Timeout x2 = x1 == x2
   FailingDidNotFail fc1 == FailingDidNotFail fc2 = fc1 == fc2
   FailingWrongError fc1 x1 err1 == FailingWrongError fc2 x2 err2
     = fc1 == fc2 && x1 == x2 && assert_total (err1 == err2)
@@ -453,12 +453,6 @@ perrorRaw (AmbiguousSearch fc env tgt ts)
                   , reflow "Possible correct results" <+> colon
                   , indent 4 (vsep !(traverse (pshowNoNorm env) ts))
                   ]
-perrorRaw (AmbiguityTooDeep fc n ns)
-    = pure $ errorDesc (reflow "Maximum ambiguity depth exceeded in" <++> code (pretty0 !(getFullName n))
-        <+> colon) <+> line <+> concatWith (surround " --> ") (pretty0 <$> !(traverse getFullName ns))
-        <++> line <+> !(ploc fc)
-        <+> line <+> reflow "Suggestion: the default ambiguity depth limit is 3, the" <++> code "%ambiguity_depth"
-        <++> reflow "pragma can be used to extend this limit, but beware compilation times can be severely impacted."
 perrorRaw (AllFailed ts)
     = case allUndefined ts of
            Just e => perrorRaw e
@@ -527,6 +521,25 @@ perrorRaw (CantSolveGoal fc gam env g reason)
   where
     -- For display, we don't want to see the full top level type; just the
     -- return type
+    dropEnv : {vars : _} ->
+              Env Term vars -> Term vars ->
+              (ns ** (Env Term ns, Term ns))
+    dropEnv env (Bind _ n b@(Pi {}) sc) = dropEnv (b :: env) sc
+    dropEnv env (Bind _ n b@(Let {}) sc) = dropEnv (b :: env) sc
+    dropEnv env tm = (_ ** (env, tm))
+
+perrorRaw (SearchGrows fc gam _ earlier later hints)
+    = do defs <- get Ctxt
+         setCtxt gam
+         let (_ ** (eenv, egoal)) = dropEnv Env.empty earlier
+         let (_ ** (lenv, lgoal)) = dropEnv Env.empty later
+         res <- pure $ errorDesc (reflow "Can't find an implementation: the search grows from"
+                     <++> code !(pshow eenv egoal) <++> reflow "to" <++> code !(pshow lenv lgoal)
+                     <+> dot) <+> line <+> !(ploc fc)
+                     <+> line <+> reflow "through" <++> concatWith (surround " --> ") (pretty0 <$> hints)
+         put Ctxt defs
+         pure res
+  where
     dropEnv : {vars : _} ->
               Env Term vars -> Term vars ->
               (ns ** (Env Term ns, Term ns))
@@ -744,6 +757,7 @@ perrorRaw (CyclicImports ns)
         <++> concatWith (surround " -> ") (pretty0 <$> ns)
 perrorRaw ForceNeeded = pure $ errorDesc (reflow "Internal error when resolving implicit laziness")
 perrorRaw (InternalError str) = pure $ errorDesc (reflow "INTERNAL ERROR" <+> colon) <++> pretty0 str
+perrorRaw QuoteTooDeep = pure $ errorDesc (reflow "Quote too deep")
 perrorRaw (UserError str) = pure . errorDesc $ pretty0 str
 perrorRaw (NoForeignCC fc specs) = do
     let cgs = fst <$> availableCGs (options !(get Ctxt))
@@ -755,7 +769,6 @@ perrorRaw (NoForeignCC fc specs) = do
 perrorRaw (BadMultiline fc str)
   = pure $ errorDesc (reflow "While processing multi-line string" <+> dot <++> pretty0 str <+> dot)
       <+> line <+> !(ploc fc)
-perrorRaw (Timeout str) = pure $ errorDesc (reflow "Timeout in" <++> pretty0 str)
 
 perrorRaw (FailingDidNotFail fc)
   = pure $ errorDesc (reflow "Failing block did not fail" <+> dot)

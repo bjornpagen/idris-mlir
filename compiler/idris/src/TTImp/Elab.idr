@@ -75,8 +75,9 @@ normaliseHoleTypes
   where
     updateType : Defs -> Int -> GlobalDef -> Core ()
     updateType defs i def
-        = do ty' <- catch (tryNormaliseSizeLimit defs 10 Env.empty (type def))
-                          (\err => normaliseHoles defs Env.empty (type def))
+        = do ty' <- case !(tryNormaliseSizeLimit defs 10 Env.empty (type def)) of
+                         Quoted ty' => pure ty'
+                         TooDeep => normaliseHoles defs Env.empty (type def)
              ignore $ addDef (Resolved i) ({ type := ty' } def)
 
     normaliseH : Defs -> Int -> Core ()
@@ -114,7 +115,6 @@ elabTermSubMarked : {inner, vars : _} ->
                      Core (Term vars, Glued vars, List Name)
 elabTermSubMarked {vars} defining mode opts nest env env' sub tm ty
     = do let incase = elem InCase opts
-         let inPE = elem InPartialEval opts
          let inTrans = elem InTrans opts
 
          -- Record the current hole state; we only check the list of current
@@ -164,10 +164,7 @@ elabTermSubMarked {vars} defining mode opts nest env env' sub tm ty
 
          dumpConstraints "elab" 4 False
          defs <- get Ctxt
-         chktm <- if inPE -- Need to fully normalise holes in partial evaluation
-                          -- because the holes don't have types saved to ttc
-                     then normaliseHoles defs env chktm
-                     else normaliseArgHoles defs env chktm
+         chktm <- normaliseArgHoles defs env chktm
 
          -- Linearity and hole checking.
          -- on the LHS, all holes need to have been solved
@@ -180,7 +177,7 @@ elabTermSubMarked {vars} defining mode opts nest env env' sub tm ty
               -- solved, though we defer that if it's a case block since we
               -- might learn a bit more later.
               _ => if (not incase)
-                      then do checkUserHolesAfter constart (inTrans || inPE)
+                      then do checkUserHolesAfter constart inTrans
                               linearCheck (getFC tm) rigc False env chktm
                           -- Linearity checking looks in case blocks, so no
                           -- need to check here.

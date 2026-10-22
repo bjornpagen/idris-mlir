@@ -42,8 +42,8 @@ mutual
         = do tag 8; toBuf fc; toBuf fn; toBuf y; toBuf arg
     toBuf (IWithApp fc fn arg)
         = do tag 9; toBuf fc; toBuf fn; toBuf arg
-    toBuf (ISearch fc depth)
-        = do tag 10; toBuf fc; toBuf depth
+    toBuf (ISearch fc)
+        = do tag 10; toBuf fc
     toBuf (IAlternative fc y xs)
         = do tag 11; toBuf fc; toBuf y; toBuf xs
     toBuf (IRewrite fc x y)
@@ -132,8 +132,8 @@ mutual
                9 => do fc <- fromBuf; fn <- fromBuf
                        arg <- fromBuf
                        pure (IWithApp fc fn arg)
-               10 => do fc <- fromBuf; depth <- fromBuf
-                        pure (ISearch fc depth)
+               10 => do fc <- fromBuf
+                        pure (ISearch fc)
                11 => do fc <- fromBuf; y <- fromBuf
                         xs <- fromBuf
                         pure (IAlternative fc y xs)

@@ -387,19 +387,6 @@ export
   Exists (\ n => IsVar n idx ys)
 renamedIsVar ns p = Evidence _ (compatIsVar ns p)
 
-||| The name an index finds in the scope is the one its variable names.
-0 nameAtIsVar : {vars : List a} -> {idx : Nat} -> (p : IsVar n idx vars) -> IsVar (nameAt p) idx vars
-nameAtIsVar First = First
-nameAtIsVar (Later p) = Later (nameAtIsVar p)
-
-||| The variable an index names once the scope's names are renamed, with
-||| its new name, found in the new scope, for what keeps a variable's name
-||| at runtime (a case tree's `Case`).
-export
-renamedVarAt : {ys : List a} -> (0 _ : CompatibleVars xs ys) ->
-               {idx : Nat} -> (0 p : IsVar name idx xs) ->
-               Subset a (\n => IsVar n idx ys)
-renamedVarAt prf p = Element (nameAt (compatIsVar prf p)) (nameAtIsVar (compatIsVar prf p))
 
 compatVar : CompatibleVars xs ys -> Var xs -> Var ys
 compatVar prf (MkVar p) = MkVar (compatIsVar prf p)

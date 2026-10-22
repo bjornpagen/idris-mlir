@@ -39,7 +39,7 @@ record Input state tok where
   constructor MkInput
   made : Made state
   committed : Bool
-  tokens : List (WithBounds tok)
+  tokens : List (Located tok)
 
 data ParseResult : Type -> Type -> Type -> Type where
      Failure : (committed : Bool) -> (fatal : Bool) ->
@@ -72,7 +72,7 @@ mergeWith : WithBounds ty -> ParseResult state tok sy -> ParseResult state tok s
 mergeWith x (Res inp val) = Res inp (mergeBounds x val)
 mergeWith x v = v
 
-firstBounds : List (WithBounds tok) -> Maybe Bounds
+firstBounds : List (Located tok) -> Maybe Bounds
 firstBounds [] = Nothing
 firstBounds (x :: _) = Just x.bounds
 
@@ -113,7 +113,7 @@ thenLater act next
 warning : (location : Maybe Bounds) -> String -> Grammar state tok False ()
 warning mb msg
     = MkGrammar $ \inp =>
-        Res ({ made.warnings $= ((mb, msg) ::) } inp) (irrelevantBounds ())
+        Res ({ made.warnings $= ((mb, msg) ::) } inp) (Irrelevant ())
 
 ||| Sequence two grammars. If either consumes some input, the sequence is
 ||| guaranteed to consume some input. If the first one consumes input, the
@@ -163,16 +163,12 @@ join p = bindGrammar p id
 export
 {0 c : _} ->
 Functor (Grammar state tok c) where
-  -- The value keeps the bounds of what was parsed; an irrelevant one stays
-  -- irrelevant, with no bounds (as `mergeBounds v (irrelevantBounds (f v.val))`).
+  -- The value keeps the bounds of what was parsed, or its having none.
   map f p
       = MkGrammar $ \inp =>
           case runGrammar p inp of
                Failure com fatal errs => Failure com fatal errs
-               Res inp v =>
-                 Res inp (if v.isIrrelevant
-                             then irrelevantBounds (f v.val)
-                             else map f v)
+               Res inp v => Res inp (map f v)
 
 ||| Give two alternative grammars. If both consume, the combination is
 ||| guaranteed to consume.
@@ -246,12 +242,12 @@ export
 act : state -> Grammar state tok False ()
 act action
     = MkGrammar $ \inp =>
-        Res ({ made.st := inp.made.append inp.made.st action } inp) (irrelevantBounds ())
+        Res ({ made.st := inp.made.append inp.made.st action } inp) (Irrelevant ())
 
 ||| Always succeed with the given value.
 export
 pure : (val : ty) -> Grammar state tok False ty
-pure val = MkGrammar $ \inp => Res inp (irrelevantBounds val)
+pure val = MkGrammar $ \inp => Res inp (Irrelevant val)
 
 ||| Check whether the next token satisfies a predicate
 export
@@ -261,14 +257,28 @@ nextIs err f
         case inp.tokens of
              [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
              (x :: xs) =>
+               -- a token only looked at locates nothing parsed
                if f x.val
-                  then Res inp (removeIrrelevance x)
+                  then Res inp (Irrelevant x.val)
                   else Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
 
 ||| Look at the next token in the input
 export
 peek : Grammar state tok False tok
 peek = nextIs "Unrecognised token" (const True)
+
+||| As `terminal`, with the bounds of the token read, which a token always
+||| has.
+export
+terminalAt : String -> (tok -> Maybe a) -> Grammar state tok True (a, Bounds)
+terminalAt err f
+    = MkGrammar $ \inp =>
+        case inp.tokens of
+             [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
+             (x :: xs) =>
+               case f x.val of
+                    Nothing => Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
+                    Just a => Res ({ tokens := xs } inp) (Relevant (a, x.bounds) x.bounds)
 
 ||| Succeeds if running the predicate on the next token returns Just x,
 ||| returning x. Otherwise fails.
@@ -281,7 +291,7 @@ terminal err f
              (x :: xs) =>
                case f x.val of
                     Nothing => Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
-                    Just a => Res ({ tokens := xs } inp) (const a <$> x)
+                    Just a => Res ({ tokens := xs } inp) (Relevant a x.bounds)
 
 -- Fail with a message, at the given location or else at the next token.
 failWith : (location : Maybe Bounds) -> (fatal : Bool) -> String ->
@@ -298,8 +308,8 @@ fail = failWith Nothing False
 
 ||| Always fail with a message and a location
 export %inline
-failLoc : Bounds -> String -> Grammar state tok c ty
-failLoc b = failWith (Just b) False
+failLoc : Maybe Bounds -> String -> Grammar state tok c ty
+failLoc b = failWith b False
 
 ||| Fail with no possibility for recovery (i.e.
 ||| no alternative parsing can succeed).
@@ -310,8 +320,8 @@ fatalError = failWith Nothing True
 ||| Fail with no possibility for recovery (i.e.
 ||| no alternative parsing can succeed).
 export %inline
-fatalLoc : Bounds -> String -> Grammar state tok c ty
-fatalLoc b = failWith (Just b) True
+fatalLoc : Maybe Bounds -> String -> Grammar state tok c ty
+fatalLoc b = failWith b True
 
 ||| Catch a fatal error
 export
@@ -328,7 +338,7 @@ export
 eof : Grammar state tok False ()
 eof = MkGrammar $ \inp =>
         case inp.tokens of
-             [] => Res inp (irrelevantBounds ())
+             [] => Res inp (Irrelevant ())
              (x :: xs) =>
                Failure inp.committed False
                        (Error "Expected end of input" (Just x.bounds) ::: Nil)
@@ -337,7 +347,7 @@ eof = MkGrammar $ \inp =>
 ||| fails to parse, no more branches will be tried
 export
 commit : Grammar state tok False ()
-commit = MkGrammar $ \inp => Res (withCommitted True inp) (irrelevantBounds ())
+commit = MkGrammar $ \inp => Res (withCommitted True inp) (Irrelevant ())
 
 ||| If the parser fails, treat it as a fatal error
 export
@@ -351,7 +361,7 @@ mustWork g
 ||| If the parser fails, treat it as a fatal error and explain why
 export
 mustWorkBecause :
-  {c : Bool} -> Bounds -> String ->
+  {c : Bool} -> Maybe Bounds -> String ->
   Grammar state tok c ty -> Grammar state tok c ty
 mustWorkBecause {c} loc msg p
   = rewrite sym (andSameNeutral c) in
@@ -378,7 +388,7 @@ position
     = MkGrammar $ \inp =>
         case inp.tokens of
              [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
-             (x :: xs) => Res inp (irrelevantBounds x.bounds)
+             (x :: xs) => Res inp (Irrelevant x.bounds)
 
 ||| Warn the user
 export
@@ -386,25 +396,25 @@ withWarning : {c : _} -> String -> Grammar state tok c ty -> Grammar state tok c
 withWarning warn p
     = rewrite sym $ orFalseNeutral c in
       seq (bounds p) $ \ res =>
-      do warning (Just res.bounds) warn
+      do warning res.bounds warn
          pure res.val
 
 ||| Parse a list of tokens according to the given grammar. If successful,
 ||| returns a pair of the parse result and the unparsed tokens (the remaining
 ||| input).
 export
-parse : {c : Bool} -> (act : Grammar () tok c ty) -> (xs : List (WithBounds tok)) ->
+parse : {c : Bool} -> (act : Grammar () tok c ty) -> (xs : List (Located tok)) ->
         Either (List1 (ParsingError tok))
-               (ParsingWarnings, ty, List (WithBounds tok))
+               (ParsingWarnings, ty, List (Located tok))
 parse act xs
     = case runGrammar act (MkInput (MkMade (<+>) neutral []) False xs) of
            Failure _ _ errs => Left errs
            Res inp v => Right (inp.made.warnings, v.val, inp.tokens)
 
 export
-parseWith : Monoid state => {c : Bool} -> (act : Grammar state tok c ty) -> (xs : List (WithBounds tok)) ->
+parseWith : Monoid state => {c : Bool} -> (act : Grammar state tok c ty) -> (xs : List (Located tok)) ->
         Either (List1 (ParsingError tok))
-               (state, ParsingWarnings, ty, List (WithBounds tok))
+               (state, ParsingWarnings, ty, List (Located tok))
 parseWith act xs
     = case runGrammar act (MkInput (MkMade (<+>) neutral []) False xs) of
            Failure _ _ errs => Left errs

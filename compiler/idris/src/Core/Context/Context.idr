@@ -76,7 +76,10 @@ data Def : Type where
     PMDef : (pminfo : PMDefInfo) ->
             (args : Scope) ->
             (treeCT : CaseTree args) ->
-            (treeRT : CaseTree args) ->
+            -- each clause's arguments as the case builder read them, in
+            -- the order of the clauses, whose index a leaf of the tree
+            -- (`STerm`) names; none for a definition with no clauses
+            (clausePats : List (List Pat)) ->
             (pats : List (vs : Scope ** (Env Term vs, Term vs, Term vs))) ->
                 -- original checked patterns (LHS/RHS) with the names in
                 -- the environment. Used for display purposes, for helping
@@ -115,7 +118,7 @@ data Def : Type where
                               -- (mostly to help display)
            HoleFlags ->
            Def
-    BySearch : RigCount -> (maxdepth : Nat) -> (defining : Name) -> Def
+    BySearch : RigCount -> (defining : Name) -> Def
     -- Constraints are integer references into the current map of
     -- constraints in the UnifyState (see Core.UnifyState)
     Guess : (guess : ClosedTerm) ->
@@ -149,10 +152,9 @@ export
 covering
 Show Def where
   show None = "undefined"
-  show (PMDef _ args ct rt pats)
+  show (PMDef _ args ct _ pats)
       = unlines [ show args ++ ";"
                 , "Compile time tree: " ++ show ct
-                , "Run time tree: " ++ show rt
                 ]
   show (DCon t a nt)
       = "DataCon " ++ show t ++ " " ++ show a
@@ -167,7 +169,7 @@ Show Def where
                            " " ++ show cs ++">"
   show (Builtin {arity} _) = "<builtin with arith " ++ show arity ++ ">"
   show (Hole _ p) = "Hole" ++ if implbind p then " [impl]" else ""
-  show (BySearch c depth def) = "Search in " ++ show def
+  show (BySearch c def) = "Search in " ++ show def
   show (Guess tm _ cs) = "Guess " ++ show tm ++ " when " ++ show cs
   show (UniverseLevel i) = "Universe level #" ++ show i
   show ImpBind = "Bound name"
@@ -226,11 +228,6 @@ data DefFlag
     | SetTotal TotalReq
     | BlockedHint -- a hint, but blocked for the moment (so don't use)
     | Macro
-    | PartialEval (List (Name, Nat)) -- Partially evaluate on completing defintion.
-         -- This means the definition is standing for a specialisation so we
-         -- should evaluate the RHS, with reduction limits on the given names,
-         -- and ensure the name has made progress in doing so (i.e. has reduced
-         -- at least once)
     | AllGuarded -- safe to treat as a constructor for the purposes of
          -- productivity checking. All clauses are guarded by constructors,
          -- and there are no other function applications
@@ -253,7 +250,6 @@ Eq DefFlag where
     (==) (SetTotal x) (SetTotal y) = x == y
     (==) BlockedHint BlockedHint = True
     (==) Macro Macro = True
-    (==) (PartialEval x) (PartialEval y) = x == y
     (==) AllGuarded AllGuarded = True
     (==) (ConType x) (ConType y) = x == y
     (==) (Identity x) (Identity y) = x == y
@@ -270,7 +266,6 @@ Show DefFlag where
   show (SetTotal x) = show x
   show BlockedHint = "blockedhint"
   show Macro = "macro"
-  show (PartialEval _) = "partialeval"
   show AllGuarded = "allguarded"
   show (ConType ci) = "contype " ++ show ci
   show (Identity x) = "identity " ++ show x
@@ -313,7 +308,6 @@ record GlobalDef where
   isEscapeHatch : Bool
   flags : List DefFlag
   refersToM : Maybe (NameMap Bool)
-  refersToRuntimeM : Maybe (NameMap Bool)
   invertible : Bool -- for an ordinary definition, is it invertible in unification
   noCycles : Bool -- for metavariables, whether they can be cyclic (this
                   -- would only be allowed when using a metavariable as a
@@ -338,9 +332,6 @@ export
 refersTo : GlobalDef -> NameMap Bool
 refersTo def = maybe empty id (refersToM def)
 
-export
-refersToRuntime : GlobalDef -> NameMap Bool
-refersToRuntime def = maybe empty id (refersToRuntimeM def)
 
 export
 findSetTotal : List DefFlag -> Maybe TotalReq

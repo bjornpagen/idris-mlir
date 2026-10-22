@@ -375,7 +375,7 @@ mutual
            if imp
               then bracket p startPrec app
               else mkOp app
-  toPTerm p (ISearch fc d) = pure (PSearch fc d)
+  toPTerm p (ISearch fc) = pure (PSearch fc)
   toPTerm p (IAlternative fc _ _) = pure (PImplicit fc)
   toPTerm p (IRewrite fc rule tm)
       = pure (PRewrite fc !(toPTerm startPrec rule)

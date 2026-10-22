@@ -271,7 +271,7 @@ mkdirAll dir = if !(dirExists dir) then pure (Right ()) else createFrom [] path.
     createFrom done [] = pure (Right ())
     createFrom done (b :: bs)
         = do let here = done ++ [b]
-             Right () <- createDir (show (MkPath path.volume path.hasRoot here False))
+             Right () <- createDir (show (MkPath path.hasRoot here False))
                | Left FileExists => createFrom here bs
                | Left err => pure (Left err)
              createFrom here bs

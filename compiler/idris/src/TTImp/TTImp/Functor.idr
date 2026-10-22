@@ -38,8 +38,8 @@ mutual
     = INamedApp fc (mapRawImp f fn) nm (mapRawImp f t)
   mapRawImp f (IWithApp fc fn t)
     = IWithApp fc (mapRawImp f fn) (mapRawImp f t)
-  mapRawImp f (ISearch fc n)
-    = ISearch fc n
+  mapRawImp f (ISearch fc)
+    = ISearch fc
   mapRawImp f (IAlternative fc alt ts)
     = IAlternative fc (mapAltType f alt) (map (mapRawImp f) ts)
   mapRawImp f (IRewrite fc e t)

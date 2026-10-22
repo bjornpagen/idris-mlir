@@ -36,7 +36,7 @@ import public Libraries.Utils.Binary
 ||| blob (`writeTTCFile`), which upstream's do not.
 export
 ttcVersion : Int
-ttcVersion = 1_2026_10_19_00
+ttcVersion = 1_2026_10_21_00
 
 export
 checkTTCVersion : String -> Int -> Int -> Core ()
@@ -60,7 +60,6 @@ record TTCFile extra where
   pairnames : Maybe PairNames
   rewritenames : Maybe RewriteNames
   primnames : PrimNames
-  foreignImpl : List (Name, String)
   namedirectives : List (Name, List String)
   cgdirectives : List (CG, String)
   transforms : List (Name, Transform)
@@ -103,7 +102,7 @@ HasNames e => HasNames (TTCFile e) where
                       context userHoles
                       autoHints typeHints
                       imported nextVar currentNS nestedNS
-                      pairnames rewritenames primnames foreignImpl
+                      pairnames rewritenames primnames
                       namedirectives cgdirectives trans
                       fexp extra)
       = pure $ MkTTCFile version totalReq ifaceHash iHashes
@@ -114,7 +113,6 @@ HasNames e => HasNames (TTCFile e) where
                          !(fullPair gam pairnames)
                          !(fullRW gam rewritenames)
                          !(fullPrim gam primnames)
-                         !(traverse fullForeign foreignImpl)
                          !(full gam namedirectives)
                          cgdirectives
                          !(full gam trans)
@@ -141,8 +139,6 @@ HasNames e => HasNames (TTCFile e) where
                         (full gam mn)
                         (full gam mdl) |]
 
-      fullForeign : (Name, String) -> Core (Name, String)
-      fullForeign (n,s) = pure $ (!(full gam n), s)
 
   -- I don't think we ever actually want to call this, because after we read
   -- from the file we're going to add them to learn what the resolved names
@@ -151,7 +147,7 @@ HasNames e => HasNames (TTCFile e) where
                       context userHoles
                       autoHints typeHints
                       imported nextVar currentNS nestedNS
-                      pairnames rewritenames primnames foreignImpl
+                      pairnames rewritenames primnames
                       namedirectives cgdirectives trans
                       fexp extra)
       = pure $ MkTTCFile version totalReq ifaceHash iHashes
@@ -162,7 +158,6 @@ HasNames e => HasNames (TTCFile e) where
                          !(resolvedPair gam pairnames)
                          !(resolvedRW gam rewritenames)
                          !(resolvedPrim gam primnames)
-                         !(traverse resolvedForeign foreignImpl)
                          !(resolved gam namedirectives)
                          cgdirectives
                          !(resolved gam trans)
@@ -188,9 +183,6 @@ HasNames e => HasNames (TTCFile e) where
                             !(resolved gam mt)
                             !(resolved gam mn)
                             !(resolved gam mdl)
-
-      resolvedForeign : (Name, String) -> Core (Name, String)
-      resolvedForeign (n,s) = pure $ (!(resolved gam n), s)
 
 ||| A value written into a blob of its own.
 encodeBlob : TTC a => a -> Core Binary
@@ -231,7 +223,6 @@ writeTTCFile b file_in
            toBuf (pairnames file)
            toBuf (rewritenames file)
            toBuf (primnames file)
-           toBuf (foreignImpl file)
            toBuf (namedirectives file)
            toBuf (cgdirectives file)
            toBuf (transforms file)
@@ -261,7 +252,7 @@ readTTCFileWith readExtra readall file as b
                                    0 (mkNamespace "") [] Nothing
                                    Nothing
                                    (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
-                                   [] [] [] [] [] ex)
+                                   [] [] [] [] ex)
               else do
                  defs <- fromBuf
                  uholes <- fromBuf
@@ -273,7 +264,6 @@ readTTCFileWith readExtra readall file as b
                  pns <- fromBuf
                  rws <- fromBuf
                  prims <- fromBuf
-                 foreignImpl <- fromBuf
                  nds <- fromBuf
                  cgds <- fromBuf
                  trans <- fromBuf
@@ -282,7 +272,7 @@ readTTCFileWith readExtra readall file as b
                                  ifaceHash importHashes
                                  (map (replaceNS cns) defs) uholes
                                  autohs typehs imp nextv cns nns
-                                 pns rws prims foreignImpl nds cgds trans fexp ex)
+                                 pns rws prims nds cgds trans fexp ex)
   where
     -- We don't store full names in 'defs' - we remove the namespace if it's
     -- the same as the current namespace. So, this puts it back.
@@ -342,7 +332,7 @@ saveMetas = go . keys . toSave =<< get Ctxt
   where
     metasOf : GlobalDef -> List Name
     metasOf d = keys (getMetas (type d)) ++ case definition d of
-      PMDef _ _ ct rt _ => keys (Core.Case.CaseTree.getMetas ct) ++ keys (Core.Case.CaseTree.getMetas rt)
+      PMDef _ _ ct _ _ => keys (Core.Case.CaseTree.getMetas ct)
       _ => []
 
     go : List Name -> Core ()
@@ -389,7 +379,6 @@ writeToTTC extradata sourceFileName ttcFileName
                               (pairnames (options defs))
                               (rewritenames (options defs))
                               (primnames (options defs))
-                              (foreignImpl (options defs))
                               (NameMap.toList (namedirectives defs))
                               (cgdirectives defs)
                               (saveTransforms defs)
@@ -465,10 +454,6 @@ updatePrimNames p
 export
 updatePrims : {auto c : Ref Ctxt Defs} -> PrimNames -> Core ()
 updatePrims p = update Ctxt { options->primnames $= updatePrimNames p }
-
-export
-updateForeignImpl : {auto c : Ref Ctxt Defs} -> List (Name, String) -> Core ()
-updateForeignImpl xs = update Ctxt { options->foreignImpl $= (xs ++) }
 
 export
 updateNameDirectives : {auto c : Ref Ctxt Defs} ->
@@ -570,7 +555,6 @@ readFromTTC nestedns loc reexp fname modNS importAs
                     updatePair (pairnames ttc)
                     updateRewrite (rewritenames ttc)
                     updatePrims (primnames ttc)
-                    updateForeignImpl (foreignImpl ttc)
                     updateNameDirectives (reverse (namedirectives ttc))
                     updateCGDirectives (cgdirectives ttc)
                     updateTransforms (transforms ttc)
