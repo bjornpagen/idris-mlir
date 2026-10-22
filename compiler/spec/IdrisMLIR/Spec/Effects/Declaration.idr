@@ -249,8 +249,8 @@ data RuleName : Type where
   MemoryRelease : RuleName
 
 public export
-ruleClosed : Closed RuleName
-ruleClosed = MkClosed
+effectRuleClosed : Closed RuleName
+effectRuleClosed = MkClosed
   { name = ident "EffectRule"
   , shape = OneOf
   , every = Consumption ::: [FreshIdentity, Acquisition, MemoRead, SharedCount, Recycling, ForeignRelease, BufferRead, BufferWrite, MemoryRelease]
@@ -737,7 +737,7 @@ odsEffect (OnValues k r values) = MkOdsEffect (odsKind k) (odsState r) (odsSubje
 ||| group together. A call's row is read off the call.
 public export
 odsRule : TypedRule i o -> OdsRule i o
-odsRule (ByType rule values) = MkOdsRule (describe ruleClosed rule).name (ReadsOne (odsSubject values))
+odsRule (ByType rule values) = MkOdsRule (describe effectRuleClosed rule).name (ReadsOne (odsSubject values))
 odsRule (ByPair rule operands results) = MkOdsRule (describe pairRuleClosed rule).name (ReadsPair operands results)
 odsRule Summarized = MkOdsRule (ident "Summarized") (ReadsOne OfOp)
 
@@ -765,8 +765,8 @@ ods (Executes effects rules bodies memory) =
 
 ||| Each rule's meaning, one array per fact, indexed by the rule.
 public export
-ruleTable : Table
-ruleTable = table ruleClosed
+effectRuleTable : Table
+effectRuleTable = table effectRuleClosed
   [ MkColumn (ident "ruleCondition") (EnumColumn (enumDef conditionClosed))
       (\r => CaseCell (caseRef conditionClosed (condition (consequence r)))) (line "what the rule reads off a value's type")
   , MkColumn (ident "ruleHolds") (SetColumn (enumDef kindClosed))
@@ -790,10 +790,10 @@ pairRuleTable = table pairRuleClosed
   [ MkColumn (ident "pairCondition") (EnumColumn (enumDef pairConditionClosed))
       (\p => CaseCell (caseRef pairConditionClosed (pairCondition (pairConsequence p))))
       (line "what the rule reads off an operand's type and a result's together")
-  , MkColumn (ident "pairOnOperand") (SetColumn (enumDef ruleClosed))
-      (\p => setCell ruleClosed (operandRules (pairConsequence p))) (line "the rules it applies to the operand where the relation holds")
-  , MkColumn (ident "pairOnResult") (SetColumn (enumDef ruleClosed))
-      (\p => setCell ruleClosed (resultRules (pairConsequence p))) (line "the rules it applies to the result where the relation holds")
+  , MkColumn (ident "pairOnOperand") (SetColumn (enumDef effectRuleClosed))
+      (\p => setCell effectRuleClosed (operandRules (pairConsequence p))) (line "the rules it applies to the operand where the relation holds")
+  , MkColumn (ident "pairOnResult") (SetColumn (enumDef effectRuleClosed))
+      (\p => setCell effectRuleClosed (resultRules (pairConsequence p))) (line "the rules it applies to the result where the relation holds")
   ]
 
 ||| What a call holding each atom declares, as the C++ reads it: the kinds

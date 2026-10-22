@@ -38,12 +38,12 @@ effectTree = MkHeader (ident "EffectTree")
   [ ( ident "idr" ::: []
     , map EnumOf
         [ enumDef reachClosed, enumDef kindClosed, enumDef resourceClosed, enumDef atomClosed
-        , enumDef conditionClosed, enumDef landingClosed, enumDef ruleClosed
+        , enumDef conditionClosed, enumDef landingClosed, enumDef effectRuleClosed
         , enumDef pairConditionClosed, enumDef pairRuleClosed, enumDef runtimeMemoryClosed
         , enumDef accessClosed, enumDef locationClosed, enumDef attributeClosed ]
       ++ map TableOf
         [ resourceTable, atomTable, projectionTable, valueMemoryTable, callKindsTable
-        , ruleTable, pairRuleTable, runtimeMemoryTable, locationTable, llvmTable ] ) ]
+        , effectRuleTable, pairRuleTable, runtimeMemoryTable, locationTable, llvmTable ] ) ]
   (brief (line "the effect tree, the atoms of a row, the typed rules and what LLVM is told"))
 
 export
