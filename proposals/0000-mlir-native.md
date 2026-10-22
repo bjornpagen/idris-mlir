@@ -1742,7 +1742,49 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   unmodified, is the bootstrap host only, and a bug in it that our code
   meets is patched in upstream (`upstream/<bug>/`), never forked. What
   checks the types of the programs idris-mlir compiles, once the fork is
-  gone, is §4's open question (raised 2026-10-22).
+  gone, is §4's open question (raised 2026-10-22). *Answered* by D118.
+- **D118** (2026-10-22; the owner; answers D117's question). "the fork
+  shouldn't be a "fork", it's just copying over code into our own tree
+  with no arbitrary boundaries, and stamping it with the spdx identifier.
+  we could keep it clean, but no compiler/idris, we call it something
+  else. compiler/idris is just too vague. see, i think a lot of this fork
+  discussion is actually just confusing about terminology because of bad
+  naming. this clearly isn't a fork, it's like how openbsd/freebsd are
+  copying code from each other with proper attribution and fusing it into
+  their own tree." The type checker idris-mlir uses is our code: Idris's
+  checker, copied into our tree with its attribution (each file's SPDX
+  line and copyright kept), and ours to change freely from then on. It
+  tracks no upstream: no re-sync, no pin it follows, no list of files
+  kept against upstream's, no diff kept for a merge, no rule that
+  upstream's form or interface be preserved. It sits behind no arbitrary
+  boundary: no import rule fences it from the rest of our code. It lives
+  in a directory named for what it is (C233), compiles under both hosts
+  (D116), and its best form is ours, written in the strict subset.
+- **C233** (2026-10-22; under D118). The checker's name. `compiler/idris`
+  becomes `compiler/checker`, its package `idris-mlir-checker`: it parses,
+  elaborates and type-checks Idris and holds the checked definitions the
+  translation reads. Its modules keep their names (`Core.*`, `TTImp.*`,
+  `Idris.*`, `Parser.*`, `Libraries.*`). Deleted with the fork's
+  framing: `tools/extract-idris.sh` and `compiler/idris/MODULES` (the
+  re-sync), the README's re-syncing and upstream-bug sections, every
+  `upstream/fork-*` record and `pull-request.diff` (a bug in our checker
+  is fixed in it like any of our code), the PINS entries that describe
+  the checker as a fork, and AGENTS.md's import fence.
+- **D119** (2026-10-22; the owner; the checker's code). "yes, obivously
+  we should improve the paser code. upsteram code sucks. it should be
+  using fully goated parser combinators that porperly leverage qtt. that
+  type passing bullshit is really bad. that's just called bad code." The
+  checker's parser is ours, written fresh: parser combinators that use
+  quantities, the token stream and the parse state threaded linearly so
+  idris-mlir updates them in place and counts nothing, termination proved
+  by the types (a consuming parser's evidence that it advances), and no
+  type passing: no constructor field whose type the constructor hides,
+  no `Type` held at run time, no type computed from a run-time value.
+  The same holds across the checker: where Idris's code passes types
+  around (the extensible metadata records, `TokenKind`'s `TokType`,
+  `CommandLine`'s `ActType`, the tokenizer's hidden tag), ours states the
+  types it means. Upstream's form is never the target (D118); L17r's and
+  L17s's restorations of it are replaced by this.
 - **C227** (2026-10-22; L16's growth passes; under D68, extends C221).
   An eta-redex around a stuck call reads as both forms. A site's
   `\x => F m x`, with `F` stuck on a marker, contracts to `F m`; at an

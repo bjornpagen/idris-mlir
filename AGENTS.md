@@ -574,7 +574,7 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   representation, none of the optimization stuff. within reason",
   2026-10-21); the specification may state an op's rules and laws as
   data, which the C++ uses. The Idris side (`compiler/`: the
-  frontend and `Emit`, on the fork of Idris's compiler in `compiler/idris`)
+  frontend and `Emit`, over our type checker in `compiler/checker`)
   checks what the compiler accepts, monomorphises and decides
   representations. The `idr` dialect and its passes (specialization,
   defunctionalization, loops, the heap-free check, lowering) are C++ in
@@ -592,8 +592,12 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   bootstrap host and nothing more; a bug in it is patched upstream, never
   worked around in a fork. idris-mlir compiling upstream's code is no
   goal, and the subset is never widened past its definition for any
-  code. Never: a fork of Idris's compiler kept beside upstream
-  (`compiler/idris`, until D117). Never: a ruling recorded as dropping
+  code. The type checker idris-mlir uses is our code, Idris's checker
+  copied into our tree with its attribution (`compiler/checker`, D118):
+  it tracks no upstream and no rule keeps upstream's form in it. Never: a
+  "fork" of Idris's compiler kept against upstream, with a re-sync tool,
+  a list of kept files and diffs for merges (`compiler/idris`, until
+  D118). Never: a ruling recorded as dropping
   self-hosting (D116's first text, corrected the same hour). Linearity is a
   performance property, never a correctness one: a linear program means
   the same under both hosts, and idris-mlir's optimizations of it (update
@@ -607,9 +611,8 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   hook: the body is the one meaning, and removing the hook leaves the same
   result. A building stage may use either host, but neither is dropped.
   Neither host is given an escape hatch to compile it: a trust the
-  frontend takes in Idris's compiler is stated in the fork, which is
-  Idris's compiler, and one it takes in itself is `covering`, never
-  asserted. Never: the hosts agreeing by coincidence (float text matched
+  frontend takes in the checker's evaluator is stated once, in the
+  checker, and one it takes in itself is `covering`, never asserted. Never: the hosts agreeing by coincidence (float text matched
   only because two printers happen to agree; 14 X01).
 - Anything of ours above the C++ is Idris: "our higher level spec should
   not be in a python dsl, opdsl, etc... it should just be idris.
@@ -639,8 +642,14 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   code" (2026-10-22). Where idris-mlir does not compile the best form of
   our own code and the program fixes the construct's runtime choices,
   the compiler gains the construct; only a megamorphic one stays
-  rewritten. Never: the fork's parser rewritten from upstream's deep
-  embedding into a shallow one with five `assert_total`s (360db182).
+  rewritten. And never pass types around: "that type passing bullshit is
+  really bad. that's just called bad code" (2026-10-22). No constructor
+  field whose type the constructor hides, no `Type` held at run time, no
+  type computed from a run-time value; the code states the types it
+  means, and a parser is combinators that use quantities. Never: the
+  checker's parser rewritten from upstream's deep embedding into a
+  shallow one with five `assert_total`s (360db182), nor restored to
+  upstream's type-passing embedding (30018c00).
 - The Idris side is refactored wherever the representation calls for it:
   "if we need to heavily refactor our idris code, representation first, so
   be it" (2026-10-21); type-driven (indices, views, erased proofs, evidence
@@ -661,11 +670,6 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   is a second copy. Never: `CmpPredicate` held in Idris and in C++ (14
   E14); `Profile.outsideLanguage` restating the rules of `IdrBase.td` (16
   FC-78); the harness's hand copy of the primitives (19 G6).
-- Only `IdrisMLIR.Frontend.*` may import the fork of Idris's compiler
-  (`compiler/idris`), and the fork never imports `IdrisMLIR.*`.
-
-## Upstream and pins
-
 - third_party/Idris2 is unmodified and pinned by its gitlink. Do not edit
   it or move the pin as a side effect of other work; a patch to Idris
   applies to the copy the bootstrap builds, never to the checkout.
@@ -688,18 +692,16 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   the upstream test, its status); sending it is separate work. A patch
   goes when the pin moves past upstream's fix, or when nothing in the tree
   reaches the bug any more, its report kept as a submission (see
-  upstream/README.md). The fork of Idris's compiler (`compiler/idris`) is
-  ours: a bug in its upstream code is fixed there, as its own code,
-  recorded in `PINS.md`, with the change against the pin in
-  `upstream/<bug>/pull-request.diff` for the re-sync to read, and the fix
-  goes when a re-sync of the fork brings upstream's. Nothing is sent to
-  Idris: it takes no contribution written with generative AI or a coding
-  agent (upstream/README.md). A patch to the stock Idris is only for what
-  it still builds (the fork, the frontend, the test runner).
+  upstream/README.md). Our type checker (`compiler/checker`) is our code:
+  a bug in it is fixed in it, like any of ours, with nothing kept against
+  upstream. Nothing is sent to Idris: it takes no contribution written
+  with generative AI or a coding agent (upstream/README.md). A patch to
+  the stock Idris is only for what it builds as our bootstrap host (our
+  Idris: the checker, the frontend, the test runner).
 - PINS.md and `upstream/` change in the commit that changes what they
   describe. Never: an upstream gap in `ub.unreachable` modelled in our
-  code (`NeverRuns`, synthesis A B9); the fork's `paramPos` bug patched in
-  the frontend instead of fixed in the fork (17 FB-18); patches 06, 28 and
+  code (`NeverRuns`, synthesis A B9); the checker's `paramPos` bug patched
+  in the frontend instead of fixed in the checker (17 FB-18); patches 06, 28 and
   63 carried after 16005000 left them nothing to reach, PINS.md naming the
   dropped pass, the upstream table missing 62 and 63 (lane 20 H2, H3).
 
