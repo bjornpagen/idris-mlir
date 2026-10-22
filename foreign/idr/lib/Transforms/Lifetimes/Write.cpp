@@ -5,7 +5,7 @@
 // callee's copy for its kind, and every value that lives in it graded
 // `scoped`, the op that makes each stating where.
 
-#include "Plan.h"
+#include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "idr/IR/Grades.h"
 

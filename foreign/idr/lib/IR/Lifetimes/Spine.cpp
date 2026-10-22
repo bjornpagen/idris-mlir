@@ -5,7 +5,7 @@
 // put is dead while memory is taken. The verifier checks it and the decide
 // step meets it before it writes a lifetime, so both read this one rule.
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Verify.h"

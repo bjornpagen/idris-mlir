@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The parts of idr-lifetimes' decide step: one function's ops numbered,
-// what a function is decided into, the planner that decides one function
-// (Read.cpp reads it, Decide.cpp decides it), and the writer that writes a
-// plan into a function and its copies (Write.cpp). The pass is Pass.cpp's.
-#ifndef IDR_LIB_TRANSFORMS_LIFETIMES_PLAN_H
-#define IDR_LIB_TRANSFORMS_LIFETIMES_PLAN_H
+// The parts of idr-lifetimes' decide step, shared by its units under
+// lib/Transforms/Lifetimes: one function's ops numbered, what a function
+// is decided into, the planner that decides one function (Read.cpp reads
+// it, Decide.cpp decides it), and the writer that writes a plan into a
+// function and its copies (Write.cpp). The pass is Pass.cpp's.
+#ifndef IDR_TRANSFORMS_LIFETIMES_PLAN_H
+#define IDR_TRANSFORMS_LIFETIMES_PLAN_H
 
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/Analysis/Solver/Graph.h"
@@ -373,4 +374,4 @@ private:
 
 } // namespace idr::lifetimes::decide
 
-#endif // IDR_LIB_TRANSFORMS_LIFETIMES_PLAN_H
+#endif // IDR_TRANSFORMS_LIFETIMES_PLAN_H

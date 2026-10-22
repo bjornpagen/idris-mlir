@@ -96,6 +96,23 @@ fieldReachClosed = MkClosed
   , doc = brief (line "how far a value's claim on its own cells reaches into a field")
   }
 
+||| Whether a carrier holds references, the fact `Grade` is indexed by: a
+||| data type computes it when it is made, and a family at an unknown index.
+export
+refsClosed : Closed Refs
+refsClosed = MkClosed
+  { name = ident "Refs"
+  , shape = OneOf
+  , every = Words ::: [References]
+  , complete = \case
+      Words => Here
+      References => There Here
+  , describe = \case
+      Words => MkCase (ident "Words") (word "words" ::: []) (line "words alone, no reference a count accounts for")
+      References => MkCase (ident "References") (word "references" ::: []) (line "a reference a count accounts for")
+  , doc = brief (line "whether a value holds references")
+  }
+
 ||| The seven holds, as the C++ `HoldCase` the value class `::idr::Hold`
 ||| wraps; each spelled as the type prints it.
 export
@@ -277,13 +294,15 @@ linCast = MkOp
   }
 
 ||| The header the grade's C++ includes (`Generated/Grades.h.inc`): the
-||| axes as enums, the holds and their facts, what a field read gives, the
-||| product of uses. `Uses` is an ODS enum besides, since the type's
-||| parameter is one; its header reads it from there.
+||| axes as enums, whether a carrier holds references, the holds and their
+||| facts, what a field read gives, the product of uses. `Uses` is an ODS
+||| enum besides, since the type's parameter is one; its header reads it
+||| from there.
 gradesHeader : Header
 gradesHeader = MkHeader "Grades"
   [ ("idr" ::: [],
       [ EnumOf (enumDef releaseClosed), EnumOf (enumDef uniqueClosed)
+      , EnumOf (enumDef refsClosed)
       , EnumOf (enumDef fieldReachClosed), EnumOf (enumDef quantityChangeClosed)
       , TableOf holdTable, holdReads "holdReadsOnce" Once, holdReads "holdReadsMany" Many
       , usesTimes ]) ]

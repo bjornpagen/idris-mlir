@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the lifetimes' rule of one function keeps as its walk goes: the
+// What the lifetimes' rule of one function keeps as its walk goes, shared
+// by the rule's two units (lib/IR/Lifetimes/Verify.cpp and Proof.cpp): the
 // lifetimes open where it stands, each at its depth, and the regions it is
 // in, each with how many regions that run again enclose it. Outlives is
 // dominance: a lifetime bound inside another's region is deeper, a
@@ -9,8 +10,8 @@
 // bounds say. A scoped value's lifetime is one hop from it
 // (statedLifetime), so no rule follows a def-use chain, and whether a use
 // runs again inside a lifetime is two counts compared, so none walks up.
-#ifndef IDR_LIB_IR_LIFETIMES_RULES_H
-#define IDR_LIB_IR_LIFETIMES_RULES_H
+#ifndef IDR_IR_LIFETIMES_RULES_H
+#define IDR_IR_LIFETIMES_RULES_H
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -81,4 +82,4 @@ struct LifetimeRules::State {
 
 } // namespace idr::verify
 
-#endif // IDR_LIB_IR_LIFETIMES_RULES_H
+#endif // IDR_IR_LIFETIMES_RULES_H

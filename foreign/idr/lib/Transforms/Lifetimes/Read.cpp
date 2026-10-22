@@ -8,7 +8,7 @@
 // carried down from the ops around it as the pass goes, never found by
 // walking up.
 
-#include "Plan.h"
+#include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/FlowEdges.h"

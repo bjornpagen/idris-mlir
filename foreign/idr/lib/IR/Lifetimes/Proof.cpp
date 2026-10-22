@@ -15,7 +15,7 @@
 // there is used again after every allocation that follows it, so nothing
 // the call put is dead while memory is taken.
 
-#include "Rules.h"
+#include "idr/IR/Lifetimes/Rules.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/Lifetimes.h"

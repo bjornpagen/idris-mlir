@@ -6,7 +6,7 @@
 // parameter. One marking over the function's values per round, never a set
 // per value and never the whole program's graph.
 
-#include "Plan.h"
+#include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/Verify.h"

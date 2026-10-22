@@ -36,10 +36,11 @@
 // The dialect's ODS enums, `Uses` among them, since the graded type's
 // parameter is one; the generated file has no guard of its own, so this
 // header is where the dialect includes it. Then the rest of the axes
-// (Release, Unique), how far a value's claim reaches into a field
-// (FieldReach), a cast's QuantityChange, the seven holds (HoldCase) with
-// their facts and what a field read from each gives, and the product of
-// uses, printed from Spec.Grades.
+// (Release, Unique), whether a carrier holds references (Refs, which a
+// data type computes when it is made), how far a value's claim reaches
+// into a field (FieldReach), a cast's QuantityChange, the seven holds
+// (HoldCase) with their facts and what a field read from each gives, and
+// the product of uses, printed from Spec.Grades.
 #include "idr/IR/IdrEnums.h.inc"
 #include "idr/IR/Generated/Grades.h.inc"
 

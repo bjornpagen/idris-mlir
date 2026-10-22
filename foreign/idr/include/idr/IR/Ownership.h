@@ -30,12 +30,12 @@ namespace idr::ownership {
 // only needs the value to be alive.
 enum class Use { Consume, Borrow };
 
-// The op that uses `operand` declares which (idr::consumes): returns, scf's
-// yields, a call's counted parameters and the operands ODS names beside
-// each idr op consume; everything else borrows, the closure an apply calls
-// included. A force is placement's: counting gives it its cell counted
-// where the cell dies, and there it takes the cell over; anywhere else it
-// reads a view.
+// The op that uses `operand` declares which (effects::consumes): returns,
+// scf's yields, a call's counted parameters and the operands ODS names
+// beside each idr op consume; everything else borrows, the closure an apply
+// calls included. A force is placement's: counting gives it its cell
+// counted where the cell dies, and there it takes the cell over; anywhere
+// else it reads a view.
 Use useOf(mlir::OpOperand &operand);
 
 // Whether an op of upstream's writes the value `operand` holds into memory

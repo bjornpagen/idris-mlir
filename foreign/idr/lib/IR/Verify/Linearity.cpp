@@ -18,6 +18,7 @@
 // Which regions of an op exclude each other is asked of
 // RegionBranchOpInterface once per op class in one verify.
 
+#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Verify.h"
@@ -120,7 +121,7 @@ public:
   Count(Value value, Rule rule, Exclusivity &exclusivity)
       : value(value), rule(rule), exclusivity(exclusivity) {
     for (OpOperand &use : value.getUses())
-      if (everyUse(rule) || consumes(use))
+      if (everyUse(rule) || effects::consumes(use))
         users.push_back(use.getOwner());
   }
 

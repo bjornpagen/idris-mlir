@@ -245,51 +245,67 @@ bool idr::isLazyType(Type type) { return isa<LazyType>(unrestricted(type)); }
 
 namespace {
 
-// An element of an array: a field type at no grade.
-bool isElementType(Type element) { return !isa<GradedType>(element) && isFieldType(element); }
-
-// A value array: a ranked tensor without an encoding, of any rank and
-// extents. After bufferization, its buffer: a memref in the default memory
-// space, in the identity layout, of any rank and extents. Its element is
-// no shaped value: an array of arrays is one array of a higher rank.
-bool isValueArray(Type type) {
-  auto shaped = dyn_cast<ShapedType>(type);
-  if (!shaped || isa<ShapedType>(shaped.getElementType()) ||
-      !isElementType(shaped.getElementType()))
-    return false;
-  if (auto tensor = dyn_cast<RankedTensorType>(type))
-    return !tensor.getEncoding();
+// The element of an array of mutable memory, none for any other type: at
+// most one dimension, each dynamic, in the identity layout, in mutable
+// memory, the shapes the runtime's array cell has (a length, then the
+// elements in order), an IORef being the cell of one element, whose length
+// is 1 and no value carries. The memory space tells it from a value buffer
+// of the same element, which a cell may hold after it is shared and so
+// cannot be written.
+Type mutableElement(Type type) {
   auto memref = dyn_cast<MemRefType>(type);
-  return memref && !memref.getMemorySpace() && memref.getLayout().isIdentity();
+  if (!memref || memref.getRank() > 1 || !llvm::all_of(memref.getShape(), ShapedType::isDynamic) ||
+      !memref.getLayout().isIdentity() ||
+      !isa_and_nonnull<MutableSpaceAttr>(memref.getMemorySpace()))
+    return nullptr;
+  return memref.getElementType();
+}
+
+// The element of a value array, none for any other type: a ranked tensor
+// without an encoding, of any rank and extents; after bufferization, its
+// buffer, a memref in the default memory space, in the identity layout, of
+// any rank and extents. Its element is no shaped value: an array of arrays
+// is one array of a higher rank.
+Type valueElement(Type type) {
+  auto shaped = dyn_cast<ShapedType>(type);
+  if (!shaped || isa<ShapedType>(shaped.getElementType()))
+    return nullptr;
+  if (auto tensor = dyn_cast<RankedTensorType>(type))
+    return tensor.getEncoding() ? nullptr : shaped.getElementType();
+  auto memref = dyn_cast<MemRefType>(type);
+  return memref && !memref.getMemorySpace() && memref.getLayout().isIdentity()
+             ? shaped.getElementType()
+             : nullptr;
 }
 
 } // namespace
 
 // A runtime value of ours is an element type of memref, which its ODS says
 // beside it, and so a field's type; the dialect's other types (a grade, a
-// token, a destination, a cell, a lifetime) are no values a cell holds.
+// token, a destination, a cell, a lifetime) are no values a cell holds. An
+// array's element is a field type at no grade, and an array of mutable
+// memory may hold arrays, so the elements are taken one array at a time,
+// never by recursion on how deeply arrays nest.
 bool idr::isFieldType(Type type) {
-  type = unrestricted(type);
-  if (auto integer = dyn_cast<IntegerType>(type))
-    return integer.isSignless() && llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
-  if (isa<IdrDialect>(type.getDialect()))
-    return isa<MemRefElementTypeInterface>(type);
-  return isa<Float64Type>(type) || isArray(type) || isValueArray(type);
+  for (type = unrestricted(type);;) {
+    if (auto integer = dyn_cast<IntegerType>(type))
+      return integer.isSignless() && llvm::is_contained({8u, 16u, 32u, 64u}, integer.getWidth());
+    if (isa<IdrDialect>(type.getDialect()))
+      return isa<MemRefElementTypeInterface>(type);
+    if (isa<Float64Type>(type))
+      return true;
+    Type element = mutableElement(type);
+    if (!element)
+      element = valueElement(type);
+    if (!element || isa<GradedType>(element))
+      return false;
+    type = element;
+  }
 }
 
-// An array of mutable memory: at most one dimension, each dynamic, in the
-// identity layout, in mutable memory, the shapes the runtime's array cell
-// has (a length, then the elements in order), an IORef being the cell of
-// one element, whose length is 1 and no value carries. The memory space
-// tells it from a value buffer of the same element, which a cell may hold
-// after it is shared and so cannot be written.
 bool idr::isArray(Type type) {
-  auto memref = dyn_cast<MemRefType>(type);
-  if (!memref || memref.getRank() > 1 || !llvm::all_of(memref.getShape(), ShapedType::isDynamic) ||
-      !memref.getLayout().isIdentity() ||
-      !isa_and_nonnull<MutableSpaceAttr>(memref.getMemorySpace()))
-    return false;
-  return isElementType(memref.getElementType());
+  Type element = mutableElement(type);
+  return element && !isa<GradedType>(element) && isFieldType(element);
 }
 
 bool idr::isRank1Array(Type type) {

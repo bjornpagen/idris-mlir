@@ -6,7 +6,7 @@
 // reads the op, the lifetimes its values state, a call's copy of its
 // callee's signature, and the lifetimes open around it.
 
-#include "Rules.h"
+#include "idr/IR/Lifetimes/Rules.h"
 
 #include "idr/IR/Families/Scope.h"
 #include "idr/IR/Flow.h"

@@ -46,7 +46,7 @@
 // would hold a call in tail position, or a jump out of it, keeps its cells
 // counted. What the lifetime holds is then graded `scoped`, and the op that
 // makes each such value states the lifetime.
-#include "Plan.h"
+#include "idr/Transforms/Lifetimes/Plan.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/Transforms/Effects.h"

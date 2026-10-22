@@ -98,7 +98,8 @@ public:
   // After the ops of the region last entered.
   void leave();
 
-  // What the rule keeps as the walk goes, opaque here.
+  // What the rule keeps as the walk goes: opaque here, declared for the
+  // rule's own units in idr/IR/Lifetimes/Rules.h.
   struct State;
 
 private:
