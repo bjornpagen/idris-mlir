@@ -3621,6 +3621,25 @@ C137.
   memory only that parameter reaches. Reason: D70's "every rebuild that
   can be kept is accepted", and D61's in-place rebuilding made movable,
   mergeable and deletable where the caller owns the memory.
+- **C160** (2026-10-21; L05's question on D93's wording). A lifetime
+  value comes from a region's entry (an opener's binder, a lend's), a
+  parameter, `idr.activation` (this call's own, as C140 lists it), or one
+  of two derived results: `idr.lifetime.forget` (the view of its operand)
+  and `idr.lifetime.reserve` (a room carved from a cursor, C146). Each
+  derived result is defined inside its operand's region, so none can
+  outlive what it came from. D93's "the one op whose result is a
+  lifetime" reads as "the one op whose result is its operand's view".
+- **C161** (2026-10-21; L05's finding on D88). `count.dup` and
+  `count.drop` take a `counted` operand only, by a generated constraint:
+  a `scoped` value is a view of counted memory or a cell of an arena,
+  which D88's hold does not tell apart, and neither may be duplicated or
+  dropped. A lent value that must outlive its loan is duplicated from its
+  counted original, which dominates the lend, so nothing is lost. Reason:
+  the illegal state is unwritable, and D88 needs no fourth case.
+- **C162** (2026-10-21; amends C21's "attribute"). The grade is a value
+  class held as `!idr.graded`'s parameters, with no attribute of its own
+  beside the type, so it lives in one place (D90's printed form). Reason:
+  one fact, one representation.
 
 ## 4. Open: the owner's decisions, in order
 
