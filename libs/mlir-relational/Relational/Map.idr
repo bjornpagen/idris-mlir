@@ -170,16 +170,18 @@ mutual
   minusAt (Next x lx cx tx xs) y ly ty ys = case order x y of
     Less xy => Next x lx cx tx (minusAt xs y xy ty ys)
     Same Refl => keep x lx cx (difference tx ty) (minusB xs ys)
-    More yx => keepAt x yx cx tx xs ys
+    More _ => keepAt x lx cx tx xs ys
 
-  -- The branch at `x` and then `xs`, without the keys of `ys`.
+  -- The branch at `x` and then `xs`, without the keys of `ys`. No branch of
+  -- `ys` enters the result, so the bound its keys ascend from is its own,
+  -- not the result's.
   keepAt : (x : Nat) -> (0 _ : LTE lo x) -> (0 _ : LT x u) -> Map k u l -> Branches (S x) k u l ->
-           Branches lo k u m -> Branches lo k u l
+           Branches lo' k u m -> Branches lo k u l
   keepAt x lx cx tx xs Done = Next x lx cx tx xs
   keepAt x lx cx tx xs (Next y ly _ ty ys) = case order x y of
     Less xy => Next x lx cx tx (minusAt xs y xy ty ys)
     Same Refl => keep x lx cx (difference tx ty) (minusB xs ys)
-    More yx => keepAt x yx cx tx xs ys
+    More _ => keepAt x lx cx tx xs ys
 
 mutual
   ||| The entries `p` keeps: a selection.

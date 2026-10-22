@@ -100,7 +100,7 @@ occupied (e :< _) (p :< j) = bothOccupied (occupied e p) (positioned j)
 ||| position, or at the first index, every axis at its first position.
 data Start : Extents s -> Type where
   Elementless : (0 empty : volume e = Z) -> Start e
-  From : Index s -> Start e
+  From : {0 e : Extents s} -> Index s -> Start e
 
 ||| Where the elements of extents start, read off their lengths.
 start : (e : Extents s) -> Start e
