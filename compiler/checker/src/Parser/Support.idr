@@ -27,11 +27,10 @@ fromLexError origin (_, l, c, _)
     = LexFail (MkFC origin (l, c) (l, c + 1)) "Can't recognise token."
 
 export
-fromParsingErrors : (Show token, Pretty ann token) =>
-                    OriginDesc -> List1 (ParsingError token) -> Error
+fromParsingErrors : OriginDesc -> List1 ParsingError -> Error
 fromParsingErrors origin = ParseFail . (map fromError)
   where
-    fromError : ParsingError token -> (FC, String)
+    fromError : ParsingError -> (FC, String)
     fromError (Error msg Nothing)
         = (MkFC origin (0, 0) (0, 0), msg +> '.')
     fromError (Error msg (Just t))
@@ -45,8 +44,7 @@ export
 getCharLit : String -> Maybe Char
 getCharLit str
    = do e <- unescape 0 str
-        if length e == 1
-           then Just (assert_total (prim__strHead e))
-           else if length e == 0 -- parsed the NULL character that terminated the string!
-                   then Just '\0000'
-                   else Nothing
+        case unpack e of
+             [c] => Just c
+             [] => Just '\0000' -- parsed the NULL character that terminated the string!
+             _ => Nothing

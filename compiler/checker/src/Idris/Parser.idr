@@ -21,6 +21,11 @@ import Libraries.Data.WithDefault
 
 import Idris.Parser.Let
 
+-- A grammar here names itself after reading a token (a bracketed
+-- expression is an expression, a `where` block holds declarations), so it
+-- ends on any input; but the library's types carry that evidence for
+-- repetition alone, not for a grammar that names itself, so these grammars
+-- are covering.
 %default covering
 
 fcBounds : OriginDesc => Rule a -> Rule (WithFC a)
@@ -55,13 +60,13 @@ decoratedNamespacedSymbol : OriginDesc -> (plain, dotted : Reserved) -> Rule (Ma
 decoratedNamespacedSymbol fname plain dotted =
   decorate fname Keyword $ namespacedSymbol plain dotted
 
-parens : {b : _} -> OriginDesc -> BRule b a -> Rule a
+parens : {0 b : Bool} -> OriginDesc -> BRule b a -> Rule a
 parens fname p
   = pure id <* decoratedSymbol fname SymParen
             <*> p
             <* decoratedSymbol fname SymParenClose
 
-curly : {b : _} -> OriginDesc -> BRule b a -> Rule a
+curly : {0 b : Bool} -> OriginDesc -> BRule b a -> Rule a
 curly fname p
   = pure id <* decoratedSymbol fname SymBrace
             <*> p
@@ -1269,10 +1274,7 @@ tyDecls declName predoc fname indents
          node (TyClaim (boundToFC fname bs) docns predoc ty)
 
 withFlags : OriginDesc -> EmptyRule (List WithFlag)
-withFlags fname
-    = (do decoratedPragma fname KwSyntactic
-          (Syntactic ::) <$> withFlags fname)
-  <|> pure []
+withFlags fname = many (Syntactic <$ decoratedPragma fname KwSyntactic)
 
 
 withProblem : OriginDesc -> Int -> IndentInfo -> Rule (Id FWith)
@@ -1370,8 +1372,8 @@ tyConType fname fc params
 -- A constructor's argument in a simple data declaration: explicit or auto
 -- implicit, as only these may be.
 conArg : WithFC ArgType -> Maybe (FC, PiInfo (Id FTerm), Id FTerm)
-conArg con@(MkWithData _ (UnnamedExpArg x)) = Just (con.fc, Explicit, x)
-conArg con@(MkWithData _ (UnnamedAutoArg x)) = Just (con.fc, AutoImplicit, x)
+conArg (MkFCVal fc (UnnamedExpArg x)) = Just (fc, Explicit, x)
+conArg (MkFCVal fc (UnnamedAutoArg x)) = Just (fc, AutoImplicit, x)
 conArg _ = Nothing -- with and named applications not allowed in simple ADTs
 
 -- A constructor's type in a simple data declaration: its arguments, and the
@@ -1696,7 +1698,7 @@ getVisibility (Just vis) (Left x :: xs)
    = fatalError "Multiple visibility modifiers"
 getVisibility v (_ :: xs) = getVisibility v xs
 
-recordConstructor : OriginDesc -> Rule (WithDoc $ AddFC Name)
+recordConstructor : OriginDesc -> Rule (WithDocFC Name)
 recordConstructor fname
   = do doc <- optDocumentation fname
        decorate fname Keyword $ exactIdent Kconstructor
@@ -1947,15 +1949,11 @@ parameters {auto fname : OriginDesc} {auto indents : IndentInfo}
                        )
            node (Declared b.fc (DcFixity b.val))
 
--- The compiler cannot infer the values for c1 and c2 so I had to write it
--- this way.
--- - Andre
 cgDirectiveDecl : Rule (DeclOf Id)
 cgDirectiveDecl
-  = (>>=) {c1 = True, c2 = False} cgDirective $ \dir =>
-      let (cg1, cg2) = span isAlphaNum dir
-      in the (EmptyRule (DeclOf Id)) $ pure $
-            DcDirective (CGAction cg1 (stripBraces (trimSpace cg2)))
+  = do dir <- cgDirective
+       let (cg1, cg2) = span isAlphaNum dir
+       pure (DcDirective (CGAction cg1 (stripBraces (trimSpace cg2))))
 
 -- A declaration's node, where its rule parsed it.
 declared : OriginDesc => Rule (DeclOf Id) -> Rule (Id FDecl)

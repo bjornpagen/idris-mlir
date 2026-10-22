@@ -271,12 +271,10 @@ symbolToken s = maybe (Symbol s) Reserved (reservedOf s)
 validSymbol : Lexer
 validSymbol = some (pred isOpChar)
 
+-- Each of these literals' digits follow its two-character prefix (`0b`, `0x`,
+-- `0o`).
 fromBinLit : String -> Integer
-fromBinLit str
-    = if length str <= 2
-         then 0
-         else let num = assert_total (strTail (strTail str)) in
-                fromBin . reverse . map castBin . unpack $ num
+fromBinLit str = fromBin . reverse . map castBin . unpack $ drop 2 str
     where
       castBin : Char -> Integer
       castBin '1' = 1; castBin _ = 0 -- This can only be '1' and '0' once lexed
@@ -286,38 +284,26 @@ fromBinLit str
       fromBin (x :: xs) = x + (2 * fromBin xs)
 
 fromHexLit : String -> Integer
-fromHexLit str
-  = if length str <= 2
-       then 0
-       else let num = assert_total (strTail (strTail str)) in
-             fromMaybe 0 (fromHex (reverse num))
-             --        ^-- can't happen if the literal was lexed correctly
+fromHexLit str = fromMaybe 0 (fromHex (reverse (drop 2 str)))
+                 --        ^-- can't happen if the literal was lexed correctly
 
 fromOctLit : String -> Integer
-fromOctLit str
-  = if length str <= 2
-       then 0
-       else let num = assert_total (strTail (strTail str)) in
-             fromMaybe 0 (fromOct (reverse num))
-             --        ^-- can't happen if the literal lexed correctly
+fromOctLit str = fromMaybe 0 (fromOct (reverse (drop 2 str)))
+                 --        ^-- can't happen if the literal lexed correctly
 
 mutual
-  stringTokens : Bool -> Nat -> Tokenizer RawToken
+  stringTokens : IsMultiline -> Nat -> Tokenizer RawToken
   stringTokens multi hashtag
       = let escapeChars = "\\" ++ replicate hashtag '#'
             interpStart = escapeChars ++ "{"
             escapeLexer = escape (exact escapeChars) any
-            charLexer = if multi
-                           then non $ exact (multilineEnd hashtag)
-                           else non (newline <|> exact (stringEnd hashtag))
+            charLexer = case multi of
+                             Multi => non $ exact (multilineEnd hashtag)
+                             Single => non (newline <|> exact (stringEnd hashtag))
           in
             match (someUntil (exact interpStart) (escapeLexer <|> charLexer)) (\x => StringLit x)
         <|> compose (exact interpStart)
-                    (const InterpBegin)
-                    (const ())
-                    (\_ => rawTokens)
-                    (const $ is '}')
-                    (const InterpEnd)
+                    (\_ => MkGroup InterpBegin rawTokens (is '}') (const InterpEnd))
 
   rawTokens : Tokenizer RawToken
   rawTokens =
@@ -325,13 +311,9 @@ mutual
       <|> match blockComment (const Comment)
       <|> match docComment (DocComment . removeOptionalLeadingSpace . drop 3)
       <|> match cgDirective mkDirective
-      <|> match holeIdent (\x => HoleIdent (assert_total (strTail x)))
+      <|> match holeIdent (\x => HoleIdent (drop 1 x))
       <|> compose (choiceMap (exact . reservedText . fst) brackets)
-                  symbolToken
-                  id
-                  (\_ => rawTokens)
-                  closing
-                  symbolToken
+                  (\begin => MkGroup (symbolToken begin) rawTokens (closing begin) symbolToken)
       <|> match (choice $ (exact . fst) <$> debugInfo) (MagicDebugInfo . fromMaybe DebugLoc . flip lookup debugInfo)
       <|> match (choiceMap (exact . reservedText) punctuation) symbolToken
       <|> match doubleLit (DoubleLit . cast)
@@ -340,19 +322,15 @@ mutual
       <|> match octUnderscoredLit (IntegerLit . fromOctLit . removeUnderscores)
       <|> match digitsUnderscoredLit (IntegerLit . cast . removeUnderscores)
       <|> compose multilineBegin
-                  (\begin => StringBegin (countHashtag begin) Multi)
-                  countHashtag
-                  (stringTokens True)
-                  (exact . multilineEnd)
-                  (const StringEnd)
+                  (\begin => let hashtag = countHashtag begin in
+                                 MkGroup (StringBegin hashtag Multi) (stringTokens Multi hashtag)
+                                         (exact (multilineEnd hashtag)) (const StringEnd))
       <|> compose stringBegin
-                  (\begin => StringBegin (countHashtag begin) Single)
-                  countHashtag
-                  (stringTokens False)
-                  (\hashtag => exact (stringEnd hashtag) <+> reject (is '"'))
-                  (const StringEnd)
+                  (\begin => let hashtag = countHashtag begin in
+                                 MkGroup (StringBegin hashtag Single) (stringTokens Single hashtag)
+                                         (exact (stringEnd hashtag) <+> reject (is '"')) (const StringEnd))
       <|> match charLit (CharLit . stripQuotes)
-      <|> match dotIdent (\x => DotIdent (assert_total $ strTail x))
+      <|> match dotIdent (\x => DotIdent (drop 1 x))
       <|> match namespacedIdent parseNamespace
       <|> match identNormal parseIdent
       <|> match pragma pragmaToken
@@ -367,7 +345,7 @@ mutual
       -- the language, which every rule refuses as it refuses any token it
       -- does not take.
       pragmaToken : String -> RawToken
-      pragmaToken x = maybe (Unrecognised x) Pragma (pragmaOf (assert_total $ strTail x))
+      pragmaToken x = maybe (Unrecognised x) Pragma (pragmaOf (drop 1 x))
 
       -- A single part is an identifier or a keyword; a namespaced one is
       -- never a keyword.

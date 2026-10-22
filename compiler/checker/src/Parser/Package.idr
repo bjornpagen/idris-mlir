@@ -17,8 +17,7 @@ import System.File
 export
 runParser : (fname : String) -> (str : String) -> Rule ty -> Either Error ty
 runParser fname str p
-    = do toks   <- mapFst (\err => fromLexError
-                     (PhysicalPkgSrc fname) (NoRuleApply, err)) $ lex str
+    = do toks   <- mapFst (fromLexError (PhysicalPkgSrc fname)) $ lex str
          (_, val) <- mapFst (fromParsingErrors (PhysicalPkgSrc fname)) $ parse p (columns toks)
          Right val
 

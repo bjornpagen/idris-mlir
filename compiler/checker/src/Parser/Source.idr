@@ -41,14 +41,14 @@ internTokens toks
 
 -- The parse tree a grammar made is frozen and read here, once the parse is
 -- done, so the syntax a parse gives is made once, of what it kept.
-parseTokens : {e : _} ->
-              (origin : OriginDesc) ->
+parseTokens : {0 e : Bool} -> (origin : OriginDesc) ->
               Grammar ParsingState Token e (Read ty) ->
               List (Located ()) -> Tokens Token ->
               Either Error (List Warning, State, ty)
 parseTokens origin p cs toks
     = do (st, ws, reader) <- mapFst (fromParsingErrors origin) $ parseWith parsing p toks
-         let Just frozen = frozenTree st.tree
+         let (decorated, uses, tree) = madeBy st
+         let Just frozen = frozenTree tree
              | Nothing => Left (InternalError "A parse tree has a child that is none of its nodes")
          let Just parsed = reader frozen
              | Nothing => Left (InternalError "A parse tree decodes to no syntax")
@@ -58,12 +58,11 @@ parseTokens origin p cs toks
                     let mkFC = \ b => MkFC origin (startBounds b) (endBounds b)
                     in ParserWarning (maybe EmptyFC mkFC mb) warn
          let state : State
-             state = MkState (cs ++ cast st.decorated) (holesWritten st.tree) (cast st.pragmasWritten)
+             state = MkState (cs ++ decorated) (holesWritten tree) uses
          pure (ws, state, parsed)
 
 export
-runParserTo : {auto c : Ref Ctxt Defs} ->
-              {e : _} ->
+runParserTo : {auto c : Ref Ctxt Defs} -> {0 e : Bool} ->
               (origin : OriginDesc) ->
               Maybe LiterateStyle -> Lexer ->
               String -> Grammar ParsingState Token e (Read ty) ->
@@ -74,8 +73,7 @@ runParserTo origin lit reject str p
            Right (cs, toks) => parseTokens origin p cs <$> internTokens toks
 
 export
-runParser : {auto c : Ref Ctxt Defs} ->
-            {e : _} ->
+runParser : {auto c : Ref Ctxt Defs} -> {0 e : Bool} ->
             (origin : OriginDesc) -> Maybe LiterateStyle -> String ->
             Grammar ParsingState Token e (Read ty) ->
             Core (Either Error (List Warning, State, ty))

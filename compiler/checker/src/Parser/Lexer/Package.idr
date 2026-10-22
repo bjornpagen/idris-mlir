@@ -98,31 +98,33 @@ eqop = is '=' <+> is '='
 andop : Lexer
 andop = is '&' <+> is '&'
 
-rawTokens : TokenMap Token
-rawTokens =
-  [ (comment, Comment . drop 2)
-  , (blockComment, Comment . shrink 2)
-  , (identAllowDashes <+> reject dot, DotSepIdent [])
-  , (namespacedIdent, uncurry DotSepIdent . dottedParts)
-  , (separator, const Separator)
-  , (dot, const Dot)
-  , (lte, const LTE)
-  , (gte, const GTE)
-  , (lt, const LT)
-  , (gt, const GT)
-  , (eqop, const EqOp)
-  , (andop, const AndOp)
-  , (equals, const Equals)
-  , (spacesOrNewlines, const Space)
-  , (stringLit, \s => StringLit (stripQuotes s))
-  , (intLit, \i => IntegerLit (cast i))
-  ]
+rawTokens : Tokenizer Token
+rawTokens = tokenRules $
+    (comment, Comment . drop 2)
+  ::: [ (blockComment, Comment . shrink 2)
+      , (identAllowDashes <+> reject dot, DotSepIdent [])
+      , (namespacedIdent, uncurry DotSepIdent . dottedParts)
+      , (separator, const Separator)
+      , (dot, const Dot)
+      , (lte, const LTE)
+      , (gte, const GTE)
+      , (lt, const LT)
+      , (gt, const GT)
+      , (eqop, const EqOp)
+      , (andop, const AndOp)
+      , (equals, const Equals)
+      , (spacesOrNewlines, const Space)
+      , (stringLit, \s => StringLit (stripQuotes s))
+      , (intLit, \i => IntegerLit (cast i))
+      ]
 
+||| The package description's tokens, or why and where tokenizing stopped
+||| short of its end.
 export
-lex : String -> Either (Int, Int, String) (List (Located Token))
+lex : String -> Either (StopReason, Int, Int, String) (List (Located Token))
 lex str =
   case lex rawTokens str of
-       (tokenData, (l, c, "")) =>
+       (tokenData, (_, l, c, "")) =>
          Right $ (filter (useful . val) tokenData)
           ++ [MkLocated EndOfInput (MkBounds l c l c)]
        (_, fail) => Left fail

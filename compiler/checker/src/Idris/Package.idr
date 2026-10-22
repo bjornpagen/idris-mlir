@@ -73,6 +73,7 @@ data DescField  : Type where
   PPreclean     : FC -> String -> DescField
   PPostclean    : FC -> String -> DescField
 
+total
 field : String -> Rule DescField
 field fname
       = strField PAuthors "authors"
@@ -99,7 +100,7 @@ field fname
            ignore $ exactProperty "version"
            mustWork $ do
              equals
-             vs <- choose stringLit (sepBy1 dot' integerLit)
+             vs <- stringLit <||> sepBy1 dot' integerLit
              end <- location
              the (EmptyRule _) $ case vs of
                 Left v   => pure (PVersionDep (MkFC (PhysicalPkgSrc fname) start end) v)
@@ -199,6 +200,7 @@ field fname
                end <- location
                pure $ fieldConstructor (MkFC (PhysicalPkgSrc fname) start end) str
 
+total
 parsePkgDesc : String -> Rule (String, List DescField)
 parsePkgDesc fname
     = do ignore $ exactProperty "package"

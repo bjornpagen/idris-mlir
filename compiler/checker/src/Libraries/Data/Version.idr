@@ -66,20 +66,16 @@ Eq VersionTokenKind where
 VersionToken : Type
 VersionToken = Token VersionTokenKind
 
-versionTokenMap : TokenMap VersionToken
-versionTokenMap = toTokenMap $
-  [ (is '.', VersionDot)
-  , (is '-', VersionDash)
-  , (digits, VersionNum)
-  , (some alphaNum, VersionText)
-  ]
+versionTokens : Tokenizer VersionToken
+versionTokens = tokenKinds $
+      (is '.', VersionDot)
+  ::: [ (is '-', VersionDash)
+      , (digits, VersionNum)
+      , (some alphaNum, VersionText)
+      ]
 
 lexVersion : String -> List (Located VersionToken)
-lexVersion str =
-  let
-    (tokens, _, _, _) = lex versionTokenMap str
-  in
-    tokens
+lexVersion str = fst (lex versionTokens str)
 
 
 -- A number: its text, read as a natural.
