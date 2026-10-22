@@ -7,10 +7,8 @@
 ||| translation made right; nothing here counts a use.
 module IdrisMLIR.Emit.Bodies
 
-import IdrisMLIR.Dialect.Arith as Arith
 import IdrisMLIR.Dialect.Bufferization as Bufferization
 import IdrisMLIR.Dialect.Idr as Idr
-import IdrisMLIR.Dialect.SCF as SCF
 import IdrisMLIR.Dialect.UB as UB
 import IdrisMLIR.Emit.Index
 import IdrisMLIR.Emit.Closures
@@ -24,7 +22,6 @@ import IdrisMLIR.MLIR
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Grades.Grade
-import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Term
 import IdrisMLIR.Types
 
@@ -183,22 +180,21 @@ caseRegions = map (\c => MkRegion c.arm.arguments c.arm.statements)
 fieldIndex : Nat -> MlirAttr
 fieldIndex i = IntegerAttr (natToInteger i) (IntegerType 64)
 
-||| The yield that ends a region with its value, by the yield of the match's
-||| own dialect; a region that never returns has ended in a terminator
-||| already.
-yielding : Index -> Loc -> (List Value -> Op) -> Maybe Val -> List Statement
-yielding ix l rejoin Nothing = []
-yielding ix l rejoin (Just v) = [MkStatement Nothing (rejoin (given ix (Just v))) (At l)]
+||| The yield that ends a region with its value; a region that never
+||| returns has ended in a terminator already.
+yielding : Index -> Loc -> Maybe Val -> List Statement
+yielding ix l Nothing = []
+yielding ix l (Just v) = [MkStatement Nothing (Idr.yieldOp (given ix (Just v))) (At l)]
 
-||| A match from its arms, with the yield that rejoins its regions and the
-||| builder of its op over its cases, its default region (none when the
-||| cases are exhaustive) and its results: results when an arm yields, and
-||| none when no arm returns. The arms join at the type the context
-||| expects, else the first arm's that returns; an arm's value at other
-||| index terms, or an array of another static shape, is cast to it.
-match : Index -> Loc -> Wanted -> (rejoin : List Value -> Op) -> (List Case -> MLIR.Region -> List MlirType -> Op)
+||| A match from its arms, with the builder of its op over its cases, its
+||| default region (none when the cases are exhaustive) and its results:
+||| results when an arm yields, and none when no arm returns. The arms join
+||| at the type the context expects, else the first arm's that returns; an
+||| arm's value at other index terms, or an array of another static shape,
+||| is cast to it.
+match : Index -> Loc -> Wanted -> (List Case -> MLIR.Region -> List MlirType -> Op)
      -> List Case -> Maybe Arm -> E (Maybe Val)
-match ix l w rejoin build cases fallback =
+match ix l w build cases fallback =
   let arms = map (.arm) cases ++ toList fallback in
   case w.type <|> map (.type) (head' (mapMaybe (.result) arms)) of
     Just t => if all (\a => isNothing a.result) arms then never else do
@@ -210,7 +206,7 @@ match ix l w rejoin build cases fallback =
     close : Ty -> Arm -> E (List Statement)
     close t a = do
       (v, cast) <- collect (traverse (fit ix l (Just t)) a.result)
-      pure (a.statements ++ cast ++ yielding ix l rejoin v)
+      pure (a.statements ++ cast ++ yielding ix l v)
     -- A match whose every arm ends in a terminator has no results, and
     -- nothing after it runs: its region ends in `ub.unreachable`.
     never : E (Maybe Val)
@@ -219,52 +215,43 @@ match ix l w rejoin build cases fallback =
       statement l UB.unreachableOp
       pure Nothing
 
-||| A match on literals as it is written, by its scrutinee's type, its keys
-||| read at that type: a fixed-width integer or a `Char` by upstream's
-||| switch on the index its value casts to, its keys those indices; a
-||| double by the same switch on the position of the first key it equals,
-||| since equality of doubles is no identity of their bits (`-0.0` equals
-||| `0.0`, a NaN equals nothing); a string, a big integer or a natural by
-||| the dialect's match, which reads it in place, its keys as the op holds
-||| them.
-data LitMatch = OnValue IntLike (List Integer) | OnPosition (List Double) | InDialect (List MlirAttr)
+||| The cases of a match on literals that can be taken, in order, each with
+||| its key read at its scrutinee's type `t` as `idr.lit.match` holds it:
+||| an integer at the scrutinee's width, a `Char` as its code point, a
+||| string, a big integer or a natural as itself. A double's case is taken
+||| where the scrutinee equals its key and no earlier one, as `oeq` decides,
+||| so the case of a NaN key, which nothing equals, never is, nor that of a
+||| key equal to an earlier one (`-0.0` after `0.0`); either zero is the key
+||| `0.0`. A key of another type than its scrutinee's is the frontend's
+||| bug.
+litCases : Ty -> List (Lit, a) -> E (List (MlirAttr, a))
+litCases t cs = case t of
+  DoubleT => map (\(d, c) => (litAttr (LDouble d), c)) . taken [] <$> traverse double cs
+  _ => traverse (\(k, c) => (\key => (key, c)) <$> keyAt k) cs
+  where
+    mismatched : E b
+    mismatched = internal ("a match on literals of type " ++ show t ++ " with a key of another type")
 
-||| An integer key as a case of `scf.index_switch`: the index the value
-||| casts to, extended as its type's signedness reads it (a `Char`'s as
-||| unsigned), at the 64 bits the switch's cases hold.
-indexCase : IntLike -> Integer -> Integer
-indexCase t n =
-  let w = likeWidth t
-      s = twos w n
-  in case likeSignedness t of
-       Signed => s
-       Unsigned => twos 64 (if s < 0 then s + pow 2 w else s)
+    double : (Lit, a) -> E (Double, a)
+    double (LDouble d, c) = pure (d, c)
+    double _ = mismatched
 
-||| The match on literals of a scrutinee of type `t`, its keys read at `t`.
-||| A key of another type than its scrutinee's is the frontend's bug.
-litMatchOf : Ty -> List Lit -> E LitMatch
-litMatchOf (IntT t) ks = OnValue (SInt t) <$> traverse integral ks
-  where
-    integral : Lit -> E Integer
-    integral (LInt _ n) = pure (indexCase (SInt t) n)
-    integral _ = internal "a match on an integer with a key that is no integer"
-litMatchOf CharT ks = OnValue SChar <$> traverse character ks
-  where
-    character : Lit -> E Integer
-    character (LChar c) = pure (indexCase SChar c)
-    character _ = internal "a match on a character with a key that is no character"
-litMatchOf DoubleT ks = OnPosition <$> traverse double ks
-  where
-    double : Lit -> E Double
-    double (LDouble d) = pure d
-    double _ = internal "a match on a double with a key that is no double"
-litMatchOf t ks = InDialect <$> traverse inPlace ks
-  where
-    inPlace : Lit -> E MlirAttr
-    inPlace (LStr s) = pure (StringAttr s)
-    inPlace (LBig n) = pure (Idr (BigAttr n))
-    inPlace (LNat n) = pure (Idr (BigAttr n))
-    inPlace _ = internal ("a match on literals of type " ++ show t ++ " with a key of another type")
+    taken : List Double -> List (Double, a) -> List (Double, a)
+    taken seen [] = []
+    taken seen ((d, c) :: rest) =
+      if d /= d || any (== d) seen then taken seen rest
+      else (if d == 0.0 then 0.0 else d, c) :: taken (d :: seen) rest
+
+    keyAt : Lit -> E MlirAttr
+    keyAt k = case (t, k) of
+      (IntT w, LInt _ n) => pure (litAttr (LInt w n))
+      (CharT, LChar _) => pure (litAttr k)
+      (IntT _, _) => mismatched
+      (CharT, _) => mismatched
+      (_, LStr _) => pure (litAttr k)
+      (_, LBig _) => pure (litAttr k)
+      (_, LNat _) => pure (litAttr k)
+      _ => mismatched
 
 mutual
   ||| Whether a term names one of the `k` variables from `from` of its
@@ -513,7 +500,7 @@ alg ix (CaseF l x arms) sc w = do
   -- The frontend forwards no value and states no lifetime: the scoped
   -- values a match makes are decided once lifetimes are, which sets its
   -- `outers`.
-  match ix l w Idr.yieldOp (\cs, d, ts => Idr.dataMatchOp (DenseI32ArrayAttr (map (.tag) cs)) (operand ix scrut) [] [] d (caseRegions cs) ts)
+  match ix l w (\cs, d, ts => Idr.dataMatchOp (DenseI32ArrayAttr (map (.tag) cs)) (operand ix scrut) [] [] d (caseRegions cs) ts)
         cases fallback
   where
     -- The value a region binds: the scrutinee refined to the constructors
@@ -550,63 +537,27 @@ alg ix (CaseF l x arms) sc w = do
 -- A match on literals has no exhaustive form: when Idris proved the
 -- default impossible, the last possible alternative stands for it, and a
 -- match of one is that alternative. In a case the scrutinee is its
--- literal. In the default the dialect's match binds it refined to the
--- complement of its keys; upstream's switch, whose regions bind nothing,
--- leaves it as it is, its type stating nothing a refinement would.
+-- literal; the default binds it refined to the complement of the keys, so
+-- what a case proved of it (a divisor matched against `0`) stays known
+-- where the default reads it.
 alg ix (CaseLitF l x arms) sc w = case arms of
   LitDefault alts d => literals alts d
   LitNoDefault alts => literals (init alts) (snd (last alts))
   where
-    -- The index an integer's value casts to, as its signedness reads it.
-    asIndex : IntLike -> Value -> MlirType -> Op
-    asIndex t v = case likeSignedness t of
-      Signed => Arith.indexCastOp v
-      Unsigned => Arith.indexCastuiOp v
-
-    -- An index's constant.
-    position : Nat -> E Value
-    position k = mlirValue l IndexType (Arith.constantOp (IntegerAttr (natToInteger k) IndexType))
-
-    -- The position of the first of the keys a double equals, or the number
-    -- of keys when it equals none: the keys tested from the last back, each
-    -- equal one's position chosen over what the later ones gave.
-    firstEqual : Val -> List Double -> E Value
-    firstEqual v ks = later (reverse (zip [0 .. length ks] ks)) !(position (length ks))
-      where
-        later : List (Nat, Double) -> Value -> E Value
-        later [] found = pure found
-        later ((k, d) :: rest) found = do
-          key <- literal ix l (LDouble d)
-          equal <- mlirValue l (IntegerType 1) (Arith.cmpfOp CmpFPredicate.OEQ (operand ix v) (operand ix key))
-          here <- position k
-          later rest !(mlirValue l IndexType (Arith.selectOp equal here found))
-
-    -- Upstream's switch on an index: a region per key, and the default.
-    switch : Value -> List Integer -> List Case -> Arm -> E (Maybe Val)
-    switch i ks cases fallback =
-      match ix l w SCF.yieldOp (\cs, dr, ts => SCF.indexSwitchOp i ks dr (caseRegions cs) ts) cases (Just fallback)
-
     literals : List (Lit, Sub Em nv) -> Sub Em nv -> E (Maybe Val)
-    literals [] d = d.result sc w
-    literals cases d = do
-      scrut <- coerce ix l Many (standing (sc.vars x))
-      let inner = refining x scrut sc
-      arms <- traverse (\(_, c) => do
-                          (res, ops) <- collect (plain ix l (c.result inner ({ binder := Nothing } w)))
-                          pure (MkCase 0 (MkArm [] res ops))) cases
-      case !(litMatchOf scrut.type (map fst cases)) of
-        OnValue t ks => do
-          (res, ops) <- collect (plain ix l (d.result inner ({ binder := Nothing } w)))
-          i <- mlirValue l IndexType (asIndex t (operand ix scrut))
-          switch i ks arms (MkArm [] res ops)
-        OnPosition ks => do
-          (res, ops) <- collect (plain ix l (d.result inner ({ binder := Nothing } w)))
-          i <- firstEqual scrut ks
-          switch i (map natToInteger (take (length ks) [0 .. length ks])) arms (MkArm [] res ops)
-        InDialect ks => do
+    literals alts d = do
+      let held = standing (sc.vars x)
+      case !(litCases held.type alts) of
+        [] => d.result sc w
+        cases => do
+          scrut <- coerce ix l Many held
+          let inner = refining x scrut sc
+          arms <- traverse (\(_, c) => do
+                              (res, ops) <- collect (plain ix l (c.result inner ({ binder := Nothing } w)))
+                              pure (MkCase 0 (MkArm [] res ops))) cases
           (back, arg) <- freshVal ix scrut.type Many
           (res, ops) <- collect (plain ix l (d.result (refining x back sc) ({ binder := Nothing } w)))
-          match ix l w Idr.yieldOp (\cs, dr, ts => Idr.litMatchOp (ArrayAttr ks) (operand ix scrut) [] dr (caseRegions cs) ts)
+          match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr (map fst cases)) (operand ix scrut) [] dr (caseRegions cs) ts)
                 arms (Just (MkArm [MkArgument arg (At l)] res ops))
 -- The predecessor exists only where the value is not zero: the successor's
 -- arm computes it from the value it binds, and only it binds it.
@@ -618,7 +569,7 @@ alg ix (CaseNatF l x arms) sc w = case arms of
     (zr, zops) <- collect (plain ix l (z.result sc ({ binder := Nothing } w)))
     (back, arg) <- freshVal ix (NatT IOpaque) Many
     (sr, sops) <- collect (plain ix l (successor p s (refining x back sc) ({ binder := Nothing } w) back))
-    match ix l w Idr.yieldOp (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [Idr (BigAttr 0)]) (operand ix n) [] dr (caseRegions cs) ts)
+    match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [litAttr (LNat 0)]) (operand ix n) [] dr (caseRegions cs) ts)
           [MkCase 0 (MkArm [] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
   where
     successor : Shown -> Sub Em (Under 1 nv) -> Scope nv -> Wanted -> Val -> E (Maybe Val)

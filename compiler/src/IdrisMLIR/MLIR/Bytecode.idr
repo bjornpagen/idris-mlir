@@ -22,12 +22,14 @@
 ||| innermost one's block are isolated, their regions in a section of their
 ||| own; nothing nested in those is.
 |||
-||| Numbers are given in first use: of a string, a dialect and an op name by
-||| its text, and of an attribute or a type by what its entry holds, its
-||| dialect and its text or its bytes, which hold entry numbers, so an entry
-||| is as small as what it holds directly. Bytes are written one by one, so
-||| no byte order is assumed. The functions are encoded as Emit finishes
-||| each, so no value of the whole module is held.
+||| Numbers are given in first use: of a string by its text, of a dialect by
+||| the namespace the specification gives it, which the file spells, of an
+||| op name by its dialect and its name there, and of an attribute or a type
+||| by what its entry holds, its dialect and its text or its bytes, which
+||| hold entry numbers, so an entry is as small as what it holds directly.
+||| Bytes are written one by one, so no byte order is assumed. The functions
+||| are encoded as Emit finishes each, so no value of the whole module is
+||| held.
 module IdrisMLIR.MLIR.Bytecode
 
 import IdrisMLIR.Encoding.Builtin
@@ -36,7 +38,9 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.MLIR.Parts
+import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Spec.Core.Enums
+import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Families.Group
 import IdrisMLIR.Spec.Families.Terms
@@ -309,16 +313,16 @@ Ord AttrKey where
   compare (SymbolKey _ _) (Holding _) = GT
   compare (SymbolKey a as) (SymbolKey b bs) = compare (a, as) (b, bs)
 
-||| The strings, dialects (by their name's string), op names (by dialect
-||| and name), attributes and types (by what their entries hold) of a
-||| module, the member of its table each data type is, by name, and the ops
-||| of its innermost container's block, encoded.
+||| The strings, dialects (by the namespace the file spells), op names (by
+||| that namespace and their name there), attributes and types (by what
+||| their entries hold) of a module, and the ops of its innermost
+||| container's block, encoded.
 export
 record Writer where
   constructor MkWriter
   stringTable : Numbered String String
   dialectTable : Numbered String Nat
-  opNameTable : Numbered String (Nat, Nat)
+  opNameTable : Numbered (String, String) (Nat, Nat)
   attrTable : Numbered AttrKey Entry
   typeTable : Numbered Entry Entry
   ||| Those ops, encoded, how many, and how many values they define.
@@ -329,17 +333,18 @@ record Writer where
 stringNumber : Writer -> String -> W Nat
 stringNumber w s = number w.stringTable s (pure s)
 
-dialectNumber : Writer -> String -> W Nat
-dialectNumber w d = number w.dialectTable d (stringNumber w d)
+||| The namespace of a dialect, as the file's dialect section spells it.
+spelledDialect : Dialect -> String
+spelledDialect d = wordText (namespaceWord d)
 
-||| An op name's number: its dialect is what precedes its first dot.
-opNameNumber : Writer -> String -> W Nat
-opNameNumber w name =
-  number w.opNameTable name $ do
-    let (dialect, rest) = break (== '.') name
-    d <- dialectNumber w dialect
-    s <- stringNumber w (pack (drop 1 (unpack rest)))
-    pure (d, s)
+dialectNumber : Writer -> Dialect -> W Nat
+dialectNumber w d = let spelled = spelledDialect d in number w.dialectTable spelled (stringNumber w spelled)
+
+||| An op name's number: its dialect's, and its name's there.
+opNameNumber : Writer -> OpName -> W Nat
+opNameNumber w o =
+  number w.opNameTable (spelledDialect o.dialect, o.name) $
+    (,) <$> dialectNumber w o.dialect <*> stringNumber w o.name
 
 ||| A part's bytes, as (1) of the table's layout gives them: a string by
 ||| its number, given here in its first use.
@@ -360,24 +365,26 @@ encoded : Writer -> List Part -> W (List Bits8)
 encoded w [] = pure []
 encoded w (p :: ps) = (++) <$> partBytes w p <*> encoded w ps
 
-||| A dialect whose types and attributes the handoff encodes natively.
-data Dialect = IdrDialect | BuiltinDialect
+||| A dialect whose types and attributes the handoff encodes natively: ours,
+||| whose records the specification prints, and builtin, whose records are
+||| upstream's.
+data NativeDialect = IdrDialect | BuiltinDialect
 
-||| A dialect's name.
-dialectName : Dialect -> String
-dialectName IdrDialect = "idr"
-dialectName BuiltinDialect = "builtin"
+||| The specification's dialect of a native one.
+dialectOf : NativeDialect -> Dialect
+dialectOf IdrDialect = Idr
+dialectOf BuiltinDialect = Builtin
 
 ||| The type entry of `d` that `parts` encode.
-typeEntry : Writer -> Dialect -> List Part -> W TypeRef
+typeEntry : Writer -> NativeDialect -> List Part -> W TypeRef
 typeEntry w d parts = do
-  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w (dialectName d) <*> encoded w parts
+  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w (dialectOf d) <*> encoded w parts
   MkTypeRef <$> number w.typeTable e (pure e)
 
 ||| The attribute entry of `d` that `parts` encode.
-attrEntry : Writer -> Dialect -> List Part -> W AttrRef
+attrEntry : Writer -> NativeDialect -> List Part -> W AttrRef
 attrEntry w d parts = do
-  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w (dialectName d) <*> encoded w parts
+  e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w (dialectOf d) <*> encoded w parts
   MkAttrRef <$> number w.attrTable (Holding e) (pure e)
 
 ||| An attribute's entry as its text, of its dialect.
@@ -456,10 +463,10 @@ locationNumber w (Binder n l def k) = do
 ||| How a type is written: a type of a record of the two dialects'
 ||| encodings, as that record, each type it holds by its entry. Every type
 ||| the frontend writes has a record.
-data Native = Record Dialect (List Part)
+data Native = Record NativeDialect (List Part)
 
 ||| A record of `d`, from the parts of the one type it holds.
-recordOf : Dialect -> (List Part -> List Part) -> List Part -> Native
+recordOf : NativeDialect -> (List Part -> List Part) -> List Part -> Native
 recordOf d encode parts = Record d (encode parts)
 
 ||| A dimension of a shaped type as its record gives it: a dynamic one is

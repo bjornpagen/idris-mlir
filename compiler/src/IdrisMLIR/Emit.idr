@@ -14,15 +14,14 @@
 ||| a use. A match is `idr.data.match`, a region per case, each case
 ||| binding the scrutinee refined to its constructor and its constructor's
 ||| erased binders, its fields reads of the refined value; a match on
-||| literals is `idr.lit.match` for a string, a big integer or a natural,
-||| and upstream's `scf.index_switch` for a fixed-width integer, a
-||| character or a double; a lambda and a `Delay` are each a function of
-||| its own, which an `idr.closure` or an `idr.suspend` names with its
-||| captures and its scope's levels; an array is made, folded and scanned
-||| by the array ops, each a region from indices to an element; a data type
-||| is its family's group and member applied to index terms. Idris's world
-||| is no value of the module: IO is ordered by the effects its ops
-||| declare.
+||| literals is `idr.lit.match`, its default binding the scrutinee refined
+||| to the complement of its keys; a lambda and a `Delay` are each a
+||| function of its own, which an `idr.closure` or an `idr.suspend` names
+||| with its captures and its scope's levels; an array is made, folded and
+||| scanned by the array ops, each a region from indices to an element; a
+||| data type is its family's group and member applied to index terms.
+||| Idris's world is no value of the module: IO is ordered by the effects
+||| its ops declare.
 |||
 ||| Types are synthesized as they are written, bidirectionally: every
 ||| emitter returns its value's type, and a context that knows the type it

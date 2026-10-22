@@ -2,12 +2,12 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The operations of the module that one layer of a term becomes:
 ||| literals, primitives, constructor applications and effects, each made by
-||| its op's builder (IdrisMLIR.Dialect.*). The builder of a partial op
-||| gives the op with its guards, which the specification declares
-||| (`Guarded`), and the op is written after them: each guard an op checking
-||| the operand, at its site, the op taking the guard's result in the
-||| operand's place, so it stays below its check. A total op's builder gives
-||| the op alone.
+||| its op's builder (IdrisMLIR.Dialect.*) or from the specification's op
+||| value. The builder of a partial op gives the op with its guards, which
+||| the specification declares (`Guarded`), and the op is written after
+||| them: each guard an op checking the operand, at its site, the op taking
+||| the guard's result in the operand's place, so it stays below its check.
+||| A total op's builder gives the op alone.
 module IdrisMLIR.Emit.Operations
 
 import IdrisMLIR.Dialect.Arith as Arith
@@ -21,6 +21,7 @@ import IdrisMLIR.Emit.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Op as Spec
 import IdrisMLIR.Spec.Core.Text
@@ -88,32 +89,18 @@ causeAttr : Cause -> MlirAttr
 causeAttr c = IntegerAttr (natToInteger (position causeClosed c)) (IntegerType 32)
 
 ||| The op of a guarded builder after its guards: each guard's check op
-||| written at `l`, its site the op's, in order, on the op's operands at the
-||| positions the guard is given, the first the one it checks, with the
-||| cause its crash reports; the op takes each guard's result in place of
-||| the operand it checks. The positions are the specification's, of the
-||| op's own operands.
+||| written at `l`, its site the op's, in order, on the operand it checks
+||| and the others it is given, with the cause its crash reports, its
+||| result what follows takes in place of the operand checked.
 checked : Loc -> Guarded -> E Op
-checked l g = foldlM check g.op g.guards
-  where
-    operandAt : Op -> Nat -> E Value
-    operandAt o k = case getAt k o.operands of
-      Just v => pure v
-      Nothing => internal (o.name ++ " has no operand " ++ show k ++ " for its guard")
-
-    check : Op -> Guard -> E Op
-    check o gd = case gd.given of
-      [] => internal (o.name ++ " has a guard given no operand")
-      (at :: rest) => case splitAt at o.operands of
-        (before, x :: after) => do
-          others <- traverse (operandAt o) rest
-          site <- siteOf l
-          checkedValue <- unguarded (At l) x.type
-                            (\ty => MkOp gd.check (x :: others)
-                                         [ ("cause", IntegerAttr (natToInteger gd.cause) (IntegerType 32))
-                                         , ("site", site) ] [] [] [ty])
-          pure ({ operands := before ++ checkedValue :: after } o)
-        (_, []) => internal (o.name ++ " has no operand " ++ show at ++ " for its guard")
+checked l (Unguarded o) = pure o
+checked l (Checking check cause x others next) = do
+  site <- siteOf l
+  c <- unguarded (At l) x.type
+         (\ty => MkOp check (x :: others)
+                      [ ("cause", IntegerAttr (natToInteger cause) (IntegerType 32))
+                      , ("site", site) ] [] [] [ty])
+  checked l (next c)
 
 ||| A case's number among its enum's cases, as the dialect's C++ numbers
 ||| them: the position of the case the reference names.
@@ -124,18 +111,39 @@ caseNumber c = go 0 (forget c.enum.cases)
     go n [] = n
     go n (x :: xs) = if x.name == c.name then n else go (S n) xs
 
-||| The guards the specification declares for an op, as the printed
-||| builders give them.
-opGuards : Spec.Op i o a r -> List Guard
-opGuards op =
-  map (\g => MkGuard ("idr." ++ mnemonicText g.check) (map finToNat (forget g.given)) (caseNumber g.cause))
-      op.guards
+||| The name of the specification's op value: of the dialect its home is.
+specName : Spec.Op i o a r -> OpName
+specName op = case op.home of
+  InIdr => MkOpName Dialect.Idr (mnemonicText op.mnemonic)
+  InTransform _ => MkOpName Transform (mnemonicText op.mnemonic)
 
-||| A pure op of the dialect, by the specification's op value, on its
-||| operands, of the result type given, with the guards the specification
-||| declares for it, so no partial op is written without them.
-specOp : {i : Nat} -> Spec.Op i 1 0 0 -> Vect i Value -> MlirType -> Guarded
-specOp op vs t = MkGuarded (MkOp (opName op) (toList vs) [] [] [] [t]) (opGuards op)
+||| The guards the specification declares for an op, on its operands, one
+||| per group, before the op `made` of their results: each checks the
+||| operand at its first position against those at the others, and the op
+||| takes its result in that operand's place. A position is a `Fin` of the
+||| op's own groups, so it names an operand the op has.
+specGuarded : List (Guard (Fin i)) -> Vect i Value -> (Vect i Value -> Op) -> Guarded
+specGuarded [] vs made = Unguarded (made vs)
+specGuarded (g :: gs) vs made =
+  let at = head g.given in
+  Checking (MkOpName Dialect.Idr (mnemonicText g.check)) (caseNumber g.cause) (index at vs)
+           (map (\k => index k vs) (tail g.given))
+           (\c => specGuarded gs (replaceAt at c vs) made)
+
+||| An op of the dialect, by the specification's op value, on its operands,
+||| one per group, of the result types given, with the guards the
+||| specification declares for it, so no partial op is written without
+||| them.
+specOp : Spec.Op i o 0 0 -> Vect i Value -> List MlirType -> Guarded
+specOp op vs ts = specGuarded op.guards vs (\ws => MkOp (specName op) (toList ws) [] [] [] ts)
+
+||| The op of a guarded builder on its operands as given, where Emit wrote
+||| the checks it needs itself: an array access's index is checked as the
+||| `Int` it is, before the cast to the `index` the access takes, which its
+||| builder's guard would check.
+uncheckedOp : Guarded -> Op
+uncheckedOp (Unguarded o) = o
+uncheckedOp (Checking _ _ x _ next) = uncheckedOp (next x)
 
 ------------------------------------------------------------------------------
 -- Writing ops
@@ -325,7 +333,7 @@ extend binder ix l c = value {binder} ix l (IntT IdrisInt) (Arith.extuiOp c)
 ||| the op's), the variable `binder` bound to its value.
 export
 prim : Maybe Binding -> Index -> Loc -> Prim k -> Vect k Val -> E Val
-prim binder ix l (Op op r) vs = guardedValue {binder} ix l r (specOp op (map (operand ix) vs))
+prim binder ix l (Op op r) vs = guardedValue {binder} ix l r (\t => specOp op (map (operand ix) vs) [t])
 prim binder ix l (IntOp op t) [a, b] = intArith binder ix l op t a b
 prim binder ix l (IntShift s t) [a, b] = value {binder} ix l (IntT t) (shiftOp s (signedness t) (operand ix a) (operand ix b))
 prim binder ix l (FloatOp op) [a, b] = value {binder} ix l DoubleT (floatArith op (operand ix a) (operand ix b))
@@ -553,8 +561,11 @@ effect binder ix l a gives vs res = Just <$> answer gives !(acted a vs)
     pow2 (S k) = 2 * pow2 k
 
     acted : IOAction n -> List Val -> E (Acted n)
-    acted (Runs {gives = g} op) _ =
-      written g (\ts => MkGuarded (MkOp (opName op) args [] [] [] ts) (opGuards op))
+    -- The op's operands are one per group: an action's terms other than
+    -- the world, as many as the op has groups.
+    acted (Runs {i} {gives = g} op) _ = case toVect i args of
+      Just vs => written g (specOp op vs)
+      Nothing => internal ("an IO op of " ++ show i ++ " operands given " ++ show (length args))
     acted (ReadsClock k) _ =
       ActedOne . (.name) <$> mlirValue l givenType
         (Idr.ioClockOp (IntegerAttr (natToInteger (position clockKindClosed k)) (IntegerType 32)))
@@ -589,13 +600,13 @@ effect binder ix l a gives vs res = Just <$> answer gives !(acted a vs)
     acted (Accesses GetElement) _ = case args of
       arr :: indices => do
         is <- traverse (checkedIndex arr) indices
-        ActedOne . (.name) <$> mlirValue l givenType (\t => (Idr.arrayGetOp arr is t).op)
+        ActedOne . (.name) <$> mlirValue l givenType (\t => uncheckedOp (Idr.arrayGetOp arr is t))
       [] => internal "an element read given no array"
     acted (Accesses SetElement) _ = case args of
       arr :: rest => case lastApart rest of
         Just (indices, v) => do
           is <- traverse (checkedIndex arr) indices
-          ActedNone <$ statement l (Idr.arraySetOp arr is v).op
+          ActedNone <$ statement l (uncheckedOp (Idr.arraySetOp arr is v))
         Nothing => internal "an element write given no value"
       [] => internal "an element write given no array"
     acted (Moves m) vals = moved m args (map (.type) vals)
@@ -603,27 +614,27 @@ effect binder ix l a gives vs res = Just <$> answer gives !(acted a vs)
         moved : (m : BufferMove) -> List Value -> List Ty -> E (Acted (moveResults m))
         moved LoadWord [buf, off] _ = do
           off' <- within buf off !(wordBytes given)
-          written GivesOne (\ts => MkGuarded (MkOp (opName bufferLoad) [buf, off'] [] [] [] ts) [])
+          written GivesOne (specOp bufferLoad [buf, off'])
         moved StoreWord [buf, off, v] [_, _, vt] = do
           off' <- within buf off !(wordBytes vt)
-          written GivesNone (\ts => MkGuarded (MkOp (opName bufferStore) [buf, off', v] [] [] [] ts) [])
+          written GivesNone (specOp bufferStore [buf, off', v])
         moved CopyBytes [src, srcOff, len, dst, dstOff] _ = do
           srcOff' <- within src srcOff len
           dstOff' <- within dst dstOff len
-          written GivesNone (\ts => MkGuarded (MkOp (opName bufferCopy) [src, srcOff', len, dst, dstOff'] [] [] [] ts) [])
+          written GivesNone (specOp bufferCopy [src, srcOff', len, dst, dstOff'])
         moved SetString [buf, off, str] _ = do
           bytes <- mlirValue l (IntegerType 64) (Idr.strBytesLengthOp str)
           off' <- within buf off bytes
-          written GivesNone (\ts => MkGuarded (MkOp (opName bufferSetString) [buf, off', str] [] [] [] ts) [])
+          written GivesNone (specOp bufferSetString [buf, off', str])
         moved GetString [buf, off, len] _ = do
           off' <- within buf off len
-          written GivesOne (\ts => MkGuarded (MkOp (opName bufferGetString) [buf, off', len] [] [] [] ts) [])
+          written GivesOne (specOp bufferGetString [buf, off', len])
         moved WriteBytes [h, buf, off, count] _ = do
           off' <- within buf off count
-          written GivesOne (\ts => MkGuarded (MkOp (opName writeBytesOp) [h, buf, off', count] [] [] [] ts) [])
+          written GivesOne (specOp writeBytesOp [h, buf, off', count])
         moved ReadBytes [h, buf, off, count] _ = do
           off' <- within buf off count
-          written GivesOne (\ts => MkGuarded (MkOp (opName readBytesOp) [h, buf, off', count] [] [] [] ts) [])
+          written GivesOne (specOp readBytesOp [h, buf, off', count])
         moved m _ _ = internal "a buffer's move given other operands than it takes"
     acted Exits _ = internal "the exit written as an action that returns"
     acted DoesNothing _ = pure ActedNone

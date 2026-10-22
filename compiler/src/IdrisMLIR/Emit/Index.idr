@@ -87,7 +87,9 @@ reaches ix = reachesIn (MkAmong ix.families empty)
 -- Types
 ------------------------------------------------------------------------------
 
-||| A literal as the attribute an index term holds.
+||| A literal as the attribute that holds it: an index term's, or a key of
+||| `idr.lit.match`.
+export
 litAttr : Lit -> MlirAttr
 litAttr (LInt t n) = IntegerAttr (twos (width t) n) (IntegerType (width t))
 litAttr (LChar c) = IntegerAttr c (IntegerType 32)

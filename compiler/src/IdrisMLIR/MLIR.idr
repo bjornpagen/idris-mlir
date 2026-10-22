@@ -8,19 +8,24 @@
 ||| hold. The handoff is MLIR bytecode (IdrisMLIR.MLIR.Bytecode): every
 ||| `idr` type and attribute is an entry of the dialect's bytecode encoding,
 ||| which refers to what it holds by entry, so no `idr` text crosses the
-||| handoff; a double crosses as its 64 bits. Only `arith`'s and `ub`'s
-||| attributes, and an identity layout, are their text, in the syntax their
+||| handoff; a double crosses as its 64 bits. Only the attributes of the
+||| upstream dialects whose attributes cross as text (`arith`'s, `ub`'s,
+||| `linalg`'s), and an identity layout, are their text, in the syntax their
 ||| dialects declare, which upstream's parsers read. Every op is its parts:
 ||| name, operands, attributes (its inherent ones, which become its
 ||| properties when it is made, with its discardable ones), regions, result
 ||| types and location. The generated builders make the ops
-||| (IdrisMLIR.Dialect.*).
+||| (IdrisMLIR.Dialect.*). A dialect is the specification's
+||| (IdrisMLIR.Spec.Core.Dialect): an op's name and a text attribute hold
+||| theirs, so none is told by its text.
 module IdrisMLIR.MLIR
 
 import public IdrisMLIR.MLIR.Text
 import public IdrisMLIR.Encoding.Idr
 import public IdrisMLIR.MLIR.HandEncoding
+import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Syntax.Arith
+import IdrisMLIR.Syntax.Linalg
 import IdrisMLIR.Syntax.UB
 
 import Data.List
@@ -46,9 +51,9 @@ Eq Dim where
   _ == _ = False
 
 ||| The text a dialect's syntax gives one of its attributes, for the
-||| dialects whose attributes cross as text (`arith`, `ub`). It is made with
-||| the value it spells, by the value's one constructor (`arith`, `ub`), so
-||| it is always that value's.
+||| dialects whose attributes cross as text. It is made with the value it
+||| spells, by the smart constructor of the value's dialect (`arith`, `ub`,
+||| `linalg`), so it is always that value's, under that dialect.
 export
 data Spelling = MkSpelling (Lazy String)
 
@@ -115,10 +120,10 @@ namespace MlirAttr
     | ||| An attribute of the `idr` dialect whose parameters its C++ codes
       ||| by hand, held typed until the writer lays them out.
       IdrHand (HandAttr MlirType MlirAttr)
-    | ||| An attribute of the `arith` dialect, made by `arith`.
-      Arith (ArithAttr MlirType MlirAttr) Spelling
-    | ||| An attribute of the `ub` dialect, made by `ub`.
-      UB (UBAttr MlirType MlirAttr) Spelling
+    | ||| An attribute of an upstream dialect whose attributes cross as
+      ||| text: the dialect, and the attribute spelled in its syntax, made
+      ||| by the dialect's smart constructor (`arith`, `ub`, `linalg`).
+      Spelled Dialect Spelling
 
 ||| The entry of a static index list that an operand gives: MLIR's
 ||| `ShapedType::kDynamic`, the least 64-bit integer.
@@ -153,10 +158,10 @@ mutual
   typesText [] = []
   typesText (t :: ts) = typeText t :: typesText ts
 
-  ||| The text of an attribute that crosses as text: `arith`'s and `ub`'s,
+  ||| The text of an attribute that crosses as text: an upstream dialect's
   ||| spelled when made, and an identity layout. Every other attribute is
-  ||| its entry (`MLIR.Bytecode`); a builtin attribute that `arith`'s or
-  ||| `ub`'s text holds is written by this function.
+  ||| its entry (`MLIR.Bytecode`); a builtin attribute that a spelled
+  ||| attribute's text holds is written by this function.
   export
   attrText : MlirAttr -> String
   attrText UnitAttr = "unit"
@@ -180,8 +185,7 @@ mutual
   attrText (LocAttr _) = "unit"
   attrText (Idr _) = "unit"
   attrText (IdrHand _) = "unit"
-  attrText (Arith _ (MkSpelling s)) = s
-  attrText (UB _ (MkSpelling s)) = s
+  attrText (Spelled _ (MkSpelling s)) = s
 
   attrsText : List MlirAttr -> List String
   attrsText [] = []
@@ -193,32 +197,34 @@ mutual
   entriesText ((name, UnitAttr) :: es) = name :: entriesText es
   entriesText ((name, a) :: es) = (name ++ " = " ++ attrText a) :: entriesText es
 
+-- Each generated sum of a dialect whose attributes cross as text is paired
+-- here with its dialect, once, so a spelled attribute's dialect is the one
+-- whose syntax spelled it.
 namespace MlirAttr
   ||| An attribute of the `arith` dialect, spelled as its syntax writes it.
   export
   arith : ArithAttr MlirType MlirAttr -> MlirAttr
-  arith x = Arith x (MkSpelling (arithAttrText typeText attrText x))
+  arith x = Spelled Arith (MkSpelling (arithAttrText typeText attrText x))
 
   ||| An attribute of the `ub` dialect, spelled as its syntax writes it.
   export
   ub : UBAttr MlirType MlirAttr -> MlirAttr
-  ub x = UB x (MkSpelling (ubAttrText typeText attrText x))
+  ub x = Spelled UB (MkSpelling (ubAttrText typeText attrText x))
 
-||| The dialect a type is of, by its constructor.
-export
-typeDialect : MlirType -> String
-typeDialect (Idr _) = "idr"
-typeDialect (IdrHand _) = "idr"
-typeDialect _ = "builtin"
+  ||| An attribute of the `linalg` dialect, spelled as its syntax writes it.
+  export
+  linalg : LinalgAttr MlirType MlirAttr -> MlirAttr
+  linalg x = Spelled Linalg (MkSpelling (linalgAttrText typeText attrText x))
 
-||| The dialect an attribute is of, by its constructor.
+||| The dialect of an attribute that crosses as text: a spelled one's own,
+||| and builtin's for an identity layout and the builtin attributes the
+||| writer writes as text.
 export
-attrDialect : MlirAttr -> String
-attrDialect (Idr _) = "idr"
-attrDialect (IdrHand _) = "idr"
-attrDialect (Arith _ _) = "arith"
-attrDialect (UB _ _) = "ub"
-attrDialect _ = "builtin"
+attrDialect : MlirAttr -> Dialect
+attrDialect (Spelled d _) = d
+attrDialect (Idr _) = Dialect.Idr
+attrDialect (IdrHand _) = Dialect.Idr
+attrDialect _ = Builtin
 
 ||| An attribute of an op's: its name, and itself.
 public export
@@ -253,12 +259,20 @@ record Argument where
   value : Value
   at : Location
 
+||| An op's name: its dialect and its name there (`addi` of `arith.addi`),
+||| as bytecode records it.
+public export
+record OpName where
+  constructor MkOpName
+  dialect : Dialect
+  name : String
+
 mutual
   ||| An op, as the generated builders make it (IdrisMLIR.Dialect.*).
   public export
   record Op where
     constructor MkOp
-    name : String
+    name : OpName
     operands : List Value
     ||| Its inherent attributes, which ODS declares.
     properties : List NamedAttr
@@ -281,6 +295,28 @@ mutual
     result : Maybe String
     op : Op
     at : Location
+
+||| An op as the builder of a partial op gives it: the op, or a guard to
+||| write before it and what follows given the guard's result. A guard is
+||| its check op, the number of the cause its crash names, the operand it
+||| checks and the others it is given; the op takes the guard's result in
+||| place of the operand it checks. A builder names each of its operands by
+||| its own binder, so no guard names an operand by its position, and none
+||| can name one the op lacks.
+public export
+data Guarded : Type where
+  Unguarded : Op -> Guarded
+  Checking : (check : OpName) -> (cause : Nat) -> (checked : Value) -> (others : List Value)
+          -> (Value -> Guarded) -> Guarded
+
+||| Each of `xs` checked in turn by `check` against the same `others`, and
+||| what follows given their results, in order: how a builder guards a
+||| group of operands that holds any number.
+export
+checkingEach : (check : OpName) -> (cause : Nat) -> (xs, others : List Value) -> (List Value -> Guarded) -> Guarded
+checkingEach check cause [] others next = next []
+checkingEach check cause (x :: xs) others next =
+  Checking check cause x others (\x' => checkingEach check cause xs others (\xs' => next (x' :: xs')))
 
 ||| The name of result `i` of the `n` an op gives, its statement's name
 ||| `r`: `r` itself for one result, `r#i` of several, as an op's operands
