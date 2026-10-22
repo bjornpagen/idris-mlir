@@ -38,7 +38,9 @@ data AttrC
 
 ||| An op's configuration held as a property rather than an attribute: a
 ||| case of an enum of the dialect's, or a set of its cases, with the case
-||| or cases it is when the op is built without it; a 64-bit count, with the
+||| or cases it is when the op is built without it, each with where the
+||| Idris side finds its closed set, so the op's builder takes the value
+||| typed and encodes it as the property's storage does; a 64-bit count, with the
 ||| count it is when the op is built without it, upstream's integer property
 ||| (its conversions, hash and bytecode upstream's); or a value of a hand
 ||| class (its spelling, the directive whose hooks convert it to and from
@@ -47,7 +49,7 @@ data AttrC
 ||| itself, so no op reads it back out of an attribute.
 public export
 data PropertyC
-  = EnumProperty EnumDef
-  | DefaultedEnumProperty EnumDef Code
+  = EnumProperty ImportedEnum
+  | DefaultedEnumProperty ImportedEnum Code
   | CountProperty Nat
   | HandProperty Code Directive Code

@@ -93,16 +93,60 @@ optionalAttr x = case x.kind of
   AProperty (CountProperty _) => True
   AProperty (HandProperty _ _ _) => True
 
+||| A module's name, its segments joined by dots.
+export
+moduleName : List1 Ident -> String
+moduleName m = joinWith "." (map identText (forget m))
+
+||| A closed set's Idris type, by its full name, so no import can make it
+||| ambiguous.
+export
+enumType : ImportedEnum -> String
+enumType e = moduleName e.source.typeHome ++ "." ++ identText e.source.typeName
+
+||| A value's position among its closed set's cases, the wire form, as an
+||| expression over its binder: the closed set's own order computes it.
+export
+enumPosition : ImportedEnum -> String -> String
+enumPosition e v = "position " ++ moduleName e.source.setHome ++ "." ++ identText e.source.setName ++ " " ++ v
+
+||| What a builder takes for an attribute: the attribute, as made; or, for
+||| an enum property, its case, typed, which the builder encodes as the
+||| property's storage holds it, so no caller spells a width or a number.
+data AttrValue = AsAttribute | AsCase ImportedEnum
+
+attrValueOf : Attr -> AttrValue
+attrValueOf x = case x.kind of
+  AProperty (EnumProperty e) => AsCase e
+  AProperty (DefaultedEnumProperty e _) => AsCase e
+  _ => AsAttribute
+
+||| The attribute a value of `v` makes, as an expression over its binder: an
+||| enum's case at its position, at the width the enum is stored at.
+madeFrom : AttrValue -> String -> String
+madeFrom AsAttribute v = v
+madeFrom (AsCase e) v =
+  "IntegerAttr (natToInteger (" ++ enumPosition e v ++ ")) (IntegerType " ++ decimal enumBits ++ ")"
+
+||| The same, as a function.
+maker : AttrValue -> String
+maker AsAttribute = "id"
+maker (AsCase e) = "(\\v' => " ++ madeFrom (AsCase e) "v'" ++ ")"
+
+valueType : AttrValue -> String
+valueType AsAttribute = "MlirAttr"
+valueType (AsCase e) = enumType e
+
 export
 attrPair : Attr -> String
 attrPair x =
   if optionalAttr x
-    then "attrIf " ++ quoted (identText x.name) ++ " id " ++ primed x.name
-    else "[(" ++ quoted (identText x.name) ++ ", " ++ primed x.name ++ ")]"
+    then "attrIf " ++ quoted (identText x.name) ++ " " ++ maker (attrValueOf x) ++ " " ++ primed x.name
+    else "[(" ++ quoted (identText x.name) ++ ", " ++ madeFrom (attrValueOf x) (primed x.name) ++ ")]"
 
 export
 attrType : Attr -> String
-attrType x = if optionalAttr x then "Maybe MlirAttr" else "MlirAttr"
+attrType x = if optionalAttr x then "Maybe " ++ valueType (attrValueOf x) else valueType (attrValueOf x)
 
 export
 concatList : List String -> String
@@ -224,7 +268,7 @@ builder op =
       binders = map (\x => "{" ++ primed x.name ++ "}") optional
                 ++ map (\x => primed x.name) required ++ map (\x => primed x.name) ins
                 ++ map (\x => primed x.name) regions ++ map (\x => primed x.name) outs
-      implicits = map (\x => "{default Nothing " ++ primed x.name ++ " : Maybe MlirAttr}") optional
+      implicits = map (\x => "{default Nothing " ++ primed x.name ++ " : " ++ attrType x ++ "}") optional
       types = implicits ++ map attrType required ++ map (\x => operandType x.arity) ins
               ++ map (\x => regionType x.arity) regions ++ map (\x => resultType x.arity) outs
       made = "MkOp " ++ opNameOf op ++ " (" ++ concatList (map operandList ins) ++ ") ("
@@ -242,41 +286,38 @@ export
 written : AnyOp -> Bool
 written (SomeOp op) = legalAt op.stages Higher
 
+||| The modules an op's enum properties' closed sets live in, as its
+||| builder names their types and computes their positions.
+propertyHomes : AnyOp -> List String
+propertyHomes (SomeOp op) = concatMap homes (toList op.attrs)
+  where
+    homes : Attr -> List String
+    homes x = case attrValueOf x of
+      AsCase e => [moduleName e.source.typeHome, moduleName e.source.setHome]
+      AsAttribute => []
+
 ||| The builders of every op the frontend writes, as one module. A partial
 ||| op's builder gives `Guarded`, which the frontend declares with its ops.
 export
 buildersModule : List AnyOp -> Lines
 buildersModule ops =
-  banner (map (\l => "-- " ++ l))
-  ++ barComment ["The idr dialect's ops the frontend writes, one builder each, printed"
-                , "from the dialect's specification."]
-  ++ [ "module IdrisMLIR.Dialect.Idr", ""
-     , "import IdrisMLIR.MLIR"
-     , "import IdrisMLIR.Spec.Core.Dialect", ""
-     , "import Data.Fin", "import Data.List", ""
-     , "%default total", "" ]
-  ++ concatMap (\(SomeOp op) => builder op) (filter written ops)
-
-------------------------------------------------------------------------------
--- Encoders
-------------------------------------------------------------------------------
-
-||| A module's name, its segments joined by dots.
-export
-moduleName : List1 Ident -> String
-moduleName m = joinWith "." (map identText (forget m))
-
-||| A closed set's Idris type, by its full name, so no import can make it
-||| ambiguous.
-export
-enumType : ImportedEnum -> String
-enumType e = moduleName e.source.typeHome ++ "." ++ identText e.source.typeName
-
-||| A value's position among its closed set's cases, the wire form, as an
-||| expression over its binder: the closed set's own order computes it.
-export
-enumPosition : ImportedEnum -> String -> String
-enumPosition e v = "position " ++ moduleName e.source.setHome ++ "." ++ identText e.source.setName ++ " " ++ v
+  let writtenOps = filter written ops
+  in banner (map (\l => "-- " ++ l))
+     ++ barComment ["The idr dialect's ops the frontend writes, one builder each, printed"
+                   , "from the dialect's specification."]
+     ++ [ "module IdrisMLIR.Dialect.Idr", ""
+        , "import IdrisMLIR.MLIR"
+        , "import IdrisMLIR.Spec.Core.Dialect"
+        , "import IdrisMLIR.Spec.Core.Enums" ]
+     ++ map ("import " ++) (once [] (concatMap propertyHomes writtenOps))
+     ++ [ ""
+        , "import Data.Fin", "import Data.List", ""
+        , "%default total", "" ]
+     ++ concatMap (\(SomeOp op) => builder op) writtenOps
+  where
+    once : List String -> List String -> List String
+    once _ [] = []
+    once seen (m :: ms) = if elem m seen then once seen ms else m :: once (m :: seen) ms
 
 ------------------------------------------------------------------------------
 -- Wires

@@ -99,12 +99,19 @@ docFields d = summaryField d ++ descriptionField d
 -- Enums
 ------------------------------------------------------------------------------
 
+||| The width every enum of the dialect is stored at, an enum property's
+||| storage too (upstream's `EnumProp` holds an integer of its enum's width),
+||| which the frontend's builders encode a property at.
+export
+enumBits : Nat
+enumBits = 32
+
 export
 caseLine : EnumShape -> Nat -> Case -> String
 caseLine OneOf n c =
-  "I32EnumAttrCase<" ++ quoted (identText c.name) ++ ", " ++ decimal n ++ ", " ++ quoted (spellingText c) ++ ">"
+  "I" ++ decimal enumBits ++ "EnumAttrCase<" ++ quoted (identText c.name) ++ ", " ++ decimal n ++ ", " ++ quoted (spellingText c) ++ ">"
 caseLine SetOf n c =
-  "I32BitEnumAttrCaseBit<" ++ quoted (identText c.name) ++ ", " ++ decimal n ++ ", " ++ quoted (spellingText c) ++ ">"
+  "I" ++ decimal enumBits ++ "BitEnumAttrCaseBit<" ++ quoted (identText c.name) ++ ", " ++ decimal n ++ ", " ++ quoted (spellingText c) ++ ">"
 
 export
 numbered : List a -> List (Nat, a)
@@ -126,8 +133,8 @@ export
 enumOds : EnumDef -> Lines
 enumOds e =
   let kind = case e.shape of
-               OneOf => "I32EnumAttr"
-               SetOf => "I32BitEnumAttr"
+               OneOf => "I" ++ decimal enumBits ++ "EnumAttr"
+               SetOf => "I" ++ decimal enumBits ++ "BitEnumAttr"
       cases = map (\(n, c) => caseLine e.shape n c) (numbered (forget e.cases))
       name = identText e.name
       printer = if spacedSpelling e
@@ -185,8 +192,8 @@ attrC (SatisfiesAttr p) =
 
 export
 propertyC : PropertyC -> String
-propertyC (EnumProperty e) = "EnumProp<" ++ enumRecord e ++ ">"
-propertyC (DefaultedEnumProperty e c) = "DefaultValuedProp<EnumProp<" ++ enumRecord e ++ ">, " ++ quoted (codeText c) ++ ">"
+propertyC (EnumProperty e) = "EnumProp<" ++ enumRecord e.enum ++ ">"
+propertyC (DefaultedEnumProperty e c) = "DefaultValuedProp<EnumProp<" ++ enumRecord e.enum ++ ">, " ++ quoted (codeText c) ++ ">"
 propertyC (CountProperty dflt) = "DefaultValuedProp<IntProp<\"uint64_t\">, " ++ quoted (decimal dflt) ++ ">"
 propertyC (HandProperty c d dflt) =
   "Idr_HandProperty<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ", "

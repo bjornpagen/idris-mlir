@@ -196,7 +196,12 @@ refusalOp = MkOp
   , mnemonic = "refusal"
   , ins = []
   , outs = []
-  , attrs = [property "rule" (EnumProperty (enumDef ruleClosed)), attr "message" (UpstreamAttr StrAttrC)]
+  , attrs =
+      [ property "rule"
+          (EnumProperty (imported Rules.ruleClosed
+             (MkSource ("IdrisMLIR" ::: ["Spec", "Core", "Rules"]) "SomeRule"
+                       ("IdrisMLIR" ::: ["Spec", "Core", "Rules"]) "ruleClosed")))
+      , attr "message" (UpstreamAttr StrAttrC) ]
   , regions = []
   , traits = [HasUpstreamParent (ident "mlir" ::: [ident "ModuleOp"])]
   , interfaces = []
@@ -223,7 +228,7 @@ public export
 core : Declarations
 core = { ops := [ SomeOp vectorizeLanes, SomeOp refusalOp ]
        , admitted := [ builtinModule ]
-       , enums := [ enumDef stageClosed, enumDef categoryClosed, enumDef scopeClosed, enumDef ruleClosed ]
+       , enums := [ enumDef stageClosed, enumDef categoryClosed, enumDef scopeClosed, enumDef Rules.ruleClosed ]
        , interfaces := [ valueFactsInterface ]
        , traits := [ resultCarriesOperand, sameValue ]
        , attributes := [ SomeAttr binderAttr ]
