@@ -48,11 +48,11 @@ mutual
                         throw (NotFunctionType fc env fty')
   chk env (As fc s n p) = chk env p
   chk env (TDelayed fc r tm) = pure (gType fc (MN "top" 0))
-  chk env (TDelay fc r dty tm)
+  chk env (TDelay fc d dty tm)
       = do gtm <- chk env tm
            tm' <- getNF gtm
            defs <- get Ctxt
-           pure $ glueBack defs env (NDelayed fc r tm')
+           pure $ glueBack defs env (NDelayed fc d.reason tm')
   chk env (TForce fc r tm)
       = do tm' <- chk env tm
            case !(getNF tm') of

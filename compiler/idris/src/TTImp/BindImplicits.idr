@@ -67,6 +67,12 @@ renameIBinds rs us (IAlternative fc u alts)
     renameAlt : AltType -> State (List (String, String)) AltType
     renameAlt (UniqueDefault t) = pure $ UniqueDefault !(renameIBinds rs us t)
     renameAlt u = pure u
+renameIBinds rs us (ITypeOrValue fc (PairOf l r))
+    = pure $ ITypeOrValue fc (PairOf !(renameIBinds rs us l) !(renameIBinds rs us r))
+renameIBinds rs us (ITypeOrValue fc UnitOf)
+    = pure $ ITypeOrValue fc UnitOf
+renameIBinds rs us (ITypeOrValue fc (DPairOf opFC nameFC n r))
+    = pure $ ITypeOrValue fc (DPairOf opFC nameFC n !(renameIBinds rs us r))
 renameIBinds rs us (IBindVar fc nm@(UN (Basic n)))
     = if n `elem` rs
          then do let n' = genUniqueStr (rs ++ us) n
@@ -115,6 +121,20 @@ doBind ns (IUnquote fc tm)
     = IUnquote fc (doBind ns tm)
 doBind ns (IAlternative fc u alts)
     = IAlternative fc (mapAltType (doBind ns) u) (map (doBind ns) alts)
+-- The dependent pair's type reading binds its name over its second part,
+-- and its value reading refers to it: where that name is one being bound
+-- implicitly, the value reading binds it and the type reading does not, so
+-- the two readings are two terms, and the site is the generic alternative
+-- over them.
+doBind ns (ITypeOrValue fc (DPairOf opFC nameFC n r))
+    = case lookup n ns of
+           Just _ =>
+             let value = doBind ns (valueReading fc (DPairOf opFC nameFC n r)) in
+                 IAlternative fc (UniqueDefault value)
+                   [doBind ns (typeReading fc (DPairOf opFC nameFC n r)), value]
+           Nothing => ITypeOrValue fc (DPairOf opFC nameFC n (doBind ns r))
+doBind ns (ITypeOrValue fc ovl)
+    = ITypeOrValue fc (mapOverlaid (doBind ns) ovl)
 doBind ns (IUpdate fc updates tm)
     = IUpdate fc (map (mapFieldUpdateTerm $ doBind ns) updates) (doBind ns tm)
 doBind ns tm = tm

@@ -402,11 +402,13 @@ mutual
         = if compatible r r'
              then convGen q i defs env arg arg'
              else pure False
-    convGen q i defs env (NDelay _ r _ arg) (NDelay _ r' _ arg')
-        = if compatible r r'
+    -- Where a delay came from is not part of its value: only the reasons
+    -- are compared.
+    convGen q i defs env (NDelay _ d _ arg) (NDelay _ d' _ arg')
+        = if compatible d.reason d'.reason
              then do -- if it's codata, don't reduce the argument or we might
                      -- go for ever, if it's infinite
-                     adefs <- case r of
+                     adefs <- case d.reason of
                                    LLazy => pure defs
                                    _ => clearDefs defs
                      convGen q i adefs env arg arg'

@@ -347,6 +347,7 @@ mutual
   needsDelayExpr True (ILocal {}) = pure True
   needsDelayExpr True (IUpdate {}) = pure True
   needsDelayExpr True (IAlternative {}) = pure True
+  needsDelayExpr True (ITypeOrValue {}) = pure True
   needsDelayExpr True (ISearch {}) = pure True
   needsDelayExpr True (IRewrite {}) = pure True
   needsDelayExpr True _ = pure False
@@ -361,6 +362,7 @@ mutual
   needsDelayLHS (IAutoApp _ f _) = needsDelayLHS f
   needsDelayLHS (INamedApp _ f _ _) = needsDelayLHS f
   needsDelayLHS (IAlternative {}) = pure True
+  needsDelayLHS (ITypeOrValue {}) = pure True
   needsDelayLHS (IAs _ _ _ _ t) = needsDelayLHS t
   needsDelayLHS (ISearch {}) = pure True
   needsDelayLHS (IPrimVal {}) = pure True

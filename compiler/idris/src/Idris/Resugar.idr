@@ -377,6 +377,12 @@ mutual
               else mkOp app
   toPTerm p (ISearch fc) = pure (PSearch fc)
   toPTerm p (IAlternative fc _ _) = pure (PImplicit fc)
+  toPTerm p (ITypeOrValue fc (PairOf l r))
+      = pure (PPair fc !(toPTerm startPrec l) !(toPTerm startPrec r))
+  toPTerm p (ITypeOrValue fc UnitOf) = pure (PUnit fc)
+  toPTerm p (ITypeOrValue fc (DPairOf opFC nameFC n r))
+      = pure (PDPair fc opFC (PRef nameFC (MkKindedName (Just Bound) n n))
+                     (PImplicit opFC) !(toPTerm startPrec r))
   toPTerm p (IRewrite fc rule tm)
       = pure (PRewrite fc !(toPTerm startPrec rule)
                                !(toPTerm startPrec tm))

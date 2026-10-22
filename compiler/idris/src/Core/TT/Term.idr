@@ -54,6 +54,26 @@ data LazyReason = LInf | LLazy | LUnknown
 
 %name LazyReason lz
 
+||| Where a `Delay` came from. One in the source is the source's `Delay e`,
+||| and delays only its argument. One by the elaborator is inserted
+||| around a term it checked against a `Lazy` or `Inf` type: it stands
+||| for the whole expression the expected type delays, so the `let`s the
+||| elaborator placed around it (a `do` block's `let`, checked against the
+||| delayed type, holds the `Delay` inside it) are part of what the
+||| language leaves unevaluated. Nothing but this fact tells the two apart
+||| in the checked term, and a reader with eager evaluation needs it.
+public export
+data DelayOrigin = InSource | ByElaborator
+
+||| What a `Delay` node knows of itself: the laziness it makes, which
+||| conversion and unification compare, and where it came from, which they
+||| never compare.
+public export
+record Delaying where
+  constructor MkDelaying
+  reason : LazyReason
+  origin : DelayOrigin
+
 -- For as patterns matching linear arguments, select which side is
 -- consumed
 public export
@@ -117,7 +137,7 @@ data Term : Scoped where
      As : FC -> UseSide -> (as : Term vars) -> (pat : Term vars) -> Term vars
      -- Typed laziness annotations
      TDelayed : FC -> LazyReason -> Term vars -> Term vars
-     TDelay : FC -> LazyReason -> (ty : Term vars) -> (arg : Term vars) -> Term vars
+     TDelay : FC -> Delaying -> (ty : Term vars) -> (arg : Term vars) -> Term vars
      TForce : FC -> LazyReason -> Term vars -> Term vars
      PrimVal : FC -> (c : Constant) -> Term vars
      Erased : FC -> WhyErased (Term vars) -> Term vars
@@ -527,6 +547,17 @@ Show LazyReason where
     show LInf = "Inf"
     show LLazy = "Lazy"
     show LUnknown = "Unkown"
+
+export
+Eq DelayOrigin where
+  InSource == InSource = True
+  ByElaborator == ByElaborator = True
+  _ == _ = False
+
+export
+Show DelayOrigin where
+  show InSource = "in source"
+  show ByElaborator = "by elaborator"
 
 export
 compatible : LazyReason -> LazyReason -> Bool

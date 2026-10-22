@@ -85,12 +85,13 @@ readModule : {auto c : Ref Ctxt Defs} ->
              Core ()
 readModule full loc vis imp as
     = do defs <- get Ctxt
-         let False = (imp, vis, as) `elem` map snd (allImported defs)
+         let False = any (\l => l.ident == imp && l.reexported == vis && l.readAs == as)
+                         (allImported defs)
              | True => when vis (setVisible (miAsNamespace imp))
-         Right fname <- nsToPath loc imp
+         Right checked <- nsToPath loc imp
                | Left err => throw err
          Just (syn, hash, more) <- readFromTTC False {extra = SyntaxInfo}
-                                                  loc vis fname imp as
+                                                  loc vis checked.path checked.foundIn imp as
               | Nothing => when vis (setVisible (miAsNamespace imp)) -- already loaded, just set visibility
          extendSyn syn
 
@@ -98,12 +99,9 @@ readModule full loc vis imp as
          modNS <- getNS
          when vis $ setVisible (miAsNamespace imp)
          traverse_ (\ mimp =>
-                       do let m = fst mimp
-                          let reexp = fst (snd mimp)
-                          let as = snd (snd mimp)
-                          if reexp || full
-                             then readModule full loc reexp m as
-                             else addUnimported m) more
+                       if reexport mimp || full
+                          then readModule full loc (reexport mimp) (path mimp) (nameAs mimp)
+                          else addUnimported (path mimp)) more
          setNS modNS
 
 readImport : {auto c : Ref Ctxt Defs} ->
@@ -112,7 +110,7 @@ readImport : {auto c : Ref Ctxt Defs} ->
              Bool -> Import -> Core ()
 readImport full imp
     = do readModule full (loc imp) True (path imp) (nameAs imp)
-         addImported (path imp, reexport imp, nameAs imp)
+         addImported imp
 
 ||| Adds new import to the namespace without changing the current top-level namespace
 export
@@ -128,9 +126,9 @@ addImport imp
 readImportMeta : {auto c : Ref Ctxt Defs} ->
                  Import -> Core (Bool, (Namespace, Int))
 readImportMeta imp
-    = do Right ttcFileName <- nsToPath (loc imp) (path imp)
+    = do Right checked <- nsToPath (loc imp) (path imp)
                | Left err => throw err
-         interfaceHash <- readHashes ttcFileName
+         interfaceHash <- readHashes checked.path
          pure (reexport imp, (nameAs imp, interfaceHash))
 
 prelude : Import
@@ -154,7 +152,7 @@ readAsMain : {auto c : Ref Ctxt Defs} ->
              (fname : String) -> Core ()
 readAsMain fname
     = do Just (syn, _, more) <- readFromTTC {extra = SyntaxInfo}
-                                             True EmptyFC True fname (nsAsModuleIdent emptyNS) emptyNS
+                                             True EmptyFC True fname InBuild (nsAsModuleIdent emptyNS) emptyNS
               | Nothing => throw (InternalError "Already loaded")
 
          replNS <- getNS
@@ -165,10 +163,8 @@ readAsMain fname
          -- to their names (and any of their public imports)
          ustm <- get UST
          traverse_ (\ mimp =>
-                       do let m = fst mimp
-                          let as = snd (snd mimp)
-                          readModule True emptyFC True m as
-                          addImported (m, True, as)) more
+                       do readModule True emptyFC True (path mimp) (nameAs mimp)
+                          addImported ({ reexport := True } mimp)) more
 
          -- also load the prelude, if required, so that we have access to it
          -- at the REPL.
@@ -284,7 +280,7 @@ processMod sourceFileName ttcFileName msg sourcecode origin
                    pure Nothing
            else -- needs rebuilding
              do iputStrLn msg
-                Right (ws, MkState decor hnames, mod) <-
+                Right (ws, MkState decor hnames uses, mod) <-
                     logTime 2 ("Parsing " ++ sourceFileName) $
                       pure $ runParser (PhysicalIdrSrc origin)
                                        (isLitFile sourceFileName)
@@ -306,6 +302,7 @@ processMod sourceFileName ttcFileName msg sourcecode origin
 
                 addSemanticDecorations decor
                 update Syn { holeNames := hnames }
+                setPragmaUses uses
 
                 initHash
                 traverse_ addPublicHash (sort importMetas)

@@ -18,7 +18,7 @@ unimportedDefinitions
          case unimported defs of
               MkUnimported [] read => pure read
               MkUnimported unread read =>
-                do ds <- readAll (map (\(_, (m, _, _)) => m) (allImported defs)) unread read
+                do ds <- readAll (map (.ident) (allImported defs)) unread read
                    update Ctxt { unimported := MkUnimported [] ds }
                    pure ds
   where
@@ -28,11 +28,12 @@ unimportedDefinitions
     readAll seen (m :: ms) ds
         = if m `elem` seen
              then readAll seen ms ds
-             else do Right fname <- nsToPath EmptyFC m
+             else do Right checked <- nsToPath EmptyFC m
                        | Left err => throw err
-                     (imps, ns, entries) <- readDefinitions fname
-                     readAll (m :: seen) (imps ++ ms)
-                             (mergeLeft ds (fromList (map (\(n, bin) => (n, Coded ns bin)) entries)))
+                     file <- readDefinitions checked.path
+                     readAll (m :: seen) (map path file.imports ++ ms)
+                             (mergeLeft ds (fromList (map (\(n, bin) => (n, Coded file.decodedIn bin))
+                                                          file.definitions)))
 
 ||| The definition a module the context's imports reach holds under a full
 ||| name, read with the others the first time one is asked for. A name that

@@ -165,15 +165,19 @@ findPkgDirs p bounds = do
   -- Sort in reverse order of version number
   pure $ sortBy (\x, y => compare (snd y) (snd x)) allFiles
 
+||| The package of the given name, at the highest version within the bounds
+||| that is installed, with the directory it is in: what the build records
+||| of a package it adds.
 export
 findPkgDir :
     Ref Ctxt Defs =>
     String ->
     PkgVersionBounds ->
-    Core (Maybe String)
+    Core (Maybe PackageDir)
 findPkgDir p bounds = do
   defs <- get Ctxt
-  [] <- findPkgDirs p bounds | ((p,_) :: _) => pure (Just p)
+  [] <- findPkgDirs p bounds
+    | ((dir, version) :: _) => pure (Just (MkPackageDir p version dir))
 
   -- From what remains, pick the one with the highest version number.
   -- If there's none, report it
@@ -188,9 +192,9 @@ export
 addPkgDir : {auto c : Ref Ctxt Defs} ->
             String -> PkgVersionBounds -> Core ()
 addPkgDir p bounds = do
-    Just p <- findPkgDir p bounds
+    Just pkg <- findPkgDir p bounds
         | Nothing => pure ()
-    addPackageDir p
+    addPackageDir pkg
 
 visiblePackages : String -> IO (List QualifiedPkgDir)
 visiblePackages dir = map (MkQualifiedPkgDir dir) <$> filter viable <$> getPackageDirs dir

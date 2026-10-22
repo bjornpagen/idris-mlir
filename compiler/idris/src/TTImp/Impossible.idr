@@ -229,6 +229,10 @@ mutual
       -- is no evidence (mty), but we should _try_ to resolve here if there is an mty.
       go (IAlternative _ (UniqueDefault tm) _) exps autos named
         = go tm exps autos named
+      -- As upstream's alternative for the same syntax did, its default: the
+      -- value reading.
+      go (ITypeOrValue fc ovl) exps autos named
+        = go (valueReading fc ovl) exps autos named
       go (Implicit fc _) _ _ _ = nextVar fc
       go (IBindVar fc _) _ _ _ = nextVar fc
       go tm _ _ _

@@ -210,7 +210,8 @@ buildMod loc num len mod
         -- We'd expect any errors in nsToPath to have been caught by now
         -- since the imports have been built! But we still have to check.
         depFilesE <- traverse (nsToPath loc) (imports mod)
-        let (ferrs, depFiles) = partitionEithers depFilesE
+        let (ferrs, depChecked) = partitionEithers depFilesE
+        let depFiles = map (.path) depChecked
 
         log "import" 20 $ unwords $
           [ "Checking whether to rebuild "

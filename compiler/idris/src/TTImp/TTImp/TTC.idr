@@ -94,6 +94,8 @@ mutual
         = do tag 30; toBuf fc; toBuf ns; toBuf rhs
     toBuf (IAutoApp fc fn arg)
         = do tag 31; toBuf fc; toBuf fn; toBuf arg
+    toBuf (ITypeOrValue fc ovl)
+        = do tag 32; toBuf fc; toBuf ovl
 
     fromBuf
         = case !getTag of
@@ -188,6 +190,8 @@ mutual
                31 => do fc <- fromBuf; fn <- fromBuf
                         arg <- fromBuf
                         pure (IAutoApp fc fn arg)
+               32 => do fc <- fromBuf; ovl <- fromBuf
+                        pure (ITypeOrValue fc ovl)
                _ => corrupt "RawImp"
 
   export
@@ -234,6 +238,23 @@ mutual
                2 => do x <- fromBuf
                        pure (UniqueDefault x)
                _ => corrupt "AltType"
+
+  export
+  TTC Overlaid where
+    toBuf (PairOf l r) = do tag 0; toBuf l; toBuf r
+    toBuf UnitOf = tag 1
+    toBuf (DPairOf opFC nameFC n r)
+        = do tag 2; toBuf opFC; toBuf nameFC; toBuf n; toBuf r
+
+    fromBuf
+        = case !getTag of
+               0 => do l <- fromBuf; r <- fromBuf
+                       pure (PairOf l r)
+               1 => pure UnitOf
+               2 => do opFC <- fromBuf; nameFC <- fromBuf
+                       n <- fromBuf; r <- fromBuf
+                       pure (DPairOf opFC nameFC n r)
+               _ => corrupt "Overlaid"
 
   export
   TTC ImpClause where

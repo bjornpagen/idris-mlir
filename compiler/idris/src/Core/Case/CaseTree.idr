@@ -109,7 +109,7 @@ data Pat : Type where
      PTyCon : FC -> Name -> (arity : Nat) -> List Pat -> Pat
      PConst : FC -> (c : Constant) -> Pat
      PArrow : FC -> (x : Name) -> Pat -> Pat -> Pat
-     PDelay : FC -> LazyReason -> Pat -> Pat -> Pat
+     PDelay : FC -> Delaying -> Pat -> Pat -> Pat
      -- TODO: Matching on lazy types
      PLoc : FC -> Name -> Pat
      PUnmatchable : FC -> ClosedTerm -> Pat

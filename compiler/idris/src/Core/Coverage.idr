@@ -300,9 +300,13 @@ buildArgs fc defs known not ps cs@(Case {name = var} idx el ty altsIn)
                                     con (map (Ref fc Bound) args))) ps
              buildArgs fc defs (weakenNs l ((MkVar el, t) :: known))
                                (weakenNs l not') ps' sc
+    -- The pattern a clause would write to reach this alternative, as the
+    -- clauses the checker builds are written: a written `Delay`, whatever
+    -- the clauses that made the tree wrote, which the tree does not keep
+    -- and matching does not compare.
     buildArgAlt not' (DelayCase t a sc)
         = let l = mkSizeOf [t, a]
-              ps' = map (substName var (TDelay fc LUnknown
+              ps' = map (substName var (TDelay fc (MkDelaying LUnknown InSource)
                                              (Ref fc Bound t)
                                              (Ref fc Bound a))) ps in
               buildArgs fc defs (weakenNs l known) (weakenNs l not')

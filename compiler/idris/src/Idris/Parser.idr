@@ -46,10 +46,10 @@ decoratedKeyword fname kwd = decorate fname Keyword (keyword kwd)
 
 decorateKeywords : {0 a : Type} -> OriginDesc -> List (WithBounds a) -> EmptyRule ()
 decorateKeywords fname xs
-  = act $ MkState (cast (concatMap (decorationFromBounded fname Keyword) xs)) []
+  = act $ MkState (cast (concatMap (decorationFromBounded fname Keyword) xs)) [] [<]
 
-decoratedPragma : OriginDesc -> String -> Rule ()
-decoratedPragma fname prg = decorate fname Keyword (pragma prg)
+decoratedPragma : OriginDesc -> KwPragma -> Rule ()
+decoratedPragma fname prg = decorate fname Keyword (pragma fname prg)
 
 decoratedSymbol : OriginDesc -> String -> Rule ()
 decoratedSymbol fname smb = decorate fname Keyword (symbol smb)
@@ -139,11 +139,11 @@ atom fname
   <|> do x <- bounds $ holeName
          actH x.val -- record the hole name in the parser
          pure (PHole (boundToFC fname x) False x.val)
-  <|> do x <- bounds $ decorate fname Data $ pragma "MkWorld"
+  <|> do x <- bounds $ decorate fname Data $ pragma fname KwMkWorld
          pure (PPrimVal (boundToFC fname x) WorldVal)
-  <|> do x <- bounds $ decorate fname Typ  $ pragma "World"
+  <|> do x <- bounds $ decorate fname Typ  $ pragma fname KwWorld
          pure (PPrimVal (boundToFC fname x) $ PrT WorldType)
-  <|> do x <- bounds $ decoratedPragma fname "search"
+  <|> do x <- bounds $ decoratedPragma fname KwSearch
          pure (PSearch (boundToFC fname x))
 
 whereBlock : OriginDesc -> Int -> Rule (List PDecl)
@@ -636,7 +636,7 @@ mutual
            listExpr fname start indents
     <|> do b <- bounds (decoratedSymbol fname "!" *> simpleExpr fname indents)
            pure (PBang (virtualiseFC $ boundToFC fname b) b.val)
-    <|> do b <- bounds $ do decoratedPragma fname "logging"
+    <|> do b <- bounds $ do decoratedPragma fname KwLogging
                             topic <- optional (split (('.') ==) <$> simpleStr)
                             lvl   <- intLit
                             e     <- expr pdef fname indents
@@ -1074,7 +1074,7 @@ mutual
        = let_ fname indents
      <|> rewrite_ fname indents
      <|> do b <- bounds $
-                   do decoratedPragma fname "runElab"
+                   do decoratedPragma fname KwRunElab
                       expr pdef fname indents
             pure (PRunElab (boundToFC fname b) b.val)
      <|> opExpr q fname indents
@@ -1132,40 +1132,40 @@ mutual
 
   fnDirectOpt : OriginDesc -> Rule PFnOpt
   fnDirectOpt fname
-      = do decoratedPragma fname "hint"
+      = do decoratedPragma fname KwHint
            pure $ IFnOpt (Hint True)
-    <|> do decoratedPragma fname "globalhint"
+    <|> do decoratedPragma fname KwGlobalHint
            pure $ IFnOpt (GlobalHint False)
-    <|> do decoratedPragma fname "defaulthint"
+    <|> do decoratedPragma fname KwDefaultHint
            pure $ IFnOpt (GlobalHint True)
-    <|> do decoratedPragma fname "inline"
+    <|> do decoratedPragma fname KwInline
            commit
            pure $ IFnOpt Inline
-    <|> do decoratedPragma fname "unsafe"
+    <|> do decoratedPragma fname KwUnsafe
            commit
            pure $ IFnOpt Unsafe
-    <|> do decoratedPragma fname "noinline"
+    <|> do decoratedPragma fname KwNoInline
            commit
            pure $ IFnOpt NoInline
-    <|> do decoratedPragma fname "deprecate"
+    <|> do decoratedPragma fname KwDeprecate
            commit
            pure $ IFnOpt Deprecate
-    <|> do decoratedPragma fname "tcinline"
+    <|> do decoratedPragma fname KwTCInline
            commit
            pure $ IFnOpt TCInline
-    <|> do decoratedPragma fname "extern"
+    <|> do decoratedPragma fname KwExtern
            pure $ IFnOpt ExternFn
-    <|> do decoratedPragma fname "macro"
+    <|> do decoratedPragma fname KwMacro
            pure $ IFnOpt Macro
-    <|> do decoratedPragma fname "spec"
+    <|> do decoratedPragma fname KwSpec
            ns <- sepBy (decoratedSymbol fname ",") name
            pure $ IFnOpt (SpecArgs ns)
-    <|> do decoratedPragma fname "foreign"
+    <|> do decoratedPragma fname KwForeign
            cs <- block (expr pdef fname)
            pure $ PForeign cs
-    <|> do (decoratedPragma fname "export"
+    <|> do (decoratedPragma fname KwExport
             <|> withWarning noMangleWarning
-                (decoratedPragma fname "nomangle"))
+                (decoratedPragma fname KwNoMangle))
            cs <- block (expr pdef fname)
            pure $ PForeignExport cs
     where
@@ -1233,7 +1233,7 @@ tyDecls declName predoc fname indents
 
 withFlags : OriginDesc -> EmptyRule (List WithFlag)
 withFlags fname
-    = (do decoratedPragma fname "syntactic"
+    = (do decoratedPragma fname KwSyntactic
           (Syntactic ::) <$> withFlags fname)
   <|> pure []
 
@@ -1459,11 +1459,11 @@ logLevel fname
 
 directive : (fname : OriginDesc) => (indents : IndentInfo) => Rule Directive
 directive
-    = do decoratedPragma fname "hide"
+    = do decoratedPragma fname KwHide
          n <- (fixityNS <|> (HideName <$> name))
          atEnd indents
          pure (Hide n)
-  <|> do decoratedPragma fname "unhide"
+  <|> do decoratedPragma fname KwUnhide
          n <- name
          atEnd indents
          pure (Unhide n)
@@ -1471,84 +1471,84 @@ directive
 --          n <- name
 --          atEnd indents
 --          pure (Hide True n)
-  <|> do decoratedPragma fname "logging"
+  <|> do decoratedPragma fname KwLogging
          lvl <- logLevel fname
          atEnd indents
          pure (Logging lvl)
-  <|> do decoratedPragma fname "auto_lazy"
+  <|> do decoratedPragma fname KwAutoLazy
          b <- onoff
          atEnd indents
          pure (LazyOn b)
-  <|> do decoratedPragma fname "unbound_implicits"
+  <|> do decoratedPragma fname KwUnboundImplicits
          b <- onoff
          atEnd indents
          pure (UnboundImplicits b)
-  <|> do decoratedPragma fname "prefix_record_projections"
+  <|> do decoratedPragma fname KwPrefixRecordProjections
          b <- onoff
          atEnd indents
          pure (PrefixRecordProjections b)
-  <|> do decoratedPragma fname "nf_metavar_threshold"
+  <|> do decoratedPragma fname KwNfMetavarThreshold
          dpt <- decorate fname Keyword $ intLit
          atEnd indents
          pure (NFMetavarThreshold (fromInteger dpt))
-  <|> do decoratedPragma fname "pair"
+  <|> do decoratedPragma fname KwPair
          ty <- name
          f <- name
          s <- name
          atEnd indents
          pure (PairNames ty f s)
-  <|> do decoratedPragma fname "rewrite"
+  <|> do decoratedPragma fname KwRewrite
          eq <- name
          rw <- name
          atEnd indents
          pure (RewriteName eq rw)
-  <|> do decoratedPragma fname "integerLit"
+  <|> do decoratedPragma fname KwIntegerLit
          n <- name
          atEnd indents
          pure (PrimInteger n)
-  <|> do decoratedPragma fname "stringLit"
+  <|> do decoratedPragma fname KwStringLit
          n <- name
          atEnd indents
          pure (PrimString n)
-  <|> do decoratedPragma fname "charLit"
+  <|> do decoratedPragma fname KwCharLit
          n <- name
          atEnd indents
          pure (PrimChar n)
-  <|> do decoratedPragma fname "doubleLit"
+  <|> do decoratedPragma fname KwDoubleLit
          n <- name
          atEnd indents
          pure (PrimDouble n)
-  <|> do decoratedPragma fname "TTImpLit"
+  <|> do decoratedPragma fname KwTTImpLit
          n <- name
          atEnd indents
          pure (PrimTTImp n)
-  <|> do decoratedPragma fname "nameLit"
+  <|> do decoratedPragma fname KwNameLit
          n <- name
          atEnd indents
          pure (PrimName n)
-  <|> do decoratedPragma fname "declsLit"
+  <|> do decoratedPragma fname KwDeclsLit
          n <- name
          atEnd indents
          pure (PrimDecls n)
-  <|> do decoratedPragma fname "name"
+  <|> do decoratedPragma fname KwName
          n <- name
          ns <- sepBy1 (decoratedSymbol fname ",")
                       (decoratedSimpleBinderUName fname)
          atEnd indents
          pure (Names n (forget (map nameRoot ns)))
-  <|> do decoratedPragma fname "start"
+  <|> do decoratedPragma fname KwStart
          e <- expr pdef fname indents
          atEnd indents
          pure (StartExpr e)
-  <|> do decoratedPragma fname "allow_overloads"
+  <|> do decoratedPragma fname KwAllowOverloads
          n <- name
          atEnd indents
          pure (Overloadable n)
-  <|> do decoratedPragma fname "language"
+  <|> do decoratedPragma fname KwLanguage
          e <- mustWork extension
          atEnd indents
          pure (Extension e)
-  <|> do decoratedPragma fname "default"
+  <|> do decoratedPragma fname KwDefault
          tot <- totalityOpt fname
          atEnd indents
          pure (DefaultTotality tot)
@@ -1576,7 +1576,7 @@ parameters {auto fname : OriginDesc} {auto indents : IndentInfo}
 
   transformDecl : Rule PDeclNoFC
   transformDecl
-      = do decoratedPragma fname "transform"
+      = do decoratedPragma fname KwTransform
            n <- simpleStr
            lhs <- expr plhs fname indents
            decoratedSymbol fname "="
@@ -1586,7 +1586,7 @@ parameters {auto fname : OriginDesc} {auto indents : IndentInfo}
   runElabDecl : Rule PDeclNoFC
   runElabDecl
       = do
-           decoratedPragma fname "runElab"
+           decoratedPragma fname KwRunElab
            tm <- expr pnowith fname indents
            pure (PRunElabDecl tm)
 
@@ -1628,7 +1628,7 @@ parameters {auto fname : OriginDesc} {auto indents : IndentInfo}
   ||| builtinDecl := 'builtin' builtinType name
   builtinDecl : Rule PDeclNoFC
   builtinDecl
-      = do decoratedPragma fname "builtin"
+      = do decoratedPragma fname KwBuiltin
            commit
            t <- builtinType
            n <- name

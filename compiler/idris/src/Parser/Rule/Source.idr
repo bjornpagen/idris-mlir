@@ -10,6 +10,7 @@ import Data.List1
 import Data.SnocList
 import Data.String
 import Idris.Syntax
+import Libraries.Text.Bounded
 
 %hide Core.Core.(>>)
 %hide Core.Core.(>>=)
@@ -25,6 +26,9 @@ record ParserState (container : Type -> Type) where
   constructor MkState
   decorations : container ASemanticDecoration
   holeNames : List String
+  ||| The pragmas the source writes, each where it is written: a branch
+  ||| that fails takes its state with it, so only what the parse kept is here.
+  pragmaUses : container PragmaUse
 
 ||| This state needs to provide efficient concatenation.
 public export
@@ -39,19 +43,19 @@ State = ParserState List
 
 export
 toState : ParsingState -> State
-toState (MkState decs hs) = MkState (cast decs) hs
+toState (MkState decs hs ps) = MkState (cast decs) hs (cast ps)
 
 -- To help prevent concatenation slow downs, we only
 -- provide Semigroup and Monoid for the efficient
 -- version of the ParserState.
 export
 Semigroup ParsingState where
-  MkState decs1 hs1 <+> MkState decs2 hs2
-    = MkState (decs1 <+> decs2) (hs1 ++ hs2)
+  MkState decs1 hs1 ps1 <+> MkState decs2 hs2 ps2
+    = MkState (decs1 <+> decs2) (hs1 ++ hs2) (ps1 <+> ps2)
 
 export
 Monoid ParsingState where
-  neutral = MkState [<] []
+  neutral = MkState [<] [] [<]
 
 public export
 BRule : Bool -> Type -> Type
@@ -67,11 +71,11 @@ EmptyRule = BRule False
 
 export
 actD : List ASemanticDecoration -> EmptyRule ()
-actD s = act (MkState (cast s) [])
+actD s = act (MkState (cast s) [] [<])
 
 export
 actH : String -> EmptyRule ()
-actH s = act (MkState [<] [s])
+actH s = act (MkState [<] [s] [<])
 
 ||| A magic debug directive, with where it is written.
 export
@@ -260,13 +264,15 @@ exactIdent req
                  Ident s => guard (s == req)
                  _ => Nothing
 
+||| The pragma given, its use recorded where it is written.
 export
-pragma : String -> Rule ()
-pragma n =
-  terminal ("Expected pragma " ++ n) $
-    \case
-      Pragma s => guard (s == n)
-      _ => Nothing
+pragma : OriginDesc -> KwPragma -> Rule ()
+pragma fname kw
+    = do (_, b) <- terminalAt ("Expected pragma " ++ spelling kw) $
+                     \case
+                       Pragma s => guard (s == spelling kw)
+                       _ => Nothing
+         act (MkState [<] [] [<MkPragmaUse kw (MkFC fname (startBounds b) (endBounds b))])
 
 export
 cgDirective : Rule String

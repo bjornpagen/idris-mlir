@@ -83,6 +83,12 @@ parameters (f : RawImp' nm -> RawImp' nm)
   mapAltType Unique = Unique
   mapAltType (UniqueDefault t) = UniqueDefault (mapTTImp t)
 
+  export
+  mapOverlaid : Overlaid' nm -> Overlaid' nm
+  mapOverlaid (PairOf l r) = PairOf (mapTTImp l) (mapTTImp r)
+  mapOverlaid UnitOf = UnitOf
+  mapOverlaid (DPairOf opFC nameFC n r) = DPairOf opFC nameFC n (mapTTImp r)
+
   mapTTImp t@(IVar {}) = f t
   mapTTImp (IPi fc rig pinfo x argTy retTy)
     = f $ IPi fc rig (mapPiInfo pinfo) x (mapTTImp argTy) (mapTTImp retTy)
@@ -102,6 +108,7 @@ parameters (f : RawImp' nm -> RawImp' nm)
   mapTTImp (IWithApp fc t u) = f $ IWithApp fc (mapTTImp t) (mapTTImp u)
   mapTTImp (ISearch fc) = f $ ISearch fc
   mapTTImp (IAlternative fc alt ts) = f $ IAlternative fc (mapAltType alt) (assert_total map mapTTImp ts)
+  mapTTImp (ITypeOrValue fc ovl) = f $ ITypeOrValue fc (mapOverlaid ovl)
   mapTTImp (IRewrite fc t u) = f $ IRewrite fc (mapTTImp t) (mapTTImp u)
   mapTTImp (ICoerced fc t) = f $ ICoerced fc (mapTTImp t)
   mapTTImp (IBindHere fc bm t) = f $ IBindHere fc bm (mapTTImp t)

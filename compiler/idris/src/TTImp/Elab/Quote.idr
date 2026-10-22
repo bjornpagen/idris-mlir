@@ -51,6 +51,12 @@ mutual
       = pure $ IWithApp fc !(getUnquote f) !(getUnquote a)
   getUnquote (IAlternative fc at as)
       = pure $ IAlternative fc at !(traverse getUnquote as)
+  getUnquote (ITypeOrValue fc (PairOf l r))
+      = pure $ ITypeOrValue fc (PairOf !(getUnquote l) !(getUnquote r))
+  getUnquote (ITypeOrValue fc UnitOf)
+      = pure $ ITypeOrValue fc UnitOf
+  getUnquote (ITypeOrValue fc (DPairOf opFC nameFC n r))
+      = pure $ ITypeOrValue fc (DPairOf opFC nameFC n !(getUnquote r))
   getUnquote (IRewrite fc f a)
       = pure $ IRewrite fc !(getUnquote f) !(getUnquote a)
   getUnquote (ICoerced fc t)

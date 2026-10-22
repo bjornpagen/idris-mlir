@@ -81,11 +81,11 @@ delazy defs (TDelayed fc r tm)
           case r of
                LInf => TDelayed fc r tm'
                _ => tm'
-delazy defs (TDelay fc r ty tm)
+delazy defs (TDelay fc d ty tm)
     = let ty' = delazy defs ty
           tm' = delazy defs tm in
-          case r of
-               LInf => TDelay fc r ty' tm'
+          case d.reason of
+               LInf => TDelay fc d ty' tm'
                _ => tm'
 delazy defs (TForce fc r t)
     = case r of

@@ -229,7 +229,7 @@ recoverable (CantSolveEq _ gam env l r)
         pure $ not !(contra defs !(nf defs env l) !(nf defs env r))
 recoverable (UndefinedName {}) = pure False
 recoverable (LinearMisuse {}) = pure False
-recoverable (SearchGrows {}) = pure False
+recoverable (GrowingSearch {}) = pure False
 recoverable (InType _ _ err) = recoverable err
 recoverable (InCon _ err) = recoverable err
 recoverable (InLHS _ _ err) = recoverable err

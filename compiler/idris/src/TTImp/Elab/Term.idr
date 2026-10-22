@@ -178,6 +178,8 @@ checkTerm rig elabinfo nest env (ISearch fc) Nothing
          pure (sval, gnf env ty)
 checkTerm rig elabinfo nest env (IAlternative fc uniq alts) exp
     = checkAlternative rig elabinfo nest env fc uniq alts exp
+checkTerm rig elabinfo nest env (ITypeOrValue fc ovl) exp
+    = checkTypeOrValue rig elabinfo nest env fc ovl exp
 checkTerm rig elabinfo nest env (IRewrite fc rule tm) exp
     = checkRewrite rig elabinfo nest env fc rule tm exp
 checkTerm rig elabinfo nest env (ICoerced fc tm) exp

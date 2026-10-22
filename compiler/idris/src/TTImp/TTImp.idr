@@ -8,6 +8,7 @@ import Core.Normalise
 import Core.UnifyState
 import Core.Value
 
+import Idris.Syntax.Builtin
 import Idris.Syntax.Pragmas
 
 import public Data.List1
@@ -96,6 +97,9 @@ mutual
 
        ISearch : FC -> RawImp' nm
        IAlternative : FC -> AltType' nm -> List (RawImp' nm) -> RawImp' nm
+       -- The syntax that writes a type and a value of it alike, whose
+       -- expected type decides which it writes
+       ITypeOrValue : FC -> Overlaid' nm -> RawImp' nm
        IRewrite : FC -> RawImp' nm -> RawImp' nm -> RawImp' nm
        ICoerced : FC -> RawImp' nm -> RawImp' nm
 
@@ -158,6 +162,25 @@ mutual
        UniqueDefault : RawImp' nm -> AltType' nm
   %name AltType' alt
 
+  public export
+  Overlaid : Type
+  Overlaid = Overlaid' Name
+
+  ||| What the syntax for a type and for its value alike holds, each part
+  ||| once: a pair type and a pair are written `(l, r)`, the unit type and
+  ||| its value `()`, and a dependent pair type and a dependent pair
+  ||| `(x ** p)` when the type of `x` is left out. Which one a site means
+  ||| is its expected type's to say, so the parts are elaborated for the
+  ||| one it means, not once per meaning.
+  public export
+  data Overlaid' : Type -> Type where
+       PairOf : RawImp' nm -> RawImp' nm -> Overlaid' nm
+       UnitOf : Overlaid' nm
+       ||| The `**`'s location, then the name's: the type reading binds the
+       ||| name over the second part, the value reading refers to it.
+       DPairOf : (opFC : FC) -> (nameFC : FC) -> Name -> RawImp' nm -> Overlaid' nm
+  %name Overlaid' ovl
+
   export
   covering
   Show nm => Show (RawImp' nm) where
@@ -192,6 +215,11 @@ mutual
          = "%search"
       show (IAlternative fc ty alts)
          = "(|" ++ showSep "," (map show alts) ++ "|)"
+      show (ITypeOrValue fc (PairOf l r))
+         = "(" ++ show l ++ ", " ++ show r ++ ")"
+      show (ITypeOrValue fc UnitOf) = "()"
+      show (ITypeOrValue fc (DPairOf _ _ n r))
+         = "(" ++ show n ++ " ** " ++ show r ++ ")"
       show (IRewrite _ rule tm)
          = "(%rewrite (" ++ show rule ++ ") (" ++ show tm ++ "))"
       show (ICoerced _ tm) = "(%coerced " ++ show tm ++ ")"
@@ -630,6 +658,21 @@ mapAltType : (RawImp' nm -> RawImp' nm) -> AltType' nm -> AltType' nm
 mapAltType f (UniqueDefault x) = UniqueDefault (f x)
 mapAltType _ u = u
 
+||| The parts of the syntax for a type and its value alike, each with the
+||| function applied.
+export
+mapOverlaid : (RawImp' nm -> RawImp' nm) -> Overlaid' nm -> Overlaid' nm
+mapOverlaid f (PairOf l r) = PairOf (f l) (f r)
+mapOverlaid f UnitOf = UnitOf
+mapOverlaid f (DPairOf opFC nameFC n r) = DPairOf opFC nameFC n (f r)
+
+||| The parts the syntax for a type and its value alike holds, each once.
+export
+overlaidParts : Overlaid' nm -> List (RawImp' nm)
+overlaidParts (PairOf l r) = [l, r]
+overlaidParts UnitOf = []
+overlaidParts (DPairOf _ _ _ r) = [r]
+
 export
 lhsInCurrentNS : {auto c : Ref Ctxt Defs} ->
                  NestedNames vars -> RawImp -> Core RawImp
@@ -679,6 +722,8 @@ findIBinds (IMustUnify fc r pat)
     = findIBinds pat
 findIBinds (IAlternative fc u alts)
     = concatMap findIBinds alts
+findIBinds (ITypeOrValue fc ovl)
+    = concatMap findIBinds (overlaidParts ovl)
 findIBinds (IDelayed fc _ ty) = findIBinds ty
 findIBinds (IDelay fc tm) = findIBinds tm
 findIBinds (IForce fc tm) = findIBinds tm
@@ -715,6 +760,8 @@ findImplicits (IMustUnify fc r pat)
     = findImplicits pat
 findImplicits (IAlternative fc u alts)
     = concatMap findImplicits alts
+findImplicits (ITypeOrValue fc ovl)
+    = concatMap findImplicits (overlaidParts ovl)
 findImplicits (IDelayed fc _ ty) = findImplicits ty
 findImplicits (IDelay fc tm) = findImplicits tm
 findImplicits (IForce fc tm) = findImplicits tm
@@ -938,6 +985,7 @@ getFC (IAutoApp x _ _) = x
 getFC (IWithApp x _ _) = x
 getFC (ISearch x) = x
 getFC (IAlternative x _ _) = x
+getFC (ITypeOrValue x _) = x
 getFC (IRewrite x _ _) = x
 getFC (ICoerced x _) = x
 getFC (IPrimVal x _) = x
@@ -1040,6 +1088,25 @@ gapply f (x :: xs) = gapply (uncurry (app f) x) xs where
   app : RawImp' nm -> Maybe Name -> RawImp' nm -> RawImp' nm
   app f Nothing   x = IApp (getFC f) f x
   app f (Just nm) x = INamedApp (getFC f) f nm x
+
+||| The type the syntax writes: its type former applied to its parts.
+export
+typeReading : FC -> Overlaid -> RawImp
+typeReading fc (PairOf l r) = apply (IVar fc pairname) [l, r]
+typeReading fc UnitOf = IVar fc (UN $ Basic "Unit")
+typeReading fc (DPairOf opFC nameFC n r)
+    = let vfc = virtualiseFC nameFC in
+          apply (IVar opFC dpairname)
+                [Implicit vfc False,
+                 ILam nameFC top Explicit (Just n) (Implicit vfc False) r]
+
+||| The value the syntax writes: its constructor applied to its parts.
+export
+valueReading : FC -> Overlaid -> RawImp
+valueReading fc (PairOf l r) = apply (IVar fc mkpairname) [l, r]
+valueReading fc UnitOf = IVar fc (UN $ Basic "MkUnit")
+valueReading fc (DPairOf opFC nameFC n r)
+    = apply (IVar opFC mkdpairname) [IVar nameFC n, r]
 
 
 export

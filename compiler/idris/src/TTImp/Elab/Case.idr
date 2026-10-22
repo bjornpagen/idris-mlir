@@ -324,6 +324,7 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
     usedIn (IApp _ f a) = usedIn f ++ usedIn a
     usedIn (IAs _ _ _ n a) = n :: usedIn a
     usedIn (IAlternative _ _ alts) = concatMap usedIn alts
+    usedIn (ITypeOrValue _ ovl) = concatMap usedIn (overlaidParts ovl)
     usedIn _ = []
 
     -- Get a name update for the LHS (so that if there's a nested data declaration
@@ -476,7 +477,8 @@ checkCaseExpected rig elabinfo nest env fc opts scr scrty_in alts Nothing
 checkCaseExpected rig elabinfo nest env fc opts scr scrty_in alts (Just expected)
     = case !(getNF expected) of
            NDelayed _ r under =>
-              checkDelayAt rig elabinfo nest env fc r (ICase fc opts scr scrty_in alts) under
+              checkDelayAt rig elabinfo nest env fc (MkDelaying r ByElaborator)
+                           (ICase fc opts scr scrty_in alts) under
            _ => checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts (Just expected)
 
 export

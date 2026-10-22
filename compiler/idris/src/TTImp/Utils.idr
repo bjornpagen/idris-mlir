@@ -115,6 +115,10 @@ findBindableNames arg env used (IQuoteDecl fc d)
     = findBindableNamesQuot env used !(rawImpFromDecl !d)
 findBindableNames arg env used (IAlternative fc u alts)
     = concatMap (findBindableNames arg env used) alts
+-- A name either reading would bind: the dependent pair's value reading
+-- refers to its name where the type reading binds it.
+findBindableNames arg env used (ITypeOrValue fc ovl)
+    = concatMap (findBindableNames arg env used) [typeReading fc ovl, valueReading fc ovl]
 findBindableNames arg env used (IUpdate fc updates tm)
     = findBindableNames True env used tm ++
       concatMap (findBindableNames True env used . getFieldUpdateTerm) updates
@@ -169,6 +173,7 @@ findBindableNamesQuot env used (IWithUnambigNames fc xs x)
 findBindableNamesQuot env used (IVar fc x) = []
 findBindableNamesQuot env used (ISearch fc) = []
 findBindableNamesQuot env used (IAlternative fc x xs) = []
+findBindableNamesQuot env used (ITypeOrValue fc x) = []
 findBindableNamesQuot env used (IBindVar fc x) = []
 findBindableNamesQuot env used (IPrimVal fc c) = []
 findBindableNamesQuot env used (IType fc) = []
@@ -247,6 +252,8 @@ findAllNames env (IUnquote fc t)
     = findAllNames env t
 findAllNames env (IAlternative fc u alts)
     = concatMap (findAllNames env) alts
+findAllNames env (ITypeOrValue fc ovl)
+    = concatMap (findAllNames env) [typeReading fc ovl, valueReading fc ovl]
 findAllNames env (IUpdate fc updates tm)
     = findAllNames env tm
     ++ concatMap (findAllNames env . getFieldUpdateTerm) updates
@@ -281,6 +288,8 @@ findIBindVars (IForce fc t)
     = findIBindVars t
 findIBindVars (IAlternative fc u alts)
     = concatMap findIBindVars alts
+findIBindVars (ITypeOrValue fc ovl)
+    = concatMap findIBindVars (overlaidParts ovl)
 findIBindVars (IUpdate fc updates tm)
     = findIBindVars tm ++ concatMap (findIBindVars . getFieldUpdateTerm) updates
 -- We've skipped case, let and local - rather than guess where the
@@ -335,6 +344,25 @@ mutual
       = IWithApp fc (substNames' bvar bound ps fn) (substNames' bvar bound ps arg)
   substNames' bvar bound ps (IAlternative fc y xs)
       = IAlternative fc y (map (substNames' bvar bound ps) xs)
+  -- The dependent pair's type reading binds its name over its second part
+  -- and its value reading refers to it, so where that name is substituted
+  -- the two readings are two terms, and the site is the generic
+  -- alternative over them.
+  substNames' bvar bound ps (ITypeOrValue fc (DPairOf opFC nameFC n r))
+      = case lookup n ps of
+             Just _ =>
+               if n `elem` bound
+                  then same
+                  else let value = valueReading fc (DPairOf opFC nameFC n r) in
+                           IAlternative fc (UniqueDefault (substNames' bvar bound ps value))
+                             [substNames' bvar bound ps (typeReading fc (DPairOf opFC nameFC n r)),
+                              substNames' bvar bound ps value]
+             Nothing => same
+    where
+      same : RawImp
+      same = ITypeOrValue fc (DPairOf opFC nameFC n (substNames' bvar (n :: bound) ps r))
+  substNames' bvar bound ps (ITypeOrValue fc ovl)
+      = ITypeOrValue fc (mapOverlaid (substNames' bvar bound ps) ovl)
   substNames' bvar bound ps (ICoerced fc y)
       = ICoerced fc (substNames' bvar bound ps y)
   substNames' bvar bound ps (IAs fc nameFC s y pattern)
@@ -436,6 +464,10 @@ mutual
       = IWithApp fc' (substLoc fc' fn) (substLoc fc' arg)
   substLoc fc' (IAlternative fc y xs)
       = IAlternative fc' y (map (substLoc fc') xs)
+  substLoc fc' (ITypeOrValue fc (DPairOf _ _ n r))
+      = ITypeOrValue fc' (DPairOf fc' fc' n (substLoc fc' r))
+  substLoc fc' (ITypeOrValue fc ovl)
+      = ITypeOrValue fc' (mapOverlaid (substLoc fc') ovl)
   substLoc fc' (ICoerced fc y)
       = ICoerced fc' (substLoc fc' y)
   substLoc fc' (IAs fc nameFC s y pattern)

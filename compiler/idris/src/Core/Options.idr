@@ -7,6 +7,7 @@ import public Core.Options.Log
 import Core.TT
 
 import Libraries.Utils.Path
+import Idris.Package.Types
 import Idris.Syntax.Pragmas
 
 import Data.List
@@ -14,6 +15,26 @@ import Data.Maybe
 import Data.String
 
 %default total
+
+%prefix_record_projections off
+
+||| A package the build added: its name and version, as its directory names
+||| them (a directory may name no version), and the directory.
+public export
+record PackageDir where
+  constructor MkPackageDir
+  name : String
+  version : Maybe PkgVersion
+  dir : String
+
+||| Where the search found a module's TTC: the build directory, a package
+||| the build added, or a directory named for imports. What a reader of a
+||| module's origin needs, recorded when the TTC is found, so no reader
+||| takes a path apart to learn it.
+public export
+data Found = InBuild | InPackage PackageDir | InExtraDir String
+
+%prefix_record_projections on
 
 public export
 record Dirs where
@@ -26,7 +47,7 @@ record Dirs where
   prefix_dir : String -- installation prefix, for finding data files (e.g. run time support)
   extra_dirs : List String -- places to look for import files
   package_search_paths : List Path -- paths at which to look for packages
-  package_dirs : List String -- places where specific needed packages at required versions are located
+  package_dirs : List PackageDir -- the packages the build added, at the versions it required
   lib_dirs : List String -- places to look for libraries (for code generation)
   data_dirs : List String -- places to look for data file
 

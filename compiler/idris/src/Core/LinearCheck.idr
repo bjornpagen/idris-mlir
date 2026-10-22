@@ -326,11 +326,11 @@ mutual
       = do log "quantity" 15 "lcheck Delayed"
            (ty', _, u) <- lcheck rig erase env ty
            pure (TDelayed fc r ty', gType fc (MN "top" 0), u)
-  lcheck rig erase env (TDelay fc r ty val)
+  lcheck rig erase env (TDelay fc d ty val)
       = do (ty', _, _) <- lcheck erased erase env ty
            (val', gty, u) <- lcheck rig erase env val
            ty <- getTerm gty
-           pure (TDelay fc r ty' val', gnf env (TDelayed fc r ty), u)
+           pure (TDelay fc d ty' val', gnf env (TDelayed fc d.reason ty), u)
   lcheck rig erase env (TForce fc r val)
       = do log "quantity" 15 "lcheck Force"
            (val', gty, u) <- lcheck rig erase env val

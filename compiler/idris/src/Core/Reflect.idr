@@ -946,9 +946,10 @@ Reflect (Term vs) where
            tm' <- reflect fc defs lhs env tm
            appCon fc defs (reflectiontt "TDelayed")
                   [Erased fc Placeholder, dfc', r', tm']
-  reflect fc defs lhs env (TDelay dfc r ty tm)
+  -- Base's reflected term is upstream's, with a reason and no origin.
+  reflect fc defs lhs env (TDelay dfc d ty tm)
       = do dfc' <- reflect fc defs lhs env dfc
-           r' <- reflect fc defs lhs env r
+           r' <- reflect fc defs lhs env d.reason
            ty' <- reflect fc defs lhs env ty
            tm' <- reflect fc defs lhs env tm
            appCon fc defs (reflectiontt "TDelay")

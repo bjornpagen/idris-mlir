@@ -599,7 +599,7 @@ successful allowCons ((tm, elab) :: elabs)
     -- something serious has gone wrong, so just give up immediately.
     abandon : Error -> Bool
     abandon (UndefinedName {}) = True
-    abandon (SearchGrows {}) = True
+    abandon (GrowingSearch {}) = True
     abandon (InType _ _ err) = abandon err
     abandon (InCon _ err) = abandon err
     abandon (InLHS _ _ err) = abandon err
@@ -803,7 +803,7 @@ checkExp rig elabinfo env fc tm got (Just exp)
                                           pure (TForce fc r tm, exp)
                          AddDelay r => do ty <- getTerm got
                                           logTerm "elab" 5 "Delay" tm
-                                          pure (TDelay fc r ty tm, exp)
+                                          pure (TDelay fc (MkDelaying r ByElaborator) ty tm, exp)
               cs => do logTerm "elab" 5 "Not solved" tm
                        defs <- get Ctxt
                        empty <- clearDefs defs
@@ -814,5 +814,5 @@ checkExp rig elabinfo env fc tm got (Just exp)
                             NoLazy => pure (ctm, got)
                             AddForce r => pure (TForce fc r tm, exp)
                             AddDelay r => do ty <- getTerm got
-                                             pure (TDelay fc r ty tm, exp)
+                                             pure (TDelay fc (MkDelaying r ByElaborator) ty tm, exp)
 checkExp rig elabinfo env fc tm got Nothing = pure (tm, got)

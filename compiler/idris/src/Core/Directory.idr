@@ -61,11 +61,13 @@ export
 srcInstallDirectory : {auto c : Ref Ctxt Defs} -> String -> Core String
 srcInstallDirectory = libInstallDirectory
 
-export
-extraSearchDirectories : {auto c : Ref Ctxt Defs} -> Core (List String)
+-- The directories a TTC is searched for in after the build directory, each
+-- with what finding one there says of it.
+extraSearchDirectories : {auto c : Ref Ctxt Defs} -> Core (List (String, Found))
 extraSearchDirectories =
   do d <- getDirs
-     pure (map (</> show ttcVersion) (extra_dirs d ++ package_dirs d))
+     pure (map (\x => (x </> show ttcVersion, InExtraDir x)) (extra_dirs d)
+           ++ map (\p => (p.dir </> show ttcVersion, InPackage p)) (package_dirs d))
 
 ------------------------------------------------------------------------
 
@@ -170,38 +172,37 @@ readDataFile fname
             | Left err => throw (FileErr f err)
          pure d
 
-||| Look for a library file required by a code generator. Look in the
-||| library directories, and in the lib/ subdirectory of all the 'extra import'
-||| directories and the package directory roots.
-export
-findLibraryFile : {auto c : Ref Ctxt Defs} ->
-                  String -> Core String
-findLibraryFile fname
-    = do d <- getDirs
-         let packageLibs = libDirs (package_dirs d)
-         let extraLibs = libDirs (extra_dirs d)
-         let fs = map (\p => cleanPath $ p </> fname)
-                      (lib_dirs d ++ packageLibs ++ extraLibs)
-         Just f <- firstAvailable fs
-            | Nothing => throw (InternalError ("Can't find library " ++ fname))
-         pure f
-    where
-      libDirs : List String -> List String
-      libDirs = map (\x => x </> "lib")
+%prefix_record_projections off
 
--- Given a namespace, return the full path to the checked module,
--- looking first in the build directory then in the extra_dirs
+||| A module's TTC as the search found it: its path, and where it was.
+public export
+record CheckedFile where
+  constructor MkCheckedFile
+  path : String
+  foundIn : Found
+
+%prefix_record_projections on
+
+-- Given a namespace, return the checked module, looking first in the build
+-- directory then in the extra directories and the packages
 export
 nsToPath : {auto c : Ref Ctxt Defs} ->
-           FC -> ModuleIdent -> Core (Either Error String)
+           FC -> ModuleIdent -> Core (Either Error CheckedFile)
 nsToPath loc ns
     = do bdir <- ttcBuildDirectory
          ttcs <- extraSearchDirectories
          let fnameBase = ModuleIdent.toPath ns
-         let fs = map (\p => cleanPath $ p </> fnameBase <.> "ttc") (bdir :: ttcs)
-         Just f <- firstAvailable fs
+         Just f <- firstFound (map (\(p, w) => (cleanPath $ p </> fnameBase <.> "ttc", w))
+                                   ((bdir, InBuild) :: ttcs))
             | Nothing => pure (Left (ModuleNotFound loc ns))
          pure (Right f)
+  where
+    firstFound : List (String, Found) -> Core (Maybe CheckedFile)
+    firstFound [] = pure Nothing
+    firstFound ((f, w) :: fs)
+        = do Just _ <- firstAvailable [f]
+               | Nothing => firstFound fs
+             pure (Just (MkCheckedFile f w))
 
 -- Given a namespace, return the path to the source module relative
 -- to the working directory, if the module exists.

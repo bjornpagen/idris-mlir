@@ -299,6 +299,12 @@ bindBangs ((n, fc, btm) :: bs) ns tm
 idiomise : FC -> Maybe Namespace -> Maybe Namespace -> RawImp -> RawImp
 idiomise fc dons mns (IAlternative afc u alts)
   = IAlternative afc (mapAltType (idiomise afc dons mns) u) (idiomise afc dons mns <$> alts)
+-- In an idiom bracket the two readings become two applications of
+-- effects, so the site is the generic alternative over them, as upstream's.
+idiomise fc dons mns (ITypeOrValue afc ovl)
+  = idiomise fc dons mns
+      (IAlternative afc (UniqueDefault (valueReading afc ovl))
+                    [typeReading afc ovl, valueReading afc ovl])
 idiomise fc dons mns (IApp afc f a)
   = let fc  = virtualiseFC fc
         app = UN $ Basic "<*>"
@@ -556,20 +562,12 @@ mutual
   desugarB side ps (PPair fc l r)
       = do l' <- desugarB side ps l
            r' <- desugarB side ps r
-           let pval = apply (IVar fc mkpairname) [l', r']
-           pure $ IAlternative fc (UniqueDefault pval)
-                  [apply (IVar fc pairname) [l', r'], pval]
+           pure $ ITypeOrValue fc (PairOf l' r')
   desugarB side ps (PDPair fc opFC (PRef nameFC n@(UN _)) (PImplicit _) r)
       = do r' <- desugarB side ps r
-           let pval = apply (IVar opFC mkdpairname) [IVar nameFC n, r']
-           let vfc = virtualiseFC nameFC
            whenJust (isConcreteFC nameFC) $ \nfc =>
              addSemanticDefault (nfc, Bound, Just n)
-           pure $ IAlternative fc (UniqueDefault pval)
-                  [apply (IVar opFC dpairname)
-                      [Implicit vfc False,
-                       ILam nameFC top Explicit (Just n) (Implicit vfc False) r'],
-                   pval]
+           pure $ ITypeOrValue fc (DPairOf opFC nameFC n r')
   desugarB side ps (PDPair fc opFC (PRef namefc n@(UN _)) ty r)
       = do ty' <- desugarB side ps ty
            r' <- desugarB side ps r
@@ -582,9 +580,7 @@ mutual
   desugarB side ps (PDPair fc opFC l ty r)
       = throw (GenericMsg fc "Invalid dependent pair type")
   desugarB side ps (PUnit fc)
-      = pure $ IAlternative fc (UniqueDefault (IVar fc (UN $ Basic "MkUnit")))
-               [IVar fc (UN $ Basic "Unit"),
-                IVar fc (UN $ Basic "MkUnit")]
+      = pure $ ITypeOrValue fc UnitOf
   desugarB side ps (PIfThenElse fc x t e)
       = let fc = virtualiseFC fc in
         pure $ ICase fc [] !(desugarB side ps x) (IVar fc (UN $ Basic "Bool"))

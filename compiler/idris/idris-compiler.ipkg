@@ -129,6 +129,7 @@ modules =
     Libraries.Data.StringTrie,
     Libraries.Data.Table,
     Libraries.Data.Tap,
+    Libraries.Data.UnionFind,
     Libraries.Data.UserNameMap,
     Libraries.Data.VarSet,
     Libraries.Data.VarSet.Core,

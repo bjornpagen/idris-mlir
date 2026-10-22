@@ -616,14 +616,6 @@ data DocDirective : Type where
   ||| A module name
   AModule : ModuleIdent -> DocDirective
 
-public export
-record Import where
-  constructor MkImport
-  loc : FC
-  reexport : Bool
-  path : ModuleIdent
-  nameAs : Namespace
-
 export
 Show Import where
   show (MkImport loc reexport path nameAs)

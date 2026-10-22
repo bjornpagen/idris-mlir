@@ -42,6 +42,8 @@ mutual
     = ISearch fc
   mapRawImp f (IAlternative fc alt ts)
     = IAlternative fc (mapAltType f alt) (map (mapRawImp f) ts)
+  mapRawImp f (ITypeOrValue fc ovl)
+    = ITypeOrValue fc (mapOverlaid f ovl)
   mapRawImp f (IRewrite fc e t)
     = IRewrite fc (mapRawImp f e) (mapRawImp f t)
   mapRawImp f (ICoerced fc e)
@@ -162,6 +164,12 @@ mutual
   mapAltType f Unique = Unique
   mapAltType f (UniqueDefault t) = UniqueDefault (mapRawImp f t)
 
+  export
+  mapOverlaid : (a -> b) -> Overlaid' a -> Overlaid' b
+  mapOverlaid f (PairOf l r) = PairOf (mapRawImp f l) (mapRawImp f r)
+  mapOverlaid f UnitOf = UnitOf
+  mapOverlaid f (DPairOf opFC nameFC n r) = DPairOf opFC nameFC n (mapRawImp f r)
+
 export
 Functor RawImp' where
   map = mapRawImp
@@ -197,3 +205,7 @@ Functor IFieldUpdate' where
 export
 Functor AltType' where
   map = mapAltType
+
+export
+Functor Overlaid' where
+  map = mapOverlaid

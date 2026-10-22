@@ -811,8 +811,8 @@ HasNames Error where
     = CantSolveGoal fc gam <$> full gam rho <*> full gam s <*> traverseOpt (full gam) merr
   full gam (DeterminingArg fc n x rho s)
     = DeterminingArg fc <$> full gam n <*> pure x <*> full gam rho <*> full gam s
-  full _ (SearchGrows fc gam g e l hs)
-    = SearchGrows fc gam g <$> full gam e <*> full gam l <*> traverse (full gam) hs
+  full _ (GrowingSearch fc gam e l hs)
+    = GrowingSearch fc gam <$> full gam e <*> full gam l <*> traverse (full gam) hs
   full gam (UnsolvedHoles xs) = UnsolvedHoles <$> traverse (traversePair (full gam)) xs
   full gam (CantInferArgType fc rho n n1 s)
     = CantInferArgType fc <$> full gam rho <*> full gam n <*> full gam n1 <*> full gam s
@@ -911,8 +911,8 @@ HasNames Error where
     = CantSolveGoal fc gam <$> resolved gam rho <*> resolved gam s <*> traverseOpt (resolved gam) merr
   resolved gam (DeterminingArg fc n x rho s)
     = DeterminingArg fc <$> resolved gam n <*> pure x <*> resolved gam rho <*> resolved gam s
-  resolved _ (SearchGrows fc gam g e l hs)
-    = SearchGrows fc gam g <$> resolved gam e <*> resolved gam l <*> traverse (resolved gam) hs
+  resolved _ (GrowingSearch fc gam e l hs)
+    = GrowingSearch fc gam <$> resolved gam e <*> resolved gam l <*> traverse (resolved gam) hs
   resolved gam (UnsolvedHoles xs) = UnsolvedHoles <$> traverse (traversePair (resolved gam)) xs
   resolved gam (CantInferArgType fc rho n n1 s)
     = CantInferArgType fc <$> resolved gam rho <*> resolved gam n <*> resolved gam n1 <*> resolved gam s
@@ -1030,6 +1030,33 @@ record Unimported where
   ||| import, by full name.
   unimportedDefs : NameMap ContextEntry
 
+||| A TTC the session read: its file and where the search found it, the
+||| module it holds, whether it was read re-exported, and the namespace it
+||| was read as.
+%prefix_record_projections off
+
+public export
+record Loaded where
+  constructor MkLoaded
+  file : String
+  foundIn : Found
+  ident : ModuleIdent
+  reexported : Bool
+  readAs : Namespace
+
+%prefix_record_projections on
+
+||| An `import` of a module: where it is written, whether it re-exports,
+||| the module, and the namespace it is imported as. The parser makes it and
+||| the TTC keeps it, so a reader of a module's imports reads this fact.
+public export
+record Import where
+  constructor MkImport
+  loc : FC
+  reexport : Bool
+  path : ModuleIdent
+  nameAs : Namespace
+
 public export
 record Defs where
   constructor MkDefs
@@ -1067,12 +1094,13 @@ record Defs where
   ifaceHash : Int
   importHashes : List (Namespace, Int)
      -- ^ interface hashes of imported modules
-  imported : List (ModuleIdent, Bool, Namespace)
-     -- ^ imported modules, whether to rexport, as namespace
-  allImported : List (String, (ModuleIdent, Bool, Namespace))
-     -- ^ all imported filenames/namespaces, just to avoid loading something
-     -- twice unnecessarily (this is a record of all the things we've
-     -- called 'readFromTTC' with, in practice)
+  imported : List Import
+     -- ^ the modules this module imports, each where its `import` is
+  pragmaUses : List PragmaUse
+     -- ^ the pragmas this module writes, each where it is written
+  allImported : List Loaded
+     -- ^ every TTC the session read, so that none is read twice (a record
+     -- of all the things we've called 'readFromTTC' with, in practice)
   cgdirectives : List (CG, String)
      -- ^ Code generator directives, which are free form text and thus to
      -- be interpreted however the specific code generator requires
@@ -1125,6 +1153,7 @@ initDefs
            , ifaceHash = 5381
            , importHashes = []
            , imported = []
+           , pragmaUses = []
            , allImported = []
            , cgdirectives = []
            , userHoles = empty
@@ -1965,27 +1994,26 @@ getNestedNS
     = do defs <- get Ctxt
          pure (nestedNS defs)
 
--- Add the module name, and namespace, of an imported module
--- (i.e. for "import X as Y", it's (X, Y)
--- "import public X" is, when rexported, the same as
--- "import X as [current namespace]")
+-- Add an import of this module: the module, whether it is re-exported,
+-- the namespace it is imported as ("import X as Y" is X as Y; "import
+-- public X" is, when re-exported, the same as "import X as [current
+-- namespace]"), and where it is written.
 export
 addImported : {auto c : Ref Ctxt Defs} ->
-              (ModuleIdent, Bool, Namespace) -> Core ()
-addImported mod = update Ctxt { imported $= (mod ::) }
+              Import -> Core ()
+addImported imp = update Ctxt { imported $= (imp ::) }
+
+||| The pragmas this module writes, as its parse kept them.
+export
+setPragmaUses : {auto c : Ref Ctxt Defs} ->
+                List PragmaUse -> Core ()
+setPragmaUses uses = update Ctxt { pragmaUses := uses }
 
 ||| Names a module that a module the context imports imports, and that no
 ||| import of this context reads, so that the termination check can read it.
 export
 addUnimported : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Core ()
 addUnimported m = update Ctxt { unimported->unread $= (m ::) }
-
-export
-getImported : {auto c : Ref Ctxt Defs} ->
-              Core (List (ModuleIdent, Bool, Namespace))
-getImported
-    = do defs <- get Ctxt
-         pure (imported defs)
 
 export
 addDirective : {auto c : Ref Ctxt Defs} ->
@@ -2157,8 +2185,9 @@ addExtraDir : {auto c : Ref Ctxt Defs} -> String -> Core ()
 addExtraDir dir = update Ctxt { options->dirs->extra_dirs $= ((::) dir) . filter (/= dir) }
 
 export
-addPackageDir: {auto c : Ref Ctxt Defs} -> String -> Core ()
-addPackageDir dir = update Ctxt { options->dirs->package_dirs $= ((::) dir) . filter (/= dir) }
+addPackageDir: {auto c : Ref Ctxt Defs} -> PackageDir -> Core ()
+addPackageDir pkg
+    = update Ctxt { options->dirs->package_dirs $= ((::) pkg) . filter (\p => p.dir /= pkg.dir) }
 
 export
 addPackageSearchPath: {auto c : Ref Ctxt Defs} -> String -> Core ()
@@ -2208,10 +2237,6 @@ getWorkingDir
 export
 setExtraDirs : {auto c : Ref Ctxt Defs} -> List String -> Core ()
 setExtraDirs dirs = update Ctxt { options->dirs->extra_dirs := dirs }
-
-export
-setPackageDirs : {auto c : Ref Ctxt Defs} -> List String -> Core ()
-setPackageDirs dirs = update Ctxt { options->dirs->package_dirs := dirs }
 
 export
 withCtxt : {auto c : Ref Ctxt Defs} -> Core a -> Core a

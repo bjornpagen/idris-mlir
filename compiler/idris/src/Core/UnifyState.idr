@@ -10,6 +10,7 @@ import Core.Value
 
 import Libraries.Data.IntMap
 import Libraries.Data.NameMap
+import Libraries.Data.UnionFind
 import Libraries.Data.WithDefault
 
 import Libraries.Data.SnocList.HasLength
@@ -102,6 +103,14 @@ record UState where
   nextName : Int
   blockOrdinals : NameMap Nat -- per definition, the blocks named in it
   nextConstraint : Int
+  -- The constraint store's index. Unknowns that meta-to-meta unification
+  -- made one are one class, and each class holds the searches waiting on
+  -- it: a search that failed and changed nothing waits until an unknown of
+  -- its goal is solved or made invertible, since until then a retry fails
+  -- the same way. A round that follows another retries only the searches
+  -- nothing waits on (`waiting` does not hold them).
+  unknowns : UnionFind (List Int)
+  waiting : IntMap ()
   logging : Bool
 
 export
@@ -118,6 +127,8 @@ initUState = MkUState
   , nextName = 0
   , blockOrdinals = empty
   , nextConstraint = 0
+  , unknowns = UnionFind.empty
+  , waiting = empty
   , logging = False
   }
 
@@ -226,12 +237,49 @@ addGuessName : {auto u : Ref UST UState} ->
                FC -> Name -> Int -> Core ()
 addGuessName fc n i = update UST { guesses $= insert i (fc, n) }
 
+||| The searches waiting on an unknown's class wake: the unknown changed,
+||| so their next retry may not fail as the last did.
+export
+wake : {auto u : Ref UST UState} ->
+       Int -> Core ()
+wake n
+    = do ust <- get UST
+         let (woken, unknowns') = takeFrom n (unknowns ust)
+         put UST ({ unknowns := unknowns',
+                    waiting $= \w => foldl (\m, g => delete g m) w woken } ust)
+
+||| A search that failed and changed nothing waits on the classes of the
+||| unknowns its goal reaches.
+export
+waitOn : {auto u : Ref UST UState} ->
+         (search : Int) -> (unknowns : List Int) -> Core ()
+waitOn g ns
+    = update UST { unknowns $= \uf => foldl (\uf', n => addTo n [g] uf') uf ns,
+                   waiting $= insert g () }
+
+||| Meta-to-meta unification: an unknown solved as another's application is
+||| one class with it.
+export
+mergeUnknowns : {auto u : Ref UST UState} ->
+                Int -> Int -> Core ()
+mergeUnknowns x y = update UST { unknowns $= UnionFind.merge x y }
+
+||| A new call of the solver retries every search once: what changed between
+||| two calls is not only unknowns. What the classes still hold of searches
+||| that no longer wait only wakes what does not wait, or a search a retry
+||| fails the same way again.
+export
+retryAll : {auto u : Ref UST UState} -> Core ()
+retryAll = update UST { waiting := empty }
+
 export
 removeHole : {auto u : Ref UST UState} ->
              Int -> Core ()
-removeHole n = update UST { holes $= delete n,
-                            currentHoles $= delete n,
-                            delayedHoles $= delete n }
+removeHole n
+    = do update UST { holes $= delete n,
+                      currentHoles $= delete n,
+                      delayedHoles $= delete n }
+         wake n
 
 export
 removeHoleName : {auto c : Ref Ctxt Defs} ->
@@ -267,7 +315,9 @@ restoreHoles hs = update UST { currentHoles := hs }
 export
 removeGuess : {auto u : Ref UST UState} ->
               Int -> Core ()
-removeGuess n = update UST { guesses $= delete n }
+removeGuess n
+    = do update UST { guesses $= delete n, waiting $= delete n }
+         wake n
 
 -- Get all of the hole data
 export

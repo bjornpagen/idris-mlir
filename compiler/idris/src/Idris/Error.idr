@@ -86,7 +86,7 @@ Eq Error where
   BadUnboundImplicit fc1 rho1 n1 s1 == BadUnboundImplicit fc2 rho2 n2 s2 = fc1 == fc2 && n1 == n2
   CantSolveGoal fc1 gam1 rho1 s1 x1 == CantSolveGoal fc2 gam2 rho2 s2 x2 = fc1 == fc2
   DeterminingArg fc1 n1 x1 rho1 s1 == DeterminingArg fc2 n2 x2 rho2 s2 = fc1 == fc2 && n1 == n2 && x1 == x2
-  SearchGrows fc1 _ g1 _ _ hs1 == SearchGrows fc2 _ g2 _ _ hs2 = fc1 == fc2 && g1 == g2 && hs1 == hs2
+  GrowingSearch fc1 _ _ _ hs1 == GrowingSearch fc2 _ _ _ hs2 = fc1 == fc2 && hs1 == hs2
   UnsolvedHoles xs1 == UnsolvedHoles xs2 = xs1 == xs2
   CantInferArgType fc1 rho1 n1 m1 s1 == CantInferArgType fc2 rho2 n2 m2 s2 = fc1 == fc2 && n1 == n2 && m1 == m2
   SolvedNamedHole fc1 rho1 n1 s1 == SolvedNamedHole fc2 rho2 n2 s2 = fc1 == fc2 && n1 == n2
@@ -528,7 +528,7 @@ perrorRaw (CantSolveGoal fc gam env g reason)
     dropEnv env (Bind _ n b@(Let {}) sc) = dropEnv (b :: env) sc
     dropEnv env tm = (_ ** (env, tm))
 
-perrorRaw (SearchGrows fc gam _ earlier later hints)
+perrorRaw (GrowingSearch fc gam earlier later hints)
     = do defs <- get Ctxt
          setCtxt gam
          let (_ ** (eenv, egoal)) = dropEnv Env.empty earlier

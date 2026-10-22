@@ -156,6 +156,25 @@ Hashable ty => Hashable (Binder ty) where
 Hashable (Var vars) where
   hashWithSalt h (MkVar {varIdx = i} _) = hashWithSalt h i
 
+export
+Hashable LazyReason where
+  hashWithSalt h = \case
+    LInf => h `hashWithSalt` 0
+    LLazy => h `hashWithSalt` 1
+    LUnknown => h `hashWithSalt` 2
+
+export
+Hashable DelayOrigin where
+  hashWithSalt h = \case
+    InSource => h `hashWithSalt` 0
+    ByElaborator => h `hashWithSalt` 1
+
+-- Both: an interface's hash changes when what a reader of its terms sees
+-- does, and where a delay came from is read.
+export
+Hashable Delaying where
+  hashWithSalt h d = h `hashWithSalt` d.reason `hashWithSalt` d.origin
+
 -- A term's hash is the one its nodes' instances would give, each kind of
 -- node that holds terms hashed by a function of its own, so that every
 -- recursive call is on a part of its argument.
@@ -201,8 +220,8 @@ mutual
       = hashTerm (hashTerm (h `hashWithSalt` 5) nm) pat
   hashTerm h (TDelayed fc x y)
       = hashTerm (h `hashWithSalt` 6) y
-  hashTerm h (TDelay fc x t y)
-      = hashTerm (hashTerm (h `hashWithSalt` 7) t) y
+  hashTerm h (TDelay fc d t y)
+      = hashTerm (hashTerm (h `hashWithSalt` 7 `hashWithSalt` d) t) y
   hashTerm h (TForce fc r x)
       = hashTerm (h `hashWithSalt` 8) x
   hashTerm h (PrimVal fc c)
@@ -229,8 +248,8 @@ mutual
         = h `hashWithSalt` 3 `hashWithSalt` (show c)
     hashWithSalt h (PArrow fc x s t)
         = h `hashWithSalt` 4 `hashWithSalt` s `hashWithSalt` t
-    hashWithSalt h (PDelay fc r t p)
-        = h `hashWithSalt` 5 `hashWithSalt` t `hashWithSalt` p
+    hashWithSalt h (PDelay fc d t p)
+        = h `hashWithSalt` 5 `hashWithSalt` d `hashWithSalt` t `hashWithSalt` p
     hashWithSalt h (PLoc fc x)
         = h `hashWithSalt` 6 `hashWithSalt` x
     hashWithSalt h (PUnmatchable fc x)
@@ -347,13 +366,6 @@ Hashable Constant where
     PrT x => h `hashWithSalt` 13 `hashWithSalt` x
 
     WorldVal => h `hashWithSalt` 14
-
-export
-Hashable LazyReason where
-  hashWithSalt h = \case
-    LInf => h `hashWithSalt` 0
-    LLazy => h `hashWithSalt` 1
-    LUnknown => h `hashWithSalt` 2
 
 export
 Hashable (PrimFn arity) where

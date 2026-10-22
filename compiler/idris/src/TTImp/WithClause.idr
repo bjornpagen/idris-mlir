@@ -95,6 +95,10 @@ mutual
   -- one of them is okay
   getMatch lhs (IAlternative _ _ as) (IAlternative fc _ as')
       = matchAny fc lhs (zip as as')
+  -- So is the syntax for a type and its value alike, reading by reading.
+  getMatch lhs (ITypeOrValue tfc ovl) (ITypeOrValue fc ovl')
+      = matchAny fc lhs [(typeReading tfc ovl, typeReading fc ovl'),
+                         (valueReading tfc ovl, valueReading fc ovl')]
   getMatch lhs (IAs _ _ _ nm@(UN (Basic _)) p) (IAs _ fc _ nm'@(UN (Basic _)) p')
       = do ms <- getMatch lhs p p'
            mergeMatches lhs ((nm, IAs fc emptyFC UseLeft nm' (Implicit fc True)) :: ms)

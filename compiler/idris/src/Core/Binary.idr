@@ -11,6 +11,7 @@ import Core.Context.Log
 import Core.Options
 import Core.TTC
 import Core.UnifyState
+import Idris.Syntax.Pragmas
 
 import Data.String
 
@@ -53,7 +54,8 @@ record TTCFile extra where
   userHoles : List Name
   autoHints : List (Name, Bool)
   typeHints : List (Name, Name, Bool)
-  imported : List (ModuleIdent, Bool, Namespace)
+  imported : List Import
+  pragmaUses : List PragmaUse
   nextVar : Int
   currentNS : Namespace
   nestedNS : List Namespace
@@ -101,7 +103,7 @@ HasNames e => HasNames (TTCFile e) where
   full gam (MkTTCFile version totalReq ifaceHash iHashes
                       context userHoles
                       autoHints typeHints
-                      imported nextVar currentNS nestedNS
+                      imported pragmaUses nextVar currentNS nestedNS
                       pairnames rewritenames primnames
                       namedirectives cgdirectives trans
                       fexp extra)
@@ -109,7 +111,7 @@ HasNames e => HasNames (TTCFile e) where
                          context userHoles
                          !(traverse (full gam) autoHints)
                          !(traverse (full gam) typeHints)
-                         imported nextVar currentNS nestedNS
+                         imported pragmaUses nextVar currentNS nestedNS
                          !(fullPair gam pairnames)
                          !(fullRW gam rewritenames)
                          !(fullPrim gam primnames)
@@ -146,7 +148,7 @@ HasNames e => HasNames (TTCFile e) where
   resolved gam (MkTTCFile version totalReq ifaceHash iHashes
                       context userHoles
                       autoHints typeHints
-                      imported nextVar currentNS nestedNS
+                      imported pragmaUses nextVar currentNS nestedNS
                       pairnames rewritenames primnames
                       namedirectives cgdirectives trans
                       fexp extra)
@@ -154,7 +156,7 @@ HasNames e => HasNames (TTCFile e) where
                          context userHoles
                          !(traverse (resolved gam) autoHints)
                          !(traverse (resolved gam) typeHints)
-                         imported nextVar currentNS nestedNS
+                         imported pragmaUses nextVar currentNS nestedNS
                          !(resolvedPair gam pairnames)
                          !(resolvedRW gam rewritenames)
                          !(resolvedPrim gam primnames)
@@ -210,6 +212,7 @@ writeTTCFile b file_in
            toBuf (ifaceHash file)
            toBuf (importHashes file)
            toBuf (imported file)
+           toBuf (pragmaUses file)
            -- The extra data is a blob of its own, so that a reader that
            -- does not know its type passes over it (`readDefinitions`).
            toBuf !(encodeBlob (extraData file))
@@ -244,11 +247,12 @@ readTTCFileWith readExtra readall file as b
            ifaceHash <- fromBuf
            importHashes <- fromBuf
            imp <- fromBuf
+           uses <- fromBuf
            ex <- readExtra !fromBuf
            if not readall
               then pure (MkTTCFile ver totalReq
                                    ifaceHash importHashes
-                                   [] [] [] [] []
+                                   [] [] [] [] [] []
                                    0 (mkNamespace "") [] Nothing
                                    Nothing
                                    (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
@@ -271,7 +275,7 @@ readTTCFileWith readExtra readall file as b
                  pure (MkTTCFile ver totalReq
                                  ifaceHash importHashes
                                  (map (replaceNS cns) defs) uholes
-                                 autohs typehs imp nextv cns nns
+                                 autohs typehs imp uses nextv cns nns
                                  pns rws prims nds cgds trans fexp ex)
   where
     -- We don't store full names in 'defs' - we remove the namespace if it's
@@ -286,20 +290,33 @@ readTTCFile : TTC extra =>
               Ref Bin Binary -> Core (TTCFile extra)
 readTTCFile = readTTCFileWith decodeBlob
 
-||| The definitions of the module a TTC file holds, by full name, with the
-||| namespace each is decoded into and the modules the file imports: all a
-||| reader needs to see a module's definitions without importing it, whose
-||| extra data it passes over.
+%prefix_record_projections off
+
+||| What the TTC file of a module holds for a reader that does not import
+||| it, whose extra data it passes over: the module's imports and the
+||| pragmas it writes, each where it is written, and its definitions by full
+||| name with the namespace each is decoded into.
+public export
+record ModuleFile where
+  constructor MkModuleFile
+  imports : List Import
+  pragmas : List PragmaUse
+  decodedIn : Namespace
+  definitions : List (Name, Binary)
+
+%prefix_record_projections on
+
+||| A module's TTC file, as a reader that does not import the module sees it.
 export
 readDefinitions : {auto c : Ref Ctxt Defs} ->
                   (fname : String) ->
-                  Core (List ModuleIdent, Namespace, List (Name, Binary))
+                  Core ModuleFile
 readDefinitions fname
     = do Right buffer <- coreLift $ readFromFile fname
                | Left err => throw (InternalError (fname ++ ": " ++ show err))
          bin <- newRef Bin buffer
          ttc <- readTTCFileWith (\_ => pure ()) True fname Nothing bin
-         pure (map fst (imported ttc), currentNS ttc, context ttc)
+         pure (MkModuleFile (imported ttc) (pragmaUses ttc) (currentNS ttc) (context ttc))
 
 -- Pull out the list of GlobalDefs that we want to save
 getSaveDefs : Namespace -> List Name -> List (Name, Binary) -> Defs ->
@@ -373,6 +390,7 @@ writeToTTC extradata sourceFileName ttcFileName
                               (saveAutoHints defs)
                               (saveTypeHints defs)
                               (imported defs)
+                              (pragmaUses defs)
                               (nextName ust)
                               (currentNS defs)
                               (nestedNS defs)
@@ -494,10 +512,6 @@ updateFExports ((n, conv) :: ns)
          put Ctxt ({ foreignExports $= insert n conv } defs)
          updateFExports ns
 
-getNSas : (String, (ModuleIdent, Bool, Namespace)) ->
-          (ModuleIdent, Namespace)
-getNSas (a, (b, c, d)) = (b, d)
-
 -- Add definitions from a binary file to the current context
 -- Returns the "extra" section of the file (user defined data), the interface
 -- hash and the list of additional TTCs that need importing
@@ -511,18 +525,18 @@ readFromTTC : TTC extra =>
               FC ->
               Bool -> -- importing as public
               (fname : String) -> -- file containing the module
+              (foundIn : Found) -> -- where the search found it
               (modNS : ModuleIdent) -> -- module namespace
               (importAs : Namespace) -> -- namespace to import as
-              Core (Maybe (extra, Int,
-                           List (ModuleIdent, Bool, Namespace)))
-readFromTTC nestedns loc reexp fname modNS importAs
+              Core (Maybe (extra, Int, List Import))
+readFromTTC nestedns loc reexp fname foundIn modNS importAs
     = do defs <- get Ctxt
          -- If it's already in the context, with the same visibility flag,
          -- don't load it again (we do need to load it again if it's visible
          -- this time, because we need to reexport the dependencies.)
-         let False = (modNS, reexp, importAs) `elem` map snd (allImported defs)
+         let False = any (sameRead modNS reexp importAs) (allImported defs)
               | True => pure Nothing
-         put Ctxt ({ allImported $= ((fname, (modNS, reexp, importAs)) :: ) } defs)
+         put Ctxt ({ allImported $= (MkLoaded fname foundIn modNS reexp importAs ::) } defs)
 
          Right buffer <- coreLift $ readFromFile fname
                | Left err => throw (InternalError (fname ++ ": " ++ show err))
@@ -547,7 +561,7 @@ readFromTTC nestedns loc reexp fname modNS importAs
                when nestedns $ setNestedNS (nestedNS ttc)
                -- Only do the next batch if the module hasn't been loaded
                -- in any form
-               unless (modNS `elem` map (fst . getNSas) (allImported defs)) $
+               unless (modNS `elem` map (.ident) (allImported defs)) $
                -- Set up typeHints and autoHints based on the loaded data
                  do traverse_ (addTypeHint loc) (typeHints ttc)
                     traverse_ addAutoHint (autoHints ttc)
@@ -568,16 +582,17 @@ readFromTTC nestedns loc reexp fname modNS importAs
                update UST { nextName := nextVar ttc }
                pure (Just (ex, ifaceHash ttc, imported ttc))
   where
-    alreadyDone : ModuleIdent -> Namespace ->
-                  List (String, (ModuleIdent, Bool, Namespace)) ->
-                  Bool
+    sameRead : ModuleIdent -> Bool -> Namespace -> Loaded -> Bool
+    sameRead m r a l = l.ident == m && l.reexported == r && l.readAs == a
+
+    alreadyDone : ModuleIdent -> Namespace -> List Loaded -> Bool
     alreadyDone modns importAs [] = False
       -- If we've already imported 'modns' as 'importAs', or we're importing
       -- 'modns' as itself and it's already imported as anything, then no
       -- need to load again.
-    alreadyDone modns importAs ((_, (m, _, a)) :: rest)
-        = (modns == m && importAs == a)
-          || (modns == m && miAsNamespace modns == importAs)
+    alreadyDone modns importAs (l :: rest)
+        = (modns == l.ident && importAs == l.readAs)
+          || (modns == l.ident && miAsNamespace modns == importAs)
           || alreadyDone modns importAs rest
 
 -- Implements a portion of @readTTCFile@. The fields must be read in order.

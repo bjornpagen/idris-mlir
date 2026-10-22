@@ -562,6 +562,13 @@ mutual
              t' <- reflect fc defs lhs env t
              as' <- reflect fc defs lhs env as
              appCon fc defs (reflectionttimp "IAlternative") [fc', t', as']
+    -- Base's reflected syntax has no such node, so a script sees the
+    -- alternative upstream builds for the same syntax: its two readings,
+    -- the value the default.
+    reflect fc defs lhs env (ITypeOrValue tfc ovl)
+        = reflect fc defs lhs env
+            (IAlternative tfc (UniqueDefault (valueReading tfc ovl))
+                          [typeReading tfc ovl, valueReading tfc ovl])
     reflect fc defs lhs env (IRewrite tfc t sc)
         = do fc' <- reflect fc defs lhs env tfc
              t' <- reflect fc defs lhs env t

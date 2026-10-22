@@ -88,18 +88,6 @@ data Warning : Type where
 %name Warning wrn
 
 -- All possible errors, carrying a location
-||| How an automatic search's goals grow along one of its paths: through
-||| unknowns a later round of elaboration may fix, or with every part of both
-||| goals known, when no later round can change the search.
-public export
-data Growth = ThroughUnknowns | Settled
-
-export
-Eq Growth where
-  ThroughUnknowns == ThroughUnknowns = True
-  Settled == Settled = True
-  _ == _ = False
-
 public export
 data Error : Type where
      Fatal : Error -> Error -- flag as unrecoverable (so don't postpone awaiting further info)
@@ -155,13 +143,15 @@ data Error : Type where
                      Maybe Error -> Error
      DeterminingArg : {vars : _} ->
                       FC -> Name -> Int -> Env Term vars -> Term vars -> Error
-     ||| An automatic search whose later goal embeds an earlier goal of its
-     ||| own path, of the same type constructor: a search that never ends
-     ||| repeats such a pair, so it stops here, by construction, with no
-     ||| count. The goals are closed over their environments; the names are
-     ||| the hints between them, in the order the search applied them.
-     SearchGrows : FC -> Context -> Growth ->
-                   (earlier, later : ClosedTerm) -> (hints : List Name) -> Error
+     ||| The refusal of a program whose automatic search grows: a later goal
+     ||| of one of its paths embeds an earlier goal of the same type
+     ||| constructor, and no later round of elaboration can change that. A
+     ||| search that never ends meets such a pair, so the search stops there,
+     ||| by construction, with no count. The goals are closed over their
+     ||| environments and read in the context given; the names are the hints
+     ||| between them, in the order the search applied them.
+     GrowingSearch : FC -> Context ->
+                     (earlier, later : ClosedTerm) -> (hints : List Name) -> Error
      UnsolvedHoles : List (FC, Name) -> Error
      CantInferArgType : {vars : _} ->
                         FC -> Env Term vars -> Name -> Name -> Term vars -> Error
@@ -364,7 +354,7 @@ mutual
   showError (DeterminingArg fc n i env g)
       = show fc ++ ":Can't solve goal " ++ show g ++
                 " since argument " ++ show n ++ " can't be inferred"
-  showError (SearchGrows fc gam _ earlier later hints)
+  showError (GrowingSearch fc gam earlier later hints)
       = show fc ++ ":Search grows from " ++ show earlier ++ " to " ++ show later ++
                 " through " ++ show hints
   showError (UnsolvedHoles hs) = "Unsolved holes " ++ show hs
@@ -507,7 +497,7 @@ getErrorLoc (TryWithImplicits loc _ _) = Just loc
 getErrorLoc (BadUnboundImplicit loc _ _ _) = Just loc
 getErrorLoc (CantSolveGoal loc _ _ _ _) = Just loc
 getErrorLoc (DeterminingArg loc _ _ _ _) = Just loc
-getErrorLoc (SearchGrows loc _ _ _ _ _) = Just loc
+getErrorLoc (GrowingSearch loc _ _ _ _) = Just loc
 getErrorLoc (UnsolvedHoles ((loc, _) :: _)) = Just loc
 getErrorLoc (UnsolvedHoles []) = Nothing
 getErrorLoc (CantInferArgType loc _ _ _ _) = Just loc
@@ -599,7 +589,7 @@ killErrorLoc (TryWithImplicits fc x xs) = TryWithImplicits emptyFC x xs
 killErrorLoc (BadUnboundImplicit fc x y z) = BadUnboundImplicit emptyFC x y z
 killErrorLoc (CantSolveGoal fc x y z w) = CantSolveGoal emptyFC x y z w
 killErrorLoc (DeterminingArg fc x y z w) = DeterminingArg emptyFC x y z w
-killErrorLoc (SearchGrows fc gam g e l hs) = SearchGrows emptyFC gam g e l hs
+killErrorLoc (GrowingSearch fc gam e l hs) = GrowingSearch emptyFC gam e l hs
 killErrorLoc (UnsolvedHoles xs) = UnsolvedHoles xs
 killErrorLoc (CantInferArgType fc x y z w) = CantInferArgType emptyFC x y z w
 killErrorLoc (SolvedNamedHole fc x y z) = SolvedNamedHole emptyFC x y z

@@ -353,7 +353,7 @@ printResolutionError (MkRE ds d v) = go [<] ds
            in go (ss :< "\{c.name}-\{show v}") cs
 
 data ResolutionRes : Type where
-  Resolved : List String -> ResolutionRes
+  Resolved : List PackageDir -> ResolutionRes
   Failed   : List ResolutionError -> ResolutionRes
 
 printErrs : (pkgDirs : List String) -> PkgDesc -> List ResolutionError -> String
@@ -403,7 +403,7 @@ addDeps pkg = do
     | Failed errs => throw $ GenericMsg EmptyFC (printErrs !pkgDirs pkg errs)
   log "package.depends" 10 $ "all depends: \{show allPkgs}"
   traverse_ addPackageDir allPkgs
-  traverse_ addDataDir ((</> "data") <$> allPkgs)
+  traverse_ addDataDir ((\pkg => pkg.dir </> "data") <$> allPkgs)
   where
     -- Note: findPkgDir throws an error if a package is not found
     -- *unless* --ignore-missing-ipkg is enabled

@@ -264,6 +264,19 @@ library this compiler trusts, so its own assertions are admitted, where the
 same assertion in the frontend's modules, which are the program's, would be
 refused; the frontend calls these operations only through `host`.
 
+`Idris.Host` also states the one fact of the evaluator's results no proof
+of the frontend's can reach: a closed term's normal form, as each of the
+four normalisers gives it, is a reduct of the term (`Reduct`, its steps at
+quantity 0). `Reduces` declares every step the evaluator takes, blind to
+locations: under every node, beta of a lambda, a definition's leaf (a
+projection's among them), a solved unknown, and the rest it also does (a
+`let`, a primitive, a forced delay, an as pattern), so the statement is
+true of every term. `definition` reads the context with the evidence
+(`Defines`) a step that unfolds the same name holds, and `definedOnce`
+says a context defines a name once. A frontend that proves its readings
+sound against `Reduces` keeps no check, when it runs, that the evaluator
+agreed with it.
+
 ### Rewritten so that this compiler can compile it
 
 These keep upstream's interfaces where they can, so that a re-sync stays a
@@ -412,6 +425,25 @@ merge; each says what changed in its interface.
 
 ### Ours
 
+- A package the build adds is recorded with its name and version, as its
+  directory names them (`PackageDir`, `addPkgDir`), and each TTC the
+  session reads with where the search found it (`Loaded`, `Found`: the
+  build directory, a package, an import directory), where upstream kept
+  the directories as text and a reader took a TTC's path apart to learn
+  its package.
+- The elaborator keeps its own union-find (`Libraries.Data.UnionFind`:
+  persistent, every member naming its root, the smaller class renamed on a
+  merge; it merges and finds, and never searches) as the constraint
+  store's index. Meta-to-meta unification makes an unknown solved as
+  another's application one class with it (`mergeUnknowns`), and each
+  class holds the searches waiting on it: a search that failed and changed
+  nothing waits until an unknown its goal reaches is solved or made
+  invertible (`wake`). The solver's first round retries every guess, as
+  upstream's did; each later round, semi-naively, passes the searches that
+  wait, where upstream retried every guess until none progressed. Only a
+  search waits: its failed retry restores the state it ran in, so passing
+  it changes nothing a TTC records, where a unification constraint's failed
+  retry posts new constraints and names, and is retried as before.
 - The context's definitions (`content` of `Core.Context.Context`) are a
   `Table` (`Libraries.Data.Table`): base's `IOArray` behind an `IORef`.
   Upstream's was an `IOArray` made with 10000 slots and moved to a copy
@@ -551,17 +583,31 @@ merge; each says what changed in its interface.
   the search's own locals one symbol, universes one symbol, an integer by
   its magnitude, a string as a subsequence, any other constant by
   equality): a goal convertible with one before it fails that step, as
-  upstream's cycle check did; one that embeds an earlier goal through
-  unknowns waits for a later round, and at the last chance, as one that
-  embeds it with everything known, refuses the program (`SearchGrows`),
-  never caught as a failed branch. Kruskal's tree theorem makes every
+  upstream's cycle check did; one that embeds an earlier goal ends the
+  search with a growth, a case of the search's result (`Searched`: `Found`
+  or `Grows`) beside its failures, so no combinator can catch it as a
+  failed branch and let a sibling answer. A growth through unknowns waits
+  for a later round, and at the last chance, as one with everything known,
+  refuses the program (`GrowingSearch`). Kruskal's tree theorem makes every
   endless path meet such a pair. A program the stock Idris elaborates with
   a large enough `%auto_implicit_depth` is elaborated the same, but where
   its answer was the depth running out (upstream/fork-search-depth).
 - Overloaded names are resolved with no count: every candidate elaborates
   smaller parts of the source, so resolution ends, and `%ambiguity_depth`
   only refused programs (`printLn (1, 2, 3, 4, 5, 6)`) or let a candidate
-  win because another ran out (upstream/fork-ambiguity-depth).
+  win because another ran out (upstream/fork-ambiguity-depth). The syntax
+  that writes a type and its value alike, `(l, r)`, `()` and `(x ** p)`,
+  is one node (`ITypeOrValue`) holding its parts once, where upstream wrote
+  a list of two candidates each elaborated in full, nested at each level of
+  a tuple. Its reading is the expected type's sort (`Universe`, `Known`,
+  `Unknown`): a universe takes the type, any other known type the value;
+  under an unknown type a pair's parts are elaborated once, against fresh
+  unknowns, and the site waits, retried with no new elaboration until its
+  sort is known, and at the last chance takes upstream's rule (the reading
+  that alone adds no constraint, else the value). Elaborating a tuple is
+  linear in its size. Where its two readings are different terms (a
+  dependent pair whose name is bound implicitly or substituted, an idiom
+  bracket), it is the generic alternative of its two readings.
 - A quote that follows stuck applications only so deep (`quoteWithin`)
   returns the term or `TooDeep`, and its callers choose another quote by
   matching, where upstream threw an internal error that each caller caught
@@ -632,6 +678,20 @@ Kept so far:
   `emptyFC`. A main file is read back from its TTC once built, so without
   them no term of the program the frontend reads would say where it came
   from (upstream/fork-ttc-term-locations).
+- Whether a `Delay` was written or inserted by the elaborator for a
+  `Lazy` or `Inf` expected type (`Delaying` on `TDelay`, `NDelay` and
+  `PDelay`; conversion and unification compare its laziness only): an
+  inserted one stands for the whole expression the expected type delays,
+  the `let`s placed around it included, which a reader with eager
+  evaluation must tell from a written one (upstream/fork-ttc-facts).
+- A module's imports, each with its location (`Import`, moved from
+  `Idris.Syntax` to `Core.Context`), and the pragmas it writes, each with
+  its location (`PragmaUse` of a `KwPragma`, one constructor per spelling
+  the parser accepts; the parser's rules take the kind, not text, and
+  record each use in the parse's state, which a failing branch drops).
+  `readDefinitions` gives both with the definitions (`ModuleFile`), so a
+  reader takes them from the TTC instead of scanning the source
+  (upstream/fork-ttc-facts).
 
 ## tools/extract-idris.sh
 

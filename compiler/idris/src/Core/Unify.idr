@@ -157,7 +157,44 @@ unifyWithLazy : Unify tm =>
                 Core UnifyResult
 unifyWithLazy {c} {u} = unifyWithLazyD c u
 
--- Defined in Core.AutoSearch
+||| How an automatic search's goals grow along one of its paths: through
+||| unknowns a later round of elaboration may fix, or with every part of both
+||| goals known, when no later round can change the search.
+public export
+data Growth = ThroughUnknowns | Settled
+
+||| A search that grew: a later goal of one of its paths into which an
+||| earlier goal of the same type constructor embeds. The goals are closed
+||| over their environments and read in the context the search had when it
+||| met them, which holds the unknowns its own steps made; the names are the
+||| hints the search applied between them, in order.
+public export
+record Grown where
+  constructor MkGrown
+  growth : Growth
+  context : Context
+  earlier : ClosedTerm
+  later : ClosedTerm
+  hints : List Name
+
+||| What a step of the automatic search gives when it does not fail: what it
+||| found, or the growth that stopped it. A failure is the search's error, a
+||| branch its combinators catch and try past; a growth is a value, so no
+||| combinator can catch it as a failure and let a sibling answer instead:
+||| each passes it up, and the whole search ends with it.
+public export
+data Searched : Type -> Type where
+  Found : a -> Searched a
+  Grows : Grown -> Searched a
+
+export
+Functor Searched where
+  map f (Found a) = Found (f a)
+  map f (Grows g) = Grows g
+
+-- Defined in Core.AutoSearch. A growth leaves nothing of the search behind:
+-- the unknowns and solutions its steps made are undone, so the search is
+-- retried, or refused, whole.
 export
 search : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
@@ -165,7 +202,7 @@ search : {vars : _} ->
          FC -> RigCount ->
          (defaults : Bool) ->
          (defining : Name) -> (topTy : Term vars) -> Env Term vars ->
-         Core (Term vars)
+         Core (Searched (Term vars))
 
 ufail : FC -> String -> Core a
 ufail loc msg = throw (GenericMsg loc msg)
@@ -461,6 +498,11 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
                           PMDef simpleDef Scope.empty (STerm 0 rhs) [] []
                       } mdef
          ignore $ addDef (Resolved mref) newdef
+         -- Meta-to-meta unification: an unknown solved as another's
+         -- application is one class with it, its value the other's.
+         case tm of
+              Meta _ _ other _ => mergeUnknowns mref other
+              _ => pure ()
          removeHole mref
          pure True
   where
@@ -1354,14 +1396,18 @@ mutual
                                     _ => unify mode loc env xnf ynf
                          _ => unify mode loc env xnf ynf
 
+-- An unknown made invertible unifies differently, so the searches waiting
+-- on it wake.
 export
 setInvertible : {auto c : Ref Ctxt Defs} ->
+                {auto u : Ref UST UState} ->
                 FC -> Name -> Core ()
 setInvertible fc n
     = do defs <- get Ctxt
          Just gdef <- lookupCtxtExact n (gamma defs)
               | Nothing => undefinedName fc n
-         ignore $ addDef n ({ invertible := True } gdef)
+         i <- addDef n ({ invertible := True } gdef)
+         wake i
 
 public export
 data SolveMode = Normal -- during elaboration: unifies and searches
@@ -1410,17 +1456,38 @@ delayMeta : {vars : _} ->
             LazyReason -> Nat -> Term vars -> Term vars -> Term vars
 delayMeta r (S k) ty (Bind fc n b sc)
     = Bind fc n b (delayMeta r k (weaken ty) sc)
-delayMeta r envb ty tm = TDelay (getLoc tm) r ty tm
+-- The delay unification asks for, inserted around a solution checked
+-- against a delayed type.
+delayMeta r envb ty tm = TDelay (getLoc tm) (MkDelaying r ByElaborator) ty tm
 
 forceMeta : LazyReason -> Nat -> Term vars -> Term vars
 forceMeta r (S k) (Bind fc n b sc)
     = Bind fc n b (forceMeta r k sc)
 forceMeta r envb tm = TForce (getLoc tm) r tm
 
+-- The unknowns a term reaches, through the solutions of those solved: what a
+-- search on it waits for.
+unknownsOf : {auto c : Ref Ctxt Defs} -> Term vars -> Core (List Int)
+unknownsOf tm = reach (keys (addMetas True empty tm)) empty
+  where
+    reach : List Name -> IntMap () -> Core (List Int)
+    reach [] seen = pure (keys seen)
+    reach (Resolved i :: ns) seen
+        = case lookup i seen of
+               Just () => reach ns seen
+               Nothing =>
+                 do defs <- get Ctxt
+                    case !(lookupDefExact (Resolved i) (gamma defs)) of
+                         Just (PMDef _ _ (STerm _ soln) _ _) =>
+                           reach (keys (addMetas True empty soln) ++ ns) (insert i () seen)
+                         _ => reach ns (insert i () seen)
+    -- `addMetas True` names every unknown by its index; no other name
+    -- comes.
+    reach (_ :: ns) seen = reach ns seen
+
 -- Check whether it's worth trying a search again, based on what went wrong
 recoverable : Error -> Bool
 recoverable (UndefinedName {}) = False
-recoverable (SearchGrows {}) = False
 recoverable (InType _ _ err) = recoverable err
 recoverable (InCon _ err) = recoverable err
 recoverable (InLHS _ _ err) = recoverable err
@@ -1441,42 +1508,18 @@ retryGuess mode smode (hid, (loc, hname))
            Just def =>
              case definition def of
                BySearch rig defining =>
-                  handleUnify
-                     (do tm <- search loc rig (smode == Defaults) defining
-                                      (type def) Env.empty
-                         let gdef = { definition := PMDef defaultPI Scope.empty (STerm 0 tm) [] [] } def
-                         logTermNF "unify.retry" 5 ("Solved " ++ show hname) Env.empty tm
-                         ignore $ addDef (Resolved hid) gdef
-                         removeGuess hid
-                         pure True)
-                     $ \case
-                       DeterminingArg _ n i _ _ =>
-                         do logTerm "unify.retry" 5
-                                    ("Failed (det " ++ show hname ++ " " ++ show n ++ ")")
-                                    (type def)
-                            setInvertible loc (Resolved i)
-                            pure False -- progress not made yet!
-                       -- A search that grows through unknowns may end once
-                       -- a later round fixes them, so it waits as a
-                       -- determining argument's does; at the last chance,
-                       -- the end of the declaration's elaboration, nothing
-                       -- more will be fixed, and the program is refused.
-                       err@(SearchGrows _ _ ThroughUnknowns _ _ _) =>
-                         case smode of
-                              LastChance => throw err
-                              _ => pure False
-                       -- With every part known, no later round changes it.
-                       err@(SearchGrows {}) => throw err
-                       err =>
-                         do logTermNF "unify.retry" 5
-                                      ("Search failed at " ++ show rig ++ " for " ++ show hname)
-                                      Env.empty (type def)
-                            case smode of
-                                 LastChance => throw err
-                                 _ => if recoverable err
-                                         then pure False -- Postpone again
-                                         else throw (CantSolveGoal loc (gamma defs)
-                                                        Env.empty (type def) (Just err))
+                  do Right searched <- tryErrorUnify
+                                         (search loc rig (smode == Defaults) defining
+                                                 (type def) Env.empty)
+                          | Left err => failed rig def err
+                     case searched of
+                          Found tm =>
+                            do let gdef = { definition := PMDef defaultPI Scope.empty (STerm 0 tm) [] [] } def
+                               logTermNF "unify.retry" 5 ("Solved " ++ show hname) Env.empty tm
+                               ignore $ addDef (Resolved hid) gdef
+                               removeGuess hid
+                               pure True
+                          Grows g => grown def g
                Guess tm envb [constr] =>
                  do let umode = case smode of
                                      MatchArgs => inMatch
@@ -1526,30 +1569,100 @@ retryGuess mode smode (hid, (loc, hname))
                                      ignore $ addDef (Resolved hid) gdef
                                      pure False
                _ => pure False
+  where
+    refuse : Grown -> Core Bool
+    refuse g = throw (GrowingSearch loc g.context g.earlier g.later g.hints)
 
+    -- A search that failed and changed nothing waits for an unknown its
+    -- goal reaches to change, since until then a retry fails the same way.
+    -- One that failed in the round that tries default hints is tried
+    -- without them in the next, and does not wait.
+    stillWaits : GlobalDef -> Core Bool
+    stillWaits def
+        = do case smode of
+                  Defaults => pure ()
+                  _ => do unknowns <- unknownsOf (type def)
+                          waitOn hid unknowns
+             pure False
+
+    -- A search that grows through unknowns may end once a later round
+    -- fixes them, so it waits as a determining argument's does; at the last
+    -- chance, the end of the declaration's elaboration, nothing more will be
+    -- fixed, and the program is refused. With every part known, no later
+    -- round changes it, and the program is refused at once.
+    grown : GlobalDef -> Grown -> Core Bool
+    grown def g = case g.growth of
+                       ThroughUnknowns => case smode of
+                                               LastChance => refuse g
+                                               _ => stillWaits def
+                       Settled => refuse g
+
+    failed : RigCount -> GlobalDef -> Error -> Core Bool
+    failed rig def (DeterminingArg _ n i _ _)
+        = do logTerm "unify.retry" 5
+                     ("Failed (det " ++ show hname ++ " " ++ show n ++ ")")
+                     (type def)
+             setInvertible loc (Resolved i)
+             pure False -- progress not made yet!
+    failed rig def err
+        = do logTermNF "unify.retry" 5
+                       ("Search failed at " ++ show rig ++ " for " ++ show hname)
+                       Env.empty (type def)
+             case smode of
+                  LastChance => throw err
+                  _ => if recoverable err
+                          then stillWaits def -- Postpone again
+                          else do defs <- get Ctxt
+                                  throw (CantSolveGoal loc (gamma defs)
+                                           Env.empty (type def) (Just err))
+
+-- A round: each guess retried in turn, but a search that waits is passed,
+-- since a retry would fail as its last did. Whether it waits is read when
+-- its turn comes, after what the round solved before it.
+retryRound : {auto c : Ref Ctxt Defs} ->
+             {auto u : Ref UST UState} ->
+             UnifyInfo -> SolveMode -> List (Int, (FC, Name)) -> Core (List Bool)
+retryRound umode smode [] = pure []
+retryRound umode smode (g :: gs)
+    = do ust <- get UST
+         progress <- case lookup (fst g) (waiting ust) of
+                          Just () => pure False
+                          Nothing => retryGuess umode smode g
+         (progress ::) <$> retryRound umode smode gs
+
+-- The first round retries every guess, since what changed since the last
+-- call is not only unknowns; each later round, semi-naively, only what
+-- changed unknowns woke and the guesses that are not searches.
 export
 solveConstraints : {auto c : Ref Ctxt Defs} ->
                    {auto u : Ref UST UState} ->
                    UnifyInfo -> (smode : SolveMode) -> Core ()
 solveConstraints umode smode
-    = do ust <- get UST
-         progress <- traverse (retryGuess umode smode) (toList (guesses ust))
-         when (any id progress) $
-               solveConstraints umode Normal
+    = do retryAll
+         rounds smode
+  where
+    rounds : SolveMode -> Core ()
+    rounds mode
+        = do ust <- get UST
+             progress <- retryRound umode mode (toList (guesses ust))
+             when (any id progress) $ rounds Normal
 
 export
 solveConstraintsAfter : {auto c : Ref Ctxt Defs} ->
                         {auto u : Ref UST UState} ->
                         Int -> UnifyInfo -> (smode : SolveMode) -> Core ()
 solveConstraintsAfter start umode smode
-    = do ust <- get UST
-         progress <- traverse (retryGuess umode smode)
-                              (filter afterStart (toList (guesses ust)))
-         when (any id progress) $
-               solveConstraintsAfter start umode Normal
+    = do retryAll
+         rounds smode
   where
     afterStart : (Int, a) -> Bool
     afterStart (x, _) = x >= start
+
+    rounds : SolveMode -> Core ()
+    rounds mode
+        = do ust <- get UST
+             progress <- retryRound umode mode (filter afterStart (toList (guesses ust)))
+             when (any id progress) $ rounds Normal
 
 -- Replace any 'BySearch' with 'Hole', so that we don't keep searching
 -- fruitlessly while elaborating the rest of a source file
