@@ -12,10 +12,15 @@
 // meets as a type that differs at the call: the parameter becomes the
 // view of the lifetime given, `idr.lifetime.forget`, the one op whose result
 // is its operand's view, defined where the argument is in scope.
+//
+// Each call the body holds moves to a new place, so its tail fact is
+// decided again there, by the one definition of tail position, as every
+// call's is from the first-order program on.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Tail.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
@@ -52,6 +57,22 @@ struct IdrInlinerInterface : DialectInlinerInterface {
   // A body that ends with no successor goes on to nothing, so it branches to
   // none of the caller's blocks.
   void handleTerminator(Operation *, Block *) const final {}
+
+  // A call the body holds gives its results where the call it replaced gave
+  // its own, so it is in tail position, or a self call of the caller modulo
+  // a context, exactly where it was so in the body and the call it replaced
+  // was in tail position; anywhere else it is an ordinary call. Upstream
+  // calls this while the body still ends in the callee's return, so the one
+  // decider reads each held call's place in the body, and the replaced
+  // call's own fact, the decider's answer at its place, says the rest.
+  void processInlinedCallBlocks(Operation *call,
+                                iterator_range<Region::iterator> inlined) const final {
+    TailKind replaced = cast<CallOp>(call).getTailKind();
+    for (Block &block : inlined)
+      block.walk([&](CallOp held) {
+        held.setTailKind(replaced == TailKind::tail ? tail::decide(held) : TailKind::nontail);
+      });
+  }
 
   // A lifetime passed where a view is asked: the view of it.
   Operation *materializeCallConversion(OpBuilder &builder, Value input, Type resultType,

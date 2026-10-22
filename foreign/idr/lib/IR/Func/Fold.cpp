@@ -19,8 +19,6 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 
-#include <variant>
-
 using namespace mlir;
 using namespace idr;
 
@@ -54,14 +52,14 @@ void rows::Fold::declared(Operation *op, Runs runs) {
   // Only a put into a put parameter is the record's, and one in a region
   // that runs again has no bound whatever its size: the bytes are read
   // only for a put once per run into a put parameter.
-  if (auto putter = dyn_cast<LifetimePutOpInterface>(op)) {
-    Value lifetime = putter.getPutLifetime();
-    if (std::holds_alternative<PutPart>(partOf(lifetime)))
-      put(lifetime,
-          runs == Runs::Repeatedly ? Amount::unbounded()
-                                   : Amount::finite(putter.getPutBytes(layouts())),
-          runs);
-  }
+  if (auto putter = dyn_cast<LifetimePutOpInterface>(op))
+    idr::match(
+        partOf(putter.getPutLifetime()),
+        [&](PutPart part) {
+          addPut(part, runs == Runs::Repeatedly ? Amount::unbounded()
+                                                : Amount::finite(putter.getPutBytes(layouts())));
+        },
+        [](WritePart) {}, [](NoPart) {});
   // The op's own effects alone: the function's walk reads what its regions
   // hold op by op. One that says nothing MLIR can read, and is not bounded
   // by its regions, may do anything.
@@ -105,11 +103,13 @@ void rows::Fold::put(Value lifetime, Amount amount, Runs runs) {
     return;
   idr::match(
       partOf(lifetime),
-      [&](PutPart part) {
-        Amount &total = derived.puts[part.position];
-        total = total.plus(runs == Runs::Repeatedly ? Amount::unbounded() : amount);
-      },
+      [&](PutPart part) { addPut(part, runs == Runs::Repeatedly ? Amount::unbounded() : amount); },
       [](WritePart) {}, [](NoPart) {});
+}
+
+void rows::Fold::addPut(PutPart part, Amount amount) {
+  Amount &total = derived.puts[part.position];
+  total = total.plus(amount);
 }
 
 // An op is a handle whose members are not const, so the function is read

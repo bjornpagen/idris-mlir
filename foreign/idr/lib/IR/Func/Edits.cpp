@@ -16,6 +16,7 @@
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -26,7 +27,6 @@
 #include <concepts>
 #include <cstdint>
 #include <optional>
-#include <variant>
 
 using namespace mlir;
 using namespace idr;
@@ -68,23 +68,35 @@ concept PositionedPart = requires(Part part) {
   { part.position } -> std::convertible_to<std::uint32_t>;
 };
 
-// Each position among the parameters that admit `Part`, moved as its
-// parameter moves. A parameter kept keeps its type, so it admits the same
-// part, at the count of those that admit it before it now.
-template <PositionedPart Part>
-Moves amongThose(const ParameterParts &before, ArrayRef<std::optional<std::uint32_t>> parameters,
-                 const ParameterParts &after) {
-  SmallVector<std::uint32_t> counted;
-  std::uint32_t seen = 0;
-  for (unsigned at = 0; at < after.size(); ++at) {
-    counted.push_back(seen);
-    if (std::holds_alternative<Part>(after[at]))
-      ++seen;
+// Where a parameter's part puts it among the parameters that admit that
+// part; a parameter that admits none has no such place.
+std::optional<std::uint32_t> placeOf(const RecordPart &part) {
+  return idr::match(
+      part,
+      [](PositionedPart auto positioned) -> std::optional<std::uint32_t> {
+        return positioned.position;
+      },
+      [](NoPart) -> std::optional<std::uint32_t> { return std::nullopt; });
+}
+
+// Each write part's and each put part's position, moved as its parameter
+// moves. A parameter kept keeps its type, so it admits the same part, and
+// its part in the new signature holds its position among those that admit
+// it now.
+struct PartMoves {
+  Moves writes;
+  Moves puts;
+};
+
+PartMoves amongThose(const ParameterParts &before, ArrayRef<std::optional<std::uint32_t>> parameters,
+                     const ParameterParts &after) {
+  PartMoves moves;
+  for (auto [at, to] : llvm::enumerate(parameters)) {
+    std::optional<std::uint32_t> now = to ? placeOf(after[*to]) : std::nullopt;
+    idr::match(
+        before[static_cast<unsigned>(at)], [&](WritePart) { moves.writes.push_back(now); },
+        [&](PutPart) { moves.puts.push_back(now); }, [](NoPart) {});
   }
-  Moves moves;
-  for (auto [at, to] : llvm::enumerate(parameters))
-    if (std::holds_alternative<Part>(before[static_cast<unsigned>(at)]))
-      moves.push_back(to ? std::optional<std::uint32_t>(counted[*to]) : std::nullopt);
   return moves;
 }
 
@@ -140,10 +152,10 @@ LogicalResult editSignature(FuncOp fn, FunctionType type, ArrayRef<std::optional
   }
   if (GivenBackAttr given = fn.getGivenBackAttr())
     stated.given = given.renumber(parameters, results);
-  ParameterParts before(fn.getArgumentTypes()), after(type.getInputs());
-  stated.untouched =
-      moved(context, fn.getUntouchedAttr(), amongThose<WritePart>(before, parameters, after));
-  stated.bounded = moved(context, fn.getBoundedAttr(), amongThose<PutPart>(before, parameters, after));
+  PartMoves parts =
+      amongThose(ParameterParts(fn.getArgumentTypes()), parameters, ParameterParts(type.getInputs()));
+  stated.untouched = moved(context, fn.getUntouchedAttr(), parts.writes);
+  stated.bounded = moved(context, fn.getBoundedAttr(), parts.puts);
   change();
   fn.setLivesInAttr(stated.lives);
   fn.setGivenBackAttr(stated.given);

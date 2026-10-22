@@ -13,13 +13,13 @@
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Tail.h"
 #include "idr/IR/Verify.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <cstddef>
 #include <cstdint>
-#include <variant>
 
 using namespace mlir;
 using namespace idr;
@@ -42,12 +42,18 @@ LogicalResult recordFits(FuncOp fn, const ParameterParts &parts) {
            << bounds.back().parameter << " among its " << parts.puttable()
            << " that admit an amount";
   for (auto [index, type] : llvm::enumerate(fn.getArgumentTypes())) {
-    auto put = std::get_if<PutPart>(&parts[static_cast<unsigned>(index)]);
-    if (!put || !isRoomLifetime(type))
-      continue;
-    if (!llvm::any_of(bounds, [&](const PutBound &bound) { return bound.parameter == put->position; }))
-      return fn.emitOpError("puts into its room parameter #")
-             << index << " with no bound, though a room's block has a static size";
+    LogicalResult fits = idr::match(
+        parts[static_cast<unsigned>(index)],
+        [&](PutPart put) -> LogicalResult {
+          if (!isRoomLifetime(type) ||
+              llvm::any_of(bounds, [&](const PutBound &bound) { return bound.parameter == put.position; }))
+            return success();
+          return fn.emitOpError("puts into its room parameter #")
+                 << index << " with no bound, though a room's block has a static size";
+        },
+        [](WritePart) { return success(); }, [](NoPart) { return success(); });
+    if (failed(fits))
+      return failure();
   }
   return success();
 }

@@ -21,6 +21,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 #include "idr/IR/Tail.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/SymbolTable.h"
@@ -184,6 +185,24 @@ LogicalResult cursorsInPlace(CallOp call, FuncOp caller, ArrayRef<Type> inputs,
   return success();
 }
 
+// What `fn` puts into its put parameter `theirs`, which `call` passes its
+// caller's put parameter `mine` at `parameter`, fits what the caller says
+// it puts there: no more than its bound, and no bound at all from a region
+// that may run again.
+LogicalResult putFits(CallOp call, FuncOp fn, FuncOp caller, BlockArgument parameter,
+                      PutPart theirs, PutPart mine) {
+  Amount put = boundOf(fn, theirs.position);
+  if (put.none())
+    return success();
+  if (runsOf(call.getOperation(), caller) == rows::Runs::Repeatedly)
+    put = Amount::unbounded();
+  if (put.within(boundOf(caller, mine.position)))
+    return success();
+  return call.emitOpError("passes its caller's put parameter #")
+         << parameter.getArgNumber() << " to " << call.getCalleeAttr()
+         << ", which puts more into it than the caller's bound";
+}
+
 } // namespace
 
 LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
@@ -261,19 +280,19 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
     auto parameter = dyn_cast<BlockArgument>(operand);
     if (!parameter || parameter.getOwner() != &caller.getBody().front())
       continue;
-    auto theirs = std::get_if<PutPart>(&calleeParts[static_cast<unsigned>(index)]);
-    auto mine = std::get_if<PutPart>(&callerParts[parameter.getArgNumber()]);
-    if (!theirs || !mine)
-      continue;
-    Amount put = boundOf(fn, theirs->position);
-    if (put.none())
-      continue;
-    if (runsOf(getOperation(), caller) == rows::Runs::Repeatedly)
-      put = Amount::unbounded();
-    if (!put.within(boundOf(caller, mine->position)))
-      return emitOpError("passes its caller's put parameter #")
-             << parameter.getArgNumber() << " to " << name
-             << ", which puts more into it than the caller's bound";
+    // Only a put parameter of the caller's, passed as one of the callee's,
+    // has a bound to keep.
+    LogicalResult fits = idr::match(
+        calleeParts[static_cast<unsigned>(index)],
+        [&](PutPart theirs) {
+          return idr::match(
+              callerParts[parameter.getArgNumber()],
+              [&](PutPart mine) { return putFits(*this, fn, caller, parameter, theirs, mine); },
+              [](WritePart) { return success(); }, [](NoPart) { return success(); });
+        },
+        [](WritePart) { return success(); }, [](NoPart) { return success(); });
+    if (failed(fits))
+      return failure();
   }
   return success();
 }

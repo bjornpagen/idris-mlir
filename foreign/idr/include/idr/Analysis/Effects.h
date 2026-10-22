@@ -135,6 +135,8 @@ private:
   // What an op that may do anything does: every atom, a write through
   // every write-admitting parameter, no bound on any put parameter.
   void anything();
+  // `amount` more into the put parameter whose part is `part`.
+  void addPut(PutPart part, Amount amount);
   // The layouts of the function's own types, made the first time a put
   // into a put parameter needs its bytes: a function that puts into none
   // never lays out a type.

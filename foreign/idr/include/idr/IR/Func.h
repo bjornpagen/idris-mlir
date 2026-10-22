@@ -42,8 +42,9 @@ namespace idr {
 class IdrDialect;
 
 // Every call, op and region of the dialect may be inlined; a return becomes
-// the values it gives back, and a lifetime given where a view is asked
-// passes as the view it is.
+// the values it gives back, a lifetime given where a view is asked passes as
+// the view it is, and each call the body holds takes the tail fact its new
+// place gives it.
 void addInlinerInterface(IdrDialect &dialect);
 
 //===----------------------------------------------------------------------===//
