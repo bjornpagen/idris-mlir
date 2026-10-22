@@ -9,9 +9,9 @@
 //
 // First the rows are written, last before they become LLVM's attributes.
 // Then, on the program: each call that gives a lifetime where its callee
-// asks a view gives the view; each function's lifetimes made ready (its
-// cursor parameters in slots, its rooms laid out) and its account opened
-// and told where it keeps one, every function at once;
+// asks a view gives the view; each function's account opened and told
+// where it keeps one, and its lifetimes made ready (its cursor parameters
+// in slots, its rooms laid out), every function at once;
 // then every function's name mangled and the function made an llvm.func
 // (phase 0). Then each function on its own, in parallel: its matches as
 // scf and its views of memrefs as offsets, sizes and strides, still on idr
@@ -146,7 +146,7 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
     return fn.isExternal() || converter.isLegal(fn.getBody().front().getArgumentTypes());
   });
 
-  tells = accountPatterns(ctx, layouts, runtime);
+  tells = accountPatterns(ctx, runtime);
 
   RewritePatternSet structureSet(ctx);
   populateMatchPatterns(structureSet);
@@ -236,11 +236,11 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     SmallVector<FuncOp> sources(program->getRegion(0).getOps<FuncOp>());
     {
       SymbolTable symbols(program);
+      // The account first: its points are read off the function as the
+      // passes left it, before its lifetimes put anything into it.
       if (failed(failableParallelForEach(ctx, sources, [&](FuncOp fn) {
-            if (failed(prepareLifetimes(fn, symbols, layouts)))
-              return failure();
-            keepAccount(fn, lowering.tells, runtime);
-            return success();
+            keepAccount(fn, lowering.tells, layouts, runtime);
+            return prepareLifetimes(fn, symbols, layouts);
           })))
         return signalPassFailure();
     }

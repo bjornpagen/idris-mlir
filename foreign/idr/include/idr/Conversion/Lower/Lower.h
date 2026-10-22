@@ -109,16 +109,18 @@ groupResults(mlir::ValueRange flat, llvm::ArrayRef<llvm::SmallVector<mlir::Type>
 mlir::LogicalResult prepareLifetimes(FuncOp fn, const mlir::SymbolTable &program,
                                      const Layouts &layouts);
 
-// The patterns that tell a call's account, in the checked runtime, what the
-// call holds that it no longer needs: each reuse token it takes and gives
-// up, and where it ends, at a return or before a call in tail position.
-mlir::FrozenRewritePatternSet accountPatterns(mlir::MLIRContext *ctx, const Layouts &layouts,
-                                              const Runtime &runtime);
+// The patterns that tell a call's account, in the checked runtime, where
+// the call ends: at a return or before a call in tail position.
+mlir::FrozenRewritePatternSet accountPatterns(mlir::MLIRContext *ctx, const Runtime &runtime);
 
-// A function's account made ready, still on idr types and before any
-// signature changes: where its frame bound is not zero, opened at its
-// entry with the bound and told by `tells`; nothing where it is zero.
-void keepAccount(FuncOp fn, const mlir::FrozenRewritePatternSet &tells, const Runtime &runtime);
+// A function's account made ready, still on idr types, before its
+// lifetimes are made ready and before any signature changes: where
+// its frame bound is not zero, opened at its entry with the bound, told
+// each point where what it holds dead rises or falls (counting's hold
+// points, the walk its bound rests on) and told where it ends by `tells`;
+// nothing where its bound is zero.
+void keepAccount(FuncOp fn, const mlir::FrozenRewritePatternSet &tells, const Layouts &layouts,
+                 const Runtime &runtime);
 
 //===----------------------------------------------------------------------===//
 // Functions
