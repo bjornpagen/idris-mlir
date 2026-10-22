@@ -15,11 +15,21 @@ The fork (compiler/idris) carries it as its own code, landed in a386fe4d
 lexer's token is `Located`, always with its bounds; the lexers, the
 literate reader, the parser core and their users follow.
 
-`pull-request.diff` is that commit's change for this entry, its paths
-those of the Idris tree (`src/...`), against the fork as it stood before
-the commit (the pin with the earlier fork entries), which is what a re-sync
- of the fork reads. Hunks the commit shares between entries sit in
-one of them, as each entry's text says.
+`pull-request.diff` is that commit's change for this entry, laid out
+against third_party/Idris2 at its gitlink (89ba32eb): each hunk is the
+change written against upstream's file, without the fork's other
+deviations, so that it applies to the pin alone and states exactly what
+a re-sync of the fork carries. It was made by merging the change three
+ways onto upstream's files and writing each conflict against upstream's
+text; a part of the change in a file of the fork's own, with no upstream
+counterpart, is left out and said below. Hunks the commit shares between
+entries sit in one of them, as each entry's text says.
+
+Upstream's parser is a grammar data type that `doParse` runs, where the
+fork's is functions (`MkGrammar`): the change is written on `doParse` and
+`ParseResult` (`Located` tokens, `Irrelevant` and `Relevant` results),
+and `terminalAt` is upstream's `Position` then `Terminal`, which gives
+the same bounds and errors.
 
 ## Why there is no patch
 

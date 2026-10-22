@@ -54,10 +54,10 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   Idris nothing it builds reaches, recorded and not carried; and (18, 20,
   21, 50, 51, 52, 53, 59 and the seventeen fork-* directories) the change
   the fork carries as its own code (for 21, the smaller change the fork
-  has since gone past), laid out against third_party/Idris2's pin (the
-  ten from a386fe4d against the fork before that commit) with the test
-  upstream's suite would hold: the record a re-sync of the fork reads,
-  never sent.
+  has since gone past), laid out against third_party/Idris2 at its
+  gitlink, each applying to the pin alone or, for a series (50, 52, 53;
+  18, 59), after the records before it, with the test upstream's suite
+  would hold: the record a re-sync of the fork reads, never sent.
 - `tests/upstream-<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
@@ -168,6 +168,8 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 99 | function-interface-edits | PR: FunctionOpInterface's four signature edits are interface methods, the present bodies their defaults, so a caller holding the interface reaches an operation's own | carried (2026-10-21); not filed |
 | 100 | mlir-opt-main-thread-pool | PR: MlirOptMainConfig::setThreadPool, the pool every context MlirOptMain makes for its input shares | carried (2026-10-22); not filed |
 | 101 | thread-pool-thread-start | PR after 75's: ThreadPoolStrategy::OnThreadStart, a function each thread a pool starts runs before any task | carried (2026-10-22); not filed |
+| 102 | int-range-ne-either-view | PR: isStaticallyTrue proves `ne` when either the signed or the unsigned ranges are apart (int-range-opts.mlir) | carried (2026-10-22); not filed |
+| 103 | sparse-region-successors-protected | PR: the sparse forward analysis's visitRegionSuccessors protected, so an override may call the base | carried (2026-10-22); not filed |
 | fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |

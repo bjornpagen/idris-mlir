@@ -21,9 +21,15 @@ its statement (tests/cycle-ioref-knot).
 
 ## The change
 
-`pull-request.diff`, against the fork's code before it (which already
-carries `upstream/fork-total-frontend-paths`, whose well-founded decoders it
-extends), writes each node's location after its tag and reads it back. A
+`pull-request.diff`, laid out against third_party/Idris2 at its gitlink
+(89ba32eb) without the fork's other deviations (the fork's own form
+extends the well-founded decoders of `upstream/fork-total-frontend-paths`,
+which upstream's recursive ones stand in for here), writes each node's
+location after its tag and reads it back. Upstream writes terms in its
+`TTC` instances, which cannot take the enclosing location, so the change
+writes encoders and decoders that do (`encodeTerm`, `decodeTerm` and their
+parts) and the instances call them from an empty location; the TTC's
+version is given in upstream's form. A
 location is written against the location of the node it is part of, the
 nearest enclosing one that has one: in that one's file (nearly always) it
 is the start line's difference from that one's start line, the start

@@ -1,0 +1,82 @@
+Subject: [PATCH] [mlir][intrange] Either interpretation proves two values unequal
+
+`ConstantIntRanges` bounds a value in both its signed and its unsigned
+interpretation at once: the value lies within both. Two values are
+therefore unequal as soon as either interpretation shows their ranges
+disjoint, since no bit pattern can then lie in both. `isStaticallyTrue`
+required both interpretations to show it (`sne && une`), so a value
+known to be -5 or 5 (signed [-5, 5], unsigned [5, 2^64 - 5]) was not
+known to differ from 0, and neither `cmpi ne` nor `cmpi eq` against 0
+folded. Test either (`sne || une`).
+
+Tests in int-range-opts.mlir, one where only the signed bounds exclude
+the constant and one where only the unsigned bounds do.
+---
+diff --git a/mlir/lib/Interfaces/Utils/InferIntRangeCommon.cpp b/mlir/lib/Interfaces/Utils/InferIntRangeCommon.cpp
+index fa225e5..014b4c7 100644
+--- a/mlir/lib/Interfaces/Utils/InferIntRangeCommon.cpp
++++ b/mlir/lib/Interfaces/Utils/InferIntRangeCommon.cpp
+@@ -708,15 +708,14 @@ static bool isStaticallyTrue(intrange::CmpPredicate pred,
+     return lhsConst && rhsConst && lhsConst == rhsConst;
+   }
+   case intrange::CmpPredicate::ne: {
+-    // While equality requires that there is an interpration of the preceeding
+-    // computations that produces equal constants, whether that be signed or
+-    // unsigned, statically determining inequality requires that neither
+-    // interpretation produce potentially overlapping ranges.
++    // A value lies within both its signed and its unsigned bounds, so the two
++    // sides are unequal as soon as either interpretation shows their ranges
++    // apart: no bit pattern can then be in both.
+     bool sne = isStaticallyTrue(intrange::CmpPredicate::slt, lhs, rhs) ||
+                isStaticallyTrue(intrange::CmpPredicate::sgt, lhs, rhs);
+     bool une = isStaticallyTrue(intrange::CmpPredicate::ult, lhs, rhs) ||
+                isStaticallyTrue(intrange::CmpPredicate::ugt, lhs, rhs);
+-    return sne && une;
++    return sne || une;
+   }
+   }
+   return false;
+diff --git a/mlir/test/Dialect/Arith/int-range-opts.mlir b/mlir/test/Dialect/Arith/int-range-opts.mlir
+index 5264226..745641f 100644
+--- a/mlir/test/Dialect/Arith/int-range-opts.mlir
++++ b/mlir/test/Dialect/Arith/int-range-opts.mlir
+@@ -24,6 +24,39 @@ func.func @test() -> i1 {
+ 
+ // -----
+ 
++// Either interpretation suffices to show two values unequal: here the signed
++// bounds exclude 0 and the unsigned ones do not.
++
++// CHECK-LABEL: func @ne_signed_apart
++//   CHECK-DAG:   %[[T:.*]] = arith.constant true
++//   CHECK-DAG:   %[[F:.*]] = arith.constant false
++//       CHECK:   return %[[T]], %[[F]]
++func.func @ne_signed_apart() -> (i1, i1) {
++  %cst = arith.constant 0 : i64
++  %0 = test.with_bounds < umin = 0 : i64, umax = -1 : i64, smin = 1 : i64, smax = 5 : i64 > : i64
++  %1 = arith.cmpi ne, %0, %cst : i64
++  %2 = arith.cmpi eq, %0, %cst : i64
++  return %1, %2 : i1, i1
++}
++
++// -----
++
++// Here the unsigned bounds exclude 0 and the signed ones do not.
++
++// CHECK-LABEL: func @ne_unsigned_apart
++//   CHECK-DAG:   %[[T:.*]] = arith.constant true
++//   CHECK-DAG:   %[[F:.*]] = arith.constant false
++//       CHECK:   return %[[T]], %[[F]]
++func.func @ne_unsigned_apart() -> (i1, i1) {
++  %cst = arith.constant 0 : i64
++  %0 = test.with_bounds < umin = 5 : i64, umax = -5 : i64, smin = -5 : i64, smax = 5 : i64 > : i64
++  %1 = arith.cmpi ne, %0, %cst : i64
++  %2 = arith.cmpi eq, %0, %cst : i64
++  return %1, %2 : i1, i1
++}
++
++// -----
++
+ 
+ // CHECK-LABEL: func @test
+ //       CHECK:   %[[C:.*]] = arith.constant true

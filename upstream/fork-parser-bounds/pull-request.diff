@@ -1,8 +1,8 @@
 diff --git a/src/Core/FC.idr b/src/Core/FC.idr
-index ab86af86..529d477c 100644
+index 19433f7..6ec3db3 100644
 --- a/src/Core/FC.idr
 +++ b/src/Core/FC.idr
-@@ -152,9 +152,13 @@ endCol = snd . endPos
+@@ -150,9 +150,13 @@ endCol = snd . endPos
  ------------------------------------------------------------------------
  -- Smart constructors
  
@@ -18,19 +18,19 @@ index ab86af86..529d477c 100644
  export
  (.toFC) : (o : OriginDesc) => WithBounds t -> FC
 diff --git a/src/Idris/Parser.idr b/src/Idris/Parser.idr
-index a8063393..47bf0a0d 100644
+index a1fff59..7e37515 100644
 --- a/src/Idris/Parser.idr
 +++ b/src/Idris/Parser.idr
-@@ -46,7 +46,7 @@ decoratedKeyword fname kwd = decorate fname Keyword (keyword kwd)
+@@ -44,7 +44,7 @@ decoratedKeyword fname kwd = decorate fname Keyword (keyword kwd)
  
- decorateKeywords : {0 a : Type} -> OriginDesc -> List (WithBounds a) -> EmptyRule ()
+ decorateKeywords : {a : Type} -> OriginDesc -> List (WithBounds a) -> EmptyRule ()
  decorateKeywords fname xs
 -  = act $ MkState (cast (map (decorationFromBounded fname Keyword) xs)) []
 +  = act $ MkState (cast (concatMap (decorationFromBounded fname Keyword) xs)) []
  
  decoratedPragma : OriginDesc -> String -> Rule ()
  decoratedPragma fname prg = decorate fname Keyword (pragma prg)
-@@ -194,10 +194,10 @@ argTerm (WithArg t) = t
+@@ -192,10 +192,10 @@ argTerm (WithArg t) = t
  export
  debugString : OriginDesc -> Rule PTerm
  debugString fname = do
@@ -44,7 +44,7 @@ index a8063393..47bf0a0d 100644
        joinBy ", "
        [ "File \{show fname}"
        , "line \{show (startLine bnds)}"
-@@ -208,8 +208,8 @@ debugString fname = do
+@@ -206,8 +206,8 @@ debugString fname = do
          }"
        ]
      DebugFile => "\{show fname}"
@@ -55,7 +55,7 @@ index a8063393..47bf0a0d 100644
  
  totalityOpt : OriginDesc -> Rule TotalReq
  totalityOpt fname
-@@ -424,13 +424,13 @@ mutual
+@@ -422,13 +422,13 @@ mutual
                             continueWithDecorated fname indents ")"
                             pure (op, e))
             (op, e) <- pure b.val
@@ -71,7 +71,7 @@ index a8063393..47bf0a0d 100644
             let projs = map (\ proj => (boundToFC fname proj, proj.val)) b.val
             pure $ PPostfixAppPartial (boundToFC fname b) projs
        -- unit type/value
-@@ -450,7 +450,7 @@ mutual
+@@ -448,7 +448,7 @@ mutual
                              rest.val)) <|>
               -- right sections
               ((do op <- bounds (fcBounds iOperator <* decoratedSymbol fname ")")
@@ -80,7 +80,7 @@ index a8063393..47bf0a0d 100644
                    let fc = boundToFC fname (mergeBounds s op)
                    pure (PSectionR fc e.val op.val)
                 <|>
-@@ -563,7 +563,7 @@ mutual
+@@ -561,7 +561,7 @@ mutual
    tuple fname s indents e
       =   nonEmptyTuple fname s indents e
       <|> do end <- bounds (continueWithDecorated fname indents ")")
@@ -90,10 +90,10 @@ index a8063393..47bf0a0d 100644
  
    simpleExpr : OriginDesc -> IndentInfo -> Rule PTerm
 diff --git a/src/Libraries/Data/Version.idr b/src/Libraries/Data/Version.idr
-index 23b059ef..cad832aa 100644
+index 59ca49b..d576e9c 100644
 --- a/src/Libraries/Data/Version.idr
 +++ b/src/Libraries/Data/Version.idr
-@@ -74,7 +74,7 @@ versionTokenMap = toTokenMap $
+@@ -83,7 +83,7 @@ versionTokenMap = toTokenMap $
    , (some alphaNum, VersionText)
    ]
  
@@ -103,10 +103,10 @@ index 23b059ef..cad832aa 100644
    let
      (tokens, _, _, _) = lex versionTokenMap str
 diff --git a/src/Libraries/Text/Bounded.idr b/src/Libraries/Text/Bounded.idr
-index c9a631b7..05b1b72e 100644
+index 2637970..e3f0aa6 100644
 --- a/src/Libraries/Text/Bounded.idr
 +++ b/src/Libraries/Text/Bounded.idr
-@@ -45,59 +45,91 @@ Eq Bounds where
+@@ -43,59 +43,91 @@ Eq Bounds where
     && el == el'
     && ec == ec'
  
@@ -230,10 +230,10 @@ index c9a631b7..05b1b72e 100644
 -joinBounds b = mergeBounds b b.val
 +joinBounds b = mergeBounds b (val b)
 diff --git a/src/Libraries/Text/Lexer/Core.idr b/src/Libraries/Text/Lexer/Core.idr
-index 08a84f4e..83af5231 100644
+index 8437c46..3f0f50d 100644
 --- a/src/Libraries/Text/Lexer/Core.idr
 +++ b/src/Libraries/Text/Lexer/Core.idr
-@@ -161,8 +161,8 @@ getCols x c
+@@ -159,8 +159,8 @@ getCols x c
  
  tokenise : (a -> Bool) ->
             (line : Int) -> (col : Int) ->
@@ -244,7 +244,7 @@ index 08a84f4e..83af5231 100644
  tokenise pred line col acc tmap str
      = case getFirstToken tmap str of
             Just (tok, line', col', rest) =>
-@@ -174,20 +174,20 @@ tokenise pred line col acc tmap str
+@@ -172,20 +172,20 @@ tokenise pred line col acc tmap str
    where
  
      getFirstToken : TokenMap a -> List Char ->
@@ -268,7 +268,7 @@ index 08a84f4e..83af5231 100644
  lexTo pred tmap str
      = let (ts, (l, c, str')) = tokenise pred 0 0 [<] tmap (fastUnpack str) in
            (ts, (l, c, fastPack str'))
-@@ -197,5 +197,5 @@ lexTo pred tmap str
+@@ -195,5 +195,5 @@ lexTo pred tmap str
  ||| and the line, column, and remainder of the input at the first point in the
  ||| string where there are no recognised tokens.
  export %inline
@@ -276,10 +276,10 @@ index 08a84f4e..83af5231 100644
 +lex : TokenMap a -> String -> (List (Located a), (Int, Int, String))
  lex = lexTo (const False)
 diff --git a/src/Libraries/Text/Lexer/Tokenizer.idr b/src/Libraries/Text/Lexer/Tokenizer.idr
-index 85d747a3..87b4bd40 100644
+index 44d7ef8..afcb8cb 100644
 --- a/src/Libraries/Text/Lexer/Tokenizer.idr
 +++ b/src/Libraries/Text/Lexer/Tokenizer.idr
-@@ -71,9 +71,9 @@ Pretty Void StopReason where
+@@ -66,9 +66,9 @@ Pretty Void StopReason where
  
  tokenise : Lexer ->
             Tokenizer a ->
@@ -291,7 +291,7 @@ index 85d747a3..87b4bd40 100644
  tokenise reject tokenizer line col acc [] = (acc, EndInput, (line, col, []))
  tokenise reject tokenizer line col acc str
      = case scan reject [<] str of
-@@ -98,19 +98,19 @@ tokenise reject tokenizer line col acc str
+@@ -93,12 +93,12 @@ tokenise reject tokenizer line col acc str
            tokenStr = fastPack $ token <>> []
         in pure (tokenStr, line', col', rest)
  
@@ -305,17 +305,18 @@ index 85d747a3..87b4bd40 100644
 -              tok' = MkBounded (fn tok) False (MkBounds line col line' col')
 +              tok' = MkLocated (fn tok) (MkBounds line col line' col')
             in Right (acc :< tok', line', col', rest)
-     getFirstMatch (Compose begin mapBegin middleFn endFn mapEnd) acc str
+     getFirstMatch (Compose begin mapBegin tagger middleFn endFn mapEnd) acc str
          = let Just (beginTok', line', col' , rest) = getNext begin line col str
-                 | Nothing => Left NoRuleApply
-               middle = middleFn beginTok'
-               end = endFn beginTok'
+@@ -106,7 +106,7 @@ tokenise reject tokenizer line col acc str
+               tag = tagger beginTok'
+               middle = middleFn tag
+               end = endFn tag
 -              beginTok'' = MkBounded (mapBegin beginTok') False (MkBounds line col line' col')
 +              beginTok'' = MkLocated (mapBegin beginTok') (MkBounds line col line' col')
                (acc', (reason, line'', col'', rest'')) =
                      assert_total $ tokenise end middle line' col' (acc :< beginTok'') rest
             in case reason of
-@@ -118,7 +118,7 @@ tokenise reject tokenizer line col acc str
+@@ -114,7 +114,7 @@ tokenise reject tokenizer line col acc str
                     _ => let Just (endTok', lineEnd, colEnd, restEnd) =
                                  getNext end line'' col'' rest''
                                | _ => Left $ ComposeNotClosing (line, col) (line', col')
@@ -324,7 +325,7 @@ index 85d747a3..87b4bd40 100644
                           in Right (acc' :< endTok'', lineEnd, colEnd, restEnd)
      getFirstMatch (Alt t1 t2) acc str
          = case getFirstMatch t1 acc str of
-@@ -130,7 +130,7 @@ export
+@@ -126,7 +126,7 @@ export
  lexTo : Lexer ->
          Tokenizer a ->
          String ->
@@ -333,7 +334,7 @@ index 85d747a3..87b4bd40 100644
  lexTo reject tokenizer str
      = let (ts, reason, (l, c, str')) =
                tokenise reject tokenizer 0 0 [<] (fastUnpack str) in
-@@ -140,5 +140,5 @@ lexTo reject tokenizer str
+@@ -136,5 +136,5 @@ lexTo reject tokenizer str
  ||| and the line, column, and remainder of the input at the first point in the string
  ||| where there are no recognised tokens.
  export
@@ -341,10 +342,10 @@ index 85d747a3..87b4bd40 100644
 +lex : Tokenizer a -> String -> (List (Located a), (StopReason, Int, Int, String))
  lex tokenizer str = lexTo (pred $ const False) tokenizer str
 diff --git a/src/Libraries/Text/Literate.idr b/src/Libraries/Text/Literate.idr
-index 6acfe365..aa0b81de 100644
+index 9e35da2..5c1e2cd 100644
 --- a/src/Libraries/Text/Literate.idr
 +++ b/src/Libraries/Text/Literate.idr
-@@ -67,15 +67,15 @@ rawTokens delims ls =
+@@ -64,15 +64,15 @@ rawTokens delims ls =
         ++ [(notCodeLine, Any)]
  
  ||| Merge the tokens into a single source file.
@@ -360,10 +361,10 @@ index 6acfe365..aa0b81de 100644
  
 -reduce (MkBounded (CodeLine m src) _ _ :: rest) acc =
 +reduce (MkLocated (CodeLine m src) _ :: rest) acc =
-     if m == trimSpace src
+     if m == trim src
      then reduce rest ("\n"::acc)
      else reduce rest ((substr (length m + 1) -- remove space to right of marker.
-@@ -83,11 +83,11 @@ reduce (MkBounded (CodeLine m src) _ _ :: rest) acc =
+@@ -80,11 +80,11 @@ reduce (MkBounded (CodeLine m src) _ _ :: rest) acc =
                                src
                        )::acc)
  
@@ -380,7 +381,7 @@ index 6acfe365..aa0b81de 100644
          -- the "\n" counts for the open deliminator; the closing deliminator should always be followed by a (Any "\n"), so we don't add a newline
          reduce rest ((unlines srcs) :: "\n" :: acc)
  
-@@ -169,7 +169,7 @@ record LiterateStyle where
+@@ -166,7 +166,7 @@ record LiterateStyle where
  export
  lexLiterate : (specification : LiterateStyle)
             -> (litStr        : String)
@@ -389,7 +390,7 @@ index 6acfe365..aa0b81de 100644
  lexLiterate (MkLitStyle delims markers exts) str =
        case lex (rawTokens delims markers) str of
          (toks, (_,_,"")) => Right toks
-@@ -207,7 +207,7 @@ isLiterateLine : (specification : LiterateStyle)
+@@ -204,7 +204,7 @@ isLiterateLine : (specification : LiterateStyle)
                -> (str : String)
                -> Pair (Maybe String) String
  isLiterateLine (MkLitStyle delims markers _) str with (lex (rawTokens delims markers) str)
@@ -399,82 +400,10 @@ index 6acfe365..aa0b81de 100644
  
  ||| Given a 'literate specification' embed the given code using the
 diff --git a/src/Libraries/Text/Parser/Core.idr b/src/Libraries/Text/Parser/Core.idr
-index b28a549b..65f941cf 100644
+index b9f1e0e..e599eca 100644
 --- a/src/Libraries/Text/Parser/Core.idr
 +++ b/src/Libraries/Text/Parser/Core.idr
-@@ -39,7 +39,7 @@ record Input state tok where
-   constructor MkInput
-   made : Made state
-   committed : Bool
--  tokens : List (WithBounds tok)
-+  tokens : List (Located tok)
- 
- data ParseResult : Type -> Type -> Type -> Type where
-      Failure : (committed : Bool) -> (fatal : Bool) ->
-@@ -72,7 +72,7 @@ mergeWith : WithBounds ty -> ParseResult state tok sy -> ParseResult state tok s
- mergeWith x (Res inp val) = Res inp (mergeBounds x val)
- mergeWith x v = v
- 
--firstBounds : List (WithBounds tok) -> Maybe Bounds
-+firstBounds : List (Located tok) -> Maybe Bounds
- firstBounds [] = Nothing
- firstBounds (x :: _) = Just x.bounds
- 
-@@ -113,7 +113,7 @@ thenLater act next
- warning : (location : Maybe Bounds) -> String -> Grammar state tok False ()
- warning mb msg
-     = MkGrammar $ \inp =>
--        Res ({ made.warnings $= ((mb, msg) ::) } inp) (irrelevantBounds ())
-+        Res ({ made.warnings $= ((mb, msg) ::) } inp) (Irrelevant ())
- 
- ||| Sequence two grammars. If either consumes some input, the sequence is
- ||| guaranteed to consume some input. If the first one consumes input, the
-@@ -163,16 +163,12 @@ join p = bindGrammar p id
- export
- {0 c : _} ->
- Functor (Grammar state tok c) where
--  -- The value keeps the bounds of what was parsed; an irrelevant one stays
--  -- irrelevant, with no bounds (as `mergeBounds v (irrelevantBounds (f v.val))`).
-+  -- The value keeps the bounds of what was parsed, or its having none.
-   map f p
-       = MkGrammar $ \inp =>
-           case runGrammar p inp of
-                Failure com fatal errs => Failure com fatal errs
--               Res inp v =>
--                 Res inp (if v.isIrrelevant
--                             then irrelevantBounds (f v.val)
--                             else map f v)
-+               Res inp v => Res inp (map f v)
- 
- ||| Give two alternative grammars. If both consume, the combination is
- ||| guaranteed to consume.
-@@ -246,12 +242,12 @@ export
- act : state -> Grammar state tok False ()
- act action
-     = MkGrammar $ \inp =>
--        Res ({ made.st := inp.made.append inp.made.st action } inp) (irrelevantBounds ())
-+        Res ({ made.st := inp.made.append inp.made.st action } inp) (Irrelevant ())
- 
- ||| Always succeed with the given value.
- export
- pure : (val : ty) -> Grammar state tok False ty
--pure val = MkGrammar $ \inp => Res inp (irrelevantBounds val)
-+pure val = MkGrammar $ \inp => Res inp (Irrelevant val)
- 
- ||| Check whether the next token satisfies a predicate
- export
-@@ -261,8 +257,9 @@ nextIs err f
-         case inp.tokens of
-              [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
-              (x :: xs) =>
-+               -- a token only looked at locates nothing parsed
-                if f x.val
--                  then Res inp (removeIrrelevance x)
-+                  then Res inp (Irrelevant x.val)
-                   else Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
- 
- ||| Look at the next token in the input
-@@ -270,6 +267,19 @@ export
+@@ -216,6 +216,15 @@ export %inline
  peek : Grammar state tok False tok
  peek = nextIs "Unrecognised token" (const True)
  
@@ -483,67 +412,36 @@ index b28a549b..65f941cf 100644
 +export
 +terminalAt : String -> (tok -> Maybe a) -> Grammar state tok True (a, Bounds)
 +terminalAt err f
-+    = MkGrammar $ \inp =>
-+        case inp.tokens of
-+             [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
-+             (x :: xs) =>
-+               case f x.val of
-+                    Nothing => Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
-+                    Just a => Res ({ tokens := xs } inp) (Relevant (a, x.bounds) x.bounds)
++    = do loc <- Position
++         a <- Terminal err f
++         Empty (a, loc)
 +
  ||| Succeeds if running the predicate on the next token returns Just x,
  ||| returning x. Otherwise fails.
- export
-@@ -281,7 +291,7 @@ terminal err f
-              (x :: xs) =>
-                case f x.val of
-                     Nothing => Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
--                    Just a => Res ({ tokens := xs } inp) (const a <$> x)
-+                    Just a => Res ({ tokens := xs } inp) (Relevant a x.bounds)
- 
- -- Fail with a message, at the given location or else at the next token.
- failWith : (location : Maybe Bounds) -> (fatal : Bool) -> String ->
-@@ -298,8 +308,8 @@ fail = failWith Nothing False
+ export %inline
+@@ -229,8 +238,8 @@ fail = Fail Nothing False
  
  ||| Always fail with a message and a location
  export %inline
 -failLoc : Bounds -> String -> Grammar state tok c ty
--failLoc b = failWith (Just b) False
+-failLoc b = Fail (Just b) False
 +failLoc : Maybe Bounds -> String -> Grammar state tok c ty
-+failLoc b = failWith b False
++failLoc b = Fail b False
  
  ||| Fail with no possibility for recovery (i.e.
  ||| no alternative parsing can succeed).
-@@ -310,8 +320,8 @@ fatalError = failWith Nothing True
+@@ -241,8 +250,8 @@ fatalError = Fail Nothing True
  ||| Fail with no possibility for recovery (i.e.
  ||| no alternative parsing can succeed).
  export %inline
 -fatalLoc : Bounds -> String -> Grammar state tok c ty
--fatalLoc b = failWith (Just b) True
+-fatalLoc b = Fail (Just b) True
 +fatalLoc : Maybe Bounds -> String -> Grammar state tok c ty
-+fatalLoc b = failWith b True
++fatalLoc b = Fail b True
  
  ||| Catch a fatal error
- export
-@@ -328,7 +338,7 @@ export
- eof : Grammar state tok False ()
- eof = MkGrammar $ \inp =>
-         case inp.tokens of
--             [] => Res inp (irrelevantBounds ())
-+             [] => Res inp (Irrelevant ())
-              (x :: xs) =>
-                Failure inp.committed False
-                        (Error "Expected end of input" (Just x.bounds) ::: Nil)
-@@ -337,7 +347,7 @@ eof = MkGrammar $ \inp =>
- ||| fails to parse, no more branches will be tried
- export
- commit : Grammar state tok False ()
--commit = MkGrammar $ \inp => Res (withCommitted True inp) (irrelevantBounds ())
-+commit = MkGrammar $ \inp => Res (withCommitted True inp) (Irrelevant ())
- 
- ||| If the parser fails, treat it as a fatal error
- export
-@@ -351,7 +361,7 @@ mustWork g
+ export %inline
+@@ -268,7 +277,7 @@ mustWork = MustWork
  ||| If the parser fails, treat it as a fatal error and explain why
  export
  mustWorkBecause :
@@ -552,22 +450,73 @@ index b28a549b..65f941cf 100644
    Grammar state tok c ty -> Grammar state tok c ty
  mustWorkBecause {c} loc msg p
    = rewrite sym (andSameNeutral c) in
-@@ -378,7 +388,7 @@ position
-     = MkGrammar $ \inp =>
-         case inp.tokens of
-              [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
--             (x :: xs) => Res inp (irrelevantBounds x.bounds)
-+             (x :: xs) => Res inp (Irrelevant x.bounds)
- 
- ||| Warn the user
- export
-@@ -386,25 +396,25 @@ withWarning : {c : _} -> String -> Grammar state tok c ty -> Grammar state tok c
+@@ -295,7 +304,7 @@ withWarning : {c : _} -> String -> Grammar state tok c ty -> Grammar state tok c
  withWarning warn p
      = rewrite sym $ orFalseNeutral c in
-       seq (bounds p) $ \ res =>
--      do warning (Just res.bounds) warn
-+      do warning res.bounds warn
+       SeqEmpty (bounds p) $ \ res =>
+-      do Warning (Just res.bounds) warn
++      do Warning res.bounds warn
           pure res.val
+ 
+ public export
+@@ -312,7 +321,7 @@ data ParseResult : Type -> Type -> Type -> Type where
+            (ws : ParsingWarnings) ->
+            (committed : Bool) ->
+            (val : WithBounds ty) ->
+-           (more : List (WithBounds tok)) ->
++           (more : List (Located tok)) ->
+            ParseResult state tok ty
+ 
+ mergeWith : WithBounds ty -> ParseResult state tok sy -> ParseResult state tok sy
+@@ -323,17 +332,17 @@ doParse : Semigroup state =>
+           state -> (ws : ParsingWarnings) ->
+           (commit : Bool) ->
+           (act : Grammar state tok c ty) ->
+-          (xs : List (WithBounds tok)) ->
++          (xs : List (Located tok)) ->
+           ParseResult state tok ty
+-doParse s ws com (Empty val) xs = Res s ws com (irrelevantBounds val) xs
+-doParse s ws com (Warning mb msg) xs = Res s ((mb, msg) :: ws) com (irrelevantBounds ()) xs
++doParse s ws com (Empty val) xs = Res s ws com (Irrelevant val) xs
++doParse s ws com (Warning mb msg) xs = Res s ((mb, msg) :: ws) com (Irrelevant ()) xs
+ doParse s ws com (Fail location fatal str) xs
+     = Failure com fatal (Error str (location <|> (bounds <$> head' xs)) ::: Nil)
+ doParse s ws com (Try g) xs = case doParse s ws com g xs of
+   -- recover from fatal match but still propagate the 'commit'
+   Failure com _ errs => Failure com False errs
+   res => res
+-doParse s ws com Commit xs = Res s ws True (irrelevantBounds ()) xs
++doParse s ws com Commit xs = Res s ws True (Irrelevant ()) xs
+ doParse s ws com (MustWork g) xs =
+   case doParse s ws com g xs of
+        Failure com' _ errs => Failure com' True errs
+@@ -342,13 +351,14 @@ doParse s ws com (Terminal err f) [] = Failure com False (Error "End of input" N
+ doParse s ws com (Terminal err f) (x :: xs) =
+   case f x.val of
+        Nothing => Failure com False (Error err (Just x.bounds) ::: Nil)
+-       Just a => Res s ws com (const a <$> x) xs
+-doParse s ws com EOF [] = Res s ws com (irrelevantBounds ()) []
++       Just a => Res s ws com (Relevant a x.bounds) xs
++doParse s ws com EOF [] = Res s ws com (Irrelevant ()) []
+ doParse s ws com EOF (x :: xs) = Failure com False (Error "Expected end of input" (Just x.bounds) ::: Nil)
+ doParse s ws com (NextIs err f) [] = Failure com False (Error "End of input" Nothing ::: Nil)
+ doParse s ws com (NextIs err f) (x :: xs)
++      -- a token only looked at locates nothing parsed
+       = if f x.val
+-           then Res s ws com (removeIrrelevance x) (x :: xs)
++           then Res s ws com (Irrelevant x.val) (x :: xs)
+            else Failure com False (Error err (Just x.bounds) ::: Nil)
+ doParse s ws com (Alt {c1} {c2} x y) xs
+     = case doParse s ws False x xs of
+@@ -392,26 +402,26 @@ doParse s ws com (Bounds act) xs
+            Res s ws com v xs => Res s ws com (const v <$> v) xs
+ doParse s ws com Position [] = Failure com False (Error "End of input" Nothing ::: Nil)
+ doParse s ws com Position (x :: xs)
+-    = Res s ws com (irrelevantBounds x.bounds) (x :: xs)
++    = Res s ws com (Irrelevant x.bounds) (x :: xs)
+ doParse s ws com (Act action) xs
+-  = Res (s <+> action) ws com (irrelevantBounds ()) xs
++  = Res (s <+> action) ws com (Irrelevant ()) xs
  
  ||| Parse a list of tokens according to the given grammar. If successful,
  ||| returns a pair of the parse result and the unparsed tokens (the remaining
@@ -579,9 +528,9 @@ index b28a549b..65f941cf 100644
 -               (ParsingWarnings, ty, List (WithBounds tok))
 +               (ParsingWarnings, ty, List (Located tok))
  parse act xs
-     = case runGrammar act (MkInput (MkMade (<+>) neutral []) False xs) of
+     = case doParse neutral [] False act xs of
             Failure _ _ errs => Left errs
-            Res inp v => Right (inp.made.warnings, v.val, inp.tokens)
+            Res _ ws _ v rest => Right (ws, v.val, rest)
  
  export
 -parseWith : Monoid state => {c : Bool} -> (act : Grammar state tok c ty) -> (xs : List (WithBounds tok)) ->
@@ -590,13 +539,13 @@ index b28a549b..65f941cf 100644
 -               (state, ParsingWarnings, ty, List (WithBounds tok))
 +               (state, ParsingWarnings, ty, List (Located tok))
  parseWith act xs
-     = case runGrammar act (MkInput (MkMade (<+>) neutral []) False xs) of
+     = case doParse neutral [] False act xs of
             Failure _ _ errs => Left errs
 diff --git a/src/Parser/Lexer/Package.idr b/src/Parser/Lexer/Package.idr
-index 9d25a5b3..ee2b9ed2 100644
+index 79fdfe1..8419ad5 100644
 --- a/src/Parser/Lexer/Package.idr
 +++ b/src/Parser/Lexer/Package.idr
-@@ -118,12 +118,12 @@ rawTokens =
+@@ -116,12 +116,12 @@ rawTokens =
    ]
  
  export
@@ -612,10 +561,10 @@ index 9d25a5b3..ee2b9ed2 100644
    where
      useful : Token -> Bool
 diff --git a/src/Parser/Lexer/Source.idr b/src/Parser/Lexer/Source.idr
-index 7398eac4..062a6dab 100644
+index ac59ecc..f2808f0 100644
 --- a/src/Parser/Lexer/Source.idr
 +++ b/src/Parser/Lexer/Source.idr
-@@ -369,14 +369,14 @@ export
+@@ -367,14 +367,14 @@ export
  lexTo : Lexer ->
          String ->
          Either (StopReason, Int, Int, String)
@@ -633,7 +582,7 @@ index 7398eac4..062a6dab 100644
               Right $ map (++ end)
                     $ partitionEithers
                     $ map spotComment
-@@ -384,13 +384,13 @@ lexTo reject str
+@@ -382,13 +382,13 @@ lexTo reject str
             (_, fail) => Left fail
      where
  
@@ -650,7 +599,7 @@ index 7398eac4..062a6dab 100644
        spotComment t = case t.val of
          Comment => Left (() <$ t)
          _ => Right t
-@@ -398,6 +398,6 @@ lexTo reject str
+@@ -396,6 +396,6 @@ lexTo reject str
  export
  lex : String ->
        Either (StopReason, Int, Int, String)
@@ -660,10 +609,10 @@ index 7398eac4..062a6dab 100644
 +             , List (Located Token)) -- tokens
  lex = lexTo (pred $ const False)
 diff --git a/src/Parser/Rule/Source.idr b/src/Parser/Rule/Source.idr
-index 36fb9828..d40a3dc3 100644
+index 1708deb..a568203 100644
 --- a/src/Parser/Rule/Source.idr
 +++ b/src/Parser/Rule/Source.idr
-@@ -66,16 +66,17 @@ EmptyRule : Type -> Type
+@@ -64,16 +64,17 @@ EmptyRule : Type -> Type
  EmptyRule = BRule False
  
  export
@@ -685,14 +634,19 @@ index 36fb9828..d40a3dc3 100644
    MagicDebugInfo di => Just di
    _ => Nothing
  
-@@ -105,10 +106,13 @@ documentation' = terminal "Expected documentation comment" $
+@@ -103,12 +104,17 @@ documentation' = terminal "Expected documentation comment" $
                              DocComment d => Just d
                              _ => Nothing
  
 +-- A value parsed from no input decorates nothing.
  export
--decorationFromBounded : {0 a : Type} -> OriginDesc -> Decoration -> WithBounds a -> ASemanticDecoration
-+decorationFromBounded : {0 a : Type} -> OriginDesc -> Decoration -> WithBounds a -> List ASemanticDecoration
+-decorationFromBounded : {a : Type} -> OriginDesc -> Decoration -> WithBounds a -> ASemanticDecoration
++decorationFromBounded : {a : Type} -> OriginDesc -> Decoration -> WithBounds a -> List ASemanticDecoration
+ decorationFromBounded {a = Name} fname decor bnds
+-   = ((fname, start bnds, end bnds), decor, Just bnds.val)
++   = case bnds.bounds of
++          Just bs => [((fname, startBounds bs, endBounds bs), decor, Just bnds.val)]
++          Nothing => []
  decorationFromBounded fname decor bnds
 -   = ((fname, start bnds, end bnds), decor, Nothing)
 +   = case bnds.bounds of
@@ -701,7 +655,7 @@ index 36fb9828..d40a3dc3 100644
  
  documentation : OriginDesc -> Rule String
  documentation fname
-@@ -431,7 +435,7 @@ fixityNS = do
+@@ -431,7 +437,7 @@ fixityNS = do
    symbol ")"
    pure (HideFixity fx (NS (uncurry mkNestedNamespace nsVal) $ UN $ Basic n))
    where
@@ -712,12 +666,10 @@ index 36fb9828..d40a3dc3 100644
      checkFixity "infix"  _ = pure Infix
 diff --git a/src/TTImp/Parser.idr b/src/TTImp/Parser.idr
 deleted file mode 100644
-index 03929950..00000000
+index 1606f2d..0000000
 --- a/src/TTImp/Parser.idr
 +++ /dev/null
-@@ -1,777 +0,0 @@
---- SPDX-License-Identifier: BSD-3-Clause
---- Copyright (c) 2020 Edwin Brady
+@@ -1,806 +0,0 @@
 -module TTImp.Parser
 -
 -import Core.Context
@@ -732,7 +684,7 @@ index 03929950..00000000
 -  start <- location
 -  parsed <- parser
 -  end <- location
--  pure (MkWithData (MkFC fname start end) parsed)
+-  pure (Mk [MkFC fname start end] parsed)
 -
 -topDecl : OriginDesc -> IndentInfo -> Rule ImpDecl
 --- All the clauses get parsed as one-clause definitions. Collect any
@@ -958,7 +910,7 @@ index 03929950..00000000
 -  getMult Nothing = pure top
 -  getMult _ = fatalError "Invalid multiplicity (must be 0 or 1)"
 -
--  pibindAll : FC -> PiInfo RawImp -> List (WithRigMName RawImp) ->
+-  pibindAll : FC -> PiInfo RawImp -> List (WithRig $ WithMName RawImp) ->
 -              RawImp -> RawImp
 -  pibindAll fc p [] scope = scope
 -  pibindAll fc p (ty :: rest) scope
@@ -980,7 +932,7 @@ index 03929950..00000000
 -
 -
 -  pibindListName : OriginDesc -> FilePos -> IndentInfo ->
--                   Rule (List (WithRigName RawImp))
+-                   Rule (List (WithRig $ WithName RawImp))
 -  pibindListName fname start indents
 -       = do rigc <- multiplicity
 -            ns <- sepBy1 (symbol ",") (withFC userName)
@@ -988,20 +940,20 @@ index 03929950..00000000
 -            ty <- expr fname indents
 -            atEnd indents
 -            rig <- getMult rigc
--            pure (map (\n => MkWithRigName rig n ty) (forget ns))
+-            pure (map (\n => Mk [rig, n] ty) (forget ns))
 -     <|> forget <$> sepBy1 (symbol ",")
 -                           (do rigc <- multiplicity
 -                               n <- withFC name
 -                               symbol ":"
 -                               ty <- expr fname indents
 -                               rig <- getMult rigc
--                               pure (MkWithRigName rig n ty))
+-                               pure (Mk [rig, n] ty))
 -
 -  pibindList : OriginDesc -> FilePos -> IndentInfo ->
--               Rule (List (WithRigMName RawImp))
+-               Rule (List (WithRig $ WithMName RawImp))
 -  pibindList fname start indents
 -    = do params <- pibindListName fname start indents
--         pure $ map (\ty => MkWithRigMName ty.rig (Just ty.name) ty.val) params
+-         pure $ map (\ty => Mk [ty.rig, Just ty.name] ty.val) params
 -
 -
 -  autoImplicitPi : OriginDesc -> IndentInfo -> Rule RawImp
@@ -1026,7 +978,7 @@ index 03929950..00000000
 -           ns <- sepBy1 (symbol ",") (withFC userName)
 -           nend <- location
 -           let nfc = MkFC fname nstart nend
--           let binders = map (\n => MkWithRigMName (erased {a=RigCount}) (Just n)
+-           let binders = map (\n => Mk [erased {a=RigCount}, Just n]
 -                                       (Implicit nfc False))
 -                             (forget ns)
 -           symbol "."
@@ -1225,7 +1177,7 @@ index 03929950..00000000
 -         end <- location
 -         atEnd indents
 -         let fc = MkFC fname start end
--         pure (MkWithFCTyName fc n ty)
+-         pure (Mk [fc, n] ty)
 -
 -mutual
 -  parseRHS : (withArgs : Nat) ->
@@ -1345,7 +1297,7 @@ index 03929950..00000000
 -         symbol "}"
 -         pure (map (map (MkPiBindData info)) params)
 -  <|> do n <- withFC name
--         pure [ MkWithRigName top n (MkPiBindData Explicit (Implicit n.fc False)) ]
+-         pure [ Mk [top, n] (MkPiBindData Explicit (Implicit n.fc False)) ]
 -
 -fieldDecl : OriginDesc -> IndentInfo -> Rule (List IField)
 -fieldDecl fname indents
@@ -1366,7 +1318,7 @@ index 03929950..00000000
 -             symbol ":"
 -             ty <- expr fname indents
 -             end <- location
--             pure (map (\n => MkWithFCRigName (MkFC fname start end) linear n
+-             pure (map (\n => Mk [MkFC fname start end, linear, n]
 -                                       (MkPiBindData p ty)) (forget ns))
 -
 -recordDecl : OriginDesc -> IndentInfo -> Rule ImpDecl
@@ -1387,7 +1339,7 @@ index 03929950..00000000
 -         end <- location
 -         pure (let fc = MkFC fname start end
 -                in IRecord fc Nothing vis mbtot
--                           (MkWithData fc $ MkImpRecord (MkWithName n params) (MkWithNameOpts dc opts (concat flds))))
+-                           (Mk [fc] $ MkImpRecord (Mk [n] params) (Mk [dc, opts] (concat flds))))
 -
 -namespaceDecl : Rule Namespace
 -namespaceDecl
@@ -1493,14 +1445,43 @@ index 03929950..00000000
 -prog fname
 -    = do ds <- nonEmptyBlock (topDecl fname)
 -         pure (collectDefs $ forget ds)
+-
+--- TTImp REPL commands
+-export
+-command : Rule ImpREPL
+-command
+-    = do symbol ":"; exactIdent "t"
+-         tm <- expr (Virtual Interactive) init
+-         pure (Check tm)
+-  <|> do symbol ":"; exactIdent "s"
+-         n <- name
+-         pure (ProofSearch n)
+-  <|> do symbol ":"; exactIdent "es"
+-         n <- name
+-         pure (ExprSearch n)
+-  <|> do symbol ":"; exactIdent "gd"
+-         l <- intLit
+-         n <- name
+-         pure (GenerateDef (fromInteger l) n)
+-  <|> do symbol ":"; exactIdent "missing"
+-         n <- name
+-         pure (Missing n)
+-  <|> do symbol ":"; keyword "total"
+-         n <- name
+-         pure (CheckTotal n)
+-  <|> do symbol ":"; exactIdent "di"
+-         n <- name
+-         pure (DebugInfo n)
+-  <|> do symbol ":"; exactIdent "q"
+-         pure Quit
+-  <|> do tm <- expr (Virtual Interactive) init
+-         pure (Eval tm)
 diff --git a/src/TTImp/PartialEval.idr b/src/TTImp/PartialEval.idr
 deleted file mode 100644
-index cac264e7..00000000
+index 1b1940f..0000000
 --- a/src/TTImp/PartialEval.idr
 +++ /dev/null
-@@ -1,731 +0,0 @@
---- SPDX-License-Identifier: BSD-3-Clause
---- Copyright (c) 2020 Edwin Brady
+@@ -1,718 +0,0 @@
 -module TTImp.PartialEval
 -
 -import Core.Env
@@ -1743,14 +1724,13 @@ index cac264e7..00000000
 -mkSpecDef : {auto c : Ref Ctxt Defs} ->
 -            {auto m : Ref MD Metadata} ->
 -            {auto u : Ref UST UState} ->
--            {auto dl : Ref DLY DelayedElabs} ->
 -            {auto s : Ref Syn SyntaxInfo} ->
 -            {auto o : Ref ROpts REPLOpts} ->
 -            FC -> GlobalDef ->
 -            Name -> List (Nat, ArgMode) -> Name -> List (FC, Term vars) ->
 -            Core (Term vars)
 -mkSpecDef {vars} fc gdef pename sargs fn stk
--    = handleUnifyElab {unResolve = True}
+-    = handleUnify {unResolve = True}
 -       (do defs <- get Ctxt
 -           setAllPublic True
 -           let staticargs
@@ -1891,7 +1871,6 @@ index cac264e7..00000000
 -             {auto c : Ref Ctxt Defs} ->
 -             {auto m : Ref MD Metadata} ->
 -             {auto u : Ref UST UState} ->
--             {auto dl : Ref DLY DelayedElabs} ->
 -             {auto s : Ref Syn SyntaxInfo} ->
 -             {auto o : Ref ROpts REPLOpts} ->
 -             FC -> Env Term vars -> GlobalDef ->
@@ -1940,7 +1919,6 @@ index cac264e7..00000000
 -            {auto c : Ref Ctxt Defs} ->
 -            {auto m : Ref MD Metadata} ->
 -            {auto u : Ref UST UState} ->
--            {auto dl : Ref DLY DelayedElabs} ->
 -            {auto s : Ref Syn SyntaxInfo} ->
 -            {auto o : Ref ROpts REPLOpts} ->
 -            Env Term vars -> List (FC, Term vars) -> Term vars ->
@@ -1991,7 +1969,6 @@ index cac264e7..00000000
 -              {auto c : Ref Ctxt Defs} ->
 -              {auto m : Ref MD Metadata} ->
 -              {auto u : Ref UST UState} ->
--              {auto dl : Ref DLY DelayedElabs} ->
 -              {auto s : Ref Syn SyntaxInfo} ->
 -              {auto o : Ref ROpts REPLOpts} ->
 -              Ref QVar Int -> Defs -> Bounds bound ->
@@ -2005,7 +1982,6 @@ index cac264e7..00000000
 -  quoteArgsWithFC : {auto c : Ref Ctxt Defs} ->
 -                    {auto m : Ref MD Metadata} ->
 -                    {auto u : Ref UST UState} ->
--                    {auto dl : Ref DLY DelayedElabs} ->
 -                    {auto s : Ref Syn SyntaxInfo} ->
 -                    {auto o : Ref ROpts REPLOpts} ->
 -                    {bound, free : _} ->
@@ -2019,7 +1995,6 @@ index cac264e7..00000000
 -              {auto c : Ref Ctxt Defs} ->
 -              {auto m : Ref MD Metadata} ->
 -              {auto u : Ref UST UState} ->
--              {auto dl : Ref DLY DelayedElabs} ->
 -              {auto s : Ref Syn SyntaxInfo} ->
 -              {auto o : Ref ROpts REPLOpts} ->
 -              Ref QVar Int -> Defs ->
@@ -2060,7 +2035,6 @@ index cac264e7..00000000
 -            {auto c : Ref Ctxt Defs} ->
 -            {auto m : Ref MD Metadata} ->
 -            {auto u : Ref UST UState} ->
--            {auto dl : Ref DLY DelayedElabs} ->
 -            {auto s : Ref Syn SyntaxInfo} ->
 -            {auto o : Ref ROpts REPLOpts} ->
 -            Ref QVar Int -> Defs -> Bounds bound ->
@@ -2077,7 +2051,6 @@ index cac264e7..00000000
 -                {auto c : Ref Ctxt Defs} ->
 -                {auto m : Ref MD Metadata} ->
 -                {auto u : Ref UST UState} ->
--                {auto dl : Ref DLY DelayedElabs} ->
 -                {auto s : Ref Syn SyntaxInfo} ->
 -                {auto o : Ref ROpts REPLOpts} ->
 -                Ref QVar Int -> Defs -> Bounds bound ->
@@ -2111,7 +2084,6 @@ index cac264e7..00000000
 -               {auto c : Ref Ctxt Defs} ->
 -               {auto m : Ref MD Metadata} ->
 -               {auto u : Ref UST UState} ->
--               {auto dl : Ref DLY DelayedElabs} ->
 -               {auto s : Ref Syn SyntaxInfo} ->
 -               {auto o : Ref ROpts REPLOpts} ->
 -               Ref QVar Int ->
@@ -2196,7 +2168,6 @@ index cac264e7..00000000
 -          {auto c : Ref Ctxt Defs} ->
 -          {auto m : Ref MD Metadata} ->
 -          {auto u : Ref UST UState} ->
--          {auto dl : Ref DLY DelayedElabs} ->
 -          {auto s : Ref Syn SyntaxInfo} ->
 -          {auto o : Ref ROpts REPLOpts} ->
 -          Env Term vars -> NF vars -> Core (Term vars)
@@ -2210,7 +2181,6 @@ index cac264e7..00000000
 -                  {auto c : Ref Ctxt Defs} ->
 -                  {auto m : Ref MD Metadata} ->
 -                  {auto u : Ref UST UState} ->
--                  {auto dl : Ref DLY DelayedElabs} ->
 -                  {auto s : Ref Syn SyntaxInfo} ->
 -                  {auto o : Ref ROpts REPLOpts} ->
 -                  Env Term vars ->

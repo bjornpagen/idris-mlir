@@ -1,0 +1,57 @@
+Subject: [PATCH] [mlir][dataflow] An override of visitRegionSuccessors may call the base
+
+`AbstractSparseForwardDataFlowAnalysis::visitRegionSuccessors` is
+virtual and documented as overridable, but declared `private:`, so an
+override cannot call the base for the successors it does not handle
+itself: an analysis that refines the region successors of one op must
+re-implement the propagation for every other. Declare it `protected:`,
+beside the other overridable hooks (`visitCallOperation`,
+`visitCallableOperation`). No behaviour changes.
+---
+diff --git a/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h b/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h
+index df50d8d..a7d7923 100644
+--- a/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h
++++ b/mlir/include/mlir/Analysis/DataFlow/SparseAnalysis.h
+@@ -248,6 +248,21 @@ protected:
+                      ArrayRef<const AbstractSparseLattice *> operandLattices,
+                      ArrayRef<AbstractSparseLattice *> resultLattices);
+ 
++  /// Visit a program point `point` with predecessors within a region branch
++  /// operation `branch`, which can either be the entry block of one of the
++  /// regions or the parent operation itself, and set either the argument or
++  /// parent result lattices.
++  /// This method can be overridden to control precisely how the region
++  /// successors of `branch` are visited. For example in order to precisely
++  /// control the order in which predecessor operand lattices are propagated
++  /// from. An override is responsible for visiting all the known predecessors
++  /// and propagating therefrom; it may call this one for the successors it
++  /// does not handle itself.
++  virtual void
++  visitRegionSuccessors(ProgramPoint *point, RegionBranchOpInterface branch,
++                        RegionSuccessor successor,
++                        ArrayRef<AbstractSparseLattice *> lattices);
++
+   /// Visits a callable operation. Computes the argument lattices from call
+   /// sites if all call sites are known; otherwise, conservatively marks them
+   /// as having reached their pessimistic fixpoints.
+@@ -272,20 +287,6 @@ private:
+   /// region terminators or callable callsites. Otherwise, the values are
+   /// determined from block predecessors.
+   void visitBlock(Block *block);
+-
+-  /// Visit a program point `point` with predecessors within a region branch
+-  /// operation `branch`, which can either be the entry block of one of the
+-  /// regions or the parent operation itself, and set either the argument or
+-  /// parent result lattices.
+-  /// This method can be overridden to control precisely how the region
+-  /// successors of `branch` are visited. For example in order to precisely
+-  /// control the order in which predecessor operand lattices are propagated
+-  /// from. An override is responsible for visiting all the known predecessors
+-  /// and propagating therefrom.
+-  virtual void
+-  visitRegionSuccessors(ProgramPoint *point, RegionBranchOpInterface branch,
+-                        RegionSuccessor successor,
+-                        ArrayRef<AbstractSparseLattice *> lattices);
+ };
+ 
+ //===----------------------------------------------------------------------===//

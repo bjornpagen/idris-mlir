@@ -630,6 +630,55 @@ which the top-level CMake configure gate reads.
 - upstream: upstream/09-int-range-narrowing-exactness (the `remsi` half
   not yet filed); plan in its README: an issue and a pull request
 
+## int-range-ne-either-view
+
+- symptom: on llvm main at 416f328b (and on main on 2026-10-22),
+  `isStaticallyTrue` decides `ne` only when both the signed and the
+  unsigned ranges of the two sides are apart (`sne && une`), though a
+  value lies within both its bounds, so either view proves it; through
+  `evaluatePred`, neither `ne` nor `eq` folds where one view alone
+  decides it, and a signed Int's zero test stays at run time when its
+  range excludes 0 in one view only
+- sites: none in our code; the patch. Every reader of `evaluatePred`:
+  the numeric domain's interval instance (`Intervals::equal`,
+  foreign/idr/lib/IR/Ops/Numeric.cpp), the bigs' comparisons
+  (foreign/idr/lib/IR/OpsBigs.cpp), and upstream's `arith.cmpi` range
+  under `IntegerRangeAnalysis`
+- workaround: `upstream/102-int-range-ne-either-view/llvm.patch`:
+  `sne || une`; checked by tests/upstream-int-range-ne-either-view, on
+  the report's `ne-either-view.mlir`
+- retire: drop the patch when the pin's `isStaticallyTrue` accepts either
+  view
+- upstream: upstream/102-int-range-ne-either-view; one pull request
+- status (2026-10-22): carried; not filed
+
+## fp-call-folding
+
+- symptom: on llvm main at 416f328b, LLVM's constant folder computes a
+  call of `llvm.exp`, `llvm.log`, `llvm.sin`, `llvm.cos`, `llvm.atan` or
+  `llvm.pow` on constants with the compiling machine's libm
+  (`ConstantFoldScalarCall1`, `ConstantFoldFP`, ConstantFolding.cpp), so
+  a folded value could differ in its last digit from what the target
+  computes (C198, C210). `llvm.tan`, `llvm.asin` and `llvm.acos` are not
+  folded at the pin (*read*)
+- sites: the driver's LLVM options (foreign/idr/lib/Driver/Main.cpp), the
+  LLVM pipeline it runs (foreign/idr/lib/Target/Optimize.cpp); the
+  lowering emits the nine math ops as upstream's MathToLLVM does, as
+  those intrinsics, with neither `nobuiltin` nor `strictfp`
+- workaround: upstream's own switch, no patch:
+  `-disable-fp-call-folding` (ConstantFolding.cpp:68-71), which
+  `canConstantFoldCallTo` and `ConstantFoldIntrinsic` read, set by the
+  driver after the command line so that no argument unsets it. It is not
+  narrowed: no call whose type holds a float folds in LLVM, `llvm.sqrt`,
+  `llvm.floor` and `llvm.ceil`, which C198 keeps folding, among them;
+  MLIR folds those before the lowering, and LLVM's lost folds are only
+  optimizations (unmeasured). GlobalOpt's evaluator of static
+  constructors folds calls without asking the switch (Evaluator.cpp:499);
+  nothing of ours has one (the runtime's are refused,
+  foreign/idr/lib/Driver/ReadRuntime.cpp), so nothing reaches it
+- retire: never while LLVM folds with the compiling machine's libm
+- upstream: none; the switch is upstream's
+
 ## forward-dataflow-callee-lookup
 
 - symptom: at llvmorg-23.1.2 and on main at 7208ba24, the sparse and dense
@@ -1152,6 +1201,25 @@ which the top-level CMake configure gate reads.
   request after the RFC for MLIR's recursions on input size and after
   80's, 88's and 92's
 - status (2026-10-21): carried; not filed
+
+## sparse-region-successors-protected
+
+- symptom: on llvm main at 416f328b (and on main on 2026-10-22),
+  `AbstractSparseForwardDataFlowAnalysis::visitRegionSuccessors` is a
+  documented override point declared `private:`, so an override cannot
+  hand the successors it leaves back to upstream's propagation
+- sites: foreign/idr/lib/Analysis/Ranges.cpp (`SummarizedRanges`, whose
+  override refines a literal match's default region and hands every
+  other successor to the base, C211)
+- workaround: `upstream/103-sparse-region-successors-protected/llvm.patch`:
+  the declaration moves into `protected:` beside `visitCallOperation`
+  and `visitCallableOperation`; applies alone and after 89's. Checked by
+  tests/upstream-sparse-region-successors-protected, on the report's
+  `override.cpp`
+- retire: when the pin declares it protected
+- upstream: upstream/103-sparse-region-successors-protected; one pull
+  request
+- status (2026-10-22): carried; not filed
 
 ## operation-equivalence-iterative
 

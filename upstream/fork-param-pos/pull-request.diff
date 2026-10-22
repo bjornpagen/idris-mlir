@@ -1,8 +1,8 @@
 diff --git a/src/Core/Context/Data.idr b/src/Core/Context/Data.idr
-index 16b8754f..2e944890 100644
+index 12f0219..b19d91d 100644
 --- a/src/Core/Context/Data.idr
 +++ b/src/Core/Context/Data.idr
-@@ -5,6 +5,7 @@
+@@ -3,6 +3,7 @@
  module Core.Context.Data
  
  import Core.Context.Log
@@ -10,7 +10,7 @@ index 16b8754f..2e944890 100644
  import Core.Normalise
  
  import Libraries.Data.NatSet
-@@ -80,11 +81,17 @@ getConPs acc tyn (Bind _ x (Let _ _ v ty) sc)
+@@ -78,11 +79,17 @@ getConPs acc tyn (Bind _ x (Let _ _ v ty) sc)
      = getConPs acc tyn (subst v sc)
  getConPs acc tyn tm = toPos <$> getPs acc tyn tm
  

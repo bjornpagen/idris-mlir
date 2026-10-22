@@ -1,8 +1,8 @@
 diff --git a/src/Algebra/ZeroOneOmega.idr b/src/Algebra/ZeroOneOmega.idr
-index 372b9804..5286e8c2 100644
+index d50a5b4..8f2d3d4 100644
 --- a/src/Algebra/ZeroOneOmega.idr
 +++ b/src/Algebra/ZeroOneOmega.idr
-@@ -7,7 +7,9 @@ import Algebra.Preorder
+@@ -5,7 +5,9 @@ import Algebra.Preorder
  
  %default total
  
@@ -14,10 +14,10 @@ index 372b9804..5286e8c2 100644
  
  %name ZeroOneOmega rig
 diff --git a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
-index 589be8f0..05cb3ce1 100644
+index b74e392..9e1a696 100644
 --- a/src/TTImp/ProcessDef.idr
 +++ b/src/TTImp/ProcessDef.idr
-@@ -986,12 +843,14 @@ processDef opts nest env fc n_in cs_in
+@@ -930,12 +930,14 @@ processDef opts nest env fc n_in cs_in
           let pi = case lookup n (userHoles defs) of
                          Nothing => defaultPI
                          Just e => { externalDecl := e } defaultPI

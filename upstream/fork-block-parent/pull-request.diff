@@ -1,8 +1,8 @@
 diff --git a/src/Core/Context.idr b/src/Core/Context.idr
-index a250dfe0..f0f15647 100644
+index d71acaa..bc2e03d 100644
 --- a/src/Core/Context.idr
 +++ b/src/Core/Context.idr
-@@ -1557,9 +1574,9 @@ prettyName (Nested (i, _) n)
+@@ -1568,9 +1568,9 @@ prettyName (Nested (i, _) n)
           pure (!(prettyName i') ++ "," ++
                 !(prettyName n))
  prettyName (CaseBlock outer idx)
@@ -15,10 +15,10 @@ index a250dfe0..f0f15647 100644
  prettyName n = pure (show n)
  
 diff --git a/src/Core/Name.idr b/src/Core/Name.idr
-index 48818917..a22e71e9 100644
+index 5272bd6..ea6442b 100644
 --- a/src/Core/Name.idr
 +++ b/src/Core/Name.idr
-@@ -42,8 +42,13 @@ data Name : Type where
+@@ -41,8 +41,13 @@ data Name : Type where
       PV : Name -> Int -> Name -- pattern variable name; int is the resolved function id
       DN : String -> Name -> Name -- a name and how to display it
       Nested : (Int, Int) -> Name -> Name -- nested function name
@@ -34,7 +34,7 @@ index 48818917..a22e71e9 100644
       Resolved : Int -> Name -- resolved, index into context
  
  %name Name n
-@@ -180,8 +185,8 @@ nameRoot (MN n _) = n
+@@ -179,8 +184,8 @@ nameRoot (MN n _) = n
  nameRoot (PV n _) = nameRoot n
  nameRoot (DN _ n) = nameRoot n
  nameRoot (Nested _ inner) = nameRoot inner
@@ -45,7 +45,7 @@ index 48818917..a22e71e9 100644
  nameRoot (Resolved i) = "$" ++ show i
  
  export
-@@ -192,8 +197,8 @@ displayName (MN n _) = (Nothing, n)
+@@ -191,8 +196,8 @@ displayName (MN n _) = (Nothing, n)
  displayName (PV n _) = displayName n
  displayName (DN n _) = (Nothing, n)
  displayName (Nested _ n) = displayName n
@@ -56,7 +56,7 @@ index 48818917..a22e71e9 100644
  displayName (Resolved i) = (Nothing, "$resolved" ++ show i)
  
  export
-@@ -250,8 +255,8 @@ Show Name where
+@@ -249,8 +254,8 @@ Show Name where
    show (DN str n) = str
    show (Nested (outer, idx) inner)
        = show outer ++ ":" ++ show idx ++ ":" ++ show inner
@@ -67,7 +67,7 @@ index 48818917..a22e71e9 100644
    show (Resolved x) = "$resolved" ++ show x
  
  export
-@@ -269,8 +274,8 @@ covering
+@@ -268,8 +273,8 @@ covering
    showPrec d (PV n i) = showCon d "PV" $ showArg n ++ showArg i
    showPrec d (DN str n) = showCon d "DN" $ showArg str ++ showArg n
    showPrec d (Nested ij n) = showCon d "Nested" $ showArg ij ++ showArg n
@@ -78,7 +78,7 @@ index 48818917..a22e71e9 100644
    showPrec d (Resolved i) = showCon d "Resolved" $ showArg i
  
  export
-@@ -305,8 +310,8 @@ mutual
+@@ -304,8 +309,8 @@ mutual
      pretty (DN str _) = pretty str
      pretty (Nested (outer, idx) inner)
        = byShow outer <+> colon <+> byShow idx <+> colon <+> pretty inner
@@ -90,10 +90,10 @@ index 48818917..a22e71e9 100644
  
  export
 diff --git a/src/Core/Reflect.idr b/src/Core/Reflect.idr
-index 4d40b7a8..0e7a8e2b 100644
+index c415b95..023dc15 100644
 --- a/src/Core/Reflect.idr
 +++ b/src/Core/Reflect.idr
-@@ -438,14 +438,13 @@ Reify Name where
+@@ -436,14 +436,13 @@ Reify Name where
                   => do ix' <- reify defs !(evalClosure defs ix)
                         n' <- reify defs !(evalClosure defs n)
                         pure (Nested ix' n')
@@ -115,7 +115,7 @@ index 4d40b7a8..0e7a8e2b 100644
               (NS _ (UN _), _)
                   => cantReify val "Name, reifying it is unimplemented or intentionally internal"
               _ => cantReify val "Name, the name was not found in context"
-@@ -472,13 +471,15 @@ Reflect Name where
+@@ -470,13 +469,15 @@ Reflect Name where
        = do ix' <- reflect fc defs lhs env ix
             n'  <- reflect fc defs lhs env n
             appCon fc defs (reflectiontt "Nested") [ix',n']
@@ -136,26 +136,26 @@ index 4d40b7a8..0e7a8e2b 100644
    reflect fc defs lhs env (Resolved i)
        = case !(full (gamma defs) (Resolved i)) of
 diff --git a/src/Core/UnifyState.idr b/src/Core/UnifyState.idr
-index 8562279e..f35900bc 100644
+index 1c7c5f0..5eb3e03 100644
 --- a/src/Core/UnifyState.idr
 +++ b/src/Core/UnifyState.idr
-@@ -100,6 +100,7 @@ record UState where
+@@ -98,6 +98,7 @@ record UState where
                        -- successfully to check an LHS is polymorphic enough
    dotConstraints : List (Name, DotReason, Constraint) -- dot pattern constraints
    nextName : Int
 +  blockOrdinals : NameMap Nat -- per definition, the blocks named in it
    nextConstraint : Int
-   logging : Bool
- 
-@@ -115,6 +116,7 @@ initUState = MkUState
+   delayedElab : List (DelayReason, Int, NameMap (), Core ClosedTerm)
+                 -- Elaborators which we need to try again later, because
+@@ -119,6 +120,7 @@ initUState = MkUState
    , polyConstraints = []
    , dotConstraints = []
    , nextName = 0
 +  , blockOrdinals = empty
    , nextConstraint = 0
+   , delayedElab = []
    , logging = False
-   }
-@@ -189,24 +191,31 @@ genVarName str
+@@ -166,24 +168,31 @@ genVarName str
           put UST ({ nextName $= (+1) } ust)
           pure (MN str (nextName ust))
  
@@ -199,10 +199,10 @@ index 8562279e..f35900bc 100644
  addHoleName : {auto u : Ref UST UState} ->
                FC -> Name -> Int -> Core ()
 diff --git a/src/TTImp/Elab/Case.idr b/src/TTImp/Elab/Case.idr
-index 642ffebd..e1d34605 100644
+index f4e6873..392b006 100644
 --- a/src/TTImp/Elab/Case.idr
 +++ b/src/TTImp/Elab/Case.idr
-@@ -169,7 +169,7 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
+@@ -165,7 +165,7 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
           log "elab.case" 5 $ "Doing a case under unbound implicits " ++ show fullImps
  
           scrn <- genVarName "scr"
@@ -212,10 +212,10 @@ index 642ffebd..e1d34605 100644
           -- Update environment so that linear bindings which were used
           -- (esp. in the scrutinee!) are set to 0 in the case type
 diff --git a/src/TTImp/Elab/Utils.idr b/src/TTImp/Elab/Utils.idr
-index 82b3a06b..fa905b36 100644
+index 7e6c4c6..ccdf877 100644
 --- a/src/TTImp/Elab/Utils.idr
 +++ b/src/TTImp/Elab/Utils.idr
-@@ -121,174 +121,3 @@ bindReq {vs = n :: _} fc (b :: env) (Keep p) ns tm
+@@ -119,174 +119,3 @@ bindReq {vs = n :: _} fc (b :: env) (Keep p) ns tm
              (Bind fc _ (Pi (binderLoc b) (multiplicity b) Explicit (binderType b')) tm)
  bindReq fc (b :: env) (Drop p) ns tm
      = bindReq fc env p ns tm

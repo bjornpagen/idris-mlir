@@ -1,8 +1,8 @@
 diff --git a/src/Core/AutoSearch.idr b/src/Core/AutoSearch.idr
-index 973ef812..ae5e510f 100644
+index 6668e69..e860416 100644
 --- a/src/Core/AutoSearch.idr
 +++ b/src/Core/AutoSearch.idr
-@@ -23,6 +23,7 @@ tryUnifyUnambig' : {auto c : Ref Ctxt Defs} ->
+@@ -21,6 +21,7 @@ tryUnifyUnambig' : {auto c : Ref Ctxt Defs} ->
                     Core a -> (Error -> Core a) -> Core a
  tryUnifyUnambig' left right = handleUnify left $ \case
    e@(AmbiguousSearch {}) => throw e
@@ -10,7 +10,7 @@ index 973ef812..ae5e510f 100644
    e                      => if preferLeftError
                                then tryUnify (right e) (throw e)
                                else right e
-@@ -96,13 +274,11 @@ searchIfHole : {vars : _} ->
+@@ -94,13 +95,11 @@ searchIfHole : {vars : _} ->
                 {auto u : Ref UST UState} ->
                 FC ->
                 (defaults : Bool) -> List (Term vars) ->
@@ -26,7 +26,7 @@ index 973ef812..ae5e510f 100644
      = do let hole = holeID arg
           let rig = argRig arg
  
-@@ -115,7 +291,7 @@ searchIfHole fc defaults trying ispair (S depth) def top env arg
+@@ -113,7 +112,7 @@ searchIfHole fc defaults trying ispair (S depth) def top env arg
                      then normaliseScope defs Env.empty (type gdef)
                      else pure top
  
@@ -35,7 +35,7 @@ index 973ef812..ae5e510f 100644
                                !(normaliseScope defs env (argType arg))
           logTermNF "auto" 5 "Solved arg" env argdef
           logTermNF "auto" 5 "Arg meta" env (metaApp arg)
-@@ -149,6 +325,7 @@ successful (elab :: elabs)
+@@ -147,6 +146,7 @@ successful (elab :: elabs)
                     pure (Right (res, defs', ust') :: elabs'))
                 (\err => do put UST ust
                             put Ctxt defs
@@ -43,7 +43,7 @@ index 973ef812..ae5e510f 100644
                             elabs' <- successful elabs
                             pure (Left err :: elabs'))
  
-@@ -163,9 +340,11 @@ anyOne fc env top [elab]
+@@ -161,9 +161,11 @@ anyOne fc env top [elab]
           \case
             err@(CantSolveGoal {})   => throw err
             err@(AmbiguousSearch {}) => throw err
@@ -56,7 +56,7 @@ index 973ef812..ae5e510f 100644
  
  exactlyOne : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-@@ -177,6 +356,7 @@ exactlyOne fc env top target [elab]
+@@ -175,6 +177,7 @@ exactlyOne fc env top target [elab]
      = catch elab $
           \case
             err@(CantSolveGoal {}) => throw err
@@ -64,7 +64,7 @@ index 973ef812..ae5e510f 100644
             _ => throw $ CantSolveGoal fc (gamma !(get Ctxt)) Env.empty top Nothing
  exactlyOne {vars} fc env top target all
      = do elabs <- successful all
-@@ -262,11 +442,11 @@ searchLocalWith : {vars : _} ->
+@@ -260,11 +263,11 @@ searchLocalWith : {vars : _} ->
                    {auto u : Ref UST UState} ->
                    FC -> RigCount ->
                    (defaults : Bool) -> List (Term vars) ->
@@ -78,7 +78,7 @@ index 973ef812..ae5e510f 100644
      = do defs <- get Ctxt
           nty <- nf defs env ty
           findPos defs pure nty target
-@@ -306,7 +486,8 @@ searchLocalWith {vars} fc rigc defaults trying depth def top env (prf, ty) targe
+@@ -304,7 +307,8 @@ searchLocalWith {vars} fc rigc defaults trying depth def top env (prf, ty) targe
                     let env' = clearEnv prf env
                     -- Work right to left, because later arguments may solve
                     -- earlier ones by unification
@@ -88,7 +88,7 @@ index 973ef812..ae5e510f 100644
                              (impLast args)
                     pure candidate
                  else do logNF "auto" 10 "Can't use " env ty
-@@ -353,12 +534,12 @@ searchLocalVars : {vars : _} ->
+@@ -351,12 +355,12 @@ searchLocalVars : {vars : _} ->
                    {auto u : Ref UST UState} ->
                    FC -> RigCount ->
                    (defaults : Bool) -> List (Term vars) ->
@@ -104,7 +104,7 @@ index 973ef812..ae5e510f 100644
                                                top env t target)
                           (getUsableEnv fc rig zero env)
           exactlyOne fc env top target elabs
-@@ -376,12 +557,12 @@ searchName : {vars : _} ->
+@@ -374,12 +378,12 @@ searchName : {vars : _} ->
               {auto u : Ref UST UState} ->
               FC -> RigCount ->
               (defaults : Bool) -> List (Term vars) ->
@@ -119,7 +119,7 @@ index 973ef812..ae5e510f 100644
      = do defs <- get Ctxt
           when (not (visibleInAny (!getNS :: !getNestedNS)
                                   (fullname ndef) (collapseDefault $ visibility ndef))) $
-@@ -404,7 +585,8 @@ searchName fc rigc defaults trying depth def top env target (n, ndef)
+@@ -402,7 +406,8 @@ searchName fc rigc defaults trying depth def top env target (n, ndef)
           logTermNF "auto" 10 "Candidate " env candidate
           -- Work right to left, because later arguments may solve earlier
           -- dependencies by unification
@@ -129,7 +129,7 @@ index 973ef812..ae5e510f 100644
                    (impLast args)
           pure candidate
  
-@@ -413,17 +595,17 @@ searchNames : {vars : _} ->
+@@ -411,17 +416,17 @@ searchNames : {vars : _} ->
                {auto u : Ref UST UState} ->
                FC -> RigCount ->
                (defaults : Bool) -> List (Term vars) ->
@@ -151,7 +151,7 @@ index 973ef812..ae5e510f 100644
           if ambig
              then anyOne fc env topty elabs
              else exactlyOne fc env topty target elabs
-@@ -505,56 +687,77 @@ checkConcreteDets fc defaults env top (NTCon tfc tyn a args)
+@@ -503,56 +508,77 @@ checkConcreteDets fc defaults env top (NTCon tfc tyn a args)
  checkConcreteDets fc defaults env top _
      = pure ()
  
@@ -247,7 +247,7 @@ index 973ef812..ae5e510f 100644
          = tryUnifyUnambig'
               (do logC "auto" 5
                          (do gn <- traverse getFullName g
-@@ -562,21 +765,21 @@ searchType {vars} fc rigc defaults trying depth def checkdets top env target
+@@ -560,21 +586,21 @@ searchType {vars} fc rigc defaults trying depth def checkdets top env target
                                             " names " ++ show gn))
                   logNF "auto" 5 "For target" env nty
                   tryNoDefaultsFirst $ \d =>
@@ -275,19 +275,10 @@ index 973ef812..ae5e510f 100644
                            top
           logTermNF "auto" 3 "Result" env tm
 diff --git a/src/Core/Context.idr b/src/Core/Context.idr
-index a250dfe0..f0f15647 100644
+index d71acaa..726799c 100644
 --- a/src/Core/Context.idr
 +++ b/src/Core/Context.idr
-@@ -543,7 +569,7 @@ resolveDef gam (PMDef r args ct rt pats)
- -- holds them: resolving leaves them as they are.
- resolveDef gam (TCon a ps ds u ms mcs det)
-     = pure $ TCon a ps ds u (map (indexedName gam) ms) mcs det
--resolveDef gam (BySearch c d def) = pure $ BySearch c d (indexedName gam def)
-+resolveDef gam (BySearch c def) = pure $ BySearch c (indexedName gam def)
- resolveDef gam (Guess tm b cs)
-     = pure $ Guess !(onNamesTerm (resolvedNames gam) tm) b cs
- resolveDef gam t = pure t
-@@ -622,8 +650,8 @@ HasNames Def where
+@@ -590,8 +590,8 @@ HasNames Def where
    full gam (TCon a ps ds u ms mcs det)
        = pure $ TCon a ps ds u !(traverse (full gam) ms)
                                  !(traverseOpt (traverse (full gam)) mcs) det
@@ -298,7 +289,18 @@ index a250dfe0..f0f15647 100644
    full gam (Guess tm b cs)
        = pure $ Guess !(full gam tm) b cs
    full gam t = pure t
-@@ -784,6 +811,8 @@ HasNames Error where
+@@ -608,8 +608,8 @@ HasNames Def where
+   resolved gam (TCon a ps ds u ms mcs det)
+       = pure $ TCon a ps ds u !(traverse (resolved gam) ms)
+                                 !(traverseOpt (traverse (full gam)) mcs) det
+-  resolved gam (BySearch c d def)
+-      = pure $ BySearch c d !(resolved gam def)
++  resolved gam (BySearch c def)
++      = pure $ BySearch c !(resolved gam def)
+   resolved gam (Guess tm b cs)
+       = pure $ Guess !(resolved gam tm) b cs
+   resolved gam t = pure t
+@@ -780,6 +780,8 @@ HasNames Error where
      = CantSolveGoal fc gam <$> full gam rho <*> full gam s <*> traverseOpt (full gam) merr
    full gam (DeterminingArg fc n x rho s)
      = DeterminingArg fc <$> full gam n <*> pure x <*> full gam rho <*> full gam s
@@ -307,7 +309,7 @@ index a250dfe0..f0f15647 100644
    full gam (UnsolvedHoles xs) = UnsolvedHoles <$> traverse (traversePair (full gam)) xs
    full gam (CantInferArgType fc rho n n1 s)
      = CantInferArgType fc <$> full gam rho <*> full gam n <*> full gam n1 <*> full gam s
-@@ -817,10 +846,10 @@ HasNames Error where
+@@ -813,10 +815,10 @@ HasNames Error where
    full gam (CyclicImports xs) = pure (CyclicImports xs)
    full gam ForceNeeded = pure ForceNeeded
    full gam (InternalError x) = pure (InternalError x)
@@ -319,7 +321,7 @@ index a250dfe0..f0f15647 100644
    full gam (FailingDidNotFail fc) = pure (FailingDidNotFail fc)
    full gam (FailingWrongError fc x err) = FailingWrongError fc x <$> traverseList1 (full gam) err
    full gam (InType fc n err) = InType fc <$> full gam n <*> full gam err
-@@ -883,6 +911,8 @@ HasNames Error where
+@@ -879,6 +881,8 @@ HasNames Error where
      = CantSolveGoal fc gam <$> resolved gam rho <*> resolved gam s <*> traverseOpt (resolved gam) merr
    resolved gam (DeterminingArg fc n x rho s)
      = DeterminingArg fc <$> resolved gam n <*> pure x <*> resolved gam rho <*> resolved gam s
@@ -328,7 +330,7 @@ index a250dfe0..f0f15647 100644
    resolved gam (UnsolvedHoles xs) = UnsolvedHoles <$> traverse (traversePair (resolved gam)) xs
    resolved gam (CantInferArgType fc rho n n1 s)
      = CantInferArgType fc <$> resolved gam rho <*> resolved gam n <*> resolved gam n1 <*> resolved gam s
-@@ -916,10 +946,10 @@ HasNames Error where
+@@ -912,10 +916,10 @@ HasNames Error where
    resolved gam (CyclicImports xs) = pure (CyclicImports xs)
    resolved gam ForceNeeded = pure ForceNeeded
    resolved gam (InternalError x) = pure (InternalError x)
@@ -340,7 +342,7 @@ index a250dfe0..f0f15647 100644
    resolved gam (FailingDidNotFail fc) = pure (FailingDidNotFail fc)
    resolved gam (FailingWrongError fc x err) = FailingWrongError fc x <$> traverseList1 (resolved gam) err
    resolved gam (InType fc n err) = InType fc <$> resolved gam n <*> resolved gam err
-@@ -2242,26 +2259,11 @@ setDefaultTotalityOption : {auto c : Ref Ctxt Defs} ->
+@@ -2256,31 +2260,16 @@ setDefaultTotalityOption : {auto c : Ref Ctxt Defs} ->
                             TotalReq -> Core ()
  setDefaultTotalityOption tot = update Ctxt { options->elabDirectives->totality := tot }
  
@@ -349,6 +351,11 @@ index a250dfe0..f0f15647 100644
 -                Nat -> Core ()
 -setAmbigLimit max = update Ctxt { options->elabDirectives->ambigLimit := max }
 -
+ export
+ setTotalLimit : {auto c : Ref Ctxt Defs} ->
+                 Nat -> Core ()
+ setTotalLimit max = update Ctxt { options->elabDirectives->totalLimit := max }
+ 
 -export
 -setAutoImplicitLimit : {auto c : Ref Ctxt Defs} ->
 -                       Nat -> Core ()
@@ -367,7 +374,7 @@ index a250dfe0..f0f15647 100644
  export
  isLazyActive : {auto c : Ref Ctxt Defs} ->
                 Core Bool
-@@ -2288,27 +2290,6 @@ getDefaultTotalityOption
+@@ -2307,27 +2296,6 @@ getDefaultTotalityOption
      = do defs <- get Ctxt
           pure (totality (elabDirectives (options defs)))
  
@@ -396,10 +403,10 @@ index a250dfe0..f0f15647 100644
  setPair : {auto c : Ref Ctxt Defs} ->
            FC -> (pairType : Name) -> (fstn : Name) -> (sndn : Name) ->
 diff --git a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
-index e059e543..b6769914 100644
+index d6b803f..a511f4d 100644
 --- a/src/Core/Context/Context.idr
 +++ b/src/Core/Context/Context.idr
-@@ -115,7 +118,7 @@ data Def : Type where
+@@ -116,7 +116,7 @@ data Def : Type where
                                -- (mostly to help display)
             HoleFlags ->
             Def
@@ -408,7 +415,7 @@ index e059e543..b6769914 100644
      -- Constraints are integer references into the current map of
      -- constraints in the UnifyState (see Core.UnifyState)
      Guess : (guess : ClosedTerm) ->
-@@ -167,7 +169,7 @@ Show Def where
+@@ -168,7 +168,7 @@ Show Def where
                             " " ++ show cs ++">"
    show (Builtin {arity} _) = "<builtin with arith " ++ show arity ++ ">"
    show (Hole _ p) = "Hole" ++ if implbind p then " [impl]" else ""
@@ -418,10 +425,10 @@ index e059e543..b6769914 100644
    show (UniverseLevel i) = "Universe level #" ++ show i
    show ImpBind = "Bound name"
 diff --git a/src/Core/Core.idr b/src/Core/Core.idr
-index 50012640..9c60dec5 100644
+index f9ec03b..fc78e90 100644
 --- a/src/Core/Core.idr
 +++ b/src/Core/Core.idr
-@@ -88,6 +88,18 @@ data Warning : Type where
+@@ -89,6 +89,18 @@ data Warning : Type where
  %name Warning wrn
  
  -- All possible errors, carrying a location
@@ -440,7 +447,7 @@ index 50012640..9c60dec5 100644
  public export
  data Error : Type where
       Fatal : Error -> Error -- flag as unrecoverable (so don't postpone awaiting further info)
-@@ -144,6 +155,13 @@ data Error : Type where
+@@ -145,6 +157,13 @@ data Error : Type where
                       Maybe Error -> Error
       DeterminingArg : {vars : _} ->
                        FC -> Name -> Int -> Env Term vars -> Term vars -> Error
@@ -454,7 +461,7 @@ index 50012640..9c60dec5 100644
       UnsolvedHoles : List (FC, Name) -> Error
       CantInferArgType : {vars : _} ->
                          FC -> Env Term vars -> Name -> Name -> Term vars -> Error
-@@ -191,11 +209,13 @@ data Error : Type where
+@@ -190,11 +209,13 @@ data Error : Type where
       CyclicImports : List ModuleIdent -> Error
       ForceNeeded : Error
       InternalError : String -> Error
@@ -469,30 +476,30 @@ index 50012640..9c60dec5 100644
       FailingDidNotFail : FC -> Error
       FailingWrongError : FC -> String -> List1 Error -> Error
  
-@@ -346,6 +364,9 @@ mutual
-   showError (DeterminingArg fc n i env g)
-       = show fc ++ ":Can't solve goal " ++ show g ++
+@@ -330,6 +351,9 @@ Show Error where
+   show (DeterminingArg fc n i env g)
+       = show fc ++ ":Can't solve goal " ++ assert_total (show g) ++
                  " since argument " ++ show n ++ " can't be inferred"
-+  showError (SearchGrows fc gam _ earlier later hints)
++  show (SearchGrows fc gam _ earlier later hints)
 +      = show fc ++ ":Search grows from " ++ show earlier ++ " to " ++ show later ++
 +                " through " ++ show hints
-   showError (UnsolvedHoles hs) = "Unsolved holes " ++ show hs
-   showError (CantInferArgType fc env n h ty)
+   show (UnsolvedHoles hs) = "Unsolved holes " ++ show hs
+   show (CantInferArgType fc env n h ty)
        = show fc ++ ":Can't infer type for " ++ show n ++
-@@ -399,11 +420,11 @@ mutual
+@@ -383,11 +407,11 @@ Show Error where
        = "Module imports form a cycle: " ++ showSep " -> " (map show ns)
-   showError ForceNeeded = "Internal error when resolving implicit laziness"
-   showError (InternalError str) = "INTERNAL ERROR: " ++ str
-+  showError QuoteTooDeep = "Quote too deep"
-   showError (UserError str) = "Error: " ++ str
-   showError (NoForeignCC fc specs) = show fc ++
+   show ForceNeeded = "Internal error when resolving implicit laziness"
+   show (InternalError str) = "INTERNAL ERROR: " ++ str
++  show QuoteTooDeep = "Quote too deep"
+   show (UserError str) = "Error: " ++ str
+   show (NoForeignCC fc specs) = show fc ++
         ":The given specifier " ++ show specs ++ " was not accepted by any available backend."
-   showError (BadMultiline fc str) = "Invalid multiline string: " ++ str
--  showError (Timeout str) = "Timeout in " ++ str
+   show (BadMultiline fc str) = "Invalid multiline string: " ++ str
+-  show (Timeout str) = "Timeout in " ++ str
  
-   showError (FailingDidNotFail _) = "Failing block did not fail"
-   showError (FailingWrongError fc msg (err ::: errs))
-@@ -487,6 +507,7 @@ getErrorLoc (TryWithImplicits loc _ _) = Just loc
+   show (FailingDidNotFail _) = "Failing block did not fail"
+   show (FailingWrongError fc msg err)
+@@ -466,6 +490,7 @@ getErrorLoc (TryWithImplicits loc _ _) = Just loc
  getErrorLoc (BadUnboundImplicit loc _ _ _) = Just loc
  getErrorLoc (CantSolveGoal loc _ _ _ _) = Just loc
  getErrorLoc (DeterminingArg loc _ _ _ _) = Just loc
@@ -500,7 +507,7 @@ index 50012640..9c60dec5 100644
  getErrorLoc (UnsolvedHoles ((loc, _) :: _)) = Just loc
  getErrorLoc (UnsolvedHoles []) = Nothing
  getErrorLoc (CantInferArgType loc _ _ _ _) = Just loc
-@@ -519,10 +540,10 @@ getErrorLoc (ModuleNotFound loc _) = Just loc
+@@ -498,10 +523,10 @@ getErrorLoc (ModuleNotFound loc _) = Just loc
  getErrorLoc (CyclicImports _) = Nothing
  getErrorLoc ForceNeeded = Nothing
  getErrorLoc (InternalError _) = Nothing
@@ -512,7 +519,7 @@ index 50012640..9c60dec5 100644
  getErrorLoc (InType _ _ err) = getErrorLoc err
  getErrorLoc (InCon _ err) = getErrorLoc err
  getErrorLoc (FailingDidNotFail loc) = Just loc
-@@ -579,6 +599,7 @@ killErrorLoc (TryWithImplicits fc x xs) = TryWithImplicits emptyFC x xs
+@@ -558,6 +583,7 @@ killErrorLoc (TryWithImplicits fc x xs) = TryWithImplicits emptyFC x xs
  killErrorLoc (BadUnboundImplicit fc x y z) = BadUnboundImplicit emptyFC x y z
  killErrorLoc (CantSolveGoal fc x y z w) = CantSolveGoal emptyFC x y z w
  killErrorLoc (DeterminingArg fc x y z w) = DeterminingArg emptyFC x y z w
@@ -520,7 +527,7 @@ index 50012640..9c60dec5 100644
  killErrorLoc (UnsolvedHoles xs) = UnsolvedHoles xs
  killErrorLoc (CantInferArgType fc x y z w) = CantInferArgType emptyFC x y z w
  killErrorLoc (SolvedNamedHole fc x y z) = SolvedNamedHole emptyFC x y z
-@@ -610,10 +631,10 @@ killErrorLoc (ModuleNotFound fc x) = ModuleNotFound emptyFC x
+@@ -589,10 +615,10 @@ killErrorLoc (ModuleNotFound fc x) = ModuleNotFound emptyFC x
  killErrorLoc (CyclicImports xs) = CyclicImports xs
  killErrorLoc ForceNeeded = ForceNeeded
  killErrorLoc (InternalError x) = InternalError x
@@ -533,10 +540,10 @@ index 50012640..9c60dec5 100644
  killErrorLoc (FailingWrongError fc x errs) = FailingWrongError emptyFC x (map killErrorLoc errs)
  killErrorLoc (InType fc x err) = InType emptyFC x (killErrorLoc err)
 diff --git a/src/Core/Normalise.idr b/src/Core/Normalise.idr
-index 49a424c6..9cbd27d9 100644
+index e64610a..22d98f0 100644
 --- a/src/Core/Normalise.idr
 +++ b/src/Core/Normalise.idr
-@@ -73,14 +73,17 @@ normaliseLHS defs env (Bind fc n b sc)
+@@ -71,14 +71,17 @@ normaliseLHS defs env (Bind fc n b sc)
  normaliseLHS defs env tm
      = quote defs env !(nfOpts onLHS defs env tm)
  
@@ -556,7 +563,7 @@ index 49a424c6..9cbd27d9 100644
  
  -- The size limit here is the depth of stuck applications. If it gets past
  -- that size, return the original
-@@ -90,9 +93,9 @@ normaliseSizeLimit : {auto c : Ref Ctxt Defs} ->
+@@ -88,9 +91,9 @@ normaliseSizeLimit : {auto c : Ref Ctxt Defs} ->
                       Defs -> Nat ->
                       Env Term free -> Term free -> Core (Term free)
  normaliseSizeLimit defs limit env tm
@@ -570,10 +577,10 @@ index 49a424c6..9cbd27d9 100644
  export
  normaliseArgHoles : {auto c : Ref Ctxt Defs} ->
 diff --git a/src/Core/Normalise/Convert.idr b/src/Core/Normalise/Convert.idr
-index d5c773af..baafbe75 100644
+index 8f65a4a..08ab70e 100644
 --- a/src/Core/Normalise/Convert.idr
 +++ b/src/Core/Normalise/Convert.idr
-@@ -219,9 +219,9 @@ mutual
+@@ -217,9 +217,9 @@ mutual
                  Name -> Name ->
                  List (Closure vars) -> List (Closure vars) -> Core Bool
    chkSameDefs q i defs env n n' nargs nargs'
@@ -586,13 +593,13 @@ index d5c773af..baafbe75 100644
  
            -- If the two case blocks match in structure, get which variables
 diff --git a/src/Core/Normalise/Eval.idr b/src/Core/Normalise/Eval.idr
-index 782ed74c..b4512193 100644
+index 0ab608a..cee5006 100644
 --- a/src/Core/Normalise/Eval.idr
 +++ b/src/Core/Normalise/Eval.idr
-@@ -299,9 +299,6 @@ parameters (defs : Defs) (topopts : EvalOpts)
-              folded <- if evalTypes topopts && not (evalAll topopts) && (redok1 || redok2)
-                           then implementationDef res else pure False
-              let redok = (redok1 || redok2) && not folded
+@@ -305,9 +305,6 @@ parameters (defs : Defs) (topopts : EvalOpts)
+              -- want to shortcut that second check, if we're evaluating
+              -- everything, so don't let bind unless we need that log!
+              let redok = redok1 || redok2
 -             checkTimer -- If we're going to time out anywhere, it'll be
 -                        -- when evaluating something recursive, so this is a
 -                        -- good place to check
@@ -600,10 +607,10 @@ index 782ed74c..b4512193 100644
                                                        pure $ "Stuck function: \{show n'}"
               if redok
 diff --git a/src/Core/Normalise/Quote.idr b/src/Core/Normalise/Quote.idr
-index 83c40a01..3d769759 100644
+index 9a400cd..eb62816 100644
 --- a/src/Core/Normalise/Quote.idr
 +++ b/src/Core/Normalise/Quote.idr
-@@ -21,6 +21,15 @@ record QuoteOpts where
+@@ -19,6 +19,15 @@ record QuoteOpts where
                    -- local
    sizeLimit : Maybe Nat
  
@@ -619,7 +626,7 @@ index 83c40a01..3d769759 100644
  public export
  interface Quote tm where
      quote : {auto c : Ref Ctxt Defs} ->
-@@ -29,9 +38,10 @@ interface Quote tm where
+@@ -27,9 +36,10 @@ interface Quote tm where
      quoteLHS : {auto c : Ref Ctxt Defs} ->
                 {vars : Scope} ->
                 Defs -> Env Term vars -> tm vars -> Core (Term vars)
@@ -633,7 +640,7 @@ index 83c40a01..3d769759 100644
  
      quoteGen : {auto c : Ref Ctxt Defs} ->
                 {vars : _} ->
-@@ -46,9 +56,14 @@ interface Quote tm where
+@@ -44,9 +54,14 @@ interface Quote tm where
          = do q <- newRef QVar 0
               quoteGen q (MkQuoteOpts True True Nothing) defs env tm
  
@@ -650,7 +657,7 @@ index 83c40a01..3d769759 100644
  
  export
  genName : {auto q : Ref QVar Int} -> String -> Core Name
-@@ -182,7 +197,7 @@ mutual
+@@ -180,7 +195,7 @@ mutual
        = do f' <- quoteHead q opts defs fc bound env f
             opts' <- case sizeLimit opts of
                           Nothing => pure opts
@@ -660,23 +667,23 @@ index 83c40a01..3d769759 100644
             args' <- if patterns opts && not (topLevel opts) && isRef f
                         then do empty <- clearDefs defs
 diff --git a/src/Core/Options.idr b/src/Core/Options.idr
-index c167de5f..b2ff992b 100644
+index c11964d..9f49065 100644
 --- a/src/Core/Options.idr
 +++ b/src/Core/Options.idr
-@@ -102,8 +102,6 @@ record ElabDirectives where
+@@ -123,8 +123,6 @@ record ElabDirectives where
    lazyActive : Bool
    unboundImplicits : Bool
    totality : TotalReq
 -  ambigLimit : Nat
 -  autoImplicitLimit : Nat
    nfThreshold : Nat
+   totalLimit : Nat
    --
-   -- produce traditional (prefix) record projections,
 diff --git a/src/Core/TTC.idr b/src/Core/TTC.idr
-index adbcdaee..fb8202b7 100644
+index aba6aa4..9b0669d 100644
 --- a/src/Core/TTC.idr
 +++ b/src/Core/TTC.idr
-@@ -1189,8 +1250,8 @@ TTC Def where
+@@ -1013,8 +1013,8 @@ TTC Def where
             toBuf dets
    toBuf (Hole locs p)
        = do tag 6; toBuf locs; toBuf (implbind p)
@@ -687,7 +694,7 @@ index adbcdaee..fb8202b7 100644
    toBuf (Guess guess envb constraints)
        = do tag 8; toBuf guess; toBuf envb; toBuf constraints
    toBuf ImpBind = tag 9
-@@ -1221,9 +1283,9 @@ TTC Def where
+@@ -1045,9 +1045,9 @@ TTC Def where
               6 => do l <- fromBuf
                       p <- fromBuf
                       pure (Hole l (holeInit p))
@@ -700,10 +707,10 @@ index adbcdaee..fb8202b7 100644
                       pure (Guess g envb cs)
               9 => pure ImpBind
 diff --git a/src/Core/Unify.idr b/src/Core/Unify.idr
-index bb9f70b0..3ddaad54 100644
+index 2fa826e..2f50fa8 100644
 --- a/src/Core/Unify.idr
 +++ b/src/Core/Unify.idr
-@@ -163,7 +163,7 @@ search : {vars : _} ->
+@@ -161,7 +161,7 @@ search : {vars : _} ->
           {auto c : Ref Ctxt Defs} ->
           {auto u : Ref UST UState} ->
           FC -> RigCount ->
@@ -712,7 +719,7 @@ index bb9f70b0..3ddaad54 100644
           (defining : Name) -> (topTy : Term vars) -> Env Term vars ->
           Core (Term vars)
  
-@@ -473,6 +473,9 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
+@@ -471,6 +471,9 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
      -- A solution is deemed simple enough to inline if either:
      --   * It is smaller than some threshold and has no metavariables in it
      --   * It's just a metavariable itself
@@ -722,7 +729,7 @@ index bb9f70b0..3ddaad54 100644
      noMeta : Term vs -> Nat -> Bool
      noMeta (App _ f a) (S k) = noMeta f k && noMeta a k
      noMeta (Bind _ _ b sc) (S k) = noMeta (binderType b) k && noMeta sc k
-@@ -867,10 +870,10 @@ mutual
+@@ -865,10 +868,10 @@ mutual
                           | _ => postponeS swap loc mode "Delayed hole" env
                                            (NApp loc (NMeta mname mref margs) $ map (EmptyFC,) margs')
                                            tmnf
@@ -737,7 +744,7 @@ index bb9f70b0..3ddaad54 100644
                       Just tm <- occursCheck loc env mode mname tm
                           | _ => postponeS swap loc mode "Occurs check failed" env
                                            (NApp loc (NMeta mname mref margs) $ map (EmptyFC,) margs')
-@@ -1417,6 +1420,7 @@ forceMeta r envb tm = TForce (getLoc tm) r tm
+@@ -1415,6 +1418,7 @@ forceMeta r envb tm = TForce (getLoc tm) r tm
  -- Check whether it's worth trying a search again, based on what went wrong
  recoverable : Error -> Bool
  recoverable (UndefinedName {}) = False
@@ -745,7 +752,7 @@ index bb9f70b0..3ddaad54 100644
  recoverable (InType _ _ err) = recoverable err
  recoverable (InCon _ err) = recoverable err
  recoverable (InLHS _ _ err) = recoverable err
-@@ -1436,11 +1440,11 @@ retryGuess mode smode (hid, (loc, hname))
+@@ -1434,11 +1438,11 @@ retryGuess mode smode (hid, (loc, hname))
             Nothing => pure False
             Just def =>
               case definition def of
@@ -760,7 +767,7 @@ index bb9f70b0..3ddaad54 100644
                           logTermNF "unify.retry" 5 ("Solved " ++ show hname) Env.empty tm
                           ignore $ addDef (Resolved hid) gdef
                           removeGuess hid
-@@ -1452,6 +1456,17 @@ retryGuess mode smode (hid, (loc, hname))
+@@ -1450,6 +1454,17 @@ retryGuess mode smode (hid, (loc, hname))
                                      (type def)
                              setInvertible loc (Resolved i)
                              pure False -- progress not made yet!
@@ -779,10 +786,10 @@ index bb9f70b0..3ddaad54 100644
                           do logTermNF "unify.retry" 5
                                        ("Search failed at " ++ show rig ++ " for " ++ show hname)
 diff --git a/src/Core/UnifyState.idr b/src/Core/UnifyState.idr
-index 8562279e..f35900bc 100644
+index 1c7c5f0..b831e4d 100644
 --- a/src/Core/UnifyState.idr
 +++ b/src/Core/UnifyState.idr
-@@ -495,11 +504,11 @@ export
+@@ -472,11 +472,11 @@ export
  newSearch : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
@@ -797,7 +804,7 @@ index 8562279e..f35900bc 100644
           log "unify.search" 10 $ "Adding new search " ++ show fc ++ " " ++ show n
           logTermNF "unify.search" 10 "New search type" Env.empty hty
           idx <- addDef n hole
-@@ -710,7 +719,7 @@ dumpHole s n hole
+@@ -662,7 +662,7 @@ dumpHole s n hole
                          ++ show !(normaliseHoles defs Env.empty ty)
                          ++ if implbind p then " (ImplBind)" else ""
                          ++ if invertible gdef then " (Invertible)" else ""
@@ -807,10 +814,10 @@ index 8562279e..f35900bc 100644
                       "Search " ++ show hole ++ " : " ++
                       show !(toFullNames !(normaliseHoles defs Env.empty ty))
 diff --git a/src/Idris/Desugar.idr b/src/Idris/Desugar.idr
-index 6348b300..4cffa14a 100644
+index b3b9252..fb69965 100644
 --- a/src/Idris/Desugar.idr
 +++ b/src/Idris/Desugar.idr
-@@ -432,7 +459,7 @@ mutual
+@@ -429,7 +429,7 @@ mutual
        = desugarB side ps
            (PLam fc top Explicit (PRef fc (MN "arg" 0)) (PImplicit fc)
                (POp fc (MkFCVal op.fc $ NoBinder arg) op (PRef fc (MN "arg" 0))))
@@ -820,10 +827,10 @@ index 6348b300..4cffa14a 100644
        = case !fromIntegerName of
               Nothing =>
 diff --git a/src/Idris/Elab/Implementation.idr b/src/Idris/Elab/Implementation.idr
-index fc59a8c7..2ed44b7a 100644
+index e8f5b0e..309097b 100644
 --- a/src/Idris/Elab/Implementation.idr
 +++ b/src/Idris/Elab/Implementation.idr
-@@ -257,7 +257,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
+@@ -254,7 +254,7 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
                 defs <- get Ctxt
                 let fldTys = getFieldArgs !(normaliseHoles defs Env.empty conty)
                 log "elab.implementation" 5 $ "Field types " ++ show fldTys
@@ -833,10 +840,10 @@ index fc59a8c7..2ed44b7a 100644
                 let impFn = IDef vfc impName [PatClause vfc ilhs irhs]
                 log "elab.implementation" 5 $ "Implementation record: " ++ show impFn
 diff --git a/src/Idris/Error.idr b/src/Idris/Error.idr
-index 7d9e3ec6..c0127ce7 100644
+index 1783acd..59ffa8d 100644
 --- a/src/Idris/Error.idr
 +++ b/src/Idris/Error.idr
-@@ -87,6 +86,7 @@ Eq Error where
+@@ -85,6 +85,7 @@ Eq Error where
    BadUnboundImplicit fc1 rho1 n1 s1 == BadUnboundImplicit fc2 rho2 n2 s2 = fc1 == fc2 && n1 == n2
    CantSolveGoal fc1 gam1 rho1 s1 x1 == CantSolveGoal fc2 gam2 rho2 s2 x2 = fc1 == fc2
    DeterminingArg fc1 n1 x1 rho1 s1 == DeterminingArg fc2 n2 x2 rho2 s2 = fc1 == fc2 && n1 == n2 && x1 == x2
@@ -844,7 +851,7 @@ index 7d9e3ec6..c0127ce7 100644
    UnsolvedHoles xs1 == UnsolvedHoles xs2 = xs1 == xs2
    CantInferArgType fc1 rho1 n1 m1 s1 == CantInferArgType fc2 rho2 n2 m2 s2 = fc1 == fc2 && n1 == n2 && m1 == m2
    SolvedNamedHole fc1 rho1 n1 s1 == SolvedNamedHole fc2 rho2 n2 s2 = fc1 == fc2 && n1 == n2
-@@ -117,10 +117,10 @@ Eq Error where
+@@ -115,10 +116,10 @@ Eq Error where
    CyclicImports xs1 == CyclicImports xs2 = xs1 == xs2
    ForceNeeded == ForceNeeded = True
    InternalError x1 == InternalError x2 = x1 == x2
@@ -856,7 +863,7 @@ index 7d9e3ec6..c0127ce7 100644
    FailingDidNotFail fc1 == FailingDidNotFail fc2 = fc1 == fc2
    FailingWrongError fc1 x1 err1 == FailingWrongError fc2 x2 err2
      = fc1 == fc2 && x1 == x2 && assert_total (err1 == err2)
-@@ -534,6 +528,25 @@ perrorRaw (CantSolveGoal fc gam env g reason)
+@@ -532,6 +533,25 @@ perrorRaw (CantSolveGoal fc gam env g reason)
      dropEnv env (Bind _ n b@(Let {}) sc) = dropEnv (b :: env) sc
      dropEnv env tm = (_ ** (env, tm))
  
@@ -882,7 +889,7 @@ index 7d9e3ec6..c0127ce7 100644
  perrorRaw (DeterminingArg fc n i env g)
      = pure $ errorDesc (reflow "Can't find an implementation for" <++> code !(pshow env g) <+> line
          <+> reflow "since I can't infer a value for argument" <++> code (pretty0 n) <+> dot)
-@@ -744,6 +757,7 @@ perrorRaw (CyclicImports ns)
+@@ -742,6 +762,7 @@ perrorRaw (CyclicImports ns)
          <++> concatWith (surround " -> ") (pretty0 <$> ns)
  perrorRaw ForceNeeded = pure $ errorDesc (reflow "Internal error when resolving implicit laziness")
  perrorRaw (InternalError str) = pure $ errorDesc (reflow "INTERNAL ERROR" <+> colon) <++> pretty0 str
@@ -891,10 +898,10 @@ index 7d9e3ec6..c0127ce7 100644
  perrorRaw (NoForeignCC fc specs) = do
      let cgs = fst <$> availableCGs (options !(get Ctxt))
 diff --git a/src/Idris/Parser.idr b/src/Idris/Parser.idr
-index a8063393..47bf0a0d 100644
+index a1fff59..487c506 100644
 --- a/src/Idris/Parser.idr
 +++ b/src/Idris/Parser.idr
-@@ -144,7 +144,7 @@ atom fname
+@@ -142,7 +142,7 @@ atom fname
    <|> do x <- bounds $ decorate fname Typ  $ pragma "World"
           pure (PPrimVal (boundToFC fname x) $ PrT WorldType)
    <|> do x <- bounds $ decoratedPragma fname "search"
@@ -904,10 +911,10 @@ index a8063393..47bf0a0d 100644
  whereBlock : OriginDesc -> Int -> Rule (List PDecl)
  whereBlock fname col
 diff --git a/src/Idris/Resugar.idr b/src/Idris/Resugar.idr
-index 1c75fef3..2be7d92f 100644
+index e26c9da..ac8e30f 100644
 --- a/src/Idris/Resugar.idr
 +++ b/src/Idris/Resugar.idr
-@@ -375,7 +375,7 @@ mutual
+@@ -373,7 +373,7 @@ mutual
             if imp
                then bracket p startPrec app
                else mkOp app
@@ -917,10 +924,10 @@ index 1c75fef3..2be7d92f 100644
    toPTerm p (IRewrite fc rule tm)
        = pure (PRewrite fc !(toPTerm startPrec rule)
 diff --git a/src/Idris/Syntax.idr b/src/Idris/Syntax.idr
-index 30de9cae..02f25f4e 100644
+index 49b7592..59ac34a 100644
 --- a/src/Idris/Syntax.idr
 +++ b/src/Idris/Syntax.idr
-@@ -111,7 +111,7 @@ mutual
+@@ -109,7 +109,7 @@ mutual
         PDelay : FC -> PTerm' nm -> PTerm' nm
         PForce : FC -> PTerm' nm -> PTerm' nm
  
@@ -929,7 +936,7 @@ index 30de9cae..02f25f4e 100644
         PPrimVal : FC -> Constant -> PTerm' nm
         PQuote : FC -> PTerm' nm -> PTerm' nm
         PQuoteName : FC -> Name -> PTerm' nm
-@@ -184,7 +184,7 @@ mutual
+@@ -182,7 +182,7 @@ mutual
    getPTermLoc (PDelayed fc _ _) = fc
    getPTermLoc (PDelay fc _) = fc
    getPTermLoc (PForce fc _) = fc
@@ -939,10 +946,10 @@ index 30de9cae..02f25f4e 100644
    getPTermLoc (PQuote fc _) = fc
    getPTermLoc (PQuoteName fc _) = fc
 diff --git a/src/Idris/Syntax/Pragmas.idr b/src/Idris/Syntax/Pragmas.idr
-index d35fd869..bb25b1ce 100644
+index 8a9ff9a..5a72913 100644
 --- a/src/Idris/Syntax/Pragmas.idr
 +++ b/src/Idris/Syntax/Pragmas.idr
-@@ -120,9 +113,7 @@ Show KwPragma where
+@@ -118,9 +118,7 @@ Show KwPragma where
      KwLanguage => "%language"
      KwDefault => "%default"
      KwPrefixRecordProjections => "%prefix_record_projections"
@@ -953,10 +960,10 @@ index d35fd869..bb25b1ce 100644
  export
  allPragmas : List KwPragma
 diff --git a/src/Idris/Syntax/Traversals.idr b/src/Idris/Syntax/Traversals.idr
-index fd4f3c75..02825fe6 100644
+index 94192a1..8b1639a 100644
 --- a/src/Idris/Syntax/Traversals.idr
 +++ b/src/Idris/Syntax/Traversals.idr
-@@ -617,7 +617,7 @@ substFC fc = mapPTerm $ \case
+@@ -633,7 +633,7 @@ substFC fc = mapPTerm $ \case
    PDelayed _ x y => PDelayed fc x y
    PDelay _ x => PDelay fc x
    PForce _ x => PForce fc x
@@ -966,10 +973,10 @@ index fd4f3c75..02825fe6 100644
    PQuote _ x => PQuote fc x
    PQuoteName _ n => PQuoteName fc n
 diff --git a/src/TTImp/Elab.idr b/src/TTImp/Elab.idr
-index 05136656..38f20d5e 100644
+index 439f468..d88ebd8 100644
 --- a/src/TTImp/Elab.idr
 +++ b/src/TTImp/Elab.idr
-@@ -75,8 +75,9 @@ normaliseHoleTypes
+@@ -62,8 +62,9 @@ normaliseHoleTypes
    where
      updateType : Defs -> Int -> GlobalDef -> Core ()
      updateType defs i def
@@ -982,10 +989,10 @@ index 05136656..38f20d5e 100644
  
      normaliseH : Defs -> Int -> Core ()
 diff --git a/src/TTImp/Elab/App.idr b/src/TTImp/Elab/App.idr
-index 2098f57b..b2b14597 100644
+index af74ab8..6ba3637 100644
 --- a/src/TTImp/Elab/App.idr
 +++ b/src/TTImp/Elab/App.idr
-@@ -265,12 +265,11 @@ mutual
+@@ -229,12 +229,11 @@ mutual
                     -- We have to get the normal form eventually anyway, but
                     -- it might be too early to do it now if something is
                     -- blocking it and we're not yet ready to search.
@@ -1003,10 +1010,10 @@ index 2098f57b..b2b14597 100644
                     let fntm = App fc tm metaval
                     fnty <- sc defs (toClosure defaultOpts env metaval)
 diff --git a/src/TTImp/Elab/Check.idr b/src/TTImp/Elab/Check.idr
-index f901b1b9..f238806a 100644
+index 186632e..a7d67ab 100644
 --- a/src/TTImp/Elab/Check.idr
 +++ b/src/TTImp/Elab/Check.idr
-@@ -419,14 +415,14 @@ export
+@@ -412,14 +412,14 @@ export
  searchVar : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
@@ -1024,7 +1031,7 @@ index f901b1b9..f238806a 100644
                                (weakenNs (mkSizeOf vars') ty)
           pure (bind tm)
    where
-@@ -604,6 +599,7 @@ successful allowCons ((tm, elab) :: elabs)
+@@ -587,6 +587,7 @@ successful allowCons ((tm, elab) :: elabs)
      -- something serious has gone wrong, so just give up immediately.
      abandon : Error -> Bool
      abandon (UndefinedName {}) = True
@@ -1033,10 +1040,10 @@ index f901b1b9..f238806a 100644
      abandon (InCon _ err) = abandon err
      abandon (InLHS _ _ err) = abandon err
 diff --git a/src/TTImp/Elab/Delayed.idr b/src/TTImp/Elab/Delayed.idr
-index 3fa6673e..a10504c7 100644
+index 0e33395..a61955a 100644
 --- a/src/TTImp/Elab/Delayed.idr
 +++ b/src/TTImp/Elab/Delayed.idr
-@@ -241,6 +229,7 @@ recoverable (CantSolveEq _ gam env l r)
+@@ -208,6 +208,7 @@ recoverable (CantSolveEq _ gam env l r)
          pure $ not !(contra defs !(nf defs env l) !(nf defs env r))
  recoverable (UndefinedName {}) = pure False
  recoverable (LinearMisuse {}) = pure False
@@ -1045,10 +1052,10 @@ index 3fa6673e..a10504c7 100644
  recoverable (InCon _ err) = recoverable err
  recoverable (InLHS _ _ err) = recoverable err
 diff --git a/src/TTImp/Elab/ImplicitBind.idr b/src/TTImp/Elab/ImplicitBind.idr
-index acb8ee68..3967b6b9 100644
+index f4a3f7b..291ae34 100644
 --- a/src/TTImp/Elab/ImplicitBind.idr
 +++ b/src/TTImp/Elab/ImplicitBind.idr
-@@ -111,9 +111,10 @@ normaliseType : {auto c : Ref Ctxt Defs} ->
+@@ -109,9 +109,10 @@ normaliseType : {auto c : Ref Ctxt Defs} ->
                  {free : _} ->
                  Defs -> Env Term free -> Term free -> Core (Term free)
  normaliseType defs env tm
@@ -1063,10 +1070,10 @@ index acb8ee68..3967b6b9 100644
  -- For any of the 'bindIfUnsolved' - these were added as holes during
  -- elaboration, but are as yet unsolved, so create a pattern variable for
 diff --git a/src/TTImp/Elab/Term.idr b/src/TTImp/Elab/Term.idr
-index d66e86bc..bc94e593 100644
+index c81ebee..0d69768 100644
 --- a/src/TTImp/Elab/Term.idr
 +++ b/src/TTImp/Elab/Term.idr
-@@ -162,19 +162,19 @@ checkTerm rig elabinfo nest env (IWithApp fc fn arg) exp
+@@ -159,19 +159,19 @@ checkTerm rig elabinfo nest env (IWithApp fc fn arg) exp
      = throw (GenericMsg fc "with application not implemented yet")
  checkTerm rig elabinfo nest env (INamedApp fc fn nm arg) exp
      = checkApp rig elabinfo nest env fc fn [] [] [(nm, arg)] exp
@@ -1091,10 +1098,10 @@ index d66e86bc..bc94e593 100644
  checkTerm rig elabinfo nest env (IAlternative fc uniq alts) exp
      = checkAlternative rig elabinfo nest env fc uniq alts exp
 diff --git a/src/TTImp/Reflect.idr b/src/TTImp/Reflect.idr
-index beaff880..04de6046 100644
+index 55d8f6e..d872721 100644
 --- a/src/TTImp/Reflect.idr
 +++ b/src/TTImp/Reflect.idr
-@@ -158,10 +158,10 @@ mutual
+@@ -156,10 +156,10 @@ mutual
                            f' <- reify defs !(evalClosure defs f)
                            a' <- reify defs !(evalClosure defs a)
                            pure (IWithApp fc' f' a')
@@ -1107,7 +1114,7 @@ index beaff880..04de6046 100644
                 (UN (Basic "IAlternative"), [fc, t, as])
                      => do fc' <- reify defs !(evalClosure defs fc)
                            t' <- reify defs !(evalClosure defs t)
-@@ -553,10 +553,10 @@ mutual
+@@ -551,10 +551,10 @@ mutual
               f' <- reflect fc defs lhs env f
               a' <- reflect fc defs lhs env a
               appCon fc defs (reflectionttimp "IWithApp") [fc', f', a']
@@ -1123,10 +1130,10 @@ index beaff880..04de6046 100644
          = do fc' <- reflect fc defs lhs env tfc
               t' <- reflect fc defs lhs env t
 diff --git a/src/TTImp/TTImp.idr b/src/TTImp/TTImp.idr
-index 317e9c48..49488ac4 100644
+index 708ad50..b56af0c 100644
 --- a/src/TTImp/TTImp.idr
 +++ b/src/TTImp/TTImp.idr
-@@ -94,7 +94,7 @@ mutual
+@@ -89,7 +89,7 @@ mutual
         INamedApp : FC -> RawImp' nm -> Name -> RawImp' nm -> RawImp' nm
         IWithApp : FC -> RawImp' nm -> RawImp' nm -> RawImp' nm
  
@@ -1135,7 +1142,7 @@ index 317e9c48..49488ac4 100644
         IAlternative : FC -> AltType' nm -> List (RawImp' nm) -> RawImp' nm
         IRewrite : FC -> RawImp' nm -> RawImp' nm -> RawImp' nm
         ICoerced : FC -> RawImp' nm -> RawImp' nm
-@@ -188,7 +188,7 @@ mutual
+@@ -183,7 +183,7 @@ mutual
           = "(" ++ show f ++ " [" ++ show a ++ "])"
        show (IWithApp fc f a)
           = "(" ++ show f ++ " | " ++ show a ++ ")"
@@ -1144,7 +1151,7 @@ index 317e9c48..49488ac4 100644
           = "%search"
        show (IAlternative fc ty alts)
           = "(|" ++ showSep "," (map show alts) ++ "|)"
-@@ -941,7 +936,7 @@ getFC (IApp x _ _) = x
+@@ -875,7 +875,7 @@ getFC (IApp x _ _) = x
  getFC (INamedApp x _ _ _) = x
  getFC (IAutoApp x _ _) = x
  getFC (IWithApp x _ _) = x
@@ -1154,25 +1161,25 @@ index 317e9c48..49488ac4 100644
  getFC (IRewrite x _ _) = x
  getFC (ICoerced x _) = x
 diff --git a/src/TTImp/TTImp/Functor.idr b/src/TTImp/TTImp/Functor.idr
-index d2c4f5b1..2577c3b5 100644
+index 8baaf30..7f80e6b 100644
 --- a/src/TTImp/TTImp/Functor.idr
 +++ b/src/TTImp/TTImp/Functor.idr
-@@ -38,8 +38,8 @@ mutual
-     = INamedApp fc (mapRawImp f fn) nm (mapRawImp f t)
-   mapRawImp f (IWithApp fc fn t)
-     = IWithApp fc (mapRawImp f fn) (mapRawImp f t)
--  mapRawImp f (ISearch fc n)
--    = ISearch fc n
-+  mapRawImp f (ISearch fc)
-+    = ISearch fc
-   mapRawImp f (IAlternative fc alt ts)
-     = IAlternative fc (mapAltType f alt) (map (mapRawImp f) ts)
-   mapRawImp f (IRewrite fc e t)
+@@ -33,8 +33,8 @@ mutual
+       = INamedApp fc (map f fn) nm (map f t)
+     map f (IWithApp fc fn t)
+       = IWithApp fc (map f fn) (map f t)
+-    map f (ISearch fc n)
+-      = ISearch fc n
++    map f (ISearch fc)
++      = ISearch fc
+     map f (IAlternative fc alt ts)
+       = IAlternative fc (map f alt) (map (map f) ts)
+     map f (IRewrite fc e t)
 diff --git a/src/TTImp/TTImp/TTC.idr b/src/TTImp/TTImp/TTC.idr
-index d00828ef..5a6543ba 100644
+index 439fef1..f14988c 100644
 --- a/src/TTImp/TTImp/TTC.idr
 +++ b/src/TTImp/TTImp/TTC.idr
-@@ -42,8 +42,8 @@ mutual
+@@ -40,8 +40,8 @@ mutual
          = do tag 8; toBuf fc; toBuf fn; toBuf y; toBuf arg
      toBuf (IWithApp fc fn arg)
          = do tag 9; toBuf fc; toBuf fn; toBuf arg
@@ -1183,7 +1190,7 @@ index d00828ef..5a6543ba 100644
      toBuf (IAlternative fc y xs)
          = do tag 11; toBuf fc; toBuf y; toBuf xs
      toBuf (IRewrite fc x y)
-@@ -132,8 +132,8 @@ mutual
+@@ -130,8 +130,8 @@ mutual
                 9 => do fc <- fromBuf; fn <- fromBuf
                         arg <- fromBuf
                         pure (IWithApp fc fn arg)
@@ -1195,10 +1202,10 @@ index d00828ef..5a6543ba 100644
                          xs <- fromBuf
                          pure (IAlternative fc y xs)
 diff --git a/src/TTImp/TTImp/Traversals.idr b/src/TTImp/TTImp/Traversals.idr
-index a0e5932d..17c5e1c7 100644
+index 79aca98..6cc3fa4 100644
 --- a/src/TTImp/TTImp/Traversals.idr
 +++ b/src/TTImp/TTImp/Traversals.idr
-@@ -100,7 +100,7 @@ parameters (f : RawImp' nm -> RawImp' nm)
+@@ -98,7 +98,7 @@ parameters (f : RawImp' nm -> RawImp' nm)
    mapTTImp (IAutoApp fc t u) = f $ IAutoApp fc (mapTTImp t) (mapTTImp u)
    mapTTImp (INamedApp fc t n u) = f $ INamedApp fc (mapTTImp t) n (mapTTImp u)
    mapTTImp (IWithApp fc t u) = f $ IWithApp fc (mapTTImp t) (mapTTImp u)
@@ -1208,10 +1215,10 @@ index a0e5932d..17c5e1c7 100644
    mapTTImp (IRewrite fc t u) = f $ IRewrite fc (mapTTImp t) (mapTTImp u)
    mapTTImp (ICoerced fc t) = f $ ICoerced fc (mapTTImp t)
 diff --git a/src/TTImp/Unelab.idr b/src/TTImp/Unelab.idr
-index f6fb4a80..d7d8f545 100644
+index b5ddeb5..3fb1e0b 100644
 --- a/src/TTImp/Unelab.idr
 +++ b/src/TTImp/Unelab.idr
-@@ -227,7 +227,7 @@ mutual
+@@ -225,7 +225,7 @@ mutual
             let mkn = nameRoot n
             def <- lookupDefExact (Resolved i) (gamma defs)
             let term = case def of
@@ -1221,10 +1228,10 @@ index f6fb4a80..d7d8f545 100644
             Just ty <- lookupTyExact (Resolved i) (gamma defs)
                 | Nothing => case umode of
 diff --git a/src/TTImp/Utils.idr b/src/TTImp/Utils.idr
-index 04c02de0..7678f2df 100644
+index 790d8e9..3e7cbe8 100644
 --- a/src/TTImp/Utils.idr
 +++ b/src/TTImp/Utils.idr
-@@ -167,7 +167,7 @@ findBindableNamesQuot env used (IUnquote fc x)
+@@ -165,7 +165,7 @@ findBindableNamesQuot env used (IUnquote fc x)
  findBindableNamesQuot env used (IWithUnambigNames fc xs x)
      = findBindableNamesQuot env used x
  findBindableNamesQuot env used (IVar fc x) = []
@@ -1234,10 +1241,10 @@ index 04c02de0..7678f2df 100644
  findBindableNamesQuot env used (IBindVar fc x) = []
  findBindableNamesQuot env used (IPrimVal fc c) = []
 diff --git a/src/TTImp/WithClause.idr b/src/TTImp/WithClause.idr
-index 6933f090..0a71b958 100644
+index 385333d..7c8d341 100644
 --- a/src/TTImp/WithClause.idr
 +++ b/src/TTImp/WithClause.idr
-@@ -153,7 +153,7 @@ getArgMatch ploc mode True warg ms (Just (AutoImplicit, nm))
+@@ -151,7 +151,7 @@ getArgMatch ploc mode True warg ms (Just (AutoImplicit, nm))
      = case lookup nm ms of
          Just tm => tm
          Nothing =>

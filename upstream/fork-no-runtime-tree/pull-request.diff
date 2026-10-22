@@ -1,39 +1,18 @@
-diff --git a/MODULES b/MODULES
-index 0af19cf9..6ce10db8 100644
---- a/MODULES
-+++ b/MODULES
-@@ -51,7 +51,6 @@ Core/Termination/CallGraph.idr
- Core/Termination/Positivity.idr
- Core/Termination/References.idr
- Core/Termination/SizeChange.idr
--Core/Transform.idr
- Core/Unify.idr
- Core/UnifyState.idr
- Core/Value.idr
-@@ -177,8 +176,6 @@ TTImp/Elab/RunElab.idr
- TTImp/Elab/Term.idr
- TTImp/Elab/Utils.idr
- TTImp/Impossible.idr
--TTImp/Parser.idr
--TTImp/PartialEval.idr
- TTImp/ProcessBuiltin.idr
- TTImp/ProcessData.idr
- TTImp/ProcessDecls.idr
-diff --git a/idris-compiler.ipkg b/idris-compiler.ipkg
-index 80e023df..7d8c9604 100644
---- a/idris-compiler.ipkg
-+++ b/idris-compiler.ipkg
-@@ -61,7 +61,6 @@ modules =
+diff --git a/idris2api.ipkg b/idris2api.ipkg
+index a0f4831..bc2b281 100644
+--- a/idris2api.ipkg
++++ b/idris2api.ipkg
+@@ -91,7 +91,6 @@ modules =
      Core.Termination.Positivity,
      Core.Termination.References,
-     Core.Termination.SizeChange,
+     Core.Termination,
 -    Core.Transform,
-     Core.Unify,
-     Core.UnifyState,
-     Core.Value,
-@@ -191,8 +190,6 @@ modules =
-     TTImp.Elab.Term,
-     TTImp.Elab.Utils,
+     Core.TT,
+     Core.TT.Binder,
+     Core.TT.Primitive,
+@@ -272,8 +271,6 @@ modules =
+     TTImp.BindImplicits,
+     TTImp.Elab,
      TTImp.Impossible,
 -    TTImp.Parser,
 -    TTImp.PartialEval,
@@ -41,12 +20,12 @@ index 80e023df..7d8c9604 100644
      TTImp.ProcessData,
      TTImp.ProcessDecls,
 diff --git a/src/Core/Case/CaseBuilder.idr b/src/Core/Case/CaseBuilder.idr
-index f310dfc0..a10eddf9 100644
+index cb88ae8..d0ec920 100644
 --- a/src/Core/Case/CaseBuilder.idr
 +++ b/src/Core/Case/CaseBuilder.idr
-@@ -38,13 +38,15 @@ export
- arrowConName : Name
- arrowConName = UN (Basic "->")
+@@ -29,13 +29,15 @@ import Libraries.Text.PrettyPrint.Prettyprinter
+ 
+ %hide Symbols.equals
  
 +-- The tree built is the compile-time tree of a definition of this
 +-- multiplicity: the one the frontend translates, and Idris's checks read.
@@ -63,25 +42,16 @@ index f310dfc0..a10eddf9 100644
  
  data ArgType : Scoped where
       Known : RigCount -> (ty : Term vars) -> ArgType vars -- arg has type 'ty'
-@@ -381,8 +383,6 @@ namesFrom _ = []
+@@ -315,8 +317,6 @@ namesFrom _ = []
  clauseType : Phase -> (p : PatClause (a :: as) vars) -> ClauseType p
  -- If it's irrelevant, a constructor, and there's no names we haven't seen yet
  -- and don't see later, treat it as a variable
 --- Or, if we're compiling for runtime we won't be able to split on it, so
 --- also treat it as a variable
  -- Or, if it's an under-applied constructor then do NOT attempt to split on it!
- clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
+ clauseType phase (MkPatClause pvars (MkInfo arg _ ty :: rest) pid rhs)
      = maybe VarClause (\isCon => ConClause @{isCon}) $ getClauseType phase arg ty
-@@ -394,7 +394,7 @@ clauseType phase (MkPatClause pvars (MkInfo arg _ ty src :: rest) pid rhs)
-     -- `[] {a}`) is the only one the argument's type allows.
-     matchesErased : Phase -> Source -> Bool
-     matchesErased (CompileTime cr) Written = isErased cr
--    matchesErased _ _ = False
-+    matchesErased (CompileTime cr) _ = False
- 
-     -- used when we are tempted to split on a constructor: is
-     -- this actually a fully applied one?
-@@ -717,126 +717,6 @@ getFirstPat (p :: _) = pat p
+@@ -633,126 +633,6 @@ getFirstPat (p :: _) = pat p
  getFirstArgType : NamedPats (p :: ps) ns -> ArgType ns
  getFirstArgType (p :: _) = argType p
  
@@ -208,7 +178,7 @@ index f310dfc0..a10eddf9 100644
  -- Check whether all the initial patterns have the same concrete, known
  -- and matchable type, which is multiplicity > 0.
  -- If so, it's okay to match on it
-@@ -862,11 +742,8 @@ sameType {ns} fc phase fn env (p :: xs)
+@@ -778,11 +658,8 @@ sameType {ns} fc phase fn env (p :: xs)
      headEq (NTCon _ n _ _) (NTCon _ n' _ _) _ = n == n'
      headEq (NPrimVal _ c) (NPrimVal _ c') _ = c == c'
      headEq (NType {}) (NType {}) _ = True
@@ -220,10 +190,10 @@ index f310dfc0..a10eddf9 100644
      headEq _ _ _ = False
  
      sameTypeAs : forall ne. Phase -> NF ns -> List01 ne (ArgType ns) -> Core ()
-@@ -1038,12 +915,9 @@ mutual
+@@ -880,12 +757,9 @@ mutual
    -- inspect next has a concrete type that is the same in all cases, and
    -- has the most distinct constructors (via pickNextViable)
-   step {todo = _ :: _} fc fn phase clauses err
+   match {todo = _ :: _} fc fn phase clauses err
 -      = do let nps = getNPs <$> clauses
 -           let (_ ** (MkNVar next)) = nextIdxByScore (caseTreeHeuristics !getSession) phase nps
 -           let prioritizedClauses = shuffleVars next <$> clauses
@@ -235,29 +205,29 @@ index f310dfc0..a10eddf9 100644
             log "compile.casetree.clauses" 25 $
               unlines ("Using clauses:" :: map (("  " ++) . show) (forget clauses'))
             let ps = partition phase clauses'
-@@ -1290,7 +1164,7 @@ export
+@@ -1128,7 +1002,7 @@ export
  simpleCase : {auto c : Ref Ctxt Defs} ->
               FC -> Phase -> Name -> ClosedTerm ->
-              (clauses : List01 True (List Name, ClosedTerm, ClosedTerm)) ->
+              (clauses : List01 True (ClosedTerm, ClosedTerm)) ->
 -             Core (args ** CaseTree args)
 +             Core (args ** (CaseTree args, List (List Pat)))
  simpleCase fc phase fn ty clauses
      = do logC "compile.casetree" 5 $
-                 do cs <- traverse (\ (_,c,d) => [| MkPair (toFullNames c) (toFullNames d) |]) (forget clauses)
-@@ -1298,7 +1172,11 @@ simpleCase fc phase fn ty clauses
-                      indent 2 $ vcat $ flip map cs $ \ lrhs =>
+                 do cs <- traverse (\ (c,d) => [| MkPair (toFullNames c) (toFullNames d) |]) (forget clauses)
+@@ -1137,7 +1011,11 @@ simpleCase fc phase fn ty clauses
                         byShow (fst lrhs) <++> pretty "=" <++> byShow (snd lrhs))
           ps <- traverseList01 (toPatClause fc fn) clauses
+          defs <- get Ctxt
 -         patCompile fc fn phase ty ps
 +         (_ ** t) <- patCompile fc fn phase ty ps
 +         pure (_ ** (t, map clausePats (forget ps)))
 +  where
-+    clausePats : (List Name, List Pat, ClosedTerm) -> List Pat
-+    clausePats (_, ps, _) = ps
++    clausePats : (List Pat, ClosedTerm) -> List Pat
++    clausePats (ps, _) = ps
  
  mutual
    findReachedAlts : CaseAlt ns' -> List Int
-@@ -1389,14 +1267,14 @@ findExtraDefaults fc defs ctree = pure []
+@@ -1228,14 +1106,14 @@ findExtraDefaults fc defs ctree = pure []
  export
  getPMDef : {auto c : Ref Ctxt Defs} ->
             FC -> Phase -> Name -> ClosedTerm -> List Clause ->
@@ -274,7 +244,7 @@ index f310dfc0..a10eddf9 100644
    where
      getArgs : Int -> ClosedNF -> Core (List Name)
      getArgs i (NBind fc x (Pi {}) sc)
-@@ -1407,7 +1285,7 @@ getPMDef fc phase fn ty []
+@@ -1246,7 +1124,7 @@ getPMDef fc phase fn ty []
  getPMDef fc phase fn ty clauses@(_ :: _)
      = do defs <- get Ctxt
           let cs = map (toClosed defs) (labelPat 0 $ fromList clauses)
@@ -283,7 +253,7 @@ index f310dfc0..a10eddf9 100644
           logC "compile.casetree.getpmdef" 20 $
             pure $ "Compiled to: " ++ show !(toFullNames t)
           let reached = findReached t
-@@ -1415,7 +1293,7 @@ getPMDef fc phase fn ty clauses@(_ :: _)
+@@ -1254,7 +1132,7 @@ getPMDef fc phase fn ty clauses@(_ :: _)
             "Reached clauses: " ++ (show reached)
           extraDefaults <- findExtraDefaults fc defs t
           let unreachable = getUnreachable 0 (reached \\ extraDefaults) clauses
@@ -292,44 +262,13 @@ index f310dfc0..a10eddf9 100644
    where
      getUnreachable : Int -> List Int -> List Clause -> List Clause
      getUnreachable i is [] = []
-diff --git a/src/Core/Case/CaseTree.idr b/src/Core/Case/CaseTree.idr
-index ad2242d8..706dee6d 100644
---- a/src/Core/Case/CaseTree.idr
-+++ b/src/Core/Case/CaseTree.idr
-@@ -254,26 +254,6 @@ export
- Weaken CaseTree where
-   weakenNs ns t = insertCaseNames zero ns t
- 
--mutual
--  ||| A case tree in a scope of the same length, by other names: the same
--  ||| tree, each variable at its index, a case's under the new name.
--  export
--  compatCaseTree : {ys : _} -> CompatibleVars xs ys -> CaseTree xs -> CaseTree ys
--  compatCaseTree prf (Case idx p scTy alts)
--      = let Element name p' = renamedVarAt prf p in
--            Case {name} idx p' (compatNs prf scTy) (map (compatCaseAlt prf) alts)
--  compatCaseTree prf (STerm i x) = STerm i (compatNs prf x)
--  compatCaseTree _ (Unmatched msg) = Unmatched msg
--  compatCaseTree _ Impossible = Impossible
--
--  compatCaseAlt : {ys : _} -> CompatibleVars xs ys -> CaseAlt xs -> CaseAlt ys
--  compatCaseAlt prf (ConCase x tag args ct)
--      = ConCase x tag args (compatCaseTree (extendCompats args prf) ct)
--  compatCaseAlt prf (DelayCase ty arg ct)
--      = DelayCase ty arg (compatCaseTree (Ext (Ext prf)) ct)
--  compatCaseAlt prf (ConstCase c ct) = ConstCase c (compatCaseTree prf ct)
--  compatCaseAlt prf (DefaultCase ct) = DefaultCase (compatCaseTree prf ct)
--
- total
- getNames : (forall vs . NameMap Bool -> Term vs -> NameMap Bool) ->
-            NameMap Bool -> CaseTree vars -> NameMap Bool
 diff --git a/src/Core/Context.idr b/src/Core/Context.idr
-index a250dfe0..f0f15647 100644
+index d71acaa..ff87d8e 100644
 --- a/src/Core/Context.idr
 +++ b/src/Core/Context.idr
-@@ -527,12 +526,39 @@ resolveEnv gam [] = pure Env.empty
- resolveEnv gam (b :: bs)
-     = pure $ !(onNamesBinder (resolvedNames gam) b) :: !(resolveEnv gam bs)
+@@ -557,6 +557,29 @@ mutual
+     resolved gam (DefaultCase sc)
+         = pure $ DefaultCase !(resolved gam sc)
  
 +-- The names in each clause's patterns, and the terms a pattern cannot
 +-- match, given what becomes of each: one traversal, structural, for making
@@ -354,22 +293,10 @@ index a250dfe0..f0f15647 100644
 +onClausePatNames f g [] = pure []
 +onClausePatNames f g (c :: cs) = [| onPatsNames f g c :: onClausePatNames f g cs |]
 +
- resolveDef : Context -> Def -> Core Def
--resolveDef gam (PMDef r args ct rt pats)
-+resolveDef gam (PMDef r args ct cps pats)
-     = pure $ PMDef r args !(onNamesTree (resolvedNames gam) ct)
--                          !(onNamesTree (resolvedNames gam) rt)
-+                          !(traverseClauses cps)
-                           !(traverse resolvePat pats)
-   where
-+    traverseClauses : List (List Pat) -> Core (List (List Pat))
-+    traverseClauses
-+        = onClausePatNames (pure . indexedName gam) (onNamesTerm (resolvedNames gam))
-+
-     resolvePat : (vs ** (Env Term vs, Term vs, Term vs)) ->
-                  Core (vs ** (Env Term vs, Term vs, Term vs))
-     resolvePat (_ ** (env, lhs, rhs))
-@@ -610,10 +635,13 @@ HasNames Clause where
+ export
+ HasNames (Env Term vars) where
+   full gam [] = pure Env.empty
+@@ -578,10 +601,13 @@ HasNames Clause where
  
  export
  HasNames Def where
@@ -385,7 +312,23 @@ index a250dfe0..f0f15647 100644
        fullNamesPat : (vs ** (Env Term vs, Term vs, Term vs)) ->
                       Core (vs ** (Env Term vs, Term vs, Term vs))
        fullNamesPat (_ ** (env, lhs, rhs))
-@@ -632,8 +660,8 @@ HasNames Def where
+@@ -596,10 +622,13 @@ HasNames Def where
+       = pure $ Guess !(full gam tm) b cs
+   full gam t = pure t
+ 
+-  resolved gam (PMDef r args ct rt pats)
+-      = pure $ PMDef r args !(resolved gam ct) !(resolved gam rt)
++  resolved gam (PMDef r args ct cps pats)
++      = pure $ PMDef r args !(resolved gam ct) !(resolvedClauses cps)
+                      !(traverse resolvedNamesPat pats)
+     where
++      resolvedClauses : List (List Pat) -> Core (List (List Pat))
++      resolvedClauses = onClausePatNames (resolved gam) (resolved gam)
++
+       resolvedNamesPat : (vs ** (Env Term vs, Term vs, Term vs)) ->
+                          Core (vs ** (Env Term vs, Term vs, Term vs))
+       resolvedNamesPat (_ ** (env, lhs, rhs))
+@@ -616,8 +645,8 @@ HasNames Def where
  
  export
  StripNamespace Def where
@@ -396,7 +339,7 @@ index a250dfe0..f0f15647 100644
      where
        trimNSpat : (vs ** (Env Term vs, Term vs, Term vs)) ->
                    (vs ** (Env Term vs, Term vs, Term vs))
-@@ -641,8 +669,8 @@ StripNamespace Def where
+@@ -625,8 +654,8 @@ StripNamespace Def where
            = (vs ** (env, trimNS ns lhs, trimNS ns rhs))
    trimNS ns d = d
  
@@ -407,11 +350,14 @@ index a250dfe0..f0f15647 100644
      where
        restoreNSpat : (vs ** (Env Term vs, Term vs, Term vs)) ->
                    (vs ** (Env Term vs, Term vs, Term vs))
-@@ -1106,11 +1127,8 @@ initDefs
+@@ -1100,14 +1129,11 @@ initDefs
             , imported = []
             , allImported = []
             , cgdirectives = []
 -           , toCompileCase = []
+            , incData = []
+            , allIncData = []
+            , toIR = empty
             , userHoles = empty
 -           , peFailures = empty
             , timings = empty
@@ -420,10 +366,10 @@ index a250dfe0..f0f15647 100644
             , schemeEvalLoaded = False
             , foreignExports = empty
 diff --git a/src/Core/Context/Context.idr b/src/Core/Context/Context.idr
-index e059e543..b6769914 100644
+index d6b803f..d45b09f 100644
 --- a/src/Core/Context/Context.idr
 +++ b/src/Core/Context/Context.idr
-@@ -76,7 +76,10 @@ data Def : Type where
+@@ -77,7 +77,10 @@ data Def : Type where
      PMDef : (pminfo : PMDefInfo) ->
              (args : Scope) ->
              (treeCT : CaseTree args) ->
@@ -435,7 +381,7 @@ index e059e543..b6769914 100644
              (pats : List (vs : Scope ** (Env Term vs, Term vs, Term vs))) ->
                  -- original checked patterns (LHS/RHS) with the names in
                  -- the environment. Used for display purposes, for helping
-@@ -149,10 +152,9 @@ export
+@@ -150,10 +153,9 @@ export
  covering
  Show Def where
    show None = "undefined"
@@ -447,7 +393,7 @@ index e059e543..b6769914 100644
                  ]
    show (DCon t a nt)
        = "DataCon " ++ show t ++ " " ++ show a
-@@ -226,11 +228,6 @@ data DefFlag
+@@ -219,11 +221,6 @@ data DefFlag
      | SetTotal TotalReq
      | BlockedHint -- a hint, but blocked for the moment (so don't use)
      | Macro
@@ -459,7 +405,7 @@ index e059e543..b6769914 100644
      | AllGuarded -- safe to treat as a constructor for the purposes of
           -- productivity checking. All clauses are guarded by constructors,
           -- and there are no other function applications
-@@ -253,7 +250,6 @@ Eq DefFlag where
+@@ -246,7 +243,6 @@ Eq DefFlag where
      (==) (SetTotal x) (SetTotal y) = x == y
      (==) BlockedHint BlockedHint = True
      (==) Macro Macro = True
@@ -467,7 +413,7 @@ index e059e543..b6769914 100644
      (==) AllGuarded AllGuarded = True
      (==) (ConType x) (ConType y) = x == y
      (==) (Identity x) (Identity y) = x == y
-@@ -270,7 +266,6 @@ Show DefFlag where
+@@ -263,7 +259,6 @@ Show DefFlag where
    show (SetTotal x) = show x
    show BlockedHint = "blockedhint"
    show Macro = "macro"
@@ -475,35 +421,11 @@ index e059e543..b6769914 100644
    show AllGuarded = "allguarded"
    show (ConType ci) = "contype " ++ show ci
    show (Identity x) = "identity " ++ show x
-diff --git a/src/Core/TT/Var.idr b/src/Core/TT/Var.idr
-index 203b4461..e7765521 100644
---- a/src/Core/TT/Var.idr
-+++ b/src/Core/TT/Var.idr
-@@ -387,19 +387,6 @@ export
-   Exists (\ n => IsVar n idx ys)
- renamedIsVar ns p = Evidence _ (compatIsVar ns p)
- 
--||| The name an index finds in the scope is the one its variable names.
--0 nameAtIsVar : {vars : List a} -> {idx : Nat} -> (p : IsVar n idx vars) -> IsVar (nameAt p) idx vars
--nameAtIsVar First = First
--nameAtIsVar (Later p) = Later (nameAtIsVar p)
--
--||| The variable an index names once the scope's names are renamed, with
--||| its new name, found in the new scope, for what keeps a variable's name
--||| at runtime (a case tree's `Case`).
--export
--renamedVarAt : {ys : List a} -> (0 _ : CompatibleVars xs ys) ->
--               {idx : Nat} -> (0 p : IsVar name idx xs) ->
--               Subset a (\n => IsVar n idx ys)
--renamedVarAt prf p = Element (nameAt (compatIsVar prf p)) (nameAtIsVar (compatIsVar prf p))
- 
- compatVar : CompatibleVars xs ys -> Var xs -> Var ys
- compatVar prf (MkVar p) = MkVar (compatIsVar prf p)
 diff --git a/src/Core/TTC.idr b/src/Core/TTC.idr
-index adbcdaee..fb8202b7 100644
+index aba6aa4..36563b9 100644
 --- a/src/Core/TTC.idr
 +++ b/src/Core/TTC.idr
-@@ -1266,7 +1328,6 @@ TTC DefFlag where
+@@ -1079,7 +1079,6 @@ TTC DefFlag where
    toBuf (SetTotal x) = do tag 6; toBuf x
    toBuf BlockedHint = tag 7
    toBuf Macro = tag 8
@@ -511,7 +433,7 @@ index adbcdaee..fb8202b7 100644
    toBuf AllGuarded = tag 10
    toBuf (ConType ci) = do tag 11; toBuf ci
    toBuf (Identity x) = do tag 12; toBuf x
-@@ -1280,7 +1341,6 @@ TTC DefFlag where
+@@ -1093,7 +1092,6 @@ TTC DefFlag where
               6 => do x <- fromBuf; pure (SetTotal x)
               7 => pure BlockedHint
               8 => pure Macro
@@ -521,12 +443,10 @@ index adbcdaee..fb8202b7 100644
               12 => do x <- fromBuf; pure (Identity x)
 diff --git a/src/Core/Transform.idr b/src/Core/Transform.idr
 deleted file mode 100644
-index 52db89cd..00000000
+index 2d0904a..0000000
 --- a/src/Core/Transform.idr
 +++ /dev/null
-@@ -1,162 +0,0 @@
---- SPDX-License-Identifier: BSD-3-Clause
---- Copyright (c) 2020 Edwin Brady
+@@ -1,160 +0,0 @@
 -module Core.Transform
 -
 -import Core.Context
@@ -688,10 +608,10 @@ index 52db89cd..00000000
 -                  Env Term vars -> Term vars -> Core (Term vars)
 -applyTransforms env tm = transLoop 5 env tm
 diff --git a/src/Core/Unify.idr b/src/Core/Unify.idr
-index bb9f70b0..3ddaad54 100644
+index 2fa826e..49d0f26 100644
 --- a/src/Core/Unify.idr
 +++ b/src/Core/Unify.idr
-@@ -458,7 +458,7 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
+@@ -456,7 +456,7 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
                                       (not (isUserName mname) && isSimple rhs)
                                       False
           let newdef = { definition :=
@@ -700,7 +620,7 @@ index bb9f70b0..3ddaad54 100644
                        } mdef
           ignore $ addDef (Resolved mref) newdef
           removeHole mref
-@@ -1476,7 +1491,7 @@ retryGuess mode smode (hid, (loc, hname))
+@@ -1474,7 +1474,7 @@ retryGuess mode smode (hid, (loc, hname))
                                                   logTerm "unify.retry" 5 "Retry Delay" tm
                                                   pure $ delayMeta r envb !(getTerm ty) tm
                                    let gdef = { definition := PMDef (MkPMDefInfo NotHole True False)
@@ -709,7 +629,7 @@ index bb9f70b0..3ddaad54 100644
                                    logTerm "unify.retry" 5 ("Resolved " ++ show hname) tm'
                                    ignore $ addDef (Resolved hid) gdef
                                    removeGuess hid
-@@ -1502,7 +1517,7 @@ retryGuess mode smode (hid, (loc, hname))
+@@ -1500,7 +1500,7 @@ retryGuess mode smode (hid, (loc, hname))
                           -- proper definition and remove it from the
                           -- hole list
                           [] => do let gdef = { definition := PMDef (MkPMDefInfo NotHole True False)
@@ -719,59 +639,31 @@ index bb9f70b0..3ddaad54 100644
                                    ignore $ addDef (Resolved hid) gdef
                                    removeGuess hid
 diff --git a/src/Idris/CommandLine.idr b/src/Idris/CommandLine.idr
-index 4c7875b3..5226197b 100644
+index 53dbbb2..f48211d 100644
 --- a/src/Idris/CommandLine.idr
 +++ b/src/Idris/CommandLine.idr
-@@ -198,10 +193,6 @@ options = [MkOpt ["--check", "-c"] (NoArg [CheckOnly])
-            MkOpt ["-Wno-shadowing"] (NoArg [IgnoreShadowingWarnings])
-               (Just "Do not print shadowing warnings"),
- 
--           optSeparator,
--           MkOpt ["-Xcase-tree-opt"] (NoArg [CaseTreeHeuristics])
--              (Just "Apply experimental optimizations to case tree generation"),
--
+@@ -270,8 +270,6 @@ options = [MkOpt ["--check", "-c"] [] [CheckOnly]
             optSeparator,
-            MkOpt ["--prefix"] (NoArg [Directory Prefix])
-               (Just "Show installation prefix"),
-diff --git a/src/Idris/Host.idr b/src/Idris/Host.idr
-index ca5b93e0..3c67e0f6 100644
---- a/src/Idris/Host.idr
-+++ b/src/Idris/Host.idr
-@@ -80,14 +80,6 @@ record Host where
-                        {auto o : Ref ROpts REPLOpts} -> {auto p : Ref PostS PostSession} ->
-                        List CLOpt -> Core ControlFlow
+            MkOpt ["-Xcheck-hashes"] [] [HashesInsteadOfModTime]
+              (Just "Use SHA256 hashes instead of modification time to determine if a source file needs rebuilding"),
+-           MkOpt ["-Xcase-tree-opt"] [] [CaseTreeHeuristics]
+-              (Just "Apply experimental optimizations to case tree generation"),
  
--  -- The case builder.
--
--  ||| `Core.Case.CaseBuilder.argToPat`: a place of a clause's left-hand
--  ||| side as the case builder reads it, the evaluator again, since it
--  ||| computes a literal written through a primitive conversion
--  ||| (`normalisePrims`) and reads what that gives.
--  argToPat : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Core Pat
--
-   -- The error printer.
- 
-   ||| `Idris.REPL.Common.emitError`: the evaluator again, since an error is
-@@ -108,6 +100,5 @@ host = assert_total (MkHost
-   , checkTerminating
-   , buildMain
-   , processPackageOpts
--  , argToPat
-   , emitError
-   })
+            optSeparator,
+            MkOpt ["--prefix"] [] [Directory Prefix]
 diff --git a/src/TTImp/Elab.idr b/src/TTImp/Elab.idr
-index 05136656..38f20d5e 100644
+index 439f468..cc43156 100644
 --- a/src/TTImp/Elab.idr
 +++ b/src/TTImp/Elab.idr
-@@ -114,7 +115,6 @@ elabTermSubMarked : {inner, vars : _} ->
-                      Core (Term vars, Glued vars, List Name)
- elabTermSubMarked {vars} defining mode opts nest env env' sub tm ty
+@@ -98,7 +98,6 @@ elabTermSub : {inner, vars : _} ->
+               Core (Term vars, Glued vars)
+ elabTermSub {vars} defining mode opts nest env env' sub tm ty
      = do let incase = elem InCase opts
 -         let inPE = elem InPartialEval opts
           let inTrans = elem InTrans opts
  
           -- Record the current hole state; we only check the list of current
-@@ -164,10 +164,7 @@ elabTermSubMarked {vars} defining mode opts nest env env' sub tm ty
+@@ -149,10 +148,7 @@ elabTermSub {vars} defining mode opts nest env env' sub tm ty
  
           dumpConstraints "elab" 4 False
           defs <- get Ctxt
@@ -783,7 +675,7 @@ index 05136656..38f20d5e 100644
  
           -- Linearity and hole checking.
           -- on the LHS, all holes need to have been solved
-@@ -180,7 +177,7 @@ elabTermSubMarked {vars} defining mode opts nest env env' sub tm ty
+@@ -165,7 +161,7 @@ elabTermSub {vars} defining mode opts nest env env' sub tm ty
                -- solved, though we defer that if it's a case block since we
                -- might learn a bit more later.
                _ => if (not incase)
@@ -793,10 +685,10 @@ index 05136656..38f20d5e 100644
                            -- Linearity checking looks in case blocks, so no
                            -- need to check here.
 diff --git a/src/TTImp/Elab/App.idr b/src/TTImp/Elab/App.idr
-index 2098f57b..b2b14597 100644
+index af74ab8..ee5a60d 100644
 --- a/src/TTImp/Elab/App.idr
 +++ b/src/TTImp/Elab/App.idr
-@@ -564,8 +563,8 @@ mutual
+@@ -526,8 +526,8 @@ mutual
               -- Mark for reduction when we finish elaborating
               updateDef (Resolved idx)
                    (\def => case def of
@@ -808,10 +700,10 @@ index 2098f57b..b2b14597 100644
                          )
               removeHole idx
 diff --git a/src/TTImp/Elab/Check.idr b/src/TTImp/Elab/Check.idr
-index f901b1b9..f238806a 100644
+index 186632e..c6d5ffc 100644
 --- a/src/TTImp/Elab/Check.idr
 +++ b/src/TTImp/Elab/Check.idr
-@@ -46,14 +46,12 @@ public export
+@@ -44,14 +44,12 @@ public export
  data ElabOpt
    = HolesOkay
    | InCase
@@ -827,10 +719,10 @@ index f901b1b9..f238806a 100644
    _ == _ = False
  
 diff --git a/src/TTImp/Elab/Delayed.idr b/src/TTImp/Elab/Delayed.idr
-index 3fa6673e..a10504c7 100644
+index 0e33395..f271494 100644
 --- a/src/TTImp/Elab/Delayed.idr
 +++ b/src/TTImp/Elab/Delayed.idr
-@@ -288,7 +276,7 @@ retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
+@@ -254,7 +254,7 @@ retryDelayed' errmode p acc (d@(_, i, hints, elab) :: ds)
  
                 updateDef (Resolved i) (const (Just
                      (PMDef (MkPMDefInfo NotHole True False)
@@ -840,10 +732,10 @@ index 3fa6673e..a10504c7 100644
                 logTermNF "elab.update" 5 ("Resolved delayed hole NF " ++ show i) Env.empty tm
                 removeHole i
 diff --git a/src/TTImp/ProcessDef.idr b/src/TTImp/ProcessDef.idr
-index 589be8f0..05cb3ce1 100644
+index b74e392..4436ec5 100644
 --- a/src/TTImp/ProcessDef.idr
 +++ b/src/TTImp/ProcessDef.idr
-@@ -12,7 +12,6 @@ import Core.LinearCheck
+@@ -10,7 +10,6 @@ import Core.LinearCheck
  import Core.Metadata
  import Core.Termination
  import Core.Termination.CallGraph
@@ -851,7 +743,7 @@ index 589be8f0..05cb3ce1 100644
  import Core.Value
  import Core.UnifyState
  
-@@ -26,7 +25,6 @@ import TTImp.Elab.Binders
+@@ -24,7 +23,6 @@ import TTImp.Elab.Binders
  import TTImp.Elab.Check
  import TTImp.Elab.Utils
  import TTImp.Impossible
@@ -859,7 +751,7 @@ index 589be8f0..05cb3ce1 100644
  import TTImp.TTImp
  import TTImp.TTImp.Functor
  import TTImp.ProcessType
-@@ -537,7 +535,7 @@ checkClause {vars} mult vis totreq hashit n opts nest env
+@@ -507,7 +505,7 @@ checkClause {vars} mult vis totreq hashit n opts nest env
           logTerm "declare.def.clause.with" 3 "With function type" wtype
           log "declare.def.clause.with" 5 $ "Argument names " ++ show wargNames
  
@@ -868,7 +760,7 @@ index 589be8f0..05cb3ce1 100644
           widx <- addDef wname ({flags $= (SetTotal totreq ::)}
                                      (newDef vfc wname (if isErased mult then erased else top)
                                        vars wtype (specified vis) None))
-@@ -683,164 +681,23 @@ checkClause {vars} mult vis totreq hashit n opts nest env
+@@ -653,158 +651,23 @@ checkClause {vars} mult vis totreq hashit n opts nest env
               pure (ImpossibleClause ploc newlhs)
  
  -- Calculate references for the given name, and recursively if they haven't
@@ -918,7 +810,6 @@ index 589be8f0..05cb3ce1 100644
 -mkRunTime : {auto c : Ref Ctxt Defs} ->
 -            {auto m : Ref MD Metadata} ->
 -            {auto u : Ref UST UState} ->
--            {auto dl : Ref DLY DelayedElabs} ->
 -            {auto s : Ref Syn SyntaxInfo} ->
 -            {auto o : Ref ROpts REPLOpts} ->
 -            FC -> Name -> Core ()
@@ -955,13 +846,10 @@ index 589be8f0..05cb3ce1 100644
 -           log "compile.casetree" 10 $ show tree_rt
 -           log "compile.casetree.measure" 15 $ show (measure tree_rt)
 -
--           -- Both trees bind the clauses' arguments, by the same names.
--           let True = cargs == rargs
--                   | False => throw (InternalError "WAT")
--           let Just compatible = areCompatibleVars cargs rargs
+-           let Just Refl = scopeEq cargs rargs
 -                   | Nothing => throw (InternalError "WAT")
 -           ignore $ addDef n $
--                       { definition := PMDef r rargs (compatCaseTree compatible tree_ct) tree_rt pats
+-                       { definition := PMDef r rargs tree_ct tree_rt pats
 -                       } gdef
 -           -- If it's a case block, and not already set as inlinable or forced
 -           -- to not be inlinable, check if it's safe to inline
@@ -996,12 +884,11 @@ index 589be8f0..05cb3ce1 100644
 -    makeErrorClause env lhs
 -        = MkClause env (matchAny lhs)
 -             (mkCrash ("Unhandled input for " ++ show n ++ " at " ++ show fc))
--             VarSet.empty
 -
 -    addErrorCase : List Clause -> List Clause
 -    addErrorCase [] = []
--    addErrorCase [MkClause env lhs rhs unified]
--        = MkClause env lhs rhs unified :: makeErrorClause env lhs :: []
+-    addErrorCase [MkClause env lhs rhs]
+-        = MkClause env lhs rhs :: makeErrorClause env lhs :: []
 -    addErrorCase (x :: xs) = x :: addErrorCase xs
 -
 -    getSpec : List DefFlag -> Maybe (List (Name, Nat))
@@ -1022,12 +909,11 @@ index 589be8f0..05cb3ce1 100644
 -
 -    toClause : FC -> (vars ** (Env Term vars, Term vars, Term vars)) -> Clause
 -    toClause fc (_ ** (env, lhs, rhs))
--        = MkClause env lhs rhs VarSet.empty
+-        = MkClause env lhs rhs
 -
 -compileRunTime : {auto c : Ref Ctxt Defs} ->
 -                 {auto m : Ref MD Metadata} ->
 -                 {auto u : Ref UST UState} ->
--                 {auto dl : Ref DLY DelayedElabs} ->
 -                 {auto s : Ref Syn SyntaxInfo} ->
 -                 {auto o : Ref ROpts REPLOpts} ->
 -                 FC -> Name -> Core ()
@@ -1042,28 +928,17 @@ index 589be8f0..05cb3ce1 100644
 +         traverse_ (calcRefs at) (keys refs)
  
  toPats : Clause -> (vs ** (Env Term vs, Term vs, Term vs))
- toPats (MkClause {vars} env lhs rhs _)
-@@ -856,8 +713,8 @@ toPats (MkClause {vars} env lhs rhs _)
- -- computes stops reducing while it is unsolved (the length in `Data.Fun`'s
- -- `Fun` and `chain`, which base's `Data.Nat.Order.lte` leaves unsolved, so
- -- that `lte` no longer checks). So that tree is built from the clauses
---- without the mark, and splits in the arguments' order, as the runtime tree
---- does (`mkRunTime`, whose clauses carry none). At quantity 0 nothing runs
-+-- without the mark, and splits in the arguments' order, as upstream's run
-+-- time tree did (its clauses carried none). At quantity 0 nothing runs
- -- and every argument a clause matches is split, and the tree splits such an
- -- argument last, as the coverage check's does.
- saved : RigCount -> Clause -> Clause
-@@ -971,7 +828,7 @@ processDef opts nest env fc n_in cs_in
+ toPats (MkClause {vars} env lhs rhs)
+@@ -915,7 +778,7 @@ processDef opts nest env fc n_in cs_in
  
           let pats = map toPats (rights cs)
  
 -         (cargs ** (tree_ct, unreachable)) <-
 +         (cargs ** (tree_ct, clausePats, unreachable)) <-
               logTime 3 ("Building compile time case tree for " ++ show n) $
-                 getPMDef fc (CompileTime mult) n ty (map (saved mult) (rights cs))
+                 getPMDef fc (CompileTime mult) n ty (rights cs)
  
-@@ -1002,13 +861,10 @@ processDef opts nest env fc n_in cs_in
+@@ -946,13 +809,10 @@ processDef opts nest env fc n_in cs_in
                  traverse_ addToSave (keys tymetas)
           addToSave n
  
@@ -1078,7 +953,7 @@ index 589be8f0..05cb3ce1 100644
                  sc <- calculateSizeChange fc n
                  setSizeChange fc n sc
                  checkIfGuarded fc n
-@@ -1018,11 +874,6 @@ processDef opts nest env fc n_in cs_in
+@@ -962,11 +822,6 @@ processDef opts nest env fc n_in cs_in
           cov <- logTime 3 ("Checking Coverage " ++ show n) $ checkCoverage nidx ty mult cs
           setCovering fc n cov
           put MD md
@@ -1090,7 +965,7 @@ index 589be8f0..05cb3ce1 100644
    where
      -- Move `withTotality` to Core.Context if we need it elsewhere
      ||| Temporarily rebind the default totality requirement (%default total/partial/covering).
-@@ -1108,7 +959,7 @@ processDef opts nest env fc n_in cs_in
+@@ -1052,7 +907,7 @@ processDef opts nest env fc n_in cs_in
                 $ "Using clauses :"
                 :: map (("  " ++) . show) !(traverse toFullNames covcs')
               let covcs = mapMaybe id covcs'

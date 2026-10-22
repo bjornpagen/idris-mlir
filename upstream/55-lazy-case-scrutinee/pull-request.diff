@@ -1,11 +1,48 @@
 diff --git a/src/TTImp/Elab/Case.idr b/src/TTImp/Elab/Case.idr
-index 155e4be..b799e14 100644
+index f4e6873..b733644 100644
 --- a/src/TTImp/Elab/Case.idr
 +++ b/src/TTImp/Elab/Case.idr
-@@ -450,6 +450,38 @@ checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts exp
+@@ -359,21 +359,20 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
+               ImpossibleClause loc' (applyNested nest lhs')
+ 
+ 
+-export
+-checkCase : {vars : _} ->
+-            {auto c : Ref Ctxt Defs} ->
+-            {auto m : Ref MD Metadata} ->
+-            {auto u : Ref UST UState} ->
+-            {auto e : Ref EST (EState vars)} ->
+-            {auto s : Ref Syn SyntaxInfo} ->
+-            {auto o : Ref ROpts REPLOpts} ->
+-            RigCount -> ElabInfo ->
+-            NestedNames vars -> Env Term vars ->
+-            FC -> List FnOpt -> (scr : RawImp) -> (ty : RawImp) -> List ImpClause ->
+-            Maybe (Glued vars) ->
+-            Core (Term vars, Glued vars)
+-checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
+-    = delayElab fc rig env exp CaseBlock $
++checkCaseDelayed : {vars : _} ->
++                   {auto c : Ref Ctxt Defs} ->
++                   {auto m : Ref MD Metadata} ->
++                   {auto u : Ref UST UState} ->
++                   {auto e : Ref EST (EState vars)} ->
++                   {auto s : Ref Syn SyntaxInfo} ->
++                   {auto o : Ref ROpts REPLOpts} ->
++                   RigCount -> ElabInfo ->
++                   NestedNames vars -> Env Term vars ->
++                   FC -> List FnOpt -> (scr : RawImp) -> (ty : RawImp) -> List ImpClause ->
++                   Maybe (Glued vars) ->
++                   Core (Term vars, Glued vars)
++checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts exp
++    =
+         do scrty_exp <- case scrty_in of
+                              Implicit {} => guessScrType alts
+                              _ => pure scrty_in
+@@ -448,3 +447,51 @@ checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
+                      applyTo defs (IVar fc tyn) tyty
                 _ => guessScrType xs
      guessScrType (_ :: xs) = guessScrType xs
- 
++
 +-- A case block expected at a delayed type, Lazy t or Inf t, is checked at
 +-- t and delayed whole. Checked at the delayed type, each alternative would
 +-- be delayed instead, so the block, and its scrutinee, would be computed
@@ -16,7 +53,6 @@ index 155e4be..b799e14 100644
 +                    {auto c : Ref Ctxt Defs} ->
 +                    {auto m : Ref MD Metadata} ->
 +                    {auto u : Ref UST UState} ->
-+                    {auto dl : Ref DLY DelayedElabs} ->
 +                    {auto e : Ref EST (EState vars)} ->
 +                    {auto s : Ref Syn SyntaxInfo} ->
 +                    {auto o : Ref ROpts REPLOpts} ->
@@ -38,15 +74,22 @@ index 155e4be..b799e14 100644
 +                 pure (TDelay fc r ty tm, glueBack defs env (NDelayed fc r tynf))
 +           _ => checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts (Just expected)
 +
- export
- checkCase : {vars : _} ->
-             {auto c : Ref Ctxt Defs} ->
-@@ -466,4 +498,4 @@ checkCase : {vars : _} ->
-             Core (Term vars, Glued vars)
- checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
-     = delayElab fc rig env exp CaseBlock $ \dl, exp' =>
--        checkCaseDelayed {dl} rig elabinfo nest env fc opts scr scrty_in alts exp'
-+        checkCaseExpected {dl} rig elabinfo nest env fc opts scr scrty_in alts exp'
++export
++checkCase : {vars : _} ->
++            {auto c : Ref Ctxt Defs} ->
++            {auto m : Ref MD Metadata} ->
++            {auto u : Ref UST UState} ->
++            {auto e : Ref EST (EState vars)} ->
++            {auto s : Ref Syn SyntaxInfo} ->
++            {auto o : Ref ROpts REPLOpts} ->
++            RigCount -> ElabInfo ->
++            NestedNames vars -> Env Term vars ->
++            FC -> List FnOpt -> (scr : RawImp) -> (ty : RawImp) -> List ImpClause ->
++            Maybe (Glued vars) ->
++            Core (Term vars, Glued vars)
++checkCase rig elabinfo nest env fc opts scr scrty_in alts exp
++    = delayElab fc rig env exp CaseBlock $
++        checkCaseExpected rig elabinfo nest env fc opts scr scrty_in alts exp
 diff --git a/tests/idris2/basic/lazycase001/LazyCase.idr b/tests/idris2/basic/lazycase001/LazyCase.idr
 new file mode 100644
 index 0000000..cc59e2c

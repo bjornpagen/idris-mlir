@@ -17,11 +17,25 @@ equals), the scrutinee type and clause index, per definition each
 clause's patterns as the case builder read them, and a block's typed
 parent; `ttcVersion` moves.
 
-`pull-request.diff` is that commit's change for this entry, its paths
-those of the Idris tree (`src/...`), against the fork as it stood before
-the commit (the pin with the earlier fork entries), which is what a re-sync
- of the fork reads. Hunks the commit shares between entries sit in
-one of them, as each entry's text says.
+`pull-request.diff` is that commit's change for this entry, laid out
+against third_party/Idris2 at its gitlink (89ba32eb): each hunk is the
+change written against upstream's file, without the fork's other
+deviations, so that it applies to the pin alone and states exactly what
+a re-sync of the fork carries. It was made by merging the change three
+ways onto upstream's files and writing each conflict against upstream's
+text; a part of the change in a file of the fork's own, with no upstream
+counterpart, is left out and said below. Hunks the commit shares between
+entries sit in one of them, as each entry's text says.
+
+Upstream writes terms and case trees in its `TTC` instances, where the
+fork has its own encoders and decoders (upstream/fork-total-frontend-paths):
+the facts are written there, `Let`, `PLet` and `PVTy` with their binder
+type, `Erased` with why, a `Case` with its scrutinee type and an `STerm`
+with its clause index. The fork's total decoders of patterns, which this
+commit added and which write upstream's bytes, are the fork's own and
+are left out, as are `saveMetas`' change and a block's parent, which
+upstream's `fromBuf` reads as written once `Core.Name` makes it a name
+(fork-block-parent).
 
 Since e5b39cb2 (lane L17's second half), the TTC also keeps whether a
 `Delay` was written or inserted by the elaborator (PINS.md ttc-delays),

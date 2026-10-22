@@ -21,11 +21,25 @@ go; `%transform` and `%spec` are read as hints this compiler need not
 apply. The hunk of `processDef` that stores `clausePats` in place of the
 placeholder tree is in fork-erase-args' diff, which shares it.
 
-`pull-request.diff` is that commit's change for this entry, its paths
-those of the Idris tree (`src/...`), against the fork as it stood before
-the commit (the pin with the earlier fork entries), which is what a re-sync
- of the fork reads. Hunks the commit shares between entries sit in
-one of them, as each entry's text says.
+`pull-request.diff` is that commit's change for this entry, laid out
+against third_party/Idris2 at its gitlink (89ba32eb): each hunk is the
+change written against upstream's file, without the fork's other
+deviations, so that it applies to the pin alone and states exactly what
+a re-sync of the fork carries. It was made by merging the change three
+ways onto upstream's files and writing each conflict against upstream's
+text; a part of the change in a file of the fork's own, with no upstream
+counterpart, is left out and said below. Hunks the commit shares between
+entries sit in one of them, as each entry's text says.
+
+Upstream's case builder calls its step `match` and its clauses
+`(List Pat, ClosedTerm)`; the change is written on those. `Core.TT.Var`'s
+part touches the fork's own `nameAtIsVar` and `renamedVarAt` and has no
+counterpart.
+
+The fork's own files have no upstream counterpart: the modules the change
+removes from its `MODULES` and `idris-compiler.ipkg` are removed from
+upstream's `idris2api.ipkg` instead, and its part in `src/Idris/Host.idr`
+(the fork's statement of what it trusts) is left out.
 
 ## Why there is no patch
 

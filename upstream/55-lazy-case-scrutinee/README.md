@@ -93,7 +93,10 @@ or a coding agent, issues, pull requests, commits and comments alike
 written with one.
 
 - `pull-request.diff` records the change and its upstream test against
-  the fork. At a re-sync of compiler/idris (compiler/idris/README.md), if
+  third_party/Idris2 at its gitlink (89ba32eb). Upstream's `checkCase` is
+  one function whose body `delayElab` wraps; the record makes that body
+  `checkCaseDelayed` and `checkCase` the delay of `checkCaseExpected`, as
+  the fork has it, without the fork's other changes to the file. At a re-sync of compiler/idris (compiler/idris/README.md), if
   upstream has fixed this bug its own way, the fork takes upstream's code
   and drops `checkCaseExpected`; `checkDelayAt` may stay as the one
   elaborator of a delay.

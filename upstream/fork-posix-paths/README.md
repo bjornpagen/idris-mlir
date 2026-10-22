@@ -17,11 +17,23 @@ names after it, split at `/` alone, on every target the compiler has
 (all POSIX); `Volume`, `dirSeparator`, `pathSeparator`, `pathLookup` and
 the run-time test of the host go.
 
-`pull-request.diff` is that commit's change for this entry, its paths
-those of the Idris tree (`src/...`), against the fork as it stood before
-the commit (the pin with the earlier fork entries), which is what a re-sync
- of the fork reads. Hunks the commit shares between entries sit in
-one of them, as each entry's text says.
+`pull-request.diff` is that commit's change for this entry, laid out
+against third_party/Idris2 at its gitlink (89ba32eb): each hunk is the
+change written against upstream's file, without the fork's other
+deviations, so that it applies to the pin alone and states exactly what
+a re-sync of the fork carries. It was made by merging the change three
+ways onto upstream's files and writing each conflict against upstream's
+text; a part of the change in a file of the fork's own, with no upstream
+counterpart, is left out and said below. Hunks the commit shares between
+entries sit in one of them, as each entry's text says.
+
+Upstream parses a path with combinators, where the fork had written a
+lexer of its own under an earlier change: the change is written on
+upstream's combinators, `/` the one separator and no volume.
+
+The change's hunk in `mkdirAll` (`Core.Directory`) is to the fork's own
+form of it (upstream/fork-total-frontend-paths), which builds a `Path`;
+upstream's builds none, so the hunk has no counterpart and is left out.
 
 ## Why there is no patch
 
