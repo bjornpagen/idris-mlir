@@ -116,14 +116,15 @@ private:
 // releases or takes apart (a rebuild site among those) the parameter or a
 // value read from it, or passes one to a counted parameter, since what is
 // read from a view is a view and no view is consumed (an element loaded
-// from an array takes its own reference where it is read, and consuming it
-// consumes nothing of the array), or an op of upstream's reads it or a part
-// of it, which takes only the bare carrier; and wherever a caller's
-// argument is bound at quantity 1, or is dead after the call while its type
-// does not bound what it reaches, or is passed where no loan of it may
-// stand: by a tail call or a call modulo context (a jump is a tail
-// transfer), by a call on its caller's own cycle, or by a jump into a join
-// point whose op holds one, since frames split a function at such a call.
+// from an array is a view by its stretch's row, or a reference of its own
+// where something there writes, never a part of the array), or an op of
+// upstream's reads it or a part of it, which takes only the bare carrier;
+// and wherever a caller's argument is bound at quantity 1, or is dead after
+// the call while its type does not bound what it reaches, or is passed
+// where no loan of it may stand: by a tail call or a call modulo context (a
+// jump is a tail transfer), by a call on its caller's own cycle, or by a
+// jump into a join point whose op holds one, since frames split a function
+// at such a call.
 // The root's parameters are counted (its caller is outside); a memo cell's
 // are views (a force writes it while its caller reads it).
 class Borrows : public solver::ReadsAnalyses<Borrows, solver::ProgramGraph> {

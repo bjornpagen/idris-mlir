@@ -290,8 +290,8 @@ inline bool readsPart(mlir::OpOperand &use) {
 }
 
 // Whether `value` is an element read out of the elements of an array, as
-// the op that reads it declares: it takes its own reference where it is
-// read, so consuming it consumes nothing of the array.
+// the op that reads it declares: a view by its stretch's row where nothing
+// there writes, else a reference of its own, never a part of the array's.
 inline bool readOutOfElements(mlir::Value value) {
   auto declared = llvm::dyn_cast_or_null<FlowOpInterface>(value.getDefiningOp());
   if (!declared)

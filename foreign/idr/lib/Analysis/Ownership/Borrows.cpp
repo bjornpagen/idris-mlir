@@ -216,11 +216,11 @@ private:
   }
 
   // The parameter, of the function or of a join point, `value` is or is read
-  // from, from what the walk's order derived first: through the positions
-  // that hand a value on as itself, the region entries that bind it again
-  // and what each part was read from. None for a value that holds no
-  // reference, an element loaded from an array (its read takes a reference
-  // of its own) and a value the body makes.
+  // from, as the walk's order derived it: through positions that hand a value
+  // on as itself, region entries that bind it again and what each part was
+  // read from. None for a value holding no reference, an element loaded from
+  // an array (a view by its stretch's row where nothing there writes, else a
+  // reference of its own) and a value the body makes.
   std::optional<Owner> derive(Value value, BodyValue at,
                               const IndexVector<BodyValue, std::optional<BodyValue>> &rebinds) const {
     if (!holdsReferences(value.getType()))
