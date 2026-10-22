@@ -2349,7 +2349,8 @@ improvements (`audits/p0/verify/`), each citing its lane and section.
   one, join parameters included. No lexical lifetimes for drops: Idris
   has no destructors.
 - **C38** (DP-57: count-Q3; corrected, L04 §2.16, L07 §2.13, L10 §2.5,
-  I-11, review §4.4). Tail recursion modulo context is read off the
+  I-11, review §4.4) (amended by C203: the one decider writes
+  `modulo_context` at the first-order stage, still before counting). Tail recursion modulo context is read off the
   program before counting (D34): the frontend writes `modulo_context` on
   the call, which needs case blocks emitted in place (C55). Its source
   condition states the evaluation order: the self call is the last
@@ -4070,6 +4071,13 @@ C137.
   asks. `ub.poison` is graded as any value of ours: it holds no value,
   so its type is ours to choose, and a dead arm yielding it costs a
   match no claim.
+- **C203** (2026-10-22; L16's sixth pass; amends C38 under C139). The
+  frontend writes every call `nontail`, and `tail::decide`, run where the
+  program becomes first order, writes `tail` and `modulo_context`. No
+  source syntax states a context, so the frontend would only restate the
+  decider; before that stage a call's fact promises nothing. The context
+  is still read off the program before counting, as C38 asks, and from
+  that stage on every fact is the decider's answer, checked both ways.
 
 ## 4. Open: the owner's decisions, in order
 
