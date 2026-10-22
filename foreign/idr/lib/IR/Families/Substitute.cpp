@@ -202,10 +202,13 @@ struct Signature {
 };
 
 // `type` and its `extents` under `map`: every family type mapped, and each
-// entry's term written through the same map. A term that still names a
-// level stays an entry. One that names none is a size or opaque, and an
-// entry's term names a binder, so its entry goes: a bare tensor argument's
-// axis is static at a size, and every other axis stays `?`.
+// entry's term written through the same map. An entry goes where its axis
+// is left no `?` to name, a bare tensor argument's axis whose term became a
+// size and is now static; and where its term became opaque, which names no
+// size, as the `?` already says. Every other entry stays, its term over
+// binders or now a constant: a result and a graded array keep their `?` on
+// purpose, as does an axis whose natural is past a dimension, and a known
+// size is never dropped.
 Signature mapSignature(FunctionType type, ExtentsAttr extents, const LevelMap &map) {
   auto mapped = cast<FunctionType>(mapLevels(type, map));
   Signature at{SmallVector<Type>(mapped.getInputs()), SmallVector<Type>(mapped.getResults()), {},
@@ -222,15 +225,17 @@ Signature mapSignature(FunctionType type, ExtentsAttr extents, const LevelMap &m
     size_t begin = nodes.size();
     map.write(write, entry.term);
     Term term(ArrayRef<TermNode>(nodes).drop_front(begin));
-    if (term.freeLevels() != 0) {
-      named.push_back({entry.at, begin});
+    if (term.kind() == TermKind::Opaque) {
+      nodes.resize(begin);
       continue;
     }
     std::optional<int64_t> size = sizeOf(term);
-    nodes.resize(begin);
     RankedTensorType array = staticArray(at.inputs, entry.at);
-    if (!array || !size)
+    if (!array || !size) {
+      named.push_back({entry.at, begin});
       continue;
+    }
+    nodes.resize(begin);
     assert(array.isDynamicDim(entry.at.axis) && "an extent names an axis whose size is no constant");
     SmallVector<int64_t> shape(array.getShape());
     shape[entry.at.axis] = *size;

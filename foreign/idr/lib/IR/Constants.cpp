@@ -50,7 +50,7 @@ LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, Closu
     return op->emitOpError("has a closure giving ")
            << terms.getCount() << " index terms to " << closure.getCallee() << ", which binds "
            << binding;
-  FunctionType at = families::substitute(fn.getFunctionType(), terms);
+  FunctionType at = families::substitute(fn.getFunctionType(), fn.getExtentsAttr(), terms);
   ArrayRef<Type> inputs = at.getInputs();
   ArrayRef<Type> results = at.getResults();
   size_t captures = closure.getCaptures().size();

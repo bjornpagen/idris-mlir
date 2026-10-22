@@ -75,14 +75,15 @@ mlir::FunctionType substitute(mlir::FunctionType type, ExtentsAttr extents, Inde
 // instantiated at `args`, as `substitute` maps its signature, every case
 // region the new indices make impossible pruned and every refinement cast
 // between two types that became equal folded. Each entry's term is mapped;
-// an entry whose term names no binder goes, its axis static where
-// `substitute` makes it so. The body follows its parameters' types in one
-// walk in program order: each op whose results follow from its operands
-// has them inferred again wherever they no longer agree with its operands,
-// whether an axis was made static here or the caller set a parameter's
-// hold before the call; a value made more static is cast back by
-// tensor.cast only where a use's type is fixed elsewhere. The sorts of the
-// binders that stay, which the caller sets on its op.
+// an entry goes where `substitute` makes its axis static or its term
+// became opaque, and every other stays, a constant one where the axis
+// keeps its `?` (a result, a graded array). The body follows its
+// parameters' types in one walk in program order: each op whose results
+// follow from its operands has them inferred again wherever they no longer
+// agree with its operands, whether an axis was made static here or the
+// caller set a parameter's hold before the call; a value made more static
+// is cast back by tensor.cast only where a use's type is fixed elsewhere.
+// The sorts of the binders that stay, which the caller sets on its op.
 mlir::FailureOr<llvm::SmallVector<Sort>> substituteFunction(FuncOp function, IndexArgsAttr args);
 
 // Moves the levels [from, from + count) of every type under `region` to
