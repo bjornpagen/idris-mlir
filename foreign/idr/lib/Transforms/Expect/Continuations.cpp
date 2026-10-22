@@ -14,8 +14,6 @@
 
 #include "llvm/ADT/STLExtras.h"
 
-#include "idr/IR/Generated/StageFacts.h.inc"
-
 using namespace mlir;
 
 namespace idr::expect {
@@ -27,9 +25,8 @@ namespace idr::expect {
 // entered from outside the program, so it is no continuation however its
 // functions call it.
 LogicalResult contified(const Request<Nothing> &request) {
-  auto program = dyn_cast<ProgramOp>(programOf(request.module));
-  if (!program || closuresAt[program.getStage()] != StageClosures::FirstOrder ||
-      functionsAt[program.getStage()] != StageFunctions::Ours)
+  ProgramOp program = firstOrderProgram(request.module);
+  if (!program)
     return fail(request.module->getLoc(), request.property)
            << "is stated of a first-order program before its lowering, which the module does "
               "not hold";

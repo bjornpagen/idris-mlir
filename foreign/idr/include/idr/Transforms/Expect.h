@@ -35,6 +35,7 @@
 
 #include "idr/Analysis/Solver/Components.h"
 #include "idr/Analysis/Solver/Graph.h"
+#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Changed.h"
 #include "idr/Support/Id.h"
@@ -58,6 +59,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <ranges>
 #include <string>
 
 namespace idr {
@@ -182,81 +184,136 @@ mlir::SymbolTable &symbolsOf(mlir::ModuleOp module, mlir::AnalysisManager &analy
 // its own location names `f`.
 bool names(mlir::FunctionOpInterface fn, llvm::StringRef f);
 
-class FunctionNumbering;
+// The module's program where it is first-order and its functions are ours,
+// past defunctionalization and before the lowering: the program the program
+// graph indexes. Null elsewhere: a program whose closures remain, a module
+// the lowering has left, a hand-written module with no program.
+ProgramOp firstOrderProgram(mlir::ModuleOp module);
+
+// What a check reads of the program's functions: how many ids there are,
+// the size of every bit set and table it keeps of them; the functions, by
+// id; a function's id; and the function an id names. Every set or fact a
+// check holds of functions is a bit set or a table indexed by these ids, so
+// no check keeps a map of functions.
+template <class N>
+concept FunctionNumbering =
+    requires(const N &numbering, typename N::Node f, mlir::FunctionOpInterface fn) {
+      requires std::same_as<typename N::Node,
+                            Id<typename N::Node::tag, typename N::Node::rep>>;
+      { numbering.size() } -> std::same_as<Count<typename N::Node>>;
+      { numbering.functions() } -> std::ranges::input_range;
+      { numbering.op(f) } -> std::same_as<mlir::FunctionOpInterface>;
+      { numbering.id(fn) } -> std::same_as<typename N::Node>;
+    };
+
+// Where the program graph exists: its function ids, the one numbering of a
+// first-order program's functions, which its passes read too. Its id space
+// has gaps (upstream's external nodes), which `functions` skips and no
+// function's id names.
+class GraphNumbering {
+public:
+  using Node = solver::FunctionId;
+
+  explicit GraphNumbering(const solver::ProgramGraph &graph) : graph(graph) {}
+
+  Count<Node> size() const { return graph.size(); }
+  IdRange<Node> functions() const { return graph.functions(); }
+  mlir::FunctionOpInterface op(Node f) const { return graph.op(f); }
+  // Every function of a first-order program is an idr.func the graph holds.
+  Node id(mlir::FunctionOpInterface fn) const {
+    return graph.id(llvm::cast<FuncOp>(fn.getOperation()));
+  }
+
+private:
+  const solver::ProgramGraph &graph;
+};
+
+class WalkNumbering;
 
 namespace detail {
-// The functions of the program a check reads, numbered by
-// FunctionNumbering.
-struct CheckedFunction {
-  using Minter = FunctionNumbering;
+// The functions numbered by their walk.
+struct WalkedFunction {
+  using Minter = WalkNumbering;
 };
 } // namespace detail
 
-// The program's functions, numbered once in their order: the analysis of
-// the op that holds them, so every check of one module asks for it once
-// and they share it. Its map from a function to its number is the one
-// map a check keeps of functions; every set or fact a check holds of them
-// is a bit set or a table indexed by that number.
-class FunctionNumbering {
+// Where no program graph exists: the functions of the op that holds them,
+// numbered once in their walk, their order in its one block, as the
+// analysis of that op, so every check of one module walks them once. A
+// function's id is its position in the walk, found by the order MLIR keeps
+// of the block, which it numbers once and holds in each op until the block
+// changes; so no map, keyed by a handle or by a name, holds an id.
+class WalkNumbering {
 public:
-  using Node = Id<detail::CheckedFunction>;
+  using Node = Id<detail::WalkedFunction>;
 
-  // The functions `program` holds, in their order (functionsOf).
-  explicit FunctionNumbering(mlir::Operation *program);
+  explicit WalkNumbering(mlir::Operation *holder);
 
-  Count<Node> count() const { return Count<Node>(static_cast<std::uint32_t>(nodes.size())); }
-  // The number of a function; none for an op the program does not hold,
-  // which a symbol of another table can name.
-  std::optional<Node> idOf(mlir::Operation *fn) const {
-    auto at = number.find(fn);
-    if (at == number.end())
-      return std::nullopt;
-    return Node(at->second);
-  }
-  mlir::Operation *operator[](Node n) const { return nodes[n.index()]; }
+  Count<Node> size() const { return Count<Node>(static_cast<std::uint32_t>(walk.size())); }
+  auto functions() const { return size().ids(); }
+  mlir::FunctionOpInterface op(Node f) const { return walk[f.index()]; }
+  // The position of `fn`, a function the holder holds, in the walk.
+  Node id(mlir::FunctionOpInterface fn) const;
 
 private:
-  llvm::SmallVector<mlir::Operation *> nodes;
-  llvm::DenseMap<mlir::Operation *, std::uint32_t> number;
+  llvm::SmallVector<mlir::FunctionOpInterface> walk;
 };
 
-// The program's functions, numbered once for every property that asks.
-const FunctionNumbering &numberingOf(mlir::ModuleOp module, mlir::AnalysisManager &analyses);
+static_assert(FunctionNumbering<GraphNumbering> && FunctionNumbering<WalkNumbering>);
+
+// The walk of the module's program, made once for every check that asks.
+const WalkNumbering &walkOf(mlir::ModuleOp module, mlir::AnalysisManager &analyses);
+
+// `check` run on the numbering of `module`'s functions: the program graph's
+// where it exists, the walk's elsewhere. The one place the two are told
+// apart, once per check, so every query below it is typed.
+template <class Check>
+  requires std::invocable<Check &, const GraphNumbering &> &&
+           std::invocable<Check &, const WalkNumbering &>
+mlir::LogicalResult withNumbering(mlir::ModuleOp module, mlir::AnalysisManager &analyses,
+                                  Check check) {
+  if (ProgramOp program = firstOrderProgram(module))
+    return std::invoke(check, GraphNumbering(
+                                  analyses.nest(program).getAnalysis<solver::ProgramGraph>()));
+  return std::invoke(check, walkOf(module, analyses));
+}
 
 // The functions the body of `fn` names by a symbol use (a call, a closure,
-// a constant), each once, by number, in the program's order.
-llvm::SmallVector<FunctionNumbering::Node> callees(const FunctionNumbering &numbering,
-                                                   mlir::SymbolTable &symbols,
-                                                   FunctionNumbering::Node fn);
+// a constant), each once, by id, in id order.
+template <FunctionNumbering N>
+llvm::SmallVector<typename N::Node> callees(const N &numbering, mlir::SymbolTable &symbols,
+                                            typename N::Node fn);
+extern template llvm::SmallVector<GraphNumbering::Node>
+callees<GraphNumbering>(const GraphNumbering &, mlir::SymbolTable &, GraphNumbering::Node);
+extern template llvm::SmallVector<WalkNumbering::Node>
+callees<WalkNumbering>(const WalkNumbering &, mlir::SymbolTable &, WalkNumbering::Node);
 
 // What `edges` gives of a function: the functions it refers to, each by its
-// number.
-template <class Edges>
-concept FunctionEdges =
-    std::invocable<Edges &, FunctionNumbering::Node> &&
-    std::convertible_to<std::invoke_result_t<Edges &, FunctionNumbering::Node>,
-                        llvm::SmallVector<FunctionNumbering::Node>>;
+// id.
+template <class Edges, class Node>
+concept FunctionEdges = std::invocable<Edges &, Node> &&
+                        std::convertible_to<std::invoke_result_t<Edges &, Node>,
+                                            llvm::SmallVector<Node>>;
 
 // Every function `roots` reach by `edges`, the roots included, each once,
-// by its number, in the order first reached; a root the numbering does not
-// hold is no function of the program, and reaches nothing. The set is a
-// test's question of one module, asked once per check: a bit per function
-// of the numbering while it is asked, the functions it reaches its answer.
-template <FunctionEdges Edges>
-llvm::SmallVector<FunctionNumbering::Node> reachable(const FunctionNumbering &numbering,
-                                                     llvm::ArrayRef<mlir::Operation *> roots,
-                                                     Edges edges) {
-  BitSet<FunctionNumbering::Node> seen(numbering.count());
-  llvm::SmallVector<FunctionNumbering::Node> order;
-  auto reach = [&](FunctionNumbering::Node id) {
+// by its id, in the order first reached. The set is a test's question of
+// one module, asked once per check: a bit per id while it is asked, the
+// functions it reaches its answer.
+template <FunctionNumbering N, FunctionEdges<typename N::Node> Edges>
+llvm::SmallVector<typename N::Node> reachable(const N &numbering,
+                                              llvm::ArrayRef<typename N::Node> roots,
+                                              Edges edges) {
+  using Node = typename N::Node;
+  BitSet<Node> seen(numbering.size());
+  llvm::SmallVector<Node> order;
+  auto reach = [&](Node id) {
     if (seen.raise(id) == Changed::Yes)
       order.push_back(id);
   };
-  for (mlir::Operation *root : roots)
-    if (std::optional<FunctionNumbering::Node> id = numbering.idOf(root))
-      reach(*id);
+  for (Node root : roots)
+    reach(root);
   for (std::size_t at = 0; at < order.size(); ++at)
-    for (FunctionNumbering::Node next : std::invoke(edges, order[at]))
+    for (Node next : std::invoke(edges, order[at]))
       reach(next);
   return order;
 }
@@ -266,23 +323,23 @@ llvm::SmallVector<FunctionNumbering::Node> reachable(const FunctionNumbering &nu
 // one that refers to itself, callees first, found by the solver layer's
 // components over the graph of the program's functions, whose edges are
 // those of `nodes` alone.
-template <FunctionEdges Edges>
-llvm::SmallVector<llvm::SmallVector<FunctionNumbering::Node>>
-cycles(const FunctionNumbering &numbering, llvm::ArrayRef<FunctionNumbering::Node> nodes,
-       Edges edges) {
-  using Node = FunctionNumbering::Node;
-  BitSet<Node> among(numbering.count());
+template <FunctionNumbering N, FunctionEdges<typename N::Node> Edges>
+llvm::SmallVector<llvm::SmallVector<typename N::Node>>
+cycles(const N &numbering, llvm::ArrayRef<typename N::Node> nodes, Edges edges) {
+  using Node = typename N::Node;
+  using Tag = typename Node::tag;
+  BitSet<Node> among(numbering.size());
   llvm::SmallVector<Node> ids;
   for (Node id : nodes)
     if (among.raise(id) == Changed::Yes)
       ids.push_back(id);
-  CsrBuilder<detail::CheckedFunction> builder(numbering.count());
+  CsrBuilder<Tag> builder(numbering.size());
   for (Node from : ids)
     for (Node to : std::invoke(edges, from))
       if (among.test(to))
         builder.edge(from, to);
-  Csr<detail::CheckedFunction> graph = std::move(builder).finish();
-  Partition<detail::CheckedFunction> parts = components(graph);
+  Csr<Tag> graph = std::move(builder).finish();
+  Partition<Tag> parts = components(graph);
   llvm::SmallVector<llvm::SmallVector<Node>> out;
   for (auto component : parts.size().ids()) {
     if (!parts.cyclic(component))

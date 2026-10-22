@@ -38,37 +38,43 @@ LogicalResult noHeapAllocation(const Request<Roots> &request) {
   ModuleOp module = request.module;
   const std::optional<Functions> &scope = request.argument.scope;
   SymbolTable *symbols = scope ? &symbolsOf(module, request.analyses) : nullptr;
-  const FunctionNumbering &numbering = numberingOf(module, request.analyses);
-  SmallVector<Operation *> roots;
-  for (FunctionOpInterface fn : scope ? scope->functions : functionsOf(module))
-    roots.push_back(fn);
-  // After lowering a body calls the runtime, whose functions are
-  // declarations: the property is one of the idr functions.
-  auto edges = [&](FunctionNumbering::Node id) {
-    Operation *fn = numbering[id];
-    if (!symbols || cast<FunctionOpInterface>(fn).isExternal() || !isa<FuncOp>(fn))
-      return SmallVector<FunctionNumbering::Node>();
-    return callees(numbering, *symbols, id);
-  };
-  bool held = true;
-  for (FunctionNumbering::Node next : reachable(numbering, roots, edges)) {
-    auto fn = cast<FunctionOpInterface>(numbering[next]);
-    if (fn.isExternal()) {
-      if (symbols) {
-        fail(fn->getLoc(), request.property)
-            << where(fn) << " may be called, and its body is not in the module";
-        held = false;
+  return withNumbering(module, request.analyses, [&]<FunctionNumbering N>(const N &numbering) {
+    using Node = typename N::Node;
+    SmallVector<Node> roots;
+    if (scope)
+      for (FunctionOpInterface fn : scope->functions)
+        roots.push_back(numbering.id(fn));
+    else
+      for (Node fn : numbering.functions())
+        roots.push_back(fn);
+    // After lowering a body calls the runtime, whose functions are
+    // declarations: the property is one of the idr functions.
+    auto edges = [&](Node id) {
+      FunctionOpInterface fn = numbering.op(id);
+      if (!symbols || fn.isExternal() || !isa<FuncOp>(fn.getOperation()))
+        return SmallVector<Node>();
+      return callees(numbering, *symbols, id);
+    };
+    bool held = true;
+    for (Node next : reachable(numbering, roots, edges)) {
+      FunctionOpInterface fn = numbering.op(next);
+      if (fn.isExternal()) {
+        if (symbols) {
+          fail(fn->getLoc(), request.property)
+              << where(fn) << " may be called, and its body is not in the module";
+          held = false;
+        }
+        continue;
       }
-      continue;
+      fn->walk([&](Operation *op) {
+        if (std::optional<std::string> found = allocation(op)) {
+          fail(op->getLoc(), request.property) << *found << " in " << where(op);
+          held = false;
+        }
+      });
     }
-    fn->walk([&](Operation *op) {
-      if (std::optional<std::string> found = allocation(op)) {
-        fail(op->getLoc(), request.property) << *found << " in " << where(op);
-        held = false;
-      }
-    });
-  }
-  return success(held);
+    return success(held);
+  });
 }
 
 } // namespace idr::expect

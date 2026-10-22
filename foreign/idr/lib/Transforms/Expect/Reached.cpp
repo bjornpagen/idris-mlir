@@ -15,26 +15,28 @@ namespace idr::expect {
 
 LogicalResult reached(const Request<Nothing> &request) {
   SymbolTable &symbols = symbolsOf(request.module, request.analyses);
-  const FunctionNumbering &numbering = numberingOf(request.module, request.analyses);
-  SmallVector<FunctionOpInterface> functions = functionsOf(request.module);
-  SmallVector<Operation *> roots;
-  for (FunctionOpInterface fn : functions)
-    if (cast<SymbolOpInterface>(fn.getOperation()).isPublic())
-      roots.push_back(fn);
-  // The answer of this one check, a bit per function, kept nowhere after it.
-  BitSet<FunctionNumbering::Node> reach(numbering.count());
-  for (FunctionNumbering::Node id :
-       reachable(numbering, roots,
-                 [&](FunctionNumbering::Node fn) { return callees(numbering, symbols, fn); }))
-    (void)reach.raise(id);
-  bool held = true;
-  for (FunctionNumbering::Node id : numbering.count().ids()) {
-    if (reach.test(id))
-      continue;
-    fail(numbering[id]->getLoc(), request.property) << where(numbering[id]) << " is reached from no root";
-    held = false;
-  }
-  return success(held);
+  return withNumbering(
+      request.module, request.analyses, [&]<FunctionNumbering N>(const N &numbering) {
+        using Node = typename N::Node;
+        SmallVector<Node> roots;
+        for (Node fn : numbering.functions())
+          if (cast<SymbolOpInterface>(numbering.op(fn).getOperation()).isPublic())
+            roots.push_back(fn);
+        // The answer of this one check, a bit per id, kept nowhere after it.
+        BitSet<Node> reach(numbering.size());
+        for (Node id :
+             reachable(numbering, roots, [&](Node fn) { return callees(numbering, symbols, fn); }))
+          (void)reach.raise(id);
+        bool held = true;
+        for (Node id : numbering.functions()) {
+          if (reach.test(id))
+            continue;
+          FunctionOpInterface fn = numbering.op(id);
+          fail(fn->getLoc(), request.property) << where(fn) << " is reached from no root";
+          held = false;
+        }
+        return success(held);
+      });
 }
 
 } // namespace idr::expect
