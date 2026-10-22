@@ -299,10 +299,11 @@ extern const idris_rt_built idris_rt_program_built;
  * allocator at most once. */
 
 /* The functions idr-lower calls, the ops' runtime functions and the helpers
- * no op names (the cell, array, counting, token, string-building, crash and
- * entry functions), declared from the dialect's specification, so that a
- * definition in runtime/ that does not take what lowered code passes and give
- * what it expects fails to compile. */
+ * no op names (the cell, array, counting, token, string-building, crash,
+ * lifetime, frame-stack, account and entry functions), declared from the
+ * dialect's specification, each pointer with the C type it points to, so
+ * that a definition in runtime/ that does not take what lowered code passes
+ * and give what it expects fails to compile. */
 #include "idris_rt_ops.h"
 
 /* Counting has one increment and one decrement for each kind of word a
@@ -378,15 +379,22 @@ typedef enum idris_rt_ran { IDRIS_RT_RAN, IDRIS_RT_REFUSED } idris_rt_ran;
 /* The functions lowered code does not call: idris-mlir calls them natively
  * (its folders, its tools, idr-lower's static data), and so do the runtime's
  * tests. The tools run on idris_rt_run_on_stack, as a program runs on
- * idris_rt_start's runner: it sets up the heap and GMP's allocation once,
- * before anything else of the runtime runs, so every other function here is
- * called from inside fn. A tool's own allocator that runs out ends the
- * process through idris_rt_out_of_memory, as lowered code does. */
+ * idris_rt_start's runner: it passes the same startup check (the page, and
+ * the IDRIS_RT_CPU_FEATURES bits of what the code it runs was compiled to
+ * use), then sets up the heap and GMP's allocation once, before anything
+ * else of the runtime runs, so every other function here is called from
+ * inside fn. A tool's own allocator that runs out ends the process through
+ * idris_rt_out_of_memory, as lowered code does. */
 idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg, const idris_rt_stack_plan *plan,
-                                   const char *name, size_t name_bytes);
+                                   const char *name, size_t name_bytes, uint64_t cpu_features);
 /* The memory a tool may plan for: physical memory, capped by the process's
  * address-space limit and by what its cgroup lets it still commit. */
 uint64_t idris_rt_host_memory(void);
+/* What the process may still commit before its host kills it, read from the
+ * host's files under root: "" for the host's own, or a directory where a
+ * test planted a host's proc/self/cgroup, proc/self/mountinfo and the cgroup
+ * hierarchy they name; UINT64_MAX where no limit holds. */
+uint64_t idris_rt_commit_limit(const char *root);
 void idris_rt_flush(void);
 const idris_rt_str *idris_rt_str_from_utf8(const char *p, size_t n);
 const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n);

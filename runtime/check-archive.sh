@@ -3,7 +3,8 @@
 # Copyright (c) 2026 Bjorn Pagen
 # The runtime archive references no symbol of the C++ runtime, not even
 # weakly, has no static constructors or destructors, and defines no count
-# of live cells, which only the checked runtime keeps. The build runs it
+# of cells and no account of what a call holds, which only the checked
+# runtime keeps. The build runs it
 # after the link check (runtime/CMakeLists.txt), through the wrapper it
 # writes with the target entry's spellings (build/<preset>/runtime/
 # check-archive), and so does tests/runtime-archive-check.
@@ -89,9 +90,10 @@ awk -v names="$constructors" '
       if ($2 == list[i] || index($2, list[i] ".") == 1) { print member ": " $2; break }
   }' "$work/sections" > "$work/constructors"
 
-# The count of the cells a program holds is the checked runtime's alone: a
-# shipped program counts nothing for a test.
-grep -E 'cellsHeld' "$work/defined" > "$work/counts" || true
+# The counts of the cells a program holds and makes, and the accounts of
+# what its calls hold, are the checked runtime's alone: a shipped program
+# counts nothing for a test.
+grep -E 'cellsHeld|cellsMade|peakAccounts' "$work/defined" > "$work/counts" || true
 
 status=0
 if [ -s "$work/counts" ]; then

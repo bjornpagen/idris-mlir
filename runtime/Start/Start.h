@@ -10,12 +10,30 @@
 // PIN(runtime-quarantine) — see PINS.md
 #pragma once
 
+#include "End/End.h"
+#include "Platform/Platform.h"
 #include "idris_rt.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
 namespace rt::start {
+
+// The startup check, which a program and a tool both pass before anything
+// else of the runtime runs: a system whose page is not the one the runtime
+// is built for, or a processor that lacks one of `features` (the
+// IDRIS_RT_CPU_FEATURES bits of what the code about to run was compiled to
+// use), cannot run it, and the process ends as such before it runs. It and
+// what it calls stay compiled for the target's baseline. Inlined into each
+// entry, which is marked the same way, so each compares the page its own
+// unit was built for.
+[[gnu::always_inline]] IDRIS_RT_BASELINE inline void checkMachine(uint64_t features) noexcept {
+  size_t system = rt::platform::systemPageSize();
+  if (system != rt::platform::pageSize())
+    rt::end::end(rt::end::WrongPage{rt::platform::pageSize(), system});
+  if (uint64_t missing = features & ~rt::platform::cpuFeatures(); missing != 0)
+    rt::end::end(rt::end::MissingFeatures{missing});
+}
 
 // The arguments main received, kept by idris_rt_start before the program
 // runs (Arguments.cpp).

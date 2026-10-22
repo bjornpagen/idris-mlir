@@ -40,10 +40,9 @@ void fail(int code);
 inline constexpr int64_t nullHandle = -1;
 
 // What a slot holds: a standard stream, which the table is made with and
-// never frees; an open file, an open directory or a file's times; or a
-// string, the program's, which freeing its handle releases, or the runtime's
-// (Kept), which only the next call of its kind or the end of the program
-// releases.
+// never frees; an open file or an open directory; or a string, the
+// program's, which freeing its handle releases, or the runtime's (Kept),
+// which only the next call of its kind or the end of the program releases.
 enum class Kind : uint8_t {
   Free,
   Input,
@@ -51,7 +50,6 @@ enum class Kind : uint8_t {
   Error,
   File,
   Directory,
-  Times,
   String,
   KeptString
 };
@@ -68,9 +66,6 @@ struct Slot {
   union {
     rt::platform::File *file;
     DirectoryPayload directory;
-    // Seconds and nanoseconds of a file's access, modification and status
-    // change times; -1 each when they could not be read.
-    int64_t times[6];
     // A string of either kind: one reference, the slot's.
     const idris_rt_str *string;
     // The next free slot's handle, or null.

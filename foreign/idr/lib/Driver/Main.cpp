@@ -90,8 +90,7 @@ int idr::driver::main(int argc, char **argv) {
   args.insert(args.begin() + 1, {"--align-all-functions=6", "--align-all-nofallthru-blocks=6",
                                  "--mlir-print-op-on-diagnostic=false"});
   if (!llvm::cl::ParseCommandLineOptions(static_cast<int>(args.size()), args.data(),
-                                         "idris-mlir: Idris source or an idr module to an "
-                                         "executable\n",
+                                         "Idris source or an idr module to an executable\n",
                                          &llvm::errs()))
     return usage;
   llvm::Expected<Invocation> invocation = readInvocation();
@@ -101,8 +100,8 @@ int idr::driver::main(int argc, char **argv) {
   }
   // --time-trace, when it named a file: written as this returns, by
   // whichever way out the invocation took.
-  idr::profile::Trace trace("idris-mlir");
-  return runTool("idris-mlir", [&] {
+  idr::profile::Trace trace(toolName);
+  return runTool([&] {
     return std::visit(llvm::makeVisitor(
                           [&](Compile &compiling) {
                             return compile(frontendBeside(argv[0]), std::move(compiling));

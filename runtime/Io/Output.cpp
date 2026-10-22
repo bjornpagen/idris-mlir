@@ -7,7 +7,6 @@
 // share it. A reader of either gone ends the program by the signal Unix
 // tools die of, its other files written first.
 // PIN(runtime-quarantine) — see PINS.md
-#include "Doubles/Doubles.h"
 #include "End/End.h"
 #include "Io/Io.h"
 #include "Platform/Platform.h"
@@ -163,26 +162,4 @@ extern "C" void idris_rt_io_put_str(const idris_rt_str *s) {
 extern "C" void idris_rt_io_put_char(int32_t c) {
   size_t at = roomFor(4);
   publish(at + rt::strings::encodeUtf8(c, output + at));
-}
-
-// Write the decimal text of a signed or an unsigned integer, which idr-lower
-// extends to 64 bits as its type's signedness says.
-extern "C" void idris_rt_io_put_int_s(int64_t value) {
-  char text[rt::strings::intTextMax];
-  char *end = text + sizeof text;
-  char *start = rt::strings::formatSigned(value, end);
-  putBytes(start, static_cast<size_t>(end - start));
-}
-
-extern "C" void idris_rt_io_put_int_u(uint64_t value) {
-  char text[rt::strings::intTextMax];
-  char *end = text + sizeof text;
-  char *start = rt::strings::formatUnsigned(value, end);
-  putBytes(start, static_cast<size_t>(end - start));
-}
-
-// Writes the text of a double, as idris_rt_str_show_f64 writes it.
-extern "C" void idris_rt_io_put_double(double value) {
-  char text[rt::doubles::doubleTextMax];
-  putBytes(text, rt::doubles::formatDouble(value, text));
 }

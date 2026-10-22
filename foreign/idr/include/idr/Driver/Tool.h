@@ -7,19 +7,30 @@
 // patched upstream), behind a guard whose fault is the tool's internal
 // error. Running out of memory, anywhere in LLVM, MLIR or the runtime, ends
 // through one handler: the runtime's out-of-memory ending, its status and
-// `<tool>: fatal: out of memory`, never LLVM's abort.
+// `<tool>: fatal: out of memory`, never LLVM's abort. A machine that cannot
+// run what the target's programs run cannot run the tool either: the
+// runtime's native code it links calls the target's simdutf kernels, whose
+// features are the program CPU's, so the runner's startup check refuses such
+// a machine, as a program's does.
 #ifndef IDR_DRIVER_TOOL_H
 #define IDR_DRIVER_TOOL_H
 
+#include "idr/Driver/Report.h"
 #include "idr/Support/Profile.h"
 
-// The runtime's C ABI: the runner and the out-of-memory ending.
+// The target entry's description: the program CPU's features.
+#include "idr/TargetEntry.h"
+
+// The runtime's C ABI: the runner and the out-of-memory ending; and the
+// target entry's list of processor features.
+#include "cpu_features.h"
 #include "idris_rt.h"
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 
 #include <concepts>
+#include <cstdint>
 #include <functional>
 #include <type_traits>
 
@@ -65,7 +76,12 @@ void enterTool(void *argument) {
 inline constexpr idris_rt_stack_plan toolStack{IDRIS_MLIR_TOOL_STACK_BYTES, 0,
                                                IDRIS_MLIR_TOOL_SIGNAL_BYTES};
 
-// Runs the tool `tool`'s `body` on the runner and returns its exit status.
+// The processor features the tools' code may use, as the startup check's
+// bits: the program CPU's, a constant of the build.
+inline constexpr std::uint64_t toolCpuFeatures =
+    rt::platform::featureBitsOf(IDRIS_MLIR_PROGRAM_CPU_FEATURES);
+
+// Runs the tool's `body` on the runner and returns its exit status.
 // The runner sets the heap and GMP's allocation up before the body runs,
 // while no other thread exists: the folders run the runtime's operations,
 // whose memory comes from where a program's does. The frontend and the
@@ -73,12 +89,12 @@ inline constexpr idris_rt_stack_plan toolStack{IDRIS_MLIR_TOOL_STACK_BYTES, 0,
 // memory the runner asks for refused is the process out of memory.
 template <class Body>
   requires std::same_as<std::invoke_result_t<Body &>, int>
-int runTool(llvm::StringLiteral tool, Body body) {
+int runTool(Body body) {
   llvm::install_bad_alloc_error_handler(detail::outOfMemory);
   llvm::install_out_of_memory_new_handler();
   detail::ToolRun<Body> run{body, 1};
-  if (idris_rt_run_on_stack(detail::enterTool<Body>, &run, &toolStack, tool.data(), tool.size()) !=
-      IDRIS_RT_RAN)
+  if (idris_rt_run_on_stack(detail::enterTool<Body>, &run, &toolStack, toolName.data(),
+                            toolName.size(), toolCpuFeatures) != IDRIS_RT_RAN)
     idris_rt_out_of_memory();
   return run.status;
 }

@@ -74,9 +74,11 @@ void *newZeroedCell(size_t size, uint32_t info);
 void freeCell(void *cell);
 
 // The heap cells the checked runtime allocated and has not freed, which a
-// program case reads when main returns: the shipped runtime reads and
-// writes it nowhere, so no shipped program holds it (check-archive.sh). The
-// program is single-threaded.
+// program case reads when main returns, and those it has made, which the
+// accounts of what a call holds read (Peaks.cpp): the shipped runtime reads
+// and writes neither, so no shipped program holds them (check-archive.sh).
+// The program is single-threaded.
 inline uint64_t cellsHeld = 0;
+inline uint64_t cellsMade = 0;
 
 } // namespace rt::alloc

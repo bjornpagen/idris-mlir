@@ -16,22 +16,25 @@
 
 namespace {
 
+// A slot's word as counting reads it: a pointer as it is, a big's word as
+// the address it may be.
+const void *wordOf(const void *slot) { return slot; }
+const void *wordOf(idris_rt_big slot) { return reinterpret_cast<const void *>(slot); }
+
 // Each of `n` contiguous slots from `first`, one more or one less
 // reference, as a cell's release walks them. The C ABI passes the first
-// slot's address as a pointer and the count as a 64-bit integer, never
-// negative.
-template <rt::rc::WordKind K>
-void incRun(void *first, int64_t n) {
-  auto *const *slots = static_cast<void *const *>(first);
+// slot's address as a pointer to slots of the kind and the count as a
+// 64-bit integer, never negative.
+template <rt::rc::WordKind K, class Slot>
+void incRun(const Slot *first, int64_t n) {
   for (int64_t i = 0; i < n; ++i)
-    rt::rc::inc<K>(slots[i]);
+    rt::rc::inc<K>(wordOf(first[i]));
 }
 
-template <rt::rc::WordKind K>
-void decRun(void *first, int64_t n) {
-  auto *const *slots = static_cast<void *const *>(first);
+template <rt::rc::WordKind K, class Slot>
+void decRun(const Slot *first, int64_t n) {
   for (int64_t i = 0; i < n; ++i)
-    rt::rc::dec<K>(slots[i]);
+    rt::rc::dec<K>(wordOf(first[i]));
 }
 
 } // namespace
@@ -55,43 +58,43 @@ namespace rt::rc {
 // through the dying cells themselves, so freeing takes constant stack
 // however deep the structure is. A word's kind is its type's: a cell; a cell
 // or NULL; a cell or a small value; or any of the three.
-extern "C" void idris_rt_inc_cell(void *word) { rt::rc::inc<rt::rc::CellWord>(word); }
-extern "C" void idris_rt_dec_cell(void *word) { rt::rc::dec<rt::rc::CellWord>(word); }
-extern "C" void idris_rt_inc_maybe_cell(void *word) { rt::rc::inc<rt::rc::MaybeCellWord>(word); }
-extern "C" void idris_rt_dec_maybe_cell(void *word) { rt::rc::dec<rt::rc::MaybeCellWord>(word); }
-extern "C" void idris_rt_inc_big(idris_rt_big word) {
-  rt::rc::inc<rt::rc::BigWord>(reinterpret_cast<const void *>(word));
+extern "C" void idris_rt_inc_cell(idris_rt_header *word) { rt::rc::inc<rt::rc::CellWord>(word); }
+extern "C" void idris_rt_dec_cell(idris_rt_header *word) { rt::rc::dec<rt::rc::CellWord>(word); }
+extern "C" void idris_rt_inc_maybe_cell(idris_rt_header *word) {
+  rt::rc::inc<rt::rc::MaybeCellWord>(word);
 }
-extern "C" void idris_rt_dec_big(idris_rt_big word) {
-  rt::rc::dec<rt::rc::BigWord>(reinterpret_cast<const void *>(word));
+extern "C" void idris_rt_dec_maybe_cell(idris_rt_header *word) {
+  rt::rc::dec<rt::rc::MaybeCellWord>(word);
 }
+extern "C" void idris_rt_inc_big(idris_rt_big word) { rt::rc::inc<rt::rc::BigWord>(wordOf(word)); }
+extern "C" void idris_rt_dec_big(idris_rt_big word) { rt::rc::dec<rt::rc::BigWord>(wordOf(word)); }
 extern "C" void idris_rt_inc_any(void *word) { rt::rc::inc<rt::rc::AnyWord>(word); }
 extern "C" void idris_rt_dec_any(void *word) { rt::rc::dec<rt::rc::AnyWord>(word); }
 
 // The same, for each of `n` contiguous slots of one kind: a cell taken
 // apart counts the slots that move, or that die, in one call.
-extern "C" void idris_rt_inc_run_cell(void *first, int64_t n) {
+extern "C" void idris_rt_inc_run_cell(idris_rt_header *const *first, int64_t n) {
   incRun<rt::rc::CellWord>(first, n);
 }
-extern "C" void idris_rt_dec_run_cell(void *first, int64_t n) {
+extern "C" void idris_rt_dec_run_cell(idris_rt_header *const *first, int64_t n) {
   decRun<rt::rc::CellWord>(first, n);
 }
-extern "C" void idris_rt_inc_run_maybe_cell(void *first, int64_t n) {
+extern "C" void idris_rt_inc_run_maybe_cell(idris_rt_header *const *first, int64_t n) {
   incRun<rt::rc::MaybeCellWord>(first, n);
 }
-extern "C" void idris_rt_dec_run_maybe_cell(void *first, int64_t n) {
+extern "C" void idris_rt_dec_run_maybe_cell(idris_rt_header *const *first, int64_t n) {
   decRun<rt::rc::MaybeCellWord>(first, n);
 }
-extern "C" void idris_rt_inc_run_big(void *first, int64_t n) {
+extern "C" void idris_rt_inc_run_big(const idris_rt_big *first, int64_t n) {
   incRun<rt::rc::BigWord>(first, n);
 }
-extern "C" void idris_rt_dec_run_big(void *first, int64_t n) {
+extern "C" void idris_rt_dec_run_big(const idris_rt_big *first, int64_t n) {
   decRun<rt::rc::BigWord>(first, n);
 }
-extern "C" void idris_rt_inc_run_any(void *first, int64_t n) {
+extern "C" void idris_rt_inc_run_any(void *const *first, int64_t n) {
   incRun<rt::rc::AnyWord>(first, n);
 }
-extern "C" void idris_rt_dec_run_any(void *first, int64_t n) {
+extern "C" void idris_rt_dec_run_any(void *const *first, int64_t n) {
   decRun<rt::rc::AnyWord>(first, n);
 }
 
@@ -99,8 +102,8 @@ extern "C" void idris_rt_dec_run_any(void *first, int64_t n) {
 // 1. A static cell (0) and a saturated one are never exclusive. Asked only
 // of a value exclusivity proved nothing of; a value proved exclusive asks
 // nothing.
-extern "C" bool idris_rt_is_unique(void *cell) {
-  return rt::rc::isExclusive(rt::rc::headerOf(cell));
+extern "C" bool idris_rt_is_unique(const idris_rt_header *cell) {
+  return rt::rc::isExclusive(cell);
 }
 
 // Frees the memory of a reuse token whose cell was found or proved
@@ -108,14 +111,14 @@ extern "C" bool idris_rt_is_unique(void *cell) {
 // for one of its size, rewriting the header, or frees it here. One proved
 // exclusive is a cell, so nothing is read; one that may be null, from a
 // take of a cell exclusivity proved nothing of, tests that alone.
-extern "C" void idris_rt_free_token(void *cell) {
-  rt::rc::touch(rt::rc::headerOf(cell));
+extern "C" void idris_rt_free_token(idris_rt_header *cell) {
+  rt::rc::touch(cell);
   rt::alloc::freeCell(cell);
 }
 
-extern "C" void idris_rt_free_maybe_token(void *cell) {
+extern "C" void idris_rt_free_maybe_token(idris_rt_header *cell) {
   if (cell == nullptr)
     return;
-  rt::rc::touch(rt::rc::headerOf(cell));
+  rt::rc::touch(cell);
   rt::alloc::freeCell(cell);
 }

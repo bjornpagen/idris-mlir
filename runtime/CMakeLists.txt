@@ -62,6 +62,7 @@ set(IDRIS_RT_SOURCES
 	Alloc/Cells.cpp
 	Alloc/Frames.cpp
 	Alloc/Gmp.cpp
+	Alloc/Peaks.cpp
 	Rc/Counting.cpp
 	Rc/Freeing.cpp
 	Strings/Concat.cpp
@@ -128,11 +129,11 @@ set(IDRIS_RT_SOURCES
 set(IDRIS_RT_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}"
 	"${CMAKE_CURRENT_SOURCE_DIR}/Generated"
 	"${PROJECT_SOURCE_DIR}/foreign/idr/include")
+set(IDRIS_RT_HEADER_DEFINITIONS
+	"IDRIS_RT_CPU_FEATURES_FILE=\"${IDRIS_MLIR_RUNTIME_CPU_FEATURES}\"")
 function(idris_rt_headers target scope)
 	target_include_directories(${target} ${scope} ${IDRIS_RT_INCLUDE_DIRECTORIES})
-	target_compile_definitions(${target} ${scope}
-		"IDRIS_RT_CPU_FEATURES_FILE=\"${IDRIS_MLIR_RUNTIME_CPU_FEATURES}\""
-	)
+	target_compile_definitions(${target} ${scope} ${IDRIS_RT_HEADER_DEFINITIONS})
 endfunction()
 
 # The runtime's profile, in every configuration:
@@ -145,10 +146,10 @@ endfunction()
 # - each function and datum in its own section, so the linker drops the
 #   unused ones (the target entry's IDRIS_MLIR_RUNTIME_SECTIONS, which is
 #   empty where the object's bitcode forbids them);
-# - stack-clash protection (IDRIS_MLIR_RUNTIME_PROBE_FLAGS) in the native
-#   code idris-mlir and the prepared runtime link, as in GMP and the tools:
-#   code the compiler does not size touches every page it takes. A program's
-#   own frames, the runtime bodies it joins among them, are sized by code
+# - stack-clash protection in the native code idris-mlir and the prepared
+#   runtime link, as in GMP and the tools, on every target: code the
+#   compiler does not size touches every page it takes. A program's own
+#   frames, the runtime bodies it joins among them, are sized by code
 #   generation and checked against the guard when it is built, so the
 #   bodies shed their probes when joined (linkRuntime);
 # - no FP contraction.
@@ -157,7 +158,7 @@ target_compile_options(idris_mlir_runtime_profile INTERFACE
 	-O3
 	${IDRIS_MLIR_BASELINE_CPU}
 	${IDRIS_MLIR_RUNTIME_BITCODE_FLAGS}
-	${IDRIS_MLIR_RUNTIME_PROBE_FLAGS}
+	-fstack-clash-protection
 	-ffp-contract=off
 	${IDRIS_MLIR_RUNTIME_SECTIONS}
 )
@@ -166,7 +167,15 @@ target_compile_definitions(idris_mlir_runtime_profile INTERFACE NDEBUG)
 # simdutf builds without the C++ library, with the one encoding the
 # runtime calls it for, UTF-8: every implementation's table of virtual
 # functions names each kernel it has, so a kernel left in would join every
-# program that reaches a string operation.
+# program that reaches a string operation. It builds the one implementation
+# the target's entry names (IDRIS_MLIR_RUNTIME_SIMDUTF, CMakeLists.txt),
+# which the runtime calls directly through its class (Strings/Simd.h), and
+# none of the others, so nothing in it chooses an implementation at run
+# time or asks the processor what it has.
+set(IDRIS_MLIR_SIMDUTF_IMPLEMENTATIONS icelake haswell westmere arm64 ppc64 rvv lsx lasx fallback)
+if(NOT IDRIS_MLIR_RUNTIME_SIMDUTF IN_LIST IDRIS_MLIR_SIMDUTF_IMPLEMENTATIONS)
+	message(FATAL_ERROR "the target entry names no simdutf implementation of ${IDRIS_MLIR_SIMDUTF_IMPLEMENTATIONS} (IDRIS_MLIR_RUNTIME_SIMDUTF: '${IDRIS_MLIR_RUNTIME_SIMDUTF}')")
+endif()
 set(IDRIS_MLIR_SIMDUTF_DEFINITIONS
 	SIMDUTF_NO_LIBCXX=1
 	SIMDUTF_FEATURE_UTF16=0
@@ -176,6 +185,29 @@ set(IDRIS_MLIR_SIMDUTF_DEFINITIONS
 	SIMDUTF_FEATURE_BASE64=0
 	SIMDUTF_FEATURE_DETECT_ENCODING=0
 )
+foreach(implementation IN LISTS IDRIS_MLIR_SIMDUTF_IMPLEMENTATIONS)
+	string(TOUPPER "${implementation}" upper)
+	if(implementation STREQUAL IDRIS_MLIR_RUNTIME_SIMDUTF)
+		list(APPEND IDRIS_MLIR_SIMDUTF_DEFINITIONS "SIMDUTF_IMPLEMENTATION_${upper}=1")
+	else()
+		list(APPEND IDRIS_MLIR_SIMDUTF_DEFINITIONS "SIMDUTF_IMPLEMENTATION_${upper}=0")
+	endif()
+endforeach()
+set(IDRIS_MLIR_SIMDUTF_INCLUDE_DIRECTORIES
+	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
+	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/src")
+
+# What every unit of the runtime is told beyond its headers' definitions,
+# and so is a unit of it a test compiles (c-flags, below), but the page and
+# which runtime it joins: what code outside the program takes on its stack,
+# measured for the target (Start/Entry.cpp); the simdutf implementation the
+# runtime calls, its header and its class; and what simdutf itself is told.
+set(IDRIS_RT_UNIT_DEFINITIONS
+	IDRIS_RT_OUTSIDE_STACK_BYTES=${IDRIS_MLIR_OUTSIDE_STACK_BYTES}
+	"IDRIS_RT_SIMDUTF_HEADER=\"simdutf/${IDRIS_MLIR_RUNTIME_SIMDUTF}/implementation.h\""
+	IDRIS_RT_SIMDUTF_CLASS=simdutf::${IDRIS_MLIR_RUNTIME_SIMDUTF}::implementation
+	${IDRIS_MLIR_SIMDUTF_DEFINITIONS}
+)
 
 # How TARGET compiles the runtime's units: the profile, the warnings, the
 # vendored libraries' headers and what they are told; CHECKED is 1 for the
@@ -183,12 +215,12 @@ set(IDRIS_MLIR_SIMDUTF_DEFINITIONS
 # program links.
 function(idris_rt_compile target checked)
 	target_include_directories(${target} SYSTEM PRIVATE
-		"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
+		${IDRIS_MLIR_SIMDUTF_INCLUDE_DIRECTORIES}
 		"${IDRIS_MLIR_THIRD_PARTY}/fast_float/include"
 		"${IDRIS_MLIR_THIRD_PARTY}/ryu"
 	)
 	target_compile_definitions(${target} PRIVATE
-		${IDRIS_MLIR_SIMDUTF_DEFINITIONS}
+		${IDRIS_RT_UNIT_DEFINITIONS}
 		# snmalloc's thread teardown: none of its own, since the others need a
 		# static destructor (pthread keys register one with [[gnu::destructor]])
 		# or the C++ runtime. A thread's cached memory is returned only if the
@@ -205,9 +237,6 @@ function(idris_rt_compile target checked)
 		# The target's page size, which every host of the runtime compares
 		# with the system's first. The target entry's one number.
 		IDRIS_RT_PAGE_SIZE=${IDRIS_MLIR_PAGE_SIZE}
-		# What code outside the program takes on its stack (the C library,
-		# GMP, compiler-rt), measured for the target (Start/Entry.cpp).
-		IDRIS_RT_OUTSIDE_STACK_BYTES=${IDRIS_MLIR_OUTSIDE_STACK_BYTES}
 		IDRIS_RT_CHECKED=${checked}
 	)
 	target_link_libraries(${target} PRIVATE snmalloc idris_mlir_runtime_profile idris_mlir_warnings)
@@ -242,10 +271,7 @@ endif()
 # Vendored code: compiled as upstream writes it, outside our warning set and
 # the lint graph.
 add_library(idris_rt_simdutf OBJECT "${IDRIS_MLIR_THIRD_PARTY}/simdutf/src/simdutf.cpp")
-target_include_directories(idris_rt_simdutf SYSTEM PRIVATE
-	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/include"
-	"${IDRIS_MLIR_THIRD_PARTY}/simdutf/src"
-)
+target_include_directories(idris_rt_simdutf SYSTEM PRIVATE ${IDRIS_MLIR_SIMDUTF_INCLUDE_DIRECTORIES})
 target_compile_definitions(idris_rt_simdutf PRIVATE ${IDRIS_MLIR_SIMDUTF_DEFINITIONS})
 target_link_libraries(idris_rt_simdutf PRIVATE idris_mlir_runtime_profile)
 
@@ -287,9 +313,20 @@ file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/page-size" CONTENT "${IDRIS_M
 # What a C program that includes idris_rt.h is compiled with, one flag a
 # line: the runtime's include directories, the generated one among them,
 # from the one list above (the runtime's tests compile against the ABI),
-# and what a unit of the runtime it compiles is told of the runtime it
-# joins, the one every program links.
+# and the vendored headers a unit of the runtime includes; what its headers
+# and every unit of it are told, from the lists above; and what a unit of
+# the runtime it compiles is told of the runtime it joins, the one every
+# program links. The page is the one thing a test gives itself, since a
+# test builds parts of the runtime for another page size.
 list(TRANSFORM IDRIS_RT_INCLUDE_DIRECTORIES PREPEND "-I" OUTPUT_VARIABLE IDRIS_RT_C_FLAGS)
+foreach(directory IN LISTS IDRIS_MLIR_SIMDUTF_INCLUDE_DIRECTORIES)
+	list(APPEND IDRIS_RT_C_FLAGS "-isystem${directory}")
+endforeach()
+list(APPEND IDRIS_RT_C_FLAGS "-isystem${IDRIS_MLIR_THIRD_PARTY}/fast_float/include"
+	"-isystem${IDRIS_MLIR_THIRD_PARTY}/ryu")
+foreach(definition IN LISTS IDRIS_RT_HEADER_DEFINITIONS IDRIS_RT_UNIT_DEFINITIONS)
+	list(APPEND IDRIS_RT_C_FLAGS "-D${definition}")
+endforeach()
 list(APPEND IDRIS_RT_C_FLAGS "-DIDRIS_RT_CHECKED=0")
 list(JOIN IDRIS_RT_C_FLAGS "\n" IDRIS_RT_C_FLAGS_TEXT)
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/c-flags" CONTENT "${IDRIS_RT_C_FLAGS_TEXT}\n")

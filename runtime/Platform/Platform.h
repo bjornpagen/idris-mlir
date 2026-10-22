@@ -28,8 +28,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include <string_view>
-
 namespace rt::platform {
 
 // Clocks (Posix/Clocks.cpp).
@@ -44,14 +42,6 @@ bool readClock(idr::clocks::ClockKind clock, int64_t &seconds, int64_t &nanoseco
 // and kept there (IDRIS_RT_BASELINE, at its definition), since it runs
 // before anything shows that the processor has more.
 uint64_t cpuFeatures() noexcept;
-
-// Whether this processor runs simdutf's implementation `name`: whether it
-// has every feature that implementation's kernels are compiled with (their
-// target attribute), tested as cpuFeatures tests the program's. This is the
-// one decision of which kernels may run: simdutf's own detection, which
-// tests fewer features than its kernels use, is never asked
-// (Strings/Simd.cpp). False for a name the processor has no test for.
-bool runsSimdutf(std::string_view name) noexcept;
 
 // Directories (Posix/Directories.cpp).
 
@@ -215,11 +205,18 @@ struct Span {
 };
 Span heapSpan(size_t alignment) noexcept;
 
+// The directory the host's own files are read under: the filesystem's root,
+// for every program and tool. A test reads a tree it planted under another
+// (idris_rt_commit_limit), so the reader is tested on hosts it does not run
+// on, and on limits no host of the test's holds.
+inline constexpr const char *hostRoot = "";
+
 // The bytes of memory the process may still commit before the host kills
 // it: where a limit holds the process (Linux's cgroups), the lowest one on
 // the way from its group to the root, with the swap that group may use,
-// less what the group holds already; SIZE_MAX where none does.
-size_t commitLimit() noexcept;
+// less what the group holds already; SIZE_MAX where none does. The host's
+// files are read under `root`.
+size_t commitLimit(const char *root) noexcept;
 
 // The bytes of physical memory the system has.
 size_t physicalMemory() noexcept;

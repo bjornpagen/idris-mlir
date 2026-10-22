@@ -87,7 +87,7 @@ void giveBackNewer(Trailer *trailer) {
 // A chain's first cursor, its first chunk holding at least `size_hint`
 // bytes, what the lifetime's callee said it puts; null for a hint of 0,
 // which the first cell's chunk then starts.
-extern "C" void *idris_rt_arena_open(int64_t size_hint) {
+extern "C" char *idris_rt_arena_open(int64_t size_hint) {
   return size_hint == 0 ? nullptr : newChunk(nullptr, size_hint);
 }
 
@@ -95,8 +95,7 @@ extern "C" void *idris_rt_arena_open(int64_t size_hint) {
 // when its chunk holds the cell and the word after it, which takes the
 // chunk's trailer on; else the first byte of a new chunk. Null starts a
 // chain. The next cursor is the result plus `bytes`.
-extern "C" [[gnu::always_inline]] void *idris_rt_arena_chunk(void *at, int64_t bytes) {
-  auto *cursor = static_cast<char *>(at);
+extern "C" [[gnu::always_inline]] char *idris_rt_arena_chunk(char *cursor, int64_t bytes) {
   if (cursor != nullptr) {
     Trailer *trailer = trailerAt(cursor);
     if (bytes <= reinterpret_cast<char *>(trailer) - cursor -
@@ -110,10 +109,10 @@ extern "C" [[gnu::always_inline]] void *idris_rt_arena_chunk(void *at, int64_t b
 
 // The lifetime's end: every chunk of the chain of `cursor`, a byte of any of
 // its chunks, given back in O(chunks); null gives back none.
-extern "C" void idris_rt_arena_close(void *cursor) {
+extern "C" void idris_rt_arena_close(char *cursor) {
   if (cursor == nullptr)
     return;
-  Trailer *trailer = trailerOf(static_cast<char *>(cursor));
+  Trailer *trailer = trailerOf(cursor);
   giveBackNewer(trailer);
   while (trailer != nullptr) {
     Trailer *older = trailer->older;
@@ -126,11 +125,10 @@ extern "C" void idris_rt_arena_close(void *cursor) {
 // cursor when it opened, given back, and `mark` the chain's cursor again,
 // its word its chunk's trailer once more. A null mark, a stack whose chain
 // held no chunk when the lifetime opened, has no chunk to give back past.
-extern "C" void idris_rt_stack_reset(void *mark) {
+extern "C" void idris_rt_stack_reset(char *mark) {
   if (mark == nullptr)
     return;
-  auto *cursor = static_cast<char *>(mark);
-  Trailer *trailer = trailerOf(cursor);
+  Trailer *trailer = trailerOf(mark);
   giveBackNewer(trailer);
-  trailerAt(cursor) = trailer;
+  trailerAt(mark) = trailer;
 }

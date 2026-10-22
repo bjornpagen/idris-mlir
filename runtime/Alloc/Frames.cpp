@@ -56,7 +56,7 @@ void giveBack(Chunk *chunk) {
 
 // A push the newest chunk has no room for: the spare when it holds the
 // frame, else a new chunk at least twice the newest, the frame and a page.
-[[gnu::noinline]] void *pushPast(int64_t bytes) {
+[[gnu::noinline]] char *pushPast(int64_t bytes) {
   size_t frame = static_cast<size_t>(bytes);
   Chunk *chunk = spare;
   if (chunk != nullptr && bytesOf(chunk) - sizeof(Chunk) >= frame) {
@@ -101,20 +101,20 @@ void giveBack(Chunk *chunk) {
 
 // The next frame's `bytes` on the stack, contiguous: a bump of the top
 // when the newest chunk holds them.
-extern "C" [[gnu::always_inline]] void *idris_rt_frame_push(int64_t bytes) {
+extern "C" [[gnu::always_inline]] idris_rt_header *idris_rt_frame_push(int64_t bytes) {
   if (bytes <= limit - top) [[likely]] {
     char *frame = top;
     top += bytes;
-    return frame;
+    return reinterpret_cast<idris_rt_header *>(frame);
   }
-  return pushPast(bytes);
+  return reinterpret_cast<idris_rt_header *>(pushPast(bytes));
 }
 
 // The stack back to `frame`, a frame it pushed: the top put back when the
 // frame lies in the newest chunk, which stays the newest even emptied, so a
 // push after it takes no chunk.
-extern "C" [[gnu::always_inline]] void idris_rt_frame_pop(void *popped) {
-  auto *frame = static_cast<char *>(popped);
+extern "C" [[gnu::always_inline]] void idris_rt_frame_pop(idris_rt_header *popped) {
+  auto *frame = reinterpret_cast<char *>(popped);
   if (frame >= first && frame < limit) [[likely]] {
     top = frame;
     return;

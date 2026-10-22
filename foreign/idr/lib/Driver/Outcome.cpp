@@ -7,6 +7,7 @@
 
 #include "idr/Driver/Compile.h"
 
+#include "idr/Driver/Report.h"
 #include "idr/Driver/Verdict.h"
 #include "idr/IR/IdrDialect.h"
 
@@ -91,7 +92,7 @@ Verdict verdictOf(mlir::DiagnosticSeverity severity, std::optional<idr::Rule> ru
 }
 
 // The driver's printer: an error whose location holds no place in a file,
-// which no source line shows, in the driver's own form, `idris-mlir: `, then
+// which no source line shows, in the driver's own form, `<tool>: `, then
 // the class of what it makes of the compilation, then its message, and its
 // notes as MLIR's handler prints them. A refusal's message begins with its
 // rule's head (refusalHead), so its class is in it; an internal error's is
@@ -103,7 +104,7 @@ mlir::LogicalResult printUnlocated(mlir::Diagnostic &diagnostic,
   Verdict verdict = verdictOf(diagnostic.getSeverity(), idr::refusalRule(diagnostic));
   if (verdict == Verdict::Accepted)
     return mlir::failure();
-  llvm::errs() << "idris-mlir: " << (verdict == Verdict::Internal ? "internal error: " : "")
+  llvm::errs() << toolName << ": " << (verdict == Verdict::Internal ? "internal error: " : "")
                << diagnostic.str() << '\n';
   for (mlir::Diagnostic &note : diagnostic.getNotes())
     located.emitDiagnostic(note.getLocation(), note.str(), note.getSeverity());

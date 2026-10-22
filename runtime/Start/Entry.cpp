@@ -35,29 +35,25 @@ void runProgram(void *argument) { static_cast<const idris_rt_program *>(argument
 // and its own argc and argv, which the runtime keeps for
 // idris_rt_io_arg_count and idris_rt_io_arg; what the driver knows of it
 // (its stack, its largest frame, its signal stack, its name) is
-// idris_rt_program_built. A system whose page is not the one the runtime is
-// built for, and a processor that lacks a feature the program was compiled
-// to use, cannot run it: each ends the process before it runs, so this and
-// what it calls before the processor test stay compiled for the target's
-// baseline, which idris-mlir keeps. Then the program runs on its stack, the
-// heap kept to the host's limit; when its main returns, the process ends as
-// returned. It never returns.
-extern "C" [[gnu::noinline]] IDRIS_RT_BASELINE void idris_rt_start(void *facts, int32_t argc,
-                                                                    void *argv) {
-  auto *program = static_cast<idris_rt_program *>(facts);
+// idris_rt_program_built. The startup check runs first (a machine that
+// cannot run the program ends the process before it runs), so this and what
+// it calls before it stay compiled for the target's baseline, which
+// idris-mlir keeps. Then the program runs on its stack, the heap kept to the
+// host's limit; when its main returns, the process ends as returned. It
+// never returns.
+extern "C" [[gnu::noinline]] IDRIS_RT_BASELINE void
+idris_rt_start(const idris_rt_program *program, int32_t argc, char **argv) {
   const idris_rt_built &built = idris_rt_program_built;
   rt::end::name(built.name, built.name_bytes);
-  size_t system = rt::platform::systemPageSize();
-  if (system != rt::platform::pageSize())
-    rt::end::end(rt::end::WrongPage{rt::platform::pageSize(), system});
-  if (uint64_t missing = program->cpu_features & ~rt::platform::cpuFeatures(); missing != 0)
-    rt::end::end(rt::end::MissingFeatures{missing});
-  rt::start::keepArguments(argc, static_cast<char **>(argv));
+  rt::start::checkMachine(program->cpu_features);
+  rt::start::keepArguments(argc, argv);
   rt::platform::ignoreBrokenPipes();
   idris_rt_stack_plan plan{built.stack_bytes + IDRIS_RT_OUTSIDE_STACK_BYTES, built.frame_bytes,
                            built.signal_bytes + IDRIS_RT_OUTSIDE_STACK_BYTES};
-  if (rt::start::run(runProgram, program, plan,
-                     rt::platform::commitLimit()) != IDRIS_RT_RAN)
+  // The runner hands its argument to runProgram untouched, which reads the
+  // record as the constant it is.
+  if (rt::start::run(runProgram, const_cast<idris_rt_program *>(program), plan,
+                     rt::platform::commitLimit(rt::platform::hostRoot)) != IDRIS_RT_RAN)
     rt::end::end(rt::end::OutOfMemory{});
   // The checked runtime's count of the cells the program holds, once the
   // handle table has given back the strings the runtime holds for it: one

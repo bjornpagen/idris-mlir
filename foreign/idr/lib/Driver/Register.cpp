@@ -134,16 +134,14 @@ void idr::driver::registerCompiler(mlir::DialectRegistry &registry) {
 
 void idr::driver::registerCompilerPasses() {
   idr::registerIdrPasses();
-  // Each upstream pass the pipeline adds (buildPipeline).
-  mlir::registerCSEPass();
-  mlir::registerRemoveDeadValuesPass();
+  // Each upstream pass the pipeline runs, its UpstreamPass list
+  // (Spec.Pipeline.Pipeline), and no other.
   mlir::registerSymbolDCEPass();
   mlir::transform::registerInterpreterPass();
   mlir::registerConvertLinalgToLoopsPass();
   mlir::registerConvertVectorToSCF();
   mlir::memref::registerExpandStridedMetadataPass();
   mlir::registerLowerAffinePass();
-  mlir::registerSCFToControlFlowPass();
   mlir::registerConvertVectorToLLVMPass();
   mlir::registerConvertToLLVMPass();
   mlir::registerReconcileUnrealizedCastsPass();

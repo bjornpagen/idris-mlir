@@ -43,7 +43,7 @@ Span heapSpan(size_t alignment) noexcept {
   return {reinterpret_cast<char *>(base), top > base ? top - base : 0};
 }
 
-size_t commitLimit() noexcept { return SIZE_MAX; }
+size_t commitLimit(const char *) noexcept { return SIZE_MAX; }
 
 size_t physicalMemory() noexcept {
   uint64_t bytes = 0;

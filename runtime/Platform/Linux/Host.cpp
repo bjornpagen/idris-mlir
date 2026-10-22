@@ -174,11 +174,13 @@ struct Group {
 // for the unified one (v2), `id:controllers:path` for v1's, the memory
 // controller's among them. /proc/self/mountinfo says where that
 // hierarchy is mounted and which of its groups the mount's root is: the
-// group's directory is the mount point and the path below that root.
-bool findGroup(Group &group) noexcept {
+// group's directory is the mount point and the path below that root. Each
+// is read under `root`, and so is the mount point.
+bool findGroup(std::string_view root, Group &group) noexcept {
   char cgroups[8192];
   std::string_view own;
-  if (!readSmall("/proc/self/cgroup", cgroups, sizeof cgroups, own))
+  PathText at;
+  if (!at.set(root, "/proc/self/cgroup") || !readSmall(at.c(), cgroups, sizeof cgroups, own))
     return false;
   std::string_view unified, memory;
   for (std::string_view rest = own; !rest.empty();) {
@@ -201,7 +203,9 @@ bool findGroup(Group &group) noexcept {
   if (unified.empty() && memory.empty())
     return false;
   // mountinfo may be long: read in pieces, each line whole in the buffer.
-  int fd = open("/proc/self/mountinfo", O_RDONLY | O_CLOEXEC);
+  if (!at.set(root, "/proc/self/mountinfo"))
+    return false;
+  int fd = open(at.c(), O_RDONLY | O_CLOEXEC);
   if (fd < 0)
     return false;
   char buffer[8192];
@@ -234,11 +238,12 @@ bool findGroup(Group &group) noexcept {
       } else {
         continue;
       }
-      std::string_view root = word(line, 3), point = word(line, 4);
-      if (root != "/" && path.starts_with(root))
-        path.remove_prefix(root.size());
-      group.floor = point.size();
-      found = group.directory.set(point, path == "/" ? std::string_view{} : path);
+      std::string_view mountRoot = word(line, 3), point = word(line, 4);
+      if (mountRoot != "/" && path.starts_with(mountRoot))
+        path.remove_prefix(mountRoot.size());
+      group.floor = root.size() + point.size();
+      found = group.directory.set(root, point) &&
+              group.directory.append(path == "/" ? std::string_view{} : path);
     }
     if (found)
       break;
@@ -354,9 +359,9 @@ Span heapSpan(size_t alignment) noexcept {
   return {reinterpret_cast<char *>(base), limit < length ? limit : length};
 }
 
-size_t commitLimit() noexcept {
+size_t commitLimit(const char *root) noexcept {
   Group group{};
-  if (!findGroup(group))
+  if (!findGroup(root, group))
     return none;
   return group.version == Version::V2 ? limitV2(group) : limitV1(group);
 }

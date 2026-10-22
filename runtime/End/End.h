@@ -104,8 +104,10 @@ struct Piped {
 
 // Bugs of the compiler's or the runtime's, found as the program runs: the
 // stack reaching a guard, which every frame was sized not to; in the checked
-// runtime, cells live when main returns, and a count operation on a cell
-// that died; the allocator's own fatal error; a library's hardening check.
+// runtime, cells live when main returns, a count operation on a cell that
+// died, and a call that held more bytes it no longer needs than the bound
+// the compiler computed for its function; the allocator's own fatal error; a
+// library's hardening check.
 struct StackExhausted {
   static constexpr Cleans cleans = Cleans::OutputOnly;
   static constexpr idr::endings::EndingSignal signal = idr::endings::EndingSignal::Abort;
@@ -118,6 +120,13 @@ struct CellsLeaked {
 struct CountOfDeadCell {
   static constexpr Cleans cleans = Cleans::OutputOnly;
   static constexpr idr::endings::EndingSignal signal = idr::endings::EndingSignal::Abort;
+};
+struct FrameBoundExceeded {
+  static constexpr Cleans cleans = Cleans::OutputOnly;
+  static constexpr idr::endings::EndingSignal signal = idr::endings::EndingSignal::Abort;
+  const idris_rt_text *function;
+  uint64_t held;
+  uint64_t bound;
 };
 struct AllocatorFailed {
   static constexpr Cleans cleans = Cleans::OutputOnly;

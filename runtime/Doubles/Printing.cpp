@@ -38,7 +38,12 @@ template <size_t N> size_t put(char *out, const char (&text)[N]) {
 
 namespace rt::doubles {
 
-size_t formatDouble(double x, char *out) {
+// Room for the longest text formatDouble writes, 24 bytes: a sign, 17
+// digits, a point and an exponent such as `e-308`.
+constexpr size_t doubleTextMax = 32;
+
+// The text of a double; returns its length.
+static size_t formatDouble(double x, char *out) {
   uint64_t bits = bitsOf(x);
   bool negative = (bits >> 63) != 0;
   uint64_t mantissa = bits & mantissaMask;

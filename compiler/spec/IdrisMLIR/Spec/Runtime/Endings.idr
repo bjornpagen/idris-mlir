@@ -142,14 +142,16 @@ unrunnableClosed = MkClosed
 ||| A bug of the compiler's or the runtime's, found as the program runs:
 ||| never the program's fault, so never a crash of its own. The stack
 ||| reaching its guard, which the compiler sized from every frame; in the
-||| checked runtime, cells still live when the program returns, and a count
-||| operation on a cell that died; the allocator's own fatal error; a
-||| library's hardening check.
+||| checked runtime, cells still live when the program returns, a count
+||| operation on a cell that died, and a call that held more bytes it no
+||| longer needs than the bound the compiler computed for its function; the
+||| allocator's own fatal error; a library's hardening check.
 public export
 data Internal
   = StackExhausted
   | CellsLeaked
   | CountOfDeadCell
+  | FrameBoundExceeded
   | AllocatorFailed
   | LibraryFailed
 
@@ -158,25 +160,27 @@ internalClosed : Closed Internal
 internalClosed = MkClosed
   { name = ident "Internal"
   , shape = OneOf
-  , every = StackExhausted ::: [CellsLeaked, CountOfDeadCell, AllocatorFailed, LibraryFailed]
+  , every = StackExhausted ::: [CellsLeaked, CountOfDeadCell, FrameBoundExceeded, AllocatorFailed, LibraryFailed]
   , complete = \case
       StackExhausted => Here
       CellsLeaked => There Here
       CountOfDeadCell => There (There Here)
-      AllocatorFailed => There (There (There Here))
-      LibraryFailed => There (There (There (There Here)))
+      FrameBoundExceeded => There (There (There Here))
+      AllocatorFailed => There (There (There (There Here)))
+      LibraryFailed => There (There (There (There (There Here))))
   , describe = \case
       StackExhausted => MkCase (ident "StackExhausted") (word "stack_exhausted" ::: []) (line "the stack is exhausted")
       CellsLeaked => MkCase (ident "CellsLeaked") (word "cells_leaked" ::: []) (line "cells live at the end:")
       CountOfDeadCell => MkCase (ident "CountOfDeadCell") (word "count_of_dead_cell" ::: []) (line "a count operation on a cell that died")
+      FrameBoundExceeded => MkCase (ident "FrameBoundExceeded") (word "frame_bound_exceeded" ::: []) (line "a call held more bytes it no longer needs than its bound:")
       AllocatorFailed => MkCase (ident "AllocatorFailed") (word "allocator_failed" ::: []) (line "the allocator failed:")
       LibraryFailed => MkCase (ident "LibraryFailed") (word "library_failed" ::: []) (line "a library check failed:")
   , doc = brief (line "a bug of the compiler's or the runtime's, found as the program runs")
   }
 
 ||| The internal errors as the runtime reads them: each one's phrase, which
-||| the detail its ending carries (a count, the allocator's or the library's
-||| own text) follows.
+||| the detail its ending carries (a count; the function, what it held and
+||| its bound; the allocator's or the library's own text) follows.
 public export
 internalTable : Table
 internalTable = table internalClosed

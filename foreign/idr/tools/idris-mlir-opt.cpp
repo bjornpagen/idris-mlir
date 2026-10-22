@@ -101,7 +101,7 @@ int optMain(int argc, char **argv) {
   mlir::registerAllExtensions(registry);
   idr::registerIdrDialects(registry);
   auto [inputPath, outputPath] =
-      mlir::registerAndParseCLIOptions(argc, argv, "idris-mlir-opt: the idr dialect\n", registry);
+      mlir::registerAndParseCLIOptions(argc, argv, "the idr dialect\n", registry);
   if (actionTags) {
     for (std::string_view tag : idr::actions::tags)
       llvm::outs() << tag << "\n";
@@ -121,7 +121,7 @@ int optMain(int argc, char **argv) {
     }
   }
   // --time-trace, when it named a file: written as this returns.
-  idr::profile::Trace trace("idris-mlir-opt");
+  idr::profile::Trace trace(idr::driver::toolName);
   // Every manager this tool runs carries the profile's zones, ahead of the
   // pipeline the command line gives, as idris-mlir's manager does; a test's
   // checks ahead of the zones, which so time each pass without them, and
@@ -171,5 +171,5 @@ int optMain(int argc, char **argv) {
 } // namespace
 
 int main(int argc, char **argv) {
-  return idr::driver::runTool("idris-mlir-opt", [&] { return optMain(argc, argv); });
+  return idr::driver::runTool([&] { return optMain(argc, argv); });
 }

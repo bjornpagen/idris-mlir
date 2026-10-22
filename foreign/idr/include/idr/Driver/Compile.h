@@ -111,7 +111,7 @@ void foldDiagnostics(mlir::MLIRContext &context, Outcome &outcome);
 // making until just before the context goes: every diagnostic folds into
 // `outcome` (foldDiagnostics), then one located in a file goes to MLIR's
 // SourceMgrDiagnosticHandler, which shows its line, and any other error is
-// printed in the driver's own form (Report.h's), `idris-mlir: <message>`,
+// printed in the driver's own form (Report.h's), `<tool>: <message>`,
 // with `internal error: ` before a message that names no rule. The class
 // printed and the verdict folded are one predicate's. The driver's own
 // refusals carry the dialect's rule (idr::refuse), so the context holds the

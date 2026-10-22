@@ -7,14 +7,12 @@
 // capabilities (getauxval) in __init_cpu_features, which compiler-rt's own
 // constructor runs too; either may be called any number of times. The bits
 // themselves are cpuFeatureBits.
-// PIN(runtime-quarantine), PIN(simdutf-dispatch) — see PINS.md
+// PIN(runtime-quarantine) — see PINS.md
 #include "Platform/CpuBits.h"
 #include "Platform/Platform.h"
 #include "idris_rt.h"
 
 #include <stdint.h>
-
-#include <string_view>
 
 #if defined(__APPLE__)
 extern "C" void __init_cpu_features_resolver(void) noexcept;
@@ -32,9 +30,5 @@ IDRIS_RT_BASELINE uint64_t cpuFeatures() noexcept {
 #endif
   return cpuFeatureBits();
 }
-
-// simdutf's one AArch64 implementation, arm64, is compiled for NEON, which
-// every AArch64 processor has: the baseline runs it, with nothing to test.
-bool runsSimdutf(std::string_view name) noexcept { return name == "arm64"; }
 
 } // namespace rt::platform

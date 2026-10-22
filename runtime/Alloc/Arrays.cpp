@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Array cells, the memory behind every memref (idris_rt_array): a cell with
-// every object slot NULL, and the counted copy between two views of cells.
+// every object slot NULL, one its maker writes whole, and the counted copy
+// between two views of cells.
 // The compiler reads and writes elements itself, through a memref's
 // descriptor, with the layout it chose; the runtime allocates the cell,
 // copies where a copy must count or stride, and frees the cell (rt::rc).
@@ -114,6 +115,25 @@ char *firstOf(const idris_rt_memref *view, ptrdiff_t bytes) {
   return view->aligned + static_cast<ptrdiff_t>(view->offset) * bytes;
 }
 
+// What an array cell of `elements` elements with the header `info` takes:
+// its header and length, then the elements. A count whose cell no address
+// space holds is as much memory as the machine has not: the process's
+// out-of-memory ending.
+size_t arrayBytes(int64_t elements, uint32_t info) {
+  size_t bytes = 0;
+  if (__builtin_mul_overflow(static_cast<uint64_t>(elements), uint64_t{idris_rt_info_tag(info)},
+                             &bytes) ||
+      __builtin_add_overflow(bytes, sizeof(idris_rt_array), &bytes))
+    rt::end::end(rt::end::OutOfMemory{});
+  return bytes;
+}
+
+idris_rt_array *made(void *cell, int64_t elements) {
+  auto *array = static_cast<idris_rt_array *>(cell);
+  array->length = static_cast<uint64_t>(elements);
+  return array;
+}
+
 } // namespace
 
 // A new array cell of `count` elements with the header `info` (kind
@@ -121,21 +141,23 @@ char *firstOf(const idris_rt_memref *view, ptrdiff_t bytes) {
 // is 0, so every object slot is NULL until a store: a store releases what
 // the slot held, and the cell's death releases every slot, written or not;
 // otherwise they are not written. The first element is aligned to
-// IDRIS_RT_WORD_BYTES. A count whose cell no address space holds is as
-// much memory as the machine has not: the process's out-of-memory ending.
-extern "C" void *idris_rt_array_new(int64_t elements, int32_t word) {
-  auto count = static_cast<uint64_t>(elements);
+// IDRIS_RT_WORD_BYTES.
+extern "C" idris_rt_array *idris_rt_array_new(int64_t elements, int32_t word) {
   auto info = static_cast<uint32_t>(word);
-  uint64_t stride = idris_rt_info_tag(info);
-  size_t bytes = 0;
-  if (__builtin_mul_overflow(count, stride, &bytes) ||
-      __builtin_add_overflow(bytes, sizeof(idris_rt_array), &bytes))
-    rt::end::end(rt::end::OutOfMemory{});
-  auto *array = static_cast<idris_rt_array *>(idris_rt_info_objs(info) != 0
-                                                  ? rt::alloc::newZeroedCell(bytes, info)
-                                                  : rt::alloc::newCell(bytes, info));
-  array->length = count;
-  return array;
+  size_t bytes = arrayBytes(elements, info);
+  return made(idris_rt_info_objs(info) != 0 ? rt::alloc::newZeroedCell(bytes, info)
+                                            : rt::alloc::newCell(bytes, info),
+              elements);
+}
+
+// The same cell with its elements left as the allocator gave them, for a
+// maker that writes every element whole, object slots included, before
+// anything reads, releases or frees the cell (array.new, and a step's fresh
+// cell): no slot is ever read before its first write, so none needs to be
+// NULL first.
+extern "C" idris_rt_array *idris_rt_array_new_unwritten(int64_t elements, int32_t word) {
+  auto info = static_cast<uint32_t>(word);
+  return made(rt::alloc::newCell(arrayBytes(elements, info), info), elements);
 }
 
 // memref.copy, where idr-lower does not copy the bytes itself: each element
@@ -146,9 +168,8 @@ extern "C" void *idris_rt_array_new(int64_t elements, int32_t word) {
 // then the element's bytes are moved. So a cell fresh from
 // idris_rt_array_new may be the target as it is, and a view copied onto
 // itself, the one overlap allowed, is left as it was.
-extern "C" void idris_rt_memref_copy(int64_t rank, void *source, void *target) {
-  const auto *from = static_cast<const idris_rt_memref *>(source);
-  const auto *to = static_cast<const idris_rt_memref *>(target);
+extern "C" void idris_rt_memref_copy(int64_t rank, const idris_rt_memref *from,
+                                     const idris_rt_memref *to) {
   uint32_t info = to->allocated->header.info;
   Element element{static_cast<ptrdiff_t>(idris_rt_info_tag(info)), idris_rt_info_objs(info)};
   auto dims = static_cast<size_t>(rank);

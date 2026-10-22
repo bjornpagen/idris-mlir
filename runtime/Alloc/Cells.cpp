@@ -302,16 +302,20 @@ void release(void *block) { snmalloc::dealloc(block); }
 [[gnu::always_inline]] void *newCell(size_t size, uint32_t info) {
   auto *cell = static_cast<idris_rt_header *>(allocate(size));
   *cell = idris_rt_header{1, info};
-  if constexpr (checked)
+  if constexpr (checked) {
     ++cellsHeld;
+    ++cellsMade;
+  }
   return cell;
 }
 
 void *newZeroedCell(size_t size, uint32_t info) {
   auto *cell = static_cast<idris_rt_header *>(snmalloc::alloc<EndsZeroed>(size));
   *cell = idris_rt_header{1, info};
-  if constexpr (checked)
+  if constexpr (checked) {
     ++cellsHeld;
+    ++cellsMade;
+  }
   return cell;
 }
 
@@ -334,6 +338,7 @@ void *newZeroedCell(size_t size, uint32_t info) {
 // size is a constant at every call idr-lower makes, so once the runtime's
 // bitcode is inlined, snmalloc's size class folds to a constant and the
 // allocation is a free-list pop.
-extern "C" [[gnu::always_inline]] void *idris_rt_cell(int64_t size, int32_t info) {
-  return rt::alloc::newCell(static_cast<size_t>(size), static_cast<uint32_t>(info));
+extern "C" [[gnu::always_inline]] idris_rt_header *idris_rt_cell(int64_t size, int32_t info) {
+  return static_cast<idris_rt_header *>(
+      rt::alloc::newCell(static_cast<size_t>(size), static_cast<uint32_t>(info)));
 }

@@ -215,6 +215,15 @@ void say(Message &m, const CellsLeaked &ending) noexcept {
 void say(Message &m, const CountOfDeadCell &) noexcept {
   internal(m, idr::endings::Internal::CountOfDeadCell);
 }
+void say(Message &m, const FrameBoundExceeded &ending) noexcept {
+  internal(m, idr::endings::Internal::FrameBoundExceeded);
+  m.add(" ");
+  m.add(ending.function);
+  m.add(" held ");
+  m.unsignedNumber(ending.held);
+  m.add(", its bound ");
+  m.unsignedNumber(ending.bound);
+}
 void say(Message &m, const AllocatorFailed &ending) noexcept {
   internal(m, idr::endings::Internal::AllocatorFailed);
   m.add(" ");
@@ -267,6 +276,7 @@ template void end(const Piped &) noexcept;
 template void end(const StackExhausted &) noexcept;
 template void end(const CellsLeaked &) noexcept;
 template void end(const CountOfDeadCell &) noexcept;
+template void end(const FrameBoundExceeded &) noexcept;
 template void end(const AllocatorFailed &) noexcept;
 template void end(const LibraryFailed &) noexcept;
 
@@ -274,11 +284,11 @@ template void end(const LibraryFailed &) noexcept;
 
 namespace {
 
-// A site as the C ABI passes it, the lowering's static texts as pointers
-// and the line and column as 32-bit integers, read once into its type.
-rt::end::Site siteOf(void *function, void *file, int32_t line, int32_t column) {
-  return {static_cast<const idris_rt_text *>(function), static_cast<const idris_rt_text *>(file),
-          static_cast<uint32_t>(line), static_cast<uint32_t>(column)};
+// A site as the C ABI passes it, the lowering's static texts and the line
+// and column as 32-bit integers, read once into its type.
+rt::end::Site siteOf(const idris_rt_text *function, const idris_rt_text *file, int32_t line,
+                     int32_t column) {
+  return {function, file, static_cast<uint32_t>(line), static_cast<uint32_t>(column)};
 }
 
 } // namespace
@@ -286,22 +296,23 @@ rt::end::Site siteOf(void *function, void *file, int32_t line, int32_t column) {
 // A crash of a cause of the closed set, its position in the specification's
 // list, at its site: the function it lies in, its file, line and column,
 // each file and function one static text of the program.
-extern "C" void idris_rt_crash_at(int32_t cause, void *function, void *file, int32_t line,
-                                  int32_t column) {
+extern "C" void idris_rt_crash_at(int32_t cause, const idris_rt_text *function,
+                                  const idris_rt_text *file, int32_t line, int32_t column) {
   rt::end::end(rt::end::Failed{static_cast<idr::endings::CrashCause>(cause),
                                siteOf(function, file, line, column)});
 }
 
 // A crash of the text a trusted library gave idris_crash, at its site.
-extern "C" void idris_rt_crash_message_at(const idris_rt_str *message, void *function,
-                                          void *file, int32_t line, int32_t column) {
+extern "C" void idris_rt_crash_message_at(const idris_rt_str *message,
+                                          const idris_rt_text *function,
+                                          const idris_rt_text *file, int32_t line, int32_t column) {
   rt::end::end(rt::end::Said{message, siteOf(function, file, line, column)});
 }
 
 // A crash at an exit whose status, outside 0 to 255, no parent could read:
 // the guard before the exit found it so, and names it.
-extern "C" void idris_rt_unreportable_at(int64_t status, void *function, void *file,
-                                         int32_t line, int32_t column) {
+extern "C" void idris_rt_unreportable_at(int64_t status, const idris_rt_text *function,
+                                         const idris_rt_text *file, int32_t line, int32_t column) {
   rt::end::end(rt::end::Unreportable{status, siteOf(function, file, line, column)});
 }
 

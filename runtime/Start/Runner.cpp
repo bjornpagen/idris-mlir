@@ -96,16 +96,16 @@ idris_rt_ran rt::start::run(void (*fn)(void *), void *arg, const idris_rt_stack_
 
 // The tools' runner: their stack is their build's measured need (idris-mlir
 // and its sibling tools pass it), their name the one every message of the
-// runtime's begins with, and their heap bounded by nothing but the machine.
-// It checks the page size first, as idris_rt_start does: the tools run here
-// without idris_rt_start.
+// runtime's begins with, the processor features their code was compiled to
+// use (the runtime's native code calls the target's simdutf kernels, whose
+// features are the program CPU's), and their heap bounded by nothing but
+// the machine. The tools run here without idris_rt_start, so it passes
+// the same startup check first.
 extern "C" idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg,
                                               const idris_rt_stack_plan *plan, const char *name,
-                                              size_t name_bytes) {
+                                              size_t name_bytes, uint64_t cpu_features) {
   rt::end::name(name, name_bytes);
-  size_t system = rt::platform::systemPageSize();
-  if (system != rt::platform::pageSize())
-    rt::end::end(rt::end::WrongPage{rt::platform::pageSize(), system});
+  rt::start::checkMachine(cpu_features);
   return rt::start::run(fn, arg, *plan, SIZE_MAX);
 }
 
@@ -115,10 +115,19 @@ extern "C" idris_rt_ran idris_rt_run_on_stack(void (*fn)(void *), void *arg,
 extern "C" uint64_t idris_rt_host_memory(void) {
   size_t bytes = rt::platform::physicalMemory();
   size_t space = rt::platform::addressSpaceLimit();
-  size_t commit = rt::platform::commitLimit();
+  size_t commit = rt::platform::commitLimit(rt::platform::hostRoot);
   if (space < bytes)
     bytes = space;
   if (commit < bytes)
     bytes = commit;
   return bytes;
+}
+
+// The bytes the process may still commit before its host kills it, read
+// from the host's files under `root`: "" for the host's own, a directory a
+// test planted a host's tree in (its proc/self/cgroup, proc/self/mountinfo
+// and the cgroup hierarchy they name) otherwise; UINT64_MAX where no limit
+// holds.
+extern "C" uint64_t idris_rt_commit_limit(const char *root) {
+  return rt::platform::commitLimit(root);
 }

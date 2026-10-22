@@ -83,5 +83,5 @@ int reduceMain(int argc, char **argv) {
 } // namespace
 
 int main(int argc, char **argv) {
-  return idr::driver::runTool("idris-mlir-reduce", [&] { return reduceMain(argc, argv); });
+  return idr::driver::runTool([&] { return reduceMain(argc, argv); });
 }

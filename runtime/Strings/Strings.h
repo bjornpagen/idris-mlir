@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// rt::strings: strings, UTF-8 bytes with their scalar count, over simdutf,
-// and the text of integers and scalars. A string is one cell, header,
+// rt::strings: strings, UTF-8 bytes with their scalar count, over simdutf
+// (Strings/Simd.h), and the text of integers and scalars. A string is one cell, header,
 // lengths and bytes together, so freeing it is freeing the cell. What every
 // string operation and the output path call per character or per digit is
 // inline here.
@@ -12,10 +12,6 @@
 
 #include <stddef.h>
 #include <stdint.h>
-
-namespace simdutf {
-class implementation;
-} // namespace simdutf
 
 namespace rt::strings {
 
@@ -86,8 +82,5 @@ inline size_t encodeUtf8(int32_t c, char *out) {
     out[k] = static_cast<char>(0x80 | ((u >> (6 * (n - 1 - k))) & 0x3F));
   return n;
 }
-
-// The simdutf implementation every string function calls (Simd.cpp).
-const simdutf::implementation &implementation();
 
 } // namespace rt::strings

@@ -105,7 +105,6 @@ rt::platform::Wrote releasePayload(Slot &slot) {
   case Kind::Input:
   case Kind::Output:
   case Kind::Error:
-  case Kind::Times:
   case Kind::Free:
     return rt::platform::Wrote::Whole;
   }
@@ -149,7 +148,6 @@ constexpr const StreamOps *rowOf(Kind kind) {
     return &rt::io::fileStream;
   case Kind::Free:
   case Kind::Directory:
-  case Kind::Times:
   case Kind::String:
   case Kind::KeptString:
     return nullptr;
@@ -251,7 +249,6 @@ extern "C" void idris_rt_io_handle_free(int64_t handle) {
   switch (rt::io::slotOf(handle).kind) {
   case rt::io::Kind::File:
   case rt::io::Kind::Directory:
-  case rt::io::Kind::Times:
   case rt::io::Kind::String:
     switch (rt::io::releaseSlot(handle)) {
     case rt::platform::Wrote::Whole:

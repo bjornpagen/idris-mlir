@@ -5,14 +5,13 @@
 // PIN(runtime-quarantine) — see PINS.md
 #include "Alloc/Alloc.h"
 #include "End/End.h"
+#include "Strings/Simd.h"
 #include "Strings/Strings.h"
 #include "idris_rt.h"
 
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-
-#include <simdutf.h>
 
 namespace {
 
@@ -77,7 +76,7 @@ size_t maximalSubpart(const char *p, size_t n) {
 // than its string, which freeing never reads. Well-formed input, nearly
 // every input, is the first run whole and fills its cell exactly.
 extern "C" const idris_rt_str *idris_rt_str_from_bytes(const char *p, size_t n) {
-  const simdutf::implementation &utf8 = rt::strings::implementation();
+  using rt::strings::utf8;
   simdutf::utf8_result first = utf8.validate_utf8_with_counts(p, n);
   if (first.error == simdutf::SUCCESS) {
     idris_rt_str *s = rt::strings::newString(n, first.utf32_length());

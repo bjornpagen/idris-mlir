@@ -1,16 +1,17 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The runtime's C functions the lowering calls by itself, which no op
-||| names as its meaning: a cell and an array cell, the counted copy, the
-||| counting of each kind of word, the two frees of a reuse token, the
+||| names as its meaning: a cell and the two array cells, the counted copy,
+||| the counting of each kind of word, the two frees of a reuse token, the
 ||| string being built, the crashes at a site and running out of memory,
-||| the lifetimes allocated into by a bump, the frame stack, and the
-||| program's entry.
+||| the lifetimes allocated into by a bump, the frame stack, the account of
+||| what a call holds that it no longer needs, and the program's entry.
 ||| Each is its prototype and nothing more: its meaning is documented beside
-||| its definition, in runtime/. The generator prints them into the
-||| runtime's declarations, which runtime/idris_rt.h includes, so a
-||| definition that disagrees with its record does not compile, and into the
-||| table the lowering calls through.
+||| its definition, in runtime/. Every pointer names the C type it points
+||| to. The generator prints them into the runtime's declarations, which
+||| runtime/idris_rt.h includes, so a definition that disagrees with its
+||| record, a pointer's type included, does not compile, and into the table
+||| the lowering calls through.
 module IdrisMLIR.Spec.Runtime.Helpers
 
 import IdrisMLIR.Spec.Core.Ods
@@ -36,12 +37,25 @@ public export
 words : List WordKind
 words = [CellWord, MaybeCellWord, BigWord, AnyWord]
 
-||| How a word of the kind is passed: a big as its 64-bit word, every other
-||| as a pointer.
+||| How a word of the kind is passed: a cell, or a cell or null, as the
+||| cell's header; a big as its 64-bit word; a word that may be any of the
+||| three as a word, which no pointee type is true of, since it may be no
+||| address at all.
 public export
 passing : WordKind -> OperandKind
+passing CellWord = TakesPointerTo "idris_rt_header"
+passing MaybeCellWord = TakesPointerTo "idris_rt_header"
 passing BigWord = TakesBig
-passing _ = TakesPointer
+passing AnyWord = TakesPointerTo "void"
+
+||| How a run of contiguous slots of the kind is passed: its first slot,
+||| which the entry reads and never writes.
+public export
+passingRun : WordKind -> OperandKind
+passingRun CellWord = TakesPointerTo "idris_rt_header *const"
+passingRun MaybeCellWord = TakesPointerTo "idris_rt_header *const"
+passingRun BigWord = TakesPointerTo "const idris_rt_big"
+passingRun AnyWord = TakesPointerTo "void *const"
 
 ||| One more or one less reference.
 public export
@@ -80,7 +94,7 @@ counting c s w =
   where
     params : Span -> List (OperandKind, Ident)
     params OneWord = [(passing w, ident "word")]
-    params Run = [(TakesPointer, ident "first"), (TakesInt64, ident "n")]
+    params Run = [(passingRun w, ident "first"), (TakesInt64, ident "n")]
     doc : Count -> Span -> Line
     doc Increment OneWord = line "one more owned reference to a word of its kind"
     doc Decrement OneWord = line "one owned reference less to a word of its kind, a cell released at 0"
@@ -95,41 +109,64 @@ counting c s w =
 ||| function the site lies in, its file, its line and its column, each file
 ||| and function one static text of the program, shared by its sites.
 site : List (OperandKind, Ident)
-site = [(TakesPointer, ident "function"), (TakesPointer, ident "file"), (TakesInt32, ident "line"), (TakesInt32, ident "column")]
+site = [(text, ident "function"), (text, ident "file"), (TakesInt32, ident "line"), (TakesInt32, ident "column")]
+  where
+    text : OperandKind
+    text = TakesPointerTo "const idris_rt_text"
+
+||| A cell, as the runtime and the lowering read it: its header.
+cell : OperandKind
+cell = TakesPointerTo "idris_rt_header"
+
+||| An array cell.
+array : ResultKind
+array = GivesPointerTo "idris_rt_array"
+
+||| A string being built in place, whose bytes are written.
+building : OperandKind
+building = TakesPointerTo "idris_rt_str"
+
+||| A lifetime's cursor or mark: a byte of one of its chunks, where the next
+||| cell goes.
+cursor : OperandKind
+cursor = TakesPointerTo "char"
 
 ||| Every helper, in the order the generator prints them.
 public export
 helpers : List RuntimeHelper
 helpers =
   [ MkRuntimeHelper (ident "cell") (symbol "cell")
-      [(TakesInt64, ident "size"), (TakesInt32, ident "info")] (HelperReturns GivesPointer)
+      [(TakesInt64, ident "size"), (TakesInt32, ident "info")] (HelperReturns (GivesPointerTo "idris_rt_header"))
       (line "a new counted cell of size bytes, its count 1 and its info the one given")
   , MkRuntimeHelper (ident "arrayNew") (symbol "array_new")
-      [(TakesInt64, ident "count"), (TakesInt32, ident "info")] (HelperReturns GivesPointer)
-      (line "a new array cell of count elements, its header's info the one given")
+      [(TakesInt64, ident "count"), (TakesInt32, ident "info")] (HelperReturns array)
+      (line "a new array cell of count elements, its header's info the one given, every object slot null")
+  , MkRuntimeHelper (ident "arrayNewUnwritten") (symbol "array_new_unwritten")
+      [(TakesInt64, ident "count"), (TakesInt32, ident "info")] (HelperReturns array)
+      (line "a new array cell of count elements, unwritten, for a maker that writes every element before anything reads, releases or frees the cell")
   , MkRuntimeHelper (ident "memrefCopy") (symbol "memref_copy")
-      [(TakesInt64, ident "rank"), (TakesPointer, ident "from"), (TakesPointer, ident "to")] HelperNothing
+      [(TakesInt64, ident "rank"), (TakesPointerTo "const idris_rt_memref", ident "from"), (TakesPointerTo "const idris_rt_memref", ident "to")] HelperNothing
       (line "memref.copy of one view onto another, counting each object copied")
   ]
   ++ [counting c s w | c <- [Increment, Decrement], s <- [OneWord, Run], w <- words]
   ++
   [ MkRuntimeHelper (ident "isUnique") (symbol "is_unique")
-      [(TakesPointer, ident "cell")] (HelperReturns GivesBool)
+      [(TakesPointerTo "const idris_rt_header", ident "cell")] (HelperReturns GivesBool)
       (line "whether a counted cell holds the only reference to itself: its count is 1")
   , MkRuntimeHelper (ident "freeToken") (symbol "free_token")
-      [(TakesPointer, ident "cell")] HelperNothing
+      [(cell, ident "cell")] HelperNothing
       (line "frees the memory of a reuse token proved exclusive, whose fields were moved out")
   , MkRuntimeHelper (ident "freeMaybeToken") (symbol "free_maybe_token")
-      [(TakesPointer, ident "cell")] HelperNothing
+      [(cell, ident "cell")] HelperNothing
       (line "frees the memory of a reuse token that may be null, whose fields were moved out")
   , MkRuntimeHelper (ident "strAlloc") (symbol "str_alloc")
-      [(TakesInt64, ident "bytes"), (TakesInt64, ident "scalars")] (HelperReturns GivesPointer)
+      [(TakesInt64, ident "bytes"), (TakesInt64, ident "scalars")] (HelperReturns (GivesPointerTo "idris_rt_str"))
       (line "a new string of bytes bytes and scalars scalar values, to be written in place")
   , MkRuntimeHelper (ident "strPutChar") (symbol "str_put_char")
-      [(TakesPointer, ident "s"), (TakesInt64, ident "offset"), (TakesInt32, ident "c")] (HelperReturns GivesInt64)
+      [(building, ident "s"), (TakesInt64, ident "offset"), (TakesInt32, ident "c")] (HelperReturns GivesInt64)
       (line "a character's UTF-8 written into a string being built, giving the next offset")
   , MkRuntimeHelper (ident "strPutStr") (symbol "str_put_str")
-      [(TakesPointer, ident "s"), (TakesInt64, ident "offset"), (TakesStr, ident "part")] (HelperReturns GivesInt64)
+      [(building, ident "s"), (TakesInt64, ident "offset"), (TakesStr, ident "part")] (HelperReturns GivesInt64)
       (line "a string's bytes written into a string being built, giving the next offset")
   , MkRuntimeHelper (ident "crashAt") (symbol "crash_at")
       ((TakesInt32, ident "cause") :: site) HelperNeverReturns
@@ -144,24 +181,33 @@ helpers =
       [] HelperNeverReturns
       (line "ends the program as out of memory, for a size no allocation can meet")
   , MkRuntimeHelper (ident "arenaOpen") (symbol "arena_open")
-      [(TakesInt64, ident "size_hint")] (HelperReturns GivesPointer)
+      [(TakesInt64, ident "size_hint")] (HelperReturns (GivesPointerTo "char"))
       (line "a chain's first cursor, its first chunk at least the bytes its callee puts; null for a hint of 0")
   , MkRuntimeHelper (ident "arenaChunk") (symbol "arena_chunk")
-      [(TakesPointer, ident "cursor"), (TakesInt64, ident "bytes")] (HelperReturns GivesPointer)
+      [(cursor, ident "cursor"), (TakesInt64, ident "bytes")] (HelperReturns (GivesPointerTo "char"))
       (line "where a cell of bytes goes in a cursor's chain: the cursor itself when its chunk has room, else a new chunk's first byte; null starts a chain")
   , MkRuntimeHelper (ident "arenaClose") (symbol "arena_close")
-      [(TakesPointer, ident "cursor")] HelperNothing
+      [(cursor, ident "cursor")] HelperNothing
       (line "every chunk of a cursor's chain given back; null gives back none")
   , MkRuntimeHelper (ident "stackReset") (symbol "stack_reset")
-      [(TakesPointer, ident "mark")] HelperNothing
+      [(cursor, ident "mark")] HelperNothing
       (line "the chunks of a stack's chain past the one its mark is in given back, the mark its cursor again")
   , MkRuntimeHelper (ident "framePush") (symbol "frame_push")
-      [(TakesInt64, ident "bytes")] (HelperReturns GivesPointer)
-      (line "the next frame's bytes on the thread's frame stack, contiguous within a chunk")
+      [(TakesInt64, ident "bytes")] (HelperReturns (GivesPointerTo "idris_rt_header"))
+      (line "the next frame's bytes on the thread's frame stack, contiguous within a chunk, laid out as a cell")
   , MkRuntimeHelper (ident "framePop") (symbol "frame_pop")
-      [(TakesPointer, ident "frame")] HelperNothing
+      [(cell, ident "frame")] HelperNothing
       (line "the frame stack back to a frame it pushed, the chunks past it given back but the one spare")
+  , MkRuntimeHelper (ident "peakEnter") (symbol "peak_enter")
+      [(TakesPointerTo "const idris_rt_text", ident "function"), (TakesInt64, ident "bound")] HelperNothing
+      (line "an activation of a function that may hold bytes it no longer needs begins, the compiler's bound on them given")
+  , MkRuntimeHelper (ident "peakHeld") (symbol "peak_held")
+      [(TakesInt64, ident "change")] HelperNothing
+      (line "the innermost such activation holds change more bytes it no longer needs, fewer where change is negative")
+  , MkRuntimeHelper (ident "peakLeave") (symbol "peak_leave")
+      [] HelperNothing
+      (line "the innermost such activation ends")
   , MkRuntimeHelper (ident "start") (symbol "start")
-      [(TakesPointer, ident "program"), (TakesInt32, ident "argc"), (TakesPointer, ident "argv")] HelperNeverReturns
+      [(TakesPointerTo "const idris_rt_program", ident "program"), (TakesInt32, ident "argc"), (TakesPointerTo "char *", ident "argv")] HelperNeverReturns
       (line "the program's entry, which main calls with the program's static facts")
   ]
