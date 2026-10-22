@@ -39,9 +39,9 @@ struct Counts {
 };
 
 // A tabulation is parallel or stays.
-struct TabulateForm : OpRewritePattern<TabulateOp> {
+struct TabulateForm : OpRewritePattern<ArrayTabulateOp> {
   TabulateForm(MLIRContext *ctx, Counts &counts) : OpRewritePattern(ctx), counts(counts) {}
-  LogicalResult matchAndRewrite(TabulateOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(ArrayTabulateOp op, PatternRewriter &rewriter) const override {
     if (formOf(op) == Form::Ordered) {
       ++counts.ordered;
       return rewriter.notifyMatchFailure(op, "stays for its loops");
@@ -54,9 +54,9 @@ struct TabulateForm : OpRewritePattern<TabulateOp> {
 };
 
 // A fold is a reduction, an interchange, or stays.
-struct FoldForm : OpRewritePattern<FoldLastOp> {
+struct FoldForm : OpRewritePattern<ArrayFoldLastOp> {
   FoldForm(MLIRContext *ctx, Counts &counts) : OpRewritePattern(ctx), counts(counts) {}
-  LogicalResult matchAndRewrite(FoldLastOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(ArrayFoldLastOp op, PatternRewriter &rewriter) const override {
     switch (formOf(op)) {
     case Form::Reduction:
       lowerReduction(rewriter, op);
@@ -79,9 +79,9 @@ struct FoldForm : OpRewritePattern<FoldLastOp> {
 };
 
 // A scan, which keeps every step, is an interchange or stays.
-struct ScanForm : OpRewritePattern<ScanLastOp> {
+struct ScanForm : OpRewritePattern<ArrayScanLastOp> {
   ScanForm(MLIRContext *ctx, Counts &counts) : OpRewritePattern(ctx), counts(counts) {}
-  LogicalResult matchAndRewrite(ScanLastOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(ArrayScanLastOp op, PatternRewriter &rewriter) const override {
     if (formOf(op) == Form::Ordered) {
       ++counts.ordered;
       return rewriter.notifyMatchFailure(op, "stays for its loops");
@@ -94,7 +94,7 @@ struct ScanForm : OpRewritePattern<ScanLastOp> {
 };
 
 struct StructureLoops : idr::impl::IdrStructureLoopsBase<StructureLoops> {
-  void runOnProgram(ProgramOp) override {
+  void runOnProgram(ProgramOp) {
     Counts counts{numParallel, numReductions, numOrdered};
     RewritePatternSet patterns(&getContext());
     patterns.add<TabulateForm, FoldForm, ScanForm>(&getContext(), counts);
@@ -119,7 +119,7 @@ struct Loops : OpInterfaceRewritePattern<DestinationStyleOpInterface> {
 };
 
 struct OrderedLoops : idr::impl::IdrOrderedLoopsBase<OrderedLoops> {
-  void runOnProgram(ProgramOp) override {
+  void runOnProgram(ProgramOp) {
     RewritePatternSet patterns(&getContext());
     patterns.add<Loops>(&getContext());
     walkAndApplyPatterns(getOperation(), std::move(patterns));

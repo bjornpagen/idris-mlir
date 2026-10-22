@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Two ops that hold a tensor without touching its elements: idr.tie_shape,
-// which names an array's dynamic sizes, and ub.poison, which dead-value
-// removal leaves where a kept op used a dead array.
+// Two ops that hold a tensor without touching its elements:
+// idr.array.tie_shape, which names an array's dynamic sizes, and ub.poison,
+// which dead-value removal leaves where a kept op used a dead array.
 #include "idr/Transforms/BufferizeModels.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -16,7 +16,7 @@ namespace {
 // The same array, its sizes named: the buffer is the operand's, and the
 // op stays on it, so value bounds still relate the sizes of buffers across
 // a call until idr-lower drops it.
-struct TieShapeModel : BufferizableOpInterface::ExternalModel<TieShapeModel, idr::TieShapeOp> {
+struct TieShapeModel : BufferizableOpInterface::ExternalModel<TieShapeModel, idr::ArrayTieShapeOp> {
   bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
     return false;
   }
@@ -77,7 +77,7 @@ struct PoisonModel : BufferizableOpInterface::ExternalModel<PoisonModel, ub::Poi
 } // namespace
 
 void idr::bufferize::attachTieShapeModel(MLIRContext *ctx) {
-  idr::TieShapeOp::attachInterface<TieShapeModel>(*ctx);
+  idr::ArrayTieShapeOp::attachInterface<TieShapeModel>(*ctx);
 }
 
 void idr::bufferize::attachPoisonModel(MLIRContext *ctx) {

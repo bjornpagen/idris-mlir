@@ -57,7 +57,8 @@ void writeElement(OpBuilder &b, Location loc, Runtime &runtime, const Layouts &l
     SmallVector<layout::Component> components = layouts.components(type);
     // An element of words holds nothing to release, which its layout says:
     // its place is not read.
-    if (llvm::any_of(components, [](const layout::Component &c) { return c.counted; }))
+    if (llvm::any_of(components,
+                     [](const layout::Component &c) { return c.word != layout::Word::Uncounted; }))
       runtime.dec(b, loc, components, readElement(b, loc, runtime, address, element));
   }
   placeElement(b, loc, runtime, address, element, value);

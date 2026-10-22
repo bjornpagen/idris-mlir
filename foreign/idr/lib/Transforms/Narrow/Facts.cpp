@@ -77,12 +77,8 @@ Value Facts::word(OpBuilder &b, Location loc, Value value) {
     convert(poison);
     return ub::PoisonOp::create(b, loc, i64);
   }
-  // What made the big, through the ops that only change its grade (the
-  // view counting reads it through).
-  Value made = value;
-  for (Operation *def = made.getDefiningOp(); def && def->hasTrait<ResultCarriesOperand>();
-       def = made.getDefiningOp())
-    made = def->getOperand(0);
+  // What made the big, through its casts into and out of linear positions.
+  Value made = throughLinear(value);
   if (auto small = made.getDefiningOp<BigSmallOp>())
     return small.getValue();
   // A big made of a narrower integer is that integer, extended as the op

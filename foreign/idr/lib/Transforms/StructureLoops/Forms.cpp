@@ -11,7 +11,7 @@
 //
 // The facts each form rests on are the IR's: effects through the region's
 // own (the iterator types), the laws through the combining op, and the
-// equality of sizes through value bounds, which idr.tie_shape carries
+// equality of sizes through value bounds, which idr.array.tie_shape carries
 // across calls.
 
 #include "idr/Transforms/StructureLoops.h"
@@ -67,7 +67,7 @@ bool overWords(Operation *op) {
 // accumulator reaches: the accumulator's one use, giving the yield's one
 // operand. An op marked nsw or nuw is no such combiner: reassociated, it
 // could overflow where the program did not.
-bool reassociates(FoldLastOp fold) {
+bool reassociates(ArrayFoldLastOp fold) {
   auto yield = cast<ArrayYieldOp>(fold.getBody()->getTerminator());
   for (auto [accumulator, next] : llvm::zip_equal(fold.getAccumulators(), yield.getValues())) {
     Operation *combine = next.getDefiningOp();
@@ -135,7 +135,7 @@ Form formOf(Operation *op) {
   // only the fold may combine its steps in another order. A reduction's
   // extent is the size of an input along it: linalg reads the domain off
   // its operands.
-  if (auto fold = dyn_cast<FoldLastOp>(op)) {
+  if (auto fold = dyn_cast<ArrayFoldLastOp>(op)) {
     AffineExpr last = getAffineDimExpr(frame, op->getContext());
     bool extent = llvm::any_of(readsOf(fold, frame + 1), [&](const Read &read) {
       return llvm::is_contained(read.map.getResults(), last);

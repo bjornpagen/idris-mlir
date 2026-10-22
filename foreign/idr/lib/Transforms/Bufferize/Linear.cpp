@@ -13,11 +13,10 @@
 // idr.lin.cast changes a value's uses and nothing of its contents: it is
 // its operand, an equivalent alias that reads and writes nothing. A linear
 // binder does not imply unique ownership, so the grade's uses decide
-// nothing here; its sharing does. A cast of a value graded `unique deep`
-// is in place, always: no other reference reaches the buffer, so a write
-// on its thread overwrites a version nothing reads again, and a copy there
-// would be the compiler's, never the program's, which One-Shot reports as
-// its own conflict.
+// nothing here, and bufferization runs before any hold is decided, so no
+// grade says a buffer is exclusive yet: One-Shot decides each write on a
+// linear thread by its own analysis, a thawed array's among them, and
+// copies only where the array it came from is read again.
 #include "idr/Transforms/BufferizeModels.h"
 
 #include "idr/IR/Grades.h"
@@ -66,12 +65,6 @@ struct CastModel : BufferizableOpInterface::ExternalModel<CastModel, idr::LinCas
   }
   AliasingValueList getAliasingValues(Operation *op, OpOperand &, const AnalysisState &) const {
     return {{op->getResult(0), BufferRelation::Equivalent, /*isDefinite=*/true}};
-  }
-
-  // The thread of an exclusive array is written in place by its grade.
-  bool mustBufferizeInPlace(Operation *op, OpOperand &, const AnalysisState &) const {
-    return idr::claims(op->getOperand(0).getType(), idr::Unique::Deep) ||
-           idr::claims(op->getResult(0).getType(), idr::Unique::Deep);
   }
 
   FailureOr<BufferLikeType> getBufferType(Operation *op, Value value,

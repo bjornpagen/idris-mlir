@@ -58,7 +58,7 @@ bool mayRunAfter(mlir::Operation *later, mlir::Operation *earlier, mlir::Value v
                  const mlir::bufferization::BufferizationOptions &options);
 
 // Whether `operand` is a release: its buffer outlives the op in a place the
-// analysis does not see, a cell (bufferization.to_buffer before idr.con, a
+// analysis does not see, a cell (bufferization.to_buffer before idr.data.con, a
 // memo cell's value) or a callee, which may keep it in one. The op writes
 // it and no result of the op is it, or the op is a call.
 bool isRelease(mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &state);

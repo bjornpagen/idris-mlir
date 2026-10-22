@@ -129,8 +129,8 @@ foldMembers =
 -- The generating ops
 ------------------------------------------------------------------------------
 
-||| `idr.tabulate`: each destination written at every index of the domain
-||| with what the region gives there, the j-th value for the j-th
+||| `idr.array.tabulate`: each destination written at every index of the
+||| domain with what the region gives there, the j-th value for the j-th
 ||| destination; the domain is the destinations' leading dimensions, which
 ||| they share, and a value is an element, or the cell of the dimensions
 ||| after them. The region runs once per index, never on an empty domain. A
@@ -138,7 +138,7 @@ foldMembers =
 ||| or an `alloc_tensor` (the op's verifier), so placing its slots releases
 ||| nothing.
 |||
-|||   %t = idr.tabulate outs(%e : tensor<?xi64>) {
+|||   %t = idr.array.tabulate outs(%e : tensor<?xi64>) {
 |||   ^bb0(%i: index):
 |||     %x = arith.index_cast %i : index to i64
 |||     idr.array.yield %x : i64
@@ -147,7 +147,7 @@ export
 tabulateOp : Op 1 1 0 1
 tabulateOp = MkOp
   { home = InIdr
-  , mnemonic = "tabulate"
+  , mnemonic = "array.tabulate"
   , ins = [variadic "outs" array]
   , outs = [results "arrays" (UpstreamType AnyRankedTensorC)]
   , attrs = []
@@ -179,8 +179,8 @@ tabulateOp = MkOp
       """
   }
 
-||| `idr.fold_last`: for each index of the frame, the left fold along the
-||| last axis of the domain, `length` long, from what each destination
+||| `idr.array.fold_last`: for each index of the frame, the left fold along
+||| the last axis of the domain, `length` long, from what each destination
 ||| holds there, which the last accumulator replaces. The region binds the
 ||| frame's indices, the fold's index and the accumulators, and gives the
 ||| next accumulators. A rank-0 destination is an accumulator of no frame.
@@ -188,7 +188,7 @@ export
 foldLastOp : Op 2 1 0 1
 foldLastOp = MkOp
   { home = InIdr
-  , mnemonic = "fold_last"
+  , mnemonic = "array.fold_last"
   , ins = [single "length" (UpstreamType IndexC), variadic "inits" array]
   , outs = [results "results" (UpstreamType AnyRankedTensorC)]
   , attrs = []
@@ -218,15 +218,15 @@ foldLastOp = MkOp
       """
   }
 
-||| `idr.scan_last`: the fold of `idr.fold_last` with every accumulator
-||| kept. It reads its first accumulators from its inputs and writes each
-||| step's into its destination at that step: a destination's dimensions
-||| are the frame's, then `length`, then the input's cell's.
+||| `idr.array.scan_last`: the fold of `idr.array.fold_last` with every
+||| accumulator kept. It reads its first accumulators from its inputs and
+||| writes each step's into its destination at that step: a destination's
+||| dimensions are the frame's, then `length`, then the input's cell's.
 export
 scanLastOp : Op 3 1 0 1
 scanLastOp = MkOp
   { home = InIdr
-  , mnemonic = "scan_last"
+  , mnemonic = "array.scan_last"
   , ins = [single "length" (UpstreamType IndexC), variadic "inits" array, variadic "outs" array]
   , outs = [results "results" (UpstreamType AnyRankedTensorC)]
   , attrs = []
@@ -271,7 +271,8 @@ arrayYieldOp = MkOp
   , outs = []
   , attrs = []
   , regions = []
-  , traits = [Terminator, HasParent ("tabulate" ::: ["fold_last", "scan_last"])]
+  , traits =
+      [Terminator, HasParent ("array.tabulate" ::: ["array.fold_last", "array.scan_last"])]
   , interfaces =
       [ Declares RegionBranchTerminator ["getMutableSuccessorOperands"]
       , Implements flowInterface ["getFlowEdges"] ]

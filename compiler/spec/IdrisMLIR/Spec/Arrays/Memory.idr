@@ -320,15 +320,16 @@ natToExtentOp = MkOp
   , doc = brief "a natural as the extent of an array to be made"
   }
 
-||| `idr.tie_shape`: an array whose dynamic dimensions are the given sizes,
-||| in order: the same array, saying what Idris proved of arrays indexed by
-||| one size inside a function, where MLIR's tensor type has no symbolic
-||| dimension. Folding it away loses an optimization, never a meaning.
+||| `idr.array.tie_shape`: an array whose dynamic dimensions are the given
+||| sizes, in order: the same array, saying what Idris proved of arrays
+||| indexed by one size inside a function, where MLIR's tensor type has no
+||| symbolic dimension. Folding it away loses an optimization, never a
+||| meaning.
 export
 tieShapeOp : Op 2 1 0 0
 tieShapeOp = MkOp
   { home = InIdr
-  , mnemonic = "tie_shape"
+  , mnemonic = "array.tie_shape"
   , ins = [single "value" array, variadic "dims" (UpstreamType IndexC)]
   , outs = [result "result" array]
   , attrs = []
@@ -354,6 +355,26 @@ tieShapeOp = MkOp
   , laws = []
   , doc = brief "an array whose dynamic dimensions are the given sizes"
   }
+
+------------------------------------------------------------------------------
+-- The skeleton rule
+------------------------------------------------------------------------------
+
+||| A read of an element of mutable memory whose next access to memory of
+||| its array is a write of the same element is that element's update: the
+||| element moves out of its place with the reference the place held, the
+||| ops between that rebuild it from it run in the update's region, and the
+||| value written moves back in. A value read only to be rebuilt and written
+||| back (an IORef's modify, a state record's update) then holds the one
+||| reference to its cell while it is rebuilt, and counting rebuilds it in
+||| that cell. The read and the write are ordered by their effects, so the
+||| rule is a skeleton rule, hand C++ (`::idr::egraph::MoveOut`,
+||| `idr/IR/Arrays.h`) rooted at the write.
+export
+memorySkeleton : List SkeletonRule
+memorySkeleton =
+  [ MkSkeletonRule "MoveOut" "array.set"
+      "a write of the element a read gave, with nothing between touching the array, is its update" ]
 
 ------------------------------------------------------------------------------
 -- The area's part

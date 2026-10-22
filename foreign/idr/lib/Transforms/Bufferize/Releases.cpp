@@ -3,8 +3,8 @@
 // Releases, and what may touch a released buffer after one.
 //
 // A release hands a buffer to a place One-Shot does not see: a cell
-// (bufferization.to_buffer before idr.con, a memo cell's forced value) or a
-// callee, which may keep it in one. The analysis sees the release read and
+// (bufferization.to_buffer before idr.data.con, a memo cell's forced
+// value) or a callee, which may keep it in one. The analysis sees the release read and
 // write the buffer, so a later read of it makes the release copy. It sees
 // no read after a later write that does not read: such a write would
 // overwrite a buffer something else now holds, and nothing would conflict.

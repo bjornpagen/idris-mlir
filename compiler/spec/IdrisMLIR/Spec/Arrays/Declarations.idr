@@ -4,8 +4,9 @@
 ||| movements on buffers, mutable memory and its accesses, the read that
 ||| gives a value array back, the extent of an array to be made and the tie
 ||| of its dimensions; the memory space of mutable memory; the two
-||| interfaces the generating set and the update share; and the two hand
-||| predicates their operands are checked by.
+||| interfaces the generating set and the update share; the two hand
+||| predicates their operands are checked by; and the skeleton rule that
+||| makes a read and a write of one element its update.
 module IdrisMLIR.Spec.Arrays.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -30,6 +31,6 @@ declarations = MkDeclarations
   , helpers = []
   , admitted = []
   , rewrites = []
-  , skeleton = []
+  , skeleton = memorySkeleton
   , headers = []
   }

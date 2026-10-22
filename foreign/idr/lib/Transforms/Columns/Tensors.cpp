@@ -284,7 +284,7 @@ void populateTensorColumnPatterns(const TypeConverter &converter, RewritePattern
   };
   std::pair<StringRef, ConversionTarget::DynamicLegalityCallbackFn> perColumn[] = {
       {tensor::EmptyOp::getOperationName(), legal}, {tensor::CastOp::getOperationName(), legal},
-      {TieShapeOp::getOperationName(), legal},      {LinCastOp::getOperationName(), legal},
+      {ArrayTieShapeOp::getOperationName(), legal},      {LinCastOp::getOperationName(), legal},
       {arith::SelectOp::getOperationName(), select}, {ub::PoisonOp::getOperationName(), legal}};
   for (auto &[name, legality] : perColumn) {
     patterns.add<PerColumn>(converter, name, ctx);

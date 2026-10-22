@@ -111,8 +111,8 @@ void populateCallColumnPatterns(const TypeConverter &converter, RewritePatternSe
   addColumns<CallColumns, CallOp>(converter, patterns, target, legal);
   addColumns<TerminatorColumns<ReturnOp>, ReturnOp>(converter, patterns, target, legal);
   addColumns<TerminatorColumns<YieldOp>, YieldOp>(converter, patterns, target, legal);
-  addColumns<ResultColumns<MatchOp>, MatchOp>(converter, patterns, target, legal);
-  addColumns<ResultColumns<MatchLitOp>, MatchLitOp>(converter, patterns, target, legal);
+  addColumns<ResultColumns<DataMatchOp>, DataMatchOp>(converter, patterns, target, legal);
+  addColumns<ResultColumns<LitMatchOp>, LitMatchOp>(converter, patterns, target, legal);
 }
 
 } // namespace idr::columns

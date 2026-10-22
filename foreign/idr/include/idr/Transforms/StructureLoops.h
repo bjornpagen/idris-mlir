@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 //===- StructureLoops.h - The array ops as linalg and as loops ------------===//
 //
-// Two passes on the generating set (idr.tabulate, idr.fold_last,
-// idr.scan_last). idr-structure-loops, once every call has its final
+// Two passes on the generating set (idr.array.tabulate, idr.array.fold_last,
+// idr.array.scan_last). idr-structure-loops, once every call has its final
 // effects and before bufferization, turns each op whose region does no
 // more than compute and crash, over arrays of words, into linalg, keeping
 // its parallel dimensions parallel; every other op stays as it is, through
@@ -71,8 +71,8 @@ struct Read {
 llvm::SmallVector<Read> readsOf(mlir::Operation *op, unsigned dims);
 
 // The forms that make linalg, each replacing its op.
-void lowerParallel(mlir::RewriterBase &rewriter, TabulateOp op);
-void lowerReduction(mlir::RewriterBase &rewriter, FoldLastOp op);
+void lowerParallel(mlir::RewriterBase &rewriter, ArrayTabulateOp op);
+void lowerReduction(mlir::RewriterBase &rewriter, ArrayFoldLastOp op);
 template <typename Op>
 void lowerInterchange(mlir::RewriterBase &rewriter, Op op);
 

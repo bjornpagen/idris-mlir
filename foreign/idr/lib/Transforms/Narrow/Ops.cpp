@@ -14,7 +14,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 // The word op of each big op that names one: BigToWord.
-#include "idr/IR/IdrBigToWord.inc"
+#include "idr/IR/Generated/BigToWord.h.inc"
 
 #include <type_traits>
 
@@ -47,7 +47,7 @@ void replaceBig(RewriterBase &rewriter, Facts &facts, Operation *op, Value word)
 // word too. Its default region binds the scrutinee, so it binds the word
 // now, and what read the big there reads the big of the word, a small big
 // that owns nothing, with the scrutinee's bounds.
-bool narrowMatch(RewriterBase &rewriter, Facts &facts, MatchLitOp match) {
+bool narrowMatch(RewriterBase &rewriter, Facts &facts, LitMatchOp match) {
   Value scrutinee = match.getScrutinee();
   if (!facts.fits(scrutinee))
     return false;
@@ -122,8 +122,8 @@ bool narrowBig(RewriterBase &rewriter, Facts &facts, OpT big, bool nonNegative) 
   Location loc = big.getLoc();
   Value word = wordOf(rewriter, facts, big, nonNegative);
   for (OpOperand &operand : big->getOpOperands())
-    if (consumes(operand) && facts.owned(operand.get()))
-      DropOp::create(rewriter, loc, operand.get());
+    if (effects::consumes(operand) && facts.owned(operand.get()))
+      CountDropOp::create(rewriter, loc, operand.get());
   if (isBig(big->getResult(0).getType()))
     replaceBig(rewriter, facts, big, word);
   else
@@ -144,10 +144,10 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
   rewriter.setInsertionPoint(op);
   Location loc = op->getLoc();
   return llvm::TypeSwitch<Operation *, bool>(op)
-      .Case([&](MatchLitOp match) { return narrowMatch(rewriter, facts, match); })
+      .Case([&](LitMatchOp match) { return narrowMatch(rewriter, facts, match); })
       .Case<
 #define GET_BIG_TO_WORD_LIST
-#include "idr/IR/IdrBigToWord.inc"
+#include "idr/IR/Generated/BigToWord.h.inc"
           >([&](auto big) {
             if (!allFit(facts, op))
               return false;
@@ -165,16 +165,16 @@ bool narrowOp(RewriterBase &rewriter, Facts &facts, Operation *op) {
           return false;
         Value value = facts.word(rewriter, loc, divisor);
         Value checked = CheckNonzeroOp::create(rewriter, loc, value.getType(), value,
-                                               check.getCauseAttr());
+                                               check.getCause(), check.getSiteAttr());
         if (facts.owned(divisor))
-          DropOp::create(rewriter, loc, divisor);
+          CountDropOp::create(rewriter, loc, divisor);
         replaceBig(rewriter, facts, op, checked);
         return true;
       })
       // A big the pass made of a word holds no count. Any other big
       // proved small keeps its count ops: counting still tracks it (a call's
       // result, a parameter), and on a small they do nothing at runtime.
-      .Case<DupOp, DropOp>([&](Operation *) {
+      .Case<CountDupOp, CountDropOp>([&](Operation *) {
         Value value = op->getOperand(0);
         if (!isBig(value.getType()) || !value.getDefiningOp<BigSmallOp>() || !allFit(facts, op))
           return false;
@@ -223,9 +223,9 @@ void populateWordPatterns(RewritePatternSet &patterns, Facts &facts, uint64_t &n
   // narrowOp's cases: the big ops with a word form, which the ODS names,
   // the literal match and the guard on a big, and counting a big made of
   // a word.
-  addNarrowWords<MatchLitOp, CheckNonzeroOp, DupOp, DropOp,
+  addNarrowWords<LitMatchOp, CheckNonzeroOp, CountDupOp, CountDropOp,
 #define GET_BIG_TO_WORD_LIST
-#include "idr/IR/IdrBigToWord.inc"
+#include "idr/IR/Generated/BigToWord.h.inc"
                  >(patterns, facts, narrowed);
 }
 

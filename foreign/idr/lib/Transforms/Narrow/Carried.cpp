@@ -62,7 +62,7 @@ void passWord(RewriterBase &rewriter, Facts &facts, Operation *op, unsigned inde
   Value word = facts.word(rewriter, op->getLoc(), big);
   rewriter.modifyOpInPlace(op, [&] { op->setOperand(index, word); });
   if (facts.owned(big))
-    DropOp::create(rewriter, op->getLoc(), big);
+    CountDropOp::create(rewriter, op->getLoc(), big);
 }
 
 // The values that flow around `op`, a loop, or out of it, a merge, made

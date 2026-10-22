@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The generating set (idr.tabulate, idr.fold_last, idr.scan_last), the
-// yield that ends their regions, and the read that gives its array back.
+// The generating set (idr.array.tabulate, idr.array.fold_last,
+// idr.array.scan_last), the yield that ends their regions, and the read
+// that gives its array back.
 //
 // A generating op is destination-style, so upstream's DPS model says most
 // of it: each destination is written and is its result. What the model
@@ -167,9 +168,12 @@ struct ReadModel : BufferizableOpInterface::ExternalModel<ReadModel, idr::ArrayR
 } // namespace
 
 void idr::bufferize::attachGeneratingModels(MLIRContext *ctx) {
-  idr::TabulateOp::attachInterface<GeneratingModel<idr::TabulateOp, Reads::Nothing>>(*ctx);
-  idr::FoldLastOp::attachInterface<GeneratingModel<idr::FoldLastOp, Reads::Destinations>>(*ctx);
-  idr::ScanLastOp::attachInterface<GeneratingModel<idr::ScanLastOp, Reads::Nothing>>(*ctx);
+  idr::ArrayTabulateOp::attachInterface<
+      GeneratingModel<idr::ArrayTabulateOp, Reads::Nothing>>(*ctx);
+  idr::ArrayFoldLastOp::attachInterface<
+      GeneratingModel<idr::ArrayFoldLastOp, Reads::Destinations>>(*ctx);
+  idr::ArrayScanLastOp::attachInterface<
+      GeneratingModel<idr::ArrayScanLastOp, Reads::Nothing>>(*ctx);
   idr::ArrayYieldOp::attachInterface<YieldModel>(*ctx);
   idr::ArrayReadOp::attachInterface<ReadModel>(*ctx);
 }

@@ -115,12 +115,13 @@ void Records::columnsOf(RankedTensorType array, SmallVectorImpl<Type> &columns) 
 
 SmallVector<Value> Records::takeApart(OpBuilder &b, Location loc, Value value,
                                       Record record) const {
-  auto con = value.getDefiningOp<ConOp>();
+  auto con = value.getDefiningOp<DataConOp>();
   SmallVector<Value> leaves;
   for (auto [index, field] : llvm::enumerate(record.fields())) {
     auto at = static_cast<unsigned>(index);
     Type read = fieldType(value.getType(), unrestricted(field), usesOf(field), Recursion::Other);
-    Value given = con ? con.getFields()[at] : FieldOp::create(b, loc, read, value, at).getResult();
+    Value given =
+        con ? con.getFields()[at] : DataFieldOp::create(b, loc, read, value, at).getResult();
     if (std::optional<Record> inner = recordOf(field))
       llvm::append_range(leaves, takeApart(b, loc, given, *inner));
     else
@@ -139,7 +140,7 @@ Value Records::build(OpBuilder &b, Location loc, Record record, ValueRange &leav
     fields.push_back(leaves.front());
     leaves = leaves.drop_front();
   }
-  return ConOp::create(b, loc, record.data, fields).getResult();
+  return DataConOp::create(b, loc, record.data, fields).getResult();
 }
 
 Value Records::readRecord(OpBuilder &b, Location loc, Record element, ValueRange columns,
@@ -169,7 +170,7 @@ namespace {
 // own, which its type fixes.
 template <typename BodyFn>
   requires std::is_invocable_r_v<SmallVector<Value>, BodyFn, ValueRange>
-TabulateOp tabulation(OpBuilder &b, Location loc, RankedTensorType shape, Value source,
+ArrayTabulateOp tabulation(OpBuilder &b, Location loc, RankedTensorType shape, Value source,
                       TypeRange types, BodyFn &&body) {
   SmallVector<Value> sizes;
   for (unsigned d = 0, e = static_cast<unsigned>(shape.getRank()); d < e; ++d)
@@ -178,7 +179,7 @@ TabulateOp tabulation(OpBuilder &b, Location loc, RankedTensorType shape, Value 
   SmallVector<Value> outs = llvm::map_to_vector(types, [&](Type type) -> Value {
     return tensor::EmptyOp::create(b, loc, cast<RankedTensorType>(type), sizes);
   });
-  auto made = TabulateOp::create(b, loc, types, outs);
+  auto made = ArrayTabulateOp::create(b, loc, types, outs);
   OpBuilder::InsertionGuard guard(b);
   SmallVector<Type> indices(static_cast<size_t>(shape.getRank()), b.getIndexType());
   Block *region = b.createBlock(&made.getRegion(), {}, indices,
@@ -191,16 +192,17 @@ TabulateOp tabulation(OpBuilder &b, Location loc, RankedTensorType shape, Value 
 
 Value Records::gather(OpBuilder &b, Location loc, RankedTensorType type, Record element,
                       ValueRange columns) const {
-  TabulateOp made = tabulation(b, loc, type, columns.front(), TypeRange{type}, [&](ValueRange at) {
-    return SmallVector<Value>{readRecord(b, loc, element, columns, at)};
-  });
+  ArrayTabulateOp made =
+      tabulation(b, loc, type, columns.front(), TypeRange{type}, [&](ValueRange at) {
+        return SmallVector<Value>{readRecord(b, loc, element, columns, at)};
+      });
   return made.getArrays().front();
 }
 
 SmallVector<Value> Records::scatter(OpBuilder &b, Location loc, Value array, Record element,
                                     TypeRange types) const {
   auto type = cast<RankedTensorType>(array.getType());
-  TabulateOp made = tabulation(b, loc, type, array, types, [&](ValueRange at) {
+  ArrayTabulateOp made = tabulation(b, loc, type, array, types, [&](ValueRange at) {
     return takeApart(b, loc, tensor::ExtractOp::create(b, loc, array, at), element);
   });
   return SmallVector<Value>(made.getArrays());

@@ -2,9 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-bufferize: every array value of the program put in a buffer, in
 // place wherever the program allows, by One-Shot Bufferize on the whole
-// program, before counting. A buffer is a cell of the runtime, a copy the
-// runtime's counted copy, and an exclusive array's thread is written in
-// place by its grade.
+// program, before counting. A buffer is a cell of the runtime and a copy
+// the runtime's counted copy.
 #ifndef IDR_TRANSFORMS_BUFFERIZE_H
 #define IDR_TRANSFORMS_BUFFERIZE_H
 

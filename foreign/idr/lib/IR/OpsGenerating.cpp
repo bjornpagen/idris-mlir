@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The rules the ops on arrays share, each said once (idr/IR/Arrays.h); the
-// folds and scans along the last dimension, idr.fold_last and
-// idr.scan_last; and the yield that ends every region of the generating
-// set.
+// folds and scans along the last dimension, idr.array.fold_last and
+// idr.array.scan_last; and the yield that ends every region of the
+// generating set.
 //
 // A fold and a scan are destination-style, as upstream's structured ops
 // are: on tensors each result is its destination with the region's values
@@ -220,22 +220,22 @@ SmallVector<Value> stepArgs(ValueRange frame, Value step, ValueRange accumulator
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// idr.fold_last
+// idr.array.fold_last
 //===----------------------------------------------------------------------===//
 
-MutableOperandRange FoldLastOp::getDpsInitsMutable() { return getInitsMutable(); }
+MutableOperandRange ArrayFoldLastOp::getDpsInitsMutable() { return getInitsMutable(); }
 
-unsigned FoldLastOp::getFrameRank() { return getRank() - 1; }
+unsigned ArrayFoldLastOp::getFrameRank() { return getRank() - 1; }
 
-unsigned FoldLastOp::getRank() {
+unsigned ArrayFoldLastOp::getRank() {
   return getBody()->getNumArguments() - static_cast<unsigned>(getInits().size());
 }
 
-Block::BlockArgListType FoldLastOp::getAccumulators() {
+Block::BlockArgListType ArrayFoldLastOp::getAccumulators() {
   return getBody()->getArguments().drop_front(getRank());
 }
 
-LogicalResult FoldLastOp::verify() {
+LogicalResult ArrayFoldLastOp::verify() {
   if (getBody()->getNumArguments() <= getInits().size())
     return emitOpError("binds no index of the fold before its accumulators");
   if (failed(verifyOneForm(*this)) || failed(verifyIndices(*this, getRank())))
@@ -243,25 +243,26 @@ LogicalResult FoldLastOp::verify() {
   return verifyAccumulators(*this, getInits(), getFrameRank(), getAccumulators());
 }
 
-LogicalResult FoldLastOp::verifyRegions() {
+LogicalResult ArrayFoldLastOp::verifyRegions() {
   return verifyEnd(*this, ValueRange(getAccumulators()).getTypes());
 }
 
-void FoldLastOp::getSuccessorRegions(RegionBranchPoint, SmallVectorImpl<RegionSuccessor> &regions) {
+void ArrayFoldLastOp::getSuccessorRegions(RegionBranchPoint,
+                                          SmallVectorImpl<RegionSuccessor> &regions) {
   generatingSuccessors(*this, regions);
 }
 
-SmallVector<utils::IteratorType> FoldLastOp::getLoopIteratorTypes() {
+SmallVector<utils::IteratorType> ArrayFoldLastOp::getLoopIteratorTypes() {
   return iteratorsOf(*this, getRank(), getFrameRank());
 }
 
-SmallVector<Range> FoldLastOp::getIterationDomain(OpBuilder &b) {
+SmallVector<Range> ArrayFoldLastOp::getIterationDomain(OpBuilder &b) {
   return domainOf(b, *this, getRank());
 }
 
 // At the frame's index, each accumulator is taken out of its destination,
 // the region runs with it, and the next is placed where it was.
-LogicalResult FoldLastOp::generateScalarImplementation(OpBuilder &b, Location loc,
+LogicalResult ArrayFoldLastOp::generateScalarImplementation(OpBuilder &b, Location loc,
                                                        ValueRange ivs) {
   if (!hasPureBufferSemantics())
     return emitOpError("is made loops on tensors, which it writes in no order");
@@ -279,57 +280,58 @@ LogicalResult FoldLastOp::generateScalarImplementation(OpBuilder &b, Location lo
 // A tensor result is its destination with the last accumulators written at
 // the frame's indices; every accumulator is first what its destination
 // holds there, then what the step before gave, which the yield moves in.
-void FoldLastOp::getFlowEdges(FlowEdges &edges) {
+void ArrayFoldLastOp::getFlowEdges(FlowEdges &edges) {
   for (auto [init, result] : llvm::zip_equal(getInitsMutable(), getResults()))
     edges.flow(FlowPoint::of(init), FlowPoint::of(result));
   for (auto [init, accumulator] : llvm::zip_equal(getInits(), getAccumulators()))
     edges.flow(elementsOf(init), atIndex(accumulator));
 }
 
-ValueRange FoldLastOp::getYieldTargets() {
+ValueRange ArrayFoldLastOp::getYieldTargets() {
   return hasPureTensorSemantics() ? ValueRange(getResults()) : ValueRange(getInits());
 }
 
-LogicalResult FoldLastOp::reifyResultShapes(OpBuilder &b, ReifiedRankedShapedTypeDims &shapes) {
+LogicalResult ArrayFoldLastOp::reifyResultShapes(OpBuilder &b,
+                                                 ReifiedRankedShapedTypeDims &shapes) {
   for (Value init : getInits())
     shapes.push_back(tensor::getMixedSizes(b, getLoc(), init));
   return success();
 }
 
-void FoldLastOp::populateBoundsForIndexValue(Value value, ValueBoundsConstraintSet &cstr) {
+void ArrayFoldLastOp::populateBoundsForIndexValue(Value value, ValueBoundsConstraintSet &cstr) {
   boundIndex(value, getBody()->getArguments().take_front(getRank()),
              [&](unsigned dim) { return cstr.getExpr(extentOf(*this, dim)); }, cstr);
 }
 
 // A result is shaped as its destination.
-void FoldLastOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
+void ArrayFoldLastOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
                                                  ValueBoundsConstraintSet &cstr) {
   unsigned at = cast<OpResult>(value).getResultNumber();
   cstr.bound(value)[dim] == cstr.getExpr(getInits()[at], dim);
 }
 
-Speculation::Speculatability FoldLastOp::getSpeculatability() {
+Speculation::Speculatability ArrayFoldLastOp::getSpeculatability() {
   return hasPureTensorSemantics() ? Speculation::RecursivelySpeculatable
                                   : Speculation::NotSpeculatable;
 }
 
 //===----------------------------------------------------------------------===//
-// idr.scan_last
+// idr.array.scan_last
 //===----------------------------------------------------------------------===//
 
-MutableOperandRange ScanLastOp::getDpsInitsMutable() { return getOutsMutable(); }
+MutableOperandRange ArrayScanLastOp::getDpsInitsMutable() { return getOutsMutable(); }
 
-unsigned ScanLastOp::getFrameRank() { return getRank() - 1; }
+unsigned ArrayScanLastOp::getFrameRank() { return getRank() - 1; }
 
-unsigned ScanLastOp::getRank() {
+unsigned ArrayScanLastOp::getRank() {
   return getBody()->getNumArguments() - static_cast<unsigned>(getInits().size());
 }
 
-Block::BlockArgListType ScanLastOp::getAccumulators() {
+Block::BlockArgListType ArrayScanLastOp::getAccumulators() {
   return getBody()->getArguments().drop_front(getRank());
 }
 
-LogicalResult ScanLastOp::verify() {
+LogicalResult ArrayScanLastOp::verify() {
   if (getBody()->getNumArguments() <= getInits().size())
     return emitOpError("binds no index of the scan before its accumulators");
   if (failed(verifyOneForm(*this)) || failed(verifyIndices(*this, getRank())) ||
@@ -356,27 +358,28 @@ LogicalResult ScanLastOp::verify() {
   return success();
 }
 
-LogicalResult ScanLastOp::verifyRegions() {
+LogicalResult ArrayScanLastOp::verifyRegions() {
   return verifyEnd(*this, ValueRange(getAccumulators()).getTypes());
 }
 
-void ScanLastOp::getSuccessorRegions(RegionBranchPoint, SmallVectorImpl<RegionSuccessor> &regions) {
+void ArrayScanLastOp::getSuccessorRegions(RegionBranchPoint,
+                                          SmallVectorImpl<RegionSuccessor> &regions) {
   generatingSuccessors(*this, regions);
 }
 
-SmallVector<utils::IteratorType> ScanLastOp::getLoopIteratorTypes() {
+SmallVector<utils::IteratorType> ArrayScanLastOp::getLoopIteratorTypes() {
   return iteratorsOf(*this, getRank(), getFrameRank());
 }
 
 // Every destination has the frame's dimensions, then the scan's.
-SmallVector<Range> ScanLastOp::getIterationDomain(OpBuilder &b) {
+SmallVector<Range> ArrayScanLastOp::getIterationDomain(OpBuilder &b) {
   return domainOf(b, *this, getRank());
 }
 
 // At the frame's index and a step, each accumulator is a copy of what the
 // input holds at the frame's index for the first step, else of what the
 // step before wrote, which both keep; the next is placed at the step.
-LogicalResult ScanLastOp::generateScalarImplementation(OpBuilder &b, Location loc,
+LogicalResult ArrayScanLastOp::generateScalarImplementation(OpBuilder &b, Location loc,
                                                        ValueRange ivs) {
   if (!hasPureBufferSemantics())
     return emitOpError("is made loops on tensors, which it writes in no order");
@@ -411,7 +414,7 @@ LogicalResult ScanLastOp::generateScalarImplementation(OpBuilder &b, Location lo
 // A tensor result is its destination with every accumulator written; an
 // accumulator is a copy of what an input or the result holds, which keep
 // theirs.
-void ScanLastOp::getFlowEdges(FlowEdges &edges) {
+void ArrayScanLastOp::getFlowEdges(FlowEdges &edges) {
   for (auto [out, result] : llvm::zip_equal(getOutsMutable(), getResults()))
     edges.flow(FlowPoint::of(out), FlowPoint::of(result));
   for (auto [init, accumulator] : llvm::zip_equal(getInits(), getAccumulators()))
@@ -420,28 +423,29 @@ void ScanLastOp::getFlowEdges(FlowEdges &edges) {
     edges.flow(elementsOf(out), atIndex(accumulator));
 }
 
-ValueRange ScanLastOp::getYieldTargets() {
+ValueRange ArrayScanLastOp::getYieldTargets() {
   return hasPureTensorSemantics() ? ValueRange(getResults()) : ValueRange(getOuts());
 }
 
-LogicalResult ScanLastOp::reifyResultShapes(OpBuilder &b, ReifiedRankedShapedTypeDims &shapes) {
+LogicalResult ArrayScanLastOp::reifyResultShapes(OpBuilder &b,
+                                                 ReifiedRankedShapedTypeDims &shapes) {
   for (Value out : getOuts())
     shapes.push_back(tensor::getMixedSizes(b, getLoc(), out));
   return success();
 }
 
-void ScanLastOp::populateBoundsForIndexValue(Value value, ValueBoundsConstraintSet &cstr) {
+void ArrayScanLastOp::populateBoundsForIndexValue(Value value, ValueBoundsConstraintSet &cstr) {
   boundIndex(value, getBody()->getArguments().take_front(getRank()),
              [&](unsigned dim) { return cstr.getExpr(extentOf(*this, dim)); }, cstr);
 }
 
-void ScanLastOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
+void ArrayScanLastOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
                                                  ValueBoundsConstraintSet &cstr) {
   unsigned at = cast<OpResult>(value).getResultNumber();
   cstr.bound(value)[dim] == cstr.getExpr(getOuts()[at], dim);
 }
 
-Speculation::Speculatability ScanLastOp::getSpeculatability() {
+Speculation::Speculatability ArrayScanLastOp::getSpeculatability() {
   return hasPureTensorSemantics() ? Speculation::RecursivelySpeculatable
                                   : Speculation::NotSpeculatable;
 }

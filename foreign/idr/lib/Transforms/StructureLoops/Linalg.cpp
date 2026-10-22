@@ -106,7 +106,7 @@ AffineMap leading(unsigned dims, unsigned count, MLIRContext *ctx) {
 
 } // namespace
 
-void lowerParallel(RewriterBase &rewriter, TabulateOp op) {
+void lowerParallel(RewriterBase &rewriter, ArrayTabulateOp op) {
   Location loc = op.getLoc();
   rewriter.setInsertionPoint(op);
   unsigned rank = op.getRank();
@@ -119,7 +119,7 @@ void lowerParallel(RewriterBase &rewriter, TabulateOp op) {
   rewriter.replaceOp(op, generic.getResults());
 }
 
-void lowerReduction(RewriterBase &rewriter, FoldLastOp op) {
+void lowerReduction(RewriterBase &rewriter, ArrayFoldLastOp op) {
   Location loc = op.getLoc();
   MLIRContext *ctx = op.getContext();
   unsigned frame = op.getFrameRank();
@@ -145,7 +145,7 @@ void lowerReduction(RewriterBase &rewriter, FoldLastOp op) {
 // slice. The two are told apart here once, by the op's class.
 template <typename Op>
 void lowerInterchange(RewriterBase &rewriter, Op op) {
-  constexpr bool scan = std::is_same_v<Op, ScanLastOp>;
+  constexpr bool scan = std::is_same_v<Op, ArrayScanLastOp>;
   Location loc = op.getLoc();
   MLIRContext *ctx = op.getContext();
   ValueRange inits = op.getInits();
@@ -210,7 +210,7 @@ void lowerInterchange(RewriterBase &rewriter, Op op) {
     rewriter.replaceOp(op, loop.getResults());
 }
 
-template void lowerInterchange<FoldLastOp>(RewriterBase &, FoldLastOp);
-template void lowerInterchange<ScanLastOp>(RewriterBase &, ScanLastOp);
+template void lowerInterchange<ArrayFoldLastOp>(RewriterBase &, ArrayFoldLastOp);
+template void lowerInterchange<ArrayScanLastOp>(RewriterBase &, ArrayScanLastOp);
 
 } // namespace idr::structure

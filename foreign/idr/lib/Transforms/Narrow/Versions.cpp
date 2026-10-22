@@ -4,6 +4,7 @@
 // natural small.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Grades.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Narrow.h"
 
@@ -54,14 +55,13 @@ bool descends(Value yielded, BlockArgument arg, scf::WhileOp loop) {
     APInt goes;
     if (again && matchPattern(*again, m_ConstantInt(&goes)) && goes.isZero())
       continue;
-    if (auto pred = value.getDefiningOp<BigPredOp>()) {
+    if (auto pred = value.getDefiningOp<NatPredOp>()) {
       goals.insert({pred.getValue(), again});
       continue;
     }
-    // An op that only changes its operand's grade (idr.borrow, which
-    // counting puts before each read) gives the same natural.
-    if (Operation *def = value.getDefiningOp(); def && def->hasTrait<ResultCarriesOperand>()) {
-      goals.insert({def->getOperand(0), again});
+    // A cast into or out of a linear position gives the same natural.
+    if (Value moved = throughLinear(value); moved != value) {
+      goals.insert({moved, again});
       continue;
     }
     if (auto forwarded = dyn_cast<BlockArgument>(value)) {
@@ -152,7 +152,7 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
   };
 
   rewriter.setInsertionPointToStart(branch.thenBlock());
-  Value word = BigToIntOp::create(rewriter, loc, rewriter.getI64Type(), seen);
+  Value word = BigToIntOp::create(rewriter, loc, rewriter.getI64Type(), init);
   Value mask =
       arith::ConstantOp::create(rewriter, loc, rewriter.getI64IntegerAttr(IDRIS_RT_SMALL_MAX));
   Value masked = arith::AndIOp::create(rewriter, loc, word, mask);
@@ -160,7 +160,7 @@ void version(RewriterBase &rewriter, Facts &facts, scf::WhileOp loop, unsigned i
   // The copy starts from the word, so the natural it was read from drops
   // the reference the loop would have taken.
   if (facts.owned(init))
-    DropOp::create(rewriter, loc, init);
+    CountDropOp::create(rewriter, loc, init);
   Operation *copy = rewriter.clone(*loop);
   rewriter.modifyOpInPlace(copy, [&] { copy->setOperand(index, start); });
   yield(given(copy));

@@ -78,7 +78,7 @@ public:
   // record, or itself when its element is no record.
   void columnsOf(mlir::RankedTensorType array, llvm::SmallVectorImpl<mlir::Type> &columns) const;
 
-  // The leaves of `value`, a value of `record`: the fields its idr.con was
+  // The leaves of `value`, a value of `record`: the fields its idr.data.con was
   // given, or its fields read.
   llvm::SmallVector<mlir::Value> takeApart(mlir::OpBuilder &b, mlir::Location loc,
                                            mlir::Value value, Record record) const;
@@ -99,7 +99,7 @@ public:
 
   // The array of `type`, whose element is `element`, gathered from its
   // columns, and the columns of `array`, of `types`, taken apart from it:
-  // each an idr.tabulate, where an array of records meets what holds it
+  // each an idr.array.tabulate, where an array of records meets what holds it
   // whole.
   mlir::Value gather(mlir::OpBuilder &b, mlir::Location loc, mlir::RankedTensorType type,
                      Record element, mlir::ValueRange columns) const;

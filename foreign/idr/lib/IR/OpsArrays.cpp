@@ -3,9 +3,10 @@
 // The ops on mutable memory (new, get, set, update), with their rules,
 // shapes and how an element moves; the read of a value array that gives the
 // array back; the three movements a step of a generating op on buffers
-// makes (take, copy, place); the extent of an array to be made; and the
-// tie of an array's dimensions to sizes, with what value bounds and the
-// folding of a dimension read from it.
+// makes (take, copy, place); the extent of an array to be made; the tie of
+// an array's dimensions to sizes, with what value bounds and the folding
+// of a dimension read from it; and the skeleton rule that makes a read and
+// a write of one element its update.
 //
 // Mutable memory is base's IOArray, Buffer and IORef: a buffer in the
 // memory space #idr.mutable, written after it is shared. A value array's
@@ -21,7 +22,11 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/SmallPtrSet.h"
+
+// What each stage of a program implies: whether its holds are decided.
+#include "idr/IR/Generated/StageFacts.h.inc"
 
 // The runtime's C ABI: the largest small natural.
 #include "idris_rt.h"
@@ -62,6 +67,21 @@ LogicalResult verifyMoved(Operation *op, Type moved, MemRefType buffer, size_t i
     return op->emitOpError("moves ") << moved << " where the buffer holds " << expected
                                      << " at " << indices << " indices";
   return success();
+}
+
+// Whether an effect may reach memory written in place: a read, a write or
+// a release on contents or on a state above it. An allocation names a
+// fresh value, which nothing else reaches.
+bool onContents(const effects::Effect &each) {
+  return each.kind != effects::Kind::Allocate &&
+         effects::atOrAbove[effects::ResourceId::Contents].contains(each.resource);
+}
+
+// Whether `op`, with everything in it, may touch memory written in place,
+// or does what MLIR cannot say: what no op inside an update's region may
+// do, since the element's place is empty while it runs.
+bool touchesInPlace(Operation *op) {
+  return effects::classify(op, onContents) == effects::Does::Touches;
 }
 
 } // namespace
@@ -155,15 +175,9 @@ LogicalResult ArrayUpdateOp::verifyRegions() {
       return end.emitOpError("gives ") << end.getOuts().getTypes() << " where the update gives "
                                        << getOuts().getTypes();
   }
-  for (Operation &inner : getRegion().front().without_terminator()) {
-    std::optional<SmallVector<MemoryEffects::EffectInstance>> effects =
-        getEffectsRecursively(&inner);
-    if (!effects)
-      return inner.emitOpError("may touch any memory inside an update's region");
-    for (const MemoryEffects::EffectInstance &effect : *effects)
-      if (effect.getResource() == effects::Contents::get())
-        return inner.emitOpError("touches memory written in place inside an update's region");
-  }
+  for (Operation &inner : getRegion().front().without_terminator())
+    if (touchesInPlace(&inner))
+      return inner.emitOpError("may touch memory written in place inside an update's region");
   return success();
 }
 
@@ -301,7 +315,7 @@ void NatToExtentOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 //===----------------------------------------------------------------------===//
 
 // One size per dynamic dimension.
-LogicalResult TieShapeOp::verify() {
+LogicalResult ArrayTieShapeOp::verify() {
   auto type = cast<ShapedType>(getType());
   if (getDims().size() != static_cast<size_t>(type.getNumDynamicDims()))
     return emitOpError("takes ") << getDims().size() << " sizes for " << type
@@ -310,19 +324,21 @@ LogicalResult TieShapeOp::verify() {
   return success();
 }
 
-Value TieShapeOp::getViewSource() { return getValue(); }
+Value ArrayTieShapeOp::getViewSource() { return getValue(); }
 
 // No dynamic dimension, nothing to say; the same sizes said twice, once.
-OpFoldResult TieShapeOp::fold(FoldAdaptor) {
+OpFoldResult ArrayTieShapeOp::fold(FoldAdaptor) {
   if (getDims().empty())
     return getValue();
-  if (auto inner = getValue().getDefiningOp<TieShapeOp>(); inner && inner.getDims() == getDims())
+  if (auto inner = getValue().getDefiningOp<ArrayTieShapeOp>();
+      inner && inner.getDims() == getDims())
     return getValue();
   return {};
 }
 
 // Each dimension: a static one's size, a dynamic one's operand.
-LogicalResult TieShapeOp::reifyResultShapes(OpBuilder &b, ReifiedRankedShapedTypeDims &shapes) {
+LogicalResult ArrayTieShapeOp::reifyResultShapes(OpBuilder &b,
+                                                 ReifiedRankedShapedTypeDims &shapes) {
   auto type = cast<ShapedType>(getType());
   SmallVector<OpFoldResult> dims;
   unsigned next = 0;
@@ -335,7 +351,7 @@ LogicalResult TieShapeOp::reifyResultShapes(OpBuilder &b, ReifiedRankedShapedTyp
 
 // The result's dimension is its size, and is the operand's: so two arrays
 // tied to one size have one dimension, wherever each came from.
-void TieShapeOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
+void ArrayTieShapeOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
                                                  ValueBoundsConstraintSet &cstr) {
   auto type = cast<ShapedType>(getType());
   auto at = static_cast<unsigned>(dim);
@@ -345,3 +361,211 @@ void TieShapeOp::populateBoundsForShapedValueDim(Value value, int64_t dim,
     cstr.bound(value)[dim] == type.getDimSize(at);
   cstr.bound(value)[dim] == cstr.getExpr(getValue(), dim);
 }
+
+//===----------------------------------------------------------------------===//
+// A read and a write of one element: its update
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// A write of one element and the read it pairs with, read through the same
+// questions: ours on mutable memory, upstream's on a value array's buffer.
+template <class Write>
+struct ElementAccess;
+
+template <>
+struct ElementAccess<ArraySetOp> {
+  using Read = ArrayGetOp;
+  static Value array(ArrayGetOp read) { return read.getArray(); }
+  static Value array(ArraySetOp write) { return write.getArray(); }
+  static Value element(ArrayGetOp read) { return read.getValue(); }
+  static Value written(ArraySetOp write) { return write.getValue(); }
+};
+
+template <>
+struct ElementAccess<memref::StoreOp> {
+  using Read = memref::LoadOp;
+  static Value array(memref::LoadOp read) { return read.getMemref(); }
+  static Value array(memref::StoreOp write) { return write.getMemref(); }
+  static Value element(memref::LoadOp read) { return read.getResult(); }
+  static Value written(memref::StoreOp write) { return write.getValueToStore(); }
+};
+
+template <class Write>
+concept ElementWrite = requires { typename ElementAccess<Write>::Read; };
+
+// What a write and the read of its element become: the read, the ops
+// between that rebuild the element from it, in order, and the values still
+// read after the write, the element's or the rebuilding's.
+template <ElementWrite Write>
+struct Fusion {
+  typename ElementAccess<Write>::Read read;
+  SmallVector<Operation *> rebuilding;
+  SmallVector<Value> leaving;
+};
+
+// An index as the value it was checked from: a guard gives its operand.
+Value unguarded(Value index) {
+  return definitionChain(index, [](Value value) -> std::optional<Value> {
+           if (auto guard = value.getDefiningOp<GuardOpInterface>())
+             return guard.getGuarded();
+           return std::nullopt;
+         }).back();
+}
+
+// Whether two indices are one: the same value or the same constant,
+// whichever guard checked it.
+bool sameIndex(Value a, Value b) { return isEqualConstantIntOrValue(unguarded(a), unguarded(b)); }
+
+// Whether the program `op` stands in counts no reference yet: its holds are
+// undecided, as they are at every stage before lifetimes are decided. The
+// stage is the program's, which a pass at any stage meets only as it runs.
+bool uncounted(Operation *op) {
+  ProgramOp program = op->getParentOfType<FuncOp>().getProgram();
+  return holdsAt[program.getStage()] == StageHolds::Undecided;
+}
+
+// The fusion of `write` with the read of its element, or nothing.
+template <ElementWrite Write>
+std::optional<Fusion<Write>> fusionOf(Write write) {
+  using Access = ElementAccess<Write>;
+  auto array = cast<MemRefType>(unrestricted(Access::array(write).getType()));
+  // An element that holds no reference has none to give up.
+  if (!holdsReferences(array.getElementType()) || !uncounted(write))
+    return std::nullopt;
+  // Memory of the array is a buffer of its element in its memory space,
+  // whatever its shape, layout or grade, as a view of it is.
+  auto touchesArray = [array](const effects::Effect &each) {
+    if (!onContents(each))
+      return false;
+    if (!each.value)
+      return true;
+    auto buffer = dyn_cast<BaseMemRefType>(unrestricted(each.value.getType()));
+    return buffer && buffer.getElementType() == array.getElementType() &&
+           buffer.getMemorySpace() == array.getMemorySpace();
+  };
+  // The read is the last op before the write that may touch memory of the
+  // array, so nothing between does; `between` holds the ops between, the
+  // nearest the write first.
+  SmallVector<Operation *> between;
+  Operation *last = write->getPrevNode();
+  for (; last && effects::classify(last, touchesArray) != effects::Does::Touches;
+       last = last->getPrevNode())
+    between.push_back(last);
+  auto read = dyn_cast_or_null<typename Access::Read>(last);
+  if (!read || arrayRoot(Access::array(read)) != arrayRoot(Access::array(write)) ||
+      !llvm::equal(read.getIndices(), write.getIndices(), sameIndex))
+    return std::nullopt;
+
+  // The rebuilding, in order: each op between that reads the element, or a
+  // value of the rebuilding, anywhere in it. It moves into the update's
+  // region, where the element's place is empty.
+  Fusion<Write> fusion{read, {}, {}};
+  Value element = Access::element(read);
+  llvm::SmallPtrSet<Operation *, 8> rebuilds;
+  auto readsRebuilt = [&](Operation *op) {
+    return op
+        ->walk([&](Operation *inner) {
+          bool reads = llvm::any_of(inner->getOperands(), [&](Value operand) {
+            Operation *def = operand.getDefiningOp();
+            return operand == element || (def && rebuilds.contains(def));
+          });
+          return reads ? WalkResult::interrupt() : WalkResult::advance();
+        })
+        .wasInterrupted();
+  };
+  for (Operation *op : llvm::reverse(between)) {
+    if (!readsRebuilt(op))
+      continue;
+    if (touchesInPlace(op))
+      return std::nullopt;
+    rebuilds.insert(op);
+    fusion.rebuilding.push_back(op);
+  }
+
+  // Each op of the rebuilding moves to the write past the ops between after
+  // it that stay, which neither may tell.
+  effects::EffectSet staying;
+  for (Operation *op : between) {
+    effects::EffectSet does = effects::whole(op);
+    if (!rebuilds.contains(op))
+      staying = staying | does;
+    else if (does.conflicts(staying))
+      return std::nullopt;
+  }
+
+  // What leaves the update: the element and the rebuilding's values that an
+  // op after the write reads, the write itself aside.
+  Block *block = write->getBlock();
+  auto readAfter = [&](Value value) {
+    return llvm::any_of(value.getUses(), [&](OpOperand &use) {
+      Operation *at = block->findAncestorOpInBlock(*use.getOwner());
+      return at != write.getOperation() && !rebuilds.contains(at);
+    });
+  };
+  if (readAfter(element))
+    fusion.leaving.push_back(element);
+  for (Operation *op : fusion.rebuilding)
+    for (Value result : op->getResults())
+      if (readAfter(result))
+        fusion.leaving.push_back(result);
+  return fusion;
+}
+
+// The update in the write's place: the rebuilding moved into its region in
+// order, the element its region's argument there, the value written given
+// back into the element's place, and every value that leaves read from the
+// update's results after it.
+template <ElementWrite Write>
+void fuse(RewriterBase &rewriter, Write write, const Fusion<Write> &fusion) {
+  using Access = ElementAccess<Write>;
+  Value element = Access::element(fusion.read);
+  Location loc = rewriter.getFusedLoc({fusion.read.getLoc(), write.getLoc()});
+  rewriter.setInsertionPoint(write);
+  auto update = ArrayUpdateOp::create(rewriter, loc, ValueRange(fusion.leaving).getTypes(),
+                                      Access::array(write), write.getIndices());
+  Block *body =
+      rewriter.createBlock(&update.getRegion(), {}, {element.getType()}, {fusion.read.getLoc()});
+  for (Operation *op : fusion.rebuilding)
+    rewriter.moveOpBefore(op, body, body->end());
+  Value moving = body->getArgument(0);
+  rewriter.replaceUsesWithIf(element, moving, [&](OpOperand &use) {
+    return update->isProperAncestor(use.getOwner());
+  });
+  auto inside = [&](Value value) { return value == element ? moving : value; };
+  rewriter.setInsertionPointToEnd(body);
+  ArrayUpdateYieldOp::create(rewriter, loc, inside(Access::written(write)),
+                             llvm::map_to_vector(fusion.leaving, inside));
+  for (auto [value, out] : llvm::zip_equal(fusion.leaving, update.getOuts()))
+    rewriter.replaceUsesWithIf(value, out, [&](OpOperand &use) {
+      return use.getOwner() != write.getOperation() && !update->isAncestor(use.getOwner());
+    });
+  rewriter.eraseOp(write);
+  rewriter.eraseOp(fusion.read);
+}
+
+} // namespace
+
+void idr::arrays::moveOut(RewriterBase &rewriter, memref::StoreOp write) {
+  if (std::optional<Fusion<memref::StoreOp>> fusion = fusionOf(write))
+    fuse(rewriter, write, *fusion);
+}
+
+namespace idr::egraph {
+
+// The fusion is the IR's, read off effects; the e-graph's facts add
+// nothing to it.
+std::optional<Edit> MoveOut::decide(ArraySetOp write, const OperandFacts &) {
+  if (!fusionOf(write))
+    return std::nullopt;
+  return Rewrite{};
+}
+
+// The fusion found again on the input as it now is, since an earlier
+// rewrite may have changed what stands before the write.
+void MoveOut::rewrite(ArraySetOp write, const Rewrite &, RewriterBase &rewriter) {
+  if (std::optional<Fusion<ArraySetOp>> fusion = fusionOf(write))
+    fuse(rewriter, write, *fusion);
+}
+
+} // namespace idr::egraph

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Region ops whose results are what their regions give (idr.match,
-// idr.match_lit, idr.memo.run) and the terminator that gives it
+// Region ops whose results are what their regions give (idr.data.match,
+// idr.lit.match, idr.memo.run) and the terminator that gives it
 // (idr.yield): one model each, read off RegionBranchOpInterface, so no
 // model lists what a terminator forwards or which case yields.
 //
-// A cell's field holds its buffer from the frontend on: idr.con takes one
-// through upstream's to_buffer, a release One-Shot already models, and
-// idr.field gives one that upstream's to_tensor puts back in the tensor
-// world, writable only where the cell is exclusive. So no idr op that
+// A cell's field holds its buffer from the frontend on: idr.data.con takes
+// one through upstream's to_buffer, a release One-Shot already models, and
+// idr.data.field gives one that upstream's to_tensor puts back in the
+// tensor world, writable only where the cell is exclusive. So no idr op that
 // stores or reads a cell needs a model of its own here. A value a
 // terminator gives that goes to no result of its parent (a memo cell's
 // forced value) moves into memory the parent holds: a release.
@@ -208,8 +208,8 @@ struct GivingModel : BufferizableOpInterface::ExternalModel<GivingModel<Op>, Op>
 } // namespace
 
 void idr::bufferize::attachDataModels(MLIRContext *ctx) {
-  idr::MatchOp::attachInterface<GivenModel<idr::MatchOp>>(*ctx);
-  idr::MatchLitOp::attachInterface<GivenModel<idr::MatchLitOp>>(*ctx);
+  idr::DataMatchOp::attachInterface<GivenModel<idr::DataMatchOp>>(*ctx);
+  idr::LitMatchOp::attachInterface<GivenModel<idr::LitMatchOp>>(*ctx);
   idr::MemoRunOp::attachInterface<GivenModel<idr::MemoRunOp>>(*ctx);
   idr::YieldOp::attachInterface<GivingModel<idr::YieldOp>>(*ctx);
 }

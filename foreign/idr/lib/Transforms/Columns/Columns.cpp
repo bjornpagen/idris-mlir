@@ -46,7 +46,7 @@ struct ColumnsConvertAction : idr::support::TaggedAction<ColumnsConvertAction> {
 };
 
 struct Columns : idr::impl::IdrColumnsBase<Columns> {
-  void runOnProgram(ProgramOp program) override {
+  void runOnProgram(ProgramOp program) {
     MLIRContext *ctx = &getContext();
     Records records(program);
     ColumnConverter converter(records);

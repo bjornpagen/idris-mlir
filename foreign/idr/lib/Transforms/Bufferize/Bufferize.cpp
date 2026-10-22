@@ -25,8 +25,9 @@
 //
 // On the buffers, a read of an element that holds references, whose place
 // the next write to the buffer overwrites, is the element's update
-// (idr.array.update): the element moves out with the buffer's reference
-// and the written value moves in, so a vector's pop counts nothing twice.
+// (idr.array.update), as on mutable memory: the element moves out with the
+// buffer's reference and the written value moves in, so a vector's pop
+// counts nothing twice.
 //
 // A buffer is a cell of the runtime: an allocation is memref.alloc, which
 // idr-lower makes the runtime's cell, and a copy is memref.copy, the
@@ -54,7 +55,6 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Diagnostics.h"
-#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -172,98 +172,18 @@ LogicalResult underOneShot(idr::ProgramOp program, Step &&step) {
   return failure();
 }
 
-// Whether `op`, or an op in it, takes a buffer, at any grade. A call's
-// effects say nothing of the buffers it is given, which its callee may write,
-// and a view or a grade change of a buffer is that buffer again, so no op
-// that takes one lies between a read of an element and the write of it.
-bool takesBuffer(Operation *op) {
-  return op
-      ->walk([](Operation *inner) {
-        return llvm::any_of(inner->getOperandTypes(),
-                            [](Type type) { return isa<BaseMemRefType>(idr::unrestricted(type)); })
-                   ? WalkResult::interrupt()
-                   : WalkResult::advance();
-      })
-      .wasInterrupted();
-}
-
-// Whether two indices are one: the same value, or two constants of the same
-// value, which a pass that puts a constant in place of a value it knows
-// makes once per use.
-bool sameIndex(Value x, Value y) {
-  if (x == y)
-    return true;
-  APInt a, b;
-  return matchPattern(x, m_ConstantInt(&a)) && matchPattern(y, m_ConstantInt(&b)) &&
-         a.getBitWidth() == b.getBitWidth() && a == b;
-}
-
-// The read of the element `store` overwrites: the load of the same element
-// of the same buffer that is the nearest op before the store, in its block,
-// that takes a buffer or does more than compute and crash (a read moves
-// across a crash, which nothing after observes), when no op between uses
-// what it read. What lies between is judged by itself alone, never by what
-// a callee is known to do, so the rule holds whatever bufferization made of
-// the calls. The ops before the store in its block are finitely many.
-std::optional<memref::LoadOp> readBefore(memref::StoreOp store) {
-  for (Operation *op = store->getPrevNode(); op; op = op->getPrevNode()) {
-    if (!takesBuffer(op) && idr::arrays::computesOnly(op))
-      continue;
-    auto load = dyn_cast<memref::LoadOp>(op);
-    if (!load || load.getMemref() != store.getMemref() ||
-        !llvm::equal(load.getIndices(), store.getIndices(), sameIndex))
-      return std::nullopt;
-    Block *block = store->getBlock();
-    bool usedBetween = llvm::any_of(load.getResult().getUses(), [&](OpOperand &use) {
-      Operation *ancestor = block->findAncestorOpInBlock(*use.getOwner());
-      return ancestor && ancestor->isBeforeInBlock(store);
-    });
-    if (usedBetween)
-      return std::nullopt;
-    return load;
-  }
-  return std::nullopt;
-}
-
-// Each write of an element that holds references into a value array's
-// buffer, read just before it, becomes the element's update, where the
-// write was: the element leaves the op when anything after the write uses
-// it, and the written value, the element itself when the write gives it
-// back, is the first value the region gives.
+// Each write into a value array's buffer whose read stands before it
+// becomes the element's update (idr::arrays::moveOut), the rule
+// idr-simplify keeps for mutable memory.
 void moveElementsOut(idr::ProgramOp program) {
   SmallVector<memref::StoreOp> stores;
   program.walk([&](memref::StoreOp store) {
-    MemRefType buffer = store.getMemRefType();
-    if (!buffer.getMemorySpace() && idr::holdsReferences(buffer.getElementType()))
+    if (!store.getMemRefType().getMemorySpace())
       stores.push_back(store);
   });
   IRRewriter rewriter(program->getContext());
-  for (memref::StoreOp store : stores) {
-    std::optional<memref::LoadOp> load = readBefore(store);
-    if (!load)
-      continue;
-    Value element = load->getResult();
-    bool leaves = llvm::any_of(element.getUsers(),
-                               [&](Operation *user) { return user != store.getOperation(); });
-    SmallVector<Type> outs;
-    if (leaves)
-      outs.push_back(element.getType());
-    Location loc = rewriter.getFusedLoc({load->getLoc(), store.getLoc()});
-    rewriter.setInsertionPoint(store);
-    auto update = idr::ArrayUpdateOp::create(rewriter, loc, outs, store.getMemref(),
-                                             store.getIndices());
-    rewriter.createBlock(&update.getRegion(), {}, {element.getType()}, {load->getLoc()});
-    Value moving = update.getRegion().front().getArgument(0);
-    Value back = store.getValueToStore() == element ? moving : store.getValueToStore();
-    SmallVector<Value> out;
-    if (leaves)
-      out.push_back(moving);
-    idr::ArrayUpdateYieldOp::create(rewriter, loc, back, out);
-    rewriter.eraseOp(store);
-    if (leaves)
-      rewriter.replaceAllUsesWith(element, update.getOuts().front());
-    rewriter.eraseOp(*load);
-  }
+  for (memref::StoreOp store : stores)
+    idr::arrays::moveOut(rewriter, store);
 }
 
 struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
@@ -276,7 +196,7 @@ struct Bufferize : idr::impl::IdrBufferizeBase<Bufferize> {
     idr::bufferize::registerModels(registry);
   }
 
-  void runOnProgram(idr::ProgramOp program) override {
+  void runOnProgram(idr::ProgramOp program) {
     MLIRContext *ctx = &getContext();
 
     OneShotBufferizationOptions options;

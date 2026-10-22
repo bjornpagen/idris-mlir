@@ -4,10 +4,10 @@
 //
 // idr-narrow makes the bigs and naturals that fit a small plain i64 words,
 // after versioning, across the module, each loop whose natural only
-// descends; then idr-narrow-words, the word rewrite, runs per function
-// under the program's Ranges, which idr-narrow holds for it (the bounds of
-// values, Facts; the values carried round loops and out of merges, the
-// joints; the ops, the words). idr-narrow-lanes makes the integer lanes of
+// descends; then idr-narrow-words, the word rewrite, runs per function on
+// its own solve under the program's Ranges, which idr-narrow holds for it
+// (the bounds of values, Facts; the values carried round loops and out of
+// merges, the joints; the ops, the words). idr-narrow-lanes makes the integer lanes of
 // a vectorized loop compute in 32 bits under a runtime bound on its sizes,
 // found on a copy of the loop (Copy) whose ops' widths it reads.
 #ifndef IDR_TRANSFORMS_NARROW_H
@@ -48,9 +48,9 @@ namespace idr::narrow {
 bool isBig(mlir::Type type);
 
 // The bounds of values: the analysis's, and those of the values the pass
-// makes, which stand for values it analysed. One per function rewritten
-// (one for the program while loops are versioned); nothing it learns
-// outlives the run. The passes that read it run on a counted program (the
+// makes, which stand for values it analysed. One per function, over its
+// own solve, whether its loops are versioned or its words rewritten;
+// nothing it learns outlives the run. The passes that read it run on a counted program (the
 // owned stage), where every value that holds references is graded.
 class Facts {
 public:

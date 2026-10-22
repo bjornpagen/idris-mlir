@@ -3,13 +3,17 @@
 // The rules the ops on arrays share, each said once: what an array holds at
 // an index, where an element moves, what a region of the generating set
 // must end in and bind, the bounds of the indices it binds, and how a step
-// of a generating op on buffers moves what it reads and gives.
-// lib/IR/OpsGenerating.cpp defines them.
+// of a generating op on buffers moves what it reads and gives
+// (lib/IR/OpsGenerating.cpp defines them); and a read and a write of one
+// element made its update, the skeleton rule on mutable memory and the
+// step on a value array's buffers (lib/IR/OpsArrays.cpp).
 #ifndef IDR_IR_ARRAYS_H
 #define IDR_IR_ARRAYS_H
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/Transforms/EGraph.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/IRMapping.h"
@@ -163,6 +167,42 @@ void cloneStep(mlir::OpBuilder &b, mlir::Location loc, mlir::Region &region,
   place(b, mlir::ValueRange(given));
 }
 
+// A read of an element whose next access to memory of its array, in its
+// block, is a write of the same element becomes the element's update
+// (idr.array.update), which stands where the write was: the element moves
+// out of its place with the reference the place held, the ops between that
+// read it, directly or through one another, move into the update's region,
+// and the value written moves back in; the element, or a value of theirs,
+// still read after the write leaves the update as one of its results. So a
+// value read only to be rebuilt and written back holds the one reference
+// to its cell while it is rebuilt, and counting rebuilds it in that cell.
+//
+// The read borrows and the write releases what it replaces; the update
+// moves out and back. The two agree only while no reference is counted,
+// so it rewrites a program whose holds are not yet decided. Nothing between
+// may touch memory of the array, nor anything the rebuilding moves into the
+// region touch memory written in place; the rebuilding moves toward the
+// write past the other ops between only where neither may tell, so every
+// effect keeps its order. What it asks is effects alone: it names no
+// definition.
+//
+// On a value array's buffer, One-Shot's write and the read before it, as
+// idr-bufferize leaves them; on mutable memory, the skeleton rule below.
+void moveOut(mlir::RewriterBase &rewriter, mlir::memref::StoreOp write);
+
 } // namespace idr::arrays
+
+namespace idr::egraph {
+
+// moveOut's rule on mutable memory, idr.array.set and the idr.array.get
+// before it, in the e-graph's skeleton, where both are ordered by their
+// effects.
+struct MoveOut {
+  using Root = ArraySetOp;
+  static std::optional<Edit> decide(Root write, const OperandFacts &facts);
+  static void rewrite(Root write, const Rewrite &choice, mlir::RewriterBase &rewriter);
+};
+
+} // namespace idr::egraph
 
 #endif // IDR_IR_ARRAYS_H

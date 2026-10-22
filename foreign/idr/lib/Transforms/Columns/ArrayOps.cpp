@@ -42,11 +42,11 @@ struct FoldColumns : OpConversionPattern<OpT> {
       signature.addInputs(arg.getArgNumber(), types);
     }
     Operation *made = remakeOp(rewriter, op, flatten(adaptor.getOperands()), results);
-    if constexpr (std::is_same_v<OpT, ScanLastOp>) {
+    if constexpr (std::is_same_v<OpT, ArrayScanLastOp>) {
       auto columns = [](ArrayRef<ValueRange> group) {
         return static_cast<int32_t>(flatten(group).size());
       };
-      cast<ScanLastOp>(made).getProperties().operandSegmentSizes = {
+      cast<ArrayScanLastOp>(made).getProperties().operandSegmentSizes = {
           1, columns(adaptor.getInits()), columns(adaptor.getOuts())};
     }
     rewriter.applySignatureConversion(&made->getRegion(0).front(), signature, &converter);
@@ -89,9 +89,9 @@ void populateArrayColumnPatterns(const TypeConverter &converter, RewritePatternS
       [&converter](Operation *op) -> std::optional<bool> {
     return converter.isLegal(op) && converter.isLegal(&op->getRegion(0));
   };
-  addColumns<ResultColumns<TabulateOp>, TabulateOp>(converter, patterns, target, legal);
-  addColumns<FoldColumns<FoldLastOp>, FoldLastOp>(converter, patterns, target, folded);
-  addColumns<FoldColumns<ScanLastOp>, ScanLastOp>(converter, patterns, target, folded);
+  addColumns<ResultColumns<ArrayTabulateOp>, ArrayTabulateOp>(converter, patterns, target, legal);
+  addColumns<FoldColumns<ArrayFoldLastOp>, ArrayFoldLastOp>(converter, patterns, target, folded);
+  addColumns<FoldColumns<ArrayScanLastOp>, ArrayScanLastOp>(converter, patterns, target, folded);
   addColumns<ArrayYieldColumns, ArrayYieldOp>(
       converter, patterns, target, [&converter](Operation *op) -> std::optional<bool> {
         return converter.isLegal(op) &&

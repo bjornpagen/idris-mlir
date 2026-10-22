@@ -18,9 +18,10 @@
 
 #include <optional>
 
-// The runtime's C ABI: an array's cell is its header and length, then the
-// elements, aligned to a word.
-#include "idris_rt.h"
+// The runtime's ABI, printed from the specification: the bytes of an
+// array's cell before its elements, its header and its length, the same on
+// every target, never the build machine's layout of the runtime's struct.
+#include "idr/IR/Generated/RuntimeLayout.h.inc"
 
 using namespace mlir;
 
@@ -220,9 +221,10 @@ Value asWord(OpBuilder &b, Location loc, OpFoldResult field) {
 }
 
 Value elementsOf(OpBuilder &b, Location loc, Value cell) {
-  return LLVM::GEPOp::create(b, loc, ptrType(b.getContext()), b.getI8Type(), cell,
-                             ArrayRef<LLVM::GEPArg>{static_cast<int32_t>(sizeof(idris_rt_array))},
-                             LLVM::GEPNoWrapFlags::inbounds);
+  return LLVM::GEPOp::create(
+      b, loc, ptrType(b.getContext()), b.getI8Type(), cell,
+      ArrayRef<LLVM::GEPArg>{static_cast<int32_t>(idr::runtime::arrayHeaderBytes)},
+      LLVM::GEPNoWrapFlags::inbounds);
 }
 
 } // namespace idr::conversion

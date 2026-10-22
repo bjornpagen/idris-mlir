@@ -121,8 +121,9 @@ struct LowerRuntimeCopy : IdrPattern<memref::CopyOp> {
     auto from = cast<MemRefType>(op.getSource().getType());
     auto to = cast<MemRefType>(op.getTarget().getType());
     layout::Element element = layouts.element(from.getElementType());
-    bool slotFree =
-        llvm::none_of(element.slots, [](const layout::Slot &slot) { return slot.counted; });
+    bool slotFree = llvm::all_of(element.slots, [](const layout::Slot &slot) {
+      return slot.word == layout::Word::Uncounted;
+    });
     if (slotFree && contiguous(from) && contiguous(to))
       return rewriter.notifyMatchFailure(op, "a memcpy is upstream's");
     const LLVMTypeConverter &descriptors = runtime.llvmTypeConverter();
