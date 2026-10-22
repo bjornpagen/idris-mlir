@@ -116,7 +116,8 @@ stage() {
     cp -R "$root/compiler/src" "$self/src" &&
     rm -rf "$self/src/build" &&
     cd "$self/src" || exit 1
-  half frontend "$frontend_limit" "$front" --prefix "$checkout_prefix" -p idris-compiler \
+  half frontend "$frontend_limit" "$front" --prefix "$checkout_prefix" \
+    -p idris-compiler -p idris-mlir-spec -p mlir-hash \
     --timing "$out/frontend-timing" --core "$out/idris-mlir-front.core" \
     -o "$out/idris-mlir-front.mlirbc" IdrisMLIR/Frontend/Driver.idr
   cp -R "$self/src/build" "$out/ttc" || exit 1
