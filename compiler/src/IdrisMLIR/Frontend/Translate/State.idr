@@ -228,26 +228,44 @@ record StaticReading where
   height : Nat
   head : Maybe Address
 
-||| A function instance requested: its definition, its parameters as the
-||| call that requested it classified them, so that it is translated at the
-||| same values, its key, the call that requested it, where and in whose
-||| definition, for a message to print, its link, which is its identity,
-||| its node, and the height of each static argument by its parameter's
-||| index, ascending, which the worklist checks against the growth check's
-||| bounds at the node's positions (`Finite`). The node's heads and the
-||| heights are the arguments' readings, found when the instance is
-||| requested (`Instances.request`).
+||| What a function instance is an instance of: a definition of the
+||| program; or a member of a choice at a use's types (`AtUse uses`), which
+||| no definition of the program is. A member at a use is a compile-time
+||| form (a polymorphic function, an implementation) applied to the `uses`
+||| arguments a use gives it, where no definition applies it: a value of a
+||| choice applied where it is held, each member at that use's own types,
+||| or a form a settled term would settle inside its own settled form. It
+||| is applied as by `\f, x1 .. xn => f x1 .. xn` at the form's type
+||| (`Instances.applicationType`): the type, a compile-time value, keys
+||| it, then the form, then the use's arguments, as many as the use gives
+||| and the type, as Idris checked the use, takes, so no instance takes
+||| more than its type does.
+public export
+data Instantiates = OfDefinition Name | AtUse Nat
+
+||| A function instance requested: what it is an instance of, its
+||| parameters as the call that requested it classified them, so that it is
+||| translated at the same values, its key, the call that requested it,
+||| where and in whose definition, for a message to print, its link, which
+||| is its identity, and the height of each static argument at the position
+||| of the growth check's graph it is bounded at, which the worklist checks
+||| against the growth check's bounds (`Finite`). A definition's positions
+||| are its node's (its definition, split by the heads of what it is
+||| given) at its parameters' indices; a member at a use is no definition,
+||| so no node of the graph is it, and the growth check bounds its link
+||| alone (`Proof.Requests.Bounds`). The node's heads and the heights are
+||| the arguments' readings, found when the instance is requested
+||| (`Instances.request`).
 public export
 record Request where
   constructor MkRequest
-  name : Name
+  instantiates : Instantiates
   kinds : List PKind
   key : InstanceKey
   site : FC
   owner : Shown
   link : Link Form
-  node : Node
-  heights : List (Nat, Nat)
+  positions : List (Position, Nat)
 
 ||| A request's identity: the instance its link is.
 public export
@@ -346,7 +364,8 @@ data Chosen = Given (rest : Nat) | Held (j : Nat)
 
 ||| A call given a choice (`ChoiceParam`), or an instance given an
 ||| implementation that holds one, as one function: its identity, symbol
-||| and key, the callee and its kinds as the call classified them, the
+||| and key, the callee (a definition, or a member at a use, whose choice
+||| the use dispatches on) and its kinds as the call classified them, the
 ||| choice's family, the position of the parameter it is found at and
 ||| where in it (`Chosen`), where and in whose definition it was made, and
 ||| for each member the instance of the callee at that member that its arm
@@ -357,7 +376,7 @@ record Dispatch where
   inst : FnId
   symbol : String
   key : InstanceKey
-  callee : Name
+  callee : Instantiates
   kinds : List PKind
   family : FamilyId
   at : Nat

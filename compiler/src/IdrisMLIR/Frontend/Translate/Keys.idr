@@ -317,8 +317,11 @@ keyOrigin n = do
   Nothing <- named key
     | Just o => pure o
   st <- getState
-  case st.chain of
-    r :: _ => nameBlocksOf r.name
+  case map (.instantiates) st.chain of
+    OfDefinition n :: _ => nameBlocksOf n
+    -- A member at a use writes no block of its own: a block it calls is
+    -- named under the definition that writes the block.
+    AtUse _ :: _ => pure ()
     [] => pure ()
   Nothing <- named key
     | Just o => pure o
@@ -1007,10 +1010,16 @@ writtenText w = ("+" ++) . concat <$> traverse symbolText w.symbols
 ||| identity: the link, each name by its full name, each block by its
 ||| place.
 linkText : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Link Form -> Front String
-linkText (MkLink d as) = do
-  dn <- addressIdentity d
+linkText (MkLink h as) = do
+  dn <- headText h
   args <- traverse (maybe (pure "-") writtenText) as
   pure (dn ++ "|" ++ show (length as) ++ ";" ++ concat args)
+  where
+    -- A definition by its name; an application by what it is, which no
+    -- name of the context spells.
+    headText : Head -> Front String
+    headText (ADefinition d) = addressIdentity d
+    headText AnApplication = pure "$application"
 
 ------------------------------------------------------------------------------
 -- Identities and keys
@@ -1049,39 +1058,36 @@ record Instance a where
   symbol : String
   arguments : List (Maybe (a, Written Form))
 
-||| The instance of a definition at its compile-time arguments (`Nothing` at
-||| a position that keys nothing), each given as whatever the request knows
-||| of it, which holds its term (`term`). Two requests are one instance exactly
-||| when their links are equal: the map of instances is keyed by the link,
-||| and a request of an instance already made finds it there without
-||| printing anything. A new one is printed: its key, and its symbol, which
-||| carries the low 64 bits of the hash of the link's text when the print
-||| drops part of the identity, a function of the key alone, two links on
-||| one key being a broken invariant. The definition is the one the
-||| request names, missing from the context as a lookup of it is.
-export
-instanceKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-              FC -> String -> Name -> (term : a -> ClosedTerm) -> List (Maybe a) -> Front (Instance a)
-instanceKey fc owner n term given = do
-  full <- fullNames n
+||| The instance of what a link heads (`head`) at its compile-time arguments
+||| (`Nothing` at a position that keys nothing), each given as whatever the
+||| request knows of it, which holds its term (`term`). Two requests are one
+||| instance exactly when their links are equal: the map of instances is
+||| keyed by the link, and a request of an instance already made finds it
+||| there without printing anything. A new one is printed: its key, its
+||| origin (`originOf`, read only then), and its symbol, which carries the low
+||| 64 bits of the hash of the link's text when the print drops part of the
+||| identity, a function of the key alone, two links on one key being a
+||| broken invariant. `what` names it for a message.
+instanceAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             FC -> (what : String) -> Head -> (originOf : Front String) -> (term : a -> ClosedTerm) -> List (Maybe a) ->
+             Front (Instance a)
+instanceAt fc what head originOf term given = do
   resolved <- traverse (traverse (\x => (x,) <$> fullNames (term x))) given
   let args' = map (map snd) resolved
   defs <- getDefs
-  let Just placement = placementIn (gamma defs) full
-    | Nothing => reject fc owner CompiledModule ("missing definition " ++ show full)
   -- A broken invariant: a compile-time argument is checked TT, every name
   -- of which the context holds, but the frontend's own markers, which are
   -- written by their numbers (`markerOf`).
   let Nothing = foldr (\a, rest => (a >>= unresolved (gamma defs)) <|> rest) Nothing args'
-    | Just stray => internal fc ("a compile-time argument of " ++ show full ++ " names " ++ show stray ++
+    | Just stray => internal fc ("a compile-time argument of " ++ what ++ " names " ++ show stray ++
                                  ", which the context does not hold")
   writer <- writerOf (catMaybes args')
   let arguments = map (map (\(x, t) => (x, writtenOf writer t))) resolved
-  let link = MkLink (addressOf placement) (map (map snd) arguments)
+  let link = MkLink head (map (map snd) arguments)
   case lookup link (!(getState)).named of
     Just (symbol, key) => pure (MkInstance link key symbol arguments)
     Nothing => do
-      origin <- keyOrigin full
+      origin <- originOf
       (printed, lost) <- keyed writer args'
       -- Whole only when the print keeps all of the identity and fits a
       -- symbol (keyText).
@@ -1104,6 +1110,32 @@ instanceKey fc owner n term given = do
         Nothing => pure ()
       updateState { named $= insert link (symbol, key), keyLinks $= insert key link }
       pure (MkInstance link key symbol arguments)
+
+||| The instance of a definition at its compile-time arguments
+||| (`instanceAt`), and the definition's address, which heads its link.
+||| The definition is the one the request names, missing from the context
+||| as a lookup of it is.
+export
+instanceKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+              FC -> String -> Name -> (term : a -> ClosedTerm) -> List (Maybe a) -> Front (Address, Instance a)
+instanceKey fc owner n term given = do
+  full <- fullNames n
+  defs <- getDefs
+  let Just placement = placementIn (gamma defs) full
+    | Nothing => reject fc owner CompiledModule ("missing definition " ++ show full)
+  let address = addressOf placement
+  (address,) <$> instanceAt fc (show full) (ADefinition address) (keyOrigin full) term given
+
+||| The instance of a member at a use's types (`AtUse uses`) at its
+||| compile-time arguments (`instanceAt`): the form's type, the form, the
+||| use's arguments. No definition heads its link, and its key's origin
+||| says how many arguments the use gives, which a print that stops at the
+||| last argument that keys would not.
+export
+applicationKey : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+                 FC -> (uses : Nat) -> (term : a -> ClosedTerm) -> List (Maybe a) -> Front (Instance a)
+applicationKey fc uses term given =
+  instanceAt fc "a member at a use" AnApplication (pure ("$idris-mlir.application." ++ show uses)) term given
 
 ||| A polymorphic function type as its choice is keyed (`ChoiceKey`): the
 ||| type written out, which is its identity, and its key, the type printed

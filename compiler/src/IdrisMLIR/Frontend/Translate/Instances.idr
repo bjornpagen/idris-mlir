@@ -76,31 +76,77 @@ readings i (Just ((Element kind _, t), w) :: as) = do
       pure r
   ((i, here) ::) <$> readings (S i) as
 
+||| The type a member at a use is applied as by (`AtUse`): `{0 t : Type} ->
+||| (f : t) -> t`, the form's type, then the form, giving a value of the
+||| form's type, which the use's arguments are applied to as that type
+||| takes them. So the type keys the instance as a type does, the form as
+||| an implementation does, and each argument as the form's type says.
+export
+applicationType : {auto c : Ref Ctxt Defs} -> Front ClosedTerm
+applicationType = do
+  t <- core (intern "t")
+  f <- core (intern "f")
+  u <- core (intern "u")
+  pure (Bind EmptyFC (UN (Basic t)) (Pi EmptyFC erased Implicit (TType EmptyFC (UN (Basic u))))
+          (Bind EmptyFC (UN (Basic f)) (Pi EmptyFC top Explicit (Local EmptyFC Nothing 0 First))
+                (Local EmptyFC Nothing 1 (Later First))))
+
+||| What an instance applies, as its parameters are classified over: a
+||| definition's arity and type; a member at a use's, as `applicationType`
+||| applies it to the use's arguments.
+export
+signatureOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+              FC -> String -> Instantiates -> Front (Nat, ClosedTerm)
+signatureOf fc owner (OfDefinition n) = do
+  def <- lookupDef fc owner n
+  let PMDef _ params _ = definition def
+    | _ => internal fc ("an instance of " ++ show (fullname def) ++ ", which is no function")
+  pure (length params, !(typeOfDefinition def))
+signatureOf fc owner (AtUse uses) = (2 + uses,) <$> applicationType
+
+||| The instance of what is instantiated at the static arguments a call's
+||| kinds give it (`Keys`).
+export
+instanceFor : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
+             FC -> String -> Instantiates -> List PKind -> Front (Instance (Subset Static Requested, ClosedTerm))
+instanceFor fc owner (OfDefinition n) kinds = snd <$> instanceKey fc owner n snd (map staticKindOf kinds)
+instanceFor fc owner (AtUse uses) kinds = applicationKey fc uses snd (map staticKindOf kinds)
+
 ||| Requests a function instance, for parameters classified as the call
 ||| gives them, and returns its identity. A new instance is recorded with
 ||| what it is an instance of, the site that requested it, the definition
-||| whose translation did, and the node at whose positions the worklist
-||| checks its static arguments against the growth check's bounds
-||| (`Finite`): its definition, split by the heads of the implementations
-||| and families it is given, so that a method's projection is checked at
-||| the implementation that runs, and a definition over a family at the
-||| type constructor it is. The link stays its identity.
+||| whose translation did, and the positions at which the worklist checks
+||| its static arguments against the growth check's bounds (`Finite`): a
+||| definition's node, split by the heads of the implementations and
+||| families it is given, so that a method's projection is checked at the
+||| implementation that runs, and a definition over a family at the type
+||| constructor it is. A member at a use is no node of the graph, and the
+||| growth check bounds its link alone. The link stays its identity.
 export
 request : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> (owner : String) -> Name -> List PKind -> Front FnId
-request fc owner n kinds = do
-  found <- instanceKey fc owner n snd (map staticKindOf kinds)
+          FC -> (owner : String) -> Instantiates -> List PKind -> Front FnId
+request fc owner what kinds = do
+  (found, positionsOf) <- keyed what
   let inst = InstanceOf found.link
   st <- getState
   if contains inst st.instances then pure inst else do
     updateState { instances $= insert inst }
-    core (checkRecursion n)
-    read <- readings 0 found.arguments
-    let node = MkNode found.link.definition (mapMaybe (\(i, r) => (i,) <$> r.head) read)
+    positions <- positionsOf
     updateState { fnOrder $= (:< inst)
-                  , requested $= (:< MkRequest n kinds found.key fc (shown owner) found.link node
-                                               (map (\(i, r) => (i, r.height)) read)) }
+                  , requested $= (:< MkRequest what kinds found.key fc (shown owner) found.link positions) }
     pure inst
+  where
+    -- The instance, and, for a new one, where the growth check bounds its
+    -- static arguments: a definition's at its node, once its component of
+    -- Idris's call graph is checked; a member at a use's at its link alone.
+    keyed : Instantiates -> Front (Instance (Subset Static Requested, ClosedTerm), Front (List (Position, Nat)))
+    keyed (OfDefinition n) = do
+      (address, found) <- instanceKey fc owner n snd (map staticKindOf kinds)
+      pure (found, do core (checkRecursion n)
+                      read <- readings 0 found.arguments
+                      let node = MkNode address (mapMaybe (\(i, r) => (i,) <$> r.head) read)
+                      pure (map (\(i, r) => ((node, i), r.height)) read))
+    keyed (AtUse uses) = (, pure []) <$> applicationKey fc uses snd (map staticKindOf kinds)
 
 ||| What a call knows of an argument it gives: an implementation known at
 ||| compile time, whatever binds it (Idris passes an enclosing function's

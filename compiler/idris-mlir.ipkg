@@ -60,6 +60,8 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Closed
         , IdrisMLIR.Proof.Growth
         , IdrisMLIR.Proof.Bound
+        , IdrisMLIR.Proof.Template
+        , IdrisMLIR.Proof.Describes
         , IdrisMLIR.Proof.Generations
         , IdrisMLIR.Proof.Forms
         , IdrisMLIR.Proof.Requests

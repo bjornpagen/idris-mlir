@@ -914,7 +914,7 @@ choiceFamily fc owner ty = do
     | _ => internal fc ("a choice of no implementation type: " ++ !(showTT ty))
   def <- lookupDef fc owner n
   keyed <- traverse (\a => Just <$> argumentKey fc owner Keyed !(canonicalTypeArg a)) args
-  found <- instanceKey fc owner (fullname def) id keyed
+  (_, found) <- instanceKey fc owner (fullname def) id keyed
   registeredChoice (OfInterface found.link) found.key ty !(toLoc (location def))
 
 ||| A value array of these dimensions of this element: an array of value
@@ -1210,7 +1210,7 @@ mutual
                      (zip positions args0)
     let statics = map (\(i, a) => if inKey (roleAt i roles) then Just a else Nothing) (zip positions args)
     indices <- traverse indexTerm (map snd (filter (\(i, _) => not (inKey (roleAt i roles))) (zip positions args0)))
-    found <- instanceKey fc owner (fullname def) id statics
+    (address, found) <- instanceKey fc owner (fullname def) id statics
     st <- getState
     case lookup found.link st.familyIds of
       Just fam => pure (fam, DataT fam indices)
@@ -1222,7 +1222,7 @@ mutual
           let fam = MkFamilyId st.nextFamily
           updateState { familyIds $= insert found.link fam, nextFamily $= S }
           let what = keyText found.key ++ ", registered,"
-          boundsHold fc what found.link.definition statics
+          boundsHold fc what address statics
           inside <- sizedWithin fc what chain.sizes found.link
           TCon arity _ _ _ _ datacons _ <- pure (definition def)
             | _ => reject fc owner ValueType (tname ++ " is not a data type")

@@ -37,17 +37,62 @@ import Data.Vect
 
 %default total
 
-||| Translates one function instance. Its runtime parameters are its Core
-||| parameters, numbered in order; a type, an implementation and a parameter
-||| of quantity 0 are compile-time values of the case tree's scope, which has
-||| one variable per parameter of the definition's type. An instance given
-||| an implementation that holds a choice the running program made is a
-||| dispatch on that choice (`Choices.heldDispatch`), each of its arms the
-||| instance with the choice fixed, so no tree takes apart a field the
-||| program does not fix.
-translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Front ()
-translateInstance p = do
-  def <- lookupDef EmptyFC (show p.name) p.name
+||| The name of the next parameter, and the names after it: a parameter
+||| past the names a type gives is `x`.
+parameterName : List Name -> (Shown, List Name)
+parameterName [] = (shown "x", [])
+parameterName (x :: xs) = (binderName x, xs)
+
+||| An instance's runtime parameters, named as the type it is classified
+||| over names them, and what each variable of its body's scope stands for,
+||| one per parameter: a type, an implementation or a parameter of
+||| quantity 0 a compile-time value, an index parameter its level (the next
+||| one `level`), which its body's types read, and a runtime parameter the
+||| next Core parameter.
+runtimeParams : (level : Nat) -> List Name -> (kinds : List PKind) ->
+                (Vect (Runtimes kinds) (Shown, Binder), List (VarInfo (Fin (Runtimes kinds))))
+runtimeParams level xs [] = ([], [])
+runtimeParams level xs (TypeParam t :: ks) =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) ks in (ps, TypeValue t :: env)
+runtimeParams level xs (DictParam t Nothing :: ks) =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) ks in (ps, Static t Nothing :: env)
+runtimeParams level xs (ErasedParam :: ks) =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) ks in (ps, TypeValue (Erased EmptyFC Placeholder) :: env)
+runtimeParams level xs (IndexParam _ :: ks) =
+  let (ps, env) = runtimeParams (S level) (snd (parameterName xs)) ks in (ps, TypeValue (marker level) :: env)
+runtimeParams level xs (FormParam f :: ks) =
+  let (ps, env) = runtimeParams level (snd (parameterName xs)) ks in (ps, TypeValue f :: env)
+runtimeParams level xs (DictParam t (Just h) :: ks) =
+  let (x, xs') = parameterName xs
+      (ps, env) = runtimeParams level xs' ks in
+  ((x, h.binder) :: ps, Static t (Just (FZ, h)) :: map (map FS) env)
+runtimeParams level xs (ChoiceParam b known :: ks) =
+  let (x, xs') = parameterName xs
+      (ps, env) = runtimeParams level xs' ks in
+  ((x, b) :: ps, Runtime FZ (Just b.type) (Just known) :: map (map FS) env)
+runtimeParams level xs (ValueParam b shape known :: ks) =
+  let (x, xs') = parameterName xs
+      (ps, env) = runtimeParams level xs' ks in
+  ((x, b) :: ps, maybe (Runtime FZ (Just b.type) (Just known)) (shaped FZ b.type known) shape
+                   :: map (map FS) env)
+
+||| The names a type gives its parameters.
+parameterNames : TT vs -> List Name
+parameterNames (Bind _ x (Pi {}) sc) = x :: parameterNames sc
+parameterNames _ = []
+
+||| Every variable of a scope, the first first, as a term of it.
+variablesOf : (vs : Scope) -> List (TT vs)
+variablesOf [] = []
+variablesOf (v :: vs) = Local EmptyFC Nothing 0 First :: map weaken (variablesOf vs)
+
+||| Translates an instance of a definition. Its runtime parameters are its
+||| Core parameters, numbered in order; a type, an implementation and a
+||| parameter of quantity 0 are compile-time values of the case tree's
+||| scope, which has one variable per parameter of the definition's type.
+translateDefinition : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Name -> Front ()
+translateDefinition p n = do
+  def <- lookupDef EmptyFC (show n) n
   let owner = show (fullname def)
   -- A definition is its address, which a name the context does not hold
   -- has not: no check refused it, and no loop through it is known.
@@ -68,10 +113,11 @@ translateInstance p = do
                    MissingCases _ => False
                    _ => True
   (kinds, resTy) <- classifyInstance fc owner (length args) ty (givenArgs p.kinds)
-  result <- coreType fc owner ValueType !(normaliseClosed resTy)
+  resTy' <- normaliseClosed resTy
+  result <- coreType fc owner ValueType resTy'
   (params, env) <- pure (runtimeParams 0 (parameterNames ty) kinds)
   clausePats <- core (clausePatsOf body)
-  tree' <- tree (MkCtx owner fc complete) env (clauses args clausePats) !(treeOfBody body)
+  tree' <- tree (MkCtx owner fc complete resTy') env (clauses args clausePats) !(treeOfBody body)
   loc <- toLoc fc
   -- Each array parameter's dimensions that a size variable fixes, stated
   -- equal to the parameter or the runtime size that fixes it first; an
@@ -88,11 +134,6 @@ translateInstance p = do
   updateState { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params
                                               result body loc termination) }
   where
-    -- The names the definition's type gives its parameters.
-    parameterNames : TT vs -> List Name
-    parameterNames (Bind _ x (Pi {}) sc) = x :: parameterNames sc
-    parameterNames _ = []
-
     -- The body under one `let` per parameter with a tied dimension, in
     -- parameter order: the parameter as its dimensions are stated, which
     -- the body uses in its place. The parameters are the body's
@@ -104,43 +145,44 @@ translateInstance p = do
       Let loc (shown "tied") (OfValue Many) (Tie loc (Var loc p) (map (\(k, w) => (k, witnessTerm loc vs w)) axes))
           (rename (\y => if y == p then FZ else FS y) (tied loc vs rest body))
 
-    -- A parameter past the names the definition's type gives is `x`.
-    named : List Name -> (Shown, List Name)
-    named [] = (shown "x", [])
-    named (x :: xs) = (binderName x, xs)
+||| Translates a member at a use's types (`AtUse uses`): its body is its
+||| form, its second parameter, applied to the use's arguments, its
+||| parameters after it, as the form is applied wherever a scope binds it
+||| (`Terms.implementationAt`), on a path of its own, at the type the use
+||| gives. Its parameters are classified over `Instances.applicationType`,
+||| the form's type keying it first. It has no loop of its own: what its
+||| form calls is the callee's.
+translateApplication : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Nat -> Front ()
+translateApplication p uses = do
+  let owner = show p.owner
+  let fc = p.site
+  ty <- applicationType
+  (kinds, resTy) <- classifyInstance fc owner (2 + uses) ty (givenArgs p.kinds)
+  resTy' <- normaliseClosed resTy
+  result <- coreType fc owner ValueType resTy'
+  x <- core (intern "x")
+  let names = parameterNames ty ++ replicate uses (UN (Basic x))
+  (params, env) <- pure (runtimeParams 0 names kinds)
+  let (_ :: form :: arguments) = variablesOf names
+    | _ => internal fc "a member at a use with no form to apply"
+  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True resTy') env resTy'
+                 (foldl (App fc) form arguments)
+  loc <- toLoc fc
+  updateState { fns $= insert p.inst (MkTFn p.inst (keyText p.key) p.key (telescopeOf kinds) (Runtimes kinds) params
+                                              result body loc Acyclic) }
 
-    -- The instance's runtime parameters, named as the definition's type
-    -- names them, and what each variable of the case tree's scope stands
-    -- for, one per parameter: a type, an implementation or a parameter of
-    -- quantity 0 a compile-time value, an index parameter its level (the
-    -- next one `level`), which its body's types read, and a runtime
-    -- parameter the next Core parameter.
-    runtimeParams : (level : Nat) -> List Name -> (kinds : List PKind) ->
-                    (Vect (Runtimes kinds) (Shown, Binder), List (VarInfo (Fin (Runtimes kinds))))
-    runtimeParams level xs [] = ([], [])
-    runtimeParams level xs (TypeParam t :: ks) =
-      let (ps, env) = runtimeParams level (snd (named xs)) ks in (ps, TypeValue t :: env)
-    runtimeParams level xs (DictParam t Nothing :: ks) =
-      let (ps, env) = runtimeParams level (snd (named xs)) ks in (ps, Static t Nothing :: env)
-    runtimeParams level xs (ErasedParam :: ks) =
-      let (ps, env) = runtimeParams level (snd (named xs)) ks in (ps, TypeValue (Erased EmptyFC Placeholder) :: env)
-    runtimeParams level xs (IndexParam _ :: ks) =
-      let (ps, env) = runtimeParams (S level) (snd (named xs)) ks in (ps, TypeValue (marker level) :: env)
-    runtimeParams level xs (FormParam f :: ks) =
-      let (ps, env) = runtimeParams level (snd (named xs)) ks in (ps, TypeValue f :: env)
-    runtimeParams level xs (DictParam t (Just h) :: ks) =
-      let (x, xs') = named xs
-          (ps, env) = runtimeParams level xs' ks in
-      ((x, h.binder) :: ps, Static t (Just (FZ, h)) :: map (map FS) env)
-    runtimeParams level xs (ChoiceParam b known :: ks) =
-      let (x, xs') = named xs
-          (ps, env) = runtimeParams level xs' ks in
-      ((x, b) :: ps, Runtime FZ (Just b.type) (Just known) :: map (map FS) env)
-    runtimeParams level xs (ValueParam b shape known :: ks) =
-      let (x, xs') = named xs
-          (ps, env) = runtimeParams level xs' ks in
-      ((x, b) :: ps, maybe (Runtime FZ (Just b.type) (Just known)) (shaped FZ b.type known) shape
-                       :: map (map FS) env)
+||| Translates one function instance, of a definition or of a member at a
+||| use. An instance given an implementation that holds a choice the
+||| running program made is a dispatch on that choice
+||| (`Choices.heldDispatch`), each of its arms the instance with the choice
+||| fixed, so no tree takes apart a field the program does not fix.
+translateInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Request -> Front ()
+translateInstance p = case p.instantiates of
+  OfDefinition n => translateDefinition p n
+  AtUse uses => do
+    Nothing <- heldChoice p.kinds
+      | Just (at, j, ty) => heldDispatch p at j ty
+    translateApplication p uses
 
 ||| The families a family's fields name.
 named : Family -> List FamilyId
@@ -209,7 +251,7 @@ export
 translateIOProgram : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                      FC -> Name -> Front (Maybe Source)
 translateIOProgram fc main = do
-  Just inst <- core (translateFrom (noting (request fc (show main) main [])) translateInstance)
+  Just inst <- core (translateFrom (noting (request fc (show main) (OfDefinition main) [])) translateInstance)
     | Nothing => pure Nothing
   let [<] = (!(getState)).rejected
     | _ => pure Nothing

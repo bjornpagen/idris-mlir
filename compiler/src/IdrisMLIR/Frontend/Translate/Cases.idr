@@ -12,8 +12,10 @@ import Core.Core
 import Core.TT
 
 import IdrisMLIR.Frontend.Resolve
+import IdrisMLIR.Frontend.Translate.Choices
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Errors
+import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.Shapes
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.Terms
@@ -347,11 +349,13 @@ builtNamed shape alts = case the (Maybe (Name, List ClosedTerm)) (shape >>= shap
 mutual
   ||| A case tree over its scope's variables, and where they stand in the
   ||| definition's clauses (`Clauses`). Each leaf's term starts a path of its
-  ||| own (`Terms.term`), and reads each variable where its clause holds it.
+  ||| own, at the type the definition gives (`Terms.atType`), and reads each
+  ||| variable where its clause holds it.
   export
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
          Ctx -> List (VarInfo (Fin nv)) -> Clauses vars -> CaseTree vars -> Front (Term nv)
-  tree ctx env cls (STerm clause tm) = term asWritten start (sizeAccessible start) ctx (heldAt (cast clause) cls env) tm
+  tree ctx env cls (STerm clause tm) =
+    atType asWritten start (sizeAccessible start) ctx (heldAt (cast clause) cls env) ctx.result tm
   -- Idris proved it cannot be reached. An `Unmatched` leaf of a covering
   -- definition is one too: a definition whose clauses are all impossible
   -- has only that leaf. In a definition with missing cases it is one of
@@ -593,30 +597,27 @@ mutual
   ||| A match on a compile-time value: the implementation is reduced to its
   ||| constructor, and the alternative's variables stand for its arguments.
   ||| An argument that mentions the runtime value the implementation closes
-  ||| over closes over it too.
+  ||| over closes over it too. A field no compile-time reduction reaches is
+  ||| computed where the match reaches it (`heldHere`).
   staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                Ctx -> List (VarInfo (Fin nv)) -> Clauses vars -> Var vars ->
                ClosedTerm -> Maybe (Fin nv, Holes) ->
                List (CaseAlt vars) -> Front (Term nv)
   staticCase ctx env cls scrutinee t hole alts = do
+    -- No parameter is such a form: an implementation is a parameter's form
+    -- only where the program fixes it now, its head the constructor
+    -- (`Closed.fixing`); one the running program chooses is passed as a
+    -- choice (`Instances.classify`) and translated as the computation it is
+    -- (`Terms.memberHere`), so each member a dispatch fixes reduces. A
+    -- field of a fixed implementation that the running program chooses is
+    -- a value the parameter holds, and an instance given one is split by
+    -- the members of its choice (`Choices.heldDispatch`), so its tree takes
+    -- apart the member. What reaches here stuck is a field of a fixed
+    -- implementation that no compile-time reduction reaches: one a
+    -- definition Idris does not prove ends computes, or one computed from
+    -- the values the implementation closes over.
     Built cn cargs <- whnf t
-      | Stuck on => do
-          -- No parameter is such a form: an implementation is a parameter's
-          -- form only where the program fixes it now, its head the
-          -- constructor (`Closed.fixing`); one the running program chooses
-          -- is passed as a choice (`Instances.classify`) and translated as
-          -- the computation it is (`Terms.memberHere`), so each member a
-          -- dispatch fixes reduces. A field of a fixed implementation that
-          -- the running program chooses is a value the parameter holds,
-          -- and an instance given one is split by the members of its choice
-          -- (`Choices.heldDispatch`), so its tree takes apart the member.
-          -- What reaches here is a field of a fixed implementation that no
-          -- compile-time reduction reaches and that needs no runtime value
-          -- (one a definition Idris does not prove ends computes), which
-          -- the implementation holds as written, not as a value.
-          reject ctx.fc ctx.owner RuntimeClosure
-                 ("an implementation's field no compile-time reduction reaches, matched where the " ++
-                  "implementation was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
+      | Stuck on => heldHere on
     cn <- fullNames cn
     taken <- argumentsOf !(lookupDef ctx.fc ctx.owner cn)
     pick cn (zipWith info taken cargs) alts
@@ -634,6 +635,135 @@ mutual
       pick cn infos (DefaultCase rhs :: _) = tree ctx env cls rhs
       pick cn infos (_ :: rest) = pick cn infos rest
       pick cn infos [] = internal ctx.fc ("no alternative for " ++ show cn)
+
+      -- The type of argument `j` of a constructor applied to `args`.
+      argumentType : Name -> List ClosedTerm -> Nat -> Front ClosedTerm
+      argumentType cn args j = go !(typeOfDefinition !(lookupDef ctx.fc ctx.owner cn)) (take j args)
+        where
+          go : ClosedTerm -> List ClosedTerm -> Front ClosedTerm
+          go ty as = do
+            Bind _ _ (Pi _ _ _ a) sc <- showingBinder ty
+              | _ => internal ctx.fc ("an argument of " ++ show cn ++ " past the binders its type shows")
+            case as of
+              [] => normaliseClosed a
+              (v :: vs) => go (subst v sc) vs
+
+      -- An implementation built with its constructor applied, an argument
+      -- replaced.
+      rebuilt : Name -> Nat -> ClosedTerm -> List ClosedTerm -> Front ClosedTerm
+      rebuilt cn j v args = do
+        f <- refTo EmptyFC cn
+        pure (foldl (App EmptyFC) f (replaceAt j v args))
+        where
+          replaceAt : Nat -> a -> List a -> List a
+          replaceAt Z x (_ :: ys) = x :: ys
+          replaceAt (S i) x (y :: ys) = y :: replaceAt i x ys
+          replaceAt _ _ [] = []
+
+      -- A parameter's implementation with its part at a place (the steps
+      -- of matches from the parameter to it) a value it holds, marker
+      -- `m`: the implementation built, step by step, with that part
+      -- replaced; and the part's type.
+      holding : (m : Nat) -> ClosedTerm -> List Step -> Front (ClosedTerm, ClosedTerm)
+      holding m form [] = internal ctx.fc "a parameter's whole implementation, fixed, that no reduction takes apart"
+      holding m form (Argument j _ :: rest) = do
+        Built cn args <- whnf form
+          | Stuck _ => internal ctx.fc ("an implementation taken apart on the way to a field, stuck: " ++ !(showTT form))
+        cn <- fullNames cn
+        case rest of
+          [] => (,) <$> rebuilt cn j (holeMarker m) args <*> argumentType cn args j
+          _ => do
+            let Just part = getAt j args
+              | Nothing => internal ctx.fc ("a field past the arguments of " ++ show cn)
+            (part', ty) <- holding m part rest
+            (, ty) <$> rebuilt cn j part' args
+      holding m form (_ :: _) = internal ctx.fc "an implementation's field inside a suspension"
+
+      -- Where the matched variable stands in the clauses.
+      placeOf : Var vars -> Place
+      placeOf (MkVar {varIdx} prf) = placeAt varIdx prf cls.places
+
+      -- The variable that holds the value of parameter `i` at run time, as
+      -- the tree's scope binds it: the parameter itself, at its own place.
+      parameterValue : Nat -> Maybe (Fin nv)
+      parameterValue i = go (zip (placesOf cls.places) env)
+        where
+          go : List (Place, VarInfo (Fin nv)) -> Maybe (Fin nv)
+          go [] = Nothing
+          go ((MkPlace j [<], v) :: rest) = if i == j then valueOf v else go rest
+          go (_ :: rest) = go rest
+
+          valueOf : VarInfo (Fin nv) -> Maybe (Fin nv)
+          valueOf (Static _ (Just (x, _))) = Just x
+          valueOf v = variableOf v
+
+      -- The instance's runtime arguments, in its parameters' order, each
+      -- parameter's own value but at parameter `p`, which is `given`;
+      -- `ren` takes the scope's variables into the one they are read in.
+      passedOn : {0 q : Nat} -> Loc -> (Fin nv -> Fin q) -> (p : Nat) -> Term q -> List PKind -> Front (List (Term q))
+      passedOn loc ren p given kinds = go 0 kinds
+        where
+          go : Nat -> List PKind -> Front (List (Term q))
+          go i [] = pure []
+          go i (k :: ks) = case boundAtRuntime k of
+            Nothing => go (S i) ks
+            Just _ => do
+              here <- if i == p then pure given else case parameterValue i of
+                        Just x => pure (Var loc (ren x))
+                        Nothing => internal ctx.fc ("the value of parameter " ++ show i ++ " out of the tree's scope")
+              (here ::) <$> go (S i) ks
+
+      -- A field no compile-time reduction reaches is computed here, where
+      -- the tree reaches it, eagerly, its divergence its computation's:
+      -- the rest is the instance's definition again, at the
+      -- implementation with that field a value it holds, its last
+      -- (`holding`), so that instance is a dispatch on the field's choice
+      -- (`Choices.heldDispatch`), each of whose arms takes apart a member
+      -- the program fixes. What the tree matched before this match only
+      -- tested values, which that instance tests again. A field that is no
+      -- implementation is never taken apart, and is refused as it is.
+      heldHere : StuckOn -> Front (Term nv)
+      heldHere on = do
+        let place = placeOf scrutinee
+        st <- getState
+        let r :: _ = st.chain
+          | [] => internal ctx.fc "a tree translated with no request"
+        let Just (DictParam form held) = getAt place.parameter r.kinds
+          | _ => internal ctx.fc "an implementation's field matched under a parameter given no implementation"
+        let count = maybe 0 (length . forget . (.types)) held
+        (form', fieldType) <- holding count form (place.steps <>> [])
+        True <- choiceType fieldType
+          | False => reject ctx.fc ctx.owner RuntimeClosure
+                            ("an implementation's field no compile-time reduction reaches, matched where the " ++
+                             "implementation was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
+        let types = maybe (fieldType ::: []) (\hs => appendl hs.types [fieldType]) held
+        packed <- coreType ctx.fc ctx.owner ValueType !(normaliseClosed !(packedType types))
+        let kinds = replaceAt place.parameter (DictParam form' (Just (MkHoles types (MkBinder Many packed)))) r.kinds
+        inst <- request ctx.fc ctx.owner r.instantiates kinds
+        loc <- toLoc ctx.fc
+        value <- computedAt ctx env ctx.fc t hole
+        let levels = ownLevels (length (telescopeOf r.kinds))
+        body <- case held of
+          Nothing => Call loc inst Nothing levels <$> passedOn loc FS place.parameter (Var loc FZ) r.kinds
+          Just hs => do
+            let Just x = parameterValue place.parameter
+              | Nothing => internal ctx.fc "an implementation's values out of the tree's scope"
+            let (h ::: hts) = hs.types
+            takenApart ctx.fc ctx.owner loc h hts (FS x) $ \ren, vs => do
+              given <- pack ctx.fc ctx.owner loc
+                         (ending (zip (forget hs.types) (map (Var loc) vs)) (fieldType, Var loc (ren FZ)))
+              Call loc inst Nothing levels <$> passedOn loc (ren . FS) place.parameter given r.kinds
+        pure (Let loc (shown "field") (OfValue Many) value body)
+        where
+          replaceAt : Nat -> a -> List a -> List a
+          replaceAt Z x (_ :: ys) = x :: ys
+          replaceAt (S i) x (y :: ys) = y :: replaceAt i x ys
+          replaceAt _ _ [] = []
+
+          -- The values held, the field last.
+          ending : List a -> a -> List1 a
+          ending [] x = x ::: []
+          ending (y :: ys) x = y ::: (ys ++ [x])
 
   ||| The constructors a match's alternatives name, its possible
   ||| alternatives, each over its fields, named as the alternative names

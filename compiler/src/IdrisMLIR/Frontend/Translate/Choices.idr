@@ -23,6 +23,12 @@
 ||| with the field fixed to the member, so that a tree takes apart only
 ||| what the program fixes.
 |||
+||| A value of a polymorphic function's choice applied where it is held is
+||| a use of it, a member at a use (`AtUse`): the choice is passed to the
+||| application as by `\f, x1 .. xn => f x1 .. xn` at its type, so the
+||| use is a call given a choice, whose every arm calls the member at the
+||| use's own types.
+|||
 ||| A call given a choice is a dispatch: one function, a match on the
 ||| choice whose arm for each member calls the callee's instance at that
 ||| member, the member's field passed where the choice was. A member and a
@@ -109,6 +115,7 @@ pack fc owner loc (first ::: rest) = packed first rest
 ||| The values one variable holds as one (`pack`), of these types, taken
 ||| apart by the pairs that hold them: the body built over each value's
 ||| variable, in order, with the renaming of the scope outside.
+export
 takenApart : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {0 n : Nat} ->
              FC -> String -> Loc -> ClosedTerm -> List ClosedTerm -> Fin n ->
              ({0 p : Nat} -> (Fin n -> Fin p) -> List (Fin p) -> Front (Term p)) -> Front (Term n)
@@ -174,28 +181,29 @@ choicesIn (_ :: ks) = choicesIn ks
 mutual
   ||| The instance a call reaches at kinds that hold `choices` choices: the
   ||| callee's own when they hold none, requested; else a dispatch on the
-  ||| first, each of whose arms holds one fewer.
+  ||| first, each of whose arms holds one fewer. The callee is a definition,
+  ||| or a member at a use (`AtUse`), the member the choice it dispatches on.
   export
   calleeAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             (choices : Nat) -> FC -> String -> Name -> List PKind -> Front FnId
-  calleeAt Z fc owner n kinds = request fc owner n kinds
-  calleeAt (S k) fc owner n kinds = case firstChoice kinds of
-    Nothing => request fc owner n kinds
-    Just (at, ty) => dispatchOn k fc owner n kinds at ty
+             (choices : Nat) -> FC -> String -> Instantiates -> List PKind -> Front FnId
+  calleeAt Z fc owner what kinds = request fc owner what kinds
+  calleeAt (S k) fc owner what kinds = case firstChoice kinds of
+    Nothing => request fc owner what kinds
+    Just (at, ty) => dispatchOn k fc owner what kinds at ty
 
   ||| The dispatch of a call on the choice at position `at`, made once: its
   ||| identity is the callee's link at the call's static arguments, which
   ||| hold nothing where the choice is, as no instance of the callee's does.
   ||| It is joined with every member its choice has so far.
   dispatchOn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-               (rest : Nat) -> FC -> String -> Name -> List PKind -> (at : Nat) -> ClosedTerm -> Front FnId
-  dispatchOn rest fc owner n kinds at ty = do
+               (rest : Nat) -> FC -> String -> Instantiates -> List PKind -> (at : Nat) -> ClosedTerm -> Front FnId
+  dispatchOn rest fc owner what kinds at ty = do
     choice <- choiceFamily fc owner ty
-    found <- instanceKey fc owner n snd (map staticKindOf kinds)
+    found <- instanceFor fc owner what kinds
     let inst = InstanceOf found.link
     st <- getState
     if contains inst st.instances then pure inst else do
-      let d = MkDispatch inst found.symbol found.key n kinds choice.family at (Given rest) fc owner empty
+      let d = MkDispatch inst found.symbol found.key what kinds choice.family at (Given rest) fc owner empty
       updateState { instances $= insert inst, fnOrder $= (:< inst)
                   , dispatches $= insert inst d
                   , dispatchesOn $= insert choice.family (inst :: fromMaybe [] (lookup choice.family st.dispatchesOn)) }
@@ -314,7 +322,7 @@ heldDispatch : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 heldDispatch r at j ty = do
   let owner = show r.owner
   choice <- choiceFamily r.site owner ty
-  let d = MkDispatch r.inst (keyText r.key) r.key r.name r.kinds choice.family at (Held j) r.site owner empty
+  let d = MkDispatch r.inst (keyText r.key) r.key r.instantiates r.kinds choice.family at (Held j) r.site owner empty
   st <- getState
   let Nothing = lookup r.inst st.dispatches
     | Just _ => pure ()
@@ -384,6 +392,7 @@ memberHolding fc owner ty form held = do
 
 ||| The index terms a function passes on to a callee of its own telescope:
 ||| its own levels, in order.
+export
 ownLevels : Nat -> List ITerm
 ownLevels n = map IVar (take n [0 .. n])
 
@@ -406,10 +415,8 @@ passed loc choice field (x :: xs) =
 ||| of its own: what its arms do is theirs.
 dispatcher : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Dispatch -> Front ()
 dispatcher d = do
-  def <- lookupDef d.site d.owner d.callee
-  let PMDef _ params _ = definition def
-    | _ => internal d.site ("a dispatch on " ++ show (fullname def) ++ ", which is no function")
-  (kinds, resTy) <- classifyInstance d.site d.owner (length params) !(typeOfDefinition def) (givenArgs d.kinds)
+  (arity, ty) <- signatureOf d.site d.owner d.callee
+  (kinds, resTy) <- classifyInstance d.site d.owner arity ty (givenArgs d.kinds)
   result <- coreType d.site d.owner ValueType !(normaliseClosed resTy)
   loc <- toLoc d.site
   st <- getState
