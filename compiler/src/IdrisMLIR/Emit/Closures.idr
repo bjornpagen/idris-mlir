@@ -67,7 +67,7 @@ captures r = (walkRegion seen (MkSeen empty empty [<]) r).order <>> []
 export
 functionOp : String -> List (SortOf MlirType MlirAttr) -> MlirType -> Region -> Term.Termination -> Op
 functionOp sym telescope type body termination =
-  Idr.funcOp {binders = Just (IdrHand (BindersOf telescope)), terminates = proof termination} sym type body
+  Idr.funcOp {binders' = Just (IdrHand (BindersOf telescope)), terminates' = proof termination} (StringAttr sym) (TypeAttr type) body
   where
     proof : Term.Termination -> Maybe MlirAttr
     proof (Terminates c) = Just (Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof c.index))))

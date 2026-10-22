@@ -454,11 +454,12 @@ alg ix (CallF l fn stands is as) sc w = do
   let rt = substTy is f.result
       args = map (operand ix) (present vs)
       indexArgs = Just (IdrHand (ArgsOf (map (termNodes ix) is)))
+      callee = SymbolRefAttr (MkSymbolRef f.symbol [])
   case resultTypes ix rt of
     [] => do
-      ignore (placed (madeAtPlace Nothing (placeOf stands l) Many) (Idr.callOp {indexArgs} f.symbol NonTail args []))
+      ignore (placed (madeAtPlace Nothing (placeOf stands l) Many) (Idr.callOp {index_args' = indexArgs} callee NonTail args []))
       pure (Just worldVal)
-    [r] => Just <$> fitted {binder = w.binder} {stands} ix l w.type rt (\t => Idr.callOp {indexArgs} f.symbol NonTail args [t])
+    [r] => Just <$> fitted {binder = w.binder} {stands} ix l w.type rt (\t => Idr.callOp {index_args' = indexArgs} callee NonTail args [t])
     _ => internal ("a call of " ++ f.symbol ++ " giving more than one value")
 -- A constructor's fields are checked at their types with its binders
 -- given.
@@ -617,7 +618,7 @@ alg ix (LamF l name b body) sc w = do
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedLambda (map (sortOf ix) sc.telescope) args ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) t) captures
-                   (Idr.fnClosureOp {indexArgs = Just (IdrHand (ArgsOf (map (termNodes ix) (levels sc.telescope))))} sym captures)
+                   (Idr.fnClosureOp {index_args' = Just (IdrHand (ArgsOf (map (termNodes ix) (levels sc.telescope))))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
 alg ix (AppF l f x) sc w = do
   Just fv <- plain ix l (f.result sc (expecting Nothing))
     | Nothing => pure Nothing
@@ -645,7 +646,7 @@ alg ix (SuspendF l body) sc w = do
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedDelay (map (sortOf ix) sc.telescope) [] ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (LazyT t) captures
-                   (Idr.lazySuspendOp {indexArgs = Just (IdrHand (ArgsOf (map (termNodes ix) (levels sc.telescope))))} sym captures)
+                   (Idr.lazySuspendOp {index_args' = Just (IdrHand (ArgsOf (map (termNodes ix) (levels sc.telescope))))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
 alg ix (ResumeF l e) sc w = do
   Just ev <- plain ix l (e.result sc (expecting Nothing))
     | Nothing => pure Nothing
@@ -727,7 +728,7 @@ alg ix (AssumeF l lhs rhs body) sc w = do
 -- in are data the op holds; a trusted library's crash of a string reports
 -- that string.
 alg ix (CrashF l cause) sc _ = do
-  statement l (Idr.crashCauseOp (causeAttr cause) !(siteOf l))
+  statement l (Idr.crashCauseOp cause !(siteOf l))
   pure Nothing
 alg ix (CrashWithF l m) sc _ = do
   Just s <- (operand1 ix l sc (Just (MkBinder Many StrT)) m).written

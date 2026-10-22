@@ -220,19 +220,19 @@ sample =
       i = MkValue "%i" IndexType
       c4 = MkValue "%c4" IndexType
       cons = MkValue "%cons" consCell
-  in stmt (Idr.funcOp {binders = Just (IdrHand (BindersOf [SortOfNatSort]))} "sample"
-            (FunctionType (MkSignature [vecAny, nat, i64, str] [i64]))
+  in stmt (Idr.funcOp {binders' = Just (IdrHand (BindersOf [SortOfNatSort]))} (StringAttr "sample")
+            (TypeAttr (FunctionType (MkSignature [vecAny, nat, i64, str] [i64])))
             (block [v, n, x, s]
                [ -- A constructor, its value refined to it, then reindexed.
                  binding "%nil" (Idr.dataConOp [] [] (IdrHand (DataOf natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])))))
                , binding "%nil1" (Idr.dataReindexOp (MkValue "%nil" (IdrHand (DataOf natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0]))))) [] vecAny)
                , binding "%lin" (Idr.linCastOp x [] (Idr (GradedType Once Nothing i64)))
                , binding "%used" (Idr.linCastOp (MkValue "%lin" (Idr (GradedType Once Nothing i64))) [] i64)
-               , binding "%checked" (Idr.checkNonzeroOp (IntegerAttr (natToInteger (position causeClosed DivisionByZero)) (IntegerType 32)) (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x)
+               , binding "%checked" (Idr.checkNonzeroOp DivisionByZero (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x)
                  -- A closure and a suspension of functions, with the
                  -- scope's levels.
-               , binding "%f" (Idr.fnClosureOp {indexArgs = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} "callee" [] fn)
-               , binding "%lazy" (Idr.lazySuspendOp {indexArgs = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} "thunk" [x] lazy)
+               , binding "%f" (Idr.fnClosureOp {index_args' = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} (SymbolRefAttr (MkSymbolRef "callee" [])) [] fn)
+               , binding "%lazy" (Idr.lazySuspendOp {index_args' = Just (IdrHand (ArgsOf [[TermNodeLevel 0]]))} (SymbolRefAttr (MkSymbolRef "thunk" [])) [x] lazy)
                , binding "%applied" (Idr.fnApplyOp (MkValue "%f" fn) [x] [i64])
                  -- A match whose case binds its scrutinee refined to the
                  -- constructor and its binder, its fields reads of it.
@@ -264,7 +264,7 @@ sample =
                , binding "%chosen" (SCF.ifOp (MkValue "%cond" (IntegerType 1))
                                       (block [] [stmt (SCF.yieldOp [x])])
                                       (block [] [stmt (SCF.yieldOp [MkValue "%checked" i64])]) [i64])
-               , binding "%r" (Idr.callOp {indexArgs = Just (IdrHand (ArgsOf [[TermNodeOpaque]]))} "callee" NonTail [x] [i64])
+               , binding "%r" (Idr.callOp {index_args' = Just (IdrHand (ArgsOf [[TermNodeOpaque]]))} (SymbolRefAttr (MkSymbolRef "callee" [])) NonTail [x] [i64])
                , stmt (Idr.returnOp [MkValue "%r" i64])
                ]))
   where
@@ -284,25 +284,25 @@ sample =
 callee : Statement
 callee =
   let a = MkValue "%a" i64
-  in stmt (Idr.funcOp {terminates = Just (Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof 0))))} "callee"
-            (FunctionType (MkSignature [i64] [i64])) (block [a] [stmt (Idr.returnOp [a])]))
+  in stmt (Idr.funcOp {terminates' = Just (Idr (TerminatesAttr (TerminationProofComponent (MkComponentProof 0))))} (StringAttr "callee")
+            (TypeAttr (FunctionType (MkSignature [i64] [i64]))) (block [a] [stmt (Idr.returnOp [a])]))
 
 ||| A function `@sample` suspends.
 thunk : Statement
 thunk =
   let a = MkValue "%a" i64
-  in stmt (Idr.funcOp "thunk" (FunctionType (MkSignature [i64] [i64])) (block [a] [stmt (Idr.returnOp [a])]))
+  in stmt (Idr.funcOp (StringAttr "thunk") (TypeAttr (FunctionType (MkSignature [i64] [i64]))) (block [a] [stmt (Idr.returnOp [a])]))
 
 ||| A function that crashes, at its site, naming itself.
 crashing : Statement
 crashing =
-  stmt (Idr.funcOp "crashing" (FunctionType (MkSignature [] [i64]))
-         (block [] [stmt (Idr.crashCauseOp (IntegerAttr (natToInteger (position causeClosed NoClauseMatched)) (IntegerType 32)) (Idr (SiteAttr "Main.idr" 9 1 "Main.crashing")))]))
+  stmt (Idr.funcOp (StringAttr "crashing") (TypeAttr (FunctionType (MkSignature [] [i64])))
+         (block [] [stmt (Idr.crashCauseOp NoClauseMatched (Idr (SiteAttr "Main.idr" 9 1 "Main.crashing")))]))
 
 ||| The program's root.
 root : Statement
-root = stmt (Idr.funcOp {terminates = Just (Idr (TerminatesAttr (TerminationProofAcyclic MkAcyclicProof)))} "root"
-               (FunctionType (MkSignature [] [])) (block [] [stmt (Idr.returnOp [])]))
+root = stmt (Idr.funcOp {terminates' = Just (Idr (TerminatesAttr (TerminationProofAcyclic MkAcyclicProof)))} (StringAttr "root")
+               (TypeAttr (FunctionType (MkSignature [] []))) (block [] [stmt (Idr.returnOp [])]))
 
 ||| The module, with the type and attribute samples as its discardable
 ||| attributes, and the program of the op samples, whose root is `@root`.
@@ -310,7 +310,7 @@ containers : List Container
 containers =
   [ (At noLoc, \body => { attributes := named "sample.t" (map TypeAttr types) ++ named "sample.a" attrs }
                           (Builtin.moduleOp body))
-  , (At noLoc, Idr.programOp "samples" "root" Higher) ]
+  , (At noLoc, Idr.programOp (StringAttr "samples") (SymbolRefAttr (MkSymbolRef "root" [])) Higher) ]
 
 ||| Writes the samples to `path`.
 covering
