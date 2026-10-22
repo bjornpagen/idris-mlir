@@ -25,9 +25,6 @@ import public IdrisMLIR.Encoding.Idr
 import public IdrisMLIR.Encoding.Wire
 import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Spec.Functions.Termination
-import IdrisMLIR.Syntax.Arith
-import IdrisMLIR.Syntax.Linalg
-import IdrisMLIR.Syntax.UB
 
 import Data.List
 import Data.Maybe
@@ -87,9 +84,9 @@ data HandAttr : (ty, at : Type) -> Type where
 
 ||| The text a dialect's syntax gives one of its attributes, for the
 ||| dialects whose attributes cross as text. It is made with the value it
-||| spells, by the smart constructor of the value's dialect (`arith`, `ub`,
-||| `linalg`), so it is always that value's, under that dialect.
-export
+||| spells, by the smart constructor printed with the value's dialect
+||| (IdrisMLIR.Dialect.*), so it is that value's, under that dialect.
+public export
 data Spelling = MkSpelling (Lazy String)
 
 namespace MlirAttr
@@ -157,7 +154,7 @@ namespace MlirAttr
       IdrHand (HandAttr MlirType MlirAttr)
     | ||| An attribute of an upstream dialect whose attributes cross as
       ||| text: the dialect, and the attribute spelled in its syntax, made
-      ||| by the dialect's smart constructor (`arith`, `ub`, `linalg`).
+      ||| by the smart constructor printed with the dialect.
       Spelled Dialect Spelling
 
 ||| The entry of a static index list that an operand gives: MLIR's
@@ -231,25 +228,6 @@ mutual
   entriesText [] = []
   entriesText ((name, UnitAttr) :: es) = name :: entriesText es
   entriesText ((name, a) :: es) = (name ++ " = " ++ attrText a) :: entriesText es
-
--- Each generated sum of a dialect whose attributes cross as text is paired
--- here with its dialect, once, so a spelled attribute's dialect is the one
--- whose syntax spelled it.
-namespace MlirAttr
-  ||| An attribute of the `arith` dialect, spelled as its syntax writes it.
-  export
-  arith : ArithAttr MlirType MlirAttr -> MlirAttr
-  arith x = Spelled Arith (MkSpelling (arithAttrText typeText attrText x))
-
-  ||| An attribute of the `ub` dialect, spelled as its syntax writes it.
-  export
-  ub : UBAttr MlirType MlirAttr -> MlirAttr
-  ub x = Spelled UB (MkSpelling (ubAttrText typeText attrText x))
-
-  ||| An attribute of the `linalg` dialect, spelled as its syntax writes it.
-  export
-  linalg : LinalgAttr MlirType MlirAttr -> MlirAttr
-  linalg x = Spelled Linalg (MkSpelling (linalgAttrText typeText attrText x))
 
 ||| The dialect of an attribute that crosses as text: a spelled one's own,
 ||| and builtin's for an identity layout and the builtin attributes the

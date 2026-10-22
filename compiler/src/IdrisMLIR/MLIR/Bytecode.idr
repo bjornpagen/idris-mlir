@@ -23,8 +23,8 @@
 ||| own; nothing nested in those is.
 |||
 ||| Numbers are given in first use: of a string by its text, of a dialect by
-||| the namespace the specification gives it, which the file spells, of an
-||| op name by its dialect and its name there, and of an attribute or a type
+||| its position in the specification's closed set, of an op name by its
+||| dialect's position and its name there, and of an attribute or a type
 ||| by what its entry holds, its dialect and its text or its bytes, which
 ||| hold entry numbers, so an entry is as small as what it holds directly.
 ||| Bytes are written one by one, so no byte order is assumed. The functions
@@ -314,16 +314,16 @@ Ord AttrKey where
   compare (SymbolKey _ _) (Holding _) = GT
   compare (SymbolKey a as) (SymbolKey b bs) = compare (a, as) (b, bs)
 
-||| The strings, dialects (by the namespace the file spells), op names (by
-||| that namespace and their name there), attributes and types (by what
-||| their entries hold) of a module, and the ops of its innermost
-||| container's block, encoded.
+||| The strings, dialects (by their position among the specification's),
+||| op names (by their dialect's position and their name there), attributes
+||| and types (by what their entries hold) of a module, and the ops of its
+||| innermost container's block, encoded.
 export
 record Writer where
   constructor MkWriter
   stringTable : Numbered String String
-  dialectTable : Numbered String Nat
-  opNameTable : Numbered (String, String) (Nat, Nat)
+  dialectTable : Numbered Nat Nat
+  opNameTable : Numbered (Nat, String) (Nat, Nat)
   attrTable : Numbered AttrKey Entry
   typeTable : Numbered Entry Entry
   ||| Those ops, encoded, how many, and how many values they define.
@@ -334,17 +334,15 @@ record Writer where
 stringNumber : Writer -> String -> W Nat
 stringNumber w s = number w.stringTable s (pure s)
 
-||| The namespace of a dialect, as the file's dialect section spells it.
-spelledDialect : Dialect -> String
-spelledDialect d = wordText (namespaceWord d)
-
+||| A dialect's number, given in its first use with its entry: the string
+||| of its namespace, which the file's dialect section spells.
 dialectNumber : Writer -> Dialect -> W Nat
-dialectNumber w d = let spelled = spelledDialect d in number w.dialectTable spelled (stringNumber w spelled)
+dialectNumber w d = number w.dialectTable (position dialectClosed d) (stringNumber w (wordText (namespaceWord d)))
 
 ||| An op name's number: its dialect's, and its name's there.
 opNameNumber : Writer -> OpName -> W Nat
 opNameNumber w o =
-  number w.opNameTable (spelledDialect o.dialect, o.name) $
+  number w.opNameTable (position dialectClosed o.dialect, o.name) $
     (,) <$> dialectNumber w o.dialect <*> stringNumber w o.name
 
 ||| A part's bytes, as (1) of the table's layout gives them: a string by

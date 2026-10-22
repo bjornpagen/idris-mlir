@@ -30,6 +30,7 @@ import IdrisMLIR.Dialect.Idr as Idr
 import IdrisMLIR.Dialect.Linalg as Linalg
 import IdrisMLIR.Dialect.SCF as SCF
 import IdrisMLIR.Dialect.Tensor as Tensor
+import IdrisMLIR.Dialect.UB as UB
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.MLIR.Bytecode
@@ -152,7 +153,7 @@ attrs =
   , DenseI64ArrayAttr []
   , DictionaryAttr [("a", int 1), ("b", UnitAttr)]
   ]
-  ++ map arith arithAttrs ++ map ub ubAttrs ++ map linalg linalgAttrs
+  ++ map Arith.arith arithAttrs ++ map UB.ub ubAttrs ++ map Linalg.linalg linalgAttrs
 
 ||| The mnemonics of the generated sums that no sample has, each with its
 ||| dialect and whether it is a type.

@@ -53,7 +53,7 @@ indexConst l n = mlirValue l IndexType (Arith.constantOp (IntegerAttr n IndexTyp
 ||| Size arithmetic on `index`, which no size overflows: a sum of two sizes
 ||| of arrays that exist is below 2^63.
 noWrap : Maybe MlirAttr
-noWrap = Just (arith (IntegerOverflowFlagsAttr [Nsw, Nuw]))
+noWrap = Just (Arith.arith (IntegerOverflowFlagsAttr [Nsw, Nuw]))
 
 ||| A natural as a coordinate: exact, unguarded, since its type bounds it
 ||| by an extent.

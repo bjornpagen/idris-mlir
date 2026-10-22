@@ -102,15 +102,6 @@ checked l (Checking check cause x others next) = do
                       , ("site", site) ] [] [] [ty])
   checked l (next c)
 
-||| A case's number among its enum's cases, as the dialect's C++ numbers
-||| them: the position of the case the reference names.
-caseNumber : CaseRef -> Nat
-caseNumber c = go 0 (forget c.enum.cases)
-  where
-    go : Nat -> List Case -> Nat
-    go n [] = n
-    go n (x :: xs) = if x.name == c.name then n else go (S n) xs
-
 ||| The name of the specification's op value: of the dialect its home is.
 specName : Spec.Op i o a r -> OpName
 specName op = case op.home of
@@ -118,16 +109,17 @@ specName op = case op.home of
   InTransform _ => MkOpName Transform (mnemonicText op.mnemonic)
 
 ||| The guards the specification declares for an op, on its operands, one
-||| per group, before the op `made` of their results: each checks the
-||| operand at its first position against those at the others, and the op
-||| takes its result in that operand's place. A position is a `Fin` of the
-||| op's own groups, so it names an operand the op has.
+||| per group, before the op `made` of their results: each its check op on
+||| the operand at its first position and those at the others, with its
+||| cause's number, and the op takes its result in that operand's place. A
+||| position is a `Fin` of the op's own groups, so it names an operand the
+||| op has.
 specGuarded : List (Guard (Fin i)) -> Vect i Value -> (Vect i Value -> Op) -> Guarded
 specGuarded [] vs made = Unguarded (made vs)
 specGuarded (g :: gs) vs made =
-  let at = head g.given in
-  Checking (MkOpName Dialect.Idr (mnemonicText g.check)) (caseNumber g.cause) (index at vs)
-           (map (\k => index k vs) (tail g.given))
+  let at = Vect.head g.given in
+  Checking (specName g.check) (position causeClosed g.cause) (index at vs)
+           (toList (map (\k => index k vs) (Vect.tail g.given)))
            (\c => specGuarded gs (replaceAt at c vs) made)
 
 ||| An op of the dialect, by the specification's op value, on its operands,
