@@ -13,18 +13,23 @@
 #
 # MLIR's debug counter (-mlir-debug-counter=TAG-skip=0,TAG-count=N) lets
 # the first N actions of TAG happen and skips the rest, and a skipped action
-# leaves the IR as it was. Each program compiled so is run, and what it
-# prints and its exit status are compared with those of the reference, the
+# leaves the IR as it was. idris-mlir takes no counter, since a skipped
+# action changes what is compiled and it has one pipeline; idris-mlir-opt
+# runs that pipeline with the counter, and idris-mlir compiles and links the
+# module it lowered. Each program compiled so is run, and what it prints
+# and its exit status are compared with those of the reference, the
 # program compiled with no action of TAG. With every action it must not
 # behave as the reference; a binary search finds the N at which it first
 # differs: action N changes the program, given the N - 1 before it. That
 # action's IR unit, the op it transforms, comes from a compilation that logs
-# the actions of TAG (-log-actions-to).
+# the actions of TAG (-log-actions-to). Every compilation runs the passes on
+# one thread, so the actions of TAG happen in the same order in each and N
+# names the same action in all of them.
 #
 # Every compilation (with its link) and run is bounded by 300 seconds. The
-# idris-mlir it bisects is the one `make build` makes. A diagnostic does not
-# print the op it is about unless asked: to see it while debugging, run the
-# reproducing command with --mlir-print-op-on-diagnostic. Exit status: 0
+# idris-mlir and idris-mlir-opt it bisects are those `make build` makes.
+# idris-mlir-opt, which lowers, prints the op a diagnostic is about;
+# idris-mlir prints it only with --mlir-print-op-on-diagnostic. Exit status: 0
 # when the action is found; 1 when there is none to find (with every action
 # the program behaves as the reference); 2 on a usage error or when the
 # reference cannot be built.
@@ -46,7 +51,9 @@ input=${3:-/dev/null}
 case $tag in
   '' | *[!a-z0-9-]*) echo "bisect: $tag is not an action tag" >&2; exit 2 ;;
 esac
-[ -x "$idris_mlir" ] || { echo "bisect: no $idris_mlir; run make build" >&2; exit 2; }
+for tool in "$idris_mlir" "$idris_mlir_opt"; do
+  [ -x "$tool" ] || { echo "bisect: no $tool; run make build" >&2; exit 2; }
+done
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/idris-mlir-bisect.XXXXXX") || exit 2
 trap 'rm -rf "$work"' EXIT
@@ -81,23 +88,34 @@ case $source in
     ;;
 esac
 
-# outcome NAME FLAG...: the contract text compiled and linked by idris-mlir
-# with FLAGs, run on STDIN; in NAME.outcome, its exit status and what it
-# printed, or how its compilation failed.
+# outcome NAME FLAG...: the contract text lowered by idris-mlir's pipeline in
+# idris-mlir-opt with FLAGs (the counter's), then compiled and linked by
+# idris-mlir, which takes a lowered module as it is, run on STDIN; in
+# NAME.outcome, its exit status and what it printed, or which tool failed
+# and how.
 outcome() {
   outcome_name=$1
   shift
-  bounded "$idris_mlir" "$mlir" -o "$work/$outcome_name" "$@" > "$work/$outcome_name.log" 2>&1
+  outcome_tool=idris-mlir-opt
+  bounded "$idris_mlir_opt" --mlir-disable-threading "$mlir" --idr-target --idr-pipeline "$@" \
+    -o "$work/$outcome_name.lowered.mlir" > "$work/$outcome_name.log" 2>&1
   outcome_status=$?
+  if [ "$outcome_status" -eq 0 ]; then
+    outcome_tool=idris-mlir
+    bounded "$idris_mlir" "$work/$outcome_name.lowered.mlir" -o "$work/$outcome_name" \
+      >> "$work/$outcome_name.log" 2>&1
+    outcome_status=$?
+  fi
   if [ "$outcome_status" -ne 0 ]; then
-    printf 'idris-mlir exits %s: %s\n' "$outcome_status" \
+    printf '%s exits %s: %s\n' "$outcome_tool" "$outcome_status" \
       "$(grep -m 1 'error' "$work/$outcome_name.log")" > "$work/$outcome_name.outcome"
     return
   fi
   bounded "$work/$outcome_name" < "$input" > "$work/$outcome_name.out" 2> /dev/null
   printf 'exit %s\n' "$?" > "$work/$outcome_name.outcome"
   cat "$work/$outcome_name.out" >> "$work/$outcome_name.outcome"
-  rm -f "$work/$outcome_name" "$work/$outcome_name.o" "$work/$outcome_name.out"
+  rm -f "$work/$outcome_name" "$work/$outcome_name.o" "$work/$outcome_name.out" \
+    "$work/$outcome_name.lowered.mlir"
 }
 
 # same NAME: NAME did what the reference did.
@@ -128,7 +146,7 @@ esac
 outcome all "-mlir-debug-counter=$tag-skip=-1" -mlir-print-debug-counter
 total=$(sed -n "s/^$tag *: {\\([0-9][0-9]*\\),.*/\\1/p" "$work/all.log" | tail -n 1)
 if [ -z "$total" ]; then
-  echo "bisect: idris-mlir reported no count of $tag:" >&2
+  echo "bisect: idris-mlir-opt reported no count of $tag:" >&2
   sed 's/^/  | /' "$work/all.log" >&2
   exit 2
 fi
@@ -160,11 +178,15 @@ echo "bisect: action $bad of $tag changes the program"
 echo "  with the first $good actions: $(first reference)"
 echo "  with the first $bad actions: $(first bad)"
 diff "$work/reference.outcome" "$work/bad.outcome" | head -n 20 | sed 's/^/  | /'
-echo "  reproduce: idris-mlir $mlir -o program $(counter "$bad")"
+echo "  reproduce: idris-mlir-opt --mlir-disable-threading $mlir --idr-target --idr-pipeline \\"
+echo "    $(counter "$bad") -o lowered.mlir && idris-mlir lowered.mlir -o program"
 
 # The IR unit of that action: the one op it transforms, in a log of the
 # actions of TAG only, each op printed in its function, with its location.
-bounded "$idris_mlir" -c "$mlir" -o "$work/logged.o" "-log-actions-to=$work/actions.log" \
+# idris-mlir runs the pipeline idris-mlir-opt ran and narrows the log to one
+# tag (--log-actions-tags), which idris-mlir-opt cannot.
+bounded "$idris_mlir" --mlir-disable-threading -c "$mlir" -o "$work/logged.o" \
+  "-log-actions-to=$work/actions.log" \
   "--log-actions-tags=$tag" -mlir-print-local-scope -mlir-print-debuginfo > "$work/logged.log" 2>&1
 echo "action $bad of $tag:"
 awk -v n="$bad" '

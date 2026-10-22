@@ -119,13 +119,16 @@ LogicalResult Scheduler::runMember(FunctionId member, Turn &turn) {
 
 // A function the program held gets its binding times from the bodies of
 // the held members taken up with it; a copy inherited its owner's when it
-// was built. Each member's are written once, here.
-void Scheduler::takeUp(ArrayRef<FunctionId> starters) {
+// was built. Each member's are written once, here. The solve's steps are
+// counted on this worker alone and returned for the turn to keep: the
+// pass's count is added to only on the pass thread.
+std::uint64_t Scheduler::takeUp(ArrayRef<FunctionId> starters) {
   SmallVector<solver::Member> held;
   for (FunctionId member : starters)
     if (!schedule.members[member.index()].node)
       held.push_back(solver::Member{member, schedule.function(member)});
-  footprint::Vector<SmallVector<BindingTime>> solved = bindingTimesOf(schedule.graph, held, spent);
+  solver::Work work;
+  footprint::Vector<SmallVector<BindingTime>> solved = bindingTimesOf(schedule.graph, held, work);
   unsigned next = 0;
   for (FunctionId member : starters) {
     Schedule::Member &state = schedule.members[member.index()];
@@ -133,12 +136,13 @@ void Scheduler::takeUp(ArrayRef<FunctionId> starters) {
         state.node ? std::move(state.inherited) : std::move(solved[next++]);
     state.phase = Done{Solved{std::move(times)}};
   }
+  return work.steps();
 }
 
 LogicalResult Scheduler::turn(Turn &work) {
   profile::ThreadTrace trace;
   if (!work.starters.empty())
-    takeUp(work.starters);
+    work.solved = takeUp(work.starters);
   for (FunctionId member : work.starters) {
     // A member the debug counter skips is left as it is, done.
     LogicalResult ran = success();

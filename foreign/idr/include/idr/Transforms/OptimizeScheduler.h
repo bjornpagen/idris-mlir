@@ -52,6 +52,10 @@ struct Turn {
   llvm::SmallVector<std::pair<FunctionId, llvm::SmallVector<specialize::Asked>>> parked;
   // Whether every member of the component is done, so it becomes final.
   enum class Ends : bool { No, Yes } ends = Ends::No;
+  // The steps of the solve that gave the members it took up their binding
+  // times. Each turn keeps its own, and the wave's are added to the pass's
+  // when it settles, so no count is shared between workers.
+  std::uint64_t solved = 0;
 };
 
 // One start or resume of a member, what a wave runs. A member starts once
@@ -93,8 +97,9 @@ inline bool isFinal(const Phase &phase) {
 // a wait would close a cycle through are merged, and the steps that can go
 // on are queued. Every turn reads a fixed set of final functions, so the
 // output is the same at any thread count, and so is the work of the solves
-// of each component taken up (its binding times) and finished (what it
-// gives back), added to `spent`.
+// of each component taken up (its binding times, counted in its turn and
+// added when the wave settles) and finished (what it gives back, solved on
+// the pass thread), added to `spent`.
 class Scheduler {
 public:
   Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &nodes, const InnerCounts &counts,
@@ -107,7 +112,7 @@ public:
 
 private:
   mlir::LogicalResult turn(Turn &turn);
-  void takeUp(llvm::ArrayRef<FunctionId> starters);
+  std::uint64_t takeUp(llvm::ArrayRef<FunctionId> starters);
   mlir::LogicalResult runMember(FunctionId member, Turn &turn);
   Outcome parks(FunctionId member, llvm::SmallVector<specialize::Asked> asked, Turn &turn);
   mlir::LogicalResult round(FunctionId member);

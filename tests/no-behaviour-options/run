@@ -8,10 +8,12 @@
 # but the test check `checks` names, idr-expect's `holds`, which chooses
 # what a test checks, not how anything compiles; and idris-mlir registers no debug counter, which
 # skips what a pass would do. idris-mlir-opt keeps upstream's counter, where
-# experiments live, and its contracts (idr-contracts), which check each
-# pass and change nothing; idris-mlir's report (report) is an output. The
-# generator of the Idris side (idris-mlir-tblgen) is a build tool, not the
-# compiler, and is not searched.
+# experiments live. The contracts (idr-contracts) and a stage's properties
+# (idr-expect-at) check each pass and change nothing; the action tags
+# (idr-action-tags) are a query; the report (report) and the module the
+# frontend emitted (emitted) are outputs. The generator of the Idris side
+# (idris-mlir-tblgen) is a build tool, not the compiler, and is not
+# searched.
 #
 # The rule is `behaviour_options ROOT`, run on the repository and on the
 # planted trees (lib/planted.sh): witness/ declares a flag that selects
@@ -21,9 +23,9 @@
 # generator's own flags, idris-mlir-opt's counter, and the counter in a
 # comment.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-kept='o c p package-path prefix no-prelude log-actions-tags runtime
+kept='o c p package-path prefix no-prelude emitted log-actions-tags runtime
 print-runtime prepare-runtime print-target-triple print-link-flags print-cpu-flags num-threads
-time-trace time-trace-granularity report idr-contracts'
+time-trace time-trace-granularity report idr-contracts idr-expect-at idr-action-tags'
 checks='ListOption<"holds", "holds"'
 
 # behaviour_options ROOT: the findings in the tree at ROOT, `path:line: what`.

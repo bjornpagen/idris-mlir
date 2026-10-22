@@ -213,6 +213,13 @@ void Scheduler::finalize(unsigned component) {
 }
 
 LogicalResult Scheduler::settle(MutableArrayRef<Turn> wave) {
+  // The binding times' solves of the wave, each counted in its own turn,
+  // join the pass's work here, on the pass thread with no turn running.
+  std::uint64_t solved = 0;
+  for (const Turn &turn : wave)
+    solved += turn.solved;
+  spent.add(solved);
+
   // What the turns asked joins the table, which orders it by name; each
   // copy new to it is built, each by one task in parallel, from its key and
   // its owner as the owner stands with no turn running; then each goes into

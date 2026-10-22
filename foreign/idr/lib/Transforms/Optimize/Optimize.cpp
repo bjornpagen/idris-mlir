@@ -67,8 +67,8 @@ struct OptimizePass : impl::IdrOptimizeBase<OptimizePass> {
     // pipeline's own nesting finds it instead of inserting it.
     for (FuncOp fn : program.getOps<FuncOp>())
       (void)getAnalysisManager().nest(fn);
-    // The pass's work: the solves of what each component gives back, then
-    // the rows' join over the final graph.
+    // The pass's work: the solves of each component's binding times and of
+    // what it gives back, then the rows' join over the final graph.
     solver::Work work;
     Scheduler scheduler(*this, schedule, nodes, counts, getAnalysisManager(), work);
     LogicalResult ran = scheduler.run();

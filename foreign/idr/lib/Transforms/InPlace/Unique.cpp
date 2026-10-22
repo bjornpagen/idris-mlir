@@ -291,7 +291,7 @@ std::uint64_t solveBody(Body &body, const Results &results) {
 
 Solution solve(const solver::ProgramGraph &graph, MLIRContext &context, solver::Work &work) {
   Solution out{graph.table<std::optional<Body>>(), graph.table<footprint::Vector<Unique>>()};
-  solver::inSchedule<CalleesFirst>(graph, context, [&](solver::SccId component) {
+  solver::inSchedule<CalleesFirst>(graph, context, work, [&](solver::SccId component) {
     IdRange<FunctionId> members = graph.members(component);
     for (FunctionId f : members) {
       FuncOp fn = graph.op(f);
@@ -322,7 +322,7 @@ Solution solve(const solver::ProgramGraph &graph, MLIRContext &context, solver::
         }
       }
     }
-    work.add(steps);
+    return steps;
   });
   return out;
 }
