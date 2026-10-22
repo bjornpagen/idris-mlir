@@ -63,7 +63,8 @@ function ix f = do
   ((passed, res), ops) <- inFunction $ do
     bound <- traverse (\(i, p) => parameter ix f.loc f.callee.symbol (finToNat i, p))
                       (zip (range {len = f.arity}) (zip f.paramNames f.callee.params))
-    let sc = MkScope (\i => fst (index i bound)) f.telescope
+    -- A function's body sees no join point but its own.
+    let sc = MkScope (\i => fst (index i bound)) f.telescope []
     res <- plain ix f.loc (para (alg ix) f.body sc (expecting (Just f.callee.result)))
     res' <- traverse (fit ix f.loc (Just f.callee.result)) res
     -- Each argument with the axes its parameter's type names: a position

@@ -567,7 +567,6 @@ mutual
   ||| entries.
   native : Writer -> MlirType -> W Native
   native w (Idr t) = Record IdrDialect . encodeIdrType <$> numberIdrType w t
-  native w (IdrHand t) = Record IdrDialect <$> handType w t
   native w (FunctionType (MkSignature ins outs)) =
     (\is, os => Record BuiltinDialect (encodeFunctionType (map typePart is) (map typePart os)))
       <$> typeNumbers w ins <*> typeNumbers w outs
@@ -588,17 +587,7 @@ mutual
   native w F64Type = pure (Record BuiltinDialect encodeFloat64Type)
   native w IndexType = pure (Record BuiltinDialect encodeIndexType)
   native w NoneType = pure (Record BuiltinDialect encodeNoneType)
-
-  ||| A hand-held `idr` type, what it holds numbered, as the specification's
-  ||| type it stands for is encoded: a data type's or a self reference's. A
-  ||| data type's one constructor's undetermined binders are never the
-  ||| frontend's to state: a case binds them as index variables of its
-  ||| region.
-  handType : Writer -> HandType MlirType MlirAttr -> W (List Part)
-  handType w (DataOf g m is r) =
-    (\g', is', r' => encodeDataType g' m is' r' [])
-      <$> attrNumber w g <*> numberTermNodes w is <*> numberOptional w r
-  handType w (SelfOf m is) = encodeSelfType m <$> numberTermNodes w is
+  native w MlirType.TokenType = pure (Record BuiltinDialect IdrisMLIR.Encoding.Builtin.encodeTokenType)
 
   ||| A type's entry.
   export
@@ -646,11 +635,6 @@ mutual
   numberTermNodes w [] = pure []
   numberTermNodes w (n :: ns) = (::) <$> numberTermNode w n <*> numberTermNodes w ns
 
-  ||| Index terms, each its nodes, in order.
-  numberTermNodeLists : Writer -> List (List (TermNode MlirType MlirAttr)) -> W (List (List (TermNode TypeRef AttrRef)))
-  numberTermNodeLists w [] = pure []
-  numberTermNodeLists w (t :: ts) = (::) <$> numberTermNodes w t <*> numberTermNodeLists w ts
-
   ||| The sort of an index binder, the attribute it holds numbered.
   numberSort : Writer -> SortOf MlirType MlirAttr -> W (SortOf TypeRef AttrRef)
   numberSort w SortOfNatSort = pure SortOfNatSort
@@ -692,10 +676,6 @@ mutual
   numberDataMember w (MkDataMember l p loc is cs) =
     MkDataMember l p <$> attrNumber w loc <*> numberSorts w is <*> numberCtors w cs
 
-  numberDataMembers : Writer -> List (DataMember MlirType MlirAttr) -> W (List (DataMember TypeRef AttrRef))
-  numberDataMembers w [] = pure []
-  numberDataMembers w (m :: ms) = (::) <$> numberDataMember w m <*> numberDataMembers w ms
-
   ||| A member of a family, of its kind, what it holds numbered.
   numberMember : Writer -> MemberOf MlirType MlirAttr -> W (MemberOf TypeRef AttrRef)
   numberMember w (MemberOfData d) = MemberOfData <$> numberDataMember w d
@@ -736,7 +716,6 @@ mutual
     r <- typeNumber w t
     attrEntry w BuiltinDialect [VarInt floatAttrCode, TypeAt r, SignedVarInt (doubleBits d)]
   attrNumber w (Idr a) = attrEntry w IdrDialect . encodeIdrAttr =<< numberIdrAttr w a
-  attrNumber w (IdrHand a) = attrEntry w IdrDialect !(handAttr w a)
   attrNumber w (LocAttr l) = locationNumber w l
   attrNumber w a = attrTextEntry w a
 
@@ -761,6 +740,8 @@ mutual
     pure (LivesInAttr (map numberLivesIn ps) (map numberLivesIn rs) (map numberOutlives bs))
   numberIdrAttr w (GivenBackEntryAttr r rfs a afs) = pure (GivenBackEntryAttr r rfs a afs)
   numberIdrAttr w (GivenBackAttr es) = GivenBackAttr <$> attrNumbers w es
+  numberIdrAttr w (ExtentAttr sd p a t) = ExtentAttr sd p a <$> numberTermNodes w t
+  numberIdrAttr w (ExtentsAttr es) = ExtentsAttr <$> attrNumbers w es
   numberIdrAttr w (FamilyAttr ms) = FamilyAttr <$> numberMembers w ms
   numberIdrAttr w (IndexBindersAttr ss) = IndexBindersAttr <$> numberSorts w ss
   numberIdrAttr w (IndexArgsAttr ts c) = (\ts' => IndexArgsAttr ts' c) <$> numberTermNodes w ts
@@ -769,17 +750,6 @@ mutual
   numberIdrAttr w MutableAttr = pure MutableAttr
   numberIdrAttr w (SiteAttr f l c fn) = pure (SiteAttr f l c fn)
   numberIdrAttr w (BigAttr v) = pure (BigAttr v)
-
-  ||| A hand-held `idr` attribute, what it holds numbered, as the
-  ||| specification's attribute it stands for is encoded: a group's members,
-  ||| each a data member; the sorts of index binders; the terms a call
-  ||| gives, their nodes in order, and how many terms they are; an
-  ||| equation's two sides.
-  handAttr : Writer -> HandAttr MlirType MlirAttr -> W (List Part)
-  handAttr w (FamilyOf ms) = encodeFamilyAttr . map MemberOfData <$> numberDataMembers w ms
-  handAttr w (BindersOf ss) = encodeIndexBindersAttr <$> numberSorts w ss
-  handAttr w (ArgsOf ts) = (\ns => encodeIndexArgsAttr (concat ns) (length ts)) <$> numberTermNodeLists w ts
-  handAttr w (EquationOf lhs rhs) = encodeEquationAttr <$> numberTermNodes w lhs <*> numberTermNodes w rhs
 
 ------------------------------------------------------------------------------
 -- The writer

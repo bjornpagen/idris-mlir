@@ -1,10 +1,11 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| Function bodies: the algebra of the fold that writes a term, its
-||| matches as a region per case, its lambdas and delays as functions of
-||| their own (Emit.Closures) and its arrays as the array ops
-||| (Emit.Tensors). Quantities are read off the binders, which the
-||| translation made right; nothing here counts a use.
+||| matches as a region per case, its join points as `idr.join` and
+||| `idr.loop`, its lambdas and delays as functions of their own
+||| (Emit.Closures) and its arrays as the array ops (Emit.Tensors).
+||| Quantities are read off the binders, which the translation made right;
+||| nothing here counts a use.
 module IdrisMLIR.Emit.Bodies
 
 import IdrisMLIR.Dialect.Bufferization as Bufferization
@@ -19,6 +20,7 @@ import IdrisMLIR.Emit.Types
 import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
+import IdrisMLIR.Spec.Control.Joins
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Grades.Grade
@@ -40,39 +42,65 @@ import Data.Vect
 -- Scopes
 ------------------------------------------------------------------------------
 
-||| The scope a term is written in: what each of its variables stands for,
-||| and the sorts of the erased binders its index terms' levels name, the
-||| function's index parameters then each enclosing case's constructor
-||| binders, in order.
+%prefix_record_projections off
+
+||| What a jump to a join point needs of it: the token that designates it,
+||| its parameters, at the types its region binds them at, and the depth of
+||| the telescope where its op stands, after which its region binds its
+||| erased binders.
 public export
-record Scope (nv : Nat) where
+record Reach (k : Nat) where
+  constructor MkReach
+  token : Value
+  params : Vect k Binder
+  depth : Nat
+
+%prefix_record_projections on
+
+||| The scope a term is written in: what each of its variables stands for;
+||| the sorts of the erased binders its index terms' levels name, the
+||| function's index parameters then each enclosing region's binders, in
+||| order; and what each join point its tails may jump to is.
+public export
+record Scope (js : List Nat) (nv : Nat) where
   constructor MkScope
   vars : Fin nv -> InScope
   telescope : List Sort
+  targets : Each Reach js
 
 ||| What the fold makes of a term in scope `nv`: given its scope and what
 ||| its context wants, it appends the term's operations and returns its
 ||| value, or `Nothing` when the term never returns (its region has then
 ||| ended in a terminator).
 public export
-Em : Nat -> Type
-Em nv = Scope nv -> Wanted -> E (Maybe Val)
+Em : List Nat -> Nat -> Type
+Em js nv = Scope js nv -> Wanted -> E (Maybe Val)
 
 ||| A scope under a binder of `k` variables, standing for `vs`.
-bind : {k : Nat} -> Vect k InScope -> Scope nv -> Scope (Under k nv)
+bind : {k : Nat} -> Vect k InScope -> Scope js nv -> Scope js (Under k nv)
 bind vs sc = { vars := \v => case splitUnder {k} v of
                               Left i => index i vs
                               Right x => sc.vars x } sc
 
+||| The scope of a position that is no tail of the term: the same values,
+||| and no join point, since a jump from there would skip what its value is
+||| for.
+offTail : Scope js nv -> Scope [] nv
+offTail sc = MkScope sc.vars sc.telescope []
+
 ||| The scope of a case region: its constructor's binders appended to the
 ||| telescope, at the next levels.
-binding : List Sort -> Scope nv -> Scope nv
+binding : List Sort -> Scope js nv -> Scope js nv
 binding sorts sc = { telescope := sc.telescope ++ sorts } sc
+
+||| The levels below `d`, each as the term naming it.
+levelsBelow : Nat -> List ITerm
+levelsBelow d = map IVar (take d [0 .. d])
 
 ||| The levels of a scope's telescope, each as the term naming it: what a
 ||| function lifted from the scope is given for its index parameters.
 levels : List Sort -> List ITerm
-levels ss = map IVar (take (length ss) [0 .. length ss])
+levels ss = levelsBelow (length ss)
 
 ------------------------------------------------------------------------------
 -- Operands
@@ -114,8 +142,8 @@ Applicative Operands where
 
 ||| A subterm's value where a slot takes it: checked against the type the
 ||| slot expects, if it says one, and used as the slot binds it, many times
-||| where it says nothing; bound to no variable.
-operand1 : Index -> Loc -> Scope nv -> Maybe Binder -> Sub Em nv -> Operands Val
+||| where it says nothing; bound to no variable. An operand is no tail.
+operand1 : Index -> Loc -> Scope [] nv -> Maybe Binder -> Sub Em [] nv -> Operands Val
 operand1 ix l sc slot a = MkOperands $ do
   Just v <- a.result sc (expecting (typeOf <$> slot))
     | Nothing => pure Nothing
@@ -123,16 +151,16 @@ operand1 ix l sc slot a = MkOperands $ do
 
 ||| A layer's operands, each in its slot, left to right; `Nothing` once one
 ||| never returns.
-operands : Traversable t => Index -> Loc -> Scope nv -> t (Maybe Binder, Sub Em nv) -> E (Maybe (t Val))
+operands : Traversable t => Index -> Loc -> Scope [] nv -> t (Maybe Binder, Sub Em [] nv) -> E (Maybe (t Val))
 operands ix l sc xs = (traverse (\(slot, a) => operand1 ix l sc slot a) xs).written
 
 ||| Operands that no slot types: each at its own type, used many times.
-unslotted : Functor t => t (Sub Em nv) -> t (Maybe Binder, Sub Em nv)
+unslotted : Functor t => t (Sub Em [] nv) -> t (Maybe Binder, Sub Em [] nv)
 unslotted = map (\a => (Nothing, a))
 
 ||| A constructor's fields, each in its slot (its type with the
 ||| constructor's binders given), left to right.
-fields : Index -> Loc -> Scope nv -> Vect k Binder -> Vect k (Sub Em nv) -> Operands (Vect k Val)
+fields : Index -> Loc -> Scope [] nv -> Vect k Binder -> Vect k (Sub Em [] nv) -> Operands (Vect k Val)
 fields ix l sc [] [] = pure []
 fields ix l sc (b :: bs) (a :: as) = (::) <$> operand1 ix l sc (Just b) a <*> fields ix l sc bs as
 
@@ -217,7 +245,7 @@ mutual
   ||| never names is not, so a field of a value used once is read at most
   ||| once. The problem has both cases (`xs@(_ :: _)` names the value and
   ||| no field); the quantities stay the binders'.
-  names : (from, k : Nat) -> Term n -> Bool
+  names : (from, k : Nat) -> TermAt js n -> Bool
   names from k (Var _ x) = namesVar from k x
   names from k (Literal _ _) = False
   names from k (PrimApp _ _ _ as) = anyNames from k (toList as)
@@ -244,47 +272,53 @@ mutual
   names from k (Reduce _ _ _ _ _ z x body) = names from k z || names from k x || names (2 + from) k body
   names from k (Tie _ x ds) = names from k x || anyNames from k (map (stated . snd) ds)
     where
-      stated : Stated (Term n) -> Term n
+      stated : Stated (TermAt [] n) -> TermAt [] n
       stated (SameAs t) = t
       stated (Natural t) = t
   names from k (ReadBack _ _ x cs body) = names from k x || anyNames from k cs || names (2 + from) k body
   names from k (ExtentsBack {k = j} _ x body) = names from k x || names (S j + from) k body
+  names from k (Join _ _ targets body) = targetsName from k targets || names from k body
+  names from k (Jump _ _ _ as) = anyNames from k (toList as)
 
   namesVar : (from, k : Nat) -> Fin n -> Bool
   namesVar from k x = from <= finToNat x && finToNat x < from + k
 
-  anyNames : (from, k : Nat) -> List (Term n) -> Bool
+  anyNames : (from, k : Nat) -> List (TermAt js n) -> Bool
   anyNames from k [] = False
   anyNames from k (t :: ts) = names from k t || anyNames from k ts
 
-  altNames : (from, k : Nat) -> Alt n -> Bool
+  altNames : (from, k : Nat) -> AltAt js n -> Bool
   altNames from k (MkAlt {k = j} _ _ body) = names (j + from) k body
 
-  armsName : (from, k : Nat) -> CaseArms n -> Bool
+  armsName : (from, k : Nat) -> CaseArmsOf (AltAt js n) (TermAt js n) -> Bool
   armsName from k (Defaulted alts d) = any (altNames from k) alts || names from k d
   armsName from k (Exhaustive alts) = any (altNames from k) (forget alts)
 
-  keyedName : (from, k : Nat) -> LitArmsOf kt (Term n) -> Bool
+  keyedName : (from, k : Nat) -> LitArmsOf kt (TermAt js n) -> Bool
   keyedName from k (LitDefault alts d) = any (names from k . snd) (forget alts) || names from k d
   keyedName from k (LitNoDefault alts) = any (names from k . snd) (forget alts)
 
-  litArmsName : (from, k : Nat) -> LitArms n -> Bool
+  litArmsName : (from, k : Nat) -> LitMatch (TermAt js n) -> Bool
   litArmsName from k (OnlyDefault d) = names from k d
   litArmsName from k (OnInts _ arms) = keyedName from k arms
   litArmsName from k (OnChars arms) = keyedName from k arms
   litArmsName from k (OnStrings arms) = keyedName from k arms
   litArmsName from k (OnBigs arms) = keyedName from k arms
 
-  natArmsName : (from, k : Nat) -> NatArms n -> Bool
+  natArmsName : (from, k : Nat) -> NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) -> Bool
   natArmsName from k (OnlyZero z) = names from k z
   natArmsName from k (OnlySucc _ s) = names (S from) k s
   natArmsName from k (Both z _ s) = names from k z || names (S from) k s
+
+  targetsName : (from, k : Nat) -> Each (Target s n) ts -> Bool
+  targetsName from k [] = False
+  targetsName from k (MkTarget {k = j} _ _ _ _ _ body :: rest) = names (j + from) k body || targetsName from k rest
 
 ||| The scope inside a region of a match on the variable `x`: the variable
 ||| that named the scrutinee names the value the region binds, refined to
 ||| the region's constructors, so a field is a read of a value whose type
 ||| fixes its constructor, and a constructor is never rebuilt from fields.
-refining : Fin nv -> Val -> Scope nv -> Scope nv
+refining : Fin nv -> Val -> Scope js nv -> Scope js nv
 refining x r sc = { vars := \y => if y == x then Whole r else sc.vars y } sc
 
 ||| The fields of constructor `c` in a case at depth `d`: their types with
@@ -372,26 +406,106 @@ holding ix l binder t captures build =
       Idr (GradedType Once _ _) => True
       _ => False
 
-||| The algebra: one layer of `Term` to its emitter. A layer whose value is
-||| a subterm's (a `let`'s body, a match's arms) passes what its context
-||| wants on to it; every other subterm is an operand or a region's, bound
-||| to no variable.
+------------------------------------------------------------------------------
+-- Join points
+------------------------------------------------------------------------------
+
+||| The tokens of a join op, one per join point, each a region's argument,
+||| and what a jump to each needs, its op's telescope `depth` deep.
+reaching : Loc -> Nat -> Each (TargetF f s nv) ts -> E (Each Reach ts, List Argument)
+reaching l depth [] = pure ([], [])
+reaching l depth (MkTargetF _ _ _ _ params _ :: rest) = do
+  n <- fresh
+  let token = MkValue (Bound n 0) MlirType.TokenType
+  (reaches, args) <- reaching l depth rest
+  pure (MkReach token params depth :: reaches, MkArgument token (At l) :: args)
+
+||| A join region's parameters as its arguments, each named as the program
+||| names it; the world binds no value.
+parametersOf : Index -> Loc -> Vect k Shown -> Vect k Binder -> E (Vect k InScope, List Argument)
+parametersOf ix l [] [] = pure ([], [])
+parametersOf ix l (_ :: rest) (MkBinder _ WorldT :: bs) = do
+  (vs, args) <- parametersOf ix l rest bs
+  pure (World :: vs, args)
+parametersOf ix l (name :: rest) (b :: bs) = do
+  (v, o) <- freshVal ix b.type b.quantity
+  st <- get
+  put ({ nextBinder $= S } st)
+  (vs, args) <- parametersOf ix l rest bs
+  pure (Whole v :: vs, MkArgument o (Binder name (Spanned l) st.ownerSymbol st.nextBinder) :: args)
+
+||| What `act` writes as code of a local definition: a crash in it names
+||| that definition as the one it is in, as it would in its own function.
+inCodeOf : CodeOf -> E a -> E a
+inCodeOf Surrounding act = act
+inCodeOf (LocalCode d) act = do
+  saved <- gets (.definition)
+  modify { definition := d }
+  x <- act
+  modify { definition := saved }
+  pure x
+
+||| The sorts a join region binds.
+sortsOf : TargetF f s nv k -> List Sort
+sortsOf (MkTargetF _ _ sorts _ _ _) = sorts
+
+||| A join op, by its member's builder: its body, a region entered once,
+||| which begins with one token per join point and sees them after those
+||| around the op; and a region per join point, which gets its tokens (a
+||| loop's every region begins with them; a join's begin with none) and
+||| sees the join points its member lets it see (`regionTokens`), binds its
+||| erased binders at the next levels and its parameters as its arguments,
+||| and is code of the definition it is. They rejoin at the op's results as
+||| a match's cases do.
+joined : {0 js, s, ts : List Nat} -> {0 nv : Nat} ->
+         Index -> Loc -> Scope js nv -> Wanted -> (MlirAttr -> MLIR.Region -> List MLIR.Region -> List MlirType -> Op)
+      -> (regionTokens : E (Each Reach s, List Argument))
+      -> Each (TargetF (Sub Em) s nv) ts -> Sub Em (js ++ ts) nv -> E (Maybe Val)
+joined ix l sc w member regionTokens targets body = do
+  (own, tokens) <- reaching l (length sc.telescope) targets
+  (res, ops) <- collect (plain ix l (body.result (MkScope sc.vars sc.telescope (aroundThen sc.targets own))
+                                                ({ binder := Nothing } w)))
+  regions <- regionsOf targets
+  let binders = ArrayAttr (eachList (\t => Idr (IndexBindersAttr (map (sortOf ix) (sortsOf t)))) targets)
+  match ix l w (\cs, d, rs => member binders d (caseRegions cs) rs) regions (Just (MkArm tokens res ops))
+  where
+    region : TargetF (Sub Em) s nv k -> E Case
+    region (MkTargetF {k} tl code sorts given params rbody) = do
+      (reach, tokens) <- regionTokens
+      (vals, args) <- parametersOf ix tl given params
+      (res, ops) <- collect $ inCodeOf code $
+        plain ix tl (rbody.result (bind vals (MkScope sc.vars (sc.telescope ++ sorts) reach)) ({ binder := Nothing } w))
+      pure (MkCase 0 (MkArm (tokens ++ args) res ops))
+
+    regionsOf : Each (TargetF (Sub Em) s nv) ts' -> E (List Case)
+    regionsOf [] = pure []
+    regionsOf (t :: rest) = (::) <$> region t <*> regionsOf rest
+
+------------------------------------------------------------------------------
+-- The algebra
+------------------------------------------------------------------------------
+
+||| The algebra: one layer of `TermAt` to its emitter. A layer whose value
+||| is a subterm's (a `let`'s body, a match's arms, a join op's regions)
+||| passes what its context wants on to it; every other subterm is an
+||| operand or a region's, bound to no variable, in a scope that sees no
+||| join point.
 export
-alg : {0 nv : Nat} -> Index -> TermF (Sub Em) nv -> Em nv
+alg : {0 js : List Nat} -> {0 nv : Nat} -> Index -> TermF (Sub Em) js nv -> Em js nv
 alg ix (VarF l x) sc w = pure (Just (standing (sc.vars x)))
 alg ix (LiteralF l x) sc w = Just <$> literal {binder = w.binder} ix l x
 -- The op a primitive makes names the library definition the registry
 -- lowered to it, where it lowered one, as a function's names its own.
 alg ix (PrimAppF l p stands as) sc w = do
-  Just vs <- operands ix l sc (zip (map (map (MkBinder Many)) (slots p)) as)
+  Just vs <- operands ix l (offTail sc) (zip (map (map (MkBinder Many)) (slots p)) as)
     | Nothing => pure Nothing
   Just <$> prim w.binder stands ix l p vs
 -- An IO primitive takes its operands at their own types, then the world,
 -- which is no value of the module.
 alg ix (EffectF l p gives as world res) sc w = do
-  Just vs <- operands ix l sc (unslotted as)
+  Just vs <- operands ix l (offTail sc) (unslotted as)
     | Nothing => pure Nothing
-  Just _ <- world.result sc (expecting (Just WorldT))
+  Just _ <- world.result (offTail sc) (expecting (Just WorldT))
     | Nothing => pure Nothing
   effect w.binder ix l p gives vs res
 -- A call holds its callee's signature, one argument per binder: it passes
@@ -404,11 +518,11 @@ alg ix (EffectF l p gives as world res) sc w = do
 -- registry lowered a library definition's call to names it.
 alg ix (CallF l f stands is as) sc w = do
   let slots = map (\b => Just (MkBinder b.quantity (substTy is b.type))) f.params
-  Just vs <- operands ix l sc (zip slots as)
+  Just vs <- operands ix l (offTail sc) (zip slots as)
     | Nothing => pure Nothing
   let rt = substTy is f.result
       args = map (operand ix) (present (toList vs))
-      indexArgs = Just (IdrHand (ArgsOf (map (termNodes ix) is)))
+      indexArgs = Just (indexArgsOf ix is)
       callee = SymbolRefAttr (MkSymbolRef f.symbol [])
   -- A call gives what its result type is: Idris's world, which is no value
   -- of the module, or one value.
@@ -420,7 +534,7 @@ alg ix (CallF l f stands is as) sc w = do
 -- A constructor's fields are checked at their types with its binders
 -- given.
 alg ix (ConAppF l c bs as) sc w = do
-  Just vs <- (fields ix l sc (map (\b => { type $= substTy bs } b) c.fields) as).written
+  Just vs <- (fields ix l (offTail sc) (map (\b => { type $= substTy bs } b) c.fields) as).written
     | Nothing => pure Nothing
   Just <$> con {binder = w.binder} ix l c bs vs
 -- A `let` binds an SSA value at its binder's type and quantity, as Idris
@@ -428,7 +542,7 @@ alg ix (ConAppF l c bs as) sc w = do
 -- the variable's name.
 alg ix (LetF l name b v body) sc w = case b of
   Checked (MkBinder _ WorldT) => do
-    Just _ <- v.result sc (expecting (Just WorldT))
+    Just _ <- v.result (offTail sc) (expecting (Just WorldT))
       | Nothing => pure Nothing
     body.result (bind [World] sc) w
   Checked (MkBinder q t) => bound q (Just t)
@@ -437,7 +551,7 @@ alg ix (LetF l name b v body) sc w = case b of
     bound : Uses -> Maybe Ty -> E (Maybe Val)
     bound q t = do
       b <- binding name q
-      Just x <- v.result sc (MkWanted t (Just b))
+      Just x <- v.result (offTail sc) (MkWanted t (Just b))
         | Nothing => pure Nothing
       case x.type of
         WorldT => body.result (bind [World] sc) w
@@ -473,7 +587,7 @@ alg ix (CaseF l f x arms) sc w = do
       n <- fresh
       let r = MkVal (Bound n 0) scrut.type scrut.uses scrut.hold (OneOf tags)
       pure (r, MkArgument (operand ix r) (At l))
-    alternative : Val -> AltF (Sub Em) nv -> E Case
+    alternative : Val -> AltF (Sub Em) js nv -> E Case
     alternative scrut (MkAltF {k} c fs body) = do
       let d = length sc.telescope
       (r, arg) <- refinedArg scrut (c.tag ::: [])
@@ -487,7 +601,7 @@ alg ix (CaseF l f x arms) sc w = do
     -- family `f` no case takes; none is left only when Idris proved the
     -- cases cover it, which is `Exhaustive`, so a default here has at
     -- least one.
-    defaultArm : Val -> FamilyId -> List Nat -> Sub Em nv -> E Arm
+    defaultArm : Val -> FamilyId -> List Nat -> Sub Em js nv -> E Arm
     defaultArm scrut f taken d = do
       (back, arg) <- case untaken ix f taken of
         t :: ts => refinedArg scrut (t ::: ts)
@@ -511,7 +625,7 @@ alg ix (CaseLitF l x arms) sc w = case arms of
   OnStrings keyed => literalsOf (\s => litAttr (LStr s)) keyed
   OnBigs keyed => literalsOf (\n => litAttr (LBig n)) keyed
   where
-    literals : (kt -> MlirAttr) -> List (kt, Sub Em nv) -> Sub Em nv -> E (Maybe Val)
+    literals : (kt -> MlirAttr) -> List (kt, Sub Em js nv) -> Sub Em js nv -> E (Maybe Val)
     literals key [] d = d.result sc w
     literals key alts@(_ :: _) d = do
       scrut <- coerce ix l Many (standing (sc.vars x))
@@ -524,7 +638,7 @@ alg ix (CaseLitF l x arms) sc w = case arms of
       match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr (map (key . fst) alts)) (operand ix scrut) [] dr (caseRegions cs) ts)
             arms (Just (MkArm [MkArgument arg (At l)] res ops))
 
-    literalsOf : (kt -> MlirAttr) -> LitArmsOf kt (Sub Em nv) -> E (Maybe Val)
+    literalsOf : (kt -> MlirAttr) -> LitArmsOf kt (Sub Em js nv) -> E (Maybe Val)
     literalsOf key (LitDefault alts d) = literals key (forget alts) d
     literalsOf key (LitNoDefault alts) = literals key (init alts) (snd (last alts))
 -- The predecessor exists only where the value is not zero: the successor's
@@ -540,7 +654,7 @@ alg ix (CaseNatF l x arms) sc w = case arms of
     match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [litAttr (LNat 0)]) (operand ix n) [] dr (caseRegions cs) ts)
           [MkCase 0 (MkArm [] zr zops)] (Just (MkArm [MkArgument arg (At l)] sr sops))
   where
-    successor : Shown -> Sub Em (Under 1 nv) -> Scope nv -> Wanted -> Val -> E (Maybe Val)
+    successor : Shown -> Sub Em js (Under 1 nv) -> Scope js nv -> Wanted -> Val -> E (Maybe Val)
     successor p s scope w' n = do
       b <- binding p Many
       pv <- value {binder = Just b} ix l (NatT IOpaque) (Idr.natPredOp (operand ix n))
@@ -560,14 +674,14 @@ alg ix (LamF l name b body) sc w = do
   (args, r, ops) <- case param of
     WorldT => do
       (r, ops) <- collect $
-        plain ix l (body.result (bind [World] sc) (expecting result))
+        plain ix l (body.result (bind [World] (offTail sc)) (expecting result))
           >>= traverse (fit ix l result)
       pure ([], r, ops)
     _ => do
       (p, arg) <- freshVal ix param b.quantity
       (r, ops) <- collect $ do
         inner <- coerce ix l b.quantity !(fit ix l (Just (typeOf b)) p)
-        plain ix l (body.result (bind [Whole inner] sc) (expecting result))
+        plain ix l (body.result (bind [Whole inner] (offTail sc)) (expecting result))
           >>= traverse (fit ix l result)
       st <- get
       put ({ nextBinder $= S } st)
@@ -577,13 +691,13 @@ alg ix (LamF l name b body) sc w = do
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedLambda (map (sortOf ix) sc.telescope) args ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (FunT (MkBinder b.quantity param) t) captures
-                   (Idr.fnClosureOp {index_args' = Just (IdrHand (ArgsOf (map (termNodes ix) (levels sc.telescope))))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
+                   (Idr.fnClosureOp {index_args' = Just (indexArgsOf ix (levels sc.telescope))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
 alg ix (AppF l f x) sc w = do
-  Just fv <- plain ix l (f.result sc (expecting Nothing))
+  Just fv <- plain ix l (f.result (offTail sc) (expecting Nothing))
     | Nothing => pure Nothing
   FunT a r <- pure fv.type
     | t => internal ("an application of a value of type " ++ show t)
-  Just v <- x.result sc (expecting (Just (typeOf a)))
+  Just v <- x.result (offTail sc) (expecting (Just (typeOf a)))
     | Nothing => pure Nothing
   -- An action is applied to the world, which is no value: it takes none.
   xs <- case a.type of
@@ -598,16 +712,16 @@ alg ix (SuspendF l body) sc w = do
   let result = case w.type of
                  Just (LazyT r) => Just r
                  _ => Nothing
-  (r, ops) <- collect (plain ix l (body.result sc (expecting result))
+  (r, ops) <- collect (plain ix l (body.result (offTail sc) (expecting result))
                        >>= traverse (fit ix l result))
   Just t <- pure (result <|> map (.type) r)
     | Nothing => internal "the result type of a Delay whose body never returns"
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedDelay (map (sortOf ix) sc.telescope) [] ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (LazyT t) captures
-                   (Idr.lazySuspendOp {index_args' = Just (IdrHand (ArgsOf (map (termNodes ix) (levels sc.telescope))))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
+                   (Idr.lazySuspendOp {index_args' = Just (indexArgsOf ix (levels sc.telescope))} (SymbolRefAttr (MkSymbolRef sym [])) captures)
 alg ix (ResumeF l e) sc w = do
-  Just ev <- plain ix l (e.result sc (expecting Nothing))
+  Just ev <- plain ix l (e.result (offTail sc) (expecting Nothing))
     | Nothing => pure Nothing
   LazyT r <- pure ev.type
     | t => internal ("a force of a value of type " ++ show t)
@@ -615,32 +729,32 @@ alg ix (ResumeF l e) sc w = do
 -- The array language: each operand bound once, in order, by the frontend;
 -- each body a region of the array op Emit.Tensors writes.
 alg ix (TensorF l rt op) sc w = do
-  Just vs <- operands ix l sc (unslotted op)
+  Just vs <- operands ix l (offTail sc) (unslotted op)
     | Nothing => pure Nothing
   Just <$> tensorOp ix l w.binder rt vs
 alg ix (TabulateF {k} l rt es body) sc w = do
-  Just extents <- operands ix l sc (unslotted es)
+  Just extents <- operands ix l (offTail sc) (unslotted es)
     | Nothing => pure Nothing
   tabulate ix l w.binder rt extents
-           (\coords => plain ix l (body.result (bind (map Whole coords) sc) (expecting Nothing)))
+           (\coords => plain ix l (body.result (bind (map Whole coords) (offTail sc)) (expecting Nothing)))
 alg ix (ReduceF l r acc el rt z x body) sc w = do
-  Just zv <- (operand1 ix l sc Nothing z).written
+  Just zv <- (operand1 ix l (offTail sc) Nothing z).written
     | Nothing => pure Nothing
-  Just xv <- (operand1 ix l sc Nothing x).written
+  Just xv <- (operand1 ix l (offTail sc) Nothing x).written
     | Nothing => pure Nothing
   reduce ix l w.binder r acc el rt zv xv
-         (\a, e => plain ix l (body.result (bind [Whole a, Whole e] sc) (expecting (Just acc))))
+         (\a, e => plain ix l (body.result (bind [Whole a, Whole e] (offTail sc)) (expecting (Just acc))))
 alg ix (TieF l x ds) sc w = do
-  Just xv <- plain ix l (x.result sc (expecting Nothing))
+  Just xv <- plain ix l (x.result (offTail sc) (expecting Nothing))
     | Nothing => pure Nothing
   Just dims <- statedAll ds
     | Nothing => pure Nothing
   Just <$> tie ix l w.binder xv dims
   where
     -- Each statement a natural.
-    natural : Sub Em nv -> E (Maybe Val)
-    natural d = plain ix l (d.result sc (expecting (Just (NatT IOpaque))))
-    statedAll : List (Nat, Stated (Sub Em nv)) -> E (Maybe (List (Nat, Stated Val)))
+    natural : Sub Em [] nv -> E (Maybe Val)
+    natural d = plain ix l (d.result (offTail sc) (expecting (Just (NatT IOpaque))))
+    statedAll : List (Nat, Stated (Sub Em [] nv)) -> E (Maybe (List (Nat, Stated Val)))
     statedAll [] = pure (Just [])
     statedAll ((a, SameAs d) :: rest) = do
       Just v <- natural d
@@ -654,13 +768,13 @@ alg ix (TieF l x ds) sc w = do
 -- its ops declare: no world threads it, so the body's `IORes` gives the
 -- element and the array's `IORes` is built of the array alone.
 alg ix (TabulateIOF {k} l rt es w body step done) sc wanted = do
-  Just extents <- operands ix l sc (unslotted es)
+  Just extents <- operands ix l (offTail sc) (unslotted es)
     | Nothing => pure Nothing
-  Just _ <- w.result sc (expecting (Just WorldT))
+  Just _ <- w.result (offTail sc) (expecting (Just WorldT))
     | Nothing => pure Nothing
   Just arr <- tabulate ix l Nothing rt extents
                 (\coords => do
-                   Just res <- plain ix l (body.result (bind (snoc (map Whole coords) World) sc) (expecting Nothing))
+                   Just res <- plain ix l (body.result (bind (snoc (map Whole coords) World) (offTail sc)) (expecting Nothing))
                      | Nothing => pure Nothing
                    Just <$> resultOf res)
     | Nothing => pure Nothing
@@ -681,7 +795,7 @@ alg ix (UnreachableF l) sc _ = do
 -- equation makes the two types one.
 alg ix (AssumeF l lhs rhs body) sc w = do
   (res, ops) <- collect (plain ix l (body.result sc ({ binder := Nothing } w)))
-  let equation = IdrHand (EquationOf (termNodes ix lhs) (termNodes ix rhs))
+  let equation = Idr (EquationAttr (termNodes ix lhs) (termNodes ix rhs))
   match ix l w (\_, d, ts => Idr.indexAssumeOp equation [] d ts) [] (Just (MkArm [] res ops))
 -- A crash ends its region: its cause, its site and the definition it is
 -- in are data the op holds; a trusted library's crash of a string reports
@@ -690,7 +804,7 @@ alg ix (CrashF l cause) sc _ = do
   statement l (Idr.crashCauseOp cause !(siteOf l))
   pure Nothing
 alg ix (CrashWithF l m) sc _ = do
-  Just s <- (operand1 ix l sc (Just (MkBinder Many StrT)) m).written
+  Just s <- (operand1 ix l (offTail sc) (Just (MkBinder Many StrT)) m).written
     | Nothing => pure Nothing
   statement l (Idr.crashMessageOp !(siteOf l) (operand ix s))
   pure Nothing
@@ -699,9 +813,9 @@ alg ix (NewWorldF l) sc w = pure (Just worldVal)
 -- a new value, so what writes the array next comes after the read by data
 -- dependence; the body builds the cell again from it.
 alg ix (ReadBackF l e x cs body) sc w = do
-  Just xv <- (operand1 ix l sc Nothing x).written
+  Just xv <- (operand1 ix l (offTail sc) Nothing x).written
     | Nothing => pure Nothing
-  Just coords <- operands ix l sc (unslotted cs)
+  Just coords <- operands ix l (offTail sc) (unslotted cs)
     | Nothing => pure Nothing
   ixs <- traverse (coordinate ix l) coords
   n <- numbered (At l) (Idr.arrayReadOp (operand ix xv) ixs)
@@ -710,7 +824,7 @@ alg ix (ReadBackF l e x cs body) sc w = do
 -- back as a new value, threaded from one read to the next; the body binds
 -- the extents and the last array given back.
 alg ix (ExtentsBackF {k} l x body) sc w = do
-  Just xv <- (operand1 ix l sc Nothing x).written
+  Just xv <- (operand1 ix l (offTail sc) Nothing x).written
     | Nothing => pure Nothing
   (extents, final) <- readExtents k 0 xv
   body.result (bind (snoc extents (Whole final)) sc) w
@@ -722,3 +836,24 @@ alg ix (ExtentsBackF {k} l x body) sc w = do
                               (gradedType ix Many made (NatT IOpaque)) (operand ix arr).type)
       (rest, final) <- readExtents j (S a) ({ name := Bound n 1 } arr)
       pure (Whole (val (Bound n 0) (NatT IOpaque) Many made) :: rest, final)
+-- The join points the program as written makes: an `idr.join`, whose
+-- regions see only the join points around it, or an `idr.loop`, whose
+-- every region begins with its tokens, so its regions may jump among
+-- themselves.
+alg ix (JoinF l InBody targets body) sc w =
+  joined ix l sc w (\bs, d, rs, results => Idr.joinOp bs [] d rs results) (pure (sc.targets, [])) targets body
+alg ix (JoinF l InEveryRegion targets body) sc w =
+  joined ix l sc w (\bs, d, rs, results => Idr.loopOp bs [] d rs results)
+         (mapFst (aroundThen sc.targets) <$> reaching l (length sc.telescope) targets) targets body
+-- A jump passes its join point's parameters their arguments, at the types
+-- its region binds them at with its erased binders given the jump's
+-- terms, and ends its region: control goes on in the region its token
+-- designates.
+alg ix (JumpF l e terms as) sc w = do
+  let reach = eachAt e sc.targets
+      instantiated = levelsBelow reach.depth ++ terms
+      slots = map (\b => Just (MkBinder b.quantity (substTy instantiated b.type))) reach.params
+  Just vs <- operands ix l (offTail sc) (zip slots as)
+    | Nothing => pure Nothing
+  statement l (Idr.jumpOp {terms' = Just (indexArgsOf ix terms)} reach.token (map (operand ix) (present (toList vs))))
+  pure Nothing

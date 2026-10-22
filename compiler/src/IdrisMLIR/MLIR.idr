@@ -81,6 +81,9 @@ namespace MlirType
     | RankedTensorType (List Dim) MlirType
     | MemRefType (List Dim) MlirType (Maybe MlirAttr)
     | FunctionType (Signature MlirType)
+    | ||| Upstream's builtin token: what designates a join point, which the
+      ||| core verifier keeps from being stored, passed or returned.
+      TokenType
     | ||| A type of the `idr` dialect.
       Idr (IdrType MlirType MlirAttr)
 
@@ -142,6 +145,8 @@ mutual
   typeText F64Type = "f64"
   typeText IndexType = "index"
   typeText NoneType = "none"
+  -- No text attribute holds one, so this is never read.
+  typeText MlirType.TokenType = "none"
   typeText (RankedTensorType ds e) = fastConcat ("tensor<" :: map dimText ds ++ [typeText e, ">"])
   typeText (MemRefType ds e Nothing) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ">"])
   typeText (MemRefType ds e (Just a)) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ", " ++ attrText a, ">"])

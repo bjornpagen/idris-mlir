@@ -603,13 +603,15 @@ mutual
             pure (r', Let loc (binderName x) (Checked (MkBinder Many held)) v inner)
     where
       -- The value computed and bound by a `let`, a runtime value used as
-      -- the `let`'s quantity says.
+      -- the `let`'s quantity says; or, for a lambda its body uses only as
+      -- a continuation, the join point the program as written makes
+      -- (`letOf`).
       runtimeLet : Uses -> Loc -> ClosedTerm -> Front (r, Term nv)
       runtimeLet q loc known = do
         b <- coreBinder (bestFC ctx fc) ctx.owner ValueType q known
         v <- term ph w acc ctx env val
         (r', inner) <- body (under {k = 1} [Runtime FZ (BothTypes b.type known)] env)
-        pure (r', Let loc (binderName x) (Checked b) v inner)
+        pure (r', letOf loc (binderName x) b v inner)
 
   ||| A term at the type it is expected to have (`ty`), the type a
   ||| definition's leaf gives: a lambda there, where that type is a
@@ -1965,10 +1967,13 @@ mutual
                       ReadBack loc (cellAfter r ds e) (Var loc (ren'' x)) (map (Var loc) cs)
                         (ConApp loc res [] [ Var loc (Bound {k = 2} FZ)
                                            , ConApp loc writing [] [Var loc (Bound {k = 2} (FS FZ))]])))))
+        -- A thaw hands the continuation the array itself in a writable
+        -- cell: whether writing it needs a copy first is bufferization's to
+        -- decide, which sees whether anything reads the array after.
         (AThaw, [_, FunT (MkBinder _ lTy) _]) => do
-          (writing, ds, e) <- cellOf lTy
+          (writing, _, _) <- cellOf lTy
           pure $ MkMaker (\ys => bindEach loc bs ys (\ren, [x, k] =>
-                  App loc (Var loc k) (ConApp loc writing [] [fresh ds e (Var loc x)])))
+                  App loc (Var loc k) (ConApp loc writing [] [Var loc x])))
         (ALShape, [lTy]) => do
           (writing, ds, _) <- cellOf lTy
           res <- onlyCon fc 2 rt
@@ -2043,16 +2048,6 @@ mutual
                          [] => v'
                          _ => Tensor loc e (Extract v' cell)
             in Tabulate loc (TensorT ds e) (fromList es) body
-
-          -- A new array of `ds` of `e` holding every element of `x`, in
-          -- slots of its own: what a linear array made of an array holds,
-          -- so that no other value reaches them while it writes them.
-          fresh : {0 m : Nat} -> List Dim -> Ty -> Term m -> Term m
-          fresh ds e x =
-            let es = map (\j => Tensor loc (NatT IOpaque) (Extent j x)) (axesOf (length ds))
-            in Tabulate loc (TensorT ds e) (fromList es)
-                 (Tensor loc e (Extract (weakenUnder (length es) x)
-                                        (map (Var loc . Bound) (toList (Data.Vect.allFins (length es))))))
 
           -- The one type argument of a call that has one: the element or
           -- the cell.

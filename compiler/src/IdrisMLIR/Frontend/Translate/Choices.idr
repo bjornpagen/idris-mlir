@@ -469,8 +469,9 @@ dispatcher d = do
           | Nothing => internal d.site "a choice held past the values an implementation holds"
         arms <- traverse (heldArm loc indices choice params ren (without j typed)) numbered
         pure (matching loc chosen arms)
-  updateState (derive { fns $= insert d.inst (MkTFn d.key (telescopeOf kinds) (Runtimes kinds) d.signature.callee
-                                                    (map (const (shown "x")) d.signature.callee.params) body loc Acyclic) })
+  extents <- signatureExtents kinds d.signature.result
+  updateState (derive { fns $= insert d.inst (MkTFn d.key OwnFunction (telescopeOf kinds) (Runtimes kinds) d.signature.callee
+                                                    extents (map (const (shown "x")) d.signature.callee.params) body loc Acyclic) })
   where
     matching : {0 p : Nat} -> Loc -> Fin p -> List (Alt p) -> Term p
     matching loc x [] = Unreachable loc
