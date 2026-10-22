@@ -27,7 +27,7 @@ thing is). C158 settles the cases:
 | closure, apply | `fn.closure`, `fn.apply` |
 | delay, force, suspend | `lazy.delay`, `lazy.force`, `lazy.suspend` |
 | dup, drop, share, take, unpack (of a cell) | `count.dup`, `count.drop`, `count.share`, `count.take`, `count.unpack` |
-| divs, divu, mods, modu | `int.div_s`, `int.div_u`, `int.mod_s`, `int.mod_u` |
+| divs, mods | `int.div_s`, `int.mod_s`; divu and modu are upstream `arith.divui` and `arith.remui` behind `check.nonzero` (L13: upstream holds their meaning) |
 | shls, shlu, shrs, shru | `int.shl_s`, `int.shl_u`, `int.shr_s`, `int.shr_u` |
 | to_char_s, to_char_u | `int.to_char_s`, `int.to_char_u` |
 | big.pred | `nat.pred` |
@@ -36,9 +36,9 @@ thing is). C158 settles the cases:
 ## Placed within the rule by the op's owner
 
 The owner names each in its family and lists the name in its handoff:
-- **L13:** `crash` and `crash_str` (family `crash.`, D80's cause as
-  data); `os` (family `platform.`); `to_int`, `int_head_s`,
-  `int_head_u`, `double_head` (by the type each acts on).
+- **L13, as named:** `crash.cause` and `crash.message`; `platform.os`;
+  `f64.to_int`, `int.head_s`, `int.head_u`, `f64.head`; `buffer.*`,
+  `io.clock`, `io.file_time`, `str.of_errno`.
 - **L12:** `tie_shape` (family `array.`, if it survives).
 
 ## Gone by rulings
