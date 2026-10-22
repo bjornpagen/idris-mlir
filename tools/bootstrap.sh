@@ -24,6 +24,9 @@
 #   snmalloc  the runtime's allocator (third_party/snmalloc) -> .toolchain/snmalloc
 #             at the lock's revision, with its patches: the
 #             source the runtime's build compiles
+#   simdutf   the runtime's UTF-8 kernels (third_party/      -> .toolchain/simdutf
+#             simdutf) at the lock's revision, with its
+#             patches: the source the runtime's build compiles
 #   chez      Chez Scheme, threaded, with the host's C      -> .toolchain/chez
 #             compiler: it runs Idris 2 and bench/'s baseline
 #   idris     Idris 2 and its API (third_party/Idris2), on  -> .toolchain/idris2
@@ -52,10 +55,10 @@
 # A bug in a pinned upstream is fixed by a patch to its source, kept with
 # the bug's report as upstream/<bug>/<project>.patch (tools/patches.sh). The
 # steps that build LLVM's compilers, runtimes and tools (stage1, runtimes,
-# stage2), Chez Scheme and Idris 2, and the step that exports snmalloc for
-# the runtime, build a copy of the pinned source with their project's
-# patches applied in name order, and fail naming the patch that does not
-# apply. The patches are inputs of those steps and their stamps
+# stage2), Chez Scheme and Idris 2, and the steps that export snmalloc and
+# simdutf for the runtime, build a copy of the pinned source with their
+# project's patches applied in name order, and fail naming the patch that
+# does not apply. The patches are inputs of those steps and their stamps
 # record them, so a changed or added patch rebuilds the step and everything
 # built with it, and tools/verify-pins.sh refuses a tool built without it.
 # Stage 1 builds the patched tree too: it compiles stage 2's LLVM, and what
@@ -108,7 +111,8 @@ die() {
 }
 
 # The parts only the bootstrap names; the others (sysroot, llvm_prefix,
-# snmalloc_prefix, chez_prefix, idris_prefix, typecheck_toolchain, cmake)
+# snmalloc_prefix, simdutf_prefix, chez_prefix, idris_prefix,
+# typecheck_toolchain, cmake)
 # are tools/toolchain.sh's.
 cmake_prefix=$toolchain/cmake
 ninja_prefix=$toolchain/ninja
@@ -224,7 +228,7 @@ native_cmake_flags() {
 
 usage() {
   if [ $# -gt 0 ]; then printf 'bootstrap: %s\n' "$*" >&2; fi
-  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 libc runtimes stage2 gmp snmalloc chez idris typecheck llvm all)' >&2
+  echo 'usage: tools/bootstrap.sh STEP...  (cmake ninja stage1 libc runtimes stage2 gmp snmalloc simdutf chez idris typecheck llvm all)' >&2
   exit 2
 }
 
@@ -232,9 +236,9 @@ usage() {
 steps=
 for arg in "$@"; do
   case $arg in
-    cmake | ninja | stage1 | libc | runtimes | stage2 | gmp | snmalloc | chez | idris | typecheck) steps="$steps $arg" ;;
+    cmake | ninja | stage1 | libc | runtimes | stage2 | gmp | snmalloc | simdutf | chez | idris | typecheck) steps="$steps $arg" ;;
     llvm) steps="$steps stage1 libc runtimes stage2" ;;
-    all) steps="$steps cmake ninja stage1 libc runtimes stage2 gmp snmalloc chez idris" ;;
+    all) steps="$steps cmake ninja stage1 libc runtimes stage2 gmp snmalloc simdutf chez idris" ;;
     -h | --help)
       sed -n '2,/^$/s/^# \{0,1\}//p' "$0"
       exit 0
@@ -348,6 +352,7 @@ gmp_revision=$(lock_value gmp revision) || exit 1
 gmp_version=$(lock_value gmp version) || exit 1
 snmalloc_revision=$(lock_value snmalloc revision) || exit 1
 snmalloc_tag=$(lock_value snmalloc tag) || exit 1
+simdutf_tag=$(lock_value simdutf tag) || exit 1
 chez_revision=$(lock_value chez revision) || exit 1
 chez_tag=$(lock_value chez tag) || exit 1
 chez_version=$(lock_value chez version) || exit 1
@@ -392,6 +397,7 @@ stamp_of() {
     runtimes) echo "$runtimes_prefix/provenance.json" ;;
     stage2) echo "$llvm_prefix/provenance.json" ;;
     snmalloc) echo "$snmalloc_prefix/provenance.json" ;;
+    simdutf) echo "$simdutf_prefix/provenance.json" ;;
     chez) echo "$chez_prefix/provenance.json" ;;
     idris) echo "$idris_prefix/provenance.json" ;;
     typecheck) echo "$typecheck_toolchain/provenance.json" ;;
@@ -884,6 +890,7 @@ set(CMAKE_OBJDUMP "\${CMAKE_CURRENT_LIST_DIR}/bin/llvm-objdump" CACHE FILEPATH "
 set(CMAKE_READELF "\${CMAKE_CURRENT_LIST_DIR}/bin/llvm-readelf" CACHE FILEPATH "the pinned readelf")
 set(MLIR_DIR "\${CMAKE_CURRENT_LIST_DIR}/lib/cmake/mlir" CACHE PATH "the pinned MLIR's package")
 set(IDRIS_MLIR_SNMALLOC "\${CMAKE_CURRENT_LIST_DIR}/../snmalloc/src" CACHE PATH "the runtime's snmalloc, with its patches")
+set(IDRIS_MLIR_SIMDUTF "\${CMAKE_CURRENT_LIST_DIR}/../simdutf/src" CACHE PATH "the runtime's simdutf, with its patches")
 set(IDRIS_MLIR_PAGE_SIZE $page_size CACHE STRING "the target's page size, the machine's that built this toolchain")
 CMAKE
 }
@@ -1091,12 +1098,21 @@ recipe_gmp() {
   args_gmp
 }
 
-# snmalloc is compiled by the runtime's build, from this export: the
-# submodule's commit, which is the lock's, with its patches applied.
+# snmalloc and simdutf are compiled by the runtime's build, each from its
+# export: the submodule's commit, which is the lock's, with its patches
+# applied.
+recipe_export() {
+  recipe_export_revision=$(submodule "third_party/$1" "$1") || exit 1
+  printf '%s\n' "$1 $recipe_export_revision"
+  patch_inputs "$1"
+}
+
 recipe_snmalloc() {
-  recipe_snmalloc_revision=$(submodule third_party/snmalloc snmalloc) || exit 1
-  printf '%s\n' "snmalloc $recipe_snmalloc_revision"
-  patch_inputs snmalloc
+  recipe_export snmalloc
+}
+
+recipe_simdutf() {
+  recipe_export simdutf
 }
 
 # chez_machine: Chez Scheme's threaded machine type for the host it runs on
@@ -1185,6 +1201,7 @@ set(CMAKE_CXX26_EXTENSION_COMPILE_OPTION "-std=gnu++2c")
 set(MLIR_DIR "$builds/typecheck-llvm/lib/cmake/mlir" CACHE PATH "the TableGen-only MLIR's package")
 set(LLVM_DIR "$builds/typecheck-llvm/lib/cmake/llvm" CACHE PATH "the TableGen-only LLVM's package")
 set(IDRIS_MLIR_SNMALLOC "$snmalloc_prefix/src" CACHE PATH "the runtime's snmalloc, with its patches")
+set(IDRIS_MLIR_SIMDUTF "$simdutf_prefix/src" CACHE PATH "the runtime's simdutf, with its patches")
 set(IDRIS_MLIR_TYPECHECK ON CACHE BOOL "compile our code against the TableGen-only LLVM/MLIR" FORCE)
 set(IDRIS_MLIR_PAGE_SIZE $page_size CACHE STRING "the target's page size, this machine's")
 CMAKE
@@ -1447,23 +1464,36 @@ step_gmp() {
   finish
 }
 
-# The runtime's snmalloc: third_party/snmalloc at its gitlink, the lock's
-# revision, exported with its patches into .toolchain/snmalloc/src, which
-# the toolchain files name to the runtime's build (IDRIS_MLIR_SNMALLOC).
+# step_export PROJECT PREFIX TAG FILE: a library the runtime compiles,
+# third_party/PROJECT at its gitlink, the lock's revision TAG, exported with
+# its patches into PREFIX/src, which must hold FILE, and which the toolchain
+# files name to the runtime's build (IDRIS_MLIR_SNMALLOC, IDRIS_MLIR_SIMDUTF).
 # Nothing is compiled here: the runtime compiles it with its own profile.
-step_snmalloc() {
-  begin snmalloc "snmalloc $snmalloc_tag, with its patches, for the runtime" || return 0
+step_export() {
+  begin "$1" "$1 $3, with its patches, for the runtime" || return 0
   need git
-  snmalloc_link=$(submodule third_party/snmalloc snmalloc) || exit 1
+  step_export_link=$(submodule "third_party/$1" "$1") || exit 1
   build_dir
-  export_source "$root/third_party/snmalloc" "$build/src" snmalloc
-  [ -f "$build/src/src/snmalloc/snmalloc.h" ] || die "the export of third_party/snmalloc has no src/snmalloc/snmalloc.h"
-  rm -rf "$snmalloc_prefix"
-  mkdir -p "$snmalloc_prefix"
-  mv "$build/src" "$snmalloc_prefix/src"
-  write_stamp "$(stamp_of snmalloc)" step snmalloc revision "$snmalloc_link" tag "$snmalloc_tag" \
-    inputs "$step_inputs" patches "$(patch_stamp snmalloc)" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  export_source "$root/third_party/$1" "$build/src" "$1"
+  [ -f "$build/src/$4" ] || die "the export of third_party/$1 has no $4"
+  rm -rf "$2"
+  mkdir -p "$2"
+  mv "$build/src" "$2/src"
+  write_stamp "$(stamp_of "$1")" step "$1" revision "$step_export_link" tag "$3" \
+    inputs "$step_inputs" patches "$(patch_stamp "$1")" built "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   finish
+}
+
+# The runtime's allocator.
+step_snmalloc() {
+  step_export snmalloc "$snmalloc_prefix" "$snmalloc_tag" src/snmalloc/snmalloc.h
+}
+
+# The runtime's UTF-8 kernels, whose implementation constructors are
+# constexpr with its patches, so that the runtime holds the one the target's
+# entry names as a constant of its own class.
+step_simdutf() {
+  step_export simdutf "$simdutf_prefix" "$simdutf_tag" include/simdutf/implementation.h
 }
 
 # Chez Scheme, with the host's C compiler. Idris 2 runs on it and bench/
@@ -1566,7 +1596,7 @@ step_typecheck() {
     fi
   fi
   begin typecheck "LLVM/MLIR's TableGen and headers $llvm_name, with the host's C++ compiler" || return 0
-  require cmake ninja snmalloc
+  require cmake ninja snmalloc simdutf
   need git python3 "$host_cc" "$host_cxx"
   llvm_tree
   build=$builds/typecheck-llvm

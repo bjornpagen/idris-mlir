@@ -17,12 +17,14 @@
 #   snmalloc
 #           the runtime's snmalloc at third_party/snmalloc's gitlink, the
 #           lock's revision (step snmalloc)
+#   simdutf the runtime's simdutf at third_party/simdutf's gitlink, the
+#           lock's revision (step simdutf)
 #
 # A bug has one patch per project it touches. The patches of a project
 # apply in the byte order of their bugs' names, each to the source as the
 # ones before it left it.
 
-patch_projects='llvm chez idris snmalloc'
+patch_projects='llvm chez idris snmalloc simdutf'
 
 # patches PROJECT: the project's patch files, in the order they apply.
 patches() {

@@ -60,7 +60,6 @@ case $(uname -s) in
     for gnu in gtimeout gsha256sum gdate; do
       echo "coreutils $gnu: $(command -v "$gnu" 2> /dev/null || { [ -x "/opt/local/bin/$gnu" ] && echo "/opt/local/bin/$gnu"; } || echo "not found (sudo port install coreutils)")"
     done
-    echo "stack hard limit: $(stack_hard_max 2> /dev/null || echo unknown) KiB (macOS caps it near 64 MiB)"
     ;;
 esac
 if [ -f "$idris_prefix/provenance.json" ]; then
@@ -73,7 +72,7 @@ for name in cmake ninja chez llvm sysroot; do
   if "$pins" "$name" 2> /dev/null; then
     case $name in
       llvm) echo "Pinned llvm: $llvm_version (clang, lld, MLIR; ${llvm_prefix#"$root"/})" ;;
-      sysroot) echo "Pinned sysroot: the target's C library, the LLVM runtimes, GMP $(lock_field gmp version), snmalloc $(lock_field snmalloc version)" ;;
+      sysroot) echo "Pinned sysroot: the target's C library, the LLVM runtimes, GMP $(lock_field gmp version), snmalloc $(lock_field snmalloc version), simdutf $(lock_field simdutf version)" ;;
       *) echo "Pinned $name: $(lock_field "$name" version)" ;;
     esac
   else

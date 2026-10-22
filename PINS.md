@@ -102,7 +102,12 @@ build every program function as an `llvm.func` itself (C165):
 ours passes through FuncToLLVM; its report stays as a submission, its
 pull request as `pull-request.diff`. Never carried: dead-argument
 elimination's always-true `tailcc` test (proposals/0000 C141), fixed on
-main by 3d88cd257637 (#233919) before the pin.
+main by 3d88cd257637 (#233919) before the pin. Retired with the
+runtime's one simdutf implementation (C169): `simdutf-dispatch`, the
+runtime's choice among simdutf's implementations at startup; the runtime
+holds the one its target's entry names as a constant of that
+implementation's class and calls it directly
+(simdutf-constexpr-implementation).
 Retired with the one recipe (2026-10-09): `stage2-thinlto`. Stage 2 is
 not LTO on any target: its libraries are native code that every build of
 our tools links as it is, a rebuild through the compiler cache relinks
@@ -490,10 +495,11 @@ which the top-level CMake configure gate reads.
   takes it for all of them: a region that ends in it keeps its parent
   alive, and a summed effect row counts a write to every resource where
   control never goes on
-- sites: every body that never returns, which ends in `ub.unreachable`;
-  the derived effect row and every effect query over it
-  (foreign/idr/lib/IR/FlowOps.cpp's external model `NeverRuns`, which
-  goes with this patch, L09)
+- sites: none in our code; the patch. Every body that never returns ends
+  in `ub.unreachable`, and the derived effect row and every effect query
+  over it read the op's own declaration: the external model that gave it
+  no effects in our code (`NeverRuns`) is deleted, so the patch alone
+  carries the fact
 - workaround: `upstream/87-ub-unreachable-effects/llvm.patch`:
   `NoMemoryEffect` on the op, unspeculatable still; checked by
   tests/upstream-ub-unreachable-effects, which runs the report's
@@ -518,7 +524,8 @@ which the top-level CMake configure gate reads.
   textual parse, print and alias collection of nested builtin arrays and
   dictionaries (10), the walks (80), the attribute walker and replacer
   (81), clone (82), destruction (83), region DCE (84), slices (85),
-  dead-code initialization (92) and call graph construction (93)
+  dead-code initialization (92), call graph construction (93) and the
+  bytecode writer's numbering of nested attributes and types (97)
 - left, for the stage-1 stack painting to measure (D33, S1), each
   recursing through code no explicit stack inside MLIR's own reaches: the
   op parser and printer, which reach a nested region through the op's own
@@ -526,9 +533,7 @@ which the top-level CMake configure gate reads.
   a dialect attribute's parameters, through its parser and printer; and
   the rewriter's `eraseOp`, which recurses through a `std::function` when
   a listener is attached (`PatternMatch.cpp`), with
-  `Operation::dropAllDefinedValueUses`. The bytecode writer recurses on
-  nesting too, and nothing in the tree reaches it: the compiler reads the
-  frontend's bytecode and writes none
+  `Operation::dropAllDefinedValueUses`
 - retire: when the pin has every family's fix, or the painting shows the
   ones left within the measured stack
 - upstream: one RFC on Discourse for the family set, then one pull
@@ -1066,6 +1071,25 @@ which the top-level CMake configure gate reads.
   request after the RFC for MLIR's recursions on input size
 - status (2026-10-21): carried; not filed
 
+## bytecode-numbering-iterative
+
+- symptom: on llvm main at 416f328b, the bytecode writer numbers a nested
+  attribute or type by a dummy writing that numbers each component as it
+  reaches it (`IRNumberingState::number`), recursing once per level of
+  nesting
+- sites: none in our code; the patch. The toolchain's `mlir-opt` writing
+  bytecode reaches it: tests/upstream-bytecode-deferred-quadratic writes
+  an array nested 32,000 deep on a small stack, with no raised limit
+- workaround: `upstream/97-bytecode-numbering-iterative/llvm.patch`: the
+  dummy writer records the components it reaches, numbered afterwards
+  from an explicit stack in the recursion's order, so the bytecode is
+  unchanged; checked by tests/upstream-bytecode-numbering-iterative
+- retire: when the pin numbers nested attributes and types without
+  recursion on their depth
+- upstream: upstream/97-bytecode-numbering-iterative; one pull request
+  after the RFC for MLIR's recursions on input size
+- status (2026-10-21): carried; not filed
+
 ## one-shot-tensor-like-copy
 
 - symptom: on llvm main at 416f328b, One-Shot Bufferize gives an
@@ -1189,34 +1213,27 @@ which the top-level CMake configure gate reads.
 - retire: never; every x86-64 CPU since 2006 has it
 - upstream: none
 
-## simdutf-dispatch
+## simdutf-constexpr-implementation
 
-- symptom: simdutf picks its implementation itself on first use: from the
-  environment variable `SIMDUTF_FORCE_IMPLEMENTATION` when it is set, so a
-  program's string checks could depend on its environment, and otherwise by
-  its own processor detection, cpuid and xgetbv in inline assembly
-  (`include/simdutf/internal/isadetection.h:281,296`) over a feature mask in
-  which AVX512VPOPCNTDQ and AVX512CD share a bit (`:113,117`), so it can
-  choose the icelake kernel on a processor without VPOPCNTDQ, which that
-  kernel executes
-- sites: runtime/Strings/Simd.cpp; `runsSimdutf` in the target entry's
-  processor file (runtime/Platform/X86_64/Cpu.cpp,
-  runtime/Platform/Aarch64/Cpu.cpp)
-- workaround: the runtime takes the first implementation of
-  `get_available_implementations()`, simdutf's priority order, for which the
-  target's processor file says the processor has every feature of the
-  target region its kernels are compiled in, tested with
-  `__builtin_cpu_supports` as the startup check tests a program's features,
-  and calls that implementation's methods directly. Reading the list and the
-  names runs no detection; `detect_best_supported`,
-  `supported_by_runtime_system` and the free functions that dispatch through
-  `get_active_implementation` are never called, so nothing in the tree
-  reaches simdutf's cpuid or the shared bit. On arm64 the one implementation
-  is arm64 (NEON, the baseline)
-- retire: never; deliberate: the feature decision has one owner, the
-  target's startup check
-- upstream: upstream/48-simdutf-avx512vpopcntdq-bit (the shared bit; a
-  submission, not carried)
+- symptom: at simdutf 9.3.2 (and on its master, read 2026-10-21), no
+  implementation's constructor is `constexpr`, so a program cannot hold
+  an implementation as a constant object of its own `final` class: the
+  object needs a dynamic initializer, and the only constant way to reach
+  the kernels is through the virtual table and
+  `get_active_implementation()`, simdutf's run-time choice
+- sites: runtime/Strings/Simd.h (`rt::strings::utf8`, a constant of the
+  class the target's entry names, IDRIS_RT_SIMDUTF_CLASS), and every call
+  of the runtime into simdutf through it, each direct, so the stack bound
+  sees its callee; the runtime compiles simdutf from the bootstrap's
+  export (runtime-library-export)
+- workaround: `upstream/98-simdutf-constexpr-implementation/simdutf.patch`:
+  `constexpr` on the base constructor and on every architecture's but
+  rvv's, which asks the processor for Zvbb; checked by
+  tests/upstream-simdutf-constexpr-implementation
+- retire: when a pinned simdutf release has constexpr constructors
+- upstream: upstream/98-simdutf-constexpr-implementation; a pull request
+  to simdutf/simdutf
+- status (2026-10-21): carried; not filed
 
 ## snmalloc-arm-yield-asm
 
@@ -1226,7 +1243,7 @@ which the top-level CMake configure gate reads.
   reaches the processor through intrinsics only; every snmalloc spin loop
   the runtime meets on arm64 runs it
 - sites: the runtime's snmalloc, compiled by runtime/Alloc/Cells.cpp from
-  the bootstrap's export (snmalloc-export)
+  the bootstrap's export (runtime-library-export)
 - workaround: `upstream/49-snmalloc-arm-yield-intrinsic/snmalloc.patch`:
   one `#elif __has_builtin(__builtin_arm_yield)` branch that emits the
   same instruction as an intrinsic, applied to the export since snmalloc
@@ -1235,21 +1252,23 @@ which the top-level CMake configure gate reads.
 - retire: when the snmalloc pin moves past upstream's change
 - upstream: upstream/49-snmalloc-arm-yield-intrinsic (not filed)
 
-## snmalloc-export
+## runtime-library-export
 
-- symptom: snmalloc's fixes are patches to its source (94, 95, 49), which
-  the runtime's build cannot apply to the submodule it compiles
-- sites: tools/bootstrap.sh (step `snmalloc`), tools/patches.sh (project
-  `snmalloc`), tools/verify-pins.sh (`sysroot`); the toolchain files,
-  which name the export as `IDRIS_MLIR_SNMALLOC`; runtime/CMakeLists.txt,
-  which compiles snmalloc from it
-- workaround: the bootstrap exports third_party/snmalloc at its gitlink,
-  the lock's revision, with its patches applied in name order, into
-  .toolchain/snmalloc/src, stamped with them; the runtime compiles that
-  copy
-- retire: when snmalloc carries no patch
+- symptom: the fixes of the libraries the runtime compiles are patches to
+  their source, snmalloc's (94, 95, 49) and simdutf's (98), which the
+  runtime's build cannot apply to the submodules it would compile
+- sites: tools/bootstrap.sh (steps `snmalloc` and `simdutf`, one
+  `step_export`), tools/patches.sh (projects `snmalloc` and `simdutf`),
+  tools/verify-pins.sh (`sysroot`); the toolchain files, which name the
+  exports as `IDRIS_MLIR_SNMALLOC` and `IDRIS_MLIR_SIMDUTF`;
+  runtime/CMakeLists.txt, which compiles both from them
+- workaround: the bootstrap exports third_party/snmalloc and
+  third_party/simdutf, each at its gitlink, the lock's revision, with its
+  patches applied in name order, into .toolchain/<name>/src, stamped with
+  them; the runtime compiles those copies
+- retire: a library's export goes when it carries no patch
 - upstream: none
-- status (2026-10-21): new with this bump
+- status (2026-10-21): snmalloc's new with this bump; simdutf's with C169
 
 ## snmalloc-pagemap-sanity-checks
 

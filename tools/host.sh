@@ -164,20 +164,6 @@ cpu_name() {
   printf '%s\n' "${cpu_name_text:-unknown}"
 }
 
-# stack_hard_max: the hard stack limit (ulimit -H -s) in KiB, or unlimited.
-# macOS caps it near 64 MiB, which is why a program that recurses deeply
-# must be run differently there, not with a larger limit (bench/run.sh).
-stack_hard_max() {
-  ulimit -H -s
-}
-
-# stack_max: raises this shell's stack limit (ulimit -s), for what it runs
-# after, as far as the system allows: unlimited where the hard limit is (as
-# on Linux, usually), else the hard limit (macOS caps it near 64 MiB).
-stack_max() {
-  ulimit -s unlimited 2> /dev/null || ulimit -s "$(ulimit -H -s)"
-}
-
 # with_lock DIR CMD...: CMD, run while holding the mutex DIR, which mkdir
 # makes atomically and which holds its holder's process ID; it waits while
 # another process holds it. A mutex whose holder is gone (killed before it

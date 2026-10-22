@@ -12,9 +12,11 @@
 # as the checkout that built it did. One not built yet is named as given.
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 if [ -d "$toolchain" ]; then toolchain=$(cd "$toolchain" && pwd -P); fi
-# The runtime's snmalloc, exported with its patches (tools/bootstrap.sh
-# snmalloc): the source the runtime's build compiles, and its stamp.
+# The runtime's snmalloc and simdutf, each exported with its patches
+# (tools/bootstrap.sh snmalloc, simdutf): the source the runtime's build
+# compiles, and its stamp.
 snmalloc_prefix=$toolchain/snmalloc
+simdutf_prefix=$toolchain/simdutf
 # The pinned Chez Scheme: Idris 2 runs on it, and so do the programs of
 # Idris's Chez backend, the tests' runner and bench/'s baseline.
 chez_prefix=$toolchain/chez
@@ -92,5 +94,5 @@ stamp_field() {
 }
 
 # The host's tools where Linux and macOS differ: coreutils' timeout
-# ($timeout_cmd), the nanosecond clock, SHA-256 and the stack limit.
+# ($timeout_cmd), the nanosecond clock and SHA-256.
 . "$root/tools/host.sh"

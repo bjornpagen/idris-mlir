@@ -20,9 +20,11 @@ module attributes {test.nested = [[[[ ... ]]]]} {
 }
 ```
 
-with the array nested N deep. The text parser recurses per level (see
-`recursive-attribute-parser`), so the conversion to bytecode needs a large
-stack:
+with the array nested N deep. On main the text parser and the bytecode
+writer's numbering recurse per level (`recursive-attribute-parser`,
+`bytecode-numbering-iterative`), so the conversion to bytecode needs a
+large stack there; the pinned toolchain carries both fixes, and
+`tests/upstream-bytecode-deferred-quadratic` runs on a small stack:
 
 ```
 $ ulimit -s unlimited

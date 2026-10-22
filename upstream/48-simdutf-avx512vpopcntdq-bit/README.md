@@ -68,16 +68,16 @@ icelake requirement both use the enumerator.
 ## Why there is no patch
 
 Nothing in this repository reaches the bug. The runtime never asks
-simdutf's detection to pick a kernel: `runtime/Strings/Simd.cpp` takes the
-first implementation of simdutf's list for which the target's processor
-file (`runtime/Platform/X86_64/Cpu.cpp`, `runsSimdutf`) says the processor
-has every feature of the kernel's target region, AVX512VPOPCNTDQ included,
-tested with `__builtin_cpu_supports` as the startup check tests a program's
-features (PINS.md `simdutf-dispatch`). `detect_best_supported`,
-`supported_by_runtime_system` and the free functions that dispatch through
-`get_active_implementation` are never called. simdutf is also no patch
-project of `tools/patches.sh`: the build compiles third_party/simdutf as
-its submodule pins it.
+simdutf's detection to pick a kernel: it is built with the one
+implementation its target's entry names, held as a constant of that
+implementation's own class and called directly (`runtime/Strings/Simd.h`,
+PINS.md `simdutf-constexpr-implementation`), and the startup check
+refuses a machine without the features that implementation's kernels
+use. `detect_best_supported`, `supported_by_runtime_system` and the free
+functions that dispatch through `get_active_implementation` are never
+called. simdutf is a patch project of `tools/patches.sh` since
+`upstream/98-simdutf-constexpr-implementation`, but this diff stays a
+submission, since nothing reaches the bug.
 
 ## Upstreaming plan
 

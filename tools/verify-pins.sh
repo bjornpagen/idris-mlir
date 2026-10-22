@@ -14,15 +14,15 @@
 #               Chez Scheme
 #   llvm        the stage-2 LLVM/MLIR and clang were built at the lock's revision
 #   sysroot     the target's C library, the LLVM runtimes, GMP and the
-#               runtime's snmalloc are the ones the toolchain was built
-#               with: the lock's revisions, and the SDK the host has now
-#               where libSystem is the C library
+#               runtime's snmalloc and simdutf are the ones the toolchain
+#               was built with: the lock's revisions, and the SDK the host
+#               has now where libSystem is the C library
 #   cmake, ninja, chez
 #               the pinned tool's stamp names the lock's revision
 #
-# Idris, LLVM (its runtimes too), snmalloc and Chez Scheme are also stale
-# when their stamp records other patches than upstream/*/<project>.patch
-# carry now (tools/patches.sh).
+# Idris, LLVM (its runtimes too), snmalloc, simdutf and Chez Scheme are
+# also stale when their stamp records other patches than
+# upstream/*/<project>.patch carry now (tools/patches.sh).
 #   built       the tools `make build` makes exist
 #   prefix      the frontend's prefix is built: the pinned Idris source's
 #               packages and those of libs/, each by the frontend (make build)
@@ -124,8 +124,8 @@ check() {
       # What programs link against, as the steps that made it recorded it
       # (tools/bootstrap.sh): the system's C library, which must be the one
       # the host has now (glibc's version, or the macOS SDK's), the runtimes
-      # beside the pinned clang, GMP in the sysroot, and the snmalloc the
-      # runtime compiles.
+      # beside the pinned clang, GMP in the sysroot, and the snmalloc and
+      # simdutf the runtime compiles.
       stamp=$sysroot/provenance/libc.json
       [ -f "$stamp" ] || fail "The sysroot has no C library; run: tools/bootstrap.sh libc"
       case $(stamp_value "$stamp" libc) in
@@ -143,11 +143,15 @@ check() {
       [ -f "$stamp" ] || fail "The sysroot has no gmp; run: tools/bootstrap.sh gmp"
       [ "$(stamp_value "$stamp" revision)" = "$(lock_field gmp revision)" ] ||
         fail "The sysroot's gmp is stale; rerun tools/bootstrap.sh gmp"
-      stamp=$snmalloc_prefix/provenance.json
-      [ -f "$stamp" ] || fail "The runtime's snmalloc is not exported; run: tools/bootstrap.sh snmalloc"
-      [ "$(stamp_value "$stamp" revision)" = "$(lock_field snmalloc revision)" ] ||
-        fail "The runtime's snmalloc is stale; rerun tools/bootstrap.sh snmalloc"
-      patched snmalloc "$stamp" snmalloc
+      # The libraries the runtime compiles from the bootstrap's exports,
+      # each at the prefix tools/toolchain.sh names (<name>_prefix).
+      for exported in snmalloc simdutf; do
+        eval "stamp=\$${exported}_prefix/provenance.json"
+        [ -f "$stamp" ] || fail "The runtime's $exported is not exported; run: tools/bootstrap.sh $exported"
+        [ "$(stamp_value "$stamp" revision)" = "$(lock_field "$exported" revision)" ] ||
+          fail "The runtime's $exported is stale; rerun tools/bootstrap.sh $exported"
+        patched "$exported" "$stamp" "$exported"
+      done
       ;;
     cmake | ninja | chez)
       want=$(lock_field "$1" revision)

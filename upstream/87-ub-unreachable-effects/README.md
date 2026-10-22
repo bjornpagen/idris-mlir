@@ -14,9 +14,10 @@ place control never goes on. The op came in with #169872 (2025); no
 upstream change since gives it effects (main read 2026-10-21; #169873,
 open, adds canonicalizations and leaves the traits as they are).
 
-The compiler works around it with an external model that gives the op
-no effects (`NeverRuns`, `foreign/idr/lib/IR/FlowOps.cpp`), which
-AGENTS.md lists as code standing in for an upstream fix.
+The compiler worked around it with an external model that gave the op
+no effects (`NeverRuns`, `foreign/idr/lib/IR/FlowOps.cpp`), code standing
+in for an upstream fix. That model is deleted: the patch below alone
+gives the op its effects, and nothing in our code stands in for it.
 
 ## Reproduce
 
@@ -31,8 +32,7 @@ having effects); with the patch it is erased.
 `llvm.patch`: `ub.unreachable` declares `NoMemoryEffect`, and its
 description says why; it stays unspeculatable, since executing it is
 undefined behavior. A test in `mlir/test/Dialect/UB/canonicalize.mlir`
-checks that the region op above is erased. Not built. With it,
-`NeverRuns` goes (L09).
+checks that the region op above is erased. Not built.
 
 ## Upstreaming plan
 

@@ -1,0 +1,291 @@
+Subject: [PATCH] [mlir][bytecode] Number nested attributes and types from a worklist
+
+`IRNumberingState::number` numbers an attribute or type by a dummy
+writing whose `writeAttribute` and `writeType` number each nested
+component as they are reached, so numbering calls itself, through the
+dialect's bytecode interface, once per level of nesting: writing a
+builtin array nested a few thousand deep, or a long chain of call-site
+locations, needs a native stack that grows with the depth of the IR. The
+dummy writer now records the components it reaches (nested attributes
+and types, referenced resources, and a callback's group name), and they
+are numbered afterwards from an explicit stack: the components of a newly
+numbered value before the rest of the components reached with it. This
+is the order the recursion took, so values, dialects and resources are
+numbered, and the bytecode written, exactly as before.
+---
+diff --git a/mlir/lib/Bytecode/Writer/IRNumbering.cpp b/mlir/lib/Bytecode/Writer/IRNumbering.cpp
+index dcc8787..476ccf0 100644
+--- a/mlir/lib/Bytecode/Writer/IRNumbering.cpp
++++ b/mlir/lib/Bytecode/Writer/IRNumbering.cpp
+@@ -15,6 +15,7 @@
+ #include "mlir/IR/BuiltinTypes.h"
+ #include "mlir/IR/Location.h"
+ #include "mlir/IR/OpDefinition.h"
++#include "llvm/ADT/STLExtras.h"
+ 
+ using namespace mlir;
+ using namespace mlir::bytecode::detail;
+@@ -25,18 +26,18 @@ using namespace mlir::bytecode::detail;
+ 
+ struct IRNumberingState::NumberingDialectWriter : public DialectBytecodeWriter {
+   NumberingDialectWriter(
+-      IRNumberingState &state,
++      IRNumberingState &state, SmallVectorImpl<NestedComponent> &nested,
+       llvm::StringMap<std::unique_ptr<DialectVersion>> &dialectVersionMap)
+-      : state(state), dialectVersionMap(dialectVersionMap) {}
++      : state(state), nested(nested), dialectVersionMap(dialectVersionMap) {}
+ 
+-  void writeAttribute(Attribute attr) override { state.number(attr); }
++  void writeAttribute(Attribute attr) override { nested.push_back(attr); }
+   void writeOptionalAttribute(Attribute attr) override {
+     if (attr)
+-      state.number(attr);
++      nested.push_back(attr);
+   }
+-  void writeType(Type type) override { state.number(type); }
++  void writeType(Type type) override { nested.push_back(type); }
+   void writeResourceHandle(const AsmDialectResourceHandle &resource) override {
+-    state.number(resource.getDialect(), resource);
++    nested.push_back(NestedResources{resource.getDialect(), {resource}});
+   }
+ 
+   /// Stubbed out methods that are not used for numbering.
+@@ -65,9 +66,12 @@ struct IRNumberingState::NumberingDialectWriter : public DialectBytecodeWriter {
+     return dialectEntry->getValue().get();
+   }
+ 
+-  /// The parent numbering state that is populated by this writer.
++  /// The parent numbering state.
+   IRNumberingState &state;
+ 
++  /// The components reached by this writer, in the order they were reached.
++  SmallVectorImpl<NestedComponent> &nested;
++
+   /// A map containing dialect version information for each dialect to emit.
+   llvm::StringMap<std::unique_ptr<DialectVersion>> &dialectVersionMap;
+ };
+@@ -325,6 +329,13 @@ void IRNumberingState::number(Location loc) {
+ }
+ 
+ void IRNumberingState::number(Attribute attr) {
++  SmallVector<NestedComponent> nested;
++  numberShallow(attr, nested);
++  numberNested(std::move(nested));
++}
++
++void IRNumberingState::numberShallow(Attribute attr,
++                                     SmallVectorImpl<NestedComponent> &nested) {
+   auto it = attrs.try_emplace(attr);
+   if (!it.second) {
+     ++it.first->second->refCount;
+@@ -345,24 +356,26 @@ void IRNumberingState::number(Attribute attr) {
+   numbering->dialect = &numberDialect(&attr.getDialect());
+ 
+   // If this attribute will be emitted using the bytecode format, perform a
+-  // dummy writing to number any nested components.
++  // dummy writing to record any nested components.
+   // TODO: We don't allow custom encodings for mutable attributes right now.
+   if (!attr.hasTrait<AttributeTrait::IsMutable>()) {
+     // Try overriding emission with callbacks.
+     for (const auto &callback : config.getAttributeWriterCallbacks()) {
+-      NumberingDialectWriter writer(*this, config.getDialectVersionMap());
++      NumberingDialectWriter writer(*this, nested,
++                                    config.getDialectVersionMap());
+       // The client has the ability to override the group name through the
+       // callback.
+       std::optional<StringRef> groupNameOverride;
+       if (succeeded(callback->write(attr, groupNameOverride, writer))) {
+         if (groupNameOverride.has_value())
+-          numbering->dialect = &numberDialect(*groupNameOverride);
++          nested.push_back(NestedGroupName{numbering, *groupNameOverride});
+         return;
+       }
+     }
+ 
+     if (const auto *interface = numbering->dialect->interface) {
+-      NumberingDialectWriter writer(*this, config.getDialectVersionMap());
++      NumberingDialectWriter writer(*this, nested,
++                                    config.getDialectVersionMap());
+       if (succeeded(interface->writeAttribute(attr, writer)))
+         return;
+     }
+@@ -375,9 +388,44 @@ void IRNumberingState::number(Attribute attr) {
+   llvm::raw_null_ostream dummyOS;
+   attr.print(dummyOS, tempState);
+ 
+-  // Number the used dialect resources.
++  // Record the used dialect resources.
+   for (const auto &it : tempState.getDialectResources())
+-    number(it.getFirst(), it.getSecond().getArrayRef());
++    nested.push_back(NestedResources{
++        it.getFirst(), SmallVector<AsmDialectResourceHandle, 1>(
++                           it.getSecond().getArrayRef())});
++}
++
++void IRNumberingState::numberNested(SmallVector<NestedComponent> components) {
++  // The components left to number, grouped by the attribute or type whose
++  // writing reached them (or by the caller's writing), each group with the
++  // index of its next component. The components of a newly numbered attribute
++  // or type are numbered before the rest of its group, which is the order a
++  // recursive walk would take, while the native stack stays independent of
++  // the nesting depth.
++  SmallVector<std::pair<SmallVector<NestedComponent>, size_t>> worklist;
++  if (!components.empty())
++    worklist.emplace_back(std::move(components), 0);
++  while (!worklist.empty()) {
++    auto &[group, next] = worklist.back();
++    if (next == group.size()) {
++      worklist.pop_back();
++      continue;
++    }
++    SmallVector<NestedComponent> nested;
++    std::visit(llvm::makeVisitor(
++                   [&](Attribute attr) { numberShallow(attr, nested); },
++                   [&](Type type) { numberShallow(type, nested); },
++                   [&](const NestedResources &resources) {
++                     number(resources.dialect, resources.resources);
++                   },
++                   [&](const NestedGroupName &groupName) {
++                     groupName.numbering->dialect =
++                         &numberDialect(groupName.name);
++                   }),
++               group[next++]);
++    if (!nested.empty())
++      worklist.emplace_back(std::move(nested), 0);
++  }
+ }
+ 
+ void IRNumberingState::number(Block &block) {
+@@ -470,8 +518,11 @@ void IRNumberingState::number(Operation &op) {
+     if (op.isRegistered()) {
+       // Operation that have properties *must* implement this interface.
+       auto iface = cast<BytecodeOpInterface>(op);
+-      NumberingDialectWriter writer(*this, config.getDialectVersionMap());
++      SmallVector<NestedComponent> nested;
++      NumberingDialectWriter writer(*this, nested,
++                                    config.getDialectVersionMap());
+       iface.writeProperties(writer);
++      numberNested(std::move(nested));
+     } else {
+       // Unregistered op are storing properties as an optional attribute.
+       if (Attribute prop = *op.getPropertiesStorage().as<Attribute *>())
+@@ -500,6 +551,13 @@ void IRNumberingState::number(OperationName opName) {
+ }
+ 
+ void IRNumberingState::number(Type type) {
++  SmallVector<NestedComponent> nested;
++  numberShallow(type, nested);
++  numberNested(std::move(nested));
++}
++
++void IRNumberingState::numberShallow(Type type,
++                                     SmallVectorImpl<NestedComponent> &nested) {
+   auto it = types.try_emplace(type);
+   if (!it.second) {
+     ++it.first->second->refCount;
+@@ -520,26 +578,28 @@ void IRNumberingState::number(Type type) {
+   numbering->dialect = &numberDialect(&type.getDialect());
+ 
+   // If this type will be emitted using the bytecode format, perform a dummy
+-  // writing to number any nested components.
++  // writing to record any nested components.
+   // TODO: We don't allow custom encodings for mutable types right now.
+   if (!type.hasTrait<TypeTrait::IsMutable>()) {
+     // Try overriding emission with callbacks.
+     for (const auto &callback : config.getTypeWriterCallbacks()) {
+-      NumberingDialectWriter writer(*this, config.getDialectVersionMap());
++      NumberingDialectWriter writer(*this, nested,
++                                    config.getDialectVersionMap());
+       // The client has the ability to override the group name through the
+       // callback.
+       std::optional<StringRef> groupNameOverride;
+       if (succeeded(callback->write(type, groupNameOverride, writer))) {
+         if (groupNameOverride.has_value())
+-          numbering->dialect = &numberDialect(*groupNameOverride);
++          nested.push_back(NestedGroupName{numbering, *groupNameOverride});
+         return;
+       }
+     }
+ 
+     // If this attribute will be emitted using the bytecode format, perform a
+-    // dummy writing to number any nested components.
++    // dummy writing to record any nested components.
+     if (const auto *interface = numbering->dialect->interface) {
+-      NumberingDialectWriter writer(*this, config.getDialectVersionMap());
++      NumberingDialectWriter writer(*this, nested,
++                                    config.getDialectVersionMap());
+       if (succeeded(interface->writeType(type, writer)))
+         return;
+     }
+@@ -552,9 +612,11 @@ void IRNumberingState::number(Type type) {
+   llvm::raw_null_ostream dummyOS;
+   type.print(dummyOS, tempState);
+ 
+-  // Number the used dialect resources.
++  // Record the used dialect resources.
+   for (const auto &it : tempState.getDialectResources())
+-    number(it.getFirst(), it.getSecond().getArrayRef());
++    nested.push_back(NestedResources{
++        it.getFirst(), SmallVector<AsmDialectResourceHandle, 1>(
++                           it.getSecond().getArrayRef())});
+ }
+ 
+ void IRNumberingState::number(Dialect *dialect,
+diff --git a/mlir/lib/Bytecode/Writer/IRNumbering.h b/mlir/lib/Bytecode/Writer/IRNumbering.h
+index f236e4a..d12a1f1 100644
+--- a/mlir/lib/Bytecode/Writer/IRNumbering.h
++++ b/mlir/lib/Bytecode/Writer/IRNumbering.h
+@@ -20,6 +20,7 @@
+ #include "llvm/ADT/SetVector.h"
+ #include "llvm/ADT/StringMap.h"
+ #include <cstdint>
++#include <variant>
+ 
+ namespace mlir {
+ class BytecodeDialectInterface;
+@@ -214,10 +215,27 @@ public:
+   int64_t getDesiredBytecodeVersion() const;
+   
+ private:
+-  /// This class is used to provide a fake dialect writer for numbering nested
+-  /// attributes and types.
++  /// This class is used to provide a fake dialect writer that records the
++  /// components nested within an attribute, a type, or operation properties.
+   struct NumberingDialectWriter;
+ 
++  /// The dialect resources referenced by an attribute or type.
++  struct NestedResources {
++    Dialect *dialect;
++    SmallVector<AsmDialectResourceHandle, 1> resources;
++  };
++  /// The group name a writer callback chose for a numbered attribute or type.
++  struct NestedGroupName {
++    AttrTypeNumbering *numbering;
++    StringRef name;
++  };
++  /// A component reached while writing an attribute, a type, or operation
++  /// properties for numbering. Components are recorded as they are reached and
++  /// numbered afterwards, so that numbering a deeply nested attribute or type
++  /// does not recurse once per level of nesting.
++  using NestedComponent =
++      std::variant<Attribute, Type, NestedResources, NestedGroupName>;
++
+   /// Compute the global numbering state for the given root operation.
+   void computeGlobalNumberingState(Operation *rootOp);
+ 
+@@ -232,6 +250,15 @@ private:
+   void number(Region &region);
+   void number(Type type);
+ 
++  /// Number the given attribute or type if it isn't numbered yet, appending the
++  /// components nested within it to `nested` without numbering them.
++  void numberShallow(Attribute attr, SmallVectorImpl<NestedComponent> &nested);
++  void numberShallow(Type type, SmallVectorImpl<NestedComponent> &nested);
++
++  /// Number the given components and everything nested within them, in the
++  /// order in which a recursive walk would reach them.
++  void numberNested(SmallVector<NestedComponent> components);
++
+   /// Number the given dialect resources.
+   void number(Dialect *dialect, ArrayRef<AsmDialectResourceHandle> resources);
+ 

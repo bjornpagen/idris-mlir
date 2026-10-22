@@ -1,0 +1,133 @@
+Subject: [PATCH] Make the implementation constructors constexpr
+
+An implementation's constructor only stores its name, description and
+required instruction sets, all constants, so it can be `constexpr`. With
+it, a program built for one implementation can hold that implementation
+as a constant object of its own `final` class and call its methods
+directly: the object is initialized when the program is built, no
+dynamic initializer runs at startup, and no call goes through the
+virtual table or `get_active_implementation()`. The base constructor and
+every architecture's are `constexpr`, except rvv's, which asks the
+processor whether it has Zvbb.
+---
+diff --git a/include/simdutf/implementation.h b/include/simdutf/implementation.h
+index e936665..6cddb32 100644
+--- a/include/simdutf/implementation.h
++++ b/include/simdutf/implementation.h
+@@ -7508,9 +7508,9 @@ protected:
+    * @param required_instruction_sets the instruction sets this implementation
+    * requires
+    */
+-  simdutf_really_inline implementation(const char *name,
+-                                       const char *description,
+-                                       uint32_t required_instruction_sets)
++  simdutf_really_inline constexpr implementation(
++      const char *name, const char *description,
++      uint32_t required_instruction_sets)
+       : _name(name), _description(description),
+         _required_instruction_sets(required_instruction_sets) {}
+ 
+diff --git a/src/simdutf/arm64/implementation.h b/src/simdutf/arm64/implementation.h
+index a189e94..0afacd7 100644
+--- a/src/simdutf/arm64/implementation.h
++++ b/src/simdutf/arm64/implementation.h
+@@ -13,7 +13,7 @@ using namespace simdutf;
+ 
+ class implementation final : public simdutf::implementation {
+ public:
+-  simdutf_really_inline implementation()
++  simdutf_really_inline constexpr implementation()
+       : simdutf::implementation("arm64", "ARM NEON",
+                                 internal::instruction_set::NEON) {}
+ #if SIMDUTF_FEATURE_DETECT_ENCODING
+diff --git a/src/simdutf/fallback/implementation.h b/src/simdutf/fallback/implementation.h
+index 5d26049..f0a4792 100644
+--- a/src/simdutf/fallback/implementation.h
++++ b/src/simdutf/fallback/implementation.h
+@@ -12,7 +12,7 @@ using namespace simdutf;
+ 
+ class implementation final : public simdutf::implementation {
+ public:
+-  simdutf_really_inline implementation()
++  simdutf_really_inline constexpr implementation()
+       : simdutf::implementation("fallback", "Generic fallback implementation",
+                                 0) {}
+ 
+diff --git a/src/simdutf/haswell/implementation.h b/src/simdutf/haswell/implementation.h
+index fdcb36e..4c45d5d 100644
+--- a/src/simdutf/haswell/implementation.h
++++ b/src/simdutf/haswell/implementation.h
+@@ -12,7 +12,7 @@ using namespace simdutf;
+ 
+ class implementation final : public simdutf::implementation {
+ public:
+-  simdutf_really_inline implementation()
++  simdutf_really_inline constexpr implementation()
+       : simdutf::implementation("haswell", "Intel/AMD AVX2",
+                                 internal::instruction_set::AVX2 |
+                                     internal::instruction_set::BMI1 |
+diff --git a/src/simdutf/icelake/implementation.h b/src/simdutf/icelake/implementation.h
+index 3a70d8a..af7e103 100644
+--- a/src/simdutf/icelake/implementation.h
++++ b/src/simdutf/icelake/implementation.h
+@@ -12,7 +12,7 @@ using namespace simdutf;
+ 
+ class implementation final : public simdutf::implementation {
+ public:
+-  simdutf_really_inline implementation()
++  simdutf_really_inline constexpr implementation()
+       : simdutf::implementation(
+             "icelake",
+             "Intel AVX512 (AVX-512BW, AVX-512CD, AVX-512VL, AVX-512VBMI2 "
+diff --git a/src/simdutf/lasx/implementation.h b/src/simdutf/lasx/implementation.h
+index 3f64752..f073a1a 100644
+--- a/src/simdutf/lasx/implementation.h
++++ b/src/simdutf/lasx/implementation.h
+@@ -13,7 +13,7 @@ using namespace simdutf;
+ 
+ class implementation final : public simdutf::implementation {
+ public:
+-  simdutf_really_inline implementation()
++  simdutf_really_inline constexpr implementation()
+       : simdutf::implementation("lasx", "LOONGARCH ASX",
+                                 internal::instruction_set::LSX |
+                                     internal::instruction_set::LASX) {}
+diff --git a/src/simdutf/lsx/implementation.h b/src/simdutf/lsx/implementation.h
+index 0f3da26..1cfad4c 100644
+--- a/src/simdutf/lsx/implementation.h
++++ b/src/simdutf/lsx/implementation.h
+@@ -13,7 +13,7 @@ using namespace simdutf;
+ 
+ class implementation final : public simdutf::implementation {
+ public:
+-  simdutf_really_inline implementation()
++  simdutf_really_inline constexpr implementation()
+       : simdutf::implementation("lsx", "LOONGARCH SX",
+                                 internal::instruction_set::LSX) {}
+ #if SIMDUTF_FEATURE_DETECT_ENCODING
+diff --git a/src/simdutf/ppc64/implementation.h b/src/simdutf/ppc64/implementation.h
+index 6d30b62..32fd5b4 100644
+--- a/src/simdutf/ppc64/implementation.h
++++ b/src/simdutf/ppc64/implementation.h
+@@ -17,7 +17,7 @@ template <size_t N> simdutf_really_inline size_t align_down(size_t size) {
+ 
+ class implementation final : public simdutf::implementation {
+ public:
+-  simdutf_really_inline implementation()
++  simdutf_really_inline constexpr implementation()
+       : simdutf::implementation("ppc64", "PPC64 ALTIVEC",
+                                 internal::instruction_set::ALTIVEC) {}
+ 
+diff --git a/src/simdutf/westmere/implementation.h b/src/simdutf/westmere/implementation.h
+index 24571fb..8a0651f 100644
+--- a/src/simdutf/westmere/implementation.h
++++ b/src/simdutf/westmere/implementation.h
+@@ -14,7 +14,7 @@ using namespace simdutf;
+ 
+ class implementation final : public simdutf::implementation {
+ public:
+-  simdutf_really_inline implementation()
++  simdutf_really_inline constexpr implementation()
+       : simdutf::implementation("westmere", "Intel/AMD SSE4.2",
+                                 internal::instruction_set::SSE42) {}
+ 

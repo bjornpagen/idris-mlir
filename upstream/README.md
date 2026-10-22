@@ -31,6 +31,9 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   third_party/snmalloc's gitlink (the lock's revision), which the
   bootstrap's `snmalloc` step applies, in name order, to its export of the
   checkout for the runtime's build (`.toolchain/snmalloc/src`).
+- `simdutf.patch`: the same for the runtime's simdutf, against
+  third_party/simdutf's gitlink, which the bootstrap's `simdutf` step
+  applies to its export (`.toolchain/simdutf/src`).
 - `idris.patch`: the same for Idris 2, against third_party/Idris2's
   gitlink, which the bootstrap's `idris` step would apply to its copy of
   the checkout (the checkout itself stays unmodified). None is carried:
@@ -88,24 +91,24 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | -- | --- | ------------- | ------ |
 | 01 | remove-dead-values-address-taken | a test-only PR (submission.md): #208881 merged without this case | test-only PR due: #208881 merged 2026-10-12 (0edf6243) without this case |
 | 02 | composite-fixed-point-sccp | issue + PR: SCCP keeps existing constants | send next; ready: applies to main at b43c0361; submission.md has the checklist; not carried |
-| 03 | bytecode-deferred-quadratic | issue + PR: deferred entries resolved along a path; cycle is an error | ready; overlaps open #229910 |
-| 04 | vectorize-precondition-body | issue + PR: precondition checks every body op | ready |
-| 05 | forward-dataflow-callee-lookup | PR: solver owns one SymbolTableCollection per run | ready |
+| 03 | bytecode-deferred-quadratic | issue + PR: deferred entries resolved along a path; cycle is an error | carried; ready; overlaps open #229910 |
+| 04 | vectorize-precondition-body | issue + PR: precondition checks every body op | carried; ready |
+| 05 | forward-dataflow-callee-lookup | PR: solver owns one SymbolTableCollection per run | carried; ready |
 | 06 | remove-dead-values-unreachable | issue + PR + comment on #208881: poison for every erased value | not carried since 2026-10-21 (C35); rebase first: #208881 merged; pull-request.diff's function-argument hunk no longer applies to main; still applies to the pin |
-| 07 | inline-unreachable-terminator | issue + PR: the hook is asked of the terminator's dialect | ready |
-| 08 | execution-engine-process-symbols | PR: process symbols optional, one JITDylib | ready; the compiler no longer runs a JIT, so nothing here needs it |
+| 07 | inline-unreachable-terminator | issue + PR: the hook is asked of the terminator's dialect | carried; ready |
+| 08 | execution-engine-process-symbols | PR: process symbols optional, one JITDylib | not carried: the compiler no longer runs a JIT, so nothing here needs it; ready |
 | 09 | int-range-narrowing-exactness | issue + PR: remsi and the unsigned ops keep their width when narrowing changes them | carried, the remainders only (the pin has 44a4dbf32, the shift); both still broken on main at 7208ba24; no submission.md text yet |
 | 10 | recursive-attribute-parser | an RFC on Discourse first, then a PR: nested builtin arrays and dictionaries parsed, printed and visited for aliases from a stack | carried (2026-10-21); not filed; not ready (RFC first) |
-| 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | ready to file; applies to main at b43c0361; submission.md; test checked at the pin only; check-mlir not run |
+| 16 | remove-dead-values-unchanged-call | issue + PR: `eraseOpResults` keeps an op it erases no result of, as `eraseOperands` does | not carried since the pipeline cutover (nothing reaches it); ready to file; applies to main at b43c0361; submission.md; test checked at the pin only; check-mlir not run |
 | 17 | sccp-revert-unset-property | PR: sccp copies the properties storage around a simulated fold, so it reverts a property the fold set on an op that had none | not ready: not carried (the compiler is not affected); no `mlir-opt` with it built; `check-mlir` not run |
 | 18 | elaboration-primitive-folding | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change and our test; still broken on main at 626eeb8e; the toolchain is not yet rebuilt with it |
+| 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change as main's rewritten `PassTiming.cpp` (#232948) spells it, and our test; still broken on main at 416f328b, where #169615 no longer applies |
 | 20 | evaluator-char-text | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | ready to file; diff rebuilt on main after #208881; submission.md; test never run; check-mlir not run |
+| 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | not carried since the pipeline cutover (nothing reaches it); ready to file; diff rebuilt on main after #208881; submission.md; test never run; check-mlir not run |
 | 23 | cse-statistic-assignment | PR: CSE accumulates its pass statistics over nested runs (cse-statistics.mlir) | not carried since 2026-10-21 (no upstream cse, D98, D100); ready, not sent; pull-request.diff applies to main at 7a83be39 |
 | 24 | one-shot-module-function-interface | four PRs: One-Shot Module Bufferize on `FunctionOpInterface` with the models as public templates and a function that never returns (a reland of #110322, reverted by #113124); cycles of calls analyzed to a fixpoint over the call graph's strongly connected components; a value that definitely aliases an operand writable on its own, with a call result writable only if its callee returns a writable buffer; the nearest symbol table, not ModuleOp, in empty tensor elimination and getGlobalFor | carried; not filed; check-mlir passes on a private build (2026-10-19), after two fixes (README) |
-| 25 | bytecode-unregistered-properties | issue + PR: the reader tests the presence of the `wasRegistered` flag, not its value, so an op written unregistered has its properties attribute read as a properties index; the PR passes the writer's flag into `PropertiesSectionReader::read` and deletes the dead branch (`OpPropertiesTest.BytecodeWrittenUnregistered`) | ready to file; applies to main at b43c0361; submission.md; unit test never run; check-mlir not run |
+| 25 | bytecode-unregistered-properties | issue + PR: the reader tests the presence of the `wasRegistered` flag, not its value, so an op written unregistered has its properties attribute read as a properties index; the PR passes the writer's flag into `PropertiesSectionReader::read` and deletes the dead branch (`OpPropertiesTest.BytecodeWrittenUnregistered`) | never carried (nothing reaches it); ready to file; applies to main at b43c0361; submission.md; unit test never run; check-mlir not run |
 | 27 | one-shot-tensor-like-copy | issue + PR: an out-of-place operand of a custom tensor-like type gets no copy and its allocation reaches `llvm_unreachable`; `BufferizationOptions::tensorAllocationFn`, whose default fails naming the type | carried since 2026-10-21 (C108, D43); not filed |
 | 28 | liveness-non-forwarded-terminator | issue + PR: liveness subscribes a terminator to its parent's results, so one whose operands are all non-forwarded is revisited and remove-dead-values keeps them | not carried since 2026-10-21 (C35); not filed; the upstream test (test dialect) not written; pull-request.diff |
 | 29 | dead-code-nested-symbol-use | issue + PR: dead-code analysis resolves a non-call symbol use in the nested table it names, so a function reached only through func.constant in a nested module keeps its callers unknown and remove-dead-values keeps what it returns | carried; not filed; check-mlir not run |
@@ -154,6 +157,8 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 94 | snmalloc-pagemap-sanity-checks | PR to microsoft/snmalloc: a bounded pagemap's fast-path range tests under sanity_checks | carried; not filed; Microsoft CLA |
 | 95 | snmalloc-notify-using-result | PR to microsoft/snmalloc: the PALs report a refused commit | carried; not filed; Microsoft CLA |
 | 96 | effectful-argument-inline | nothing: Idris takes no tool-written contribution (**Idris**) | recorded, not carried (nothing stock-built reaches it); pull-request.diff against Idris main 89ba32eb |
+| 97 | bytecode-numbering-iterative | PR after the recursion RFC: the bytecode writer numbers nested attributes and types from an explicit stack | carried (2026-10-21); not filed |
+| 98 | simdutf-constexpr-implementation | PR to simdutf/simdutf: the implementation constructors constexpr, rvv's aside | carried (2026-10-21); not filed; simdutf's AI policy wants a human author who answers for it |
 | fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
@@ -315,12 +320,13 @@ weekly. One recipe builds the toolchain on all four targets:
 and stage 2, into `.toolchain/llvm`, without assertions) applies every
 `upstream/*/llvm.patch` in name order to the one tree stage 1, the
 runtimes and stage 2 build from, and their stamps record each by
-SHA-256; `tools/bootstrap.sh snmalloc` does the same for
-`upstream/*/snmalloc.patch` on an export of third_party/snmalloc. Carried
+SHA-256; `tools/bootstrap.sh snmalloc` and `tools/bootstrap.sh simdutf`
+do the same for `upstream/*/snmalloc.patch` and `upstream/*/simdutf.patch`
+on exports of third_party/snmalloc and third_party/simdutf. Carried
 for LLVM: 03, 04, 05, 07, 09, 10, 19, 24, 27, 29, 30, 56, 57, 61, 62,
-64 to 77, 79 to 87, 92 and 93, every one applying at 416f328b in that
+64 to 77, 79 to 87, 92, 93 and 97, every one applying at 416f328b in that
 order (`git apply`, the series in order, on the pinned files they touch,
-2026-10-21); for snmalloc: 49, 94 and 95;
-for Idris and Chez: none. No toolchain is built yet with them, on any
+2026-10-21); for snmalloc: 49, 94 and 95; for simdutf: 98, applying at
+its gitlink (8d82299, 9.3.2); for Idris and Chez: none. No toolchain is built yet with them, on any
 target, and `make build` refuses until one is. That is this repository's
 build, not a precondition for sending anything upstream.
