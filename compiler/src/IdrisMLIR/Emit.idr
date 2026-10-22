@@ -41,6 +41,7 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.MLIR.Bytecode
+import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Rules
 import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Term
@@ -93,6 +94,11 @@ record ModuleRefusal where
   site : Loc
   message : String
 
+||| A refusal as its op: its rule a property, the rule's position among the
+||| specification's rules, and its message a string.
+refusal : ModuleRefusal -> Op
+refusal r = Idr.refusalOp (IntegerAttr (natToInteger (position ruleClosed r.rule)) (IntegerType 32)) (StringAttr r.message)
+
 ||| Writes the module of a refused program to `h` as bytecode: a module of
 ||| no program and one `idr.refusal` per refusal, in the order given, its
 ||| site the op's location, its rule a property of the op and its message
@@ -102,6 +108,6 @@ refused : File -> List1 ModuleRefusal -> IO (Either String ())
 refused h rs = do
   Right w <- newWriter
     | Left e => pure (Left e)
-  Right () <- each (forget rs) (\r => writeTopLevel w (MkStatement Nothing (Idr.refusalOp r.rule r.message) (At r.site)))
+  Right () <- each (forget rs) (\r => writeTopLevel w (MkStatement Nothing (refusal r) (At r.site)))
     | Left e => pure (Left e)
   finish w h [ (At noLoc, \body => Builtin.moduleOp body) ]

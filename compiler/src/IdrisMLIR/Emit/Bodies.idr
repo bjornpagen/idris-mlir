@@ -81,7 +81,7 @@ levels ss = map IVar (take (length ss) [0 .. length ss])
 ||| The world's value: no value of the module. An op's operands, a call's
 ||| arguments, a constructor's fields and a region's results leave it out.
 worldVal : Val
-worldVal = val "" WorldT Once Held.Counted
+worldVal = val "" WorldT Once made
 
 ||| The value a variable stands for; the world for Idris's world.
 standing : InScope -> Val
@@ -98,7 +98,7 @@ present = filter (\v => case v.type of
 export
 resultTypes : Index -> Ty -> List MlirType
 resultTypes ix WorldT = []
-resultTypes ix t = [gradedType ix Many Held.Counted t]
+resultTypes ix t = [gradedType ix Many made t]
 
 ||| What a layer's operands give, left to right: the next is written only
 ||| when the one before it returns, so that nothing follows a value that
@@ -343,11 +343,11 @@ caseFields ix l r named bs = traverse (\(i, b) => field (finToNat i) b) (zip ran
   where
     -- A field at a linear position of a value nothing else reaches is
     -- reached by nothing else either; any other field's sharing is unknown.
-    fieldHold : Binder -> Held
+    fieldHold : Binder -> Hold
     fieldHold (MkBinder Once _) = case r.hold of
-      Held.Exclusive => Held.Exclusive
-      _ => Held.Counted
-    fieldHold (MkBinder Many _) = Held.Counted
+      Hold.Counted Deep => Hold.Counted Deep
+      _ => made
+    fieldHold (MkBinder Many _) = made
     read : Nat -> Binder -> E InScope
     read i (MkBinder _ WorldT) = pure World
     -- An array field is held as its buffer; its value is the tensor of it,
@@ -358,14 +358,14 @@ caseFields ix l r named bs = traverse (\(i, b) => field (finToNat i) b) (zip ran
     read i b@(MkBinder q t@(TensorT _ _)) = do
       let carrier = fieldType ix t
           graded = case (q, fieldHold b) of
-                     (Many, Held.Counted) => carrier
-                     (u, h) => Idr (GradedType u (Just (holdOf h)) carrier)
+                     (Many, Hold.Counted None) => carrier
+                     (u, h) => Idr (GradedType u (Just h) carrier)
       buf <- mlirValue l graded (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
       bare <- case q of
                 Many => pure buf
                 Once => mlirValue l carrier (Idr.linCastOp buf [])
       v <- mlirValue l (mlirType ix t) (Bufferization.toTensorOp {restrict = True} bare)
-      Whole <$> coerce ix l q (val v.name t Many Held.Counted)
+      Whole <$> coerce ix l q (val v.name t Many made)
     read i b = do
       v <- mlirValue l (gradedType ix b.quantity (fieldHold b) b.type) (Idr.dataFieldOp (fieldIndex i) (operand ix r) [])
       pure (Whole (val v.name b.type b.quantity (fieldHold b)))
@@ -399,8 +399,8 @@ holding : Index -> Loc -> Maybe Binding -> Ty -> List Value -> (MlirType -> Op) 
 holding ix l binder t captures build =
   if any linearType captures
     then do
-      r <- mlirValueAt (madeAt binder l Once) (gradedType ix Once Held.Counted t) build
-      pure (val r.name t Once Held.Counted)
+      r <- mlirValueAt (madeAt binder l Once) (gradedType ix Once made t) build
+      pure (val r.name t Once made)
     else value {binder} ix l t build
   where
     linearType : Value -> Bool
@@ -710,8 +710,8 @@ alg ix (TabulateIOF {k} l rt es w body step done) sc wanted = do
     resultOf : Val -> E Val
     resultOf res = do
       let e = typeOf (head step.fields)
-      v <- mlirValue l (gradedType ix Many Held.Counted e) (Idr.dataFieldOp (fieldIndex 0) (operand ix res) [])
-      pure (val v.name e Many Held.Counted)
+      v <- mlirValue l (gradedType ix Many made e) (Idr.dataFieldOp (fieldIndex 0) (operand ix res) [])
+      pure (val v.name e Many made)
 alg ix (UnreachableF l) sc _ = do
   statement l UB.unreachableOp
   pure Nothing
@@ -744,10 +744,9 @@ alg ix (ReadBackF l e x cs body) sc w = do
   Just coords <- operands ix l sc (unslotted cs)
     | Nothing => pure Nothing
   ixs <- traverse (coordinate ix l) coords
-  Just n <- placed (At l) (Idr.arrayReadOp (operand ix xv) ixs
-                             (gradedType ix Many Held.Counted e) (operand ix xv).type)
+  Just n <- placed (At l) (Idr.arrayReadOp (operand ix xv) ixs)
     | Nothing => internal "a linear array's read gives nothing"
-  body.result (bind [Whole (val (resultAt n 2 0) e Many Held.Counted), Whole ({ name := resultAt n 2 1 } xv)] sc) w
+  body.result (bind [Whole (val (resultAt n 2 0) e Many made), Whole ({ name := resultAt n 2 1 } xv)] sc) w
 -- Each extent of the array a linear array's cell holds gives the array
 -- back as a new value, threaded from one read to the next; the body binds
 -- the extents and the last array given back.
@@ -761,7 +760,7 @@ alg ix (ExtentsBackF {k} l x body) sc w = do
     readExtents Z a arr = pure ([], arr)
     readExtents (S j) a arr = do
       Just n <- placed (At l) (Idr.arrayExtentOp (IntegerAttr (natToInteger a) (IntegerType 64)) (operand ix arr)
-                                 (gradedType ix Many Held.Counted (NatT IOpaque)) (operand ix arr).type)
+                                 (gradedType ix Many made (NatT IOpaque)) (operand ix arr).type)
         | Nothing => internal "a linear array's extent gives nothing"
       (rest, final) <- readExtents j (S a) ({ name := resultAt n 2 1 } arr)
-      pure (Whole (val (resultAt n 2 0) (NatT IOpaque) Many Held.Counted) :: rest, final)
+      pure (Whole (val (resultAt n 2 0) (NatT IOpaque) Many made) :: rest, final)

@@ -122,12 +122,35 @@ specGuarded (g :: gs) vs made =
            (toList (map (\k => index k vs) (Vect.tail g.given)))
            (\c => specGuarded gs (replaceAt at c vs) made)
 
+||| A fixed result type, as the specification names it.
+builtType : Buildable -> MlirType
+builtType BuiltI1 = IntegerType 1
+builtType BuiltI8 = IntegerType 8
+builtType BuiltI16 = IntegerType 16
+builtType BuiltI32 = IntegerType 32
+builtType BuiltI64 = IntegerType 64
+builtType BuiltIndex = IndexType
+builtType BuiltF64 = F64Type
+builtType BuiltNone = NoneType
+
 ||| An op of the dialect, by the specification's op value, on its operands,
-||| one per group, of the result types given, with the guards the
-||| specification declares for it, so no partial op is written without
-||| them.
+||| one per group, with the guards the specification declares for it, so no
+||| partial op is written without them. Its results are of the types `ts`
+||| where it states them; where it infers them, each is its rule's, from
+||| the operands it is written on, and `ts` is not read, so no type the op
+||| fixes is stated.
 specOp : Spec.Op i o 0 0 -> Vect i Value -> List MlirType -> Guarded
-specOp op vs ts = specGuarded op.guards vs (\ws => MkOp (specName op) (toList ws) [] [] [] ts)
+specOp op vs ts = specGuarded op.guards vs (\ws => MkOp (specName op) (toList ws) [] [] [] (typed ws op.typing))
+  where
+    -- A result's type by its rule, from the operands.
+    ruled : Vect k Value -> TypeRule k -> MlirType
+    ruled ws (OperandType g) = (index g ws).type
+    ruled ws (ElementTypeOf g) = elementTypeOrSelf (index g ws).type
+    ruled ws (FixedType b) = builtType b
+
+    typed : Vect k Value -> ResultTyping k n -> List MlirType
+    typed ws StatedTypes = ts
+    typed ws (InferredTypes rules) = toList (map (ruled ws) rules)
 
 ------------------------------------------------------------------------------
 -- Writing ops
@@ -170,13 +193,13 @@ mlirValue l = mlirValueAt (At l)
 export
 value : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown} -> Index -> Loc -> Ty -> (MlirType -> Op) -> E Val
 value ix l t build = do
-  r <- mlirValueAt (madeAtPlace binder (placeOf stands l) Many) (gradedType ix Many Held.Counted t) build
-  pure (val r.name t Many Held.Counted)
+  r <- mlirValueAt (madeAtPlace binder (placeOf stands l) Many) (gradedType ix Many made t) build
+  pure (val r.name t Many made)
 
 ||| A total op with one result, of a Core type, held as `h` gives: a
 ||| literal's constant is static data.
 export
-heldValue : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Held -> Ty -> (MlirType -> Op) -> E Val
+heldValue : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Hold -> Ty -> (MlirType -> Op) -> E Val
 heldValue ix l h t build = do
   r <- mlirValueAt (madeAt binder l Many) (gradedType ix Many h t) build
   pure (val r.name t Many h)
@@ -187,7 +210,7 @@ heldValue ix l h t build = do
 ||| it.
 export
 guardedValue : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown}
-            -> {default Held.Counted held : Held} -> Index -> Loc -> Ty -> (MlirType -> Guarded) -> E Val
+            -> {default made held : Hold} -> Index -> Loc -> Ty -> (MlirType -> Guarded) -> E Val
 guardedValue ix l t build = do
   o <- checked l (build (gradedType ix Many held t))
   r <- fresh
@@ -233,9 +256,9 @@ literal ix l (LInt t n) = value {binder} ix l (IntT t)
   (Arith.constantOp (IntegerAttr (twos (width t) n) (IntegerType (width t))))
 literal ix l (LChar c) = value {binder} ix l CharT (Arith.constantOp (IntegerAttr c (IntegerType 32)))
 literal ix l (LDouble d) = value {binder} ix l DoubleT (Arith.constantOp (FloatAttr d F64Type))
-literal ix l (LStr s) = heldValue {binder} ix l Held.Static StrT (Idr.constantOp (StringAttr s))
-literal ix l (LBig n) = heldValue {binder} ix l Held.Static BigT (Idr.constantOp (Idr (BigAttr n)))
-literal ix l (LNat n) = heldValue {binder} ix l Held.Static (NatT (INat (integerToNat n))) (Idr.constantOp (Idr (BigAttr n)))
+literal ix l (LStr s) = heldValue {binder} ix l Hold.Static StrT (Idr.constantOp (StringAttr s))
+literal ix l (LBig n) = heldValue {binder} ix l Hold.Static BigT (Idr.constantOp (Idr (BigAttr n)))
+literal ix l (LNat n) = heldValue {binder} ix l Hold.Static (NatT (INat (integerToNat n))) (Idr.constantOp (Idr (BigAttr n)))
 
 ------------------------------------------------------------------------------
 -- Primitives
@@ -322,15 +345,8 @@ extend binder stands ix l c = value {binder} {stands} ix l (IntT IdrisInt) (Arit
 export
 prim : Maybe Binding -> Maybe Shown -> Index -> Loc -> Prim k -> Vect k Val -> E Val
 -- An op's result is held as its declaration says where its type holds
--- references: freed by its count, or static for text the target names.
--- The frontend writes no other hold for a primitive's result.
-prim binder stands ix l (Op op r h) vs = case h of
-  Hold.Counted None => written Held.Counted
-  Hold.Static => written Held.Static
-  _ => internal ("a primitive's result held otherwise than counted or static: " ++ show r)
-  where
-    written : Held -> E Val
-    written held = guardedValue {binder} {stands} {held} ix l r (\t => specOp op (map (operand ix) vs) [t])
+-- references.
+prim binder stands ix l (Op op r h) vs = guardedValue {binder} {stands} {held = h} ix l r (\t => specOp op (map (operand ix) vs) [t])
 prim binder stands ix l (IntOp op t) [a, b] = intArith binder stands ix l op t a b
 prim binder stands ix l (IntShift s t) [a, b] = value {binder} {stands} ix l (IntT t) (shiftOp s (signedness t) (operand ix a) (operand ix b))
 prim binder stands ix l (FloatOp op) [a, b] = value {binder} {stands} ix l DoubleT (floatArith op (operand ix a) (operand ix b))
@@ -390,7 +406,7 @@ prim binder stands ix l (NatCompare c) [a, b] =
   extend binder stands ix l !(mlirValue l bool (Idr.bigCmpOp c (operand ix a) (operand ix b)))
 prim binder stands ix l (ArrayLength _) [a] = do
   n <- memrefLength {binder} {stands} l (operand ix a)
-  pure (val n.name (IntT IdrisInt) Many Held.Counted)
+  pure (val n.name (IntT IdrisInt) Many made)
 
 ------------------------------------------------------------------------------
 -- Constructors
@@ -458,7 +474,7 @@ export
 con : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Con k -> List ITerm -> Vect k Val -> E Val
 con ix l c bs vs = do
   os <- fieldOperands ix l c.fields vs
-  let v = MkVal "" (conType c bs) Many Held.Exclusive (OneOf (c.tag ::: []))
+  let v = MkVal "" (conType c bs) Many (Hold.Counted Deep) (OneOf (c.tag ::: []))
   r <- mlirValueAt (madeAt binder l Many) (valueType ix v) (Idr.dataConOp os [])
   pure ({ name := r.name } v)
 
@@ -484,21 +500,21 @@ effect binder ix l a gives vs res = do
   Just <$> answer gives done
   where
     world : Val
-    world = val "" WorldT Once Held.Counted
+    world = val "" WorldT Once made
 
     -- What a value-giving action gives, the type of its `IORes`'s field.
     given : Ty
     given = typeOf (head res.fields)
 
     givenType : MlirType
-    givenType = gradedType ix Many Held.Counted given
+    givenType = gradedType ix Many made given
 
     -- The `IORes` of what the action gave.
     answer : IOGives n -> Acted n -> E Val
     answer (GivesUnit u) ActedNone = do
       v <- con ix l u [] []
       con {binder} ix l res [] [v, world]
-    answer GivesValue (ActedOne r) = con {binder} ix l res [] [val r given Many Held.Counted, world]
+    answer GivesValue (ActedOne r) = con {binder} ix l res [] [val r given Many made, world]
 
     int64 : Integer -> E Value
     int64 n = mlirValue l (IntegerType 64) (Arith.constantOp (IntegerAttr n (IntegerType 64)))

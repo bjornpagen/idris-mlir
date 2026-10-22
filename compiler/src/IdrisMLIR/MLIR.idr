@@ -236,6 +236,16 @@ attrDialect (Idr _) = Dialect.Idr
 attrDialect (IdrHand _) = Dialect.Idr
 attrDialect _ = Builtin
 
+||| A tensor's or a memref's element type, any other type itself, as
+||| upstream's `getElementTypeOrSelf` gives it: what the builder of an op
+||| whose result is an array's element computes that result's type with,
+||| as the op's C++ inference does.
+export
+elementTypeOrSelf : MlirType -> MlirType
+elementTypeOrSelf (RankedTensorType _ e) = e
+elementTypeOrSelf (MemRefType _ e _) = e
+elementTypeOrSelf t = t
+
 ||| An attribute of an op's: its name, and itself.
 public export
 NamedAttr : Type

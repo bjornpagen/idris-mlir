@@ -67,8 +67,8 @@ coordinate ix l n = do
 natural : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Value -> E Val
 natural ix l i = do
   w <- mlirValue l (IntegerType 64) (Arith.indexCastuiOp i)
-  r <- mlirValueAt (madeAt binder l Many) (gradedType ix Many Held.Counted (NatT IOpaque)) (Idr.bigSmallOp w)
-  pure (val r.name (NatT IOpaque) Many Held.Counted)
+  r <- mlirValueAt (madeAt binder l Many) (gradedType ix Many made (NatT IOpaque)) (Idr.bigSmallOp w)
+  pure (val r.name (NatT IOpaque) Many made)
 
 ||| A natural as the extent of an array to be made: past every allocation
 ||| either target can make, it is the allocation's failure.
@@ -196,7 +196,7 @@ fit ix l slot v = case fitting slot v.type v.refinement of
   AsIs => pure v
   CastTo t => do
     r <- mlirValueAt (madeAt binder l Many) (mlirType ix t) (Tensor.castOp !(plainOperand ix l v))
-    pure (val r.name t Many Held.Counted)
+    pure (val r.name t Many made)
   Reindex t => do
     let v' = { type := t, refinement := AnyConstructor } v
     r <- mlirValueAt (madeAt binder l v.uses) (valueType ix v') (Idr.dataReindexOp (operand ix v) [])
@@ -475,19 +475,19 @@ tensorOp ix l binder rt (Reshape x extents) = do
   case t of
     S Z => do
       res <- if TensorT (n :: cell) e == rt then pure flat else mlirValueAt at rt' (Tensor.castOp flat)
-      pure (val res.name rt Many Held.Counted)
+      pure (val res.name rt Many made)
     Z => do
       let unitTy = mlirType ix (TensorT (Static 1 :: cell) e)
       unit <- if n == Static 1 then pure flat else mlirValue l unitTy (Tensor.castOp flat)
       res <- mlirValueAt at rt' (Tensor.collapseShapeOp unit (map ArrayAttr (unitGroups cellRank)))
-      pure (val res.name rt Many Held.Counted)
+      pure (val res.name rt Many made)
     _ => do
       let (lead, cellDims) = splitAt t rds
       leadSizes <- traverse (\(d, ext) => resultSize d (Left <$> coordinate ix l ext)) (zip lead extents)
       restSizes <- traverse (\(d, xd) => resultSize d (sizeAt l xv xd)) (zip cellDims (drop r (withAxes ds)))
       let (outs, static) = mixed (leadSizes ++ restSizes)
       res <- mlirValueAt at rt' (Tensor.expandShapeOp flat (groups t cellRank) outs static)
-      pure (val res.name rt Many Held.Counted)
+      pure (val res.name rt Many made)
   where
     isStatic : Dim -> Bool
     isStatic (Static _) = True
@@ -593,7 +593,7 @@ tie ix l binder v stated = do
                         Just s => pure s
                         Nothing => sizeValue l !(sizeAt l xv (j, d))) dynamic
     r <- mlirValueAt (madeAt binder l Many) xv.type (Idr.arrayTieShapeOp xv dims)
-    pure (val r.name v.type Many Held.Counted)
+    pure (val r.name v.type Many made)
   where
     size : Stated Val -> E Value
     size (SameAs n) = coordinate ix l n

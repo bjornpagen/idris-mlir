@@ -121,8 +121,8 @@ mutual
   -- A closure that takes the world takes nothing: IO is ordered by
   -- effects, so an action is a closure of no argument.
   typeIn a (FunT (MkBinder q WorldT) r) = Idr (FnType [] (resultsIn a r))
-  typeIn a (FunT (MkBinder q x) r) = Idr (FnType [gradedIn a q Held.Counted x] (resultsIn a r))
-  typeIn a (LazyT r) = Idr (LazyType (gradedIn a Many Held.Counted r))
+  typeIn a (FunT (MkBinder q x) r) = Idr (FnType [gradedIn a q made x] (resultsIn a r))
+  typeIn a (LazyT r) = Idr (LazyType (gradedIn a Many made r))
   typeIn a (TensorT ds e) = RankedTensorType ds (typeIn a e)
   -- Every memref the frontend writes is an array written while shared, in
   -- the dialect's memory space for it.
@@ -131,22 +131,22 @@ mutual
   ||| The types a result of a type is: none for the world.
   resultsIn : Among -> Ty -> List MlirType
   resultsIn a WorldT = []
-  resultsIn a t = [gradedIn a Many Held.Counted t]
+  resultsIn a t = [gradedIn a Many made t]
 
   ||| A value's type: its uses and, for a type that holds references, who
   ||| frees what it holds, wrapped around the type. The bare type is the
   ||| grade a type has by itself: a word used many times, the form
   ||| upstream's ops take, or a value that holds references used many times
   ||| and freed by its count, claiming nothing.
-  gradedIn : Among -> Uses -> Held -> Ty -> MlirType
+  gradedIn : Among -> Uses -> Hold -> Ty -> MlirType
   gradedIn a u h t = case (u, reachesIn a t, h) of
     (Many, WordsOnly, _) => typeIn a t
     (Once, WordsOnly, _) => Idr (GradedType Once Nothing (typeIn a t))
     -- A value that holds references, used freely and freed by its count
     -- with no claim of its sharing, is the bare type: every such value
     -- before counting.
-    (Many, HoldsReferences, Held.Counted) => typeIn a t
-    (_, HoldsReferences, _) => Idr (GradedType u (Just (holdOf h)) (typeIn a t))
+    (Many, HoldsReferences, Hold.Counted None) => typeIn a t
+    (_, HoldsReferences, _) => Idr (GradedType u (Just h) (typeIn a t))
 
   ||| An index term's nodes, in preorder, among the families given: a
   ||| type standing as an index is a literal of its type attribute; a
@@ -171,15 +171,6 @@ mutual
       Nothing => [TermNodeOpaque]
   nodeIn a IOpaque = [TermNodeOpaque]
 
-||| What the specification's grade says of a hold the frontend writes:
-||| freed by its count with no claim of its sharing, or with all it reaches
-||| unshared, or static.
-export
-holdOf : Held -> Hold
-holdOf Held.Counted = Hold.Counted None
-holdOf Held.Exclusive = Hold.Counted Deep
-holdOf Held.Static = Hold.Static
-
 ||| The module's type of a Core type, among the program's families.
 export
 mlirType : Index -> Ty -> MlirType
@@ -188,7 +179,7 @@ mlirType ix = typeIn (MkAmong ix.families empty)
 ||| The module's type of a value of a Core type, used and held as given:
 ||| its quantity is in the type, where no pass can lose it.
 export
-gradedType : Index -> Uses -> Held -> Ty -> MlirType
+gradedType : Index -> Uses -> Hold -> Ty -> MlirType
 gradedType ix = gradedIn (MkAmong ix.families empty)
 
 ||| A type refined to the constructors given: a family's application known
@@ -259,7 +250,7 @@ fieldType ix = fieldTypeIn (MkAmong ix.families empty)
 ||| The hold of a field's grade: freed by its count with no claim, where
 ||| its type holds references; none where it holds words.
 claimless : Reaches -> Maybe Hold
-claimless HoldsReferences = Just (holdOf Held.Counted)
+claimless HoldsReferences = Just made
 claimless WordsOnly = Nothing
 
 ||| A field of a declaration: its type in its constructor's scope, its

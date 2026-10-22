@@ -78,17 +78,6 @@ collect act = do
   modify { ops := saved }
   pure (x, inner <>> [])
 
-namespace Held
-  ||| Who frees what a value of a type that holds references holds, and
-  ||| what is known of its sharing where the ops' own result types know it:
-  ||| its count, with nothing known; its count, and nothing else reaches
-  ||| what it reaches (a constructor's fresh value, and a field taken or
-  ||| read at a linear position from such a value); or nobody, a literal's
-  ||| static data, which lives for the run. The frontend writes no weaker
-  ||| grade than an op's inference gives, and no stronger one.
-  public export
-  data Held = Counted | Exclusive | Static
-
 ||| What is known of which constructor a value of a family is: nothing
 ||| more than its type says, or one of those listed, as inside a region of
 ||| a match on it, where its type says so and a field read of it is total.
@@ -96,20 +85,22 @@ public export
 data Refinement = AnyConstructor | OneOf (List1 Nat)
 
 ||| A value: its SSA name, its type, how often it may be used, how it is
-||| held, and which constructors it is known to be. Its MLIR type is these
-||| together (`Index.valueType`).
+||| held, the grade's hold (who frees what it holds, and what is known of
+||| its sharing), and which constructors it is known to be. Its MLIR type
+||| is these together (`Index.valueType`). The frontend writes no weaker
+||| hold than an op's inference gives, and no stronger one.
 public export
 record Val where
   constructor MkVal
   name : String
   type : Ty
   uses : Uses
-  hold : Held
+  hold : Hold
   refinement : Refinement
 
 ||| A value known to be no more than its type says.
 export
-val : String -> Ty -> Uses -> Held -> Val
+val : String -> Ty -> Uses -> Hold -> Val
 val n t u h = MkVal n t u h AnyConstructor
 
 ||| What a variable in scope stands for: one SSA value; or Idris's world,
