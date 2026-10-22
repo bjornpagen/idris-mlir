@@ -89,15 +89,28 @@ mutual
 ||| value.
 data Step = Argument Nat Nat | DelayedType | DelayedValue
 
+||| A constructor a compile-time match found an implementation built with:
+||| the constructor, its arguments as the reduction gave them, and the one
+||| a part the match bound is.
+record Opened where
+  constructor MkOpened
+  con : Name
+  args : List ClosedTerm
+  at : Nat
+
 ||| Where a variable of a case tree's scope stands in every clause of its
 ||| definition: one of the definition's parameters, then the step each
 ||| match that bound it took, outermost first. A tree's matches bind the
 ||| same parts for every clause, so a variable's place is the tree's, and
-||| each leaf reads it in its own clause.
+||| each leaf reads it in its own clause. A part a compile-time match took
+||| out of a parameter's implementation also keeps the constructor each
+||| such match on the way found (`opened`, outermost first), so the
+||| implementation is rebuilt around the part with nothing reduced again.
 record Place where
   constructor MkPlace
   parameter : Nat
   steps : SnocList Step
+  opened : SnocList Opened
 
 ||| A definition's clauses, each its places as the case builder read them,
 ||| read once with the definition, by the index a leaf of its tree names;
@@ -116,19 +129,35 @@ clauses args pats = MkClauses (map patternsOf pats) (rooted 0 args)
   where
     rooted : Nat -> (vs : Scope) -> ByVar vs Place
     rooted i [] = []
-    rooted i (_ :: vs) = MkPlace i [<] :: rooted (S i) vs
+    rooted i (_ :: vs) = MkPlace i [<] [<] :: rooted (S i) vs
+
+||| The clauses inside a match's alternative that binds `args` in front of
+||| the scope, argument `j` at the place `part j` makes of the matched
+||| variable's.
+withArgs : (part : Nat -> Place -> Place) -> (args : List Name) -> Var vars -> Clauses vars ->
+           Clauses (Scope.addInner vars args)
+withArgs part args (MkVar {varIdx} prf) (MkClauses pats ps) =
+  MkClauses pats (bound (lookupVar varIdx prf ps) 0 args ps)
+  where
+    -- Argument `j` and those after it, of the place `at`.
+    bound : Place -> Nat -> (as : List Name) -> ByVar vs Place -> ByVar (Scope.addInner vs as) Place
+    bound at j [] rest = rest
+    bound at j (_ :: as) rest = part j at :: bound at (S j) as rest
 
 ||| The clauses inside a match's alternative of a constructor, whose
 ||| arguments it binds in front of the scope, each the next argument of
 ||| the matched variable's place.
 afterCon : (args : List Name) -> Var vars -> Clauses vars -> Clauses (Scope.addInner vars args)
-afterCon args (MkVar {varIdx} prf) (MkClauses pats ps) =
-  MkClauses pats (bound (lookupVar varIdx prf ps) (length args) 0 args ps)
-  where
-    -- Argument `j` and those after it of `k`, of the place `at`.
-    bound : Place -> (k : Nat) -> Nat -> (as : List Name) -> ByVar vs Place -> ByVar (Scope.addInner vs as) Place
-    bound at k j [] rest = rest
-    bound at k j (_ :: as) rest = { steps $= (:< Argument j k) } at :: bound at k (S j) as rest
+afterCon args = let k = length args in withArgs (\j, at => { steps $= (:< Argument j k) } at) args
+
+||| The clauses inside a compile-time match's alternative of the
+||| constructor an implementation was found built with, applied to `cargs`:
+||| as `afterCon`, each argument's place also keeping that constructor.
+afterOpen : (con : Name) -> (cargs : List ClosedTerm) -> (args : List Name) -> Var vars -> Clauses vars ->
+            Clauses (Scope.addInner vars args)
+afterOpen con cargs args =
+  let k = length args in
+  withArgs (\j, at => { steps $= (:< Argument j k), opened $= (:< MkOpened con cargs j) } at) args
 
 ||| The clauses inside a match on a suspension, which binds its type and
 ||| its value in front of the scope.
@@ -140,7 +169,7 @@ afterDelay (MkVar {varIdx} prf) (MkClauses pats ps) =
 ||| The binders a clause names the part at a place by; none where the
 ||| clause does not take the place apart as the tree did.
 namesAt : List Pattern -> Place -> List Name
-namesAt pats (MkPlace i steps) = maybe [] (.names) (getAt i pats >>= follow (steps <>> []))
+namesAt pats (MkPlace i steps _) = maybe [] (.names) (getAt i pats >>= follow (steps <>> []))
   where
     follow : List Step -> Pattern -> Maybe Pattern
     follow [] p = Just p
@@ -281,39 +310,43 @@ armsOf loc inst i [] _ = Unreachable loc
 data CaseKey = IntKey IntTy Integer | CharKey Integer | StrKey String | BigKey Integer
 
 ||| A match's literal alternatives after the first, each keyed as `key`
-||| reads it, the first's kind: Idris's tree matches constants of one type
-||| at a place, in the module the compiler reads when it runs, and a
-||| constant does not carry the type of the place it is matched at.
-keysAs : FC -> (CaseKey -> Maybe k) -> List (CaseKey, t) -> Front (List (k, t))
-keysAs fc key [] = pure []
-keysAs fc key ((c, b) :: rest) = case key c of
-  Just kv => ((kv, b) ::) <$> keysAs fc key rest
-  Nothing => internal fc "a match on constants of two types"
+||| reads it, the first's kind. A constant does not carry the type of the
+||| place it is matched at, and the checked module's tree is where the
+||| frontend first reads its constants: one whose tree matches constants of
+||| two types at one place is refused here, as the compiled module it is.
+keysAs : {auto s : Ref TState TS} -> FC -> (owner : String) -> (CaseKey -> Maybe k) -> List (CaseKey, t) ->
+         Front (List (k, t))
+keysAs fc owner key [] = pure []
+keysAs fc owner key ((c, b) :: rest) = case key c of
+  Just kv => ((kv, b) ::) <$> keysAs fc owner key rest
+  Nothing => reject fc owner CompiledModule "a match whose alternatives are constants of more than one type"
 
 ||| The arms of a match on literals of one kind: the first alternative, the
 ||| others keyed as `key` reads them, and the default when one runs.
-keyedArms : FC -> (CaseKey -> Maybe k) -> (k, t) -> List (CaseKey, t) -> Maybe t -> Front (LitArmsOf k t)
-keyedArms fc key first rest (Just d) = (\ks => LitDefault (first ::: ks) d) <$> keysAs fc key rest
-keyedArms fc key first rest Nothing = (\ks => LitNoDefault (first ::: ks)) <$> keysAs fc key rest
+keyedArms : {auto s : Ref TState TS} -> FC -> (owner : String) -> (CaseKey -> Maybe k) -> (k, t) ->
+            List (CaseKey, t) -> Maybe t -> Front (LitArmsOf k t)
+keyedArms fc owner key first rest (Just d) = (\ks => LitDefault (first ::: ks) d) <$> keysAs fc owner key rest
+keyedArms fc owner key first rest Nothing = (\ks => LitNoDefault (first ::: ks)) <$> keysAs fc owner key rest
 
 ||| A match on literals keyed by the kind of its first alternative's.
-litMatch : FC -> (CaseKey, t) -> List (CaseKey, t) -> Maybe t -> Front (LitMatch t)
-litMatch fc (IntKey it n, b) rest d = OnInts it <$> keyedArms fc intKey (n, b) rest d
+litMatch : {auto s : Ref TState TS} -> FC -> (owner : String) -> (CaseKey, t) -> List (CaseKey, t) -> Maybe t ->
+           Front (LitMatch t)
+litMatch fc owner (IntKey it n, b) rest d = OnInts it <$> keyedArms fc owner intKey (n, b) rest d
   where
     intKey : CaseKey -> Maybe Integer
     intKey (IntKey it' m) = if it' == it then Just m else Nothing
     intKey _ = Nothing
-litMatch fc (CharKey n, b) rest d = OnChars <$> keyedArms fc charKey (n, b) rest d
+litMatch fc owner (CharKey n, b) rest d = OnChars <$> keyedArms fc owner charKey (n, b) rest d
   where
     charKey : CaseKey -> Maybe Integer
     charKey (CharKey m) = Just m
     charKey _ = Nothing
-litMatch fc (StrKey str, b) rest d = OnStrings <$> keyedArms fc strKey (str, b) rest d
+litMatch fc owner (StrKey str, b) rest d = OnStrings <$> keyedArms fc owner strKey (str, b) rest d
   where
     strKey : CaseKey -> Maybe String
     strKey (StrKey s') = Just s'
     strKey _ = Nothing
-litMatch fc (BigKey n, b) rest d = OnBigs <$> keyedArms fc bigKey (n, b) rest d
+litMatch fc owner (BigKey n, b) rest d = OnBigs <$> keyedArms fc owner bigKey (n, b) rest d
   where
     bigKey : CaseKey -> Maybe Integer
     bigKey (BigKey m) = Just m
@@ -388,6 +421,79 @@ builtNamed shape alts = case the (Maybe (Name, List ClosedTerm)) (shape >>= shap
     pure (elem !(fullName cn) named)
   Nothing => pure False
 
+||| What a reading of a match's alternatives takes apart: constructors, or
+||| constants.
+data AltKind = ConAlts | ConstAlts
+
+||| A place's alternatives as a reading of a kind (`AltKind`) meets them, up
+||| to the default that the clauses after the split keep, which ends what a
+||| match reads: a constructor's alternative only where constructors are
+||| read; a constant's in either reading, where constructors are read one
+||| no value takes; never a suspension's, which the match is when it has
+||| one (`DelayIn`).
+data OfKind : AltKind -> List (CaseAlt vars) -> Type where
+  Exhausted : OfKind {vars} k []
+  AtDefault : OfKind {vars} k (DefaultCase rhs :: rest)
+  OnCon : OfKind {vars} ConAlts rest -> OfKind {vars} ConAlts (ConCase cn tag args rhs :: rest)
+  OnConst : OfKind {vars} k rest -> OfKind {vars} k (ConstCase c rhs :: rest)
+
+-- The alternatives after a constructor's, of the same reading.
+0 nextCon : OfKind {vars} ConAlts (ConCase cn tag args rhs :: rest) -> OfKind {vars} ConAlts rest
+nextCon (OnCon more) = more
+
+-- The alternatives after a constant's, of the same reading.
+0 nextConst : OfKind {vars} k (ConstCase c rhs :: rest) -> OfKind {vars} k rest
+nextConst (OnConst more) = more
+
+-- Constants alone, read where constructors are.
+0 amongCons : OfKind {vars} ConstAlts alts -> OfKind {vars} ConAlts alts
+amongCons Exhausted = Exhausted
+amongCons AtDefault = AtDefault
+amongCons (OnConst more) = OnConst (amongCons more)
+
+||| Where a place's first suspension alternative is, anywhere among them.
+data DelayIn : List (CaseAlt vars) -> Type where
+  AtDelay : DelayIn {vars} (DelayCase ty arg rhs :: rest)
+  AfterCon : DelayIn {vars} rest -> DelayIn {vars} (ConCase cn tag args rhs :: rest)
+  AfterConst : DelayIn {vars} rest -> DelayIn {vars} (ConstCase c rhs :: rest)
+  AfterDefault : DelayIn {vars} rest -> DelayIn {vars} (DefaultCase rhs :: rest)
+
+0 pastCon : DelayIn {vars} (ConCase cn tag args rhs :: rest) -> DelayIn {vars} rest
+pastCon (AfterCon d) = d
+
+0 pastConst : DelayIn {vars} (ConstCase c rhs :: rest) -> DelayIn {vars} rest
+pastConst (AfterConst d) = d
+
+0 pastDefault : DelayIn {vars} (DefaultCase rhs :: rest) -> DelayIn {vars} rest
+pastDefault (AfterDefault d) = d
+
+||| A runtime value's match by what its alternatives take apart, read once
+||| where the frontend reads the match, every place a reading: one with a
+||| suspension's alternative anywhere is the force (`DelayIn`); else one
+||| with a constructor's anywhere a match on constructors, the first named,
+||| read up to the default; else a match on constants.
+data Route : List (CaseAlt vars) -> Type where
+  OnSuspension : (0 _ : DelayIn {vars} alts) -> Route {vars} alts
+  OnConstructors : (cn : Name) -> (0 _ : OfKind {vars} ConAlts alts) -> Route {vars} alts
+  OnConstants : (0 _ : OfKind {vars} ConstAlts alts) -> Route {vars} alts
+
+||| How a place's alternatives are read (`Route`).
+route : (alts : List (CaseAlt vars)) -> Route alts
+route [] = OnConstants Exhausted
+route (DelayCase _ _ _ :: _) = OnSuspension AtDelay
+route (ConCase cn _ _ _ :: rest) = case route rest of
+  OnSuspension d => OnSuspension (AfterCon d)
+  OnConstructors _ more => OnConstructors cn (OnCon more)
+  OnConstants more => OnConstructors cn (OnCon (amongCons more))
+route (ConstCase _ _ :: rest) = case route rest of
+  OnSuspension d => OnSuspension (AfterConst d)
+  OnConstructors cn more => OnConstructors cn (OnConst more)
+  OnConstants more => OnConstants (OnConst more)
+route (DefaultCase _ :: rest) = case route rest of
+  OnSuspension d => OnSuspension (AfterDefault d)
+  OnConstructors cn _ => OnConstructors cn AtDefault
+  OnConstants _ => OnConstants AtDefault
+
 mutual
   ||| A case tree over its scope's variables, and where they stand in the
   ||| definition's clauses (`Clauses`). Each leaf's term starts a path of its
@@ -407,44 +513,50 @@ mutual
   tree ctx env cls (Case {name} idx p scTy alts) = do
     loc <- toLoc ctx.fc
     case lookupVar idx p env of
-      -- A match on a quantity-0 value (a proof, an index) is in the
-      -- compile-time tree only when its type forces the alternative, as
-      -- Idris's erasure check guarantees; its fields are erased too.
-      TypeValue (Erased _ _) => forced alts
+      -- Every compile-time variable of a tree's scope is a quantity-0
+      -- binder's (a proof, an index, a type, a form, a constructor's
+      -- parameter), whatever the instance knows of its value, and Idris's
+      -- erasure check lets the compile-time tree match one only where its
+      -- type forces the alternative; its fields are erased too.
+      TypeValue _ => forced alts
       -- A match on an implementation selects its alternative now.
       Static t hole => staticCase ctx env cls scrutinee t hole alts
       v@(Runtime i t) => case coreOf t of
-        -- The world has one value, which Idris's tree matches as that
-        -- constant alone, in the module the compiler reads when it runs.
-        Just WorldT => case alts of
-          [ConstCase WorldVal rhs] => tree ctx env cls rhs
-          _ => internal ctx.fc "an unexpected match on the world"
+        Just WorldT => world alts
         _ => runtime loc v i
       v@(Shaped i _ _ _) => runtime loc v i
-      -- A type, a form or an index level: Idris's tree matches no value
-      -- the instance holds at compile time but one its type forces, by
-      -- Idris's erasure check, which the binder does not carry.
-      TypeValue _ => internal ctx.fc "a match on a compile-time value"
     where
       scrutinee : Var vars
       scrutinee = MkVar p
+
+      -- The world has one value, which the alternative that names it takes,
+      -- or else the default: what the match is, chosen now. With neither,
+      -- no alternative takes the value: the missing case.
+      world : List (CaseAlt vars) -> Front (Term nv)
+      world (ConstCase WorldVal rhs :: _) = tree ctx env cls rhs
+      world (DefaultCase rhs :: _) = tree ctx env cls rhs
+      world (_ :: rest) = world rest
+      world [] = missingCase ctx <$> toLoc ctx.fc
 
       -- A literal match Idris proved complete has no default: its last
       -- alternative stands in for one (LitNoDefault), and with no
       -- alternative at all no value reaches it. An incomplete one's
       -- default is the missing case's crash.
-      literals : Loc -> Fin nv -> Front (Term nv)
-      literals loc i = do
-        (litAlts, def) <- litAlternatives ctx env cls scrutinee alts
+      literals : Loc -> Fin nv -> (lits : List (CaseAlt vars)) -> (0 _ : OfKind ConstAlts lits) -> Front (Term nv)
+      literals loc i lits consts = do
+        (litAlts, def) <- litAlternatives ctx env cls scrutinee lits consts
         let d = def <|> (if ctx.complete then Nothing else Just (missingCase ctx loc))
         case litAlts of
-          a :: as => CaseLit loc i <$> litMatch ctx.fc a as d
+          a :: as => CaseLit loc i <$> litMatch ctx.fc ctx.owner a as d
           [] => pure (maybe (Unreachable loc) (CaseLit loc i . OnlyDefault) d)
 
       -- The data instance a match's constructors are of, at the value's
       -- type. The Core type names it when it is a declaration the
       -- constructor belongs to; a value of a type with one runtime field
-      -- has its field's type, so the Idris type names it then.
+      -- has its field's type, so the Idris type names it then: the
+      -- value's own, or, where its binder gives none (a suspension's
+      -- value, a value a settled term computes), the type Idris's tree
+      -- gives the value it matches, which every match carries.
       instanceOf : VarInfo (Fin nv) -> Defined -> Front FamilyId
       instanceOf v con = do
         st <- getState
@@ -457,10 +569,10 @@ mutual
                                 Just layout => if layout.name == cn then Just d else Nothing
                                 Nothing => Nothing)
                       _ => pure Nothing
-        case (fromCore, idrisTypeOf v) of
-          (Just d, _) => pure d
-          (Nothing, Just ity) => do
-            ity' <- normaliseClosed ity
+        case fromCore of
+          Just d => pure d
+          Nothing => do
+            ity' <- normaliseClosed (maybe (closeWritten ctx.fc env scTy) id (idrisTypeOf v))
             -- A constructor's type that names no family is one the
             -- registry gives a representation of its own: a value array,
             -- abstract, which only the functions the registry knows open,
@@ -475,55 +587,47 @@ mutual
                   reject ctx.fc ctx.owner HookShape
                          ("the array type of " ++ show cn ++ " is opaque: its constructor is matched")
             pure inst
-          -- A value bound with neither its Core type nor its Idris type:
-          -- the environment's runtime variable holds each as a `Maybe`,
-          -- which no case of it ties to the other.
-          (Nothing, Nothing) =>
-            internal ctx.fc ("a match on " ++ show cn ++ " of a value whose type is not known")
 
-      -- A match on a runtime value's constructors or literals.
-      matched : Loc -> VarInfo (Fin nv) -> Fin nv -> Front (Term nv)
-      matched loc v i =
-        case mapMaybe conName alts of
-          [] => literals loc i
-          (cn :: _) => do
-            con <- lookupDef ctx.fc ctx.owner cn
-            let shape = shapeOf v
-            case (natRole con.def, coreTyOf v) of
-              -- A value of Idris's `Nat` is a natural: a match on its
-              -- constructors is a match on zero. A family of the same shape
-              -- (`Fin`, `Elem`) is a family like any other, laid out as a
-              -- number by the dialect.
-              (Just _, Just (NatT _)) => natCase ctx env cls scrutinee shape loc i (idrisTypeOf v) alts
-              _ => do
-                inst <- instanceOf v con
-                every <- coversAll alts
-                built <- builtNamed shape alts
-                (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst alts
-                -- The constructors a tree with no default leaves out are one
-                -- default: impossible when the definition is covering, a
-                -- crash otherwise.
-                let crashing = case (fallback, ctx.complete) of
-                                 (Absent, False) => case familyOf inst !(getState) of
-                                   Just f => if all (\(_ ** c) => contains c.id named) f.cons
-                                               then Absent else Present (missingCase ctx loc)
-                                   Nothing => Absent
-                                 _ => fallback
-                pure (armsOf loc inst i conAlts crashing)
+      -- A match on a runtime value's constructors, the first `cn`.
+      constructors : Loc -> VarInfo (Fin nv) -> Fin nv -> (cn : Name) -> (as : List (CaseAlt vars)) ->
+                     (0 _ : OfKind ConAlts as) -> Front (Term nv)
+      constructors loc v i cn as cons = do
+        con <- lookupDef ctx.fc ctx.owner cn
+        let shape = shapeOf v
+        case (natRole con.def, coreTyOf v) of
+          -- A value of Idris's `Nat` is a natural: a match on its
+          -- constructors is a match on zero. A family of the same shape
+          -- (`Fin`, `Elem`) is a family like any other, laid out as a
+          -- number by the dialect.
+          (Just _, Just (NatT _)) => natCase ctx env cls scrutinee shape loc i (idrisTypeOf v) as cons
+          _ => do
+            inst <- instanceOf v con
+            every <- coversAll as
+            built <- builtNamed shape as
+            (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst as cons
+            -- The constructors a tree with no default leaves out are one
+            -- default: impossible when the definition is covering, a
+            -- crash otherwise.
+            let crashing = case (fallback, ctx.complete) of
+                             (Absent, False) => case familyOf inst !(getState) of
+                               Just f => if all (\(_ ** c) => contains c.id named) f.cons
+                                           then Absent else Present (missingCase ctx loc)
+                               Nothing => Absent
+                             _ => fallback
+            pure (armsOf loc inst i conAlts crashing)
 
-      -- A match on a runtime value, by what its alternatives match: a
-      -- suspension's form, a natural's constructors, one runtime field's
-      -- constructor, a declaration's constructors, or literals. A
-      -- suspension has one form, `Delay x`, so its match chooses nothing:
-      -- it is the force, whose value `x` binds, then the alternative's
-      -- tree, whose first variable is the value's type, erased.
+      -- A match on a runtime value, by what its alternatives match
+      -- (`route`): a suspension's form, constructors (a natural's, one
+      -- runtime field's, a declaration's), or literals. A suspension has
+      -- one form, `Delay x`, so its match chooses nothing: it is the
+      -- force, whose value `x` binds, then the alternative's tree, whose
+      -- first variable is the value's type, erased.
       runtime : Loc -> VarInfo (Fin nv) -> Fin nv -> Front (Term nv)
-      runtime loc v i = delayed alts
+      runtime loc v i = routed alts (route alts)
         where
-          -- The first alternative that matches a suspension, or a match on
-          -- the value's constructors or literals.
-          delayed : List (CaseAlt vars) -> Front (Term nv)
-          delayed (DelayCase ty arg rhs :: _) = do
+          -- The first alternative that matches a suspension.
+          firstDelay : (as : List (CaseAlt vars)) -> (0 _ : DelayIn as) -> Front (Term nv)
+          firstDelay (DelayCase ty arg rhs :: _) _ = do
             let value = case (coreTyOf v, idrisTypeOf v) of
                           (Just (LazyT t), Just (TDelayed _ _ ity)) => Runtime FZ (BothTypes t ity)
                           (Just (LazyT t), _) => Runtime FZ (CoreTypeOnly t)
@@ -531,8 +635,15 @@ mutual
             body <- tree ctx (under {k = 1} {new = [ty, arg]} [TypeValue (Erased ctx.fc Placeholder), value] env)
                          (afterDelay scrutinee cls) rhs
             pure (Let loc (binderName arg) (OfValue Many) (Resume loc (Var loc i)) body)
-          delayed (_ :: rest) = delayed rest
-          delayed [] = matched loc v i
+          firstDelay (ConCase _ _ _ _ :: rest) d = firstDelay rest (pastCon d)
+          firstDelay (ConstCase _ _ :: rest) d = firstDelay rest (pastConst d)
+          firstDelay (DefaultCase _ :: rest) d = firstDelay rest (pastDefault d)
+          firstDelay [] _ impossible
+
+          routed : (as : List (CaseAlt vars)) -> Route as -> Front (Term nv)
+          routed as (OnSuspension d) = firstDelay as d
+          routed as (OnConstructors cn cons) = constructors loc v i cn as cons
+          routed as (OnConstants consts) = literals loc i as consts
 
       forced : List (CaseAlt vars) -> Front (Term nv)
       forced [ConCase cn _ args rhs] = do
@@ -579,11 +690,11 @@ mutual
   natCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
             Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
             Maybe ClosedTerm -> Loc -> Fin nv -> Maybe ClosedTerm ->
-            List (CaseAlt vars) -> Front (Term nv)
-  natCase ctx env cls scrutinee shape loc x ity alts = do
+            (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) -> Front (Term nv)
+  natCase ctx env cls scrutinee shape loc x ity alts cons = do
     every <- coversAll alts
     built <- builtNamed shape alts
-    (z, s, d) <- natAlternatives ctx env cls scrutinee shape ity (every || built) loc x alts
+    (z, s, d) <- natAlternatives ctx env cls scrutinee shape ity (every || built) loc x alts cons
     -- Where the tree has no arm for zero or a successor, the default runs,
     -- or, with none, what runs where the tree has no arm.
     let otherwise = orElse d (missingArm ctx loc)
@@ -602,10 +713,10 @@ mutual
   natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
                     Maybe ClosedTerm -> Maybe ClosedTerm -> Bool -> Loc -> Fin nv ->
-                    List (CaseAlt vars) ->
+                    (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) ->
                     Front (Arm (Term nv), Arm (Shown, Term (Under 1 nv)), Arm (Term nv))
-  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x [] = pure (Absent, Absent, Absent)
-  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (ConCase cn _ args rhs :: rest) = do
+  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x [] _ = pure (Absent, Absent, Absent)
+  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (ConCase cn _ args rhs :: rest) cons = do
     con <- lookupDef ctx.fc ctx.owner cn
     let taken = con.taken
     dead <- excludedBy shape (fullname con.def)
@@ -614,7 +725,7 @@ mutual
       Just Zero => do
         z <- if dead then pure Dead
              else Present <$> tree ctx (prepend (everyVar args (TypeValue (Erased ctx.fc Placeholder))) env) cls' rhs
-        (_, s, d) <- natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest
+        (_, s, d) <- natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest (nextCon cons)
         pure (z, s, d)
       Just Succ => do
         -- The constructor's type shows a binder for each argument its
@@ -634,11 +745,11 @@ mutual
         let pred = maybe (shown "_") (binderName . fst) (find (isValue . snd) (zip args taken))
         body <- if dead then pure Dead
                 else (\b => Present (pred, b)) <$> tree ctx (under {k = 1} infos env) cls' rhs
-        (z, _, d) <- natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest
+        (z, _, d) <- natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest (nextCon cons)
         pure (z, body, d)
-      -- Idris's tree matches one type's constructors at a place, in the
-      -- module the compiler reads when it runs.
-      Nothing => internal ctx.fc ("a constructor of another type in a match on a Nat-like value")
+      -- A constructor no natural is built with: no value takes its
+      -- alternative.
+      Nothing => natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest (nextCon cons)
     where
       -- Does a constructor take a value at the argument?
       isValue : ArgumentAt -> Bool
@@ -650,13 +761,12 @@ mutual
       predecessor (a :: as) (RuntimeValue _ :: _) = Just a
       predecessor (a :: as) (_ :: ps) = predecessor as ps
       predecessor _ _ = Nothing
-  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (DefaultCase rhs :: _) =
+  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (DefaultCase rhs :: _) _ =
     pure (Absent, Absent, !(if deadDefault then pure Dead else Present <$> tree ctx env cls rhs))
-  -- A suspension or a constant among a natural's constructors: Idris's tree
-  -- matches one kind of alternative at a place, in the module the compiler
-  -- reads when it runs.
-  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (_ :: _) =
-    internal ctx.fc "an unexpected alternative"
+  -- A constant: no natural, a constructor's value, takes its alternative.
+  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (ConstCase _ _ :: rest) cons =
+    natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest (nextConst cons)
+  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (DelayCase {} :: _) _ impossible
 
   ||| A match on a compile-time value: the implementation is reduced to its
   ||| constructor, and the alternative's variables stand for its arguments.
@@ -684,24 +794,25 @@ mutual
       | Stuck on => heldHere on
     cn <- fullName cn
     taken <- (.taken) <$> lookupDef ctx.fc ctx.owner cn
-    pick cn (zipWith info taken cargs) alts
+    pick cn cargs (zipWith info taken cargs) alts
     where
       info : ArgumentAt -> ClosedTerm -> VarInfo (Fin nv)
       info (RuntimeValue _) v = Static v (if mentionsHole v then hole else Nothing)
       info _ v = TypeValue v
-      pick : Name -> List (VarInfo (Fin nv)) -> List (CaseAlt vars) -> Front (Term nv)
-      pick cn infos (ConCase con _ args rhs :: rest) = do
+      -- The alternative of the constructor `cn` the implementation was
+      -- found built with, applied to `cargs`, which each place it binds
+      -- keeps (`afterOpen`); else the default. With neither, no
+      -- alternative takes the value: the missing case, as any match's.
+      pick : Name -> List ClosedTerm -> List (VarInfo (Fin nv)) -> List (CaseAlt vars) -> Front (Term nv)
+      pick cn cargs infos (ConCase con _ args rhs :: rest) = do
         full <- fullName con
-        if full /= cn then pick cn infos rest else do
+        if full /= cn then pick cn cargs infos rest else do
           let Yes same = decEq (length infos) (length args)
             | No _ => reject ctx.fc ctx.owner CompiledModule ("constructor " ++ show cn ++ " binds an unexpected number of arguments")
-          tree ctx (prepend (byVarFrom args id infos same) env) (afterCon args scrutinee cls) rhs
-      pick cn infos (DefaultCase rhs :: _) = tree ctx env cls rhs
-      pick cn infos (_ :: rest) = pick cn infos rest
-      -- An implementation's type has the one constructor its record
-      -- builds, which Idris's tree names or defaults, in the module the
-      -- compiler reads when it runs.
-      pick cn infos [] = internal ctx.fc ("no alternative for " ++ show cn)
+          tree ctx (prepend (byVarFrom args id infos same) env) (afterOpen cn cargs args scrutinee cls) rhs
+      pick cn cargs infos (DefaultCase rhs :: _) = tree ctx env cls rhs
+      pick cn cargs infos (_ :: rest) = pick cn cargs infos rest
+      pick cn cargs infos [] = missingCase ctx <$> toLoc ctx.fc
 
       -- The type of argument `j` of a constructor applied to `args`.
       argumentType : Name -> List ClosedTerm -> Nat -> Front ClosedTerm
@@ -709,9 +820,10 @@ mutual
         where
           go : ClosedTerm -> List ClosedTerm -> Front ClosedTerm
           go ty as = do
-            -- The match binds as many arguments as the constructor's type
-            -- shows binders, as Idris's tree reads them off it, in the
-            -- module the compiler reads when it runs.
+            -- The match binds no more arguments than the constructor's
+            -- type shows binders, which its `taken` was read off where the
+            -- program was read; that reading keeps no binder's type, so
+            -- this walk reads them again, and past them it would find none.
             Bind _ _ (Pi _ _ _ a) sc <- showingBinder ty
               | _ => internal ctx.fc ("an argument of " ++ show cn ++ " past the binders its type shows")
             case as of
@@ -730,30 +842,20 @@ mutual
           replaceAt (S i) x (y :: ys) = y :: replaceAt i x ys
           replaceAt _ _ [] = []
 
-      -- A parameter's implementation with its part at a place (the steps
-      -- of matches from the parameter to it) a value it holds, marker
-      -- `m`: the implementation built, step by step, with that part
-      -- replaced; and the part's type.
-      -- A parameter's implementation is fixed now, its head a constructor
-      -- (`Closed.fixing`), and so is each part the tree took apart on the
-      -- way to the field: the kind holds the form, not that it reduces,
-      -- and a step holds an argument's position, not that it is one.
-      holding : (m : Nat) -> ClosedTerm -> List Step -> Front (ClosedTerm, ClosedTerm)
-      holding m form [] = internal ctx.fc "a parameter's whole implementation, fixed, that no reduction takes apart"
-      holding m form (Argument j _ :: rest) = do
-        Built cn args <- whnf form
-          | Stuck _ => internal ctx.fc ("an implementation taken apart on the way to a field, stuck: " ++ !(showTT form))
-        cn <- fullName cn
-        case rest of
-          [] => (,) <$> rebuilt cn j (holeMarker m) args <*> argumentType cn args j
-          _ => do
-            let Just part = getAt j args
-              | Nothing => internal ctx.fc ("a field past the arguments of " ++ show cn)
-            (part', ty) <- holding m part rest
-            (, ty) <$> rebuilt cn j part' args
-      -- An implementation is a constructor's value, never a suspension's,
-      -- which Idris's tree takes apart only at a lazy type.
-      holding m form (_ :: _) = internal ctx.fc "an implementation's field inside a suspension"
+      -- A parameter's implementation with the part a match took out of it
+      -- a value it holds, marker `m`: rebuilt around the part from the
+      -- constructors the compile-time matches on the way found (`inner`,
+      -- the one the part is an argument of, and those `outer` to it), the
+      -- innermost first, with nothing reduced again; and the part's type.
+      holding : (m : Nat) -> (inner : Opened) -> (outer : SnocList Opened) -> Front (ClosedTerm, ClosedTerm)
+      holding m inner outer = do
+        ty <- argumentType inner.con inner.args inner.at
+        part <- rebuilt inner.con inner.at (holeMarker m) inner.args
+        (, ty) <$> around part outer
+        where
+          around : ClosedTerm -> SnocList Opened -> Front ClosedTerm
+          around part [<] = pure part
+          around part (fs :< f) = rebuilt f.con f.at part f.args >>= \p => around p fs
 
       -- Where the matched variable stands in the clauses.
       placeOf : Var vars -> Place
@@ -768,7 +870,7 @@ mutual
         where
           go : List (Place, VarInfo (Fin nv)) -> Maybe (Fin nv)
           go [] = Nothing
-          go ((MkPlace j [<], v) :: rest) = if i == j then valueOf v else go rest
+          go ((MkPlace j [<] _, v) :: rest) = if i == j then valueOf v else go rest
           go (_ :: rest) = go rest
 
           valueOf : VarInfo (Fin nv) -> Maybe (Fin nv)
@@ -806,25 +908,31 @@ mutual
       heldHere on = do
         let place = placeOf scrutinee
         let r = ctx.request
-        let own = r.signature.kinds
+        let own = kindsOf r
         -- What binds an implementation at the root is a parameter given
         -- one, and every part taken apart is at that parameter's place;
         -- the environment's entry does not carry the kind it came from.
-        let Just (DictParam form held) = getAt place.parameter own
-          | _ => internal ctx.fc "an implementation's field matched under a parameter given no implementation"
+        let Just (position, held) = dictionaryAt place.parameter own
+          | Nothing => internal ctx.fc "an implementation's field matched under a parameter given no implementation"
+        -- The part is where the compile-time matches on the way took it
+        -- out of the parameter's implementation. With none, it would be
+        -- the implementation itself, whose head `Closed.fixing` makes a
+        -- constructor, which the kind does not carry.
+        let (outer :< inner) = place.opened
+          | [<] => internal ctx.fc "a parameter's whole implementation, fixed, that no reduction takes apart"
         let count = maybe 0 (length . forget . (.types)) held
-        (form', fieldType) <- holding count form (place.steps <>> [])
+        (form', fieldType) <- holding count inner outer
         Just _ <- choiceType fieldType
           | Nothing => reject ctx.fc ctx.owner RuntimeClosure
                             ("an implementation's field no compile-time reduction reaches, matched where the " ++
                              "implementation was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
         let types = maybe (fieldType ::: []) (\hs => appendl hs.types [fieldType]) held
         packed <- coreType ctx.fc ctx.owner ValueType !(normaliseClosed !(packedType types))
-        let kinds = replaceAt place.parameter (DictParam form' (Just (MkHoles types (MkBinder Many packed)))) own
+        let kinds = replaceAt position (DictParam form' (Just (MkHoles types (MkBinder Many packed)))) own
         sig <- request ctx.fc ctx.owner r.instantiates kinds
         loc <- toLoc ctx.fc
         value <- computedAt ctx ctx.fc t hole
-        let levels = ownLevels (length (telescopeOf own))
+        let levels = ownLevels (length (telescopeOf r.signature.kinds))
         body <- case held of
           Nothing => Call loc sig.callee Nothing levels <$> passedOn loc FS place.parameter (Var loc FZ) sig.kinds
           Just hs => do
@@ -839,10 +947,12 @@ mutual
               Call loc sig.callee Nothing levels <$> passedOn loc (ren . FS) place.parameter given sig.kinds
         pure (Let loc (shown "field") (OfValue Many) value body)
         where
-          replaceAt : Nat -> a -> List a -> List a
-          replaceAt Z x (_ :: ys) = x :: ys
-          replaceAt (S i) x (y :: ys) = y :: replaceAt i x ys
-          replaceAt _ _ [] = []
+          -- The parameter at a place among an instance's kinds, where it is
+          -- given an implementation: its position, and the values it holds.
+          dictionaryAt : Nat -> Vect k PKind -> Maybe (Fin k, Maybe Holes)
+          dictionaryAt Z (DictParam _ held :: _) = Just (FZ, held)
+          dictionaryAt (S j) (_ :: ks) = (\(i, held) => (FS i, held)) <$> dictionaryAt j ks
+          dictionaryAt _ _ = Nothing
 
           -- The values held, the field last.
           ending : List a -> a -> List1 a
@@ -860,16 +970,19 @@ mutual
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
                     Maybe ClosedTerm -> Bool -> Bool -> FamilyId ->
-                    List (CaseAlt vars) -> Front (SortedSet ConId, List (Alt nv), Arm (Term nv))
-  conAlternatives ctx env cls scrutinee shape every built inst [] = pure (empty, [], Absent)
-  conAlternatives ctx env cls scrutinee shape every built inst (ConCase cn _ args rhs :: rest) = do
+                    (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) ->
+                    Front (SortedSet ConId, List (Alt nv), Arm (Term nv))
+  conAlternatives ctx env cls scrutinee shape every built inst [] _ = pure (empty, [], Absent)
+  conAlternatives ctx env cls scrutinee shape every built inst (ConCase cn _ args rhs :: rest) cons = do
     found <- lookupDef ctx.fc ctx.owner cn
     let def = found.def
     -- Its tag is its place among its type's constructors, which the family
-    -- was registered with: Idris's numbering, in the module the compiler
-    -- reads when it runs.
+    -- was registered with: Idris's numbering. The checked module's tree is
+    -- where the frontend first reads the constructor a match names, so one
+    -- its type does not list is refused here, as the compiled module it is.
     Just cid <- conIdOf inst found
-      | Nothing => internal ctx.fc ("the constructor " ++ show (fullname def) ++ " is not registered")
+      | Nothing => reject ctx.fc ctx.owner CompiledModule
+                          ("a match names " ++ show (fullname def) ++ ", which its type does not list as a constructor")
     -- The family's registration wrote a layout for each of its
     -- constructors, in a table its identities key, whose type does not say
     -- every identity it mints has one.
@@ -886,7 +999,7 @@ mutual
     alt <- if dead then pure Nothing else do
       body <- tree ctx (under {k} infos env) (afterCon args scrutinee cls) rhs
       pure (Just (MkAlt info.con (fieldNames args info.args bound) body))
-    (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst rest
+    (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape every built inst rest (nextCon cons)
     pure (insert cid others, maybe alts (:: alts) alt, fallback)
     where
       -- Runtime field `i` is the alternative's `Bound i`, with what the
@@ -897,23 +1010,23 @@ mutual
           Just s' => shaped (Bound {n = nv} f) b.type ity s'
           Nothing => Runtime (Bound {n = nv} f) (BothTypes b.type ity)
         Nothing => TypeValue (Erased EmptyFC Placeholder)
-  conAlternatives ctx env cls scrutinee shape every built inst (DefaultCase rhs :: _) =
+  conAlternatives ctx env cls scrutinee shape every built inst (DefaultCase rhs :: _) _ =
     if every then pure (empty, [], Absent)
       else if built then pure (empty, [], Dead)
       else (\d => (empty, [], Present d)) <$> tree ctx env cls rhs
-  -- Idris's tree matches one kind of alternative at a place, in the module
-  -- the compiler reads when it runs.
-  conAlternatives ctx env cls scrutinee shape every built inst (DelayCase {} :: _) =
-    internal ctx.fc "a suspension's alternative in a constructor match"
-  conAlternatives ctx env cls scrutinee shape every built inst (ConstCase {} :: _) =
-    internal ctx.fc "a constant alternative in a constructor match"
+  -- A constant: no constructor's value takes its alternative.
+  conAlternatives ctx env cls scrutinee shape every built inst (ConstCase _ _ :: rest) cons =
+    conAlternatives ctx env cls scrutinee shape every built inst rest (nextConst cons)
+  conAlternatives ctx env cls scrutinee shape every built inst (DelayCase {} :: _) _ impossible
 
+  ||| The alternatives of a match on literals, each keyed by its constant,
+  ||| and the default when one runs.
   litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx -> StandsFor vars (Fin nv) -> Clauses vars -> Var vars ->
-                    List (CaseAlt vars) ->
+                    (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConstAlts alts) ->
                     Front (List (CaseKey, Term nv), Maybe (Term nv))
-  litAlternatives ctx env cls scrutinee [] = pure ([], Nothing)
-  litAlternatives ctx env cls scrutinee (ConstCase c rhs :: rest) = do
+  litAlternatives ctx env cls scrutinee [] _ = pure ([], Nothing)
+  litAlternatives ctx env cls scrutinee (ConstCase c rhs :: rest) consts = do
     Just lit <- pure (constantLit c)
       | Nothing => reject ctx.fc ctx.owner StringPrimitive ("a match on " ++ show c)
     key <- the (Front CaseKey) $ case lit of
@@ -924,9 +1037,9 @@ mutual
       LNat n => pure (BigKey n)
       LDouble _ => reject ctx.fc ctx.owner Primitive "a match on a Double literal"
     body <- tree ctx env cls rhs
-    (alts, def) <- litAlternatives ctx env cls scrutinee rest
+    (alts, def) <- litAlternatives ctx env cls scrutinee rest (nextConst consts)
     pure ((key, body) :: alts, def)
-  litAlternatives ctx env cls scrutinee (DefaultCase rhs :: _) =
+  litAlternatives ctx env cls scrutinee (DefaultCase rhs :: _) _ =
     pure ([], Just !(tree ctx env cls rhs))
-  -- As a constructor match: one kind of alternative at a place.
-  litAlternatives ctx env cls scrutinee _ = internal ctx.fc "an unexpected alternative"
+  litAlternatives ctx env cls scrutinee (ConCase {} :: _) _ impossible
+  litAlternatives ctx env cls scrutinee (DelayCase {} :: _) _ impossible
