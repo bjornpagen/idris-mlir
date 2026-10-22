@@ -35,8 +35,7 @@ import Data.Vect
 --------------------------------------------------------------------------------
 
 ||| A kind's case: the keyword of `!idr.lifetime`'s parameter, and the C++
-||| `LifetimeKindCase` the value class `::idr::LifetimeKind` holds beside a
-||| home's site.
+||| `LifetimeKindCase` whose order `::idr::LifetimeKind`'s alternatives keep.
 export
 kindCaseClosed : Closed KindCase
 kindCaseClosed = MkClosed
@@ -157,10 +156,28 @@ openerTable = table openerClosed
 -- The types
 --------------------------------------------------------------------------------
 
-||| A lifetime's kind, the parameter's codec, by hand: `view`, `room`,
-||| `cursor`, or `home k`, and in bytecode its case then a home's site. A
-||| case beside a site is no case of a closed set alone, so no generated
-||| codec reads it.
+||| Each kind's alternative: a home alone holds its site, in 32 bits.
+public export
+kindAlternative : KindCase -> Composite
+kindAlternative ViewCase = MkComposite (ident "LifetimeKindView") (code "::idr::LifetimeKindView")
+  (Fields []) (brief (line "a view: nothing allocates into it"))
+kindAlternative RoomCase = MkComposite (ident "LifetimeKindRoom") (code "::idr::LifetimeKindRoom")
+  (Fields []) (brief (line "a room: a block of static size"))
+kindAlternative CursorCase = MkComposite (ident "LifetimeKindCursor") (code "::idr::LifetimeKindCursor")
+  (Fields []) (brief (line "a cursor: an unbounded bump"))
+kindAlternative HomeCase = MkComposite (ident "LifetimeKindHome") (code "::idr::LifetimeKindHome")
+  (Fields [MkWireField (ident "site") (WireLeaf LeafWord32)])
+  (brief (line "the per-shard home of a site"))
+
+||| A lifetime's kind on the wire: its case, then that case's alternative,
+||| so no kind but a home can carry a site.
+public export
+kindWire : Composite
+kindWire = MkComposite (ident "LifetimeKindOf") (code "::idr::LifetimeKind")
+  (variant kindCaseClosed kindAlternative) (brief (line "a lifetime's kind, its alternative its case"))
+
+||| The kind's text, `view`, `room`, `cursor` or `home k`; its bytecode is
+||| the wire's.
 kindDirective : Directive
 kindDirective = MkDirective
   { name = ident "LifetimeKind"
@@ -176,7 +193,7 @@ lifetimeType : TypeDef 1
 lifetimeType = MkTypeDef
   { mnemonic = word "lifetime" ::: []
   , params =
-      [ MkParameter (ident "kind") (HandValue (code "::idr::LifetimeKind") kindDirective)
+      [ MkParameter (ident "kind") (WiredValue (WiredOf kindWire) kindDirective)
           AlwaysWritten (line "what the lifetime is at run time") ]
   , syntax = Declarative [Keyword (line "<"), ParamAt FZ, Keyword (line ">")]
   , interfaces = []

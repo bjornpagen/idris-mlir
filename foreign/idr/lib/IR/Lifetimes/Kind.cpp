@@ -1,25 +1,23 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// `!idr.lifetime`'s kind: its codec in text and in bytecode, the directives
-// that write a lifetime type an op's result always has as nothing, and what
-// ODS and the passes ask of a lifetime's kind.
+// `!idr.lifetime`'s kind: its text, the directives that write a lifetime
+// type an op's result always has as nothing, and what ODS and the passes ask
+// of a lifetime's kind. Its bytecode is printed from the specification's
+// wire for the kind, beside the dialect's other readers.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
 
-#include "mlir/Bytecode/BytecodeImplementation.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "llvm/Support/MathExtras.h"
 
 #include <cstdint>
 #include <optional>
-#include <utility>
 
 using namespace mlir;
 using namespace idr;
 
 //===----------------------------------------------------------------------===//
-// The kind's codec, and the directives that write a known type as nothing
+// The kind's text, and the directives that write a known type as nothing
 //===----------------------------------------------------------------------===//
 
 // A case's keyword from the specification's table; a home's site after it.
@@ -40,41 +38,6 @@ FailureOr<LifetimeKind> idr::parseLifetimeKind(AsmParser &parser) {
 void idr::printLifetimeKind(AsmPrinter &printer, LifetimeKind kind) {
   printer << kind.spelling();
   kind.fold([] {}, [] {}, [] {}, [&](std::uint32_t site) { printer << ' ' << site; });
-}
-
-// The case's number, then a home's site. A number that is no case, or a
-// site past 32 bits, is refused here, so no reader of the type meets one.
-LogicalResult idr::readLifetimeKind(DialectBytecodeReader &reader, LifetimeKind &kind) {
-  uint64_t number;
-  if (failed(reader.readVarInt(number)))
-    return failure();
-  if (number >= EnumTraits<LifetimeKindCase>::count)
-    return reader.emitError() << "expects a lifetime's kind, got " << number;
-  switch (static_cast<LifetimeKindCase>(number)) {
-  case LifetimeKindCase::View:
-    kind = LifetimeKind::view();
-    return success();
-  case LifetimeKindCase::Room:
-    kind = LifetimeKind::room();
-    return success();
-  case LifetimeKindCase::Cursor:
-    kind = LifetimeKind::cursor();
-    return success();
-  case LifetimeKindCase::Home:
-    break;
-  }
-  uint64_t site;
-  if (failed(reader.readVarInt(site)))
-    return failure();
-  if (!llvm::isUInt<32>(site))
-    return reader.emitError() << "expects a home's site, got " << site;
-  kind = LifetimeKind::home(static_cast<std::uint32_t>(site));
-  return success();
-}
-
-void idr::writeLifetimeKind(DialectBytecodeWriter &writer, LifetimeKind kind) {
-  writer.writeVarInt(static_cast<uint64_t>(std::to_underlying(kind.kindCase())));
-  kind.fold([] {}, [] {}, [] {}, [&](std::uint32_t site) { writer.writeVarInt(site); });
 }
 
 namespace idr {
