@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The specification's rules, read where the compiler is built: the
 // generated tables, the kinds they name, the matcher and the builder of a
-// right side over them, and the dispatch of the hand skeleton rules. A
-// pattern is a constant of the specification, so the matcher's descent
-// through one is bounded by the specification, never by the input.
+// right side over them, the interval a built node's kind gives it, and the
+// dispatch of the hand skeleton rules. A pattern is a constant of the
+// specification, so the matcher's descent through one is bounded by the
+// specification, never by the input.
 //
 // The skeleton rules are each area's hand classes, declared where the
 // specification names them; the generated tables include every header
@@ -23,7 +24,6 @@
 
 #include <algorithm>
 #include <span>
-#include <tuple>
 #include <utility>
 
 #include "idr/IR/Generated/Rewrites.h.inc"
@@ -60,18 +60,19 @@ void listKinds(table::OpList<Ops...>, MLIRContext *context, Kinds &out) {
 }
 
 template <class... Rs>
-Fate decideAll(table::RuleList<Rs...>, Operation *op, const OperandFacts &facts) {
-  Fate fate = Kept{};
+std::optional<Decided> decideAll(table::RuleList<Rs...>, Operation *op,
+                                 const OperandFacts &facts) {
+  std::optional<Decided> decided;
   std::uint32_t index = 0;
   auto ask = [&]<class R>() {
-    if (std::holds_alternative<Kept>(fate))
+    if (!decided)
       if (auto root = dyn_cast<typename R::Root>(op))
         if (std::optional<Edit> edit = R::decide(root, facts))
-          fate = Decided{std::move(*edit), index};
+          decided = Decided{std::move(*edit), index};
     ++index;
   };
   (ask.template operator()<Rs>(), ...);
-  return fate;
+  return decided;
 }
 
 template <class... Rs>
@@ -135,7 +136,7 @@ Kinds makeKinds(MLIRContext *context) {
   return out;
 }
 
-Fate Function::decideSkeleton(Operation *op, const OperandFacts &facts) const {
+std::optional<Decided> Function::decideSkeleton(Operation *op, const OperandFacts &facts) const {
   return decideAll(generated::SkeletonRules{}, op, facts);
 }
 
@@ -186,8 +187,11 @@ std::optional<std::uint32_t> Function::matchNode(std::uint32_t at, NodeId n,
                                                  Bindings &bindings) const {
   const table::PatternNode &pattern = generated::patterns[at];
   const Node &node = this->at(n);
-  const auto *op = std::get_if<node::Op>(&node.what);
-  if (!op || op->kind != pattern.op || node.children.count != pattern.arity)
+  std::optional<std::uint16_t> kind =
+      match(node.what, [](const node::Input &op) { return op.kind; },
+            [](const node::Built &op) { return std::optional(op.kind); },
+            []<Atom N>(const N &) { return std::optional<std::uint16_t>(); });
+  if (kind != pattern.op || node.children.count != pattern.arity)
     return std::nullopt;
   std::uint32_t next = at + 1;
   for (ClassId operand : childrenOf(node)) {
@@ -223,12 +227,32 @@ bool Function::holds(const table::Condition &condition, const Bindings &bindings
   return false;
 }
 
+// What a node a right side built knows: the interval its kind's range
+// function gives its operands' intervals, an operand with none its type's
+// whole width (a kind with a range function takes integers), where the
+// kind has one. No op is made to fold it, so it holds no constant: its
+// class takes one only from the node it replaces, by the meet.
+Facts Function::factsOf(const node::Built &op, Type type,
+                        std::span<const ClassId> operands) const {
+  const std::optional<table::IntRangeFn> &range = generated::intRanges[op.kind];
+  if (!range)
+    return {};
+  SmallVector<ConstantIntRanges, 4> inputs;
+  for (ClassId operand : operands) {
+    const Class &cls = at(operand);
+    inputs.push_back(cls.facts.range ? *cls.facts.range
+                                     : ConstantIntRanges::maxRange(
+                                           ConstantIntRanges::getStorageBitwidth(cls.type)));
+  }
+  return {Attribute(), (*range)(inputs, type)};
+}
+
 // The right side's subtree at `at`, built bottom-up: a variable is its
 // class; a literal a constant of the type its place takes, an integer or a
 // big as that type holds one, materialized by the dialect of the op the
 // rule is rooted at; a node made over its operands' classes, of `type` at
 // the top and of its first operand's type below (the arithmetic a rule
-// builds keeps its operands' type). Its insertion runs no rules.
+// builds keeps its operands' type).
 std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindings &bindings,
                                            std::uint32_t &at, Type type, Dialect *dialect) {
   const table::PatternNode &pattern = generated::patterns[at++];
@@ -250,27 +274,25 @@ std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindin
         return std::nullopt;
       operands.push_back(*operand);
     }
+    // A kind whose dialect the context has not loaded is no op to build.
     const std::optional<RegisteredOperationName> &name = kinds.names[pattern.op];
     if (!name)
       return std::nullopt;
-    return insert(*name, pattern.op, nullptr, Identity::Shared, type, operands, Rules::Skip);
+    return insert(node::Built{pattern.op, *name}, type, operands);
   }
   }
   return std::nullopt;
 }
 
-std::optional<ClassId> Function::rewrite(NodeId made) {
-  // Copied out first: a right side built grows the node table, which moves
-  // the node, and a later rule is still tried when that side does not apply.
-  auto [kind, type, dialect] = [&] {
-    const Node &node = at(made);
-    const auto &op = std::get<node::Op>(node.what);
-    return std::tuple(op.kind, node.type, op.name.getDialect());
-  }();
-  if (!kind)
+// A right side built grows the node table, which moves the node, so the
+// node is read again by its id; `op` is the caller's copy.
+std::optional<ClassId> Function::rewrite(NodeId made, const node::Input &op, Type type) {
+  // An op no pattern names roots no rule.
+  if (!op.kind)
     return std::nullopt;
-  for (std::uint32_t r = generated::rulesOfKind[*kind]; r < generated::rulesOfKind[*kind + 1];
-       ++r) {
+  Dialect *dialect = op.origin->getDialect();
+  for (std::uint32_t r = generated::rulesOfKind[*op.kind];
+       r < generated::rulesOfKind[*op.kind + 1]; ++r) {
     const table::Rule &rule = generated::rules[r];
     Bindings bindings;
     bindings.vars.resize(rule.vars);

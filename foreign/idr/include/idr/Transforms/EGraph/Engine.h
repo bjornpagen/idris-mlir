@@ -9,15 +9,18 @@
 // most once per path; every other op, a region op, a call in tail
 // position and a terminator stays in the skeleton of its region, in
 // order, and so does an op whose value depends on its parent
-// (DependsOnParent), which two parents would make two values. A node is
-// made with its analyses (a constant, by the op's fold with constant
-// operands only; an interval, by upstream's transfer functions), a node a
-// rule builds read as the op the write-back would make of it, and the
-// specification's rules rooted at its kind run at once, each right side
-// built the same way, the first that matches replacing the node: every
-// rule runs one way. The class a node lands in, its own or the one that
-// replaces it, meets what the node knows, so a rewrite loses no fact of
-// the form it replaced. A class's members never change once made and its
+// (DependsOnParent), which two parents would make two values. A node of
+// the input is made with its analyses (a constant, by the op's fold with
+// constant operands only; an interval, by upstream's transfer functions)
+// and the specification's rules rooted at its kind run at once, the first
+// that matches replacing the node with its right side: every rule runs one
+// way. A node a right side builds has no op to ask and none is made for
+// it: its interval is its kind's range function over its operands'
+// intervals, from the generated table, and it runs no rules. The class a
+// node lands in, its own or the one that replaces it, meets what the node
+// knows, so a rewrite loses no fact of the form it replaced, and that meet
+// is the only constant a right side's class takes beyond its own leaves'.
+// A class's members never change once made and its
 // analyses only narrow, so no id goes stale and nothing is rebuilt: a
 // node made over a class reads its analyses as they stood when it was
 // made. A repeated read in a region with
@@ -45,6 +48,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
+#include "idr/Support/Match.h"
 #include "idr/Transforms/EGraph.h"
 
 #include "mlir/IR/Operation.h"
@@ -54,6 +58,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -99,13 +104,19 @@ namespace node {
 struct Leaf {
   mlir::Value value;
 };
-// An op: of the input (its origin), or made by a rule (no origin, its
-// properties the op's defaults).
-struct Op {
-  mlir::OperationName name;
-  std::optional<std::uint16_t> kind;
+// An op of the input, which stands for itself: its kind where a rule names
+// it, and whether its result takes a fresh identity.
+struct Input {
   mlir::Operation *origin;
+  std::optional<std::uint16_t> kind;
   Identity identity;
+};
+// An op a rule's right side built: the op of its kind the write-back would
+// make, of its type and the op's default properties. A rule makes nothing
+// with an identity, so it is shared.
+struct Built {
+  std::uint16_t kind;
+  mlir::RegisteredOperationName name;
 };
 // A constant, materialized by `dialect`'s hook where it is placed.
 struct Constant {
@@ -113,7 +124,12 @@ struct Constant {
   mlir::Dialect *dialect;
 };
 } // namespace node
-using What = std::variant<node::Leaf, node::Op, node::Constant>;
+using What = std::variant<node::Leaf, node::Input, node::Built, node::Constant>;
+
+// A node that is no op: a leaf or a constant, of no operands. No table keys
+// it, no node pattern matches it, and it costs nothing to place.
+template <class N>
+concept Atom = std::same_as<N, node::Leaf> || std::same_as<N, node::Constant>;
 
 struct Node {
   What what;
@@ -239,32 +255,36 @@ private:
   // Building.
   ClassId leaf(mlir::Value value);
   ClassId constant(mlir::Attribute value, mlir::Type type, mlir::Dialect *dialect);
-  // Whether a node's insertion runs the rules: a node of the input does; a
-  // node a rule's right side made does not, so one insertion applies rules
-  // once, never recursively.
-  enum class Rules : std::uint8_t { Run, Skip };
-  std::optional<ClassId> insert(mlir::OperationName name, std::optional<std::uint16_t> kind,
-                                mlir::Operation *origin, Identity identity, mlir::Type type,
-                                std::span<const ClassId> operands, Rules rules);
+  // A node of the input runs the rules rooted at its kind as it is made; a
+  // node a right side built runs none, so one insertion applies rules once,
+  // never recursively, and it is the one a spent budget refuses.
+  ClassId insert(node::Input op, mlir::Type type, std::span<const ClassId> operands);
+  std::optional<ClassId> insert(node::Built op, mlir::Type type,
+                                std::span<const ClassId> operands);
+  // `operands` as a new run of `children`.
+  Run childrenFor(std::span<const ClassId> operands);
+  // A class of its own for a node just made, holding what it knows.
+  ClassId ownClass(NodeId made, mlir::Type type, Facts facts);
   ClassId alone(Node node, ClassId into);
-  // A node's analyses, read off the op it stands for over its operands'
-  // classes.
-  Facts analyse(const Node &node);
+  // What an op of the input computes over its operands' classes.
   Facts factsOf(mlir::Operation *op, std::span<const ClassId> operands) const;
-  std::optional<ClassId> giveBack(const node::Op &op, std::span<const ClassId> operands,
+  // What a node a right side built computes over its operands' classes:
+  // its kind's range function's interval (Rules.cpp).
+  Facts factsOf(const node::Built &op, mlir::Type type, std::span<const ClassId> operands) const;
+  std::optional<ClassId> giveBack(const node::Input &op, std::span<const ClassId> operands,
                                   mlir::Type type);
-  // The rules rooted at a node's kind (Rules.cpp): the class of the right
-  // side of the first that matches, which the node lands in; none when no
-  // rule matches.
-  std::optional<ClassId> rewrite(NodeId made);
+  // The rules rooted at the kind of `op`, just made as `made` (Rules.cpp):
+  // the class of the right side of the first that matches, which the node
+  // lands in; none when no rule matches.
+  std::optional<ClassId> rewrite(NodeId made, const node::Input &op, mlir::Type type);
   std::optional<ClassId> buildSide(const table::Rule &rule, const Bindings &bindings,
                                    std::uint32_t &at, mlir::Type type, mlir::Dialect *dialect);
   std::optional<std::uint32_t> matchClass(std::uint32_t at, ClassId cls, Bindings &bindings) const;
   std::optional<std::uint32_t> matchNode(std::uint32_t at, NodeId node, Bindings &bindings) const;
   bool holds(const table::Condition &condition, const Bindings &bindings) const;
   // The skeleton rules (Rules.cpp): the edit the first rule rooted at the
-  // op decides.
-  Fate decideSkeleton(mlir::Operation *op, const OperandFacts &facts) const;
+  // op decides, if one does.
+  std::optional<Decided> decideSkeleton(mlir::Operation *op, const OperandFacts &facts) const;
 
   // The hash-cons.
   std::optional<ClassId> lookup(const Node &node) const;

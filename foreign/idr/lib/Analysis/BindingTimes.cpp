@@ -9,6 +9,7 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -40,11 +41,13 @@ Source sourceIn(Value value, FuncOp fn, std::uint64_t &steps) {
     ++steps;
     if (auto arg = dyn_cast<BlockArgument>(value); arg && arg.getParentRegion() == &fn.getBody())
       return FromParameter{arg.getArgNumber()};
-    idr::Source source = sourceOf(value);
-    auto *same = std::get_if<idr::Same>(&source);
-    if (!same)
+    std::optional<Value> next =
+        match(sourceOf(value), [](idr::Same same) -> std::optional<Value> { return same.value; },
+              [](idr::Made) -> std::optional<Value> { return std::nullopt; },
+              [](const idr::Field &) -> std::optional<Value> { return std::nullopt; });
+    if (!next)
       return FromAnything{};
-    value = same->value;
+    value = *next;
   }
 }
 
@@ -137,9 +140,9 @@ SmallVector<BindingTime> solveRoot(const Calls &calls, ArrayRef<solver::Member> 
     return value[calls.slot[member] + param];
   };
   auto passed = [&](const Edge &edge, std::uint32_t arg) {
-    return std::visit(llvm::makeVisitor([&](FromParameter from) { return at(edge.caller, from.param); },
-                                        [](FromAnything) { return Abstract{Kind::Anything, 0}; }),
-                      calls.sources[edge.firstSource + arg]);
+    return match(calls.sources[edge.firstSource + arg],
+                 [&](FromParameter from) { return at(edge.caller, from.param); },
+                 [](FromAnything) { return Abstract{Kind::Anything, 0}; });
   };
   for (std::uint32_t p = 0; p < component[root].fn.getNumArguments(); ++p)
     at(root, p) = {Kind::Same, p};

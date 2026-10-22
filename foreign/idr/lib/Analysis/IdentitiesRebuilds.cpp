@@ -25,10 +25,12 @@
 // answers.
 #include "idr/Analysis/Solver/IdentityRecords.h"
 #include "idr/Support/Footprint.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
+#include <concepts>
 #include <tuple>
 #include <utility>
 
@@ -39,6 +41,10 @@ namespace idr::identities {
 namespace {
 
 enum class PartId : std::uint32_t {};
+
+// A case for several builds names them.
+template <class B, class... Builds>
+concept OneOf = (std::same_as<B, Builds> || ...);
 
 // The constructor a type fixes, where it fixes one: a data type refined to
 // one constructor, or with one its indices leave; and the type of its
@@ -64,14 +70,13 @@ public:
   PartId whole(std::uint32_t argument) const { return PartId(argument); }
 
   PartId step(PartId parent, Step step, Type type) {
-    auto key = std::make_tuple(raw(parent), static_cast<std::uint32_t>(step.index()),
-                               std::visit(llvm::makeVisitor(
-                                              [](const Field &field) {
-                                                return std::pair(std::to_underlying(field.tag),
-                                                                 field.index);
-                                              },
-                                              [](Predecessor) { return std::pair(0u, 0u); }),
-                                          step));
+    auto key = match(
+        step,
+        [&](const Field &field) {
+          return std::make_tuple(raw(parent), 0u,
+                                 std::pair(std::to_underlying(field.tag), field.index));
+        },
+        [&](Predecessor) { return std::make_tuple(raw(parent), 1u, std::pair(0u, 0u)); });
     auto [it, made] = steps.try_emplace(key, static_cast<std::uint32_t>(rows.size()));
     if (made)
       rows.push_back({rows[raw(parent)].argument, Below{raw(parent), step}, Type()});
@@ -144,10 +149,14 @@ public:
   std::optional<PartId> at(ValueId value, std::span<const Frame> frames) const {
     if (equal[value])
       return equal[value];
-    const auto *constant = std::get_if<build::Constant>(&record.builds[value]);
-    if (!constant)
-      return std::nullopt;
-    return inCase(constant->known, constant->type, frames);
+    return match(
+        record.builds[value],
+        [&](const build::Constant &constant) {
+          return inCase(constant.known, constant.type, frames);
+        },
+        []<OneOf<build::Opaque, build::Entry, build::Same, build::Read, build::Pred,
+                 build::Result, build::Con, build::Successor, build::Join> B>(const B &)
+            -> std::optional<PartId> { return std::nullopt; });
   }
 
   const Record &record;
@@ -174,33 +183,32 @@ private:
 };
 
 std::optional<PartId> Reading::rebuilt(ValueId value) {
-  return std::visit(
-      llvm::makeVisitor(
-          [](const build::Opaque &) -> std::optional<PartId> { return std::nullopt; },
-          [](const build::Constant &) -> std::optional<PartId> { return std::nullopt; },
-          [&](const build::Entry &entry) -> std::optional<PartId> {
-            return parts.whole(entry.argument);
-          },
-          [&](const build::Same &same) { return equal[same.of]; },
-          [&](const build::Read &read) -> std::optional<PartId> {
-            if (std::optional<PartId> of = equal[read.of])
-              return parts.step(*of, read.field, read.type);
-            return std::nullopt;
-          },
-          [&](const build::Pred &pred) -> std::optional<PartId> {
-            if (std::optional<PartId> of = equal[pred.of])
-              return parts.step(*of, Predecessor{}, Type());
-            return std::nullopt;
-          },
-          [&](const build::Successor &successor) -> std::optional<PartId> {
-            if (std::optional<PartId> of = equal[successor.of])
-              return parts.below(*of, Predecessor{});
-            return std::nullopt;
-          },
-          [&](const build::Result &result) { return ofResult(result); },
-          [&](const build::Con &con) { return ofCon(con); },
-          [&](const build::Join &join) { return ofJoin(join); }),
-      record.builds[value]);
+  return match(
+      record.builds[value],
+      [](const build::Opaque &) -> std::optional<PartId> { return std::nullopt; },
+      [](const build::Constant &) -> std::optional<PartId> { return std::nullopt; },
+      [&](const build::Entry &entry) -> std::optional<PartId> {
+        return parts.whole(entry.argument);
+      },
+      [&](const build::Same &same) { return equal[same.of]; },
+      [&](const build::Read &read) -> std::optional<PartId> {
+        if (std::optional<PartId> of = equal[read.of])
+          return parts.step(*of, read.field, read.type);
+        return std::nullopt;
+      },
+      [&](const build::Pred &pred) -> std::optional<PartId> {
+        if (std::optional<PartId> of = equal[pred.of])
+          return parts.step(*of, Predecessor{}, Type());
+        return std::nullopt;
+      },
+      [&](const build::Successor &successor) -> std::optional<PartId> {
+        if (std::optional<PartId> of = equal[successor.of])
+          return parts.below(*of, Predecessor{});
+        return std::nullopt;
+      },
+      [&](const build::Result &result) { return ofResult(result); },
+      [&](const build::Con &con) { return ofCon(con); },
+      [&](const build::Join &join) { return ofJoin(join); });
 }
 
 // A callee's fact for this result, whole, applied to the call's argument:
@@ -250,15 +258,20 @@ std::optional<PartId> Reading::ofCon(const build::Con &con) {
 std::optional<PartId> Reading::ofJoin(const build::Join &join) {
   Range side = record.sides[join.side];
   std::optional<PartId> agreed;
+  // An arm that never returns yields nothing to agree on.
   for (const Arm &arm : std::span<const Arm>(record.arms).subspan(side.first, side.count)) {
-    const auto *yields = std::get_if<Yields>(&arm);
-    if (!yields)
-      continue;
-    std::optional<PartId> part =
-        at(record.run(yields->values)[join.result], record.framesOf(yields->frames));
-    if (!part || (agreed && *agreed != *part))
+    bool agrees = match(
+        arm, [](NeverReturns) { return true; },
+        [&](const Yields &yields) {
+          std::optional<PartId> part =
+              at(record.run(yields.values)[join.result], record.framesOf(yields.frames));
+          if (!part || (agreed && *agreed != *part))
+            return false;
+          agreed = part;
+          return true;
+        });
+    if (!agrees)
       return std::nullopt;
-    agreed = part;
   }
   return agreed;
 }
@@ -288,11 +301,17 @@ std::optional<Path> layoutPath(const Record &record, const Parts &parts, PartId 
   Path path{parts.argumentOf(part), {}};
   Type at = record.argumentTypes[path.index];
   for (const Step &step : parts.stepsOf(part)) {
-    const auto *field = std::get_if<Field>(&step);
-    if (!field || fixedTag(at) != field->tag)
+    bool placed = match(
+        step, [](Predecessor) { return false; },
+        [&](const Field &field) {
+          if (fixedTag(at) != field.tag)
+            return false;
+          path.fields.push_back(field.index);
+          at = fieldType(at, field.tag, field.index);
+          return true;
+        });
+    if (!placed)
       return std::nullopt;
-    path.fields.push_back(field->index);
-    at = fieldType(at, field->tag, field->index);
   }
   return path;
 }
@@ -345,9 +364,15 @@ Facts everyFact(const Record &record, std::span<const std::span<const GivesBack>
     if (!tag)
       continue;
     std::uint32_t fields = 0;
+    footprint::Vector<const build::Con *> cons;
     bool built = llvm::all_of(item.occurrences, [&](const Occurrence &occurrence) {
-      const auto *con = std::get_if<build::Con>(&record.builds[occurrence.value]);
+      const build::Con *con = match(
+          record.builds[occurrence.value], [](const build::Con &made) { return &made; },
+          []<OneOf<build::Opaque, build::Entry, build::Same, build::Read, build::Pred,
+                   build::Result, build::Successor, build::Join, build::Constant> B>(const B &)
+              -> const build::Con * { return nullptr; });
       fields = con ? con->fields.count : 0;
+      cons.push_back(con);
       return con && con->tag == *tag && fields != 0;
     });
     if (!built)
@@ -355,10 +380,8 @@ Facts everyFact(const Record &record, std::span<const std::span<const GivesBack>
     for (std::uint32_t index = 0; index < fields; ++index) {
       Item field{item.path, fieldType(item.type, *tag, index), {}};
       field.path.fields.push_back(index);
-      for (const Occurrence &occurrence : item.occurrences) {
-        const auto &con = std::get<build::Con>(record.builds[occurrence.value]);
-        field.occurrences.push_back({record.run(con.fields)[index], con.frames});
-      }
+      for (const build::Con *con : cons)
+        field.occurrences.push_back({record.run(con->fields)[index], con->frames});
       work.push_back(std::move(field));
     }
   }

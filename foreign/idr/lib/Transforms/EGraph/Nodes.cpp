@@ -3,10 +3,10 @@
 // The tables of one function's e-graph: minting its ids, the hash-cons of
 // its floating nodes, and the making of a node, with its analyses and the
 // rules rooted at its kind run at once, and of the class it lands in,
-// which keeps what the node knows.
+// which keeps what the node knows. No op is made here: a node of the input
+// asks its own op, and a node a rule built reads its kind's tables.
 #include "idr/Transforms/EGraph/Engine.h"
 
-#include "mlir/IR/Block.h"
 #include "mlir/IR/Matchers.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
@@ -43,32 +43,49 @@ RegionId Function::newRegion(Region region) {
 
 // A node's key: its op, its type, its properties and its operands' classes.
 // Two nodes of the input compare their properties through the op's own
-// comparison; a node a rule made has the op's default properties, and is
-// equal only to another such. A node with an identity has no key.
+// comparison; a node a rule built has its kind's default properties, and is
+// equal only to another such of its kind. A node with an identity has no
+// key, and neither has an atom, which enters no table.
 bool Function::sameKey(const Node &a, std::span<const ClassId> ac, const Node &b,
                        std::span<const ClassId> bc) {
   if (a.type != b.type || !std::ranges::equal(ac, bc))
     return false;
-  const auto *x = std::get_if<node::Op>(&a.what);
-  const auto *y = std::get_if<node::Op>(&b.what);
-  if (!x || !y || x->name != y->name || x->identity == Identity::Own ||
-      y->identity == Identity::Own)
-    return false;
-  if (!x->origin || !y->origin)
-    return !x->origin && !y->origin;
-  return x->origin->getRawDictionaryAttrs() == y->origin->getRawDictionaryAttrs() &&
-         x->name.compareOpProperties(x->origin->getPropertiesStorage(),
-                                     y->origin->getPropertiesStorage());
+  auto never = []<Atom N>(const N &) { return false; };
+  return match(
+      a.what,
+      [&](const node::Input &x) {
+        return match(
+            b.what,
+            [&](const node::Input &y) {
+              Operation *p = x.origin, *q = y.origin;
+              return x.identity == Identity::Shared && y.identity == Identity::Shared &&
+                     p->getName() == q->getName() &&
+                     p->getRawDictionaryAttrs() == q->getRawDictionaryAttrs() &&
+                     p->getName().compareOpProperties(p->getPropertiesStorage(),
+                                                      q->getPropertiesStorage());
+            },
+            [](const node::Built &) { return false; }, never);
+      },
+      [&](const node::Built &x) {
+        return match(
+            b.what, [&](const node::Built &y) { return x.kind == y.kind; },
+            [](const node::Input &) { return false; }, never);
+      },
+      never);
 }
 
 std::uint64_t Function::hashOf(const Node &node, std::span<const ClassId> operands) const {
-  const auto &op = std::get<node::Op>(node.what);
-  llvm::hash_code hash = llvm::hash_combine(op.name.getAsOpaquePointer(),
-                                            node.type.getAsOpaquePointer());
+  llvm::hash_code hash = match(
+      node.what,
+      [](const node::Input &op) {
+        return llvm::hash_combine(op.origin->getName().getAsOpaquePointer(),
+                                  op.origin->hashProperties());
+      },
+      [](const node::Built &op) { return llvm::hash_value(op.kind); },
+      []<Atom N>(const N &) { return llvm::hash_code(0); });
+  hash = llvm::hash_combine(hash, node.type.getAsOpaquePointer());
   for (ClassId operand : operands)
     hash = llvm::hash_combine(hash, operand.index());
-  if (op.origin)
-    hash = llvm::hash_combine(hash, op.origin->hashProperties());
   return static_cast<std::uint64_t>(hash);
 }
 
@@ -170,60 +187,33 @@ Facts Function::factsOf(Operation *op, std::span<const ClassId> operands) const 
   return facts;
 }
 
-// A node of the input stands for its op. A node a rule built has none: it
-// stands for the op the write-back would make of it, of its name, its type
-// and the op's default properties, made here detached over stand-ins for
-// its operands, one per class, so that a fold comparing two operands finds
-// them equal exactly where their classes are; it is destroyed once read,
-// so it never enters the function's tables.
-Facts Function::analyse(const Node &node) {
-  const auto &op = std::get<node::Op>(node.what);
-  std::span<const ClassId> operands = childrenOf(node);
-  if (op.origin)
-    return factsOf(op.origin, operands);
-  Block standIns;
-  SmallVector<Value, 4> values;
-  for (auto [i, operand] : llvm::enumerate(operands)) {
-    std::span<const ClassId> before = operands.first(i);
-    auto seen = std::ranges::find(before, operand);
-    values.push_back(seen != before.end()
-                         ? values[static_cast<std::size_t>(seen - before.begin())]
-                         : Value(standIns.addArgument(at(operand).type, fn.getLoc())));
-  }
-  OperationState state(fn.getLoc(), op.name);
-  state.addOperands(values);
-  state.addTypes(node.type);
-  Operation *made = Operation::create(state);
-  Facts facts = factsOf(made, operands);
-  made->destroy();
-  return facts;
-}
-
-// The class of a floating op over `operands`: an equal node's class, found
-// in the hash-cons; or a new node, its analyses computed and the rules
-// rooted at its kind run on it, in the class those decide: a constant's
-// when it folds, an argument's when its callee gives that back, a right
-// side's when a rule matches, else a class of its own. A class that
-// replaces the node is the same value, so it meets what the node knew. None
-// once the function's budget of nodes is spent, for a node a rule asked
-// for: the form is then kept as it was, less optimized.
-std::optional<ClassId> Function::insert(OperationName name, std::optional<std::uint16_t> kind,
-                                        Operation *origin, Identity identity, Type type,
-                                        std::span<const ClassId> operands, Rules rules) {
+Run Function::childrenFor(std::span<const ClassId> operands) {
   Run run{static_cast<std::uint32_t>(children.size()), static_cast<std::uint32_t>(operands.size())};
   children.insert(children.end(), operands.begin(), operands.end());
-  Node node{node::Op{name, kind, origin, identity}, type, run};
-  if (identity == Identity::Shared)
+  return run;
+}
+
+ClassId Function::ownClass(NodeId made, Type type, Facts facts) {
+  Class own{Run{static_cast<std::uint32_t>(members.size()), 1}, type, std::move(facts)};
+  members.push_back(made);
+  return newClass(std::move(own));
+}
+
+// The class of a floating op of the input over `operands`: an equal node's
+// class, found in the hash-cons; or a new node, its analyses computed and
+// the rules rooted at its kind run on it, in the class those decide: a
+// constant's when it folds, an argument's when its callee gives that back,
+// a right side's when a rule matches, else a class of its own. A class that
+// replaces the node is the same value, so it meets what the node knew.
+ClassId Function::insert(node::Input op, Type type, std::span<const ClassId> operands) {
+  Node node{op, type, childrenFor(operands)};
+  if (op.identity == Identity::Shared)
     if (std::optional<ClassId> found = lookup(node)) {
-      children.resize(run.first);
-      return found;
+      children.resize(node.children.first);
+      return *found;
     }
-  if (!origin && nodes.size() >= budget) {
-    children.resize(run.first);
-    return std::nullopt;
-  }
   NodeId made = newNode(std::move(node));
-  Facts facts = analyse(at(made));
+  Facts facts = factsOf(op.origin, operands);
 
   auto replacedBy = [&](ClassId cls) {
     at(cls).facts.meet(facts);
@@ -231,29 +221,46 @@ std::optional<ClassId> Function::insert(OperationName name, std::optional<std::u
   };
   auto decided = [&]() -> ClassId {
     if (facts.constant)
-      return replacedBy(constant(facts.constant, type, name.getDialect()));
-    if (std::optional<ClassId> given =
-            giveBack(std::get<node::Op>(at(made).what), operands, type))
+      return replacedBy(constant(facts.constant, type, op.origin->getDialect()));
+    if (std::optional<ClassId> given = giveBack(op, operands, type))
       return replacedBy(*given);
-    if (rules == Rules::Run)
-      if (std::optional<ClassId> by = rewrite(made))
-        return replacedBy(*by);
-    Class own{Run{static_cast<std::uint32_t>(members.size()), 1}, type, facts};
-    members.push_back(made);
-    return newClass(std::move(own));
+    if (std::optional<ClassId> by = rewrite(made, op, type))
+      return replacedBy(*by);
+    return ownClass(made, type, facts);
   };
   ClassId cls = decided();
-  if (identity == Identity::Shared)
+  if (op.identity == Identity::Shared)
     remember(made, cls);
+  return cls;
+}
+
+// The class of a node a right side built over `operands`: an equal node's
+// class, or a new node in a class of its own with what its kind's tables
+// give, its insertion running no rules. None once the function's budget of
+// nodes is spent: the input's form is then kept as it was, less optimized.
+std::optional<ClassId> Function::insert(node::Built op, Type type,
+                                        std::span<const ClassId> operands) {
+  Node node{op, type, childrenFor(operands)};
+  if (std::optional<ClassId> found = lookup(node)) {
+    children.resize(node.children.first);
+    return found;
+  }
+  if (nodes.size() >= budget) {
+    children.resize(node.children.first);
+    return std::nullopt;
+  }
+  NodeId made = newNode(std::move(node));
+  ClassId cls = ownClass(made, type, factsOf(op, type, operands));
+  remember(made, cls);
   return cls;
 }
 
 // A floating call of a function that gives back one of its arguments whole,
 // as the optimizer decided, is that argument: the call floats only where
 // its row carries neither crash nor divergence, so nothing is lost with it.
-std::optional<ClassId> Function::giveBack(const node::Op &op, std::span<const ClassId> operands,
-                                          Type type) {
-  if (!callees || !op.origin)
+std::optional<ClassId> Function::giveBack(const node::Input &op,
+                                          std::span<const ClassId> operands, Type type) {
+  if (!callees)
     return std::nullopt;
   auto call = dyn_cast<CallOp>(op.origin);
   if (!call)

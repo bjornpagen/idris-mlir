@@ -14,8 +14,7 @@
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
-
-#include "llvm/ADT/STLExtras.h"
+#include "idr/Support/Match.h"
 
 #include <cstdint>
 #include <optional>
@@ -113,40 +112,54 @@ private:
   std::uint32_t count = 0;
 };
 
-// The node of `point` as the reading states it: a use's value, a value or
+// The node of a source as the reading states it: a use's value, a value or
 // a part's anchor, through `known`, with which the reading makes a node
 // and an answer finds one; a parameter or a result by its function's label.
 template <class Known>
 auto nodeOf(const Points &points, const FlowPoint &point, Known &&known) {
   using Answer = decltype(known(mlir::Value()));
-  return std::visit(
-      llvm::makeVisitor(
-          [&](FlowPoint::Taken taken) -> Answer { return known(taken.use->get()); },
-          [&](FlowPoint::Whole whole) -> Answer { return known(whole.value); },
-          [&](const FlowPoint::Part &part) -> Answer { return known(part.anchor); },
-          [&](FlowPoint::Parameter param) -> Answer {
-            return points.parameter(points.labelOf(param.function), param.index);
-          },
-          [&](FlowPoint::Result result) -> Answer {
-            return points.result(points.labelOf(result.function), result.index);
-          }),
-      point.at);
+  return match(
+      point.at, [&](FlowPoint::Taken taken) -> Answer { return known(taken.use->get()); },
+      [&](FlowPoint::Whole whole) -> Answer { return known(whole.value); },
+      [&](const FlowPoint::Part &part) -> Answer { return known(part.anchor); },
+      [&](FlowPoint::Parameter param) -> Answer {
+        return points.parameter(points.labelOf(param.function), param.index);
+      },
+      [&](FlowPoint::Result result) -> Answer {
+        return points.result(points.labelOf(result.function), result.index);
+      });
 }
 
-// Each operand that moves a label at its op, and the one point it moves its
+// The node of a place, the same way: a value or a part's anchor through
+// `known`, a parameter or a result by its function's label.
+template <class Known>
+auto nodeOf(const Points &points, const FlowPlace &place, Known &&known) {
+  using Answer = decltype(known(mlir::Value()));
+  return match(
+      place.at, [&](FlowPoint::Whole whole) -> Answer { return known(whole.value); },
+      [&](const FlowPlace::Part &part) -> Answer { return known(part.anchor); },
+      [&](FlowPoint::Parameter param) -> Answer {
+        return points.parameter(points.labelOf(param.function), param.index);
+      },
+      [&](FlowPoint::Result result) -> Answer {
+        return points.result(points.labelOf(result.function), result.index);
+      });
+}
+
+// Each operand that moves a label at its op, and the one place it moves its
 // value into there, by the order the reading met it.
 class Sinks {
 public:
-  // The point `use` moves its value into; none where it moves no label.
-  std::optional<FlowPoint> of(mlir::OpOperand &use) const;
+  // The place `use` moves its value into; none where it moves no label.
+  std::optional<FlowPlace> of(mlir::OpOperand &use) const;
   // `use` moves its value into `target`: the sink it had already, which the
   // reading joins to `target`; none the first time, `target` its sink.
-  std::optional<FlowPoint> meet(mlir::OpOperand &use, const FlowPoint &target);
+  std::optional<FlowPlace> meet(mlir::OpOperand &use, const FlowPlace &target);
 
 private:
   // The one place an operand becomes its sink.
   footprint::DenseMap<mlir::OpOperand *, Sink> index;
-  footprint::Vector<FlowPoint> targets;
+  footprint::Vector<FlowPlace> targets;
 };
 
 } // namespace idr::labels

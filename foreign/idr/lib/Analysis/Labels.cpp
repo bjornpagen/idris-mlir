@@ -28,6 +28,7 @@
 #include "idr/Analysis/Solver/Graph.h"
 #include "idr/Analysis/Solver/LabelGraph.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 
@@ -302,10 +303,9 @@ ArrayAttr Solution::labelsOf(const PointKey &key) const {
   auto ofResult = [&](FlowPoint::Result result) {
     return labelsAt(points.result(points.labelOf(result.function), result.index));
   };
-  return std::visit(llvm::makeVisitor([&](Value value) { return labelsOf(value); },
-                                      [&](const FlowAnchor &anchor) { return labelsOf(anchor); },
-                                      ofResult),
-                    key);
+  return match(
+      key, [&](Value value) { return labelsOf(value); },
+      [&](const FlowAnchor &anchor) { return labelsOf(anchor); }, ofResult);
 }
 
 // Both sets hold their labels in one order, so `a`'s labels are met along

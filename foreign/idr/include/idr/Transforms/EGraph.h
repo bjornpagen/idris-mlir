@@ -23,7 +23,9 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
+#include "mlir/Interfaces/Utils/InferIntRangeCommon.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -49,9 +51,10 @@ namespace egraph {
 // idr::egraph::generated: `patterns`, `conditions`, `rules` (sorted by root
 // kind), `rulesOfKind` (kind k's rules are rules[rulesOfKind[k],
 // rulesOfKind[k + 1])), `Kinds` (an OpList of every op kind a pattern
-// names, a kind's number its position), `SkeletonRules` (a RuleList of the
-// hand skeleton rule classes) and `nodesPerOp`. Nothing is built per
-// function from them: the engine reads them where the compiler is built.
+// names, a kind's number its position), `intRanges` (each kind's range
+// function, by its number), `SkeletonRules` (a RuleList of the hand
+// skeleton rule classes) and `nodesPerOp`. Nothing is built per function
+// from them: the engine reads them where the compiler is built.
 namespace table {
 
 template <class... Ops>
@@ -94,6 +97,46 @@ struct Rule {
   std::uint32_t rhs, rhsSize;
   std::uint32_t conditions, conditionCount;
 };
+
+// A kind's interval from its operands' intervals, for a node a rule built,
+// where no op stands to be asked; `result` is the node's type.
+using IntRangeFn = mlir::ConstantIntRanges (*)(llvm::ArrayRef<mlir::ConstantIntRanges>,
+                                               mlir::Type result);
+
+// A range function of one of the shapes upstream writes them in, by the
+// arguments it takes after its operands' intervals.
+template <auto F, class... Args>
+concept RangeOver = requires(Args... args) {
+  { F(args...) } -> std::same_as<mlir::ConstantIntRanges>;
+};
+
+// Each shape as an IntRangeFn, chosen by F's signature, so the generated
+// table names upstream's function and the shape is never restated.
+namespace range {
+// One that reads overflow flags: a node a rule built has the op's default
+// properties, which promise none.
+template <auto F>
+  requires RangeOver<F, llvm::ArrayRef<mlir::ConstantIntRanges>, mlir::intrange::OverflowFlags>
+mlir::ConstantIntRanges by(llvm::ArrayRef<mlir::ConstantIntRanges> operands, mlir::Type) {
+  return F(operands, mlir::intrange::OverflowFlags::None);
+}
+// An extension or a truncation: its one operand, to the result's width.
+template <auto F>
+  requires RangeOver<F, const mlir::ConstantIntRanges &, unsigned>
+mlir::ConstantIntRanges by(llvm::ArrayRef<mlir::ConstantIntRanges> operands, mlir::Type result) {
+  return F(operands[0], mlir::ConstantIntRanges::getStorageBitwidth(result));
+}
+// One that reads the operands alone, as an inline meaning over intervals
+// does too.
+template <auto F>
+  requires RangeOver<F, llvm::ArrayRef<mlir::ConstantIntRanges>>
+mlir::ConstantIntRanges by(llvm::ArrayRef<mlir::ConstantIntRanges> operands, mlir::Type) {
+  return F(operands);
+}
+} // namespace range
+
+template <auto F>
+inline constexpr IntRangeFn rangeBy = &range::by<F>;
 
 } // namespace table
 

@@ -139,13 +139,13 @@ void Function::build() {
         SmallVector<ClassId, 4> operands = classesOf(op);
         Value result = op->getResult(0);
         Attribute known;
-        std::optional<ClassId> cls =
+        classOf[numbering.at(result)] =
             matchPattern(result, m_Constant(&known))
                 ? constant(known, result.getType(), op->getDialect())
-                : insert(op->getName(), kinds.kindOf(op), op,
-                         entry == Entry::OwnIdentity ? Identity::Own : Identity::Shared,
-                         result.getType(), operands, Rules::Run);
-        classOf[numbering.at(result)] = *cls;
+                : insert(node::Input{op, kinds.kindOf(op),
+                                     entry == Entry::OwnIdentity ? Identity::Own
+                                                                 : Identity::Shared},
+                         result.getType(), operands);
         return;
       }
       // A skeleton op: its results are leaves. A repeated read with nothing
@@ -154,7 +154,7 @@ void Function::build() {
       // changes nothing. A repeated op of the region's parent is the first.
       footprint::Vector<Skeletal> &list = perRegion[region.index()];
       footprint::Vector<Mergeable> &earlier = mergeable[region.index()];
-      Fate fate = Kept{};
+      std::optional<Merged> merged;
       if ((entry == Entry::Reads || entry == Entry::OfParent) && !staysPut(op)) {
         auto unchanged = [&](const Mergeable &first) {
           if (entry == Entry::OfParent)
@@ -174,21 +174,22 @@ void Function::build() {
               op->getName().compareOpProperties(first.op->getPropertiesStorage(),
                                                 op->getPropertiesStorage()) &&
               unchanged(first)) {
-            fate = Merged{first.op};
+            merged = Merged{first.op};
             break;
           }
         }
-        if (std::holds_alternative<Kept>(fate))
+        if (!merged)
           earlier.push_back({op, static_cast<std::uint32_t>(list.size() + 1)});
       }
-      if (const auto *merged = std::get_if<Merged>(&fate)) {
+      if (merged) {
         for (auto [mine, theirs] : llvm::zip_equal(op->getResults(), merged->into->getResults()))
           classOf[numbering.at(mine)] = *classOf[numbering.at(theirs)];
+        list.push_back({op, *merged, regions});
       } else {
         for (Value result : op->getResults())
           classOf[numbering.at(result)] = leaf(result);
+        list.push_back({op, Kept{}, regions});
       }
-      list.push_back({op, std::move(fate), regions});
     });
 
   for (auto [at, list] : llvm::enumerate(perRegion)) {
@@ -236,31 +237,41 @@ Cost Function::costOf(Value value) const { return cost[classOf[numbering.at(valu
 void Function::decide(Round round) {
   OperandFacts facts(*this);
   for (Skeletal &entry : skeleton) {
-    if (!std::holds_alternative<Kept>(entry.fate))
+    // A repeated read stays the earlier op's, and a function decides once.
+    std::optional<Decided> decided =
+        match(entry.fate, [&](Kept) { return decideSkeleton(entry.op, facts); },
+              [](const Merged &) -> std::optional<Decided> { return std::nullopt; },
+              [](const Decided &) -> std::optional<Decided> { return std::nullopt; });
+    if (!decided)
       continue;
-    Fate fate = decideSkeleton(entry.op, facts);
-    if (const auto *decided = std::get_if<Decided>(&fate);
-        decided && round == Round::Second && std::holds_alternative<Rewrite>(decided->edit))
-      continue;
-    entry.fate = std::move(fate);
+    bool stands = match(
+        decided->edit, [&](const Rewrite &) { return round == Round::First; },
+        [](const Forward &) { return true; }, [](const Take &) { return true; });
+    if (stands)
+      entry.fate = std::move(*decided);
   }
 }
 
 footprint::Vector<Function::Pending> Function::rewrites() const {
   footprint::Vector<Pending> out;
   for (const Skeletal &entry : skeleton)
-    if (const auto *decided = std::get_if<Decided>(&entry.fate))
-      if (const auto *rewrite = std::get_if<Rewrite>(&decided->edit))
-        out.push_back({entry.op, decided->rule, *rewrite});
+    match(
+        entry.fate, [](Kept) {}, [](const Merged &) {},
+        [&](const Decided &decided) {
+          match(
+              decided.edit,
+              [&](const Rewrite &rewrite) { out.push_back({entry.op, decided.rule, rewrite}); },
+              [](const Forward &) {}, [](const Take &) {});
+        });
   return out;
 }
 
 // The op of the input the value's chosen member is, if it is one.
 Operation *Function::originOf(Value value) const {
   const std::optional<NodeId> &chosen = best[classOf[numbering.at(value)]->index()];
-  if (const auto *op = std::get_if<node::Op>(&at(*chosen).what))
-    return op->origin;
-  return nullptr;
+  return match(at(*chosen).what, [](const node::Input &op) { return op.origin; },
+               [](const node::Built &) -> Operation * { return nullptr; },
+               []<Atom N>(const N &) -> Operation * { return nullptr; });
 }
 
 } // namespace idr::egraph::detail

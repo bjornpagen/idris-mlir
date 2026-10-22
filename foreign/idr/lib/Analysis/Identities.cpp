@@ -5,6 +5,7 @@
 // once it holds. IdentitiesRecord.cpp reads a function; IdentitiesRebuilds.cpp
 // says what its returns rebuild under the assumptions left.
 #include "idr/Analysis/Solver/IdentityRecords.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -98,8 +99,12 @@ footprint::Vector<Facts> Component::solve(std::span<const std::span<const GivesB
   footprint::Vector<footprint::Vector<std::uint32_t>> callers(count);
   for (auto [at, callees] : llvm::enumerate(records->callees))
     for (const Records::Callee &callee : callees)
-      if (const auto *in = std::get_if<Records::InComponent>(&callee))
-        callers[in->member].push_back(static_cast<std::uint32_t>(at));
+      match(
+          callee,
+          [&](Records::InComponent in) {
+            callers[in.member].push_back(static_cast<std::uint32_t>(at));
+          },
+          [](Records::Elsewhere) {});
   for (footprint::Vector<std::uint32_t> &list : callers) {
     llvm::sort(list);
     list.erase(std::unique(list.begin(), list.end()), list.end());
@@ -110,11 +115,10 @@ footprint::Vector<Facts> Component::solve(std::span<const std::span<const GivesB
   auto calleeFacts = [&](std::uint32_t member) {
     footprint::Vector<std::span<const GivesBack>> facts;
     for (const Records::Callee &callee : records->callees[member])
-      facts.push_back(std::visit(
-          llvm::makeVisitor(
-              [&](Records::InComponent in) { return std::span<const GivesBack>(assumed[in.member]); },
-              [&](Records::Elsewhere away) { return outside[away.outside]; }),
-          callee));
+      facts.push_back(match(
+          callee,
+          [&](Records::InComponent in) { return std::span<const GivesBack>(assumed[in.member]); },
+          [&](Records::Elsewhere away) { return outside[away.outside]; }));
     return facts;
   };
 

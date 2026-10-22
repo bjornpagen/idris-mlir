@@ -19,6 +19,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
+#include "idr/Support/Match.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -110,9 +111,12 @@ private:
   Node nodeOf(const FlowPoint &point) {
     return labels::nodeOf(out.points, point, [&](const auto &key) { return out.points.of(key); });
   }
+  Node nodeOf(const FlowPlace &place) {
+    return labels::nodeOf(out.points, place, [&](const auto &key) { return out.points.of(key); });
+  }
   Node nodeOf(const Place &place);
-  void flow(Operation *op, const FlowPoint &from, const FlowPoint &target, Link how);
-  void sink(OpOperand &use, const FlowPoint &target);
+  void flow(Operation *op, const FlowPoint &from, const FlowPlace &target, Link how);
+  void sink(OpOperand &use, const FlowPlace &target);
   void dispatch(CallOpInterface call);
   void moves(ValueRange values);
   void expand(Attribute part, Value at, Type carrier);
@@ -132,28 +136,25 @@ private:
 // carrier holds it: a constructor of any data type may hold a closure in a
 // field.
 void Reading::add(Operation *op, const FlowEdges::Edge &edge) {
-  std::visit(
-      llvm::makeVisitor(
-          [&](const FlowEdges::Flow &move) {
-            if (!edge.carriesAny(Carriers::labels()))
-              return;
-            flow(op, move.from, move.to, linkOf(edge.carriers));
-          },
-          [&](const FlowEdges::Unify &move) {
-            out.statements.links.push_back({nodeOf(move.a), nodeOf(move.b), Link::Unify});
-          },
-          [&](const FlowEdges::Source &move) {
-            out.statements.sources.push_back(
-                {out.points.of(move.to), out.points.labelOf(move.label)});
-          },
-          [](const FlowEdges::Fresh &) {},
-          [](const FlowEdges::Release &) {},
-          [](const FlowEdges::Overwrite &) {},
-          [&](const FlowEdges::Constant &move) {
-            expand(move.part, move.to, unrestricted(move.to.getType()));
-          },
-          [&](FlowEdges::Dispatch move) { dispatch(move.call); }),
-      edge.move);
+  match(
+      edge.move,
+      [&](const FlowEdges::Flow &move) {
+        if (!edge.carriesAny(Carriers::labels()))
+          return;
+        flow(op, move.from, move.to, linkOf(edge.carriers));
+      },
+      [&](const FlowEdges::Unify &move) {
+        out.statements.links.push_back({nodeOf(move.a), nodeOf(move.b), Link::Unify});
+      },
+      [&](const FlowEdges::Source &move) {
+        out.statements.sources.push_back({out.points.of(move.to), out.points.labelOf(move.label)});
+      },
+      [](const FlowEdges::Fresh &) {}, [](const FlowEdges::Release &) {},
+      [](const FlowEdges::Overwrite &) {},
+      [&](const FlowEdges::Constant &move) {
+        expand(move.part, move.to, unrestricted(move.to.getType()));
+      },
+      [&](FlowEdges::Dispatch move) { dispatch(move.call); });
 }
 
 void Reading::tailResults(Label callee, Operation *call) {
@@ -167,33 +168,30 @@ void Reading::tailResults(Label callee, Operation *call) {
 }
 
 Node Reading::nodeOf(const Place &place) {
-  return std::visit(
-      llvm::makeVisitor([&](Value value) { return out.points.of(value); },
-                        [&](const FlowAnchor &anchor) { return out.points.of(anchor); },
-                        [](Node node) { return node; }),
-      place);
+  return match(
+      place, [&](Value value) { return out.points.of(value); },
+      [&](const FlowAnchor &anchor) { return out.points.of(anchor); }, [](Node node) { return node; });
 }
 
 // A flow of a whole value, which the op takes over or reads, moves it out
 // of the use that holds it; the flow of a part moves no use's value, and a
 // parameter or a result is no use's.
-void Reading::flow(Operation *op, const FlowPoint &from, const FlowPoint &target, Link how) {
-  std::visit(llvm::makeVisitor([&](FlowPoint::Taken taken) { sink(*taken.use, target); },
-                               [&](FlowPoint::Whole whole) {
-                                 for (OpOperand &use : op->getOpOperands())
-                                   if (use.get() == whole.value)
-                                     sink(use, target);
-                               },
-                               [](const FlowPoint::Part &) {}, [](FlowPoint::Parameter) {},
-                               [](FlowPoint::Result) {}),
-             from.at);
+void Reading::flow(Operation *op, const FlowPoint &from, const FlowPlace &target, Link how) {
+  match(
+      from.at, [&](FlowPoint::Taken taken) { sink(*taken.use, target); },
+      [&](FlowPoint::Whole whole) {
+        for (OpOperand &use : op->getOpOperands())
+          if (use.get() == whole.value)
+            sink(use, target);
+      },
+      [](const FlowPoint::Part &) {}, [](FlowPoint::Parameter) {}, [](FlowPoint::Result) {});
   out.statements.links.push_back({nodeOf(from), nodeOf(target), how});
 }
 
-// A use moves its value into one point: a second edge from it joins its
+// A use moves its value into one place: a second edge from it joins its
 // target to the first, so the use has one slot to be moved into.
-void Reading::sink(OpOperand &use, const FlowPoint &target) {
-  if (std::optional<FlowPoint> earlier = out.sinks.meet(use, target))
+void Reading::sink(OpOperand &use, const FlowPlace &target) {
+  if (std::optional<FlowPlace> earlier = out.sinks.meet(use, target))
     out.statements.links.push_back({nodeOf(*earlier), nodeOf(target), Link::Unify});
 }
 
@@ -240,11 +238,9 @@ void Reading::expand(Attribute part, Value at, Type carrier) {
   while (!work.empty()) {
     Pending next = std::move(work.back());
     work.pop_back();
-    std::visit(llvm::makeVisitor([&](const Expansion &expansion) { expandOne(expansion, work); },
-                                 [&](const Statements::Linked &linked) {
-                                   out.statements.links.push_back(linked);
-                                 }),
-               next);
+    match(
+        next, [&](const Expansion &expansion) { expandOne(expansion, work); },
+        [&](const Statements::Linked &linked) { out.statements.links.push_back(linked); });
   }
 }
 

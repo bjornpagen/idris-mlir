@@ -74,13 +74,13 @@ footprint::Vector<std::pair<Node, PointKey>> Points::described() const {
   return all;
 }
 
-std::optional<FlowPoint> Sinks::of(OpOperand &use) const {
+std::optional<FlowPlace> Sinks::of(OpOperand &use) const {
   if (auto it = index.find(&use); it != index.end())
     return targets[std::to_underlying(it->second)];
   return std::nullopt;
 }
 
-std::optional<FlowPoint> Sinks::meet(OpOperand &use, const FlowPoint &target) {
+std::optional<FlowPlace> Sinks::meet(OpOperand &use, const FlowPlace &target) {
   auto [it, first] = index.try_emplace(&use, Sink(static_cast<unsigned>(targets.size())));
   if (!first)
     return targets[std::to_underlying(it->second)];

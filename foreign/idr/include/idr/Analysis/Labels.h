@@ -202,7 +202,7 @@ public:
   }
   mlir::ArrayAttr labelsOf(const FlowPoint &point) const;
   mlir::ArrayAttr labelsOf(const PointKey &key) const;
-  std::optional<FlowPoint> sinkOf(mlir::OpOperand &operand) const { return sinks.of(operand); }
+  std::optional<FlowPlace> sinkOf(mlir::OpOperand &operand) const { return sinks.of(operand); }
   FuncOp function(mlir::StringAttr label) const {
     return points.function(mlir::FlatSymbolRefAttr::get(label));
   }
@@ -249,10 +249,10 @@ public:
     return labelsOf(runner.getLabelCarrier());
   }
 
-  // The one point `operand` moves its value into at its op, or nothing: an
+  // The one place `operand` moves its value into at its op, or nothing: an
   // operand of a carrier that carries no label, and the callee and the
   // arguments of a dispatch, which move per label.
-  std::optional<FlowPoint> sinkOf(mlir::OpOperand &operand) const {
+  std::optional<FlowPlace> sinkOf(mlir::OpOperand &operand) const {
     return solution.sinkOf(operand);
   }
 

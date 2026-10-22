@@ -17,10 +17,10 @@
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Match.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
@@ -194,23 +194,22 @@ template <solver::FunctionNames N>
 Build Reader<N>::buildOf(Value value) {
   if (auto arg = dyn_cast<BlockArgument>(value); arg && arg.getOwner() == &fn.getBody().front())
     return build::Entry{arg.getArgNumber()};
-  return std::visit(
-      llvm::makeVisitor(
-          [&](const idr::Same &same) -> Build { return build::Same{numbering.at(same.value)}; },
-          // A read whose op does more than compute (a memo cell's state,
-          // which forcing writes) is no part of anything.
-          [&](const idr::Field &field) -> Build {
-            if (Operation *op = value.getDefiningOp(); op && !effects::whole(op).onlyComputes())
-              return build::Opaque{};
-            return build::Read{numbering.at(field.scrutinee), Field{field.tag, field.index},
-                               value.getType()};
-          },
-          [&](const idr::Made &) -> Build {
-            if (auto result = dyn_cast<OpResult>(value))
-              return ofResult(result);
-            return build::Opaque{};
-          }),
-      sourceOf(value));
+  return match(
+      sourceOf(value),
+      [&](const idr::Same &same) -> Build { return build::Same{numbering.at(same.value)}; },
+      // A read whose op does more than compute (a memo cell's state, which
+      // forcing writes) is no part of anything.
+      [&](const idr::Field &field) -> Build {
+        if (Operation *op = value.getDefiningOp(); op && !effects::whole(op).onlyComputes())
+          return build::Opaque{};
+        return build::Read{numbering.at(field.scrutinee), Field{field.tag, field.index},
+                           value.getType()};
+      },
+      [&](const idr::Made &) -> Build {
+        if (auto result = dyn_cast<OpResult>(value))
+          return ofResult(result);
+        return build::Opaque{};
+      });
 }
 
 // Every return of the function, with the case regions around it. A body
