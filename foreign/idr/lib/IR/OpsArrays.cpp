@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The ops on mutable memory (new, get, set, update), with their rules,
-// shapes and how an element moves; and the read of a value array that gives
-// the array back.
+// shapes and how an element moves; and the reads of a value array, of an
+// element and of an extent, that give the array back.
 //
 // Mutable memory is base's IOArray, Buffer and IORef: a buffer in the
 // memory space #idr.mutable, written after it is shared. A value array's
@@ -204,4 +204,25 @@ LogicalResult ArrayReadOp::verify() {
 void ArrayReadOp::getFlowEdges(FlowEdges &edges) {
   edges.flow(FlowSource::of(getArrayMutable()), FlowPlace::of(getAfter()));
   edges.flow(FlowSource::partOf(getArray(), elementsOf(getArray())), FlowPlace::of(getValue()));
+}
+
+//===----------------------------------------------------------------------===//
+// idr.array.extent
+//===----------------------------------------------------------------------===//
+
+// An axis of the array, and the array given back as it was.
+LogicalResult ArrayExtentOp::verify() {
+  auto type = cast<RankedTensorType>(getArray().getType());
+  if (getAxis() >= static_cast<uint64_t>(type.getRank()))
+    return emitOpError("reads axis ") << getAxis() << " of an array of rank " << type.getRank();
+  if (getAfter().getType() != type)
+    return emitOpError("gives back ") << getAfter().getType() << " for an array of " << type;
+  return success();
+}
+
+// The array given back is the array; the extent is a new natural, of a
+// size no other value holds.
+void ArrayExtentOp::getFlowEdges(FlowEdges &edges) {
+  edges.flow(FlowSource::of(getArrayMutable()), FlowPlace::of(getAfter()));
+  edges.fresh(getExtent());
 }

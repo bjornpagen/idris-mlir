@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The generating set (idr.array.tabulate, idr.array.fold_last,
-// idr.array.scan_last), the yield that ends their regions, and the read
-// that gives its array back.
+// idr.array.scan_last), the yield that ends their regions, and the reads
+// of an element and of an extent that give their array back.
 //
 // A generating op is destination-style, so upstream's DPS model says most
 // of it: each destination is written and is its result. What the model
@@ -16,6 +16,7 @@
 // meets it on buffers through its flow and effects in between.
 #include "idr/Transforms/BufferizeModels.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/IR/DstBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
@@ -165,6 +166,44 @@ struct ReadModel : BufferizableOpInterface::ExternalModel<ReadModel, idr::ArrayR
   }
 };
 
+// The read of an extent that gives its array back: it reads the shape, no
+// element, and writes nothing; the array it gives is the array's buffer and
+// the extent the buffer's dimension, a natural made of the word it is.
+struct ExtentModel : BufferizableOpInterface::ExternalModel<ExtentModel, idr::ArrayExtentOp> {
+  bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
+    return false;
+  }
+  bool bufferizesToMemoryWrite(Operation *, OpOperand &, const AnalysisState &) const {
+    return false;
+  }
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &, const AnalysisState &) const {
+    return {{cast<idr::ArrayExtentOp>(op).getAfter(), BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+
+  FailureOr<BufferLikeType> getBufferType(Operation *op, Value, const BufferizationOptions &options,
+                                          const BufferizationState &state,
+                                          SmallVector<Value> &invocationStack) const {
+    return bufferization::getBufferType(cast<idr::ArrayExtentOp>(op).getArray(), options, state,
+                                        invocationStack);
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options, BufferizationState &state) const {
+    auto extent = cast<idr::ArrayExtentOp>(op);
+    FailureOr<Value> buffer = getBuffer(rewriter, extent.getArray(), options, state);
+    if (failed(buffer))
+      return failure();
+    Location loc = extent.getLoc();
+    Value size =
+        memref::DimOp::create(rewriter, loc, *buffer, static_cast<int64_t>(extent.getAxis()));
+    Value word = arith::IndexCastUIOp::create(rewriter, loc, rewriter.getI64Type(), size);
+    Value natural = idr::BigSmallOp::create(rewriter, loc, extent.getExtent().getType(), word);
+    replaceOpWithBufferizedValues(rewriter, op, {natural, *buffer});
+    return success();
+  }
+};
+
 } // namespace
 
 void idr::bufferize::attachGeneratingModels(MLIRContext *ctx) {
@@ -176,4 +215,5 @@ void idr::bufferize::attachGeneratingModels(MLIRContext *ctx) {
       GeneratingModel<idr::ArrayScanLastOp, Reads::Nothing>>(*ctx);
   idr::ArrayYieldOp::attachInterface<YieldModel>(*ctx);
   idr::ArrayReadOp::attachInterface<ReadModel>(*ctx);
+  idr::ArrayExtentOp::attachInterface<ExtentModel>(*ctx);
 }

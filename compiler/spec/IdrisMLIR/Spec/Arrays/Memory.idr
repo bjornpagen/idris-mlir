@@ -21,6 +21,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Arrays.Generating
 
@@ -57,7 +58,7 @@ mutableAttr = MkAttrDef
 ||| read of a value array is indexed by a `Fin` per axis, which proves it in
 ||| bounds, so its records carry no guard.
 inBounds : {0 i : Nat} -> (indices, arr : Fin i) -> Guard (Fin i)
-inBounds indices arr = MkGuard "check.in_bounds" (indices ::: [arr]) (caseRef causeClosed IndexOutOfBounds)
+inBounds indices arr = MkGuard inBoundsOp [indices, arr] IndexOutOfBounds
 
 ||| `idr.array.new`: a new array of the given sizes, one per dimension,
 ||| each element the fill, which moves in, a reference per element (an
@@ -274,6 +275,40 @@ arrayReadOp = MkOp
   , doc = brief "the element of a value array at an index, and the array given back"
   }
 
+||| `idr.array.extent`: the extent of a value array along one axis, as a
+||| natural, and the array given back as it was, a new value of it, as
+||| Idris's type of a linear array's shape says: whatever writes the array
+||| next takes the value given back, so the shape is read before the write
+||| by data, as an element is. It reads no element.
+export
+arrayExtentOp : Op 1 2 1 0
+arrayExtentOp = MkOp
+  { home = InIdr
+  , mnemonic = "array.extent"
+  , ins = [single "array" (UpstreamType AnyRankedTensorC)]
+  , outs = [result "extent" natValue, result "after" (UpstreamType AnyRankedTensorC)]
+  , attrs = [attr "axis" (UpstreamAttr I64AttrC)]
+  , regions = []
+  , traits = []
+  , interfaces = [Implements flowInterface ["getFlowEdges"]]
+  , effects = noEffects
+  , speculation = AlwaysSpeculatable
+  , stages = between Higher First
+  , meaning = NoFold
+  , verify = VerifiesOp
+  , format = Declared
+      [ ValueOf (OperandRef 0), Lit "[", ValueOf (AttrRef 0), Lit "]", AttrDict
+      , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->", TypeOf (OfGroup (ResultRef 0)), Lit ","
+      , TypeOf (OfGroup (ResultRef 1)) ]
+  , builders = []
+  , defaultBuilders = WithDefaults
+  , members = []
+  , guards = []
+  , specializations = []
+  , laws = []
+  , doc = brief "the extent of a value array along an axis, and the array given back"
+  }
+
 ------------------------------------------------------------------------------
 -- A fresh buffer's first write
 ------------------------------------------------------------------------------
@@ -421,5 +456,6 @@ export
 memoryOps : List AnyOp
 memoryOps =
   [ SomeOp arrayNewOp, SomeOp arrayGetOp, SomeOp arraySetOp, SomeOp arrayUpdateOp
-  , SomeOp arrayUpdateYieldOp, SomeOp arrayReadOp, SomeOp arrayPlaceCopyOp, SomeOp natToExtentOp
+  , SomeOp arrayUpdateYieldOp, SomeOp arrayReadOp, SomeOp arrayExtentOp, SomeOp arrayPlaceCopyOp
+  , SomeOp natToExtentOp
   , SomeOp tieShapeOp ]
