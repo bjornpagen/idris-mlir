@@ -42,7 +42,9 @@ void Runtime::storeUncountedHeader(OpBuilder &b, Location loc, Value address,
 
 void Runtime::storeInfoAndWords(OpBuilder &b, Location loc, Value address,
                                 const layout::Cell &cell) const {
-  storeInfo(b, loc, address, i32Constant(b, loc, cell.info.word()));
+  LLVM::StoreOp::create(b, loc, i32Constant(b, loc, cell.info.word()),
+                        at(b, loc, address, headerLayout.infoAt),
+                        alignAt(cellAlignment(), headerLayout.infoAt));
   storeCellWords(b, loc, address, cell);
 }
 
@@ -74,16 +76,6 @@ Value Runtime::loadTag(OpBuilder &b, Location loc, Value cell, DataType data,
                                     /*isNonTemporal=*/false, /*isInvariant=*/false,
                                     invariantGroup(stays));
   return LLVM::AddOp::create(b, loc, groupBase(b, loc, word), tag);
-}
-
-Value Runtime::loadInfo(OpBuilder &b, Location loc, Value cell) const {
-  return LLVM::LoadOp::create(b, loc, b.getI32Type(), at(b, loc, cell, headerLayout.infoAt),
-                              alignAt(cellAlignment(), headerLayout.infoAt));
-}
-
-void Runtime::storeInfo(OpBuilder &b, Location loc, Value cell, Value info) const {
-  LLVM::StoreOp::create(b, loc, info, at(b, loc, cell, headerLayout.infoAt),
-                        alignAt(cellAlignment(), headerLayout.infoAt));
 }
 
 void Runtime::store(OpBuilder &b, Location loc, Value address, unsigned align,

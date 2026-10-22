@@ -10,6 +10,9 @@
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/IR/Builders.h"
 
+#include <cstddef>
+#include <utility>
+
 using namespace mlir;
 
 namespace idr::conversion {
@@ -38,6 +41,15 @@ bool tells(const effects::Told &told, Attribute attribute) {
   return !told.withheld.contains(attribute);
 }
 
+// The attributes llvm.func keeps a field of its own for. Every other one
+// reaches LLVM through the function's passthrough, by the spelling the
+// specification gives its case, which is LLVM's name for it.
+constexpr EnumSet<Attribute> ownFields{Attribute::WillReturn, Attribute::NoUnwind};
+
+StringRef spellingOf(Attribute attribute) {
+  return EnumTraits<Attribute>::names[static_cast<std::size_t>(std::to_underlying(attribute))];
+}
+
 } // namespace
 
 void tellFunction(LLVM::LLVMFuncOp fn, const effects::Told &told) {
@@ -47,14 +59,10 @@ void tellFunction(LLVM::LLVMFuncOp fn, const effects::Told &told) {
     fn.setWillReturn(true);
   if (tells(told, Attribute::NoUnwind))
     fn.setNoUnwind(true);
-  // The attributes llvm.func has no field for, by their names in LLVM.
   SmallVector<mlir::Attribute> passthrough;
-  if (tells(told, Attribute::MustProgress))
-    passthrough.push_back(StringAttr::get(ctx, "mustprogress"));
-  if (tells(told, Attribute::NoFree))
-    passthrough.push_back(StringAttr::get(ctx, "nofree"));
-  if (tells(told, Attribute::NoSync))
-    passthrough.push_back(StringAttr::get(ctx, "nosync"));
+  for (Attribute attribute : allOf<Attribute>())
+    if (!ownFields.contains(attribute) && tells(told, attribute))
+      passthrough.push_back(StringAttr::get(ctx, spellingOf(attribute)));
   if (!passthrough.empty())
     fn.setPassthroughAttr(ArrayAttr::get(ctx, passthrough));
 }

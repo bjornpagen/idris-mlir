@@ -55,7 +55,6 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
-#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Threading.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -234,7 +233,8 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     // The rows are written last here, before they become LLVM's
     // attributes, by the one writer of rows, its work the pass's.
     solver::Work work;
-    rows::write(program, getAnalysis<solver::ProgramGraph>(), work);
+    const solver::ProgramGraph &graph = getAnalysis<solver::ProgramGraph>();
+    rows::write(program, graph, work);
     numWork += work.steps();
     const Layouts &layouts = getAnalysis<Layouts>();
     // Read from the module's data layout once, here: a data layout fills
@@ -253,18 +253,17 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     }
 
     Lowering lowering(program, layouts, runtime, arrays);
-    viewsWhereAsked(program);
+    // Each callee is resolved through the program graph, the one index of
+    // calls, until the functions become LLVM's below.
+    viewsWhereAsked(program, graph);
     SmallVector<FuncOp> sources(program->getRegion(0).getOps<FuncOp>());
-    {
-      SymbolTable symbols(program);
-      // The account first: its points are read off the function as the
-      // passes left it, before its lifetimes put anything into it.
-      if (failed(failableParallelForEach(ctx, sources, [&](FuncOp fn) {
-            keepAccount(fn, lowering.tells, layouts, runtime);
-            return prepareLifetimes(fn, symbols, layouts);
-          })))
-        return signalPassFailure();
-    }
+    // The account first: its points are read off the function as the
+    // passes left it, before its lifetimes put anything into it.
+    if (failed(failableParallelForEach(ctx, sources, [&](FuncOp fn) {
+          keepAccount(fn, lowering.tells, layouts, runtime);
+          return prepareLifetimes(fn, graph, layouts);
+        })))
+      return signalPassFailure();
     SmallVector<LLVM::LLVMFuncOp> functions =
         lowerSignatures(program, lowering.converter, layouts);
     if (failed(failableParallelForEach(ctx, functions, [&](LLVM::LLVMFuncOp fn) {

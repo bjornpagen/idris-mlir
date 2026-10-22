@@ -106,12 +106,11 @@ SmallVector<SmallVector<NamedAttribute>> componentFacts(Type type, ArrayRef<Type
 // A view is no value, so once each call gives a view where its callee asks
 // one, the call's lowering reads what passes from its own operands' kinds
 // alone.
-void viewsWhereAsked(ProgramOp program) {
-  SymbolTable symbols(program);
+void viewsWhereAsked(ProgramOp program, const solver::ProgramGraph &graph) {
   MLIRContext *ctx = program.getContext();
   Type view = LifetimeType::get(ctx, LifetimeKind::view());
   program.walk([&](CallOp call) {
-    auto callee = symbols.lookup<FuncOp>(call.getCalleeAttr().getAttr());
+    FuncOp callee = graph.op(graph.id(call.getCalleeAttr()));
     OpBuilder b(call);
     for (auto [operand, param] : llvm::zip_equal(call->getOpOperands(), callee.getArgumentTypes())) {
       auto given = dyn_cast<LifetimeType>(operand.get().getType());

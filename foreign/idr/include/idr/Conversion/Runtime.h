@@ -159,11 +159,6 @@ public:
   mlir::Value loadTag(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, DataType data,
                       Contents stays) const;
 
-  // The info word of a cell's header, and its write: a memo cell's state is
-  // written there.
-  mlir::Value loadInfo(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell) const;
-  void storeInfo(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell, mlir::Value info) const;
-
   // The components in `slots` at their offsets from `address`, which is
   // aligned to `align`: a cell's start (cellAlignment()), or an element's.
   // A load of contents that stay as long as the pointer names them carries

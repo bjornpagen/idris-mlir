@@ -103,48 +103,27 @@ struct LowerTake : IdrPattern<CountTakeOp> {
   }
 };
 
-// A take whose token one construction recycles on every path: the fields
-// read out; held alone, the cell made the new constructor's (its header
-// kept where the constructor is the same); shared, each field given a
-// reference of its own, the value's reference given up, and a fresh cell.
-// The test runs only where the type proves nothing of the sharing.
+// A take of a value its type proves holds its cell alone, whose cell one
+// construction recycles on every path: the fields read out and the cell
+// made the new constructor's, its header kept where the constructor is the
+// same, with no test. A take into a cell of any other value is counting's
+// expansion's to make a match on uniqueness, whose shared region builds a
+// fresh cell, so it never reaches here.
 struct LowerTakeInto : IdrPattern<CountTakeIntoOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(CountTakeIntoOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
+    if (!claims(op.getValue().getType(), Unique::Self))
+      return rewriter.notifyMatchFailure(op, "a take into a cell of a value its type proves "
+                                             "nothing of");
     Location loc = op.getLoc();
     Value cell = adaptor.getValue().front();
     DataType from = refinedOf(op.getValue());
     auto into = cast<CellType>(op.getCell().getType());
-    const layout::Cell &target = cellLayoutOf(layouts, into);
     SmallVector<SmallVector<Value>> fields = fieldsAt(rewriter, loc, runtime, layouts, cell, from);
-    auto reuse = [&](OpBuilder &b) {
-      if (Type(from) != into.getValue())
-        runtime.storeInfoAndWords(b, loc, cell, target);
-    };
-    Value made;
-    if (claims(op.getValue().getType(), Unique::Self)) {
-      reuse(rewriter);
-      made = cell;
-    } else {
-      Type ptr = cell.getType();
-      auto alone = scf::IfOp::create(rewriter, loc, TypeRange{ptr},
-                                     runtime.isUnique(rewriter, loc, cell), /*withElseRegion=*/true);
-      OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointToStart(alone.thenBlock());
-      reuse(rewriter);
-      scf::YieldOp::create(rewriter, loc, cell);
-      rewriter.setInsertionPointToStart(alone.elseBlock());
-      const layout::Cell &source = layouts.cells(from).cell(tagOf(from));
-      for (auto [slots, values] : llvm::zip_equal(source.fields, fields)) {
-        SmallVector<layout::Component> components(slots.begin(), slots.end());
-        runtime.inc(rewriter, loc, components, values);
-      }
-      runtime.dec(rewriter, loc, layout::Word::Cell, cell);
-      scf::YieldOp::create(rewriter, loc, runtime.allocate(rewriter, loc, target));
-      made = alone.getResult(0);
-    }
-    SmallVector<SmallVector<Value>> out{{runtime.launder(rewriter, loc, made)}};
+    if (Type(from) != into.getValue())
+      runtime.storeInfoAndWords(rewriter, loc, cell, cellLayoutOf(layouts, into));
+    SmallVector<SmallVector<Value>> out{{runtime.launder(rewriter, loc, cell)}};
     llvm::append_range(out, movedOut(rewriter, loc, runtime, layouts, from,
                                      TypeRange(op->getResultTypes()).drop_front(), fields));
     rewriter.replaceOpWithMultiple(op, std::move(out));

@@ -12,10 +12,10 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Conversion/Runtime.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/IR/SymbolTable.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
@@ -29,9 +29,9 @@ namespace idr::conversion {
 //===----------------------------------------------------------------------===//
 
 // A function's facts, as the effect system tells them of its row and its
-// record (rows::told): `memory`, `will_return`, `no_unwind`, and
-// `mustprogress`, `nofree` and `nosync` among its passthrough attributes,
-// each told unless an atom withholds it.
+// record (rows::told): `memory`, `will_return`, `no_unwind`, and every
+// other function attribute among its passthrough attributes, each told
+// unless an atom withholds it.
 void tellFunction(mlir::LLVM::LLVMFuncOp fn, const effects::Told &told);
 
 // A call's facts from the row it carries, made once where the row is a
@@ -105,11 +105,11 @@ groupResults(mlir::ValueRange flat, llvm::ArrayRef<llvm::SmallVector<mlir::Type>
 // frame, which every use reads and every return gives back; each room's
 // block laid out once, in program order, every put into it (a cell, or a
 // call taking its callee's bound) at its offset, and each block opener's
-// block allocated in the frame. `program` resolves a callee's bound and is
+// block allocated in the frame. `graph` resolves a callee's bound and is
 // read only, so every function is made ready at once. Fails, having
 // reported it, where a callee bounds no room it is given: an internal
 // error, since a room is a block of static size.
-mlir::LogicalResult prepareLifetimes(FuncOp fn, const mlir::SymbolTable &program,
+mlir::LogicalResult prepareLifetimes(FuncOp fn, const solver::ProgramGraph &graph,
                                      const Layouts &layouts);
 
 // The patterns that tell a call's account, in the checked runtime, where
@@ -195,8 +195,8 @@ mlir::LLVM::LLVMFunctionType functionType(mlir::FunctionType type,
 
 // Each call that gives a lifetime of another kind where its callee asks a
 // view gives that view, on the program, serially, before anything reads a
-// call's lifetimes.
-void viewsWhereAsked(ProgramOp program);
+// call's lifetimes; `graph` resolves each callee.
+void viewsWhereAsked(ProgramOp program, const solver::ProgramGraph &graph);
 
 // Phase 0, on the program, serially: every function's name takes the
 // program's prefix at every use; then every idr.func becomes, where it is,

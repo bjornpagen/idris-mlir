@@ -36,12 +36,12 @@ Value offsetRoom(OpBuilder &b, Location loc, Value room, uint64_t offset) {
 
 // What a put into a room takes of it: a cell's or a reserved room's bytes,
 // or what a callee given the room says it puts into it, its bound.
-FailureOr<uint64_t> putBytes(Operation *op, OpOperand &use, const SymbolTable &program,
+FailureOr<uint64_t> putBytes(Operation *op, OpOperand &use, const solver::ProgramGraph &graph,
                              const Layouts &layouts) {
   if (auto putter = dyn_cast<LifetimePutOpInterface>(op))
     return putter.getPutBytes(layouts);
   auto call = cast<CallOp>(op);
-  auto callee = program.lookup<FuncOp>(call.getCalleeAttr().getAttr());
+  FuncOp callee = graph.op(graph.id(call.getCalleeAttr()));
   ParameterParts parts(callee.getArgumentTypes());
   unsigned index = use.getOperandNumber();
   std::optional<uint64_t> bound;
@@ -71,7 +71,8 @@ bool puts(Operation *op, OpOperand &use) {
 
 } // namespace
 
-LogicalResult prepareLifetimes(FuncOp fn, const SymbolTable &program, const Layouts &layouts) {
+LogicalResult prepareLifetimes(FuncOp fn, const solver::ProgramGraph &graph,
+                               const Layouts &layouts) {
   MLIRContext *ctx = fn.getContext();
   Type ptr = ptrType(ctx);
   Block &entry = fn.getBody().front();
@@ -123,7 +124,7 @@ LogicalResult prepareLifetimes(FuncOp fn, const SymbolTable &program, const Layo
       auto room = llvm::find_if(rooms, [&](const Room &r) { return r.binder == use.get(); });
       if (room == rooms.end() || !puts(op, use))
         continue;
-      FailureOr<uint64_t> bytes = putBytes(op, use, program, layouts);
+      FailureOr<uint64_t> bytes = putBytes(op, use, graph, layouts);
       if (failed(bytes)) {
         laid = failure();
         return WalkResult::interrupt();
