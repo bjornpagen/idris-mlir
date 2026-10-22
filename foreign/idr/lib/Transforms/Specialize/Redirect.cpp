@@ -10,7 +10,7 @@
 // is what the call and the consumer did, which its function contained
 // already; the writer derives the copy's own when its component is final.
 
-#include "idr/IR/Effects.h"
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Tail.h"
 #include "idr/Transforms/Specialize.h"
@@ -32,9 +32,10 @@ CallOp callOf(RewriterBase &rewriter, Location loc, FlatSymbolRefAttr target, Ty
   CallOp::Properties properties;
   properties.callee = target;
   properties.index_args = indices;
-  properties.tail = tail;
   properties.row = row;
-  return CallOp::create(rewriter, loc, results, operands, properties);
+  CallOp call = CallOp::create(rewriter, loc, results, operands, properties);
+  call.setTailKind(tail);
+  return call;
 }
 
 } // namespace
@@ -62,7 +63,7 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
                 IndexArgsAttr indices, ArrayRef<Value> operands) {
   rewriter.setInsertionPoint(call);
   CallOp fresh = callOf(rewriter, call.getLoc(), target, type.getResults(), indices, operands,
-                        call.getTail(), call.getRow());
+                        call.getTailKind(), call.getRow());
   SmallVector<Value> old(call.getArgs());
   rewriter.replaceOp(call, fresh.getResults());
   eraseUnused(rewriter, old);
@@ -80,14 +81,14 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
     row = row | effects::rowOf(step);
   rewriter.setInsertionPoint(dispatch);
   CallOp fresh = callOf(rewriter, call.getLoc(), target, type.getResults(), call.getIndexArgsAttr(),
-                        want.operands, TailKind::NonTail, row);
+                        want.operands, TailKind::nontail, row);
   SmallVector<Value> old(call.getArgs());
   rewriter.replaceOp(dispatch, fresh.getResults());
   for (Operation *step : llvm::reverse(want.consumer.steps()))
     rewriter.eraseOp(step);
   rewriter.eraseOp(call);
   eraseUnused(rewriter, old);
-  fresh.setTail(tail::decide(fresh));
+  fresh.setTailKind(tail::decide(fresh));
   return fresh;
 }
 

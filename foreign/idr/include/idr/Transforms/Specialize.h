@@ -336,17 +336,6 @@ static_assert(KeyAlphabet<Signatures>);
 // The nodes of one run
 //===----------------------------------------------------------------------===//
 
-// What a made node is, decided once, when its key is granted, from the key
-// and its origin's component: a consumer raised into its callee; the beta
-// step of a recursion (its key fixes closures alone, of labels outside the
-// origin's component, none of them shared, so inlined it consumes the
-// constructors its caller built and leaves no call of the recursion); a
-// step of a recursion on static data (any other pattern copy of a
-// recursive origin, whose next step is another copy); a copy of a
-// signature; or a pattern copy of an origin on no cycle. The inline verdict
-// reads it.
-enum class Kind : std::uint8_t { Raise, Beta, Step, Spec, Signature };
-
 // A node's phases, each holding what it has: asked for and not built;
 // claimed by the one worker that builds it; built, detached, with its
 // parameters' binding times; placed in the program as the function the
@@ -364,7 +353,18 @@ using Phase = std::variant<Requested, Claimed, Built, Placed>;
 
 struct Node {
   Key key;
-  Kind kind;
+  // What inlining the copy does to the recursion its origin is on, the
+  // function's own `copy` once the run ends: a step of a recursion on
+  // static data, whose next step is another copy, so inlining it would
+  // unroll the recursion into its callers; or a beta step, whose key fixes
+  // closures alone, of labels outside the origin's component and none of
+  // them shared, so inlined it consumes the constructors its caller built
+  // and calls the recursion, never itself. None for a raise, a signature
+  // copy, or a pattern copy of an origin on no cycle, which the inline
+  // verdict weighs as any function. Decided when the key is granted; a
+  // later request that shares a closure makes a beta step a step, and
+  // nothing makes a step anything else.
+  std::optional<CopyKind> copy;
   // The function the program held that it stands for, back through the
   // copies it was made from.
   FunctionId origin;
@@ -463,6 +463,9 @@ public:
   // The node, built, was numbered by the schedule as `id`.
   void place(Node &node, FunctionId id);
   bool placed(const Node &node) const;
+  // Once no turn runs: each placed copy's kind written on its function,
+  // where the inline verdict reads it after the run.
+  void writeCopies();
 
 private:
   struct State;

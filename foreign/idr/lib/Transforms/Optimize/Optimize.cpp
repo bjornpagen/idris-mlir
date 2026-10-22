@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// idr-optimize: the specialize phase over the program. The functions
-// nothing names any more are upstream's symbol-dce's, and the weighed
-// inlining on the final graph is idr-inline's, which the pipeline runs
-// after it.
+// idr-optimize: the specialize phase over the program, then, every
+// function final, the results no caller reads and the captures no dispatch
+// reads dropped from the whole program. The functions nothing names any
+// more are upstream's symbol-dce's, and the weighed inlining on the final
+// graph is idr-inline's, which the pipeline runs after it.
 //
 // A pass on the program, as upstream's inliner is on its module: leaf
 // inlining and the redirect read a sibling of the function they rewrite,
@@ -15,7 +16,7 @@
 // the inner pipeline's simplification is the e-graph's.
 
 #include "idr/Analysis/Solver/ProgramGraph.h"
-#include "idr/IR/Effects.h"
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Memory.h"
 #include "idr/Transforms/EGraph.h"
@@ -58,7 +59,7 @@ namespace idr::optimize {
 struct OptimizePass : impl::IdrOptimizeBase<OptimizePass> {
   LogicalResult runNestedPipeline(OpPassManager &pm, Operation *op) { return runPipeline(pm, op); }
 
-  void runOnProgram(ProgramOp program) override {
+  void runOnProgram(ProgramOp program) {
     auto &graph = getAnalysis<solver::ProgramGraph>();
     Schedule schedule(program, graph);
     specialize::Nodes nodes(schedule);
@@ -74,11 +75,15 @@ struct OptimizePass : impl::IdrOptimizeBase<OptimizePass> {
     numNodes += scheduler.made();
     if (failed(ran))
       return signalPassFailure();
-    // Every function is final: the graph is frozen as the schedule left
-    // it, and every row is derived on it, so a call says what its callee
-    // may now do.
+    nodes.writeCopies();
+    // Every function is final: what no caller reads of a result and no
+    // dispatch of a capture goes from the whole program; then the graph is
+    // frozen as the schedule left it, and every row is derived on it, so a
+    // call says what its callee may now do.
+    dropDeadResults(schedule);
+    narrowCaptures(schedule);
     std::move(schedule.graph).freeze();
-    effects::write(graph);
+    rows::write(program, graph);
     if (remark::detail::InFlightRemark finished = remark::analysis(
             program.getLoc(), remark::RemarkOpts::name("finished").category("idr-optimize")))
       finished << remark::metric("functions", graph.size().value())

@@ -91,7 +91,7 @@ IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr class
 // and the call made a call of the granted copy. How many calls it
 // redirected; a failure is an internal error, emitted.
 FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes &nodes) {
-  FunctionId self = schedule.idOf(fn);
+  FunctionId self = schedule.graph.id(FlatSymbolRefAttr::get(fn.getSymNameAttr()));
   Requester &asking = schedule.requesterOf(self);
   const Node *requester = nodes.find(self);
   SmallVector<CallOp> calls;
@@ -104,7 +104,7 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
       continue;
     // A call of a copy made in this wave names no function of the schedule
     // until the wave ends: it is pending, and nothing is read of it.
-    std::optional<FunctionId> callee = schedule.find(call.getCalleeAttr());
+    std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
     if (!callee)
       continue;
     FailureOr<std::optional<Want>> want = std::optional<Want>();

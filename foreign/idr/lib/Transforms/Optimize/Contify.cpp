@@ -138,7 +138,7 @@ unsigned contify(idr::ProgramOp program) {
   for (auto [at, fn] : llvm::enumerate(fns))
     fn.walk([&](idr::CallOp call) {
       unsigned callee = 1 + position.find(call.getCalleeAttr().getAttr())->second;
-      if (call.getTail() == idr::TailKind::Tail) {
+      if (call.getTailKind() == idr::TailKind::tail) {
         succ[1 + at].push_back(callee);
         return;
       }
@@ -192,18 +192,18 @@ unsigned contify(idr::ProgramOp program) {
   llvm::stable_sort(places, [&](unsigned a, unsigned b) { return depth(a) > depth(b); });
 
   IRRewriter rewriter(program.getContext());
+  // Each call left in a body a group just moved, its tail fact where it now
+  // stands; every other call stands where it stood. A body moved again by
+  // a group placed later is decided again there.
+  auto decideMoved = [](Region &moved) {
+    moved.walk([](idr::CallOp call) { call.setTailKind(idr::tail::decide(call)); });
+  };
   unsigned placed = 0;
   for (unsigned place : places) {
     ArrayRef<unsigned> members = groups.find(place)->second;
     llvm::DenseMap<StringAttr, unsigned> memberOf;
     for (auto [i, fn] : llvm::enumerate(members))
       memberOf.try_emplace(fns[fn].getSymNameAttr(), static_cast<unsigned>(i));
-    // Code Idris did not prove terminating loops only where it did before.
-    idr::joins::Origin origin = llvm::all_of(members, [&](unsigned fn) {
-                                  return static_cast<bool>(fns[fn].getTerminatesAttr());
-                                })
-                                    ? idr::joins::Origin::Terminates
-                                    : idr::joins::Origin::MayDiverge;
     SmallVector<idr::joins::Member> regions;
     for (unsigned fn : members) {
       idr::FuncOp f = fns[fn];
@@ -217,7 +217,7 @@ unsigned contify(idr::ProgramOp program) {
     auto sitesIn = [&](Region &region, std::optional<unsigned> from, unsigned shift) {
       region.walk([&](idr::CallOp call) {
         auto target = memberOf.find(call.getCalleeAttr().getAttr());
-        if (target == memberOf.end() || call.getTail() != idr::TailKind::Tail)
+        if (target == memberOf.end() || call.getTailKind() != idr::TailKind::tail)
           return;
         sites.push_back(idr::joins::Site{call, target->second + shift, call.getArgs(),
                                          call.getIndexArgsAttr()});
@@ -248,7 +248,7 @@ unsigned contify(idr::ProgramOp program) {
                                                 SmallVector<Location>(h.getNumArguments(), h.getLoc()));
             rewriter.setInsertionPointToStart(entry);
             idr::joins::Group group =
-                idr::joins::build(rewriter, h.getLoc(), h.getResultTypes(), all, edges, origin);
+                idr::joins::build(rewriter, h.getLoc(), h.getResultTypes(), all, edges);
             rewriter.setInsertionPointToEnd(group.body);
             unsigned own = h.getBindersAttr() ? h.getBindersAttr().getSorts().size() : 0;
             idr::JumpOp::create(rewriter, h.getLoc(), group.targets.tokenFor(0, group.body->getParent()),
@@ -259,6 +259,7 @@ unsigned contify(idr::ProgramOp program) {
             for (const idr::joins::Site &site : sites)
               idr::joins::jumpAt(rewriter, site,
                                  group.targets.tokenFor(site.target, site.op->getParentRegion()));
+            decideMoved(h.getBody());
           },
           [&](const Continuation &k) {
             // The call that leaves for the group's entry is a site of the
@@ -267,21 +268,20 @@ unsigned contify(idr::ProgramOp program) {
               sitesIn(fns[fn].getBody(), static_cast<unsigned>(i), 0);
             sites.push_back(idr::joins::Site{k.call, memberOf.find(k.call.getCalleeAttr().getAttr())->second,
                                              k.call.getArgs(), k.call.getIndexArgsAttr()});
-            idr::joins::wrap(rewriter, k.call, regions, sites, origin);
+            Operation *outer = idr::joins::wrap(rewriter, k.call, regions, sites);
+            for (Region &region : outer->getRegions())
+              decideMoved(region);
           });
       for (unsigned fn : members)
         rewriter.eraseOp(fns[fn]);
       ++placed;
     });
   }
-  // Every call left in a moved body: its tail fact where it now stands.
-  if (placed != 0)
-    program.walk([&](idr::CallOp call) { call.setTail(idr::tail::decide(call)); });
   return placed;
 }
 
 struct Contify : idr::impl::IdrContifyBase<Contify> {
-  void runOnProgram(idr::ProgramOp program) override {
+  void runOnProgram(idr::ProgramOp program) {
     unsigned placed = contify(program);
     numContified += placed;
     if (placed == 0)

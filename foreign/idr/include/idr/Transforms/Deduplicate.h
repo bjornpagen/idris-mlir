@@ -7,12 +7,14 @@
 //
 // Two functions are one when their facts are equal and their bodies are
 // equivalent op for op, upstream's equivalence, each symbol reference read
-// as the class of the function it names: so callers that differ only in
-// which copy they name are one, and so are copies of one recursion. The
-// classes are found by partition refinement: split by facts and shape,
-// then each class split by the classes its members' references name, until
-// no class splits, which a partition that only refines reaches within as
-// many rounds as there are functions.
+// as the class of the function it names, a label in a value's type as
+// much as a callee: so callers that differ only in which copy they name,
+// or in which of two equal functions their closures' labels name, are one,
+// and so are copies of one recursion. The classes are found by partition
+// refinement: split by facts and shape, then each class split by the
+// classes its members' references name, until no class splits and every
+// member is its class's first op for op, which a partition that only
+// refines reaches within as many rounds as there are functions.
 #ifndef IDR_TRANSFORMS_DEDUPLICATE_H
 #define IDR_TRANSFORMS_DEDUPLICATE_H
 
@@ -29,12 +31,13 @@ namespace idr {
 namespace deduplicate {
 
 // The digest of a function's facts and body: values numbered in the order
-// met, locations aside, every symbol reference read as one placeholder.
-// Equal functions have equal digests in every process.
+// met, locations aside, a symbol reference by the name it holds. Equal
+// functions have equal digests in every process.
 llvm::XXH128_hash_t structuralDigest(FuncOp fn);
 
 // Whether two functions are one: equal facts, and bodies equivalent op for
-// op, a reference to either read as the same.
+// op, a reference to either, in an attribute or in a type, read as the
+// same.
 bool equivalent(FuncOp lhs, FuncOp rhs);
 
 } // namespace deduplicate

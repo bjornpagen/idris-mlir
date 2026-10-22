@@ -224,29 +224,28 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
   FunctionId owner = ownerOf(key);
   StringAttr ownerName = schedule.symbolOf(owner);
   StringAttr name = nameFor(key, ownerName, consumers);
-  // The kind, from the key and the origin's component: decided once.
+  // What the copy is to its origin's recursion, from the key and the
+  // origin's component. A beta step that passes a closure something else
+  // uses would copy that closure's code wherever it is inlined: a step,
+  // which the verdict keeps.
   FunctionId origin = schedule.originOf(owner);
-  Kind kind = idr::match(
-      key, [](const RaiseKey *) { return Kind::Raise; },
-      [](const SignatureKey *) { return Kind::Signature; },
-      [&](const PatternKey *k) {
-        if (!schedule.onCycle(origin))
-          return Kind::Spec;
-        return idr::match(
-            fixes(*k, schedule.function(owner).getArgumentTypes()),
-            [](FixesData) { return Kind::Step; },
-            [&](const FixesClosures &closures) {
-              bool outside = !closures.labels.empty() &&
-                             llvm::none_of(closures.labels, [&](FlatSymbolRefAttr label) {
-                               return schedule.sameComponent(schedule.idOf(label), origin);
-                             });
-              return outside ? Kind::Beta : Kind::Step;
-            });
-      });
-  // A beta step that passes a closure something else uses would copy that
-  // closure's code wherever it is inlined: a step, which the verdict keeps.
-  if (kind == Kind::Beta && sharesClosure(cast<CallOp>(at)))
-    kind = Kind::Step;
+  auto copyOf = [&](const PatternKey *k) -> std::optional<CopyKind> {
+    if (!schedule.onCycle(origin))
+      return std::nullopt;
+    return idr::match(
+        fixes(*k, schedule.function(owner).getArgumentTypes()),
+        [](FixesData) { return CopyKind::Step; },
+        [&](const FixesClosures &closures) {
+          bool outside = !closures.labels.empty() &&
+                         llvm::none_of(closures.labels, [&](FlatSymbolRefAttr label) {
+                           return schedule.sameComponent(schedule.graph.id(label), origin);
+                         });
+          return outside && !sharesClosure(cast<CallOp>(at)) ? CopyKind::Beta : CopyKind::Step;
+        });
+  };
+  std::optional<CopyKind> copy = idr::match(
+      key, [](const RaiseKey *) { return std::optional<CopyKind>(); },
+      [](const SignatureKey *) { return std::optional<CopyKind>(); }, copyOf);
 
   std::lock_guard lock(s.mutex);
   Node *&slot = s.byKey[identityOf(key)];
@@ -256,12 +255,12 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
              << "internal error: idr-optimize: two keys name the copy @" << name.getValue();
     auto made = std::make_unique<Node>();
     made->key = key;
-    made->kind = kind;
+    made->copy = copy;
     made->origin = origin;
     made->name = FlatSymbolRefAttr::get(name);
     // A name the program held when the run began is the copy an earlier
     // run made of this key.
-    if (std::optional<FunctionId> earlier = schedule.held(name)) {
+    if (std::optional<FunctionId> earlier = schedule.graph.find(FlatSymbolRefAttr::get(name))) {
       made->phase = Placed{*earlier};
       s.byFunction[*earlier] = made.get();
     }
@@ -271,8 +270,8 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
   }
   Node &node = *slot;
   // A step stays a step: a later request that shares makes no beta of it.
-  if (kind == Kind::Step && node.kind == Kind::Beta)
-    node.kind = Kind::Step;
+  if (copy == CopyKind::Step)
+    node.copy = CopyKind::Step;
   bool waiting = idr::match(node.phase, [](const Placed &) { return false; },
                             [](const auto &) { return true; });
   if (waiting && mine && mine != &node && !llvm::is_contained(node.parents, mine))
@@ -350,6 +349,16 @@ bool Nodes::placed(const Node &node) const {
   std::lock_guard lock(state->mutex);
   return idr::match(node.phase, [](const Placed &) { return true; },
                     [](const auto &) { return false; });
+}
+
+// Every copy's function says what it is, none included: a function the
+// program held under a copy's name keeps nothing an earlier run wrote.
+void Nodes::writeCopies() {
+  for (const std::unique_ptr<Node> &node : state->nodes)
+    idr::match(
+        node->phase,
+        [&](const Placed &placed) { state->schedule.function(placed.id).setCopy(node->copy); },
+        [](const auto &) {});
 }
 
 } // namespace idr::specialize

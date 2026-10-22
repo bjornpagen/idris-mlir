@@ -28,6 +28,7 @@ Schedule::Schedule(ProgramOp program, solver::ProgramGraph &frozen)
 solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
   std::uint32_t ids = frozen.size().value();
   cyclic.resize(ids);
+  labelled.resize(ids);
   components.grow(ids);
   // A member per id, a gap's with no function: ids are dense.
   for (solver::FunctionId fn : frozen.size().ids())
@@ -35,7 +36,6 @@ solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
   for (solver::FunctionId fn : frozen.functions()) {
     Member &member = members[fn.index()];
     llvm::append_range(member.callers, frozen.callers(fn));
-    byName.try_emplace(member.fn.getSymNameAttr(), fn);
     if (frozen.onCycle(fn))
       cyclic.set(fn.index());
   }
@@ -68,10 +68,10 @@ solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
   walker.addWalk([&](DataType data) {
     if (std::optional<families::ClosuresView> closures = data.closures())
       for (const families::LabelDecl &label : closures->labels())
-        labels.insert(label.fn.getAttr());
+        labelled.set(frozen.id(label.fn).index());
     if (std::optional<families::MemoView> memo = data.memo())
       for (const families::MemoLabelDecl &label : memo->labels())
-        labels.insert(label.label.fn.getAttr());
+        labelled.set(frozen.id(label.label.fn).index());
   });
   program.walk([&](Operation *op) {
     for (Type type : op->getResultTypes())
@@ -82,46 +82,6 @@ solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
           walker.walk(type);
   });
   return frozen.thaw();
-}
-
-FunctionId Schedule::idOf(FuncOp fn) const {
-  return byName.find(fn.getSymNameAttr())->second;
-}
-
-// A call of a copy made in this wave names no function until the wave ends
-// and the copy is placed: it is pending to every reader.
-std::optional<FunctionId> Schedule::find(FlatSymbolRefAttr callee) const {
-  auto found = byName.find(callee.getAttr());
-  if (found == byName.end())
-    return std::nullopt;
-  return found->second;
-}
-
-FunctionId Schedule::idOf(FlatSymbolRefAttr label) const {
-  return byName.find(label.getAttr())->second;
-}
-
-// A copy's name is its key's, so a function the program held under one
-// when the run began is the copy an earlier run made of that key.
-std::optional<FunctionId> Schedule::held(StringAttr name) const {
-  return find(FlatSymbolRefAttr::get(name));
-}
-
-llvm::SmallVector<solver::Call> Schedule::rowOf(FuncOp fn) const {
-  llvm::SmallVector<solver::Call> row;
-  fn.getBody().walk([&](CallOp call) {
-    std::optional<FunctionId> callee = find(call.getCalleeAttr());
-    if (!callee)
-      return;
-    auto at = llvm::find_if(row, [&](const solver::Call &each) {
-      return each.callee == *callee && each.kind == call.getTail();
-    });
-    if (at == row.end())
-      row.push_back(solver::Call{*callee, call.getTail(), 1});
-    else
-      ++at->sites;
-  });
-  return row;
 }
 
 const Summary *Schedule::summaryOf(FunctionId fn) const {

@@ -12,9 +12,11 @@
 // parameters dropped already, so whatever it still takes it reads. Only a
 // parameter used many times can be unread: Idris checked that a parameter
 // of quantity one is used. The program's root keeps its signature, since
-// it is called from outside, and so does a function a family's label
-// names, whose leading parameters are that label's captures: dropping one
-// is dropping the field, which redeclares the family.
+// it is called from outside, and so does a function a family's label names
+// here: its leading parameters are that label's captures, and dropping one
+// drops its constructor's field, which declares the family anew in every
+// type of the program, so the end of the run drops them all at once
+// (Captures.cpp).
 //
 // Every caller outside the component is waiting, not taken up: a function
 // is taken up only once every component it calls into is final. So the

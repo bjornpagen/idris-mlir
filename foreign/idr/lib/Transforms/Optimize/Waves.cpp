@@ -17,10 +17,10 @@
 // component, not final yet. A wait may close a cycle: a function waits on
 // one that waits, through requests and calls, on its own component. The
 // waits are condensed once per wave, and every component on one of their
-// cycles becomes one, whose members finish together and inline one another
-// only as beta steps. The waits are read in a fixed order (members by id,
-// each member's in the order recorded, the built copies by name) and the
-// cycles they close do not depend on it, so neither do the components.
+// cycles becomes one, whose members finish together. The waits are read
+// in a fixed order (members by id, each member's in the order recorded,
+// the built copies by name) and the cycles they close do not depend on it,
+// so neither do the components.
 
 #include "idr/Transforms/OptimizeScheduler.h"
 
@@ -33,7 +33,6 @@
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
 
-#include <deque>
 
 using namespace mlir;
 
@@ -41,38 +40,16 @@ namespace idr::optimize {
 
 namespace {
 
-// What a function gives back, as the function holds it: each fact whose
-// paths step through constructors' fields alone, a field a position. A
-// natural's predecessor is no field laid out inline, so a fact through one
-// stays the solve's and is not written.
+// What a function gives back, as the function holds it: each fact a path
+// through fields laid out inline, which the attribute copies.
 void writeGivenBack(FuncOp fn, ArrayRef<identities::GivesBack> facts) {
-  MLIRContext *ctx = fn.getContext();
-  std::deque<SmallVector<std::uint32_t, 2>> fields;
-  auto pathOf = [&](std::uint32_t index, const identities::Path &steps) -> std::optional<GivenBackPath> {
-    SmallVector<std::uint32_t, 2> &out = fields.emplace_back();
-    for (const identities::Step &step : steps)
-      if (!idr::match(
-              step,
-              [&](const identities::Field &field) {
-                out.push_back(field.index);
-                return true;
-              },
-              [](identities::Predecessor) { return false; }))
-        return std::nullopt;
-    return GivenBackPath{index, out};
-  };
   SmallVector<GivenBackEntry> entries;
-  for (const identities::GivesBack &fact : facts) {
-    std::optional<GivenBackPath> result = pathOf(fact.result, fact.resultPath);
-    std::optional<GivenBackPath> argument = pathOf(fact.argument, fact.argumentPath);
-    if (result && argument)
-      entries.push_back(GivenBackEntry{*result, *argument});
-  }
-  llvm::sort(entries, [](const GivenBackEntry &a, const GivenBackEntry &b) {
-    return std::pair(a.result.index, ArrayRef<std::uint32_t>(a.result.fields)) <
-           std::pair(b.result.index, ArrayRef<std::uint32_t>(b.result.fields));
-  });
-  fn.setGivenBackAttr(entries.empty() ? GivenBackAttr() : GivenBackAttr::get(ctx, entries));
+  for (const identities::GivesBack &fact : facts)
+    entries.push_back(GivenBackEntry{GivenBackPath{fact.result.index, fact.result.fields},
+                                     GivenBackPath{fact.argument.index, fact.argument.fields}});
+  llvm::sort(entries,
+             [](const GivenBackEntry &a, const GivenBackEntry &b) { return a.result < b.result; });
+  fn.setGivenBackAttr(entries.empty() ? GivenBackAttr() : GivenBackAttr::get(fn.getContext(), entries));
 }
 
 bool takenUp(const Phase &phase) {
@@ -142,7 +119,7 @@ void Scheduler::enable(SmallVectorImpl<Step> &ready) {
   for (unsigned leader : leaders) {
     ArrayRef<FunctionId> ids = schedule.byComponent.find(leader)->second;
     if (schedule.unfinished.lookup(leader) != 0 ||
-        isFinal(schedule.members.find(ids.front())->second.phase))
+        isFinal(schedule.members[ids.front().index()].phase))
       continue;
     bool startable = llvm::none_of(ids, [&](FunctionId id) {
       const Schedule::Member &member = schedule.members[id.index()];
@@ -205,14 +182,14 @@ FunctionId Scheduler::insert(specialize::Node *made) {
   }
   body.getOperations().insert(at, fn.getOperation());
   FunctionId id = schedule.graph.insert(fn);
-  schedule.graph.setCallees(id, schedule.rowOf(fn));
+  schedule.graph.setCallees(id, solver::rowOf(fn, schedule.graph));
   (void)am.nest(fn);
   nodes.place(*made, id);
   schedule.components.grow(id.index() + 1);
+  schedule.labelled.resize(id.index() + 1);
   Schedule::Member member{fn, made, made->origin, id};
   member.inherited = std::move(built.times);
   schedule.members.push_back(std::move(member));
-  schedule.byName.try_emplace(fn.getSymNameAttr(), id);
   for (const solver::Call &call : schedule.graph.callees(id))
     if (!llvm::is_contained(schedule.members[call.callee.index()].callers, id))
       schedule.members[call.callee.index()].callers.push_back(id);
@@ -266,7 +243,7 @@ void Scheduler::finalize(unsigned component) {
                                [](auto &) { return Solved{}; });
     member.phase = Final{Summary{std::move(solved.times), returnedConstants(member.fn),
                                  inlining::bodyOf(member.fn)}};
-    schedule.graph.setCallees(id, schedule.rowOf(member.fn));
+    schedule.graph.setCallees(id, solver::rowOf(member.fn, schedule.graph));
   }
   // A copy whose final component has no cycle terminates as its calls do:
   // nothing of its own loops.
@@ -411,8 +388,9 @@ LogicalResult Scheduler::run() {
                << remark::metric("made", numMade);
     enable(ready);
   }
-  for (auto &[id, member] : schedule.members)
-    if (!isFinal(member.phase))
+  // A gap in the ids holds no function, and nothing schedules it.
+  for (const Schedule::Member &member : schedule.members)
+    if (member.fn && !isFinal(member.phase))
       return member.fn.emitError() << "internal error: idr-optimize: the schedule stopped with @"
                                    << member.fn.getSymName() << " not final";
   return success();

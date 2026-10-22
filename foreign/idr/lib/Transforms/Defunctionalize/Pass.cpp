@@ -100,7 +100,7 @@ llvm::DenseSet<StringAttr> observedRuns(idr::ProgramOp program, const idr::Label
 }
 
 struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
-  void runOnProgram(idr::ProgramOp program) override {
+  void runOnProgram(idr::ProgramOp program) {
     const idr::Labels &labels = getAnalysis<idr::Labels>();
     llvm::DenseSet<StringAttr> byName = observedRuns(program, labels);
     // The functions the program had: the decision adds a dispatch function

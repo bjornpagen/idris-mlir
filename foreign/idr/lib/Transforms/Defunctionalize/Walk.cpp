@@ -41,7 +41,7 @@ enum class TailPosition : bool { Within, Tail };
 // definition of tail position rewrites once the function is whole.
 CallOp callOf(OpBuilder &b, Location loc, FuncOp callee, IndexArgsAttr indices,
               TypeRange results, ValueRange args) {
-  return CallOp::create(b, loc, callee, indices, results, args, TailKind::NonTail);
+  return CallOp::create(b, loc, callee, indices, results, args, TailKind::nontail);
 }
 
 // The case of `tag` in `match`, over `scrutinee` of `family`: a block
@@ -315,7 +315,7 @@ LogicalResult rewrite(FuncOp fn, const Decision &decision) {
     op->erase();
   // Each call this walk made, its tail fact read where it now stands.
   for (CallOp call : made)
-    call.setTail(tail::decide(call));
+    call.setTailKind(tail::decide(call));
   return success();
 }
 

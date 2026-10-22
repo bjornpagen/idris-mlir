@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Closures and suspensions. idr.closure captures a function's leading
-// parameters, and idr.apply runs one. idr.suspend builds a cell and does
-// not run its function; idr.force reads that cell, and the first entry
-// computes the value and leaves it there. After idr-defunctionalize the cell
-// is a value of a memo family, a force is a call of the family's dispatch,
-// and the dispatch exchanges the cell's state through idr.memo.run, which
-// moves the captures out and the value in. A suspension of a value that
-// already exists, idr.delay, is evaluated where it is built: forcing it
-// computes nothing, and the force is the value.
+// Closures and suspensions. idr.fn.closure captures a function's leading
+// parameters, and idr.fn.apply runs one. idr.lazy.suspend builds a cell and
+// does not run its function; idr.lazy.force reads that cell, and the first
+// entry computes the value and leaves it there. After idr-defunctionalize
+// the cell is a value of a memo family, a force is a call of the family's
+// dispatch, and the dispatch exchanges the cell's state through
+// idr.memo.run, which moves the captures out and the value in. A
+// suspension of a value that already exists, idr.lazy.delay, is evaluated
+// where it is built: forcing it computes nothing, and the force is the
+// value.
 //
 // A suspension has no fold: the cell it builds is the one thing that
 // changes while references to it live, so folding one into a constant
@@ -29,12 +30,15 @@
 using namespace mlir;
 using namespace idr;
 
-namespace {
+//===----------------------------------------------------------------------===//
+// The carriers
+//===----------------------------------------------------------------------===//
 
-} // namespace
+void FnType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("f"); }
+void LazyType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("lazy"); }
 
 //===----------------------------------------------------------------------===//
-// idr.closure
+// idr.fn.closure
 //===----------------------------------------------------------------------===//
 
 // The callee's leading parameters are the captures, and the rest of its
@@ -72,7 +76,7 @@ OpFoldResult FnClosureOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// idr.suspend
+// idr.lazy.suspend
 //===----------------------------------------------------------------------===//
 
 // Every parameter is a capture, and the function's one result is the
@@ -94,7 +98,7 @@ LogicalResult LazySuspendOp::verifySymbolUses(SymbolTableCollection &symbols) {
 }
 
 //===----------------------------------------------------------------------===//
-// idr.force
+// idr.lazy.force
 //===----------------------------------------------------------------------===//
 
 // The force of an evaluated suspension is the value it holds. A value
@@ -147,17 +151,19 @@ LogicalResult MemoRunOp::verify() {
 }
 
 // The region ends in idr.memo.yield of the value the cell's forced state
-// holds, then each result.
+// holds, and of the op's results.
 LogicalResult MemoRunOp::verifyRegions() {
   DataType memo = getDataType();
-  SmallVector<Type> types{memo.ctor(memo.memo()->forced()).fields.front()};
-  llvm::append_range(types, getOuts().getTypes());
+  Type forced = memo.ctor(memo.memo()->forced()).fields.front();
   auto end = dyn_cast<MemoYieldOp>(getRegion().front().getTerminator());
   if (!end)
     return emitOpError("ends its region in no idr.memo.yield");
-  if (!llvm::equal(end.getValues().getTypes(), types))
-    return emitOpError("yields ") << end.getValues().getTypes() << " where its cell's forced "
-                                  << "value and its results are " << types;
+  if (end.getValue().getType() != forced)
+    return emitOpError("moves a value of type ") << end.getValue().getType()
+                                                 << " into a forced state that holds " << forced;
+  if (!llvm::equal(end.getResults().getTypes(), getOuts().getTypes()))
+    return emitOpError("yields ") << end.getResults().getTypes() << " where its results are "
+                                  << getOuts().getTypes();
   return success();
 }
 
@@ -165,16 +171,17 @@ LogicalResult MemoRunOp::verifyRegions() {
 // idr.memo.yield
 //===----------------------------------------------------------------------===//
 
-// One value at least: the forced state's.
-LogicalResult MemoYieldOp::verify() {
-  if (getValues().empty())
-    return emitOpError("yields no value for its cell's forced state");
-  return success();
+// The forced value moves into the cell; the results leave the op.
+MutableOperandRange MemoYieldOp::getMutableSuccessorOperands(RegionSuccessor) {
+  return getResultsMutable();
 }
 
-// The forced value moves into the cell; what follows it leaves the op.
-MutableOperandRange MemoYieldOp::getMutableSuccessorOperands(RegionSuccessor) {
-  return MutableOperandRange(getOperation(), 1, getNumOperands() - 1);
+// The value moves into the forced state of the cell its exchange holds,
+// which takes its reference over.
+void MemoYieldOp::getFlowEdges(FlowEdges &edges) {
+  auto run = cast<MemoRunOp>((*this)->getParentOp());
+  edges.flow(FlowPoint::of(getValueMutable()),
+             FlowPoint::partOf(run.getCell(), FlowAnchor::memoStateOf(run.getDataType())));
 }
 
 // The region runs once, between the move out and the move in, and what it
@@ -199,12 +206,13 @@ void MemoRunOp::getRegionInvocationBounds(ArrayRef<Attribute>,
 }
 
 // Each capture moves out of its field of the label's state into the
-// region, with the reference the cell held; the yield moves the value into
-// the forced state.
+// region, with the reference the state held: taken out of the cell, which
+// is running from then on and no longer holds it, so what the capture
+// holds is the field's alone. The cell itself keeps its reference.
 void MemoRunOp::getFlowEdges(FlowEdges &edges) {
-  Value cell = getCell();
   DataType memo = getDataType();
-  for (BlockArgument capture : getCaptures())
-    edges.flow(FlowPoint::partOf(cell, FlowAnchor::fieldOf(memo, getTag(), capture.getArgNumber())),
+  for (BlockArgument capture : getRegion().front().getArguments())
+    edges.flow(FlowPoint::partOf(getCellMutable(),
+                                 FlowAnchor::fieldOf(memo, Tag{getTag()}, capture.getArgNumber())),
                FlowPoint::of(Value(capture)));
 }

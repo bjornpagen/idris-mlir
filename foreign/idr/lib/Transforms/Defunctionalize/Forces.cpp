@@ -40,7 +40,7 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
       cell.getGroup().getMembers()[cell.getMember()],
       [](const families::MemoMember &member) { return member.indices; },
       [](const auto &) { return ArrayRef<families::Sort>(); });
-  DataType own = DataType::get(cell.getGroup(), cell.getMember(),
+  DataType own = DataType::get(ctx, cell.getGroup(), cell.getMember(),
                                families::levelArgs(ctx, 0, indices).getTerms());
   Type value = own.ctor(memo->forced()).fields.front();
 
@@ -96,28 +96,28 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
       for (auto [capture, param] : llvm::zip_equal(captures, target.getArgumentTypes()))
         args.push_back(heldAs(b, at_, capture, param));
       auto called = CallOp::create(b, at_, target, binders, target.getResultTypes(), args,
-                                   TailKind::NonTail);
+                                   TailKind::nontail);
       return heldAs(b, at_, called.getResult(0), value);
     };
-    idr::match(
-        label.mode,
-        [&](families::Mode mode) {
-          if (mode == families::Mode::ByName) {
-            YieldOp::create(b, at_, call(fields));
-            return;
-          }
-          // Memoized: the exchange moves the captures out of the cell, runs
-          // the label on them, and moves the value in, which it also gives.
-          auto exchange = MemoRunOp::create(b, at_, TypeRange(value), taken, b.getI32IntegerAttr(at));
-          SmallVector<Type> captures = llvm::map_to_vector(
-              *refined.determinedFields(tag), [&](Type field) { return fieldType(own, field); });
-          Block *body = b.createBlock(&exchange.getRegion(), {}, captures,
-                                      SmallVector<Location>(captures.size(), at_));
-          Value computed = call(body->getArguments());
-          MemoYieldOp::create(b, at_, ValueRange{computed, computed});
-          b.setInsertionPointAfter(exchange);
-          YieldOp::create(b, at_, exchange->getResult(0));
-        });
+    switch (label.mode) {
+    case families::Mode::ByName:
+      YieldOp::create(b, at_, call(fields));
+      break;
+    case families::Mode::Memoized: {
+      // The exchange moves the captures out of the cell, runs the label on
+      // them, and moves the value into the cell, which it also gives.
+      auto exchange = MemoRunOp::create(b, at_, TypeRange(value), taken, b.getI32IntegerAttr(at));
+      SmallVector<Type> captures = llvm::map_to_vector(
+          *refined.determinedFields(tag), [&](Type field) { return fieldType(own, field); });
+      Block *body = b.createBlock(&exchange.getRegion(), {}, captures,
+                                  SmallVector<Location>(captures.size(), at_));
+      Value computed = call(body->getArguments());
+      MemoYieldOp::create(b, at_, computed, ValueRange{computed});
+      b.setInsertionPointAfter(exchange);
+      YieldOp::create(b, at_, exchange->getResult(0));
+      break;
+    }
+    }
   }
   b.setInsertionPointToEnd(entry);
   ReturnOp::create(b, loc, match->getResults());

@@ -58,8 +58,12 @@ Body bodyOf(FuncOp fn) {
 }
 
 Verdict verdictOf(const solver::ProgramGraph &graph, solver::FunctionId caller,
-                  solver::FunctionId callee, const Body &body) {
-  if (graph.sccOf(caller) == graph.sccOf(callee) || caller == callee)
+                  solver::FunctionId callee, const Body &body, std::optional<CopyKind> copy) {
+  if (caller == callee)
+    return Keep{Reason::Cycle};
+  if (copy == CopyKind::Step)
+    return Keep{Reason::Step};
+  if (graph.sccOf(caller) == graph.sccOf(callee) && copy != CopyKind::Beta)
     return Keep{Reason::Cycle};
   if (body.calls == Calls::None && body.size <= kLeafSize)
     return Leaf{};
@@ -83,7 +87,7 @@ bool Profitability::operator()(const Inliner::ResolvedCall &resolved) {
   if (fresh)
     body->second = bodyOf(callee);
   bool profitable = idr::match(
-      verdictOf(graph, from, to, body->second), [](Keep) { return false; },
+      verdictOf(graph, from, to, body->second, callee.getCopy()), [](Keep) { return false; },
       [](Leaf) { return true; },
       [](const Weighed &weighed) {
         return (static_cast<std::int64_t>(weighed.calls) - 1) * (weighed.size - kSmall) <= kProduct;
@@ -118,7 +122,7 @@ struct InlineLeaves : impl::IdrInlineLeavesBase<InlineLeaves> {
     InlinerConfig config;
     unsigned inlined = 0;
     for (CallOp call : calls) {
-      std::optional<solver::FunctionId> callee = schedule.find(call.getCalleeAttr());
+      std::optional<solver::FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
       if (!callee)
         continue;
       std::optional<optimize::Readable> known = schedule.final(*callee);
@@ -138,7 +142,7 @@ struct InlineLeaves : impl::IdrInlineLeavesBase<InlineLeaves> {
       });
     }
     numInlined += inlined;
-    schedule.noteLeaves(schedule.idOf(caller), inlined);
+    schedule.noteLeaves(schedule.graph.id(FlatSymbolRefAttr::get(caller.getSymNameAttr())), inlined);
     if (inlined == 0)
       return markAllAnalysesPreserved();
     IRRewriter rewriter(caller.getContext());

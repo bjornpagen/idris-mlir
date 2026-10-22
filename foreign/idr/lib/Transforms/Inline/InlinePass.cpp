@@ -34,7 +34,7 @@ using namespace mlir;
 namespace {
 
 struct Inline : idr::impl::IdrInlineBase<Inline> {
-  void runOnProgram(idr::ProgramOp program) override {
+  void runOnProgram(idr::ProgramOp program) {
     const auto &graph = getAnalysis<idr::solver::ProgramGraph>();
     idr::inlining::Profitability profitability(graph);
     idr::optimize::Admission admission(idr::support::hostMemoryBytes());

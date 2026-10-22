@@ -6,7 +6,10 @@
 //     and runs rounds of its inner pipeline (the redirect to the copies its
 //     calls' keys name, leaf inlining, the e-graph, constants) until a
 //     round asks for no copy and inlines no leaf; the copies it asked for
-//     are made, numbered and taken up before it goes on;
+//     are made, numbered and taken up before it goes on; then, every
+//     function final, the results no caller reads and the labels' captures
+//     nothing reads go from the whole program, and each copy says what
+//     kind of copy it is;
 //   - inline, once, on the final graph, with every call site counted, on
 //     upstream's inliner, a callee's verdict its profitability and the
 //     e-graph its simplification;
@@ -110,13 +113,9 @@ public:
   // no function of the schedule until the wave that made it ends.
   void attach(specialize::Nodes &table) { nodes = &table; }
 
-  // Resolving a function: by its op, by a call's callee (none for a copy
-  // made in this wave and not yet placed), or by a label, which names a
-  // function the program held.
-  FunctionId idOf(FuncOp fn) const;
-  std::optional<FunctionId> find(mlir::FlatSymbolRefAttr callee) const;
-  FunctionId idOf(mlir::FlatSymbolRefAttr label) const;
-  std::optional<FunctionId> held(mlir::StringAttr name) const;
+  // A function by its id; resolving a callee or a label is the graph
+  // editor's (Editor::id, and Editor::find, none for a copy made in this
+  // wave and not yet placed).
   FuncOp function(FunctionId fn) const { return members[fn.index()].fn; }
   mlir::StringAttr symbolOf(FunctionId fn) const { return function(fn).getSymNameAttr(); }
 
@@ -147,19 +146,14 @@ public:
   // each copy placed since added its own.
   llvm::ArrayRef<FunctionId> callersOf(FunctionId fn) const { return members[fn.index()].callers; }
   // Whether a family's label names `fn`: its leading parameters are that
-  // label's captures, the family's fields.
-  bool isLabel(FunctionId fn) const { return labels.contains(symbolOf(fn)); }
-
-  // The graph's row of `fn` as its body is now: each (callee, tail fact)
-  // once with its count of calls. A call of a copy still pending has no
-  // row: the copy is placed, and its calls recorded as waits, at the end
-  // of the wave.
-  llvm::SmallVector<solver::Call> rowOf(FuncOp fn) const;
+  // label's captures, the family's fields. A copy is never one.
+  bool isLabel(FunctionId fn) const { return labelled.test(fn.index()); }
 
   ProgramOp program;
 
 private:
   friend class Scheduler;
+  friend void dropUnread(Schedule &schedule, llvm::ArrayRef<FunctionId> members);
 
   struct Member {
     FuncOp fn;
@@ -188,11 +182,10 @@ private:
   // Each function's member, by its id: ids are dense, and a copy placed
   // between waves takes the next one the editor mints.
   std::vector<Member> members;
-  // The schedule's own name index, the editor's resolution with the one
-  // answer the editor has not: a name no function holds yet.
-  llvm::DenseMap<mlir::StringAttr, FunctionId> byName;
   llvm::BitVector cyclic;
-  llvm::DenseSet<mlir::StringAttr> labels;
+  // The functions a family's label names, by id; each copy placed adds a
+  // bit, clear.
+  llvm::BitVector labelled;
   // The components: each function's class, merged where a wait closes a
   // cycle; per class leader its callees not yet final and its members, in
   // id order.

@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <variant>
 
 namespace idr::optimize {
@@ -49,10 +50,14 @@ Body bodyOf(FuncOp fn);
 
 // Whether a call of a function inlines it, decided once per final
 // function. Kept: on its caller's cycle, where its original could never
-// go, or past the caller's size. A leaf always inlines; any other function
-// when (calls - 1) * (size - kSmall) <= kProduct, its calls counted on the
-// final graph.
-enum class Reason : std::uint8_t { Cycle, Cap };
+// go, but for a beta step, whose body calls the recursion and never
+// itself; or a step of a recursion on static data anywhere, since each
+// step has one call and inlining it hands its caller the next step's call,
+// so the recursion would unroll into its callers up to the caller's cap.
+// A leaf always inlines; any other function when
+// (calls - 1) * (size - kSmall) <= kProduct, its calls counted on the
+// final graph. The caller's cap is the profitability's, at each call.
+enum class Reason : std::uint8_t { Cycle, Step };
 struct Keep {
   Reason reason;
 };
@@ -64,9 +69,10 @@ struct Weighed {
 using Verdict = std::variant<Keep, Leaf, Weighed>;
 
 // The verdict of `callee` at a call from `caller`, read off the final
-// graph: its component, its call sites and its body.
+// graph (its component, its call sites), its body and what kind of copy
+// it is (its `copy`).
 Verdict verdictOf(const solver::ProgramGraph &graph, solver::FunctionId caller,
-                  solver::FunctionId callee, const Body &body);
+                  solver::FunctionId callee, const Body &body, std::optional<CopyKind> copy);
 
 // The profitability upstream's inliner asks of each call: the callee's
 // verdict, a weighed one accepted by MLton's product rule, and the caller

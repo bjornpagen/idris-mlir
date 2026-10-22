@@ -123,7 +123,8 @@ public:
   mlir::Type typeOf(mlir::Type type, const Slot &slot) const;
   const Family &familyOf(const Key &key) const { return families[static_cast<unsigned>(ids.find(key)->second)]; }
   // The tag of `label`'s constructor in `key`'s family: a key's labels, in
-  // name order, are its family's tags in order.
+  // the order of their functions in the program, are its family's tags in
+  // order.
   Tag tagOf(const Key &key, mlir::FlatSymbolRefAttr label) const;
   // A constant of the program converted to its slots, or the constant
   // itself where it holds no closure.
@@ -195,7 +196,7 @@ namespace idr::egraph {
 struct ForceFreshCell {
   using Root = MemoRunOp;
   static std::optional<Edit> decide(MemoRunOp run, const OperandFacts &facts);
-  static void rewrite(MemoRunOp run, Rewrite chosen, mlir::RewriterBase &rewriter);
+  static void rewrite(MemoRunOp run, const Rewrite &chosen, mlir::RewriterBase &rewriter);
 };
 static_assert(SkeletonRule<ForceFreshCell>);
 

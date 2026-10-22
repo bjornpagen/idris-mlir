@@ -25,7 +25,7 @@
 
 #include "idr/Analysis/BindingTimes.h"
 #include "idr/Analysis/Identities.h"
-#include "idr/IR/Effects.h"
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Profile.h"
 #include "idr/Transforms/EGraph.h"
@@ -51,7 +51,7 @@ Scheduler::Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &
 LogicalResult Scheduler::round(FunctionId member) {
   FuncOp fn = schedule.function(member);
   fn.getBody().walk([&](CallOp call) {
-    if (std::optional<FunctionId> callee = schedule.find(call.getCalleeAttr()))
+    if (std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr()))
       if (std::optional<Readable> known = schedule.final(*callee))
         call.setRow(known->fn.getRow());
   });

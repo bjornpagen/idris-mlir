@@ -13,7 +13,7 @@
 // row carries neither io nor crash, and where it may diverge the consumer
 // performs no io. Moving a call is licensed by its row alone.
 
-#include "idr/IR/Effects.h"
+#include "idr/IR/Effects/Query.h"
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
@@ -68,19 +68,6 @@ namespace detail {
 // The consumer
 //===----------------------------------------------------------------------===//
 
-namespace {
-
-// Whether `call` may run where `at` stands, later in its block: no op
-// between them orders with it, by the effect system's one question.
-bool mayRunAt(CallOp call, Operation *at) {
-  for (Operation *op = call->getNextNode(); op && op != at; op = op->getNextNode())
-    if (!effects::mayMoveAcross(call, op))
-      return false;
-  return true;
-}
-
-} // namespace
-
 std::optional<Elimination> consumerOf(CallOp call) {
   if (call->getNumResults() != 1 || !call->getResult(0).hasOneUse())
     return std::nullopt;
@@ -92,9 +79,13 @@ std::optional<Elimination> consumerOf(CallOp call) {
   // around it: a crash of the callee, io of its own, or a loop that does
   // not end after the consumer's io ran, would come after output the
   // program as written never wrote.
+  // The call runs where the dispatch, later in its block, stands: no op
+  // between them may tell, by the effect system's one question.
+  bool runsThere = llvm::all_of(
+      llvm::make_range(std::next(call->getIterator()), e->dispatch->getIterator()),
+      [&](Operation &between) { return effects::mayMoveAcross(call, &between); });
   effects::Row row = call.getRow();
-  if (!mayRunAt(call, e->dispatch) || row.contains(effects::Atom::crash) ||
-      row.contains(effects::Atom::io))
+  if (!runsThere || row.contains(effects::Atom::crash) || row.contains(effects::Atom::io))
     return std::nullopt;
   if (row.contains(effects::Atom::divergence) &&
       effects::rowOf(e->dispatch).contains(effects::Atom::io))

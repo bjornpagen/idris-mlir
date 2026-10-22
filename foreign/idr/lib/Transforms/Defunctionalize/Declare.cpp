@@ -3,8 +3,9 @@
 // Every family the walk writes, declared before any function is rewritten,
 // and every signature and constant as their slots have them.
 //
-// A closure family has one label per function of its key's set, in name
-// order, each naming its function and holding its captures; a memo family
+// A closure family has one label per function of its key's set, in the
+// order of their functions in the program, each naming its function and
+// holding its captures; a memo family
 // one per function, memoized or run by name, then its two states, its
 // forced state holding the value. A family is indexed by the index
 // variables its carrier mentions, in the order they occur, and each label
@@ -129,7 +130,8 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
       return;
     bool holds = false;
     for (uint32_t m = 0; m < group.getMembers().size() && !holds; ++m) {
-      DataType member = DataType::get(group, m, families::levelArgs(ctx, 0, group.indexCount(m)).getTerms());
+      DataType member = DataType::get(ctx, group, m,
+                                      families::levelArgs(ctx, 0, group.indices(m).size()).getTerms());
       for (Tag tag : member.possibleTags())
         for (Type field : member.ctor(tag).fields)
           holds = holds || carriesLabels(field);
@@ -185,8 +187,8 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
         },
         [&](ForData data) {
           DataType member = DataType::get(
-              data.group, data.member,
-              families::levelArgs(ctx, 0, data.group.indexCount(data.member)).getTerms());
+              ctx, data.group, data.member,
+              families::levelArgs(ctx, 0, data.group.indices(data.member).size()).getTerms());
           for (Tag tag : member.possibleTags()) {
             SmallVector<Field> fields;
             for (auto [i, field] : llvm::enumerate(member.ctor(tag).fields))
@@ -305,7 +307,7 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
           return std::nullopt;
         if (std::find(scc.begin(), scc.end(), *to) != scc.end())
           return SelfType::get(ctx, static_cast<uint32_t>(placed[*to]->second), data.getIndices());
-        return DataType::get(made[*to].getGroup(), made[*to].getMember(), data.getIndices());
+        return DataType::get(ctx, made[*to].getGroup(), made[*to].getMember(), data.getIndices());
       });
       return local.replace(held);
     };
@@ -352,7 +354,7 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
                   indices.push_back(term.size() == 1 && term.front().kind == families::TermKind::Level &&
                                             term.front().value < binders.size()
                                         ? binders[term.front().value]
-                                        : families::Sort{families::SortKind::Opaque, 0, Attribute()});
+                                        : families::Sort{families::SortKind::OpaqueSort, 0, Attribute()});
             }
             StringAttr name = StringAttr::get(ctx, carrierOf(k) == Carrier::Lazy ? "lazy" : "fn");
             if (carrierOf(k) == Carrier::Closure)
@@ -382,8 +384,8 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
     }
     FamilyAttr group = FamilyAttr::get(ctx, members);
     for (auto [position, node] : llvm::enumerate(scc)) {
-      uint32_t indices = group.indexCount(static_cast<uint32_t>(position));
-      made[node] = DataType::get(group, static_cast<uint32_t>(position),
+      auto indices = static_cast<uint32_t>(group.indices(static_cast<uint32_t>(position)).size());
+      made[node] = DataType::get(ctx, group, static_cast<uint32_t>(position),
                                  families::levelArgs(ctx, 0, indices).getTerms());
     }
   }
@@ -395,7 +397,7 @@ LogicalResult Decision::declare(const llvm::DenseSet<StringAttr> &byName) {
   replacer.addReplacement([&](DataType data) -> std::optional<Type> {
     if (auto first = firstOf.find(data.getGroup()); first != firstOf.end()) {
       DataType now = made[first->second + data.getMember()];
-      return DataType::get(now.getGroup(), now.getMember(), data.getIndices());
+      return DataType::get(ctx, now.getGroup(), now.getMember(), data.getIndices());
     }
     return std::nullopt;
   });
@@ -419,11 +421,11 @@ Type Decision::typeOf(Type type, const Slot &slot) const {
   SmallVector<families::TermNode> args;
   for (std::uint64_t level : vars.levels)
     args.push_back(families::TermNode{families::TermKind::Level, 0, 0, level, Attribute()});
-  return graded(gradeOf(type), DataType::get(family.getGroup(), family.getMember(), args));
+  return graded(gradeOf(type), DataType::get(ctx, family.getGroup(), family.getMember(), args));
 }
 
 Tag Decision::tagOf(const Key &key, FlatSymbolRefAttr label) const {
-  return Tag{*labels::positionIn(key.labels, label)};
+  return Tag{*labels.positionIn(key.labels, label)};
 }
 
 void Decision::convertSignatures() {

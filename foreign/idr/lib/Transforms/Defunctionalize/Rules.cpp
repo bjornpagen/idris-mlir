@@ -24,8 +24,8 @@ std::optional<Edit> ForceFreshCell::decide(MemoRunOp run, const OperandFacts &fa
 
 // The region's block runs before the exchange, its captures the
 // constructor's fields held as the region binds them, and its results are
-// what the yield gives after the forced value.
-void ForceFreshCell::rewrite(MemoRunOp run, Rewrite, RewriterBase &rewriter) {
+// what the yield gives; the value it moved into the cell goes with the cell.
+void ForceFreshCell::rewrite(MemoRunOp run, const Rewrite &, RewriterBase &rewriter) {
   auto built = run.getCell().getDefiningOp<DataConOp>();
   Block &body = run.getRegion().front();
   auto end = cast<MemoYieldOp>(body.getTerminator());
@@ -33,7 +33,7 @@ void ForceFreshCell::rewrite(MemoRunOp run, Rewrite, RewriterBase &rewriter) {
   SmallVector<Value> captures;
   for (auto [field, capture] : llvm::zip_equal(built.getFields(), body.getArguments()))
     captures.push_back(heldAs(rewriter, run.getLoc(), field, capture.getType()));
-  SmallVector<Value> results(end.getValues().drop_front());
+  SmallVector<Value> results(end.getResults());
   rewriter.inlineBlockBefore(&body, run, captures);
   rewriter.replaceOp(run, results);
   rewriter.eraseOp(end);
