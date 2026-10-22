@@ -328,7 +328,8 @@
     "foreign/idr/unittests/Intervals.cpp",
     "foreign/idr/unittests/FlowCases.cpp",
     "foreign/idr/unittests/IntervalCases.cpp",
-    "foreign/idr/unittests/Footprint.cpp"
+    "foreign/idr/unittests/Footprint.cpp",
+    "foreign/idr/unittests/Refusals.cpp"
   ],
   "L16": [
     "compiler/src/",
