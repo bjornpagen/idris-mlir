@@ -285,7 +285,7 @@ builder op =
       made = "MkOp " ++ opNameOf op ++ " (" ++ concatList (map operandList ins) ++ ") ("
              ++ concatList (map attrPair attrs ++ segmentPairs op) ++ ") (" ++ concatList (map regionList regions) ++ ") [] ("
              ++ resultTypes ++ ")"
-      (resultTy, body) = case op.guards of
+      (resultTy, body) = the (String, Lines) $ case op.guards of
                            [] => ("Op", ["  " ++ made])
                            gs => ("Guarded", guardedLines 0 op.ins gs made)
   in barComment ["`" ++ opName op ++ "`: " ++ lineText op.doc.summary]
