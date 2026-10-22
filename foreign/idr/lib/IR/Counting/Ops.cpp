@@ -104,9 +104,10 @@ namespace {
 Type initResult(CellType cell) { return graded(Grade{Uses::Many, Hold::counted()}, cell.getData()); }
 
 // The destination of hole `hole` of `cell`'s constructor: written through,
-// once, with a value of the field's data type, held in a cell. Failure,
+// once, with a value of the field's carrier. What a hole may hold is the
+// destination type's own rule, asked here and stated nowhere else. Failure,
 // after an error at `location` when there is one, for a field the
-// constructor does not have or one whose value is no cell.
+// constructor does not have or one no destination takes.
 FailureOr<DestType> destOf(std::optional<Location> location, CellType cell, int32_t hole) {
   DataType data = cell.getData();
   std::optional<SmallVector<Type>> fields = data.determinedFields(cell.getTag());
@@ -116,13 +117,12 @@ FailureOr<DestType> destOf(std::optional<Location> location, CellType cell, int3
   if (hole < 0 || static_cast<size_t>(hole) >= fields->size())
     return emitOptionalError(location, "has a hole at field ", hole,
                              ", which its constructor does not have");
-  Type field = (*fields)[static_cast<size_t>(hole)];
-  auto held = dyn_cast<DataType>(unrestricted(field));
-  if (!held || held.layout() != Layout::Cell)
-    return emitOptionalError(location, "has a hole at field ", hole, " of type ", field,
-                             ", which is held in no cell: only a cell's field is written "
-                             "through a destination");
-  return DestType::get(data.getContext(), held);
+  MLIRContext *context = data.getContext();
+  DestType dest = DestType::getChecked(location.value_or(UnknownLoc::get(context)), context,
+                                       unrestricted((*fields)[static_cast<size_t>(hole)]));
+  if (!dest)
+    return failure();
+  return dest;
 }
 
 } // namespace
@@ -185,8 +185,9 @@ void printCellDests(OpAsmPrinter &, Operation *, TypeRange, Type, DenseI32ArrayA
 // Dup, share
 //===----------------------------------------------------------------------===//
 
-// One more reference makes the value shared: a value whose type claims it
-// unshared has none to give, and the result claims nothing.
+// One more reference makes the value shared: a value whose type claims its
+// own cells unshared (its family's, and each in-place family's it holds)
+// has none to give, and the result claims nothing.
 LogicalResult CountDupOp::verify() {
   Type value = getValue().getType();
   Type result = getResult().getType();
@@ -239,7 +240,8 @@ DataType takenData(Op op) {
 }
 
 // The token a take gives of a value of `type`: used once; it holds its cell
-// where the type claims the cell unshared, and may be null otherwise.
+// where the type claims its own cells unshared, the taken cell first among
+// them, and may be null otherwise.
 Type tokenOf(Type type) {
   DataType data = cast<DataType>(unrestricted(type));
   Unique holds = claims(type, Unique::Self) ? Unique::Deep : Unique::None;

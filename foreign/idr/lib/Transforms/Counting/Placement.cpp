@@ -78,13 +78,9 @@ struct ValueTag {
 using ValueId = Id<ValueTag>;
 
 // Whether `op`, with everything in it, may take memory: a cell or a value
-// it makes, or memory its runtime function holds that no value names. A
-// call answers by the row it carries.
-bool mayAcquire(Operation *op) {
-  effects::EffectSet set = effects::whole(op);
-  return set.mayAct(effects::Kind::Allocate, effects::ResourceId::Heap) ||
-         set.memory == effects::RuntimeMemory::Touched;
-}
+// it makes, memory its runtime function holds that no value names, or what
+// a call's callee acquires, all of which its row reports as `alloc`.
+bool mayAcquire(Operation *op) { return effects::rowOf(op).contains(effects::Atom::alloc); }
 
 // What placement does with a value, decided once from its type and how it
 // was made:
@@ -653,7 +649,7 @@ void Placement::operandDeaths(Operation *op, const llvm::SmallBitVector &consume
       fail(op, "a terminator reads a counted value nothing after it needs");
       continue;
     }
-    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() != TailKind::NonTail) {
+    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() != TailKind::nontail) {
       fail(op, "a call in tail position reads a counted value no later use needs, so its drop "
                "would follow the call");
       continue;
@@ -673,7 +669,7 @@ void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVec
                             const llvm::BitVector *inside) {
   bool tail = false;
   if (auto call = dyn_cast<CallOp>(op))
-    tail = call.getTailKind() != TailKind::NonTail;
+    tail = call.getTailKind() != TailKind::nontail;
   llvm::SmallVector<ValueId, 4> used;
   for (OpOperand &operand : op->getOpOperands()) {
     ValueId id = idOf(operand.get());
@@ -920,7 +916,8 @@ void Placement::apply() {
     if (roles[id] != Role::Part)
       continue;
     Value value = valueOf(id);
-    if (Operation *def = value.getDefiningOp(); def && def->use_empty() && isPure(def))
+    if (Operation *def = value.getDefiningOp();
+        def && def->use_empty() && effects::whole(def).onlyComputes())
       rewriter.eraseOp(def);
   }
 }

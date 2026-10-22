@@ -52,10 +52,6 @@ namespace {
 
 using solver::FunctionId;
 
-// Whether the inference may make a value of `type` a view: it holds
-// references its count frees.
-bool countedHold(Type type) { return holdsReferences(type) && freedBy(type, Release::Counted); }
-
 // `type` as a view: freed by its lifetime, claiming what it claimed.
 Type asView(Type type) { return atHold(type, Hold::scoped(holdOf(type)->claim())); }
 
@@ -139,11 +135,11 @@ void Writer::decide() {
     llvm::SmallBitVector &bits = viewed[fn];
     bits.resize(entry.getNumArguments());
     for (BlockArgument param : entry.getArguments())
-      if (countedHold(param.getType()) &&
+      if (isCountedValue(param.getType()) &&
           borrows.parameter(fn, param.getArgNumber()) == Release::Scoped)
         bits.set(param.getArgNumber());
     borrows::forEachJoinParameter(op, [&](BlockArgument arg, std::uint32_t index) {
-      if (countedHold(arg.getType()) && borrows.joinParameter(fn, index) == Release::Scoped)
+      if (isCountedValue(arg.getType()) && borrows.joinParameter(fn, index) == Release::Scoped)
         viewedJoins.push_back(arg);
     });
   }
@@ -170,7 +166,7 @@ void Writer::writeSignatures() {
 // `next`, read from a view, is a view, unless it holds nothing its count
 // frees (a buffer's elements, static data) or is a view already.
 void Writer::reach(Value next) {
-  if (!countedHold(next.getType()))
+  if (!isCountedValue(next.getType()))
     return;
   next.setType(asView(next.getType()));
   pending.push_back(next);
@@ -247,9 +243,9 @@ LogicalResult Writer::findLoans(FunctionId fn, SmallVectorImpl<Loan> &loans) {
       const llvm::SmallBitVector &bits = viewed[graph.id(call.getCalleeAttr())];
       for (OpOperand &operand : call->getOpOperands()) {
         unsigned index = operand.getOperandNumber();
-        if (index >= bits.size() || !bits.test(index) || !countedHold(operand.get().getType()))
+        if (index >= bits.size() || !bits.test(index) || !isCountedValue(operand.get().getType()))
           continue;
-        if (call.getTailKind() != TailKind::NonTail) {
+        if (call.getTailKind() != TailKind::nontail) {
           found = call.emitOpError("internal error: borrowing lends argument ")
                   << index << " of a call in tail position, which nothing may follow";
           return WalkResult::interrupt();
@@ -279,7 +275,7 @@ LogicalResult Writer::findLoans(FunctionId fn, SmallVectorImpl<Loan> &loans) {
         OpOperand &position = at->getOpOperand(first + static_cast<unsigned>(index));
         auto arg = dyn_cast<BlockArgument>(input);
         if (!arg || !freedBy(arg.getType(), Release::Scoped) || !borrows::isJoinParameter(arg) ||
-            !countedHold(position.get().getType()))
+            !isCountedValue(position.get().getType()))
           continue;
         if (join->isAncestor(position.get().getParentBlock()->getParentOp())) {
           found = at->emitOpError("internal error: borrowing lends a value made inside the join "

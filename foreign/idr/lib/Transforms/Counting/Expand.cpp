@@ -2,11 +2,12 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-rc-expand: the last step of counting at the dialect's level. A take
 // of a value whose grade proves its own cell the holder's alone (a claim on
-// its family's cells, or on everything it reaches) stays a take: its fields
-// move out of the cell with no count read, and its token is the cell, never
-// null. Any other take becomes the one test of sharing left to run, a match
-// on uniqueness of two regions (count.match_unique), of which exactly one
-// runs:
+// its own cells, which are its family's and those of each in-place family
+// it holds, or on everything it reaches) stays a take: its fields move out
+// of the cell with no count read, each at the grade its read gives, and its
+// token is the cell, never null. Any other take becomes the one test of
+// sharing left to run, a match on uniqueness of two regions
+// (count.match_unique), of which exactly one runs:
 //   - unique: the value held the only reference to its cell, so the op gives
 //     the region the token (unique, never null) and the fields, moved out;
 //     the region drops the fields nothing needs and gives the rest on;

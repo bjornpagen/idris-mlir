@@ -118,8 +118,7 @@ private:
 };
 
 unsigned Reuse::cellBytes(Type value) const {
-  auto data = cast<DataType>(unrestricted(value));
-  return layouts.cells(data.unrefined()).cell(*knownConstructor(value)).size;
+  return layouts.cells(cast<DataType>(unrestricted(value))).cell(*knownConstructor(value)).size;
 }
 
 std::optional<unsigned> Reuse::indexOf(unsigned bytes) const {
@@ -242,7 +241,7 @@ void Reuse::demands() {
         walk.demand[*index] = std::min(walk.demand[*index] + 1, cap[*index]);
     if (sourceBytes(op))
       trail.push_back(walk.demand);
-    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() == TailKind::Tail)
+    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() == TailKind::tail)
       walk.demand = none();
     if (op->getNumRegions() != 0) {
       trail.push_back(walk.demand);
@@ -481,7 +480,10 @@ void Reuse::assign() {
       }
       continue;
     }
-    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() == TailKind::Tail) {
+    // A call modulo a context keeps its tokens: its context, which follows
+    // it, may recycle one, and idr-trmc moves what follows the call before
+    // it, where no token is read by the call.
+    if (auto call = dyn_cast<CallOp>(op); call && call.getTailKind() == TailKind::tail) {
       freeAll(path.held, op);
       continue;
     }

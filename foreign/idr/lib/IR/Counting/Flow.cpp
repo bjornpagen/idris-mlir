@@ -40,11 +40,17 @@ void CellRecycleOp::getFlowEdges(FlowEdges &edges) {
 
 // The value is its cell, so the init takes the cell over and the value is
 // new exactly when the cell was; each field given moves into its field of
-// the value.
+// the value; and each hole's place is the field the hole is, so what a later
+// write through its destination puts there is what that field holds.
 void CellInitOp::getFlowEdges(FlowEdges &edges) {
   Value value = getResult();
+  DataType data = getDataType();
+  Tag tag = getTag();
   edges.flow(FlowPoint::of(getCellMutable()), FlowPoint::of(value));
-  builtEdges(value, getDataType(), getTag(), getFieldsMutable(), getHoles(), edges);
+  builtEdges(value, data, tag, getFieldsMutable(), getHoles(), edges);
+  for (auto [hole, dest] : llvm::zip_equal(getHoles(), getDests()))
+    edges.unify(FlowPoint::partOf(dest, FlowAnchor::holeOf(cast<DestType>(dest.getType()))),
+                FlowPoint::partOf(value, FlowAnchor::fieldOf(data, tag, static_cast<unsigned>(hole))));
 }
 
 // The value is taken over: its cell becomes the token, and each field
