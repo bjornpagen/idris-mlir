@@ -51,13 +51,13 @@ import Data.SortedSet
 -- cases the problem has. A function that gives an implementation at each
 -- use (`Gives`) is given as written and matched where it is used, so it
 -- splits nothing either. A request's arguments hold no marker of the
--- growth check, so no root is a `Parameter` here, and no choice, which
--- keys nothing, so none is a choice's `Members`. An argument is read
--- once, by its kind and as the request's link writes it, its identity
--- (`Facts.readings`): the same type or implementation is given to many
--- requests, and a step's readings are merged into the instance table
--- with the rest of what it derived. Each argument comes with how the link
--- writes it (`Keys.Instance`).
+-- growth check, so no root is a `Parameter` here, and no choice the
+-- running program makes, which keys nothing, so none is `Chosen`. An
+-- argument is read once, by its kind and as the request's link writes
+-- it, its identity (`Facts.readings`): the same type or implementation is
+-- given to many requests, and a step's readings are merged into the
+-- instance table with the rest of what it derived. Each argument comes
+-- with how the link writes it (`Keys.Instance`).
 readings : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
            Nat -> List (Maybe ((Subset Static Requested, ClosedTerm), Written Form)) -> Front (List (Nat, StaticReading))
 readings i [] = pure []
@@ -69,7 +69,7 @@ readings i (Just ((Element kind _, t), w) :: as) = do
       (h, root) <- closedHeight kind t
       let r = MkStaticReading h (case root of
                              Rooted j => Just j
-                             Members _ => Nothing
+                             Template.Chosen => Nothing
                              Gives _ => Nothing
                              Unrooted => Nothing
                              Parameter _ _ => Nothing)

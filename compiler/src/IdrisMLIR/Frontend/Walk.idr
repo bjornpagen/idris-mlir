@@ -219,9 +219,7 @@ fewerThen q p = transitive q p
 |||   constructors deep (`Template`);
 ||| - `ProbeFormal j a`: argument `j` of a family's value of arity `a`;
 ||| - `ProbeFieldPath i d path`: the fields of `ProbeVar i d`'s dictionary
-|||   along a path, the first field first;
-||| - `ProbeHeld a p`: the dictionary the constructor at address `a` holds at
-|||   field `p`.
+|||   along a path, the first field first.
 public export
 data Probe = ProbeBinder Nat
            | ProbeHole Nat
@@ -238,7 +236,6 @@ data Probe = ProbeBinder Nat
            | ProbeVar Nat Nat
            | ProbeFormal Nat Nat
            | ProbeFieldPath Nat Nat (List1 Nat)
-           | ProbeHeld Address Nat
 
 ||| A probe's name: the one place a probe is spelled, each family by its
 ||| own identifier, a constant of the compiler's known vocabulary that the
@@ -272,12 +269,6 @@ probeName (ProbeFieldPath i d (k ::: ks)) = Nested (cast i, cast d) (steps (k ::
     steps : List Nat -> Name
     steps [] = knownUN KProbeField
     steps (f :: fs) = Nested (cast f, 0) (steps fs)
-probeName (ProbeHeld [b0, b1, b2, b3, b4, b5, b6, b7] p) =
-  Nested (byte b0, byte b1) (Nested (byte b2, byte b3) (Nested (byte b4, byte b5)
-    (Nested (byte b6, byte b7) (Nested (cast p, 0) (knownUN KProbeHeld)))))
-  where
-    byte : Fin 256 -> Int
-    byte b = cast (finToNat b)
 
 -- The pairs a nested name nests around, the outermost first, and the
 -- name inside them.
@@ -304,11 +295,7 @@ probeOf n@(Nested _ _) = List.find (\p => probeName p == n) (candidates (nesting
       [ProbeHole (cast i), ProbeHoleFound (cast i), ProbePattern (cast i),
        ProbeVar (cast i) (cast d), ProbeFormal (cast i) (cast d)]
     candidates ((i, d) :: f :: fs, _) =
-      ProbeFieldPath (cast i) (cast d) (map (cast . fst) (f ::: fs))
-        :: case (i, d) :: f :: fs of
-             [(b0, b1), (b2, b3), (b4, b5), (b6, b7), (p, _)] =>
-               [ProbeHeld (map (\b => lowBits 8 (cast b)) [b0, b1, b2, b3, b4, b5, b6, b7]) (cast p)]
-             _ => []
+      [ProbeFieldPath (cast i) (cast d) (map (cast . fst) (f ::: fs))]
     candidates _ = []
 probeOf _ = Nothing
 
@@ -333,7 +320,6 @@ probeTerm p@(ProbeSize _) = Ref EmptyFC Func (probeName p)
 probeTerm p@(ProbeVar _ _) = Ref EmptyFC Bound (probeName p)
 probeTerm p@(ProbeFormal _ _) = Ref EmptyFC Bound (probeName p)
 probeTerm p@(ProbeFieldPath _ _ _) = Ref EmptyFC Bound (probeName p)
-probeTerm p@(ProbeHeld _ _) = Ref EmptyFC Bound (probeName p)
 
 ||| The probe a term is (`probeTerm`'s inverse): a reference to a probe's
 ||| name, or an axis's two references; nothing for any other term.
