@@ -44,3 +44,7 @@ handoff lists its own wiring.
   `gen-idris-dialect`, `gen-idris-bytecode` and `gen-admitted-classes`.
   Delete those lines. The `lib/` CMakeLists also name about 91 deleted
   sources (the C2 audit's count); rewire every list from the handoffs.
+- **Admitted classes (L03, 2026-10-22):** run `-gen-admitted-classes`
+  once per `Generated/IdrAdmitted<Name>.td` (Base excluded), writing
+  `IdrAdmitted<Name>Classes.h.inc`, taking the file list by glob. Link
+  `MLIRInferIntRangeCommon` into the e-graph's library (C191).
