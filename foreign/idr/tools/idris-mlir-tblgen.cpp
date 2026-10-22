@@ -11,7 +11,8 @@
 //   enums its admitted ops, types and attributes take, and its types and
 //   attributes with the printers of the syntax ODS declares for them
 //   (compiler/src/IdrisMLIR/Syntax/).
-// - -gen-idris-dialect, a builder of each admitted op the frontend writes
+// - -gen-idris-dialect, a builder of each admitted op the frontend writes,
+//   a guarded op's with the guards its admitted record gives it
 //   (compiler/src/IdrisMLIR/Dialect/).
 // - -gen-idris-bytecode, an upstream dialect's bytecode entries for the
 //   Idris writer, from its records in upstream's bytecode DSL
@@ -49,6 +50,7 @@
 #include "llvm/TableGen/Error.h"
 #include "llvm/TableGen/Record.h"
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <optional>
@@ -125,7 +127,7 @@ bool isUsedInBodies(StringRef name) {
       "attrIf", "commaSeparated", "v",    "t",         "a",      "ty",
       "at",     "fastConcat", "maybe",    "null",      "symbol", "symbolRef",
       "utf8",   "array",     "signature", "separated", "minus",  "iterateN",
-      "os",     "rs",        "rest"};
+      "os",     "rs",        "rest",      "positions"};
   return llvm::is_contained(names, name);
 }
 
@@ -684,10 +686,57 @@ std::string valuesType(StringRef single, char arity) {
 // Builders
 //===----------------------------------------------------------------------===//
 
+// The guards the specification gives an admitted op, as the list its
+// builder returns with it: each guard op given the operands at the positions
+// of the groups the guard names, a group's first operand at the number of
+// operands the groups before it hold. A group that holds any number, or
+// none, guarded first, is guarded operand by operand, each against the same
+// other operands. The specification cannot know upstream's operand groups,
+// so a position past them is refused here, where the record is read.
+std::string guardsOf(const Operator &op, const llvm::Record &admitted,
+                     const std::vector<std::pair<std::string, char>> &operands) {
+  auto offsetOf = [&](std::size_t group) {
+    std::vector<std::string> lengths;
+    for (const auto &[name, partArity] : llvm::ArrayRef(operands).take_front(group))
+      lengths.push_back(partArity == '1'   ? std::string("1")
+                        : partArity == '?' ? "length (toList " + name + ")"
+                                           : "length " + name);
+    return lengths.empty() ? std::string("0") : "(" + llvm::join(lengths, " + ") + ")";
+  };
+  std::vector<std::string> lists;
+  for (const llvm::Record *guard : admitted.getValueAsListOfDefs("guards")) {
+    std::vector<std::int64_t> given = guard->getValueAsListOfInts("operandGroups");
+    if (given.empty() || llvm::any_of(given, [&](std::int64_t group) {
+          return group < 0 || static_cast<std::uint64_t>(group) >= operands.size();
+        }))
+      llvm::PrintFatalError(op.getLoc(), op.getOperationName() +
+                                             " has a guard whose operand groups are not among "
+                                             "its record's");
+    std::string check = literal(guard->getValueAsString("guardOp"));
+    std::string cause = std::to_string(guard->getValueAsInt("causeNumber"));
+    std::vector<std::string> others;
+    for (std::int64_t group : llvm::ArrayRef(given).drop_front())
+      others.push_back(offsetOf(group));
+    const auto &[guarded, guardedArity] = operands[given.front()];
+    std::string at = offsetOf(given.front());
+    if (guardedArity == '1') {
+      others.insert(others.begin(), at);
+      lists.push_back("[MkGuard " + check + " [" + llvm::join(others, ", ") + "] " + cause + "]");
+      continue;
+    }
+    lists.push_back("map (\\p'' => MkGuard " + check + " (p'' :: [" + llvm::join(others, ", ") +
+                    "]) " + cause + ") (positions " + at + " " +
+                    (guardedArity == '?' ? "(toList " + guarded + ")" : guarded) + ")");
+  }
+  return lists.empty() ? std::string() : llvm::join(lists, " ++ ");
+}
+
 // The builder of an upstream op the frontend writes: one argument per
-// inherent attribute, operand group, region and result group, and the op.
-// No upstream op is partial on the Idris side: a guard is an op of ours.
-void emitOp(Enums &enums, const Operator &op, llvm::raw_ostream &os) {
+// inherent attribute, operand group, region and result group, and the op;
+// with its guards, where the specification gives it any, so a partial op
+// is never written without them.
+void emitOp(Enums &enums, const Operator &op, const llvm::Record &admitted,
+            llvm::raw_ostream &os) {
   if (op.getNumSuccessors() != 0)
     llvm::PrintFatalError(op.getLoc(), "the Idris side writes no op with successors");
   // getOperationName returns a std::string by value: keep it alive while the
@@ -764,16 +813,20 @@ void emitOp(Enums &enums, const Operator &op, llvm::raw_ostream &os) {
 
   std::string made = "MkOp " + literal(operationName) + ' ' + listOf(operands) + ' ' +
                      dictionaryOf(properties) + ' ' + listOf(regions) + " [] " + listOf(results);
+  std::string guards = guardsOf(op, admitted, operands);
   os << "||| `" << op.getOperationName() << "`" << summary(op.getSummary());
   os << "\nexport\n" << name << " : ";
   for (const Parameter &p : implicits)
     os << binder(p) << " -> ";
   for (const Parameter &p : explicits)
     os << binder(p) << " -> ";
-  os << "Op\n" << name;
+  os << (guards.empty() ? "Op" : "Guarded") << "\n" << name;
   for (const Parameter &p : explicits)
     os << ' ' << p.name;
-  os << " =\n  " << made << "\n\n";
+  if (guards.empty())
+    os << " =\n  " << made << "\n\n";
+  else
+    os << " =\n  MkGuarded (" << made << ") (" << guards << ")\n\n";
 }
 
 //===----------------------------------------------------------------------===//
@@ -1231,7 +1284,7 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
     Operator op(admitted->getValueAsDef("op"));
     if (op.getDialectName() != dialectName || admitted->getValueAsInt("frontendWrites") == 0)
       continue;
-    emitOp(v.enums, op, opsOs);
+    emitOp(v.enums, op, *admitted, opsOs);
   }
   addCaseFields(v.enums, enumsOfCases(records));
   return v;
@@ -1315,8 +1368,8 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
   os << "||| The " << dialectName << " dialect's ops the frontend writes, as the Idris side\n"
      << "||| builds them: one builder per op the specification admits. Generated by\n"
      << "||| idris-mlir-tblgen -gen-idris-dialect from upstream's ODS. Do not edit.\n"
-     << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR\nimport " << syntaxModuleName
-     << "\n\nimport Data.List\n\n%default total\n\n";
+     << "module " << moduleName << "\n\nimport IdrisMLIR.MLIR\nimport IdrisMLIR.Dialect.Idr\nimport "
+     << syntaxModuleName << "\n\nimport Data.List\n\n%default total\n\n";
   section(os, "Ops", v.ops);
   return false;
 }

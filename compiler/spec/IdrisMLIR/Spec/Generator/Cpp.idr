@@ -229,6 +229,25 @@ areaHeader h =
                       (slashComment (lineText h.doc.summary :: proseLines h.doc.description) ++ [""]
                        ++ concatMap headerBlock h.blocks)) )
 
+||| The hand storage classes, `::idr::detail::<Class>Storage`, declared
+||| before the generated classes that name them as their storage: ODS
+||| declares no class it does not define.
+export
+storagesHeader : List AnyTypeDef -> List AnyAttrDef -> Lines
+storagesHeader ts as =
+  header "Storages" []
+    (inNamespace "idr::detail"
+      (map (\c => "struct " ++ c ++ "Storage;") (concatMap typeStorage ts ++ concatMap attrStorage as)))
+  where
+    typeStorage : AnyTypeDef -> List String
+    typeStorage (SomeType t) = case t.storage of
+      HandStorage => [typeClass t]
+      GeneratedStorage => []
+    attrStorage : AnyAttrDef -> List String
+    attrStorage (SomeAttr a) = case a.storage of
+      HandStorage => [attrClass a]
+      GeneratedStorage => []
+
 ||| The traits of the dialect's ODS enums, which mlir-tblgen declares.
 export
 odsEnumTraits : List EnumDef -> Lines
@@ -323,8 +342,9 @@ specializationHeader t ops =
 ------------------------------------------------------------------------------
 
 ||| Every inline meaning an op of the dialect has, each once, in first use's
-||| order: the function objects of the numeric template, as a list of types
-||| a test folds over, so a meaning an op gains is one it checks.
+||| order, a guard's condition among them: the function objects of the
+||| numeric template, as a list of types a test folds over, so a meaning an
+||| op gains is one it checks.
 export
 inlineMeaningsHeader : List AnyOp -> Lines
 inlineMeaningsHeader ops =
@@ -336,6 +356,7 @@ inlineMeaningsHeader ops =
     meaningOf : AnyOp -> List Ident
     meaningOf (SomeOp op) = case op.meaning of
       Inline fn => [fn]
+      InlineCondition fn => [fn]
       _ => []
     once : List Ident -> List Ident -> List Ident
     once _ [] = []
@@ -346,7 +367,7 @@ inlineMeaningsHeader ops =
 ------------------------------------------------------------------------------
 
 export
-guardText : Guard i -> String
+guardText : Guard (Fin i) -> String
 guardText g = "::idr::Guard<::idr::" ++ opRefClass g.check ++ ", " ++ joinWith ", " (map (decimal . finToNat) (forget g.given)) ++ ">"
 
 export
@@ -442,19 +463,17 @@ callsByCase op = case op.meaning of
 
 ||| One C function of the runtime, as its prototype and its row of the ABI
 ||| table are printed: its symbol, its parameters (each kind and name), what
-||| it returns, the results it gives through pointers, and its comment.
+||| it returns, and its comment.
 public export
 record CFunction where
   constructor MkCFunction
   cSymbol : String
   cTakes : List (OperandKind, String)
   cReturns : HelperGives
-  cOuts : List (ResultKind, String)
   cComment : String
 
 ||| Every C function an op names as its meaning: its operands by their
-||| groups' names, its results through pointers where it gives several; one
-||| per case where its meaning is one function per case.
+||| groups' names; one per case where its meaning is one function per case.
 export
 functionsOf : AnyOp -> List CFunction
 functionsOf (SomeOp op) = case (callOf op, callsByCase op) of
@@ -466,17 +485,14 @@ functionsOf (SomeOp op) = case (callOf op, callsByCase op) of
     params c = zipWith (\k, x => (k, identText x.name)) (toList c.takes) (toList op.ins)
     made : RuntimeCall i o -> String -> CFunction
     made c sym = case c.gives of
-      NoResult => MkCFunction sym (params c) HelperNothing [] (opName op)
-      NeverReturns => MkCFunction sym (params c) HelperNeverReturns [] (opName op)
-      Returns k => MkCFunction sym (params c) (HelperReturns k) [] (opName op)
-      ThroughPointers ks =>
-        MkCFunction sym (params c) HelperNothing
-          (zipWith (\k, x => (k, identText x.name)) (toList ks) (toList op.outs)) (opName op)
+      NoResult => MkCFunction sym (params c) HelperNothing (opName op)
+      NeverReturns => MkCFunction sym (params c) HelperNeverReturns (opName op)
+      Returns k => MkCFunction sym (params c) (HelperReturns k) (opName op)
 
 ||| A helper the lowering calls by itself, as a C function.
 export
 helperFunction : RuntimeHelper -> CFunction
-helperFunction h = MkCFunction (symbolText h.symbol) (map (\(k, n) => (k, identText n)) h.params) h.gives [] (lineText h.doc)
+helperFunction h = MkCFunction (symbolText h.symbol) (map (\(k, n) => (k, identText n)) h.params) h.gives (lineText h.doc)
 
 ||| The functions, each symbol once, the first that names it kept: two ops
 ||| may share a function, which is declared once.
@@ -496,7 +512,6 @@ prototype f =
                  HelperNeverReturns => "IDRIS_RT_NORETURN void"
                  HelperReturns k => givesC k
       ps = map (\(k, n) => declarator (takesC k) n) f.cTakes
-           ++ map (\(k, n) => declarator (givesC k ++ " *") n) f.cOuts
   in ["// " ++ f.cComment, result ++ " " ++ f.cSymbol ++ "(" ++ cParams ps ++ ");"]
 
 ||| The runtime's prototypes of every function an op or the lowering calls,
@@ -523,41 +538,23 @@ resultKindOf (HelperReturns k) = "ResultKind::" ++ givesName k
 operandKinds : CFunction -> List String
 operandKinds f = map (\(k, _) => "OperandKind::" ++ takesName k) f.cTakes
 
-||| The kinds of the results a function gives through pointers.
-outKinds : CFunction -> List String
-outKinds f = map (\(k, _) => "ResultKind::" ++ givesName k) f.cOuts
-
-||| The array a function's row names for its outs: its own, or the shared
-||| empty one.
-outsArray : CFunction -> String
-outsArray f = case f.cOuts of
-  [] => "noOuts"
-  _ => "outs"
-
 export
 abiRow : AnyOp -> Lines
 abiRow (SomeOp op) = case (functionsOf (SomeOp op), callsByCase op) of
   ([f], Nothing) =>
     [ "template <>", "struct Abi<" ++ opQualifiedClass op ++ "> {"
-    , "  static constexpr std::array<OperandKind, " ++ decimal (length f.cTakes) ++ "> operands" ++ arrayInit (operandKinds f) ++ ";" ]
-    ++ outsDecl f
-    ++ [ "  static constexpr Function entry{" ++ quoted f.cSymbol ++ ", operands, " ++ resultKindOf f.cReturns ++ ", " ++ outsArray f ++ "};"
-       , "  static constexpr auto *function = &" ++ f.cSymbol ++ ";"
-       , "};", "" ]
+    , "  static constexpr std::array<OperandKind, " ++ decimal (length f.cTakes) ++ "> operands" ++ arrayInit (operandKinds f) ++ ";"
+    , "  static constexpr Function entry{" ++ quoted f.cSymbol ++ ", operands, " ++ resultKindOf f.cReturns ++ "};"
+    , "  static constexpr auto *function = &" ++ f.cSymbol ++ ";"
+    , "};", "" ]
   (f :: fs, Just _) =>
     [ "template <>", "struct AbiByCase<" ++ opQualifiedClass op ++ "> {"
-    , "  static constexpr std::array<OperandKind, " ++ decimal (length f.cTakes) ++ "> operands" ++ arrayInit (operandKinds f) ++ ";" ]
-    ++ outsDecl f
-    ++ [ "  // One entry per case of the op's enum, in the cases' order."
-       , "  static constexpr std::array<Function, " ++ decimal (length (f :: fs)) ++ "> entries{{"
-         ++ joinWith ", " (map (\g => "Function{" ++ quoted g.cSymbol ++ ", operands, " ++ resultKindOf g.cReturns ++ ", " ++ outsArray g ++ "}") (f :: fs)) ++ "}};"
-       , "};", "" ]
+    , "  static constexpr std::array<OperandKind, " ++ decimal (length f.cTakes) ++ "> operands" ++ arrayInit (operandKinds f) ++ ";"
+    , "  // One entry per case of the op's enum, in the cases' order."
+    , "  static constexpr std::array<Function, " ++ decimal (length (f :: fs)) ++ "> entries{{"
+      ++ joinWith ", " (map (\g => "Function{" ++ quoted g.cSymbol ++ ", operands, " ++ resultKindOf g.cReturns ++ "}") (f :: fs)) ++ "}};"
+    , "};", "" ]
   _ => []
-  where
-    outsDecl : CFunction -> Lines
-    outsDecl f = case f.cOuts of
-      [] => []
-      _ => ["  static constexpr std::array<ResultKind, " ++ decimal (length f.cOuts) ++ "> outs" ++ arrayInit (outKinds f) ++ ";"]
 
 ||| Where a table names each function of an op: its `Abi<Op>`'s entry, or
 ||| each of its `AbiByCase<Op>`'s entries.
@@ -572,7 +569,7 @@ helperRow : RuntimeHelper -> Lines
 helperRow h =
   let f = helperFunction h
   in [ "inline constexpr std::array<OperandKind, " ++ decimal (length f.cTakes) ++ "> " ++ identText h.name ++ "Operands" ++ arrayInit (operandKinds f) ++ ";"
-     , "inline constexpr Function " ++ identText h.name ++ "{" ++ quoted f.cSymbol ++ ", " ++ identText h.name ++ "Operands, " ++ resultKindOf f.cReturns ++ ", noOuts};" ]
+     , "inline constexpr Function " ++ identText h.name ++ "{" ++ quoted f.cSymbol ++ ", " ++ identText h.name ++ "Operands, " ++ resultKindOf f.cReturns ++ "};" ]
 
 ||| Each op's row of the runtime's ABI, `Abi<Op>`, each helper the lowering
 ||| calls, and every function once in `functions`, which the lowering
@@ -588,16 +585,12 @@ runtimeAbi ops helpers =
            , "enum class ResultKind : unsigned char { Void, NoReturn, Int32, Int64, Double, Wrapped, Order, Str, Big, Pointer, Bool };"
            , "" ]
            ++ slashComment [ "A runtime function as the lowering calls it: its symbol, how it takes each operand,"
-                           , "what it returns, and, where it returns nothing, the kinds of the results it gives"
-                           , "through the pointers its caller passes after the operands." ]
+                           , "and what it returns." ]
            ++ [ "struct Function {"
               , "  std::string_view symbol;"
               , "  std::span<const OperandKind> operands;"
               , "  ResultKind result;"
-              , "  std::span<const ResultKind> outs;"
               , "};"
-              , ""
-              , "inline constexpr std::array<ResultKind, 0> noOuts{};"
               , ""
               , "template <class OpT>"
               , "struct Abi;"
@@ -764,19 +757,30 @@ fromRewrite (SomeRewrite rw) =
   let (root, lhs) = flatRoot rw.lhs
   in MkFlatRule root (length (toList rw.vars)) lhs (flatPat rw.rhs) (map condRow rw.conds) rw.direction
 
-||| The rules of a binary operation's associativity and identity, on the
-||| operation's class.
-associativeRule : String -> FlatRule
-associativeRule c =
+||| The rules a binary operation's associativity gives, on its class: a
+||| chain's two constants combined, `(x . c0) . c1` to `x . (c0 . c1)` and
+||| `c0 . (c1 . x)` to `(c0 . c1) . x`, which the op's fold then computes.
+||| Each is one-way and fires only on two constants. The rule both ways,
+||| which only connects equal forms, is never printed: on real code it found
+||| nothing extraction kept and made every budget stop.
+associativeRules : String -> List FlatRule
+associativeRules c =
   let two = FNode c 0 2
-  in MkFlatRule c 3 [two, two, FVar 0, FVar 1, FVar 2] [two, FVar 0, two, FVar 1, FVar 2] [] Equal
+      constants : Fin 3 -> Fin 3 -> List String
+      constants a b = [condRow (IsConstant a), condRow (IsConstant b)]
+  in [ MkFlatRule c 3 [two, two, FVar 0, FVar 1, FVar 2] [two, FVar 0, two, FVar 1, FVar 2] (constants 1 2) Simplify
+     , MkFlatRule c 3 [two, FVar 0, two, FVar 1, FVar 2] [two, two, FVar 0, FVar 1, FVar 2] (constants 0 1) Simplify ]
 
+||| The rule of a binary operation's identity on its right, on its class.
 identityRule : String -> Integer -> FlatRule
 identityRule c k = MkFlatRule c 1 [FNode c 0 2, FVar 0, FLit k] [FVar 0] [] Simplify
 
 ||| The rules an op's laws give: the law is the one fact, so its rules are
-||| derived here and never written beside it. Binary laws need two
-||| operands, an involution one; a law on an op of another arity gives none.
+||| derived here and never written beside it, each one-way and triggered
+||| narrowly (a constant, a repeated operand, a nested op). Binary laws need
+||| two operands, an involution one; a law on an op of another arity gives
+||| none. Commutativity gives none: its one rule swaps operands both ways,
+||| which only connects equal forms, and its trait is upstream's.
 export
 lawRules : AnyOp -> List FlatRule
 lawRules (SomeOp op) = concatMap (rulesOf (length (toList op.ins))) op.laws
@@ -786,8 +790,7 @@ lawRules (SomeOp op) = concatMap (rulesOf (length (toList op.ins))) op.laws
     two : FlatNode
     two = FNode c 0 2
     rulesOf : Nat -> Law -> List FlatRule
-    rulesOf 2 Commutative = [MkFlatRule c 2 [two, FVar 0, FVar 1] [two, FVar 1, FVar 0] [] Equal]
-    rulesOf 2 Associative = [associativeRule c]
+    rulesOf 2 Associative = associativeRules c
     rulesOf 2 (Identity k) = [identityRule c k]
     rulesOf 2 (Annihilator k) = [MkFlatRule c 1 [two, FVar 0, FLit k] [FLit k] [] Simplify]
     rulesOf 2 Idempotent = [MkFlatRule c 1 [two, FVar 0, FVar 0] [FVar 0] [] Simplify]
@@ -798,11 +801,11 @@ lawRules (SomeOp op) = concatMap (rulesOf (length (toList op.ins))) op.laws
 ||| upstream has no trait for is binary.
 export
 admittedLawRules : Admitted -> List FlatRule
-admittedLawRules a = map ruleOf a.laws
+admittedLawRules a = concatMap rulesOf a.laws
   where
-    ruleOf : UpLaw -> FlatRule
-    ruleOf UpAssociative = associativeRule (admittedAlias a)
-    ruleOf (UpIdentity k) = identityRule (admittedAlias a) k
+    rulesOf : UpLaw -> List FlatRule
+    rulesOf UpAssociative = associativeRules (admittedAlias a)
+    rulesOf (UpIdentity k) = [identityRule (admittedAlias a) k]
 
 ||| The classes a node of the rules names, each once, in first use's order:
 ||| a kind's number is its position.

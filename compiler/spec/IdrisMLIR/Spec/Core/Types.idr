@@ -23,18 +23,23 @@ import Data.Vect
 
 ||| What a parameter holds, which decides its C++ storage, its syntax and
 ||| its bytecode member: a type, an attribute, a case of an enum of ours
-||| (which the frontend writes typed, from where its source says), a
-||| string, an integer of any width, a 64-bit count, a list of any of these,
-||| a C++ value of a hand class (its spelling and the custom directive that
-||| reads and writes it), or an array of a hand class's elements (the
-||| element's spelling and the directive). An array is held as a view and
-||| read into the vector that owns its elements until the storage copies
-||| them, so no reader interns what it read to have somewhere to keep it.
+||| (which the frontend writes typed, from where its source says), a case
+||| of one held in a hand class over its cases (the class's spelling), or
+||| none, a string, an integer of any width, a 64-bit count, a list of any
+||| of these, a C++ value of a hand class (its spelling and the custom
+||| directive that reads and writes it), or an array of a hand class's
+||| elements (the element's spelling and the directive). An array is held
+||| as a view and read into the vector that owns its elements until the
+||| storage copies them, so no reader interns what it read to have
+||| somewhere to keep it. A case held in a class is written as zero for
+||| none, else one more than the case's position, by a codec generated for
+||| both sides; the class gives its case and is made from one.
 public export
 data ParamKind
   = TypeValue
   | AttrValue
   | EnumValue ImportedEnum
+  | OptionalCase ImportedEnum Code
   | StringValue
   | IntegerValue
   | CountValue

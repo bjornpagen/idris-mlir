@@ -122,21 +122,40 @@ innerPassesTd =
 
 ||| The record every admitted op is, which the D51 backend reads. Its laws
 ||| are not here: the e-graph's rules and the laws' table are printed from
-||| the specification directly.
+||| the specification directly. Its guards are, since the backend prints the
+||| builder that places them.
 export
 admittedBaseTd : String
 admittedBaseTd =
   tdFile "IDR_GENERATED_ADMITTED_BASE" ["mlir/IR/OpBase.td"]
-    [ "// An upstream op the dialect admits: upstream's own record, the stages"
-    , "// it may stand at, and whether the frontend writes it (its Idris builder"
-    , "// is printed)."
-    , "class IdrAdmitted<Op upstream, string first, string last, int written> {"
+    [ "// A guard an admitted op takes, which its Idris builder gives with it:"
+    , "// the guard op's name, the positions among upstream's operand groups of"
+    , "// those it is given (the one it guards first), and the number of the"
+    , "// cause its crash names."
+    , "class IdrAdmittedGuard<string check, list<int> given, int cause> {"
+    , "  string guardOp = check;"
+    , "  list<int> operandGroups = given;"
+    , "  int causeNumber = cause;"
+    , "}"
+    , ""
+    , "// An upstream op the dialect admits: upstream's own record, the stages"
+    , "// it may stand at, whether the frontend writes it (its Idris builder"
+    , "// is printed), and the guards that builder gives it."
+    , "class IdrAdmitted<Op upstream, string first, string last, int written,"
+    , "                  list<IdrAdmittedGuard> guarded> {"
     , "  Op op = upstream;"
     , "  string firstStage = first;"
     , "  string lastStage = last;"
     , "  int frontendWrites = written;"
+    , "  list<IdrAdmittedGuard> guards = guarded;"
     , "}"
     , "" ]
+
+||| A guard of an admitted op, as its record's argument.
+admittedGuard : Guard Nat -> String
+admittedGuard g =
+  "IdrAdmittedGuard<" ++ quoted ("idr." ++ mnemonicText g.check) ++ ", ["
+    ++ joinWith ", " (map decimal (forget g.given)) ++ "], " ++ decimal (caseNumber g.cause) ++ ">"
 
 export
 admittedRow : Admitted -> String
@@ -146,7 +165,8 @@ admittedRow a =
                   FrontendWrites => "1"
                   PassesOnly => "0"
   in "def IdrAdmitted_" ++ identText a.upstreamRecord ++ " : IdrAdmitted<" ++ identText a.upstreamRecord ++ ", "
-       ++ quoted first ++ ", " ++ quoted last ++ ", " ++ written ++ ">;"
+       ++ quoted first ++ ", " ++ quoted last ++ ", " ++ written ++ ", ["
+       ++ joinWith ", " (map admittedGuard a.guards) ++ "]>;"
   where
     name : Stage -> String
     name s = identText (stageClosed.describe s).name
@@ -195,6 +215,7 @@ generate =
   , (generated "IdrAdmittedBase.td", admittedBaseTd) ]
   ++ map admittedTd upstreamDialects
   ++ [ (generated "EnumTraits.h.inc", render (odsEnumTraits declarations.enums))
+     , (generated "Storages.h.inc", render (storagesHeader declarations.types declarations.attributes))
      , (generated "OpIndex.h.inc", render (opIndexHeader opKeys))
      , (generated "Guards.h.inc", render (guardsHeader ourOps))
      , (generated "InlineMeanings.h.inc", render (inlineMeaningsHeader ourOps))

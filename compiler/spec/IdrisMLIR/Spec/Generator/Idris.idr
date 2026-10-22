@@ -85,6 +85,7 @@ optionalAttr x = case x.kind of
   AnAttribute _ Required => False
   AProperty (EnumProperty _) => False
   AProperty (DefaultedEnumProperty _ _) => True
+  AProperty (CountProperty _) => True
   AProperty (HandProperty _ _ _) => True
 
 export
@@ -121,6 +122,26 @@ groupLength x = case x.arity of
   Optional => "length (toList " ++ primed x.name ++ ")"
   Variadic => "length " ++ primed x.name
 
+||| How many results a group holds, as an expression over its binder.
+export
+resultLength : Result -> String
+resultLength x = case x.arity of
+  Single => "1"
+  Optional => "length (toList " ++ primed x.name ++ ")"
+  Variadic => "length " ++ primed x.name
+
+||| The segment sizes an op's groups call for, as attribute pairs: each
+||| group's size, where more than one group may hold any number.
+export
+segmentPairs : Op i o a r -> List String
+segmentPairs op =
+  stated (segmentsOf (map (.arity) (toList op.ins))) "operandSegmentSizes" (map groupLength (toList op.ins))
+  ++ stated (segmentsOf (map (.arity) (toList op.outs))) "resultSegmentSizes" (map resultLength (toList op.outs))
+  where
+    stated : Segments -> String -> List String -> List String
+    stated FixedByCount _ _ = []
+    stated SizesStated key lengths = ["[(" ++ quoted key ++ ", DenseI32ArrayAttr [" ++ joinWith ", " lengths ++ "])]"]
+
 ||| The position among the op's operands of group `k`'s first: the number of
 ||| operands the groups before it hold.
 export
@@ -136,7 +157,7 @@ offsetOf ins k = case map groupLength (take k ins) of
 ||| operand, each against the same other operands: an index of each
 ||| dimension against the array.
 export
-guardRows : Vect i Operand -> Guard i -> String
+guardRows : Vect i Operand -> Guard (Fin i) -> String
 guardRows ins g =
   let first = head g.given
       others = map (\k => offsetOf (toList ins) (finToNat k)) (tail g.given)
@@ -174,7 +195,7 @@ builder op =
       types = implicits ++ map attrType required ++ map (\x => operandType x.arity) ins
               ++ map (\x => regionType x.arity) regions ++ map (\x => resultType x.arity) outs
       made = "MkOp " ++ quoted (opName op) ++ " (" ++ concatList (map operandList ins) ++ ") ("
-             ++ concatList (map attrPair attrs) ++ ") (" ++ concatList (map regionList regions) ++ ") [] ("
+             ++ concatList (map attrPair attrs ++ segmentPairs op) ++ ") (" ++ concatList (map regionList regions) ++ ") [] ("
              ++ concatList (map resultList outs) ++ ")"
       (resultTy, body) = case op.guards of
                            [] => ("Op", made)
@@ -205,8 +226,10 @@ buildersModule ops =
   ++ [ "public export", "record Guard where", "  constructor MkGuard", "  check : String", "  given : List Nat", "  cause : Nat", "" ]
   ++ barComment ["An op and the guards placed before it."]
   ++ [ "public export", "record Guarded where", "  constructor MkGuarded", "  op : Op", "  guards : List Guard", "" ]
-  ++ barComment ["The positions of a group's operands, from its first's."]
-  ++ [ "positions : Nat -> List a -> List Nat", "positions _ [] = []", "positions p (_ :: xs) = p :: positions (S p) xs", "" ]
+  ++ barComment ["The positions of a group's operands, from its first's, by which a"
+                , "builder guards each operand of a group that holds any number; the"
+                , "admitted upstream ops' builders read it too."]
+  ++ [ "export", "positions : Nat -> List a -> List Nat", "positions _ [] = []", "positions p (_ :: xs) = p :: positions (S p) xs", "" ]
   ++ concatMap (\(SomeOp op) => builder op) (filter written ops)
 
 ------------------------------------------------------------------------------
@@ -235,6 +258,7 @@ paramIdrisType : ParamKind -> String
 paramIdrisType TypeValue = "TypeRef"
 paramIdrisType AttrValue = "AttrRef"
 paramIdrisType (EnumValue e) = enumType e
+paramIdrisType (OptionalCase e _) = "Maybe " ++ enumType e
 paramIdrisType StringValue = "String"
 paramIdrisType IntegerValue = "Integer"
 paramIdrisType CountValue = "Nat"
@@ -249,8 +273,9 @@ partsOf : ParamKind -> String -> String
 partsOf TypeValue v = "[TypeAt " ++ v ++ "]"
 partsOf AttrValue v = "[AttrAt " ++ v ++ "]"
 partsOf (EnumValue e) v = "[VarInt (" ++ enumPosition e v ++ ")]"
+partsOf (OptionalCase e _) v = "[VarInt (maybe 0 (\\x' => S (" ++ enumPosition e "x'" ++ ")) " ++ v ++ ")]"
 partsOf StringValue v = "[Str " ++ v ++ "]"
-partsOf IntegerValue v = "[SignedVarInt " ++ v ++ "]"
+partsOf IntegerValue v = "[IntegerAt " ++ v ++ "]"
 partsOf CountValue v = "[VarInt " ++ v ++ "]"
 partsOf (ListOf k) v = "(VarInt (length " ++ v ++ ") :: concatMap (\\x' => " ++ partsOf k "x'" ++ ") " ++ v ++ ")"
 partsOf (HandValue _ _) v = v
@@ -280,6 +305,7 @@ fieldType : ParamKind -> String
 fieldType TypeValue = "ty"
 fieldType AttrValue = "at"
 fieldType (EnumValue e) = enumType e
+fieldType (OptionalCase e _) = "Maybe " ++ enumType e
 fieldType StringValue = "String"
 fieldType IntegerValue = "Integer"
 fieldType CountValue = "Nat"
@@ -323,6 +349,7 @@ enumModules ps = go [] (concatMap (\x => homes x.kind) ps)
   where
     homes : ParamKind -> List String
     homes (EnumValue e) = [moduleName e.source.typeHome, moduleName e.source.setHome]
+    homes (OptionalCase e _) = [moduleName e.source.typeHome, moduleName e.source.setHome]
     homes (ListOf k) = homes k
     homes _ = []
     go : List String -> List String -> List String

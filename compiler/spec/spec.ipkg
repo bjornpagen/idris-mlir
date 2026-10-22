@@ -22,6 +22,7 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Core.Dialect
         , IdrisMLIR.Spec.Core.Enums
         , IdrisMLIR.Spec.Core.Format
+        , IdrisMLIR.Spec.Core.Guard
         , IdrisMLIR.Spec.Core.Hooks
         , IdrisMLIR.Spec.Core.Interfaces
         , IdrisMLIR.Spec.Core.Ods

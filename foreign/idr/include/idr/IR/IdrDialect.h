@@ -67,11 +67,13 @@ class TagSet;
 #include "idr/IR/Func.h"
 
 // The dialect's enums (which Grades.h includes, the graded type's parameter
-// being one) and their counts, then its attributes: the dialect's helpers
-// and the types' parameters name them. mlir-tblgen writes what it generates
-// from the printed ODS beside this header; the specification's own C++
-// tables are under Generated/.
+// being one) and their counts, the hand storage classes the generated
+// classes name, then its attributes: the dialect's helpers and the types'
+// parameters name them. mlir-tblgen writes what it generates from the
+// printed ODS beside this header; the specification's own C++ tables are
+// under Generated/.
 #include "idr/IR/Generated/EnumTraits.h.inc"
+#include "idr/IR/Generated/Storages.h.inc"
 #include "idr/IR/IdrAttrInterfaces.h.inc"
 #define GET_ATTRDEF_CLASSES
 #include "idr/IR/IdrAttrs.h.inc"
@@ -110,10 +112,11 @@ class TagSet;
 #include "idr/IR/IdrOps.h.inc"
 
 // Each partial op's guards (Guarded<Op>), and each op's declared effects
-// (Declared<Op>) with the one query API that reads them, printed from the
-// specification after the classes they specialize.
+// (Declared<Op>) with the typed half of the one query API, which reads them
+// as constants and implements the generated `getEffects` from them, printed
+// from the specification after the classes they specialize.
 #include "idr/IR/Generated/Guards.h.inc"
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Declared.h"
 #include "idr/IR/Generated/Effects.h.inc"
 
 // The site a crash a pass builds carries, read off a location.

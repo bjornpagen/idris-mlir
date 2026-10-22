@@ -18,6 +18,7 @@ import IdrisMLIR.Spec.Core.Constraints
 import IdrisMLIR.Spec.Core.Format
 import IdrisMLIR.Spec.Core.Ods
 import IdrisMLIR.Spec.Core.Admitted
+import public IdrisMLIR.Spec.Core.Guard
 import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Spec.Effects.Declaration
 
@@ -73,6 +74,25 @@ result n t = MkResult n Single t
 public export
 results : Ident -> TypeC -> Result
 results n t = MkResult n Variadic t
+
+||| Whether an op's operand or result groups need their sizes stated: each
+||| holds what its count says, or more than one may hold any number (an
+||| optional group or a variadic one), so the count alone cannot tell where
+||| one ends, and the op carries each group's size (upstream's segment
+||| sizes). The groups decide it, so no op declares it beside them.
+public export
+data Segments = FixedByCount | SizesStated
+
+public export
+segmentsOf : List Arity -> Segments
+segmentsOf as = case filter unfixed as of
+  (_ :: _ :: _) => SizesStated
+  _ => FixedByCount
+  where
+    unfixed : Arity -> Bool
+    unfixed Single = False
+    unfixed Optional = True
+    unfixed Variadic = True
 
 ||| How an attribute is present: always, possibly not, or with a default
 ||| (its C++ expression) when not written.
@@ -165,8 +185,6 @@ data Trait : (i, o : Nat) -> Type where
   ConstantLike : Trait i o
   SameOperandsAndResultType : Trait i o
   SameTypeOperands : Trait i o
-  AttrSizedOperandSegments : Trait i o
-  AttrSizedResultSegments : Trait i o
   PropagateControlFlowBreak : Trait i o
   ReportTrackingListenerFailures : Trait i o
   ||| An op whose results or region arguments may be upstream's `token`.
@@ -203,25 +221,19 @@ data Verify = DeclarationOnly | VerifiesOp | VerifiesRegions | VerifiesOpAndRegi
 ||| instantiated per case); a pure runtime function, which the folder
 ||| computes by calling it; an inline operation whose one meaning is a C++
 ||| template generic over a numeric domain (the hand function object `fn`
-||| of `Numeric/Inline.h`); a hand folder; or no fold.
+||| of `Numeric/Inline.h`); a guard whose condition is such a meaning (its
+||| operand passes where the condition holds, which its hand folder and
+||| every reader of intervals ask of the one template); a hand folder; or no
+||| fold.
 public export
 data Meaning : (i, o : Nat) -> Type where
   CallsRuntime : RuntimeCall i o -> Meaning i o
   CallsRuntimeByCase : EnumDef -> RuntimeCall i o -> Meaning i o
   ComputedByRuntime : RuntimeCall i o -> Meaning i o
   Inline : (fn : Ident) -> Meaning i o
+  InlineCondition : (fn : Ident) -> Meaning i o
   HandFolder : Meaning i o
   NoFold : Meaning i o
-
-||| A guard a partial op takes, built before it by the frontend: the guard
-||| op, the operands it is given (the one it guards first), and the cause
-||| its crash names.
-public export
-record Guard (i : Nat) where
-  constructor MkGuard
-  check : OpRef
-  given : List1 (Fin i)
-  cause : CaseRef
 
 ||| A constant of an op's member of a C++ class template the generator
 ||| specializes per op (its family's constants, its word op): a case of an
@@ -240,8 +252,10 @@ record Specialized where
   template : Ident
   constants : List (Ident, Constant)
 
-||| A law of an op, from which the e-graph's rules are generated; the
-||| traits upstream has for them are printed from them too.
+||| A law of an op, from which the e-graph's rules are generated, each
+||| one-way and narrowly triggered (a law whose only rule would connect
+||| equal forms both ways gives none), and the accumulator's operations;
+||| the traits upstream has for them are printed from them too.
 public export
 data Law = Associative | Commutative | Idempotent | Involution | Identity Integer | Annihilator Integer
 
@@ -291,7 +305,7 @@ record Op (i, o, a, r : Nat) where
   builders : List Builder
   defaultBuilders : DefaultBuilders
   members : List Member
-  guards : List (Guard i)
+  guards : List (Guard (Fin i))
   specializations : List Specialized
   laws : List Law
   doc : Doc

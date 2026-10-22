@@ -105,7 +105,9 @@ data ResultKind
   = GivesInt32 | GivesInt64 | GivesDouble | GivesWrapped | GivesOrder
   | GivesStr | GivesBig | GivesPointerTo Code | GivesBool
 
-||| How a runtime function gives an op's `o` results.
+||| How a runtime function gives an op's `o` results. A C function returns
+||| one value, so an op of several results has no runtime call: what the
+||| runtime gives as several is a handle and an op reading each part.
 public export
 data Gives : (o : Nat) -> Type where
   ||| No result, and it returns.
@@ -114,8 +116,6 @@ data Gives : (o : Nat) -> Type where
   NeverReturns : Gives 0
   ||| The one result.
   Returns : ResultKind -> Gives 1
-  ||| Each result through a pointer its caller passes, in order.
-  ThroughPointers : Vect (S (S k)) ResultKind -> Gives (S (S k))
 
 ||| The runtime function an op calls, and how it takes each of the op's `i`
 ||| operand groups and gives its `o` results.

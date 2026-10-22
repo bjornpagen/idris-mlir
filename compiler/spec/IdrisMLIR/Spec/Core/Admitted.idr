@@ -1,16 +1,19 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The upstream ops the dialect admits: each by its dialect and the name
-||| of upstream's own record, with the stages it may stand at. The
-||| generator prints one admitted record file per upstream dialect from
-||| these; the one C++ TableGen backend reads upstream's records for them
-||| alone, printing their Idris builders and the C++ table of their classes,
-||| so the specification never restates an upstream class or an operand
-||| list, and a wrong record name is TableGen's own error.
+||| of upstream's own record, with the stages it may stand at and the guards
+||| its meaning needs. The generator prints one admitted record file per
+||| upstream dialect from these; the one C++ TableGen backend reads
+||| upstream's records for them alone, printing their Idris builders (a
+||| guarded op's with its guards) and the C++ table of their classes, so the
+||| specification never restates an upstream class or an operand list, and
+||| a wrong record name, or a guard's position past the record's operand
+||| groups, is that backend's error.
 module IdrisMLIR.Spec.Core.Admitted
 
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Core.Dialect
+import public IdrisMLIR.Spec.Core.Guard
 import IdrisMLIR.Spec.Pipeline.Stage
 
 %default total
@@ -26,6 +29,9 @@ data Writer = FrontendWrites | PassesOnly
 public export
 data UpLaw = UpAssociative | UpIdentity Integer
 
+||| An admitted op. Its guards are what upstream leaves undefined and Idris
+||| crashes on (`arith.divui`'s zero divisor), as an op of ours states its
+||| own: each position is among upstream's operand groups.
 public export
 record Admitted where
   constructor MkAdmitted
@@ -33,6 +39,7 @@ record Admitted where
   upstreamRecord : Ident
   legal : Legal
   writer : Writer
+  guards : List (Guard Nat)
   laws : List UpLaw
 
 ||| The admitted op's name in the C++ table the backend prints:

@@ -8,10 +8,12 @@
 
 #include "idr/IR/IdrDialect.h"
 
-// The attributes whose storage is hand C++, which keeps beside its key what
-// is computed of it when it is made: complete here, where the generated
-// attribute classes are defined.
-#include "Families/FamilyStorage.h"
+// The attributes whose storage is hand C++ (a family's keeps beside its key
+// what is computed of it when it is made, a big's keys its integer at its
+// fewest bits): complete here, where the generated attribute classes are
+// defined.
+#include "idr/IR/Families/FamilyStorage.h"
+#include "idr/IR/Ops/BigStorage.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"

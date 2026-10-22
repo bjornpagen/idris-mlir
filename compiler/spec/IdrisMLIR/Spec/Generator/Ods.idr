@@ -186,6 +186,7 @@ export
 propertyC : PropertyC -> String
 propertyC (EnumProperty e) = "EnumProp<" ++ enumRecord e ++ ">"
 propertyC (DefaultedEnumProperty e c) = "DefaultValuedProp<EnumProp<" ++ enumRecord e ++ ">, " ++ quoted (codeText c) ++ ">"
+propertyC (CountProperty dflt) = "DefaultValuedProp<IntProp<\"uint64_t\">, " ++ quoted (decimal dflt) ++ ">"
 propertyC (HandProperty c d dflt) =
   "Idr_HandProperty<" ++ quoted (codeText c) ++ ", " ++ quoted (identText d.name) ++ ", "
     ++ quoted (codeText dflt) ++ ", " ++ quoted (lineText d.doc.summary) ++ ">"
@@ -278,8 +279,6 @@ traitOds AutomaticAllocationScope = "AutomaticAllocationScope"
 traitOds ConstantLike = "ConstantLike"
 traitOds SameOperandsAndResultType = "SameOperandsAndResultType"
 traitOds SameTypeOperands = "SameTypeOperands"
-traitOds AttrSizedOperandSegments = "AttrSizedOperandSegments"
-traitOds AttrSizedResultSegments = "AttrSizedResultSegments"
 traitOds PropagateControlFlowBreak = "PropagateControlFlowBreak"
 traitOds ReportTrackingListenerFailures = "ReportTrackingListenerFailuresOpTrait"
 traitOds TokenProducer = "TokenProducerTrait"
@@ -305,6 +304,13 @@ declareMethods OverAttributes = "DeclareAttrInterfaceMethods"
 ||| class declares.
 export
 interfaceUseOds : InterfaceSubject -> InterfaceUse -> String
+-- Type inference in upstream's adaptor form, the one form our ops take:
+-- `inferReturnTypes` given the op's adaptor, and `isCompatibleReturnTypes`
+-- beside it where the op declares that too.
+interfaceUseOds _ (Declares InferType ms) =
+  if any (\m => identText m == "isCompatibleReturnTypes") ms
+    then "InferTypeOpAdaptorWithIsCompatible"
+    else "InferTypeOpAdaptor"
 interfaceUseOds _ (Declares u []) = identText (upInterfaceRecord u)
 interfaceUseOds subject (Declares u ms) =
   declareMethods subject ++ "<" ++ identText (upInterfaceRecord u) ++ ", [" ++ joinWith ", " (map (quoted . identText) ms) ++ "]>"
@@ -332,13 +338,25 @@ meaningTraits (ComputedByRuntime _) = ["Idr_RuntimeFolds"]
 meaningTraits (Inline fn) = ["Idr_InlineArith<\"::idr::numeric::" ++ identText fn ++ "\">"]
 meaningTraits _ = []
 
-||| Every trait of an op, in one list: its own, its laws', its effects',
-||| its speculation's, its interfaces', its meaning's, and the guarded op's
-||| when it takes guards.
+||| The segment traits an op's groups call for: its operands' and its
+||| results' sizes, where its groups need them stated.
+segmentTraits : Op i o a r -> List String
+segmentTraits op =
+  stated (segmentsOf (map (.arity) (toList op.ins))) "AttrSizedOperandSegments"
+  ++ stated (segmentsOf (map (.arity) (toList op.outs))) "AttrSizedResultSegments"
+  where
+    stated : Segments -> String -> List String
+    stated FixedByCount _ = []
+    stated SizesStated t = [t]
+
+||| Every trait of an op, in one list: its own, its groups' segments', its
+||| laws', its effects', its speculation's, its interfaces', its meaning's,
+||| and the guarded op's when it takes guards.
 export
 opTraits : Op i o a r -> OdsEffects i o -> List String
 opTraits op effs =
   map traitOds op.traits
+  ++ segmentTraits op
   ++ concatMap lawOds op.laws
   ++ effectTraits effs
   ++ speculationOds op.speculation
@@ -466,6 +484,7 @@ verifyFields VerifiesOpAndRegions = ["let hasVerifier = 1;", "let hasRegionVerif
 export
 folderFields : Meaning i o -> Lines
 folderFields HandFolder = ["let hasFolder = 1;"]
+folderFields (InlineCondition _) = ["let hasFolder = 1;"]
 folderFields _ = []
 
 export
@@ -557,6 +576,7 @@ anyOpOds (SomeOp op) = opOds op
 export
 paramCppType : ParamKind -> String
 paramCppType TypeValue = "::mlir::Type"
+paramCppType (OptionalCase _ c) = "::std::optional<" ++ codeText c ++ ">"
 paramCppType AttrValue = "::mlir::Attribute"
 paramCppType (EnumValue e) = "::idr::" ++ identText e.enum.name
 paramCppType StringValue = "::llvm::StringRef"
@@ -569,6 +589,7 @@ paramCppType (HandArray c _) = "::llvm::ArrayRef<" ++ codeText c ++ ">"
 export
 paramKindOds : ParamKind -> String
 paramKindOds TypeValue = "\"::mlir::Type\""
+paramKindOds (OptionalCase _ c) = quoted ("::std::optional<" ++ codeText c ++ ">")
 paramKindOds AttrValue = "\"::mlir::Attribute\""
 paramKindOds (EnumValue e) = "EnumParameter<" ++ enumRecord e.enum ++ ">"
 paramKindOds StringValue = "StringRefParameter<>"
