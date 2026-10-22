@@ -5,11 +5,12 @@
 // it states. What it shares with idr.data.match is
 // idr/IR/Control/MatchFamily.h.
 //
-// Its scrutinee is a string, a big integer or a natural, read in place and
-// never taken apart: a case binds nothing, since in it the scrutinee is its
-// literal, and the default, which it always has since no set of literals is
-// exhaustive, binds the scrutinee, none of the keys, at its own type. An
-// integer or a condition is matched by scf.index_switch or scf.if.
+// Its scrutinee is a word, a char, a double, a string, a big integer or a
+// natural, read in place and never taken apart: a case binds nothing, since
+// in it the scrutinee equals its literal (a double's zero key is taken by
+// either zero), and the default, which it always has since no set of
+// literals is exhaustive, binds the scrutinee, none of the keys, at its own
+// type. A condition is chosen on by scf.if.
 
 #include "idr/IR/Control/MatchFamily.h"
 #include "idr/IR/Control/Stated.h"
@@ -25,8 +26,8 @@ using namespace idr;
 using namespace idr::control;
 
 // Keys are literals of the scrutinee's type, as the type says. A case binds
-// nothing, since in it the scrutinee is its literal; the default binds the
-// scrutinee, none of the keys, at its own type.
+// nothing, since in it the scrutinee equals its literal; the default binds
+// the scrutinee, none of the keys, at its own type.
 LogicalResult LitMatchOp::verify() {
   if (failed(verifyKeys(*this)))
     return failure();
@@ -99,15 +100,25 @@ ValueRange LitMatchOp::getSuccessorInputs(RegionSuccessor successor) {
   return successor.getSuccessor()->getArguments();
 }
 
-// The literal itself, when the scrutinee is a constant.
+namespace {
+
+// The region a constant scrutinee takes: its key's, or the default's for a
+// literal that is no key. A constant that is no literal of the scrutinee's
+// type (a double's NaN or negative zero, which no key is) is found by no
+// key here, so every region may run: the lowering's comparison decides it.
+Region *takenBy(LitMatchOp op, Attribute value) {
+  auto literals = cast<LiteralTypeInterface>(unrestricted(op.getScrutinee().getType()));
+  return value && literals.isLiteral(value) ? takenRegion(op, value) : nullptr;
+}
+
+} // namespace
+
 void LitMatchOp::getEntrySuccessorRegions(ArrayRef<Attribute> operands,
                                           SmallVectorImpl<RegionSuccessor> &successors) {
-  Attribute value = operands.front();
-  entrySuccessorsOf(*this, value ? takenRegion(*this, value) : nullptr, successors);
+  entrySuccessorsOf(*this, takenBy(*this, operands.front()), successors);
 }
 
 void LitMatchOp::getRegionInvocationBounds(ArrayRef<Attribute> operands,
                                            SmallVectorImpl<InvocationBounds> &bounds) {
-  Attribute value = operands.front();
-  boundsOf(*this, value ? takenRegion(*this, value) : nullptr, bounds);
+  boundsOf(*this, takenBy(*this, operands.front()), bounds);
 }

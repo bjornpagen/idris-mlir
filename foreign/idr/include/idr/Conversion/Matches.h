@@ -15,9 +15,12 @@ namespace idr::conversion {
 // Phase 1, on idr types: idr.data.match becomes idr.data.tag and
 // scf.index_switch, each case taking the scrutinee and the forwarded values
 // at their refined types, which have no run-time form; a match left with
-// one region tests no tag. idr.lit.match becomes a chain of scf.if on the
-// key's comparison. The lifetime a match states for what it makes has no
-// run-time form either, and goes with it.
+// one region tests no tag. idr.lit.match on a word the target's index holds
+// becomes scf.index_switch over the word's index cast, its default handed
+// the scrutinee; on any other carrier, a chain of scf.if on each key's
+// comparison by the carrier's equality (a double's ordered). The lifetime a
+// match states for what it makes has no run-time form either, and goes
+// with it. These are the only scf.index_switch ops a program holds.
 // A case that jumps to an enclosing join point or never ends keeps its
 // terminator, which upstream's scf.index_switch and scf.if hold. Applied
 // by the walk driver, which visits a region before its op: nested matches

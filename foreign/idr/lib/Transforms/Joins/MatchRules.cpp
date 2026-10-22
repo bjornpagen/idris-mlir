@@ -75,6 +75,16 @@ bool inside(Region &region, OpOperand &use) {
   return region.isAncestor(use.getOwner()->getParentRegion());
 }
 
+// Whether the scrutinee's uses in the case of `key`, its region, may read
+// the key: some lie there, and the scrutinee is the key itself there.
+// Essential: a double's zero key is taken by both zeros, which ordered
+// equality does not tell apart.
+bool readsKeyIn(Value scrutinee, Attribute key, Region &region) {
+  auto real = dyn_cast<FloatAttr>(key);
+  return !(real && real.getValue().isZero()) &&
+         llvm::any_of(scrutinee.getUses(), [&](OpOperand &use) { return inside(region, use); });
+}
+
 // Whether no case of the match leaves a constructor for its non-empty
 // default, the scrutinee's type agreeing with Idris's coverage.
 bool defaultDead(DataMatchOp op) {
@@ -149,19 +159,26 @@ void egraph::TakenLiteral::rewrite(LitMatchOp op, const Rewrite &chosen,
 // In case k of a literal match, the scrutinee is the literal k.
 std::optional<Edit> egraph::LiteralInCase::decide(LitMatchOp op, const OperandFacts &) {
   Value scrutinee = op.getScrutinee();
-  return rewriteIf(llvm::any_of(op.getCaseRegions(), [&](Region &region) {
-    return llvm::any_of(scrutinee.getUses(), [&](OpOperand &use) { return inside(region, use); });
-  }));
+  bool reads = false;
+  for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions()))
+    reads = reads || readsKeyIn(scrutinee, key, region);
+  return rewriteIf(reads);
 }
 
+// The key's constant is the one its carrier holds, as the dialect makes it:
+// upstream's for a word or a double, ours for a string, a big or a natural.
+// Where no constant op holds the key at the scrutinee's type, its uses stay.
 void egraph::LiteralInCase::rewrite(LitMatchOp op, const Rewrite &, RewriterBase &rewriter) {
   Value scrutinee = op.getScrutinee();
   for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions())) {
-    if (llvm::none_of(scrutinee.getUses(), [&](OpOperand &use) { return inside(region, use); }))
+    if (!readsKeyIn(scrutinee, key, region))
       continue;
     rewriter.setInsertionPointToStart(&region.front());
-    Value literal = ConstantOp::create(rewriter, op.getLoc(), scrutinee.getType(), key);
-    rewriter.replaceUsesWithIf(scrutinee, literal,
+    Operation *literal =
+        op->getDialect()->materializeConstant(rewriter, key, scrutinee.getType(), op.getLoc());
+    if (!literal)
+      continue;
+    rewriter.replaceUsesWithIf(scrutinee, literal->getResult(0),
                                [&](OpOperand &use) { return inside(region, use); });
   }
 }

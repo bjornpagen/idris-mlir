@@ -15,6 +15,10 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/DataLayoutInterfaces.h"
+#include "llvm/ADT/SmallVectorExtras.h"
+
+#include <type_traits>
 
 using namespace mlir;
 
@@ -96,6 +100,11 @@ void lowerMatch(RewriterBase &rewriter, DataMatchOp op) {
   rewriter.replaceOp(op, switchOp.getResults());
 }
 
+// A key's test: the condition that the scrutinee is `key`, made where the
+// rewriter stands.
+template <typename Test>
+concept KeyTest = std::is_invocable_r_v<Value, Test &, Location, Attribute>;
+
 // `case k0 {A} case k1 {B} default(%d) {C}` is `if s == k0 then A else (if
 // s == k1 then B else C[%d := s])`, each comparison made only where the one
 // before failed. The chain is built in the block of a scaffold made where the
@@ -103,28 +112,23 @@ void lowerMatch(RewriterBase &rewriter, DataMatchOp op) {
 // yields the link's results, and the link's else block is the next block
 // continued. The default ends the last block continued. The scaffold's
 // block then takes the match's place.
-void lowerMatchLit(RewriterBase &rewriter, LitMatchOp op) {
+template <KeyTest Test>
+void lowerChain(RewriterBase &rewriter, LitMatchOp op, Test test) {
   Location loc = op.getLoc();
-  Value scrutinee = op.getScrutinee();
   TypeRange results = op.getResultTypes();
   rewriter.setInsertionPoint(op);
   auto scaffold = scf::ExecuteRegionOp::create(rewriter, loc, results);
   Block *continued = rewriter.createBlock(&scaffold.getRegion());
   for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions())) {
     rewriter.setInsertionPointToEnd(continued);
-    Value literal = ConstantOp::create(rewriter, loc, scrutinee.getType(), key);
-    auto eq = CmpPredicate::eq;
-    // A string is compared as a string; a big integer or a natural as a big.
-    Value equal = isa<StrType>(unrestricted(scrutinee.getType()))
-                      ? Value(StrCmpOp::create(rewriter, loc, eq, scrutinee, literal))
-                      : Value(BigCmpOp::create(rewriter, loc, eq, scrutinee, literal));
+    Value equal = test(loc, key);
     auto link = scf::IfOp::create(rewriter, loc, results, equal, /*addThenBlock=*/false,
                                   /*addElseBlock=*/false);
     scf::YieldOp::create(rewriter, loc, link.getResults());
     moveBody(rewriter, region, rewriter.createBlock(&link.getThenRegion()), ValueRange());
     continued = rewriter.createBlock(&link.getElseRegion());
   }
-  moveBody(rewriter, op.getDefaultRegion(), continued, scrutinee);
+  moveBody(rewriter, op.getDefaultRegion(), continued, op.getScrutinee());
   Block *chain = &scaffold.getRegion().front();
   Operation *last = chain->getTerminator();
   rewriter.inlineBlockBefore(chain, op);
@@ -137,6 +141,63 @@ void lowerMatchLit(RewriterBase &rewriter, LitMatchOp op) {
     rewriter.eraseOp(op);
   }
   rewriter.eraseOp(scaffold);
+}
+
+// A word is switched on: scf.index_switch compares the word's index cast
+// with each key, sign-extended as the cast extends the word, and the
+// default is handed the scrutinee. The refinement the default binds and the
+// lifetimes the match states have no run-time form, and go with it.
+void switchOnWord(RewriterBase &rewriter, LitMatchOp op, Value word) {
+  Location loc = op.getLoc();
+  Value index = arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(), word);
+  SmallVector<int64_t> keys = llvm::map_to_vector(op.getCases(), [](Attribute key) {
+    return cast<IntegerAttr>(key).getValue().getSExtValue();
+  });
+  auto switchOp = scf::IndexSwitchOp::create(rewriter, loc, op.getResultTypes(), index, keys,
+                                             static_cast<unsigned>(keys.size()));
+  for (auto [region, to] : llvm::zip_equal(op.getCaseRegions(), switchOp.getCaseRegions()))
+    moveBody(rewriter, region, rewriter.createBlock(&to), ValueRange());
+  moveBody(rewriter, op.getDefaultRegion(), rewriter.createBlock(&switchOp.getDefaultRegion()),
+           op.getScrutinee());
+  rewriter.replaceOp(op, switchOp.getResults());
+}
+
+// Each carrier's keys are tested with its own equality. Essential: the
+// equality of a word, a double, a string and a big are four ops. A word the
+// target's index holds is switched on, and one wider is tested key by key;
+// a double is tested by ordered equality, under which no key is NaN; a
+// natural is a big at run time.
+void lowerMatchLit(RewriterBase &rewriter, LitMatchOp op) {
+  Location loc = op.getLoc();
+  Value scrutinee = op.getScrutinee();
+  Type carrier = unrestricted(scrutinee.getType());
+  rewriter.setInsertionPoint(op);
+  if (auto word = dyn_cast<IntegerType>(carrier)) {
+    Value held = heldAs(rewriter, loc, scrutinee, carrier);
+    llvm::TypeSize index = DataLayout::closest(op).getTypeSizeInBits(rewriter.getIndexType());
+    if (word.getWidth() <= index.getFixedValue())
+      return switchOnWord(rewriter, op, held);
+    return lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
+      Value literal = arith::ConstantOp::create(rewriter, at, cast<TypedAttr>(key));
+      return arith::CmpIOp::create(rewriter, at, arith::CmpIPredicate::eq, held, literal);
+    });
+  }
+  if (isa<Float64Type>(carrier)) {
+    Value held = heldAs(rewriter, loc, scrutinee, carrier);
+    return lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
+      Value literal = arith::ConstantOp::create(rewriter, at, cast<TypedAttr>(key));
+      return arith::CmpFOp::create(rewriter, at, arith::CmpFPredicate::OEQ, held, literal);
+    });
+  }
+  if (isa<StrType>(carrier))
+    return lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
+      Value literal = ConstantOp::create(rewriter, at, scrutinee.getType(), key);
+      return StrCmpOp::create(rewriter, at, CmpPredicate::eq, scrutinee, literal);
+    });
+  lowerChain(rewriter, op, [&](Location at, Attribute key) -> Value {
+    Value literal = ConstantOp::create(rewriter, at, scrutinee.getType(), key);
+    return BigCmpOp::create(rewriter, at, CmpPredicate::eq, scrutinee, literal);
+  });
 }
 
 struct LowerMatch : OpRewritePattern<DataMatchOp> {

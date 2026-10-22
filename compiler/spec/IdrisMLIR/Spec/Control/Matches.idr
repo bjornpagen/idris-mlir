@@ -16,11 +16,14 @@
 ||| reads as it enters the region and unifies with every enclosing one, so
 ||| no op walks its ancestors.
 |||
-||| `idr.lit.match`'s scrutinee is a string, a big integer or a natural,
-||| read in place: a case binds nothing, since in it the scrutinee is its
-||| literal, and the default binds the scrutinee refined to the complement of
-||| the keys, at the scrutinee's type, as a data match's default does; an
-||| integer or a condition is matched by upstream's `scf.index_switch` or
+||| `idr.lit.match`'s scrutinee is a word (an integer of any width, a char),
+||| a double, a string, a big integer or a natural, read in place, its keys
+||| literals of its type: a case binds nothing, since in it the scrutinee
+||| equals its literal (a double's zero key is taken by either zero), and the
+||| default binds the scrutinee refined to the complement of the keys, at the
+||| scrutinee's type, as a data match's default does. It stays a literal
+||| match until the lowering, since no upstream op keeps that refinement or
+||| the lifetimes the match states; a condition is chosen on by upstream's
 ||| `scf.if`.
 |||
 ||| Each scoped value a match makes lives in the lifetime its own entry of
@@ -52,12 +55,12 @@ matchable : Predicate
 matchable = MkPredicate "isMatchable" OnType
   (brief "a value of a data type, at any grade")
 
-||| A value of a type with literals that no upstream op matches: a string,
-||| a big integer, a natural, at any grade, read in place.
+||| A value of a type with literals, at any grade, read in place: a word, a
+||| double, a string, a big integer or a natural; never a condition.
 export
 matchedLiteral : Predicate
 matchedLiteral = MkPredicate "isMatchedLiteral" OnType
-  (brief "a value of a type with literals that is no integer, read in place")
+  (brief "a value of a type with literals that is no condition, read in place")
 
 ||| The lifetimes a control op states, one per scoped value it makes: its
 ||| scoped results, in result order, then the scoped values its regions
@@ -269,13 +272,15 @@ matchLitOp = MkOp
   , guards = []
   , specializations = []
   , laws = []
-  , doc = MkDoc "branches on the value of a string, a big integer or a natural"
+  , doc = MkDoc "branches on the value of a word, a double, a string, a big integer or a natural"
       """
       The scrutinee is read in place; each case is one literal of its type,
-      and in that case the scrutinee is that literal. The default binds the
-      scrutinee, which there is none of the keys.
+      and in that case the scrutinee equals that literal (a double's zero is
+      taken by either zero). The default binds the scrutinee, which there is
+      none of the keys.
 
       `%r = idr.lit.match %s : !idr.str -> (i64) { case "" {...} default(%t: !idr.str) {...} }`
+      `%r = idr.lit.match %c : i32 -> (i64) { case 97 {...} default(%d: i32) {...} }`
       """
   }
 
@@ -322,7 +327,7 @@ yieldOp = MkOp
   }
 
 ------------------------------------------------------------------------------
--- The upstream ops a word or a condition is chosen with
+-- The upstream ops a condition is chosen with, and the lowering's switch
 ------------------------------------------------------------------------------
 
 -- Upstream's records hold these ops' meanings and effects, which the
@@ -345,17 +350,18 @@ scfIf : Admitted
 scfIf = MkAdmitted SCF "IfOp" "SCF_IfOp" (between Higher Owned) FrontendWrites [] [] Nothing
 
 ||| `scf.index_switch`: a region per case of an index, and a default region,
-||| rejoining at its results, as a match's cases do. The frontend writes it
-||| where a word is matched against literals (an Int, a Bits, a Char at the
-||| index they cast to, a Double at the position of the first key equal to
-||| it), since a word's literals are the integers upstream already switches
-||| on. Like `scf.if`, its effects are its regions' ops', its forwarding is
-||| its region branch interface's, and a case may jump to an enclosing join
-||| point or never end, which upstream's early exit lets through.
+||| rejoining at its results. Only the lowering writes it, from a data
+||| match's tag and from a literal match on a word, in the step that makes
+||| every region blocks: it keeps neither the refined scrutinee a match's
+||| default binds nor the lifetimes a match states, so nothing before the
+||| lowering may hold it. Like `scf.if`, its effects are its regions' ops',
+||| its forwarding is its region branch interface's, and a case may jump to
+||| an enclosing join point or never end, which upstream's early exit lets
+||| through.
 export
 scfIndexSwitch : Admitted
 scfIndexSwitch =
-  MkAdmitted SCF "IndexSwitchOp" "SCF_IndexSwitchOp" (between Higher Owned) FrontendWrites
+  MkAdmitted SCF "IndexSwitchOp" "SCF_IndexSwitchOp" (between Owned Owned) PassesOnly
     [] [] Nothing
 
 ||| `scf.yield`: ends a region of `scf.if` or `scf.index_switch`, and of the
@@ -366,7 +372,8 @@ export
 scfYield : Admitted
 scfYield = MkAdmitted SCF "YieldOp" "SCF_YieldOp" (between Higher Owned) FrontendWrites [] [] Nothing
 
-||| Every upstream op control flow admits, once: those the frontend writes.
+||| Every upstream op control flow admits, once: those the frontend writes,
+||| and the switch only the lowering writes.
 export
 controlAdmitted : List Admitted
 controlAdmitted = [scfIf, scfIndexSwitch, scfYield]

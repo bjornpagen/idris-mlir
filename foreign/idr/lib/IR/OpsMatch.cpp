@@ -98,11 +98,12 @@ LogicalResult verifyRefined(DataMatchOp op) {
 // A data value, at any grade: its carrier is a family application.
 bool idr::isMatchable(Type type) { return isa<DataType>(unrestricted(type)); }
 
-// A value of a type with literals that no upstream op matches: an integer
-// or a condition is scf.index_switch's or scf.if's.
+// A value of a type with literals: a word of any width, a char, a double, a
+// string, a big integer or a natural. A condition is chosen on by scf.if,
+// never matched.
 bool idr::isMatchedLiteral(Type type) {
   Type carrier = unrestricted(type);
-  return isa<LiteralTypeInterface>(carrier) && !isa<IntegerType>(carrier);
+  return isa<LiteralTypeInterface>(carrier) && !carrier.isInteger(1);
 }
 
 //===----------------------------------------------------------------------===//
