@@ -108,16 +108,16 @@ transfer m k s d = ioOp m
   (MkRuntimeCall s [TakesInt64, TakesBuffer, TakesInt64, TakesInt64] (Returns GivesInt64))
   d
 
-||| Bytes of a buffer to a handle: 1 is standard output, through the output
-||| buffer and in order with every other write to it; 2 is standard error;
-||| any other a file the program opened. Gives the count written.
+||| Bytes of a buffer to a handle: a StandardStream's, standard output's
+||| through the output buffer and in order with every other write to it,
+||| or a file's the program opened. Gives the count written.
 public export
 writeBytesOp : Op 4 1 0 0
 writeBytesOp = transfer "io.write_bytes" Read "io_write_bytes" (says "writes bytes of a buffer to a handle")
 
-||| Bytes from a handle into a buffer: 0 is standard input, through the
-||| runtime's input buffer, any other a file the program opened. Gives the
-||| count read, 0 at the end of input.
+||| Bytes from a handle into a buffer: standard input's, through the
+||| runtime's input buffer, or a file's the program opened. Gives the count
+||| read, 0 at the end of input.
 public export
 readBytesOp : Op 4 1 0 0
 readBytesOp = transfer "io.read_bytes" Write "io_read_bytes" (says "reads bytes from a handle into a buffer")
@@ -144,7 +144,8 @@ nProcessorsOp = ioOp "io.n_processors" [] [result "count" i64] (outside Untouche
 ||| Writes pending output and ends the process with a status, normally: an
 ||| IO action that never returns, not a crash and not a divergence. A
 ||| status no parent can read, outside 0 to 255, is a crash at the exit's
-||| site, so it writes the crash too, and carries its site.
+||| site, so it writes the crash too, and carries its site: the lowering
+||| ends such a status there first, so the runtime is given a byte.
 public export
 exitOp : Op 1 0 1 0
 exitOp = MkOp
@@ -161,7 +162,7 @@ exitOp = MkOp
         Covered Untouched
   , speculation = NotSpeculatable
   , stages = Always
-  , meaning = CallsRuntime (MkRuntimeCall "exit" [TakesInt64] NeverReturns)
+  , meaning = CallsRuntime (MkRuntimeCall "exit" [TakesUInt8] NeverReturns)
   , verify = DeclarationOnly
   , format = Declared [ValueOf (OperandRef 0), Lit "at", ValueOf (AttrRef 0), AttrDict]
   , builders = []

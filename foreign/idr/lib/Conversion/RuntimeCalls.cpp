@@ -200,7 +200,9 @@ struct LowerRuntimeCall : IdrPattern<OpT> {
 // An exit with a status no parent can read, outside 0 to 255, is a crash at
 // the exit's site, which only the site knows to name: the test is there,
 // the one test of a status, and a constant status folds it. Every other
-// status ends the run by the exit's own function.
+// status ends the run by the exit's own function, which takes the byte a
+// parent reads: past the test the status fits one, so its truncation drops
+// no set bit, and says so.
 struct LowerExit : IdrPattern<IoExitOp> {
   LowerExit(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
             Runtime &runtime)
@@ -221,7 +223,9 @@ struct LowerExit : IdrPattern<IoExitOp> {
       llvm::append_range(args, runtime.siteOperands(rewriter, loc, op.getSite()));
       runtime.call(rewriter, loc, idr::runtime::helper::unreportableAt, args).setCold(true);
     }
-    runtime.call(rewriter, loc, idr::runtime::Abi<IoExitOp>::entry, status);
+    Value byte = arith::TruncIOp::create(rewriter, loc, rewriter.getI8Type(), status,
+                                         arith::IntegerOverflowFlags::nuw);
+    runtime.call(rewriter, loc, idr::runtime::Abi<IoExitOp>::entry, byte);
     rewriter.replaceOpWithNewOp<ub::UnreachableOp>(op);
     return success();
   }

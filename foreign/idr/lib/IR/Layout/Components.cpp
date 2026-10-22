@@ -25,10 +25,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <functional>
 #include <optional>
 #include <string>
-#include <type_traits>
 #include <variant>
 
 using namespace mlir;
@@ -85,26 +83,6 @@ struct Held {
 
 using Words = std::variant<Pointer, Integer, Itself, NoWord, Addresses, Descriptor, Held>;
 
-// Every type of the dialect, as its specification generates them.
-template <class... Ts>
-struct TypeList {};
-using DialectTypes = TypeList<
-#define GET_TYPEDEF_LIST
-#include "idr/IR/IdrTypes.cpp.inc"
-    >;
-
-// `type`, a type of the dialect, handed to the one case that takes its
-// class: one compare per class, and every class of the list must have a
-// case giving its words, or this does not compile.
-template <class C, class... Ts>
-Words foldDialect(Type type, TypeList<Ts...>, C &&cases) {
-  static_assert((std::is_invocable_r_v<Words, C &, Ts> && ...),
-                "every type of the dialect says what its values are at run time");
-  std::optional<Words> out;
-  (void)((isa<Ts>(type) && (out.emplace(std::invoke(cases, cast<Ts>(type))), true)) || ...);
-  return *std::move(out);
-}
-
 // The words of a value of `type`, held at `hold` when a grade around it
 // says so. A cell before its init, a package and a frame stack are each
 // used once by their types, an address no count is kept of; a reuse token
@@ -117,38 +95,35 @@ Words foldDialect(Type type, TypeList<Ts...>, C &&cases) {
 // address, and any other a scalar.
 Words wordsOf(Type type, std::optional<Hold> hold = std::nullopt) {
   if (isa<IdrDialect>(type.getDialect()))
-    return foldDialect(
-        type, DialectTypes{},
-        Cases{
-            [](CellType) -> Words { return Pointer{Word::Uncounted}; },
-            [&](TokenType) -> Words {
-              return Pointer{hold && hold->claims(Unique::Deep) ? Word::Cell : Word::MaybeCell};
-            },
-            [](GradedType graded) -> Words {
-              return wordsOf(graded.getCarrier(), graded.getHold());
-            },
-            [](DestType dest) -> Words { return Addresses{dest.getValue()}; },
-            [](LifetimeType lifetime) -> Words {
-              if (lifetime.getKind().lowered() == Lowered::NoValue)
-                return NoWord{};
-              return Pointer{Word::Uncounted};
-            },
-            [](LifetimePackageType) -> Words { return Pointer{Word::Uncounted}; },
-            [](StrType) -> Words { return Pointer{Word::Cell}; },
-            [](BigType) -> Words { return Integer{64, Word::Big}; },
-            [](NatType) -> Words { return Integer{64, Word::Big}; },
-            [](FnType) -> Words { return Pointer{Word::Cell}; },
-            [](LazyType) -> Words { return Pointer{Word::Cell}; },
-            [](DataType data) -> Words { return Held{data}; },
-            // Essential: the dialect's types include one no value has. A
-            // member of a group by position is read with its declaration,
-            // whose readers take it as its member's data type, and the
-            // function's scope walk refuses a value whose type names one.
-            [](SelfType) -> Words {
-              llvm::reportFatalInternalError(
-                  "the run-time words of a member of a group by position, which only its "
-                  "declaration names");
-            },
+    return match(
+        type, [](CellType) -> Words { return Pointer{Word::Uncounted}; },
+        [&](TokenType) -> Words {
+          return Pointer{hold && hold->claims(Unique::Deep) ? Word::Cell : Word::MaybeCell};
+        },
+        [](GradedType graded) -> Words {
+          return wordsOf(graded.getCarrier(), graded.getHold());
+        },
+        [](DestType dest) -> Words { return Addresses{dest.getValue()}; },
+        [](LifetimeType lifetime) -> Words {
+          if (lifetime.getKind().lowered() == Lowered::NoValue)
+            return NoWord{};
+          return Pointer{Word::Uncounted};
+        },
+        [](LifetimePackageType) -> Words { return Pointer{Word::Uncounted}; },
+        [](StrType) -> Words { return Pointer{Word::Cell}; },
+        [](BigType) -> Words { return Integer{64, Word::Big}; },
+        [](NatType) -> Words { return Integer{64, Word::Big}; },
+        [](FnType) -> Words { return Pointer{Word::Cell}; },
+        [](LazyType) -> Words { return Pointer{Word::Cell}; },
+        [](DataType data) -> Words { return Held{data}; },
+        // Essential: the dialect's types include one no value has. A
+        // member of a group by position is read with its declaration,
+        // whose readers take it as its member's data type, and the
+        // function's scope walk refuses a value whose type names one.
+        [](SelfType) -> Words {
+          llvm::reportFatalInternalError(
+              "the run-time words of a member of a group by position, which only its "
+              "declaration names");
         });
   if (isa<RankedTensorType, MemRefType>(type))
     return Descriptor{cast<ShapedType>(type)};

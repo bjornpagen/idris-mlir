@@ -36,10 +36,6 @@ mlir::Operation *withResults(mlir::RewriterBase &rewriter, mlir::Operation *op,
 mlir::Operation *keepResults(mlir::RewriterBase &rewriter, mlir::Operation *op,
                              const llvm::BitVector &keep);
 
-// Erases what follows `op` in its block, last first: control never gets
-// past `op`.
-void eraseAfter(mlir::RewriterBase &rewriter, mlir::Operation *op);
-
 // A match none of whose regions yields gives nothing: its results go, what
 // follows it in its block is dead, and the block ends in ub.unreachable.
 void exits(mlir::RewriterBase &rewriter, mlir::Operation *op);

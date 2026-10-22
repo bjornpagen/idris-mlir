@@ -8,8 +8,9 @@
 ||| target. A failing call sets the runtime's saved errno, which
 ||| idr.io.errno and idr.io.file_errno read.
 |||
-||| A pointer is a handle, an i64: 0, 1 and 2 the standard streams, -1 null,
-||| any other a slot of the runtime's handle table. An OSClock is an i64,
+||| A pointer is a handle, an i64 as Runtime.Handles says: a StandardStream's,
+||| the null handle (nullHandle, every bit set), or any other slot of the
+||| runtime's handle table. An OSClock is an i64,
 ||| seconds << 30 | nanoseconds, or -1 where the clock cannot be read: its
 ||| queries and the null test are arith over those encodings, which the
 ||| frontend writes, and a collector's clock, which no program has, is the

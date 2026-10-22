@@ -16,6 +16,7 @@
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Lifetimes.h"
+#include "idr/IR/Ops/Rules.h"
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "llvm/ADT/STLExtras.h"
@@ -84,15 +85,6 @@ Operation *keepResults(RewriterBase &rewriter, Operation *op, const llvm::BitVec
       rewriter.replaceAllUsesWith(result, fresh->getResult(next++));
   rewriter.eraseOp(op);
   return fresh;
-}
-
-void eraseAfter(RewriterBase &rewriter, Operation *op) {
-  for (Operation *after = &op->getBlock()->back(); after != op;) {
-    Operation *previous = after->getPrevNode();
-    after->dropAllUses();
-    rewriter.eraseOp(after);
-    after = previous;
-  }
 }
 
 void exits(RewriterBase &rewriter, Operation *op) {
