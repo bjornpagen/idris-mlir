@@ -3,7 +3,7 @@
 // Where an op ends a reference and where it begins a value, as its
 // declaration says: whether it takes over an operand's reference, freeing
 // its count, whether it allocates a value, a fresh one of its own, and
-// whether it acquires the memory a value lives in. Read off the op's own
+// whether it acquires memory, for one value or any. Read off the op's own
 // declaration, a call's included, never its callee's.
 #ifndef IDR_IR_EFFECTS_CONSUMPTION_H
 #define IDR_IR_EFFECTS_CONSUMPTION_H
@@ -23,6 +23,10 @@ bool allocates(mlir::Operation *op, mlir::Value value);
 // Whether `op` acquires the memory `value` lives in, on the heap or in a
 // frame: narrower than `allocates`, which a fresh identity also answers.
 bool acquires(mlir::Operation *op, mlir::Value value);
+
+// Whether `op` acquires memory for any value, on the heap or in a frame, by
+// the same reading as the form above.
+bool acquires(mlir::Operation *op);
 
 } // namespace idr::effects
 

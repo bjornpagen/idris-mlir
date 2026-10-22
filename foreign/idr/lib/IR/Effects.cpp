@@ -89,6 +89,25 @@ bool declares(Operation *op, Kinds kinds, const Names &names) {
   });
 }
 
+// Whether `op` itself acquires memory that `asked` is about. Memory is
+// acquired on the heap or in a frame, as the tree reads each instance: a
+// `memref.alloc`'s on the heap, a `memref.alloca`'s in its frame. An
+// allocation on `identity` is a fresh name and no memory: a call declares
+// one on each linear result, which may be the very memory an argument
+// passed in and the callee gave back. An op that says nothing MLIR can read
+// acquires nothing its function may keep to itself. Both forms of
+// `acquires` ask through this one reading.
+template <Question Q>
+bool acquiresMemory(Operation *op, const Q &asked) {
+  constexpr Resources memory{ResourceId::Heap, ResourceId::Frame};
+  bool acquired = false;
+  (void)eachOwnEffect(op, [&](const Effect &each) {
+    acquired = each.kind == Kind::Allocate && memory.contains(each.resource) && asked(each);
+    return acquired ? Walked::Stopped : Walked::All;
+  });
+  return acquired;
+}
+
 } // namespace
 
 Effect effectOf(const MemoryEffects::EffectInstance &instance) {
@@ -135,19 +154,12 @@ bool allocates(Operation *op, Value value) {
                   [&](const MemoryEffects::EffectInstance &instance) { return instance.getValue() == value; });
 }
 
-// Memory is acquired on the heap or in a frame, as the tree reads each
-// instance. An allocation on `identity` is a fresh name and no memory: a
-// call declares one on each linear result, which may be the very memory an
-// argument passed in and the callee gave back. An op that says nothing MLIR
-// can read acquires nothing its function may keep to itself.
 bool acquires(Operation *op, Value value) {
-  constexpr Resources memory{ResourceId::Heap, ResourceId::Frame};
-  bool acquired = false;
-  (void)eachOwnEffect(op, [&](const Effect &each) {
-    acquired = each.kind == Kind::Allocate && each.value == value && memory.contains(each.resource);
-    return acquired ? Walked::Stopped : Walked::All;
-  });
-  return acquired;
+  return acquiresMemory(op, [&](const Effect &each) { return each.value == value; });
+}
+
+bool acquires(Operation *op) {
+  return acquiresMemory(op, [](const Effect &) { return true; });
 }
 
 } // namespace idr::effects
