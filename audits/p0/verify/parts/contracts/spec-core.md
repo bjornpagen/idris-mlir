@@ -137,3 +137,9 @@ the idr-rc pipeline. Every stage change is a program or module pass
 - Type inference prints upstream's adaptor form (`InferTypeOpAdaptor`).
 - Generated outputs added: `Laws`, `SkeletonRules`, `Actions`, `Words`,
   `InlineMeanings`, `Storages`, `FileTimes`, `RuntimeLayout`, `StageFacts`.
+- `Admitted` gains `alias : Ident` (the C++ key, so two dialects' ops of
+  one name do not clash) and `range : Maybe RangeFunction`
+  (`InIntRange "inferAdd"`, upstream's range function, C191).
+  `Core.Dialect` records `cppHeader` and `bytecodeRecords`.
+- Generated outputs added: `AdmittedClasses.h.inc`, `WrittenDialects.txt`
+  (the dialects the frontend writes, read by `tools/dialects.sh`).

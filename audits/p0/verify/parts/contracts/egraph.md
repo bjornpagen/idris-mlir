@@ -98,3 +98,12 @@ uses its own unit costs. Whether it becomes a true e-graph or is named a
 hash-consed rewrite graph is the owner's question queued in P0 §4. Until
 then, `cost` is unread, and a replaced node's facts are carried to its
 replacement.
+
+## C191's range table (L03, 2026-10-22)
+
+`idr::egraph::generated::intRanges[]` in `Rewrites.h.inc`: one
+`std::optional<table::IntRangeFn>` per kind, in `Kinds` order. It holds
+`table::rangeBy<&::mlir::intrange::F>` for an admitted op whose record
+names its range function, `table::rangeBy<&::idr::numeric::InlineArith<fn>::inferRanges>`
+for our ops with an inline meaning, and `std::nullopt` otherwise. A
+rule-built node's range is read from it, and no op is made (C191).
