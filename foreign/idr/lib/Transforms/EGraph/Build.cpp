@@ -6,7 +6,7 @@
 // The tables the walk fills are made in Nodes.cpp.
 #include "idr/Transforms/EGraph/Engine.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/CallInterfaces.h"

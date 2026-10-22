@@ -18,16 +18,18 @@
 // The waves end: a wave after the first exists only because the one before
 // ran a label new to a dispatch, and a dispatch's labels only grow, within
 // the program's finitely many. A wave is a loop over the classes it takes
-// and their edges.
+// and their edges. Every point is numbered before the first wave, so a
+// wave and a firing read numbers alone, and every table here is indexed
+// by one.
 
 #include "idr/Analysis/Labels.h"
 
 #include "idr/Analysis/Solver/Components.h"
 #include "idr/Analysis/Solver/Graph.h"
+#include "idr/Analysis/Solver/LabelGraph.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/SymbolTable.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
@@ -44,72 +46,32 @@ namespace idr::labels {
 namespace {
 
 unsigned at(Node node) { return llvm::to_underlying(node); }
-unsigned at(Label label) { return llvm::to_underlying(label); }
-unsigned at(Dispatch dispatch) { return llvm::to_underlying(dispatch); }
 
 } // namespace
-
-//===----------------------------------------------------------------------===//
-// Sets
-//===----------------------------------------------------------------------===//
-
-// The empty set is id 0, and is never looked up by its members.
-SetTable::SetTable() { sets.emplace_back(); }
-
-SetId SetTable::intern(ArrayRef<Label> members) {
-  if (members.empty())
-    return SetId{};
-  read += members.size();
-  if (auto it = ids.find(members); it != ids.end())
-    return it->second;
-  ArrayRef<Label> kept = members.copy(storage);
-  auto id = SetId(static_cast<std::uint32_t>(sets.size()));
-  sets.push_back(kept);
-  ids.try_emplace(kept, id);
-  return id;
-}
-
-ArrayRef<Label> SetTable::members(SetId set) const { return sets[llvm::to_underlying(set)]; }
-
-bool SetTable::within(SetId part, SetId whole) {
-  ArrayRef<Label> in = members(whole);
-  read += members(part).size();
-  return llvm::all_of(members(part), [&](Label label) { return std::binary_search(in.begin(), in.end(), label); });
-}
-
-// The union of two or more distinct sets is the largest of them when it
-// holds the others, and is made once per tuple of ids.
-SetId SetTable::unite(footprint::Vector<SetId> &inputs) {
-  llvm::erase(inputs, SetId{});
-  llvm::sort(inputs);
-  inputs.erase(std::unique(inputs.begin(), inputs.end()), inputs.end());
-  if (inputs.empty())
-    return SetId{};
-  if (inputs.size() == 1)
-    return inputs.front();
-  if (auto it = unions.find(ArrayRef<SetId>(inputs)); it != unions.end())
-    return it->second;
-  SetId largest = *llvm::max_element(
-      inputs, [&](SetId a, SetId b) { return members(a).size() < members(b).size(); });
-  SetId result = largest;
-  if (!llvm::all_of(inputs, [&](SetId part) { return part == largest || within(part, largest); })) {
-    footprint::Vector<Label> all;
-    for (SetId part : inputs)
-      llvm::append_range(all, members(part));
-    read += all.size();
-    llvm::sort(all);
-    all.erase(std::unique(all.begin(), all.end()), all.end());
-    result = intern(all);
-  }
-  unions.try_emplace(ArrayRef<SetId>(inputs).copy(storage), result);
-  return result;
-}
 
 //===----------------------------------------------------------------------===//
 // The union-find and the edges
 //===----------------------------------------------------------------------===//
 
-Graph::Graph(const SymbolTable &table) : out(table) {}
+// Every point is a node of its own class before any edge.
+Graph::Graph(Read reading, MLIRContext *context) : read(std::move(reading)), context(context) {
+  std::uint32_t n = read.points.size();
+  parents.reserve(n);
+  for (std::uint32_t node = 0; node < n; ++node)
+    parents.push_back(Node(node));
+  classes.resize(n);
+  take(read.statements);
+  read.statements = Statements();
+  for (const Dispatched &dispatched : read.dispatches)
+    runs.push_back(Run{dispatched.callee, SetId{}});
+}
+
+void Graph::take(const Statements &statements) {
+  for (const Statements::Source &source : statements.sources)
+    sources.emplace_back(source.at, source.label);
+  for (const Statements::Linked &linked : statements.links)
+    link(linked.from, linked.to, linked.how);
+}
 
 Node Graph::find(Node node) {
   Node root = node;
@@ -291,7 +253,7 @@ footprint::Vector<Firing> Graph::wave() {
 void Graph::fire(Firing firing) {
   auto [run, label] = firing;
   Statements owed;
-  readFiring(out.table, runs[at(run)].call, runs[at(run)].standing, out.symbols[at(label)], owed);
+  readFiring(read, run, label, owed);
   take(owed);
 }
 
@@ -304,9 +266,10 @@ Solution Graph::solve(solver::Work &work) && {
       fire(firing);
   work.add(steps + sets.labelsRead());
   // Each set's attribute, made the first time a node holds the set.
+  ArrayAttr empty = ArrayAttr::get(context, {});
   footprint::Vector<ArrayAttr> attrs(sets.size());
   auto n = static_cast<unsigned>(parents.size());
-  out.labels.assign(n, out.empty);
+  footprint::Vector<ArrayAttr> labels(n, empty);
   for (unsigned node = 0; node < n; ++node) {
     SetId set = classes[at(find(Node(node)))].labels;
     if (set == SetId{})
@@ -315,30 +278,34 @@ Solution Graph::solve(solver::Work &work) && {
     if (!attr) {
       footprint::Vector<Attribute> members;
       for (Label label : sets.members(set))
-        members.push_back(out.symbols[at(label)]);
-      attr = ArrayAttr::get(out.empty.getContext(), members);
+        members.push_back(read.points.symbolOf(label));
+      attr = ArrayAttr::get(context, members);
     }
-    out.labels[node] = attr;
+    labels[node] = attr;
   }
-  return std::move(out);
+  return Solution(std::move(read.points), std::move(read.sinks), std::move(labels), empty);
 }
 
 //===----------------------------------------------------------------------===//
 // Answers
 //===----------------------------------------------------------------------===//
 
-Solution::Solution(const SymbolTable &table)
-    : table(table), empty(ArrayAttr::get(table.getOp()->getContext(), {})) {}
+Solution::Solution(Points points, Sinks sinks, footprint::Vector<ArrayAttr> labels, ArrayAttr empty)
+    : points(std::move(points)), sinks(std::move(sinks)), labels(std::move(labels)), empty(empty) {}
 
-ArrayAttr Solution::labelsOf(const PointKey &key) const {
-  auto it = nodes.find(key);
-  return it == nodes.end() ? empty : labels[at(it->second)];
+// A point is found where the reading named it, and never made here.
+ArrayAttr Solution::labelsOf(const FlowPoint &point) const {
+  return labelsAt(nodeOf(points, point, [&](const auto &key) { return points.find(key); }));
 }
 
-std::optional<FlowPoint> Solution::sinkOf(OpOperand &operand) const {
-  if (auto it = sinks.find(&operand); it != sinks.end())
-    return it->second;
-  return std::nullopt;
+ArrayAttr Solution::labelsOf(const PointKey &key) const {
+  auto ofResult = [&](FlowPoint::Result result) {
+    return labelsAt(points.result(points.labelOf(result.function), result.index));
+  };
+  return std::visit(llvm::makeVisitor([&](Value value) { return labelsOf(value); },
+                                      [&](const FlowAnchor &anchor) { return labelsOf(anchor); },
+                                      ofResult),
+                    key);
 }
 
 // Both sets hold their labels in one order, so `a`'s labels are met along
@@ -358,14 +325,14 @@ bool within(ArrayAttr a, ArrayAttr b) {
 }
 
 std::optional<unsigned> Solution::positionIn(ArrayAttr set, FlatSymbolRefAttr label) const {
-  Label wanted = labelOf(label);
-  ArrayRef<Attribute> labels = set.getValue();
-  const Attribute *it = llvm::partition_point(labels, [&](Attribute member) {
-    return labelOf(cast<FlatSymbolRefAttr>(member)) < wanted;
+  Label wanted = points.labelOf(label);
+  ArrayRef<Attribute> members = set.getValue();
+  const Attribute *it = llvm::partition_point(members, [&](Attribute member) {
+    return points.labelOf(cast<FlatSymbolRefAttr>(member)) < wanted;
   });
-  if (it == labels.end() || *it != label)
+  if (it == members.end() || *it != label)
     return std::nullopt;
-  return static_cast<unsigned>(it - labels.begin());
+  return static_cast<unsigned>(it - members.begin());
 }
 
 } // namespace idr::labels
@@ -373,8 +340,7 @@ std::optional<unsigned> Solution::positionIn(ArrayAttr set, FlatSymbolRefAttr la
 namespace idr {
 
 Labels::Labels(Operation *program, AnalysisManager &am) : solution([&] {
-  labels::Graph graph(std::get<0>(reads(am)));
-  graph.walk(program);
+  labels::Graph graph(labels::readProgram(program, std::get<0>(reads(am))), program->getContext());
   return std::move(graph).solve(spent);
 }()) {}
 

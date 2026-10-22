@@ -6,11 +6,15 @@
 
 #include "idr/Analysis/Solver/Trace.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Footprint.h"
+#include "idr/Support/Id.h"
 
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/STLExtras.h"
 
+#include <cstdint>
 #include <memory>
+#include <span>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRSIMPLIFY
@@ -72,12 +76,36 @@ std::uint64_t arenaBytes(std::uint64_t ops) {
 
 namespace {
 
-// What the rewrites between the two rounds erase: MLIR reports an erasure
-// by its op's address alone, so a root an earlier rewrite took away is
-// known here, and skipped.
-struct Erasures : RewriterBase::Listener {
-  void notifyOperationErased(Operation *op) override { erased.insert(op); }
-  llvm::SmallPtrSet<Operation *, 8> erased;
+class Erasures;
+struct RootTag {
+  using Minter = Erasures;
+};
+// A root of the rewrites between the two rounds, by the order they run in.
+using Root = idr::Id<RootTag>;
+
+// Which roots the rewrites before them erased, so that each is skipped:
+// MLIR reports an erasure by its op's address alone, which the roots'
+// table, built once from the rewrites, turns into a root's number.
+class Erasures : public RewriterBase::Listener {
+public:
+  explicit Erasures(std::span<const idr::egraph::Function::Pending> pending)
+      : count(static_cast<std::uint32_t>(pending.size())), erased(count) {
+    for (auto [at, each] : llvm::enumerate(pending))
+      roots.try_emplace(each.root, Root(static_cast<std::uint32_t>(at)));
+  }
+
+  void notifyOperationErased(Operation *op) override {
+    if (auto root = roots.find(op); root != roots.end())
+      (void)erased.raise(root->second);
+  }
+
+  idr::Count<Root> size() const { return count; }
+  bool wasErased(Root root) const { return erased.test(root); }
+
+private:
+  idr::Count<Root> count;
+  idr::footprint::DenseMap<Operation *, Root> roots;
+  idr::BitSet<Root> erased;
 };
 
 struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
@@ -106,11 +134,12 @@ struct Simplify : idr::impl::IdrSimplifyBase<Simplify> {
       return;
     }
     numWork += first.work();
-    Erasures erasures;
+    Erasures erasures(rewrites);
     IRRewriter rewriter(&getContext(), &erasures);
-    for (const idr::egraph::Function::Pending &pending : rewrites) {
-      if (erasures.erased.contains(pending.root))
+    for (Root root : erasures.size().ids()) {
+      if (erasures.wasErased(root))
         continue;
+      const idr::egraph::Function::Pending &pending = rewrites[root.index()];
       rewriter.setInsertionPoint(pending.root);
       idr::egraph::Function::rewriteSkeleton(pending, rewriter);
     }

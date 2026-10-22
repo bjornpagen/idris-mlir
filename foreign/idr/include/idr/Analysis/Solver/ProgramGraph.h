@@ -26,9 +26,10 @@
 // components from them, with no walk of the IR. The partition is never
 // patched in place.
 //
-// Its tables and its editor's rows are the footprint's, so the footprint of
-// the pass that builds or edits it counts them. The table of names is a
-// hashed map, which takes no allocator.
+// Its tables, its editor's rows and its table of names are the
+// footprint's, so the footprint of the pass that builds or edits it counts
+// them. The table of names is the one place a callee's name becomes an id:
+// MLIR refers to a symbol by name, which no walk numbers.
 #ifndef IDR_ANALYSIS_SOLVER_PROGRAMGRAPH_H
 #define IDR_ANALYSIS_SOLVER_PROGRAMGRAPH_H
 
@@ -41,7 +42,6 @@
 #include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Support/TypeID.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/DenseMap.h"
 
 #include <concepts>
 #include <cstdint>
@@ -164,7 +164,7 @@ private:
   Count<FunctionId> count = detail::GraphIds::functions(0);
   footprint::Vector<std::uint32_t> live;
   IndexVector<FunctionId, idr::FuncOp> ops{detail::GraphIds::functions(0)};
-  llvm::DenseMap<mlir::StringAttr, FunctionId> byName;
+  footprint::DenseMap<mlir::StringAttr, FunctionId> byName;
 
   footprint::Vector<std::uint32_t> rowStart{0};
   footprint::Vector<Call> rows;
@@ -217,7 +217,7 @@ private:
   ProgramGraph *home;
   footprint::Vector<footprint::Vector<Call>> rows;
   footprint::Vector<idr::FuncOp> ops;
-  llvm::DenseMap<mlir::StringAttr, FunctionId> byName;
+  footprint::DenseMap<mlir::StringAttr, FunctionId> byName;
 };
 
 // `fn`'s row as its calls now are, what a restructuring pass gives

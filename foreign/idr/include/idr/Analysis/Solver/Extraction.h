@@ -16,8 +16,8 @@
 // parameter for a borrow, an erased thing anywhere) cannot be written.
 //
 // The one map keyed by an IR handle is a Numbering's, while one function
-// is numbered; it is gone when the numbering finishes. Every other table
-// here is the footprint's.
+// is numbered; it is gone when the numbering finishes. It and every other
+// table here are the footprint's.
 #ifndef IDR_ANALYSIS_SOLVER_EXTRACTION_H
 #define IDR_ANALYSIS_SOLVER_EXTRACTION_H
 
@@ -30,7 +30,6 @@
 #include "mlir/IR/Threading.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
-#include "llvm/ADT/DenseMap.h"
 
 #include <algorithm>
 #include <concepts>
@@ -98,7 +97,7 @@ public:
   }
 
 private:
-  llvm::DenseMap<mlir::Value, std::uint32_t> index;
+  footprint::DenseMap<mlir::Value, std::uint32_t> index;
   footprint::Vector<mlir::Value> values;
 };
 

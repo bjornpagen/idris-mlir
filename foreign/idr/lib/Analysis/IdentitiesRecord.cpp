@@ -13,7 +13,7 @@
 // read writes nothing outside the record and reads the body once.
 #include "idr/Analysis/Solver/IdentityRecords.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"

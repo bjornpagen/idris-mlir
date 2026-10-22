@@ -168,8 +168,7 @@ void Function::analyse(Class &cls, const Node &node) {
 // in the hash-cons; or a new node, its analyses computed and the rules
 // rooted at its kind run on it, in the class those decide: a constant's
 // when it folds, an argument's when its callee gives that back, a right
-// side's when a Simplify rule matches, a new class of it and a right side
-// when an Equal rule does, else a class of its own. None once the
+// side's when a rule matches, else a class of its own. None once the
 // function's budget of nodes is spent, for a node a rule asked for: the
 // form is then kept as it was, less optimized.
 std::optional<ClassId> Function::insert(OperationName name, std::optional<std::uint16_t> kind,
@@ -197,25 +196,11 @@ std::optional<ClassId> Function::insert(OperationName name, std::optional<std::u
     if (std::optional<ClassId> given =
             giveBack(std::get<node::Op>(at(made).what), operands, type))
       return *given;
-    Rewritten rewritten = rules == Rules::Run ? rewrite(made, analysed) : Rewritten(NoRule{});
-    if (const auto *replace = std::get_if<Replace>(&rewritten))
-      return replace->by;
-    Run joined{static_cast<std::uint32_t>(members.size()), 1};
+    if (rules == Rules::Run)
+      if (std::optional<ClassId> by = rewrite(made, analysed))
+        return *by;
+    analysed.members = Run{static_cast<std::uint32_t>(members.size()), 1};
     members.push_back(made);
-    // The joined class's members are copied from the array they are
-    // appended to, so by position, with room made first: an iterator into
-    // the array would not survive its growth.
-    if (const auto *join = std::get_if<Join>(&rewritten)) {
-      Run with = at(join->with).members;
-      members.reserve(members.size() + with.count);
-      for (std::uint32_t position = with.first; position < with.first + with.count; ++position) {
-        NodeId member = members[position];
-        members.push_back(member);
-      }
-      steps += with.count;
-      joined.count = static_cast<std::uint32_t>(members.size()) - joined.first;
-    }
-    analysed.members = joined;
     return newClass(analysed);
   };
   ClassId cls = decided();

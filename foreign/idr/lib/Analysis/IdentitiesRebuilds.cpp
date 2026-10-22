@@ -24,8 +24,8 @@
 // The record is never written; a reading holds what it learns while it
 // answers.
 #include "idr/Analysis/Solver/IdentityRecords.h"
+#include "idr/Support/Footprint.h"
 
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
@@ -125,8 +125,9 @@ private:
     Type type;
   };
   footprint::Vector<Row> rows;
-  llvm::DenseMap<std::tuple<std::uint32_t, std::uint32_t, std::pair<std::uint32_t, std::uint32_t>>,
-                 std::uint32_t>
+  // Each part below another, by its parent, the step's kind and the step.
+  footprint::DenseMap<std::tuple<std::uint32_t, std::uint32_t, std::pair<std::uint32_t, std::uint32_t>>,
+                      std::uint32_t>
       steps;
 };
 

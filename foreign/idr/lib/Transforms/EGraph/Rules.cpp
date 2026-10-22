@@ -259,10 +259,10 @@ std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindin
   return std::nullopt;
 }
 
-Function::Rewritten Function::rewrite(NodeId made, const Class &analysed) {
+std::optional<ClassId> Function::rewrite(NodeId made, const Class &analysed) {
   const auto &op = std::get<node::Op>(at(made).what);
   if (!op.kind)
-    return NoRule{};
+    return std::nullopt;
   for (std::uint32_t r = generated::rulesOfKind[*op.kind]; r < generated::rulesOfKind[*op.kind + 1];
        ++r) {
     const table::Rule &rule = generated::rules[r];
@@ -283,11 +283,9 @@ Function::Rewritten Function::rewrite(NodeId made, const Class &analysed) {
     // apply here, since no rewrite changes a value's type.
     if (!side || this->at(*side).type != analysed.type)
       continue;
-    if (rule.direction == table::Direction::Simplify)
-      return Replace{*side};
-    return Join{*side};
+    return side;
   }
-  return NoRule{};
+  return std::nullopt;
 }
 
 } // namespace idr::egraph::detail

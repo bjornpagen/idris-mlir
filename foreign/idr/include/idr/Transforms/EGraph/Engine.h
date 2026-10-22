@@ -13,11 +13,12 @@
 // made with its classes' analyses (a constant, by the op's fold with
 // constant operands only; an interval, by upstream's transfer functions)
 // and the specification's rules rooted at its kind run at once, each right
-// side built the same way: Simplify replaces the node's class, Equal makes
-// a new class of both. A class never changes once made, so no id goes
-// stale and nothing is rebuilt. A repeated read in a region with no write
-// of what it reads between merges into the first, and a repeated op of the
-// region's parent into the first; the skeleton rules decide their edits.
+// side built the same way, the first that matches replacing the node's
+// class: every rule runs one way. A class never changes once made, so no
+// id goes stale and nothing is rebuilt. A repeated read in a region with
+// no write of what it reads between merges into the first, and a repeated
+// op of the region's parent into the first; the skeleton rules decide
+// their edits.
 //
 // Extract: each class's cheapest member, bottom-up in creation order,
 // ties to the larger id.
@@ -232,17 +233,10 @@ private:
   void analyse(Class &cls, const Node &node);
   std::optional<ClassId> giveBack(const node::Op &op, std::span<const ClassId> operands,
                                   mlir::Type type);
-  // The rules rooted at a node's kind (Rules.cpp): the first that matches
-  // either replaces the node's class or joins the node to its right side.
-  struct NoRule {};
-  struct Replace {
-    ClassId by;
-  };
-  struct Join {
-    ClassId with;
-  };
-  using Rewritten = std::variant<NoRule, Replace, Join>;
-  Rewritten rewrite(NodeId made, const Class &analysed);
+  // The rules rooted at a node's kind (Rules.cpp): the class of the right
+  // side of the first that matches, which replaces the node's class; none
+  // when no rule matches.
+  std::optional<ClassId> rewrite(NodeId made, const Class &analysed);
   std::optional<ClassId> buildSide(const table::Rule &rule, const Bindings &bindings,
                                    std::uint32_t &at, mlir::Type type, mlir::Dialect *dialect);
   std::optional<std::uint32_t> matchClass(std::uint32_t at, ClassId cls, Bindings &bindings) const;
@@ -292,10 +286,10 @@ private:
   footprint::Vector<std::optional<NodeId>> best;
   footprint::Vector<Cost> cost;
 
-  // Each step of work, in the e-graph's own units: a node made, a member a
-  // join copies, an earlier op a repeated read is compared with and an op
-  // between them read, a placement an elaboration looks at. Extraction
-  // reads each member once, which its making counted.
+  // Each step of work, in the e-graph's own units: a node made, an earlier
+  // op a repeated read is compared with and an op between them read, a
+  // placement an elaboration looks at. Extraction reads each member once,
+  // which its making counted.
   std::uint64_t steps = 0;
 };
 

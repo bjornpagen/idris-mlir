@@ -84,18 +84,17 @@ struct Condition {
   std::int64_t lo, hi;
 };
 
-enum class Direction : std::uint8_t { Simplify, Equal };
 enum class VarUses : std::uint8_t { UsedOnce, UsedMany };
 
-// One rule: its variables, its left side rooted at an op (a run of
+// One rule, one way: its variables, its left side rooted at an op (a run of
 // patterns whose first node is the root), its right side (a run of
-// patterns), its conditions (a run of conditions) and its direction.
+// patterns), which replaces the left side's class where it matches, and its
+// conditions (a run of conditions).
 struct Rule {
   std::uint16_t vars;
   std::uint32_t lhs, lhsSize;
   std::uint32_t rhs, rhsSize;
   std::uint32_t conditions, conditionCount;
-  Direction direction;
 };
 
 } // namespace table
