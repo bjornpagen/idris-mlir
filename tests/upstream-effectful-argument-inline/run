@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/96-effectful-argument-inline is recorded, not carried: the
+# stock Idris's inliner substitutes call by name, so an argument a body
+# never uses is dropped with its effects, and nothing the stock host
+# builds has that shape. The pinned stock Idris still has the bug: Bug.idr
+# writes 7 into an array through an effectful `let` its body ignores, and
+# prints 0. When this check fails, either the pin has upstream's fix and
+# the report goes, or the shape reached the stock host and the diff
+# becomes its carried patch.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+cp "$root/upstream/96-effectful-argument-inline/Bug.idr" "$work/Bug.idr"
+if ! (cd "$work" && bounded "$idris2" --exec main Bug.idr) > "$work/out" 2> "$work/err"; then
+  say "the stock Idris fails on the reproducer, which is not this bug"
+  show "$work/err"
+  exit 0
+fi
+case $(cat "$work/out") in
+  0) say "still reproduces at the pin: the write is dropped, 0 is printed" ;;
+  7) say "fixed at the pin: the write is kept, 7 is printed" ;;
+  *) say "the reproducer prints $(cat "$work/out")" ;;
+esac

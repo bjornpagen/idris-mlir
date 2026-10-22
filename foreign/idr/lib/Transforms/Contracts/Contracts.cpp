@@ -22,14 +22,14 @@
 
 #include "idr/Transforms/Contracts.h"
 
-#include "idr/Analysis/Effects.h"
+#include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/Effects/Vocabulary.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Expect.h"
 
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -198,24 +198,23 @@ void unrestrictResults(ProgramOp program) {
 }
 
 // crash-sites-not-added, broken: every function whose row could not crash
-// crashes instead of returning, at its own location, and its row is
-// derived again, so each row covers its body and every call its callee's.
-void addCrashSites(ProgramOp program) {
+// crashes instead of returning, at its own location, and the one writer of
+// rows writes every row again, so each covers its body and every call its
+// callee's.
+void addCrashSites(ProgramOp program, const solver::ProgramGraph &graph) {
   for (FuncOp fn : program.getOps<FuncOp>()) {
     if (fn.getRow().contains(effects::Atom::crash))
       continue;
     fn.walk([&](ReturnOp ret) {
       OpBuilder builder(ret);
-      CrashOp::create(builder, ret.getLoc(), crashSiteOf(fn.getLoc()), Cause::NoClauseMatched);
-      ub::UnreachableOp::create(builder, ret.getLoc());
+      CrashCauseOp::create(builder, ret.getLoc(), CrashCause::NoClauseMatched, siteOf(fn.getLoc()));
       ret.erase();
     });
   }
-  rows::rederive(program);
+  rows::write(program, graph);
 }
 
-// The relations the test pass breaks: every one the contracts check but
-// quantities-kept, which idr-expect's own tests make fail.
+// The relations the test pass breaks.
 enum class Breakable : std::uint8_t { LinearKept, CrashSitesNotAdded };
 
 // The pass the contracts' own test runs, registered in idris-mlir-opt
@@ -234,10 +233,6 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
     return "Break one contract on purpose, keeping the module valid, for the contracts' own "
            "test: --idr-contracts must name this pass";
   }
-  void getDependentDialects(DialectRegistry &registry) const final {
-    registry.insert<ub::UBDialect>();
-  }
-
   Option<Breakable> relation{
       *this, "relation", llvm::cl::desc("The contract to break"),
       llvm::cl::init(Breakable::LinearKept),
@@ -253,7 +248,7 @@ struct BreakContract : PassWrapper<BreakContract, OperationPass<ProgramOp>> {
     case Breakable::LinearKept:
       return unrestrictResults(program);
     case Breakable::CrashSitesNotAdded:
-      return addCrashSites(program);
+      return addCrashSites(program, getAnalysis<solver::ProgramGraph>());
     }
   }
 };
@@ -308,8 +303,7 @@ void ContractInstrumentation::runAfterPassFailed(Pass *pass, Operation *op) {
 LogicalResult ContractInstrumentation::finish(ModuleOp module) {
   ModuleAnalysisManager mam(module, /*passInstrumentor=*/nullptr);
   AnalysisManager analyses = mam;
-  expect::Functions every{"", expect::functionsOf(module)};
-  return expect::constantStack({module, analyses, "constant-stack", every});
+  return expect::universal(module, analyses);
 }
 
 void registerContractTestPass() { PassRegistration<BreakContract>(); }

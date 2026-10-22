@@ -1,0 +1,8 @@
+specgen: built by the pinned Idris
+the committed files: exit 0, naming nothing
+written into an empty tree: each file byte for byte the committed one
+generated files no output is: none
+a generated file edited by hand: exit 1, naming an output
+a comment in the specification: exit 1, naming the manifest
+the generator changed, its outputs the same: exit 1, naming the manifest
+the specification changed without its outputs: exit 1, naming outputs and the manifest

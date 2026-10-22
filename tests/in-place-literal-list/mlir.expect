@@ -1,0 +1,2 @@
+# The literal is rebuilt in its own cells, tested by no count.
+owned: tests-nothing=@Main.bump

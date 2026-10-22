@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/94-snmalloc-pagemap-sanity-checks: the bounded page map's range
+# test on its fast path runs only under the sanity-checks mitigation, so a
+# runtime built without it pays no test for an address its caller says is
+# in range. Nothing runs to show it: the runtime's snmalloc, as the
+# toolchain exports it with its patches, gates the test.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+pagemap=$snmalloc_prefix/src/snmalloc/ds/pagemap.h
+if grep -q 'mitigations(sanity_checks)' "$pagemap" 2> /dev/null; then
+  say "pagemap: the fast path's range test is gated by sanity checks"
+else
+  say "pagemap: the fast path tests every address's range"
+fi

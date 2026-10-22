@@ -1,0 +1,1 @@
+BufferizationOptions: a tensor-like value's copy is made by its dialect's hook

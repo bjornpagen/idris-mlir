@@ -5,11 +5,12 @@
 # Cells.cpp): every cell of a heap smaller than 4 GiB has the upper 32 bits
 # of every other, which a data memory-dependent prefetcher asks of a word
 # and its address before it follows the word; and the heap grows past the
-# region. region.c runs as a program on the build's runtime, its cells and
-# byte arrays reserving 5 GiB of address space and touching a few MiB.
+# region. region.c runs as a program on the build's checked runtime, its
+# cells and byte arrays reserving 5 GiB of address space and touching a few
+# MiB, and releases every one: a cell still held ends it as an internal
+# error.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-runtime=$dev_prefix/runtime/libidris_rt.a
-if ! runtime_c link_program -O1 "$here/region.c" "$runtime" -o "$work/region" \
+if ! runtime_c link_program -O1 -I"$root/harness/prop" "$here/region.c" "$checked_runtime" -o "$work/region" \
     > "$work/cc.log" 2>&1; then
   say "region: does not build"
   show "$work/cc.log"

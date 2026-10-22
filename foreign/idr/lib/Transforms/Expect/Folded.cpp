@@ -3,19 +3,19 @@
 // folded: a function's computation on constants is done, stated as what is
 // not left: an op a fold would have replaced by constants. A fold replaces
 // an op's results with constants computed from its operands' constant
-// values, so such an op has results, constants alone as operands, and no
-// memory effect or call that its results would stand in for. A greedy
-// rewrite says whether it converged, not that a fold it could have made
-// was never made, and `returns` states a function's results, not the ops
-// that compute them; so the fuzzer's check that every closed expression
-// folded is this property, asked through upstream's own questions of an
-// op: its memory effects, the call interface and the constant trait.
+// values, so such an op has results, constants alone as operands, and does
+// nothing but compute them, with everything in its regions, as the effect
+// system's one query says; no call, whose results its callee computes, and
+// no constant of its own. A greedy rewrite says whether it converged, not
+// that a fold it could have made was never made; so the fuzzer's check that
+// every closed expression folded is this property.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
+
+#include "idr/IR/Effects/Query.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/CallInterfaces.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -24,13 +24,14 @@ namespace idr::expect {
 
 namespace {
 
-// An op a fold would have replaced: it gives results, has no memory
-// effect, is neither a call nor a constant, and takes constants alone. An
-// op without results, a terminator, is nothing a fold replaces.
+// An op a fold would have replaced: it gives results, only computes them,
+// is neither a call nor a constant, and takes constants alone. An op
+// without results, a terminator, is nothing a fold replaces.
 bool foldable(Operation *op) {
   auto constant = [](Value operand) { return matchPattern(operand, m_Constant()); };
-  return op->getNumResults() != 0 && isMemoryEffectFree(op) && !isa<CallOpInterface>(op) &&
-         !op->hasTrait<OpTrait::ConstantLike>() && llvm::all_of(op->getOperands(), constant);
+  return op->getNumResults() != 0 && !isa<CallOpInterface>(op) &&
+         !op->hasTrait<OpTrait::ConstantLike>() && llvm::all_of(op->getOperands(), constant) &&
+         effects::whole(op).onlyComputes();
 }
 
 } // namespace

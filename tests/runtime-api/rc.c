@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-/* Reference counting against cells built by hand as idr-lower lays them out:
- * counts, saturation, freeing (a structure of any depth, under the small
- * stack the run script gives, and arrays whose elements hold objects),
- * arrays born with NULL slots, the copy of a memref's view, reuse, stack
- * cells, wide cells (whose slots follow the word that counts them), odd
- * words in object slots (a grouped sum's group word), the persistence of
- * what a static memo cell holds, and the live-cell count.
- * A failed check prints a line to standard error. The summary goes through
- * the runtime's output buffer, which idris_rt_main_return must flush; then
- * main returns as @main does.
+/* Reference counting against cells built by hand as idr-lower lays them out,
+ * run as a program on the checked runtime, whose count of the cells it holds
+ * each check reads: counts, each kind of counted word's entry on the words
+ * its kind admits, saturation, freeing (a structure of any depth, on the
+ * small stack the program states, and arrays whose elements hold objects),
+ * arrays born with NULL slots, the copy of a memref's view, reuse, wide
+ * cells (whose slots follow the word that counts them), and odd words in
+ * object slots (a grouped sum's group word). A failed check prints a line
+ * to standard error. The summary goes through the runtime's output buffer,
+ * which the program's end writes; a body that returns with a cell still
+ * held ends as the checked runtime's internal error.
  *
- *   rc          every check, then idris_rt_main_return
- *   rc leak     one cell left live, then idris_rt_main_return
- *   rc crash    one cell left live, then idris_rt_crash */
+ *   rc          every check
+ *   rc leak     one cell left held, and the body returns
+ *   rc crash    one cell left held, then a crash at a site, which counts
+ *               no cell */
 #include <stdio.h>
 #include <string.h>
-#include <sys/resource.h>
 
 #include "idris_rt.h"
+#include "program.h"
 
 static int failures = 0;
 
@@ -31,7 +33,7 @@ static void check(int ok, const char *what) {
 
 static idris_rt_header *header(const void *o) { return (idris_rt_header *)o; }
 static uint32_t count(const void *o) { return header(o)->count; }
-static uint64_t live(void) { return idris_rt_live_cells(); }
+static uint64_t live(void) { return prop_held(); }
 static void **slot(void *cell, size_t offset) { return (void **)((char *)cell + offset); }
 static void *word(int64_t small) { return (void *)(uintptr_t)((uint64_t)small << 1 | 1); }
 static const idris_rt_str *text(const char *s) { return idris_rt_str_from_utf8(s, strlen(s)); }
@@ -60,23 +62,43 @@ static struct {
 } persistentCons = {{0, 1u | 1u << 16}, NULL, 7};
 static idris_rt_header persistentNil = {0, 0};
 
+/* Each kind of counted word's entry on the words its kind admits besides a
+ * counted cell, which it leaves alone: static data for every kind, NULL for
+ * a cell or NULL and for any word, a small big for a big and for any word. */
 static void noOps(void) {
-  void *values[] = {NULL, word(21), word(-4), &persistentCons, &persistentNil};
+  void *statics[] = {&persistentCons, &persistentNil};
   uint64_t before = live();
-  for (size_t i = 0; i < sizeof values / sizeof values[0]; ++i) {
-    void *o = values[i];
-    idris_rt_inc(o);
-    idris_rt_dec(o);
-    idris_rt_dec(o);
-    idris_rt_free_cell(o);
+  for (size_t i = 0; i < sizeof statics / sizeof statics[0]; ++i) {
+    void *o = statics[i];
+    idris_rt_inc_cell(o);
+    idris_rt_dec_cell(o);
+    idris_rt_dec_cell(o);
+    idris_rt_inc_maybe_cell(o);
+    idris_rt_dec_maybe_cell(o);
+    idris_rt_inc_big((idris_rt_big)(uintptr_t)o);
+    idris_rt_dec_big((idris_rt_big)(uintptr_t)o);
+    idris_rt_inc_any(o);
+    idris_rt_dec_any(o);
+    idris_rt_dec_any(o);
+  }
+  idris_rt_inc_maybe_cell(NULL);
+  idris_rt_dec_maybe_cell(NULL);
+  idris_rt_inc_any(NULL);
+  idris_rt_dec_any(NULL);
+  void *smalls[] = {word(21), word(-4)};
+  for (size_t i = 0; i < sizeof smalls / sizeof smalls[0]; ++i) {
+    idris_rt_inc_big((idris_rt_big)(uintptr_t)smalls[i]);
+    idris_rt_dec_big((idris_rt_big)(uintptr_t)smalls[i]);
+    idris_rt_inc_any(smalls[i]);
+    idris_rt_dec_any(smalls[i]);
   }
   check(!idris_rt_is_unique(&persistentCons.header) && !idris_rt_is_unique(&persistentNil),
         "static data is not exclusive");
   check(persistentCons.header.count == 0 && persistentNil.count == 0,
-        "static data keeps count 0 through inc, dec and free_cell");
+        "static data keeps count 0 through every kind's inc and dec");
   check(persistentCons.header.info == (1u | 1u << 16) && persistentCons.head == 7,
         "static data is not written");
-  check(live() == before, "NULL, small bigs and static data are not live cells");
+  check(live() == before, "NULL, small bigs and static data are no cells held");
 }
 
 static void balance(void) {
@@ -86,14 +108,14 @@ static void balance(void) {
   check(live() == before + 1, "a new cell is live");
   check(idris_rt_is_unique(c), "a new cell is exclusive");
   for (int i = 0; i < 7; ++i)
-    idris_rt_inc(c);
+    idris_rt_inc_cell(c);
   check(count(c) == 8, "inc adds to the count");
   check(!idris_rt_is_unique(c), "a shared cell is not exclusive");
   for (int i = 0; i < 7; ++i)
-    idris_rt_dec(c);
+    idris_rt_dec_cell(c);
   check(count(c) == 1 && idris_rt_is_unique(c), "dec takes the count back to 1");
   check(live() == before + 1, "a cell stays live while it has a reference");
-  idris_rt_dec(c);
+  idris_rt_dec_cell(c);
   check(live() == before, "the last dec frees the cell");
 }
 
@@ -101,20 +123,19 @@ static void saturation(void) {
   uint64_t before = live();
   void *c = idris_rt_cell(16, box(0, 0));
   header(c)->count = UINT32_MAX - 2;
-  idris_rt_inc(c);
+  idris_rt_inc_cell(c);
   check(count(c) == UINT32_MAX - 1, "inc below the saturation point counts");
-  idris_rt_inc(c);
+  idris_rt_inc_cell(c);
   check(count(c) == UINT32_MAX, "inc reaches the saturated count");
-  idris_rt_inc(c);
-  idris_rt_dec(c);
-  idris_rt_dec(c);
+  idris_rt_inc_cell(c);
+  idris_rt_dec_cell(c);
+  idris_rt_dec_cell(c);
   check(count(c) == UINT32_MAX, "a saturated count never changes");
   check(!idris_rt_is_unique(c), "a saturated cell is not exclusive");
-  idris_rt_free_cell(c);
   check(live() == before + 1, "a saturated cell is never freed");
   /* A saturated cell leaks by design; this test takes it back. */
   header(c)->count = 1;
-  idris_rt_dec(c);
+  idris_rt_dec_cell(c);
   check(live() == before, "the cell taken back is freed");
 }
 
@@ -124,7 +145,7 @@ static void lists(void) {
   for (int64_t i = 0; i < 10000000; ++i)
     list = cons(i, list);
   check(live() == before + 10000000, "a list of 10^7 cells is 10^7 live cells");
-  idris_rt_dec(list);
+  idris_rt_dec_any(list);
   check(live() == before, "one dec frees a list of 10^7 cells on a small stack");
 
   /* Linked through the first of two object slots, the second a small big:
@@ -134,7 +155,7 @@ static void lists(void) {
     void *fields[] = {list, word(i)};
     list = con(1, 2, fields, i);
   }
-  idris_rt_dec(list);
+  idris_rt_dec_any(list);
   check(live() == before, "one dec frees a list linked through its first slot");
 
   /* A list ending in static data, and with a second owner halfway. */
@@ -145,11 +166,11 @@ static void lists(void) {
     if (i == 499)
       middle = list;
   }
-  idris_rt_inc(middle);
-  idris_rt_dec(list);
+  idris_rt_inc_any(middle);
+  idris_rt_dec_any(list);
   check(live() == before + 500, "freeing stops at a cell with another owner");
   check(count(middle) == 1, "the shared cell loses one reference");
-  idris_rt_dec(middle);
+  idris_rt_dec_any(middle);
   check(live() == before, "its owner frees the rest");
   check(persistentCons.header.count == 0 && persistentCons.head == 7,
         "the static tail is not touched");
@@ -167,18 +188,18 @@ static void trees(void) {
   uint64_t before = live();
   void *t = tree(20);
   check(live() == before + (1u << 20) - 1, "a tree of depth 20 is 2^20 - 1 live cells");
-  idris_rt_dec(t);
+  idris_rt_dec_any(t);
   check(live() == before, "one dec frees a tree");
 
   /* Each node holds its child twice: two references in two slots. */
   void *dag = NULL;
   for (int i = 0; i < 100000; ++i) {
-    idris_rt_inc(dag);
+    idris_rt_inc_any(dag);
     void *fields[] = {dag, dag};
     dag = con(3, 2, fields, i);
   }
   check(live() == before + 100000, "a chain of shared nodes is one cell each");
-  idris_rt_dec(dag);
+  idris_rt_dec_any(dag);
   check(live() == before, "a node referenced from two slots is freed once, after both");
 }
 
@@ -198,19 +219,19 @@ static void *thunk(uint32_t state, uint32_t objs, void *const *captures) {
 static void thunks(void) {
   uint64_t before = live();
   void *shared = cons(1, NULL);
-  idris_rt_inc(shared);
+  idris_rt_inc_any(shared);
   void *captures[] = {(void *)text("captured"), shared, cons(2, NULL), word(9)};
   void *t = thunk(5, 4, captures);
   check(live() == before + 4, "a thunk and what it captures are live");
-  idris_rt_dec(t);
+  idris_rt_dec_any(t);
   check(live() == before + 1, "a thunk releases its captures as a box releases its fields");
   check(count(shared) == 1, "a shared capture loses one reference");
-  idris_rt_dec(shared);
+  idris_rt_dec_any(shared);
 
   void *chain = NULL;
   for (int i = 0; i < 1000000; ++i)
     chain = thunk(6, 1, &chain);
-  idris_rt_dec(chain);
+  idris_rt_dec_any(chain);
   check(live() == before, "one dec frees a chain of 10^6 thunks");
 }
 
@@ -233,24 +254,24 @@ static idris_rt_array *boxes(void *shared) {
 static void arrays(void) {
   uint64_t before = live();
   void *shared = cons(9, NULL);
-  idris_rt_inc(shared);
+  idris_rt_inc_any(shared);
   idris_rt_array *a = boxes(shared);
   check(live() == before + 6, "an array and the five boxes its elements hold are live");
-  idris_rt_dec(a);
+  idris_rt_dec_any(a);
   check(live() == before + 1 && count(shared) == 1,
         "an array freed directly releases each element's box, a shared one once");
-  idris_rt_dec(shared);
+  idris_rt_dec_any(shared);
   check(live() == before, "nothing of the array is left");
 
   shared = cons(9, NULL);
-  idris_rt_inc(shared);
+  idris_rt_inc_any(shared);
   void *held = boxes(shared);
   void *holder = con(7, 1, &held, 0);
   check(live() == before + 7, "a box holding an array, the array and its boxes are live");
-  idris_rt_dec(holder);
+  idris_rt_dec_any(holder);
   check(live() == before + 1 && count(shared) == 1,
         "an array freed inside a dying box releases each element's box, a shared one once");
-  idris_rt_dec(shared);
+  idris_rt_dec_any(shared);
   check(live() == before, "nothing of the box or its array is left");
 }
 
@@ -265,7 +286,7 @@ static void zeroedSlots(void) {
     null = null && *(void **)((char *)a + sizeof(idris_rt_array) + 16 * i) == NULL;
   check(null, "a new array's object slots hold NULL before any store");
   check(a->length == 5 && count(a) == 1, "a new array holds its count of elements and one reference");
-  idris_rt_dec(a);
+  idris_rt_dec_any(a);
   check(live() == before, "an array never stored into is freed with nothing to release");
 }
 
@@ -363,12 +384,12 @@ static void memrefCopies(void) {
             *doubleAt(grid, 1) == 1.0 && *doubleAt(grid, 4) == 4.0,
         "doubles copied onto a column view (stride 3) land in its column alone");
 
-  idris_rt_dec(grid);
-  idris_rt_dec(column);
-  idris_rt_dec(one);
-  idris_rt_dec(held);
-  idris_rt_dec(fresh);
-  idris_rt_dec(from);
+  idris_rt_dec_any(grid);
+  idris_rt_dec_any(column);
+  idris_rt_dec_any(one);
+  idris_rt_dec_any(held);
+  idris_rt_dec_any(fresh);
+  idris_rt_dec_any(from);
   check(live() == before, "every cell and box of the copies is freed once its last owner lets go");
 }
 
@@ -385,13 +406,14 @@ static void stringsAndBignums(void) {
   const idris_rt_str *ab = idris_rt_str_append(a, b);
   check(count(ab) == 1 && live() == before + 4, "append returns a new string");
   const idris_rt_str *ae = idris_rt_str_append(a, empty), *ea = idris_rt_str_append(empty, a);
-  check(ae == a && ea == a && count(a) == 3,
-        "appending the empty string returns the other one, with a reference for the caller");
+  check(ae != a && ea != a && count(ae) == 1 && count(ea) == 1 && count(a) == 1 &&
+            ae->bytes == a->bytes && memcmp(idris_rt_str_bytes(ae), idris_rt_str_bytes(a), a->bytes) == 0,
+        "appending the empty string returns a new string, never the other one");
   const idris_rt_str *r = idris_rt_str_reverse(empty);
   check(r == empty && count(empty) == 0, "reversing the empty string returns it, still persistent");
   const idris_rt_str *whole = idris_rt_str_drop_bytes(a, 0);
-  check(whole == a && count(a) == 4,
-        "dropping no bytes returns the string, with a reference for the caller");
+  check(whole != a && count(whole) == 1 && count(a) == 1 && whole->bytes == a->bytes,
+        "dropping no bytes returns a new string, never its argument");
   const idris_rt_str *none = idris_rt_str_drop_bytes(a, 100);
   check(none == empty && count(empty) == 0,
         "dropping every byte returns the persistent empty string");
@@ -404,12 +426,12 @@ static void stringsAndBignums(void) {
         "dropping some bytes returns a new string with the flag of its source");
   const idris_rt_str *strings[] = {ae, ea, ab, a, b, ascii, empty, r, whole, none, rest};
   for (size_t i = 0; i < sizeof strings / sizeof strings[0]; ++i)
-    idris_rt_dec((void *)strings[i]);
+    idris_rt_dec_cell((void *)strings[i]);
   check(live() == before, "strings are freed by dec");
 
   const idris_rt_str *digits = text("123456789012345678901234567890");
   idris_rt_big x = idris_rt_big_from_str(digits);
-  idris_rt_dec((void *)digits);
+  idris_rt_dec_cell((void *)digits);
   check((x & 1) == 0 && count((void *)(uintptr_t)x) == 1 &&
             header((void *)(uintptr_t)x)->info == idris_rt_info(0, 0, IDRIS_RT_KIND_BIGNUM),
         "a big outside the small range is a cell of kind bignum");
@@ -418,14 +440,14 @@ static void stringsAndBignums(void) {
   check(zero == 1, "a result in the small range is a small word, not a cell");
   const idris_rt_str *shown = idris_rt_big_show(y);
   check(count(shown) == 1, "show returns a new string");
-  idris_rt_dec((void *)shown);
-  idris_rt_big_release(zero);
-  idris_rt_big_release(y);
+  idris_rt_dec_cell((void *)shown);
+  idris_rt_dec_big(zero);
+  idris_rt_dec_big(y);
   check(live() == before + 1, "bignums are freed by dec");
 
   /* A box that owns a bignum, a string and a small big. */
   void *fields[] = {(void *)(uintptr_t)x, (void *)text("owned"), word(-3)};
-  idris_rt_dec(con(4, 3, fields, 0));
+  idris_rt_dec_any(con(4, 3, fields, 0));
   check(live() == before, "a box releases the bignum and the string it owns");
 }
 
@@ -435,72 +457,33 @@ static void stringsAndBignums(void) {
 static void tokens(void) {
   uint64_t before = live();
   void *unique = cons(1, NULL), *shared = cons(2, NULL);
-  idris_rt_inc(shared);
+  idris_rt_inc_any(shared);
   void *fields[] = {unique, shared};
   void *cell = con(2, 2, fields, 0);
   check(idris_rt_is_unique(cell), "a new cell is exclusive");
   /* The fields move out, and the moved references are dropped. */
-  idris_rt_dec(unique);
-  idris_rt_dec(shared);
+  idris_rt_dec_any(unique);
+  idris_rt_dec_any(shared);
   check(live() == before + 2 && count(shared) == 1, "the moved fields keep their references");
   /* Reuse: a cell of the same size with a new header and fields. */
   header(cell)->info = box(9, 1);
   *slot(cell, 8) = shared;
   *slot(cell, 16) = NULL;
-  idris_rt_dec(cell);
+  idris_rt_dec_any(cell);
   check(live() == before, "a reused cell is an ordinary cell");
 
   void *other[] = {cons(3, NULL), NULL};
   cell = con(2, 2, other, 0);
-  idris_rt_dec(other[0]);
-  idris_rt_free_cell(cell);
-  check(live() == before, "free_cell frees a cell whose fields moved out");
+  idris_rt_dec_any(other[0]);
+  idris_rt_free_token(cell);
+  check(live() == before, "free_token frees an exclusive cell whose fields moved out");
 
   void *twice = cons(4, NULL);
-  idris_rt_inc(twice);
+  idris_rt_inc_any(twice);
   check(!idris_rt_is_unique(twice), "a cell with two references is not exclusive");
-  idris_rt_dec(twice);
-  idris_rt_dec(twice);
+  idris_rt_dec_any(twice);
+  idris_rt_dec_any(twice);
   check(live() == before, "a shared cell is freed with its last reference");
-}
-
-static void stackCells(void) {
-  uint64_t before = live();
-  struct {
-    idris_rt_header header;
-    void *slots[2];
-    int64_t plain;
-  } frame = {{1, box(4, 2) | IDRIS_RT_STACK_CELL}, {cons(1, NULL), cons(2, NULL)}, 99};
-  void *shared = frame.slots[1];
-  idris_rt_inc(shared);
-  check(live() == before + 2, "a stack cell is not a live cell");
-  check(!idris_rt_is_unique(&frame.header), "a stack cell is never exclusive");
-  idris_rt_inc(&frame);
-  idris_rt_dec(&frame);
-  check(frame.header.count == 1 && !idris_rt_is_unique(&frame.header),
-        "a stack cell at count 1 is not exclusive either");
-  idris_rt_dec(&frame);
-  check(frame.header.count == 0 && frame.plain == 99,
-        "a stack cell at count 0 is inert, and its memory is its frame's");
-  check(live() == before + 1 && count(shared) == 1, "a dead stack cell released its slots");
-  idris_rt_dec(&frame);
-  idris_rt_free_cell(&frame);
-  idris_rt_dec(shared);
-  check(live() == before, "the rest is freed by its owner");
-
-  struct {
-    idris_rt_header header;
-    void *slots[1];
-    int64_t plain;
-  } inner = {{1, box(5, 1) | IDRIS_RT_STACK_CELL}, {cons(3, NULL)}, 42};
-  idris_rt_free_cell(&inner);
-  check(inner.header.count == 1 && live() == before + 1, "free_cell leaves a stack cell alone");
-  /* Held in a heap cell's slot, which idr-rc-stack never builds, a stack cell
-   * still keeps its memory when it dies. */
-  void *holder = cons(0, &inner);
-  idris_rt_dec(holder);
-  check(inner.header.count == 0 && inner.plain == 42 && live() == before,
-        "a stack cell that dies in a worklist releases its slots and keeps its memory");
 }
 
 /* A box or a thunk of `n` object slots laid out wide, as idr-lower lays out
@@ -531,21 +514,21 @@ static void wideCells(void) {
       *slot(box, 16 + 8 * (size_t)i) = value;
     }
     check(live() == before + 1 + held, "a wide box and the cells its slots hold are live");
-    idris_rt_dec(box);
+    idris_rt_dec_any(box);
     check(live() == before, "one dec frees a wide box and every cell its slots hold");
 
     void *shared = cons(1, NULL);
     void *thunk = wide(IDRIS_RT_KIND_THUNK, n);
     for (uint64_t i = 0; i < n; ++i) {
-      idris_rt_inc(shared);
+      idris_rt_inc_any(shared);
       *slot(thunk, 16 + 8 * (size_t)i) = shared;
     }
     check(count(shared) == 1 + n && live() == before + 2,
           "a wide thunk holds a reference to its capture in each of its slots");
-    idris_rt_dec(thunk);
+    idris_rt_dec_any(thunk);
     check(count(shared) == 1 && live() == before + 1,
           "a wide thunk's death releases the capture in each of its slots once");
-    idris_rt_dec(shared);
+    idris_rt_dec_any(shared);
   }
 }
 
@@ -560,49 +543,9 @@ static void groupWords(void) {
     void *fields[] = {word(g), cons(1, NULL), cons(2, NULL)};
     void *cell = con(5, 3, fields, g);
     check(live() == before + 3, "a cell of a group and the two cells it holds are live");
-    idris_rt_dec(cell);
+    idris_rt_dec_any(cell);
     check(live() == before, "one dec frees a cell of a group and both cells it holds");
   }
-}
-
-/* A static memo cell, as idr-lower writes a static thunk: count 0 (static
- * data), kind thunk, and two object slots, which its first force writes once
- * with a counted value. */
-typedef struct {
-  idris_rt_header header;
-  void *slots[2];
-} memoCell;
-
-/* idris_rt_persist_held, which every force calls once it wrote its value:
- * a static memo cell (count 0) makes what it then holds persistent, each
- * counted cell it reaches given count 0 and no longer counted live, a
- * persistent cell ending the walk, so that everything static data reaches
- * is static and nothing it holds is live at exit; a counted memo cell
- * keeps its value counted, released when the cell dies. */
-static void persistHeld(void) {
-  uint64_t before = live();
-  uint32_t info = idris_rt_info(1, 2, IDRIS_RT_KIND_THUNK);
-  static memoCell forced;
-  forced.header = (idris_rt_header){0, info};
-  void *tail = cons(2, &persistentNil), *head = cons(1, tail);
-  forced.slots[0] = head;
-  forced.slots[1] = word(5);
-  idris_rt_persist_held(&forced);
-  check(live() == before && count(head) == 0 && count(tail) == 0,
-        "persist_held makes every counted cell a static memo cell holds persistent");
-  check(forced.header.count == 0 && forced.header.info == info && persistentNil.count == 0 &&
-            persistentNil.info == 0,
-        "persist_held keeps the static memo cell and the persistent cells it meets as they are");
-  idris_rt_dec(head);
-  check(count(head) == 0 && live() == before, "a persisted cell is never counted again");
-
-  void *held = cons(3, NULL), *captures[] = {held};
-  void *counted = thunk(0, 1, captures);
-  idris_rt_persist_held(counted);
-  check(count(counted) == 1 && count(held) == 1 && live() == before + 2,
-        "persist_held of a counted memo cell changes nothing");
-  idris_rt_dec(counted);
-  check(live() == before, "a counted memo cell still frees what it holds");
 }
 
 static void report(void) {
@@ -611,27 +554,28 @@ static void report(void) {
                         : snprintf(line, sizeof line, "rc: %d checks fail\n", failures);
   const idris_rt_str *s = idris_rt_str_from_utf8(line, (size_t)n);
   idris_rt_io_put_str(s);
-  idris_rt_dec((void *)s);
+  idris_rt_dec_cell((void *)s);
 }
 
-int main(int argc, char **argv) {
-  const char *mode = argc > 1 ? argv[1] : "";
+/* A site's texts, laid out as idris_rt_text: the static texts of the
+ * program the lowering writes, one per file and per function. */
+static const struct {
+  uint32_t length;
+  char bytes[16];
+} file = {8, "Main.idr"}, function = {9, "Main.main"};
+
+static const char *mode = "";
+
+static void body(void) {
   if (strcmp(mode, "leak") == 0) {
     idris_rt_cell(16, box(0, 0));
-    idris_rt_main_return();
-    return 0;
+    return;
   }
   if (strcmp(mode, "crash") == 0) {
     idris_rt_cell(16, box(0, 0));
-    static const char cause[] = "crashed";
-    idris_rt_crash(cause, sizeof cause - 1);
+    /* The first cause of the specification's list, division by zero. */
+    idris_rt_crash_at(0, (void *)&function, (void *)&file, 3, 7);
   }
-  struct rlimit stack;
-  if (getrlimit(RLIMIT_STACK, &stack) == 0 && stack.rlim_cur != RLIM_INFINITY)
-    printf("stack: %llu KiB\n", (unsigned long long)stack.rlim_cur / 1024);
-  else
-    printf("stack: unlimited\n");
-  fflush(stdout);
   noOps();
   balance();
   saturation();
@@ -643,12 +587,18 @@ int main(int argc, char **argv) {
   memrefCopies();
   stringsAndBignums();
   tokens();
-  stackCells();
   wideCells();
   groupWords();
-  persistHeld();
-  check(live() == 0, "nothing is live at the end");
   report();
-  idris_rt_main_return();
-  return failures == 0 ? 0 : 1;
+  if (failures != 0)
+    idris_rt_exit(1);
+}
+
+/* Freeing a list of 10^7 cells by recursion would need hundreds of
+ * megabytes; the runtime frees it on this. */
+IDRIS_RT_TEST_PROGRAM("rc", 256 * 1024);
+
+int main(int argc, char **argv) {
+  mode = argc > 1 ? argv[1] : "";
+  idris_rt_test_start(body, argc, argv);
 }

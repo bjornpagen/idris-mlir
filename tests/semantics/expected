@@ -3,3 +3,7 @@ artifacts: core module objects executable
 cases: each as expected
 universal: holds
 heap: nothing is allocated on the heap
+stdin: compile: exit 0
+stdin: artifacts: core module objects executable
+stdin: cases: each as expected
+stdin: universal: holds

@@ -3,7 +3,7 @@
 // vectorized: after the vectorization schedule, some loop computes on
 // vectors, and none over words with a parallel dimension stays scalar.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"

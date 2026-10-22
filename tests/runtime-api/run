@@ -3,20 +3,22 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Reference counting frees what it counts: a structure of any depth on a
 # small stack, a wide cell's slots after the word that counts them, and
-# never an odd word an object slot holds; a new array's object slots are
-# NULL from birth; a copy of a memref's view counts each object it copies
-# before it releases what it overwrites; a static memo cell's force makes
-# what it then holds persistent (idris_rt_persist_held), and a counted
-# one's leaves it counted; and a program
-# that returns reports its live cells when IDRIS_RT_LIVE is exactly 1, and
-# a crash never does. Every entry point that takes a handle gives, on each
-# kind of handle (null, the standard streams, a file open and closed, a
-# directory), its result and the errno it leaves (handles.c).
+# never an odd word an object slot holds; each kind of counted word's
+# entry leaves alone the words its kind admits besides a cell; a new
+# array's object slots are NULL from birth; a copy of a memref's view
+# counts each object it copies before it releases what it overwrites; a
+# string operation's result is never its operand (rc.c). Each runs as a
+# program on the checked runtime: one that returns with a cell still held
+# ends as its internal error, and a crash counts no cell. Every entry point
+# that takes a handle gives, on each kind of handle (null, the standard
+# streams, a file open and closed, a directory), its result and the errno
+# it leaves (handles.c).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-# The runtime archive the build made, linked natively with GMP.
-runtime=$dev_prefix/runtime/libidris_rt.a
+# build_test SOURCE OUTPUT: SOURCE linked as a program with the checked
+# runtime and the count of the cells it holds (harness/prop/held.cpp).
 build_test() {
-  if runtime_c link_program -O1 "$1" "$runtime" -o "$2" > "$work/cc.log" 2>&1; then
+  if runtime_c link_program -O1 -I"$root/harness/prop" "$1" "$root/harness/prop/held.cpp" \
+      "$checked_runtime" -o "$2" > "$work/cc.log" 2>&1; then
     say "${2##*/}: built"
   else
     say "${2##*/}: does not build"
@@ -26,42 +28,21 @@ build_test() {
 }
 build_test "$here/rc.c" "$work/rc" || exit 0
 
-# 256 KiB of stack: freeing the list of 10^7 cells by recursion would need
-# hundreds of megabytes.
-( ulimit -s 256 && IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$work/rc" ) \
-  > "$work/rc.out" 2> "$work/rc.err"
-say "rc: exit $?"
-cat "$work/rc.out" "$work/rc.err"
-
-# rc_mode MODE [SETTING]: rc MODE with IDRIS_RT_LIVE=SETTING, or with the
-# variable unset; its exit status, then every line of its stdout and stderr.
+# rc_mode [MODE]: rc in MODE; its exit status, then every line of its
+# stdout and stderr.
 rc_mode() {
-  if [ $# -gt 1 ]; then
-    ( IDRIS_RT_LIVE=$2 && export IDRIS_RT_LIVE && bounded "$work/rc" "$1" ) \
-      > "$work/mode.out" 2> "$work/mode.err"
-    say "rc $1, IDRIS_RT_LIVE=$2: exit $?"
-  else
-    ( unset IDRIS_RT_LIVE && bounded "$work/rc" "$1" ) > "$work/mode.out" 2> "$work/mode.err"
-    say "rc $1, IDRIS_RT_LIVE unset: exit $?"
-  fi
-  sed 's/^/  stdout | /' "$work/mode.out"
+  bounded "$work/rc" "$@" > "$work/mode.out" 2> "$work/mode.err"
+  say "rc${1:+ $1}: exit $?"
+  cat "$work/mode.out"
   sed 's/^/  stderr | /' "$work/mode.err"
 }
-# The report is made only when the setting is exactly "1": not when it is
-# unset, empty, 0, a word, or a text that has a 1 and more.
-rc_mode leak 1
+rc_mode
 rc_mode leak
-rc_mode leak ''
-rc_mode leak 0
-rc_mode leak yes
-rc_mode leak 11
-rc_mode leak 01
-rc_mode leak '1 '
-rc_mode crash 1
+rc_mode crash
 
 build_test "$here/handles.c" "$work/handles" || exit 0
 # handles writes to standard output and error through the runtime, in one
 # order, so both go to one file; its standard input is a file of its own.
-( IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$work/handles" ) > "$work/handles.out" 2>&1
+bounded "$work/handles" > "$work/handles.out" 2>&1
 say "handles: exit $?"
 cat "$work/handles.out"

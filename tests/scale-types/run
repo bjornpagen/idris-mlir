@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Hundreds of families, half a chain each holding the one before, half
+# holding the chain's last, each built by a function: a table of the data
+# types was once rebuilt per declaration, and a type's text held every body
+# it reached. A family's identity is its content, so this is the shape
+# that must stay linear. Compiled at its size and at twice it, no count of
+# the compiler's work grows faster than the program.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/scale.sh"
+scale_relation types

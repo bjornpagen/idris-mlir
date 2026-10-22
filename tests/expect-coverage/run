@@ -1,54 +1,75 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# Every property idr-expect knows has a dialect fixture in which it
-# fails: a property no module makes fail holds of every module, and a
-# test that states it checks nothing. A failing fixture expects the
-# property's fixed words, `{{expected <name>: `, in a diagnostic it
-# expects, so the names are read from the rows of the one table of them
-# and each is looked for in the expectations of the fixtures, never in
-# their prose. The rule is `expect_coverage ROOT`, run on the repository
-# and on the planted trees (lib/planted.sh): witness/ holds a table of a
-# property no fixture makes fail, one a fixture names only in its prose
-# and in a RUN line that states it, and one whose name only begins
-# another's that fails; near-miss/ holds a table whose every property has
-# its failing fixture, and the exemption.
+# Every property idr-expect knows is shown able to fail and is stated:
+#   - a dialect fixture makes it fail, since a property no module makes
+#     fail holds of every module, and a test that states it checks
+#     nothing; a failing fixture expects the property's fixed words,
+#     `{{expected <name>: `, in a diagnostic it expects, never in its
+#     prose. A self-check is the exception: it holds an answer of the
+#     compiler to a second derivation of it, which only a defect makes
+#     disagree;
+#   - a test states it of what the compiler made (an mlir.expect line, or
+#     a harness check that asks idr-expect), since a property no test
+#     states holds the compiler to nothing. A universal property is
+#     stated by the contracts, of every compilation.
+# The names and roles are the rows of the one table of them, printed from
+# its records (Properties.inc). The rule is `expect_coverage ROOT`, run on
+# the repository and on the planted trees (lib/planted.sh): witness/ holds
+# a table of a property no fixture makes fail, one a fixture names only in
+# its prose and in a RUN line that states it, one whose name only begins
+# another's that fails, and one no test states; near-miss/ holds a table
+# whose every property has its failing fixture and its statement, a
+# self-check with no failing fixture, and a universal property no test
+# states.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-# One property checks the compiler against its own oracle, which only a
-# defective compiler makes disagree with, so no module makes it fail, and
-# it is the exemption: labels-least compares the label solve's answer with
-# the least sets derived the plain way.
-exempt='labels-least'
-table=foreign/idr/lib/Transforms/Expect/Lookup.cpp
+table=foreign/idr/lib/Transforms/Expect/Properties.inc
+
+# rows TABLE: each row of TABLE, `line<TAB>role<TAB>name`, the role the
+# macro's last word: PROPERTY, SELF_CHECK or UNIVERSAL.
+rows() {
+  awk '/^IDR_EXPECT_[A-Z_]+\("/ {
+         role = $0; sub(/\(.*/, "", role); sub(/^IDR_EXPECT_/, "", role)
+         name = $0; sub(/^[^"]*"/, "", name); sub(/".*/, "", name)
+         print NR "\t" role "\t" name }' "$1"
+}
+
+# stated NAME: a test states NAME, in the tree at the current directory:
+# a property of an mlir.expect line, or of a harness check's request of
+# idr-expect.
+stated() {
+  { grep -hv '^#' tests/*/mlir.expect 2> /dev/null
+    grep -h 'idr-expect' harness/lib/*.sh 2> /dev/null; } |
+    grep -qE "(^|[ :,=])$1(=|,|[ \"']|\$)"
+}
 
 # expect_coverage ROOT: each property of ROOT's table with no fixture of
 # ROOT where it fails, `path:line: what`, and each fixture that names it
-# otherwise, `path: what`.
+# otherwise, `path: what`; and each no test of ROOT states.
 expect_coverage() (
   cd "$1" || exit 1
   [ -f "$table" ] || exit 0
-  sed -n 's/^ *property<[^>]*>("\([^"]*\)".*/\1/p; =' "$table" |
-    awk '/^[0-9]+$/ { if (held != "") print $0 "\t" held; held = ""; next } { held = $0 }' |
-    while IFS='	' read -r n name; do
-      case " $exempt " in *" $name "*) continue ;; esac
-      cat tests/*/*.mlir 2> /dev/null | grep -qF "{{expected $name: " && continue
+  rows "$table" | while IFS='	' read -r n role name; do
+    if [ "$role" != SELF_CHECK ] &&
+       ! cat tests/*/*.mlir 2> /dev/null | grep -qF "{{expected $name: "; then
       printf '%s:%s: %s has no fixture where it fails\n' "$table" "$n" "$name"
       for fixture in tests/*/*.mlir; do
         [ -f "$fixture" ] && grep -qF -- "$name" "$fixture" &&
           printf '%s: names %s, but expects no failure of it\n' "$fixture" "$name"
       done
-    done
+    fi
+    if [ "$role" != UNIVERSAL ] && ! stated "$name"; then
+      printf '%s:%s: %s is stated by no test\n' "$table" "$n" "$name"
+    fi
+  done
 )
 
-if grep -q '^ *property<' "$root/$table"; then say "properties: found"; else say "properties: none found"; fi
-for name in $exempt; do
-  grep -qE "^ *property<[^>]*>\(\"$name\"" "$root/$table" || say "exempt and unknown: $name"
-done
+if [ -n "$(rows "$root/$table")" ]; then say "properties: found"; else say "properties: none found"; fi
 expect_coverage "$root" > "$work/unfailed"
 if [ -s "$work/unfailed" ]; then
-  say "no fixture where it fails:"
+  say "not covered:"
   sed 's/^/  /' "$work/unfailed"
 else
-  say "every property has a fixture where it fails, labels-least aside"
+  say "every property fails on a fixture, self-checks aside, and is stated by a test"
 fi
 planted expect_coverage

@@ -3,10 +3,10 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Reference counting and arrays hold to a model of what the runtime says
 # they mean, on every case counting.cpp draws: after each operation the
-# runtime's live cells, each live object's count and exclusivity, each
-# slot's word and the static cells agree with the model, wide cells, odd
-# words in slots, arrays held by boxes, view copies and memo cells
-# included; at a case's end nothing it made is live. Each run draws from a
+# cells the checked runtime holds, each live object's count and
+# exclusivity, each slot's word and the static cells agree with the model,
+# wide cells, odd words in slots, arrays held by boxes and view copies
+# included; at a case's end nothing it made is held. Each run draws from a
 # fresh seed, which a failure names; then the property runs with a planted
 # fault (the model blind to a wide cell's slots past what objs counts) and
 # must catch it.

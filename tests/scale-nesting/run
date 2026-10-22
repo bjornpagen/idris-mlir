@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# An `else if` ladder thousands deep, each branch nested in the last, and
+# a chain of twice as many non-tail calls: a recursion on nesting or on
+# call depth in the tools, ours or MLIR's, overflows the small stack they
+# keep. Both compile at their size and at twice it, to the ladder's full
+# depth of ten thousand, and no count of the work grows faster.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/scale.sh"
+scale_relation nesting

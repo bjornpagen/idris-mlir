@@ -3,21 +3,20 @@
 # Copyright (c) 2026 Bjorn Pagen
 # The checked runtime (libidris_rt_checked.a, Alloc/Alloc.h) ends a program
 # at the first count operation on a cell that died, a release once too
-# often or a reference that outlived its cell, and at one on a stack cell
-# whose frame has returned, naming which; counting as idris_rt.h defines
-# it ends as the runtime every program links ends it, with no cell live.
-# Each mode of checked.c makes one misuse, or none (held).
+# often or a reference that outlived its cell, and at the end of a program
+# whose body returned with a cell still held, each as the runtime's
+# internal error (SIGABRT after its message, 134 to the shell); counting as
+# idris_rt.h defines it ends as a program that returned. Each mode of
+# checked.c makes one misuse, or none (held).
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-runtime=$dev_prefix/runtime/libidris_rt_checked.a
-if ! runtime_c link_program -O1 "$here/checked.c" "$runtime" -o "$work/checked" \
-    > "$work/cc.log" 2>&1; then
+if ! runtime_c link_program -O1 -I"$root/harness/prop" "$here/checked.c" "$checked_runtime" \
+    -o "$work/checked" > "$work/cc.log" 2>&1; then
   say "checked: does not build"
   show "$work/cc.log"
   exit 0
 fi
-for mode in held twice holder dead returned; do
-  ( IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$work/checked" "$mode" ) \
-    > "$work/mode.out" 2> "$work/mode.err"
+for mode in held twice holder leak; do
+  bounded "$work/checked" "$mode" > "$work/mode.out" 2> "$work/mode.err"
   say "checked $mode: exit $?"
   sed 's/^/  stdout | /' "$work/mode.out"
   sed 's/^/  stderr | /' "$work/mode.err"

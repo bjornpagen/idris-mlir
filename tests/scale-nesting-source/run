@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The nesting fixture's two shapes as Idris source, an `else if` ladder
+# and a chain of non-tail calls, through the frontend: the elaborator's
+# own recursion meets the depth first. Both compile at their size and at
+# twice it, and no count of the work grows faster than the program.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/scale.sh"
+scale_relation nesting-source

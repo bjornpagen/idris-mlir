@@ -1,0 +1,4 @@
+# failing states its property, as checks-itself does: an mlir.expect's
+# lines name properties with their arguments, after a stage.
+owned: failing=@Main.f
+higher: checks-itself

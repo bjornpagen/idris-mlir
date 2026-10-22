@@ -9,6 +9,7 @@
 #include "bigmodel.h"
 #include "idris_rt.h"
 #include "prop.h"
+#include "runtime.h"
 // The large paths of the runtime's bigs, which each entry tail-calls when
 // an operand is large or a result leaves the small range, and which take
 // any bigs, small ones included: declared by the runtime's own header,
@@ -793,9 +794,9 @@ public:
   explicit Counted(const Operand &c) {
     idris_rt_big once = idris_rt_big_neg(c.word());
     word_ = idris_rt_big_neg(once);
-    idris_rt_big_release(once);
+    idris_rt_dec_big(once);
   }
-  ~Counted() { idris_rt_big_release(word_); }
+  ~Counted() { idris_rt_dec_big(word_); }
   Counted(const Counted &) = delete;
   Counted &operator=(const Counted &) = delete;
   idris_rt_big word() const { return word_; }
@@ -815,19 +816,19 @@ constexpr idris_rt_big nothing = 1;
 // references.
 template <typename Call> bool borrows(const char *name, idris_rt_big a, idris_rt_big b, Call call) {
   uint32_t ra = referencesOf(a), rb = referencesOf(b);
-  uint64_t live = idris_rt_live_cells();
+  uint64_t live = prop::held();
   idris_rt_big r = call();
   bool shaped = bigmodel::canonical(r);
   uint32_t ga = referencesOf(a), gb = referencesOf(b);
   bool kept = ga == ra + (r == a && (a & 1) == 0) && gb == rb + (r == b && (b & 1) == 0);
   bool leaked = (r & 1) == 0 && prop::planted(leaksResult);
-  idris_rt_big_release(r);
-  bool freed = idris_rt_live_cells() + leaked == live;
+  idris_rt_dec_big(r);
+  bool freed = prop::held() + leaked == live;
   bool restored = referencesOf(a) == ra && referencesOf(b) == rb;
   if (!kept || !freed || !restored)
     prop::explain("%s: operands' references %u and %u became %u and %u, then %u and %u; live cells %llu, then %llu",
                   name, ra, rb, ga, gb, referencesOf(a), referencesOf(b), static_cast<unsigned long long>(live),
-                  static_cast<unsigned long long>(idris_rt_live_cells()));
+                  static_cast<unsigned long long>(prop::held()));
   return shaped && kept && freed && restored;
 }
 
@@ -875,8 +876,7 @@ bool ownership(const Operand &ca, const Operand &cb, const Operand &cAmount, pro
 
 } // namespace
 
-int main(int argc, char **argv) {
-  idris_rt_gmp_init();
+static int properties(int argc, char **argv) {
   prop::Run run(argc, argv);
 
   run.property("add, sub, mul: the integer GMP computes", missedOverflow,
@@ -1029,12 +1029,12 @@ int main(int argc, char **argv) {
                  drawBig(p, mask, bv, "b");
                  drawShift(p, prop::pick(p, prop::swarm(p, shiftFamilies)), kv);
                  Operand a(av), b(bv), amount(kv);
-                 uint64_t live = idris_rt_live_cells();
+                 uint64_t live = prop::held();
                  bool ok = ownership(a, b, amount, tally);
-                 if (idris_rt_live_cells() != live) {
+                 if (prop::held() != live) {
                    prop::explain("live cells %llu before the operands were counted, %llu after",
                                  static_cast<unsigned long long>(live),
-                                 static_cast<unsigned long long>(idris_rt_live_cells()));
+                                 static_cast<unsigned long long>(prop::held()));
                    ok = false;
                  }
                  return ok;
@@ -1042,3 +1042,5 @@ int main(int argc, char **argv) {
 
   return run.finish();
 }
+
+int main(int argc, char **argv) { return prop::onRuntime(argc, argv, "bigs", properties); }

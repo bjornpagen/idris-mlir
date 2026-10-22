@@ -43,8 +43,17 @@
 |||     runtests --rules                every rule's phrase and its category's (Facts.idr)
 |||     runtests --trace-totals <trace> | --trace-units <trace>...
 |||                                     time traces summed (Trace.idr)
-|||     runtests --sem-program <name>   the program of a semantics test
-|||     runtests --sem-expected <name>  the stdout its program must print
+|||     runtests --sem-program written|stdin <name>
+|||                                     the program of a semantics test, its
+|||                                     operands written in it or read
+|||     runtests --sem-stdin <name>     the stdin its reading program reads
+|||     runtests --sem-expected <name>  the stdout either program must print
+|||     runtests --linear-program <seed> <case> linear|twin|stdin|verdict | checks
+|||                                     a generated linear program, its
+|||                                     de-linearized twin, its input, the
+|||                                     verdict the rule predicts (Linear.idr)
+|||     runtests --linear-check <seed> <case> <status> <report>
+|||                                     a compilation held to that verdict
 |||     runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ...
 |||                                     a program or a case of the fuzzer (Fuzz.idr)
 |||     runtests --fuzz-check overran|agree|model|first|modelled <request> [<stdout-file>]
@@ -54,6 +63,16 @@
 |||                                     or its checker's own checks
 |||     runtests --lazy-check <seed> <cases> <stdout-file>
 |||                                     what it printed, checked against its model
+|||     runtests --expect-table         idr-expect's table of properties, printed
+|||                                     from their records (Properties.idr)
+|||     runtests --scale-print <fixture> 1|2
+|||                                     a scale fixture at its size or twice it
+|||     runtests --scale-check <report> <trace> <report> <trace>
+|||                                     the two compilations held to the
+|||                                     scaling relation (Scale.idr)
+|||     runtests --runtime-effects      what each op that calls the runtime
+|||                                     declares, per runtime function
+|||                                     (RuntimeEffects.idr)
 |||     runtests --lock                 the check of toolchain.lock.json
 module Main
 
@@ -73,9 +92,13 @@ import Facts
 import Files
 import Fuzz
 import Lazy
+import Linear
 import Lock
+import Properties
 import Reject
 import Runner
+import RuntimeEffects
+import Scale
 import Sem
 import Trace
 
@@ -299,7 +322,11 @@ usage = unlines
   , "       runtests --case-status <case>"
   , "       runtests --reject <test> <report> <output> | --rules"
   , "       runtests --trace-totals <trace> | --trace-units <trace>..."
-  , "       runtests --sem-program <name> | --sem-expected <name> | --lock"
+  , "       runtests --sem-program written|stdin <name> | --sem-stdin <name> | --sem-expected <name> | --lock"
+  , "       runtests --linear-program <seed> <case> linear|twin|stdin|verdict | --linear-program checks"
+  , "       runtests --linear-check <seed> <case> <status> <report>"
+  , "       runtests --expect-table | --scale-print <fixture> 1|2 | --scale-check <report> <trace> <report> <trace>"
+  , "       runtests --runtime-effects"
   , "       runtests --fuzz-program program|threads|tape|replay|shrink|two-hosts ..."
   , "       runtests --fuzz-check overran|agree|model|first|modelled program <seed> <cases> <part> | replay <tape> <part> [<stdout-file>]"
   , "       runtests --lazy-program <seed> <cases> main|stdin | --lazy-program checks | --lazy-check <seed> <cases> <stdout-file>"
@@ -350,16 +377,24 @@ main = do
     ["--reject", test, report, output] => reject test report output
     ["--trace-totals", trace] => traceTotals trace
     ("--trace-units" :: traces@(_ :: _)) => traceUnits traces
-    ["--sem-program", name] =>
-      maybe (die ("no semantics test " ++ name)) putStr (Sem.programOf name)
+    ["--sem-program", given, name] =>
+      maybe (die ("no semantics test " ++ name)) putStr (givenOf given >>= \g => Sem.programOf g name)
+    ["--sem-stdin", name] =>
+      maybe (die ("no semantics test " ++ name)) putStr (Sem.stdinOf name)
     ["--sem-expected", name] =>
       maybe (die ("no semantics test " ++ name)) putStr (expectedOf name)
     ("--fuzz-program" :: fuzz) => maybe (die usage) putStr (Fuzz.programOf fuzz)
     ("--fuzz-check" :: check) => fuzzCheck check
+    ("--linear-program" :: request) => maybe (die usage) putStr (Linear.programOf request)
+    ["--linear-check", seed, n, status, report] => Linear.check seed n status report
     ("--lazy-program" :: request) => maybe (die usage) putStr (Lazy.programOf request)
     ["--lazy-check", seed, n, file] => do
       output <- bytesOrDie file
       maybe (die usage) putStr (Lazy.checkOf [seed, n] output)
+    ["--expect-table"] => putStr Properties.table
+    ("--scale-print" :: request) => maybe (die usage) putStr (Scale.printOf request)
+    ("--scale-check" :: files) => scaleCheck files
+    ["--runtime-effects"] => putStr (unlines effectLines)
     ["--lock"] => Lock.check !root
     ["--rules"] => putStr (unlines ruleLines)
     _ => die usage

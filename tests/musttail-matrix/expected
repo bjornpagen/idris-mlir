@@ -1,0 +1,8 @@
+many-arguments: a million levels on a 256 KiB stack, at -O0 and -O2
+result-in-registers: a million levels on a 256 KiB stack, at -O0 and -O2
+result-in-memory: a million levels on a 256 KiB stack, at -O0 and -O2
+mixed-registers: a million levels on a 256 KiB stack, at -O0 and -O2
+aggregate-by-value: a million levels on a 256 KiB stack, at -O0 and -O2
+aggregate-in-memory: a million levels on a 256 KiB stack, at -O0 and -O2
+mutual: a million levels on a 256 KiB stack, at -O0 and -O2
+large-caller-frame: a million levels on a 256 KiB stack, at -O0 and -O2

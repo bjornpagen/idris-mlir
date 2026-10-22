@@ -8,14 +8,15 @@
 #     . "$root/harness/prop/prop.sh"
 
 # prop_build SOURCE OUTPUT: the property program SOURCE, compiled against
-# prop.h and compiler-rt's FuzzedDataProvider and linked with the runtime
-# archive the build made, as link_program links a program; the compiler's
-# output in $work/prop-cc.log. Says OUTPUT's name and `built`, or `does not
-# build` and the log; status 0 when built.
+# prop.h, runtime.h and compiler-rt's FuzzedDataProvider and linked with the
+# checked runtime the build made, whose count of held cells runtime.h
+# reads, as link_program links a program; the compiler's output in
+# $work/prop-cc.log. Says OUTPUT's name and `built`, or `does not build` and
+# the log; status 0 when built.
 prop_build() {
   if runtime_c link_program -std=c++2c -fno-exceptions -fno-rtti -O1 \
       -I"$root/harness/prop" -I"$toolchain/llvm-project/compiler-rt/include" \
-      "$1" "$dev_prefix/runtime/libidris_rt.a" -o "$2" > "$work/prop-cc.log" 2>&1; then
+      "$1" "$checked_runtime" -o "$2" > "$work/prop-cc.log" 2>&1; then
     say "${2##*/}: built"
   else
     say "${2##*/}: does not build"

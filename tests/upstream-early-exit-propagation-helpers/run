@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/66-early-exit-propagation-helpers: the two helpers that answer a
+# propagating op's successors for an exit crossing it are exported from
+# ControlFlowInterfaces, where every propagating op of any dialect calls
+# them, instead of each dialect keeping its own copy. Nothing runs to show
+# it: the installed header of the pinned, patched MLIR declares both.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+header=$llvm_prefix/include/mlir/Interfaces/ControlFlowInterfaces.h
+for helper in terminatorPropagatesThrough appendPropagatedTerminatorSuccessors; do
+  if grep -q "\\<$helper\\>" "$header" 2> /dev/null; then
+    say "$helper: declared beside the region branch interfaces"
+  else
+    say "$helper: not declared in $header"
+  fi
+done

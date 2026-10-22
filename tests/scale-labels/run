@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Thousands of closure labels on one key, each label capturing a closure
+# of that key, so the key is on a cycle of captures and its sum holds every
+# label: the label solve once did work in the product of its points and
+# its labels, and a sum of more labels than a cell's header has tags must
+# compile as any other. Compiled at its size and at twice it, no count of
+# the compiler's work grows faster than the program.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/scale.sh"
+scale_relation labels

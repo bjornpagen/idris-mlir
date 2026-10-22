@@ -4,7 +4,7 @@ tail, cons, from_char, append: the model's: ok
 reverse: the model's: ok
 substr: the model's, negative and past-the-end arguments included: ok
 cmp: the order of the scalars: ok
-results: canonical, the empty one persistent, an operand returned with one more reference: ok
+results: canonical, the empty one persistent, every other a new string, never an operand: ok
 box: every string of at most 3 scalars over a, U+00E9, U+20AC, U+1F600, every operation: ok
 every operation borrows its operands and returns one owned result: ok
 the empty string: every operation that makes one gives the one persistent empty string: ok

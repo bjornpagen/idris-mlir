@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/79-operation-equivalence-symbol-hook: OperationEquivalence takes
+# a hook mapping a symbol reference to its class, so partition refinement
+# finds two callers equal when their callees are one class. The
+# deduplication over equivalent-callers.mlir's shape is the compiler's
+# (its program tests show it); upstream's test is the patch's unit test.
+# Here: the installed header declares the hook, and the reproducer, whose
+# callers differ only by callee, still parses and verifies.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+header=$llvm_prefix/include/mlir/IR/OperationSupport.h
+if grep -q 'MapSymbolRefFn' "$header" 2> /dev/null; then
+  say "OperationEquivalence: the symbol hook is declared"
+else
+  say "OperationEquivalence: no symbol hook in $header"
+fi
+if bounded "$llvm_bin/mlir-opt" "$root/upstream/79-operation-equivalence-symbol-hook/equivalent-callers.mlir" \
+     -o /dev/null 2> "$work/err"; then
+  say "the reproducer verifies"
+else
+  say "the reproducer does not verify"
+  show "$work/err"
+fi

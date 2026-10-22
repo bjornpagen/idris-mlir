@@ -14,7 +14,7 @@
  * points run first and read the open file to its end, then the writing ones;
  * the entry points that close or free a handle each run on fresh handles.
  * Every handle the runtime gives the program is freed, so at the end no cell
- * is live. */
+ * is held: the program runs on the checked runtime, whose end says so. */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include "idris_rt.h"
+#include "program.h"
 
 /* The text of standard input and of the open file. */
 static const char content[] = "Ab\ncd\nef\ngh\n";
@@ -40,6 +41,10 @@ static const char *in(const char *name) {
 
 static const idris_rt_str *text(const char *s) { return idris_rt_str_from_utf8(s, strlen(s)); }
 
+/* Whether a pointer of base is null: -1, as idris_rt.h says, a compare the
+ * program makes itself. */
+static int isNullHandle(int64_t handle) { return handle == -1; }
+
 /* A line of this program's, written through the runtime's standard output. */
 static void say(const char *format, ...) {
   char line[1024];
@@ -49,14 +54,14 @@ static void say(const char *format, ...) {
   va_end(arguments);
   const idris_rt_str *s = idris_rt_str_from_utf8(line, (size_t)n);
   idris_rt_io_put_str(s);
-  idris_rt_str_release(s);
+  idris_rt_dec_cell((void *)s);
 }
 
 /* The saved errno set to ENOENT, by removing what does not exist. */
 static void resetErrno(void) {
   const idris_rt_str *none = text(in("none"));
   idris_rt_io_file_remove(none);
-  idris_rt_str_release(none);
+  idris_rt_dec_cell((void *)none);
 }
 
 /* What a call left in the saved errno, after resetErrno. */
@@ -80,7 +85,7 @@ typedef struct {
 /* A string handle as the program sees it: null, or the text it holds, its
  * line ends written \n; the handle is then freed, as base frees one. */
 static void stringResult(int64_t handle, char *out, size_t size) {
-  if (idris_rt_handle_is_null(handle)) {
+  if (isNullHandle(handle)) {
     snprintf(out, size, "null");
     return;
   }
@@ -92,7 +97,7 @@ static void stringResult(int64_t handle, char *out, size_t size) {
     at += (size_t)(bytes[i] == '\n' ? snprintf(out + at, size - at, "\\n")
                                     : snprintf(out + at, size - at, "%c", bytes[i]));
   snprintf(out + at, size - at, "\"");
-  idris_rt_str_release(s);
+  idris_rt_dec_cell((void *)s);
   idris_rt_io_handle_free(handle);
 }
 
@@ -125,7 +130,6 @@ static int64_t readBytes(int64_t handle, int64_t offset, int64_t count) {
 
 /* The calls. */
 static void number(char *o, size_t n, int64_t v) { snprintf(o, n, "%lld", (long long)v); }
-static void isNull(int64_t h, char *o, size_t n) { number(o, n, idris_rt_handle_is_null(h)); }
 static void readChar(int64_t h, char *o, size_t n) { number(o, n, idris_rt_io_file_read_char(h)); }
 static void readLine(int64_t h, char *o, size_t n) { stringResult(idris_rt_io_file_read_line(h), o, n); }
 static void readChars2(int64_t h, char *o, size_t n) { stringResult(idris_rt_io_file_read_chars(2, h), o, n); }
@@ -175,17 +179,17 @@ static void fileTime(int64_t h, char *o, size_t n) {
 static void timeFields(int64_t h, char *o, size_t n) { fields(h, o, n); }
 static void dirEntry(int64_t h, char *o, size_t n) {
   int64_t entry = idris_rt_io_dir_entry(h);
-  snprintf(o, n, "%s", idris_rt_handle_is_null(entry) ? "null" : "a name");
+  snprintf(o, n, "%s", isNullHandle(entry) ? "null" : "a name");
 }
 static void writeLine(int64_t h, char *o, size_t n) {
   const idris_rt_str *line = text("written by write_line\n");
   snprintf(o, n, "%lld", (long long)idris_rt_io_file_write_line(h, line));
-  idris_rt_str_release(line);
+  idris_rt_dec_cell((void *)line);
 }
 static void writeEmptyLine(int64_t h, char *o, size_t n) {
   const idris_rt_str *line = text("");
   snprintf(o, n, "%lld", (long long)idris_rt_io_file_write_line(h, line));
-  idris_rt_str_release(line);
+  idris_rt_dec_cell((void *)line);
 }
 static void writeBytes4(int64_t h, char *o, size_t n) {
   memcpy(idris_rt_array_bytes(buffer), "..wb\n..", 7);
@@ -199,7 +203,7 @@ static void fileFlush(int64_t h, char *o, size_t n) { number(o, n, idris_rt_io_f
 static void state(int64_t h, char *o, size_t n) {
   if (idris_rt_io_file_error(h) == 0)
     snprintf(o, n, "a stream");
-  else if (!idris_rt_handle_is_null(idris_rt_io_dir_entry(h)))
+  else if (!isNullHandle(idris_rt_io_dir_entry(h)))
     snprintf(o, n, "a directory");
   else
     snprintf(o, n, "closed");
@@ -228,8 +232,8 @@ static int64_t openWith(const char *name, const char *mode) {
   const idris_rt_str *p = text(in(name));
   const idris_rt_str *m = text(mode);
   int64_t handle = idris_rt_io_file_open(p, m);
-  idris_rt_str_release(p);
-  idris_rt_str_release(m);
+  idris_rt_dec_cell((void *)p);
+  idris_rt_dec_cell((void *)m);
   return handle;
 }
 
@@ -240,7 +244,7 @@ static Handles fresh(void) {
   Handles h = {{-1, 0, 1, 2, openWith("file", "r+"), openWith("closed", "r"), -1}};
   const idris_rt_str *d = text(in("directory"));
   h.at[6] = idris_rt_io_dir_open(d);
-  idris_rt_str_release(d);
+  idris_rt_dec_cell((void *)d);
   idris_rt_io_dir_entry(h.at[6]);
   idris_rt_io_file_close(h.at[5]);
   return h;
@@ -252,20 +256,11 @@ static void done(const Handles *h) {
   idris_rt_io_dir_close(h->at[6]);
 }
 
-int main(void) {
-  if (mkdtemp(directory) == NULL)
-    return 2;
-  mkdir(in("directory"), 0700);
-  int input = open(in("input"), O_RDWR | O_CREAT | O_TRUNC, 0600);
-  if (input < 0 || write(input, content, sizeof content - 1) != (ssize_t)(sizeof content - 1) ||
-      lseek(input, 0, SEEK_SET) != 0 || dup2(input, 0) != 0)
-    return 2;
-  close(input);
+static void body(void) {
   buffer = idris_rt_array_new(16, idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY));
 
   Handles h = fresh();
   say("handles: -1, standard input, output and error, a file, a closed file, a directory\n");
-  row("handle_is_null", &h, isNull);
   /* Reading: standard input and the file each hold the content. */
   row("file_read_char", &h, readChar);
   row("file_read_line", &h, readLine);
@@ -299,12 +294,27 @@ int main(void) {
   row("handle_free, then", &h, handleFree);
   done(&h);
 
-  idris_rt_dec(buffer);
+  idris_rt_dec_cell(buffer);
   const char *files[] = {"file", "closed", "input"};
   for (size_t i = 0; i < sizeof files / sizeof files[0]; ++i)
     unlink(in(files[i]));
   rmdir(in("directory"));
   rmdir(directory);
-  idris_rt_main_return();
-  return 0;
+}
+
+/* Lines of a kilobyte, built in place, and the C library's calls. */
+IDRIS_RT_TEST_PROGRAM("handles", 256 * 1024);
+
+/* Standard input replaced by the program's file before the runtime starts,
+ * and so before it reads it. */
+int main(int argc, char **argv) {
+  if (mkdtemp(directory) == NULL)
+    return 2;
+  mkdir(in("directory"), 0700);
+  int input = open(in("input"), O_RDWR | O_CREAT | O_TRUNC, 0600);
+  if (input < 0 || write(input, content, sizeof content - 1) != (ssize_t)(sizeof content - 1) ||
+      lseek(input, 0, SEEK_SET) != 0 || dup2(input, 0) != 0)
+    return 2;
+  close(input);
+  idris_rt_test_start(body, argc, argv);
 }

@@ -18,14 +18,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "idris_rt.h"   // idris_rt_flush, for captureStdout
-
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 namespace prop {
 
@@ -148,39 +145,6 @@ __attribute__((format(printf, 1, 2))) inline void explain(const char *format, ..
   e.used += strlen(e.text + e.used);
   e.text[e.used++] = '\n';
   e.text[e.used] = '\0';
-}
-
-// Runs write() with standard output (fd 1) sent to a fresh tmpfile(): stdio
-// and the runtime's output buffer (idris_rt_flush) are flushed before the
-// switch and after write(), fd 1 is restored, and the bytes written are
-// copied into out, at most `capacity`. Returns the count written, which may
-// exceed capacity.
-template <typename Write> size_t captureStdout(Write write, char *out, size_t capacity) {
-  fflush(stdout);
-  idris_rt_flush();
-  FILE *file = tmpfile();
-  int saved = dup(1);
-  // The system may refuse a file or a descriptor; without them there is no
-  // capture to check, so the program ends as a crash rather than a verdict.
-  if (file == nullptr || saved < 0) {
-    perror("prop: captureStdout");
-    abort();
-  }
-  int capture = fileno(file);
-  dup2(capture, 1);
-  write();
-  fflush(stdout);
-  idris_rt_flush();
-  dup2(saved, 1);
-  close(saved);
-  auto written = static_cast<size_t>(lseek(capture, 0, SEEK_END));
-  lseek(capture, 0, SEEK_SET);
-  size_t copied = 0;
-  ssize_t n = 0;
-  while (copied < capacity && (n = read(capture, out + copied, capacity - copied)) > 0)
-    copied += static_cast<size_t>(n);
-  fclose(file);
-  return written;
 }
 
 class Run {

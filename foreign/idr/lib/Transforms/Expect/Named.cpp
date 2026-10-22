@@ -68,8 +68,12 @@ bool names(FunctionOpInterface fn, StringRef f) {
 // call of a copy of g is a call of g; a callee it does not hold (a
 // runtime function after lowering is declared, so it is held) is its
 // symbol alone.
+SymbolRefAttr calleeOf(CallOpInterface call) {
+  return dyn_cast<SymbolRefAttr>(call.getCallableForCallee());
+}
+
 bool callsNamed(CallOpInterface call, const Symbol &g, SymbolTable &symbols) {
-  auto callee = dyn_cast<SymbolRefAttr>(call.getCallableForCallee());
+  SymbolRefAttr callee = calleeOf(call);
   if (!callee)
     return false;
   StringAttr root = callee.getRootReference();

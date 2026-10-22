@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Thousands of functions in a call DAG over one strongly connected
+# component: the shape on which state kept per value over the whole
+# program, a callee looked up per call, and summaries solved per pair once
+# made the work grow with the program's square. Compiled at its size and at
+# twice it, no count of the compiler's work grows faster than the program.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/scale.sh"
+scale_relation functions

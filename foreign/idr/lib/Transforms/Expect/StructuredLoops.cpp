@@ -5,7 +5,7 @@
 // one rule of it, Arrays.h), every one structured or turned into its loops
 // before the program is taken apart.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
 
 #include "idr/IR/Arrays.h"
 

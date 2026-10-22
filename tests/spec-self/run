@@ -1,0 +1,42 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# specgen compiled by idris-mlir writes the committed generated files byte
+# for byte, as the pinned Idris's does (tests/spec-current): the committed
+# files are what the generator writes, so neither host is the reference.
+# It finds every committed output and the manifest what it would write,
+# and writes them, into a tree that holds none of them, byte for byte.
+# Its output being a pure function of the specification, printing strings
+# and integers alone, is the generator's type to hold; here it is shown on
+# the one compiled program where a host's printer or iteration order would
+# show.
+# Debt: the limits are not measured; idris-mlir compiling the
+# specification's some seventy modules with the dev build.
+step_limit=1800
+test_limit=2400
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/spec.sh"
+
+# specgen, by idris-mlir, from a copy of the specification's sources, the
+# root of its modules, its main the generator's Main, the Prelude implicit
+# as the specification's modules are written.
+spec_sources "$root" "$work/self" || exit 1
+self_spec=$work/self/compiler/spec
+if (cd "$self_spec" && bounded "$idris_mlir" --num-threads="$ncpu" \
+      IdrisMLIR/Spec/Generator/Main.idr -o build/exec/specgen) > "$work/compile.out" 2>&1 &&
+   [ -x "$self_spec/build/exec/specgen" ]; then
+  say "specgen: compiled by idris-mlir"
+else
+  say "specgen: not compiled by idris-mlir"
+  show "$work/compile.out"
+  exit 0
+fi
+specgen=$self_spec/build/exec/specgen
+
+if [ ! -f "$root/$spec_manifest" ]; then
+  say "the committed manifest: none at $spec_manifest"
+  exit 0
+fi
+spec_check "$specgen" "$root"
+spec_named "the committed files"
+spec_written "$specgen" "$root"

@@ -1,0 +1,121 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The specification's generated files are committed, output and never a
+# second source: specgen, built by the pinned Idris from compiler/spec,
+# finds every committed output and the manifest what it would write, and
+# writes them, into a tree that holds none of them, byte for byte; and no
+# file sits in the generated directory that no output is. On copies it
+# finds what breaks that:
+#   - a generated file edited by hand: that file alone;
+#   - a comment in the specification: the manifest alone, since the
+#     manifest fingerprints the specification's source text, comments
+#     included, while no output can change by a comment;
+#   - the generator's source changed, its outputs the same: the manifest
+#     alone, which fingerprints the generator too, so a changed generator
+#     cannot stand beside outputs it never wrote;
+#   - the specification changed (the dialect's summary), specgen built from
+#     it and the outputs left as they were: an output and the manifest.
+# The C++ build reads none of this: it compiles the committed files as
+# they are, and never waits on Idris.
+# Debt: the limits are not measured; a build of the specification and a
+# rebuild after one module changes, on the pinned Idris.
+step_limit=900
+test_limit=1800
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/spec.sh"
+
+# specgen, by the pinned Idris, in a copy of the specification's sources,
+# so that its build is the test's and never the checkout's.
+spec_sources "$root" "$work/built" || exit 1
+spec_build=$work/built/compiler/spec
+if (cd "$spec_build" && pinned_idris --build spec.ipkg) > "$work/build.out" 2>&1 &&
+   [ -x "$spec_build/build/exec/specgen" ]; then
+  say "specgen: built by the pinned Idris"
+else
+  say "specgen: not built"
+  show "$work/build.out"
+  exit 0
+fi
+specgen=$spec_build/build/exec/specgen
+
+if [ ! -f "$root/$spec_manifest" ]; then
+  say "the committed manifest: none at $spec_manifest"
+  exit 0
+fi
+spec_check "$specgen" "$root"
+spec_named "the committed files"
+spec_written "$specgen" "$root"
+
+# A file of the generated directory no output is: a hand file beside the
+# generated ones, which nothing would regenerate or check.
+generated_dir=foreign/idr/include/idr/IR/Generated
+: > "$work/orphans"
+for orphan in "$root/$generated_dir"/*; do
+  [ -f "$orphan" ] || continue
+  spec_outputs "$root" | grep -qxF "$generated_dir/${orphan##*/}" || say "  $generated_dir/${orphan##*/}" >> "$work/orphans"
+done
+if [ -s "$work/orphans" ]; then
+  say "generated files no output is:"
+  cat "$work/orphans"
+else
+  say "generated files no output is: none"
+fi
+
+# planted_tree NAME: a fresh copy of what specgen reads and writes, at
+# $work/NAME, which $tree names.
+planted_tree() {
+  tree=$work/$1
+  spec_tree "$root" "$tree" || { say "$1: not copied"; exit 0; }
+}
+
+planted_tree hand-edit
+edited=$(spec_outputs "$root" | head -n 1)
+say '// a line no generator wrote' >> "$tree/$edited"
+spec_check "$specgen" "$tree"
+spec_named "a generated file edited by hand" "$edited"
+
+planted_tree spec-comment
+say '-- a comment no output holds' >> "$tree/compiler/spec/IdrisMLIR/Spec.idr"
+spec_check "$specgen" "$tree"
+spec_named "a comment in the specification" "$spec_manifest"
+
+# The generator's first module the package lists gains a definition no
+# output reads, so it writes what it wrote.
+planted_tree generator
+generator_module=$(sed -n 's/.*\(IdrisMLIR\.Spec\.Generator\.[A-Za-z0-9]*\).*/\1/p' \
+  "$root/compiler/spec/spec.ipkg" | head -n 1)
+generator_file=$tree/compiler/spec/$(say "$generator_module" | tr . /).idr
+if [ -f "$generator_file" ]; then
+  printf '\n%s\n%s\n' 'plantedUnread : Nat' 'plantedUnread = 0' >> "$generator_file"
+  spec_check "$specgen" "$tree"
+  spec_named "the generator changed, its outputs the same" "$spec_manifest"
+else
+  say "the generator changed: no generator module in spec.ipkg"
+fi
+
+# The dialect's summary changed, and specgen built again from the changed
+# specification: what it would write is no longer what is committed. The
+# build goes on from the first one's, so only what the change reaches is
+# built again.
+planted_tree spec-change
+rm -rf "$tree/compiler/spec" && cp -R "$spec_build" "$tree/compiler/spec" || exit 1
+awk 'done || !/summary = "/ { print; next } { sub(/summary = "/, "summary = \"Planted, "); done = 1; print }' \
+  "$tree/compiler/spec/IdrisMLIR/Spec.idr" > "$work/Spec.idr" &&
+  cp "$work/Spec.idr" "$tree/compiler/spec/IdrisMLIR/Spec.idr"
+if ! grep -q 'summary = "Planted, ' "$tree/compiler/spec/IdrisMLIR/Spec.idr"; then
+  say "the specification changed: no dialect summary in IdrisMLIR/Spec.idr to change"
+elif ! (cd "$tree/compiler/spec" && pinned_idris --build spec.ipkg) > "$work/rebuild.out" 2>&1; then
+  say "the specification changed: specgen not built again"
+  show "$work/rebuild.out"
+else
+  spec_check "$tree/compiler/spec/build/exec/specgen" "$tree"
+  # Which outputs a summary reaches is the generator's to say; the change
+  # must stale one at least, and the manifest.
+  if grep -qxF "$spec_manifest" "$work/spec-named" && grep -qvxF "$spec_manifest" "$work/spec-named"; then
+    say "the specification changed without its outputs: exit $spec_status, naming outputs and the manifest"
+  else
+    say "the specification changed without its outputs: exit $spec_status, naming otherwise"
+    show "$work/spec-check.out"
+  fi
+fi

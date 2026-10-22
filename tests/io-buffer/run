@@ -77,14 +77,14 @@ build() {
       return 1
     fi
   done
-  if ! runtime_c link_program -O1 "$here/io.c" "$work/$1-"*.o "$runtime" -o "$work/io-$1" \
+  if ! runtime_c link_program -O1 -I"$root/harness/prop" "$here/io.c" "$work/$1-"*.o "$runtime" -o "$work/io-$1" \
       > "$work/cc.log" 2>&1; then
     say "size $1: does not link"
     show "$work/cc.log"
     return 1
   fi
 }
-if ! runtime_c link_program -O1 "$here/io.c" "$runtime" -o "$work/io-default" \
+if ! runtime_c link_program -O1 -I"$root/harness/prop" "$here/io.c" "$runtime" -o "$work/io-default" \
     > "$work/cc.log" 2>&1; then
   say "the default size: does not link"
   show "$work/cc.log"

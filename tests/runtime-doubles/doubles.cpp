@@ -11,6 +11,7 @@
 // no reader stands under the oracle.
 #include "idris_rt.h"
 #include "prop.h"
+#include "runtime.h"
 
 #include <gmp.h>
 #include <math.h>
@@ -279,7 +280,7 @@ constexpr prop::Mutant dropsDigit{"writes the shortest text's last digit dropped
 constexpr prop::Mutant seventeenDigits{"writes 17 significant digits, as %.17g does"};
 constexpr prop::Mutant otherNeighbour{"writes the other text of as many digits that reads back, where there is one"};
 constexpr prop::Mutant scientificAt1e9{"turns to the scientific form at 1e9, not 1e10"};
-constexpr prop::Mutant positiveZero{"has put_double write a negative zero as 0.0"};
+constexpr prop::Mutant positiveZero{"has double_head read a negative zero as 0.0"};
 constexpr prop::Mutant truncatesAt19{"reads a decimal text's digits past the 19th significant one as zeros"};
 constexpr prop::Mutant literalModulo{"reads an integer literal modulo 2^64"};
 constexpr prop::Mutant lowercaseWords{"reads inf, infinity and nan in lower case only, else 0.0"};
@@ -358,7 +359,7 @@ const idris_rt_str *showOf(double x) {
     changed = prop::planted(otherNeighbour) && otherOfAsMany(fabs(x), d);
   if (!changed)
     return shown;
-  idris_rt_str_release(shown);
+  idris_rt_dec_cell(const_cast<idris_rt_str *>(shown));
   char text[64];
   size_t n = layout(d, text, top);
   return idris_rt_str_from_utf8(text, n);
@@ -368,7 +369,7 @@ const idris_rt_str *showOf(double x) {
 struct Shown {
   const idris_rt_str *string;
   explicit Shown(double x) : string(showOf(x)) {}
-  ~Shown() { idris_rt_str_release(string); }
+  ~Shown() { idris_rt_dec_cell(const_cast<idris_rt_str *>(string)); }
   Shown(const Shown &) = delete;
   Shown &operator=(const Shown &) = delete;
   const char *bytes() const { return idris_rt_str_bytes(string); }
@@ -542,47 +543,29 @@ bool inLayout(double x) {
   return holds;
 }
 
-// 5. put_double writes show_f64's text, each followed here by a newline,
-// and double_head is its first byte. A double's text is at most
-// longestText bytes.
-bool putsItsText(const double *xs, size_t count) {
-  static char captured[prop::caseBytes * (longestText + 1)];
-  size_t written = prop::captureStdout(
-      [&] {
-        for (size_t i = 0; i < count; ++i) {
-          idris_rt_io_put_double(xs[i]);
-          idris_rt_io_put_char('\n');
-        }
-      },
-      captured, sizeof captured);
-  size_t at = 0;
+// 5. double_head is the first byte of show_f64's text, the byte a pattern
+// on the text's head reads without the text being made.
+bool headsItsText(const double *xs, size_t count) {
   for (size_t i = 0; i < count; ++i) {
     Shown shown(xs[i]);
-    size_t n = shown.length();
-    // The mutant's put_double, which writes 0.0 for -0.0, read against show_f64.
-    const char *put = captured + at;
-    if (bitsOf(xs[i]) == signBit && prop::planted(positiveZero) && at + 4 <= written)
-      put = "0.0\n";
-    bool holds = at + n + 1 <= written && at + n + 1 <= sizeof captured &&
-                 memcmp(put, shown.bytes(), n) == 0 && put[n] == '\n' &&
-                 idris_rt_double_head(xs[i]) == shown.bytes()[0];
-    if (!holds) {
-      prop::explain("%s: show_f64 wrote \"%.*s\"; put_double wrote \"%.*s\"; double_head gave %d", Named(xs[i]).text,
-                    static_cast<int>(n), shown.bytes(),
-                    static_cast<int>(written - at < n + 1 ? written - at : n + 1), captured + at,
-                    idris_rt_double_head(xs[i]));
+    int32_t head = idris_rt_double_head(xs[i]);
+    // The mutant's double_head, which reads a negative zero as 0.0.
+    if (bitsOf(xs[i]) == signBit && prop::planted(positiveZero))
+      head = '0';
+    if (head != shown.bytes()[0]) {
+      prop::explain("%s: show_f64 wrote \"%.*s\"; double_head gave %d", Named(xs[i]).text,
+                    static_cast<int>(shown.length()), shown.bytes(), head);
       return false;
     }
-    at += n + 1;
   }
-  return at == written;
+  return true;
 }
 
 // A text read by str_to_double, from a counted string of its bytes.
 double readByRuntime(const char *text, size_t n) {
   const idris_rt_str *s = idris_rt_str_from_utf8(text, n);
   double x = idris_rt_str_to_double(s);
-  idris_rt_str_release(s);
+  idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
   return x;
 }
 
@@ -1020,8 +1003,7 @@ constexpr Malformed malformed[] = {
 };
 
 // Box 12: every exponent field, each with these significands and both
-// signs, so 2048 * 9 * 2 doubles; one field's are checked together, and
-// put_double writes them in one capture.
+// signs, so 2048 * 9 * 2 doubles; one field's are checked together.
 constexpr uint64_t edgeSignificands[] = {0,
                                          1,
                                          2,
@@ -1042,7 +1024,7 @@ bool everyShowProperty(uint64_t field) {
   for (double x : xs)
     if (!(readsBack(x) && noShorter(x) && nearestOfShortest(x) && inLayout(x) && roundTrips(x)))
       return false;
-  return putsItsText(xs, n);
+  return headsItsText(xs, n);
 }
 
 // 13. show_f64 returns one new string (count 1, one more live cell; a text
@@ -1050,12 +1032,12 @@ bool everyShowProperty(uint64_t field) {
 // str_to_double leaves its counted argument's count and the live cells as
 // they were.
 bool showOwned(double x) {
-  uint64_t before = idris_rt_live_cells();
+  uint64_t before = prop::held();
   const idris_rt_str *s = idris_rt_str_show_f64(x);
   uint32_t count = s->header.count + (prop::planted(extraReference) ? 1 : 0);
-  bool owned = count == 1 && idris_rt_live_cells() == before + 1;
-  idris_rt_str_release(s);
-  bool released = idris_rt_live_cells() == before;
+  bool owned = count == 1 && prop::held() == before + 1;
+  idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
+  bool released = prop::held() == before;
   if (!(owned && released))
     prop::explain("%s: show_f64's result has count %u, and %s after its release", Named(x).text, count,
                   released ? "no cell is left" : "a cell is left");
@@ -1064,20 +1046,20 @@ bool showOwned(double x) {
 bool readBorrows(const char *text, size_t n) {
   const idris_rt_str *s = idris_rt_str_from_utf8(text, n);
   uint32_t count = s->header.count;
-  uint64_t before = idris_rt_live_cells();
+  uint64_t before = prop::held();
   idris_rt_str_to_double(s);
-  bool holds = s->header.count == count && idris_rt_live_cells() == before;
+  bool holds = s->header.count == count && prop::held() == before;
   if (!holds)
     prop::explain("str_to_double of \"%.*s\": count %u became %u, live cells %llu became %llu",
                   static_cast<int>(n < 64 ? n : 64), text, count, s->header.count,
-                  static_cast<unsigned long long>(before), static_cast<unsigned long long>(idris_rt_live_cells()));
-  idris_rt_str_release(s);
+                  static_cast<unsigned long long>(before), static_cast<unsigned long long>(prop::held()));
+  idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
   return holds;
 }
 
 } // namespace
 
-int main(int argc, char **argv) {
+static int properties(int argc, char **argv) {
   prop::Run run(argc, argv);
 
   run.property("show_f64: reads back as the double", dropsDigit,
@@ -1088,10 +1070,10 @@ int main(int argc, char **argv) {
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, nearestOfShortest); });
   run.property("show_f64: the runtime's layout", scientificAt1e9,
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, inLayout); });
-  run.property("put_double, double_head: show_f64's text", positiveZero, [](FuzzedDataProvider &p, prop::Tally &tally) {
+  run.property("double_head: show_f64's first byte", positiveZero, [](FuzzedDataProvider &p, prop::Tally &tally) {
     double xs[prop::caseBytes];
     size_t n = drawDoubles(p, tally, xs);
-    return putsItsText(xs, n);
+    return headsItsText(xs, n);
   });
 
   run.property("str_to_double: strtod's double for every decimal text", truncatesAt19,
@@ -1209,3 +1191,5 @@ int main(int argc, char **argv) {
 
   return run.finish();
 }
+
+int main(int argc, char **argv) { return prop::onRuntime(argc, argv, "doubles", properties); }

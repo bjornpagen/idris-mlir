@@ -1,0 +1,52 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/95-snmalloc-notify-using-result: a commit the kernel refuses is
+# reported, so the allocator hands out no page left inaccessible, and a
+# program that runs out of memory ends with its named out-of-memory ending
+# (status 111) instead of dying by SIGSEGV. The runtime's snmalloc, as the
+# toolchain exports it, returns mprotect's result in both platform layers;
+# where the host accepts an address-space limit, a program allocating past
+# a low one ends 111. Where it accepts none (macOS refuses one), that case
+# is not run and the transcript says so in the same words on every host.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+for pal in pal_posix pal_apple; do
+  if grep -q 'mprotect(.*) != 0' "$snmalloc_prefix/src/snmalloc/pal/$pal.h" 2> /dev/null; then
+    say "$pal: a refused commit is reported"
+  else
+    say "$pal: a refused commit is not reported"
+  fi
+done
+if ! (ulimit -v 262144) 2> /dev/null; then
+  say "out of memory: status 111, or the host takes no address-space limit"
+  exit 0
+fi
+mkdir -p "$work/grow"
+cat > "$work/grow/Main.idr" <<'IDRIS'
+module Main
+
+import Prelude
+
+build : Int -> List Int -> List Int
+build 0 acc = acc
+build n acc = build (n - 1) (n :: acc)
+
+total_ : List Int -> Int -> Int
+total_ [] acc = acc
+total_ (x :: xs) acc = total_ xs (acc + x)
+
+main : IO ()
+main = printLn (total_ (build 100000000 []) 0)
+IDRIS
+compile_program "$work/grow/Main.idr" grow
+if [ "$compiled" -ne 0 ]; then
+  say "out of memory: the program does not compile"
+  show "$work/compile.out" "$work/compile.err"
+  exit 0
+fi
+(ulimit -v 262144 && bounded "$work/grow/build/exec/grow") < /dev/null > /dev/null 2> "$work/grow.err"
+status=$?
+case $status in
+  111) say "out of memory: status 111, or the host takes no address-space limit" ;;
+  *) say "out of memory: status $status"; show "$work/grow.err" ;;
+esac

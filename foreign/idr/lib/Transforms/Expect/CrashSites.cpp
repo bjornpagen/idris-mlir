@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// crash-sites: how many places of a function may crash, stated the same
-// before lowering and after it, and counted for the contracts of every
+// How many places of a function may crash, counted the same before
+// lowering and after it, for the contract crash-sites-not-added of every
 // function a pass kept. Before it, a place is an op whose own effects end
 // the run by a crash (idr.crash, a guard, which crashes when its condition
 // fails, an exit whose status may be unreportable), as the effect system's
@@ -47,23 +47,6 @@ unsigned crashSitesOf(FunctionOpInterface fn, SymbolTable &symbols) {
   unsigned found = 0;
   fn->walk([&](Operation *op) { found += crashes(op, symbols); });
   return found;
-}
-
-// Every copy of @f may crash at exactly the number of places the argument
-// gives.
-LogicalResult crashSites(const Request<CountOf> &request) {
-  unsigned wanted = request.argument.count;
-  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
-  bool held = true;
-  for (FunctionOpInterface fn : request.argument.function.functions) {
-    unsigned found = crashSitesOf(fn, symbols);
-    if (found == wanted)
-      continue;
-    fail(fn->getLoc(), request.property) << where(fn) << " may crash at " << found
-                                         << " places, not " << wanted;
-    held = false;
-  }
-  return success(held);
 }
 
 } // namespace idr::expect

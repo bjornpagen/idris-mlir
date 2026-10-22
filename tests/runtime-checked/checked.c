@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-/* The checked runtime on cells built by hand as idr-lower lays them out:
- * each mode makes one misuse of a count, which ends the program naming it,
- * or none.
+/* The checked runtime on cells built by hand as idr-lower lays them out,
+ * run as a program: each mode makes one misuse of a count, which ends the
+ * program as the runtime's internal error naming it, or none.
  *
- *   checked held      a box holding a string, a stack cell holding a box,
- *                     each counted as it must be; then idris_rt_main_return
- *   checked twice     a box released twice
- *   checked holder    a string released while a box still holds it, then
- *                     the box released
- *   checked dead      a stack cell released to its end, then counted again
- *   checked returned  a stack cell counted after its frame returned */
+ *   checked held     a box holding a string, counted as it must be, and
+ *                    released: the program returns
+ *   checked twice    a box released twice
+ *   checked holder   a string released while a box still holds it, then
+ *                    the box released
+ *   checked leak     a box left held when the body returns */
 #include <stdint.h>
 #include <string.h>
 
 #include "idris_rt.h"
+#include "program.h"
 
 /* A box of one object slot. */
 static void *box(void *field) {
@@ -23,84 +23,47 @@ static void *box(void *field) {
   return cell;
 }
 
-static const idris_rt_str *text(const char *s) { return idris_rt_str_from_utf8(s, strlen(s)); }
-
-/* A stack cell as idr-lower writes one into its frame's slot: a box of one
- * object slot with the stack mark. */
-struct stack_box {
-  idris_rt_header header;
-  void *field;
-};
-
-static void stack_box(struct stack_box *cell, void *field) {
-  cell->header.count = 1;
-  cell->header.info = idris_rt_info(0, 1, IDRIS_RT_KIND_BOX) | IDRIS_RT_STACK_CELL;
-  cell->field = field;
-}
+static void *text(const char *s) { return (void *)idris_rt_str_from_utf8(s, strlen(s)); }
 
 static void held(void) {
-  void *b = box((void *)text("held"));
-  idris_rt_inc(b);
-  idris_rt_dec(b);
-  struct stack_box s;
-  stack_box(&s, b);
-  idris_rt_inc(&s);
-  idris_rt_dec(&s);
-  idris_rt_dec(&s);
+  void *b = box(text("held"));
+  idris_rt_inc_cell(b);
+  idris_rt_dec_cell(b);
+  idris_rt_dec_cell(b);
 }
 
 static void twice(void) {
   void *b = box(NULL);
-  idris_rt_dec(b);
-  idris_rt_dec(b);
+  idris_rt_dec_cell(b);
+  idris_rt_dec_cell(b);
 }
 
 static void holder(void) {
-  const idris_rt_str *s = text("held");
-  void *b = box((void *)s);
-  idris_rt_dec((void *)s);
-  idris_rt_dec(b);
+  void *s = text("held");
+  void *b = box(s);
+  idris_rt_dec_cell(s);
+  idris_rt_dec_cell(b);
 }
 
-static void dead(void) {
-  struct stack_box s;
-  stack_box(&s, NULL);
-  idris_rt_dec(&s);
-  idris_rt_inc(&s);
-}
+static void leak(void) { (void)box(NULL); }
 
-/* A stack cell of a frame that returns, kept past it: volatile, so that the
- * store is made and the cell is written as the frame's. The frame holds
- * more cells, and the one kept is the lowest, so that it lies below the
- * frames of the calls the count makes after the return. */
-static struct stack_box *volatile kept;
+static const char *mode = "";
 
-__attribute__((noinline)) static void keep(void) {
-  struct stack_box cells[16];
-  for (int i = 0; i < 16; ++i)
-    stack_box(&cells[i], NULL);
-  kept = &cells[0];
-}
-
-static void returned(void) {
-  keep();
-  idris_rt_inc(kept);
-}
-
-int main(int argc, char **argv) {
-  const char *mode = argc > 1 ? argv[1] : "";
+static void body(void) {
   if (strcmp(mode, "held") == 0)
     held();
   else if (strcmp(mode, "twice") == 0)
     twice();
   else if (strcmp(mode, "holder") == 0)
     holder();
-  else if (strcmp(mode, "dead") == 0)
-    dead();
-  else if (strcmp(mode, "returned") == 0)
-    returned();
-  else
-    return 2;
-  idris_rt_main_return();
-  return 0;
+  else if (strcmp(mode, "leak") == 0)
+    leak();
+}
+
+/* A few frames of its own. */
+IDRIS_RT_TEST_PROGRAM("checked", 64 * 1024);
+
+int main(int argc, char **argv) {
+  mode = argc > 1 ? argv[1] : "";
+  idris_rt_test_start(body, argc, argv);
 }

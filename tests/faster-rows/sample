@@ -1,0 +1,14 @@
+# The programs tests/faster-rows compiles twice, by the shipped frontend
+# and by the one built without its Faster rows, each with the rows it
+# reaches. A Faster row on Nat's arithmetic is reached only with naturals
+# a unary count computes in the test's limits: the program tests of large
+# naturals (nat-sum, nat-parity) would run past them from the bodies,
+# which is speed, and no result.
+program char-list-pipeline   base's list as the string builders take it apart; pack, unpack
+program exit-with            exitWith
+program identity-weakening   finToNat and natToFinLT, the identity on a natural
+program erased-argument-to-a-variable   show of a small natural through natToInteger
+program every-builtin-export   rewrite__impl and replace, the identity on their last argument
+reject uniqueness-shared-rebuild   an in-place type, a Stricter row, over the list functions
+reject deprecated-get-byte   a deprecated name, a Stricter row
+reject polymorphism-growing-rank   a refusal of the frontend's own analysis, no row's

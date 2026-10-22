@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# One function of a long chain of values, a cell that never escapes at
+# each step and a region every hundred: the shape on which a bit vector per
+# value, copied along every edge, once grew with the function's square.
+# Compiled at its size and at twice it, no count of the compiler's work
+# grows faster than the program.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/scale.sh"
+scale_relation long-function

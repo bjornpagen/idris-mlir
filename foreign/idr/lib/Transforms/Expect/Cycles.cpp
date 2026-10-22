@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The graph the properties of reach and recursion are stated over: the
+// The graph the properties of recursion and allocation are stated over: the
 // functions a body names by symbol, whatever op names them, before
 // lowering and after it; its reach and its cycles are Expect.h's.
 

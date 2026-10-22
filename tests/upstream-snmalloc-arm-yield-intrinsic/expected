@@ -1,0 +1,2 @@
+arm64-apple-macosx14.0: pause is the compiler's intrinsic
+aarch64-linux-gnu: pause is the compiler's intrinsic

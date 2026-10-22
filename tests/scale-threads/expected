@@ -1,0 +1,5 @@
+compile on one: exit 0
+compile on pool: exit 0
+module: the same bytes
+objects: the same bytes
+executable: the same bytes

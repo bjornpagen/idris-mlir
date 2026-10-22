@@ -1,0 +1,18 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/92-dead-code-iterative-initialization: dead-code analysis
+# initializes nested regions with a worklist, so its native depth does not
+# grow with nesting, and the tools keep a small stack. SCCP, which loads
+# it, runs on a function nesting scf.execute_region 2,000 deep on one
+# thread under a 256 KiB stack, and gives back a module that verifies.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+sh "$root/upstream/92-dead-code-iterative-initialization/nested-regions.sh" 2000 > "$work/nested.mlir"
+if (ulimit -s 256 && bounded "$llvm_bin/mlir-opt" "$work/nested.mlir" -mlir-disable-threading -sccp \
+      -o "$work/out.mlir") 2> "$work/err" &&
+   bounded "$llvm_bin/mlir-opt" "$work/out.mlir" -o /dev/null 2>> "$work/err"; then
+  say "sccp: 2,000 nested regions on a 256 KiB stack"
+else
+  say "sccp: fails on 2,000 nested regions on a 256 KiB stack"
+  show "$work/err"
+fi

@@ -1,0 +1,10 @@
+the frontend without its Faster rows: built
+without its Faster rows, the frontend writes another module for char-list-pipeline
+program char-list-pipeline: compiled alike, every case ending alike
+program exit-with: compiled alike, every case ending alike
+program identity-weakening: compiled alike, every case ending alike
+program erased-argument-to-a-variable: compiled alike, every case ending alike
+program every-builtin-export: compiled alike, every case ending alike
+reject uniqueness-shared-rebuild: refused by both as its header says
+reject deprecated-get-byte: refused by both as its header says
+reject polymorphism-growing-rank: refused by both as its header says

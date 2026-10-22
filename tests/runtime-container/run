@@ -9,8 +9,8 @@
 # program as the build's does: its bitcode joins the program from where it
 # is kept, its object alone is on the link line, and the program (Main.idr,
 # compiled by idris-mlir) computes, small bigs and large ones past 2^62,
-# frees every cell and exits; no executable carries bitcode, as a search
-# that finds the runtime's own bitcode says.
+# and returns; no executable carries bitcode, as a search that finds the
+# runtime's own bitcode says.
 step_limit=300
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 runtime=$("$idris_mlir" --print-runtime)
@@ -62,7 +62,7 @@ else
 fi
 
 # program NAME RUNTIME: Main.idr compiled and linked against RUNTIME into
-# $work/NAME, run with IDRIS_RT_LIVE=1: its exit status, stdout and stderr.
+# $work/NAME and run: its exit status and stdout, then its stderr.
 program() {
   program_name=$1
   program_runtime=$2
@@ -75,9 +75,10 @@ program() {
     show "$work/compile.out" "$work/compile.err"
     return 1
   fi
-  ( IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$program" ) > "$program.out" 2> "$program.err"
+  bounded "$program" > "$program.out" 2> "$program.err"
   program_status=$?
-  say "$program_name: exit $program_status, prints $(paste -s -d ' ' "$program.out"), $(cat "$program.err")"
+  say "$program_name: exit $program_status, prints $(paste -s -d ' ' "$program.out")"
+  sed 's/^/  stderr | /' "$program.err"
   if carries_bitcode "$program"; then
     say "$program_name: the executable carries bitcode"
   fi

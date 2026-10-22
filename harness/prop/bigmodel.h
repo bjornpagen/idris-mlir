@@ -226,7 +226,7 @@ private:
 class Result {
 public:
   explicit Result(idris_rt_big word) : word_(word) { bigmodel::value(word_, value_); }
-  ~Result() { idris_rt_big_release(word_); }
+  ~Result() { idris_rt_dec_big(word_); }
   Result(const Result &) = delete;
   Result &operator=(const Result &) = delete;
   idris_rt_big word() const { return word_; }

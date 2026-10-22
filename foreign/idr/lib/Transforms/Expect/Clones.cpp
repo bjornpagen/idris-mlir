@@ -8,10 +8,9 @@
 // function, so the specializations stop after one step, however long the
 // recursion.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
 
-#include "idr/IR/IdrDialect.h"
-
+#include "mlir/Interfaces/CallInterfaces.h"
 #include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
@@ -23,9 +22,9 @@ LogicalResult oneClone(const Request<Symbol> &request) {
   const Symbol &origin = request.argument;
   SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   llvm::SetVector<StringRef> targets;
-  request.module->walk([&](CallOp call) {
+  request.module->walk([&](CallOpInterface call) {
     if (callsNamed(call, origin, symbols))
-      targets.insert(call.getCallee());
+      targets.insert(calleeOf(call).getRootReference().getValue());
   });
   if (targets.empty())
     return fail(request.module->getLoc(), request.property)
@@ -49,9 +48,12 @@ LogicalResult specializedOnce(const Request<Functions> &request) {
     StringRef self = SymbolTable::getSymbolName(copy).getValue();
     if (self == origin)
       continue;
-    copy->walk([&](CallOp call) {
-      StringRef target = call.getCallee();
-      auto callee = symbols.lookup<FunctionOpInterface>(call.getCalleeAttr().getAttr());
+    copy->walk([&](CallOpInterface call) {
+      SymbolRefAttr named = calleeOf(call);
+      if (!named)
+        return;
+      StringRef target = named.getRootReference().getValue();
+      auto callee = symbols.lookup<FunctionOpInterface>(named.getRootReference());
       if (target == self || target == origin || !callee || !names(callee, origin))
         return;
       fail(call->getLoc(), request.property) << where(copy) << ", a copy of @" << origin

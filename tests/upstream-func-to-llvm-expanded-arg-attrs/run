@@ -1,19 +1,22 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# upstream/78-func-to-llvm-expanded-arg-attrs: a memref argument's
-# `llvm.noalias` survives its expansion into a descriptor, on the
-# allocated and the aligned pointer, so what a quantity-1 buffer promises
-# reaches LLVM.
+# upstream/78-func-to-llvm-expanded-arg-attrs is retired: the program's
+# functions are built as llvm.func by the compiler's own lowering, which
+# states every argument fact itself, so none passes through FuncToLLVM and
+# the patch is not carried; the report stays a submission. The pinned
+# mlir-opt still drops a memref argument's `llvm.noalias` when it expands
+# the argument into a descriptor. When the pin has upstream's fix this
+# check fails, and the report goes with it.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 input=$root/upstream/78-func-to-llvm-expanded-arg-attrs/memref-noalias.mlir
 if ! bounded "$llvm_bin/mlir-opt" "$input" -convert-func-to-llvm -o "$work/out.mlir" 2> "$work/err"; then
-  say "convert-func-to-llvm: fails"
+  say "convert-func-to-llvm: fails, which is not this bug"
   show "$work/err"
   exit 0
 fi
 kept=$(grep -o 'llvm\.noalias' "$work/out.mlir" | wc -l | tr -d ' ')
 case $kept in
-  2) say "convert-func-to-llvm: the allocated and the aligned pointer keep llvm.noalias" ;;
-  *) say "convert-func-to-llvm: llvm.noalias on $kept arguments, not the descriptor's two pointers" ;;
+  2) say "fixed at the pin: the allocated and the aligned pointer keep llvm.noalias" ;;
+  *) say "still reproduces at the pin: the descriptor's pointers lose llvm.noalias" ;;
 esac

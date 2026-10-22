@@ -1,0 +1,3 @@
+inline: the leaf is inlined into its caller and erased
+inline: the self cycle keeps its call
+inline: the two-function cycle keeps a call

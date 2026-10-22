@@ -1,9 +1,0 @@
-#!/bin/sh
-# SPDX-License-Identifier: 0BSD
-# Copyright (c) 2026 Bjorn Pagen
-# A sum of 131,073 constructors takes longer to compile than a program of
-# its size would, so each command has more time than most.
-step_limit=300
-test_limit=900
-. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-lit e2e-even-group.mlir

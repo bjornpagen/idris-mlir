@@ -76,6 +76,7 @@ headerOf text =
 
 ||| An error of the report: the rule it refuses by, if any, and the line
 ||| of its first file location, if any.
+public export
 record Refusal where
   constructor MkRefusal
   rule : Maybe SomeRule
@@ -84,6 +85,7 @@ record Refusal where
 ||| The report idris-mlir writes under --report: `verdict: <name>`, a
 ||| `diagnostic: <severity> <rule> <file:line>` line per diagnostic (a field
 ||| it lacks written `-`), and statistics, which this reads no part of.
+public export
 record Report where
   constructor MkReport
   verdict : String
@@ -99,6 +101,9 @@ refusalOf text = case words text of
     Just (MkRefusal (if rule == "-" then Nothing else ruleOfField rule) (lineOfLocation loc))
   _ => Nothing
 
+||| A report's text, read once into its record: the one reader of the
+||| report, which every comparison with one asks.
+export
 reportOf : String -> Report
 reportOf text =
   let ls = lines text in

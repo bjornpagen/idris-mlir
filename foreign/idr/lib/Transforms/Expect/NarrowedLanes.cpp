@@ -5,7 +5,7 @@
 // A reduction's accumulator is no such lane: a sum is as wide as the
 // program made it, and narrowing it could change what it adds up to.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
 
 #include "idr/Transforms/Narrow.h"
 

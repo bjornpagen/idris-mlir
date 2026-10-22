@@ -1,0 +1,1 @@
+a task needing 12 MiB of stack runs on the pool's 16 MiB thread

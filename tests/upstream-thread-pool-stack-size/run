@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/75-thread-pool-stack-size: a thread pool's strategy names the
+# stack its threads get, so the compiler's own workers run on the stack it
+# sizes rather than the system's default. A pool asked for 16 MiB runs a
+# task whose frame takes 12 MiB, more than any default: built against the
+# toolchain's LLVMSupport, statically, the program prints "ok".
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+source=$root/upstream/75-thread-pool-stack-size/stack-size.cpp
+config=$llvm_bin/llvm-config
+# shellcheck disable=SC2046 # llvm-config prints words
+if ! bounded "$llvm_bin/clang++" -std=c++17 "$source" $("$config" --cxxflags --ldflags --link-static --libs support --system-libs) \
+     -o "$work/stack-size" 2> "$work/err"; then
+  say "the program does not build against LLVMSupport"
+  show "$work/err"
+  exit 0
+fi
+bounded "$work/stack-size" > "$work/out" 2> "$work/err"
+status=$?
+if [ "$status" -eq 0 ] && [ "$(cat "$work/out")" = ok ]; then
+  say "a task needing 12 MiB of stack runs on the pool's 16 MiB thread"
+else
+  say "the task fails on the pool's thread (status $status)"
+  show "$work/err"
+fi

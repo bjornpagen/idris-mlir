@@ -1,0 +1,2 @@
+# same gives back its own cell: it builds nothing.
+owned: builds-nothing=@Main.same

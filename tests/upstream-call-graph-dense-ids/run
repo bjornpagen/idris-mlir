@@ -1,0 +1,25 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/73-call-graph-dense-ids: mlir::CallGraph mints a dense index per
+# node and keeps its components, which the solver layer's program graph
+# reads instead of building a call graph of its own. The installed header
+# declares the API, and the inliner, which builds the graph, gives the
+# pin's output on two cycles and a chain into them.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+header=$llvm_prefix/include/mlir/Analysis/CallGraph.h
+for member in getIndex getNumIndices getSCCs; do
+  if grep -q "\\<$member\\>" "$header" 2> /dev/null; then
+    say "$member: declared"
+  else
+    say "$member: not declared in $header"
+  fi
+done
+input=$root/upstream/73-call-graph-dense-ids/call-cycles.mlir
+if bounded "$llvm_bin/mlir-opt" "$input" -inline -o "$work/out.mlir" 2> "$work/err" &&
+   ! grep -q '@leaf' "$work/out.mlir" && grep -q 'call @c(' "$work/out.mlir"; then
+  say "inline: the leaf inlined, the cycles kept"
+else
+  say "inline: fails, or inlines across a cycle"
+  show "$work/err"
+fi

@@ -77,7 +77,7 @@ readable() {
     say "blocks: failed"
     grep -E 'classify|sign' "$work/symbols" | show
   fi
-  if [ "$(grep -cE '^ *idr\.program @("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+) root\(@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)\) stage\(higher\)( types #[^ ]+)? \{$' "$1")" = 1 ] &&
+  if [ "$(grep -cE '^ *idr\.program @("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+) root\(@("([^"\\]|\\.)*"|[A-Za-z0-9_$.]+)\) stage\(higher\) \{$' "$1")" = 1 ] &&
      [ "$(grep -cE '^ *idr\.program ' "$1")" = 1 ]; then
     say "program: ok"
   else
@@ -115,7 +115,7 @@ planted_module() {
     made-up) sed 's/@Main\.area\([^A-Za-z0-9_.]\)/@"Main.case block in area"\1/g' "$emitted" ;;
     block) sed 's/Main\.classify\.case\([0-9]\)/Main.classify.alt\1/g' "$emitted" ;;
     stage) sed 's/stage(higher)/stage(first)/' "$emitted" ;;
-    two-programs) awk '{ print } /^ *idr\.program / && !done { print "  idr.program @other root(@other) stage(higher) types #idr.types<> {"; done = 1 }' "$emitted" ;;
+    two-programs) awk '{ print } /^ *idr\.program / && !done { print "  idr.program @other root(@other) stage(higher) {"; done = 1 }' "$emitted" ;;
     func) awk '{ print } /^ *idr\.func / && !done { print "    func.call @planted() : () -> ()"; done = 1 }' "$emitted" ;;
   esac
 }

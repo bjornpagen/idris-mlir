@@ -58,10 +58,11 @@ public:
   void runAfterPass(mlir::Pass *pass, mlir::Operation *op) override;
   void runAfterPassFailed(mlir::Pass *pass, mlir::Operation *op) override;
 
-  // After the pipeline, the promises of the module it left: every call on
-  // a cycle of the program a guaranteed tail call, so no recursion grows
-  // the native stack. The pass manager instruments no end of its own
-  // pipeline, so the tool that ran it calls this once, with the module.
+  // After the pipeline, the promises of the module it left: idr-expect's
+  // universal properties, each of the whole program (no recursion grows
+  // the native stack among them). The pass manager instruments no end of
+  // its own pipeline, so the tool that ran it calls this once, with the
+  // module.
   mlir::LogicalResult finish(mlir::ModuleOp module);
 
 private:

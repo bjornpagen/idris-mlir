@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// quantities-kept: no pass drops or widens what Idris proved of a binder.
+// The contract quantities-kept: no pass drops or widens what Idris proved
+// of a binder, checked by --idr-contracts after every pass.
 // A binder's uses are its type's (usesOf), once or many; a parameter of a
 // function (a lambda is one) or a field a match binds keeps the uses it had
 // in the emitted module. A binder is known by its identity, the
@@ -88,15 +89,6 @@ LogicalResult usesKept(const ProvedUses &proved, ModuleOp module, StringRef prop
     held = false;
   });
   return success(held);
-}
-
-// The module stated of is the request's, the emitted module its argument,
-// read from its file.
-LogicalResult quantitiesKept(const Request<Module> &request) {
-  FailureOr<ProvedUses> proved = provedUses(*request.argument.op);
-  if (failed(proved))
-    return failure();
-  return usesKept(*proved, request.module, request.property);
 }
 
 } // namespace idr::expect

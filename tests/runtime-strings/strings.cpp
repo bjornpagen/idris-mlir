@@ -3,11 +3,13 @@
 // The runtime's string operations held to a model (idris_rt.h's strings):
 // a string is its scalars, and its bytes are their UTF-8
 // (utf8model::encode). Every result is the model's, canonical (its lengths
-// are its bytes' and its scalars' counts), owned as idris_rt.h says, every
-// operand only borrowed, and every empty result the one empty string. An operand is a persistent constant, laid
-// out as idr-lower writes a string into static data, or a counted string.
+// are its bytes' and its scalars' counts), a string of its own and never an
+// operand, every operand only borrowed, and every empty result the one
+// empty string. An operand is a persistent constant, laid out as idr-lower
+// writes a string into static data, or a counted string.
 #include "idris_rt.h"
 #include "prop.h"
+#include "runtime.h"
 #include "utf8model.h"
 
 #include <stddef.h>
@@ -104,7 +106,7 @@ constexpr prop::Mutant tailOfAByte{"has tail drop one byte, not one scalar"};
 constexpr prop::Mutant reverseOfBytes{"reverses a string's bytes, not its scalars"};
 constexpr prop::Mutant startFromTheEnd{"reads a negative substr start as counted from the end"};
 constexpr prop::Mutant signedBytes{"orders strings by their bytes read as signed chars"};
-constexpr prop::Mutant givenBackUncounted{"gives an operand back without its one more reference"};
+constexpr prop::Mutant givesOperandBack{"gives an operand back as its result"};
 constexpr prop::Mutant pastTheEndEmpty{"gives the empty string for a substr whose length runs past the end"};
 constexpr prop::Mutant keepsReference{"keeps a reference to a counted operand"};
 constexpr prop::Mutant secondEmpty{"makes an empty string of its own for substr of no scalars"};
@@ -155,7 +157,7 @@ struct Operand {
   const idris_rt_str *string;
   Operand(const Model &m, const Form &f) : model(m), form(&f) { make(); }
   Operand(FuzzedDataProvider &p, uint64_t mask);
-  ~Operand() { idris_rt_str_release(string); }
+  ~Operand() { idris_rt_dec_cell(const_cast<idris_rt_str *>(string)); }
   Operand(const Operand &) = delete;
   Operand &operator=(const Operand &) = delete;
 
@@ -282,20 +284,13 @@ bool isTheModel(const char *operation, const idris_rt_str *r, const Model &m) {
 }
 
 // What one call of an operation that returns a string is held to: its
-// operands, which it borrows; those idris_rt.h says it gives back as its
-// result, bit i for operand i (appending the empty string gives the other
-// operand, reversing an empty one gives it); and the model's result.
+// operands, which it borrows; and the model's result.
 struct Expected {
   const char *name;
   const idris_rt_str *operands[2];
   size_t operandCount;
-  unsigned givenBack;
   Model model;
 };
-
-// A count after one more reference (idris_rt_inc): a persistent object's
-// stays 0 and a saturated one's at UINT32_MAX, the header's two marks.
-uint32_t oneMore(uint32_t count) { return count == 0 || count == UINT32_MAX ? count : count + 1; }
 
 // The operands keep their counts through `call` and the live cells are as
 // they were after it: it borrowed them and released what it made.
@@ -304,9 +299,9 @@ bool borrowed(const char *operation, const idris_rt_str *const *operands, size_t
   uint32_t counts[2];
   for (size_t i = 0; i < n; ++i)
     counts[i] = operands[i]->header.count;
-  uint64_t live = idris_rt_live_cells();
+  uint64_t live = prop::held();
   call();
-  bool holds = idris_rt_live_cells() == live;
+  bool holds = prop::held() == live;
   for (size_t i = 0; i < n; ++i) {
     uint32_t count = operands[i]->header.count;
     if (count != 0 && prop::planted(keepsReference))
@@ -324,41 +319,34 @@ struct Models {
   template <typename Call> bool operator()(const Expected &e, Call call) const {
     const idris_rt_str *r = call();
     bool holds = isTheModel(e.name, r, e.model);
-    idris_rt_str_release(r);
+    idris_rt_dec_cell(const_cast<idris_rt_str *>(r));
     return holds;
   }
 };
-// idris_rt.h's two ways to own a result: where the operation gives an
-// operand back, that operand with one more reference; elsewhere a string
-// of its own, the persistent empty one (count 0) when it has no byte, else
-// a new one (count 1).
+// A result is a string of its own, never an operand, even where it reads
+// as one (appending the empty string, reversing a string of one scalar): a
+// result is fresh, so an operation that gave an operand back would share
+// what its caller may hold exclusive. The persistent empty one (count 0)
+// when it has no byte, else a new one (count 1).
 struct Owns {
   template <typename Call> bool operator()(const Expected &e, Call call) const {
-    uint32_t counts[2];
-    for (size_t i = 0; i < e.operandCount; ++i)
-      counts[i] = e.operands[i]->header.count;
     const idris_rt_str *r = call();
-    bool owned = false;
-    if (e.givenBack != 0) {
-      for (size_t i = 0; i < e.operandCount; ++i)
-        if ((e.givenBack >> i & 1) != 0 && r == e.operands[i])
-          owned = r->header.count ==
-                  (counts[i] != 0 && prop::planted(givenBackUncounted) ? counts[i] : oneMore(counts[i]));
-    } else {
-      owned = r->header.count == (r->bytes == 0 ? 0u : 1u);
-    }
+    const idris_rt_str *seen = e.operandCount > 0 && prop::planted(givesOperandBack) ? e.operands[0] : r;
+    bool fresh = true;
+    for (size_t i = 0; i < e.operandCount; ++i)
+      fresh = fresh && (seen != e.operands[i] || seen->bytes == 0);
+    bool owned = fresh && seen->header.count == (seen->bytes == 0 ? 0u : 1u);
     bool holds = isTheModel(e.name, r, e.model) && owned;
     if (!owned)
-      prop::explain("%s: a result of count %u, %s", e.name, r->header.count,
-                    e.givenBack != 0 ? "where idris_rt.h gives an operand back with one more reference"
-                                     : "where idris_rt.h makes the persistent empty string or a new one");
-    idris_rt_str_release(r);
+      prop::explain("%s: a result of count %u%s, where idris_rt.h makes the persistent empty string or a new one",
+                    e.name, seen->header.count, fresh ? "" : " that is an operand");
+    idris_rt_dec_cell(const_cast<idris_rt_str *>(r));
     return holds;
   }
 };
 struct Borrows {
   template <typename Call> bool operator()(const Expected &e, Call call) const {
-    return borrowed(e.name, e.operands, e.operandCount, [&] { idris_rt_str_release(call()); });
+    return borrowed(e.name, e.operands, e.operandCount, [&] { idris_rt_dec_cell(const_cast<idris_rt_str *>(call())); });
   }
 };
 struct Every {
@@ -373,26 +361,25 @@ struct Every {
 template <typename Judge> bool tail(const Operand &s, Judge judge) {
   if (s.model.length == 0)
     return true;
-  return judge(Expected{"tail", {s.string}, 1, 0, tailOf(s.model)}, [&] {
+  return judge(Expected{"tail", {s.string}, 1, tailOf(s.model)}, [&] {
     return prop::planted(tailOfAByte) ? idris_rt_str_from_bytes(idris_rt_str_bytes(s.string) + 1, s.string->bytes - 1)
                                       : idris_rt_str_tail(s.string);
   });
 }
 template <typename Judge> bool cons(uint32_t c, const Operand &s, Judge judge) {
-  return judge(Expected{"cons", {s.string}, 1, 0, consOf(c, s.model)},
+  return judge(Expected{"cons", {s.string}, 1, consOf(c, s.model)},
                [&] { return idris_rt_str_cons(static_cast<int32_t>(c), s.string); });
 }
 template <typename Judge> bool fromChar(uint32_t c, Judge judge) {
-  return judge(Expected{"from_char", {}, 0, 0, fromCharOf(c)},
+  return judge(Expected{"from_char", {}, 0, fromCharOf(c)},
                [&] { return idris_rt_str_from_char(static_cast<int32_t>(c)); });
 }
 template <typename Judge> bool append(const Operand &a, const Operand &b, Judge judge) {
-  unsigned givenBack = (a.model.length == 0 ? 2u : 0u) | (b.model.length == 0 ? 1u : 0u);
-  return judge(Expected{"append", {a.string, b.string}, 2, givenBack, appendOf(a.model, b.model)},
+  return judge(Expected{"append", {a.string, b.string}, 2, appendOf(a.model, b.model)},
                [&] { return idris_rt_str_append(a.string, b.string); });
 }
 template <typename Judge> bool reverse(const Operand &s, Judge judge) {
-  return judge(Expected{"reverse", {s.string}, 1, s.model.length == 0 ? 1u : 0u, reverseOf(s.model)}, [&] {
+  return judge(Expected{"reverse", {s.string}, 1, reverseOf(s.model)}, [&] {
     if (s.model.length > 0 && prop::planted(reverseOfBytes)) {
       char bytes[operandLimit * scalarBytes];
       for (uint64_t k = 0; k < s.string->bytes; ++k)
@@ -404,7 +391,7 @@ template <typename Judge> bool reverse(const Operand &s, Judge judge) {
 }
 template <typename Judge> bool substr(const Operand &s, int64_t start, int64_t length, Judge judge) {
   auto n = static_cast<int64_t>(s.model.length);
-  bool holds = judge(Expected{"substr", {s.string}, 1, 0, substrOf(s.model, start, length)}, [&] {
+  bool holds = judge(Expected{"substr", {s.string}, 1, substrOf(s.model, start, length)}, [&] {
     if (start < 0 && start > INT64_MIN && n > 0 && prop::planted(startFromTheEnd))
       return idris_rt_str_substr(s.string, n + start < 0 ? 0 : n + start, length);
     if (start >= 0 && start < n && length > n - start && prop::planted(pastTheEndEmpty))
@@ -506,10 +493,10 @@ bool scalarOperationsBorrow(const Operand &a, const Operand &b) {
 bool emptiesAreOne(const Operand &s) {
   auto bytes = static_cast<int64_t>(s.string->bytes);
   auto length = static_cast<int64_t>(s.model.length);
-  idris_rt_array *buffer =
-      idris_rt_array_new(static_cast<uint64_t>(bytes), idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY));
+  auto *buffer = static_cast<idris_rt_array *>(
+      idris_rt_array_new(static_cast<uint64_t>(bytes), idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY)));
   memcpy(idris_rt_array_bytes(buffer), idris_rt_str_bytes(s.string), s.string->bytes);
-  uint64_t live = idris_rt_live_cells();
+  uint64_t live = prop::held();
   struct Made {
     const char *operation;
     const idris_rt_str *string;
@@ -533,7 +520,7 @@ bool emptiesAreOne(const Operand &s) {
     add("drop_bytes to the end", idris_rt_str_drop_bytes(s.string, bytes));
     add("drop_bytes past the end", idris_rt_str_drop_bytes(s.string, INT64_MAX));
   }
-  bool holds = idris_rt_live_cells() == live;
+  bool holds = prop::held() == live;
   if (!holds)
     prop::explain("an empty string allocated a cell");
   const idris_rt_str *one = made[0].string;
@@ -547,9 +534,9 @@ bool emptiesAreOne(const Operand &s) {
                     static_cast<unsigned long long>(m.string->bytes), m.string->header.count);
       holds = false;
     }
-    idris_rt_str_release(m.string);
+    idris_rt_dec_cell(const_cast<idris_rt_str *>(m.string));
   }
-  idris_rt_dec(buffer);
+  idris_rt_dec_cell(buffer);
   return holds;
 }
 
@@ -566,7 +553,7 @@ Model boxString(uint64_t index) {
 
 } // namespace
 
-int main(int argc, char **argv) {
+static int properties(int argc, char **argv) {
   prop::Run run(argc, argv);
 
   run.property("length, index, head: the model's", lengthOfBytes, [](FuzzedDataProvider &p, prop::Tally &tally) {
@@ -596,8 +583,8 @@ int main(int argc, char **argv) {
     return compares(k.a, k.b);
   });
 
-  run.property("results: canonical, the empty one persistent, an operand returned with one more reference",
-               givenBackUncounted,
+  run.property("results: canonical, the empty one persistent, every other a new string, never an operand",
+               givesOperandBack,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
                  Case k(p, tally);
                  return stringOperations(k.a, k.b, k.arguments, Owns{});
@@ -638,3 +625,5 @@ int main(int argc, char **argv) {
 
   return run.finish();
 }
+
+int main(int argc, char **argv) { return prop::onRuntime(argc, argv, "strings", properties); }

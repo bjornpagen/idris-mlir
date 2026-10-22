@@ -1,0 +1,38 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The functions fixture compiled at one thread and on the pool gives the
+# same artifacts byte for byte: the module, every object and the
+# executable. A pass whose answer depends on how its work was split among
+# threads, or on the order the pool finished it in, shows here at a size
+# where the pool splits the work many ways.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/scale.sh"
+for threads in one pool; do
+  case $threads in
+    one) scale_compile functions 1 --num-threads=1 ;;
+    pool) scale_compile functions 1 ;;
+  esac
+  say "compile on $threads: exit $compiled"
+  if [ "$compiled" -ne 0 ]; then
+    show "$work/compile.out" "$work/compile.err"
+    exit 0
+  fi
+  mkdir -p "$work/$threads.tree"
+  mv "$work/functions.1/build" "$work/$threads.tree/build"
+done
+for kind in $artifact_kinds; do
+  [ "$kind" = core ] && continue
+  one=$(artifact_files "$work/one.tree" scale "$kind")
+  pool=$(artifact_files "$work/pool.tree" scale "$kind")
+  if [ -z "$one" ] || [ "$(printf '%s\n' "$one" | sed "s|$work/one.tree||")" != "$(printf '%s\n' "$pool" | sed "s|$work/pool.tree||")" ]; then
+    say "$kind: not the same files at one thread and on the pool"
+    continue
+  fi
+  differ=
+  for file in $one; do
+    cmp -s "$file" "$work/pool.tree${file#"$work/one.tree"}" || differ="$differ ${file#"$work/one.tree/"}"
+  done
+  if [ -z "$differ" ]; then say "$kind: the same bytes"; else say "$kind: differs:$differ"; fi
+done

@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/64-tensor-like-per-instance: a type answers per instance whether
+# it is tensor-like, and a bridge's one rule is the tensor-like type's own
+# check, with the shape traits gone. Upstream's builtin bridges of matching
+# shape still verify and a mismatch is still refused with its message
+# (bridges.mlir); the installed interface declares the per-instance answer
+# a graded tensor gives.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+if bounded "$llvm_bin/mlir-opt" "$root/upstream/64-tensor-like-per-instance/bridges.mlir" \
+     -split-input-file -verify-diagnostics -o /dev/null 2> "$work/err"; then
+  say "bridges: matching ones verify, a mismatch is refused by the type's check"
+else
+  say "bridges: not as the type's check says"
+  show "$work/err"
+fi
+if grep -rq 'isTensorLike' "$llvm_prefix/include/mlir/Dialect/Bufferization/IR/" 2> /dev/null; then
+  say "TensorLikeType: answers per instance"
+else
+  say "TensorLikeType: no per-instance answer"
+fi

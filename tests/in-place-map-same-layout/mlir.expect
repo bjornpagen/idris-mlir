@@ -1,0 +1,2 @@
+# Every cell the map takes apart is rebuilt, tested by no count.
+owned: reuses-every-cell=@Main.mapL tests-nothing=@Main.mapL

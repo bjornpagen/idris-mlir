@@ -1,0 +1,10 @@
+the predictor's own checks: each holds on the runner
+seed 1: every twin compiles, runs and returns, writing nothing on stderr: ok
+seed 1: every verdict is the one the promise predicts: ok
+seed 1: every linear program accepted prints and ends as its twin: ok
+seed 2: every twin compiles, runs and returns, writing nothing on stderr: ok
+seed 2: every verdict is the one the promise predicts: ok
+seed 2: every linear program accepted prints and ends as its twin: ok
+drawn seed: every twin compiles, runs and returns, writing nothing on stderr: ok
+drawn seed: every verdict is the one the promise predicts: ok
+drawn seed: every linear program accepted prints and ends as its twin: ok

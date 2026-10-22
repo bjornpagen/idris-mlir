@@ -4,16 +4,16 @@
 # A runtime built for another page size than the system's refuses to start:
 # idris_rt_start checks first that the target entry's page size
 # (IDRIS_MLIR_PAGE_SIZE, which the build records in runtime/page-size) is
-# the system's, and otherwise names both, runs nothing and exits as a
-# crash, its stderr the crash's one line. The check is the platform
-# layer's memory unit (runtime/Platform/Posix/Memory.cpp), so that unit
-# alone is compiled here,
-# as the build compiles it, once for the build's page size and once each for
-# pages 2 and 4 times smaller and larger, and linked ahead of the build's runtime
-# archive, whose own copy of it the link then leaves out: the program is the
-# build's runtime, built for that page size. The unit and start.c read the
-# runtime's C ABI, part of which the build generates, so each compiles with
-# the runtime's C flags (runtime_c).
+# the system's, and otherwise names both, runs nothing and ends as a
+# program this machine cannot run (126), its stderr the ending's one line.
+# The check is the entry's own (runtime/Start/Entry.cpp), so that unit
+# alone is compiled here, as the build compiles it, once for the build's
+# page size and once each for pages 2 and 4 times smaller and larger, and
+# linked ahead of the build's runtime archive, whose own copy of it the
+# link then leaves out: the program is the build's runtime, built for that
+# page size. The unit and start.c read the runtime's C ABI, part of which
+# the build generates, so each compiles with the runtime's C flags
+# (runtime_c).
 step_limit=120
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 build=${idris_mlir%/foreign/idr/idris-mlir}
@@ -26,17 +26,17 @@ case $page in
 esac
 target=$("$idris_mlir" --print-target-triple)
 
-# program NAME PAGE: start.c with the memory unit built for PAGE, then the
+# program NAME PAGE: start.c with the entry built for PAGE, then the
 # build's runtime, into $work/NAME.
 program() {
   if ! runtime_c bounded "$llvm_bin/clang++" --target="$target" -std=c++26 -fno-exceptions \
-      -fno-rtti -O2 "-DIDRIS_RT_PAGE_SIZE=$2" -c "$root/runtime/Platform/Posix/Memory.cpp" \
-      -o "$work/$1-memory.o" > "$work/cc.log" 2>&1; then
-    say "$1: the memory unit does not compile"
+      -fno-rtti -O2 "-DIDRIS_RT_PAGE_SIZE=$2" -c "$root/runtime/Start/Entry.cpp" \
+      -o "$work/$1-entry.o" > "$work/cc.log" 2>&1; then
+    say "$1: the entry does not compile"
     show "$work/cc.log"
     return 1
   fi
-  if ! runtime_c link_program -O1 "$here/start.c" "$work/$1-memory.o" "$runtime" \
+  if ! runtime_c link_program -O1 -I"$root/harness/prop" "$here/start.c" "$work/$1-entry.o" "$runtime" \
       -o "$work/$1" > "$work/cc.log" 2>&1; then
     say "$1: does not link"
     show "$work/cc.log"
@@ -49,14 +49,14 @@ program() {
 # that names the page size it was built for and the build's, which is the
 # system's (runtime-start runs the build's runtime here), exactly as the
 # runtime writes the ending of a program this machine cannot run: the
-# program's own name, `fatal: `, and why.
+# program's own name as its driver built it (start.c's), `fatal: `, and why.
 start() {
   program "$1" "$2" || return
   ( bounded "$work/$1" ) > "$work/$1.out" 2> "$work/$1.err"
   start_status=$?
   if grep -qx ran "$work/$1.out"; then ran="the program ran"; else ran="the program did not run"; fi
-  printf '%s: fatal: the runtime is built for a %s-byte page, and this system has a %s-byte page\n' \
-    "$1" "$2" "$page" > "$work/$1.crash"
+  printf 'start: fatal: the runtime is built for a %s-byte page, and this system has a %s-byte page\n' \
+    "$2" "$page" > "$work/$1.crash"
   if [ ! -s "$work/$1.err" ]; then
     said="nothing on stderr"
   elif cmp -s "$work/$1.crash" "$work/$1.err"; then

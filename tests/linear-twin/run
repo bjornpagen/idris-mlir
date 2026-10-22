@@ -1,0 +1,126 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# The linear generator (harness/Linear.idr) on each seed of its regression
+# corpus and on one seed drawn from the clock: straight-line programs over
+# linear lists, built, rebuilt in their own cells, read (printed or unused)
+# and shared, each beside its twin over plain lists. Linearity is a
+# property of speed, never of meaning, and the in-place promise is a rule
+# read off the program:
+#   - every twin compiles, runs and returns, writing nothing on stderr;
+#   - the linear program's verdict is the one the harness's own statement
+#     of the promise predicts: the argument of a rebuild is exclusive when
+#     no use of its value is evaluated after the call under any name, nor
+#     any rebuild of it before the call, which keeps its cells, and it was
+#     exclusive where it was made (built fresh, or given by a rebuild of an
+#     exclusive value); a read before the call is lent the list and holds
+#     nothing once it returns, so it never counts. The program is accepted,
+#     or refused by the promise alone at exactly the lines predicted, its
+#     report read once by the runner;
+#   - every linear program the compiler accepts prints and ends as its
+#     twin does.
+# Each line names its seed; the drawn one's lines name it only when one
+# fails, with what replays it (IDRIS_MLIR_LINEAR_SEED), so the transcript
+# is the same whatever was drawn. First, the predictor's own checks, on
+# the runner: programs whose verdicts the rule fixes, and the generator's
+# spread over one seed's programs.
+# Three programs a seed, two compilations each, given half an hour.
+test_limit=1800
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+linear_programs=3
+
+"$runtests" --linear-program checks > "$work/checks" 2> "$work/checks.err"
+if [ ! -s "$work/checks" ]; then
+  say "the predictor's own checks: none printed"
+  show "$work/checks.err"
+elif grep -qv ': ok$' "$work/checks"; then
+  say "the predictor's own checks: some fail on the runner:"
+  grep -v ': ok$' "$work/checks" | sed 's/^/  /'
+else
+  say "the predictor's own checks: each holds on the runner"
+fi
+
+# linear_report FILE LINE: LINE's check, `ok` when FILE, its problems, is
+# empty, and otherwise `failed` and each problem.
+linear_report() {
+  if [ -s "$1" ]; then
+    say "$2: failed"
+    sed 's/^/  /' "$1"
+  else
+    say "$2: ok"
+  fi
+}
+
+# linear_case SEED CASE: the programs of CASE of SEED, the twin and the
+# linear one, compiled with the passes' contracts and linked with the
+# checked runtime, the twin run, and the linear one held to its predicted
+# verdict and, where it compiled, run and held to the twin. Each problem is
+# a line in the file of the check it breaks.
+linear_case() {
+  lc_dir=$work/linear-$1-$2
+  mkdir -p "$lc_dir/twin" "$lc_dir/linear"
+  for lc_part in twin linear stdin verdict; do
+    if ! "$runtests" --linear-program "$1" "$2" "$lc_part" > "$lc_dir/$lc_part.out" 2> "$lc_dir/gen.err"; then
+      say "case $2: no $lc_part program" >> "$work/linear.twin"
+      show "$lc_dir/gen.err" >> "$work/linear.twin"
+      return
+    fi
+  done
+  cp "$lc_dir/twin.out" "$lc_dir/twin/Main.idr"
+  cp "$lc_dir/linear.out" "$lc_dir/linear/Main.idr"
+  compile_checked --idr-contracts "$lc_dir/twin/Main.idr" prog
+  if [ "$compiled" -ne 0 ]; then
+    say "case $2: the twin exits $compiled when compiled" >> "$work/linear.twin"
+    cat "$work/compile.out" "$work/compile.err" | head -n 10 | sed 's/^/  | /' >> "$work/linear.twin"
+    return
+  fi
+  run_program twin "$lc_dir/twin/build/exec/prog" "$lc_dir/stdin.out"
+  if [ "$ran" -ne 0 ] || [ -s "$work/twin.err" ]; then
+    say "case $2: the twin exits $ran" >> "$work/linear.twin"
+    head -n 5 "$work/twin.err" | sed 's/^/  | /' >> "$work/linear.twin"
+    return
+  fi
+  compile_checked -p mlir-linear --idr-contracts "--report=$lc_dir/report" "$lc_dir/linear/Main.idr" prog
+  "$runtests" --linear-check "$1" "$2" "$compiled" "$lc_dir/report" > "$lc_dir/check.out" 2>&1
+  if [ -s "$lc_dir/check.out" ]; then
+    sed "s/^/case $2: /" "$lc_dir/check.out" >> "$work/linear.verdict"
+    cat "$work/compile.out" "$work/compile.err" | head -n 10 | sed 's/^/  | /' >> "$work/linear.verdict"
+  fi
+  [ "$compiled" -eq 0 ] || return
+  run_program linear "$lc_dir/linear/build/exec/prog" "$lc_dir/stdin.out"
+  if [ "$ran" -ne 0 ] || [ -s "$work/linear.err" ]; then
+    say "case $2: the linear program exits $ran, its twin 0" >> "$work/linear.same"
+    head -n 5 "$work/linear.err" | sed 's/^/  | /' >> "$work/linear.same"
+  elif ! cmp -s "$work/twin.out" "$work/linear.out"; then
+    say "case $2: the linear program prints otherwise than its twin (< twin, > linear)" >> "$work/linear.same"
+    diff "$work/twin.out" "$work/linear.out" | head -n 10 | sed 's/^/  | /' >> "$work/linear.same"
+  fi
+}
+
+# linear SEED: each check's line, over the seed's programs.
+linear() {
+  : > "$work/linear.twin"
+  : > "$work/linear.verdict"
+  : > "$work/linear.same"
+  lin_case=1
+  while [ "$lin_case" -le "$linear_programs" ]; do
+    linear_case "$1" "$lin_case"
+    lin_case=$((lin_case + 1))
+  done
+  linear_report "$work/linear.twin" "every twin compiles, runs and returns, writing nothing on stderr"
+  linear_report "$work/linear.verdict" "every verdict is the one the promise predicts"
+  linear_report "$work/linear.same" "every linear program accepted prints and ends as its twin"
+}
+
+for seed in 1 2; do
+  linear "$seed" | sed "s/^/seed $seed: /"
+done
+drawn=${IDRIS_MLIR_LINEAR_SEED:-$((3 + $(date +%s) % 1000000))}
+linear "$drawn" > "$work/drawn"
+if grep -q ': ok$' "$work/drawn" && ! grep -qv ': ok$' "$work/drawn"; then
+  sed 's/^/drawn seed: /' "$work/drawn"
+else
+  say "drawn seed: $drawn, which IDRIS_MLIR_LINEAR_SEED=$drawn replays:"
+  sed 's/^/drawn seed: /' "$work/drawn"
+fi

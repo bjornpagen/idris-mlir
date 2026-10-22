@@ -7,11 +7,14 @@
  * was made from, at the small range's edges (where the word turns from
  * odd to even), the limb's (2^64 - 1, 2^64) and past; and a cell the test
  * lays out itself is read by the runtime as its value, while the same cell
- * with its lowest limb one off is not, so the comparison could fail. */
+ * with its lowest limb one off is not, so the comparison could fail. It
+ * runs as a program on the checked runtime, whose count of the cells it
+ * holds shows each big's cell is all it holds. */
 #include <stdio.h>
 #include <string.h>
 
 #include "idris_rt.h"
+#include "program.h"
 
 static int failures = 0;
 
@@ -25,7 +28,7 @@ static void check(int ok, const char *what, const char *text) {
 static idris_rt_big parse(const char *s) {
   const idris_rt_str *text = idris_rt_str_from_utf8(s, strlen(s));
   idris_rt_big big = idris_rt_big_from_str(text);
-  idris_rt_str_release(text);
+  idris_rt_dec_cell((void *)text);
   return big;
 }
 
@@ -72,7 +75,7 @@ struct constant {
 static int shows(idris_rt_big big, const char *text) {
   const idris_rt_str *shown = idris_rt_big_show(big);
   int same = shown->bytes == strlen(text) && memcmp(idris_rt_str_bytes(shown), text, shown->bytes) == 0;
-  idris_rt_str_release(shown);
+  idris_rt_dec_cell((void *)shown);
   return same;
 }
 
@@ -81,7 +84,7 @@ static void checkValue(const struct value *v) {
   if (v->small) {
     check(idris_rt_word_is_small(b) && idris_rt_small_value(b) == v->word, "a small value's word is odd and holds it",
           v->text);
-    idris_rt_big_release(b);
+    idris_rt_dec_big(b);
     return;
   }
   check(!idris_rt_word_is_small(b), "a large big's word is even", v->text);
@@ -102,11 +105,11 @@ static void checkValue(const struct value *v) {
   c.limbs[0] ^= 1;
   check(idris_rt_big_cmp(laid, b) != 0 && !shows(laid, v->text),
         "the runtime reads the test's cell with its lowest limb one off as another value", v->text);
-  idris_rt_big_release(b);
+  idris_rt_dec_big(b);
 }
 
-int main(void) {
-  uint64_t before = idris_rt_live_cells();
+static void body(void) {
+  uint64_t before = prop_held();
   for (size_t i = 0; i < sizeof values / sizeof values[0]; ++i)
     checkValue(&values[i]);
 
@@ -122,15 +125,22 @@ int main(void) {
   idris_rt_big past = idris_rt_big_add(top, one);
   check(!idris_rt_word_is_small(past) && size(past) == 1 && limbs(past)[0] == UINT64_C(1) << 62,
         "a sum past the small range is a cell of one limb", "2^62 - 1 + 1");
-  idris_rt_big_release(a);
-  idris_rt_big_release(b);
-  idris_rt_big_release(minusA);
-  idris_rt_big_release(d);
-  idris_rt_big_release(top);
-  idris_rt_big_release(one);
-  idris_rt_big_release(past);
-  check(idris_rt_live_cells() == before, "a bignum's cell is all it holds: freeing it frees it all", "every big");
+  idris_rt_dec_big(a);
+  idris_rt_dec_big(b);
+  idris_rt_dec_big(minusA);
+  idris_rt_dec_big(d);
+  idris_rt_dec_big(top);
+  idris_rt_dec_big(one);
+  idris_rt_dec_big(past);
+  check(prop_held() == before, "a bignum's cell is all it holds: freeing it frees it all", "every big");
   if (failures == 0)
     printf("big cell: every check holds as idris_rt.h lays a bignum out\n");
-  return failures != 0;
+  fflush(stdout);
+  if (failures != 0)
+    idris_rt_exit(1);
 }
+
+/* A few frames of its own, and the C library's printf. */
+IDRIS_RT_TEST_PROGRAM("cell", 256 * 1024);
+
+int main(int argc, char **argv) { idris_rt_test_start(body, argc, argv); }

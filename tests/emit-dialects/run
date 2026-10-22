@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
 # Emit writes ops of the contract's dialects only, each through the builder
-# generated from the op's ODS (IdrisMLIR.Dialect.*, tools/dialects.sh):
+# generated for the op (IdrisMLIR.Dialect.*: idr's from the specification,
+# the admitted upstream ops' from upstream's records):
 # idris-mlir parses with a registry of exactly idr, arith, math, ub,
 # memref, tensor and builtin. So
 #   - each generated module builds ops of one dialect of the contract, and

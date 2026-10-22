@@ -1,0 +1,2 @@
+# The rebuilt literal is rebuilt in its own cells.
+owned: tests-nothing=@Main.bump

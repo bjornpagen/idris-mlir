@@ -3,8 +3,10 @@
 # Copyright (c) 2026 Bjorn Pagen
 # One test of harness/Sem.idr's table, the one the runner names as this
 # script's second argument: harness/Main.idr runs this directory once per
-# entry of Sem.names, as semantics@<name>, and its program
-# and the values every case prints are the runner's, computed from what
-# each primitive means (sem_case, harness/lib/e2e.sh).
+# entry of Sem.names, as semantics@<name>. Its two programs, one with every
+# operand written in it and one that reads every operand from its stdin,
+# and the value each case must give, are the runner's, computed from what
+# each primitive means (sem_case, harness/lib/e2e.sh): the compiler's
+# folder answers the first, its code the second.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 sem_case "$parameter"

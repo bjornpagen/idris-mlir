@@ -862,7 +862,7 @@ export covering
 twoHosts : String
 twoHosts =
   let tape = tapeOf 1 2 Runtime in
-  unlines (checkLines "gen" Gen.checks ++ checkLines "sem" Sem.checks
+  unlines (checkLines "gen" Gen.checks
            ++ checkLines "two-levels" TwoLevels.checks ++ checkLines "fuzz-check" Fuzz.checkerChecks
            ++ checkLines "two-levels-check" TwoLevels.checkerChecks)
   ++ (the (List (String, String))
@@ -872,7 +872,7 @@ twoHosts =
        , ("threads 1", show (threads 1) ++ "\n")
        , ("tape 1 2 runtime", tapeText tape ++ "\n")
        , ("shrink " ++ tapeText tape, unlines (map (tapeText . fst) (candidates tape)))
-       , ("sem prim-int-add", fromMaybe "no program\n" (Sem.programOf "prim-int-add"))
+       , ("sem prim-int-add", fromMaybe "no program\n" (Sem.programOf Written "prim-int-add"))
        , ("two-levels primitives terms", fromMaybe "no program\n" (TwoLevels.programOf ["primitives", "terms"]))
        , ("two-levels prelude main", fromMaybe "no program\n" (TwoLevels.programOf ["prelude", "main"]))
        ] `joinedBy` \(title, body) => "== " ++ title ++ "\n" ++ body)

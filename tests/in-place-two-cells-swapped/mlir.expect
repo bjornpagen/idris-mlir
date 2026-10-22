@@ -1,0 +1,2 @@
+# Every cell swap takes apart is rebuilt, none freed, and no count is tested.
+owned: reuses-every-cell=@Main.swap tests-nothing=@Main.swap

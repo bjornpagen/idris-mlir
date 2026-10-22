@@ -126,3 +126,9 @@ judge r = case category r of
 export
 ruleLines : List String
 ruleLines = map (\r => phraseOf r ++ "\t" ++ caseWords categoryClosed (category r)) (forget everyRule)
+
+||| The rule a call the in-place promise binds is refused by when its
+||| argument is not exclusive, as the linear generator predicts it.
+export
+uniqueness : SomeRule
+uniqueness = Refusal Uniqueness

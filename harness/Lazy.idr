@@ -1,8 +1,9 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| The lazy fuzzer: programs of lazy structures, each read as a case says,
-||| whose every run must end with exit 0, nothing on stderr (no cell live at
-||| exit: run_ours) and each case's lines as the case's model computes them
+||| whose every run must end with exit 0, nothing on stderr (the checked
+||| runtime ends a run that leaves a cell live as an internal error) and
+||| each case's lines as the case's model computes them
 ||| (`fuzz_lazy` in harness/lib/fuzz.sh).
 |||
 |||     runtests --lazy-program <seed> <cases> main|stdin

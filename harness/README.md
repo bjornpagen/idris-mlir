@@ -47,7 +47,7 @@ A test's kind is what its directory holds (`kindOf`, Main.idr):
   pass must handle that no program reaches. Its `// RUN:` lines run in
   order and every one must hold; a command that is to fail names the
   failure it expects. No RUN line names a pass: a stage slice
-  (`--idr-pipeline=from:<stage>,to:<stage>`), a property
+  (`--idr-pipeline="from=<stage> to=<stage>"`), a property
   (`--idr-expect=holds=...`) or `%differential` (below, the oracle for
   what the pipeline's output means).
 
@@ -89,7 +89,7 @@ printf's `%b` escapes (`\n`, `\\`, `\0NNN`). A run that leaks a cell ends as the
 which differs from a clean return. Translation validation of a stage is
 two lines:
 
-    // RUN: idris-mlir-opt %s --idr-pipeline=to:first -o %t.mlir
+    // RUN: idris-mlir-opt %s --idr-pipeline=to=first -o %t.mlir
     // RUN: %differential %s %t.mlir
 
 **A refused program's neighbour.** A refused test may hold `near/`, the
@@ -117,7 +117,9 @@ A fixture is in `test-idr` and every other test in `test`, unless a
 `targets` file runs a test only on the hosts it names (`x86-64`,
 `aarch64`, `linux`, `macos`), and `expected.<host>` is the expectation
 on that host in place of `expected`. `tests/semantics` runs once per
-entry of Sem.idr's table, as `semantics@<name>`.
+entry of Sem.idr's table, as `semantics@<name>`, each entry twice: its
+operands written in the program, where they fold, and read from stdin,
+where they reach the code the program is compiled to.
 
 A test's expected files are its specification, reviewed when they
 change; no other implementation is asked. Tests check behaviour, never
@@ -134,11 +136,22 @@ clone numbers, function order or SSA names.
   rules); `Case.idr`, `Reject.idr`: a case's ending and a refused
   program's header, each read once into its record; `Trace.idr`: time
   traces summed; `Json.idr`, `Files.idr`: what they read.
-- `testutils.sh` and `lib/`: what the scripts share, one file per concern.
+- `testutils.sh` and `lib/`: what the scripts share, one file per concern;
+  `lib/spec.sh`, the specification's generated files as the spec tests
+  read them, and `lib/scale.sh`, a scale fixture compiled at two sizes and
+  held to its relation, are sourced by their tests alone.
 - `kinds/`: the script of each kind of test that has no `run` of its own.
-- `prop/`: the headers and the build of the runtime's property programs.
-- `Fuzz.idr`, `Gen.idr`, `Prims.idr`, `Sem.idr`, `TwoLevels.idr`,
-  `Lock.idr`: what the runner computes for tests that ask it.
+- `prop/`: the headers and the build of the runtime's property programs,
+  and the program a runtime C test runs as, through the runtime's start.
+- `Fuzz.idr`, `Gen.idr`, `Lazy.idr`, `Linear.idr`, `Prims.idr`, `Sem.idr`,
+  `Scale.idr`, `Properties.idr`, `RuntimeEffects.idr`, `TwoLevels.idr`,
+  `Lock.idr`: what the runner computes for tests that ask it; `Linear.idr`
+  generates linear programs, each with its de-linearized twin and the
+  verdict the in-place rule predicts for it; `Scale.idr` the scale
+  fixtures, the dialect's text spelled from the specification;
+  `Properties.idr` idr-expect's properties, one record each, from which
+  its C++ table is printed; `RuntimeEffects.idr` what each op that calls
+  the runtime declares, against which its runtime function is read.
 - `templates/`: a minimal test of each kind to copy.
 
 ## Adding a test

@@ -1,0 +1,150 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A Faster row of the registry is another lowering of a definition whose
+# body is its one meaning: removing one may change speed, never a result.
+# So each program of `sample` is compiled by the shipped frontend and by
+# one built from the same sources with the module of Faster rows replaced
+# by Faster.idr, which holds none, and the two compilations agree: both
+# accept it or both refuse it, and an accepted one ends every case of its
+# test alike (status, stdout and stderr, byte for byte); a refused one is
+# refused by both as its header says (Reject.idr, on each report). That the
+# swap took effect is shown first: the frontend without its rows writes
+# another module for the first program of the sample.
+#
+# The sample is declared, each program with the rows it reaches, since the
+# test-only frontend is built in the test and every program costs two
+# compilations; its programs are run with their tests' own cases.
+# Debt: the limits are not measured; a build of the frontend on the pinned
+# Idris, mostly from the build's own TTCs, and ten compilations.
+step_limit=1800
+test_limit=3600
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# The frontend keeps its Faster rows in one module, which its registry
+# imports; without it the swap below would add an unread module, and the
+# two frontends would be one.
+faster_module=IdrisMLIR/Registry/Faster.idr
+if [ ! -f "$root/compiler/src/$faster_module" ] ||
+   ! grep -q '^import IdrisMLIR\.Registry\.Faster' "$root/compiler/src/IdrisMLIR/Registry.idr"; then
+  say "the frontend: no module of Faster rows alone that its registry imports"
+  exit 0
+fi
+
+# The test-only frontend: compiler/src and its package, the Faster rows'
+# module replaced, built as the shipped one is, by the pinned Idris against
+# the fork. The build's TTCs are copied first, before the replacement,
+# so only what the replaced module reaches is built again.
+front=$work/frontend
+mkdir -p "$front" && cp -R "$root/compiler/src" "$front/src" && rm -rf "$front/src/build" &&
+  cp "$root/compiler/idris-mlir.ipkg" "$front/" || exit 1
+if [ -d "$root/compiler/build/ttc" ]; then
+  mkdir -p "$front/build" && cp -R "$root/compiler/build/ttc" "$front/build/ttc" || exit 1
+fi
+cp Faster.idr "$front/src/$faster_module" || exit 1
+fork_packages=$(IDRIS2_PREFIX=$host_prefix "$idris2" --libdir)
+if (cd "$front" && IDRIS2_PACKAGE_PATH=$fork_packages && export IDRIS2_PACKAGE_PATH &&
+    pinned_idris --build idris-mlir.ipkg) > "$work/frontend.out" 2>&1 &&
+   [ -x "$front/build/exec/idris-mlir-front" ]; then
+  say "the frontend without its Faster rows: built"
+else
+  say "the frontend without its Faster rows: not built"
+  show "$work/frontend.out"
+  exit 0
+fi
+# idris-mlir runs the frontend beside its own executable, so the
+# test-only one runs beside a link of the same idris-mlir: a hard link,
+# whose path is its own, or a copy where the work directory is on another
+# file system.
+mkdir -p "$work/bin" &&
+  ln -s "$front/build/exec/idris-mlir-front" "$work/bin/idris-mlir-front" || exit 1
+ln "$idris_mlir" "$work/bin/idris-mlir" 2> /dev/null || cp "$idris_mlir" "$work/bin/idris-mlir" || exit 1
+without=$work/bin/idris-mlir
+
+# compile_by COMPILER FIXTURE DEST: FIXTURE's program copied to DEST and
+# compiled there by COMPILER as tools/compile.sh runs idris-mlir, with its
+# packages, linked with the checked runtime, writing its emitted module and
+# its report beside it; its exit status in $compiled_by, its output in
+# DEST.out.
+compile_by() {
+  cb_packages=$(package_options "$2")
+  mkdir -p "$3" && copy_fixture "$2" "$3"
+  # shellcheck disable=SC2086 # the packages are words
+  (cd "$3" && bounded "$1" --no-prelude --num-threads="$ncpu" $cb_packages \
+     "--runtime=$checked_runtime" "--emitted=$3.emitted.mlirbc" "--report=$3.report" \
+     Main.idr -o build/exec/prog) > "$3.out" 2>&1
+  compiled_by=$?
+}
+
+# compare_program NAME: NAME compiled by both; one line.
+compare_program() {
+  compile_by "$idris_mlir" "$root/tests/$1" "$work/shipped/$1"
+  shipped_status=$compiled_by
+  compile_by "$without" "$root/tests/$1" "$work/without/$1"
+  if [ "$shipped_status" -ne "$compiled_by" ]; then
+    say "program $1: compiled otherwise: exit $shipped_status shipped, $compiled_by without its Faster rows"
+    show "$work/shipped/$1.out" "$work/without/$1.out"
+    return
+  fi
+  if [ "$compiled_by" -ne 0 ]; then
+    say "program $1: refused by both"
+    show "$work/shipped/$1.out"
+    return
+  fi
+  pr_differ=
+  for pr_case in "$root/tests/$1"/cases/*/; do
+    pr_case=${pr_case%/}
+    pr_stdin=/dev/null
+    [ -f "$pr_case/stdin" ] && pr_stdin=$pr_case/stdin
+    run_program shipped-run "$work/shipped/$1/build/exec/prog" "$pr_stdin"
+    pr_shipped=$ran
+    run_program without-run "$work/without/$1/build/exec/prog" "$pr_stdin"
+    if [ "$pr_shipped" != "$ran" ] ||
+       ! cmp -s "$work/shipped-run.out" "$work/without-run.out" ||
+       ! cmp -s "$work/shipped-run.err" "$work/without-run.err"; then
+      pr_differ="$pr_differ ${pr_case##*/}"
+    fi
+  done
+  if [ -n "$pr_differ" ]; then
+    say "program $1: cases end otherwise:$pr_differ"
+  else
+    say "program $1: compiled alike, every case ending alike"
+  fi
+}
+
+# compare_reject NAME: NAME, refused by its header's rule, refused so by both.
+compare_reject() {
+  rj_alike=yes
+  for rj_build in shipped without; do
+    if [ "$rj_build" = shipped ]; then rj_compiler=$idris_mlir; else rj_compiler=$without; fi
+    compile_by "$rj_compiler" "$root/tests/$1" "$work/$rj_build/$1"
+    if ! "$runtests" --reject "$root/tests/$1" "$work/$rj_build/$1.report" "$work/$rj_build/$1.out" \
+         > "$work/$rj_build-$1.lines"; then
+      rj_alike=no
+      say "reject $1: $rj_build, not refused as its header says"
+      sed 's/^/  | /' "$work/$rj_build-$1.lines"
+    fi
+  done
+  [ "$rj_alike" = yes ] && say "reject $1: refused by both as its header says"
+}
+
+# The swap shown: the first program of the sample compiled by both, whose
+# emitted modules differ.
+first=$(awk '$1 == "program" { print $2; exit }' sample)
+compile_by "$idris_mlir" "$root/tests/$first" "$work/witness/shipped"
+compile_by "$without" "$root/tests/$first" "$work/witness/without"
+if [ -f "$work/witness/shipped.emitted.mlirbc" ] && [ -f "$work/witness/without.emitted.mlirbc" ] &&
+   ! cmp -s "$work/witness/shipped.emitted.mlirbc" "$work/witness/without.emitted.mlirbc"; then
+  say "without its Faster rows, the frontend writes another module for $first"
+else
+  say "without its Faster rows, the frontend writes the same module for $first, or none"
+fi
+
+grep -v '^#' sample | while read -r kind name _; do
+  case $kind in
+    program) compare_program "$name" ;;
+    reject) compare_reject "$name" ;;
+    '') ;;
+    *) say "sample: no kind $kind" ;;
+  esac
+done

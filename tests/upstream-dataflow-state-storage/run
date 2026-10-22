@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/77-dataflow-state-storage stores the dataflow solver's states
+# densely, about fifteen times smaller per value, and changes no answer.
+# Its size is read from the container types, not measured here (a test
+# reads no resident set); what is checked is that it changes nothing: SCCP
+# over one function of 50,000 chained additions, every value given a
+# state, gives back the function as it was.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+sh "$root/upstream/77-dataflow-state-storage/many-values.sh" 50000 > "$work/chain.mlir"
+if bounded "$llvm_bin/mlir-opt" "$work/chain.mlir" -o "$work/before.mlir" 2> "$work/err" &&
+   bounded "$llvm_bin/mlir-opt" "$work/chain.mlir" -sccp -o "$work/after.mlir" 2>> "$work/err"; then
+  if cmp -s "$work/before.mlir" "$work/after.mlir"; then
+    say "sccp: 50,000 values solved, the function unchanged"
+  else
+    say "sccp: the function changed, though no value is constant"
+  fi
+else
+  say "sccp: fails"
+  show "$work/err"
+fi

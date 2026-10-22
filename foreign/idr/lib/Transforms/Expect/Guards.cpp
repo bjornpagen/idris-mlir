@@ -4,7 +4,7 @@
 // absence: a guard folds to its operand where the operand shows its
 // condition holds, and lowering checks those left.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
 
 #include "idr/IR/IdrDialect.h"
 

@@ -7,14 +7,17 @@
  *
  *   io echo     each line of stdin, as idris_rt_io_get_line gives it,
  *               written back with a '\n', until the end of input
- *   io write    characters of every UTF-8 length, integers, doubles and
- *               strings of 0 to 9 bytes in turn, then one of 9000 bytes
- *   io crash    what write writes, then idris_rt_crash
+ *   io write    characters of every UTF-8 length, integers and doubles
+ *               shown, and strings of 0 to 9 bytes in turn, then one of
+ *               9000 bytes
+ *   io crash    what write writes, then a crash at a site
  *
- * Every string it makes is released. */
+ * Every string it makes is released. It runs as a program does, on
+ * idris_rt_start, whose end writes what the buffers hold. */
 #include <string.h>
 
 #include "idris_rt.h"
+#include "program.h"
 
 static void echo(void) {
   for (;;) {
@@ -22,12 +25,12 @@ static void echo(void) {
     /* An empty line is the end only once the input has ended: a line of
      * no bytes before that is a '\n' alone. */
     if (line->bytes == 0 && idris_rt_io_eof(0) == 1) {
-      idris_rt_str_release(line);
+      idris_rt_dec_cell((void *)line);
       return;
     }
     idris_rt_io_put_str(line);
     idris_rt_io_put_char('\n');
-    idris_rt_str_release(line);
+    idris_rt_dec_cell((void *)line);
   }
 }
 
@@ -36,11 +39,13 @@ static void echo(void) {
 static const int32_t characters[] = {0x41, 0xE9, 0x65E5, 0x1F600};
 enum { characterCount = sizeof characters / sizeof characters[0] };
 
-static void putString(const char *bytes, size_t n) {
-  const idris_rt_str *s = idris_rt_str_from_utf8(bytes, n);
+/* A string the program made, written and released. */
+static void putMade(const idris_rt_str *s) {
   idris_rt_io_put_str(s);
-  idris_rt_str_release(s);
+  idris_rt_dec_cell((void *)s);
 }
+
+static void putString(const char *bytes, size_t n) { putMade(idris_rt_str_from_utf8(bytes, n)); }
 
 static void writeEach(void) {
   static const char digits[] = "0123456789";
@@ -58,9 +63,9 @@ static void writeEach(void) {
   static const double doubles[] = {0.0, -0.5, 1e21, 0.1, -1.5e-7};
   enum { doubleCount = sizeof doubles / sizeof doubles[0] };
   for (int round = 0; round < 10; ++round) {
-    idris_rt_io_put_int_s((int64_t)round * 37 - 100);
+    putMade(idris_rt_str_show_s((int64_t)round * 37 - 100));
     idris_rt_io_put_char(characters[round % characterCount]);
-    idris_rt_io_put_double(doubles[round % doubleCount]);
+    putMade(idris_rt_str_show_f64(doubles[round % doubleCount]));
     idris_rt_io_put_char('\n');
   }
   /* Longer than the default buffer, so written past it at every size. */
@@ -71,18 +76,33 @@ static void writeEach(void) {
   idris_rt_io_put_char('\n');
 }
 
-int main(int argc, char **argv) {
-  const char *mode = argc > 1 ? argv[1] : "";
-  if (strcmp(mode, "echo") == 0)
+/* A site's texts, laid out as idris_rt_text: the static texts of the
+ * program the lowering writes, one per file and per function. */
+static const struct {
+  uint32_t length;
+  char bytes[16];
+} file = {8, "Main.idr"}, function = {9, "Main.main"};
+
+static const char *mode = "";
+
+static void body(void) {
+  if (strcmp(mode, "echo") == 0) {
     echo();
-  else if (strcmp(mode, "write") == 0)
+  } else if (strcmp(mode, "write") == 0) {
     writeEach();
-  else if (strcmp(mode, "crash") == 0) {
+  } else {
     writeEach();
-    static const char cause[] = "io: crashed";
-    idris_rt_crash(cause, sizeof cause - 1);
-  } else
+    /* The first cause of the specification's list, division by zero. */
+    idris_rt_crash_at(0, (void *)&function, (void *)&file, 3, 7);
+  }
+}
+
+/* A few frames of its own. */
+IDRIS_RT_TEST_PROGRAM("io", 64 * 1024);
+
+int main(int argc, char **argv) {
+  mode = argc > 1 ? argv[1] : "";
+  if (strcmp(mode, "echo") != 0 && strcmp(mode, "write") != 0 && strcmp(mode, "crash") != 0)
     return 2;
-  idris_rt_main_return();
-  return 0;
+  idris_rt_test_start(body, argc, argv);
 }

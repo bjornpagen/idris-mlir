@@ -1,0 +1,4 @@
+# The labels of every closure, as the label solve finds them before the
+# closures are taken apart, are the least the program's statements give
+# them: the solve's answer held to a second derivation of it.
+higher: labels-least

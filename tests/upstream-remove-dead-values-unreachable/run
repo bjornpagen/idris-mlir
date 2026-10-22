@@ -1,0 +1,21 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/06-remove-dead-values-unreachable is retired: nothing in the
+# tree runs remove-dead-values, so the patch is not carried and the report
+# stays a submission. The pinned mlir-opt still shows the bug: a use, in
+# code dead-code analysis never reaches, of a dead argument, result or
+# block argument is left a null operand. When the pin has upstream's fix
+# this check fails, and the report goes with it.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+for input in unreachable uncalled dead-result dead-block-arg; do
+  bounded "$llvm_bin/mlir-opt" "$root/upstream/06-remove-dead-values-unreachable/$input.mlir" \
+    --remove-dead-values > "$work/out.mlir" 2> "$work/err"
+  status=$?
+  if [ "$status" -eq 0 ] && grep -q 'call @ext(%.*) : (i32) -> ()' "$work/out.mlir" &&
+     grep -q 'ub.poison : i32' "$work/out.mlir"; then
+    say "$input: fixed at the pin (the dead value's uses take poison)"
+  else
+    say "$input: still reproduces at the pin"
+  fi
+done

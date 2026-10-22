@@ -3,9 +3,10 @@
 # Copyright (c) 2026 Bjorn Pagen
 # The runtime idris-mlir prepares for programs (--print-runtime) is one
 # object that every executable links. Its native half defines the C ABI
-# programs call and behaves as the archive it was prepared from: rc.c, the
-# runtime-api program, built against it, prints what it prints against the
-# archive and counts the same live cells. Every symbol it needs from outside
+# programs call and behaves as the archive it was prepared from: start.c,
+# the runtime-start program, built against it, prints what it prints
+# against the archive and ends alike, however it ends (returned, an exit,
+# a crash at a site, out of memory). Every symbol it needs from outside
 # is one its target's allowlist allows, of the C library, GMP or
 # compiler-rt: `allowed` holds what every target allows, and NAME/allowed
 # what the target allows besides, NAME one of the names the host answers to
@@ -21,7 +22,7 @@ if [ ! -f "$runtime" ]; then
   exit 0
 fi
 say "prepared runtime: one object"
-# build_test RUNTIME SOURCE OUT: SOURCE, the runtime-api program, linked
+# build_test RUNTIME SOURCE OUT: SOURCE, the runtime-start program, linked
 # with RUNTIME and GMP into OUT.
 build_test() {
   if runtime_c link_program -O1 "$2" "$1" -o "$3" > "$work/cc.log" 2>&1; then
@@ -31,30 +32,29 @@ build_test() {
   show "$work/cc.log"
   return 1
 }
-rc=$root/tests/runtime-api/rc.c
-build_test "$archive" "$rc" "$work/rc.archive" || exit 0
-build_test "$runtime" "$rc" "$work/rc.prepared" || exit 0
-# same ARG...: rc built both ways, run with ARG... and IDRIS_RT_LIVE=1,
-# prints the same, reports the same live cells and exits alike.
+start=$root/tests/runtime-start/start.c
+build_test "$archive" "$start" "$work/start.archive" || exit 0
+build_test "$runtime" "$start" "$work/start.prepared" || exit 0
+# same MODE: start built both ways, run in MODE, prints the same and ends
+# alike.
 same() {
-  ( IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$work/rc.archive" "$@" ) \
-    > "$work/archive.out" 2> "$work/archive.err"
+  bounded "$work/start.archive" "$1" > "$work/archive.out" 2> "$work/archive.err"
   same_archive=$?
-  ( IDRIS_RT_LIVE=1 && export IDRIS_RT_LIVE && bounded "$work/rc.prepared" "$@" ) \
-    > "$work/prepared.out" 2> "$work/prepared.err"
+  bounded "$work/start.prepared" "$1" > "$work/prepared.out" 2> "$work/prepared.err"
   same_prepared=$?
   if [ "$same_archive" -eq "$same_prepared" ] && cmp -s "$work/archive.out" "$work/prepared.out" &&
      cmp -s "$work/archive.err" "$work/prepared.err"; then
-    say "rc${*:+ $*}: the same output, live cells and exit status ($same_archive) with the prepared runtime as with the archive"
+    say "start $1: the same output and exit status ($same_archive) with the prepared runtime as with the archive"
   else
-    say "rc${*:+ $*}: differs (archive exit $same_archive, prepared exit $same_prepared)"
+    say "start $1: differs (archive exit $same_archive, prepared exit $same_prepared)"
     diff "$work/archive.out" "$work/prepared.out" | head -n 10 | sed 's/^/  stdout | /'
     diff "$work/archive.err" "$work/prepared.err" | head -n 10 | sed 's/^/  stderr | /'
   fi
 }
-same
-same leak
+same million
+same exit-255
 same crash
+same memory
 
 # A bitcode file that is neither the archive --prepare-runtime reads nor a
 # runtime it wrote (it carries no prepared marks) is refused, by its name,

@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/93-call-graph-iterative-construction: the call graph finds the
+# calls of nested regions with a worklist, so its native depth does not
+# grow with nesting. The inliner, which builds it, runs on a function
+# nesting scf.execute_region 2,000 deep around a call, on one thread under
+# a 256 KiB stack, inlines the leaf, and gives back a module that verifies.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+sh "$root/upstream/93-call-graph-iterative-construction/nested-callables.sh" 2000 > "$work/nested.mlir"
+if (ulimit -s 256 && bounded "$llvm_bin/mlir-opt" "$work/nested.mlir" -mlir-disable-threading -inline \
+      -o "$work/out.mlir") 2> "$work/err" &&
+   bounded "$llvm_bin/mlir-opt" "$work/out.mlir" -o /dev/null 2>> "$work/err"; then
+  if grep -q 'call @leaf' "$work/out.mlir"; then
+    say "inline: runs on 2,000 nested regions, and leaves the leaf's call"
+  else
+    say "inline: 2,000 nested regions on a 256 KiB stack, the leaf inlined"
+  fi
+else
+  say "inline: fails on 2,000 nested regions on a 256 KiB stack"
+  show "$work/err"
+fi

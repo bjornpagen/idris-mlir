@@ -1,0 +1,4 @@
+host: holds a command it runs to a memory limit of 67108864 bytes
+building: status 111, prints building
+  stderr | prog: fatal: out of memory
+within: status 0, prints 5000050000

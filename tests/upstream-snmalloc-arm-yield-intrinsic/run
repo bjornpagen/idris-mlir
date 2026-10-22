@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/49-snmalloc-arm-yield-intrinsic: snmalloc's spin-wait pause on
+# arm64 is the compiler's intrinsic, not inline assembly, which nothing in
+# the tree may hold. The runtime's snmalloc, as the toolchain exports it
+# with its patches, compiled for both arm64 targets: its pause is
+# llvm.aarch64.hint, and no asm is left.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+printf '#include <snmalloc/aal/aal.h>\nvoid spin() { snmalloc::Aal::pause(); }\n' > "$work/spin.cpp"
+for target in arm64-apple-macosx14.0 aarch64-linux-gnu; do
+  if ! bounded "$llvm_bin/clang++" --target="$target" -std=c++20 -O2 -fno-exceptions -fno-rtti \
+       -DSNMALLOC_USE_SELF_VENDORED_STL -I "$snmalloc_prefix/src" -emit-llvm -S \
+       -o "$work/spin.ll" "$work/spin.cpp" 2> "$work/err"; then
+    say "$target: does not compile"
+    show "$work/err"
+  elif grep -q 'asm sideeffect' "$work/spin.ll"; then
+    say "$target: pause is inline assembly"
+  elif grep -q 'llvm.aarch64.hint' "$work/spin.ll"; then
+    say "$target: pause is the compiler's intrinsic"
+  else
+    say "$target: pause is neither the intrinsic nor assembly"
+  fi
+done

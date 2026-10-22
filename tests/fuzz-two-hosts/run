@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The generators' checks of themselves (Gen, Sem, TwoLevels, Fuzz's and
+# The generators' checks of themselves (Gen, TwoLevels, Fuzz's and
 # Lazy's checks: replay against seeding, the shrinker's order, the
 # checkers' verdicts on planted outputs), compiled by idris-mlir: each must
 # print ok.

@@ -5,13 +5,17 @@
 // reports every place it fails, one error each, and changes nothing. What a
 // property needs of the module beyond its ops (the symbol table, the cells'
 // layouts) it asks of the analysis manager, so properties that ask the same
-// share one answer and the pass keeps nothing between runs. The table of
-// properties (Lookup.cpp) is the one list of what idr-expect checks: a row
-// holds a property's name once, pairs it with the shape of its argument,
-// which the row's type checks, and says what it checks. A request's
-// argument is read once, before its check runs, into the typed value of its
-// shape (ExpectArguments.h): a function named, a count, a list, a module
-// read from a file.
+// share one answer and the pass keeps nothing between runs. The properties
+// are listed once, as Idris records (harness/Properties.idr), whose printed
+// table (Expect/Properties.inc) gives each its name, the shape of its
+// argument, its check and what it checks; the pass's table and the checks'
+// declarations are made from it. A request's argument is read once, before
+// its check runs, into the typed value of its shape (ExpectArguments.h): a
+// function named, a name, a pair of them.
+//
+// A property reads what the dialect declares of an op (an interface, a
+// trait, the effect system's one query) or a value's type, never a list of
+// ops, so it states the same of every op that declares the same.
 //
 // A property is stated of the program: the functions the module's
 // idr.program holds, under its symbol table, before idr-lower; the
@@ -249,6 +253,9 @@ cycles(llvm::ArrayRef<mlir::Operation *> nodes, Edges edges) {
   return out;
 }
 
+// The symbol `call` names: none for a call through a value.
+mlir::SymbolRefAttr calleeOf(mlir::CallOpInterface call);
+
 // Whether `call` calls `g`: its callee's symbol is g, or it calls a
 // function of `symbols` made from the code written as g (`names`).
 bool callsNamed(mlir::CallOpInterface call, const Symbol &g, mlir::SymbolTable &symbols);
@@ -275,89 +282,10 @@ mlir::FailureOr<ProvedUses> provedUses(mlir::ModuleOp emitted);
 mlir::LogicalResult usesKept(const ProvedUses &proved, mlir::ModuleOp module,
                              llvm::StringRef property);
 
-// The checks, by the shape of their argument; the table says what each
-// checks.
-mlir::LogicalResult noClosures(const Request<Roots> &);
-mlir::LogicalResult labels(const Request<Labels> &);
-mlir::LogicalResult labelsLeast(const Request<Nothing> &);
-mlir::LogicalResult noHeapAllocation(const Request<Roots> &);
-mlir::LogicalResult oneClone(const Request<Symbol> &);
-mlir::LogicalResult specializedOnce(const Request<Functions> &);
-mlir::LogicalResult notCalled(const Request<Symbol> &);
-mlir::LogicalResult quantitiesKept(const Request<Module> &);
-mlir::LogicalResult reusesInPlace(const Request<Functions> &);
-mlir::LogicalResult movesOut(const Request<Roots> &);
-mlir::LogicalResult countsNothing(const Request<Functions> &);
-mlir::LogicalResult noGuards(const Request<Functions> &);
-mlir::LogicalResult testsNothing(const Request<Functions> &);
-mlir::LogicalResult exclusiveCopy(const Request<Functions> &);
-mlir::LogicalResult resetsUnshared(const Request<Roots> &);
-mlir::LogicalResult reusesEveryCell(const Request<Functions> &);
-mlir::LogicalResult contified(const Request<Nothing> &);
-mlir::LogicalResult outputFused(const Request<Roots> &);
-mlir::LogicalResult folded(const Request<Functions> &);
-mlir::LogicalResult constantStack(const Request<Functions> &);
-mlir::LogicalResult tailCalls(const Request<Pair> &);
-mlir::LogicalResult countedLoop(const Request<Functions> &);
-mlir::LogicalResult wordLoop(const Request<Functions> &);
-mlir::LogicalResult structuredLoops(const Request<Roots> &);
-mlir::LogicalResult inPlace(const Request<Roots> &);
-mlir::LogicalResult fused(const Request<Functions> &);
-mlir::LogicalResult largestFunction(const Request<Bound> &);
-mlir::LogicalResult vectorized(const Request<Roots> &);
-mlir::LogicalResult narrowedLanes(const Request<Roots> &);
-mlir::LogicalResult matches(const Request<Functions> &);
-mlir::LogicalResult matchesNothing(const Request<Functions> &);
-mlir::LogicalResult forcesSome(const Request<Functions> &);
-mlir::LogicalResult forcesNothing(const Request<Functions> &);
-mlir::LogicalResult buildsSome(const Request<Functions> &);
-mlir::LogicalResult buildsNothing(const Request<Functions> &);
-mlir::LogicalResult readsFields(const Request<Functions> &);
-mlir::LogicalResult readsNoFields(const Request<Functions> &);
-mlir::LogicalResult applies(const Request<Functions> &);
-mlir::LogicalResult neverReturns(const Request<Functions> &);
-mlir::LogicalResult calls(const Request<Pair> &);
-mlir::LogicalResult neverCalls(const Request<Pair> &);
-mlir::LogicalResult callsClosed(const Request<Pair> &);
-mlir::LogicalResult returnsConstants(const Request<ReturnedValues> &);
-mlir::LogicalResult returnsOnPaths(const Request<PathValues> &);
-mlir::LogicalResult returnsArguments(const Request<ReturnedArguments> &);
-mlir::LogicalResult buildsWhereUsed(const Request<Functions> &);
-mlir::LogicalResult callsWhereUsed(const Request<Pair> &);
-mlir::LogicalResult matchesOnce(const Request<Functions> &);
-mlir::LogicalResult crashesBeforeOutput(const Request<Functions> &);
-mlir::LogicalResult parametersUsed(const Request<Functions> &);
-mlir::LogicalResult resultsUsed(const Request<Functions> &);
-mlir::LogicalResult regionsDistinct(const Request<Functions> &);
-mlir::LogicalResult checksEveryPath(const Request<Functions> &);
-mlir::LogicalResult growsNothing(const Request<FunctionsAndModule> &);
-mlir::LogicalResult callOrder(const Request<Listed> &);
-mlir::LogicalResult callsDistinct(const Request<Pair> &);
-mlir::LogicalResult callsRead(const Request<Pair> &);
-mlir::LogicalResult callsOnly(const Request<Listed> &);
-mlir::LogicalResult directCalls(const Request<Roots> &);
-mlir::LogicalResult crashSites(const Request<CountOf> &);
-mlir::LogicalResult lowered(const Request<Roots> &);
-mlir::LogicalResult inLLVM(const Request<Nothing> &);
-mlir::LogicalResult signature(const Request<TypeOf> &);
-mlir::LogicalResult convention(const Request<ConventionOf> &);
-mlir::LogicalResult entry(const Request<Nothing> &);
-mlir::LogicalResult linkerNames(const Request<Nothing> &);
-mlir::LogicalResult loops(const Request<Loops> &);
-mlir::LogicalResult straightLine(const Request<Functions> &);
-mlir::LogicalResult alignedAccess(const Request<Roots> &);
-mlir::LogicalResult readsNothing(const Request<Functions> &);
-mlir::LogicalResult writesNothing(const Request<Functions> &);
-mlir::LogicalResult solvedEffects(const Request<EffectsOf> &);
-mlir::LogicalResult computesNothing(const Request<Functions> &);
-mlir::LogicalResult dimsKnown(const Request<Functions> &);
-mlir::LogicalResult byName(const Request<Symbol> &);
-mlir::LogicalResult notByName(const Request<Symbol> &);
-mlir::LogicalResult total(const Request<Functions> &);
-mlir::LogicalResult notTotal(const Request<Functions> &);
-mlir::LogicalResult apart(const Request<TwoFunctions> &);
-mlir::LogicalResult reaches(const Request<Pair> &);
-mlir::LogicalResult stage(const Request<StageIs> &);
+// The universal properties of the table, each checked of the whole
+// program: what the contracts check when a compilation's pipeline ends.
+// Fails when one fails, each failure reported at its place.
+mlir::LogicalResult universal(mlir::ModuleOp module, mlir::AnalysisManager &analyses);
 
 } // namespace idr::expect
 

@@ -1,0 +1,1 @@
+inline: 2,000 nested regions on a 256 KiB stack, the leaf inlined

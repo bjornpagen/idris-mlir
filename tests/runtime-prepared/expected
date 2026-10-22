@@ -1,6 +1,7 @@
 prepared runtime: one object
-rc: the same output, live cells and exit status (0) with the prepared runtime as with the archive
-rc leak: the same output, live cells and exit status (0) with the prepared runtime as with the archive
-rc crash: the same output, live cells and exit status (1) with the prepared runtime as with the archive
+start million: the same output and exit status (0) with the prepared runtime as with the archive
+start exit-255: the same output and exit status (255) with the prepared runtime as with the archive
+start crash: the same output and exit status (1) with the prepared runtime as with the archive
+start memory: the same output and exit status (111) with the prepared runtime as with the archive
 flagless bitcode: refused, and named
 the prepared runtime needs only what its target's allowlist allows

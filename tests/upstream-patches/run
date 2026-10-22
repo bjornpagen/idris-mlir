@@ -118,5 +118,14 @@ if [ -n "$(patches idris)" ] && ! "$root/tools/verify-pins.sh" source > "$work/i
 else
   check_project idris "$idris_source" "third_party/Idris2"
 fi
+# snmalloc: third_party/snmalloc at the lock's revision, the source the
+# bootstrap exports with its patches for the runtime's build.
+snmalloc_source=$root/third_party/snmalloc
+snmalloc_pin=$("$root/tools/verify-pins.sh" lock snmalloc revision)
+if [ -n "$(patches snmalloc)" ] && [ "$(git -C "$snmalloc_source" rev-parse HEAD 2> /dev/null)" != "$snmalloc_pin" ]; then
+  say "snmalloc: third_party/snmalloc is not a checkout at the lock's revision"
+else
+  check_project snmalloc "$snmalloc_source" "third_party/snmalloc"
+fi
 # Chez Scheme: the bootstrap clones it for its build and keeps no checkout.
 check_project chez "" "the pinned Chez Scheme (the bootstrap keeps none)"

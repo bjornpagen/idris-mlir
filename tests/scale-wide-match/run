@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# One function holding a match of thousands of cases on a run-time value,
+# every tenth crashing, each other building a cell and reading it: an op of
+# many regions, which once had a graph built per terminator and successor,
+# a driver revisiting it once per region, liveness asked once per region
+# successor, and ancestor walks per op. Compiled at its size and at twice
+# it, no count of the compiler's work grows faster than the program.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/scale.sh"
+scale_relation wide-match

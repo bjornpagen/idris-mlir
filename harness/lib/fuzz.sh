@@ -97,7 +97,7 @@ fuzz_check() {
   # emitted module through the pipeline's slice up to that stage, the
   # property checked there.
   if ! bounded "$idris_mlir_opt" --mlir-disable-threading "$(artifact_file "$fuzz_dir/prog" prog module)" \
-       --idr-target --idr-pipeline=to:graded --idr-expect=holds=folded=@Main.main -o /dev/null \
+       --idr-target --idr-pipeline=to=graded --idr-expect=holds=folded=@Main.main -o /dev/null \
        > "$work/expect.log" 2>&1; then
     say "$fuzz_seed: main computes on constants once graded" >> "$work/fuzz.folded"
     show "$work/expect.log" >> "$work/fuzz.folded"

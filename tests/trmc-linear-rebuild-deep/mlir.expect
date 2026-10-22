@@ -1,0 +1,2 @@
+# Every cell bump takes apart is rebuilt in place, none freed, no count tested.
+owned: reuses-every-cell=@Main.bump tests-nothing=@Main.bump

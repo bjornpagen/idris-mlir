@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/74-pass-adaptor-preserved-analyses: a nested pass adaptor
+# preserves what every nested run preserved, so a module analysis survives
+# a nest of function passes that change nothing. Between two inliners, a
+# CSE that finds nothing leaves the call graph cached: the timing tree
+# shows it computed once, under the first inliner alone.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/74-pass-adaptor-preserved-analyses/preserved.mlir
+if ! bounded "$llvm_bin/mlir-opt" "$input" -mlir-disable-threading \
+     -pass-pipeline='builtin.module(inline,func.func(cse),inline)' \
+     -mlir-timing -mlir-timing-display=tree -o /dev/null 2> "$work/timing"; then
+  say "the pipeline fails"
+  show "$work/timing"
+  exit 0
+fi
+computed=$(grep -c '(A) CallGraph' "$work/timing")
+case $computed in
+  1) say "the call graph is computed once, and kept across the nest" ;;
+  *) say "the call graph is computed $computed times: the nest dropped it" ;;
+esac

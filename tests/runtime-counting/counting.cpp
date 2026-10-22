@@ -4,24 +4,23 @@
 // they mean. Each case makes up to eight objects (boxes and thunks of a few
 // object slots or of more than the header's objs field counts, arrays whose
 // elements hold objects) and runs operations on them as compiled code does:
-// references taken and dropped, stores into slots, copies of array views,
-// static memo cells forced, which makes what they hold persistent. A slot
-// holds NULL, an odd word (a
-// small big, or a grouped sum's group word), static data or an object made
-// before its holder, so the heap is acyclic, as Idris's values are.
+// references taken and dropped, stores into slots, copies of array views.
+// A slot holds NULL, an odd word (a small big, or a grouped sum's group
+// word), static data or an object made before its holder, so the heap is
+// acyclic, as Idris's values are. Each word is counted by the entry for any
+// word, which leaves NULL, an odd word and static data alone.
 //
 // The model knows only the meaning: an object's count is the references
 // the test holds plus the slots of live objects that hold it, and an
-// object is live while its count is above 0; an object a forced static
-// memo cell reaches is persistent, count 0 and no live cell, for good, and
-// so is everything it reaches. After every operation the runtime must
-// agree: its live cells, each live object's count and exclusivity, each
-// persistent object's count 0, each slot's word, static data untouched.
+// object is live while its count is above 0. After every operation the
+// runtime must agree: the cells the checked runtime holds, each live
+// object's count and exclusivity, each slot's word, static data untouched.
 // A fixed list of cases foresees only the shapes its author thought of; a
 // free that read a group word as a reference crashed past all of them, and
 // this searches the shapes instead.
 #include "idris_rt.h"
 #include "prop.h"
+#include "runtime.h"
 
 #include <stdarg.h>
 #include <stddef.h>
@@ -54,8 +53,6 @@ constexpr unsigned slotLimit = 300;
 // word, so 8k + 8 bytes an element; a view's stride, 1 to 3, reaches every
 // pattern of elements so few allow.
 constexpr unsigned elementLimit = 3, elementSlotLimit = 2, strideLimit = 3;
-// The static memo cells, of two slots each, which a force writes.
-constexpr unsigned memoCount = 2, memoSlots = 2;
 
 // A slot's value, as an index into the words a slot may hold: the constant
 // words first (NULL; the odd words 2x + 1, x from -2 to 3, which are the
@@ -74,28 +71,21 @@ constexpr Value oddValue(int x) { return static_cast<Value>(firstOdd + (x - oddL
 // Static data, as idr-lower writes it: count 0, never counted, never freed.
 constexpr uint32_t staticBoxInfo = idris_rt_info(0, 0, IDRIS_RT_KIND_BOX);
 idris_rt_header staticBoxCell{0, staticBoxInfo};
-struct MemoCell {
-  idris_rt_header header;
-  void *slots[memoSlots];
-};
-constexpr uint32_t memoInfo = idris_rt_info(0, memoSlots, IDRIS_RT_KIND_THUNK);
-MemoCell memoCells[memoCount];
 
 // The families a slot's value is drawn from, simplest first.
 enum ValueFamily : unsigned { Null, GroupWord, SmallBig, Static, Older, valueFamilies };
 // The operations, simplest first: those that make an object, then those
 // that act on one.
-enum Operation : unsigned { MakeCell, MakeArray, Inc, Dec, Store, Copy, Force, operations };
+enum Operation : unsigned { MakeCell, MakeArray, Inc, Dec, Store, Copy, operations };
 constexpr unsigned makings = Inc;
 
-// What a case saw die or made persistent, for the report: the most telling
-// class names it.
-enum Freed : unsigned { FreedAny = 1, FreedOdd = 2, FreedArray = 4, FreedWide = 8, Persisted = 16 };
+// What a case saw die, for the report: the most telling class names it.
+enum Freed : unsigned { FreedAny = 1, FreedOdd = 2, FreedArray = 4, FreedWide = 8 };
 
 // An object the case made: a box or a thunk, one element of n slots, or an
 // array of m elements of k slots each, `stride` bytes apart; its slots are
 // numbered element after element, and `held` is what the model says each
-// holds. A persistent object is no longer live: no count reaches it.
+// holds.
 struct Object {
   char *first;
   uint32_t kind;
@@ -104,7 +94,6 @@ struct Object {
   unsigned elements;
   unsigned references;
   bool live;
-  bool persistent;
   Value held[slotLimit];
 
   unsigned slots() const { return elements * elementSlots; }
@@ -139,13 +128,12 @@ public:
       if (!agrees())
         return false;
     }
-    // The end of a case: the test's references dropped; what static data
-    // holds stays, as it does until a program ends.
+    // The end of a case: the test's references dropped.
     for (unsigned i = 0; i < made_; ++i) {
       while (objects_[i].references > 0) {
         note("dec #%u", i);
         --objects_[i].references;
-        idris_rt_dec(words_[constants + i]);
+        idris_rt_dec_any(words_[constants + i]);
         if (!agrees())
           return false;
       }
@@ -153,17 +141,15 @@ public:
     tally.classify(freed_ & FreedWide    ? "a wide cell freed"
                    : freed_ & FreedArray ? "an array holding objects freed"
                    : freed_ & FreedOdd   ? "a cell holding odd words freed"
-                   : freed_ & Persisted  ? "cells made persistent"
                    : freed_ & FreedAny   ? "cells freed"
                                          : "nothing freed");
     return true;
   }
 
 private:
-  // Every case starts from the documented state: static data as written,
-  // memo cells never forced. A case that failed may have left cells live,
-  // and every case leaves what its memo cells made persistent; the live
-  // count is taken from here, so they do not count.
+  // Every case starts from the documented state: static data as written. A
+  // case that failed may have left cells live; the count of held cells is
+  // taken from here, so they do not count.
   void reset() {
     made_ = 0;
     freed_ = 0;
@@ -171,16 +157,11 @@ private:
     traced_ = 0;
     trace_[0] = '\0';
     staticBoxCell = idris_rt_header{0, staticBoxInfo};
-    for (unsigned m = 0; m < memoCount; ++m) {
-      memoCells[m] = MemoCell{{0, memoInfo}, {nullptr, nullptr}};
-      for (unsigned s = 0; s < memoSlots; ++s)
-        memoHeld_[m][s] = null;
-    }
     words_[null] = nullptr;
     for (int x = oddLeast; x <= oddMost; ++x)
       words_[oddValue(x)] = reinterpret_cast<void *>(static_cast<uintptr_t>(static_cast<uint64_t>(x) << 1 | 1));
     words_[staticBox] = &staticBoxCell;
-    start_ = idris_rt_live_cells();
+    start_ = prop::held();
   }
 
   // The live objects among the first `before` made, into `out`; their count.
@@ -192,8 +173,8 @@ private:
     return n;
   }
 
-  // A value for a slot of the object made `before`th (or of a memo cell,
-  // with `before` past every object), from the case's families. When the
+  // A value for a slot of the object made `before`th, from the case's
+  // families. When the
   // only families drawn are objects and none was made before the holder,
   // the slot holds NULL: there is nothing older to hold.
   Value drawValue(FuzzedDataProvider &p, unsigned before) {
@@ -236,7 +217,7 @@ private:
       if ((n = liveBefore(made_, chosen)) > 0) {
         unsigned i = chosen[p.ConsumeIntegralInRange(0u, n - 1)];
         note("inc #%u", i);
-        idris_rt_inc(words_[constants + i]);
+        idris_rt_inc_any(words_[constants + i]);
         ++objects_[i].references;
       }
       return;
@@ -248,7 +229,7 @@ private:
         unsigned i = chosen[p.ConsumeIntegralInRange(0u, n - 1)];
         note("dec #%u", i);
         --objects_[i].references;
-        idris_rt_dec(words_[constants + i]);
+        idris_rt_dec_any(words_[constants + i]);
       }
       return;
     case Store:
@@ -256,9 +237,6 @@ private:
       return;
     case Copy:
       copy(p);
-      return;
-    case Force:
-      force(p);
       return;
     case operations:
       return;
@@ -290,12 +268,11 @@ private:
     o.elements = 1;
     o.references = 1;
     o.live = true;
-    o.persistent = false;
     words_[constants + i] = cell;
     for (unsigned at = 0; at < n; ++at) {
       Value v = drawValue(p, i);
       o.held[at] = v;
-      idris_rt_inc(words_[v]);
+      idris_rt_inc_any(words_[v]);
       *o.slot(at) = words_[v];
     }
     ++made_;
@@ -307,8 +284,8 @@ private:
     unsigned m = p.ConsumeIntegralInRange(0u, elementLimit);
     unsigned k = p.ConsumeIntegralInRange(0u, elementSlotLimit);
     size_t stride = IDRIS_RT_WORD_BYTES * k + IDRIS_RT_WORD_BYTES;
-    idris_rt_array *array =
-        idris_rt_array_new(m, idris_rt_info(static_cast<uint32_t>(stride), k, IDRIS_RT_KIND_ARRAY));
+    auto *array = static_cast<idris_rt_array *>(
+        idris_rt_array_new(m, idris_rt_info(static_cast<uint32_t>(stride), k, IDRIS_RT_KIND_ARRAY)));
     unsigned i = made_;
     Object &o = objects_[i];
     o.first = reinterpret_cast<char *>(array + 1);
@@ -318,7 +295,6 @@ private:
     o.elements = m;
     o.references = 1;
     o.live = true;
-    o.persistent = false;
     memset(o.held, 0, sizeof o.held);
     words_[constants + i] = array;
     ++made_;
@@ -340,10 +316,10 @@ private:
     Value v = drawValue(p, h);
     char text[16];
     note("#%u[%u] = %s", h, at, describe(v, text, sizeof text));
-    idris_rt_inc(words_[v]);
+    idris_rt_inc_any(words_[v]);
     void *old = *o.slot(at);
     *o.slot(at) = words_[v];
-    idris_rt_dec(old);
+    idris_rt_dec_any(old);
     o.held[at] = v;
   }
 
@@ -397,50 +373,12 @@ private:
             from.held[(source.offset + e * source.stride) * k + s];
   }
 
-  // A static memo cell's first force: a slot still NULL takes a live
-  // object, with a reference of its own, taken first; then, as every force
-  // ends, idris_rt_persist_held makes what the cell holds persistent: the
-  // object and every object it reaches, which are older.
-  void force(FuzzedDataProvider &p) {
-    unsigned open[memoCount * memoSlots], n = 0;
-    for (unsigned m = 0; m < memoCount; ++m)
-      for (unsigned s = 0; s < memoSlots; ++s)
-        if (memoHeld_[m][s] == null)
-          open[n++] = m * memoSlots + s;
-    unsigned live[objectLimit];
-    unsigned l = liveBefore(made_, live);
-    if (n == 0 || l == 0)
-      return;
-    unsigned at = open[p.ConsumeIntegralInRange(0u, n - 1)];
-    unsigned i = live[p.ConsumeIntegralInRange(0u, l - 1)];
-    unsigned m = at / memoSlots, s = at % memoSlots;
-    note("force memo %u slot %u with #%u", m, s, i);
-    idris_rt_inc(words_[constants + i]);
-    memoCells[m].slots[s] = words_[constants + i];
-    memoHeld_[m][s] = static_cast<Value>(constants + i);
-    idris_rt_persist_held(&memoCells[m]);
-    persist(i);
-  }
-
-  void persist(unsigned i) {
-    Object &o = objects_[i];
-    if (o.persistent)
-      return;
-    o.persistent = true;
-    o.live = false;
-    freed_ |= Persisted;
-    for (unsigned at = 0; at < o.slots(); ++at)
-      if (o.held[at] >= constants)
-        persist(o.held[at] - constants);
-  }
-
   // The expected counts, from the meaning alone: the test's references,
   // plus each slot of a live object that holds the object. Every holder is
   // newer than what it holds, so walking from the newest object to the
   // oldest settles each one's count, and with it whether it lives, before
   // the objects it holds are reached. An object whose count reaches 0 is
-  // dead for good. A memo cell holds only persistent objects, and a
-  // persistent object only persistent ones, which no count reaches.
+  // dead for good.
   void settle(unsigned *counts) {
     for (unsigned i = 0; i < made_; ++i)
       counts[i] = objects_[i].references;
@@ -473,41 +411,34 @@ private:
   }
 
   // Whether the runtime agrees with the model after the step just noted.
-  // The live count comes first: a cell the model holds live is read only
-  // once the runtime's count says it has not been freed.
+  // The count of held cells comes first: a cell the model holds live is
+  // read only once the runtime's count says it has not been freed.
   bool agrees() {
     unsigned counts[objectLimit];
     settle(counts);
     unsigned live = 0;
     for (unsigned i = 0; i < made_; ++i)
       live += objects_[i].live;
-    uint64_t cells = idris_rt_live_cells() - start_;
+    uint64_t cells = prop::held() - start_;
     if (cells != live)
-      return fails("%llu live cells, where the model has %u live objects",
+      return fails("%llu cells held, where the model has %u live objects",
                    static_cast<unsigned long long>(cells), live);
     for (unsigned i = 0; i < made_; ++i) {
       const Object &o = objects_[i];
       auto *header = static_cast<const idris_rt_header *>(words_[constants + i]);
-      if (o.persistent && header->count != 0)
-        return fails("#%u: count %u, where the model has it persistent", i, header->count);
-      if (o.persistent && !slotsAgree(i))
-        return false;
       if (!o.live)
         continue;
       if (header->count != counts[i])
         return fails("#%u: count %u, where the model counts %u", i, header->count, counts[i]);
-      if (idris_rt_is_unique(header) != (counts[i] == 1))
+      auto *cell = const_cast<idris_rt_header *>(header);
+      if (idris_rt_is_unique(cell) != (counts[i] == 1))
         return fails("#%u: idris_rt_is_unique is %d at count %u", i,
-                     idris_rt_is_unique(header) ? 1 : 0, counts[i]);
+                     idris_rt_is_unique(cell) ? 1 : 0, counts[i]);
       if (!slotsAgree(i))
         return false;
     }
     if (staticBoxCell.count != 0 || staticBoxCell.info != staticBoxInfo)
       return fails("the static box: count %u, info %#x", staticBoxCell.count, staticBoxCell.info);
-    for (unsigned m = 0; m < memoCount; ++m)
-      if (memoCells[m].header.count != 0 || memoCells[m].header.info != memoInfo)
-        return fails("memo %u: count %u, info %#x", m, memoCells[m].header.count,
-                     memoCells[m].header.info);
     return true;
   }
 
@@ -568,7 +499,6 @@ private:
   // Every word a slot may hold, by Value: the constants, then each object's
   // cell as it was made.
   void *words_[constants + objectLimit];
-  Value memoHeld_[memoCount][memoSlots];
   uint64_t values_ = 0;
   uint64_t start_ = 0;
   unsigned step_ = 0;
@@ -581,12 +511,14 @@ private:
 
 Model model;
 
-} // namespace
-
-int main(int argc, char **argv) {
+int properties(int argc, char **argv) {
   prop::Run run(argc, argv);
   run.property("counting", objsFieldOnly, [](FuzzedDataProvider &provider, prop::Tally &tally) {
     return model.runCase(provider, tally);
   });
   return run.finish();
 }
+
+} // namespace
+
+int main(int argc, char **argv) { return prop::onRuntime(argc, argv, "counting", properties); }

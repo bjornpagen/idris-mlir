@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| LLVM's time traces summed: what a compilation of idris-mlir
-||| (`--time-trace`, tools/profile.sh) and a compilation of our C++
+||| (`--time-trace`) and a compilation of our C++
 ||| (clang's `-ftime-trace`) spent their time in, the baseline every
 ||| measurement of a change is taken against.
 |||
@@ -114,3 +114,14 @@ traceUnits paths = do
   for_ (mostFirst sums.byTotal) $ \(n, us) => putStrLn ("  " ++ n ++ "  " ++ millis us)
   putStrLn "templates by instantiation time:"
   for_ (take 20 (mostFirst sums.byTemplate)) $ \(n, us) => putStrLn ("  " ++ n ++ "  " ++ millis us)
+
+||| How many times each zone of a compilation's trace ran, by its name: a
+||| pass on an op, an analysis computed, a solve unit, each a count of the
+||| compiler's work and never a time; the `Total` sums aside, which count
+||| nothing a zone does not.
+export
+zoneCounts : (path : String) -> IO (SortedMap String Integer)
+zoneCounts path = foldl ranOnce empty <$> eventsOf path
+  where
+    ranOnce : SortedMap String Integer -> Event -> SortedMap String Integer
+    ranOnce m e = if e.phase == "X" && not (isPrefixOf "Total " e.name) then add e.name 1 m else m

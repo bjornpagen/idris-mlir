@@ -4,7 +4,7 @@
 // small, stated as the absence of any big in the loop rather than as the ops
 // that happen to replace them.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/Transforms/Narrow.h"

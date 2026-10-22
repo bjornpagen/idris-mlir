@@ -1,4 +1,4 @@
 properties: found
-every property has a fixture where it fails, labels-least aside
+every property fails on a fixture, self-checks aside, and is stated by a test
 witness: each planted file is found
 near miss: nothing found

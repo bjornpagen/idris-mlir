@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
+// idr-expect's properties, printed by the test runner (runtests
+// --expect-table) from harness/Properties.idr, their one list; written
+// again and compared by tests/expect-table-current. An includer defines
+// each macro, (name, argument shape, check), before it includes this:
+//   IDR_EXPECT_PROPERTY   a test states it; a fixture makes it fail;
+//   IDR_EXPECT_SELF_CHECK a test states it; only a defect makes it fail;
+//   IDR_EXPECT_UNIVERSAL  the contracts check it of every compilation.
+
+// No op of @f but a call reads or writes a count: no reference is
+// counted in it, and none is freed by a test of its count.
+IDR_EXPECT_PROPERTY("counts-nothing", Functions, countsNothing)
+
+// @f tests no sharing at run time: no op of it reads a count it does
+// not write, every reuse token of it holds its cell, so none is
+// tested for null, and some cell is taken apart in it.
+IDR_EXPECT_PROPERTY("tests-nothing", Functions, testsNothing)
+
+// Every cell @f fills is made from a reuse token, no heap memory
+// acquired for it, and @f fills one.
+IDR_EXPECT_PROPERTY("reuses-in-place", Functions, reusesInPlace)
+
+// No op of @f frees the cell a reuse token holds: every cell it takes
+// apart is filled again.
+IDR_EXPECT_PROPERTY("reuses-every-cell", Functions, reusesEveryCell)
+
+// No value whose sharing is tested at run time, in @f or anywhere, is
+// one its function gives another reference: each test finds its cell
+// unshared.
+IDR_EXPECT_PROPERTY("resets-unshared", Roots, resetsUnshared)
+
+// No op of @f but a call builds a value in memory: none acquires
+// memory or writes the contents of a cell, as its declaration says;
+// what @f returns or holds is its parameters' or static data.
+IDR_EXPECT_PROPERTY("builds-nothing", Functions, buildsNothing)
+
+// No op acquires heap memory, anywhere, or in @f and every function
+// it may call, as the effect system's declaration of each op says.
+IDR_EXPECT_PROPERTY("no-heap-allocation", Roots, noHeapAllocation)
+
+// Every call of @f, or of a copy of it, calls one function, and there
+// is one.
+IDR_EXPECT_PROPERTY("one-clone", Symbol, oneClone)
+
+// No call of @f, or of a copy of it, is left; a function the module
+// never had is not called either.
+IDR_EXPECT_PROPERTY("not-called", Symbol, notCalled)
+
+// Every copy of @f but @f calls, of @f and its copies, only itself
+// and @f: a recursion's specializations stop after one step.
+IDR_EXPECT_PROPERTY("specialized-once", Functions, specializedOnce)
+
+// No function is called once, from a function it calls back, and
+// used nowhere else: each continuation is part of what it continues.
+IDR_EXPECT_PROPERTY("contified", Nothing, contified)
+
+// Some call in @f calls @g or a copy of it; after lowering @g may be
+// a function of the runtime, named by its symbol.
+IDR_EXPECT_PROPERTY("calls", Pair, calls)
+
+// No op left in a copy of @f is one a fold would replace: one with
+// results, no memory effect, no call and no constant of its own, whose
+// operands are constants alone.
+IDR_EXPECT_PROPERTY("folded", Functions, folded)
+
+// No guard is left in @f: every condition its partial primitives need
+// is proven where it runs.
+IDR_EXPECT_PROPERTY("no-guards", Functions, noGuards)
+
+// Some loop of @f computes on words alone: no value defined or bound
+// in it is a big or a natural.
+IDR_EXPECT_PROPERTY("word-loop", Functions, wordLoop)
+
+// Once arrays are buffers, nothing copies a buffer, in @f or
+// anywhere, and a buffer is there.
+IDR_EXPECT_PROPERTY("in-place", Roots, inPlace)
+
+// Some element of an array is rebuilt in its place, in @f or
+// anywhere, moved out with the reference the array held.
+IDR_EXPECT_PROPERTY("moves-out", Roots, movesOut)
+
+// No op of the arrays' generating set is left, in @f or anywhere,
+// and some structured op is there.
+IDR_EXPECT_PROPERTY("structured-loops", Roots, structuredLoops)
+
+// Some loop computes on vectors, and no linalg.generic with a
+// parallel dimension and a body of words alone is left scalar.
+IDR_EXPECT_PROPERTY("vectorized", Roots, vectorized)
+
+// Some loop computes integer lanes in 32 bits or fewer, and every loop
+// that computes wider integer lanes, a reduction's accumulator aside,
+// and may run more than once is the 64-bit version beside one that
+// computes its lanes in 32.
+IDR_EXPECT_PROPERTY("narrowed-lanes", Roots, narrowedLanes)
+
+// No recursion from @f grows the stack: every function it may call
+// that is on a cycle of references refers to the others of its cycle
+// only by guaranteed tail calls (musttail).
+IDR_EXPECT_UNIVERSAL("constant-stack", Functions, constantStack)
+
+// The label solve's set at every point is the least the program's
+// statements give it, derived again a label at a time from them.
+IDR_EXPECT_SELF_CHECK("labels-least", Nothing, labelsLeast)

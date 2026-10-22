@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/67-early-exit-dead-match: an op whose regions all leave it by an
+# exit to an enclosing target is not trivially dead, though it has no
+# result and its nested ops declare no effect. Upstream's exits declare no
+# effects interface, which reads as an unknown effect and hides the bug;
+# idr.jump declares its effects, which are none, so the reproducer is
+# ours: the canonicalizer keeps the switch whose cases jump, and does not
+# leave ub.unreachable to run in its place.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$here/exit-only.mlir
+if ! bounded "$idris_mlir_opt" "$input" -canonicalize -o "$work/out.mlir" 2> "$work/err"; then
+  say "canonicalize: fails"
+  show "$work/err"
+elif grep -q 'scf\.index_switch' "$work/out.mlir"; then
+  say "canonicalize: the switch whose cases only exit is kept"
+else
+  say "canonicalize: the switch whose cases only exit is erased as dead"
+fi

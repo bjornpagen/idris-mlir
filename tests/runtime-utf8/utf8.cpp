@@ -8,6 +8,7 @@
 // boundaries, and every row of Table 3-7 cut at such a boundary.
 #include "idris_rt.h"
 #include "prop.h"
+#include "runtime.h"
 #include "utf8model.h"
 
 #include <stddef.h>
@@ -153,8 +154,8 @@ bool fromBytesIsTheModel(const unsigned char *p, size_t n) {
                   static_cast<unsigned long long>(again->scalars),
                   static_cast<unsigned long long>(again->bytes), stable ? "" : ", not the same");
   }
-  idris_rt_str_release(again);
-  idris_rt_str_release(got);
+  idris_rt_dec_cell(const_cast<idris_rt_str *>(again));
+  idris_rt_dec_cell(const_cast<idris_rt_str *>(got));
   return same && counted && stable;
 }
 
@@ -353,14 +354,14 @@ bool standardsExample() {
 // no byte, the persistent empty one (count 0, no cell), as the runtime's
 // from_bytes and from_utf8 say; released, the live cells are as they were.
 template <typename Make> bool oneOwnedResult(const char *operation, Make make) {
-  uint64_t before = idris_rt_live_cells();
+  uint64_t before = prop::held();
   const idris_rt_str *s = make();
   uint32_t count = s->header.count;
-  uint64_t made = idris_rt_live_cells() - before;
+  uint64_t made = prop::held() - before;
   bool owned = s->bytes == 0 ? count == 0 && made == 0 : count == 1 && made == 1;
   bool empty = s->bytes == 0;
-  idris_rt_str_release(s);
-  bool released = idris_rt_live_cells() == before && !(!empty && prop::planted(leaksString));
+  idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
+  bool released = prop::held() == before && !(!empty && prop::planted(leaksString));
   if (!(owned && released))
     prop::explain("%s: a result of %s with count %u, %llu cells made, %s after its release", operation,
                   empty ? "no byte" : "some bytes", count, static_cast<unsigned long long>(made),
@@ -370,7 +371,7 @@ template <typename Make> bool oneOwnedResult(const char *operation, Make make) {
 
 } // namespace
 
-int main(int argc, char **argv) {
+static int properties(int argc, char **argv) {
   prop::Run run(argc, argv);
 
   run.box("box: the model gives the Standard's example its U+FFFDs", 1, perByteReplacement,
@@ -436,7 +437,7 @@ int main(int argc, char **argv) {
                                  static_cast<unsigned long long>(s->scalars),
                                  Hex(idris_rt_str_bytes(s), s->bytes).text, idris_rt_utf8_count(bytes, n));
                  }
-                 idris_rt_str_release(s);
+                 idris_rt_dec_cell(const_cast<idris_rt_str *>(s));
                  return holds;
                });
 
@@ -457,3 +458,5 @@ int main(int argc, char **argv) {
 
   return run.finish();
 }
+
+int main(int argc, char **argv) { return prop::onRuntime(argc, argv, "utf8", properties); }

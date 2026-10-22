@@ -1,0 +1,4 @@
+getIndex: declared
+getNumIndices: declared
+getSCCs: declared
+inline: the leaf inlined, the cycles kept

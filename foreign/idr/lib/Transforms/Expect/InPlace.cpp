@@ -5,7 +5,7 @@
 // copy into a cell made for it, never the write of a slice into a live
 // buffer, which is the meaning of the op it came from.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/Transforms/Bufferize.h"

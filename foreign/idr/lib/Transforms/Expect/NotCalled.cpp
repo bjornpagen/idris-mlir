@@ -6,9 +6,9 @@
 // function is still in the module for something else that names it, are
 // the passes' business; that no call is left is the property.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
 
-#include "idr/IR/IdrDialect.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 
 using namespace mlir;
 
@@ -19,11 +19,11 @@ namespace idr::expect {
 LogicalResult notCalled(const Request<Symbol> &request) {
   SymbolTable &symbols = symbolsOf(request.module, request.analyses);
   bool held = true;
-  request.module->walk([&](CallOp call) {
+  request.module->walk([&](CallOpInterface call) {
     if (!callsNamed(call, request.argument, symbols))
       return;
     fail(call.getLoc(), request.property) << "@" << request.argument.name
-                                          << " is still called, as @" << call.getCallee() << ", in "
+                                          << " is still called, as " << calleeOf(call) << ", in "
                                           << where(call);
     held = false;
   });

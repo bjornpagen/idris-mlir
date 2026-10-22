@@ -1,0 +1,79 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A program keeps to its host's memory limit, with no setting: where the
+# host holds a command to a memory limit (a cgroup's memory.max, with no
+# swap to spill to), a program that allocates past it ends as out of
+# memory, status 111 and the named message, its output written first,
+# before the kernel's killer could end it unnamed; and one that stays
+# within it runs to its end under it. Whether the host holds a command to
+# a limit is asked of the host: a scope the user's service manager makes
+# with the limit, whose own memory.max is then read back. Where none can
+# be made, the transcript says the limited runs are not run, which no
+# expectation of a host that holds one has.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+# Far below any host's memory, so a program meets it within a fraction of
+# a second; whole pages on every target.
+limit=67108864
+
+# limited CMD...: CMD in a scope held to the limit, with no swap.
+limited() {
+  bounded systemd-run --user --scope --quiet -p MemoryMax="$limit" -p MemorySwapMax=0 "$@"
+}
+
+# The group's memory.max, read from inside the scope, is the limit.
+command -v systemd-run > /dev/null 2>&1 &&
+  limited sh -c 'group=$(sed -n "s/^0:://p" /proc/self/cgroup) && cat "/sys/fs/cgroup$group/memory.max"' \
+    > "$work/probe" 2> /dev/null &&
+  [ "$(cat "$work/probe")" = "$limit" ] || {
+  say "host: holds no command it runs to a memory limit; the limited runs are not run"
+  exit 0
+}
+say "host: holds a command it runs to a memory limit of $limit bytes"
+
+# under NAME MAIN: the program MAIN (its Main.idr's text) built and run in
+# a scope held to the limit; its name, status and stdout, and its stderr.
+under() {
+  mkdir -p "$work/$1"
+  printf '%s\n' "$2" > "$work/$1/Main.idr"
+  compile_program "$work/$1/Main.idr" prog
+  if [ "$compiled" -ne 0 ]; then
+    say "$1: compile exit $compiled"
+    show "$work/compile.out" "$work/compile.err"
+    return
+  fi
+  limited "$work/$1/build/exec/prog" < /dev/null > "$work/$1.out" 2> "$work/$1.err"
+  say "$1: status $?, prints $(paste -s -d ' ' "$work/$1.out")"
+  sed 's/^/  stderr | /' "$work/$1.err"
+}
+
+# A list far longer than the limit holds, built whole before its length is
+# read; what the program wrote before it is written.
+under building 'module Main
+
+import Prelude
+
+build : Int -> List Int -> List Int
+build 0 acc = acc
+build n acc = build (n - 1) (n :: acc)
+
+main : IO ()
+main = do
+  putStrLn "building"
+  printLn (length (build 1000000000 []))'
+
+# A list the limit holds many times over.
+under within 'module Main
+
+import Prelude
+
+build : Int -> List Int -> List Int
+build 0 acc = acc
+build n acc = build (n - 1) (n :: acc)
+
+total_ : List Int -> Int -> Int
+total_ [] acc = acc
+total_ (x :: xs) acc = total_ xs (acc + x)
+
+main : IO ()
+main = printLn (total_ (build 100000 []) 0)'

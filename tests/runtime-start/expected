@@ -1,25 +1,22 @@
 million: exit 0
   stdout | 42
-0: exit 0
+exit-0: exit 0
   stdout | 42
-255: exit 255
+exit-255: exit 255
   stdout | 42
-256: exit 1
+crash: exit 1
   stdout | 42
-  stderr | idris-mlir: main returned 256, which is not an exit status (0 to 255)
--1: exit 1
+  stderr | start: fatal: Main.idr:3:7: division by zero
+said: exit 1
   stdout | 42
-  stderr | idris-mlir: main returned -1, which is not an exit status (0 to 255)
-4294967296: exit 1
+  stderr | start: fatal: Main.idr:3:7: the text given
+unreportable: exit 1
   stdout | 42
-  stderr | idris-mlir: main returned 4294967296, which is not an exit status (0 to 255)
-4294967551: exit 1
+  stderr | start: fatal: Main.idr:3:7: exit status 300 cannot be reported
+memory: exit 111
   stdout | 42
-  stderr | idris-mlir: main returned 4294967551, which is not an exit status (0 to 255)
--9223372036854775808: exit 1
-  stdout | 42
-  stderr | idris-mlir: main returned -9223372036854775808, which is not an exit status (0 to 255)
-cpu: exit 1
-  stderr | idris-mlir: this processor lacks bit 63, which the program was compiled to use
-cpu-two: exit 1
-  stderr | idris-mlir: this processor lacks bit 61 bit 63, which the program was compiled to use
+  stderr | start: fatal: out of memory
+cpu: exit 126
+  stderr | start: fatal: this processor lacks bit 63, which the program was compiled to use
+cpu-two: exit 126
+  stderr | start: fatal: this processor lacks bit 61 bit 63, which the program was compiled to use

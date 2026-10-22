@@ -1,23 +1,13 @@
 rc: built
 rc: exit 0
-stack: 256 KiB
 rc: every check holds as idris_rt.h defines them
-idris-rt: live cells 0
-rc leak, IDRIS_RT_LIVE=1: exit 0
-  stderr | idris-rt: live cells 1
-rc leak, IDRIS_RT_LIVE unset: exit 0
-rc leak, IDRIS_RT_LIVE=: exit 0
-rc leak, IDRIS_RT_LIVE=0: exit 0
-rc leak, IDRIS_RT_LIVE=yes: exit 0
-rc leak, IDRIS_RT_LIVE=11: exit 0
-rc leak, IDRIS_RT_LIVE=01: exit 0
-rc leak, IDRIS_RT_LIVE=1 : exit 0
-rc crash, IDRIS_RT_LIVE=1: exit 1
-  stderr | idris-mlir: crashed
+rc leak: exit 134
+  stderr | rc: fatal: internal error: cells live at the end: 1
+rc crash: exit 1
+  stderr | rc: fatal: Main.idr:3:7: division by zero
 handles: built
 handles: exit 0
 handles: -1, standard input, output and error, a file, a closed file, a directory
-handle_is_null: -1 1, 0 0, 1 0, 2 0, file 0, closed 0, directory 0
 file_read_char: -1 -1 EBADF, 0 65, 1 -1 EBADF, 2 -1 EBADF, file 65, closed -1 EBADF, directory -1 EBADF
 file_read_line: -1 null EBADF, 0 "b\n", 1 null EBADF, 2 null EBADF, file "b\n", closed null EBADF, directory null EBADF
 file_read_chars 2: -1 null EBADF, 0 "cd", 1 null EBADF, 2 null EBADF, file "cd", closed null EBADF, directory null EBADF
@@ -44,4 +34,3 @@ file_flush: -1 -1 EBADF, 0 0, 1 0, 2 0, file 0, closed -1 EBADF, directory -1 EB
 file_close, then: -1 closed EBADF, 0 a stream, 1 a stream, 2 a stream, file closed, closed closed EBADF, directory a directory EBADF
 dir_close, then: -1 closed EBADF, 0 a stream EBADF, 1 a stream EBADF, 2 a stream EBADF, file a stream EBADF, closed closed EBADF, directory closed
 handle_free, then: -1 closed, 0 a stream, 1 a stream, 2 a stream, file closed, closed closed, directory closed
-idris-rt: live cells 0

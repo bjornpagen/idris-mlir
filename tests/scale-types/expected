@@ -1,0 +1,4 @@
+verdict: accepted at both sizes
+relation: every count at twice the size within 2.2 times its count at the size
+work: each solve's count read
+footprint: each pass's read

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The runtime's integer text held to its meaning in the runtime: show and
-// put against snprintf's decimal text, big_show against GMP's, and `cast`
+// The runtime's integer text held to its meaning in the runtime: show
+// against snprintf's decimal text, big_show against GMP's, and `cast`
 // from String to an integer against its grammar's prose: every literal the
 // grammar generates reads as its value, every named malformed one as 0, and
 // every short string over the literal alphabet as a recognizer written from
@@ -9,6 +9,7 @@
 #include "bigmodel.h"
 #include "idris_rt.h"
 #include "prop.h"
+#include "runtime.h"
 
 #include <gmp.h>
 #include <inttypes.h>
@@ -30,7 +31,7 @@ using bigmodel::Z;
 class Text {
 public:
   explicit Text(const idris_rt_str *s) : s_(s) {}
-  ~Text() { idris_rt_str_release(s_); }
+  ~Text() { idris_rt_dec_cell(const_cast<idris_rt_str *>(s_)); }
   Text(const Text &) = delete;
   Text &operator=(const Text &) = delete;
   const idris_rt_str *get() const { return s_; }
@@ -57,7 +58,6 @@ bool textIs(const char *what, const idris_rt_str *s, const char *want, size_t n)
 // (prop.h): most are a word's mistakes at its edges (2^63, -2^63) or a
 // reader's at the grammar's (an underscore, a prefix's case).
 constexpr prop::Mutant unsignedShownSigned{"has show_u write a word of 2^63 or more as signed"};
-constexpr prop::Mutant unsignedPutSigned{"has put_int_u write a word of 2^63 or more as signed"};
 constexpr prop::Mutant bigShownByWord{"writes a large big's text from its low 64 bits"};
 constexpr prop::Mutant literalByWord{"reads a literal through a signed word, wrapping past the int64 range"};
 constexpr prop::Mutant trailingUnderscore{
@@ -118,54 +118,6 @@ bool shown(uint64_t word) {
     prop::explain("int_head_s gives %d and int_head_u %d, where the texts start with %d and %d", headS, headU,
                   signedText[0], unsignedText[0]);
     ok = false;
-  }
-  return ok;
-}
-
-// The values a case of put() writes.
-constexpr unsigned putValues = 16;
-
-// 2. put_int_s and put_int_u write on standard output what snprintf writes.
-bool put(FuzzedDataProvider &p, prop::Tally &tally) {
-  uint64_t mask = prop::swarm(p, wordFamilies);
-  unsigned count = p.ConsumeIntegralInRange<unsigned>(1, putValues);
-  uint64_t words[putValues];
-  char want[putValues * 2 * wordText];
-  size_t used = 0;
-  for (unsigned i = 0; i < count; ++i) {
-    unsigned family = prop::pick(p, mask);
-    words[i] = drawWord(p, family);
-    used += static_cast<size_t>(snprintf(want + used, sizeof want - used, "%" PRId64 "\n%" PRIu64 "\n",
-                                         static_cast<int64_t>(words[i]), words[i]));
-    tally.classify(wordNames[family]);
-  }
-  char got[sizeof want];
-  size_t written = prop::captureStdout(
-      [&] {
-        for (unsigned i = 0; i < count; ++i) {
-          idris_rt_io_put_int_s(static_cast<int64_t>(words[i]));
-          idris_rt_io_put_char('\n');
-          if (words[i] >= uint64_t{1} << 63 && prop::planted(unsignedPutSigned))
-            idris_rt_io_put_int_s(static_cast<int64_t>(words[i]));
-          else
-            idris_rt_io_put_int_u(words[i]);
-          idris_rt_io_put_char('\n');
-        }
-      },
-      got, sizeof got);
-  bool ok = written == used && memcmp(got, want, used) == 0;
-  if (!ok) {
-    // The first line that differs, from its start to its end in each.
-    size_t kept = written < sizeof got ? written : sizeof got, at = 0, start = 0;
-    for (; at < kept && at < used && got[at] == want[at]; ++at)
-      start = got[at] == '\n' ? at + 1 : start;
-    auto lineOf = [](const char *text, size_t from, size_t end) {
-      const void *newline = memchr(text + from, '\n', end - from);
-      return static_cast<int>((newline != nullptr ? static_cast<const char *>(newline) : text + end) - (text + from));
-    };
-    prop::explain("put_int wrote %zu bytes, snprintf %zu; from byte %zu, \"%.*s\" where snprintf has \"%.*s\"",
-                  written, used, start, lineOf(got, start, kept), got + start, lineOf(want, start, used),
-                  want + start);
   }
   return ok;
 }
@@ -452,18 +404,18 @@ const void *nothing() { return reinterpret_cast<const void *>(uintptr_t{1}); }
 
 // One call, which borrows its operand and returns one owned result: the
 // operand keeps its references while the result lives, and once the result
-// is released the live cells are as before the call. No result here is
-// its operand, whose type differs. A string and a big are released alike
-// (idris_rt_dec).
+// is released the cells held are as before the call. No result here is
+// its operand, whose type differs. A string, a big and an odd word are
+// released alike, by the entry that counts any word.
 template <typename Call> bool borrows(const char *name, const void *operand, Call call) {
   uint32_t before = referencesOf(operand);
-  uint64_t live = idris_rt_live_cells();
+  uint64_t live = prop::held();
   const void *result = call();
   uint32_t during = referencesOf(operand);
   if (before != 0 && prop::planted(keepsString))
     ++during;
-  idris_rt_dec(const_cast<void *>(result));
-  uint64_t after = idris_rt_live_cells();
+  idris_rt_dec_any(const_cast<void *>(result));
+  uint64_t after = prop::held();
   bool ok = during == before && referencesOf(operand) == before && after == live;
   if (!ok)
     prop::explain("%s: its operand's references %u became %u, then %u; live cells %llu, then %llu", name, before,
@@ -477,8 +429,7 @@ const void *asPointer(idris_rt_big b) { return reinterpret_cast<const void *>(b)
 
 } // namespace
 
-int main(int argc, char **argv) {
-  idris_rt_gmp_init();
+static int properties(int argc, char **argv) {
   prop::Run run(argc, argv);
 
   run.property("show_s, show_u, int_head_s, int_head_u: snprintf's text", unsignedShownSigned,
@@ -488,7 +439,6 @@ int main(int argc, char **argv) {
     return shown(drawWord(p, family));
   });
 
-  run.property("put_int_s, put_int_u: snprintf's text on standard output", unsignedPutSigned, put);
 
   run.property("big_show: GMP's decimal text", bigShownByWord, [](FuzzedDataProvider &p, prop::Tally &tally) {
     Z v;
@@ -573,7 +523,7 @@ int main(int argc, char **argv) {
                  Operand constant(v);
                  Literal literal;
                  generate(p, mask, drawBase(p), literal);
-                 uint64_t live = idris_rt_live_cells();
+                 uint64_t live = prop::held();
                  bool ok = true;
                  {
                    // Counted operands: the big negated twice, a new cell when it
@@ -592,10 +542,10 @@ int main(int argc, char **argv) {
                    static constexpr const char *forms[] = {"large", "small"};
                    tally.classify(forms[big.word() & 1]);
                  }
-                 if (idris_rt_live_cells() != live) {
+                 if (prop::held() != live) {
                    prop::explain("live cells %llu before the operands were made, %llu after",
                                  static_cast<unsigned long long>(live),
-                                 static_cast<unsigned long long>(idris_rt_live_cells()));
+                                 static_cast<unsigned long long>(prop::held()));
                    ok = false;
                  }
                  return ok;
@@ -603,3 +553,5 @@ int main(int argc, char **argv) {
 
   return run.finish();
 }
+
+int main(int argc, char **argv) { return prop::onRuntime(argc, argv, "text", properties); }

@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/72-scc-iterator-node-numbers: scc_iterator keeps its visit
+# numbers in a vector indexed by node number when the graph numbers its
+# nodes, and finds the same components in the same order. The inliner
+# walks the call graph's components with it: on two cycles and a chain
+# into them, the acyclic leaf is inlined into its one caller and erased,
+# and each cycle's calls stay, so the components were found as before.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+input=$root/upstream/72-scc-iterator-node-numbers/call-cycles.mlir
+if ! bounded "$llvm_bin/mlir-opt" "$input" -inline -o "$work/out.mlir" 2> "$work/err"; then
+  say "inline: fails"
+  show "$work/err"
+  exit 0
+fi
+if grep -q '@leaf' "$work/out.mlir"; then say "inline: the leaf is left"; else say "inline: the leaf is inlined into its caller and erased"; fi
+if grep -q 'call @c(' "$work/out.mlir"; then say "inline: the self cycle keeps its call"; else say "inline: the self cycle lost its call"; fi
+if grep -qE 'call @(a|b)\(' "$work/out.mlir"; then say "inline: the two-function cycle keeps a call"; else say "inline: the two-function cycle lost its calls"; fi

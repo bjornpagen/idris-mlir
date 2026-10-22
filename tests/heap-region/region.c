@@ -8,8 +8,11 @@
  * from a header and a field up to 4 KiB, between byte arrays of 64 MiB (each
  * one 64 MiB block of the allocator, of which only the first page and the
  * last are touched), to 3 GiB; then 2 GiB more arrays, of which some
- * must lie past the region; then it releases every one. */
+ * must lie past the region; then it releases every one, which the checked
+ * runtime it links holds it to: a cell still held when the body returns
+ * ends the run as the runtime's internal error. */
 #include "idris_rt.h"
+#include "program.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -35,7 +38,7 @@ static int usable(idris_rt_array *a) {
   return a->length == arrayBytes && bytes[0] == 1 && bytes[arrayBytes - 1] == 2;
 }
 
-static int64_t body(void) {
+static void body(void) {
   uint32_t box = idris_rt_info(0, 0, IDRIS_RT_KIND_BOX);
   uint32_t bytes = idris_rt_info(1, 0, IDRIS_RT_KIND_ARRAY);
   size_t made = 0;
@@ -67,13 +70,14 @@ static int64_t body(void) {
   printf("past 4 GiB: %d more arrays of 64 MiB, %s outside the first cell's region; arrays whose bytes "
          "did not hold: %d\n",
          PAST, past > 0 ? "some" : "none", unusable);
-  for (size_t c = 0; c < made; ++c)
-    idris_rt_dec(cells[c]);
-  for (int a = 0; a < UNDER + PAST; ++a)
-    idris_rt_dec(arrays[a]);
-  printf("live cells after releasing them: %llu\n", (unsigned long long)idris_rt_live_cells());
   fflush(stdout);
-  return 0;
+  for (size_t c = 0; c < made; ++c)
+    idris_rt_dec_cell(cells[c]);
+  for (int a = 0; a < UNDER + PAST; ++a)
+    idris_rt_dec_cell(arrays[a]);
 }
 
-int main(int argc, char **argv) { return idris_rt_start(body, 0, argc, argv); }
+/* The body's frames and the C library's printf, well within it. */
+IDRIS_RT_TEST_PROGRAM("region", 256 * 1024);
+
+int main(int argc, char **argv) { idris_rt_test_start(body, argc, argv); }

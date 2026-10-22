@@ -1,6 +1,5 @@
 text: built
 show_s, show_u, int_head_s, int_head_u: snprintf's text: ok
-put_int_s, put_int_u: snprintf's text on standard output: ok
 big_show: GMP's decimal text: ok
 to_int, big_from_str: every literal the grammar generates reads as its value: ok
 to_int, big_from_str: every named malformed literal reads as 0: ok

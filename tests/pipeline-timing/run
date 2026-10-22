@@ -3,13 +3,11 @@
 # Copyright (c) 2026 Bjorn Pagen
 # idris-mlir --mlir-timing reports where a compilation spent its time: the
 # parse, with the verification that follows it, has a row of its own
-# before the passes; each module pass the driver's one manager ran, from
-# idr-target on, has a row of its own, under its pass name, one per module
-# the IR printer writes; a group of passes run on the program or on every
-# function is a row of its own, with the rows of its passes nested in it,
-# and the optimizer's row, wherever it is, holds those of the pipeline it
-# runs on each function, so no pass of a group or of the optimizer has a
-# row at the top; and no time is counted twice at the top, so the Rest is
+# before the passes; each module pass the driver's one manager ran has a
+# row of its own, under its pass name, one per module the IR printer
+# writes; a group of passes run on the program or on every function is a
+# row of its own, with the rows of its passes nested in it, so no pass of a
+# group has a row at the top; and no time is counted twice at the top, so the Rest is
 # not negative. With a module and -c, neither
 # the frontend nor the link runs, so neither has a row. MLIR keys a pass's
 # timer by the pass's address, which one manager keeps for the whole
@@ -17,12 +15,13 @@
 # The passes at the top are those of the one pipeline, which
 # idris-mlir-opt runs as --idr-pipeline after --idr-target: its rows at
 # the top, but for its parser and output, are the driver's, in order, and
-# what runs inside a group or the optimizer is read off the report itself.
+# what runs inside a group is read off the report itself, so no pass is
+# named here.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
 cat > "$work/main.mlir" << 'EOF_MODULE'
-idr.program @timing root(@Prog.main) stage(higher) types #idr.types<> {
-  idr.func effects<none> @twice(%x: i64) -> i64 attributes {total} {
+idr.program @timing root(@Prog.main) stage(higher) {
+  idr.func @twice(%x: i64) -> i64 {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
@@ -67,9 +66,8 @@ else
   show "$work/opt.report"
   exit 0
 fi
-if [ "$(wc -l < "$work/passes" | tr -d ' ')" -gt 1 ] && [ "$(head -n 1 "$work/passes")" = IdrTarget ] &&
-    cmp -s "$work/passes" "$work/opt.passes"; then
-  say "passes: each module pass of the pipeline has a row of its own, idr-target first"
+if [ "$(wc -l < "$work/passes" | tr -d ' ')" -gt 1 ] && cmp -s "$work/passes" "$work/opt.passes"; then
+  say "passes: each module pass of the pipeline has a row of its own, in its order"
 else
   say "passes: the rows at the top are not the pipeline's passes"
   diff "$work/opt.passes" "$work/passes" | show
@@ -77,22 +75,20 @@ fi
 
 if awk -F'\t' '
     pending && $1 <= depth { failed = 1 }
-    { pending = $3 ~ /Pipeline$/ || $3 == "IdrOptimize"; depth = $1 }
+    { pending = $3 ~ /Pipeline$/; depth = $1 }
     $1 == 0 && $3 ~ /Pipeline$/ { groups++ }
-    $3 == "IdrOptimize" { optimizers++ }
-    END { exit failed || pending || groups < 1 || optimizers != 1 }' "$work/rows"; then
-  say "groups: each, and the optimizer, has the rows of its passes nested in it"
+    END { exit failed || pending || groups < 1 }' "$work/rows"; then
+  say "groups: each has the rows of its passes nested in it"
 else
   say "groups: one has no rows nested in it"
   show "$work/rows"
 fi
 
-# The passes that ran nested in a group or in the optimizer, by the
-# report's own rows.
+# The passes that ran nested in a group, by the report's own rows.
 awk -F'\t' '$1 > 0 && $3 !~ /Pipeline$/ && $3 !~ /^\(A\) / { print $3 }' "$work/rows" | sort -u > "$work/nested"
 inside=$(sort -u "$work/passes" | comm -12 - "$work/nested")
 if [ -z "$inside" ]; then
-  say "top: no pass of a group or of the optimizer has a row at the top"
+  say "top: no pass of a group has a row at the top"
 else
   say "top: rows at the top of passes run inside: $(printf '%s' "$inside" | paste -sd, -)"
 fi

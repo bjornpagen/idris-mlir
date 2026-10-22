@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/27-one-shot-tensor-like-copy: an operand of any tensor-like type
+# that bufferizes out of place is given a copy, made by a hook its dialect
+# sets, instead of none. Only the test dialect has a tensor-like type of
+# its own upstream, and the toolchain's mlir-opt builds no test dialect, so
+# the behaviour is the patch's own test, run where upstream runs it; here
+# the installed header of the pinned, patched MLIR declares the hook.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+header=$llvm_prefix/include/mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h
+if grep -q 'tensorAllocationFn' "$header" 2> /dev/null; then
+  say "BufferizationOptions: a tensor-like value's copy is made by its dialect's hook"
+else
+  say "BufferizationOptions: no hook for a tensor-like value's copy in $header"
+fi

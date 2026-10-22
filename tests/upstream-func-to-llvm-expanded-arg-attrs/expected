@@ -1,1 +1,1 @@
-convert-func-to-llvm: the allocated and the aligned pointer keep llvm.noalias
+still reproduces at the pin: the descriptor's pointers lose llvm.noalias

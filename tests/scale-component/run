@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# One component of M members over M/10 result types, every call of it a
+# frame of its caller's type: frames once cloned a member per result type,
+# M times R, where a stack per result type is M plus R. At twice the size
+# both M and R double, so M times R would be four times the work, and no
+# count of the compiler's work may grow faster than the program.
+step_limit=120
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+. "$root/harness/lib/scale.sh"
+scale_relation component

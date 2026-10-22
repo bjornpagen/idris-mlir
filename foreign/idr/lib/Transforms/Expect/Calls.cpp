@@ -1,139 +1,32 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// call-order, calls-distinct, calls-read, calls-only and direct-calls: what
-// a function asks of the functions it calls, the program's and the
-// runtime's, stated as the calls it makes and not as the ops around them.
-// After lowering, a runtime function is a declaration of the module named
-// by the runtime's own symbol, so a test that names one names the
-// runtime's interface, which the runtime documents; before it, every
-// callee is the program's.
+// calls: a function still calls another, by upstream's call interface, so
+// it is stated the same of the program's calls before lowering and of the
+// LLVM dialect's after it, where the callee may be a function of the
+// runtime, named by its symbol.
 
-#include "idr/Transforms/Expect.h"
+#include "Checks.h"
 
-#include "mlir/IR/Dominance.h"
-#include "mlir/IR/OperationSupport.h"
 #include "mlir/Interfaces/CallInterfaces.h"
-#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
 namespace idr::expect {
 
-namespace {
-
-// The calls of `fn`, in the order the walk meets them.
-SmallVector<CallOpInterface> callsOf(FunctionOpInterface fn) {
-  SmallVector<CallOpInterface> out;
-  fn->walk([&](CallOpInterface call) { out.push_back(call); });
-  return out;
-}
-
-// The name a call calls, for an error.
-std::string calleeOf(CallOpInterface call) {
-  if (auto callee = dyn_cast<SymbolRefAttr>(call.getCallableForCallee()))
-    return ("@" + callee.getRootReference().getValue()).str();
-  return "a value";
-}
-
-} // namespace
-
-// Every copy of @f calls each function the list names, in the list's
-// order: a call of the second comes after a call of the first, in the
-// order the body is written. Repeating a name asks for that many calls.
-LogicalResult callOrder(const Request<Listed> &request) {
-  ArrayRef<Symbol> wanted = request.argument.names;
-  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
-  bool held = true;
-  for (FunctionOpInterface fn : request.argument.function.functions) {
-    size_t next = 0;
-    for (CallOpInterface call : callsOf(fn))
-      if (next < wanted.size() && callsNamed(call, wanted[next], symbols))
-        ++next;
-    if (next == wanted.size())
-      continue;
-    InFlightDiagnostic error = fail(fn->getLoc(), request.property)
-                               << where(fn) << " makes no call of @" << wanted[next].name;
-    if (next > 0)
-      error << " after its call of @" << wanted[next - 1].name;
-    held = false;
-  }
-  return success(held);
-}
-
-// No call of @g in a copy of @f makes again a call that dominates it: the
-// same callee on the same operands, so that it is the earlier call's
-// results.
-LogicalResult callsDistinct(const Request<Pair> &request) {
+// Some call in a copy of @f calls @g or a copy of it.
+LogicalResult calls(const Request<Pair> &request) {
   const Pair &pair = request.argument;
   SymbolTable &symbols = symbolsOf(request.module, request.analyses);
-  bool held = true;
   for (FunctionOpInterface fn : pair.caller.functions) {
-    SmallVector<CallOpInterface> made;
-    for (CallOpInterface call : callsOf(fn))
-      if (callsNamed(call, pair.callee, symbols))
-        made.push_back(call);
-    DominanceInfo dominance(fn);
-    for (auto [at, later] : llvm::enumerate(made))
-      for (CallOpInterface earlier : ArrayRef(made).take_front(at)) {
-        if (!dominance.properlyDominates(earlier.getOperation(), later.getOperation()) ||
-            !OperationEquivalence::isEquivalentTo(earlier.getOperation(), later.getOperation(),
-                                                  OperationEquivalence::IgnoreLocations))
-          continue;
-        fail(later->getLoc(), request.property) << where(fn) << " calls @" << pair.callee.name
-                                                << " again on what an earlier call took";
-        held = false;
-        break;
-      }
-  }
-  return success(held);
-}
-
-// Every call of @g in a copy of @f gives a result that something reads.
-LogicalResult callsRead(const Request<Pair> &request) {
-  const Pair &pair = request.argument;
-  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
-  bool held = true;
-  for (FunctionOpInterface fn : pair.caller.functions)
-    for (CallOpInterface call : callsOf(fn)) {
-      if (!callsNamed(call, pair.callee, symbols) || !call->use_empty())
-        continue;
-      fail(call->getLoc(), request.property) << where(fn) << " calls @" << pair.callee.name
-                                             << " and reads nothing it gives";
-      held = false;
-    }
-  return success(held);
-}
-
-// Every call of every copy of @f is of a function the list names: so `[]`
-// says @f calls nothing.
-LogicalResult callsOnly(const Request<Listed> &request) {
-  ArrayRef<Symbol> allowed = request.argument.names;
-  SymbolTable &symbols = symbolsOf(request.module, request.analyses);
-  bool held = true;
-  for (FunctionOpInterface fn : request.argument.function.functions)
-    for (CallOpInterface call : callsOf(fn)) {
-      if (llvm::any_of(allowed, [&](const Symbol &g) { return callsNamed(call, g, symbols); }))
-        continue;
-      fail(call->getLoc(), request.property) << where(fn) << " calls " << calleeOf(call)
-                                             << ", which the list does not name";
-      held = false;
-    }
-  return success(held);
-}
-
-// Every call, anywhere or in @f, names its callee: no call goes through a
-// value, so no cell holds code.
-LogicalResult directCalls(const Request<Roots> &request) {
-  bool held = true;
-  for (Operation *root : request.argument.roots(request.module))
-    root->walk([&](CallOpInterface call) {
-      if (isa<SymbolRefAttr>(call.getCallableForCallee()))
-        return;
-      fail(call->getLoc(), request.property) << call->getName() << " in " << where(call)
-                                             << " calls through a value";
-      held = false;
+    WalkResult found = fn->walk([&](CallOpInterface call) {
+      return callsNamed(call, pair.callee, symbols) ? WalkResult::interrupt()
+                                                    : WalkResult::advance();
     });
-  return success(held);
+    if (found.wasInterrupted())
+      return success();
+  }
+  return fail(pair.caller.functions.front()->getLoc(), request.property)
+         << "@" << pair.caller.name << " calls no @" << pair.callee.name;
 }
 
 } // namespace idr::expect

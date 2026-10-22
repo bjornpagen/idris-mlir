@@ -15,10 +15,14 @@ modules = Case
         , Gen
         , Json
         , Lazy
+        , Linear
         , Lock
         , Prims
+        , Properties
         , Reject
         , Runner
+        , RuntimeEffects
+        , Scale
         , Sem
         , Trace
         , TwoLevels

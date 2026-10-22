@@ -1,0 +1,45 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# Every tail call of a compiled program is a guaranteed tail call under the
+# tail calling convention, and the shapes that broke on one target before
+# are run on every target: more arguments than registers, results in
+# registers and through memory, integer and floating-point registers mixed,
+# an aggregate split across registers and the stack and one passed in
+# memory, a cycle of two functions, and a caller whose frame dwarfs its
+# callee's. Each module is compiled by the pinned clang with no optimization
+# and with it, and run a million levels deep on a 256 KiB stack, which a
+# call that grew the stack would exhaust in a few thousand levels: each
+# prints the value its arithmetic gives, the same on every target.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+depth=1000000
+
+# shape NAME VALUE: NAME.ll at -O0 and -O2, each run at the depth on the
+# small stack, printing VALUE.
+shape() {
+  for level in O0 O2; do
+    if ! bounded "$llvm_bin/clang" "-$level" "$here/$1.ll" -o "$work/$1-$level" 2> "$work/err"; then
+      say "$1: does not compile at -$level"
+      show "$work/err"
+      return 0
+    fi
+    (ulimit -s 256 && bounded "$work/$1-$level" "$depth") > "$work/out" 2> "$work/err"
+    status=$?
+    got=$(cat "$work/out")
+    if [ "$status" -ne 0 ] || [ "$got" != "$2" ]; then
+      say "$1: at -$level, status $status, prints $got, not $2"
+      show "$work/err"
+      return 0
+    fi
+  done
+  say "$1: a million levels on a 256 KiB stack, at -O0 and -O2"
+}
+
+shape many-arguments 5500000
+shape result-in-registers 3000000
+shape result-in-memory 9000000
+shape mixed-registers 500001000000
+shape aggregate-by-value 5500000
+shape aggregate-in-memory 2500000
+shape mutual 1500000
+shape large-caller-frame 1000000
