@@ -1729,6 +1729,21 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   run-time re-check would have stopped; an instance that contracts a
   lambda the site keeps gets its rule too. `believe_me` reads as the
   argument it returns.
+- **C228** (2026-10-22; the Emit pass under D112). The frontend's core
+  term carries what Emit reads off it. Emit re-derives facts the
+  translation knew and checks them as internal errors: a call's arity,
+  the result type of a lambda or a suspension, the type of what a case,
+  an application, a resume or a tensor op takes, a tensor axis within
+  its operand's rank, a literal case's key kind, a word load's width.
+  The term holds each: a call holds its callee's signature with its
+  arguments as a vector of that length, a lambda and a suspension their
+  result type, a case, application, resume and tensor op their operand's
+  type, an axis is a `Fin` of the rank, a literal case is keyed by one
+  literal kind, and a word load or store names a closed word type. The
+  translation builds each where it already knows it; Emit reads it and
+  checks nothing. An operand nothing in scope defines and a family the
+  table lacks become unrepresentable the same way, by scoped values and
+  a family identity that indexes its table.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places
