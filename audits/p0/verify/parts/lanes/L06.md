@@ -16,6 +16,8 @@ Code: `tools/bootstrap.sh` whole, `tools/patches.sh`,
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C11, C12, C22, C27, C53, C59.
 
+**Also yours** (rulings and decisions no brief named before): C141; and C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** every dependency fast-forwarded to its latest (LLVM and
 MLIR, modular and Idris 2 at main; every other to its latest release),
 carried patches rebased or dropped where upstream has them; the

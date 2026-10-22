@@ -20,6 +20,8 @@ inliner's effect queries, `InliningUtils.cpp`.
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C20, C31, C41, C69, C70, C74.
 
+**Also yours:** C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** a computation's row lives on its op (`idr.func`,
 `idr.call`), never in a value type; one derivation from the ops, held to
 it by the verifier per function; a call carries its callee's row. Seams

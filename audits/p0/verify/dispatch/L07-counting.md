@@ -17,6 +17,8 @@ D88 to D90, D102; in §3 C1, C34, C144, C152. Your verification report
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C36, C37, C38, C39, C41, C87, C88, C89, C96, C107.
 
+**Also yours** (rulings and decisions no brief named before): D73, D74; and C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** counting runs on the grades already in types; reuse
 recycles a dead cell into a construction of its size; the in-place
 promise is decided before the optimizer and honoured here (D24, D70: the

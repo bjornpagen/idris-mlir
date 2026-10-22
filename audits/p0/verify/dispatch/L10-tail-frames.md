@@ -18,6 +18,8 @@ LLVM's `musttail` and `tailcc` rules.
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C20, C38, C43, C72, C99.
 
+**Also yours** (rulings and decisions no brief named before): C63; and C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** a call in tail position never grows the stack; tail
 position is one fact on `idr.call` (C139), decided once, verified by
 `idr::tail::verify(CallOp)` which you declare in `include/idr/IR/Tail.h`

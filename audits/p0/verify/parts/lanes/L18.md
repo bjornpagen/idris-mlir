@@ -18,6 +18,8 @@ Code: `Transforms/Defunctionalize/`, `Specialize/`, `Optimize/`,
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C10, C15, C18, C29, C31, C35, C36, C46, C49, C67, C74.
 
+**Also yours** (rulings and decisions no brief named before): D83, C30; and C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** defunctionalization makes every closure set a sum, on the
 program as written (C68); specialization by layout class (D58), by
 closure label, by hold (D89) and by lifetime mode, a copy keyed by its

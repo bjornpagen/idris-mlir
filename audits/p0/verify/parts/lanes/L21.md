@@ -14,6 +14,8 @@ count operations), `L13-ops-canon.md` (conversion);
 (the dropped `noalias`). The audits: 12; 18; wave1 §5.11. Code:
 `lib/Conversion/`, `lib/Target/`, `include/idr/Target/`.
 
+**Also yours** (rulings and decisions no brief named before): C42, C62; and C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** blocks only at the lowering (D19); a lifetime's kind lowers
 by one context-free, cached `TypeConverter` rule per kind, `view` and
 `home` to no value (D93); the grade lowers to its word or pointer; what

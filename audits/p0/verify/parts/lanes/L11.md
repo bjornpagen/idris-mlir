@@ -15,6 +15,8 @@ proposal 0017; proposal 0007 §3, §4. Code: `runtime/` whole,
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C40, C54, C60, C61, C102, C103, C104.
 
+**Also yours** (rulings and decisions no brief named before): C44; and C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** every ending has its own exit status from one generated
 table (D37): 0 returned, `n` for `exit n` (outside 0 to 255 a crash at
 the exit's site, D64), 1 crashed, 111 out of memory, 126 cannot run,

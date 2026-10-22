@@ -14,6 +14,8 @@ automatic search, `Core/TTC.idr`, `Core/Context.idr`,
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C15, C55, C58, C122, C127.
 
+**Also yours:** C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** the fork is ours and Idris's compiler; it never imports
 `IdrisMLIR.*`; a trust the frontend takes in it is stated in it (D68);
 every count classified and none deciding acceptance (D53 to D55, C66,

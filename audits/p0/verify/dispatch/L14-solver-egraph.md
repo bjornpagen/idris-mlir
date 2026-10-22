@@ -21,6 +21,8 @@ upstream's `DataFlowSolver`, `CallGraph`, `scc_iterator`,
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C15, C16, C18, C20, C28, C31, C32, C34, C35, C41, C64, C115, C116, C117, C118.
 
+**Also yours:** C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** the solver layer is shared types, not one engine (C114):
 one call graph (C33, a carried patch, L06), three solve shapes, decide,
 apply, restructure; a solve's state sized by the problem. The e-graph is

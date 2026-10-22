@@ -19,6 +19,8 @@ audits: 07 whole; 08 §6; synthesis B (the markings), C; wave1 §5.10;
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C36, C39, C91.
 
+**Also yours** (rulings and decisions no brief named before): D72; and C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** the in-place promise is a rule read off the program before
 counting (a function that takes apart a quantity-1 parameter of an
 `in_place` type and builds one from it rebuilds it), obliging

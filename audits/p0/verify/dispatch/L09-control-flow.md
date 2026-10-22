@@ -19,6 +19,8 @@ llvm/llvm-project`, read only) against the pin's control-flow interfaces.
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C19, C20, C41, C45, C48, C95.
 
+**Also yours:** C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** a match is a region per case rejoining at the op's results,
 from the frontend to the lowering; each case binds its scrutinee refined
 to that case's constructor, and fields are reads of it (D105); a join

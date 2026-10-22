@@ -17,6 +17,8 @@ upstream `mlir/include/mlir/Interfaces/SideEffectInterfaces.{h,td}`.
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C24, C39, C60, C69, C70, C71.
 
+**Also yours:** C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** P0 §5.1 is canonical: the tree (D27; AGENTS.md's resource
 tree), the declaration forms, the typed rules, the names (D28) and atoms
 (D29), "building a value acquires nothing before counting" (C3), and the

@@ -17,6 +17,8 @@ emission of data types, the fork's checked constructor types.
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C22, C29, C38, C39, C41, C45, C50, C79, C80, C81, C82.
 
+**Also yours:** C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** a data type is the family Idris checked (D48): an attribute
 holding the declaration applied to index terms, `!idr.data<#Vect[n]>`;
 identity is content, no table, no name looked up; a match refines the

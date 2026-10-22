@@ -14,6 +14,8 @@ the harness, `tests/` run scripts, `Transforms/Expect/`, `tests/Fuzz.idr`,
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C12, C16, C41, C60, C78, C90, C135, C138.
 
+**Also yours** (rulings and decisions no brief named before): C17, C141 (its check); and C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** tests check behaviour (exit status, artifacts, the property
 a pass guarantees), never pass names, clone numbers, function order or
 SSA names (AGENTS.md); idr-expect generated from Idris records; the

@@ -19,6 +19,8 @@ division.
 
 **Also cited by your area** (§3 decisions that name your verification report; implement what falls in your paths, leave the rest to their owners): C11, C15, C20, C23, C24, C25, C26, C28, C69, C102, C110, C111, C112, C113.
 
+**Also yours:** C8: every suspected bug of P0 §8 whose code lies in your paths.
+
 **Contract:** one op per semantics (D9); an op of inline arithmetic has
 its one meaning in one C++ template generic over a numeric domain,
 instantiated as the folder, as the op's integer ranges and as its
