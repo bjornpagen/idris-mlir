@@ -1970,6 +1970,23 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   every upstream op that infers a result type would have to carry it.
   Not an argument attribute: signature rewrites drop `arg_attrs`, and
   AGENTS.md keeps facts out of what can be dropped.
+  *Amended* (L18x's handoff, the same day). Three limits, each with its
+  reason. Only an input's axis becomes static in a copy; a result keeps
+  the callee's type, since a cast after the call would take a tail call
+  out of tail position (D30), and the caller learns no more from a
+  result than its own types say. Only an axis of a bare tensor becomes
+  static; a graded array (quantity 1, static or scoped) keeps its axis
+  dynamic, since no cast keeps a grade, until §4's question on lending
+  arrays to upstream's ops is ruled, which leaves the program less
+  optimized and refuses nothing. And the static type reaches the copy's
+  body through the one substitution, in one walk in program order: each
+  op whose result types follow from its operands (upstream's
+  `InferTypeOpInterface`) has them inferred again from the refined
+  operands, and a `tensor.cast` back to the old type stays only where a
+  use's type is fixed elsewhere (a block argument, a yield to its
+  parent's result, a return). The walk runs once and needs no fixpoint;
+  a cast left where nothing refines past it is the less optimized form,
+  never wrong.
 - **C240** (2026-10-22; recheck 3, the seam between L16 and L18, under
   D75 and D76). The op that holds D75's promise is the join itself: Emit
   writes `idr.join`, or `idr.loop` for a recursive one, for each
