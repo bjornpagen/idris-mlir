@@ -2089,6 +2089,18 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   measured) are programs, not glue, and are ported into the harness's
   Idris, which both hosts compile; what stays shell is the glue that
   starts a tool with its arguments.
+- **C247** (2026-10-22; recheck 3's sweep, the ladder in
+  `Analysis/IdentitiesRecord.cpp:165-190`). How an op's result is built
+  of its operands, a constructor of its fields or a natural's successor
+  or predecessor of another, is one op interface,
+  `StructureOpInterface`, declared in `Spec/Core/Interfaces.idr`, its one
+  method answering a closed sum (`Structure`: `Built` with a tag and its
+  fields, `Successor` and `Predecessor` with the value, `Unbuilt`).
+  `data.con`, `nat.pred` and `big.add` implement it (`big.add` answers
+  `Successor` only where one operand is a constant one, from its own
+  operands); the identities record asks it where it named the three, and
+  its calls, matches and constants keep their own dispatch, each already
+  MLIR's (`CallOp`, `MatchOpInterface`, `m_Constant`).
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
