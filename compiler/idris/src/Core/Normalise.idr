@@ -94,7 +94,7 @@ normaliseSizeLimit : {auto c : Ref Ctxt Defs} ->
                      Env Term free -> Term free -> Core (Term free)
 normaliseSizeLimit defs limit env tm
     = case !(tryNormaliseSizeLimit defs limit env tm) of
-           Quoted tm' => pure tm'
+           WithinDepth tm' => pure tm'
            TooDeep => pure tm
 
 export

@@ -77,7 +77,7 @@ normaliseHoleTypes
     updateType defs i def
         = do ty <- typeOf def
              ty' <- case !(tryNormaliseSizeLimit defs 10 Env.empty ty) of
-                         Quoted ty' => pure ty'
+                         WithinDepth ty' => pure ty'
                          TooDeep => normaliseHoles defs Env.empty ty
              ignore $ addDef (Resolved i) ({ type := LiveType ty' } def)
 

@@ -266,7 +266,7 @@ mutual
                    -- it might be too early to do it now if something is
                    -- blocking it and we're not yet ready to search.
                    metaty <- case !(quoteWithin 10 defs env aty) of
-                                  Quoted metaty => pure metaty
+                                  WithinDepth metaty => pure metaty
                                   TooDeep => quote empty env aty
                    est <- get EST
                    metaval <- searchVar fc argRig (Resolved (defining est))

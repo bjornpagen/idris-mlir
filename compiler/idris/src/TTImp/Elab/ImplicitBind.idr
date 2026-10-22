@@ -113,7 +113,7 @@ normaliseType : {auto c : Ref Ctxt Defs} ->
 normaliseType defs env tm
     = do tm' <- nfOpts withHoles defs env tm
          case !(quoteWithin 5 defs env tm') of
-              Quoted ntm => pure ntm
+              WithinDepth ntm => pure ntm
               TooDeep => normalise defs env tm
 
 -- For any of the 'bindIfUnsolved' - these were added as holes during

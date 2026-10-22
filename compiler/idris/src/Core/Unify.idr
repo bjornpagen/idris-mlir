@@ -919,7 +919,7 @@ mutual
                                           tmnf
                      tm <- case !(quoteWithin defs.options.elabDirectives.nfThreshold
                                               empty env tmnf) of
-                                Quoted tm => pure tm
+                                WithinDepth tm => pure tm
                                 TooDeep => quote defs env tmnf
                      Just tm <- occursCheck loc env mode mname tm
                          | _ => postponeS swap loc mode "Occurs check failed" env

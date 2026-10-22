@@ -27,7 +27,7 @@ record QuoteOpts where
 ||| whether a program is accepted.
 public export
 data Quoted : Scoped where
-  Quoted : Term vars -> Quoted vars
+  WithinDepth : Term vars -> Quoted vars
   TooDeep : Quoted vars
 
 public export
@@ -60,7 +60,7 @@ interface Quote tm where
     -- this catches, and no other error is taken for it.
     quoteWithin depth defs env tm
         = do q <- newRef QVar 0
-             catch (Quoted <$> quoteGen q (MkQuoteOpts False False (Just depth)) defs env tm)
+             catch (WithinDepth <$> quoteGen q (MkQuoteOpts False False (Just depth)) defs env tm)
                    (\case
                        QuoteTooDeep => pure TooDeep
                        err => throw err)
