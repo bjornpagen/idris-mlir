@@ -145,8 +145,8 @@ familyAttr = MkAttrDef
 ||| possible constructors, class, layout, references and words, and a
 ||| numeral's largest value where its layout is a fixed width, are computed
 ||| when it is made and kept beside its key. What a value of it holds depends on that
-||| layout, so it answers the value facts through its own members, read from
-||| what was computed, and declares no constant answers.
+||| layout, so its value facts are a hand unit's answers, read from what was
+||| computed, and it declares no constant answers.
 export
 dataType : TypeDef 5
 dataType = MkTypeDef
@@ -158,7 +158,7 @@ dataType = MkTypeDef
       , MkParameter "refinement" (WiredValue (WiredOne (LeafMaybeAttr "::mlir::DenseI32ArrayAttr")) refinementParam) (DefaultsTo "{}") "the tags of the constructors it is refined to, ascending; none unrefined, empty uninhabited"
       , MkParameter "binders" (WiredValue (WiredArray termWire) termsParam) (DefaultsTo "{}") "its one constructor's undetermined binders" ]
   , syntax = HandSyntax
-  , interfaces = [Declares MemRefElementType [], Implements valueFactsInterface []]
+  , interfaces = [Declares MemRefElementType []]
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readDataType"
   , storage = HandStorage
@@ -191,12 +191,8 @@ dataType = MkTypeDef
       , MkMember OnObjectConst "::llvm::ArrayRef<::idr::families::MemberRef>" "selfCells" []
       , MkMember OnObjectConst "uint32_t" "freeLevels" []
       , MkMember OnObjectConst "::std::optional<::llvm::SmallVector<::idr::families::TermNode>>" "bindersOf" [param "::idr::Tag" "tag"]
-      , MkMember OnObjectConst "::std::optional<::llvm::SmallVector<::mlir::Type>>" "determinedFields" [param "::idr::Tag" "tag"]
-      , MkMember OnObjectConst "bool" "holdsReferences" []
-      , MkMember OnObjectConst "bool" "isLinearByType" []
-      , MkMember OnObjectConst "bool" "isCounted" []
-      , MkMember OnObjectConst "bool" "isCellPointer" [] ]
-  , facts = NoValueFacts
+      , MkMember OnObjectConst "::std::optional<::llvm::SmallVector<::mlir::Type>>" "determinedFields" [param "::idr::Tag" "tag"] ]
+  , facts = HandAnswers
   , doc = MkDoc "a data type: a member of a family applied to index terms"
       """
       Written `!idr.data<#Vect[v0]>`, `!idr.data<#Tree at 1 [v0]>`, refined

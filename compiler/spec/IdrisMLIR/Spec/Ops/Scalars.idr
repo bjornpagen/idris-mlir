@@ -11,8 +11,9 @@
 |||
 ||| Euclidean division, the shifts and the char conversions are inline
 ||| arithmetic: each op's meaning is one C++ template (`Inline`), its folder,
-||| ranges and expansion; the heads of a number's text and a Double's
-||| truncation are the runtime's functions.
+||| ranges and expansion, whose trait carries upstream's range interface, so
+||| the op lists no interface of its own; the heads of a number's text and a
+||| Double's truncation are the runtime's functions.
 module IdrisMLIR.Spec.Ops.Scalars
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -53,7 +54,7 @@ division part = MkOp
   , attrs = []
   , regions = []
   , traits = [SameOperandsAndResultType]
-  , interfaces = [Declares InferIntRange []]
+  , interfaces = []
   , effects = computes
   , speculation = Conditionally
   , stages = Always
@@ -109,7 +110,7 @@ shift dir sign = MkOp
   , attrs = []
   , regions = []
   , traits = [SameOperandsAndResultType]
-  , interfaces = [Declares InferIntRange []]
+  , interfaces = []
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always
@@ -167,7 +168,7 @@ toChar sign = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Declares InferIntRange []]
+  , interfaces = []
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always

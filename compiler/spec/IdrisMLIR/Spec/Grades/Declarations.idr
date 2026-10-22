@@ -220,9 +220,9 @@ holdTable = table holdClosed
 ||| by its first word; its verifier holds the canonical form: never a grade
 ||| of a grade, none of a type used once by its type, a hold exactly on a
 ||| carrier that holds references, never the carrier's bare grade. What a
-||| value of it holds is its carrier's, so it answers the value facts by
-||| asking the carrier, which no constant answer could say, and a value of it
-||| prints with its carrier's name.
+||| value of it holds is its carrier's, so its value facts are a hand unit's
+||| answers that ask the carrier, which no constant answer could say, and a
+||| value of it prints with its carrier's name.
 export
 graded : TypeDef 3
 graded = MkTypeDef
@@ -243,11 +243,11 @@ graded = MkTypeDef
           AlwaysWritten (line "who frees what it holds and what is known of its sharing")
       , MkParameter (ident "carrier") TypeValue AlwaysWritten (line "the value itself") ]
   , syntax = HandSyntax
-  , interfaces = [Implements valueFactsInterface [], Declares OpAsmType ["getAsmName"]]
+  , interfaces = [Declares OpAsmType ["getAsmName"]]
   , verifier = VerifiesParameters
   , bytecode = Derived
   , members = []
-  , facts = NoValueFacts
+  , facts = HandAnswers
   , doc = brief (line "a value at a grade: its uses and, on a carrier that holds references, its hold")
   }
 

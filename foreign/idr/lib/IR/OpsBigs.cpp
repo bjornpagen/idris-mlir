@@ -17,9 +17,6 @@
 
 #include "mlir/Interfaces/Utils/InferIntRangeCommon.h"
 
-// How each big made of an integer reads it: BigOfInteger.
-#include "idr/IR/Generated/BigOfInteger.h.inc"
-
 #include <algorithm>
 #include <limits>
 

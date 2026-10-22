@@ -133,7 +133,7 @@ programOp = MkOp
                        ("IdrisMLIR" ::: ["Spec", "Pipeline", "Stage"]) "stageClosed"))))
       ]
   , regions = [MkRegion "body" OneRegion (Sized 1)]
-  , traits = [SymbolTable, IsolatedFromAbove, SingleBlock, NoTerminator, SymbolOp]
+  , traits = [SymbolTable, IsolatedFromAbove, SingleBlock, NoTerminator, SymbolName, SymbolOp]
   , interfaces = []
   , effects = Definition
   , speculation = NotSpeculatable
@@ -205,7 +205,7 @@ funcOp = MkOp
       , MkAttr "frame_bound" frameBoundSlot
       ]
   , regions = [MkRegion "body" OneRegion (Sized 1)]
-  , traits = [AffineScope, IsolatedFromAbove, HasParent ("program" ::: [])]
+  , traits = [AffineScope, IsolatedFromAbove, HasParent ("program" ::: []), SymbolName]
   , interfaces =
       [ Declares FunctionOp ["insertArguments", "insertResults", "eraseArguments", "eraseResults"]
       , Declares OpAsm ["getDefaultDialect"]

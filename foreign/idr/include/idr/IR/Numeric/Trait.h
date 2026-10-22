@@ -4,10 +4,10 @@
 // specification attaches to each op whose meaning is `Inline f` and names
 // with the meaning's function object (Inline.h): it is the op's folder (F
 // over words), its integer ranges (F over intervals, through upstream's
-// InferIntRangeInterface, which the op lists with no method of its own:
-// the trait's method is the op's by inheritance, as AlwaysSpeculatableImpl
-// supplies getSpeculatability; and, with no op at all, `inferRanges`, the
-// same function) and, through `expand`, its arith (F over an IR builder).
+// InferIntRangeInterface, whose trait this one is, so the op lists no
+// interface and declares no method: the trait's method is the op's by
+// inheritance; and, with no op at all, `inferRanges`, the same function)
+// and, through `expand`, its arith (F over an IR builder).
 // So an op's class says nothing of its arithmetic, and no reader of an
 // inline op names the op.
 //
@@ -59,8 +59,12 @@ struct InlineArith {
     }(std::make_index_sequence<F::arity>());
   }
 
+  // The interface's trait is the base, not a sibling: an op holding both
+  // would find two `inferResultRanges`, the interface's default and ours;
+  // derived from it, ours hides the default, and this trait alone registers
+  // the interface, its base giving the interface's id and model.
   template <class ConcreteOp>
-  class Impl : public mlir::OpTrait::TraitBase<ConcreteOp, Impl> {
+  class Impl : public mlir::InferIntRangeInterface::Trait<ConcreteOp> {
     static constexpr std::size_t arity = F::arity;
 
   public:
