@@ -412,34 +412,6 @@ prim binder stands ix l (ArrayLength _) [a] = do
 -- Constructors
 ------------------------------------------------------------------------------
 
-mutual
-  ||| An index term with the terms `bs` substituted for the levels `0 ..`
-  ||| of the scope it is written in: a constructor's equation or field in
-  ||| the scope its value is made or read in, a callee's signature at a
-  ||| call.
-  export
-  substitute : List ITerm -> ITerm -> ITerm
-  substitute bs (IVar k) = fromMaybe IOpaque (getAt k bs)
-  substitute bs (ISucc t k) = succ (substitute bs t) k
-  substitute bs (ICon f c as) = ICon f c (substituteAll bs as)
-  substitute bs (IType t) = IType (substTy bs t)
-  substitute bs t = t
-
-  substituteAll : List ITerm -> List ITerm -> List ITerm
-  substituteAll bs [] = []
-  substituteAll bs (t :: ts) = substitute bs t :: substituteAll bs ts
-
-  ||| A type with the terms `bs` substituted for the levels of its scope.
-  export
-  substTy : List ITerm -> Ty -> Ty
-  substTy bs (DataT f ts) = DataT f (substituteAll bs ts)
-  substTy bs (NatT t) = NatT (substitute bs t)
-  substTy bs (FunT (MkBinder q a) r) = FunT (MkBinder q (substTy bs a)) (substTy bs r)
-  substTy bs (LazyT a) = LazyT (substTy bs a)
-  substTy bs (TensorT ds a) = TensorT ds (substTy bs a)
-  substTy bs (MemRefT o a) = MemRefT o (substTy bs a)
-  substTy bs t = t
-
 ||| The type of a constructor's value, its binders given: its family at its
 ||| equation, the binders substituted.
 export

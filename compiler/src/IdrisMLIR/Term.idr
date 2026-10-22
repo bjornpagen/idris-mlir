@@ -147,6 +147,93 @@ record Family where
   loc : Loc
 
 ------------------------------------------------------------------------------
+-- The array language
+------------------------------------------------------------------------------
+
+%prefix_record_projections off
+
+||| An array type of rank `r`: its dimensions, outermost first, and its
+||| element. An operation of the array language holds the types of the
+||| arrays it takes so, so that an axis is a position among an array's
+||| dimensions and no axis past its rank can be written. Its projections
+||| are postfix only: a prefix `dims` would be a sized parameter's too.
+public export
+record ArrayType (r : Nat) where
+  constructor MkArrayType
+  dims : Vect r Dim
+  element : Ty
+
+%prefix_record_projections on
+
+||| An array type as a type.
+public export
+arrayTy : ArrayType r -> Ty
+arrayTy a = TensorT (toList a.dims) a.element
+
+||| An operation of the array language on its operands `t`, in the order the
+||| dump writes them, holding the type of each array it takes and of what
+||| it gives. An axis is a position among its array's dimensions, outermost
+||| first: the axis of `Take`, `Drop` and `Concat` is the shape's last,
+||| before the cell's, and `Transpose`'s the shape's last but one, which it
+||| swaps with the one after it, so the array it transposes has an axis
+||| past the one it names.
+public export
+data TensorOp : Type -> Type where
+  ||| The extent of the array's axis, a natural.
+  Extent : {0 r : Nat} -> (array : ArrayType r) -> Fin r -> t -> TensorOp t
+  ||| The element of the array at the coordinates (naturals, one per
+  ||| leading axis), or the cell there when `result` is an array.
+  Extract : {0 r : Nat} -> (array : ArrayType r) -> (result : Ty) -> t -> List t -> TensorOp t
+  ||| The array with the element or cell at the coordinates, giving a value
+  ||| of `result`.
+  Insert : {0 r : Nat} -> (array : ArrayType r) -> (result : Ty) -> t -> t -> List t -> TensorOp t
+  ||| The first k along the axis of the array.
+  Take : {0 r : Nat} -> (array, result : ArrayType r) -> Fin r -> t -> t -> TensorOp t
+  ||| All but the first k along the axis of the array.
+  Drop : {0 r : Nat} -> (array, result : ArrayType r) -> Fin r -> t -> t -> TensorOp t
+  ||| One array then the other along the axis.
+  Concat : {0 r : Nat} -> (first, second, result : ArrayType r) -> Fin r -> t -> t -> TensorOp t
+  ||| The array with the axis and the one after it swapped.
+  Transpose : {0 r : Nat} -> (array : ArrayType (S r)) -> (result : Ty) -> Fin r -> t -> TensorOp t
+  ||| The array's elements in row-major order at the result's shape, its
+  ||| extents given outermost first; the result's dimensions after them are
+  ||| the cell's.
+  Reshape : {0 r : Nat} -> (array : ArrayType r) -> (result : Ty) -> t -> List t -> TensorOp t
+
+export
+Functor TensorOp where
+  map f (Extent a j x) = Extent a j (f x)
+  map f (Extract a rt x cs) = Extract a rt (f x) (map f cs)
+  map f (Insert a rt x v cs) = Insert a rt (f x) (f v) (map f cs)
+  map f (Take a ra j k x) = Take a ra j (f k) (f x)
+  map f (Drop a ra j k x) = Drop a ra j (f k) (f x)
+  map f (Concat a b ra j x y) = Concat a b ra j (f x) (f y)
+  map f (Transpose a rt j x) = Transpose a rt j (f x)
+  map f (Reshape a rt x es) = Reshape a rt (f x) (map f es)
+
+export
+Foldable TensorOp where
+  foldr f z (Extent _ _ x) = f x z
+  foldr f z (Extract _ _ x cs) = f x (foldr f z cs)
+  foldr f z (Insert _ _ x v cs) = f x (f v (foldr f z cs))
+  foldr f z (Take _ _ _ k x) = f k (f x z)
+  foldr f z (Drop _ _ _ k x) = f k (f x z)
+  foldr f z (Concat _ _ _ _ x y) = f x (f y z)
+  foldr f z (Transpose _ _ _ x) = f x z
+  foldr f z (Reshape _ _ x es) = f x (foldr f z es)
+
+export
+Traversable TensorOp where
+  traverse f (Extent a j x) = Extent a j <$> f x
+  traverse f (Extract a rt x cs) = Extract a rt <$> f x <*> traverse f cs
+  traverse f (Insert a rt x v cs) = Insert a rt <$> f x <*> f v <*> traverse f cs
+  traverse f (Take a ra j k x) = Take a ra j <$> f k <*> f x
+  traverse f (Drop a ra j k x) = Drop a ra j <$> f k <*> f x
+  traverse f (Concat a b ra j x y) = Concat a b ra j <$> f x <*> f y
+  traverse f (Transpose a rt j x) = Transpose a rt j <$> f x
+  traverse f (Reshape a rt x es) = Reshape a rt <$> f x <*> traverse f es
+
+------------------------------------------------------------------------------
 -- Terms
 ------------------------------------------------------------------------------
 
@@ -260,8 +347,9 @@ mutual
     ||| named it.
     Lam : Loc -> (name : Shown) -> Binder -> TermAt [] (Under 1 n) -> TermAt js n
     App : Loc -> TermAt [] n -> TermAt [] n -> TermAt js n
-    ||| A suspended computation.
-    Suspend : Loc -> TermAt [] n -> TermAt js n
+    ||| A suspended computation, of the type `value` Idris checked it at
+    ||| (`TDelay` holds it), at the extents a suspension's type holds.
+    Suspend : Loc -> (value : Ty) -> TermAt [] n -> TermAt js n
     Resume : Loc -> TermAt [] n -> TermAt js n
     ||| A term Idris proved never runs: a match with no possible arm.
     Unreachable : Loc -> TermAt js n
@@ -282,9 +370,9 @@ mutual
     ||| Like every world it is no value of the module: the action's effects
     ||| are ordered by the effects its ops declare.
     NewWorld : Loc -> TermAt js n
-    ||| An operation of the array language on its operands, giving a value
-    ||| of `result`.
-    Tensor : Loc -> (result : Ty) -> TensorOp (TermAt [] n) -> TermAt js n
+    ||| An operation of the array language on its operands, which holds the
+    ||| types of the arrays it takes and of what it gives.
+    Tensor : Loc -> TensorOp (TermAt [] n) -> TermAt js n
     ||| A new array of `result` (a `TensorT`) of the extents given
     ||| (naturals, one per axis of the shape tabulated, outermost first),
     ||| each element or cell the body's value; the body binds the
@@ -300,17 +388,17 @@ mutual
     ||| world; `world` is the first.
     TabulateIO : {k : Nat} -> Loc -> (result : Ty) -> Vect k (TermAt [] n) -> (world : TermAt [] n)
               -> TermAt [] (Under (S k) n) -> (step, done : Con 2) -> TermAt js n
-    ||| A reduction of `x` along its axis after the frame of `z`, from
-    ||| `z`'s accumulators, left to right in index order; the body binds
-    ||| the accumulator (`Bound 0`) and the element or cell (`Bound 1`).
-    ||| `FoldLast` gives the last accumulators (`z`'s type), `ScanLast`
-    ||| every one, along that axis.
-    Reduce : Loc -> Reduction -> (acc, elem, result : Ty) -> (z, x : TermAt [] n) -> TermAt [] (Under 2 n) ->
-             TermAt js n
-    ||| The array, the dynamic dimensions stated of it equal to what each
-    ||| statement gives, axis by axis (an axis counted from 0, outermost
-    ||| first).
-    Tie : Loc -> TermAt [] n -> List (Nat, Stated (TermAt [] n)) -> TermAt js n
+    ||| A reduction of `x`, of type `array`, along `axis`, the one after
+    ||| the frame of `z`, from `z`'s accumulators, left to right in index
+    ||| order; the body binds the accumulator (`Bound 0`) and the element or
+    ||| cell (`Bound 1`). `FoldLast` gives the last accumulators (`z`'s
+    ||| type), `ScanLast` every one, along that axis.
+    Reduce : {0 r : Nat} -> Loc -> Reduction -> (acc, elem, result : Ty) -> (array : ArrayType r) -> (axis : Fin r) ->
+             (z, x : TermAt [] n) -> TermAt [] (Under 2 n) -> TermAt js n
+    ||| The array, of type `array`, the dynamic dimensions that type gives
+    ||| it stated equal to what each statement gives, axis by axis (an axis
+    ||| counted from 0, outermost first).
+    Tie : Loc -> (array : Ty) -> TermAt [] n -> List (Nat, Stated (TermAt [] n)) -> TermAt js n
     ||| A read of the array a linear array's cell holds: the element or
     ||| cell at the coordinates (naturals, one per leading axis), and the
     ||| array given back as a new value, so that what writes the array next
@@ -415,6 +503,36 @@ mutual
   moveTy q (MemRefT o a) = MemRefT o (moveTy q a)
   moveTy q t = t
 
+mutual
+  ||| An index term with the terms `bs` substituted for the levels `0 ..`
+  ||| of the scope it is written in: a constructor's equation or field in
+  ||| the scope its value is made or read in, a callee's signature at a
+  ||| call.
+  export
+  substitute : List ITerm -> ITerm -> ITerm
+  substitute bs (IVar k) = fromMaybe IOpaque (getAt k bs)
+  substitute bs (ISucc t k) = succ (substitute bs t) k
+  substitute bs (ICon f c as) = ICon f c (substituteAll bs as)
+  substitute bs (IType t) = IType (substTy bs t)
+  substitute bs t = t
+
+  export
+  substituteAll : List ITerm -> List ITerm -> List ITerm
+  substituteAll bs [] = []
+  substituteAll bs (t :: ts) = substitute bs t :: substituteAll bs ts
+
+  ||| A type with the terms `bs` substituted for the levels of its scope:
+  ||| a callee's result at a call, which the call's value is of.
+  export
+  substTy : List ITerm -> Ty -> Ty
+  substTy bs (DataT f ts) = DataT f (substituteAll bs ts)
+  substTy bs (NatT t) = NatT (substitute bs t)
+  substTy bs (FunT (MkBinder q a) r) = FunT (MkBinder q (substTy bs a)) (substTy bs r)
+  substTy bs (LazyT a) = LazyT (substTy bs a)
+  substTy bs (TensorT ds a) = TensorT ds (substTy bs a)
+  substTy bs (MemRefT o a) = MemRefT o (substTy bs a)
+  substTy bs t = t
+
 moved : Levels -> ITerm -> ITerm
 moved Unmoved t = t
 moved (MovedBy q) t = moveTerm q t
@@ -444,6 +562,10 @@ movedPrim : Levels -> Prim k -> Prim k
 movedPrim ls (ArrayLength t) = ArrayLength (movedTy ls t)
 movedPrim ls (Op {i} op r h) = Op {i} op (movedTy ls r) h
 movedPrim ls p = p
+
+-- An array type names a type of the scope only as its element.
+movedArray : Levels -> ArrayType r -> ArrayType r
+movedArray ls a = { element $= movedTy ls } a
 
 %prefix_record_projections off
 
@@ -483,23 +605,23 @@ mutual
   visitTerm v (CaseNat l x arms) = CaseNat l <$> v.var x <*> visitNatArms v arms
   visitTerm v (Lam l x b body) = Lam l x (movedBinder v.levels b) <$> visitTerm (underVisit {k = 1} v) body
   visitTerm v (App l f x) = App l <$> visitTerm v f <*> visitTerm v x
-  visitTerm v (Suspend l body) = Suspend l <$> visitTerm v body
+  visitTerm v (Suspend l t body) = Suspend l (movedTy v.levels t) <$> visitTerm v body
   visitTerm v (Resume l e) = Resume l <$> visitTerm v e
   visitTerm v (Unreachable l) = pure (Unreachable l)
   visitTerm v (Assume l a b body) = Assume l (moved v.levels a) (moved v.levels b) <$> visitTerm v body
   visitTerm v (Crash l m) = pure (Crash l m)
   visitTerm v (CrashWith l m) = CrashWith l <$> visitTerm v m
   visitTerm v (NewWorld l) = pure (NewWorld l)
-  visitTerm v (Tensor l ty op) = Tensor l (movedTy v.levels ty) <$> visitOp v op
+  visitTerm v (Tensor l op) = Tensor l <$> visitOp v op
   visitTerm v (Tabulate {k} l ty es body) =
     Tabulate l (movedTy v.levels ty) <$> visitVect v es <*> visitTerm (underVisit {k} v) body
   visitTerm v (TabulateIO {k} l ty es w body step done) =
     (\es', w', body' => TabulateIO l (movedTy v.levels ty) es' w' body' step done)
       <$> visitVect v es <*> visitTerm v w <*> visitTerm (underVisit {k = S k} v) body
-  visitTerm v (Reduce l r acc el ty z x body) =
-    Reduce l r (movedTy v.levels acc) (movedTy v.levels el) (movedTy v.levels ty)
+  visitTerm v (Reduce l red acc el ty a j z x body) =
+    Reduce l red (movedTy v.levels acc) (movedTy v.levels el) (movedTy v.levels ty) (movedArray v.levels a) j
       <$> visitTerm v z <*> visitTerm v x <*> visitTerm (underVisit {k = 2} v) body
-  visitTerm v (Tie l x ds) = Tie l <$> visitTerm v x <*> visitStated v ds
+  visitTerm v (Tie l t x ds) = Tie l (movedTy v.levels t) <$> visitTerm v x <*> visitStated v ds
   visitTerm v (ReadBack l e x cs body) =
     ReadBack l (movedTy v.levels e) <$> visitTerm v x <*> visitAll v cs <*> visitTerm (underVisit {k = 2} v) body
   visitTerm v (ExtentsBack {k} l x body) = ExtentsBack l <$> visitTerm v x <*> visitTerm (underVisit {k = S k} v) body
@@ -516,14 +638,17 @@ mutual
   visitVect v (t :: ts) = (::) <$> visitTerm v t <*> visitVect v ts
 
   visitOp : Applicative g => Visit g n m -> TensorOp (TermAt js n) -> g (TensorOp (TermAt js m))
-  visitOp v (Extent a x) = Extent a <$> visitTerm v x
-  visitOp v (Extract x cs) = Extract <$> visitTerm v x <*> visitAll v cs
-  visitOp v (Insert x y cs) = Insert <$> visitTerm v x <*> visitTerm v y <*> visitAll v cs
-  visitOp v (Take a c x) = Take a <$> visitTerm v c <*> visitTerm v x
-  visitOp v (Drop a c x) = Drop a <$> visitTerm v c <*> visitTerm v x
-  visitOp v (Concat a x y) = Concat a <$> visitTerm v x <*> visitTerm v y
-  visitOp v (Transpose a x) = Transpose a <$> visitTerm v x
-  visitOp v (Reshape x es) = Reshape <$> visitTerm v x <*> visitAll v es
+  visitOp v (Extent a j x) = Extent (movedArray v.levels a) j <$> visitTerm v x
+  visitOp v (Extract a rt x cs) =
+    Extract (movedArray v.levels a) (movedTy v.levels rt) <$> visitTerm v x <*> visitAll v cs
+  visitOp v (Insert a rt x y cs) =
+    Insert (movedArray v.levels a) (movedTy v.levels rt) <$> visitTerm v x <*> visitTerm v y <*> visitAll v cs
+  visitOp v (Take a ra j c x) = Take (movedArray v.levels a) (movedArray v.levels ra) j <$> visitTerm v c <*> visitTerm v x
+  visitOp v (Drop a ra j c x) = Drop (movedArray v.levels a) (movedArray v.levels ra) j <$> visitTerm v c <*> visitTerm v x
+  visitOp v (Concat a b ra j x y) =
+    Concat (movedArray v.levels a) (movedArray v.levels b) (movedArray v.levels ra) j <$> visitTerm v x <*> visitTerm v y
+  visitOp v (Transpose a rt j x) = Transpose (movedArray v.levels a) (movedTy v.levels rt) j <$> visitTerm v x
+  visitOp v (Reshape a rt x es) = Reshape (movedArray v.levels a) (movedTy v.levels rt) <$> visitTerm v x <*> visitAll v es
 
   visitStated : Applicative g => Visit g n m -> List (Nat, Stated (TermAt js n)) -> g (List (Nat, Stated (TermAt js m)))
   visitStated v [] = pure []
@@ -625,19 +750,20 @@ mutual
     CaseNatF : Loc -> Fin n -> NatArmsOf (f js n) (f js (Under 1 n)) -> TermF f js n
     LamF : Loc -> Shown -> Binder -> f [] (Under 1 n) -> TermF f js n
     AppF : Loc -> f [] n -> f [] n -> TermF f js n
-    SuspendF : Loc -> f [] n -> TermF f js n
+    SuspendF : Loc -> Ty -> f [] n -> TermF f js n
     ResumeF : Loc -> f [] n -> TermF f js n
     UnreachableF : Loc -> TermF f js n
     AssumeF : Loc -> ITerm -> ITerm -> f js n -> TermF f js n
     CrashF : Loc -> Cause -> TermF f js n
     CrashWithF : Loc -> f [] n -> TermF f js n
     NewWorldF : Loc -> TermF f js n
-    TensorF : Loc -> Ty -> TensorOp (f [] n) -> TermF f js n
+    TensorF : Loc -> TensorOp (f [] n) -> TermF f js n
     TabulateF : {k : Nat} -> Loc -> Ty -> Vect k (f [] n) -> f [] (Under k n) -> TermF f js n
     TabulateIOF : {k : Nat} -> Loc -> Ty -> Vect k (f [] n) -> f [] n -> f [] (Under (S k) n) -> Con 2 -> Con 2 ->
                   TermF f js n
-    ReduceF : Loc -> Reduction -> Ty -> Ty -> Ty -> f [] n -> f [] n -> f [] (Under 2 n) -> TermF f js n
-    TieF : Loc -> f [] n -> List (Nat, Stated (f [] n)) -> TermF f js n
+    ReduceF : {0 r : Nat} -> Loc -> Reduction -> Ty -> Ty -> Ty -> ArrayType r -> Fin r -> f [] n -> f [] n ->
+              f [] (Under 2 n) -> TermF f js n
+    TieF : Loc -> Ty -> f [] n -> List (Nat, Stated (f [] n)) -> TermF f js n
     ReadBackF : Loc -> Ty -> f [] n -> List (f [] n) -> f js (Under 2 n) -> TermF f js n
     ExtentsBackF : {k : Nat} -> Loc -> f [] n -> f js (Under (S k) n) -> TermF f js n
     JoinF : {0 ts : List Nat} -> Loc -> (scope : TokenScope) -> All (TargetF f (regionsSee scope js ts) n) ts ->
@@ -696,18 +822,18 @@ hmap h (CaseNatF l x arms) = CaseNatF l x (armsMap arms)
     armsMap (Both z p s) = Both (h z) p (h s)
 hmap h (LamF l x b body) = LamF l x b (h body)
 hmap h (AppF l f x) = AppF l (h f) (h x)
-hmap h (SuspendF l body) = SuspendF l (h body)
+hmap h (SuspendF l t body) = SuspendF l t (h body)
 hmap h (ResumeF l e) = ResumeF l (h e)
 hmap h (UnreachableF l) = UnreachableF l
 hmap h (AssumeF l a b body) = AssumeF l a b (h body)
 hmap h (CrashF l m) = CrashF l m
 hmap h (CrashWithF l m) = CrashWithF l (h m)
 hmap h (NewWorldF l) = NewWorldF l
-hmap h (TensorF l ty op) = TensorF l ty (map h op)
+hmap h (TensorF l op) = TensorF l (map h op)
 hmap h (TabulateF l ty es body) = TabulateF l ty (map h es) (h body)
 hmap h (TabulateIOF l ty es w body step done) = TabulateIOF l ty (map h es) (h w) (h body) step done
-hmap h (ReduceF l r acc el ty z x body) = ReduceF l r acc el ty (h z) (h x) (h body)
-hmap h (TieF l x ds) = TieF l (h x) (map (\(a, s) => (a, map h s)) ds)
+hmap h (ReduceF l red acc el ty a j z x body) = ReduceF l red acc el ty a j (h z) (h x) (h body)
+hmap h (TieF l t x ds) = TieF l t (h x) (map (\(a, s) => (a, map h s)) ds)
 hmap h (ReadBackF l e x cs body) = ReadBackF l e (h x) (map h cs) (h body)
 hmap h (ExtentsBackF l x body) = ExtentsBackF l (h x) (h body)
 hmap h (JoinF l scope targets body) = JoinF l scope (targetsMap targets) (h body)
@@ -736,19 +862,19 @@ mutual
   para alg (CaseNat l x arms) = alg (CaseNatF l x (paraNatArms alg arms))
   para alg (Lam l x b body) = alg (LamF l x b (sub alg body))
   para alg (App l f x) = alg (AppF l (sub alg f) (sub alg x))
-  para alg (Suspend l body) = alg (SuspendF l (sub alg body))
+  para alg (Suspend l t body) = alg (SuspendF l t (sub alg body))
   para alg (Resume l e) = alg (ResumeF l (sub alg e))
   para alg (Unreachable l) = alg (UnreachableF l)
   para alg (Assume l a b body) = alg (AssumeF l a b (sub alg body))
   para alg (Crash l m) = alg (CrashF l m)
   para alg (CrashWith l m) = alg (CrashWithF l (sub alg m))
   para alg (NewWorld l) = alg (NewWorldF l)
-  para alg (Tensor l ty op) = alg (TensorF l ty (paraOp alg op))
+  para alg (Tensor l op) = alg (TensorF l (paraOp alg op))
   para alg (Tabulate l ty es body) = alg (TabulateF l ty (paraVect alg es) (sub alg body))
   para alg (TabulateIO l ty es w body step done) =
     alg (TabulateIOF l ty (paraVect alg es) (sub alg w) (sub alg body) step done)
-  para alg (Reduce l r acc el ty z x body) = alg (ReduceF l r acc el ty (sub alg z) (sub alg x) (sub alg body))
-  para alg (Tie l x ds) = alg (TieF l (sub alg x) (paraStated alg ds))
+  para alg (Reduce l red acc el ty a j z x body) = alg (ReduceF l red acc el ty a j (sub alg z) (sub alg x) (sub alg body))
+  para alg (Tie l t x ds) = alg (TieF l t (sub alg x) (paraStated alg ds))
   para alg (ReadBack l e x cs body) = alg (ReadBackF l e (sub alg x) (paraAll alg cs) (sub alg body))
   para alg (ExtentsBack l x body) = alg (ExtentsBackF l (sub alg x) (sub alg body))
   para alg (Join l scope targets body) = alg (JoinF l scope (paraTargets alg targets) (sub alg body))
@@ -770,14 +896,14 @@ mutual
 
   paraOp : {0 f : List Nat -> Nat -> Type} -> ({0 js' : List Nat} -> {0 m : Nat} -> TermF (Sub f) js' m -> f js' m) ->
            TensorOp (TermAt js n) -> TensorOp (Sub f js n)
-  paraOp alg (Extent k x) = Extent k (sub alg x)
-  paraOp alg (Extract x cs) = Extract (sub alg x) (paraAll alg cs)
-  paraOp alg (Insert x v cs) = Insert (sub alg x) (sub alg v) (paraAll alg cs)
-  paraOp alg (Take a k x) = Take a (sub alg k) (sub alg x)
-  paraOp alg (Drop a k x) = Drop a (sub alg k) (sub alg x)
-  paraOp alg (Concat a x y) = Concat a (sub alg x) (sub alg y)
-  paraOp alg (Transpose a x) = Transpose a (sub alg x)
-  paraOp alg (Reshape x es) = Reshape (sub alg x) (paraAll alg es)
+  paraOp alg (Extent a j x) = Extent a j (sub alg x)
+  paraOp alg (Extract a rt x cs) = Extract a rt (sub alg x) (paraAll alg cs)
+  paraOp alg (Insert a rt x v cs) = Insert a rt (sub alg x) (sub alg v) (paraAll alg cs)
+  paraOp alg (Take a ra j k x) = Take a ra j (sub alg k) (sub alg x)
+  paraOp alg (Drop a ra j k x) = Drop a ra j (sub alg k) (sub alg x)
+  paraOp alg (Concat a b ra j x y) = Concat a b ra j (sub alg x) (sub alg y)
+  paraOp alg (Transpose a rt j x) = Transpose a rt j (sub alg x)
+  paraOp alg (Reshape a rt x es) = Reshape a rt (sub alg x) (paraAll alg es)
 
   paraStated : {0 f : List Nat -> Nat -> Type} -> ({0 js' : List Nat} -> {0 m : Nat} -> TermF (Sub f) js' m -> f js' m) ->
                List (Nat, Stated (TermAt js n)) -> List (Nat, Stated (Sub f js n))
@@ -893,7 +1019,7 @@ headOf h args = (h, args)
 ||| A tie's operand inside every tie around it, and what each of those ties
 ||| states, the innermost's first.
 throughTies : TermAt [] n -> List (Nat, Stated (TermAt [] n)) -> (TermAt [] n, List (Nat, Stated (TermAt [] n)))
-throughTies (Tie _ x ds) stated = throughTies x (ds ++ stated)
+throughTies (Tie _ _ x ds) stated = throughTies x (ds ++ stated)
 throughTies x stated = (x, stated)
 
 ||| What the head of a tail is to a continuation: a use of it, which is a
@@ -975,31 +1101,31 @@ mutual
   jumpsTo c (App l f x) = case appHead c l f x of
     UseOf jump => jump
     NoUse => App l <$> visitTerm (awayFrom c) f <*> visitTerm (awayFrom c) x
-  jumpsTo c (Suspend l body) = Suspend l <$> visitTerm (awayFrom c) body
+  jumpsTo c (Suspend l t body) = Suspend l t <$> visitTerm (awayFrom c) body
   jumpsTo c (Resume l e) = Resume l <$> visitTerm (awayFrom c) e
   jumpsTo c (Unreachable l) = pure (Unreachable l)
   jumpsTo c (Assume l a b body) = Assume l a b <$> jumpsTo c body
   jumpsTo c (Crash l m) = pure (Crash l m)
   jumpsTo c (CrashWith l m) = CrashWith l <$> visitTerm (awayFrom c) m
   jumpsTo c (NewWorld l) = pure (NewWorld l)
-  jumpsTo c (Tensor l ty op) = Tensor l ty <$> visitOp (awayFrom c) op
+  jumpsTo c (Tensor l op) = Tensor l <$> visitOp (awayFrom c) op
   jumpsTo c (Tabulate {k = j} l ty es body) =
     Tabulate l ty <$> visitVect (awayFrom c) es <*> visitTerm (underVisit {k = j} (awayFrom c)) body
   jumpsTo c (TabulateIO {k = j} l ty es w body step done) =
     (\es', w', body' => TabulateIO l ty es' w' body' step done)
       <$> visitVect (awayFrom c) es <*> visitTerm (awayFrom c) w <*> visitTerm (underVisit {k = S j} (awayFrom c)) body
-  jumpsTo c (Reduce l r acc el ty z x body) =
-    Reduce l r acc el ty <$> visitTerm (awayFrom c) z <*> visitTerm (awayFrom c) x
-                         <*> visitTerm (underVisit {k = 2} (awayFrom c)) body
+  jumpsTo c (Reduce l red acc el ty a j z x body) =
+    Reduce l red acc el ty a j <$> visitTerm (awayFrom c) z <*> visitTerm (awayFrom c) x
+                               <*> visitTerm (underVisit {k = 2} (awayFrom c)) body
   -- A tie gives its array on with no work, so a use inside the ties at a
   -- tail is at the tail. What they state of the call's value is stated
   -- where the join point's region gives that value (`tiedExits`), over its
   -- parameters, which the jump's arguments are; here it states nothing
   -- more, and holds no use.
-  jumpsTo c (Tie l x ds) = case throughTies x ds of
+  jumpsTo c (Tie l t x ds) = case throughTies x ds of
     (inner, stated) => case tiedHead c inner of
       UseOf jump => const <$> jump <*> visitStated (awayFrom c) stated
-      NoUse => Tie l <$> visitTerm (awayFrom c) x <*> visitStated (awayFrom c) ds
+      NoUse => Tie l t <$> visitTerm (awayFrom c) x <*> visitStated (awayFrom c) ds
   jumpsTo c (ReadBack l e x cs body) =
     ReadBack l e <$> visitTerm (awayFrom c) x <*> visitAll (awayFrom c) cs <*> jumpsTo (underCont {j = 2} c) body
   jumpsTo c (ExtentsBack {k = j} l x body) =
@@ -1126,14 +1252,14 @@ mutual
   overTails at o e (ConApp l c bs as) = at o e (ConApp l c bs as)
   overTails at o e (Lam l x b body) = at o e (Lam l x b body)
   overTails at o e (App l f x) = at o e (App l f x)
-  overTails at o e (Suspend l body) = at o e (Suspend l body)
+  overTails at o e (Suspend l t body) = at o e (Suspend l t body)
   overTails at o e (Resume l x) = at o e (Resume l x)
   overTails at o e (NewWorld l) = at o e (NewWorld l)
-  overTails at o e (Tensor l ty op) = at o e (Tensor l ty op)
+  overTails at o e (Tensor l op) = at o e (Tensor l op)
   overTails at o e (Tabulate l ty es body) = at o e (Tabulate l ty es body)
   overTails at o e (TabulateIO l ty es w body step done) = at o e (TabulateIO l ty es w body step done)
-  overTails at o e (Reduce l r acc el ty z x body) = at o e (Reduce l r acc el ty z x body)
-  overTails at o e (Tie l x ds) = at o e (Tie l x ds)
+  overTails at o e (Reduce l red acc el ty a j z x body) = at o e (Reduce l red acc el ty a j z x body)
+  overTails at o e (Tie l t x ds) = at o e (Tie l t x ds)
   overTails at o e (Let l x b v body) = Let l x b v (overTails at o (Free {k = 1} . e) body)
   overTails at o e (Case l fam x arms) = Case l fam x (overArms at o e arms)
   overTails at o e (CaseLit l x arms) = CaseLit l x (overLitArms at o e arms)
@@ -1200,21 +1326,22 @@ running l w Outermost e (Lam _ _ (MkBinder _ WorldT) body) =
 running l w _ e t = App l t (Var l (e w))
 
 ||| What a function's signature fixes of its result's dynamic dimensions
-||| (`ds`, over its parameters), stated of the value at a tail: what a call
-||| of it states of the value, which a join point it becomes states where
-||| its region gives it.
-tying : Loc -> List (Nat, Stated (Term n)) -> AtTail n
-tying l ds _ e t = Tie l t (map (\(a, s) => (a, map (rename e) s)) ds)
+||| (`ds`, over its parameters), stated of the value at a tail, of the
+||| function's result type `ty`: what a call of it states of the value,
+||| which a join point it becomes states where its region gives it.
+tying : Loc -> Ty -> List (Nat, Stated (Term n)) -> AtTail n
+tying l ty ds _ e t = Tie l ty t (map (\(a, s) => (a, map (rename e) s)) ds)
 
 ||| A function's body with each tail that gives its value tied (`tying`) to
 ||| what its signature fixes of its result's dynamic dimensions, over its
 ||| parameters: what each call of it states of the value it gives, stated
 ||| where its body gives it, so that a call of it a jump makes to its region
-||| states nothing it did not.
+||| states nothing it did not. Every tail gives a value of the function's
+||| result type `ty`.
 export
-tiedExits : Loc -> List (Nat, Stated (Term n)) -> Term n -> Term n
-tiedExits l [] body = body
-tiedExits l ds@(_ :: _) body = overTails (tying l ds) Outermost id body
+tiedExits : Loc -> Ty -> List (Nat, Stated (Term n)) -> Term n -> Term n
+tiedExits l ty [] body = body
+tiedExits l ty ds@(_ :: _) body = overTails (tying l ty ds) Outermost id body
 
 ------------------------------------------------------------------------------
 -- Programs

@@ -35,6 +35,7 @@ import IdrisMLIR.Term
 import IdrisMLIR.Types
 
 import Control.Monad.State
+import Data.Fin
 import Data.List
 import Data.Maybe
 import Data.SortedMap
@@ -79,12 +80,6 @@ extent ix l n = mlirValue l IndexType (Idr.natToExtentOp (operand ix !(coerce ix
 plainOperand : Index -> Loc -> Val -> E Value
 plainOperand ix l v = operand ix <$> coerce ix l Many v
 
-||| The dimensions of an array value.
-dimsOf : Val -> E (List Dim)
-dimsOf v = case v.type of
-  TensorT ds _ => pure ds
-  t => internal ("an array operation on a value of type " ++ show t)
-
 ||| The element of an array's type; any other type is its own.
 elementOf : Ty -> Ty
 elementOf (TensorT _ e) = e
@@ -96,48 +91,25 @@ shaped : List Dim -> Ty -> Ty
 shaped [] e = e
 shaped ds e = TensorT ds e
 
-||| An array's dimensions, each with its axis, outermost first.
-withAxes : List Dim -> List (Nat, Dim)
+||| Dimensions, each with its axis, outermost first.
+withAxes : Vect r Dim -> Vect r (Nat, Dim)
 withAxes = go 0
   where
-    go : Nat -> List Dim -> List (Nat, Dim)
+    go : Nat -> Vect k Dim -> Vect k (Nat, Dim)
     go j [] = []
     go j (d :: ds) = (j, d) :: go (S j) ds
 
-||| Axis `a` of a list of an array's dimensions, and those before and after
-||| it; none past the array's rank.
-atAxis : Nat -> List a -> Maybe (List a, a, List a)
-atAxis a xs = case splitAt a xs of
-  (before, x :: after) => Just (before, x, after)
-  (_, []) => Nothing
+||| What a vector holds before a position, at it, and after it: an
+||| operation's own axis of its array, with the dimensions around it.
+around : Fin r -> Vect r a -> (List a, a, List a)
+around FZ (x :: xs) = ([], x, toList xs)
+around (FS i) (x :: xs) = let (before, here, after) = around i xs in (x :: before, here, after)
 
-||| An operation's own axis of an array, with its dimensions before and
-||| after it, each with its axis: the one place an extent's or a
-||| reduction's axis is looked up, an axis past the rank the frontend's
-||| error.
-ownAxis : String -> Nat -> List Dim -> E (List (Nat, Dim), (Nat, Dim), List (Nat, Dim))
-ownAxis what a ds = case atAxis a (withAxes ds) of
-  Just split => pure split
-  Nothing => internal (what ++ " along axis " ++ show a ++ " of an array of rank " ++ show (length ds))
-
-||| A transpose's axis of an array and the one after it, which it swaps,
-||| with the dimensions before and after the two, each with its axis: one
-||| lookup for both, an axis past the last but one the frontend's error.
-swappedAxes : Nat -> List Dim -> E (List (Nat, Dim), (Nat, Dim), (Nat, Dim), List (Nat, Dim))
-swappedAxes a ds = case splitAt a (withAxes ds) of
-  (before, x :: y :: after) => pure (before, x, y, after)
-  _ => internal ("a transpose of axis " ++ show a ++ " of an array of rank " ++ show (length ds))
-
-||| An operation's own axis of its array and of its result, of one rank:
-||| the array's dimensions before and after it, each with its axis, the
-||| array's own, and the result's own, the one place the operation's axis
-||| is looked up.
-ownAxes : String -> Nat -> List Dim -> List Dim
-       -> E (List (Nat, Dim), (Nat, Dim), List (Nat, Dim), Dim)
-ownAxes what a ds rds = case (atAxis a (withAxes ds), atAxis a rds) of
-  (Just (before, own, after), Just (_, kept, _)) => pure (before, own, after, kept)
-  _ => internal (what ++ " along axis " ++ show a ++ " of an array of rank " ++ show (length ds) ++
-                 " to one of rank " ++ show (length rds))
+||| What a vector holds before a position, at it and at the one after it,
+||| and after both: a transpose's axis and the one it swaps it with.
+aroundPair : Fin r -> Vect (S r) a -> (List a, a, a, List a)
+aroundPair FZ (x :: y :: xs) = ([], x, y, toList xs)
+aroundPair (FS i) (x :: xs) = let (before, p, q, after) = aroundPair i xs in (x :: before, p, q, after)
 
 ||| The size of an array's dimension at its axis: its size where the type
 ||| fixes it, else `tensor.dim`.
@@ -210,6 +182,9 @@ fit ix l slot v = case fitting slot v.type v.refinement of
     let v' = { type := t, refinement := AnyConstructor } v
     r <- mlirValueAt (madeAt binder l v.uses) (valueType ix v') (Idr.dataReindexOp (operand ix v) [])
     pure ({ name := r.name } v')
+  -- The core term holds the type of what each slot takes, not a proof that
+  -- what fills the slot has it: that needs values typed by their scope,
+  -- which the translation does not build.
   Mismatch what expected =>
     internal (what ++ " of type " ++ show v.type ++ " where " ++ show expected ++ " is expected")
 
@@ -259,44 +234,43 @@ dynamicExtents ix l ds es = traverse (extent ix l . snd) (filter (\(d, _) => d =
 -- Reads and writes
 ------------------------------------------------------------------------------
 
-||| The cell of `x` at the coordinates `cs`, `index` values: the element
-||| when they address every axis (`tensor.extract`), else the slice of the
-||| remaining axes, of unit size along the addressed ones and rank-reduced,
-||| at the type its sizes give, then at `rt`; the variable `binder` bound
-||| to it.
-readAt : Index -> Loc -> Maybe Binding -> Ty -> Val -> List Value -> E Val
-readAt ix l binder rt x cs = do
+||| The cell of `x`, of type `a`, at the coordinates `cs`, `index` values:
+||| the element when they address every axis (`tensor.extract`), else the
+||| slice of the remaining axes, of unit size along the addressed ones and
+||| rank-reduced, at the type its sizes give, then at `rt`; the variable
+||| `binder` bound to it.
+readAt : Index -> Loc -> Maybe Binding -> Ty -> ArrayType r -> Val -> List Value -> E Val
+readAt ix l binder rt a x cs = do
   xv <- plainOperand ix l x
-  ds <- dimsOf x
   let n = length cs
-  case drop n (withAxes ds) of
+  case drop n (toList (withAxes a.dims)) of
     [] => value {binder} ix l rt (Tensor.extractOp xv cs)
     cell => do
       sizes <- traverse (sizeAt l xv) cell
       let (offsets, staticOffsets) = mixed (map Left cs ++ map (const (Right 0)) cell)
           (sizeOps, staticSizes) = mixed (map (const (Right 1)) cs ++ sizes)
-          (_, staticStrides) = mixed (map (const (Right 1)) ds)
-      fitted {binder} ix l (Just rt) (TensorT (dimsOfSizes sizes) (elementOf x.type))
+          (_, staticStrides) = mixed (map (const (Right 1)) (toList a.dims))
+      fitted {binder} ix l (Just rt) (TensorT (dimsOfSizes sizes) a.element)
              (Tensor.extractSliceOp xv offsets sizeOps [] staticOffsets staticSizes staticStrides)
 
-||| The cell of `x` at `coords`, naturals.
-read : Index -> Loc -> Maybe Binding -> Ty -> Val -> List Val -> E Val
-read ix l binder rt x coords = readAt ix l binder rt x !(traverse (coordinate ix l) coords)
+||| The cell of `x`, of type `a`, at `coords`, naturals.
+read : Index -> Loc -> Maybe Binding -> Ty -> ArrayType r -> Val -> List Val -> E Val
+read ix l binder rt a x coords = readAt ix l binder rt a x !(traverse (coordinate ix l) coords)
 
-||| `x` with `v` at `coords`: `tensor.insert` of an element, or
-||| `tensor.insert_slice` of a cell, the cell first at the type of the
+||| `x`, of type `a`, with `v` at `coords`: `tensor.insert` of an element,
+||| or `tensor.insert_slice` of a cell, the cell first at the type of the
 ||| slice it fills; the result at `rt`.
-write : Index -> Loc -> Maybe Binding -> Ty -> Val -> Val -> List Val -> E Val
-write ix l binder rt x v coords = do
+write : Index -> Loc -> Maybe Binding -> Ty -> ArrayType r -> Val -> Val -> List Val -> E Val
+write ix l binder rt a x v coords = do
   xv <- plainOperand ix l x
   cs <- traverse (coordinate ix l) coords
-  ds <- dimsOf x
   let n = length cs
+      ds = toList a.dims
   case drop n ds of
     [] => fitted {binder} ix l (Just rt) x.type (Tensor.insertOp !(plainOperand ix l v) xv cs)
     cell => do
-      vv <- given ix l (TensorT cell (elementOf x.type)) v
-      sizes <- traverse (sizeAt l vv) (withAxes cell)
+      vv <- given ix l (TensorT cell a.element) v
+      sizes <- traverse (sizeAt l vv) (toList (withAxes (Data.Vect.fromList cell)))
       let (offsets, staticOffsets) = mixed (map Left cs ++ map (const (Right 0)) cell)
           (sizeOps, staticSizes) = mixed (map (const (Right 1)) cs ++ sizes)
           (_, staticStrides) = mixed (map (const (Right 1)) ds)
@@ -326,51 +300,44 @@ sliced ix l binder rt xv e offsets sizes = do
   fitted {binder} ix l (Just rt) (TensorT (dimsOfSizes sizes) e) (Tensor.extractSliceOp xv os ss [] so sz st)
 
 ||| An operation of the array language on its operands, giving a value of
-||| `rt`, the variable `binder` bound to it.
+||| the type it holds of its result, the variable `binder` bound to it. Each
+||| array it takes is of the type the operation holds of it, which every
+||| dimension and axis is read from.
 export
-tensorOp : Index -> Loc -> Maybe Binding -> Ty -> TensorOp Val -> E Val
-tensorOp ix l binder rt (Extent j x) = do
+tensorOp : Index -> Loc -> Maybe Binding -> TensorOp Val -> E Val
+tensorOp ix l binder (Extent a j x) = do
   xv <- plainOperand ix l x
-  ds <- dimsOf x
-  (_, own, _) <- ownAxis "an extent" j ds
-  natural {binder} ix l !(sizeValue l !(sizeAt l xv own))
-tensorOp ix l binder rt (Extract x coords) = read ix l binder rt x coords
-tensorOp ix l binder rt (Insert x v coords) = write ix l binder rt x v coords
-tensorOp ix l binder rt (Take a k x) = do
+  natural {binder} ix l !(sizeValue l !(sizeAt l xv (finToNat j, Data.Vect.index j a.dims)))
+tensorOp ix l binder (Extract a rt x coords) = read ix l binder rt a x coords
+tensorOp ix l binder (Insert a rt x v coords) = write ix l binder rt a x v coords
+tensorOp ix l binder (Take a ra j k x) = do
   xv <- plainOperand ix l x
-  ds <- dimsOf x
   kv <- coordinate ix l k
-  (before, own, after, kept) <- ownAxes "a take" a ds (tensorDims rt)
+  let (before, _, after) = around j (withAxes a.dims)
   pre <- traverse (sizeAt l xv) before
-  mid <- resultSize kept (pure (Left kv))
+  mid <- resultSize (Data.Vect.index j ra.dims) (pure (Left kv))
   post <- traverse (sizeAt l xv) after
-  sliced ix l binder rt xv (elementOf x.type) (map (const (Right 0)) ds) (pre ++ mid :: post)
-tensorOp ix l binder rt (Drop a k x) = do
+  sliced ix l binder (arrayTy ra) xv a.element (map (const (Right 0)) (toList a.dims)) (pre ++ mid :: post)
+tensorOp ix l binder (Drop a ra j k x) = do
   xv <- plainOperand ix l x
-  ds <- dimsOf x
   kv <- coordinate ix l k
-  (before, own, after, kept) <- ownAxes "a drop" a ds (tensorDims rt)
+  let (before, own, after) = around j (withAxes a.dims)
   pre <- traverse (sizeAt l xv) before
-  mid <- resultSize kept $ do
+  mid <- resultSize (Data.Vect.index j ra.dims) $ do
     whole <- sizeValue l !(sizeAt l xv own)
     Left <$> mlirValue l IndexType (Arith.subiOp {overflowFlags = noWrap} whole kv)
   post <- traverse (sizeAt l xv) after
-  sliced ix l binder rt xv (elementOf x.type)
+  sliced ix l binder (arrayTy ra) xv a.element
          (map (const (Right 0)) before ++ Left kv :: map (const (Right 0)) after) (pre ++ mid :: post)
-tensorOp ix l binder rt (Concat a x y) = do
+tensorOp ix l binder (Concat xa ya ra axis x y) = do
   xv <- plainOperand ix l x
   yv <- plainOperand ix l y
-  xds <- dimsOf x
-  yds <- dimsOf y
-  let rds = tensorDims rt
-  -- The result's dimensions, each with the first array's at its axis, and
-  -- the second array's own.
-  ((before, (xown, rown), after), yown) <-
-    the (E ((List ((Nat, Dim), Dim), ((Nat, Dim), Dim), List ((Nat, Dim), Dim)), (Nat, Dim))) $
-    case (atAxis a (zip (withAxes xds) rds), atAxis a (withAxes yds)) of
-      (Just split, Just (_, yown, _)) => pure (split, yown)
-      _ => internal ("a join along axis " ++ show a ++ " of arrays of ranks " ++ show (length xds) ++ ", " ++
-                     show (length yds) ++ " to one of rank " ++ show (length rds))
+  let rt = arrayTy ra
+      rds = toList ra.dims
+      -- The result's dimensions, each with the first array's at its axis,
+      -- and the second array's own.
+      (before, (xown, rown), after) = around axis (Data.Vect.zip (withAxes xa.dims) ra.dims)
+      yown = Data.Vect.index axis (withAxes ya.dims)
   pre <- traverse (\(xd, rd) => resultSize rd (sizeAt l xv xd)) before
   mid <- resultSize rown $ do
     m <- sizeValue l !(sizeAt l xv xown)
@@ -378,15 +345,15 @@ tensorOp ix l binder rt (Concat a x y) = do
     Left <$> mlirValue l IndexType (Arith.addiOp {overflowFlags = noWrap} m n)
   post <- traverse (\(xd, rd) => resultSize rd (sizeAt l xv xd)) after
   let sizes = pre ++ mid :: post
-      el = elementOf rt
+      el = ra.element
       joined = TensorT (dimsOfSizes sizes) el
   case reaches ix el of
     -- Words are joined slice by slice into a fresh destination.
     WordsOnly => do
       empty <- value ix l joined (Tensor.emptyOp (fst (mixed sizes)))
       let ev = operand ix empty
-      xsizes <- traverse (sizeAt l xv) (withAxes xds)
-      ysizes <- traverse (sizeAt l yv) (withAxes yds)
+      xsizes <- traverse (sizeAt l xv) (toList (withAxes xa.dims))
+      ysizes <- traverse (sizeAt l yv) (toList (withAxes ya.dims))
       shift <- sizeAt l xv xown
       let (xo, xso) = mixed (map (const (Right 0)) rds)
           (xs, xss) = mixed xsizes
@@ -413,11 +380,11 @@ tensorOp ix l binder rt (Concat a x y) = do
         -- Each arm reads in its own region, and only there. The choice is
         -- a condition, upstream's `scf.if`: no Idris value is matched.
         (fromX, xops) <- collect $ do
-          e <- readAt ix l Nothing el x cs
+          e <- readAt ix l Nothing el xa x cs
           given ix l el e
         (fromY, yops) <- collect $ do
           j <- mlirValue l IndexType (Arith.subiOp {overflowFlags = noWrap} iv m)
-          e <- readAt ix l Nothing el y (toList lead ++ j :: toList trail)
+          e <- readAt ix l Nothing el ya y (toList lead ++ j :: toList trail)
           given ix l el e
         r <- mlirValue l (mlirType ix el) (\t => SCF.ifOp below
                (MkRegion [] (xops ++ [MkStatement Nothing (SCF.yieldOp [fromX]) (At l)]))
@@ -429,15 +396,15 @@ tensorOp ix l binder rt (Concat a x y) = do
 -- destination, its permutation given once; of elements that hold
 -- references it is a tabulation reading at the swapped coordinates, since
 -- no linalg body holds a reference while counting runs.
-tensorOp ix l binder rt (Transpose a x) = do
+tensorOp ix l binder (Transpose a rt axis x) = do
   xv <- plainOperand ix l x
-  ds <- dimsOf x
-  (before, (_, da), (_, db), rest) <- swappedAxes a ds
-  let perm = map fst before ++ S a :: a :: map fst rest
+  let (before, (_, da), (_, db), rest) = aroundPair axis (withAxes a.dims)
+      ax = finToNat axis
+      perm = map fst before ++ S ax :: ax :: map fst rest
       swappedDims = map snd before ++ db :: da :: map snd rest
-      swapped = TensorT swappedDims (elementOf x.type)
+      swapped = TensorT swappedDims a.element
   sizes <- traverse (sizeAt l xv) (zip perm swappedDims)
-  case reaches ix (elementOf x.type) of
+  case reaches ix a.element of
     WordsOnly => do
       dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
       fitted {binder} ix l (Just rt) swapped (\t => Linalg.transposeOp xv dest (map cast perm) [t])
@@ -449,26 +416,26 @@ tensorOp ix l binder rt (Transpose a x) = do
       ib <- freshIndex
       trail <- indices (length rest)
       reg <- region l (toList lead ++ ia :: ib :: toList trail) $ do
-        e <- readAt ix l Nothing (elementOf x.type) x (toList lead ++ ib :: ia :: toList trail)
-        pure (Just [!(given ix l (elementOf x.type) e)])
+        e <- readAt ix l Nothing a.element a x (toList lead ++ ib :: ia :: toList trail)
+        pure (Just [!(given ix l a.element e)])
       dest <- mlirValue l (mlirType ix swapped) (Tensor.emptyOp (fst (mixed sizes)))
       fitted {binder} ix l (Just rt) swapped (\t => Idr.arrayTabulateOp dest reg [t])
-tensorOp ix l binder rt (Reshape x extents) = do
+tensorOp ix l binder (Reshape a rt x extents) = do
   xv <- plainOperand ix l x
-  ds <- dimsOf x
-  let rds = tensorDims rt
+  let ds = toList a.dims
+      rds = tensorDims rt
       t = length extents
       cellRank = minus (length rds) t
       r = minus (length ds) cellRank
       cell = drop r ds
-      e = elementOf x.type
+      e = a.element
       leading = take r ds
       n = if all isStatic leading then Static (product (map staticOf leading)) else Dynamic
       flatTy = mlirType ix (TensorT (n :: cell) e)
       -- The flattened array is the result when the result has one leading
       -- axis of its type.
       flatAt = if t == 1 && TensorT (n :: cell) e == rt then madeAt binder l Many else At l
-  cellSizes <- traverse (sizeAt l xv) (drop r (withAxes ds))
+  cellSizes <- traverse (sizeAt l xv) (drop r (toList (withAxes a.dims)))
   flat <- case r of
     S Z => pure xv
     Z => do
@@ -489,7 +456,7 @@ tensorOp ix l binder rt (Reshape x extents) = do
     _ => do
       let (lead, cellDims) = splitAt t rds
       leadSizes <- traverse (\(d, ext) => resultSize d (Left <$> coordinate ix l ext)) (zip lead extents)
-      restSizes <- traverse (\(d, xd) => resultSize d (sizeAt l xv xd)) (zip cellDims (drop r (withAxes ds)))
+      restSizes <- traverse (\(d, xd) => resultSize d (sizeAt l xv xd)) (zip cellDims (drop r (toList (withAxes a.dims))))
       let (outs, static) = mixed (leadSizes ++ restSizes)
       res <- mlirValueAt at rt' (Tensor.expandShapeOp flat (groups t cellRank) outs static)
       pure (val res.name rt Many made)
@@ -534,23 +501,22 @@ tabulate ix l binder rt extents body = do
   dest <- mlirValue l (mlirType ix rt) (Tensor.emptyOp sizes)
   Just <$> value {binder} ix l rt (\t => Idr.arrayTabulateOp dest r [t])
 
-||| A reduction of `x` along the axis after the frame of `z`, from `z`'s
-||| accumulators, left to right in index order: `idr.array.fold_last`
-||| keeping the last accumulators, `idr.array.scan_last` every one. The frame is the axes `z`
-||| has beyond an accumulator's; the region binds the frame's indices, the
-||| index along the axis and the accumulator, reads `x`'s element there and
-||| gives the next accumulator. An accumulator of no frame and no axis of
-||| its own is held, for the op, in an array of none. The variable `binder`
-||| is bound to the result.
+||| A reduction of `x`, of type `xa`, along `axis`, the one after the frame
+||| of `z`, from `z`'s accumulators, left to right in index order:
+||| `idr.array.fold_last` keeping the last accumulators,
+||| `idr.array.scan_last` every one. The frame is the axes `z` has beyond
+||| an accumulator's, as many as the axes before `axis`; the region binds
+||| the frame's indices, the index along the axis and the accumulator,
+||| reads `x`'s element there and gives the next accumulator. An
+||| accumulator of no frame and no axis of its own is held, for the op, in
+||| an array of none. The variable `binder` is bound to the result.
 export
-reduce : Index -> Loc -> Maybe Binding -> Reduction -> (acc, elem, result : Ty) -> Val -> Val
-      -> (Val -> Val -> E (Maybe Val)) -> E (Maybe Val)
-reduce ix l binder r acc elem rt z x body = do
-  let frame = minus (length (tensorDims z.type)) (length (tensorDims acc))
+reduce : Index -> Loc -> Maybe Binding -> Reduction -> (acc, elem, result : Ty) -> (xa : ArrayType k) -> (axis : Fin k)
+      -> Val -> Val -> (Val -> Val -> E (Maybe Val)) -> E (Maybe Val)
+reduce ix l binder r acc elem rt xa axis z x body = do
+  let frame = finToNat axis
   xv <- plainOperand ix l x
-  xds <- dimsOf x
-  (_, along, _) <- ownAxis "a reduction" frame xds
-  len <- sizeValue l !(sizeAt l xv along)
+  len <- sizeValue l !(sizeAt l xv (frame, Data.Vect.index axis xa.dims))
   init <- case z.type of
     TensorT _ _ => case r of
       FoldLast => given ix l rt z
@@ -567,7 +533,7 @@ reduce ix l binder r acc elem rt z x body = do
   ivs <- indices (S frame)
   (a, av) <- freshVal ix acc Many
   reg <- region l (toList ivs ++ [av]) $ do
-    Just a' <- body a !(readAt ix l Nothing elem x (toList ivs))
+    Just a' <- body a !(readAt ix l Nothing elem xa x (toList ivs))
       | Nothing => pure Nothing
     pure (Just [!(given ix l acc a')])
   case (r, rt) of
@@ -581,17 +547,17 @@ reduce ix l binder r acc elem rt z x body = do
 -- Ties
 ------------------------------------------------------------------------------
 
-||| The array, the dynamic dimensions stated of it equal to the sizes given
-||| (`idr.array.tie_shape`): the extent of another array's axis, exact, or a
-||| natural, converted as an extent; the other dynamic dimensions read from
-||| it. Itself when nothing is stated of a dynamic dimension. The variable
-||| `binder` is bound to it.
+||| The array `v`, of type `tied`, the dynamic dimensions that type gives
+||| it stated equal to the sizes given (`idr.array.tie_shape`): the extent
+||| of another array's axis, exact, or a natural, converted as an extent;
+||| the other dynamic dimensions read from it. Itself when nothing is
+||| stated of a dynamic dimension. The variable `binder` is bound to it.
 export
-tie : Index -> Loc -> Maybe Binding -> Val -> List (Nat, Stated Val) -> E Val
-tie ix l binder v stated = do
+tie : Index -> Loc -> Maybe Binding -> (tied : Ty) -> Val -> List (Nat, Stated Val) -> E Val
+tie ix l binder tied v stated = do
   sizes <- SortedMap.fromList <$> traverse (\(a, s) => (a,) <$> size s) stated
-  ds <- dimsOf v
-  let dynamic = filter (\(_, d) => d == Dynamic) (withAxes ds)
+  let ds = tensorDims tied
+      dynamic = filter (\(_, d) => d == Dynamic) (toList (withAxes (Data.Vect.fromList ds)))
   if all (\(j, _) => isNothing (lookup j sizes)) dynamic then pure v else do
     xv <- plainOperand ix l v
     dims <- traverse (\(j, d) => case lookup j sizes of

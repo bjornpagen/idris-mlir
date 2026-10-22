@@ -155,7 +155,7 @@ translateDefinition p sig n m counted = do
                (tel, res) <- sizedTelescope ty sig.kinds
                map (\(k, w) => (k, witnessTerm loc (allFins (Runtimes sig.kinds)) w)) <$> resultTies tel res sig.callee.result
              _ => pure []
-  let body = tied loc (allFins (Runtimes sig.kinds)) ties (tiedExits loc exits tree')
+  let body = tied loc sig.callee.params (allFins (Runtimes sig.kinds)) ties (tiedExits loc sig.callee.result exits tree')
   -- What Idris proved of its loops, read with the program (`Recursion`).
   termination <- (\r => terminationOf r d) <$> reading
   extents <- signatureExtents sig.kinds sig.result
@@ -163,15 +163,16 @@ translateDefinition p sig n m counted = do
                                                       extents names body loc termination) })
   where
     -- The body under one `let` per parameter with a tied dimension, in
-    -- parameter order: the parameter as its dimensions are stated, which
-    -- the body uses in its place. The parameters are the body's
-    -- variables, parameter `i` being `i`.
-    tied : Loc -> Vect r (Fin n) -> List (Fin r, List (Nat, Witness r)) -> Term n -> Term n
-    tied loc vs [] body = body
-    tied loc vs ((x, axes) :: rest) body =
+    -- parameter order: the parameter, of its binder's type, as its
+    -- dimensions are stated, which the body uses in its place. The
+    -- parameters are the body's variables, parameter `i` being `i`.
+    tied : Loc -> Vect r Binder -> Vect r (Fin n) -> List (Fin r, List (Nat, Witness r)) -> Term n -> Term n
+    tied loc params vs [] body = body
+    tied loc params vs ((x, axes) :: rest) body =
       let p = Data.Vect.index x vs in
-      Let loc (shown "tied") (OfValue Many) (Tie loc (Var loc p) (map (\(k, w) => (k, witnessTerm loc vs w)) axes))
-          (rename (\y => if y == p then FZ else FS y) (tied loc vs rest body))
+      Let loc (shown "tied") (OfValue Many)
+          (Tie loc (Data.Vect.index x params).type (Var loc p) (map (\(k, w) => (k, witnessTerm loc vs w)) axes))
+          (rename (\y => if y == p then FZ else FS y) (tied loc params vs rest body))
 
 ||| The scope a member at a use's body is in: its parameters' names, the
 ||| form's type's and the form's, as the type it is applied as by binds

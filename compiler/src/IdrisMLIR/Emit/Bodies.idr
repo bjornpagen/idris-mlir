@@ -159,6 +159,23 @@ operands ix l sc xs = (traverse (\(slot, a) => operand1 ix l sc slot a) xs).writ
 unslotted : Functor t => t (Sub Em [] nv) -> t (Maybe Binder, Sub Em [] nv)
 unslotted = map (\a => (Nothing, a))
 
+||| The slot of an array an operation takes: the type the operation holds
+||| of it, used many times.
+arraySlot : ArrayType r -> Maybe Binder
+arraySlot a = Just (MkBinder Many (arrayTy a))
+
+||| An array operation's operands, each in its slot: an array at the type
+||| the operation holds of it, a natural or an element at its own.
+arraySlots : TensorOp t -> TensorOp (Maybe Binder, t)
+arraySlots (Extent a j x) = Extent a j (arraySlot a, x)
+arraySlots (Extract a rt x cs) = Extract a rt (arraySlot a, x) (map (\c => (Nothing, c)) cs)
+arraySlots (Insert a rt x v cs) = Insert a rt (arraySlot a, x) (Nothing, v) (map (\c => (Nothing, c)) cs)
+arraySlots (Take a ra j k x) = Take a ra j (Nothing, k) (arraySlot a, x)
+arraySlots (Drop a ra j k x) = Drop a ra j (Nothing, k) (arraySlot a, x)
+arraySlots (Concat a b ra j x y) = Concat a b ra j (arraySlot a, x) (arraySlot b, y)
+arraySlots (Transpose a rt j x) = Transpose a rt j (arraySlot a, x)
+arraySlots (Reshape a rt x es) = Reshape a rt (arraySlot a, x) (map (\e => (Nothing, e)) es)
+
 ||| A constructor's fields, each in its slot (its type with the
 ||| constructor's binders given), left to right.
 fields : Index -> Loc -> Scope [] nv -> Vect k Binder -> Vect k (Sub Em [] nv) -> Operands (Vect k Val)
@@ -259,19 +276,19 @@ mutual
   names from k (CaseNat _ x arms) = namesVar from k x || natArmsName from k arms
   names from k (Lam _ _ _ body) = names (S from) k body
   names from k (App _ f x) = names from k f || names from k x
-  names from k (Suspend _ body) = names from k body
+  names from k (Suspend _ _ body) = names from k body
   names from k (Resume _ e) = names from k e
   names from k (Unreachable _) = False
   names from k (Assume _ _ _ body) = names from k body
   names from k (Crash _ _) = False
   names from k (CrashWith _ m) = names from k m
   names from k (NewWorld _) = False
-  names from k (Tensor _ _ op) = anyNames from k (toList op)
+  names from k (Tensor _ op) = anyNames from k (toList op)
   names from k (Tabulate {k = j} _ _ es body) = anyNames from k (toList es) || names (j + from) k body
   names from k (TabulateIO {k = j} _ _ es w body _ _) =
     anyNames from k (toList es) || names from k w || names (S j + from) k body
-  names from k (Reduce _ _ _ _ _ z x body) = names from k z || names from k x || names (2 + from) k body
-  names from k (Tie _ x ds) = names from k x || anyNames from k (map (stated . snd) ds)
+  names from k (Reduce _ _ _ _ _ _ _ z x body) = names from k z || names from k x || names (2 + from) k body
+  names from k (Tie _ _ x ds) = names from k x || anyNames from k (map (stated . snd) ds)
     where
       stated : Stated (TermAt [] n) -> TermAt [] n
       stated (SameAs t) = t
@@ -666,8 +683,9 @@ alg ix (CaseNatF l x arms) sc w = case arms of
 -- written and its scope's levels: the body is written first, as a region,
 -- and the function made of it. A suspension of a value is that value
 -- held, `idr.lazy.delay %v`. A lambda's parameter and result are at the types
--- the context expects of them: a closure's type holds the extents its
--- values are made at dynamic.
+-- the context expects of them, and a suspension's value at the type the
+-- context expects of it, else the one the term holds: a closure's type
+-- holds the extents its values are made at dynamic.
 alg ix (LamF l name b body) sc w = do
   let (param, result) = case w.type of
                           Just (FunT a r) => (typeOf a, Just r)
@@ -688,6 +706,10 @@ alg ix (LamF l name b body) sc w = do
       st <- get
       put ({ nextBinder $= S } st)
       pure ([MkArgument arg (Binder name (Spanned l) st.ownerSymbol st.nextBinder)], r, ops)
+  -- The term holds no lambda's result type: the translation knows it only
+  -- where it knows what type the lambda is expected at, which a lambda
+  -- Idris wrote does not say. One whose body never returns, where nothing
+  -- expects a function, leaves none.
   Just t <- pure (result <|> map (.type) r)
     | Nothing => internal "the result type of a lambda whose body never returns"
   ops' <- epilogue ix l r ops
@@ -697,6 +719,9 @@ alg ix (LamF l name b body) sc w = do
 alg ix (AppF l f x) sc w = do
   Just fv <- plain ix l (f.result (offTail sc) (expecting Nothing))
     | Nothing => pure Nothing
+  -- The term holds no application's function type: the translation does
+  -- not know it where it applies a value whose Idris type it does not
+  -- know, past the binders the type shows.
   FunT a r <- pure fv.type
     | t => internal ("an application of a value of type " ++ show t)
   Just v <- x.result (offTail sc) (expecting (Just (typeOf a)))
@@ -710,14 +735,12 @@ alg ix (AppF l f x) sc w = do
       statement l (Idr.fnApplyOp (operand ix fv) xs [])
       pure (Just worldVal)
     _ => Just <$> fitted {binder = w.binder} ix l w.type r (\t => Idr.fnApplyOp (operand ix fv) xs [t])
-alg ix (SuspendF l body) sc w = do
-  let result = case w.type of
-                 Just (LazyT r) => Just r
-                 _ => Nothing
-  (r, ops) <- collect (plain ix l (body.result (offTail sc) (expecting result))
-                       >>= traverse (fit ix l result))
-  Just t <- pure (result <|> map (.type) r)
-    | Nothing => internal "the result type of a Delay whose body never returns"
+alg ix (SuspendF l delayed body) sc w = do
+  let t = case w.type of
+            Just (LazyT r) => r
+            _ => delayed
+  (r, ops) <- collect (plain ix l (body.result (offTail sc) (expecting (Just t)))
+                       >>= traverse (fit ix l (Just t)))
   ops' <- epilogue ix l r ops
   (sym, captures) <- lift l LiftedDelay (map (sortOf ix) sc.telescope) [] ops' (resultTypes ix t)
   Just <$> holding ix l w.binder (LazyT t) captures
@@ -725,33 +748,36 @@ alg ix (SuspendF l body) sc w = do
 alg ix (ResumeF l e) sc w = do
   Just ev <- plain ix l (e.result (offTail sc) (expecting Nothing))
     | Nothing => pure Nothing
+  -- The term holds no force's suspension type: the translation does not
+  -- know it where it forces a value whose Idris type it does not know.
   LazyT r <- pure ev.type
     | t => internal ("a force of a value of type " ++ show t)
   Just <$> fitted {binder = w.binder} ix l w.type r (Idr.lazyForceOp (operand ix ev))
--- The array language: each operand bound once, in order, by the frontend;
--- each body a region of the array op Emit.Tensors writes.
-alg ix (TensorF l rt op) sc w = do
-  Just vs <- operands ix l (offTail sc) (unslotted op)
+-- The array language: each operand bound once, in order, by the frontend,
+-- an array at the type the operation holds of it; each body a region of
+-- the array op Emit.Tensors writes.
+alg ix (TensorF l op) sc w = do
+  Just vs <- operands ix l (offTail sc) (arraySlots op)
     | Nothing => pure Nothing
-  Just <$> tensorOp ix l w.binder rt vs
+  Just <$> tensorOp ix l w.binder vs
 alg ix (TabulateF {k} l rt es body) sc w = do
   Just extents <- operands ix l (offTail sc) (unslotted es)
     | Nothing => pure Nothing
   tabulate ix l w.binder rt extents
            (\coords => plain ix l (body.result (bind (map Whole coords) (offTail sc)) (expecting Nothing)))
-alg ix (ReduceF l r acc el rt z x body) sc w = do
+alg ix (ReduceF l r acc el rt xa axis z x body) sc w = do
   Just zv <- (operand1 ix l (offTail sc) Nothing z).written
     | Nothing => pure Nothing
-  Just xv <- (operand1 ix l (offTail sc) Nothing x).written
+  Just xv <- (operand1 ix l (offTail sc) (arraySlot xa) x).written
     | Nothing => pure Nothing
-  reduce ix l w.binder r acc el rt zv xv
+  reduce ix l w.binder r acc el rt xa axis zv xv
          (\a, e => plain ix l (body.result (bind [Whole a, Whole e] (offTail sc)) (expecting (Just acc))))
-alg ix (TieF l x ds) sc w = do
-  Just xv <- plain ix l (x.result (offTail sc) (expecting Nothing))
+alg ix (TieF l t x ds) sc w = do
+  Just xv <- (operand1 ix l (offTail sc) (Just (MkBinder Many t)) x).written
     | Nothing => pure Nothing
   Just dims <- statedAll ds
     | Nothing => pure Nothing
-  Just <$> tie ix l w.binder xv dims
+  Just <$> tie ix l w.binder t xv dims
   where
     -- Each statement a natural.
     natural : Sub Em [] nv -> E (Maybe Val)
