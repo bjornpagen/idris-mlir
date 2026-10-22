@@ -49,36 +49,8 @@ Eq Dim where
   _ == _ = False
 
 ------------------------------------------------------------------------------
--- What the families' C++ reads whole
+-- What crosses as text
 ------------------------------------------------------------------------------
-
--- The values the families' types and attributes hold are the wire's
--- (IdrisMLIR.Encoding.Wire), printed from the specification for both
--- readers. These types and attributes take them laid out, so the frontend
--- holds them typed here until the writer has numbered what they hold.
-
-||| The hand-coded `idr` types: `!idr.data`, a member of a family's group
-||| applied to one term per index, the nodes of every term in order, refined
-||| to the tags a dense array of `i32` holds (none unrefined, empty
-||| uninhabited); and `!idr.self`, a member of the group being declared, in
-||| a field of that group.
-public export
-data HandType : (ty, at : Type) -> Type where
-  DataOf : (group : at) -> (member : Nat) -> (indices : List (TermNode ty at)) -> (refinement : Maybe at) -> HandType ty at
-  SelfOf : (member : Nat) -> (indices : List (TermNode ty at)) -> HandType ty at
-
-||| The hand-coded `idr` attributes: `#idr.family`, a group's data members,
-||| the only members the frontend declares; `#idr.index_binders`, the sorts
-||| of a function's index parameters or a region's binders;
-||| `#idr.index_args`, the terms a call or a lifted function's maker gives
-||| them, each its nodes, so their count is the list's; and
-||| `#idr.equation`, an erased equality's two terms.
-public export
-data HandAttr : (ty, at : Type) -> Type where
-  FamilyOf : List (DataMember ty at) -> HandAttr ty at
-  BindersOf : List (SortOf ty at) -> HandAttr ty at
-  ArgsOf : List (List (TermNode ty at)) -> HandAttr ty at
-  EquationOf : (lhs, rhs : List (TermNode ty at)) -> HandAttr ty at
 
 ||| The text a dialect's syntax gives one of its attributes, for the
 ||| dialects whose attributes cross as text. It is made with the value it
@@ -111,9 +83,6 @@ namespace MlirType
     | FunctionType (Signature MlirType)
     | ||| A type of the `idr` dialect.
       Idr (IdrType MlirType MlirAttr)
-    | ||| A type of the `idr` dialect whose parameters its C++ codes by
-      ||| hand, held typed until the writer lays them out.
-      IdrHand (HandType MlirType MlirAttr)
 
 ------------------------------------------------------------------------------
 -- Attributes
@@ -147,9 +116,6 @@ namespace MlirAttr
       LocAttr Location
     | ||| An attribute of the `idr` dialect.
       Idr (IdrAttr MlirType MlirAttr)
-    | ||| An attribute of the `idr` dialect whose parameters its C++ codes
-      ||| by hand, held typed until the writer lays them out.
-      IdrHand (HandAttr MlirType MlirAttr)
     | ||| An attribute of an upstream dialect whose attributes cross as
       ||| text: the dialect, and the attribute spelled in its syntax, made
       ||| by the smart constructor printed with the dialect.
@@ -182,7 +148,6 @@ mutual
   typeText (FunctionType (MkSignature ins outs)) = signature id (MkSignature (typesText ins) (typesText outs))
   -- No text attribute holds one, so this is never read.
   typeText (Idr _) = "none"
-  typeText (IdrHand _) = "none"
 
   typesText : List MlirType -> List String
   typesText [] = []
@@ -214,7 +179,6 @@ mutual
   -- No text attribute holds one of these, so this is never read.
   attrText (LocAttr _) = "unit"
   attrText (Idr _) = "unit"
-  attrText (IdrHand _) = "unit"
   attrText (Spelled _ (MkSpelling s)) = s
 
   attrsText : List MlirAttr -> List String
@@ -234,7 +198,6 @@ export
 attrDialect : MlirAttr -> Dialect
 attrDialect (Spelled d _) = d
 attrDialect (Idr _) = Dialect.Idr
-attrDialect (IdrHand _) = Dialect.Idr
 attrDialect _ = Builtin
 
 ||| A tensor's or a memref's element type, any other type itself, as

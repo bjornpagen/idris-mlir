@@ -110,10 +110,13 @@ mutual
   typeIn a BigT = Idr BigType
   typeIn a (NatT t) = Idr (NatType (nodeIn a t))
   typeIn a WorldT = NoneType
+  -- A data type the frontend writes states no binders: a case binds its
+  -- constructor's undetermined binders as index variables of its region,
+  -- and the C++ states them where it refines a type to one constructor.
   typeIn a (DataT f ts) = case lookup f a.members of
-    Just m => IdrHand (SelfOf m (nodesIn a ts))
+    Just m => Idr (SelfType m (nodesIn a ts))
     Nothing => case lookup f a.declared of
-      Just e => IdrHand (DataOf e.group e.member (nodesIn a ts) Nothing)
+      Just e => Idr (DataType e.group e.member (nodesIn a ts) Nothing [])
       -- A family no group declares is the translation's broken contract;
       -- `Emit.index` declares every family before any type names one.
       Nothing => NoneType
@@ -186,7 +189,7 @@ gradedType ix = gradedIn (MkAmong ix.families empty)
 ||| as `DataType::refined` makes it.
 refine : MlirType -> List1 Nat -> MlirType
 refine (Idr (GradedType u h t)) tags = Idr (GradedType u h (refine t tags))
-refine (IdrHand (DataOf g m ts _)) tags = IdrHand (DataOf g m ts (Just (DenseI32ArrayAttr (forget tags))))
+refine (Idr (DataType g m ts _ bs)) tags = Idr (DataType g m ts (Just (DenseI32ArrayAttr (forget tags))) bs)
 refine t tags = t
 
 ||| The module's type of a value: its grade around its type, refined to
@@ -214,6 +217,13 @@ untaken ix f taken = case lookup f ix.families of
 export
 termNodes : Index -> ITerm -> List (TermNode MlirType MlirAttr)
 termNodes ix = nodeIn (MkAmong ix.families empty)
+
+||| The `#idr.index_args` of the index terms a call or a lifted function's
+||| maker gives: every term's nodes in order, and how many terms they are,
+||| counted here from the terms themselves, so the two cannot disagree.
+export
+indexArgsOf : Index -> List ITerm -> MlirAttr
+indexArgsOf ix is = Idr (IndexArgsAttr (concatMap (termNodes ix) is) (length is))
 
 ||| The module's sort of a Core sort, among the families given: a member of
 ||| the group being declared names no group, one of an earlier group its
@@ -312,7 +322,7 @@ declare = foldl group empty
       let fs = forget g
           numbered = zip fs [0 .. length fs]
           a = MkAmong done (fromList (map (\(f, m) => (f.id, m)) numbered))
-          attr = IdrHand (FamilyOf (map (memberDecl a) fs))
+          attr = Idr (FamilyAttr (map (MemberOfData . memberDecl a) fs))
           r = groupReaches a fs
       in foldl (\m, (f, i) => insert f.id (MkFamilyEntry f attr i r) m) done numbered
 
