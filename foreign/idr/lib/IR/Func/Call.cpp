@@ -9,13 +9,12 @@
 // from the collection MLIR shares among every symbol user, holds the call
 // to its callee: its types are the callee's signature at its index
 // arguments, a tensor operand meeting its parameter by MLIR's shape
-// compatibility and a lifetime of any kind standing where a view is asked;
-// its
-// copies are the callee's; what its callee puts into a lifetime its caller
-// passes on fits what the caller says it puts; and a tail call passes its
-// caller's cursors each in its own place, and its callee gives back the
-// same result components. Where it stands in its function is the tail
-// calls' to check.
+// compatibility at the axes the callee's extents name and a lifetime of
+// any kind standing where a view is asked; its copies are the callee's;
+// what its callee puts into a lifetime its caller passes on fits what the
+// caller says it puts; and a tail call passes its caller's cursors each in
+// its own place, and its callee gives back the same result components.
+// Where it stands in its function is the tail calls' to check.
 
 #include "idr/Analysis/Effects.h"
 #include "idr/IR/Families/Substitute.h"
@@ -27,7 +26,6 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/SymbolTable.h"
-#include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -43,23 +41,6 @@ namespace {
 FunctionType signatureAt(FuncOp callee, IndexArgsAttr args) {
   return args ? families::substitute(callee.getFunctionType(), callee.getExtentsAttr(), args)
               : callee.getFunctionType();
-}
-
-// Whether an operand of type `given` meets the parameter its callee's
-// signature asks as `asked`: the same type, or two ranked tensors alike
-// but for their shapes, whose shapes MLIR finds compatible, `?` meeting
-// any size. A call at a known size to the general function then needs no
-// cast, and only the specializer, retargeting a call to a copy, casts.
-// Every other part of the type, a grade among them, is compared exactly: a
-// graded array keeps its `?` in every copy, and no cast keeps a grade, so
-// bufferizing a call could not reconcile two graded shapes.
-bool meets(Type given, Type asked) {
-  if (given == asked)
-    return true;
-  auto have = dyn_cast<RankedTensorType>(given);
-  auto want = dyn_cast<RankedTensorType>(asked);
-  return have && want && have.clone(want.getShape()) == want &&
-         succeeded(verifyCompatibleShape(have, want));
 }
 
 } // namespace
@@ -236,11 +217,13 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
 
   // The callee's signature at the call's index arguments, one argument per
   // binder: each operand's type is its parameter's, grade included, so
-  // what the call takes over is read from the call alone, but for a
-  // tensor's shape, which meets the parameter's where MLIR finds the two
-  // compatible; a lifetime of any kind may stand where a view is asked,
-  // nothing happening to a view at run time, and any other kind only where
-  // it is asked.
+  // what the call takes over is read from the call alone, but for a bare
+  // tensor's axis the callee's extents name, which meets the parameter's
+  // where MLIR finds the two compatible (meets); a graded array is compared
+  // whole, since no cast keeps a grade and bufferizing the call could not
+  // reconcile two graded shapes. A lifetime of any kind may stand where a
+  // view is asked, nothing happening to a view at run time, and any other
+  // kind only where it is asked.
   IndexBindersAttr binders = fn.getBindersAttr();
   IndexArgsAttr args = getIndexArgsAttr();
   std::size_t binding = binders ? binders.getSorts().size() : 0;
@@ -253,9 +236,11 @@ LogicalResult idr::CallOp::verifySymbolUses(SymbolTableCollection &symbols) {
   if (getArgs().size() != inputs.size())
     return emitOpError("passes ") << getArgs().size() << " arguments to " << name
                                   << ", which takes " << inputs.size();
+  ExtentsAttr extents = fn.getExtentsAttr();
   for (auto [index, pair] : llvm::enumerate(llvm::zip_equal(getArgs().getTypes(), inputs))) {
     auto [given, asked] = pair;
-    if (!meets(given, asked) && !lifetimes::passesAs(given, asked))
+    if (!meets(given, asked, extents, ExtentSide::Input, static_cast<std::uint32_t>(index)) &&
+        !lifetimes::passesAs(given, asked))
       return emitOpError("passes ") << given << " as argument " << index << " of " << name
                                     << ", which takes " << asked;
   }

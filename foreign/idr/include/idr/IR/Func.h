@@ -263,6 +263,22 @@ Values onSide(ExtentSide side, Values inputs, Values results) {
 std::optional<std::int64_t> staticSizeAt(llvm::ArrayRef<mlir::Type> inputs, ExtentAt at,
                                          families::Term term);
 
+class ExtentsAttr;
+
+// Whether a value of type `given` meets the value at `position` on `side`
+// of a signature whose extents are `extents` (null for none), which a call
+// or a closure sees at its terms as `asked`: the same type, or two ranked
+// tensors alike but for their shapes, whose shapes MLIR finds compatible
+// and differ only at axes the extents name. There the declared type is
+// `?` and a term says which size, so `?` meets any size and a call at a
+// known size to the general function needs no cast. Everywhere else, a
+// copy's static axis among them, the two are equal exactly, so a call
+// retargeted to a copy carries its tensor.cast and a missing one is the
+// verifier's error. A grade is part of the type, compared exactly; a reader
+// that holds grades apart compares carriers here.
+bool meets(mlir::Type given, mlir::Type asked, ExtentsAttr extents, ExtentSide side,
+           std::uint32_t position);
+
 //===----------------------------------------------------------------------===//
 // The record's parts, by parameter
 //===----------------------------------------------------------------------===//

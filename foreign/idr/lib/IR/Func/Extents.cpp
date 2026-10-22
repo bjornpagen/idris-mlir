@@ -3,20 +3,22 @@
 // The index term each unknown axis of a function's signature is
 // (`#idr.extents`, each entry its own `#idr.extent`, whose storage owns its
 // term's nodes): their syntax, what each entry and the list hold of
-// themselves, how an edit of the signature moves them, and the one rule of
-// which axis a constant makes static. What an entry names of the signature
-// and of the binders, and where a constant may stand, is the function's
-// verifier's.
-// Their bytecode is printed from their wires; the entries' list is
-// written with the hooks the specification declares.
+// themselves, how an edit of the signature moves them, the one rule of
+// which axis a constant makes static, and the one rule of where a value
+// meets a signature's view by shape compatibility. What an entry names of
+// the signature and of the binders, and where a constant may stand, is the
+// function's verifier's. Their bytecode is printed from their wires; the
+// entries' list is written with the hooks the specification declares.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -118,6 +120,30 @@ std::optional<std::int64_t> idr::staticSizeAt(ArrayRef<Type> inputs, ExtentAt at
       term.head().value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
     return std::nullopt;
   return static_cast<std::int64_t>(term.head().value);
+}
+
+bool idr::meets(Type given, Type asked, ExtentsAttr extents, ExtentSide side,
+                std::uint32_t position) {
+  if (given == asked)
+    return true;
+  auto have = dyn_cast<RankedTensorType>(given);
+  auto want = dyn_cast<RankedTensorType>(asked);
+  if (!have || !want || have.clone(want.getShape()) != want ||
+      failed(verifyCompatibleShape(have, want)))
+    return false;
+  // The entries are sorted by the axis each names, so whether one names an
+  // axis is a search, reading no term.
+  ArrayRef<ExtentAttr> entries = extents ? extents.getEntries() : ArrayRef<ExtentAttr>();
+  return llvm::all_of(llvm::enumerate(llvm::zip_equal(have.getShape(), want.getShape())),
+                      [&](auto indexed) {
+                        auto [axis, dims] = indexed;
+                        auto [mine, theirs] = dims;
+                        return mine == theirs ||
+                               std::ranges::binary_search(
+                                   entries,
+                                   ExtentAt{side, position, static_cast<std::uint32_t>(axis)},
+                                   std::ranges::less(), axisOf);
+                      });
 }
 
 //===----------------------------------------------------------------------===//
