@@ -1717,6 +1717,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   compiled programs link keeps its own profile, where a check is a fatal
   error and `NDEBUG` stays, so a program's speed does not pay for the
   compiler's debugging.
+- **D120** (2026-10-22; the owner; on the typecheck build). "you should
+  just build it without assertions to move past it then. lol." The
+  typecheck build (`IDRIS_MLIR_TYPECHECK`: the host's clang against the
+  TableGen-only LLVM, nothing linked but `idris-mlir-tblgen`, nothing
+  shipped or tested) compiles our C++ against whatever toolchain it has,
+  with our units matching that toolchain's `NDEBUG`, so this machine,
+  which builds no LLVM, checks the C++ against the toolchain it already
+  holds. The builds that link, ship and run the tests (dev, release)
+  still refuse an LLVM built without assertions (D115).
 - **D116** (2026-10-22; the owner; binding). "to be crystal clear, i
   only care that upstrmea compiles our idris-mlir, and i don't care about
   idris-mlir compiling upsteram." Then, the same hour: "idris-mlir must
