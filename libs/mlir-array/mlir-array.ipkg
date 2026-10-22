@@ -3,11 +3,13 @@
 package mlir-array
 version = 0.1.0
 
-brief = "Typed arrays for idris-mlir: shapes in the type, a generating set declared here whose one meaning is the compiler's, as MLIR's tensors, and linear arrays and a growable vector written over it"
+brief = "Typed arrays for idris-mlir: shapes in the type, a generating set declared here whose one meaning is the compiler's, as MLIR's tensors; linear arrays and a growable vector written over it; and parsers over a quantity-1 handle to immutable bytes frozen from a linear array"
 authors = "idris-mlir"
 
 depends = base, mlir-linear
 
 modules = Array,
           Array.Core,
+          Linear.Bytes,
+          Linear.Parser,
           Linear.Vec

@@ -29,11 +29,14 @@ export
 scalar : a -> Scalar a
 scalar v = fill [<] v
 
+||| The extents of the frame: every axis but the last.
+frame : Extents (f :< n) -> Extents f
+frame (fe :< _) = fe
+
 ||| The left fold over the last axis, from `z` at every index of the frame.
 export
 reduce : (b -> a -> b) -> b -> Array (f :< n) a -> Array f b
-reduce g z x = case shape x of
-  fe :< _ => foldLast g (fill fe z) x
+reduce g z x = foldLast g (fill (frame (shape x)) z) x
 
 ||| `i` as a position below `n`, when it is one: one comparison, the
 ||| program's own, its proof erased.
@@ -120,22 +123,56 @@ visit : Extents s -> ((1 _ : t) -> Index s -> t) -> (1 _ : t) -> t
 visit [<] step st = step st [<]
 visit (e :< n) step st = visit e (\st, p => along n (\st, j => step st (p :< j)) st) st
 
+-- Each step below takes its state apart in a top-level clause of its own,
+-- never in the lambda `visit` runs: `#` names both `Res`'s constructor and
+-- `LPair`'s, and the stock host is slow to elaborate a match on such a name
+-- inside a lambda's delayed case block, where a clause with a signature
+-- settles it at once.
 namespace LArray
+  ||| `f` of the element read, written back where it was read.
+  rewriteAt : (a -> a) -> Index s -> (1 _ : Res a (const (LArray s a))) -> LArray s a
+  rewriteAt f i (x # arr) = LArray.write arr i (f x)
+
+  mapOver : (a -> a) -> (1 _ : Res (Extents s) (const (LArray s a))) -> LArray s a
+  mapOver f (e # arr) = visit e (\arr, i => rewriteAt f i (LArray.read arr i)) arr
+
   ||| The array with each element replaced by `f` of it, in place, in
   ||| row-major order.
   export
   map : (a -> a) -> (1 _ : LArray s a) -> LArray s a
-  map f arr =
-    let e # arr = LArray.shape arr in
-    visit e (\arr, i => let x # arr = LArray.read arr i in LArray.write arr i (f x)) arr
+  map f arr = mapOver f (LArray.shape arr)
+
+  ||| The accumulator combined with the element read, the array given back.
+  foldRead : (b -> a -> b) -> b -> (1 _ : Res a (const (LArray s a))) -> Res b (const (LArray s a))
+  foldRead g acc (x # arr) = g acc x # arr
+
+  foldStep : (b -> a -> b) -> (1 _ : Res b (const (LArray s a))) -> Index s -> Res b (const (LArray s a))
+  foldStep g (acc # arr) i = foldRead g acc (LArray.read arr i)
+
+  foldOver : (b -> a -> b) -> b -> (1 _ : Res (Extents s) (const (LArray s a))) -> Res b (const (LArray s a))
+  foldOver g z (e # arr) = visit e (foldStep g) (z # arr)
 
   ||| The left fold of the elements in row-major order, and the array given
   ||| back unchanged.
   export
   foldl : (b -> a -> b) -> b -> (1 _ : LArray s a) -> Res b (const (LArray s a))
-  foldl g z arr =
-    let e # arr = LArray.shape arr in
-    visit e (\(acc # arr), i => let x # arr = LArray.read arr i in g acc x # arr) (z # arr)
+  foldl g z arr = foldOver g z (LArray.shape arr)
+
+  ||| The new element written where the old one was read, after the state.
+  traverseWrite : Index s -> (1 _ : LArray s a) -> (1 _ : Res a (const t)) -> LPair t (LArray s a)
+  traverseWrite i arr (y # after) = after # LArray.write arr i y
+
+  traverseRead : (Index s -> a -> (1 _ : t) -> Res a (const t)) -> Index s -> (1 _ : t) ->
+                 (1 _ : Res a (const (LArray s a))) -> LPair t (LArray s a)
+  traverseRead f i before (x # arr) = traverseWrite i arr (f i x before)
+
+  traverseStep : (Index s -> a -> (1 _ : t) -> Res a (const t)) -> (1 _ : LPair t (LArray s a)) -> Index s ->
+                 LPair t (LArray s a)
+  traverseStep f (before # arr) i = traverseRead f i before (LArray.read arr i)
+
+  traverseOver : (Index s -> a -> (1 _ : t) -> Res a (const t)) -> (1 _ : t) ->
+                 (1 _ : Res (Extents s) (const (LArray s a))) -> LPair t (LArray s a)
+  traverseOver f st (e # arr) = visit e (traverseStep f) (st # arr)
 
   ||| Each element replaced, in place, by what `f` gives for its index, the
   ||| element and the state, the elements taken in row-major order and the
@@ -145,9 +182,4 @@ namespace LArray
   export
   traverse : (Index s -> a -> (1 _ : t) -> Res a (const t)) -> (1 _ : t) -> (1 _ : LArray s a) ->
              LPair t (LArray s a)
-  traverse f st arr =
-    let e # arr = LArray.shape arr in
-    visit e (\(before # arr), i =>
-      let x # arr = LArray.read arr i
-          y # after = f i x before
-      in after # LArray.write arr i y) (st # arr)
+  traverse f st arr = traverseOver f st (LArray.shape arr)

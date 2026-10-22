@@ -1,0 +1,16 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
+package mlir-relational
+version = 0.1.0
+
+brief = "The relational core for idris-mlir: relations as tries over a finite universe, generic join, selections, anti-probes, aggregates, Allen's interval relations, and semi-naive fixpoints over sets and lattice-valued maps, in plain Idris over base so both hosts run it"
+authors = "idris-mlir"
+
+depends = base
+
+modules = Relational,
+          Relational.Fixpoint,
+          Relational.Interval,
+          Relational.Join,
+          Relational.Map,
+          Relational.Order
