@@ -238,9 +238,9 @@ isUnsafeBuiltin : Name -> Bool
 isUnsafeBuiltin nm = case splitNS nm of
   (ns, UN (Basic str)) =>
        (ns == builtinNS || ns == emptyNS)
-    && ("assert_" `isPrefixOf` str.text
-        || str `elem` map known [ Kprim__believe_me, Kbelieve_me
-                                , Kprim__crash, Kidris_crash ])
+    && (("assert_" `isPrefixOf` str.text)
+        || (str `elem` map known [ Kprim__believe_me, Kbelieve_me
+                                 , Kprim__crash, Kidris_crash ]))
   _ => False
 
 export
@@ -249,22 +249,33 @@ Show UserName where
   show (Field n) = "." ++ n.text
   show Underscore = "_"
 
-export
-Show Name where
-  show (NS ns n@(UN (Field _))) = show ns ++ ".(" ++ show n ++ ")"
-  show (NS ns (UN (Basic n))) = if any isOpChar (unpack n.text)
+mutual
+  showName : Name -> String
+  showName (NS ns n@(UN (Field _))) = show ns ++ ".(" ++ showName n ++ ")"
+  showName (NS ns (UN (Basic n))) = if any isOpChar (unpack n.text)
                        then "\{show ns}.(\{n.text})"
                        else "\{show ns}.\{n.text}"
-  show (NS ns n) = "\{show ns}.\{show n}"
-  show (UN x) = show x
-  show (MN x y) = "{" ++ x.text ++ ":" ++ show y ++ "}"
-  show (PV n d) = "{P:" ++ show n ++ ":" ++ show d ++ "}"
-  show (DN str n) = str.text
-  show (Nested (outer, idx) inner)
-      = show outer ++ ":" ++ show idx ++ ":" ++ show inner
-  show (CaseBlock outer i) = "case block in " ++ show (snd (splitNS outer))
-  show (WithBlock outer i) = "with block in " ++ show (snd (splitNS outer))
-  show (Resolved x) = "$resolved" ++ show x
+  showName (NS ns n) = "\{show ns}.\{showName n}"
+  showName (UN x) = show x
+  showName (MN x y) = "{" ++ x.text ++ ":" ++ show y ++ "}"
+  showName (PV n d) = "{P:" ++ showName n ++ ":" ++ show d ++ "}"
+  showName (DN str n) = str.text
+  showName (Nested (outer, idx) inner)
+      = show outer ++ ":" ++ show idx ++ ":" ++ showName inner
+  showName (CaseBlock outer i) = "case block in " ++ showUnqualified outer
+  showName (WithBlock outer i) = "with block in " ++ showUnqualified outer
+  showName (Resolved x) = "$resolved" ++ show x
+
+  -- A name printed without its namespaces, which a block's message leaves
+  -- out of the definition it is in. It walks the name itself, so each
+  -- call is on a part of the name it was given.
+  showUnqualified : Name -> String
+  showUnqualified (NS _ n) = showUnqualified n
+  showUnqualified n = showName n
+
+export
+Show Name where
+  show = showName
 
 export
 [RawUN] Show UserName where
