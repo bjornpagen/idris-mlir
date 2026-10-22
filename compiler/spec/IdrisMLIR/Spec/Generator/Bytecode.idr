@@ -39,8 +39,8 @@ builderOf (CheckedBy fn) = ["  let cBuilder = \"::idr::" ++ identText fn ++ "(re
 
 ||| A record's C++ class, named in full: the reader and writer mlir-tblgen
 ||| writes name it, in units where upstream's namespace is open too, and a
-||| class of ours may share its name with one of upstream's (builtin's
-||| `TokenType`), which the record's name alone would leave ambiguous.
+||| class of ours may share its name with one of upstream's, which the
+||| record's name alone would leave ambiguous.
 export
 classOf : String -> List String
 classOf name = ["  let cType = \"::idr::" ++ name ++ "\";"]
