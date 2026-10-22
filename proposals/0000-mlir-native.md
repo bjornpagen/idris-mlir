@@ -1636,6 +1636,23 @@ closes; the owner may overturn any of them. Drafted in
 `audits/p0/synthesis/G-coordinator-decisions.md` for decision points
 DP-22 to DP-84 and folded in here after the coordinator's review.
 
+- **D110** (2026-10-21; L08's finding; amends D90's `unique self`).
+  `unique self` reaches into in-place fields: "whatever you prefer for
+  the first." It means the value's own family's cells unshared and,
+  recursively, the own cells of every field whose type is an `in_place`
+  family, read once from the family declaration. So D72's obligation on
+  a linear record holding a linear list is `unique self`: the record's
+  cell and the list's spine, never the list's elements (D70), and a
+  record whose list holds shared elements is rebuilt in place as D70
+  promises. No new grade case.
+- **D111** (2026-10-21; the integration's build, this cutover). The
+  integration lane does the Idris half on this machine and stops at the
+  LLVM build: "i feel like a the second." It wires the build files, runs
+  the specification's generator on the stock host, builds the
+  specification, the frontend, the fork and the libraries on stock Idris,
+  and routes each error to its lane overnight; the toolchain's bootstrap
+  and the C++ build on the four targets run on the owner's machines, and
+  their failures are routed the same way.
 - **C1** (2026-10-21; DP-13's other parts: count-Q2, own-Q1, rc-Q1)
   (names per D90). Counting's order and borrows follow from D26 and D24.
   - *Drops first, then reuse guided by them*: the reverse walk places

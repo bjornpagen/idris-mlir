@@ -357,7 +357,8 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   (`once` or `many`; zero is absence) on every type, hold only on types
   that hold references: `static`, or `counted` or `scoped` with what is
   known of its sharing (nothing printed, `unique self` for its own
-  family's cells, `unique deep` for everything it reaches). Who frees a
+  family's cells and those of every `in_place` field it holds, `unique
+  deep` for everything it reaches; 2026-10-21). Who frees a
   value and what is known of its sharing are two axes, never one enum,
   and a lifetime is not a field of the grade. Never: a grade whose
   permission mixed ownership with sharing and whose lifetime field split
