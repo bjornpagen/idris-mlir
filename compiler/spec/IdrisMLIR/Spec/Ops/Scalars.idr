@@ -23,6 +23,7 @@ import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 
 import Data.List1
+import Data.Vect
 
 %default total
 
@@ -160,7 +161,7 @@ toChar sign = MkOp
   { home = InIdr
   , mnemonic = toCharName sign
   , ins = [single "value" int]
-  , outs = [result "result" i32]
+  , outs = made
   , attrs = []
   , regions = []
   , traits = []
@@ -178,8 +179,11 @@ toChar sign = MkOp
   , specializations = []
   , laws = []
   , doc = toCharDoc sign
-  , typing = InferredTypes [FixedType BuiltI32]
+  , typing = fixedTypes made
   }
+  where
+    made : Vect 1 Result
+    made = [result "result" i32]
 
 public export
 toCharS : Op 1 1 0 0
@@ -210,7 +214,7 @@ intHead sign = MkOp
   { home = InIdr
   , mnemonic = headName sign
   , ins = [single "value" int]
-  , outs = [result "result" i32]
+  , outs = made
   , attrs = []
   , regions = []
   , traits = []
@@ -228,8 +232,11 @@ intHead sign = MkOp
   , specializations = []
   , laws = []
   , doc = says "the first character of an integer's decimal text"
-  , typing = InferredTypes [FixedType BuiltI32]
+  , typing = fixedTypes made
   }
+  where
+    made : Vect 1 Result
+    made = [result "result" i32]
 
 public export
 intHeadS : Op 1 1 0 0
@@ -275,7 +282,7 @@ f64Head = MkOp
   { home = InIdr
   , mnemonic = "f64.head"
   , ins = [single "value" f64]
-  , outs = [result "result" i32]
+  , outs = made
   , attrs = []
   , regions = []
   , traits = []
@@ -293,8 +300,11 @@ f64Head = MkOp
   , specializations = []
   , laws = []
   , doc = says "the first character of a Double's text"
-  , typing = InferredTypes [FixedType BuiltI32]
+  , typing = fixedTypes made
   }
+  where
+    made : Vect 1 Result
+    made = [result "result" i32]
 
 public export
 scalarOps : List AnyOp

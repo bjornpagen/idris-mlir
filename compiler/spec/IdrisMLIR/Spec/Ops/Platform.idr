@@ -235,7 +235,7 @@ handleFileTime = MkOp
   { home = InIdr
   , mnemonic = "handle.file_time"
   , ins = [single "times" i64]
-  , outs = [result "value" i64]
+  , outs = made
   , attrs = [property "kind" (EnumProperty (enumDef fileTimeFieldClosed))]
   , regions = []
   , traits = []
@@ -255,8 +255,11 @@ handleFileTime = MkOp
   , specializations = []
   , laws = []
   , doc = says "a field of the times a file-time handle holds"
-  , typing = InferredTypes [FixedType BuiltI64]
+  , typing = fixedTypes made
   }
+  where
+    made : Vect 1 Result
+    made = [result "value" i64]
 
 ------------------------------------------------------------------------------
 -- Directories
@@ -438,7 +441,7 @@ clock = MkOp
   { home = InIdr
   , mnemonic = "io.clock"
   , ins = []
-  , outs = [result "reading" i64]
+  , outs = made
   , attrs = [property "kind" (EnumProperty (enumDef clockKindClosed))]
   , regions = []
   , traits = []
@@ -456,8 +459,11 @@ clock = MkOp
   , specializations = []
   , laws = []
   , doc = says "a reading of a clock, or -1 where it cannot be read"
-  , typing = InferredTypes [FixedType BuiltI64]
+  , typing = fixedTypes made
   }
+  where
+    made : Vect 1 Result
+    made = [result "reading" i64]
 
 ------------------------------------------------------------------------------
 -- Handles

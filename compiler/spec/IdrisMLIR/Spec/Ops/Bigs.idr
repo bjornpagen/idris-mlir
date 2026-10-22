@@ -293,7 +293,7 @@ bigCmp = MkOp
   { home = InIdr
   , mnemonic = "big.cmp"
   , ins = [single "lhs" bigOrNatRead, single "rhs" bigOrNatRead]
-  , outs = [result "result" i1]
+  , outs = made
   , attrs = [property "predicate" (EnumProperty (enumDef comparisonClosed))]
   , regions = []
   , traits = [SameTypeOperands]
@@ -311,8 +311,11 @@ bigCmp = MkOp
   , specializations = [bigToWord (OnWords cmpI)]
   , laws = []
   , doc = says "compares two bigs or two naturals"
-  , typing = InferredTypes [FixedType BuiltI1]
+  , typing = fixedTypes made
   }
+  where
+    made : Vect 1 Result
+    made = [result "result" i1]
 
 ------------------------------------------------------------------------------
 -- Conversions
@@ -514,7 +517,7 @@ bigToDouble = MkOp
   { home = InIdr
   , mnemonic = "big.to_double"
   , ins = [single "value" bigRead]
-  , outs = [result "result" f64]
+  , outs = made
   , attrs = []
   , regions = []
   , traits = []
@@ -532,8 +535,11 @@ bigToDouble = MkOp
   , specializations = []
   , laws = []
   , doc = says "a big as the nearest Double"
-  , typing = InferredTypes [FixedType BuiltF64]
+  , typing = fixedTypes made
   }
+  where
+    made : Vect 1 Result
+    made = [result "result" f64]
 
 showBig : RuntimeCall 1 1
 showBig = MkRuntimeCall "big_show" [TakesBig] (Returns GivesStr)

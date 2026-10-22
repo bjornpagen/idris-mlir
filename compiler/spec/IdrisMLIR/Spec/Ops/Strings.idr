@@ -314,7 +314,7 @@ strCmp = MkOp
   { home = InIdr
   , mnemonic = "str.cmp"
   , ins = [single "lhs" strRead, single "rhs" strRead]
-  , outs = [result "result" i1]
+  , outs = made
   , attrs = [property "predicate" (EnumProperty (enumDef comparisonClosed))]
   , regions = []
   , traits = []
@@ -332,8 +332,11 @@ strCmp = MkOp
   , specializations = []
   , laws = []
   , doc = says "compares two strings"
-  , typing = InferredTypes [FixedType BuiltI1]
+  , typing = fixedTypes made
   }
+  where
+    made : Vect 1 Result
+    made = [result "result" i1]
 
 ||| One op for IntN and BitsN: the runtime's reading of a string has no
 ||| signedness, and the op wraps what it gives to its width.
