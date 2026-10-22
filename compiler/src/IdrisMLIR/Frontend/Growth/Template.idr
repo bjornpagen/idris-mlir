@@ -45,7 +45,11 @@
 ||| Every definition a reading looks up is read from the context frozen
 ||| once the program was loaded, by a pure function of it (`inFrozen`), with
 ||| the evidence that the context defines the name so: the definition the
-||| evaluator's step that unfolds the name unfolds.
+||| evaluator's step that unfolds the name unfolds. A reading reads that
+||| context once, where it starts, and carries it in its mode
+||| (`Mode.inContext`), so that every definition, address, full name and
+||| normal form its relation states is over one context, a site's reading
+||| and its instances' alike.
 |||
 ||| Unfolding puts a definition on the walk's stack (`Walk.enter`), the
 ||| measure every reading here recurses on, so the readings end however the
@@ -456,19 +460,25 @@ data Calling = KeepsCall | UnfoldsBeside | WalksAlone
 public export
 data Whose = OfSite (List StandIn) | OfInstance
 
-||| How a term is read.
+||| How a term is read, and against what: the frozen context every
+||| definition, address and normal form of the reading is the one of. It
+||| is read once, where the reading starts, so that what the reading says
+||| of a name (`Idris.Host.Defines`) is what every step that unfolds the
+||| name unfolds (`Idris.Host.definedOnce`), and a site's reading and its
+||| instances' readings speak of one context.
 public export
 record Mode where
   constructor MkMode
   whose : Whose
   keeping : Keeping
   calls : Calling
+  inContext : Frozen
 
 ||| How an instance's term is read: every node, its calls as written, as
 ||| its key writes it.
 public export
-InstanceMode : Mode
-InstanceMode = MkMode OfInstance EveryNode KeepsCall
+InstanceMode : Frozen -> Mode
+InstanceMode ctx = MkMode OfInstance EveryNode KeepsCall ctx
 
 ||| A part that is no head of its own: a node of a type's form, a hole of
 ||| a value's skeleton.
@@ -673,13 +683,13 @@ substituted Placeholding = Erased EmptyFC Placeholder
 ||| A mode that unfolds what it meets left applied, as a site's leaves are
 ||| read; one that walks keeps walking.
 unfolding : Mode -> Mode
-unfolding (MkMode w k KeepsCall) = MkMode w k UnfoldsBeside
+unfolding (MkMode w k KeepsCall ctx) = MkMode w k UnfoldsBeside ctx
 unfolding m = m
 
 ||| The stand-ins a mode reads, a site's; an instance's term holds none.
 standsOf : Mode -> List StandIn
-standsOf (MkMode (OfSite stands) _ _) = stands
-standsOf (MkMode OfInstance _ _) = []
+standsOf (MkMode (OfSite stands) _ _ _) = stands
+standsOf (MkMode OfInstance _ _ _) = []
 
 ||| A substitute as read: an argument of a family's value, or a leaf of the
 ||| placeholder's height, so that every part it is substituted into stays
@@ -688,6 +698,13 @@ public export
 substituteTemplate : Substitute -> Template
 substituteTemplate (FormalArgument j k) = Formal j k
 substituteTemplate Placeholding = Leaf 1
+
+||| The address a reading's context gives a name: what a reading heads a
+||| constructor, a type constructor or a call of it by, so that two
+||| readings over one context head one name by one address.
+public export
+0 AddressedAs : Mode -> Name -> Maybe Address -> Type
+AddressedAs m n a = definitionAddress (gamma (defsOf m.inContext)) n = a
 
 mutual
   ||| What a reading says of a term over a scope, each variable by its
@@ -751,39 +768,48 @@ mutual
     SFormal : (0 _ : Closed.markerOf n = Nothing) -> (0 _ : probeOf n = Just (ProbeFormal j k)) ->
               AllReadAs m env as ts -> SpineAs m env (Ref fc Bound n) as (partOf m.keeping (Formal j k) ts)
     ||| One of the writer's markers, in a site's term.
-    SMarker : (0 _ : walkMarker stands n = Just t) -> AllReadAs (MkMode (OfSite stands) kp cl) env as ts ->
-              SpineAs (MkMode (OfSite stands) kp cl) env (Ref fc Bound n) as (markedOf t ts)
+    SMarker : (0 _ : walkMarker stands n = Just t) -> AllReadAs (MkMode (OfSite stands) kp cl ctx) env as ts ->
+              SpineAs (MkMode (OfSite stands) kp cl ctx) env (Ref fc Bound n) as (markedOf t ts)
     ||| Any other bound name: a runtime part, one node.
     SPart : (0 _ : Closed.markerOf n = Nothing) -> AllReadAs m env as ts ->
             SpineAs m env (Ref fc Bound n) as (partOf m.keeping (Leaf 1) ts)
     ||| A definition with no place: what is not known of a runtime value.
-    SNoDefinition : AllReadAs m env as ts -> SpineAs m env (Ref fc Func n) as (partOf m.keeping (Leaf 1) ts)
-    SData : AllReadAs m env as ts -> SpineAs m env (Ref fc (DataCon tag arity) n) as (Head a ts)
-    STypeCon : AllReadAs m env as ts -> SpineAs m env (Ref fc (TyCon arity) n) as (nodeOf m.keeping (Head a ts))
+    SNoDefinition : (0 _ : AddressedAs m n Nothing) -> AllReadAs m env as ts ->
+                    SpineAs m env (Ref fc Func n) as (partOf m.keeping (Leaf 1) ts)
+    ||| A data constructor applied, headed by the address the context gives
+    ||| it.
+    SData : (0 _ : AddressedAs m n a) -> AllReadAs m env as ts -> SpineAs m env (Ref fc (DataCon tag arity) n) as (Head a ts)
+    STypeCon : (0 _ : AddressedAs m n a) -> AllReadAs m env as ts ->
+               SpineAs m env (Ref fc (TyCon arity) n) as (nodeOf m.keeping (Head a ts))
     ||| A definition as written.
-    SKept : AllReadAs m env as ts -> SpineAs m env (Ref fc Func n) as (nodeOf m.keeping (Head (Just a) ts))
+    SKept : (0 _ : AddressedAs m n (Just a)) -> AllReadAs m env as ts ->
+            SpineAs m env (Ref fc Func n) as (nodeOf m.keeping (Head (Just a) ts))
     ||| A call in a site's term: as written, which every instance that
     ||| leaves it stuck writes, beside what the others make of it, read off
     ||| the definition at the call's arguments as written (`Reducing`).
-    SBeside : AllReadAs (MkMode (OfSite stands) kp cl) env as ts ->
-              Reducing (MkMode (OfSite stands) kp cl) a n (map (closeBy substituted env) as) (nodeOf kp (Head (Just a) ts)) t ->
-              SpineAs (MkMode (OfSite stands) kp cl) env (Ref fc Func n) as (Choice (Leaf 1) [nodeOf kp (Head (Just a) ts), t])
+    SBeside : (0 _ : AddressedAs (MkMode (OfSite stands) kp cl ctx) n (Just a)) ->
+              AllReadAs (MkMode (OfSite stands) kp cl ctx) env as ts ->
+              Reducing (MkMode (OfSite stands) kp cl ctx) a n (map (closeBy substituted env) as) (nodeOf kp (Head (Just a) ts)) t ->
+              SpineAs (MkMode (OfSite stands) kp cl ctx) env (Ref fc Func n) as (Choice (Leaf 1) [nodeOf kp (Head (Just a) ts), t])
     ||| A projection, in a site's type, of a record no constructor builds
     ||| yet: as written, which a dictionary's key keeps while the record
     ||| stays no constructor, or the record's field once it is one, applied
     ||| to the arguments past the projection's own; behind the record.
-    SProjected : ReadAs (MkMode (OfSite stands) EveryNode cl) env r rt ->
-                 AllReadAs (MkMode (OfSite stands) EveryNode cl) env as ts ->
-                 AllReadAs (MkMode (OfSite stands) EveryNode cl) env xs es ->
-                 SpineAs (MkMode (OfSite stands) EveryNode cl) env (Ref fc Func n) as
+    SProjected : (0 _ : AddressedAs (MkMode (OfSite stands) EveryNode cl ctx) n (Just a)) ->
+                 ReadAs (MkMode (OfSite stands) EveryNode cl ctx) env r rt ->
+                 AllReadAs (MkMode (OfSite stands) EveryNode cl ctx) env as ts ->
+                 AllReadAs (MkMode (OfSite stands) EveryNode cl ctx) env xs es ->
+                 SpineAs (MkMode (OfSite stands) EveryNode cl ctx) env (Ref fc Func n) as
                          (Choice rt [Head (Just a) ts, partOf EveryNode (Template.Field k rt) es])
     ||| A recursion met again on its own unfolding, in a site's term.
-    SRecurs : AllReadAs (MkMode (OfSite stands) kp cl) env as ts ->
-              SpineAs (MkMode (OfSite stands) kp cl) env (Ref fc Func n) as (Opaque a ts)
+    SRecurs : (0 _ : AddressedAs (MkMode (OfSite stands) kp cl ctx) n (Just a)) ->
+              AllReadAs (MkMode (OfSite stands) kp cl ctx) env as ts ->
+              SpineAs (MkMode (OfSite stands) kp cl ctx) env (Ref fc Func n) as (Opaque a ts)
     ||| A call's unfolding alone, read for where a type matches.
-    SWalked : AllReadAs (MkMode (OfSite stands) kp WalksAlone) env as ts ->
-              Reducing (MkMode (OfSite stands) kp WalksAlone) a n (map (closeBy substituted env) as) (nodeOf kp (Head (Just a) ts)) t ->
-              SpineAs (MkMode (OfSite stands) kp WalksAlone) env (Ref fc Func n) as t
+    SWalked : (0 _ : AddressedAs (MkMode (OfSite stands) kp WalksAlone ctx) n (Just a)) ->
+              AllReadAs (MkMode (OfSite stands) kp WalksAlone ctx) env as ts ->
+              Reducing (MkMode (OfSite stands) kp WalksAlone ctx) a n (map (closeBy substituted env) as) (nodeOf kp (Head (Just a) ts)) t ->
+              SpineAs (MkMode (OfSite stands) kp WalksAlone ctx) env (Ref fc Func n) as t
 
   ||| What a binder's implicitness holds: a default, which the key writes.
   public export
@@ -813,22 +839,22 @@ mutual
   export
   data Reducing : Mode -> Address -> Name -> List ClosedTerm -> (written : Template) -> Template -> Type where
     ||| Its case tree walked over its arguments.
-    ByWalk : (0 _ : Defines ctx n def) -> (0 _ : definition def = PMDef info pargs body) -> (0 _ : TreeOf body tree) ->
+    ByWalk : (0 _ : Defines m.inContext n def) -> (0 _ : definition def = PMDef info pargs body) -> (0 _ : TreeOf body tree) ->
              (0 _ : bindParams pargs terms = Just (env, extras)) -> Unfolds m a written env tree extras (Just t) ->
              Reducing m a n terms written t
     ||| A recursion structural on a Nat-like argument: the argument raised
     ||| by its leaves.
-    ByStructure : (0 _ : Defines ctx n def) -> (0 _ : definition def = PMDef info pargs body) -> (0 _ : TreeOf body tree) ->
+    ByStructure : (0 _ : Defines m.inContext n def) -> (0 _ : definition def = PMDef info pargs body) -> (0 _ : TreeOf body tree) ->
                   (0 _ : bindParams pargs terms = Just (env, extras)) -> Structural m a terms env tree t ->
                   Reducing m a n terms written t
     ||| Given fewer arguments than its parameters: a family's value, its
     ||| tree walked over an argument of the value for each it lacks.
-    ByGiven : (0 _ : Defines ctx n def) -> (0 _ : definition def = PMDef info pargs body) -> (0 _ : TreeOf body tree) ->
+    ByGiven : (0 _ : Defines m.inContext n def) -> (0 _ : definition def = PMDef info pargs body) -> (0 _ : TreeOf body tree) ->
               (0 _ : bindParams pargs terms = Nothing) -> GivenUnfolds m a written terms pargs tree t ->
               Reducing m a n terms written t
     ||| A builtin applied to the writer's markers: the constant it
     ||| computes, no higher than a leaf two high.
-    ByBuiltin : (0 _ : Defines ctx n def) -> (0 _ : definition def = Builtin op) -> Reducing m a n terms written (Leaf 2)
+    ByBuiltin : (0 _ : Defines m.inContext n def) -> (0 _ : definition def = Builtin op) -> Reducing m a n terms written (Leaf 2)
 
   ||| A family's value walked over an argument of the value for each
   ||| parameter it lacks; or, met again on its own unfolding, a recursion
@@ -849,7 +875,7 @@ mutual
   data Structural : Mode -> (self : Address) -> (args : List ClosedTerm) -> Values ClosedTerm vs -> CaseTree vs ->
                     Template -> Type where
     Raised : (0 _ : bareMarker (standsOf m) (valueAt env idx p) = Just (j, e)) ->
-             (0 _ : recursion ctx (standsOf m) self (j, S e) args idx arms = Just (bases, kids)) ->
+             (0 _ : recursion (gamma (defsOf m.inContext)) (standsOf m) self (j, S e) args idx arms = Just (bases, kids)) ->
              AllReadAs (unfolding m) [] bases leaves -> AllReadAs (unfolding m) [] kids children ->
              Structural m self args env (Case idx p ty alts)
                         (Choice (Var j e) (leaves ++ [raise (minus (max (tallest leaves) (tallest children)) 1) (Var j e)]))
@@ -864,26 +890,26 @@ mutual
   export
   data Unfolds : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> CaseTree vs ->
                  List ClosedTerm -> Maybe Template -> Type where
-    ULeaf : (0 r : NormalReading OfNormaliseTypes (applyTo (close env rhs) extras)) ->
+    ULeaf : (0 r : NormalReading OfNormaliseTypes m.inContext (applyTo (close env rhs) extras)) ->
             ReadAs (unfolding m) [] r.readForm t -> Unfolds m self written env (STerm i rhs) extras (Just t)
     UUnmatched : Unfolds m self written env (Unmatched msg) extras (Just written)
     UImpossible : Unfolds m self written env Impossible extras Nothing
-    UConstructed : (0 _ : scrutineeOf (gamma (defsOf ctx)) (standsOf m) (valueAt env idx p) = Constructed c sargs) ->
-                   TakenBy m self written env (fullNameIn ctx c) sargs alts extras r ->
+    UConstructed : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Constructed c sargs) ->
+                   TakenBy m self written env (fullNameIn m.inContext c) sargs alts extras r ->
                    Unfolds m self written env (Case idx p ty alts) extras r
-    ULiteral : (0 _ : scrutineeOf (gamma (defsOf ctx)) (standsOf m) (valueAt env idx p) = Literal k) ->
+    ULiteral : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Literal k) ->
                TakesLiteral m self written env k alts extras r -> Unfolds m self written env (Case idx p ty alts) extras r
-    USuspended : (0 _ : scrutineeOf (gamma (defsOf ctx)) (standsOf m) (valueAt env idx p) = Suspended dty da) ->
+    USuspended : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Suspended dty da) ->
                  TakesDelay m self written env dty da alts extras r -> Unfolds m self written env (Case idx p ty alts) extras r
-    UMatched : (0 _ : scrutineeOf (gamma (defsOf ctx)) (standsOf m) (valueAt env idx p) = Matched j d) ->
+    UMatched : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Matched j d) ->
                Alternatives m self written env (markerAt j (S d)) alts extras ls ->
                Unfolds m self written env (Case idx p ty alts) extras (Just (Choice (Var j d) ls))
-    UOnFormal : (0 _ : scrutineeOf (gamma (defsOf ctx)) (standsOf m) (valueAt env idx p) = OnFormal j k) ->
+    UOnFormal : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = OnFormal j k) ->
                 Unfolds m self written env (Case idx p ty alts) extras
                         (Just (Choice (Formal j k) [written, Opaque self [Formal j k]]))
-    UAtRuntime : (0 _ : scrutineeOf (gamma (defsOf ctx)) (standsOf m) (valueAt env idx p) = AtRuntime) ->
+    UAtRuntime : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = AtRuntime) ->
                  Unfolds m self written env (Case idx p ty alts) extras (Just written)
-    UStuck : (0 _ : scrutineeOf (gamma (defsOf ctx)) (standsOf m) (valueAt env idx p) = StuckInTurn) ->
+    UStuck : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = StuckInTurn) ->
              ReadAs (unfolding m) [] (valueAt env idx p) t ->
              Alternatives m self written env (valueAt env idx p) alts extras ls ->
              Unfolds m self written env (Case idx p ty alts) extras (Just (Choice t ls))
@@ -895,10 +921,10 @@ mutual
   export
   data TakenBy : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> Name -> List ClosedTerm ->
                List (CaseAlt vs) -> List ClosedTerm -> Maybe Template -> Type where
-    TakesThis : (0 _ : (fullNameIn ctx con /= c) = False) -> (0 _ : bindEach cargs sargs = Just bound) ->
+    TakesThis : (0 _ : (fullNameIn m.inContext con /= c) = False) -> (0 _ : bindEach cargs sargs = Just bound) ->
                 Unfolds m self written (extend bound env) t extras r ->
                 TakenBy m self written env c sargs (ConCase con tag cargs t :: alts) extras r
-    PassesThis : (0 _ : (fullNameIn ctx con /= c) = True) -> TakenBy m self written env c sargs alts extras r ->
+    PassesThis : (0 _ : (fullNameIn m.inContext con /= c) = True) -> TakenBy m self written env c sargs alts extras r ->
                  TakenBy m self written env c sargs (ConCase con tag cargs t :: alts) extras r
     TakesDefault : Unfolds m self written env t extras r -> TakenBy m self written env c sargs (DefaultCase t :: alts) extras r
     PassesDelay : TakenBy m self written env c sargs alts extras r ->
@@ -1083,10 +1109,10 @@ siteBound : {0 vs : Scope} -> {0 stand : Values Substitute vs} -> {0 as : List (
             (m : Mode) -> (fc : FC) -> (n : Name) -> (0 _ : Closed.markerOf n = Nothing) ->
             (ts : List Template) -> (0 _ : AllReadAs m stand as ts) ->
             Subset Template (SpineAs m stand (Ref fc Bound n) as)
-siteBound (MkMode (OfSite stands) kp cl) fc n none ts rs with (walkMarker stands n) proof found
+siteBound (MkMode (OfSite stands) kp cl ctx) fc n none ts rs with (walkMarker stands n) proof found
   _ | Just t = Element (markedOf t ts) (SMarker found rs)
   _ | Nothing = Element (partOf kp (Leaf 1) ts) (SPart none rs)
-siteBound (MkMode OfInstance kp cl) fc n none ts rs = Element (partOf kp (Leaf 1) ts) (SPart none rs)
+siteBound (MkMode OfInstance kp cl ctx) fc n none ts rs = Element (partOf kp (Leaf 1) ts) (SPart none rs)
 
 ||| A bound name that is no hole marker, read: an argument of a family's
 ||| value its own; any other as `siteBound` reads it.
@@ -1102,13 +1128,14 @@ boundName m fc n none ts rs with (probeOf n) proof formal
 ||| that leaves it stuck writes, and what the unfolding gives the others;
 ||| read for where a type matches, the unfolding alone.
 besides : {0 vs : Scope} -> {0 stand : Values Substitute vs} -> {0 as : List (TT vs)} -> {0 fc : FC} -> {0 n : Name} ->
-          (stands : List StandIn) -> (kp : Keeping) -> (cl : Calling) -> (a : Address) -> (ts : List Template) ->
-          (0 _ : AllReadAs (MkMode (OfSite stands) kp cl) stand as ts) -> (unfolded : Template) ->
-          (0 _ : Reducing (MkMode (OfSite stands) kp cl) a n (map (closeBy substituted stand) as)
+          {0 ctx : Frozen} -> (stands : List StandIn) -> (kp : Keeping) -> (cl : Calling) -> (a : Address) ->
+          (0 _ : AddressedAs (MkMode (OfSite stands) kp cl ctx) n (Just a)) -> (ts : List Template) ->
+          (0 _ : AllReadAs (MkMode (OfSite stands) kp cl ctx) stand as ts) -> (unfolded : Template) ->
+          (0 _ : Reducing (MkMode (OfSite stands) kp cl ctx) a n (map (closeBy substituted stand) as)
                           (nodeOf kp (Head (Just a) ts)) unfolded) ->
-          Subset Template (SpineAs (MkMode (OfSite stands) kp cl) stand (Ref fc Func n) as)
-besides stands kp WalksAlone a ts rs t r = Element t (SWalked rs r)
-besides stands kp cl a ts rs t r = Element (Choice (Leaf 1) [nodeOf kp (Head (Just a) ts), t]) (SBeside rs r)
+          Subset Template (SpineAs (MkMode (OfSite stands) kp cl ctx) stand (Ref fc Func n) as)
+besides stands kp WalksAlone a at ts rs t r = Element t (SWalked at rs r)
+besides stands kp cl a at ts rs t r = Element (Choice (Leaf 1) [nodeOf kp (Head (Just a) ts), t]) (SBeside at rs r)
 
 ||| What a site's reading makes of a definition left applied, at its
 ||| arguments as closed terms: the call as written, which every instance
@@ -1265,20 +1292,16 @@ mutual
             IsHole i hole => Element (partOf m.keeping (Token (S i)) rs.fst) (SHole hole rs.snd)
             NotHole none => boundName m fc n none rs.fst rs.snd)
   reference m w acc stand fc (DataCon tag arity) n args = do
-    ctx <- frozenContext
     rs <- readings args
-    pure (Element (Head (definitionAddress (gamma (defsOf ctx)) n) rs.fst) (SData rs.snd))
+    pure (Element (Head (definitionAddress (gamma (defsOf m.inContext)) n) rs.fst) (SData Refl rs.snd))
   reference m w acc stand fc (TyCon arity) n args = do
-    ctx <- frozenContext
     rs <- readings args
-    pure (Element (nodeOf m.keeping (Head (definitionAddress (gamma (defsOf ctx)) n) rs.fst)) (STypeCon rs.snd))
-  reference m w acc stand fc Func n args = do
-    ctx <- frozenContext
-    case definitionAddress (gamma (defsOf ctx)) n of
-      Just a => ofDefinition m w acc stand fc n a args
-      Nothing => do
-        rs <- readings args
-        pure (Element (partOf m.keeping (Leaf 1) rs.fst) (SNoDefinition rs.snd))
+    pure (Element (nodeOf m.keeping (Head (definitionAddress (gamma (defsOf m.inContext)) n) rs.fst)) (STypeCon Refl rs.snd))
+  reference m w acc stand fc Func n args with (definitionAddress (gamma (defsOf m.inContext)) n) proof found
+    _ | Just a = ofDefinition m w acc stand fc n a found args
+    _ | Nothing = do
+      rs <- readings args
+      pure (Element (partOf m.keeping (Leaf 1) rs.fst) (SNoDefinition found rs.snd))
 
   ||| A definition with a place, applied. In a site's type, a projection of a
   ||| record that is no constructor is, at an instance, one of two things:
@@ -1289,25 +1312,27 @@ mutual
   ||| matches. In a skeleton, a projection of a value is a match on it like
   ||| any other; in an instance's term it is as written, as its key is.
   ofDefinition : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                 (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> Address -> (args : List (Arg m stand)) ->
+                 (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> (a : Address) ->
+                 (0 _ : AddressedAs m n (Just a)) -> (args : List (Arg m stand)) ->
                  Front (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
-  ofDefinition m@(MkMode (OfSite stands) EveryNode cl) w acc stand fc n a args = do
+  ofDefinition m@(MkMode (OfSite stands) EveryNode cl ctx) w acc stand fc n a at args = do
     Just (k, projected, extras) <- projectedRecord n args
-      | Nothing => call m w acc stand fc n a args
+      | Nothing => call m w acc stand fc n a at args
     matched <- Force projected.reading
     rs <- readings args
     es <- readings extras
     pure (Element (Choice matched.fst [Head (Just a) rs.fst, partOf EveryNode (Template.Field k matched.fst) es.fst])
-                  (SProjected matched.snd rs.snd es.snd))
-  ofDefinition m w acc stand fc n a args = call m w acc stand fc n a args
+                  (SProjected at matched.snd rs.snd es.snd))
+  ofDefinition m w acc stand fc n a at args = call m w acc stand fc n a at args
 
   call : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-         (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> Address -> (args : List (Arg m stand)) ->
+         (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> (a : Address) ->
+         (0 _ : AddressedAs m n (Just a)) -> (args : List (Arg m stand)) ->
          Front (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
-  call (MkMode wh kp KeepsCall) w acc stand fc n a args = do
+  call (MkMode wh kp KeepsCall ctx) w acc stand fc n a at args = do
     rs <- readings args
-    pure (Element (nodeOf kp (Head (Just a) rs.fst)) (SKept rs.snd))
-  call m w acc stand fc n a args = applied m w acc stand fc n a args
+    pure (Element (nodeOf kp (Head (Just a) rs.fst)) (SKept at rs.snd))
+  call m w acc stand fc n a at args = applied m w acc stand fc n a at args
 
   ||| A definition left applied in a site's normal form or shape. The
   ||| normaliser leaves applied, whatever its arguments, one that does not
@@ -1323,26 +1348,26 @@ mutual
   ||| higher than a leaf two high (`Proof.Bound.AtComputed`). An instance's
   ||| term is never unfolded: it is its key.
   applied : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-            (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> Address -> (args : List (Arg m stand)) ->
+            (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> (a : Address) ->
+            (0 _ : AddressedAs m n (Just a)) -> (args : List (Arg m stand)) ->
             Front (Subset Template (SpineAs m stand (Ref fc Func n) (termsOf args)))
-  applied (MkMode OfInstance kp cl) w acc stand fc n a args = do
+  applied (MkMode OfInstance kp cl ctx) w acc stand fc n a at args = do
     rs <- readings args
-    pure (Element (nodeOf kp (Head (Just a) rs.fst)) (SKept rs.snd))
-  applied (MkMode (OfSite stands) kp cl) w acc stand fc n a args = do
+    pure (Element (nodeOf kp (Head (Just a) rs.fst)) (SKept at rs.snd))
+  applied (MkMode (OfSite stands) kp cl ctx) w acc stand fc n a at args = do
     rs <- readings args
     let written = nodeOf kp (Head (Just a) rs.fst)
-    let folded = the (Subset Template (SpineAs (MkMode (OfSite stands) kp cl) stand (Ref fc Func n) (termsOf args)))
-                     (Element written (SKept rs.snd))
-    ctx <- frozenContext
+    let folded = the (Subset Template (SpineAs (MkMode (OfSite stands) kp cl ctx) stand (Ref fc Func n) (termsOf args)))
+                     (Element written (SKept at rs.snd))
     let Just (MkInFrozen placement def defines) = inFrozen ctx n
       | Nothing => pure folded
-    outcome <- callRead (MkMode (OfSite stands) kp cl) w acc a n placement def defines (map (\x => Force x.value) args) written
+    outcome <- callRead (MkMode (OfSite stands) kp cl ctx) w acc a n placement def defines (map (\x => Force x.value) args) written
     pure (case outcome of
             AsWritten => folded
-            Recurs => Element (Opaque a rs.fst) (SRecurs rs.snd)
+            Recurs => Element (Opaque a rs.fst) (SRecurs at rs.snd)
             Unfolded t r =>
-              besides stands kp cl a rs.fst rs.snd t
-                      (replace {p = \ts => Reducing (MkMode (OfSite stands) kp cl) a n ts written t} (closedTerms args) r))
+              besides stands kp cl a at rs.fst rs.snd t
+                      (replace {p = \ts => Reducing (MkMode (OfSite stands) kp cl ctx) a n ts written t} (closedTerms args) r))
 
   ||| A site's call of a definition the frozen context gives, at its
   ||| arguments as closed terms (`applied`): a definition given fewer
@@ -1352,8 +1377,8 @@ mutual
   ||| Nat-like argument (`structural`), any other walked (`walk`); and a
   ||| builtin applied to the writer's markers, where every node is read and
   ||| calls are unfolded beside.
-  callRead : {auto c : Ref Ctxt Defs} -> {0 ctx : Frozen} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-             (a : Address) -> (n : Name) -> Placement -> (def : GlobalDef) -> (0 _ : Defines ctx n def) ->
+  callRead : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
+             (a : Address) -> (n : Name) -> Placement -> (def : GlobalDef) -> (0 _ : Defines m.inContext n def) ->
              (terms : List ClosedTerm) -> (written : Template) -> Front (CallRead m a n terms written)
   callRead m w acc@(Access rec) a n placement def defines terms written = case Element (definition def) Refl of
     Element (PMDef _ pargs body) isDef => do
@@ -1374,7 +1399,7 @@ mutual
                 | Element Nothing _ => pure AsWritten
               pure (Unfolded t (ByWalk defines isDef inTree bound walked))
     Element (Builtin _) isBuiltin => case (m, mentionedAmong terms) of
-      (MkMode _ EveryNode UnfoldsBeside, Mentioned) => pure (Unfolded (Leaf 2) (ByBuiltin defines isBuiltin))
+      (MkMode _ EveryNode UnfoldsBeside _, Mentioned) => pure (Unfolded (Leaf 2) (ByBuiltin defines isBuiltin))
       _ => pure AsWritten
     _ => pure AsWritten
 
@@ -1390,8 +1415,8 @@ mutual
           Placement -> (a : Address) -> (terms : List ClosedTerm) -> (type : ClosedTerm) -> (pargs : Scope) ->
           (tree : CaseTree pargs) -> (written : Template) ->
           Front (Maybe (Subset Template (GivenUnfolds m a written terms pargs tree)))
-  given (MkMode _ Skeleton _) w acc placement a terms ty pargs tree written = pure Nothing
-  given m@(MkMode _ EveryNode _) w acc@(Access rec) placement a terms ty pargs tree written = do
+  given (MkMode _ Skeleton _ _) w acc placement a terms ty pargs tree written = pure Nothing
+  given m@(MkMode _ EveryNode _ _) w acc@(Access rec) placement a terms ty pargs tree written = do
     arities <- binderArities ty
     let lacking = formalsFrom 0 (drop (length terms) arities) (minus (length pargs) (length terms))
     case Element (bindParams pargs (terms ++ map substituted lacking)) Refl of
@@ -1424,11 +1449,10 @@ mutual
     case Element (bareMarker (standsOf m) (valueAt env idx p)) Refl of
       Element Nothing _ => pure Nothing
       Element (Just (j, e)) marked => do
-        ctx <- frozenContext
-        let Just arms = natArms ctx (markerAt j (S e)) env alts
+        let Just arms = natArms m.inContext (markerAt j (S e)) env alts
           | Nothing => pure Nothing
         arms' <- traverse normalisedArm arms
-        case Element (recursion (gamma (defsOf ctx)) (standsOf m) self (j, S e) args idx arms') Refl of
+        case Element (recursion (gamma (defsOf m.inContext)) (standsOf m) self (j, S e) args idx arms') Refl of
           Element Nothing _ => pure Nothing
           Element (Just (bases, kids)) shaped => do
             leaves <- readAll (unfolding m) w acc [] bases
@@ -1436,8 +1460,8 @@ mutual
             pure (Just (Element _ (Raised marked shaped leaves.snd children.snd)))
     where
       normalisedArm : Arm -> Front Arm
-      normalisedArm (Step t) = Step . (.readForm) <$> readNormal (applyTo t extras)
-      normalisedArm (Base t) = Base . (.readForm) <$> readNormal (applyTo t extras)
+      normalisedArm (Step t) = Step . (.readForm) <$> readNormal m.inContext (applyTo t extras)
+      normalisedArm (Base t) = Base . (.readForm) <$> readNormal m.inContext (applyTo t extras)
   structural _ _ _ _ _ _ _ _ = pure Nothing
 
   ||| A case tree walked over what its variables stand for, the leaves it
@@ -1455,17 +1479,16 @@ mutual
          (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (tree : CaseTree vs) ->
          (extras : List ClosedTerm) -> Front (Subset (Maybe Template) (Unfolds m self written env tree extras))
   walk m w acc self written env (STerm _ rhs) extras = do
-    r <- readNormal (applyTo (close env rhs) extras)
+    r <- readNormal m.inContext (applyTo (close env rhs) extras)
     t <- read (unfolding m) w acc [] r.readForm
     pure (Element (Just t.fst) (ULeaf r t.snd))
   -- A partial definition stops where it does not match, at every instance.
   walk m w acc self written env (Unmatched _) extras = pure (Element (Just written) UUnmatched)
   walk m w acc self written env Impossible extras = pure (Element Nothing UImpossible)
-  walk m w acc self written env (Case idx p ty alts) extras = do
-    ctx <- frozenContext
-    case Element (scrutineeOf (gamma (defsOf ctx)) (standsOf m) (valueAt env idx p)) Refl of
+  walk m w acc self written env (Case idx p ty alts) extras =
+    case Element (scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p)) Refl of
       Element (Constructed c sargs) found =>
-        (\r => Element r.fst (UConstructed found r.snd)) <$> chosen m w acc self written env (fullNameIn ctx c) sargs alts extras
+        (\r => Element r.fst (UConstructed found r.snd)) <$> chosen m w acc self written env (fullNameIn m.inContext c) sargs alts extras
       Element (Literal k) found => (\r => Element r.fst (ULiteral found r.snd)) <$> literal m w acc self written env k alts extras
       Element (Suspended dty da) found =>
         (\r => Element r.fst (USuspended found r.snd)) <$> delayed m w acc self written env dty da alts extras
@@ -1493,9 +1516,8 @@ mutual
            (self : Address) -> (written : Template) -> (env : Values ClosedTerm vs) -> (name : Name) -> (sargs : List ClosedTerm) ->
            (alts : List (CaseAlt vs)) -> (extras : List ClosedTerm) ->
            Front (Subset (Maybe Template) (TakenBy m self written env name sargs alts extras))
-  chosen m w acc self written env c sargs (ConCase con _ cargs t :: alts) extras = do
-    ctx <- frozenContext
-    case Element (fullNameIn ctx con /= c) Refl of
+  chosen m w acc self written env c sargs (ConCase con _ cargs t :: alts) extras =
+    case Element (fullNameIn m.inContext con /= c) Refl of
       Element True other =>
         (\r => Element r.fst (PassesThis other r.snd)) <$> chosen m w acc self written env c sargs alts extras
       Element False same => case Element (bindEach cargs sargs) Refl of
@@ -1638,28 +1660,29 @@ dictionaryForm ctx t = do
        let c = contracted s.fst in
        pure (Element c.etaForm (FromWritten (ReducedThenContracted s.snd c.etaSteps)))
 
-||| A site's static argument read: the form its reading reads, how it was
-||| read off the term, the mode it is read in, the template it reads as
-||| with what that says of the form, and what the site writes there, the
-||| template with a form's extents as its key holds them.
+||| A site's static argument read: the mode it is read in, the context of
+||| which is the one every normal form and definition of the reading is
+||| over, the form its reading reads and how it was read off the term in
+||| that context, the template it reads as with what that says of the
+||| form, and what the site writes there, the template with a form's
+||| extents as its key holds them.
 public export
 record SiteReading (t : ClosedTerm) where
   constructor MkSiteReading
-  0 context : Frozen
-  form : ClosedTerm
-  0 formFrom : FormFrom context t form
   0 mode : Mode
+  form : ClosedTerm
+  0 formFrom : FormFrom mode.inContext t form
   read : Template
   0 describes : ReadAs mode [] form read
   template : Template
   0 formed : KeyForm read template
 
-||| A term of a site's read off its normal form.
-normalSite : {auto c : Ref Ctxt Defs} -> Mode -> (t : ClosedTerm) -> Front (SiteReading t)
+||| A term of a site's read off its normal form, in the mode's context.
+normalSite : {auto c : Ref Ctxt Defs} -> (m : Mode) -> (t : ClosedTerm) -> Front (SiteReading t)
 normalSite m t = do
-  n <- readNormal t
+  n <- readNormal m.inContext t
   r <- readFromStart m n.readForm
-  pure (MkSiteReading n.readIn n.readForm (FromNormalForm (readingReadOff n)) m r.fst r.snd r.fst AsRead)
+  pure (MkSiteReading m n.readForm (FromNormalForm (readingReadOff n)) r.fst r.snd r.fst AsRead)
 
 ||| What a site, a field or a cap writes at a static argument of kind k, a
 ||| term whose stand-ins are `stands`, read as its key writes it there
@@ -1672,33 +1695,38 @@ normalSite m t = do
 ||| implementation it stands for when it depends on a runtime value,
 ||| nothing normalised or unfolded. A shape is a skeleton: of the argument
 ||| as written when a data constructor heads it, else of its normal form
-||| (`Instances.argumentShape`).
+||| (`Instances.argumentShape`). The frozen context is read once, here,
+||| and the whole reading is over it.
 export
 siteReading : {auto c : Ref Ctxt Defs} -> (stands : List StandIn) -> State.Static -> (t : ClosedTerm) -> Front (SiteReading t)
-siteReading stands AType t = normalSite (MkMode (OfSite stands) EveryNode UnfoldsBeside) t
-siteReading stands AFamily t = normalSite (MkMode (OfSite stands) EveryNode UnfoldsBeside) t
+siteReading stands AType t = do
+  ctx <- frozenContext
+  normalSite (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) t
+siteReading stands AFamily t = do
+  ctx <- frozenContext
+  normalSite (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) t
 siteReading stands AForm t = do
-  n <- readNormal t
-  let m = MkMode (OfSite stands) EveryNode UnfoldsBeside
-  r <- readFromStart m n.readForm
+  ctx <- frozenContext
+  n <- readNormal ctx t
+  r <- readFromStart (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.readForm
   f <- formedReading r.fst
-  pure (MkSiteReading n.readIn n.readForm (FromNormalForm (readingReadOff n)) m r.fst r.snd f.fst f.snd)
+  pure (MkSiteReading (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.readForm (FromNormalForm (readingReadOff n))
+                      r.fst r.snd f.fst f.snd)
 siteReading stands ADictionary t = do
   ctx <- frozenContext
   d <- dictionaryForm ctx t
-  let m = MkMode (OfSite stands) EveryNode KeepsCall
-  r <- readFromStart m d.fst
-  pure (MkSiteReading ctx d.fst d.snd m r.fst r.snd r.fst AsRead)
+  r <- readFromStart (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.fst
+  pure (MkSiteReading (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.fst d.snd r.fst r.snd r.fst AsRead)
 siteReading stands AShape t = do
   ctx <- frozenContext
   s <- solvedIn ctx t
   case getFnArgs s.fst of
     (Ref _ (DataCon _ _) _, _) => do
       let c = contracted s.fst
-      let m = MkMode (OfSite stands) Skeleton KeepsCall
-      r <- readFromStart m c.etaForm
-      pure (MkSiteReading ctx c.etaForm (FromWritten (ReducedThenContracted s.snd c.etaSteps)) m r.fst r.snd r.fst AsRead)
-    _ => normalSite (MkMode (OfSite stands) Skeleton UnfoldsBeside) t
+      r <- readFromStart (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
+      pure (MkSiteReading (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
+                          (FromWritten (ReducedThenContracted s.snd c.etaSteps)) r.fst r.snd r.fst AsRead)
+    _ => normalSite (MkMode (OfSite stands) Skeleton UnfoldsBeside ctx) t
 
 ||| What a site writes at a static argument (`siteReading`).
 export
@@ -1712,7 +1740,9 @@ templateOf stands k t = (.template) <$> siteReading stands k t
 ||| depth a cap cuts at, so it is no part of what the type matches on.
 export
 capTemplate : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front Template
-capTemplate t = (.template) <$> normalSite (MkMode (OfSite []) EveryNode WalksAlone) t
+capTemplate t = do
+  ctx <- frozenContext
+  (.template) <$> normalSite (MkMode (OfSite []) EveryNode WalksAlone ctx) t
 
 ------------------------------------------------------------------------------
 -- The measures
@@ -2131,7 +2161,7 @@ mutual
     let PMDef _ pargs body = definition def
       | _ => pure []
     case (bindParams pargs args, enter placement w) of
-      (Just (env, extras), Just (Element w' less)) => leaves w' (rec w' less) env !(treeOfBody body) extras
+      (Just (env, extras), Just (Element w' less)) => leaves w' (rec w' less) env !((.fst) <$> caseTreeOf body) extras
       _ => pure []
 
   ||| The implementations a case tree gives at its leaves, its variables
@@ -2238,8 +2268,9 @@ asGiven _ (t, _) = t
 ------------------------------------------------------------------------------
 
 ||| An instance's static argument read once, as its link writes it: the
-||| form its key writes, how that form was read off the term, the template
-||| it reads as with what that says of the form, and its root.
+||| frozen context it was read in, the form its key writes, how that form
+||| was read off the term there, the template it reads as there with what
+||| that says of the form, and its root.
 public export
 record InstanceReading (t : ClosedTerm) where
   constructor MkInstanceReading
@@ -2247,7 +2278,7 @@ record InstanceReading (t : ClosedTerm) where
   form : ClosedTerm
   0 formFrom : FormFrom context t form
   template : Template
-  0 describes : ReadAs InstanceMode [] form template
+  0 describes : ReadAs (InstanceMode context) [] form template
   root : Root
 
 -- What a type is at its root, off its form (`formRoot`).
@@ -2259,10 +2290,11 @@ typeRoot form = do
 -- An instance's term read off its normal form, its root read off the form.
 normalInstance : {auto c : Ref Ctxt Defs} -> (ClosedTerm -> Front Root) -> (t : ClosedTerm) -> Front (InstanceReading t)
 normalInstance rootOfForm t = do
-  n <- readNormal t
-  r <- readFromStart InstanceMode n.readForm
+  ctx <- frozenContext
+  n <- readNormal ctx t
+  r <- readFromStart (InstanceMode ctx) n.readForm
   root <- rootOfForm n.readForm
-  pure (MkInstanceReading n.readIn n.readForm (FromNormalForm (readingReadOff n)) r.fst r.snd root)
+  pure (MkInstanceReading ctx n.readForm (FromNormalForm (readingReadOff n)) r.fst r.snd root)
 
 -- A form and a shape split nothing.
 noRoot : ClosedTerm -> Front Root
@@ -2282,7 +2314,7 @@ readInstance AForm t = normalInstance noRoot t
 readInstance ADictionary t = do
   ctx <- frozenContext
   d <- dictionaryForm ctx t
-  r <- readFromStart InstanceMode d.fst
+  r <- readFromStart (InstanceMode ctx) d.fst
   root <- dictionaryRoot t
   pure (MkInstanceReading ctx d.fst d.snd r.fst r.snd root)
 readInstance AShape t = do
@@ -2291,7 +2323,7 @@ readInstance AShape t = do
   case getFnArgs s.fst of
     (Ref _ (DataCon _ _) _, _) => do
       let c = contracted s.fst
-      r <- readFromStart InstanceMode c.etaForm
+      r <- readFromStart (InstanceMode ctx) c.etaForm
       pure (MkInstanceReading ctx c.etaForm (FromWritten (ReducedThenContracted s.snd c.etaSteps)) r.fst r.snd Unrooted)
     _ => normalInstance noRoot t
 
@@ -2562,15 +2594,15 @@ mutual
   ||| An instance's key, read as a tree of its heads, is within the
   ||| template its reading reads it as.
   export
-  0 readWithin : (w : Writer) -> ReadAs InstanceMode env u t -> Enclosed (keyTree w u) t
+  0 readWithin : (w : Writer) -> ReadAs (InstanceMode ctx) env u t -> Enclosed (keyTree w u) t
   readWithin w (ARun r) = runWithin w r
   readWithin w (ASpine s) = spineWithin w s
 
-  0 allWithin : (w : Writer) -> AllReadAs InstanceMode env as ts -> Pairwise (keyTrees w as) ts
+  0 allWithin : (w : Writer) -> AllReadAs (InstanceMode ctx) env as ts -> Pairwise (keyTrees w as) ts
   allWithin w [] = NoPairs
   allWithin w (r :: rs) = Paired (readWithin w r) (allWithin w rs)
 
-  0 spineWithin : (w : Writer) -> SpineAs InstanceMode env f as t -> Enclosed (appliedTo (keyTree w f) (keyTrees w as)) t
+  0 spineWithin : (w : Writer) -> SpineAs (InstanceMode ctx) env f as t -> Enclosed (appliedTo (keyTree w f) (keyTrees w as)) t
   spineWithin w (SApp s) = spineWithin w s
   spineWithin w (SDot {r} ru rs) = splicedWithin [(r ** (Here, readWithin w ru))] lteRefl lteRefl (allWithin w rs)
   spineWithin w (SPlaceholder rs) = partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs)
@@ -2604,24 +2636,24 @@ mutual
     headChanged (unmarkedNode w fc n none) (partWithin (oneNode (Formal j k) lteRefl) (allWithin w rs))
   spineWithin w (SPart {fc} {n} none rs) =
     headChanged (unmarkedNode w fc n none) (partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs))
-  spineWithin w (SNoDefinition rs) = partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs)
-  spineWithin w (SData rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
-  spineWithin w (STypeCon rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
-  spineWithin w (SKept rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
+  spineWithin w (SNoDefinition _ rs) = partWithin (oneNode (Leaf 1) lteRefl) (allWithin w rs)
+  spineWithin w (SData _ rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
+  spineWithin w (STypeCon _ rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
+  spineWithin w (SKept _ rs) = splicedWithin [] LTEZero lteRefl (allWithin w rs)
   -- A site's markers and unfoldings: no instance's term holds them.
   spineWithin w (SMarker _ _) impossible
-  spineWithin w (SBeside _ _) impossible
-  spineWithin w (SProjected _ _ _) impossible
-  spineWithin w (SRecurs _) impossible
-  spineWithin w (SWalked _ _) impossible
+  spineWithin w (SBeside _ _ _) impossible
+  spineWithin w (SProjected _ _ _ _) impossible
+  spineWithin w (SRecurs _ _) impossible
+  spineWithin w (SWalked _ _ _) impossible
 
-  0 passingWithin : (w : Writer) -> PassingAs InstanceMode env info ps -> Own (passingTrees w info) ps
+  0 passingWithin : (w : Writer) -> PassingAs (InstanceMode ctx) env info ps -> Own (passingTrees w info) ps
   passingWithin w PImplicit = MkOwn [] LTEZero
   passingWithin w PExplicit = MkOwn [] LTEZero
   passingWithin w PAuto = MkOwn [] LTEZero
   passingWithin w (PDefault {r} rd) = MkOwn [(r ** (Here, readWithin w rd))] lteRefl
 
-  0 binderWithin : (w : Writer) -> BinderAs InstanceMode env b ps -> Own (binderTrees w b) ps
+  0 binderWithin : (w : Writer) -> BinderAs (InstanceMode ctx) env b ps -> Own (binderTrees w b) ps
   binderWithin w (BLam {ps} {t} pa rt) =
     let o = passingWithin w pa in
     MkOwn (widen o.inside (\_, el => elemLeft el)) (transitive o.many (lteJoin ps [t]))
@@ -2705,13 +2737,13 @@ mutual
   ||| reading meets every premise of `Capped` but its height against the
   ||| cap, which is the cap's argument (`Caps.capFrom`).
   export
-  0 chainReads : ChainShape u h -> ReadAs InstanceMode env u t -> ChainRead t h
+  0 chainReads : ChainShape u h -> ReadAs (InstanceMode ctx) env u t -> ChainRead t h
   chainReads c (ARun {n} r) = replace {p = ChainRead (Leaf (S n))} (sym (runShaped r c)) (MkChainRead lteRefl LTEZero LTEZero)
   chainReads c (ASpine s) = chainSpine c s
 
-  0 chainSpine : ChainShape u h -> SpineAs InstanceMode env u [] t -> ChainRead t h
-  chainSpine ChainEnd (SData []) = MkChainRead lteRefl LTEZero LTEZero
-  chainSpine (ChainStep c) (SApp (SData (r :: []))) =
+  0 chainSpine : ChainShape u h -> SpineAs (InstanceMode ctx) env u [] t -> ChainRead t h
+  chainSpine ChainEnd (SData _ []) = MkChainRead lteRefl LTEZero LTEZero
+  chainSpine (ChainStep c) (SApp (SData _ (r :: []))) =
     let inner = chainReads c r in
     MkChainRead (LTESucc (maxLub inner.high LTEZero))
                 (maxLub lteRefl (maxLub inner.narrow LTEZero))

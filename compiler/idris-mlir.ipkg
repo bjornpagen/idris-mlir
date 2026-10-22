@@ -19,7 +19,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Term
         , IdrisMLIR.MLIR.Text
         , IdrisMLIR.MLIR.Parts
-        , IdrisMLIR.MLIR.HandEncoding
         , IdrisMLIR.Syntax.Builtin
         , IdrisMLIR.Syntax.Arith
         , IdrisMLIR.Syntax.Math
@@ -72,6 +71,7 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Proof.Derivation
         , IdrisMLIR.Proof.Held
         , IdrisMLIR.Proof.Dictionaries
+        , IdrisMLIR.Proof.Inversion
         , IdrisMLIR.Frontend.Growth.Potential
         , IdrisMLIR.Frontend.Growth.Check
         , IdrisMLIR.Frontend.Growth.Template

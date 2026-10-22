@@ -144,15 +144,11 @@ typeOfDefinition def = core ((.fst) <$> host.typeOf def)
 ||| A pattern-matching definition's case tree, read through the context's
 ||| accessor, as its type is, with the evidence that it is the tree the
 ||| evaluator walks, which a reading that unfolds the definition carries.
+||| The evidence is erased, so a reader that carries none takes the tree
+||| alone (`.fst`) at no cost.
 export
 caseTreeOf : RunsCore m => {args : Scope} -> (body : Body args) -> m (Subset (CaseTree args) (TreeOf body))
 caseTreeOf body = core (host.treeOf body)
-
-||| A pattern-matching definition's case tree, where nothing carries the
-||| evidence `caseTreeOf` gives.
-export
-treeOfBody : RunsCore m => {args : Scope} -> Body args -> m (CaseTree args)
-treeOfBody body = core ((.fst) <$> host.treeOf body)
 
 ||| The right-hand side of a definition whose case tree is one leaf, or
 ||| nothing for one that matches: read through the context's walk of the

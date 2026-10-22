@@ -238,7 +238,7 @@ refsOf hs def = do
   case definition def of
     PMDef _ _ body =>
       if answersForBody hs then pure fromType else do
-        tree <- treeOfBody body
+        tree <- (.fst) <$> caseTreeOf body
         pure (fromType ++ keys (Core.Case.CaseTree.getRefs (UN Underscore) tree) ++ keys (Core.Case.CaseTree.getMetas tree))
     TCon _ _ _ _ _ cons _ => pure (fromType ++ fromMaybe [] cons)
     _ => pure fromType
@@ -416,7 +416,7 @@ checkReachable fc roots = do
           Nothing => pure ()
         case definition def of
           PMDef _ _ body => do
-            tree <- treeOfBody body
+            tree <- (.fst) <$> caseTreeOf body
             when (treeMentionsWorld tree) $ reject (location def) key TrustedLibrary "uses %MkWorld"
           _ => pure ()
       -- A library's own totality assertions are trusted, and so are its

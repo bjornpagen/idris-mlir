@@ -451,24 +451,26 @@ public export
 data ReadOff : NormalForm -> Frozen -> ClosedTerm -> ClosedTerm -> Type where
   ReducedThenContracted : Reduces (evaluationOf form) ctx t v -> EtaContracts v u -> ReadOff form ctx t u
 
-||| A closed term as the growth check's readings take it: the host's normal
-||| form of it, eta-contracted, with the context and the normal form it was
-||| read in and the contraction that read it, none of which is paid for.
+||| A closed term as the growth check's readings take it in the frozen
+||| context they read: the host's normal form of it there, eta-contracted,
+||| with the normal form it was read in and the contraction that read it,
+||| none of which is paid for. The context is an index, so every reading
+||| of a site, and every reading of the instances of one, states its
+||| normal forms over the one context the whole reading reads.
 public export
-record NormalReading (form : NormalForm) (t : ClosedTerm) where
+record NormalReading (form : NormalForm) (ctx : Frozen) (t : ClosedTerm) where
   constructor MkNormalReading
   readForm : ClosedTerm
-  0 readIn : Frozen
-  0 reduct : Reduct form readIn t
+  0 reduct : Reduct form ctx t
   0 contraction : EtaContracts reduct.value readForm
 
 ||| What a normal reading gives is read off the term.
 export
-0 readingReadOff : (r : NormalReading form t) -> ReadOff form r.readIn t r.readForm
+0 readingReadOff : (r : NormalReading form ctx t) -> ReadOff form ctx t r.readForm
 readingReadOff r = ReducedThenContracted r.reduct.steps r.contraction
 
 ||| What the readers read is no taller than the host's normal form they
 ||| read it off.
 export
-0 readNoTaller : (r : NormalReading form t) -> LTE (termHeight r.readForm) (termHeight r.reduct.value)
+0 readNoTaller : (r : NormalReading form ctx t) -> LTE (termHeight r.readForm) (termHeight r.reduct.value)
 readNoTaller r = contractionHeight r.contraction

@@ -1297,17 +1297,18 @@ mutual
     let ty' = contracted ty in MkContraction (PVTy fc rig ty'.etaForm) (EtaPVTy ty'.etaSteps)
 
 ||| A closed term as every reading of the growth check takes it: the host's
-||| normal form of it (`normaliseClosed`'s), eta-contracted, so that a
-||| family is read as itself whatever stands for it; with the context, the
-||| host's steps and the contraction it was read by, at quantity 0
-||| (`Proof.Reading.NormalReading`), which is what the growth proof covers.
+||| normal form of it (`normaliseClosed`'s) in the frozen context the
+||| reading reads, eta-contracted, so that a family is read as itself
+||| whatever stands for it; with the host's steps and the contraction it was
+||| read by, at quantity 0 (`Proof.Reading.NormalReading`), which is what
+||| the growth proof covers. The reading passes its context, so every
+||| normal form it states is over that one context.
 export
-readNormal : (t : ClosedTerm) -> Front (NormalReading OfNormaliseTypes t)
-readNormal t = do
-  ctx <- frozenContext
+readNormal : (ctx : Frozen) -> (t : ClosedTerm) -> Front (NormalReading OfNormaliseTypes ctx t)
+readNormal ctx t = do
   r <- core (host.normaliseTypes ctx t)
   let c = contracted r.value
-  pure (MkNormalReading c.etaForm ctx r c.etaSteps)
+  pure (MkNormalReading c.etaForm r c.etaSteps)
 
 ||| A type argument as data instances compare them: up to eta, and with
 ||| a type-level function and the lambda of its one clause as one
