@@ -63,8 +63,10 @@ LogicalResult Component::dissolve(FuncOp owner, unsigned row, Operation *join) {
   unsigned count = join->getNumRegions() - 1;
   llvm::SmallVector<Value> above;
   llvm::SmallVector<llvm::BitVector> readers;
+  // A join point's own token is upstream's, which no region passes; a
+  // reuse token in scope is a value like any other, which one must.
   forEachInScope(join, [&](Value value) {
-    if (isa<TokenType>(value.getType()))
+    if (isa<mlir::TokenType>(value.getType()))
       return;
     llvm::BitVector by(count);
     for (Operation *user : value.getUsers())
