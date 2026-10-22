@@ -1331,8 +1331,8 @@ mutual
   export
   data Unfolds : Mode -> (self : Address) -> (written : Template) -> Values ClosedTerm vs -> CaseTree vs ->
                  List ClosedTerm -> Maybe Template -> Type where
-    ULeaf : (0 r : NormalReading OfNormaliseTypes m.inContext (applyTo (close env rhs) extras)) ->
-            ReadAs (unfolding m) [] r.readForm t -> Unfolds m self written env (STerm i rhs) extras (Just t)
+    ULeaf : (0 r : MaximalReading (contractingFor (unfolding m)) m.inContext (applyTo (close env rhs) extras)) ->
+            ReadAs (unfolding m) [] r.reading.readForm t -> Unfolds m self written env (STerm i rhs) extras (Just t)
     UUnmatched : Unfolds m self written env (Unmatched msg) extras (Just written)
     UImpossible : Unfolds m self written env Impossible extras Nothing
     UConstructed : (0 _ : scrutineeOf (gamma (defsOf m.inContext)) (standsOf m) (valueAt env idx p) = Constructed h c sargs) ->
@@ -2111,8 +2111,8 @@ mutual
             pure (Just (Element _ (Raised marked shaped leaves.snd children.snd)))
     where
       normalisedArm : Arm -> Front Arm
-      normalisedArm (Step t) = Step . (.readForm) <$> readNormal EveryRedex m.inContext (applyTo t extras)
-      normalisedArm (Base t) = Base . (.readForm) <$> readNormal EveryRedex m.inContext (applyTo t extras)
+      normalisedArm (Step t) = Step . (.readForm) . (.reading) <$> readNormal EveryRedex m.inContext (applyTo t extras)
+      normalisedArm (Base t) = Base . (.readForm) . (.reading) <$> readNormal EveryRedex m.inContext (applyTo t extras)
   structural _ _ _ _ _ _ _ _ = pure Nothing
 
   ||| A case tree walked over what its variables stand for, the leaves it
@@ -2131,7 +2131,7 @@ mutual
          (extras : List ClosedTerm) -> Front (Subset (Maybe Template) (Unfolds m self written env tree extras))
   walk m w acc self written env (STerm _ rhs) extras = do
     r <- readNormal (contractingFor (unfolding m)) m.inContext (applyTo (close env rhs) extras)
-    t <- read (unfolding m) w acc [] r.readForm
+    t <- read (unfolding m) w acc [] r.reading.readForm
     pure (Element (Just t.fst) (ULeaf r t.snd))
   -- A partial definition stops where it does not match, at every instance.
   walk m w acc self written env (Unmatched _) extras = pure (Element (Just written) UUnmatched)
@@ -2294,20 +2294,28 @@ formedTemplate t = (.fst) <$> formedReading t
 -- A static argument read
 ------------------------------------------------------------------------------
 
+||| The kinds a reading reads off the term as written: a dictionary, keyed
+||| as written, and a shape a constructor heads, whose skeleton is. A type,
+||| a family and a form are read off the host's normal form alone.
+public export
+data ReadAsWritten : State.Static -> Type where
+  WrittenDictionary : ReadAsWritten ADictionary
+  WrittenShape : ReadAsWritten AShape
+
 ||| How a reading's form was read off its term: the host's normal form of
 ||| it, contracted (a type, a family, a form, a shape no constructor
 ||| heads), with the evidence that it is normal, which the reading lemma
 ||| compares an instance's normal form by; or the term as written, its
-||| unknowns' solutions put in, then contracted (a dictionary, a shape a
-||| constructor heads), each what a reader reads off the term
-||| (`Proof.Reading.ReadOff`). A dictionary, and no other kind, that closes
-||| over runtime values is the implementation the frontend's own reduction
-||| finds it to be (`Closed.implementationOf`), contracted, which no
-||| relation of the host's yet states.
+||| unknowns' solutions put in, then contracted, of a kind read so (a
+||| dictionary, a shape a constructor heads: `ReadAsWritten`), each what a
+||| reader reads off the term (`Proof.Reading.ReadOff`). A dictionary, and
+||| no other kind, that closes over runtime values is the implementation
+||| the frontend's own reduction finds it to be (`Closed.implementationOf`),
+||| contracted, which no relation of the host's yet states.
 public export
 data FormFrom : State.Static -> Frozen -> ClosedTerm -> ClosedTerm -> Type where
   FromNormalForm : (r : NormalReading OfNormaliseTypes ctx t) -> FormFrom k ctx t r.readForm
-  FromWritten : ReadOff OfNormaliseHoles ctx t u -> FormFrom k ctx t u
+  FromWritten : ReadAsWritten k -> ReadOff OfNormaliseHoles ctx t u -> FormFrom k ctx t u
   FromImplementation : EtaContracts v u -> FormFrom ADictionary ctx t u
 
 ||| A term with its unknowns' solutions put in, as `Closed.solved` gives it,
@@ -2318,32 +2326,44 @@ solvedIn ctx t =
      then (\r => Element r.value r.steps) <$> core (host.normaliseHoles ctx t)
      else pure (Element t (reducesToItself t))
 
+||| A dictionary's form, as `classify` keys it, how it was read off the
+||| term, and the evidence its contraction gives that no redex is left in
+||| it (`Closed.EtaNormal`): every reading of a dictionary contracts every
+||| redex.
+record DictionaryForm (ctx : Frozen) (t : ClosedTerm) where
+  constructor MkDictionaryForm
+  form : ClosedTerm
+  0 formFrom : FormFrom ADictionary ctx t form
+  0 maximal : EtaNormal EveryRedex form
+
 ||| A dictionary's form, as `classify` keys it: as written, or the
 ||| implementation it stands for where it depends on a runtime value.
-dictionaryForm : {auto c : Ref Ctxt Defs} -> (ctx : Frozen) -> (t : ClosedTerm) -> Front (Subset ClosedTerm (FormFrom ADictionary ctx t))
+dictionaryForm : {auto c : Ref Ctxt Defs} -> (ctx : Frozen) -> (t : ClosedTerm) -> Front (DictionaryForm ctx t)
 dictionaryForm ctx t = do
   s <- solvedIn ctx t
   if !(runtimeDependent s.fst)
      then do
        impl <- implementationOf s.fst
        let c = contracted impl
-       pure (Element c.etaForm (FromImplementation c.etaSteps))
+       pure (MkDictionaryForm c.etaForm (FromImplementation c.etaSteps) c.etaNormal)
      else
        let c = contracted s.fst in
-       pure (Element c.etaForm (FromWritten (ReducedThenContracted s.snd c.etaSteps)))
+       pure (MkDictionaryForm c.etaForm (FromWritten WrittenDictionary (ReducedThenContracted s.snd c.etaSteps)) c.etaNormal)
 
 ||| A site's static argument read: the mode it is read in, the context of
 ||| which is the one every normal form and definition of the reading is
-||| over, the form its reading reads and how it was read off the term in
-||| that context, the template it reads as with what that says of the
-||| form, and what the site writes there, the template with a form's
-||| extents as its key holds them.
+||| over, the form its reading reads, how it was read off the term in that
+||| context and the evidence that the contraction it was read by left no
+||| redex it contracts (`contractingFor`), the template it reads as with
+||| what that says of the form, and what the site writes there, the
+||| template with a form's extents as its key holds them.
 public export
 record SiteReading (k : State.Static) (t : ClosedTerm) where
   constructor MkSiteReading
   0 mode : Mode
   form : ClosedTerm
   0 formFrom : FormFrom k mode.inContext t form
+  0 maximal : EtaNormal (contractingFor mode) form
   read : Template
   0 describes : ReadAs mode [] form read
   template : Template
@@ -2353,8 +2373,8 @@ record SiteReading (k : State.Static) (t : ClosedTerm) where
 normalSite : {auto c : Ref Ctxt Defs} -> {0 k : State.Static} -> (m : Mode) -> (t : ClosedTerm) -> Front (SiteReading k t)
 normalSite m t = do
   n <- readNormal (contractingFor m) m.inContext t
-  r <- readFromStart m n.readForm
-  pure (MkSiteReading m n.readForm (FromNormalForm n) r.fst r.snd r.fst AsRead)
+  r <- readFromStart m n.reading.readForm
+  pure (MkSiteReading m n.reading.readForm (FromNormalForm n.reading) n.maximal r.fst r.snd r.fst AsRead)
 
 ||| What a site, a field or a cap writes at a static argument of kind k, a
 ||| term whose stand-ins are `stands`, read as its key writes it there
@@ -2381,15 +2401,15 @@ siteReading stands AFamily t = do
 siteReading stands AForm t = do
   ctx <- frozenContext
   n <- readNormal (contractingFor (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx)) ctx t
-  r <- readFromStart (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.readForm
+  r <- readFromStart (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.reading.readForm
   f <- formedReading r.fst
-  pure (MkSiteReading (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.readForm (FromNormalForm n)
-                      r.fst r.snd f.fst f.snd)
+  pure (MkSiteReading (MkMode (OfSite stands) EveryNode UnfoldsBeside ctx) n.reading.readForm (FromNormalForm n.reading)
+                      n.maximal r.fst r.snd f.fst f.snd)
 siteReading stands ADictionary t = do
   ctx <- frozenContext
   d <- dictionaryForm ctx t
-  r <- readFromStart (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.fst
-  pure (MkSiteReading (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.fst d.snd r.fst r.snd r.fst AsRead)
+  r <- readFromStart (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.form
+  pure (MkSiteReading (MkMode (OfSite stands) EveryNode KeepsCall ctx) d.form d.formFrom d.maximal r.fst r.snd r.fst AsRead)
 siteReading stands AShape t = do
   ctx <- frozenContext
   s <- solvedIn ctx t
@@ -2398,7 +2418,7 @@ siteReading stands AShape t = do
       let c = contracted s.fst
       r <- readFromStart (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
       pure (MkSiteReading (MkMode (OfSite stands) Skeleton KeepsCall ctx) c.etaForm
-                          (FromWritten (ReducedThenContracted s.snd c.etaSteps)) r.fst r.snd r.fst AsRead)
+                          (FromWritten WrittenShape (ReducedThenContracted s.snd c.etaSteps)) c.etaNormal r.fst r.snd r.fst AsRead)
     _ => normalSite (MkMode (OfSite stands) Skeleton UnfoldsBeside ctx) t
 
 ||| What a site writes at a static argument (`siteReading`).
@@ -2545,47 +2565,115 @@ argumentsBeta c ts = both (betaAll ts) (if any computing (ts >>= familiesIn) the
       Evaluable _ => True
       _ => False
 
-||| A family of the writer's, applied, read at a node: by what lands at its
-||| position and what beta makes of its arguments (`withClosedFamilies`).
+||| A template read at a node (`withClosedFamilies`), with the writer's
+||| families the reading landed closed: each applied where only closed
+||| values land, its arguments inert, which the reading writes as heads
+||| above its arguments (`landedAs`), so the template no longer names it.
+||| The writer still reads each at a position, where those values land,
+||| and what an instance writes there rests on them: the graph lists each
+||| among the site's writers, carried from where the reading drops it.
 public export
-landedAs : Landing -> Beta -> (i, d : Nat) -> List Template -> Template
-landedAs Computed _ i d ts = Computing i d ts
-landedAs (Evaluable _) _ i d ts = Computing i d ts
-landedAs (Closed _) Computes i d ts = Computing i d ts
-landedAs Open Computes i d ts = Computing i d ts
-landedAs (Closed k) Inert i d ts = raise k (Head Nothing ts)
-landedAs Open Inert i d ts = Applied i d ts
+record LandedReading where
+  constructor MkLandedReading
+  template : Template
+  landed : List Nat
+
+||| Templates read at a node, in order, with the families their readings
+||| landed closed.
+public export
+record LandedReadings where
+  constructor MkLandedReadings
+  templates : List Template
+  allLanded : List Nat
+
+||| A family of the writer's, applied, read at a node: by what lands at its
+||| position and what beta makes of its arguments (`withClosedFamilies`);
+||| landed closed where only closed values land and its arguments are
+||| inert, the one case that drops the family.
+public export
+landedAs : Landing -> Beta -> (i, d : Nat) -> List Template -> LandedReading
+landedAs Computed _ i d ts = MkLandedReading (Computing i d ts) []
+landedAs (Evaluable _) _ i d ts = MkLandedReading (Computing i d ts) []
+landedAs (Closed _) Computes i d ts = MkLandedReading (Computing i d ts) []
+landedAs Open Computes i d ts = MkLandedReading (Computing i d ts) []
+landedAs (Closed k) Inert i d ts = MkLandedReading (raise k (Head Nothing ts)) [i]
+landedAs Open Inert i d ts = MkLandedReading (Applied i d ts) []
+
+-- What follows is public, as `readLanded` is, so that a proof over a
+-- template read at a node reads off what each node becomes.
+
+||| A node over its children read, landing what they landed.
+public export
+nodeLanded : (List Template -> Template) -> LandedReadings -> LandedReading
+nodeLanded node rs = MkLandedReading (node rs.templates) rs.allLanded
+
+||| A reading of one node, landing what it lands and then what its
+||| children landed.
+public export
+landedOver : LandedReading -> List Nat -> LandedReading
+landedOver here rest = MkLandedReading here.template (here.landed ++ rest)
+
+||| A family applied to its arguments read, read as its landing says,
+||| landing what it lands and what they landed.
+public export
+landedApplied : (Nat -> Landing) -> (i, d : Nat) -> LandedReadings -> LandedReading
+landedApplied c i d rs = landedOver (landedAs (c i) (argumentsBeta c rs.templates) i d rs.templates) rs.allLanded
+
+||| A choice over its scrutinee and leaves read.
+public export
+choiceLanded : LandedReading -> LandedReadings -> LandedReading
+choiceLanded x rs = MkLandedReading (Choice x.template rs.templates) (x.landed ++ rs.allLanded)
+
+||| A field of its record read.
+public export
+fieldLanded : Nat -> LandedReading -> LandedReading
+fieldLanded k x = MkLandedReading (Field k x.template) x.landed
+
+||| A template read before the rest.
+public export
+consLanded : LandedReading -> LandedReadings -> LandedReadings
+consLanded x rs = MkLandedReadings (x.template :: rs.templates) (x.landed ++ rs.allLanded)
 
 mutual
   ||| A template read at a node, each applied family of the writer's by what
-  ||| lands at its position (`Graph`). Beta of an inert family no higher
-  ||| than k, applied to arguments no higher than h, is no higher than k + h
-  ||| (`Proof.Bound.instHeight`): the value's meaning is a part of the
-  ||| value, no higher than it. So where only closed values no higher than k land, an
-  ||| applied family reads as k heads above its arguments; where values not
-  ||| all closed land, it stays applied, the family's own height carried by
-  ||| an arc when its arguments are closed (`appliedWeight`), and a sum of
-  ||| two heights otherwise; and where a value may compute, or an argument
-  ||| does, it reads as computing (`Computing`), a value nothing bounds.
+  ||| lands at its position (`Graph`), with the families it landed closed.
+  ||| Beta of an inert family no higher than k, applied to arguments no
+  ||| higher than h, is no higher than k + h (`Proof.Bound.instHeight`): the
+  ||| value's meaning is a part of the value, no higher than it. So where
+  ||| only closed values no higher than k land, an applied family reads as
+  ||| k heads above its arguments; where values not all closed land, it
+  ||| stays applied, the family's own height carried by an arc when its
+  ||| arguments are closed (`appliedWeight`), and a sum of two heights
+  ||| otherwise; and where a value may compute, or an argument does, it
+  ||| reads as computing (`Computing`), a value nothing bounds.
   public export
-  withClosedFamilies : (landing : Nat -> Landing) -> Template -> Template
-  withClosedFamilies c (Applied i d ts) =
-    let ts' = allWithClosed c ts in landedAs (c i) (argumentsBeta c ts') i d ts'
-  withClosedFamilies c (Computing i d ts) = Computing i d (allWithClosed c ts)
-  withClosedFamilies c (Head a ts) = Head a (allWithClosed c ts)
-  withClosedFamilies c (Opaque a ts) = Opaque a (allWithClosed c ts)
-  withClosedFamilies c (Choice t ts) = Choice (withClosedFamilies c t) (allWithClosed c ts)
-  withClosedFamilies c (Field k t) = Field k (withClosedFamilies c t)
-  withClosedFamilies c t@(Var _ _) = t
-  withClosedFamilies c t@(Leaf _) = t
-  withClosedFamilies c t@(Token _) = t
-  withClosedFamilies c t@(Member _) = t
-  withClosedFamilies c t@(Formal _ _) = t
+  readLanded : (landing : Nat -> Landing) -> Template -> LandedReading
+  readLanded c (Applied i d ts) = landedApplied c i d (readAllLanded c ts)
+  readLanded c (Computing i d ts) = nodeLanded (Computing i d) (readAllLanded c ts)
+  readLanded c (Head a ts) = nodeLanded (Head a) (readAllLanded c ts)
+  readLanded c (Opaque a ts) = nodeLanded (Opaque a) (readAllLanded c ts)
+  readLanded c (Choice t ts) = choiceLanded (readLanded c t) (readAllLanded c ts)
+  readLanded c (Field k t) = fieldLanded k (readLanded c t)
+  readLanded c t@(Var _ _) = MkLandedReading t []
+  readLanded c t@(Leaf _) = MkLandedReading t []
+  readLanded c t@(Token _) = MkLandedReading t []
+  readLanded c t@(Member _) = MkLandedReading t []
+  readLanded c t@(Formal _ _) = MkLandedReading t []
 
   public export
-  allWithClosed : (landing : Nat -> Landing) -> List Template -> List Template
-  allWithClosed c [] = []
-  allWithClosed c (t :: ts) = withClosedFamilies c t :: allWithClosed c ts
+  readAllLanded : (landing : Nat -> Landing) -> List Template -> LandedReadings
+  readAllLanded c [] = MkLandedReadings [] []
+  readAllLanded c (t :: ts) = consLanded (readLanded c t) (readAllLanded c ts)
+
+||| A template read at a node (`readLanded`), as the graph draws it.
+public export
+withClosedFamilies : (landing : Nat -> Landing) -> Template -> Template
+withClosedFamilies c t = (readLanded c t).template
+
+||| Templates read at a node, in order.
+public export
+allWithClosed : (landing : Nat -> Landing) -> List Template -> List Template
+allWithClosed c ts = (readAllLanded c ts).templates
 
 ------------------------------------------------------------------------------
 -- Roots and requests
@@ -2949,14 +3037,18 @@ asGiven _ (t, _) = t
 
 ||| An instance's static argument of a kind read once in a frozen context,
 ||| as its link writes it: the form its key writes, how that form was read
-||| off the term there, the template it reads as there with what that says
-||| of the form, and its root. The context is an index, so a reading's
-||| evidence is over the context its reader holds.
+||| off the term there, the evidence that the contraction it was read by,
+||| which contracts every redex, left none (`Closed.EtaNormal`), so reading
+||| it again reads it as it is (`Proof.Covers.etaNormalFixed`), the
+||| template it reads as there with what that says of the form, and its
+||| root. The context is an index, so a reading's evidence is over the
+||| context its reader holds.
 public export
 record InstanceReading (ctx : Frozen) (k : State.Static) (t : ClosedTerm) where
   constructor MkInstanceReading
   form : ClosedTerm
   0 formFrom : FormFrom k ctx t form
+  0 maximal : EtaNormal EveryRedex form
   template : Template
   0 describes : ReadAs (InstanceMode ctx) [] form template
   root : Root
@@ -2970,9 +3062,9 @@ normalInstance : {auto c : Ref Ctxt Defs} -> {0 k : State.Static} -> (ctx : Froz
                  (t : ClosedTerm) -> Front (InstanceReading ctx k t)
 normalInstance ctx rootOfForm t = do
   n <- readNormal EveryRedex ctx t
-  r <- readFromStart (InstanceMode ctx) n.readForm
-  root <- rootOfForm n.readForm
-  pure (MkInstanceReading n.readForm (FromNormalForm n) r.fst r.snd root)
+  r <- readFromStart (InstanceMode ctx) n.reading.readForm
+  root <- rootOfForm n.reading.readForm
+  pure (MkInstanceReading n.reading.readForm (FromNormalForm n.reading) n.maximal r.fst r.snd root)
 
 -- A form and a shape split nothing.
 noRoot : ClosedTerm -> Front Root
@@ -2992,16 +3084,16 @@ readInstance ctx AFamily t = normalInstance ctx (typeRoot ctx) t
 readInstance ctx AForm t = normalInstance ctx noRoot t
 readInstance ctx ADictionary t = do
   d <- dictionaryForm ctx t
-  r <- readFromStart (InstanceMode ctx) d.fst
+  r <- readFromStart (InstanceMode ctx) d.form
   root <- dictionaryRoot t
-  pure (MkInstanceReading d.fst d.snd r.fst r.snd root)
+  pure (MkInstanceReading d.form d.formFrom d.maximal r.fst r.snd root)
 readInstance ctx AShape t = do
   s <- solvedIn ctx t
   case getFnArgs s.fst of
     (Ref _ (DataCon _ _) _, _) => do
       let c = contracted s.fst
       r <- readFromStart (InstanceMode ctx) c.etaForm
-      pure (MkInstanceReading c.etaForm (FromWritten (ReducedThenContracted s.snd c.etaSteps)) r.fst r.snd Unrooted)
+      pure (MkInstanceReading c.etaForm (FromWritten WrittenShape (ReducedThenContracted s.snd c.etaSteps)) c.etaNormal r.fst r.snd Unrooted)
     _ => normalInstance ctx noRoot t
 
 ||| The definition a root names that splits the node of a request it is
@@ -3470,7 +3562,7 @@ export
 0 shapeForm : ChainShape ctx t h -> FormFrom AShape ctx t u -> ChainShape ctx u h
 shapeForm c (FromNormalForm r) =
   rewrite chainContracted (chainReduces c r.reduct.steps) r.contraction in chainReduces c r.reduct.steps
-shapeForm c (FromWritten (ReducedThenContracted r k)) = rewrite chainContracted (chainReduces c r) k in chainReduces c r
+shapeForm c (FromWritten _ (ReducedThenContracted r k)) = rewrite chainContracted (chainReduces c r) k in chainReduces c r
 
 ||| What the cut of a capped parameter's argument gives the request that
 ||| keys by it (`Instances.neededShape`, `Closed.cutShape`): the shape it
@@ -3542,7 +3634,9 @@ MarkersHold {g} m s ctx stands bs vs =
 ||| the frozen context and apart (`Proof.Markers.Markers`), put in by values
 ||| the site's writer holds (`MarkersHold`), every reading of the site's
 ||| term with those values put in, as an instance's key reads it, is what
-||| the site's template writes (`Proof.Bound.Writes`). It is proved by
+||| the site's reading writes (`Proof.Bound.Writes`), and so what the
+||| graph's site, that reading read where its writer's families land,
+||| writes (`Proof.Covers.siteWritesRead`). It is proved by
 ||| induction on the site's reading, the host's reduction inverted at each
 ||| head it keeps (`Proof.Inversion`), carried through putting the values
 ||| in (`Idris.Host.Mapped`, `Idris.Host.mappedReduces`) and through
@@ -3555,16 +3649,3 @@ ReadingCovers m s stands k t r =
   MarkersHold m s r.mode.inContext stands mk.bounds vs ->
   (inst : InstanceReading r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t)) ->
   Writes m s r.template inst.template
-
-||| What a site of the model writes at a request's argument, of any kind,
-||| from the reading lemma at the site the request read: the site's
-||| template is its reading's, and the lemma gives what it writes at the
-||| instance's reading of the argument.
-export
-0 siteWritesFrom : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> (s : SiteOf m p) -> (r : SiteReading k t) ->
-                   s.site.template = r.template -> ReadingCovers m s.site stands k t r ->
-                   (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
-                   MarkersHold m s.site r.mode.inContext stands mk.bounds vs ->
-                   (inst : InstanceReading r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t)) ->
-                   SiteWrites m p inst.template
-siteWritesFrom s r same covers mk vs held inst = siteWritten s (rewrite same in covers mk vs held inst)

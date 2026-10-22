@@ -519,6 +519,7 @@ mutual
     LightHead (rewrite allWriteLength xs in transitive (maxLeft wide) (stepsAbove _ _))
               (unmarkedAllLight ms (unmarkedOpaque um) xs (maxRight wide) heavy)
   unmarkedLight ms um AtLeaf _ _ = LightLeaf
+  unmarkedLight ms um (AtRunRead run) _ _ = runLight ms.one run
   unmarkedLight ms um (AtComputed {ts} {ws} xs form meas) wide heavy = case unmarkedChoice um of
     (UnmarkedHead us :: _) =>
       constantLight form
@@ -618,6 +619,7 @@ mutual
                  allLightWritten ms ds fe xs (coveredOpaque cov) (maxRight wide) heavy
                    (replace {p = \z => LTE z (g.constant + index s.target pot)} (plusSuccRightSucc (tallest ts) e) hp))
   lightAt ms ds fe AtLeaf _ _ _ _ = LightLeaf
+  lightAt ms ds fe (AtRunRead run) _ _ _ _ = runLight ms.one run
   lightAt {g} {pot} {s} {e} {w} ms ds fe (AtComputed {ts} {ws} xs form meas) cov wide heavy hp = case coveredChoice cov of
     (c :: _) =>
       constantLight form

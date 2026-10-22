@@ -428,6 +428,11 @@ mutual
     ||| A head of one child over what writes a run: the run one longer, as
     ||| an instance's closed run of successors reads.
     AtRun : Writes m s t v -> RunOf v h -> Writes m s (Head a [t]) (Leaf (S h))
+    ||| A closed run a site reads as its leaf, which an instance reads node
+    ||| by node: the same run, as high (`RunRead`). One term of an
+    ||| instance's has two readings there, as a value put in for a marker
+    ||| does (`Reread`).
+    AtRunRead : RunRead h w -> Writes m s (Leaf h) w
     ||| A part a shape's key cuts: a hole one high, where the instance
     ||| wrote a part at least that high.
     AtCut : Writes m s t v -> LTE 1 (height v) -> Writes m s t (Leaf 1)
@@ -800,6 +805,7 @@ mutual
   unmarkedWrites u (AtHead xs) = LTESucc (unmarkedAll (unmarkedHead u) xs)
   unmarkedWrites u (AtOpaque xs) = LTESucc (unmarkedAll (unmarkedOpaque u) xs)
   unmarkedWrites u AtLeaf = reflexive
+  unmarkedWrites u (AtRunRead run) = rewrite runReadHeight run in reflexive
   unmarkedWrites u (AtComputed {ts} _ form _) = transitive (constantHeight form) (computedTall ts)
   unmarkedWrites u (AtRun x run) = case unmarkedHead u of
     (ut :: _) => runAbove run (unmarkedWrites ut x)
@@ -985,6 +991,8 @@ mutual
     lteL (sym (plusSuccRightSucc (tallest ws) e)) $
       allWrittenAt ds fe xs (coveredOpaque cov) (lteL (plusSuccRightSucc (tallest ts) e) hp)
   writtenAt ds fe AtLeaf cov hp = hp
+  -- A run read node by node is as high as its leaf.
+  writtenAt ds fe (AtRunRead run) cov hp = rewrite runReadHeight run in hp
   writtenAt {e} ds fe (AtComputed {ts} _ form _) cov hp =
     transitive (plusLteMonotoneRight e _ _ (transitive (constantHeight form) (computedTall ts))) hp
   -- A run one longer than its child writes, carried as the head's child is.

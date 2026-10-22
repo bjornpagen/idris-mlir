@@ -6,8 +6,8 @@
 |||
 ||| - at a node of the site's term an inert head heads, what an instance
 |||   reads: the head over what each argument, the instance's values put
-|||   in, reaches as a normal form, contracted and read (`atConstructor`,
-|||   `familyRead`, `boundRead`), or a closed run's leaf;
+|||   in, reaches as a normal form, contracted with no redex left, and read
+|||   (`atConstructor`, `familyRead`, `boundRead`), or a closed run's leaf;
 ||| - a match on a marker binding each field to a marker of its own, the
 |||   part at the field's path, one match deeper (`pathStep`): the
 |||   instance's value for that marker is the field, which the markers then
@@ -19,18 +19,53 @@
 |||   `Proof.Bound.AtComputed`;
 ||| - the graph's rewrites of a site's template: what an instance writes
 |||   under the reading, it writes under the template the graph keeps
-|||   (`asGivenWrites`, `closedWrites`), from what the graph's builder
-|||   establishes of the landings (`LandingsWrite`), a family read as
-|||   computing being reached nowhere an instance writes in a feasible
-|||   graph (`computingUnreached`);
+|||   (`asGivenWrites`, `closedWrites`, `landedWrites`), from what the
+|||   graph's builder establishes of the landings (`LandingsWrite`), a
+|||   family read as computing being reached nowhere an instance writes in
+|||   a feasible graph (`computingUnreached`);
 ||| - two readings of one term as an instance's are one reading but for an
 |||   argument's number and a run read as its leaf (`readsAlike`), so a
 |||   request's argument, which a site wrote, holds the requested
 |||   instance's markers (`requestHolds`);
 ||| - contraction is maximal: an eta-normal term contracts to itself
 |||   (`etaNormalFixed`);
-||| - the reading lemma's induction, stated per node (`NodeCovers`), at a
-|||   marker (`markerWrites`).
+||| - the reading lemma's induction, stated per node (`NodeCovers`), and
+|||   proved at the root of a kind read off the host's normal form, whose
+|||   instance form holds no redex (`coversAtRoot`), at a marker
+|||   (`markerWrites`), at a constant, a universe and an erased part, which
+|||   the host's steps only move (`atConstant`, `atUniverse`, `atErased`),
+|||   at a closed run the site reads as its leaf (`runCovers`), and at a
+|||   data constructor, read node by node or as a closed run's leaf by the
+|||   instance (`dataCovers`); the host's reduction of a lone lambda or
+|||   function type keeps the binder (`lambdaReduces`, `piReduces`).
+|||
+||| The induction is not yet whole, so the run-time re-check stays. What it
+||| lacks, each a fact no proof here states yet:
+||| - under a binder: `NodeCovers` states closed terms only; a lambda's or
+|||   a function type's body is read in a scope the instance's values are
+|||   put in under (`putIn` at an outer scope) with its variable read as an
+|||   argument of the value, so the induction needs that statement, and,
+|||   where the instance contracts a lambda the site keeps, a reading of
+|||   `g x` from a reading of `g` (`DropsLast`); a `let` is a redex where
+|||   the evaluation runs everything, so the site's form has none only
+|||   where its normality is carried into the induction, which
+|||   `ReadingCovers` does not state;
+||| - a call the site reads beside its unfolding (`SBeside`, `Reducing`,
+|||   `Unfolds`): the instance's evaluation of the call with the values put
+|||   in either takes no `Unfold` step, leaving the call as written, or
+|||   takes the one whose `Chooses` walks the same alternatives the trace
+|||   took, which needs the frontend's `scrutineeOf` related to the host's
+|||   `Scrutinised`, `Picks` and `Misses` through `putIn`, and the
+|||   instance's normal form of the leaf related to the site's reading of
+|||   it (`Idris.Host.reachesNormalForm` with putting values in commuting
+|||   with the normaliser's steps);
+||| - a head the host may rewrite alone: a type constructor of no
+|||   arguments (`TypeName`, `ConstantTypeName`), a name with an address
+|||   but no definition (`SNoDefinition` speaks of the address,
+|||   `undefinedReduces` of the definition), and a constant applied to
+|||   arguments, which `DropApplied` drops though the site reads them;
+||| - a dictionary and a shape a constructor heads, read as written: no
+|||   normal form relates their instance form to the site's.
 |||
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Covers
@@ -40,6 +75,7 @@ import Core.TT
 import Idris.Host
 import Libraries.Data.List.SizeOf
 
+import IdrisMLIR.Frontend.Growth.Graph
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Keys
@@ -50,6 +86,7 @@ import IdrisMLIR.Proof.Derivation
 import IdrisMLIR.Proof.Describes
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Inversion
+import IdrisMLIR.Proof.Markers
 import IdrisMLIR.Proof.Primitives
 import IdrisMLIR.Proof.Reading
 import IdrisMLIR.Proof.Requests
@@ -185,17 +222,30 @@ boundRead {args} s (ASpine sp) = case boundSpine (spineRead s sp) of
   (ts ** (named, rs)) => (ts ** (named, replace {p = \zs => AllReadAs (InstanceMode ctx) env zs ts} (appendNilRightNeutral args) rs))
 
 ||| What an instance reads at each argument of a node: the normal form the
-||| argument, values put in, reduces to, contracted, and read.
+||| argument, values put in, reduces to, contracted with no redex left, and
+||| read.
 public export
 data ArgumentsRead : Evaluation -> Frozen -> List ClosedTerm -> List Template -> Type where
   NoneRead : ArgumentsRead ev ctx [] []
-  EachRead : Reduces ev ctx a w -> Irreducible ev ctx w -> EtaContracts w u -> ReadAs (InstanceMode ctx) [] u t ->
-             ArgumentsRead ev ctx as ts -> ArgumentsRead ev ctx (a :: as) (t :: ts)
+  EachRead : Reduces ev ctx a w -> Irreducible ev ctx w -> EtaContracts w u -> EtaNormal EveryRedex u ->
+             ReadAs (InstanceMode ctx) [] u t -> ArgumentsRead ev ctx as ts -> ArgumentsRead ev ctx (a :: as) (t :: ts)
 
 0 argumentsRead : {0 ev : Evaluation} -> AllReduce ev ctx as ws -> All (Irreducible ev ctx) ws -> AllContract ws us ->
-                  AllReadAs (InstanceMode ctx) [] us ts -> ArgumentsRead ev ctx as ts
-argumentsRead NoneLeft [] NoneContracted [] = NoneRead
-argumentsRead (Each r rs) (n :: ns) (EachContracted c cs) (x :: xs) = EachRead r n c x (argumentsRead rs ns cs xs)
+                  All (EtaNormal EveryRedex) us -> AllReadAs (InstanceMode ctx) [] us ts -> ArgumentsRead ev ctx as ts
+argumentsRead NoneLeft [] NoneContracted [] [] = NoneRead
+argumentsRead (Each r rs) (n :: ns) (EachContracted c cs) (e :: es) (x :: xs) = EachRead r n c e x (argumentsRead rs ns cs es xs)
+
+-- One more property after properties of each, at the end.
+0 allAtEnd : {0 p : a -> Type} -> All p xs -> p x -> All p (xs ++ [x])
+allAtEnd [] px = [px]
+allAtEnd (q :: qs) px = q :: allAtEnd qs px
+
+||| Every argument of a term with no redex left is one with none: a spine's
+||| arguments are parts of its applications (`NormalApp`).
+export
+0 spineNormal : Spine v h args -> EtaNormal how v -> All (EtaNormal how) args
+spineNormal Host.Head _ = []
+spineNormal (Host.Applied s) (NormalApp nf na) = allAtEnd (spineNormal s nf) na
 
 ||| What an instance reads where the site's term has a data constructor
 ||| applied: a closed run's leaf, or the constructor, by the address the
@@ -216,12 +266,15 @@ export
 0 atConstructor : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
                   Spine u (Ref fc (DataCon tag arity) n) args ->
                   Reduces ev ctx (putIn SizeOf.zero sz bs vs u) w -> Irreducible ev ctx w -> EtaContracts w v ->
-                  ReadAs (InstanceMode ctx) [] v r -> AtConstructor ev ctx n (map (putIn SizeOf.zero sz bs vs) args) r
-atConstructor sz bs vs s steps normal contracted read = case inertPutIn SizeOf.zero sz bs vs InertData KeptData s steps of
-  ReducedUnder sw rs => case refContracts sw contracted of
-    ContractedUnder sv cs => case constructorRead sv read of
-      ReadAsRun run => RunAtConstructor run
-      ReadAsConstructor at reads => HeadAtConstructor at (argumentsRead rs (argumentsIrreducible sw normal) cs reads)
+                  EtaNormal EveryRedex v -> ReadAs (InstanceMode ctx) [] v r ->
+                  AtConstructor ev ctx n (map (putIn SizeOf.zero sz bs vs) args) r
+atConstructor sz bs vs s steps normal contracted maximal read =
+  case inertPutIn SizeOf.zero sz bs vs InertData KeptData s steps of
+    ReducedUnder sw rs => case refContracts sw contracted of
+      ContractedUnder sv cs => case constructorRead sv read of
+        ReadAsRun run => RunAtConstructor run
+        ReadAsConstructor at reads =>
+          HeadAtConstructor at (argumentsRead rs (argumentsIrreducible sw normal) cs (spineNormal sv maximal) reads)
 
 ||| The same at a type constructor of arguments: the type constructor over
 ||| what each argument reaches.
@@ -229,13 +282,15 @@ export
 0 atFamily : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
              Spine u (Ref fc (TyCon (S arity)) n) args ->
              Reduces ev ctx (putIn SizeOf.zero sz bs vs u) w -> Irreducible ev ctx w -> EtaContracts w v ->
-             ReadAs (InstanceMode ctx) [] v r ->
+             EtaNormal EveryRedex v -> ReadAs (InstanceMode ctx) [] v r ->
              (a : Maybe Address ** ts : List Template **
                (r = Head a ts, AddressedAs (InstanceMode ctx) n a, ArgumentsRead ev ctx (map (putIn SizeOf.zero sz bs vs) args) ts))
-atFamily sz bs vs s steps normal contracted read = case inertPutIn SizeOf.zero sz bs vs InertFamily KeptFamily s steps of
-  ReducedUnder sw rs => case refContracts sw contracted of
-    ContractedUnder sv cs => case familyRead sv read of
-      (a ** ts ** (same, at, reads)) => (a ** ts ** (same, at, argumentsRead rs (argumentsIrreducible sw normal) cs reads))
+atFamily sz bs vs s steps normal contracted maximal read =
+  case inertPutIn SizeOf.zero sz bs vs InertFamily KeptFamily s steps of
+    ReducedUnder sw rs => case refContracts sw contracted of
+      ContractedUnder sv cs => case familyRead sv read of
+        (a ** ts ** (same, at, reads)) =>
+          (a ** ts ** (same, at, argumentsRead rs (argumentsIrreducible sw normal) cs (spineNormal sv maximal) reads))
 
 ||| The same at a bound name no value is put in for: the name over what
 ||| each argument reaches.
@@ -243,12 +298,13 @@ export
 0 atBound : {0 ev : Evaluation} -> {0 ctx : Frozen} -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
             (0 _ : replaces bs n = False) -> Spine u (Ref fc Bound n) args ->
             Reduces ev ctx (putIn SizeOf.zero sz bs vs u) w -> Irreducible ev ctx w -> EtaContracts w v ->
-            ReadAs (InstanceMode ctx) [] v r ->
+            EtaNormal EveryRedex v -> ReadAs (InstanceMode ctx) [] v r ->
             (ts : List Template ** (BoundRead n ts r, ArgumentsRead ev ctx (map (putIn SizeOf.zero sz bs vs) args) ts))
-atBound sz bs vs none s steps normal contracted read = case inertPutIn SizeOf.zero sz bs vs InertBound (KeptBound none) s steps of
-  ReducedUnder sw rs => case refContracts sw contracted of
-    ContractedUnder sv cs => case boundRead sv read of
-      (ts ** (named, reads)) => (ts ** (named, argumentsRead rs (argumentsIrreducible sw normal) cs reads))
+atBound sz bs vs none s steps normal contracted maximal read =
+  case inertPutIn SizeOf.zero sz bs vs InertBound (KeptBound none) s steps of
+    ReducedUnder sw rs => case refContracts sw contracted of
+      ContractedUnder sv cs => case boundRead sv read of
+        (ts ** (named, reads)) => (ts ** (named, argumentsRead rs (argumentsIrreducible sw normal) cs (spineNormal sv maximal) reads))
 
 ------------------------------------------------------------------------------
 -- Every term has an instance's reading
@@ -531,7 +587,7 @@ raisedChild (S k) el = ReachesChild Here (raisedChild k el)
 ||| it (`landedAs`), is reached from it: below k heads, as an applied
 ||| family's or a computing family's argument.
 export
-0 landedArgument : (l : Landing) -> (b : Template.Beta) -> Elem x ts -> Reaches (landedAs l b i d ts) x
+0 landedArgument : (l : Landing) -> (b : Template.Beta) -> Elem x ts -> Reaches (landedAs l b i d ts).template x
 landedArgument Computed b el = ReachesComputing el ReachesItself
 landedArgument (Evaluable _) b el = ReachesComputing el ReachesItself
 landedArgument (Closed _) Template.Computes el = ReachesComputing el ReachesItself
@@ -590,8 +646,12 @@ mutual
 |||   (`ownDrawn`, which `Proof.Describes.ownDrawnOf` gives every site of a
 |||   model drawn from sites);
 ||| - the writer reads every parameter the template weighs with an arc at a
-|||   position (`writersListed`): the site's writers are its template's
-|||   weighed parameters, each zipped with the position met for it;
+|||   position (`writersListed`), as every site of a built graph does
+|||   (`Graph.Built.writersListed`), and every family the reading landed
+|||   closed, which the template no longer names, as well
+|||   (`Graph.SiteLanding`): so a family the rewrite drops is still read
+|||   at the position its values land at, which `Beta`, `GivenPart` and
+|||   `closedLands` name;
 ||| - only closed values no higher than k land at each position the writer
 |||   reads a family landing closed at (`closedLands`): what lands at a
 |||   position is joined from every writing there, each argument's closed
@@ -601,9 +661,17 @@ mutual
 ||| - an applied parameter whose reading roots an implementation lands
 |||   other than closed, and the roots it is read with are read off its
 |||   head, whatever its arguments (`appliedRoots`): `Heads.roots` reads an
-|||   applied marker by its index alone;
+|||   applied marker by its index alone, and roots it only where it lands
+|||   open;
 ||| - the roots a field's record gives are kept by the rewrite
-|||   (`recordRoots`).
+|||   (`recordRoots`), which holds wherever the rewrite keeps applied every
+|||   family the record's head roots by. A family applied in a record where
+|||   values not all closed land, whose arguments compute, is read as
+|||   computing, which roots nothing: there the record gives roots the
+|||   rewritten record does not, and only the run-time re-check stands.
+||| The graph's builder gives the first two of a built graph's sites; the
+||| others hold of its code (`Graph.Built.landedSites`, `Heads.roots`) but no
+||| evidence of them is kept, so each stays a premise.
 ||| A family read as computing is then never reached where an instance
 ||| writes (`computingUnreached`): it weighs its parameter Stuck, the arc
 ||| from the position the writer reads it at is Unmeasured, and no feasible
@@ -614,12 +682,27 @@ record LandingsWrite {g : Graph} (m : Model g) (s : Bound.Site g.size) (c : Nat 
   0 potential : Vect g.size Nat
   0 feasible : Feasible g potential
   0 ownDrawn : (a : Arc g.size) -> Elem a (ownArcs s) -> Elem a g.arcs
-  0 writersListed : (i : Nat) -> (w : Weight) -> Elem (i, w) (weights s.template) -> (lab : Label) -> labelOf w = Just lab ->
-                    (p : Fin g.size ** Elem (i, p) s.writers)
+  0 writersListed : WritersListed s
   0 closedLands : (i, k : Nat) -> c i = Closed k -> (p : Fin g.size) -> Elem (i, p) s.writers -> Lands g m p k
   0 appliedRoots : (i, d : Nat) -> (ts : List Template) -> (j : Address) -> Elem j (s.roots (Applied i d ts)) ->
                    ((k : Nat) -> Not (c i = Closed k), (ts' : List Template) -> Elem j (s.roots (Applied i d ts')))
   0 recordRoots : (r : Template) -> (j : Address) -> Elem j (s.roots r) -> Elem j (s.roots (withClosedFamilies c r))
+
+||| What a built graph gives the rewrite of one of its sites read at a
+||| node: its writers list every parameter its template weighs with an arc
+||| (`Built.writersListed`); the graph's feasibility, its own arcs and the
+||| landings' three facts are the premises still to be kept.
+export
+0 builtLandings : (b : Built) -> {s : Bound.Site b.graph.size} -> Elem s b.model.sites -> {c : Nat -> Landing} ->
+                  (pot : Vect b.graph.size Nat) -> Feasible b.graph pot ->
+                  ((a : Arc b.graph.size) -> Elem a (ownArcs s) -> Elem a b.graph.arcs) ->
+                  ((i, k : Nat) -> c i = Closed k -> (p : Fin b.graph.size) -> Elem (i, p) s.writers -> Lands b.graph b.model p k) ->
+                  ((i, d : Nat) -> (ts : List Template) -> (j : Address) -> Elem j (s.roots (Applied i d ts)) ->
+                   ((k : Nat) -> Not (c i = Closed k), (ts' : List Template) -> Elem j (s.roots (Applied i d ts')))) ->
+                  ((r : Template) -> (j : Address) -> Elem j (s.roots r) -> Elem j (s.roots (withClosedFamilies c r))) ->
+                  LandingsWrite b.model s c
+builtLandings b {s} inModel pot fe own lands applied record =
+  MkLandingsWrite pot fe own (b.writersListed s inModel) lands applied record
 
 ||| A family read as computing is reached nowhere an instance writes in a
 ||| site's template: reached, it weighs its parameter Stuck
@@ -684,8 +767,9 @@ data AppliedWrites : {g : Graph} -> Model g -> Bound.Site g.size -> (i, d : Nat)
 -- reads it, where the rewritten node is reached in the site's template.
 -- Read as computing, it is reached nowhere (`computingUnreached`).
 0 appliedLanded : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {c : Nat -> Landing} -> LandingsWrite m s c ->
-                  (l : Landing) -> c i = l -> (b : Template.Beta) -> Reaches s.template (landedAs l b i d (allWithClosed c ts)) ->
-                  AppliedWrites m s i d ts (allWithClosed c ts) w -> Writes m s (landedAs l b i d (allWithClosed c ts)) w
+                  (l : Landing) -> c i = l -> (b : Template.Beta) ->
+                  Reaches s.template (landedAs l b i d (allWithClosed c ts)).template ->
+                  AppliedWrites m s i d ts (allWithClosed c ts) w -> Writes m s (landedAs l b i d (allWithClosed c ts)).template w
 appliedLanded ls Open isOpen Template.Inert r (ByBeta wrote inV sub within aw inst) = Bound.Beta wrote inV sub within aw inst
 appliedLanded ls Open isOpen Template.Inert r (ByPart wrote inV sub within) = GivenPart wrote inV sub within
 appliedLanded {i} {d} {ts} {c} ls Open isOpen Template.Inert r (ByMember {j} rooted args) =
@@ -726,6 +810,7 @@ mutual
   closedWrites ls r (AtHead aw) = AtHead (allClosedWrites ls (\el => reachedBelow r (ReachesChild el ReachesItself)) aw)
   closedWrites ls r (AtOpaque aw) = AtOpaque (allClosedWrites ls (\el => reachedBelow r (ReachesRecursion el ReachesItself)) aw)
   closedWrites ls r AtLeaf = AtLeaf
+  closedWrites ls r (AtRunRead run) = AtRunRead run
   closedWrites ls r (AtComputed aw form measured) =
     AtComputed (allClosedWrites ls (\el => reachedBelow r (ReachesLeaf Here (ReachesChild el ReachesItself))) aw) form measured
   closedWrites ls r (AtRun wr run) = AtRun (closedWrites ls (reachedBelow r (ReachesChild Here ReachesItself)) wr) run
@@ -739,7 +824,7 @@ mutual
   closedWrites {c} ls r (Bound.Beta {i} {d} {ts} wrote inV sub within aw inst) =
     appliedLanded {i} {d} {ts} ls (c i) Refl (argumentsBeta c (allWithClosed c ts)) r
                   (ByBeta wrote inV sub within
-                     (allClosedWrites ls (\el => reachedBelow r (landedArgument (c i) (argumentsBeta c (allWithClosed c ts)) el)) aw)
+                     (allClosedWrites ls (\el => reachedBelow r (landedArgument {i} {d} (c i) (argumentsBeta c (allWithClosed c ts)) el)) aw)
                      inst)
   closedWrites {c} ls r (GivenPart {i} {d} {ts} wrote inV sub within) =
     appliedLanded {i} {d} {ts} ls (c i) Refl (argumentsBeta c (allWithClosed c ts)) r (ByPart wrote inV sub within)
@@ -1044,7 +1129,7 @@ rootHolds (MkVar (Later _)) _ _ _ _ _ impossible
 ||| (`Var i 0`), came from: the form an instance's reading of the request's
 ||| argument read, which a site of the model writes at a position the
 ||| requested node's site reads parameter i at, as the reading lemma at the
-||| requesting instance's site gives (`Template.siteWritesFrom`).
+||| requesting instance's site gives (`siteWritesRead`).
 public export
 data ArgumentFrom : {g : Graph} -> Model g -> Bound.Site g.size -> Frozen -> (i, d : Nat) -> ClosedTerm -> Type where
   WrittenArgument : {0 k : State.Static} -> {0 t : ClosedTerm} -> (p : Fin g.size) -> Elem (i, p) s.writers ->
@@ -1101,3 +1186,469 @@ export
                  ReadAs (InstanceMode ctx) [] (Var.index vs x) u -> Writes m s (Template.Var i d) u
 markerWrites held x marked read = case held x i d marked u read of
   (p ** v ** u' ** (wrote, inV, sub, again)) => AtVar wrote inV sub again
+
+------------------------------------------------------------------------------
+-- The reading lemma at the root, and at the graph's site
+------------------------------------------------------------------------------
+
+||| The kinds read off the host's normal form alone: a type, a family, a
+||| form; no reading reads one as written (`Template.ReadAsWritten`).
+public export
+data ReadOffNormal : State.Static -> Type where
+  TypeReadNormal : ReadOffNormal AType
+  FamilyReadNormal : ReadOffNormal AFamily
+  FormReadNormal : ReadOffNormal AForm
+
+0 notWritten : ReadOffNormal k -> ReadAsWritten k -> Void
+notWritten TypeReadNormal WrittenDictionary impossible
+notWritten TypeReadNormal WrittenShape impossible
+notWritten FamilyReadNormal WrittenDictionary impossible
+notWritten FamilyReadNormal WrittenShape impossible
+notWritten FormReadNormal WrittenDictionary impossible
+notWritten FormReadNormal WrittenShape impossible
+
+-- A form of such a kind is the host's normal form of its term, contracted.
+0 normalOnly : ReadOffNormal k -> FormFrom k ctx t u -> (r : NormalReading OfNormaliseTypes ctx t ** u = r.readForm)
+normalOnly _ (FromNormalForm r) = (r ** Refl)
+normalOnly nk (FromWritten wk _) = void (notWritten nk wk)
+normalOnly TypeReadNormal (FromImplementation _) impossible
+normalOnly FamilyReadNormal (FromImplementation _) impossible
+normalOnly FormReadNormal (FromImplementation _) impossible
+
+-- The induction at the root, at a form read off the host's normal form.
+0 formCovers : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} -> {ns : Scope} ->
+               {bs : Bounds ns} -> {vs : SubstEnv ns []} -> ReadOffNormal k ->
+               NodeCovers m s (evaluationOf OfNormaliseTypes) ctx bs vs u t ->
+               FormFrom k ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs u) form -> EtaNormal EveryRedex form ->
+               (r : Template) -> ReadAs (InstanceMode ctx) [] form r -> Writes m s t r
+formCovers nk covers from maximal r read = case normalOnly nk from of
+  (nr ** Refl) => covers nr.reduct.steps nr.reduct.normal nr.contraction maximal r read
+
+||| The reading lemma at the root, from its induction (`NodeCovers`), for
+||| a kind read off the host's normal form: the instance's form is that
+||| normal form of the site's term with the values put in, contracted, and
+||| it holds no redex (`Template.InstanceReading`'s `maximal`), so the
+||| induction's premises are the instance reading's own. A dictionary and
+||| a shape a constructor heads are read as written, which no normal form
+||| relates to the site's: theirs is a separate obligation.
+export
+0 coversAtRoot : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {ctx : Frozen} -> {ns : Scope} ->
+                 {bs : Bounds ns} -> {vs : SubstEnv ns []} -> ReadOffNormal k ->
+                 NodeCovers m s (evaluationOf OfNormaliseTypes) ctx bs vs u t ->
+                 (inst : InstanceReading ctx k (putIn SizeOf.zero (mkSizeOf ns) bs vs u)) -> Writes m s t inst.template
+coversAtRoot nk covers inst = formCovers nk covers inst.formFrom inst.maximal inst.template inst.describes
+
+||| What an instance writes under a site's reading, the template written at
+||| a node, it writes under the template the graph's site holds, that
+||| reading read where the node's families land: the site reaches its own
+||| template (`closedWrites`).
+export
+0 landedWrites : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {c : Nat -> Landing} -> LandingsWrite m s c ->
+                 s.template = withClosedFamilies c t -> Writes m s t w -> Writes m s s.template w
+landedWrites ls same wr =
+  rewrite same in closedWrites ls (replace {p = \x => Reaches x (withClosedFamilies c t)} (sym same) ReachesItself) wr
+
+||| What a site of the model writes at a request's argument, of any kind,
+||| from the reading lemma at the site the request read: the graph's site
+||| holds its reading's template read where its writer's families land
+||| (`Graph.SiteLanding`), and the lemma gives what it writes at the
+||| instance's reading of the argument, which that reading keeps
+||| (`landedWrites`).
+export
+0 siteWritesRead : {g : Graph} -> {m : Model g} -> {p : Fin g.size} -> {c : Nat -> Landing} -> (s : SiteOf m p) ->
+                   (r : SiteReading k t) -> LandingsWrite m s.site c -> s.site.template = withClosedFamilies c r.template ->
+                   ReadingCovers m s.site stands k t r ->
+                   (mk : Markers r.mode.inContext ns) -> (vs : SubstEnv ns []) ->
+                   MarkersHold m s.site r.mode.inContext stands mk.bounds vs ->
+                   (inst : InstanceReading r.mode.inContext k (putIn SizeOf.zero (mkSizeOf ns) mk.bounds vs t)) ->
+                   SiteWrites m p inst.template
+siteWritesRead s r ls same covers mk vs held inst = siteWritten s (landedWrites ls same (covers mk vs held inst))
+
+------------------------------------------------------------------------------
+-- Templates that name nothing
+------------------------------------------------------------------------------
+
+mutual
+  ||| A template that names no parameter, choice, member, field or
+  ||| recursion: heads over such templates, leaves, tokens and arguments of
+  ||| a family's value. What an instance writes where a site's template is
+  ||| one is that template (`plainWrites`).
+  public export
+  data Plain : Template -> Type where
+    PlainHead : AllPlain ts -> Plain (Head a ts)
+    PlainLeaf : Plain (Leaf h)
+    PlainToken : Plain (Token k)
+    PlainFormal : Plain (Formal j k)
+
+  public export
+  data AllPlain : List Template -> Type where
+    NonePlain : AllPlain []
+    EachPlain : Plain t -> AllPlain ts -> AllPlain (t :: ts)
+
+mutual
+  ||| A template that names nothing writes itself.
+  export
+  0 plainWrites : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> Plain t -> Writes m s t t
+  plainWrites (PlainHead ps) = AtHead (allPlainWrite ps)
+  plainWrites PlainLeaf = AtLeaf
+  plainWrites PlainToken = AtToken
+  plainWrites PlainFormal = AtFormal
+
+  0 allPlainWrite : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> AllPlain ts -> AllWrite m s ts ts
+  allPlainWrite NonePlain = []
+  allPlainWrite (EachPlain p ps) = plainWrites p :: allPlainWrite ps
+
+-- A spelt constant's leaves name nothing.
+0 speltPlain : (cs : List Char) -> AllPlain (spelt cs ++ [])
+speltPlain [] = NonePlain
+speltPlain (_ :: cs) = EachPlain PlainLeaf (speltPlain cs)
+
+||| What an instance reads a constant as names nothing.
+export
+0 constantPlain : (c : Constant) -> Plain (constantRead c)
+constantPlain (I _) = PlainToken
+constantPlain (I8 _) = PlainToken
+constantPlain (I16 _) = PlainToken
+constantPlain (I32 _) = PlainToken
+constantPlain (I64 _) = PlainToken
+constantPlain (BI _) = PlainToken
+constantPlain (B8 _) = PlainToken
+constantPlain (B16 _) = PlainToken
+constantPlain (B32 _) = PlainToken
+constantPlain (B64 _) = PlainToken
+constantPlain (Str x) = PlainHead (speltPlain (unpack x))
+constantPlain (Db x) = PlainHead (speltPlain (unpack (show x)))
+constantPlain (Ch _) = PlainLeaf
+constantPlain (PrT _) = PlainLeaf
+constantPlain WorldVal = PlainLeaf
+
+------------------------------------------------------------------------------
+-- The host's location-only steps
+------------------------------------------------------------------------------
+
+-- A constant and a universe head no spine of a reference or an unknown:
+-- each is a node of its own.
+0 constantNotRef : Spine (PrimVal fc c) (Ref rfc nt n) args -> Void
+constantNotRef Host.Head impossible
+constantNotRef (Host.Applied _) impossible
+
+0 constantNotMeta : Spine (PrimVal fc c) (Meta mfc y i scope) more -> Void
+constantNotMeta Host.Head impossible
+constantNotMeta (Host.Applied _) impossible
+
+0 universeNotRef : Spine (TType fc u) (Ref rfc nt n) args -> Void
+universeNotRef Host.Head impossible
+universeNotRef (Host.Applied _) impossible
+
+0 universeNotMeta : Spine (TType fc u) (Meta mfc y i scope) more -> Void
+universeNotMeta Host.Head impossible
+universeNotMeta (Host.Applied _) impossible
+
+-- No step of the evaluator applies at a constant or a universe alone:
+-- each step's left side is a node of another form, or a reference or an
+-- unknown at the head of its spine.
+0 constantNoStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Contracts ev ctx (PrimVal fc c) v -> Void
+constantNoStep (Unfold s _ _ _ _ _ _ _) = constantNotRef s
+constantNoStep (Solve s _ _ _ _ _ _ _ _) = constantNotMeta s
+constantNoStep (Primitive s _ _ _ _ _) = constantNotRef s
+
+0 universeNoStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Contracts ev ctx (TType fc u) v -> Void
+universeNoStep (Unfold s _ _ _ _ _ _ _) = universeNotRef s
+universeNoStep (Solve s _ _ _ _ _ _ _ _) = universeNotMeta s
+universeNoStep (Primitive s _ _ _ _ _) = universeNotRef s
+
+||| What a constant reduces to: itself, at some location. The host's steps
+||| are blind to locations, and every node they rebuild may take a new one.
+export
+0 constantReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Reduces ev ctx (PrimVal fc c) v -> (fc' : FC ** v = PrimVal fc' c)
+constantReduces (Then r r') = case constantReduces r of
+  (_ ** Refl) => constantReduces r'
+constantReduces (Contract st) = void (constantNoStep st)
+constantReduces APrimVal = (_ ** Refl)
+
+||| What a universe reduces to: itself, at some location.
+export
+0 universeReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Reduces ev ctx (TType fc u) v -> (fc' : FC ** v = TType fc' u)
+universeReduces (Then r r') = case universeReduces r of
+  (_ ** Refl) => universeReduces r'
+universeReduces (Contract st) = void (universeNoStep st)
+universeReduces AType = (_ ** Refl)
+
+-- Contraction rewrites no constant, universe or erased part no dot holds.
+0 constantKept : EtaContracts (PrimVal fc c) v -> v = PrimVal fc c
+constantKept EtaSame = Refl
+
+0 universeKept : EtaContracts (TType fc u) v -> v = TType fc u
+universeKept EtaSame = Refl
+
+0 erasedKept : Undotted why -> EtaContracts (Erased fc why) v -> v = Erased fc why
+erasedKept _ EtaSame = Refl
+erasedKept IsPlaceholder (EtaDotted _) impossible
+erasedKept IsImpossible (EtaDotted _) impossible
+
+-- Putting values in keeps a constant, a universe and an erased part no
+-- dot holds: `substTerm` and `mkLocals` rebuild each as it is.
+0 putInConstant : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (env : SubstEnv ns vars) ->
+                  putIn o sz bs env (PrimVal fc c) = PrimVal fc c
+putInConstant o sz None env = Refl
+putInConstant o sz (Add new old rest) env = Refl
+
+0 putInUniverse : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (env : SubstEnv ns vars) ->
+                  putIn o sz bs env (TType fc u) = TType fc u
+putInUniverse o sz None env = Refl
+putInUniverse o sz (Add new old rest) env = Refl
+
+0 putInErased : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (env : SubstEnv ns vars) -> Undotted why ->
+                putIn o sz bs env (Erased fc why) = Erased fc why
+putInErased o sz None env IsPlaceholder = Refl
+putInErased o sz None env IsImpossible = Refl
+putInErased o sz (Add new old rest) env IsPlaceholder = Refl
+putInErased o sz (Add new old rest) env IsImpossible = Refl
+
+0 runNotUniverse : Run (TType fc u) k -> Void
+runNotUniverse Keys.RunZero impossible
+runNotUniverse (RunSucc _) impossible
+
+0 runNotErased : Run (Erased fc why) k -> Void
+runNotErased Keys.RunZero impossible
+runNotErased (RunSucc _) impossible
+
+-- What an instance reads a universe and an erased part no dot holds as:
+-- one leaf.
+0 universeReadAs : ReadAs (InstanceMode ctx) env (TType fc u) r -> r = Leaf 1
+universeReadAs (ASpine (SUniverse [])) = Refl
+universeReadAs (ARun run) = void (runNotUniverse run)
+
+0 erasedReadAs : Undotted why -> ReadAs (InstanceMode ctx) env (Erased fc why) r -> r = Leaf 1
+erasedReadAs IsPlaceholder (ASpine (SPlaceholder [])) = Refl
+erasedReadAs IsImpossible (ASpine (SImpossible [])) = Refl
+erasedReadAs _ (ARun run) = void (runNotErased run)
+
+||| The induction at a constant applied to nothing: the host's steps only
+||| move it (`constantReduces`), contraction keeps it, and the instance
+||| reads it as the site does, a template that names nothing, which writes
+||| itself.
+export
+0 atConstant : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
+               {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} -> {0 w, v : ClosedTerm} ->
+               Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs (PrimVal fc c)) w -> Irreducible ev ctx w ->
+               EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
+               Writes m s (constantRead c) r
+atConstant {ns} {bs} {vs} {w} steps normal contracted maximal r read =
+  case constantReduces (replace {p = \x => Reduces ev ctx x w} (putInConstant SizeOf.zero (mkSizeOf ns) bs vs) steps) of
+    (_ ** Refl) => case constantKept contracted of
+      Refl => case constantReadAs read of
+        Refl => plainWrites (constantPlain c)
+
+||| The induction at a universe applied to nothing, read as one leaf by the
+||| site and by every instance: the host's steps only move it.
+export
+0 atUniverse : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
+               {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} -> {0 w, v : ClosedTerm} ->
+               Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs (TType fc u)) w -> Irreducible ev ctx w ->
+               EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
+               Writes m s (Leaf 1) r
+atUniverse {ns} {bs} {vs} {w} steps normal contracted maximal r read =
+  case universeReduces (replace {p = \x => Reduces ev ctx x w} (putInUniverse SizeOf.zero (mkSizeOf ns) bs vs) steps) of
+    (_ ** Refl) => case universeKept contracted of
+      Refl => case universeReadAs read of
+        Refl => AtLeaf
+
+||| The induction at a placeholder or what is impossible, applied to
+||| nothing, read as one leaf by the site and by every instance: the
+||| host's steps only move it (`Proof.Inversion.erasedReduces`).
+export
+0 atErased : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
+             {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} -> Undotted why -> {0 w, v : ClosedTerm} ->
+             Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs (Erased fc why)) w -> Irreducible ev ctx w ->
+             EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
+             Writes m s (Leaf 1) r
+atErased {ns} {bs} {vs} {w} undotted steps normal contracted maximal r read =
+  case erasedReduces undotted (replace {p = \x => Reduces ev ctx x w} (putInErased SizeOf.zero (mkSizeOf ns) bs vs undotted) steps) of
+    (_ ** Refl) => case erasedKept undotted contracted of
+      Refl => case erasedReadAs undotted read of
+        Refl => AtLeaf
+
+------------------------------------------------------------------------------
+-- A closed run and a data constructor
+------------------------------------------------------------------------------
+
+||| Putting values in keeps a closed run: its heads are constructors, which
+||| no value is put in for (`Proof.Inversion.putInHead`).
+export
+0 putInRun : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (env : SubstEnv ns vars) -> Run u k ->
+             putIn o sz bs env u = u
+putInRun o sz bs env Keys.RunZero = putInHead o sz bs env KeptData
+putInRun o sz bs env (RunSucc {fc} {rfc} {tag} {arity} {s} {a} run) =
+  trans (putInApp {fc} o sz bs env (Ref rfc (DataCon tag arity) s) a)
+        (cong2 (App fc) (putInHead o sz bs env KeptData) (putInRun o sz bs env run))
+
+||| A closed run reduces only to a run as long: its constructors are inert
+||| (`Proof.Inversion.inertAlone`, `Proof.Inversion.inertOne`).
+export
+0 runReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Run u k -> Reduces ev ctx u w -> Run w k
+runReduces Keys.RunZero r = case inertAlone InertData r of
+  (_ ** Refl) => Keys.RunZero
+runReduces (RunSucc run) r = case inertOne InertData r of
+  (_ ** _ ** _ ** (Refl, ra)) => RunSucc (runReduces run ra)
+
+-- Contraction rewrites no reference.
+0 refKept : EtaContracts (Ref fc nt n) v -> v = Ref fc nt n
+refKept EtaSame = Refl
+
+||| Contraction keeps a closed run: it holds no lambda.
+export
+0 runContracted : Run v k -> EtaContracts v v' -> v' = v
+runContracted _ EtaSame = Refl
+runContracted (RunSucc run) (EtaApp cf ca) = rewrite refKept cf in rewrite runContracted run ca in Refl
+
+||| The induction at a closed run the site reads as its leaf: putting
+||| values in keeps it (`putInRun`), the host's steps reduce only under its
+||| constructors to a run as long (`runReduces`), contraction keeps it
+||| (`runContracted`), and an instance reads that run as its leaf or node
+||| by node (`runRead`), either of which the leaf writes (`AtRunRead`).
+export
+0 runCovers : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
+              {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} -> Run u k -> {0 w, v : ClosedTerm} ->
+              Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs u) w -> Irreducible ev ctx w ->
+              EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
+              Writes m s (Leaf (S k)) r
+runCovers {ns} {bs} {vs} {w} {v} run steps normal contracted maximal r read =
+  let reduced = runReduces run (replace {p = \x => Reduces ev ctx x w} (putInRun SizeOf.zero (mkSizeOf ns) bs vs run) steps) in
+  AtRunRead (runRead (replace {p = \x => Run x k} (sym (runContracted reduced contracted)) reduced) read)
+
+||| The induction's hypothesis at each argument of a node: each writes
+||| what the site's reading reads it as (`NodeCovers`).
+public export
+data AllNodeCovers : {g : Graph} -> Model g -> Bound.Site g.size -> Evaluation -> Frozen -> Bounds ns -> SubstEnv ns [] ->
+                     List ClosedTerm -> List Template -> Type where
+  NoneCovers : AllNodeCovers m s ev ctx bs vs [] []
+  EachCovers : NodeCovers m s ev ctx bs vs a t -> AllNodeCovers m s ev ctx bs vs as ts ->
+               AllNodeCovers m s ev ctx bs vs (a :: as) (t :: ts)
+
+-- What each argument of a node writes, by the induction at each.
+0 coversAll : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
+              {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
+              AllNodeCovers m s ev ctx bs vs args ts -> AllReduce ev ctx (map (putIn SizeOf.zero (mkSizeOf ns) bs vs) args) ws ->
+              All (Irreducible ev ctx) ws -> AllContract ws us -> All (EtaNormal EveryRedex) us ->
+              AllReadAs (InstanceMode ctx) [] us outs -> AllWrite m s ts outs
+coversAll NoneCovers NoneLeft [] NoneContracted [] [] = []
+coversAll (EachCovers covers rest) (Each red reds) (irr :: irrs) (EachContracted ck cks) (nm :: nms) (x :: xs) =
+  covers red irr ck nm _ x :: coversAll rest reds irrs cks nms xs
+
+-- A closed run's spine has one argument at most.
+0 longRun : Run v k -> Spine v h (x :: y :: zs) -> Void
+longRun Keys.RunZero Host.Head impossible
+longRun Keys.RunZero (Host.Applied _) impossible
+longRun (RunSucc _) Host.Head impossible
+longRun (RunSucc _) (Host.Applied Host.Head) impossible
+longRun (RunSucc _) (Host.Applied (Host.Applied _)) impossible
+
+-- A closed run where the site reads a data constructor node by node: of
+-- no argument, its zero, which the node, one high, cuts to (`AtCut`); of
+-- one, a successor over a run one shorter, which its argument writes, by
+-- the induction there (`AtRun`); of more, none (`longRun`).
+0 runAtConstructor : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
+                     {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
+                     AllNodeCovers m s ev ctx bs vs args ts -> AllReduce ev ctx (map (putIn SizeOf.zero (mkSizeOf ns) bs vs) args) ws ->
+                     All (Irreducible ev ctx) ws -> AllContract ws us -> Spine v (Ref fc (DataCon tag arity) n) us ->
+                     EtaNormal EveryRedex v -> Run v k -> Writes m s (Head a ts) (Leaf (S k))
+runAtConstructor NoneCovers NoneLeft [] NoneContracted sv _ run = case headOnly sv Refl of
+  Refl => case run of
+    Keys.RunZero => AtCut (AtHead []) (LTESucc LTEZero)
+runAtConstructor (EachCovers covers NoneCovers) (Each red NoneLeft) [irr] (EachContracted ck NoneContracted) sv maximal run =
+  case oneApplied sv Refl of
+    (_ ** Refl) => case maximal of
+      NormalApp _ nm => case run of
+        RunSucc run' => AtRun (covers red irr ck nm _ (ARun run')) RunLeaf
+runAtConstructor (EachCovers _ (EachCovers _ _)) (Each _ (Each _ _)) (_ :: _ :: _) (EachContracted _ (EachContracted _ _)) sv _ run =
+  void (longRun run sv)
+
+||| The induction at a data constructor the site reads node by node, over
+||| the induction at each argument: the instance's term reduces under the
+||| constructor, each argument normal, contracted with no redex left
+||| (`spineNormal`) and read (`atConstructor`'s inversion). Where the
+||| instance reads it node by node, it writes the constructor over what each
+||| argument writes; where it reads a closed run's leaf, the site's
+||| successor over a run one shorter (`AtRun`), or its zero, cut to the one
+||| leaf a run's zero is (`AtCut`).
+export
+0 dataCovers : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {0 ev : Evaluation} -> {ctx : Frozen} ->
+               {ns : Scope} -> {bs : Bounds ns} -> {vs : SubstEnv ns []} ->
+               Spine u (Ref fc (DataCon tag arity) n) args -> (0 at : AddressedAs (InstanceMode ctx) n a) ->
+               AllNodeCovers m s ev ctx bs vs args ts -> {0 w, v : ClosedTerm} ->
+               Reduces ev ctx (putIn SizeOf.zero (mkSizeOf ns) bs vs u) w -> Irreducible ev ctx w ->
+               EtaContracts w v -> EtaNormal EveryRedex v -> (r : Template) -> ReadAs (InstanceMode ctx) [] v r ->
+               Writes m s (Head a ts) r
+dataCovers {ns} {bs} {vs} sp at covers steps normal contracted maximal r read =
+  case inertPutIn SizeOf.zero (mkSizeOf ns) bs vs InertData KeptData sp steps of
+    ReducedUnder sw rs => case refContracts sw contracted of
+      ContractedUnder sv cs => case read of
+        ARun run => runAtConstructor covers rs (argumentsIrreducible sw normal) cs sv maximal run
+        ASpine spread => case dataSpine (spineRead sv spread) of
+          (a' ** ts' ** (Refl, at', reads)) => case trans (sym at') at of
+            Refl => AtHead (coversAll covers rs (argumentsIrreducible sw normal) cs (spineNormal sv maximal)
+                              (replace {p = \zs => AllReadAs (InstanceMode ctx) [] zs ts'} (appendNilRightNeutral _) reads))
+
+------------------------------------------------------------------------------
+-- Binders, inverted
+------------------------------------------------------------------------------
+
+-- What an implicitness reduces to, then to again.
+0 piThen : {0 ev : Evaluation} -> {0 ctx : Frozen} -> PiReduces ev ctx p p' -> PiReduces ev ctx p' p'' -> PiReduces ev ctx p p''
+piThen AnImplicit AnImplicit = AnImplicit
+piThen AnExplicit AnExplicit = AnExplicit
+piThen AnAutoImplicit AnAutoImplicit = AnAutoImplicit
+piThen (ADefImplicit r) (ADefImplicit r') = ADefImplicit (Then r r')
+
+-- A binder heads no spine of a reference or an unknown.
+0 bindNotRef : Spine (Bind fc x b sc) (Ref rfc nt n) args -> Void
+bindNotRef Host.Head impossible
+bindNotRef (Host.Applied _) impossible
+
+0 bindNotMeta : Spine (Bind fc x b sc) (Meta mfc y i scope) more -> Void
+bindNotMeta Host.Head impossible
+bindNotMeta (Host.Applied _) impossible
+
+-- No step of the evaluator applies at a lambda or a function type alone:
+-- beta and the floats apply only where one is applied, `Zeta` only at a
+-- `let`, and every other step at a reference or an unknown.
+0 lambdaNoStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Contracts ev ctx (Bind fc x (Lam lfc c p ty) sc) v -> Void
+lambdaNoStep (Unfold s _ _ _ _ _ _ _) = bindNotRef s
+lambdaNoStep (Solve s _ _ _ _ _ _ _ _) = bindNotMeta s
+lambdaNoStep (Primitive s _ _ _ _ _) = bindNotRef s
+
+0 piNoStep : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Contracts ev ctx (Bind fc x (Pi pfc c p ty) sc) v -> Void
+piNoStep (Unfold s _ _ _ _ _ _ _) = bindNotRef s
+piNoStep (Solve s _ _ _ _ _ _ _ _) = bindNotMeta s
+piNoStep (Primitive s _ _ _ _ _) = bindNotRef s
+
+||| What a lambda alone reduces to: a lambda, at some location, over what
+||| its implicitness, its type and its body reduce to, since no step
+||| applies at its root (`lambdaNoStep`). The first half of the inversion
+||| at a binder; the induction under it is the reading lemma's open
+||| obligation.
+export
+0 lambdaReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Reduces ev ctx (Bind fc x (Lam lfc c p ty) sc) w ->
+                  (fc' : FC ** lfc' : FC ** p' : PiInfo (Term vs) ** ty' : Term vs ** sc' : Term (x :: vs) **
+                    (w = Bind fc' x (Lam lfc' c p' ty') sc', PiReduces ev ctx p p', Reduces ev ctx ty ty', Reduces ev ctx sc sc'))
+lambdaReduces (Then r r') = case lambdaReduces r of
+  (_ ** _ ** _ ** _ ** _ ** (Refl, pr, tr, sr)) => case lambdaReduces r' of
+    (fc' ** lfc' ** p'' ** ty'' ** sc'' ** (same, pr', tr', sr')) =>
+      (fc' ** lfc' ** p'' ** ty'' ** sc'' ** (same, piThen pr pr', Then tr tr', Then sr sr'))
+lambdaReduces (Contract st) = void (lambdaNoStep st)
+lambdaReduces (ABind (ALam pr tr) sr) = (_ ** _ ** _ ** _ ** _ ** (Refl, pr, tr, sr))
+
+||| What a function type alone reduces to: a function type, at some
+||| location, over what its implicitness, its domain and its codomain
+||| reduce to (`piNoStep`).
+export
+0 piReduces : {0 ev : Evaluation} -> {0 ctx : Frozen} -> Reduces ev ctx (Bind fc x (Pi pfc c p ty) sc) w ->
+              (fc' : FC ** pfc' : FC ** p' : PiInfo (Term vs) ** ty' : Term vs ** sc' : Term (x :: vs) **
+                (w = Bind fc' x (Pi pfc' c p' ty') sc', PiReduces ev ctx p p', Reduces ev ctx ty ty', Reduces ev ctx sc sc'))
+piReduces (Then r r') = case piReduces r of
+  (_ ** _ ** _ ** _ ** _ ** (Refl, pr, tr, sr)) => case piReduces r' of
+    (fc' ** pfc' ** p'' ** ty'' ** sc'' ** (same, pr', tr', sr')) =>
+      (fc' ** pfc' ** p'' ** ty'' ** sc'' ** (same, piThen pr pr', Then tr tr', Then sr sr'))
+piReduces (Contract st) = void (piNoStep st)
+piReduces (ABind (APi pr tr) sr) = (_ ** _ ** _ ** _ ** _ ** (Refl, pr, tr, sr))

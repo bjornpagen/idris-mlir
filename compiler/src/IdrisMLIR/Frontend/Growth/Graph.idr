@@ -151,6 +151,21 @@ public export
 WritersListed {n} s = (i : Nat) -> (w : Weight) -> Elem (i, w) (weights s.template) -> (lab : Label) -> labelOf w = Just lab ->
                       (p : Fin n ** Elem (i, p) s.writers)
 
+||| How a site's template was read off what its writer wrote: at a walked
+||| node, the template written there read where the node's families land
+||| (`withClosedFamilies` at `c`, what lands at each of the writer's
+||| parameters), its writers listing every family that reading landed
+||| closed, which the template no longer names, with the position its
+||| writer reads it at; or, at a held position, a packing's chain as
+||| written, which applies no family.
+public export
+data SiteLanding : {n : Nat} -> Bound.Site n -> Type where
+  LandedAtNode : {0 s : Bound.Site n} -> (c : Nat -> Landing) -> (written : Template) ->
+                 s.template = withClosedFamilies c written ->
+                 ((i : Nat) -> Elem i (readLanded c written).landed -> (p : Fin n ** Elem (i, p) s.writers)) ->
+                 SiteLanding s
+  HeldAsWritten : SiteLanding s
+
 ||| The graph, and what its numbers stand for: the position met at each
 ||| place, the places where a position was first met, what made each arc,
 ||| and the sizes the worklist's universe needs beside the bounds.
@@ -191,6 +206,10 @@ record Built where
   ||| Each site's writers list every parameter its template weighs with an
   ||| arc, with the position its writer reads it at.
   0 writersListed : (s : Bound.Site graph.size) -> Elem s model.sites -> WritersListed s
+  ||| How each site was read off what its writer wrote: where its node's
+  ||| families land, every family the reading landed closed among its
+  ||| writers.
+  0 landedSites : (s : Bound.Site graph.size) -> Elem s model.sites -> SiteLanding s
 
 ------------------------------------------------------------------------------
 -- The definitions
@@ -831,13 +850,23 @@ landedAt xs = foldl (\m, x => put x.target (landedBy x.wrote) m) empty xs
 targetsOf : List Written -> List Spot
 targetsOf xs = SortedSet.toList (foldl (\acc, x => insert x.target acc) empty xs)
 
+-- Where a writing's template was read, with the families that reading
+-- landed closed: at a walked node, the template written there read where
+-- the node's families land (`readLanded`); or, at a held position, a
+-- packing's chain as written, which lands none.
+data ReadAt : Template -> List Nat -> Type where
+  ReadAtNode : (c : Nat -> Landing) -> (written : Template) ->
+               ReadAt (readLanded c written).template (readLanded c written).landed
+  ReadAsHeld : ReadAt t []
+
 -- What the graph draws for one template, read where its writer is
 -- (`readAtWriter`): where its writer reads each of its parameters (a walked
 -- node's position, as the site reads its parameters; for values a
 -- dictionary holds written on, the held position they come from), the
 -- template, read where a node's families hold what lands at them
 -- (`withClosedFamilies`), the roots the flow gives its dictionaries there,
--- the position it lands at, and what wrote it, with the template it draws.
+-- the position it lands at, and what wrote it, with the template it draws;
+-- and the families its reading landed closed, with where it was read.
 record Writing where
   constructor MkWriting
   reads : Nat -> Spot
@@ -846,6 +875,8 @@ record Writing where
   target : Spot
   wrote : Wrote
   0 draws : DrawnBy wrote template
+  landed : List Nat
+  0 readAt : ReadAt template landed
 
 -- A pair's chain applies no family, so reading it where a node's
 -- families land leaves it as it is.
@@ -877,15 +908,25 @@ drawnRead c (ChainDraws k) = replace {p = DrawnBy (PacksHeld k)} (sym (packingRe
 familiesOf : SortedMap Address (List Nat) -> Node -> List Nat
 familiesOf families w = fromMaybe [] (lookup w.definition families)
 
+-- A writing at a node, its template read once where the node's families
+-- land (`readLanded`): the template the graph draws and the families that
+-- reading landed closed are the one reading's.
+landedWriting : (Nat -> Spot) -> (Template -> List Address) -> Spot -> (wr : Wrote) -> (c : Nat -> Landing) ->
+                (t : Template) -> (0 _ : DrawnBy wr t) -> Writing
+landedWriting rs rts tgt wr c t made = fromReading (readLanded c t) (ReadAtNode c t) (drawnRead c made)
+  where
+    fromReading : (r : LandedReading) -> (0 _ : ReadAt r.template r.landed) -> (0 _ : DrawnBy wr r.template) -> Writing
+    fromReading r at drawn = MkWriting rs r.template rts tgt wr drawn r.landed at
+
 -- A writing read where its writer is: at a node, its template read where
 -- the node's families land, and its dictionaries rooted as the flow found
 -- them there, a use of one only where the template still applies it
 -- (`Heads.roots`); at a held position, as written, rooting nothing.
 readAtWriter : Flow -> SortedMap Address (List Nat) -> SortedMap Spot Landing -> Written -> Writing
 readAtWriter fl families ls (MkWritten rs t (AtNode w ps) tgt wr made) =
-  MkWriting rs (withClosedFamilies (closedAt ls w ps) t) (roots fl (familiesOf families w) w ps (closedAt ls w ps))
-            tgt wr (drawnRead (closedAt ls w ps) made)
-readAtWriter fl families ls (MkWritten rs t AtHeld tgt wr made) = MkWriting rs t (const []) tgt wr made
+  let c = closedAt ls w ps in
+  landedWriting rs (roots fl (familiesOf families w) w ps c) tgt wr c t made
+readAtWriter fl families ls (MkWritten rs t AtHeld tgt wr made) = MkWriting rs t (const []) tgt wr made [] ReadAsHeld
 
 -- Every walked edge's arguments, each at the callee parameter `reaches`
 -- placed it at, the latest first, as the check has always read them.
@@ -1171,10 +1212,62 @@ weighedHas [] el _ = absurd el
 weighedHas ((_, v) :: _) Here drawn = keptHere (labelOf v) drawn
 weighedHas ((_, v) :: rest) (There el) drawn = keptBelow (labelOf v) (weighedHas rest el drawn)
 
--- The writer's parameters a writing draws an arc from: those its template
--- holds with a weight that is an arc, each once.
+-- Whether a parameter is among some, as the machine compares naturals.
+amongParameters : (i : Nat) -> (is : List Nat) -> Decided (Elem i is)
+amongParameters i [] = No (\el => absurd el)
+amongParameters i (j :: js) = case choose (i == j) of
+  Left so => Yes (rewrite equalSo so in Here)
+  Right no => case amongParameters i js of
+    Yes el => Yes (There el)
+    No out => No (\el => case el of
+                           Here => soNotToNotSo no (equalSelf i)
+                           There e => out e)
+
+-- The parameters of a list not already among some, each once: every one
+-- of the list is among those, or kept.
+unweighed : (seen : List Nat) -> (is : List Nat) ->
+            Subset (List Nat) (\ks => {i : Nat} -> Elem i is -> Either (Elem i seen) (Elem i ks))
+unweighed seen [] = Element [] (\el => absurd el)
+unweighed seen (i :: is) = case amongParameters i seen of
+  Yes here => let (Element ks covered) = unweighed seen is in
+              Element ks (\el => case el of
+                                   Here => Left here
+                                   There e => covered e)
+  No _ => let (Element ks covered) = unweighed (i :: seen) is in
+          Element (i :: ks) (\el => case el of
+                                       Here => Right Here
+                                       There e => case covered e of
+                                         Left Here => Right Here
+                                         Left (There inSeen) => Left inSeen
+                                         Right kept => Right (There kept))
+
+-- The parameters some weights draw an arc from, then those a reading
+-- landed closed that they draw none from, each once.
+sourcesFrom : List Nat -> List Nat -> List Nat
+sourcesFrom ws landed = ws ++ (unweighed ws landed).fst
+
+-- The writer's parameters a writing reads at positions: those its
+-- template holds with a weight that is an arc, each once, whose arcs the
+-- graph draws from there, then each family its reading landed closed that
+-- the template no longer weighs, from which no arc is drawn, but where
+-- what an instance writes at the rewritten node comes from.
 sourcesOf : Writing -> List Nat
-sourcesOf x = weighed (weights x.template)
+sourcesOf x = sourcesFrom (weighed (weights x.template)) x.landed
+
+0 inFront : Elem x xs -> Elem x (xs ++ ys)
+inFront Here = Here
+inFront (There el) = There (inFront el)
+
+0 behind : (xs : List a) -> Elem x ys -> Elem x (xs ++ ys)
+behind [] el = el
+behind (_ :: xs) el = There (behind xs el)
+
+-- Every family a writing's reading landed closed is among the parameters
+-- it reads at positions: weighed with an arc, or kept after them.
+0 landedSources : (x : Writing) -> Elem i x.landed -> Elem i (sourcesOf x)
+landedSources x el = case (unweighed (weighed (weights x.template)) x.landed).snd el of
+  Left inW => inFront inW
+  Right kept => behind (weighed (weights x.template)) kept
 
 -- Where a writing's writer reads parameter i.
 readsAt : Writing -> Nat -> Spot
@@ -1248,23 +1341,33 @@ SiteDrawn : (Bound.Site n, Wrote) -> Type
 SiteDrawn x = DrawnBy (snd x) (fst x).template
 
 -- What a site met keeps of how it was made: what made it holds of its
--- template, and its writers list every parameter its template weighs with
--- an arc.
+-- template, its writers list every parameter its template weighs with an
+-- arc, and how it was read off what its writer wrote.
 0 SiteMet : {n : Nat} -> (Bound.Site n, Wrote) -> Type
-SiteMet {n} x = (SiteDrawn x, WritersListed {n} (fst x))
+SiteMet {n} x = (SiteDrawn x, WritersListed {n} (fst x), SiteLanding {n} (fst x))
+
+-- How a site met from a writing was read: as the writing's template was,
+-- each family its reading landed closed listed among the site's writers.
+0 siteLanded : {0 n : Nat} -> {s : Bound.Site n} -> (t : Template) -> s.template = t -> ReadAt t landed ->
+               ((i : Nat) -> Elem i landed -> (p : Fin n ** Elem (i, p) s.writers)) -> SiteLanding s
+siteLanded _ same (ReadAtNode c written) listed = LandedAtNode c written same listed
+siteLanded _ same ReadAsHeld _ = HeldAsWritten
 
 -- A writing as a site of the model, its positions met at its places: where
--- it lands, then where its writer reads each parameter it draws from; the
--- site's template is the writing's, so its maker's evidence holds of it,
--- and its writers are each parameter its template weighs with an arc
--- paired with the position met for it, so they list every one.
+-- it lands, then where its writer reads each parameter it reads at a
+-- position; the site's template is the writing's, so its maker's evidence
+-- holds of it, and how it was read; and its writers are each such
+-- parameter paired with the position met for it, so they list every one
+-- its template weighs with an arc and every one its reading landed closed.
 siteMet : {0 n : Nat} -> {0 rest : List Spot} -> (x : Writing) ->
           Meeting n (slotsOf x ++ rest) -> (Subset (Bound.Site n, Wrote) SiteMet, Meeting n rest)
 siteMet x m =
   let (t, m') = meet x.target m
       (Element ws listed, m'') = meetEach (sourcesOf x) (readsAt x) m' in
   (Element (Bound.MkSite t x.template ws x.roots, x.wrote)
-           (x.draws, \i, w, inW, lab, drawn => listed (weighedHas (weights x.template) inW drawn)), m'')
+           (x.draws,
+            \i, w, inW, lab, drawn => listed (inFront (weighedHas (weights x.template) inW drawn)),
+            siteLanded x.template Refl x.readAt (\i, el => listed (landedSources x el))), m'')
 
 -- Writings as sites of the model, in order, each met at its places.
 sitesMet : {0 n : Nat} -> {0 rest : List Spot} -> (xs : List Writing) ->
@@ -1298,8 +1401,14 @@ uncappedDrawn caps (x :: xs) made with (Vect.index (fst x).target caps) proof he
 -- parameter its template weighs with an arc.
 0 listedAmong : {ks : List (Bound.Site n, Wrote)} -> All SiteMet ks -> Elem s (map Builtin.fst ks) -> WritersListed s
 listedAmong {ks = []} [] el = absurd el
-listedAmong {ks = (_, _) :: _} (made :: _) Here = snd made
+listedAmong {ks = (_, _) :: _} (made :: _) Here = fst (snd made)
 listedAmong {ks = _ :: _} (_ :: made) (There el) = listedAmong made el
+
+-- A site of the model is one of the kept sites, read as its writing was.
+0 landedAmong : {ks : List (Bound.Site n, Wrote)} -> All SiteMet ks -> Elem s (map Builtin.fst ks) -> SiteLanding s
+landedAmong {ks = []} [] el = absurd el
+landedAmong {ks = (_, _) :: _} (made :: _) Here = snd (snd made)
+landedAmong {ks = _ :: _} (_ :: made) (There el) = landedAmong made el
 
 ------------------------------------------------------------------------------
 -- Positions, caps and the numbering
@@ -1616,4 +1725,5 @@ build main = do
                                     (\st, x, el, same => packedMeasured (replace {p = \w => DrawnBy w st.template} same
                                                                                   (fst (indexAll el (snd keptEvidence)))))
                                     (taggedAt arcs a) packs)
-                (\st, el => listedAmong (snd keptEvidence) el))
+                (\st, el => listedAmong (snd keptEvidence) el)
+                (\st, el => landedAmong (snd keptEvidence) el))
