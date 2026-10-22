@@ -6,7 +6,7 @@
 // function is still in the module for something else that names it, are
 // the passes' business; that no call is left is the property.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
 #include "mlir/Interfaces/CallInterfaces.h"
 

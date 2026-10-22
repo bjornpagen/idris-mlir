@@ -157,19 +157,22 @@ static void fileSize(int64_t h, char *o, size_t n) {
   else
     snprintf(o, n, "%lld", (long long)bytes);
 }
-/* A file's times, read at once into seven places: the status, then the
- * six times, each valid (a positive time and nanoseconds below 10^9) or
- * -1. */
+/* A file's times, read at once into a file-time handle, then read field by
+ * field, as base reads them, each valid (a positive time and nanoseconds
+ * below 10^9) or -1, and the handle freed, as base frees it. */
+static int64_t (*const timeFields[6])(int64_t) = {
+    idris_rt_handle_file_time_atime_sec, idris_rt_handle_file_time_atime_nsec,
+    idris_rt_handle_file_time_mtime_sec, idris_rt_handle_file_time_mtime_nsec,
+    idris_rt_handle_file_time_ctime_sec, idris_rt_handle_file_time_ctime_nsec};
 static void fileTime(int64_t h, char *o, size_t n) {
-  int64_t status;
-  int64_t times[6];
-  idris_rt_io_file_time(h, &status, &times[0], &times[1], &times[2], &times[3], &times[4], &times[5]);
-  size_t at = (size_t)snprintf(o, n, "%lld ", (long long)status);
+  int64_t times = idris_rt_io_file_time(h);
+  size_t at = 0;
   for (int i = 0; i < 6; ++i) {
-    int64_t v = times[i];
+    int64_t v = timeFields[i](times);
     int valid = i % 2 == 0 ? v > 0 : v >= 0 && v < 1000000000;
     at += (size_t)snprintf(o + at, n - at, "%s%s", i == 0 ? "" : "/", valid ? "t" : v == -1 ? "-1" : "?");
   }
+  idris_rt_io_handle_free(times);
 }
 static void dirEntry(int64_t h, char *o, size_t n) {
   int64_t entry = idris_rt_io_dir_entry(h);

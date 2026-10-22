@@ -6,11 +6,11 @@
 // no other. Equal to the least sets, the answer is closed (every statement
 // holds of it) and least (every label it holds has a derivation). The
 // least sets are derived here the plain way, a label at a time along the
-// same statements: an oracle that shares with the solve only the reading
-// of the program, and costs the points times the labels, so it is for
-// tests.
+// same statements, over the points and labels the reading numbered: an
+// oracle that shares with the solve only the reading of the program, and
+// costs the points times the labels, so it is for tests.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
 #include "idr/Analysis/Labels.h"
 #include "idr/IR/IdrDialect.h"
@@ -21,6 +21,7 @@
 #include "llvm/ADT/SetVector.h"
 
 #include <concepts>
+#include <utility>
 #include <vector>
 
 using namespace mlir;
@@ -29,37 +30,38 @@ namespace idr::expect {
 
 namespace {
 
+using labels::Dispatch;
+using labels::Label;
 using labels::Link;
+using labels::Node;
 using labels::PointKey;
 
 // The least sets of the statements, a (point, label) pair at a time: each
 // pair enters once, carries its label along the edges from its point, and
-// runs it at each dispatch there, whose edges `readFiring` states for the
-// place the call stands and the derivation takes in as it took the
-// program's. A label is kept by its symbol, in the order it reached its
-// point: the derivation shares no order of labels with the solve, so the
-// two are compared as sets.
+// runs it at each dispatch whose callee is that point, whose edges
+// `readFiring` states and the derivation takes in as it took the
+// program's. A point's labels are kept in the order they reached it: the
+// derivation shares no order of labels with the solve, so the two are
+// compared as sets.
 class Derivation {
 public:
-  explicit Derivation(const SymbolTable &table) : table(table) {}
+  explicit Derivation(const labels::Read &read)
+      : read(read), edges(read.points.size()), held(read.points.size()),
+        runsAt(read.points.size()) {
+    for (auto [d, dispatched] : llvm::enumerate(read.dispatches))
+      runsAt[std::to_underlying(dispatched.callee)].push_back(
+          Dispatch(static_cast<unsigned>(d)));
+  }
 
-  // Takes statements in: each source reaches its point, each link connects
-  // its points (both ways for one set), and each dispatch runs the labels
-  // its callee holds already and every label that reaches it later.
+  // Takes statements in: each source reaches its point, and each link
+  // connects its points, both ways for one set.
   void take(const labels::Statements &stated) {
     for (const labels::Statements::Source &source : stated.sources)
-      reach(pointOf(source.at), source.label);
+      reach(source.at, source.label);
     for (const labels::Statements::Linked &linked : stated.links) {
-      unsigned a = pointOf(linked.from), b = pointOf(linked.to);
-      connect(a, b);
+      connect(linked.from, linked.to);
       if (linked.how == Link::Unify)
-        connect(b, a);
-    }
-    for (const labels::Statements::Dispatched &dispatched : stated.dispatches) {
-      unsigned callee = pointOf(dispatched.callee);
-      calls[callee].push_back({dispatched.call, dispatched.standing});
-      for (FlatSymbolRefAttr label : held[callee])
-        firings.push_back({{dispatched.call, dispatched.standing}, label});
+        connect(linked.to, linked.from);
     }
   }
 
@@ -70,69 +72,58 @@ public:
     std::size_t pair = 0, fired = 0;
     while (pair < work.size() || fired < firings.size()) {
       if (fired < firings.size()) {
-        auto [run, label] = firings[fired++];
+        auto [dispatch, label] = firings[fired++];
         labels::Statements owed;
-        labels::readFiring(table, run.call, run.standing, label, owed);
+        labels::readFiring(read, dispatch, label, owed);
         take(owed);
         continue;
       }
       auto [point, label] = work[pair++];
       for (unsigned i = 0; i < edges[point].size(); ++i)
         reach(edges[point][i], label);
-      for (const Run &run : calls[point])
-        firings.push_back({run, label});
+      for (Dispatch dispatch : runsAt[point])
+        firings.emplace_back(dispatch, label);
     }
   }
 
-  // Every point stated, with its key and the labels it derives, each once,
-  // in the order they reached it.
+  // Every point the reading numbered, with what it is and the labels it
+  // derives, each once, as their functions' symbols.
   template <std::invocable<const PointKey &, ArrayRef<FlatSymbolRefAttr>> Each>
   void forEachPoint(Each &&each) const {
-    for (auto [point, key] : llvm::enumerate(keys))
-      each(key, ArrayRef<FlatSymbolRefAttr>(held[point]));
+    for (const auto &[node, key] : read.points.described()) {
+      SmallVector<FlatSymbolRefAttr, 4> symbols;
+      for (Label label : held[std::to_underlying(node)])
+        symbols.push_back(read.points.symbolOf(label));
+      each(key, ArrayRef<FlatSymbolRefAttr>(symbols));
+    }
   }
 
 private:
-  // A dispatch, and where it stands: what its firings owe depends on both.
-  struct Run {
-    CallOpInterface call;
-    labels::Standing standing;
-  };
-
-  // The number of a point, minted where the statements first name it.
-  unsigned pointOf(const PointKey &key) {
-    auto [it, made] = index.try_emplace(key, static_cast<unsigned>(keys.size()));
-    if (made) {
-      keys.push_back(key);
-      edges.emplace_back();
-      held.emplace_back();
-      calls.emplace_back();
-    }
-    return it->second;
-  }
-  void reach(unsigned point, FlatSymbolRefAttr label) {
-    if (work.insert({point, label}))
-      held[point].push_back(label);
+  void reach(Node point, Label label) {
+    unsigned at = std::to_underlying(point);
+    if (work.insert({at, label}))
+      held[at].push_back(label);
   }
   // A new edge carries every label its source holds already.
-  void connect(unsigned from, unsigned to) {
-    edges[from].push_back(to);
-    for (unsigned i = 0; i < held[from].size(); ++i)
-      reach(to, held[from][i]);
+  void connect(Node from, Node to) {
+    unsigned at = std::to_underlying(from);
+    edges[at].push_back(to);
+    for (unsigned i = 0; i < held[at].size(); ++i)
+      reach(to, held[at][i]);
   }
 
-  const SymbolTable &table;
-  llvm::DenseMap<PointKey, unsigned> index;
-  std::vector<PointKey> keys;
-  std::vector<SmallVector<unsigned, 2>> edges;
-  std::vector<SmallVector<FlatSymbolRefAttr, 2>> held;
-  std::vector<SmallVector<Run, 1>> calls;
-  llvm::SetVector<std::pair<unsigned, FlatSymbolRefAttr>> work;
-  std::vector<std::pair<Run, FlatSymbolRefAttr>> firings;
+  const labels::Read &read;
+  // By point: where it carries its labels, the labels it holds, and the
+  // dispatches whose callee it is.
+  std::vector<SmallVector<Node, 2>> edges;
+  std::vector<SmallVector<Label, 2>> held;
+  std::vector<SmallVector<Dispatch, 1>> runsAt;
+  llvm::SetVector<std::pair<unsigned, Label>> work;
+  std::vector<labels::Firing> firings;
 };
 
-// The point `key` names, for an error: where a value is, a function's
-// result, or the anchor of the type every value of its kind holds there.
+// The point `key` names, for an error: where a value is, the anchor of the
+// type every value of its kind holds there, or a function's result.
 InFlightDiagnostic failAt(Operation *program, const PointKey &key, StringRef property) {
   return std::visit(
       llvm::makeVisitor(
@@ -150,9 +141,10 @@ InFlightDiagnostic failAt(Operation *program, const PointKey &key, StringRef pro
               diag << "a capture's anchor";
             return diag;
           },
-          [&](const labels::ResultKey &result) {
+          [&](const FlowPoint::Result &result) {
             return std::move(fail(program->getLoc(), property)
-                             << "result " << result.second << " of @" << result.first.getValue());
+                             << "result " << result.index << " of @"
+                             << result.function.getValue());
           }),
       key);
 }
@@ -165,13 +157,12 @@ LogicalResult labelsLeast(const Request<Nothing> &request) {
   if (!program)
     return fail(module.getLoc(), request.property)
            << "the module holds no idr.program, whose labels the solve finds";
-  SymbolTable &table = symbolsOf(module, request.analyses);
-  const idr::Labels &solved = request.analyses.nest(program).getAnalysis<idr::Labels>();
-  labels::Statements stated;
-  llvm::DenseMap<OpOperand *, FlowPoint> sinks;
-  labels::readProgram(program, table, stated, sinks);
-  Derivation derivation(table);
-  derivation.take(stated);
+  AnalysisManager analyses = request.analyses.nest(program);
+  const idr::Labels &solved = analyses.getAnalysis<idr::Labels>();
+  const labels::Read read =
+      labels::readProgram(program, analyses.getAnalysis<solver::ProgramGraph>());
+  Derivation derivation(read);
+  derivation.take(read.statements);
   derivation.derive();
   // Each side as a set: the solve holds its labels in its own order, which
   // the derivation does not share.

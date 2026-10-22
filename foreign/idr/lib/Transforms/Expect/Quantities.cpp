@@ -3,14 +3,16 @@
 // The contract quantities-kept: no pass drops or widens what Idris proved
 // of a binder, checked by --idr-contracts after every pass.
 // A binder's uses are its type's (usesOf), once or many; a parameter of a
-// function (a lambda is one) or a field a match binds keeps the uses it had
-// in the emitted module. A binder is known by its identity, the
+// function (a lambda is one) keeps the uses it had in the emitted module,
+// wherever a pass carries it. A binder is known by its identity, the
 // `#idr.binder<definition, index>` Emit fuses into its location: typed,
-// one per binder, so no two binders are confused and none is set aside. A
-// binder a pass makes carries none, and so is held to nothing here: its
-// uses are derived from its source's by the one derivation the passes
-// that copy share. A constructor's fields are its family's declaration,
-// whose uses no pass can change but by declaring another family.
+// one per binder, so no two binders are confused and none is set aside.
+// Of the binders a block binds, Emit gives one to parameters alone, so the
+// check holds parameters: a field a case unpacks carries none, and neither
+// does a binder a pass makes, whose uses are derived from its source's by
+// the one derivation the passes that copy share. A constructor's fields
+// are its family's declaration, whose uses no pass can change but by
+// declaring another family.
 
 #include "idr/Transforms/Expect.h"
 
@@ -40,7 +42,7 @@ std::optional<BinderAttr> identityOf(Location loc) {
 namespace {
 
 // The uses of `arg`, a binder: a function parameter's from its function's
-// signature, a bound field's from its type.
+// signature, a parameter a pass carried into a region's from its type.
 Uses usesOfBinder(BlockArgument arg) {
   if (auto fn = dyn_cast<FuncOp>(arg.getOwner()->getParentOp()))
     return usesOf(fn.getArgumentTypes()[arg.getArgNumber()]);

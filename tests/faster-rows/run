@@ -31,35 +31,10 @@ if [ ! -f "$root/compiler/src/$faster_module" ] ||
   exit 0
 fi
 
-# The test-only frontend: compiler/src and its package, the Faster rows'
-# module replaced, built as the shipped one is, by the pinned Idris against
-# the fork. The build's TTCs are copied first, before the replacement,
-# so only what the replaced module reaches is built again.
-front=$work/frontend
-mkdir -p "$front" && cp -R "$root/compiler/src" "$front/src" && rm -rf "$front/src/build" &&
-  cp "$root/compiler/idris-mlir.ipkg" "$front/" || exit 1
-if [ -d "$root/compiler/build/ttc" ]; then
-  mkdir -p "$front/build" && cp -R "$root/compiler/build/ttc" "$front/build/ttc" || exit 1
-fi
-cp Faster.idr "$front/src/$faster_module" || exit 1
-fork_packages=$(IDRIS2_PREFIX=$host_prefix "$idris2" --libdir)
-if (cd "$front" && IDRIS2_PACKAGE_PATH=$fork_packages && export IDRIS2_PACKAGE_PATH &&
-    pinned_idris --build idris-mlir.ipkg) > "$work/frontend.out" 2>&1 &&
-   [ -x "$front/build/exec/idris-mlir-front" ]; then
-  say "the frontend without its Faster rows: built"
-else
-  say "the frontend without its Faster rows: not built"
-  show "$work/frontend.out"
-  exit 0
-fi
-# idris-mlir runs the frontend beside its own executable, so the
-# test-only one runs beside a link of the same idris-mlir: a hard link,
-# whose path is its own, or a copy where the work directory is on another
-# file system.
-mkdir -p "$work/bin" &&
-  ln -s "$front/build/exec/idris-mlir-front" "$work/bin/idris-mlir-front" || exit 1
-ln "$idris_mlir" "$work/bin/idris-mlir" 2> /dev/null || cp "$idris_mlir" "$work/bin/idris-mlir" || exit 1
-without=$work/bin/idris-mlir
+# The test-only frontend: the Faster rows' module planted from Faster.idr,
+# which holds none.
+planted_frontend "$faster_module" "$here/Faster.idr" || exit 0
+without=$planted_compiler
 
 # compile_by COMPILER FIXTURE DEST: FIXTURE's program copied to DEST and
 # compiled there by COMPILER as tools/compile.sh runs idris-mlir, with its

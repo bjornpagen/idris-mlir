@@ -8,9 +8,9 @@
 // its type proves nothing of gives such a token, so it is found by its
 // token.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 

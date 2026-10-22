@@ -7,7 +7,7 @@
 // reference to its cell. One op makes that move, idr.array.update, in
 // mutable memory and in a value array's buffer alike.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
 #include "idr/IR/IdrDialect.h"
 

@@ -1,0 +1,10 @@
+-- SPDX-License-Identifier: 0BSD
+-- Copyright (c) 2026 Bjorn Pagen
+package trusted-rebuilds
+version = 0.1.0
+
+brief = "A library tests/uniqueness-trusted-library's planted trust table lists"
+
+depends = base, mlir-linear
+
+modules = Rebuilds

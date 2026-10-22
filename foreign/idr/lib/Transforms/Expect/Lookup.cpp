@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The table of idr-expect's properties and the contracts' universal check,
-// both made from the one list of them (Properties.inc): a row holds a
+// both made from the one list of them (ExpectProperties.inc): a row holds a
 // property's name once and pairs its check with the shape of its argument,
 // so a row whose check reads another shape does not compile.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -22,7 +22,7 @@ const Property properties[] = {
 #define IDR_EXPECT_PROPERTY(name, Shape, check) property<Shape, check>(name),
 #define IDR_EXPECT_SELF_CHECK(name, Shape, check) IDR_EXPECT_PROPERTY(name, Shape, check)
 #define IDR_EXPECT_UNIVERSAL(name, Shape, check) IDR_EXPECT_PROPERTY(name, Shape, check)
-#include "Properties.inc"
+#include "idr/Transforms/ExpectProperties.inc"
 #undef IDR_EXPECT_UNIVERSAL
 #undef IDR_EXPECT_SELF_CHECK
 #undef IDR_EXPECT_PROPERTY
@@ -60,7 +60,7 @@ LogicalResult universal(ModuleOp module, AnalysisManager &analyses) {
 #define IDR_EXPECT_SELF_CHECK(name, Shape, check)
 #define IDR_EXPECT_UNIVERSAL(name, Shape, check)                                                   \
   held = succeeded(ofWholeProgram<Shape, check>(module, analyses, name)) && held;
-#include "Properties.inc"
+#include "idr/Transforms/ExpectProperties.inc"
 #undef IDR_EXPECT_UNIVERSAL
 #undef IDR_EXPECT_SELF_CHECK
 #undef IDR_EXPECT_PROPERTY

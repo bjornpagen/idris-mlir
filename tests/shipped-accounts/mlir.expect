@@ -1,0 +1,3 @@
+# graft's frame bound is not zero (Main.idr), so its lowered form opens
+# the account of what it holds.
+lowered: calls=@Main.graft:@idris_rt_peak_enter

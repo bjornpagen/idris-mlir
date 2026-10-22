@@ -1,9 +1,8 @@
--- expect: dictionary field, line 20
--- message: Main.backward
 module Main
 
 -- Data.SortedMap holds its Ord in the map's constructors: one map type
--- built with two implementations would have to choose one at runtime.
+-- built with two implementations holds, in each map, which one built it,
+-- and each map lists its keys in that one's order.
 
 import Prelude
 import Data.SortedMap

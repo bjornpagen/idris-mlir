@@ -6,9 +6,9 @@
 // declaration says to the effect system as a free of heap memory. A token
 // passed on (to a rejoin, a join point, a call) is spent where it arrives.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 

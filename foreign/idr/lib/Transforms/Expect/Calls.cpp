@@ -5,7 +5,7 @@
 // LLVM dialect's after it, where the callee may be a function of the
 // runtime, named by its symbol.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
 #include "mlir/Interfaces/CallInterfaces.h"
 

@@ -13,9 +13,10 @@
 #     a harness check that asks idr-expect), since a property no test
 #     states holds the compiler to nothing. A universal property is
 #     stated by the contracts, of every compilation.
-# The names and roles are the rows of the one table of them, printed from
-# its records (Properties.inc). The rule is `expect_coverage ROOT`, run on
-# the repository and on the planted trees (lib/planted.sh): witness/ holds
+# The names and roles are the rows of the one table of them
+# (ExpectProperties.inc), printed from its records. The rule is
+# `expect_coverage ROOT`, run on the repository and on the planted trees
+# (lib/planted.sh): witness/ holds
 # a table of a property no fixture makes fail, one a fixture names only in
 # its prose and in a RUN line that states it, one whose name only begins
 # another's that fails, and one no test states; near-miss/ holds a table
@@ -23,7 +24,7 @@
 # self-check with no failing fixture, and a universal property no test
 # states.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-table=foreign/idr/lib/Transforms/Expect/Properties.inc
+table=foreign/idr/include/idr/Transforms/ExpectProperties.inc
 
 # rows TABLE: each row of TABLE, `line<TAB>role<TAB>name`, the role the
 # macro's last word: PROPERTY, SELF_CHECK or UNIVERSAL.

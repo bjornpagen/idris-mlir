@@ -1,4 +1,3 @@
--- expect: runtime closure, line 24
 module Main
 
 import Prelude
@@ -6,9 +5,9 @@ import Prelude
 -- An implementation given as a function of a runtime value is a
 -- compile-time value when the function returns one implementation at every
 -- value (`Show (DPair a p)` over the Prelude's `Show (Tag n)`). This one
--- picks between two by the value, which only the running program knows.
--- near/ picks between two calls by the value, each given a function that
--- returns one implementation at every value.
+-- picks between two by the value, which only the running program knows:
+-- the choice is a value, one of the two, and show runs the method of the
+-- one chosen.
 
 data Tag : Nat -> Type where
   Zero : Tag Z

@@ -31,8 +31,9 @@ showSuits (s :: ss) = showSuit s ++ " " ++ showSuits ss
 -- given, through rank, and passed where they are used. MkEq and MkOrd
 -- still never reach Core: an implementation is a compile-time value
 -- there, each method call specialized to the one it is given
--- ((==)[Main.Suit, Main.suitEq]) and the record itself never built, and
--- an implementation chosen at run time is rejected (runtime closure).
+-- ((==)[Main.Suit, Main.suitEq]) and the record itself never built; an
+-- implementation chosen at run time is a value naming which one it is,
+-- never the record.
 suitEq : Eq Suit
 suitEq = MkEq (\x, y => rank x == rank y) (\x, y => rank x /= rank y)
 

@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/89-dataflow-iterative-initialization: the sparse and dense
+# analyses initialize from a worklist, so their native depth does not grow
+# with the IR's nesting, and the solvers keep a small stack. Over
+# operations nested 10,000 deep, on a thread whose stack is 256 KiB, a
+# sparse forward analysis (constant propagation, with dead-code analysis)
+# and a sparse backward one (liveness) each reach the innermost value
+# (initialize.cpp). Nothing of ours runs a dense analysis, and upstream
+# has none outside its test passes, so the dense half of the patch is
+# checked by its own unit test alone. The solve reaches dead-code
+# analysis's initialization and the symbol-table walk first, which
+# upstream/92 and upstream/88 make iterative. The nesting is built in
+# memory: mlir-opt's parser recurses on the same depth through each
+# operation's parse hook, so through mlir-opt the initialization is never
+# seen alone.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "data-flow initialization: 10,000 nested operations on a 256 KiB stack, forward and backward reach the innermost value" \
+  "$here/initialize.cpp" 10000

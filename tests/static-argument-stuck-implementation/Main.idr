@@ -1,13 +1,12 @@
--- expect: static argument, line 13
--- message: Main.chosen
 module Main
 
 import Prelude
 
 -- The implementation describe is given is chosen by a covering function,
--- which Idris does not prove ends, so it does not reduce to a constructor
--- at compile time, and the method's argument is refused, naming the
--- implementation. near/ chooses it by a total function.
+-- which Idris does not prove ends, so no compile-time reduction runs it:
+-- the choice is made when the program runs, between the two
+-- implementations the program fixes, and describe runs the method of the
+-- one chosen.
 
 interface Name a where
   name : a -> String

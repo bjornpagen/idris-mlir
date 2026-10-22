@@ -7,7 +7,7 @@
 // and idr-contify inlines it there; which functions it was is the passes'
 // business, that none is left is the property.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"

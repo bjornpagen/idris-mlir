@@ -1,13 +1,11 @@
--- expect: runtime closure, line 30
 module Main
 
 import Prelude
 
 -- An implementation that closes over a runtime value is passed as that
--- value (implementation-runtime-scope); a
--- constructor's constraint holds one implementation for the whole program,
--- not a value, so it cannot hold one. near/ holds the term alone and gives
--- the implementation to the function that shows it.
+-- value (implementation-runtime-scope). Here a constructor's constraint
+-- holds one: the cell holds which implementation it was given, with the
+-- names it closes over, and unshown runs that one's show.
 
 data Term : List String -> Type where
   Var : Nat -> Term names

@@ -7,9 +7,10 @@
 // cell or a reuse token for what it took apart; another reference is a
 // write of a value's count by an op that does not consume it.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Classify.h"
+#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"

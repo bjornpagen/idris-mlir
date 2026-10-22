@@ -10,9 +10,9 @@
 // that a fold it could have made was never made; so the fuzzer's check that
 // every closed expression folded is this property.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/Interfaces/CallInterfaces.h"

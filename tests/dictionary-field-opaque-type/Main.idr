@@ -1,5 +1,3 @@
--- expect: dictionary field, line 14
--- message: Lib.Meters
 module Main
 
 import Prelude
@@ -9,8 +7,9 @@ import Lib
 -- SortedMap Meters String and SortedMap Int String are two types to Idris:
 -- Meters is opaque here, with its own (descending) Ord. The compiler sees
 -- through Meters, which Lib exports without its definition, so the two are
--- one type with one Ord; it names Meters, rather than give the maps two
--- data instances, which Lib could convert one into the other.
+-- one map type built with two implementations of Ord: each map holds which
+-- one built it, and lists its keys in that one's order, descending for
+-- Meters and ascending for Int.
 main : IO ()
 main = do
   line <- getLine

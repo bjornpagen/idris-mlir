@@ -1,0 +1,18 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# upstream/88-symbol-table-walk-iterative: SymbolTable::walkSymbolTables
+# keeps its place on an explicit stack, so its native depth does not grow
+# with the IR's nesting, and dead-code analysis, the inliner's use lists
+# and SymbolUserMap, which walk the symbol tables, keep a small stack. Over
+# operations nested 10,000 deep with a module innermost, on a thread whose
+# stack is 256 KiB, it gives its callback the two symbol tables in the
+# order, and with the visibility, the recursion gave them (tables.cpp). The
+# nesting is built in memory: mlir-opt's parser recurses on the same depth
+# through each operation's parse hook, so through mlir-opt the walk is
+# never seen alone.
+# Building a program against MLIR's libraries takes longer than a step.
+step_limit=180
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+mlir_check "symbol-table walk: 10,000 nested operations on a 256 KiB stack, both tables in order" \
+  "$here/tables.cpp" 10000

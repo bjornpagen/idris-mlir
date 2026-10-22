@@ -7,7 +7,7 @@
 // layouts) it asks of the analysis manager, so properties that ask the same
 // share one answer and the pass keeps nothing between runs. The properties
 // are listed once, as Idris records (harness/Properties.idr), whose printed
-// table (Expect/Properties.inc) gives each its name, the shape of its
+// table (ExpectProperties.inc) gives each its name, the shape of its
 // argument, its check and what it checks; the pass's table and the checks'
 // declarations are made from it. A request's argument is read once, before
 // its check runs, into the typed value of its shape (ExpectArguments.h): a
@@ -85,6 +85,18 @@ struct Property {
   mlir::LogicalResult (*run)(mlir::ModuleOp module, mlir::AnalysisManager &analyses,
                              llvm::StringRef property, llvm::StringRef text);
 };
+
+// The checks, one per row of the table: each takes the typed argument of
+// its row's shape, so a check written for another shape than its row's
+// does not compile. A test reaches a check only by its property's name,
+// and the contracts reach the universal ones only through `universal`.
+#define IDR_EXPECT_PROPERTY(name, Shape, check) mlir::LogicalResult check(const Request<Shape> &);
+#define IDR_EXPECT_SELF_CHECK(name, Shape, check) IDR_EXPECT_PROPERTY(name, Shape, check)
+#define IDR_EXPECT_UNIVERSAL(name, Shape, check) IDR_EXPECT_PROPERTY(name, Shape, check)
+#include "idr/Transforms/ExpectProperties.inc"
+#undef IDR_EXPECT_UNIVERSAL
+#undef IDR_EXPECT_SELF_CHECK
+#undef IDR_EXPECT_PROPERTY
 
 // The row of `Check` under `name`: its argument is of shape A, so a check
 // paired with an argument of another shape does not compile.
@@ -276,9 +288,10 @@ std::optional<BinderAttr> identityOf(mlir::Location loc);
 // one, so none is dropped.
 using ProvedUses = llvm::DenseMap<BinderAttr, Uses>;
 
-// The uses of every binder of `emitted` that carries an identity: a
-// function's parameters and the fields a match's case binds. Fails, at the
-// second binder, when Emit gave two binders one identity.
+// The uses of every binder of `emitted` that carries an identity: the
+// parameters of its functions, lambdas among them, the binders Emit gives
+// one. Fails, at the second binder, when Emit gave two binders one
+// identity.
 mlir::FailureOr<ProvedUses> provedUses(mlir::ModuleOp emitted);
 
 // Every binder of `module` that carries an identity has the uses `proved`

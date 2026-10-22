@@ -6,8 +6,11 @@
 # header sits beside a .cpp, so a declaration two units share has one home
 # and a helper one unit uses stays in that unit. The runtime's include
 # directory is runtime/ itself: a unit of the runtime includes its headers
-# (idris_rt.h, each part's one header) by their path from there. Beyond
-# those, one header of the repository is always allowed:
+# (idris_rt.h, each part's one header) by their path from there, and so
+# does harness/prop/runtime.h, the one header through which a test of the
+# runtime joins the checked runtime as one of its units, to read the count
+# of cells it holds that no shipped runtime keeps. Beyond those, one header
+# of the repository is always allowed:
 # runtime/idris_rt.h, the C ABI, which C, generated code, the folders and
 # the driver read. What TableGen and CMake generate is no file of the
 # repository, so including it is no finding.
@@ -21,11 +24,13 @@
 # allowed, run on the repository and on the planted trees
 # (lib/planted.sh): witness/ holds a header beside a .cpp, a unit of
 # foreign/idr and one of the runtime that include a header beside them,
-# a unit of foreign/idr that includes a runtime header unlisted, and a
-# list with a line that is gone (a forbidden include is a finding at the
-# includer and at the header); near-miss/ holds what is allowed: a public
-# header by its path, idris_rt.h, a runtime header by its path from
-# runtime/, a listed include, a generated one and a system one.
+# a unit of foreign/idr and a test header other than runtime.h that
+# include a runtime header unlisted, and a list with a line that is gone
+# (a forbidden include is a finding at the includer and at the header);
+# near-miss/ holds what is allowed: a public header by its path,
+# idris_rt.h, a runtime header by its path from runtime/, from the runtime
+# and from harness/prop/runtime.h, a listed include, a generated one and a
+# system one.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
 # local_headers ROOT: the findings in the tree at ROOT, `path:line: what`
@@ -53,7 +58,7 @@ local_headers() (
           case $base/$header in
             runtime/idris_rt.h | foreign/idr/include/*) ;;
             *) case $file:$base in
-                 runtime/*:runtime) ;;
+                 runtime/*:runtime | harness/prop/runtime.h:runtime) ;;
                  *) printf '%s\t%s\t%s\t%s\n' "$file" "$n" "$header" "$base/$header" ;;
                esac ;;
           esac

@@ -13,7 +13,7 @@
 
 #include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"

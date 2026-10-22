@@ -19,7 +19,7 @@ file_error: -1 1 EBADF, 0 0, 1 0, 2 0, file 0, closed 1 EBADF, directory 1 EBADF
 file_poll: -1 -1 EBADF, 0 1, 1 1, 2 1, file 1, closed -1 EBADF, directory -1 EBADF
 file_is_tty: -1 0 EBADF, 0 0, 1 0, 2 0, file 0, closed 0 EBADF, directory 0 EBADF
 file_size: -1 -1 EBADF, 0 12, 1 a size, 2 a size, file 12, closed -1 EBADF, directory -1 EBADF
-file_time: -1 -1 -1/-1/-1/-1/-1/-1 EBADF, 0 0 t/t/t/t/t/t, 1 0 t/t/t/t/t/t, 2 0 t/t/t/t/t/t, file 0 t/t/t/t/t/t, closed -1 -1/-1/-1/-1/-1/-1 EBADF, directory -1 -1/-1/-1/-1/-1/-1 EBADF
+file_time: -1 -1/-1/-1/-1/-1/-1 EBADF, 0 t/t/t/t/t/t, 1 t/t/t/t/t/t, 2 t/t/t/t/t/t, file t/t/t/t/t/t, closed -1/-1/-1/-1/-1/-1 EBADF, directory -1/-1/-1/-1/-1/-1 EBADF
 dir_entry: -1 null EBADF, 0 null EBADF, 1 null EBADF, 2 null EBADF, file null EBADF, closed null EBADF, directory a name errno 0
 dir_entry again: -1 null EBADF, 0 null EBADF, 1 null EBADF, 2 null EBADF, file null EBADF, closed null EBADF, directory null errno 0
 written by write_line

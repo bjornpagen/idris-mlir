@@ -52,7 +52,8 @@
 #                      its cases
 #     lit.sh           the dialect tests' RUN lines
 #     differential.sh  %differential: two modules' programs agree on every input
-#     planted.sh       a repository rule on its planted witness and near miss
+#     planted.sh       a repository rule on its planted witness and near
+#                      miss; a frontend built with a planted module
 #     fuzz.sh          the fuzzer
 #     idris-lex.sh     Idris source, code told from comments and strings
 #     cpp-lex.sh       C and C++ source, code told from comments and literals

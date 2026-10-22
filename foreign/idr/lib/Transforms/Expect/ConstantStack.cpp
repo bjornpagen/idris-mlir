@@ -6,7 +6,7 @@
 // calls. The contracts check it of every compilation, once the pipeline has
 // ended; it follows symbol uses, whatever ops make them.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "llvm/ADT/DenseMap.h"

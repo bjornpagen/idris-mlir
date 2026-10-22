@@ -5,7 +5,7 @@
 // into a buffer allocated for it (idr.array.place_copy), never the write of
 // a slice into a live buffer, which is the meaning of the op it came from.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"

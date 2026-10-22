@@ -2,8 +2,9 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| idr-expect's properties, one record each: the one list of what a test
 ||| may state of a module by name. The C++ table of the pass is printed from
-||| it (`table`, committed as foreign/idr/lib/Transforms/Expect/Properties.inc
-||| and compared by tests/expect-table-current), so a property's name, the
+||| it (`table`, committed as
+||| foreign/idr/include/idr/Transforms/ExpectProperties.inc and compared by
+||| tests/expect-table-current), so a property's name, the
 ||| shape of its argument and the check that runs it are written once, here.
 |||
 ||| Each property reads facts the dialect declares (an interface, a trait,

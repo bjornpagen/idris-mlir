@@ -8,7 +8,7 @@
 // function, so the specializations stop after one step, however long the
 // recursion.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "llvm/ADT/SetVector.h"

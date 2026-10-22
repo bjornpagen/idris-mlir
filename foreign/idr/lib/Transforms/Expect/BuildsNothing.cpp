@@ -7,9 +7,10 @@
 // included. A fresh identity alone (a reference taken, a field read out) is
 // no memory built; a call's building is its callee's, stated of the callee.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Consumption.h"
+#include "idr/IR/Effects/Whole.h"
 
 #include "mlir/Interfaces/CallInterfaces.h"
 
@@ -23,10 +24,8 @@ LogicalResult buildsNothing(const Request<Functions> &request) {
     fn.getFunctionBody().walk([&](Operation *op) {
       if (isa<CallOpInterface>(op))
         return;
-      effects::EffectSet own = effects::own(op);
-      if (!own.on(effects::Kind::Allocate, effects::ResourceId::Heap) &&
-          !own.on(effects::Kind::Allocate, effects::ResourceId::Frame) &&
-          !own.on(effects::Kind::Write, effects::ResourceId::Contents))
+      if (!effects::acquires(op) &&
+          !effects::own(op).on(effects::Kind::Write, effects::ResourceId::Contents))
         return;
       fail(op->getLoc(), request.property) << op->getName() << " builds a value in " << where(op);
       held = false;

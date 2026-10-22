@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 /* The memory a process may still commit before its host kills it, as the
- * runtime reads it from the host's files (Platform/Linux/Host.cpp): read
- * under each root the arguments name, a host's tree the test planted there,
- * so the reader meets limits no host of the test's holds. One line per
- * root: its bytes, or that no limit holds. */
+ * runtime reads it from a Linux host's cgroup files (Platform/Posix/
+ * Cgroups.cpp), on every target: read under each root the arguments name,
+ * a host's tree the test planted there, so the reader meets limits no host
+ * of the test's holds. One line per root: its bytes, or that no limit
+ * holds. */
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>

@@ -6,13 +6,11 @@
 # grow with the IR's nesting, and the solvers that load it keep a small
 # stack. Run over operations nested 10,000 deep on a thread whose stack is
 # 256 KiB, it finds the innermost block executable (dead-code.cpp). The
-# analysis's initialization also walks the symbol tables
-# (SymbolTable::walkSymbolTables), which recurses once per level of every
-# operation at the pin and has no patch yet: until it has one, this check
-# overflows there. The nesting is built in memory: mlir-opt's parser
-# recurses on the same depth through each operation's parse hook, and
-# SCCP's own sparse initialization recurses too, so through mlir-opt the
-# analysis is never seen alone.
+# analysis's initialization also walks the symbol tables, which
+# upstream/88-symbol-table-walk-iterative makes iterative too. The nesting
+# is built in memory: mlir-opt's parser recurses on the same depth through
+# each operation's parse hook, so through mlir-opt the analysis is never
+# seen alone.
 # Building a program against MLIR's libraries takes longer than a step.
 step_limit=180
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"

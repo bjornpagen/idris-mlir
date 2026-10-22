@@ -7,9 +7,9 @@
 // unique frees it and reads no count, so it counts nothing; a call's
 // counts are its callee's, stated of the callee.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 
 #include "mlir/Interfaces/CallInterfaces.h"
 

@@ -1,14 +1,11 @@
--- expect: runtime closure, line 28
--- message: Main.MkSize
 module Main
 
 import Prelude
 
--- As implementation-shape-value, with the
--- implementation built of the shaped argument given to a constructor's
--- constraint, which holds one compile-time implementation for the whole
--- program, not a value passed at runtime. near/ holds the Nat and builds
--- the implementation where it is used.
+-- As implementation-shape-value, with the implementation built of the
+-- shaped argument given to a constructor's constraint: the cell holds
+-- which implementation it was given, MkSize with the Nat it was built of,
+-- and unbox runs that one's size.
 
 Res : Nat -> Type
 Res Z = String

@@ -10,8 +10,9 @@
 # and the hierarchy they name, so the reader meets every case on any host
 # that runs it: a limit above the group, a group past its limit, no limit
 # on the way up, a mount whose root is a group's (a container's), version
-# 1, and no hierarchy that limits memory. macOS has no such files, and its
-# reader reads none (expected); Linux's reads each tree (expected.linux).
+# 1, and no hierarchy that limits memory. The reader is the same on every
+# target, files alone under the root it is given, so each target reads
+# each tree alike, and one transcript holds for all four.
 # tests/memory-limit holds a program to the limit of a host that has one.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 if ! runtime_c link_program -O1 -I"$root/harness/prop" "$here/commit-limit.c" "$checked_runtime" \

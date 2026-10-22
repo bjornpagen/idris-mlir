@@ -4,6 +4,8 @@
 // runtime written in C (program.h), which links this with the checked
 // runtime: the count is a variable of the runtime's C++, which C cannot
 // name.
-#include "runtime.h"
+// Through the include path, as every program includes it: runtime.h is
+// this directory's, which no unit reaches by its place beside it.
+#include <runtime.h>
 
 extern "C" uint64_t prop_held(void) { return prop::held(); }

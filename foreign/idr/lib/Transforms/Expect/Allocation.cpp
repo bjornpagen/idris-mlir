@@ -4,9 +4,9 @@
 // what it may call, or in the whole module. This is how a test states that
 // a value stays off the heap, whatever ops show it.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/IdrDialect.h"
 
 

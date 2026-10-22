@@ -8,9 +8,8 @@ import Prelude
 -- closes over that value: which implementation it is stays known at
 -- compile time, and only `n` is passed at runtime, as with
 -- `Show (Term names)` and its scope (implementation-runtime-scope). Held
--- in a constructor's dictionary field it would have to be one
--- implementation for the whole program, which is refused
--- (runtime-closure-shape-constructor-field).
+-- in a constructor's field, the cell holds which implementation it is,
+-- with the value it closes over (runtime-closure-shape-constructor-field).
 
 Res : Nat -> Type
 Res Z = String

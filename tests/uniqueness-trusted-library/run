@@ -1,0 +1,80 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A trusted library keeps the in-place promise as the user's code does: a
+# call of a function that rebuilds its argument in place that the library
+# cannot make exclusive is refused, and the refusal is the library's own,
+# at its line, whoever calls it. Trust is read from one place, the
+# frontend's table of libraries (Registry/Libraries.idr), so the test
+# plants a frontend whose table lists the test's own package,
+# trusted-rebuilds (library/), as it lists the packages this compiler
+# ships, and installs the package with it into a prefix of its own.
+# Main.idr reaches the library's shared, refused as its header says: the
+# line and the name are the library's. exclusive/ reaches the library's
+# once, whose call its caller makes exclusive, and runs.
+# Debt: the limits are not measured; a build of the frontend on the pinned
+# Idris, mostly from the build's own TTCs, an installation and two
+# compilations.
+step_limit=1800
+test_limit=3600
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+package=trusted-rebuilds
+table=IdrisMLIR/Registry/Libraries.idr
+
+# The planted table: the repository's, with the package's row before the
+# row of every other installed package, which is untrusted.
+untrusted='moduleOrigin _ _ = Untrusted'
+if ! grep -qxF "$untrusted" "$root/compiler/src/$table"; then
+  say "the trust table: no row '$untrusted' to list the package before"
+  exit 0
+fi
+awk -v untrusted="$untrusted" -v package="$package" '
+  $0 == untrusted { print "moduleOrigin (Installed \"" package "\") _ = Library InHouse" } { print }' \
+  "$root/compiler/src/$table" > "$work/Libraries.idr"
+say "the trust table: $package listed"
+planted_frontend "$table" "$work/Libraries.idr" || exit 0
+
+# The package, installed by the planted frontend into the work directory's
+# prefix; what it depends on is the build's prefix's.
+shipped_packages=$(bounded "$planted_front" --prefix "$checkout_prefix" --libdir)
+cp -R "$here/library" "$work/library" && rm -rf "$work/library/build" || exit 1
+if (cd "$work/library" &&
+    bounded "$planted_front" --prefix "$work/prefix" --package-path "$shipped_packages" \
+      --install "$package.ipkg") > "$work/install.out" 2>&1; then
+  say "$package: installed"
+else
+  say "$package: not installed"
+  show "$work/install.out"
+  exit 0
+fi
+packages=$(bounded "$planted_front" --prefix "$work/prefix" --libdir)
+
+# compile_with_package NAME SOURCE: SOURCE copied to the work directory's
+# NAME and compiled there by the planted idris-mlir as tools/compile.sh
+# runs one, with the package, linked with the checked runtime, its report
+# beside it; its exit status in $compiled, its output in NAME.out.
+compile_with_package() {
+  mkdir -p "$work/$1" && cp "$2" "$work/$1/Main.idr" || exit 1
+  (cd "$work/$1" && bounded "$planted_compiler" --no-prelude --num-threads="$ncpu" \
+     --package-path "$packages" -p mlir-linear -p "$package" "--runtime=$checked_runtime" \
+     "--report=$work/$1.report" Main.idr -o build/exec/prog) > "$work/$1.out" 2>&1
+  compiled=$?
+}
+
+compile_with_package shared "$here/Main.idr"
+say "shared: compile: exit $compiled"
+"$runtests" --reject "$here" "$work/shared.report" "$work/shared.out" > "$work/shared.lines" ||
+  show "$work/shared.out"
+cat "$work/shared.lines"
+
+compile_with_package exclusive "$here/exclusive/Main.idr"
+say "exclusive: compile: exit $compiled"
+if [ "$compiled" -ne 0 ]; then
+  show "$work/exclusive.out"
+  exit 0
+fi
+printf '4\n' > "$work/four"
+run_program exclusive-run "$work/exclusive/build/exec/prog" "$work/four"
+say "exclusive: run: exit $ran"
+cat "$work/exclusive-run.out"
+empty stderr "$work/exclusive-run.err"

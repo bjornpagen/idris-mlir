@@ -1,13 +1,10 @@
--- expect: runtime closure, line 27
--- message: Main.choose
 module Main
 
 import Prelude
 
--- Which implementation op runs is chosen by the input: a set of
--- implementations at one site that only the run decides, refused, naming
--- the choice. near/ makes the same choice between two calls, each of one
--- implementation the program fixes.
+-- Which implementation op runs is chosen by the input, among the two the
+-- program fixes: the choice is a value, one of the two, and the use of op
+-- runs the method of the one chosen.
 
 interface Semi a where
   op : a -> a -> a

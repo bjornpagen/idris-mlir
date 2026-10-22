@@ -8,9 +8,9 @@
 // token that may be null; any other is fresh, or a lifetime's, and no
 // recycled cell either.
 
-#include "Checks.h"
+#include "idr/Transforms/Expect.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 

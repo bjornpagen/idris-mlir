@@ -1,0 +1,65 @@
+#!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
+# A program built with the runtime it ships with keeps no account of what
+# its calls hold: the lowering opens one in every function whose frame
+# bound is not zero, in every build, and the shipped runtime's entries are
+# empty, so once its bitcode joins the program they inline to nothing and
+# no object the build leaves references one. Main.idr's graft has such a
+# bound, which the compilation states by its lowered form opening the
+# account (mlir.expect); the program runs, and each of its objects is read
+# for the entries. Their names, as this target's object format spells a
+# reference, are read by the same reader from calls.c's object, which calls
+# each of the three and nothing else, so the reader is shown to find a
+# reference where there is one. check-archive refuses an account in the
+# shipped archive; this holds a program built with it to the same.
+. "$IDRIS_MLIR_ROOT/harness/testutils.sh"
+
+# references OBJECT: the names OBJECT's native code references and does
+# not define, one per line.
+references() {
+  bounded "$llvm_bin/llvm-nm" --no-llvm-bc --undefined-only --just-symbol-name "$1" | LC_ALL=C sort -u
+}
+
+if ! runtime_c bounded "$pinned_cc" -O1 -c "$here/calls.c" -o "$work/calls.o" > "$work/cc.log" 2>&1; then
+  say "calls: does not compile"
+  show "$work/cc.log"
+  exit 0
+fi
+references "$work/calls.o" > "$work/entries"
+if [ "$(wc -l < "$work/entries")" -eq 3 ]; then
+  say "the reader: the three entries an object calls, each found"
+else
+  say "the reader: not the three entries calls.o calls:"
+  show "$work/entries"
+  exit 0
+fi
+
+mkdir "$work/shipped"
+cp "$here/Main.idr" "$work/shipped/"
+# shellcheck disable=SC2046 # one option per line, none with a space
+compile_program $(stage_options "$here") "$work/shipped/Main.idr" shipped
+say "compile: exit $compiled"
+if [ "$compiled" -ne 0 ]; then
+  show "$work/compile.out" "$work/compile.err"
+  exit 0
+fi
+run_program shipped "$work/shipped/build/exec/shipped" /dev/null
+say "run: exit $ran"
+cat "$work/shipped.out"
+empty stderr "$work/shipped.err"
+
+artifact_files "$work/shipped" shipped objects > "$work/objects"
+if [ ! -s "$work/objects" ]; then
+  say "objects: none left by the build"
+  exit 0
+fi
+while IFS= read -r object; do
+  references "$object" | grep -Fx -f "$work/entries" | sed "s|^|${object##*/}: references |"
+done < "$work/objects" > "$work/found"
+if [ -s "$work/found" ]; then
+  say "objects: an account entry referenced:"
+  sed 's/^/  /' "$work/found"
+else
+  say "objects: none references an account entry"
+fi
