@@ -19,12 +19,15 @@
 #include "idr/Transforms/EGraph.h"
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Inline.h"
-#include "idr/Transforms/Optimize.h"
 #include "idr/Transforms/Optimize/Tails.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Analysis/CallGraph.h"
 #include "mlir/Transforms/Inliner.h"
+#include "llvm/Support/ErrorHandling.h"
+
+#include <cstdint>
+#include <mutex>
 
 namespace idr {
 #define GEN_PASS_DEF_IDRINLINE
@@ -39,7 +42,7 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
   void runOnProgram(idr::ProgramOp program) {
     const auto &graph = getAnalysis<idr::solver::ProgramGraph>();
     idr::inlining::Profitability profitability(graph);
-    idr::optimize::Admission admission(idr::support::hostMemoryBytes());
+    idr::inlining::Admission admission(idr::support::hostMemoryBytes());
     InlinerConfig config;
     config.setDefaultPipeline([](OpPassManager &pm) { pm.addPass(idr::createIdrSimplify()); });
     // Upstream asks from its own workers; each run is admitted by the arena
@@ -83,3 +86,23 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
 };
 
 } // namespace
+
+// A function whose arena alone exceeds the host's memory ends the
+// compiler through its one out-of-memory handler, a crash of the machine,
+// never a refusal. Any other enters once it fits beside those in flight,
+// or when nothing else runs, so no wait lasts for ever.
+void idr::inlining::Admission::enter(std::uint64_t bytes) {
+  if (bytes > budget)
+    llvm::report_bad_alloc_error("a function's e-graph needs more memory than the host has");
+  std::unique_lock lock(mutex);
+  freed.wait(lock, [&] { return inFlight == 0 || inFlight + bytes <= budget; });
+  inFlight += bytes;
+}
+
+void idr::inlining::Admission::leave(std::uint64_t bytes) {
+  {
+    std::lock_guard lock(mutex);
+    inFlight -= bytes;
+  }
+  freed.notify_all();
+}

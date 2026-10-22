@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -97,7 +98,7 @@ inline bool isFinal(const Phase &phase) {
 class Scheduler {
 public:
   Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &nodes, const InnerCounts &counts,
-            mlir::AnalysisManager am, Admission &admission, solver::Work &spent);
+            mlir::AnalysisManager am, inlining::Admission &admission, solver::Work &spent);
 
   // Failure when a turn failed, having emitted its diagnostic, or when a
   // function was left not final, an internal error.
@@ -124,7 +125,7 @@ private:
   specialize::Nodes &nodes;
   const InnerCounts &counts;
   mlir::AnalysisManager am;
-  Admission &admission;
+  inlining::Admission &admission;
   solver::Work &spent;
 
   // Copies of the inner pipeline, one per worker that runs one.

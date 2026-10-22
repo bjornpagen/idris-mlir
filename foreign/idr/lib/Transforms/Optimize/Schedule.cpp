@@ -16,7 +16,6 @@
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 
@@ -84,61 +83,6 @@ solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
           walker.walk(type);
   });
   return frozen.thaw();
-}
-
-const Summary *Schedule::summaryOf(FunctionId fn) const {
-  return idr::match(
-      members[fn.index()].phase, [](const Final &final) { return &final.summary; },
-      [](const OneOf<Waiting, Parked, Done> auto &) -> const Summary * { return nullptr; });
-}
-
-std::optional<Readable> Schedule::final(FunctionId fn) const {
-  const Member &member = members[fn.index()];
-  return idr::match(
-      member.phase,
-      [&](const Final &final) -> std::optional<Readable> {
-        return Readable{member.fn, final.summary.times};
-      },
-      [](const OneOf<Waiting, Parked, Done> auto &) -> std::optional<Readable> {
-        return std::nullopt;
-      });
-}
-
-// A final function, or a member of the reader's component its turn took
-// up; the grant that names a copy of anything else is never made, so the
-// reader asks only for these.
-Readable Schedule::readable(FunctionId, FunctionId target) const {
-  const Member &member = members[target.index()];
-  return idr::match(
-      member.phase, [&](const Final &final) { return Readable{member.fn, final.summary.times}; },
-      [&](const Done &done) { return Readable{member.fn, done.solved.times}; },
-      [&](const Parked &parked) { return Readable{member.fn, parked.solved.times}; },
-      [&](Waiting) { return Readable{member.fn, {}}; });
-}
-
-//===----------------------------------------------------------------------===//
-// Admission
-//===----------------------------------------------------------------------===//
-
-// A function whose arena alone exceeds the host's memory ends the
-// compiler through its one out-of-memory handler, a crash of the machine,
-// never a refusal. Any other enters once it fits beside those in flight,
-// or when nothing else runs, so no wait lasts for ever.
-void Admission::enter(std::uint64_t bytes) {
-  if (bytes > budget)
-    llvm::report_bad_alloc_error("idr-optimize: a function's e-graph needs more memory than the "
-                                 "host has");
-  std::unique_lock lock(mutex);
-  freed.wait(lock, [&] { return inFlight == 0 || inFlight + bytes <= budget; });
-  inFlight += bytes;
-}
-
-void Admission::leave(std::uint64_t bytes) {
-  {
-    std::lock_guard lock(mutex);
-    inFlight -= bytes;
-  }
-  freed.notify_all();
 }
 
 } // namespace idr::optimize

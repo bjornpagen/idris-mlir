@@ -68,7 +68,7 @@ struct OptimizePass : impl::IdrOptimizeBase<OptimizePass> {
     // pipeline's own nesting finds it instead of inserting it.
     for (FuncOp fn : program.getOps<FuncOp>())
       (void)getAnalysisManager().nest(fn);
-    Admission admission(support::hostMemoryBytes());
+    inlining::Admission admission(support::hostMemoryBytes());
     // The pass's work: the solves of what each component gives back, then
     // the rows' join over the final graph.
     solver::Work work;

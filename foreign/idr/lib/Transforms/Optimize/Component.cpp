@@ -38,7 +38,7 @@ using namespace mlir;
 namespace idr::optimize {
 
 Scheduler::Scheduler(OptimizePass &pass, Schedule &schedule, specialize::Nodes &nodes,
-                     const InnerCounts &counts, AnalysisManager am, Admission &admission,
+                     const InnerCounts &counts, AnalysisManager am, inlining::Admission &admission,
                      solver::Work &spent)
     : pass(pass), schedule(schedule), nodes(nodes), counts(counts), am(am), admission(admission),
       spent(spent), inner(FuncOp::getOperationName()) {

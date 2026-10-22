@@ -16,6 +16,11 @@
 //   - contify again, then the e-graph once more over every function.
 // What a final function tells its callers is one summary, written once.
 // And idr-contify, which runs before it and inside it.
+//
+// The inner steps (the redirect, leaf inlining, idr-constants) are lower
+// libraries than idr-optimize, which builds its pipeline of them: what
+// they read of the schedule is defined here, with the schedule, so they
+// need nothing of idr-optimize's own code.
 #ifndef IDR_TRANSFORMS_OPTIMIZE_H
 #define IDR_TRANSFORMS_OPTIMIZE_H
 
@@ -37,10 +42,8 @@
 #include "llvm/ADT/IntEqClasses.h"
 #include "llvm/ADT/SmallVector.h"
 
-#include <condition_variable>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <utility>
 #include <variant>
@@ -131,10 +134,32 @@ public:
 
   // `fn` once final; `target` as `reader` may read it: final, or of
   // `reader`'s own component and taken up, which only `reader`'s turn
-  // writes. The grant of a copy checked the second already.
-  std::optional<Readable> final(FunctionId fn) const;
-  Readable readable(FunctionId reader, FunctionId target) const;
-  const Summary *summaryOf(FunctionId fn) const;
+  // writes. The grant of a copy checked the second already, so the reader
+  // asks for nothing else.
+  std::optional<Readable> final(FunctionId fn) const {
+    const Member &member = members[fn.index()];
+    return idr::match(
+        member.phase,
+        [&](const Final &done) -> std::optional<Readable> {
+          return Readable{member.fn, done.summary.times};
+        },
+        [](const OneOf<Waiting, Parked, Done> auto &) -> std::optional<Readable> {
+          return std::nullopt;
+        });
+  }
+  Readable readable(FunctionId, FunctionId target) const {
+    const Member &member = members[target.index()];
+    return idr::match(
+        member.phase, [&](const Final &done) { return Readable{member.fn, done.summary.times}; },
+        [&](const Done &done) { return Readable{member.fn, done.solved.times}; },
+        [&](const Parked &parked) { return Readable{member.fn, parked.solved.times}; },
+        [&](Waiting) { return Readable{member.fn, {}}; });
+  }
+  const Summary *summaryOf(FunctionId fn) const {
+    return idr::match(
+        members[fn.index()].phase, [](const Final &done) { return &done.summary; },
+        [](const OneOf<Waiting, Parked, Done> auto &) -> const Summary * { return nullptr; });
+  }
 
   specialize::Requester &requesterOf(FunctionId fn) { return members[fn.index()].requests; }
 
@@ -224,25 +249,6 @@ struct InnerCounts {
 // body states its summary.
 void buildInnerPipeline(mlir::OpPassManager &pm, Schedule &schedule, specialize::Nodes &nodes,
                         const InnerCounts &counts);
-
-// The memory the e-graphs of the functions in flight may take together:
-// the host's, read once. A function enters a run of the pipeline only
-// while its arena fits beside those running, so a small host compiles more
-// slowly and never differently; one whose arena alone exceeds it ends the
-// compiler through its one out-of-memory handler.
-class Admission {
-public:
-  explicit Admission(std::uint64_t budget) : budget(budget) {}
-  // Blocks until `bytes` fit; then they are in flight.
-  void enter(std::uint64_t bytes);
-  void leave(std::uint64_t bytes);
-
-private:
-  std::uint64_t budget;
-  std::uint64_t inFlight = 0;
-  std::mutex mutex;
-  std::condition_variable freed;
-};
 
 } // namespace optimize
 } // namespace idr
