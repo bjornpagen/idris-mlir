@@ -45,8 +45,10 @@
 ||| when their full names agree (`fullNameSameEntry`), and that none of its
 ||| definitions names one of the frontend's probes (`probesFresh`); and
 ||| facts of the hosts that run this compiler: that the runtime's equality
-||| of integers is reflexive and symmetric, from which Idris's equality of
-||| names is proved so; and that what the evaluator's table of primitives
+||| of integers holds of an integer and itself and only of it, from which
+||| it is proved symmetric and Idris's equality of names reflexive and
+||| symmetric; that its equality of characters and of strings holds only of
+||| a value and itself; and that what the evaluator's table of primitives
 ||| computes stays within a bound that grows with its arguments' sizes
 ||| (`computedWithin`).
 module Idris.Host
@@ -91,7 +93,8 @@ import Libraries.Data.WithDefault
 -- the context, which `Core` actions build, to the full names its entries
 -- hold (`oneEntryPerName`, `fullNameUnresolved`) and to the names its
 -- definitions hold (`probesFresh`); and of the hosts' runtime, to its
--- comparison of integers (`intEqualityReflexive`, `intEqualitySymmetric`)
+-- comparisons of integers (`intEqualityReflexive`, `intEqualitySound`),
+-- characters (`charEqualitySound`) and strings (`stringEqualitySound`)
 -- and to what the table of primitives computes (`computedWithin`).
 0 trusted : a
 trusted = believe_me ()
@@ -959,15 +962,47 @@ markerName None (MkVar v) impossible
 -- Idris's equality of names compares an identifier's index, a machine
 -- name's number, a resolved name's index and the like as the runtime's
 -- integers, by `prim__eq_Int`, which a proof cannot evaluate at a
--- variable: that comparison is reflexive and symmetric, which is a fact of
--- each host that runs this compiler. Every instance that lifts it to names
--- is public and structural, so from it equality of names is proved
--- reflexive and symmetric.
+-- variable. That it is true of an integer and itself, and only of an
+-- integer and itself, are facts of each host that runs this compiler and
+-- of no definition: Chez compares two exact integers by `=`, and
+-- idris-mlir two 64-bit words by `arith.cmpi eq`, each true exactly when
+-- the two are one integer. Its symmetry follows from the two. Every
+-- instance that lifts them to names is public and structural, so from them
+-- equality of names is proved reflexive and symmetric.
 0 intEqualityReflexive : (x : Int) -> (x == x) = True
 intEqualityReflexive _ = trusted
 
+export
+0 intEqualitySound : (x, y : Int) -> (x == y) = True -> x = y
+intEqualitySound _ _ _ = trusted
+
+0 falseWhereNotTrue : (b : Bool) -> Not (b = True) -> b = False
+falseWhereNotTrue False _ = Refl
+falseWhereNotTrue True no = absurd (no Refl)
+
 0 intEqualitySymmetric : (x, y : Int) -> (x == y) = False -> (y == x) = False
-intEqualitySymmetric _ _ _ = trusted
+intEqualitySymmetric x y apart = falseWhereNotTrue (y == x) $ \same =>
+    uninhabited (trans (sym (replace {p = \z => (x == z) = False} (intEqualitySound y x same) apart))
+                       (intEqualityReflexive x))
+
+-- A character is compared by `prim__eq_Char`: Chez's `char=?`, and
+-- idris-mlir's `arith.cmpi eq` of the two code points, each true exactly
+-- when the two are one character. It is trusted itself rather than through
+-- `ord` and the comparison of integers, which would trust two facts of the
+-- runtime in its place: that `prim__eq_Char` agrees with `prim__eq_Int` on
+-- code points, and that `prim__cast_CharInt` gives two characters two code
+-- points.
+export
+0 charEqualitySound : (x, y : Char) -> (x == y) = True -> x = y
+charEqualitySound _ _ _ = trusted
+
+-- A string is compared by `prim__eq_String`: Chez's `string=?`, character
+-- by character, and idris-mlir's runtime, which compares the two UTF-8
+-- encodings byte by byte and their lengths, each true exactly when the two
+-- are one string.
+export
+0 stringEqualitySound : (x, y : String) -> (x == y) = True -> x = y
+stringEqualitySound _ _ _ = trusted
 
 0 natEqualityReflexive : (k : Nat) -> (k == k) = True
 natEqualityReflexive Z = Refl
