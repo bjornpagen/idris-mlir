@@ -3780,6 +3780,16 @@ C137.
   each round's new keys, which semi-naive evaluation handles as its
   delta; the growth check, which decides the megamorphic refusal as a
   property of the program, bounds it, and no count refuses.
+- **C176** (2026-10-21; L10's finding; amends C167's "not graded"). A
+  destination's type carries the grade its write must meet:
+  `!idr.dest<T>` where `T` may be a graded type, and `dest.write`
+  accepts a value whose claim is at least `T`'s, while `idr.dest.answer`
+  gives back exactly `T`. A carrier-only destination lost a framed
+  result's `unique` claim, which frames could only meet with an internal
+  error, and the lossless form keeps it. A `T` that is `scoped` makes
+  `idr.dest.answer` a control op making a scoped value, which states its
+  lifetime by C170's `outer` operand, checked to enclose the op. Still
+  excluded: a `T` linear by its type, and a lifetime.
 
 ## 4. Open: the owner's decisions, in order
 
