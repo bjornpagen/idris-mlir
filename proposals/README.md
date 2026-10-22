@@ -83,7 +83,7 @@ otherwise.
 
 Off that path, and not started while self-hosting is the focus, though
 nothing blocks them: 0016's three small edits and its measurement, 0017's
-P0 (the native DMP measurement on this machine) and P1, 0019's N1.
+P0 (the native DMP measurement on this machine), 0019's N1.
 
 ## The queue
 
@@ -142,7 +142,7 @@ P0 (the native DMP measurement on this machine) and P1, 0019's N1.
 - [0016](0016-licensing.md): licensing. Built; three small edits and one
   measurement remain, then it is deleted.
 - [0017](0017-apple-dmp.md): the heap as Apple's DMP reads it. The region
-  is built; P0 and P1 can run on this machine now.
+  is built; P0 can run on this machine now. P1 went with P0's C104.
 - [0018](0018-fin-words.md): `Fin n` as a machine word. F0 from 0001's
   S3; F1 needs nothing.
 - [0019](0019-niche-sums.md): niche layouts of sums. N1 needs nothing.

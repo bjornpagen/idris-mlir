@@ -25,14 +25,15 @@ terms:
   template (P0 §5.3, D41, C23): the MLIR form owed below.
 
 What stands: D2 (byte classes), D4's rule (the height from constructor
-types, never names), D8, §5, §7, and F0's measurement. F0's gate decided
-F2, which D58 now rules.
+types, never names), D8, §5, §7, and F0's measurement, which gates
+nothing now that D58 settles F2's question.
 
-**Status:** open, nothing built (2026-10-19). Every stage is
-**AFTER-SELF**: `make self` needs none of it. F0 is next, on the first
-stage-1 self run; F1 needs nothing else, since `Natness` is built
-(`Translate/State.idr`); F2 waits on F0. Claims are marked *read* (the
-path given), *measured*, *recalled*, *conjecture* or *decision*. The
+**Status:** open, nothing built (2026-10-19). F1 and F2 are P0's: C22's
+number layout and D58's specialization by layout class, which settles
+F2's question, so F2 waits on no measure. F0 stays **AFTER-SELF**, on the
+first stage-1 self run, and gates nothing (D58). Claims are marked
+*read* (the path given), *measured*, *recalled*, *conjecture* or
+*decision*. The
 frontend was read on 2026-10-16: the definitions named are there under
 the same names, and its line numbers are left out. LLVM and MLIR paths
 are under `.toolchain/llvm-project` (the pinned tree at 7208ba24).
@@ -59,13 +60,14 @@ The `Fin`s the frontend uses most have bounds known only at run time:
 
 These stay bigs under every design here.
 
-Where a bound is closed, the type's fact can decide the representation.
-The frontend makes such a value an unsigned word of the smallest byte
-class: u8, u16, u32 or u64. The work comes in three stages:
-- **F1** does this where today's keys already close the bound.
-- **F2** changes the keys so that a type argument closes it too: the
-  bytes of `Vect 8 (Fin 256)`, or an array of `Fin 256`.
-- **F0** is a measurement, and F2 waits on it.
+Where a bound is closed, the type's fact can decide the representation:
+its layout makes such a value an unsigned word of the smallest byte
+class, u8, u16, u32 or u64 (C22). The work comes in three stages:
+- **F1** does this where the bound is closed.
+- **F2** gives each type one form, so a type argument closes it too: the
+  bytes of `Vect 8 (Fin 256)`, or an array of `Fin 256`. D58 settles
+  it, as specialization by layout class.
+- **F0** is a measurement of what they gain; it gates nothing (D58).
 
 Exact widths, such as `i7` for `Fin 100`, are examined in §5 at the
 owner's request and not recommended. They save no memory, cost masks on
@@ -421,38 +423,35 @@ mechanism D58 names:
 
 *Decision:* F2 is the target, because it is one form per type. P0
 decides it as D58's specialization by layout class, over C22's number
-layout, and F1's seam does not exist (C22, taking L04's I7). F0's gate
-on F2 is §9's, written before D58.
+layout, and F1's seam does not exist (C22, taking L04's I7). D58
+settles F2's question, so F2 waits on no measure of F0's.
 
-### 6.3 `Natness`, keys and the growth checker
+### 6.3 The height, keys and the growth checker
 
-- **`Natness`.** The width needs a Numeral's height: the most its value
-  can be at a closed index.
-  - **Read generically,** from Idris's constructor types and never from
-    names. The successor's argument index is a proper subterm of its
-    result index at one position:
+- **The height.** The width needs a numeral's height: the most its value
+  can be at a closed index. Under P0 it is the family's, computed with
+  its layout when the type is made (C22, C81), never the frontend's
+  `Natness`, whose Numeral mapping C22 deletes.
+  - **Read generically,** from the family's constructors and their index
+    equations (D48), never from names. The successor's argument index is
+    a proper subterm of its result index at one position:
     - `Fin k` becomes `Fin (S k)`;
     - `Elem x xs` becomes `Elem x (y :: xs)`.
 
     The height of `T idx` is the depth of that position's closed index,
     less the depth its zero constructor needs (1 for both).
-  - **`Numeral` carries it.** `tyConFacts` reads it once. `Numeral` gains
-    it as a sum, not a flag: `Height = Descends position zeroDepth |
-    Unbounded`. A numeral whose successor does not descend on any index
-    is `Unbounded`, and is a natural.
-  - **`Chain`,** which is `Nat`, stays a natural. Unbounded is the
-    problem's own case.
-- **Keys.**
-  - F1 changes none.
-  - F2 makes `eraseIndices` keep a Numeral's class, and gives `keyingOf`
-    a classed kind beside `Formed`.
-- **The growth checker** (0001 S2.2).
-  - **F1:** nothing changes. Caps already leaves a `Numeral` uncapped
-    (`Frontend/Growth/Caps.idr:24-31, 205-211`), and nothing is keyed by
-    a class.
-  - **F2:** the class is a key component drawn from a set of five, so it
-    cannot grow. The check treats it as it treats a form. With exact
-    widths the set would be 65.
+  - A numeral whose successor does not descend on any index has no
+    height, and is a natural; `Nat` itself stays a natural. Unbounded is
+    the problem's own case.
+- **Keys.** No instance key changes. A data type carries its index
+  terms (D48), and D58's copies are made by specialization by layout
+  class in the dialect, not by the frontend's keys (`eraseIndices`,
+  `keyingOf`).
+- **The growth checker** (0001 S2.2). Nothing changes: Caps already
+  leaves a `Numeral` uncapped (`Frontend/Growth/Caps.idr:24-31,
+  205-211`), and no frontend key carries a class. D58's specialization
+  ends by construction: its class set is finite, and its shape budget
+  only ever leaves code less optimized.
 
 ## 7. What cannot be done (question 5)
 
@@ -487,8 +486,9 @@ on F2 is §9's, written before D58.
 - D3. **Withdrawn by P0 (D58).** No position decides apart: a numeral's
   layout is its type's wherever it occurs, and a call that meets a closed
   index reaches a copy of its callee at that class (§6.2).
-- D4. **The height comes from `Natness`'s `Numeral`,** from constructor
-  types, generically. `Fin` gets no special case, so `Elem` and a user's
+- D4. **Amended by P0 (C22, C81): the height is the family's,** computed
+  with its layout when the type is made, from its constructors' types,
+  generically. `Fin` gets no special case, so `Elem` and a user's
   numerals get the height too (§6.3).
 - D5. **Amended by P0 (C22): a numeral's own ops convert,** with no range
   check, since Idris proved the bound:
@@ -502,17 +502,17 @@ on F2 is §9's, written before D58.
   associative operation with its identity, `+` on naturals and on fixed
   widths among them. So a closed-signature countdown needs no rewrite of
   its own here.
-- D7. **F2 is the target** (one form per type), built on F0's measure
-  (§9).
+- D7. **F2 is the target** (one form per type), settled by D58 as
+  specialization by layout class; it waits on no measure of F0's (§9).
 - D8. **A bound known only at run time stays a big** (§7).
 
 ## 9. Staged plan
 
 | Stage | Needs | Content | Proof |
 | --- | --- | --- | --- |
-| F0 **AFTER-SELF** | the first stage-1 self run (0001's S4) | (1) A sampling profile of the stage-1 self run and the bench set, by source location. It reports the share in code over closed-bound numerals (`addressOf`, `lowBits`, `doubled`, `sameAddress`, `Ord (Vect …)`, `Glyph`, `Form` codes) and over run-time bounds. (2) Fixtures written twice, with `Fin 256` and with `Bits8`: a record of fields, a `Vect 8` of them, and an array of them. The `Bits8` version is what F1 and F2 would make, so the ratio bounds their gain. | Decides F2. Go if closed-bound numerals inside type arguments take at least 2% of the self run, or if any `Bits8` fixture runs at least 1.3× faster (0012's bar) or takes at most half the memory. F1 does not wait on it. |
-| F1 **AFTER-SELF** | nothing (`Natness` is built) | D1, D2, D4 and D5 as P0 amends them (D3 and D6 withdrawn). `Numeral`'s height. Words at closed bounds, wherever they occur (D58). `FZ`, `FS` and the match on words. Conversions by C22's ops. | Fixtures, on every target: a record of `Fin 256` fields; `FS` across 256 and 65536; a `Fin (power 2 64)` at its top value; a `Fin (power 2 100)` that stays a big; a closed-signature countdown at `Fin (power 2 62)`, which times out unless it is the identity; a closed `Fin` through an open-`n` function and through a closure in `map`; an `Elem` as a numeral. A new `idr-expect` property, `no-bigs=@f`: @f computes on no big and no natural. It holds of a closed-signature function after F1 and fails today. |
-| F2 **AFTER-SELF** | F0's go; F1 | Class keys for type arguments and for value binders that bound a numeral (§6.2). The `replace` case settled. | F0's fixtures, with `Fin 256` within 10% of the `Bits8` version. An array of `Fin 256` is a `memref` of `i8`. A property that no definition has more than five class instances. The self run's `Address` cells hold no counted byte. |
+| F0 **AFTER-SELF** | the first stage-1 self run (0001's S4) | (1) A sampling profile of the stage-1 self run and the bench set, by source location. It reports the share in code over closed-bound numerals (`addressOf`, `lowBits`, `doubled`, `sameAddress`, `Ord (Vect …)`, `Glyph`, `Form` codes) and over run-time bounds. (2) Fixtures written twice, with `Fin 256` and with `Bits8`: a record of fields, a `Vect 8` of them, and an array of them. The `Bits8` version is what F1 and F2 make, so the ratio bounds their gain. | Gates nothing: D58 settles F2's question, which this stage was to decide. The record states the share and the ratios it measured. |
+| F1, P0's | P0 (C22, D58) | D1, D2, D4 and D5 as P0 amends them (D3 and D6 withdrawn). `Numeral`'s height. Words at closed bounds, wherever they occur (D58). `FZ`, `FS` and the match on words. Conversions by C22's ops. | Fixtures, on every target: a record of `Fin 256` fields; `FS` across 256 and 65536; a `Fin (power 2 64)` at its top value; a `Fin (power 2 100)` that stays a big; a closed-signature countdown at `Fin (power 2 62)`, which times out unless it is the identity; a closed `Fin` through an open-`n` function and through a closure in `map`; an `Elem` as a numeral. A new `idr-expect` property, `no-bigs=@f`: @f computes on no big and no natural. It holds of a closed-signature function after F1 and fails today. |
+| F2, P0's | D58's ruling, with no gate of F0's; F1 | D58's specialization by layout class over C22's number layout (§6.2). The `replace` case settled. | F0's fixtures, with `Fin 256` within 10% of the `Bits8` version. An array of `Fin 256` is a `memref` of `i8`. A property that no definition has more copies than D58's class set and budget allow. The self run's `Address` cells hold no counted byte. |
 
 ## 10. Rejected alternatives
 
@@ -564,8 +564,9 @@ Rejected for their own reasons:
 - **0012.** A `Vect 8 (Fin 256)` held as one 64-bit word is a 0012
   layout over F2's byte element, and contiguity is 0012's choice. Indexed
   vectors do not imply contiguous storage (AGENTS.md).
-- **0001 S2.2, the growth checker, and its `Natness`.** F1 refines
-  `Numeral` (§6.3). F2 adds a finite key component.
+- **0001 S2.2, the growth checker, and its `Natness`.** Nothing changes
+  for them (§6.3): the height is the family's (C22), and no frontend key
+  carries a class (D58).
 - **0009.** Arrays of closed-bound numerals become `memref`s of bytes
   under F2. An `Index`'s coordinates stay naturals, since their bounds
   are the shape's.
