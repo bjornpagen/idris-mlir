@@ -10,9 +10,11 @@
 ||| readers produce, with nothing of Idris's compiler in scope.
 module IdrisMLIR.Proof.Template
 
+import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Requests
 
 import Data.Nat
+import Data.So
 
 %default total
 
@@ -171,3 +173,168 @@ mutual
   heaviest (Leaf _) = 0
   heaviest (Held _ _) = 0
   heaviest (Formal _ _) = 0
+
+------------------------------------------------------------------------------
+-- What a template carries
+------------------------------------------------------------------------------
+
+mutual
+  ||| Is what every instance writes at a template no higher than the
+  ||| template: it holds no marker, field or held dictionary, whose values
+  ||| are their arcs', and no family applied? A choice's value is one of its
+  ||| leaves, and an argument of a family's value is the writer's to no
+  ||| instance: what beta makes of it, the reading's `beta` says.
+  public export
+  selfBounded : Template -> Bool
+  selfBounded (Head _ ts) = allSelfBounded ts
+  selfBounded (Opaque _ ts) = allSelfBounded ts
+  selfBounded (Choice _ ts) = allSelfBounded ts
+  selfBounded (Leaf _) = True
+  selfBounded (Token _) = True
+  selfBounded (Var _ _) = False
+  selfBounded (Applied _ _ _) = False
+  selfBounded (Computing _ _ _) = False
+  selfBounded (Field _ _) = False
+  selfBounded (Held _ _) = False
+  selfBounded (Formal _ _) = True
+
+  public export
+  allSelfBounded : List Template -> Bool
+  allSelfBounded [] = True
+  allSelfBounded (t :: ts) = selfBounded t && allSelfBounded ts
+
+||| How much an applied family grows its own marker, e heads deep. Beta of
+||| a family no higher than k, applied to arguments no higher than h, is no
+||| higher than k + h when the family is inert: with closed arguments h is
+||| their height, the marker's own value raised by a constant; with an
+||| argument that holds a marker it is a sum of two heights, which no
+||| weight states.
+public export
+appliedWeight : (e, d : Nat) -> List Template -> Weight
+appliedWeight e d ts = if allSelfBounded ts then Finite (e + tallest ts) d else Stuck
+
+mutual
+  ||| Each occurrence of a writer's parameter in a template read e heads
+  ||| deep, with what it carries: `Var i d`, e - d; an applied family's own
+  ||| marker, its closed arguments' height above that; every marker under a
+  ||| recursion or an applied family's argument, and a computing family's
+  ||| own, Stuck. A field's record is carried by the arcs its value draws,
+  ||| and a choice's scrutinee by its caps, so neither is a part the
+  ||| template's height carries.
+  public export
+  occurrences : (e : Nat) -> Template -> List (Nat, Weight)
+  occurrences e (Var j d) = [(j, Finite e d)]
+  occurrences e (Head _ ts) = occurrencesIn (S e) ts
+  occurrences e (Opaque _ ts) = stuckIn ts
+  occurrences e (Applied j d ts) = (j, appliedWeight e d ts) :: stuckIn ts
+  occurrences e (Computing j _ ts) = (j, Stuck) :: stuckIn ts
+  occurrences e (Choice _ ts) = occurrencesIn e ts
+  occurrences e (Field _ _) = []
+  occurrences e (Leaf _) = []
+  occurrences e (Token _) = []
+  occurrences e (Held _ _) = []
+  occurrences e (Formal _ _) = []
+
+  public export
+  occurrencesIn : (e : Nat) -> List Template -> List (Nat, Weight)
+  occurrencesIn e [] = []
+  occurrencesIn e (t :: ts) = occurrences e t ++ occurrencesIn e ts
+
+  ||| Every marker below, as Stuck: what a recursion computes from a marker,
+  ||| inside a field or not, has no depth bound.
+  public export
+  stuck : Template -> List (Nat, Weight)
+  stuck (Var j _) = [(j, Stuck)]
+  stuck (Field _ s) = stuck s
+  stuck (Head _ ts) = stuckIn ts
+  stuck (Opaque _ ts) = stuckIn ts
+  stuck (Applied j _ ts) = (j, Stuck) :: stuckIn ts
+  stuck (Computing j _ ts) = (j, Stuck) :: stuckIn ts
+  stuck (Choice _ ts) = stuckIn ts
+  stuck (Leaf _) = []
+  stuck (Token _) = []
+  stuck (Held _ _) = []
+  stuck (Formal _ _) = []
+
+  public export
+  stuckIn : List Template -> List (Nat, Weight)
+  stuckIn [] = []
+  stuckIn (t :: ts) = stuck t ++ stuckIn ts
+
+||| A weight joined into a list of them by parameter, each parameter once
+||| and ascending, as the parameters' positions are numbered.
+public export
+insertJoin : Nat -> Weight -> List (Nat, Weight) -> List (Nat, Weight)
+insertJoin i w [] = [(i, w)]
+insertJoin i w ((j, v) :: rest) =
+  if i == j then (j, join v w) :: rest
+  else if i < j then (i, w) :: (j, v) :: rest
+  else (j, v) :: insertJoin i w rest
+
+||| Weights joined in, one at a time.
+public export
+joinAll : (acc : List (Nat, Weight)) -> List (Nat, Weight) -> List (Nat, Weight)
+joinAll acc [] = acc
+joinAll acc ((i, w) :: xs) = joinAll (insertJoin i w acc) xs
+
+public export
+settledEntry : (Nat, Weight) -> (Nat, Weight)
+settledEntry (i, w) = (i, settled w)
+
+||| Every parameter a template grows, each once and ascending, with how
+||| much: the most its occurrences carry, written with one side 0. A
+||| parameter that does not occur is not listed.
+public export
+weights : Template -> List (Nat, Weight)
+weights t = map settledEntry (joinAll [] (occurrences 0 t))
+
+||| How deep a template holds its parameters, the most over all of them:
+||| Absent for one that holds none.
+public export
+holding : Template -> Weight
+holding t = foldr join Absent (map snd (weights t))
+
+------------------------------------------------------------------------------
+-- Every occurrence is listed
+------------------------------------------------------------------------------
+
+||| Parameter i listed with a weight that dominates w.
+public export
+0 Joined : Nat -> Weight -> List (Nat, Weight) -> Type
+Joined i w m = (v : Weight ** (Elem (i, v) m, Dominates v w))
+
+0 insertJoinNew : (i : Nat) -> (w : Weight) -> (m : List (Nat, Weight)) -> Joined i w (insertJoin i w m)
+insertJoinNew i w [] = (w ** (Here, dominatesSelf w))
+insertJoinNew i w ((j, v) :: rest) with (i == j) proof same
+  _ | True = rewrite equalSo {m = i} {n = j} (the (So (i == j)) (rewrite same in Oh)) in
+             (join v w ** (Here, joinOverRight v w))
+  _ | False with (i < j)
+    _ | True = (w ** (Here, dominatesSelf w))
+    _ | False = let (u ** (el, dom)) = insertJoinNew i w rest in (u ** (There el, dom))
+
+0 insertJoinKeep : (i : Nat) -> (w : Weight) -> (m : List (Nat, Weight)) -> Joined k u m -> Joined k u (insertJoin i w m)
+insertJoinKeep i w [] (_ ** (el, _)) = absurd el
+insertJoinKeep i w ((j, v) :: rest) (u' ** (el, dom)) with (i == j)
+  _ | True = case el of
+    Here => (join v w ** (Here, dominatesThrough (joinOverLeft v w) dom))
+    There el' => (u' ** (There el', dom))
+  _ | False with (i < j)
+    _ | True = (u' ** (There el, dom))
+    _ | False = case el of
+      Here => (u' ** (Here, dom))
+      There el' => let (x ** (el'', dom')) = insertJoinKeep i w rest (u' ** (el', dom)) in (x ** (There el'', dom'))
+
+0 joinAllKeep : (acc, xs : List (Nat, Weight)) -> Joined k u acc -> Joined k u (joinAll acc xs)
+joinAllKeep acc [] j = j
+joinAllKeep acc ((i, w) :: xs) j = joinAllKeep (insertJoin i w acc) xs (insertJoinKeep i w acc j)
+
+0 joinAllCover : (acc, xs : List (Nat, Weight)) -> Elem (i, w) xs -> Joined i w (joinAll acc xs)
+joinAllCover acc ((i, w) :: xs) Here = joinAllKeep (insertJoin i w acc) xs (insertJoinNew i w acc)
+joinAllCover acc ((j, v) :: xs) (There el) = joinAllCover (insertJoin j v acc) xs el
+
+||| Every occurrence of a parameter in a template is listed among its
+||| weights with one that dominates what the occurrence carries.
+export
+0 weightsCover : (t : Template) -> Elem (i, w) (occurrences 0 t) -> Joined i w (weights t)
+weightsCover t el = case joinAllCover [] (occurrences 0 t) el of
+  (v ** (here, dom)) => (settled v ** (elemMap settledEntry here, settledOver dom))

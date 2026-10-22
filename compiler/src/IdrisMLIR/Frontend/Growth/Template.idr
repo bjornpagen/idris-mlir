@@ -31,6 +31,11 @@
 ||| machine name to the binder whose number it carries, so a marker is never
 ||| one: it passes through every normaliser, under every binder, as itself.
 |||
+||| Every definition a reading looks up is read from the context frozen
+||| once the program was loaded, by a pure function of it (`inFrozen`), with
+||| the evidence that the context defines the name so: the definition the
+||| evaluator's step that unfolds the name unfolds.
+|||
 ||| Unfolding puts a definition on the walk's stack (`Walk.enter`), the
 ||| measure every reading here recurses on, so the readings end however the
 ||| definitions refer to one another. A definition met again on its own
@@ -46,6 +51,7 @@ import Core.Case.CaseTree
 import Core.Context
 import Core.Core
 import Core.TT
+import Idris.Host
 import Libraries.Data.List.SizeOf
 import Libraries.Data.List.Thin
 
@@ -64,10 +70,48 @@ import Data.DPair
 import Data.Fin
 import Data.List
 import Data.List1
-import Data.SortedMap
 import Data.Vect
 
 %default total
+
+-- The evaluator's relation names its forms and steps as this module names
+-- a template's nodes and a static argument's kind; here each name is
+-- always the frontend's.
+%hide Idris.Host.Head
+%hide Idris.Host.Applied
+%hide Idris.Host.Beta
+%hide Idris.Host.Computes
+%hide Idris.Host.AType
+%hide Idris.Host.delayed
+
+------------------------------------------------------------------------------
+-- The frozen context
+------------------------------------------------------------------------------
+
+||| A definition of the frozen context, read purely: its place, which a walk
+||| enters, the definition, and the evidence that the context defines the
+||| name so, the one an evaluator's step that unfolds the name unfolds
+||| (`Idris.Host.definedOnce`).
+record InFrozen (ctx : Frozen) (n : Name) where
+  constructor MkInFrozen
+  placement : Placement
+  def : GlobalDef
+  0 defines : Defines ctx n def
+
+||| The definition the frozen context gives a name, at its place: nothing
+||| for a name it defines as nothing, or for one at a negative entry, which
+||| no place is.
+inFrozen : (ctx : Frozen) -> (n : Name) -> Maybe (InFrozen ctx n)
+inFrozen ctx n = case resolveIn ctx n of
+  NotInContext _ => Nothing
+  ResolvedTo i _ => case definitionIn ctx n of
+    NotDefined _ => Nothing
+    DefinedAs d defines => (\p => MkInFrozen p d defines) <$> placementOf i
+
+||| The definition at an address of the frozen context: nothing at bytes no
+||| entry has.
+atAddress : (ctx : Frozen) -> Address -> Maybe GlobalDef
+atAddress ctx a = (.def) <$> (nameAt (gamma (defsOf ctx)) a >>= inFrozen ctx)
 
 ------------------------------------------------------------------------------
 -- Roots
@@ -251,10 +295,8 @@ referenceOf ctx nt n = case probeOf n of
     Func => maybe RuntimePart Defined (definitionAddress ctx n)
 
 ||| The role a constructor has in a Nat-like type, if any.
-roleOf : {auto c : Ref Ctxt Defs} -> Name -> Front (Maybe NatRole)
-roleOf n = do
-  defs <- getDefs
-  pure (natRole =<< !(lookupExact n (gamma defs)))
+roleOf : Frozen -> Name -> Maybe NatRole
+roleOf ctx n = natRole . (.def) =<< inFrozen ctx n
 
 ||| A closed run, as `Keys.successorRun` reads one: n >= 1 applications of
 ||| one successor, the same definition at each step, ending in a zero. Its
@@ -334,19 +376,17 @@ data Arm = Step ClosedTerm | Base ClosedTerm
 ||| The alternatives of a match one level deep on a Nat-like argument, each
 ||| leaf with the parameters substituted and every argument the match binds
 ||| the marker one level deeper; nothing for any other match.
-natArms : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Values ClosedTerm vs -> List (CaseAlt vs) ->
-          Front (Maybe (List Arm))
-natArms m env [] = pure (Just [])
-natArms m env (ConCase con _ cargs (STerm _ rhs) :: alts) = do
+natArms : Frozen -> ClosedTerm -> Values ClosedTerm vs -> List (CaseAlt vs) -> Maybe (List Arm)
+natArms ctx m env [] = Just []
+natArms ctx m env (ConCase con _ cargs (STerm _ rhs) :: alts) = do
   let body = close (extend (bindAll cargs m) env) rhs
-  Just role <- roleOf con
-    | Nothing => pure Nothing
+  role <- roleOf ctx con
   let arm = case role of
               Succ => Step body
               Zero => Base body
-  map (arm ::) <$> natArms m env alts
-natArms m env (DefaultCase (STerm _ rhs) :: alts) = map (Base (close env rhs) ::) <$> natArms m env alts
-natArms m env (_ :: _) = pure Nothing
+  (arm ::) <$> natArms ctx m env alts
+natArms ctx m env (DefaultCase (STerm _ rhs) :: alts) = (Base (close env rhs) ::) <$> natArms ctx m env alts
+natArms ctx m env (_ :: _) = Nothing
 
 ||| The other leaves of a structural recursion, and the closed children of
 ||| its successor's leaf, when it is one. The successor's leaf is a
@@ -623,8 +663,8 @@ mutual
   reference : {auto c : Ref Ctxt Defs} -> Mode -> (w : Walked) -> (0 acc : SizeAccessible w) ->
               NameType -> Name -> List Arg -> Front Template
   reference m w acc nt n args = do
-    defs <- getDefs
-    case referenceOf (gamma defs) nt n of
+    ctx <- frozenContext
+    case referenceOf (gamma (defsOf ctx)) nt n of
       HoleMarker i => part m (Token (S i)) args
       FormalMarker j k => part m (Formal j k) args
       WalkMarker t => marked t args
@@ -669,7 +709,8 @@ mutual
             Name -> Address -> List Arg -> Front Template
   applied r w acc@(Access rec) n a args = do
     let folded = kept r a args
-    Just (placement, def) <- core (resolve n)
+    ctx <- frozenContext
+    let Just (MkInFrozen placement def _) = inFrozen ctx n
       | Nothing => folded
     case definition def of
       PMDef _ pargs body => do
@@ -735,11 +776,11 @@ mutual
   structural r w acc self args env (Case idx p _ alts) extras = do
     let Just (j, e) = bareMarker (valueAt env idx p)
       | Nothing => pure Nothing
-    Just arms <- natArms (markerAt j (S e)) env alts
+    ctx <- frozenContext
+    let Just arms = natArms ctx (markerAt j (S e)) env alts
       | Nothing => pure Nothing
     arms' <- traverse normalisedArm arms
-    defs <- getDefs
-    let Just (bases, kids) = recursion (gamma defs) self (j, S e) args idx arms'
+    let Just (bases, kids) = recursion (gamma (defsOf ctx)) self (j, S e) args idx arms'
       | Nothing => pure Nothing
     leaves <- traverse (read (MkMode r Unfolded) w acc []) bases
     children <- traverse (read (MkMode r Unfolded) w acc []) kids
@@ -769,10 +810,10 @@ mutual
   walk r w acc self folded env (Unmatched _) extras = Just <$> folded
   walk r w acc self folded env Impossible extras = pure Nothing
   walk r w acc self folded env (Case idx p _ alts) extras = do
-    defs <- getDefs
+    ctx <- frozenContext
     let s = valueAt env idx p
-    case scrutineeOf (gamma defs) s of
-      Constructed c sargs => chosen r w acc self folded env !(fullNames c) sargs alts extras
+    case scrutineeOf (gamma (defsOf ctx)) s of
+      Constructed c sargs => chosen r w acc self folded env (fullNameIn ctx c) sargs alts extras
       Literal k => literal r w acc self folded env k alts extras
       Suspended ty a => delayed r w acc self folded env ty a alts extras
       -- A constructor's argument is a part of the matched value, one level
@@ -798,8 +839,8 @@ mutual
            Address -> Front Template -> Values ClosedTerm vs -> Name -> List ClosedTerm -> List (CaseAlt vs) ->
            List ClosedTerm -> Front (Maybe Template)
   chosen r w acc self folded env c sargs (ConCase con _ cargs t :: alts) extras = do
-    full <- fullNames con
-    if full /= c then chosen r w acc self folded env c sargs alts extras else
+    ctx <- frozenContext
+    if fullNameIn ctx con /= c then chosen r w acc self folded env c sargs alts extras else
       case bindEach cargs sargs of
         Just bound => walk r w acc self folded (extend bound env) t extras
         Nothing => internal EmptyFC ("constructor " ++ show c ++ " binds an unexpected number of arguments")
@@ -867,7 +908,8 @@ mutual
   export
   formedTemplate : {auto c : Ref Ctxt Defs} -> Template -> Front Template
   formedTemplate t@(Head (Just a) [e, rest, _]) = do
-    Just def <- core (definitionAt a)
+    ctx <- frozenContext
+    let Just def = atAddress ctx a
       | Nothing => pure t
     case definition def of
       DCon 1 _ _ => pure (Head (Just a) [e, !(formedTemplate rest), Leaf 1])
@@ -1066,95 +1108,6 @@ mutual
   allWithClosed c [] = []
   allWithClosed c (t :: ts) = withClosedFamilies c t :: allWithClosed c ts
 
-mutual
-  ||| Is what every instance writes at a template no higher than the
-  ||| template: it holds no marker, field or held dictionary, whose values
-  ||| are their arcs', and no family applied? A choice's value is one of its
-  ||| leaves, and an argument of a family's value is the writer's to no
-  ||| instance: what beta makes of it, `beta` says.
-  export
-  selfBounded : Template -> Bool
-  selfBounded (Head _ ts) = allSelfBounded ts
-  selfBounded (Opaque _ ts) = allSelfBounded ts
-  selfBounded (Choice _ ts) = allSelfBounded ts
-  selfBounded (Leaf _) = True
-  selfBounded (Token _) = True
-  selfBounded (Var _ _) = False
-  selfBounded (Applied _ _ _) = False
-  selfBounded (Computing _ _ _) = False
-  selfBounded (Field _ _) = False
-  selfBounded (Held _ _) = False
-  selfBounded (Formal _ _) = True
-
-  allSelfBounded : List Template -> Bool
-  allSelfBounded [] = True
-  allSelfBounded (t :: ts) = selfBounded t && allSelfBounded ts
-
--- How much an applied family grows its own marker, at e heads deep. Beta
--- of a family no higher than k, applied to arguments no higher than h, is
--- no higher than k + h, when the family is inert (`withClosedFamilies`
--- says which are). With closed arguments, h is their height: the marker's
--- own value raised by a constant. With an argument that holds a marker it
--- is a sum of two heights, which no weight states (`Stuck`).
-appliedWeight : (e, d : Nat) -> List Template -> Weight
-appliedWeight e d ts = if allSelfBounded ts then Finite (e + tallest ts) d else Growth.Stuck
-
--- One side 0.
-settled : Weight -> Weight
-settled (Finite g l) = Finite (minus g l) (minus l g)
-settled w = w
-
-mutual
-  -- `Var i d` at e heads deep weighs e - d. A field's record is weighed by
-  -- the arcs its value carries (`Graph`'s `fieldValue`), and a choice's
-  -- scrutinee by its caps, so neither is a part the template's height
-  -- carries. An applied family's arguments are a sum with its value's
-  -- height, unbounded.
-  weightsAt : (e : Nat) -> Template -> SortedMap Nat Weight -> SortedMap Nat Weight
-  weightsAt e (Var j d) m = insertWith join j (Finite e d) m
-  weightsAt e (Head _ ts) m = weightsAll (S e) ts m
-  weightsAt e (Opaque _ ts) m = stuckAll ts m
-  weightsAt e (Applied j d ts) m = insertWith join j (appliedWeight e d ts) (stuckAll ts m)
-  weightsAt e (Computing j _ ts) m = stuckAll ts (insert j Growth.Stuck m)
-  weightsAt e (Choice _ ts) m = weightsAll e ts m
-  weightsAt e (Field _ _) m = m
-  weightsAt e (Leaf _) m = m
-  weightsAt e (Token _) m = m
-  weightsAt e (Held _ _) m = m
-  weightsAt e (Formal _ _) m = m
-
-  weightsAll : (e : Nat) -> List Template -> SortedMap Nat Weight -> SortedMap Nat Weight
-  weightsAll e [] m = m
-  weightsAll e (t :: ts) m = weightsAll e ts (weightsAt e t m)
-
-  -- Every `Var i` below, as `Stuck`: under an `Opaque`, what a recursion
-  -- computes from a marker, inside a field or not, has no depth bound.
-  stuckAt : Template -> SortedMap Nat Weight -> SortedMap Nat Weight
-  stuckAt (Var j _) m = insert j Growth.Stuck m
-  stuckAt (Field _ s) m = stuckAt s m
-  stuckAt (Head _ ts) m = stuckAll ts m
-  stuckAt (Opaque _ ts) m = stuckAll ts m
-  stuckAt (Applied j _ ts) m = stuckAll ts (insert j Growth.Stuck m)
-  stuckAt (Computing j _ ts) m = stuckAll ts (insert j Growth.Stuck m)
-  stuckAt (Choice _ ts) m = stuckAll ts m
-  stuckAt (Leaf _) m = m
-  stuckAt (Token _) m = m
-  stuckAt (Held _ _) m = m
-  stuckAt (Formal _ _) m = m
-
-  stuckAll : List Template -> SortedMap Nat Weight -> SortedMap Nat Weight
-  stuckAll [] m = m
-  stuckAll (t :: ts) m = stuckAll ts (stuckAt t m)
-
-||| Every parameter a template grows, each once, with how much: the most of
-||| e - d over its occurrences `Var i d` at e heads deep outside every
-||| field, written with one side 0; `Stuck` under an `Opaque` or an
-||| argument of an applied family. A parameter that does not occur is not
-||| listed.
-export
-weights : Template -> List (Nat, Weight)
-weights t = map (\(i, w) => (i, settled w)) (SortedMap.toList (weightsAt 0 t empty))
-
 ------------------------------------------------------------------------------
 -- Roots and requests
 ------------------------------------------------------------------------------
@@ -1235,7 +1188,8 @@ mutual
   unfoldedBuilt : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                   Name -> List Piece -> Front (Maybe (Name, List Piece))
   unfoldedBuilt w acc@(Access rec) n args = do
-    Just (placement, def) <- core (resolve n)
+    ctx <- frozenContext
+    let Just (MkInFrozen placement def _) = inFrozen ctx n
       | Nothing => pure Nothing
     case definition def of
       PMDef _ pargs pbody => do
@@ -1263,7 +1217,8 @@ mutual
       | Nothing => pure Nothing
     Just (con, fields) <- Force (valueAt env pr.matched pr.isParam).built
       | Nothing => pure Nothing
-    if !(fullNames con) /= !(fullNames pr.con)
+    ctx <- frozenContext
+    if fullNameIn ctx con /= fullNameIn ctx pr.con
        then pure Nothing
        else pure ((, extras) <$> getAt pr.field fields)
 
@@ -1279,8 +1234,8 @@ mutual
            ClosedTerm -> List Piece -> Front Root
   rootOf w acc (App _ f a) args = rootOf w acc f (pieceOf w acc a :: args)
   rootOf w acc (Ref _ nt n) args = do
-    defs <- getDefs
-    case referenceOf (gamma defs) nt n of
+    ctx <- frozenContext
+    case referenceOf (gamma (defsOf ctx)) nt n of
       WalkMarker (Var i d) => pure (Parameter i d)
       DataConstructor a => pure (maybe Unrooted Rooted a)
       Defined a => do
@@ -1312,8 +1267,8 @@ mutual
   rootOf w acc (Bind _ _ (Lam {}) sc) [] = case getFnArgs (subst unknownPart sc) of
     (Ref _ Func n, as) =>
       if any mentionsUnknown as then givesOf <$> leafRoots w acc n as else do
-        defs <- getDefs
-        let Just a = definitionAddress (gamma defs) n
+        ctx <- frozenContext
+        let Just a = definitionAddress (gamma (defsOf ctx)) n
           | Nothing => pure Unrooted
         Nothing <- projection n
           | Just _ => pure Unrooted
@@ -1337,7 +1292,8 @@ mutual
   definitionRoot : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                    (head : ClosedTerm) -> Name -> Address -> List ClosedTerm -> Front Root
   definitionRoot w acc head n a args = do
-    Just (_, def) <- core (resolve n)
+    ctx <- frozenContext
+    let Just (MkInFrozen _ def _) = inFrozen ctx n
       | Nothing => pure (Rooted a)
     ty <- appliedType !(typeOfDefinition def) args
     case ty of
@@ -1361,7 +1317,8 @@ mutual
   leafRoots : {auto c : Ref Ctxt Defs} -> (w : Walked) -> (0 acc : SizeAccessible w) ->
               Name -> List ClosedTerm -> Front (List Address)
   leafRoots w acc@(Access rec) n args = do
-    Just (placement, def) <- core (resolve n)
+    ctx <- frozenContext
+    let Just (MkInFrozen placement def _) = inFrozen ctx n
       | Nothing => pure []
     let PMDef _ pargs body = definition def
       | _ => pure []
@@ -1422,9 +1379,9 @@ formRoot ctx form = case getFnArgs form of
 -- off the same normal form.
 typeReading : {auto c : Ref Ctxt Defs} -> ClosedTerm -> Front (Template, Root)
 typeReading t = do
-  defs <- getDefs
+  ctx <- frozenContext
   form <- typeForm t
-  pure (!(formTemplate form), formRoot (gamma defs) form)
+  pure (!(formTemplate form), formRoot (gamma (defsOf ctx)) form)
 
 ||| A static argument read once at its kind: its template (`templateOf`),
 ||| and its root, the definition that splits the node it is given to. A

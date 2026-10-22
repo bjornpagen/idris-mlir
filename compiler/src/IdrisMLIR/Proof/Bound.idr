@@ -5,12 +5,12 @@
 ||| templates the frontend's readers produce (`Proof.Template`).
 |||
 ||| A site is one argument the graph reads: the position it lands at, the
-||| template its writer wrote there, the position of each of the writer's
-||| parameters, and the implementations the flow found each dictionary of
-||| it can be. What an instance writes where a template reads (`Writes`)
-||| is said once per constructor of the template:
-||| - a marker `Var i d` is a part, d deep, of a value the writer's
-|||   parameter i received;
+||| template its writer wrote there, the positions its writer's node reads
+||| the template's parameters at, and the implementations the flow found
+||| each dictionary of it can be. What an instance writes where a template
+||| reads (`Writes`) is said once per constructor of the template:
+||| - a marker `Var i d` is a part, d deep, of a value a position of the
+|||   writer's parameter i received;
 ||| - a head and a recursion stuck on closed arguments write themselves,
 |||   their children written in turn; a leaf, a token and an argument of a
 |||   family's value write themselves;
@@ -32,15 +32,15 @@
 |||   implementation the flow found, applied to values its own positions
 |||   received (`AtHeld`).
 ||| A family that computes from what it is given (`Computing`) writes
-||| nothing any rule states: its arcs are unmeasured, so no admitted graph
-||| holds a site that writes one.
+||| nothing any rule states: its arcs are unmeasured, so in an admitted
+||| graph no position of the writer's reads one.
 |||
 ||| V, the least family closed under the sites (`InV`), holds every value
 ||| the theorem bounds. A capped position's type looks only so deep, so the
 ||| frontend keys it by the value cut there: it holds every value of the
 ||| cap's height, and no site into it is listed.
 |||
-||| The graph covers a site (`CoveredAt`) as `Graph` draws it: an arc from
+||| The graph covers a site (`CoveredAt`) as `Describes` draws it: an arc from
 ||| each marker's position weighing at least how much deeper the marker
 ||| sits in what is written than in its value; for an applied family, an
 ||| arc as heavy as its arguments are high; for a field, K above the field
@@ -51,10 +51,11 @@
 ||| least each template's own height. If the potential is also feasible,
 ||| every value of V at p is within `bound`.
 |||
-||| What this does not reach is whether a value a request is given is one
-||| of V: that is the readers', which read what Idris's evaluator returns
-||| (`Idris.Host`). The frontend builds no derivation of this module's, so
-||| the worklist checks each request against its bound (`Finite`).
+||| The graph builds `Describes` for the model it is drawn from
+||| (`Proof.Describes`). What this does not reach is whether a value a
+||| request is given is one of V: that is the readers', which read what
+||| Idris's evaluator returns (`Idris.Host`), so the worklist checks each
+||| request against its bound (`Finite`).
 |||
 ||| Every proof is erased and total, and nothing here runs. The arithmetic is
 ||| on naturals, a depth below its record being what it adds and what it
@@ -190,28 +191,29 @@ mutual
 ------------------------------------------------------------------------------
 
 ||| One argument the graph reads: the position it lands at, the template
-||| written there, the position of each of the writer's parameters (read
-||| only at a parameter the template holds), and the implementations the
-||| flow found each dictionary the template holds can be, at the writer's
-||| node.
+||| written there, the position the writer's node reads each parameter the
+||| template holds at, and the implementations the flow found each
+||| dictionary the template holds can be, at the writer's node.
 public export
 record Site (n : Nat) where
   constructor MkSite
   target : Fin n
   template : Template
-  writer : Nat -> Fin n
+  writers : List (Nat, Fin n)
   roots : Template -> List Address
 
 ||| What the theorem reads of the program besides its graph: the sites;
 ||| each implementation's field templates, over its own parameters as
-||| markers at depth 0 (a constructor's field k is its argument k); and
-||| the definition and parameter each position is.
+||| markers at depth 0 (a constructor's field k is its argument k); the
+||| definition and parameter each position is; and the positions of each
+||| definition's nodes.
 public export
 record Model (g : Graph) where
   constructor MkModel
   sites : List (Site g.size)
   fields : Address -> Nat -> Maybe Template
   positionOf : Fin g.size -> (Address, Nat)
+  positionsOf : Address -> List (Fin g.size)
 
 ||| Where a template's markers take their values: from what the site's
 ||| writer received, or from the arguments of the implementation a field
@@ -234,7 +236,7 @@ mutual
   ||| What an instance writes where a template reads.
   public export
   data Writes : {g : Graph} -> (m : Model g) -> Markers g.size -> Template -> Template -> Type where
-    AtVar : InV m (s.writer i) v -> Sub d v w -> Writes m (AtSite s) (Var i d) w
+    AtVar : Elem (i, p) s.writers -> InV m p v -> Sub d v w -> Writes m (AtSite s) (Var i d) w
     AtArgument : (j : Fin (length as)) -> Sub d (index' as j) w -> Writes m (OfArguments as) (Var (finToNat j) d) w
     AtHead : AllWrite m b ts ws -> Writes m b (Head a ts) (Head a ws)
     AtOpaque : AllWrite m b ts ws -> Writes m b (Opaque a ts) (Opaque a ws)
@@ -242,9 +244,9 @@ mutual
     AtToken : Writes m b (Token k) (Token k)
     AtFormal : Writes m b (Formal j k) (Formal j k)
     Chosen : Elem x ls -> Writes m b x w -> Writes m b (Choice c ls) w
-    Beta : InV m (s.writer i) v -> Sub d v f -> Within f body -> AllWrite m (AtSite s) ts ws ->
+    Beta : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f body -> AllWrite m (AtSite s) ts ws ->
            Instantiates ws body w -> Writes m (AtSite s) (Applied i d ts) w
-    Member : InV m (s.writer i) v -> Sub d v f -> Within f w -> Writes m (AtSite s) (Applied i d ts) w
+    Member : Elem (i, p) s.writers -> InV m p v -> Sub d v f -> Within f w -> Writes m (AtSite s) (Applied i d ts) w
     MemberOf : Elem j (s.roots (Applied i d ts)) -> Arguments m j 0 as ->
                Writes m (AtSite s) (Applied i d ts) (Head (Just j) as)
     Landed : LTE (height f) k -> Within f body -> AllWrite m (AtSite s) ts ws ->
@@ -260,12 +262,12 @@ mutual
     (::) : Writes m b t w -> AllWrite m b ts ws -> AllWrite m b (t :: ts) (w :: ws)
 
   ||| An implementation's arguments from parameter q on, each a value a
-  ||| position of its parameter received.
+  ||| position of one of its nodes received at that parameter.
   public export
   data Arguments : {g : Graph} -> (m : Model g) -> Address -> Nat -> List Template -> Type where
     Ended : Arguments m j q []
-    Given : (p : Fin g.size) -> m.positionOf p = (j, q) -> InV m p a -> Arguments m j (S q) as ->
-            Arguments m j q (a :: as)
+    Given : (p : Fin g.size) -> Elem p (m.positionsOf j) -> m.positionOf p = (j, q) -> InV m p a ->
+            Arguments m j (S q) as -> Arguments m j q (a :: as)
 
 ------------------------------------------------------------------------------
 -- What the graph says of a site
@@ -297,17 +299,21 @@ mutual
   ||| What the graph says of a part of a site's template at depth e less l.
   public export
   data CoveredAt : {g : Graph} -> (m : Model g) -> Site g.size -> (Nat, Nat) -> Template -> Type where
-    CVar : Carries g (s.writer i) d (e, l) s.target -> CoveredAt m s (e, l) (Var i d)
+    CVar : ((p : Fin g.size) -> Elem (i, p) s.writers -> Carries g p d (e, l) s.target) -> CoveredAt m s (e, l) (Var i d)
     CHead : AllCovered m s (S e, l) ts -> CoveredAt m s (e, l) (Head a ts)
     COpaque : AllCovered m s (S e, l) ts -> CoveredAt m s (e, l) (Opaque a ts)
     CLeaf : CoveredAt m s el (Leaf h)
     CToken : CoveredAt m s el (Token k)
     CFormal : CoveredAt m s el (Formal j k)
     CChoice : AllCovered m s el ls -> CoveredAt m s el (Choice c ls)
-    CApplied : Carries g (s.writer i) d (e + tallest ts, l) s.target -> AllUnmarked ts ->
-               ((j : Address) -> Elem j (s.roots (Applied i d ts)) -> (p' : Fin g.size) -> fst (m.positionOf p') = j ->
+    CApplied : ((p : Fin g.size) -> Elem (i, p) s.writers -> (Carries g p d (e + tallest ts, l) s.target, AllUnmarked ts)) ->
+               ((j : Address) -> Elem j (s.roots (Applied i d ts)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
                 Carries g p' 0 (S e, l) s.target) ->
                CoveredAt m s (e, l) (Applied i d ts)
+    ||| A family that computes from what it is given writes nothing any
+    ||| rule states, so the graph says of it only that no position of the
+    ||| writer's reads it.
+    CComputing : ((p : Fin g.size) -> Elem (i, p) s.writers -> Void) -> CoveredAt m s el (Computing i d ts)
     CField : (dg, dl : Nat) ->
              ((j : Address) -> Elem j (s.roots r) -> (ft : Template) -> m.fields j k = Just ft ->
               FieldWithin g dg dl (e, l) ft) ->
@@ -317,7 +323,7 @@ mutual
     CClosedField : ((j : Address) -> Elem j (s.roots r) -> (ft : Template) -> m.fields j k = Just ft ->
                     (Unread ft, LTE (height ft + e) (g.constant + l))) ->
                    CoveredAt m s (e, l) (Field k r)
-    CHeld : ((j : Address) -> Elem j (s.roots (Held c p)) -> (p' : Fin g.size) -> fst (m.positionOf p') = j ->
+    CHeld : ((j : Address) -> Elem j (s.roots (Held c p)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
              Carries g p' 0 (S e, l) s.target) ->
             LTE (S e) (g.constant + l) ->
             CoveredAt m s (e, l) (Held c p)
@@ -577,7 +583,7 @@ mutual
   ||| an applied family's reading there stands above what beta makes.
   export
   0 unmarkedWrites : Unmarked t -> Writes m b t w -> LTE (height w) (height t)
-  unmarkedWrites u (AtVar _ _) = absurd u
+  unmarkedWrites u (AtVar _ _ _) = absurd u
   unmarkedWrites u (AtArgument _ _) = absurd u
   unmarkedWrites u (AtHead xs) = LTESucc (unmarkedAll (unmarkedHead u) xs)
   unmarkedWrites u (AtOpaque xs) = LTESucc (unmarkedAll (unmarkedOpaque u) xs)
@@ -586,8 +592,8 @@ mutual
   unmarkedWrites u AtFormal = reflexive
   unmarkedWrites u (Chosen el x) =
     transitive (unmarkedWrites (unmarkedAt el (unmarkedChoice u)) x) (tallestAbove el)
-  unmarkedWrites u (Beta _ _ _ _ _) = absurd u
-  unmarkedWrites u (Member _ _ _) = absurd u
+  unmarkedWrites u (Beta _ _ _ _ _ _) = absurd u
+  unmarkedWrites u (Member _ _ _ _) = absurd u
   unmarkedWrites u (MemberOf _ _) = absurd u
   unmarkedWrites u (Landed {k} {ts} {ws} hf wb xs inst) =
     lteR (sym (raisedHeight k (Head Nothing ts))) $
@@ -661,7 +667,7 @@ partBelow {g} {pot} {p} bv sub = transitive (subHeight sub) (transitive bv (boun
 -- What the graph says, read back
 ------------------------------------------------------------------------------
 
-0 coveredVar : CoveredAt m s (e, l) (Var i d) -> Carries g (s.writer i) d (e, l) s.target
+0 coveredVar : CoveredAt m s (e, l) (Var i d) -> (p : Fin g.size) -> Elem (i, p) s.writers -> Carries g p d (e, l) s.target
 coveredVar (CVar c) = c
 
 0 coveredHead : CoveredAt m s (e, l) (Head a ts) -> AllCovered m s (S e, l) ts
@@ -674,11 +680,10 @@ coveredOpaque (COpaque cs) = cs
 coveredChoice (CChoice cs) = cs
 
 0 coveredApplied : CoveredAt m s (e, l) (Applied i d ts) ->
-                   ( Carries g (s.writer i) d (e + tallest ts, l) s.target
-                   , AllUnmarked ts
-                   , (j : Address) -> Elem j (s.roots (Applied i d ts)) -> (p' : Fin g.size) -> fst (m.positionOf p') = j ->
+                   ( (p : Fin g.size) -> Elem (i, p) s.writers -> (Carries g p d (e + tallest ts, l) s.target, AllUnmarked ts)
+                   , (j : Address) -> Elem j (s.roots (Applied i d ts)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
                      Carries g p' 0 (S e, l) s.target )
-coveredApplied (CApplied c us arcs) = (c, us, arcs)
+coveredApplied (CApplied c arcs) = (c, arcs)
 
 0 coveredField : CoveredAt m s (e, l) (Field k r) ->
                  Either ((j : Address) -> Elem j (s.roots r) -> (ft : Template) -> m.fields j k = Just ft ->
@@ -691,7 +696,7 @@ coveredField (CClosedField fts) = Left fts
 coveredField (CField dg dl roots c h) = Right (dg ** dl ** (roots, c, h))
 
 0 coveredHeld : CoveredAt m s (e, l) (Held c p) ->
-                ( (j : Address) -> Elem j (s.roots (Held c p)) -> (p' : Fin g.size) -> fst (m.positionOf p') = j ->
+                ( (j : Address) -> Elem j (s.roots (Held c p)) -> (p' : Fin g.size) -> Elem p' (m.positionsOf j) ->
                   Carries g p' 0 (S e, l) s.target
                 , LTE (S e) (g.constant + l) )
 coveredHeld (CHeld arcs one) = (arcs, one)
@@ -734,9 +739,9 @@ mutual
   argumentsWritten (Chosen el x) hp occ =
     argumentsWritten x (transitive (plusLteMonotoneRight _ _ _ (tallestAbove el)) hp)
       (\q, dq, eq, u, o, sub => occ q dq eq u (InLeafOf el o) sub)
-  argumentsWritten (AtVar _ _) _ _ impossible
-  argumentsWritten (Beta _ _ _ _ _) _ _ impossible
-  argumentsWritten (Member _ _ _) _ _ impossible
+  argumentsWritten (AtVar _ _ _) _ _ impossible
+  argumentsWritten (Beta _ _ _ _ _ _) _ _ impossible
+  argumentsWritten (Member _ _ _ _) _ _ impossible
   argumentsWritten (MemberOf _ _) _ _ impossible
   argumentsWritten (Landed _ _ _ _) _ _ impossible
   argumentsWritten (LandedMember _ _) _ _ impossible
@@ -801,7 +806,7 @@ occursReached {e} (BelowOpaque {e = eq'} el o) =
 occursReached {e} (InLeafOf el o) = reachedIn el (occursReached {e} o)
 
 ||| The graph places a field's record by the reach of the field templates of
-||| its roots (`Graph.fieldValue`): a marker one of them holds eq deep,
+||| its roots (`Describes.fieldPlaced`): a marker one of them holds eq deep,
 ||| matched dq deep, is no deeper than the reach less dq, as `FieldWithin`
 ||| asks.
 export
@@ -843,7 +848,7 @@ mutual
                 Describes m -> Feasible g pot -> Writes m (AtSite s) t w -> CoveredAt m s (e, l) t ->
                 LTE (height t + e) (g.constant + index s.target pot + l) ->
                 LTE (height w + e) (g.constant + index s.target pot + l)
-  writtenAt ds fe (AtVar iv sub) cov hp = case coveredVar cov of
+  writtenAt ds fe (AtVar {p} wa iv sub) cov hp = case coveredVar cov p wa of
     MkCarries arc wt => carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc)
   writtenAt ds fe (AtArgument _ _) _ _ impossible
   writtenAt {e} ds fe (AtHead {ts} {ws} xs) cov hp =
@@ -857,16 +862,18 @@ mutual
   writtenAt ds fe AtFormal cov hp = hp
   writtenAt ds fe (Chosen el x) cov hp =
     writtenAt ds fe x (coveredIn el (coveredChoice cov)) (transitive (plusLteMonotoneRight _ _ _ (tallestAbove el)) hp)
-  writtenAt {e} ds fe (Beta {f} {ts} {ws} iv sub wb xs inst) cov hp = case coveredApplied cov of
-    (MkCarries arc wt, us, _) =>
-      appliedWithin (carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc))
-        (transitive (instHeight inst) (plusLteMonotone (withinHeight wb) (unmarkedAll us xs)))
-  writtenAt {e} ds fe (Member {f} {ts} iv sub wm) cov hp = case coveredApplied cov of
-    (MkCarries arc wt, _, _) =>
-      appliedWithin (carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc))
-        (transitive (withinHeight wm) (lteAddRight (height f)))
+  writtenAt {e} ds fe (Beta {p} {f} {ts} {ws} wa iv sub wb xs inst) cov hp = case coveredApplied cov of
+    (writes, _) => case writes p wa of
+      (MkCarries arc wt, us) =>
+        appliedWithin (carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc))
+          (transitive (instHeight inst) (plusLteMonotone (withinHeight wb) (unmarkedAll us xs)))
+  writtenAt {e} ds fe (Member {p} {f} {ts} wa iv sub wm) cov hp = case coveredApplied cov of
+    (writes, _) => case writes p wa of
+      (MkCarries arc wt, _) =>
+        appliedWithin (carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc))
+          (transitive (withinHeight wm) (lteAddRight (height f)))
   writtenAt {e} ds fe (MemberOf {ts} {as} el args) cov hp = case coveredApplied cov of
-    (_, _, arcs) =>
+    (_, arcs) =>
       lteL (sym (plusSuccRightSucc (tallest as) e)) $
         heldWithin ds fe args (arcs _ el)
           (transitive (LTESucc (plusLteMonotoneRight e 0 (tallest ts) LTEZero)) hp)
@@ -909,12 +916,12 @@ mutual
   -- the position of the implementation that received it.
   0 heldWithin : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> {s : Site g.size} -> {e, l : Nat} ->
                  Describes m -> Feasible g pot -> Arguments m j q as ->
-                 ((p' : Fin g.size) -> fst (m.positionOf p') = j -> Carries g p' 0 (S e, l) s.target) ->
+                 ((p' : Fin g.size) -> Elem p' (m.positionsOf j) -> Carries g p' 0 (S e, l) s.target) ->
                  LTE (S e) (g.constant + index s.target pot + l) ->
                  LTE (tallest as + S e) (g.constant + index s.target pot + l)
   heldWithin ds fe Ended arcs one = one
-  heldWithin {g} {pot} ds fe (Given p' at iv rest) arcs one =
-    maxPlus (case arcs p' (cong fst at) of
+  heldWithin {g} {pot} ds fe (Given p' inJ at iv rest) arcs one =
+    maxPlus (case arcs p' inJ of
                MkCarries arc wt =>
                  carry (lteL (sym (plusZeroRightNeutral _)) (transitive (bounded ds fe iv) (boundBelow g pot p')))
                        wt (arcHolds fe arc))

@@ -132,6 +132,126 @@ join Stuck _ = Stuck
 join _ Stuck = Stuck
 join (Finite g l) (Finite g' l') = if g + l' <= g' + l then Finite g' l' else Finite g l
 
+||| A finite weight written with one side 0; any other as it is.
+public export
+settled : Weight -> Weight
+settled (Finite g l) = Finite (minus g l) (minus l g)
+settled w = w
+
+||| One weight carries a value up by at least what another does: Stuck
+||| above all, anything above Absent, and a Finite one above another by
+||| cross-addition.
+public export
+data Dominates : Weight -> Weight -> Type where
+  OverAll : Dominates Stuck w
+  OverAbsent : Dominates w Absent
+  Over : (0 _ : LTE (e + l) (d + g)) -> Dominates (Finite g l) (Finite e d)
+
+-- Base cancels a sum only in an equation, not in an inequality.
+0 cancelLeft : (k : Nat) -> LTE (k + p) (k + q) -> LTE p q
+cancelLeft Z le = le
+cancelLeft (S k) (LTESucc le) = cancelLeft k le
+
+-- Two differences in a row, each written as a sum on both sides: a - b
+-- within c - d, and c - d within x - y, give a - b within x - y.
+0 crossThrough : {a, b, c, d, x, y : Nat} -> LTE (a + d) (c + b) -> LTE (c + y) (x + d) -> LTE (a + y) (x + b)
+crossThrough h1 h2 =
+  cancelLeft d $
+    rewrite plusAssociative d a y in rewrite plusCommutative d a in
+    rewrite plusAssociative d x b in rewrite plusCommutative d x in
+    transitive (plusLteMonotoneRight y (a + d) (c + b) h1)
+               (rewrite sym (plusAssociative c b y) in rewrite plusCommutative b y in rewrite plusAssociative c y b in
+                plusLteMonotoneRight b (c + y) (x + d) h2)
+
+||| Every weight dominates itself.
+export
+0 dominatesSelf : (w : Weight) -> Dominates w w
+dominatesSelf Absent = OverAbsent
+dominatesSelf Stuck = OverAll
+dominatesSelf (Finite g l) = Over (rewrite plusCommutative g l in reflexive)
+
+||| Domination composes.
+export
+0 dominatesThrough : Dominates a b -> Dominates b c -> Dominates a c
+dominatesThrough OverAll _ = OverAll
+dominatesThrough _ OverAbsent = OverAbsent
+dominatesThrough (Over {e} {d} {g} {l} h1) (Over {e = e'} {d = d'} h2) =
+  Over (rewrite plusCommutative d' g in
+        crossThrough {a = e'} {b = d'} {c = e} {d = d} {x = g} {y = l}
+          (rewrite plusCommutative e d' in h2) (rewrite plusCommutative g d in h1))
+dominatesThrough OverAbsent (Over _) impossible
+dominatesThrough (Over _) OverAll impossible
+
+||| What `join` gives dominates its first weight.
+export
+0 joinOverLeft : (v, w : Weight) -> Dominates (join v w) v
+joinOverLeft Absent w = OverAbsent
+joinOverLeft Stuck Absent = OverAll
+joinOverLeft Stuck Stuck = OverAll
+joinOverLeft Stuck (Finite _ _) = OverAll
+joinOverLeft (Finite g l) Absent = dominatesSelf (Finite g l)
+joinOverLeft (Finite g l) Stuck = OverAll
+joinOverLeft (Finite g l) (Finite g' l') with (g + l' <= g' + l) proof eq
+  _ | True = Over (rewrite plusCommutative l g' in lteSo (the (So (g + l' <= g' + l)) (rewrite eq in Oh)))
+  _ | False = dominatesSelf (Finite g l)
+
+||| What `join` gives dominates its second weight.
+export
+0 joinOverRight : (v, w : Weight) -> Dominates (join v w) w
+joinOverRight Absent w = dominatesSelf w
+joinOverRight Stuck Absent = OverAbsent
+joinOverRight Stuck Stuck = OverAll
+joinOverRight Stuck (Finite _ _) = OverAll
+joinOverRight (Finite g l) Absent = OverAbsent
+joinOverRight (Finite g l) Stuck = OverAll
+joinOverRight (Finite g l) (Finite g' l') with (g + l' <= g' + l) proof eq
+  _ | True = dominatesSelf (Finite g' l')
+  _ | False =
+    Over (rewrite plusCommutative l' g in
+          lteSuccLeft (notLTEImpliesGT (notLteSo (the (So (not (g + l' <= g' + l))) (rewrite eq in Oh)))))
+
+-- A difference written with one side 0 is the same difference.
+0 crossSettled : (e, d, g, l : Nat) -> LTE (e + l) (d + g) -> LTE (e + minus l g) (d + minus g l)
+crossSettled e d Z l le = rewrite minusZeroRight l in le
+crossSettled e d (S g) Z le = le
+crossSettled e d (S g) (S l) le =
+  crossSettled e d g l (fromLteSucc (rewrite plusSuccRightSucc e l in rewrite plusSuccRightSucc d g in le))
+
+||| A weight written with one side 0 dominates what it did.
+export
+0 settledOver : Dominates w v -> Dominates (settled w) v
+settledOver OverAll = OverAll
+settledOver OverAbsent = OverAbsent
+settledOver (Over {e} {d} {g} {l} le) = Over (crossSettled e d g l le)
+
+||| What composes along a path dominates the sum of what each step did.
+export
+0 plusOver : Dominates a (Finite e d) -> Dominates b (Finite e' d') -> Dominates (plus a b) (Finite (e + e') (d + d'))
+plusOver OverAll OverAll = OverAll
+plusOver OverAll (Over _) = OverAll
+plusOver (Over _) OverAll = OverAll
+plusOver (Over {e} {d} {g} {l} h1) (Over {e = e'} {d = d'} {g = g'} {l = l'} h2) =
+  Over (rewrite swap e e' l l' in rewrite swap d d' g g' in plusLteMonotone h1 h2)
+  where
+    swap : (p, q, r, s : Nat) -> (p + q) + (r + s) = (p + r) + (q + s)
+    swap p q r s =
+      rewrite sym (plusAssociative p q (r + s)) in
+      rewrite plusAssociative q r s in
+      rewrite plusCommutative q r in
+      rewrite sym (plusAssociative r q s) in
+      plusAssociative p r (q + s)
+
+||| A weight above a difference is above it with one more on both sides.
+export
+0 overSucc : Dominates w (Finite e d) -> Dominates w (Finite (S e) (S d))
+overSucc OverAll = OverAll
+overSucc (Over le) = Over (LTESucc le)
+
+||| A weight above a difference is above any it equals by rewriting.
+export
+0 overAs : e = e' -> d = d' -> Dominates w (Finite e d) -> Dominates w (Finite e' d')
+overAs Refl Refl dom = dom
+
 ------------------------------------------------------------------------------
 -- The graph
 ------------------------------------------------------------------------------
@@ -140,6 +260,13 @@ join (Finite g l) (Finite g' l') = if g + l' <= g' + l then Finite g' l' else Fi
 ||| A weight Absent is no arc, so a label has no such case.
 public export
 data Label = Measured Nat Nat | Unmeasured
+
+||| The label of the arc a weight draws: none for Absent, which is no arc.
+public export
+labelOf : Weight -> Maybe Label
+labelOf Absent = Nothing
+labelOf (Finite g l) = Just (Measured g l)
+labelOf Stuck = Just Unmeasured
 
 ||| An arc from a position to a position.
 public export
@@ -326,6 +453,15 @@ namespace CapsHold
 public export
 data Feasible : (g : Graph) -> Vect g.size Nat -> Type where
   MkFeasible : All (Satisfies pot) g.arcs -> (0 _ : CapsHold g.constant g.caps pot) -> Feasible g pot
+
+Uninhabited (Satisfies pot (MkArc p q Unmeasured)) where
+  uninhabited (MkSatisfies _) impossible
+
+||| A feasible graph holds no Unmeasured arc: only a Measured arc is
+||| satisfied, so an arc nothing bounds is one no potential meets.
+export
+0 measuredOnly : Feasible g pot -> Elem (MkArc p q Unmeasured) g.arcs -> Void
+measuredOnly (MkFeasible sat _) el = absurd (indexAll el sat)
 
 ||| The cap a position meets.
 export
