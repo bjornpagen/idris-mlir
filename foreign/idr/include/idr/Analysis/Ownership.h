@@ -21,8 +21,9 @@
 // Exclusivity's domain is what QTT and freshness do not settle: a value the
 // local rule proves `unique deep` (idr-unique-results, before
 // bufferization) is typed so when the solve runs, and neither a value whose
-// type answers nor one an op of upstream's reads at its bare grade is
-// followed by any marking.
+// type answers, nor one an op of upstream's reads at its bare grade, nor an
+// element one reads out of an array at its element type, is followed by any
+// marking.
 #ifndef IDR_ANALYSIS_OWNERSHIP_H
 #define IDR_ANALYSIS_OWNERSHIP_H
 

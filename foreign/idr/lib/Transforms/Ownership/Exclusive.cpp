@@ -4,20 +4,21 @@
 // analysis), written into the types by this step and by no other. What QTT
 // and freshness prove is in the types already (idr-unique-results), so the
 // solve follows only the rest and this step adds claims only where it
-// proves more; a value an op of upstream's reads is followed by no solve
-// and keeps the bare grade that op takes. Each version of a function the
-// solve kept beyond the general one becomes a grade copy, made by the
-// specializer's one clone-and-key template right after its original; then
-// every version's values the solve proved exclusive are graded `unique
-// deep`, its signature with them, what each op that infers its results (a
-// take, a read) gives is inferred again from what it reads, each call goes
-// to the version of its callee the solve sent it to, and wherever an
-// exclusive value meets a position that takes less (a call of the general
-// version, a result some return leaves shared, a region input another
-// predecessor shares), it is shared into it. Every type is made here, in
-// the program's order, and the program graph is edited through its one
-// editor; the answer then lives in the types, which every later pass keeps
-// and the verifier checks, so no step reads the solve again.
+// proves more; a value an op of upstream's reads, or reads out of an
+// array, is followed by no solve and keeps the grade that op takes or
+// gives. Each version of a function the solve kept beyond the general one
+// becomes a grade copy, made by the specializer's one clone-and-key
+// template right after its original; then every version's values the
+// solve proved exclusive are graded `unique deep`, its signature with
+// them, what each op that infers its results (a take, a read) gives is
+// inferred again from what it reads, each call goes to the version of its
+// callee the solve sent it to, and wherever an exclusive value meets a
+// position that takes less (a call of the general version, a result some
+// return leaves shared, a region input another predecessor shares), it is
+// shared into it. Every type is made here, in the program's order, and
+// the program graph is edited through its one editor; the answer then
+// lives in the types, which every later pass keeps and the verifier
+// checks, so no step reads the solve again.
 #include "idr/Analysis/Ownership.h"
 
 #include "idr/Analysis/Ownership/Facts.h"

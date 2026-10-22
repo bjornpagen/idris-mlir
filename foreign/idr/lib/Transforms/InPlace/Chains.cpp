@@ -137,10 +137,9 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
     return;
   }
   Operation *op = value.getDefiningOp();
-  // An element an op of upstream's reads out of an array keeps its type's
-  // grade, which no pass of ours rewrites: the rule neither raises it nor
-  // follows it into the array, which keeps its own reference beside it.
-  if (ownership::carriersOnly(op) && ownership::readOutOfElements(value)) {
+  // An element an op of upstream's reads out of an array: the rule neither
+  // raises it nor follows it into the array.
+  if (ownership::upstreamElement(value)) {
     if (!claims(value.getType(), ownership::claimFor(asks)))
       ends.push_back(cause(op, Why::Shared));
     return;

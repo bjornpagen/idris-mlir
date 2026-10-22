@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The one walk of a body that numbers what a marking decides about, used by
-// the marking's extraction and by whoever writes its answer back, so the
-// two meet on the same numbers with no map between them: blocks in
-// pre-order, and in each block its arguments, then its ops' results, in
-// order. A grade copy is a clone of its original, so the walk numbers its
+// What a marking decides about in a body, numbered in the solver's one
+// walk of its values (solver::inWalkOrder), the walk every numbering of a
+// body takes, used by the marking's extraction and by whoever writes its
+// answer back, so the two meet on the same numbers with no map between
+// them. A grade copy is a clone of its original, so the walk numbers its
 // values as its original's.
 #ifndef IDR_ANALYSIS_OWNERSHIP_WALKS_H
 #define IDR_ANALYSIS_OWNERSHIP_WALKS_H
 
 #include "idr/Analysis/Ownership/Facts.h"
+#include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/Block.h"
@@ -24,20 +25,8 @@
 
 namespace idr::ownership {
 
-// Every value of `fn`'s body, in the walk's order, with the block it is in.
-template <typename Each>
-  requires std::invocable<Each &, mlir::Value>
-void forEachValue(FuncOp fn, Each &&each) {
-  fn->walk<mlir::WalkOrder::PreOrder>([&](mlir::Block *block) {
-    for (mlir::BlockArgument arg : block->getArguments())
-      each(mlir::Value(arg));
-    for (mlir::Operation &op : *block)
-      for (mlir::Value result : op.getResults())
-        each(result);
-  });
-}
-
-// Every call of `fn`'s body, in the walk's order.
+// Every call of `fn`'s body, in the one order every reader of calls takes:
+// blocks in pre-order, and each block's calls in order.
 template <typename Each>
   requires std::invocable<Each &, CallOp>
 void forEachCall(FuncOp fn, Each &&each) {
@@ -52,12 +41,16 @@ void forEachCall(FuncOp fn, Each &&each) {
 namespace idr::exclusivity {
 
 // Whether exclusivity follows `value`: a counted value that holds
-// references whose grade does not already say `unique deep`, and that no
-// op of upstream's reads. Such an op takes the bare carrier, and after
-// placement no share may stand before it (a share consumes its operand),
-// so that value keeps the bare grade and counts as shared.
+// references whose grade does not already say `unique deep`, that no op
+// of upstream's reads, and that is no element one reads out of an array.
+// An op of upstream's takes the bare carrier, and after placement no share
+// may stand before it (a share consumes its operand), so a value it reads
+// keeps the bare grade; an element it reads out keeps the array's element
+// type, which its own verifier holds it to. Either counts as shared, and
+// no step writes a grade into it.
 inline bool followed(mlir::Value value) {
-  return ownership::leavesOpen(value.getType(), Unique::Deep) && !ownership::readBare(value);
+  return ownership::leavesOpen(value.getType(), Unique::Deep) && !ownership::readBare(value) &&
+         !ownership::upstreamElement(value);
 }
 
 // Every followed value of `fn`'s body, numbered from zero in the walk's
@@ -66,7 +59,7 @@ template <typename Each>
   requires std::invocable<Each &, mlir::Value, std::uint32_t>
 void forEachFollowed(FuncOp fn, Each &&each) {
   std::uint32_t next = 0;
-  ownership::forEachValue(fn, [&](mlir::Value value) {
+  solver::inWalkOrder(fn, [&](mlir::Value value) {
     if (followed(value))
       each(value, next++);
   });
@@ -95,7 +88,7 @@ template <typename Each>
   requires std::invocable<Each &, mlir::BlockArgument, std::uint32_t>
 void forEachJoinParameter(FuncOp fn, Each &&each) {
   std::uint32_t next = 0;
-  ownership::forEachValue(fn, [&](mlir::Value value) {
+  solver::inWalkOrder(fn, [&](mlir::Value value) {
     auto arg = llvm::dyn_cast<mlir::BlockArgument>(value);
     if (arg && holdsReferences(arg.getType()) && isJoinParameter(arg))
       each(arg, next++);

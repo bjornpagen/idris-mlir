@@ -253,7 +253,11 @@ private:
             return move(of, to);
           if (!partOf[numbering.at(to)])
             partOf[numbering.at(to)] = of;
-          if (localOf(to) != noLocal) {
+          // A counted value read out is a reference of its own, which its
+          // type says whether or not the solve follows it (an op of
+          // upstream's may read it, or have read it out of an array), so
+          // what it was read from is shared from then on.
+          if (ownership::leavesOpen(to.getType(), Unique::Deep)) {
             copied(of);
             seed(to);
           }

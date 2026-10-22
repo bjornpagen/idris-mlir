@@ -321,6 +321,17 @@ inline bool readOutOfElements(mlir::Value value) {
   });
 }
 
+// Whether `value` is an element an op of upstream's reads out of an array
+// (a tensor.extract, a memref.load): its type is the array's element type,
+// which that op's own verifier holds it to, so it keeps its type's grade.
+// No pass of ours rewrites it, and no rule follows it into the array, which
+// keeps its own reference beside it. A poison is no such value: its op
+// reads nothing, so its type is ours to choose.
+inline bool upstreamElement(mlir::Value value) {
+  mlir::Operation *op = value.getDefiningOp();
+  return op && carriersOnly(op) && readOutOfElements(value);
+}
+
 } // namespace idr::ownership
 
 #endif // IDR_ANALYSIS_OWNERSHIP_FACTS_H

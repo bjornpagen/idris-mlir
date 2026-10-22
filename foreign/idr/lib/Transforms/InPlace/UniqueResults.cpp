@@ -34,7 +34,6 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 namespace idr {
@@ -202,35 +201,34 @@ private:
         seeds.push_back(read);
     idr::footprint::Vector<Kept> kept = keptOf(body, seeds);
 
-    // The numbering's map, for the operands of an op whose results follow
-    // them; it goes with the body.
-    llvm::DenseMap<Value, Local> number;
-    for (auto [at, value] : llvm::enumerate(body.values))
-      number.try_emplace(value, static_cast<Local>(at));
-    idr::footprint::Vector<Touched> touched(body.values.size(), Touched::No);
+    // The body numbered again, as the solve read it, for the operands of an
+    // op whose results follow them: the solver's numbering, whose one map
+    // goes with the body.
+    Locals numbering(fn);
+    auto local = [&](Value value) -> Local { return numbering.at(value).index(); };
+    idr::footprint::Vector<Touched> touched(body.nodes.size(), Touched::No);
     auto change = [&](Value value, Type type) {
       if (value.getType() == type)
         return;
       changed.emplace_back(value, value.getType());
       value.setType(type);
-      touched[number.lookup(value)] = Touched::Yes;
+      touched[local(value)] = Touched::Yes;
     };
     auto anyTouched = [&](Operation *op) {
-      return llvm::any_of(op->getOperands(), [&](Value operand) {
-        return touched[number.lookup(operand)] == Touched::Yes;
-      });
+      return llvm::any_of(op->getOperands(),
+                          [&](Value operand) { return touched[local(operand)] == Touched::Yes; });
     };
     // A result read out of an operand a step before the rule graded (a
     // parameter graded at the boundary), which the solve proves claims more
     // than its type: its op was inferred before that grade.
     auto stale = [&](Operation *op) {
       return llvm::any_of(op->getResults(), [&](Value result) {
-        Local at = number.lookup(result);
+        Local at = local(result);
         return body.nodes[at].role == Role::Read && body.claims[at] != body.nodes[at].typed;
       });
     };
     auto raise = [&](Value value) {
-      Local at = number.lookup(value);
+      Local at = local(value);
       if (body.nodes[at].role == Role::Raised && kept[at] == Kept::Yes &&
           !idr::ownership::covers(body.nodes[at].typed, body.claims[at]))
         change(value, idr::ownership::claiming(value.getType(), body.claims[at]));
@@ -256,7 +254,7 @@ private:
           // what its operand now does; one copied keeps its own grade.
           Unique operand = idr::ownership::claimOf(op.getOperand(0).getType());
           for (Value result : op.getResults()) {
-            Local at = number.lookup(result);
+            Local at = local(result);
             if (body.nodes[at].role == Role::Same && kept[at] == Kept::Yes &&
                 !idr::ownership::covers(idr::ownership::claimOf(result.getType()), operand))
               change(result, idr::ownership::claiming(result.getType(), operand));

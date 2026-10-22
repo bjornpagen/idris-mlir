@@ -5,22 +5,23 @@
 // (Unique.cpp), and the write of what it proves (UniqueResults.cpp), which
 // idr-unique-results runs and idr-in-place runs after it grades.
 //
-// A body is its values, numbered by the one walk (ownership::forEachValue),
-// and the terms the edges its ops declare give each of them
-// (ownership::forEachTerm), so the solve reads numbers and no IR. What the
-// rule may raise is a cell of a data family, no memo label's (a force writes
-// its cells while references to them live), that its op makes new or that
-// is forwarded into, and that flows only through linear positions. A
-// call's result is its callee's derived claim; a value an op keeps as
-// itself is its operand's where it flows on linearly; a part an op of ours
-// that infers its results reads or takes out is what the read table gives
-// it, as the op's inference does; every other value is what its type says.
-// The write runs each such op's inference again, and meets each op of
-// upstream's at the bare grade it takes.
+// A body is its values, numbered by the solver's walk (Locals), and the
+// terms the edges its ops declare give each of them (ownership::forEachTerm),
+// so the solve reads numbers and no IR. What the rule may raise is a cell
+// of a data family, no memo label's (a force writes its cells while
+// references to them live), that its op makes new or that is forwarded
+// into, and that flows only through linear positions. A call's result is
+// its callee's derived claim; a value an op keeps as itself is its
+// operand's where it flows on linearly; a part an op of ours that infers
+// its results reads or takes out is what the read table gives it, as the
+// op's inference does; every other value is what its type says. The write
+// runs each such op's inference again, and meets each op of upstream's at
+// the bare grade it takes.
 #ifndef IDR_TRANSFORMS_INPLACE_UNIQUE_H
 #define IDR_TRANSFORMS_INPLACE_UNIQUE_H
 
 #include "idr/Analysis/Ownership/Local.h"
+#include "idr/Analysis/Solver/Extraction.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
@@ -36,7 +37,15 @@ namespace idr::unique {
 
 using solver::FunctionId;
 
-// A value of one body, by its position in the one walk.
+// The numbering of a body's values: the solver's, in its one walk, whose
+// one map from a value lives while a body is read, or written, and goes
+// with it.
+struct LocalTag {
+  using Minter = solver::Numbering<LocalTag>;
+};
+using Locals = solver::Numbering<LocalTag>;
+
+// A value of one body, by its place in Locals.
 using Local = std::uint32_t;
 inline constexpr Local noLocal = ~Local{0};
 
@@ -80,7 +89,7 @@ enum class Returns : std::uint8_t { Yes, No };
 
 struct Body {
   FuncOp fn;
-  footprint::Vector<mlir::Value> values;
+  // One per value, by its Local.
   footprint::Vector<Node> nodes;
   footprint::Vector<ownership::Term<Local>> terms;
   // Who reads each value, as a compressed row: the values whose terms name

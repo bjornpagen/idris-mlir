@@ -19,12 +19,10 @@
 #include "idr/Transforms/InPlace/Unique.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
-#include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/Schedule.h"
 #include "idr/IR/Flow.h"
 
 #include "mlir/Interfaces/InferTypeOpInterface.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
@@ -65,43 +63,44 @@ bool readOut(llvm::ArrayRef<Term<Local>> terms) {
          llvm::all_of(terms, [](const Term<Local> &term) { return term.via == Via::ReadOut; });
 }
 
-// The reading of one body. Its map from a value to its number is the
-// numbering's: it lives while the body is read and goes with it.
+// The reading of one body. Its one map, from a value to its number, is the
+// solver's numbering (Locals): it lives while the body is read and goes
+// with it, and its answer gives each value's type its claim.
 class Reader {
 public:
-  Reader(FuncOp fn, const solver::ProgramGraph &graph) : graph(graph) { body.fn = fn; }
+  Reader(FuncOp fn, const solver::ProgramGraph &graph) : graph(graph), numbering(fn) {
+    body.fn = fn;
+  }
 
   Body read() {
     FuncOp fn = body.fn;
-    ownership::forEachValue(fn, [&](Value value) {
-      number.try_emplace(value, static_cast<Local>(body.values.size()));
-      body.values.push_back(value);
-    });
-    std::size_t count = body.values.size();
+    std::size_t count = numbering.size().value();
     roles.assign(count, Role::Typed);
     made.assign(count, Made::Elsewhere);
     inferred.assign(count, Inferred::No);
     owners.assign(count, noLocal);
     fn.walk([&](Operation *op) { readOp(op); });
     readForwards();
-    lay(count);
     if (auto ret = dyn_cast<ReturnOp>(fn.getBody().front().getTerminator())) {
       body.returns = Returns::Yes;
       for (Value operand : ret.getOperands())
-        body.returned.push_back(number.lookup(operand));
+        body.returned.push_back(local(operand));
     }
+    lay(std::move(numbering).finish());
     return std::move(body);
   }
 
 private:
+  Local local(Value value) const { return numbering.at(value).index(); }
+
   void readOp(Operation *op) {
     forwardedValues(op, [&](OpOperand &operand, Value input) {
-      forwards.emplace_back(&operand, number.lookup(input));
+      forwards.push_back({local(operand.get()), local(input), input});
     });
     if (auto call = dyn_cast<CallOp>(op)) {
       FunctionId callee = graph.id(call.getCalleeAttr());
       for (OpResult result : call->getResults()) {
-        Local at = number.lookup(result);
+        Local at = local(result);
         roles[at] = Role::Called;
         owners[at] = static_cast<Local>(body.calls.size());
         body.calls.push_back({callee, result.getResultNumber()});
@@ -115,9 +114,9 @@ private:
     if (op->hasTrait<SameValue>()) {
       for (Value result : op->getResults())
         if (ownership::flowsLinearly(result)) {
-          Local at = number.lookup(result);
+          Local at = local(result);
           roles[at] = Role::Same;
-          owners[at] = number.lookup(op->getOperand(0));
+          owners[at] = local(op->getOperand(0));
         }
       return;
     }
@@ -127,13 +126,13 @@ private:
     bool infers = isa<InferTypeOpInterface>(op) && !ownership::carriersOnly(op);
     if (infers)
       for (Value operand : op->getOperands())
-        body.inferring.push_back(number.lookup(operand));
+        body.inferring.push_back(local(operand));
     auto declared = dyn_cast<FlowOpInterface>(op);
     if (!declared)
       return;
     if (infers)
       for (Value result : op->getResults())
-        inferred[number.lookup(result)] = Inferred::Yes;
+        inferred[local(result)] = Inferred::Yes;
     FlowEdges edges;
     declared.getFlowEdges(edges);
     ownership::forEachTerm(
@@ -141,14 +140,14 @@ private:
         [&](Value target, const Term<Value> &term) {
           if (!madeBy(target, op))
             return;
-          Local from = term.from ? number.lookup(term.from) : noLocal;
-          pending.emplace_back(number.lookup(target),
+          Local from = term.from ? local(term.from) : noLocal;
+          pending.emplace_back(local(target),
                                Term<Local>{from, term.via, term.reach, term.uses, term.held});
         },
         [&](Value target) {
           if (!madeBy(target, op))
             return;
-          Local at = number.lookup(target);
+          Local at = local(target);
           made[at] = Made::New;
           if (!infers && raisable(target.getType()) && ownership::flowsLinearly(target))
             roles[at] = Role::Raised;
@@ -160,23 +159,23 @@ private:
   // successors (a match's scrutinee, one per case) is one value on each
   // path, since control goes to one successor of a branch point.
   void readForwards() {
-    for (auto [operand, input] : forwards)
-      pending.emplace_back(
-          input, Term<Local>{number.lookup(operand->get()), Via::Moved, FieldReach::Other});
-    for (auto [operand, input] : forwards) {
-      Value value = body.values[input];
-      if (roles[input] == Role::Typed && raisable(value.getType()) &&
-          ownership::flowsLinearly(value))
-        roles[input] = Role::Raised;
-    }
+    for (const Forward &forward : forwards)
+      pending.emplace_back(forward.input,
+                           Term<Local>{forward.from, Via::Moved, FieldReach::Other});
+    for (const Forward &forward : forwards)
+      if (roles[forward.input] == Role::Typed && raisable(forward.value.getType()) &&
+          ownership::flowsLinearly(forward.value))
+        roles[forward.input] = Role::Raised;
   }
 
   // Each value's terms, contiguous by value, and who reads each value.
-  void lay(std::size_t count) {
+  void lay(const Locals::Done &numbered) {
+    std::size_t count = numbered.count.value();
     std::stable_sort(pending.begin(), pending.end(),
                      [](const auto &a, const auto &b) { return a.first < b.first; });
     std::size_t next = 0;
-    for (Local at = 0; at != count; ++at) {
+    for (Locals::Node id : numbered.count.ids()) {
+      Local at = id.index();
       auto first = static_cast<std::uint32_t>(body.terms.size());
       for (; next != pending.size() && pending[next].first == at; ++next)
         body.terms.push_back(pending[next].second);
@@ -186,7 +185,7 @@ private:
       if (role == Role::Typed && inferred[at] == Inferred::Yes && readOut(terms))
         role = Role::Read;
       std::uint32_t owner = role == Role::Same || role == Role::Called ? owners[at] : first;
-      body.nodes.push_back({role, ownership::claimOfSource(body.values[at]),
+      body.nodes.push_back({role, ownership::claimOfSource(numbered.values[id]),
                             ownership::originOf<Local>(made[at], terms), owner,
                             last});
     }
@@ -213,15 +212,23 @@ private:
       sources(at, [&](Local from) { body.readers[counts[from]++] = at; });
   }
 
+  // A value forwarded into a region's input or a branch's result: what is
+  // forwarded and the input, by number, and the input itself.
+  struct Forward {
+    Local from;
+    Local input;
+    Value value;
+  };
+
   const solver::ProgramGraph &graph;
   Body body;
-  llvm::DenseMap<Value, Local> number;
+  Locals numbering;
   footprint::Vector<Role> roles;
   footprint::Vector<Made> made;
   footprint::Vector<Inferred> inferred;
   // A Same value's operand, a Called value's call.
   footprint::Vector<Local> owners;
-  footprint::Vector<std::pair<OpOperand *, Local>> forwards;
+  footprint::Vector<Forward> forwards;
   footprint::Vector<std::pair<Local, Term<Local>>> pending;
 };
 
