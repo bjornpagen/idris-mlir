@@ -4209,6 +4209,15 @@ C137.
   member's body makes are met. And the places where members are made are
   one table, read once at the boundary by the translation and the growth
   check alike, so neither mirrors the other.
+- **C220** (2026-10-22; L16's C175 pass). Two consequences of reading
+  the program once at the boundary. A case block is named from what
+  `main` reaches: the search that fell back to every name in the context
+  reads only the boundary's table, and a block it cannot place is an
+  internal error. A block's symbol may change with it, which is text
+  for a reader, deterministic either way. And a reachable function whose
+  totality the TTC leaves unchecked is checked once, at the boundary,
+  not on demand inside the translation, which wrote verdicts into the
+  live context; the qualification measures what that costs.
 - **C211** (2026-10-22; L09's finding; the mechanism under C166 and
   C204). `idr.lit.match` forwards its scrutinee into its default, as C166
   reads it (`sourceOf` maps the binding to its scrutinee), so upstream's
