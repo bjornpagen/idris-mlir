@@ -4,24 +4,20 @@
 // second implementation plain enough to be right by reading, over every
 // input of a small domain. Subsets against the bits of an integer, a set
 // of ids against the order ids rise in, rows against the function that
-// gave them, the fold over a sum against the sum's index, the walk down a
-// nesting against recursion, on every rooted tree of up to six nodes, and
-// each run's footprint against the trace of what was held, on cases drawn
-// from seeds. What a type refuses to compile is unittests/refusals'.
+// gave them, the fold over a sum against the sum's index, and the walk down
+// a nesting against recursion, on every rooted tree of up to six nodes.
+// What the vocabulary holds is counted in Footprint.cpp; what a type
+// refuses to compile is unittests/refusals'.
 
 #include "idr/Support/Enum.h"
-#include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 #include "idr/Support/Match.h"
 #include "idr/Support/Nest.h"
-#include "idr/Testing/Draws.h"
 
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/PointerUnion.h"
 
 #include "gtest/gtest.h"
 
-#include <algorithm>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -37,9 +33,6 @@ namespace {
 enum class Three : std::uint8_t { A, B, C };
 // A closed set of three words, so a subset's words meet at 64 and 128.
 enum class Wide : std::uint8_t {};
-// What a step of a footprint case does: a vector of the vocabulary made,
-// one copied, one dropped, a run begun, the innermost run ended.
-enum class Step : std::uint8_t { Make, Copy, Drop, Begin, End };
 
 } // namespace
 
@@ -50,10 +43,6 @@ struct idr::EnumTraits<Three> {
 template <>
 struct idr::EnumTraits<Wide> {
   static constexpr std::size_t count = 130;
-};
-template <>
-struct idr::EnumTraits<Step> {
-  static constexpr std::size_t count = 5;
 };
 
 namespace {
@@ -189,17 +178,6 @@ TEST(BitSet, AnIdRisesOnceAndNeverFalls) {
     for (Thing other : n.ids())
       EXPECT_EQ(marked.test(other), raised[other.index()]) << id.index();
   }
-  // A marking's bits, one past the count dropped, are the set it marked.
-  llvm::BitVector bits(80);
-  bits.set(1);
-  bits.set(3);
-  bits.set(75);
-  idr::BitSet<Thing> fromBits(n, bits);
-  idr::BitSet<Thing> raisedTwo(n);
-  for (Thing id : n.ids())
-    if (id.index() == 1 || id.index() == 3)
-      (void)raisedTwo.raise(id);
-  EXPECT_EQ(fromBits, raisedTwo);
 }
 
 TEST(Ragged, EachOwnerHoldsTheRowItWasGiven) {
@@ -330,160 +308,6 @@ TEST(DepthFirst, EveryTreeInPreAndPostOrder) {
   }
   // 0! + 1! + 2! + 3! + 4! + 5!
   EXPECT_EQ(trees, 154u);
-}
-
-// The number of seeds the footprint's cases are drawn from, and the most
-// steps and elements one draws.
-constexpr std::uint64_t footprintSeeds = 500;
-constexpr unsigned mostSteps = 24;
-constexpr unsigned mostElements = 64;
-
-// The fault a model of the footprint is planted with, if any.
-enum class Plant : std::uint8_t { None, EndsOnly, InnerForgotten, CopiesFree };
-
-// What a judge takes for each run's footprint, read off the trace of what
-// is held: the most bytes held while the run was open beyond what was held
-// when it began. A mutant's is wrong in one way, and the judge must say so:
-// what the run ended holding, an outer run blind to its inner runs, a copy
-// that takes nothing.
-template <Plant P>
-class Model {
-public:
-  void made(std::int64_t bytes) {
-    sizes.push_back(bytes);
-    changed();
-  }
-  void copied(std::size_t at) {
-    sizes.push_back(P == Plant::CopiesFree ? 0 : sizes[at]);
-    changed();
-  }
-  void dropped(std::size_t at) {
-    sizes.erase(sizes.begin() + static_cast<std::ptrdiff_t>(at));
-    changed();
-  }
-  void begin() { runs.push_back({held(), held()}); }
-  std::int64_t end() {
-    Open run = runs.back();
-    runs.pop_back();
-    if constexpr (P == Plant::EndsOnly)
-      return held() - run.start;
-    else
-      return run.peak - run.start;
-  }
-
-private:
-  struct Open {
-    std::int64_t start;
-    std::int64_t peak;
-  };
-
-  std::int64_t held() const {
-    std::int64_t sum = 0;
-    for (std::int64_t bytes : sizes)
-      sum += bytes;
-    return sum;
-  }
-  void changed() {
-    if constexpr (P == Plant::InnerForgotten) {
-      if (!runs.empty())
-        runs.back().peak = std::max(runs.back().peak, held());
-    } else {
-      for (Open &run : runs)
-        run.peak = std::max(run.peak, held());
-    }
-  }
-
-  std::vector<std::int64_t> sizes;
-  std::vector<Open> runs;
-};
-
-// Whether a failing case is reported: by the box's own judgement, each;
-// by a mutant's, none, since a mutant must fail.
-enum class Report : std::uint8_t { Each, None };
-
-// The cases, over every seed up to `limit` of them, where a run's measured
-// footprint differs from the model's. A case is a list of steps over
-// vectors of the vocabulary and runs, each drawn by the case's own
-// weights; the runs still open at its end are ended in turn.
-template <Plant P>
-unsigned judgeFootprints(unsigned limit, Report report) {
-  using Elements = idr::footprint::Vector<std::uint32_t>;
-  constexpr auto bytesOf = [](std::size_t elements) {
-    return static_cast<std::int64_t>(elements * sizeof(std::uint32_t));
-  };
-  unsigned failures = 0;
-  for (std::uint64_t seed = 1; seed <= footprintSeeds && failures < limit; ++seed) {
-    idr::box::Draws draws(seed);
-    idr::EnumArray<Step, unsigned> weights{
-        {1 + draws.below(4), draws.below(4), draws.below(4), draws.below(4), draws.below(4)}};
-    std::vector<Elements> held;
-    std::vector<idr::footprint::Run> runs;
-    Model<P> model;
-    std::string why;
-    auto end = [&] {
-      auto measured = static_cast<std::int64_t>(runs.back().end());
-      runs.pop_back();
-      std::int64_t expected = model.end();
-      if (measured != expected && why.empty())
-        why = "a run at depth " + std::to_string(runs.size()) + " measured " +
-              std::to_string(measured) + " bytes, its model " + std::to_string(expected);
-    };
-    for (unsigned steps = draws.below(mostSteps + 1); steps > 0; --steps) {
-      idr::EnumArray<Step, unsigned> open = weights;
-      if (held.empty())
-        open[Step::Copy] = open[Step::Drop] = 0;
-      if (runs.empty())
-        open[Step::End] = 0;
-      switch (draws.weighted(open)) {
-      case Step::Make: {
-        std::size_t elements = draws.below(mostElements + 1);
-        held.emplace_back(elements);
-        model.made(bytesOf(elements));
-        break;
-      }
-      case Step::Copy: {
-        std::size_t at = draws.below(held.size());
-        Elements copy = held[at];
-        held.push_back(std::move(copy));
-        model.copied(at);
-        break;
-      }
-      case Step::Drop: {
-        std::size_t at = draws.below(held.size());
-        held.erase(held.begin() + static_cast<std::ptrdiff_t>(at));
-        model.dropped(at);
-        break;
-      }
-      case Step::Begin:
-        runs.push_back(idr::footprint::Run::begin());
-        model.begin();
-        break;
-      case Step::End:
-        end();
-        break;
-      }
-    }
-    while (!runs.empty())
-      end();
-    if (why.empty())
-      continue;
-    ++failures;
-    if (report == Report::Each)
-      ADD_FAILURE() << "seed " << seed << ": " << why;
-  }
-  return failures;
-}
-
-TEST(Footprint, EachRunAgainstTheTraceOfWhatWasHeld) {
-  EXPECT_EQ(judgeFootprints<Plant::None>(10, Report::Each), 0u);
-}
-
-// The judgement can fail: each model with a planted fault disagrees with
-// the measure on some case.
-TEST(Footprint, EachMutantModelIsCaught) {
-  EXPECT_GT(judgeFootprints<Plant::EndsOnly>(1, Report::None), 0u);
-  EXPECT_GT(judgeFootprints<Plant::InnerForgotten>(1, Report::None), 0u);
-  EXPECT_GT(judgeFootprints<Plant::CopiesFree>(1, Report::None), 0u);
 }
 
 } // namespace

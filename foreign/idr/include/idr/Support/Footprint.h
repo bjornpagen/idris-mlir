@@ -3,12 +3,14 @@
 // A run's footprint: the most bytes the compiler's state, as the shared
 // vocabulary stores it, held on the run's thread beyond what it held when
 // the run began. Every table the vocabulary sizes by the program (an
-// IndexVector, a BitSet, a Ragged, and any vector a solver keeps its state
-// in, a footprint::Vector) takes its memory through one allocator, which
-// adds what it takes to the calling thread's ledger and takes off what it
-// gives back. A run nested inside another on one thread (a function's
-// pipeline inside the module pass that runs it) raises the outer run's
-// peak with its own.
+// IndexVector, a BitSet, a Ragged, any vector a solver keeps its state in,
+// a footprint::Vector, a hashed map that must stay hashed, a
+// footprint::DenseMap, and an arena things are interned in, a
+// footprint::BumpPtrAllocator) takes its memory through this header's
+// allocators, which add what they take to the calling thread's ledger and
+// take off what they give back. A run nested inside another on one thread
+// (a function's pipeline inside the module pass that runs it) raises the
+// outer run's peak with its own.
 //
 // It counts bytes the program's size decides, never a reading of the
 // process: the same on every target, at every thread count and on every
@@ -22,6 +24,10 @@
 // measures each pass's runs is Profile.h's.
 #ifndef IDR_SUPPORT_FOOTPRINT_H
 #define IDR_SUPPORT_FOOTPRINT_H
+
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/MemAlloc.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -88,6 +94,71 @@ constexpr bool operator==(const Allocator<T> &, const Allocator<U> &) noexcept {
 // sized by the program in.
 template <class T>
 using Vector = std::vector<T, Allocator<T>>;
+
+// The table of a hashed map whose memory counts in the footprint. A
+// DenseMap takes no allocator: its storage is the one place it allocates
+// and frees its buckets, so this is LLVM's own storage with each table
+// counted at the size LLVM allocates it at, the size getMemorySize reads.
+// A map grows by allocating the larger table before it frees the smaller,
+// and its peak holds both.
+template <class Bucket>
+class Buckets : public llvm::densemap::detail::DenseMapStorage<Bucket> {
+  using Storage = llvm::densemap::detail::DenseMapStorage<Bucket>;
+
+public:
+  bool allocateBuckets(unsigned buckets) {
+    bool made = Storage::allocateBuckets(buckets);
+    detail::take(bytes());
+    return made;
+  }
+
+  void deallocateBuckets() {
+    detail::giveBack(bytes());
+    Storage::deallocateBuckets();
+  }
+
+  void grow(unsigned least, llvm::densemap::detail::BucketHasher hasher) {
+    std::size_t smaller = bytes();
+    Storage::grow(least, hasher);
+    detail::take(bytes());
+    detail::giveBack(smaller);
+  }
+
+private:
+  std::size_t bytes() const {
+    return llvm::densemap::detail::allocBytes<Bucket>(Storage::getNumBuckets());
+  }
+};
+
+// A hashed map whose memory counts in the footprint: the map llvm::DenseMap
+// is, DenseMapBase, over counted buckets in place of LLVM's storage, which
+// is all llvm::DenseMap adds. What a solver keys by content no numbering
+// covers.
+template <class K, class V, class Info = llvm::DenseMapInfo<K>,
+          class Bucket = llvm::detail::DenseMapPair<K, V>>
+using DenseMap = llvm::DenseMapBase<Buckets<Bucket>, K, V, Info, Bucket>;
+
+// What an arena of LLVM's takes its slabs from, in place of
+// llvm::MallocAllocator: the same buffers, each counted on the calling
+// thread. An arena takes a slab when its last one is full and moves
+// nothing it holds, so its slabs add up until it is reset or ends.
+class SlabAllocator {
+public:
+  void *Allocate(std::size_t bytes, std::size_t alignment) {
+    void *at = llvm::allocate_buffer(bytes, alignment);
+    detail::take(bytes);
+    return at;
+  }
+
+  void Deallocate(const void *at, std::size_t bytes, std::size_t alignment) {
+    detail::giveBack(bytes);
+    llvm::deallocate_buffer(const_cast<void *>(at), bytes, alignment);
+  }
+};
+
+// An arena whose memory counts in the footprint: what a solver interns
+// things of the program's size in.
+using BumpPtrAllocator = llvm::BumpPtrAllocatorImpl<SlabAllocator>;
 
 // A run measured on one thread: begun where the run begins, ended where it
 // ends, on the same thread, runs nesting as calls do.

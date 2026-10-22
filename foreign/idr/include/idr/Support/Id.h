@@ -22,8 +22,6 @@
 #include "idr/Support/Changed.h"
 #include "idr/Support/Footprint.h"
 
-#include "llvm/ADT/BitVector.h"
-
 #include <compare>
 #include <concepts>
 #include <cstddef>
@@ -147,14 +145,6 @@ class BitSet {
 public:
   explicit BitSet(Count<IdT> n)
       : count(n), words((std::size_t{n.value()} + wordBits - 1) / wordBits) {}
-
-  // The set whose members are the bits a marking set, one bit per id of the
-  // count; a bit past the count names no id and is dropped.
-  BitSet(Count<IdT> n, const llvm::BitVector &marked) : BitSet(n) {
-    for (unsigned at : marked.set_bits())
-      if (at < n.value())
-        words[at / wordBits] |= Word{1} << (at % wordBits);
-  }
 
   Count<IdT> size() const { return count; }
 
