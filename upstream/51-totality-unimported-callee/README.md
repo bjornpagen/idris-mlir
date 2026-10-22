@@ -133,7 +133,9 @@ Why not the two fixes the report first named:
 The fork carries the change in its own `Core.Termination.References`,
 `Core.Termination.SizeChange`, `Core.Termination.Positivity`,
 `Core.Context`, `Core.Binary` and `Idris.ProcessIdr`; 21-termination-closure's
-`insideComponents` and `settle` are unchanged but for their lookups.
+`settle` is unchanged but for its lookups, and its closure over
+components is gone from the fork since 31013e5a, whose check searches
+each component (`loopsTerminate`; PINS.md termination-closure).
 
 Upstream test: `tests/idris2/total/total033` (in the diff). `Caller.idr`
 imports neither `Loop` nor `Count`: its `caller` reaches `Loop.loop`

@@ -57,8 +57,8 @@
 # steps that build LLVM's compilers, runtimes and tools (stage1, runtimes,
 # stage2), Chez Scheme and Idris 2, and the steps that export snmalloc and
 # simdutf for the runtime, build a copy of the pinned source with their
-# project's patches applied in name order, and fail naming the patch that
-# does not apply. The patches are inputs of those steps and their stamps
+# project's patches applied in the order of their numbers, and fail
+# naming the patch that does not apply. The patches are inputs of those steps and their stamps
 # record them, so a changed or added patch rebuilds the step and everything
 # built with it, and tools/verify-pins.sh refuses a tool built without it.
 # Stage 1 builds the patched tree too: it compiles stage 2's LLVM, and what

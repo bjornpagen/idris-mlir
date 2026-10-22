@@ -24,13 +24,14 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
 - `llvm.patch`: the change applied to the pinned source, a commit of
   llvm main (`toolchain.lock.json`), so for a bug we send it is the pull
   request itself. `tools/bootstrap.sh` applies every
-  `upstream/*/llvm.patch` in name order to a copy of the pinned
-  llvm-project when it builds the toolchain; `tests/upstream-patches`
-  checks they apply.
+  `upstream/*/llvm.patch` in the order of their numbers (100 after 99)
+  to a copy of the pinned llvm-project when it builds the toolchain;
+  `tests/upstream-patches` checks they apply.
 - `snmalloc.patch`: the same for the runtime's snmalloc, against
   third_party/snmalloc's gitlink (the lock's revision), which the
-  bootstrap's `snmalloc` step applies, in name order, to its export of the
-  checkout for the runtime's build (`.toolchain/snmalloc/src`).
+  bootstrap's `snmalloc` step applies, in the order of their numbers, to
+  its export of the checkout for the runtime's build
+  (`.toolchain/snmalloc/src`).
 - `simdutf.patch`: the same for the runtime's simdutf, against
   third_party/simdutf's gitlink, which the bootstrap's `simdutf` step
   applies to its export (`.toolchain/simdutf/src`).
@@ -52,10 +53,11 @@ Each `NN-<bug>/` is one bug. `NN` is the order to file in: lower first.
   that project, which nothing reaches. For Idris: 96, a fix to the stock
   Idris nothing it builds reaches, recorded and not carried; and (18, 20,
   21, 50, 51, 52, 53, 59 and the seventeen fork-* directories) the change
-  the fork carries as its own code, laid out against third_party/Idris2's
-  pin (the ten from a386fe4d against the fork before that commit) with
-  the test upstream's suite would hold: the record a re-sync of the fork
-  reads, never sent.
+  the fork carries as its own code (for 21, the smaller change the fork
+  has since gone past), laid out against third_party/Idris2's pin (the
+  ten from a386fe4d against the fork before that commit) with the test
+  upstream's suite would hold: the record a re-sync of the fork reads,
+  never sent.
 - `tests/upstream-<bug>/` (bug name without the number): this repository's
   check that the pinned tools still need the patch, or are fixed by it.
 - `PINS.md`, entry `## <bug>` (or the name it gives): why we carry it and
@@ -104,7 +106,7 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 18 | elaboration-primitive-folding | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | 19 | pass-timing-dynamic-pipeline | a test, as a comment on #169615 (open; its own test passes without its change) | ready, not posted; carried: #169615's change as main's rewritten `PassTiming.cpp` (#232948) spells it, and our test; still broken on main at 416f328b, where #169615 no longer applies |
 | 20 | evaluator-char-text | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
-| 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
+| 21 | termination-closure | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris), gone past since 31013e5a: the fork closes no graphs and decides each component by its size-change search; the diff records the smaller change for re-syncs |
 | 22 | remove-dead-values-poison-operand | issue + PR: the cleanup keeps an operand that is already poison | not carried since the pipeline cutover (nothing reaches it); ready to file; diff rebuilt on main after #208881; submission.md; test never run; check-mlir not run |
 | 23 | cse-statistic-assignment | PR: CSE accumulates its pass statistics over nested runs (cse-statistics.mlir) | not carried since 2026-10-21 (no upstream cse, D98, D100); ready, not sent; pull-request.diff applies to main at 7a83be39 |
 | 24 | one-shot-module-function-interface | four PRs: One-Shot Module Bufferize on `FunctionOpInterface` with the models as public templates and a function that never returns (a reland of #110322, reverted by #113124); cycles of calls analyzed to a fixpoint over the call graph's strongly connected components; a value that definitely aliases an operand writable on its own, with a call result writable only if its callee returns a writable buffer; the nearest symbol table, not ModuleOp, in empty tensor elimination and getGlobalFor | carried; not filed; check-mlir passes on a private build (2026-10-19), after two fixes (README) |
@@ -164,6 +166,8 @@ locally (2026-10-09): a pull request now rests on LLVM's pre-merge CI
 | 97 | bytecode-numbering-iterative | PR after the recursion RFC: the bytecode writer numbers nested attributes and types from an explicit stack | carried (2026-10-21); not filed |
 | 98 | simdutf-constexpr-implementation | PR to simdutf/simdutf: the implementation constructors constexpr, rvv's aside | carried (2026-10-21); not filed; simdutf's AI policy wants a human author who answers for it |
 | 99 | function-interface-edits | PR: FunctionOpInterface's four signature edits are interface methods, the present bodies their defaults, so a caller holding the interface reaches an operation's own | carried (2026-10-21); not filed |
+| 100 | mlir-opt-main-thread-pool | PR: MlirOptMainConfig::setThreadPool, the pool every context MlirOptMain makes for its input shares | carried (2026-10-22); not filed |
+| 101 | thread-pool-thread-start | PR after 75's: ThreadPoolStrategy::OnThreadStart, a function each thread a pool starts runs before any task | carried (2026-10-22); not filed |
 | fork | fork-linear-ambiguous-let | nothing: Idris takes no tool-written contribution (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-totality-depth | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
 | fork | fork-interface-body | nothing (**Idris**) | carried as fork code (compiler/idris); the diff records it for re-syncs |
@@ -323,8 +327,8 @@ is its pull request (PINS.md); every dependency moves to its latest about
 weekly. One recipe builds the toolchain on all four targets:
 `tools/bootstrap.sh llvm` (stage 1, the target's C library, the runtimes
 and stage 2, into `.toolchain/llvm`, without assertions) applies every
-`upstream/*/llvm.patch` in name order to the one tree stage 1, the
-runtimes and stage 2 build from, and their stamps record each by
+`upstream/*/llvm.patch` in the order of their numbers to the one tree
+stage 1, the runtimes and stage 2 build from, and their stamps record each by
 SHA-256; `tools/bootstrap.sh snmalloc` and `tools/bootstrap.sh simdutf`
 do the same for `upstream/*/snmalloc.patch` and `upstream/*/simdutf.patch`
 on exports of third_party/snmalloc and third_party/simdutf. Carried

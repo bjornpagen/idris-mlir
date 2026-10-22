@@ -1,0 +1,85 @@
+Subject: [PATCH] [Support] A thread pool strategy may name a function each thread runs as it starts
+
+A thread a pool starts inherits nothing a client set up per thread: an
+alternate signal stack is the case that matters, since POSIX does not
+let a new thread inherit one, and a thread without one that overflows
+its stack dies of the fault, however the process handles it, because
+the handler has no stack to run on. A client that handles a stack
+overflow as an error of its own needs every worker to install one, and
+`StdThreadPool` starts its workers itself.
+
+`ThreadPoolStrategy::OnThreadStart`, when set, is called once on every
+thread a pool built with the strategy starts, on that thread, after
+`apply_thread_strategy` and before it runs any task. It is a function
+pointer rather than a callable object, so that a strategy held in a
+global (`llvm::parallel::strategy`) stays constant-initialized. Unset,
+nothing changes. Unit test in ThreadPool.cpp.
+---
+diff --git a/llvm/include/llvm/Support/Threading.h b/llvm/include/llvm/Support/Threading.h
+index 2a08b78..0582860 100644
+--- a/llvm/include/llvm/Support/Threading.h
++++ b/llvm/include/llvm/Support/Threading.h
+@@ -152,6 +152,13 @@ using once_flag = std::once_flag;
+     /// strategy starts, so that a client may give all of its threads one
+     /// stack size; otherwise `llvm::thread::DefaultStackSize`.
+     std::optional<unsigned> StackSizeInBytes;
++
++    /// If set, called once on every thread a pool built with this strategy
++    /// starts, on that thread, before it runs any task, so that a client may
++    /// set up what a new thread does not inherit, such as an alternate signal
++    /// stack. A function rather than a callable object, so that a strategy
++    /// held in a global stays constant-initialized.
++    void (*OnThreadStart)() = nullptr;
+   };
+ 
+   /// Build a strategy from a number of threads as a string provided in \p Num.
+diff --git a/llvm/lib/Support/ThreadPool.cpp b/llvm/lib/Support/ThreadPool.cpp
+index d79d900..f31a38e 100644
+--- a/llvm/lib/Support/ThreadPool.cpp
++++ b/llvm/lib/Support/ThreadPool.cpp
+@@ -54,6 +54,8 @@ void StdThreadPool::grow(int requested) {
+     Threads.emplace_back(StackSize, [this, ThreadID] {
+       set_thread_name(formatv("llvm-worker-{0}", ThreadID));
+       Strategy.apply_thread_strategy(ThreadID);
++      if (Strategy.OnThreadStart)
++        Strategy.OnThreadStart();
+       // Note on jobserver deadlock avoidance:
+       // GNU Make grants each invoked process one implicit job slot.
+       // JobserverClient::tryAcquire() returns that implicit slot on the first
+diff --git a/llvm/unittests/Support/ThreadPool.cpp b/llvm/unittests/Support/ThreadPool.cpp
+index f1c4ce2..0f9a0da 100644
+--- a/llvm/unittests/Support/ThreadPool.cpp
++++ b/llvm/unittests/Support/ThreadPool.cpp
+@@ -174,6 +174,32 @@ TEST(StdThreadPoolTest, StackSizeInBytes) {
+   Pool.wait();
+   EXPECT_EQ(16, Sum);
+ }
++
++static std::atomic_int ThreadStarts{0};
++static LLVM_THREAD_LOCAL bool ThreadStarted = false;
++
++static void markThreadStart() {
++  ThreadStarted = true;
++  ++ThreadStarts;
++}
++
++TEST(StdThreadPoolTest, OnThreadStart) {
++  // Every thread the pool starts calls the strategy's hook on itself before
++  // it runs a task: every task finds its thread's mark set.
++  ThreadStarts = 0;
++  ThreadPoolStrategy S = hardware_concurrency(2);
++  S.OnThreadStart = markThreadStart;
++  std::atomic_int Marked{0};
++  {
++    StdThreadPool Pool(S);
++    for (int I = 0; I < 8; ++I)
++      Pool.async([&Marked] { Marked += ThreadStarted ? 1 : 0; });
++    Pool.wait();
++  }
++  EXPECT_EQ(8, Marked);
++  EXPECT_GE(ThreadStarts, 1);
++  EXPECT_LE(ThreadStarts, 2);
++}
+ #endif
+ 
+ TYPED_TEST(ThreadPoolTest, AsyncBarrierArgs) {

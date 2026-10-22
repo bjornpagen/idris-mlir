@@ -65,7 +65,9 @@ outside one trusted record must be accepted by the checker.
   and which look up no definition: a name is resolved by the index the
   context gives it (`indexedName`), and a type's constructors are left as
   decoded, since a TTC holds them by their full names, which `full` there
-  returned unchanged. `decode` is declared `total`.
+  returned unchanged. `decode` is declared `total`. (In the fork since
+  31013e5a the resolver is `storeDecoded`, which also freezes the
+  definition's terms: PINS.md term-arena.)
 - A name is looked up by turning it into its index once
   (`lookupContextEntry`); `lookupCtxtExactI` decodes that entry and
   `lookupCtxtExact` is its definition.

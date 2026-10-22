@@ -308,24 +308,37 @@ which the top-level CMake configure gate reads.
   and the fork's own sources are `covering`, so the self-compile stalled
   at `Core.Context.prettyName`. The fork inherited the bug with the code
 - sites: the fork, compiler/idris/src/Core/Termination/SizeChange.idr
-  (`insideComponents`, `settle`, `addCases`, `calcTerminating`)
-- workaround: none; the fork carries the fix as its own code, the change
-  of `upstream/21-termination-closure/pull-request.diff` (the pull request
-  against the pin): the closure runs over the calls inside strongly
-  connected components, which gives the same graphs from each function to
-  its own component in the same order, so every verdict and message is
-  unchanged; and a successful search records as terminating every function
-  it visited whose verdict no later check could change. The stock Idris is
-  not patched: it builds only stage 0 and the benchmarks' Chez baseline.
-  The translator itself no longer asks this check (it decides whether every
-  loop through a definition terminates per component, `Recursion`); the
-  elaborator's checks of `total` code still do
-- retire: when a re-sync of the fork brings upstream's fix, the fork's
-  change is upstream's; then the report, `tests/upstream-termination-closure`
-  and this entry go
+  (`components`, `componentLoops`, `loopsTerminate`, `reported`, `settle`,
+  `addCases`, `calcTerminating`)
+- workaround: none; the fork carries the fix as its own code, and since
+  31013e5a goes past the change of
+  `upstream/21-termination-closure/pull-request.diff` (the pull request
+  against the pin), which stays the record of the smaller fix a re-sync
+  looks for upstream. The diff keeps upstream's closure and runs it over
+  the calls inside strongly connected components only; the fork closes no
+  graphs. Its check finds the components of the calls it reaches
+  (Tarjan's search, `components`) and decides each with the size-change
+  search every other verdict on a recursion reads (`loopsTerminate`,
+  idris-fork's totality): each function keeps only the weakest walks to
+  it, and a walk back to it is judged by its powers as it is found. Its
+  verdicts are the size-change principle's, as the closure's were (read;
+  not built or run, D56). A failed check names the function upstream's
+  names, the greatest by name of those with a loop that goes round for
+  ever; the loop its message lists is the first such one the search
+  meets, which need not be the one the closure listed. As in the diff, a
+  successful search records as terminating every function it visited
+  whose verdict no later check could change (`settle`). The stock Idris
+  is not patched: it builds only stage 0 and the benchmarks' Chez
+  baseline. The frontend asks this check before it takes a reduction
+  through a definition to end (`Translate/Closed.idr`, `terminates`); its
+  verdicts on each component's recursion (`Translate/Recursion.idr`) call
+  `loopsTerminate` itself
+- retire: when a re-sync of the fork brings upstream's fix: the report,
+  `tests/upstream-termination-closure` and this entry go, and the fork
+  keeps its search, which is its representation (idris-fork)
 - upstream: upstream/21-termination-closure; nothing is sent, since Idris
   takes no tool-written contribution (upstream/README.md, **Idris**); its
-  diff records the change for re-syncs
+  diff records the smaller change for re-syncs
 
 ## erased-coverage-nested-match
 
@@ -420,7 +433,8 @@ which the top-level CMake configure gate reads.
   is not patched: nothing it builds meets the bug
 - retire: when a re-sync brings upstream's fix; then the report,
   tests/upstream-erased-constant-pattern and this entry go
-- upstream: nothing is sent (upstream/README.md, **Idris**)
+- upstream: upstream/54-erased-constant-pattern, the report, its change in
+  53's diff; nothing is sent (upstream/README.md, **Idris**)
 
 ## lazy-case-scrutinee
 
@@ -886,15 +900,64 @@ which the top-level CMake configure gate reads.
 - symptom: on llvm main at 416f328b, `StdThreadPool` starts its workers
   with `llvm::thread`'s default stack size (8 MiB on Darwin, the system's
   elsewhere), which no strategy changes
-- sites: the compiler's driver, which builds MLIR's thread pool with every
-  thread on one stack size, D33's measured bound with a margin, sized in
-  one platform place (C43)
+- sites: every pool a tool hands MLIR, each worker on the stack the
+  runtime's runner gave the tool's own thread, D33's measured bound with a
+  margin, sized in one platform place (C43), through one strategy
+  (`idr::driver::onToolStack`, foreign/idr/include/idr/Driver/Tool.h):
+  the compiler's driver's pool (foreign/idr/lib/Driver/Compile.cpp),
+  idris-mlir-reduce's, which it hands the context it makes
+  (foreign/idr/tools/idris-mlir-reduce.cpp), and idris-mlir-opt's, which
+  it hands `MlirOptMain` (mlir-opt-main-thread-pool)
 - workaround: `upstream/75-thread-pool-stack-size/llvm.patch`:
   `ThreadPoolStrategy::StackSizeInBytes`; checked by
   tests/upstream-thread-pool-stack-size
 - retire: when the pin's pool takes a stack size
 - upstream: upstream/75-thread-pool-stack-size; one pull request
 - status (2026-10-21): carried; not filed
+
+## mlir-opt-main-thread-pool
+
+- symptom: on llvm main at 416f328b, `MlirOptMain` runs its input on the
+  pool of a temporary context it makes (`MlirOptMain.cpp:810-812`), and a
+  caller cannot give it one, so idris-mlir-opt's workers run on the
+  system's default stack with no signal stack, where the other tools'
+  run on the tools' stack (thread-pool-stack-size,
+  thread-pool-thread-start)
+- sites: foreign/idr/tools/idris-mlir-opt.cpp, which builds its pool
+  through `idr::driver::onToolStack` and sets it on the config it hands
+  `MlirOptMain`
+- workaround: `upstream/100-mlir-opt-main-thread-pool/llvm.patch`:
+  `MlirOptMainConfig::setThreadPool(llvm::ThreadPoolInterface *)`, the
+  pool every context `MlirOptMain` makes for its input shares when
+  threading is enabled; `--mlir-disable-threading` still disables it.
+  Its check, tests/upstream-mlir-opt-main-thread-pool, runs the report's
+  `callers-pool.cpp`
+- retire: when the pin's `MlirOptMain` takes a caller's pool
+- upstream: upstream/100-mlir-opt-main-thread-pool; one pull request
+- status (2026-10-22): carried; not filed
+
+## thread-pool-thread-start
+
+- symptom: on llvm main at 416f328b, `StdThreadPool` runs nothing of its
+  client's on a worker before a task, and a new thread inherits no
+  alternate signal stack, so a tool's worker that reaches its stack's
+  guard dies of a bare SIGSEGV (SIGBUS or SIGSEGV on Darwin): the
+  runtime's handler for the fault, which makes it the tool's internal
+  error, has no stack to run on there
+- sites: `idr::driver::onToolStack` (foreign/idr/include/idr/Driver/Tool.h),
+  every tool pool's strategy, which names the runtime's function that
+  installs the tools' signal stack on the calling thread
+- workaround: `upstream/101-thread-pool-thread-start/llvm.patch`, applied
+  after 75's: `ThreadPoolStrategy::OnThreadStart`, a `void (*)()` each
+  thread a pool starts calls on itself before any task. Its check,
+  tests/upstream-thread-pool-thread-start, runs the report's
+  `signal-stack.cpp`, whose worker overflows into its guard and whose
+  handler prints `ok` on the worker's signal stack
+- retire: when the pin's pool runs a client's function on each thread it
+  starts
+- upstream: upstream/101-thread-pool-thread-start; one pull request, after
+  75's
+- status (2026-10-22): carried; not filed
 
 ## pass-base-derived-class
 
@@ -1381,8 +1444,9 @@ which the top-level CMake configure gate reads.
   runtime/CMakeLists.txt, which compiles both from them
 - workaround: the bootstrap exports third_party/snmalloc and
   third_party/simdutf, each at its gitlink, the lock's revision, with its
-  patches applied in name order, into .toolchain/<name>/src, stamped with
-  them; the runtime compiles those copies
+  patches applied in the order of their numbers, into
+  .toolchain/<name>/src, stamped with them; the runtime compiles those
+  copies
 - retire: a library's export goes when it carries no patch
 - upstream: none
 - status (2026-10-21): snmalloc's new with this bump; simdutf's with C169
@@ -1504,13 +1568,14 @@ which the top-level CMake configure gate reads.
   deliberate (the REPL, IDE mode, every other code generator and the CExp
   pipeline are out of scope) except the five bug fixes, which upstream
   should take
-- stored terms: a stored definition's terms are frozen preorder columns,
-  their locations beside them, read purely, so the fork states no new
-  trust for them (C183; interned-identifiers). The fork's evaluator reads
-  those columns, not upstream's trees, so it is no longer upstream's
-  evaluator with changes that a three-way merge carries forward: a
-  re-sync re-implements upstream's changes to the evaluator against the
-  columns. That is D44's accepted cost of taking 0010's A0 whole
+- names and stored terms: a name's leaves are interned identifiers
+  (interned-identifiers), and a definition read back from a TTC holds its
+  terms as frozen columns (term-arena), whose readers a re-sync
+  re-implements against the columns rather than merging upstream's changes
+- depends: on mlir-linear and mlir-array
+  (compiler/idris/idris-compiler.ipkg), using only their functions with
+  bodies, which both hosts run (read, 31013e5a): the term arena's frozen
+  columns, the size-change composition and the multiplicity fold below
 - retire: never as a whole. Each bug fix goes when an Idris bump brings
   upstream's fix (the re-sync merge in compiler/idris/README.md shows it)
 - upstream: nothing is sent, since Idris takes no tool-written
@@ -1522,20 +1587,36 @@ which the top-level CMake configure gate reads.
   fork's calls by name are its own)
 - totality: the fork's own code bounds no recursion by a count.
   `normaliseTypes` follows each name once (it stopped at a depth of 8). The
-  size-change decision (`loopsTerminate`) works on dense graphs typed by
-  their path's ends (`Dense n from to`), joined only in path order by
-  `andThen`, so a path cannot be composed backwards; the graphs' rows are a
-  finite type (`Libraries.Data.List.Finite`: `Finite`, `NoDup`, the
-  pigeonhole principle); it keeps each graph and each function-and-graph
-  pair once, and collects a loop graph's powers until one repeats, finding
-  the idempotent power among them (it searched at most 1024 and counted one
-  not found as failing); each search's measure is the room left, so
+  size-change decision (`loopsTerminate`) is the one behind every verdict
+  on whether a recursion ends: the elaborator's termination check asks it
+  of each component of what a checked function reaches
+  (termination-closure), and the frontend of each component of its
+  program. It works on walks: a dense graph over the size-change semiring
+  and the calls that make it, typed by the functions the walk starts and
+  ends at (`Walk n from to`), joined only in path order by `andThen`, the
+  matrix product of the later graph by the earlier (`contract` of
+  `mlir-array`), so a path cannot be composed backwards; the graphs' rows
+  are a finite type (`Libraries.Data.List.Finite`: `Finite`, `NoDup`, the
+  pigeonhole principle). From each function the search extends walks a
+  call at a time, each function keeps only the weakest walks to it and
+  each function-and-graph pair once, and a walk back to the function is
+  judged as it is found: its powers are taken until one repeats (it
+  searched at most 1024 and counted one not found as failing), and the
+  power that goes round twice as it goes round once either decreases some
+  argument or is the loop the answer names (`Loops`: `Decreasing`, or
+  `Endless` with its calls). Each search's measure is the room left, so
   `loopsTerminate` is total. Sites:
   compiler/idris/src/Core/Normalise/Eval.idr (`computesType`),
-  compiler/idris/src/Core/Termination/SizeChange.idr (`Dense`, `andThen`,
-  `Calls`, `Kept`, `powers`, `nonDescending`, `loopsBack`, `search`,
+  compiler/idris/src/Core/Termination/SizeChange.idr (`Walk`, `andThen`,
+  `Calls`, `Kept`, `powers`, `roundTrip`, `closes`, `search`, `Loops`,
   `loopsTerminate`), compiler/idris/src/Libraries/Data/List/Finite.idr; its
   check is tests/fork-loops-terminate
+- multiplicities: a binder's quantity is the sum of its uses in 0/1/ω,
+  folded in one pass over the uses by `accumulate` of `mlir-array`, each
+  use naming its binder, where upstream counted each binder's uses by a
+  scan of the list (`count`); closing a binder's scope sums its own uses
+  and keeps the others'. Sites: compiler/idris/src/Core/LinearCheck.idr
+  (`Uses`, `usesOf`, `closeScope`, `usesNamed`)
 
 ## linear-ambiguous-let
 
@@ -1665,7 +1746,8 @@ which the top-level CMake configure gate reads.
   `getRefs`, `getMetas`), compiler/idris/src/Core/Hash.idr (`hashTerm`),
   compiler/idris/src/Core/Core.idr (`showError`),
   compiler/idris/src/Core/Context.idr (`OnNames`, `onNamesTerm`,
-  `onNamesTree`, `indexedName`, `resolveGlobalDef` and the `resolve…`
+  `onNamesTree`, `indexedName`, `storeDecoded` (once `resolveGlobalDef`,
+  now also freezing the definition, term-arena) and the `resolve…`
   functions of its parts, `lookupContextEntry`, `lookupCtxtExactI`,
   `lookupCtxtExact`; `decode` declared `total`),
   compiler/idris/src/Core/Binary/Prims.idr (`remaining`, `fewer`),
@@ -1873,13 +1955,40 @@ which the top-level CMake configure gate reads.
 - symptom: the frontend reads the evaluator's normal forms with no
   statement of what they are, so every reading it proves sound rests on a
   check, when it runs, that the evaluator agreed with it
-- sites: compiler/idris/src/Idris/Host.idr (`Reduces`, `Reduct`,
-  `Defines`, `definition`, `definedOnce`; the four normalisers return a
-  `Reduct`, its steps at quantity 0)
-- workaround: none; the fork's own code (e5b39cb2): the one stated trust
-  of the frontend in the evaluator, that a closed term's normal form is a
-  reduct of it under `Reduces`, a relation that declares every step the
-  evaluator takes, private to the trusted library (D68)
+- sites: compiler/idris/src/Idris/Host.idr: the frozen context (`Frozen`,
+  `freezeContext`, `Resolves`, `resolvesOnce`, `Defines`, `definitionIn`,
+  `definedOnce`, `SameEntry`, `compareEntries`); what each normaliser
+  evaluates (`Evaluation`, `NormalForm`, `evaluationOf`, `Admits`,
+  `Evaluates`); its steps (`Reduces`, `Contracts`, `Scrutinised`,
+  `Chooses`, `Picks`, `Matches`, `Misses`, `Computes`); its normal forms
+  (`Redex`, `Irreducible`, `Relocated`, `Reduct`, `oneNormalForm`); the
+  accessors' evidence (`TypeOf`, `TreeOf`, `typeOnce`, `treeOnce`);
+  `fullNamesIn`; the trust (`trusted`, `reduct`)
+- workaround: none; the fork's own code (e5b39cb2, 31013e5a): the
+  frontend's one stated trust in the evaluator (D68), stated of one
+  context, frozen once the program and its imports are loaded
+  (`host.freezeContext`: every entry, as Idris's lookup reads it, decoded
+  once into an immutable map by entry, beside the definitions record the
+  normalisers run on). A name resolves to one entry and a definition is
+  the one at its name's entry, read purely, so `definedOnce` is proved,
+  not trusted. `Reduces` declares every step the evaluator takes under
+  each normaliser's options (which definitions it unfolds, whether it runs
+  only holes, as each does under a delay, whether it keeps an as pattern),
+  blind to locations: under every node, beta, a definition's leaf (a case
+  tree's alternatives tried in order, each one passed over missing the
+  scrutinee), a solved unknown, a primitive from the evaluator's own table
+  or `believe_me`, and the rest the evaluator does, so the statement is
+  true of every term. Four postulates, each `trusted` (`believe_me ()` at
+  quantity 0) where no proof reaches, since the evaluator and the
+  accessors run in `Core`: what a normaliser gives is a reduct of its
+  input by that normaliser's steps and normal for them (`reduct`); a
+  definition's type and a body's case tree, read through the context's
+  accessors, are one each, the ones the evaluator reads (`typeOnce`,
+  `treeOnce`); and two normal forms of one term for one normaliser are one
+  term but for their locations (`oneNormalForm`), the confluence Idris's
+  type checker rests on when it compares normal forms. A frontend that
+  proves its readings sound against `Reduces` (D46, D68) keeps no check,
+  when it runs, that the evaluator agreed with it
 - retire: never; the fork's statement of its own evaluator
 - upstream: nothing is sent (**Idris**)
 
@@ -1927,8 +2036,8 @@ which the top-level CMake configure gate reads.
   `Idris.Syntax`), Idris/Syntax/Pragmas.idr (`KwPragma`, one constructor
   per spelling the parser accepts; `PragmaUse`), Idris/Parser.idr,
   Parser/Rule/Source.idr (each use recorded in the parse's state, which a
-  failing branch drops), Core/TTC.idr, Core/Binary.idr (`ModuleFile`),
-  Idris/ProcessIdr.idr, Idris/Host.idr (`readDefinitions`)
+  failing branch drops), Core/TTC.idr, Core/Binary.idr (`ModuleFile`,
+  `readDefinitions`), Idris/ProcessIdr.idr
 - workaround: none; the fork's own code (e5b39cb2): imports and pragma
   uses, each with its location, kept in the TTC and given by
   `readDefinitions` with the definitions (U9)
@@ -1955,37 +2064,94 @@ which the top-level CMake configure gate reads.
   `DN`, a namespace's parts) are strings, so every equality of names and
   every lookup keyed by a name compares text character by character, and
   a builtin name the compiler recognizes or makes is found by its
-  spelling. The fork inherited it
+  spelling, or built as text where it is used (a primitive's `prim__`
+  name). The fork inherited it
 - sites: compiler/idris/src/Core/Name/Ident.idr (`Ident`, `Idents`,
-  `internIn`), Core/Name/Known.idr (`Known`: the identifiers the
-  compiler's own code spells, each at its ordinal; `roundTrip` and
-  `below` checked when the compiler is built), Core/Name.idr and
-  Core/Name/Namespace.idr (the leaves), Core/Context/Context.idr
-  (`idents`: the session's one table, kept across resets and
-  backtracking), Core/Context.idr (`intern`), Parser/Lexer/Source.idr and
-  Parser/Source.idr (`RawToken` becomes `Token`: text becomes an
-  identifier between lexing and parsing), Core/Binary/Prims.idr
-  (`TTC Ident`)
-- workaround: none; the fork's own code, the interned names of 0010's A0
-  (D44): one table per session holds each text once, at its own id, so two
-  identifiers are equal exactly when their ids are; a known identifier is
-  a constant at its ordinal, never looked up; text becomes an identifier
-  only at the lexer, the TTC's reader and `intern`; identifiers order by
-  their text, so what is written from a map or a sort keyed by names is in
-  the same order in every session, and a TTC writes an identifier's text,
-  never its id
-- stored terms (C183, A0's other half, the term arena as columns): a term
-  being elaborated stays an unshared, located tree, as the elaborator's
-  reads of locations need; when a definition is stored, its terms become
-  columns in preorder, shared within the definition, with their locations
-  as one more preorder column. The columns are frozen with the definition
-  (an immutable array of `mlir-array`, on both hosts), so every read is a
-  pure read of an immutable value and the fork states no new trust.
-  Definitions refer to one another by interned name, never by a position
-  in an arena, so no table grows under a read. The cost: nothing is shared
-  across definitions, which one append-only arena would give only at the
-  price of that trust; and the evaluator that reads the columns is
-  re-implemented, not merged, at each re-sync (idris-fork), D44's
-  accepted cost
+  `seeded`, `internIn`, `known`, `knownOf`), Core/Name/Known.idr
+  (`Known`: each identifier the compiler's own code spells, its text and
+  its ordinal), Core/Name.idr (`UserName`, `Name`, `knownUN`,
+  `knownRoot`) and Core/Name/Namespace.idr (`Namespace`, `ModuleIdent`:
+  lists of identifiers), Core/Context/Context.idr (`idents`: the
+  process's one table, kept across reloads and backtracking),
+  Core/Context.idr (`initDefs`, `internWith`, `intern`, `internUserName`,
+  `internNamespace`, `rootIdent`), Parser/Lexer/Source.idr (`RawToken`,
+  `Token`, `traverseIdents`) and Parser/Source.idr (`internTokens`),
+  Core/Binary/Prims.idr (`TTC Ident`), Core/Primitives.idr (each
+  primitive's name a known identifier)
+- workaround: none; the fork's own code (31013e5a), the interned names of
+  0010's A0 (D44): one table per process holds each text once, at its own
+  id, so two identifiers are equal exactly when their ids are, and nothing
+  compares text to decide it. Text becomes an identifier only where it
+  enters the compiler: at the lexer, whose tokens (`RawToken`) become the
+  parser's (`Token`) before any rule of the grammar reads them; in a TTC's
+  reader (`TTC Ident`); and where the elaborator makes a name from text
+  (`intern`). The identifiers the compiler's own code spells are one
+  closed vocabulary, `Core.Name.Known`: the builtin names it recognizes or
+  makes (every primitive's name among them), the namespaces they live in,
+  reflection's constructors, the stems of the names it generates, and the
+  frontend's probe names. Each is a constant at its ordinal, which every
+  table holds before any other text, never looked up and never built as
+  text. The vocabulary is held once (C199): one Idris list of pairs, a
+  constructor and its text, in the fork, from which a generator in the
+  fork's tree, written in the subset both hosts compile, prints the
+  module; the output is committed with its fingerprint in
+  `generated.manifest`, and `make check` regenerates it. Identifiers order
+  by their text, so what is written from a map or a sort keyed by names
+  is in the same order in every session, and a TTC writes an identifier's
+  text, never its id
 - retire: never; the fork's representation
-- upstream: nothing is sent (**Idris**)
+- upstream: nothing is sent (**Idris**); no diff under `upstream/`
+  records it, and a re-sync reads the change from its commit
+  (`git show 31013e5a -- compiler/idris`)
+
+## term-arena
+
+- symptom: at the pinned Idris, a definition read back from a TTC holds
+  its terms (its type; a pattern-matching definition's case tree, clause
+  patterns, and clauses with their environments) as trees, every
+  occurrence of a subterm a node of its own with its own location, and
+  each reader takes them as fields of the definition. The fork inherited
+  it
+- sites: compiler/idris/src/Core/TT/Stored.idr (`NodeOf`, `Arena`,
+  `Root`, `freeze`, `seal`, `rootAt`, `decode`, `decodeWithin`,
+  `storedHead`), Core/Context/Context.idr (`Typed`: `LiveType`,
+  `StoredType`; `Body`: `LiveBody`, `StoredBody`), Core/Context.idr
+  (`storeDecoded`, `freezeDef`, `writtenDef`; the accessors `typeOf`,
+  `typeHead`, `treeOf`, `clausePatsOf`, `clausesOf`, and `walkTree` with
+  its `Leaves`), Core/Case/CaseTree.idr (`CaseTree'`, over the terms a
+  definition holds), Core/Normalise/Eval.idr and Core/Normalise/Convert.idr
+  (the walks of a stored case tree), Core/Hash.idr (`hashStoredTree`,
+  `hashStoredPat`), compiler/idris/idris-compiler.ipkg (its `depends`)
+- workaround: none; the fork's own code (31013e5a), the term arena of
+  0010's A0 (D44) as C183 shapes it. A term being elaborated stays an
+  unshared, located tree, and a definition of the module being checked
+  stays live until it is written. A definition read back from a TTC is
+  stored (`storeDecoded`): its terms are frozen into one arena, each
+  distinct subterm one node whose children are nodes made before it, and
+  the location of every occurrence is one more column, in the preorder of
+  each term's unfolding, so no location is lost and no shared node needs
+  one. The columns are frozen arrays of `mlir-array` (only its functions
+  with bodies, which both hosts run), so every read is a pure read of an
+  immutable value and the fork states no new trust. A definition's terms
+  are held by their lifetime (`Typed`, `Body`: live or stored, never a
+  mix), and every reader asks one accessor, which decodes a stored term
+  where upstream's reader embedded the live one; the evaluator walks a
+  stored case tree along the path it takes and decodes only the leaf it
+  reaches. Definitions name one another by interned name
+  (interned-identifiers), never by a position in an arena, so nothing is
+  shared across definitions and no column grows under a read. A TTC still
+  holds trees: `writtenDef` decodes a stored definition to write it
+- cost: nothing is shared across definitions, which one append-only arena
+  would give only at the price of a run-time read hidden as pure (C183).
+  The readers of a stored definition (the context's accessors, the
+  evaluator's and conversion's walks of a case tree, the hash) are no
+  longer upstream's code with changes a three-way merge carries forward:
+  at each re-sync, about weekly as the Idris pin moves (D25), upstream's
+  changes to them are re-implemented against the columns. That is the
+  cost D44 accepted in taking 0010's A0 whole into the fork. Its time and
+  memory are unmeasured (not built or run, D56); its bars are A0's
+  (proposals/0010), measured natively once `make self` holds (C136)
+- retire: never; the fork's representation
+- upstream: nothing is sent (**Idris**); no diff under `upstream/`
+  records it, and a re-sync reads the change from its commit
+  (`git show 31013e5a -- compiler/idris`)

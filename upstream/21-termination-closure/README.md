@@ -73,12 +73,24 @@ which checks in about a second with the change.
 ## Why there is no patch
 
 There is no `idris.patch`. The Idris that elaborates what this compiler
-consumes is the fork in compiler/idris, which carries the change as its own
-code (commit 96bea9f1); the stock Idris only builds stage 0 and the
-benchmarks' Chez baseline. The fork goes further for its own translator,
-which asks a narrower question (whether every loop through a function
-terminates, `loopsTerminate`, decided per component from the weakest
-graphs of each pair's paths); that is not part of the diff.
+consumes is the fork in compiler/idris, which carried the change as its
+own code from 96bea9f1; the stock Idris only builds stage 0 and the
+benchmarks' Chez baseline.
+
+Since 31013e5a the fork goes further and closes no graphs. Its check
+finds the components of the calls it reaches, as the diff does, and
+decides each with the size-change search its frontend's verdicts read
+too (`loopsTerminate`): from each function, walks are extended a call at
+a time, each function keeps only the weakest walks to it, and a walk back
+to the function is judged by its powers as it is found, the first that
+goes round for ever being the answer (PINS.md termination-closure and
+idris-fork; compiler/idris/README.md). Its verdicts are the size-change
+principle's, as the closure's are (*read*). A failed check names the
+function the closure names, the greatest by name of those with a loop
+that goes round for ever; the loop its message lists is the first such
+one the search meets, which need not be the one the closure listed.
+`settle` is the diff's, with 51's lookups. None of that is in the diff,
+which stays the smaller fix a re-sync looks for upstream.
 
 ## Testing at the pin
 
@@ -88,8 +100,11 @@ not run with it. The fork, whose `SizeChange.idr` was the pin's file before
 the change, checks `Reach.idr` in 0.8 s, a chain of 320 with 100 callers
 in 1.2 s, and the 702 programs of this repository's corpus give
 byte-identical output with and without it (arm64 macOS, 2026-10-09).
-`tests/upstream-termination-closure` checks a chain of 240 through the
-frontend, which the pinned checker does not finish within the step limit.
+Those are measurements of the diff's form in the fork (96bea9f1); the
+search that replaced its closure (31013e5a) is not built or run yet
+(D56). `tests/upstream-termination-closure` checks a chain of 240 through
+the frontend, which the pinned checker does not finish within the step
+limit.
 
 ## Upstreaming plan
 

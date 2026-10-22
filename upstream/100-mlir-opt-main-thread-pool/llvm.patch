@@ -1,0 +1,168 @@
+Subject: [PATCH] [mlir] MlirOptMain may run its input on its caller's thread pool
+
+`MlirOptMain` makes the thread pool its input's contexts share from a
+temporary context (`threadPoolCtx`), so a tool built on it cannot choose
+how its worker threads are made: their strategy, their stack size, what
+each thread sets up when it starts. `MLIRContext::setThreadPool` lets
+a tool that makes its own context hand it a pool; `MlirOptMain` makes its
+contexts itself, so a tool has no such way in.
+
+`MlirOptMainConfig::setThreadPool` names a pool the caller owns; when
+multithreading is enabled, every context `MlirOptMain` makes for its
+input shares it, and otherwise it is unused, as the context's own pool
+is: `--mlir-disable-threading` still disables threading. With no pool
+set, nothing changes. The temporary context still makes its own pool,
+which starts no thread until a task is given to it, and none is.
+
+Unit test: mlir/unittests/Tools/MlirOptMainTest.cpp.
+---
+diff --git a/mlir/include/mlir/Tools/mlir-opt/MlirOptMain.h b/mlir/include/mlir/Tools/mlir-opt/MlirOptMain.h
+index e6697b3..45f3899 100644
+--- a/mlir/include/mlir/Tools/mlir-opt/MlirOptMain.h
++++ b/mlir/include/mlir/Tools/mlir-opt/MlirOptMain.h
+@@ -25,6 +25,7 @@
+ namespace llvm {
+ class raw_ostream;
+ class MemoryBuffer;
++class ThreadPoolInterface;
+ } // namespace llvm
+ 
+ namespace mlir {
+@@ -168,6 +169,15 @@ public:
+     return success();
+   }
+ 
++  /// Set the thread pool the contexts processing the input share when
++  /// multithreading is enabled. The pool must outlive the call to
++  /// `MlirOptMain`. If none is set, `MlirOptMain` creates its own.
++  MlirOptMainConfig &setThreadPool(llvm::ThreadPoolInterface *pool) {
++    threadPool = pool;
++    return *this;
++  }
++  llvm::ThreadPoolInterface *getThreadPool() const { return threadPool; }
++
+   /// List the registered passes and return.
+   MlirOptMainConfig &listPasses(bool list) {
+     listPassesFlag = list;
+@@ -341,6 +351,9 @@ protected:
+   /// The callback to populate the pass manager.
+   std::function<LogicalResult(PassManager &)> passPipelineCallback;
+ 
++  /// The thread pool the caller provides, if any.
++  llvm::ThreadPoolInterface *threadPool = nullptr;
++
+   /// List the registered passes and return.
+   bool listPassesFlag = false;
+ 
+diff --git a/mlir/lib/Tools/mlir-opt/MlirOptMain.cpp b/mlir/lib/Tools/mlir-opt/MlirOptMain.cpp
+index 490e0c2..f04ae60 100644
+--- a/mlir/lib/Tools/mlir-opt/MlirOptMain.cpp
++++ b/mlir/lib/Tools/mlir-opt/MlirOptMain.cpp
+@@ -805,11 +805,13 @@ LogicalResult mlir::MlirOptMain(llvm::raw_ostream &outputStream,
+ 
+   // Create a temporary context for the sake of checking if
+   // --mlir-disable-threading was passed on the command line.
+-  // We use the thread-pool this context is creating, and avoid
+-  // creating any thread when disabled.
++  // We use the thread-pool the caller provided, or else the one this context
++  // is creating, and avoid creating any thread when disabled. The context's
++  // own pool starts no thread until it is given a task.
+   MLIRContext threadPoolCtx;
+   if (threadPoolCtx.isMultithreadingEnabled())
+-    threadPool = &threadPoolCtx.getThreadPool();
++    threadPool = config.getThreadPool() ? config.getThreadPool()
++                                        : &threadPoolCtx.getThreadPool();
+ 
+   SourceMgr sourceMgr;
+   sourceMgr.AddNewSourceBuffer(
+diff --git a/mlir/unittests/CMakeLists.txt b/mlir/unittests/CMakeLists.txt
+index 2551484..c8b3515 100644
+--- a/mlir/unittests/CMakeLists.txt
++++ b/mlir/unittests/CMakeLists.txt
+@@ -20,6 +20,7 @@ add_subdirectory(Support)
+ add_subdirectory(Rewrite)
+ add_subdirectory(TableGen)
+ add_subdirectory(Target)
++add_subdirectory(Tools)
+ add_subdirectory(Transforms)
+ 
+ if(MLIR_ENABLE_EXECUTION_ENGINE)
+diff --git a/mlir/unittests/Tools/CMakeLists.txt b/mlir/unittests/Tools/CMakeLists.txt
+new file mode 100644
+index 0000000..f3b6531
+--- /dev/null
++++ b/mlir/unittests/Tools/CMakeLists.txt
+@@ -0,0 +1,6 @@
++add_mlir_unittest(MLIRToolsTests
++  MlirOptMainTest.cpp
++)
++mlir_target_link_libraries(MLIRToolsTests
++  PRIVATE
++  MLIROptLib)
+diff --git a/mlir/unittests/Tools/MlirOptMainTest.cpp b/mlir/unittests/Tools/MlirOptMainTest.cpp
+new file mode 100644
+index 0000000..6a47cd0
+--- /dev/null
++++ b/mlir/unittests/Tools/MlirOptMainTest.cpp
+@@ -0,0 +1,61 @@
++//===- MlirOptMainTest.cpp - Tests for MlirOptMain ------------------------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "mlir/Tools/mlir-opt/MlirOptMain.h"
++#include "mlir/IR/BuiltinOps.h"
++#include "mlir/IR/DialectRegistry.h"
++#include "mlir/IR/MLIRContext.h"
++#include "mlir/Pass/Pass.h"
++#include "mlir/Pass/PassManager.h"
++#include "llvm/Config/llvm-config.h"
++#include "llvm/Support/MemoryBuffer.h"
++#include "llvm/Support/ThreadPool.h"
++#include "llvm/Support/raw_ostream.h"
++#include "gtest/gtest.h"
++
++using namespace mlir;
++
++namespace {
++/// Records the thread pool of the context the pass runs in.
++struct RecordThreadPoolPass
++    : public PassWrapper<RecordThreadPoolPass, OperationPass<ModuleOp>> {
++  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RecordThreadPoolPass)
++
++  RecordThreadPoolPass(llvm::ThreadPoolInterface **seen) : seen(seen) {}
++
++  void runOnOperation() override {
++    MLIRContext &context = getContext();
++    *seen = context.isMultithreadingEnabled() ? &context.getThreadPool()
++                                              : nullptr;
++  }
++
++  llvm::ThreadPoolInterface **seen;
++};
++} // namespace
++
++#if LLVM_ENABLE_THREADS
++TEST(MlirOptMain, CallersThreadPool) {
++  // The contexts MlirOptMain makes for its input share the pool its caller
++  // provides.
++  registerPassManagerCLOptions();
++  DialectRegistry registry;
++  llvm::DefaultThreadPool pool;
++  llvm::ThreadPoolInterface *seen = nullptr;
++  MlirOptMainConfig config;
++  config.setThreadPool(&pool);
++  config.setPassPipelineSetupFn([&seen](PassManager &pm) {
++    pm.addPass(std::make_unique<RecordThreadPoolPass>(&seen));
++    return success();
++  });
++  std::string output;
++  llvm::raw_string_ostream os(output);
++  ASSERT_TRUE(succeeded(MlirOptMain(
++      os, llvm::MemoryBuffer::getMemBuffer("module {}"), registry, config)));
++  EXPECT_EQ(seen, &pool);
++}
++#endif

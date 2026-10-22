@@ -21,14 +21,17 @@
 #           lock's revision (step simdutf)
 #
 # A bug has one patch per project it touches. The patches of a project
-# apply in the byte order of their bugs' names, each to the source as the
-# ones before it left it.
+# apply in the order of their bugs' numbers, each to the source as the
+# ones before it left it: a number is the order to file in, and a later
+# patch may build on an earlier one's lines, so 100 applies after 99,
+# which the names' byte order would put it before.
 
 patch_projects='llvm chez idris snmalloc simdutf'
 
 # patches PROJECT: the project's patch files, in the order they apply.
 patches() {
-  find "$root/upstream" -mindepth 2 -maxdepth 2 -type f -name "$1.patch" | LC_ALL=C sort
+  find "$root/upstream" -mindepth 2 -maxdepth 2 -type f -name "$1.patch" |
+    awk -F/ '{ print $(NF - 1) "\t" $0 }' | LC_ALL=C sort -n | cut -f 2-
 }
 
 # patch_record PROJECT: one line per patch, `<bug> <SHA-256>`, in the order
