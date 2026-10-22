@@ -263,11 +263,16 @@ holed env t = fst (holedAt env t)
 closedOverTypes : {vs : Scope} -> Env vs -> (places : List Nat) -> Maybe (List ClosedTerm)
 closedOverTypes env = traverse (\p => getAt p (standings env) >>= \(_, _, ty) => ty)
 
+||| What a definition's leaves give at a node: a member of its result
+||| type's choice, which a lambda there is; or a value.
+data Giving = MemberLeaves | ValueLeaves
+
 ||| What the walk knows of the writer: its address, the definition whose
 ||| text holds what it reads (for a field type, the field's constructor),
 ||| its name for the normalisers' messages, its location, which a site with
-||| no location of its own takes, and its definition, whose type names its
-||| parameters, by which a message shows their markers.
+||| no location of its own takes, its definition, whose type names its
+||| parameters, by which a message shows their markers, and what its leaves
+||| give.
 record At where
   constructor MkAt
   writer : Address
@@ -275,6 +280,7 @@ record At where
   owner : String
   loc : FC
   writerDef : GlobalDef
+  giving : Giving
 
 ||| A closed term as a message shows it: each marker of the writer's, and
 ||| each stand-in of the site's (`stands`), by the name the writer's type
@@ -355,13 +361,13 @@ data ArgumentText : Type where
 -- What a type builds
 ------------------------------------------------------------------------------
 
-||| The type constructor an address holds, if it holds one.
-typeConstructorAt : {auto c : Ref Ctxt Defs} -> Address -> Front (Maybe GlobalDef)
+||| The type constructor the boundary read at an address, if one is there.
+typeConstructorAt : Address -> Front (Maybe Defined)
 typeConstructorAt a = do
-  Just def <- core (definitionAt a)
+  Just d <- definitionRead a
     | Nothing => pure Nothing
-  pure (case definition def of
-          TCon {} => Just def
+  pure (case definition d.def of
+          TCon {} => Just d
           _ => Nothing)
 
 mutual
@@ -373,9 +379,9 @@ mutual
   ||| height read here bounds the key's.
   eraseIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Template -> Front Template
   eraseIn (Head (Just a) cs) = do
-    Just def <- typeConstructorAt a
+    Just tc <- typeConstructorAt a
       | Nothing => Head (Just a) <$> eraseAll cs
-    Head (Just a) <$> erasedAt (!(tyConFacts def)).roles 0 cs
+    Head (Just a) <$> erasedAt (!(tyConFacts tc)).roles 0 cs
   eraseIn (Head Nothing cs) = Head Nothing <$> eraseAll cs
   eraseIn (Choice t ls) = Choice <$> eraseIn t <*> eraseAll ls
   eraseIn (Opaque a cs) = Opaque a <$> eraseAll cs
@@ -407,9 +413,9 @@ mutual
 ||| represents; none for a head that is no type constructor.
 built : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> At -> FC -> Address -> List Template -> Front (List Site)
 built at fc a cs = do
-  Just def <- typeConstructorAt a
+  Just tc <- typeConstructorAt a
     | Nothing => pure []
-  let args = map argument (mapMaybe (\j => (j,) <$> getAt j cs) !(represented def))
+  let args = map argument (mapMaybe (\j => (j,) <$> getAt j cs) !(represented tc))
   pure [siteAt at fc (Builds a) args]
   where
     -- A part of a type already read, with no term of its own to root.
@@ -483,12 +489,23 @@ offered ps env a = (\v => MkOffered a v (offerOf env a.written)) <$> solved (clo
 data Taking = AsStatic Static | AsCode | Nowhere
 
 ||| One argument of a call, whole, as the callee's type takes it: offered,
-||| at its position among the callee's parameters, and how it is taken.
+||| at its position among the callee's parameters, how it is taken, and the
+||| type of the binder that takes it, the site's earlier arguments put in.
 record Given (vs : Scope) where
   constructor MkGiven
   offer : Offered vs
   position : Nat
   taking : Taking
+  binder : ClosedTerm
+
+||| The type of each binder a type shows, each argument given put in for
+||| the binder that takes it.
+bindersAlong : {auto c : Ref Ctxt Defs} -> ClosedTerm -> List ClosedTerm -> Front (List ClosedTerm)
+bindersAlong ty [] = pure []
+bindersAlong ty (v :: vs) = do
+  Bind _ _ (Pi _ _ _ a) sc <- showingBinder ty
+    | _ => pure []
+  (a ::) <$> bindersAlong (subst v sc) vs
 
 ||| The arguments a callee's type takes, each decided once, by its kind
 ||| (`staticsOver`) and, for one of none, by what the callee takes there
@@ -501,20 +518,30 @@ taken : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
 taken at ps env ty positions args = do
   os <- traverse (offered ps env) args
   (kinds, rest) <- staticsOver at.owner (length args) ty (map (\o => Just (o.value, o.offer)) os)
-  pure (decided 0 os (toList kinds) positions, rest)
+  binders <- bindersAlong ty (map (.value) os)
+  pure (decided 0 os (toList kinds) positions binders, rest)
   where
     taking : Maybe Static -> ArgumentAt -> Taking
     taking (Just k) _ = AsStatic k
     taking Nothing (RuntimeValue _) = AsCode
     taking Nothing _ = Nowhere
 
-    decided : Nat -> List (Offered vs) -> List (Maybe Static) -> List ArgumentAt -> List (Given vs)
-    decided j (o :: os) (k :: ks) (p :: rs) = MkGiven o j (taking k p) :: decided (S j) os ks rs
-    decided _ _ _ _ = []
+    decided : Nat -> List (Offered vs) -> List (Maybe Static) -> List ArgumentAt -> List ClosedTerm -> List (Given vs)
+    decided j (o :: os) (k :: ks) (p :: rs) (b :: bs) = MkGiven o j (taking k p) b :: decided (S j) os ks rs bs
+    decided _ _ _ _ _ = []
 
-||| A definition by name: its address and what the context holds of it.
-definitionOf : {auto c : Ref Ctxt Defs} -> Name -> Front (Maybe (Address, GlobalDef))
-definitionOf n = map (\(placement, def) => (addressOf placement, def)) <$> core (resolve n)
+||| A definition by name, as the boundary read it (`Errors.defined`): its
+||| address and what was read of it.
+definitionOf : Name -> Front (Maybe (Address, Defined))
+definitionOf n = map (\d => (addressOf d.placement, d)) <$> defined n
+
+||| Whether a definition's body, as the boundary read it, is one leaf.
+oneLeaf : Defined -> Bool
+oneLeaf d = case d.matched of
+  Just m => case leafOf m of
+    Just _ => True
+    Nothing => False
+  Nothing => False
 
 mutual
   ||| The types of the runtime values a dictionary closes over, in the order
@@ -533,15 +560,12 @@ mutual
               ClosedTerm -> List (ClosedTerm, Lazy (Front (List ClosedTerm))) -> Front (List ClosedTerm)
   heldSpine (App _ f a) args = heldSpine f ((a, heldIn a) :: args)
   heldSpine (Ref _ _ n) args = do
-    Just (_, def) <- definitionOf n
+    Just (_, d) <- definitionOf n
       | Nothing => pure []
-    case definition def of
-      -- A definition of one right-hand side; of one that matches, nothing
-      -- is decoded.
-      PMDef _ pargs body => case !(leafOfBody {args = pargs} body) of
-        Just _ => heldOver def 0 !(typeOfDefinition def) args
-        Nothing => pure []
-      DCon {} => heldOver def 0 !(typeOfDefinition def) args
+    case definition d.def of
+      -- A definition of one right-hand side.
+      PMDef {} => if oneLeaf d then heldOver d.def 0 d.type args else pure []
+      DCon {} => heldOver d.def 0 d.type args
       _ => pure []
   heldSpine _ _ = pure []
 
@@ -627,15 +651,17 @@ callSite at ps env fc reach gs = do
       AsCode => Nothing
       Nowhere => Nothing
 
-||| A member of a polymorphic function type's choice, `written` closed as a
-||| dictionary's key holds it (`d`, its runtime values hole markers), and
-||| the types of the values it holds as one: each use of a value of that
-||| type is the member at the use's types (`Translate.State.AtUse`), given
-||| the member's form at the application's position 1. So the member writes
-||| its form there, with the packing of the values it holds, as a dictionary
-||| argument does (`argument`). The application is no node, so nothing
-||| reads its positions on: a member raises their bounds and closes no
-||| cycle.
+||| A member of a choice, `written` closed as a dictionary's key holds it
+||| (`d`, its runtime values hole markers), and the types of the values it
+||| holds as one: each use of a polymorphic function's choice is the member
+||| at the use's types (`Translate.State.AtUse`), given the member's form at
+||| the application's position 1. So the member writes its form there, with
+||| the packing of the values it holds, as a dictionary argument does
+||| (`argument`). An implementation, a member of its interface's choice,
+||| writes there too: no use applies one, so it only raises the bound of a
+||| position no implementation reaches. The application is no node, so
+||| nothing reads its positions on: a member raises their bounds and closes
+||| no cycle.
 memberAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
            At -> Pats -> Env vs -> FC -> (d : ClosedTerm) -> (holding : List ClosedTerm) -> TT vs -> Front (List Site)
 memberAt at ps env fc d holding written = do
@@ -643,50 +669,98 @@ memberAt at ps env fc d holding written = do
   packed <- packing at ps.made fc holding
   pure (siteAt at fc Applies [x] :: packed)
 
-||| A lambda the program writes in a runtime position that takes a type or
-||| an implementation before what it gives: a polymorphic function, the
-||| member of its type's choice (`Translate.Terms.member`, at a definition's
-||| result, in a constructor's field, delayed in an argument), written where
-||| a use applies it (`memberAt`), holding the runtime values of the scope
-||| it mentions. Its own binders say so, since a lambda checked at such a
-||| type binds each of the type's binders (`Translate.Types.polymorphicType`);
-||| one that takes neither is a function on values. A lambda is a value, so
-||| the program fixes it.
-lambdaMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-               At -> Pats -> Env vs -> FC -> TT vs -> Front (List Site)
-lambdaMember at ps env fc lam = case takesStatics lam of
-  False => pure []
-  True => do
-    let (form, places) = holedAt env lam
-    d <- solved form
-    -- A value the walk binds with no type (a case's field past the binders
-    -- its constructor's type shows) is packed with nothing it knows of the
-    -- pair's halves, so the packing is left out with it.
-    memberAt at ps env fc d (maybe [] id (closedOverTypes env places)) lam
-  where
-    takesStatics : TT ws -> Bool
-    takesStatics (Bind _ _ (Lam _ _ AutoImplicit _) _) = True
-    takesStatics (Bind _ _ (Lam _ _ _ ty) sc) = isTypeLike ty || takesStatics sc
-    takesStatics _ = False
+||| A lambda where the member table says a member stands: the member of its
+||| type's choice (`Translate.Terms.member`), written where a use applies it
+||| (`memberAt`), holding the runtime values of the scope it mentions. A
+||| lambda is a value, so the program fixes it.
+lambdaAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+           At -> Pats -> Env vs -> FC -> TT vs -> Front (List Site)
+lambdaAt at ps env fc lam = do
+  let (form, places) = holedAt env lam
+  d <- solved form
+  -- A value the walk binds with no type (a case's field past the binders
+  -- its constructor's type shows) is packed with nothing it knows of the
+  -- pair's halves, so the packing is left out with it.
+  memberAt at ps env fc d (maybe [] id (closedOverTypes env places)) lam
 
-||| A definition applied in a runtime position whose value, of type `type`
-||| (the definition's type after the arguments, normalised), is a
-||| polymorphic function the program fixes now: the member of that type's
-||| choice (`Translate.Terms.applyRef`'s `memberHere`), written where a use
-||| applies it (`memberAt`). Essential: a value of an interface's type is a
-||| member of its own type's choice, which no use applies at the
-||| application, and a value no compile-time reduction fixes is a choice,
-||| no member.
+||| The type a suspension holds, of a suspension's type; any other as it is:
+||| a lambda given delayed where a delayed one is held is the member of the
+||| type held.
+undelayed : ClosedTerm -> ClosedTerm
+undelayed (TDelayed _ _ t) = t
+undelayed t = t
+
+||| Whether a value of a type the instance decides is a member there: the
+||| type the site's arguments give, normalised, is a choice's
+||| (`choiceType`), as the translation tests it.
+byInstance : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> Front Bool
+byInstance ty = choiceType !(normaliseClosed (undelayed ty))
+
+||| An argument at a binder that takes a member: a lambda there, or one
+||| delayed, is that member; anything else is code, where a definition
+||| applied gives its own member (`definitionMember`).
+atMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+           At -> Pats -> Env vs -> FC -> Arg vs -> Front (List Site)
+atMember at ps env fc a = case a.written of
+  lam@(Bind lfc _ (Lam {}) _) => (++) <$> lambdaAt at ps env lfc lam <*> Force a.asCode
+  TDelay _ _ _ lam@(Bind lfc _ (Lam {}) _) => (++) <$> lambdaAt at ps env lfc lam <*> Force a.asCode
+  _ => Force a.asCode
+
+||| The type of a definition after its arguments, each put in for the binder
+||| that takes it, normalised.
+typeAfter : {auto c : Ref Ctxt Defs} -> ClosedTerm -> List ClosedTerm -> Front ClosedTerm
+typeAfter ty [] = normaliseClosed ty
+typeAfter ty (v :: vs) = do
+  Bind _ _ (Pi {}) sc <- showingBinder ty
+    | shown => normaliseClosed shown
+  typeAfter (subst v sc) vs
+
+||| A definition applied as code where what it gives after its arguments is
+||| a member (`givesAfter`; where the instance decides, the type `after`
+||| them says): the member of its type's choice
+||| (`Translate.Terms.applyRef`'s `memberHere`), written where a use applies
+||| it (`memberAt`). Essential: a value no compile-time reduction fixes is
+||| a choice, no member.
 definitionMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-                   At -> Pats -> Env vs -> FC -> (type : ClosedTerm) -> TT vs -> Front (List Site)
-definitionMember at ps env fc ty@(Bind _ _ (Pi {}) _) written = do
-  True <- polymorphicType ty
-    | False => pure []
-  d <- solved (holed env written)
-  FixedNow <- fixing ty d
-    | ChosenAtRunTime _ => pure []
-  memberAt at ps env fc d !(heldIn d) written
-definitionMember at ps env fc _ written = pure []
+                   At -> Pats -> Env vs -> FC -> Defined -> (after : Front ClosedTerm) -> List (Arg vs) ->
+                   Front (List Site)
+definitionMember at ps env fc d after args = case givesAfter (length args) (memberPlaces d) of
+    NoMember => pure []
+    AMember => made !after
+    ByInstance => do
+      ty <- after
+      if !(byInstance ty) then made ty else pure []
+  where
+    made : ClosedTerm -> Front (List Site)
+    made ty = do
+      let written = foldl (App fc) (Ref fc Func (fullname d.def)) (map (.written) args)
+      form <- solved (holed env written)
+      FixedNow <- fixing ty form
+        | ChosenAtRunTime _ => pure []
+      memberAt at ps env fc form !(heldIn form) written
+
+||| What a definition's leaves give at its node, from what the member table
+||| says it gives after its parameters; where the instance decides, the
+||| result type at the node says.
+givingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Holding -> (result : ClosedTerm) -> Front Giving
+givingOf AMember _ = pure MemberLeaves
+givingOf NoMember _ = pure ValueLeaves
+givingOf ByInstance result = (\m => if m then MemberLeaves else ValueLeaves) <$> byInstance result
+
+||| A leaf at the writer's result: where its leaves give a member, a lambda
+||| there, under its `let`s, is that member (`Translate.Terms.atType`).
+resultMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+               At -> Pats -> Env vs -> TT vs -> Front (List Site)
+resultMember at ps env tm = case at.giving of
+  ValueLeaves => pure []
+  MemberLeaves => under env tm
+  where
+    under : {ws : Scope} -> Env ws -> TT ws -> Front (List Site)
+    under env' lam@(Bind fc _ (Lam {}) _) = lambdaAt at ps env' fc lam
+    under env' (Bind _ x (Let _ rig _ ty) sc) = case use rig of
+      Erased => under ((Erased, x, Nothing) :: env') sc
+      Used _ => under ((Runtime, x, Just (close env' ty)) :: env') sc
+    under _ _ = pure []
 
 ||| Arguments as a callee's type takes them: a static one is walked as a
 ||| static value, a runtime one as code, and an erased one not at all, since
@@ -699,6 +773,22 @@ walked (g :: gs) = (++) <$> one g.taking <*> walked gs
     one (AsStatic _) = Force g.offer.arg.asStatic
     one AsCode = Force g.offer.arg.asCode
     one Nowhere = pure []
+
+||| Arguments where `given` says which binders take a member (the member
+||| table's `givenAt` for a definition's; for a type no definition has,
+||| every binder as the instance decides): an argument at one is a member
+||| where it stands (`atMember`); where the instance decides, the binder's
+||| type the site's arguments give says (`byInstance`); any other is walked
+||| as its kind says (`walked`).
+walkedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
+           At -> Pats -> Env vs -> FC -> (given : Nat -> Holding) -> List (Given vs) -> Front (List Site)
+walkedAt at ps env fc given [] = pure []
+walkedAt at ps env fc given (g :: gs) = (++) <$> one (given g.position) <*> walkedAt at ps env fc given gs
+  where
+    one : Holding -> Front (List Site)
+    one AMember = atMember at ps env fc g.offer.arg
+    one NoMember = walked [g]
+    one ByInstance = if !(byInstance g.binder) then atMember at ps env fc g.offer.arg else walked [g]
 
 ||| A polymorphic function held at run time, of type `t`, applied where it
 ||| is held: a use of it, the member at the use's types
@@ -719,21 +809,24 @@ heldApplication at ps env fc t args = do
   (kinds, _) <- staticsOver at.owner (2 + length args) ty (Just (t, AValue) :: Nothing :: map (\o => Just (o.value, o.offer)) os)
   let (k :: _ :: ks) = toList kinds
     | _ => pure []
+  -- The form's type is the application's first argument, a type, whose
+  -- binder is a universe.
   let typed = MkGiven (MkOffered (MkArg (embedClosed t) (pure []) (pure [])) t AValue) 0 (maybe Nowhere AsStatic k)
+                      (TType EmptyFC (UN Underscore))
   gs <- along 2 t ks os
   site <- callSite at ps env fc Applies (typed :: gs)
-  now <- walked gs
+  now <- walkedAt at ps env fc (const ByInstance) gs
   pure (site ++ now)
   where
     along : Nat -> ClosedTerm -> List (Maybe Static) -> List (Offered vs) -> Front (List (Given vs))
     along j ty (k :: ks) (o :: os) = do
-      Bind _ _ (Pi _ rig _ _) sc <- showingBinder ty
+      Bind _ _ (Pi _ rig _ a) sc <- showingBinder ty
         | _ => pure []
       let taking = case (k, use rig) of
                      (Just st, _) => AsStatic st
                      (Nothing, Erased) => Nowhere
                      (Nothing, Used _) => AsCode
-      (MkGiven o j taking ::) <$> along (S j) (subst o.value sc) ks os
+      (MkGiven o j taking a ::) <$> along (S j) (subst o.value sc) ks os
     along _ _ _ _ = pure []
 
 ||| Arguments applied to a value of a known type, or of none: one at an
@@ -747,12 +840,14 @@ overType at ps env fc _ [] = pure []
 overType at ps env fc known (a :: as) = do
   ty <- traverse showingBinder known
   case ty of
-    Just t@(Bind _ _ (Pi _ rig _ _) sc) => do
+    Just t@(Bind _ _ (Pi _ rig _ b) sc) => do
       False <- polymorphicType t
         | True => heldApplication at ps env fc t (a :: as)
+      -- No definition's member table speaks for a type a value has: the
+      -- binder's type decides, as the instance does.
       here <- case use rig of
                 Erased => pure []
-                Used _ => Force a.asCode
+                Used _ => if !(byInstance b) then atMember at ps env fc a else Force a.asCode
       (here ++) <$> overType at ps env fc (Just (subst (close env a.written) sc)) as
     _ => do
       here <- Force a.asCode
@@ -765,15 +860,15 @@ piNames _ = []
 
 ||| How many parameters a definition takes: its case tree's scope, or the
 ||| arity Idris records, or the binders its type shows.
-arityOf : {auto c : Ref Ctxt Defs} -> GlobalDef -> Front Nat
-arityOf def = case definition def of
-  PMDef _ args _ => pure (length args)
-  DCon _ arity _ => pure arity
-  TCon arity _ _ _ _ _ _ => pure arity
-  Builtin {arity} _ => pure arity
-  ForeignDef arity _ => pure arity
-  ExternDef arity => pure arity
-  _ => length . piNames <$> typeOfDefinition def
+arityOf : Defined -> Nat
+arityOf d = case definition d.def of
+  PMDef _ args _ => length args
+  DCon _ arity _ => arity
+  TCon arity _ _ _ _ _ _ => arity
+  Builtin {arity} _ => arity
+  ForeignDef arity _ => arity
+  ExternDef arity => arity
+  _ => length (piNames d.type)
 
 ||| A data constructor applied, what it takes at each binder `positions`:
 ||| `Calls` of it at its dictionary arguments, so that the flow sees what a
@@ -781,10 +876,10 @@ arityOf def = case definition def of
 ||| after its arguments. With the arguments given, for their walk, and that
 ||| type.
 constructed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-              At -> Pats -> Env vs -> FC -> Address -> GlobalDef -> (positions : List ArgumentAt) -> List (Arg vs) ->
+              At -> Pats -> Env vs -> FC -> Address -> Defined -> (positions : List ArgumentAt) -> List (Arg vs) ->
               Front (List Site, List (Given vs), ClosedTerm)
-constructed at ps env fc a def positions args = do
-  (gs, rest) <- taken at ps env !(typeOfDefinition def) positions args
+constructed at ps env fc a d positions args = do
+  (gs, rest) <- taken at ps env d.type positions args
   calls <- case filter holdsDictionary gs of
     [] => pure []
     dictionaries => callSite at ps env fc (Calls a) dictionaries
@@ -796,21 +891,6 @@ constructed at ps env fc a def positions args = do
       AsStatic ADictionary => True
       _ => False
 
-||| A data constructor's arguments as its value holds them, what it takes at
-||| each binder `positions`: an implementation or a polymorphic function
-||| given at a runtime binder is a field like any other, its value the
-||| member of its choice the site fixes (`Translate.Terms.constructor`), so
-||| it is walked as code, where its member is found (`lambdaMember`,
-||| `definitionMember`); every other argument as the constructor's type
-||| takes it (`walked`).
-fieldsGiven : List (Given vs) -> (positions : List ArgumentAt) -> Front (List Site)
-fieldsGiven (g :: gs) (p :: ps) = (++) <$> one g.taking p <*> fieldsGiven gs ps
-  where
-    one : Taking -> ArgumentAt -> Front (List Site)
-    one (AsStatic ADictionary) (RuntimeValue _) = Force g.offer.arg.asCode
-    one _ _ = walked [g]
-fieldsGiven gs _ = walked gs
-
 ||| A projection-shaped definition's case tree: one match on one parameter
 ||| against one constructor, returning one of its fields, applied or not.
 ||| The parameter, the field, and for each argument the field is applied to
@@ -821,41 +901,31 @@ record Projected where
   field : Nat
   params : List (Maybe Nat)
 
-||| Read off the tree's root as the context holds it, so that of a stored
-||| definition only the one leaf of a projection is decoded, and of any
-||| other nothing.
-projectionShape : {args : Scope} -> Body args -> Front (Maybe Projected)
-projectionShape body = core (walkTree body shape)
+||| Read off the root of the tree the boundary read.
+projectionShape : {0 args : Scope} -> CaseTree args -> Maybe Projected
+projectionShape (Case idx _ _ [ConCase _ _ cargs (STerm _ rhs)]) = case getFnArgs rhs of
+    (Local _ _ k _, fargs) =>
+      if k < length cargs then Just (MkProjected idx k (map (parameter (length cargs)) fargs)) else Nothing
+    _ => Nothing
   where
     -- Below the alternative's own variables, a variable is a parameter.
     parameter : Nat -> TT ws -> Maybe Nat
     parameter n (Local _ _ m _) = if m >= n then Just (minus m n) else Nothing
     parameter _ _ = Nothing
-
-    shape : {0 t : Scoped} -> Leaves t -> CaseTree' t args -> Core (Maybe Projected)
-    shape leaves (Case idx _ _ [ConCase _ _ cargs (STerm _ r)]) = do
-      rhs <- leaves.leafTerm {outer = []} r
-      pure $ case getFnArgs rhs of
-        (Local _ _ k _, fargs) =>
-          if k < length cargs then Just (MkProjected idx k (map (parameter (length cargs)) fargs)) else Nothing
-        _ => Nothing
-    shape _ _ = pure Nothing
+projectionShape _ = Nothing
 
 ||| The record a call of a projection-shaped definition matches, when the
 ||| call gives every parameter and the record is a dictionary: a method call.
-methodRecord : GlobalDef -> List (Given vs) -> Front (Maybe (Projected, Given vs))
-methodRecord def gs = case definition def of
-  PMDef _ params body => do
-    Just p <- projectionShape body
-      | Nothing => pure Nothing
-    pure $ do
-      Yes _ <- pure (isLTE (length params) (length gs))
-        | No _ => Nothing
-      g <- getAt p.matched gs
-      AsStatic ADictionary <- pure g.taking
-        | _ => Nothing
-      pure (p, g)
-  _ => pure Nothing
+methodRecord : Defined -> List (Given vs) -> Maybe (Projected, Given vs)
+methodRecord d gs = do
+  m <- d.matched
+  p <- projectionShape m.tree
+  Yes _ <- pure (isLTE (length m.args) (length gs))
+    | No _ => Nothing
+  g <- getAt p.matched gs
+  AsStatic ADictionary <- pure g.taking
+    | _ => Nothing
+  pure (p, g)
 
 ||| The method a call dispatches on its dictionary: the record's template
 ||| and root, at the method's own static arguments, those past the
@@ -872,7 +942,7 @@ dispatch at ps env fc p dict rest extras = do
   let n = min (length extras) (length positions)
   (gs, after) <- taken at ps env rest positions (take n extras)
   site <- callSite at ps env fc (Dispatches tm root p.field) gs
-  now <- walked gs
+  now <- walkedAt at ps env fc (const ByInstance) gs
   later <- overType at ps env fc (Just after) (drop n extras)
   pure (site ++ now ++ later)
 
@@ -896,9 +966,9 @@ hookCalls at ps env fc hs args = case hs.natOperation of
 
     aliased : QName -> Front (List Site)
     aliased q = do
-      Just (a, def) <- definitionOf !(core (toName q))
+      Just (a, d) <- definitionOf !(core (toName q))
         | Nothing => pure []
-      (gs, _) <- taken at ps env !(typeOfDefinition def) !(argumentsOf def) (take !(arityOf def) args)
+      (gs, _) <- taken at ps env d.type !(argumentsOf d) (take (arityOf d) args)
       callSite at ps env fc (Calls a) gs
 
 ||| The registry's hooks of a definition, as the translation finds them: a
@@ -915,31 +985,21 @@ hooksFor def = case definition def of
   _ => hooksOf (fullname def)
 
 ||| A definition applied as code: the member of its value's choice where
-||| that is a polymorphic function the program fixes (`definitionMember`),
-||| by its type after its arguments, which a call given no more than its
-||| parameters has; `Calls` of it at the static arguments its type makes,
-||| and a method call's `Dispatches` beside it; the definitions its hooks
-||| call instead; and the walk of its arguments.
+||| the member table says it gives one after its arguments
+||| (`definitionMember`), however many it is given; `Calls` of it at the
+||| static arguments its type makes, and a method call's `Dispatches`
+||| beside it; the definitions its hooks call instead; and the walk of its
+||| arguments, a member where the table says its binder takes one.
 call : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
-       At -> Pats -> Env vs -> FC -> Address -> GlobalDef -> List (Arg vs) -> Front (List Site)
-call at ps env fc a def args = do
-  arity <- arityOf def
-  (gs, rest) <- taken at ps env !(typeOfDefinition def) !(argumentsOf def) (take arity args)
-  member <- case drop arity args of
-    [] => do
-      -- Past an argument the type is a normal form (`staticsOver`); a
-      -- definition given none has its type as written, which shows a
-      -- function's binders only once normalised when a definition heads
-      -- it (an alias).
-      ty <- case (args, getFn rest) of
-              ([], Ref _ Func _) => normaliseClosed rest
-              _ => pure rest
-      definitionMember at ps env fc ty (foldl (App fc) (Ref fc Func (fullname def)) (map (.written) args))
-    _ :: _ => pure []
+       At -> Pats -> Env vs -> FC -> Address -> Defined -> List (Arg vs) -> Front (List Site)
+call at ps env fc a d args = do
+  let arity = arityOf d
+  (gs, rest) <- taken at ps env d.type !(argumentsOf d) (take arity args)
+  member <- definitionMember at ps env fc d (typeAfter rest (map (\x => close env x.written) (drop arity args))) args
   own <- callSite at ps env fc (Calls a) gs
-  instead <- hookCalls at ps env fc (hooksFor def) args
-  now <- walked gs
-  later <- case !(methodRecord def gs) of
+  instead <- hookCalls at ps env fc (hooksFor d.def) args
+  now <- walkedAt at ps env fc (\j => givenAt j (memberPlaces d)) gs
+  later <- case methodRecord d gs of
     Just (p, dict) => dispatch at ps env fc p dict rest (drop arity args)
     Nothing => overType at ps env fc (Just rest) (drop arity args)
   pure (member ++ own ++ instead ++ now ++ later)
@@ -948,20 +1008,22 @@ call at ps env fc a def args = do
 applyRef : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
            At -> Pats -> Env vs -> FC -> Name -> List (Arg vs) -> Front (List Site)
 applyRef at ps env fc n args = do
-  Just (a, def) <- definitionOf n
-    -- A name the context does not hold: a marker of a settled term.
+  Just (a, d) <- definitionOf n
+    -- A name the context defines as nothing: a marker of a settled term.
     | Nothing => overType at ps env fc Nothing args
-  case definition def of
+  case definition d.def of
+    -- A constructor's field that holds an implementation or a polymorphic
+    -- function holds the member its site fixes (`Translate.Terms.constructor`),
+    -- as the member table says of its binder.
     DCon _ arity _ => do
-      positions <- argumentsOf def
-      (sites, gs, rest) <- constructed at ps env fc a def positions (take arity args)
-      now <- fieldsGiven gs positions
+      (sites, gs, rest) <- constructed at ps env fc a d !(argumentsOf d) (take arity args)
+      now <- walkedAt at ps env fc (\j => givenAt j (memberPlaces d)) gs
       later <- overType at ps env fc (Just rest) (drop arity args)
       pure (sites ++ now ++ later)
-    PMDef {} => call at ps env fc a def args
-    Builtin {} => call at ps env fc a def args
-    ForeignDef {} => call at ps env fc a def args
-    ExternDef {} => call at ps env fc a def args
+    PMDef {} => call at ps env fc a d args
+    Builtin {} => call at ps env fc a d args
+    ForeignDef {} => call at ps env fc a d args
+    ExternDef {} => call at ps env fc a d args
     -- A type where code is, or a hole: the translation refuses both.
     _ => pure []
 
@@ -976,17 +1038,16 @@ applyRef at ps env fc n args = do
 staticRef : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
             At -> Pats -> Env vs -> FC -> Name -> List (Arg vs) -> Front (List Site)
 staticRef at ps env fc n args = do
-  Just (a, def) <- definitionOf n
+  Just (a, d) <- definitionOf n
     | Nothing => statics args
-  case definition def of
+  case definition d.def of
     DCon _ arity _ => do
-      (sites, gs, _) <- constructed at ps env fc a def !(argumentsOf def) (take arity args)
-      fields <- if !(implementationType !(typeOfDefinition def)) then walked gs else statics (take arity args)
+      (sites, gs, _) <- constructed at ps env fc a d !(argumentsOf d) (take arity args)
+      fields <- if !(implementationType d.type) then walked gs else statics (take arity args)
       (\later => sites ++ fields ++ later) <$> statics (drop arity args)
     _ => do
-      ty <- typeOfDefinition def
-      own <- if not !(implementationType ty) then pure [] else do
-        (gs, _) <- taken at ps env ty !(argumentsOf def) (take !(arityOf def) args)
+      own <- if not !(implementationType d.type) then pure [] else do
+        (gs, _) <- taken at ps env d.type !(argumentsOf d) (take (arityOf d) args)
         callSite at ps env fc (Calls a) gs
       (own ++) <$> statics args
 
@@ -1027,11 +1088,9 @@ mutual
     Nothing <- closedRun tm
       | Just _ => pure []
     spine ph w acc at ps env f [argOf ph w acc at ps env a]
-  -- A lambda: the member of its type's choice it is, where it takes a type
-  -- or an implementation (`lambdaMember`), and its binders and body as
-  -- code.
-  term ph w acc at ps env tm@(Bind fc x (Lam _ rig _ ty) sc) =
-    (++) <$> lambdaMember at ps env fc tm <*> lambdaBinder ph w acc at ps env x rig ty sc
+  -- A lambda: its binders and body as code. Where it is a member, the
+  -- place it stands says so (`atMember`, `resultMember`).
+  term ph w acc at ps env (Bind fc x (Lam _ rig _ ty) sc) = lambdaBinder ph w acc at ps env x rig ty sc
   -- An erased `let` binds a compile-time value, and its value is no code.
   term ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) = case use rig of
     Erased => term ph w acc at ps ((Erased, x, Nothing) :: env) sc
@@ -1261,10 +1320,10 @@ rebound p con ((s, x, ty) :: es) = (restand s, x, map (substName (standInName p.
 ||| there; a runtime field of a shape a shape one constructor deeper,
 ||| and any other a runtime value.
 conStands : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-            Pats -> Stand -> List ClosedTerm -> Address -> GlobalDef -> ClosedTerm -> (args : List Name) ->
+            Pats -> Stand -> List ClosedTerm -> Address -> Defined -> ClosedTerm -> (args : List Name) ->
             Front (Env args, ClosedTerm, Pats)
-conStands ps v r ca cdef con args = do
-  ty <- normaliseClosed !(typeOfDefinition cdef)
+conStands ps v r ca cd con args = do
+  ty <- normaliseClosed cd.type
   layout <- layoutOf ty
   (env, ps') <- bind ps layout 0 ty args
   pure (env, foldl (App EmptyFC) con (map (\(s, _, _) => termOf s) (standings env)), ps')
@@ -1277,13 +1336,12 @@ conStands ps v r ca cdef con args = do
 
     layoutOf : ClosedTerm -> Front (List (Maybe Nat))
     layoutOf ty = do
-      defs <- getDefs
       let Just tn = built ty
         | Nothing => pure []
-      Just tdef <- lookupExact tn (gamma defs)
+      Just tc <- defined tn
         | Nothing => pure []
-      facts <- tyConFacts tdef
-      pure (paramLayout cdef facts.params facts.roles ty)
+      facts <- tyConFacts tc
+      pure (paramLayout cd.def facts.params facts.roles ty)
 
     -- A runtime field: of a shape not matched yet, a shape one match
     -- deeper; of anything else, a runtime value.
@@ -1299,7 +1357,7 @@ conStands ps v r ca cdef con args = do
     stand ps (Just p) b _ _ = pure (maybe Erased Fixed (getAt p r), ps)
     stand ps Nothing b rig a = case v of
       Holds (Own i d path) => pure (Holds (Own i d (path ++ [b])), ps)
-      _ => case argumentAt cdef b rig of
+      _ => case argumentAt cd.def b rig of
         RuntimeValue _ =>
           if !(compileTimeBinder rig !(normaliseClosed a)) then pure (Holds (Known (heldAt ca b)), ps) else
             pure (field ps)
@@ -1328,7 +1386,7 @@ mutual
   ||| what the matches above it made of the scope.
   tree : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vs : Scope} ->
          At -> Pats -> Env vs -> CaseTree vs -> Front (List Site)
-  tree at ps env (STerm _ tm) = term asWritten start (sizeAccessible start) at ps env tm
+  tree at ps env (STerm _ tm) = (++) <$> resultMember at ps env tm <*> term asWritten start (sizeAccessible start) at ps env tm
   tree at ps env (Unmatched _) = pure []
   tree at ps env Impossible = pure []
   -- The scrutinee's type is its variable's: a case tree loaded from a TTC
@@ -1353,8 +1411,8 @@ mutual
   alternatives at ps env v r every alts [] = pure []
   alternatives at ps env v r every alts (ConCase cn tag args rhs :: rest) = do
     here <- the (Front (List Site)) $ case !(definitionOf cn) of
-      Just (ca, cdef) => do
-        (bound, con, ps') <- conStands ps (fst v) r ca cdef (Ref EmptyFC (DataCon tag (length args)) cn) args
+      Just (ca, cd) => do
+        (bound, con, ps') <- conStands ps (fst v) r ca cd (Ref EmptyFC (DataCon tag (length args)) cn) args
         tree at ps' (append bound (matchedAs (fst v) con env)) rhs
       -- Idris's tree names only constructors the context holds.
       Nothing => pure []
@@ -1405,11 +1463,13 @@ mutual
   expand at ps env p r [] rhs = pure []
   expand at ps env p r (cn :: cns) rhs = do
     here <- the (Front (List Site)) $ case !(definitionOf cn) of
-      Just (ca, cdef@(MkGlobalDef {definition = DCon tag arity _, _})) => do
-        (_, con, ps') <- conStands ps (Pattern p) r ca cdef (Ref EmptyFC (DataCon tag arity) cn) (piNames !(typeOfDefinition cdef))
-        tree at ps' (rebound p con env) rhs
+      Just (ca, cd) => case definition cd.def of
+        DCon tag arity _ => do
+          (_, con, ps') <- conStands ps (Pattern p) r ca cd (Ref EmptyFC (DataCon tag arity) cn) (piNames cd.type)
+          tree at ps' (rebound p con env) rhs
+        _ => pure []
       -- A type's constructors are constructors the context holds.
-      _ => pure []
+      Nothing => pure []
     (here ++) <$> expand at ps env p r cns rhs
 
 ------------------------------------------------------------------------------
@@ -1446,9 +1506,10 @@ parameterNames def = do
         binderOf (Local _ _ i _) = getAt i bound
         binderOf _ = Nothing
 
-||| The writer a definition is, at its address, within another.
-atDefinition : (writer, within : Address) -> GlobalDef -> At
-atDefinition writer within def = MkAt writer within (show (fullname def)) (location def) def
+||| The writer a definition is, at its address, within another, with what
+||| its leaves give.
+atDefinition : (writer, within : Address) -> GlobalDef -> Giving -> At
+atDefinition writer within def giving = MkAt writer within (show (fullname def)) (location def) def giving
 
 ||| An argument as a message shows it.
 export
@@ -1458,12 +1519,12 @@ showArgument (TermText t) = showTT t
 showArgument (WrittenText def ps env t) = display !(parameterNames def) ps env t
 showArgument (ParameterText def i) = (\names => parameterName names i) <$> parameterNames def
 
-||| The writer, by address, and the definition it is.
-writerAt : {auto c : Ref Ctxt Defs} -> (writer, within : Address) -> Front (Maybe (At, GlobalDef))
+||| The writer of a type, by address: what a type writes has no leaves.
+writerAt : (writer, within : Address) -> Front (Maybe At)
 writerAt writer within = do
-  Just def <- core (definitionAt writer)
+  Just d <- definitionRead writer
     | Nothing => pure Nothing
-  pure (Just (atDefinition writer within def, def))
+  pure (Just (atDefinition writer within d.def ValueLeaves))
 
 ||| What a parameter of the definition stands for, by its kind and its value
 ||| at the node: a type, a family or a form is that value, its marker
@@ -1511,15 +1572,14 @@ envOf [] _ = []
 envOf (x :: xs) (e :: es) = e :: envOf xs es
 envOf (x :: xs) [] = (Runtime, x, Nothing) :: envOf xs []
 
-||| A projection of a dictionary parameter, by its body and its own
+||| A projection of a dictionary parameter, by its tree and its own
 ||| parameters' kinds.
-dictionaryProjection : {args : Scope} -> List (Maybe Static) -> Body args -> Front (Maybe Projected)
-dictionaryProjection kinds body = do
-  Just p <- projectionShape body
-    | Nothing => pure Nothing
-  pure (case getAt p.matched kinds of
-          Just (Just ADictionary) => Just p
-          _ => Nothing)
+dictionaryProjection : {0 args : Scope} -> List (Maybe Static) -> CaseTree args -> Maybe Projected
+dictionaryProjection kinds t = do
+  p <- projectionShape t
+  case getAt p.matched kinds of
+    Just (Just ADictionary) => Just p
+    _ => Nothing
 
 ||| The one site of a projection of a dictionary parameter: its record's
 ||| method, dispatched on the record, at the field's arguments that are the
@@ -1571,13 +1631,13 @@ nodeValues (S n) heads i ty ps = do
 
     headed : ClosedTerm -> Address -> Front (ClosedTerm, Pats)
     headed kind tc = do
-      Just def <- core (definitionAt tc)
+      Just tcd <- definitionRead tc
         | Nothing => internal EmptyFC "a family's head the context does not hold"
-      let TCon arity _ _ _ _ _ _ = definition def
-        | _ => internal EmptyFC ("a family's head that is no type constructor: " ++ show (fullname def))
+      let TCon arity _ _ _ _ _ _ = definition tcd.def
+        | _ => internal EmptyFC ("a family's head that is no type constructor: " ++ show (fullname tcd.def))
       k <- arrows <$> normaliseClosed kind
       let (ts, ps') = parts (minus arity k) ps
-      pure (foldl (App EmptyFC) (Ref EmptyFC (TyCon arity) (fullname def)) ts, ps')
+      pure (foldl (App EmptyFC) (Ref EmptyFC (TyCon arity) (fullname tcd.def)) ts, ps')
 
 ||| Every site a definition writes at a node, with each parameter standing
 ||| for its value there (`nodeValues`): its signature's, for every
@@ -1599,21 +1659,20 @@ nodeValues (S n) heads i ty ps = do
 ||| So a request's keyed positions are its node's, and the worklist's bound
 ||| check (`Finite`) finds a bound at each.
 nodeSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-            At -> GlobalDef -> (List ClosedTerm, Pats) -> Front (List (Maybe Static), List Site)
-nodeSites at def (values, made) = do
-  arity <- arityOf def
-  ty <- typeOfDefinition def
-  (kinds', _) <- staticsOver at.owner arity ty (map (\v => Just (v, AValue)) values)
+            (writer, within : Address) -> Defined -> (List ClosedTerm, Pats) -> Front (List (Maybe Static), List Site)
+nodeSites writer within d (values, made) = do
+  (kinds', result) <- staticsOver (show (fullname d.def)) (arityOf d) d.type (map (\v => Just (v, AValue)) values)
   let kinds = toList kinds'
-  (sig, ps, params) <- signature at (zip kinds values) 0 ty made
-  body <- the (Front (List Site)) $ case definition def of
-    PMDef _ args pbody => do
+  at <- atDefinition writer within d.def <$> givingOf (givesAfter (arityOf d) (memberPlaces d)) result
+  (sig, ps, params) <- signature at (zip kinds values) 0 d.type made
+  body <- the (Front (List Site)) $ case d.matched of
+    Just m => do
       st <- getState
-      if contains at.writer st.refused || answersForCalls (hooksOf (fullname def)) then pure [] else
-        case !(dictionaryProjection kinds pbody) of
+      if contains at.writer st.refused || answersForCalls (hooksOf (fullname d.def)) then pure [] else
+        case dictionaryProjection kinds m.tree of
           Just p => (\site => [site]) <$> projectionSite at ps (zip kinds params) p
-          Nothing => tree at ps (envOf args params) !(treeOfBody pbody)
-    _ => pure []
+          Nothing => tree at ps (envOf m.args params) m.tree
+    Nothing => pure []
   pure (kinds, sig ++ body)
 
 ||| A definition as its node with no heads reads it, every parameter its
@@ -1635,16 +1694,16 @@ record Reading where
 atNode : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
          Address -> (heads : List (Nat, Address)) -> Front (List (Maybe Static), List Site)
 atNode a heads = do
-  Just (at, def) <- writerAt a a
+  Just d <- definitionRead a
     | Nothing => pure ([], [])
-  nodeSites at def !(nodeValues !(arityOf def) heads 0 !(typeOfDefinition def) (MkPats 0 []))
+  nodeSites a a d !(nodeValues (arityOf d) heads 0 d.type (MkPats 0 []))
 
 ||| A definition as its node with no heads reads it, from the definition
 ||| the walk holds.
 export
-readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> GlobalDef -> Front Reading
-readingOf a def = do
-  (kinds, ss) <- nodeSites (atDefinition a a def) def !(nodeValues !(arityOf def) [] 0 !(typeOfDefinition def) (MkPats 0 []))
+readingOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Address -> Defined -> Front Reading
+readingOf a d = do
+  (kinds, ss) <- nodeSites a a d !(nodeValues (arityOf d) [] 0 d.type (MkPats 0 []))
   pure (MkReading ss (mapMaybe family (zip [0 .. length kinds] kinds)))
   where
     family : (Nat, Maybe Static) -> Maybe Nat
@@ -1664,6 +1723,6 @@ export
 sitesIn : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
           (writer, within : Address) -> (stands : List StandIn) -> ClosedTerm -> Front (List Site)
 sitesIn writer within stands tm = do
-  Just (at, _) <- writerAt writer within
+  Just at <- writerAt writer within
     | Nothing => pure []
   readClosed at (MkPats (length stands) stands) tm

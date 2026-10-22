@@ -164,12 +164,12 @@ export
 capOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
         Address -> (j : Nat) -> Front (Maybe Nat)
 capOf addr j = do
-  -- Every address the frontend holds came from `addressOf`, so the lookup
-  -- finds a definition.
-  Just def <- core (definitionAt addr)
+  -- Every address the frontend holds came from `addressOf` of a definition
+  -- the boundary read, so the lookup finds one.
+  Just d <- definitionRead addr
     | Nothing => internal EmptyFC "an address with no definition"
-  let owner = show (fullname def)
-  ty <- typeOfDefinition def
+  let owner = show (fullname d.def)
+  let ty = d.type
   (kinds, _) <- staticsOver owner (S j) ty [Just (markerAt i 0, AValue) | i <- [0 .. j]]
   case Vect.last kinds of
     Just AShape => do

@@ -119,19 +119,19 @@ fieldSites : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              (t : Address) -> GlobalDef -> (constructors : List Name) -> (represented : List Nat) -> Front (List Site)
 fieldSites t tdef cons rs = (>>= id) <$> traverse constructorSites cons
   where
-    -- One constructor's sites. Its address is its placement, from the
-    -- lookup that finds it, so a constructor found without an address
-    -- cannot happen. A type's constructor names carry no proof of their
-    -- entries: one the context does not hold is the compiler's error.
+    -- One constructor's sites, as the boundary read it. Its address is its
+    -- placement, so a constructor found without an address cannot happen.
+    -- A type's constructor names carry no proof of their entries: one the
+    -- context does not hold is the compiler's error.
     constructorSites : Name -> Front (List Site)
     constructorSites cn = do
-      Just (placement, cdef) <- core (resolve cn)
+      Just cd <- defined cn
         | Nothing => internal (location tdef)
                        ("the context does not hold " ++ show cn ++ ", a constructor of " ++ show (fullname tdef))
       -- The type as written may hide binders behind a definition (`a -@
       -- b`); its normal form shows each one, as the translation reads it.
-      ty <- normaliseClosed !(typeOfDefinition cdef)
+      ty <- normaliseClosed cd.type
       let bound = bindings rs (returned none 0 ty)
       fts <- fieldTypes none 0 (map (\(k, p) => (k, standInAt p)) bound) ty
-      (>>= id) <$> traverse (\ft => map (\st => { fc := location cdef } st) <$> sitesIn t (addressOf placement) (map snd bound) ft)
+      (>>= id) <$> traverse (\ft => map (\st => { fc := location cd.def } st) <$> sitesIn t (addressOf cd.placement) (map snd bound) ft)
                             fts

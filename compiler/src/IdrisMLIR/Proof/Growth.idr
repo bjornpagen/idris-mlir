@@ -247,6 +247,12 @@ export
 overSucc OverAll = OverAll
 overSucc (Over le) = Over (LTESucc le)
 
+||| A weight above a difference with one more on both sides is above it.
+export
+0 overPred : Dominates w (Finite (S e) (S d)) -> Dominates w (Finite e d)
+overPred OverAll = OverAll
+overPred (Over le) = Over (fromLteSucc le)
+
 ||| A weight above a difference is above any it equals by rewriting.
 export
 0 overAs : e = e' -> d = d' -> Dominates w (Finite e d) -> Dominates w (Finite e' d')

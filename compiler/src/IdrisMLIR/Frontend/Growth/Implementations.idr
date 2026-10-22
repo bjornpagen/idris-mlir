@@ -87,11 +87,10 @@ bindingOf rig a = case use rig of
 ||| runtime value elsewhere, as `closeWritten` writes a runtime variable. A
 ||| type `implementationType` accepts shows a binder for each parameter.
 marks : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-        (owner : String) -> GlobalDef -> (arity : Nat) -> Front (List (VarInfo ()))
-marks owner def arity = do
-  ty <- typeOfDefinition def
-  (kinds, _) <- staticsOver owner arity ty (map (\i => Just (markerAt i 0, AValue)) (iterateN arity S 0))
-  pure (standing 0 (toList kinds) ty)
+        (owner : String) -> Defined -> (arity : Nat) -> Front (List (VarInfo ()))
+marks owner d arity = do
+  (kinds, _) <- staticsOver owner arity d.type (map (\i => Just (markerAt i 0, AValue)) (iterateN arity S 0))
+  pure (standing 0 (toList kinds) d.type)
   where
     standing : Nat -> List (Maybe Static) -> TT vs -> List (VarInfo ())
     standing i (Just _ :: ks) (Bind _ _ (Pi {}) sc) = TypeValue (markerAt i 0) :: standing (S i) ks sc
@@ -165,11 +164,11 @@ methodField : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 methodField owner field = do
   let Just (m, passed, own) = etaWrapper Refl 0 field
     | Nothing => pure (Plain (Leaf 1) Unrooted)
-  Just (placement, mdef) <- core (resolve m)
+  Just md <- defined m
     | Nothing => pure (Plain (Leaf 1) Unrooted)
-  let am = addressOf placement
+  let am = addressOf md.placement
   let xs = map value passed
-  (kinds, _) <- staticsOver owner (length xs) !(typeOfDefinition mdef) (map (\x => Just (x, AValue)) xs)
+  (kinds, _) <- staticsOver owner (length xs) md.type (map (\x => Just (x, AValue)) xs)
   ts <- traverse (\(k, x) => templateOf [] k x) (mapMaybe (\(k, x) => (, x) <$> k) (zip (toList kinds) xs))
   pure (Method am (Head (Just am) ts) own (leadingOf passed))
   where
@@ -203,16 +202,15 @@ fieldsAlong _ _ _ = pure []
 ||| dictionary to read, and nor does a constructor the context does not
 ||| hold.
 implementationFields : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-                       GlobalDef -> (args : Scope) -> TT args -> Front (Maybe Fields)
-implementationFields def args body = do
-  let owner = show (fullname def)
-  stands <- marks owner def (length args)
+                       Defined -> (args : Scope) -> TT args -> Front (Maybe Fields)
+implementationFields d args body = do
+  let owner = show (fullname d.def)
+  stands <- marks owner d (length args)
   Built con cargs <- whnf (closeWritten EmptyFC stands body)
     | Stuck _ => pure Nothing
-  defs <- getDefs
-  Just cdef <- lookupExact con (gamma defs)
+  Just cd <- defined con
     | Nothing => pure Nothing
-  fs <- fieldsAlong owner !(normaliseClosed !(typeOfDefinition cdef)) cargs
+  fs <- fieldsAlong owner !(normaliseClosed cd.type) cargs
   pure (Just fs)
 
 ||| The fields of a definition, over its parameters. An
@@ -225,16 +223,15 @@ implementationFields def args body = do
 ||| function that matches, a primitive, a type constructor) holds no
 ||| dictionary's fields.
 export
-fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> GlobalDef -> Front (Maybe Fields)
-fieldsOf def = case definition def of
-    DCon _ arity _ =>
+fieldsOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Defined -> Front (Maybe Fields)
+fieldsOf d = case (definition d.def, d.matched) of
+    (DCon _ arity _, _) =>
       pure (Just (map (\j => Plain (Var j 0) (Parameter j 0)) (iterateN arity S 0)))
-    PMDef _ args body => do
-      True <- implementationType !(typeOfDefinition def)
+    (PMDef {}, Just m) => do
+      True <- implementationType d.type
         | False => pure Nothing
-      -- An implementation has one right-hand side; of one that matches,
-      -- nothing is decoded.
-      Just rhs <- leafOfBody body
+      -- An implementation has one right-hand side.
+      let Just rhs = leafOf m
         | Nothing => pure Nothing
-      implementationFields def args rhs
+      implementationFields d m.args rhs
     _ => pure Nothing

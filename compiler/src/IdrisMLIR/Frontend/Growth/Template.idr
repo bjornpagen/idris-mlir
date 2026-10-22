@@ -111,6 +111,17 @@ inFrozen ctx n = case definitionIn ctx n of
 atAddress : (ctx : Frozen) -> Address -> Maybe GlobalDef
 atAddress ctx a = (.def) <$> (nameAt (gamma (defsOf ctx)) a >>= inFrozen ctx)
 
+||| The definition the boundary read at an address (`Errors.defined`), by
+||| the name the frozen context gives the entry there: nothing at bytes no
+||| entry has, or for an entry the context defines as nothing.
+export
+definitionRead : Address -> Front (Maybe State.Defined)
+definitionRead a = do
+  ctx <- frozenContext
+  case nameAt (gamma (defsOf ctx)) a of
+    Just n => defined n
+    Nothing => pure Nothing
+
 ------------------------------------------------------------------------------
 -- Roots
 ------------------------------------------------------------------------------
@@ -321,7 +332,7 @@ data Reference = HoleMarker Nat
                | RuntimePart
                | DataConstructor (Maybe Address)
                | TypeConstructor (Maybe Address)
-               | Defined Address
+               | AtDefinition Address
 
 referenceOf : Context -> List StandIn -> NameType -> Name -> Reference
 referenceOf ctx stands nt n = case probeOf n of
@@ -342,7 +353,7 @@ referenceOf ctx stands nt n = case probeOf n of
     Bound => RuntimePart
     DataCon _ _ => DataConstructor (definitionAddress ctx n)
     TyCon _ => TypeConstructor (definitionAddress ctx n)
-    Func => maybe RuntimePart Defined (definitionAddress ctx n)
+    Func => maybe RuntimePart AtDefinition (definitionAddress ctx n)
 
 ||| The role a constructor has in a Nat-like type, if any.
 roleOf : Frozen -> Name -> Maybe NatRole
@@ -455,7 +466,7 @@ recursion ctx stands self predecessor args idx arms = case go arms of
     refersOut (Ref _ nt n) = case referenceOf ctx stands nt n of
       WalkMarker _ => True
       FormalMarker _ _ => True
-      Defined a => a == self
+      AtDefinition a => a == self
       HoleMarker _ => False
       RuntimePart => False
       DataConstructor _ => False
@@ -729,7 +740,7 @@ mutual
       RuntimePart => part m (Leaf 1) args
       DataConstructor a => Head a <$> readings args
       TypeConstructor a => node m.reading (Head a <$> readings args)
-      Defined a => ofDefinition m w acc n a args
+      AtDefinition a => ofDefinition m w acc n a args
 
   ||| A definition with a place, applied. In a type's form, a projection of a
   ||| record that is no constructor is, at an instance, one of two things: the
@@ -1302,7 +1313,7 @@ mutual
     case referenceOf (gamma (defsOf ctx)) [] nt n of
       WalkMarker (Var i d) => pure (Parameter i d)
       DataConstructor a => pure (maybe Unrooted Rooted a)
-      Defined a => do
+      AtDefinition a => do
         Just pr <- projection n
           | Nothing => definitionRoot w acc (Ref EmptyFC nt n) n a (map (\p => Force p.written) args)
         Just (field, []) <- projectedPiece pr args

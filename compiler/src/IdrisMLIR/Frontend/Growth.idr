@@ -55,7 +55,8 @@ record Limits where
 
 ||| Each position's bound under the potential the check found (`bound`), in
 ||| one pass over the places positions were first met at, each position
-||| once.
+||| once. A field's position bounds what field reads write, never a
+||| request, so no request's position is one.
 boundsOf : (b : Built) -> Vect b.graph.size Nat -> Limits
 boundsOf b pot = foldl at (MkLimits empty empty) b.firsts
   where
@@ -63,8 +64,9 @@ boundsOf b pot = foldl at (MkLimits empty empty) b.firsts
     at acc f =
       let h = capped b.graph.constant (index f pot) (index f b.graph.caps) in
       case index f b.position of
-        (OfNode node, i) => { atNodes $= insert (node, i) h } acc
-        (OfApplication, i) => { atApplication $= insert i h } acc
+        OfParameter (OfNode node) i => { atNodes $= insert (node, i) h } acc
+        OfParameter OfApplication i => { atApplication $= insert i h } acc
+        OfField _ _ => acc
 
 ||| Heights by parameter from `next` on, from the height of each parameter
 ||| that has one, ascending: a parameter with none is 0, which keys nothing.
@@ -146,18 +148,21 @@ earliest best@(_, m, _) (x@(_, l, _) :: xs) =
     place l = (locFile l, (.startLine) <$> locSpan l)
 
 ||| What holds a position, as a message names it: a node's definition, by
-||| its name, or the application at a use, which no name is.
-holderText : {auto c : Ref Ctxt Defs} -> FC -> Holder -> Front String
-holderText fc (OfNode node) = snd <$> graphDefinition fc node.definition
-holderText fc OfApplication = pure "the application of a polymorphic function at its use"
+||| its name; the application at a use, which no name is; or an
+||| implementation's field, by the implementation's name.
+holderText : {auto c : Ref Ctxt Defs} -> FC -> Spot -> Front String
+holderText fc (OfParameter (OfNode node) _) = snd <$> graphDefinition fc node.definition
+holderText fc (OfParameter OfApplication _) = pure "the application of a polymorphic function at its use"
+holderText fc (OfField j k) = (\name => "field " ++ show k ++ " of " ++ name) . snd <$> graphDefinition fc j
 
 ||| The definition of the program's own source that holds a position, with
 ||| where it is: nothing for a library's or a generated one, or for the
 ||| application at a use, which no definition is.
 userHolder : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             FC -> Holder -> Front (Maybe (Loc, GlobalDef))
-userHolder fc (OfNode node) = userDefinition fc node.definition
-userHolder fc OfApplication = pure Nothing
+             FC -> Spot -> Front (Maybe (Loc, GlobalDef))
+userHolder fc (OfParameter (OfNode node) _) = userDefinition fc node.definition
+userHolder fc (OfParameter OfApplication _) = pure Nothing
+userHolder fc (OfField j _) = userDefinition fc j
 
 ||| The first user definition among a node's reachers on the walk from
 ||| main, nearest first; nothing when main is reached with none.
@@ -175,7 +180,7 @@ reacher fc (p :: ps) = case !(userDefinition fc p.definition) of
 ||| program reaches it, at the first candidate: at the first user definition
 ||| among the reachers of the cause's first node, or at main.
 located : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-          FC -> Name -> Built -> (first : Holder) -> List1 (t, Holder) -> Front (t, Place)
+          FC -> Name -> Built -> (first : Spot) -> List1 (t, Spot) -> Front (t, Place)
 located fc main b first candidates = do
   users <- traverse (\(v, h) => map (\(loc, def) => (v, loc, def)) <$> userHolder fc h)
                     (forget candidates)
@@ -185,60 +190,68 @@ located fc main b first candidates = do
       above <- reacher fc (reachersOf first)
       pure (fst (head candidates), maybe (MkPlace fc (show main)) placeOf above)
   where
-    -- The application at a use is reached through no node of its own.
-    reachersOf : Holder -> List Node
-    reachersOf (OfNode node) = fromMaybe [] (lookup node b.reachers)
-    reachersOf OfApplication = []
+    -- The application at a use, and a field, are reached through no node
+    -- of their own.
+    reachersOf : Spot -> List Node
+    reachersOf (OfParameter (OfNode node) _) = fromMaybe [] (lookup node b.reachers)
+    reachersOf _ = []
 
 ------------------------------------------------------------------------------
 -- The causes
 ------------------------------------------------------------------------------
 
-||| An arc's source position as its site reads it: a parameter of the site's
-||| writer, which the writer's text binds (a field's value included, which
-||| its record's variables carry), or a position of anything else, which
-||| the writer's text does not bind: of the implementation that built a
-||| dictionary the site takes out of a value (the projection rule).
-data Source = Binds | Projects
+||| An arc's source position as its writer reads it: a parameter of the
+||| writer, which the writer's text binds; a position of anything else,
+||| which the writer's text does not bind: of the implementation that built
+||| a dictionary the site takes out of a value (the projection rule); or an
+||| implementation's field, which a field read takes its value from.
+data Source = Binds | Projects | ReadsField
 
-sourceOf : Site -> Holder -> Source
-sourceOf site (OfNode node) = if sameAddress node.definition site.writer then Binds else Projects
-sourceOf site OfApplication = Projects
+sourceFor : (writer : Address) -> Spot -> Source
+sourceFor writer (OfParameter (OfNode node) _) = if sameAddress node.definition writer then Binds else Projects
+sourceFor writer (OfParameter OfApplication _) = Projects
+sourceFor writer (OfField _ _) = ReadsField
+
+sourceOf : Site -> Spot -> Source
+sourceOf site = sourceFor site.writer
 
 ||| Parameter i of what holds a position, as a message names it: the
 ||| writer's binder; the implementation's binder and the implementation; or
 ||| the application's argument.
 subjectAt : {auto c : Ref Ctxt Defs} -> FC -> Source -> Spot -> Front String
-subjectAt fc source (OfNode node, i) = do
+subjectAt fc source (OfParameter (OfNode node) i) = do
   (def, name) <- graphDefinition fc node.definition
   case source of
     Binds => parameter i def
-    Projects => (++ " of " ++ name) <$> parameter i def
-subjectAt fc _ (OfApplication, i) =
+    -- A node's parameter its writer does not bind is projected.
+    _ => (++ " of " ++ name) <$> parameter i def
+subjectAt fc _ (OfParameter OfApplication i) =
   pure ("argument " ++ show (S i) ++ " of the application of a polymorphic function at its use")
+subjectAt fc _ spot@(OfField _ _) = holderText fc spot
 
 ||| Does a position belong to a data type, which grows through its fields
 ||| where a function grows through its calls?
-ofDataType : {auto c : Ref Ctxt Defs} -> FC -> Holder -> Front Bool
-ofDataType fc (OfNode node) = do
+ofDataType : {auto c : Ref Ctxt Defs} -> FC -> Spot -> Front Bool
+ofDataType fc (OfParameter (OfNode node) _) = do
   (def, _) <- graphDefinition fc node.definition
   pure (case def.definition of
           TCon {} => True
           _ => False)
-ofDataType fc OfApplication = pure False
+ofDataType fc _ = pure False
 
-||| The parts of a template that carry an arc's source, parameter i, into
-||| it: its variable when the writer binds it, a held dictionary when it is
-||| projected.
+||| The parts of a template that carry an arc's source, parameter i or
+||| field i, into it: its variable when the writer binds it, a held
+||| dictionary when it is projected, a read of that field when it is a
+||| field's position.
 carries : Source -> Nat -> Template -> Bool
 carries Binds i (Template.Var j _) = i == j
 carries Projects _ (Template.Held _ _) = True
+carries ReadsField k (Template.Field k' _) = k == k'
 carries _ _ _ = False
 
 mutual
   ||| Every part of a template, itself first, in preorder (a `Choice` visits
-  ||| what it matched on before its leaves, a field its record, whose
-  ||| variables carry the field's value).
+  ||| what it matched on before its leaves, a field its record).
   parts : Template -> List Template
   parts t@(Template.Head _ ts) = t :: partsOf ts
   parts t@(Template.Choice m ls) = t :: parts m ++ partsOf ls
@@ -293,27 +306,27 @@ refuseCycle : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               FC -> Name -> (b : Built) -> List1 (Fin b.graph.size, Fin (length b.graph.arcs)) ->
               (growth : Nat) -> Front ()
 refuseCycle fc main b ring growth = do
-  (round, place) <- located fc main b (holderOf (fst (head ring)))
-                            (map (\r => (r, holderOf (fst (head r)))) (rotations ring))
+  (round, place) <- located fc main b (spotOf (fst (head ring)))
+                            (map (\r => (r, spotOf (fst (head r)))) (rotations ring))
   let (source, a) = head round
   let spot = index source b.position
-  sourceName <- holderText fc (fst spot)
-  target <- holderText fc (holderOf (arc b.graph a).to)
+  sourceName <- holderText fc spot
+  target <- holderText fc (spotOf (arc b.graph a).to)
   path <- case tail round of
     [] => pure ""
     rest => do
-      names <- traverse (\(p, _) => holderText fc (holderOf p)) rest
+      names <- traverse (\(p, _) => holderText fc (spotOf p)) rest
       pure (" through " ++ joinBy " -> " (names ++ [sourceName]))
   let grows = ", growing it by " ++ show growth ++ " each round" ++ path ++
               ", and nothing bounds how far it grows"
   text <- case index a b.wrote of
     FromArgument site argument => do
       (_, within) <- graphDefinition fc site.within
-      x <- subjectAt fc (sourceOf site (fst spot)) spot
+      x <- subjectAt fc (sourceOf site spot) spot
       shown <- showArgument argument.shown
       -- Essential: a data type grows through its fields, a function
       -- through its calls.
-      pure (if !(ofDataType fc (fst spot))
+      pure (if !(ofDataType fc spot)
               then sourceName ++ " holds " ++ target ++ " at " ++ shown ++ " in " ++
                    within ++ ", growing " ++ x ++ " by " ++ show growth ++ " each level" ++ path ++
                    ", and nothing bounds how deep its values nest"
@@ -321,13 +334,18 @@ refuseCycle fc main b ring growth = do
     -- A leading arc: the implementation whose parameter it is, the arc's
     -- source, places it in the method function its field holds, the arc's
     -- target.
-    FromField => do
+    ThroughMethod => do
       x <- subjectAt fc Binds spot
       pure (sourceName ++ " passes " ++ x ++ " to its method " ++ target ++ grows)
+    -- An implementation's field: its template places the implementation's
+    -- parameter, the arc's source, in the field's value, the arc's target.
+    InField _ k _ => do
+      x <- subjectAt fc Binds spot
+      pure (sourceName ++ " places " ++ x ++ " in its field " ++ show k ++ grows)
   reject place.at place.owner Polymorphism text
   where
-    holderOf : Fin b.graph.size -> Holder
-    holderOf p = fst (index p b.position)
+    spotOf : Fin b.graph.size -> Spot
+    spotOf p = index p b.position
 
 ||| A type-level recursion stuck on a static argument, which nothing bounds,
 ||| reported at its place: what passes the argument, through which
@@ -335,27 +353,38 @@ refuseCycle fc main b ring growth = do
 refuseOpaque : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
                FC -> Name -> (b : Built) -> Fin (length b.graph.arcs) -> Front ()
 refuseOpaque fc main b a = do
-  -- Essential while an arc's label is not tied to what made it: a leading
-  -- arc is Measured, so only an argument's template is Unmeasured.
-  let (MkArc src to _, FromArgument site argument) = (arc b.graph a, index a b.wrote)
-    | _ => internal fc "an arc no argument wrote as a type-level recursion"
+  let MkArc src to _ = arc b.graph a
   let spot = index src b.position
-  let target = fst (index to b.position)
-  ((), place) <- located fc main b (fst spot) (((), fst spot) ::: [((), target)])
-  let source = sourceOf site (fst spot)
-  let Just computation = computationThrough (carries source (snd spot)) argument.template
+  let target = index to b.position
+  -- Essential while an arc's label is not tied to what made it: a leading
+  -- arc is Measured, so only an argument's or a field's template is
+  -- Unmeasured; a field's writer is the implementation, which writes it
+  -- in its own text.
+  (writer, home, written, source) <- the (Front (Address, Address, Template, Source)) $
+    case index a b.wrote of
+      FromArgument site argument => pure (site.writer, site.within, argument.template, sourceOf site spot)
+      InField j _ t => pure (j, j, t, sourceFor j spot)
+      ThroughMethod => internal fc "an arc no argument wrote as a type-level recursion"
+  ((), place) <- located fc main b spot (((), spot) ::: [((), target)])
+  let Just computation = computationThrough (carries source (parameterOf spot)) written
     | Nothing => internal fc "an opaque arc whose template holds no type-level computation"
   through <- case computation of
     Recursion r => ("the type-level recursion " ++) . snd <$> graphDefinition fc r
     Family j => do
-      (writer, _) <- graphDefinition fc site.writer
-      ("its type family " ++) <$> parameter j writer
+      (writerDef, _) <- graphDefinition fc writer
+      ("its type family " ++) <$> parameter j writerDef
   targetName <- holderText fc target
-  (_, within) <- graphDefinition fc site.within
+  (_, homeName) <- graphDefinition fc home
   x <- subjectAt fc source spot
   reject place.at place.owner Polymorphism
-         (within ++ " passes " ++ x ++ " through " ++ through ++ " to " ++ targetName ++
+         (homeName ++ " passes " ++ x ++ " through " ++ through ++ " to " ++ targetName ++
           ", and nothing bounds what it computes")
+  where
+    -- What an arc's source is to its writer's template: the parameter it
+    -- reads, or the field it takes its value from.
+    parameterOf : Spot -> Nat
+    parameterOf (OfParameter _ i) = i
+    parameterOf (OfField _ k) = k
 
 ||| A cause of growth, refused once as rule `polymorphism`. A cycle's growth
 ||| a round is what its certificate sums: every arc on it is finite, and its

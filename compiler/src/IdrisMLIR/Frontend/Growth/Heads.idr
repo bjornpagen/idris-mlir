@@ -498,10 +498,25 @@ Ord Holder where
   compare OfApplication (OfNode _) = LT
   compare (OfNode _) OfApplication = GT
 
-||| A static position of the graph: a parameter of what holds it.
+||| A static position of the graph: a parameter of what holds it, or field
+||| k of an implementation, which the field's template over the
+||| implementation's parameters writes, and a field read takes its value
+||| from.
 public export
-Spot : Type
-Spot = (Holder, Nat)
+data Spot = OfParameter Holder Nat | OfField Address Nat
+
+export
+Eq Spot where
+  OfParameter h i == OfParameter h' i' = h == h' && i == i'
+  OfField j k == OfField j' k' = j == j' && k == k'
+  _ == _ = False
+
+export
+Ord Spot where
+  compare (OfParameter h i) (OfParameter h' i') = compare (h, i) (h', i')
+  compare (OfParameter _ _) (OfField _ _) = LT
+  compare (OfField _ _) (OfParameter _ _) = GT
+  compare (OfField j k) (OfField j' k') = compare (j, k) (j', k')
 
 ||| How a site reached its callee: called or built, its target the callee;
 ||| or dispatched through implementation J's method field k, whose leading

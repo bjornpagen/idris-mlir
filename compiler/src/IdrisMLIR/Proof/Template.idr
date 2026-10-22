@@ -115,44 +115,6 @@ mutual
   arity (Held _ _) = 0
   arity (Formal _ _) = 0
 
-||| How deep templates hold their markers where what they write takes them
-||| in: nowhere, or at most g below where they were matched, less l.
-public export
-data Reach = Nowhere | Deepest Nat Nat
-
-||| The deeper of two reaches, compared by cross-addition.
-public export
-deeper : Reach -> Reach -> Reach
-deeper Nowhere r = r
-deeper r Nowhere = r
-deeper (Deepest g l) (Deepest g' l') = if g + l' <= g' + l then Deepest g' l' else Deepest g l
-
-mutual
-  ||| How deep a template read e levels down holds its markers: a marker
-  ||| matched d deep reaches e less d, a head's and a recursion's children
-  ||| are a level down, a choice's leaves at its own level, and nothing
-  ||| else takes a marker in.
-  public export
-  reachAt : Nat -> Template -> Reach
-  reachAt e (Var _ d) = Deepest e d
-  reachAt e (Head _ ts) = reachAll (S e) ts
-  reachAt e (Opaque _ ts) = reachAll (S e) ts
-  reachAt e (Choice _ ts) = reachAll e ts
-  reachAt e (Leaf _) = Nowhere
-  reachAt e (Token _) = Nowhere
-  reachAt e (Formal _ _) = Nowhere
-  reachAt e (Applied _ _ _) = Nowhere
-  reachAt e (Computing _ _ _) = Nowhere
-  reachAt e (Field _ _) = Nowhere
-  reachAt e (Held _ _) = Nowhere
-
-  ||| The deepest of templates read at one level: a node's children, a
-  ||| choice's leaves, the field templates of a record's roots.
-  public export
-  reachAll : Nat -> List Template -> Reach
-  reachAll e [] = Nowhere
-  reachAll e (t :: ts) = deeper (reachAt e t) (reachAll e ts)
-
 mutual
   heaviestOf : List Template -> Nat
   heaviestOf [] = 0
@@ -218,9 +180,10 @@ mutual
   ||| deep, with what it carries: `Var i d`, e - d; an applied family's own
   ||| marker, its closed arguments' height above that; every marker under a
   ||| recursion or an applied family's argument, and a computing family's
-  ||| own, Stuck. A field's record is carried by the arcs its value draws,
-  ||| and a choice's scrutinee by its caps, so neither is a part the
-  ||| template's height carries.
+  ||| own, Stuck. A field writes what its position holds, which an arc from
+  ||| there carries, whatever its record is, and a choice's scrutinee is
+  ||| carried by its caps, so neither is a part the template's height
+  ||| carries.
   public export
   occurrences : (e : Nat) -> Template -> List (Nat, Weight)
   occurrences e (Var j d) = [(j, Finite e d)]
@@ -240,12 +203,12 @@ mutual
   occurrencesIn e [] = []
   occurrencesIn e (t :: ts) = occurrences e t ++ occurrencesIn e ts
 
-  ||| Every marker below, as Stuck: what a recursion computes from a marker,
-  ||| inside a field or not, has no depth bound.
+  ||| Every marker below, as Stuck: what a recursion computes from a marker
+  ||| has no depth bound. A field's record is no part of what it writes.
   public export
   stuck : Template -> List (Nat, Weight)
   stuck (Var j _) = [(j, Stuck)]
-  stuck (Field _ s) = stuck s
+  stuck (Field _ _) = []
   stuck (Head _ ts) = stuckIn ts
   stuck (Opaque _ ts) = stuckIn ts
   stuck (Applied j _ ts) = (j, Stuck) :: stuckIn ts
@@ -287,12 +250,6 @@ settledEntry (i, w) = (i, settled w)
 public export
 weights : Template -> List (Nat, Weight)
 weights t = map settledEntry (joinAll [] (occurrences 0 t))
-
-||| How deep a template holds its parameters, the most over all of them:
-||| Absent for one that holds none.
-public export
-holding : Template -> Weight
-holding t = foldr join Absent (map snd (weights t))
 
 ------------------------------------------------------------------------------
 -- Every occurrence is listed
