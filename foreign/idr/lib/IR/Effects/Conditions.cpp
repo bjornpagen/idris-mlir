@@ -2,9 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What each typed rule reads off one value's type, one predicate per
 // condition of the specification: the grade's uses and hold, the family's
-// promise and kind, the carrier's buffer semantics. Every fact is the
-// type's own, computed when the type was made; none follows a producer or
-// a use.
+// promise and kind, the carrier's buffer semantics; and what each pair rule
+// reads off an operand's type and a result's together, their layouts.
+// Every fact is the types' own, computed when the type was made; none
+// follows a producer or a use.
 
 #include "idr/IR/Effects/Vocabulary.h"
 
@@ -85,6 +86,15 @@ bool holds<Condition::ReachesForeign>(Type) {
 template <>
 bool holds<Condition::Buffer>(Type type) {
   return isa<BaseMemRefType>(unrestricted(type));
+}
+
+// Not the same words at run time, as the layout facts each type stored
+// when it was made say: the one answer a reindex's tail position, its
+// speculation and its lowering read too, so no reader decides it its own
+// way.
+template <>
+bool relates<PairCondition::LaidOutApart>(Type operand, Type result) {
+  return families::layoutMatch(operand, result) == LayoutMatch::OtherLayout;
 }
 
 } // namespace idr::effects

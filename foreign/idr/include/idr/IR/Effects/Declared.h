@@ -4,7 +4,8 @@
 // query API. An op's declaration is generated from the specification
 // (Generated/Effects.h.inc, Declared<Op>); typed code reads it as a
 // constant where the class decides its effects, and applies its typed
-// rules to the op's types where they decide. MLIR's interface is
+// rules, over one value or over an operand and a result, to the op's types
+// where they decide. MLIR's interface is
 // implemented from it (`declare`), and so is the declared-effects
 // interface's default (`declaredEffects`), so no two readers can disagree.
 #ifndef IDR_IR_EFFECTS_DECLARED_H
@@ -44,6 +45,17 @@ struct RuleOf<ByType<R, Where>> {
   template <class OpT>
   static EffectSet own(OpT op) { return Expand<R, Where>::own(op); }
   static constexpr EffectSet bound() { return Expand<R, Where>::bound(); }
+  static constexpr bool decidedByClass = false;
+};
+
+template <PairRule P, class Operands, class Results>
+struct RuleOf<ByPair<P, Operands, Results>> {
+  using Expansion = ExpandPair<P, Operands, Results>;
+  template <class OpT>
+  static void emit(OpT op, Instances &effects) { Expansion::emit(op, effects); }
+  template <class OpT>
+  static EffectSet own(OpT op) { return Expansion::own(op); }
+  static constexpr EffectSet bound() { return Expansion::bound(); }
   static constexpr bool decidedByClass = false;
 };
 

@@ -3,7 +3,8 @@
 // The effect system's words in C++, as the dialect's specification states
 // them (IdrisMLIR.Spec.Effects): the states of the tree and the classes
 // MLIR's effects name them by, the kinds, the atoms of a row, the typed
-// rules, and the form of an op's declaration the generated Effects.h.inc
+// rules over one value and over a pair, and the form of an op's
+// declaration the generated Effects.h.inc
 // writes for every op (Declared<Op>). Every fact here is a load from a
 // table printed from the specification (Generated/EffectTree.h.inc); this
 // header states none of its own.
@@ -35,6 +36,8 @@ using Atom = ::idr::Atom;
 using Condition = ::idr::EffectCondition;
 using Landing = ::idr::EffectLanding;
 using Rule = ::idr::EffectRule;
+using PairCondition = ::idr::EffectPairCondition;
+using PairRule = ::idr::EffectPairRule;
 using RuntimeMemory = ::idr::RuntimeMemory;
 
 // A set of states, of kinds, of atoms. A function's row is a set of atoms.
@@ -270,6 +273,16 @@ using ReadsBuffers = ByType<Rule::ReadsBuffers, Where>;
 template <class Where>
 using WritesBuffers = ByType<Rule::WritesBuffers, Where>;
 
+// A pair rule: the effects that follow from an operand's type and a
+// result's together, each value of an operand group with the result at
+// its position in a result group, from the rule's row of the
+// specification's table.
+template <PairRule P, class Operands, class Results>
+struct ByPair {};
+
+template <class Operands, class Results>
+using Repacks = ByPair<PairRule::Repacks, Operands, Results>;
+
 // A call's effects: each ordering atom of the row it carries, and a write
 // on each operand its callee writes through. Not a rule over a type: the
 // row is the call's, which its callee's derivation writes.
@@ -307,6 +320,13 @@ template <>
 bool holds<Condition::ReachesForeign>(mlir::Type type);
 template <>
 bool holds<Condition::Buffer>(mlir::Type type);
+
+// A condition of a pair rule, read off an operand's type and a result's
+// together, defined beside the one-value predicates.
+template <PairCondition C>
+bool relates(mlir::Type operand, mlir::Type result);
+template <>
+bool relates<PairCondition::LaidOutApart>(mlir::Type operand, mlir::Type result);
 
 } // namespace idr::effects
 

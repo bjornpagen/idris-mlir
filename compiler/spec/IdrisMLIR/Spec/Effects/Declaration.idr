@@ -1,9 +1,10 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| What an op declares of its effects: two independent facts. Its own
-||| effects, each on a state of the tree, static or following from one
-||| value's own type by a typed rule; and its regions' effects, covered by
-||| its own or added to them. A definition, never executed where it stands,
+||| effects, each on a state of the tree, static or following by a typed
+||| rule from one value's own type, or from an operand's type and a
+||| result's together; and its regions' effects, covered by its own or
+||| added to them. A definition, never executed where it stands,
 ||| declares nothing. Every op's declaration states what its runtime
 ||| function does, and none carries a counting decision early: before
 ||| counting nothing owns a count, so nothing consumes one.
@@ -194,6 +195,25 @@ record Consequence (side : Side) where
   holds : Given side
   fails : Given side
 
+||| The kinds a rule gives, as a set the C++ reads.
+public export
+givenKinds : Given side -> List Kind
+givenKinds NothingGiven = []
+givenKinds (GivenOn kinds _ _) = forget kinds
+
+||| The state a rule gives its effects on, and where they land; the root
+||| and the values it reads where it gives none, places the C++ never
+||| reads since the kinds are empty.
+public export
+givenState : Given side -> Resource.Resource
+givenState NothingGiven = Root
+givenState (GivenOn _ state _) = state
+
+public export
+givenLanding : Given side -> Landing
+givenLanding NothingGiven = OnTheValues
+givenLanding (GivenOn _ _ landing) = landing
+
 ||| The rules by which an op's effects follow from one value's type.
 public export
 data RuleName : Type where
@@ -287,12 +307,117 @@ data Reads : {0 i, o : Nat} -> Side -> Values i o -> Type where
   ReadsResult : Reads ResultSide (Results g)
   ReadsEither : Reads EitherSide values
 
+------------------------------------------------------------------------------
+-- Typed rules over an operand and a result together
+------------------------------------------------------------------------------
+
+||| What a rule reads off an operand's type and a result's together: a
+||| relation of the two, never a fact of either alone, nor of where either
+||| came from. One C++ predicate each, over the two types.
+public export
+data PairCondition : Type where
+  ||| The two are not the same words at run time, as the layouts each type
+  ||| computed when it was made say: the result is built anew from the
+  ||| operand's parts. Where they are the same words, the result is the
+  ||| operand.
+  LaidOutApart : PairCondition
+
+public export
+pairConditionClosed : Closed PairCondition
+pairConditionClosed = MkClosed
+  { name = ident "EffectPairCondition"
+  , shape = OneOf
+  , every = LaidOutApart ::: []
+  , complete = \case
+      LaidOutApart => Here
+  , describe = \case
+      LaidOutApart => MkCase (ident "LaidOutApart") (word "laid_out_apart" ::: []) (line "the two are not the same words at run time")
+  , doc = brief (line "what a typed rule reads off an operand's type and a result's together")
+  }
+
+||| Evidence that a one-value rule's effects land on the value it reads,
+||| where its condition holds and where it fails, as the table the C++
+||| reads says. A pair rule gives them on one value of each pair, so a rule
+||| giving on each result of its op, or on the state as a whole, as a whole
+||| group's values decide, has no place in one.
+public export
+data LandsOnValue : RuleName -> Type where
+  OnTheValueRead : givenLanding (holds (consequence r)) = OnTheValues
+                -> givenLanding (fails (consequence r)) = OnTheValues
+                -> LandsOnValue r
+
+||| The rules by which an op's effects follow from an operand's type and a
+||| result's together.
+public export
+data PairRuleName : Type where
+  ||| A result laid out apart from its operand is built anew from the
+  ||| operand's parts: the operand is taken over, a free of its count where
+  ||| it owns one, and the result takes new memory where it owns its count.
+  ||| Where the two are the same words, the result is the operand: nothing
+  ||| is taken over and nothing acquired.
+  Repacking : PairRuleName
+
+public export
+pairRuleClosed : Closed PairRuleName
+pairRuleClosed = MkClosed
+  { name = ident "EffectPairRule"
+  , shape = OneOf
+  , every = Repacking ::: []
+  , complete = \case
+      Repacking => Here
+  , describe = \case
+      Repacking => MkCase (ident "Repacks") (word "repacks" ::: []) (line "a result laid out apart from its operand is built anew from its parts")
+  , doc = brief (line "a rule by which an effect follows from an operand's type and a result's together")
+  }
+
+||| A pair rule's whole meaning: the relation it reads off the two types,
+||| and, where the relation holds, the one-value rules it applies to the
+||| operand and those it applies to the result, each landing on the value
+||| it reads. Where the relation fails it gives nothing.
+public export
+data PairConsequence : Type where
+  MkPairConsequence : (relation : PairCondition) -> (operand, result : List RuleName)
+                   -> {auto 0 operandLands : All LandsOnValue operand}
+                   -> {auto 0 resultLands : All LandsOnValue result}
+                   -> PairConsequence
+
+public export
+pairCondition : PairConsequence -> PairCondition
+pairCondition (MkPairConsequence relation _ _) = relation
+
+public export
+operandRules : PairConsequence -> List RuleName
+operandRules (MkPairConsequence _ operand _) = operand
+
+public export
+resultRules : PairConsequence -> List RuleName
+resultRules (MkPairConsequence _ _ result) = result
+
+||| What each pair rule means: a re-pack takes its operand over as a
+||| consumption does and acquires its result as an acquisition does.
+public export
+pairConsequence : PairRuleName -> PairConsequence
+pairConsequence Repacking =
+  MkPairConsequence LaidOutApart [Consumption] [Acquisition]
+    {operandLands = [OnTheValueRead Refl Refl]} {resultLands = [OnTheValueRead Refl Refl]}
+
+------------------------------------------------------------------------------
+-- An op's typed rules
+------------------------------------------------------------------------------
+
 ||| A typed rule of an op: a rule reading the type of each value of one of
-||| its groups; or, for a call, the row it carries, each ordering atom's
-||| call effects and a write on each operand its callee writes through.
+||| its groups; a pair rule reading an operand group's types and a result
+||| group's together, each operand with the result at its position, every
+||| rule it applies reading the side it is applied to; or, for a call, the
+||| row it carries, each ordering atom's call effects and a write on each
+||| operand its callee writes through.
 public export
 data TypedRule : (i, o : Nat) -> Type where
   ByType : (rule : RuleName) -> (values : Values i o) -> {auto 0 fits : Reads (side rule) values} -> TypedRule i o
+  ByPair : (rule : PairRuleName) -> (operands : Fin i) -> (results : Fin o)
+        -> {auto 0 operandsFit : All (\r => Reads {i} {o} (side r) (Operands operands)) (operandRules (pairConsequence rule))}
+        -> {auto 0 resultsFit : All (\r => Reads {i} {o} (side r) (Results results)) (resultRules (pairConsequence rule))}
+        -> TypedRule i o
   Summarized : TypedRule i o
 
 ||| Takes over each value of an operand group that owns its count.
@@ -344,6 +469,15 @@ ReadsBuffers g = ByType BufferRead (Operands g)
 public export
 WritesBuffers : Fin i -> TypedRule i o
 WritesBuffers g = ByType BufferWrite (Operands g)
+
+||| Where a value of an operand group and the result at its position are
+||| laid out apart, the result is built anew: the operand is taken over
+||| where it owns its count, and the result takes new memory where it owns
+||| its count. Where they are the same words, nothing.
+public export
+Repacks : Fin i -> Fin o -> TypedRule i o
+Repacks operands results =
+  ByPair Repacking operands results {operandsFit = [ReadsOperand]} {resultsFit = [ReadsResult]}
 
 ------------------------------------------------------------------------------
 -- Bodies and runtime memory
@@ -584,18 +718,20 @@ odsEffect (OnState k r) = MkOdsEffect (odsKind k) (odsState r) OfOp
 odsEffect (OnValues k r values) = MkOdsEffect (odsKind k) (odsState r) (odsSubject values)
 
 ||| A typed rule as the generated table names it: the C++ class of the rule
-||| and the values it reads. A call's row is read off the call.
+||| and the values it reads, one group or an operand group and a result
+||| group together. A call's row is read off the call.
 public export
 odsRule : TypedRule i o -> OdsRule i o
-odsRule (ByType rule values) = MkOdsRule (describe ruleClosed rule).name (odsSubject values)
-odsRule Summarized = MkOdsRule (ident "Summarized") OfOp
+odsRule (ByType rule values) = MkOdsRule (describe ruleClosed rule).name (ReadsOne (odsSubject values))
+odsRule (ByPair rule operands results) = MkOdsRule (describe pairRuleClosed rule).name (ReadsPair operands results)
+odsRule Summarized = MkOdsRule (ident "Summarized") (ReadsOne OfOp)
 
 ||| Runtime memory as the generated table names it: a class that reports
 ||| `alloc` and `free` and gives MLIR no effect.
 public export
 runtimeMemoryRules : RuntimeMemory -> List (OdsRule i o)
 runtimeMemoryRules Untouched = []
-runtimeMemoryRules Touched = [MkOdsRule (ident "HoldsRuntimeMemory") OfOp]
+runtimeMemoryRules Touched = [MkOdsRule (ident "HoldsRuntimeMemory") (ReadsOne OfOp)]
 
 ||| An op's declaration as ODS and the generated C++ hold it.
 public export
@@ -611,25 +747,6 @@ ods (Executes effects rules bodies memory) =
 ------------------------------------------------------------------------------
 -- The tables the C++ reads
 ------------------------------------------------------------------------------
-
-||| The kinds a rule gives, as a set the C++ reads.
-public export
-givenKinds : Given side -> List Kind
-givenKinds NothingGiven = []
-givenKinds (GivenOn kinds _ _) = forget kinds
-
-||| The state a rule gives its effects on, and where they land; the root
-||| and the values it reads where it gives none, places the C++ never
-||| reads since the kinds are empty.
-public export
-givenState : Given side -> Resource.Resource
-givenState NothingGiven = Root
-givenState (GivenOn _ state _) = state
-
-public export
-givenLanding : Given side -> Landing
-givenLanding NothingGiven = OnTheValues
-givenLanding (GivenOn _ _ landing) = landing
 
 ||| Each rule's meaning, one array per fact, indexed by the rule.
 public export
@@ -649,6 +766,19 @@ ruleTable = table ruleClosed
       (\r => CaseCell (caseRef resourceClosed (givenState (fails (consequence r))))) (line "the state it gives them on")
   , MkColumn (ident "ruleFailsLanding") (EnumColumn (enumDef landingClosed))
       (\r => CaseCell (caseRef landingClosed (givenLanding (fails (consequence r))))) (line "where they land")
+  ]
+
+||| Each pair rule's meaning, one array per fact, indexed by the rule.
+public export
+pairRuleTable : Table
+pairRuleTable = table pairRuleClosed
+  [ MkColumn (ident "pairCondition") (EnumColumn (enumDef pairConditionClosed))
+      (\p => CaseCell (caseRef pairConditionClosed (pairCondition (pairConsequence p))))
+      (line "what the rule reads off an operand's type and a result's together")
+  , MkColumn (ident "pairOnOperand") (SetColumn (enumDef ruleClosed))
+      (\p => setCell ruleClosed (operandRules (pairConsequence p))) (line "the rules it applies to the operand where the relation holds")
+  , MkColumn (ident "pairOnResult") (SetColumn (enumDef ruleClosed))
+      (\p => setCell ruleClosed (resultRules (pairConsequence p))) (line "the rules it applies to the result where the relation holds")
   ]
 
 ||| What a call holding each atom declares, as the C++ reads it: the kinds
