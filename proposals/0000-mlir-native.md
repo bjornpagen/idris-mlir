@@ -1855,6 +1855,13 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   type the frontend refuses is then refused once, at the request that
   first meets it, which the refusal names; it was refused either way,
   so acceptance does not change.
+- **C235** (2026-10-22; recheck 3, L04's question). A fold over the
+  dialect's types is C52's one `match`: `Support/Match.h` gains the
+  overload that folds an `mlir::Type` over the dialect's type list, which
+  the specification generates, exhaustively, and `foldDialect`'s chain of
+  `isa` and its `optional` go. Our types are a closed set the
+  specification fixes, and AGENTS.md takes a fold over a closed sum there.
+  A type interface is MLIR's answer for an open set, which this is not.
   (C232's narrowing of this refusal is withdrawn with C232, by D116.)
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
