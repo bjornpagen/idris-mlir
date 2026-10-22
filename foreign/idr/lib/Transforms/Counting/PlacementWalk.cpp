@@ -63,18 +63,26 @@ State Placement::successorState(const RegionSuccessor &successor, Operation *ter
 // forwarded ones to its successors, a region op's entry operands into the
 // regions they enter, a counted operand an op gives back as its result (a
 // cast, a share, a loan, whose result then holds the reference); any other
-// operand consumes as its op declares.
+// operand consumes as its op declares. A move on takes a reference over
+// only from an operand its hold says is counted: a view moved on holds
+// none, and what receives it is a view too, so forwarding one into a
+// region and yielding it out consumes nothing.
 llvm::SmallBitVector Placement::consumedBy(Operation *op) {
   llvm::SmallBitVector consumed(op->getNumOperands());
+  auto moves = [&](unsigned at) {
+    if (countsOf(op->getOperand(at).getType()) == Counts::Counted)
+      consumed.set(at);
+  };
   auto mark = [&](OperandRange forwarded) {
     if (forwarded.empty())
       return;
     unsigned first = forwarded.getBeginOperandIndex();
     for (unsigned at = first, end = first + static_cast<unsigned>(forwarded.size()); at < end; ++at)
-      consumed.set(at);
+      moves(at);
   };
   if (op->hasTrait<OpTrait::IsTerminator>() && leavesOf(op) == Leaves::Frame) {
-    consumed.set();
+    for (unsigned at = 0, end = op->getNumOperands(); at < end; ++at)
+      moves(at);
     return consumed;
   }
   if (auto terminator = dyn_cast<RegionBranchTerminatorOpInterface>(op)) {
