@@ -3686,6 +3686,19 @@ C137.
   there; a default that binds nothing loses that fact, as an unrefined
   case did before D105. L09's specification takes Emit's form; L05's
   `sourceOf` maps the binding to its scrutinee.
+- **C167** (2026-10-21; L10's finding that C38 and C96 disagree;
+  amends C38's last sentence). `!idr.dest<T>` is a place a value of type
+  `T` goes, linear by its own type, where `T` is any carrier that is not
+  graded, not linear by type (no destination of a destination, a cell or
+  a frame stack) and not a lifetime. Where the place is (a hole of a
+  fresh cell, a frame's answer slot) is fixed by the op that makes it,
+  never by the type: a binary-tree insert's two holes (`Node` fields 0
+  and 2) must be one loop-carried type, which C38's cell-constructor-field
+  typing made two; and frames write an answer of any row type through the
+  base frame's destination (C96), which C38 could not hold for an `i64`
+  or an inline pair. It lowers to one address per run-time component of
+  `T`. What a hole may be is stated once, in the type's verifier; L04's
+  `destOf` asks it.
 
 ## 4. Open: the owner's decisions, in order
 
