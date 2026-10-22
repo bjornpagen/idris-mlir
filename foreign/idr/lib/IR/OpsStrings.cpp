@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The string ops: the ranges of those that give a number, and the output
-// and head canonicalizations.
+// The string ops: the ranges of those that give a number, and the folds of
+// the two builders that call no runtime function of their own, a list's
+// pack and concat, which build their string once from a constant list.
+// Every other string op folds through its runtime function (Fold.h); the
+// rewrites of output and of a head are rules of the specification.
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Canon.h"
+#include "idr/IR/Fold.h"
 #include "idr/IR/Ranges.h"
-
-#include "mlir/IR/PatternMatch.h"
 
 #include <cstdint>
 
@@ -30,17 +31,10 @@ void StrScalarBytesOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
   setResultRange(getResult(), idr::ranges::nonNegative(64, 1, 4));
 }
 
-// Output and the first character of a string being built are taken apart
-// into the pieces it is built of; output of a list takes one step of the
-// list it meets.
-void PutStrOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  canon::addPutStrPatterns(results, context);
+OpFoldResult StrPackOp::fold(FoldAdaptor adaptor) {
+  return fold::stringOfList(getContext(), adaptor.getList());
 }
 
-void PutListOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  canon::addPutListPatterns(results, context);
-}
-
-void StrHeadOp::getCanonicalizationPatterns(RewritePatternSet &results, MLIRContext *context) {
-  canon::addStrHeadPatterns(results, context);
+OpFoldResult StrConcatOp::fold(FoldAdaptor adaptor) {
+  return fold::stringOfList(getContext(), adaptor.getList());
 }

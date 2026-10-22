@@ -13,6 +13,8 @@
 #ifndef IDR_IR_RANGES_H
 #define IDR_IR_RANGES_H
 
+#include "idr/IR/Numeric/Domain.h"
+
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 
 #include "idris_rt.h"
@@ -51,9 +53,9 @@ Bounds mul(Bounds a, Bounds b) noexcept;
 // range cut to the small range, so both bounds are known.
 Bounds ofSmall(const mlir::ConstantIntRanges &range) noexcept;
 
-// The bounds of an integer operand of range `range`, read as `isSigned`
+// The bounds of an integer operand of range `range`, read as `signedness`
 // says.
-Bounds ofInteger(const mlir::ConstantIntRanges &range, bool isSigned) noexcept;
+Bounds ofInteger(const mlir::ConstantIntRanges &range, numeric::Signedness signedness) noexcept;
 
 // The 64-bit range of `bounds`.
 mlir::ConstantIntRanges rangeOf(Bounds bounds) noexcept;

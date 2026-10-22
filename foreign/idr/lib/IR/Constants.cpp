@@ -6,7 +6,8 @@
 // module verify through the collection the symbol-use walk hands over.
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Canon.h"
+#include "idr/IR/Fold.h"
+#include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -75,7 +76,7 @@ LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, Closu
 
 // That `value` is a constant of `type`, recursively through fields and
 // captures, with every symbol resolved. Each part is one the leaf rule of a
-// constant's fields and captures accepts (canon::buildable), which the
+// constant's fields and captures accepts (fold::buildable), which the
 // folders of constructors and closures ask too. A constructor is checked a
 // cell at a time, each field at its field's type, however long its run, and
 // never through the suffix that reading the field along its spine would
@@ -84,7 +85,7 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols, Attr
                              Type type, Checked &checked) {
   if (!checked.insert({value, type}).second)
     return success();
-  if (!canon::buildable(value, type))
+  if (!fold::buildable(value, type))
     return op->emitOpError("has a constant ") << value << " where " << type << " is expected";
   if (auto closure = dyn_cast<ClosureAttr>(value))
     return verifyClosure(op, symbols, closure, type, checked);
@@ -114,13 +115,24 @@ LogicalResult verifyConstant(Operation *op, SymbolTableCollection &symbols, Attr
 
 } // namespace
 
+// A field or capture of a constant holds a word or a Double of exactly its
+// type, or a value idr.constant holds at it. An array is neither: a dense
+// tensor is a value of its own, which arith.constant builds and no constant
+// constructor holds, so a constructor around one stays an op.
+bool idr::fold::buildable(Attribute value, Type type) {
+  if (isa<IntegerAttr, FloatAttr>(value))
+    return cast<TypedAttr>(value).getType() == type && isFieldType(type);
+  return ConstantOp::isBuildableWith(value, type);
+}
+
 // The kinds of value idr.constant holds: constructors, closures and the
 // literals of a type that says what its literals are; an integer's literal
-// is arith.constant's. A constant is static data, read in place: used any
-// number of times, plain before idr-rc and its view (Borrow) after it. A
-// linear value of it is entered from it, an owned one taken (idr.dup).
+// is arith.constant's. A constant is static data: used any number of times,
+// and where its type holds references, held static, graded from what it
+// holds, which nothing frees. A linear value of it is cast from it.
 bool ConstantOp::isBuildableWith(Attribute value, Type type) {
-  if (gradeOf(type).quantity != Quantity::Many || isOwned(type))
+  Grade grade = gradeOf(type);
+  if (grade.uses != Uses::Many || (grade.hold && grade.hold->release() != Release::Static))
     return false;
   type = unrestricted(type);
   if (auto con = dyn_cast<ConAttr>(value))

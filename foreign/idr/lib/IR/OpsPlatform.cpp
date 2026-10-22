@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the ops on the platform compute: idr.os, folded to the string of the
-// operating system the target triple names. The buffer and byte transfer
-// ops declare their buffers, their effects and their guards in ODS
-// (IdrIOOps.td).
+// What the ops on the platform compute that no runtime function does:
+// idr.platform.os, the operating system the module's target triple names,
+// folded to the string base tests for. The triple is the one place the
+// target is decided (the target's entry, which idr-target writes into the
+// module before any step runs); a module that names no target has no
+// operating system to fold to, and the op stays, never the build machine's.
 
 #include "idr/IR/IdrDialect.h"
-// The target entry's triple, generated from CMakeLists.txt.
-#include "idr/TargetEntry.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "llvm/TargetParser/Triple.h"
@@ -31,14 +31,13 @@ StringRef osName(const llvm::Triple &triple) {
 
 } // namespace
 
-// The triple is the module's, as idr-target wrote it before any step ran.
-// A module without one, a dialect test's, has the build's, which is the
-// triple idr-target writes.
-OpFoldResult OsOp::fold(FoldAdaptor) {
-  StringRef triple = IDRIS_MLIR_TARGET_TRIPLE;
-  if (auto module = (*this)->getParentOfType<ModuleOp>())
-    if (auto target =
-            module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName()))
-      triple = target.getTriple().getValue();
-  return StringAttr::get(getContext(), osName(llvm::Triple(triple)));
+OpFoldResult PlatformOsOp::fold(FoldAdaptor) {
+  auto module = (*this)->getParentOfType<ModuleOp>();
+  if (!module)
+    return {};
+  auto target =
+      module->getAttrOfType<LLVM::TargetAttr>(LLVM::LLVMDialect::getTargetAttrName());
+  if (!target)
+    return {};
+  return StringAttr::get(getContext(), osName(llvm::Triple(target.getTriple().getValue())));
 }

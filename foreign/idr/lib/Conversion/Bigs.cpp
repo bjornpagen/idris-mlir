@@ -31,8 +31,9 @@ Value lowBit(OpBuilder &b, Location loc, Value word) {
 // A natural as the extent of an array to be made: a small natural's value,
 // the word shifted right as the runtime's idris_rt_small_value reads it
 // (an inline function emitted code cannot call), which is below 2^62 and so
-// fits an index; any other natural is past every allocation, and crashes as
-// the allocation would, at the op, which no runtime function knows.
+// fits an index; any other natural is past every allocation, which ends the
+// run as out of memory, as the allocation would: no site, since running out
+// of memory names no allocation.
 struct LowerNatToExtent : IdrPattern<NatToExtentOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(NatToExtentOp op, OpAdaptor adaptor,
@@ -41,7 +42,7 @@ struct LowerNatToExtent : IdrPattern<NatToExtentOp> {
     Value word = adaptor.getNatural();
     Value yes = arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true));
     Value large = arith::XOrIOp::create(rewriter, loc, lowBit(rewriter, loc, word), yes);
-    runtime.crashIf(rewriter, loc, large, op.getCrashCause());
+    runtime.outOfMemoryIf(rewriter, loc, large);
     Value one = arith::ConstantIntOp::create(rewriter, loc, 1, 64);
     Value value = arith::ShRUIOp::create(rewriter, loc, word, one);
     rewriter.replaceOpWithNewOp<arith::IndexCastOp>(op, rewriter.getIndexType(), value);

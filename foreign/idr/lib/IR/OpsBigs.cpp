@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The ranges of the ops on bigs and naturals, from their bounds, each
-// within the range its type proves (idr::ranges::ofType).
+// The ops on Integers and naturals: their ranges, from their bounds, each
+// within the range its type proves (idr::ranges::ofType); the conditions of
+// the folds a runtime function's own value would not keep (a shift whose
+// constant would be too large to make, the predecessor of zero, which no
+// natural is); and the fold of the one op with no runtime form, a natural
+// as an Integer. Every other op folds through its runtime function
+// (Fold.h).
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Fold.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Ranges.h"
 
@@ -71,7 +77,7 @@ void BigMulOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 
 // The operand is not zero, so it is at least 1 and its predecessor at
 // least 0.
-void BigPredOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
+void NatPredOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                   SetIntRangeFn setResultRange) {
   Bounds a = idr::ranges::boundsOf(ranges[0]);
   int64_t lo = std::max<int64_t>(a.lo.value_or(1), 1) - 1;
@@ -117,14 +123,16 @@ void BigCmpOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 }
 
 // The integer's bounds, read as the op's signedness says.
-void BigFromSIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
+void BigFromSintOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                       SetIntRangeFn setResultRange) {
-  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], isSigned), setResultRange);
+  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], numeric::Signedness::Signed),
+            setResultRange);
 }
 
-void BigFromUIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
+void BigFromUintOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                       SetIntRangeFn setResultRange) {
-  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], isSigned), setResultRange);
+  setBounds(getResult(), idr::ranges::ofInteger(ranges[0], numeric::Signedness::Unsigned),
+            setResultRange);
 }
 
 // A small is its word, which the op's writer proved inside the small range.
@@ -152,4 +160,54 @@ void BigToIntOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
     }
   }
   setResultRange(getResult(), ConstantIntRanges::maxRange(width));
+}
+
+//===----------------------------------------------------------------------===//
+// Folds
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// Whether shifting the constant `value` by `amount`, left when `Left`, the
+// other way when the amount is negative, makes a constant within
+// constantBytes, the size policy of a constant a fold makes: the runtime
+// computes the fold in the compiler, so a result past it is never made, and
+// the shift stays an op. A shift toward zero, or of 0, shrinks or keeps its
+// operand; one away from zero has at most the operand's bits plus the
+// amount. An amount past 2^64 is past any such size.
+template <numeric::Direction Dir>
+bool smallEnough(ArrayRef<Attribute> constants) {
+  auto value = dyn_cast_or_null<BigAttr>(constants[0]);
+  auto amount = dyn_cast_or_null<BigAttr>(constants[1]);
+  if (!value || !amount)
+    return false;
+  const APInt &places = amount.getValue();
+  bool awayFromZero = (Dir == numeric::Direction::Left) != places.isNegative();
+  if (!awayFromZero || value.getValue().isZero())
+    return true;
+  constexpr uint64_t bits = 8 * constantBytes;
+  std::optional<uint64_t> count = places.abs().tryZExtValue();
+  return count && *count <= bits && value.getValue().getSignificantBits() <= bits - *count;
+}
+
+} // namespace
+
+bool BigShlOp::foldable(ArrayRef<Attribute> constants) {
+  return smallEnough<numeric::Direction::Left>(constants);
+}
+bool BigShrOp::foldable(ArrayRef<Attribute> constants) {
+  return smallEnough<numeric::Direction::Right>(constants);
+}
+
+// Zero has no predecessor: a constant zero is on a path the match before
+// it excludes, and stays as it is.
+bool NatPredOp::foldable(ArrayRef<Attribute> constants) {
+  auto value = dyn_cast_or_null<BigAttr>(constants[0]);
+  return value && !value.getValue().isZero();
+}
+
+// The constant is the same value under the other type, which the constant
+// that materializes it takes from the op's result.
+OpFoldResult NatToBigOp::fold(FoldAdaptor adaptor) {
+  return dyn_cast_or_null<BigAttr>(adaptor.getValue());
 }

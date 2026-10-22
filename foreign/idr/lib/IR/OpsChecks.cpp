@@ -1,14 +1,22 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The guards: each decides its own condition on its fold adaptor, folds to
-// its operand where the operand shows that the condition holds, and narrows
-// the operand's range by it. What the pure total ops they guard ask of them
-// is the trait GuardedOp's (Traits.h), from the ops' marks.
+// The guards: each decides its own condition on constants (its `holds`,
+// which its folder and the folders of the ops it guards ask, through
+// GuardedOp) and on intervals (its `decide`, which the e-graph's skeleton
+// rule asks: a guard that holds goes, one that fails is a crash of its cause
+// at its site), and narrows its operand's range by the condition. Three of
+// the conditions are inline arithmetic, the meanings of Numeric/Inline.h
+// over words and over intervals, as the lowering's test is the same meaning
+// over arith (Conversion/Checks.cpp): one condition, written once. A
+// string's emptiness and a Double's finiteness are no integer arithmetic,
+// and say so.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
-
-#include "idris_rt.h"
+#include "idr/IR/Numeric/Inline.h"
+#include "idr/IR/Numeric/Intervals.h"
+#include "idr/IR/Numeric/Trait.h"
+#include "idr/IR/Numeric/Word.h"
 
 #include <algorithm>
 #include <limits>
@@ -16,30 +24,44 @@
 using namespace mlir;
 using namespace idr;
 
+namespace {
+
+// The 64-bit word of an i64 the runtime gives, a string's length.
+numeric::Word word64(int64_t value) {
+  return numeric::Words::of(static_cast<uint64_t>(value), 64);
+}
+
+} // namespace
+
 //===----------------------------------------------------------------------===//
-// The conditions
+// The conditions on constants
 //===----------------------------------------------------------------------===//
 
-// A constant other than zero, an integer or a big.
+// A constant other than zero. An Integer's zero is the runtime's small 0,
+// no word of the op's: essential, the two types a divisor has.
 bool CheckNonzeroOp::holds(FoldAdaptor adaptor) {
   if (auto big = dyn_cast_or_null<BigAttr>(adaptor.getValue()))
     return !big.getValue().isZero();
   auto word = dyn_cast_or_null<IntegerAttr>(adaptor.getValue());
-  return word && !word.getValue().isZero();
+  return word && numeric::nonzero(numeric::Words{}, numeric::wordOf(word)).holds;
 }
 
-// The length is the runtime's count of the string's characters, which is
-// what idr.str.length folds to.
+// The length is the runtime's count of the string's characters, its
+// str.length's function.
 bool CheckInBoundsOp::holds(FoldAdaptor adaptor) {
   auto index = dyn_cast_or_null<IntegerAttr>(adaptor.getIndex());
-  auto text = dyn_cast_or_null<StringAttr>(adaptor.getIndexed());
-  if (!index || !text || index.getValue().isNegative())
+  auto indexed = dyn_cast_or_null<StringAttr>(adaptor.getIndexed());
+  if (!index || !indexed)
     return false;
-  fold::Scope scope(text.getContext());
-  int64_t length = fold::runtime<StrLengthOp>(scope.str(text));
-  return index.getValue().slt(length);
+  fold::Scope scope(indexed.getContext());
+  std::optional<const idris_rt_str *> text = fold::strOf(scope, indexed);
+  if (!text)
+    return false;
+  int64_t length = runtime::Abi<StrLengthOp>::function(*text);
+  return numeric::inBounds(numeric::Words{}, numeric::wordOf(index), word64(length)).holds;
 }
 
+// A string of at least one byte.
 bool CheckNonemptyOp::holds(FoldAdaptor adaptor) {
   auto str = dyn_cast_or_null<StringAttr>(adaptor.getStr());
   return str && !str.getValue().empty();
@@ -56,52 +78,63 @@ bool CheckRangeOp::holds(FoldAdaptor adaptor) {
   auto size = dyn_cast_or_null<IntegerAttr>(adaptor.getSize());
   if (!offset || !count || !size)
     return false;
-  bool overflow = false;
-  APInt end = offset.getValue().sadd_ov(count.getValue(), overflow);
-  return !offset.getValue().isNegative() && !count.getValue().isNegative() && !overflow &&
-         end.sle(size.getValue());
+  return numeric::inRange(numeric::Words{}, numeric::wordOf(offset), numeric::wordOf(count),
+                          numeric::wordOf(size))
+      .holds;
+}
+
+//===----------------------------------------------------------------------===//
+// The conditions on intervals
+//===----------------------------------------------------------------------===//
+
+// Zero is outside the divisor's interval, or is all of it. An Integer's
+// interval is its value's (idr::ranges), so the same test decides it.
+numeric::Known CheckNonzeroOp::decide(ArrayRef<ConstantIntRanges> ranges) {
+  if (ranges[0].umin().getBitWidth() == 0)
+    return numeric::Known::Unknown;
+  return numeric::nonzero(numeric::Intervals{}, ranges[0]).known;
+}
+
+// The length is no operand: what is indexed is, and its interval says
+// nothing of its length.
+numeric::Known CheckInBoundsOp::decide(ArrayRef<ConstantIntRanges>) {
+  return numeric::Known::Unknown;
+}
+
+// A string and a Double have no interval.
+numeric::Known CheckNonemptyOp::decide(ArrayRef<ConstantIntRanges>) {
+  return numeric::Known::Unknown;
+}
+numeric::Known CheckFiniteOp::decide(ArrayRef<ConstantIntRanges>) {
+  return numeric::Known::Unknown;
+}
+
+numeric::Known CheckRangeOp::decide(ArrayRef<ConstantIntRanges> ranges) {
+  return numeric::inRange(numeric::Intervals{}, ranges[0], ranges[1], ranges[2]).known;
 }
 
 //===----------------------------------------------------------------------===//
 // Folding
 //===----------------------------------------------------------------------===//
 
-namespace {
-
-// Whether the value `op` checks is the result of a guard identical to it,
-// the same guard with its other operands, which has checked it already.
-bool checkedBefore(Operation *op) {
-  Operation *before = op->getOperand(0).getDefiningOp();
-  return before && before->getName() == op->getName() &&
-         llvm::equal(before->getOperands().drop_front(), op->getOperands().drop_front());
+// The value a guard checks, where its condition holds of its constants.
+// Nothing otherwise: a guard that would crash keeps its crash, which the
+// e-graph makes a plain crash where its condition is refuted.
+OpFoldResult CheckNonzeroOp::fold(FoldAdaptor adaptor) {
+  return holds(adaptor) ? OpFoldResult(getValue()) : OpFoldResult();
 }
-
-// The value `op` checks, where its condition `holds`, or where an identical
-// guard checked it. Nothing otherwise: a guard that would crash keeps its
-// crash.
-OpFoldResult foldCheck(Operation *op, bool holds) {
-  if (holds || checkedBefore(op))
-    return op->getOperand(0);
-  return {};
-}
-
-} // namespace
-
-OpFoldResult CheckNonzeroOp::fold(FoldAdaptor adaptor) { return foldCheck(*this, holds(adaptor)); }
-
 OpFoldResult CheckInBoundsOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, holds(adaptor));
+  return holds(adaptor) ? OpFoldResult(getIndex()) : OpFoldResult();
 }
-
-// A string built with a character or a number in it is not empty either,
-// which lets a head read the character off the string it was built from.
 OpFoldResult CheckNonemptyOp::fold(FoldAdaptor adaptor) {
-  return foldCheck(*this, holds(adaptor) || knownNonEmpty(getStr()));
+  return holds(adaptor) ? OpFoldResult(getStr()) : OpFoldResult();
 }
-
-OpFoldResult CheckFiniteOp::fold(FoldAdaptor adaptor) { return foldCheck(*this, holds(adaptor)); }
-
-OpFoldResult CheckRangeOp::fold(FoldAdaptor adaptor) { return foldCheck(*this, holds(adaptor)); }
+OpFoldResult CheckFiniteOp::fold(FoldAdaptor adaptor) {
+  return holds(adaptor) ? OpFoldResult(getValue()) : OpFoldResult();
+}
+OpFoldResult CheckRangeOp::fold(FoldAdaptor adaptor) {
+  return holds(adaptor) ? OpFoldResult(getOffset()) : OpFoldResult();
+}
 
 //===----------------------------------------------------------------------===//
 // Ranges
@@ -125,8 +158,8 @@ ConstantIntRanges within(const ConstantIntRanges &range, int64_t lo, int64_t hi)
 
 } // namespace
 
-// Not zero: an end of the range at zero moves past it. A big's range is
-// its value's, as idr.ranges states it, so the same holds of it.
+// Not zero: an end of the range at zero moves past it. An Integer's range
+// is its value's, so the same holds of it.
 void CheckNonzeroOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                        SetIntRangeFn setResultRange) {
   const ConstantIntRanges &range = ranges[0];

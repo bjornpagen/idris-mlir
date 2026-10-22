@@ -1,22 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The patterns of the string builders over lists: idr.str.pack over a list of
-// characters and idr.str.concat over a list of strings; and of
-// idr.io.put_list, which writes such a list. The list is a box of a nil
-// without fields and a cons of the element and the rest. Each builder walks
-// it twice: once to count the bytes and scalar values of the result and
-// whether it is ASCII, which the runtime's one allocation needs; once more to
-// write each element after the last. Output walks it once. The list is read
-// and never counted: the op borrows it. The ops do not declare these reads (a
-// builder declares the allocation of its result, output its IO): a list's
-// cells never change while a reference to them is live, and the owned stage's
-// verifier refuses an op that reads its list, a view, once the reference the
-// view borrows is gone, as it refuses a field read.
+// characters and idr.str.concat over a list of strings. The list is a cell
+// of a nil without fields or of a cons of the element and the rest, as its
+// family's shape says (its ListShape). Each builder walks it twice: once to
+// count the bytes and scalar values of the result and whether it is ASCII,
+// which the runtime's one allocation needs; once more to write each element
+// after the last. The list is read and never counted: the op reads it in
+// place, and a list's cells never change while a reference to them is
+// live. Writing a list's pack or concat, its one use, is the composition
+// the lowering emits with no string at all: one walk, each element written
+// as idr.io.put_char or idr.io.put_str writes it, where the output stands.
 
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
-#include "idr/IR/Symbols.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Runtime.h"
@@ -32,9 +31,17 @@ namespace idr::conversion {
 
 namespace {
 
-// The list a builder or an output walks: base's list, whose body says
-// which constructor is the cons (the ops' verifiers hold it to that).
-DataType listOf(Type type) { return dataTypeOf(type); }
+// The list a builder walks, and its shape: which constructor is its cons
+// and which field its element, which the op's constraint holds it to.
+struct List {
+  DataType data;
+  families::ListShape shape;
+};
+
+List listOf(Type type) {
+  auto data = cast<DataType>(unrestricted(type));
+  return {data, *data.listShape()};
+}
 
 // The body of a walk: the head's components and the values the walk
 // carries, giving the carried values after this element.
@@ -44,7 +51,7 @@ using Step = function_ref<SmallVector<Value>(OpBuilder &, Location, ValueRange h
 // Walks the list at `cell` while it is a cons, carrying `inits` through
 // `step`; gives the carried values at the nil.
 SmallVector<Value> walk(OpBuilder &b, Location loc, const Layouts &layouts, Runtime &runtime,
-                        DataType list, Value cell, ValueRange inits, Step step) {
+                        const List &list, Value cell, ValueRange inits, Step step) {
   SmallVector<Type> types{cell.getType()};
   SmallVector<Value> operands{cell};
   for (Value init : inits) {
@@ -54,17 +61,20 @@ SmallVector<Value> walk(OpBuilder &b, Location loc, const Layouts &layouts, Runt
   auto loop = scf::WhileOp::create(
       b, loc, types, operands,
       [&](OpBuilder &before, Location l, ValueRange args) {
-        Value tag = runtime.loadTag(before, l, args[0], list, layouts);
+        Value tag = runtime.loadTag(before, l, args[0], list.data, layouts);
         Value consTag = arith::ConstantIntOp::create(
-            before, l, static_cast<uint32_t>(list.getConsTag()), 64);
+            before, l, static_cast<uint32_t>(list.shape.cons), 64);
         Value isCons = arith::CmpIOp::create(before, l, arith::CmpIPredicate::eq, tag, consTag);
         scf::ConditionOp::create(before, l, isCons, args);
       },
       [&](OpBuilder &after, Location l, ValueRange args) {
-        const layout::Cell &layout = layouts.box(list).cell(list.getConsTag());
+        const layout::Cell &layout = layouts.box(list.data).cell(list.shape.cons);
         Value cons = args[0];
-        SmallVector<Value> head = runtime.load(after, l, cons, cellAlignment(), layout.fields[0]);
-        SmallVector<Value> rest = runtime.load(after, l, cons, cellAlignment(), layout.fields[1]);
+        unsigned element = list.shape.element;
+        SmallVector<Value> head =
+            runtime.load(after, l, cons, cellAlignment(), layout.fields[element]);
+        SmallVector<Value> rest =
+            runtime.load(after, l, cons, cellAlignment(), layout.fields[1 - element]);
         SmallVector<Value> carried = step(after, l, head, args.drop_front());
         SmallVector<Value> yields{rest.front()};
         yields.append(carried.begin(), carried.end());
@@ -80,9 +90,21 @@ Value allocate(OpBuilder &b, Location loc, Runtime &runtime, Value bytes, Value 
       .getResult();
 }
 
+// What writing one element of a list writes: a character as put_char does,
+// a string as put_str does, each by its op's own runtime function.
+template <typename OpT>
+const idr::runtime::Function &elementOutput() {
+  if constexpr (std::is_same_v<OpT, StrPackOp>)
+    return idr::runtime::Abi<IoPutCharOp>::entry;
+  else
+    return idr::runtime::Abi<IoPutStrOp>::entry;
+}
+
 // pack and concat walk a list the same way: once for the bytes and the
 // scalar values, then once to write each element after the last. A
-// character's sizes and a string's are the runtime's.
+// character's sizes and a string's are the runtime's. Where the string's
+// one use writes it, the walk writes each element there instead, and
+// neither the string nor its output is left.
 template <typename OpT>
 struct LowerStringOfList : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
@@ -90,8 +112,20 @@ struct LowerStringOfList : IdrPattern<OpT> {
                                 ConversionPatternRewriter &rewriter) const override {
     constexpr bool packing = std::is_same_v<OpT, StrPackOp>;
     Location loc = op.getLoc();
-    DataType list = listOf(op.getList().getType());
+    List list = listOf(op.getList().getType());
     Value cell = adaptor.getList().front();
+    if (op->hasOneUse())
+      if (auto output = dyn_cast<IoPutStrOp>(*op->user_begin())) {
+        rewriter.setInsertionPoint(output);
+        walk(rewriter, output.getLoc(), this->layouts, this->runtime, list, cell, {},
+             [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
+               this->runtime.call(b, l, elementOutput<OpT>(), head.front());
+               return SmallVector<Value>{};
+             });
+        rewriter.eraseOp(output);
+        rewriter.eraseOp(op);
+        return success();
+      }
     Value zero = arith::ConstantIntOp::create(rewriter, loc, 0, 64);
     SmallVector<Value> counts =
         walk(rewriter, loc, this->layouts, this->runtime, list, cell, {zero, zero},
@@ -128,38 +162,12 @@ struct LowerStringOfList : IdrPattern<OpT> {
   }
 };
 
-// The output of a list in one walk: each character or string goes to the
-// runtime's output as put_char or put_str writes it, so the bytes, and
-// their order with everything else the program writes, are those of
-// writing the list's pack or concat.
-struct LowerPutList : IdrPattern<PutListOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(PutListOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    DataType list = listOf(op.getList().getType());
-    Type element = list.getListElement();
-    // The world each write takes has no runtime form, so the element is
-    // all it is given.
-    const idr::runtime::Function &put = isa<StrType>(unrestricted(element))
-                                            ? idr::runtime::Abi<PutStrOp>::entry
-                                            : idr::runtime::Abi<PutCharOp>::entry;
-    walk(rewriter, op.getLoc(), layouts, runtime, list, adaptor.getList().front(), {},
-         [&](OpBuilder &b, Location l, ValueRange head, ValueRange) {
-           runtime.call(b, l, put, head.front());
-           return SmallVector<Value>{};
-         });
-    // A world has no runtime form.
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{}});
-    return success();
-  }
-};
-
 } // namespace
 
-// The string builders over lists, and the output of such a list.
+// The string builders over lists.
 void populateStringPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                             const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerStringOfList<StrPackOp>, LowerStringOfList<StrConcatOp>, LowerPutList>(
+  patterns.add<LowerStringOfList<StrPackOp>, LowerStringOfList<StrConcatOp>>(
       converter, patterns.getContext(), layouts, runtime);
 }
 

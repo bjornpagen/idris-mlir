@@ -82,11 +82,11 @@ Bounds ofSmall(const ConstantIntRanges &range) noexcept {
   return {lo, hi};
 }
 
-Bounds ofInteger(const ConstantIntRanges &range, bool isSigned) noexcept {
+Bounds ofInteger(const ConstantIntRanges &range, numeric::Signedness signedness) noexcept {
   unsigned width = range.smin().getBitWidth();
   if (width == 0 || width > 64)
     return {};
-  if (isSigned)
+  if (signedness == numeric::Signedness::Signed)
     return bounded(range.smin().getSExtValue(), range.smax().getSExtValue());
   // An unsigned 64-bit value above INT64_MAX is outside the small range.
   auto unsignedBound = [](const APInt &v) -> std::optional<int64_t> {

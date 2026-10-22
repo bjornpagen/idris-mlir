@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The patterns of the guards. A guard is the test of its condition, the crash
-// with its cause where the test fails, and then its operand, which the op it
-// guards takes. That op's own lowering tests nothing, so a guard a proof
-// removed leaves no test behind.
+// The patterns of the guards. A guard is the test of its condition, the
+// crash of its cause at its site where the test fails, and then its
+// operand, which the op it guards takes. That op's own lowering tests
+// nothing, so a guard a proof removed leaves no test behind. Three
+// conditions are inline arithmetic, each the meaning its fold and its
+// interval decision instantiate too (Numeric/Inline.h), here over arith; a
+// string's emptiness and a Double's finiteness are no integer arithmetic.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Grades.h"
-#include "idr/IR/Layout.h"
+#include "idr/IR/Numeric/Arith.h"
+#include "idr/IR/Numeric/Inline.h"
 #include "idr/Conversion/Arrays.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
@@ -32,28 +36,24 @@ namespace {
 template <typename OpT>
 using Converted = typename OpT::template GenericAdaptor<ArrayRef<ValueRange>>;
 
-Value compare(OpBuilder &b, Location loc, arith::CmpIPredicate predicate, Value x, Value y) {
-  return arith::CmpIOp::create(b, loc, predicate, x, y);
-}
+// Where each guard fails, an i1.
 
-// Where each guard fails.
-
-// The integer 0, or the big 0, the runtime's small word of 0: a divisor is
-// an integer or a big, each with its own zero.
+// An integer divisor fails where its condition does. An Integer's zero is
+// the runtime's small word of 0, an encoding, no integer of the op's:
+// essential, the two types a divisor has.
 Value fails(CheckNonzeroOp op, Converted<CheckNonzeroOp> in, OpBuilder &b, Location loc,
             Runtime &) {
   Value value = in.getValue().front();
-  Type type = op.getValue().getType();
-  Value zero = isa<IntegerType>(type)
-                   ? Value(arith::ConstantOp::create(b, loc, b.getIntegerAttr(type, 0)))
-                   : Value(arith::ConstantIntOp::create(
-                         b, loc, static_cast<int64_t>(idris_rt_small_word(0)), 64));
-  return compare(b, loc, arith::CmpIPredicate::eq, value, zero);
+  numeric::Arith d(b, loc);
+  if (isa<IntegerType>(op.getValue().getType()))
+    return d.negation(numeric::nonzero(d, value)).bit;
+  Value zero =
+      arith::ConstantIntOp::create(b, loc, static_cast<int64_t>(idris_rt_small_word(0)), 64);
+  return d.equal(value, zero).bit;
 }
 
-// An index from the length of what it indexes on: a string's characters,
-// which the runtime counts, or an array's size, which its value holds; a
-// negative index is a large unsigned one.
+// An index against the length of what it indexes: a string's characters,
+// which the runtime counts, or an array's size, which its value holds.
 Value fails(CheckInBoundsOp op, Converted<CheckInBoundsOp> in, OpBuilder &b, Location loc,
             Runtime &runtime) {
   Type indexed = unrestricted(op.getIndexed().getType());
@@ -62,7 +62,8 @@ Value fails(CheckInBoundsOp op, Converted<CheckInBoundsOp> in, OpBuilder &b, Loc
   Value length = array ? asWord(b, loc, unpack(b, loc, array, what).sizes.front())
                        : runtime.call(b, loc, idr::runtime::Abi<StrLengthOp>::entry, what.front())
                              .getResult();
-  return compare(b, loc, arith::CmpIPredicate::uge, in.getIndex().front(), length);
+  numeric::Arith d(b, loc);
+  return d.negation(numeric::inBounds(d, in.getIndex().front(), length)).bit;
 }
 
 // A string of no characters.
@@ -70,8 +71,8 @@ Value fails(CheckNonemptyOp, Converted<CheckNonemptyOp> in, OpBuilder &b, Locati
             Runtime &runtime) {
   Value length =
       runtime.call(b, loc, idr::runtime::Abi<StrLengthOp>::entry, in.getStr().front()).getResult();
-  return compare(b, loc, arith::CmpIPredicate::eq, length,
-                 arith::ConstantIntOp::create(b, loc, 0, 64));
+  return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, length,
+                               arith::ConstantIntOp::create(b, loc, 0, 64));
 }
 
 // NaN or an infinity.
@@ -81,25 +82,16 @@ Value fails(CheckFiniteOp, Converted<CheckFiniteOp> in, OpBuilder &b, Location l
   return arith::XOrIOp::create(b, loc, finite, yes);
 }
 
-// A negative offset or count, an offset past the size, or more bytes than
-// the size has after the offset. That room cannot overflow once the offset
-// is within the size; where it is not, the room wraps, and a test before
-// it has already failed.
 Value fails(CheckRangeOp, Converted<CheckRangeOp> in, OpBuilder &b, Location loc, Runtime &) {
-  Value offset = in.getOffset().front(), count = in.getCount().front(),
-        size = in.getSize().front();
-  Value zero = arith::ConstantIntOp::create(b, loc, 0, 64);
-  Value room = arith::SubIOp::create(b, loc, size, offset);
-  Value outside = compare(b, loc, arith::CmpIPredicate::slt, offset, zero);
-  for (Value test : {compare(b, loc, arith::CmpIPredicate::slt, count, zero),
-                     compare(b, loc, arith::CmpIPredicate::sgt, offset, size),
-                     compare(b, loc, arith::CmpIPredicate::sgt, count, room)})
-    outside = arith::OrIOp::create(b, loc, outside, test);
-  return outside;
+  numeric::Arith d(b, loc);
+  return d
+      .negation(numeric::inRange(d, in.getOffset().front(), in.getCount().front(),
+                                 in.getSize().front()))
+      .bit;
 }
 
-// The crash is at the guard's location, which is the partial op's, so its
-// message is the one that op's crash has.
+// The crash is the guard's cause at the guard's site, both its own
+// properties, never read from its location.
 template <typename OpT>
 struct LowerCheck : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
@@ -107,7 +99,7 @@ struct LowerCheck : IdrPattern<OpT> {
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     this->runtime.crashIf(rewriter, loc, fails(op, adaptor, rewriter, loc, this->runtime),
-                          op.getCause());
+                          op.getCause(), op.getSite());
     // The operand the guard guards, its first, is its result.
     rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getOperands().front())});
     return success();
