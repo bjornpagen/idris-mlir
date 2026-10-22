@@ -3,21 +3,25 @@
 # Copyright (c) 2026 Bjorn Pagen
 # Every file of the tree names its licence at its head, in its kind's
 # comment syntax: its first line, or the line after a script's #!, with its
-# copyright holder on the next. Ours is 0BSD; the type checker's,
-# Idris's checker copied into compiler/checker, is BSD-3-Clause, the holder
-# Idris's for a file copied from the pin's src/ and ours for any other; a
-# port's is the expression of its upstream's licences, Apache-2.0 WITH
-# LLVM-exception among them, with its upstream header kept. This script is the one place that knows the scope, which is
-# every file git tracks or would track, less the exclusions below, each
-# with its reason: a file of a new kind is in scope at once, and named
-# until its kind's comment syntax is here.
+# copyright holder on the next. Ours is 0BSD, and ours is its holder. The
+# type checker's, Idris's checker copied into compiler/checker, is
+# BSD-3-Clause, and each of its files names its own holder: Idris's (Edwin
+# Brady and the Idris contributors) on a file copied from Idris, ours on
+# one written here. A port's is the expression of its upstream's licences,
+# Apache-2.0 WITH LLVM-exception among them, with its upstream header kept.
+# This script is the one place that knows the scope, which is every file
+# git tracks or would track, less the exclusions below, each with its
+# reason: a file of a new kind is in scope at once, and named until its
+# kind's comment syntax is here.
 #
 #   tools/licenses.sh           check: name every file in scope without its
-#                               line, or with a wrong one; exit 1 if any
-#   tools/licenses.sh --apply   write the missing lines, and correct a wrong
-#                               holder, of ours and of the checker's (a port
-#                               is never written here: it arrives with its
-#                               header)
+#                               lines, or with a wrong one; exit 1 if any
+#   tools/licenses.sh --apply   write the missing lines, ours (a file with
+#                               none was written here), and correct the
+#                               holder of a part that has one; a holder a
+#                               file names itself is never written, nor a
+#                               port's header: a file copied from another
+#                               party arrives with its header
 #
 # Besides: the text of every licence an identifier in use names is in
 # LICENSES/, and a port is one PINS.md names, carries the note of what
@@ -66,15 +70,19 @@ kinds() {
 EOF
 }
 
-# The parts of the tree: `patterns -- identifier`, the first that matches.
+ours='2026 Bjorn Pagen'
+
+# The parts of the tree: `patterns -- identifier [holder]`, the first that
+# matches. A part with a holder is that holder's in every file. A part
+# without one is a tree of several holders, each file naming its own on its
+# copyright line, `Copyright (c) <years> <holder>`: the checker's, which
+# holds Idris's files and ours.
 parts() {
-  cat << 'EOF'
+  cat << EOF
 compiler/checker/* -- BSD-3-Clause
-* -- 0BSD
+* -- 0BSD $ours
 EOF
 }
-ours='2026 Bjorn Pagen'
-upstream_idris='2020 Edwin Brady'
 
 # What each part a port may come from keeps of its upstream's header, as
 # PINS.md names the part (`the port of <part>'s ...`): `part -- pattern`.
@@ -87,13 +95,6 @@ EOF
 }
 
 git -c core.quotePath=false ls-files -co --exclude-standard | LC_ALL=C sort -u > "$work/tree"
-# Whose a checker file is is read from the Idris pin: a path the pin's
-# src/ has was copied from it, and is Idris's.
-pin=$(git ls-files -s third_party/Idris2 | awk '{ print $2 }')
-if [ -z "$pin" ] || ! git -C third_party/Idris2 ls-tree -r --name-only "$pin" -- src > "$work/pin" 2> /dev/null; then
-  echo "licenses: the pin third_party/Idris2 is not checked out, so whose a checker file is is unknown"
-  exit 1
-fi
 exclusions > "$work/exclusions"
 kinds > "$work/kinds"
 parts > "$work/parts"
@@ -101,9 +102,10 @@ parts > "$work/parts"
 # Each file in scope, read at its head: `what TAB file TAB ...`, where what
 # is ok, missing (TAB the line the header goes at TAB open TAB close TAB
 # identifier TAB holder), holder (TAB its line TAB the line it should be),
-# wrong (TAB the expression TAB the identifier), nokind or port; and an
-# `id TAB identifier` line for each identifier a file in scope names.
-awk -F'\t' -v ours="$ours" -v upstream="$upstream_idris" '
+# unnamed (TAB the line that names no holder), wrong (TAB the expression
+# TAB the identifier), nokind or port; and an `id TAB identifier` line for
+# each identifier a file in scope names.
+awk -F'\t' -v ours="$ours" '
   # A shell pattern as an anchored regular expression.
   function glob(p,   out, j, c) {
     out = "^"
@@ -133,10 +135,14 @@ awk -F'\t' -v ours="$ours" -v upstream="$upstream_idris" '
   }
   FILENAME == ARGV[3] {
     rest = split_rule($0)
-    for (j = 1; j <= npat; j++) { np++; part[np] = pat[j]; ident[np] = rest }
+    sp = index(rest, " ")
+    for (j = 1; j <= npat; j++) {
+      np++; part[np] = pat[j]
+      ident[np] = sp == 0 ? rest : substr(rest, 1, sp - 1)
+      owner[np] = sp == 0 ? "" : substr(rest, sp + 1)
+    }
     next
   }
-  FILENAME == ARGV[4] { pinned["compiler/checker/" $0] = 1; next }
   {
     f = $0
     for (j = 1; j <= ne; j++) if (f ~ excluded[j]) next
@@ -149,13 +155,15 @@ awk -F'\t' -v ours="$ours" -v upstream="$upstream_idris" '
     open = ""; shut = ""
     for (j = 1; j <= nk; j++) if (f ~ kind[j]) { split(syntax[j], s, " "); open = s[1]; shut = s[2]; break }
     if (open == "" && at == 2) open = "#"
-    for (j = 1; j <= np; j++) if (f ~ part[j]) { id = ident[j]; break }
-    holder = f in pinned ? upstream : ours
+    for (j = 1; j <= np; j++) if (f ~ part[j]) { id = ident[j]; holder = owner[j]; break }
     head = line[at]
     k = index(head, "SPDX-License-Identifier: ")
     if (k == 0) {
+      # A file without its lines was written here, since one copied from
+      # another party arrives with its own: its holder is the one of its
+      # part, or ours.
       if (open == "") print "nokind\t" f
-      else print "missing\t" f "\t" at "\t" open "\t" shut "\t" id "\t" holder
+      else print "missing\t" f "\t" at "\t" open "\t" shut "\t" id "\t" (holder == "" ? ours : holder)
       next
     }
     expr = substr(head, k + 25)
@@ -169,11 +177,22 @@ awk -F'\t' -v ours="$ours" -v upstream="$upstream_idris" '
         print "id\t" tokens[j]
     if (expr ~ /Apache-2\.0/) { print "port\t" f; next }
     if (expr != id) { print "wrong\t" f "\t" expr "\t" id; next }
-    prefix = substr(head, 1, k - 1)
-    want = prefix "Copyright (c) " holder (shut == "" ? "" : " " shut)
-    if (line[at + 1] != want) { print "holder\t" f "\t" at + 1 "\t" want; next }
+    lead = substr(head, 1, k - 1) "Copyright (c) "
+    tail = shut == "" ? "" : " " shut
+    named = line[at + 1]
+    if (holder != "") {
+      if (named != lead holder tail) { print "holder\t" f "\t" at + 1 "\t" lead holder tail; next }
+    } else {
+      # The file names its holder: its years, then the holder.
+      notice = substr(named, length(lead) + 1, length(named) - length(lead) - length(tail))
+      if (substr(named, 1, length(lead)) != lead || substr(named, length(named) - length(tail) + 1) != tail ||
+          notice !~ /^[0-9][0-9][0-9][0-9]( ?[-,] ?[0-9][0-9][0-9][0-9])* +[^ ]/) {
+        print "unnamed\t" f "\t" at + 1
+        next
+      }
+    }
     print "ok\t" f
-  }' "$work/exclusions" "$work/kinds" "$work/parts" "$work/pin" "$work/tree" > "$work/found"
+  }' "$work/exclusions" "$work/kinds" "$work/parts" "$work/tree" > "$work/found"
 
 bad=0
 # report KIND MESSAGE: each file found of that kind, with the message.
@@ -187,10 +206,14 @@ report() {
 report nokind "no comment syntax known for its kind: add it here, or exclude it with a reason"
 awk -F'\t' '$1 == "wrong" { print $2 ": names " $3 ", where its part is " $4 }' "$work/found" > "$work/report"
 [ -s "$work/report" ] && { cat "$work/report"; bad=1; }
+# Whose a file is that names its own holder only the file can say, so a
+# line naming none is never written here.
+awk -F'\t' '$1 == "unnamed" { print $2 ": line " $3 " names no holder, as Copyright (c) <years> <holder>" }' "$work/found" > "$work/report"
+[ -s "$work/report" ] && { cat "$work/report"; bad=1; }
 
-# The lines a file of ours or of the checker lacks, written or named. The
-# fields are split at `|`, which no path or comment syntax holds, so that
-# an empty one (a syntax that needs no close) stays a field.
+# The lines a file lacks, and the holder of a part that has one, written or
+# named. The fields are split at `|`, which no path or comment syntax
+# holds, so that an empty one (a syntax that needs no close) stays a field.
 awk -F'\t' '$1 == "missing" || $1 == "holder" { $1 = $1; print }' OFS='|' "$work/found" > "$work/fix"
 if [ "$apply" -eq 0 ]; then
   awk -F'|' '
