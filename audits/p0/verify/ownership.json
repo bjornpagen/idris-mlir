@@ -239,7 +239,12 @@
     "foreign/idr/include/idr/Conversion/Elements.h",
     "foreign/idr/lib/Transforms/StructureLoops/",
     "foreign/idr/include/idr/Transforms/StructureLoops.h",
-    "foreign/idr/lib/IR/OpsFolds.cpp"
+    "foreign/idr/lib/IR/OpsFolds.cpp",
+    "foreign/idr/lib/IR/OpsArrayRules.cpp",
+    "foreign/idr/lib/IR/OpsArrayMovements.cpp",
+    "foreign/idr/lib/IR/OpsArrayShapes.cpp",
+    "foreign/idr/lib/IR/OpsArrayFusion.cpp",
+    "foreign/idr/lib/Conversion/Movements.cpp"
   ],
   "L13": [
     "compiler/spec/IdrisMLIR/Spec/Ops/",
