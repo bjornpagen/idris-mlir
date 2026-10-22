@@ -4028,6 +4028,13 @@ C137.
   crashes. The table's own operation sum and parameter domains go (19
   G6). The oracle's meaning includes each crash the runtime documents,
   so a generated program that reaches one is checked, not avoided.
+  *Sharpened* (2026-10-22; L19's finding): each builtin's Idris-level
+  signature, its operand and result types as a program writes them
+  (Int8 apart from Bits8, Char apart from Int32), is the table's own,
+  beside its spelling, since it is base's language, which C6 keeps out
+  of the specification, and the dialect's signless types and family ops
+  drop it. The op, its family, host dependence and guard still come
+  from the specification's op.
 - **C198** (2026-10-22; L13's seventh pass). No fold whose answer
   depends on the compiling machine. Upstream's folds of `math.exp`,
   `log`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan` and `powf` call the
