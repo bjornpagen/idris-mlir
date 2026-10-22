@@ -63,15 +63,15 @@ std::uint64_t solveComponent(const ProgramGraph &g, const P &problem, SccId c,
 } // namespace detail
 
 // Each component on the one static schedule, its members written by its
-// own task alone, and its transfers added once it is solved.
+// own unit alone, and its transfers the unit's steps.
 template <Order O, SummaryProblem P>
 IndexVector<FunctionId, typename P::Summary> summarize(const ProgramGraph &g, const P &problem,
                                                        mlir::MLIRContext &context, Work &work) {
   using S = typename P::Summary;
   IndexVector<FunctionId, S> done = g.table(S::bottom());
-  inSchedule<O>(g, context, [&](SccId c) {
+  inSchedule<O>(g, context, work, [&](SccId c) {
     SolveUnit unit("summarize", g.op(g.members(c).front()).getSymName());
-    work.add(detail::solveComponent(g, problem, c, done));
+    return detail::solveComponent(g, problem, c, done);
   });
   return done;
 }

@@ -1440,9 +1440,9 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
     if (op.getDialectName() != dialectName || admitted->getValueAsInt("frontendWrites") == 0)
       continue;
     for (const llvm::Record *guard : admitted->getValueAsListOfDefs("guards")) {
-      std::string module = guard->getValueAsString("causeModule").str();
-      if (!llvm::is_contained(v.causeModules, module))
-        v.causeModules.push_back(std::move(module));
+      std::string causeModule = guard->getValueAsString("causeModule").str();
+      if (!llvm::is_contained(v.causeModules, causeModule))
+        v.causeModules.push_back(std::move(causeModule));
     }
     emitOp(v.enums, u, op, *admitted, opsOs);
   }

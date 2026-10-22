@@ -619,28 +619,43 @@ paramCppType CountValue = "uint64_t"
 paramCppType (ListOf k) = "::llvm::ArrayRef<" ++ paramCppType k ++ ">"
 paramCppType (WiredValue w _) = wiredHeld w
 
+||| A default as the last argument of a parameter class that takes one:
+||| nothing where the parameter is always written.
+defaultArgument : Presence -> String
+defaultArgument AlwaysWritten = ""
+defaultArgument (DefaultsTo d) = ", " ++ quoted (codeText d)
+
+||| A parameter held as a bare C++ type, and its default, which upstream's
+||| `DefaultValuedParameter` gives a C++ type.
+cppParameter : String -> Presence -> String
+cppParameter t AlwaysWritten = quoted t
+cppParameter t (DefaultsTo d) = "DefaultValuedParameter<" ++ quoted t ++ ", " ++ quoted (codeText d) ++ ">"
+
+||| A parameter's ODS class with its default. A default is the class's
+||| `defaultValue`, which each class is given where it is built: a bare
+||| C++ type through `DefaultValuedParameter`, `StringRefParameter` by its
+||| own argument, and every other class by the last argument of the
+||| dialect's class for it.
 export
-paramKindOds : ParamKind -> String
-paramKindOds TypeValue = "\"::mlir::Type\""
-paramKindOds (OptionalCase _ c) = quoted ("::std::optional<" ++ codeText c ++ ">")
-paramKindOds AttrValue = "\"::mlir::Attribute\""
-paramKindOds (EnumValue e) = "EnumParameter<" ++ enumRecord e.enum ++ ">"
-paramKindOds StringValue = "StringRefParameter<>"
-paramKindOds IntegerValue = "APIntParameter<\"\">"
-paramKindOds CountValue = "\"uint64_t\""
-paramKindOds (ListOf k) = "ArrayRefParameter<" ++ quoted (paramCppType k) ++ ", \"\">"
-paramKindOds (WiredValue (WiredArray w) d) =
-  "Idr_HandArrayParameter<" ++ quoted (wireCpp w) ++ ", " ++ quoted (identText d.name) ++ ">"
-paramKindOds (WiredValue (WiredOne l) d) =
-  "Idr_HandParameter<" ++ quoted (leafCpp l) ++ ", " ++ quoted (identText d.name) ++ ">"
-paramKindOds (WiredValue (WiredOf c) d) =
-  "Idr_HandParameter<" ++ quoted (codeText (compositeCpp c)) ++ ", " ++ quoted (identText d.name) ++ ">"
+paramKindOds : ParamKind -> Presence -> String
+paramKindOds TypeValue p = cppParameter "::mlir::Type" p
+paramKindOds (OptionalCase _ c) p = cppParameter ("::std::optional<" ++ codeText c ++ ">") p
+paramKindOds AttrValue p = cppParameter "::mlir::Attribute" p
+paramKindOds CountValue p = cppParameter "uint64_t" p
+paramKindOds (EnumValue e) p = "Idr_EnumParameter<" ++ enumRecord e.enum ++ defaultArgument p ++ ">"
+paramKindOds StringValue p = "StringRefParameter<\"\"" ++ defaultArgument p ++ ">"
+paramKindOds IntegerValue p = "Idr_APIntParameter<" ++ quoted "" ++ defaultArgument p ++ ">"
+paramKindOds (ListOf k) p = "Idr_ArrayRefParameter<" ++ quoted (paramCppType k) ++ defaultArgument p ++ ">"
+paramKindOds (WiredValue (WiredArray w) d) p =
+  "Idr_HandArrayParameter<" ++ quoted (wireCpp w) ++ ", " ++ quoted (identText d.name) ++ defaultArgument p ++ ">"
+paramKindOds (WiredValue (WiredOne l) d) p =
+  "Idr_HandParameter<" ++ quoted (leafCpp l) ++ ", " ++ quoted (identText d.name) ++ defaultArgument p ++ ">"
+paramKindOds (WiredValue (WiredOf c) d) p =
+  "Idr_HandParameter<" ++ quoted (codeText (compositeCpp c)) ++ ", " ++ quoted (identText d.name) ++ defaultArgument p ++ ">"
 
 export
 parameterOds : Parameter -> String
-parameterOds x = case x.presence of
-  AlwaysWritten => paramKindOds x.kind ++ ":$" ++ identText x.name
-  DefaultsTo d => "DefaultValuedParameter<" ++ paramKindOds x.kind ++ ", " ++ quoted (codeText d) ++ ">:$" ++ identText x.name
+parameterOds x = paramKindOds x.kind x.presence ++ ":$" ++ identText x.name
 
 export
 typedParameterOds : Typed p -> (Fin p, Parameter) -> String
@@ -874,18 +889,37 @@ baseClasses =
   , "  let cppNamespace = \"::idr\";"
   , "}"
   , ""
-  , "class Idr_HandParameter<string cppType, string directive>"
+  , "// The parameter classes, each taking its default last: a parameter's"
+  , "// default is its class's `defaultValue`, which a dag argument cannot set,"
+  , "// and none is the empty string. Upstream's classes that take no default"
+  , "// are given one here."
+  , "class Idr_EnumParameter<EnumInfo enumInfo, string default = \"\">"
+  , "    : EnumParameter<enumInfo> {"
+  , "  let defaultValue = default;"
+  , "}"
+  , "class Idr_APIntParameter<string desc, string default = \"\">"
+  , "    : APIntParameter<desc> {"
+  , "  let defaultValue = default;"
+  , "}"
+  , "class Idr_ArrayRefParameter<string arrayOf, string default = \"\">"
+  , "    : ArrayRefParameter<arrayOf, \"\"> {"
+  , "  let defaultValue = default;"
+  , "}"
+  , ""
+  , "class Idr_HandParameter<string cppType, string directive, string default = \"\">"
   , "    : AttrOrTypeParameter<cppType, \"\"> {"
   , "  let parser = \"::idr::parse\" # directive # \"($_parser)\";"
   , "  let printer = \"::idr::print\" # directive # \"($_printer, $_self)\";"
+  , "  let defaultValue = default;"
   , "}"
   , ""
   , "// An array of a wire's values: held as a view the storage copies, parsed"
   , "// into the vector that owns them."
-  , "class Idr_HandArrayParameter<string element, string directive>"
+  , "class Idr_HandArrayParameter<string element, string directive, string default = \"\">"
   , "    : ArrayRefParameter<element, \"\"> {"
   , "  let parser = \"::idr::parse\" # directive # \"($_parser)\";"
   , "  let printer = \"::idr::print\" # directive # \"($_printer, $_self)\";"
+  , "  let defaultValue = default;"
   , "}"
   , ""
   , "// A property of a hand class: held as itself, its attribute form, its hash"

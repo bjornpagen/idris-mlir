@@ -226,7 +226,7 @@ admittedTd : Dialect -> (Path, String)
 admittedTd d =
   ( generated ("IdrAdmitted" ++ identText (dialectName d) ++ ".td")
   , tdFile ("IDR_GENERATED_ADMITTED_" ++ pack (map up (unpack (identText (dialectName d)))))
-      [odsInclude d, "idr/IR/Generated/IdrAdmittedBase.td"]
+      (forget (odsIncludes d) ++ ["idr/IR/Generated/IdrAdmittedBase.td"])
       (map admittedRow (admittedOf d)) )
   where
     up : Char -> Char

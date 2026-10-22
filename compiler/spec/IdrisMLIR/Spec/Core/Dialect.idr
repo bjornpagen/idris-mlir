@@ -62,21 +62,22 @@ odsDialect Bufferization = ident "Bufferization_Dialect"
 odsDialect SCF = ident "SCF_Dialect"
 odsDialect Transform = ident "Transform_Dialect"
 
-||| The upstream ODS file that defines the dialect's ops, which an admitted
-||| record file includes; ours is printed.
+||| The upstream ODS files that define the dialect's ops, which an admitted
+||| record file includes; ours is printed. Linalg's are two: its structured
+||| ops, and the ops of their bodies (`linalg.yield`, `linalg.index`).
 public export
-odsInclude : Dialect -> String
-odsInclude Idr = "idr/IR/Generated/IdrOps.td"
-odsInclude Builtin = "mlir/IR/BuiltinOps.td"
-odsInclude Arith = "mlir/Dialect/Arith/IR/ArithOps.td"
-odsInclude Math = "mlir/Dialect/Math/IR/MathOps.td"
-odsInclude MemRef = "mlir/Dialect/MemRef/IR/MemRefOps.td"
-odsInclude Tensor = "mlir/Dialect/Tensor/IR/TensorOps.td"
-odsInclude UB = "mlir/Dialect/UB/IR/UBOps.td"
-odsInclude Linalg = "mlir/Dialect/Linalg/IR/LinalgStructuredOps.td"
-odsInclude Bufferization = "mlir/Dialect/Bufferization/IR/BufferizationOps.td"
-odsInclude SCF = "mlir/Dialect/SCF/IR/SCFOps.td"
-odsInclude Transform = "mlir/Dialect/Transform/IR/TransformOps.td"
+odsIncludes : Dialect -> List1 String
+odsIncludes Idr = "idr/IR/Generated/IdrOps.td" ::: []
+odsIncludes Builtin = "mlir/IR/BuiltinOps.td" ::: []
+odsIncludes Arith = "mlir/Dialect/Arith/IR/ArithOps.td" ::: []
+odsIncludes Math = "mlir/Dialect/Math/IR/MathOps.td" ::: []
+odsIncludes MemRef = "mlir/Dialect/MemRef/IR/MemRefOps.td" ::: []
+odsIncludes Tensor = "mlir/Dialect/Tensor/IR/TensorOps.td" ::: []
+odsIncludes UB = "mlir/Dialect/UB/IR/UBOps.td" ::: []
+odsIncludes Linalg = "mlir/Dialect/Linalg/IR/LinalgStructuredOps.td" ::: ["mlir/Dialect/Linalg/IR/LinalgOps.td"]
+odsIncludes Bufferization = "mlir/Dialect/Bufferization/IR/BufferizationOps.td" ::: []
+odsIncludes SCF = "mlir/Dialect/SCF/IR/SCFOps.td" ::: []
+odsIncludes Transform = "mlir/Dialect/Transform/IR/TransformOps.td" ::: []
 
 ||| The C++ header that declares the dialect's ops: the classes its
 ||| admitted ops' aliases name are declared there, so the aliases' header

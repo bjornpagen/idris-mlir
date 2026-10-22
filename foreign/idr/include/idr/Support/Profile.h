@@ -16,8 +16,10 @@
 #include "idr/Support/Footprint.h"
 
 #include "mlir/Pass/PassInstrumentation.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Threading.h"
 #include "llvm/Support/TimeProfiler.h"
 
 #include <concepts>
@@ -84,25 +86,29 @@ llvm::PassInstrumentationCallbacks *llvmCallbacks();
 
 namespace detail {
 
-// The runs of passes this thread is inside, innermost last: the pass
-// manager calls a run's before- and after-hooks on the one thread that runs
-// it, in nesting order, so each thread's stack is its own and needs no lock.
+// The pass manager calls a run's before- and after-hooks on the one thread
+// that runs it, in nesting order, so the runs a thread is inside are a
+// stack of that thread's. Which thread runs a pass is known only when it
+// runs, so the stack is found by the thread's id; the manager calls every
+// instrumentation's hooks under its one lock, so the map needs none of its
+// own, and it lives as long as the manager that owns this instrumentation.
 template <class Record>
 class Footprints final : public mlir::PassInstrumentation {
 public:
   explicit Footprints(Record record) : record(std::move(record)) {}
 
   void runBeforePass(mlir::Pass *, mlir::Operation *) override {
-    runs.push_back(footprint::Run::begin());
+    runs[llvm::get_threadid()].push_back(footprint::Run::begin());
   }
   void runAfterPass(mlir::Pass *pass, mlir::Operation *) override { end(*pass); }
   void runAfterPassFailed(mlir::Pass *pass, mlir::Operation *) override { end(*pass); }
 
 private:
-  void end(mlir::Pass &pass) { record(pass, runs.pop_back_val().end()); }
+  void end(mlir::Pass &pass) { record(pass, runs[llvm::get_threadid()].pop_back_val().end()); }
 
   Record record;
-  static inline thread_local llvm::SmallVector<footprint::Run, 4> runs;
+  // Each thread's runs, innermost last.
+  llvm::DenseMap<std::uint64_t, llvm::SmallVector<footprint::Run, 4>> runs;
 };
 
 } // namespace detail
