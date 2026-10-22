@@ -82,7 +82,7 @@ IndexVector<SccId, std::uint32_t> wavesOf(const ProgramGraph &g) {
   IndexVector<SccId, std::uint32_t> wave(g.sccCount(), 0);
   inOrder<O>(g, [&](SccId c) {
     std::uint32_t at = 0;
-    forEachRead<O>(g, c, [&](SccId read) { at = std::max(at, wave[read] + 1); });
+    forEachRead<O>(g, c, [&](SccId read) { at = std::max<std::uint32_t>(at, wave[read] + 1); });
     wave[c] = at;
   });
   return wave;

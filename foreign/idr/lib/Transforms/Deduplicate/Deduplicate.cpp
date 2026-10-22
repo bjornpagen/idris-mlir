@@ -41,6 +41,7 @@
 #include "idr/IR/Symbols.h"
 #include "idr/IR/Tail.h"
 #include "idr/Support/Actions.h"
+#include "idr/Support/Changed.h"
 #include "idr/Support/Footprint.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -285,18 +286,20 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
       classOf = std::move(next);
       classes = static_cast<unsigned>(numbers.size());
     };
+    // A round's key holds each function's class, so a round only splits
+    // classes, and there are never more classes than functions: the rounds
+    // end with the first that splits none.
     auto refine = [&] {
-      while (true) {
-        unsigned before = classes;
+      unsigned before;
+      do {
+        before = classes;
         renumber([&](unsigned at) {
           idr::footprint::Vector<unsigned> key{classOf[at]};
           for (unsigned ref : refs[at])
             key.push_back(classOf[ref]);
           return key;
         });
-        if (classes == before)
-          return;
-      }
+      } while (classes != before);
     };
     renumber([&](unsigned at) { return static_cast<std::size_t>(hashes[at]); });
 
@@ -308,32 +311,39 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
       idr::FuncOp first = fns[members[classOf[positionOf(ref)]].front()];
       return FlatSymbolRefAttr::get(first.getSymNameAttr());
     };
-    while (true) {
+    // The part of its class each function is confirmed in, and whether any
+    // class split.
+    struct Parts {
+      idr::footprint::Vector<unsigned> of;
+      idr::Changed split;
+    };
+    auto confirm = [&] {
       refine();
       members.assign(classes, {});
       for (unsigned at = 0; at < n; ++at)
         members[classOf[at]].push_back(at);
       for (SmallVector<unsigned> &list : members)
         llvm::sort(list, [&](unsigned a, unsigned b) { return fns[a].getSymName() < fns[b].getSymName(); });
-      idr::footprint::Vector<unsigned> part(n, 0);
-      bool split = false;
+      Parts parts{idr::footprint::Vector<unsigned>(n, 0), idr::Changed::No};
       for (ArrayRef<unsigned> list : members) {
         SmallVector<unsigned, 2> firsts{list.front()};
         for (unsigned at : list.drop_front()) {
           auto same = llvm::find_if(firsts, [&](unsigned first) {
             return sameBody(fns[first], fns[at], representative);
           });
-          part[at] = static_cast<unsigned>(same - firsts.begin());
+          parts.of[at] = static_cast<unsigned>(same - firsts.begin());
           if (same == firsts.end()) {
             firsts.push_back(at);
-            split = true;
+            parts.split = idr::Changed::Yes;
           }
         }
       }
-      if (!split)
-        break;
-      renumber([&](unsigned at) { return std::pair(classOf[at], part[at]); });
-    }
+      return parts;
+    };
+    // A split adds a class, and there are never more classes than
+    // functions, so the rounds end with the first in which none splits.
+    for (Parts parts = confirm(); parts.split == idr::Changed::Yes; parts = confirm())
+      renumber([&](unsigned at) { return std::pair(classOf[at], parts.of[at]); });
 
     // Of each class of two or more, the first in symbol order stays: each
     // other member, by its id, holds the name of the one kept.

@@ -332,7 +332,20 @@ TEST(DepthFirst, EveryTreeInPreAndPostOrder) {
   for (unsigned n = 1; n <= 6; ++n) {
     // Every choice of parent below each node: (n - 1)! trees.
     std::vector<unsigned> parent(n, 0);
-    while (true) {
+    // One step of the odometer over parent arrays, node 1's parent the
+    // fastest digit: the node it stepped, or n once every node's parent has
+    // rolled back to 0 and the walk is back at its first array, where it
+    // ends.
+    auto step = [&] {
+      unsigned node = 1;
+      for (; node < n; ++node) {
+        if (++parent[node] < node)
+          break;
+        parent[node] = 0;
+      }
+      return node;
+    };
+    do {
       Tree tree(n);
       for (unsigned node = 1; node < n; ++node)
         tree[parent[node]].push_back(node);
@@ -354,16 +367,7 @@ TEST(DepthFirst, EveryTreeInPreAndPostOrder) {
         EXPECT_EQ(left, post) << "n " << n << ", skip " << skip;
       }
       ++trees;
-      // The next parent array, node 1's parent the fastest digit.
-      unsigned node = 1;
-      while (node < n && parent[node] + 1 == node) {
-        parent[node] = 0;
-        ++node;
-      }
-      if (node == n)
-        break;
-      ++parent[node];
-    }
+    } while (step() < n);
   }
   // 0! + 1! + 2! + 3! + 4! + 5!
   EXPECT_EQ(trees, 154u);

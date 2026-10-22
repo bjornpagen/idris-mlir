@@ -75,12 +75,13 @@ public:
   }
 
   // `size` bytes at the cursor, aligned to `alignment`: a chunk, or the
-  // runner's stacks before any chunk.
+  // runner's stacks before any chunk. The walk ends at the span's end, or
+  // where rounding up wraps: a mapping already there moves the cursor past
+  // the chunk it is in the way of, so every step is higher.
   static char *take(size_t size, size_t alignment) noexcept {
-    for (;;) {
-      uintptr_t at = rt::platform::roundUp(cursor, alignment);
-      if (at < cursor || at > end || end - at < size)
-        return nullptr;
+    for (uintptr_t at = rt::platform::roundUp(cursor, alignment);
+         at >= cursor && at <= end && end - at >= size;
+         at = rt::platform::roundUp(cursor, alignment)) {
       switch (rt::platform::reserveAt(reinterpret_cast<char *>(at), size)) {
       case rt::platform::Placed::Reserved:
         cursor = at + size;
@@ -92,6 +93,7 @@ public:
         return nullptr;
       }
     }
+    return nullptr;
   }
 
   snmalloc::capptr::Arena<void> alloc_range(size_t size) {

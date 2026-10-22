@@ -320,9 +320,8 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
     return mlir::failure();
 
   // MLIR's action handler: -log-actions-to and -profile-actions-to, which
-  // --log-actions-tags narrows, or else the debug counter that skips the
-  // actions a test draws. With no tag given every action is logged, which
-  // an empty filter would not do.
+  // --log-actions-tags narrows. With no tag given every action is logged,
+  // which an empty filter would not do.
   mlir::tracing::DebugConfig debugConfig = mlir::tracing::DebugConfig::createFromCLOptions();
   mlir::tracing::TagBreakpointManager loggedTags;
   for (const std::string &tag : invocation.tags)

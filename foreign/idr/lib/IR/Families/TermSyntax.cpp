@@ -212,11 +212,12 @@ FailureOr<Head> parseTermHead(AsmParser &parser, SmallVectorImpl<TermNode> &out,
 
 // The constructors whose arguments are being read are a stack, innermost
 // last: a term as deep as a long list is read with no recursion on its
-// depth.
+// depth. Each round reads a head from the input, so the rounds end with
+// the input at the latest, and the term ends when no constructor is open.
 ParseResult parseTerm(AsmParser &parser, SmallVectorImpl<TermNode> &out,
                       SmallVectorImpl<PendingLabel> *pending) {
   SmallVector<OpenConstructor> open;
-  for (;;) {
+  do {
     FailureOr<Head> head = parseTermHead(parser, out, pending, open);
     if (failed(head))
       return failure();
@@ -225,9 +226,7 @@ ParseResult parseTerm(AsmParser &parser, SmallVectorImpl<TermNode> &out,
     // A whole term was read: the innermost open constructor's next
     // argument, after which a comma reads another, or the constructor
     // closes, a whole term in its turn.
-    for (;;) {
-      if (open.empty())
-        return success();
+    while (!open.empty()) {
       OpenConstructor &con = open.back();
       ++con.arity;
       if (succeeded(parser.parseOptionalComma()))
@@ -236,7 +235,8 @@ ParseResult parseTerm(AsmParser &parser, SmallVectorImpl<TermNode> &out,
         return failure();
       open.pop_back();
     }
-  }
+  } while (!open.empty());
+  return success();
 }
 
 ParseResult parseTerms(AsmParser &parser, size_t count, SmallVectorImpl<TermNode> &out,

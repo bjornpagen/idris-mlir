@@ -271,8 +271,12 @@ SmallVector<Target> Chains::targets(Value value, Asks asks, OpOperand *use) {
     open[frame.at][slot(strength)] = Mark::Yes;
     stack.push_back(std::move(frame));
   };
+  // A frame's (value, strength) is open while the frame is on the stack,
+  // and a step to an open one is cut, so the stack is never deeper than
+  // the pairs and each frame takes each of its steps once: the walk ends
+  // when the first frame is done.
   push(value, asks);
-  while (true) {
+  while (!stack.empty()) {
     if (stack.back().nextAt < stack.back().next.size()) {
       Step step = stack.back().next[stack.back().nextAt++];
       if (std::optional<Target> again = usedOnce(step.value, step.use))
@@ -295,12 +299,13 @@ SmallVector<Target> Chains::targets(Value value, Asks asks, OpOperand *use) {
                                             static_cast<std::uint32_t>(done.ends.size())};
       knownEnds.insert(knownEnds.end(), done.ends.begin(), done.ends.end());
     }
+    // The first frame's ends are the answer; every other's, its caller's.
     if (stack.empty()) {
       out.append(done.ends);
-      break;
+    } else {
+      stack.back().ends.append(done.ends);
+      stack.back().cut |= done.cut;
     }
-    stack.back().ends.append(done.ends);
-    stack.back().cut |= done.cut;
   }
   sortUnique(out);
   return out;

@@ -16,7 +16,6 @@
 #include "idr/Target/Target.h"
 
 #include "mlir/Debug/CLOptionsSetup.h"
-#include "mlir/Debug/Counter.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/PassManager.h"
@@ -64,16 +63,16 @@ int idr::driver::main(int argc, char **argv) {
   registerCompilerPasses();
   // MLIR's own options, as mlir-opt has them: the pass manager's (IR
   // printing, the module after each pass, statistics, crash reproducers),
-  // timing, the context's, the printer's, action logging, and the debug
-  // counter, with which a test skips a drawn set of the optimizations'
-  // actions: a transform skipped leaves the program accepted alike and
-  // ending alike, since acceptance is the program's, never the optimizer's.
+  // timing, the context's, the printer's and action logging. Not a debug
+  // counter: one that skips an action changes what is compiled, and the
+  // compiler has one pipeline. idris-mlir-opt keeps upstream's, where a
+  // test lowers a module with a drawn set of the optimizations' actions
+  // skipped and idris-mlir then compiles what it lowered.
   mlir::registerAsmPrinterCLOptions();
   mlir::registerMLIRContextCLOptions();
   mlir::registerPassManagerCLOptions();
   mlir::registerDefaultTimingManagerCLOptions();
   mlir::tracing::DebugConfig::registerCLOptions();
-  mlir::tracing::DebugCounter::registerCLOptions();
   // LLVM's -stats, which LLVM prints at exit, also prints the statistics of
   // the pipeline's passes.
   if (llvm::cl::Option *stats = llvm::cl::getRegisteredOptions().lookup("stats")) {

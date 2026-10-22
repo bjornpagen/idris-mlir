@@ -1189,16 +1189,15 @@ struct Writing {
 // The groups being written are a stack, the syntax itself at the bottom and
 // the innermost group last; a group whose elements run out is written into
 // the one around it, so however deep groups nest the native stack stays
-// flat.
+// flat. Each round writes an element or closes a group, and a syntax holds
+// finitely many, so the rounds end with the syntax itself written whole.
 Written<Pieces> piecesOf(const std::vector<Element> &elements,
                          const std::map<std::string, Field> &fields) {
   llvm::SmallVector<Writing, 2> open;
   open.push_back({elements, fields, {}, {}});
-  while (true) {
+  while (open.size() > 1 || !open.front().rest.empty()) {
     Writing &top = open.back();
     if (top.rest.empty()) {
-      if (open.size() == 1)
-        return std::move(top.out);
       Writing done = std::move(top);
       open.pop_back();
       Pieces &out = open.back().out;
@@ -1249,6 +1248,7 @@ Written<Pieces> piecesOf(const std::vector<Element> &elements,
     inside[anchor->text].presence = Presence::Always;
     open.push_back({e.group, std::move(inside), {}, anchor->text});
   }
+  return std::move(open.front().out);
 }
 
 // Whether an Idris type names `word`.

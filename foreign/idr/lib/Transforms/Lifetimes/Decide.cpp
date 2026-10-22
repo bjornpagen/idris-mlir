@@ -10,6 +10,7 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/Verify.h"
+#include "idr/Support/Changed.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -46,10 +47,10 @@ Plan Planner::plan() {
     for (auto [at, call] : llvm::enumerate(calls))
       if (graph.sccOf(call.callee) == graph.sccOf(self) && !putHere(call.results.front()))
         callFates[at] = Fate::Counted;
-  // Each round either makes a cell or a call counted for good or decides
-  // every run: it ends after a round per cell and call at most, and in one
-  // where nothing more is counted.
-  for (;;) {
+  // One round: the cells and calls counted so far, and those they make
+  // counted, then a lifetime for every run; nothing when a run's decision
+  // made another cell or call counted.
+  auto round = [&]() -> std::optional<Plan> {
     footprint::Vector<Node> seeds(fixed.begin(), fixed.end());
     for (auto [at, site] : llvm::enumerate(sites))
       if (siteFates[at] == Fate::Counted)
@@ -89,20 +90,27 @@ Plan Planner::plan() {
     BodyOpener opener = putDraft.sites.empty() && putDraft.calls.empty() ? BodyOpener::Allowed
                                                                         : BodyOpener::Refused;
     Plan made;
-    bool demoted = false;
+    Changed demoted = Changed::No;
     for (const Draft &draft : drafts) {
       std::optional<Group> group = decide(draft, opener, siteFates, callFates);
       if (group)
         made.groups.push_back(std::move(*group));
       else
-        demoted = true;
+        demoted = Changed::Yes;
     }
-    if (demoted)
-      continue;
+    if (demoted == Changed::Yes)
+      return std::nullopt;
     if (reading == Reading::Put)
       made.put = putForm(putDraft);
     return made;
-  }
+  };
+  // Each round either makes a cell or a call counted for good or decides
+  // every run: the rounds end after one per cell and call at most, with
+  // one where nothing more is counted.
+  std::optional<Plan> decided = round();
+  while (!decided)
+    decided = round();
+  return std::move(*decided);
 }
 
 // Whether a lifetime may span the ops of `block` from `first` to `last`: it

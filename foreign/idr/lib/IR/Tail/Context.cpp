@@ -176,9 +176,13 @@ std::optional<Context> contextOf(CallOp call) {
   // call, then each region op a rejoin leaves, with the steps in its block.
   llvm::SmallVector<Operation *, 2> anchors{call};
 
-  // From the call's result to the hole: carries and rejoins.
+  // From the call's result to the hole: carries and rejoins. Each step goes
+  // to a result of an op that ends later than the last (the value's user,
+  // or the op a terminator rejoins), so both walks end within the
+  // function's ops.
   Value at = call->getResult(0);
-  for (;;) {
+  std::optional<Into> hole;
+  while (!hole) {
     OpOperand *use = onlyUse(at);
     if (!use)
       return std::nullopt;
@@ -200,7 +204,7 @@ std::optional<Context> contextOf(CallOp call) {
     }
     // The hole is a field of a cell in memory that outlives the call: a
     // cell of a lexical lifetime ends with the function.
-    std::optional<Into> hole = idr::match(
+    hole = idr::match(
         movesOf(*use), [](std::monostate) -> std::optional<Into> { return std::nullopt; },
         [](const Read &) -> std::optional<Into> { return std::nullopt; },
         [&](const Moved &moved) -> std::optional<Into> {
@@ -211,10 +215,9 @@ std::optional<Context> contextOf(CallOp call) {
         });
     if (!hole)
       return std::nullopt;
-    context.hole = *hole;
-    at = hole->built;
-    break;
   }
+  context.hole = *hole;
+  at = hole->built;
 
   // From the hole's cell to the return. `parts` is where the cell is
   // inside `at`, outermost first: empty while `at` is the cell itself.
@@ -224,14 +227,14 @@ std::optional<Context> contextOf(CallOp call) {
   // cell in memory that outlives the call, as the first is.
   enum class After : std::uint8_t { Step, Rejoin };
   After after = After::Step;
-  for (;;) {
-    // A value laid out inline may have its other parts read, which takes
-    // nothing of the hole; a cell in memory is read by nothing.
-    bool inMemory = isCellPointer(at.getType());
-    // The one use that takes the hole on, the step it makes and the value
-    // after it; the return ends the path.
+  // The one use of `value` that takes the hole on; none when no use does,
+  // or when two might. A value laid out inline may have its other parts
+  // read, which takes nothing of the hole; a cell in memory is read by
+  // nothing.
+  auto onwardOf = [&](Value value) -> OpOperand * {
+    bool inMemory = isCellPointer(value.getType());
     OpOperand *onward = nullptr;
-    for (OpOperand &use : at.getUses()) {
+    for (OpOperand &use : value.getUses()) {
       Operation *user = use.getOwner();
       bool otherPart = !inMemory && !user->hasTrait<OpTrait::IsTerminator>() &&
                        idr::match(
@@ -243,19 +246,17 @@ std::optional<Context> contextOf(CallOp call) {
       if (otherPart)
         continue;
       if (onward)
-        return std::nullopt;
+        return nullptr;
       onward = &use;
     }
-    if (!onward)
-      return std::nullopt;
+    return onward;
+  };
+  // Each step the use that takes the hole on makes, and the value after
+  // it, until the return ends the path.
+  OpOperand *onward = onwardOf(at);
+  for (; onward && !isa<ReturnOp>(onward->getOwner()); onward = onwardOf(at)) {
     Operation *user = onward->getOwner();
     unsigned number = onward->getOperandNumber();
-    if (isa<ReturnOp>(user)) {
-      // The function gives the value that holds the hole.
-      if (user->getNumOperands() != 1)
-        return std::nullopt;
-      break;
-    }
     if (carriesOn(user) && number == 0) {
       context.rest.push_back(Carry{user});
       at = user->getResult(0);
@@ -294,6 +295,9 @@ std::optional<Context> contextOf(CallOp call) {
       return std::nullopt;
     at = *next;
   }
+  // The function gives the value that holds the hole.
+  if (!onward || onward->getOwner()->getNumOperands() != 1)
+    return std::nullopt;
 
   // Every op the transformation builds before the call, or before a region
   // op the path leaves, may run there.

@@ -155,22 +155,18 @@ unsigned contify(idr::ProgramOp program, const idr::solver::ProgramGraph &graph)
 
   // Each function's place: the continuation or the function its group
   // stands at, read down the dominator tree, a function placed into a
-  // function that is placed in turn going where that one goes.
+  // function that is placed in turn going where that one goes. Each step
+  // goes up the dominator tree, so the walk ends at the root.
   auto placeOf = [&](unsigned node) {
     unsigned at = node;
-    while (true) {
-      int up = idom[at];
-      if (up <= 0)
-        return at;
+    for (int up = idom[at]; up > 0; at = static_cast<unsigned>(up), up = idom[at]) {
       bool function = idr::match(
           nodes[up], [](Root) { return false; }, [](Function) { return true; },
           [](const Continuation &) { return false; });
-      if (!function)
+      if (!function || idom[up] <= 0)
         return static_cast<unsigned>(up);
-      if (idom[up] <= 0)
-        return static_cast<unsigned>(up);
-      at = static_cast<unsigned>(up);
     }
+    return at;
   };
   // The groups, each its place's node and its members in the numbering's
   // order, found by the place's node; placed deepest first, so a group

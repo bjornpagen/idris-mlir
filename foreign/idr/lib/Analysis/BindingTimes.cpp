@@ -32,23 +32,27 @@ struct FromParameter {
 struct FromAnything {};
 using Source = std::variant<FromParameter, FromAnything>;
 
+// The value idr::sourceOf finds `value` the same as, if any.
+std::optional<Value> sameAs(Value value) {
+  return match(sourceOf(value), [](idr::Same same) -> std::optional<Value> { return same.value; },
+               [](idr::Made) -> std::optional<Value> { return std::nullopt; },
+               [](const idr::Field &) -> std::optional<Value> { return std::nullopt; });
+}
+
 // What `value` is in `fn`: an entry argument is its parameter; what
 // idr::sourceOf finds the same value is what that value is; anything else
 // is anything. The chain is followed by a loop, never by recursion, each
-// step counted in `steps`.
+// step counted in `steps`. It ends where a value is the same as no other:
+// each step goes to an operand of the op that defines the value or whose
+// region binds it, which dominates it, so no chain comes back to a value
+// it passed.
 Source sourceIn(Value value, FuncOp fn, std::uint64_t &steps) {
-  for (;;) {
+  for (std::optional<Value> at = value; at; at = sameAs(*at)) {
     ++steps;
-    if (auto arg = dyn_cast<BlockArgument>(value); arg && arg.getParentRegion() == &fn.getBody())
+    if (auto arg = dyn_cast<BlockArgument>(*at); arg && arg.getParentRegion() == &fn.getBody())
       return FromParameter{arg.getArgNumber()};
-    std::optional<Value> next =
-        match(sourceOf(value), [](idr::Same same) -> std::optional<Value> { return same.value; },
-              [](idr::Made) -> std::optional<Value> { return std::nullopt; },
-              [](const idr::Field &) -> std::optional<Value> { return std::nullopt; });
-    if (!next)
-      return FromAnything{};
-    value = *next;
   }
+  return FromAnything{};
 }
 
 // A call between members: the members' positions, and where its arguments'

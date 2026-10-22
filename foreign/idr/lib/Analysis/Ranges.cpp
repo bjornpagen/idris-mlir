@@ -189,12 +189,15 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
 
   // What each function returns, callees first: the join over its returns
   // of what reaches them. A callee of the same component not yet solved
-  // gives its type's range.
-  solver::inSchedule<CalleesFirst>(graph, context, [&](solver::SccId c) {
+  // gives its type's range. A component's solves count into its own
+  // count, which the schedule adds to the decide step's once every
+  // component has run.
+  solver::inSchedule<CalleesFirst>(graph, context, spent, [&](solver::SccId c) {
+    solver::Work counted;
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
       solver::SolveUnit unit("idr-narrow returns", fn.getSymName());
-      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, spent);
+      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, counted);
       if (failed(solved))
         continue;
       std::span<IntegerValueRange> out = returns[f];
@@ -206,6 +209,7 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
             joinInto(into, IntegerValueRange(*range));
       });
     }
+    return counted.steps();
   });
 
   // What each function is passed, callers first: the join over its callers
@@ -214,7 +218,8 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
   // type's range. Each member then keeps what it passes each callee of
   // another component, in callee order, for that callee's component.
   IndexVector<solver::FunctionId, footprint::Vector<Passed>> passed(graph.size());
-  solver::inSchedule<CallersFirst>(graph, context, [&](solver::SccId c) {
+  solver::inSchedule<CallersFirst>(graph, context, spent, [&](solver::SccId c) {
+    solver::Work counted;
     bool feedsItself = graph.onCycle(c);
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
@@ -237,7 +242,7 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
       solver::SolveUnit unit("idr-narrow arguments", fn.getSymName());
-      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, spent);
+      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, counted);
       // What a call passes: what its solve found, nothing where the solve
       // never reached it; a caller whose solve failed knows nothing of what
       // it passes, so it passes every value the operand's type allows.
@@ -262,6 +267,7 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
           joinInto(into, passing(operand));
       });
     }
+    return counted.steps();
   });
 }
 

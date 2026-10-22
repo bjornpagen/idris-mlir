@@ -182,17 +182,22 @@ Value Records::build(OpBuilder &b, Location loc, Record record, ValueRange &leav
     Record record;
     SmallVector<Value> fields;
   };
+  // Each round gives a record a field, opens the record of one, or builds
+  // a record whose fields are all there, and a record's type holds
+  // finitely many, so the rounds end with the outermost record built.
   SmallVector<Building> inside;
   inside.push_back({record, {}});
-  while (true) {
+  Value whole;
+  while (!whole) {
     Building &top = inside.back();
     ArrayRef<Type> fields = top.record.fields();
     if (top.fields.size() == fields.size()) {
       Value made = DataConOp::create(b, loc, top.record.data, top.fields).getResult();
       inside.pop_back();
       if (inside.empty())
-        return made;
-      inside.back().fields.push_back(made);
+        whole = made;
+      else
+        inside.back().fields.push_back(made);
       continue;
     }
     if (std::optional<Record> inner = recordOf(fields[top.fields.size()])) {
@@ -202,6 +207,7 @@ Value Records::build(OpBuilder &b, Location loc, Record record, ValueRange &leav
     top.fields.push_back(leaves.front());
     leaves = leaves.drop_front();
   }
+  return whole;
 }
 
 Value Records::readRecord(OpBuilder &b, Location loc, Record element, ValueRange columns,

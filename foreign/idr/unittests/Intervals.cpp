@@ -171,7 +171,19 @@ std::string disagreement(const D &intervals, const Case &drawn) {
     return F::apply(intervals, drawn.operands[I].interval...);
   }(std::make_index_sequence<arity>());
   std::array<std::size_t, arity> at{};
-  while (true) {
+  // One step of the odometer: the digit it stepped, or arity once every
+  // digit has rolled over and the walk is back at its first tuple, where it
+  // ends.
+  auto step = [&] {
+    std::size_t digit = 0;
+    for (; digit < arity; ++digit) {
+      if (++at[digit] < drawn.operands[digit].members.size())
+        break;
+      at[digit] = 0;
+    }
+    return digit;
+  };
+  do {
     auto tuple = [&]<std::size_t... I>(std::index_sequence<I...>) {
       return std::array<Word, arity>{drawn.operands[I].members[at[I]]...};
     }(std::make_index_sequence<arity>());
@@ -189,15 +201,8 @@ std::string disagreement(const D &intervals, const Case &drawn) {
       return line + ": the words give " + printed(concrete) + ", the intervals " +
              printed(abstract);
     }
-    std::size_t digit = 0;
-    for (; digit < arity; ++digit) {
-      if (++at[digit] < drawn.operands[digit].members.size())
-        break;
-      at[digit] = 0;
-    }
-    if (digit == arity)
-      return {};
-  }
+  } while (step() < arity);
+  return {};
 }
 
 // What every meaning of `Each`, a tuple of function objects, disagrees on.

@@ -98,20 +98,23 @@ Outcome Scheduler::parks(FunctionId member, SmallVector<specialize::Asked> asked
 LogicalResult Scheduler::runMember(FunctionId member, Turn &turn) {
   IDR_ZONE(schedule.symbolOf(member).getValue());
   specialize::Requester &asking = schedule.requesterOf(member);
-  while (true) {
-    if (failed(round(member)))
-      return failure();
+  // Whether the round just run leaves the member another: it asked for
+  // copies, each now final, or inlined a leaf. One that asked for a copy
+  // not yet final parks the member. The rounds end as this file's head
+  // says: finitely many copies, and leaves the caller cap bounds.
+  auto again = [&] {
     SmallVector<specialize::Asked> asked = asking.take();
     unsigned leaves = schedule.takeLeaves(member);
-    if (asked.empty()) {
-      if (leaves == 0)
-        return success();
-      continue;
-    }
+    if (asked.empty())
+      return leaves != 0;
     llvm::append_range(turn.asked, asked);
-    if (parks(member, std::move(asked), turn) == Outcome::Parks)
-      return success();
-  }
+    return parks(member, std::move(asked), turn) == Outcome::Continues;
+  };
+  do {
+    if (failed(round(member)))
+      return failure();
+  } while (again());
+  return success();
 }
 
 // A function the program held gets its binding times from the bodies of

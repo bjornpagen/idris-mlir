@@ -70,16 +70,23 @@ public:
   Solution run() {
     for (FunctionId fn : graph.functions())
       (void)contextFor(fn, Key(static_cast<unsigned>(bodies[fn].params.size())));
-    for (;;) {
-      ++rounds;
-      reachRunning();
-      BitSet<Node> shared = mark();
-      if (!narrowKeys(shared))
-        return answer(shared);
-    }
+    // Keys only lose parameters, and each has finitely many, so the rounds
+    // end with the first whose marking narrows none.
+    BitSet<Node> shared = markRound();
+    while (narrowKeys(shared) == Changed::Yes)
+      shared = markRound();
+    return answer(shared);
   }
 
 private:
+  // One round: the contexts that run with every call's target as it
+  // stands, and the values their bodies share.
+  BitSet<Node> markRound() {
+    ++rounds;
+    reachRunning();
+    return mark();
+  }
+
   // The context of `fn` keyed by `key`, made with every call at its widest
   // key when it is new.
   ContextId contextFor(FunctionId fn, const Key &key) {
@@ -208,8 +215,8 @@ private:
 
   // Narrows each running call's key to the arguments the marking left
   // exclusive; whether any key moved.
-  bool narrowKeys(const BitSet<Node> &shared) {
-    bool moved = false;
+  Changed narrowKeys(const BitSet<Node> &shared) {
+    Changed moved = Changed::No;
     for (ContextId id : running) {
       Context &context = contexts[id];
       const Body &body = bodies[context.fn];
@@ -221,7 +228,7 @@ private:
             narrowed.reset(static_cast<unsigned>(param));
         if (narrowed != key) {
           key = std::move(narrowed);
-          moved = true;
+          moved = Changed::Yes;
         }
       }
     }

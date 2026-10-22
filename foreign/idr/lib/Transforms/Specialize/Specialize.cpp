@@ -186,13 +186,17 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
     };
     if (grown())
       return std::nullopt;
-    while (true) {
+    // The earlier keys of the key's shape, which it is lifted over.
+    auto peersOf = [&] {
       SmallVector<const PatternKey *> peers;
       for (const PatternKey *e : earlier)
         if (e != key && sameShape(*e, *key))
           peers.push_back(e);
-      if (peers.empty())
-        break;
+      return peers;
+    };
+    // Each lift turns at least one of the key's scalars into a hole, and a
+    // key holds finitely many, so the lifts end.
+    for (SmallVector<const PatternKey *> peers = peersOf(); !peers.empty(); peers = peersOf()) {
       SmallVector<Source> lifted;
       key = liftOver(keys, *key, peers, lifted);
       SmallVector<Source> composed;

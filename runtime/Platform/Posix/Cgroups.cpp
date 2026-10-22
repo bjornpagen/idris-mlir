@@ -58,23 +58,26 @@ private:
   size_t length = 0;
 };
 
+// The next bytes of `fd`, up to `size`, as read gives them: a signal that
+// interrupts the read is no answer, so the read is asked again.
+ssize_t readSome(int fd, char *buffer, size_t size) noexcept {
+  ssize_t n;
+  do
+    n = read(fd, buffer, size);
+  while (n < 0 && errno == EINTR);
+  return n;
+}
+
 // A small file of the kernel's, read whole into `buffer`: false when it
 // cannot be read or does not fit.
 bool readSmall(const char *path, char *buffer, size_t size, std::string_view &text) noexcept {
   int fd = open(path, O_RDONLY | O_CLOEXEC);
   if (fd < 0)
     return false;
+  // Read until the file ends, a read fails, or the buffer is full.
   size_t got = 0;
-  for (;;) {
-    ssize_t n = read(fd, buffer + got, size - got);
-    if (n < 0 && errno == EINTR)
-      continue;
-    if (n <= 0)
-      break;
+  for (ssize_t n; got < size && (n = readSome(fd, buffer + got, size - got)) > 0;)
     got += static_cast<size_t>(n);
-    if (got == size)
-      break;
-  }
   close(fd);
   if (got == size)
     return false;
@@ -209,12 +212,10 @@ bool findGroup(std::string_view root, Group &group) noexcept {
   char buffer[8192];
   size_t held = 0;
   bool found = false;
-  for (;;) {
-    ssize_t n = read(fd, buffer + held, sizeof buffer - held);
-    if (n < 0 && errno == EINTR)
-      continue;
-    if (n <= 0)
-      break;
+  // Read until the file ends, a read fails, or the group's mount is found.
+  // Every read has room: what stays of a full buffer is an unfinished line,
+  // dropped below when it fills the buffer alone.
+  for (ssize_t n; (n = readSome(fd, buffer + held, sizeof buffer - held)) > 0;) {
     held += static_cast<size_t>(n);
     std::string_view text(buffer, held);
     size_t consumed = 0;

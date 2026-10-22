@@ -190,33 +190,41 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
     for (CallOp call : moved)
       call.setTailKind(decide(call));
   }
-  for (;;) {
-    // A join point op around a call to frame, outermost first, and the
-    // first such call in it.
+  // A join point op around a call to frame, outermost first, and the first
+  // such call in it; no op when none holds one.
+  struct Held {
     Operation *join = nullptr;
-    CallOp held;
+    CallOp call;
+  };
+  auto heldJoin = [&] {
+    Held held;
     fn.walk<WalkOrder::PreOrder>([&](Operation *op) {
       if (!op->hasTrait<OpTrait::TokenProducerTrait>())
         return WalkResult::advance();
       op->walk([&](CallOp call) {
         if (!frames(call))
           return WalkResult::advance();
-        held = call;
+        held.call = call;
         return WalkResult::interrupt();
       });
-      if (!held)
+      if (!held.call)
         return WalkResult::skip();
-      join = op;
+      held.join = op;
       return WalkResult::interrupt();
     });
-    if (!join)
-      break;
+    return held;
+  };
+  // Each round moves code out of the function, the code after the op into
+  // its continuation or the op's join regions into functions, so the rounds
+  // end when no join point holds a call to frame.
+  for (Held held = heldJoin(); held.join; held = heldJoin()) {
+    Operation *join = held.join;
     // It is dissolved once in tail position, which only ops a break
     // crosses let it reach: under any other, lifting its continuation
     // would lift an empty one again and again.
     for (Operation *op = join->getParentOp(); op != fn.getOperation(); op = op->getParentOp())
       if (!op->hasTrait<OpTrait::PropagateControlFlowBreak>())
-        return unsplittable(held, op);
+        return unsplittable(held.call, op);
     normalize(&fn.getBody().front());
     if (!inTailPosition(join)) {
       FailureOr<CallOp> continuation =
@@ -246,31 +254,37 @@ LogicalResult Component::restructure(FuncOp fn, unsigned row) {
     // cross whose results something after it reads gives its continuation
     // to a function, until the call's block ends a tail. Each such change
     // remakes the ops around, so they are read again after it. Any other
-    // op may only be the one directly around the call.
-    for (;;) {
+    // op may only be the one directly around the call. The next to lift is
+    // the outermost not in tail position; none once the call's block ends
+    // a tail.
+    auto liftOf = [&]() -> FailureOr<Operation *> {
       llvm::SmallVector<Operation *> around;
       for (Operation *op = site->getParentOp(); op != fn.getOperation(); op = op->getParentOp())
         around.push_back(op);
-      Operation *lift = nullptr;
       for (Operation *op : llvm::reverse(around)) {
         if (op->hasTrait<OpTrait::PropagateControlFlowBreak>()) {
           if (inTailPosition(op))
             continue;
-          lift = op;
-          break;
+          return op;
         }
         if (op != site->getParentOp())
           return unsplittable(site, op);
       }
-      if (!lift)
-        break;
+      return nullptr;
+    };
+    // A lift leaves its op in tail position, and those outside it stay so,
+    // so the lifts end, one per op around the call at most.
+    FailureOr<Operation *> lift = liftOf();
+    for (; succeeded(lift) && *lift; lift = liftOf()) {
       FailureOr<CallOp> continuation =
-          outline(fn, row, lift->getNextNode(), lift->getResults(), "k");
+          outline(fn, row, (*lift)->getNextNode(), (*lift)->getResults(), "k");
       if (failed(continuation))
         return failure();
-      sinkInto(lift, *continuation);
+      sinkInto(*lift, *continuation);
       normalize(&fn.getBody().front());
     }
+    if (failed(lift))
+      return failure();
     // The rest of the call's block runs after it: in a per-level
     // lifetime's region, which ends before the call, reopened by the rest.
     Operation *parent = site->getParentOp();
