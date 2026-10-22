@@ -88,6 +88,9 @@ deleted.
    it; where a later ruling or decision differs, the later one governs.
 5. The design documents your lane names, then the code you own and the
    code that consumes it.
+6. Every contract under `audits/p0/verify/parts/contracts/`: shared
+   declarations the lanes fixed while working (the specification's Core
+   vocabulary and the pass list among them), binding as P0 §5 is.
 
 **The engagement contract.**
 - Checkout `/Users/bjorn/Documents/idris-mlir`, branch `main` (the owner, 2026-10-21: "we should do everything on main").
