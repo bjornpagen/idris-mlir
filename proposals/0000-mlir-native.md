@@ -4137,6 +4137,14 @@ C137.
   linearity rule reads the flow edge that makes it a part and counts its
   owner's consumption for it, so it needs no type of its own and no
   consumption of its own.
+- **C210** (2026-10-22; L13's eighth pass; carries C198 to LLVM). LLVM's
+  constant folder folds calls to `exp`, `log`, the trigonometric
+  functions and `pow` with the compiling machine's libm, so C198 holds
+  only if the nine never-folded math ops reach LLVM in a form it does
+  not fold. The mechanism is upstream's own switch if the pin has one,
+  else a carried patch narrowed to those functions; `nobuiltin` only if
+  neither exists, since it also blocks the vector library's mapping of
+  the call.
 
 ## 4. Open: the owner's decisions, in order
 
