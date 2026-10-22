@@ -45,11 +45,11 @@ constexpr StringLiteral siteName = "site";
 
 // The static atom of each constructor with no field of each family in
 // cells a value of the program is laid out at, and every one their fields
-// hold, read through the layouts' own field types: a re-pack builds a
-// value of a family in cells out of one in place wherever a field's slot
-// or a reindex's result is the member at an unknown index, so an atom is
-// named wherever any value of its family may be, not only where a
-// constructor builds one.
+// hold, an array's elements among them, read through the layouts' own
+// field types: a re-pack builds a value of a family in cells out of one in
+// place wherever a field's slot or a reindex's result is the member at an
+// unknown index, so an atom is named wherever any value of its family may
+// be, not only where a constructor builds one.
 void atoms(ProgramOp program, const Layouts &layouts, StaticData &data) {
   MLIRContext *ctx = program.getContext();
   llvm::SetVector<DataType> found;
@@ -74,8 +74,7 @@ void atoms(ProgramOp program, const Layouts &layouts, StaticData &data) {
       continue;
     for (uint32_t t = 0, n = type.declaredCount(); t < n; ++t) {
       for (Type field : layouts.fieldTypes(type, Tag{t}))
-        if (auto held = dyn_cast<DataType>(unrestricted(field)))
-          found.insert(held.unrefined());
+        walker.walk(field);
       if (type.layout() == Layout::Cell && !type.memo() &&
           layouts.cells(type).cell(Tag{t}).fields.empty())
         data.constant(ConAttr::get(ctx, type.refinedTo(Tag{t}, {}), ArrayAttr::get(ctx, {})),

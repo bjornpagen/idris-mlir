@@ -5,16 +5,18 @@
 // application held in place is its own unfolding, over the fields its
 // indices determine, and every other value of a member is laid out as the
 // member at an unknown index, at its constructors' own fields. So one value
-// has two layouts where a reindex forgets or learns a closed index, and
-// where a field's type at its value's application is closed and its slot,
-// at the constructor's own fields, is not. Between them the value is
-// re-packed: a numeral of a fixed width made a natural or made of one, and
-// a value of any other family taken apart at each constructor both types
-// leave possible, its fields re-packed in turn, and built again, in place
-// or in a cell. A cell is allocated as every counted cell is, and an atom
-// of a family in cells is the static cell of its constructor
-// (idr-lower-statics makes every one). Where the two layouts agree the
-// value is its words, as they are. No layout is refused.
+// has two layouts where a reindex forgets or learns a closed index, where
+// a field's type at its value's application is closed and its slot, at
+// the constructor's own fields, is not, and where an index.assume rebinds
+// a value. Between them the value is re-packed: a numeral of a fixed width
+// made a natural or made of one; an array whose elements lay out apart
+// copied element by element into a fresh array; and a value of any other
+// family taken apart at each constructor both types leave possible, its
+// fields re-packed in turn, and built again, in place or in a cell. A cell
+// is allocated as every counted cell is, and an atom of a family in cells
+// is the static cell of its constructor (idr-lower-statics makes every
+// one). Where the two layouts agree the value is its words, as they are.
+// No layout is refused.
 //
 // What the value holds goes on to the result. A cell taken apart gives its
 // fields to the result: shared, each field gains a reference and the cell
@@ -22,16 +24,24 @@
 // no count read; read where its owner keeps it, or scoped or static,
 // nothing is counted, and the result reads what it read. A value in place
 // moves its words. A numeral read into a fixed width keeps no reference, so
-// a natural it was read from that may be a big loses its own.
+// a natural it was read from that may be a big loses its own. A re-pack
+// that builds a cell or an array gives a fresh counted value, claimed
+// unique, whatever the operand's hold, so counting frees it as any fresh
+// cell: everything it holds is its own, so an operand it does not own
+// gains its own references first, and is then taken as one it holds among
+// others.
 //
 // The re-pack descends only where a value in place is unfolded, whose
-// depth the shape budget of the layouts bounds, never the input, and it
-// reads only types the layouts made, so no lowering worker makes one.
+// depth the shape budget of the layouts bounds, and into an array's
+// element type, never the input; it reads only types the layouts made, so
+// no lowering worker makes one.
 
 #include "idr/Conversion/Lower/Lower.h"
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
+#include "idr/Conversion/Arrays.h"
+#include "idr/Conversion/Elements.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/StaticData.h"
@@ -51,41 +61,81 @@ namespace idr::conversion {
 
 namespace {
 
-// Whether a value of `from` is a value of `to` word for word, as the
-// layouts hold them: the same components, each of the same kind.
-bool sameWords(const Layouts &layouts, Type from, Type to) {
-  return llvm::equal(layouts.components(from), layouts.components(to),
-                     [](const layout::Component &a, const layout::Component &b) {
-                       return a.type == b.type && a.word == b.word;
-                     });
-}
-
 // The re-pack of one value, its builder at the point it goes.
 struct Repacker {
   OpBuilder &b;
   Location loc;
   const Layouts &layouts;
-  const Runtime &runtime;
+  Runtime &runtime;
 
   SmallVector<Type> typesOf(Type type) const {
     return llvm::map_to_vector(layouts.components(type),
                                [](const layout::Component &c) { return c.type; });
   }
 
-  // Only data types lay out apart under one family: a natural is one word
-  // at any index.
-  SmallVector<Value> of(Type from, Type to, ValueRange values, Takes takes) const {
-    if (from == to || sameWords(layouts, from, to))
-      return SmallVector<Value>(values);
-    auto source = cast<DataType>(from);
-    auto target = cast<DataType>(to);
-    if (families::isNumber(source.layout()))
-      return numeral(source, target, values, takes.own);
-    // The constructors the value may hold at both types.
+  // Whether a value of `from` is a value of `to` word for word: one type;
+  // two data types the layouts lay out alike, as their stored facts say;
+  // two arrays of one shape and layout whose elements are alike; or any
+  // other two types of the same components, a natural at any index.
+  bool alike(Type from, Type to) const {
+    if (from == to)
+      return true;
+    auto source = dyn_cast<DataType>(from);
+    auto target = dyn_cast<DataType>(to);
+    if (source && target)
+      return source.layoutMatch(target) == LayoutMatch::SameLayout;
+    auto x = dyn_cast<MemRefType>(from);
+    auto y = dyn_cast<MemRefType>(to);
+    if (x && y && !alike(unrestricted(x.getElementType()), unrestricted(y.getElementType())))
+      return false;
+    return llvm::equal(layouts.components(from), layouts.components(to),
+                       [](const layout::Component &a, const layout::Component &z) {
+                         return a.type == z.type && a.word == z.word;
+                       });
+  }
+
+  // The constructors a value may hold at both types.
+  static SmallVector<Tag> commonTags(DataType source, DataType target) {
     SmallVector<Tag> tags;
     for (Tag tag : source.possibleTags())
       if (target.possibleTags().contains(tag))
         tags.push_back(tag);
+    return tags;
+  }
+
+  // Whether re-packing a value of `from` as one of `to` builds a cell or an
+  // array, so that the result is a fresh value.
+  bool builds(Type from, Type to) const {
+    if (alike(from, to))
+      return false;
+    if (isa<MemRefType>(from))
+      return true;
+    auto source = cast<DataType>(from);
+    auto target = cast<DataType>(to);
+    if (families::isNumber(source.layout()))
+      return false;
+    if (target.layout() != Layout::InPlace)
+      return true;
+    for (Tag tag : commonTags(source, target))
+      for (auto [a, z] :
+           llvm::zip_equal(layouts.fieldTypes(source, tag), layouts.fieldTypes(target, tag)))
+        if (builds(unrestricted(a), unrestricted(z)))
+          return true;
+    return false;
+  }
+
+  // Only data types and arrays lay out apart under one family: a natural
+  // is one word at any index.
+  SmallVector<Value> of(Type from, Type to, ValueRange values, Takes takes) const {
+    if (alike(from, to))
+      return SmallVector<Value>(values);
+    if (auto source = dyn_cast<MemRefType>(from))
+      return array(source, cast<MemRefType>(to), values, takes);
+    auto source = cast<DataType>(from);
+    auto target = cast<DataType>(to);
+    if (families::isNumber(source.layout()))
+      return numeral(source, target, values, takes.own);
+    SmallVector<Tag> tags = commonTags(source, target);
     // A type no constructor inhabits holds no value to re-pack.
     if (tags.empty())
       return llvm::map_to_vector(typesOf(to), [&](Type type) -> Value {
@@ -131,6 +181,47 @@ struct Repacker {
     if (taken != Taken::Borrowed && bound && *bound > static_cast<uint64_t>(IDRIS_RT_SMALL_MAX))
       runtime.dec(b, loc, layouts.components(source), values);
     return {number};
+  }
+
+  // An array whose elements lay out apart: a fresh array of the same sizes,
+  // in row-major order, each element read, given a reference of its own and
+  // re-packed into it, and the operand's array then given up, which its
+  // elements' own references balance.
+  SmallVector<Value> array(MemRefType source, MemRefType target, ValueRange values,
+                           Takes takes) const {
+    Type from = unrestricted(source.getElementType());
+    Type to = unrestricted(target.getElementType());
+    const layout::Element &read = layouts.element(from);
+    const layout::Element &write = layouts.element(to);
+    Descriptor given = unpack(b, loc, source, values);
+    Descriptor fresh{newCell(b, loc, runtime, countOf(b, loc, given.sizes), write),
+                     b.getI64IntegerAttr(0), given.sizes, {}};
+    fresh.strides.resize(given.sizes.size());
+    Value stride = i64Constant(b, loc, 1);
+    for (size_t at = given.sizes.size(); at-- > 0;) {
+      fresh.strides[at] = stride;
+      stride = arith::MulIOp::create(b, loc, stride, asWord(b, loc, given.sizes[at]));
+    }
+    SmallVector<Value> made = pack(b, loc, target, fresh);
+    {
+      OpBuilder::InsertionGuard guard(b);
+      Value zero = arith::ConstantIndexOp::create(b, loc, 0);
+      Value one = arith::ConstantIndexOp::create(b, loc, 1);
+      SmallVector<Value> indices;
+      for (OpFoldResult size : given.sizes) {
+        auto loop = scf::ForOp::create(b, loc, zero, asIndex(b, loc, size), one);
+        b.setInsertionPointToStart(loop.getBody());
+        indices.push_back(loop.getInductionVar());
+      }
+      SmallVector<Value> element = readElement(
+          b, loc, runtime, elementAddress(b, loc, runtime, source, values, read, indices), read);
+      runtime.inc(b, loc, layouts.components(from), element);
+      placeElement(b, loc, runtime, elementAddress(b, loc, runtime, target, made, write, indices),
+                   write, of(from, to, element, {Taken::Shared, Taken::Shared}));
+    }
+    if (takes.own != Taken::Borrowed)
+      dropValue(b, loc, runtime, layouts, source, values);
+    return made;
   }
 
   // Constructor `tag` of `values` taken apart at `source`'s layout, its
@@ -220,15 +311,20 @@ Takes takesOf(Type type) {
   return {Taken::Shared, Taken::Shared};
 }
 
-SmallVector<Value> repack(OpBuilder &b, Location loc, const Layouts &layouts,
-                          const Runtime &runtime, Type from, Type to, ValueRange values,
-                          Takes takes) {
-  return Repacker{b, loc, layouts, runtime}.of(unrestricted(from), unrestricted(to), values,
-                                               takes);
+SmallVector<Value> repack(OpBuilder &b, Location loc, const Layouts &layouts, Runtime &runtime,
+                          Type from, Type to, ValueRange values, Takes takes) {
+  Repacker repacker{b, loc, layouts, runtime};
+  Type source = unrestricted(from);
+  Type target = unrestricted(to);
+  if (takes.own == Taken::Borrowed && repacker.builds(source, target)) {
+    runtime.inc(b, loc, layouts.components(source), values);
+    takes = {Taken::Shared, Taken::Shared};
+  }
+  return repacker.of(source, target, values, takes);
 }
 
 SmallVector<SmallVector<Value>> intoSlots(OpBuilder &b, Location loc, const Layouts &layouts,
-                                          const Runtime &runtime, DataType data, Tag tag,
+                                          Runtime &runtime, DataType data, Tag tag,
                                           ValueRange operands, ArrayRef<ValueRange> given) {
   SmallVector<SmallVector<Value>> fields;
   for (auto [operand, values, slot] :

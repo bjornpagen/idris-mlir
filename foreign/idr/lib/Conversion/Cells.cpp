@@ -5,9 +5,9 @@
 // its fields and gives each hole's destination; the constructors that build
 // no cell; the reads of tags and fields, each by the layout its type is (a
 // cell, or words in place), a field re-packed between the type its slot is
-// laid out at and its type at its value's application; and what poison and
-// select make of a value of ours. A cell of a lexical lifetime is
-// Lifetimes.cpp's, and a write through a destination Destinations.cpp's.
+// laid out at and its type at its value's application. A cell of a lexical
+// lifetime is Lifetimes.cpp's, a write through a destination
+// Destinations.cpp's, and a value of ours that is no cell Values.cpp's.
 // The lifetime an op here states of a value it makes is read by no
 // pattern: a value at run time is its words, and an arena's handle is read
 // by the source of the cell put into it.
@@ -37,7 +37,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 using namespace mlir;
@@ -55,7 +54,7 @@ DataType dataOf(Type type) { return cast<DataType>(unrestricted(type)); }
 // zero for each of `holes`, so that the cell is whole until the hole's
 // destination is written, an object slot holding an empty reference.
 SmallVector<SmallVector<Value>> fieldsOf(OpBuilder &b, Location loc, const Layouts &layouts,
-                                         const Runtime &runtime, const layout::Cell &cell,
+                                         Runtime &runtime, const layout::Cell &cell,
                                          ArrayRef<Type> slots, ArrayRef<int32_t> holes,
                                          ValueRange operands, ArrayRef<ValueRange> given) {
   SmallVector<SmallVector<Value>> fields;
@@ -306,94 +305,15 @@ struct LowerDataField : IdrPattern<DataFieldOp> {
   }
 };
 
-// The region in which an erased equality holds runs once, in place: the
-// values forwarded into it are its arguments, its yield the op's results.
-struct LowerAssume : IdrPattern<IndexAssumeOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(IndexAssumeOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    FailureOr<SmallVector<SmallVector<Type>>> converted =
-        convertedResults(op, *getTypeConverter());
-    if (failed(converted))
-      return rewriter.notifyMatchFailure(op, "a result's type does not convert");
-    SmallVector<Type> flat;
-    for (ArrayRef<Type> components : *converted)
-      llvm::append_range(flat, components);
-    auto run = scf::ExecuteRegionOp::create(rewriter, op.getLoc(), flat);
-    SmallVector<SmallVector<Value>> args = llvm::map_to_vector(
-        adaptor.getForwarded(), [](ValueRange forwarded) { return SmallVector<Value>(forwarded); });
-    moveRegion(rewriter, *getTypeConverter(), op.getBody(), args, run.getRegion());
-    rewriter.replaceOpWithMultiple(op, groupResults(run.getResults(), *converted));
-    return success();
-  }
-};
-
-// Strings, bigs and cells, memo cells among them, are static data; a
-// constant in place is its components.
-struct LowerConstant : IdrPattern<ConstantOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ConstantOp op, OneToNOpAdaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithMultiple(
-        op, {constantComponents(rewriter, op.getLoc(), layouts, op.getValue(), op.getType())});
-    return success();
-  }
-};
-
-// Poison may still be dropped, as what a function nobody reads is passed,
-// or what a loop forwards on the path it does not take. Poison of a cell
-// pointer is the static cell `nothing`: a cell, so every fact LLVM is told
-// of a cell pointer holds of it, and static, so counting it changes
-// nothing. Poison of any other value of ours is poison of each component,
-// but for the counted ones, which are the runtime's empty value: a big's
-// word, a sum's slot, an array's cell.
-struct LowerPoison : IdrPattern<ub::PoisonOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(ub::PoisonOp op, OneToNOpAdaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Type type = op.getType();
-    if (isCellPointer(type)) {
-      Attribute poison = ub::PoisonAttr::get(getContext());
-      rewriter.replaceOpWithMultiple(op,
-                                     {constantComponents(rewriter, loc, layouts, poison, type)});
-      return success();
-    }
-    SmallVector<Value> out;
-    for (const layout::Component &component : layouts.components(type))
-      out.push_back(component.counted()
-                        ? nullComponent(rewriter, loc, component.type)
-                        : ub::PoisonOp::create(rewriter, loc, component.type).getResult());
-    rewriter.replaceOpWithMultiple(op, {out});
-    return success();
-  }
-};
-
-// A select of a value of ours selects each of its components.
-struct LowerSelect : IdrPattern<arith::SelectOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(arith::SelectOp op, OneToNOpAdaptor adaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    Value cond = adaptor.getCondition().front();
-    SmallVector<Value> out;
-    for (auto [a, b] : llvm::zip_equal(adaptor.getTrueValue(), adaptor.getFalseValue()))
-      out.push_back(arith::SelectOp::create(rewriter, op.getLoc(), cond, a, b));
-    rewriter.replaceOpWithMultiple(op, {out});
-    return success();
-  }
-};
-
 } // namespace
 
 // The patterns of cells and data values: a counted cell's source, reuse and
-// init, constructors, their tags and fields, a value in place taken apart,
-// an assumed equality, constants, and what poison and select make of a
-// value of ours.
+// init, constructors, their tags and fields, and a value in place taken
+// apart.
 void populateCellPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                           const Layouts &layouts, Runtime &runtime) {
   patterns.add<LowerCellNew, LowerCellRecycle, LowerCellInit, LowerDataCon, LowerUnpack,
-               LowerDataTag, LowerDataField, LowerAssume, LowerConstant, LowerPoison,
-               LowerSelect>(converter, patterns.getContext(), layouts, runtime);
+               LowerDataTag, LowerDataField>(converter, patterns.getContext(), layouts, runtime);
 }
 
 } // namespace idr::conversion

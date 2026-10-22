@@ -44,11 +44,13 @@ Value StaticData::pack(OpBuilder &b, Type structType, ValueRange members) {
 }
 
 // The ladder's one step of nesting is a constructor held in place, not in
-// a cell, whose fields are its words; every other constant is one leaf. The
-// constructors are listed in preorder, each before its fields and its first
-// field next, and read back in reverse, so every field is made before what
-// holds it and a constructor's fields lie on top of what is made, the first
-// topmost: a constant nested to any depth takes none of the native stack.
+// a cell, whose fields are its words, each at the type its slot is laid out
+// at, which for a closed constant is its own unfolding; every other
+// constant is one leaf. The constructors are listed in preorder, each
+// before its fields and its first field next, and read back in reverse, so
+// every field is made before what holds it and a constructor's fields lie
+// on top of what is made, the first topmost: a constant nested to any depth
+// takes none of the native stack.
 SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts &layouts,
                                       Attribute value, Type type) {
   auto inPlace = [](Attribute held) {
@@ -79,7 +81,7 @@ SmallVector<Value> constantComponents(OpBuilder &b, Location loc, const Layouts 
     order.push_back(held);
     if (ConAttr con = inPlace(held.value)) {
       ArrayAttr fields = con.getFields();
-      ArrayRef<Type> types = con.getData().ctor(con.getTag()).fields;
+      ArrayRef<Type> types = layouts.fieldTypes(con.getData(), con.getTag());
       for (size_t field = fields.size(); field-- > 0;)
         left.push_back({fields[field], types[field]});
     }
@@ -117,9 +119,10 @@ void StaticData::constant(Attribute value, Type type) {
       return;
     if (con.getData().layout() == Layout::Cell)
       return cells(con, left);
-    // A sum held in place is its words, each field's datum made.
-    families::CtorView ctor = con.getData().ctor(con.getTag());
-    for (auto [field, fieldType] : llvm::zip_equal(con.getFields(), ctor.fields))
+    // A sum held in place is its words, each field's datum made at the
+    // type its slot is laid out at.
+    for (auto [field, fieldType] :
+         llvm::zip_equal(con.getFields(), layouts.fieldTypes(con.getData(), con.getTag())))
       left.push_back({field, fieldType});
   };
   while (!left.empty())

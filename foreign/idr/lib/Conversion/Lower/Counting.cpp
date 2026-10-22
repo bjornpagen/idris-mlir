@@ -42,7 +42,7 @@ SmallVector<SmallVector<Value>> fieldsAt(OpBuilder &b, Location loc, const Runti
 
 // The fields read out of `data`'s cell, moved out at `types`, each
 // re-packed from its slot's type into its own, given on whole.
-SmallVector<SmallVector<Value>> movedOut(OpBuilder &b, Location loc, const Runtime &runtime,
+SmallVector<SmallVector<Value>> movedOut(OpBuilder &b, Location loc, Runtime &runtime,
                                          const Layouts &layouts, DataType data, TypeRange types,
                                          ArrayRef<SmallVector<Value>> read) {
   SmallVector<SmallVector<Value>> fields;

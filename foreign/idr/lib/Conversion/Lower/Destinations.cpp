@@ -3,15 +3,17 @@
 // The places written once through a destination. A destination is one
 // address per component of what it writes, each that component's slot in
 // its place: a hole of a cell an init built, or the slot a function waiting
-// for a row's answers keeps on its frame for one of them. A write is one
-// store per component, with no count changed, since the value's reference
-// moves into the place, and none carries an invariant group: a hole is
-// written once after its zero, and a load through the cell later sees the
-// value. What a destination's type says of the value's grade is the
-// verifier's: at run time a value is its components at any grade.
+// for a row's answers keeps on its frame for one of them. A write is the
+// value re-packed into the layout of the type the destination is of, then
+// one store per component, with no count changed, since the value's
+// reference moves into the place, and none carries an invariant group: a
+// hole is written once after its zero, and a load through the cell later
+// sees the value. What a destination's type says of the value's grade is
+// the verifier's: at run time a value is its components at any grade.
 
 #include "idr/Conversion/Lower/Lower.h"
 
+#include "idr/IR/Grades.h"
 #include "idr/Conversion/IdrPattern.h"
 #include "idr/Conversion/Patterns.h"
 #include "idr/Conversion/Words.h"
@@ -26,15 +28,23 @@ namespace idr::conversion {
 
 namespace {
 
-// A value written once through its destination: each component stored at
-// its own address, aligned as its slot is.
+// A value written once through its destination: re-packed from its own
+// type into the field's type the destination is of, which is the layout of
+// the place it writes (a hole is a field of a cell its function returns,
+// laid out as its member at an unknown index, as its slot is), then each
+// component stored at its own address, aligned as its slot is.
 struct LowerDestWrite : IdrPattern<DestWriteOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(DestWriteOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    for (auto [address, value] : llvm::zip_equal(adaptor.getDest(), adaptor.getValue()))
-      LLVM::StoreOp::create(rewriter, op.getLoc(), value, address,
-                            layouts.alignmentOf(value.getType()));
+    Location loc = op.getLoc();
+    Type value = op.getValue().getType();
+    SmallVector<Value> written =
+        repack(rewriter, loc, layouts, runtime, value, op.getDest().getType().getValue(),
+               adaptor.getValue(), takesOf(value));
+    for (auto [address, component] : llvm::zip_equal(adaptor.getDest(), written))
+      LLVM::StoreOp::create(rewriter, loc, component, address,
+                            layouts.alignmentOf(component.getType()));
     rewriter.eraseOp(op);
     return success();
   }

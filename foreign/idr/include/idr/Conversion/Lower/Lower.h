@@ -152,23 +152,30 @@ inline constexpr Takes readInPlace{Taken::Borrowed, Taken::Borrowed};
 // one value: a reindex's operand and result, or a field's type at its
 // value's application and the type its slot is laid out at. The same words
 // where the two lay out alike. Otherwise re-packed: a numeral made a
-// natural or made of one, and any other value taken apart at each
-// constructor both types leave possible and built again, its fields
-// re-packed in turn, a cell allocated as every counted cell is and an atom
-// the static cell of its constructor. A cell taken apart is given up as
-// `takes` says.
+// natural or made of one, an array copied element by element into a fresh
+// array, and any other value taken apart at each constructor both types
+// leave possible and built again, its fields re-packed in turn, a cell
+// allocated as every counted cell is and an atom the static cell of its
+// constructor. A cell taken apart is given up as `takes` says; a re-pack
+// that builds a cell or an array gives a fresh value, which holds what it
+// holds on its own whatever `takes` says.
 llvm::SmallVector<mlir::Value> repack(mlir::OpBuilder &b, mlir::Location loc,
-                                      const Layouts &layouts, const Runtime &runtime,
-                                      mlir::Type from, mlir::Type to, mlir::ValueRange values,
-                                      Takes takes);
+                                      const Layouts &layouts, Runtime &runtime, mlir::Type from,
+                                      mlir::Type to, mlir::ValueRange values, Takes takes);
 
 // Each field `operands` gives constructor `tag` of `data`, its components
 // `given`, re-packed from its own type into the type its slot is laid out
 // at, each given on whole.
 llvm::SmallVector<llvm::SmallVector<mlir::Value>>
-intoSlots(mlir::OpBuilder &b, mlir::Location loc, const Layouts &layouts, const Runtime &runtime,
+intoSlots(mlir::OpBuilder &b, mlir::Location loc, const Layouts &layouts, Runtime &runtime,
           DataType data, Tag tag, mlir::ValueRange operands,
           llvm::ArrayRef<mlir::ValueRange> given);
+
+// The patterns of the values of ours that are no cell: a constant, poison,
+// a select, and the region in which an assumed equality holds.
+void populateValuePatterns(mlir::RewritePatternSet &patterns,
+                           const mlir::TypeConverter &converter, const Layouts &layouts,
+                           Runtime &runtime);
 
 // The pattern of idr.data.reindex: its operand's words where the op is
 // free, else its operand re-packed into its result's layout.
