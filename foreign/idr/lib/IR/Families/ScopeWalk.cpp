@@ -1,0 +1,259 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
+// The function's scope walk: one pre-order walk that keeps, on a stack, the
+// depth of the scope and the equations every enclosing region assumes, so
+// that each type, each region's entry, each cast and each jump is checked
+// where it stands, and no op walks to its ancestors. The refinement at a
+// point is the most general unifier of every equation on the stack, one
+// space of levels for the whole scope: a case's constructor's binders are
+// levels after its enclosing scope's.
+
+#include "idr/IR/Families/Scope.h"
+#include "idr/IR/Families/Substitute.h"
+#include "idr/IR/Families/Unify.h"
+#include "idr/IR/IdrDialect.h"
+
+#include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/IR/AttrTypeSubElements.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/DenseMap.h"
+
+using namespace mlir;
+
+namespace idr::families {
+
+std::optional<RegionRefinement> noRefinement(Operation *, Region &) { return std::nullopt; }
+
+RegionRefinement caseRefinement(DataType scrutinee, Tag tag) {
+  return {scrutinee.getIndices(), scrutinee.ctor(tag).equation,
+          scrutinee.getGroup().indices(scrutinee.getMember()).size(), Scoped::RegionBinders,
+          scrutinee.getGroup()};
+}
+
+namespace {
+
+// One equation of the scope, in its one space of levels.
+struct Equation {
+  SmallVector<TermNode> lhs;
+  SmallVector<TermNode> rhs;
+  size_t count;
+};
+
+// A region the walk is inside: the scope's depth in it, the equations that
+// hold in it, the refinement they make, and whether they clash.
+struct Frame {
+  Operation *owner;
+  uint32_t depthAtOwner;
+  uint32_t depth;
+  SmallVector<Equation> equations;
+  LevelMap refinement;
+  Unified unified = Unified::Consistent;
+};
+
+// `terms` of the enclosing scope or of a region's own binders, moved into
+// the scope's one space: binders' levels after the enclosing depth, a null
+// group written as the group it names.
+SmallVector<TermNode> intoScope(ArrayRef<TermNode> terms, size_t count, uint32_t shift,
+                                FamilyAttr group) {
+  LevelMap map;
+  map.shiftFrom(0, shift);
+  SmallVector<TermNode> out;
+  TermWriter write(out);
+  for (Term term : termsOf(terms, count))
+    map.write(write, term);
+  for (TermNode &node : out)
+    if (node.kind == TermKind::Constructor && !node.payload)
+      node.payload = group;
+  return out;
+}
+
+// The refinement the equations make at depth `depth`: each level they bind
+// replaced by its term, resolved through the others.
+std::pair<LevelMap, Unified> solve(ArrayRef<Equation> equations, uint32_t depth) {
+  Subst subst(depth, 0, Freedom::Unknown, Freedom::Unknown, Opacity::MeetsAnything, Attribute());
+  for (const Equation &eq : equations)
+    for (auto [lhs, rhs] : llvm::zip_equal(termsOf(eq.lhs, eq.count), termsOf(eq.rhs, eq.count)))
+      if (unify(subst, lhs, Side::Application, rhs, Side::Application) == Unified::Clash)
+        return {LevelMap(), Unified::Clash};
+  LevelMap map;
+  TermNode level{TermKind::Level, 0, 0, 0, Attribute()};
+  for (uint32_t at = 0; at < depth; ++at) {
+    if (!subst.lookup(Side::Application, at))
+      continue;
+    level.value = at;
+    SmallVector<TermNode> written;
+    TermWriter write(written);
+    subst.write(write, Term(ArrayRef<TermNode>(level)), Side::Application, 0);
+    map.replace(at, Term(written));
+  }
+  return {map, Unified::Consistent};
+}
+
+// Whether a region is dead: its one block ends the run with nothing in it.
+bool unreachableBody(Region &region) {
+  return region.hasOneBlock() && region.front().getOperations().size() == 1 &&
+         isa<ub::UnreachableOp>(region.front().front());
+}
+
+class Walk {
+public:
+  explicit Walk(Operation *function) : function(function) {
+    stack.push_back(Frame{function, 0, 0, {}, LevelMap(), Unified::Consistent});
+  }
+  LogicalResult enter(Operation *op, Region &region);
+  void leave() { stack.pop_back(); }
+  LogicalResult checkOp(Operation *op);
+
+private:
+  // One more than the largest level `type` names, and whether it names a
+  // member of a group by position, which only a declaration may.
+  struct Named {
+    uint32_t levels;
+    enum class Member : uint8_t { None, ByPosition } member;
+  };
+  Named levelsOf(Type type);
+  LogicalResult checkValue(Operation *op, Value value);
+  // `a` and `b` equal under the refinement here, `a` perhaps a data type
+  // refined further.
+  bool sameHere(Type a, Type b, Narrowing narrowing);
+
+  Operation *function;
+  SmallVector<Frame> stack;
+  // The levels each type names, for this walk: types are uniqued, so each
+  // is read once however many values have it.
+  llvm::DenseMap<Type, Named> seen;
+};
+
+Walk::Named Walk::levelsOf(Type type) {
+  if (auto it = seen.find(type); it != seen.end())
+    return it->second;
+  Named named{0, Named::Member::None};
+  AttrTypeWalker walker;
+  walker.addWalk([](FamilyAttr) { return WalkResult::skip(); });
+  walker.addWalk([&](Type inner) {
+    if (auto data = dyn_cast<DataType>(inner)) {
+      named.levels = std::max(named.levels, data.freeLevels());
+      return WalkResult::skip();
+    }
+    if (auto nat = dyn_cast<NatType>(inner))
+      named.levels = std::max(named.levels, freeLevelsOf(nat.getIndex()));
+    if (isa<SelfType>(inner))
+      named.member = Named::Member::ByPosition;
+    return WalkResult::advance();
+  });
+  walker.walk<WalkOrder::PreOrder>(type);
+  return seen[type] = named;
+}
+
+LogicalResult Walk::checkValue(Operation *op, Value value) {
+  auto [levels, member] = levelsOf(value.getType());
+  if (member == Named::Member::ByPosition)
+    return op->emitOpError("has a value of type ")
+           << value.getType() << ", which names a member of a family by position outside its "
+           << "declaration";
+  if (levels > stack.back().depth)
+    return op->emitOpError("has a value of type ")
+           << value.getType() << ", which names level " << levels - 1 << " where "
+           << stack.back().depth << " index variables are in scope";
+  return success();
+}
+
+bool Walk::sameHere(Type a, Type b, Narrowing narrowing) {
+  const LevelMap &here = stack.back().refinement;
+  Type ma = mapLevels(a, here);
+  Type mb = mapLevels(b, here);
+  return ma == mb || (narrowing == Narrowing::Allowed && refines(ma, mb));
+}
+
+LogicalResult Walk::enter(Operation *op, Region &region) {
+  Frame next{op, stack.back().depth, stack.back().depth, stack.back().equations, LevelMap(),
+             Unified::Consistent};
+  auto binders = dyn_cast<ErasedBinderOpInterface>(op);
+  if (binders) {
+    next.depth += static_cast<uint32_t>(binders.getBoundSorts(region).size());
+    if (std::optional<RegionRefinement> refinement = binders.getRefinement(region)) {
+      uint32_t shift = refinement->scope == Scoped::RegionBinders ? next.depthAtOwner : 0;
+      next.equations.push_back(
+          {intoScope(refinement->outer, refinement->count, 0, refinement->group),
+           intoScope(refinement->inner, refinement->count, shift, refinement->group),
+           refinement->count});
+    }
+  }
+  std::tie(next.refinement, next.unified) = solve(next.equations, next.depth);
+  // A case whose equation clashes with its scrutinee's index does not
+  // exist: only a substitution's dead region may stand, unreachable.
+  if (next.unified == Unified::Clash && !unreachableBody(region))
+    return op->emitOpError("region #")
+           << region.getRegionNumber() << " assumes an equation its scope makes false, "
+           << "a case whose constructor its scrutinee's index excludes";
+  stack.push_back(std::move(next));
+  for (Block &block : region)
+    for (BlockArgument arg : block.getArguments())
+      if (failed(checkValue(op, arg)))
+        return failure();
+  // Each value entering the region is the operand it comes from, at the
+  // region's refinement; the first a case binds, its scrutinee, refined.
+  auto branch = dyn_cast<RegionBranchOpInterface>(op);
+  if (!branch || region.empty() || stack.back().unified == Unified::Clash)
+    return success();
+  OperandRange operands = branch.getEntrySuccessorOperands(RegionSuccessor(&region));
+  ValueRange inputs = branch.getSuccessorInputs(RegionSuccessor(&region));
+  for (auto [index, pair] : llvm::enumerate(llvm::zip(operands, inputs))) {
+    auto [operand, input] = pair;
+    if (!sameHere(input.getType(), operand.getType(),
+                  index == 0 ? Narrowing::Allowed : Narrowing::Exact))
+      return op->emitOpError("region #")
+             << region.getRegionNumber() << " binds " << input.getType() << " for "
+             << operand.getType() << ", which its refinement does not make it";
+  }
+  return success();
+}
+
+LogicalResult Walk::checkOp(Operation *op) {
+  for (Value result : op->getResults())
+    if (failed(checkValue(op, result)))
+      return failure();
+  if (auto cast = dyn_cast<DataReindexOp>(op)) {
+    if (!sameHere(cast.getValue().getType(), cast.getType(), Narrowing::Allowed))
+      return cast.emitOpError("casts ")
+             << cast.getValue().getType() << " to " << cast.getType()
+             << ", which the refinements around it do not make equal";
+    return success();
+  }
+  // A jump's arguments are its target's parameters with the target's index
+  // variables replaced by the jump's terms: the target's op encloses the
+  // jump, so its depth is on the stack.
+  if (auto jump = dyn_cast<JumpOp>(op)) {
+    auto token = cast<BlockArgument>(jump.getTarget());
+    Operation *owner = token.getOwner()->getParentOp();
+    auto points = cast<JoinPointsOpInterface>(owner);
+    Region *target = points.getTarget(token);
+    const Frame *at = llvm::find_if(stack, [&](const Frame &f) { return f.owner == owner; });
+    if (at == stack.end())
+      return jump.emitOpError("jumps to a join point that does not enclose it");
+    IndexArgsAttr terms = jump.getTermsAttr();
+    LevelMap map;
+    for (auto [level, term] : llvm::enumerate(termsOf(terms.getTerms(), terms.getCount())))
+      map.replace(at->depthAtOwner + static_cast<uint32_t>(level), term);
+    for (auto [arg, parameter] : llvm::zip(jump.getArgs(), points.getParameters(*target)))
+      if (!sameHere(arg.getType(), mapLevels(parameter.getType(), map), Narrowing::Exact))
+        return jump.emitOpError("passes ")
+               << arg.getType() << " to a parameter of type " << parameter.getType()
+               << " at its terms";
+  }
+  return success();
+}
+
+} // namespace
+
+struct ScopeWalk::State {
+  Walk walk;
+};
+
+ScopeWalk::ScopeWalk(Operation *function) : state(new State{Walk(function)}) {}
+ScopeWalk::~ScopeWalk() = default;
+LogicalResult ScopeWalk::enter(Operation *op, Region &region) { return state->walk.enter(op, region); }
+void ScopeWalk::leave() { state->walk.leave(); }
+LogicalResult ScopeWalk::check(Operation *op) { return state->walk.checkOp(op); }
+
+} // namespace idr::families

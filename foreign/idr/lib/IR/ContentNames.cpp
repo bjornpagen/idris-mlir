@@ -1,134 +1,207 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The names generated from content, which no creation order reaches (a
-// content name, or the reserved name of a digest), and the canonical text
-// and hash every content key is made of, which no printing flag reaches.
+// The digest of an attribute or a type that no process, address or printing
+// flag reaches: XXH3-128 of what its dialect's bytecode writes of it, each
+// attribute or type it holds written as that one's own digest.
+//
+// The bytecode encoding is MLIR's own process-independent account of an
+// attribute's content, one per dialect (builtin's, and ours, which the
+// specification generates); a TypeID or a storage address differs from run
+// to run, and a printed form is what a printing flag changes. A hashing
+// writer stands where the bytecode writer would: it writes nothing, so a
+// digest costs one pass over the content.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
-#include "mlir/IR/AsmState.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/OwningOpRef.h"
-#include "llvm/ADT/StringExtras.h"
+#include "mlir/Bytecode/BytecodeImplementation.h"
+#include "mlir/Bytecode/Encoding.h"
+#include "mlir/IR/Dialect.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/Support/Format.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/xxhash.h"
-
-#include <limits>
+#include "llvm/Support/Endian.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 using namespace idr;
 
-//===----------------------------------------------------------------------===//
-// Names from content
-//===----------------------------------------------------------------------===//
-
-raw_ostream &idr::operator<<(raw_ostream &os, Digest digest) {
-  return os << llvm::format_hex_no_prefix(digest.high, 16, /*Upper=*/false)
-            << llvm::format_hex_no_prefix(digest.low, 16, /*Upper=*/false);
-}
-
-Digest idr::digestOf(StringRef key) {
-  llvm::XXH128_hash_t hash = llvm::xxh3_128bits(llvm::arrayRefFromStringRef(key));
-  return {hash.low64, hash.high64};
-}
-
 namespace {
 
-// What a name from content writes of its key: the low half of its digest,
-// as 16 lower-case hex digits.
-std::string digitsOf(Digest key) {
-  std::string digits;
-  llvm::raw_string_ostream(digits) << llvm::format_hex_no_prefix(key.low, 16, /*Upper=*/false);
-  return digits;
-}
+// An attribute or a type: one entry the bytecode writes. The two storages
+// are distinct objects, so their addresses key one table of this digest's
+// own scratch.
+enum class Kind : uint8_t { Attribute, Type };
 
-} // namespace
+struct Entry {
+  Kind kind;
+  const void *impl;
+};
 
-std::string idr::contentName(StringRef owner, StringRef kind, Digest key) {
-  return (owner + "." + kind + "." + digitsOf(key)).str();
-}
+using Digests = llvm::DenseMap<const void *, llvm::XXH128_hash_t>;
 
-std::string idr::contentName(StringRef owner, StringRef kind, StringRef key) {
-  return contentName(owner, kind, digestOf(key));
-}
+// What precedes each part in the stream, so no two different contents
+// write the same bytes: a string's bytes and an entry's digest are told
+// apart by their marks, and a string carries its length.
+enum class Mark : uint8_t { Word, Bytes, Entry, Absent, Dialect };
 
-std::string idr::reservedName(StringRef kind, Digest key) {
-  return reservedName(kind, digitsOf(key));
-}
+// A writer that keeps what the bytecode would write as bytes to digest: a
+// word in eight little-endian bytes, whatever the host. An entry it holds
+// is written as its digest, found among those already made; one not yet
+// made is noted, and the digest of what holds it waits for it.
+class Hasher final : public DialectBytecodeWriter {
+public:
+  Hasher(const Digests &done, SmallVectorImpl<Entry> &missing) : done(done), missing(missing) {}
 
-FailureOr<StringAttr> ContentNames::intern(Location at, StringRef owner, StringRef kind,
-                                           Digest key) {
-  return intern(at, contentName(owner, kind, key), key);
-}
-
-FailureOr<StringAttr> ContentNames::intern(Location at, StringRef name, Digest key) {
-  auto [it, fresh] = keys.try_emplace(name, key);
-  if (!fresh && it->second != key) {
-    std::string both;
-    llvm::raw_string_ostream(both) << it->second << " and " << key;
-    return emitError(at) << "internal error: two keys name " << name
-                         << ": the keys of digest " << both;
+  // Writes `entry` as its dialect's bytecode does, preceded by its kind
+  // and its dialect's namespace, the two the dialect's own encoding leaves
+  // to the bytecode around it.
+  void encode(Entry entry) {
+    mark(Mark::Dialect);
+    word(static_cast<uint64_t>(entry.kind));
+    Dialect *dialect = nullptr;
+    LogicalResult written = failure();
+    switch (entry.kind) {
+    case Kind::Attribute: {
+      Attribute attr = Attribute::getFromOpaquePointer(entry.impl);
+      dialect = &attr.getDialect();
+      bytes(dialect->getNamespace());
+      if (auto *iface = dialect->getRegisteredInterface<BytecodeDialectInterface>())
+        written = iface->writeAttribute(attr, *this);
+      break;
+    }
+    case Kind::Type: {
+      Type type = Type::getFromOpaquePointer(entry.impl);
+      dialect = &type.getDialect();
+      bytes(dialect->getNamespace());
+      if (auto *iface = dialect->getRegisteredInterface<BytecodeDialectInterface>())
+        written = iface->writeType(type, *this);
+      break;
+    }
+    }
+    // Every attribute and type the compiler keys a copy by is of a dialect
+    // whose bytecode writes it; one that is not has no content to digest
+    // short of its printed form, which is no digest of content.
+    if (failed(written))
+      llvm::reportFatalInternalError(llvm::Twine("a digest of content meets an ") +
+                                     (entry.kind == Kind::Attribute ? "attribute" : "type") +
+                                     " of dialect '" + dialect->getNamespace() +
+                                     "' its bytecode does not write");
   }
-  return StringAttr::get(at->getContext(), name);
-}
 
-//===----------------------------------------------------------------------===//
-// Canonical text
-//===----------------------------------------------------------------------===//
+  llvm::XXH128_hash_t finish() const { return llvm::xxh3_128bits(stream.data(), stream.size()); }
 
-namespace {
+  void writeAttribute(Attribute attr) override {
+    entry(Entry{Kind::Attribute, attr.getAsOpaquePointer()});
+  }
+  void writeOptionalAttribute(Attribute attr) override {
+    if (!attr) {
+      mark(Mark::Absent);
+      return;
+    }
+    writeAttribute(attr);
+  }
+  void writeType(Type type) override { entry(Entry{Kind::Type, type.getAsOpaquePointer()}); }
 
-// Every option of the printer, chosen here: OpPrintingFlags' own
-// constructor reads the command line's.
-OpPrintingFlags canonicalFlags() {
-  OpPrintingFlags flags;
-  flags.elideLargeElementsAttrs(std::numeric_limits<int64_t>::max())
-      .printLargeElementsAttrWithHex(100)
-      .elideLargeResourceString(std::numeric_limits<int64_t>::max())
-      .enableDebugInfo(/*enable=*/false, /*prettyForm=*/false)
-      .printGenericOpForm(true)
-      .skipRegions(false)
-      .assumeVerified(true)
-      .useLocalScope(false)
-      .printValueUsers(false)
-      .printUniqueSSAIDs(false)
-      .printNameLocAsPrefix(false);
-  return flags;
-}
+  // A resource's bytes live outside the attribute that names it, keyed by
+  // a name the context chose; the compiler keys no copy by one.
+  void writeResourceHandle(const AsmDialectResourceHandle &) override {
+    llvm::reportFatalInternalError("a digest of content meets a dialect resource, whose bytes "
+                                   "are outside the attribute");
+  }
 
-// `op` printed whole: detached, it is printed as the top of its own text,
-// its aliases first; inside another op, numbered from itself.
-std::string printed(Operation *op) {
-  std::string text;
-  llvm::raw_string_ostream os(text);
-  AsmState state(op, canonicalFlags());
-  op->print(os, state);
-  return text;
-}
+  void writeVarInt(uint64_t value) override { word(value); }
+  void writeSignedVarInt(int64_t value) override { word(static_cast<uint64_t>(value)); }
+  void writeAPIntWithKnownWidth(const APInt &value) override {
+    word(value.getBitWidth());
+    for (unsigned i = 0, n = value.getNumWords(); i < n; ++i)
+      word(value.getRawData()[i]);
+  }
+  void writeAPFloatWithKnownSemantics(const APFloat &value) override {
+    writeAPIntWithKnownWidth(value.bitcastToAPInt());
+  }
+  void writeOwnedString(StringRef str) override { bytes(str); }
+  void writeOwnedBlob(ArrayRef<char> blob) override {
+    bytes(StringRef(blob.data(), blob.size()));
+  }
+  void writeUnownedBlob(ArrayRef<char> blob) override {
+    bytes(StringRef(blob.data(), blob.size()));
+  }
+  void writeOwnedBool(bool value) override { word(value ? 1 : 0); }
 
-// An attribute held by a detached op of its own, so that it is printed with
-// the aliases of its text written before it.
-std::string heldAlone(Attribute attr) {
-  OwningOpRef<ModuleOp> holder = ModuleOp::create(UnknownLoc::get(attr.getContext()));
-  holder->getOperation()->setAttr("idr.key", attr);
-  return printed(holder->getOperation());
+  // The current encoding, which every dialect's writer reads to choose its
+  // form; no dialect version is pinned, so each writes its newest.
+  int64_t getBytecodeVersion() const override { return bytecode::kVersion; }
+  FailureOr<const DialectVersion *> getDialectVersion(StringRef) const override {
+    return failure();
+  }
+
+private:
+  void mark(Mark m) { stream.push_back(static_cast<uint8_t>(m)); }
+  void word(uint64_t value) {
+    mark(Mark::Word);
+    uint8_t out[8];
+    llvm::support::endian::write64le(out, value);
+    stream.append(std::begin(out), std::end(out));
+  }
+  void bytes(StringRef text) {
+    mark(Mark::Bytes);
+    word(text.size());
+    stream.append(text.bytes_begin(), text.bytes_end());
+  }
+  void entry(Entry e) {
+    mark(Mark::Entry);
+    auto it = done.find(e.impl);
+    if (it == done.end()) {
+      missing.push_back(e);
+      return;
+    }
+    word(it->second.low64);
+    word(it->second.high64);
+  }
+
+  const Digests &done;
+  SmallVectorImpl<Entry> &missing;
+  SmallVector<uint8_t, 256> stream;
+};
+
+// The digest of `root`, every entry it holds digested first. No step
+// recurses on the nesting: an entry whose parts are not yet digested goes
+// back on the stack beneath them, so each is encoded at most twice.
+llvm::XXH128_hash_t digestOf(Entry root) {
+  Digests done;
+  SmallVector<Entry> stack{root};
+  SmallVector<Entry> missing;
+  while (!stack.empty()) {
+    Entry top = stack.back();
+    if (done.contains(top.impl)) {
+      stack.pop_back();
+      continue;
+    }
+    missing.clear();
+    Hasher hasher(done, missing);
+    hasher.encode(top);
+    if (!missing.empty()) {
+      stack.append(missing);
+      continue;
+    }
+    done[top.impl] = hasher.finish();
+    stack.pop_back();
+  }
+  return done.lookup(root.impl);
 }
 
 } // namespace
 
-std::string idr::canonicalText(Attribute attr) { return heldAlone(attr); }
-std::string idr::canonicalText(Type type) { return heldAlone(TypeAttr::get(type)); }
-std::string idr::canonicalText(Operation *op) { return printed(op); }
+// No attribute (an op with no properties) has one digest of its own, which
+// no attribute's stream writes: a lone absent mark.
+llvm::XXH128_hash_t idr::stableDigest(Attribute attr) {
+  if (!attr) {
+    const uint8_t absent = static_cast<uint8_t>(Mark::Absent);
+    return llvm::xxh3_128bits(&absent, 1);
+  }
+  return digestOf(Entry{Kind::Attribute, attr.getAsOpaquePointer()});
+}
 
-Digest idr::canonicalHash(Attribute attr) { return digestOf(canonicalText(attr)); }
-Digest idr::canonicalHash(Type type) { return digestOf(canonicalText(type)); }
-
-Digest ContentNames::digest(Type type) {
-  auto [it, fresh] = digests.try_emplace(type.getAsOpaquePointer());
-  if (fresh)
-    it->second = canonicalHash(type);
-  return it->second;
+llvm::XXH128_hash_t idr::stableDigest(Type type) {
+  return digestOf(Entry{Kind::Type, type.getAsOpaquePointer()});
 }

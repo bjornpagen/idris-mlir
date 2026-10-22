@@ -1,194 +1,119 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What reads a constructor value: idr.field, a field of a constructor, and
-// idr.tag, its tag, with their folds and canonicalizations. Each reads the
-// constructor's fields from its value's data type, so nothing here reads
-// the module or looks a constructor up by name.
+// What reads a constructor value: idr.data.field, a field of a value
+// refined to its constructor, a total read, since the type fixes the
+// constructor; and idr.data.tag, its constructor's tag. Each reads the
+// fields off the value's type, at its application, so nothing here reads
+// the module, looks a constructor up by name or walks to an enclosing
+// match: a case binds its scrutinee refined, and a field is read from that
+// value.
 
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Canon.h"
+#include "idr/IR/Families/Families.h"
 #include "idr/IR/Ranges.h"
 #include "idr/IR/Symbols.h"
 
 #include "mlir/IR/Matchers.h"
-#include "mlir/IR/PatternMatch.h"
 
 using namespace mlir;
 using namespace idr;
 
+std::optional<Type> idr::fieldReadType(Type value, unsigned index) {
+  auto data = dyn_cast<DataType>(unrestricted(value));
+  if (!data || !data.singleTag())
+    return std::nullopt;
+  Tag tag = *data.singleTag();
+  std::optional<SmallVector<Type>> fields = data.determinedFields(tag);
+  if (!fields || index >= fields->size())
+    return std::nullopt;
+  Type declared = data.ctor(tag).fields[index];
+  Recursion recursion =
+      isa<SelfType>(unrestricted(declared)) ? Recursion::OwnFamily : Recursion::Other;
+  Type field = (*fields)[index];
+  return fieldType(value, unrestricted(field), usesOf(field), recursion);
+}
+
 //===----------------------------------------------------------------------===//
-// idr.field
+// idr.data.field
 //===----------------------------------------------------------------------===//
 
-// A box is a cell: reading a field of one loads from a cell only as large
-// as its own constructor. A sum is its slots, all there whatever its
-// constructor: reading one is computing, which may run anywhere.
-Speculation::Speculatability FieldOp::getSpeculatability() {
-  return isa<BoxType>(unrestricted(getValue().getType())) ? Speculation::NotSpeculatable
-                                                         : Speculation::Speculatable;
+DataType DataFieldOp::getDataType() { return dyn_cast<DataType>(unrestricted(getValue().getType())); }
+Tag DataFieldOp::getTag() { return *getDataType().singleTag(); }
+
+void DataFieldOp::build(OpBuilder &builder, OperationState &state, Value value, unsigned index) {
+  build(builder, state, *fieldReadType(value.getType(), index), value, uint64_t{index});
 }
 
-DataType FieldOp::getDataType() { return dataTypeOf(getValue().getType()); }
-
-// A field of a memo sum is read out of the memo state, which a force
-// writes; of any other sum or box, out of memory no reference sees change.
-void FieldOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  readsMemoState(getValueMutable(), effects);
-}
-
-void FieldOp::build(OpBuilder &builder, OperationState &state, Value value, Tag tag,
-                    unsigned index) {
-  const Ctor &ctor = dataTypeOf(value.getType()).getCtor(tag);
-  build(builder, state, fieldType(value.getType(), ctor.fields[index]), value, tag,
-        uint64_t{index});
-}
-
-LogicalResult FieldOp::verify() {
-  FailureOr<std::reference_wrapper<const Ctor>> found =
-      idr::detail::ctorAt(*this, getValue().getType(), getTag());
-  if (failed(found))
-    return failure();
-  ArrayRef<Type> fields = found->get().fields;
-  if (getIndex() >= fields.size())
-    return emitOpError("field index out of range");
-  // A field is read as a match binds it: a view of the value, a label's
-  // capture of a memo cell too, which only idr.memo.run moves out.
-  Type expected = fieldType(getValue().getType(), fields[getIndex()]);
-  if (expected != getType())
+LogicalResult DataFieldOp::verify() {
+  std::optional<Type> expected = fieldReadType(getValue().getType(), getIndex());
+  if (!expected)
+    return emitOpError("reads field ") << getIndex() << " of " << getValue().getType()
+                                       << ", which is refined to no one constructor with it";
+  if (*expected != getType())
     return emitOpError("has result ") << getType() << ", but the field of a "
-                                      << getValue().getType() << " is read as " << expected;
+                                      << getValue().getType() << " is read as " << *expected;
   return success();
 }
 
-// A field of a known constructor, built by idr.con or constant, also when
-// it passed a linear position on the way. A linear field moves out of the
-// constructor, so only the constructor's one read takes it: otherwise it
-// would be used twice.
-OpFoldResult FieldOp::fold(FoldAdaptor adaptor) {
+// A field of a known constructor: the field an idr.data.con was given,
+// where its state still holds (a memo cell's changes) and the read takes
+// it at the type it was given; a linear field moves out of the constructor,
+// so only the constructor's one read takes it. Or a field of a constant,
+// read in place: off a run's spine that costs nothing however long the run
+// is. A constant is no linear value, so a linear field of one stays a read.
+OpFoldResult DataFieldOp::fold(FoldAdaptor adaptor) {
   auto index = static_cast<unsigned>(getIndex());
-  Value source = throughLinear(getValue());
+  Value source = getValue();
   if (!builtStateHolds(source, getOperation()))
     return {};
-  if (auto con = source.getDefiningOp<ConOp>())
-    if (con.getTag() == getTag()) {
-      // A field read at another grade than the constructor took it is
-      // the canonicalizer's, which holds it as read.
-      Value field = con.getFields()[index];
-      if (field.getType() == getType() &&
-          (quantityOf(field.getType()) != Quantity::One || fieldReadOnce(con.getResult(), index)))
-        return field;
-    }
-  // The constant is the operand's, as folding or constant propagation knows
-  // it, or the one it passed a linear position from. Its field is read in
-  // place: off a run's spine that costs nothing however long the run is,
-  // where listing every field would build the rest of the run.
+  if (auto con = source.getDefiningOp<DataConOp>()) {
+    Value field = con.getFields()[index];
+    if (field.getType() == getType() &&
+        (usesOf(field.getType()) != Uses::Once || fieldReadOnce(con.getResult(), index)))
+      return field;
+    return {};
+  }
+  if (isLinear(getType()))
+    return {};
   auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
   if (!con)
     matchPattern(source, m_Constant(&con));
-  if (con && con.getTag() == getTag())
-    return con.getField(index);
-  return {};
-}
-
-// A field of a value whose constructor is known where it is read: a
-// constant, an idr.con, or the case of an enclosing match on the same
-// value, whose region argument the field is. The fold of a field of a constant is an
-// attribute, and a constant is no linear value: folding shares equal
-// constants, and a shared linear value would be used twice. A linear field
-// of a constant is its value entered into the linear type instead, one
-// entry per read, which the one use of the field then takes apart.
-LogicalResult FieldOp::canonicalize(FieldOp field, PatternRewriter &rewriter) {
-  Type type = field.getType();
-  // A field of a known constructor read at another grade than the
-  // constructor took it: the operand, held as read. A linear operand moves
-  // out, so only the one read takes it.
-  if (auto built = throughLinear(field.getValue()).getDefiningOp<ConOp>();
-      built && built.getTag() == field.getTag()) {
-    auto index = static_cast<unsigned>(field.getIndex());
-    Value operand = built.getFields()[index];
-    if (operand.getType() == type ||
-        (quantityOf(operand.getType()) == Quantity::One && !fieldReadOnce(built.getResult(), index)))
-      return failure();
-    rewriter.replaceOp(field, heldAs(rewriter, field.getLoc(), operand, type));
-    return success();
-  }
-  // A field read in the case of an enclosing match on the same value is
-  // that region's argument: the match already took the value apart. The
-  // scrutinee must be the value itself, not the value in a linear
-  // position: a match that takes a linear value apart moves its fields
-  // out, and a read of the value it was entered from is a second read
-  // the argument cannot stand in for. A linear field moves out too, so
-  // only a read that is the argument's one use takes it. The default
-  // region knows no constructor.
-  for (Region *region = field->getParentRegion(); region; region = region->getParentRegion()) {
-    auto outer = dyn_cast<MatchOp>(region->getParentOp());
-    if (!outer || outer.getScrutinee() != field.getValue())
-      continue;
-    std::optional<Tag> known = outer.knownTag(*region);
-    if (!known)
-      continue;
-    if (*known != field.getTag())
-      break;
-    Value argument = region->front().getArgument(static_cast<unsigned>(field.getIndex()));
-    if (quantityOf(type) == Quantity::One && !argument.use_empty())
-      return failure();
-    rewriter.replaceOp(field, heldAs(rewriter, field.getLoc(), argument, type));
-    return success();
-  }
-  ConAttr con;
-  if (!isLinear(type) || !matchPattern(throughLinear(field.getValue()), m_Constant(&con)) ||
-      con.getTag() != field.getTag())
-    return failure();
-  Attribute value = con.getFields()[static_cast<unsigned>(field.getIndex())];
-  Dialect *dialect = rewriter.getContext()->getLoadedDialect<IdrDialect>();
-  Operation *plain = dialect->materializeConstant(rewriter, value, unrestricted(type), field.getLoc());
-  if (!plain)
-    return failure();
-  rewriter.replaceOpWithNewOp<LinEnterOp>(field, type, plain->getResult(0));
-  return success();
+  return con ? con.getField(index) : Attribute();
 }
 
 //===----------------------------------------------------------------------===//
-// idr.tag
+// idr.data.tag
 //===----------------------------------------------------------------------===//
 
-// The tag of a memo sum's value is its state, which a force writes.
-void TagOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>> &effects) {
-  readsMemoState(getValueMutable(), effects);
-}
-
-// The tag of a known constructor, built by idr.con or constant, or the one
-// tag of a type of one constructor, read from the value's data type.
-OpFoldResult TagOp::fold(FoldAdaptor adaptor) {
-  DataType data = dataTypeOf(getValue().getType());
+// The one constructor the type leaves possible; else the constructor of a
+// constant, or of the idr.data.con that built the value where its state
+// still holds.
+OpFoldResult DataTagOp::fold(FoldAdaptor adaptor) {
+  auto data = dyn_cast<DataType>(unrestricted(getValue().getType()));
   if (!data)
     return {};
-  Value source = throughLinear(getValue());
-  std::optional<Tag> tag;
-  // A memo cell's state is what its force wrote, which its build says only
-  // while nothing forces it, as for idr.field and idr.match.
-  if (!builtStateHolds(source, getOperation()))
-    return {};
-  if (auto con = source.getDefiningOp<ConOp>()) {
-    tag = con.getTag();
-  } else {
-    auto constant = dyn_cast_or_null<ConAttr>(adaptor.getValue());
-    if (constant || matchPattern(source, m_Constant(&constant)))
+  std::optional<Tag> tag = data.singleTag();
+  if (!tag && builtStateHolds(getValue(), getOperation())) {
+    if (auto con = getValue().getDefiningOp<DataConOp>())
+      tag = con.getTag();
+    else if (auto constant = dyn_cast_or_null<ConAttr>(adaptor.getValue()))
       tag = constant.getTag();
   }
-  if (!tag && data.getCtors().size() == 1)
-    tag = *data.getTags().begin();
   if (!tag)
     return {};
   return IntegerAttr::get(getType(), static_cast<int64_t>(*tag));
 }
 
-void TagOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
-  DataType data = dataTypeOf(getValue().getType());
-  size_t count = data ? data.getCtors().size() : 0;
+// Within its possible constructors' tags: the least and the most of them.
+void DataTagOp::inferResultRanges(ArrayRef<ConstantIntRanges>, SetIntRangeFn setResultRange) {
+  auto data = dyn_cast<DataType>(unrestricted(getValue().getType()));
   unsigned width = getType().getIntOrFloatBitWidth();
-  setResultRange(getResult(), count == 0 ? ConstantIntRanges::maxRange(width)
-                                         : idr::ranges::nonNegative(width, 0, count - 1));
+  if (!data || data.possibleTags().empty()) {
+    setResultRange(getResult(), ConstantIntRanges::maxRange(width));
+    return;
+  }
+  const families::TagSet &possible = data.possibleTags();
+  auto low = static_cast<uint64_t>(possible.front());
+  auto high = static_cast<uint64_t>(possible[possible.size() - 1]);
+  setResultRange(getResult(), idr::ranges::nonNegative(width, low, high));
 }

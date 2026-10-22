@@ -1,46 +1,47 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // What a value of each type of the module can hold a reference to: the
-// containment among its data types and arrays, and its cycles, read from
-// the types the module's values are of and the bodies those hold. The
-// verifier builds one directly to refuse a type that contains itself and an
-// array that can reach itself, and layout::fit to decide the boxes; a pass
-// takes it from the analysis manager, and it never changes once built, so
-// function passes may read it from any thread.
+// containment among the members of its families and its arrays, and the
+// cycles through an array, read from the types the module's values are of
+// and the declarations those name. The knots verifier reads it to refuse an
+// array that can reach itself; a pass takes it from the analysis manager,
+// and it never changes once built, so function passes may read it from any
+// thread.
+//
+// Nothing here asks whether a data type holds itself in place: where it is
+// held is its layout, which the class rule computes, and a member of a
+// group that holds itself is a cell at every index the rule cannot unfold.
 #ifndef IDR_IR_TYPEGRAPH_H
 #define IDR_IR_TYPEGRAPH_H
 
+#include "idr/Analysis/Solver/Components.h"
+#include "idr/Analysis/Solver/Graph.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/Pass/AnalysisManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <optional>
+#include <utility>
 
 namespace idr {
 
-// One step down the containment among types, said once for the type graph
-// and for the facts a data type keeps of what its values hold: what a value
-// or a field of `type` names, seen through its grade. A data type held in
-// place or in a box goes to `data`, with whether it is held in place; an
-// array a world orders, to `array`, which names what its element names
-// through its cell; a value array (a tensor, or its buffer) is looked
-// through, its element held out of place; anything else, which names no
-// type, goes to `leaf`.
-void forEachNamed(mlir::Type type, llvm::function_ref<void(DataType data, bool inPlace)> data,
-                  llvm::function_ref<void(mlir::MemRefType array)> array,
-                  llvm::function_ref<void(mlir::Type leaf)> leaf);
+class TypeGraph;
 
-// A node is a data type or an array a world orders; an edge goes from a
-// data type to what its constructors' fields name (forEachNamed), held in
-// place, in a box or in a value array's elements, and from an array to what
-// its element names. Every data type is numbered first, in the order of
-// their names, so the numbering is the module's content alone; the arrays
-// follow, as their holders meet them.
+// A node of the type graph: a member of a family, or an array a world
+// orders.
+struct TypeNode {
+  using Minter = TypeGraph;
+};
+
+// A node is a member of a family, whatever its index (a reference reaches
+// the same members at every application), or an array of mutable memory;
+// an edge goes from a member to what its constructors' fields name, and
+// from an array to what its element names, each through grades and the
+// elements of value arrays. Nodes are numbered as the module's walk meets
+// them, so the numbering is the module's content alone.
 class TypeGraph {
 public:
   explicit TypeGraph(mlir::Operation *module);
@@ -49,41 +50,35 @@ public:
     return !pa.isPreserved<TypeGraph>();
   }
 
-  // The type of a node: a data type, or an array a world orders.
+  // How many nodes there are.
+  unsigned size() const { return static_cast<unsigned>(types.size()); }
+  // The type of a node: an application of the member, the first the walk
+  // met, or the array.
   mlir::Type type(unsigned at) const { return types[at]; }
-  bool isArray(unsigned at) const { return at >= dataTypes.size(); }
-  // The data types, which are the first nodes, in the order of their names.
-  llvm::ArrayRef<DataType> declarations() const { return dataTypes; }
-  // Whether some value or field holds `data` in a box, and whether some
-  // holds it in place.
-  bool boxed(DataType data) const { return heldBoxed.contains(data); }
-  bool inlined(DataType data) const { return heldInPlace.contains(data); }
+  bool isArray(unsigned at) const { return llvm::isa<mlir::MemRefType>(types[at]); }
 
   // The sets of types that reach one another through an array: each
-  // component of two or more with an array in it.
+  // component that is a cycle with an array in it.
   llvm::SmallVector<llvm::SmallVector<unsigned>> knots() const;
   // The cycle of `component` through its array `array`, by a shortest path:
   // from what the array holds back to the array, and to what it holds again.
   llvm::SmallVector<unsigned> cycle(unsigned array, llvm::ArrayRef<unsigned> component) const;
-  // Every data type that holds itself in place, through data types held in
-  // place only, in name order.
-  llvm::SmallVector<DataType> containsItself() const;
 
 private:
-  unsigned insert(mlir::Type type);
-  // The edges from `from` to what a field or an element of `type` names.
-  void edges(unsigned from, mlir::Type type);
+  using Node = Id<TypeNode>;
 
-  llvm::SmallVector<DataType> dataTypes;
-  // Every node's type: the data types, then the arrays.
+  // A member's node is keyed by its group and position; an array's by its
+  // type.
+  using Key = std::pair<mlir::Attribute, uint64_t>;
+
+  unsigned insert(mlir::Type type);
+  // The nodes a field or an element of `type` names, inserted as met.
+  void named(mlir::Type type, llvm::SmallVectorImpl<unsigned> &out);
+
   llvm::SmallVector<mlir::Type> types;
-  llvm::DenseSet<DataType> heldBoxed, heldInPlace;
-  llvm::SmallVector<llvm::SmallVector<unsigned>> successorsOf;
-  // For each node, its successors held in place.
-  llvm::SmallVector<llvm::SmallVector<unsigned>> inPlace;
-  llvm::DenseMap<mlir::Type, unsigned> index;
-  // The strongly connected components, callees first.
-  llvm::SmallVector<llvm::SmallVector<unsigned>> parts;
+  llvm::DenseMap<Key, unsigned> index;
+  std::optional<Csr<TypeNode>> graph;
+  std::optional<Partition<TypeNode>> parts;
 };
 
 } // namespace idr

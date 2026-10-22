@@ -1,0 +1,187 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
+// The ops of refinement and of numerals: idr.data.reindex, a value at a
+// type its enclosing refinements make equal to its own; idr.index.assume, a
+// region in which an erased equality holds; and the two conversions between
+// a numeral and a natural. Each op checks here what it says alone; that a
+// cast's two types are equal under the refinements around it is the
+// function's scope walk's, which holds them.
+
+#include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/Scope.h"
+#include "idr/IR/IdrDialect.h"
+
+#include "mlir/IR/OpImplementation.h"
+#include "llvm/ADT/STLExtras.h"
+
+using namespace mlir;
+using namespace idr;
+using namespace idr::families;
+
+namespace {
+
+Layout layoutOf(Type type) {
+  auto data = dyn_cast<DataType>(unrestricted(type));
+  return data ? data.layout() : Layout::InPlace;
+}
+
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// idr.data.reindex
+//===----------------------------------------------------------------------===//
+
+// One type is the other at some instance of its levels, or a refinement of
+// it: a cast of anything else could be no refinement's.
+LogicalResult DataReindexOp::verify() {
+  Type from = getValue().getType();
+  Type to = getType();
+  if (refines(from, to) || refines(to, from))
+    return success();
+  return emitOpError("casts ") << from << " to " << to
+                               << ", which no refinement of index terms relates";
+}
+
+// A cast to its operand's own type is the operand; a cast of a cast casts
+// the first operand.
+OpFoldResult DataReindexOp::fold(FoldAdaptor) {
+  if (getValue().getType() == getType())
+    return getValue();
+  if (auto inner = getValue().getDefiningOp<DataReindexOp>()) {
+    getValueMutable().assign(inner.getValue());
+    return getResult();
+  }
+  return {};
+}
+
+// Free where both layouts are one; a re-pack that builds cells where an
+// index known inside a function changes the layout, which stays where it
+// is.
+Speculation::Speculatability DataReindexOp::getSpeculatability() {
+  return layoutOf(getValue().getType()) == layoutOf(getType()) ? Speculation::Speculatable
+                                                               : Speculation::NotSpeculatable;
+}
+
+//===----------------------------------------------------------------------===//
+// idr.index.assume
+//===----------------------------------------------------------------------===//
+
+// Its region binds the forwarded values, each at its refined type, one per
+// operand.
+LogicalResult IndexAssumeOp::verify() {
+  Region &body = getBody();
+  if (body.empty() || body.getNumArguments() != getForwarded().size())
+    return emitOpError("expects its region to bind each value it forwards");
+  return success();
+}
+
+ArrayRef<Sort> IndexAssumeOp::getBoundSorts(Region &) { return {}; }
+
+std::optional<RegionRefinement> IndexAssumeOp::getRefinement(Region &) {
+  EquationAttr equation = getEquation();
+  return RegionRefinement{equation.getLhs(), equation.getRhs(), 1, Scoped::Enclosing,
+                          FamilyAttr()};
+}
+
+void IndexAssumeOp::getSuccessorRegions(RegionBranchPoint point,
+                                        SmallVectorImpl<RegionSuccessor> &successors) {
+  if (point.isParent()) {
+    successors.emplace_back(&getBody());
+    return;
+  }
+  successors.emplace_back(getOperation(), getResults());
+}
+
+OperandRange IndexAssumeOp::getEntrySuccessorOperands(RegionSuccessor) { return getForwarded(); }
+
+// A value enters refined and leaves cast back: the scope walk checks each
+// against the equation, which no context-free comparison sees.
+bool IndexAssumeOp::areTypesCompatible(Type lhs, Type rhs) {
+  return lhs == rhs || refines(lhs, rhs) || refines(rhs, lhs);
+}
+
+// `idr.index.assume <lhs = rhs> (%v : T) -> (R) { ^bb0(%w : T'): ... }`.
+void IndexAssumeOp::print(OpAsmPrinter &printer) {
+  printer << ' ';
+  printer.printAttributeWithoutType(getEquationAttr());
+  printer << " (";
+  llvm::interleaveComma(getForwarded(), printer, [&](Value value) {
+    printer << value << " : " << value.getType();
+  });
+  printer << ") -> (" << getResultTypes() << ") ";
+  printer.printRegion(getBody(), /*printEntryBlockArgs=*/true);
+  printer.printOptionalAttrDict((*this)->getAttrs(), {"equation"});
+}
+
+ParseResult IndexAssumeOp::parse(OpAsmParser &parser, OperationState &state) {
+  EquationAttr equation;
+  SmallVector<OpAsmParser::UnresolvedOperand> forwarded;
+  SmallVector<Type> types, results;
+  if (parser.parseAttribute(equation) || parser.parseLParen())
+    return failure();
+  if (failed(parser.parseOptionalRParen())) {
+    do {
+      if (parser.parseOperand(forwarded.emplace_back()) ||
+          parser.parseColonType(types.emplace_back()))
+        return failure();
+    } while (succeeded(parser.parseOptionalComma()));
+    if (parser.parseRParen())
+      return failure();
+  }
+  if (parser.parseArrow() || parser.parseLParen())
+    return failure();
+  if (failed(parser.parseOptionalRParen()) &&
+      (parser.parseTypeList(results) || parser.parseRParen()))
+    return failure();
+  state.getOrAddProperties<Properties>().equation = equation;
+  if (parser.resolveOperands(forwarded, types, parser.getCurrentLocation(), state.operands))
+    return failure();
+  state.addTypes(results);
+  return failure(parser.parseRegion(*state.addRegion()) ||
+                 parser.parseOptionalAttrDict(state.attributes));
+}
+
+//===----------------------------------------------------------------------===//
+// Numerals
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// The data type of a numeral value, at any grade.
+DataType numeralOf(Type type) {
+  auto data = dyn_cast<DataType>(unrestricted(type));
+  return data && data.getGroup().shape(data.getMember()) == Shape::Numeral ? data : DataType();
+}
+
+} // namespace
+
+LogicalResult NumeralToNatOp::verify() {
+  if (!numeralOf(getValue().getType()))
+    return emitOpError("reads ") << getValue().getType() << ", which is no numeral";
+  return success();
+}
+
+LogicalResult NumeralOfNatOp::verify() {
+  if (!numeralOf(getType()))
+    return emitOpError("gives ") << getType() << ", which is no numeral";
+  return success();
+}
+
+// A constant numeral's value is the number of its successor's layers, read
+// off its run of cells, however long.
+OpFoldResult NumeralToNatOp::fold(FoldAdaptor adaptor) {
+  auto con = dyn_cast_or_null<ConAttr>(adaptor.getValue());
+  if (!con)
+    return {};
+  DataType numeral = numeralOf(getValue().getType());
+  uint64_t layers = 0;
+  for (ConAttr at = con;;) {
+    if (at.getData().ctor(at.getTag()).fields.empty())
+      break;
+    layers += at.getRunLength();
+    at = dyn_cast<ConAttr>(at.getCell(at.getRunLength() - 1)[0]);
+    if (!at || at.getData().getGroup() != numeral.getGroup())
+      return {};
+  }
+  return BigAttr::get(getContext(), APInt(64, layers));
+}

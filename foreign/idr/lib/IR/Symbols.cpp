@@ -1,68 +1,83 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What a data type's body says, read from a value's type, the elimination
-// of a value at one of its uses, and the names the lowering reserves. The
-// data types a pass remakes where a body would change are
-// lib/IR/DataRemap.cpp's, and the names from content
-// lib/IR/ContentNames.cpp's.
+// What a value's type says of its data, a constructor written by its label,
+// the elimination of a value at one of its uses, and the names the lowering
+// reserves.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
+#include "idr/IR/Families/Families.h"
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 using namespace idr;
 
-DataType idr::dataTypeOf(Type type) {
-  return TypeSwitch<Type, DataType>(unrestricted(type))
-      .Case([](DataType data) { return data; })
-      .Case([](BoxType box) { return box.getData(); })
-      .Default([](Type) { return DataType(); });
-}
-
-bool idr::isBoxed(Type type) { return isa<BoxType>(unrestricted(type)); }
+DataType idr::dataTypeOf(Type type) { return dyn_cast<DataType>(unrestricted(type)); }
 
 bool idr::builtStateHolds(Value value, Operation *reader) {
   DataType data = dataTypeOf(value.getType());
-  if (!data || !data.isMemo())
+  if (!data || !data.memo())
     return true;
-  if (!value.getDefiningOp<ConOp>())
+  if (!value.getDefiningOp<DataConOp>())
     return false;
   return llvm::all_of(value.getUsers(), [&](Operation *user) {
     return !isa<MemoRunOp>(user) || reader->isAncestor(user);
   });
 }
 
+ParseResult idr::parseCtorRef(AsmParser &parser, Type type, IntegerAttr &tag) {
+  SMLoc at = parser.getCurrentLocation();
+  std::string label;
+  if (parser.parseSymbolName(label))
+    return failure();
+  DataType data = dataTypeOf(type);
+  if (!data)
+    return parser.emitError(at, "names a constructor of ") << type << ", which is no data type";
+  std::optional<Tag> found = data.getGroup().tagOf(data.getMember(), label);
+  if (!found)
+    return parser.emitError(at, "expects a constructor of ") << type << ", got @" << label;
+  tag = parser.getBuilder().getI32IntegerAttr(static_cast<int32_t>(*found));
+  return success();
+}
+
+void idr::printCtorRef(OpAsmPrinter &printer, Operation *, Type type, IntegerAttr tag) {
+  printer.printSymbolName(dataTypeOf(type).ctor(Tag{static_cast<uint32_t>(tag.getInt())}).label);
+}
+
 std::optional<idr::Elimination> idr::eliminationAt(OpOperand &use) {
   // The only user of `v`, if it has one.
   auto next = [](Value v) { return v.hasOneUse() ? *v.user_begin() : nullptr; };
+  auto isClosures = [](Value v) {
+    DataType data = dataTypeOf(v.getType());
+    return data && data.closures();
+  };
   Elimination e;
   Value value = use.get();
   Operation *user = use.getOwner();
-  if (auto enter = dyn_cast<LinEnterOp>(user)) {
-    auto exit = dyn_cast_or_null<LinUseOp>(next(enter.getResult()));
-    if (!exit)
+  if (auto enter = dyn_cast<LinCastOp>(user); enter && enter.getDirection() == QuantityChange::Enter) {
+    auto exit = dyn_cast_or_null<LinCastOp>(next(enter.getResult()));
+    if (!exit || exit.getDirection() != QuantityChange::Leave)
       return std::nullopt;
     e.passed = {enter, exit};
     user = next(value = exit.getResult());
   }
-  if (auto field = dyn_cast_or_null<FieldOp>(user); field && !field.getDataType().isClosures()) {
+  if (auto field = dyn_cast_or_null<DataFieldOp>(user); field && !isClosures(field.getValue())) {
     e.field = field;
     user = next(value = field.getResult());
   }
-  if (auto linear = dyn_cast_or_null<LinUseOp>(user)) {
+  if (auto linear = dyn_cast_or_null<LinCastOp>(user);
+      linear && linear.getDirection() == QuantityChange::Leave) {
     e.use = linear;
     user = next(value = linear.getResult());
   }
   auto eliminates = [&](Operation *op) {
-    if (auto match = dyn_cast_or_null<MatchOp>(op))
-      return match.getScrutinee() == value && match.getDataType().isClosures();
-    if (auto field = dyn_cast_or_null<FieldOp>(op))
-      return field.getValue() == value && field.getDataType().isClosures();
-    if (auto output = dyn_cast_or_null<PutStrOp>(op))
+    if (auto match = dyn_cast_or_null<DataMatchOp>(op))
+      return match.getScrutinee() == value && isClosures(value);
+    if (auto field = dyn_cast_or_null<DataFieldOp>(op))
+      return field.getValue() == value && isClosures(value);
+    if (auto output = dyn_cast_or_null<IoPutStrOp>(op))
       return output.getStr() == value;
     return false;
   };
@@ -86,4 +101,3 @@ SmallVector<Operation *> idr::Elimination::steps() const {
 std::string idr::reservedName(StringRef kind, StringRef discriminator) {
   return ("__idr$" + kind + "$" + discriminator).str();
 }
-
