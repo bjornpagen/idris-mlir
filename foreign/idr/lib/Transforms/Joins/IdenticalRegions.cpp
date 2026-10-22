@@ -30,21 +30,35 @@ bool readsNothingBound(Region &region) {
 }
 
 // Whether two regions that read none of their arguments do the same thing.
+// The values the first body makes, its ops' results and its nested blocks'
+// arguments, are numbered once (a value carries no number MLIR gives it);
+// the value of the second body each matches, as the comparison meets them,
+// is a table by that number. A value made outside the body matches itself
+// alone. Upstream's own comparison of regions is not used, since its block
+// arguments must agree in type where a case's need not.
 bool sameBody(Region &a, Region &b) {
   Block &x = a.front(), &y = b.front();
   if (x.getOperations().size() != y.getOperations().size())
     return false;
-  // Values each body makes, matched as the comparison meets them. A value
-  // carries no number MLIR gives it, so how two bodies' values correspond
-  // is a map, as in upstream's own comparison of regions, whose block
-  // arguments must agree in type where a case's need not; it is one
-  // comparison's scratch, sized by the body and gone when it returns.
-  llvm::DenseMap<Value, Value> same;
+  llvm::DenseMap<Value, unsigned> number;
+  x.walk([&](Operation *op) {
+    for (Value result : op->getResults())
+      number.try_emplace(result, static_cast<unsigned>(number.size()));
+    for (Region &region : op->getRegions())
+      for (Block &block : region)
+        for (Value arg : block.getArguments())
+          number.try_emplace(arg, static_cast<unsigned>(number.size()));
+  });
+  SmallVector<Value> partner(number.size());
   return llvm::all_of_zip(x, y, [&](Operation &l, Operation &r) {
     return OperationEquivalence::isEquivalentTo(
         &l, &r,
-        [&](Value lv, Value rv) { return success(lv == rv || same.lookup(lv) == rv); },
-        [&](Value lv, Value rv) { same[lv] = rv; }, OperationEquivalence::IgnoreLocations);
+        [&](Value lv, Value rv) {
+          auto it = number.find(lv);
+          return success(lv == rv || (it != number.end() && partner[it->second] == rv));
+        },
+        [&](Value lv, Value rv) { partner[number.find(lv)->second] = rv; },
+        OperationEquivalence::IgnoreLocations);
   });
 }
 
