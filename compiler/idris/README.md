@@ -353,7 +353,8 @@ merge; each says what changed in its interface.
   (`Core.Normalise.Eval` imports `Data.List.Quantifiers` itself).
 - `Libraries.Text.Parser.Core`: a `Grammar` is the parser itself, a
   function from the parser's input (the state, the warnings, whether the
-  enclosing alternative has committed, the tokens left) to its result,
+  enclosing alternative has committed, the tokens as columns, `Tokens`,
+  and the position of the next) to its result,
   boxed in a constructor (`noNewtype`, so that a grammar without arguments
   stays a constant built once). Upstream's was a deep embedding read by
   `doParse`, whose `SeqEat` and `SeqEmpty` hid the type of the first
@@ -367,8 +368,10 @@ merge; each says what changed in its interface.
   irrelevant (a lexer's never are). The combinators keep their names,
   types, operators and `Inf` and `Lazy` arguments, and the `consumes`
   index still decides where `>>=` and `>>` take an `Inf` continuation.
-  Interface changes: `mapToken`, which nothing used and which a function
-  cannot be mapped through, is gone; `>>` is `export %inline` rather than
+  Interface changes: `parse` and `parseWith` take the tokens as columns
+  (`columns`) and give back no tokens left, so a grammar that must read
+  them all ends with `eof`; `mapToken`, which nothing used and which a
+  function cannot be mapped through, is gone; `>>` is `export %inline` rather than
   `public export %tcinline`, which only served the totality checker; and
   the combinators that build a closure are no longer `%inline`, since
   inlining one moves the building of its arguments into the closure, to be
@@ -465,11 +468,18 @@ merge; each says what changed in its interface.
   identifier only where it enters: between lexing and parsing, where the
   lexer's tokens (`RawToken`) become the parser's (`Token`); in a TTC's
   reader (`TTC Ident`, through the `TTC` interface's table); and where the
-  elaborator makes a name from text (`Core.Context.intern`). The
+  elaborator makes a name from text (`Core.Context.intern`). A keyword and
+  a reserved symbol are no identifiers: the lexer gives each as its kind
+  (`Parser.Lexer.Reserved`'s `Keyword` and `Reserved`, printed by the same
+  generator from their lists), so the parser compares kinds, and an
+  identifier the grammar reads as a word (`as`, `on`, a fixity) by its id;
+  upstream compared their text in every rule that read one. The
   identifiers the compiler's own code spells form a closed vocabulary
   (`Core.Name.Known`), each at an id the table holds before any other text,
-  checked when the compiler is built, so a builtin name is a constant and
-  never looked up. Identifiers order by their text, so a map or a sort
+  so a builtin name is a constant and never looked up. The vocabulary is
+  one list of pairs, a constructor and its text (`known/Vocabulary.idr`),
+  from which `knowngen` (`known/`) prints the module, so its constructors,
+  texts and ordinals cannot disagree. Identifiers order by their text, so a map or a sort
   keyed by names, and everything written from one, is in the same order in
   every session; a TTC writes each identifier as its text, never an id.
   Upstream's leaves were strings, compared character by character by every
@@ -487,7 +497,8 @@ merge; each says what changed in its interface.
   The evaluator walks a stored case tree along the path it takes and
   decodes only the right-hand side it reaches. Definitions name one
   another by interned name, never by position, so nothing is shared across
-  definitions and no table grows under a read. A TTC still holds trees.
+  definitions and no table grows under a read. A TTC still holds trees
+  (PINS.md term-arena).
 - A package the build adds is recorded with its name and version, as its
   directory names them (`PackageDir`, `addPkgDir`), and each TTC the
   session reads with where the search found it (`Loaded`, `Found`: the
@@ -560,6 +571,9 @@ merge; each says what changed in its interface.
   holds the call.
   A literal pattern whose conversion needs another primitive is refused,
   since the call left in it would match anything.
+- The primitives are one table, each with its name (`allPrimitives`), so
+  a name is known only for a primitive the table holds; upstream named any
+  operation at any type (`opName`), `prim__add_String` among them.
 - Where the evaluator does compute a primitive (`getOp`, `sharedOp` in
   `Core.Primitives`), it calls the primitive of the same name
   (`prim__add_Int`, `prim__cast_CharString`, ...), so the result is what
@@ -812,7 +826,10 @@ loaded module defines), 52-relevant-implicit-split (a case tree splits what
 a clause leaves to unification after what it writes),
 53-constructor-implicit-mark (a constructor's left-out implicit is marked),
 54-erased-constant-pattern (at quantity 0 a constant or type written on an
-erased argument splits), and
+erased argument splits), 55-lazy-case-scrutinee (a case block where a
+delayed value is expected is delayed whole, its scrutinee with it),
+59-literal-partial-fold (a literal's conversion is folded only to a value,
+never to a stuck partial normal form), and
 fork-linear-ambiguous-let
 (an ambiguous name in a linear `let`'s value), fork-totality-depth (no count
 decides whether a recursion is total; `%totality_depth` is refused),
@@ -823,8 +840,10 @@ fork-ambiguity-depth, fork-posix-paths, fork-no-runtime-tree,
 fork-ttc-facts, fork-block-parent, fork-param-pos, fork-erase-args (a
 definition's erased positions are found again once its clauses are checked,
 when its type reaches its whole spine) and fork-parser-bounds. Those
-records hold the changes of a386fe4d. The changes of e5b39cb2 have no
-diff under `upstream/` yet: each is recorded by its PINS.md entry, which
-names the commit (search-growth, tuple-node, reducts, union-find,
-ttc-delays, ttc-imports-pragmas, typed-packages), and a re-sync reads the
-change itself from that commit (`git show e5b39cb2 -- compiler/idris`).
+records hold the changes of a386fe4d. The changes of e5b39cb2 and
+31013e5a have no diff under `upstream/` yet: each is recorded by its
+PINS.md entry, which names the commit (search-growth, tuple-node, reducts,
+union-find, ttc-delays, ttc-imports-pragmas, typed-packages,
+interned-identifiers, term-arena), and a re-sync reads the change itself
+from that commit (`git show e5b39cb2 -- compiler/idris`,
+`git show 31013e5a -- compiler/idris`).

@@ -61,7 +61,6 @@ Idris/Desugar/Mutual.idr
 Idris/Doc/Annotations.idr
 Idris/Doc/Brackets.idr
 Idris/Doc/Display.idr
-Idris/Doc/Keywords.idr
 Idris/Doc/String.idr
 Idris/Elab/Implementation.idr
 Idris/Elab/Interface.idr

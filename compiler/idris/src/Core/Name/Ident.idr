@@ -68,9 +68,9 @@ record Idents where
   next : Int
 
 ||| The table of a new session: the known vocabulary, each identifier at its
-||| ordinal, and every later text at an id after them. Every ordinal is
-||| under `knownCount` and found again by `fromOrdinal` (`below`,
-||| `roundTrip`), so walking the ids under it seeds every known identifier.
+||| ordinal, and every later text at an id after them. The ordinals and
+||| their inverse are printed from one list, numbered from zero to under
+||| `knownCount`, so walking the ids under it seeds every known identifier.
 export
 seeded : Idents
 seeded = MkIdents (seed (cast knownCount) empty) knownCount

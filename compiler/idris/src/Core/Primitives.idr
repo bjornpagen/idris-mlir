@@ -17,10 +17,12 @@ import Data.Vect
 -- primitive (division by zero, the head of an empty string) and a cast the
 -- compiler has never folded stay applied.
 
+||| A primitive: its name, its operation, its type and its totality.
 public export
 record Prim where
   constructor MkPrim
   {arity : Nat}
+  called : Known
   fn : PrimFn arity
   type : ClosedTerm
   totality : Totality
@@ -711,545 +713,430 @@ sharedOp (Cast IntegerType Bits64Type) = castBits64
 sharedOp (Cast IntegerType DoubleType) = exactDouble
 sharedOp op = coercionOp op
 
-||| A primitive's name: `prim__`, its operation, and the types it is at as
-||| `show` spells them. The operations and types are a closed set, so every
-||| name is a known identifier, a constant, and naming a primitive builds no
-||| text.
-export
-opName : {0 arity : Nat} -> PrimFn arity -> Name
-opName (Add IntType)                  = knownUN Kprim__add_Int
-opName (Add Int8Type)                 = knownUN Kprim__add_Int8
-opName (Add Int16Type)                = knownUN Kprim__add_Int16
-opName (Add Int32Type)                = knownUN Kprim__add_Int32
-opName (Add Int64Type)                = knownUN Kprim__add_Int64
-opName (Add IntegerType)              = knownUN Kprim__add_Integer
-opName (Add Bits8Type)                = knownUN Kprim__add_Bits8
-opName (Add Bits16Type)               = knownUN Kprim__add_Bits16
-opName (Add Bits32Type)               = knownUN Kprim__add_Bits32
-opName (Add Bits64Type)               = knownUN Kprim__add_Bits64
-opName (Add StringType)               = knownUN Kprim__add_String
-opName (Add CharType)                 = knownUN Kprim__add_Char
-opName (Add DoubleType)               = knownUN Kprim__add_Double
-opName (Add WorldType)                = knownUN Kprim__add_PercentWorld
+-- The primitives of one operation, one at each type it has, each with its
+-- name.
+typed : {arity : Nat} -> (PrimType -> PrimFn arity) -> (PrimType -> ClosedTerm) ->
+        Totality -> List (PrimType, Known) -> List Prim
+typed op ty tot = map (\(t, k) => MkPrim k (op t) (ty t) tot)
 
-opName (Sub IntType)                  = knownUN Kprim__sub_Int
-opName (Sub Int8Type)                 = knownUN Kprim__sub_Int8
-opName (Sub Int16Type)                = knownUN Kprim__sub_Int16
-opName (Sub Int32Type)                = knownUN Kprim__sub_Int32
-opName (Sub Int64Type)                = knownUN Kprim__sub_Int64
-opName (Sub IntegerType)              = knownUN Kprim__sub_Integer
-opName (Sub Bits8Type)                = knownUN Kprim__sub_Bits8
-opName (Sub Bits16Type)               = knownUN Kprim__sub_Bits16
-opName (Sub Bits32Type)               = knownUN Kprim__sub_Bits32
-opName (Sub Bits64Type)               = knownUN Kprim__sub_Bits64
-opName (Sub StringType)               = knownUN Kprim__sub_String
-opName (Sub CharType)                 = knownUN Kprim__sub_Char
-opName (Sub DoubleType)               = knownUN Kprim__sub_Double
-opName (Sub WorldType)                = knownUN Kprim__sub_PercentWorld
+-- The casts, each from one type to another, with its name.
+casts : List (PrimType, PrimType, Known) -> List Prim
+casts = map (\(from, to, k) => MkPrim k (Cast from to) (predTy from to) isTotal)
 
-opName (Mul IntType)                  = knownUN Kprim__mul_Int
-opName (Mul Int8Type)                 = knownUN Kprim__mul_Int8
-opName (Mul Int16Type)                = knownUN Kprim__mul_Int16
-opName (Mul Int32Type)                = knownUN Kprim__mul_Int32
-opName (Mul Int64Type)                = knownUN Kprim__mul_Int64
-opName (Mul IntegerType)              = knownUN Kprim__mul_Integer
-opName (Mul Bits8Type)                = knownUN Kprim__mul_Bits8
-opName (Mul Bits16Type)               = knownUN Kprim__mul_Bits16
-opName (Mul Bits32Type)               = knownUN Kprim__mul_Bits32
-opName (Mul Bits64Type)               = knownUN Kprim__mul_Bits64
-opName (Mul StringType)               = knownUN Kprim__mul_String
-opName (Mul CharType)                 = knownUN Kprim__mul_Char
-opName (Mul DoubleType)               = knownUN Kprim__mul_Double
-opName (Mul WorldType)                = knownUN Kprim__mul_PercentWorld
-
-opName (Div IntType)                  = knownUN Kprim__div_Int
-opName (Div Int8Type)                 = knownUN Kprim__div_Int8
-opName (Div Int16Type)                = knownUN Kprim__div_Int16
-opName (Div Int32Type)                = knownUN Kprim__div_Int32
-opName (Div Int64Type)                = knownUN Kprim__div_Int64
-opName (Div IntegerType)              = knownUN Kprim__div_Integer
-opName (Div Bits8Type)                = knownUN Kprim__div_Bits8
-opName (Div Bits16Type)               = knownUN Kprim__div_Bits16
-opName (Div Bits32Type)               = knownUN Kprim__div_Bits32
-opName (Div Bits64Type)               = knownUN Kprim__div_Bits64
-opName (Div StringType)               = knownUN Kprim__div_String
-opName (Div CharType)                 = knownUN Kprim__div_Char
-opName (Div DoubleType)               = knownUN Kprim__div_Double
-opName (Div WorldType)                = knownUN Kprim__div_PercentWorld
-
-opName (Mod IntType)                  = knownUN Kprim__mod_Int
-opName (Mod Int8Type)                 = knownUN Kprim__mod_Int8
-opName (Mod Int16Type)                = knownUN Kprim__mod_Int16
-opName (Mod Int32Type)                = knownUN Kprim__mod_Int32
-opName (Mod Int64Type)                = knownUN Kprim__mod_Int64
-opName (Mod IntegerType)              = knownUN Kprim__mod_Integer
-opName (Mod Bits8Type)                = knownUN Kprim__mod_Bits8
-opName (Mod Bits16Type)               = knownUN Kprim__mod_Bits16
-opName (Mod Bits32Type)               = knownUN Kprim__mod_Bits32
-opName (Mod Bits64Type)               = knownUN Kprim__mod_Bits64
-opName (Mod StringType)               = knownUN Kprim__mod_String
-opName (Mod CharType)                 = knownUN Kprim__mod_Char
-opName (Mod DoubleType)               = knownUN Kprim__mod_Double
-opName (Mod WorldType)                = knownUN Kprim__mod_PercentWorld
-
-opName (Neg IntType)                  = knownUN Kprim__negate_Int
-opName (Neg Int8Type)                 = knownUN Kprim__negate_Int8
-opName (Neg Int16Type)                = knownUN Kprim__negate_Int16
-opName (Neg Int32Type)                = knownUN Kprim__negate_Int32
-opName (Neg Int64Type)                = knownUN Kprim__negate_Int64
-opName (Neg IntegerType)              = knownUN Kprim__negate_Integer
-opName (Neg Bits8Type)                = knownUN Kprim__negate_Bits8
-opName (Neg Bits16Type)               = knownUN Kprim__negate_Bits16
-opName (Neg Bits32Type)               = knownUN Kprim__negate_Bits32
-opName (Neg Bits64Type)               = knownUN Kprim__negate_Bits64
-opName (Neg StringType)               = knownUN Kprim__negate_String
-opName (Neg CharType)                 = knownUN Kprim__negate_Char
-opName (Neg DoubleType)               = knownUN Kprim__negate_Double
-opName (Neg WorldType)                = knownUN Kprim__negate_PercentWorld
-
-opName (ShiftL IntType)               = knownUN Kprim__shl_Int
-opName (ShiftL Int8Type)              = knownUN Kprim__shl_Int8
-opName (ShiftL Int16Type)             = knownUN Kprim__shl_Int16
-opName (ShiftL Int32Type)             = knownUN Kprim__shl_Int32
-opName (ShiftL Int64Type)             = knownUN Kprim__shl_Int64
-opName (ShiftL IntegerType)           = knownUN Kprim__shl_Integer
-opName (ShiftL Bits8Type)             = knownUN Kprim__shl_Bits8
-opName (ShiftL Bits16Type)            = knownUN Kprim__shl_Bits16
-opName (ShiftL Bits32Type)            = knownUN Kprim__shl_Bits32
-opName (ShiftL Bits64Type)            = knownUN Kprim__shl_Bits64
-opName (ShiftL StringType)            = knownUN Kprim__shl_String
-opName (ShiftL CharType)              = knownUN Kprim__shl_Char
-opName (ShiftL DoubleType)            = knownUN Kprim__shl_Double
-opName (ShiftL WorldType)             = knownUN Kprim__shl_PercentWorld
-
-opName (ShiftR IntType)               = knownUN Kprim__shr_Int
-opName (ShiftR Int8Type)              = knownUN Kprim__shr_Int8
-opName (ShiftR Int16Type)             = knownUN Kprim__shr_Int16
-opName (ShiftR Int32Type)             = knownUN Kprim__shr_Int32
-opName (ShiftR Int64Type)             = knownUN Kprim__shr_Int64
-opName (ShiftR IntegerType)           = knownUN Kprim__shr_Integer
-opName (ShiftR Bits8Type)             = knownUN Kprim__shr_Bits8
-opName (ShiftR Bits16Type)            = knownUN Kprim__shr_Bits16
-opName (ShiftR Bits32Type)            = knownUN Kprim__shr_Bits32
-opName (ShiftR Bits64Type)            = knownUN Kprim__shr_Bits64
-opName (ShiftR StringType)            = knownUN Kprim__shr_String
-opName (ShiftR CharType)              = knownUN Kprim__shr_Char
-opName (ShiftR DoubleType)            = knownUN Kprim__shr_Double
-opName (ShiftR WorldType)             = knownUN Kprim__shr_PercentWorld
-
-opName (BAnd IntType)                 = knownUN Kprim__and_Int
-opName (BAnd Int8Type)                = knownUN Kprim__and_Int8
-opName (BAnd Int16Type)               = knownUN Kprim__and_Int16
-opName (BAnd Int32Type)               = knownUN Kprim__and_Int32
-opName (BAnd Int64Type)               = knownUN Kprim__and_Int64
-opName (BAnd IntegerType)             = knownUN Kprim__and_Integer
-opName (BAnd Bits8Type)               = knownUN Kprim__and_Bits8
-opName (BAnd Bits16Type)              = knownUN Kprim__and_Bits16
-opName (BAnd Bits32Type)              = knownUN Kprim__and_Bits32
-opName (BAnd Bits64Type)              = knownUN Kprim__and_Bits64
-opName (BAnd StringType)              = knownUN Kprim__and_String
-opName (BAnd CharType)                = knownUN Kprim__and_Char
-opName (BAnd DoubleType)              = knownUN Kprim__and_Double
-opName (BAnd WorldType)               = knownUN Kprim__and_PercentWorld
-
-opName (BOr IntType)                  = knownUN Kprim__or_Int
-opName (BOr Int8Type)                 = knownUN Kprim__or_Int8
-opName (BOr Int16Type)                = knownUN Kprim__or_Int16
-opName (BOr Int32Type)                = knownUN Kprim__or_Int32
-opName (BOr Int64Type)                = knownUN Kprim__or_Int64
-opName (BOr IntegerType)              = knownUN Kprim__or_Integer
-opName (BOr Bits8Type)                = knownUN Kprim__or_Bits8
-opName (BOr Bits16Type)               = knownUN Kprim__or_Bits16
-opName (BOr Bits32Type)               = knownUN Kprim__or_Bits32
-opName (BOr Bits64Type)               = knownUN Kprim__or_Bits64
-opName (BOr StringType)               = knownUN Kprim__or_String
-opName (BOr CharType)                 = knownUN Kprim__or_Char
-opName (BOr DoubleType)               = knownUN Kprim__or_Double
-opName (BOr WorldType)                = knownUN Kprim__or_PercentWorld
-
-opName (BXOr IntType)                 = knownUN Kprim__xor_Int
-opName (BXOr Int8Type)                = knownUN Kprim__xor_Int8
-opName (BXOr Int16Type)               = knownUN Kprim__xor_Int16
-opName (BXOr Int32Type)               = knownUN Kprim__xor_Int32
-opName (BXOr Int64Type)               = knownUN Kprim__xor_Int64
-opName (BXOr IntegerType)             = knownUN Kprim__xor_Integer
-opName (BXOr Bits8Type)               = knownUN Kprim__xor_Bits8
-opName (BXOr Bits16Type)              = knownUN Kprim__xor_Bits16
-opName (BXOr Bits32Type)              = knownUN Kprim__xor_Bits32
-opName (BXOr Bits64Type)              = knownUN Kprim__xor_Bits64
-opName (BXOr StringType)              = knownUN Kprim__xor_String
-opName (BXOr CharType)                = knownUN Kprim__xor_Char
-opName (BXOr DoubleType)              = knownUN Kprim__xor_Double
-opName (BXOr WorldType)               = knownUN Kprim__xor_PercentWorld
-
-opName (LT IntType)                   = knownUN Kprim__lt_Int
-opName (LT Int8Type)                  = knownUN Kprim__lt_Int8
-opName (LT Int16Type)                 = knownUN Kprim__lt_Int16
-opName (LT Int32Type)                 = knownUN Kprim__lt_Int32
-opName (LT Int64Type)                 = knownUN Kprim__lt_Int64
-opName (LT IntegerType)               = knownUN Kprim__lt_Integer
-opName (LT Bits8Type)                 = knownUN Kprim__lt_Bits8
-opName (LT Bits16Type)                = knownUN Kprim__lt_Bits16
-opName (LT Bits32Type)                = knownUN Kprim__lt_Bits32
-opName (LT Bits64Type)                = knownUN Kprim__lt_Bits64
-opName (LT StringType)                = knownUN Kprim__lt_String
-opName (LT CharType)                  = knownUN Kprim__lt_Char
-opName (LT DoubleType)                = knownUN Kprim__lt_Double
-opName (LT WorldType)                 = knownUN Kprim__lt_PercentWorld
-
-opName (LTE IntType)                  = knownUN Kprim__lte_Int
-opName (LTE Int8Type)                 = knownUN Kprim__lte_Int8
-opName (LTE Int16Type)                = knownUN Kprim__lte_Int16
-opName (LTE Int32Type)                = knownUN Kprim__lte_Int32
-opName (LTE Int64Type)                = knownUN Kprim__lte_Int64
-opName (LTE IntegerType)              = knownUN Kprim__lte_Integer
-opName (LTE Bits8Type)                = knownUN Kprim__lte_Bits8
-opName (LTE Bits16Type)               = knownUN Kprim__lte_Bits16
-opName (LTE Bits32Type)               = knownUN Kprim__lte_Bits32
-opName (LTE Bits64Type)               = knownUN Kprim__lte_Bits64
-opName (LTE StringType)               = knownUN Kprim__lte_String
-opName (LTE CharType)                 = knownUN Kprim__lte_Char
-opName (LTE DoubleType)               = knownUN Kprim__lte_Double
-opName (LTE WorldType)                = knownUN Kprim__lte_PercentWorld
-
-opName (EQ IntType)                   = knownUN Kprim__eq_Int
-opName (EQ Int8Type)                  = knownUN Kprim__eq_Int8
-opName (EQ Int16Type)                 = knownUN Kprim__eq_Int16
-opName (EQ Int32Type)                 = knownUN Kprim__eq_Int32
-opName (EQ Int64Type)                 = knownUN Kprim__eq_Int64
-opName (EQ IntegerType)               = knownUN Kprim__eq_Integer
-opName (EQ Bits8Type)                 = knownUN Kprim__eq_Bits8
-opName (EQ Bits16Type)                = knownUN Kprim__eq_Bits16
-opName (EQ Bits32Type)                = knownUN Kprim__eq_Bits32
-opName (EQ Bits64Type)                = knownUN Kprim__eq_Bits64
-opName (EQ StringType)                = knownUN Kprim__eq_String
-opName (EQ CharType)                  = knownUN Kprim__eq_Char
-opName (EQ DoubleType)                = knownUN Kprim__eq_Double
-opName (EQ WorldType)                 = knownUN Kprim__eq_PercentWorld
-
-opName (GTE IntType)                  = knownUN Kprim__gte_Int
-opName (GTE Int8Type)                 = knownUN Kprim__gte_Int8
-opName (GTE Int16Type)                = knownUN Kprim__gte_Int16
-opName (GTE Int32Type)                = knownUN Kprim__gte_Int32
-opName (GTE Int64Type)                = knownUN Kprim__gte_Int64
-opName (GTE IntegerType)              = knownUN Kprim__gte_Integer
-opName (GTE Bits8Type)                = knownUN Kprim__gte_Bits8
-opName (GTE Bits16Type)               = knownUN Kprim__gte_Bits16
-opName (GTE Bits32Type)               = knownUN Kprim__gte_Bits32
-opName (GTE Bits64Type)               = knownUN Kprim__gte_Bits64
-opName (GTE StringType)               = knownUN Kprim__gte_String
-opName (GTE CharType)                 = knownUN Kprim__gte_Char
-opName (GTE DoubleType)               = knownUN Kprim__gte_Double
-opName (GTE WorldType)                = knownUN Kprim__gte_PercentWorld
-
-opName (GT IntType)                   = knownUN Kprim__gt_Int
-opName (GT Int8Type)                  = knownUN Kprim__gt_Int8
-opName (GT Int16Type)                 = knownUN Kprim__gt_Int16
-opName (GT Int32Type)                 = knownUN Kprim__gt_Int32
-opName (GT Int64Type)                 = knownUN Kprim__gt_Int64
-opName (GT IntegerType)               = knownUN Kprim__gt_Integer
-opName (GT Bits8Type)                 = knownUN Kprim__gt_Bits8
-opName (GT Bits16Type)                = knownUN Kprim__gt_Bits16
-opName (GT Bits32Type)                = knownUN Kprim__gt_Bits32
-opName (GT Bits64Type)                = knownUN Kprim__gt_Bits64
-opName (GT StringType)                = knownUN Kprim__gt_String
-opName (GT CharType)                  = knownUN Kprim__gt_Char
-opName (GT DoubleType)                = knownUN Kprim__gt_Double
-opName (GT WorldType)                 = knownUN Kprim__gt_PercentWorld
-
-opName StrLength                      = knownUN Kprim__strLength
-opName StrHead                        = knownUN Kprim__strHead
-opName StrTail                        = knownUN Kprim__strTail
-opName StrIndex                       = knownUN Kprim__strIndex
-opName StrCons                        = knownUN Kprim__strCons
-opName StrAppend                      = knownUN Kprim__strAppend
-opName StrReverse                     = knownUN Kprim__strReverse
-opName StrSubstr                      = knownUN Kprim__strSubstr
-opName DoubleExp                      = knownUN Kprim__doubleExp
-opName DoubleLog                      = knownUN Kprim__doubleLog
-opName DoublePow                      = knownUN Kprim__doublePow
-opName DoubleSin                      = knownUN Kprim__doubleSin
-opName DoubleCos                      = knownUN Kprim__doubleCos
-opName DoubleTan                      = knownUN Kprim__doubleTan
-opName DoubleASin                     = knownUN Kprim__doubleASin
-opName DoubleACos                     = knownUN Kprim__doubleACos
-opName DoubleATan                     = knownUN Kprim__doubleATan
-opName DoubleSqrt                     = knownUN Kprim__doubleSqrt
-opName DoubleFloor                    = knownUN Kprim__doubleFloor
-opName DoubleCeiling                  = knownUN Kprim__doubleCeiling
-
-opName (Cast IntType IntType)         = knownUN Kprim__cast_IntInt
-opName (Cast IntType Int8Type)        = knownUN Kprim__cast_IntInt8
-opName (Cast IntType Int16Type)       = knownUN Kprim__cast_IntInt16
-opName (Cast IntType Int32Type)       = knownUN Kprim__cast_IntInt32
-opName (Cast IntType Int64Type)       = knownUN Kprim__cast_IntInt64
-opName (Cast IntType IntegerType)     = knownUN Kprim__cast_IntInteger
-opName (Cast IntType Bits8Type)       = knownUN Kprim__cast_IntBits8
-opName (Cast IntType Bits16Type)      = knownUN Kprim__cast_IntBits16
-opName (Cast IntType Bits32Type)      = knownUN Kprim__cast_IntBits32
-opName (Cast IntType Bits64Type)      = knownUN Kprim__cast_IntBits64
-opName (Cast IntType StringType)      = knownUN Kprim__cast_IntString
-opName (Cast IntType CharType)        = knownUN Kprim__cast_IntChar
-opName (Cast IntType DoubleType)      = knownUN Kprim__cast_IntDouble
-opName (Cast IntType WorldType)       = knownUN Kprim__cast_IntPercentWorld
-opName (Cast Int8Type IntType)        = knownUN Kprim__cast_Int8Int
-opName (Cast Int8Type Int8Type)       = knownUN Kprim__cast_Int8Int8
-opName (Cast Int8Type Int16Type)      = knownUN Kprim__cast_Int8Int16
-opName (Cast Int8Type Int32Type)      = knownUN Kprim__cast_Int8Int32
-opName (Cast Int8Type Int64Type)      = knownUN Kprim__cast_Int8Int64
-opName (Cast Int8Type IntegerType)    = knownUN Kprim__cast_Int8Integer
-opName (Cast Int8Type Bits8Type)      = knownUN Kprim__cast_Int8Bits8
-opName (Cast Int8Type Bits16Type)     = knownUN Kprim__cast_Int8Bits16
-opName (Cast Int8Type Bits32Type)     = knownUN Kprim__cast_Int8Bits32
-opName (Cast Int8Type Bits64Type)     = knownUN Kprim__cast_Int8Bits64
-opName (Cast Int8Type StringType)     = knownUN Kprim__cast_Int8String
-opName (Cast Int8Type CharType)       = knownUN Kprim__cast_Int8Char
-opName (Cast Int8Type DoubleType)     = knownUN Kprim__cast_Int8Double
-opName (Cast Int8Type WorldType)      = knownUN Kprim__cast_Int8PercentWorld
-opName (Cast Int16Type IntType)       = knownUN Kprim__cast_Int16Int
-opName (Cast Int16Type Int8Type)      = knownUN Kprim__cast_Int16Int8
-opName (Cast Int16Type Int16Type)     = knownUN Kprim__cast_Int16Int16
-opName (Cast Int16Type Int32Type)     = knownUN Kprim__cast_Int16Int32
-opName (Cast Int16Type Int64Type)     = knownUN Kprim__cast_Int16Int64
-opName (Cast Int16Type IntegerType)   = knownUN Kprim__cast_Int16Integer
-opName (Cast Int16Type Bits8Type)     = knownUN Kprim__cast_Int16Bits8
-opName (Cast Int16Type Bits16Type)    = knownUN Kprim__cast_Int16Bits16
-opName (Cast Int16Type Bits32Type)    = knownUN Kprim__cast_Int16Bits32
-opName (Cast Int16Type Bits64Type)    = knownUN Kprim__cast_Int16Bits64
-opName (Cast Int16Type StringType)    = knownUN Kprim__cast_Int16String
-opName (Cast Int16Type CharType)      = knownUN Kprim__cast_Int16Char
-opName (Cast Int16Type DoubleType)    = knownUN Kprim__cast_Int16Double
-opName (Cast Int16Type WorldType)     = knownUN Kprim__cast_Int16PercentWorld
-opName (Cast Int32Type IntType)       = knownUN Kprim__cast_Int32Int
-opName (Cast Int32Type Int8Type)      = knownUN Kprim__cast_Int32Int8
-opName (Cast Int32Type Int16Type)     = knownUN Kprim__cast_Int32Int16
-opName (Cast Int32Type Int32Type)     = knownUN Kprim__cast_Int32Int32
-opName (Cast Int32Type Int64Type)     = knownUN Kprim__cast_Int32Int64
-opName (Cast Int32Type IntegerType)   = knownUN Kprim__cast_Int32Integer
-opName (Cast Int32Type Bits8Type)     = knownUN Kprim__cast_Int32Bits8
-opName (Cast Int32Type Bits16Type)    = knownUN Kprim__cast_Int32Bits16
-opName (Cast Int32Type Bits32Type)    = knownUN Kprim__cast_Int32Bits32
-opName (Cast Int32Type Bits64Type)    = knownUN Kprim__cast_Int32Bits64
-opName (Cast Int32Type StringType)    = knownUN Kprim__cast_Int32String
-opName (Cast Int32Type CharType)      = knownUN Kprim__cast_Int32Char
-opName (Cast Int32Type DoubleType)    = knownUN Kprim__cast_Int32Double
-opName (Cast Int32Type WorldType)     = knownUN Kprim__cast_Int32PercentWorld
-opName (Cast Int64Type IntType)       = knownUN Kprim__cast_Int64Int
-opName (Cast Int64Type Int8Type)      = knownUN Kprim__cast_Int64Int8
-opName (Cast Int64Type Int16Type)     = knownUN Kprim__cast_Int64Int16
-opName (Cast Int64Type Int32Type)     = knownUN Kprim__cast_Int64Int32
-opName (Cast Int64Type Int64Type)     = knownUN Kprim__cast_Int64Int64
-opName (Cast Int64Type IntegerType)   = knownUN Kprim__cast_Int64Integer
-opName (Cast Int64Type Bits8Type)     = knownUN Kprim__cast_Int64Bits8
-opName (Cast Int64Type Bits16Type)    = knownUN Kprim__cast_Int64Bits16
-opName (Cast Int64Type Bits32Type)    = knownUN Kprim__cast_Int64Bits32
-opName (Cast Int64Type Bits64Type)    = knownUN Kprim__cast_Int64Bits64
-opName (Cast Int64Type StringType)    = knownUN Kprim__cast_Int64String
-opName (Cast Int64Type CharType)      = knownUN Kprim__cast_Int64Char
-opName (Cast Int64Type DoubleType)    = knownUN Kprim__cast_Int64Double
-opName (Cast Int64Type WorldType)     = knownUN Kprim__cast_Int64PercentWorld
-opName (Cast IntegerType IntType)     = knownUN Kprim__cast_IntegerInt
-opName (Cast IntegerType Int8Type)    = knownUN Kprim__cast_IntegerInt8
-opName (Cast IntegerType Int16Type)   = knownUN Kprim__cast_IntegerInt16
-opName (Cast IntegerType Int32Type)   = knownUN Kprim__cast_IntegerInt32
-opName (Cast IntegerType Int64Type)   = knownUN Kprim__cast_IntegerInt64
-opName (Cast IntegerType IntegerType) = knownUN Kprim__cast_IntegerInteger
-opName (Cast IntegerType Bits8Type)   = knownUN Kprim__cast_IntegerBits8
-opName (Cast IntegerType Bits16Type)  = knownUN Kprim__cast_IntegerBits16
-opName (Cast IntegerType Bits32Type)  = knownUN Kprim__cast_IntegerBits32
-opName (Cast IntegerType Bits64Type)  = knownUN Kprim__cast_IntegerBits64
-opName (Cast IntegerType StringType)  = knownUN Kprim__cast_IntegerString
-opName (Cast IntegerType CharType)    = knownUN Kprim__cast_IntegerChar
-opName (Cast IntegerType DoubleType)  = knownUN Kprim__cast_IntegerDouble
-opName (Cast IntegerType WorldType)   = knownUN Kprim__cast_IntegerPercentWorld
-opName (Cast Bits8Type IntType)       = knownUN Kprim__cast_Bits8Int
-opName (Cast Bits8Type Int8Type)      = knownUN Kprim__cast_Bits8Int8
-opName (Cast Bits8Type Int16Type)     = knownUN Kprim__cast_Bits8Int16
-opName (Cast Bits8Type Int32Type)     = knownUN Kprim__cast_Bits8Int32
-opName (Cast Bits8Type Int64Type)     = knownUN Kprim__cast_Bits8Int64
-opName (Cast Bits8Type IntegerType)   = knownUN Kprim__cast_Bits8Integer
-opName (Cast Bits8Type Bits8Type)     = knownUN Kprim__cast_Bits8Bits8
-opName (Cast Bits8Type Bits16Type)    = knownUN Kprim__cast_Bits8Bits16
-opName (Cast Bits8Type Bits32Type)    = knownUN Kprim__cast_Bits8Bits32
-opName (Cast Bits8Type Bits64Type)    = knownUN Kprim__cast_Bits8Bits64
-opName (Cast Bits8Type StringType)    = knownUN Kprim__cast_Bits8String
-opName (Cast Bits8Type CharType)      = knownUN Kprim__cast_Bits8Char
-opName (Cast Bits8Type DoubleType)    = knownUN Kprim__cast_Bits8Double
-opName (Cast Bits8Type WorldType)     = knownUN Kprim__cast_Bits8PercentWorld
-opName (Cast Bits16Type IntType)      = knownUN Kprim__cast_Bits16Int
-opName (Cast Bits16Type Int8Type)     = knownUN Kprim__cast_Bits16Int8
-opName (Cast Bits16Type Int16Type)    = knownUN Kprim__cast_Bits16Int16
-opName (Cast Bits16Type Int32Type)    = knownUN Kprim__cast_Bits16Int32
-opName (Cast Bits16Type Int64Type)    = knownUN Kprim__cast_Bits16Int64
-opName (Cast Bits16Type IntegerType)  = knownUN Kprim__cast_Bits16Integer
-opName (Cast Bits16Type Bits8Type)    = knownUN Kprim__cast_Bits16Bits8
-opName (Cast Bits16Type Bits16Type)   = knownUN Kprim__cast_Bits16Bits16
-opName (Cast Bits16Type Bits32Type)   = knownUN Kprim__cast_Bits16Bits32
-opName (Cast Bits16Type Bits64Type)   = knownUN Kprim__cast_Bits16Bits64
-opName (Cast Bits16Type StringType)   = knownUN Kprim__cast_Bits16String
-opName (Cast Bits16Type CharType)     = knownUN Kprim__cast_Bits16Char
-opName (Cast Bits16Type DoubleType)   = knownUN Kprim__cast_Bits16Double
-opName (Cast Bits16Type WorldType)    = knownUN Kprim__cast_Bits16PercentWorld
-opName (Cast Bits32Type IntType)      = knownUN Kprim__cast_Bits32Int
-opName (Cast Bits32Type Int8Type)     = knownUN Kprim__cast_Bits32Int8
-opName (Cast Bits32Type Int16Type)    = knownUN Kprim__cast_Bits32Int16
-opName (Cast Bits32Type Int32Type)    = knownUN Kprim__cast_Bits32Int32
-opName (Cast Bits32Type Int64Type)    = knownUN Kprim__cast_Bits32Int64
-opName (Cast Bits32Type IntegerType)  = knownUN Kprim__cast_Bits32Integer
-opName (Cast Bits32Type Bits8Type)    = knownUN Kprim__cast_Bits32Bits8
-opName (Cast Bits32Type Bits16Type)   = knownUN Kprim__cast_Bits32Bits16
-opName (Cast Bits32Type Bits32Type)   = knownUN Kprim__cast_Bits32Bits32
-opName (Cast Bits32Type Bits64Type)   = knownUN Kprim__cast_Bits32Bits64
-opName (Cast Bits32Type StringType)   = knownUN Kprim__cast_Bits32String
-opName (Cast Bits32Type CharType)     = knownUN Kprim__cast_Bits32Char
-opName (Cast Bits32Type DoubleType)   = knownUN Kprim__cast_Bits32Double
-opName (Cast Bits32Type WorldType)    = knownUN Kprim__cast_Bits32PercentWorld
-opName (Cast Bits64Type IntType)      = knownUN Kprim__cast_Bits64Int
-opName (Cast Bits64Type Int8Type)     = knownUN Kprim__cast_Bits64Int8
-opName (Cast Bits64Type Int16Type)    = knownUN Kprim__cast_Bits64Int16
-opName (Cast Bits64Type Int32Type)    = knownUN Kprim__cast_Bits64Int32
-opName (Cast Bits64Type Int64Type)    = knownUN Kprim__cast_Bits64Int64
-opName (Cast Bits64Type IntegerType)  = knownUN Kprim__cast_Bits64Integer
-opName (Cast Bits64Type Bits8Type)    = knownUN Kprim__cast_Bits64Bits8
-opName (Cast Bits64Type Bits16Type)   = knownUN Kprim__cast_Bits64Bits16
-opName (Cast Bits64Type Bits32Type)   = knownUN Kprim__cast_Bits64Bits32
-opName (Cast Bits64Type Bits64Type)   = knownUN Kprim__cast_Bits64Bits64
-opName (Cast Bits64Type StringType)   = knownUN Kprim__cast_Bits64String
-opName (Cast Bits64Type CharType)     = knownUN Kprim__cast_Bits64Char
-opName (Cast Bits64Type DoubleType)   = knownUN Kprim__cast_Bits64Double
-opName (Cast Bits64Type WorldType)    = knownUN Kprim__cast_Bits64PercentWorld
-opName (Cast StringType IntType)      = knownUN Kprim__cast_StringInt
-opName (Cast StringType Int8Type)     = knownUN Kprim__cast_StringInt8
-opName (Cast StringType Int16Type)    = knownUN Kprim__cast_StringInt16
-opName (Cast StringType Int32Type)    = knownUN Kprim__cast_StringInt32
-opName (Cast StringType Int64Type)    = knownUN Kprim__cast_StringInt64
-opName (Cast StringType IntegerType)  = knownUN Kprim__cast_StringInteger
-opName (Cast StringType Bits8Type)    = knownUN Kprim__cast_StringBits8
-opName (Cast StringType Bits16Type)   = knownUN Kprim__cast_StringBits16
-opName (Cast StringType Bits32Type)   = knownUN Kprim__cast_StringBits32
-opName (Cast StringType Bits64Type)   = knownUN Kprim__cast_StringBits64
-opName (Cast StringType StringType)   = knownUN Kprim__cast_StringString
-opName (Cast StringType CharType)     = knownUN Kprim__cast_StringChar
-opName (Cast StringType DoubleType)   = knownUN Kprim__cast_StringDouble
-opName (Cast StringType WorldType)    = knownUN Kprim__cast_StringPercentWorld
-opName (Cast CharType IntType)        = knownUN Kprim__cast_CharInt
-opName (Cast CharType Int8Type)       = knownUN Kprim__cast_CharInt8
-opName (Cast CharType Int16Type)      = knownUN Kprim__cast_CharInt16
-opName (Cast CharType Int32Type)      = knownUN Kprim__cast_CharInt32
-opName (Cast CharType Int64Type)      = knownUN Kprim__cast_CharInt64
-opName (Cast CharType IntegerType)    = knownUN Kprim__cast_CharInteger
-opName (Cast CharType Bits8Type)      = knownUN Kprim__cast_CharBits8
-opName (Cast CharType Bits16Type)     = knownUN Kprim__cast_CharBits16
-opName (Cast CharType Bits32Type)     = knownUN Kprim__cast_CharBits32
-opName (Cast CharType Bits64Type)     = knownUN Kprim__cast_CharBits64
-opName (Cast CharType StringType)     = knownUN Kprim__cast_CharString
-opName (Cast CharType CharType)       = knownUN Kprim__cast_CharChar
-opName (Cast CharType DoubleType)     = knownUN Kprim__cast_CharDouble
-opName (Cast CharType WorldType)      = knownUN Kprim__cast_CharPercentWorld
-opName (Cast DoubleType IntType)      = knownUN Kprim__cast_DoubleInt
-opName (Cast DoubleType Int8Type)     = knownUN Kprim__cast_DoubleInt8
-opName (Cast DoubleType Int16Type)    = knownUN Kprim__cast_DoubleInt16
-opName (Cast DoubleType Int32Type)    = knownUN Kprim__cast_DoubleInt32
-opName (Cast DoubleType Int64Type)    = knownUN Kprim__cast_DoubleInt64
-opName (Cast DoubleType IntegerType)  = knownUN Kprim__cast_DoubleInteger
-opName (Cast DoubleType Bits8Type)    = knownUN Kprim__cast_DoubleBits8
-opName (Cast DoubleType Bits16Type)   = knownUN Kprim__cast_DoubleBits16
-opName (Cast DoubleType Bits32Type)   = knownUN Kprim__cast_DoubleBits32
-opName (Cast DoubleType Bits64Type)   = knownUN Kprim__cast_DoubleBits64
-opName (Cast DoubleType StringType)   = knownUN Kprim__cast_DoubleString
-opName (Cast DoubleType CharType)     = knownUN Kprim__cast_DoubleChar
-opName (Cast DoubleType DoubleType)   = knownUN Kprim__cast_DoubleDouble
-opName (Cast DoubleType WorldType)    = knownUN Kprim__cast_DoublePercentWorld
-opName (Cast WorldType IntType)       = knownUN Kprim__cast_PercentWorldInt
-opName (Cast WorldType Int8Type)      = knownUN Kprim__cast_PercentWorldInt8
-opName (Cast WorldType Int16Type)     = knownUN Kprim__cast_PercentWorldInt16
-opName (Cast WorldType Int32Type)     = knownUN Kprim__cast_PercentWorldInt32
-opName (Cast WorldType Int64Type)     = knownUN Kprim__cast_PercentWorldInt64
-opName (Cast WorldType IntegerType)   = knownUN Kprim__cast_PercentWorldInteger
-opName (Cast WorldType Bits8Type)     = knownUN Kprim__cast_PercentWorldBits8
-opName (Cast WorldType Bits16Type)    = knownUN Kprim__cast_PercentWorldBits16
-opName (Cast WorldType Bits32Type)    = knownUN Kprim__cast_PercentWorldBits32
-opName (Cast WorldType Bits64Type)    = knownUN Kprim__cast_PercentWorldBits64
-opName (Cast WorldType StringType)    = knownUN Kprim__cast_PercentWorldString
-opName (Cast WorldType CharType)      = knownUN Kprim__cast_PercentWorldChar
-opName (Cast WorldType DoubleType)    = knownUN Kprim__cast_PercentWorldDouble
-opName (Cast WorldType WorldType)     = knownUN Kprim__cast_PercentWorldPercentWorld
-
-opName BelieveMe                      = knownUN Kprim__believe_me
-opName Crash                          = knownUN Kprim__crash
-
-integralTypes : List PrimType
-integralTypes = [ IntType
-                , Int8Type
-                , Int16Type
-                , Int32Type
-                , Int64Type
-                , IntegerType
-                , Bits8Type
-                , Bits16Type
-                , Bits32Type
-                , Bits64Type
-                ]
-
-numTypes : List PrimType
-numTypes = integralTypes ++ [DoubleType]
-
-primTypes : List PrimType
-primTypes = numTypes ++ [StringType, CharType]
-
+||| Every primitive, each once, with its name. Which operation is at which
+||| type is irregular (no `mod`, shift or bitwise operation at `Double`, no
+||| arithmetic at `String` or `Char`, no cast from a type to itself, from
+||| `String` or `Double` to `Char`, or from `Char` to `Double`), so the
+||| primitives are a table, and a name is known only for a primitive in it.
 export
 allPrimitives : List Prim
 allPrimitives =
-    map (\t => MkPrim (Add t) (arithTy t) isTotal)     numTypes ++
-    map (\t => MkPrim (Sub t) (arithTy t) isTotal)     numTypes ++
-    map (\t => MkPrim (Mul t) (arithTy t) isTotal)     numTypes ++
-    map (\t => MkPrim (Neg t) (predTy t t) isTotal)    numTypes ++
-    map (\t => MkPrim (Div t) (arithTy t) notCovering) numTypes ++
-    map (\t => MkPrim (Mod t) (arithTy t) notCovering) integralTypes ++
+    typed Add arithTy isTotal
+      [ (IntType, Kprim__add_Int)
+      , (Int8Type, Kprim__add_Int8)
+      , (Int16Type, Kprim__add_Int16)
+      , (Int32Type, Kprim__add_Int32)
+      , (Int64Type, Kprim__add_Int64)
+      , (IntegerType, Kprim__add_Integer)
+      , (Bits8Type, Kprim__add_Bits8)
+      , (Bits16Type, Kprim__add_Bits16)
+      , (Bits32Type, Kprim__add_Bits32)
+      , (Bits64Type, Kprim__add_Bits64)
+      , (DoubleType, Kprim__add_Double)
+      ] ++
 
-    map (\t => MkPrim (ShiftL t) (arithTy t) isTotal)  integralTypes ++
-    map (\t => MkPrim (ShiftR t) (arithTy t) isTotal)  integralTypes ++
-    map (\t => MkPrim (BAnd t) (arithTy t) isTotal)    integralTypes ++
-    map (\t => MkPrim (BOr t) (arithTy t) isTotal)     integralTypes ++
-    map (\t => MkPrim (BXOr t) (arithTy t) isTotal)    integralTypes ++
+    typed Sub arithTy isTotal
+      [ (IntType, Kprim__sub_Int)
+      , (Int8Type, Kprim__sub_Int8)
+      , (Int16Type, Kprim__sub_Int16)
+      , (Int32Type, Kprim__sub_Int32)
+      , (Int64Type, Kprim__sub_Int64)
+      , (IntegerType, Kprim__sub_Integer)
+      , (Bits8Type, Kprim__sub_Bits8)
+      , (Bits16Type, Kprim__sub_Bits16)
+      , (Bits32Type, Kprim__sub_Bits32)
+      , (Bits64Type, Kprim__sub_Bits64)
+      , (DoubleType, Kprim__sub_Double)
+      ] ++
 
-    map (\t => MkPrim (LT t) (cmpTy t) isTotal)  primTypes ++
-    map (\t => MkPrim (LTE t) (cmpTy t) isTotal) primTypes ++
-    map (\t => MkPrim (EQ t) (cmpTy t) isTotal)  primTypes ++
-    map (\t => MkPrim (GTE t) (cmpTy t) isTotal) primTypes ++
-    map (\t => MkPrim (GT t) (cmpTy t) isTotal)  primTypes ++
+    typed Mul arithTy isTotal
+      [ (IntType, Kprim__mul_Int)
+      , (Int8Type, Kprim__mul_Int8)
+      , (Int16Type, Kprim__mul_Int16)
+      , (Int32Type, Kprim__mul_Int32)
+      , (Int64Type, Kprim__mul_Int64)
+      , (IntegerType, Kprim__mul_Integer)
+      , (Bits8Type, Kprim__mul_Bits8)
+      , (Bits16Type, Kprim__mul_Bits16)
+      , (Bits32Type, Kprim__mul_Bits32)
+      , (Bits64Type, Kprim__mul_Bits64)
+      , (DoubleType, Kprim__mul_Double)
+      ] ++
 
-    [MkPrim StrLength (predTy StringType IntType) isTotal,
-     MkPrim StrHead (predTy StringType CharType) notCovering,
-     MkPrim StrTail (predTy StringType StringType) notCovering,
-     MkPrim StrIndex (constTy StringType IntType CharType) notCovering,
-     MkPrim StrCons (constTy CharType StringType StringType) isTotal,
-     MkPrim StrAppend (arithTy StringType) isTotal,
-     MkPrim StrReverse (predTy StringType StringType) isTotal,
-     MkPrim StrSubstr (constTy3 IntType IntType StringType StringType) isTotal,
-     MkPrim BelieveMe believeMeTy isTotal,
-     MkPrim Crash crashTy notCovering] ++
+    typed Neg (\t => predTy t t) isTotal
+      [ (IntType, Kprim__negate_Int)
+      , (Int8Type, Kprim__negate_Int8)
+      , (Int16Type, Kprim__negate_Int16)
+      , (Int32Type, Kprim__negate_Int32)
+      , (Int64Type, Kprim__negate_Int64)
+      , (IntegerType, Kprim__negate_Integer)
+      , (Bits8Type, Kprim__negate_Bits8)
+      , (Bits16Type, Kprim__negate_Bits16)
+      , (Bits32Type, Kprim__negate_Bits32)
+      , (Bits64Type, Kprim__negate_Bits64)
+      , (DoubleType, Kprim__negate_Double)
+      ] ++
 
-    [MkPrim DoubleExp doubleTy isTotal,
-     MkPrim DoubleLog doubleTy isTotal,
-     MkPrim DoublePow (arithTy DoubleType) isTotal,
-     MkPrim DoubleSin doubleTy isTotal,
-     MkPrim DoubleCos doubleTy isTotal,
-     MkPrim DoubleTan doubleTy isTotal,
-     MkPrim DoubleASin doubleTy isTotal,
-     MkPrim DoubleACos doubleTy isTotal,
-     MkPrim DoubleATan doubleTy isTotal,
-     MkPrim DoubleSqrt doubleTy isTotal,
-     MkPrim DoubleFloor doubleTy isTotal,
-     MkPrim DoubleCeiling doubleTy isTotal] ++
+    typed Div arithTy notCovering
+      [ (IntType, Kprim__div_Int)
+      , (Int8Type, Kprim__div_Int8)
+      , (Int16Type, Kprim__div_Int16)
+      , (Int32Type, Kprim__div_Int32)
+      , (Int64Type, Kprim__div_Int64)
+      , (IntegerType, Kprim__div_Integer)
+      , (Bits8Type, Kprim__div_Bits8)
+      , (Bits16Type, Kprim__div_Bits16)
+      , (Bits32Type, Kprim__div_Bits32)
+      , (Bits64Type, Kprim__div_Bits64)
+      , (DoubleType, Kprim__div_Double)
+      ] ++
 
-    -- support all combinations of primitive casts with the following
-    -- exceptions: String -> Char, Double -> Char, Char -> Double
-    [ MkPrim (Cast t1 t2) (predTy t1 t2) isTotal
-    | t1 <- primTypes
-    , t2 <- primTypes
-    , t1 /= t2                         &&
-      (t1,t2) /= (StringType,CharType) &&
-      (t1,t2) /= (DoubleType,CharType) &&
-      (t1,t2) /= (CharType,DoubleType)
-    ]
+    typed Mod arithTy notCovering
+      [ (IntType, Kprim__mod_Int)
+      , (Int8Type, Kprim__mod_Int8)
+      , (Int16Type, Kprim__mod_Int16)
+      , (Int32Type, Kprim__mod_Int32)
+      , (Int64Type, Kprim__mod_Int64)
+      , (IntegerType, Kprim__mod_Integer)
+      , (Bits8Type, Kprim__mod_Bits8)
+      , (Bits16Type, Kprim__mod_Bits16)
+      , (Bits32Type, Kprim__mod_Bits32)
+      , (Bits64Type, Kprim__mod_Bits64)
+      ] ++
+
+    typed ShiftL arithTy isTotal
+      [ (IntType, Kprim__shl_Int)
+      , (Int8Type, Kprim__shl_Int8)
+      , (Int16Type, Kprim__shl_Int16)
+      , (Int32Type, Kprim__shl_Int32)
+      , (Int64Type, Kprim__shl_Int64)
+      , (IntegerType, Kprim__shl_Integer)
+      , (Bits8Type, Kprim__shl_Bits8)
+      , (Bits16Type, Kprim__shl_Bits16)
+      , (Bits32Type, Kprim__shl_Bits32)
+      , (Bits64Type, Kprim__shl_Bits64)
+      ] ++
+
+    typed ShiftR arithTy isTotal
+      [ (IntType, Kprim__shr_Int)
+      , (Int8Type, Kprim__shr_Int8)
+      , (Int16Type, Kprim__shr_Int16)
+      , (Int32Type, Kprim__shr_Int32)
+      , (Int64Type, Kprim__shr_Int64)
+      , (IntegerType, Kprim__shr_Integer)
+      , (Bits8Type, Kprim__shr_Bits8)
+      , (Bits16Type, Kprim__shr_Bits16)
+      , (Bits32Type, Kprim__shr_Bits32)
+      , (Bits64Type, Kprim__shr_Bits64)
+      ] ++
+
+    typed BAnd arithTy isTotal
+      [ (IntType, Kprim__and_Int)
+      , (Int8Type, Kprim__and_Int8)
+      , (Int16Type, Kprim__and_Int16)
+      , (Int32Type, Kprim__and_Int32)
+      , (Int64Type, Kprim__and_Int64)
+      , (IntegerType, Kprim__and_Integer)
+      , (Bits8Type, Kprim__and_Bits8)
+      , (Bits16Type, Kprim__and_Bits16)
+      , (Bits32Type, Kprim__and_Bits32)
+      , (Bits64Type, Kprim__and_Bits64)
+      ] ++
+
+    typed BOr arithTy isTotal
+      [ (IntType, Kprim__or_Int)
+      , (Int8Type, Kprim__or_Int8)
+      , (Int16Type, Kprim__or_Int16)
+      , (Int32Type, Kprim__or_Int32)
+      , (Int64Type, Kprim__or_Int64)
+      , (IntegerType, Kprim__or_Integer)
+      , (Bits8Type, Kprim__or_Bits8)
+      , (Bits16Type, Kprim__or_Bits16)
+      , (Bits32Type, Kprim__or_Bits32)
+      , (Bits64Type, Kprim__or_Bits64)
+      ] ++
+
+    typed BXOr arithTy isTotal
+      [ (IntType, Kprim__xor_Int)
+      , (Int8Type, Kprim__xor_Int8)
+      , (Int16Type, Kprim__xor_Int16)
+      , (Int32Type, Kprim__xor_Int32)
+      , (Int64Type, Kprim__xor_Int64)
+      , (IntegerType, Kprim__xor_Integer)
+      , (Bits8Type, Kprim__xor_Bits8)
+      , (Bits16Type, Kprim__xor_Bits16)
+      , (Bits32Type, Kprim__xor_Bits32)
+      , (Bits64Type, Kprim__xor_Bits64)
+      ] ++
+
+    typed LT cmpTy isTotal
+      [ (IntType, Kprim__lt_Int)
+      , (Int8Type, Kprim__lt_Int8)
+      , (Int16Type, Kprim__lt_Int16)
+      , (Int32Type, Kprim__lt_Int32)
+      , (Int64Type, Kprim__lt_Int64)
+      , (IntegerType, Kprim__lt_Integer)
+      , (Bits8Type, Kprim__lt_Bits8)
+      , (Bits16Type, Kprim__lt_Bits16)
+      , (Bits32Type, Kprim__lt_Bits32)
+      , (Bits64Type, Kprim__lt_Bits64)
+      , (DoubleType, Kprim__lt_Double)
+      , (StringType, Kprim__lt_String)
+      , (CharType, Kprim__lt_Char)
+      ] ++
+
+    typed LTE cmpTy isTotal
+      [ (IntType, Kprim__lte_Int)
+      , (Int8Type, Kprim__lte_Int8)
+      , (Int16Type, Kprim__lte_Int16)
+      , (Int32Type, Kprim__lte_Int32)
+      , (Int64Type, Kprim__lte_Int64)
+      , (IntegerType, Kprim__lte_Integer)
+      , (Bits8Type, Kprim__lte_Bits8)
+      , (Bits16Type, Kprim__lte_Bits16)
+      , (Bits32Type, Kprim__lte_Bits32)
+      , (Bits64Type, Kprim__lte_Bits64)
+      , (DoubleType, Kprim__lte_Double)
+      , (StringType, Kprim__lte_String)
+      , (CharType, Kprim__lte_Char)
+      ] ++
+
+    typed EQ cmpTy isTotal
+      [ (IntType, Kprim__eq_Int)
+      , (Int8Type, Kprim__eq_Int8)
+      , (Int16Type, Kprim__eq_Int16)
+      , (Int32Type, Kprim__eq_Int32)
+      , (Int64Type, Kprim__eq_Int64)
+      , (IntegerType, Kprim__eq_Integer)
+      , (Bits8Type, Kprim__eq_Bits8)
+      , (Bits16Type, Kprim__eq_Bits16)
+      , (Bits32Type, Kprim__eq_Bits32)
+      , (Bits64Type, Kprim__eq_Bits64)
+      , (DoubleType, Kprim__eq_Double)
+      , (StringType, Kprim__eq_String)
+      , (CharType, Kprim__eq_Char)
+      ] ++
+
+    typed GTE cmpTy isTotal
+      [ (IntType, Kprim__gte_Int)
+      , (Int8Type, Kprim__gte_Int8)
+      , (Int16Type, Kprim__gte_Int16)
+      , (Int32Type, Kprim__gte_Int32)
+      , (Int64Type, Kprim__gte_Int64)
+      , (IntegerType, Kprim__gte_Integer)
+      , (Bits8Type, Kprim__gte_Bits8)
+      , (Bits16Type, Kprim__gte_Bits16)
+      , (Bits32Type, Kprim__gte_Bits32)
+      , (Bits64Type, Kprim__gte_Bits64)
+      , (DoubleType, Kprim__gte_Double)
+      , (StringType, Kprim__gte_String)
+      , (CharType, Kprim__gte_Char)
+      ] ++
+
+    typed GT cmpTy isTotal
+      [ (IntType, Kprim__gt_Int)
+      , (Int8Type, Kprim__gt_Int8)
+      , (Int16Type, Kprim__gt_Int16)
+      , (Int32Type, Kprim__gt_Int32)
+      , (Int64Type, Kprim__gt_Int64)
+      , (IntegerType, Kprim__gt_Integer)
+      , (Bits8Type, Kprim__gt_Bits8)
+      , (Bits16Type, Kprim__gt_Bits16)
+      , (Bits32Type, Kprim__gt_Bits32)
+      , (Bits64Type, Kprim__gt_Bits64)
+      , (DoubleType, Kprim__gt_Double)
+      , (StringType, Kprim__gt_String)
+      , (CharType, Kprim__gt_Char)
+      ] ++
+
+    [ MkPrim Kprim__strLength StrLength (predTy StringType IntType) isTotal
+    , MkPrim Kprim__strHead StrHead (predTy StringType CharType) notCovering
+    , MkPrim Kprim__strTail StrTail (predTy StringType StringType) notCovering
+    , MkPrim Kprim__strIndex StrIndex (constTy StringType IntType CharType) notCovering
+    , MkPrim Kprim__strCons StrCons (constTy CharType StringType StringType) isTotal
+    , MkPrim Kprim__strAppend StrAppend (arithTy StringType) isTotal
+    , MkPrim Kprim__strReverse StrReverse (predTy StringType StringType) isTotal
+    , MkPrim Kprim__strSubstr StrSubstr (constTy3 IntType IntType StringType StringType) isTotal
+    , MkPrim Kprim__believe_me BelieveMe believeMeTy isTotal
+    , MkPrim Kprim__crash Crash crashTy notCovering
+    ] ++
+
+    [ MkPrim Kprim__doubleExp DoubleExp doubleTy isTotal
+    , MkPrim Kprim__doubleLog DoubleLog doubleTy isTotal
+    , MkPrim Kprim__doublePow DoublePow (arithTy DoubleType) isTotal
+    , MkPrim Kprim__doubleSin DoubleSin doubleTy isTotal
+    , MkPrim Kprim__doubleCos DoubleCos doubleTy isTotal
+    , MkPrim Kprim__doubleTan DoubleTan doubleTy isTotal
+    , MkPrim Kprim__doubleASin DoubleASin doubleTy isTotal
+    , MkPrim Kprim__doubleACos DoubleACos doubleTy isTotal
+    , MkPrim Kprim__doubleATan DoubleATan doubleTy isTotal
+    , MkPrim Kprim__doubleSqrt DoubleSqrt doubleTy isTotal
+    , MkPrim Kprim__doubleFloor DoubleFloor doubleTy isTotal
+    , MkPrim Kprim__doubleCeiling DoubleCeiling doubleTy isTotal
+    ] ++
+
+    casts
+      [ (IntType, Int8Type, Kprim__cast_IntInt8)
+      , (IntType, Int16Type, Kprim__cast_IntInt16)
+      , (IntType, Int32Type, Kprim__cast_IntInt32)
+      , (IntType, Int64Type, Kprim__cast_IntInt64)
+      , (IntType, IntegerType, Kprim__cast_IntInteger)
+      , (IntType, Bits8Type, Kprim__cast_IntBits8)
+      , (IntType, Bits16Type, Kprim__cast_IntBits16)
+      , (IntType, Bits32Type, Kprim__cast_IntBits32)
+      , (IntType, Bits64Type, Kprim__cast_IntBits64)
+      , (IntType, DoubleType, Kprim__cast_IntDouble)
+      , (IntType, StringType, Kprim__cast_IntString)
+      , (IntType, CharType, Kprim__cast_IntChar)
+      , (Int8Type, IntType, Kprim__cast_Int8Int)
+      , (Int8Type, Int16Type, Kprim__cast_Int8Int16)
+      , (Int8Type, Int32Type, Kprim__cast_Int8Int32)
+      , (Int8Type, Int64Type, Kprim__cast_Int8Int64)
+      , (Int8Type, IntegerType, Kprim__cast_Int8Integer)
+      , (Int8Type, Bits8Type, Kprim__cast_Int8Bits8)
+      , (Int8Type, Bits16Type, Kprim__cast_Int8Bits16)
+      , (Int8Type, Bits32Type, Kprim__cast_Int8Bits32)
+      , (Int8Type, Bits64Type, Kprim__cast_Int8Bits64)
+      , (Int8Type, DoubleType, Kprim__cast_Int8Double)
+      , (Int8Type, StringType, Kprim__cast_Int8String)
+      , (Int8Type, CharType, Kprim__cast_Int8Char)
+      , (Int16Type, IntType, Kprim__cast_Int16Int)
+      , (Int16Type, Int8Type, Kprim__cast_Int16Int8)
+      , (Int16Type, Int32Type, Kprim__cast_Int16Int32)
+      , (Int16Type, Int64Type, Kprim__cast_Int16Int64)
+      , (Int16Type, IntegerType, Kprim__cast_Int16Integer)
+      , (Int16Type, Bits8Type, Kprim__cast_Int16Bits8)
+      , (Int16Type, Bits16Type, Kprim__cast_Int16Bits16)
+      , (Int16Type, Bits32Type, Kprim__cast_Int16Bits32)
+      , (Int16Type, Bits64Type, Kprim__cast_Int16Bits64)
+      , (Int16Type, DoubleType, Kprim__cast_Int16Double)
+      , (Int16Type, StringType, Kprim__cast_Int16String)
+      , (Int16Type, CharType, Kprim__cast_Int16Char)
+      , (Int32Type, IntType, Kprim__cast_Int32Int)
+      , (Int32Type, Int8Type, Kprim__cast_Int32Int8)
+      , (Int32Type, Int16Type, Kprim__cast_Int32Int16)
+      , (Int32Type, Int64Type, Kprim__cast_Int32Int64)
+      , (Int32Type, IntegerType, Kprim__cast_Int32Integer)
+      , (Int32Type, Bits8Type, Kprim__cast_Int32Bits8)
+      , (Int32Type, Bits16Type, Kprim__cast_Int32Bits16)
+      , (Int32Type, Bits32Type, Kprim__cast_Int32Bits32)
+      , (Int32Type, Bits64Type, Kprim__cast_Int32Bits64)
+      , (Int32Type, DoubleType, Kprim__cast_Int32Double)
+      , (Int32Type, StringType, Kprim__cast_Int32String)
+      , (Int32Type, CharType, Kprim__cast_Int32Char)
+      , (Int64Type, IntType, Kprim__cast_Int64Int)
+      , (Int64Type, Int8Type, Kprim__cast_Int64Int8)
+      , (Int64Type, Int16Type, Kprim__cast_Int64Int16)
+      , (Int64Type, Int32Type, Kprim__cast_Int64Int32)
+      , (Int64Type, IntegerType, Kprim__cast_Int64Integer)
+      , (Int64Type, Bits8Type, Kprim__cast_Int64Bits8)
+      , (Int64Type, Bits16Type, Kprim__cast_Int64Bits16)
+      , (Int64Type, Bits32Type, Kprim__cast_Int64Bits32)
+      , (Int64Type, Bits64Type, Kprim__cast_Int64Bits64)
+      , (Int64Type, DoubleType, Kprim__cast_Int64Double)
+      , (Int64Type, StringType, Kprim__cast_Int64String)
+      , (Int64Type, CharType, Kprim__cast_Int64Char)
+      , (IntegerType, IntType, Kprim__cast_IntegerInt)
+      , (IntegerType, Int8Type, Kprim__cast_IntegerInt8)
+      , (IntegerType, Int16Type, Kprim__cast_IntegerInt16)
+      , (IntegerType, Int32Type, Kprim__cast_IntegerInt32)
+      , (IntegerType, Int64Type, Kprim__cast_IntegerInt64)
+      , (IntegerType, Bits8Type, Kprim__cast_IntegerBits8)
+      , (IntegerType, Bits16Type, Kprim__cast_IntegerBits16)
+      , (IntegerType, Bits32Type, Kprim__cast_IntegerBits32)
+      , (IntegerType, Bits64Type, Kprim__cast_IntegerBits64)
+      , (IntegerType, DoubleType, Kprim__cast_IntegerDouble)
+      , (IntegerType, StringType, Kprim__cast_IntegerString)
+      , (IntegerType, CharType, Kprim__cast_IntegerChar)
+      , (Bits8Type, IntType, Kprim__cast_Bits8Int)
+      , (Bits8Type, Int8Type, Kprim__cast_Bits8Int8)
+      , (Bits8Type, Int16Type, Kprim__cast_Bits8Int16)
+      , (Bits8Type, Int32Type, Kprim__cast_Bits8Int32)
+      , (Bits8Type, Int64Type, Kprim__cast_Bits8Int64)
+      , (Bits8Type, IntegerType, Kprim__cast_Bits8Integer)
+      , (Bits8Type, Bits16Type, Kprim__cast_Bits8Bits16)
+      , (Bits8Type, Bits32Type, Kprim__cast_Bits8Bits32)
+      , (Bits8Type, Bits64Type, Kprim__cast_Bits8Bits64)
+      , (Bits8Type, DoubleType, Kprim__cast_Bits8Double)
+      , (Bits8Type, StringType, Kprim__cast_Bits8String)
+      , (Bits8Type, CharType, Kprim__cast_Bits8Char)
+      , (Bits16Type, IntType, Kprim__cast_Bits16Int)
+      , (Bits16Type, Int8Type, Kprim__cast_Bits16Int8)
+      , (Bits16Type, Int16Type, Kprim__cast_Bits16Int16)
+      , (Bits16Type, Int32Type, Kprim__cast_Bits16Int32)
+      , (Bits16Type, Int64Type, Kprim__cast_Bits16Int64)
+      , (Bits16Type, IntegerType, Kprim__cast_Bits16Integer)
+      , (Bits16Type, Bits8Type, Kprim__cast_Bits16Bits8)
+      , (Bits16Type, Bits32Type, Kprim__cast_Bits16Bits32)
+      , (Bits16Type, Bits64Type, Kprim__cast_Bits16Bits64)
+      , (Bits16Type, DoubleType, Kprim__cast_Bits16Double)
+      , (Bits16Type, StringType, Kprim__cast_Bits16String)
+      , (Bits16Type, CharType, Kprim__cast_Bits16Char)
+      , (Bits32Type, IntType, Kprim__cast_Bits32Int)
+      , (Bits32Type, Int8Type, Kprim__cast_Bits32Int8)
+      , (Bits32Type, Int16Type, Kprim__cast_Bits32Int16)
+      , (Bits32Type, Int32Type, Kprim__cast_Bits32Int32)
+      , (Bits32Type, Int64Type, Kprim__cast_Bits32Int64)
+      , (Bits32Type, IntegerType, Kprim__cast_Bits32Integer)
+      , (Bits32Type, Bits8Type, Kprim__cast_Bits32Bits8)
+      , (Bits32Type, Bits16Type, Kprim__cast_Bits32Bits16)
+      , (Bits32Type, Bits64Type, Kprim__cast_Bits32Bits64)
+      , (Bits32Type, DoubleType, Kprim__cast_Bits32Double)
+      , (Bits32Type, StringType, Kprim__cast_Bits32String)
+      , (Bits32Type, CharType, Kprim__cast_Bits32Char)
+      , (Bits64Type, IntType, Kprim__cast_Bits64Int)
+      , (Bits64Type, Int8Type, Kprim__cast_Bits64Int8)
+      , (Bits64Type, Int16Type, Kprim__cast_Bits64Int16)
+      , (Bits64Type, Int32Type, Kprim__cast_Bits64Int32)
+      , (Bits64Type, Int64Type, Kprim__cast_Bits64Int64)
+      , (Bits64Type, IntegerType, Kprim__cast_Bits64Integer)
+      , (Bits64Type, Bits8Type, Kprim__cast_Bits64Bits8)
+      , (Bits64Type, Bits16Type, Kprim__cast_Bits64Bits16)
+      , (Bits64Type, Bits32Type, Kprim__cast_Bits64Bits32)
+      , (Bits64Type, DoubleType, Kprim__cast_Bits64Double)
+      , (Bits64Type, StringType, Kprim__cast_Bits64String)
+      , (Bits64Type, CharType, Kprim__cast_Bits64Char)
+      , (DoubleType, IntType, Kprim__cast_DoubleInt)
+      , (DoubleType, Int8Type, Kprim__cast_DoubleInt8)
+      , (DoubleType, Int16Type, Kprim__cast_DoubleInt16)
+      , (DoubleType, Int32Type, Kprim__cast_DoubleInt32)
+      , (DoubleType, Int64Type, Kprim__cast_DoubleInt64)
+      , (DoubleType, IntegerType, Kprim__cast_DoubleInteger)
+      , (DoubleType, Bits8Type, Kprim__cast_DoubleBits8)
+      , (DoubleType, Bits16Type, Kprim__cast_DoubleBits16)
+      , (DoubleType, Bits32Type, Kprim__cast_DoubleBits32)
+      , (DoubleType, Bits64Type, Kprim__cast_DoubleBits64)
+      , (DoubleType, StringType, Kprim__cast_DoubleString)
+      , (StringType, IntType, Kprim__cast_StringInt)
+      , (StringType, Int8Type, Kprim__cast_StringInt8)
+      , (StringType, Int16Type, Kprim__cast_StringInt16)
+      , (StringType, Int32Type, Kprim__cast_StringInt32)
+      , (StringType, Int64Type, Kprim__cast_StringInt64)
+      , (StringType, IntegerType, Kprim__cast_StringInteger)
+      , (StringType, Bits8Type, Kprim__cast_StringBits8)
+      , (StringType, Bits16Type, Kprim__cast_StringBits16)
+      , (StringType, Bits32Type, Kprim__cast_StringBits32)
+      , (StringType, Bits64Type, Kprim__cast_StringBits64)
+      , (StringType, DoubleType, Kprim__cast_StringDouble)
+      , (CharType, IntType, Kprim__cast_CharInt)
+      , (CharType, Int8Type, Kprim__cast_CharInt8)
+      , (CharType, Int16Type, Kprim__cast_CharInt16)
+      , (CharType, Int32Type, Kprim__cast_CharInt32)
+      , (CharType, Int64Type, Kprim__cast_CharInt64)
+      , (CharType, IntegerType, Kprim__cast_CharInteger)
+      , (CharType, Bits8Type, Kprim__cast_CharBits8)
+      , (CharType, Bits16Type, Kprim__cast_CharBits16)
+      , (CharType, Bits32Type, Kprim__cast_CharBits32)
+      , (CharType, Bits64Type, Kprim__cast_CharBits64)
+      , (CharType, StringType, Kprim__cast_CharString)
+      ]

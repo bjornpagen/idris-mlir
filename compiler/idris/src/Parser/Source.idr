@@ -23,14 +23,14 @@ lexSource origin lit reject str
     = do str <- mapFst (fromLitError origin) $ unlit lit str
          mapFst (fromLexError origin) $ lexTo reject str
 
-||| The tokens with the identifiers they spell interned: text becomes an
-||| identifier here, where a source enters the compiler, so no rule of the
-||| grammar interns.
+||| The tokens as columns, the identifiers they spell interned: text becomes
+||| an identifier here, where a source enters the compiler, so no rule of
+||| the grammar interns.
 internTokens : {auto c : Ref Ctxt Defs} ->
-               List (Located RawToken) -> Core (List (Located Token))
+               List (Located RawToken) -> Core (Tokens Token)
 internTokens toks
     = do defs <- get Ctxt
-         traverse (internToken defs.gamma.idents) toks
+         columns <$> traverse (internToken defs.gamma.idents) toks
   where
     internToken : Ref Interned Idents -> Located RawToken -> Core (Located Token)
     internToken ids tok
@@ -40,10 +40,10 @@ internTokens toks
 parseTokens : {e : _} ->
               (origin : OriginDesc) ->
               Grammar ParsingState Token e ty ->
-              List (Located ()) -> List (Located Token) ->
+              List (Located ()) -> Tokens Token ->
               Either Error (List Warning, State, ty)
 parseTokens origin p cs toks
-    = do (decs, ws, (parsed, _)) <- mapFst (fromParsingErrors origin) $ parseWith p toks
+    = do (decs, ws, parsed) <- mapFst (fromParsingErrors origin) $ parseWith p toks
          let cs : SemanticDecorations
                 = cs <&> \ c => ((origin, startBounds c.bounds, endBounds c.bounds), Comment, Nothing)
          let ws = ws <&> \ (mb, warn) =>

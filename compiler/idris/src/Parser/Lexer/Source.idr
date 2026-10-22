@@ -3,6 +3,7 @@
 module Parser.Lexer.Source
 
 import public Parser.Lexer.Common
+import public Parser.Lexer.Reserved
 
 import Data.Either
 import Data.Maybe
@@ -40,9 +41,11 @@ Eq DebugInfo where
   _ == _ = False
 
 ||| A token of source, over how it spells an identifier: the lexer spells one
-||| as text (`RawToken`), and the parser reads it interned (`Token`). A
-||| symbol is an identifier too, since a symbol may name an operator; a
-||| keyword or a pragma is text of the language, never a name.
+||| as text (`RawToken`), and the parser reads it interned (`Token`). An
+||| operator's symbol is an identifier too, since it names the operator. A
+||| keyword or a reserved symbol is a word of the language, never a name,
+||| and the lexer gives it as its kind, so the parser compares kinds, never
+||| text.
 public export
 data SourceToken identifier
   -- Literals
@@ -60,7 +63,7 @@ data SourceToken identifier
   | Ident identifier
   | DotSepIdent (List identifier) identifier -- ident.ident, the namespace's parts outermost first
   | DotIdent identifier                      -- .ident
-  | Symbol identifier
+  | Symbol identifier                        -- an operator's symbol
   -- Whitespace
   | Space
   -- Comments
@@ -69,7 +72,8 @@ data SourceToken identifier
   -- Special
   | CGDirective String
   | EndInput
-  | Keyword String
+  | Keyword Keyword
+  | Reserved Reserved
   | Pragma String
   | MagicDebugInfo DebugInfo
   | Unrecognised String
@@ -106,7 +110,8 @@ traverseIdents f Comment = pure Comment
 traverseIdents f (DocComment x) = pure (DocComment x)
 traverseIdents f (CGDirective x) = pure (CGDirective x)
 traverseIdents f EndInput = pure EndInput
-traverseIdents f (Keyword x) = pure (Keyword x)
+traverseIdents f (Keyword k) = pure (Keyword k)
+traverseIdents f (Reserved r) = pure (Reserved r)
 traverseIdents f (Pragma x) = pure (Pragma x)
 traverseIdents f (MagicDebugInfo di) = pure (MagicDebugInfo di)
 traverseIdents f (Unrecognised x) = pure (Unrecognised x)
@@ -145,7 +150,8 @@ Show identifier => Show (SourceToken identifier) where
   -- Special
   show (CGDirective x) = "CGDirective " ++ x
   show EndInput = "end of input"
-  show (Keyword x) = x
+  show (Keyword k) = keywordText k
+  show (Reserved r) = "symbol " ++ reservedText r
   show (Pragma x) = "pragma " ++ x
   show (MagicDebugInfo di) = show di
   show (Unrecognised x) = "Unrecognised " ++ x
@@ -177,7 +183,8 @@ Pretty Void identifier => Pretty Void (SourceToken identifier) where
   -- Special
   pretty (CGDirective x) = pretty "CGDirective" <++> pretty x
   pretty EndInput = reflow "end of input"
-  pretty (Keyword x) = pretty x
+  pretty (Keyword k) = pretty (keywordText k)
+  pretty (Reserved r) = pretty "symbol" <++> pretty (reservedText r)
   pretty (Pragma x) = pretty "pragma" <++> pretty x
   pretty (MagicDebugInfo di) = pretty (show di)
   pretty (Unrecognised x) = pretty "Unrecognised" <++> pretty x
@@ -227,24 +234,6 @@ mkDirective : String -> RawToken
 mkDirective str = CGDirective (trimSpace (substr 3 (length str) str))
 
 public export
-fixityKeywords : List String
-fixityKeywords = ["infixl", "infixr", "infix", "prefix"]
-
--- Reserved words
--- NB: if you add a new keyword, please add the corresponding documentation in
---     Idris.Doc.String
-public export
-keywords : List String
-keywords = ["data", "module", "where", "let", "in", "do", "record",
-            "auto", "default", "implicit", "failing", "mutual", "namespace",
-            "parameters", "with", "proof", "impossible", "case", "of",
-            "if", "then", "else", "forall", "rewrite", "typebind", "autobind",
-            "using", "interface", "implementation", "open", "import",
-            "public", "export", "private"] ++
-            fixityKeywords ++
-            ["total", "partial", "covering"]
-
-public export
 debugInfo : List (String, DebugInfo)
 debugInfo = map (\ di => (show di, di))
           [ DebugLoc, DebugFile, DebugLine, DebugCol ]
@@ -253,49 +242,37 @@ debugInfo = map (\ di => (show di, di))
 special : List String
 special = ["%lam", "%pi", "%imppi", "%let"]
 
-public export
-symbols : List String
-symbols = [",", ";", "_", "`"]
+-- The punctuation, read before any other symbol.
+punctuation : List Reserved
+punctuation = [SymComma, SymSemicolon, SymUnderscore, SymBackquote]
 
-export
-groupSymbols : List String
-groupSymbols = [".(", -- for things such as Foo.Bar.(+)
-    ".[|", -- for namespaced brackets such as Foo.Bar.[| x + y |]
-    "@{", "[|", "(", "{", "[<", "[>", "[", "`(", "`{", "`["]
+-- Each bracket that opens a group, with the bracket that closes it, in the
+-- order they are tried: one that begins another (`.(` and `(`, `[|` and
+-- `[`) first.
+brackets : List (Reserved, Reserved)
+brackets
+    = [ (SymDotParen, SymParenClose), (SymDotIdiom, SymIdiomClose)
+      , (SymAtBrace, SymBraceClose), (SymIdiom, SymIdiomClose)
+      , (SymParen, SymParenClose), (SymBrace, SymBraceClose)
+      , (SymSnocBracket, SymBracketClose), (SymListBracket, SymBracketClose)
+      , (SymBracket, SymBracketClose), (SymQuoteParen, SymParenClose)
+      , (SymQuoteBrace, SymBraceClose), (SymQuoteBracket, SymBracketClose)
+      ]
 
-export
-groupClose : String -> String
-groupClose ".(" = ")"
-groupClose "@{" = "}"
-groupClose "[|" = "|]"
-groupClose ".[|" = "|]"
-groupClose "(" = ")"
-groupClose "[" = "]"
-groupClose "[<" = "]"
-groupClose "[>" = "]"
-groupClose "{" = "}"
-groupClose "`(" = ")"
-groupClose "`{" = "}"
-groupClose "`[" = "]"
-groupClose _ = ""
+-- What closes the group the bracket written so opens: the bracket paired
+-- with it, read only after the bracket that opens.
+closing : String -> Lexer
+closing begin
+    = case reservedOf begin >>= \b => lookup b brackets of
+           Just close => exact (reservedText close)
+           Nothing => fail
+
+-- A symbol's token: the reserved symbol it spells, or else an operator's.
+symbolToken : String -> RawToken
+symbolToken s = maybe (Symbol s) Reserved (reservedOf s)
 
 validSymbol : Lexer
 validSymbol = some (pred isOpChar)
-
--- Valid symbols which have a special meaning so can't be operators
-public export
-reservedInfixSymbols : List String
-reservedInfixSymbols
-    = ["%", "\\", ":", "=", ":=", "$=", "|", "|||", "<-", "->", "=>", "?", "!",
-       "&", "**", "..", "~", "@"]
-
--- Valid symbols which have a special meaning so can't be operators
-public export
-reservedSymbols : List String
-reservedSymbols
-    = symbols
-    ++ groupSymbols ++ (groupClose <$> groupSymbols)
-    ++ reservedInfixSymbols
 
 fromBinLit : String -> Integer
 fromBinLit str
@@ -352,14 +329,14 @@ mutual
       <|> match docComment (DocComment . removeOptionalLeadingSpace . drop 3)
       <|> match cgDirective mkDirective
       <|> match holeIdent (\x => HoleIdent (assert_total (strTail x)))
-      <|> compose (choice $ exact <$> groupSymbols)
-                  Symbol
+      <|> compose (choiceMap (exact . reservedText . fst) brackets)
+                  symbolToken
                   id
                   (\_ => rawTokens)
-                  (exact . groupClose)
-                  Symbol
+                  closing
+                  symbolToken
       <|> match (choice $ (exact . fst) <$> debugInfo) (MagicDebugInfo . fromMaybe DebugLoc . flip lookup debugInfo)
-      <|> match (choice $ exact <$> symbols) Symbol
+      <|> match (choiceMap (exact . reservedText) punctuation) symbolToken
       <|> match doubleLit (DoubleLit . cast)
       <|> match binUnderscoredLit (IntegerLit . fromBinLit . removeUnderscores)
       <|> match hexUnderscoredLit (IntegerLit . fromHexLit . removeUnderscores)
@@ -383,12 +360,11 @@ mutual
       <|> match identNormal parseIdent
       <|> match pragma (\x => Pragma (assert_total $ strTail x))
       <|> match space (const Space)
-      <|> match validSymbol Symbol
+      <|> match validSymbol symbolToken
       <|> match symbol Unrecognised
     where
       parseIdent : String -> RawToken
-      parseIdent x = if x `elem` keywords then Keyword x
-                     else Ident x
+      parseIdent x = maybe (Ident x) Keyword (keywordOf x)
 
       -- A single part is an identifier or a keyword; a namespaced one is
       -- never a keyword.

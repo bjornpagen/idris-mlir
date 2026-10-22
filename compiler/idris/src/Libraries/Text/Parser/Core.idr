@@ -5,6 +5,10 @@ module Libraries.Text.Parser.Core
 import Data.Bool
 import Data.List
 import Data.List1
+import Data.Nat
+import Data.So
+
+import Array
 
 import public Libraries.Control.Delayed
 import public Libraries.Text.Bounded
@@ -32,14 +36,60 @@ record Made state where
   st : state
   warnings : ParsingWarnings
 
+||| The tokens a grammar reads, as columns: at each position, the token and
+||| where it was read.
+export
+record Tokens tok where
+  constructor MkTokens
+  extent : Nat
+  vals : Vector extent tok
+  spans : Vector extent Bounds
+
+||| A lexer's tokens as columns.
+export
+columns : List (Located tok) -> Tokens tok
+columns toks
+    = MkTokens (length toks)
+               (replace {p = \k => Vector k tok} (lengthMap toks) (Array.fromList (map value toks)))
+               (replace {p = \k => Vector k Bounds} (lengthMap toks) (Array.fromList (map place toks)))
+  where
+    value : Located tok -> tok
+    value t = t.val
+
+    place : Located tok -> Bounds
+    place t = t.bounds
+
 -- What a grammar runs on: what has been made, whether the enclosing
--- alternative has committed, and the tokens left. Most steps change only
--- the last two, so they are copied without the rest.
+-- alternative has committed, the tokens, and the position of the next one.
+-- Most steps change only whether it has committed and the position, so
+-- they are copied without the rest.
 record Input state tok where
   constructor MkInput
   made : Made state
   committed : Bool
-  tokens : List (Located tok)
+  table : Tokens tok
+  next : Nat
+
+-- What the input holds at its next position: a token and where it was
+-- read, or nothing, at the end.
+data Ahead tok = Next tok Bounds | AtEnd
+
+-- The columns are read by a `Fin`, which the position becomes here, the
+-- one place a grammar reads a token.
+ahead : Input state tok -> Ahead tok
+ahead inp
+    = case choose (inp.next < extent inp.table) of
+           Left lt =>
+             let 0 within = ltOpReflectsLT inp.next (extent inp.table) lt
+                 at = [<natToFinLT inp.next {prf = within}] in
+                 Next (vals inp.table !! at) (spans inp.table !! at)
+           Right _ => AtEnd
+
+-- Where the next token was read, unless the input is at its end.
+nextBounds : Input state tok -> Maybe Bounds
+nextBounds inp = case ahead inp of
+                      Next _ b => Just b
+                      AtEnd => Nothing
 
 data ParseResult : Type -> Type -> Type -> Type where
      Failure : (committed : Bool) -> (fatal : Bool) ->
@@ -71,10 +121,6 @@ runGrammar (MkGrammar run) = run
 mergeWith : WithBounds ty -> ParseResult state tok sy -> ParseResult state tok sy
 mergeWith x (Res inp val) = Res inp (mergeBounds x val)
 mergeWith x v = v
-
-firstBounds : List (Located tok) -> Maybe Bounds
-firstBounds [] = Nothing
-firstBounds (x :: _) = Just x.bounds
 
 withCommitted : Bool -> Input state tok -> Input state tok
 withCommitted com inp
@@ -254,13 +300,13 @@ export
 nextIs : String -> (tok -> Bool) -> Grammar state tok False tok
 nextIs err f
     = MkGrammar $ \inp =>
-        case inp.tokens of
-             [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
-             (x :: xs) =>
+        case ahead inp of
+             AtEnd => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
+             Next t b =>
                -- a token only looked at locates nothing parsed
-               if f x.val
-                  then Res inp (Irrelevant x.val)
-                  else Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
+               if f t
+                  then Res inp (Irrelevant t)
+                  else Failure inp.committed False (Error err (Just b) ::: Nil)
 
 ||| Look at the next token in the input
 export
@@ -273,12 +319,12 @@ export
 terminalAt : String -> (tok -> Maybe a) -> Grammar state tok True (a, Bounds)
 terminalAt err f
     = MkGrammar $ \inp =>
-        case inp.tokens of
-             [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
-             (x :: xs) =>
-               case f x.val of
-                    Nothing => Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
-                    Just a => Res ({ tokens := xs } inp) (Relevant (a, x.bounds) x.bounds)
+        case ahead inp of
+             AtEnd => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
+             Next t b =>
+               case f t of
+                    Nothing => Failure inp.committed False (Error err (Just b) ::: Nil)
+                    Just a => Res ({ next $= S } inp) (Relevant (a, b) b)
 
 ||| Succeeds if running the predicate on the next token returns Just x,
 ||| returning x. Otherwise fails.
@@ -286,12 +332,12 @@ export
 terminal : String -> (tok -> Maybe a) -> Grammar state tok True a
 terminal err f
     = MkGrammar $ \inp =>
-        case inp.tokens of
-             [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
-             (x :: xs) =>
-               case f x.val of
-                    Nothing => Failure inp.committed False (Error err (Just x.bounds) ::: Nil)
-                    Just a => Res ({ tokens := xs } inp) (Relevant a x.bounds)
+        case ahead inp of
+             AtEnd => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
+             Next t b =>
+               case f t of
+                    Nothing => Failure inp.committed False (Error err (Just b) ::: Nil)
+                    Just a => Res ({ next $= S } inp) (Relevant a b)
 
 -- Fail with a message, at the given location or else at the next token.
 failWith : (location : Maybe Bounds) -> (fatal : Bool) -> String ->
@@ -299,7 +345,7 @@ failWith : (location : Maybe Bounds) -> (fatal : Bool) -> String ->
 failWith location fatal str
     = MkGrammar $ \inp =>
         Failure inp.committed fatal
-                (Error str (location <|> firstBounds inp.tokens) ::: Nil)
+                (Error str (location <|> nextBounds inp) ::: Nil)
 
 ||| Always fail with a message
 export %inline
@@ -337,11 +383,11 @@ try g
 export
 eof : Grammar state tok False ()
 eof = MkGrammar $ \inp =>
-        case inp.tokens of
-             [] => Res inp (Irrelevant ())
-             (x :: xs) =>
+        case ahead inp of
+             AtEnd => Res inp (Irrelevant ())
+             Next _ b =>
                Failure inp.committed False
-                       (Error "Expected end of input" (Just x.bounds) ::: Nil)
+                       (Error "Expected end of input" (Just b) ::: Nil)
 
 ||| Commit to an alternative; if the current branch of an alternative
 ||| fails to parse, no more branches will be tried
@@ -386,9 +432,9 @@ export
 position : Grammar state tok False Bounds
 position
     = MkGrammar $ \inp =>
-        case inp.tokens of
-             [] => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
-             (x :: xs) => Res inp (Irrelevant x.bounds)
+        case ahead inp of
+             AtEnd => Failure inp.committed False (Error "End of input" Nothing ::: Nil)
+             Next _ b => Res inp (Irrelevant b)
 
 ||| Warn the user
 export
@@ -399,23 +445,20 @@ withWarning warn p
       do warning res.bounds warn
          pure res.val
 
-||| Parse a list of tokens according to the given grammar. If successful,
-||| returns a pair of the parse result and the unparsed tokens (the remaining
-||| input).
+||| Parse tokens according to the given grammar, from the first. A grammar
+||| that must read them all ends with `eof`.
 export
-parse : {c : Bool} -> (act : Grammar () tok c ty) -> (xs : List (Located tok)) ->
-        Either (List1 (ParsingError tok))
-               (ParsingWarnings, ty, List (Located tok))
-parse act xs
-    = case runGrammar act (MkInput (MkMade (<+>) neutral []) False xs) of
+parse : {c : Bool} -> (act : Grammar () tok c ty) -> Tokens tok ->
+        Either (List1 (ParsingError tok)) (ParsingWarnings, ty)
+parse act toks
+    = case runGrammar act (MkInput (MkMade (<+>) neutral []) False toks Z) of
            Failure _ _ errs => Left errs
-           Res inp v => Right (inp.made.warnings, v.val, inp.tokens)
+           Res inp v => Right (inp.made.warnings, v.val)
 
 export
-parseWith : Monoid state => {c : Bool} -> (act : Grammar state tok c ty) -> (xs : List (Located tok)) ->
-        Either (List1 (ParsingError tok))
-               (state, ParsingWarnings, ty, List (Located tok))
-parseWith act xs
-    = case runGrammar act (MkInput (MkMade (<+>) neutral []) False xs) of
+parseWith : Monoid state => {c : Bool} -> (act : Grammar state tok c ty) -> Tokens tok ->
+        Either (List1 (ParsingError tok)) (state, ParsingWarnings, ty)
+parseWith act toks
+    = case runGrammar act (MkInput (MkMade (<+>) neutral []) False toks Z) of
            Failure _ _ errs => Left errs
-           Res inp v => Right (inp.made.st, inp.made.warnings, v.val, inp.tokens)
+           Res inp v => Right (inp.made.st, inp.made.warnings, v.val)

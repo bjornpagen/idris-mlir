@@ -605,10 +605,6 @@ data BracketType
 
 public export
 data DocDirective : Type where
-  ||| A reserved keyword
-  Keyword : String -> DocDirective
-  ||| A reserved symbol
-  Symbol  : String -> DocDirective
   ||| A type of brackets
   Bracket : BracketType -> DocDirective
   ||| An arbitrary PTerm

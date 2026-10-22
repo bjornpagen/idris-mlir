@@ -107,6 +107,6 @@ versionParser = do
 export
 parseVersion : String -> Maybe Version
 parseVersion str =
-  case parse versionParser (lexVersion str) of
-    Right (_, version, []) => Just version
+  case parse (versionParser <* eof) (columns (lexVersion str)) of
+    Right (_, version) => Just version
     _ => Nothing

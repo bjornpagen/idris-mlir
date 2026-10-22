@@ -141,12 +141,12 @@ onOffLit : Rule Bool
 onOffLit
     = terminal "Expected on or off" $
                \case
-                 Ident s => onOff s.text
+                 Ident s => onOff (knownOf s)
                  _ => Nothing
   where
-    onOff : String -> Maybe Bool
-    onOff "on" = Just True
-    onOff "off" = Just False
+    onOff : Maybe Known -> Maybe Bool
+    onOff (Just Kon) = Just True
+    onOff (Just Koff) = Just False
     onOff _ = Nothing
 
 export
@@ -228,44 +228,48 @@ export
 postfixProj : Rule Name
 postfixProj = UN . Field <$> aDotIdent
 
+||| The reserved symbol given.
 export
-symbol : String -> Rule ()
+symbol : Reserved -> Rule ()
 symbol req
-    = terminal ("Expected '" ++ req ++ "'") $
+    = terminal ("Expected '" ++ reservedText req ++ "'") $
                \case
-                 Symbol s => guard (s.text == req)
+                 Reserved r => guard (r == req)
+                 _ => Nothing
+
+||| The operator's symbol given, by its identifier.
+export
+exactSymbol : Known -> Rule ()
+exactSymbol req
+    = terminal ("Expected '" ++ spelling req ++ "'") $
+               \case
+                 Symbol s => guard (s == known req)
                  _ => Nothing
 
 export
-anyReservedSymbol : Rule String
-anyReservedSymbol
-  = terminal ("Expected a reserved symbol") $
-               \case
-                 Symbol s => s.text <$ guard (s.text `elem` reservedSymbols)
-                 _ => Nothing
-
-export
-anyKeyword : Rule String
+anyKeyword : Rule Keyword
 anyKeyword
   = terminal ("Expected a keyword") $
              \case
-               Keyword s => Just s
+               Keyword k => Just k
                _ => Nothing
 
+||| The keyword given.
 export
-keyword : String -> Rule ()
+keyword : Keyword -> Rule ()
 keyword req
-    = terminal ("Expected '" ++ req ++ "'") $
+    = terminal ("Expected '" ++ keywordText req ++ "'") $
                \case
-                 Keyword s => guard (s == req)
+                 Keyword k => guard (k == req)
                  _ => Nothing
 
+||| The identifier given, by its id.
 export
-exactIdent : String -> Rule ()
+exactIdent : Known -> Rule ()
 exactIdent req
-    = terminal ("Expected " ++ req) $
+    = terminal ("Expected " ++ spelling req) $
                \case
-                 Ident s => guard (s.text == req)
+                 Ident s => guard (s == known req)
                  _ => Nothing
 
 ||| The pragma given, its use recorded where it is written.
@@ -289,15 +293,18 @@ cgDirective =
 export
 builtinType : Rule BuiltinType
 builtinType =
-    BuiltinNatural <$ exactIdent "Natural"
-    <|> NaturalToInteger <$ exactIdent "NaturalToInteger"
-    <|> IntegerToNatural <$ exactIdent "IntegerToNatural"
+    BuiltinNatural <$ exactIdent KNatural
+    <|> NaturalToInteger <$ exactIdent KNaturalToInteger
+    <|> IntegerToNatural <$ exactIdent KIntegerToNatural
 
-operatorCandidate : Rule Name
+-- An operator's name, or the reserved symbol written where one was
+-- expected, which names none.
+operatorCandidate : Rule (Either Reserved Name)
 operatorCandidate
     = terminal "Expected operator" $
                \case
-                 Symbol s => Just (UN $ Basic s) -- TODO: have an operator construct?
+                 Symbol s => Just (Right (UN $ Basic s)) -- TODO: have an operator construct?
+                 Reserved r => Just (Left r)
                  _ => Nothing
 
 export
@@ -305,7 +312,7 @@ unqualifiedOperatorName : Rule Ident
 unqualifiedOperatorName
     = terminal "Expected operator" $
                \case
-                 Symbol s => s <$ guard (not $ s.text `elem` reservedSymbols)
+                 Symbol s => Just s
                  _ => Nothing
 
 export
@@ -346,12 +353,13 @@ namespaceId = do
   isCapitalisedIdent (snd <$> nsid)
   pure (uncurry mkNestedNamespace nsid.val)
 
+||| A bracket, or its namespaced form after a namespace.
 export
-namespacedSymbol : String -> Rule (Maybe Namespace)
-namespacedSymbol req = do
-  (symbol req $> Nothing) <|> do
+namespacedSymbol : (plain, dotted : Reserved) -> Rule (Maybe Namespace)
+namespacedSymbol plain dotted = do
+  (symbol plain $> Nothing) <|> do
     ns <- namespaceId
-    symbol ("." ++ req)
+    symbol dotted
     pure (Just ns)
 
 export
@@ -374,39 +382,56 @@ holeName
                  HoleIdent str => Just str
                  _ => Nothing
 
-reservedNames : List String
-reservedNames
-    = [ "Type", "Int", "Int8", "Int16", "Int32", "Int64", "Integer"
-      , "Bits8", "Bits16", "Bits32", "Bits64"
-      , "String", "Char", "Double", "Lazy", "Inf", "Force", "Delay"
-      ]
+-- An identifier no definition may take: `Type`, a primitive type's name,
+-- or a laziness primitive's.
+reservedName : Ident -> Bool
+reservedName i = case knownOf i of
+  Just KType => True
+  Just KInt => True
+  Just KInt8 => True
+  Just KInt16 => True
+  Just KInt32 => True
+  Just KInt64 => True
+  Just KInteger => True
+  Just KBits8 => True
+  Just KBits16 => True
+  Just KBits32 => True
+  Just KBits64 => True
+  Just KString => True
+  Just KChar => True
+  Just KDouble => True
+  Just KLazy => True
+  Just KInf => True
+  Just KForce => True
+  Just KDelay => True
+  _ => False
 
 export
 anyReservedIdent : Rule (WithBounds Ident)
 anyReservedIdent = do
     id <- bounds identPart
-    unless (id.val.text `elem` reservedNames) $ failLoc id.bounds "Expected reserved identifier"
+    unless (reservedName id.val) $ failLoc id.bounds "Expected reserved identifier"
     pure id
 
 isNotReservedName : WithBounds Ident -> EmptyRule ()
 isNotReservedName x
-    = when (x.val.text `elem` reservedNames) $
+    = when (reservedName x.val) $
         failLoc x.bounds $ "Can't use reserved name \{x.val.text}"
-
-isNotReservedSymbol : WithBounds String -> EmptyRule ()
-isNotReservedSymbol x
-    = when (x.val `elem` reservedSymbols) $
-        failLoc x.bounds $ "Can't use reserved symbol \{x.val}"
 
 export
 opNonNS : Rule Name
 opNonNS = do
-  symbol "("
+  symbol SymParen
   commit
-  id <- bounds (operatorCandidate <|> postfixProj)
-  isNotReservedSymbol (nameRoot <$> id)
-  symbol ")"
-  pure id.val
+  id <- bounds (operatorCandidate <|> Right <$> postfixProj)
+  n <- operatorIn id
+  symbol SymParenClose
+  pure n
+  where
+    operatorIn : WithBounds (Either Reserved Name) -> EmptyRule Name
+    operatorIn x = case x.val of
+      Left r => failLoc x.bounds $ "Can't use reserved symbol \{reservedText r}"
+      Right n => pure n
 
 identWithCapital : (capitalised : Bool) -> WithBounds Ident ->
                    EmptyRule ()
@@ -429,9 +454,9 @@ nameWithCapital b = opNonNS <|> do
   opNS nsx = do
     isCapitalisedIdent (snd <$> nsx)
     let ns = uncurry mkNestedNamespace nsx.val
-    symbol ".("
+    symbol SymDotParen
     n <- (operator <|> postfixProj)
-    symbol ")"
+    symbol SymParenClose
     pure (NS ns n)
 
 export
@@ -439,17 +464,17 @@ fixityNS : Rule HidingDirective
 fixityNS = do
   namespacePrefix <- bounds namespacedIdent
   let nsVal = namespacePrefix.val
-  fx <- checkFixity (snd nsVal).text namespacePrefix.bounds
-  symbol ".("
+  fx <- checkFixity (knownOf (snd nsVal)) namespacePrefix.bounds
+  symbol SymDotParen
   n <- unqualifiedOperatorName
-  symbol ")"
+  symbol SymParenClose
   pure (HideFixity fx (NS (uncurry mkNestedNamespace nsVal) $ UN $ Basic n))
   where
-    checkFixity : String -> Maybe Bounds -> EmptyRule Fixity
-    checkFixity "infixl" _ = pure InfixL
-    checkFixity "infixr" _ = pure InfixR
-    checkFixity "infix"  _ = pure Infix
-    checkFixity "prefix" _ = pure Prefix
+    checkFixity : Maybe Known -> Maybe Bounds -> EmptyRule Fixity
+    checkFixity (Just Kinfixl) _ = pure InfixL
+    checkFixity (Just Kinfixr) _ = pure InfixR
+    checkFixity (Just Kinfix)  _ = pure Infix
+    checkFixity (Just Kprefix) _ = pure Prefix
     checkFixity _ loc =  failLoc loc ""
 
 export
@@ -487,7 +512,7 @@ init = 0
 continueF : EmptyRule () -> (indent : IndentInfo) -> EmptyRule ()
 continueF err indent
     = do eoi; err
-  <|> do keyword "where"; err
+  <|> do keyword KwWhere; err
   <|> do col <- column
          when (col <= indent)
             err
@@ -528,23 +553,23 @@ checkValid (AfterPos x) c = unless (c >= x) $ fail "Invalid indentation"
 checkValid EndOfBlock c = fail "End of block"
 
 ||| A symbol which ends a statement/block/expression
-terminatorSymbol : String -> Bool
-terminatorSymbol "," = True
-terminatorSymbol "]" = True
-terminatorSymbol ";" = True
-terminatorSymbol "}" = True
-terminatorSymbol ")" = True
-terminatorSymbol "|" = True
-terminatorSymbol "**" = True
+terminatorSymbol : Reserved -> Bool
+terminatorSymbol SymComma = True
+terminatorSymbol SymBracketClose = True
+terminatorSymbol SymSemicolon = True
+terminatorSymbol SymBraceClose = True
+terminatorSymbol SymParenClose = True
+terminatorSymbol SymBar = True
+terminatorSymbol SymStarStar = True
 terminatorSymbol _ = False
 
 ||| Any token which indicates the end of a statement/block/expression
 isTerminator : Token -> Bool
-isTerminator (Symbol s) = terminatorSymbol s.text
-isTerminator (Keyword "in") = True
-isTerminator (Keyword "then") = True
-isTerminator (Keyword "else") = True
-isTerminator (Keyword "where") = True
+isTerminator (Reserved r) = terminatorSymbol r
+isTerminator (Keyword KwIn) = True
+isTerminator (Keyword KwThen) = True
+isTerminator (Keyword KwElse) = True
+isTerminator (Keyword KwWhere) = True
 isTerminator InterpEnd = True
 isTerminator EndInput = True
 isTerminator _ = False
@@ -578,7 +603,7 @@ terminator : ValidIndent -> Int -> EmptyRule ValidIndent
 terminator valid laststart
     = do eoi
          pure EndOfBlock
-  <|> do symbol ";"
+  <|> do symbol SymSemicolon
          pure (afterSemi valid)
   <|> do col <- column
          afterDedent valid col
@@ -634,10 +659,10 @@ blockEntries valid rule
 export
 block : (IndentInfo -> Rule ty) -> EmptyRule (List ty)
 block item
-    = do symbol "{"
+    = do symbol SymBrace
          commit
          ps <- blockEntries AnyIndent item
-         symbol "}"
+         symbol SymBraceClose
          pure ps
   <|> do col <- column
          blockEntries (AtPos col) item
@@ -650,10 +675,10 @@ block item
 export
 blockAfter : Int -> (IndentInfo -> Rule ty) -> EmptyRule (List ty)
 blockAfter mincol item
-    = do symbol "{"
+    = do symbol SymBrace
          commit
          ps <- blockEntries AnyIndent item
-         symbol "}"
+         symbol SymBraceClose
          pure ps
   <|> do col <- column
          ifThenElse (col <= mincol)
@@ -667,7 +692,7 @@ blockWithOptHeaderAfter :
    (item : IndentInfo -> Rule ty) ->
    EmptyRule (Maybe hd, List ty)
 blockWithOptHeaderAfter {ty} mincol header item
-    = do symbol "{"
+    = do symbol SymBrace
          commit
          hidt <- optional $ blockEntry AnyIndent header
          restOfBlock hidt
@@ -680,20 +705,20 @@ blockWithOptHeaderAfter {ty} mincol header item
   where
   restOfBlock : Maybe (hd, ValidIndent) -> Rule (Maybe hd, List ty)
   restOfBlock (Just (h, idt)) = do ps <- blockEntries idt item
-                                   symbol "}"
+                                   symbol SymBraceClose
                                    pure (Just h, ps)
   restOfBlock Nothing = do ps <- blockEntries AnyIndent item
-                           symbol "}"
+                           symbol SymBraceClose
                            pure (Nothing, ps)
 
 export
 nonEmptyBlock : (IndentInfo -> Rule ty) -> Rule (List1 ty)
 nonEmptyBlock item
-    = do symbol "{"
+    = do symbol SymBrace
          commit
          res <- blockEntry AnyIndent item
          ps <- blockEntries (snd res) item
-         symbol "}"
+         symbol SymBraceClose
          pure (fst res ::: ps)
   <|> do col <- column
          res <- blockEntry (AtPos col) item
@@ -707,11 +732,11 @@ nonEmptyBlock item
 export
 nonEmptyBlockAfter : Int -> (IndentInfo -> Rule ty) -> Rule (List1 ty)
 nonEmptyBlockAfter mincol item
-    = do symbol "{"
+    = do symbol SymBrace
          commit
          res <- blockEntry AnyIndent item
          ps <- blockEntries (snd res) item
-         symbol "}"
+         symbol SymBraceClose
          pure (fst res ::: ps)
   <|> do col <- column
          let False = col <= mincol

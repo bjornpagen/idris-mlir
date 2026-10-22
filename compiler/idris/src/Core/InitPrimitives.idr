@@ -10,7 +10,7 @@ import Core.Primitives
 addPrim : {auto c : Ref Ctxt Defs} ->
           Prim -> Core ()
 addPrim p
-    = addBuiltin (opName (fn p)) (type p) (totality p) (fn p)
+    = addBuiltin (knownUN (called p)) (type p) (totality p) (fn p)
 
 export
 addPrimitives : {auto c : Ref Ctxt Defs} -> Core ()

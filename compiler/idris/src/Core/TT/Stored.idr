@@ -18,10 +18,10 @@ module Core.TT.Stored
 
 import Core.TT
 
-import Array.Core
-import Linear.Notation
+import Array
 
 import Control.WellFounded
+import Data.DPair
 import Data.List
 import Data.List.HasLength
 import Data.Nat
@@ -65,15 +65,25 @@ data NodeOf : Type -> Type where
   SErased : WhyErased c -> NodeOf c
   SType : Name -> NodeOf c
 
+||| A place among `n`: its number, which both hosts hold as an integer, and
+||| its bound, erased. A `Fin n` says the same, but the stock host holds one
+||| as a chain of successors, so the `i`th would cost `i` cells to build and
+||| `i` steps to read, and freezing a column of them would be quadratic.
+public export
+record Place (n : Nat) where
+  constructor MkPlace
+  spot : Nat
+  0 inside : LT spot n
+
 ||| A binder of an arena of `n` nodes.
 public export
 SBinder : Nat -> Type
-SBinder n = SBinderOf (Fin n)
+SBinder n = SBinderOf (Place n)
 
 ||| A node of an arena of `n` nodes: each child is one of them.
 public export
 Node : Nat -> Type
-Node n = NodeOf (Fin n)
+Node n = NodeOf (Place n)
 
 traverseBinder : Applicative f => (a -> f b) -> SBinderOf a -> f (SBinderOf b)
 traverseBinder g (BLam c p ty) = BLam c <$> traverse g p <*> g ty
@@ -252,14 +262,26 @@ record Arena where
 ||| gave a term in scope `vars`, so its unfolding is that term's.
 export
 data Root : Scoped where
-  MkRoot : (arena : Arena) -> (node : Fin (nodeCount arena)) ->
-           (slot : Fin (locCount arena)) -> Root vars
+  MkRoot : (arena : Arena) -> (node : Place (nodeCount arena)) ->
+           (slot : Place (locCount arena)) -> Root vars
 
-nodeAt : (a : Arena) -> Fin (nodeCount a) -> Node (nodeCount a)
-nodeAt a i = nodes a !! [<i]
+-- The cell of a column at a place. The array is read by a `Fin`, so the
+-- place's number becomes one here, the one place the arena reads a column.
+cellAt : Vector n a -> Place n -> a
+cellAt v (MkPlace i inside) = v !! [<natToFinLT i {prf = inside}]
 
-sizeAt : (a : Arena) -> Fin (nodeCount a) -> Nat
-sizeAt a i = slots a !! [<i]
+-- `i` as a place among `n`, when it is one: one comparison, its proof
+-- erased.
+placeIn : (n : Nat) -> Nat -> Maybe (Place n)
+placeIn n i = case choose (i < n) of
+                Left lt => Just (MkPlace i (ltOpReflectsLT i n lt))
+                Right _ => Nothing
+
+nodeAt : (a : Arena) -> Place (nodeCount a) -> Node (nodeCount a)
+nodeAt a i = cellAt (nodes a) i
+
+sizeAt : (a : Arena) -> Place (nodeCount a) -> Nat
+sizeAt a i = cellAt (slots a) i
 
 ------------------------------------------------------------------------------
 -- Columns
@@ -271,36 +293,27 @@ data Column : Nat -> Type -> Type where
   NoCells : Column Z a
   Then : Column n a -> a -> Column (S n) a
 
-||| The cells of a column, from the last back, each written at its place in
-||| a linear array of `n`: a column of `k` takes the places below `k`.
-writeCells : (1 _ : LArray [<n] a) -> (k : Nat) -> Column k a -> (0 _ : LTE k n) ->
-             LArray [<n] a
-writeCells arr Z NoCells _ = arr
-writeCells arr (S j) (Then col x) fits
-    = writeCells (LArray.write arr [<natToFinLT j] x) j col (lteSuccLeft fits)
+||| A column's cells in the order they were added, and that there are `k`
+||| of them, which only the type says.
+cells : Column k a -> Subset (List a) (\xs => length xs = k)
+cells col = let Element xs same = after col [] in
+                Element xs (trans same (plusZeroRightNeutral k))
+  where
+    after : Column j a -> (acc : List a) -> Subset (List a) (\xs => length xs = j + length acc)
+    after NoCells acc = Element acc Refl
+    after {j = S i} (Then col x) acc
+        = let Element xs same = after col (x :: acc) in
+              Element xs (trans same (sym (plusSuccRightSucc i (length acc))))
 
-noIndex : Index [<Z] -> a
-noIndex [<i] = absurd i
-
-||| A column frozen, its cells in the order they were added: written in place
-||| into a fresh array its last cell fills, then frozen.
-column : (k : Nat) -> Column k a -> Vector k a
-column Z NoCells = tabulate [<Z] noIndex
-column (S j) (Then col x)
-    = unrestricted (thaw (tabulate [<S j] (const x))
-                         (\arr => LArray.freeze (writeCells arr (S j) (Then col x) reflexive)))
-
-||| `i` as a place below `n`, when it is one: one comparison, its proof
-||| erased.
-below : (n : Nat) -> Nat -> Maybe (Fin n)
-below n i = case choose (i < n) of
-              Left lt => Just (natToFinLt i)
-              Right _ => Nothing
+||| A column frozen, its cells in the order they were added.
+column : Column k a -> Vector k a
+column col = let Element xs same = cells col in
+                 replace {p = \m => Vector m a} same (Array.fromList xs)
 
 ||| Every node's children as places among `n` nodes, when each is one.
 bounded : (n : Nat) -> Column k (NodeOf Nat) -> Maybe (Column k (Node n))
 bounded n NoCells = Just NoCells
-bounded n (Then col x) = [| Then (bounded n col) (traverseNode (below n) x) |]
+bounded n (Then col x) = [| Then (bounded n col) (traverseNode (placeIn n) x) |]
 
 ------------------------------------------------------------------------------
 -- Freezing
@@ -469,20 +482,15 @@ seal (MkFreeze run)
     = let (st, x) = run initial in
       case bounded st.made st.built of
            Nothing => Nothing
-           Just ns => Just (MkArena st.made (column st.made ns) (column st.made st.sizes)
-                                    st.located (column st.located st.locations), x)
+           Just ns => Just (MkArena st.made (column ns) (column st.sizes)
+                                    st.located (column st.locations), x)
 
 ||| The root of an arena at a place its own freezing gave: the arena and the
 ||| places `seal` gives together. Nothing for a place outside the arena,
 ||| which only another freezing gives.
 export
 rootAt : (a : Arena) -> Pos vars -> Maybe (Root vars)
-rootAt a (MkPos n s)
-    = case choose (n < nodeCount a) of
-           Right _ => Nothing
-           Left nb => case choose (s < locCount a) of
-                           Right _ => Nothing
-                           Left sb => Just (MkRoot a (natToFinLt n) (natToFinLt s))
+rootAt a (MkPos n s) = MkRoot a <$> placeIn (nodeCount a) n <*> placeIn (locCount a) s
 
 ------------------------------------------------------------------------------
 -- Decoding
@@ -516,7 +524,7 @@ both : (p -> q -> r) -> Maybe p -> Maybe q -> Maybe r
 both f (Just x) (Just y) = Just (f x y)
 both f _ _ = Nothing
 
-piSize : (a : Arena) -> PiInfo (Fin (nodeCount a)) -> Nat
+piSize : (a : Arena) -> PiInfo (Place (nodeCount a)) -> Nat
 piSize a (DefImplicit d) = sizeAt a d
 piSize a _ = 0
 
@@ -539,7 +547,7 @@ binderSize a (BPVTy _ ty) = S (sizeAt a ty)
 -- nothing.
 mutual
   decodeChild : (a : Arena) -> SizeOf vars -> (m : Nat) -> (0 _ : Accessible LT m) ->
-                (c : Fin (nodeCount a)) -> (mc : Nat) -> (slot : Nat) ->
+                (c : Place (nodeCount a)) -> (mc : Nat) -> (slot : Nat) ->
                 Maybe (Term (vars ++ outer))
   decodeChild a s m (Access rec) c mc slot
       = case choose (mc < m) of
@@ -547,7 +555,7 @@ mutual
              Right _ => Nothing
 
   decodeAll : (a : Arena) -> SizeOf vars -> (m : Nat) -> (0 _ : Accessible LT m) ->
-              List (Fin (nodeCount a)) -> (slot : Nat) ->
+              List (Place (nodeCount a)) -> (slot : Nat) ->
               Maybe (List (Term (vars ++ outer)))
   decodeAll a s m acc [] slot = Just []
   decodeAll a s m acc (c :: cs) slot
@@ -555,7 +563,7 @@ mutual
             both (::) (decodeChild a s m acc c mc slot) (decodeAll a s m acc cs (slot + mc))
 
   decodePi : (a : Arena) -> SizeOf vars -> (m : Nat) -> (0 _ : Accessible LT m) ->
-             PiInfo (Fin (nodeCount a)) -> (slot : Nat) ->
+             PiInfo (Place (nodeCount a)) -> (slot : Nat) ->
              Maybe (PiInfo (Term (vars ++ outer)))
   decodePi a s m acc Implicit slot = Just Implicit
   decodePi a s m acc Explicit slot = Just Explicit
@@ -568,10 +576,10 @@ mutual
                  SBinder (nodeCount a) -> (slot : Nat) ->
                  Maybe (Binder (Term (vars ++ outer)))
   decodeBinder a s m acc b slot
-      = case choose (slot < locCount a) of
-          Right _ => Nothing
-          Left lt =>
-            let fc = locs a !! [<natToFinLt slot] in
+      = case placeIn (locCount a) slot of
+          Nothing => Nothing
+          Just at =>
+            let fc = cellAt (locs a) at in
             case b of
               BLam c p ty =>
                 both (Lam fc c) (decodePi a s m acc p (S slot))
@@ -592,14 +600,14 @@ mutual
                      (decodeChild a s m acc ty (sizeAt a ty) (S slot + mv))
               BPVTy c ty => map (PVTy fc c) (decodeChild a s m acc ty (sizeAt a ty) (S slot))
 
-  decodeNode : (a : Arena) -> SizeOf vars -> (c : Fin (nodeCount a)) ->
+  decodeNode : (a : Arena) -> SizeOf vars -> (c : Place (nodeCount a)) ->
                (m : Nat) -> (0 _ : Accessible LT m) -> (slot : Nat) ->
                Maybe (Term (vars ++ outer))
   decodeNode a s c m acc slot
-      = case choose (slot < locCount a) of
-          Right _ => Nothing
-          Left lt =>
-            let fc = locs a !! [<natToFinLt slot] in
+      = case placeIn (locCount a) slot of
+          Nothing => Nothing
+          Just at =>
+            let fc = cellAt (locs a) at in
             case nodeAt a c of
               SLocal l idx => decodeLocal fc l idx s
               SRef nt n => Just (Ref fc nt n)
@@ -636,7 +644,7 @@ mutual
 export
 decodeWithin : SizeOf vars -> Root vars -> Maybe (Term (vars ++ outer))
 decodeWithin s (MkRoot a c slot)
-    = let m = sizeAt a c in decodeNode a s c m (wellFounded m) (finToNat slot)
+    = let m = sizeAt a c in decodeNode a s c m (wellFounded m) (spot slot)
 
 ||| The term a root stands for, with its locations.
 export
@@ -674,7 +682,7 @@ resultHead tm = case getFn tm of
 
 -- The head of an application's spine, read off the nodes without decoding
 -- them, each step to a child with fewer location slots.
-spineHead : (a : Arena) -> Fin (nodeCount a) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+spineHead : (a : Arena) -> Place (nodeCount a) -> (m : Nat) -> (0 _ : Accessible LT m) ->
             Maybe ResultHead
 spineHead a c m (Access rec)
     = case nodeAt a c of
@@ -686,7 +694,7 @@ spineHead a c m (Access rec)
            SRef (TyCon _) tn => Just (HeadFamily tn)
            _ => Just HeadOther
 
-afterPis : (a : Arena) -> Fin (nodeCount a) -> (m : Nat) -> (0 _ : Accessible LT m) ->
+afterPis : (a : Arena) -> Place (nodeCount a) -> (m : Nat) -> (0 _ : Accessible LT m) ->
            Maybe ResultHead
 afterPis a c m (Access rec)
     = case nodeAt a c of

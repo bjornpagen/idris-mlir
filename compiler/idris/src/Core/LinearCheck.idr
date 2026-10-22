@@ -14,9 +14,6 @@ import Libraries.Data.List.SizeOf
 import Libraries.Data.SnocList.SizeOf
 
 import Array
-import Linear.Notation
-
-import Data.Nat
 
 %default covering
 
@@ -41,27 +38,6 @@ closeScope (MkVar (Later p) :: us) = let (q, outer) = closeScope us in (q, MkVar
 binderOf : Var vars -> Index [<length vars]
 binderOf (MkVar p) = [<finIdx p]
 
-noIndex : Index [<Z] -> a
-noIndex [<i] = absurd i
-
-||| The elements of a list from place `i` on, each written at its own place
-||| of a linear array of `n`, in order.
-writeFrom : (1 _ : LArray [<n] a) -> (i : Nat) -> (xs : List a) ->
-            (0 _ : LTE (i + length xs) n) -> LArray [<n] a
-writeFrom arr i [] _ = arr
-writeFrom arr i (x :: xs) fits
-    = let 0 rest = replace {p = \k => LTE k n} (sym (plusSuccRightSucc i (length xs))) fits in
-      writeFrom (LArray.write arr [<natToFinLT i {prf = transitive (LTESucc (lteAddRight i)) rest}] x)
-                (S i) xs rest
-
-||| The elements of a list, in order, as an array: written in place into a
-||| fresh array the first fills, then frozen.
-arrayOf : (xs : List a) -> Array [<length xs] a
-arrayOf [] = tabulate [<Z] noIndex
-arrayOf (x :: xs)
-    = unrestricted (LArray.thaw (fill [<S (length xs)] x)
-                                (\arr => LArray.freeze (writeFrom arr (S Z) xs reflexive)))
-
 ||| The quantity each binder of a scope is used at: the uses grouped by the
 ||| binder each names, and each group summed in 0/1/ω, every use one, in
 ||| one pass over the uses.
@@ -69,7 +45,7 @@ usesOf : {vars : _} -> Usage vars -> Uses vars
 usesOf us = sumUses (map binderOf us)
   where
     sumUses : List (Index [<length vars]) -> Uses vars
-    sumUses owners = accumulate (|+|) (fill [<length vars] erased) (arrayOf owners)
+    sumUses owners = accumulate (|+|) (fill [<length vars] erased) (Array.fromList owners)
                                 (fill [<length owners] linear)
 
 ||| The number of uses a message about a binder names. A quantity keeps no

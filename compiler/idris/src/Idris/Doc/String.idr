@@ -30,7 +30,6 @@ import public Libraries.Text.PrettyPrint.Prettyprinter
 import public Libraries.Text.PrettyPrint.Prettyprinter.Util
 
 import public Idris.Doc.Annotations
-import Idris.Doc.Keywords
 import Idris.Doc.Brackets
 
 %default covering
@@ -654,9 +653,7 @@ getDocs : {auto o : Ref ROpts REPLOpts} ->
           {auto s : Ref Syn SyntaxInfo} ->
           DocDirective -> Core (Doc IdrisDocAnn)
 getDocs (APTerm ptm) = getDocsForPTerm ptm
-getDocs (Symbol k) = pure $ getDocsForSymbol k
 getDocs (Bracket bracket) = pure $ getDocsForBracket bracket
-getDocs (Keyword k) = pure $ getDocsForKeyword k
 getDocs (AModule mod) = do
   syn  <- get Syn
   let Just modDoc = lookup mod (modDocstrings syn)
