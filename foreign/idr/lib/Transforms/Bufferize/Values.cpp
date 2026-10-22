@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Two ops that hold a tensor without touching its elements:
-// idr.array.tie_shape, which names an array's dynamic sizes, and ub.poison,
-// which dead-value removal leaves where a kept op used a dead array.
+// Three ops that hold a tensor without touching its elements:
+// idr.array.tie_shape, which names an array's dynamic sizes; idr.carrier,
+// which lends a value's bare carrier to upstream's ops under a lifetime;
+// and ub.poison, which dead-value removal leaves where a kept op used a
+// dead array.
 #include "idr/Transforms/BufferizeModels.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 
 using namespace mlir;
 using namespace mlir::bufferization;
@@ -46,6 +49,51 @@ struct TieShapeModel : BufferizableOpInterface::ExternalModel<TieShapeModel, idr
   }
 };
 
+// A loan: the value's own words, which its holder keeps, handed to
+// upstream's ops as the bare carrier they take. Its buffer is the value's,
+// at no grade, never a copy, since the loan is those words; and it writes
+// nothing, as upstream's to_buffer of a read-only buffer hands a buffer on.
+// The buffer stays its holder's, so nothing writes it through the loan: the
+// result is not writable, and One-Shot copies for a write to it. The source
+// is read through its view interface.
+struct CarrierModel : BufferizableOpInterface::ExternalModel<CarrierModel, idr::CarrierOp> {
+  static Value sourceOf(Operation *op) { return cast<ViewLikeOpInterface>(op).getViewSource(); }
+
+  bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
+    return true;
+  }
+  bool bufferizesToMemoryWrite(Operation *, OpOperand &, const AnalysisState &) const {
+    return false;
+  }
+  bool mustBufferizeInPlace(Operation *, OpOperand &, const AnalysisState &) const {
+    return true;
+  }
+  bool isWritable(Operation *, Value, const AnalysisState &) const { return false; }
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &, const AnalysisState &) const {
+    return {{op->getResult(0), BufferRelation::Equivalent, /*isDefinite=*/true}};
+  }
+
+  FailureOr<BufferLikeType> getBufferType(Operation *op, Value, const BufferizationOptions &options,
+                                          const BufferizationState &state,
+                                          SmallVector<Value> &invocationStack) const {
+    FailureOr<BufferLikeType> from =
+        bufferization::getBufferType(sourceOf(op), options, state, invocationStack);
+    if (failed(from))
+      return failure();
+    return cast<BufferLikeType>(idr::unrestricted(*from));
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options, BufferizationState &state) const {
+    FailureOr<Value> buffer = getBuffer(rewriter, sourceOf(op), options, state);
+    if (failed(buffer))
+      return failure();
+    replaceOpWithNewBufferizedOp<idr::CarrierOp>(rewriter, op, *buffer,
+                                                 cast<idr::CarrierOp>(op).getLifetime());
+    return success();
+  }
+};
+
 // Upstream gives ub.poison no model. A poison array is a dead value a kept
 // op still names, so its buffer is never read or written: a poison buffer,
 // no allocation and no copy. Its contents are undefined, so it defines
@@ -76,8 +124,9 @@ struct PoisonModel : BufferizableOpInterface::ExternalModel<PoisonModel, ub::Poi
 
 } // namespace
 
-void idr::bufferize::attachTieShapeModel(MLIRContext *ctx) {
+void idr::bufferize::attachViewModels(MLIRContext *ctx) {
   idr::ArrayTieShapeOp::attachInterface<TieShapeModel>(*ctx);
+  idr::CarrierOp::attachInterface<CarrierModel>(*ctx);
 }
 
 void idr::bufferize::attachPoisonModel(MLIRContext *ctx) {

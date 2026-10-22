@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Region ops whose results are what their regions give (idr.data.match,
-// idr.lit.match, idr.memo.run) and the terminator that gives it
-// (idr.yield): one model each, read off RegionBranchOpInterface, so no
-// model lists what a terminator forwards or which case yields.
+// idr.lit.match, idr.memo.run, and idr.lifetime, the opener that acquires
+// no memory, which a loan opens before bufferization and whose one region
+// is bufferized in place) and the terminator that gives it (idr.yield):
+// one model each, read off RegionBranchOpInterface, so no model lists what
+// a terminator forwards or which case yields.
 //
 // A cell's field holds its buffer from the frontend on: idr.data.con takes
 // one through upstream's to_buffer, a release One-Shot already models, and
@@ -212,5 +214,6 @@ void idr::bufferize::attachDataModels(MLIRContext *ctx) {
   idr::DataMatchOp::attachInterface<GivenModel<idr::DataMatchOp>>(*ctx);
   idr::LitMatchOp::attachInterface<GivenModel<idr::LitMatchOp>>(*ctx);
   idr::MemoRunOp::attachInterface<GivenModel<idr::MemoRunOp>>(*ctx);
+  idr::LifetimeOp::attachInterface<GivenModel<idr::LifetimeOp>>(*ctx);
   idr::YieldOp::attachInterface<GivingModel<idr::YieldOp>>(*ctx);
 }

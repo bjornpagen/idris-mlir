@@ -130,7 +130,7 @@ void idr::bufferize::registerModels(DialectRegistry &registry) {
     attachLinearModels(ctx);
     attachDataModels(ctx);
     attachGeneratingModels(ctx);
-    attachTieShapeModel(ctx);
+    attachViewModels(ctx);
   });
   registry.addExtension(+[](MLIRContext *ctx, ub::UBDialect *) { attachPoisonModel(ctx); });
 }
