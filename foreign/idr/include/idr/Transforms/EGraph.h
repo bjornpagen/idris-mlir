@@ -4,11 +4,13 @@
 // and common subexpressions at every point of the pipeline that holds our
 // ops, and as upstream's inliner's simplification. One function at a time,
 // in parallel under the pass manager, it holds the function's floating
-// values in its own typed tables over MLIR's ops, hash-consed, rewrites
-// them by the specification's rules as each node is made, keeps every op
-// whose effects order it in a skeleton per region, extracts the cheapest
-// form of each value and writes it back through MLIR's rewriter. Its
-// output is the same bytes at any thread count.
+// values in its own typed tables over MLIR's ops, an e-graph: classes of
+// equal values under a union-find, hash-consed and kept congruent,
+// saturated by the specification's rules in rounds, each rule adding its
+// right side to its left side's class. It keeps every op whose effects
+// order it in a skeleton per region, extracts the cheapest form of each
+// value and writes it back through MLIR's rewriter. Its output is the same
+// bytes at any thread count.
 //
 // This header is what the specification's generator and the op lanes write
 // against: the shape of the printed rule tables, and the concept a hand
@@ -90,8 +92,8 @@ struct Condition {
 
 // One rule, one way: its variables, its left side rooted at an op (a run of
 // patterns whose first node is the root), its right side (a run of
-// patterns), which replaces the left side's class where it matches, and its
-// conditions (a run of conditions).
+// patterns), which joins the left side's class where it matches, both forms
+// kept, and its conditions (a run of conditions).
 struct Rule {
   std::uint16_t vars;
   std::uint32_t lhs, lhsSize;
@@ -146,8 +148,8 @@ inline constexpr IntRangeFn rangeBy = &range::by<F>;
 //===----------------------------------------------------------------------===//
 // A one-way rule over an op the skeleton orders, or over a region: hand
 // C++ the specification names with the op it is rooted at. Once the
-// function's e-graph is built and extracted, `decide` reads what it knows
-// of the function's values and returns an edit or nothing. No skeleton
+// function's e-graph is saturated and extracted, `decide` reads what it
+// knows of the function's values and returns an edit or nothing. No skeleton
 // rule makes an op with an identity, and none reorders two ops one
 // resource orders.
 //
@@ -168,16 +170,17 @@ namespace detail {
 class Function;
 } // namespace detail
 
-// A cost in the program's units. It saturates, so no sum of costs wraps,
-// and every node costs at least what its operands cost, so extraction can
-// close no cycle.
+// A cost in the program's units. It saturates at `most`, so no sum of
+// costs wraps, and below it every op costs more than its operands, so
+// extraction, which moves a class to an equal price only below `most`,
+// closes no cycle.
 class Cost {
 public:
   static constexpr Cost of(std::uint32_t units) { return Cost(units); }
+  static constexpr Cost most() { return Cost(0xffffffffu); }
   constexpr Cost plus(Cost other) const {
     std::uint64_t sum = std::uint64_t(units) + other.units;
-    constexpr std::uint64_t most = 0xffffffffu;
-    return Cost(static_cast<std::uint32_t>(sum > most ? most : sum));
+    return sum > most().units ? most() : Cost(static_cast<std::uint32_t>(sum));
   }
   friend constexpr auto operator<=>(Cost, Cost) = default;
 

@@ -1,38 +1,71 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// One function's e-graph: its tables and its three phases.
+// One function's e-graph: its tables and its phases.
 //
 // Build: one walk in walk order. Each op is classified by its declared
 // effects: an op with none (an op-level acquisition only reports) floats,
 // and is a node hash-consed into a class; an op whose only effect is the
-// identity of its result is a node of its own, never merged, placed at
-// most once per path; every other op, a region op, a call in tail
-// position and a terminator stays in the skeleton of its region, in
-// order, and so does an op whose value depends on its parent
-// (DependsOnParent), which two parents would make two values. A node of
-// the input is made with its analysis (an interval, by upstream's transfer
-// function, whose one value, where it has one, is the integer it is; the
-// op's own fold is never asked, since a fold makes an attribute and the
-// graph makes none) and the specification's rules rooted at its kind
-// run at once, the first that matches replacing the node with its right
-// side: every rule runs one way. A node a right side builds has no op to
-// ask and none is made for it: its interval is its kind's range function
-// over its operands' intervals, from the generated table, so one built
-// over constants is its integer at once; it runs no rules. An integer is a
-// value until the write-back makes its attribute; any other constant is
-// one an op of the input holds. The class a node lands
-// in, its own or the one that replaces it, meets what the node knows, so a
-// rewrite loses no fact of the form it replaced.
-// A class's members never change once made and its
-// analyses only narrow, so no id goes stale and nothing is rebuilt: a
-// node made over a class reads its analyses as they stood when it was
-// made. A repeated read in a region with
-// no write of what it reads between merges into the first, and a repeated
-// op of the region's parent into the first; the skeleton rules decide
-// their edits.
+// identity of its result is a node of its own, never hash-consed, so no
+// two such are ever one class, placed at most once per path; every other
+// op, a region op, a call in tail position and a terminator stays in the
+// skeleton of its region, in order, and so does an op whose value depends
+// on its parent (DependsOnParent), which two parents would make two
+// values. A node of the input is made with what it says of its value (an
+// interval, by upstream's transfer function, whose one value, where it has
+// one, is the integer it is; the op's own fold is never asked, since a
+// fold makes an attribute and the graph makes none). A node a right side
+// builds has no op to ask and none is made for it: its interval is its
+// kind's range function over its operands' intervals, from the generated
+// table, so one built over constants is its integer at once. An integer is
+// a value until the write-back makes its attribute, hash-consed by its
+// value; any other constant is one an op of the input holds. A repeated
+// read in a region with no write of what it reads between merges into the
+// first, and a repeated op of the region's parent into the first; the
+// skeleton rules decide their edits.
 //
-// Extract: each class's cheapest member, bottom-up in creation order,
-// ties to the larger id.
+// Saturate: the specification's rules, in rounds. A round tries each rule,
+// in the generated order, at each node of the kind it is rooted at, over
+// the graph as it stood when the round began: a rule that matches builds
+// its right side and unites that class with the root's, so both forms
+// stay. A union links one root of the union-find under the other at once
+// and owes the merge of the two classes' contents (members, users, facts)
+// to the rebuild, so nothing a round's matches read changes while they
+// read. The rebuild pays what is owed, then repairs each class whose
+// members grew: each node that reads it is keyed again by its operands'
+// roots, and one that has become equal to another keyed node unites their
+// classes, until no union is owed; so congruence holds again after every
+// round, and the cost of keeping it is paid once a round rather than once
+// a union. A class's facts are what each member says of its one value,
+// met: each holds of the value, so their meet does, and a meet that comes
+// out empty means a fact was wrong. A node reads its operands' facts
+// through their roots when it reads them: when it is made, and when a
+// rebuild repairs it, where what it now says narrows its class; a class so
+// narrowed has its users read again at the next round's rebuild, and a
+// class whose facts are one integer holds that integer.
+//
+// The rounds end by construction: a round that makes no node and unites no
+// two classes is the last; a node is made only while the function's budget
+// of nodes is not spent, and each union leaves one class fewer, so no more
+// rounds run than the budget's nodes and the classes together. A spent
+// budget stops them and leaves the function less optimized, never refused.
+//
+// A class can be computed only where its members can: a leaf only in its
+// region, which a union may put in a class also used outside it. So each
+// class keeps its reach, the outermost region where one of its members can
+// be computed; a node whose operands share no region where each can be
+// computed is not built, and two classes whose reaches do not nest do not
+// unite, since nothing would compute the one value at both their uses.
+// The reaches are spread to their fixpoint once the rounds are done: each
+// moves only outward, so this ends.
+//
+// Extract: each class's cheapest member by the engine's own cost (an op
+// one, a constant none), among the members computable in its reach, which
+// are computable at every use of the class. A member may read its own
+// class, so prices are relaxed over every node in creation order, at most
+// one pass per class, until a pass changes none. A class moves to another
+// member only for a lower price, or an equal one and a larger id (the
+// newer form) below the cost's saturation, so the chosen members close no
+// cycle.
 //
 // Elaborate: the regions in program order, each skeleton op's operands
 // written back where they are demanded, a value placed in the scope that
@@ -42,14 +75,16 @@
 // Every id is minted by the table that holds it and never leaves the
 // function; no map holds per-node state by an IR handle but the value
 // numbering, which lives while the function is read; nothing recurses on
-// the input: the walks are MLIR's, the regions' stack is explicit, and a
-// demand's postorder is the shared depth-first walk. Every table sized by
-// the function, and the regions' stack, is the footprint's.
+// the input: the walks are MLIR's, the regions' stack and a match's
+// choices are explicit, and a demand's postorder is the shared depth-first
+// walk. Every table sized by the function, and the regions' stack, is the
+// footprint's.
 #ifndef IDR_TRANSFORMS_EGRAPH_ENGINE_H
 #define IDR_TRANSFORMS_EGRAPH_ENGINE_H
 
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/Support/Changed.h"
 #include "idr/Support/Footprint.h"
 #include "idr/Support/Id.h"
 #include "idr/Support/Match.h"
@@ -89,9 +124,14 @@ struct ClassTag {
 struct RegionTag {
   using Minter = Function;
 };
+struct UseTag {
+  using Minter = Function;
+};
 using NodeId = Id<NodeTag>;
 using ClassId = Id<ClassTag>;
 using RegionId = Id<RegionTag>;
+// An operand of a node, by its place among every node's operands.
+using UseId = Id<UseTag>;
 
 // A run of one of the function's flat arrays.
 struct Run {
@@ -114,9 +154,11 @@ std::optional<IntegerForm> integerFormOf(mlir::Type type);
 // What a node is.
 namespace node {
 // A value the e-graph does not see through: an argument of the function or
-// of a region, or a result of a skeleton op.
+// of a region, or a result of a skeleton op; it exists only in the region
+// it is of, its home.
 struct Leaf {
   mlir::Value value;
+  RegionId home;
 };
 // An op of the input, which stands for itself: its kind where a rule names
 // it, and whether its result takes a fresh identity.
@@ -149,8 +191,8 @@ struct Integer {
 } // namespace node
 using What = std::variant<node::Leaf, node::Input, node::Built, node::Constant, node::Integer>;
 
-// A node that is no op: a leaf or a constant, of no operands. No table keys
-// it, no node pattern matches it, and it costs nothing to place.
+// A node that is no op: a leaf or a constant, of no operands. No node
+// pattern matches it, it reads no class, and it costs nothing to place.
 template <class N>
 concept Atom = std::same_as<N, node::Leaf> || std::same_as<N, node::Constant> ||
                std::same_as<N, node::Integer>;
@@ -175,16 +217,45 @@ struct Facts {
   }
   // What is known of one value known two ways, both of which hold: it lies
   // in both intervals, and is either's attribute (two constants of one
-  // value are one).
-  void meet(const Facts &other);
+  // value are one). Whether this narrowed.
+  Changed meet(const Facts &other);
+};
+
+// An operand of a node read as a use of the class it names: the node it is
+// of, and the next use of the same class, so a class's users are a list
+// that a union joins to another's in one step.
+struct Use {
+  NodeId user;
+  std::optional<UseId> next;
 };
 
 struct Class {
-  Run members;
   mlir::Type type;
-  // What its node knew when the class was made, met with what each node
-  // that landed in it since knew.
+  // What every member says of the class's one value, met. A root's is
+  // current; a class linked under another gave its facts to its root when
+  // the rebuild paid the union.
   Facts facts;
+  // Its members, first to last through the nodes' next members, and how
+  // many: the size the union-find links by.
+  NodeId first, last;
+  std::uint32_t size;
+  // The uses of it, first to last, none before any node reads it.
+  std::optional<UseId> firstUse, lastUse;
+  // Own where a member takes a fresh identity: two such classes are two
+  // values whatever a rule says of their contents, so they never unite.
+  Identity identity;
+  // The outermost region where a member can be computed, as the graph
+  // last read its members: a leaf only in its home, any other node where
+  // each operand can be. A member's region is this or inside it, and so is
+  // every use of the class, since two classes unite only where one's reach
+  // holds the other's; a reach only moves outward.
+  RegionId reach;
+};
+
+// A union whose contents the rebuild still owes: `from`'s members, uses
+// and facts go to `into`, which was its root when the union was made.
+struct Owed {
+  ClassId into, from;
 };
 
 // What becomes of a skeleton op when the function is written back.
@@ -248,12 +319,25 @@ enum class Round : std::uint8_t { First, Second };
 // tables, which only Rules.cpp includes.
 std::uint32_t nodesPerOp();
 
-// What one node costs the arena, every table it enters counted: the node,
-// a class of its own, its place among the members and the operands, and
-// the hash-cons's two slots at half full.
+// The hash-cons's slot: a keyed node and the hash it was keyed under, kept
+// so the table grows and deletes without hashing a node again.
+struct Slot {
+  std::optional<NodeId> node;
+  std::uint32_t hash = 0;
+};
+
+// What one node costs the arena, every table it enters counted, a class
+// counted with the node that made it, since each node is made with a class
+// of its own: the node; its class; the class's slot in the union-find; the
+// node's class and its next member; its place among the operands and the
+// use that puts it on its class's users; the hash-cons's two slots at half
+// full; the union a class may owe the rebuild before it is paid, and its
+// place on the rebuild's two lists of classes to repair; and extraction's
+// chosen member and price.
 inline constexpr std::uint64_t bytesPerNode =
-    sizeof(Node) + sizeof(Class) + sizeof(NodeId) + sizeof(ClassId) +
-    2 * (sizeof(std::optional<NodeId>) + sizeof(std::optional<ClassId>));
+    sizeof(Node) + sizeof(Class) + sizeof(ClassId) + sizeof(ClassId) +
+    sizeof(std::optional<NodeId>) + sizeof(ClassId) + sizeof(Use) + 2 * sizeof(Slot) +
+    sizeof(Owed) + 2 * sizeof(ClassId) + sizeof(std::optional<NodeId>) + sizeof(Cost);
 
 class Function {
 public:
@@ -263,6 +347,7 @@ public:
   // made, from the function alone, before its search starts.
   std::uint64_t arena() const { return budget * bytesPerNode; }
 
+  // The walk, then the rounds of the rules until saturation or the budget.
   void build();
   void extract();
   void decide(Round round);
@@ -277,7 +362,7 @@ public:
   static void rewriteSkeleton(const Pending &pending, mlir::RewriterBase &rewriter);
   void elaborate(mlir::RewriterBase &rewriter);
 
-  // What a skeleton rule reads (OperandFacts).
+  // What a skeleton rule reads (OperandFacts), once the graph is settled.
   const Class &classOfValue(mlir::Value value) const;
   mlir::Operation *originOf(mlir::Value value) const;
   Cost costOf(mlir::Value value) const;
@@ -286,9 +371,8 @@ public:
   std::uint64_t work() const { return steps; }
 
 private:
-  // Minting.
-  NodeId newNode(Node node);
-  ClassId newClass(Class cls);
+  // Minting: a node and a class of its own, which holds what it says.
+  NodeId make(Node node, Facts facts);
   RegionId newRegion(Region region);
   Node &at(NodeId n) { return nodes[n.index()]; }
   const Node &at(NodeId n) const { return nodes[n.index()]; }
@@ -298,57 +382,83 @@ private:
   std::span<const ClassId> childrenOf(const Node &node) const {
     return std::span<const ClassId>(children).subspan(node.children.first, node.children.count);
   }
-  std::span<const NodeId> membersOf(const Class &cls) const {
-    return std::span<const NodeId>(members).subspan(cls.members.first, cls.members.count);
-  }
+  ClassId classOfNode(NodeId n) const { return nodeClass[n.index()]; }
 
   // Building.
-  ClassId leaf(mlir::Value value);
+  ClassId leaf(mlir::Value value, RegionId home);
   // A constant an op holds as an attribute, with the interval the op gives
   // it where it is an integer.
   ClassId constant(mlir::Attribute value, mlir::Type type, mlir::Dialect *dialect,
                    std::optional<mlir::ConstantIntRanges> interval);
-  // The integer `value` of `type`; none where the type has no integer form.
+  // The integer `value` of `type`; none where the type has no integer form,
+  // or where a new node would pass the budget.
   std::optional<ClassId> integer(const llvm::APInt &value, mlir::Type type);
-  // A node of the input runs the rules rooted at its kind as it is made; a
-  // node a right side built runs none, so one insertion applies rules once,
-  // never recursively, and it is the one a spent budget refuses.
+  // A node of the input, its class united with the integer it is and with
+  // the argument its callee gives back, where it is either.
   ClassId insert(node::Input op, mlir::Type type, std::span<const ClassId> operands);
+  // A node a right side built; none once the budget is spent.
   std::optional<ClassId> insert(node::Built op, mlir::Type type,
                                 std::span<const ClassId> operands);
-  // `operands` as a new run of `children`.
+  // `operands`' roots as a new run of `children`.
   Run childrenFor(std::span<const ClassId> operands);
-  // A class of its own for a node just made, holding what it knows.
-  ClassId ownClass(NodeId made, mlir::Type type, Facts facts);
-  ClassId alone(Node node, ClassId into);
   // The interval upstream's transfer function gives an op of the input over
   // its operands' classes.
   std::optional<mlir::ConstantIntRanges> intervalOf(mlir::Operation *op,
                                                     std::span<const ClassId> operands) const;
-  // What a node a right side built computes over its operands' classes:
-  // its kind's range function's interval (Rules.cpp).
-  Facts factsOf(const node::Built &op, mlir::Type type, std::span<const ClassId> operands) const;
+  // What a node a right side built says over its operands' classes: its
+  // kind's range function's interval (Rules.cpp).
+  Facts saysOf(const node::Built &op, mlir::Type type, std::span<const ClassId> operands) const;
+  // What a node says of its value over its operands' facts as they are now.
+  Facts saysOf(NodeId n) const;
   std::optional<ClassId> giveBack(const node::Input &op, std::span<const ClassId> operands,
                                   mlir::Type type);
-  // The rules rooted at the kind of `op`, just made as `made` (Rules.cpp):
-  // the class of the right side of the first that matches, which the node
-  // lands in; none when no rule matches.
-  std::optional<ClassId> rewrite(NodeId made, const node::Input &op, mlir::Type type);
+  // A class whose facts are one integer holds that integer.
+  void joinInteger(ClassId c);
+  // The region a node can be computed in, from its operands' reaches; none
+  // where they share none.
+  std::optional<RegionId> needs(const Node &node) const;
+  // The outer of two regions where one holds the other; none where neither
+  // does.
+  std::optional<RegionId> outerOf(RegionId a, RegionId b) const;
+
+  // The union-find, and the rebuild that restores congruence.
+  ClassId find(ClassId c);
+  // The root, read with no path shortened, for a reader that may not write.
+  ClassId rootOf(ClassId c) const;
+  const Facts &factsOf(ClassId c) const { return at(rootOf(c)).facts; }
+  Changed unite(ClassId a, ClassId b);
+  // The contents `owed` moves to its root; the root.
+  ClassId pay(const Owed &owed);
+  void rebuild();
+  void repair(ClassId c);
+  // The holder's reach widened to where `member` can now be computed.
+  Changed widen(ClassId holder, const Node &member);
+  // Once the rounds are done, every reach at its fixpoint, and every class
+  // and every value's class read at its root in one load.
+  void settle();
+
+  // The rounds (Rules.cpp).
+  void saturate();
+  Changed round();
+  // The first complete match of the rule's left side at `root`, its
+  // conditions holding.
+  std::optional<Bindings> matchAt(const table::Rule &rule, NodeId root) const;
   std::optional<ClassId> buildSide(const table::Rule &rule, const Bindings &bindings,
                                    std::uint32_t &at, mlir::Type type);
-  std::optional<std::uint32_t> matchClass(std::uint32_t at, ClassId cls, Bindings &bindings) const;
-  std::optional<std::uint32_t> matchNode(std::uint32_t at, NodeId node, Bindings &bindings) const;
   bool holds(const table::Condition &condition, const Bindings &bindings) const;
   // The skeleton rules (Rules.cpp): the edit the first rule rooted at the
   // op decides, if one does.
   std::optional<Decided> decideSkeleton(mlir::Operation *op, const OperandFacts &facts) const;
 
-  // The hash-cons.
-  std::optional<ClassId> lookup(const Node &node) const;
-  void remember(NodeId node, ClassId cls);
+  // The hash-cons, over every node but a leaf and an op with an identity:
+  // each keyed once, by its kind, its payload and its operands as stored,
+  // which the rebuild sets to their roots.
+  std::optional<NodeId> lookup(const Node &node) const;
+  void remember(NodeId n);
+  void forget(NodeId n);
   static bool sameKey(const Node &a, std::span<const ClassId> ac, const Node &b,
                       std::span<const ClassId> bc);
-  std::uint64_t hashOf(const Node &node, std::span<const ClassId> operands) const;
+  std::uint32_t hashOf(const Node &node) const;
 
   // Elaborating.
   bool visible(RegionId placed, RegionId scope) const;
@@ -365,28 +475,39 @@ private:
 
   footprint::Vector<Node> nodes;
   footprint::Vector<ClassId> children;
+  // By the operand's place in `children`.
+  footprint::Vector<Use> uses;
   footprint::Vector<Class> classes;
-  footprint::Vector<NodeId> members;
+  // The union-find over `classes`: each class's parent, a root its own.
+  footprint::Vector<ClassId> leader;
+  // By node: the class it was made with, which `find` takes to its root,
+  // and the next member of the class it is in.
+  footprint::Vector<ClassId> nodeClass;
+  footprint::Vector<std::optional<NodeId>> nextMember;
   footprint::Vector<Region> regions;
   footprint::Vector<Skeletal> skeleton;
 
-  // Open addressing over node keys: each slot a node and its class, empty
-  // when no node; grown by doubling at half full.
-  struct Slot {
-    std::optional<NodeId> node;
-    std::optional<ClassId> cls;
-  };
+  // The unions the rebuild still owes, in the order they were made.
+  footprint::Vector<Owed> owed;
+  // The classes whose facts a rebuild narrowed or whose reach it moved,
+  // whose users the next round's rebuild reads again.
+  footprint::Vector<ClassId> carried;
+  // Every union made: a round that made none and no node is the last.
+  std::uint64_t unions = 0;
+
+  // Open addressing with linear probing over node keys, grown by doubling
+  // at half full, a key deleted by shifting back the run after it.
   footprint::Vector<Slot> slots;
   std::uint32_t filled = 0;
 
-  // Extraction: each class's chosen member and its cost.
+  // Extraction: each root's chosen member and its cost.
   footprint::Vector<std::optional<NodeId>> best;
   footprint::Vector<Cost> cost;
 
-  // Each step of work, in the e-graph's own units: a node made, an earlier
-  // op a repeated read is compared with and an op between them read, a
-  // placement an elaboration looks at. Extraction reads each member once,
-  // which its making counted.
+  // Each step of work, in the e-graph's own units: a node made, a rule
+  // tried at a root, a use a rebuild repaired, an earlier op a repeated
+  // read is compared with and an op between them read, a node an
+  // extraction pass prices, a placement an elaboration looks at.
   std::uint64_t steps = 0;
 };
 

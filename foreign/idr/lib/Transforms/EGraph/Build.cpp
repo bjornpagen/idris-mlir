@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // Building one function's e-graph: the classification by declared effects,
-// the walk that puts each op in a class or in its region's skeleton, the
-// sweep of what the write-back left unused, and what a skeleton rule reads.
-// The tables the walk fills are made in Nodes.cpp.
+// the walk that puts each op in a class or in its region's skeleton and
+// then saturates the classes under the rules, the sweep of what the
+// write-back left unused, and the skeleton rules' decisions. The tables
+// the walk fills are made in Nodes.cpp, the rounds run in Rules.cpp.
 #include "idr/Transforms/EGraph/Engine.h"
 
 #include "idr/IR/Effects/Whole.h"
@@ -82,7 +83,7 @@ Function::Function(idr::FuncOp fn, const Kinds &kinds, const CalleeFacts *callee
 void Function::build() {
   RegionId body = newRegion({std::nullopt, 0, &fn.getBody(), {}});
   for (BlockArgument arg : fn.getBody().getArguments())
-    classOf[numbering.at(arg)] = leaf(arg);
+    classOf[numbering.at(arg)] = leaf(arg, body);
 
   // Each region's skeleton is a run of `skeleton`, gathered in a list per
   // region as the walk meets its ops and laid out once the walk is done.
@@ -101,10 +102,12 @@ void Function::build() {
   footprint::Vector<RegionId> open{body};
   footprint::Vector<RegionId> firstRegions;
 
+  // An op's operands' classes at their roots, so two ops of one value's
+  // operands compare equal however their classes were united.
   auto classesOf = [&](Operation *op) {
     SmallVector<ClassId, 4> operands;
     for (Value operand : op->getOperands())
-      operands.push_back(*classOf[numbering.at(operand)]);
+      operands.push_back(find(*classOf[numbering.at(operand)]));
     return operands;
   };
 
@@ -123,7 +126,7 @@ void Function::build() {
         mergeable.emplace_back();
         for (Block &block : region)
           for (BlockArgument arg : block.getArguments())
-            classOf[numbering.at(arg)] = leaf(arg);
+            classOf[numbering.at(arg)] = leaf(arg, id);
         return;
       }
       std::optional<RegionId> regions;
@@ -187,7 +190,7 @@ void Function::build() {
         list.push_back({op, *merged, regions});
       } else {
         for (Value result : op->getResults())
-          classOf[numbering.at(result)] = leaf(result);
+          classOf[numbering.at(result)] = leaf(result, region);
         list.push_back({op, Kept{}, regions});
       }
     });
@@ -197,6 +200,9 @@ void Function::build() {
                             static_cast<std::uint32_t>(list.size())};
     llvm::append_range(skeleton, list);
   }
+
+  saturate();
+  settle();
 }
 
 // What the input's floating ops became: each was made again where it is

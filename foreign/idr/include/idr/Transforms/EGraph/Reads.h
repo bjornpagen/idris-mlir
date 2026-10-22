@@ -4,7 +4,9 @@
 // answered inline from the engine's tables alone, so that a rule's
 // library, the dialect's at the bottom among them, needs no symbol of the
 // engine's: the engine calls the rules, and the rules read only headers.
-// Engine.h includes this once its tables are declared.
+// A rule reads once the graph is settled, where every value's class is its
+// root, so each answer is a load or two. Engine.h includes this once its
+// tables are declared.
 #ifndef IDR_TRANSFORMS_EGRAPH_READS_H
 #define IDR_TRANSFORMS_EGRAPH_READS_H
 

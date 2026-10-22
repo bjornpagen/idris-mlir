@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The specification's rules, read where the compiler is built: the
-// generated tables, the kinds they name, the matcher and the builder of a
-// right side over them, the interval a built node's kind gives it, and the
+// generated tables, the kinds they name, the rounds that saturate a
+// function's classes under them, the matcher and the builder of a right
+// side over them, the interval a built node's kind gives it, and the
 // dispatch of the hand skeleton rules. A pattern is a constant of the
-// specification, so the matcher's descent through one is bounded by the
+// specification, so a match's stack of choices is bounded by the
 // specification, never by the input.
 //
 // The skeleton rules are each area's hand classes, declared where the
@@ -112,68 +113,190 @@ void Function::rewriteSkeleton(const Pending &pending, RewriterBase &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// The rounds
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// The kind a node pattern names it by, if it has one: an op of the input
+// where a rule names its op, or one a right side built. An atom has none.
+std::optional<std::uint16_t> kindOf(const Node &node) {
+  return match(node.what, [](const node::Input &op) { return op.kind; },
+               [](const node::Built &op) { return std::optional(op.kind); },
+               []<Atom N>(const N &) { return std::optional<std::uint16_t>(); });
+}
+
+} // namespace
+
+// The build's own unions repaired, then round after round until one adds
+// nothing or the budget is spent. A round that goes on made a node or a
+// union; a node is made only below the budget, and a union leaves one
+// class fewer, so the rounds end.
+void Function::saturate() {
+  rebuild();
+  while (nodes.size() < budget && round() == Changed::Yes) {
+  }
+}
+
+// Each node of the graph as it stood, in creation order, tried against the
+// rules rooted at its kind, in the generated order: where one matches, its
+// right side is built and its class united with the root's. A union is
+// paid by the rebuild after the round, and a node a side builds is in a
+// class of its own until then, so every match of the round reads the
+// classes as they stood: their members, their facts and their operands.
+Changed Function::round() {
+  std::uint64_t made = nodes.size(), merged = unions;
+  std::uint32_t stood = static_cast<std::uint32_t>(nodes.size());
+  for (std::uint32_t n = 0; n < stood; ++n) {
+    NodeId root(n);
+    std::optional<std::uint16_t> kind = kindOf(at(root));
+    // An op no pattern names roots no rule.
+    if (!kind)
+      continue;
+    for (std::uint32_t r = generated::rulesOfKind[*kind]; r < generated::rulesOfKind[*kind + 1];
+         ++r) {
+      ++steps;
+      const table::Rule &rule = generated::rules[r];
+      std::optional<Bindings> bindings = matchAt(rule, root);
+      if (!bindings)
+        continue;
+      // A right side built grows the node table, which moves the node, so
+      // its type is read first.
+      Type type = at(root).type;
+      std::uint32_t side = rule.rhs;
+      std::optional<ClassId> built = buildSide(rule, *bindings, side, type);
+      // A specification sort is coarser than an MLIR type, which holds index
+      // terms: a right side whose class is of another type here does not
+      // apply here, since no rule changes a value's type.
+      if (built && at(*built).type == type)
+        (void)unite(classOfNode(root), *built);
+    }
+  }
+  rebuild();
+  return nodes.size() != made || unions != merged ? Changed::Yes : Changed::No;
+}
+
+//===----------------------------------------------------------------------===//
 // Matching
 //===----------------------------------------------------------------------===//
 
-// The pattern at `at` against class `cls`: a variable binds it, or meets
-// the class it bound before (a repeated variable is an equality); a literal
-// is the class's constant; a node pattern is a member of the class of that
-// kind and arity whose operands match in turn. The index after the
-// pattern's subtree on a match.
-std::optional<std::uint32_t> Function::matchClass(std::uint32_t at, ClassId cls,
-                                                  Bindings &bindings) const {
-  const table::PatternNode &pattern = generated::patterns[at];
-  switch (pattern.kind) {
-  case table::PatternKind::Var: {
-    std::optional<ClassId> &bound = bindings.vars[pattern.var];
-    if (bound && *bound != cls)
-      return std::nullopt;
-    bound = cls;
-    return at + 1;
-  }
-  case table::PatternKind::Literal: {
-    std::optional<APInt> value = this->at(cls).facts.integer();
-    if (!value || value->getSignificantBits() > 64 || value->getSExtValue() != pattern.literal)
-      return std::nullopt;
-    return at + 1;
-  }
-  case table::PatternKind::Node:
-    for (NodeId member : membersOf(this->at(cls))) {
-      Bindings tried = bindings;
-      if (std::optional<std::uint32_t> next = matchNode(at, member, tried)) {
-        bindings = std::move(tried);
-        return next;
+// The left side's patterns are matched in preorder, each operand pattern
+// against the class its node's operand names: a variable binds the class,
+// or meets the class it bound before (a repeated variable is an equality);
+// a literal is the class's integer; a node pattern takes a member of the
+// class of its kind and arity, whose operands are matched next. Taking a
+// member is a choice: where what follows fails, or the rule's conditions
+// do not hold of what was bound, the latest choice with a member left
+// takes the next instead, so a match is found wherever one exists. The
+// first found is the match: one per rule and root a round. Every class a
+// match reads was a root when the round began, and a union of the round
+// owes its meet to the rebuild, so its members and facts are its own as
+// they stood.
+std::optional<Bindings> Function::matchAt(const table::Rule &rule, NodeId root) const {
+  const std::uint32_t end = rule.lhs + rule.lhsSize;
+  std::uint32_t at = rule.lhs;
+  // The classes the patterns ahead match, the next last.
+  SmallVector<ClassId, 8> ahead;
+  Bindings bindings;
+  bindings.vars.resize(rule.vars);
+  // A member taken for the node pattern at `at`, with what stood before it
+  // was taken and the member to take instead.
+  struct Choice {
+    std::uint32_t at;
+    std::optional<NodeId> next;
+    SmallVector<ClassId, 8> ahead;
+    Bindings bindings;
+  };
+  SmallVector<Choice, 4> choices;
+
+  // `n` taken for the node pattern at `at`, where it is of the pattern's
+  // kind and arity: its operands go ahead, the first next.
+  auto enter = [&](NodeId n) {
+    const Node &node = this->at(n);
+    const table::PatternNode &pattern = generated::patterns[at];
+    if (kindOf(node) != pattern.op || node.children.count != pattern.arity)
+      return false;
+    for (ClassId operand : llvm::reverse(childrenOf(node)))
+      ahead.push_back(operand);
+    ++at;
+    return true;
+  };
+  // The first member from `from` on that the node pattern at `at` takes.
+  auto take = [&](std::optional<NodeId> from) {
+    for (std::optional<NodeId> member = from; member; member = nextMember[member->index()]) {
+      Choice choice{at, nextMember[member->index()], ahead, bindings};
+      if (enter(*member)) {
+        choices.push_back(std::move(choice));
+        return true;
       }
     }
-    return std::nullopt;
-  }
-  return std::nullopt;
-}
+    return false;
+  };
+  // Back to the latest choice that has a member left, taking it.
+  auto retreat = [&] {
+    while (!choices.empty()) {
+      Choice choice = choices.pop_back_val();
+      at = choice.at;
+      ahead = std::move(choice.ahead);
+      bindings = std::move(choice.bindings);
+      if (take(choice.next))
+        return true;
+    }
+    return false;
+  };
+  auto conditionsHold = [&] {
+    std::span<const table::Condition> conditions =
+        std::span<const table::Condition>(generated::conditions)
+            .subspan(rule.conditions, rule.conditionCount);
+    return llvm::all_of(conditions, [&](const table::Condition &c) { return holds(c, bindings); });
+  };
 
-std::optional<std::uint32_t> Function::matchNode(std::uint32_t at, NodeId n,
-                                                 Bindings &bindings) const {
-  const table::PatternNode &pattern = generated::patterns[at];
-  const Node &node = this->at(n);
-  std::optional<std::uint16_t> kind =
-      match(node.what, [](const node::Input &op) { return op.kind; },
-            [](const node::Built &op) { return std::optional(op.kind); },
-            []<Atom N>(const N &) { return std::optional<std::uint16_t>(); });
-  if (kind != pattern.op || node.children.count != pattern.arity)
+  // The root is the node, not its class: each member of a class is a root
+  // of its own.
+  if (!enter(root))
     return std::nullopt;
-  std::uint32_t next = at + 1;
-  for (ClassId operand : childrenOf(node)) {
-    std::optional<std::uint32_t> after = matchClass(next, operand, bindings);
-    if (!after)
+  for (;;) {
+    if (at == end) {
+      if (conditionsHold())
+        return bindings;
+    } else {
+      ClassId cls = ahead.pop_back_val();
+      const table::PatternNode &pattern = generated::patterns[at];
+      switch (pattern.kind) {
+      case table::PatternKind::Var: {
+        std::optional<ClassId> &bound = bindings.vars[pattern.var];
+        if (!bound || *bound == cls) {
+          bound = cls;
+          ++at;
+          continue;
+        }
+        break;
+      }
+      case table::PatternKind::Literal: {
+        std::optional<APInt> value = this->at(cls).facts.integer();
+        if (value && value->getSignificantBits() <= 64 &&
+            value->getSExtValue() == pattern.literal) {
+          ++at;
+          continue;
+        }
+        break;
+      }
+      case table::PatternKind::Node:
+        if (take(this->at(cls).first))
+          continue;
+        break;
+      }
+    }
+    if (!retreat())
       return std::nullopt;
-    next = *after;
   }
-  return next;
 }
 
-// A side condition, read off the bound class's analyses. Clean holds of
-// every class the e-graph holds: a node floats only where nothing orders
-// it, a call only where its row carries neither crash nor divergence, and
-// a leaf's maker stays in the skeleton whatever a rule drops.
+// A side condition, read off the bound class's facts as the round found
+// them. Clean holds of every class the e-graph holds: a node floats only
+// where nothing orders it, a call only where its row carries neither crash
+// nor divergence, and a leaf's maker stays in the skeleton whatever a rule
+// drops.
 bool Function::holds(const table::Condition &condition, const Bindings &bindings) const {
   const Facts &known = at(*bindings.vars[condition.var]).facts;
   switch (condition.kind) {
@@ -194,22 +317,22 @@ bool Function::holds(const table::Condition &condition, const Bindings &bindings
   return false;
 }
 
-// What a node a right side built knows: the interval its kind's range
-// function gives its operands' intervals, an operand with none its type's
-// whole width (a kind with a range function takes integers), where the
-// kind has one. No op is made to fold it: over constants, the interval's
-// one value is the integer it is.
-Facts Function::factsOf(const node::Built &op, Type type,
-                        std::span<const ClassId> operands) const {
+// What a node a right side built says: the interval its kind's range
+// function gives its operands' intervals as their roots now hold them, an
+// operand with none its type's whole width (a kind with a range function
+// takes integers), where the kind has one. No op is made to fold it: over
+// constants, the interval's one value is the integer it is.
+Facts Function::saysOf(const node::Built &op, Type type,
+                       std::span<const ClassId> operands) const {
   const std::optional<table::IntRangeFn> &range = generated::intRanges[op.kind];
   if (!range)
     return {};
   SmallVector<ConstantIntRanges, 4> inputs;
   for (ClassId operand : operands) {
-    const Class &cls = at(operand);
-    inputs.push_back(cls.facts.range ? *cls.facts.range
-                                     : ConstantIntRanges::maxRange(
-                                           ConstantIntRanges::getStorageBitwidth(cls.type)));
+    const Facts &known = factsOf(operand);
+    inputs.push_back(known.range ? *known.range
+                                 : ConstantIntRanges::maxRange(
+                                       ConstantIntRanges::getStorageBitwidth(at(operand).type)));
   }
   return {(*range)(inputs, type), Attribute()};
 }
@@ -217,10 +340,10 @@ Facts Function::factsOf(const node::Built &op, Type type,
 // The right side's subtree at `at`, built bottom-up: a variable is its
 // class; a literal the integer the dialect reads it as at the type its
 // place takes, a value the write-back makes an attribute, and none where it
-// is no value of that type or the type has no integer form, so the rule
-// does not apply there; a node made over its operands' classes, of `type`
-// at the top and of its first operand's type below (the arithmetic a rule
-// builds keeps its operands' type).
+// is no value of that type, the type has no integer form or the budget is
+// spent, so the rule does not apply there; a node made over its operands'
+// classes, of `type` at the top and of its first operand's type below (the
+// arithmetic a rule builds keeps its operands' type).
 std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindings &bindings,
                                            std::uint32_t &at, Type type) {
   const table::PatternNode &pattern = generated::patterns[at++];
@@ -248,36 +371,6 @@ std::optional<ClassId> Function::buildSide(const table::Rule &rule, const Bindin
       return std::nullopt;
     return insert(node::Built{pattern.op, *name}, type, operands);
   }
-  }
-  return std::nullopt;
-}
-
-// A right side built grows the node table, which moves the node, so the
-// node is read again by its id; `op` is the caller's copy.
-std::optional<ClassId> Function::rewrite(NodeId made, const node::Input &op, Type type) {
-  // An op no pattern names roots no rule.
-  if (!op.kind)
-    return std::nullopt;
-  for (std::uint32_t r = generated::rulesOfKind[*op.kind];
-       r < generated::rulesOfKind[*op.kind + 1]; ++r) {
-    const table::Rule &rule = generated::rules[r];
-    Bindings bindings;
-    bindings.vars.resize(rule.vars);
-    if (!matchNode(rule.lhs, made, bindings))
-      continue;
-    std::span<const table::Condition> conditions =
-        std::span<const table::Condition>(generated::conditions)
-            .subspan(rule.conditions, rule.conditionCount);
-    if (!llvm::all_of(conditions, [&](const table::Condition &c) { return holds(c, bindings); }))
-      continue;
-    std::uint32_t at = rule.rhs;
-    std::optional<ClassId> side = buildSide(rule, bindings, at, type);
-    // A specification sort is coarser than an MLIR type, which holds index
-    // terms: a right side whose class is of another type here does not
-    // apply here, since no rewrite changes a value's type.
-    if (!side || this->at(*side).type != type)
-      continue;
-    return side;
   }
   return std::nullopt;
 }

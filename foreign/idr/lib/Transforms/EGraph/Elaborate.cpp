@@ -2,9 +2,19 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Extraction and the writing back of one function.
 //
-// Extraction takes each class's cheapest member, bottom-up in creation
-// order: a node's operands' classes were made before it, so one pass
-// prices every class. Ties go to the larger id, the rewritten form.
+// Extraction takes each class's cheapest member by the engine's own cost,
+// an op one and a constant none, until a measured model replaces it,
+// among the members computable in the class's reach. Every use of a class
+// is in its reach, so such a member is computable at each use, and its
+// operands' reaches hold it, so theirs are too.
+//
+// A class may hold a member that reads the class itself, so prices are
+// relaxed: passes over every node in creation order, each pricing a node
+// whose operands are priced and moving its class to it where it costs
+// less, until a pass moves none, and at most one pass per class. The best
+// form of a class never reads one class twice down a path, since going
+// round a cycle costs more, so each pass carries it at least one class
+// further and the passes are enough.
 //
 // Elaboration goes through the regions in program order, a region's ops
 // before the op after the region op that holds it, on an explicit stack.
@@ -27,6 +37,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <cassert>
+
 using namespace mlir;
 
 namespace idr::egraph::detail {
@@ -44,29 +56,55 @@ TypedAttr attributeOf(Type type, const node::Integer &integer) {
   return {};
 }
 
+// The engine's own cost: an op one, an atom, which is placed for nothing,
+// none.
 Cost ownCost(const Node &node) {
   return match(node.what, []<Atom N>(const N &) { return Cost::of(0); },
-               [](const node::Input &) { return Cost::of(1); },
-               [](const node::Built &) { return Cost::of(1); });
+               [](const OneOf<node::Input, node::Built> auto &) { return Cost::of(1); });
 }
 
 } // namespace
 
+// A class moves to a member only for a lower price, or for an equal price
+// and a larger id, the newer form a rule's side built, while the price is
+// below the cost's saturation. An op costs at least one, so a member chosen
+// costs more than each class it reads; a move to a member reading a class
+// that leads back to this one would raise its price, which no move does:
+// so the chosen members close no cycle, and the demand's walk over them
+// ends. Every node is settled at its class's root.
 void Function::extract() {
   best.assign(classes.size(), std::nullopt);
-  cost.assign(classes.size(), Cost::of(0));
-  for (std::uint32_t c = 0; c < classes.size(); ++c) {
-    for (NodeId member : membersOf(classes[c])) {
+  cost.assign(classes.size(), Cost::most());
+  for (std::uint32_t pass = 0; pass < classes.size(); ++pass) {
+    Changed moved = Changed::No;
+    for (std::uint32_t n = 0; n < nodes.size(); ++n) {
+      ++steps;
+      NodeId member(n);
       const Node &node = at(member);
+      std::uint32_t c = classOfNode(member).index();
+      // A member computable only inside its class's reach is not computable
+      // at every use of the class.
+      if (needs(node) != classes[c].reach)
+        continue;
+      std::span<const ClassId> operands = childrenOf(node);
+      auto priced = [&](ClassId operand) { return best[operand.index()].has_value(); };
+      if (!llvm::all_of(operands, priced))
+        continue;
       Cost total = ownCost(node);
-      for (ClassId operand : childrenOf(node))
+      for (ClassId operand : operands)
         total = total.plus(cost[operand.index()]);
-      if (!best[c] || total < cost[c] || (total == cost[c] && *best[c] < member)) {
-        best[c] = member;
-        cost[c] = total;
-      }
+      if (best[c] && !(total < cost[c] ||
+                       (total == cost[c] && total < Cost::most() && *best[c] < member)))
+        continue;
+      best[c] = member;
+      cost[c] = total;
+      moved = Changed::Yes;
     }
+    if (moved == Changed::No)
+      break;
   }
+  for (std::uint32_t c = 0; c < classes.size(); ++c)
+    assert((leader[c].index() != c || best[c]) && "every class has a member priced");
 }
 
 bool Function::visible(RegionId placed, RegionId scope) const {
@@ -88,7 +126,9 @@ void Function::elaborate(RewriterBase &rewriter) {
       if (visible(region, scope))
         return value;
     }
-    // A leaf is where it is, in every scope; anything else is made there.
+    // A leaf is where it is, and is chosen only for a class whose reach is
+    // its region, which holds every scope that demands the class; anything
+    // else is made there.
     return match(
         at(*best[c.index()]).what,
         [](const node::Leaf &leaf) -> std::optional<Value> { return leaf.value; },
