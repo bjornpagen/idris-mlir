@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // One component's turn in a wave, on a worker. A turn reads its own
-// members, the functions final before the wave and nothing else, and
-// writes its own members alone: every component of a wave is another, so
+// members, the functions final before the wave and the table of copies,
+// and writes its own members and what they asked alone: every component of a wave is another, so
 // the turns run in parallel and each is a function of what it reads.
 //
 // The members a turn takes up get their binding times; then each member
@@ -73,43 +73,30 @@ LogicalResult Scheduler::round(FunctionId member) {
   return result;
 }
 
-// The schedule gives each copy to one claimant, which builds it detached:
-// the build reads only its owner, final or of the claimant's own component,
-// and its body is a function of its key and its owner, whichever turn
-// builds it.
-LogicalResult Scheduler::build(ArrayRef<specialize::Node *> asked, FunctionId claimant,
-                               Turn &turn) {
-  for (specialize::Node *made : asked) {
-    if (!nodes.claim(*made))
-      continue;
-    if (failed(nodes.build(*made, claimant)))
-      return failure();
-    turn.built.push_back(made);
-  }
-  return success();
-}
-
-// A member whose batch holds a copy that is neither final nor of its own
-// component parks on the batch's first copy, keeping what its turn solved.
-FailureOr<Outcome> Scheduler::parks(FunctionId member, SmallVector<specialize::Node *> asked,
-                                    Turn &turn) {
-  if (failed(build(asked, member, turn)))
-    return failure();
-  auto ready = [&](const specialize::Node *made) {
-    return idr::match(
-        made->phase,
-        [&](const specialize::Placed &placed) {
-          return schedule.final(placed.id).has_value() || schedule.sameComponent(placed.id, member);
-        },
-        [](const auto &) { return false; });
+// A member parks unless the table holds every copy of its batch placed,
+// final or of its own component: a copy the wave asked for first is
+// admitted, built and placed only when the wave settles. A parked member
+// keeps what its turn solved.
+Outcome Scheduler::parks(FunctionId member, SmallVector<specialize::Asked> asked, Turn &turn) {
+  auto ready = [&](const specialize::Asked &each) {
+    const specialize::Node *made = nodes.known(each.key);
+    return made && idr::match(
+                       made->phase,
+                       [&](const specialize::Placed &placed) {
+                         return schedule.final(placed.id).has_value() ||
+                                schedule.sameComponent(placed.id, member);
+                       },
+                       [](const OneOf<specialize::Requested, specialize::Built> auto &) {
+                         return false;
+                       });
   };
   if (llvm::all_of(asked, ready))
     return Outcome::Continues;
   Schedule::Member &state = schedule.members[member.index()];
   Solved solved = idr::match(
       state.phase, [](Done &done) { return std::move(done.solved); },
-      [](auto &) { return Solved{}; });
-  state.phase = Parked{asked.front(), std::move(solved)};
+      [](OneOf<Waiting, Parked, Final> auto &) { return Solved{}; });
+  state.phase = Parked{std::move(solved)};
   turn.parked.emplace_back(member, std::move(asked));
   return Outcome::Parks;
 }
@@ -120,17 +107,15 @@ LogicalResult Scheduler::runMember(FunctionId member, Turn &turn) {
   while (true) {
     if (failed(round(member)))
       return failure();
-    SmallVector<specialize::Node *> asked = asking.take();
+    SmallVector<specialize::Asked> asked = asking.take();
     unsigned leaves = schedule.takeLeaves(member);
     if (asked.empty()) {
       if (leaves == 0)
         return success();
       continue;
     }
-    FailureOr<Outcome> outcome = parks(member, std::move(asked), turn);
-    if (failed(outcome))
-      return failure();
-    if (*outcome == Outcome::Parks)
+    llvm::append_range(turn.asked, asked);
+    if (parks(member, std::move(asked), turn) == Outcome::Parks)
       return success();
   }
 }
@@ -169,7 +154,7 @@ LogicalResult Scheduler::turn(Turn &work) {
     Schedule::Member &state = schedule.members[member.index()];
     Solved solved = idr::match(
         state.phase, [](Parked &parked) { return std::move(parked.solved); },
-        [](auto &) { return Solved{}; });
+        [](OneOf<Waiting, Done, Final> auto &) { return Solved{}; });
     state.phase = Done{std::move(solved)};
     if (failed(runMember(member, work)))
       return failure();
@@ -177,8 +162,8 @@ LogicalResult Scheduler::turn(Turn &work) {
   // Every member done: the component's final bodies state its facts.
   ArrayRef<FunctionId> ids = schedule.byComponent[work.component];
   if (!llvm::all_of(ids, [&](FunctionId id) {
-        return idr::match(schedule.members[id.index()].phase,
-                          [](const Done &) { return true; }, [](const auto &) { return false; });
+        return idr::match(schedule.members[id.index()].phase, [](const Done &) { return true; },
+                          [](const OneOf<Waiting, Parked, Final> auto &) { return false; });
       }))
     return success();
   work.ends = Turn::Ends::Yes;

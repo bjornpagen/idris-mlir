@@ -126,7 +126,7 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
                 own = key;
                 owner = key->owner;
               },
-              [](const auto *) {});
+              [](OneOf<const RaiseKey *, const SignatureKey *> auto) {});
         if (std::optional<PatternWant> composed =
                 composeKey(nodes.arena(), call, owner, own, *times))
           want = std::optional<Want>(std::move(*composed));
@@ -144,11 +144,11 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
       continue;
     const Nodes::Grant &grant = **granted;
     FunctionId owner = idr::match(
-        grant.node->key, [](const PatternKey *k) { return k->owner; },
+        grant.asked.key, [](const PatternKey *k) { return k->owner; },
         [](const RaiseKey *k) { return k->callee; }, [](const SignatureKey *k) { return k->owner; });
     FuncOp ownerFn = schedule.readable(self, owner).fn;
     FunctionType type = typeOf(grant, ownerFn, **want);
-    FlatSymbolRefAttr target = grant.node->name;
+    FlatSymbolRefAttr target = grant.asked.name;
     redirected += idr::match(
         **want,
         [&](const PatternWant &pattern) {

@@ -340,7 +340,10 @@ LogicalResult Decision::declare(const solver::ProgramGraph &calls,
                   return families::DataMember{declared.label, declared.loc, declared.promise,
                                               declared.indices, ctorsOut};
                 },
-                [](const auto &other) -> families::Member { return other; });
+                [](const OneOf<families::ClosuresMember, families::MemoMember,
+                               families::FramesMember> auto &other) -> families::Member {
+                  return other;
+                });
           }));
     }
     FamilyAttr group = FamilyAttr::get(ctx, members);

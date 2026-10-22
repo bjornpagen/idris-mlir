@@ -76,11 +76,11 @@ struct Summary {
 };
 
 // A function's phase in the schedule, one at a time: not taken up; parked
-// on the first copy of a batch it asked for and cannot have yet; taken up
-// and running or done; final, with what it tells its callers.
+// on a batch of copies it asked for and cannot have yet, which it waits on
+// once the wave settles; taken up and running or done; final, with what it
+// tells its callers.
 struct Waiting {};
 struct Parked {
-  specialize::Node *on;
   Solved solved;
 };
 struct Done {

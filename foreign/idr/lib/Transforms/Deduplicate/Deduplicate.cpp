@@ -37,6 +37,7 @@
 #include "idr/IR/Generated/Actions.h.inc"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
+#include "idr/IR/Tail.h"
 #include "idr/Support/Actions.h"
 #include "idr/Support/Footprint.h"
 
@@ -349,6 +350,16 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
     if (renames.empty())
       return markAllAnalysesPreserved();
 
+    // A call of a merged function, in a function that stays, calls the one
+    // kept, which may be its own function now: each takes the tail fact its
+    // place gives it once it names the one kept.
+    SmallVector<idr::CallOp> redirected;
+    for (idr::FuncOp fn : fns)
+      if (!renames.contains(fn.getSymNameAttr()))
+        fn.walk([&](idr::CallOp call) {
+          if (renames.contains(call.getCalleeAttr().getAttr()))
+            redirected.push_back(call);
+        });
     // Every reference to a merged function names the one kept: in bodies,
     // in the types and attributes that hold labels, and as the root.
     AttrTypeReplacer replacer;
@@ -361,6 +372,8 @@ struct Deduplicate : idr::impl::IdrDeduplicateBase<Deduplicate> {
                                           /*replaceTypes=*/true);
     if (StringAttr root = renames.lookup(program.getRootAttr().getAttr()))
       program.setRootAttr(FlatSymbolRefAttr::get(root));
+    for (idr::CallOp call : redirected)
+      call.setTailKind(idr::tail::decide(call));
     for (idr::FuncOp fn : fns)
       if (renames.contains(fn.getSymNameAttr())) {
         fn->erase();

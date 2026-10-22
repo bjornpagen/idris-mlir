@@ -89,7 +89,7 @@ solver::Editor Schedule::takeOut(solver::ProgramGraph &frozen) {
 const Summary *Schedule::summaryOf(FunctionId fn) const {
   return idr::match(
       members[fn.index()].phase, [](const Final &final) { return &final.summary; },
-      [](const auto &) -> const Summary * { return nullptr; });
+      [](const OneOf<Waiting, Parked, Done> auto &) -> const Summary * { return nullptr; });
 }
 
 std::optional<Readable> Schedule::final(FunctionId fn) const {
@@ -99,7 +99,9 @@ std::optional<Readable> Schedule::final(FunctionId fn) const {
       [&](const Final &final) -> std::optional<Readable> {
         return Readable{member.fn, final.summary.times};
       },
-      [](const auto &) -> std::optional<Readable> { return std::nullopt; });
+      [](const OneOf<Waiting, Parked, Done> auto &) -> std::optional<Readable> {
+        return std::nullopt;
+      });
 }
 
 // A final function, or a member of the reader's component its turn took

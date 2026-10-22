@@ -134,24 +134,28 @@ struct Runner {
   FuncOp fn;
 };
 
-// What a match over a family binds for one label, at the depth it is built
+// What a match over a family binds for one state, at the depth it is built
 // at: the constructor's binders as the next levels, the value refined to
-// it at the value's grade, and each field as a read gives it.
+// it at the value's grade, each field as a read gives it, and the terms the
+// case's call gives the label's binders (givenBinders).
 struct Case {
   IndexArgsAttr binders;
+  IndexArgsAttr given;
   mlir::Type refined;
   llvm::SmallVector<mlir::Type> fields;
 };
 // A label's function, as a case calls it: its name, and its converted
-// signature at the case's binders, which the call passes as its indices.
+// signature at the terms the case gives its binders, which the call passes
+// as its indices.
 struct Callee {
   FuncOp fn;
   mlir::FlatSymbolRefAttr name;
   mlir::FunctionType bound;
 };
 // A match over the family of a value of one type, built at one depth: its
-// cases, one per label in tag order, and the labels' functions as each case
-// calls them.
+// cases, one per state in tag order, and of a closure family the labels'
+// functions as each case calls them; a memo family's labels run in its
+// dispatch function alone.
 struct Match {
   mlir::DenseI32ArrayAttr tags;
   llvm::SmallVector<Case> cases;
@@ -165,9 +169,10 @@ struct Built {
   llvm::SmallVector<mlir::Type> fields;
 };
 // A move between two keys: a match over the value's family whose cases
-// rebuild each label's constructor in the sink's, one per case, at the
-// sink's type; or, where no label reaches one of the two, a move that
-// never runs, the program's poison.
+// rebuild each state in the sink's family, one per case, at the sink's
+// type: a label's constructor as its label's, a memo cell running or
+// forced as the same state; or, where the value's family has no state, a
+// move that never runs, the program's poison.
 struct Rebuild {
   MatchId over;
   mlir::Type sink;
@@ -307,7 +312,7 @@ private:
   Tag tagOf(const Key &key, mlir::FlatSymbolRefAttr label) const;
   Built constructorOf(DataType family, Tag tag, Grade grade,
                       llvm::ArrayRef<families::TermNode> binders);
-  MatchId matchOver(mlir::Type value, unsigned depth, mlir::ArrayAttr set);
+  MatchId matchOver(mlir::Type value, unsigned depth);
   CoercionId coercionOf(mlir::Type value, const Key &from, const Key &to, unsigned depth);
 
   // The dispatch functions (Forces.cpp).
@@ -320,9 +325,10 @@ private:
   const Labels &labels;
   mlir::MLIRContext *ctx;
 
-  // A closure, suspension or constant whose every use moves it into one
-  // key that holds its own labels takes that key.
-  llvm::DenseMap<mlir::Value, Key> widened;
+  // Each point the label solve numbered, by its node: the labels of the one
+  // key every use of the closure, suspension or constant made there moves
+  // it into, where that key holds its own labels; null where its own stand.
+  footprint::Vector<mlir::ArrayAttr> widened;
   // Every key, by its dense id in the order met.
   llvm::DenseMap<Key, KeyId> ids;
   footprint::Vector<Family> families;
@@ -350,9 +356,20 @@ private:
 
 // One function's edits, from the decision alone: each value its new type,
 // each move between two keys a coercion, each closure op what it means.
-// The ops it replaces are erased once the walk ends; each call it made then
-// takes its tail fact where it stands.
+// The ops it replaces are erased once the walk ends. Its calls take their
+// tail facts with every call of the program once every function is
+// rewritten.
 void rewrite(const Edits &edits, const Decision &decision);
+
+// The terms a case of `family` at state `tag`, which binds the state's
+// binders as `levels`, gives a call of its label: all of those the family's
+// indices determine, where they determine every binder; else, where the
+// label's equation names a binder alone at an index of the family, the
+// family's term there, so the label's results are the family's with
+// nothing after the call to relate them, and its captures, read at the
+// levels, are given it before the call; else the level, which only the
+// case names.
+IndexArgsAttr givenBinders(DataType family, Tag tag, IndexArgsAttr levels);
 
 // `value` given where `type` is asked: where only their uses differ, a
 // grade cast; where their indices or refinements differ, a reindex, never

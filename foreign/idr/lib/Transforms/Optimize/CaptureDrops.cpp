@@ -22,6 +22,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 #include "idr/IR/Traits.h"
+#include "idr/Transforms/Optimize/Tails.h"
 #include "idr/Transforms/OptimizeScheduler.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -82,8 +83,11 @@ void drop(Schedule &schedule, const Unread &unread) {
   }
   // The reads: a dropped field's goes, one past a dropped field counts the
   // fields left before it; an exchange binds its dropped captures no more.
+  // A read that goes may have been all that followed a call, so each
+  // function that lost one is noted.
   SmallVector<DataFieldOp> fields;
   program.walk([&](DataFieldOp field) { fields.push_back(field); });
+  footprint::Vector<FunctionId> lost;
   for (DataFieldOp field : fields) {
     DataType data = dataTypeOf(field.getValue().getType());
     std::optional<Tag> tag = data ? data.singleTag() : std::nullopt;
@@ -92,6 +96,8 @@ void drop(Schedule &schedule, const Unread &unread) {
       continue;
     auto index = static_cast<unsigned>(field.getIndex());
     if (bits->test(index)) {
+      lost.push_back(graph.id(
+          FlatSymbolRefAttr::get(field->getParentOfType<FuncOp>().getSymNameAttr())));
       field.erase();
       continue;
     }
@@ -100,8 +106,15 @@ void drop(Schedule &schedule, const Unread &unread) {
   SmallVector<MemoRunOp> runs;
   program.walk([&](MemoRunOp run) { runs.push_back(run); });
   for (MemoRunOp run : runs)
-    if (const llvm::BitVector *bits = unread.droppedOf(ctorOf(run.getDataType(), Tag{run.getTag()})))
+    if (const llvm::BitVector *bits = unread.droppedOf(ctorOf(run.getDataType(), run.getTag())))
       run.getRegion().front().eraseArguments(*bits);
+  // The calls of each function that lost a read take their tail facts
+  // again, and its row in the graph holds them.
+  llvm::sort(lost);
+  lost.erase(std::unique(lost.begin(), lost.end()), lost.end());
+  for (FunctionId id : lost)
+    if (FuncOp fn = schedule.function(id); decideTails(fn) == Facts::Changed)
+      schedule.graph.setCallees(id, solver::rowOf(fn, schedule.graph));
   // The constructors hold the dropped fields no more.
   SmallVector<DataConOp> cons;
   program.walk([&](DataConOp con) { cons.push_back(con); });
@@ -173,7 +186,8 @@ void drop(Schedule &schedule, const Unread &unread) {
                     decl.mode, narrowed(decl.label, Ctor{group, at, static_cast<std::uint32_t>(t)})});
               return families::MemoMember{memo.label, memo.indices, decls, memo.forced};
             },
-            [](const auto &other) -> families::Member { return other; }));
+            [](const OneOf<families::DataMember, families::FramesMember> auto &other)
+                -> families::Member { return other; }));
       }
       anew[group] = FamilyAttr::get(ctx, members);
     }

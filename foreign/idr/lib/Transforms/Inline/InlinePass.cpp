@@ -20,6 +20,7 @@
 #include "idr/Transforms/Effects.h"
 #include "idr/Transforms/Inline.h"
 #include "idr/Transforms/Optimize.h"
+#include "idr/Transforms/Optimize/Tails.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/Analysis/CallGraph.h"
@@ -42,8 +43,15 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
     InlinerConfig config;
     config.setDefaultPipeline([](OpPassManager &pm) { pm.addPass(idr::createIdrSimplify()); });
     // Upstream asks from its own workers; each run is admitted by the arena
-    // of the function it simplifies.
+    // of the function it simplifies. A function inlining changed takes its
+    // calls' tail facts where they now stand first, as every call the
+    // simplification is verified with must: an inlined body may leave a
+    // call of the caller's in tail position, or a self call where a context
+    // admits it, which no hook on the inlined body sees.
     auto runPipeline = [&](Pass &, OpPassManager &pm, Operation *op) {
+      auto fn = cast<idr::FuncOp>(op);
+      if (profitability.inlinedInto(graph.id(fn)) != 0)
+        (void)idr::optimize::decideTails(fn);
       std::uint64_t arena = idr::egraph::arenaBytes(
           static_cast<std::uint64_t>(idr::inlining::bodyOf(cast<idr::FuncOp>(op)).size));
       admission.enter(arena);
@@ -56,6 +64,11 @@ struct Inline : idr::impl::IdrInlineBase<Inline> {
                     [&](const Inliner::ResolvedCall &call) { return profitability(call); });
     if (failed(inliner.doInlining()))
       return signalPassFailure();
+    // The inlining's last step may have no simplification after it: each
+    // function it changed decides its calls' facts once more.
+    for (idr::FuncOp fn : program.getOps<idr::FuncOp>())
+      if (profitability.inlinedInto(graph.id(fn)) != 0)
+        (void)idr::optimize::decideTails(fn);
     numInlined += profitability.inlined();
     numCapped += profitability.capped();
     // The calls changed: the graph is built anew on them, and every row

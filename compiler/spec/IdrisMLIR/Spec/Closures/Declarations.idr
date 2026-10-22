@@ -1,8 +1,8 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
-||| Closures and suspensions, as the frontend writes them, and the memo
-||| cell's exchange, which is all of a suspension that defunctionalization
-||| leaves.
+||| Closures and suspensions, as the frontend writes them. The memo cell's
+||| exchange, which is all of a suspension that defunctionalization leaves,
+||| is `Closures.Memo`'s.
 |||
 ||| `idr.fn.closure` captures a function's leading parameters and
 ||| `idr.fn.apply` runs one; `idr.lazy.suspend` builds a cell that has not
@@ -10,7 +10,10 @@
 ||| suspension of a value that already exists. Their carriers are
 ||| `!idr.fn` and `!idr.lazy`. The three that build are one capture family:
 ||| each takes its captures over, and its result is used once exactly when a
-||| capture is. A closure and an evaluated suspension are immutable values
+||| capture is. A closure and a suspension name their function with the
+||| terms its index variables take where they are built, so the label's
+||| constructor is built at its refined family. A closure and an evaluated
+||| suspension are immutable values
 ||| nothing reads the identity of, so two equal ones are one and an unused
 ||| one goes; a suspension's cell is the one value that changes while
 ||| references to it live, so it takes a fresh identity and is never merged
@@ -18,16 +21,13 @@
 ||| bounds until defunctionalization makes it a dispatch of calls: it
 ||| declares every ordering atom, so nothing moves it, merges it or deletes
 ||| it.
-|||
-||| After defunctionalization only the exchange is left: `idr.memo.run`
-||| moves a memoized label's captures out of its cell into its one region,
-||| where the cell runs, and the value the region yields into the cell's
-||| forced state, which it also gives.
 module IdrisMLIR.Spec.Closures.Declarations
 
+import IdrisMLIR.Spec.Closures.Memo
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Control.Flow
+import IdrisMLIR.Spec.Families.Dialect
 
 import Data.Fin
 import Data.List1
@@ -85,18 +85,12 @@ lazyType = MkTypeDef
 ||| A closure at any grade: a value of `!idr.fn`.
 export
 closureValue : Predicate
-closureValue = MkPredicate "isClosureValue" OnType (brief "a closure, at any grade")
+closureValue = MkPredicate "isClosureType" OnType (brief "a closure, at any grade")
 
 ||| A suspension at any grade: a value of `!idr.lazy`.
 export
 suspensionValue : Predicate
-suspensionValue = MkPredicate "isSuspensionValue" OnType (brief "a suspension, at any grade")
-
-||| A memo family's cell, the value a suspension became: what the exchange
-||| reads and writes the state of.
-export
-memoCell : Predicate
-memoCell = MkPredicate "isMemoCell" OnType (brief "a value of a memo family, its cell")
+suspensionValue = MkPredicate "isLazyType" OnType (brief "a suspension, at any grade")
 
 ------------------------------------------------------------------------------
 -- What reads a label
@@ -122,106 +116,133 @@ runsLabelsInterface = MkInterfaceDef
 -- The capture family
 ------------------------------------------------------------------------------
 
-||| What each member of the capture family builds, and what that value is
-||| to the effects: a value, or a cell with an identity.
-public export
-data Builds = AClosure | ASuspension
+||| What each member of the capture family builds: a closure of a function,
+||| a suspension of a function, or a suspension already evaluated, of a
+||| value.
+data Builds = AClosure | ASuspension | AnEvaluated
+
+||| What a member's value is made of: a function, which the member names
+||| with the terms its index variables take where the member is built, or a
+||| value that already exists.
+data Made = OfFunction | OfValue
+
+madeOf : Builds -> Made
+madeOf AClosure = OfFunction
+madeOf ASuspension = OfFunction
+madeOf AnEvaluated = OfValue
+
+||| How many attributes a member names: a function's symbol and its index
+||| terms, or none.
+nameCount : Made -> Nat
+nameCount OfFunction = 2
+nameCount OfValue = 0
+
+||| A function and the terms its index variables take, which are erased:
+||| quantity 0, passed at compile time only, as a call passes them.
+attrsOf : (m : Made) -> Vect (nameCount m) Attr
+attrsOf OfFunction = [attr "callee" (UpstreamAttr FlatSymbolRefAttrC), MkAttr "index_args" indexArgs]
+attrsOf OfValue = []
+
+||| What a member takes over: a function's leading parameters, or the one
+||| value it holds.
+capturesOf : Made -> Operand
+capturesOf OfFunction = variadic "captures" (UpstreamType AnyTypeC)
+capturesOf OfValue = single "value" (UpstreamType AnyTypeC)
 
 buildsName : Builds -> Mnemonic
 buildsName AClosure = "fn.closure"
 buildsName ASuspension = "lazy.suspend"
+buildsName AnEvaluated = "lazy.delay"
 
-buildsResult : Builds -> Predicate
-buildsResult AClosure = closureValue
-buildsResult ASuspension = suspensionValue
+||| What a member builds: a closure, or a suspension.
+builtOf : Builds -> Result
+builtOf AClosure = result "result" (SatisfiesType closureValue)
+builtOf ASuspension = result "result" (SatisfiesType suspensionValue)
+builtOf AnEvaluated = result "result" (SatisfiesType suspensionValue)
 
 ||| A closure's captures are taken over; its result is a value. A
 ||| suspension's cell is a fresh identity besides: never merged, hoisted or
-||| folded, deletable when unused.
+||| folded, deletable when unused. An evaluated suspension is a value:
+||| forcing it computes nothing, so nothing reads its identity.
 buildsEffects : Builds -> Declaration 1 1
 buildsEffects AClosure = Executes [] [Consumes 0] Covered Untouched
 buildsEffects ASuspension = Executes [] [Consumes 0, NewIdentity 0] Covered Untouched
+buildsEffects AnEvaluated = Executes [] [Consumes 0] Covered Untouched
 
 ||| A closure of constants folds to its constant; a suspension never folds.
 buildsMeaning : Builds -> Meaning 1 1
 buildsMeaning AClosure = HandFolder
 buildsMeaning ASuspension = NoFold
+buildsMeaning AnEvaluated = NoFold
+
+||| A member of a function is checked through the symbol it names, at its
+||| index terms; an evaluated suspension, which names none, checks its value
+||| against its type.
+symbolUse : Made -> List InterfaceUse
+symbolUse OfFunction = [Declares SymbolUser ["verifySymbolUses"]]
+symbolUse OfValue = []
+
+verifyOf : Made -> Verify
+verifyOf OfFunction = DeclarationOnly
+verifyOf OfValue = VerifiesOp
+
+formatOf : (m : Made) -> Format 1 1 (nameCount m) 0
+formatOf OfFunction = Declared
+  [ ValueOf (AttrRef 0), Lit "(", ValueOf (OperandRef 0), Lit ")", PropDict, AttrDict, Lit ":"
+  , FunctionalType (OfGroup (OperandRef 0)) (OfGroup (ResultRef 0)) ]
+formatOf OfValue = Declared
+  [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->"
+  , TypeOf (OfGroup (ResultRef 0)) ]
 
 buildsDoc : Builds -> Doc
 buildsDoc AClosure = MkDoc "a closure of a function: its leading parameters are the captures"
   """
-  `%c = idr.fn.closure @f(%x) : (T) -> !idr.fn<(A) -> (R)>`. The callee's
-  parameters after the captures and its results are the carrier.
+  `%c = idr.fn.closure @f(%x) <{index_args = #idr.index_args<[v0]>}> : (T) -> !idr.fn<(A) -> (R)>`.
+  The callee's signature at the index terms: its parameters after the
+  captures and its results are the carrier.
   """
 buildsDoc ASuspension = MkDoc "a suspension of a function: every parameter is a capture"
   """
-  `%s = idr.lazy.suspend @f(%x) : (T) -> !idr.lazy<R>`. The cell runs its
-  function on the first force and keeps the value for every later one.
+  `%s = idr.lazy.suspend @f(%x) <{index_args = #idr.index_args<[v0]>}> : (T) -> !idr.lazy<R>`.
+  The cell runs its function, at the index terms, on the first force and
+  keeps the value for every later one.
+  """
+buildsDoc AnEvaluated = MkDoc "a suspension already evaluated: it holds its operand"
+  """
+  `%s = idr.lazy.delay %v : T -> !idr.lazy<T>`. Its force is the value, at
+  the quantity the force gives it.
   """
 
-||| `idr.fn.closure` and `idr.lazy.suspend`: a function's symbol and its captures.
-export
-captureOp : Builds -> Op 1 1 1 0
-captureOp builds = MkOp
+||| `idr.fn.closure`, `idr.lazy.suspend` and `idr.lazy.delay`: each takes
+||| its captures over, and its result is used once exactly when a capture
+||| is, which holds of every member by construction.
+captureOp : (b : Builds)
+  -> {auto 0 named : So (distinct (groupNames [capturesOf (madeOf b)] [builtOf b] (attrsOf (madeOf b)) []))}
+  -> Op 1 1 (nameCount (madeOf b)) 0
+captureOp b = MkOp
   { home = InIdr
-  , mnemonic = buildsName builds
-  , ins = [variadic "captures" (UpstreamType AnyTypeC)]
-  , outs = [result "result" (SatisfiesType (buildsResult builds))]
-  , attrs = [attr "callee" (UpstreamAttr FlatSymbolRefAttrC)]
+  , mnemonic = buildsName b
+  , ins = [capturesOf (madeOf b)]
+  , outs = [builtOf b]
+  , attrs = attrsOf (madeOf b)
   , regions = []
   , traits = [ResultUsesMaxOf 0 [0]]
   , interfaces =
-      [ Declares SymbolUser ["verifySymbolUses"]
-      , Implements flowInterface ["getFlowEdges"]
-      , Declares OpAsm ["getAsmResultNames"] ]
-  , effects = buildsEffects builds
+      symbolUse (madeOf b) ++
+      [Implements flowInterface ["getFlowEdges"], Declares OpAsm ["getAsmResultNames"]]
+  , effects = buildsEffects b
   , speculation = AlwaysSpeculatable
   , stages = between Higher Higher
-  , meaning = buildsMeaning builds
-  , verify = DeclarationOnly
-  , format = Declared
-      [ ValueOf (AttrRef 0), Lit "(", ValueOf (OperandRef 0), Lit ")", AttrDict, Lit ":"
-      , FunctionalType (OfGroup (OperandRef 0)) (OfGroup (ResultRef 0)) ]
+  , meaning = buildsMeaning b
+  , verify = verifyOf (madeOf b)
+  , format = formatOf (madeOf b)
   , builders = []
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
   , specializations = []
   , laws = []
-  , doc = buildsDoc builds
-  }
-
-||| `idr.lazy.delay`: a suspension already evaluated, holding its operand. A
-||| value: nothing reads its identity, since forcing it computes nothing.
-delayOp : Op 1 1 0 0
-delayOp = MkOp
-  { home = InIdr
-  , mnemonic = "lazy.delay"
-  , ins = [single "value" (UpstreamType AnyTypeC)]
-  , outs = [result "result" (SatisfiesType suspensionValue)]
-  , attrs = []
-  , regions = []
-  , traits = [ResultUsesMaxOf 0 [0]]
-  , interfaces = [Implements flowInterface ["getFlowEdges"], Declares OpAsm ["getAsmResultNames"]]
-  , effects = Executes [] [Consumes 0] Covered Untouched
-  , speculation = AlwaysSpeculatable
-  , stages = between Higher Higher
-  , meaning = NoFold
-  , verify = VerifiesOp
-  , format = Declared
-      [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->"
-      , TypeOf (OfGroup (ResultRef 0)) ]
-  , builders = []
-  , defaultBuilders = WithDefaults
-  , members = []
-  , guards = []
-  , specializations = []
-  , laws = []
-  , doc = MkDoc "a suspension already evaluated: it holds its operand"
-      """
-      `%s = idr.lazy.delay %v : T -> !idr.lazy<T>`. Its force is the value, at
-      the quantity the force gives it.
-      """
+  , doc = buildsDoc b
   }
 
 ------------------------------------------------------------------------------
@@ -295,92 +316,14 @@ applyOp = MkOp
   , doc = brief "applies a closure to arguments"
   }
 
-------------------------------------------------------------------------------
--- The exchange
-------------------------------------------------------------------------------
-
-||| `idr.memo.run`: a memo cell's force, its captures moved out into its
-||| region, which binds them, and its value moved in. It reads and writes
-||| the cell's memo state; its region's effects are its own besides. The
-||| cell keeps its reference: what moves out is what the label's state held.
-memoRunOp : Op 1 1 1 1
-memoRunOp = MkOp
-  { home = InIdr
-  , mnemonic = "memo.run"
-  , ins = [single "cell" (SatisfiesType memoCell)]
-  , outs = [results "outs" (UpstreamType AnyTypeC)]
-  , attrs = [attr "tag" (UpstreamAttr I32AttrC)]
-  , regions = [sized "region" 1]
-  , traits = [SingleBlock]
-  , interfaces =
-      [ Declares RegionBranch ["getSuccessorInputs", "getRegionInvocationBounds"]
-      , Implements flowInterface ["getFlowEdges"] ]
-  , effects = Executes [OnValues Write MemoState (Operands 0)] [ReadsMemo 0] Recursive Untouched
-  , speculation = NotSpeculatable
-  , stages = between First Owned
-  , meaning = NoFold
-  , verify = VerifiesOpAndRegions
-  , format = Declared
-      [ ValueOf (OperandRef 0), Lit ":", TypeOf (OfGroup (OperandRef 0)), ValueOf (AttrRef 0)
-      , OptionalGroup [Lit "->"] (TypeOf (OfGroup (ResultRef 0))) []
-      , Regions, AttrDict ]
-  , builders = []
-  , defaultBuilders = WithDefaults
-  , members = []
-  , guards = []
-  , specializations = []
-  , laws = []
-  , doc = MkDoc "a memo cell's force: its captures moved out, its value moved in"
-      """
-      `%v = idr.memo.run %cell : !idr.data<#Lazy> 0 -> (R) { ^(%c: T): ... }`.
-      The cell is in the state of the label at the tag, one that memoizes;
-      the region binds that label's captures as fields read from the cell
-      are, runs once while the cell is running, and yields the value the
-      cell's forced state holds, then each result.
-      """
-  }
-
-||| `idr.memo.yield`: the end of an exchange's region. Its value moves into
-||| the cell's forced state, which takes it over; what follows it leaves the
-||| op as its results, which the region branch forwards.
-memoYieldOp : Op 2 0 0 0
-memoYieldOp = MkOp
-  { home = InIdr
-  , mnemonic = "memo.yield"
-  , ins = [single "value" (UpstreamType AnyTypeC), variadic "results" (UpstreamType AnyTypeC)]
-  , outs = []
-  , attrs = []
-  , regions = []
-  , traits = [Terminator, ReturnLike, HasParent ("memo.run" ::: [])]
-  , interfaces =
-      [ Declares RegionBranchTerminator ["getMutableSuccessorOperands"]
-      , Implements flowInterface ["getFlowEdges"] ]
-  , effects = Executes [] [Consumes 0] Covered Untouched
-  , speculation = AlwaysSpeculatable
-  , stages = between First Owned
-  , meaning = NoFold
-  , verify = DeclarationOnly
-  , format = Declared
-      [ ValueOf (OperandRef 0), Lit ":", TypeOf (OfGroup (OperandRef 0))
-      , OptionalGroup [Lit "then"] (ValueOf (OperandRef 1)) [Lit ":", TypeOf (OfGroup (OperandRef 1))]
-      , AttrDict ]
-  , builders = []
-  , defaultBuilders = WithDefaults
-  , members = []
-  , guards = []
-  , specializations = []
-  , laws = []
-  , doc = brief "ends an exchange's region: the forced value into the cell, then the exchange's results"
-  }
-
 export
 declarations : Declarations
 declarations =
-  { ops := [ SomeOp (captureOp AClosure), SomeOp (captureOp ASuspension), SomeOp delayOp
-           , SomeOp forceOp, SomeOp applyOp, SomeOp memoRunOp, SomeOp memoYieldOp ]
+  { ops := [ SomeOp (captureOp AClosure), SomeOp (captureOp ASuspension), SomeOp (captureOp AnEvaluated)
+           , SomeOp forceOp, SomeOp applyOp ] ++ memoOps
   , types := [SomeType fnType, SomeType lazyType]
   , interfaces := [runsLabelsInterface]
-  , predicates := [closureValue, suspensionValue, memoCell]
+  , predicates := [closureValue, suspensionValue, memoState]
   , skeleton := [ MkSkeletonRule "ForceFreshCell" ("idr" ::: ["Transforms", "Defunctionalize.h"]) "memo.run"
                     "an exchange of a cell built for it alone runs its label in place: no reader sees the cell running or forced" ]
   } nothing

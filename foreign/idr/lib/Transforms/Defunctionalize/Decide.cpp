@@ -28,13 +28,14 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <tuple>
+#include <utility>
 
 using namespace mlir;
 
 namespace idr::defunctionalize {
 
 Decision::Decision(ProgramOp top, const Labels &solve)
-    : program(top), labels(solve), ctx(top.getContext()) {}
+    : program(top), labels(solve), ctx(top.getContext()), widened(solve.numPoints()) {}
 
 Slot Decision::keyWith(Type carrier, const FlowPoint &point) const {
   if (!carriesLabels(carrier))
@@ -51,20 +52,24 @@ Slot Decision::anchorKey(const FlowAnchor &anchor) const {
   return Key{unrestricted(*carrier), labels.labelsOf(anchor)};
 }
 
+// A value's key: its point's labels, or those the widening gave the point,
+// read by the number the label solve gave it once. A value no statement
+// named holds the empty set.
 Slot Decision::keyOf(Value value) const {
-  if (auto it = widened.find(value); it != widened.end())
-    return it->second;
-  return keyWith(value.getType(), FlowPoint::of(value));
+  if (!carriesLabels(value.getType()))
+    return std::nullopt;
+  std::optional<labels::Node> node = labels.nodeOf(value);
+  ArrayAttr wide = node ? widened[std::to_underlying(*node)] : ArrayAttr();
+  return Key{unrestricted(value.getType()), wide ? wide : labels.labelsAt(node)};
 }
 
 Slot Decision::sinkOf(OpOperand &use) const {
-  std::optional<FlowPoint> sink = labels.sinkOf(use);
+  std::optional<FlowPlace> sink = labels.sinkOf(use);
   if (!sink)
     return std::nullopt;
   return idr::match(
-      sink->at, [&](FlowPoint::Taken taken) { return keyOf(taken.use->get()); },
-      [&](FlowPoint::Whole whole) { return keyOf(whole.value); },
-      [&](const FlowPoint::Part &part) { return anchorKey(part.anchor); },
+      sink->at, [&](FlowPoint::Whole whole) { return keyOf(whole.value); },
+      [&](const FlowPlace::Part &part) { return anchorKey(part.anchor); },
       [&](FlowPoint::Parameter param) {
         return signature(param.function.getAttr()).arguments[param.index];
       },
@@ -123,7 +128,8 @@ void Decision::slotsIn(Type type, SmallVectorImpl<Slot> &out) const {
 // A closure, suspension or constant whose every use moves it into slots of
 // one key with its labels and more takes that key, so no coercion follows
 // it. Read off each op's flow: what makes a carrier value is an edge's
-// source, which the op's flow interface declares.
+// source, which the op's flow interface declares, and the label solve
+// named it there, so its point has a number.
 void Decision::widen() {
   FlowEdges edges;
   program.walk([&](FlowOpInterface flow) {
@@ -137,7 +143,8 @@ void Decision::widen() {
       return idr::match(
           edge.move, [&](const FlowEdges::Source &source) { return source.to == value; },
           [&](const FlowEdges::Constant &constant) { return constant.to == value; },
-          [](const auto &) { return false; });
+          [](const OneOf<FlowEdges::Flow, FlowEdges::Unify, FlowEdges::Fresh, FlowEdges::Release,
+                         FlowEdges::Overwrite, FlowEdges::Dispatch> auto &) { return false; });
     });
     if (!made)
       return;
@@ -151,15 +158,15 @@ void Decision::widen() {
     Slot own = keyOf(value);
     if (common && own && common->carrier == own->carrier &&
         labels::within(own->labels, common->labels))
-      widened[value] = *common;
+      widened[std::to_underlying(*labels.nodeOf(value))] = common->labels;
   });
 }
 
 // Each function's calls, and in its row beside them each label it runs,
 // with how many of its runs run it. A run is no call yet: the call an
 // apply's case makes takes its tail fact from the one definition where it
-// stands, once the rewrite has made it, and a force becomes a call of its
-// dispatch function, not of the label. A row holds only calls, so a run
+// stands, once the program is first order, and a force becomes a call of
+// its dispatch function, not of the label. A row holds only calls, so a run
 // stands as a call within, which the atoms' join never reads and the
 // rewrite's calls replace; the row stays in the graph's one order, a
 // (callee, kind) once, merged with a direct call of the same label.

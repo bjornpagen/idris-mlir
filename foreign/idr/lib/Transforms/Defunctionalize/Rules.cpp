@@ -7,6 +7,7 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Tail.h"
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -25,6 +26,8 @@ std::optional<Edit> ForceFreshCell::decide(MemoRunOp run, const OperandFacts &fa
 // The region's block runs before the exchange, its captures the
 // constructor's fields held as the region binds them, and its results are
 // what the yield gives; the value it moved into the cell goes with the cell.
+// Each call the region made now stands where the exchange stood, and takes
+// the tail fact its new place gives it.
 void ForceFreshCell::rewrite(MemoRunOp run, const Rewrite &, RewriterBase &rewriter) {
   auto built = run.getCell().getDefiningOp<DataConOp>();
   Block &body = run.getRegion().front();
@@ -34,9 +37,13 @@ void ForceFreshCell::rewrite(MemoRunOp run, const Rewrite &, RewriterBase &rewri
   for (auto [field, capture] : llvm::zip_equal(built.getFields(), body.getArguments()))
     captures.push_back(heldAs(rewriter, run.getLoc(), field, capture.getType()));
   SmallVector<Value> results(end.getResults());
+  SmallVector<CallOp> moved;
+  body.walk([&](CallOp call) { moved.push_back(call); });
   rewriter.inlineBlockBefore(&body, run, captures);
   rewriter.replaceOp(run, results);
   rewriter.eraseOp(end);
+  for (CallOp call : moved)
+    call.setTailKind(tail::decide(call));
 }
 
 } // namespace idr::egraph

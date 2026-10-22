@@ -17,10 +17,11 @@
 //
 // Then the decision is made whole, serially, every type and attribute the
 // edits build with it, and each function makes its edits on its own, in
-// parallel, reading it. The program is first-order after it: every run is
-// a call of its own, so the graph takes the dispatch functions and the rows
-// of the functions that ran labels again from their calls, and every row
-// is derived over it.
+// parallel, reading it. The program is first-order after it, and every
+// call of it takes its tail fact from the one definition, in one walk:
+// every run is a call of its own, so the graph takes the dispatch functions,
+// and the row of each function that ran labels or whose facts changed,
+// again from their calls, and every row is derived over it.
 
 #include "idr/Analysis/Labels.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
@@ -29,6 +30,7 @@
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Defunctionalize.h"
 #include "idr/Transforms/Effects.h"
+#include "idr/Transforms/Optimize/Tails.h"
 #include "idr/Transforms/Pipeline.h"
 
 #include "mlir/IR/Threading.h"
@@ -41,6 +43,8 @@ namespace idr {
 using namespace mlir;
 
 namespace {
+
+using idr::optimize::Facts;
 
 struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
   void runOnProgram(idr::ProgramOp program) {
@@ -58,17 +62,34 @@ struct Defunctionalize : idr::impl::IdrDefunctionalizeBase<Defunctionalize> {
       idr::defunctionalize::rewrite(edits, decided);
     });
     numFamilies += decided.numFamilies();
-    // Every run is a call now, of its label or of its family's dispatch
-    // function, with its own tail fact: each dispatch function joins the
-    // graph, and its row and the row of each function that ran a label are
-    // read from their calls, each turn writing its own function's row. No
-    // other function's calls changed.
+    // The program is first order: every call of it, each run's among them,
+    // takes its tail fact where it stands, in one walk, each function's
+    // calls on their own, in parallel: the functions the program had, then
+    // the dispatch functions.
+    idr::footprint::Vector<idr::FuncOp> functions;
+    for (const idr::defunctionalize::Edits &edits : decided.edits())
+      functions.push_back(edits.fn);
+    std::size_t had = functions.size();
+    functions.insert(functions.end(), decided.forces().begin(), decided.forces().end());
+    idr::footprint::Vector<Facts> facts(functions.size(), Facts::Kept);
+    parallelFor(&getContext(), 0, functions.size(),
+                [&](std::size_t at) { facts[at] = idr::optimize::decideTails(functions[at]); });
+    // Each dispatch function joins the graph, and its row, and the row of
+    // each function whose calls changed (its runs became calls, or a fact
+    // did), are read from their calls, each turn writing its own function's
+    // row.
     {
+      idr::IndexVector<idr::solver::FunctionId, Facts> ran = graph.table<Facts>(Facts::Kept);
+      for (const idr::defunctionalize::Runner &each : decided.runners())
+        ran[each.id] = Facts::Changed;
+      idr::footprint::Vector<idr::defunctionalize::Runner> reread;
+      for (std::size_t at = 0; at < had; ++at)
+        if (idr::solver::FunctionId id = graph.id(functions[at]);
+            facts[at] == Facts::Changed || ran[id] == Facts::Changed)
+          reread.push_back({id, functions[at]});
       idr::solver::Editor editor = graph.thaw();
-      idr::footprint::Vector<idr::defunctionalize::Runner> reread(decided.runners().begin(),
-                                                                  decided.runners().end());
-      for (idr::FuncOp force : decided.forces())
-        reread.push_back({editor.insert(force), force});
+      for (std::size_t at = had; at < functions.size(); ++at)
+        reread.push_back({editor.insert(functions[at]), functions[at]});
       parallelForEach(&getContext(), reread, [&](const idr::defunctionalize::Runner &each) {
         editor.setCallees(each.id, idr::solver::rowOf(each.fn, editor));
       });

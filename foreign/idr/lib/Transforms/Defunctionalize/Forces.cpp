@@ -10,15 +10,17 @@
 // calls its function on the captures, so every force runs its effect. The
 // running case is a force that reached its own cell again before its value
 // moved in, a loop the program would never leave: the program crashes
-// there instead. The forced case is the value. It calls no function of its
-// own cycle, so it terminates where its labels do.
+// there instead. The forced case is the value. It has no loop of its own,
+// so it ends wherever no cycle of calls reaches it; a label that forces a
+// cell of its own family again puts it on one, and the label's call inside
+// the exchange is then a call on its own cycle. Its calls take their tail
+// facts with every other call once the program is first order.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Func.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Tail.h"
 #include "idr/Transforms/Defunctionalize.h"
 #include "idr/Transforms/Joins.h"
 
@@ -40,7 +42,9 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
   ArrayRef<families::Sort> sorts = idr::match(
       cell.getGroup().getMembers()[cell.getMember()],
       [](const families::MemoMember &member) { return member.indices; },
-      [](const auto &) { return ArrayRef<families::Sort>(); });
+      [](const OneOf<families::DataMember, families::ClosuresMember, families::FramesMember> auto &) {
+        return ArrayRef<families::Sort>();
+      });
   DataType own = DataType::get(ctx, cell.getGroup(), cell.getMember(),
                                families::levelArgs(ctx, 0, indices).getTerms());
   Type value = own.ctor(memo->forced()).fields.front();
@@ -63,61 +67,68 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
   Value taken = entry->getArgument(0);
 
   // A case per state, and no default; each case binds its constructor's
-  // binders as the levels after the function's own.
+  // binders as the levels after the function's own, and the cell refined to
+  // its state.
   SmallVector<Tag> tags;
   for (unsigned at = 0; at < labels.size() + 2; ++at)
     tags.push_back(Tag{at});
   auto match = DataMatchOp::create(b, loc, TypeRange(value), taken, ValueRange(), tags);
   unsigned depth = joins::scopeDepth(match->getParentRegion());
-  SmallVector<CallOp> calls;
   for (Tag tag : tags) {
     auto at = static_cast<unsigned>(tag);
     Region &region = match.getCaseRegion(at);
-    IndexArgsAttr binders =
+    IndexArgsAttr levels =
         families::levelArgs(ctx, depth, static_cast<unsigned>(own.binderSorts(tag).size()));
-    DataType refined = own.refinedTo(tag, binders.getTerms());
+    DataType refined = own.refinedTo(tag, levels.getTerms());
     Block *state = b.createBlock(&region, region.end(), TypeRange(refined), {loc});
-    SmallVector<Value> fields;
-    for (unsigned i = 0, n = static_cast<unsigned>(own.ctor(tag).fields.size()); i < n; ++i)
-      fields.push_back(DataFieldOp::create(b, loc, state->getArgument(0), i));
+    Value cell = state->getArgument(0);
+    auto fields = static_cast<unsigned>(own.ctor(tag).fields.size());
+    // Each field read off the refined cell, at the binders its type gives.
+    auto read = [&] {
+      SmallVector<Value> out;
+      for (unsigned i = 0; i < fields; ++i)
+        out.push_back(DataFieldOp::create(b, loc, cell, i));
+      return out;
+    };
     if (tag == memo->running()) {
       CrashCauseOp::create(b, loc, CrashCause::SuspensionForcedItself, siteOf(program.getLoc()));
       ub::UnreachableOp::create(b, loc);
       continue;
     }
     if (tag == memo->forced()) {
-      YieldOp::create(b, loc, heldAs(b, loc, fields.front(), value));
+      YieldOp::create(b, loc, heldAs(b, loc, read().front(), value));
       continue;
     }
     const families::MemoLabelDecl &label = labels[at];
     auto target = SymbolTable::lookupNearestSymbolFrom<FuncOp>(program, label.label.fn);
     Location at_ = target.getLoc();
-    // The label's function on `captures`, at the case's binders, which the
-    // call passes as its index arguments; its value given as the force
-    // gives it: the label's result at the case's binders is the family's
-    // value at the function's own, which the case's refinement checks. The
+    // The label's function on `captures`, at the terms the case gives its
+    // binders (givenBinders): the captures, read at the case's levels, are
+    // given before the call, so where the family's indices name the label's
+    // binders the label's value is the family's with nothing after the
+    // call; else the case's refinement checks the reindex of its value. The
     // decision converted the function's type before this body.
-    FunctionType bound = families::substitute(target.getFunctionType(), binders);
+    IndexArgsAttr given = givenBinders(own, tag, levels);
+    FunctionType bound = families::substitute(target.getFunctionType(), given);
     auto call = [&](ValueRange captures) {
       SmallVector<Value> args;
       for (auto [capture, param] : llvm::zip_equal(captures, bound.getInputs()))
-        args.push_back(heldAs(b, at_, capture, param));
-      auto called = CallOp::create(b, at_, target, binders, args, TailKind::nontail);
-      calls.push_back(called);
+        args.push_back(givenAs(b, at_, capture, param));
+      auto called = CallOp::create(b, at_, target, given, args, TailKind::nontail);
       return givenAs(b, at_, called.getResult(0), value);
     };
     switch (label.mode) {
     case families::Mode::ByName:
-      YieldOp::create(b, at_, call(fields));
+      YieldOp::create(b, at_, call(read()));
       break;
     case families::Mode::Memoized: {
       // The exchange moves the captures out of the cell, runs the label on
       // them, and moves the value into the cell, which it also gives. Each
-      // capture is bound as a field read from the cell is.
-      auto exchange = MemoRunOp::create(b, at_, TypeRange(value), taken, b.getI32IntegerAttr(at));
-      SmallVector<Type> captures = llvm::map_to_vector(label.label.fields, [&](Type field) {
-        return fieldType(own, unrestricted(field), usesOf(field), fieldReach(field));
-      });
+      // capture is bound as a read of its field gives it.
+      auto exchange = MemoRunOp::create(b, at_, TypeRange(value), cell);
+      SmallVector<Type> captures;
+      for (unsigned i = 0; i < fields; ++i)
+        captures.push_back(*fieldReadType(cell.getType(), i));
       Block *body = b.createBlock(&exchange.getRegion(), {}, captures,
                                   SmallVector<Location>(captures.size(), at_));
       Value computed = call(body->getArguments());
@@ -131,9 +142,6 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
   b.setInsertionPointToEnd(entry);
   ReturnOp::create(b, loc, match->getResults());
   program.getBody()->push_back(fn);
-  // Each call its tail fact where it stands, now that the function is whole.
-  for (CallOp called : calls)
-    called.setTailKind(tail::decide(called));
   return fn;
 }
 

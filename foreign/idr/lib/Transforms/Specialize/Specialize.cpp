@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The nodes of one run of idr-optimize, by key, and their phases: each
-// made by the first request of its key, claimed by one worker, built, and
-// placed in the program by the schedule.
+// asked for by turns, which write nothing shared, and between waves, on
+// the pass thread, made by the first ask of its key the wave admits, built
+// and placed in the program by the schedule.
 //
 // A request is judged on its requester's own state (the keys it was given
 // before, by owner) and on its request chain, the keys of the copies whose
@@ -44,12 +45,21 @@ ArrayRef<const PatternKey *> Requester::given(FunctionId owner) const {
   return {};
 }
 
-// A pattern node's key is given, to be judged against later; its own key,
-// asked by a copy of its own recursion, is given and never taken, since
-// the call is already the copy's own.
-void Requester::give(Node &node) {
+namespace {
+
+// The key's identity in the arena.
+const void *identityOf(const Key &key) {
+  return idr::match(key, [](OneOf<const PatternKey *, const RaiseKey *, const SignatureKey *> auto k)
+                             -> const void * { return k; });
+}
+
+} // namespace
+
+// A pattern key is given, to be judged against later; every key asked
+// waits to be taken, once.
+void Requester::give(const Asked &asked) {
   idr::match(
-      node.key,
+      asked.key,
       [&](const PatternKey *key) {
         auto at = llvm::find_if(keys, [&](const auto &entry) { return entry.first == key->owner; });
         if (at == keys.end()) {
@@ -59,17 +69,19 @@ void Requester::give(Node &node) {
         if (!llvm::is_contained(at->second, key))
           at->second.push_back(key);
       },
-      [](const auto *) {});
-  if (!llvm::is_contained(waiting, &node))
-    waiting.push_back(&node);
+      [](OneOf<const RaiseKey *, const SignatureKey *> auto) {});
+  if (llvm::none_of(waiting, [&](const Asked &earlier) {
+        return identityOf(earlier.key) == identityOf(asked.key);
+      }))
+    waiting.push_back(asked);
 }
 
-SmallVector<Node *> Requester::take() {
-  SmallVector<Node *> out = std::move(waiting);
+SmallVector<Asked> Requester::take() {
+  SmallVector<Asked> out = std::move(waiting);
   waiting.clear();
-  // Which order they were given in changes nothing: the name fixes it.
-  llvm::sort(out, [](const Node *lhs, const Node *rhs) {
-    return lhs->name.getValue() < rhs->name.getValue();
+  // Which order they were asked in changes nothing: the name fixes it.
+  llvm::sort(out, [](const Asked &lhs, const Asked &rhs) {
+    return lhs.name.getValue() < rhs.name.getValue();
   });
   return out;
 }
@@ -82,17 +94,15 @@ Nodes::Nodes(const optimize::Schedule &schedule) : state(std::make_unique<State>
 
 Nodes::~Nodes() = default;
 
-const Node *Nodes::find(FunctionId fn) const {
-  std::lock_guard lock(state->mutex);
-  return state->placedAt(fn);
+// Read while the turns run, and written between waves alone.
+const Node *Nodes::find(FunctionId fn) const { return state->placedAt(fn); }
+
+const Node *Nodes::known(const Key &key) const {
+  auto found = state->byKey.find(identityOf(key));
+  return found == state->byKey.end() ? nullptr : found->second;
 }
 
 namespace {
-
-// The key's identity in the arena.
-const void *identityOf(const Key &key) {
-  return idr::match(key, [](const auto *k) -> const void * { return k; });
-}
 
 FunctionId ownerOf(const Key &key) {
   return idr::match(
@@ -119,7 +129,7 @@ SmallVector<const PatternKey *> chainOf(const Node *from, FunctionId owner) {
           if (key->owner == owner)
             keys.push_back(key);
         },
-        [](const auto *) {});
+        [](OneOf<const RaiseKey *, const SignatureKey *> auto) {});
     llvm::append_range(work, at->parents);
   }
   return keys;
@@ -150,7 +160,10 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
   State &s = *state;
   const optimize::Schedule &schedule = s.schedule;
   const Node *mine = find(requester);
-  Grant grant;
+  // What the judging keeps: the pattern key granted, and where each hole of
+  // the call's key comes from.
+  const PatternKey *granted = nullptr;
+  SmallVector<Source> sources;
 
   // A pattern key is judged against what the requester was given of its
   // owner, and, where its copy is not yet in the program, against its
@@ -158,18 +171,12 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
   auto judge = [&](const PatternWant &pattern) -> std::optional<const PatternKey *> {
     const PatternKey *key = pattern.key;
     for (unsigned hole = 0; hole < pattern.leaves.size(); ++hole)
-      grant.sources.push_back(Kept{hole});
+      sources.push_back(Kept{hole});
+    // A key the table holds is placed, its copy in the program, so its
+    // chain is read no more.
     auto earlierOf = [&] {
       SmallVector<const PatternKey *> earlier(asking.given(key->owner));
-      bool known = false;
-      {
-        std::lock_guard lock(s.mutex);
-        auto found = s.byKey.find(key);
-        known = found != s.byKey.end() &&
-                idr::match(found->second->phase, [](const Placed &) { return true; },
-                           [](const auto &) { return false; });
-      }
-      if (!known)
+      if (!known(Key(key)))
         llvm::append_range(earlier, chainOf(mine, key->owner));
       return earlier;
     };
@@ -191,9 +198,9 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
       SmallVector<Source> composed;
       for (const Source &source : lifted)
         composed.push_back(idr::match(
-            source, [&](Kept kept) { return grant.sources[kept.hole]; },
+            source, [&](Kept kept) { return sources[kept.hole]; },
             [](const Lifted &constant) { return Source(constant); }));
-      grant.sources = std::move(composed);
+      sources = std::move(composed);
       if (llvm::none_of(key->params, [](const Pattern *p) { return p->hasStructure(); }))
         return std::nullopt;
       earlier = earlierOf();
@@ -211,7 +218,7 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
         std::optional<const PatternKey *> kept = judge(pattern);
         if (!kept)
           return std::nullopt;
-        grant.key = *kept;
+        granted = *kept;
         return Key(*kept);
       },
       [](const RaiseWant &raise) -> std::optional<Key> { return Key(raise.key); },
@@ -246,46 +253,54 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
       key, [](const RaiseKey *) { return std::optional<CopyKind>(); },
       [](const SignatureKey *) { return std::optional<CopyKind>(); }, copyOf);
 
-  std::lock_guard lock(s.mutex);
-  Node *&slot = s.byKey[identityOf(key)];
-  if (!slot) {
-    if (s.byName.contains(name))
-      return emitError(at->getLoc())
-             << "internal error: idr-optimize: two keys name the copy @" << name.getValue();
-    Node &made = s.nodes.emplace_back(
-        Node{key, copy, origin, FlatSymbolRefAttr::get(name), {}, Requested{}});
-    // A name the program held when the run began is the copy an earlier
-    // run made of this key.
-    if (std::optional<FunctionId> earlier = schedule.graph.find(FlatSymbolRefAttr::get(name))) {
-      made.phase = Placed{*earlier};
-      s.placeAt(*earlier, made);
-    }
-    s.byName[name] = &made;
-    slot = &made;
-  }
-  Node &node = *slot;
-  // A step stays a step: a later request that shares makes no beta of it.
-  if (copy == CopyKind::Step)
-    node.copy = CopyKind::Step;
-  bool waiting = idr::match(node.phase, [](const Placed &) { return false; },
-                            [](const auto &) { return true; });
-  if (waiting && mine && mine != &node && !llvm::is_contained(node.parents, mine))
-    node.parents.push_back(mine);
-  if (&node != mine)
-    asking.give(node);
-  grant.node = &node;
-  return std::optional<Grant>(std::move(grant));
+  // A name another key's node holds is the compiler's error; the asks of
+  // one wave meet each other's names when they are admitted.
+  if (const Node *named = s.byName.lookup(name);
+      named && identityOf(named->key) != identityOf(key))
+    return emitError(at->getLoc())
+           << "internal error: idr-optimize: two keys name the copy @" << name.getValue();
+  Asked asked{key, FlatSymbolRefAttr::get(name), copy, origin, mine, at->getLoc()};
+  // Its own key, asked by a copy of its own recursion, is the copy's own
+  // call already, and waits on nothing.
+  if (!mine || identityOf(mine->key) != identityOf(key))
+    asking.give(asked);
+  return std::optional<Grant>(Grant{std::move(asked), granted, std::move(sources)});
 }
 
-bool Nodes::claim(Node &node) {
-  std::lock_guard lock(state->mutex);
-  return idr::match(
-      node.phase,
-      [&](Requested) {
-        node.phase = Claimed{};
-        return true;
-      },
-      [](const auto &) { return false; });
+FailureOr<SmallVector<Node *>> Nodes::admit(ArrayRef<Asked> asked) {
+  State &s = *state;
+  SmallVector<Node *> made;
+  for (const Asked &each : asked) {
+    Node *&slot = s.byKey[identityOf(each.key)];
+    if (!slot) {
+      StringAttr name = each.name.getAttr();
+      if (s.byName.contains(name))
+        return emitError(each.at)
+               << "internal error: idr-optimize: two keys name the copy @" << name.getValue();
+      Node &node =
+          s.nodes.emplace_back(Node{each.key, each.copy, each.origin, each.name, {}, Requested{}});
+      // A name the program held when the run began is the copy an earlier
+      // run made of this key.
+      if (std::optional<FunctionId> earlier = s.schedule.graph.find(each.name)) {
+        node.phase = Placed{*earlier};
+        s.placeAt(*earlier, node);
+      } else {
+        made.push_back(&node);
+      }
+      s.byName[name] = &node;
+      slot = &node;
+    }
+    Node &node = *slot;
+    // A step stays a step: a later request that shares makes no beta of it.
+    if (each.copy == CopyKind::Step)
+      node.copy = CopyKind::Step;
+    bool waiting = idr::match(node.phase, [](const Placed &) { return false; },
+                              [](const OneOf<Requested, Built> auto &) { return true; });
+    if (waiting && each.parent && each.parent != &node &&
+        !llvm::is_contained(node.parents, each.parent))
+      node.parents.push_back(each.parent);
+  }
+  return made;
 }
 
 namespace {
@@ -313,12 +328,11 @@ SmallVector<BindingTime> inherited(const Key &key, FuncOp fn, ArrayRef<BindingTi
 
 } // namespace
 
-LogicalResult Nodes::build(Node &node, FunctionId claimant) {
+LogicalResult Nodes::build(Node &node) {
   State &s = *state;
   FunctionId owner = ownerOf(node.key);
-  // The grant read the owner as the claimant may read it: final, or of the
-  // claimant's own component, which only the claimant's turn writes.
-  optimize::Readable from = s.schedule.readable(claimant, owner);
+  // No turn runs, so the owner reads as it stands, final or not.
+  optimize::Readable from = s.schedule.readable(owner, owner);
   StringAttr name = node.name.getAttr();
   FailureOr<FuncOp> fn = idr::match(
       node.key, [&](const PatternKey *k) { return makeCopy<Patterns>(from.fn, k, name); },
@@ -328,22 +342,13 @@ LogicalResult Nodes::build(Node &node, FunctionId claimant) {
       });
   if (failed(fn))
     return failure();
-  SmallVector<BindingTime> times = inherited(node.key, *fn, from.times);
-  std::lock_guard lock(s.mutex);
-  node.phase = Built{*fn, std::move(times)};
+  node.phase = Built{*fn, inherited(node.key, *fn, from.times)};
   return success();
 }
 
 void Nodes::place(Node &node, FunctionId id) {
-  std::lock_guard lock(state->mutex);
   node.phase = Placed{id};
   state->placeAt(id, node);
-}
-
-bool Nodes::placed(const Node &node) const {
-  std::lock_guard lock(state->mutex);
-  return idr::match(node.phase, [](const Placed &) { return true; },
-                    [](const auto &) { return false; });
 }
 
 // Every copy's function says what it is, none included: a function the
@@ -353,7 +358,7 @@ void Nodes::writeCopies() {
     idr::match(
         node.phase,
         [&](const Placed &placed) { state->schedule.function(placed.id).setCopy(node.copy); },
-        [](const auto &) {});
+        [](const OneOf<Requested, Built> auto &) {});
 }
 
 } // namespace idr::specialize

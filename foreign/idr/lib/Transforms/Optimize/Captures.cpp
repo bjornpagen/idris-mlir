@@ -108,7 +108,7 @@ std::optional<Unread> unread(Schedule &schedule) {
             for (auto [t, decl] : llvm::enumerate(memo.labels))
               note(decl.label, Ctor{group, at, static_cast<std::uint32_t>(t)});
           },
-          [](const auto &) {});
+          [](const OneOf<families::DataMember, families::FramesMember> auto &) {});
     }
   });
   program.walk([&](Operation *op) {
@@ -162,7 +162,7 @@ std::optional<Unread> unread(Schedule &schedule) {
       readOf(field.getResult(), ctorOf(data, *tag), static_cast<unsigned>(field.getIndex()));
   });
   program.walk([&](MemoRunOp run) {
-    Ctor ctor = ctorOf(run.getDataType(), Tag{run.getTag()});
+    Ctor ctor = ctorOf(run.getDataType(), run.getTag());
     for (BlockArgument capture : run.getRegion().front().getArguments())
       readOf(capture, ctor, capture.getArgNumber());
   });

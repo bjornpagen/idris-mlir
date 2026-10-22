@@ -44,18 +44,19 @@ bool sameNode(const Pattern::Node &a, const Pattern::Node &b) {
   return idr::match(
       a,
       [&](Hole) {
-        return idr::match(b, [](Hole) { return true; }, [](const auto &) { return false; });
+        return idr::match(b, [](Hole) { return true; },
+                          [](const OneOf<Con, Const> auto &) { return false; });
       },
       [&](const Con &con) {
         return idr::match(
             b,
             [&](const Con &other) { return con.tag == other.tag && llvm::equal(con.fields, other.fields); },
-            [](const auto &) { return false; });
+            [](const OneOf<Hole, Const> auto &) { return false; });
       },
       [&](const Const &constant) {
         return idr::match(
             b, [&](const Const &other) { return constant.value == other.value; },
-            [](const auto &) { return false; });
+            [](const OneOf<Hole, Con> auto &) { return false; });
       });
 }
 

@@ -132,9 +132,9 @@ private:
                   for (auto [sf, bf] : llvm::zip_equal(smallCon.fields, big.fields))
                     out.push_back({sf, bf});
               },
-              [](const auto &) {});
+              [](const OneOf<Hole, Const> auto &) {});
         },
-        [](const auto &) {});
+        [](const OneOf<Hole, Const> auto &) {});
     return out;
   }
 
@@ -150,13 +150,14 @@ private:
         [&](const Con &big) {
           return llvm::any_of(big.fields, [&](const Pattern *field) { return known.at({s, field}); });
         },
-        [](const auto &) { return false; });
+        [](const OneOf<Hole, Const> auto &) { return false; });
     if (inField)
       return true;
     return idr::match(
         s->get(),
         [&](Hole) {
-          return idr::match(b->get(), [](Hole) { return true; }, [](const auto &) { return false; });
+          return idr::match(b->get(), [](Hole) { return true; },
+                            [](const OneOf<Con, Const> auto &) { return false; });
         },
         [&](const Con &smallCon) {
           return idr::match(
@@ -168,7 +169,7 @@ private:
                                           return known.at({sf, bf});
                                         });
               },
-              [](const auto &) { return false; });
+              [](const OneOf<Hole, Const> auto &) { return false; });
         },
         [&](const Const &smallConst) {
           return idr::match(
@@ -181,7 +182,7 @@ private:
                 return unsignedAtMost(sizeOf(smallConst.value, sizes),
                                       sizeOf(bigConst.value, sizes));
               },
-              [](const auto &) { return false; });
+              [](const OneOf<Hole, Con> auto &) { return false; });
         });
   }
 
@@ -201,7 +202,8 @@ bool oneShape(const Pattern *a, const Pattern *b) {
     bool same = idr::match(
         x->get(),
         [&](Hole) {
-          return idr::match(y->get(), [](Hole) { return true; }, [](const auto &) { return false; });
+          return idr::match(y->get(), [](Hole) { return true; },
+                            [](const OneOf<Con, Const> auto &) { return false; });
         },
         [&](const Con &con) {
           return idr::match(
@@ -213,7 +215,7 @@ bool oneShape(const Pattern *a, const Pattern *b) {
                   work.push_back({xf, yf});
                 return true;
               },
-              [](const auto &) { return false; });
+              [](const OneOf<Hole, Const> auto &) { return false; });
         },
         [&](const Const &constant) {
           return idr::match(
@@ -221,7 +223,7 @@ bool oneShape(const Pattern *a, const Pattern *b) {
               [&](const Const &other) {
                 return constantKind(constant.value) == constantKind(other.value);
               },
-              [](const auto &) { return false; });
+              [](const OneOf<Hole, Con> auto &) { return false; });
         });
     if (!same)
       return false;

@@ -5,7 +5,8 @@
 // schedule's tables and the analysis manager's children change: a pipeline
 // on a function nests an analysis manager for it, and nesting a new
 // function inserts into a map that pipelines on other functions read. So
-// the copies the turns built go into the program here, by name, the
+// the copies the turns asked for are admitted to the table, built and go
+// into the program here, by name, the
 // components that finished become final, and the waits the turns recorded
 // are counted.
 //
@@ -26,6 +27,7 @@
 #include "idr/Support/Footprint.h"
 #include "idr/Transforms/Effects.h"
 
+#include "mlir/IR/Threading.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SCCIterator.h"
@@ -102,7 +104,7 @@ namespace idr::optimize {
 FunctionId Scheduler::insert(specialize::Node *made) {
   specialize::Built built = idr::match(
       made->phase, [](specialize::Built &b) { return std::move(b); },
-      [](auto &) { return specialize::Built{}; });
+      [](OneOf<specialize::Requested, specialize::Placed> auto &) { return specialize::Built{}; });
   FuncOp fn = built.fn;
   FuncOp owner = schedule.function(made->origin);
   Block &body = *schedule.program.getBody();
@@ -179,7 +181,7 @@ void Scheduler::finalize(unsigned component) {
   for (FunctionId id : ids) {
     Schedule::Member &member = schedule.members[id.index()];
     Solved solved = idr::match(member.phase, [](Done &done) { return std::move(done.solved); },
-                               [](auto &) { return Solved{}; });
+                               [](OneOf<Waiting, Parked, Final> auto &) { return Solved{}; });
     member.phase = Final{Summary{std::move(solved.times), returnedConstants(member.fn),
                                  inlining::bodyOf(member.fn)}};
     schedule.graph.setCallees(id, solver::rowOf(member.fn, schedule.graph));
@@ -210,17 +212,26 @@ void Scheduler::finalize(unsigned component) {
     }
 }
 
-void Scheduler::settle(MutableArrayRef<Turn> wave) {
-  SmallVector<specialize::Node *> built;
+LogicalResult Scheduler::settle(MutableArrayRef<Turn> wave) {
+  // What the turns asked joins the table in name order, so which turn asked
+  // first changes nothing; each copy new to it is built, each by one task
+  // in parallel, from its key and its owner as the owner stands with no
+  // turn running; then each goes into the program, by name.
+  SmallVector<specialize::Asked> asked;
   for (Turn &turn : wave)
-    llvm::append_range(built, turn.built);
-  // Which turn built a copy changes nothing; the name fixes the order.
-  llvm::sort(built, [](specialize::Node *lhs, specialize::Node *rhs) {
-    return lhs->name.getValue() < rhs->name.getValue();
+    llvm::append_range(asked, turn.asked);
+  llvm::stable_sort(asked, [](const specialize::Asked &lhs, const specialize::Asked &rhs) {
+    return lhs.name.getValue() < rhs.name.getValue();
   });
+  FailureOr<SmallVector<specialize::Node *>> made = nodes.admit(asked);
+  if (failed(made))
+    return failure();
+  if (failed(failableParallelForEach(schedule.program.getContext(), *made,
+                                     [&](specialize::Node *node) { return nodes.build(*node); })))
+    return failure();
   SmallVector<FunctionId> placed;
-  for (specialize::Node *made : built)
-    placed.push_back(insert(made));
+  for (specialize::Node *node : *made)
+    placed.push_back(insert(node));
   for (Turn &turn : wave)
     if (turn.ends == Turn::Ends::Yes)
       finalize(turn.component);
@@ -228,11 +239,12 @@ void Scheduler::settle(MutableArrayRef<Turn> wave) {
   // The waits of the wave: each parked member on the copies of its batch,
   // each placed copy on what it calls.
   for (Turn &turn : wave) {
-    for (auto &[requester, asked] : turn.parked)
-      for (specialize::Node *made : asked)
+    for (auto &[requester, batch] : turn.parked)
+      for (const specialize::Asked &each : batch)
         idr::match(
-            made->phase, [&](const specialize::Placed &at) { want(requester, at.id); },
-            [](const auto &) {});
+            nodes.known(each.key)->phase,
+            [&](const specialize::Placed &at) { want(requester, at.id); },
+            [](const OneOf<specialize::Requested, specialize::Built> auto &) {});
     check.push_back(turn.component);
   }
   for (FunctionId id : placed)
@@ -306,6 +318,7 @@ void Scheduler::settle(MutableArrayRef<Turn> wave) {
     schedule.unfinished[leader] = static_cast<unsigned>(callees.size());
     check.push_back(leader);
   }
+  return success();
 }
 
 } // namespace idr::optimize

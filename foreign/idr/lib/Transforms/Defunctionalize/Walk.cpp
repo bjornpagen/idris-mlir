@@ -5,8 +5,9 @@
 //   - coerce: before each operand whose value moves between two keys, the
 //     match that rebuilds it in the other family;
 //   - replace: each closure op by what it means;
-//   - erase: the ops it replaced, at the end, then each call it made takes
-//     its tail fact where it stands.
+//   - erase: the ops it replaced, at the end.
+// Its calls take their tail facts with every call of the program once
+// every function is rewritten.
 // Every type and attribute an edit builds is the decision's, read through a
 // const reference; the walk makes ops and blocks and nothing in the
 // context, and reads no other function but through what the decision
@@ -14,7 +15,6 @@
 
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Tail.h"
 #include "idr/Support/Match.h"
 #include "idr/Transforms/Defunctionalize.h"
 
@@ -32,7 +32,7 @@ namespace {
 // result types the decision's; what it holds of its callee (its row, its
 // write part, its lifetimes) copied as the callee states them, as the
 // call's own builder would, which makes the rest; a tail fact the one
-// definition of tail position rewrites once the function is whole.
+// definition of tail position rewrites once the program is first order.
 CallOp callOf(OpBuilder &b, Location loc, FuncOp callee, FlatSymbolRefAttr name,
               IndexArgsAttr indices, TypeRange results, ValueRange args) {
   CallOp::Properties properties;
@@ -115,7 +115,6 @@ void rewrite(const Edits &edits, const Decision &decision) {
   }
 
   SmallVector<Operation *> erased;
-  SmallVector<CallOp> made;
   // A constructor's fields are its op's operands. An unforced cell keeps its
   // identity: its constructor is a fresh one, as the family's kind says.
   for (const Construct &each : edits.constructs) {
@@ -155,10 +154,13 @@ void rewrite(const Edits &edits, const Decision &decision) {
             const CaseMoves &moves = dispatch.cases[at];
             SmallVector<Value> fields =
                 openCase(b, loc, match, static_cast<unsigned>(at), taken, decision);
+            // The captures, read at the case's levels, given at the terms
+            // the call passes: a reindex before the call where the two
+            // differ, so nothing follows the call to relate its results.
             auto captures = static_cast<unsigned>(fields.size());
             SmallVector<Value> args;
             for (auto [field, type] : llvm::zip_equal(fields, callee.bound.getInputs().take_front(captures)))
-              args.push_back(heldAs(b, loc, field, type));
+              args.push_back(givenAs(b, loc, field, type));
             for (auto [i, arg] : llvm::enumerate(apply.getArgs())) {
               Value value = arg;
               if (const std::optional<CoercionId> &moved = moves.arguments[i])
@@ -167,8 +169,7 @@ void rewrite(const Edits &edits, const Decision &decision) {
                   givenAs(b, loc, value, callee.bound.getInput(captures + static_cast<unsigned>(i))));
             }
             CallOp call =
-                callOf(b, loc, callee.fn, callee.name, taken.binders, callee.bound.getResults(), args);
-            made.push_back(call);
+                callOf(b, loc, callee.fn, callee.name, taken.given, callee.bound.getResults(), args);
             SmallVector<Value> yields;
             for (auto [j, result] : llvm::enumerate(call.getResults())) {
               Value value = result;
@@ -192,7 +193,6 @@ void rewrite(const Edits &edits, const Decision &decision) {
     Value taken = heldAs(b, loc, force.getSuspension(), dispatch.takes);
     CallOp call = callOf(b, loc, dispatch.fn, dispatch.name, dispatch.indices,
                          TypeRange(dispatch.gives), ValueRange(taken));
-    made.push_back(call);
     Value value = call.getResult(0);
     if (each.moved)
       value = coerce(b, loc, value, decision.coercion(*each.moved), decision);
@@ -208,8 +208,6 @@ void rewrite(const Edits &edits, const Decision &decision) {
 
   for (Operation *op : llvm::reverse(erased))
     op->erase();
-  for (CallOp call : made)
-    call.setTailKind(tail::decide(call));
 }
 
 } // namespace idr::defunctionalize

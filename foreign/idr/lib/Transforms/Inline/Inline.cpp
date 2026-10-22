@@ -23,6 +23,7 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Actions.h"
 #include "idr/Transforms/Optimize.h"
+#include "idr/Transforms/Optimize/Tails.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/InliningUtils.h"
@@ -72,7 +73,7 @@ Verdict verdictOf(const solver::ProgramGraph &graph, solver::FunctionId caller,
 }
 
 Profitability::Profitability(const solver::ProgramGraph &graph)
-    : graph(graph), sizes(graph.size()), bodies(graph.size()) {}
+    : graph(graph), sizes(graph.size()), bodies(graph.size()), into(graph.size(), 0) {}
 
 bool Profitability::operator()(const Inliner::ResolvedCall &resolved) {
   auto caller = cast<FuncOp>(resolved.sourceNode->getCallableRegion()->getParentOp());
@@ -99,6 +100,7 @@ bool Profitability::operator()(const Inliner::ResolvedCall &resolved) {
   }
   *size += body->size - 1;
   ++numInlined;
+  ++into[from];
   return true;
 }
 
@@ -110,7 +112,9 @@ struct InlineLeaves : impl::IdrInlineLeavesBase<InlineLeaves> {
 
   // Each call the function holds when the step starts whose callee is
   // final and a leaf, in walk order, while the caller stays within the
-  // cap. A body brought in calls nothing, so the step brings no call.
+  // cap. A body brought in calls nothing, so the step brings no call; but
+  // what follows a call changes where a leaf's body was less than its call,
+  // so the caller's calls take their tail facts again.
   void runOnOperation() override {
     FuncOp caller = getOperation();
     SmallVector<CallOp> calls;
@@ -145,6 +149,7 @@ struct InlineLeaves : impl::IdrInlineLeavesBase<InlineLeaves> {
       return markAllAnalysesPreserved();
     IRRewriter rewriter(caller.getContext());
     (void)eraseUnreachableBlocks(rewriter, caller.getBody());
+    (void)optimize::decideTails(caller);
   }
 
   optimize::Schedule &schedule;

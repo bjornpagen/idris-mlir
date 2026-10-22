@@ -48,7 +48,7 @@ bool oneCellOf(Tag tag, llvm::ArrayRef<const Pattern *> peers) {
           auto con = dyn_cast<ConAttr>(theirs.value);
           return con && con.getTag() == tag && con.getRunLength() == 1;
         },
-        [](const auto &) { return false; });
+        [](const OneOf<Hole, Con> auto &) { return false; });
   });
 }
 

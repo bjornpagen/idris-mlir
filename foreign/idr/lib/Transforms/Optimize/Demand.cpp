@@ -148,7 +148,7 @@ void dropUnread(Schedule &schedule, ArrayRef<FunctionId> ids) {
               kept.push_back(time);
           done.solved.times = std::move(kept);
         },
-        [](auto &) {});
+        [](OneOf<Waiting, Parked, Final> auto &) {});
   }
 }
 

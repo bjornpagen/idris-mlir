@@ -208,7 +208,8 @@ FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
         raises, [](Free) { return true; }, [](None) { return false; },
         [&](Only only) { return only.form == form; });
   };
-  bool mayRaise = idr::match(raises, [](None) { return false; }, [](const auto &) { return true; });
+  bool mayRaise =
+      idr::match(raises, [](None) { return false; }, [](OneOf<Free, Only> auto) { return true; });
   if (mayRaise && callee.getBody().front().getTerminator()->hasTrait<OpTrait::ReturnLike>())
     if (std::optional<Elimination> consumer = consumerOf(call)) {
       SmallVector<Value> free;
@@ -231,7 +232,7 @@ FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
           own = key;
           owner = key->owner;
         },
-        [](const auto *) {});
+        [](OneOf<const RaiseKey *, const SignatureKey *> auto) {});
   std::optional<PatternWant> composed = composeKey(arena, call, owner, own, seen);
   if (!composed)
     return std::optional<Want>();

@@ -44,24 +44,24 @@ struct Turn {
 
   unsigned component;
   llvm::SmallVector<FunctionId> starters, resumed;
-  // The copies this turn built.
-  llvm::SmallVector<specialize::Node *> built;
+  // Every copy its members asked for, which the table admits when the wave
+  // settles.
+  llvm::SmallVector<specialize::Asked> asked;
   // Each member it parked, with the batch it asked for and could not have.
-  llvm::SmallVector<std::pair<FunctionId, llvm::SmallVector<specialize::Node *>>> parked;
+  llvm::SmallVector<std::pair<FunctionId, llvm::SmallVector<specialize::Asked>>> parked;
   // Whether every member of the component is done, so it becomes final.
   enum class Ends : bool { No, Yes } ends = Ends::No;
 };
 
 // One start or resume of a member, what a wave runs. A member starts once
-// and resumes once per park, a park named by the first copy of the batch it
-// waits for, which no later batch holds: so the steps are finitely many,
-// as the copies and their requests are.
+// and resumes once per park, each park on a batch holding a copy no earlier
+// batch held: so the steps are finitely many, as the copies and their
+// requests are.
 struct Start {
   FunctionId member;
 };
 struct Resume {
   FunctionId member;
-  specialize::Node *on;
 };
 using Step = std::variant<Start, Resume>;
 
@@ -75,16 +75,19 @@ enum class Outcome : bool { Continues, Parks };
 
 // Whether a phase is past waiting, and whether it is final.
 inline bool takenUp(const Phase &phase) {
-  return idr::match(phase, [](Waiting) { return false; }, [](const auto &) { return true; });
+  return idr::match(phase, [](Waiting) { return false; },
+                    [](const OneOf<Parked, Done, Final> auto &) { return true; });
 }
 inline bool isFinal(const Phase &phase) {
-  return idr::match(phase, [](const Final &) { return true; }, [](const auto &) { return false; });
+  return idr::match(phase, [](const Final &) { return true; },
+                    [](const OneOf<Waiting, Parked, Done> auto &) { return false; });
 }
 
 // The waves. A wave is every step queued: the turn of every component
 // whose callees are final and whose members wait on nothing, run in
 // parallel as their arenas admit. Between waves, on the pass thread with no
-// turn running, made copies go into the program, finished components
+// turn running, the copies the turns asked for are admitted, built and go
+// into the program, finished components
 // become final and publish their summaries, waits are counted, components
 // a wait would close a cycle through are merged, and the steps that can go
 // on are queued. Every turn reads a fixed set of final functions, so the
@@ -105,16 +108,13 @@ private:
   mlir::LogicalResult turn(Turn &turn);
   void takeUp(llvm::ArrayRef<FunctionId> starters);
   mlir::LogicalResult runMember(FunctionId member, Turn &turn);
-  mlir::FailureOr<Outcome> parks(FunctionId member, llvm::SmallVector<specialize::Node *> asked,
-                                 Turn &turn);
+  Outcome parks(FunctionId member, llvm::SmallVector<specialize::Asked> asked, Turn &turn);
   mlir::LogicalResult round(FunctionId member);
-  mlir::LogicalResult build(llvm::ArrayRef<specialize::Node *> asked, FunctionId claimant,
-                            Turn &turn);
 
   // The waves (Waves.cpp), and between them (Settle.cpp).
   void enable(llvm::SmallVectorImpl<Step> &ready);
   llvm::SmallVector<Turn, 0> gather(llvm::ArrayRef<Step> ready);
-  void settle(llvm::MutableArrayRef<Turn> wave);
+  mlir::LogicalResult settle(llvm::MutableArrayRef<Turn> wave);
   FunctionId insert(specialize::Node *made);
   void finalize(unsigned component);
   void want(FunctionId requester, FunctionId target);

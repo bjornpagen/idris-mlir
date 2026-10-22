@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The nodes of one run of idr-optimize: each key's node and its phases,
-// the consumer forms raising met, what each requester was given, and the
-// table the workers share, with the state behind its pointer, which the
-// nodes' phases (Specialize.cpp) read and write under its lock.
+// the consumer forms raising met, what each requester asked for, and the
+// table of nodes, with the state behind its pointer (Specialize.cpp). The
+// table is written on the pass thread between waves alone and only read
+// while the turns run, so no lock guards it and the order turns ask in
+// reaches no node.
 #ifndef IDR_TRANSFORMS_SPECIALIZESTATE_H
 #define IDR_TRANSFORMS_SPECIALIZESTATE_H
 
@@ -32,12 +34,11 @@ namespace idr::specialize {
 // The nodes of one run
 //===----------------------------------------------------------------------===//
 
-// A node's phases, each holding what it has: asked for and not built;
-// claimed by the one worker that builds it; built, detached, with its
-// parameters' binding times; placed in the program as the function the
-// schedule numbered.
+// A node's phases, each holding what it has, all between two waves:
+// admitted and not built; built, detached, with its parameters' binding
+// times; placed in the program as the function the schedule numbered,
+// which is all a turn ever meets.
 struct Requested {};
-struct Claimed {};
 struct Built {
   FuncOp fn;
   llvm::SmallVector<BindingTime> times;
@@ -45,7 +46,7 @@ struct Built {
 struct Placed {
   FunctionId id;
 };
-using Phase = std::variant<Requested, Claimed, Built, Placed>;
+using Phase = std::variant<Requested, Built, Placed>;
 
 struct Node {
   Key key;
@@ -93,20 +94,34 @@ private:
   footprint::Vector<Form> forms;
 };
 
+// What a turn asked for at one call, kept by its requester until the wave
+// settles, when it joins the table: the key, the name its copy takes (the
+// key's digest, so the call names the copy before the copy exists), what
+// the copy is to its origin's recursion, the origin, the node whose copy
+// asked (none for a function the program held), and where it was asked.
+struct Asked {
+  Key key;
+  mlir::FlatSymbolRefAttr name;
+  std::optional<CopyKind> copy;
+  FunctionId origin;
+  const Node *parent;
+  mlir::Location at;
+};
+
 // What a requester asked for: the keys it was given, by owner, against
-// which every key of that owner it asks for later is judged, and the nodes
-// it has not taken yet. Held by the requester's turn, which one worker
-// owns, so judging a request takes no lock.
+// which every key of that owner it asks for later is judged, and what it
+// has not taken yet. Held by the requester's turn, which one worker owns,
+// so judging a request takes no lock.
 class Requester {
 public:
   llvm::ArrayRef<const PatternKey *> given(FunctionId owner) const;
-  void give(Node &node);
-  // The nodes given since the last take, in name order, each once.
-  llvm::SmallVector<Node *> take();
+  void give(const Asked &asked);
+  // What was asked since the last take, in name order, each key once.
+  llvm::SmallVector<Asked> take();
 
 private:
   llvm::SmallVector<std::pair<FunctionId, llvm::SmallVector<const PatternKey *, 2>>, 4> keys;
-  llvm::SmallVector<Node *> waiting;
+  llvm::SmallVector<Asked> waiting;
 };
 
 // What one call asks for.
@@ -124,9 +139,9 @@ struct SignatureWant {
 };
 using Want = std::variant<PatternWant, RaiseWant, SignatureWant>;
 
-// The table of one run: every node by key, the arena, the forms. Workers
-// share it; a node is inserted and its phase moved under the lock, and
-// nothing else is.
+// The table of one run: every node by key, the arena, the forms. A turn
+// reads the table and asks; the pass thread, between waves, admits what
+// was asked, builds each new copy and places it.
 class Nodes {
 public:
   explicit Nodes(const optimize::Schedule &schedule);
@@ -138,27 +153,33 @@ public:
   // The node `fn` is, or null for a function the program held.
   const Node *find(FunctionId fn) const;
 
-  // The node `want`'s key names for `requester`, judged on its own state
-  // and made if new; none where the key grows one given before, or a lift
-  // leaves no structure: the call stays a call. A name another key holds
-  // is an internal error, emitted at `at`.
+  // The copy `want`'s key names for `requester`, judged on its own state
+  // and what the table holds, and asked of `state`: the table is not
+  // written. None where the key grows one given before, or a lift leaves no
+  // structure: the call stays a call. A name another key's node holds is an
+  // internal error, emitted at `at`.
   struct Grant {
-    Node *node;
+    Asked asked;
     const PatternKey *key;
     llvm::SmallVector<Source> sources;
   };
   mlir::FailureOr<std::optional<Grant>> request(FunctionId requester, Requester &state,
                                                 const Want &want, mlir::Operation *at);
 
-  // True for exactly one caller per node: it goes from requested to
-  // claimed.
-  bool claim(Node &node);
-  // The node's function, built detached from its owner as the schedule
-  // lets `claimant` read it: it goes from claimed to built.
-  mlir::LogicalResult build(Node &node, FunctionId claimant);
+  // The node of `key`, once the table admitted it, or null.
+  const Node *known(const Key &key) const;
+
+  // Between waves: what the turns asked joins the table, in the order
+  // given, each key's node made the first time, a function the program
+  // held under its name placed as it is; the nodes made, to build, in that
+  // order. Two keys on one name are an internal error.
+  mlir::FailureOr<llvm::SmallVector<Node *>> admit(llvm::ArrayRef<Asked> asked);
+  // The node's function, built detached from its owner as it stands, no
+  // turn running: it goes from requested to built. Each node is built by
+  // one task, so builds run in parallel.
+  mlir::LogicalResult build(Node &node);
   // The node, built, was numbered by the schedule as `id`.
   void place(Node &node, FunctionId id);
-  bool placed(const Node &node) const;
   // Once no turn runs: each placed copy's kind written on its function,
   // where the inline verdict reads it after the run.
   void writeCopies();
@@ -179,9 +200,6 @@ std::unique_ptr<mlir::Pass> createRedirect(optimize::Schedule &schedule, Nodes &
 struct Nodes::State {
   explicit State(const optimize::Schedule &schedule) : schedule(schedule) {}
 
-  // Held while a node is inserted or its phase moves, and nowhere else: a
-  // request is judged on its requester's own state, which its turn owns.
-  std::mutex mutex;
   const optimize::Schedule &schedule;
   // Every node, in the order made, each where it was made for the run's
   // life, in the footprint's storage; and by its key's identity in the

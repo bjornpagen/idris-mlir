@@ -85,6 +85,9 @@ public:
   bool operator()(const mlir::Inliner::ResolvedCall &call);
   std::uint64_t inlined() const { return numInlined; }
   std::uint64_t capped() const { return numCapped; }
+  // How many calls this answered to inline into `caller`: a function with
+  // any is one inlining changed.
+  std::uint32_t inlinedInto(solver::FunctionId caller) const { return into[caller]; }
 
 private:
   const solver::ProgramGraph &graph;
@@ -94,6 +97,7 @@ private:
   // in the pass's footprint.
   IndexVector<solver::FunctionId, std::optional<std::int64_t>> sizes;
   IndexVector<solver::FunctionId, std::optional<Body>> bodies;
+  IndexVector<solver::FunctionId, std::uint32_t> into;
   std::uint64_t numInlined = 0, numCapped = 0;
 };
 

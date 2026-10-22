@@ -66,14 +66,15 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
           retype(arg, typeOf(arg.getType(), keyOf(arg)));
   });
 
-  // A closure or a suspension is its label's constructor; an evaluated
-  // suspension its memo family's forced state. Each is built at its own
-  // grade, where no case binds a binder.
+  // A closure or a suspension is its label's constructor, refined to it at
+  // the terms the op gives its function's index variables; an evaluated
+  // suspension its memo family's forced state, which binds none. Each is
+  // built at its own grade.
   auto labelled = [&](auto op) {
     Key key = *keyOf(op.getResult());
     Type type = typeOf(op.getResult().getType(), key);
-    edits.constructs.push_back(
-        {op, constructorOf(familyOf(key).at, tagOf(key, op.getCalleeAttr()), gradeOf(type), {})});
+    edits.constructs.push_back({op, constructorOf(familyOf(key).at, tagOf(key, op.getCalleeAttr()),
+                                                  gradeOf(type), op.getIndexArgs().getTerms())});
   };
   fn.walk([&](FnClosureOp op) { labelled(op); });
   fn.walk([&](LazySuspendOp op) { labelled(op); });
@@ -98,7 +99,7 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
     unsigned depth = joins::scopeDepth(apply->getParentRegion());
     TailPosition position =
         tail::inTailPosition(apply) ? TailPosition::Tail : TailPosition::Within;
-    MatchId over = matchOver(typeOf(apply.getCallee().getType(), key), depth, key.labels);
+    MatchId over = matchOver(typeOf(apply.getCallee().getType(), key), depth);
     Dispatch dispatch{apply, over, {}};
     for (auto [at, label] : llvm::enumerate(key.labels.getAsRange<FlatSymbolRefAttr>())) {
       const Signature &run = signature(label.getAttr());

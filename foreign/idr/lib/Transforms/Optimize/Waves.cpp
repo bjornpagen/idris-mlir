@@ -47,11 +47,11 @@ void Scheduler::enable(SmallVectorImpl<Step> &ready) {
             if (startable)
               ready.push_back(Start{id});
           },
-          [&](const Parked &parked) {
+          [&](const Parked &) {
             if (member.unmet == 0)
-              ready.push_back(Resume{id, parked.on});
+              ready.push_back(Resume{id});
           },
-          [](const auto &) {});
+          [](const OneOf<Done, Final> auto &) {});
     }
   }
 }
@@ -91,7 +91,8 @@ LogicalResult Scheduler::run() {
     // is while an action handler counts.
     if (failed(failableParallelForEach(context, wave, [&](Turn &work) { return turn(work); })))
       return failure();
-    settle(wave);
+    if (failed(settle(wave)))
+      return failure();
     if (remark::detail::InFlightRemark progress = remark::analysis(
             schedule.program.getLoc(), remark::RemarkOpts::name("progress").category("idr-optimize")))
       progress << remark::metric("functions", schedule.members.size())
