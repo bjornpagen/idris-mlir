@@ -122,3 +122,17 @@ handoff lists its own wiring.
   stage 0 and stage 3. About twelve frontend sites read a definition's
   type. Add no cache unless the stage-3 number shows it pays: a `Lazy`
   in `Root` memoizes under idris-mlir but not on Chez's default laziness.
+
+- **The growth check's stuck calls (L16az, be1146e1).** A site's call
+  over the writer's markers is now read as the call as written beside
+  its unfolding, so the graph bounds an instance that leaves the call
+  stuck. The graph may now refuse a program whose instances never leave
+  such a call stuck; until be1146e1 those programs passed and leaned on
+  the run-time re-check. When the suite runs, route every new
+  `static argument` or growth refusal of a test that passed before to
+  L16 with its program, as a precision regression, not an expected
+  change. Expected change: instances whose static arguments differ only
+  by eta are now one instance (C221).
+- **Caps (L16az/L16bb).** `Growth/Caps.idr` must call `capTemplate`
+  (L16bb, in flight); build the frontend only at a commit where it does,
+  or capped shape parameters lose their caps.
