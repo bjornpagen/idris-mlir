@@ -6,6 +6,21 @@
 design for the owner and the coordinator: it decides what the owner has
 already ruled, and marks every other choice as a proposal.*
 
+**Re-based (2026-10-22, C121).** T0 is the dialect's Idris
+specification, not hand-written TableGen: the specification states
+every closed set and every relation between records, with its
+invariants proven by Idris's types, and its generator prints the
+TableGen and the headers (D16, D51; AGENTS.md). Where this document says
+"TableGen" or "the records" at T0, read "the specification", whose
+output TableGen is. `static_assert` holds only facts whose subject is
+C++ (C76); a feature is used only when the pinned toolchain and the
+typecheck host both have it (C9); sealing is restated on D48's families,
+whose identity is their content; and the grade's laws are on D88's axes
+(uses times hold, hold `static` or a release with a uniqueness), proven
+in the specification and reaching the C++ as its tables (C76). Line
+references below (for example `matchPin`) are to the tree this document
+was written against, before the cutover.
+
 **The rulings this design answers to** (2026-10-21, quoted from
 synthesis F DP-04 and DP-08, AGENTS.md, and the owner's words as the
 coordinator relayed them):
@@ -67,7 +82,7 @@ in: its causes C1 to C14 in §5 and its rules R1 to R13 in §5.3.
 
 | time | what exists | decides | checked by | may never decide |
 | --- | --- | --- | --- | --- |
-| **T0, TableGen** | the records | every closed set (ops, families, enums, resources, rules, endings, passes, steps); every relation between records (op to runtime function, op to stages, op to effects, pass to stage chain, rule to category) | TableGen `assert` for a fact inside one record; the generator's typed model (`PrintFatalError` naming both records) for a fact across records | anything about a program |
+| **T0, the specification** (C121; printed as TableGen) | the specification's records | every closed set (ops, families, enums, resources, rules, endings, passes, steps); every relation between records (op to runtime function, op to stages, op to effects, pass to stage chain, rule to category) | TableGen `assert` for a fact inside one record; the generator's typed model (`PrintFatalError` naming both records) for a fact across records | anything about a program |
 | **T1, building the compiler** | the generated headers and our templates | the layout of every table (an array indexed by a dense generated enum); every derived closure (resource ancestors, the conflict matrix, the grade algebra's laws); the code that runs for each case of every closed set (templates, concepts, `match`); one instantiation per solver | `static_assert` over `consteval` validators, with generated messages (P2741R3, Clang 17); concepts at every template boundary; `-Wswitch` exhaustiveness on generated enums | anything a context or a program holds |
 | **T2, pass construction** (MLIR's `Pass::initialize`, `mlir/include/mlir/Pass/Pass.h:183-191`) | a context with its dialects loaded | what MLIR can only make inside a context: frozen pattern sets, conversion targets, type converters, the attributes and types a pass writes that do not depend on the program | a failing `initialize` stops the pipeline (`mlir/lib/Pass/Pass.cpp:482-516`) | anything per function or per op |
 | **T3, the compiler running** | the program | facts about the program: numberings, graphs, solutions, the IR it writes | the verifier after every pass | a static fact: computed again, looked up, string-compared, hash-looked-up or rebuilt |
