@@ -16,6 +16,7 @@ module IdrisMLIR.Spec.Generator.Idris
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
+import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Runtime.Endings
 
 import Data.Fin
@@ -223,7 +224,7 @@ guardedLines depth ins [] made = [padding depth ++ "Unguarded (" ++ made ++ ")" 
 guardedLines depth ins (g :: gs) made =
   let checked = index (Vect.head g.given) ins
       others = argument (concatList (map (\k => operandList (index k ins)) (toList (Vect.tail g.given))))
-      check = opNameOf g.check
+      check = opNameOf (guardOpOf g.check)
       cause = caseValue causeEnum (position causeClosed g.cause)
       binder = primed checked.name
       opening = case checked.arity of

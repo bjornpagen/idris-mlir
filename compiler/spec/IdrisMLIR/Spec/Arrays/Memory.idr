@@ -21,7 +21,6 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Control.Flow
 import IdrisMLIR.Spec.Runtime.Endings
-import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Arrays.Generating
 
@@ -58,7 +57,7 @@ mutableAttr = MkAttrDef
 ||| read of a value array is indexed by a `Fin` per axis, which proves it in
 ||| bounds, so its records carry no guard.
 inBounds : {0 i : Nat} -> (indices, arr : Fin i) -> Guard (Fin i)
-inBounds indices arr = MkGuard inBoundsOp [indices, arr] IndexOutOfBounds
+inBounds indices arr = MkGuard InBounds [indices, arr] IndexOutOfBounds
 
 ||| `idr.array.new`: a new array of the given sizes, one per dimension,
 ||| each element the fill, which moves in, a reference per element (an

@@ -17,6 +17,7 @@ import IdrisMLIR.Spec.Generator.Cpp
 import IdrisMLIR.Spec.Generator.Bytecode
 import IdrisMLIR.Spec.Generator.Idris
 import IdrisMLIR.Spec.Generator.Wire
+import IdrisMLIR.Spec.Ops.Checks
 
 import Data.Fin
 import Data.List
@@ -164,16 +165,17 @@ admittedBaseTd =
     , "}"
     , "" ]
 
-||| A guard of an admitted op, as its record's argument: its op by the
-||| dialect it is defined in and its name there, its groups, and its cause
-||| by the closed set's module and name and its position there.
+||| A guard of an admitted op, as its record's argument: its kind's op by
+||| the dialect it is defined in and its name there, its groups, and its
+||| cause by the closed set's module and name and its position there.
 admittedGuard : Guard Nat -> String
 admittedGuard g =
-  "IdrAdmittedGuard<" ++ quoted (identText (dialectName (homeDialect g.check.home))) ++ ", "
-    ++ quoted (mnemonicText g.check.mnemonic) ++ ", ["
-    ++ joinWith ", " (map decimal (toList g.given)) ++ "], "
-    ++ quoted (moduleName causeEnum.source.setHome) ++ ", " ++ quoted (identText causeEnum.source.setName) ++ ", "
-    ++ decimal (position causeClosed g.cause) ++ ">"
+  let checkOp = guardOpOf g.check
+  in "IdrAdmittedGuard<" ++ quoted (identText (dialectName (homeDialect checkOp.home))) ++ ", "
+       ++ quoted (mnemonicText checkOp.mnemonic) ++ ", ["
+       ++ joinWith ", " (map decimal (toList g.given)) ++ "], "
+       ++ quoted (moduleName causeEnum.source.setHome) ++ ", " ++ quoted (identText causeEnum.source.setName) ++ ", "
+       ++ decimal (position causeClosed g.cause) ++ ">"
 
 export
 admittedRow : Admitted -> String

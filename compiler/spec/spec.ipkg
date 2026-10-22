@@ -50,6 +50,7 @@ modules = IdrisMLIR.Spec
         , IdrisMLIR.Spec.Families.Types
         , IdrisMLIR.Spec.Functions.Copy
         , IdrisMLIR.Spec.Functions.Declarations
+        , IdrisMLIR.Spec.Functions.Extents
         , IdrisMLIR.Spec.Functions.GivenBack
         , IdrisMLIR.Spec.Functions.LivesIn
         , IdrisMLIR.Spec.Functions.Parameters

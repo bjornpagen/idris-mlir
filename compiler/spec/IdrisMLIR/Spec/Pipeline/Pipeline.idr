@@ -250,6 +250,11 @@ contify = MkPass ("contify" ::: []) OnProgram (At First) Restructure Edits
   (MkDoc "Make each function every call of which returns to one continuation a join point there"
      "Fluet and Weeks on regions: one dominator tree over functions and their return points;\na call it moves out of tail position has its tail fact rewritten by the one definition.")
 
+-- Tensor: a copy whose index terms make an axis a constant takes that axis
+-- static, and the copy's body and every call redirected to it pass the
+-- value through tensor.cast. The inner pipeline runs through runPipeline,
+-- whose passes' dialects MLIR never loads, and the copies are built on
+-- worker threads, where no dialect may be loaded, so this pass loads it.
 public export
 optimize : Pass
 optimize = MkPass ("optimize" ::: []) OnProgram (At First) Restructure Edits
@@ -259,7 +264,7 @@ optimize = MkPass ("optimize" ::: []) OnProgram (At First) Restructure Edits
   , stat "numConstants" "constants" "Values replaced by a constant"
   , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [MkAction ("optimize" ::: ["node"]) "a function specialized to completion as its component is taken up"] []
-  NoOptions [LoadsIdr, LoadsArith] Registered
+  NoOptions [LoadsIdr, LoadsArith, LoadsTensor] Registered
   (MkDoc "Specialize each function to completion, bottom-up over the call graph"
      "Specialization by closure label, layout class, hold and lifetime mode, each key\nfinite, with leaf inlining inside; the e-graph simplifies each function as its\ncomponent is taken up.")
 
@@ -505,7 +510,7 @@ public export
 redirect : Pass
 redirect = MkPass ("redirect" ::: []) OnFunction AnyStage Apply Edits []
   [ MkAction ("specialize" ::: ["clone"]) "a call made a call of a copy of its callee"
-  , MkAction ("raise" ::: []) "a call of a raise node and its consumer made one call" ] [] NoOptions []
+  , MkAction ("raise" ::: []) "a call of a raise node and its consumer made one call" ] [] NoOptions [LoadsTensor]
   (MadeBy (ident "idr" ::: [ident "specialize", ident "createRedirect"]) [ident "schedule", ident "nodes", ident "redirected"])
   (MkDoc "Call the specialization each call's key names"
      "The first step of each round of idr-optimize's inner pipeline, so a combinator called on\nknown closures is a call of its copy before the e-graph sees the caller.")

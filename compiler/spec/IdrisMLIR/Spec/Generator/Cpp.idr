@@ -13,6 +13,7 @@ import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
 import IdrisMLIR.Spec.Generator.Wire
+import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Pipeline.Pass
 import IdrisMLIR.Spec.Pipeline.Pipeline
 
@@ -425,9 +426,11 @@ inlineMeaningsHeader ops =
 -- Guards
 ------------------------------------------------------------------------------
 
+||| A guard as its op's class, which its kind gives, and the positions of
+||| the groups it is given.
 export
 guardText : Guard (Fin i) -> String
-guardText g = "::idr::Guard<" ++ opQualifiedClass g.check ++ ", " ++ joinWith ", " (map (decimal . finToNat) (toList g.given)) ++ ">"
+guardText g = "::idr::Guard<" ++ opQualifiedClass (guardOpOf g.check) ++ ", " ++ joinWith ", " (map (decimal . finToNat) (toList g.given)) ++ ">"
 
 export
 guardedOf : AnyOp -> Lines
