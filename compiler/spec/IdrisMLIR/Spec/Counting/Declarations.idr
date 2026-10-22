@@ -209,7 +209,7 @@ share = countingOp "count.share"
 take : Op 1 2 0 0
 take = countingOp "count.take" [single "value" (SatisfiesType takeable)]
   [result "token" token, results "fields" anyValue] [] []
-  [] [Declares InferType ["inferReturnTypes"], Implements flowInterface ["getFlowEdges"]]
+  [] [InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]]
   (Executes [] [Consumes 0, CountsIfShared (Operands 0), NewIdentity 0, NewIdentity 1] Covered Untouched)
   explicit DeclarationOnly
   (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
@@ -230,7 +230,7 @@ unpack : Op 2 1 0 0
 unpack = countingOp "count.unpack" [single "value" (SatisfiesType unpackable), outers]
   [results "fields" anyValue] [] []
   []
-  [ Declares InferType ["inferReturnTypes"], Implements flowInterface ["getFlowEdges"]
+  [ InfersTypes InferredOnly, Implements flowInterface ["getFlowEdges"]
   , Implements statesLifetime statedMethods ]
   (Executes [] [Consumes 0, NewIdentity 0] Covered Untouched)
   explicit VerifiesOp
@@ -320,7 +320,7 @@ cellInit = countingOp "cell.init"
   [result "result" anyValue, results "dests" anyValue]
   [MkAttr "holes" (AnAttribute (UpstreamAttr DenseI32ArrayAttrC) (DefaultValued "{}"))] []
   []
-  [ Declares InferType ["inferReturnTypes", "isCompatibleReturnTypes"]
+  [ InfersTypes AlsoCompatible
   , Implements statesLifetime statedMethods
   , Implements flowInterface ["getFlowEdges"] ]
   (Executes [OnValues Write Contents (Operands 0)] [Consumes 1, NewIdentity 0] Covered Untouched)
@@ -420,7 +420,7 @@ adopt : Op 1 1 0 0
 adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnrankedMemRefC)]
   [result "result" anyValue] [] []
   [OurTrait noRuntimeForm]
-  [ Declares InferType ["inferReturnTypes", "isCompatibleReturnTypes"]
+  [ InfersTypes AlsoCompatible
   , Implements flowInterface ["getFlowEdges"] ]
   (Executes [] [NewIdentity 0] Covered Untouched)
   (between First Owned) DeclarationOnly
