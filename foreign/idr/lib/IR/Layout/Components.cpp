@@ -97,7 +97,7 @@ Words wordsOf(Type type, std::optional<Hold> hold = std::nullopt) {
   if (isa<IdrDialect>(type.getDialect()))
     return match(
         type, [](CellType) -> Words { return Pointer{Word::Uncounted}; },
-        [&](TokenType) -> Words {
+        [&](ReuseTokenType) -> Words {
           return Pointer{hold && hold->claims(Unique::Deep) ? Word::Cell : Word::MaybeCell};
         },
         [](GradedType graded) -> Words {

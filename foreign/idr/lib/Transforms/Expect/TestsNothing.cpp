@@ -26,7 +26,7 @@ LogicalResult testsNothing(const Request<Functions> &request) {
   ArrayRef<FunctionOpInterface> functions = request.argument.functions;
   bool held = true, taken = false;
   auto token = [&](Value value, Operation *at) {
-    if (!isa<TokenType>(unrestricted(value.getType())))
+    if (!isa<ReuseTokenType>(unrestricted(value.getType())))
       return;
     taken = true;
     if (claims(value.getType(), Unique::Deep))

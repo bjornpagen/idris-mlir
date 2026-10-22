@@ -39,8 +39,8 @@ namespace idr {
 // rejoin, or freed; and only `branch` gives more than one handle on it, one
 // per path of which exactly one runs. Made where a token is born in the
 // walk: an op's token result, which that op's verifier holds to be a token
-// used once (its type the grade it is held at, over `!idr.token`), never
-// from a handle's value, which only `consume` gives up.
+// used once (its type the grade it is held at, over `!idr.reuse_token`),
+// never from a handle's value, which only `consume` gives up.
 class Token {
 public:
   explicit Token(mlir::Value born) : v(born) {}

@@ -366,7 +366,7 @@ LogicalResult idr::verify::linearity(FuncOp fn) {
   Exclusivity exclusivity;
   auto checkValue = [&](Value value) -> LogicalResult {
     Type type = value.getType();
-    if (counting == StageCounting::Counted && isa<idr::TokenType>(unrestricted(type)) &&
+    if (counting == StageCounting::Counted && isa<idr::ReuseTokenType>(unrestricted(type)) &&
         usesOf(type) == Uses::Many)
       return emitError(value.getLoc()) << "holds a reuse token at many uses";
     // A constant holds nothing a use could take: a folder materializes one

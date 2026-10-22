@@ -25,7 +25,7 @@ namespace idr::expect {
 LogicalResult reusesInPlace(const Request<Functions> &request) {
   ArrayRef<FunctionOpInterface> functions = request.argument.functions;
   bool held = true, recycled = false;
-  auto isToken = [](Type type) { return isa<TokenType>(unrestricted(type)); };
+  auto isToken = [](Type type) { return isa<ReuseTokenType>(unrestricted(type)); };
   for (FunctionOpInterface fn : functions)
     fn.getFunctionBody().walk([&](Operation *maker) {
       bool fromToken = llvm::any_of(maker->getOperandTypes(), isToken);

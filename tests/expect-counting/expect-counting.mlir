@@ -17,8 +17,8 @@
 !Cons = !idr.data<#List @Cons>
 !Unique = !idr.graded<once, counted unique deep, !Cons>
 !Tail = !idr.graded<many, counted unique deep, !List>
-!Token = !idr.graded<once, counted unique deep, !idr.token<{!Cons}>>
-!Shared = !idr.graded<once, counted, !idr.token<{!Cons}>>
+!Token = !idr.graded<once, counted unique deep, !idr.reuse_token<{!Cons}>>
+!Shared = !idr.graded<once, counted, !idr.reuse_token<{!Cons}>>
 !Cell = !idr.cell<!Cons>
 idr.program @counting root(@quiet) stage(owned) {
   idr.func @quiet(%x: i64) -> i64 {

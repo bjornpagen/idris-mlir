@@ -44,7 +44,7 @@ effects::Does onCountOf(Operation *op, Value value, effects::Kind kind) {
 // the cell, or the token that holds it.
 bool givenForReuse(Type type) {
   Type carrier = unrestricted(type);
-  return isa<CellType, TokenType>(carrier);
+  return isa<CellType, ReuseTokenType>(carrier);
 }
 
 // Whether `operand`'s op tests the sharing of its value: it reads the

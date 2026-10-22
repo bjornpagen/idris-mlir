@@ -101,7 +101,7 @@ struct LowerCellRecycle : IdrPattern<CellRecycleOp> {
     Location loc = op.getLoc();
     auto cellType = cast<CellType>(op.getCell().getType());
     const layout::Cell &cell = cellLayoutOf(layouts, cellType);
-    auto token = cast<TokenType>(unrestricted(op.getToken().getType()));
+    auto token = cast<ReuseTokenType>(unrestricted(op.getToken().getType()));
     Value held = adaptor.getToken().front();
     auto recycled = [&](OpBuilder &b) {
       if (token.getSources() != ArrayRef<Type>{cellType.getValue()})

@@ -158,7 +158,7 @@ enum class Report : std::uint8_t { Each, None };
 // once and unshared, of a list's cons cell. The handle never reads it; the
 // tokens are real so that the box holds what counting holds.
 constexpr const char *tokenText =
-    "!idr.graded<once, counted unique deep, !idr.token<{!idr.data<"
+    "!idr.graded<once, counted unique deep, !idr.reuse_token<{!idr.data<"
     "#idr.family<\"List\" [] { @Nil () @Cons (i64, !idr.self) }> @Cons>}>>";
 
 // The cases, over every seed up to `limit` of them, where what the handle

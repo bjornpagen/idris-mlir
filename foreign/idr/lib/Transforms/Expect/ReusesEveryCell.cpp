@@ -21,7 +21,7 @@ namespace idr::expect {
 
 LogicalResult reusesEveryCell(const Request<Functions> &request) {
   bool held = true;
-  auto isToken = [](Type type) { return isa<TokenType>(unrestricted(type)); };
+  auto isToken = [](Type type) { return isa<ReuseTokenType>(unrestricted(type)); };
   for (FunctionOpInterface fn : request.argument.functions)
     fn.getFunctionBody().walk([&](Operation *op) {
       if (isa<CallOpInterface>(op) || llvm::none_of(op->getOperandTypes(), isToken) ||

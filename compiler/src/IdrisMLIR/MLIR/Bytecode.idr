@@ -616,7 +616,7 @@ mutual
   numberIdrType w BigType = pure BigType
   numberIdrType w (NatType is) = NatType <$> numberTermNodes w is
   numberIdrType w (CellType v) = CellType <$> typeNumber w v
-  numberIdrType w (TokenType ss) = TokenType <$> typeNumbers w ss
+  numberIdrType w (ReuseTokenType ss) = ReuseTokenType <$> typeNumbers w ss
   numberIdrType w (FnType ins outs) = FnType <$> typeNumbers w ins <*> typeNumbers w outs
   numberIdrType w (LazyType v) = LazyType <$> typeNumber w v
   numberIdrType w (DestType v) = DestType <$> typeNumber w v
