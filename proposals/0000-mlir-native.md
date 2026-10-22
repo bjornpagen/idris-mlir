@@ -3813,6 +3813,24 @@ C137.
   which a scale relation at N and 2N needs; a process's resident size
   differs by target, allocator and page size, and stays the qualification
   measurement of peak memory, not the scale relation's.
+- **C179** (2026-10-21; L10's finding; amends C171 and C170). A row of
+  any width keeps every result at its whole grade, and each scoped
+  result states its own lifetime:
+  - `idr.dest.answer` is the slot of a row: results `R1..Rk` and one
+    region binding one `!idr.dest<Ri>` per result, each result exactly
+    its destination's `T` (C176); `k = 1` is C171's op. Rows of no
+    result and of several exist (dead results are dropped, columns
+    rewrite result lists), and an answers record read back at its
+    fields' read type lost a static, scoped or claimed result, which
+    frames met only with an internal error. Frames' base frame holds one
+    destination per result; the answers group, the resume's construction
+    of it, the wrapper's unpack and the internal error go.
+  - C170's one `outer` operand becomes `outers`, one per scoped result
+    in result order, the pairing read off the results' types: one
+    operand could not state two results scoped in two lifetimes without
+    narrowing one of them to the other's span, which refuses a later
+    yield the program is entitled to. The same holds for `data.match`,
+    `lit.match`, `join` and `loop`.
 
 ## 4. Open: the owner's decisions, in order
 
