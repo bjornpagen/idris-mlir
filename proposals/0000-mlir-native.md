@@ -4118,6 +4118,39 @@ CSE and a rule walk, losing copies into arms, the per-walk facts and the
 per-resource read merge. Meanwhile the replaced node's facts are carried
 to its replacement, which holds under (A) and (B).
 
+**Third, after those two** (L08's and L05's evidence, 2026-10-22; to be
+raised alone in turn). Nothing can lend an array to upstream's ops
+without consuming it. An upstream op takes only a bare carrier
+(`tensor<...>`, `memref<...>`), and a bare carrier means "counted,
+claiming nothing" (`readBare`), so every parameter an upstream op reads,
+such as an array a function reads with `tensor.extract`, is counted:
+each caller pays a dup and a drop per call, and a buffer `idr-rc-cells`
+adopts can never be proved `unique deep`. The hard case is an upstream
+op that returns an alias of its operand (`memref.subview`,
+`tensor.extract_slice`, the casts), which can escape through a region's
+results, a `memref.store` into an array of arrays, or an op of ours that
+adopts a bare buffer. The choice: (A) a region that opens the loan and
+yields the bare carrier as its block argument, so MLIR's scoping bounds
+it; the owner comes back as its result, keeping its claim; "this bare
+value is a loan" is a fact of position, and the three escapes need local
+rules following an alias back to the loan; (B) a projection under a
+lifetime token, `idr.carrier %v in %l`, with no region, which fixes a
+scoped parameter directly (projected under its own lifetime) and puts
+the lifetime on the op that makes the value, as D63 asks; the same three
+escapes need the same rules, since a bare alias names no lifetime; (C)
+B, with its result typed in a scoped memory space
+(`memref<..., #idr.scoped>`, the way D93 models address spaces):
+upstream's `subview`, reshapes and `reinterpret_cast` keep the space,
+`memref.cast` refuses to change it and `memref.store`'s type check
+refuses the store escape, leaving `tensor.cast` and
+`memory_space_cast` to local rules; but for carriers the hold then
+lives in the carrier's type, so the grade's hold on a carrier would be
+a second spelling of it and would go, which changes D88 and D90's
+shape. Each deletes `shareIntoCarriers`, the `readBare` exclusion and
+borrows' rule counting any parameter an upstream op reads. L05 leans to
+B, with C's type if the hold may move (conjecture). Meanwhile such
+parameters stay counted, which costs time, never correctness.
+
 The optimizer e-graph's MLIR form (D107, under D106's narrow scope and
 D109's C++ over MLIR) is C153's, for the owner's review in the plan's
 approval (settled, below).
