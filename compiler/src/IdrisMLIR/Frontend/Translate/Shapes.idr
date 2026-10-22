@@ -211,25 +211,39 @@ valueDims : Ty -> Maybe (List Dim)
 valueDims (TensorT ds _) = Just ds
 valueDims _ = Nothing
 
-||| Each dimension of a Core type with its source in the Idris type, read
-||| together: a dimension the Idris type gives no source has none.
-pairDims : List Dim -> List (Maybe SizeVar) -> List (Dim, Maybe SizeVar)
-pairDims [] _ = []
-pairDims (d :: ds) [] = (d, Nothing) :: pairDims ds []
-pairDims (d :: ds) (s :: ss) = (d, s) :: pairDims ds ss
+||| The source in the Idris type of each of a Core type's dimensions, axis
+||| by axis, read together: a dimension the Idris type gives no source has
+||| none.
+axisSources : Vect k Dim -> List (Maybe SizeVar) -> Vect k (Maybe SizeVar)
+axisSources [] _ = []
+axisSources (_ :: ds) [] = Nothing :: axisSources ds []
+axisSources (_ :: ds) (s :: ss) = s :: axisSources ds ss
+
+||| Each of a vector's elements with its position, an array's axes
+||| outermost first: an array's rank is erased, so the positions are
+||| counted off the vector itself.
+byAxis : Vect k a -> List (Fin k, a)
+byAxis [] = []
+byAxis (x :: xs) = (FZ, x) :: map (mapFst FS) (byAxis xs)
+
+||| A runtime value array parameter as an instance has it: its type, and
+||| the source of each of its dimensions, as many as its rank, so that a
+||| source is had at an axis the array has.
+public export
+data SizedArray : Type where
+  MkSizedArray : {0 rank : Nat} -> ArrayType rank -> Vect rank (Maybe SizeVar) -> SizedArray
 
 ||| A parameter of a definition's type as an instance has it: its kind, its
 ||| Idris type with every size variable standing for itself (`sourceRef`),
-||| its place among the `r` parameters that exist at run time with its
-||| binder there, and, for a runtime value array, each dimension with its
-||| source.
+||| and, when it exists at run time, its place among the `r` parameters
+||| that do, its binder there and, for a value array, its type with each
+||| dimension's source: only a runtime parameter has an array to read.
 public export
 record SizedParam (r : Nat) where
   constructor MkSizedParam
   kind : PKind
   type : ClosedTerm
-  runtime : Maybe (Fin r, Binder)
-  dims : List (Dim, Maybe SizeVar)
+  runtime : Maybe (Fin r, Binder, Maybe SizedArray)
 
 ||| A definition's parameters as an instance has them, in order.
 public export
@@ -258,13 +272,13 @@ sizedTelescope ty kinds = go 0 ty kinds
 
     -- A parameter after one that exists at run time or not.
     later : (m : Maybe Binder) -> SizedParam n -> SizedParam (counted m n)
-    later m (MkSizedParam k t rt ds) = MkSizedParam k t (mapFst (after m) <$> rt) ds
+    later m (MkSizedParam k t rt) = MkSizedParam k t (mapFst (after m) <$> rt)
 
-    -- Its place and binder at run time, the first of the parameters that
-    -- exist there from here on.
-    here : (m : Maybe Binder) -> Maybe (Fin (counted m n), Binder)
-    here (Just b) = Just (FZ, b)
-    here Nothing = Nothing
+    -- Its place, binder and array at run time, the first of the
+    -- parameters that exist there from here on.
+    here : (m : Maybe Binder) -> Maybe SizedArray -> Maybe (Fin (counted m n), Binder, Maybe SizedArray)
+    here (Just b) sized = Just (FZ, b, sized)
+    here Nothing _ = Nothing
 
     go : Nat -> ClosedTerm -> (ks : List PKind) -> Front (Telescope (Runtimes ks), ClosedTerm)
     go i t [] = pure ([], !(normaliseClosed t))
@@ -279,24 +293,23 @@ sizedTelescope ty kinds = go 0 ty kinds
       let Bind _ _ (Pi _ _ _ a) sc = t'
         | _ => internal EmptyFC ("a parameter past the binders of " ++ show t')
       a' <- normaliseClosed a
-      dims <- case (.type) <$> boundAtRuntime k of
-                Just (TensorT ds _) => pairDims ds <$> dimensionSources a'
-                _ => pure []
+      -- The array's type is read here, with the sources of its dimensions,
+      -- so that a witness names an axis of it and no other.
+      sized <- case (.type) <$> boundAtRuntime k of
+                 Just (TensorT ds e) =>
+                   let dv = Data.Vect.fromList ds in
+                   (\ss => Just (MkSizedArray (MkArrayType dv e) (axisSources dv ss))) <$> dimensionSources a'
+                 _ => pure Nothing
       (rest, res) <- go (S i) (subst (value i k) sc) ks
-      pure (MkSizedParam k a' (here (boundAtRuntime k)) dims :: map (later (boundAtRuntime k)) rest, res)
+      pure (MkSizedParam k a' (here (boundAtRuntime k) sized) :: map (later (boundAtRuntime k)) rest, res)
 
 ||| How a dimension's value is had from the runtime parameters: the
-||| natural at runtime parameter `i`, or axis `k` of the array there.
+||| natural at runtime parameter `i`, or an axis of the array there, held
+||| with the array's type, so that a witness names an axis the array has.
 public export
 data Witness : Nat -> Type where
   NatAt : Fin r -> Witness r
-  AxisAt : Fin r -> Nat -> Witness r
-
-export
-Eq (Witness r) where
-  NatAt i == NatAt i' = i == i'
-  AxisAt i k == AxisAt i' k' = i == i' && k == k'
-  _ == _ = False
+  AxisAt : {0 rank : Nat} -> Fin r -> ArrayType rank -> Fin rank -> Witness r
 
 ||| What witnesses each size variable, among the parameters Idris lets be
 ||| used any number of times (a value used once is used by the call or the
@@ -307,19 +320,26 @@ export
 witnesses : Telescope r -> List (SizeVar, Witness r)
 witnesses tel = go 0 [<] [<] tel
   where
-    -- Each dimension of the array at `x` that has a source, by axis.
-    axesOf : Fin r -> Nat -> SnocList (SizeVar, Witness r) -> List (Dim, Maybe SizeVar) ->
-             SnocList (SizeVar, Witness r)
-    axesOf x k found [] = found
-    axesOf x k found ((_, Just s) :: ds) = axesOf x (S k) (found :< (s, AxisAt x k)) ds
-    axesOf x k found ((_, Nothing) :: ds) = axesOf x (S k) found ds
+    -- Each dimension of the array at `x`, of type `a`, that has a source,
+    -- by axis.
+    axesOf : {0 rank : Nat} -> Fin r -> ArrayType rank -> SnocList (SizeVar, Witness r) ->
+             List (Fin rank, Maybe SizeVar) -> SnocList (SizeVar, Witness r)
+    axesOf x a found [] = found
+    axesOf x a found ((j, Just s) :: ss) = axesOf x a (found :< (s, AxisAt x a j)) ss
+    axesOf x a found ((_, Nothing) :: ss) = axesOf x a found ss
+
+    -- The dimensions of the runtime parameter at `x`: one that is no array
+    -- has none.
+    arrayAxes : Fin r -> Maybe SizedArray -> SnocList (SizeVar, Witness r) -> SnocList (SizeVar, Witness r)
+    arrayAxes x (Just (MkSizedArray a ss)) found = axesOf x a found (byAxis ss)
+    arrayAxes x Nothing found = found
 
     go : Nat -> SnocList (SizeVar, Witness r) -> SnocList (SizeVar, Witness r) ->
          Telescope r -> List (SizeVar, Witness r)
     go i naturals arrays [] = naturals <>> (arrays <>> [])
     go i naturals arrays (p :: ps) = case p.runtime of
-      Just (x, MkBinder Many _) =>
-        go (S i) (naturals :< (Size i, NatAt x)) (axesOf x 0 arrays p.dims) ps
+      Just (x, MkBinder Many _, sized) =>
+        go (S i) (naturals :< (Size i, NatAt x)) (arrayAxes x sized arrays) ps
       _ => go (S i) naturals arrays ps
 
 ||| For each runtime parameter of quantity many that is an array, each of
@@ -333,16 +353,23 @@ entryTies tel = mapMaybe arrayTies tel
     ws : List (SizeVar, Witness r)
     ws = witnesses tel
 
-    stated : Fin r -> Nat -> List (Dim, Maybe SizeVar) -> List (Nat, Witness r)
-    stated x k [] = []
-    stated x k ((Dynamic, Just s) :: ds) = case lookup s ws of
-      Just w => if w == AxisAt x k then stated x (S k) ds else (k, w) :: stated x (S k) ds
-      Nothing => stated x (S k) ds
-    stated x k (_ :: ds) = stated x (S k) ds
+    -- Whether a witness is axis `j` of the array at `x` itself: the place
+    -- fixes the array's type, so the place and the axis's position say
+    -- which dimension a witness is.
+    itself : {0 rank : Nat} -> Fin r -> Fin rank -> Witness r -> Bool
+    itself x j (AxisAt x' _ j') = x == x' && finToNat j == finToNat j'
+    itself x j (NatAt _) = False
+
+    stated : {0 rank : Nat} -> Fin r -> List (Fin rank, Dim, Maybe SizeVar) -> List (Nat, Witness r)
+    stated x [] = []
+    stated x ((j, Dynamic, Just s) :: ds) = case lookup s ws of
+      Just w => if itself x j w then stated x ds else (finToNat j, w) :: stated x ds
+      Nothing => stated x ds
+    stated x (_ :: ds) = stated x ds
 
     arrayTies : SizedParam r -> Maybe (Fin r, List (Nat, Witness r))
     arrayTies p = case p.runtime of
-      Just (x, MkBinder Many _) => case stated x 0 p.dims of
+      Just (x, MkBinder Many _, Just (MkSizedArray a ss)) => case stated x (byAxis (Data.Vect.zip a.dims ss)) of
         [] => Nothing
         ts => Just (x, ts)
       _ => Nothing
@@ -355,7 +382,8 @@ export
 resultTies : Telescope r -> ClosedTerm -> Ty -> Front (List (Nat, Witness r))
 resultTies tel res rt = case valueDims rt of
   Nothing => pure []
-  Just ds => (stated 0 . pairDims ds) <$> dimensionSources res
+  Just ds => let dv = Data.Vect.fromList ds in
+             (\ss => stated 0 (toList (Data.Vect.zip dv (axisSources dv ss)))) <$> dimensionSources res
   where
     ws : List (SizeVar, Witness r)
     ws = witnesses tel
@@ -368,8 +396,9 @@ resultTies tel res rt = case valueDims rt of
     stated k (_ :: ds) = stated (S k) ds
 
 ||| The term of a witness, over the variables that hold the runtime
-||| arguments: a natural, converted, or an array's extent, exact.
+||| arguments: a natural, converted, or an array's extent, exact, read at
+||| the axis of the array's type the witness names.
 export
 witnessTerm : Loc -> Vect r (Fin n) -> Witness r -> Stated (Term n)
 witnessTerm loc vs (NatAt i) = Natural (Var loc (Data.Vect.index i vs))
-witnessTerm loc vs (AxisAt i k) = SameAs (Tensor loc (NatT IOpaque) (Extent k (Var loc (Data.Vect.index i vs))))
+witnessTerm loc vs (AxisAt i a j) = SameAs (Tensor loc (Extent a j (Var loc (Data.Vect.index i vs))))

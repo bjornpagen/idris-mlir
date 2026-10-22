@@ -155,8 +155,8 @@ record Family where
 ||| An array type of rank `r`: its dimensions, outermost first, and its
 ||| element. An operation of the array language holds the types of the
 ||| arrays it takes so, so that an axis is a position among an array's
-||| dimensions and no axis past its rank can be written. Its projections
-||| are postfix only: a prefix `dims` would be a sized parameter's too.
+||| dimensions and no axis past its rank can be written; a size witness
+||| names its axis the same way (`Shapes.AxisAt`).
 public export
 record ArrayType (r : Nat) where
   constructor MkArrayType
