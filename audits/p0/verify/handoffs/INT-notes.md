@@ -48,3 +48,24 @@ handoff lists its own wiring.
   once per `Generated/IdrAdmitted<Name>.td` (Base excluded), writing
   `IdrAdmitted<Name>Classes.h.inc`, taking the file list by glob. Link
   `MLIRInferIntRangeCommon` into the e-graph's library (C191).
+
+## From the 2026-10-22 commits
+
+- **The fork's package (31013e5a).** `idris-compiler.ipkg` depends on
+  `mlir-linear` and `mlir-array`, so the fork target builds and installs
+  those host libraries first. New modules: `Core/Name/{Ident,Known}.idr`
+  and `Core/TT/Stored.idr`. `ttcVersion` is `1_2026_10_21_01`. Under
+  C199, `Known.idr` becomes a generated output: L17d names its
+  generator, and the manifest and `make check` take it.
+- **The lowering's library (7844ae42).** `IdrConversion` links the
+  library that compiles `Transforms/Counting/Bound.cpp`. No CMake entry
+  lists `Bound.cpp` yet, and `lib/CMakeLists.txt` lists the old
+  `Conversion/` units, not `Conversion/Lower/*`.
+- **The spec's outputs (432cb165).** Regenerate the spec outputs, the
+  Math and UB admitted `.td` files and the dialect modules.
+- **The runner (0d1b59ac).** The Makefile's `runner` target builds on
+  `IDRIS_PREFIX`, where nothing installs `idris-mlir-spec`, and its
+  comment about contrib and test is stale.
+- **dialects.sh (9771a679).** It needs `Generated/WrittenDialects.txt`
+  committed. If 25's or 28's rewritten reproducer fails to parse, its
+  test reports "not this bug": send it back to L06.
