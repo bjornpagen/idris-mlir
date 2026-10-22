@@ -1877,6 +1877,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   as `value type`, where the program's types are first read; the growth
   check's reading (`staticsOver`) and the instance table's take a type
   already admitted, so neither aborts nor refuses on its own.
+  (C232's narrowing of this refusal is withdrawn with C232, by D116.)
+  *Sharpened* (L16bk's finding): the admission is per instance, not per
+  definition. A member at a use (`{0 t} -> (f : t) -> t`) and the growth
+  walk's readings meet types whose binders only the static arguments
+  show, which no definition-level walk with free markers can admit. So a
+  type is admitted where it is first instantiated, at the request, with
+  its static arguments put in: every binder then shows or the program is
+  refused as `value type`, naming the request. `staticsOver` and
+  `classifyAt` take the instance's admitted telescope and have no
+  missing-binder branch.
 - **C234** (2026-10-22; L16bh's question, under C228 and C123). An
   instance's signature is read once, when the instance is requested, and
   the request holds it: the instance's own step and every call to it read
@@ -1904,16 +1914,46 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   its one allocator): `tests/mlir-layout` admits that ledger beside the
   three kinds of state it already allows, rather than every footprint
   container carrying a ledger of its own.
-  (C232's narrowing of this refusal is withdrawn with C232, by D116.)
-  *Sharpened* (L16bk's finding): the admission is per instance, not per
-  definition. A member at a use (`{0 t} -> (f : t) -> t`) and the growth
-  walk's readings meet types whose binders only the static arguments
-  show, which no definition-level walk with free markers can admit. So a
-  type is admitted where it is first instantiated, at the request, with
-  its static arguments put in: every binder then shows or the program is
-  refused as `value type`, naming the request. `staticsOver` and
-  `classifyAt` take the instance's admitted telescope and have no
-  missing-binder branch.
+- **C239** (2026-10-22; recheck 3, the seam between L16 and L18, under
+  D60 and D58). The function op holds the link D60 keys on. `idr.func`
+  gains a property, its extents: for each argument and result, and each
+  dynamic dimension of its ranked tensor type that an index term names,
+  that term over the function's `index_binders`, in the vocabulary
+  `index_args` already holds. The tensor type stays upstream's, `?`
+  where the size is no constant, as D60 has it ("MLIR's tensor type has
+  no symbolic dimension"); the property says which term a `?` is and
+  nothing the type says, so its verifier refuses an entry on a static
+  dimension or a term over a level the function does not bind. The
+  frontend writes it from the source each dimension already records
+  (`Shapes.witnesses`), where `extentDim` wrote `Dynamic` and dropped
+  the variable; `extentDim`'s second walk of `indexTerm` goes, a
+  dimension's term being `indexTerm`'s and static where that term is a
+  literal. D58's specialization substitutes a call's `index_args` into
+  the callee's extents as into its family types, and a copy whose term
+  becomes a constant has that dimension static in its signature, the
+  call casting its operand by `tensor.cast`, whose agreement the Idris
+  type proves; inside a function, ties stay `idr.tie_shape`. Not a tensor
+  encoding: that makes the tensor type symbolic, which D60 declines, and
+  every upstream op that infers a result type would have to carry it.
+  Not an argument attribute: signature rewrites drop `arg_attrs`, and
+  AGENTS.md keeps facts out of what can be dropped.
+- **C240** (2026-10-22; recheck 3, the seam between L16 and L18, under
+  D75 and D76). The op that holds D75's promise is the join itself: Emit
+  writes `idr.join`, or `idr.loop` for a recursive one, for each
+  continuation the program as written makes, so no later pass meets the
+  promise as a function it might fail to contify. The program as written
+  makes one where a binder the function defines (a `let` of a lambda, or
+  a definition local to the function, which Idris lifts under a name
+  nested in it) occurs only as the head of a saturated application in
+  tail position, of the function or of the binder's own body. Emit reads
+  that off the checked term: a syntactic test, total, with no budget.
+  A binder that passes it and is emitted as anything else is an internal
+  error. Contify stays what D75 calls optimization, finding the rest
+  after inlining, and stops calling itself a promise; the audit's worry
+  that idr-deduplicate merges two source continuations before contify
+  sees them goes, since a join is local to its function and no pass
+  makes it a function again. Not a promise flag on `idr.func`: a
+  function marked as secretly a join point holds the join point twice.
 - **C232** (2026-10-22; *withdrawn* by D116 the same day: the language is
   never widened to compile the fork; 0014's features stay parked). (2026-10-22;
   under D113, extends C230). What the frontend
