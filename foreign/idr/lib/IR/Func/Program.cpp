@@ -65,7 +65,7 @@ LogicalResult idr::ProgramOp::verifyRegions() {
            << function.getArgumentTypes().size() << " arguments";
   if (isa<FuncOp>(root)) {
     if (!llvm::all_of(function.getResultTypes(),
-                      [](Type result) { return layout::holdsNoComponent(result); }))
+                      [](Type result) { return layout::componentCount(result) == 0; }))
       return root->emitOpError("is the root, so its results hold no runtime value");
   } else if (!function.getResultTypes().empty()) {
     return root->emitOpError("is the root of a lowered program, so it gives nothing back");
