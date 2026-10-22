@@ -48,6 +48,7 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <optional>
+#include <tuple>
 #include <utility>
 
 using namespace mlir;
@@ -277,7 +278,7 @@ private:
     // A position that hands a value on as itself is that value.
     if (op->hasTrait<SameValue>())
       return;
-    if (ownership::readsOnlyCarriers(op)) {
+    if (ownership::carriersOnly(op)) {
       for (Value operand : op->getOperands())
         if (std::optional<Owner> owner = ownerOf(operand))
           force(owner->param);
@@ -375,9 +376,9 @@ private:
 } // namespace
 
 Borrows::Borrows(Operation *, AnalysisManager &am)
-    : released(am.getAnalysis<solver::ProgramGraph>().table<footprint::Vector<Release>>()),
-      joinReleased(am.getAnalysis<solver::ProgramGraph>().table<footprint::Vector<Release>>()) {
-  const solver::ProgramGraph &graph = am.getAnalysis<solver::ProgramGraph>();
+    : released(std::get<0>(reads(am)).table<footprint::Vector<Release>>()),
+      joinReleased(std::get<0>(reads(am)).table<footprint::Vector<Release>>()) {
+  const solver::ProgramGraph &graph = std::get<0>(reads(am));
   Inference inference(graph);
   inference.run();
   auto record = [&](footprint::Vector<Release> &into, Release release) {

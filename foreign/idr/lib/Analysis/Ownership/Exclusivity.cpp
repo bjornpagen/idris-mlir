@@ -27,6 +27,8 @@
 
 #include "idr/Analysis/Ownership/ExclusivityDetail.h"
 
+#include <tuple>
+
 using namespace mlir;
 
 namespace idr {
@@ -34,8 +36,8 @@ namespace idr {
 namespace exclusivity = detail::exclusivity;
 
 Exclusivity::Exclusivity(Operation *program, AnalysisManager &am)
-    : versionsOf(am.getAnalysis<solver::ProgramGraph>().table<footprint::Vector<Version>>()) {
-  const solver::ProgramGraph &graph = am.getAnalysis<solver::ProgramGraph>();
+    : versionsOf(std::get<0>(reads(am)).table<footprint::Vector<Version>>()) {
+  const solver::ProgramGraph &graph = std::get<0>(reads(am));
   exclusivity::Anchors anchors;
   exclusivity::shareStaticAnchors(cast<ProgramOp>(program), anchors);
   IndexVector<FunctionId, exclusivity::Body> bodies = graph.table<exclusivity::Body>();

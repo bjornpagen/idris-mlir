@@ -26,6 +26,7 @@
 #ifndef IDR_ANALYSIS_OWNERSHIP_H
 #define IDR_ANALYSIS_OWNERSHIP_H
 
+#include "idr/Analysis/Solver/Decision.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Id.h"
@@ -64,7 +65,7 @@ struct FollowedNumbers {
 // order the one walk of a body gives them (exclusivity::forEachFollowed), so
 // a copy, a clone of its original, reads the same numbering. Contexts whose
 // answers are equal are one version of the function.
-class Exclusivity {
+class Exclusivity : public solver::ReadsAnalyses<Exclusivity, solver::ProgramGraph> {
 public:
   using FunctionId = solver::FunctionId;
 
@@ -82,10 +83,6 @@ public:
 
   // The solve of `program`, reading its program graph from `am`.
   Exclusivity(mlir::Operation *program, mlir::AnalysisManager &am);
-
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
-    return !pa.isPreserved<Exclusivity>() || !pa.isPreserved<solver::ProgramGraph>();
-  }
 
   // The versions of `fn`: the general one first, then each copy, in the
   // order the solve made their contexts.
@@ -129,15 +126,11 @@ private:
 // point whose op holds one, since frames split a function at such a call.
 // The root's parameters are counted (its caller is outside); a memo cell's
 // are views (a force writes it while its caller reads it).
-class Borrows {
+class Borrows : public solver::ReadsAnalyses<Borrows, solver::ProgramGraph> {
 public:
   using FunctionId = solver::FunctionId;
 
   Borrows(mlir::Operation *program, mlir::AnalysisManager &am);
-
-  bool isInvalidated(const mlir::AnalysisManager::PreservedAnalyses &pa) const {
-    return !pa.isPreserved<Borrows>() || !pa.isPreserved<solver::ProgramGraph>();
-  }
 
   // The release of parameter `index` of `fn`, one that holds references:
   // Counted or Scoped.

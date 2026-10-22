@@ -202,12 +202,12 @@ inline Reach reachOf(const FlowPoint::Part &part) {
       [](const FlowPoint::Whole &) { return Reach::Read; });
 }
 
-// Whether `op` is one of upstream's that reads only the bare carriers its
-// own constraints name, never a grade of ours: an op of another dialect
-// that is neither a region branch nor a terminator of one. What those
-// forward is a position, met as a call's argument is (forwardedValues),
-// and scf's take any type.
-inline bool readsOnlyCarriers(mlir::Operation *op) {
+// Whether `op` is one of upstream's, which reads and makes only the bare
+// carriers its own constraints name, never a grade of ours: an op of
+// another dialect that is neither a region branch nor a terminator of one.
+// What those forward is a position, met as a call's argument is
+// (forwardedValues), and scf's take any type.
+inline bool carriersOnly(mlir::Operation *op) {
   return !llvm::isa_and_present<IdrDialect>(op->getDialect()) &&
          !llvm::isa<mlir::RegionBranchOpInterface, mlir::RegionBranchTerminatorOpInterface>(op);
 }
@@ -215,7 +215,7 @@ inline bool readsOnlyCarriers(mlir::Operation *op) {
 // Whether an op of upstream's reads `value` itself, so its type stays the
 // bare carrier that op takes: counted, claiming nothing.
 inline bool readBare(mlir::Value value) {
-  return llvm::any_of(value.getUsers(), readsOnlyCarriers);
+  return llvm::any_of(value.getUsers(), carriersOnly);
 }
 
 // Whether `op` may run one of its regions any number of times (a loop, a

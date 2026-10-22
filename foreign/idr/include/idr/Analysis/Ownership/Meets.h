@@ -73,7 +73,7 @@ void shareIntoPositions(FuncOp fn, CalleeOf &&calleeOf) {
 inline void shareIntoCarriers(FuncOp fn) {
   llvm::SmallVector<mlir::OpOperand *> reads;
   fn.walk([&](mlir::Operation *op) {
-    if (readsOnlyCarriers(op))
+    if (carriersOnly(op))
       for (mlir::OpOperand &use : op->getOpOperands())
         reads.push_back(&use);
   });

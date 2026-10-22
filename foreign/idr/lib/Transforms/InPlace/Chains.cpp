@@ -114,7 +114,6 @@ Chains::Chains(FuncOp fn, const solver::ProgramGraph &graph, const Summaries &su
                const Keeps &keeps)
     : fn(fn), graph(graph), summaries(summaries), keeps(keeps), values(fn),
       callAt(values.size()), known(values.size()), open(values.size()), seen(values.size()) {
-  // The operands forwarded into each value, laid out as rows by number.
   footprint::Vector<std::pair<std::uint32_t, OpOperand *>> pending;
   fn.walk([&](Operation *op) {
     forwardedValues(op, [&](OpOperand &operand, Value input) {
@@ -211,6 +210,14 @@ void Chains::define(Value value, Asks asks, SmallVectorImpl<Target> &ends,
     return;
   }
   Operation *op = value.getDefiningOp();
+  // An element an op of upstream's reads out of an array keeps its type's
+  // grade, which no pass of ours rewrites: the rule neither raises it nor
+  // follows it into the array, which keeps its own reference beside it.
+  if (ownership::carriersOnly(op) && ownership::readOutOfElements(value)) {
+    if (!claims(value.getType(), ownership::claimFor(asks)))
+      ends.push_back(cause(op, Why::Shared));
+    return;
+  }
   if (std::optional<Value> same = ownership::sameValueSource(value)) {
     next.push_back({*same, asks, &op->getOpOperand(0)});
     return;
@@ -369,7 +376,6 @@ SmallVector<Target> Chains::targets(Value value, Asks asks, OpOperand *use) {
 
 void Chains::trace(Value value, Asks asks, Reached &reached) {
   SmallVector<std::pair<Value, Asks>> work{{value, asks}};
-  // What this trace marked, cleared when it is done.
   SmallVector<std::pair<BodyValue, Asks>> marked;
   while (!work.empty()) {
     auto [at, strength] = work.pop_back_val();

@@ -14,8 +14,10 @@
 // must meet, its summary), or is a parameter of its function, whose callers
 // then owe it: and the value must be used once on every path through the
 // use that requires it, a read by a callee that keeps nothing of it before
-// that use aside. Where a requirement reaches what can meet none (a value
-// read again, a copy, a value no flow explains), it reaches a cause. A
+// that use aside. An element an op of upstream's reads out of an array
+// meets only what its type claims, which no pass of ours raises. Where a
+// requirement reaches what can meet none (a value read again, a copy, a
+// value no flow explains), it reaches a cause. A
 // requirement starts where a cell is rebuilt, asking what its family's
 // promise asks, and at the boundary: a parameter of quantity 1 whose
 // family's values carry the promise by construction (an own cell holds a

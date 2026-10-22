@@ -124,7 +124,7 @@ private:
     // Its results are its inference's, which the write runs again; what it
     // reads of each operand is the claim it infers from. An op of
     // upstream's infers from carriers alone, never from a claim.
-    bool infers = isa<InferTypeOpInterface>(op) && !ownership::readsOnlyCarriers(op);
+    bool infers = isa<InferTypeOpInterface>(op) && !ownership::carriersOnly(op);
     if (infers)
       for (Value operand : op->getOperands())
         body.inferring.push_back(number.lookup(operand));

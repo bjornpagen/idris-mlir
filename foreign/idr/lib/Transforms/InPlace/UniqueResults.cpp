@@ -95,7 +95,7 @@ idr::footprint::Vector<Kept> keptOf(const Body &body, llvm::ArrayRef<Local> seed
 // of the value.
 bool takesRaised(OpOperand &use) {
   Operation *user = use.getOwner();
-  if (idr::ownership::readsOnlyCarriers(user) || isa<CallOpInterface, InferTypeOpInterface>(user) ||
+  if (idr::ownership::carriersOnly(user) || isa<CallOpInterface, InferTypeOpInterface>(user) ||
       user->hasTrait<OpTrait::ReturnLike>() || user->hasTrait<idr::SameValue>())
     return true;
   bool forwarded = false;
@@ -255,7 +255,7 @@ private:
               change(result, idr::ownership::claiming(result.getType(), operand));
           }
         } else if (auto infer = dyn_cast<InferTypeOpInterface>(&op);
-                   infer && !idr::ownership::readsOnlyCarriers(&op)) {
+                   infer && !idr::ownership::carriersOnly(&op)) {
           if (anyTouched(&op) || stale(&op))
             reinfer(infer, change);
         } else {
