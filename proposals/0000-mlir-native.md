@@ -3629,7 +3629,8 @@ C137.
   (`idr.func`, `idr.call`, `idr.lifetime`, `idr.activation`, `idr.lend`)
   and the ops that shape the IR and act on no type or resource
   (`idr.program`, `idr.return`, `idr.yield`, `idr.join`, `idr.loop`,
-  `idr.jump`, `idr.constant`), which stay bare as upstream's `func` and
+  `idr.jump`, `idr.constant`, and `idr.refusal`, which sits in the module
+  and acts on no type, by C218), which stay bare as upstream's `func` and
   `scf` structure ops do. The table is
   `audits/p0/verify/parts/contracts/mnemonics.md` (`data.con`,
   `data.match`, `lit.match`, `fn.closure`, `lazy.force`, `count.dup`,
@@ -4181,6 +4182,14 @@ C137.
   writes it as a data family, as C174's dictionary, so the C++ meets no
   polymorphic value. It is refused only where that set or the use types
   are unbounded.
+- **C218** (2026-10-22; the decisions audit C3). Two settlements. The
+  rewrite graph makes no attribute while it is built or rewritten, for
+  any constant (sharpens C205): an integer is an `APInt` off its range, a
+  double an `APFloat`, and a string, a big past the small range or a
+  data constant is read only from an op that already holds it, never
+  made by a fold inside the graph; the write-back makes what it writes.
+  And `idr.refusal` stays bare under C158, as an op that sits in the
+  module and acts on no type or resource.
 - **C211** (2026-10-22; L09's finding; the mechanism under C166 and
   C204). `idr.lit.match` forwards its scrutinee into its default, as C166
   reads it (`sourceOf` maps the binding to its scrutinee), so upstream's
