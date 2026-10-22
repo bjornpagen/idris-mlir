@@ -61,12 +61,40 @@ void inlineLiteral(RewriterBase &rewriter, LitMatchOp op, Region &kept) {
   rewriter.eraseOp(op);
 }
 
-// The region a constant literal takes.
-Region *literalTaken(LitMatchOp op, Attribute value) {
-  if (!value)
+// The region of a literal match whose scrutinee is the integer `value`: the
+// case whose key is that integer, else the default. Essential: a word's key
+// and a big's or a natural's are two attributes; a big's is compared by its
+// signed value, at any width.
+Region *takenByInteger(LitMatchOp op, const APInt &value) {
+  unsigned width = value.getBitWidth();
+  for (auto [key, region] : llvm::zip_equal(op.getCases(), op.getCaseRegions())) {
+    std::optional<APInt> integer;
+    if (auto word = dyn_cast<IntegerAttr>(key))
+      integer = word.getValue();
+    else if (auto big = dyn_cast<BigAttr>(key))
+      integer = big.getValue();
+    if (integer && integer->getSignificantBits() <= width && integer->sextOrTrunc(width) == value)
+      return &region;
+  }
+  return &op.getDefaultRegion();
+}
+
+// The region a literal match on a known scrutinee takes. An integer the
+// graph knows is the one value of its range, never an attribute, so it
+// finds its key by value; a range of width 0 is of a value that holds no
+// integer. A string, a double or a big past the small range is known by the
+// constant an op holds, which the match's own lookup reads.
+Region *literalTaken(LitMatchOp op, const OperandFacts &facts) {
+  Value scrutinee = op.getScrutinee();
+  if (std::optional<ConstantIntRanges> range = facts.range(scrutinee);
+      range && range->getBitWidth() != 0)
+    if (std::optional<APInt> value = range->getConstantValue())
+      return takenByInteger(op, *value);
+  Attribute held = facts.constant(scrutinee);
+  if (!held)
     return nullptr;
   SmallVector<RegionSuccessor> taken;
-  op.getEntrySuccessorRegions({value}, taken);
+  op.getEntrySuccessorRegions({held}, taken);
   return taken.size() == 1 ? taken.front().getSuccessor() : nullptr;
 }
 
@@ -137,7 +165,7 @@ void egraph::TakenCase::rewrite(DataMatchOp op, const Rewrite &chosen, RewriterB
 
 // A literal match on a constant runs the region its literal takes.
 std::optional<Edit> egraph::TakenLiteral::decide(LitMatchOp op, const OperandFacts &facts) {
-  Region *taken = literalTaken(op, facts.constant(op.getScrutinee()));
+  Region *taken = literalTaken(op, facts);
   if (!taken)
     return std::nullopt;
   if (yields(*taken)) {
