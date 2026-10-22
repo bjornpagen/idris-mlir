@@ -1,343 +1,201 @@
 -- SPDX-License-Identifier: BSD-3-Clause
 -- Copyright (c) 2020 Edwin Brady
+||| Lexers: recognisers of tokens, and tokenizers that make tokens of what
+||| they read.
+|||
+||| The API, for a lexer written over it:
+|||
+||| - `Recognise c` reads characters, at least one when `c` is `True`;
+|||   `Lexer` is `Recognise True`.
+||| - Sequence: `<+>`, which consumes if either part does; `andThen`, a
+|||   lexer followed by a recogniser made only once the lexer has matched,
+|||   which may therefore be the recogniser being defined. A recogniser
+|||   that names itself does so after `andThen`.
+||| - Choice: `<|>`, `opt`, `choice`, `choiceMap`; lookahead: `expect`,
+|||   `reject`; and `fail`, `empty`, `eof`.
+||| - Characters and runs of them: `pred`, `any`, `is`, `isNot`, `non`,
+|||   `exact`, `some`, `many`, `someUntil`, `manyUntil`, `digits`,
+|||   `alphaNum`, `space`, `newline`, `symbol`, `surround`, `escape`, and
+|||   the literals.
+||| - Tokenizers: `match`, `compose` with the `Group` its begin's text
+|||   opens, `<|>`, `tokenRules`, `tokenKinds`; run by `lex` and `lexTo`,
+|||   which give the tokens and why and where tokenizing stopped.
 module Libraries.Text.Lexer
 
 import Data.Bool
 import Data.List
-import Data.Nat
 
 import public Libraries.Text.Lexer.Core
-import public Libraries.Text.Quantity
+import public Libraries.Text.Lexer.Tokenizer
 import public Libraries.Text.Token
 
 %default total
 
-export
-toTokenMap : List (Lexer, k) -> TokenMap (Token k)
-toTokenMap = map $ \(l, kind) => (l, Tok kind)
-
-||| Recognise any character.
+||| Any character.
 ||| /./
 export
 any : Lexer
 any = pred (const True)
 
-||| Recognise a lexer or recognise no input. This is not guaranteed
-||| to consume input.
+||| The lexer, or else no input.
 ||| /`l`?/
 export
 opt : (l : Lexer) -> Recognise False
 opt l = l <|> empty
 
-||| Recognise any character if the sub-lexer `l` fails.
+||| Any character, where the lexer would not match.
 ||| /(?!`l`)./
 export
 non : (l : Lexer) -> Lexer
 non l = reject l <+> any
 
-||| Produce recognisers by applying a function to elements of a container, and
-||| recognise the first match. Consumes input if the function produces consuming
-||| recognisers. Fails if the container is empty.
+||| The recogniser a function makes of each element, the first that
+||| matches. Consumes if each does. Fails if there are none.
 export
-choiceMap : {c : Bool} ->
-            Foldable t => (a -> Recognise c) -> t a -> Recognise c
-choiceMap {c} f xs = foldr (\x, acc => rewrite sym (andSameNeutral c) in
-                                               f x <|> acc)
-                           fail xs
+choiceMap : {0 c : Bool} -> Foldable t => (a -> Recognise c) -> t a -> Recognise c
+choiceMap f xs = foldr (\x, acc => rewrite sym (andSameNeutral c) in f x <|> acc) fail xs
 
-||| Recognise the first matching recogniser in a container. Consumes input if
-||| recognisers in the list consume. Fails if the container is empty.
+||| The first recogniser that matches. Consumes if each does. Fails if there
+||| are none.
 export
-choice : {c : _} ->
-         Foldable t => t (Recognise c) -> Recognise c
+choice : {0 c : Bool} -> Foldable t => t (Recognise c) -> Recognise c
 choice = choiceMap id
 
-||| Sequence a list of recognisers. Guaranteed to consume input if the list is
-||| non-empty and the recognisers consume.
-export
-concat : {c : _} ->
-         (xs : List (Recognise c)) -> Recognise (isCons xs && c)
-concat = Lexer.Core.concatMap id
-
-||| Recognise a specific character.
+||| The character given.
 ||| /[`x`]/
 export
 is : (x : Char) -> Lexer
-is x = pred (==x)
+is x = pred (== x)
 
-||| Recognise anything but the given character.
+||| Any character but the one given.
 ||| /[\^`x`]/
 export
 isNot : (x : Char) -> Lexer
-isNot x = pred (/=x)
+isNot x = pred (/= x)
 
-||| Recognise a specific character (case-insensitive).
-||| /[`x`]/i
-export
+-- The character given, either case.
 like : (x : Char) -> Lexer
 like x = pred (\y => toUpper x == toUpper y)
 
-||| Recognise anything but the given character (case-insensitive).
-||| /[\^`x`]/i
-export
-notLike : (x : Char) -> Lexer
-notLike x = pred (\y => toUpper x /= toUpper y)
+-- A lexer of the first character, then each of the rest.
+spell : (Char -> Lexer) -> Lexer -> List Char -> Lexer
+spell one first [] = first
+spell one first (x :: xs) = spell one (first <+> one x) xs
 
-||| Recognise a specific string.
-||| Fails if the string is empty.
+||| The string given. Fails if the string is empty.
 ||| /`str`/
 export
 exact : (str : String) -> Lexer
 exact str = case unpack str of
                  [] => fail
-                 (x :: xs) => concatMap is (x :: xs)
+                 (x :: xs) => spell is (is x) xs
 
-||| Recognise a specific string (case-insensitive).
-||| Fails if the string is empty.
-||| /`str`/i
-export
+-- The string given, either case. Fails if the string is empty.
 approx : (str : String) -> Lexer
 approx str = case unpack str of
                   [] => fail
-                  (x :: xs) => concatMap like (x :: xs)
-
-||| Recognise any of the characters in the given string.
-||| /[`chars`]/
-export
-oneOf : (chars : String) -> Lexer
-oneOf chars = pred (\x => x `elem` unpack chars)
-
-||| Recognise a character range. Also works in reverse!
-||| /[`start`-`end`]/
-export
-range : (start : Char) -> (end : Char) -> Lexer
-range start end = pred (\x => (x >= min start end)
-                           && (x <= max start end))
+                  (x :: xs) => spell like (like x) xs
 
 mutual
-  ||| Recognise a sequence of at least one sub-lexers
+  ||| The lexer, once or more.
   ||| /`l`+/
   export
   some : Lexer -> Lexer
-  some l = l <+> many l
+  some l = l `andThen` many l
 
-  ||| Recognise a sequence of at zero or more sub-lexers. This is not
-  ||| guaranteed to consume input
+  ||| The lexer, none or more times.
   ||| /`l`\*/
   export
   many : Lexer -> Recognise False
   many l = opt (some l)
 
-||| Repeat the sub-lexer `l` one or more times until the lexer
-||| `stopBefore` is encountered. `stopBefore` will not be consumed.
+||| The lexer once or more, each where `stopBefore` would not match, which
+||| is not read.
 ||| /((?!`stopBefore`)`l`)\+/
 export
-someUntil : (stopBefore : Recognise c) -> (l : Lexer) -> Lexer
+someUntil : (stopBefore : Lexer) -> (l : Lexer) -> Lexer
 someUntil stopBefore l = some (reject stopBefore <+> l)
 
-||| Repeat the sub-lexer `l` zero or more times until the lexer
-||| `stopBefore` is encountered. `stopBefore` will not be consumed.
-||| Not guaranteed to consume input.
+||| The lexer none or more times, each where `stopBefore` would not match,
+||| which is not read.
 ||| /((?!`stopBefore`)`l`)\*/
 export
-manyUntil : (stopBefore : Recognise c) -> (l : Lexer) -> Recognise False
+manyUntil : (stopBefore : Lexer) -> (l : Lexer) -> Recognise False
 manyUntil stopBefore l = many (reject stopBefore <+> l)
 
-||| Repeat the sub-lexer `l` zero or more times until the lexer
-||| `stopAfter` is encountered, and consume it. Guaranteed to
-||| consume if `stopAfter` consumes.
-||| /`l`\*?`stopAfter`/
-export
-manyThen : (stopAfter : Recognise c) -> (l : Lexer) -> Recognise c
+-- The lexer none or more times until `stopAfter` matches, which is read.
+manyThen : (stopAfter : Lexer) -> (l : Lexer) -> Lexer
 manyThen stopAfter l = manyUntil stopAfter l <+> stopAfter
 
-||| Recognise a sub-lexer repeated as specified by `q`. Fails if `q` has
-||| `min` and `max` in the wrong order. Consumes input unless `min q` is zero.
-||| /`l`{`q`}/
-export
-count : (q : Quantity) -> (l : Lexer) -> Recognise (isSucc (min q))
-count (Qty Z Nothing) l = many l
-count (Qty Z (Just Z)) _ = empty
-count (Qty Z (Just (S max))) l = opt $ l <+> count (atMost max) l
-count (Qty (S min) Nothing) l = l <+> count (atLeast min) l
-count (Qty (S min) (Just Z)) _ = fail
-count (Qty (S min) (Just (S max))) l = l <+> count (between min max) l
-
-||| Recognise a single digit 0-9
-||| /[0-9]/
-export
+-- One decimal digit.
 digit : Lexer
 digit = pred isDigit
 
-||| Recognise one or more digits
+||| One or more decimal digits.
 ||| /[0-9]+/
 export
 digits : Lexer
 digits = some digit
 
-||| Recognise a single binary digit
-||| /[0-1]/
-export
-binDigit : Lexer
-binDigit = pred (\c => c == '0' || c == '1')
-
-||| Recognise one or more binary digits
-||| /[0-1]+/
-export
+-- One or more binary digits.
 binDigits : Lexer
-binDigits = some binDigit
+binDigits = some (pred (\c => c == '0' || c == '1'))
 
-||| Recognise a single hexidecimal digit
-||| /[0-9A-Fa-f]/
-export
-hexDigit : Lexer
-hexDigit = pred isHexDigit
-
-||| Recognise one or more hexidecimal digits
-||| /[0-9A-Fa-f]+/
-export
+-- One or more hexadecimal digits.
 hexDigits : Lexer
-hexDigits = some hexDigit
+hexDigits = some (pred isHexDigit)
 
-||| Recognise a single octal digit
-||| /[0-8]/
-export
-octDigit : Lexer
-octDigit = pred isOctDigit
-
-||| Recognise one or more octal digits
-||| /[0-8]+/
-export
+-- One or more octal digits.
 octDigits : Lexer
-octDigits = some octDigit
+octDigits = some (pred isOctDigit)
 
-||| Recognise a single alpha character
-||| /[A-Za-z]/
-export
-alpha : Lexer
-alpha = pred isAlpha
-
-||| Recognise one or more alpha characters
-||| /[A-Za-z]+/
-export
-alphas : Lexer
-alphas = some alpha
-
-||| Recognise a lowercase alpha character
-||| /[a-z]/
-export
-lower : Lexer
-lower = pred isLower
-
-||| Recognise one or more lowercase alpha characters
-||| /[a-z]+/
-export
-lowers : Lexer
-lowers = some lower
-
-||| Recognise an uppercase alpha character
-||| /[A-Z]/
-export
-upper : Lexer
-upper = pred isUpper
-
-||| Recognise one or more uppercase alpha characters
-||| /[A-Z]+/
-export
-uppers : Lexer
-uppers = some upper
-
-||| Recognise an alphanumeric character
+||| One letter or digit.
 ||| /[A-Za-z0-9]/
 export
 alphaNum : Lexer
 alphaNum = pred isAlphaNum
 
-||| Recognise one or more alphanumeric characters
-||| /[A-Za-z0-9]+/
-export
-alphaNums : Lexer
-alphaNums = some alphaNum
-
-||| Recognise a single whitespace character
+||| One whitespace character.
 ||| /\\s/
 export
 space : Lexer
 space = pred isSpace
 
-||| Recognise one or more whitespace characters
-||| /\\s+/
-export
-spaces : Lexer
-spaces = some space
-
-||| Recognise a single newline sequence. Understands CRLF, CR, and LF
+||| One newline: CRLF, CR or LF.
 ||| /\\r\\n|[\\r\\n]/
 export
 newline : Lexer
-newline = let crlf = "\r\n" in
-              exact crlf <|> oneOf crlf
+newline = exact "\r\n" <|> is '\r' <|> is '\n'
 
-||| Recognise one or more newline sequences. Understands CRLF, CR, and LF
-||| /(\\r\\n|[\\r\\n])+)/
-export
-newlines : Lexer
-newlines = some newline
-
-||| Recognise a single non-whitespace, non-alphanumeric character
+||| One character neither whitespace, a letter nor a digit.
 ||| /[\^\\sA-Za-z0-9]/
 export
 symbol : Lexer
 symbol = pred (\x => not (isSpace x || isAlphaNum x))
 
-||| Recognise one or more non-whitespace, non-alphanumeric characters
-||| /[\^\\sA-Za-z0-9]+/
-export
-symbols : Lexer
-symbols = some symbol
-
-||| Recognise a single control character
-||| /[\\x00-\\x1f\\x7f-\\x9f]/
-export
-control : Lexer
-control = pred isControl
-
-||| Recognise one or more control characters
-||| /[\\x00-\\x1f\\x7f-\\x9f]+/
-export
-controls : Lexer
-controls = some control
-
-||| Recognise zero or more occurrences of a sub-lexer between
-||| delimiting lexers
+||| `start`, then the lexer none or more times until `end`, which is read.
 ||| /`start`(`l`)\*?`end`/
 export
 surround : (start : Lexer) -> (end : Lexer) -> (l : Lexer) -> Lexer
 surround start end l = start <+> manyThen end l
 
-||| Recognise zero or more occurrences of a sub-lexer surrounded
-||| by the same quote lexer on both sides (useful for strings)
-||| /`q`(`l`)\*?`q`/
-export
+-- The lexer between two of the same quote.
 quote : (q : Lexer) -> (l : Lexer) -> Lexer
 quote q l = surround q q l
 
-||| Recognise an escape sub-lexer (often '\\') followed by
-||| another sub-lexer
+||| An escape lexer, then the lexer it escapes.
 ||| /[`esc`]`l`/
 export
 escape : (esc : Lexer) -> Lexer -> Lexer
 escape esc l = esc <+> l
 
-||| Recognise a string literal, including escaped characters.
-||| (Note: doesn't yet handle escape sequences such as \123)
+||| A string literal, its escaped characters with it.
 ||| /"(\\\\.|.)\*?"/
 export
 stringLit : Lexer
 stringLit = quote (is '"') (escape (is '\\') any <|> any)
 
-||| Recognise a character literal, including escaped characters.
-||| (Note: doesn't yet handle escape sequences such as \123)
+||| A character literal, its escaped character with it.
 ||| /'(\\\\.|[\^'])'/
 export
 charLit : Lexer
@@ -358,62 +216,40 @@ charLit = let q = '\'' in
                 <|> (is 'o' <+> octDigits)
                 <|> digits
 
-||| Recognise an integer literal (possibly with a '-' prefix)
+||| An integer literal, perhaps negative.
 ||| /-?[0-9]+/
 export
 intLit : Lexer
 intLit = opt (is '-') <+> digits
 
-||| Recognise a binary literal, prefixed by "0b"
-||| /0b[0-1]+/
-export
+-- A binary literal, after "0b".
 binLit : Lexer
 binLit = exact "0b" <+> binDigits
 
-||| Recognise a hexidecimal literal, prefixed by "0x" or "0X"
-||| /0[Xx][0-9A-Fa-f]+/
-export
+-- A hexadecimal literal, after "0x" or "0X".
 hexLit : Lexer
 hexLit = approx "0x" <+> hexDigits
 
-||| Recognise an octal literal, prefixed by "0o"
-||| /0o[0-9A-Fa-f]+/
-export
+-- An octal literal, after "0o".
 octLit : Lexer
 octLit = exact "0o" <+> octDigits
 
+||| Decimal digits, runs of them joined by underscores.
 export
 digitsUnderscoredLit : Lexer
 digitsUnderscoredLit = digits <+> many (is '_' <+> digits)
 
+||| A binary literal, runs of its digits joined by underscores.
 export
 binUnderscoredLit : Lexer
 binUnderscoredLit = binLit <+> many (is '_' <+> binDigits)
 
+||| A hexadecimal literal, runs of its digits joined by underscores.
 export
 hexUnderscoredLit : Lexer
 hexUnderscoredLit = hexLit <+> many (is '_' <+> hexDigits)
 
+||| An octal literal, runs of its digits joined by underscores.
 export
 octUnderscoredLit : Lexer
 octUnderscoredLit = octLit <+> many (is '_' <+> octDigits)
-
-||| Recognise `start`, then recognise all input until a newline is encountered,
-||| and consume the newline. Will succeed if end-of-input is encountered before
-||| a newline.
-||| /`start`[\^\\r\\n]+(\\r\\n|[\\r\\n])?/
-export
-lineComment : (start : Lexer) -> Lexer
-lineComment start = start <+> manyUntil newline any <+> opt newline
-
-||| Recognise all input between `start` and `end` lexers.
-||| Supports balanced nesting.
-|||
-||| For block comments that don't support nesting (such as C-style comments),
-||| use `surround`
-export
-blockComment : (start : Lexer) -> (end : Lexer) -> Lexer
-blockComment start end = start <+> middle <+> end
-  where
-    middle : Recognise False
-    middle = manyUntil end (blockComment start end <|> any)

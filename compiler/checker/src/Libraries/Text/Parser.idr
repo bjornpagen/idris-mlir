@@ -1,5 +1,60 @@
 -- SPDX-License-Identifier: BSD-3-Clause
 -- Copyright (c) 2020 Edwin Brady
+||| Parser combinators: a grammar reads tokens and gives a value.
+|||
+||| `Grammar state tok c a` reads `tok`s, keeps a `state` and gives an `a`;
+||| `c` is `True` when every success reads a token. A grammar is a function
+||| of the parse's input, which it takes once and gives back, so the input
+||| is updated in place. The API:
+|||
+||| - Sequence: `>>=` and `>>` (do notation), `<*>`, `<*`, `*>`, `map` and
+|||   `<$>` (a grammar is a `Functor`), `pure`. A sequence consumes if
+|||   either part does. `>>`'s second grammar is made only once the first
+|||   has succeeded, so a grammar may name itself after a token it reads.
+||| - Choice: `<|>`, `<||>` (each branch's value tagged), `option`,
+|||   `optional`, `choice`, `choiceMap`. A choice consumes if every branch
+|||   does. A choice needs the state to `Backtrack`: `()` and a `Trail` do.
+||| - Repetition, each recursing on the tokens left, which a consuming
+|||   grammar's type says are fewer: `some`, `many`, `sepBy`, `sepBy1`, and
+|||   `entries`, a block's entries, each chosen by a seed the last gave.
+||| - Tokens: `terminal`, `terminalAt`, `match` (a `Token k` of a kind,
+|||   giving its text), `nextIs`, `peek`, `eof`, `position`, `location`,
+|||   `column`.
+||| - Bounds: `bounds p` gives `p`'s value with the bounds of the tokens it
+|||   read, `Irrelevant` if it read none.
+||| - Failure: `fail`, `failLoc`, `fatalError`, `fatalLoc`, `commit`,
+|||   `try`, `mustWork`, `mustWorkBecause`, `mustFailBecause`, `when`,
+|||   `unless`.
+||| - State and warnings: `updateState` takes the state at quantity 1 and
+|||   gives it back, `Stepped`; `withWarning`.
+||| - Running: `parseWith` and `parse`, over the `columns` of a lexer's
+|||   tokens.
+|||
+||| What a parse means, stated once:
+|||
+||| - A grammar runs from where the parse stands and succeeds, with its
+|||   value and the tokens it left, or fails, with its errors, fatally or
+|||   not. A sequence runs its second part from where the first stopped,
+|||   and fails as the first part to fail.
+||| - `commit` marks the branch the innermost enclosing alternative is
+|||   trying as past a commit point.
+||| - `p <|> q` runs `p`, uncommitted. If `p` succeeds, so does the
+|||   alternative. If `p` fails past a commit point or fatally, so does the
+|||   alternative. Otherwise `q` runs from where `p` began, the state and
+|||   the warnings put back as they were, uncommitted; if `q` fails past a
+|||   commit point or fatally, the alternative fails as `q` did, and
+|||   otherwise it fails with `p`'s errors and then `q`'s. Whatever leaves
+|||   the alternative, but `q`'s failure past a commit point or a fatal
+|||   one, is as committed as the parse was where the alternative began.
+||| - `try p` makes `p`'s fatal failure one an alternative recovers from;
+|||   `mustWork p` makes any failure of `p` fatal.
+||| - `many p` is, at each round, `p` followed by the rounds after it, or
+|||   else no more rounds: an alternative per round, as above.
+||| - A failure is located where it says, or else at the next token; at the
+|||   end of the input, nowhere.
+||| - `bounds p` is from the first token `p` read to the last.
+||| - Warnings come in the order given; a branch that fails takes its
+|||   warnings and its steps of the state with it.
 module Libraries.Text.Parser
 
 import Data.Bool
@@ -7,228 +62,112 @@ import Data.Nat
 import public Data.List1
 
 import public Libraries.Text.Parser.Core
-import public Libraries.Text.Quantity
 import public Libraries.Text.Token
 
 %default total
 
-||| Parse a terminal based on a kind of token.
-export
-match : (Eq k, TokenKind k) =>
-        (kind : k) ->
-        Grammar state (Token k) True (TokType kind)
-match k = terminal "Unrecognised input" $
-    \t => if t.kind == k
-             then Just $ tokValue k t.text
-             else Nothing
+%hide Prelude.(>>)
+%hide Prelude.(>>=)
 
-||| Optionally parse a thing, with a default value if the grammar doesn't
-||| match. May match the empty input.
+||| A token of the kind given, giving its text.
 export
-option : {c : Bool} ->
+match : Eq k => (kind : k) -> Grammar state (Token k) True String
+match k = terminal "Unrecognised input" ofKind
+  where
+    ofKind : Token k -> Maybe String
+    ofKind t = if t.kind == k then Just t.text else Nothing
+
+||| The grammar, or else the value given, reading nothing. May match the
+||| empty input.
+export
+option : Backtrack mark state => {0 c : Bool} ->
          (def : a) -> (p : Grammar state tok c a) ->
          Grammar state tok False a
-option {c = False} def p = p <|> pure def
-option {c = True} def p = p <|> pure def
+option def p = rewrite sym (andFalseFalse c) in p <|> pure def
 
-||| Optionally parse a thing.
-||| To provide a default value, use `option` instead.
+||| The grammar's value, or else nothing, reading nothing.
 export
-optional : {c : Bool} ->
+optional : Backtrack mark state => {0 c : Bool} ->
            (p : Grammar state tok c a) ->
            Grammar state tok False (Maybe a)
 optional p = option Nothing (map Just p)
 
-||| Try to parse one thing or the other, producing a value that indicates
-||| which option succeeded. If both would succeed, the left option
-||| takes priority.
+export infixr 2 <||>
+||| Two alternative grammars, each one's value tagged with which it was. If
+||| both consume, so does the choice.
 export
-choose : {c1, c2 : Bool} ->
-         (l : Grammar state tok c1 a) ->
-         (r : Grammar state tok c2 b) ->
+(<||>) : Backtrack mark state => {0 c1, c2 : Bool} ->
+         Grammar state tok c1 a -> Lazy (Grammar state tok c2 b) ->
          Grammar state tok (c1 && c2) (Either a b)
-choose l r = map Left l <|> map Right r
+p <||> q = map Left p <|> map Right q
 
-||| Produce a grammar by applying a function to each element of a container,
-||| then try each resulting grammar until the first one succeeds. Fails if the
-||| container is empty.
+||| The grammar a function makes of each element, tried in turn until one
+||| succeeds. Fails if there are none.
 export
-choiceMap : {c : Bool} ->
+choiceMap : Backtrack mark state => {0 c : Bool} ->
             (a -> Grammar state tok c b) ->
             Foldable t => t a ->
             Grammar state tok c b
-choiceMap {c} f xs = foldr (\x, acc => rewrite sym (andSameNeutral c) in
-                                               f x <|> acc)
-                           (fail "No more options") xs
+choiceMap f xs = foldr (\x, acc => rewrite sym (andSameNeutral c) in f x <|> acc)
+                       (fail "No more options") xs
 
-%hide Prelude.(>>=)
-
-||| Try each grammar in a container until the first one succeeds.
-||| Fails if the container is empty.
+||| Each grammar tried in turn until one succeeds. Fails if there are none.
 export
-choice : Foldable t =>
-         {c : Bool} ->
+choice : Backtrack mark state => Foldable t => {0 c : Bool} ->
          t (Grammar state tok c a) ->
          Grammar state tok c a
 choice = choiceMap id
 
-mutual
-  ||| Parse one or more things
-  export
-  some : Grammar state tok True a ->
-         Grammar state tok True (List1 a)
-  some p = pure (!p ::: !(many p))
-
-  ||| Parse zero or more things (may match the empty input)
-  export
-  many : Grammar state tok True a ->
-         Grammar state tok False (List a)
-  many p = option [] (forget <$> some p)
-
-mutual
-  private
-  count1 : (q : Quantity) ->
-           (p : Grammar state tok True a) ->
-           Grammar state tok True (List a)
-  count1 q p = do x <- p
-                  seq (count q p)
-                      (\xs => pure (x :: xs))
-
-  ||| Parse `p`, repeated as specified by `q`, returning the list of values.
-  export
-  count : (q : Quantity) ->
-          (p : Grammar state tok True a) ->
-          Grammar state tok (isSucc (min q)) (List a)
-  count (Qty Z Nothing) p = many p
-  count (Qty Z (Just Z)) _ = pure []
-  count (Qty Z (Just (S max))) p = option [] $ count1 (atMost max) p
-  count (Qty (S min) Nothing) p = count1 (atLeast min) p
-  count (Qty (S min) (Just Z)) _ = fail "Quantity out of order"
-  count (Qty (S min) (Just (S max))) p = count1 (between (S min) max) p
-
-mutual
-  ||| Parse one or more instances of `p` until `end` succeeds, returning the
-  ||| list of values from `p`. Guaranteed to consume input.
-  export
-  someTill : {c : Bool} ->
-             (end : Grammar state tok c e) ->
-             (p : Grammar state tok True a) ->
-             Grammar state tok True (List1 a)
-  someTill {c} end p = do x <- p
-                          seq (manyTill end p)
-                              (\xs => pure (x ::: xs))
-
-  ||| Parse zero or more instances of `p` until `end` succeeds, returning the
-  ||| list of values from `p`. Guaranteed to consume input if `end` consumes.
-  export
-  manyTill : {c : Bool} ->
-             (end : Grammar state tok c e) ->
-             (p : Grammar state tok True a) ->
-             Grammar state tok c (List a)
-  manyTill {c} end p = rewrite sym (andTrueNeutral c) in
-                               map (const []) end <|> (forget <$> someTill end p)
-
-mutual
-  ||| Parse one or more instance of `skip` until `p` is encountered,
-  ||| returning its value.
-  export
-  afterSome : {c : Bool} ->
-              (skip : Grammar state tok True s) ->
-              (p : Grammar state tok c a) ->
-              Grammar state tok True a
-  afterSome skip p = do ignore $ skip
-                        afterMany skip p
-
-  ||| Parse zero or more instance of `skip` until `p` is encountered,
-  ||| returning its value.
-  export
-  afterMany : {c : Bool} ->
-              (skip : Grammar state tok True s) ->
-              (p : Grammar state tok c a) ->
-              Grammar state tok c a
-  afterMany {c} skip p = rewrite sym (andTrueNeutral c) in
-                                 p <|> afterSome skip p
-
-||| Parse one or more things, each separated by another thing.
+||| One or more of `p`, each after the first following a separator.
 export
-sepBy1 : {c : Bool} ->
+sepBy1 : Backtrack mark state => {0 c : Bool} ->
          (sep : Grammar state tok True s) ->
          (p : Grammar state tok c a) ->
          Grammar state tok c (List1 a)
-sepBy1 {c} sep p = rewrite sym (orFalseNeutral c) in
-                           [| p ::: many (sep *> p) |]
+sepBy1 sep p = rewrite sym (orFalseNeutral c) in
+                       [| p ::: many (sep *> p) |]
 
-||| Parse zero or more things, each separated by another thing. May
+||| None or more of `p`, each after the first following a separator. May
 ||| match the empty input.
 export
-sepBy : {c : Bool} ->
+sepBy : Backtrack mark state => {0 c : Bool} ->
         (sep : Grammar state tok True s) ->
         (p : Grammar state tok c a) ->
         Grammar state tok False (List a)
-sepBy sep p = option [] $ forget <$> sepBy1 sep p
+sepBy sep p = option [] (forget <$> sepBy1 sep p)
 
-||| Parse one or more instances of `p` separated by and optionally terminated by
-||| `sep`.
+||| The grammar, any failure of it made fatal, with `msg` at `loc`.
 export
-sepEndBy1 : {c : Bool} ->
-            (sep : Grammar state tok True s) ->
-            (p : Grammar state tok c a) ->
-            Grammar state tok c (List1 a)
-sepEndBy1 {c} sep p = rewrite sym (orFalseNeutral c) in
-                              sepBy1 sep p <* optional sep
+mustWorkBecause : Backtrack mark state => {0 c : Bool} ->
+                  Maybe Bounds -> String ->
+                  Grammar state tok c ty -> Grammar state tok c ty
+mustWorkBecause loc msg p = rewrite sym (andSameNeutral c) in
+                                    p <|> fatalLoc loc msg
 
-||| Parse zero or more instances of `p`, separated by and optionally terminated
-||| by `sep`. Will not match a separator by itself.
+||| A fatal failure, with `msg` at its bounds, where `p` succeeds; nothing
+||| read where it does not.
 export
-sepEndBy : {c : Bool} ->
-           (sep : Grammar state tok True s) ->
-           (p : Grammar state tok c a) ->
-           Grammar state tok False (List a)
-sepEndBy sep p = option [] $ forget <$> sepEndBy1 sep p
+mustFailBecause : Backtrack mark state =>
+                  String -> Grammar state tok True ty -> Grammar state tok False ()
+mustFailBecause msg p = (bounds p >>= \res => fatalLoc {c = False} res.bounds msg) <|> pure ()
 
-||| Parse one or more instances of `p`, separated and terminated by `sep`.
+||| Where the next token begins: its line and column.
 export
-endBy1 : {c : Bool} ->
-         (sep : Grammar state tok True s) ->
-         (p : Grammar state tok c a) ->
-         Grammar state tok True (List1 a)
-endBy1 {c} sep p = some $ rewrite sym (orTrueTrue c) in
-                                  p <* sep
-
-export
-endBy : {c : Bool} ->
-        (sep : Grammar state tok True s) ->
-        (p : Grammar state tok c a) ->
-        Grammar state tok False (List a)
-endBy sep p = option [] $ forget <$> endBy1 sep p
-
-||| Parse an instance of `p` that is between `left` and `right`.
-export
-between : {c : Bool} ->
-          (left : Grammar state tok True l) ->
-          (right : Grammar state tok True r) ->
-          (p : Grammar state tok c a) ->
-          Grammar state tok True a
-between left right contents = left *> contents <* right
-
-export
-location : Grammar state token False (Int, Int)
+location : Grammar state tok False (Int, Int)
 location = startBounds <$> position
 
+||| The column the next token begins at.
 export
-endLocation : Grammar state token False (Int, Int)
-endLocation = endBounds <$> position
-
-export
-column : Grammar state token False Int
+column : Grammar state tok False Int
 column = snd <$> location
 
+||| The grammar where the condition holds, otherwise nothing.
 public export
-when : Bool -> Lazy (Grammar state token False ()) -> Grammar state token False ()
+when : Bool -> Lazy (Grammar state tok False ()) -> Grammar state tok False ()
 when True y = y
 when False y = pure ()
 
-public export
-%inline
-unless : Bool -> Lazy (Grammar state token False ()) -> Grammar state token False ()
+||| The grammar where the condition does not hold, otherwise nothing.
+public export %inline
+unless : Bool -> Lazy (Grammar state tok False ()) -> Grammar state tok False ()
 unless = when . not

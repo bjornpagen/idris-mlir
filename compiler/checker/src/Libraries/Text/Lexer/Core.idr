@@ -1,201 +1,153 @@
 -- SPDX-License-Identifier: BSD-3-Clause
 -- Copyright (c) 2020 Edwin Brady
+||| Recognisers of tokens, and what one reads.
+|||
+||| A recogniser gives no value, only whether it matched and how much it
+||| read, so it is data: every constructor's fields have types it fixes,
+||| the consumption indices aside, which are erased. Being data, a
+||| recogniser may name itself after a character it reads (`andThen`), and
+||| the scan that runs it recurses on its structure, and on the characters
+||| left once one is read.
 module Libraries.Text.Lexer.Core
 
-import Data.List
-import Data.Maybe
+import Control.WellFounded
+import Data.Nat
 
-import public Libraries.Control.Delayed
 import public Libraries.Text.Bounded
+import Libraries.Text.Progress
 
 %default total
 
 ||| A language of token recognisers.
-||| @ consumes If `True`, this recogniser is guaranteed to consume at
-|||            least one character of input when it succeeds.
+||| @ consumes If `True`, every match reads at least one character.
 export
 data Recognise : (consumes : Bool) -> Type where
      Empty : Recognise False
      Fail : Recognise c
      EOF : Recognise False
-     Lookahead : (positive : Bool) -> Recognise c -> Recognise False
+     Expect : Recognise True -> Recognise False
+     Reject : Recognise True -> Recognise False
      Pred : (Char -> Bool) -> Recognise True
      SeqEat : Recognise True -> Inf (Recognise e) -> Recognise True
      SeqEmpty : Recognise e1 -> Recognise e2 -> Recognise (e1 || e2)
-     SeqSame : Recognise e -> Recognise e -> Recognise e
      Alt : Recognise e1 -> Recognise e2 -> Recognise (e1 && e2)
 
-||| A token recogniser. Guaranteed to consume at least one character.
+||| A token recogniser: every match reads at least one character.
 public export
 Lexer : Type
 Lexer = Recognise True
 
-||| Sequence two recognisers. If either consumes a character, the sequence
-||| is guaranteed to consume a character.
+||| Two recognisers in sequence. The sequence consumes if either does.
 export %inline
-(<+>) : {c1 : Bool} ->
-        Recognise c1 -> inf c1 (Recognise c2) -> Recognise (c1 || c2)
-(<+>) {c1 = False} = SeqEmpty
-(<+>) {c1 = True} = SeqEat
+(<+>) : Recognise c1 -> Recognise c2 -> Recognise (c1 || c2)
+(<+>) = SeqEmpty
 
-||| Alternative recognisers. If both consume, the combination is guaranteed
-||| to consume a character.
+export infixl 8 `andThen`
+
+||| A recogniser that reads a character, then one made only once it has
+||| matched, which may therefore be the recogniser being defined.
+export %inline
+andThen : Lexer -> Inf (Recognise c) -> Lexer
+andThen = SeqEat
+
+||| Two alternative recognisers, the first that matches. If both consume,
+||| so does the choice.
 export %inline
 (<|>) : Recognise c1 -> Recognise c2 -> Recognise (c1 && c2)
 (<|>) = Alt
 
-||| A recogniser that always fails.
+||| A recogniser that never matches.
 export %inline
 fail : Recognise c
 fail = Fail
 
-||| Recognise no input (doesn't consume any input)
+||| A match of no input.
 export %inline
 empty : Recognise False
 empty = Empty
 
-||| Recognise end of input
+||| A match at the end of the input.
 export %inline
 eof : Recognise False
 eof = EOF
 
-||| Recognise a character that matches a predicate
+||| A character the predicate holds of.
 export %inline
 pred : (Char -> Bool) -> Lexer
 pred = Pred
 
-||| Positive lookahead. Never consumes input.
+||| A match of no input where the lexer would match.
 export %inline
-expect : Recognise c -> Recognise False
-expect = Lookahead True
+expect : Lexer -> Recognise False
+expect = Expect
 
-||| Negative lookahead. Never consumes input.
+||| A match of no input where the lexer would not match.
 export %inline
-reject : Recognise c -> Recognise False
-reject = Lookahead False
+reject : Lexer -> Recognise False
+reject = Reject
 
-||| Sequence the recognisers resulting from applying a function to each element
-||| of a list. The resulting recogniser will consume input if the produced
-||| recognisers consume and the list is non-empty.
-export
-concatMap : (a -> Recognise c) -> (xs : List a) -> Recognise (isCons xs && c)
-concatMap _ []                 = Empty
-concatMap f (x :: [])          = f x
-concatMap f (x :: xs@(_ :: _)) = SeqSame (f x) (concatMap f xs)
-
-data StrLen : Type where
-     MkStrLen : String -> Nat -> StrLen
-
-getString : StrLen -> String
-getString (MkStrLen str n) = str
-
-strIndex : StrLen -> Nat -> Maybe Char
-strIndex (MkStrLen str len) i
-    = if cast {to = Integer} i >= cast len then Nothing
-      else Just (assert_total (prim__strIndex str (cast i)))
-
-mkStr : String -> StrLen
-mkStr str = MkStrLen str (length str)
-
-strTail : Nat -> StrLen -> StrLen
-strTail start (MkStrLen str len)
-    = MkStrLen (substr start len str) (minus len start)
-
--- If the string is recognised, returns the index at which the token
--- ends
-export
-scan : Recognise c -> SnocList Char -> List Char -> Maybe (SnocList Char, List Char)
-scan Empty tok str = pure (tok, str)
-scan Fail tok str = Nothing
-scan EOF tok [] = Just (tok,[])
-scan EOF tok (_::_) = Nothing
-scan (Lookahead positive r) tok str
-    = if isJust (scan r tok str) == positive
-         then pure (tok, str)
-         else Nothing
-scan (Pred f) tok [] = Nothing
-scan (Pred f) tok (c :: str)
-    = if f c
-         then Just (tok :< c, str)
-         else Nothing
-scan (SeqEat r1 r2) tok str
-    = do (tok', rest) <- scan r1 tok str
-         -- TODO: Can we prove totality instead by showing idx has increased?
-         assert_total (scan r2 tok' rest)
-scan (SeqEmpty r1 r2) tok str
-    = do (tok', rest) <- scan r1 tok str
-         scan r2 tok' rest
-scan (SeqSame r1 r2) tok str
-    = do (tok', rest) <- scan r1 tok str
-         scan r2 tok' rest
-scan (Alt r1 r2) tok str
-    = maybe (scan r2 tok str) Just (scan r1 tok str)
-
--- we don't actually care about the list, so may as well just return the Nat
-locate : (a -> Bool) -> SnocList a -> (SnocList a, Nat)
-locate p sx = go sx Z where
-
-  go : SnocList a -> Nat -> (SnocList a, Nat)
-  go [<] xs = ([<], xs)
-  go sxx@(sx :< x) xs = if p x then (sxx, xs) else go sx (S xs)
-
-||| A mapping from lexers to the tokens they produce.
-||| This is a list of pairs `(Lexer, String -> tokenType)`
-||| For each Lexer in the list, if a substring in the input matches, run
-||| the associated function to produce a token of type `tokenType`
+||| What a recogniser read of its input: how many characters, and the input
+||| after them, by its type no longer, and shorter if it consumes.
 public export
-TokenMap : (tokenType : Type) -> Type
-TokenMap tokenType = List (Lexer, String -> tokenType)
+data Scanned : (consumes : Bool) -> (input : List Char) -> Type where
+  MkScanned : (width : Nat) -> (remaining : List Char) ->
+              (0 shorter : Leaves consumes (List.length remaining) (List.length input)) ->
+              Scanned consumes input
 
+-- What a recogniser read after another that read `n`, as read from where
+-- the first began.
+following : (0 c1, c2 : Bool) -> (n : Nat) ->
+            (0 first : Leaves c1 (List.length middle) (List.length input)) ->
+            Maybe (Scanned c2 middle) -> Maybe (Scanned (c1 || c2) input)
+following c1 c2 n first Nothing = Nothing
+following c1 c2 n first (Just (MkScanned m rest second))
+    = Just (MkScanned (n + m) rest (inSequence c1 c2 first second))
+
+-- What the second of two alternatives read.
+secondRead : (0 c1, c2 : Bool) -> Maybe (Scanned c2 input) -> Maybe (Scanned (c1 && c2) input)
+secondRead c1 c2 Nothing = Nothing
+secondRead c1 c2 (Just (MkScanned n rest fewer)) = Just (MkScanned n rest (secondOf c1 c2 fewer))
+
+-- A recogniser run on its own structure, but the recogniser after one that
+-- consumed (`SeqEat`) is made by forcing it, no part of the recogniser
+-- given: that recursion is on the characters left, which are accessible
+-- (`acc`), bounded by `bound` until a recogniser consumes.
+scanFrom : (r : Recognise c) -> (input : List Char) ->
+           (0 acc : Accessible Nat.LT bound) -> (0 below : Nat.LTE (List.length input) bound) ->
+           Maybe (Scanned c input)
+scanFrom Empty input acc below = Just (MkScanned 0 input reflexive)
+scanFrom Fail input acc below = Nothing
+scanFrom EOF [] acc below = Just (MkScanned 0 [] reflexive)
+scanFrom EOF (_ :: _) acc below = Nothing
+scanFrom (Expect r) input acc below
+    = case scanFrom r input acc below of
+           Just _ => Just (MkScanned 0 input reflexive)
+           Nothing => Nothing
+scanFrom (Reject r) input acc below
+    = case scanFrom r input acc below of
+           Just _ => Nothing
+           Nothing => Just (MkScanned 0 input reflexive)
+scanFrom (Pred f) [] acc below = Nothing
+scanFrom (Pred f) (x :: xs) acc below
+    = if f x then Just (MkScanned 1 xs reflexive) else Nothing
+scanFrom (SeqEat {e} r1 r2) input acc@(Access rec) below
+    = case scanFrom r1 input acc below of
+           Nothing => Nothing
+           Just (MkScanned n rest fewer) =>
+             following True e n fewer
+               (scanFrom r2 rest (rec (List.length rest) (transitive fewer below)) reflexive)
+scanFrom (SeqEmpty {e1} {e2} r1 r2) input acc below
+    = case scanFrom r1 input acc below of
+           Nothing => Nothing
+           Just (MkScanned n rest fewer) =>
+             following e1 e2 n fewer (scanFrom r2 rest acc (transitive (noMore e1 fewer) below))
+scanFrom (Alt {e1} {e2} r1 r2) input acc below
+    = case scanFrom r1 input acc below of
+           Just (MkScanned n rest fewer) => Just (MkScanned n rest (firstOf e1 e2 fewer))
+           Nothing => secondRead e1 e2 (scanFrom r2 input acc below)
+
+||| What the recogniser reads at the start of the input, or nothing where
+||| it does not match.
 export
-countNLs : SnocList Char -> Nat
-countNLs str = SnocList.length (filter (== '\n') str)
-
-export
-getCols : SnocList Char -> Int -> Int
-getCols x c
-  = case locate (== '\n') x of
-      ([<], incol) => c + cast incol
-      (_, incol) => cast incol
-
-
-tokenise : (a -> Bool) ->
-           (line : Int) -> (col : Int) ->
-           SnocList (Located a) -> TokenMap a ->
-           List Char -> (List (Located a), (Int, Int, List Char))
-tokenise pred line col acc tmap str
-    = case getFirstToken tmap str of
-           Just (tok, line', col', rest) =>
-           -- assert total because getFirstToken must consume something
-               if pred tok.val
-                  then (acc <>> [], (line, col, []))
-                  else assert_total (tokenise pred line' col' (acc :< tok) tmap rest)
-           Nothing => (acc <>> [], (line, col, str))
-  where
-
-    getFirstToken : TokenMap a -> List Char ->
-                    Maybe (Located a, Int, Int, List Char)
-    getFirstToken [] str = Nothing
-    getFirstToken ((lex, fn) :: ts) str
-        = case scan lex [<] str of
-               Just (tok, rest) =>
-                 let line' = line + cast (countNLs tok)
-                     col' = getCols tok col in
-                     Just (MkLocated (fn (fastPack (tok <>> []))) (MkBounds line col line' col'),
-                           line', col', rest)
-               Nothing => getFirstToken ts str
-
-export
-lexTo : (a -> Bool) ->
-        TokenMap a -> String -> (List (Located a), (Int, Int, String))
-lexTo pred tmap str
-    = let (ts, (l, c, str')) = tokenise pred 0 0 [<] tmap (fastUnpack str) in
-          (ts, (l, c, fastPack str'))
-
-||| Given a mapping from lexers to token generating functions (the
-||| TokenMap a) and an input string, return a list of recognised tokens,
-||| and the line, column, and remainder of the input at the first point in the
-||| string where there are no recognised tokens.
-export %inline
-lex : TokenMap a -> String -> (List (Located a), (Int, Int, String))
-lex = lexTo (const False)
+scan : (r : Recognise c) -> (input : List Char) -> Maybe (Scanned c input)
+scan r input = scanFrom r input (wellFounded (List.length input)) reflexive

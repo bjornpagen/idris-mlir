@@ -93,11 +93,6 @@ namespace WithBounds
   (.bounds) (Irrelevant _) = Nothing
   (.bounds) (Relevant _ bd) = Just bd
 
-||| A token as a value parsed from it.
-export
-fromLocated : Located ty -> WithBounds ty
-fromLocated (MkLocated v bd) = Relevant v bd
-
 export
 Eq ty => Eq (WithBounds ty) where
   (Irrelevant v) == (Irrelevant v') = v == v'
@@ -129,7 +124,3 @@ mergeBounds : WithBounds ty -> WithBounds ty' -> WithBounds ty'
 mergeBounds (Irrelevant _) b2 = b2
 mergeBounds (Relevant _ bd) (Irrelevant v) = Relevant v bd
 mergeBounds (Relevant _ bd1) (Relevant v bd2) = Relevant v (union bd1 bd2)
-
-export
-joinBounds : WithBounds (WithBounds ty) -> WithBounds ty
-joinBounds b = mergeBounds b (val b)

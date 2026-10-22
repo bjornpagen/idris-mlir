@@ -58,13 +58,18 @@ Show LitToken where
   showPrec d (Any x)           = showCon d "Any" $ showArg x
   showPrec d (CodeLine m x)    = showCon d "CodeLine" $ showArg m ++ showArg x
 
+-- A code block between each pair of delimiters, a code line after each
+-- marker, and else any other line, tried in that order.
 rawTokens : (delims  : List (String, String))
          -> (markers : List String)
-         -> TokenMap LitToken
-rawTokens delims ls =
-          map (\(l,r) => (block l r, CodeBlock (trimSpace l) (trimSpace r))) delims
-       ++ map (\m => (line m, CodeLine (trimSpace m))) ls
-       ++ [(notCodeLine, Any)]
+         -> Tokenizer LitToken
+rawTokens delims ls = foldr codeBlock (foldr codeLine (match notCodeLine Any) ls) delims
+  where
+    codeBlock : (String, String) -> Tokenizer LitToken -> Tokenizer LitToken
+    codeBlock (l, r) rest = match (block l r) (CodeBlock (trimSpace l) (trimSpace r)) <|> rest
+
+    codeLine : String -> Tokenizer LitToken -> Tokenizer LitToken
+    codeLine m rest = match (line m) (CodeLine (trimSpace m)) <|> rest
 
 ||| Merge the tokens into a single source file.
 reduce : List (Located LitToken) -> List String -> String
@@ -172,8 +177,8 @@ lexLiterate : (specification : LiterateStyle)
            -> Either LiterateError (List (Located LitToken))
 lexLiterate (MkLitStyle delims markers exts) str =
       case lex (rawTokens delims markers) str of
-        (toks, (_,_,"")) => Right toks
-        (_, (l,c,i))     => Left (MkLitErr l c i)
+        (toks, (_,_,_,"")) => Right toks
+        (_, (_,l,c,i))     => Left (MkLitErr l c i)
 
 ||| Given a 'literate specification' extract the code from the
 ||| literate source file (`litStr`) that follows the presented style.
@@ -207,7 +212,7 @@ isLiterateLine : (specification : LiterateStyle)
               -> (str : String)
               -> Pair (Maybe String) String
 isLiterateLine (MkLitStyle delims markers _) str with (lex (rawTokens delims markers) str)
-  isLiterateLine (MkLitStyle delims markers _) str | ([MkLocated (CodeLine m str') _], (_,_, "")) = (Just m, str')
+  isLiterateLine (MkLitStyle delims markers _) str | ([MkLocated (CodeLine m str') _], (_,_,_, "")) = (Just m, str')
   isLiterateLine (MkLitStyle delims markers _) str | (_, _) = (Nothing, str)
 
 ||| Given a 'literate specification' embed the given code using the
