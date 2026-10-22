@@ -148,7 +148,8 @@ void forEachTerm(const FlowEdges &edges, OnTerm &&term, OnFresh &&fresh) {
                           },
                           [&](const FlowAnchor::Field &field) {
                             bool taken = flow.from.taken().has_value();
-                            Via via = taken && isMemo(field.data) ? Via::Anchored : Via::ReadOut;
+                            bool memo = field.group.memberKind(field.member) == MemberKind::Memo;
+                            Via via = taken && memo ? Via::Anchored : Via::ReadOut;
                             term(into.value, Term<mlir::Value>{whole, via, reachAt(part.anchor),
                                                                usesOf(into.value.getType())});
                           },

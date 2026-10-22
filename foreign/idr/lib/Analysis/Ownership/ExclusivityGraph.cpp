@@ -224,7 +224,7 @@ private:
         [&](const FlowPlace::Part &part) {
           std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
           if (field && memoFamily(part.of.getType()))
-            return intoAnchor(flow.from, anchors.of(field->data, field->ctor, field->index));
+            return intoAnchor(flow.from, anchors.of(*field));
           readInto(flow.from, part.of);
         },
         // A parameter or a result: the call's and the return's own reading.
@@ -248,7 +248,7 @@ private:
           Value of = *from.value();
           std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
           if (field && memoFamily(of.getType()))
-            return outOfAnchor(part, anchors.of(field->data, field->ctor, field->index), to);
+            return outOfAnchor(part, anchors.of(*field), to);
           if (ownership::reachOf(part) == ownership::Reach::Taken)
             return move(of, to);
           if (!partOf[numbering.at(to)])
@@ -336,10 +336,11 @@ private:
 
 } // namespace
 
-Anchor Anchors::of(DataType memo, Tag tag, unsigned index) {
-  auto [it, fresh] = keys.try_emplace(
-      Key{memo, static_cast<std::uint32_t>(tag), static_cast<std::uint32_t>(index)},
-      static_cast<Anchor>(keys.size()));
+Anchor Anchors::of(const FlowAnchor::Field &field) {
+  auto [it, fresh] = keys.try_emplace(Key{field.group, field.member,
+                                          static_cast<std::uint32_t>(field.ctor),
+                                          static_cast<std::uint32_t>(field.index)},
+                                      static_cast<Anchor>(keys.size()));
   return it->second;
 }
 
@@ -357,7 +358,9 @@ void shareStaticAnchors(ProgramOp program, Anchors &anchors) {
         return;
       for (unsigned index = 0, e = static_cast<unsigned>(con.getFields().size()); index != e;
            ++index)
-        anchors.share(anchors.of(data, con.getTag(), index));
+        anchors.share(anchors.of(FlowAnchor::Field{data.getGroup(),
+                                                   static_cast<std::uint32_t>(data.getMember()),
+                                                   con.getTag(), index}));
     });
   });
 }

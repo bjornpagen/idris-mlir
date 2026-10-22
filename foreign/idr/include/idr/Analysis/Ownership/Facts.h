@@ -86,7 +86,7 @@ inline FieldReach reachAt(const FlowAnchor &anchor) {
   return match(
       anchor.place,
       [](const FlowAnchor::Field &field) {
-        return fieldReach(field.data.ctor(field.ctor).fields[field.index]);
+        return fieldReach(field.group.ctor(field.member, field.ctor).fields[field.index]);
       },
       [](const OneOf<FlowAnchor::Elements, FlowAnchor::Forced, FlowAnchor::MemoState,
                      FlowAnchor::Capture, FlowAnchor::Hole> auto &) { return FieldReach::Other; });

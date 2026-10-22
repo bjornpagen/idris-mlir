@@ -101,15 +101,16 @@ struct Body {
 // that keeps a second reference shares whatever an init moves in.
 class Anchors {
 public:
-  Anchor of(DataType memo, Tag tag, unsigned index);
+  Anchor of(const FlowAnchor::Field &field);
   void share(Anchor anchor) { sharedAnchors.push_back(anchor); }
   std::uint32_t size() const { return static_cast<std::uint32_t>(keys.size()); }
   llvm::ArrayRef<Anchor> shared() const { return sharedAnchors; }
 
 private:
-  // A field by its label's identity: the family application, uniqued by
-  // content, and positions; no IR node is a key.
-  using Key = std::tuple<mlir::Type, std::uint32_t, std::uint32_t>;
+  // A field by its declaration's identity: its family, uniqued by content,
+  // its member and its positions, so a field named at generic levels and at
+  // an instance is one anchor; no IR node is a key.
+  using Key = std::tuple<mlir::Attribute, std::uint32_t, std::uint32_t, std::uint32_t>;
   llvm::DenseMap<Key, Anchor> keys;
   footprint::Vector<Anchor> sharedAnchors;
 };
