@@ -225,7 +225,7 @@ std::optional<ConstantIntRanges> Function::intervalOf(Operation *op,
 // where the write-back has made it an op's.
 Facts Function::factsOf(Operation *op, std::span<const ClassId> operands) const {
   Facts facts{intervalOf(op, operands), Attribute()};
-  if (facts.integer() || kinds.foldingOf(op) == Folding::Never)
+  if (facts.integer() || foldingOf(op) == Folding::Never)
     return facts;
   SmallVector<Attribute, 4> attributes;
   for (ClassId operand : operands)

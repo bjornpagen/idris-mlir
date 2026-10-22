@@ -47,6 +47,7 @@
 #ifndef IDR_TRANSFORMS_EGRAPH_ENGINE_H
 #define IDR_TRANSFORMS_EGRAPH_ENGINE_H
 
+#include "idr/Analysis/Constants.h"
 #include "idr/Analysis/Solver/Extraction.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Footprint.h"
@@ -214,24 +215,16 @@ struct Region {
   Run skeleton;
 };
 
-// Whether the graph asks an op's own fold: every op but those whose fold
-// would compute on the compiling machine what the target computes.
-enum class Folding : std::uint8_t { Folds, Never };
-
 // What the pass reads where the compiler is built and when it is made,
-// never per function: each generated kind's op name and the ops never
-// folded, found once per pass instance, which MLIR's open op set forces to
-// be read at run time.
+// never per function: each generated kind's op name, found once per pass
+// instance, which MLIR's open op set forces to be read at run time.
 struct Kinds {
   // (the op's TypeID, its kind), sorted by TypeID, for the one lookup an
   // Operation * needs.
   std::vector<std::pair<mlir::TypeID, std::uint16_t>> byTypeId;
   std::vector<std::optional<mlir::RegisteredOperationName>> names;
-  // The TypeIDs of the ops never folded, sorted.
-  std::vector<mlir::TypeID> neverFolded;
 
   std::optional<std::uint16_t> kindOf(mlir::Operation *op) const;
-  Folding foldingOf(mlir::Operation *op) const;
 };
 
 // A rule's variables as a match binds them, each to a class.

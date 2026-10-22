@@ -84,11 +84,6 @@ void rewriteOne(table::RuleList<Rs...>, std::uint32_t rule, Operation *op, const
   (run.template operator()<Rs>(), ...);
 }
 
-template <class... Ops>
-void listTypeIds(table::OpList<Ops...>, std::vector<TypeID> &out) {
-  (out.push_back(TypeID::get<Ops>()), ...);
-}
-
 bool beforeId(TypeID a, TypeID b) { return a.getAsOpaquePointer() < b.getAsOpaquePointer(); }
 
 } // namespace
@@ -104,20 +99,11 @@ std::optional<std::uint16_t> Kinds::kindOf(Operation *op) const {
   return it->second;
 }
 
-Folding Kinds::foldingOf(Operation *op) const {
-  return std::binary_search(neverFolded.begin(), neverFolded.end(), op->getName().getTypeID(),
-                            beforeId)
-             ? Folding::Never
-             : Folding::Folds;
-}
-
 Kinds makeKinds(MLIRContext *context) {
   Kinds out;
   listKinds(generated::Kinds{}, context, out);
   llvm::sort(out.byTypeId,
              [](const auto &a, const auto &b) { return beforeId(a.first, b.first); });
-  listTypeIds(generated::NeverFolded{}, out.neverFolded);
-  llvm::sort(out.neverFolded, beforeId);
   return out;
 }
 

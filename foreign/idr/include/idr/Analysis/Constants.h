@@ -20,9 +20,17 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <concepts>
+#include <cstdint>
 #include <utility>
 
 namespace idr {
+
+// Whether an op's own fold may be asked: every op's but those of the
+// specification's never-folded list, whose folds would compute on the
+// compiling machine what the target computes. Read once, from the one
+// generated list, by every reader of folds.
+enum class Folding : std::uint8_t { Folds, Never };
+Folding foldingOf(mlir::Operation *op);
 
 // What a call of a function returns, one lattice value per result:
 // uninitialized where the function has no return, a constant, or unknown.
@@ -59,6 +67,19 @@ public:
 
   SummarizedConstantPropagation(mlir::DataFlowSolver &solver, const R &read)
       : SparseConstantPropagation(solver), read(read) {}
+
+  // An op whose fold would compute on the compiling machine is never
+  // folded: its results stay unknown.
+  mlir::LogicalResult visitOperation(
+      mlir::Operation *op,
+      llvm::ArrayRef<const mlir::dataflow::Lattice<mlir::dataflow::ConstantValue> *> operands,
+      llvm::ArrayRef<mlir::dataflow::Lattice<mlir::dataflow::ConstantValue> *> results) override {
+    if (foldingOf(op) == Folding::Never) {
+      setAllToEntryStates(results);
+      return mlir::success();
+    }
+    return SparseConstantPropagation::visitOperation(op, operands, results);
+  }
 
   // A program at the stage the optimizer runs holds no call but idr.call.
   void visitExternalCall(
