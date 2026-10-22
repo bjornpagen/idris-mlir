@@ -17,9 +17,11 @@ audits/bugs.md's arrays lane, not this file's. What remains: two walls
 recorded at `make self` (SELF-HOST, no gate), stage 1's bench margins
 with 0006's G1, and stages 2 to 8, all **AFTER-SELF**, queued after
 sharding (0007's P1, P2 and P4, with 0008's S-stages); stage 8 also
-needs 0007's P4. **First step: stage 2** (static extents, buffers in
-data-type bodies), taken when the queue reaches it; it waits on nothing
-unbuilt. A stage is done only when it passes on every target. Where the
+needs 0007's P4. **First step: stage 2** (unmasked vectors on static
+extents, and dependent rewrites), taken when the queue reaches it; its
+static extents and buffers in data-type bodies became P0's (its D60 and
+D43), and it waits on them. A stage is done only when it passes on every
+target. Where the
 cutover's design governs a topic (pipeline order, promises as facts of
 library types, names from content, refusals as data, budgets that never
 reject, measurement, the upstream queue), this file states only what
@@ -54,7 +56,7 @@ directly.
 |---|---|---|
 | The arrays stage's wall and the price of the IOArray double check, both on the self-compile (§7, §13) | `make self` | **SELF-HOST** (recorded, no gate) |
 | Stage 1's bench margins: array programs, an array of boxes, the IOArray programs (§16) | 0006's G1 | AFTER-SELF |
-| Stage 2: static extents, buffers in data-type bodies, dependent rewrites | nothing unbuilt | AFTER-SELF, the first step |
+| Stage 2: unmasked vectors on static extents, dependent rewrites | P0's static extents (D60) | AFTER-SELF, the first step |
 | Stage 3: fusion and schedules, plus the library vocabulary its proofs use | stage 1 (stage 2 for unmasked vectors) | AFTER-SELF |
 | Stage 4: order | stage 3 | AFTER-SELF |
 | Stage 5: index sets, data-dependent shapes, shape arithmetic, D12 | stage 1 | AFTER-SELF |
@@ -73,8 +75,9 @@ world-ordered memrefs, the vectorization schedule and `idr-narrow-lanes`
 (`foreign/idr/lib/Transforms/` and `lib/Conversion/Arrays.cpp`); the
 fork's `Table` on base's `Data.IOArray` (D38); the properties
 `structured-loops`, `typed-reads`, `in-place` and `fused`
-(`lib/Transforms/Expect/`). §8's release model holds on the suites
-(k-nucleotide's table is written in place, cd40ab41).
+(`lib/Transforms/Expect/`). Stage 1's release model held on the suites
+(k-nucleotide's table written in place, cd40ab41); P0's D43 replaces it
+(§8).
 
 ## 2. The correspondence
 
@@ -86,7 +89,7 @@ section works out one or more rows.
 | Idris | MLIR | checked or used by |
 |---|---|---|
 | `Array s a`, the rank of `s`'s form | `tensor<d0 x ... x E>`, one dimension per `:<` | the tensor verifier; linalg's indexing maps |
-| an extent the program fixes | a static dimension | `tensor.dim` and `tensor.cast` folding; static vectorization |
+| an extent the program fixes, a call's constant index term among them | a static dimension, in a call's specialized copy (§4.3) | `tensor.dim` and `tensor.cast` folding; static vectorization |
 | an extent at quantity 0 | a dynamic dimension, read back with `tensor.dim` | `reifyResultShapes` and the dim folds |
 | an extent at quantity many (`Extents s`, `{n : Nat}`) | a natural, narrowed to `index` where it sizes an allocation (guarded) | `ValueBoundsOpInterface` |
 | two arrays indexed by one size variable | dimensions tied by `idr.tie_shape` at the function's entry | `ValueBoundsConstraintSet::areEqual` across calls (§4.3) |
@@ -94,7 +97,8 @@ section works out one or more rows.
 | `Index s` | an `index` per axis at the access; `linalg.index` inside a structured op | no guard; transfers `in_bounds = [true]` |
 | a bare `Fin n` with no array | a natural | `idr-narrow` |
 | `x !! i`, `update x i v` | `tensor.extract`, `tensor.insert` | One-Shot's in-place analysis |
-| a linear thread (`LArray s a` at quantity 1) | `!idr.lin<tensor<...>>`, a destination-passing chain | One-Shot; each link `mustBufferizeInPlace` (§8) |
+| a linear thread (`LArray s a` at quantity 1) | `!idr.graded<once, …, tensor<...>>`, a destination-passing chain | One-Shot, the graded tensor tensor-like per instance (§8) |
+| an array field of a constructor | its buffer, crossing by `to_buffer` and `to_tensor restrict` | One-Shot's release; the family's verifier (§8) |
 | a word or float element | the builtin element type | vectorization |
 | an element of ours (box, string, natural, sum) | `tensor<?x!idr.T>` | tiling, fusion, bufferization; never vectorized (§4.5) |
 | a record element | one tensor per field | multi-result `linalg.generic` (§4.5, 0012) |
@@ -280,9 +284,13 @@ in the tree yet (`upstream/fork-*` has no such entry).
 
 ### 4.1 What the frontend emits (record)
 
-The frontend writes each generating function as its own op, with a
-region and an `Iteration` per dimension (`Parallel` or `Ordered`,
-`IdrArrayOps.td`). The rest is `tensor` ops: `extract`, `insert`,
+The frontend writes each generating function as its own op,
+destination-style (P0's D43): a region from the indices of its domain to
+what goes at that index, and the destinations its results are (a fold's
+its first accumulators). Its iterator types are read off its region,
+`parallel` on the frame where the region only computes and `reduction`
+everywhere else (`Spec/Arrays/Generating.idr`, read). The rest is
+`tensor` ops: `extract`, `insert`,
 `extract_slice`, `insert_slice` (`(++)` is `tensor.empty(n + m)` and two
 insert slices), `collapse_shape`/`expand_shape`, and `pad` (D13,
 reversed by the representation wave's D6). `tensor.generate` and
@@ -311,21 +319,26 @@ the memref, and `idr-lower` drops it. Narrowing is built too (D4): a
 coordinate becomes an exact `index` at its access, and an extent enters
 `index` at allocation through `idr.nat.to_extent`, which may crash.
 
-**Static extents through specialization (stage 2, D39).** Where a
-caller's tensor is more static than the callee's parameter, the
-frontend writes a `tensor.cast` at the call. The cast's source type is
-the argument's static pattern, under the binding-time rules. Today's
-keys cannot take it yet (read: `lib/Transforms/Specialize/Keys.cpp`):
+**Static extents through specialization (P0's D60, decision).** An
+array's size a call fixes has one key, the index term. Where a
+function's signature names a dynamic dimension of an array argument or
+result by an index variable, that variable is the key: P0's
+specialization (its D58) substitutes the call's term for it, a literal
+or the caller's own linked binder (its D59), and the copy's tensor types
+become static where the term is a constant. Inside a function an
+equality stays a run-time tie, `idr.tie_shape` above: MLIR's tensor type
+has no symbolic dimension, and an array's extent is a run-time value
+linked to its index. The tensor type refined toward static is no second
+key; D39's typed pattern is never built (P0's D60). A copy the
+specialization's budget does not make leaves the extent dynamic: the
+same program, less optimized.
 
-- "a pattern's type is its position's, so the key holds none";
-- "a lone scalar is never a key position".
-
-So a constant `{n : Nat}` never keys, and stage 2 adds a pattern that
-holds a tensor type refined toward static. The clone's entry casts to
-the static type, and upstream's cast folds carry it into the
-destination-style ops (how far through ours is measured, conjecture). A
-node the request-chain rule does not make leaves the extent dynamic:
-the same program, less optimized.
+Neither half is in the tree yet (read at 497e82ed): the frontend writes
+a dimension Idris names by an index variable as dynamic, linked to no
+variable (`Frontend/Translate/Types.idr`, `extentDim`), and the
+signature copy substitutes index arguments into families and makes no
+tensor type static (`lib/Transforms/Specialize/Specialization.cpp`).
+Both are P0's work.
 
 ### 4.4 Gathers, scatters, filters and scans (stages 4 and 5)
 
@@ -354,10 +367,12 @@ distinct by construction. Every other scan or scatter stays ordered.
 
 **Open at stage 4 (representation first):** with the generating ops,
 `idr.scan` beside `scan_last` (and `idr.scatter` beside `accumulate`'s
-op) is one scan in two ops. Stage 4 first tries giving the generating op
-the tiling and destination models itself, with an iteration that
-admits any association (the same case as D32's, §6). It adds a second
-op only if that fails.
+op) is one scan in two ops. The generating ops are destination-style
+and implement the three tiling methods `lowerToLoopsUsingSCFForOp`
+reads, every other at its failing default (P0's D43, C107). Stage 4
+first tries completing that tiling model on the generating op itself,
+with an iteration that admits any association (the same case as
+D32's, §6). It adds a second op only if that fails.
 
 ### 4.5 Elements (record)
 
@@ -390,7 +405,10 @@ structuring reads the callee's summary.
 - An op whose region does no more than compute and crash, over word
   elements, keeps its parallel dimensions parallel as `linalg`.
 - A fold becomes a reduction only for §6's case 1.
-- Anything else is an ordered nest (`Forms.cpp`, `formOf`; D10).
+- Anything else stays its generating op, through bufferization and
+  counting, and becomes its loops right before the lowering, by
+  upstream's `lowerToLoopsUsingSCFForOp` in `idr-ordered-loops`
+  (`Forms.cpp`, `formOf`; D10, P0's D43).
 
 The name follows D27. A `linalg` op comes only from a region that
 computes and crashes over words, so nothing in one counts. 0007's
@@ -411,10 +429,12 @@ only three cases:
    lives in Idris, so the frontend states it (**D32**). D32's first
    image, an `scf.parallel` with an `scf.reduce`, was superseded by the
    representation wave's D6: the frontend writes no `scf`. Its image is
-   decided at stage 4. **Default:** a third `Idr_Iteration` case on
-   `fold_last`'s last dimension, held by the op itself, which the
-   structuring reads as a reduction. It is neither an attribute beside
-   the op nor a second op.
+   decided at stage 4, held by the op itself, neither an attribute
+   beside the op nor a second op. The generating ops' iterator types are
+   upstream's, read off their regions, and `Idr_Iteration`, where this
+   item's default put a third case, is deleted (P0's D43, C107); the
+   form owed names `PartialReductionOpInterface` for an order that
+   admits any association.
 3. **The program asks for an order of its own**: `reduceBlocked k`,
    meaning `k` interleaved left folds combined in order. This needs no
    image of its own. It is library code: `reshape` to `[<q, k]`, then
@@ -438,7 +458,9 @@ The arrays stage is built (`foreign/idr/lib/Transforms/Pipeline.cpp`):
 2. `idr-bufferize` on the whole program, which eliminates empty tensors
    itself;
 3. canonicalize and cse;
-4. then the memory passes.
+4. then the memory passes;
+5. right before `idr-lower`, `idr-ordered-loops` per function: each
+   generating op left becomes its loops (P0's D43).
 
 The vectorization schedule and `idr-narrow-lanes` run after `idr-entry`,
 before `convert-linalg-to-loops`.
@@ -461,9 +483,8 @@ What remains:
   `idr-bufferize`'s driver for every module. The stage of the plan
   decides which bufferization runs, never the module's content (D30).
 - **SELF-HOST measurement.** One-Shot's module analysis is
-  whole-program and serial (with patch 24, cycles to a fixpoint), and
-  the buffers retype walks every function. Their wall on the self-host
-  module is recorded at `make self` and held to D35's compile-time
+  whole-program and serial (with patch 24, cycles to a fixpoint). Its
+  wall on the self-host module is recorded at `make self` and held to D35's compile-time
   threshold from then on (conjecture: a function without a tensor costs
   one walk). The frontend imports no `mlir-array`, so the stage runs
   there on world-ordered memrefs alone.
@@ -504,34 +525,44 @@ built (`lib/Transforms/Expect/Fused.cpp`). The proofs, in order:
 2. then `softmax` and `matmul`;
 3. then a producer with two consumers is not duplicated.
 
-## 8. Bufferization and grades (record)
+## 8. Bufferization and grades
 
-Built (`lib/Transforms/Bufferize/`; D18):
+P0's D43 (decision), written in `lib/Transforms/Bufferize/` (read at
+497e82ed; D18) and not yet built, since P0's cutover is built only
+whole:
 
-- **The module driver.** One-Shot runs on `idr.func` before counting,
-  through patch 24 (U1, U4, §19). Upstream's own function models are
-  attached to `idr.func`, `idr.call` and `idr.return`. Allocation is the
-  runtime's cell and `memref.copy` the counted copy. There is no
+- **The module driver.** One-Shot runs on the whole program once,
+  before counting, through patch 24 (U1, U4, §19). Upstream's own
+  function models are attached to `idr.func`, `idr.call` and
+  `idr.return`. Allocation is `memref.alloc`, which `idr-lower` makes the
+  runtime's cell, and `memref.copy` the counted copy. There is no
   ownership-based deallocation.
-- **Linear values.** The grade is the wrapper `!idr.lin<tensor<...>>`,
-  never the tensor's encoding, which sparse needs.
-  - `idr.lin.enter` is a release: it copies exactly when its buffer is
-    read again or is not writable.
-  - `idr.lin.use` is a writable root.
-  - A link, an enter whose buffer a use began, is
-    `mustBufferizeInPlace`, so a copy there is an internal error, never
-    `unsupported` (D33, `Linear.cpp`).
-  - A linear array read from a cell is a writable root, because the
-    store was its release (`Data.cpp`).
-  - The canonicalizer's enter/use folds hold for every linear value, so
-    links survive only at a thread's boundaries (D43,
-    `lib/IR/OpsScalars.cpp`).
-- **After the rewrite.** Every remaining tensor inside a wrapper, body
-  or signature becomes its cell's buffer in one retype (D42,
-  `Bufferize.cpp`, `DataRemap` kind `buffers`).
+- **Linear values.** The grade is the wrapper, `!idr.graded<once, …,
+  tensor<...>>`, never the tensor's encoding, which sparse needs. A grade
+  wraps any value, so whether a graded type is tensor-like is a fact of
+  the instance: tensor-like where its value is a tensor, buffer-like
+  where it is a buffer, its buffer the value's at the same grade
+  (`Linear.cpp`, patch 64). One-Shot bufferizes a linear array's wrapper,
+  and every signature and region that carries one, itself, and copies
+  one through `tensorAllocationFn` (patch 27). The cast between grades,
+  `idr.lin.cast`, is its operand: an equivalent alias that reads and
+  writes nothing.
+- **A field is its buffer from the frontend on.** `idr.data.con` takes an
+  array through `bufferization.to_buffer`, a release One-Shot already
+  models, and `idr.data.field` gives one through `to_tensor restrict`;
+  the family's verifier refuses a tensor field (`FamilyVerify.cpp`). So
+  no type of the program is retyped after the analysis, and no op that
+  stores or reads a cell needs a model of its own (`Data.cpp`).
+- **What may be written in place.** A linear binder does not imply
+  unique ownership, so a grade's uses decide nothing; its sharing does.
+  A field's buffer is writable only where its cell is `unique deep`
+  (P0's C105, `Releases.cpp`), and `LArray` and `Linear.Vec` are
+  `in_place` types, exclusive by construction (P0's D71). Every other
+  write is One-Shot's own analysis, which copies only where the array is
+  read again.
 
-What remains is stage 2's buffers-in-bodies design (§16), which deletes
-D42's retype and the reason the release and link models exist.
+Stage 1's release and link models (`idr.lin.enter`, `idr.lin.use`, the
+canonicalizer's folds of them, the buffers retype) went with P0's D43.
 
 ## 9. Sparse arrays and semirings (stage 6)
 
@@ -720,52 +751,21 @@ exists yet:
 
 The stages, each AFTER-SELF:
 
-2. **Static extents** (§4.3, D39), with two designs moved here from
-   the total wave's proposal (its full text at b843d8b5, §5 item 7).
-   The work:
-   - the key's typed pattern;
+2. **Unmasked vectors on static extents, and dependent rewrites** (§4.3,
+   §4.4). The two designs this stage first held are P0's: static extents
+   keyed by the index term (P0's D60, §4.3) and buffers in data-type
+   bodies (P0's D43, §8). The work left:
    - `vectorizeNDExtract` on;
-   - the cast propagation measured;
-   - **Buffers in data-type bodies.** Today a field that holds an array
-     is `tensor<…>` or `!idr.lin<tensor<…>>` in its data type's body.
-     A body is set once, so after One-Shot, `idr-bufferize` remakes
-     every data type whose body holds a tensor, and every type holding
-     one of those (`DataRemap` kind `buffers`), then retypes every
-     function. The target is that no body holds a tensor:
-     - from the frontend on, a field of array type is the array's cell
-       buffer at its grade;
-     - `idr.con` takes the tensor and `idr.field` gives one, each the
-       bufferization boundary `to_buffer`/`to_tensor restrict` is (the
-       store a release, the read not writable);
-     - the data-type verifier refuses a tensor in a body;
-     - the world stays no tensor, and a suspension's value follows the
-       rule of a field.
-
-     It changes Emit's array fields, the verifier, `idr.con` and
-     `idr.field`'s operand and result rules, and the store and heap-read
-     models. `!idr.lin<T>` then becomes tensor-like where `T` is
-     (submission 27's `tensorAllocationFn`,
-     `upstream/27-one-shot-tensor-like-copy`, and a per-instance
-     `extraClassOf` on `TensorLikeType`/`BufferLikeType`), and One-Shot
-     bufferizes signatures and linear wrappers itself. It deletes the
-     remap pass, its `toBuffer` leaf, `heldType`, the retyping loop
-     (D42), and the reason the release and link models exist (§8).
-     **Stage-2 decision to take:** it reverses §8's reason for keeping
-     `QType` off `TensorLikeType`, that an interface belongs to the
-     class, since `extraClassOf` makes it per instance. It also turns
-     §20 item 2's fallback around.
    - **Dependent rewrites.** A `rewrite`'s equality is carried into
      MLIR, so that shape facts survive specialization. The
      data-dependent part waits for stage 5.
 
    Proof:
-   - a fixture with static dimensions through a specialization node;
-   - `vectorized` without masks on static programs;
+   - `vectorized` without masks on static programs, through a
+     specialized copy;
    - `spectral-norm-dense` at spectral-norm-linear's ratio to C;
    - a dialect fixture for stage 1's immortal-constant lowering, which
-     has none yet;
-   - for the buffers design, no body holding a tensor after the
-     frontend, and the suites unchanged.
+     has none yet.
 3. **Fusion and schedules** (§7, §7.1, §7.2, §4.2). Generalization,
    elementwise fusion, tile-and-fuse, specialization of generics, the L1
    fact in each entry, affine-offset reads, and the vocabulary these
@@ -845,9 +845,13 @@ The stages, each AFTER-SELF:
 ## 18. Decisions
 
 **Built** with stage 1, the code their record: D1, D2, D4, D7, D10,
-D14, D17, D18, D19, D23 to D28, D33, D34, D38, D40, D42 (which stage 2
-deletes), D43, D44. **Superseded** by the representation wave: D13, D37,
-D41 and D32's first image (§6).
+D14, D17, D18, D19, D23 to D28, D34, D38, D40, D44. **Superseded** by the
+representation wave: D13, D37, D41 and D32's first image (§6).
+**Deleted** by P0: D42 and D43 with the release and link models (its
+D43, §8), and D33 with them: a program that defeats the library's
+construction meets `unsupported (uniqueness)`, never the internal error
+D33 made of a copy at a link (its D71). **Reversed** by P0's D60: D39,
+the call's cast type as a key (§4.3).
 
 **Taken, not yet built**, each governing the stage named:
 
@@ -883,8 +887,6 @@ D41 and D32's first image (§6).
   stated by the frontend. Its image is decided at stage 4; the default
   is in §6.
 - **D35, D36.** Measurement and parity (§16).
-- **D39.** An array argument's static pattern is the source type of the
-  call's `tensor.cast`. The key gains a typed pattern (§4.3, stage 2).
 - **D45 (AFTER-SELF, stage 7).** Code the stock host runs (the
   frontend, the fork, the runner, Gen) reaches no `%extern` of
   `mlir-array`.
@@ -914,8 +916,10 @@ Upstream used: `tensor`, `scf`, `linalg` and its generalize,
 specialize, fuse, fold and morph passes; `TilingInterface`,
 tile-and-fuse, `transform.structured.*`, `transform-interpreter`,
 `transform.dlti.query`, `loadIntoLibraryModule`, `linalg::vectorize`;
-value bounds and `ReifyRankedShapedTypeOpInterface`; One-Shot, its
-function models, `eliminate-empty-tensors` and one-to-N conversion;
+value bounds and `ReifyRankedShapedTypeOpInterface`;
+`DestinationStyleOpInterface` and `lowerToLoopsUsingSCFForOp`; One-Shot,
+its function models, `to_buffer` and `to_tensor`,
+`eliminate-empty-tensors` and one-to-N conversion;
 `sparse_tensor` codegen; `arith.constant dense` and `memref.global`;
 `shard.grid` (§14).
 
@@ -939,6 +943,14 @@ function models, `eliminate-empty-tensors` and one-to-N conversion;
   - the nearest symbol table.
 
   It is not filed; its plan is in its README.
+- **Patches 27 and 64** (P0's D43, C108), for §8's graded tensor, both
+  carried and not filed (read, `PINS.md`):
+  `upstream/27-one-shot-tensor-like-copy`, a copy for an out-of-place
+  operand of a tensor-like type that is not a builtin tensor, through
+  `tensorAllocationFn`; and `upstream/64-tensor-like-per-instance`,
+  `isTensorLike` and `isBufferLike` per instance through `extraClassOf`,
+  with `to_tensor` and `to_buffer` freed of the two shape traits under
+  which no bridge of a graded tensor verifies.
 - **U2.** The sparse passes on `FunctionOpInterface`. They are anchored
   on `func::FuncOp` at the pin. Needed by stage 6.
 - **U3.** Sparse codegen's allocations through `allocationFn`, if §9's
@@ -949,12 +961,12 @@ function models, `eliminate-empty-tensors` and one-to-N conversion;
 1. **One path for counted elements** (D17). A regression that stage 1's
    qualification measures is a reason to make the counted copy faster,
    not to keep a second path.
-2. **The release model of §8 is the design**, and One-Shot accepts it
-   on the suites (§1). Had it not, the design would have changed whole
-   to the grade carried as the tensor's encoding, with linear sparse
-   arrays refused; never both in the tree. Stage 2's
-   buffers-in-bodies design goes the other way, making the wrapper
-   tensor-like. Taking it is a decision for stage 2.
+2. **The grade is the wrapper, tensor-like where its value is a tensor**
+   (P0's D43, 2026-10-21). One-Shot bufferizes graded tensors itself, and
+   an array field is its buffer from the frontend on (§8), so the release
+   model this item once settled, and its fallback to the grade carried
+   as the tensor's encoding, are gone; the encoding stays sparse's
+   (§17).
 
 ## The MLIR form owed
 
@@ -962,19 +974,16 @@ From the representation wave's audit of the proposals' MLIR forms (its
 last text at 77eaa5b1), checked against the code there; none of it is
 built unless it says so.
 
-- The generating ops destination-style and tileable: `outs` and inits,
-  `DstBufferizableOpInterfaceExternalModel`, `TilingInterface` in place of
-  `GeneratingOpInterface` (`IdrInterfaces.td`), the ordered form through
-  `lowerToLoopsUsingSCFForOp` after bufferization, `accumulate`'s op the one
-  scatter; then the nest builder (`StructureLoops/Nests.cpp`) and the
-  planned `idr.scan` and `idr.scatter` go. §4.4's "open at stage 4" already
-  tries this first; D16 and the stage-4 plan change with it.
-- `Idr_Iteration` spelled as upstream's `IteratorType`, with reduction and
-  `PartialReductionOpInterface` for "any association"; only Ordered stays
-  ours (D32 plans no third case).
-- `!idr.lin<T>` tensor-like is the design now (§16's stage-2 decision);
-  §8 and §20 item 2 are reconciled with it, and `DataRemap`'s "buffers"
-  kind (`Bufferize.cpp`) and `heldType` go when it lands.
+- The generating ops' tiling completed past the three methods
+  `lowerToLoopsUsingSCFForOp` reads, `accumulate`'s op the one scatter;
+  then the planned `idr.scan` and `idr.scatter` go. Their destination
+  style, `TilingInterface` in place of `GeneratingOpInterface`, the
+  ordered form and the nest builder's deletion are P0's D43 (§4.1, §5).
+  §4.4's "open at stage 4" already tries this first; D16 and the stage-4
+  plan change with it.
+- `PartialReductionOpInterface` on `fold_last` for "any association"
+  (D32's case, §6). Its iterator types are already upstream's, read off
+  its region, and `Idr_Iteration` is gone (P0's D43, C107).
 - One counting protocol per element access: idr-rc lowers `array.get` to
   `memref.load` and `idr.dup`, and `array.set` to `idr.own.give` and
   `memref.store`; `LowerArrayGet` and `LowerArraySet` stop counting
