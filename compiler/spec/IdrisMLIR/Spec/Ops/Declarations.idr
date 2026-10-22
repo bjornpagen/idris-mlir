@@ -24,7 +24,7 @@ import IdrisMLIR.Spec.Ops.Rewrites
 
 %default total
 
-export
+public export
 declarations : Declarations
 declarations =
   { ops := [SomeOp constantOp, SomeOp platformOsOp]

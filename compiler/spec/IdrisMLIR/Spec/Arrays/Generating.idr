@@ -167,7 +167,7 @@ foldMembers =
 |||     %x = arith.index_cast %i : index to i64
 |||     idr.array.yield %x : i64
 |||   } -> tensor<?xi64>
-export
+public export
 tabulateOp : Op 1 1 0 1
 tabulateOp = MkOp
   { home = InIdr
@@ -208,7 +208,7 @@ tabulateOp = MkOp
 ||| holds there, which the last accumulator replaces. The region binds the
 ||| frame's indices, the fold's index and the accumulators, and gives the
 ||| next accumulators. A rank-0 destination is an accumulator of no frame.
-export
+public export
 foldLastOp : Op 2 1 0 1
 foldLastOp = MkOp
   { home = InIdr
@@ -248,7 +248,7 @@ foldLastOp = MkOp
 ||| dimensions are the frame's, then `length`, then the input's cell's. A
 ||| destination of elements that hold references is fresh, as a
 ||| tabulation's is, which every step's placement fills.
-export
+public export
 scanLastOp : Op 3 1 0 1
 scanLastOp = MkOp
   { home = InIdr
@@ -288,7 +288,7 @@ scanLastOp = MkOp
 ||| at the step's index, each value moving into its destination there (the
 ||| flow interface, read off the parent's targets). It ends a generating
 ||| op's region only; nothing is forwarded to a successor.
-export
+public export
 arrayYieldOp : Op 1 0 0 0
 arrayYieldOp = MkOp
   { home = InIdr
@@ -347,7 +347,7 @@ movementFormat = Declared
 ||| release, and a boxed element's place keeps an empty box, its own where
 ||| a copy of the array shares the one it held. A fold's accumulator, and
 ||| an element whose update is split around a call.
-export
+public export
 arrayTakeOp : Op 2 1 0 0
 arrayTakeOp = MkOp
   { home = InIdr
@@ -377,7 +377,7 @@ arrayTakeOp = MkOp
 ||| `idr.array.copy`: what the slots hold, with references of its own; the
 ||| slots keep theirs. A scan's accumulator, read from its input or from the
 ||| step before, which both keep it.
-export
+public export
 arrayCopyOp : Op 2 1 0 0
 arrayCopyOp = MkOp
   { home = InIdr
@@ -408,7 +408,7 @@ arrayCopyOp = MkOp
 ||| release: an element into its slot, or a cell's elements into the slots
 ||| under the indices, each with a reference of its own, the cell's own
 ||| reference given up. What a tabulation and a scan write.
-export
+public export
 arrayPlaceOp : Op 3 0 0 0
 arrayPlaceOp = MkOp
   { home = InIdr
@@ -442,7 +442,7 @@ arrayPlaceOp = MkOp
 ||| as a place moves one into slots that hold nothing, but a boxed element
 ||| into the box the take left there. A fold's next accumulator, and an
 ||| element's rebuilt value where its update was split around a call.
-export
+public export
 arrayPutBackOp : Op 3 0 0 0
 arrayPutBackOp = MkOp
   { home = InIdr
@@ -476,7 +476,7 @@ arrayPutBackOp = MkOp
 -- The area's part
 ------------------------------------------------------------------------------
 
-export
+public export
 generatingOps : List AnyOp
 generatingOps =
   [ SomeOp tabulateOp, SomeOp foldLastOp, SomeOp scanLastOp, SomeOp arrayYieldOp

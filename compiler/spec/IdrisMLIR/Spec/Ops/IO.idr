@@ -32,6 +32,7 @@ import Data.Vect
 
 ||| An IO op of the runtime's function `io_<name>`, its results' types the
 ||| ones their constraints fix.
+public export
 ioOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (outs : Vect o Result)
     -> Declaration i o -> RuntimeCall i o -> Doc
     -> {auto 0 named : So (distinct (groupNames ins outs [] []))}
@@ -95,6 +96,7 @@ getLineOp = ioOp "io.get_line" [] [result "str" strValue] (outsideBuilding 0 Tou
 ||| and a handle: IO, and the buffer's own memory read (to a handle) or
 ||| written (from one). The range lies in the buffer, which `check.range`
 ||| guards: the frontend gives it the buffer's length as its size.
+public export
 transfer : Mnemonic -> (k : Kind) -> Symbol -> Doc
         -> {auto 0 admitted : AdmitsKind Contents k}
         -> {auto 0 names : Names {i = 4} {o = 1} k (Operands 1)}
@@ -217,6 +219,7 @@ unsafeRun = MkOp
 ||| A buffer op: its buffers' own memory, no IO. Its span lies in the
 ||| buffer, which `check.range` guards before it: the frontend gives the
 ||| guard the bytes the op moves and the buffer's length.
+public export
 bufferOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (outs : Vect o Result)
         -> Declaration i o -> Meaning i o -> Doc
         -> {auto 0 named : So (distinct (groupNames ins outs [] []))}

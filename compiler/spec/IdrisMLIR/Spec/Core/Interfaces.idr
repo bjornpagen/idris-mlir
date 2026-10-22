@@ -83,6 +83,16 @@ sameValue : TraitDef
 sameValue = MkTraitDef (MkIdent "SameValue" Oh)
   (MkDoc (MkLine "the result is the operand's value, its identity and exclusivity kept" Oh) (MkProse "" Oh))
 
+||| An op that eliminates its first operand, and does nothing else with it:
+||| a match on a closure sum, a read of one's field, a string's output. It
+||| ends the chain of single uses that raising moves into a clone of the
+||| callee building the operand, so raising finds it by this trait rather
+||| than by naming each op.
+public export
+eliminatesOperand : TraitDef
+eliminatesOperand = MkTraitDef (MkIdent "EliminatesOperand" Oh)
+  (MkDoc (MkLine "the op eliminates its first operand, and does nothing else with it" Oh) (MkProse "" Oh))
+
 ||| Which methods an op that infers its result types defines, in upstream's
 ||| adaptor form, the one form our ops take: `inferReturnTypes` given the
 ||| op's adaptor alone; or, for an op whose results may hold types other

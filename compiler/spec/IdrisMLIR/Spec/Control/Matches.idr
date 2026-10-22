@@ -165,8 +165,9 @@ branchMethods =
 ||| `idr.data.match`: the scrutinee and the forwarded values enter every
 ||| region refined, which upstream's interface reads as the region's entry
 ||| operands, so its dataflow sees each refined value equal to its source
-||| and no flow declaration of ours is needed.
-export
+||| and no flow declaration of ours is needed. Taking the scrutinee apart
+||| is all it does with it, so a chain of single uses ends at it.
+public export
 matchOp : Op 3 1 1 2
 matchOp = MkOp
   { home = InIdr
@@ -177,7 +178,7 @@ matchOp = MkOp
   , outs = [results "results" (UpstreamType AnyTypeC)]
   , attrs = [attr "cases" (UpstreamAttr DenseI32ArrayAttrC)]
   , regions = [MkRegion "default_region" OneRegion (AtMost 1), sizedRegions "case_regions" 1]
-  , traits = [SingleBlock, PropagateControlFlowBreak]
+  , traits = [SingleBlock, PropagateControlFlowBreak, OurTrait eliminatesOperand]
   , interfaces =
       [ Declares RegionBranch
           (branchMethods ++ ["getEntrySuccessorOperands", "areTypesCompatible"])
@@ -236,7 +237,7 @@ matchOp = MkOp
 ||| 0-versus-successor match computes `nat.pred` from it); the range
 ||| analysis gives that binding the scrutinee's range with the keys cut from
 ||| its ends. A case binds nothing.
-export
+public export
 matchLitOp : Op 2 1 1 2
 matchLitOp = MkOp
   { home = InIdr
@@ -294,7 +295,7 @@ matchLitOp = MkOp
 ||| its destination. It declares no effect: passing a value out of a region
 ||| hands its ownership on, which is no consumption. A join point's yields
 ||| stand until the last step of the lowering, after the program is lowered.
-export
+public export
 yieldOp : Op 1 0 0 0
 yieldOp = MkOp
   { home = InIdr

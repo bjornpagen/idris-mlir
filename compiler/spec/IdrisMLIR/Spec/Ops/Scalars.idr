@@ -31,6 +31,7 @@ import Data.Vect
 -- Euclidean division
 ------------------------------------------------------------------------------
 
+public export
 divisionName : Part -> Mnemonic
 divisionName Quotient = "int.div_s"
 divisionName Remainder = "int.mod_s"
@@ -81,6 +82,7 @@ mods = division Remainder
 -- Shifts
 ------------------------------------------------------------------------------
 
+public export
 shiftName : ShiftDirection -> Signedness -> Mnemonic
 shiftName Leftward Signed = "int.shl_s"
 shiftName Leftward Unsigned = "int.shl_u"
@@ -144,6 +146,7 @@ shru = shift Rightward Unsigned
 -- Characters
 ------------------------------------------------------------------------------
 
+public export
 toCharName : Signedness -> Mnemonic
 toCharName Signed = "int.to_char_s"
 toCharName Unsigned = "int.to_char_u"
@@ -197,6 +200,7 @@ toCharU = toChar Unsigned
 -- The runtime's scalar functions
 ------------------------------------------------------------------------------
 
+public export
 headName : Signedness -> Mnemonic
 headName Signed = "int.head_s"
 headName Unsigned = "int.head_u"

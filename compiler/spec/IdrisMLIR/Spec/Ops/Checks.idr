@@ -214,6 +214,7 @@ guardMeaning OwnCode = HandFolder
 ||| condition, and the effects its condition has: a crash where it fails,
 ||| which every guard's declaration writes, and what the condition reads
 ||| besides its operands.
+public export
 guardOp : {others : Nat} -> (m : Mnemonic) -> (ins : Vect (S others) Operand)
        -> GuardMeaning -> (eff : Declaration (S others) 1) -> List (Trait (S others) 1)
        -> List InterfaceUse -> Doc

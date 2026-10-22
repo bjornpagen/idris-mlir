@@ -432,6 +432,7 @@ plainFormat = Declared
 ||| region yields, each scoped one stated by its own entry of `outers`, so
 ||| two results of two lifetimes keep each its own span. No jump leaves one,
 ||| so no call in it is in tail position: its end follows its region.
+public export
 plainOpener : Opener -> Op 1 1 0 1
 plainOpener o = MkOp
   { home = InIdr
@@ -490,6 +491,7 @@ plainOpener o = MkOp
 ||| `idr.lifetime.stack on %base : !idr.lifetime<cursor> in %outers : … ->
 ||| (T…) { … }`, C++ `LifetimeStackOp`: a lifetime on the stack of the
 ||| cursor `base`, its mark that cursor, its end resetting it.
+public export
 stackOpener : Op 2 1 0 1
 stackOpener = MkOp
   { home = InIdr
@@ -523,6 +525,7 @@ stackOpener = MkOp
   }
 
 ||| Every opener, each its own op.
+public export
 openers : List AnyOp
 openers = [SomeOp (plainOpener NoMemory), SomeOp (plainOpener AtHome), SomeOp (plainOpener InBlock),
            SomeOp stackOpener, SomeOp (plainOpener InChain)]
@@ -533,6 +536,7 @@ openers = [SomeOp (plainOpener NoMemory), SomeOp (plainOpener AtHome), SomeOp (p
 
 ||| An op with nothing else to say: no guard, law, member or builder of its
 ||| own, its default builders kept.
+public export
 op : Mnemonic -> (ins : Vect i Operand) -> (outs : Vect o Result) -> (attrs : Vect a Attr)
   -> (regions : Vect r Region) -> List (Trait i o) -> List InterfaceUse -> Declaration i o
   -> Speculation -> Legal -> Verify -> Format i o a r -> List Member -> Doc
@@ -548,6 +552,7 @@ op m ins outs attrs regions traits interfaces effects speculation stages verify 
 ||| stated in it are entry-block allocations; parameters that live for one
 ||| call are passed it. A fresh identity: never merged or hoisted, deleted
 ||| when unused.
+public export
 activation : Op 0 1 0 0
 activation = op "activation" [] [result "lifetime" viewLifetime] [] []
   [OurTrait givesLifetime] []
@@ -564,6 +569,7 @@ activation = op "activation" [] [result "lifetime" viewLifetime] [] []
 ||| owner is dropped cannot be written. A temporary that dies with the loan
 ||| goes into an `idr.lifetime` nested in its region, so a loan has one
 ||| meaning.
+public export
 lend : Op 2 2 0 1
 lend = op "lend" [single "owner" anyValue, variadic "outers" anyLifetime]
   [result "returned" anyValue, results "results" anyValue] [] [sized "body" 1]
@@ -583,6 +589,7 @@ lend = op "lend" [single "owner" anyValue, variadic "outers" anyLifetime]
 ||| `idr.lifetime.forget %l : !idr.lifetime<K>`, C++ `LifetimeForgetOp`: the
 ||| view of its operand's lifetime, of the same extent; what the inliner
 ||| writes where a view parameter is given another kind. Pure.
+public export
 forget : Op 1 1 0 0
 forget = op "lifetime.forget" [single "lifetime" anyLifetime] [result "view" viewLifetime] [] []
   [OurTrait givesLifetime] [] noEffects AlwaysSpeculatable Always DeclarationOnly
@@ -595,6 +602,7 @@ forget = op "lifetime.forget" [single "lifetime" anyLifetime] [result "view" vie
 ||| the cursor's extent, for a callee compiled for a room: one check and a
 ||| bump, taking a chunk where the cursor's has no room. Its own op, never
 ||| a conversion at the call, which would hide the effect.
+public export
 reserve : Op 1 1 1 0
 reserve = op "lifetime.reserve" [single "lifetime" cursorLifetime] [result "room" roomLifetime]
   [attr "bytes" (UpstreamAttr I64AttrC)] []
@@ -620,6 +628,7 @@ cell = OurType (SomeType cellType)
 ||| (the function verifier holds it to that lifetime's own run). Uncounted,
 ||| and its cell holds no counted field, so its lifetime's end frees
 ||| nothing. Its cell is the lifetime's, new to no one: it declares no move.
+public export
 cellStack : Op 1 1 0 0
 cellStack = op "cell.stack" [single "lifetime" anyLifetime] [result "cell" cell] [] []
   [] [Implements flowInterface ["getFlowEdges"]]
@@ -636,6 +645,7 @@ cellStack = op "cell.stack" [single "lifetime" anyLifetime] [result "cell" cell]
 ||| lifetime's end gives its memory back with the rest and drops nothing.
 ||| Its cell is the lifetime's, new to no one, as a slot's is: it declares
 ||| no move.
+public export
 cellArena : Op 1 1 0 0
 cellArena = op "cell.arena" [single "lifetime" putLifetime] [result "cell" cell] [] [] []
   [Implements putsIntoLifetime putMethods, Implements flowInterface ["getFlowEdges"]]
@@ -656,6 +666,7 @@ cellArena = op "cell.arena" [single "lifetime" putLifetime] [result "cell" cell]
 ||| its region yields; nothing of the lifetime is freed. The last op before
 ||| its region's terminator; its lifetime is its region's own, of a stack or
 ||| a chain, never a block.
+public export
 pack : Op 2 1 0 0
 pack = op "lifetime.pack" [single "lifetime" cursorLifetime, variadic "held" anyValue]
   [result "package" (OurType (SomeType packageType))] [] []
@@ -682,6 +693,7 @@ pack = op "lifetime.pack" [single "lifetime" cursorLifetime, variadic "held" any
 ||| value enters the reopened level (`entering`), bound after the held
 ||| values and restated there, so none is stated in a lifetime that outlives
 ||| its memory. A chain lies on no cursor, so nothing enters its level.
+public export
 unpack : Op 4 1 0 1
 unpack = op "lifetime.unpack"
   [ single "package" (OurType (SomeType packageType)), optional "base" cursorLifetime
@@ -718,7 +730,7 @@ lifetimesHeader = MkHeader "Lifetimes"
                    , EnumOf (enumDef openerClosed), TableOf kindTable, TableOf openerTable ]) ]
   (brief "a lifetime's kinds and openers and their facts")
 
-export
+public export
 declarations : Declarations
 declarations =
   { ops := openers ++ [SomeOp activation, SomeOp lend, SomeOp forget, SomeOp reserve,

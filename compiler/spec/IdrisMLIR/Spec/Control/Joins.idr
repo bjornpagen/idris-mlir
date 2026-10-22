@@ -70,6 +70,7 @@ tokenScopeEnum : EnumDef
 tokenScopeEnum = enumDef tokenScopeClosed
 
 ||| The mnemonic of each member.
+public export
 memberName : TokenScope -> Mnemonic
 memberName InBody = "join"
 memberName InEveryRegion = "loop"
@@ -122,7 +123,7 @@ branchMethods =
 ||| A member of the family. Its regions repeat exactly when its tokens head
 ||| every region, so only that member is upstream's loop and may not be
 ||| speculated.
-export
+public export
 joinPoints : TokenScope -> Op 1 1 1 2
 joinPoints scope = MkOp
   { home = InIdr
@@ -182,7 +183,7 @@ joinPoints scope = MkOp
       """
 
 ||| The family's members, from the list of its constants.
-export
+public export
 joinPointOps : List AnyOp
 joinPointOps = map (\scope => SomeOp (joinPoints scope)) [InBody, InEveryRegion]
 
@@ -197,7 +198,7 @@ joinPointOps = map (\scope => SomeOp (joinPoints scope)) [InBody, InEveryRegion]
 ||| transfers control, and upstream's dead-code rule reads an exit that
 ||| leaves a region as no dead op. A jump carries no tail fact: tail
 ||| position is the precondition of forming one.
-export
+public export
 jumpOp : Op 2 0 1 0
 jumpOp = MkOp
   { home = InIdr

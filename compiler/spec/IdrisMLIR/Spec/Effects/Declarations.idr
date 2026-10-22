@@ -46,7 +46,7 @@ effectTree = MkHeader (ident "EffectTree")
         , effectRuleTable, pairRuleTable, runtimeMemoryTable, locationTable, llvmTable ] ) ]
   (brief (line "the effect tree, the atoms of a row, the typed rules and what LLVM is told"))
 
-export
+public export
 declarations : Declarations
 declarations = { resources := Declaration.resources
                , interfaces := [declaredEffectsInterface]

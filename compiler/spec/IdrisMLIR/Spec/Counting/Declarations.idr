@@ -129,6 +129,7 @@ cellDestsDirective = MkDirective "CellDests"
 --------------------------------------------------------------------------------
 
 ||| An op of counting: no meaning to fold, no guard, law or specialization.
+public export
 countingOp : Mnemonic -> (ins : Vect i Operand) -> (outs : Vect o Result) -> (attrs : Vect a Attr)
   -> (regions : Vect r Region) -> List (Trait i o) -> List InterfaceUse -> Declaration i o -> Legal -> Verify
   -> Format i o a r -> List Builder -> DefaultBuilders -> List Member -> Doc
@@ -153,6 +154,7 @@ explicit = between First Owned
 ||| `count.dup %v : T`, C++ `CountDupOp`: one more reference to a counted
 ||| value; the result holds it, counted claiming nothing unless written. A
 ||| fresh identity, never merged with another dup.
+public export
 dup : Op 1 1 0 0
 dup = countingOp "count.dup" [single "value" (SatisfiesType countedValue)] [result "result" anyValue] [] []
   [] [Implements flowInterface ["getFlowEdges"]]
@@ -166,6 +168,7 @@ dup = countingOp "count.dup" [single "value" (SatisfiesType countedValue)] [resu
 ||| `count.drop %v : T`, C++ `CountDropOp`: gives up a counted reference,
 ||| freeing the value with its last. A value typed unique frees with no
 ||| count read.
+public export
 drop : Op 1 0 0 0
 drop = countingOp "count.drop" [single "value" (SatisfiesType countedValue)] [] [] []
   [] [Implements flowInterface ["getFlowEdges"]]
@@ -186,6 +189,7 @@ drop = countingOp "count.drop" [single "value" (SatisfiesType countedValue)] [] 
 ||| (`in %l`), its operand's or one that lifetime encloses, so its lifetime
 ||| is read off the share in one step; the builder that takes no lifetime
 ||| states the operand's.
+public export
 share : Op 2 1 0 0
 share = countingOp "count.share"
   [single "value" (SatisfiesType heldValue), outers] [result "result" anyValue] [] []
@@ -206,6 +210,7 @@ share = countingOp "count.share"
 ||| null when the type proves it; otherwise each field takes a reference,
 ||| the value gives up its own and the token is null. Expanded into the
 ||| match on uniqueness before the lowering wherever the type proves nothing.
+public export
 take : Op 1 2 0 0
 take = countingOp "count.take" [single "value" (SatisfiesType takeable)]
   [result "token" token, results "fields" anyValue] [] []
@@ -226,6 +231,7 @@ take = countingOp "count.take" [single "value" (SatisfiesType takeable)]
 ||| encloses, for a field read at the value's hold; whatever lifetime a
 ||| frame kept a field in, for a frame's field at its whole grade. The
 ||| builder that takes no lifetimes states the value's for each.
+public export
 unpack : Op 2 1 0 0
 unpack = countingOp "count.unpack" [single "value" (SatisfiesType unpackable), outers]
   [results "fields" anyValue] [] []
@@ -245,6 +251,7 @@ unpack = countingOp "count.unpack" [single "value" (SatisfiesType unpackable), o
 ||| a take whose token one construction recycles on every path, fused with
 ||| that recycle: the cell for `U`, the value's own where it held the only
 ||| reference, a new one where it was shared, and the fields.
+public export
 takeInto : Op 1 2 0 0
 takeInto = countingOp "count.take_into" [single "value" (SatisfiesType takeable)]
   [result "cell" cell, results "fields" anyValue] [] []
@@ -275,6 +282,7 @@ uniqueMethods =
 ||| fields, moved out; the shared region receives the value itself, reads
 ||| the fields it needs, takes a reference to each from it, and drops it.
 ||| Never built for a value its type answers.
+public export
 matchUnique : Op 1 1 0 2
 matchUnique = countingOp "count.match_unique" [single "value" (SatisfiesType takeable)]
   [results "results" anyValue] [] [sized "unique" 1, sized "shared" 1]
@@ -289,6 +297,7 @@ matchUnique = countingOp "count.match_unique" [single "value" (SatisfiesType tak
 
 ||| `cell.new : !idr.cell<T>`, C++ `CellNewOp`: a fresh cell its count frees,
 ||| its header written: where memory enters the heap.
+public export
 cellNew : Op 0 1 0 0
 cellNew = countingOp "cell.new" [] [result "cell" cell] [] []
   [] [Implements flowInterface ["getFlowEdges"]]
@@ -314,6 +323,7 @@ cellNew = countingOp "cell.new" [] [result "cell" cell] [] []
 ||| cell's source allocated it into, which its one entry of `outers` states
 ||| (`in %l`) exactly when the value is scoped; the builder given a scoped
 ||| grade states the cell's. A counted cell takes no scoped field.
+public export
 cellInit : Op 3 2 1 0
 cellInit = countingOp "cell.init"
   [single "cell" cell, variadic "fields" anyValue, outers]
@@ -349,6 +359,7 @@ cellInit = countingOp "cell.init"
 ||| null. The token, used once, is consumed here. Of one size, which the
 ||| program's verifier reads off the two types and the target's layout, the
 ||| one place that layout is at hand.
+public export
 cellRecycle : Op 1 1 0 0
 cellRecycle = countingOp "cell.recycle" [single "token" token] [result "cell" cell] [] []
   [] [Implements flowInterface ["getFlowEdges"]]
@@ -362,6 +373,7 @@ cellRecycle = countingOp "cell.recycle" [single "token" token] [result "cell" ce
 ||| `token.free %t : !idr.token<…>`, C++ `TokenFreeOp`: frees the emptied
 ||| cell a token holds: with no test where the type proves it holds one, a
 ||| test for null where it may not.
+public export
 tokenFree : Op 1 0 0 0
 tokenFree = countingOp "token.free" [single "token" token] [] [] []
   [] []
@@ -374,6 +386,7 @@ tokenFree = countingOp "token.free" [single "token" token] [] [] []
 ||| `token.null : !idr.token<…>`, C++ `TokenNullOp`: the one source of a
 ||| null token, which the shared region of a match on uniqueness gives where
 ||| its token goes on to a recycle or a free that tests it. Never unique.
+public export
 tokenNull : Op 0 1 0 0
 tokenNull = countingOp "token.null" [] [result "token" token] [] []
   [] []
@@ -390,6 +403,7 @@ tokenNull = countingOp "token.null" [] [result "token" token] [] []
 ||| fields. Its token holds its cell, and is consumed here as the fields
 ||| are: the promise binds where the program rebuilds, never where an
 ||| optimization did.
+public export
 tokenRebuild : Op 2 1 0 0
 tokenRebuild = countingOp "token.rebuild" [single "token" token, variadic "fields" anyValue]
   [result "result" anyValue] [] []
@@ -416,6 +430,7 @@ tokenRebuild = countingOp "token.rebuild" [single "token" token, variadic "field
 ||| already, and taking it over there would count its memory twice. So it
 ||| is legal from the stage bufferization runs at, and a program at the
 ||| frontend's stage cannot hold one, nor has the frontend a builder for it.
+public export
 adopt : Op 1 1 0 0
 adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnrankedMemRefC)]
   [result "result" anyValue] [] []
@@ -434,6 +449,7 @@ adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnranked
 ||| from then on; the result is the value at its plain carrier, which the
 ||| store takes, and nothing at run time: the value's own words. A value
 ||| used once is never given, so the store never loses its quantity.
+public export
 give : Op 1 1 0 0
 give = countingOp "own.give" [single "value" (SatisfiesType countedValue)] [result "result" anyValue] [] []
   [OurTrait noRuntimeForm] [Implements flowInterface ["getFlowEdges"]]
@@ -448,10 +464,10 @@ give = countingOp "own.give" [single "value" (SatisfiesType countedValue)] [resu
 -- The area
 --------------------------------------------------------------------------------
 
-export
+public export
 declarations : Declarations
 declarations =
-  { ops := [ SomeOp dup, SomeOp drop, SomeOp share, SomeOp take, SomeOp unpack, SomeOp takeInto
+  { ops := [ SomeOp dup, SomeOp drop, SomeOp share, SomeOp take, SomeOp Counting.Declarations.unpack, SomeOp takeInto
            , SomeOp matchUnique, SomeOp cellNew, SomeOp cellInit, SomeOp cellRecycle
            , SomeOp tokenFree, SomeOp tokenNull, SomeOp tokenRebuild, SomeOp adopt, SomeOp give ]
   , types := [SomeType cellType, SomeType tokenType]

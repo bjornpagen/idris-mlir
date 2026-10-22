@@ -44,6 +44,7 @@ cellMembers =
 ||| region, which binds them, and its value moved in. It reads and writes
 ||| the cell's memo state; its region's effects are its own besides. The
 ||| cell keeps its reference: what moves out is what the label's state held.
+public export
 memoRunOp : Op 1 1 0 1
 memoRunOp = MkOp
   { home = InIdr
@@ -87,6 +88,7 @@ memoRunOp = MkOp
 ||| `idr.memo.yield`: the end of an exchange's region. Its value moves into
 ||| the cell's forced state, which takes it over; what follows it leaves the
 ||| op as its results, which the region branch forwards.
+public export
 memoYieldOp : Op 2 0 0 0
 memoYieldOp = MkOp
   { home = InIdr
@@ -120,6 +122,7 @@ memoYieldOp = MkOp
 ||| `idr.memo.take`: an exchange's first step, its captures moved out of the
 ||| cell, each at the type a read of its field gives, which the cell infers;
 ||| the cell is running from then on and keeps its reference.
+public export
 memoTakeOp : Op 1 1 0 0
 memoTakeOp = MkOp
   { home = InIdr
@@ -153,6 +156,7 @@ memoTakeOp = MkOp
 ||| cell's forced state, which takes it over. A step of its own, so the code
 ||| after a call the label's run makes on its own cycle, which frames moves
 ||| into a continuation, begins with it.
+public export
 memoStoreOp : Op 2 0 0 0
 memoStoreOp = MkOp
   { home = InIdr
@@ -186,6 +190,6 @@ memoStoreOp = MkOp
   }
 
 ||| The exchange's ops, its region form and its steps.
-export
+public export
 memoOps : List AnyOp
 memoOps = [SomeOp memoRunOp, SomeOp memoYieldOp, SomeOp memoTakeOp, SomeOp memoStoreOp]

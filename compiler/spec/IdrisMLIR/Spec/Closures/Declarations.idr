@@ -177,6 +177,7 @@ capturesOf : Made -> Operand
 capturesOf OfFunction = variadic "captures" (UpstreamType AnyTypeC)
 capturesOf OfValue = single "value" (UpstreamType AnyTypeC)
 
+public export
 buildsName : Builds -> Mnemonic
 buildsName AClosure = "fn.closure"
 buildsName ASuspension = "lazy.suspend"
@@ -245,6 +246,7 @@ buildsDoc AnEvaluated = MkDoc "a suspension already evaluated: it holds its oper
 ||| `idr.fn.closure`, `idr.lazy.suspend` and `idr.lazy.delay`: each takes
 ||| its captures over, and its result is used once exactly when a capture
 ||| is, which holds of every member by construction.
+public export
 captureOp : (b : Builds)
   -> {auto 0 named : So (distinct (groupNames [capturesOf (madeOf b)] [builtOf b] (attrsOf (madeOf b)) []))}
   -> Op 1 1 (nameCount (madeOf b)) 0
@@ -274,15 +276,15 @@ captureOp b = MkOp
 
 ||| The capture family's members, each by its name, so a reader of one
 ||| member's facts (Emit, the quantity its result takes) reads them here.
-export
+public export
 closureOp : Op 1 1 2 0
 closureOp = captureOp AClosure
 
-export
+public export
 suspendOp : Op 1 1 2 0
 suspendOp = captureOp ASuspension
 
-export
+public export
 delayOp : Op 1 1 0 0
 delayOp = captureOp AnEvaluated
 
@@ -292,6 +294,7 @@ delayOp = captureOp AnEvaluated
 
 ||| `idr.lazy.force`: the value of a suspension, computed on the first force and
 ||| shared. Its fold is the value of an evaluated suspension.
+public export
 forceOp : Op 1 1 0 0
 forceOp = MkOp
   { home = InIdr
@@ -326,7 +329,7 @@ forceOp = MkOp
 ||| the label solve says. Its arguments and results are its closure's up to
 ||| what each holds, which counting grades after the closure's type is
 ||| fixed, so their types are written beside the closure's.
-export
+public export
 applyOp : Op 2 1 2 0
 applyOp = MkOp
   { home = InIdr
@@ -361,7 +364,7 @@ applyOp = MkOp
   , doc = brief "applies a closure to arguments"
   }
 
-export
+public export
 declarations : Declarations
 declarations =
   { ops := [SomeOp closureOp, SomeOp suspendOp, SomeOp delayOp, SomeOp forceOp, SomeOp applyOp] ++ memoOps

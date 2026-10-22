@@ -77,7 +77,7 @@ scfAdmitted =
   , admitAliased SCF "WhileOp" "SCF_WhileOp" (between Owned Owned) PassesOnly
   , admitAliased SCF "ConditionOp" "SCF_ConditionOp" (between Owned Owned) PassesOnly ]
 
-export
+public export
 declarations : Declarations
 declarations = MkDeclarations
   { ops = generatingOps ++ memoryOps

@@ -11,7 +11,7 @@ import IdrisMLIR.Spec.Families.Types
 
 %default total
 
-export
+public export
 declarations : Declarations
 declarations = MkDeclarations
   { ops =

@@ -64,7 +64,7 @@ inBounds indices arr = MkGuard inBoundsOp [indices, arr] IndexOutOfBounds
 ||| each element the fill, which moves in, a reference per element (an
 ||| array of rank 0 has one element). Every element holds a value from the
 ||| start, so no access meets an empty place. Its shape is its sizes.
-export
+public export
 arrayNewOp : Op 2 1 0 0
 arrayNewOp = MkOp
   { home = InIdr
@@ -99,7 +99,7 @@ arrayNewOp = MkOp
 ||| its reference, and a reader that keeps the element takes one through
 ||| counting. It reads the array's contents and nothing else, so two reads
 ||| of one element are one and an unused read goes.
-export
+public export
 arrayGetOp : Op 2 1 0 0
 arrayGetOp = MkOp
   { home = InIdr
@@ -129,7 +129,7 @@ arrayGetOp = MkOp
 
 ||| `idr.array.set`: the value, which moves in, written over the element at
 ||| the indices, which is released.
-export
+public export
 arraySetOp : Op 3 0 0 0
 arraySetOp = MkOp
   { home = InIdr
@@ -169,7 +169,7 @@ arraySetOp = MkOp
 ||| Between the two the place holds nothing, so the region touches no
 ||| memory written in place (its verifier, from its effects): no access it
 ||| makes can see the empty place.
-export
+public export
 arrayUpdateOp : Op 2 1 0 1
 arrayUpdateOp = MkOp
   { home = InIdr
@@ -206,7 +206,7 @@ arrayUpdateOp = MkOp
 ||| `idr.array.update_yield`: the end of an update's region: the rebuilt
 ||| element, which moves into memory, its place, and the update's results,
 ||| which move out of the region as a yield's values do.
-export
+public export
 arrayUpdateYieldOp : Op 2 0 0 0
 arrayUpdateYieldOp = MkOp
   { home = InIdr
@@ -249,7 +249,7 @@ arrayUpdateYieldOp = MkOp
 ||| types are inferred: the element's is the array's element type exactly
 ||| as the array holds it, whose grade is the one the value has, so no
 ||| writer states it and no verifier compares it.
-export
+public export
 arrayReadOp : Op 2 2 0 0
 arrayReadOp = MkOp
   { home = InIdr
@@ -284,7 +284,7 @@ arrayReadOp = MkOp
 ||| Idris's type of a linear array's shape says: whatever writes the array
 ||| next takes the value given back, so the shape is read before the write
 ||| by data, as an element is. It reads no element.
-export
+public export
 arrayExtentOp : Op 1 2 1 0
 arrayExtentOp = MkOp
   { home = InIdr
@@ -327,7 +327,7 @@ arrayExtentOp = MkOp
 ||| which the copy writes whole, so from the copy on every slot holds an
 ||| element, and no write and no release at the buffer's death reads a slot
 ||| nothing wrote: no allocation is filled for them.
-export
+public export
 arrayPlaceCopyOp : Op 2 0 0 0
 arrayPlaceCopyOp = MkOp
   { home = InIdr
@@ -370,7 +370,7 @@ arrayPlaceCopyOp = MkOp
 ||| target can make, which ends the run as out of memory, outside the
 ||| language and no effect. It moves nowhere it would not have run, so that
 ||| no run ends that would not have.
-export
+public export
 natToExtentOp : Op 1 1 0 0
 natToExtentOp = MkOp
   { home = InIdr
@@ -402,7 +402,7 @@ natToExtentOp = MkOp
 ||| indexed by one size inside a function, where MLIR's tensor type has no
 ||| symbolic dimension. Folding it away loses an optimization, never a
 ||| meaning.
-export
+public export
 tieShapeOp : Op 2 1 0 0
 tieShapeOp = MkOp
   { home = InIdr
@@ -479,7 +479,7 @@ memorySkeleton =
 -- The area's part
 ------------------------------------------------------------------------------
 
-export
+public export
 memoryOps : List AnyOp
 memoryOps =
   [ SomeOp arrayNewOp, SomeOp arrayGetOp, SomeOp arraySetOp, SomeOp arrayUpdateOp

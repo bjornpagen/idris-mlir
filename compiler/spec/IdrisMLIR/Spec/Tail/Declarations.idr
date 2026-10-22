@@ -80,7 +80,7 @@ destType = MkTypeDef
 ||| Legal once counting has placed every reference: idr-trmc and idr-frames
 ||| make destinations, after counting, and the lowering stores the value's
 ||| components through the addresses.
-export
+public export
 destWrite : Op 2 0 0 0
 destWrite = MkOp
   { home = InIdr
@@ -132,7 +132,7 @@ destWrite = MkOp
 ||| load. A result is a value some callee wrote, which may be shared, never
 ||| a fresh allocation, so the op declares no effect of its own: what its
 ||| region does is its region's.
-export
+public export
 destAnswer : Op 1 1 0 1
 destAnswer = MkOp
   { home = InIdr
@@ -171,6 +171,6 @@ destAnswer = MkOp
 
 ||| The tail area's declarations: the destination, its one write, and the
 ||| answer slots.
-export
+public export
 declarations : Declarations
 declarations = { ops := [SomeOp destWrite, SomeOp destAnswer], types := [SomeType destType] } nothing

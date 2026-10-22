@@ -429,6 +429,7 @@ export
 takesC : OperandKind -> String
 takesC TakesInt32 = "int32_t"
 takesC TakesInt64 = "int64_t"
+takesC TakesUInt8 = "uint8_t"
 takesC TakesDouble = "double"
 takesC TakesSigned = "int64_t"
 takesC TakesUnsigned = "uint64_t"
@@ -456,6 +457,7 @@ export
 takesName : OperandKind -> String
 takesName TakesInt32 = "Int32"
 takesName TakesInt64 = "Int64"
+takesName TakesUInt8 = "UInt8"
 takesName TakesDouble = "Double"
 takesName TakesSigned = "Signed"
 takesName TakesUnsigned = "Unsigned"
@@ -618,7 +620,7 @@ runtimeAbi ops helpers =
       every = distinct [] named
   in header "RuntimeAbi" ["\"idris_rt.h\"", "<array>", "<span>", "<string_view>"]
        (inNamespace "idr::runtime"
-         ( [ "enum class OperandKind : unsigned char { Int32, Int64, Double, Signed, Unsigned, Str, Big, Buffer, Pointer, Bool };"
+         ( [ "enum class OperandKind : unsigned char { Int32, Int64, UInt8, Double, Signed, Unsigned, Str, Big, Buffer, Pointer, Bool };"
            , "enum class ResultKind : unsigned char { Void, NoReturn, Int32, Int64, Double, Wrapped, Order, Str, Big, Pointer, Bool };"
            , "" ]
            ++ slashComment [ "A runtime function as the lowering calls it: its symbol, how it takes each operand,"

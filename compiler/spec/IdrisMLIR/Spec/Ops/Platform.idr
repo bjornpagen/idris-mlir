@@ -41,6 +41,7 @@ import Data.Vect
 ||| A primitive of base's platform: the runtime function `io_<name>` of its
 ||| operands, its effects as that function has them, its results' types
 ||| the ones their constraints fix.
+public export
 platformOp : {i : Nat} -> {o : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (outs : Vect o Result)
           -> Declaration i o -> RuntimeCall i o -> Doc
           -> {auto 0 named : So (distinct (groupNames ins outs [] []))}
@@ -71,16 +72,19 @@ platformOp m ins outs eff call d = MkOp
   }
 
 ||| An op of a handle, giving an Int: `fileSize`, `fflush` and their kin.
+public export
 handleQuery : Mnemonic -> Symbol -> RuntimeMemory -> Doc -> Op 1 1 0 0
 handleQuery m s memory d = platformOp m [single "handle" i64] [result "result" i64] (outside memory)
   (MkRuntimeCall s [TakesInt64] (Returns GivesInt64)) d
 
 ||| An op of a path, giving an Int: 0 on success, as its C function gives it.
+public export
 pathOp : Mnemonic -> Symbol -> Doc -> Op 1 1 0 0
 pathOp m s d = platformOp m [single "path" strRead] [result "result" i64] (outside Touched)
   (MkRuntimeCall s [TakesStr] (Returns GivesInt64)) d
 
 ||| An op of nothing, giving an Int, with the effects `eff`.
+public export
 reading : Mnemonic -> Symbol -> Declaration 0 1 -> Doc -> Op 0 1 0 0
 reading m s eff d = platformOp m [] [result "result" i64] eff
   (MkRuntimeCall s [] (Returns GivesInt64)) d

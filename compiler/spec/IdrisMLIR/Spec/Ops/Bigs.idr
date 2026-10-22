@@ -104,6 +104,7 @@ twoBigs s = MkRuntimeCall s [TakesBig, TakesBig] (Returns GivesBig)
 
 ||| An op of two Integers that builds an Integer: Integer's sub, and, or,
 ||| xor, its shifts, its division.
+public export
 binary : Mnemonic -> Symbol -> List Member -> Doc -> Op 2 1 0 0
 binary m s ms d = MkOp
   { home = InIdr
@@ -138,6 +139,7 @@ binary m s ms d = MkOp
 ||| these ops. An Integer's sum and product are exact, never wrapped, so each
 ||| is associative, with 0 and 1 its identities: laws the e-graph and the
 ||| accumulator read.
+public export
 naturalBinary : Mnemonic -> Symbol -> Admitted -> List Law -> Doc -> Op 2 1 0 0
 naturalBinary m s word ls d = MkOp
   { home = InIdr
@@ -215,6 +217,7 @@ bigShr = binary "big.shr" "big_shr" [foldable] (says "a big shifted right, Integ
 
 ||| Integer's div and mod, Euclidean, by a divisor that is not zero, which
 ||| `idr.check.nonzero` guards.
+public export
 division : Mnemonic -> Symbol -> Doc -> Op 2 1 0 0
 division m s d =
   { guards := [MkGuard nonzeroOp [1] DivisionByZero]
@@ -381,6 +384,7 @@ natFromBig = MkOp
   , doc = says "an Integer as a natural, 0 if it is negative"
   }
 
+public export
 fromIntName : Signedness -> Mnemonic
 fromIntName Signed = "big.from_sint"
 fromIntName Unsigned = "big.from_uint"

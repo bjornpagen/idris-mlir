@@ -32,6 +32,7 @@ neverEmpty = MkTraitDef "NeverEmpty" (says "the string it builds has a character
 
 ||| A builder of a new string by the runtime's function `stem`, its operands
 ||| as the function takes them.
+public export
 builder : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> RuntimeCall i 1 -> List (Trait i 1)
        -> Doc
        -> {auto 0 named : So (distinct (groupNames ins [result "result" Shapes.strValue] [] []))}
@@ -189,6 +190,7 @@ strTail =
 ||| walks of the list, the first for its size; folded from a constant list
 ||| by the runtime's cons and append. No runtime function of its own: its
 ||| lowering is the walk.
+public export
 listBuilder : Mnemonic -> TypeC -> Doc -> Op 1 1 0 0
 listBuilder m list d = MkOp
   { home = InIdr
@@ -228,6 +230,7 @@ strConcat = listBuilder "str.concat" (SatisfiesType strListP) (says "the concate
 
 ||| A runtime function of a string that gives no new string, its result's
 ||| type the one its constraint fixes.
+public export
 reader : {i : Nat} -> (m : Mnemonic) -> (ins : Vect i Operand) -> (res : Result) -> RuntimeCall i 1
       -> List InterfaceUse -> Doc
       -> {auto 0 named : So (distinct (groupNames ins [res] [] []))}

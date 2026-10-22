@@ -266,6 +266,7 @@ graded = MkTypeDef
 ||| fold is the one QTT rule: a cast back of a cast with no other use is the
 ||| value itself, which only a cast that forgot nothing can have, since
 ||| fitting is antisymmetric.
+public export
 linCast : Op 2 1 0 0
 linCast = MkOp
   { home = InIdr
@@ -314,7 +315,7 @@ gradesHeader = MkHeader "Grades"
 
 ||| The grade's area: its one op, its type, `Uses` (the type's enum
 ||| parameter), and its header.
-export
+public export
 declarations : Declarations
 declarations = { ops := [SomeOp linCast]
                , types := [SomeType graded]

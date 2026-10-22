@@ -230,7 +230,7 @@ core = { ops := [ SomeOp vectorizeLanes, SomeOp refusalOp ]
        , admitted := [ builtinModule ]
        , enums := [ enumDef stageClosed, enumDef categoryClosed, enumDef scopeClosed, enumDef Rules.ruleClosed ]
        , interfaces := [ valueFactsInterface ]
-       , traits := [ resultCarriesOperand, sameValue ]
+       , traits := [ resultCarriesOperand, sameValue, eliminatesOperand ]
        , attributes := [ SomeAttr binderAttr ]
        , headers := [ MkHeader "Rules" [(DialectNamespace, [TableOf Rules.ruleTable])]
                         (brief "the facts of each refusal rule: its category and where it is decided")

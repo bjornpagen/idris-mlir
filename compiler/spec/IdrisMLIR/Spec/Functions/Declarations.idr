@@ -106,7 +106,7 @@ frameBoundSlot = AProperty (CountProperty 0)
 ||| said once, so no pass finds it by walking the functions. Its region
 ||| verifier checks the root and runs the program's rules after every op of
 ||| it is verified, on one thread.
-export
+public export
 programOp : Op 0 0 3 1
 programOp = MkOp
   { home = InIdr
@@ -168,7 +168,7 @@ programOp = MkOp
 ||| by position with the positions. Its type is a function type by its
 ||| attribute's constraint, so the interface's own clone of it, and each edit
 ||| of its signature, builds the new type from it and never meets a null.
-export
+public export
 funcOp : Op 0 0 13 1
 funcOp = MkOp
   { home = InIdr
@@ -245,7 +245,7 @@ callEffects = Executes [] [Summarized, Consumes FZ, NewIdentity FZ] Covered Unto
 ||| write part and `lives_in`, so upstream's dead code, CSE and sinking, and
 ||| a pass on the caller, read a call alone: a result's grade says what the
 ||| callee's signature says of it. It states its scoped results' lifetimes.
-export
+public export
 callOp : Op 1 1 8 0
 callOp = MkOp
   { home = InIdr
@@ -313,7 +313,7 @@ callOp = MkOp
 
 ||| Ends a function's one block, unless the body never returns and ends in
 ||| an op with no successor.
-export
+public export
 returnOp : Op 1 0 0 0
 returnOp = MkOp
   { home = InIdr
@@ -344,7 +344,7 @@ returnOp = MkOp
 -- The area
 ------------------------------------------------------------------------------
 
-export
+public export
 declarations : Declarations
 declarations =
   { ops := [SomeOp programOp, SomeOp funcOp, SomeOp callOp, SomeOp returnOp]

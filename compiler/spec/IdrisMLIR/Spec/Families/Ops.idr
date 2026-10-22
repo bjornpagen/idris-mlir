@@ -89,7 +89,7 @@ statedIn k =
 ||| may be speculated only where it takes no field over and uses none once.
 ||| A scoped result lives in the lifetime `outers` states, one its scoped
 ||| fields all outlive.
-export
+public export
 conOp : Op 2 1 0 0
 conOp = MkOp
   { home = InIdr
@@ -136,7 +136,7 @@ conOp = MkOp
 ||| value's grade wherever a pass changes it. A field of a scoped value is
 ||| scoped, and `outers` states its lifetime: the value's, or one that
 ||| lifetime encloses.
-export
+public export
 fieldOp : Op 2 1 1 0
 fieldOp = MkOp
   { home = InIdr
@@ -171,7 +171,7 @@ fieldOp = MkOp
 ||| `idr.data.tag`: the constructor of a data value, in [0, n-1] for its n
 ||| declared constructors, an `i64` its result's rule fixes, so no builder
 ||| states it; it folds where the type leaves one possible.
-export
+public export
 tagOp : Op 1 1 0 0
 tagOp = MkOp
   { home = InIdr
@@ -213,7 +213,7 @@ tagOp = MkOp
 ||| Checked by the function's scope walk, which holds the refinements. A
 ||| scoped value stays scoped, and `outers` states its lifetime: the
 ||| operand's, or one that lifetime encloses.
-export
+public export
 dataReindexOp : Op 2 1 0 0
 dataReindexOp = MkOp
   { home = InIdr
@@ -248,7 +248,7 @@ dataReindexOp = MkOp
 ||| types mention its terms forwarded into it refined. The one place a fact
 ||| enters the IR on Idris's word alone; inside it, every cast is checked as
 ||| any other. An equality that clashes makes the region unreachable.
-export
+public export
 assumeOp : Op 1 1 1 1
 assumeOp = MkOp
   { home = InIdr
@@ -286,7 +286,7 @@ assumeOp = MkOp
 ||| width a numeral has is its type's layout, one op for every width. Its
 ||| result is at most the largest value its operand's type allows, so the
 ||| bound Idris proved of an index reaches the range a check is decided by.
-export
+public export
 numeralToNatOp : Op 1 1 0 0
 numeralToNatOp = MkOp
   { home = InIdr
@@ -316,7 +316,7 @@ numeralToNatOp = MkOp
 
 ||| `idr.numeral.of_nat`: a natural as a numeral of the bound Idris proved
 ||| it below, with no range check: a narrowing at a fixed width.
-export
+public export
 numeralOfNatOp : Op 1 1 0 0
 numeralOfNatOp = MkOp
   { home = InIdr

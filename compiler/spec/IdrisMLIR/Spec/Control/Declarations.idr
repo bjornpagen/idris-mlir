@@ -19,7 +19,7 @@ import IdrisMLIR.Spec.Control.Rules
 
 %default total
 
-export
+public export
 declarations : Declarations
 declarations =
   { ops := [SomeOp matchOp, SomeOp matchLitOp, SomeOp yieldOp] ++ joinPointOps ++ [SomeOp jumpOp]

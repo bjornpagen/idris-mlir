@@ -302,19 +302,3 @@ public export
 bare : (r : Refs) -> Grade r
 bare Words = OnWords Many
 bare References = OnReferences Many (Counted None)
-
-||| The uses of a grade.
-public export
-uses : Grade r -> Uses
-uses (OnWords u) = u
-uses (OnReferences u _) = u
-
-||| The grade of a field bound from a value, as a match binds it: the
-||| value's uses times the field's own (a declaration's field carries its
-||| uses alone, no hold), and, for a field that holds references, the hold
-||| read from the value's at those uses.
-public export
-fieldGrade : FieldReach -> Grade References -> (field : Uses) -> (r : Refs) -> Grade r
-fieldGrade _ v u Words = OnWords (times (uses v) u)
-fieldGrade reach (OnReferences vu vh) u References =
-  OnReferences (times vu u) (readHold reach (times vu u) vh)
