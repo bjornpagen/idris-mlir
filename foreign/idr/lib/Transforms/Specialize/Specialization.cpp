@@ -101,22 +101,33 @@ void Signatures::write(Key key, Bytes &bytes) {
 }
 
 LogicalResult Signatures::edit(Key key, FuncOp clone) {
-  // The index arguments first, through the one substitution every pass
-  // that instantiates a function shares: each case a known index makes
-  // impossible goes with it, and each bare tensor argument's axis whose
-  // term becomes a constant is made static, as the key's signature already
-  // has it.
+  // Each parameter at the hold the key gives it first (a static hold where
+  // the caller passes static data), on the owner's own type: the key's
+  // signature is already substituted, and a hold names no index variable,
+  // so it is read off the key position by position.
+  Block &entry = clone.getBody().front();
+  SmallVector<Type> inputs;
+  for (auto [arg, keyed] : llvm::zip_equal(entry.getArguments(), key->signature.getInputs())) {
+    if (std::optional<Hold> hold = holdOf(keyed))
+      arg.setType(atHold(arg.getType(), *hold));
+    inputs.push_back(arg.getType());
+  }
+  clone.setFunctionType(FunctionType::get(clone.getContext(), inputs, clone.getResultTypes()));
+  // Then the index arguments, through the one substitution every pass that
+  // instantiates a function shares: each case a known index makes
+  // impossible goes with it, each bare tensor argument's axis whose term
+  // becomes a constant is made static, and its one walk in program order
+  // infers each result type again wherever an operand's type changed, so
+  // the holds just set reach every value derived from the parameters.
   FailureOr<SmallVector<families::Sort>> kept = families::substituteFunction(clone, key->indices);
   if (failed(kept))
     return failure();
   clone.setBindersAttr(IndexBindersAttr::get(clone.getContext(), *kept));
-  // Then each parameter the key gives another type: a static hold, which
-  // the grades derived from it follow.
-  Block &entry = clone.getBody().front();
-  for (auto [arg, type] : llvm::zip_equal(entry.getArguments(), key->signature.getInputs()))
-    arg.setType(type);
-  clone.setFunctionType(key->signature);
-  return grades::follow(clone);
+  // The call's view of the copy, read off the same mapping before the copy
+  // was built, is the copy's type.
+  assert(clone.getFunctionType() == key->signature &&
+         "a signature copy's type differs from the type its callers were given");
+  return success();
 }
 
 } // namespace idr::specialize
