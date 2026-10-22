@@ -232,8 +232,9 @@ matchOp = MkOp
 ||| `idr.lit.match`: a literal key per case and a default always, since no
 ||| set of literals is exhaustive. The scrutinee enters the default, which
 ||| binds it refined to the complement of the keys at its own type (a natural
-||| 0-versus-successor match computes `nat.pred` from it); a case binds
-||| nothing.
+||| 0-versus-successor match computes `nat.pred` from it); the range
+||| analysis gives that binding the scrutinee's range with the keys cut from
+||| its ends. A case binds nothing.
 export
 matchLitOp : Op 2 1 1 2
 matchLitOp = MkOp
@@ -347,7 +348,7 @@ yieldOp = MkOp
 ||| interface.
 export
 scfIf : Admitted
-scfIf = MkAdmitted SCF "IfOp" "SCF_IfOp" (between Higher Owned) FrontendWrites [] [] Nothing
+scfIf = MkAdmitted SCF "IfOp" "SCF_IfOp" (between Higher Owned) FrontendWrites [] [] Nothing UpstreamFold
 
 ||| `scf.index_switch`: a region per case of an index, and a default region,
 ||| rejoining at its results. Only the lowering writes it, from a data
@@ -362,7 +363,7 @@ export
 scfIndexSwitch : Admitted
 scfIndexSwitch =
   MkAdmitted SCF "IndexSwitchOp" "SCF_IndexSwitchOp" (between Owned Owned) PassesOnly
-    [] [] Nothing
+    [] [] Nothing UpstreamFold
 
 ||| `scf.yield`: ends a region of `scf.if` or `scf.index_switch`, and of the
 ||| scf loops passes write, with what it gives the op's results. Upstream
@@ -370,7 +371,7 @@ scfIndexSwitch =
 ||| of a region hands its ownership on, which is no consumption.
 export
 scfYield : Admitted
-scfYield = MkAdmitted SCF "YieldOp" "SCF_YieldOp" (between Higher Owned) FrontendWrites [] [] Nothing
+scfYield = MkAdmitted SCF "YieldOp" "SCF_YieldOp" (between Higher Owned) FrontendWrites [] [] Nothing UpstreamFold
 
 ||| Every upstream op control flow admits, once: those the frontend writes,
 ||| and the switch only the lowering writes.
