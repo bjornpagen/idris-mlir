@@ -114,6 +114,19 @@ bool handsOn(OpOperand &use) {
   return entry;
 }
 
+// What the boundary grades a parameter of `type` with, owed by every caller
+// whatever the body does with it: what its family's promise asks, where
+// the parameter is of quantity 1 and the family's values carry the promise
+// by construction (an own cell holds a buffer, which is written in place);
+// nothing for any other, whose promise binds where a cell is rebuilt.
+std::optional<Asks> boundaryAsks(Type type) {
+  DataType data = ownership::familyOf(type);
+  if (!data || usesOf(type) != Uses::Once ||
+      data.getGroup().ownBuffers(data.getMember()) != Buffers::HoldsBuffer)
+    return std::nullopt;
+  return ownership::promisedAsks(data);
+}
+
 // The requirement's targets as a summary: impossible where one reached a
 // cause, else each parameter at the strongest strength asked of it.
 Need needOf(llvm::ArrayRef<Target> targets) {
@@ -244,9 +257,12 @@ Verdict decide(const solver::ProgramGraph &graph, const Summaries &summaries,
     for (const RebuildSite &site : rebuildSites(op)) {
       verdict.sites[fn].push_back(site);
       DataType family = ownership::familyOf(site.taken.getType());
-      for (const Target &target : chains.targets(site.taken, Asks::Self, nullptr))
+      for (const Target &target : chains.targets(site.taken, site.asks, nullptr))
         seeds.push_back(land(target, site.match, std::nullopt, family));
     }
+    for (BlockArgument param : op.getBody().front().getArguments())
+      if (std::optional<Asks> owed = boundaryAsks(param.getType()))
+        seeds.push_back(node(fn, param.getArgNumber(), *owed));
     ownership::forEachCall(op, [&](CallOp call) {
       FunctionId callee = graph.id(call.getCalleeAttr());
       FuncOp calleeOp = graph.op(callee);

@@ -295,12 +295,17 @@ struct UniqueResults : idr::impl::IdrUniqueResultsBase<UniqueResults> {
   void runOnProgram(idr::ProgramOp program) {
     const idr::solver::ProgramGraph &graph = getAnalysis<idr::solver::ProgramGraph>();
     idr::solver::Work work;
-    Solution solution = solve(graph, *program.getContext(), work);
+    numUnique += idr::unique::raiseClaims(graph, *program.getContext(), work);
     numWork += work.steps();
-    numUnique += Writer(graph, solution).write();
     // No call changed callee or kind, and no symbol changed.
     markAnalysesPreserved<idr::solver::ProgramGraph, SymbolTable>();
   }
 };
 
 } // namespace
+
+unsigned idr::unique::raiseClaims(const idr::solver::ProgramGraph &graph, MLIRContext &context,
+                                  idr::solver::Work &work) {
+  Solution solution = solve(graph, context, work);
+  return Writer(graph, solution).write();
+}

@@ -11,14 +11,20 @@
 // at run time: a function that takes apart a value of the family bound at
 // quantity 1 (a parameter, or a field a linear match binds) and builds one
 // of the family from it rebuilds that cell, and every call owes the
-// function a value whose own family's cells are unshared. A call that
-// cannot be proved to pay is refused, `unsupported (uniqueness)`, at the
-// user's call, naming the cause. The verdict is types and ops: each
-// obligation the grade `unique self` on its parameter and on every value
-// of the chain that pays it (a record that holds the value rebuilt owes
-// it too, since `unique self` covers the own cells of an in-place field,
-// never its elements), and each rebuild a take at the case's entry whose
-// linear token idr.token.rebuild consumes.
+// function what the family's promise asks: its own cells unshared (`unique
+// self`, which covers the own cells of an in-place field, never its
+// elements), or everything it reaches where one of them holds a buffer
+// (`unique deep`), read off the family's declaration. Such a family's
+// values carry the promise by construction, so a parameter of it bound at
+// quantity 1 is owed it at the boundary, whatever its body does. A call
+// that cannot be proved to pay is refused, `unsupported (uniqueness)`, at
+// the user's call, naming the cause. The verdict is types and ops: each
+// obligation its grade on its parameter and on every value of the chain
+// that pays it (a record that holds the value rebuilt owes it too), and
+// each rebuild a take at the case's entry whose linear token
+// idr.token.rebuild consumes; then the local rule carries each claim into
+// what its value is taken or read into, so bufferization reads a
+// parameter's claim on the buffer its cell holds.
 //
 // idr-unique-results: the local rule of exclusivity, before bufferization
 // reads the grades. A value is unique where it is fresh (a constructor's,
@@ -29,7 +35,8 @@
 // graph's components, callees first, as rows are, a path that ends the run
 // giving nothing. The claims are written into the types, each call's
 // results its callee's again, and wherever a value now claiming more meets
-// a position that takes less, it is shared into it.
+// a position that takes less, it is shared into it. idr-in-place runs the
+// same rule after it grades (Transforms/InPlace/Unique.h).
 //
 // idr-knots refuses a reference knot counting could never free
 // (verify::knots); idr-rc-exclusive commits the exclusivity marking, which

@@ -28,7 +28,6 @@
 #include "llvm/ADT/STLExtras.h"
 
 #include <algorithm>
-#include <functional>
 #include <utility>
 
 using namespace mlir;
@@ -55,10 +54,8 @@ bool madeBy(Value value, Operation *op) {
   return cast<BlockArgument>(value).getOwner()->getParentOp() == op;
 }
 
-// Whether the op that makes a value declares it new, and whether an input
-// is fed by an operand that forwards into another input too.
+// Whether the op that makes a value declares it new.
 enum class Made : std::uint8_t { Elsewhere, New };
-enum class Fed : std::uint8_t { Alone, WithOthers };
 enum class Inferred : std::uint8_t { No, Yes };
 
 // Whether every term is a part read or taken out, and there is one: what
@@ -86,7 +83,7 @@ public:
     inferred.assign(count, Inferred::No);
     owners.assign(count, noLocal);
     fn.walk([&](Operation *op) { readOp(op); });
-    readForwards(count);
+    readForwards();
     lay(count);
     if (auto ret = dyn_cast<ReturnOp>(fn.getBody().front().getTerminator())) {
       body.returns = Returns::Yes;
@@ -152,32 +149,17 @@ private:
         });
   }
 
-  // Each input takes what each operand forwarded into it holds; it is
-  // raised where it may be and each operand that feeds it feeds it alone,
-  // since an operand that feeds two inputs is one value at both.
-  void readForwards(std::size_t count) {
-    footprint::Vector<Fed> fed(count, Fed::Alone);
-    // The forwards of one operand side by side: a run of more than one
-    // feeds as many inputs.
-    footprint::Vector<std::pair<OpOperand *, Local>> byOperand = forwards;
-    std::stable_sort(byOperand.begin(), byOperand.end(), [](const auto &a, const auto &b) {
-      return std::less<OpOperand *>()(a.first, b.first);
-    });
-    for (std::size_t at = 0; at != byOperand.size();) {
-      std::size_t end = at;
-      while (end != byOperand.size() && byOperand[end].first == byOperand[at].first)
-        ++end;
-      if (end - at > 1)
-        for (std::size_t each = at; each != end; ++each)
-          fed[byOperand[each].second] = Fed::WithOthers;
-      at = end;
-    }
+  // Each input takes what each operand forwarded into it holds, and is
+  // raised where it may be. An operand that becomes an input of several
+  // successors (a match's scrutinee, one per case) is one value on each
+  // path, since control goes to one successor of a branch point.
+  void readForwards() {
     for (auto [operand, input] : forwards)
       pending.emplace_back(
           input, Term<Local>{number.lookup(operand->get()), Via::Moved, FieldReach::Other});
     for (auto [operand, input] : forwards) {
       Value value = body.values[input];
-      if (roles[input] == Role::Typed && fed[input] == Fed::Alone && raisable(value.getType()) &&
+      if (roles[input] == Role::Typed && raisable(value.getType()) &&
           ownership::flowsLinearly(value))
         roles[input] = Role::Raised;
     }

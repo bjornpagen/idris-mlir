@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // idr-in-place (idr/Transforms/InPlace.h): the in-place promise decided on
-// the program as written (Rule.cpp), then refused here or written
-// (Writer.cpp).
+// the program as written (Rule.cpp), then refused here, or made into
+// versions (Versions.cpp) and written (Writer.cpp).
 //
 // A refusal names the user's call: the first call whose argument cannot be
 // shown to pay what its callee is owed, never a call inside a function that
@@ -59,7 +59,7 @@ void report(const Refusal &refusal) {
   StringRef family = labelOf(refusal.family);
   if (refusal.callee)
     error << refusal.caller.getSymName() << " passes a shared " << family << " to "
-          << refusal.callee->getSymName() << ", which rebuilds it in place";
+          << refusal.callee->getSymName() << ", which writes it in place";
   else
     error << refusal.caller.getSymName() << " rebuilds a shared " << family << " in place";
   error.attachNote(refusal.cause.at->getLoc()) << noteOf(refusal.cause.why);
@@ -78,15 +78,21 @@ struct InPlace : idr::impl::IdrInPlaceBase<InPlace> {
         report(refusal);
       return signalPassFailure();
     }
-    bool promised = llvm::any_of(graph.functions(),
-                                 [&](FunctionId fn) { return !verdict.sites[fn].empty(); });
+    // The verdict writes where a cell is rebuilt or a parameter is owed a
+    // claim, which nothing before this pass writes.
+    bool promised = llvm::any_of(graph.functions(), [&](FunctionId fn) {
+      return !verdict.sites[fn].empty() ||
+             llvm::any_of(verdict.obligations[fn],
+                          [](std::optional<idr::ownership::Asks> owed) { return owed.has_value(); });
+    });
     if (!promised) {
       markAllAnalysesPreserved();
       return;
     }
+    Versions versions = versionsOf(graph, summaries, keeps, verdict);
     idr::solver::Work writing;
     LogicalResult written =
-        writeVerdict(program, graph, summaries, keeps, verdict, getAnalysis<SymbolTable>(), writing);
+        writeVerdict(program, graph, versions, getAnalysis<SymbolTable>(), writing);
     numWork += writing.steps();
     if (failed(written))
       return signalPassFailure();

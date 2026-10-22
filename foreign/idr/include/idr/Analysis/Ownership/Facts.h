@@ -38,6 +38,14 @@ enum class Asks : std::uint8_t { Self, Deep };
 
 constexpr Unique claimFor(Asks asks) { return asks == Asks::Self ? Unique::Self : Unique::Deep; }
 
+// What a claim asks as a requirement: the inverse of claimFor, and nothing
+// for a claim of nothing.
+constexpr std::optional<Asks> asksFor(Unique claim) {
+  if (claim == Unique::None)
+    return std::nullopt;
+  return claim == Unique::Self ? Asks::Self : Asks::Deep;
+}
+
 // What a field reached as `reach`, read at `uses`, gives of a value
 // claiming `claim`: the grade's own table (Hold::read), never a
 // restatement of it. A read at one use gives what the claim reaches; a read
@@ -114,11 +122,13 @@ inline DataType familyOf(mlir::Type type) {
   return llvm::dyn_cast<DataType>(unrestricted(type));
 }
 
-// Whether `data`'s family promises in place (the registry's in_place kind,
-// carried on the family's data member).
-inline bool promisesInPlace(DataType data) {
-  using namespace idr::families;
-  return data && data.promise() == Promise::InPlace;
+// What `data`'s in-place promise asks of a value it rebuilds, read off the
+// family's declaration (promisedClaim): its own cells unshared, or
+// everything it reaches where one of them holds a buffer, which only a
+// buffer nothing else holds lets bufferization write; nothing where the
+// family promises nothing, or for a value of no family.
+inline std::optional<Asks> promisedAsks(DataType data) {
+  return data ? asksFor(data.promisedClaim()) : std::nullopt;
 }
 
 // Whether two family applications are of one family, whatever their index

@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the units of idr-unique-results share (lib/Transforms/InPlace/): each
+// What the units of the local rule share (lib/Transforms/InPlace/): each
 // body read once and the solve of the local rule over the program
-// (Unique.cpp), and the pass that writes what it proves (UniqueResults.cpp).
+// (Unique.cpp), and the write of what it proves (UniqueResults.cpp), which
+// idr-unique-results runs and idr-in-place runs after it grades.
 //
 // A body is its values, numbered by the one walk (ownership::forEachValue),
 // and the terms the edges its ops declare give each of them
 // (ownership::forEachTerm), so the solve reads numbers and no IR. What the
 // rule may raise is a cell of a data family, no memo label's (a force writes
 // its cells while references to them live), that its op makes new or that
-// is forwarded into, each predecessor forwarding it there alone, and that
-// flows only through linear positions. A call's result is its callee's
-// derived claim; a value an op keeps as itself is its operand's; a part an
-// op that infers its results reads or takes out is what the read table
-// gives it, as the op's inference does; every other value is what its type
-// says. The write runs each op's inference again.
+// is forwarded into, and that flows only through linear positions. A
+// call's result is its callee's derived claim; a value an op keeps as
+// itself is its operand's; a part an op that infers its results reads or
+// takes out is what the read table gives it, as the op's inference does;
+// every other value is what its type says. The write runs each op's
+// inference again.
 #ifndef IDR_TRANSFORMS_INPLACE_UNIQUE_H
 #define IDR_TRANSFORMS_INPLACE_UNIQUE_H
 
@@ -112,6 +113,17 @@ struct Solution {
 };
 Solution solve(const solver::ProgramGraph &graph, mlir::MLIRContext &context,
                solver::Work &work);
+
+// The local rule solved over `graph`'s program and written into its types:
+// each value it proves raised where its claim is kept, each result its
+// function gives so, each op that infers its results inferred again, and
+// each use of a raised value that takes less met. A claim already in the
+// types is a source of the rule, so what a pass graded before it (a
+// parameter graded at the boundary) reaches every value it is taken or
+// read into at a linear position. Returns how many results it raised; its
+// value evaluations are added to `work`.
+unsigned raiseClaims(const solver::ProgramGraph &graph, mlir::MLIRContext &context,
+                     solver::Work &work);
 
 } // namespace idr::unique
 

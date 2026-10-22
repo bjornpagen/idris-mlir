@@ -58,10 +58,10 @@ llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn) {
       Type type = taken.getType();
       DataType family = ownership::familyOf(type);
       std::optional<Tag> tag = ownership::refinedTag(type);
+      std::optional<Asks> promised = ownership::promisedAsks(family);
       // A cell of an in-place family, bound at quantity 1: a parameter's,
       // or a field's a linear match binds.
-      if (!tag || !ownership::isCell(type) || !ownership::promisesInPlace(family) ||
-          usesOf(type) != Uses::Once)
+      if (!tag || !ownership::isCell(type) || !promised || usesOf(type) != Uses::Once)
         continue;
       DataConOp found;
       region.walk<WalkOrder::PreOrder>([&](Operation *op) {
@@ -82,7 +82,7 @@ llvm::SmallVector<RebuildSite> rebuildSites(FuncOp fn) {
       if (!found)
         continue;
       paired.insert(found);
-      sites.push_back({match, static_cast<unsigned>(index), found, taken});
+      sites.push_back({match, static_cast<unsigned>(index), found, taken, *promised});
     }
   });
   return sites;

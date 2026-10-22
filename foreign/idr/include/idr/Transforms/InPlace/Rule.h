@@ -2,8 +2,8 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What the units of idr-in-place share (lib/Transforms/InPlace/): the rule's
 // terms read off one body (Chains.cpp), the program-wide solves over them
-// (Rule.cpp), the pass that refuses (InPlace.cpp) and the writer of the
-// verdict (Writer.cpp).
+// (Rule.cpp), the pass that refuses (InPlace.cpp), the versions the verdict
+// makes of each function (Versions.cpp) and their writer (Writer.cpp).
 //
 // A requirement asks a value's own cells to be unshared (Asks::Self, as
 // far into its fields as the grade's fieldReach says), or everything it
@@ -15,11 +15,16 @@
 // then owe it: and the value must be used once on every path through the
 // use that requires it, a read by a callee that keeps nothing of it before
 // that use aside. Where a requirement reaches what can meet none (a value
-// read again, a copy, a value no flow explains), it reaches a cause.
+// read again, a copy, a value no flow explains), it reaches a cause. A
+// requirement starts where a cell is rebuilt, asking what its family's
+// promise asks, and at the boundary: a parameter of quantity 1 whose
+// family's values carry the promise by construction (an own cell holds a
+// buffer) is owed it by every caller.
 #ifndef IDR_TRANSFORMS_INPLACE_RULE_H
 #define IDR_TRANSFORMS_INPLACE_RULE_H
 
 #include "idr/Analysis/Ownership/Facts.h"
+#include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
 #include "idr/Analysis/Solver/Work.h"
 #include "idr/IR/IdrDialect.h"
@@ -112,12 +117,14 @@ public:
 // quantity 1, and the construction of the same family and constructor that
 // rebuilds it there, by their positions in the body's walk (the match among
 // the body's ops, the case among its regions, the construction among the
-// body's ops) so a copy of the body names them the same.
+// body's ops) so a copy of the body names them the same; and what the
+// family's promise asks of the cell taken apart.
 struct RebuildSite {
   DataMatchOp match;
   unsigned caseIndex;
   DataConOp construction;
   mlir::BlockArgument taken;
+  Asks asks;
 };
 
 // The rebuild sites of `fn`: in each case region of a cell of an in-place
@@ -239,19 +246,78 @@ struct Verdict {
 };
 
 // The obligation closure, one marking of the program's parameters from the
-// rebuild sites, back along every call whose argument's requirement reaches
-// a parameter of its caller; a requirement that reaches a cause instead is
-// a refusal.
+// rebuild sites and the parameters owed at the boundary, back along every
+// call whose argument's requirement reaches a parameter of its caller; a
+// requirement that reaches a cause instead is a refusal.
 Verdict decide(const solver::ProgramGraph &graph, const Summaries &summaries,
                const Keeps &keeps);
 
-// A verdict with no refusal written into the program (Writer.cpp): its
-// grades, its versions, its rebuilds, and every row again, whose transfers
-// are added to `work`. Fails where a grade copy's name is another
-// function's, reported at the function.
+// A version of a function: what each result gives back (none where nothing
+// is asked), what each parameter is owed, and, by their positions in the
+// one walk of the body, the claim each value is graded with, what each call
+// asks of its callee's results and the version of the callee it goes to.
+struct Version {
+  llvm::SmallVector<std::optional<Asks>, 1> results;
+  llvm::SmallVector<std::optional<Asks>, 4> params;
+  footprint::Vector<std::optional<Asks>> grades;
+  footprint::Vector<llvm::SmallVector<std::optional<Asks>, 1>> demands;
+  footprint::Vector<std::uint32_t> targets;
+};
+
+// The one walk of a body, numbered: its values, its calls, and its ops in
+// pre-order, each by position. A copy is a clone of its original, so the
+// walk numbers both alike.
+struct Walk {
+  explicit Walk(FuncOp fn) {
+    ownership::forEachValue(fn, [&](mlir::Value value) { values.push_back(value); });
+    ownership::forEachCall(fn, [&](CallOp call) { calls.push_back(call); });
+    fn->walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *op) { ops.push_back(op); });
+  }
+  llvm::SmallVector<mlir::Value> values;
+  llvm::SmallVector<CallOp> calls;
+  llvm::SmallVector<mlir::Operation *> ops;
+};
+
+// A rebuild site by its positions in the walk of its function's original
+// body, which name it in every copy: its match among the ops, its case
+// among the match's regions, the argument that case binds the cell to, and
+// its construction among the ops.
+struct SiteAt {
+  std::uint32_t match;
+  unsigned caseIndex;
+  unsigned taken;
+  std::uint32_t construction;
+};
+
+// What a verdict makes of each function: its versions, the original first
+// and then each grade copy a call asks for, none for a function it leaves
+// as it is; and its rebuild sites by position.
+struct Versions {
+  explicit Versions(const solver::ProgramGraph &graph)
+      : of(graph.table<footprint::Vector<Version>>()),
+        sites(graph.table<llvm::SmallVector<SiteAt, 1>>()) {}
+
+  IndexVector<FunctionId, footprint::Vector<Version>> of;
+  IndexVector<FunctionId, llvm::SmallVector<SiteAt, 1>> sites;
+};
+
+// The versions a verdict with no refusal makes (Versions.cpp): what each
+// body's own starts reach (its rebuild sites, the arguments its callees are
+// owed) graded in its original; then each call that asks a claim of a
+// callee's results sent to the version that gives it, the original where
+// the callee's obligations cover what that needs, else a copy keyed by its
+// results, whose own returns are traced in turn. It ends: an owner's keys
+// are finite, and each is made once.
+Versions versionsOf(const solver::ProgramGraph &graph, const Summaries &summaries,
+                    const Keeps &keeps, const Verdict &verdict);
+
+// The versions written into the program (Writer.cpp): its copies, its
+// grades, its calls, its rebuilds, the local rule carrying each claim on,
+// its positions met, and every row again, whose transfers are added to
+// `work`. Fails where a grade copy's name is another function's, reported
+// at the function.
 mlir::LogicalResult writeVerdict(ProgramOp program, solver::ProgramGraph &graph,
-                                 const Summaries &summaries, const Keeps &keeps,
-                                 const Verdict &verdict, mlir::SymbolTable &symbols,
+                                 const Versions &versions, mlir::SymbolTable &symbols,
                                  solver::Work &work);
 
 } // namespace idr::inplace
