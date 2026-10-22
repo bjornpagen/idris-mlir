@@ -3646,6 +3646,12 @@ C137.
   function may free through the allocated pointer, and `noalias` there
   would let LLVM move a read past the free. Every access goes through the
   aligned pointer, so nothing the attribute buys is lost.
+- **C164** (2026-10-21; amends C78, L03's finding). specgen's output is
+  not compared with today's hand `.td`: the cutover redesigns every op,
+  type and name in one change (D56, C158), so today's text describes a
+  dialect that no longer exists. Byte identity is held instead between a
+  fresh generation and the committed outputs, on both hosts and all four
+  targets (D67), which C78's pure `generate` makes possible.
 
 ## 4. Open: the owner's decisions, in order
 
