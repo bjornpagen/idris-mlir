@@ -596,7 +596,7 @@ data Declaration : (i, o : Nat) -> Type where
   ||| value names.
   Executes : (effects : List (Effect i o)) -> (rules : List (TypedRule i o))
           -> (bodies : Bodies) -> (memory : RuntimeMemory)
-          -> {auto 0 exitsInIO : ExitsInIO (anyOf endsNormally effects) (anyOf writesOutside effects)}
+          -> {auto 0 exitsInIO : ExitsInIO (anyOf Declaration.endsNormally effects) (anyOf Declaration.writesOutside effects)}
           -> Declaration i o
 
 ||| An op's static effects.
@@ -610,8 +610,8 @@ effectsOf (Executes effects _ _ _) = effects
 ||| so. What an op that leaves its block with no successor must declare.
 public export
 data Stops : Declaration i o -> Type where
-  StopsByExit : {auto 0 exits : Found (anyOf endsNormally (effectsOf d))} -> Stops d
-  StopsByCrash : {auto 0 crash : Found (anyOf crashes (effectsOf d))} -> Stops d
+  StopsByExit : {auto 0 exits : Found (anyOf Declaration.endsNormally (effectsOf d))} -> Stops d
+  StopsByCrash : {auto 0 crash : Found (anyOf Declaration.crashes (effectsOf d))} -> Stops d
 
 ||| An op that runs where it stands and does nothing besides computing its
 ||| results.
@@ -683,13 +683,15 @@ public export
 defWithin : (bound : Nat) -> (r : Resource.Resource) -> (0 within : LT (treeRank r) bound) -> ResourceDef
 defWithin Z _ LTEZero impossible
 defWithin Z _ (LTESucc _) impossible
-defWithin (S k) r within = MkResourceDef (describe resourceClosed r).name (printedName r) (parentDef (parent r))
+defWithin (S k) r within = MkResourceDef (describe resourceClosed r).name (printedName r) (parentDef within (parent r))
   where
-    parentDef : Parent r -> ResourceParent
-    parentDef IsRoot = ResourceAtRoot
-    parentDef (Under p {earlier}) = case origin p of
+    -- Its own state, not the outer one, so matching the root refines it;
+    -- the bound comes with it for the step up.
+    parentDef : {0 child : Resource.Resource} -> (0 below : LT (treeRank child) (S k)) -> Parent child -> ResourceParent
+    parentDef _ IsRoot = ResourceAtRoot
+    parentDef below (Under p {earlier}) = case origin p of
       Upstream => ResourceAtRoot
-      Ours => ResourceUnder (defWithin k p (transitive earlier (fromLteSucc within)))
+      Ours => ResourceUnder (defWithin k p (transitive earlier (fromLteSucc below)))
 
 ||| A state of ours as ODS and the generator name it.
 public export
