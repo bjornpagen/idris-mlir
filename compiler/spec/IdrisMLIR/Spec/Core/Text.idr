@@ -7,13 +7,16 @@
 ||| code-point operation, case mapping or host printer ever touches it.
 module IdrisMLIR.Spec.Core.Text
 
-import Data.List
--- A mnemonic, a C++ name and a path are non-empty lists, in every module that holds one.
+-- Every literal of these types is checked where it is written, by an
+-- automatic search for `So`'s `Oh` that reduces the check through the
+-- definitions visible there: `So` itself, and the split a mnemonic's check
+-- makes at its dots (Data.String's, over Data.List's, into a non-empty
+-- list). A mnemonic, a C++ name and a path are non-empty lists in every
+-- module that holds one.
+import public Data.List
 import public Data.List1
--- Every literal of these types is checked by an automatic `So` search in
--- the module that writes it, which finds `Oh` only where `So` is visible.
 import public Data.So
-import Data.String
+import public Data.String
 
 %default total
 
