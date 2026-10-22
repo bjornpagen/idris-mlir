@@ -4,6 +4,8 @@ module Core.Name.Scoped
 
 import public Core.Name
 
+import Data.List
+
 import Libraries.Data.List.SizeOf
 
 import public Libraries.Data.List.Thin
@@ -79,20 +81,61 @@ freshStem (CaseBlock n _) = freshStem n
 freshStem (WithBlock n _) = freshStem n
 freshStem (Resolved _) = known KDollar
 
+-- The names tried in turn once a name is taken are one family: a machine
+-- name over one identifier, inside the namespaces the taken name is in, at
+-- each index from a first one up.
+record FreshFamily where
+  constructor MkFreshFamily
+  within : List Namespace -- outermost first
+  stem : Ident
+  start : Int
+
+-- The family tried once `n` is taken.
+familyAfter : Name -> FreshFamily
+familyAfter (MN i k) = MkFreshFamily [] i (k + 1)
+familyAfter (NS ns n) = { within $= (ns ::) } (familyAfter n)
+familyAfter n = MkFreshFamily [] (freshStem n) 0
+
+familyMember : FreshFamily -> Int -> Name
+familyMember f k = foldr NS (MN f.stem k) f.within
+
+-- The index of the family's member a name is, if it is one. Names are
+-- compared part by part, so a name is the member at an index exactly when
+-- this finds that index.
+familyIndex : List Namespace -> Ident -> Name -> Maybe Int
+familyIndex (ns :: nss) i (NS ns' n)
+    = if ns == ns' then familyIndex nss i n else Nothing
+familyIndex [] i (MN i' k) = if i == i' then Just k else Nothing
+familyIndex _ _ _ = Nothing
+
+-- The least index from `k` up that is not among `taken`, which ascend.
+leastFreeFrom : Int -> (taken : List Int) -> Int
+leastFreeFrom k [] = k
+leastFreeFrom k (j :: js)
+    = case compare j k of
+           LT => leastFreeFrom k js
+           EQ => leastFreeFrom (k + 1) js
+           GT => k
+
 ||| The name tried after `n` when `n` is taken: the next machine name over
 ||| the identifier `n` is spelled from.
 export
 nameAfter : Name -> Name
-nameAfter (MN i k) = MN i (k + 1)
-nameAfter (NS ns n) = NS ns (nameAfter n)
-nameAfter n = MN (freshStem n) 0
+nameAfter n = let f = familyAfter n in familyMember f f.start
 
+||| `n` if no name of `vs` is it; otherwise the first of the names
+||| `nameAfter` steps through from `n` that no name of `vs` is. The indices
+||| of that family `vs` holds are read off it and sorted, and the least one
+||| free from the first index up is taken, so the name is computed rather
+||| than searched for by a loop that would have to be shown to end.
 export
 mkFresh : Scope -> Name -> Name
 mkFresh vs n
   = if n `elem` vs
-    then assert_total $ mkFresh vs (nameAfter n)
-    else n
+       then let f = familyAfter n
+                taken = sort (mapMaybe (familyIndex f.within f.stem) vs) in
+                familyMember f (leastFreeFrom f.start taken)
+       else n
 
 
 ------------------------------------------------------------------------

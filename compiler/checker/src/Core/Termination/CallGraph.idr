@@ -52,26 +52,62 @@ Show Guardedness where
   show Guarded = "Guarded"
   show InDelay = "InDelay"
 
-sizeEq : {auto 0 cv : CompatibleVars rhsVars lhsVars} ->
-         Term rhsVars -> -- RHS
-         Term lhsVars -> -- LHS: may contain dot-patterns, try both sides of as patterns
-         Bool
-sizeEq (Local _ _ idx _) (Local _ _ idx' _) = idx == idx'
-sizeEq (Ref _ _ n) (Ref _ _ n') = n == n'
-sizeEq (Meta _ _ i args) (Meta _ _ i' args')
-    = i == i' && assert_total (all (uncurry sizeEq) (zip args args'))
-sizeEq (Bind _ _ b sc) (Bind _ _ b' sc') = eqBinderBy sizeEq b b' && sizeEq sc sc'
-sizeEq (App _ f a) (App _ f' a') = sizeEq f f' && sizeEq a a'
-sizeEq (As _ _ a p) p' = sizeEq p p'
-sizeEq p (As _ _ a p') = sizeEq p a || sizeEq p p'
-sizeEq (TDelayed _ _ t) (TDelayed _ _ t') = sizeEq t t'
-sizeEq (TDelay _ _ t x) (TDelay _ _ t' x') = sizeEq t t' && sizeEq x x'
-sizeEq (TForce _ _ t) (TForce _ _ t') = sizeEq t t'
-sizeEq (PrimVal _ c) (PrimVal _ c') = c == c'
--- traverse dotted LHS terms
-sizeEq t (Erased _ (Dotted t')) = eqTerm t t' -- t' is no longer a pattern
-sizeEq (TType {}) (TType {}) = True
-sizeEq _ _ = False
+-- Each kind of node that holds terms is compared by a function of its own,
+-- so that every recursive call is on a part of its arguments.
+mutual
+  total
+  sizeEqPi : {auto 0 cv : CompatibleVars rhsVars lhsVars} ->
+             PiInfo (Term rhsVars) -> PiInfo (Term lhsVars) -> Bool
+  sizeEqPi Implicit Implicit = True
+  sizeEqPi Explicit Explicit = True
+  sizeEqPi AutoImplicit AutoImplicit = True
+  sizeEqPi (DefImplicit t) (DefImplicit t') = sizeEq t t'
+  sizeEqPi _ _ = False
+
+  total
+  sizeEqBinder : {auto 0 cv : CompatibleVars rhsVars lhsVars} ->
+                 Binder (Term rhsVars) -> Binder (Term lhsVars) -> Bool
+  sizeEqBinder (Lam _ c p ty) (Lam _ c' p' ty')
+      = c == c' && sizeEqPi p p' && sizeEq ty ty'
+  sizeEqBinder (Let _ c v ty) (Let _ c' v' ty')
+      = c == c' && sizeEq v v' && sizeEq ty ty'
+  sizeEqBinder (Pi _ c p ty) (Pi _ c' p' ty')
+      = c == c' && sizeEqPi p p' && sizeEq ty ty'
+  sizeEqBinder (PVar _ c p ty) (PVar _ c' p' ty')
+      = c == c' && sizeEqPi p p' && sizeEq ty ty'
+  sizeEqBinder (PLet _ c v ty) (PLet _ c' v' ty')
+      = c == c' && sizeEq v v' && sizeEq ty ty'
+  sizeEqBinder (PVTy _ c ty) (PVTy _ c' ty') = c == c' && sizeEq ty ty'
+  sizeEqBinder _ _ = False
+
+  -- Pairwise, as `zip` pairs: what one list holds past the other's end is
+  -- not compared.
+  total
+  sizeEqTerms : {auto 0 cv : CompatibleVars rhsVars lhsVars} ->
+                List (Term rhsVars) -> List (Term lhsVars) -> Bool
+  sizeEqTerms (t :: ts) (u :: us) = sizeEq t u && sizeEqTerms ts us
+  sizeEqTerms _ _ = True
+
+  total
+  sizeEq : {auto 0 cv : CompatibleVars rhsVars lhsVars} ->
+           Term rhsVars -> -- RHS
+           Term lhsVars -> -- LHS: may contain dot-patterns, try both sides of as patterns
+           Bool
+  sizeEq (Local _ _ idx _) (Local _ _ idx' _) = idx == idx'
+  sizeEq (Ref _ _ n) (Ref _ _ n') = n == n'
+  sizeEq (Meta _ _ i args) (Meta _ _ i' args') = i == i' && sizeEqTerms args args'
+  sizeEq (Bind _ _ b sc) (Bind _ _ b' sc') = sizeEqBinder b b' && sizeEq sc sc'
+  sizeEq (App _ f a) (App _ f' a') = sizeEq f f' && sizeEq a a'
+  sizeEq (As _ _ a p) p' = sizeEq p p'
+  sizeEq p (As _ _ a p') = sizeEq p a || sizeEq p p'
+  sizeEq (TDelayed _ _ t) (TDelayed _ _ t') = sizeEq t t'
+  sizeEq (TDelay _ _ t x) (TDelay _ _ t' x') = sizeEq t t' && sizeEq x x'
+  sizeEq (TForce _ _ t) (TForce _ _ t') = sizeEq t t'
+  sizeEq (PrimVal _ c) (PrimVal _ c') = c == c'
+  -- traverse dotted LHS terms
+  sizeEq t (Erased _ (Dotted t')) = eqTerm t t' -- t' is no longer a pattern
+  sizeEq (TType {}) (TType {}) = True
+  sizeEq _ _ = False
 
 -- Remove all force and delay annotations which are nothing to do with
 -- coinduction meaning that all Delays left guard coinductive calls.

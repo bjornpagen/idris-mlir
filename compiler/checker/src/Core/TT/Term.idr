@@ -649,31 +649,49 @@ Eq a => Eq (WhyErased a) where
   Dotted t == Dotted u = t == u
   _ == _ = False
 
-export
-eqWhyErasedBy : (a -> b -> Bool) -> WhyErased a -> WhyErased b -> Bool
-eqWhyErasedBy eq Impossible Impossible = True
-eqWhyErasedBy eq Placeholder Placeholder = True
-eqWhyErasedBy eq (Dotted t) (Dotted u) = eq t u
-eqWhyErasedBy eq _ _ = False
+-- Two terms are equal when they have one shape and their parts are equal.
+-- Each kind of node that holds terms is compared by a function of its own,
+-- so that every recursive call is on a part of its arguments.
+mutual
+  eqPi : PiInfo (Term vs) -> PiInfo (Term vs') -> Bool
+  eqPi Implicit Implicit = True
+  eqPi Explicit Explicit = True
+  eqPi AutoImplicit AutoImplicit = True
+  eqPi (DefImplicit t) (DefImplicit t') = eqTerm t t'
+  eqPi _ _ = False
 
-export
-total
-eqTerm : Term vs -> Term vs' -> Bool
-eqTerm (Local _ _ idx _) (Local _ _ idx' _) = idx == idx'
-eqTerm (Ref _ _ n) (Ref _ _ n') = n == n'
-eqTerm (Meta _ _ i args) (Meta _ _ i' args')
-    = i == i' && assert_total (all (uncurry eqTerm) (zip args args'))
-eqTerm (Bind _ _ b sc) (Bind _ _ b' sc')
-    = assert_total (eqBinderBy eqTerm b b') && eqTerm sc sc'
-eqTerm (App _ f a) (App _ f' a') = eqTerm f f' && eqTerm a a'
-eqTerm (As _ _ a p) (As _ _ a' p') = eqTerm a a' && eqTerm p p'
-eqTerm (TDelayed _ _ t) (TDelayed _ _ t') = eqTerm t t'
-eqTerm (TDelay _ _ t x) (TDelay _ _ t' x') = eqTerm t t' && eqTerm x x'
-eqTerm (TForce _ _ t) (TForce _ _ t') = eqTerm t t'
-eqTerm (PrimVal _ c) (PrimVal _ c') = c == c'
-eqTerm (Erased _ i) (Erased _ i') = assert_total (eqWhyErasedBy eqTerm i i')
-eqTerm (TType {}) (TType {}) = True
-eqTerm _ _ = False
+  eqBinder : Binder (Term vs) -> Binder (Term vs') -> Bool
+  eqBinder (Lam _ c p ty) (Lam _ c' p' ty') = c == c' && eqPi p p' && eqTerm ty ty'
+  eqBinder (Let _ c v ty) (Let _ c' v' ty') = c == c' && eqTerm v v' && eqTerm ty ty'
+  eqBinder (Pi _ c p ty) (Pi _ c' p' ty') = c == c' && eqPi p p' && eqTerm ty ty'
+  eqBinder (PVar _ c p ty) (PVar _ c' p' ty') = c == c' && eqPi p p' && eqTerm ty ty'
+  eqBinder (PLet _ c v ty) (PLet _ c' v' ty') = c == c' && eqTerm v v' && eqTerm ty ty'
+  eqBinder (PVTy _ c ty) (PVTy _ c' ty') = c == c' && eqTerm ty ty'
+  eqBinder _ _ = False
+
+  -- Pairwise, as `zip` pairs: what one list holds past the other's end is
+  -- not compared.
+  eqTerms : List (Term vs) -> List (Term vs') -> Bool
+  eqTerms (t :: ts) (u :: us) = eqTerm t u && eqTerms ts us
+  eqTerms _ _ = True
+
+  export
+  eqTerm : Term vs -> Term vs' -> Bool
+  eqTerm (Local _ _ idx _) (Local _ _ idx' _) = idx == idx'
+  eqTerm (Ref _ _ n) (Ref _ _ n') = n == n'
+  eqTerm (Meta _ _ i args) (Meta _ _ i' args') = i == i' && eqTerms args args'
+  eqTerm (Bind _ _ b sc) (Bind _ _ b' sc') = eqBinder b b' && eqTerm sc sc'
+  eqTerm (App _ f a) (App _ f' a') = eqTerm f f' && eqTerm a a'
+  eqTerm (As _ _ a p) (As _ _ a' p') = eqTerm a a' && eqTerm p p'
+  eqTerm (TDelayed _ _ t) (TDelayed _ _ t') = eqTerm t t'
+  eqTerm (TDelay _ _ t x) (TDelay _ _ t' x') = eqTerm t t' && eqTerm x x'
+  eqTerm (TForce _ _ t) (TForce _ _ t') = eqTerm t t'
+  eqTerm (PrimVal _ c) (PrimVal _ c') = c == c'
+  eqTerm (Erased _ Impossible) (Erased _ Impossible) = True
+  eqTerm (Erased _ Placeholder) (Erased _ Placeholder) = True
+  eqTerm (Erased _ (Dotted t)) (Erased _ (Dotted t')) = eqTerm t t'
+  eqTerm (TType {}) (TType {}) = True
+  eqTerm _ _ = False
 
 export
 total
@@ -683,13 +701,29 @@ Eq (Term vars) where
 ------------------------------------------------------------------------
 -- Scope checking
 
+-- Each kind of node that holds terms is traversed by a function of its
+-- own, so that every recursive call is on a part of its argument.
 mutual
+  resolveNamesPi : (vars : Scope) -> PiInfo (Term vars) -> PiInfo (Term vars)
+  resolveNamesPi vars (DefImplicit t) = DefImplicit (resolveNames vars t)
+  resolveNamesPi vars p = p
 
   resolveNamesBinder : (vars : Scope) -> Binder (Term vars) -> Binder (Term vars)
-  resolveNamesBinder vars b = assert_total $ map (resolveNames vars) b
+  resolveNamesBinder vars (Lam fc c p ty)
+      = Lam fc c (resolveNamesPi vars p) (resolveNames vars ty)
+  resolveNamesBinder vars (Let fc c val ty)
+      = Let fc c (resolveNames vars val) (resolveNames vars ty)
+  resolveNamesBinder vars (Pi fc c p ty)
+      = Pi fc c (resolveNamesPi vars p) (resolveNames vars ty)
+  resolveNamesBinder vars (PVar fc c p ty)
+      = PVar fc c (resolveNamesPi vars p) (resolveNames vars ty)
+  resolveNamesBinder vars (PLet fc c val ty)
+      = PLet fc c (resolveNames vars val) (resolveNames vars ty)
+  resolveNamesBinder vars (PVTy fc c ty) = PVTy fc c (resolveNames vars ty)
 
   resolveNamesTerms : (vars : Scope) -> List (Term vars) -> List (Term vars)
-  resolveNamesTerms vars ts = assert_total $ map (resolveNames vars) ts
+  resolveNamesTerms vars [] = []
+  resolveNamesTerms vars (t :: ts) = resolveNames vars t :: resolveNamesTerms vars ts
 
   -- Replace any Ref Bound in a type with appropriate local
   export

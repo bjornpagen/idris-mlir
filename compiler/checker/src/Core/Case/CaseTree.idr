@@ -276,17 +276,33 @@ mutual
       = eqTree tree tree'
   eqAlt _ _ = False
 
+-- A pattern shown with the patterns it holds shown by a function of its
+-- own, so that every recursive call is on a part of its argument.
+mutual
+  total
+  showPat : Pat -> String
+  showPat (PAs _ n p) = show n ++ "@(" ++ showPat p ++ ")"
+  showPat (PCon _ n i _ args) = show n ++ " " ++ show i ++ " " ++ showPatList args
+  showPat (PTyCon _ n _ args) = "<TyCon>" ++ show n ++ " " ++ showPatList args
+  showPat (PConst _ c) = show c
+  showPat (PArrow _ x s t) = "(" ++ showPat s ++ " -> " ++ showPat t ++ ")"
+  showPat (PDelay _ _ _ p) = "(Delay " ++ showPat p ++ ")"
+  showPat (PLoc _ n) = show n
+  showPat (PUnmatchable _ tm) = ".(" ++ show tm ++ ")"
+
+  -- The patterns as `show` shows a list: bracketed, separated by commas.
+  total
+  showPatList : List Pat -> String
+  showPatList ps = "[" ++ showSep ", " (showPats ps) ++ "]"
+
+  total
+  showPats : List Pat -> List String
+  showPats [] = []
+  showPats (p :: ps) = showPat p :: showPats ps
+
 export
-covering
 Show Pat where
-  show (PAs _ n p) = show n ++ "@(" ++ show p ++ ")"
-  show (PCon _ n i _ args) = show n ++ " " ++ show i ++ " " ++ assert_total (show args)
-  show (PTyCon _ n _ args) = "<TyCon>" ++ show n ++ " " ++ assert_total (show args)
-  show (PConst _ c) = show c
-  show (PArrow _ x s t) = "(" ++ show s ++ " -> " ++ show t ++ ")"
-  show (PDelay _ _ _ p) = "(Delay " ++ show p ++ ")"
-  show (PLoc _ n) = show n
-  show (PUnmatchable _ tm) = ".(" ++ show tm ++ ")"
+  show = showPat
 
 export
 Pretty IdrisSyntax Pat where

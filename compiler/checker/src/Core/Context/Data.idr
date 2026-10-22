@@ -14,17 +14,18 @@ import Libraries.Data.WithDefault
 %default covering
 
 -- If a name appears more than once in an argument list, only the first is
--- considered a parameter
+-- considered a parameter. The locals already seen are carried, so each
+-- argument is decided as it is reached, on the rest of the list.
+dropRepsAfter : NatSet -> List (Maybe (Term vars)) -> List (Maybe (Term vars))
+dropRepsAfter seen [] = []
+dropRepsAfter seen (Just (Local fc r x p) :: xs)
+    = if NatSet.elem x seen
+         then Nothing :: dropRepsAfter seen xs
+         else Just (Local fc r x p) :: dropRepsAfter (NatSet.insert x seen) xs
+dropRepsAfter seen (x :: xs) = x :: dropRepsAfter seen xs
+
 dropReps : List (Maybe (Term vars)) -> List (Maybe (Term vars))
-dropReps [] = []
-dropReps {vars} (Just (Local fc r x p) :: xs)
-    = Just (Local fc r x p) :: assert_total (dropReps (map toNothing xs))
-  where
-    toNothing : Maybe (Term vars) -> Maybe (Term vars)
-    toNothing tm@(Just (Local _ _ v' _))
-        = if x == v' then Nothing else tm
-    toNothing tm = tm
-dropReps (x :: xs) = x :: dropReps xs
+dropReps = dropRepsAfter NatSet.empty
 
 updateParams : {auto _ : Ref Ctxt Defs} -> {vars : _} ->
                Maybe (List (Maybe (Term vars))) ->

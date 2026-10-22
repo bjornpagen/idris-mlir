@@ -412,6 +412,8 @@ count : List.Elem.Elem x xs -> Int
 count Here = 0
 count (There p) = 1 + count p
 
+-- Covering, not total: each step shifts a limb off, which reaches 0 or -1,
+-- a fact of the primitive shift that no type here can state.
 toLimbs : Integer -> List Int
 toLimbs x
     = if x == 0
@@ -427,7 +429,7 @@ fromLimbs (x :: xs) = cast x + prim__shl_Integer (fromLimbs xs) 32
 export
 TTC Integer where
   toBuf val
-    = assert_total $ if val < 0
+    = if val < 0
          then do tag 0
                  toBuf (toLimbs (-val))
          else do tag 1

@@ -16,6 +16,9 @@ namespace Raw
   export
   prettyTree : {vars : _} -> CaseTree vars -> Doc IdrisSyntax
   prettyAlt : {vars : _} -> CaseAlt vars -> Doc IdrisSyntax
+  -- A tree's alternatives, by a function of their own, so that every
+  -- recursive call is on a part of its argument.
+  prettyAlts : {vars : _} -> List (CaseAlt vars) -> List (Doc IdrisSyntax)
 
   prettyTree (Case {name} idx prf ty alts)
       = let ann = case ty of
@@ -23,10 +26,13 @@ namespace Raw
                     _ => space <+> keyword ":" <++> byShow ty
         in case_ <++> annotate Bound (pretty0 name) <+> ann <++> of_
          <+> nest 2 (hardline
-         <+> vsep (assert_total (map prettyAlt alts)))
+         <+> vsep (prettyAlts alts))
   prettyTree (STerm i tm) = byShow tm
   prettyTree (Unmatched msg) = "Error:" <++> pretty0 msg
   prettyTree Impossible = "Impossible"
+
+  prettyAlts [] = []
+  prettyAlts (alt :: alts) = prettyAlt alt :: prettyAlts alts
 
   prettyAlt (ConCase n tag args sc)
       = hsep (annotate (DCon (Just n)) (pretty0 n) ::  map pretty0 args)
@@ -67,18 +73,30 @@ namespace Resugared
     {auto c : Ref Ctxt Defs} ->
     {auto s : Ref Syn SyntaxInfo} ->
     Env Term vars -> CaseAlt vars -> Core (Doc IdrisSyntax)
+  -- A tree's alternatives, each in turn, by a function of their own, so
+  -- that every recursive call is on a part of its argument.
+  prettyAlts : {vars : _} ->
+    {auto c : Ref Ctxt Defs} ->
+    {auto s : Ref Syn SyntaxInfo} ->
+    Env Term vars -> List (CaseAlt vars) -> Core (List (Doc IdrisSyntax))
 
   prettyTree env (Case {name} idx prf ty alts) = do
     ann <- case ty of
              Erased {} => pure ""
              _ => do ty <- resugar env ty
                      pure (space <+> keyword ":" <++> pretty ty)
-    alts <- assert_total (traverse (prettyAlt env) alts)
+    alts <- prettyAlts env alts
     pure $ case_ <++> pretty0 name <+> ann <++> of_
        <+> nest 2 (hardline <+> vsep alts)
   prettyTree env (STerm i tm) = pretty <$> resugar env tm
   prettyTree env (Unmatched msg) = pure ("Error:" <++> pretty0 msg)
   prettyTree env Impossible = pure "Impossible"
+
+  prettyAlts env [] = pure []
+  prettyAlts env (alt :: alts)
+      = do alt <- prettyAlt env alt
+           alts <- prettyAlts env alts
+           pure (alt :: alts)
 
   prettyAlt env (ConCase n tag args sc) = do
     con <- prettyName n

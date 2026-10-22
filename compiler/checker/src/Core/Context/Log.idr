@@ -101,6 +101,19 @@ nano = 1000000000
 micro : Integer
 micro = 1000000
 
+-- A time in nanoseconds, shown in seconds to the millisecond. Both
+-- divisors are the constants above, so no division meets zero.
+showSeconds : Integer -> String
+showSeconds time
+    = show (time `div` nano) ++ "." ++
+      addZeros (unpack (show ((time `mod` nano) `div` micro))) ++ "s"
+  where
+    addZeros : List Char -> String
+    addZeros [] = "000"
+    addZeros [x] = "00" ++ cast x
+    addZeros [x,y] = "0" ++ cast x ++ cast y
+    addZeros str = pack str
+
 export
 logTimeOver : Integer -> Core String -> Core a -> Core a
 logTimeOver nsecs str act
@@ -111,19 +124,9 @@ logTimeOver nsecs str act
          let t' = seconds clock * nano + nanoseconds clock
          let time = t' - t
          when (time > nsecs) $
-           assert_total $ -- We're not dividing by 0
-              do str' <- str
-                 coreLift $ putStrLn $ "TIMING " ++ str' ++ ": " ++
-                          show (time `div` nano) ++ "." ++
-                          addZeros (unpack (show ((time `mod` nano) `div` micro))) ++
-                          "s"
+           do str' <- str
+              coreLift $ putStrLn $ "TIMING " ++ str' ++ ": " ++ showSeconds time
          pure res
-  where
-    addZeros : List Char -> String
-    addZeros [] = "000"
-    addZeros [x] = "00" ++ cast x
-    addZeros [x,y] = "0" ++ cast x ++ cast y
-    addZeros str = pack str
 
 export
 logTimeWhen : {auto c : Ref Ctxt Defs} ->
@@ -136,21 +139,11 @@ logTimeWhen p lvl str act
                  clock <- coreLift (clockTime Process)
                  let t' = seconds clock * nano + nanoseconds clock
                  let time = t' - t
-                 assert_total $ -- We're not dividing by 0
-                    coreLift $ do
-                      let header = "TIMING " ++ replicate lvl '+' ++ ifThenElse (0 < lvl) " " ""
-                      putStrLn $ header ++ str ++ ": " ++
-                             show (time `div` nano) ++ "." ++
-                             addZeros (unpack (show ((time `mod` nano) `div` micro))) ++
-                             "s"
+                 coreLift $ do
+                   let header = "TIMING " ++ replicate lvl '+' ++ ifThenElse (0 < lvl) " " ""
+                   putStrLn $ header ++ str ++ ": " ++ showSeconds time
                  pure res
          else act
-  where
-    addZeros : List Char -> String
-    addZeros [] = "000"
-    addZeros [x] = "00" ++ cast x
-    addZeros [x,y] = "0" ++ cast x ++ cast y
-    addZeros str = pack str
 
 logTimeRecord' : {auto c : Ref Ctxt Defs} ->
                  String -> Core a -> Core a
@@ -191,19 +184,10 @@ showTimeRecord
     = do defs <- get Ctxt
          traverse_ showTimeLog (toList (timings defs))
   where
-    addZeros : List Char -> String
-    addZeros [] = "000"
-    addZeros [x] = "00" ++ cast x
-    addZeros [x,y] = "0" ++ cast x ++ cast y
-    addZeros str = pack str
-
     showTimeLog : (String, (Bool, Integer)) -> Core ()
     showTimeLog (key, (_, time))
         = do coreLift $ putStr (key ++ ": ")
-             assert_total $ -- We're not dividing by 0
-                    coreLift $ putStrLn $ show (time `div` nano) ++ "." ++
-                               addZeros (unpack (show ((time `mod` nano) `div` micro))) ++
-                               "s"
+             coreLift $ putStrLn $ showSeconds time
 
 export
 logTime : {auto c : Ref Ctxt Defs} ->
