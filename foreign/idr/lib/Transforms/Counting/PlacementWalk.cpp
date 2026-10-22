@@ -10,7 +10,7 @@
 // a nesting of any depth costs no native stack.
 #include "idr/Transforms/Counting/Placement.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Consumption.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 

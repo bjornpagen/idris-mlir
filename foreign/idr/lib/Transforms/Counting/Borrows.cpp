@@ -20,7 +20,11 @@
 // used after the join point and so made before it. A loan that would break
 // either is the inference's promise broken, an internal error; a view that
 // meets a slot the inference left counted fails the verifier where it
-// stands.
+// stands. Nor does it lend where the loan would wrap a call on its
+// function's own cycle, directly or in a join point, since frames split
+// such a call's function into a frame per level and no loan's region can be
+// split: there the argument's parameter is counted, as a parameter's grade
+// is one for every caller, and the value is passed owned.
 #include "idr/Analysis/Ownership.h"
 #include "idr/Analysis/Ownership/Walks.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
@@ -300,7 +304,7 @@ LendOp Writer::lend(const Loan &loan) {
   Value owner = loan.owner;
   Location loc = site->getLoc();
   OpBuilder b(site);
-  auto made = LendOp::create(b, loc, owner.getType(), site->getResultTypes(), owner, Value());
+  auto made = LendOp::create(b, loc, owner.getType(), site->getResultTypes(), owner, ValueRange());
   Type lifetime = LifetimeType::get(site->getContext(), LifetimeKind::view());
   Type view = graded(Grade{Uses::Many, Hold::scoped(holdOf(owner.getType())->claim())}, owner.getType());
   Block *body = b.createBlock(&made.getBody(), {}, {lifetime, view}, {loc, loc});

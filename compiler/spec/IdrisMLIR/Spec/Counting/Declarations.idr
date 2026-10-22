@@ -323,7 +323,7 @@ cellInit = countingOp "cell.init"
   [single "cell" cell, variadic "fields" anyValue, outers]
   [result "result" anyValue, results "dests" anyValue]
   [MkAttr "holes" (AnAttribute (UpstreamAttr DenseI32ArrayAttrC) (DefaultValued "{}"))] []
-  [AttrSizedOperandSegments]
+  []
   [ Declares InferType ["inferReturnTypes", "isCompatibleReturnTypes"]
   , Implements statesLifetime statedMethods
   , Implements flowInterface ["getFlowEdges"] ]
@@ -406,17 +406,27 @@ tokenRebuild = countingOp "token.rebuild" [single "token" token, variadic "field
   [] WithDefaults []
   (brief "rebuilds an in-place value in the cell its token holds")
 
-||| `own.adopt %b : T`, C++ `OwnAdoptOp`: a buffer an op of upstream's made,
-||| taken over by counting right after it, so from here on its reference is
-||| a counted value's, freed by its count. A fresh identity, and nothing at
-||| run time: the result is the buffer's own words.
+||| `own.adopt %b : T -> U`, C++ `OwnAdoptOp`: the bare buffer an op of
+||| upstream's made, taken over right after it, entering the grades: from
+||| here on its reference is a counted value's, freed by its count. Nothing
+||| at run time: the result is the buffer's own words. It is fresh and
+||| nothing moves into it, so it is inferred counted and `unique deep`, at
+||| many uses; it may be written at any grade that only forgets that claim,
+||| the bare buffer among them where upstream's ops, which take the bare
+||| carrier, read it. The frontend writes it where a buffer fills a linear
+||| position, the one reference to it, so the cell holding it may claim it
+||| unshared from the first; counting's first step writes it after every
+||| other op of upstream's that allocates one.
 adopt : Op 1 1 0 0
 adopt = countingOp "own.adopt" [single "value" (UpstreamType AnyRankedOrUnrankedMemRefC)]
   [result "result" anyValue] [] []
-  [SameOperandsAndResultType, OurTrait noRuntimeForm] [Implements flowInterface ["getFlowEdges"]]
+  [OurTrait noRuntimeForm]
+  [ Declares InferType ["inferReturnTypes", "isCompatibleReturnTypes"]
+  , Implements flowInterface ["getFlowEdges"] ]
   (Executes [] [NewIdentity 0] Covered Untouched)
-  explicit DeclarationOnly
-  (Declared [ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))])
+  (between Higher Owned) DeclarationOnly
+  (Declared [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
+            , Lit "->", TypeOf (OfGroup (ResultRef 0)) ])
   [] WithDefaults []
   (brief "a buffer upstream made, taken over by counting")
 

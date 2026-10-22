@@ -32,9 +32,10 @@ class Layouts;
 
 namespace idr::counting {
 
-// The function's frame bound, as reuse leaves it: the most bytes of
-// emptied cells its tokens hold at any point where memory may be acquired,
-// each token's cell sized by its type on the target (Bound.cpp).
+// The function's frame bound, as reuse leaves it: the most bytes it holds
+// dead at any point where memory may be acquired, the emptied cells of its
+// tokens and what each owner it lends and needs no more after the loan
+// reaches, each sized by its type on the target (Bound.cpp).
 std::uint64_t frameBound(FuncOp fn, const Layouts &layouts);
 
 } // namespace idr::counting

@@ -164,6 +164,20 @@ LogicalResult TokenNullOp::verify() {
 // Crossings into upstream's buffers
 //===----------------------------------------------------------------------===//
 
+// The buffer is fresh and nothing moves into it, so it claims everything it
+// reaches unshared; its operand is the bare buffer, as its constraint says.
+LogicalResult OwnAdoptOp::inferReturnTypes(MLIRContext *, std::optional<Location>, Adaptor adaptor,
+                                           SmallVectorImpl<Type> &inferred) {
+  inferred.push_back(graded(Grade{Uses::Many, Hold::counted(Unique::Deep)}, adaptor.getValue().getType()));
+  return success();
+}
+
+// The adopted buffer at any grade that only forgets what it claims: the bare
+// buffer where upstream's ops read it.
+bool OwnAdoptOp::isCompatibleReturnTypes(TypeRange inferred, TypeRange actual) {
+  return inferred.size() == 1 && actual.size() == 1 && forgets(inferred.front(), actual.front());
+}
+
 // The store takes the plain carrier, so a value used once is never given:
 // its quantity would be lost.
 LogicalResult OwnGiveOp::verify() {

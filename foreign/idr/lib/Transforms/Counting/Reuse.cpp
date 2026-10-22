@@ -35,8 +35,10 @@
 // walk never pairs a promised cell; the promise is the program's.
 //
 // Every token's span is decided here, so the function's frame bound, the
-// most bytes its tokens hold where memory may be acquired, is measured here
-// on the function as reuse leaves it (Bound.cpp) and kept on the function.
+// most bytes it holds dead where memory may be acquired (its tokens' cells
+// and what the owners it lends past their last use reach), is measured here
+// on the function as reuse leaves it, its drops already the takes they
+// became (Bound.cpp), and kept on the function.
 #include "idr/Transforms/Counting/Reuse.h"
 
 #include "idr/IR/Grades.h"

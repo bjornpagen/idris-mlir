@@ -179,7 +179,6 @@ private:
   // The rewrite (PlacementRewrite.cpp).
   void apply();
   mlir::Value supplied(ValueId part, mlir::Operation *at) const;
-  void insertAt(mlir::RewriterBase &rewriter, const Where &where);
 
   FuncOp fn;
   solver::Numbering<ValueTag> numbering;
@@ -206,9 +205,6 @@ private:
   llvm::SmallVector<ValueId> elementDups;
   // What each supplied part became, for the drops of it placed later.
   llvm::SmallVector<std::pair<ValueId, mlir::Value>> partValues;
-  // The last op the rewrite put at each point, so a drop there follows the
-  // takes and dups that read the value it frees.
-  llvm::SmallVector<std::pair<Where, mlir::Operation *>> lastAt;
 };
 
 } // namespace idr::counting::placement

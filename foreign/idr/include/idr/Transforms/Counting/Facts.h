@@ -10,7 +10,7 @@
 #ifndef IDR_TRANSFORMS_COUNTING_FACTS_H
 #define IDR_TRANSFORMS_COUNTING_FACTS_H
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Classify.h"
 #include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Grades.h"
@@ -28,6 +28,7 @@
 #include "llvm/Support/ErrorHandling.h"
 
 #include <cstdint>
+#include <iterator>
 #include <optional>
 
 namespace idr::counting {
@@ -139,21 +140,18 @@ inline Runs runsOf(mlir::Operation *op) {
   return Runs::Once;
 }
 
-// A point between two ops of a block: right after `after`, or the block's
-// start when `after` is null, so the start is the sentinel before the
-// first op and no position is a case of its own.
+// A point between two ops of a block, held as the position right after it:
+// the op that follows it. A point is taken where the walk decides, on the
+// function as it came, and every op put there goes right before that
+// position, which nothing moves, so the ops put at one point keep the order
+// they were put in, and no record of what went there before is kept.
 struct Where {
   mlir::Block *block;
-  mlir::Operation *after;
+  mlir::Block::iterator next;
 
-  static Where atStart(mlir::Block &block) { return {&block, nullptr}; }
-  static Where past(mlir::Operation *op) { return {op->getBlock(), op}; }
-  static Where before(mlir::Operation *op) { return {op->getBlock(), op->getPrevNode()}; }
-
-  mlir::Block::iterator insertion() const {
-    return after ? std::next(after->getIterator()) : block->begin();
-  }
-  bool operator==(const Where &) const = default;
+  static Where atStart(mlir::Block &block) { return {&block, block.begin()}; }
+  static Where past(mlir::Operation *op) { return {op->getBlock(), std::next(op->getIterator())}; }
+  static Where before(mlir::Operation *op) { return {op->getBlock(), op->getIterator()}; }
 };
 
 } // namespace idr::counting

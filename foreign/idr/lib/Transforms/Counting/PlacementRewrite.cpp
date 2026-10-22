@@ -8,7 +8,7 @@
 // reference elsewhere go.
 #include "idr/Transforms/Counting/Placement.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Ownership.h"
@@ -45,24 +45,15 @@ Value Placement::supplied(ValueId part, Operation *at) const {
   return valueOf(part);
 }
 
-// The rewriter at `where`, after what the rewrite already put there, so ops
-// put at one point keep the order they were put in.
-void Placement::insertAt(RewriterBase &rewriter, const Where &where) {
-  for (const auto &[point, last] : llvm::reverse(lastAt))
-    if (point == where) {
-      rewriter.setInsertionPointAfter(last);
-      return;
-    }
-  rewriter.setInsertionPoint(where.block, where.insertion());
-}
-
 void Placement::apply() {
   IRRewriter rewriter(fn->getContext());
-  auto record = [&](const Where &where, Operation *made) { lastAt.emplace_back(where, made); };
+  // Every op goes right before its point's position, after what the rewrite
+  // already put there.
+  auto insertAt = [&](const Where &where) { rewriter.setInsertionPoint(where.block, where.next); };
   // Takes first: the parts they give replace the views at every later use.
   for (TakeSupply &take : takeSupplies) {
     Value owner = valueOf(take.owner);
-    insertAt(rewriter, take.where);
+    insertAt(take.where);
     Location loc = owner.getLoc();
     // The owner, then each part beneath a needed one that is dead here,
     // taken apart in turn at the same point.
@@ -113,21 +104,17 @@ void Placement::apply() {
           wholes.emplace_back(field, part);
         }
       }
-      Operation *last = made;
       // The fields nothing needs are dropped, and the emptied cell freed,
       // unless only the end lies ahead.
       if (take.ahead == Ahead::Allocation) {
-        rewriter.setInsertionPointAfter(made);
         for (auto [index, field] : llvm::enumerate(fields))
           if (!given.test(index) && countsOf(field.getType()) == Counts::Counted) {
-            last = CountDropOp::create(rewriter, loc, field);
+            CountDropOp::create(rewriter, loc, field);
             ++dropsPlaced;
           }
         if (token)
-          last = TokenFreeOp::create(rewriter, loc, token);
+          TokenFreeOp::create(rewriter, loc, token);
       }
-      record(take.where, last);
-      rewriter.setInsertionPointAfter(last);
     }
   }
   // Dups that supply a part while its owner lives. The list grows as the
@@ -135,13 +122,12 @@ void Placement::apply() {
   for (std::size_t at = 0; at < dupSupplies.size(); ++at) {
     DupSupply supply = dupSupplies[at];
     Value view = valueOf(supply.part);
-    insertAt(rewriter, supply.where);
+    insertAt(supply.where);
     auto dup = CountDupOp::create(rewriter, view.getLoc(), atHold(view.getType(), Hold::counted()), view);
     rewriter.replaceUsesWithIf(view, dup.getResult(), [&](OpOperand &use) {
       return use.getOwner() != dup && after(dup, use.getOwner());
     });
     partValues.emplace_back(supply.part, dup.getResult());
-    record(supply.where, dup);
     ++dupsPlaced;
   }
   // An element takes its reference where it is read.
@@ -165,10 +151,9 @@ void Placement::apply() {
   // Drops, after what the rewrite put at their points: of the value a part
   // became where it took its reference.
   for (DropAt &drop : drops) {
-    insertAt(rewriter, drop.where);
-    Operation *anchor = &*rewriter.getInsertionPoint();
-    Value value = roles[drop.value] == Role::Part ? supplied(drop.value, anchor) : valueOf(drop.value);
-    record(drop.where, CountDropOp::create(rewriter, value.getLoc(), value));
+    insertAt(drop.where);
+    Value value = roles[drop.value] == Role::Part ? supplied(drop.value, &*drop.where.next) : valueOf(drop.value);
+    CountDropOp::create(rewriter, value.getLoc(), value);
     ++dropsPlaced;
   }
   // A part read every use of which took its reference elsewhere goes, the

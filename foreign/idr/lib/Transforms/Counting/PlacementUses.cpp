@@ -8,7 +8,7 @@
 // (drop specialization) or each part given a dup while the owner lives.
 #include "idr/Transforms/Counting/Placement.h"
 
-#include "idr/IR/Effects/Query.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
@@ -19,15 +19,6 @@
 using namespace mlir;
 
 namespace idr::counting::placement {
-
-namespace {
-
-// Whether `op`, with everything in it, may take memory: a cell or a value
-// it makes, memory its runtime function holds that no value names, or what
-// a call's callee acquires, all of which its row reports as `alloc`.
-bool mayAcquire(Operation *op) { return effects::rowOf(op).contains(effects::Atom::alloc); }
-
-} // namespace
 
 // The counted operands of `op` no later use needs: one it only reads dies
 // right after it (after the op as a whole, for a region op whose regions do
@@ -127,7 +118,7 @@ void Placement::useOperands(Operation *op, State &state, const llvm::SmallBitVec
   }
   for (ValueId id : used)
     state.live.set(id.index());
-  if (mayAcquire(op))
+  if (effects::mayAcquire(op))
     state.ahead = Ahead::Allocation;
 }
 
