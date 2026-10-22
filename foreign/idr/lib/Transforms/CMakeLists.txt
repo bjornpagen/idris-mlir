@@ -104,8 +104,7 @@ add_mlir_library(IdrEffects
 )
 
 # idr-inline, upstream's inliner by MLton's rule on the callee's final
-# size, with its admission of what may still be inlined, and the leaf
-# inlining the optimizer's inner pipeline runs.
+# size, and the leaf inlining the optimizer's inner pipeline runs.
 add_mlir_library(IdrInline
 	Inline/Inline.cpp
 	Inline/InlinePass.cpp
@@ -479,7 +478,9 @@ add_mlir_library(IdrTail
 	MLIRUBDialect
 )
 
-# idr-narrow, with its nested word rewrite, and idr-narrow-lanes.
+# idr-narrow, with the word rewrite it nests, which the specification's
+# pipeline pairs with it as its apply group (Generated/ApplyGroups.h.inc),
+# and idr-narrow-lanes.
 add_mlir_library(IdrNarrow
 	Narrow/Carried.cpp
 	Narrow/Copy.cpp
@@ -596,6 +597,7 @@ add_mlir_library(IdrColumns
 # idr-expect: the named properties tests state, as the table the tests'
 # records print (ExpectProperties.inc).
 add_mlir_library(IdrExpect
+	Expect/Accesses.cpp
 	Expect/Allocation.cpp
 	Expect/Arguments.cpp
 	Expect/BuildsNothing.cpp

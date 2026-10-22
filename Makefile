@@ -26,8 +26,10 @@
 #   make test-idr          the dialect fixtures, the idr dialect with FileCheck
 #                          and idr-expect; after C++ or contract changes
 #   make test-mlir-tools   the tests whose `suite` file names it: each upstream bug
-#                          on its reproducer with the pinned tools; after
-#                          changing upstream MLIR usage
+#                          on its reproducer with the pinned tools, and the
+#                          upstream dialects' Idris modules against what
+#                          idris-mlir-tblgen writes again; after changing
+#                          upstream MLIR usage
 #   make test-unit         foreign/idr/unittests, the exhaustive boxes (googletest);
 #                          after C++ changes, once make build has built them
 #   make compile SRC=Main.idr OUT=prog
