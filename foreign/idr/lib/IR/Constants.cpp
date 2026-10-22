@@ -2,13 +2,11 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr.constant: the dialect's values, which hold no type, and the check of a
 // constant through its fields and captures: a constructor against its data
-// type's body, and a closure against its function's signature at its index
-// terms, once per module verify through the collection the symbol-use walk
-// hands over.
+// type's body, and a closure against its function's own signature, once per
+// module verify through the collection the symbol-use walk hands over.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Families.h"
-#include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Fold.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Symbols.h"
@@ -38,21 +36,20 @@ using Checked = footprint::DenseMap<Part, llvm::detail::DenseSetEmpty, llvm::Den
                                     llvm::detail::DenseSetPair<Part>>;
 
 // That `closure`, a part of `type`, names a function that takes its
-// captures, which wait on `parts`, each at its parameter's type at the
-// terms the closure gives the function's index variables, as fn.closure
-// reads its callee at its own.
+// captures, which wait on `parts`, each at its parameter's type. A constant
+// closure gives no index terms, since one at terms stays fn.closure, so its
+// function binds no index variable and its own signature is the one read.
+// The symbol is resolved only here, so whether it binds any is checked
+// here.
 LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, ClosureAttr closure,
                             Type type, Parts &parts) {
   auto fn = symbols.lookupNearestSymbolFrom<FuncOp>(op, closure.getCallee());
   if (!fn)
     return op->emitOpError("has a closure of an unknown function ") << closure.getCallee();
-  IndexArgsAttr terms = closure.getIndexArgs();
-  std::size_t binding = fn.getBinders().getSorts().size();
-  if (terms.getCount() != binding)
-    return op->emitOpError("has a closure giving ")
-           << terms.getCount() << " index terms to " << closure.getCallee() << ", which binds "
-           << binding;
-  FunctionType at = families::substitute(fn.getFunctionType(), fn.getExtentsAttr(), terms);
+  if (!fn.getBinders().getSorts().empty())
+    return op->emitOpError("has a closure of ")
+           << closure.getCallee() << ", which binds index variables a constant gives no terms";
+  FunctionType at = fn.getFunctionType();
   ArrayRef<Type> inputs = at.getInputs();
   ArrayRef<Type> results = at.getResults();
   size_t captures = closure.getCaptures().size();
@@ -72,8 +69,8 @@ LogicalResult verifyClosure(Operation *op, SymbolTableCollection &symbols, Closu
     // The function's signature carries the grades reference counting
     // added. The constant names carriers that meet them at the quantities
     // Idris proved, each by the one rule a call's operands meet their
-    // callee by, at the function's value from `first` on its `side`: the
-    // function's view makes static a bare input's axis its terms fix, while
+    // callee by, at the function's value from `first` on its `side`: an
+    // axis the function's extents name may be static in its signature, while
     // the constant keeps the `?` Idris's type gives it.
     ExtentsAttr extents = fn.getExtentsAttr();
     auto partsMeet = [&](ExtentSide side, std::size_t first, ArrayRef<Type> view,
